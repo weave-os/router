@@ -48,14 +48,15 @@ func (r *rotateCapKeyRepo) ListForInstallation(_ context.Context, installationID
 
 func (r *rotateCapKeyRepo) MarkUsed(_ context.Context, _ string) error { return nil }
 
-func (r *rotateCapKeyRepo) SoftDelete(_ context.Context, installationID, id string) error {
+func (r *rotateCapKeyRepo) SoftDelete(_ context.Context, installationID, id string) (int64, error) {
 	for _, k := range r.keys {
-		if k.InstallationID == installationID && k.ID == id {
+		if k.InstallationID == installationID && k.ID == id && k.DeletedAt == nil {
 			now := frozenClock()()
 			k.DeletedAt = &now
+			return 1, nil
 		}
 	}
-	return nil
+	return 0, nil
 }
 
 func TestRotateAPIKey_preservesSpendCap(t *testing.T) {
