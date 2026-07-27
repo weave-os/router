@@ -338,10 +338,8 @@ func parseResetTime(s string) (time.Time, bool) {
 }
 
 // parsePercent parses a 0-100 percent header (Codex used-percent) into a
-// clamped [0,1] fraction. Always divides by 100 — Codex documents these as
-// 0-100 — rather than guessing the scale from the magnitude, which silently
-// misreads the boundary (e.g. "1" = 1% must become 0.01, not 1.0). The
-// remaining/limit path computes its fraction directly and does not call this.
+// clamped [0,1] fraction. Divides by 100 — not guessing scale from magnitude
+// avoids misreading boundary values (e.g. "1" = 1%, not 100%).
 func parsePercent(s string) (float64, bool) {
 	v, ok := parseFloat(s)
 	if !ok {
