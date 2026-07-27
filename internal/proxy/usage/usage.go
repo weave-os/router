@@ -357,12 +357,9 @@ func parsePercent(s string) (float64, bool) {
 	return v, true
 }
 
-// parseFraction parses a 0-1 fraction header (Anthropic unified utilization,
-// e.g. "0.7370692663445869") into a clamped [0,1] value. Prod headers exceed
-// 1.0 while a window is served on overage credits (observed up to ~2.0);
-// clamping preserves "at cap" for Exhausted/CostFactor. Distinct from
-// parsePercent (Codex, 0-100 wire scale) — dividing these by 100 shrank every
-// reading ~100x and made real utilization invisible to subsidy/exhaustion.
+// parseFraction parses a 0-1 fraction header (Anthropic unified utilization)
+// into a clamped [0,1] value. Clamping to 1.0 handles overage-credit windows
+// where the wire value exceeds 1.0. Distinct from parsePercent (Codex, 0-100).
 func parseFraction(s string) (float64, bool) {
 	v, ok := parseFloat(s)
 	if !ok {
