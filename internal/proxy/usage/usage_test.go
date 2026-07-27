@@ -75,9 +75,7 @@ func TestParseAnthropicUnified_FromRemainingLimit(t *testing.T) {
 	assert.InDelta(t, 0.10, snap.Secondary.UsedPercent, 1e-9)
 }
 
-// Utilization values are 0-1 fractions on the wire (prod: "0.7370692663445869"),
-// NOT 0-100 percents like Codex used-percent. Dividing by 100 here shrank every
-// reading ~100x and silently disabled subsidy fade + exhaustion detection.
+// Utilization headers are 0-1 fractions on the wire, not 0-100 percents.
 func TestParseAnthropicUnified_PrefersUtilization(t *testing.T) {
 	h := http.Header{}
 	h.Set("anthropic-ratelimit-unified-5h-utilization", "0.63")
