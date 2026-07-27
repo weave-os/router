@@ -285,12 +285,17 @@ func parseCodexWindow(h http.Header, which string, defaultWindowMinutes int) (Wi
 
 // ParseAnthropicUnifiedHeaders extracts a Snapshot from Anthropic's unified
 // subscription rate-limit headers (the `claude /usage` data):
-// anthropic-ratelimit-unified-5h-* (primary) and -weekly-* (secondary). Prefers
-// an explicit *-utilization header; else derives used = 1 - remaining/limit.
-// Reports false if neither window is present.
+// anthropic-ratelimit-unified-5h-* (primary) and -7d-* (secondary; "-weekly-"
+// accepted as a legacy fallback — prod traffic emits "7d", per the Phase 0
+// unified_limit_headers capture). Prefers an explicit *-utilization header
+// (a 0-1 fraction on the wire; can exceed 1.0 mid-overage, clamped); else
+// derives used = 1 - remaining/limit. Reports false if neither window is present.
 func ParseAnthropicUnifiedHeaders(h http.Header) (Snapshot, bool) {
 	primary, pOK := parseAnthropicWindow(h, "5h", 5*60)
-	secondary, sOK := parseAnthropicWindow(h, "weekly", 7*24*60)
+	secondary, sOK := parseAnthropicWindow(h, "7d", 7*24*60)
+	if !sOK {
+		secondary, sOK = parseAnthropicWindow(h, "weekly", 7*24*60)
+	}
 	if !pOK && !sOK {
 		return Snapshot{}, false
 	}
@@ -300,7 +305,7 @@ func ParseAnthropicUnifiedHeaders(h http.Header) (Snapshot, bool) {
 func parseAnthropicWindow(h http.Header, which string, windowMinutes int) (Window, bool) {
 	prefix := "anthropic-ratelimit-unified-" + which + "-"
 	resetAt, _ := parseResetTime(h.Get(prefix + "reset"))
-	if used, ok := parsePercent(h.Get(prefix + "utilization")); ok {
+	if used, ok := parseFraction(h.Get(prefix + "utilization")); ok {
 		return Window{UsedPercent: used, WindowMinutes: windowMinutes, ResetAt: resetAt}, true
 	}
 	limit, lOK := parseFloat(h.Get(prefix + "limit"))
@@ -332,18 +337,37 @@ func parseResetTime(s string) (time.Time, bool) {
 	return time.Time{}, false
 }
 
-// parsePercent parses a 0-100 percent header (Codex used-percent, Anthropic
-// utilization) into a clamped [0,1] fraction. Always divides by 100 — both
-// backends document these as 0-100 — rather than guessing the scale from the
-// magnitude, which silently misreads the boundary (e.g. "1" = 1% must become
-// 0.01, not 1.0). The remaining/limit path computes its fraction directly and
-// does not call this.
+// parsePercent parses a 0-100 percent header (Codex used-percent) into a
+// clamped [0,1] fraction. Always divides by 100 — Codex documents these as
+// 0-100 — rather than guessing the scale from the magnitude, which silently
+// misreads the boundary (e.g. "1" = 1% must become 0.01, not 1.0). The
+// remaining/limit path computes its fraction directly and does not call this.
 func parsePercent(s string) (float64, bool) {
 	v, ok := parseFloat(s)
 	if !ok {
 		return 0, false
 	}
 	v /= 100
+	if v < 0 {
+		v = 0
+	}
+	if v > 1 {
+		v = 1
+	}
+	return v, true
+}
+
+// parseFraction parses a 0-1 fraction header (Anthropic unified utilization,
+// e.g. "0.7370692663445869") into a clamped [0,1] value. Prod headers exceed
+// 1.0 while a window is served on overage credits (observed up to ~2.0);
+// clamping preserves "at cap" for Exhausted/CostFactor. Distinct from
+// parsePercent (Codex, 0-100 wire scale) — dividing these by 100 shrank every
+// reading ~100x and made real utilization invisible to subsidy/exhaustion.
+func parseFraction(s string) (float64, bool) {
+	v, ok := parseFloat(s)
+	if !ok {
+		return 0, false
+	}
 	if v < 0 {
 		v = 0
 	}

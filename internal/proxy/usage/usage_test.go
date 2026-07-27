@@ -66,8 +66,8 @@ func TestParseAnthropicUnified_FromRemainingLimit(t *testing.T) {
 	h := http.Header{}
 	h.Set("anthropic-ratelimit-unified-5h-limit", "1000")
 	h.Set("anthropic-ratelimit-unified-5h-remaining", "250") // 75% used
-	h.Set("anthropic-ratelimit-unified-weekly-limit", "100000")
-	h.Set("anthropic-ratelimit-unified-weekly-remaining", "90000") // 10% used
+	h.Set("anthropic-ratelimit-unified-7d-limit", "100000")
+	h.Set("anthropic-ratelimit-unified-7d-remaining", "90000") // 10% used
 
 	snap, ok := usage.ParseAnthropicUnifiedHeaders(h)
 	require.True(t, ok)
@@ -75,12 +75,44 @@ func TestParseAnthropicUnified_FromRemainingLimit(t *testing.T) {
 	assert.InDelta(t, 0.10, snap.Secondary.UsedPercent, 1e-9)
 }
 
+// Utilization values are 0-1 fractions on the wire (prod: "0.7370692663445869"),
+// NOT 0-100 percents like Codex used-percent. Dividing by 100 here shrank every
+// reading ~100x and silently disabled subsidy fade + exhaustion detection.
 func TestParseAnthropicUnified_PrefersUtilization(t *testing.T) {
 	h := http.Header{}
-	h.Set("anthropic-ratelimit-unified-5h-utilization", "63")
+	h.Set("anthropic-ratelimit-unified-5h-utilization", "0.63")
+	h.Set("anthropic-ratelimit-unified-7d-utilization", "0.7370692663445869")
 	snap, ok := usage.ParseAnthropicUnifiedHeaders(h)
 	require.True(t, ok)
 	assert.InDelta(t, 0.63, snap.Primary.UsedPercent, 1e-9)
+	assert.InDelta(t, 0.7370692663445869, snap.Secondary.UsedPercent, 1e-9)
+}
+
+// Prod emits utilization above 1.0 while a window is served on overage credits
+// (observed up to ~2.0). Clamp to 1.0 so Exhausted/CostFactor read "at cap".
+func TestParseAnthropicUnified_OverageUtilizationClamped(t *testing.T) {
+	h := http.Header{}
+	h.Set("anthropic-ratelimit-unified-5h-utilization", "1.28")
+	snap, ok := usage.ParseAnthropicUnifiedHeaders(h)
+	require.True(t, ok)
+	assert.InDelta(t, 1.0, snap.Primary.UsedPercent, 1e-9)
+	assert.True(t, snap.Exhausted())
+}
+
+// Prod traffic spells the long window "7d" (53k-row Phase 0 capture: zero
+// "weekly" keys); "weekly" is kept as a legacy fallback only.
+func TestParseAnthropicUnified_WeeklySpellingFallback(t *testing.T) {
+	h := http.Header{}
+	h.Set("anthropic-ratelimit-unified-weekly-utilization", "0.42")
+	snap, ok := usage.ParseAnthropicUnifiedHeaders(h)
+	require.True(t, ok)
+	assert.InDelta(t, 0.42, snap.Secondary.UsedPercent, 1e-9)
+
+	// When both spellings appear, 7d (the prod spelling) wins.
+	h.Set("anthropic-ratelimit-unified-7d-utilization", "0.90")
+	snap, ok = usage.ParseAnthropicUnifiedHeaders(h)
+	require.True(t, ok)
+	assert.InDelta(t, 0.90, snap.Secondary.UsedPercent, 1e-9)
 }
 
 func TestCostFactor_SlackIsCheap_BindingIsFullPrice(t *testing.T) {
@@ -276,15 +308,15 @@ func TestSnapshot_Exhausted(t *testing.T) {
 func TestParseAnthropicUnifiedHeaders_ResetAt(t *testing.T) {
 	t.Run("RFC3339 reset", func(t *testing.T) {
 		h := http.Header{}
-		h.Set("anthropic-ratelimit-unified-weekly-utilization", "100")
-		h.Set("anthropic-ratelimit-unified-weekly-reset", "2026-06-28T03:00:00Z")
+		h.Set("anthropic-ratelimit-unified-7d-utilization", "1.0")
+		h.Set("anthropic-ratelimit-unified-7d-reset", "2026-06-28T03:00:00Z")
 		snap, ok := usage.ParseAnthropicUnifiedHeaders(h)
 		require.True(t, ok)
 		assert.Equal(t, "2026-06-28T03:00:00Z", snap.Secondary.ResetAt.Format(time.RFC3339))
 	})
 	t.Run("unix-seconds reset fallback", func(t *testing.T) {
 		h := http.Header{}
-		h.Set("anthropic-ratelimit-unified-5h-utilization", "90")
+		h.Set("anthropic-ratelimit-unified-5h-utilization", "0.90")
 		h.Set("anthropic-ratelimit-unified-5h-reset", "1782702000")
 		snap, ok := usage.ParseAnthropicUnifiedHeaders(h)
 		require.True(t, ok)
@@ -292,7 +324,7 @@ func TestParseAnthropicUnifiedHeaders_ResetAt(t *testing.T) {
 	})
 	t.Run("absent reset leaves zero", func(t *testing.T) {
 		h := http.Header{}
-		h.Set("anthropic-ratelimit-unified-weekly-utilization", "50")
+		h.Set("anthropic-ratelimit-unified-7d-utilization", "0.50")
 		snap, ok := usage.ParseAnthropicUnifiedHeaders(h)
 		require.True(t, ok)
 		assert.True(t, snap.Secondary.ResetAt.IsZero())
