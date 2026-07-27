@@ -404,6 +404,15 @@ var Models = []Model{
 		{Provider: providers.ProviderTogether, UpstreamID: "moonshotai/Kimi-K2.7-Code",
 			Price: Pricing{InputUSDPer1M: 0.950, OutputUSDPer1M: 4.000, CacheReadMultiplier: 0.20}},
 	}},
+	// kimi-k3 is a separate price class from k2.7 ($3/$15 vs $0.95/$4), not its
+	// successor — both stay routable. First multimodal Kimi, so unlike k2.5-k2.7
+	// it carries no ImageInputUnsupported. Together has no K3 endpoint yet, so
+	// OpenRouter (identical list price) is the outage fallback.
+	{ID: "moonshotai/kimi-k3", Tier: TierHigh, ContextWindow: 1_048_576, Providers: []ProviderBinding{
+		{Provider: providers.ProviderFireworks, UpstreamID: "accounts/fireworks/models/kimi-k3",
+			Price: Pricing{InputUSDPer1M: 3.000, OutputUSDPer1M: 15.000, CacheReadMultiplier: 0.10}},
+		{Provider: providers.ProviderOpenRouter, Price: Pricing{InputUSDPer1M: 3.000, OutputUSDPer1M: 15.000, CacheReadMultiplier: 0.10}},
+	}},
 	// AA top-performer additions (2026-05-18): ranked by composite of quality
 	// (Intelligence Index v4.0), cost (blended 3:1), and effective time per
 	// 2k-token query.

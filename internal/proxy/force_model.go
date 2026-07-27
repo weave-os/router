@@ -90,7 +90,10 @@ var forceModelAliases = map[string]string{
 	"qwen":                  "qwen/qwen3-coder",
 	"qwen-coder":            "qwen/qwen3-coder",
 	"qwen3.7-plus":          "qwen/qwen3.7-plus",
+	// Generic kimi alias stays on 2.7; k3 is ~3x the price, so it needs an
+	// explicit pin rather than silently repricing everyone on the family alias.
 	"kimi":                  "moonshotai/kimi-k2.7",
+	"kimi-k3":               "moonshotai/kimi-k3",
 	"kimi-k2.7":             "moonshotai/kimi-k2.7",
 	"kimi-k2.6":             "moonshotai/kimi-k2.6",
 	// Generic glm/zai aliases stay on 5.1 (Together/Fireworks/OpenRouter);
