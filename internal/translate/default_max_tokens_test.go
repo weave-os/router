@@ -164,3 +164,17 @@ func TestAnthropicSameFormat_DefaultInjectionPreservesSourceBytes(t *testing.T) 
 
 	assert.Equal(t, original, body)
 }
+
+// Regression: an explicit max_tokens is clamped to modelMaxOutputTokens, whose
+// absent-key zero value falls back to the global 8192. Kimi K3 really accepts
+// 131072 output tokens, so without an entry a large request was silently
+// truncated 16x.
+func TestOpenAISameFormat_ExplicitMaxTokensClampsToKimiK3Ceiling(t *testing.T) {
+	body := []byte(`{"model":"gpt-4o","messages":[{"role":"user","content":"hi"}],"max_tokens":32000}`)
+	opts := translate.EmitOptions{
+		TargetModel:  "moonshotai/kimi-k3",
+		Capabilities: router.Lookup("moonshotai/kimi-k3"),
+	}
+	out := parseAndEmit(t, body, "openai", opts)
+	assert.Equal(t, float64(32000), out["max_tokens"])
+}

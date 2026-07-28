@@ -1164,6 +1164,9 @@ var modelMaxOutputTokens = map[string]int{
 	"gemini-2.5-pro": 65536, "gemini-2.5-flash": 65536,
 	"gemini-2.5-flash-lite": 65536,
 	"gemini-2.0-flash":      8192, "gemini-2.0-flash-lite": 8192,
+	// Keyed by full catalog ID, since decision.Model keeps the vendor prefix.
+	// Other OSS rows are still absent and so inherit the 8192 fallback.
+	"moonshotai/kimi-k3": 131072,
 }
 
 const defaultMaxOutputTokenCap = 8192
