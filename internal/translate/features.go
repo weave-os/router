@@ -517,7 +517,10 @@ func appendText(b *strings.Builder, s string) {
 }
 
 // anthropicHasImages reports whether any content block is
-// {"type":"image",...}. String content never has an image.
+// {"type":"image",...}, including images nested in a tool_result — the shape an
+// agent produces when a tool hands back a screenshot, and the dominant one in
+// practice. Kept in sync with anthropicImageBytes, which walks the same two
+// positions. String content never has an image.
 func anthropicHasImages(body []byte) bool {
 	found := false
 	gjson.GetBytes(body, "messages").ForEach(func(_, msg gjson.Result) bool {
@@ -526,11 +529,18 @@ func anthropicHasImages(body []byte) bool {
 			return true
 		}
 		content.ForEach(func(_, block gjson.Result) bool {
-			if block.Get("type").String() == "image" {
+			switch block.Get("type").String() {
+			case "image":
 				found = true
-				return false
+			case "tool_result":
+				block.Get("content").ForEach(func(_, inner gjson.Result) bool {
+					if inner.Get("type").String() == "image" {
+						found = true
+					}
+					return !found
+				})
 			}
-			return true
+			return !found
 		})
 		return !found
 	})

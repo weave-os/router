@@ -197,11 +197,36 @@ func isUserForcedReason(reason string) bool {
 	return strings.HasPrefix(reason, translate.ReasonUserForceModel)
 }
 
+// pinServesImages reports whether a pinned model can carry an image-bearing
+// turn. Forced pins outrank every automatic gate, so without this check the
+// pasted-screenshot turn dispatches to a text-only model and the upstream
+// rejects the whole request.
+func pinServesImages(pin sessionpin.Pin, req router.Request) bool {
+	return !req.HasImages || catalog.AcceptsImages(pin.Model)
+}
+
+// excludingModel returns excluded plus model, copying instead of mutating the
+// caller's map.
+func excludingModel(excluded map[string]struct{}, model string) map[string]struct{} {
+	if _, ok := excluded[model]; ok {
+		return excluded
+	}
+	out := make(map[string]struct{}, len(excluded)+1)
+	for k := range excluded {
+		out[k] = struct{}{}
+	}
+	out[model] = struct{}{}
+	return out
+}
+
 func forcedPinEligible(pin sessionpin.Pin, req router.Request) bool {
 	if pin.Model == "" || pin.Provider == "" {
 		return false
 	}
 	if _, excluded := req.ExcludedModels[pin.Model]; excluded {
+		return false
+	}
+	if !pinServesImages(pin, req) {
 		return false
 	}
 	if req.EnabledProviders == nil {
@@ -425,7 +450,8 @@ func (s *Service) runTurnLoop(
 	// Still enforced per-request: (1) exclusion policy — a newly-excluded forced
 	// model falls through to normal routing; (2) provider eligibility — a BYOK
 	// request missing the pinned provider's creds falls through rather than
-	// guaranteeing a 401.
+	// guaranteeing a 401; (3) image capability — a text-only forced model falls
+	// through rather than guaranteeing an upstream 400 on a screenshot turn.
 	//
 	// forcedTierFloor preserves the user's tier intent when the forced pin gets
 	// dropped below (usually the session outgrew the model's context window):
@@ -436,7 +462,8 @@ func (s *Service) runTurnLoop(
 		_, excluded := req.ExcludedModels[pin.Model]
 		_, providerEnabled := req.EnabledProviders[pin.Provider]
 		providerEligible := req.EnabledProviders == nil || providerEnabled
-		if !excluded && providerEligible {
+		imageCapable := pinServesImages(pin, req)
+		if !excluded && providerEligible && imageCapable {
 			decision := pinDecision(pin)
 			decision.Reason = pin.Reason
 			res.PinTier = pin.Reason
@@ -445,10 +472,16 @@ func (s *Service) runTurnLoop(
 			s.refreshPin(ctx, installationID, res.SessionKey, pin, res.PinRole, pinDecision(pin))
 			return res, nil
 		}
-		if excluded {
+		if excluded || !imageCapable {
 			// User still asked for this tier; constrain the fresh decision
 			// to it below rather than losing the intent entirely.
 			forcedTierFloor = catalog.TierFor(pin.Model)
+		}
+		if !imageCapable {
+			// The scorer's own image filter fails open when no image-capable
+			// candidate survives, so make the drop explicit here instead of
+			// letting the same text-only model be re-picked.
+			req.ExcludedModels = excludingModel(req.ExcludedModels, pin.Model)
 		}
 		// Treat as missing so downstream sticky branches don't dispatch to an
 		// unauthorized provider. The row stays in storage — a later request
