@@ -337,6 +337,40 @@ func IsUpstreamModelNotFound(err error) bool {
 	return false
 }
 
+// capabilityRejectionPhrases are upstream 400 bodies meaning "this model cannot
+// serve a request of this shape" rather than "your request is malformed".
+// Providers state it in prose with no machine-readable code, so substring
+// matching is the only available signal. Keep the list narrow and specific: a
+// false positive spends one extra upstream call, and a phrase loose enough to
+// match ordinary validation errors would do that on every bad request.
+var capabilityRejectionPhrases = []string{
+	"not a multimodal model",
+	"does not support image",
+	"image input is not supported",
+	"image input is unsupported",
+	"does not support vision",
+	"multimodal input is not supported",
+}
+
+// IsUpstreamCapabilityRejection reports whether err is a buffered upstream 400
+// stating the model cannot handle a modality the request carries. Unlike
+// IsUpstreamModelNotFound this is deliberately NOT a cross-binding signal — the
+// same model on another provider rejects identically — so it gates only the
+// higher-level fallback onto a different model.
+func IsUpstreamCapabilityRejection(err error) bool {
+	var buffered *UpstreamErrorResponse
+	if !errors.As(err, &buffered) || buffered.Status != http.StatusBadRequest {
+		return false
+	}
+	body := strings.ToLower(string(buffered.Body))
+	for _, phrase := range capabilityRejectionPhrases {
+		if strings.Contains(body, phrase) {
+			return true
+		}
+	}
+	return false
+}
+
 // PreparedRequest holds the encoded target-format request body and format-specific header overrides.
 // Endpoint selects which upstream path a provider client POSTs to. Zero value
 // is chat/completions; EndpointResponses routes to `/v1/responses`, required

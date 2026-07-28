@@ -372,3 +372,98 @@ func TestProxyMessages_FailedBaselineReportsAnthropicProvider(t *testing.T) {
 	assert.Equal(t, "claude-opus-4-8", row.DecisionModel, "telemetry records the baseline model after failover")
 	assert.Equal(t, providers.ProviderAnthropic, row.DecisionProvider, "failed-baseline provider must match the baseline model, not the OSS primary")
 }
+
+// A capability rejection is categorically different from an outage: the upstream
+// has stated the routed model cannot serve this request shape at all, so there
+// is nothing to retry and the client would otherwise get the raw provider 400.
+// The authoritative-per-turn contract covers which model the policy PICKS, not
+// whether a provably-unservable request may be rescued.
+func TestProxyMessages_AuthoritativePolicyFailsOverOnCapabilityRejection(t *testing.T) {
+	var (
+		mu                     sync.Mutex
+		fireworksCount         int
+		openRouterCount        int
+		anthropicCount         int
+		anthropicReceivedModel string
+	)
+	rejectCapability := func(counter *int) http.HandlerFunc {
+		return func(w http.ResponseWriter, _ *http.Request) {
+			mu.Lock()
+			*counter++
+			mu.Unlock()
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"error":{"message":"deepseek-ai/DeepSeek-V4-Pro is not a multimodal model"}}`))
+		}
+	}
+	fireworks := httptest.NewServer(rejectCapability(&fireworksCount))
+	defer fireworks.Close()
+	openrouter := httptest.NewServer(rejectCapability(&openRouterCount))
+	defer openrouter.Close()
+	anthropicUpstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		mu.Lock()
+		anthropicCount++
+		anthropicReceivedModel = gjson.GetBytes(body, "model").String()
+		mu.Unlock()
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(anthropicMessageSSE))
+		if f, ok := w.(http.Flusher); ok {
+			f.Flush()
+		}
+	}))
+	defer anthropicUpstream.Close()
+
+	strategy := router.Strategy("authoritative-capability-test")
+	policyRouter := &fakeRouter{decision: router.Decision{
+		Provider: providers.ProviderFireworks,
+		Model:    "deepseek/deepseek-v4-pro",
+		Reason:   "authoritative-capability_policy",
+		Metadata: &router.RoutingMetadata{
+			RouteID:                       "route-capability",
+			Strategy:                      string(strategy),
+			AuthoritativePerTurnSelection: true,
+		},
+	}}
+	svc := proxy.NewService(
+		nil,
+		map[string]providers.Client{
+			providers.ProviderFireworks:  openaicompat.NewClient("test-fw-key", fireworks.URL),
+			providers.ProviderOpenRouter: openaicompat.NewClient("test-or-key", openrouter.URL),
+			providers.ProviderAnthropic:  anthropic.NewClient("test-anthropic-key", anthropicUpstream.URL),
+		},
+		nil, false, nil, newFakePinStore(), false,
+		providers.ProviderAnthropic, "claude-haiku-4-5", newCaptureTelemetry(),
+	).WithDeploymentKeyedProviders(map[string]struct{}{
+		providers.ProviderFireworks:  {},
+		providers.ProviderOpenRouter: {},
+		providers.ProviderAnthropic:  {},
+	}).WithPolicyStrategy(policy.StrategySpec{
+		Strategy: strategy,
+		Router:   policyRouter,
+		Capabilities: policy.Capabilities{
+			SchemaVersion:                 policy.SchemaVersionV1,
+			AuthoritativePerTurnSelection: true,
+		},
+	})
+	ctx := router.WithStrategy(authedCtx("11111111-1111-1111-1111-111111111111"), strategy)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	body := []byte(`{"model":"claude-opus-4-8","stream":true,"messages":[{"role":"user","content":[{"type":"image","source":{"type":"base64","media_type":"image/png","data":"AAA"}}]}]}`)
+
+	err := svc.ProxyMessages(ctx, body, rec, req)
+	require.NoError(t, err, "the turn must be rescued on the requested Anthropic model")
+
+	mu.Lock()
+	defer mu.Unlock()
+	assert.Equal(t, 1, fireworksCount, "routed model tried once")
+	assert.Equal(t, 0, openRouterCount,
+		"a capability rejection is not provider-specific; a cross-binding hop would fail identically and must not be spent")
+	assert.Equal(t, 1, anthropicCount, "rescued on Anthropic despite authoritative-per-turn selection")
+	assert.Equal(t, "claude-opus-4-8", anthropicReceivedModel, "rescue targets the model the caller asked for")
+
+	respBody := rec.Body.String()
+	assert.Contains(t, respBody, "event: message_stop", "client sees a complete stream, not the provider's 400")
+	assert.NotContains(t, respBody, "is not a multimodal model", "the raw provider capability error must not reach the client")
+}

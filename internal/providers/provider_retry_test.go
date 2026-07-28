@@ -66,3 +66,68 @@ func TestIsRetryable_RequestDeadlineExceeded(t *testing.T) {
 	require.ErrorIs(t, err, context.DeadlineExceeded)
 	assert.False(t, providers.IsRetryable(err))
 }
+
+// A capability rejection must be recognised from the upstream's prose, and must
+// NOT be classified as retryable — re-sending the same model to a different
+// provider gets the same rejection, so the only useful response is a different
+// model.
+func TestIsUpstreamCapabilityRejection(t *testing.T) {
+	cases := []struct {
+		name   string
+		status int
+		body   string
+		want   bool
+	}{
+		{
+			name:   "together multimodal rejection",
+			status: http.StatusBadRequest,
+			body:   `{"error":{"message":"deepseek-ai/DeepSeek-V4-Pro is not a multimodal model"}}`,
+			want:   true,
+		},
+		{
+			name:   "does not support images",
+			status: http.StatusBadRequest,
+			body:   `{"error":{"message":"This model does not support image inputs."}}`,
+			want:   true,
+		},
+		{
+			name:   "case insensitive",
+			status: http.StatusBadRequest,
+			body:   `{"error":{"message":"Model Does Not Support Vision"}}`,
+			want:   true,
+		},
+		{
+			name:   "ordinary validation 400 is not a capability rejection",
+			status: http.StatusBadRequest,
+			body:   `{"error":{"message":"messages: at least one message is required"}}`,
+			want:   false,
+		},
+		{
+			name:   "same phrasing on a 500 is an outage, not a capability verdict",
+			status: http.StatusInternalServerError,
+			body:   `{"error":{"message":"not a multimodal model"}}`,
+			want:   false,
+		},
+		{
+			name:   "404 stays model-not-found",
+			status: http.StatusNotFound,
+			body:   `{"error":{"message":"model not found"}}`,
+			want:   false,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := &providers.UpstreamErrorResponse{Status: tc.status, Body: []byte(tc.body)}
+			assert.Equal(t, tc.want, providers.IsUpstreamCapabilityRejection(err))
+			if tc.want {
+				assert.False(t, providers.IsRetryable(err),
+					"a capability rejection must not trigger same-model retries")
+				assert.False(t, providers.IsUpstreamModelNotFound(err),
+					"a capability rejection must not be confused with model-not-found")
+			}
+		})
+	}
+
+	assert.False(t, providers.IsUpstreamCapabilityRejection(nil))
+	assert.False(t, providers.IsUpstreamCapabilityRejection(fmt.Errorf("transport blew up")))
+}
