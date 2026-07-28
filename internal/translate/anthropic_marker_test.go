@@ -429,3 +429,85 @@ func TestAnthropicRoutingMarkerWriter_EventSplitAcrossWrites(t *testing.T) {
 	}
 	assert.True(t, foundShiftedDelta, "split event must be reassembled with shifted index and preserved text")
 }
+
+// The prelude message_start is emitted before the upstream replies, so it
+// cannot carry real token counts. Dropping the upstream's message_start without
+// carrying its usage forward left the client with input_tokens:0 on every
+// routed turn, which is what /cost, /context and auto-compact read.
+func TestAnthropicRoutingMarkerWriter_CarriesUpstreamUsageIntoMessageDelta(t *testing.T) {
+	rec := httptest.NewRecorder()
+	w := translate.NewAnthropicRoutingMarkerWriter(rec, "claude-opus-5", "✦ marker\n\n")
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.WriteHeader(http.StatusOK)
+
+	upstream := buildAnthropicSSE("message_start", `{"type":"message_start","message":{"id":"msg_1","type":"message","role":"assistant","content":[],"model":"claude-opus-5","stop_reason":null,"stop_sequence":null,"usage":{"input_tokens":1234,"output_tokens":0,"cache_read_input_tokens":98765,"cache_creation_input_tokens":432}}}`) +
+		buildAnthropicSSE("message_delta", `{"type":"message_delta","delta":{"stop_reason":"end_turn","stop_sequence":null},"usage":{"output_tokens":77}}`) +
+		buildAnthropicSSE("message_stop", `{"type":"message_stop"}`)
+
+	_, err := w.Write([]byte(upstream))
+	require.NoError(t, err)
+
+	var delta string
+	for _, ev := range splitSSEEvents(rec.Body.String()) {
+		if strings.Contains(ev, "event: message_delta") {
+			delta = ev
+		}
+	}
+	require.NotEmpty(t, delta, "message_delta must still reach the client")
+
+	data := delta[strings.Index(delta, "data: ")+len("data: "):]
+	usage := gjson.Get(data, "usage")
+	assert.Equal(t, int64(1234), usage.Get("input_tokens").Int(),
+		"real input tokens must survive the dropped upstream message_start")
+	assert.Equal(t, int64(98765), usage.Get("cache_read_input_tokens").Int(),
+		"cache reads are the signal that prompt caching is working; losing them hides cache misses")
+	assert.Equal(t, int64(432), usage.Get("cache_creation_input_tokens").Int())
+	assert.Equal(t, int64(77), usage.Get("output_tokens").Int(),
+		"the delta's own output_tokens must win over the message_start placeholder")
+	assert.Equal(t, "end_turn", gjson.Get(data, "delta.stop_reason").String(),
+		"merging usage must not disturb the rest of the event")
+}
+
+// A delta that already carries its own input-side counts must not be rewritten.
+func TestAnthropicRoutingMarkerWriter_DeltaUsageWinsOverMessageStart(t *testing.T) {
+	rec := httptest.NewRecorder()
+	w := translate.NewAnthropicRoutingMarkerWriter(rec, "claude-opus-5", "✦ marker\n\n")
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.WriteHeader(http.StatusOK)
+
+	upstream := buildAnthropicSSE("message_start", `{"type":"message_start","message":{"usage":{"input_tokens":10,"output_tokens":0}}}`) +
+		buildAnthropicSSE("message_delta", `{"type":"message_delta","delta":{},"usage":{"input_tokens":999,"output_tokens":5}}`)
+
+	_, err := w.Write([]byte(upstream))
+	require.NoError(t, err)
+
+	var delta string
+	for _, ev := range splitSSEEvents(rec.Body.String()) {
+		if strings.Contains(ev, "event: message_delta") {
+			delta = ev
+		}
+	}
+	require.NotEmpty(t, delta)
+	data := delta[strings.Index(delta, "data: ")+len("data: "):]
+	assert.Equal(t, int64(999), gjson.Get(data, "usage.input_tokens").Int(),
+		"upstream's own delta usage is authoritative")
+}
+
+// No usage on message_start (or no message_start at all) must leave the delta
+// byte-identical rather than synthesizing counts.
+func TestAnthropicRoutingMarkerWriter_NoUpstreamUsageLeavesDeltaUntouched(t *testing.T) {
+	rec := httptest.NewRecorder()
+	w := translate.NewAnthropicRoutingMarkerWriter(rec, "claude-opus-5", "✦ marker\n\n")
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.WriteHeader(http.StatusOK)
+
+	const deltaEvent = `{"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":3}}`
+	upstream := buildAnthropicSSE("message_start", `{"type":"message_start","message":{"id":"msg_1"}}`) +
+		buildAnthropicSSE("message_delta", deltaEvent)
+
+	_, err := w.Write([]byte(upstream))
+	require.NoError(t, err)
+
+	assert.Contains(t, rec.Body.String(), deltaEvent, "delta must pass through verbatim")
+	assert.False(t, gjson.Get(deltaEvent, "usage.input_tokens").Exists())
+}

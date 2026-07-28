@@ -23,7 +23,17 @@ type AnthropicRoutingMarkerWriter struct {
 
 	markerEmitted bool
 
+	// upstreamUsage holds the input-side token counts lifted off the upstream's
+	// dropped message_start, pending merge into message_delta.
+	upstreamUsage []usageField
+
 	onOutputProgress func()
+}
+
+// usageField is one key/raw-JSON pair from an upstream usage object.
+type usageField struct {
+	key string
+	raw string
 }
 
 // NewAnthropicRoutingMarkerWriter injects marker as a text block at index 0.
@@ -128,9 +138,18 @@ func (w *AnthropicRoutingMarkerWriter) processUpstream(data []byte) (int, error)
 
 		switch string(eventType) {
 		case "message_start":
-			// Drop upstream's message_start; we already sent one.
+			// Drop upstream's message_start; we already sent one. Ours was
+			// emitted before the upstream replied, so it could not carry real
+			// token counts — stash them and fold them into message_delta below.
+			w.captureUpstreamUsage(eventData)
 			w.buf.Next(n)
 			continue
+
+		case "message_delta":
+			if _, err := w.Inner.Write(w.mergeUpstreamUsage(event[:n], eventData)); err != nil {
+				return 0, err
+			}
+			w.buf.Next(n)
 
 		case "content_block_start", "content_block_delta", "content_block_stop":
 			// Mark on output-bearing content_block_delta only; start/stop are structural.
@@ -159,7 +178,7 @@ func (w *AnthropicRoutingMarkerWriter) processUpstream(data []byte) (int, error)
 			w.buf.Next(n)
 
 		default:
-			// message_delta, message_stop, ping, error, etc. — pass through untouched.
+			// message_stop, ping, error, etc. — pass through untouched.
 			if _, err := w.Inner.Write(event[:n]); err != nil {
 				return 0, err
 			}
@@ -167,6 +186,56 @@ func (w *AnthropicRoutingMarkerWriter) processUpstream(data []byte) (int, error)
 		}
 	}
 	return len(data), nil
+}
+
+// captureUpstreamUsage records the input-side token counts from the upstream's
+// message_start. Only input-side fields are kept: output_tokens on
+// message_start is a placeholder that message_delta supersedes.
+func (w *AnthropicRoutingMarkerWriter) captureUpstreamUsage(eventData []byte) {
+	usage := gjson.GetBytes(eventData, "message.usage")
+	if !usage.Exists() {
+		return
+	}
+	w.upstreamUsage = w.upstreamUsage[:0]
+	usage.ForEach(func(key, value gjson.Result) bool {
+		if key.String() == "output_tokens" {
+			return true
+		}
+		w.upstreamUsage = append(w.upstreamUsage, usageField{key: key.String(), raw: value.Raw})
+		return true
+	})
+}
+
+// mergeUpstreamUsage folds the stashed message_start counts into a
+// message_delta's usage object, so the assembled message a client ends up with
+// reports real input and cache tokens instead of the zeros our early
+// message_start had to guess. Fields the upstream already set on the delta win.
+// Returns event unchanged when there is nothing to merge or the rewrite fails —
+// a mangled usage object would be worse than an incomplete one.
+func (w *AnthropicRoutingMarkerWriter) mergeUpstreamUsage(event, eventData []byte) []byte {
+	if len(w.upstreamUsage) == 0 {
+		return event
+	}
+	merged := eventData
+	for _, f := range w.upstreamUsage {
+		if gjson.GetBytes(merged, "usage."+f.key).Exists() {
+			continue
+		}
+		out, err := sjson.SetRawBytes(merged, "usage."+f.key, []byte(f.raw))
+		if err != nil {
+			return event
+		}
+		merged = out
+	}
+	if bytes.Equal(merged, eventData) {
+		return event
+	}
+	var b bytes.Buffer
+	b.Grow(len(merged) + 32)
+	b.WriteString("event: message_delta\ndata: ")
+	b.Write(merged)
+	b.WriteString("\n\n")
+	return b.Bytes()
 }
 
 // ArmOutputProgress fires mark on output-bearing content_block_delta frames only
