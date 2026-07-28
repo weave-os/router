@@ -61,7 +61,12 @@ func reasonFor(res Result) string {
 
 func isToolExecutionResult(res Result) bool {
 	group := strings.TrimSpace(strings.ToLower(res.PolicyGroup))
-	if group == "explore" {
+	// "explore" is the retired five-class label (roster_v2, still the pinned
+	// prod package); "low" is its four-class successor (roster_v4) that the
+	// retired explore cluster was merged into. Both carry the same
+	// tool-execution semantics, so both must be recognized during the
+	// migration window where either package can be deployed.
+	if group == "explore" || group == "low" {
 		return true
 	}
 	label := strings.TrimSpace(strings.ToLower(res.PolicyLabel))
