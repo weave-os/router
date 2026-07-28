@@ -46,8 +46,11 @@ func (f *fakeExternalAPIKeyRepository) MarkUsed(context.Context, string) error {
 
 type fakeAPIKeyRepository struct {
 	byHash map[string]fakeKeyRow
-	mu     sync.Mutex
-	used   []string
+	// lookupErr stands in for an infra failure (pool exhausted, DB unreachable,
+	// deadline elapsed) as opposed to a key that simply isn't there.
+	lookupErr error
+	mu        sync.Mutex
+	used      []string
 }
 
 type fakeKeyRow struct {
@@ -60,6 +63,9 @@ func (f *fakeAPIKeyRepository) Create(ctx context.Context, params auth.CreateAPI
 }
 
 func (f *fakeAPIKeyRepository) GetActiveByHashWithInstallation(ctx context.Context, keyHash string) (*auth.APIKey, *auth.Installation, error) {
+	if f.lookupErr != nil {
+		return nil, nil, f.lookupErr
+	}
 	row, ok := f.byHash[keyHash]
 	if !ok {
 		return nil, nil, sql.ErrNoRows
@@ -243,4 +249,66 @@ func TestWithAuthKeepsLegacyBearerFallback(t *testing.T) {
 	engine.ServeHTTP(rr, req)
 
 	require.Equal(t, http.StatusOK, rr.Code)
+}
+
+func TestWithAuthInfraFailureIsRetryable503NotInvalidKey(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	const routerToken = "rk_valid_but_db_is_down"
+	hash, _, _ := auth.APITokenFingerprint(routerToken)
+	repo := &fakeAPIKeyRepository{
+		byHash:    map[string]fakeKeyRow{hash: {apiKey: &auth.APIKey{ID: "key-1"}, installation: &auth.Installation{ID: "inst-1"}}},
+		lookupErr: context.DeadlineExceeded,
+	}
+	svc := auth.NewService(fakeInstallationRepository{}, repo, nil, nil, auth.NoOpAPIKeyCache{}, nil, func() time.Time { return time.Now() })
+
+	engine := gin.New()
+	engine.Use(middleware.WithAuth(svc, false))
+	engine.GET("/probe", func(c *gin.Context) { c.Status(http.StatusOK) })
+
+	req := httptest.NewRequest(http.MethodGet, "/probe", nil)
+	req.Header.Set(middleware.RouterKeyHeader, routerToken)
+	rr := httptest.NewRecorder()
+	engine.ServeHTTP(rr, req)
+
+	require.Equal(t, http.StatusServiceUnavailable, rr.Code,
+		"an infra failure reported as 401 makes a transient outage indistinguishable from a wrong key")
+	assert.Equal(t, "1", rr.Header().Get("Retry-After"))
+	assert.NotContains(t, rr.Body.String(), "invalid_key")
+}
+
+func TestWithAuthUnknownKeyStays401(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	repo := &fakeAPIKeyRepository{byHash: map[string]fakeKeyRow{}}
+	svc := auth.NewService(fakeInstallationRepository{}, repo, nil, nil, auth.NoOpAPIKeyCache{}, nil, func() time.Time { return time.Now() })
+
+	engine := gin.New()
+	engine.Use(middleware.WithAuth(svc, false))
+	engine.GET("/probe", func(c *gin.Context) { c.Status(http.StatusOK) })
+
+	req := httptest.NewRequest(http.MethodGet, "/probe", nil)
+	req.Header.Set(middleware.RouterKeyHeader, "rk_no_such_key")
+	rr := httptest.NewRecorder()
+	engine.ServeHTTP(rr, req)
+
+	require.Equal(t, http.StatusUnauthorized, rr.Code)
+	assert.Contains(t, rr.Body.String(), "invalid_key")
+	assert.Empty(t, rr.Header().Get("Retry-After"))
+}
+
+func TestWithAuthMalformedPrefixStays401(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	repo := &fakeAPIKeyRepository{byHash: map[string]fakeKeyRow{}}
+	svc := auth.NewService(fakeInstallationRepository{}, repo, nil, nil, auth.NoOpAPIKeyCache{}, nil, func() time.Time { return time.Now() })
+
+	engine := gin.New()
+	engine.Use(middleware.WithAuth(svc, false))
+	engine.GET("/probe", func(c *gin.Context) { c.Status(http.StatusOK) })
+
+	req := httptest.NewRequest(http.MethodGet, "/probe", nil)
+	req.Header.Set("Authorization", "Bearer sk-ant-oat-not-a-router-key")
+	rr := httptest.NewRecorder()
+	engine.ServeHTTP(rr, req)
+
+	require.Equal(t, http.StatusUnauthorized, rr.Code)
+	assert.Contains(t, rr.Body.String(), "invalid_key")
 }

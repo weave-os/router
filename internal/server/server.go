@@ -27,7 +27,10 @@ import (
 const (
 	healthTimeout    = 1 * time.Second
 	readinessTimeout = 2 * time.Second
-	validateTimeout  = 1 * time.Second
+	// A cache miss on the client-facing key probe costs three sequential
+	// Postgres round trips, so a 1s budget turned an ordinary cold cache into a
+	// rejected-credential verdict for the caller.
+	validateTimeout = 5 * time.Second
 
 	messagesTimeout       = 600 * time.Second
 	chatCompletionTimeout = 600 * time.Second

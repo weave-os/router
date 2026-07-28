@@ -92,6 +92,14 @@ func main() {
 	}
 	defer pool.Close()
 
+	// pgxpool connects lazily, so without this the first serving request pays to
+	// build the pool's first connection inside its own (short) budget. Warn-only:
+	// a DB that is briefly unreachable at boot must not stop the process from
+	// coming up, since every handler already degrades on its own.
+	if err := pool.Ping(context.Background()); err != nil {
+		logger.Warn("Postgres ping at boot failed; early requests may be slow", "err", err)
+	}
+
 	// Gates the self-hoster dashboard + /admin/v1/* API. Defaults to selfhosted
 	// so docker-compose/bare-binary deploys work out of the box; managed Cloud
 	// Run services set ROUTER_DEPLOYMENT_MODE=managed to drop that surface.
