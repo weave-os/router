@@ -127,7 +127,10 @@ skip() { printf "%s⊙%s %s%s%s\n" "$C_DIM" "$C_RESET" "$C_DIM" "$*" "$C_RESET";
 # print after a successful install is copy-paste-correct. Kept in sync with
 # uninstall.sh's flag surface.
 uninstall_cmd() {
-  local cmd="npx -y @workweave/router --uninstall"
+  # --package + `--` is load-bearing: npm <= 6's bundled npx treats an
+  # undeclared `-y` as consuming the NEXT token, so `npx -y @workweave/router`
+  # loses the package name and resolves whatever follows as the command.
+  local cmd="npx --package @workweave/router -y -- weave-router --uninstall"
   case "$target" in
     codex)    cmd="$cmd --codex" ;;
     opencode) cmd="$cmd --opencode" ;;

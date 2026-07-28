@@ -84,6 +84,18 @@ for the full reference.
 
 ## Why npx
 
-`curl -fsSL https://weave.ai/cc/install.sh | sh` still works and is fine.
-`npx @workweave/router` adds: Windows support via Git Bash, painless version
-pinning, no `curl | sh` aversion, and discoverability via the npm registry.
+`npx @workweave/router` gives Windows support via Git Bash, painless version
+pinning, and discoverability via the npm registry.
+
+## Older npm
+
+On npm ≤ 6 the bundled `npx` treats an undeclared `-y` as consuming the next
+token, so `npx -y @workweave/router --claude` silently drops the package name
+and resolves the following argument as the command instead. Either upgrade
+(`npm i -g npm@latest`) or name the binary explicitly:
+
+```bash
+npx --package @workweave/router -y -- weave-router --claude
+```
+
+That form is correct on every npm version.

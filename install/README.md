@@ -22,13 +22,12 @@ npx @workweave/router --codex    --scope project   # Codex
 npx @workweave/router --opencode --scope project   # opencode
 ```
 
-Prefer `curl`? The same installer is also served as a shell script:
+On npm ≤ 6 the bundled `npx` mis-parses a leading `-y` (it consumes the next
+token, dropping the package name), so name the binary explicitly there — or
+just upgrade with `npm i -g npm@latest`:
 
 ```bash
-curl -fsSL https://weave.ai/cc/install.sh | sh
-curl -fsSL https://weave.ai/cc/install.sh | sh -s -- --codex
-curl -fsSL https://weave.ai/cc/install.sh | sh -s -- --opencode
-curl -fsSL https://weave.ai/cc/install.sh | sh -s -- --scope project
+npx --package @workweave/router -y -- weave-router --claude
 ```
 
 Or from a clone of this repo:

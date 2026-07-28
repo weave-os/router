@@ -9,8 +9,8 @@ LLM proxy that picks the most cost-efficient model that still solves each task.
 Installed automatically by the Weave Router installer:
 
 ```bash
-WEAVE_ROUTER_KEY=rk_… npx -y @workweave/router --pi          # user scope
-WEAVE_ROUTER_KEY=rk_… npx -y @workweave/router --pi --local  # local router (http://localhost:8080)
+WEAVE_ROUTER_KEY=rk_… npx --package @workweave/router -y -- weave-router --pi
+WEAVE_ROUTER_KEY=rk_… npx --package @workweave/router -y -- weave-router --pi --local  # local router
 ```
 
 That writes `~/.pi/agent/models.json` (the `weave` provider), adds
