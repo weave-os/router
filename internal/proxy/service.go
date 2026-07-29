@@ -90,9 +90,8 @@ type Service struct {
 	// denySet. ok=false signals no eligible provider.
 	hardPinResolver func(enabled, denySet map[string]struct{}) (provider, model string, ok bool)
 	// subAgentProvider/subAgentModel override hardPinProvider/hardPinModel
-	// for SubAgentDispatch turns only, leaving compaction/probe/title-gen/
-	// classifier on the shared hard pin. Set via ROUTER_SUBAGENT_PROVIDER /
-	// ROUTER_SUBAGENT_MODEL; unset = pre-existing behavior.
+	// for SubAgentDispatch turns only; unset leaves compaction/probe/title-gen/
+	// classifier on the shared hard pin.
 	subAgentProvider string
 	subAgentModel    string
 	// telemetry is an optional repository for persisting per-request telemetry.
