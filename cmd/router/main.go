@@ -479,6 +479,26 @@ func main() {
 		logger.Info("Hard-pin resolver not wired: ROUTER_HARD_PIN_MODEL operator override is set and absolute by design", "model", hardPinModel)
 	}
 
+	// ROUTER_SUBAGENT_PROVIDER / ROUTER_SUBAGENT_MODEL route Claude Code
+	// Task-tool sub-agent turns (turntype.SubAgentDispatch) to a distinct
+	// provider/model — e.g. a local/self-hosted OpenAI-compatible endpoint —
+	// while MainLoop/ToolResult keep routing normally. Independent of
+	// hardPinProvider/hardPinModel, which still cover compaction/probe/
+	// title-gen/classifier. Both must be set together; either alone is
+	// ignored.
+	subAgentProvider := config.GetOr("ROUTER_SUBAGENT_PROVIDER", "")
+	subAgentModel := config.GetOr("ROUTER_SUBAGENT_MODEL", "")
+	switch {
+	case subAgentModel != "" && subAgentProvider == "":
+		logger.Warn("ROUTER_SUBAGENT_MODEL set without ROUTER_SUBAGENT_PROVIDER; ignoring sub-agent override")
+		subAgentModel = ""
+	case subAgentProvider != "" && subAgentModel == "":
+		logger.Warn("ROUTER_SUBAGENT_PROVIDER set without ROUTER_SUBAGENT_MODEL; ignoring sub-agent override")
+		subAgentProvider = ""
+	case subAgentModel != "":
+		logger.Info("Sub-agent routing override enabled", "provider", subAgentProvider, "model", subAgentModel)
+	}
+
 	// Default-eligible set: env-keyed providers only. BYOK/client credentials
 	// add to this per-request inside enabledProvidersForRequest.
 	deploymentEligible := make(map[string]struct{}, len(envKeyedProviders))
@@ -733,6 +753,7 @@ func main() {
 		WithDeploymentKeyedProviders(deploymentEligible).
 		WithPassthroughEligibleProviders(passthroughEligible).
 		WithHardPinResolver(hardPinResolver).
+		WithSubAgentOverride(subAgentProvider, subAgentModel).
 		WithPlannerEnabled(plannerEnabled).
 		WithScoreToolResultTurns(scoreToolResultTurns).
 		WithCyberRefusalRepin(cyberRefusalRepin).

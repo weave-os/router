@@ -679,6 +679,172 @@ func TestService_HardPin_ExploreFallsThroughWhenFlagOff(t *testing.T) {
 	assert.Equal(t, "claude-opus-4-7", rec.Header().Get(proxy.HeaderRouterModel))
 }
 
+// WithSubAgentOverride must route SubAgentDispatch turns to the configured
+// pair instead of the shared hardPinProvider/hardPinModel — even with
+// hardPinExplore off, since an explicit override implies the operator wants
+// sub-agents pinned regardless of that legacy flag.
+func TestService_HardPin_SubAgentOverrideRoutesIndependentlyOfHardPin(t *testing.T) {
+	store := newFakePinStore()
+	fr := &fakeRouter{decision: router.Decision{Provider: "anthropic", Model: "claude-opus-4-7", Reason: "cluster"}}
+	// OpenRouter speaks the OpenAI-compat wire format, so the fake response
+	// must be a valid chat-completion body for the cross-format translation
+	// back to the Anthropic-shaped client response to succeed.
+	openRouterResp := func(w http.ResponseWriter) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = io.WriteString(w, `{"id":"chatcmpl_1","object":"chat.completion","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}]}`)
+	}
+	svc := proxy.NewService(
+		fr,
+		map[string]providers.Client{
+			providers.ProviderAnthropic:  &fakeProvider{},
+			providers.ProviderOpenRouter: &fakeProvider{proxyResponse: openRouterResp},
+		},
+		nil,
+		false,
+		nil,
+		store,
+		false, // hardPinExplore=false: override alone must still hard-pin
+		providers.ProviderAnthropic,
+		"claude-haiku-4-5",
+		nil,
+	).WithSubAgentOverride(providers.ProviderOpenRouter, "local/qwen3-coder")
+
+	ctx := authedCtx(uuid.New().String())
+	rec := httptest.NewRecorder()
+	httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	require.NoError(t, svc.ProxyMessages(ctx, []byte(exploreBody), rec, httpReq))
+
+	assert.Equal(t, 0, fr.routeCalls, "sub-agent override must bypass the cluster scorer")
+	assert.Equal(t, "local/qwen3-coder", rec.Header().Get(proxy.HeaderRouterModel))
+	assert.Equal(t, providers.ProviderOpenRouter, rec.Header().Get(proxy.HeaderRouterProvider))
+	assert.NotEqual(t, "claude-haiku-4-5", rec.Header().Get(proxy.HeaderRouterModel),
+		"must not fall back to the shared hardPinProvider/hardPinModel pair")
+}
+
+// A configured sub-agent override must not touch MainLoop/ToolResult turns —
+// only SubAgentDispatch is affected.
+func TestService_HardPin_SubAgentOverrideLeavesMainLoopUnaffected(t *testing.T) {
+	store := newFakePinStore()
+	fr := &fakeRouter{decision: router.Decision{Provider: "anthropic", Model: "claude-opus-4-7", Reason: "cluster"}}
+	svc := proxy.NewService(
+		fr,
+		map[string]providers.Client{
+			providers.ProviderAnthropic:  &fakeProvider{},
+			providers.ProviderOpenRouter: &fakeProvider{},
+		},
+		nil,
+		false,
+		nil,
+		store,
+		false,
+		providers.ProviderAnthropic,
+		"claude-haiku-4-5",
+		nil,
+	).WithSubAgentOverride(providers.ProviderOpenRouter, "local/qwen3-coder")
+
+	ctx := authedCtx(uuid.New().String())
+	rec := httptest.NewRecorder()
+	httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	require.NoError(t, svc.ProxyMessages(ctx, []byte(pinTestBody), rec, httpReq))
+
+	assert.Equal(t, 1, fr.routeCalls, "main-loop turn must still go through the cluster scorer")
+	assert.Equal(t, "claude-opus-4-7", rec.Header().Get(proxy.HeaderRouterModel))
+}
+
+// Without WithSubAgentOverride, behavior must be identical to before this
+// knob existed: sub-agent turns use the shared hard-pin pair per hardPinExplore.
+func TestService_HardPin_NoSubAgentOverrideUsesSharedHardPin(t *testing.T) {
+	store := newFakePinStore()
+	fr := &fakeRouter{decision: router.Decision{Provider: "anthropic", Model: "claude-opus-4-7", Reason: "cluster"}}
+	svc := proxy.NewService(
+		fr,
+		map[string]providers.Client{providers.ProviderAnthropic: &fakeProvider{}},
+		nil,
+		false,
+		nil,
+		store,
+		true, // hardPinExplore=true, no override configured
+		providers.ProviderAnthropic,
+		"claude-haiku-4-5",
+		nil,
+	)
+
+	ctx := authedCtx(uuid.New().String())
+	rec := httptest.NewRecorder()
+	httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	require.NoError(t, svc.ProxyMessages(ctx, []byte(exploreBody), rec, httpReq))
+
+	assert.Equal(t, 0, fr.routeCalls)
+	assert.Equal(t, "claude-haiku-4-5", rec.Header().Get(proxy.HeaderRouterModel),
+		"must fall back to the shared hardPinProvider/hardPinModel pair")
+}
+
+// The HMM strategy keeps its own sub-agent handling and must override the
+// new sub-agent knob exactly as it already overrides the legacy hardPinExplore.
+func TestService_HardPin_SubAgentOverrideYieldsToHMMStrategy(t *testing.T) {
+	store := newFakePinStore()
+	fr := &fakeRouter{decision: router.Decision{
+		Provider: providers.ProviderAnthropic,
+		Model:    "claude-opus-4-7",
+		Reason:   "hmm_policy:tool_execution(label=explore)",
+		Metadata: &router.RoutingMetadata{Strategy: string(router.StrategyHMM)},
+	}}
+	svc := proxy.NewService(
+		fr,
+		map[string]providers.Client{
+			providers.ProviderAnthropic:  &fakeProvider{},
+			providers.ProviderOpenRouter: &fakeProvider{},
+		},
+		nil,
+		false,
+		nil,
+		store,
+		false,
+		providers.ProviderAnthropic,
+		"claude-haiku-4-5",
+		nil,
+	).WithSubAgentOverride(providers.ProviderOpenRouter, "local/qwen3-coder").WithHMMRouter(fr)
+
+	ctx := router.WithStrategy(authedCtx(uuid.New().String()), router.StrategyHMM)
+	rec := httptest.NewRecorder()
+	httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	require.NoError(t, svc.ProxyMessages(ctx, []byte(exploreBody), rec, httpReq))
+
+	assert.Equal(t, 1, fr.routeCalls, "HMM strategy must still resolve sub-agent turns itself")
+	assert.Equal(t, "claude-opus-4-7", rec.Header().Get(proxy.HeaderRouterModel))
+}
+
+// A sub-agent override naming a provider the request isn't eligible for
+// (BYOK-only, no deployment key for that provider) must fail closed rather
+// than silently dispatch to a provider without credentials.
+func TestService_HardPin_SubAgentOverrideIneligibleProviderErrors(t *testing.T) {
+	store := newFakePinStore()
+	fr := &fakeRouter{decision: router.Decision{Provider: "anthropic", Model: "claude-opus-4-7", Reason: "cluster"}}
+	svc := proxy.NewService(
+		fr,
+		// Only Anthropic registered — the override names OpenRouter, which
+		// EnabledProviders (derived from registered providers) won't contain.
+		map[string]providers.Client{providers.ProviderAnthropic: &fakeProvider{}},
+		nil,
+		false,
+		nil,
+		store,
+		false,
+		providers.ProviderAnthropic,
+		"claude-haiku-4-5",
+		nil,
+	).WithSubAgentOverride(providers.ProviderOpenRouter, "local/qwen3-coder")
+
+	ctx := authedCtx(uuid.New().String())
+	rec := httptest.NewRecorder()
+	httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	err := svc.ProxyMessages(ctx, []byte(exploreBody), rec, httpReq)
+
+	require.Error(t, err)
+	assert.ErrorIs(t, err, cluster.ErrNoEligibleProvider)
+}
+
 // OpenAI ingress: same Stage 1 path via ProxyOpenAIChatCompletion.
 
 const openAIPinTestBody = `{
