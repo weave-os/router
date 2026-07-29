@@ -780,6 +780,35 @@ func TestService_HardPin_NoSubAgentOverrideUsesSharedHardPin(t *testing.T) {
 		"must fall back to the shared hardPinProvider/hardPinModel pair")
 }
 
+// A partial override (only one of provider/model set) must be treated as
+// unconfigured — it must NOT hard-pin a SubAgentDispatch turn when
+// hardPinExplore is off, since WithSubAgentOverride documents that either
+// field being empty is a no-op.
+func TestService_HardPin_PartialSubAgentOverrideFallsThroughToScorer(t *testing.T) {
+	store := newFakePinStore()
+	fr := &fakeRouter{decision: router.Decision{Provider: "anthropic", Model: "claude-opus-4-7", Reason: "cluster"}}
+	svc := proxy.NewService(
+		fr,
+		map[string]providers.Client{providers.ProviderAnthropic: &fakeProvider{}},
+		nil,
+		false,
+		nil,
+		store,
+		false, // hardPinExplore=false
+		providers.ProviderAnthropic,
+		"claude-haiku-4-5",
+		nil,
+	).WithSubAgentOverride("", "nonempty-model") // provider empty: incomplete override
+
+	ctx := authedCtx(uuid.New().String())
+	rec := httptest.NewRecorder()
+	httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	require.NoError(t, svc.ProxyMessages(ctx, []byte(exploreBody), rec, httpReq))
+
+	assert.Equal(t, 1, fr.routeCalls, "incomplete override must not hard-pin; scorer must run")
+	assert.Equal(t, "claude-opus-4-7", rec.Header().Get(proxy.HeaderRouterModel))
+}
+
 // The HMM strategy keeps its own sub-agent handling and must override the
 // new sub-agent knob exactly as it already overrides the legacy hardPinExplore.
 func TestService_HardPin_SubAgentOverrideYieldsToHMMStrategy(t *testing.T) {

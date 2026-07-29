@@ -479,13 +479,8 @@ func main() {
 		logger.Info("Hard-pin resolver not wired: ROUTER_HARD_PIN_MODEL operator override is set and absolute by design", "model", hardPinModel)
 	}
 
-	// ROUTER_SUBAGENT_PROVIDER / ROUTER_SUBAGENT_MODEL route Claude Code
-	// Task-tool sub-agent turns (turntype.SubAgentDispatch) to a distinct
-	// provider/model — e.g. a local/self-hosted OpenAI-compatible endpoint —
-	// while MainLoop/ToolResult keep routing normally. Independent of
-	// hardPinProvider/hardPinModel, which still cover compaction/probe/
-	// title-gen/classifier. Both must be set together; either alone is
-	// ignored.
+	// ROUTER_SUBAGENT_PROVIDER + ROUTER_SUBAGENT_MODEL pin SubAgentDispatch
+	// turns to a distinct provider/model; both must be set together.
 	subAgentProvider := config.GetOr("ROUTER_SUBAGENT_PROVIDER", "")
 	subAgentModel := config.GetOr("ROUTER_SUBAGENT_MODEL", "")
 	switch {
