@@ -24,13 +24,13 @@ const TopUpURL = "https://app.workweave.ai/settings/billing/router-credits"
 //   - Override row present → pass through; flag the request context so
 //     the proxy's debit hook writes a delta=0 ledger row.
 //   - Balance ≤ minBalanceMicros (or no balance row) → HTTP 402. A
-//     subscription-exempt request (UsageBypassEnabled + a validated Claude/Codex
-//     cred that covers this route) instead gates at a negative overdraft floor,
-//     so free traffic keeps flowing while any paid failover is bounded. Past the
-//     floor it is not 402'd either: the request passes through flagged
-//     subscription-only (billing.WithSubscriptionOnly) so the proxy serves it on
-//     the caller's own subscription or refuses it, never on a paid model.
-//     Override detection above still runs.
+//     request that presents a validated Claude/Codex subscription credential
+//     covering this route instead gates at a negative overdraft floor, so
+//     subscription-served traffic keeps flowing while any paid failover is
+//     bounded. Past the floor it is not 402'd either: the request passes
+//     through flagged subscription-only (billing.WithSubscriptionOnly) so
+//     the proxy serves it on the caller's own subscription or refuses it,
+//     never on a paid model. Override detection above still runs.
 //   - Otherwise → pass through.
 //
 // The balance read is a single indexed SELECT (~2-5ms in-region). Any
@@ -59,20 +59,25 @@ func WithBalanceCheck(svc *billing.Service, minBalanceMicros int64) gin.HandlerF
 
 		orgID := installation.ExternalID
 
-		// Subscription turns debit $0, so gating them on prepaid credits blocks
-		// free traffic. Covers only the route's matching family (Codex can't serve
-		// /v1/messages) and is applied only to 402 paths below — CheckBalance still
-		// runs so an active override is detected and its context flag set.
-		subscriptionExempt := installation.UsageBypassEnabled &&
-			proxy.RequestPresentsCoveringSubscription(c.Request.Context(), c.Request.Header, c.FullPath())
+		// Subscription turns debit $0 (cost.subscription_served), so gating them
+		// on prepaid credits blocks free traffic. The exemption depends only on
+		// whether the request presents a subscription credential covering this
+		// route — RequestPresentsCoveringSubscription scopes to the matching
+		// family (Codex sub can't serve /v1/messages and vice versa). It is NOT
+		// gated on installation.UsageBypassEnabled: that flag controls the
+		// routing bypass lane (serve on the caller's own plan without going
+		// through the scorer), and conflating it with billing meant an org
+		// using Claude subscriptions through the router with usage_bypass
+		// disabled would still get 402'd once prepaid hit $0.
+		subscriptionExempt := proxy.RequestPresentsCoveringSubscription(c.Request.Context(), c.Request.Header, c.FullPath())
 
 		result, err := svc.CheckBalance(c.Request.Context(), orgID)
 		if err != nil {
 			if errors.Is(err, billing.ErrBalanceRowMissing) {
-				// A subscription usage-bypass org may never have had a balance
+				// A subscription-only org may never have had a balance
 				// row; its turns are free, so exempt them here too.
 				if subscriptionExempt {
-					log.Debug("Balance check skipped: subscription usage-bypass request, no balance row",
+					log.Debug("Balance check skipped: subscription request, no balance row",
 						"organization_id", orgID)
 					c.Next()
 					return
@@ -116,8 +121,8 @@ func WithBalanceCheck(svc *billing.Service, minBalanceMicros int64) gin.HandlerF
 		}
 
 		if result.BalanceMicros <= threshold {
-			// A subscription-covered org past the overdraft floor is not 402'd:
-			// 402ing here would block traffic that serves for free on the
+			// A subscription-covered request past the overdraft floor is not
+			// 402'd: 402ing here would block traffic that serves for free on the
 			// caller's own subscription. Flag it subscription-only so the proxy
 			// serves on the subscription (or refuses a would-be-paid turn) and
 			// never fails over to a paid model, bounding our spend at the floor.
