@@ -1,0 +1,19 @@
+install/npm/package.json
+  s_4f67cfe43ed600::t_1551ca33320fb5 3
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.16",
+  "base_commit_sha": "9589689330afa1a5261ba01bc831dec6ee8bbee9",
+  "prompts": {},
+  "sessions": {
+    "s_4f67cfe43ed600": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d569c22f-185b-4675-9acd-6f6b36d5149b",
+        "model": "gpt-5.5"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}
