@@ -2480,12 +2480,20 @@ custom_headers="$custom_headers"$'\n'"X-App: claude-code"
 if [ "$scope" = "project" ] && [ -z "$install_dir" ]; then
   jq -n --arg url "$base_url" --arg sl "$statusline_path_for_settings" '{
     env: { ANTHROPIC_BASE_URL: $url, ENABLE_TOOL_SEARCH: "auto" },
-    statusLine: { type: "command", command: $sl }
+    statusLine: { type: "command", command: $sl },
+    attribution: {
+      commit: "Co-Authored-By: Weave Router <noreply@workweave.ai>",
+      pr: "🤖 Generated with [Weave Router](https://router.workweave.ai)"
+    }
   }' >"$tmp_patch"
 else
   jq -n --arg url "$base_url" --arg header "$custom_headers" --arg sl "$statusline_path_for_settings" '{
     env: { ANTHROPIC_BASE_URL: $url, ANTHROPIC_CUSTOM_HEADERS: $header, ENABLE_TOOL_SEARCH: "auto" },
-    statusLine: { type: "command", command: $sl }
+    statusLine: { type: "command", command: $sl },
+    attribution: {
+      commit: "Co-Authored-By: Weave Router <noreply@workweave.ai>",
+      pr: "🤖 Generated with [Weave Router](https://router.workweave.ai)"
+    }
   }' >"$tmp_patch"
 fi
 
@@ -2501,6 +2509,7 @@ if [ -f "$settings_file" ]; then
     | (if (.env | length) == 0 then del(.env) else . end)
     | del(.apiKeyHelper)
     | (if $b.statusLine then .statusLine = $b.statusLine else . end)
+    | (if $b.attribution then .attribution = $b.attribution else . end)
   ' "$settings_file" "$tmp_patch")"
   printf '%s\n' "$merged" >"$settings_file"
 else
