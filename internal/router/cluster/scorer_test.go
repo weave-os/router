@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"math"
 	"strings"
 	"sync"
 	"testing"
@@ -455,6 +456,83 @@ func TestScorer_ReturnsErrOnDimMismatch(t *testing.T) {
 	_, err := s.Route(context.Background(), router.Request{PromptText: strings.Repeat("x", 100)})
 	require.Error(t, err)
 	assert.True(t, errors.Is(err, ErrClusterUnavailable))
+}
+
+// vecWith returns an EmbedDim vector whose index i holds v, so a single
+// corrupted lane can be placed at the start, middle, or end of the buffer.
+func vecWith(i int, v float32) []float32 {
+	out := make([]float32, EmbedDim)
+	out[0] = 1
+	out[i] = v
+	return out
+}
+
+func TestScorer_RejectsNonFiniteAndZeroNormEmbeddings(t *testing.T) {
+	nan := float32(math.NaN())
+	posInf := float32(math.Inf(1))
+	negInf := float32(math.Inf(-1))
+
+	tests := []struct {
+		name    string
+		vec     []float32
+		wantErr string
+	}{
+		{"all zero", make([]float32, EmbedDim), "zero norm"},
+		{"NaN at first index", vecWith(0, nan), "NaN at index 0"},
+		{"NaN mid buffer", vecWith(EmbedDim/2, nan), "NaN at index 384"},
+		{"NaN at last index", vecWith(EmbedDim-1, nan), "NaN at index 767"},
+		{"positive Inf", vecWith(3, posInf), "+Inf at index 3"},
+		{"negative Inf", vecWith(3, negInf), "-Inf at index 3"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := newScorerForTest(t, &fakeEmbedder{vec: tt.vec}, cfgForTest())
+
+			got, err := s.Route(context.Background(), router.Request{PromptText: strings.Repeat("x", 100)})
+			require.Error(t, err)
+			assert.True(t, errors.Is(err, ErrClusterUnavailable),
+				"a numerically corrupt embedding must fail closed, not route")
+			assert.Contains(t, err.Error(), tt.wantErr)
+			assert.Empty(t, got.Model, "no model may be selected from an invalid embedding")
+		})
+	}
+}
+
+// A tiny-but-nonzero vector still orders centroids correctly up to scale, so
+// the exact zero-norm check must not reject it.
+func TestScorer_RoutesTinyNonZeroEmbedding(t *testing.T) {
+	s := newScorerForTest(t, &fakeEmbedder{vec: vecWith(0, 1e-20)}, cfgForTest())
+
+	got, err := s.Route(context.Background(), router.Request{PromptText: strings.Repeat("x", 100)})
+	require.NoError(t, err)
+	assert.Equal(t, "claude-opus-4-7", got.Model)
+}
+
+func TestValidateEmbedding_ReportsRejectionReason(t *testing.T) {
+	tests := []struct {
+		name string
+		vec  []float32
+		want embeddingRejection
+	}{
+		{"wrong dimension", make([]float32, 7), rejectWrongDimension},
+		{"all zero", make([]float32, EmbedDim), rejectZeroNorm},
+		{"NaN", vecWith(1, float32(math.NaN())), rejectNaN},
+		{"positive Inf", vecWith(1, float32(math.Inf(1))), rejectPositiveInf},
+		{"negative Inf", vecWith(1, float32(math.Inf(-1))), rejectNegativeInf},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			reason, err := validateEmbedding(tt.vec, EmbedDim)
+			require.Error(t, err)
+			assert.Equal(t, tt.want, reason)
+		})
+	}
+
+	reason, err := validateEmbedding(makeOpusVec(), EmbedDim)
+	require.NoError(t, err)
+	assert.Empty(t, reason, "a valid embedding carries no rejection reason")
 }
 
 func TestScorer_TailTruncatesBeforeEmbed(t *testing.T) {

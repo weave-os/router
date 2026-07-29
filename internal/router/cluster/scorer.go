@@ -471,14 +471,18 @@ func (s *Scorer) Route(ctx context.Context, req router.Request) (router.Decision
 		)
 		return router.Decision{}, fmt.Errorf("embed failed after %dms: %w (cause: %v)", embedMs, ErrClusterUnavailable, err)
 	}
-	if len(vec) != s.centroids.Dim {
+	if reason, verr := validateEmbedding(vec, s.centroids.Dim); verr != nil {
 		log.Error(
-			"Cluster scorer: embedding dim mismatch; returning ErrClusterUnavailable",
+			"Cluster scorer: invalid embedding; returning ErrClusterUnavailable",
+			"reason", reason,
+			"err", verr,
+			"embedder_id", s.embed.ID(),
 			"got_dim", len(vec),
 			"want_dim", s.centroids.Dim,
 			"embed_ms", embedMs,
+			"requested_model", req.RequestedModel,
 		)
-		return router.Decision{}, fmt.Errorf("embedding dim %d != expected %d: %w", len(vec), s.centroids.Dim, ErrClusterUnavailable)
+		return router.Decision{}, fmt.Errorf("%v: %w", verr, ErrClusterUnavailable)
 	}
 
 	// Re-walk multi-binding rows under the per-request EnabledProviders set: a
@@ -900,6 +904,50 @@ func (s *Scorer) lookupCandidate(model string) *DeployedEntry {
 		}
 	}
 	return nil
+}
+
+// embeddingRejection categorizes why a post-embed vector was refused. It is
+// logged as a bare field so rejections can be counted by reason without
+// recording vector values or prompt content.
+type embeddingRejection string
+
+const (
+	rejectWrongDimension embeddingRejection = "wrong_dimension"
+	rejectNaN            embeddingRejection = "nan"
+	rejectPositiveInf    embeddingRejection = "positive_inf"
+	rejectNegativeInf    embeddingRejection = "negative_inf"
+	rejectZeroNorm       embeddingRejection = "zero_norm"
+)
+
+// validateEmbedding rejects vectors that carry no meaningful cosine ordering.
+// A successful Embed is not sufficient evidence of a usable vector: hugot's
+// WithNormalization floors the denominator at 1e-12, so an all-zero vector
+// stays zero and NaN/Inf stay non-finite. Both then reach topPNearest, where a
+// zero vector ties every centroid at similarity 0 (making artifact order an
+// unintended routing feature) and a non-finite vector breaks the comparator's
+// strict weak ordering. A tiny-but-nonzero vector is deliberately accepted —
+// it still orders centroids correctly up to scale.
+func validateEmbedding(vec []float32, wantDim int) (embeddingRejection, error) {
+	if len(vec) != wantDim {
+		return rejectWrongDimension, fmt.Errorf("embedding dim %d != expected %d", len(vec), wantDim)
+	}
+	var normSq float64
+	for i, v := range vec {
+		x := float64(v)
+		switch {
+		case math.IsNaN(x):
+			return rejectNaN, fmt.Errorf("embedding contains NaN at index %d", i)
+		case math.IsInf(x, 1):
+			return rejectPositiveInf, fmt.Errorf("embedding contains +Inf at index %d", i)
+		case math.IsInf(x, -1):
+			return rejectNegativeInf, fmt.Errorf("embedding contains -Inf at index %d", i)
+		}
+		normSq += x * x
+	}
+	if normSq == 0 {
+		return rejectZeroNorm, errors.New("embedding has zero norm")
+	}
+	return "", nil
 }
 
 // topPNearest returns indices of the p centroids closest to vec by
