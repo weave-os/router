@@ -373,11 +373,8 @@ func TestProxyMessages_FailedBaselineReportsAnthropicProvider(t *testing.T) {
 	assert.Equal(t, providers.ProviderAnthropic, row.DecisionProvider, "failed-baseline provider must match the baseline model, not the OSS primary")
 }
 
-// A capability rejection is categorically different from an outage: the upstream
-// has stated the routed model cannot serve this request shape at all, so there
-// is nothing to retry and the client would otherwise get the raw provider 400.
-// The authoritative-per-turn contract covers which model the policy PICKS, not
-// whether a provably-unservable request may be rescued.
+// TestProxyMessages_AuthoritativePolicyFailsOverOnCapabilityRejection verifies
+// that a capability rejection rescues via baseline even under authoritative-per-turn policy.
 func TestProxyMessages_AuthoritativePolicyFailsOverOnCapabilityRejection(t *testing.T) {
 	var (
 		mu                     sync.Mutex

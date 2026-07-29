@@ -2714,10 +2714,8 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	baselineModel := s.baselineFor(feats.Model)
 	baselineCatalog, baselineKnown := catalog.ByID(baselineModel)
 	_, anthropicExcluded := s.excludedProvidersForRequest(ctx)[providers.ProviderAnthropic]
-	// baselineViable omits the authoritative-per-turn term: a policy that owns
-	// per-turn model choice still cannot be allowed to strand a request its
-	// chosen model provably cannot serve (see the capability-rejection rescue
-	// below). Everything else about the fallback has to hold either way.
+	// baselineViable omits authoritative-per-turn: that contract governs which
+	// model the policy picks, not whether a provably-unservable request can be rescued.
 	baselineViable := !agentShadowMode &&
 		decision.Reason != translate.ReasonUserForceModel &&
 		s.shouldFailover(ctx) &&
@@ -2770,11 +2768,8 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	// telemetry reflects the binding that actually served.
 	baselineFailoverUsed := false
 	baselineAttempted := false
-	// A capability rejection is not a routing-policy question: the upstream has
-	// stated the routed model cannot serve this request shape at all, so no
-	// number of retries on that model helps and the client would otherwise get
-	// the raw provider 400. Rescue it on the requested Anthropic model even when
-	// the policy owns per-turn selection.
+	// Capability rejection means the routed model cannot serve this shape at all —
+	// rescue via baseline even when the policy owns per-turn selection.
 	capabilityRejected := providers.IsUpstreamCapabilityRejection(proxyErr)
 	if capabilityRejected {
 		log.Error("Upstream rejected the request as unsupported by the routed model",

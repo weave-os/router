@@ -67,10 +67,8 @@ func TestIsRetryable_RequestDeadlineExceeded(t *testing.T) {
 	assert.False(t, providers.IsRetryable(err))
 }
 
-// A capability rejection must be recognised from the upstream's prose, and must
-// NOT be classified as retryable — re-sending the same model to a different
-// provider gets the same rejection, so the only useful response is a different
-// model.
+// TestIsUpstreamCapabilityRejection checks phrase matching and asserts that
+// capability rejections are neither retryable nor model-not-found.
 func TestIsUpstreamCapabilityRejection(t *testing.T) {
 	cases := []struct {
 		name   string
