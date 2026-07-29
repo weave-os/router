@@ -27,9 +27,7 @@ import (
 const (
 	healthTimeout    = 1 * time.Second
 	readinessTimeout = 2 * time.Second
-	// A cache miss on the client-facing key probe costs three sequential
-	// Postgres round trips, so a 1s budget turned an ordinary cold cache into a
-	// rejected-credential verdict for the caller.
+	// Cold-cache key probe costs 3 sequential Postgres round trips; 1s made that a credential rejection.
 	validateTimeout = 5 * time.Second
 
 	messagesTimeout       = 600 * time.Second

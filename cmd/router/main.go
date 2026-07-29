@@ -92,12 +92,13 @@ func main() {
 	}
 	defer pool.Close()
 
-	// pgxpool connects lazily, so without this the first serving request pays to
-	// build the pool's first connection inside its own (short) budget. Warn-only:
-	// a DB that is briefly unreachable at boot must not stop the process from
-	// coming up, since every handler already degrades on its own.
-	if err := pool.Ping(context.Background()); err != nil {
-		logger.Warn("Postgres ping at boot failed; early requests may be slow", "err", err)
+	// pgxpool connects lazily; first request otherwise pays to build the pool inside
+	// its own budget. Bounded and warn-only so an unreachable DB can't stall boot.
+	pingCtx, pingCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	pingErr := pool.Ping(pingCtx)
+	pingCancel()
+	if pingErr != nil {
+		logger.Warn("Postgres ping at boot failed; early requests may be slow", "err", pingErr)
 	}
 
 	// Gates the self-hoster dashboard + /admin/v1/* API. Defaults to selfhosted
