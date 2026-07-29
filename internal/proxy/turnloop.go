@@ -435,8 +435,32 @@ func (s *Service) runTurnLoop(
 	// routing miss, but DisabledProviders on that same row must still steer
 	// the scorer away from the just-struck-out provider on this very turn --
 	// otherwise the eviction only prevents re-anchoring, not re-selection.
-	if len(pin.DisabledProviders) > 0 {
-		res.SessionDisabledProviders = pin.DisabledProviders
+	disabledProviders := pin.DisabledProviders
+	// A user-forced pin (/force-model) targeting exactly a struck-out
+	// provider must still be able to retry it: the circuit breaker exists to
+	// steer AUTOMATIC re-routing away from an overloaded provider, not to
+	// silently override the user's explicit choice -- Bugbot correctly
+	// flagged that Upsert never clears disabled_providers, so a forced pin
+	// re-hitting a previously-disabled provider would otherwise fail
+	// providerEligible below and silently fall through to normal routing.
+	// /unforce-model remains the escape hatch out of a bad forced pin.
+	// Loop-escalation is deliberately excluded here: it's an automatic
+	// safety pin (tool-call loop detected), not a user override, so it must
+	// still respect the breaker like any other automatic decision. Every
+	// other struck-out provider stays excluded, so a fresh-routing fallback
+	// (if this pin turns out ineligible on some other dimension below)
+	// still avoids them.
+	if pinFound && pin.Provider != "" && isUserForcedReason(pin.Reason) {
+		filtered := make([]string, 0, len(disabledProviders))
+		for _, p := range disabledProviders {
+			if p != pin.Provider {
+				filtered = append(filtered, p)
+			}
+		}
+		disabledProviders = filtered
+	}
+	if len(disabledProviders) > 0 {
+		res.SessionDisabledProviders = disabledProviders
 		// nil EnabledProviders means "unrestricted" elsewhere in this file
 		// (see forcedPinEligible); there's no concrete universe to subtract
 		// from here, so leave it alone rather than manufacture an empty map
@@ -446,7 +470,7 @@ func (s *Service) runTurnLoop(
 			for p := range req.EnabledProviders {
 				filtered[p] = struct{}{}
 			}
-			for _, p := range pin.DisabledProviders {
+			for _, p := range disabledProviders {
 				delete(filtered, p)
 			}
 			req.EnabledProviders = filtered

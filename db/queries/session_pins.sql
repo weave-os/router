@@ -80,6 +80,16 @@ ON CONFLICT (session_key, role) DO UPDATE SET
     WHEN router.session_pins.pinned_model = EXCLUDED.pinned_model
       THEN router.session_pins.consecutive_upstream_errors
     ELSE 0
+  END,
+  -- Mirrors consecutive_upstream_errors above: a stray 529 strike must not
+  -- survive an unrelated pin rewrite (degenerate eviction, loop-break, 4xx
+  -- eviction, planner switch) onto a different model, or one 529 on the
+  -- fresh pin could immediately hit the two-strike threshold instead of
+  -- requiring two genuine consecutive strikes on the SAME served provider.
+  consecutive_overload_errors = CASE
+    WHEN router.session_pins.pinned_model = EXCLUDED.pinned_model
+      THEN router.session_pins.consecutive_overload_errors
+    ELSE 0
   END;
 
 -- Records the previous turn's upstream token usage on an existing pin

@@ -11,43 +11,20 @@ import (
 	"github.com/google/uuid"
 )
 
-// providerOverloadedStatus is the HTTP status Anthropic's SSE prelude
-// synthesizes for an in-stream `overloaded_error` event
-// (anthropic.anthropicOverloadedStatus). It is the only "provider is out of
-// capacity, not just a transient 5xx" signal in this codebase today — other
-// 5xx/429/408 are ordinary transient faults already handled by
-// dispatchWithFallback's retry/failover loop.
+// providerOverloadedStatus is the HTTP status Anthropic synthesizes for an
+// in-stream overloaded_error; distinct from ordinary 5xx/429 transient faults.
 const providerOverloadedStatus = 529
 
 // providerOverloadStrikeThreshold mirrors pinEvictionStrikeThreshold: two
-// consecutive turns that exhaust with a client-visible 529 on the same
-// pinned provider before it's struck out for the rest of the session. One
-// tolerates a single blip that clears on the next turn; a second confirms
-// the provider is genuinely out of capacity right now.
+// consecutive 529-exhausted turns before the provider is struck out for the session.
 const providerOverloadStrikeThreshold = 2
 
-// maybeDisableProviderAfterOverload applies the two-strike overload policy
-// for a turn run against a sticky pin: a successful turn resets the strike
-// counter, a turn that exhausts with a client-visible 529 increments it, and
-// hitting providerOverloadStrikeThreshold adds finalProvider to the pin's
-// DisabledProviders set and evicts the pin so the next turn re-routes around
-// it.
-//
-// finalProvider is the binding that actually served (or last attempted) this
-// turn — dispatchWithFallback may have already walked away from the
-// routing decision's original provider before exhausting, and it's the
-// provider that just proved unreliable, not necessarily decision.Provider,
-// that must be struck out.
-//
-// No-ops when there's no decision history yet (!stickyHit), no addressable
-// pin row (zero session_key/installation_id), the pin was user-forced (user
-// keeps /unforce-model as the escape hatch), or the error isn't a 529.
-// Ordinary retryable 5xx/429/408 from other providers already have
-// dispatchWithFallback's retry/failover and don't touch this counter — a
-// generic "any 5xx trips this" policy would strike out a provider for one
-// unlucky blip instead of confirmed sustained overload. Errors from the
-// increment/disable/upsert are logged and swallowed since this is
-// best-effort and must not change the client-visible outcome.
+// maybeDisableProviderAfterOverload applies the two-strike overload policy for
+// a sticky-pin turn: success resets the counter; a 529 exhaustion increments it;
+// hitting providerOverloadStrikeThreshold appends finalProvider to
+// DisabledProviders and evicts the pin so the next turn re-routes around it.
+// No-ops when !stickyHit, zero session key, uuid.Nil installation, user-forced
+// pin, or non-529 error.
 func (s *Service) maybeDisableProviderAfterOverload(
 	ctx context.Context,
 	stickyHit bool,

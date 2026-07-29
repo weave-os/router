@@ -322,12 +322,9 @@ type InstallationExcludedModelsContextKey struct{}
 // installation's provider exclusion list. Carried as []string.
 type InstallationExcludedProvidersContextKey struct{}
 
-// SessionDisabledProvidersContextKey is the context key for providers the
-// current session's pin has struck out after repeated 529 exhaustion
-// (turnLoopResult.SessionDisabledProviders / sessionpin.Pin.DisabledProviders).
-// Carried as []string. Stashed by each entry point right after runTurnLoop
-// returns, so resolveBindingsForDispatch's failover walk also honors the
-// exclusion, not just the scorer call runTurnLoop already applied it to.
+// SessionDisabledProvidersContextKey carries providers struck out by repeated
+// 529 exhaustion ([]string). Stashed after runTurnLoop so
+// resolveBindingsForDispatch's failover walk honors the exclusion too.
 type SessionDisabledProvidersContextKey struct{}
 
 // InstallationPreferredModelsContextKey is the context key for the authed
@@ -643,12 +640,8 @@ func sessionDisabledProvidersFromContext(ctx context.Context) []string {
 	return out
 }
 
-// excludedProvidersForRequest returns the request's provider exclusion set:
-// the deployment-wide env override or per-installation list, plus (always,
-// regardless of which of those fired) any providers this session has struck
-// out for repeated 529 exhaustion — an orthogonal, session-scoped signal
-// that must apply on top of the operator/installation-level exclusions, not
-// instead of them.
+// excludedProvidersForRequest merges the deployment/installation exclusion list
+// with any providers this session has struck out for repeated 529 exhaustion.
 func (s *Service) excludedProvidersForRequest(ctx context.Context) map[string]struct{} {
 	var base map[string]struct{}
 	if s.excludedProvidersOverride != nil {

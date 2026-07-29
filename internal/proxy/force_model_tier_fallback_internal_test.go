@@ -209,6 +209,57 @@ func TestRunTurnLoop_ForcedModelOverridesHardPin(t *testing.T) {
 	assert.Empty(t, fr.captured, "a forced pin must not invoke the scorer")
 }
 
+// Regression (Bugbot): a user-forced pin targeting exactly a provider this
+// session already struck out for repeated 529 exhaustion must still serve
+// through the fast path -- the circuit breaker exists to steer AUTOMATIC
+// re-routing away from an overloaded provider, not to silently override an
+// explicit /force-model choice. Before the fix, DisabledProviders was
+// subtracted from EnabledProviders unconditionally, so a forced pin's own
+// eligibility check (providerEligible) would see its provider excluded and
+// fall through to normal routing, ignoring the user's directive.
+func TestRunTurnLoop_ForcedModelServesDespiteDisabledProvider(t *testing.T) {
+	store := &forcedPinStore{pin: sessionpin.Pin{
+		Provider:          providers.ProviderAnthropic,
+		Model:             "claude-opus-4-8",
+		Reason:            translate.ReasonUserForceModel,
+		PinnedUntil:       time.Now().Add(time.Hour),
+		DisabledProviders: []string{providers.ProviderAnthropic},
+	}}
+	fr := &tierProbeRouter{available: map[string]struct{}{"claude-haiku-4-5": {}}}
+	svc := NewService(
+		fr,
+		nil,
+		nil,
+		false,
+		nil,
+		store,
+		false,
+		providers.ProviderAnthropic,
+		"claude-haiku-4-5",
+		nil,
+	)
+
+	env, err := translate.ParseAnthropic([]byte(`{
+		"model":"claude-opus-4-8",
+		"messages":[{"role":"user","content":"hello"}]
+	}`))
+	require.NoError(t, err)
+	feats := env.RoutingFeatures(false)
+
+	res, err := svc.runTurnLoop(context.Background(), env, feats, "key-1", uuid.New(), "", nil, router.Request{
+		RequestedModel:   feats.Model,
+		EnabledProviders: map[string]struct{}{providers.ProviderAnthropic: {}},
+	})
+	require.NoError(t, err)
+
+	assert.Equal(t, "claude-opus-4-8", res.Decision.Model,
+		"force-model must serve through the pinned provider despite the session-level disable")
+	assert.Equal(t, providers.ProviderAnthropic, res.Decision.Provider)
+	assert.Equal(t, translate.ReasonUserForceModel, res.Decision.Reason)
+	assert.True(t, res.StickyHit)
+	assert.Empty(t, fr.captured, "a forced pin must not invoke the scorer")
+}
+
 func TestForceModelHeader_OverridesHardPin(t *testing.T) {
 	store := &overwritingPinStore{pin: sessionpin.Pin{
 		Provider:    providers.ProviderAnthropic,

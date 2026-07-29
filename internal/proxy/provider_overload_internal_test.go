@@ -177,11 +177,8 @@ func TestMaybeDisableProviderAfterOverload_SuccessResets(t *testing.T) {
 	assert.Empty(t, store.upserts)
 }
 
-// Ordinary retryable errors (exhausted 5xx/429/408 from any provider) must
-// not touch the overload counter — dispatchWithFallback's retry/failover
-// already covers those, and treating every retryable exhaustion as a
-// overload strike would disable a provider on one unlucky blip instead of
-// confirmed sustained overload.
+// Non-529 exhaustion (5xx/429/408) must not touch the overload counter;
+// dispatchWithFallback's retry/failover already handles those.
 func TestMaybeDisableProviderAfterOverload_NonOverloadStatusIgnored(t *testing.T) {
 	for _, status := range []int{http.StatusRequestTimeout, http.StatusTooManyRequests, http.StatusInternalServerError, http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusBadRequest} {
 		store := &overloadStubPinStore{incrementNext: []int{99}}
