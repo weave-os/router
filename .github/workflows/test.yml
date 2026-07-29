@@ -106,6 +106,19 @@ jobs:
       - name: Run tests
         run: go test -count=1 ./...
 
+  # Separate job: needs no Go toolchain, Postgres, or network. The statusline is
+  # shipped to users as a standalone script, so a regression there is invisible
+  # to `go test`.
+  test-statusline:
+    name: Test cc-statusline
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run statusline tests
+        run: make test-statusline
+
   test-hmm-sidecar:
     name: Test frozen HMM sidecar
     runs-on: ubuntu-latest

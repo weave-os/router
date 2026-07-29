@@ -9,7 +9,7 @@
 #   (and .env.local if present). Start Postgres via `make db` or point
 #   DATABASE_URL at any Postgres you already have running.
 
-.PHONY: generate generate-statusline build test test-verbose initdb migrate-up migrate-down migrate-create seed setup full-setup db dev check fmt vet precommit install-hooks help install-cc uninstall-cc up up-hmm down down-hmm logs
+.PHONY: generate generate-statusline build test test-verbose test-statusline initdb migrate-up migrate-down migrate-create seed setup full-setup db dev check fmt vet precommit install-hooks help install-cc uninstall-cc up up-hmm down down-hmm logs
 
 # Load DATABASE_URL from .env files (matches docker-compose defaults).
 -include .env.development
@@ -34,6 +34,9 @@ test: ## Run all tests
 
 test-verbose: ## Run all tests with verbose output
 	go test -v ./...
+
+test-statusline: ## Run the cc-statusline.sh regression tests (offline)
+	@bash install/tests/cc-statusline_test.sh
 
 initdb: ## Create the database and router schema (idempotent)
 	@go run ./cmd/initdb
@@ -173,7 +176,7 @@ fmt: ## Check gofmt (fails on unformatted files)
 vet: ## Run go vet
 	go vet ./...
 
-precommit: fmt vet build test ## Fast pre-commit check (no codegen, no DB)
+precommit: fmt vet build test test-statusline ## Fast pre-commit check (no codegen, no DB)
 
 install-hooks: ## Install git pre-commit hook
 	@HOOK_DIR=$$(git rev-parse --git-common-dir)/hooks; \
@@ -182,7 +185,7 @@ install-hooks: ## Install git pre-commit hook
 	chmod +x "$$HOOK_DIR/pre-commit"; \
 	echo "Pre-commit hook installed at $$HOOK_DIR/pre-commit"
 
-check: generate fmt vet build test ## Full CI-equivalent check
+check: generate fmt vet build test test-statusline ## Full CI-equivalent check
 	@if ! git diff --quiet internal/sqlc/; then \
 		echo "error: sqlc generation produced uncommitted changes"; \
 		git diff internal/sqlc/; \

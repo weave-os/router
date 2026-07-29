@@ -2007,9 +2007,12 @@ set -euo pipefail
 #
 # $1 is an optional stamp suffix, so a caller refreshing for a reason other than
 # "the interval elapsed" rate-limits on its own clock rather than sharing the
-# periodic check's budget.
+# periodic check's budget. $2=1 drops the stamp again if the download fails, for
+# callers recovering from a known-bad state where waiting out the full interval
+# on a transient network error is worse than retrying next turn.
 weave_self_refresh() {
   local stamp_suffix="${1:-}"
+  local retry_on_fail="${2:-0}"
 
   [ "${WEAVE_STATUSLINE_UPDATE:-1}" = "0" ] && return 0
   command -v curl >/dev/null 2>&1 || return 0
@@ -2070,6 +2073,11 @@ weave_self_refresh() {
       fi
     else
       rm -f "$tmp"
+      # A download that never landed shouldn't spend the caller's whole
+      # interval; drop the stamp so the next turn can try again.
+      if [ "$retry_on_fail" = "1" ]; then
+        rm -f "$stamp"
+      fi
     fi
   ) >/dev/null 2>&1 &
   disown 2>/dev/null || true
@@ -2405,7 +2413,7 @@ weave_refresh_on_price_miss() {
 
   local model_slug
   model_slug="$(printf '%s' "$missing" | tr -c 'A-Za-z0-9._-' '_')"
-  weave_self_refresh ".miss.${model_slug}"
+  weave_self_refresh ".miss.${model_slug}" 1
 }
 weave_refresh_on_price_miss "$requested_norm" "$routed" 2>/dev/null || true
 
