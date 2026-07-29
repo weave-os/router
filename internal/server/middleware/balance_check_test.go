@@ -246,8 +246,7 @@ func TestWithBalanceCheck_SkipsWhenInstallationMissing(t *testing.T) {
 func TestWithBalanceCheck_ExemptsSubscriptionRequest(t *testing.T) {
 	// A $0 balance must still pass when the request carries a Claude subscription
 	// bearer — that turn is served on the caller's own plan and debits $0, so
-	// prepaid credits don't apply. UsageBypassEnabled is irrelevant here; what
-	// matters is that the turn can serve on the caller's subscription.
+	// prepaid credits don't apply.
 	repo := &stubBillingRepo{balance: 0}
 	setInstall := func(c *gin.Context) { withInstallation(c, "org_sub") }
 	w, reached := runMiddlewareWith(t, repo, 0, "/v1/messages", setInstall, "Bearer sk-ant-oat-abc123")
