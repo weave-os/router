@@ -75,6 +75,17 @@ count_stamps() { # count_stamps <cache_home> [<name_filter>]
   fi
 }
 
+# wait_for re-invokes its argv on every poll, so a value that changes over time
+# has to be recomputed inside the callee. Interpolating `$(...)` at the call site
+# freezes it at its first value and the wait can only ever time out.
+stamp_count_is() { # stamp_count_is <cache_home> <filter> <expected>
+  [ "$(count_stamps "$1" "$2")" = "$3" ]
+}
+
+line_count_at_least() { # line_count_at_least <file> <n>
+  [ "$(wc -l < "$1" | tr -d ' ')" -ge "$2" ]
+}
+
 # curl must speak file:// for the offline fixtures to work. Fail loudly rather
 # than silently skipping the download-dependent cases.
 probe="$work/probe.txt"
@@ -164,7 +175,7 @@ fi
 c="$work/c3"; mkdir -p "$c/cache"; make_installed "$c/cc.sh" stale
 seed_periodic_stamp "$c/cache" "$c/cc.sh"
 render "$c/cc.sh" "$c/cache" "file://$work/does-not-exist.sh" "$STALE_MODEL" >/dev/null
-if wait_for 20 test "$(count_stamps "$c/cache" .miss.)" = 0; then
+if wait_for 20 stamp_count_is "$c/cache" .miss. 0; then
   ok "failed download does not consume the retry interval"
 else
   no "failed download does not consume the retry interval" "miss stamp removed" "stamp still present"
@@ -206,7 +217,7 @@ curl_log="$c/targets.log"; : > "$curl_log"
 echo "{\"model\":{\"id\":\"$STALE_MODEL\"},\"transcript_path\":\"$transcript\"}" \
   | PATH="$c/bin:$PATH" WEAVE_TEST_CURL_LOG="$curl_log" XDG_CACHE_HOME="$c/cache" \
     WEAVE_STATUSLINE_URL="file://$upstream" bash "$c/cc.sh" >/dev/null 2>&1
-wait_for 20 test "$(wc -l < "$curl_log" | tr -d ' ')" -ge 2 || true
+wait_for 20 line_count_at_least "$curl_log" 2
 downloads="$(wc -l < "$curl_log" | tr -d ' ')"
 distinct="$(sort -u "$curl_log" | wc -l | tr -d ' ')"
 check "cold cache fires both the periodic and price-miss refresh" "$downloads" 2
