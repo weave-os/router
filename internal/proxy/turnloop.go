@@ -170,10 +170,8 @@ type handoverOutcome struct {
 	SummaryUsage handover.Usage
 }
 
-// hasSubAgentOverride reports whether a complete sub-agent routing override
-// is configured. Both fields must be set; a partial override (e.g. from a
-// caller bypassing WithSubAgentOverride's pairing contract) is treated as
-// unconfigured so it doesn't hard-pin a turn the scorer should otherwise see.
+// hasSubAgentOverride reports whether both sub-agent override fields are set;
+// a partial override is treated as unconfigured.
 func (s *Service) hasSubAgentOverride() bool {
 	return s.subAgentProvider != "" && s.subAgentModel != ""
 }
