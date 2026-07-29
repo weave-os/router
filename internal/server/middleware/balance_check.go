@@ -59,16 +59,10 @@ func WithBalanceCheck(svc *billing.Service, minBalanceMicros int64) gin.HandlerF
 
 		orgID := installation.ExternalID
 
-		// Subscription turns debit $0 (cost.subscription_served), so gating them
-		// on prepaid credits blocks free traffic. The exemption depends only on
-		// whether the request presents a subscription credential covering this
-		// route — RequestPresentsCoveringSubscription scopes to the matching
-		// family (Codex sub can't serve /v1/messages and vice versa). It is NOT
-		// gated on installation.UsageBypassEnabled: that flag controls the
-		// routing bypass lane (serve on the caller's own plan without going
-		// through the scorer), and conflating it with billing meant an org
-		// using Claude subscriptions through the router with usage_bypass
-		// disabled would still get 402'd once prepaid hit $0.
+		// Subscription turns debit $0 (cost.subscription_served), so gating them on
+		// prepaid credits is wrong. The check depends only on whether the request
+		// presents a covering credential — not on UsageBypassEnabled, which controls
+		// the routing bypass lane, not the billing gate.
 		subscriptionExempt := proxy.RequestPresentsCoveringSubscription(c.Request.Context(), c.Request.Header, c.FullPath())
 
 		result, err := svc.CheckBalance(c.Request.Context(), orgID)
