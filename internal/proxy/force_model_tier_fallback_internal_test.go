@@ -65,6 +65,15 @@ func (s *forcedPinStore) IncrementUpstreamErrors(context.Context, [sessionpin.Se
 func (s *forcedPinStore) ResetUpstreamErrors(context.Context, [sessionpin.SessionKeyLen]byte, string) error {
 	return nil
 }
+func (s *forcedPinStore) IncrementOverloadErrors(context.Context, [sessionpin.SessionKeyLen]byte, string) (int, error) {
+	return 0, nil
+}
+func (s *forcedPinStore) ResetOverloadErrors(context.Context, [sessionpin.SessionKeyLen]byte, string) error {
+	return nil
+}
+func (s *forcedPinStore) DisableProvider(context.Context, [sessionpin.SessionKeyLen]byte, string, string) error {
+	return nil
+}
 func (s *forcedPinStore) SweepExpired(context.Context) error { return nil }
 
 type overwritingPinStore struct {
@@ -94,6 +103,15 @@ func (s *overwritingPinStore) IncrementUpstreamErrors(context.Context, [sessionp
 	return 0, nil
 }
 func (s *overwritingPinStore) ResetUpstreamErrors(context.Context, [sessionpin.SessionKeyLen]byte, string) error {
+	return nil
+}
+func (s *overwritingPinStore) IncrementOverloadErrors(context.Context, [sessionpin.SessionKeyLen]byte, string) (int, error) {
+	return 0, nil
+}
+func (s *overwritingPinStore) ResetOverloadErrors(context.Context, [sessionpin.SessionKeyLen]byte, string) error {
+	return nil
+}
+func (s *overwritingPinStore) DisableProvider(context.Context, [sessionpin.SessionKeyLen]byte, string, string) error {
 	return nil
 }
 func (s *overwritingPinStore) SweepExpired(context.Context) error { return nil }

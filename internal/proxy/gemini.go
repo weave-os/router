@@ -115,6 +115,9 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 		log.Error("Routing failed for Gemini request", "err", err, "route_ms", routeMs, "requested_model", feats.Model, "total_input_tokens", feats.Tokens)
 		return err
 	}
+	if len(routeRes.SessionDisabledProviders) > 0 {
+		ctx = context.WithValue(ctx, SessionDisabledProvidersContextKey{}, routeRes.SessionDisabledProviders)
+	}
 	routeRes.SuggestionMode = r.Header.Get("x-weave-suggestion-mode") == "true"
 	decision := routeRes.Decision
 	s.firePolicyShadowForServingDecision(ctx, decision, routeRequest)
@@ -228,7 +231,7 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 		}
 		return err
 	}
-	_, proxyErr := s.dispatchWithFallback(ctx, failoverInputs{
+	winnerIdx, proxyErr := s.dispatchWithFallback(ctx, failoverInputs{
 		w:               contentSink,
 		buf:             preludeBuf,
 		initialDecision: decision,
@@ -237,6 +240,10 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 		flushErr:        flushBufferedIfPresent,
 	})
 	proxyMs := time.Since(proxyStart).Milliseconds()
+	finalProvider := decision.Provider
+	if winnerIdx >= 0 && winnerIdx < len(bindings) {
+		finalProvider = bindings[winnerIdx].Provider
+	}
 
 	in, out := extractor.Tokens()
 	cacheCreation, cacheRead := extractor.CacheTokens()
@@ -281,11 +288,17 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 
 	// Persist last-turn usage to the pin row so the next turn's planner
 	// has cache-hit evidence. Off the request path; drops on saturation.
-	s.recordTurnUsage(routeRes, decision.Provider, decision.Model, in, out, cacheCreation, cacheRead)
+	s.recordTurnUsage(routeRes, finalProvider, decision.Model, in, out, cacheCreation, cacheRead)
 
 	if proxyErr == nil {
 		s.emitBilling(ctx, requestID, externalID, decision, actPricing, routeRes, in, out, cacheCreation, cacheRead)
 	}
+
+	// Two-strike provider disable: see ProxyMessages for the rationale.
+	// Native Gemini rarely produces a real 529 (it isn't a Google API
+	// status), but this covers a future translate-layer path that
+	// synthesizes one, and costs nothing when it never fires.
+	s.maybeDisableProviderAfterOverload(ctx, stickyHit, proxyErr, finalProvider, decision.Reason, installationID, routeRes.SessionKey, stickyStateRole(routeRes))
 
 	log.Info("ProxyGeminiGenerateContent complete", append([]any{"requested_model", feats.Model, "baseline_model", s.baselineFor(feats.Model), "decision_model", decision.Model, "decision_provider", decision.Provider, "decision_reason", decision.Reason, "embedded_tokens", len(promptText) / 4, "total_input_tokens", feats.Tokens, "has_tools", feats.HasTools, "embed_input", embedInput, "sticky_hit", stickyHit, "pin_tier", pinTier, "turn_type", string(tt), "route_ms", routeMs, "proxy_ms", proxyMs, "proxy_err", proxyErr, "upstream_status", upstreamStatus(proxyErr)}, plannerLogFields(routeRes)...)...)
 	s.reportPolicyOutcome(ctx, routeRes, decision, decision.Provider, feats.Tokens, in, out, cacheCreation, cacheRead, routeMs, proxyMs, proxyErr, nil)

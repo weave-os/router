@@ -429,6 +429,8 @@ type RouterSessionPin struct {
 	HasEverSwitched           bool
 	PairedProvider            string
 	PairedModel               string
+	ConsecutiveOverloadErrors int32
+	DisabledProviders         []string
 }
 
 // Shadow-mode spiral (death-march) detections: log-only fire-rate corpus measured on live traffic before escalation is armed

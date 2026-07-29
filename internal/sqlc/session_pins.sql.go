@@ -12,8 +12,45 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const disableSessionPinProvider = `-- name: DisableSessionPinProvider :exec
+UPDATE router.session_pins
+SET disabled_providers = CASE
+      WHEN $1::varchar = ANY(disabled_providers) THEN disabled_providers
+      ELSE array_append(disabled_providers, $1::varchar)
+    END,
+    consecutive_overload_errors = 0
+WHERE session_key = $2::bytea
+  AND role        = $3::varchar
+`
+
+type DisableSessionPinProviderParams struct {
+	Provider   string
+	SessionKey []byte
+	Role       string
+}
+
+// Appends a provider to disabled_providers (deduped) and resets the
+// overload strike counter in the same statement, fired once the
+// two-strike threshold is reached. disabled_providers only grows for the
+// life of this pin row -- UpsertSessionPin's ON CONFLICT update never
+// touches it, so a struck-out provider stays disabled until the pin
+// itself is evicted/expires, with no separate time-based cooldown.
+//
+//	UPDATE router.session_pins
+//	SET disabled_providers = CASE
+//	      WHEN $1::varchar = ANY(disabled_providers) THEN disabled_providers
+//	      ELSE array_append(disabled_providers, $1::varchar)
+//	    END,
+//	    consecutive_overload_errors = 0
+//	WHERE session_key = $2::bytea
+//	  AND role        = $3::varchar
+func (q *Queries) DisableSessionPinProvider(ctx context.Context, arg DisableSessionPinProviderParams) error {
+	_, err := q.db.Exec(ctx, disableSessionPinProvider, arg.Provider, arg.SessionKey, arg.Role)
+	return err
+}
+
 const getSessionPin = `-- name: GetSessionPin :one
-SELECT session_key, role, installation_id, pinned_provider, pinned_model, decision_reason, turn_count, pinned_until, first_pinned_at, last_seen_at, last_input_tokens, last_cached_read_tokens, last_cached_write_tokens, last_output_tokens, last_turn_ended_at, consecutive_upstream_errors, last_served_model, has_ever_switched, paired_provider, paired_model
+SELECT session_key, role, installation_id, pinned_provider, pinned_model, decision_reason, turn_count, pinned_until, first_pinned_at, last_seen_at, last_input_tokens, last_cached_read_tokens, last_cached_write_tokens, last_output_tokens, last_turn_ended_at, consecutive_upstream_errors, last_served_model, has_ever_switched, paired_provider, paired_model, consecutive_overload_errors, disabled_providers
 FROM router.session_pins
 WHERE session_key = $1::bytea
   AND role        = $2::varchar
@@ -31,7 +68,7 @@ type GetSessionPinParams struct {
 // last_turn_ended_at carry the previous turn's upstream usage; the
 // planner reads them to weigh switch EV against eviction cost.
 //
-//	SELECT session_key, role, installation_id, pinned_provider, pinned_model, decision_reason, turn_count, pinned_until, first_pinned_at, last_seen_at, last_input_tokens, last_cached_read_tokens, last_cached_write_tokens, last_output_tokens, last_turn_ended_at, consecutive_upstream_errors, last_served_model, has_ever_switched, paired_provider, paired_model
+//	SELECT session_key, role, installation_id, pinned_provider, pinned_model, decision_reason, turn_count, pinned_until, first_pinned_at, last_seen_at, last_input_tokens, last_cached_read_tokens, last_cached_write_tokens, last_output_tokens, last_turn_ended_at, consecutive_upstream_errors, last_served_model, has_ever_switched, paired_provider, paired_model, consecutive_overload_errors, disabled_providers
 //	FROM router.session_pins
 //	WHERE session_key = $1::bytea
 //	  AND role        = $2::varchar
@@ -59,8 +96,44 @@ func (q *Queries) GetSessionPin(ctx context.Context, arg GetSessionPinParams) (R
 		&i.HasEverSwitched,
 		&i.PairedProvider,
 		&i.PairedModel,
+		&i.ConsecutiveOverloadErrors,
+		&i.DisabledProviders,
 	)
 	return i, err
+}
+
+const incrementSessionPinOverloadErrors = `-- name: IncrementSessionPinOverloadErrors :one
+UPDATE router.session_pins
+SET consecutive_overload_errors = consecutive_overload_errors + 1
+WHERE session_key = $1::bytea
+  AND role        = $2::varchar
+RETURNING consecutive_overload_errors
+`
+
+type IncrementSessionPinOverloadErrorsParams struct {
+	SessionKey []byte
+	Role       string
+}
+
+// Atomically increments consecutive_overload_errors and returns the new
+// value. The turn loop calls this after a turn exhausts with a
+// client-visible 529 (Anthropic overloaded_error) on a sticky-pinned
+// turn; the returned count drives the two-strike provider-disable
+// decision. Returns sql.ErrNoRows if no pin exists, which the adapter
+// maps to a no-op. Separate from IncrementSessionPinUpstreamErrors
+// because a 529 is retryable in-turn and must not also trip the
+// non-retryable-4xx eviction counter.
+//
+//	UPDATE router.session_pins
+//	SET consecutive_overload_errors = consecutive_overload_errors + 1
+//	WHERE session_key = $1::bytea
+//	  AND role        = $2::varchar
+//	RETURNING consecutive_overload_errors
+func (q *Queries) IncrementSessionPinOverloadErrors(ctx context.Context, arg IncrementSessionPinOverloadErrorsParams) (int32, error) {
+	row := q.db.QueryRow(ctx, incrementSessionPinOverloadErrors, arg.SessionKey, arg.Role)
+	var consecutive_overload_errors int32
+	err := row.Scan(&consecutive_overload_errors)
+	return consecutive_overload_errors, err
 }
 
 const incrementSessionPinUpstreamErrors = `-- name: IncrementSessionPinUpstreamErrors :one
@@ -93,6 +166,33 @@ func (q *Queries) IncrementSessionPinUpstreamErrors(ctx context.Context, arg Inc
 	var consecutive_upstream_errors int32
 	err := row.Scan(&consecutive_upstream_errors)
 	return consecutive_upstream_errors, err
+}
+
+const resetSessionPinOverloadErrors = `-- name: ResetSessionPinOverloadErrors :exec
+UPDATE router.session_pins
+SET consecutive_overload_errors = 0
+WHERE session_key = $1::bytea
+  AND role        = $2::varchar
+  AND consecutive_overload_errors > 0
+`
+
+type ResetSessionPinOverloadErrorsParams struct {
+	SessionKey []byte
+	Role       string
+}
+
+// Clears the overload strike counter after a successful turn. UPDATE
+// matches by (session_key, role); zero rows affected on missing pin is
+// a successful no-op like ResetSessionPinUpstreamErrors.
+//
+//	UPDATE router.session_pins
+//	SET consecutive_overload_errors = 0
+//	WHERE session_key = $1::bytea
+//	  AND role        = $2::varchar
+//	  AND consecutive_overload_errors > 0
+func (q *Queries) ResetSessionPinOverloadErrors(ctx context.Context, arg ResetSessionPinOverloadErrorsParams) error {
+	_, err := q.db.Exec(ctx, resetSessionPinOverloadErrors, arg.SessionKey, arg.Role)
+	return err
 }
 
 const resetSessionPinUpstreamErrors = `-- name: ResetSessionPinUpstreamErrors :exec

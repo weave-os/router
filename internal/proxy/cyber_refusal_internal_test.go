@@ -40,6 +40,15 @@ func (f *repinFakeStore) IncrementUpstreamErrors(context.Context, [sessionpin.Se
 func (f *repinFakeStore) ResetUpstreamErrors(context.Context, [sessionpin.SessionKeyLen]byte, string) error {
 	return nil
 }
+func (f *repinFakeStore) IncrementOverloadErrors(context.Context, [sessionpin.SessionKeyLen]byte, string) (int, error) {
+	return 0, nil
+}
+func (f *repinFakeStore) ResetOverloadErrors(context.Context, [sessionpin.SessionKeyLen]byte, string) error {
+	return nil
+}
+func (f *repinFakeStore) DisableProvider(context.Context, [sessionpin.SessionKeyLen]byte, string, string) error {
+	return nil
+}
 func (f *repinFakeStore) SweepExpired(context.Context) error { return nil }
 
 // A realistic Anthropic-native refusal SSE (the router-visible wire shape:

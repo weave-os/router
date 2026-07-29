@@ -37,6 +37,15 @@ func (s *recordingPinStore) IncrementUpstreamErrors(context.Context, [sessionpin
 func (s *recordingPinStore) ResetUpstreamErrors(context.Context, [sessionpin.SessionKeyLen]byte, string) error {
 	return nil
 }
+func (s *recordingPinStore) IncrementOverloadErrors(context.Context, [sessionpin.SessionKeyLen]byte, string) (int, error) {
+	return 0, nil
+}
+func (s *recordingPinStore) ResetOverloadErrors(context.Context, [sessionpin.SessionKeyLen]byte, string) error {
+	return nil
+}
+func (s *recordingPinStore) DisableProvider(context.Context, [sessionpin.SessionKeyLen]byte, string, string) error {
+	return nil
+}
 func (s *recordingPinStore) SweepExpired(context.Context) error { return nil }
 
 // TestPinExpiry_UserForcedNeverExpires is the regression for the debug-session

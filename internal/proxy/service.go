@@ -322,6 +322,14 @@ type InstallationExcludedModelsContextKey struct{}
 // installation's provider exclusion list. Carried as []string.
 type InstallationExcludedProvidersContextKey struct{}
 
+// SessionDisabledProvidersContextKey is the context key for providers the
+// current session's pin has struck out after repeated 529 exhaustion
+// (turnLoopResult.SessionDisabledProviders / sessionpin.Pin.DisabledProviders).
+// Carried as []string. Stashed by each entry point right after runTurnLoop
+// returns, so resolveBindingsForDispatch's failover walk also honors the
+// exclusion, not just the scorer call runTurnLoop already applied it to.
+type SessionDisabledProvidersContextKey struct{}
+
 // InstallationPreferredModelsContextKey is the context key for the authed
 // installation's model priority ranking. Carried as []string in descending
 // preference (index 0 = first preference). See preferredModelsForRequest.
@@ -623,18 +631,43 @@ func installationExcludedProvidersFromContext(ctx context.Context) []string {
 	return out
 }
 
-// excludedProvidersForRequest returns the request's provider exclusion set.
-// Env override wins; otherwise the installation list is converted to a set.
-func (s *Service) excludedProvidersForRequest(ctx context.Context) map[string]struct{} {
-	if s.excludedProvidersOverride != nil {
-		return s.excludedProvidersOverride
-	}
-	excluded := installationExcludedProvidersFromContext(ctx)
-	if len(excluded) == 0 {
+// sessionDisabledProvidersFromContext returns the providers the current
+// session's pin has struck out after repeated 529 exhaustion, stashed by
+// SessionDisabledProvidersContextKey.
+func sessionDisabledProvidersFromContext(ctx context.Context) []string {
+	v := ctx.Value(SessionDisabledProvidersContextKey{})
+	if v == nil {
 		return nil
 	}
-	out := make(map[string]struct{}, len(excluded))
-	for _, p := range excluded {
+	out, _ := v.([]string)
+	return out
+}
+
+// excludedProvidersForRequest returns the request's provider exclusion set:
+// the deployment-wide env override or per-installation list, plus (always,
+// regardless of which of those fired) any providers this session has struck
+// out for repeated 529 exhaustion — an orthogonal, session-scoped signal
+// that must apply on top of the operator/installation-level exclusions, not
+// instead of them.
+func (s *Service) excludedProvidersForRequest(ctx context.Context) map[string]struct{} {
+	var base map[string]struct{}
+	if s.excludedProvidersOverride != nil {
+		base = s.excludedProvidersOverride
+	} else if excluded := installationExcludedProvidersFromContext(ctx); len(excluded) > 0 {
+		base = make(map[string]struct{}, len(excluded))
+		for _, p := range excluded {
+			base[p] = struct{}{}
+		}
+	}
+	sessionDisabled := sessionDisabledProvidersFromContext(ctx)
+	if len(sessionDisabled) == 0 {
+		return base
+	}
+	out := make(map[string]struct{}, len(base)+len(sessionDisabled))
+	for p := range base {
+		out[p] = struct{}{}
+	}
+	for _, p := range sessionDisabled {
 		out[p] = struct{}{}
 	}
 	return out
@@ -2227,6 +2260,14 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		log.Error("Routing failed", "err", routeErr, "route_ms", time.Since(routeStart).Milliseconds(), "requested_model", feats.Model, "total_input_tokens", feats.Tokens)
 		return routeErr
 	}
+	if len(routeRes.SessionDisabledProviders) > 0 {
+		// Applies the same session-struck-out providers runTurnLoop already
+		// excluded from the scorer to dispatch's failover walk
+		// (resolveBindingsForDispatch reads excludedProvidersForRequest from
+		// ctx, not req.EnabledProviders, which is a local by the time we're
+		// back here).
+		ctx = context.WithValue(ctx, SessionDisabledProvidersContextKey{}, routeRes.SessionDisabledProviders)
+	}
 
 	// On a retryable 429 the bypass falls through to re-routing; rate-limit
 	// headers prime the observer so the retry discounts Anthropic.
@@ -3146,6 +3187,13 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	// persistent counter hits threshold; successful turns reset it.
 	if !agentShadowMode {
 		s.maybeEvictPinAfterUpstreamErr(ctx, stickyHit, proxyErr, decision.Reason, installationID, routeRes.SessionKey, stickyStateRole(routeRes))
+
+		// Two-strike provider disable: a turn that exhausted with a
+		// client-visible 529 strikes finalProvider out of this session after
+		// a second consecutive exhaustion. Distinct counter/mechanism from
+		// the 4xx eviction above -- a 529 is retryable in-turn, so it never
+		// trips that one.
+		s.maybeDisableProviderAfterOverload(ctx, stickyHit, proxyErr, finalProvider, decision.Reason, installationID, routeRes.SessionKey, stickyStateRole(routeRes))
 
 		// Re-pin the session off the refusing model if a cyber refusal was observed.
 		s.maybeRepinOnRefusal(ctx, refusalObs, routeRes.SessionKey, stickyStateRole(routeRes), decision)
@@ -4342,6 +4390,9 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		log.Error("Routing failed for OpenAI request", "err", err, "route_ms", routeMs, "requested_model", feats.Model, "total_input_tokens", feats.Tokens)
 		return err
 	}
+	if len(routeRes.SessionDisabledProviders) > 0 {
+		ctx = context.WithValue(ctx, SessionDisabledProvidersContextKey{}, routeRes.SessionDisabledProviders)
+	}
 	routeRes.SuggestionMode = r.Header.Get("x-weave-suggestion-mode") == "true"
 	decision := routeRes.Decision
 	s.firePolicyShadowForServingDecision(ctx, decision, routeRequest)
@@ -4811,6 +4862,8 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 
 	// See ProxyMessages for the two-strike eviction rationale.
 	s.maybeEvictPinAfterUpstreamErr(ctx, stickyHit, proxyErr, decision.Reason, installationIDFromContext(ctx), routeRes.SessionKey, stickyStateRole(routeRes))
+	// See ProxyMessages for the two-strike provider-disable rationale.
+	s.maybeDisableProviderAfterOverload(ctx, stickyHit, proxyErr, finalProvider, decision.Reason, installationIDFromContext(ctx), routeRes.SessionKey, stickyStateRole(routeRes))
 
 	installationIDOAI, _ := ctx.Value(InstallationIDContextKey{}).(string)
 	if installationIDOAI != "" {

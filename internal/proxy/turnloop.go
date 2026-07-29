@@ -121,6 +121,12 @@ type turnLoopResult struct {
 	// the escalate-on-failure policy (Service.effortEscalation) reads it to
 	// bump a gpt-5.x turn from low to high effort, and is a no-op when disabled.
 	EscalateEffort bool
+	// SessionDisabledProviders are providers this pin's session has struck
+	// out after repeated 529 exhaustion (sessionpin.Pin.DisabledProviders).
+	// The caller stashes this on ctx so it also excludes those providers
+	// from resolveBindingsForDispatch's failover walk, not just this turn's
+	// scorer call.
+	SessionDisabledProviders []string
 }
 
 // modelSwitched reports whether the Anthropic emit path must strip historical
@@ -423,6 +429,29 @@ func (s *Service) runTurnLoop(
 
 	pin, pinFound := s.loadPin(ctx, res.SessionKey, res.PinRole)
 	hmmHistory := s.loadHMMHistory(ctx, res.SessionKey, res.PinRole)
+	// Providers this session has struck out after repeated 529 exhaustion
+	// (provider_overload.go). Applied regardless of pinFound: an overload
+	// eviction deliberately sets PinnedUntil in the past so the pin is a
+	// routing miss, but DisabledProviders on that same row must still steer
+	// the scorer away from the just-struck-out provider on this very turn --
+	// otherwise the eviction only prevents re-anchoring, not re-selection.
+	if len(pin.DisabledProviders) > 0 {
+		res.SessionDisabledProviders = pin.DisabledProviders
+		// nil EnabledProviders means "unrestricted" elsewhere in this file
+		// (see forcedPinEligible); there's no concrete universe to subtract
+		// from here, so leave it alone rather than manufacture an empty map
+		// that would wrongly read as "every provider excluded."
+		if req.EnabledProviders != nil {
+			filtered := make(map[string]struct{}, len(req.EnabledProviders))
+			for p := range req.EnabledProviders {
+				filtered[p] = struct{}{}
+			}
+			for _, p := range pin.DisabledProviders {
+				delete(filtered, p)
+			}
+			req.EnabledProviders = filtered
+		}
+	}
 	res.PriorServedModel, res.SessionEverSwitched = switchHistoryFromPins(pin, hmmHistory)
 	req.PolicyTurnContext = buildPolicyTurnContext(req, res, pin, hmmHistory)
 	// Computed before any same-turn pin-drop guards below so it reflects the

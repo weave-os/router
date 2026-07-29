@@ -64,6 +64,17 @@ type Pin struct {
 	// thinking blocks from an earlier cross-model excursion are stripped on
 	// every later turn, not just the one the switch happened on.
 	HasEverSwitched bool
+	// ConsecutiveOverloadErrors counts consecutive turns that exhausted with a
+	// client-visible 529 (Anthropic overloaded_error) on the currently-pinned
+	// provider. Distinct from ConsecutiveUpstreamErrors: a 529 is retryable
+	// in-turn (same-binding retry + cross-binding failover), so it never
+	// trips that counter. DisableProvider resets this to 0 when it fires.
+	ConsecutiveOverloadErrors int
+	// DisabledProviders are providers struck out for this pin's session after
+	// repeated 529 exhaustion (see DisableProvider). Only grows for the life
+	// of the row -- Upsert never touches it -- so a struck-out provider stays
+	// disabled until the pin itself is evicted/expires.
+	DisabledProviders []string
 }
 
 // Usage captures the previous turn's upstream token accounting.
@@ -100,5 +111,15 @@ type Store interface {
 	UpdateUsage(ctx context.Context, sessionKey [SessionKeyLen]byte, role string, usage Usage) error
 	IncrementUpstreamErrors(ctx context.Context, sessionKey [SessionKeyLen]byte, role string) (int, error)
 	ResetUpstreamErrors(ctx context.Context, sessionKey [SessionKeyLen]byte, role string) error
+	// IncrementOverloadErrors atomically bumps ConsecutiveOverloadErrors and
+	// returns the new count, mirroring IncrementUpstreamErrors but for
+	// client-visible 529 exhaustion instead of non-retryable 4xx.
+	IncrementOverloadErrors(ctx context.Context, sessionKey [SessionKeyLen]byte, role string) (int, error)
+	// ResetOverloadErrors clears ConsecutiveOverloadErrors after a successful
+	// turn, mirroring ResetUpstreamErrors.
+	ResetOverloadErrors(ctx context.Context, sessionKey [SessionKeyLen]byte, role string) error
+	// DisableProvider appends provider to DisabledProviders (deduped) and
+	// resets ConsecutiveOverloadErrors in the same write.
+	DisableProvider(ctx context.Context, sessionKey [SessionKeyLen]byte, role, provider string) error
 	SweepExpired(ctx context.Context) error
 }

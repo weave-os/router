@@ -61,6 +61,18 @@ func (s *evictionStubPinStore) ResetUpstreamErrors(context.Context, [sessionpin.
 	return nil
 }
 
+func (s *evictionStubPinStore) IncrementOverloadErrors(context.Context, [sessionpin.SessionKeyLen]byte, string) (int, error) {
+	return 0, nil
+}
+
+func (s *evictionStubPinStore) ResetOverloadErrors(context.Context, [sessionpin.SessionKeyLen]byte, string) error {
+	return nil
+}
+
+func (s *evictionStubPinStore) DisableProvider(context.Context, [sessionpin.SessionKeyLen]byte, string, string) error {
+	return nil
+}
+
 func (s *evictionStubPinStore) SweepExpired(context.Context) error { return nil }
 
 func newEvictionTestService(store *evictionStubPinStore) *Service {

@@ -66,6 +66,18 @@ func (s *stubPinStore) ResetUpstreamErrors(context.Context, [sessionpin.SessionK
 	return nil
 }
 
+func (s *stubPinStore) IncrementOverloadErrors(context.Context, [sessionpin.SessionKeyLen]byte, string) (int, error) {
+	return 0, nil
+}
+
+func (s *stubPinStore) ResetOverloadErrors(context.Context, [sessionpin.SessionKeyLen]byte, string) error {
+	return nil
+}
+
+func (s *stubPinStore) DisableProvider(context.Context, [sessionpin.SessionKeyLen]byte, string, string) error {
+	return nil
+}
+
 func (s *stubPinStore) SweepExpired(context.Context) error { return nil }
 
 // TestRecordTurnUsage_WritesToStore guards the synchronous UpdateUsage write:

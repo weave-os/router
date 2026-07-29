@@ -107,6 +107,45 @@ func (r *SessionPinRepo) ResetUpstreamErrors(ctx context.Context, sessionKey [se
 	})
 }
 
+// IncrementOverloadErrors atomically bumps the consecutive-529-exhaustion
+// counter. A missing pin returns (0, nil), mirroring IncrementUpstreamErrors.
+func (r *SessionPinRepo) IncrementOverloadErrors(ctx context.Context, sessionKey [sessionpin.SessionKeyLen]byte, role string) (int, error) {
+	q := sqlc.New(r.tx)
+	count, err := q.IncrementSessionPinOverloadErrors(ctx, sqlc.IncrementSessionPinOverloadErrorsParams{
+		SessionKey: sessionKey[:],
+		Role:       role,
+	})
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return 0, nil
+		}
+		return 0, err
+	}
+	return int(count), nil
+}
+
+// ResetOverloadErrors clears the consecutive-529-exhaustion counter after a
+// successful turn. Missing pin is a no-op, same as ResetUpstreamErrors.
+func (r *SessionPinRepo) ResetOverloadErrors(ctx context.Context, sessionKey [sessionpin.SessionKeyLen]byte, role string) error {
+	q := sqlc.New(r.tx)
+	return q.ResetSessionPinOverloadErrors(ctx, sqlc.ResetSessionPinOverloadErrorsParams{
+		SessionKey: sessionKey[:],
+		Role:       role,
+	})
+}
+
+// DisableProvider appends provider to disabled_providers (deduped) and
+// resets the overload strike counter in the same write. Missing pin is a
+// no-op: the eviction that accompanies this call has nothing left to guard.
+func (r *SessionPinRepo) DisableProvider(ctx context.Context, sessionKey [sessionpin.SessionKeyLen]byte, role, provider string) error {
+	q := sqlc.New(r.tx)
+	return q.DisableSessionPinProvider(ctx, sqlc.DisableSessionPinProviderParams{
+		SessionKey: sessionKey[:],
+		Role:       role,
+		Provider:   provider,
+	})
+}
+
 func (r *SessionPinRepo) SweepExpired(ctx context.Context) error {
 	q := sqlc.New(r.tx)
 	return q.SweepExpiredSessionPins(ctx)
@@ -133,6 +172,8 @@ func toSessionPin(row sqlc.RouterSessionPin) sessionpin.Pin {
 		LastServedModel:           row.LastServedModel,
 		HasEverSwitched:           row.HasEverSwitched,
 		ConsecutiveUpstreamErrors: int(row.ConsecutiveUpstreamErrors),
+		ConsecutiveOverloadErrors: int(row.ConsecutiveOverloadErrors),
+		DisabledProviders:         row.DisabledProviders,
 	}
 	// Bounded copy guards against a corrupt row panicking the request handler.
 	copy(pin.SessionKey[:], row.SessionKey)

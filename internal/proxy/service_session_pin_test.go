@@ -28,20 +28,23 @@ import (
 )
 
 type fakePinStore struct {
-	mu               sync.Mutex
-	pin              sessionpin.Pin
-	hasPin           bool
-	hmmHistory       sessionpin.Pin
-	hasHMMHistory    bool
-	getErr           error
-	getCalls         int
-	upserts          []sessionpin.Pin
-	upsertCh         chan struct{}
-	usages           []sessionpin.Usage
-	usageCh          chan struct{}
-	incrementCalls   int
-	incrementReturns int // value returned by IncrementUpstreamErrors when hasPin is true
-	resetCalls       int
+	mu                     sync.Mutex
+	pin                    sessionpin.Pin
+	hasPin                 bool
+	hmmHistory             sessionpin.Pin
+	hasHMMHistory          bool
+	getErr                 error
+	getCalls               int
+	upserts                []sessionpin.Pin
+	upsertCh               chan struct{}
+	usages                 []sessionpin.Usage
+	usageCh                chan struct{}
+	incrementCalls         int
+	incrementReturns       int // value returned by IncrementUpstreamErrors when hasPin is true
+	resetCalls             int
+	overloadIncrementCalls int
+	overloadResetCalls     int
+	disabledProviders      []string
 }
 
 func newFakePinStore() *fakePinStore {
@@ -112,6 +115,47 @@ func (f *fakePinStore) ResetUpstreamErrors(ctx context.Context, key [sessionpin.
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.resetCalls++
+	return nil
+}
+
+func (f *fakePinStore) IncrementOverloadErrors(ctx context.Context, key [sessionpin.SessionKeyLen]byte, role string) (int, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.overloadIncrementCalls++
+	if !f.hasPin {
+		return 0, nil
+	}
+	// Real incrementing (unlike IncrementUpstreamErrors' canned-return
+	// above) so a multi-turn test can observe the counter actually
+	// accumulate across ProxyMessages calls, the way the real two-strike
+	// disable path depends on.
+	f.pin.ConsecutiveOverloadErrors++
+	return f.pin.ConsecutiveOverloadErrors, nil
+}
+
+func (f *fakePinStore) ResetOverloadErrors(ctx context.Context, key [sessionpin.SessionKeyLen]byte, role string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.overloadResetCalls++
+	if f.hasPin {
+		f.pin.ConsecutiveOverloadErrors = 0
+	}
+	return nil
+}
+
+func (f *fakePinStore) DisableProvider(ctx context.Context, key [sessionpin.SessionKeyLen]byte, role, provider string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.disabledProviders = append(f.disabledProviders, provider)
+	if f.hasPin {
+		for _, p := range f.pin.DisabledProviders {
+			if p == provider {
+				return nil
+			}
+		}
+		f.pin.DisabledProviders = append(f.pin.DisabledProviders, provider)
+		f.pin.ConsecutiveOverloadErrors = 0
+	}
 	return nil
 }
 
