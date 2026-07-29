@@ -550,7 +550,8 @@ func TestProxyMessages_PreemptiveSubscriptionFailoverWarnsUser(t *testing.T) {
 	obs.Record(obs.Key([]byte(bypassSubToken)), usage.Snapshot{
 		Secondary: usage.Window{UsedPercent: 1.0, WindowMinutes: 10080},
 	})
-	svc := proxy.NewService(fr, map[string]providers.Client{providers.ProviderAnthropic: p}, nil, false, nil, nil, false, providers.ProviderAnthropic, bypassScorerPickMdl, nil).
+	telemetry := newCaptureTelemetry()
+	svc := proxy.NewService(fr, map[string]providers.Client{providers.ProviderAnthropic: p}, nil, false, nil, nil, false, providers.ProviderAnthropic, bypassScorerPickMdl, telemetry).
 		WithSubscriptionAwareRouting(obs, 0.05, 2.0).
 		WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}})
 
@@ -561,6 +562,7 @@ func TestProxyMessages_PreemptiveSubscriptionFailoverWarnsUser(t *testing.T) {
 	// bypassCtx sets the usage-bypass gate; the routed path is what we're
 	// exercising here, so use a plain subscription context instead.
 	ctx := context.WithValue(context.Background(), proxy.AnthropicSubscriptionContextKey{}, bypassSubToken)
+	ctx = context.WithValue(ctx, proxy.InstallationIDContextKey{}, "11111111-1111-1111-1111-111111111111")
 	require.NoError(t, svc.ProxyMessages(ctx, body, rec, req))
 
 	require.Len(t, p.proxyCreds, 1, "the turn must be dispatched once, on the deployment key")
@@ -573,6 +575,9 @@ func TestProxyMessages_PreemptiveSubscriptionFailoverWarnsUser(t *testing.T) {
 		"the client must see the billable-failover warning, not the normal routing marker")
 	assert.NotContains(t, respBody, "· "+"best pick for this turn",
 		"the failover warning replaces the routing marker, it doesn't append to it")
+	row := telemetry.firstRow(t)
+	assert.NotEqual(t, "subscription", row.CredentialSource,
+		"the telemetry row must not attribute this billable turn to the spent subscription")
 }
 
 // TestProxyMessages_ReactiveSubscriptionFailoverWarnsUser guards the reactive
@@ -617,10 +622,11 @@ func TestProxyMessages_ReactiveSubscriptionFailoverWarnsUser(t *testing.T) {
 	}))
 	defer upstream.Close()
 
+	telemetry := newCaptureTelemetry()
 	svc := proxy.NewService(
 		&fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: bypassScorerPickMdl}},
 		map[string]providers.Client{providers.ProviderAnthropic: anthropic.NewClient("test-key", upstream.URL)},
-		nil, false, nil, nil, false, providers.ProviderAnthropic, bypassScorerPickMdl, nil,
+		nil, false, nil, nil, false, providers.ProviderAnthropic, bypassScorerPickMdl, telemetry,
 	).WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}})
 
 	rec := httptest.NewRecorder()
@@ -628,7 +634,8 @@ func TestProxyMessages_ReactiveSubscriptionFailoverWarnsUser(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer "+bypassSubToken)
 	body := []byte(`{"model":"` + bypassScorerPickMdl + `","stream":true,"messages":[{"role":"user","content":"hi"}]}`)
 
-	require.NoError(t, svc.ProxyMessages(context.Background(), body, rec, req))
+	ctx := context.WithValue(context.Background(), proxy.InstallationIDContextKey{}, "11111111-1111-1111-1111-111111111111")
+	require.NoError(t, svc.ProxyMessages(ctx, body, rec, req))
 
 	mu.Lock()
 	assert.Equal(t, 4, calls, "3 same-binding attempts on the subscription, then 1 subscription-failover retry on the Weave key")
@@ -639,4 +646,7 @@ func TestProxyMessages_ReactiveSubscriptionFailoverWarnsUser(t *testing.T) {
 	assert.Contains(t, respBody, "your Claude subscription hit its usage limit",
 		"the retry must carry the billable-failover warning")
 	assert.NotContains(t, respBody, "rate_limit_error", "the failed subscription attempt must never commit bytes")
+	row := telemetry.firstRow(t)
+	assert.NotEqual(t, "subscription", row.CredentialSource,
+		"the telemetry row must attribute this billable retry to the Weave key, not the spent subscription")
 }

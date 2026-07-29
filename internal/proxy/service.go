@@ -2955,6 +2955,11 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 
 	in, out := extractor.Tokens()
 	cacheCreation, cacheRead := extractor.CacheTokens()
+	// Computed here (rather than only at the later Postgres-telemetry site)
+	// so credential.source and the combined subscription-failover flag reach
+	// the router.call OTLP log record — WorkWeave's ingest reads that record,
+	// not this router's own Postgres telemetry table.
+	_, _, credSourceForAttrs := s.credentialKeyParts(ctx)
 	upstreamBuilder := otel.NewAttrBuilder(40).
 		String("request_id", requestID).
 		String("external_id", externalID).
@@ -2989,7 +2994,16 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		Int64("dispatch.fallback_attempts", int64(winnerIdx)).
 		Bool("dispatch.failover_used", finalProvider != primaryProvider || subscriptionFailoverUsed).
 		Bool("dispatch.baseline_failover", baselineFailoverUsed).
-		Bool("dispatch.subscription_failover", subscriptionFailoverUsed)
+		Bool("dispatch.subscription_failover", subscriptionFailoverUsed).
+		// Combined pre-emptive (subscriptionFailingOver, an exhausted observer
+		// snapshot skipping dispatch entirely) OR reactive
+		// (subscriptionFailoverUsed, a live 429/OAuth-rejection retry) signal —
+		// either means this turn is billed on the Weave/BYOK key instead of the
+		// caller's own subscription. dispatch.subscription_failover above only
+		// covers the reactive branch; this one is the authoritative bit for
+		// admin alerting downstream.
+		Bool("dispatch.subscription_failover_billable", subscriptionFailingOver || subscriptionFailoverUsed).
+		String("credential.source", credSourceForAttrs)
 	applyPlannerAttrs(upstreamBuilder, routeRes)
 	applyRoutingStateAttrs(upstreamBuilder, routeRes, decision.Model, sessionKey)
 	addTimingAttrs(ctx, upstreamBuilder)
@@ -4747,6 +4761,9 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 
 	in, out := extractor.Tokens()
 	cacheCreation, cacheRead := extractor.CacheTokens()
+	// See ProxyMessages for why this is computed before the builder rather
+	// than only at the later Postgres-telemetry site.
+	_, _, openaiCredSourceForAttrs := s.credentialKeyParts(ctx)
 	openaiUpstreamBuilder := otel.NewAttrBuilder(40).
 		String("request_id", requestID).
 		String("external_id", externalID).
@@ -4777,7 +4794,8 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		String("dispatch.primary_provider", primaryProvider).
 		String("dispatch.final_provider", finalProvider).
 		Int64("dispatch.fallback_attempts", int64(winnerIdx)).
-		Bool("dispatch.failover_used", finalProvider != primaryProvider)
+		Bool("dispatch.failover_used", finalProvider != primaryProvider).
+		String("credential.source", openaiCredSourceForAttrs)
 	applyPlannerAttrs(openaiUpstreamBuilder, routeRes)
 	applyRoutingStateAttrs(openaiUpstreamBuilder, routeRes, decision.Model, sessionKey)
 	addTimingAttrs(ctx, openaiUpstreamBuilder)
