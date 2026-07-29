@@ -106,10 +106,10 @@ func (s *Service) usageBypassEngaged(ctx context.Context, headers http.Header, r
 	if snap.Exhausted() {
 		return "", false
 	}
-	// Subscription-only mode (balance past the overdraft floor): paid failover
-	// is disabled, so the threshold's purpose — disengage the bypass to conserve
-	// remaining quota by routing to a cheaper paid model — no longer applies.
-	// Serve on the subscription right up to exhaustion instead of gating early.
+	// Subscription-only mode: paid failover is disabled, so the threshold's
+	// purpose — disengage the bypass to conserve remaining quota by routing to a
+	// cheaper paid model — no longer applies. Serve on the subscription right up
+	// to exhaustion instead of gating early.
 	if billing.SubscriptionOnlyFromContext(ctx) {
 		return provider, true
 	}
@@ -214,8 +214,8 @@ const subscriptionOnlyWarningMarkerCodex = routingMarkerPrefix +
 	topUpURL + "\n\n"
 
 // ErrCreditsExhaustedSubscriptionUnavailable is returned by ProxyMessages and
-// ProxyOpenAIChatCompletion when the org is in subscription-only mode (balance
-// past the overdraft floor) but the turn cannot be served on the caller's own
+// ProxyOpenAIChatCompletion when the org is in subscription-only mode but the
+// turn cannot be served on the caller's own
 // subscription (Claude or Codex) at all — routing resolved to a paid model, or
 // (Anthropic bypass) the subscription is already rate-limit exhausted. Paid
 // failover is disabled in this mode, so the turn is refused (HTTP 402) rather
@@ -290,7 +290,7 @@ func (s *Service) bypassToAnthropic(
 		return fmt.Errorf("emit bypass body: %w", emitErr)
 	}
 
-	// Subscription-only mode (org past the overdraft floor): prepend a warning
+	// Subscription-only mode: prepend a warning
 	// text block so the customer sees they're on their own subscription with
 	// paid failover disabled, and how to restore full routing. The marker writer
 	// injects only on a streaming response and is transparent otherwise.

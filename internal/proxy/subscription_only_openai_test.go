@@ -36,7 +36,7 @@ func codexSubRequest(t *testing.T, body string) (*httptest.ResponseRecorder, *ht
 	return httptest.NewRecorder(), req
 }
 
-// TestSubscriptionOnly_OpenAI_ServesOnCodexSub: below the overdraft floor, a
+// TestSubscriptionOnly_OpenAI_ServesOnCodexSub: in subscription-only mode, a
 // Codex-covered turn routed to OpenAI must serve on the caller's own ChatGPT
 // subscription (OAuth credential => $0 debit), dispatch exactly once (no paid
 // failover), and surface the depleted-credits warning.

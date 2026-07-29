@@ -114,8 +114,8 @@ func subscriptionServableProviders(ctx context.Context, headers http.Header) map
 }
 
 // restrictToSubscriptionProviders intersects enabled with the providers the
-// caller's subscription can serve, so subscription-only mode (balance past the
-// overdraft floor) routes only to the caller's own plan and never a paid model.
+// caller's subscription can serve, so subscription-only mode routes only to the
+// caller's own plan and never a paid model.
 // Returns enabled unchanged when the caller presents no usable subscription
 // (defensive: the balance gate only flags subscription-only when a covering sub
 // is present, so this keeps a misconfiguration from emptying the eligible set).

@@ -23,14 +23,12 @@ const TopUpURL = "https://app.workweave.ai/settings/billing/router-credits"
 // Behavior (evaluated in order):
 //   - Override row present → pass through; flag the request context so
 //     the proxy's debit hook writes a delta=0 ledger row.
-//   - Balance ≤ minBalanceMicros (or no balance row) → HTTP 402. A
-//     request that presents a validated Claude/Codex subscription credential
-//     covering this route instead gates at a negative overdraft floor, so
-//     subscription-served traffic keeps flowing while any paid failover is
-//     bounded. Past the floor it is not 402'd either: the request passes
-//     through flagged subscription-only (billing.WithSubscriptionOnly) so
-//     the proxy serves it on the caller's own subscription or refuses it,
-//     never on a paid model. Override detection above still runs.
+//   - Balance ≤ minBalanceMicros (or no balance row) → HTTP 402 unless
+//     the request presents a validated Claude/Codex subscription credential
+//     covering this route. Subscription-covered requests pass through flagged
+//     subscription-only (billing.WithSubscriptionOnly), so the proxy serves them
+//     on the caller's own subscription or refuses them, never on a paid model.
+//     Override detection above still runs.
 //   - Otherwise → pass through.
 //
 // The balance read is a single indexed SELECT (~2-5ms in-region). Any
@@ -61,8 +59,8 @@ func WithBalanceCheck(svc *billing.Service, minBalanceMicros int64) gin.HandlerF
 
 		// Subscription turns debit $0 (cost.subscription_served), so gating them on
 		// prepaid credits is wrong. The check depends only on whether the request
-		// presents a covering credential — not on UsageBypassEnabled, which controls
-		// the routing bypass lane, not the billing gate.
+		// presents a covering credential — not on UsageBypassEnabled (routing config,
+		// not billing config).
 		subscriptionExempt := proxy.RequestPresentsCoveringSubscription(c.Request.Context(), c.Request.Header, c.FullPath())
 
 		result, err := svc.CheckBalance(c.Request.Context(), orgID)
@@ -71,8 +69,9 @@ func WithBalanceCheck(svc *billing.Service, minBalanceMicros int64) gin.HandlerF
 				// A subscription-only org may never have had a balance
 				// row; its turns are free, so exempt them here too.
 				if subscriptionExempt {
-					log.Debug("Balance check skipped: subscription request, no balance row",
+					log.Warn("Balance row missing: serving subscription-only, paid failover disabled",
 						"organization_id", orgID)
+					c.Request = c.Request.WithContext(billing.WithSubscriptionOnly(c.Request.Context()))
 					c.Next()
 					return
 				}
@@ -104,24 +103,16 @@ func WithBalanceCheck(svc *billing.Service, minBalanceMicros int64) gin.HandlerF
 			return
 		}
 
-		// Subscription-covered requests may run negative to a bounded overdraft
-		// floor before gating (see SubscriptionOverdraftFloorMicros): the turn is
-		// expected to be free but can fail over to a paid model, and we'd rather
-		// stay optimistic than 402 free traffic at $0. Everyone else gates at
-		// minBalanceMicros.
 		threshold := minBalanceMicros
-		if subscriptionExempt {
-			threshold = billing.SubscriptionOverdraftFloorMicros
-		}
 
 		if result.BalanceMicros <= threshold {
-			// A subscription-covered request past the overdraft floor is not
+			// A subscription-covered request at or below the prepaid threshold is not
 			// 402'd: 402ing here would block traffic that serves for free on the
 			// caller's own subscription. Flag it subscription-only so the proxy
 			// serves on the subscription (or refuses a would-be-paid turn) and
-			// never fails over to a paid model, bounding our spend at the floor.
+			// never fails over to a paid model.
 			if subscriptionExempt {
-				log.Warn("Balance past subscription overdraft floor: serving subscription-only, paid failover disabled",
+				log.Warn("Balance depleted: serving subscription-only, paid failover disabled",
 					"organization_id", orgID,
 					"balance_usd_micros", result.BalanceMicros,
 					"threshold_usd_micros", threshold,

@@ -399,32 +399,19 @@ func TestWithBalanceCheck_402sCodexSubscriptionOnAnthropicRoute(t *testing.T) {
 	assert.Equal(t, http.StatusPaymentRequired, w.Code)
 }
 
-func TestWithBalanceCheck_SubscriptionOverdraftAllowsNegativeBalance(t *testing.T) {
-	assert.Equal(t, int64(-5_000_000), billing.SubscriptionOverdraftFloorMicros)
-
-	// A subscription-covered request stays optimistic: a small negative balance
-	// (e.g. paid failover) within the overdraft floor still passes.
-	repo := &stubBillingRepo{balance: billing.SubscriptionOverdraftFloorMicros / 2}
-	setInstall := func(c *gin.Context) { withUsageBypassInstallation(c, "org_sub") }
-	w, reached := runMiddlewareWith(t, repo, 0, "/v1/messages", setInstall, "Bearer sk-ant-oat-abc123")
-	assert.True(t, reached, "subscription request within the overdraft floor must pass")
-	assert.Equal(t, http.StatusOK, w.Code)
-}
-
-func TestWithBalanceCheck_SubscriptionOnlyBelowOverdraftFloor(t *testing.T) {
-	// Past the overdraft floor, a subscription-covered request is NOT 402'd:
-	// it passes through flagged subscription-only so the proxy serves it on the
+func TestWithBalanceCheck_SubscriptionOnlyAtDepletedBalance(t *testing.T) {
+	// At the prepaid threshold, a subscription-covered request is NOT 402'd: it
+	// passes through flagged subscription-only so the proxy serves it on the
 	// caller's own subscription (or refuses a would-be-paid turn), never on a
-	// paid model. The floor now bounds paid failover, not the customer's own
-	// free traffic.
-	repo := &stubBillingRepo{balance: billing.SubscriptionOverdraftFloorMicros - 1}
+	// paid model.
+	repo := &stubBillingRepo{balance: 0}
 	gin.SetMode(gin.TestMode)
 	svc := billing.NewService(repo)
 	engine := gin.New()
 	reached := false
 	subOnly := false
 	engine.GET("/v1/messages", func(c *gin.Context) {
-		withUsageBypassInstallation(c, "org_sub")
+		withInstallation(c, "org_sub")
 		c.Request.Header.Set("Authorization", "Bearer sk-ant-oat-abc123")
 		middleware.WithBalanceCheck(svc, 0)(c)
 		if c.IsAborted() {
@@ -436,17 +423,45 @@ func TestWithBalanceCheck_SubscriptionOnlyBelowOverdraftFloor(t *testing.T) {
 	})
 	w := httptest.NewRecorder()
 	engine.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/v1/messages", nil))
-	assert.True(t, reached, "subscription request below the overdraft floor must pass through")
+	assert.True(t, reached, "subscription request at the prepaid threshold must pass through")
 	assert.Equal(t, http.StatusOK, w.Code)
-	assert.True(t, subOnly, "below the floor the request must be flagged subscription-only")
+	assert.True(t, subOnly, "at the prepaid threshold the request must be flagged subscription-only")
 }
 
-func TestWithBalanceCheck_NonSubscriptionStill402sBelowOverdraftFloor(t *testing.T) {
+func TestWithBalanceCheck_SubscriptionOnlyWhenBalanceRowMissing(t *testing.T) {
+	// A missing balance row is equivalent to depleted prepaid credits for a
+	// subscription-covered request: allow the caller's own subscription, but do
+	// not permit paid failover.
+	repo := &stubBillingRepo{balanceErr: billing.ErrBalanceRowMissing}
+	gin.SetMode(gin.TestMode)
+	svc := billing.NewService(repo)
+	engine := gin.New()
+	reached := false
+	subOnly := false
+	engine.GET("/v1/messages", func(c *gin.Context) {
+		withInstallation(c, "org_sub")
+		c.Request.Header.Set("Authorization", "Bearer sk-ant-oat-abc123")
+		middleware.WithBalanceCheck(svc, 0)(c)
+		if c.IsAborted() {
+			return
+		}
+		reached = true
+		subOnly = billing.SubscriptionOnlyFromContext(c.Request.Context())
+		c.Status(http.StatusOK)
+	})
+	w := httptest.NewRecorder()
+	engine.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/v1/messages", nil))
+	assert.True(t, reached, "subscription request with no balance row must pass through")
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.True(t, subOnly, "missing balance row must force subscription-only serving")
+}
+
+func TestWithBalanceCheck_NonSubscriptionStill402sBelowZero(t *testing.T) {
 	// The subscription-only pass-through is scoped to subscription-covered
 	// requests. A regular prepaid org (no subscription credential) below zero
-	// must still 402 — the overdraft floor is a subscription-only concept.
-	repo := &stubBillingRepo{balance: billing.SubscriptionOverdraftFloorMicros - 1}
-	setInstall := func(c *gin.Context) { withUsageBypassInstallation(c, "org_sub") }
+	// must still 402.
+	repo := &stubBillingRepo{balance: -1}
+	setInstall := func(c *gin.Context) { withInstallation(c, "org_sub") }
 	w, reached := runMiddlewareWith(t, repo, 0, "/v1/messages", setInstall, "")
 	assert.False(t, reached, "a non-subscription request below zero must still gate")
 	assert.Equal(t, http.StatusPaymentRequired, w.Code)

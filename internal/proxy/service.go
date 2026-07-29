@@ -2115,7 +2115,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	// x-weave-subagent-type header is for non-Anthropic ingress only.
 	enabledProviders := s.enabledProvidersForRequest(ctx, providers.ProviderAnthropic, r.Header)
 
-	// Subscription-only mode (balance past the overdraft floor): restrict
+	// Subscription-only mode: restrict
 	// routing to the providers the caller's own subscription can serve, so the
 	// scorer can't pick a paid model. The post-routing guard below refuses if a
 	// turn (e.g. a hard-pin or force-model) still didn't resolve onto the sub.
@@ -2741,7 +2741,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	// a subscription-served Anthropic turn, with a fallback key available.
 	// Mutually exclusive with baselineEligible (non-Anthropic routed provider).
 	// Suppressed in subscription-only mode: this retry serves on the Weave/BYOK
-	// key at full cost, which is exactly the paid spend the overdraft floor
+	// key at full cost, which is exactly the paid spend subscription-only mode
 	// forbids — a subscription throttle there surfaces raw instead.
 	subscriptionRetryEligible := decision.Provider == providers.ProviderAnthropic &&
 		!agentShadowMode &&
@@ -4228,7 +4228,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 
 	enabledProviders := s.enabledProvidersForRequest(ctx, providers.ProviderOpenAI, r.Header)
 
-	// Subscription-only mode (balance past the overdraft floor): restrict
+	// Subscription-only mode: restrict
 	// routing to the providers the caller's own subscription can serve, so the
 	// scorer can't pick a paid model. Mirrors the Anthropic path's forced
 	// usage-bypass; the post-routing guard below refuses if it still can't serve

@@ -459,7 +459,7 @@ func bypassStreamResponse(w http.ResponseWriter) {
 }
 
 // TestSubscriptionOnly_ServesOnSubscription_EvenAboveThreshold: with the org
-// past the overdraft floor (subscription-only mode), the usage-bypass gate must
+// in subscription-only mode, the usage-bypass gate must
 // stay engaged even when observed utilization is ABOVE the installation
 // threshold — paid failover is disabled, so conserving quota by routing
 // elsewhere isn't an option. The turn serves on the subscription (scorer never
@@ -512,7 +512,7 @@ func TestSubscriptionOnly_ExhaustedSubscription_Refuses402(t *testing.T) {
 }
 
 // TestSubscriptionOnly_NonBypassServedOnSub_Serves: a non-bypass turn (here the
-// usage-bypass gate is off) below the overdraft floor must still serve free on
+// usage-bypass gate is off) in subscription-only mode must still serve free on
 // the caller's own Claude OAuth subscription rather than be refused. Hard-pins,
 // force-model, and sticky turns win before usage-bypass in runTurnLoop, so
 // gating refusal on the bypass flag would 402 turns that run fine on the sub;
