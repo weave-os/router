@@ -203,6 +203,10 @@ check "miss stamp does not replace the periodic stamp" \
 # one temp file can install a truncated script, and a syntax-broken statusline
 # can never self-heal because it cannot run its own refresh.
 c="$work/c4b"; mkdir -p "$c/cache" "$c/bin"; make_installed "$c/cc.sh" stale
+# Resolve curl before the shim dir shadows it, and delegate through that. A
+# hardcoded /usr/bin/curl would silently fail its downloads wherever curl lives
+# elsewhere, leaving the -o log populated but no refresh actually performed.
+real_curl="$(command -v curl)"
 cat > "$c/bin/curl" <<'SHIM'
 #!/usr/bin/env bash
 # Record each download target, then delegate to the real curl.
@@ -210,18 +214,32 @@ args=("$@")
 for i in "${!args[@]}"; do
   if [ "${args[$i]}" = "-o" ]; then echo "${args[$((i + 1))]}" >> "$WEAVE_TEST_CURL_LOG"; fi
 done
-exec /usr/bin/curl "$@"
+exec "$WEAVE_TEST_REAL_CURL" "$@"
 SHIM
 chmod +x "$c/bin/curl"
 curl_log="$c/targets.log"; : > "$curl_log"
 echo "{\"model\":{\"id\":\"$STALE_MODEL\"},\"transcript_path\":\"$transcript\"}" \
-  | PATH="$c/bin:$PATH" WEAVE_TEST_CURL_LOG="$curl_log" XDG_CACHE_HOME="$c/cache" \
-    WEAVE_STATUSLINE_URL="file://$upstream" bash "$c/cc.sh" >/dev/null 2>&1
+  | PATH="$c/bin:$PATH" WEAVE_TEST_CURL_LOG="$curl_log" WEAVE_TEST_REAL_CURL="$real_curl" \
+    XDG_CACHE_HOME="$c/cache" WEAVE_STATUSLINE_URL="file://$upstream" \
+    bash "$c/cc.sh" >/dev/null 2>&1
 wait_for 20 line_count_at_least "$curl_log" 2
 downloads="$(wc -l < "$curl_log" | tr -d ' ')"
 distinct="$(sort -u "$curl_log" | wc -l | tr -d ' ')"
 check "cold cache fires both the periodic and price-miss refresh" "$downloads" 2
 check "concurrent refreshes use distinct temp files" "$distinct" "$downloads"
+# Counting -o targets alone would pass even if every download failed, so assert
+# the refresh landed and left a script that still parses — a corrupt one is the
+# actual consequence of sharing the temp path.
+if wait_for 20 grep -q "\"$STALE_MODEL\":" "$c/cc.sh"; then
+  ok "concurrent refreshes actually install the new script"
+else
+  no "concurrent refreshes actually install the new script" "price entries restored" "still missing"
+fi
+if bash -n "$c/cc.sh" 2>/dev/null; then
+  ok "script surviving concurrent refreshes still parses"
+else
+  no "script surviving concurrent refreshes still parses" "valid bash" "syntax error"
+fi
 
 # Malformed pricing must fail closed: no crash, no refresh loop.
 c="$work/c5"; mkdir -p "$c/cache"; make_installed_bad_prices "$c/cc.sh"
