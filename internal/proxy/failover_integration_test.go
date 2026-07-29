@@ -9,12 +9,14 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"workweave/router/internal/providers"
 	"workweave/router/internal/providers/anthropic"
 	"workweave/router/internal/providers/openai"
 	"workweave/router/internal/providers/openaicompat"
 	"workweave/router/internal/proxy"
+	"workweave/router/internal/proxy/usage"
 	"workweave/router/internal/router"
 
 	"github.com/stretchr/testify/assert"
@@ -524,4 +526,117 @@ func TestProxyMessages_GeminiNon400NotRetried(t *testing.T) {
 	_ = svc.ProxyMessages(context.Background(), body, rec, req)
 
 	assert.Len(t, client.bodies, 1, "a 503 is not a VALIDATED-schema 400 — no AUTO retry")
+}
+
+// TestProxyMessages_PreemptiveSubscriptionFailoverWarnsUser guards the
+// pre-emptive path (an observer snapshot already reads exhausted before
+// dispatch): the turn must serve on the deployment key AND the client must see
+// the billable-failover warning marker instead of the normal routing marker.
+func TestProxyMessages_PreemptiveSubscriptionFailoverWarnsUser(t *testing.T) {
+	fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: bypassScorerPickMdl}}
+	p := &fakeProvider{proxyResponse: func(w http.ResponseWriter) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		_, _ = io.WriteString(w, "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_1\",\"role\":\"assistant\",\"content\":[],\"model\":\""+bypassScorerPickMdl+"\",\"usage\":{\"input_tokens\":1,\"output_tokens\":0}}}\n\n")
+		_, _ = io.WriteString(w, "event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n")
+		_, _ = io.WriteString(w, "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"hi\"}}\n\n")
+		_, _ = io.WriteString(w, "event: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":0}\n\n")
+		_, _ = io.WriteString(w, "event: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":1}}\n\n")
+		_, _ = io.WriteString(w, "event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n")
+	}}
+	// Observer seeded EXHAUSTED on the weekly window, mirroring
+	// TestSubscriptionExhausted_ServesOnDeploymentKey.
+	obs := usage.NewObserver([]byte("salt"), 10*time.Minute, time.Now)
+	obs.Record(obs.Key([]byte(bypassSubToken)), usage.Snapshot{
+		Secondary: usage.Window{UsedPercent: 1.0, WindowMinutes: 10080},
+	})
+	svc := proxy.NewService(fr, map[string]providers.Client{providers.ProviderAnthropic: p}, nil, false, nil, nil, false, providers.ProviderAnthropic, bypassScorerPickMdl, nil).
+		WithSubscriptionAwareRouting(obs, 0.05, 2.0).
+		WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}})
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	body := []byte(`{"model":"` + bypassScorerPickMdl + `","stream":true,"messages":[{"role":"user","content":"hi"}]}`)
+
+	// bypassCtx sets the usage-bypass gate; the routed path is what we're
+	// exercising here, so use a plain subscription context instead.
+	ctx := context.WithValue(context.Background(), proxy.AnthropicSubscriptionContextKey{}, bypassSubToken)
+	require.NoError(t, svc.ProxyMessages(ctx, body, rec, req))
+
+	require.Len(t, p.proxyCreds, 1, "the turn must be dispatched once, on the deployment key")
+	creds := p.proxyCreds[0]
+	if creds != nil {
+		assert.False(t, creds.OAuth, "the exhausted subscription must not be forwarded")
+	}
+	respBody := rec.Body.String()
+	assert.Contains(t, respBody, "your Claude subscription hit its usage limit",
+		"the client must see the billable-failover warning, not the normal routing marker")
+	assert.NotContains(t, respBody, "· "+"best pick for this turn",
+		"the failover warning replaces the routing marker, it doesn't append to it")
+}
+
+// TestProxyMessages_ReactiveSubscriptionFailoverWarnsUser guards the reactive
+// path: a subscription-served Anthropic turn hits a live retryable error
+// (429), so the router retries the SAME model on the Weave key. The retry
+// must carry the billable-failover warning marker, not the original routing
+// marker, and the retry must authenticate via x-api-key (not the spent OAuth
+// bearer).
+func TestProxyMessages_ReactiveSubscriptionFailoverWarnsUser(t *testing.T) {
+	var (
+		mu    sync.Mutex
+		calls int
+	)
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		calls++
+		attempt := calls
+		mu.Unlock()
+		if attempt <= 3 {
+			// Attempts 1-3: subscription OAuth bearer. dispatchWithFallback
+			// retries a sole binding in place up to maxSameBindingRetries (2)
+			// before giving up, so the 429 must persist through all three
+			// same-binding attempts to reach the subscription-failover retry.
+			assert.Equal(t, "Bearer "+bypassSubToken, r.Header.Get("Authorization"),
+				"same-binding retries must still authenticate with the subscription bearer")
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusTooManyRequests)
+			_, _ = io.WriteString(w, `{"type":"error","error":{"type":"rate_limit_error","message":"5h limit reached"}}`)
+			return
+		}
+		// Attempt 4: the subscription-failover retry, on the deployment/BYOK
+		// key rather than the spent subscription bearer.
+		assert.Empty(t, r.Header.Get("Authorization"), "the retry must not reuse the spent subscription bearer")
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		_, _ = io.WriteString(w, "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_recovered\",\"role\":\"assistant\",\"content\":[],\"model\":\""+bypassScorerPickMdl+"\",\"usage\":{\"input_tokens\":5,\"output_tokens\":0}}}\n\n")
+		_, _ = io.WriteString(w, "event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n")
+		_, _ = io.WriteString(w, "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"recovered\"}}\n\n")
+		_, _ = io.WriteString(w, "event: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":0}\n\n")
+		_, _ = io.WriteString(w, "event: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":1}}\n\n")
+		_, _ = io.WriteString(w, "event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n")
+	}))
+	defer upstream.Close()
+
+	svc := proxy.NewService(
+		&fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: bypassScorerPickMdl}},
+		map[string]providers.Client{providers.ProviderAnthropic: anthropic.NewClient("test-key", upstream.URL)},
+		nil, false, nil, nil, false, providers.ProviderAnthropic, bypassScorerPickMdl, nil,
+	).WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}})
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	req.Header.Set("Authorization", "Bearer "+bypassSubToken)
+	body := []byte(`{"model":"` + bypassScorerPickMdl + `","stream":true,"messages":[{"role":"user","content":"hi"}]}`)
+
+	require.NoError(t, svc.ProxyMessages(context.Background(), body, rec, req))
+
+	mu.Lock()
+	assert.Equal(t, 4, calls, "3 same-binding attempts on the subscription, then 1 subscription-failover retry on the Weave key")
+	mu.Unlock()
+	assert.Equal(t, http.StatusOK, rec.Code)
+	respBody := rec.Body.String()
+	assert.Contains(t, respBody, "recovered", "the client receives the retried attempt's content")
+	assert.Contains(t, respBody, "your Claude subscription hit its usage limit",
+		"the retry must carry the billable-failover warning")
+	assert.NotContains(t, respBody, "rate_limit_error", "the failed subscription attempt must never commit bytes")
 }

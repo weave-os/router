@@ -213,6 +213,15 @@ const subscriptionOnlyWarningMarkerCodex = routingMarkerPrefix +
 	"your Weave router credits are depleted, so this turn is running on your own ChatGPT (Codex) subscription and paid model fallback is disabled. Add credits to restore full routing: " +
 	topUpURL + "\n\n"
 
+// subscriptionFailoverWarningMarker is prepended when a subscription-served
+// Anthropic turn fails over to the billable Weave/BYOK key mid-session (5h/7d
+// unified rate-limit rejection, or an OAuth credential rejection). Distinct
+// from subscriptionOnlyWarningMarker: that one signals a permanent, org-level
+// state (credits depleted, until top-up); this one is a per-turn, self-healing
+// condition, so the copy says "this turn" rather than pointing at a CTA.
+const subscriptionFailoverWarningMarker = routingMarkerPrefix +
+	"your Claude subscription hit its usage limit, so this turn is running on the Weave router key and will be billed. Full routing resumes automatically once your subscription window resets.\n\n"
+
 // ErrCreditsExhaustedSubscriptionUnavailable is returned by ProxyMessages and
 // ProxyOpenAIChatCompletion when the org is in subscription-only mode but the
 // turn cannot be served on the caller's own

@@ -2453,8 +2453,10 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	// another turn on it (429 until reset). Suppress the spent token so
 	// resolution falls through to the deployment/BYOK key — the turn serves on
 	// the Weave key (full cost) instead of hard-failing. Only fires once the
-	// observer has recorded exhaustion and a fallback key exists.
-	if s.claudeSubscriptionExhausted(ctx, r.Header) {
+	// observer has recorded exhaustion and a fallback key exists. Recorded so
+	// the marker built below can surface the billable-failover warning.
+	subscriptionFailingOver := s.claudeSubscriptionExhausted(ctx, r.Header)
+	if subscriptionFailingOver {
 		ctx = withSuppressedClaudeSubscription(ctx)
 	}
 	ctx = resolveAndInjectCredentials(ctx, decision.Provider, r.Header)
@@ -2535,6 +2537,12 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	// turn reaching here is served free and should carry the top-up CTA.
 	if billing.SubscriptionOnlyFromContext(ctx) {
 		marker = subscriptionOnlyWarningMarker
+	} else if subscriptionFailingOver {
+		// Subscription hit its 5h/7d limit pre-dispatch: the turn is about to
+		// serve on the billable Weave/BYOK key instead. Not gated by the
+		// routing-marker opt-out — same billing-state-change rule as the
+		// subscription-only warning above.
+		marker = subscriptionFailoverWarningMarker
 	}
 	// toolValidator compiles the request's tool schemas once (LRU-cached);
 	// translators validate/repair model tool calls against it. Nil if no tools.
@@ -2875,7 +2883,10 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 				"model", decision.Model,
 				"err", proxyErr,
 				"upstream_status", upstreamStatus(proxyErr))
-			subAttempt := s.anthropicNativeAttempt(env, r, subPrep, sink, preludeBuf, marker, setExtractor)
+			// Swap in the billable-failover warning for this retry attempt — safe
+			// because reaching here already required preludeBuf.Committed() ==
+			// false, so nothing under the original marker has hit the wire yet.
+			subAttempt := s.anthropicNativeAttempt(env, r, subPrep, sink, preludeBuf, subscriptionFailoverWarningMarker, setExtractor)
 			crossFormat = false
 			respSummary = translate.ResponseSummary{}
 			reqStats = providers.RequestMutationStats{}
