@@ -187,6 +187,31 @@ check "never-priced model refreshes at most once per interval" \
 check "miss stamp does not replace the periodic stamp" \
   "$(count_stamps "$c/cache")" 2
 
+# On a cold cache the periodic check and the pricing-miss retry both fire in one
+# invocation. They must not share a download path: concurrent curl -o plus mv on
+# one temp file can install a truncated script, and a syntax-broken statusline
+# can never self-heal because it cannot run its own refresh.
+c="$work/c4b"; mkdir -p "$c/cache" "$c/bin"; make_installed "$c/cc.sh" stale
+cat > "$c/bin/curl" <<'SHIM'
+#!/usr/bin/env bash
+# Record each download target, then delegate to the real curl.
+args=("$@")
+for i in "${!args[@]}"; do
+  if [ "${args[$i]}" = "-o" ]; then echo "${args[$((i + 1))]}" >> "$WEAVE_TEST_CURL_LOG"; fi
+done
+exec /usr/bin/curl "$@"
+SHIM
+chmod +x "$c/bin/curl"
+curl_log="$c/targets.log"; : > "$curl_log"
+echo "{\"model\":{\"id\":\"$STALE_MODEL\"},\"transcript_path\":\"$transcript\"}" \
+  | PATH="$c/bin:$PATH" WEAVE_TEST_CURL_LOG="$curl_log" XDG_CACHE_HOME="$c/cache" \
+    WEAVE_STATUSLINE_URL="file://$upstream" bash "$c/cc.sh" >/dev/null 2>&1
+wait_for 20 test "$(wc -l < "$curl_log" | tr -d ' ')" -ge 2 || true
+downloads="$(wc -l < "$curl_log" | tr -d ' ')"
+distinct="$(sort -u "$curl_log" | wc -l | tr -d ' ')"
+check "cold cache fires both the periodic and price-miss refresh" "$downloads" 2
+check "concurrent refreshes use distinct temp files" "$distinct" "$downloads"
+
 # Malformed pricing must fail closed: no crash, no refresh loop.
 c="$work/c5"; mkdir -p "$c/cache"; make_installed_bad_prices "$c/cc.sh"
 out="$(render "$c/cc.sh" "$c/cache" "file://$upstream" "$STALE_MODEL")"

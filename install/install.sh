@@ -2054,7 +2054,13 @@ weave_self_refresh() {
   : > "$stamp" 2>/dev/null || return 0
 
   local url="${WEAVE_STATUSLINE_URL:-https://raw.githubusercontent.com/workweave/router/main/install/cc-statusline.sh}"
-  local tmp="${self}.tmp.$$"
+  # $$ alone is not unique: two calls can run in one invocation (the periodic
+  # check and a pricing-miss retry both fire on a cold cache) and would then
+  # curl -o into the same path and mv over each other, installing a truncated
+  # script that can never self-heal. The stamp suffix is the right key — it is
+  # what makes two callers mutually exclusive in the first place, so callers
+  # that could overlap necessarily have different suffixes.
+  local tmp="${self}.tmp.$$${stamp_suffix}"
   (
     # Detach stdin (CC pipes JSON to us) so curl can't accidentally consume
     # it, and silence all output so nothing leaks into the statusline.
