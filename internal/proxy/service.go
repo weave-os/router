@@ -2051,6 +2051,14 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	if removed := env.StripRouterFeedbackArtifacts(); removed > 0 {
 		log.Info("Stripped router-feedback artifacts from Anthropic history", "removed_messages", removed)
 	}
+	// A dangling tool_use left by a prior mid-stream failure 400s permanently
+	// on providers that validate tool-call/response pairing (Together); other
+	// providers silently accept it, so the failure only shows up depending on
+	// which model the router picks. Must run before maybeCompact/routing so
+	// every dispatch attempt this turn sees a wire-valid history.
+	if sanitized := env.SanitizeOrphanedToolCalls(); sanitized > 0 {
+		log.Info("Sanitized orphaned tool calls before dispatch", "sanitized", sanitized)
+	}
 
 	embedFlag := s.embedOnlyUserMessage
 	if v, ok := embedOnlyUserMessageOverride(ctx); ok {
@@ -4173,6 +4181,14 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	ctx, log, sessionKey = bindRequestLogger(ctx, env, apiKeyID, requestID, "openai_chat_completions")
 	if removed := env.StripRouterFeedbackArtifacts(); removed > 0 {
 		log.Info("Stripped router-feedback artifacts from OpenAI history", "removed_messages", removed)
+	}
+	// A dangling tool_use left by a prior mid-stream failure 400s permanently
+	// on providers that validate tool-call/response pairing (Together); other
+	// providers silently accept it, so the failure only shows up depending on
+	// which model the router picks. Must run before maybeCompact/routing so
+	// every dispatch attempt this turn sees a wire-valid history.
+	if sanitized := env.SanitizeOrphanedToolCalls(); sanitized > 0 {
+		log.Info("Sanitized orphaned tool calls before dispatch", "sanitized", sanitized)
 	}
 	embedFlag := s.embedOnlyUserMessage
 	if v, ok := embedOnlyUserMessageOverride(ctx); ok {

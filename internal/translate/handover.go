@@ -429,3 +429,224 @@ func stripOrphanedOpenAIToolMessages(msgs []string) []string {
 	}
 	return result
 }
+
+// stripOrphanedOpenAIToolCalls removes tool_calls entries from assistant
+// messages whose id has no matching role:"tool" tool_call_id in the set.
+// Returns the modified message list and the count of orphaned tool_calls
+// stripped. An assistant message whose tool_calls are all orphaned gets the
+// key removed entirely so the field is absent from the wire payload. A
+// healthy client-submitted history never has an unanswered tool_calls entry
+// (the client's own tool loop always finishes answering one turn's calls
+// before sending the next request), so stripping is unconditional — there is
+// no legitimate "still in flight" case to protect against.
+func stripOrphanedOpenAIToolCalls(msgs []string) ([]string, int) {
+	knownIDs := make(map[string]struct{})
+	for _, raw := range msgs {
+		parsed := gjson.Parse(raw)
+		if parsed.Get("role").String() != "tool" {
+			continue
+		}
+		if id := parsed.Get("tool_call_id").String(); id != "" {
+			knownIDs[id] = struct{}{}
+		}
+	}
+
+	result := make([]string, 0, len(msgs))
+	stripped := 0
+	for _, raw := range msgs {
+		parsed := gjson.Parse(raw)
+		if parsed.Get("role").String() != "assistant" {
+			result = append(result, raw)
+			continue
+		}
+		tc := parsed.Get("tool_calls")
+		if !tc.IsArray() || tc.Get("#").Int() == 0 {
+			result = append(result, raw)
+			continue
+		}
+
+		var kept []string
+		tc.ForEach(func(_, entry gjson.Result) bool {
+			id := entry.Get("id").String()
+			if _, ok := knownIDs[id]; ok {
+				kept = append(kept, entry.Raw)
+			} else {
+				stripped++
+			}
+			return true
+		})
+		if len(kept) == 0 {
+			out, err := sjson.DeleteBytes([]byte(raw), "tool_calls")
+			if err != nil {
+				result = append(result, raw)
+				continue
+			}
+			result = append(result, string(out))
+			continue
+		}
+		if len(kept) == int(tc.Get("#").Int()) {
+			result = append(result, raw)
+			continue
+		}
+		newTC := "[" + strings.Join(kept, ",") + "]"
+		out, err := sjson.SetRawBytes([]byte(raw), "tool_calls", []byte(newTC))
+		if err != nil {
+			result = append(result, raw)
+			continue
+		}
+		result = append(result, string(out))
+	}
+	return result, stripped
+}
+
+// SanitizeOrphanedToolCalls strips tool_calls entries from assistant messages
+// that have no matching tool response in the request history, then strips
+// tool_result content blocks from user messages whose IDs are unmatched.
+// Some providers (Together) enforce strict tool-call/response pairing and 400
+// on orphaned IDs that other providers silently accept. This pass runs once
+// per turn so a session is never bricked by a single mid-stream failure that
+// left a dangling tool_use block on the wire. Returns the total count of
+// blocks/messages stripped; zero when clean or when the format is Gemini
+// (Gemini doesn't validate pairing).
+func (e *RequestEnvelope) SanitizeOrphanedToolCalls() int {
+	if e == nil {
+		return 0
+	}
+	switch e.format {
+	case FormatOpenAI:
+		return e.sanitizeOrphanedOpenAIToolCalls()
+	case FormatAnthropic:
+		return e.sanitizeOrphanedAnthropicToolCalls()
+	default:
+		return 0
+	}
+}
+
+func (e *RequestEnvelope) sanitizeOrphanedOpenAIToolCalls() int {
+	msgs := gjson.GetBytes(e.body, "messages")
+	if !msgs.IsArray() {
+		return 0
+	}
+	all := msgs.Array()
+	if len(all) == 0 {
+		return 0
+	}
+	raws := make([]string, 0, len(all))
+	for _, m := range all {
+		raws = append(raws, m.Raw)
+	}
+	cleanedCalls, callStripped := stripOrphanedOpenAIToolCalls(raws)
+	cleaned := stripOrphanedOpenAIToolMessages(cleanedCalls)
+	resultStripped := len(raws) - len(cleaned)
+	if callStripped == 0 && resultStripped == 0 {
+		return 0
+	}
+	newMessages := "[" + strings.Join(cleaned, ",") + "]"
+	out, err := sjson.SetRawBytes(e.body, "messages", []byte(newMessages))
+	if err != nil {
+		return 0
+	}
+	e.body = out
+	return callStripped + resultStripped
+}
+
+// collectAnthropicToolResultIDs returns the set of tool_use_ids referenced by
+// tool_result blocks in user messages. Reverse of collectAnthropicToolUseIDs.
+func collectAnthropicToolResultIDs(msgs []gjson.Result) map[string]struct{} {
+	ids := make(map[string]struct{})
+	for _, m := range msgs {
+		if m.Get("role").String() != "user" {
+			continue
+		}
+		m.Get("content").ForEach(func(_, block gjson.Result) bool {
+			if block.Get("type").String() == "tool_result" {
+				if id := block.Get("tool_use_id").String(); id != "" {
+					ids[id] = struct{}{}
+				}
+			}
+			return true
+		})
+	}
+	return ids
+}
+
+// stripOrphanedAnthropicToolCalls removes tool_use content blocks from
+// assistant messages whose id has no matching tool_result in the set.
+// Returns the number of orphaned tool_use blocks stripped. Unconditional
+// like stripOrphanedOpenAIToolCalls: a well-formed client history never ends
+// on (or contains) an unanswered tool_use, so there's no legitimate
+// in-flight case a knownIDs-empty guard would need to protect.
+func stripOrphanedAnthropicToolCalls(msgs []gjson.Result) (int, []gjson.Result) {
+	knownIDs := collectAnthropicToolResultIDs(msgs)
+
+	result := make([]gjson.Result, 0, len(msgs))
+	stripped := 0
+	for _, m := range msgs {
+		if m.Get("role").String() != "assistant" {
+			result = append(result, m)
+			continue
+		}
+		content := m.Get("content")
+		if !content.IsArray() {
+			result = append(result, m)
+			continue
+		}
+
+		var kept []string
+		content.ForEach(func(_, block gjson.Result) bool {
+			if block.Get("type").String() == "tool_use" {
+				id := block.Get("id").String()
+				if _, ok := knownIDs[id]; !ok {
+					stripped++
+					return true
+				}
+			}
+			kept = append(kept, block.Raw)
+			return true
+		})
+		if len(kept) == len(content.Array()) {
+			result = append(result, m)
+			continue
+		}
+		if len(kept) == 0 {
+			// Drop the message entirely — no content left after
+			// stripping orphaned tool_use blocks.
+			continue
+		}
+		newContent := "[" + strings.Join(kept, ",") + "]"
+		out, err := sjson.SetRawBytes([]byte(m.Raw), "content", []byte(newContent))
+		if err != nil {
+			result = append(result, m)
+			continue
+		}
+		result = append(result, gjson.ParseBytes(out))
+	}
+	return stripped, result
+}
+
+func (e *RequestEnvelope) sanitizeOrphanedAnthropicToolCalls() int {
+	msgs := gjson.GetBytes(e.body, "messages")
+	if !msgs.IsArray() {
+		return 0
+	}
+	all := msgs.Array()
+	if len(all) == 0 {
+		return 0
+	}
+	callStripped, cleaned := stripOrphanedAnthropicToolCalls(all)
+	if callStripped == 0 {
+		return 0
+	}
+	// stripOrphanedAnthropicToolCalls already accounts for any assistant
+	// message it drops entirely inside callStripped; only count messages the
+	// second pass (orphaned tool_results left behind by the first) removes.
+	cleanedRaw := stripOrphanedAnthropicToolResults(cleaned)
+	totalStripped := callStripped + (len(cleaned) - len(cleanedRaw))
+	newMessages := "[" + strings.Join(cleanedRaw, ",") + "]"
+	out, err := sjson.SetRawBytes(e.body, "messages", []byte(newMessages))
+	if err != nil {
+		return 0
+	}
+	e.body = out
+	return totalStripped
+}
