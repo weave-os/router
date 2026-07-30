@@ -71,12 +71,15 @@ class RouteOptions(BaseModel):
     already reads. Leave a field ``None`` to inherit the deployment default.
 
     Some overrides additionally require the installation to be authorized for
-    policy header overrides; an unauthorized value is ignored by the server
-    rather than rejected, so the response reflects the deployment default.
+    policy header overrides (an internal/eval capability) — today only
+    ``strategy``. An unauthorized value is ignored by the server rather than
+    rejected, so the response reflects the deployment default.
     """
 
     model_config = ConfigDict(frozen=True)
 
+    # strategy is gated on policy-header authorization server-side (see class
+    # docstring); an ordinary key setting this has it silently ignored.
     strategy: str | None = None
     cluster_version: str | None = None
     effort: str | None = None
@@ -358,7 +361,10 @@ class RouteClient:
     ) -> RoutePreview:
         """Return the full policy trace for ``body`` without serving it.
 
-        Requires an HMM strategy; see :class:`RoutePreview`.
+        Requires the request to resolve to an HMM strategy; see
+        :class:`RoutePreview`. Because ``RouteOptions.strategy`` is gated on
+        policy-header authorization server-side, an ordinary key reaches this
+        only on a deployment whose default strategy is already HMM.
         """
         _guard_preview_strategy(options)
         response = self._client.post(

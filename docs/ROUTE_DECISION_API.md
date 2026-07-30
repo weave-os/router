@@ -59,13 +59,18 @@ a decision happened; use `/v1/route` when you only need the outcome.
 
 Preview is **HMM-shaped** — it reports `hmm_state_id` and `class_probabilities`,
 which only exist under an HMM strategy. A request on a non-HMM strategy returns
-`400`. Send `x-weave-router-strategy: hmm` if the deployment's default is not
-already HMM.
+`400`. Managed deployments default to HMM (`ROUTER_DEFAULT_STRATEGY=hmm`), so an
+ordinary key needs no header there. On a deployment whose default is not HMM
+(e.g. a self-hosted install, which defaults to `cluster`), `x-weave-router-strategy: hmm`
+only takes effect for keys authorized for policy header overrides — see
+[Request shaping headers](#request-shaping-headers) below. An unauthorized key
+gets the header silently ignored and then a `400` from the HMM-only check
+above, so **an ordinary key can only reach preview on a deployment whose
+default strategy is already HMM.**
 
 ```bash
 curl -sS http://localhost:8080/v1/route/preview \
   -H "Authorization: Bearer rk_..." \
-  -H "x-weave-router-strategy: hmm" \
   -d '{"model":"claude-sonnet-4-5","max_tokens":256,
        "messages":[{"role":"user","content":"add a null check to parseConfig"}]}'
 ```
@@ -82,18 +87,21 @@ report, no session pin write, no billing debit.
 Both endpoints sit behind the same request-shaping middleware as the proxy, so
 the same headers apply. All are optional.
 
-| Header | Effect |
-| ------ | ------ |
-| `x-weave-router-strategy` | Pick the routing strategy (`hmm`, `cluster`, …). |
-| `x-weave-cluster-version` | Pin a cluster artifact version (`v0.70`). Legacy `cluster` strategy only. |
-| `x-weave-effort` | Force a reasoning-effort tier. |
-| `x-weave-embed-only-user-message` | Embed only user-role text (`true`) or the concatenated action stream (`false`). |
-| `x-weave-routing-alpha` &nbsp;·&nbsp; `-speed-weight` &nbsp;·&nbsp; `-output-cost-ratio` &nbsp;·&nbsp; `-expected-output-tokens` | Numeric per-request routing knobs. Out-of-range values return `400`. |
-| `x-weave-routing-per-model-verbosity` | Boolean knob — exactly `true` or `false`; anything else returns `400`. |
+| Header | Effect | Needs policy-header authorization |
+| ------ | ------ | --- |
+| `x-weave-router-strategy` | Pick the routing strategy (`hmm`, `cluster`, …). | **Yes** |
+| `x-weave-cluster-version` | Pin a cluster artifact version (`v0.70`). Legacy `cluster` strategy only. | No |
+| `x-weave-effort` | Force a reasoning-effort tier. | No |
+| `x-weave-embed-only-user-message` | Embed only user-role text (`true`) or the concatenated action stream (`false`). | No |
+| `x-weave-routing-alpha` &nbsp;·&nbsp; `-speed-weight` &nbsp;·&nbsp; `-output-cost-ratio` &nbsp;·&nbsp; `-expected-output-tokens` | Numeric per-request routing knobs. Out-of-range values return `400`. | No |
+| `x-weave-routing-per-model-verbosity` | Boolean knob — exactly `true` or `false`; anything else returns `400`. | No |
 
-Some headers additionally require the installation to be authorized for policy
-header overrides; unauthorized values are ignored rather than rejected, so the
-response reflects the deployment default.
+Headers in the authorization column are honored only for installations flagged
+for policy header overrides (an internal/eval capability). For everyone else the
+value is **silently ignored** — logged server-side, not rejected — so the
+response reflects the deployment default rather than what was asked for. Design
+your calls so the deployment default is already what you want, and treat those
+headers as a debugging aid rather than a supported public knob.
 
 ## Errors
 

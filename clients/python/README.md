@@ -75,13 +75,16 @@ decision = client.route(
 ```
 
 Some overrides additionally require the installation to be authorized for policy
-header overrides. An unauthorized value is **ignored** by the server rather than
-rejected, so the response reflects the deployment default — it does not error.
+header overrides (an internal/eval capability) — today this is `strategy`,
+serialized to `x-weave-router-strategy`. An unauthorized value is **ignored**
+by the server rather than rejected, so the response reflects the deployment
+default — it does not error. Treat `strategy` as a debugging aid rather than a
+supported public knob for that reason.
 
 ### Preview
 
 ```python
-preview = client.preview(body, options=RouteOptions(strategy="hmm"))
+preview = client.preview(body)
 print(preview.hmm_state_id, preview.class_probabilities)
 print(preview.selected_group, preview.eligible_roster_ids)
 for excluded in preview.resolver_exclusions:
@@ -89,7 +92,11 @@ for excluded in preview.resolver_exclusions:
 ```
 
 Preview is HMM-shaped and requires an HMM strategy; a non-HMM strategy is
-rejected. Its `schema_version` carries the policy-sidecar contract version
+rejected. Since `strategy` is one of the overrides gated on policy-header
+authorization above, an ordinary key can only reach preview on a deployment
+whose *default* strategy is already HMM (true of Weave's managed deployments)
+— passing `RouteOptions(strategy="hmm")` does nothing for a key without that
+authorization. Its `schema_version` carries the policy-sidecar contract version
 (`policy_router_v1`), which versions independently of the `/v1/route` response's
 `router_route_v1`.
 
