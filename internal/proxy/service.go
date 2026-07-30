@@ -2254,11 +2254,8 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		return routeErr
 	}
 	if len(routeRes.SessionDisabledProviders) > 0 {
-		// Applies the same session-struck-out providers runTurnLoop already
-		// excluded from the scorer to dispatch's failover walk
-		// (resolveBindingsForDispatch reads excludedProvidersForRequest from
-		// ctx, not req.EnabledProviders, which is a local by the time we're
-		// back here).
+		// resolveBindingsForDispatch reads excludedProvidersForRequest from ctx,
+		// not req.EnabledProviders, so stash here for the failover walk too.
 		ctx = context.WithValue(ctx, SessionDisabledProvidersContextKey{}, routeRes.SessionDisabledProviders)
 	}
 
@@ -3181,12 +3178,16 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	if !agentShadowMode {
 		s.maybeEvictPinAfterUpstreamErr(ctx, stickyHit, proxyErr, decision.Reason, installationID, routeRes.SessionKey, stickyStateRole(routeRes))
 
-		// Two-strike provider disable: a turn that exhausted with a
-		// client-visible 529 strikes finalProvider out of this session after
-		// a second consecutive exhaustion. Distinct counter/mechanism from
-		// the 4xx eviction above -- a 529 is retryable in-turn, so it never
-		// trips that one.
-		s.maybeDisableProviderAfterOverload(ctx, stickyHit, proxyErr, finalProvider, decision.Reason, installationID, routeRes.SessionKey, stickyStateRole(routeRes))
+		// Two-strike provider disable: complements the 4xx eviction above;
+		// 529 is retryable in-turn so it never trips that counter.
+		// Skipped when baseline rescue ran: finalProvider is then Anthropic
+		// even though the sticky pin is the OSS model that actually failed --
+		// disabling Anthropic here would evict an unrelated OSS pin and take
+		// away the rescue hatch this turn just needed, during the exact
+		// overload window this breaker targets.
+		if !baselineAttempted {
+			s.maybeDisableProviderAfterOverload(ctx, stickyHit, proxyErr, finalProvider, decision.Reason, installationID, routeRes.SessionKey, stickyStateRole(routeRes))
+		}
 
 		// Re-pin the session off the refusing model if a cyber refusal was observed.
 		s.maybeRepinOnRefusal(ctx, refusalObs, routeRes.SessionKey, stickyStateRole(routeRes), decision)

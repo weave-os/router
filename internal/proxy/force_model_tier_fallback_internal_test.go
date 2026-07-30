@@ -209,14 +209,9 @@ func TestRunTurnLoop_ForcedModelOverridesHardPin(t *testing.T) {
 	assert.Empty(t, fr.captured, "a forced pin must not invoke the scorer")
 }
 
-// Regression (Bugbot): a user-forced pin targeting exactly a provider this
-// session already struck out for repeated 529 exhaustion must still serve
-// through the fast path -- the circuit breaker exists to steer AUTOMATIC
-// re-routing away from an overloaded provider, not to silently override an
-// explicit /force-model choice. Before the fix, DisabledProviders was
-// subtracted from EnabledProviders unconditionally, so a forced pin's own
-// eligibility check (providerEligible) would see its provider excluded and
-// fall through to normal routing, ignoring the user's directive.
+// Regression: a forced pin targeting a session-struck-out provider must
+// serve through the fast path; the breaker skips force-model to avoid
+// silently reverting an explicit user choice.
 func TestRunTurnLoop_ForcedModelServesDespiteDisabledProvider(t *testing.T) {
 	store := &forcedPinStore{pin: sessionpin.Pin{
 		Provider:          providers.ProviderAnthropic,

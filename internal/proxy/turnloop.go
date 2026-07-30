@@ -436,20 +436,9 @@ func (s *Service) runTurnLoop(
 	// the scorer away from the just-struck-out provider on this very turn --
 	// otherwise the eviction only prevents re-anchoring, not re-selection.
 	disabledProviders := pin.DisabledProviders
-	// A user-forced pin (/force-model) targeting exactly a struck-out
-	// provider must still be able to retry it: the circuit breaker exists to
-	// steer AUTOMATIC re-routing away from an overloaded provider, not to
-	// silently override the user's explicit choice -- Bugbot correctly
-	// flagged that Upsert never clears disabled_providers, so a forced pin
-	// re-hitting a previously-disabled provider would otherwise fail
-	// providerEligible below and silently fall through to normal routing.
-	// /unforce-model remains the escape hatch out of a bad forced pin.
-	// Loop-escalation is deliberately excluded here: it's an automatic
-	// safety pin (tool-call loop detected), not a user override, so it must
-	// still respect the breaker like any other automatic decision. Every
-	// other struck-out provider stays excluded, so a fresh-routing fallback
-	// (if this pin turns out ineligible on some other dimension below)
-	// still avoids them.
+	// User-forced pin (/force-model) exempts its own provider from the
+	// breaker so an explicit override isn't silently ignored; loop-escalation
+	// (automatic) is not exempt and still respects the exclusion.
 	if pinFound && pin.Provider != "" && isUserForcedReason(pin.Reason) {
 		filtered := make([]string, 0, len(disabledProviders))
 		for _, p := range disabledProviders {
