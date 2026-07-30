@@ -628,9 +628,8 @@ func installationExcludedProvidersFromContext(ctx context.Context) []string {
 	return out
 }
 
-// sessionDisabledProvidersFromContext returns the providers the current
-// session's pin has struck out after repeated 529 exhaustion, stashed by
-// SessionDisabledProvidersContextKey.
+// sessionDisabledProvidersFromContext extracts the SessionDisabledProvidersContextKey
+// value set by runTurnLoop.
 func sessionDisabledProvidersFromContext(ctx context.Context) []string {
 	v := ctx.Value(SessionDisabledProvidersContextKey{})
 	if v == nil {

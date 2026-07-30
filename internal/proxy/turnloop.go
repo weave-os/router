@@ -458,9 +458,8 @@ func (s *Service) runTurnLoop(
 	// from the struck-out provider this same turn. Merged from both rows:
 	// HMM-sticky strikes write to _hmm_history, not PinRole.
 	disabledProviders := mergeDisabledProviders(pin.DisabledProviders, hmmHistory.DisabledProviders)
-	// User-forced pin (/force-model) exempts its own provider from the
-	// breaker so an explicit override isn't silently ignored; loop-escalation
-	// (automatic) is not exempt and still respects the exclusion.
+	// User-forced pin exempts its own provider: an explicit /force-model
+	// must not be silently reverted by the session-level breaker.
 	if pinFound && pin.Provider != "" && isUserForcedReason(pin.Reason) {
 		filtered := make([]string, 0, len(disabledProviders))
 		for _, p := range disabledProviders {
