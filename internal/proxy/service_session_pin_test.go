@@ -125,10 +125,8 @@ func (f *fakePinStore) IncrementOverloadErrors(ctx context.Context, key [session
 	if !f.hasPin {
 		return 0, nil
 	}
-	// Real incrementing (unlike IncrementUpstreamErrors' canned-return
-	// above) so a multi-turn test can observe the counter actually
-	// accumulate across ProxyMessages calls, the way the real two-strike
-	// disable path depends on.
+	// Real (accumulating) counter so multi-turn integration tests observe
+	// consecutive strikes, unlike IncrementUpstreamErrors' canned return.
 	f.pin.ConsecutiveOverloadErrors++
 	return f.pin.ConsecutiveOverloadErrors, nil
 }

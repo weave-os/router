@@ -110,7 +110,7 @@ func TestMaybeDisableProviderAfterOverload_FirstStrikeOnlyIncrements(t *testing.
 		"cluster:v0.57 model=claude-sonnet-5 provider=anthropic",
 		uuid.New(),
 		nonZeroSessionKey(),
-		sessionpin.DefaultRole,
+		sessionpin.DefaultRole, sessionpin.DefaultRole,
 	)
 
 	assert.Equal(t, 1, store.incrementCalls, "first exhausted 529 must increment exactly once")
@@ -137,15 +137,17 @@ func TestMaybeDisableProviderAfterOverload_SecondStrikeDisablesAndEvicts(t *test
 		"cluster:v0.57 model=claude-sonnet-5 provider=anthropic",
 		installationID,
 		sessionKey,
-		sessionpin.DefaultRole,
+		sessionpin.DefaultRole, sessionpin.DefaultRole,
 	)
 
 	require.Len(t, store.disabledProviders, 1)
 	assert.Equal(t, "anthropic", store.disabledProviders[0])
-	require.Len(t, store.upserts, 1, "threshold strike must trigger an expired-pin upsert")
+	require.Len(t, store.upserts, 2, "threshold strike must expire both the main pin and its HMM history row")
 	expired := store.upserts[0]
 	assert.Equal(t, sessionpin.DefaultRole, expired.Role)
 	assert.Equal(t, installationID, expired.InstallationID)
+	// Second upsert is the HMM history row.
+	assert.Equal(t, hmmHistoryRole(sessionpin.DefaultRole), store.upserts[1].Role, "must expire the _hmm_history row too")
 	assert.Empty(t, expired.Provider, "expired pin must clear provider so loadPin discards it")
 	assert.Empty(t, expired.Model, "expired pin must clear model so loadPin discards it")
 	assert.True(t, expired.PinnedUntil.Before(time.Now()),
@@ -168,7 +170,7 @@ func TestMaybeDisableProviderAfterOverload_SuccessResets(t *testing.T) {
 		"cluster:v0.57 model=claude-sonnet-5 provider=anthropic",
 		uuid.New(),
 		nonZeroSessionKey(),
-		sessionpin.DefaultRole,
+		sessionpin.DefaultRole, sessionpin.DefaultRole,
 	)
 
 	assert.Equal(t, 1, store.resetCalls, "successful turn on a sticky pin must clear the overload strike counter")
@@ -192,7 +194,7 @@ func TestMaybeDisableProviderAfterOverload_NonOverloadStatusIgnored(t *testing.T
 			"cluster:v0.57 model=claude-sonnet-5 provider=anthropic",
 			uuid.New(),
 			nonZeroSessionKey(),
-			sessionpin.DefaultRole,
+			sessionpin.DefaultRole, sessionpin.DefaultRole,
 		)
 
 		assert.Zero(t, store.incrementCalls, "status %d is not a 529 and must not bump the overload counter", status)
@@ -216,7 +218,7 @@ func TestMaybeDisableProviderAfterOverload_UserForcedSkipped(t *testing.T) {
 			reason,
 			uuid.New(),
 			nonZeroSessionKey(),
-			sessionpin.DefaultRole,
+			sessionpin.DefaultRole, sessionpin.DefaultRole,
 		)
 
 		assert.Zero(t, store.incrementCalls, "user-forced pins (%q) must skip the counter increment", reason)
@@ -238,7 +240,7 @@ func TestMaybeDisableProviderAfterOverload_NoStickyHitSkipped(t *testing.T) {
 		"cluster:v0.57 model=claude-sonnet-5 provider=anthropic",
 		uuid.New(),
 		nonZeroSessionKey(),
-		sessionpin.DefaultRole,
+		sessionpin.DefaultRole, sessionpin.DefaultRole,
 	)
 
 	assert.Zero(t, store.incrementCalls)
@@ -259,7 +261,7 @@ func TestMaybeDisableProviderAfterOverload_ZeroSessionKeySkipped(t *testing.T) {
 		"cluster:v0.57 model=claude-sonnet-5 provider=anthropic",
 		uuid.New(),
 		[sessionpin.SessionKeyLen]byte{}, // zero key
-		sessionpin.DefaultRole,
+		sessionpin.DefaultRole, sessionpin.DefaultRole,
 	)
 
 	assert.Zero(t, store.incrementCalls)
@@ -280,7 +282,7 @@ func TestMaybeDisableProviderAfterOverload_NilInstallationSkipped(t *testing.T) 
 		"cluster:v0.57 model=claude-sonnet-5 provider=anthropic",
 		uuid.Nil,
 		nonZeroSessionKey(),
-		sessionpin.DefaultRole,
+		sessionpin.DefaultRole, sessionpin.DefaultRole,
 	)
 
 	assert.Zero(t, store.incrementCalls)
@@ -301,7 +303,7 @@ func TestMaybeDisableProviderAfterOverload_NonUpstreamErrorIgnored(t *testing.T)
 		"cluster:v0.57 model=claude-sonnet-5 provider=anthropic",
 		uuid.New(),
 		nonZeroSessionKey(),
-		sessionpin.DefaultRole,
+		sessionpin.DefaultRole, sessionpin.DefaultRole,
 	)
 
 	assert.Zero(t, store.incrementCalls)

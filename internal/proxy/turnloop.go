@@ -35,6 +35,34 @@ func addToSet(set map[string]struct{}, model string) map[string]struct{} {
 	return out
 }
 
+// mergeDisabledProviders unions two pins' DisabledProviders (deduped, order
+// not significant): the active pin and its HMM history row can each carry
+// independent overload strikes (see the runTurnLoop call site), so either
+// alone would miss a provider struck out on the other row.
+func mergeDisabledProviders(a, b []string) []string {
+	if len(a) == 0 {
+		return b
+	}
+	if len(b) == 0 {
+		return a
+	}
+	seen := make(map[string]struct{}, len(a)+len(b))
+	out := make([]string, 0, len(a)+len(b))
+	for _, p := range a {
+		if _, ok := seen[p]; !ok {
+			seen[p] = struct{}{}
+			out = append(out, p)
+		}
+	}
+	for _, p := range b {
+		if _, ok := seen[p]; !ok {
+			seen[p] = struct{}{}
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
 // installationIDFromContext reads the installation ID stashed by auth
 // middleware. Returns uuid.Nil (which skips the async pin upsert) if missing or invalid.
 func installationIDFromContext(ctx context.Context) uuid.UUID {
@@ -435,7 +463,11 @@ func (s *Service) runTurnLoop(
 	// routing miss, but DisabledProviders on that same row must still steer
 	// the scorer away from the just-struck-out provider on this very turn --
 	// otherwise the eviction only prevents re-anchoring, not re-selection.
-	disabledProviders := pin.DisabledProviders
+	// Merged from BOTH pin and hmmHistory: an HMM-sticky turn's strikes/
+	// disable write to stickyStateRole, which is the _hmm_history role, not
+	// PinRole (mirrors switchHistoryFromPins' activePin+hmmHistory merge
+	// below for the same reason -- either row can carry the evidence).
+	disabledProviders := mergeDisabledProviders(pin.DisabledProviders, hmmHistory.DisabledProviders)
 	// User-forced pin (/force-model) exempts its own provider from the
 	// breaker so an explicit override isn't silently ignored; loop-escalation
 	// (automatic) is not exempt and still respects the exclusion.

@@ -435,13 +435,9 @@ func TestProxyMessages_TwoConsecutiveOverloadExhaustionsDisableProvider(t *testi
 
 // TestProxyMessages_BaselineOverloadExhaustionDoesNotDisableAnthropic
 // regression-tests a Cursor Bugbot finding: a session pinned to an OSS
-// provider that exhausts retryably rescues via baseline failover onto
-// Anthropic (finalProvider becomes "anthropic" even though the sticky pin's
-// own provider is the OSS one). If that Anthropic RESCUE attempt itself
-// exhausts on 529 twice across turns, the two-strike breaker must not
-// disable Anthropic or evict the unrelated OSS pin -- doing so would both
-// misattribute the strike (Anthropic didn't cause the original failure) and
-// remove the exact rescue hatch the overload window needs.
+// TestProxyMessages_BaselineOverloadExhaustionDoesNotDisableAnthropic
+// asserts that a baseline-rescue Anthropic 529 (OSS primary 503 -> Anthropic
+// failover) never disables Anthropic or evicts the unrelated OSS pin.
 func TestProxyMessages_BaselineOverloadExhaustionDoesNotDisableAnthropic(t *testing.T) {
 	ossUpstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

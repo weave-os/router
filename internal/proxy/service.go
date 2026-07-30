@@ -3179,14 +3179,11 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		s.maybeEvictPinAfterUpstreamErr(ctx, stickyHit, proxyErr, decision.Reason, installationID, routeRes.SessionKey, stickyStateRole(routeRes))
 
 		// Two-strike provider disable: complements the 4xx eviction above;
-		// 529 is retryable in-turn so it never trips that counter.
-		// Skipped when baseline rescue ran: finalProvider is then Anthropic
-		// even though the sticky pin is the OSS model that actually failed --
-		// disabling Anthropic here would evict an unrelated OSS pin and take
-		// away the rescue hatch this turn just needed, during the exact
-		// overload window this breaker targets.
+		// 529 is retryable in-turn so it never trips that counter. Skipped
+		// when baseline rescue ran: finalProvider is then Anthropic for a
+		// different pin so disabling Anthropic would evict an unrelated pin.
 		if !baselineAttempted {
-			s.maybeDisableProviderAfterOverload(ctx, stickyHit, proxyErr, finalProvider, decision.Reason, installationID, routeRes.SessionKey, stickyStateRole(routeRes))
+			s.maybeDisableProviderAfterOverload(ctx, stickyHit, proxyErr, finalProvider, decision.Reason, installationID, routeRes.SessionKey, stickyStateRole(routeRes), routeRes.PinRole)
 		}
 
 		// Re-pin the session off the refusing model if a cyber refusal was observed.
@@ -4857,7 +4854,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	// See ProxyMessages for the two-strike eviction rationale.
 	s.maybeEvictPinAfterUpstreamErr(ctx, stickyHit, proxyErr, decision.Reason, installationIDFromContext(ctx), routeRes.SessionKey, stickyStateRole(routeRes))
 	// See ProxyMessages for the two-strike provider-disable rationale.
-	s.maybeDisableProviderAfterOverload(ctx, stickyHit, proxyErr, finalProvider, decision.Reason, installationIDFromContext(ctx), routeRes.SessionKey, stickyStateRole(routeRes))
+	s.maybeDisableProviderAfterOverload(ctx, stickyHit, proxyErr, finalProvider, decision.Reason, installationIDFromContext(ctx), routeRes.SessionKey, stickyStateRole(routeRes), routeRes.PinRole)
 
 	installationIDOAI, _ := ctx.Value(InstallationIDContextKey{}).(string)
 	if installationIDOAI != "" {

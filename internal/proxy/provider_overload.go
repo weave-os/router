@@ -22,9 +22,15 @@ const providerOverloadStrikeThreshold = 2
 // maybeDisableProviderAfterOverload applies the two-strike overload policy for
 // a sticky-pin turn: success resets the counter; a 529 exhaustion increments it;
 // hitting providerOverloadStrikeThreshold appends finalProvider to
-// DisabledProviders and evicts the pin so the next turn re-routes around it.
-// No-ops when !stickyHit, zero session key, uuid.Nil installation, user-forced
-// pin, or non-529 error.
+// DisabledProviders and evicts both the active and HMM-history pin rows so the
+// next turn re-routes around it. No-ops when !stickyHit, zero session key,
+// uuid.Nil installation, user-forced pin, or non-529 error.
+//
+// role is the tracking row that actually served this turn (stickyStateRole:
+// PinRole on a normal sticky hit, the _hmm_history role on an HMM stay).
+// pinRole is always the base PinRole (never the _hmm_history variant), used
+// to expire both rows: an HMM-sticky turn stores strikes on _hmm_history but
+// hmmStayPin reads from both rows, so on threshold both must be cleared.
 func (s *Service) maybeDisableProviderAfterOverload(
 	ctx context.Context,
 	stickyHit bool,
@@ -34,6 +40,7 @@ func (s *Service) maybeDisableProviderAfterOverload(
 	installationID uuid.UUID,
 	sessionKey [sessionpin.SessionKeyLen]byte,
 	role string,
+	pinRole string,
 ) {
 	if !stickyHit || s.pinStore == nil || installationID == uuid.Nil {
 		return
@@ -80,11 +87,17 @@ func (s *Service) maybeDisableProviderAfterOverload(
 		log.Error("pin provider-disable upsert failed", "err", err, "role", role, "provider", finalProvider)
 		return
 	}
-	// Expire via a PinnedUntil in the past, same pattern as loop-break /
-	// no-progress / force-model, so loadPin discards it next turn and the
-	// scorer re-routes with the newly-disabled provider excluded.
-	if err := s.expireSessionPin(ctx, installationID, sessionKey, role, "provider_overloaded"); err != nil {
-		log.Error("pin eviction after provider overload failed", "err", err, "role", role, "provider", finalProvider)
+	// Expire both the active pin and its HMM history row: an HMM-sticky turn
+	// stores strikes on _hmm_history, but the next turn's hmmStayPin considers
+	// both rows (activePin and hmmHistory) as stay candidates, and a live
+	// active-pin row with the same provider would let the overloaded provider
+	// slip through. Uses pinRole (the base role, never history-suffixed) so
+	// expireSessionPinAndHMMHistory computes the pair correctly.
+	if pinRole == "" {
+		pinRole = sessionpin.DefaultRole
+	}
+	if err := s.expireSessionPinAndHMMHistory(ctx, installationID, sessionKey, pinRole, "provider_overloaded"); err != nil {
+		log.Error("pin eviction after provider overload failed", "err", err, "role", role, "pin_role", pinRole, "provider", finalProvider)
 		return
 	}
 	log.Info("provider disabled for session after consecutive overload errors",
