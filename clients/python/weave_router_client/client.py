@@ -85,7 +85,7 @@ class RouteOptions(BaseModel):
     speed_weight: float | None = Field(default=None, ge=0.0, le=1.0)
     output_cost_ratio: float | None = Field(default=None, ge=0.0, le=10.0)
     expected_output_tokens: int | None = Field(default=None, ge=0, le=100_000)
-    per_model_verbosity: str | None = None
+    per_model_verbosity: bool | None = None
 
     def to_headers(self) -> dict[str, str]:
         """Serialize the set options to their ``x-weave-*`` header form."""
@@ -109,7 +109,7 @@ class RouteOptions(BaseModel):
         if self.expected_output_tokens is not None:
             headers[_HEADER_EXPECTED_OUTPUT_TOKENS] = str(self.expected_output_tokens)
         if self.per_model_verbosity is not None:
-            headers[_HEADER_PER_MODEL_VERBOSITY] = self.per_model_verbosity
+            headers[_HEADER_PER_MODEL_VERBOSITY] = str(self.per_model_verbosity).lower()
         return headers
 
 

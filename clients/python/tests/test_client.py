@@ -92,7 +92,7 @@ def test_route_options_serialize_to_weave_headers() -> None:
         speed_weight=0.5,
         output_cost_ratio=4.0,
         expected_output_tokens=1024,
-        per_model_verbosity="terse",
+        per_model_verbosity=True,
     )
     with _client() as client:
         client.route(BODY, options=options)
@@ -106,7 +106,7 @@ def test_route_options_serialize_to_weave_headers() -> None:
     assert headers["x-weave-routing-speed-weight"] == "0.5"
     assert headers["x-weave-routing-output-cost-ratio"] == "4.0"
     assert headers["x-weave-routing-expected-output-tokens"] == "1024"
-    assert headers["x-weave-routing-per-model-verbosity"] == "terse"
+    assert headers["x-weave-routing-per-model-verbosity"] == "true"
 
 
 @respx.mock

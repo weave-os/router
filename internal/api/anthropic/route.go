@@ -13,10 +13,8 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// RouteSchemaVersionV1 is the wire contract of the POST /v1/route response.
-// Clients (the Go and Python route SDKs) pin on it to detect a breaking shape
-// change; bump it whenever a field is removed or its meaning changes, and add
-// only additive fields within a version.
+// RouteSchemaVersionV1 is the schema_version field in POST /v1/route responses.
+// Bump on breaking shape changes; additive fields are backward-compatible.
 const RouteSchemaVersionV1 = "router_route_v1"
 
 func RouteHandler(svc *proxy.Service) gin.HandlerFunc {
@@ -60,10 +58,9 @@ func RouteHandler(svc *proxy.Service) gin.HandlerFunc {
 	}
 }
 
-// PreviewRouteHandler exposes the side-effect-free policy preview contract. It
-// requires a valid rk_ bearer token (applied via the route group's auth
-// middleware) and an HMM strategy header; the preview is genuinely HMM-shaped
-// (hmm_state_id, class_probabilities) and requires a running sidecar.
+// PreviewRouteHandler exposes the side-effect-free policy preview contract.
+// Requires a valid rk_ bearer token and an HMM strategy header (response is
+// HMM-shaped: hmm_state_id, class_probabilities); needs a running sidecar.
 func PreviewRouteHandler(svc *proxy.Service) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		log := observability.FromGin(c)
