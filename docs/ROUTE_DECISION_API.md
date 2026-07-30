@@ -88,7 +88,8 @@ the same headers apply. All are optional.
 | `x-weave-cluster-version` | Pin a cluster artifact version (`v0.70`). Legacy `cluster` strategy only. |
 | `x-weave-effort` | Force a reasoning-effort tier. |
 | `x-weave-embed-only-user-message` | Embed only user-role text (`true`) or the concatenated action stream (`false`). |
-| `x-weave-routing-alpha` &nbsp;·&nbsp; `-speed-weight` &nbsp;·&nbsp; `-output-cost-ratio` &nbsp;·&nbsp; `-expected-output-tokens` &nbsp;·&nbsp; `-per-model-verbosity` | Per-request routing knobs. Invalid values return `400`. |
+| `x-weave-routing-alpha` &nbsp;·&nbsp; `-speed-weight` &nbsp;·&nbsp; `-output-cost-ratio` &nbsp;·&nbsp; `-expected-output-tokens` | Numeric per-request routing knobs. Out-of-range values return `400`. |
+| `x-weave-routing-per-model-verbosity` | Boolean knob — exactly `true` or `false`; anything else returns `400`. |
 
 Some headers additionally require the installation to be authorized for policy
 header overrides; unauthorized values are ignored rather than rejected, so the

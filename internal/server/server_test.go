@@ -5,13 +5,20 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
+	"workweave/router/internal/auth"
+	"workweave/router/internal/providers"
+	"workweave/router/internal/proxy"
+	"workweave/router/internal/router"
 	"workweave/router/internal/router/cluster"
+	"workweave/router/internal/router/policy"
 	"workweave/router/internal/server"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // fakeDeployedModelsSource is a stand-in for *cluster.Multiversion in route
@@ -109,6 +116,121 @@ func TestRegister_DeploymentMode(t *testing.T) {
 		got := routeSet(engine)
 		assert.NotContains(t, got, "GET /v1/router/models", "catalog endpoint must not mount without a deployed-models source")
 	})
+}
+
+// --- preview / route request-shaping parity ---
+
+// alwaysAuthAPIKeyRepository authenticates any rk_-prefixed token as one fixed
+// installation, so route-registration tests can exercise middleware that runs
+// after WithAuth without a DB.
+type alwaysAuthAPIKeyRepository struct {
+	installation *auth.Installation
+}
+
+func (r *alwaysAuthAPIKeyRepository) Create(context.Context, auth.CreateAPIKeyParams) (*auth.APIKey, error) {
+	return nil, errors.New("not used")
+}
+
+func (r *alwaysAuthAPIKeyRepository) GetActiveByHashWithInstallation(context.Context, string) (*auth.APIKey, *auth.Installation, error) {
+	return &auth.APIKey{ID: "key-1", InstallationID: r.installation.ID}, r.installation, nil
+}
+
+func (r *alwaysAuthAPIKeyRepository) ListForInstallation(context.Context, string) ([]*auth.APIKey, error) {
+	return nil, errors.New("not used")
+}
+
+func (r *alwaysAuthAPIKeyRepository) MarkUsed(context.Context, string) error { return nil }
+
+func (r *alwaysAuthAPIKeyRepository) SoftDelete(context.Context, string, string) error {
+	return errors.New("not used")
+}
+
+// capturingPreviewRouter records the router.Request that reached it so a test
+// can assert which request-shaping middleware ran.
+type capturingPreviewRouter struct {
+	got *router.Request
+}
+
+func (c *capturingPreviewRouter) Route(_ context.Context, req router.Request) (router.Decision, error) {
+	c.got = &req
+	return router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-haiku-4-5"}, nil
+}
+
+func (c *capturingPreviewRouter) PreviewRoute(_ context.Context, req router.Request) (policy.PreviewResult, error) {
+	c.got = &req
+	return policy.PreviewResult{SchemaVersion: policy.SchemaVersionV1}, nil
+}
+
+// TestRegisterPreviewHonorsForceEffort guards request-shaping parity between
+// /v1/route and /v1/route/preview. ForceEffort feeds policy arm hashing, so a
+// preview group missing WithForceEffortOverride would silently return a
+// decision trace for a different arm than /v1/route serves for the same
+// headers — and the documented contract plus both SDKs promise they agree.
+func TestRegisterPreviewHonorsForceEffort(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	for _, path := range []string{"/v1/route", "/v1/route/preview"} {
+		t.Run(path, func(t *testing.T) {
+			capturing := &capturingPreviewRouter{}
+			proxySvc := proxy.NewService(capturing, map[string]providers.Client{}, nil, false, nil, nil, false, "", "", nil).
+				WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyHMM, Router: capturing})
+			authSvc := auth.NewService(
+				nil,
+				&alwaysAuthAPIKeyRepository{installation: &auth.Installation{ID: "inst-1", PolicyHeaderOverridesEnabled: true}},
+				nil, nil, auth.NoOpAPIKeyCache{}, nil, nil,
+			)
+
+			engine := gin.New()
+			server.Register(engine, authSvc, proxySvc, nil, nil, server.DeploymentModeManaged, nil, nil, nil)
+
+			body := `{"model":"claude-sonnet-4-5","max_tokens":16,"messages":[{"role":"user","content":"hi"}]}`
+			request := httptest.NewRequest(http.MethodPost, path, strings.NewReader(body))
+			request.Header.Set("Authorization", "Bearer rk_test_token")
+			request.Header.Set("x-weave-router-strategy", string(router.StrategyHMM))
+			request.Header.Set("x-weave-effort", "high")
+			response := httptest.NewRecorder()
+			engine.ServeHTTP(response, request)
+
+			require.Equal(t, http.StatusOK, response.Code, "body: %s", response.Body.String())
+			require.NotNil(t, capturing.got, "the router must have been reached")
+			require.NotNil(t, capturing.got.RoutingKnobs, "x-weave-effort must reach the router as routing knobs")
+			assert.Equal(t, "high", capturing.got.RoutingKnobs.ForceEffort)
+		})
+	}
+}
+
+// TestRegisterPreviewRejectsInvalidForceEffort pins the other half of the
+// parity: an invalid effort value must be rejected on preview too, not silently
+// dropped because the validating middleware never ran.
+func TestRegisterPreviewRejectsInvalidForceEffort(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	for _, path := range []string{"/v1/route", "/v1/route/preview"} {
+		t.Run(path, func(t *testing.T) {
+			capturing := &capturingPreviewRouter{}
+			proxySvc := proxy.NewService(capturing, map[string]providers.Client{}, nil, false, nil, nil, false, "", "", nil).
+				WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyHMM, Router: capturing})
+			authSvc := auth.NewService(
+				nil,
+				&alwaysAuthAPIKeyRepository{installation: &auth.Installation{ID: "inst-1", PolicyHeaderOverridesEnabled: true}},
+				nil, nil, auth.NoOpAPIKeyCache{}, nil, nil,
+			)
+
+			engine := gin.New()
+			server.Register(engine, authSvc, proxySvc, nil, nil, server.DeploymentModeManaged, nil, nil, nil)
+
+			body := `{"model":"claude-sonnet-4-5","max_tokens":16,"messages":[{"role":"user","content":"hi"}]}`
+			request := httptest.NewRequest(http.MethodPost, path, strings.NewReader(body))
+			request.Header.Set("Authorization", "Bearer rk_test_token")
+			request.Header.Set("x-weave-router-strategy", string(router.StrategyHMM))
+			request.Header.Set("x-weave-effort", "not-an-effort-level")
+			response := httptest.NewRecorder()
+			engine.ServeHTTP(response, request)
+
+			assert.Equal(t, http.StatusBadRequest, response.Code)
+			assert.Nil(t, capturing.got, "an invalid effort must be rejected before routing")
+		})
+	}
 }
 
 func TestRegisterSeparatesLivenessFromReadiness(t *testing.T) {
