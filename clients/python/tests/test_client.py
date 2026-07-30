@@ -283,6 +283,38 @@ def test_preview_returns_policy_trace() -> None:
     assert preview.resolver_exclusions[0].reason == "excluded_by_org"
 
 
+@respx.mock
+def test_preview_nested_models_keep_unknown_server_fields() -> None:
+    """Additive server fields on nested objects must survive without a client bump.
+
+    The README promises additive changes stay readable via ``model_extra``; that
+    only holds if every nested preview model allows extras, not just the top level.
+    """
+    respx.post(PREVIEW_URL).mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "schema_version": "policy_router_v1",
+                "strategy": "hmm",
+                "ranked_fallback": [
+                    {"group": "coding", "probability": 0.8, "future_field": "kept"}
+                ],
+                "resolver_exclusions": [
+                    {"catalog_id": "m", "reason": "r", "future_reason_code": 42}
+                ],
+                "resolver_candidates": [{"catalog_id": "m", "future_cost": 1.5}],
+            },
+        )
+    )
+
+    with _client() as client:
+        preview = client.preview(BODY)
+
+    assert preview.ranked_fallback[0].model_extra == {"future_field": "kept"}
+    assert preview.resolver_exclusions[0].model_extra == {"future_reason_code": 42}
+    assert preview.resolver_candidates[0].model_extra == {"future_cost": 1.5}
+
+
 def test_preview_rejects_explicit_non_hmm_strategy_without_a_round_trip() -> None:
     """An explicitly non-HMM strategy is a client-side error; the server 400s."""
     with _client() as client:

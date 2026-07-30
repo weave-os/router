@@ -127,9 +127,13 @@ class RouteDecision(BaseModel):
 
 
 class PreviewGroup(BaseModel):
-    """One classifier group in serving fallback order."""
+    """One classifier group in serving fallback order.
 
-    model_config = ConfigDict(frozen=True)
+    Keeps unknown fields (see ``model_extra``) so an additive server change
+    stays readable without a client release.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="allow")
 
     group: str = ""
     probability: float = 0.0
@@ -138,9 +142,13 @@ class PreviewGroup(BaseModel):
 
 
 class PreviewDiagnostic(BaseModel):
-    """Why one candidate was excluded from the eligible set."""
+    """Why one candidate was excluded from the eligible set.
 
-    model_config = ConfigDict(frozen=True)
+    Keeps unknown fields (see ``model_extra``) so an additive server change
+    stays readable without a client release.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="allow")
 
     catalog_id: str = ""
     roster_id: str = ""
