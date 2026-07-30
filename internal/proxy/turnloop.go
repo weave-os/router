@@ -35,10 +35,8 @@ func addToSet(set map[string]struct{}, model string) map[string]struct{} {
 	return out
 }
 
-// mergeDisabledProviders unions two pins' DisabledProviders (deduped, order
-// not significant): the active pin and its HMM history row can each carry
-// independent overload strikes (see the runTurnLoop call site), so either
-// alone would miss a provider struck out on the other row.
+// mergeDisabledProviders unions two pins' DisabledProviders (deduped): either
+// the active pin or its HMM history row can carry overload strikes independently.
 func mergeDisabledProviders(a, b []string) []string {
 	if len(a) == 0 {
 		return b
@@ -463,10 +461,8 @@ func (s *Service) runTurnLoop(
 	// routing miss, but DisabledProviders on that same row must still steer
 	// the scorer away from the just-struck-out provider on this very turn --
 	// otherwise the eviction only prevents re-anchoring, not re-selection.
-	// Merged from BOTH pin and hmmHistory: an HMM-sticky turn's strikes/
-	// disable write to stickyStateRole, which is the _hmm_history role, not
-	// PinRole (mirrors switchHistoryFromPins' activePin+hmmHistory merge
-	// below for the same reason -- either row can carry the evidence).
+	// Merged from both pin and hmmHistory: HMM-sticky strikes write to
+	// stickyStateRole (_hmm_history), not PinRole, so either row can carry evidence.
 	disabledProviders := mergeDisabledProviders(pin.DisabledProviders, hmmHistory.DisabledProviders)
 	// User-forced pin (/force-model) exempts its own provider from the
 	// breaker so an explicit override isn't silently ignored; loop-escalation

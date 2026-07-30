@@ -22,15 +22,11 @@ const providerOverloadStrikeThreshold = 2
 // maybeDisableProviderAfterOverload applies the two-strike overload policy for
 // a sticky-pin turn: success resets the counter; a 529 exhaustion increments it;
 // hitting providerOverloadStrikeThreshold appends finalProvider to
-// DisabledProviders and evicts both the active and HMM-history pin rows so the
+// DisabledProviders and evicts both pin rows (active + HMM history) so the
 // next turn re-routes around it. No-ops when !stickyHit, zero session key,
 // uuid.Nil installation, user-forced pin, or non-529 error.
-//
-// role is the tracking row that actually served this turn (stickyStateRole:
-// PinRole on a normal sticky hit, the _hmm_history role on an HMM stay).
-// pinRole is always the base PinRole (never the _hmm_history variant), used
-// to expire both rows: an HMM-sticky turn stores strikes on _hmm_history but
-// hmmStayPin reads from both rows, so on threshold both must be cleared.
+// role is stickyStateRole (PinRole or _hmm_history); pinRole is always the
+// base role — expireSessionPinAndHMMHistory needs the pair computed from it.
 func (s *Service) maybeDisableProviderAfterOverload(
 	ctx context.Context,
 	stickyHit bool,
@@ -87,12 +83,8 @@ func (s *Service) maybeDisableProviderAfterOverload(
 		log.Error("pin provider-disable upsert failed", "err", err, "role", role, "provider", finalProvider)
 		return
 	}
-	// Expire both the active pin and its HMM history row: an HMM-sticky turn
-	// stores strikes on _hmm_history, but the next turn's hmmStayPin considers
-	// both rows (activePin and hmmHistory) as stay candidates, and a live
-	// active-pin row with the same provider would let the overloaded provider
-	// slip through. Uses pinRole (the base role, never history-suffixed) so
-	// expireSessionPinAndHMMHistory computes the pair correctly.
+	// Expire both rows: hmmStayPin considers activePin and hmmHistory as stay
+	// candidates, so a surviving active-pin row lets the overloaded provider slip through.
 	if pinRole == "" {
 		pinRole = sessionpin.DefaultRole
 	}

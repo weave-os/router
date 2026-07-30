@@ -434,8 +434,6 @@ func TestProxyMessages_TwoConsecutiveOverloadExhaustionsDisableProvider(t *testi
 }
 
 // TestProxyMessages_BaselineOverloadExhaustionDoesNotDisableAnthropic
-// regression-tests a Cursor Bugbot finding: a session pinned to an OSS
-// TestProxyMessages_BaselineOverloadExhaustionDoesNotDisableAnthropic
 // asserts that a baseline-rescue Anthropic 529 (OSS primary 503 -> Anthropic
 // failover) never disables Anthropic or evicts the unrelated OSS pin.
 func TestProxyMessages_BaselineOverloadExhaustionDoesNotDisableAnthropic(t *testing.T) {
