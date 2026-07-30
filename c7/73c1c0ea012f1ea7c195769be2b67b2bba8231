@@ -9,6 +9,7 @@ smoke/mitmproxy/Dockerfile
 Makefile
   s_4e0c6c8f023723::t_63d2599d9191b7 41-42
   s_4e0c6c8f023723::t_69361c0a4465d8 43
+  s_2ee6de3320ea90::t_762e41fc1d7f30 12
 smoke/mitmproxy/docker-compose.ci-cache.yml
   s_4e0c6c8f023723::t_f7f5ac8a449c11 1-29
 smoke/streaming_test.go
@@ -60,6 +61,14 @@ smoke/boot_test.go
   "base_commit_sha": "c773c1c0ea012f1ea7c195769be2b67b2bba8231",
   "prompts": {},
   "sessions": {
+    "s_2ee6de3320ea90": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f9231fb4-727b-4e67-adbe-7a4b766e0f0c",
+        "model": "claude-sonnet-5"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    },
     "s_4e0c6c8f023723": {
       "agent_id": {
         "tool": "claude",
