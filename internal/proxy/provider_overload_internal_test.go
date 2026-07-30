@@ -94,9 +94,8 @@ func newOverloadTestService(store *overloadStubPinStore) *Service {
 	)
 }
 
-// A single exhausted 529 must increment the counter but not disable the
-// provider — disable waits for a second consecutive strike so one blip
-// doesn't strike out a provider that clears on the next turn.
+// A single exhausted 529 must increment the counter but not disable
+// the provider — two consecutive strikes are required.
 func TestMaybeDisableProviderAfterOverload_FirstStrikeOnlyIncrements(t *testing.T) {
 	store := &overloadStubPinStore{incrementNext: []int{1}}
 	svc := newOverloadTestService(store)

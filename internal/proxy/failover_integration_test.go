@@ -421,10 +421,9 @@ func TestProxyMessages_TwoConsecutiveOverloadExhaustionsDisableProvider(t *testi
 	require.Contains(t, store.disabledProviders, providers.ProviderAnthropic,
 		"second consecutive exhausted 529 must strike the provider out for the session")
 
-	// Turn 3: the pin was evicted (Provider/Model cleared), so this turn is a
-	// fresh scorer call. The disabled provider must be excluded from
-	// EnabledProviders even though it's the only deployment-keyed provider —
-	// proving the exclusion actually reaches the scorer, not just the pin row.
+	// Turn 3: pin was evicted, so this is a fresh scorer call. The
+	// disabled provider must be excluded from EnabledProviders, proving
+	// the exclusion reaches the scorer rather than just the pin row.
 	rec3 := httptest.NewRecorder()
 	req3 := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
 	_ = svc.ProxyMessages(ctx, body, rec3, req3)

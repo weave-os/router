@@ -68,10 +68,9 @@ type Pin struct {
 	// pinned provider. Distinct from ConsecutiveUpstreamErrors: a 529 is
 	// retryable in-turn, so it never trips that counter.
 	ConsecutiveOverloadErrors int
-	// DisabledProviders are providers struck out for this pin's session after
-	// repeated 529 exhaustion (see DisableProvider). Only grows for the life
-	// of the row -- Upsert never touches it -- so a struck-out provider stays
-	// disabled until the pin itself is evicted/expires.
+	// DisabledProviders are providers struck out for this pin's session
+	// after repeated 529 exhaustion (see DisableProvider). Only grows for
+	// the life of the row; Upsert never touches it.
 	DisabledProviders []string
 }
 
