@@ -276,6 +276,73 @@ func TestProxy_PassesThroughInboundSubscriptionWithBetaHeader(t *testing.T) {
 	assert.Contains(t, gotBeta, "oauth-2025-04-20", "a passed-through subscription bearer must still get the oauth beta flag")
 }
 
+func TestProxy_DeploymentKeyOutranksInboundSubscriptionBearerAndDropsBeta(t *testing.T) {
+	var (
+		gotAuth   string
+		gotAPIKey string
+		gotBeta   string
+	)
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+		gotAPIKey = r.Header.Get("x-api-key")
+		gotBeta = r.Header.Get("anthropic-beta")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"id":"msg_1"}`))
+	}))
+	defer upstream.Close()
+
+	// A suppressed (exhausted) subscription leaves an explicit nil credential on
+	// ctx while Claude Code keeps its own sk-ant-oat bearer on the inbound
+	// Authorization. setAuth authenticates with the deployment key here, so the
+	// oauth beta must NOT ride along — Anthropic rejects it on x-api-key auth.
+	c := anthropic.NewClient("deployment-key", upstream.URL)
+	ctx := context.WithValue(context.Background(), proxy.CredentialsContextKey{}, (*proxy.Credentials)(nil))
+	rec := httptest.NewRecorder()
+	clientReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	clientReq.Header.Set("Authorization", "Bearer sk-ant-oat01-subscription-token")
+	prep := providers.PreparedRequest{Body: []byte(`{"model":"x"}`), Headers: make(http.Header)}
+
+	err := c.Proxy(ctx, router.Decision{Model: "claude-opus-4-8"}, prep, rec, clientReq)
+	require.NoError(t, err)
+
+	assert.Equal(t, "deployment-key", gotAPIKey, "the deployment key outranks the inbound bearer")
+	assert.Empty(t, gotAuth, "the inbound subscription bearer must not be forwarded when a deployment key is configured")
+	assert.NotContains(t, gotBeta, "oauth-2025-04-20",
+		"an x-api-key-authenticated call must not claim the OAuth-only beta")
+}
+
+func TestPassthrough_DeploymentKeyOutranksInboundSubscriptionBearerAndDropsBeta(t *testing.T) {
+	var (
+		gotAuth   string
+		gotAPIKey string
+		gotBeta   string
+	)
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+		gotAPIKey = r.Header.Get("x-api-key")
+		gotBeta = r.Header.Get("anthropic-beta")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"input_tokens":1}`))
+	}))
+	defer upstream.Close()
+
+	// PassthroughToNamedProvider never resolves credentials, so ctx carries none
+	// and /v1/messages/count_tokens hits the same deployment-key branch.
+	c := anthropic.NewClient("deployment-key", upstream.URL)
+	rec := httptest.NewRecorder()
+	clientReq := httptest.NewRequest(http.MethodPost, "/v1/messages/count_tokens", strings.NewReader(""))
+	clientReq.Header.Set("Authorization", "Bearer sk-ant-oat01-subscription-token")
+	prep := providers.PreparedRequest{Body: []byte(`{"model":"x"}`), Headers: make(http.Header)}
+
+	err := c.Passthrough(context.Background(), prep, rec, clientReq)
+	require.NoError(t, err)
+
+	assert.Equal(t, "deployment-key", gotAPIKey, "the deployment key outranks the inbound bearer")
+	assert.Empty(t, gotAuth, "the inbound subscription bearer must not be forwarded when a deployment key is configured")
+	assert.NotContains(t, gotBeta, "oauth-2025-04-20",
+		"an x-api-key-authenticated passthrough must not claim the OAuth-only beta")
+}
+
 func TestProxy_BuffersUpstream4xx(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

@@ -125,18 +125,25 @@ func (c *Client) setAuth(ctx context.Context, upstream *http.Request, inbound *h
 // sk-ant-oat Authorization bearer. Must run AFTER prep.Headers is copied onto
 // the upstream request so it merges with, rather than is clobbered by, the
 // model-capability-filtered anthropic-beta that translate produced.
-func applyOAuthBeta(ctx context.Context, upstream, inbound *http.Request) {
-	if !subscriptionAuth(ctx, inbound) {
+func (c *Client) applyOAuthBeta(ctx context.Context, upstream, inbound *http.Request) {
+	if !c.subscriptionAuth(ctx, inbound) {
 		return
 	}
 	upstream.Header.Set("anthropic-beta", mergeBeta(upstream.Header.Get("anthropic-beta"), oauthBetaToken))
 }
 
 // subscriptionAuth reports whether this request will authenticate with a Claude
-// subscription OAuth token.
-func subscriptionAuth(ctx context.Context, inbound *http.Request) bool {
+// subscription OAuth token. The inbound-bearer branch mirrors setAuth's own
+// precedence: a configured deployment key outranks the inbound Authorization,
+// so the call goes out as x-api-key and must not claim the oauth beta — a
+// suppressed (exhausted) subscription failing over to the deployment key
+// otherwise sends key auth plus an OAuth-only beta, which Anthropic rejects.
+func (c *Client) subscriptionAuth(ctx context.Context, inbound *http.Request) bool {
 	if creds := proxy.CredentialsFromContext(ctx); creds != nil {
 		return creds.OAuth
+	}
+	if c.apiKey != "" {
+		return false
 	}
 	if raw, found := strings.CutPrefix(inbound.Header.Get("authorization"), "Bearer "); found {
 		return strings.HasPrefix(strings.TrimSpace(raw), subscriptionTokenPrefix)
@@ -171,7 +178,7 @@ func (c *Client) Proxy(ctx context.Context, decision router.Decision, prep provi
 	for k, vs := range prep.Headers {
 		upstream.Header[http.CanonicalHeaderKey(k)] = vs
 	}
-	applyOAuthBeta(ctx, upstream, r)
+	c.applyOAuthBeta(ctx, upstream, r)
 	if v := r.Header.Get("accept"); v != "" {
 		upstream.Header.Set("accept", v)
 	}
@@ -276,7 +283,7 @@ func (c *Client) Passthrough(ctx context.Context, prep providers.PreparedRequest
 	for k, vs := range prep.Headers {
 		upstream.Header[http.CanonicalHeaderKey(k)] = vs
 	}
-	applyOAuthBeta(ctx, upstream, r)
+	c.applyOAuthBeta(ctx, upstream, r)
 	if v := r.Header.Get("accept"); v != "" {
 		upstream.Header.Set("accept", v)
 	}
