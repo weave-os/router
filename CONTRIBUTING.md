@@ -124,6 +124,30 @@ matters for the `make dev` flow.
 - No DB-backed integration tests in `internal/`. The Docker Compose
   stack is the runtime fixture for end-to-end work.
 
+#### Pre-merge smoke suite
+
+The smoke suite (`smoke/`, `make smoke`) boots the real router in Docker
+Compose and drives it with Claude-Code-shaped fixtures through a
+record/replay MITM proxy. It catches what unit and conformance tests
+cannot see — real provider acceptance of translated wire formats,
+prompt-cache accounting, and streaming lifecycle.
+
+The suite uses **committed cassettes** (`smoke/mitmproxy/cassettes/`) so
+CI runs in replay-only mode with zero upstream calls and no API keys.
+Cassettes are keyed by `sha256(method + path + body)` and are safe to
+commit (auth headers are scrubbed before persistence).
+
+**When to add a scenario:** your change touches one of the path-gated
+surfaces (`internal/proxy/**`, `internal/translate/**`,
+`internal/providers/**`, `internal/router/catalog/**`,
+`cmd/router/**`) AND the bug class it guards against needs a real
+upstream call to catch. Pure unit-testable logic doesn't need one.
+
+**When to refresh cassettes:** add a scenario (record new cassette),
+change a fixture or request body, or a provider changes its response
+shape (caught by the nightly `Refresh cassettes` workflow). See
+[docs/SMOKE.md](docs/SMOKE.md) for the full runbook.
+
 ## Database changes
 
 Migrations and queries are SQLC-driven. Don't write raw SQL outside
@@ -178,6 +202,11 @@ Common types: `feat`, `fix`, `refactor`, `docs`, `test`, `chore`, `ci`.
 1. Open the PR against `main`. Include the DCO sign-off on every commit.
 2. Fill in the PR template — what changed, why, and how it was tested.
 3. Make sure CI is green (`make check` + the migration-timestamp check).
+   If your PR touches a path-gated surface (see the smoke suite section
+   in Tests above), the `Smoke (replay-only)` check also runs — it
+   replays committed cassettes with no key needed. If CI shows
+   `Smoke (replay-only)` failing, run `make smoke` locally first to see
+   whether the failure is a cassette that needs refreshing.
 4. A maintainer will review. Plan to iterate; reviews are usually 1-2
    rounds.
 
