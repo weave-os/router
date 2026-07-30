@@ -1,0 +1,31 @@
+[tool.poetry]
+name = "weave-router-client"
+version = "0.1.0"
+description = "Typed Python client for the Weave Router route-decision API (POST /v1/route, /v1/route/preview)"
+authors = ["Weave Team <engineering@workweave.ai>"]
+license = "Elastic-2.0"
+readme = "README.md"
+packages = [{ include = "weave_router_client" }]
+
+[tool.poetry.dependencies]
+python = "^3.12"
+httpx = "^0.28.0"
+pydantic = "^2.10.0"
+
+[tool.poetry.group.dev.dependencies]
+black = "^25.1.0"
+pytest = "^8.3.0"
+pytest-asyncio = "^0.24.0"
+respx = "^0.22.0"
+
+[tool.black]
+line-length = 88
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+pythonpath = ["."]
+testpaths = ["tests"]
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

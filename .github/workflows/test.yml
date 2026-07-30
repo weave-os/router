@@ -119,6 +119,35 @@ jobs:
       - name: Run statusline tests
         run: make test-statusline
 
+  # Separate job: the route-decision SDK is a standalone Poetry package with no
+  # Go, Postgres, or network dependency (httpx is mocked via respx).
+  test-python-client:
+    name: Test Python route client
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12.3"
+
+      - name: Install Poetry
+        run: pip install poetry==1.8.4
+
+      - name: Install dependencies
+        working-directory: clients/python
+        run: poetry install --no-interaction
+
+      - name: Check formatting
+        working-directory: clients/python
+        run: poetry run black --check weave_router_client tests
+
+      - name: Run tests
+        working-directory: clients/python
+        run: poetry run pytest -q
+
   test-hmm-sidecar:
     name: Test frozen HMM sidecar
     runs-on: ubuntu-latest

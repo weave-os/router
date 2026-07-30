@@ -140,9 +140,19 @@ Pick by responsibility, then read that package's `CLAUDE.md`:
 | Anthropic usage-bypass gate | `internal/proxy/usage` | [internal/proxy/usage/CLAUDE.md](internal/proxy/usage/CLAUDE.md) |
 | New column / SQL query | `db/queries/` + `internal/postgres/` | [db/CLAUDE.md](db/CLAUDE.md), [internal/postgres/CLAUDE.md](internal/postgres/CLAUDE.md) |
 | Cross-instance cache invalidation / recharge notify | `internal/pubsub` | — |
+| Public SDK for the route-decision API (non-Go) | `clients/<lang>/` | [clients/python/README.md](clients/python/README.md) |
 | Doc under `docs/` | `docs/` | [docs/CONFIGURATION.md](docs/CONFIGURATION.md) |
 
 **Default rule:** put logic in the package that uses it. Only promote to a shared home (`auth`, `proxy`, `translate`, `config`, `observability`, `sse`, `timing`) when 3+ packages need the same logic.
+
+**`clients/` sits outside the Go layer model.** It holds standalone
+other-language SDKs (today `clients/python`, a Poetry package) that consume the
+router's public HTTP contract as a black box. They never import Go code and are
+not importable by it, so they are neither an adapter nor an inner-ring package.
+A client may only depend on documented wire contracts in [`docs/`](docs) — if a
+client needs something the docs don't promise, document and version it on the
+server first. Go callers do not belong here: everything Go is under `internal/`
+and unimportable, so an in-repo Go SDK needs the module-path rename first.
 
 ## Adding a new helper
 

@@ -381,6 +381,7 @@ func TestRouteHandler_HappyPathReturnsDecision(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 	var got map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+	assert.Equal(t, anthropicapi.RouteSchemaVersionV1, got["schema_version"])
 	assert.Equal(t, "claude-haiku-4-5", got["model"])
 	assert.Equal(t, providers.ProviderAnthropic, got["provider"])
 	assert.Equal(t, "cheap_and_cheerful", got["reason"])
@@ -402,29 +403,26 @@ func TestRouteHandler_ForwardsAuthorizationForProviderEligibility(t *testing.T) 
 	assert.Contains(t, got.EnabledProviders, providers.ProviderAnthropic)
 }
 
-func previewRouteEngine(svc *proxy.Service, authorized bool) *gin.Engine {
+func previewRouteEngine(svc *proxy.Service, strategy router.Strategy) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	engine := gin.New()
 	engine.Use(func(c *gin.Context) {
-		if authorized {
-			c.Set("router_installation", &auth.Installation{ID: "eval-installation", PolicyHeaderOverridesEnabled: true})
-		}
-		c.Request = c.Request.WithContext(router.WithStrategy(c.Request.Context(), router.StrategyHMM))
+		c.Request = c.Request.WithContext(router.WithStrategy(c.Request.Context(), strategy))
 		c.Next()
 	})
 	engine.POST("/v1/route/preview", anthropicapi.PreviewRouteHandler(svc))
 	return engine
 }
 
-func TestPreviewRouteHandler_RejectsInstallationWithoutEvalAuthorization(t *testing.T) {
-	engine := previewRouteEngine(newTestService(&fakeRouter{}, "", nil), false)
+func TestPreviewRouteHandler_RejectsNonHMMStrategy(t *testing.T) {
+	engine := previewRouteEngine(newTestService(&fakeRouter{}, "", nil), router.StrategyCluster)
 	recorder := httptest.NewRecorder()
 
 	engine.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/v1/route/preview", bytes.NewReader([]byte(validAnthropicBody))))
 
-	require.Equal(t, http.StatusForbidden, recorder.Code)
+	require.Equal(t, http.StatusBadRequest, recorder.Code)
 	errObj := errorEnvelope(t, recorder.Body.Bytes())
-	assert.Equal(t, "permission_error", errObj["type"])
+	assert.Equal(t, "invalid_request_error", errObj["type"])
 }
 
 func TestPreviewRouteHandler_ReturnsFrozenPolicyPlan(t *testing.T) {
@@ -439,7 +437,7 @@ func TestPreviewRouteHandler_ReturnsFrozenPolicyPlan(t *testing.T) {
 		Strategy: router.StrategyHMM,
 		Router:   previewer,
 	})
-	engine := previewRouteEngine(svc, true)
+	engine := previewRouteEngine(svc, router.StrategyHMM)
 	recorder := httptest.NewRecorder()
 
 	engine.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/v1/route/preview", bytes.NewReader([]byte(validAnthropicBody))))
