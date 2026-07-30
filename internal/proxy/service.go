@@ -3178,9 +3178,9 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		s.maybeEvictPinAfterUpstreamErr(ctx, stickyHit, proxyErr, decision.Reason, installationID, routeRes.SessionKey, stickyStateRole(routeRes))
 
 		// Two-strike provider disable: complements the 4xx eviction above;
-		// 529 is retryable in-turn so it never trips that counter. Skipped
-		// when baseline rescue ran: finalProvider is then Anthropic for a
-		// different pin so disabling Anthropic would evict an unrelated pin.
+		// 529 is retryable in-turn so it never trips that counter.
+		// Skipped when baseline rescue ran: finalProvider is the rescue
+		// provider, not the sticky pin's, so disabling it evicts the wrong pin.
 		if !baselineAttempted {
 			s.maybeDisableProviderAfterOverload(ctx, stickyHit, proxyErr, finalProvider, decision.Reason, installationID, routeRes.SessionKey, stickyStateRole(routeRes), routeRes.PinRole)
 		}

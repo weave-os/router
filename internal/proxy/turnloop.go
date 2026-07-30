@@ -455,8 +455,8 @@ func (s *Service) runTurnLoop(
 	hmmHistory := s.loadHMMHistory(ctx, res.SessionKey, res.PinRole)
 	// Applied regardless of pinFound: eviction sets PinnedUntil in the past
 	// (routing miss) but DisabledProviders must still steer the scorer away
-	// from the struck-out provider this same turn. Merged from both rows:
-	// HMM-sticky strikes write to _hmm_history, not PinRole.
+	// from the struck-out provider this same turn; HMM-sticky strikes write
+	// to _hmm_history, not PinRole, so either row can carry evidence.
 	disabledProviders := mergeDisabledProviders(pin.DisabledProviders, hmmHistory.DisabledProviders)
 	// User-forced pin exempts its own provider: an explicit /force-model
 	// must not be silently reverted by the session-level breaker.
