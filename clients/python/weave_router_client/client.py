@@ -286,13 +286,19 @@ def _decode_json(response: httpx.Response) -> dict[str, Any]:
 
 
 def _parse_decision(payload: dict[str, Any], check_schema: bool) -> RouteDecision:
-    decision = RouteDecision.model_validate(payload)
-    if check_schema and decision.schema_version != ROUTE_SCHEMA_VERSION_V1:
+    # Check schema_version on the raw payload before constructing RouteDecision.
+    # model/provider are required fields — a breaking schema bump that renames
+    # or drops one would make model_validate raise pydantic's ValidationError
+    # before this function ever got to raise UnexpectedSchemaError, defeating
+    # the check_schema_version=False escape hatch documented as letting a
+    # caller inspect a newer server without a client bump.
+    schema_version = payload.get("schema_version", "")
+    if check_schema and schema_version != ROUTE_SCHEMA_VERSION_V1:
         raise UnexpectedSchemaError(
             f"expected schema_version {ROUTE_SCHEMA_VERSION_V1!r}, "
-            f"got {decision.schema_version!r}; upgrade this client"
+            f"got {schema_version!r}; upgrade this client"
         )
-    return decision
+    return RouteDecision.model_validate(payload)
 
 
 class RouteClient:

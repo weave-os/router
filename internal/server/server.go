@@ -234,11 +234,9 @@ func Register(engine *gin.Engine, authSvc *auth.Service, proxySvc *proxy.Service
 	routeGroup := engine.Group("", routeMiddleware...)
 	routeGroup.POST("/v1/route", anthropicapi.RouteHandler(proxySvc))
 
-	// Preview shares the route group's request-shaping middleware so the same
-	// options yield the same decision on both endpoints. Force-effort and
-	// cluster version feed policy arm hashing, so omitting either would let
-	// preview silently disagree with /v1/route for identical headers. Preview
-	// skips only the billing gates: it dispatches nothing and spends nothing.
+	// Preview uses the same request-shaping middleware as /v1/route: force-effort
+	// and cluster version feed policy arm hashing, so omitting either would cause
+	// divergence. Only billing gates are skipped — preview dispatches nothing.
 	previewGroup := engine.Group("",
 		middleware.WithTimingEntry(),
 		middleware.WithTimeout(routeTimeout),

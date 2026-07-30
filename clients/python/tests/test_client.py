@@ -163,6 +163,26 @@ def test_route_rejects_unknown_schema_version() -> None:
 
 
 @respx.mock
+def test_unknown_schema_version_raises_before_missing_required_fields_are_seen() -> (
+    None
+):
+    """The schema guard must fire even when the mismatched payload also lacks
+    model/provider — a future breaking bump could rename or drop either, and
+    the check_schema_version=False escape hatch only works if the caller gets
+    UnexpectedSchemaError (readable, carries the version) rather than a raw
+    pydantic ValidationError about a missing field it's never heard of."""
+    respx.post(ROUTE_URL).mock(
+        return_value=httpx.Response(200, json={"schema_version": "router_route_v99"})
+    )
+
+    with _client() as client:
+        with pytest.raises(UnexpectedSchemaError) as excinfo:
+            client.route(BODY)
+
+    assert "router_route_v99" in str(excinfo.value)
+
+
+@respx.mock
 def test_route_accepts_unknown_schema_version_when_check_disabled() -> None:
     """The escape hatch lets a caller read a newer server without a client bump."""
     respx.post(ROUTE_URL).mock(

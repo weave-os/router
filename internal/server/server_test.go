@@ -161,11 +161,9 @@ func (c *capturingPreviewRouter) PreviewRoute(_ context.Context, req router.Requ
 	return policy.PreviewResult{SchemaVersion: policy.SchemaVersionV1}, nil
 }
 
-// TestRegisterPreviewHonorsForceEffort guards request-shaping parity between
-// /v1/route and /v1/route/preview. ForceEffort feeds policy arm hashing, so a
-// preview group missing WithForceEffortOverride would silently return a
-// decision trace for a different arm than /v1/route serves for the same
-// headers — and the documented contract plus both SDKs promise they agree.
+// TestRegisterPreviewHonorsForceEffort verifies that x-weave-effort reaches the
+// router on /v1/route/preview. ForceEffort feeds policy arm hashing, so a preview
+// group missing WithForceEffortOverride silently returns a different arm.
 func TestRegisterPreviewHonorsForceEffort(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
