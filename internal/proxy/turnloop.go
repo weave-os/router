@@ -147,11 +147,9 @@ type turnLoopResult struct {
 	// the escalate-on-failure policy (Service.effortEscalation) reads it to
 	// bump a gpt-5.x turn from low to high effort, and is a no-op when disabled.
 	EscalateEffort bool
-	// SessionDisabledProviders are providers this pin's session has struck
-	// out after repeated 529 exhaustion (sessionpin.Pin.DisabledProviders).
-	// The caller stashes this on ctx so it also excludes those providers
-	// from resolveBindingsForDispatch's failover walk, not just this turn's
-	// scorer call.
+	// SessionDisabledProviders are providers struck out by repeated 529
+	// exhaustion. Stashed on ctx so resolveBindingsForDispatch's failover
+	// walk also honors the exclusion, not just this turn's scorer.
 	SessionDisabledProviders []string
 }
 
@@ -455,14 +453,10 @@ func (s *Service) runTurnLoop(
 
 	pin, pinFound := s.loadPin(ctx, res.SessionKey, res.PinRole)
 	hmmHistory := s.loadHMMHistory(ctx, res.SessionKey, res.PinRole)
-	// Providers this session has struck out after repeated 529 exhaustion
-	// (provider_overload.go). Applied regardless of pinFound: an overload
-	// eviction deliberately sets PinnedUntil in the past so the pin is a
-	// routing miss, but DisabledProviders on that same row must still steer
-	// the scorer away from the just-struck-out provider on this very turn --
-	// otherwise the eviction only prevents re-anchoring, not re-selection.
-	// Merged from both pin and hmmHistory: HMM-sticky strikes write to
-	// stickyStateRole (_hmm_history), not PinRole, so either row can carry evidence.
+	// Applied regardless of pinFound: eviction sets PinnedUntil in the past
+	// (routing miss) but DisabledProviders must still steer the scorer away
+	// from the struck-out provider this same turn. Merged from both rows:
+	// HMM-sticky strikes write to _hmm_history, not PinRole.
 	disabledProviders := mergeDisabledProviders(pin.DisabledProviders, hmmHistory.DisabledProviders)
 	// User-forced pin (/force-model) exempts its own provider from the
 	// breaker so an explicit override isn't silently ignored; loop-escalation
@@ -478,10 +472,8 @@ func (s *Service) runTurnLoop(
 	}
 	if len(disabledProviders) > 0 {
 		res.SessionDisabledProviders = disabledProviders
-		// nil EnabledProviders means "unrestricted" elsewhere in this file
-		// (see forcedPinEligible); there's no concrete universe to subtract
-		// from here, so leave it alone rather than manufacture an empty map
-		// that would wrongly read as "every provider excluded."
+		// nil EnabledProviders means "unrestricted"; skip rather than
+		// produce an empty map that reads as "every provider excluded."
 		if req.EnabledProviders != nil {
 			filtered := make(map[string]struct{}, len(req.EnabledProviders))
 			for p := range req.EnabledProviders {

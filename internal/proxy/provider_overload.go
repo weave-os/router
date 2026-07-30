@@ -19,14 +19,12 @@ const providerOverloadedStatus = 529
 // consecutive 529-exhausted turns before the provider is struck out for the session.
 const providerOverloadStrikeThreshold = 2
 
-// maybeDisableProviderAfterOverload applies the two-strike overload policy for
-// a sticky-pin turn: success resets the counter; a 529 exhaustion increments it;
-// hitting providerOverloadStrikeThreshold appends finalProvider to
-// DisabledProviders and evicts both pin rows (active + HMM history) so the
-// next turn re-routes around it. No-ops when !stickyHit, zero session key,
-// uuid.Nil installation, user-forced pin, or non-529 error.
-// role is stickyStateRole (PinRole or _hmm_history); pinRole is always the
-// base role — expireSessionPinAndHMMHistory needs the pair computed from it.
+// maybeDisableProviderAfterOverload applies the two-strike overload policy:
+// success resets the counter; a 529 exhaustion increments it; hitting the
+// threshold disables finalProvider for the session and evicts both pin rows.
+// No-ops when !stickyHit, zero session key, uuid.Nil installation,
+// user-forced pin, or non-529 error. role is stickyStateRole; pinRole is
+// the base role needed by expireSessionPinAndHMMHistory.
 func (s *Service) maybeDisableProviderAfterOverload(
 	ctx context.Context,
 	stickyHit bool,
