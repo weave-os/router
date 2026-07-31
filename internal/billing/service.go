@@ -218,11 +218,9 @@ type DebitInferenceParams struct {
 // pass-through or subscription-served turn (already paid for), but always
 // records NotionalCostMicros as a shadow trail.
 //
-// A BYOK turn debits 0 on the inference row too (the customer paid their own
-// provider) and adds a second byok_fee row for ByokFeeRate of the upstream
-// cost — Weave's platform charge. Override and subscription outrank BYOK: a
-// free-credits org isn't charged a fee, and a subscription-served turn had no
-// upstream BYOK spend to take a percentage of.
+// A BYOK turn debits 0 on the inference row (the customer paid their own
+// provider) and adds a byok_fee row for ByokFeeRate of the upstream cost.
+// Override and subscription outrank BYOK.
 //
 // Returns the post-debit balance (0 on override, since balance doesn't
 // change).

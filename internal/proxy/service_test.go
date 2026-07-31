@@ -312,9 +312,7 @@ func makeProxyService(decision router.Decision, p map[string]providers.Client) *
 }
 
 // TestService_PassthroughToNamedProvider_ResolvesBYOKCredential: passthrough
-// (count_tokens/models) must resolve the same credential precedence as a
-// routed dispatch, so a BYOK key hits the customer's endpoint/auth instead of
-// the deployment key silently winning.
+// must resolve credential precedence so a BYOK key wins over the deployment key.
 func TestService_PassthroughToNamedProvider_ResolvesBYOKCredential(t *testing.T) {
 	provider := &fakeProvider{}
 	svc := makeProxyService(router.Decision{}, map[string]providers.Client{providers.ProviderAnthropic: provider})
