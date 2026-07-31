@@ -923,17 +923,11 @@ func servedOnBYOK(ctx context.Context) bool {
 }
 
 // byokServedForProvider reports whether the installation has a usable BYOK key
-// for provider. Used to bill a side-channel summarizer call
-// (handover/compaction) at the fee rate: those calls dispatch on their own
-// credential context, so by the time billing runs on the outer ctx,
-// CredentialsFromContext no longer reflects what the summarizer actually used —
-// the BYOK row lookup does.
-//
-// Deliberately inspects only Provider and the emptiness of Plaintext, never the
-// key bytes themselves. Building a Credentials map here (as an earlier revision
-// did) would copy secret material into a value that flows to billing params and
-// on into log statements, which is exactly the shape CodeQL's
-// go/clear-text-logging rule flags.
+// for provider. Used to bill handover/compaction summary calls at the fee rate:
+// those dispatch on their own credential context, so CredentialsFromContext on
+// the outer ctx no longer reflects what the summarizer used — the BYOK row does.
+// Inspects only Provider and Plaintext emptiness, never key bytes, to avoid
+// copying secret material into billing params (CodeQL go/clear-text-logging).
 func byokServedForProvider(ctx context.Context, provider string) bool {
 	if provider == "" {
 		return false
@@ -4099,11 +4093,9 @@ func (s *Service) emitBilling(ctx context.Context, requestID, externalID string,
 		RouterUserID:       auth.UserIDFrom(ctx),
 	})
 
-	// The handover summary never runs on the subscription token, so it bills
-	// full cost even when the main turn was subscription-served. It CAN run on
-	// a BYOK key (resolveSummarizerCreds prefers one for the summarizer's
-	// provider), and that spend went to the customer's own account — so it
-	// takes the fee path rather than a full-cost debit.
+	// The handover summary runs on the deployment/BYOK key, never the subscription
+	// token. If a BYOK key was used, that spend hit the customer's account —
+	// so bill the fee rather than full cost.
 	if routeRes.Handover.Invoked && !routeRes.Handover.FallbackToFullHistory {
 		sumUsage := routeRes.Handover.SummaryUsage
 		if sumUsage.Model != "" && (sumUsage.InputTokens > 0 || sumUsage.OutputTokens > 0) {

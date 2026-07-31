@@ -39,11 +39,8 @@ type Credentials struct {
 	// AccountID is the ChatGPT-Account-ID paired with a Codex subscription
 	// bearer; the Codex backend 401/403s without it. Never logged.
 	AccountID []byte
-	// BaseURL overrides the provider client's configured upstream endpoint for
-	// this request when non-empty. Only BYOK credentials set it: a customer's
-	// key may authenticate against their own deployment of an
-	// OpenAI-compatible provider rather than the vendor's public endpoint,
-	// and the boot-time base URL is deployment-wide.
+	// BaseURL overrides the upstream endpoint per-request; non-empty only on BYOK
+	// credentials, where the boot-time deployment URL is provider-wide, not per-key.
 	BaseURL string
 }
 
