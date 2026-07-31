@@ -657,11 +657,8 @@ func TestAnthropicSameFormat_ThinkingBlocksKeptWhenNoModelSwitch(t *testing.T) {
 }
 
 // TestAnthropicSameFormat_UnsignedThinkingStrippedWithoutModelSwitch guards
-// #860: once the pin-session TTL lapses over an idle gap, the switch history
-// that drives ModelSwitched is gone, but Claude Code still replays the unsigned
-// thinking blocks an earlier cross-model excursion produced. Anthropic 400s on
-// those ("Invalid `signature` in `thinking` block"), so the body scan must
-// strip them even with ModelSwitched=false.
+// #860: pin TTL can lapse before switch history does, so unsigned thinking
+// blocks must be stripped even when ModelSwitched is false.
 func TestAnthropicSameFormat_UnsignedThinkingStrippedWithoutModelSwitch(t *testing.T) {
 	body := []byte(`{"model":"claude-opus-4-7","messages":[{"role":"user","content":"hi"},{"role":"assistant","content":[{"type":"thinking","thinking":"from an OSS model"},{"type":"text","text":"reply"}]}],"max_tokens":1024,"thinking":{"type":"adaptive"}}`)
 	opts := translate.EmitOptions{
