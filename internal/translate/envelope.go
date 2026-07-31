@@ -346,6 +346,13 @@ type EmitOverrides struct {
 	DefaultMaxTokensValue   int64
 	InjectStreamUsage       bool
 	StripThinkingBlocks     bool
+	// StripUnsignedThinkingBlocks removes only `thinking` blocks lacking a
+	// non-empty `signature`, leaving validly-signed ones (and their prompt-cache
+	// continuity) intact. Set for Anthropic targets as a floor under
+	// StripThinkingBlocks: only cross-format emit produces unsigned blocks, and
+	// Anthropic 400s on them, so they must never reach the upstream even when no
+	// switch history survives to set ModelSwitched.
+	StripUnsignedThinkingBlocks bool
 	// SanitizeToolUseIDs rewrites tool_use.id / tool_use_id values outside
 	// ^[a-zA-Z0-9_-]+$. Always set for Anthropic targets: upstreams like
 	// Kimi-k2.6 emit IDs (e.g. "functions.Read:0") Anthropic rejects on replay.
@@ -386,6 +393,11 @@ func applyOverrides(body []byte, ov EmitOverrides) ([]byte, error) {
 		out, err = stripThinkingBlocksBytes(out)
 		if err != nil {
 			return nil, fmt.Errorf("strip thinking blocks: %w", err)
+		}
+	} else if ov.StripUnsignedThinkingBlocks {
+		out, err = stripUnsignedThinkingBlocksBytes(out)
+		if err != nil {
+			return nil, fmt.Errorf("strip unsigned thinking blocks: %w", err)
 		}
 	}
 
@@ -605,6 +617,20 @@ func stripThinkingBlocksBytes(body []byte) ([]byte, error) {
 func isThinkingBlock(block gjson.Result) bool {
 	blockType := block.Get("type").String()
 	return blockType == "thinking" || blockType == "redacted_thinking"
+}
+
+// stripUnsignedThinkingBlocksBytes removes `thinking` blocks with no non-empty
+// `signature` from messages[*].content[*], leaving signed ones untouched. Only
+// cross-format emit produces unsigned blocks (OSS providers have no Anthropic
+// signature to carry) and Anthropic rejects them with "Invalid `signature` in
+// `thinking` block". redacted_thinking is exempt: it legitimately carries
+// `data` rather than a signature.
+func stripUnsignedThinkingBlocksBytes(body []byte) ([]byte, error) {
+	return rewriteMessageBlocks(body, isUnsignedThinkingBlock, dropMatchedBlock)
+}
+
+func isUnsignedThinkingBlock(block gjson.Result) bool {
+	return block.Get("type").String() == "thinking" && block.Get("signature").String() == ""
 }
 
 // dropMatchedBlock drops any block that matched needsRewrite by returning "".
@@ -1114,6 +1140,13 @@ func resolveAnthropicOverrides(body []byte, opts EmitOptions) EmitOverrides {
 	if opts.ModelSwitched {
 		ov.StripThinkingBlocks = true
 	}
+
+	// Floor under the switch-history guard above: unsigned blocks only come from
+	// cross-format emit and Anthropic always rejects them, so drop them even when
+	// no switch is known. Load-bearing once the pin-session TTL lapses over an
+	// idle gap — the switch history is gone by then, while Claude Code still
+	// replays the unsigned blocks every turn (#860).
+	ov.StripUnsignedThinkingBlocks = true
 
 	if !gjson.GetBytes(body, "max_tokens").Exists() {
 		ov.DefaultMaxTokensKey = "max_tokens"

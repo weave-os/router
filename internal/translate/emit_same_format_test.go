@@ -505,7 +505,9 @@ func TestAnthropicSameFormat_RedactedThinkingBlocksFiltered(t *testing.T) {
 }
 
 func TestAnthropicSameFormat_ThinkingBlocksKeptForCapableModel(t *testing.T) {
-	body := []byte(`{"model":"claude-sonnet-4-6","messages":[{"role":"user","content":"hi"},{"role":"assistant","content":[{"type":"thinking","thinking":"thought"},{"type":"text","text":"reply"}]}],"max_tokens":1024,"thinking":{"type":"adaptive"}}`)
+	// Signature present because every genuine Anthropic thinking block carries
+	// one; unsigned blocks are cross-format artifacts and get stripped (#860).
+	body := []byte(`{"model":"claude-sonnet-4-6","messages":[{"role":"user","content":"hi"},{"role":"assistant","content":[{"type":"thinking","thinking":"thought","signature":"sig"},{"type":"text","text":"reply"}]}],"max_tokens":1024,"thinking":{"type":"adaptive"}}`)
 	opts := translate.EmitOptions{
 		TargetModel:  "claude-opus-4-7",
 		Capabilities: router.Lookup("claude-opus-4-7"),
@@ -652,6 +654,87 @@ func TestAnthropicSameFormat_ThinkingBlocksKeptWhenNoModelSwitch(t *testing.T) {
 	assistantMsg, _ := msgs[1].(map[string]any)
 	content, _ := assistantMsg["content"].([]any)
 	require.Len(t, content, 2, "thinking blocks must be preserved when the model did not change")
+}
+
+// TestAnthropicSameFormat_UnsignedThinkingStrippedWithoutModelSwitch guards
+// #860: once the pin-session TTL lapses over an idle gap, the switch history
+// that drives ModelSwitched is gone, but Claude Code still replays the unsigned
+// thinking blocks an earlier cross-model excursion produced. Anthropic 400s on
+// those ("Invalid `signature` in `thinking` block"), so the body scan must
+// strip them even with ModelSwitched=false.
+func TestAnthropicSameFormat_UnsignedThinkingStrippedWithoutModelSwitch(t *testing.T) {
+	body := []byte(`{"model":"claude-opus-4-7","messages":[{"role":"user","content":"hi"},{"role":"assistant","content":[{"type":"thinking","thinking":"from an OSS model"},{"type":"text","text":"reply"}]}],"max_tokens":1024,"thinking":{"type":"adaptive"}}`)
+	opts := translate.EmitOptions{
+		TargetModel:   "claude-opus-4-7",
+		Capabilities:  router.Lookup("claude-opus-4-7"),
+		ModelSwitched: false,
+	}
+	out := parseAndEmit(t, body, "anthropic", opts)
+	msgs, _ := out["messages"].([]any)
+	require.Len(t, msgs, 2)
+	assistantMsg, _ := msgs[1].(map[string]any)
+	content, _ := assistantMsg["content"].([]any)
+	require.Len(t, content, 1, "unsigned thinking block must be stripped even when the pin reports no switch")
+	block, _ := content[0].(map[string]any)
+	assert.Equal(t, "text", block["type"], "only the text block should survive the strip")
+}
+
+// TestAnthropicSameFormat_EmptySignatureThinkingStripped covers the shape where
+// the key is present but empty — an empty signature is just as invalid upstream.
+func TestAnthropicSameFormat_EmptySignatureThinkingStripped(t *testing.T) {
+	body := []byte(`{"model":"claude-opus-4-7","messages":[{"role":"assistant","content":[{"type":"thinking","thinking":"t","signature":""},{"type":"text","text":"reply"}]}],"max_tokens":1024,"thinking":{"type":"adaptive"}}`)
+	opts := translate.EmitOptions{
+		TargetModel:  "claude-opus-4-7",
+		Capabilities: router.Lookup("claude-opus-4-7"),
+	}
+	out := parseAndEmit(t, body, "anthropic", opts)
+	msgs, _ := out["messages"].([]any)
+	require.Len(t, msgs, 1)
+	assistantMsg, _ := msgs[0].(map[string]any)
+	content, _ := assistantMsg["content"].([]any)
+	require.Len(t, content, 1, "empty-signature thinking block must be stripped")
+}
+
+// TestAnthropicSameFormat_RedactedThinkingSurvivesBodyScan pins the exemption:
+// redacted_thinking legitimately carries `data` rather than `signature`, so the
+// unsigned-block strip must leave it alone.
+func TestAnthropicSameFormat_RedactedThinkingSurvivesBodyScan(t *testing.T) {
+	body := []byte(`{"model":"claude-opus-4-7","messages":[{"role":"assistant","content":[{"type":"redacted_thinking","data":"encrypted"},{"type":"text","text":"reply"}]}],"max_tokens":1024,"thinking":{"type":"adaptive"}}`)
+	opts := translate.EmitOptions{
+		TargetModel:   "claude-opus-4-7",
+		Capabilities:  router.Lookup("claude-opus-4-7"),
+		ModelSwitched: false,
+	}
+	out := parseAndEmit(t, body, "anthropic", opts)
+	msgs, _ := out["messages"].([]any)
+	require.Len(t, msgs, 1)
+	assistantMsg, _ := msgs[0].(map[string]any)
+	content, _ := assistantMsg["content"].([]any)
+	require.Len(t, content, 2, "redacted_thinking must not trip the unsigned scan")
+}
+
+// TestAnthropicSameFormat_SignedThinkingSurvivesUnsignedStrip is the reason the
+// strip is signature-scoped rather than blanket: a mixed history must lose only
+// the unsigned (cross-format) block, keeping the signed one so prompt-cache
+// continuity and reasoning context survive.
+func TestAnthropicSameFormat_SignedThinkingSurvivesUnsignedStrip(t *testing.T) {
+	body := []byte(`{"model":"claude-opus-4-7","messages":[{"role":"assistant","content":[{"type":"thinking","thinking":"signed","signature":"valid-sig"},{"type":"thinking","thinking":"from an OSS model"},{"type":"text","text":"reply"}]}],"max_tokens":1024,"thinking":{"type":"adaptive"}}`)
+	opts := translate.EmitOptions{
+		TargetModel:   "claude-opus-4-7",
+		Capabilities:  router.Lookup("claude-opus-4-7"),
+		ModelSwitched: false,
+	}
+	out := parseAndEmit(t, body, "anthropic", opts)
+	msgs, _ := out["messages"].([]any)
+	require.Len(t, msgs, 1)
+	assistantMsg, _ := msgs[0].(map[string]any)
+	content, _ := assistantMsg["content"].([]any)
+	require.Len(t, content, 2, "only the unsigned thinking block should be dropped")
+	signed, _ := content[0].(map[string]any)
+	assert.Equal(t, "thinking", signed["type"])
+	assert.Equal(t, "valid-sig", signed["signature"], "the signed block must survive intact")
+	text, _ := content[1].(map[string]any)
+	assert.Equal(t, "text", text["type"])
 }
 
 func TestPassthroughSameFormat_FieldsScrubbed(t *testing.T) {
