@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"workweave/router/internal/auth"
 	"workweave/router/internal/providers"
 	"workweave/router/internal/router"
 	"workweave/router/internal/router/catalog"
@@ -653,6 +654,18 @@ func TestShouldFailover(t *testing.T) {
 		s := &Service{}
 		ctx := context.WithValue(context.Background(), CredentialsContextKey{},
 			&Credentials{APIKey: []byte("sk-ant-oat01-token"), Source: "subscription", OAuth: true})
+		assert.False(t, s.shouldFailover(ctx))
+	})
+	t.Run("BYOK keys on context disable failover", func(t *testing.T) {
+		// A managed+opted-in installation with a BYOK key for the FALLBACK
+		// binding but not the primary must not fail over: resolveAndInject
+		// would silently prefer that BYOK key on the failover attempt,
+		// spending the customer's own account without them intending it.
+		s := &Service{}
+		ctx := context.WithValue(context.Background(), ExternalAPIKeysContextKey{},
+			[]*auth.ExternalAPIKey{
+				{Provider: providers.ProviderMakora, Plaintext: []byte("mk-byok")},
+			})
 		assert.False(t, s.shouldFailover(ctx))
 	})
 }

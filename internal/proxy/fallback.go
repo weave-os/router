@@ -348,12 +348,17 @@ func sleepWithContext(ctx context.Context, d time.Duration) error {
 
 // shouldFailover reports failover eligibility. Customer-supplied
 // credentials (BYOK or client key) bind to a single provider — retrying
-// elsewhere would 401 unexpectedly, so we skip failover.
+// elsewhere would 401 unexpectedly, so we skip failover. A BYOK row for ANY
+// provider disables it too: a failover binding re-resolves credentials and
+// would prefer that key even if the primary binding used the deployment key.
 func (s *Service) shouldFailover(ctx context.Context) bool {
 	if s.byokOnly {
 		return false
 	}
 	if CredentialsFromContext(ctx) != nil {
+		return false
+	}
+	if len(externalKeysFromContext(ctx)) > 0 {
 		return false
 	}
 	return true
