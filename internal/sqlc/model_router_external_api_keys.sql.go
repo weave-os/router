@@ -21,6 +21,7 @@ INSERT INTO router.model_router_external_api_keys (
     key_suffix,
     key_fingerprint,
     name,
+    base_url,
     created_by
 )
 VALUES (
@@ -32,9 +33,10 @@ VALUES (
     $6::varchar,
     $7::varchar,
     $8,
-    $9
+    $9,
+    $10
 )
-RETURNING id, installation_id, external_id, provider, key_ciphertext, key_prefix, key_suffix, key_fingerprint, name, last_used_at, created_at, updated_at, deleted_at, created_by
+RETURNING id, installation_id, external_id, provider, key_ciphertext, key_prefix, key_suffix, key_fingerprint, name, last_used_at, created_at, updated_at, deleted_at, created_by, base_url
 `
 
 type CreateExternalAPIKeyParams struct {
@@ -46,6 +48,7 @@ type CreateExternalAPIKeyParams struct {
 	KeySuffix      string
 	KeyFingerprint string
 	Name           *string
+	BaseURL        *string
 	CreatedBy      *string
 }
 
@@ -62,6 +65,7 @@ type CreateExternalAPIKeyParams struct {
 //	    key_suffix,
 //	    key_fingerprint,
 //	    name,
+//	    base_url,
 //	    created_by
 //	)
 //	VALUES (
@@ -73,9 +77,10 @@ type CreateExternalAPIKeyParams struct {
 //	    $6::varchar,
 //	    $7::varchar,
 //	    $8,
-//	    $9
+//	    $9,
+//	    $10
 //	)
-//	RETURNING id, installation_id, external_id, provider, key_ciphertext, key_prefix, key_suffix, key_fingerprint, name, last_used_at, created_at, updated_at, deleted_at, created_by
+//	RETURNING id, installation_id, external_id, provider, key_ciphertext, key_prefix, key_suffix, key_fingerprint, name, last_used_at, created_at, updated_at, deleted_at, created_by, base_url
 func (q *Queries) CreateExternalAPIKey(ctx context.Context, arg CreateExternalAPIKeyParams) (RouterModelRouterExternalAPIKey, error) {
 	row := q.db.QueryRow(ctx, createExternalAPIKey,
 		arg.InstallationID,
@@ -86,6 +91,7 @@ func (q *Queries) CreateExternalAPIKey(ctx context.Context, arg CreateExternalAP
 		arg.KeySuffix,
 		arg.KeyFingerprint,
 		arg.Name,
+		arg.BaseURL,
 		arg.CreatedBy,
 	)
 	var i RouterModelRouterExternalAPIKey
@@ -104,12 +110,13 @@ func (q *Queries) CreateExternalAPIKey(ctx context.Context, arg CreateExternalAP
 		&i.UpdatedAt,
 		&i.DeletedAt,
 		&i.CreatedBy,
+		&i.BaseURL,
 	)
 	return i, err
 }
 
 const getActiveExternalAPIKeysForInstallation = `-- name: GetActiveExternalAPIKeysForInstallation :many
-SELECT id, installation_id, external_id, provider, key_ciphertext, key_prefix, key_suffix, key_fingerprint, name, last_used_at, created_at, updated_at, deleted_at, created_by
+SELECT id, installation_id, external_id, provider, key_ciphertext, key_prefix, key_suffix, key_fingerprint, name, last_used_at, created_at, updated_at, deleted_at, created_by, base_url
 FROM router.model_router_external_api_keys
 WHERE installation_id = $1::uuid
   AND deleted_at IS NULL
@@ -119,7 +126,7 @@ ORDER BY provider, created_at DESC
 // Returns all active external API keys for an installation. Used by the auth
 // cache to populate the ExternalKeys map on cache miss.
 //
-//	SELECT id, installation_id, external_id, provider, key_ciphertext, key_prefix, key_suffix, key_fingerprint, name, last_used_at, created_at, updated_at, deleted_at, created_by
+//	SELECT id, installation_id, external_id, provider, key_ciphertext, key_prefix, key_suffix, key_fingerprint, name, last_used_at, created_at, updated_at, deleted_at, created_by, base_url
 //	FROM router.model_router_external_api_keys
 //	WHERE installation_id = $1::uuid
 //	  AND deleted_at IS NULL
@@ -148,6 +155,7 @@ func (q *Queries) GetActiveExternalAPIKeysForInstallation(ctx context.Context, i
 			&i.UpdatedAt,
 			&i.DeletedAt,
 			&i.CreatedBy,
+			&i.BaseURL,
 		); err != nil {
 			return nil, err
 		}

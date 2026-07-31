@@ -55,11 +55,22 @@ func (r *BillingRepo) HasActiveOverride(ctx context.Context, orgID string) (bool
 // existed (the CTE returns zero rows in that case).
 func (r *BillingRepo) DebitInference(ctx context.Context, p billing.DebitParams) (int64, error) {
 	q := sqlc.New(r.tx)
+	feeEntryType := p.FeeEntryType
+	if p.FeeUsdMicros == 0 {
+		// The fee CTE no-ops on a zero fee, but entry_type is NOT NULL and
+		// CHECK-constrained, so it still needs a legal value.
+		feeEntryType = p.EntryType
+	}
 	balanceAfter, err := q.DebitOrgCredits(ctx, sqlc.DebitOrgCreditsParams{
-		OrganizationID:     p.OrganizationID,
+		OrganizationID: p.OrganizationID,
+		// The balance moves by the combined amount; the SET expression takes a
+		// single param (see the query's comment on charged_usd_micros).
+		ChargedUsdMicros:   p.DeltaUsdMicros + p.FeeUsdMicros,
 		DeltaUsdMicros:     p.DeltaUsdMicros,
 		NotionalCostMicros: p.NotionalCostMicros,
 		EntryType:          p.EntryType,
+		FeeUsdMicros:       p.FeeUsdMicros,
+		FeeEntryType:       feeEntryType,
 		RouterRequestID:    stringPtrOrNil(p.RouterRequestID),
 		RouterModel:        stringPtrOrNil(p.RouterModel),
 		APIKeyID:           uuidOrNil(p.APIKeyID),

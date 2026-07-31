@@ -913,6 +913,15 @@ func servedOnSubscription(ctx context.Context) bool {
 	return creds != nil && creds.OAuth
 }
 
+// servedOnBYOK reports whether the turn's resolved credential is a customer-owned
+// provider key, so the customer paid their upstream directly and Weave bills only
+// its platform fee. Keys off the resolved credential rather than the presence of
+// a BYOK row: the row may exist for a provider this turn didn't route to.
+func servedOnBYOK(ctx context.Context) bool {
+	creds := CredentialsFromContext(ctx)
+	return creds != nil && creds.Source == credSourceBYOK
+}
+
 // openaiSubscriptionFromContext / openaiAccountIDFromContext return the raw Codex
 // (ChatGPT) subscription JWT and paired account-id stashed by the auth middleware
 // (router-keyed path), or "" when none.
@@ -4058,16 +4067,24 @@ func (s *Service) emitBilling(ctx context.Context, requestID, externalID string,
 		Pricing:            actPricing,
 		HasOverride:        hasOverride,
 		SubscriptionServed: routeRes.UsageBypass || servedOnSubscription(ctx),
+		ByokServed:         servedOnBYOK(ctx),
 		APIKeyID:           apiKeyID,
 		RouterUserID:       auth.UserIDFrom(ctx),
 	})
 
-	// The handover summary always runs on the deployment/BYOK key (never the
-	// subscription token), so it bills full cost regardless of the main turn.
+	// The handover summary never runs on the subscription token, so it bills
+	// full cost even when the main turn was subscription-served. It CAN run on
+	// a BYOK key (resolveSummarizerCreds prefers one for the summarizer's
+	// provider), and that spend went to the customer's own account — so it
+	// takes the fee path rather than a full-cost debit.
 	if routeRes.Handover.Invoked && !routeRes.Handover.FallbackToFullHistory {
 		sumUsage := routeRes.Handover.SummaryUsage
 		if sumUsage.Model != "" && (sumUsage.InputTokens > 0 || sumUsage.OutputTokens > 0) {
 			sumPricing, _ := catalog.PrimaryPriceFor(sumUsage.Model)
+			sumByok := false
+			if byok := BuildCredentialsMap(externalKeysFromContext(ctx)); byok != nil {
+				_, sumByok = byok[sumUsage.Provider]
+			}
 			s.fireBilling(ctx, billing.DebitInferenceParams{
 				OrganizationID:  externalID,
 				RouterRequestID: requestID + "_summary",
@@ -4079,6 +4096,7 @@ func (s *Service) emitBilling(ctx context.Context, requestID, externalID string,
 				CacheRead:       sumUsage.CacheRead,
 				Pricing:         sumPricing,
 				HasOverride:     hasOverride,
+				ByokServed:      sumByok,
 				APIKeyID:        apiKeyID,
 				RouterUserID:    auth.UserIDFrom(ctx),
 			})
@@ -4113,6 +4131,7 @@ func (s *Service) fireBilling(ctx context.Context, p billing.DebitInferenceParam
 			"balance_usd_micros", balance,
 			"override", p.HasOverride,
 			"subscription_served", p.SubscriptionServed,
+			"byok_served", p.ByokServed,
 		)
 		return
 	}
@@ -4134,6 +4153,7 @@ func logBillingDebitFailure(ctx context.Context, p billing.DebitInferenceParams,
 		"cache_read_tokens", p.CacheRead,
 		"has_override", p.HasOverride,
 		"subscription_served", p.SubscriptionServed,
+		"byok_served", p.ByokServed,
 	)
 }
 

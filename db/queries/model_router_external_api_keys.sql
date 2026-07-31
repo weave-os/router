@@ -11,6 +11,7 @@ INSERT INTO router.model_router_external_api_keys (
     key_suffix,
     key_fingerprint,
     name,
+    base_url,
     created_by
 )
 VALUES (
@@ -22,6 +23,7 @@ VALUES (
     @key_suffix::varchar,
     @key_fingerprint::varchar,
     @name,
+    @base_url,
     @created_by
 )
 RETURNING *;

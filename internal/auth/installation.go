@@ -70,6 +70,12 @@ type Installation struct {
 	PolicyRoutingIntent string
 	// AITrainingAllowed is the fail-closed privacy snapshot used by online learning.
 	AITrainingAllowed bool
+	// ByokEnabled opts a managed-mode installation into honoring its own BYOK
+	// provider keys. Managed deploys bill via prepaid credits, so BYOK is
+	// off by default there: without this flag the auth middleware strips
+	// external keys and the deployment key serves the turn. Self-hosted
+	// ignores the flag entirely — BYOK is the only credentialing path there.
+	ByokEnabled bool
 }
 
 type CreateInstallationParams struct {

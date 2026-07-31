@@ -48,8 +48,13 @@ type DebitParams struct {
 	DeltaUsdMicros     int64  // signed: negative for real debit, 0 for override pass-through
 	NotionalCostMicros int64  // always the would-be charge, populated regardless of override
 	EntryType          string // 'inference', 'adjustment', etc.
-	RouterRequestID    string // upstream call id; suffix ('_summary','_main') used for handover rows
-	RouterModel        string
+	// FeeUsdMicros, when non-zero, writes a second ledger row of FeeEntryType
+	// in the same statement. BYOK turns use it to charge Weave's platform fee
+	// while the inference row records upstream cost at delta 0.
+	FeeUsdMicros    int64
+	FeeEntryType    string
+	RouterRequestID string // upstream call id; suffix ('_summary','_main') used for handover rows
+	RouterModel     string
 	// APIKeyID, if non-empty, attributes the debit to that key, bumping its
 	// lifetime spent_usd_micros in the same transaction.
 	APIKeyID string

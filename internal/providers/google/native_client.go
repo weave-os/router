@@ -92,7 +92,7 @@ func (c *NativeClient) Proxy(ctx context.Context, decision router.Decision, prep
 		method = ":streamGenerateContent"
 		query = "?alt=sse"
 	}
-	url := c.baseURL + "/v1beta/models/" + decision.Model + method + query
+	url := proxy.EffectiveBaseURL(ctx, c.baseURL) + "/v1beta/models/" + decision.Model + method + query
 
 	upstream, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(prep.Body))
 	if err != nil {
@@ -168,7 +168,7 @@ func (c *NativeClient) Passthrough(ctx context.Context, prep providers.PreparedR
 	} else if !strings.HasPrefix(suffix, "/v1beta") {
 		suffix = "/v1beta" + suffix
 	}
-	url := c.baseURL + suffix
+	url := proxy.EffectiveBaseURL(ctx, c.baseURL) + suffix
 	if r.URL.RawQuery != "" {
 		url += "?" + r.URL.RawQuery
 	}

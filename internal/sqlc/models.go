@@ -74,6 +74,8 @@ type RouterModelRouterExternalAPIKey struct {
 	UpdatedAt      pgtype.Timestamp
 	DeletedAt      pgtype.Timestamp
 	CreatedBy      *string
+	// Customer-supplied upstream base URL; NULL uses the deployment default for the provider
+	BaseURL *string
 }
 
 // Customer router installations; owns API keys
@@ -101,6 +103,8 @@ type RouterModelRouterInstallation struct {
 	PolicyRoutingIntent          *string
 	// Privacy snapshot synced from the organization AI-training setting. False disables policy learning.
 	AiTrainingAllowed bool
+	// Managed-mode opt-in: honor this installation's BYOK provider keys
+	ByokEnabled bool
 }
 
 type RouterModelRouterRequestTelemetry struct {

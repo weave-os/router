@@ -164,12 +164,12 @@ func TestWithAuthPrefersRouterKeyHeader(t *testing.T) {
 	require.Equal(t, http.StatusOK, rr.Code)
 }
 
-func TestWithAuthManagedModeDropsBYOKFromContext(t *testing.T) {
+func TestWithAuthManagedModeDropsBYOKWhenNotOptedIn(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	const routerToken = "rk_managed"
 	hash, prefix, suffix := auth.APITokenFingerprint(routerToken)
 	apiKey := &auth.APIKey{ID: "key-managed", InstallationID: "inst-managed", KeyHash: hash, KeyPrefix: prefix, KeySuffix: suffix}
-	installation := &auth.Installation{ID: "inst-managed", ExternalID: "ext-managed"}
+	installation := &auth.Installation{ID: "inst-managed", ExternalID: "ext-managed", ByokEnabled: false}
 	repo := &fakeAPIKeyRepository{byHash: map[string]fakeKeyRow{
 		hash: {apiKey: apiKey, installation: installation},
 	}}
@@ -184,7 +184,43 @@ func TestWithAuthManagedModeDropsBYOKFromContext(t *testing.T) {
 	engine.Use(middleware.WithAuth(svc, true))
 	engine.GET("/probe", func(c *gin.Context) {
 		assert.Nil(t, c.Request.Context().Value(proxy.ExternalAPIKeysContextKey{}),
-			"managed mode must drop BYOK rows at the middleware boundary; a leftover row in the table must not reach the proxy ctx")
+			"managed mode must drop BYOK rows for an installation that hasn't opted in; a leftover row in the table must not reach the proxy ctx")
+		c.Status(http.StatusOK)
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/probe", nil)
+	req.Header.Set(middleware.RouterKeyHeader, routerToken)
+	rr := httptest.NewRecorder()
+	engine.ServeHTTP(rr, req)
+
+	require.Equal(t, http.StatusOK, rr.Code)
+}
+
+func TestWithAuthManagedModeKeepsBYOKWhenOptedIn(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	const routerToken = "rk_managed_optin"
+	hash, prefix, suffix := auth.APITokenFingerprint(routerToken)
+	apiKey := &auth.APIKey{ID: "key-optin", InstallationID: "inst-optin", KeyHash: hash, KeyPrefix: prefix, KeySuffix: suffix}
+	installation := &auth.Installation{ID: "inst-optin", ExternalID: "ext-optin", ByokEnabled: true}
+	repo := &fakeAPIKeyRepository{byHash: map[string]fakeKeyRow{
+		hash: {apiKey: apiKey, installation: installation},
+	}}
+	externalRepo := &fakeExternalAPIKeyRepository{byInstallationID: map[string][]*auth.ExternalAPIKey{
+		installation.ID: {{
+			ID: "ext-makora", InstallationID: installation.ID, Provider: "makora",
+			BaseURL: "https://byok.example.com/v1", Plaintext: []byte("mk-byok"),
+		}},
+	}}
+	svc := auth.NewService(fakeInstallationRepository{}, repo, externalRepo, nil, auth.NoOpAPIKeyCache{}, nil, func() time.Time { return time.Now() })
+
+	engine := gin.New()
+	engine.Use(middleware.WithAuth(svc, true))
+	engine.GET("/probe", func(c *gin.Context) {
+		v, ok := c.Request.Context().Value(proxy.ExternalAPIKeysContextKey{}).([]*auth.ExternalAPIKey)
+		require.True(t, ok, "managed mode must propagate BYOK rows once the installation opts in")
+		require.Len(t, v, 1)
+		assert.Equal(t, "makora", v[0].Provider)
+		assert.Equal(t, "https://byok.example.com/v1", v[0].BaseURL)
 		c.Status(http.StatusOK)
 	})
 
@@ -201,7 +237,9 @@ func TestWithAuthSelfHostedKeepsBYOKInContext(t *testing.T) {
 	const routerToken = "rk_selfhosted"
 	hash, prefix, suffix := auth.APITokenFingerprint(routerToken)
 	apiKey := &auth.APIKey{ID: "key-self", InstallationID: "inst-self", KeyHash: hash, KeyPrefix: prefix, KeySuffix: suffix}
-	installation := &auth.Installation{ID: "inst-self", ExternalID: "ext-self"}
+	// ByokEnabled stays false: self-hosted has no credit system to protect, so
+	// the opt-in flag must not gate BYOK there.
+	installation := &auth.Installation{ID: "inst-self", ExternalID: "ext-self", ByokEnabled: false}
 	repo := &fakeAPIKeyRepository{byHash: map[string]fakeKeyRow{
 		hash: {apiKey: apiKey, installation: installation},
 	}}

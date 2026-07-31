@@ -78,6 +78,76 @@ func TestProxy_BYOKCredentialsOverrideEnvKey(t *testing.T) {
 		"BYOK credentials on context must override the deployment-level env key")
 }
 
+// TestProxy_BYOKBaseURLOverridesDeploymentBaseURL: a BYOK key carrying its own
+// base URL must be dispatched to the customer's endpoint, not the deployment's.
+// This is what lets a managed installation point at a self-hosted
+// OpenAI-compatible provider instead of the vendor's public endpoint.
+func TestProxy_BYOKBaseURLOverridesDeploymentBaseURL(t *testing.T) {
+	deploymentHit := false
+	deployment := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		deploymentHit = true
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"id":"from-deployment"}`))
+	}))
+	defer deployment.Close()
+
+	var customerPath, customerAuth string
+	customer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		customerPath = r.URL.Path
+		customerAuth = r.Header.Get("Authorization")
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"id":"from-customer","object":"chat.completion"}`))
+	}))
+	defer customer.Close()
+
+	c := openaicompat.NewClient("deployment-key", deployment.URL+"/api/v1")
+	// Trailing slash is deliberate: EffectiveBaseURL must normalize it so the
+	// joined path doesn't end up with a doubled separator.
+	byok := &proxy.Credentials{
+		APIKey:  []byte("mk-customer-key"),
+		Source:  "byok",
+		BaseURL: customer.URL + "/v1/",
+	}
+	ctx := context.WithValue(context.Background(), proxy.CredentialsContextKey{}, byok)
+
+	rec := httptest.NewRecorder()
+	clientReq := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(""))
+	prep := providers.PreparedRequest{Body: []byte(`{"model":"m","messages":[]}`), Headers: make(http.Header)}
+	err := c.Proxy(ctx, router.Decision{Model: "m"}, prep, rec, clientReq)
+
+	require.NoError(t, err)
+	assert.False(t, deploymentHit, "a BYOK base URL must divert the call away from the deployment endpoint")
+	assert.Equal(t, "/v1/chat/completions", customerPath)
+	assert.Equal(t, "Bearer mk-customer-key", customerAuth)
+}
+
+// TestProxy_DeploymentBaseURLUsedWhenBYOKOmitsIt: a BYOK key with no base URL
+// keeps the deployment's endpoint — only the credential changes.
+func TestProxy_DeploymentBaseURLUsedWhenBYOKOmitsIt(t *testing.T) {
+	var gotPath string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"id":"chatcmpl-1","object":"chat.completion"}`))
+	}))
+	defer upstream.Close()
+
+	c := openaicompat.NewClient("deployment-key", upstream.URL+"/api/v1")
+	byok := &proxy.Credentials{APIKey: []byte("mk-customer-key"), Source: "byok"}
+	ctx := context.WithValue(context.Background(), proxy.CredentialsContextKey{}, byok)
+
+	rec := httptest.NewRecorder()
+	clientReq := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(""))
+	prep := providers.PreparedRequest{Body: []byte(`{"model":"m","messages":[]}`), Headers: make(http.Header)}
+	err := c.Proxy(ctx, router.Decision{Model: "m"}, prep, rec, clientReq)
+
+	require.NoError(t, err)
+	assert.Equal(t, "/api/v1/chat/completions", gotPath,
+		"a BYOK key without a base URL must keep using the deployment endpoint")
+}
+
 // TestProxy_DevModeEnvKeyUsedWhenNoCredentialsOnContext: with no context
 // credentials (WithAuth skipped, e.g. ROUTER_DEV_MODE), setAuth must fall
 // back to the deployment env key — the path self-hosters/local dev rely on.

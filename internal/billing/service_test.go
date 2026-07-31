@@ -85,7 +85,9 @@ func (r *fakeRepo) DebitInference(_ context.Context, p billing.DebitParams) (int
 	if !r.balanceRowExists {
 		return 0, billing.ErrBalanceRowMissing
 	}
-	r.balanceMicros += p.DeltaUsdMicros
+	// Mirrors the real repo: the balance moves by delta + fee, since the fee
+	// row is written in the same statement.
+	r.balanceMicros += p.DeltaUsdMicros + p.FeeUsdMicros
 	r.ledgerCalls = append(r.ledgerCalls, p)
 	return r.balanceMicros, nil
 }
@@ -187,6 +189,104 @@ func TestDebitForInference_MatchesExportedCostMath(t *testing.T) {
 	assert.Equal(t, billing.EntryTypeInference, repo.ledgerCalls[0].EntryType)
 	assert.Equal(t, "req_abc", repo.ledgerCalls[0].RouterRequestID)
 	assert.Equal(t, "claude-sonnet-4-5", repo.ledgerCalls[0].RouterModel)
+}
+
+func TestDebitForInference_ByokChargesFeeOnlyNotUpstreamCost(t *testing.T) {
+	// The customer paid their own provider for the upstream call, so Weave
+	// debits only its platform fee. The inference row still carries the full
+	// notional cost so the savings dashboard can price the turn.
+	repo := &fakeRepo{balanceRowExists: true, balanceMicros: 10_000_000}
+	svc := billing.NewService(repo)
+	p := catalog.Pricing{InputUSDPer1M: 3.00, OutputUSDPer1M: 15.00, CacheReadMultiplier: 0.10}
+	balance, err := svc.DebitForInference(context.Background(), billing.DebitInferenceParams{
+		OrganizationID:  "org_byok",
+		RouterRequestID: "req_byok",
+		Model:           "claude-sonnet-4-5",
+		Provider:        providers.ProviderAnthropic,
+		InputTokens:     1_000_000,
+		OutputTokens:    250_000,
+		Pricing:         p,
+		ByokServed:      true,
+	})
+	require.NoError(t, err)
+
+	// Same turn as TestDebitForInference_MatchesExportedCostMath: $6.75 upstream.
+	const notionalMicros = int64(6_750_000)
+	const expectedFee = int64(337_500) // 5% of $6.75 = $0.3375
+
+	require.Len(t, repo.ledgerCalls, 1, "the fee rides on the same atomic debit, not a second call")
+	row := repo.ledgerCalls[0]
+	assert.Equal(t, int64(0), row.DeltaUsdMicros,
+		"a BYOK turn must not debit upstream cost — the customer already paid their provider")
+	assert.Equal(t, notionalMicros, row.NotionalCostMicros,
+		"notional cost is still recorded so the savings dashboard can price the turn")
+	assert.Equal(t, billing.EntryTypeInference, row.EntryType)
+	assert.Equal(t, -expectedFee, row.FeeUsdMicros, "fee is 5% of upstream cost, signed as a debit")
+	assert.Equal(t, billing.EntryTypeByokFee, row.FeeEntryType)
+	assert.Equal(t, int64(10_000_000)-expectedFee, balance,
+		"balance drops by the fee alone")
+}
+
+func TestDebitForInference_ByokFeeIsExactlyFivePercent(t *testing.T) {
+	// Guards the rate itself: a refactor that changes rounding or the constant
+	// silently re-prices every BYOK customer.
+	repo := &fakeRepo{balanceRowExists: true, balanceMicros: 1_000_000_000}
+	svc := billing.NewService(repo)
+	_, err := svc.DebitForInference(context.Background(), billing.DebitInferenceParams{
+		OrganizationID:  "org_byok",
+		RouterRequestID: "req_round",
+		Model:           "m",
+		Provider:        providers.ProviderAnthropic,
+		// $100.00 of input at $1/M — a round number so the 5% is unambiguous.
+		InputTokens: 100_000_000,
+		Pricing:     catalog.Pricing{InputUSDPer1M: 1.00},
+		ByokServed:  true,
+	})
+	require.NoError(t, err)
+	require.Len(t, repo.ledgerCalls, 1)
+	assert.Equal(t, int64(100_000_000), repo.ledgerCalls[0].NotionalCostMicros, "$100 upstream")
+	assert.Equal(t, int64(-5_000_000), repo.ledgerCalls[0].FeeUsdMicros,
+		"$100 of customer upstream spend must bill exactly $5")
+}
+
+func TestDebitForInference_OverrideOutranksByok(t *testing.T) {
+	// A free-credits/internal org must not be charged a BYOK fee.
+	repo := &fakeRepo{balanceRowExists: true, balanceMicros: 10_000_000}
+	svc := billing.NewService(repo)
+	_, err := svc.DebitForInference(context.Background(), billing.DebitInferenceParams{
+		OrganizationID:  "org_override",
+		RouterRequestID: "req_ovr",
+		Model:           "m",
+		Provider:        providers.ProviderAnthropic,
+		InputTokens:     1_000_000,
+		Pricing:         catalog.Pricing{InputUSDPer1M: 3.00},
+		HasOverride:     true,
+		ByokServed:      true,
+	})
+	require.NoError(t, err)
+	require.Len(t, repo.ledgerCalls, 1)
+	assert.Equal(t, int64(0), repo.ledgerCalls[0].DeltaUsdMicros)
+	assert.Equal(t, int64(0), repo.ledgerCalls[0].FeeUsdMicros,
+		"an override org pays no BYOK fee")
+}
+
+func TestDebitForInference_NonByokWritesNoFeeRow(t *testing.T) {
+	// Regression guard: the fee params must stay zero on the ordinary
+	// platform-key path, or every managed turn would grow a spurious fee row.
+	repo := &fakeRepo{balanceRowExists: true, balanceMicros: 10_000_000}
+	svc := billing.NewService(repo)
+	_, err := svc.DebitForInference(context.Background(), billing.DebitInferenceParams{
+		OrganizationID:  "org_plain",
+		RouterRequestID: "req_plain",
+		Model:           "m",
+		Provider:        providers.ProviderAnthropic,
+		InputTokens:     1_000_000,
+		Pricing:         catalog.Pricing{InputUSDPer1M: 3.00},
+	})
+	require.NoError(t, err)
+	require.Len(t, repo.ledgerCalls, 1)
+	assert.Equal(t, int64(-3_000_000), repo.ledgerCalls[0].DeltaUsdMicros, "full cost debited as usual")
+	assert.Equal(t, int64(0), repo.ledgerCalls[0].FeeUsdMicros, "no fee on a platform-key turn")
 }
 
 func TestDebitForInference_WarnsOnZeroPricingForRealUsage(t *testing.T) {

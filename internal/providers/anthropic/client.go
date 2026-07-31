@@ -162,7 +162,8 @@ func (c *Client) Proxy(ctx context.Context, decision router.Decision, prep provi
 	ctx, cancel := context.WithCancelCause(ctx)
 	defer cancel(nil)
 
-	upstream, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/v1/messages", bytes.NewReader(prep.Body))
+	baseURL := proxy.EffectiveBaseURL(ctx, c.baseURL)
+	upstream, err := http.NewRequestWithContext(ctx, http.MethodPost, baseURL+"/v1/messages", bytes.NewReader(prep.Body))
 	if err != nil {
 		return fmt.Errorf("build upstream request: %w", err)
 	}
@@ -260,7 +261,7 @@ func (c *Client) Proxy(ctx context.Context, decision router.Decision, prep provi
 }
 
 func (c *Client) Passthrough(ctx context.Context, prep providers.PreparedRequest, w http.ResponseWriter, r *http.Request) error {
-	url := c.baseURL + r.URL.Path
+	url := proxy.EffectiveBaseURL(ctx, c.baseURL) + r.URL.Path
 	if r.URL.RawQuery != "" {
 		url += "?" + r.URL.RawQuery
 	}

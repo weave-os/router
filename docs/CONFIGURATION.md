@@ -35,8 +35,19 @@ Claude Code keep using the user's logged-in plan.
 
 **BYOK (per-installation keys).** Instead of (or in addition to) the env vars
 above, each installation can supply its own provider keys via the dashboard.
-Those are stored in Postgres and used only for that installation's traffic.
+Those are stored in Postgres and used only for that installation's traffic. A
+key may also carry its own base URL, which overrides the deployment's endpoint
+for that provider on that installation's requests — useful when a customer runs
+their own deployment of an OpenAI-compatible provider.
 See [BYOK encryption](#byok-encryption).
+
+In `selfhosted` mode BYOK is always active (it's the only credentialing path).
+In `managed` mode it is opt-in per installation: the control plane sets
+`byok_enabled` on the installation row, and until it does, the auth middleware
+strips BYOK keys so a stored key can't spend against a deployment that bills
+prepaid credits. Once enabled, a BYOK turn debits no inference cost (the
+customer paid their own provider) and is charged a platform fee instead,
+recorded as a separate `byok_fee` ledger row.
 
 ## Postgres
 

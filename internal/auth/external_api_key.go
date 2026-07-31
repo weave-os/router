@@ -9,13 +9,17 @@ import (
 type ExternalAPIKey struct {
 	ID             string
 	InstallationID string
-	Provider       string // "anthropic" | "openai" | "google"
+	Provider       string // one of providers.Provider* — see providers.APIKeyEnvVars
 	Name           *string
 	KeyPrefix      string
 	KeySuffix      string
 	KeyFingerprint string
-	CreatedAt      time.Time
-	LastUsedAt     *time.Time
+	// BaseURL overrides the deployment's configured upstream endpoint for this
+	// provider when non-empty, letting a customer point at their own
+	// deployment rather than the vendor's public endpoint.
+	BaseURL    string
+	CreatedAt  time.Time
+	LastUsedAt *time.Time
 	// Plaintext is populated after decrypt; never logged.
 	Plaintext []byte
 }
@@ -29,6 +33,7 @@ type CreateExternalAPIKeyParams struct {
 	KeySuffix      string
 	KeyFingerprint string
 	Name           *string
+	BaseURL        *string
 	CreatedBy      *string
 }
 

@@ -74,25 +74,56 @@ ledger AS (
     )
     SELECT
         $2::varchar,
-        $1::bigint,
         $3::bigint,
-        updated.balance_usd_micros,
-        $4::varchar,
-        $5::varchar,
-        $6::varchar
+        $4::bigint,
+        -- The fee row is logically second, so this row's balance_after is the
+        -- final balance minus the fee that had not yet been applied.
+        updated.balance_usd_micros - $5::bigint,
+        $6::varchar,
+        $7::varchar,
+        $8::varchar
     FROM updated
     RETURNING balance_after_micros
 ),
+fee_ledger AS (
+    -- Weave's platform fee on a BYOK turn. No-ops when fee_usd_micros is 0,
+    -- which is every non-BYOK turn.
+    INSERT INTO router.organization_credit_ledger (
+        organization_id,
+        delta_usd_micros,
+        notional_cost_micros,
+        balance_after_micros,
+        entry_type,
+        router_request_id,
+        router_model
+    )
+    SELECT
+        $2::varchar,
+        $5::bigint,
+        0,
+        updated.balance_usd_micros,
+        $9::varchar,
+        NULL::varchar,
+        NULL::varchar
+    FROM updated
+    WHERE $5::bigint <> 0
+),
 key_spend AS (
-    -- delta is negative on a real debit, so subtracting it adds the spend
-    -- magnitude; zero on override/subscription pass-throughs leaves it flat.
+    -- charged_usd_micros is the signed total the balance moved (delta + fee),
+    -- pre-combined in Go: sqlc's CTE rewriter only accepts a single param in
+    -- this ` + "`" + `SET x = x - @p` + "`" + ` form, and an unqualified ` + "`" + `spent_usd_micros` + "`" + ` is
+    -- ambiguous against the ` + "`" + `updated` + "`" + ` CTE. Negative on a real debit, so
+    -- subtracting it adds the spend magnitude; zero on override/subscription
+    -- pass-throughs leaves it flat. The BYOK fee is included, else a capped key
+    -- would never trip its cap on BYOK traffic (delta 0, fee is the whole
+    -- charge).
     -- Gated on ` + "`" + `updated` + "`" + ` producing a row: if the org balance row was missing
     -- (the debit no-ops and the app sees ErrBalanceRowMissing) we must NOT bump
     -- the key's lifetime spend, or a capped key could trip its cap with no
     -- matching ledger debit.
     UPDATE router.model_router_api_keys
     SET spent_usd_micros = spent_usd_micros - $1::bigint
-    WHERE id = $7::uuid
+    WHERE id = $10::uuid
       AND EXISTS (SELECT 1 FROM updated)
 ),
 user_month_spend AS (
@@ -104,15 +135,15 @@ user_month_spend AS (
     -- after inference was already served.
     INSERT INTO router.model_router_user_monthly_spend (router_user_id, month, spent_usd_micros, updated_at)
     SELECT
-        $8::uuid,
+        $11::uuid,
         DATE_TRUNC('month', NOW() AT TIME ZONE 'utc')::date,
         -($1::bigint),
         NOW()
-    WHERE $8::uuid IS NOT NULL
+    WHERE $11::uuid IS NOT NULL
       AND EXISTS (SELECT 1 FROM updated)
       AND EXISTS (
           SELECT 1 FROM router.model_router_users
-          WHERE id = $8::uuid
+          WHERE id = $11::uuid
       )
     ON CONFLICT (router_user_id, month) DO UPDATE
     SET spent_usd_micros = router.model_router_user_monthly_spend.spent_usd_micros + EXCLUDED.spent_usd_micros,
@@ -135,12 +166,15 @@ SELECT balance_after_micros FROM ledger
 `
 
 type DebitOrgCreditsParams struct {
-	DeltaUsdMicros     int64
+	ChargedUsdMicros   int64
 	OrganizationID     string
+	DeltaUsdMicros     int64
 	NotionalCostMicros int64
+	FeeUsdMicros       int64
 	EntryType          string
 	RouterRequestID    *string
 	RouterModel        *string
+	FeeEntryType       string
 	APIKeyID           pgtype.UUID
 	RouterUserID       pgtype.UUID
 }
@@ -165,6 +199,11 @@ type DebitOrgCreditsParams struct {
 // per-key cap enforcement reads a single up-to-date row. The key_spend CTE is
 // data-modifying, so Postgres runs it to completion even though the final
 // SELECT does not reference it; it no-ops when api_key_id is NULL.
+// When fee_usd_micros is non-zero, a second ledger row of fee_entry_type is
+// written in the same statement. BYOK turns use this: the inference row carries
+// notional upstream cost at delta 0 (the customer paid their own provider) and
+// the fee row holds Weave's platform charge. Both rows must land together or a
+// crash between them would serve inference with no fee, so they share one CTE.
 //
 //	WITH updated AS (
 //	    UPDATE router.organization_credit_balance
@@ -185,25 +224,56 @@ type DebitOrgCreditsParams struct {
 //	    )
 //	    SELECT
 //	        $2::varchar,
-//	        $1::bigint,
 //	        $3::bigint,
-//	        updated.balance_usd_micros,
-//	        $4::varchar,
-//	        $5::varchar,
-//	        $6::varchar
+//	        $4::bigint,
+//	        -- The fee row is logically second, so this row's balance_after is the
+//	        -- final balance minus the fee that had not yet been applied.
+//	        updated.balance_usd_micros - $5::bigint,
+//	        $6::varchar,
+//	        $7::varchar,
+//	        $8::varchar
 //	    FROM updated
 //	    RETURNING balance_after_micros
 //	),
+//	fee_ledger AS (
+//	    -- Weave's platform fee on a BYOK turn. No-ops when fee_usd_micros is 0,
+//	    -- which is every non-BYOK turn.
+//	    INSERT INTO router.organization_credit_ledger (
+//	        organization_id,
+//	        delta_usd_micros,
+//	        notional_cost_micros,
+//	        balance_after_micros,
+//	        entry_type,
+//	        router_request_id,
+//	        router_model
+//	    )
+//	    SELECT
+//	        $2::varchar,
+//	        $5::bigint,
+//	        0,
+//	        updated.balance_usd_micros,
+//	        $9::varchar,
+//	        NULL::varchar,
+//	        NULL::varchar
+//	    FROM updated
+//	    WHERE $5::bigint <> 0
+//	),
 //	key_spend AS (
-//	    -- delta is negative on a real debit, so subtracting it adds the spend
-//	    -- magnitude; zero on override/subscription pass-throughs leaves it flat.
+//	    -- charged_usd_micros is the signed total the balance moved (delta + fee),
+//	    -- pre-combined in Go: sqlc's CTE rewriter only accepts a single param in
+//	    -- this `SET x = x - @p` form, and an unqualified `spent_usd_micros` is
+//	    -- ambiguous against the `updated` CTE. Negative on a real debit, so
+//	    -- subtracting it adds the spend magnitude; zero on override/subscription
+//	    -- pass-throughs leaves it flat. The BYOK fee is included, else a capped key
+//	    -- would never trip its cap on BYOK traffic (delta 0, fee is the whole
+//	    -- charge).
 //	    -- Gated on `updated` producing a row: if the org balance row was missing
 //	    -- (the debit no-ops and the app sees ErrBalanceRowMissing) we must NOT bump
 //	    -- the key's lifetime spend, or a capped key could trip its cap with no
 //	    -- matching ledger debit.
 //	    UPDATE router.model_router_api_keys
 //	    SET spent_usd_micros = spent_usd_micros - $1::bigint
-//	    WHERE id = $7::uuid
+//	    WHERE id = $10::uuid
 //	      AND EXISTS (SELECT 1 FROM updated)
 //	),
 //	user_month_spend AS (
@@ -215,15 +285,15 @@ type DebitOrgCreditsParams struct {
 //	    -- after inference was already served.
 //	    INSERT INTO router.model_router_user_monthly_spend (router_user_id, month, spent_usd_micros, updated_at)
 //	    SELECT
-//	        $8::uuid,
+//	        $11::uuid,
 //	        DATE_TRUNC('month', NOW() AT TIME ZONE 'utc')::date,
 //	        -($1::bigint),
 //	        NOW()
-//	    WHERE $8::uuid IS NOT NULL
+//	    WHERE $11::uuid IS NOT NULL
 //	      AND EXISTS (SELECT 1 FROM updated)
 //	      AND EXISTS (
 //	          SELECT 1 FROM router.model_router_users
-//	          WHERE id = $8::uuid
+//	          WHERE id = $11::uuid
 //	      )
 //	    ON CONFLICT (router_user_id, month) DO UPDATE
 //	    SET spent_usd_micros = router.model_router_user_monthly_spend.spent_usd_micros + EXCLUDED.spent_usd_micros,
@@ -245,12 +315,15 @@ type DebitOrgCreditsParams struct {
 //	SELECT balance_after_micros FROM ledger
 func (q *Queries) DebitOrgCredits(ctx context.Context, arg DebitOrgCreditsParams) (int64, error) {
 	row := q.db.QueryRow(ctx, debitOrgCredits,
-		arg.DeltaUsdMicros,
+		arg.ChargedUsdMicros,
 		arg.OrganizationID,
+		arg.DeltaUsdMicros,
 		arg.NotionalCostMicros,
+		arg.FeeUsdMicros,
 		arg.EntryType,
 		arg.RouterRequestID,
 		arg.RouterModel,
+		arg.FeeEntryType,
 		arg.APIKeyID,
 		arg.RouterUserID,
 	)

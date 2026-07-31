@@ -73,9 +73,12 @@ const (
 // hmmRosterSource, when non-nil, mounts GET /v1/router/hmm-roster for the
 // control plane's cluster allowlist UI.
 func Register(engine *gin.Engine, authSvc *auth.Service, proxySvc *proxy.Service, deployedModels admin.DeployedModelsSource, hmmModels admin.HMMRosterSource, mode DeploymentMode, billingSvc *billing.Service, readinessChecker admin.HealthChecker, hmmRosterSource policy.RosterSource) {
-	// Managed mode bills via platform-key credits; a leftover BYOK row would
-	// double-charge (upstream provider + Weave credits), so drop it here.
-	byokDisabled := mode == DeploymentModeManaged
+	// Managed mode bills via platform-key credits, so BYOK is opt-in per
+	// installation: an org that hasn't enabled it must not spend on a leftover
+	// BYOK row. Opted-in orgs are billed a percentage fee on their upstream
+	// spend rather than full inference cost. Self-hosted has no credit system,
+	// so BYOK always applies there.
+	byokRequiresOptIn := mode == DeploymentModeManaged
 
 	engine.GET("/health", middleware.WithTimeout(healthTimeout), admin.HealthHandler)
 	engine.GET("/readyz", middleware.WithTimeout(readinessTimeout), admin.ReadinessHandler(readinessChecker))
@@ -120,7 +123,7 @@ func Register(engine *gin.Engine, authSvc *auth.Service, proxySvc *proxy.Service
 	}
 
 	// /validate is a token-validity probe used by clients (not the dashboard), so it stays mounted in both modes.
-	adminAuthed := engine.Group("", middleware.WithTimeout(validateTimeout), middleware.WithAuth(authSvc, byokDisabled))
+	adminAuthed := engine.Group("", middleware.WithTimeout(validateTimeout), middleware.WithAuth(authSvc, byokRequiresOptIn))
 	adminAuthed.GET("/validate", admin.ValidateHandler)
 
 	if mode == DeploymentModeSelfHosted {
@@ -135,7 +138,7 @@ func Register(engine *gin.Engine, authSvc *auth.Service, proxySvc *proxy.Service
 		authPublic.GET("/me", admin.MeHandler(authSvc))
 
 		// Read-only metrics: dashboard cookie OR rk_ bearer so an installation can fetch its own data for monitoring scripts. Per-installation scoping is enforced inside the handlers.
-		metrics := engine.Group("/admin/v1", middleware.WithTimeout(adminTimeout), middleware.WithAdminOrAuth(authSvc, byokDisabled))
+		metrics := engine.Group("/admin/v1", middleware.WithTimeout(adminTimeout), middleware.WithAdminOrAuth(authSvc, byokRequiresOptIn))
 		metrics.GET("/metrics/summary", admin.MetricsSummaryHandler(proxySvc))
 		metrics.GET("/metrics/timeseries", admin.MetricsTimeseriesHandler(proxySvc))
 		metrics.GET("/metrics/details", admin.MetricsDetailsHandler(proxySvc))
@@ -164,7 +167,7 @@ func Register(engine *gin.Engine, authSvc *auth.Service, proxySvc *proxy.Service
 	messagesMiddleware := []gin.HandlerFunc{
 		middleware.WithTimingEntry(),
 		middleware.WithTimeout(messagesTimeout),
-		middleware.WithAuth(authSvc, byokDisabled),
+		middleware.WithAuth(authSvc, byokRequiresOptIn),
 		middleware.WithAgentShadowEvaluation(),
 	}
 	if billingSvc != nil {
@@ -184,7 +187,7 @@ func Register(engine *gin.Engine, authSvc *auth.Service, proxySvc *proxy.Service
 	chatCompletionMiddleware := []gin.HandlerFunc{
 		middleware.WithTimingEntry(),
 		middleware.WithTimeout(chatCompletionTimeout),
-		middleware.WithAuth(authSvc, byokDisabled),
+		middleware.WithAuth(authSvc, byokRequiresOptIn),
 	}
 	if billingSvc != nil {
 		chatCompletionMiddleware = append(chatCompletionMiddleware, middleware.WithBalanceCheck(billingSvc, billing.MinBalanceMicros), middleware.WithAPIKeySpendCap(billingSvc), middleware.WithOrgMonthlySpendCap(billingSvc))
@@ -210,7 +213,7 @@ func Register(engine *gin.Engine, authSvc *auth.Service, proxySvc *proxy.Service
 	// /v1/messages, and gating it would break client negotiation.
 	passthroughGroup := engine.Group("",
 		middleware.WithTimeout(passthroughTimeout),
-		middleware.WithAuth(authSvc, byokDisabled),
+		middleware.WithAuth(authSvc, byokRequiresOptIn),
 	)
 	passthroughGroup.POST("/v1/messages/count_tokens", anthropicapi.PassthroughHandler(proxySvc))
 	passthroughGroup.GET("/v1/models", openaiapi.ModelsHandler(anthropicapi.PassthroughHandler(proxySvc)))
@@ -218,7 +221,7 @@ func Register(engine *gin.Engine, authSvc *auth.Service, proxySvc *proxy.Service
 
 	routeMiddleware := []gin.HandlerFunc{
 		middleware.WithTimeout(routeTimeout),
-		middleware.WithAuth(authSvc, byokDisabled),
+		middleware.WithAuth(authSvc, byokRequiresOptIn),
 	}
 	if billingSvc != nil {
 		routeMiddleware = append(routeMiddleware, middleware.WithBalanceCheck(billingSvc, billing.MinBalanceMicros), middleware.WithAPIKeySpendCap(billingSvc), middleware.WithOrgMonthlySpendCap(billingSvc))
@@ -237,7 +240,7 @@ func Register(engine *gin.Engine, authSvc *auth.Service, proxySvc *proxy.Service
 	previewGroup := engine.Group("",
 		middleware.WithTimingEntry(),
 		middleware.WithTimeout(routeTimeout),
-		middleware.WithAuth(authSvc, byokDisabled),
+		middleware.WithAuth(authSvc, byokRequiresOptIn),
 		middleware.WithEmbedOnlyUserMessageOverride(),
 		middleware.WithRouterStrategyDefault(defaultStrategy, registeredStrategies...),
 		middleware.WithPolicyDebugOverride(),

@@ -39,20 +39,22 @@ const (
 
 // WithAuth validates the inbound request via a bearer rk_ token only. Used on data-plane routes (`/v1/*`). On failure, short-circuits 401.
 //
-// byokDisabled strips BYOK (customer-owned provider) keys before downstream
-// proxy code sees them. Managed-mode deployments pass true: they bill via
-// prepaid credits, so honoring a leftover BYOK row would double-charge the
-// customer. Self-hosted passes false; BYOK is the only credentialing path there.
-func WithAuth(svc *auth.Service, byokDisabled bool) gin.HandlerFunc {
-	return withAPIKey(svc, byokDisabled)
+// byokRequiresOptIn gates BYOK (customer-owned provider) keys behind the
+// installation's own opt-in. Managed-mode deployments pass true: they bill via
+// prepaid credits, so an installation that hasn't opted in must not spend on a
+// leftover BYOK row. Opted-in installations pay a percentage fee on their
+// upstream spend instead of full inference cost. Self-hosted passes false;
+// BYOK is the only credentialing path there.
+func WithAuth(svc *auth.Service, byokRequiresOptIn bool) gin.HandlerFunc {
+	return withAPIKey(svc, byokRequiresOptIn)
 }
 
 // WithAdminOrAuth accepts either a signed admin session cookie OR a bearer rk_ token.
 // Don't use on `/v1/*` data-plane routes (a cookie shouldn't call provider proxy endpoints)
 // or on control-plane mutations (a leaked rk_ shouldn't mint keys or rotate credentials —
-// use WithAdminOnly there). See WithAuth for byokDisabled.
-func WithAdminOrAuth(svc *auth.Service, byokDisabled bool) gin.HandlerFunc {
-	apiKeyMW := withAPIKey(svc, byokDisabled)
+// use WithAdminOnly there). See WithAuth for byokRequiresOptIn.
+func WithAdminOrAuth(svc *auth.Service, byokRequiresOptIn bool) gin.HandlerFunc {
+	apiKeyMW := withAPIKey(svc, byokRequiresOptIn)
 	return func(c *gin.Context) {
 		if principal := tryAdminCookie(c, svc); principal != nil {
 			c.Set(ctxKeyAdminPrincipal, principal)
@@ -82,11 +84,11 @@ func WithAdminOnly(svc *auth.Service) gin.HandlerFunc {
 
 // withAPIKey is the bearer-only auth path shared by WithAuth and the fall-through branch of WithAdminOrAuth.
 //
-// When byokDisabled is true, BYOK rows from svc.VerifyAPIKey are dropped
-// before reaching the request context. Every downstream BYOK consumer
+// When byokRequiresOptIn is true, BYOK rows from svc.VerifyAPIKey are dropped
+// unless the installation set ByokEnabled. Every downstream BYOK consumer
 // (credential resolution, provider gating, usage bookkeeping) reads that
-// single ctx key, so gating it here makes the whole path BYOK-blind.
-func withAPIKey(svc *auth.Service, byokDisabled bool) gin.HandlerFunc {
+// single ctx key, so gating it here decides the whole path in one place.
+func withAPIKey(svc *auth.Service, byokRequiresOptIn bool) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		token := extractToken(c)
 		installation, apiKey, externalKeys, clusterModelLists, err := svc.VerifyAPIKey(c.Request.Context(), token)
@@ -148,7 +150,8 @@ func withAPIKey(svc *auth.Service, byokDisabled bool) gin.HandlerFunc {
 				ctx = context.WithValue(ctx, proxy.PolicyTrainingAllowedContextKey{}, true)
 			}
 		}
-		if externalKeys != nil && !byokDisabled {
+		byokAllowed := !byokRequiresOptIn || (installation != nil && installation.ByokEnabled)
+		if externalKeys != nil && byokAllowed {
 			ctx = context.WithValue(ctx, proxy.ExternalAPIKeysContextKey{}, externalKeys)
 		}
 		if len(clusterModelLists) > 0 {

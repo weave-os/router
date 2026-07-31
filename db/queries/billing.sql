@@ -21,8 +21,10 @@ SELECT EXISTS (
 )::boolean AS has_override;
 
 -- Atomic debit: decrement the balance and append a matching ledger row in a
--- single statement. delta_usd_micros is the signed change (negative for an
--- inference debit, zero for an override pass-through). notional_cost_micros
+-- single statement. delta_usd_micros is the signed change on the inference row
+-- (negative for an inference debit, zero for an override pass-through).
+-- charged_usd_micros is the signed total the balance actually moves
+-- (delta + fee), pre-combined by the caller. notional_cost_micros
 -- is always the would-be charge, populated for both override and real
 -- debits so we keep a shadow billing trail.
 --
@@ -35,15 +37,20 @@ SELECT EXISTS (
 -- new value without a follow-up read.
 --
 -- When api_key_id is supplied, the same statement also bumps that key's
--- lifetime spent_usd_micros by the debit magnitude (-delta: the real cost on a
--- debit, zero on an override/subscription pass-through where delta is 0), so
--- per-key cap enforcement reads a single up-to-date row. The key_spend CTE is
+-- lifetime spent_usd_micros by the charged magnitude (-charged: the real cost
+-- on a debit, zero on an override/subscription pass-through), so per-key cap
+-- enforcement reads a single up-to-date row. The key_spend CTE is
 -- data-modifying, so Postgres runs it to completion even though the final
 -- SELECT does not reference it; it no-ops when api_key_id is NULL.
+-- When fee_usd_micros is non-zero, a second ledger row of fee_entry_type is
+-- written in the same statement. BYOK turns use this: the inference row carries
+-- notional upstream cost at delta 0 (the customer paid their own provider) and
+-- the fee row holds Weave's platform charge. Both rows must land together or a
+-- crash between them would serve inference with no fee, so they share one CTE.
 -- name: DebitOrgCredits :one
 WITH updated AS (
     UPDATE router.organization_credit_balance
-    SET balance_usd_micros = balance_usd_micros + @delta_usd_micros::bigint,
+    SET balance_usd_micros = balance_usd_micros + @charged_usd_micros::bigint,
         updated_at = NOW()
     WHERE organization_id = @organization_id::varchar
     RETURNING balance_usd_micros
@@ -62,22 +69,53 @@ ledger AS (
         @organization_id::varchar,
         @delta_usd_micros::bigint,
         @notional_cost_micros::bigint,
-        updated.balance_usd_micros,
+        -- The fee row is logically second, so this row's balance_after is the
+        -- final balance minus the fee that had not yet been applied.
+        updated.balance_usd_micros - @fee_usd_micros::bigint,
         @entry_type::varchar,
         sqlc.narg('router_request_id')::varchar,
         sqlc.narg('router_model')::varchar
     FROM updated
     RETURNING balance_after_micros
 ),
+fee_ledger AS (
+    -- Weave's platform fee on a BYOK turn. No-ops when fee_usd_micros is 0,
+    -- which is every non-BYOK turn.
+    INSERT INTO router.organization_credit_ledger (
+        organization_id,
+        delta_usd_micros,
+        notional_cost_micros,
+        balance_after_micros,
+        entry_type,
+        router_request_id,
+        router_model
+    )
+    SELECT
+        @organization_id::varchar,
+        @fee_usd_micros::bigint,
+        0,
+        updated.balance_usd_micros,
+        @fee_entry_type::varchar,
+        NULL::varchar,
+        NULL::varchar
+    FROM updated
+    WHERE @fee_usd_micros::bigint <> 0
+),
 key_spend AS (
-    -- delta is negative on a real debit, so subtracting it adds the spend
-    -- magnitude; zero on override/subscription pass-throughs leaves it flat.
+    -- charged_usd_micros is the signed total the balance moved (delta + fee),
+    -- pre-combined in Go: sqlc's CTE rewriter only accepts a single param in
+    -- this `SET x = x - @p` form, and an unqualified `spent_usd_micros` is
+    -- ambiguous against the `updated` CTE. Negative on a real debit, so
+    -- subtracting it adds the spend magnitude; zero on override/subscription
+    -- pass-throughs leaves it flat. The BYOK fee is included, else a capped key
+    -- would never trip its cap on BYOK traffic (delta 0, fee is the whole
+    -- charge).
     -- Gated on `updated` producing a row: if the org balance row was missing
     -- (the debit no-ops and the app sees ErrBalanceRowMissing) we must NOT bump
     -- the key's lifetime spend, or a capped key could trip its cap with no
     -- matching ledger debit.
     UPDATE router.model_router_api_keys
-    SET spent_usd_micros = spent_usd_micros - @delta_usd_micros::bigint
+    SET spent_usd_micros = spent_usd_micros - @charged_usd_micros::bigint
     WHERE id = sqlc.narg('api_key_id')::uuid
       AND EXISTS (SELECT 1 FROM updated)
 ),
@@ -92,7 +130,7 @@ user_month_spend AS (
     SELECT
         sqlc.narg('router_user_id')::uuid,
         DATE_TRUNC('month', NOW() AT TIME ZONE 'utc')::date,
-        -(@delta_usd_micros::bigint),
+        -(@charged_usd_micros::bigint),
         NOW()
     WHERE sqlc.narg('router_user_id')::uuid IS NOT NULL
       AND EXISTS (SELECT 1 FROM updated)
@@ -110,7 +148,7 @@ org_month_spend AS (
     SELECT
         @organization_id::varchar,
         DATE_TRUNC('month', NOW() AT TIME ZONE 'utc')::date,
-        -(@delta_usd_micros::bigint),
+        -(@charged_usd_micros::bigint),
         NOW()
     WHERE EXISTS (SELECT 1 FROM updated)
     ON CONFLICT (organization_id, month) DO UPDATE

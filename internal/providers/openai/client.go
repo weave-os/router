@@ -192,7 +192,10 @@ func (c *Client) Proxy(ctx context.Context, decision router.Decision, prep provi
 	// /responses endpoint (Responses schema only).
 	codexCreds := codexSubscriptionCreds(ctx)
 	useCodex := codexCreds != nil && prep.Endpoint == providers.EndpointResponses
-	baseURL := c.baseURL
+	// A BYOK key may point at a customer-hosted OpenAI-compatible endpoint; the
+	// Codex branch below still wins, since a Codex subscription bearer only
+	// authenticates against the Codex backend.
+	baseURL := proxy.EffectiveBaseURL(ctx, c.baseURL)
 	path := "/v1/chat/completions"
 	if prep.Endpoint == providers.EndpointResponses {
 		path = "/v1/responses"
@@ -381,7 +384,7 @@ func logStreamStall(model, path string, budget time.Duration, bytesReceived int6
 func (c *Client) Passthrough(ctx context.Context, prep providers.PreparedRequest, w http.ResponseWriter, r *http.Request) error {
 	// Codex subscriptions are served only via the routed Responses dispatch
 	// (Proxy), never here — no Codex backend switch needed.
-	url := c.baseURL + r.URL.Path
+	url := proxy.EffectiveBaseURL(ctx, c.baseURL) + r.URL.Path
 	if r.URL.RawQuery != "" {
 		url += "?" + r.URL.RawQuery
 	}

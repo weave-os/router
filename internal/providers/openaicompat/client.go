@@ -178,7 +178,8 @@ func (c *Client) Proxy(ctx context.Context, decision router.Decision, prep provi
 	defer cancel(nil)
 
 	body := rewriteModelField(prep.Body, c.modelIDMap)
-	upstream, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/chat/completions", bytes.NewReader(body))
+	baseURL := proxy.EffectiveBaseURL(ctx, c.baseURL)
+	upstream, err := http.NewRequestWithContext(ctx, http.MethodPost, baseURL+"/chat/completions", bytes.NewReader(body))
 	if err != nil {
 		return fmt.Errorf("build upstream request: %w", err)
 	}
@@ -213,7 +214,7 @@ func (c *Client) Proxy(ctx context.Context, decision router.Decision, prep provi
 		httputil.LogUpstreamStatus(
 			"Upstream OpenAI-compatible provider returned error status",
 			resp.StatusCode,
-			"base_url", c.baseURL,
+			"base_url", baseURL,
 			"routed_model", decision.Model,
 			"body_preview", httputil.PreviewBytes(bufBody),
 			"body_total_bytes", totalRead,
@@ -260,7 +261,7 @@ func (c *Client) Proxy(ctx context.Context, decision router.Decision, prep provi
 
 	streamErr := httputil.StreamBody(ctx, cancel, c.idleTimeout(), resp.Body, resp.StatusCode, w, t)
 	if errors.Is(streamErr, httputil.ErrUpstreamIdleTimeout) || errors.Is(streamErr, httputil.ErrUpstreamOutputStall) || errors.Is(streamErr, httputil.ErrUpstreamSlowThroughput) {
-		logStreamStall(decision.Model, c.baseURL, streamErr)
+		logStreamStall(decision.Model, baseURL, streamErr)
 	}
 	return streamErr
 }
@@ -286,7 +287,8 @@ func logStreamStall(model, baseURL string, cause error) {
 // Passthrough strips the inbound /v1 prefix to avoid double-prefixing with the configured baseURL.
 func (c *Client) Passthrough(ctx context.Context, prep providers.PreparedRequest, w http.ResponseWriter, r *http.Request) error {
 	suffix := strings.TrimPrefix(r.URL.Path, "/v1")
-	url := c.baseURL + suffix
+	baseURL := proxy.EffectiveBaseURL(ctx, c.baseURL)
+	url := baseURL + suffix
 	if r.URL.RawQuery != "" {
 		url += "?" + r.URL.RawQuery
 	}
@@ -315,7 +317,7 @@ func (c *Client) Passthrough(ctx context.Context, prep providers.PreparedRequest
 	providers.CopyUpstreamHeaders(w, resp)
 	w.WriteHeader(resp.StatusCode)
 	if resp.StatusCode >= 400 {
-		return httputil.WritePassthroughError(w, resp, nil, nil, "Upstream OpenAI-compatible provider returned error status (passthrough)", "base_url", c.baseURL, "path", r.URL.Path)
+		return httputil.WritePassthroughError(w, resp, nil, nil, "Upstream OpenAI-compatible provider returned error status (passthrough)", "base_url", baseURL, "path", r.URL.Path)
 	}
 	_, err = io.Copy(w, resp.Body)
 	return err
