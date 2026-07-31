@@ -364,18 +364,22 @@ var Models = []Model{
 			Price: Pricing{InputUSDPer1M: 0.150, OutputUSDPer1M: 1.200}},
 		{Provider: providers.ProviderOpenRouter, Price: Pricing{InputUSDPer1M: 0.090, OutputUSDPer1M: 1.100}},
 	}},
-	// DeepSeek V4 natively serves 1,048,576 tokens; the 131_072 carried over
-	// from V3.2 was filtering requests over ~128K (excludeContextOverflowModels
-	// in proxy/service.go).
-	{ID: "deepseek/deepseek-v4-flash", Tier: TierLow, ContextWindow: 1_048_576, ImageInput: ImageInputUnsupported, AgenticUse: AgenticLow, Providers: []ProviderBinding{
+	// DeepSeek V4 natively serves 1,048,576 tokens but Together and Fireworks
+	// cap at 512,000. Set to the minimum across all bindings, matching the
+	// minimax pattern (PR#381); Makora may serve the full 1M but failover to
+	// a 512k-capped provider with a request over 512k hard-400s.
+	{ID: "deepseek/deepseek-v4-flash", Tier: TierLow, ContextWindow: 512_000, ImageInput: ImageInputUnsupported, AgenticUse: AgenticLow, Providers: []ProviderBinding{
 		{Provider: providers.ProviderMakora, UpstreamID: "deepseek-ai/DeepSeek-V4-Flash",
 			Price: Pricing{InputUSDPer1M: 0.1134, OutputUSDPer1M: 0.2791, CacheReadMultiplier: 0.20}},
 		{Provider: providers.ProviderOpenRouter, Price: Pricing{InputUSDPer1M: 0.140, OutputUSDPer1M: 0.280, CacheReadMultiplier: 0.10}},
 	}},
-	{ID: "deepseek/deepseek-v4-pro", Tier: TierHigh, ContextWindow: 1_048_576, ImageInput: ImageInputUnsupported, Providers: []ProviderBinding{
+	{ID: "deepseek/deepseek-v4-pro", Tier: TierHigh, ContextWindow: 512_000, ImageInput: ImageInputUnsupported, Providers: []ProviderBinding{
 		// Makora primary for cost ($1.318/$2.636 vs Together's $1.74/$3.48).
 		// Together ranks ahead of Fireworks as fallback: #1 AA throughput
 		// (~209 t/s vs Fireworks ~120) at the same price.
+		// Context window: DeepSeek V4 Pro natively serves 1,048,576 tokens,
+		// but Together and Fireworks cap at 512,000. Set to the minimum across
+		// all bindings so failover never hits a 400 context_length_exceeded.
 		{Provider: providers.ProviderMakora, UpstreamID: "deepseek-ai/DeepSeek-V4-Pro",
 			Price: Pricing{InputUSDPer1M: 1.3180, OutputUSDPer1M: 2.6361, CacheReadMultiplier: 0.10}},
 		{Provider: providers.ProviderTogether, UpstreamID: "deepseek-ai/DeepSeek-V4-Pro",

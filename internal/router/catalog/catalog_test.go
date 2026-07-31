@@ -266,9 +266,10 @@ func TestContextWindowFor_KnownModels(t *testing.T) {
 	assert.Equal(t, 1_047_576, ContextWindowFor("gpt-4.1"))
 	// Gemini models have 1M context.
 	assert.Equal(t, 1_048_576, ContextWindowFor("gemini-3.5-flash"))
-	// DeepSeek V4 (Flash + Pro) serves the full 1,048,576-token window.
-	assert.Equal(t, 1_048_576, ContextWindowFor("deepseek/deepseek-v4-pro"))
-	assert.Equal(t, 1_048_576, ContextWindowFor("deepseek/deepseek-v4-flash"))
+	// DeepSeek V4 natively serves 1,048,576 tokens, but Together and Fireworks
+	// cap at 512,000. Capped to the minimum across all per-provider bindings.
+	assert.Equal(t, 512_000, ContextWindowFor("deepseek/deepseek-v4-pro"))
+	assert.Equal(t, 512_000, ContextWindowFor("deepseek/deepseek-v4-flash"))
 	// Most OSS models serve a 256K window (Qwen3 / Kimi families).
 	assert.Equal(t, 262_144, ContextWindowFor("moonshotai/kimi-k2.5"))
 	// GLM-5 serves ~200K (max_position_embeddings 202752); MiniMax M2.7 is 204800.
