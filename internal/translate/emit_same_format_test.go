@@ -713,10 +713,8 @@ func TestAnthropicSameFormat_RedactedThinkingSurvivesBodyScan(t *testing.T) {
 	require.Len(t, content, 2, "redacted_thinking must not trip the unsigned scan")
 }
 
-// TestAnthropicSameFormat_SignedThinkingSurvivesUnsignedStrip is the reason the
-// strip is signature-scoped rather than blanket: a mixed history must lose only
-// the unsigned (cross-format) block, keeping the signed one so prompt-cache
-// continuity and reasoning context survive.
+// TestAnthropicSameFormat_SignedThinkingSurvivesUnsignedStrip: signature-scoped
+// strip must preserve signed blocks alongside any unsigned ones it drops.
 func TestAnthropicSameFormat_SignedThinkingSurvivesUnsignedStrip(t *testing.T) {
 	body := []byte(`{"model":"claude-opus-4-7","messages":[{"role":"assistant","content":[{"type":"thinking","thinking":"signed","signature":"valid-sig"},{"type":"thinking","thinking":"from an OSS model"},{"type":"text","text":"reply"}]}],"max_tokens":1024,"thinking":{"type":"adaptive"}}`)
 	opts := translate.EmitOptions{
