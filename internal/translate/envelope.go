@@ -1141,11 +1141,8 @@ func resolveAnthropicOverrides(body []byte, opts EmitOptions) EmitOverrides {
 		ov.StripThinkingBlocks = true
 	}
 
-	// Floor under the switch-history guard above: unsigned blocks only come from
-	// cross-format emit and Anthropic always rejects them, so drop them even when
-	// no switch is known. Load-bearing once the pin-session TTL lapses over an
-	// idle gap — the switch history is gone by then, while Claude Code still
-	// replays the unsigned blocks every turn (#860).
+	// Floor under the switch-history guard: Anthropic rejects unsigned blocks
+	// regardless of pin TTL, so strip them unconditionally (#860).
 	ov.StripUnsignedThinkingBlocks = true
 
 	if !gjson.GetBytes(body, "max_tokens").Exists() {
