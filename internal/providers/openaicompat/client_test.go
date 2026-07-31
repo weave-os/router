@@ -80,8 +80,6 @@ func TestProxy_BYOKCredentialsOverrideEnvKey(t *testing.T) {
 
 // TestProxy_BYOKBaseURLOverridesDeploymentBaseURL: a BYOK key carrying its own
 // base URL must be dispatched to the customer's endpoint, not the deployment's.
-// This is what lets a managed installation point at a self-hosted
-// OpenAI-compatible provider instead of the vendor's public endpoint.
 func TestProxy_BYOKBaseURLOverridesDeploymentBaseURL(t *testing.T) {
 	deploymentHit := false
 	deployment := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

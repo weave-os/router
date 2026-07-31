@@ -616,11 +616,9 @@ func TestHasOverrideFromContext_True(t *testing.T) {
 }
 
 func TestDebitForInference_ByokReturnsPostFeeBalance(t *testing.T) {
-	// The returned balance must be the TRUE post-debit balance, including the
-	// fee. The inference ledger row deliberately records the PRE-fee balance for
-	// audit ordering, so a query that returns that row instead hands callers a
-	// balance the org never had — and maybeSignalRecharge (which reconstructs
-	// the pre-debit balance by subtracting delta) then misses autopay crossings.
+	// The returned balance must be post-fee. The inference row records balance
+	// before the fee CTE runs, so returning it would give a stale figure and
+	// maybeSignalRecharge would miss threshold crossings on fee-only debits.
 	repo := &fakeRepo{balanceRowExists: true, balanceMicros: 1_000_000}
 	svc := billing.NewService(repo)
 	balance, err := svc.DebitForInference(context.Background(), billing.DebitInferenceParams{

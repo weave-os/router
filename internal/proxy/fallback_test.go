@@ -657,10 +657,8 @@ func TestShouldFailover(t *testing.T) {
 		assert.False(t, s.shouldFailover(ctx))
 	})
 	t.Run("BYOK keys on context disable failover", func(t *testing.T) {
-		// A managed+opted-in installation with a BYOK key for the FALLBACK
-		// binding but not the primary must not fail over: resolveAndInject
-		// would silently prefer that BYOK key on the failover attempt,
-		// spending the customer's own account without them intending it.
+		// resolveAndInject re-resolves credentials and would prefer a BYOK key for
+		// the fallback binding, spending the customer's account without intent.
 		s := &Service{}
 		ctx := context.WithValue(context.Background(), ExternalAPIKeysContextKey{},
 			[]*auth.ExternalAPIKey{

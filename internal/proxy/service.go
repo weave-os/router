@@ -1820,6 +1820,7 @@ func (s *Service) PassthroughToNamedProvider(ctx context.Context, providerName s
 	if err != nil {
 		return err
 	}
+	ctx = resolveAndInjectCredentials(ctx, providerName, r.Header)
 
 	// Claude Code sends its 1M-context model variant tag (e.g.
 	// "claude-opus-4-8[1m]") in the body. It is a client display convention,

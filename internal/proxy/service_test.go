@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"workweave/router/internal/auth"
 	"workweave/router/internal/providers"
 	"workweave/router/internal/proxy"
 	"workweave/router/internal/router"
@@ -62,6 +63,8 @@ type fakeProvider struct {
 	// proxyCreds records the resolved credential per dispatch; nil means
 	// deployment-key fallback (no credential set).
 	proxyCreds []*proxy.Credentials
+	// passthroughCreds records the resolved credential per Passthrough call.
+	passthroughCreds []*proxy.Credentials
 }
 
 func (f *fakeProvider) Proxy(ctx context.Context, decision router.Decision, prep providers.PreparedRequest, w http.ResponseWriter, r *http.Request) error {
@@ -300,11 +303,35 @@ func TestService_ProxyOpenAIResponses_CodexPassthroughUsesChatForOpenAICompatPro
 }
 
 func (f *fakeProvider) Passthrough(ctx context.Context, prep providers.PreparedRequest, w http.ResponseWriter, r *http.Request) error {
+	f.passthroughCreds = append(f.passthroughCreds, proxy.CredentialsFromContext(ctx))
 	return nil
 }
 
 func makeProxyService(decision router.Decision, p map[string]providers.Client) *proxy.Service {
 	return proxy.NewService(&fakeRouter{decision: decision}, p, nil, false, nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil)
+}
+
+// TestService_PassthroughToNamedProvider_ResolvesBYOKCredential: passthrough
+// (count_tokens/models) must resolve the same credential precedence as a
+// routed dispatch, so a BYOK key hits the customer's endpoint/auth instead of
+// the deployment key silently winning.
+func TestService_PassthroughToNamedProvider_ResolvesBYOKCredential(t *testing.T) {
+	provider := &fakeProvider{}
+	svc := makeProxyService(router.Decision{}, map[string]providers.Client{providers.ProviderAnthropic: provider})
+
+	ctx := context.WithValue(context.Background(), proxy.ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
+		{Provider: providers.ProviderAnthropic, Plaintext: []byte("sk-ant-byok"), BaseURL: "https://byok.example.com"},
+	})
+	httpReq := httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+	rec := httptest.NewRecorder()
+
+	err := svc.PassthroughToNamedProvider(ctx, providers.ProviderAnthropic, nil, rec, httpReq)
+
+	require.NoError(t, err)
+	require.Len(t, provider.passthroughCreds, 1)
+	require.NotNil(t, provider.passthroughCreds[0], "BYOK credential must be resolved onto ctx before Passthrough dispatches")
+	assert.Equal(t, []byte("sk-ant-byok"), provider.passthroughCreds[0].APIKey)
+	assert.Equal(t, "https://byok.example.com", provider.passthroughCreds[0].BaseURL)
 }
 
 func TestService_ProxyMessages_PropagatesUpstreamStatusError(t *testing.T) {
