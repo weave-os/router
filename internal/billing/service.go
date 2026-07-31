@@ -321,7 +321,7 @@ func computeNotionalMicros(p DebitInferenceParams) int64 {
 
 // byokFeeMicros returns Weave's platform fee as a positive micros magnitude.
 // Integer math avoids a float round-trip; rounds half away from zero so a
-// sub-micro fee on a tiny turn still charges something rather than rounding free.
+// sub-micro fee rounds up rather than disappearing.
 func byokFeeMicros(notionalMicros int64) int64 {
 	if notionalMicros <= 0 {
 		return 0

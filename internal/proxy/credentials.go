@@ -44,10 +44,8 @@ type Credentials struct {
 	BaseURL string
 }
 
-// EffectiveBaseURL returns the per-request upstream base URL override, or
-// fallback when the request carries none. Provider clients call this instead
-// of reading their boot-time base URL directly so a BYOK key pointing at a
-// customer-hosted endpoint is honored.
+// EffectiveBaseURL returns the BYOK key's per-request base URL if set,
+// or fallback (the provider's boot-time deployment URL).
 func EffectiveBaseURL(ctx context.Context, fallback string) string {
 	creds := CredentialsFromContext(ctx)
 	if creds == nil || creds.BaseURL == "" {
