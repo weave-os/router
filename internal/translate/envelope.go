@@ -619,12 +619,9 @@ func isThinkingBlock(block gjson.Result) bool {
 	return blockType == "thinking" || blockType == "redacted_thinking"
 }
 
-// stripUnsignedThinkingBlocksBytes removes `thinking` blocks with no non-empty
-// `signature` from messages[*].content[*], leaving signed ones untouched. Only
-// cross-format emit produces unsigned blocks (OSS providers have no Anthropic
-// signature to carry) and Anthropic rejects them with "Invalid `signature` in
-// `thinking` block". redacted_thinking is exempt: it legitimately carries
-// `data` rather than a signature.
+// stripUnsignedThinkingBlocksBytes removes `thinking` blocks with absent or
+// empty `signature` from messages[*].content[*]. Unsigned blocks only come from
+// cross-format emit; Anthropic rejects them. redacted_thinking is exempt.
 func stripUnsignedThinkingBlocksBytes(body []byte) ([]byte, error) {
 	return rewriteMessageBlocks(body, isUnsignedThinkingBlock, dropMatchedBlock)
 }
