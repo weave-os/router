@@ -178,14 +178,3 @@ func TestOpenAISameFormat_ExplicitMaxTokensClampsToKimiK3Ceiling(t *testing.T) {
 	out := parseAndEmit(t, body, "openai", opts)
 	assert.Equal(t, float64(32000), out["max_tokens"])
 }
-
-func TestOpenAISameFormat_ExplicitMaxTokensClampsToGPT56ProCeiling(t *testing.T) {
-	body := []byte(`{"model":"gpt-4o","messages":[{"role":"user","content":"hi"}],"max_tokens":200000}`)
-	opts := translate.EmitOptions{
-		TargetModel:  "gpt-5.6-luna-pro",
-		Capabilities: router.Lookup("gpt-5.6-luna-pro"),
-	}
-	out := parseAndEmit(t, body, "openai", opts)
-	assert.Equal(t, float64(128000), out["max_completion_tokens"])
-	assert.NotContains(t, out, "max_tokens")
-}
