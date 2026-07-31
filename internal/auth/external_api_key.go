@@ -14,9 +14,7 @@ type ExternalAPIKey struct {
 	KeyPrefix      string
 	KeySuffix      string
 	KeyFingerprint string
-	// BaseURL overrides the deployment's configured upstream endpoint for this
-	// provider when non-empty, letting a customer point at their own
-	// deployment rather than the vendor's public endpoint.
+	// BaseURL overrides the provider's deployment endpoint for this key; non-empty on BYOK keys only.
 	BaseURL    string
 	CreatedAt  time.Time
 	LastUsedAt *time.Time

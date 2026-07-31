@@ -103,8 +103,8 @@ fee_ledger AS (
         0,
         updated.balance_usd_micros,
         $9::varchar,
-        NULL::varchar,
-        NULL::varchar
+        $7::varchar,
+        $8::varchar
     FROM updated
     WHERE $5::bigint <> 0
 ),
@@ -262,8 +262,8 @@ type DebitOrgCreditsParams struct {
 //	        0,
 //	        updated.balance_usd_micros,
 //	        $9::varchar,
-//	        NULL::varchar,
-//	        NULL::varchar
+//	        $7::varchar,
+//	        $8::varchar
 //	    FROM updated
 //	    WHERE $5::bigint <> 0
 //	),

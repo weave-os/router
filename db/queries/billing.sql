@@ -96,8 +96,8 @@ fee_ledger AS (
         0,
         updated.balance_usd_micros,
         @fee_entry_type::varchar,
-        NULL::varchar,
-        NULL::varchar
+        sqlc.narg('router_request_id')::varchar,
+        sqlc.narg('router_model')::varchar
     FROM updated
     WHERE @fee_usd_micros::bigint <> 0
 ),

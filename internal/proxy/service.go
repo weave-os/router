@@ -923,11 +923,10 @@ func servedOnBYOK(ctx context.Context) bool {
 }
 
 // byokServedForProvider reports whether the installation has a usable BYOK key
-// for provider. Used to bill handover/compaction summary calls at the fee rate:
-// those dispatch on their own credential context, so CredentialsFromContext on
-// the outer ctx no longer reflects what the summarizer used — the BYOK row does.
-// Inspects only Provider and Plaintext emptiness, never key bytes, to avoid
-// copying secret material into billing params (CodeQL go/clear-text-logging).
+// for provider. Used to bill summarizer calls at the fee rate: those dispatch on
+// their own credential context, so the outer ctx's resolved credential is stale.
+// Inspects Plaintext emptiness only — never key bytes — to satisfy CodeQL
+// go/clear-text-logging.
 func byokServedForProvider(ctx context.Context, provider string) bool {
 	if provider == "" {
 		return false

@@ -321,11 +321,9 @@ func computeNotionalMicros(p DebitInferenceParams) int64 {
 	return catalog.USDToMicros(inUSD + outUSD)
 }
 
-// byokFeeMicros returns Weave's platform fee, as a positive micros magnitude,
-// for a BYOK turn whose upstream cost was notionalMicros. Integer math keeps
-// the fee exact at micro precision instead of round-tripping through float USD.
-// Rounds half away from zero so a sub-micro fee on a tiny turn still charges
-// something rather than silently becoming free.
+// byokFeeMicros returns Weave's platform fee as a positive micros magnitude.
+// Integer math avoids a float round-trip; rounds half away from zero so a
+// sub-micro fee on a tiny turn still charges something rather than rounding free.
 func byokFeeMicros(notionalMicros int64) int64 {
 	if notionalMicros <= 0 {
 		return 0
