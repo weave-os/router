@@ -527,6 +527,9 @@ func clampFieldBytes(body []byte, key string, maxVal int64) []byte {
 // rewriteMessageBlocks walks messages[*].content[*], rewriting each block for
 // which needsRewrite reports true by calling rewrite with that block's raw
 // JSON. rewrite returning "" drops the block from its message's content array.
+// A message whose content array is emptied by rewriting is dropped entirely —
+// Anthropic rejects an assistant/user message with content:[] outright, so
+// leaving the shell behind would trade one 400 for another.
 // Uses two-phase reconstruction per message (cheap predicate scan, then
 // rebuild only messages that actually matched) for O(B) work. Returns body
 // unchanged if nothing matched.
@@ -584,6 +587,12 @@ func rewriteMessageBlocks(
 		})
 		if walkErr != nil {
 			return false
+		}
+
+		if len(kept) == 0 {
+			// Every block in this message was dropped; drop the message itself
+			// rather than emit an empty content array.
+			return true
 		}
 
 		newMsg, err := sjson.SetRaw(msg.Raw, "content", "["+strings.Join(kept, ",")+"]")

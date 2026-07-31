@@ -732,6 +732,26 @@ func TestAnthropicSameFormat_SignedThinkingSurvivesUnsignedStrip(t *testing.T) {
 	assert.Equal(t, "text", text["type"])
 }
 
+// TestAnthropicSameFormat_UnsignedThinkingOnlyMessageDropped is the exact shape
+// flagged in #861 review: an assistant replay whose ONLY content is an unsigned
+// thinking block (no accompanying text/tool_use). Stripping the block must drop
+// the whole message rather than emit content:[], which Anthropic also rejects.
+func TestAnthropicSameFormat_UnsignedThinkingOnlyMessageDropped(t *testing.T) {
+	body := []byte(`{"model":"claude-opus-4-7","messages":[{"role":"user","content":"hi"},{"role":"assistant","content":[{"type":"thinking","thinking":"from an OSS model"}]},{"role":"user","content":"continue"}],"max_tokens":1024,"thinking":{"type":"adaptive"}}`)
+	opts := translate.EmitOptions{
+		TargetModel:   "claude-opus-4-7",
+		Capabilities:  router.Lookup("claude-opus-4-7"),
+		ModelSwitched: false,
+	}
+	out := parseAndEmit(t, body, "anthropic", opts)
+	msgs, _ := out["messages"].([]any)
+	require.Len(t, msgs, 2, "the unsigned-thinking-only assistant message must be dropped entirely")
+	first, _ := msgs[0].(map[string]any)
+	assert.Equal(t, "user", first["role"])
+	second, _ := msgs[1].(map[string]any)
+	assert.Equal(t, "user", second["role"])
+}
+
 func TestPassthroughSameFormat_FieldsScrubbed(t *testing.T) {
 	body := []byte(`{"model":"claude-sonnet-4-20250514","messages":[{"role":"user","content":"hi"}],"max_tokens":1024,"effort":"high","thinking":{"type":"enabled"},"context_management":{"mode":"auto"},"output_config":{"length":"verbose"}}`)
 	env, err := translate.ParseAnthropic(body)
@@ -883,6 +903,9 @@ func TestAnthropicSameFormat_ManyThinkingBlocksInSingleMessage(t *testing.T) {
 	assert.Equal(t, "final", content[0].(map[string]any)["text"])
 }
 
+// TestAnthropicSameFormat_AllThinkingBlocksRemoved guards the Greptile P1 on
+// #861: a message whose content becomes empty after stripping must be dropped
+// entirely, not left behind as content:[] — Anthropic rejects that shape.
 func TestAnthropicSameFormat_AllThinkingBlocksRemoved(t *testing.T) {
 	body := []byte(`{"model":"claude-sonnet-4-20250514","messages":[{"role":"user","content":"hi"},{"role":"assistant","content":[{"type":"thinking","thinking":"t1"},{"type":"redacted_thinking","data":"xyz"}]}],"max_tokens":1024}`)
 	opts := translate.EmitOptions{
@@ -891,10 +914,9 @@ func TestAnthropicSameFormat_AllThinkingBlocksRemoved(t *testing.T) {
 	}
 	out := parseAndEmit(t, body, "anthropic", opts)
 	msgs, _ := out["messages"].([]any)
-	require.Len(t, msgs, 2)
-	assistantMsg, _ := msgs[1].(map[string]any)
-	content, _ := assistantMsg["content"].([]any)
-	assert.Len(t, content, 0, "all blocks are thinking blocks, content should be empty array")
+	require.Len(t, msgs, 1, "the assistant message must be dropped, not left with an empty content array")
+	userMsg, _ := msgs[0].(map[string]any)
+	assert.Equal(t, "user", userMsg["role"])
 }
 
 func TestAnthropicSameFormat_StringContentPreserved(t *testing.T) {
