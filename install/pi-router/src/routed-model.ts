@@ -106,7 +106,7 @@ export function registerRoutedModel(pi: ExtensionAPI): void {
 			...(event.headers[ROUTED_PROVIDER_HEADER] ? { provider: event.headers[ROUTED_PROVIDER_HEADER] } : {}),
 			...(event.headers[ROUTER_DECISION_HEADER] ? { decision: event.headers[ROUTER_DECISION_HEADER] } : {}),
 		};
-		if (!isSubagent() && ctx.mode === "tui") pendingRoutes.push(route);
+		if (!isSubagent()) pendingRoutes.push(route);
 
 		if (!ctx.hasUI || isSubagent()) {
 			if (route.routedModel !== lastNotifiedModel) {
@@ -148,7 +148,7 @@ export function registerRoutedModel(pi: ExtensionAPI): void {
 		savings = aggregateSavings(entries);
 		requestedModel = entry.requestedModel;
 		routedModel = entry.routedModel;
-		if (ctx.mode === "tui") pi.appendEntry(SAVINGS_ENTRY_TYPE, entry);
+		pi.appendEntry(SAVINGS_ENTRY_TYPE, entry);
 		refresh(ctx);
 	});
 

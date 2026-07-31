@@ -57,6 +57,12 @@ export function parseForceModelAcknowledgement(text: string): ForceModelTransiti
 	return undefined;
 }
 
+function isSyntheticPinClear(text: string): boolean {
+	return /^(?:✦ \*\*Weave Router\*\* →|Weave Router:)\s+(?:Tool-call|Repetition|No-progress) loop detected\b[\s\S]*\bclearing the session pin\b/i.test(
+		text.trim(),
+	);
+}
+
 /** Reconstruct the effective router pin on the currently reachable branch. */
 export function forcedModelFromBranch(entries: readonly SessionEntry[]): string | undefined {
 	let forcedModel: string | undefined;
@@ -68,9 +74,17 @@ export function forcedModelFromBranch(entries: readonly SessionEntry[]): string 
 			pendingDirective = parseForceModelDirective(messageText(entry.message) ?? "");
 			continue;
 		}
-		if (entry.message.role !== "assistant" || !pendingDirective) continue;
+		if (entry.message.role !== "assistant") continue;
 
-		const transition = parseForceModelAcknowledgement(messageText(entry.message) ?? "");
+		const text = messageText(entry.message) ?? "";
+		if (isSyntheticPinClear(text)) {
+			forcedModel = undefined;
+			pendingDirective = undefined;
+			continue;
+		}
+		if (!pendingDirective) continue;
+
+		const transition = parseForceModelAcknowledgement(text);
 		if (transition?.kind === "applied" && pendingDirective === "force") forcedModel = transition.model;
 		else if (transition?.kind === "cleared" && pendingDirective === "clear") forcedModel = undefined;
 		// Rejected force-model commands intentionally retain the previous pin.

@@ -62,6 +62,27 @@ func TestResolveForceModel(t *testing.T) {
 			wantKnown:    true,
 		},
 		{
+			name:         "catalog openai luna pro",
+			input:        "gpt-5.6-luna-pro",
+			wantID:       "gpt-5.6-luna-pro",
+			wantProvider: providers.ProviderOpenAI,
+			wantKnown:    true,
+		},
+		{
+			name:         "native openai prefix",
+			input:        "openai/gpt-5.6-luna-pro",
+			wantID:       "gpt-5.6-luna-pro",
+			wantProvider: providers.ProviderOpenAI,
+			wantKnown:    true,
+		},
+		{
+			name:         "alias terra pro",
+			input:        "terra-pro",
+			wantID:       "gpt-5.6-terra-pro",
+			wantProvider: providers.ProviderOpenAI,
+			wantKnown:    true,
+		},
+		{
 			name:         "alias claude",
 			input:        "claude",
 			wantID:       "claude-opus-5",
@@ -118,6 +139,13 @@ func TestResolveForceModel(t *testing.T) {
 			input:        "mistral/mistral-small-2603",
 			wantID:       "mistral/mistral-small-2603",
 			wantProvider: providers.ProviderOpenRouter,
+			wantKnown:    false,
+		},
+		{
+			name:         "unknown native openai prefix",
+			input:        "openai/gpt-6",
+			wantID:       "gpt-6",
+			wantProvider: providers.ProviderOpenAI,
 			wantKnown:    false,
 		},
 		{

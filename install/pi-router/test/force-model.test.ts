@@ -118,6 +118,34 @@ test("restores the newest effective pin and ignores quoted acknowledgements", ()
 	assert.equal(forcedModelFromBranch(branch), undefined);
 });
 
+test("server loop breaks clear stale forced status only when they evict the pin", () => {
+	const branch = [
+		messageEntry("user", "/fm opus"),
+		messageEntry("assistant", "force-model applied: claude-opus-4-8 (anthropic)"),
+		messageEntry("user", "Keep working"),
+		messageEntry(
+			"assistant",
+			"✦ **Weave Router** → Tool-call loop detected: `read` was called 5 times in the last 10 turns with identical arguments. Stopping this turn and clearing the session pin so the next message re-routes to a fresh model.",
+		),
+	];
+	assert.equal(forcedModelFromBranch(branch), undefined);
+
+	const preserved = [
+		messageEntry("user", "/fm opus"),
+		messageEntry("assistant", "force-model applied: claude-opus-4-8 (anthropic)"),
+		messageEntry("user", "Keep working"),
+		messageEntry(
+			"assistant",
+			"✦ **Weave Router** → No-progress loop detected: 3 consecutive requests under this session routed to `claude-opus-4-8` (`anthropic`) with no observable progress in 2m0s. Stopping this turn and preserving the explicit force-model pin for the next message.",
+		),
+		messageEntry(
+			"assistant",
+			"Quoted example: ✦ **Weave Router** → Tool-call loop detected and clearing the session pin.",
+		),
+	];
+	assert.equal(forcedModelFromBranch(preserved), "claude-opus-4-8");
+});
+
 test("forced status replaces automatic routing and savings detail", () => {
 	let status: string | undefined;
 	const ctx = {

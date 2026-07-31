@@ -1,11 +1,14 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
+import { registerRoutedModel } from "../src/routed-model.js";
 import {
 	aggregateSavings,
 	createSavingsEntry,
 	formatSavings,
 	isSavingsEntryData,
 	normalizeModelId,
+	SAVINGS_ENTRY_TYPE,
 } from "../src/savings.js";
 
 const usage = { input: 1_000_000, output: 0, cacheRead: 0, cacheWrite: 0 };
@@ -80,4 +83,68 @@ test("aggregates restored entry data and rejects malformed entries", () => {
 	assert.equal(formatSavings(aggregate), "saved $2.05 · 1 unpriced");
 	assert.equal(isSavingsEntryData(first), true);
 	assert.equal(isSavingsEntryData({ ...first, usage: { input: -1 } }), false);
+});
+
+test("persists routed-response savings in RPC mode", async () => {
+	type CapturedHandler = (event: unknown, ctx: ExtensionContext) => unknown;
+	const handlers = new Map<string, CapturedHandler>();
+	const appended: Array<{ customType: string; data: unknown }> = [];
+	const statuses: string[] = [];
+	const pi = {
+		on(event: string, handler: CapturedHandler) {
+			handlers.set(event, handler);
+		},
+		appendEntry(customType: string, data: unknown) {
+			appended.push({ customType, data });
+		},
+	} as unknown as ExtensionAPI;
+	registerRoutedModel(pi);
+	const ctx = {
+		mode: "rpc",
+		hasUI: true,
+		model: { id: "claude-sonnet-4-6" },
+		sessionManager: { getBranch: () => [] },
+		ui: {
+			notify() {},
+			setStatus(_key: string, value: string | undefined) {
+				if (value) statuses.push(value);
+			},
+		},
+	} as unknown as ExtensionContext;
+
+	await handlers.get("session_start")?.({ type: "session_start" }, ctx);
+	await handlers.get("after_provider_response")?.(
+		{
+			type: "after_provider_response",
+			status: 200,
+			headers: {
+				"x-router-model": "moonshotai/kimi-k2.7",
+				"x-router-provider": "openrouter",
+				"x-router-decision": "automatic",
+			},
+		},
+		ctx,
+	);
+	assert.equal(statuses.at(-1), "WEAVE ROUTER — moonshotai/kimi-k2.7 ← claude-sonnet-4-6 · saved —");
+	await handlers.get("turn_end")?.(
+		{
+			type: "turn_end",
+			message: {
+				role: "assistant",
+				model: "claude-sonnet-4-6",
+				usage,
+			},
+		},
+		ctx,
+	);
+
+	assert.equal(appended.length, 1);
+	const saved = appended[0];
+	assert.ok(saved);
+	assert.equal(saved.customType, SAVINGS_ENTRY_TYPE);
+	assert.ok(isSavingsEntryData(saved.data));
+	assert.equal(saved.data.routedModel, "moonshotai/kimi-k2.7");
+	assert.equal(saved.data.provider, "openrouter");
+	assert.equal(saved.data.decision, "automatic");
+	assert.equal(statuses.at(-1), "WEAVE ROUTER — moonshotai/kimi-k2.7 ← claude-sonnet-4-6 · saved $2.05");
 });

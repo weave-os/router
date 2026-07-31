@@ -64,8 +64,12 @@ var forceModelAliases = map[string]string{
 	"gpt-5-6-sol":           "gpt-5.6-sol",
 	"terra":                 "gpt-5.6-terra",
 	"gpt-5-6-terra":         "gpt-5.6-terra",
+	"terra-pro":             "gpt-5.6-terra-pro",
+	"gpt-5-6-terra-pro":     "gpt-5.6-terra-pro",
 	"luna":                  "gpt-5.6-luna",
 	"gpt-5-6-luna":          "gpt-5.6-luna",
+	"luna-pro":              "gpt-5.6-luna-pro",
+	"gpt-5-6-luna-pro":      "gpt-5.6-luna-pro",
 	"gpt-5-5":               "gpt-5.5",
 	"gpt-5-5-pro":           "gpt-5.5-pro",
 	"gpt-5-5-mini":          "gpt-5.5-mini",
@@ -130,6 +134,12 @@ func resolveForceModelWithEffort(model string) (canonicalID, provider string, kn
 	}
 	if m, ok := catalog.ByID(model); ok && len(m.Providers) > 0 {
 		return m.ID, m.Providers[0].Provider, true, effort
+	}
+	if nativeID, ok := strings.CutPrefix(model, "openai/"); ok {
+		if m, found := catalog.ByID(nativeID); found && len(m.Providers) > 0 && m.Providers[0].Provider == providers.ProviderOpenAI {
+			return m.ID, providers.ProviderOpenAI, true, effort
+		}
+		return nativeID, providers.ProviderOpenAI, false, effort
 	}
 	if !strings.Contains(model, "/") {
 		suffix := "/" + model

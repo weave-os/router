@@ -133,17 +133,17 @@ phase "Phase 2 — generated pricing + savings contract"
 # loader and module resolution that the published extension uses.
 if with_timeout 30 env PI_CODING_AGENT_DIR="$PI_DIR" \
   pi -e "$SAVINGS_TEST" --offline --list-models weave >"$WORK/savings.out" 2>&1 </dev/null; then
-  [ "$(grep -c '^✔ ' "$WORK/savings.out" || true)" = "7" ] \
+  [ "$(grep -c '^✔ ' "$WORK/savings.out" || true)" = "8" ] \
     && ok "generated catalog + savings arithmetic tests passed" \
-    || bad "savings tests did not report all seven passes (see $WORK/savings.out)"
+    || bad "savings tests did not report all eight passes (see $WORK/savings.out)"
 else
   bad "savings tests failed to load through pi (see $WORK/savings.out)"
 fi
 if with_timeout 30 env PI_CODING_AGENT_DIR="$PI_DIR" \
   pi -e "$FORCE_MODEL_TEST" --offline --list-models weave >"$WORK/force-model.out" 2>&1 </dev/null; then
-  [ "$(grep -c '^✔ ' "$WORK/force-model.out" || true)" = "7" ] \
+  [ "$(grep -c '^✔ ' "$WORK/force-model.out" || true)" = "8" ] \
     && ok "force-model command + branch restoration tests passed" \
-    || bad "force-model tests did not report all seven passes (see $WORK/force-model.out)"
+    || bad "force-model tests did not report all eight passes (see $WORK/force-model.out)"
 else
   bad "force-model tests failed to load through pi (see $WORK/force-model.out)"
 fi

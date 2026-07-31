@@ -155,9 +155,11 @@ var registry = map[string]ModelSpec{
 	"claude-sonnet-4-5": NewSpec(),
 	"claude-sonnet-4-0": NewSpec(),
 
-	"gpt-5.6-sol":   openaiReasoning,
-	"gpt-5.6-terra": openaiReasoning,
-	"gpt-5.6-luna":  openaiReasoning,
+	"gpt-5.6-sol":       openaiReasoning,
+	"gpt-5.6-terra":     openaiReasoning,
+	"gpt-5.6-terra-pro": openaiReasoning,
+	"gpt-5.6-luna":      openaiReasoning,
+	"gpt-5.6-luna-pro":  openaiReasoning,
 
 	"gpt-5.5":      openaiReasoning,
 	"gpt-5.5-pro":  openaiReasoning,
