@@ -73,11 +73,7 @@ const (
 // hmmRosterSource, when non-nil, mounts GET /v1/router/hmm-roster for the
 // control plane's cluster allowlist UI.
 func Register(engine *gin.Engine, authSvc *auth.Service, proxySvc *proxy.Service, deployedModels admin.DeployedModelsSource, hmmModels admin.HMMRosterSource, mode DeploymentMode, billingSvc *billing.Service, readinessChecker admin.HealthChecker, hmmRosterSource policy.RosterSource) {
-	// Managed mode bills via platform-key credits, so BYOK is opt-in per
-	// installation: an org that hasn't enabled it must not spend on a leftover
-	// BYOK row. Opted-in orgs are billed a percentage fee on their upstream
-	// spend rather than full inference cost. Self-hosted has no credit system,
-	// so BYOK always applies there.
+	// Managed mode: BYOK is opt-in per installation (see WithAuth).
 	byokRequiresOptIn := mode == DeploymentModeManaged
 
 	engine.GET("/health", middleware.WithTimeout(healthTimeout), admin.HealthHandler)

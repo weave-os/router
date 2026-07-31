@@ -922,6 +922,32 @@ func servedOnBYOK(ctx context.Context) bool {
 	return creds != nil && creds.Source == credSourceBYOK
 }
 
+// byokServedForProvider reports whether the installation has a usable BYOK key
+// for provider. Used to bill a side-channel summarizer call
+// (handover/compaction) at the fee rate: those calls dispatch on their own
+// credential context, so by the time billing runs on the outer ctx,
+// CredentialsFromContext no longer reflects what the summarizer actually used —
+// the BYOK row lookup does.
+//
+// Deliberately inspects only Provider and the emptiness of Plaintext, never the
+// key bytes themselves. Building a Credentials map here (as an earlier revision
+// did) would copy secret material into a value that flows to billing params and
+// on into log statements, which is exactly the shape CodeQL's
+// go/clear-text-logging rule flags.
+func byokServedForProvider(ctx context.Context, provider string) bool {
+	if provider == "" {
+		return false
+	}
+	for _, key := range externalKeysFromContext(ctx) {
+		// Mirrors BuildCredentialsMap's filter: an empty-plaintext row can't
+		// authenticate an upstream call, so it isn't "served on BYOK".
+		if key.Provider == provider && len(key.Plaintext) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
 // openaiSubscriptionFromContext / openaiAccountIDFromContext return the raw Codex
 // (ChatGPT) subscription JWT and paired account-id stashed by the auth middleware
 // (router-keyed path), or "" when none.
@@ -3195,6 +3221,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 					CacheRead:       sumUsage.CacheRead,
 					Pricing:         sumPricing,
 					HasOverride:     billing.HasOverrideFromContext(ctx),
+					ByokServed:      byokServedForProvider(ctx, sumUsage.Provider),
 					APIKeyID:        apiKeyID,
 					RouterUserID:    auth.UserIDFrom(ctx),
 				})
@@ -4081,10 +4108,6 @@ func (s *Service) emitBilling(ctx context.Context, requestID, externalID string,
 		sumUsage := routeRes.Handover.SummaryUsage
 		if sumUsage.Model != "" && (sumUsage.InputTokens > 0 || sumUsage.OutputTokens > 0) {
 			sumPricing, _ := catalog.PrimaryPriceFor(sumUsage.Model)
-			sumByok := false
-			if byok := BuildCredentialsMap(externalKeysFromContext(ctx)); byok != nil {
-				_, sumByok = byok[sumUsage.Provider]
-			}
 			s.fireBilling(ctx, billing.DebitInferenceParams{
 				OrganizationID:  externalID,
 				RouterRequestID: requestID + "_summary",
@@ -4096,7 +4119,7 @@ func (s *Service) emitBilling(ctx context.Context, requestID, externalID string,
 				CacheRead:       sumUsage.CacheRead,
 				Pricing:         sumPricing,
 				HasOverride:     hasOverride,
-				ByokServed:      sumByok,
+				ByokServed:      byokServedForProvider(ctx, sumUsage.Provider),
 				APIKeyID:        apiKeyID,
 				RouterUserID:    auth.UserIDFrom(ctx),
 			})

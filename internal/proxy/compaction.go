@@ -197,6 +197,7 @@ func (s *Service) billCompactionSummary(ctx context.Context, requestID, external
 		CacheRead:       usage.CacheRead,
 		Pricing:         sumPricing,
 		HasOverride:     billing.HasOverrideFromContext(ctx),
+		ByokServed:      byokServedForProvider(ctx, usage.Provider),
 		APIKeyID:        apiKeyID,
 		RouterUserID:    auth.UserIDFrom(ctx),
 	})

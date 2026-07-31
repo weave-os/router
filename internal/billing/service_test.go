@@ -614,3 +614,54 @@ func TestHasOverrideFromContext_True(t *testing.T) {
 	ctx := context.WithValue(context.Background(), billing.HasOverrideContextKey, true)
 	assert.True(t, billing.HasOverrideFromContext(ctx))
 }
+
+func TestDebitForInference_ByokReturnsPostFeeBalance(t *testing.T) {
+	// The returned balance must be the TRUE post-debit balance, including the
+	// fee. The inference ledger row deliberately records the PRE-fee balance for
+	// audit ordering, so a query that returns that row instead hands callers a
+	// balance the org never had — and maybeSignalRecharge (which reconstructs
+	// the pre-debit balance by subtracting delta) then misses autopay crossings.
+	repo := &fakeRepo{balanceRowExists: true, balanceMicros: 1_000_000}
+	svc := billing.NewService(repo)
+	balance, err := svc.DebitForInference(context.Background(), billing.DebitInferenceParams{
+		OrganizationID: "org_byok",
+		InputTokens:    1_000_000,
+		Pricing:        catalog.Pricing{InputUSDPer1M: 1.00},
+		Provider:       providers.ProviderAnthropic,
+		ByokServed:     true,
+	})
+	require.NoError(t, err)
+
+	// $1.00 upstream → 5% fee = $0.05 = 50_000 micros.
+	require.Len(t, repo.ledgerCalls, 1)
+	assert.Equal(t, int64(-50_000), repo.ledgerCalls[0].FeeUsdMicros)
+	assert.Equal(t, int64(950_000), balance,
+		"returned balance must be post-fee (1_000_000 - 50_000), never the pre-fee 1_000_000")
+}
+
+func TestDebitForInference_ByokFeeCrossingSignalsAutopay(t *testing.T) {
+	// End-to-end guard on the bug above: a BYOK turn whose FEE alone crosses the
+	// autopay threshold must still signal. If the debit path reports a pre-fee
+	// balance, this crossing is silently missed and the org never auto-recharges.
+	repo := &fakeRepo{
+		balanceRowExists: true,
+		balanceMicros:    1_000_000,
+		autopayEnabled:   true,
+		autopayThreshold: 975_000,
+	}
+	notifier := &fakeAutopayNotifier{}
+	svc := billing.NewService(repo).WithAutopayNotifier(notifier)
+
+	_, err := svc.DebitForInference(context.Background(), billing.DebitInferenceParams{
+		OrganizationID: "org_byok",
+		InputTokens:    1_000_000,
+		Pricing:        catalog.Pricing{InputUSDPer1M: 1.00},
+		Provider:       providers.ProviderAnthropic,
+		ByokServed:     true,
+	})
+	require.NoError(t, err)
+
+	// Pre-debit 1_000_000 (>= 975_000), post-debit 950_000 (< 975_000) = a crossing.
+	assert.Equal(t, []string{"org_byok"}, notifier.calls(),
+		"a BYOK fee that crosses the autopay threshold must signal a recharge")
+}

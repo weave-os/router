@@ -69,8 +69,8 @@ ledger AS (
         @organization_id::varchar,
         @delta_usd_micros::bigint,
         @notional_cost_micros::bigint,
-        -- The fee row is logically second, so this row's balance_after is the
-        -- final balance minus the fee that had not yet been applied.
+        -- The fee row is logically second, so this row records the balance as of
+        -- before the fee landed: final minus the fee's signed value.
         updated.balance_usd_micros - @fee_usd_micros::bigint,
         @entry_type::varchar,
         sqlc.narg('router_request_id')::varchar,
@@ -155,7 +155,14 @@ org_month_spend AS (
     SET spent_usd_micros = router.organization_monthly_spend.spent_usd_micros + EXCLUDED.spent_usd_micros,
         updated_at = NOW()
 )
-SELECT balance_after_micros FROM ledger;
+-- Returns the TRUE post-debit balance (from `updated`, after both delta and
+-- fee), not a ledger row's balance_after. The inference row deliberately
+-- records the pre-fee balance for audit ordering, so returning it here would
+-- hand callers a balance the org never actually had -- and
+-- maybeSignalRecharge would reconstruct a bogus pre-debit balance from it and
+-- miss autopay threshold crossings on BYOK fee turns.
+SELECT (SELECT balance_usd_micros FROM updated) AS balance_after_micros
+FROM ledger;
 
 -- Paginated read for the dashboard ledger panel. Sorted newest-first so the
 -- UI can render without an extra ORDER BY in Go.

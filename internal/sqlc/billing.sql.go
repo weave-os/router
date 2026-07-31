@@ -76,8 +76,8 @@ ledger AS (
         $2::varchar,
         $3::bigint,
         $4::bigint,
-        -- The fee row is logically second, so this row's balance_after is the
-        -- final balance minus the fee that had not yet been applied.
+        -- The fee row is logically second, so this row records the balance as of
+        -- before the fee landed: final minus the fee's signed value.
         updated.balance_usd_micros - $5::bigint,
         $6::varchar,
         $7::varchar,
@@ -162,7 +162,8 @@ org_month_spend AS (
     SET spent_usd_micros = router.organization_monthly_spend.spent_usd_micros + EXCLUDED.spent_usd_micros,
         updated_at = NOW()
 )
-SELECT balance_after_micros FROM ledger
+SELECT (SELECT balance_usd_micros FROM updated) AS balance_after_micros
+FROM ledger
 `
 
 type DebitOrgCreditsParams struct {
@@ -180,8 +181,10 @@ type DebitOrgCreditsParams struct {
 }
 
 // Atomic debit: decrement the balance and append a matching ledger row in a
-// single statement. delta_usd_micros is the signed change (negative for an
-// inference debit, zero for an override pass-through). notional_cost_micros
+// single statement. delta_usd_micros is the signed change on the inference row
+// (negative for an inference debit, zero for an override pass-through).
+// charged_usd_micros is the signed total the balance actually moves
+// (delta + fee), pre-combined by the caller. notional_cost_micros
 // is always the would-be charge, populated for both override and real
 // debits so we keep a shadow billing trail.
 //
@@ -194,9 +197,9 @@ type DebitOrgCreditsParams struct {
 // new value without a follow-up read.
 //
 // When api_key_id is supplied, the same statement also bumps that key's
-// lifetime spent_usd_micros by the debit magnitude (-delta: the real cost on a
-// debit, zero on an override/subscription pass-through where delta is 0), so
-// per-key cap enforcement reads a single up-to-date row. The key_spend CTE is
+// lifetime spent_usd_micros by the charged magnitude (-charged: the real cost
+// on a debit, zero on an override/subscription pass-through), so per-key cap
+// enforcement reads a single up-to-date row. The key_spend CTE is
 // data-modifying, so Postgres runs it to completion even though the final
 // SELECT does not reference it; it no-ops when api_key_id is NULL.
 // When fee_usd_micros is non-zero, a second ledger row of fee_entry_type is
@@ -204,6 +207,12 @@ type DebitOrgCreditsParams struct {
 // notional upstream cost at delta 0 (the customer paid their own provider) and
 // the fee row holds Weave's platform charge. Both rows must land together or a
 // crash between them would serve inference with no fee, so they share one CTE.
+// Returns the TRUE post-debit balance (from `updated`, after both delta and
+// fee), not a ledger row's balance_after. The inference row deliberately
+// records the pre-fee balance for audit ordering, so returning it here would
+// hand callers a balance the org never actually had -- and
+// maybeSignalRecharge would reconstruct a bogus pre-debit balance from it and
+// miss autopay threshold crossings on BYOK fee turns.
 //
 //	WITH updated AS (
 //	    UPDATE router.organization_credit_balance
@@ -226,8 +235,8 @@ type DebitOrgCreditsParams struct {
 //	        $2::varchar,
 //	        $3::bigint,
 //	        $4::bigint,
-//	        -- The fee row is logically second, so this row's balance_after is the
-//	        -- final balance minus the fee that had not yet been applied.
+//	        -- The fee row is logically second, so this row records the balance as of
+//	        -- before the fee landed: final minus the fee's signed value.
 //	        updated.balance_usd_micros - $5::bigint,
 //	        $6::varchar,
 //	        $7::varchar,
@@ -312,7 +321,8 @@ type DebitOrgCreditsParams struct {
 //	    SET spent_usd_micros = router.organization_monthly_spend.spent_usd_micros + EXCLUDED.spent_usd_micros,
 //	        updated_at = NOW()
 //	)
-//	SELECT balance_after_micros FROM ledger
+//	SELECT (SELECT balance_usd_micros FROM updated) AS balance_after_micros
+//	FROM ledger
 func (q *Queries) DebitOrgCredits(ctx context.Context, arg DebitOrgCreditsParams) (int64, error) {
 	row := q.db.QueryRow(ctx, debitOrgCredits,
 		arg.ChargedUsdMicros,

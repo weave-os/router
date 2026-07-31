@@ -39,12 +39,8 @@ const (
 
 // WithAuth validates the inbound request via a bearer rk_ token only. Used on data-plane routes (`/v1/*`). On failure, short-circuits 401.
 //
-// byokRequiresOptIn gates BYOK (customer-owned provider) keys behind the
-// installation's own opt-in. Managed-mode deployments pass true: they bill via
-// prepaid credits, so an installation that hasn't opted in must not spend on a
-// leftover BYOK row. Opted-in installations pay a percentage fee on their
-// upstream spend instead of full inference cost. Self-hosted passes false;
-// BYOK is the only credentialing path there.
+// byokRequiresOptIn gates BYOK keys behind the installation's own opt-in.
+// Managed-mode deployments pass true; self-hosted always passes false.
 func WithAuth(svc *auth.Service, byokRequiresOptIn bool) gin.HandlerFunc {
 	return withAPIKey(svc, byokRequiresOptIn)
 }
