@@ -125,24 +125,25 @@ func resolveForceModelWithEffort(model string) (canonicalID, provider string, kn
 	model = stripped
 	model = strings.ToLower(strings.TrimSpace(model))
 	effort = effortLevel
+	unknownID := model
+	requiredProvider := ""
+	if nativeID, ok := strings.CutPrefix(model, "openai/"); ok {
+		model = nativeID
+		unknownID = nativeID
+		requiredProvider = providers.ProviderOpenAI
+	}
 	if alias, ok := forceModelAliases[model]; ok {
 		model = alias
 	}
-	if m, ok := catalog.ByID(model); ok && len(m.Providers) > 0 {
+	if m, ok := catalog.ByID(model); ok && len(m.Providers) > 0 && (requiredProvider == "" || m.Providers[0].Provider == requiredProvider) {
 		return m.ID, m.Providers[0].Provider, true, effort
-	}
-	if nativeID, ok := strings.CutPrefix(model, "openai/"); ok {
-		if m, found := catalog.ByID(nativeID); found && len(m.Providers) > 0 && m.Providers[0].Provider == providers.ProviderOpenAI {
-			return m.ID, providers.ProviderOpenAI, true, effort
-		}
-		return nativeID, providers.ProviderOpenAI, false, effort
 	}
 	if !strings.Contains(model, "/") {
 		suffix := "/" + model
 		var matched catalog.Model
 		var matches int
 		for _, m := range catalog.Models {
-			if strings.HasSuffix(m.ID, suffix) {
+			if strings.HasSuffix(m.ID, suffix) && len(m.Providers) > 0 && (requiredProvider == "" || m.Providers[0].Provider == requiredProvider) {
 				matched = m
 				matches++
 			}
@@ -150,6 +151,9 @@ func resolveForceModelWithEffort(model string) (canonicalID, provider string, kn
 		if matches == 1 && len(matched.Providers) > 0 {
 			return matched.ID, matched.Providers[0].Provider, true, effort
 		}
+	}
+	if requiredProvider != "" {
+		return unknownID, requiredProvider, false, effort
 	}
 	switch {
 	case strings.HasPrefix(model, "claude-"):
