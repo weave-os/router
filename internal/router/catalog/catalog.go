@@ -375,9 +375,6 @@ var Models = []Model{
 		// Makora primary for cost ($1.318/$2.636 vs Together's $1.74/$3.48).
 		// Together ranks ahead of Fireworks as fallback: #1 AA throughput
 		// (~209 t/s vs Fireworks ~120) at the same price.
-		// Context window: DeepSeek V4 Pro natively serves 1,048,576 tokens,
-		// but Together and Fireworks cap at 512,000. Set to the minimum across
-		// all bindings so failover never hits a 400 context_length_exceeded.
 		{Provider: providers.ProviderMakora, UpstreamID: "deepseek-ai/DeepSeek-V4-Pro",
 			Price: Pricing{InputUSDPer1M: 1.3180, OutputUSDPer1M: 2.6361, CacheReadMultiplier: 0.10}},
 		{Provider: providers.ProviderTogether, UpstreamID: "deepseek-ai/DeepSeek-V4-Pro",
