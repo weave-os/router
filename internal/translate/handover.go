@@ -78,7 +78,7 @@ func (e *RequestEnvelope) rewriteAnthropicForHandover(summary string) int {
 	if latestUser.Exists() {
 		// Strip tool_result blocks: the summary has no tool_use blocks,
 		// so any tool_results would be orphaned.
-		cleaned := stripAnthropicToolResultMsg(latestUser, nil)
+		cleaned, _ := stripAnthropicToolResultMsg(latestUser, nil)
 		if cleaned != "" {
 			rebuilt = append(rebuilt, cleaned)
 			preserved = 1
@@ -128,7 +128,7 @@ func (e *RequestEnvelope) trimAnthropicLastN(n int) int {
 		return 0
 	}
 	keep := all[len(all)-n:]
-	rebuilt := stripOrphanedAnthropicToolResults(keep)
+	rebuilt, _ := stripOrphanedAnthropicToolResults(keep)
 	newMessages := "[" + strings.Join(rebuilt, ",") + "]"
 	out, err := sjson.SetRawBytes(e.body, "messages", []byte(newMessages))
 	if err != nil {
@@ -318,21 +318,25 @@ func (e *RequestEnvelope) trimGeminiLastN(n int) int {
 
 // stripOrphanedAnthropicToolResults drops tool_result blocks whose tool_use_id
 // has no matching tool_use among the set's assistant messages; user messages
-// left empty afterward are omitted entirely.
-func stripOrphanedAnthropicToolResults(msgs []gjson.Result) []string {
+// left empty afterward are omitted entirely. Also returns the number of blocks
+// removed, which callers cannot infer from the message count: a user message
+// carrying other content survives the strip with the count unchanged.
+func stripOrphanedAnthropicToolResults(msgs []gjson.Result) ([]string, int) {
 	knownIDs := collectAnthropicToolUseIDs(msgs)
 	result := make([]string, 0, len(msgs))
+	stripped := 0
 	for _, m := range msgs {
 		if m.Get("role").String() != "user" {
 			result = append(result, m.Raw)
 			continue
 		}
-		cleaned := stripAnthropicToolResultMsg(m, knownIDs)
+		cleaned, n := stripAnthropicToolResultMsg(m, knownIDs)
+		stripped += n
 		if cleaned != "" {
 			result = append(result, cleaned)
 		}
 	}
-	return result
+	return result, stripped
 }
 
 // collectAnthropicToolUseIDs returns the set of tool_use IDs present in
@@ -356,11 +360,12 @@ func collectAnthropicToolUseIDs(msgs []gjson.Result) map[string]struct{} {
 }
 
 // stripAnthropicToolResultMsg removes tool_result blocks not in knownIDs (nil
-// strips all). Returns "" if the message is left with no content.
-func stripAnthropicToolResultMsg(msg gjson.Result, knownIDs map[string]struct{}) string {
+// strips all). Returns "" if the message is left with no content, plus the
+// number of blocks removed.
+func stripAnthropicToolResultMsg(msg gjson.Result, knownIDs map[string]struct{}) (string, int) {
 	content := msg.Get("content")
 	if !content.IsArray() {
-		return msg.Raw
+		return msg.Raw, 0
 	}
 
 	hasOrphans := false
@@ -375,14 +380,16 @@ func stripAnthropicToolResultMsg(msg gjson.Result, knownIDs map[string]struct{})
 		return true
 	})
 	if !hasOrphans {
-		return msg.Raw
+		return msg.Raw, 0
 	}
 
 	var kept []string
+	stripped := 0
 	content.ForEach(func(_, block gjson.Result) bool {
 		if block.Get("type").String() == "tool_result" {
 			id := block.Get("tool_use_id").String()
 			if _, ok := knownIDs[id]; !ok {
+				stripped++
 				return true
 			}
 		}
@@ -390,14 +397,14 @@ func stripAnthropicToolResultMsg(msg gjson.Result, knownIDs map[string]struct{})
 		return true
 	})
 	if len(kept) == 0 {
-		return ""
+		return "", stripped
 	}
 	newContent := "[" + strings.Join(kept, ",") + "]"
 	out, err := sjson.SetRawBytes([]byte(msg.Raw), "content", []byte(newContent))
 	if err != nil {
-		return msg.Raw
+		return msg.Raw, 0
 	}
-	return string(out)
+	return string(out), stripped
 }
 
 // stripOrphanedOpenAIToolMessages removes role:"tool" messages whose
@@ -634,14 +641,15 @@ func (e *RequestEnvelope) sanitizeOrphanedAnthropicToolCalls() int {
 		return 0
 	}
 	callStripped, cleaned := stripOrphanedAnthropicToolCalls(all)
-	if callStripped == 0 {
+	// Both passes run unconditionally. An orphaned tool_result can be present
+	// with no orphaned tool_use at all (a resumed session whose assistant turn
+	// was never persisted), and Anthropic rejects that wherever it appears —
+	// unlike an unanswered tool_use, which only 400s as the final message.
+	cleanedRaw, resultStripped := stripOrphanedAnthropicToolResults(cleaned)
+	if callStripped == 0 && resultStripped == 0 {
 		return 0
 	}
-	// stripOrphanedAnthropicToolCalls already accounts for any assistant
-	// message it drops entirely inside callStripped; only count messages the
-	// second pass (orphaned tool_results left behind by the first) removes.
-	cleanedRaw := stripOrphanedAnthropicToolResults(cleaned)
-	totalStripped := callStripped + (len(cleaned) - len(cleanedRaw))
+	totalStripped := callStripped + resultStripped
 	newMessages := "[" + strings.Join(cleanedRaw, ",") + "]"
 	out, err := sjson.SetRawBytes(e.body, "messages", []byte(newMessages))
 	if err != nil {

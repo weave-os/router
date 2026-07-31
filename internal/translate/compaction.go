@@ -280,7 +280,7 @@ func (e *RequestEnvelope) rewriteAnthropicForCompaction(summary string, keepRece
 		return 0
 	}
 	start := userAlignedStart(all, keepRecent)
-	cleaned := stripOrphanedAnthropicToolResults(all[start:])
+	cleaned, _ := stripOrphanedAnthropicToolResults(all[start:])
 	rebuilt := append([]string{anthropicAssistantSummaryBlock(summary)}, cleaned...)
 	elided := max(len(all)-len(cleaned), 0)
 	return e.setMessages(rebuilt, elided)

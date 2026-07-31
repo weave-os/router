@@ -170,6 +170,53 @@ func TestSanitizeOrphanedToolCalls_Anthropic_AllBlocksOrphaned(t *testing.T) {
 	assert.Equal(t, "user", msgs[1].Get("role").String())
 }
 
+func TestSanitizeOrphanedToolCalls_Anthropic_OrphanedToolResultWithNoOrphanedToolUse(t *testing.T) {
+	// A resumed session whose assistant turn was never persisted: the
+	// tool_result survives with nothing to pair against. Anthropic rejects
+	// this wherever it appears, unlike an unanswered tool_use, which only
+	// 400s as the final message.
+	body := `{"messages":[` +
+		`{"role":"user","content":[{"type":"text","text":"go"}]},` +
+		`{"role":"assistant","content":[{"type":"text","text":"working on it"}]},` +
+		`{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_missing","content":"result"}]}` +
+		`]}`
+	e, err := ParseAnthropic([]byte(body))
+	require.NoError(t, err)
+
+	sanitized := e.SanitizeOrphanedToolCalls()
+	assert.Equal(t, 1, sanitized, "the orphaned tool_result must be stripped even though no tool_use is orphaned")
+
+	msgs := gjson.GetBytes(e.body, "messages").Array()
+	require.Len(t, msgs, 2, "the user message held only the orphan, so it is dropped entirely")
+	assert.False(t, gjson.GetBytes(e.body, "messages").Get(`#(content.#(type=="tool_result"))`).Exists(),
+		"no tool_result may survive without a matching tool_use")
+}
+
+func TestSanitizeOrphanedToolCalls_Anthropic_OrphanedToolResultBesideOtherContent(t *testing.T) {
+	// The message survives (it carries a text block), so the message count is
+	// unchanged — the strip is only observable as a block-level count.
+	body := `{"messages":[` +
+		`{"role":"user","content":[{"type":"text","text":"go"}]},` +
+		`{"role":"assistant","content":[{"type":"text","text":"working on it"}]},` +
+		`{"role":"user","content":[` +
+		`{"type":"text","text":"keep me"},` +
+		`{"type":"tool_result","tool_use_id":"toolu_missing","content":"result"}` +
+		`]}` +
+		`]}`
+	e, err := ParseAnthropic([]byte(body))
+	require.NoError(t, err)
+
+	sanitized := e.SanitizeOrphanedToolCalls()
+	assert.Equal(t, 1, sanitized, "a block-level strip must be reported even when no message is dropped")
+
+	msgs := gjson.GetBytes(e.body, "messages").Array()
+	require.Len(t, msgs, 3, "the message itself carries other content and must survive")
+	blocks := msgs[2].Get("content").Array()
+	require.Len(t, blocks, 1, "only the text block should remain")
+	assert.Equal(t, "text", blocks[0].Get("type").String())
+	assert.Equal(t, "keep me", blocks[0].Get("text").String())
+}
+
 func TestSanitizeOrphanedToolCalls_Gemini_NoOp(t *testing.T) {
 	body := `{"contents":[{"role":"user","parts":[{"text":"go"}]}]}`
 	e, err := ParseGemini([]byte(body))
