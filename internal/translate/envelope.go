@@ -346,12 +346,9 @@ type EmitOverrides struct {
 	DefaultMaxTokensValue   int64
 	InjectStreamUsage       bool
 	StripThinkingBlocks     bool
-	// StripUnsignedThinkingBlocks removes only `thinking` blocks lacking a
-	// non-empty `signature`, leaving validly-signed ones (and their prompt-cache
-	// continuity) intact. Set for Anthropic targets as a floor under
-	// StripThinkingBlocks: only cross-format emit produces unsigned blocks, and
-	// Anthropic 400s on them, so they must never reach the upstream even when no
-	// switch history survives to set ModelSwitched.
+	// StripUnsignedThinkingBlocks removes `thinking` blocks lacking a non-empty
+	// `signature`. Set unconditionally for Anthropic targets: unsigned blocks are
+	// cross-format artifacts; Anthropic 400s on them regardless of switch state.
 	StripUnsignedThinkingBlocks bool
 	// SanitizeToolUseIDs rewrites tool_use.id / tool_use_id values outside
 	// ^[a-zA-Z0-9_-]+$. Always set for Anthropic targets: upstreams like
