@@ -364,10 +364,8 @@ var Models = []Model{
 			Price: Pricing{InputUSDPer1M: 0.150, OutputUSDPer1M: 1.200}},
 		{Provider: providers.ProviderOpenRouter, Price: Pricing{InputUSDPer1M: 0.090, OutputUSDPer1M: 1.100}},
 	}},
-	// DeepSeek V4 natively serves 1,048,576 tokens but Together and Fireworks
-	// cap at 512,000. Set to the minimum across all bindings, matching the
-	// minimax pattern (PR#381); Makora may serve the full 1M but failover to
-	// a 512k-capped provider with a request over 512k hard-400s.
+	// Together and Fireworks cap at 512,000 (not the native 1,048,576); failover
+	// from Makora to either with a >512k request hard-400s, so cap conservatively.
 	{ID: "deepseek/deepseek-v4-flash", Tier: TierLow, ContextWindow: 512_000, ImageInput: ImageInputUnsupported, AgenticUse: AgenticLow, Providers: []ProviderBinding{
 		{Provider: providers.ProviderMakora, UpstreamID: "deepseek-ai/DeepSeek-V4-Flash",
 			Price: Pricing{InputUSDPer1M: 0.1134, OutputUSDPer1M: 0.2791, CacheReadMultiplier: 0.20}},
