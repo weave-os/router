@@ -17,6 +17,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PKG_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 INSTALL_SH="$(cd "$PKG_DIR/.." && pwd)/install.sh"
 EXT="$PKG_DIR/src/index.ts"
+SAVINGS_TEST="$SCRIPT_DIR/savings.test.ts"
+FORCE_MODEL_TEST="$SCRIPT_DIR/force-model.test.ts"
 MOCK="$SCRIPT_DIR/mock_router.py"
 
 PORT="${MOCK_PORT:-8899}"
@@ -26,6 +28,8 @@ for tool in pi jq python3 curl; do
   command -v "$tool" >/dev/null 2>&1 || { echo "FATAL: '$tool' not on PATH"; exit 2; }
 done
 [ -f "$EXT" ]        || { echo "FATAL: extension not found: $EXT"; exit 2; }
+[ -f "$SAVINGS_TEST" ] || { echo "FATAL: savings test not found: $SAVINGS_TEST"; exit 2; }
+[ -f "$FORCE_MODEL_TEST" ] || { echo "FATAL: force-model test not found: $FORCE_MODEL_TEST"; exit 2; }
 [ -f "$INSTALL_SH" ] || { echo "FATAL: installer not found: $INSTALL_SH"; exit 2; }
 [ -f "$MOCK" ]       || { echo "FATAL: mock not found: $MOCK"; exit 2; }
 
@@ -124,7 +128,28 @@ STRIPPED="$(jq 'del(.packages)' "$PI_DIR/settings.json")"
 printf '%s\n' "$STRIPPED" >"$PI_DIR/settings.json"
 
 # -------------------------------------------------------------------------
-phase "Phase 2 — main-loop routing (real pi -p)"
+phase "Phase 2 — generated pricing + savings contract"
+# Loading the focused node:test file through pi exercises the same TypeScript
+# loader and module resolution that the published extension uses.
+if with_timeout 30 env PI_CODING_AGENT_DIR="$PI_DIR" \
+  pi -e "$SAVINGS_TEST" --offline --list-models weave >"$WORK/savings.out" 2>&1 </dev/null; then
+  [ "$(grep -c '^✔ ' "$WORK/savings.out" || true)" = "7" ] \
+    && ok "generated catalog + savings arithmetic tests passed" \
+    || bad "savings tests did not report all seven passes (see $WORK/savings.out)"
+else
+  bad "savings tests failed to load through pi (see $WORK/savings.out)"
+fi
+if with_timeout 30 env PI_CODING_AGENT_DIR="$PI_DIR" \
+  pi -e "$FORCE_MODEL_TEST" --offline --list-models weave >"$WORK/force-model.out" 2>&1 </dev/null; then
+  [ "$(grep -c '^✔ ' "$WORK/force-model.out" || true)" = "7" ] \
+    && ok "force-model command + branch restoration tests passed" \
+    || bad "force-model tests did not report all seven passes (see $WORK/force-model.out)"
+else
+  bad "force-model tests failed to load through pi (see $WORK/force-model.out)"
+fi
+
+# -------------------------------------------------------------------------
+phase "Phase 3 — main-loop routing (real pi -p)"
 # -------------------------------------------------------------------------
 with_timeout 90 env PI_CODING_AGENT_DIR="$PI_DIR" \
   pi -e "$EXT" --no-session --offline --model weave/claude-sonnet-4-6 \
@@ -149,7 +174,7 @@ grep -q "weave-routed-model: claude-opus-4-8" "$WORK/main.out" \
   && ok "x-router-model surfaced (headless stderr marker)" || bad "routed-model marker absent (see $WORK/main.out)"
 
 # -------------------------------------------------------------------------
-phase "Phase 3 — dispatch fan-out (real subagent processes)"
+phase "Phase 4 — dispatch fan-out (real subagent processes)"
 # -------------------------------------------------------------------------
 # WEAVE_ROUTING_* are set on the PARENT on purpose: dispatch must NOT leak them
 # into children, so the subagent-knob assertion below (still 0.25/0.45) doubles
@@ -177,7 +202,7 @@ UNIQUE_SUBAGENT_IDS="$(jq -s '[.[] | select(.app=="pi-subagent") | .user_id] | u
   && ok "main loop resumed after tool_result (loop terminated cleanly)" || bad "no post-dispatch main turn (loop did not complete)"
 
 # -------------------------------------------------------------------------
-phase "Phase 4 — on-disk resolution (no env; key file + models.json)"
+phase "Phase 5 — on-disk resolution (no env; key file + models.json)"
 # -------------------------------------------------------------------------
 # Unset every WEAVE_* override so the extension MUST resolve the key from the
 # installer-written key file and the base URL from models.json (the bug fix).

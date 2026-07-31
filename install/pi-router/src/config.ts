@@ -243,6 +243,8 @@ function model(id: string, name: string, maxTokens: number): ProviderModelConfig
 // ---------- dispatch / misc tunables ----------
 
 export const ROUTED_MODEL_HEADER = (process.env.WEAVE_ROUTED_MODEL_HEADER || "x-router-model").toLowerCase();
+export const ROUTED_PROVIDER_HEADER = "x-router-provider";
+export const ROUTER_DECISION_HEADER = "x-router-decision";
 /** Marker a headless child prints to stderr so the parent dispatch can read its routed model. */
 export const ROUTED_MODEL_STDERR_PREFIX = "weave-routed-model:";
 

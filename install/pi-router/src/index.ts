@@ -7,7 +7,7 @@
  *                   the main loop, speed/cheap in subagents).
  *   - metadata:     stamp body.metadata.user_id for sticky sessions + subagent
  *                   detection.
- *   - routed-model: show which model the router actually picked.
+ *   - Loom UI:      branded header, Wooly animation, actual route, and saved $.
  *   - safety:       block catastrophic bash (unless WEAVE_NO_SAFETY=1).
  *   - compaction:   experimental cheap path (only when WEAVE_CHEAP_COMPACTION=1).
  *   - dispatch:     parallel, context-isolated subagents — top-level process
@@ -22,6 +22,7 @@ import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { isSubagent } from "./config.js";
 import { registerCheapCompaction } from "./compaction.js";
 import { registerDispatch } from "./dispatch.js";
+import { registerForceModelCommands } from "./force-model.js";
 import { registerMetadata } from "./metadata.js";
 import { registerRoutedModel } from "./routed-model.js";
 import { registerSafety } from "./safety.js";
@@ -37,6 +38,7 @@ export default function (pi: ExtensionAPI): void {
 	pi.on("session_start", () => registerWeave(pi));
 
 	registerMetadata(pi);
+	registerForceModelCommands(pi);
 	registerRoutedModel(pi);
 
 	if (process.env.WEAVE_NO_SAFETY !== "1") registerSafety(pi);

@@ -18,6 +18,11 @@ Every request is appended as one JSON object per line to MOCK_LOG so the e2e
 script can assert the header / knob / metadata.user_id shape. The router key is
 never logged in full -- only presence + last 4 chars.
 
+The mock also implements the router's synthetic /force-model acknowledgement
+and a small test-only alias map, allowing an interactive Pi smoke test without
+provider spend. Command responses intentionally omit x-router-* headers just as
+the real router does.
+
 Env:
   MOCK_PORT          listen port                       (default 8899)
   MOCK_LOG           request log path (JSONL)          (default ./requests.jsonl)
@@ -56,6 +61,14 @@ DISPATCH_TASKS = [
 ]
 
 _log_lock = threading.Lock()
+_pin_lock = threading.Lock()
+_forced_models: dict[str, str] = {}
+
+FORCE_MODEL_ALIASES = {
+    "haiku": "claude-haiku-4-5",
+    "opus": "claude-opus-4-8",
+    "sonnet": "claude-sonnet-4-6",
+}
 
 
 def log_request(record: dict) -> None:
@@ -102,6 +115,18 @@ def has_tool_result(messages: list) -> bool:
     return False
 
 
+def force_model_command(text: str) -> tuple[str, str] | None:
+    command = text.strip().split()
+    if not command:
+        return None
+    if command[0].lower() in ("/unforce-model", "/ufm") and len(command) == 1:
+        return ("clear", "")
+    if command[0].lower() not in ("/force-model", "/fm") or len(command) < 2:
+        return None
+    requested = command[1]
+    return ("force", FORCE_MODEL_ALIASES.get(requested.lower(), requested))
+
+
 class Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
 
@@ -123,14 +148,17 @@ class Handler(BaseHTTPRequestHandler):
         except BrokenPipeError:
             pass
 
-    def _send_sse(self, events: list, routed_model: str) -> None:
+    def _send_sse(self, events: list, routed_model: str, route_headers: bool = True) -> None:
         body = "".join(
             f"event: {ev}\ndata: {json.dumps(data)}\n\n" for ev, data in events
         ).encode("utf-8")
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream")
         self.send_header("Content-Length", str(len(body)))
-        self.send_header("x-router-model", routed_model)
+        if route_headers:
+            self.send_header("x-router-model", routed_model)
+            self.send_header("x-router-provider", "mock")
+            self.send_header("x-router-decision", "mock-e2e")
         self.end_headers()
         try:
             self.wfile.write(body)
@@ -260,13 +288,34 @@ class Handler(BaseHTTPRequestHandler):
         user_text = latest_user_text(messages)
         tool_result_present = has_tool_result(messages)
         stream = bool(body.get("stream"))
+        user_id = metadata.get("user_id") or ""
+        force_command = force_model_command(user_text) if not is_subagent else None
 
         want_dispatch = (
             DISPATCH_MARKER in user_text and not is_subagent and not tool_result_present
         )
-        routed_model = SUBAGENT_MODEL if is_subagent else MAIN_MODEL
+        with _pin_lock:
+            forced_model = _forced_models.get(user_id)
+        routed_model = SUBAGENT_MODEL if is_subagent else forced_model or MAIN_MODEL
 
-        if want_dispatch:
+        route_headers = True
+        if force_command:
+            action, model = force_command
+            route_headers = False
+            routed_model = "weave-router"
+            if action == "clear":
+                with _pin_lock:
+                    _forced_models.pop(user_id, None)
+                reply = "✦ **Weave Router** → force-model cleared · resuming automatic model selection"
+                served = "unforce_model"
+            else:
+                with _pin_lock:
+                    _forced_models[user_id] = model
+                reply = f"✦ **Weave Router** → force-model applied: {model} (mock) · Use /unforce-model to clear"
+                served = "force_model"
+            block = {"type": "text", "text": reply}
+            stop_reason = "end_turn"
+        elif want_dispatch:
             block = {
                 "type": "tool_use",
                 "id": "toolu_mock_dispatch",
@@ -294,7 +343,7 @@ class Handler(BaseHTTPRequestHandler):
                 "app": app,
                 "model": body.get("model"),
                 "stream": stream,
-                "user_id": metadata.get("user_id"),
+                "user_id": user_id,
                 "key_present": bool(key),
                 "key_suffix": key[-4:] if key else "",
                 "email": self.headers.get("x-weave-user-email"),
@@ -304,16 +353,28 @@ class Handler(BaseHTTPRequestHandler):
                 "has_tool_result": tool_result_present,
                 "user_text": user_text[:60],
                 "served": served,
+                "forced_model": forced_model,
             }
         )
 
         if stream:
-            self._send_sse(self._sse_events(block, stop_reason, routed_model), routed_model)
+            self._send_sse(
+                self._sse_events(block, stop_reason, routed_model),
+                routed_model,
+                route_headers=route_headers,
+            )
         else:
+            extra_headers = None
+            if route_headers:
+                extra_headers = {
+                    "x-router-model": routed_model,
+                    "x-router-provider": "mock",
+                    "x-router-decision": "mock-e2e",
+                }
             self._send_json(
                 200,
                 self._message_obj(block, stop_reason, routed_model),
-                extra_headers={"x-router-model": routed_model},
+                extra_headers=extra_headers,
             )
 
 

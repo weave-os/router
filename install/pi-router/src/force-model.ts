@@ -1,0 +1,112 @@
+/**
+ * Pi consumes slash commands locally, so expose the router's force-model
+ * directives as extension commands and forward one canonical user turn.
+ *
+ * The router remains authoritative for aliases, validation, canonical model
+ * ids, and pin persistence. UI state is reconstructed from command/response
+ * pairs on the reachable Pi branch; this is necessary because Pi records the
+ * selected model handle on assistant messages rather than the response model.
+ */
+
+import type {
+	ExtensionAPI,
+	ExtensionCommandContext,
+	SessionEntry,
+} from "@mariozechner/pi-coding-agent";
+
+export type ForceModelTransition =
+	| { kind: "applied"; model: string }
+	| { kind: "cleared" }
+	| { kind: "noop" };
+
+type ForceModelDirective = "force" | "clear";
+
+function messageText(message: unknown): string | undefined {
+	if (!message || typeof message !== "object" || !("content" in message)) return undefined;
+	const content = message.content;
+	if (typeof content === "string") return content;
+	if (!Array.isArray(content)) return undefined;
+	return content
+		.filter(
+			(block): block is { type: "text"; text: string } =>
+				Boolean(
+					block &&
+						typeof block === "object" &&
+						"type" in block &&
+						block.type === "text" &&
+						"text" in block &&
+						typeof block.text === "string",
+				),
+		)
+		.map((block) => block.text)
+		.join("\n");
+}
+
+export function parseForceModelDirective(text: string): ForceModelDirective | undefined {
+	const command = text.trim();
+	if (/^\/(?:force-model|fm)\s+\S+/i.test(command)) return "force";
+	if (/^\/(?:unforce-model|ufm)$/i.test(command)) return "clear";
+	return undefined;
+}
+
+export function parseForceModelAcknowledgement(text: string): ForceModelTransition | undefined {
+	const applied = /force-model applied:\s+([^\s()]+)/i.exec(text);
+	if (applied) return { kind: "applied", model: applied[1] };
+	if (/force-model cleared/i.test(text)) return { kind: "cleared" };
+	if (/is(?:n't| not) a recognized model/i.test(text)) return { kind: "noop" };
+	return undefined;
+}
+
+/** Reconstruct the effective router pin on the currently reachable branch. */
+export function forcedModelFromBranch(entries: readonly SessionEntry[]): string | undefined {
+	let forcedModel: string | undefined;
+	let pendingDirective: ForceModelDirective | undefined;
+
+	for (const entry of entries) {
+		if (entry.type !== "message") continue;
+		if (entry.message.role === "user") {
+			pendingDirective = parseForceModelDirective(messageText(entry.message) ?? "");
+			continue;
+		}
+		if (entry.message.role !== "assistant" || !pendingDirective) continue;
+
+		const transition = parseForceModelAcknowledgement(messageText(entry.message) ?? "");
+		if (transition?.kind === "applied" && pendingDirective === "force") forcedModel = transition.model;
+		else if (transition?.kind === "cleared" && pendingDirective === "clear") forcedModel = undefined;
+		// Rejected force-model commands intentionally retain the previous pin.
+		pendingDirective = undefined;
+	}
+
+	return forcedModel;
+}
+
+function sendRouterCommand(pi: ExtensionAPI, command: string, ctx: ExtensionCommandContext): void {
+	pi.sendUserMessage(command, ctx.isIdle() ? undefined : { deliverAs: "followUp" });
+}
+
+export function registerForceModelCommands(pi: ExtensionAPI): void {
+	const forceModel = async (args: string, ctx: ExtensionCommandContext): Promise<void> => {
+		const modelAndPrompt = args.trim();
+		if (!modelAndPrompt) {
+			ctx.ui.notify("Usage: /fm <model-id>", "warning");
+			return;
+		}
+		sendRouterCommand(pi, `/force-model ${modelAndPrompt}`, ctx);
+	};
+	const clearForceModel = async (_args: string, ctx: ExtensionCommandContext): Promise<void> => {
+		sendRouterCommand(pi, "/unforce-model", ctx);
+	};
+
+	for (const name of ["fm", "force-model"]) {
+		pi.registerCommand(name, {
+			description: "Pin this session to a specific model via the Weave Router",
+			handler: forceModel,
+		});
+	}
+	for (const name of ["ufm", "unforce-model"]) {
+		pi.registerCommand(name, {
+			description: "Clear this session's forced Weave Router model",
+			handler: clearForceModel,
+		});
+	}
+}

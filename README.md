@@ -55,14 +55,14 @@ Point Claude Code, Codex, Cursor, or your own app at `localhost:8080`. The route
 
 ## 30-second quickstart
 
-The fastest way: point Claude Code, Codex, or opencode at the **hosted**
+The fastest way: point Claude Code, Codex, opencode, or pi at the **hosted**
 Weave Router with one command. No clone, no Docker, no Postgres.
 
 ```bash
 npx @workweave/router
 ```
 
-That's it. The installer asks which tool (Claude Code, Codex, or opencode),
+That's it. The installer asks which tool (Claude Code, Codex, opencode, or pi),
 walks you through scope (user vs. project), grabs a router key, and wires
 the right config file. Other flavors:
 
@@ -70,13 +70,14 @@ the right config file. Other flavors:
 npx @workweave/router --claude              # skip the picker, Claude Code
 npx @workweave/router --codex               # skip the picker, OpenAI Codex CLI
 npx @workweave/router --opencode            # skip the picker, opencode
+npx @workweave/router --pi                  # skip the picker, pi + Loom UI
 npx @workweave/router --scope project       # per-repo, commits settings.json (or .codex/ / opencode.json)
 npx @workweave/router --local               # self-hosted localhost:8080
 npx @workweave/router --base-url https://router.acme.internal
 npx @workweave/router@0.1.0                 # pin a version
 ```
 
-Requires Node ≥ 18 (Claude Code and opencode paths also need `jq`). Full
+Requires Node ≥ 18 (Claude Code, opencode, and pi paths also need `jq`). Full
 flag reference: [install/npm/README.md](install/npm/README.md).
 
 ### Or: self-host the whole stack
@@ -148,6 +149,12 @@ provider pointed at the router's `/v1` endpoint — the router speaks the
 Anthropic Messages API natively, so opencode works unmodified. The router
 key and identity headers ride alongside the provider config; re-install
 rewrites only the managed block and `--uninstall --opencode` strips it.
+
+**pi.** `npx @workweave/router --pi` keeps stock pi as the runtime and installs
+the router's pi extension. It adds the Loom header, Wooly's animated terminal
+mascot, a persistent `WEAVE ROUTER` route/savings line, `/fm` + `/ufm`
+model-pin commands with a `[forced]` status, and context-isolated subagents
+without shipping or maintaining a forked pi binary.
 
 **Cursor** *(early beta, performance may not be the best).* Settings →
 Models → *Override OpenAI Base URL* → `http://localhost:8080/v1`, paste

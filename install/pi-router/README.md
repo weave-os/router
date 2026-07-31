@@ -20,8 +20,16 @@ from npm on next start and loads this extension via its `pi.extensions` field.
 
 ## What it does
 
+- **Loom experience on stock pi.** Replaces pi's startup header through the
+  public extension API, adds Wooly's responsive orange terminal animation, and
+  keeps pi's own runtime/footer intact. Wooly is visual only: there is no
+  dialogue box, narration, coaching request, or separate Loom runtime.
 - **Automatic model selection.** All pi traffic flows through the router, which
   selects the model per request. You don't pick a model — the router does.
+- **Force-model commands.** `/fm <model>` and `/force-model <model>` pin the
+  current router session; `/ufm` and `/unforce-model` resume automatic routing.
+  The persistent status changes to `WEAVE ROUTER — <model> [forced]` after the
+  router validates and canonicalizes the requested model.
 - **Per-process routing bias.** Static `x-weave-routing-*` knob headers bias the
   router: quality on the main loop, speed + cheap on subagents, cheapest on
   compaction.
@@ -31,10 +39,14 @@ from npm on next start and loads this extension via its `pi.extensions` field.
   natively. `dispatch` spawns child `pi` processes (read-only by default), runs
   them concurrently, and returns only each subagent's final answer — intermediate
   tool output stays in the child, so the main context stays small.
-- **Routed-model display.** Shows the model the router actually chose
-  (`x-router-model`) in the status bar, and opts the request out of the router's
-  in-band routing badge (`X-Weave-Routing-Marker: off`) — pi can't render that
-  separate marker text block inline, and the status bar already conveys the model.
+- **Persistent route + savings display.** Shows
+  `WEAVE ROUTER — <routed> ← <selected> · saved $X.XX` below pi's native footer
+  data. Savings compare the selected and routed catalog prices against the same
+  input/output/cache usage, accumulate across the reachable session branch,
+  and survive resume. Unknown catalog prices are labeled `unpriced` instead of
+  silently contributing zero; costlier routing is labeled `extra`, not savings.
+- **No duplicate in-band badge.** Sets `X-Weave-Routing-Marker: off` because the
+  persistent status already conveys the actual model.
 - **Safety backstop.** Blocks a few catastrophic shell commands (`rm -rf /`,
   `mkfs`, `dd of=/dev/…`, fork bombs, force-push to main). Disable with
   `WEAVE_NO_SAFETY=1`.
@@ -63,6 +75,11 @@ on child processes; don't set them yourself.
 Routing through the router switches pi from Claude **subscription OAuth** to
 **per-token** billing on the router deployment's key (or your BYOK key). BYOK
 skips cross-provider failover; deployment-key billing is the default.
+
+The displayed savings are a client-side estimate from the router's generated
+model-price catalog. Cache writes use 1.25× input price and cache reads use 0.1×
+input price, matching the Claude Code statusline. The ledger stores its catalog
+version with each response so resumed totals remain auditable.
 
 ## Notes
 

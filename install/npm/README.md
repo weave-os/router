@@ -1,12 +1,13 @@
 # @workweave/router
 
-One command, anywhere, to point Claude Code, Codex, or opencode at the Weave Router.
+One command, anywhere, to point Claude Code, Codex, opencode, or pi at the Weave Router.
 
 ```bash
-npx @workweave/router                       # interactive: pick Claude Code / Codex / opencode, then scope
+npx @workweave/router                       # interactive: pick Claude Code / Codex / opencode / pi, then scope
 npx @workweave/router --claude              # skip the picker, target Claude Code
 npx @workweave/router --codex               # skip the picker, target the OpenAI Codex CLI
 npx @workweave/router --opencode            # skip the picker, target opencode
+npx @workweave/router --pi                  # skip the picker, target pi + Loom UI
 npx @workweave/router --scope project       # per-repo install, commit settings.json (or .codex/ / opencode.json)
 npx @workweave/router --local               # self-hosted via docker-compose (localhost:8080)
 npx @workweave/router --base-url https://router.acme.internal
@@ -40,6 +41,7 @@ Uninstall:
 npx @workweave/router --uninstall                       # Claude Code, user scope
 npx @workweave/router --uninstall --codex               # Codex, user scope
 npx @workweave/router --uninstall --opencode            # opencode, user scope
+npx @workweave/router --uninstall --pi                  # pi, user scope
 npx @workweave/router --uninstall --scope project       # Claude Code, inside the repo
 npx @workweave/router --uninstall --codex --scope project
 ```
@@ -52,7 +54,7 @@ Node ≥ 18 — no `curl | sh`, no Git clone, no PATH fiddling. Everything the
 shell installer documents (targets, scopes, flags, environment variables)
 works identically here.
 
-Three install targets:
+Four install targets:
 
 - **Claude Code** (default) — patches `~/.claude/settings.json` (or
   `<repo>/.claude/settings.json` with `--scope project`) so `claude` routes
@@ -71,6 +73,12 @@ Three install targets:
   natively, so opencode talks to it unmodified. Re-install rewrites only
   the managed `provider.weave` block; `--uninstall --opencode` strips it
   and leaves your other providers and settings alone.
+- **pi** (`--pi`) — registers the `weave` provider and installs this package as
+  a pi extension. Stock pi then gets the Loom startup header, Wooly's animated
+  mascot, the persistent actual-route display, cumulative session savings,
+  `/fm` + `/ufm` model-pin commands with a `[forced]` status, and the
+  context-isolated `dispatch` tool. There is no forked pi binary and no separate
+  Loom runtime.
 
 See the [main installer docs](https://github.com/workweave/router/tree/main/install)
 for the full reference.
@@ -79,8 +87,8 @@ for the full reference.
 
 - Node ≥ 18 (ships with `npx`)
 - `bash` on PATH (macOS / Linux native; Windows needs Git Bash or WSL)
-- `jq` on PATH — used by the Claude Code status line script and the
-  opencode JSON merge. Not required for the Codex path.
+- `jq` on PATH — used by the Claude Code status line and the opencode/pi JSON
+  merges. Not required for the Codex path.
 
 ## Why npx
 
