@@ -914,8 +914,7 @@ func servedOnSubscription(ctx context.Context) bool {
 }
 
 // servedOnBYOK reports whether the turn's resolved credential is a customer-owned
-// provider key, so the customer paid their upstream directly and Weave bills only
-// its platform fee. Keys off the resolved credential rather than the presence of
+// provider key. Keys off the resolved credential rather than the presence of
 // a BYOK row: the row may exist for a provider this turn didn't route to.
 func servedOnBYOK(ctx context.Context) bool {
 	creds := CredentialsFromContext(ctx)

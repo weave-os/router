@@ -67,8 +67,7 @@ const EntryTypeInference = "inference"
 const EntryTypeByokFee = "byok_fee"
 
 // ByokFeeRate is Weave's platform fee on a BYOK turn, as a fraction of the
-// upstream cost the customer paid their own provider. The customer is billed
-// only this fee; the inference row records upstream cost at delta 0.
+// upstream cost the customer paid their own provider.
 const ByokFeeRate = 0.05
 
 // MinBalanceMicros: requests 402 when balance <= this. 0 matches
