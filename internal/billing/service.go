@@ -202,9 +202,8 @@ type DebitInferenceParams struct {
 	// SubscriptionServed: turn ran on the customer's own Anthropic/Codex
 	// subscription token, so Weave charges nothing.
 	SubscriptionServed bool
-	// ByokServed: turn ran on the customer's own provider key, so they already
-	// paid the upstream directly. Weave debits ByokFeeRate of the upstream cost
-	// as a platform fee instead of the full inference cost.
+	// ByokServed: turn ran on the customer's own provider key; Weave charges
+	// only ByokFeeRate of the upstream cost rather than full inference cost.
 	ByokServed bool
 	// APIKeyID attributes the debit to the authenticating key for
 	// spend-cap tracking; empty leaves per-key spend untouched.
