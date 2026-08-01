@@ -12,6 +12,7 @@ import (
 
 	"workweave/router/internal/providers"
 	"workweave/router/internal/router"
+	"workweave/router/internal/router/catalog"
 	"workweave/router/internal/router/planner"
 	"workweave/router/internal/router/sessionpin"
 )
@@ -551,6 +552,207 @@ func TestHMMCostGate_SwitchesCheaperFreshWhenEVPositive(t *testing.T) {
 	assert.False(t, sticky)
 	assert.Equal(t, "deepseek/deepseek-v4-flash", decision.Model)
 	assert.Equal(t, "claude-sonnet-5", stayModel)
+	assert.Equal(t, planner.OutcomeSwitch, plan.Outcome)
+	assert.Equal(t, planner.ReasonEVPositive, plan.Reason)
+}
+
+func TestHMMCostGate_SameTierPinSuppressesLateralSwitchWhenEnabled(t *testing.T) {
+	svc := NewService(
+		nil,
+		map[string]providers.Client{providers.ProviderOpenAI: nil, providers.ProviderMakora: nil},
+		nil,
+		false,
+		nil,
+		nil,
+		false,
+		"anthropic", "claude-haiku-4-5",
+		nil,
+	)
+	history := sessionpin.Pin{
+		Provider:        providers.ProviderOpenAI,
+		LastServedModel: "gpt-4.1-mini",
+		LastTurnEndedAt: time.Now().Add(-30 * time.Second),
+	}
+	fresh := router.Decision{
+		Provider: providers.ProviderMakora,
+		Model:    "deepseek/deepseek-v4-flash",
+		Reason:   "hmm_policy(classifier 'fast')",
+		Metadata: &router.RoutingMetadata{
+			Strategy:    string(router.StrategyHMM),
+			RouteID:     "route-1",
+			ChosenScore: 0.70,
+		},
+	}
+	// gpt-4.1-mini and deepseek/deepseek-v4-flash are both catalog.TierLow —
+	// confirm the fixture actually exercises the same-tier branch, not a
+	// tier-upgrade/downgrade one the guard must not touch.
+	require.Equal(t, catalog.TierFor(history.LastServedModel), catalog.TierFor(fresh.Model))
+	require.NotEqual(t, catalog.TierUnknown, catalog.TierFor(history.LastServedModel))
+
+	// Flag off (default): unaffected, same as any other EV-positive switch.
+	decision, plan, sticky, stayModel := svc.hmmCostGatedDecision(
+		router.Request{},
+		sessionpin.Pin{},
+		history,
+		fresh,
+		10_000,
+		false,
+	)
+	assert.False(t, sticky)
+	assert.Equal(t, "deepseek/deepseek-v4-flash", decision.Model)
+	assert.Equal(t, "gpt-4.1-mini", stayModel)
+	assert.Equal(t, planner.OutcomeSwitch, plan.Outcome)
+	assert.Equal(t, planner.ReasonEVPositive, plan.Reason)
+
+	// Flag on: the lateral same-tier switch is suppressed; the pin sticks.
+	svc.WithHMMSameTierPin(true)
+	decision, plan, sticky, stayModel = svc.hmmCostGatedDecision(
+		router.Request{},
+		sessionpin.Pin{},
+		history,
+		fresh,
+		10_000,
+		false,
+	)
+	assert.True(t, sticky)
+	assert.Equal(t, "gpt-4.1-mini", decision.Model)
+	assert.Equal(t, providers.ProviderOpenAI, decision.Provider)
+	assert.Equal(t, "gpt-4.1-mini", stayModel)
+	assert.Equal(t, planner.OutcomeStay, plan.Outcome)
+	assert.Equal(t, planner.ReasonSameTierPinned, plan.Reason)
+}
+
+func TestHMMCostGate_SameTierPinDoesNotBlockCrossTierSwitch(t *testing.T) {
+	svc := NewService(
+		nil,
+		map[string]providers.Client{providers.ProviderAnthropic: nil, providers.ProviderMakora: nil},
+		nil,
+		false,
+		nil,
+		nil,
+		false,
+		"anthropic", "claude-haiku-4-5",
+		nil,
+	).WithHMMSameTierPin(true)
+	history := sessionpin.Pin{
+		Provider:        providers.ProviderAnthropic,
+		LastServedModel: "claude-sonnet-5",
+		LastTurnEndedAt: time.Now().Add(-30 * time.Second),
+	}
+	fresh := router.Decision{
+		Provider: providers.ProviderMakora,
+		Model:    "deepseek/deepseek-v4-flash",
+		Reason:   "hmm_policy(classifier 'fast')",
+		Metadata: &router.RoutingMetadata{
+			Strategy:    string(router.StrategyHMM),
+			RouteID:     "route-1",
+			ChosenScore: 0.70,
+		},
+	}
+	require.NotEqual(t, catalog.TierFor(history.LastServedModel), catalog.TierFor(fresh.Model))
+
+	decision, plan, sticky, stayModel := svc.hmmCostGatedDecision(
+		router.Request{},
+		sessionpin.Pin{},
+		history,
+		fresh,
+		10_000,
+		false,
+	)
+
+	assert.False(t, sticky)
+	assert.Equal(t, "deepseek/deepseek-v4-flash", decision.Model)
+	assert.Equal(t, "claude-sonnet-5", stayModel)
+	assert.Equal(t, planner.OutcomeSwitch, plan.Outcome)
+	assert.Equal(t, planner.ReasonEVPositive, plan.Reason)
+}
+
+func TestHMMCostGate_SameTierPinDoesNotBlockConfidentUpgrade(t *testing.T) {
+	svc := NewService(
+		nil,
+		map[string]providers.Client{providers.ProviderAnthropic: nil, providers.ProviderFireworks: nil},
+		nil,
+		false,
+		nil,
+		nil,
+		false,
+		"anthropic", "claude-haiku-4-5",
+		nil,
+	).WithHMMSameTierPin(true)
+	history := sessionpin.Pin{
+		Provider:        providers.ProviderFireworks,
+		LastServedModel: "moonshotai/kimi-k2.7",
+		LastTurnEndedAt: time.Now().Add(-30 * time.Second),
+	}
+	fresh := router.Decision{
+		Provider: providers.ProviderAnthropic,
+		Model:    "claude-sonnet-5",
+		Reason:   "hmm_policy(classifier 'high')",
+		Metadata: &router.RoutingMetadata{
+			Strategy:    string(router.StrategyHMM),
+			RouteID:     "route-1",
+			ChosenScore: 0.85,
+		},
+	}
+	require.NotEqual(t, catalog.TierFor(history.LastServedModel), catalog.TierFor(fresh.Model))
+
+	decision, plan, sticky, stayModel := svc.hmmCostGatedDecision(
+		router.Request{},
+		sessionpin.Pin{},
+		history,
+		fresh,
+		10_000,
+		false,
+	)
+
+	assert.False(t, sticky)
+	assert.Equal(t, "claude-sonnet-5", decision.Model)
+	assert.Equal(t, "moonshotai/kimi-k2.7", stayModel)
+	assert.Equal(t, planner.OutcomeSwitch, plan.Outcome)
+	assert.Equal(t, hmmReasonConfidentUpgrade, plan.Reason)
+}
+
+func TestHMMCostGate_SameTierPinIgnoresUnknownTierModels(t *testing.T) {
+	svc := NewService(
+		nil,
+		map[string]providers.Client{providers.ProviderAnthropic: nil, providers.ProviderMakora: nil},
+		nil,
+		false,
+		nil,
+		nil,
+		false,
+		"anthropic", "claude-haiku-4-5",
+		nil,
+	).WithHMMSameTierPin(true)
+	history := sessionpin.Pin{
+		Provider:        providers.ProviderAnthropic,
+		LastServedModel: "claude-opus-4-5", // untiered (TierUnknown) in the catalog fixture
+		LastTurnEndedAt: time.Now().Add(-30 * time.Second),
+	}
+	fresh := router.Decision{
+		Provider: providers.ProviderMakora,
+		Model:    "deepseek/deepseek-v4-flash",
+		Reason:   "hmm_policy(classifier 'fast')",
+		Metadata: &router.RoutingMetadata{
+			Strategy:    string(router.StrategyHMM),
+			RouteID:     "route-1",
+			ChosenScore: 0.70,
+		},
+	}
+	require.Equal(t, catalog.TierUnknown, catalog.TierFor(history.LastServedModel))
+
+	decision, plan, sticky, stayModel := svc.hmmCostGatedDecision(
+		router.Request{},
+		sessionpin.Pin{},
+		history,
+		fresh,
+		10_000,
+		false,
+	)
+
+	assert.False(t, sticky)
+	assert.Equal(t, "deepseek/deepseek-v4-flash", decision.Model)
+	assert.Equal(t, "claude-opus-4-5", stayModel)
 	assert.Equal(t, planner.OutcomeSwitch, plan.Outcome)
 	assert.Equal(t, planner.ReasonEVPositive, plan.Reason)
 }

@@ -65,6 +65,19 @@ func TestRoutingMarkerFor_PlannerPaths(t *testing.T) {
 			},
 		},
 		{
+			name: "same_tier_pinned: collapses into stayed bucket",
+			res: turnLoopResult{
+				Decision:        decision,
+				PlannerDecision: planner.Decision{Reason: planner.ReasonSameTierPinned},
+			},
+			wantContains: []string{
+				"· " + markerReasonStayed,
+			},
+			wantNotContain: []string{
+				"same_tier_pinned",
+			},
+		},
+		{
 			name: "same_model: collapses into best-pick bucket",
 			res: turnLoopResult{
 				Decision:        decision,

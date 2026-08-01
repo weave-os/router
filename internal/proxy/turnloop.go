@@ -1026,6 +1026,19 @@ func (s *Service) hmmCostGatedDecision(
 		}
 	}
 
+	// Same-tier hard pin: once a session settles on a model, suppress a
+	// lateral cost-driven switch to an equal-tier model. This runs after the
+	// upgrade block above, so a confident upgrade (which already rewrote
+	// Reason away from ReasonEVPositive) can never be overturned here — only
+	// a same-tier "switch to save on cache" survives to this check.
+	if s.hmmSameTierPin && base.Outcome == planner.OutcomeSwitch && base.Reason == planner.ReasonEVPositive {
+		pinTier, freshTier := catalog.TierFor(stayPin.Model), catalog.TierFor(fresh.Model)
+		if pinTier != catalog.TierUnknown && pinTier == freshTier {
+			base.Outcome = planner.OutcomeStay
+			base.Reason = planner.ReasonSameTierPinned
+		}
+	}
+
 	if base.Outcome == planner.OutcomeStay && stayPin.Model != fresh.Model {
 		return pinDecision(stayPin), base, true, stayPin.Model
 	}
