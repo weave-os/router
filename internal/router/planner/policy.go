@@ -99,11 +99,8 @@ const (
 	ReasonEVNegative      = "ev_negative"
 	ReasonTierUpgrade     = "tier_upgrade"
 	ReasonColdPinFresh    = "cold_pin_follow_fresh"
-	// ReasonSameTierPinned marks an EV-positive switch overturned by a
-	// same-tier hard-pin policy (see internal/proxy.Service.hmmSameTierPin):
-	// once a session settles on a model, a same-tier lateral cost switch is
-	// suppressed rather than followed. Set by the caller, never by Decide
-	// itself — Decide has no HMM-specific policy knowledge.
+	// ReasonSameTierPinned is set by the caller (not Decide) when a same-tier
+	// lateral switch is suppressed by hmmSameTierPin.
 	ReasonSameTierPinned = "same_tier_pinned"
 )
 

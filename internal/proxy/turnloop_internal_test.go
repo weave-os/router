@@ -583,9 +583,7 @@ func TestHMMCostGate_SameTierPinSuppressesLateralSwitchWhenEnabled(t *testing.T)
 			ChosenScore: 0.70,
 		},
 	}
-	// gpt-4.1-mini and deepseek/deepseek-v4-flash are both catalog.TierLow —
-	// confirm the fixture actually exercises the same-tier branch, not a
-	// tier-upgrade/downgrade one the guard must not touch.
+	// Confirm both models share the same tier before exercising the guard.
 	require.Equal(t, catalog.TierFor(history.LastServedModel), catalog.TierFor(fresh.Model))
 	require.NotEqual(t, catalog.TierUnknown, catalog.TierFor(history.LastServedModel))
 

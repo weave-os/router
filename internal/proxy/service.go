@@ -130,11 +130,8 @@ type Service struct {
 	// hmmUpgradeConfidenceThreshold is the minimum classifier confidence needed
 	// for HMM to switch upward to a more expensive model despite cache inertia.
 	hmmUpgradeConfidenceThreshold float64
-	// hmmSameTierPin, when true, suppresses an EV-positive HMM switch between
-	// two models of the same catalog.Tier — once a session settles on a
-	// model, a same-tier lateral cost switch is no longer followed. Legitimate
-	// switches (pin unavailable/excluded, tier upgrade, tool-execution phase
-	// change) are unaffected. Env ROUTER_HMM_SAME_TIER_PIN, off by default.
+	// hmmSameTierPin suppresses EV-positive same-tier lateral switches once a
+	// session pin is live. Env ROUTER_HMM_SAME_TIER_PIN, off by default.
 	hmmSameTierPin bool
 	// plannerEnabled is the kill switch. When false, the orchestrator falls
 	// back to first-decision-wins behavior.
