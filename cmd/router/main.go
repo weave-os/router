@@ -578,9 +578,7 @@ func main() {
 	}
 	compactionPct := parseEnvFloat("ROUTER_COMPACTION_PCT", proxy.DefaultCompactionTriggerPct)
 
-	// Catalog tier + registered providers define what this deployment can route
-	// automatically. Strategy-specific artifacts own selection membership; in
-	// particular, the legacy cluster bundle must not constrain HMM candidates.
+	// Strategy-specific artifacts own selection membership; the legacy cluster bundle must not constrain HMM candidates.
 	routingTargets := catalog.RoutingTargetSet(availableProviders)
 	logger.Info("Catalog routing targets resolved", "catalog_routing_targets", len(routingTargets))
 
