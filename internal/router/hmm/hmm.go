@@ -46,9 +46,7 @@ func NewForStrategy(strategy router.Strategy, decider Decider, availableProvider
 	)
 }
 
-// newWithRoutingTargets keeps focused tests small without exposing a public
-// constructor that application composition could reconnect to a legacy model
-// registry.
+// newWithRoutingTargets allows focused tests to inject a fixed target set.
 func newWithRoutingTargets(strategy router.Strategy, decider Decider, routingTargets, availableProviders map[string]struct{}) *Router {
 	resolver := policy.NewResolver(routingTargets, availableProviders, rosterIDFor, policy.ManagedProviderPolicy())
 	return &Router{
