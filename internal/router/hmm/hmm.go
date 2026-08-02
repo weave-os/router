@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"workweave/router/internal/router"
+	"workweave/router/internal/router/catalog"
 	"workweave/router/internal/router/policy"
 )
 
@@ -27,14 +28,29 @@ type Router struct {
 	resolver *policy.Resolver
 }
 
-func New(decider Decider, deployed, available map[string]struct{}) *Router {
-	return NewForStrategy(router.StrategyHMM, decider, deployed, available)
+func New(decider Decider, availableProviders map[string]struct{}) *Router {
+	return NewForStrategy(router.StrategyHMM, decider, availableProviders)
 }
 
 // NewForStrategy constructs an HMM adapter with a separately selectable
 // strategy ID while preserving the HMM roster mapping and lifecycle behavior.
-func NewForStrategy(strategy router.Strategy, decider Decider, deployed, available map[string]struct{}) *Router {
-	resolver := policy.NewResolver(deployed, available, rosterIDFor, policy.ManagedProviderPolicy())
+// Its candidate universe comes from the catalog and registered providers; the
+// HMM sidecar owns roster membership and intersects these candidates with the
+// selected cluster's arms.
+func NewForStrategy(strategy router.Strategy, decider Decider, availableProviders map[string]struct{}) *Router {
+	return newWithRoutingTargets(
+		strategy,
+		decider,
+		catalog.RoutingTargetSet(availableProviders),
+		availableProviders,
+	)
+}
+
+// newWithRoutingTargets keeps focused tests small without exposing a public
+// constructor that application composition could reconnect to a legacy model
+// registry.
+func newWithRoutingTargets(strategy router.Strategy, decider Decider, routingTargets, availableProviders map[string]struct{}) *Router {
+	resolver := policy.NewResolver(routingTargets, availableProviders, rosterIDFor, policy.ManagedProviderPolicy())
 	return &Router{
 		SidecarRouter: policy.NewSidecarRouter(policy.SidecarRouterConfig{
 			Strategy:    strategy,

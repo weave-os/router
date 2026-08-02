@@ -80,6 +80,23 @@ func EnumerateBindings(id string, available map[string]struct{}) []IndexedBindin
 	return out
 }
 
+// RoutingTargetSet returns the automatic routing targets that have at least
+// one binding backed by a provider registered in this deployment. Untiered
+// catalog rows are passthrough-only and must never become policy candidates.
+func RoutingTargetSet(availableProviders map[string]struct{}) map[string]struct{} {
+	out := make(map[string]struct{}, len(Models))
+	for _, model := range Models {
+		if model.Tier == TierUnknown {
+			continue
+		}
+		if len(EnumerateBindings(model.ID, availableProviders)) == 0 {
+			continue
+		}
+		out[model.ID] = struct{}{}
+	}
+	return out
+}
+
 // UpstreamIDFor returns the upstream model ID for a catalog binding.
 func UpstreamIDFor(catalogID, bindingID string) string {
 	if bindingID != "" {

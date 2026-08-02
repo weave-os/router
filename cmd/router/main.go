@@ -578,9 +578,11 @@ func main() {
 	}
 	compactionPct := parseEnvFloat("ROUTER_COMPACTION_PCT", proxy.DefaultCompactionTriggerPct)
 
-	// Lets the planner force a switch when a pinned model's provider is
-	// removed. nil on a missing/unloadable bundle treats every pin as routable.
-	availableModels := resolveAvailableModels(availableProviders, logger)
+	// Catalog tier + registered providers define what this deployment can route
+	// automatically. Strategy-specific artifacts own selection membership; in
+	// particular, the legacy cluster bundle must not constrain HMM candidates.
+	routingTargets := catalog.RoutingTargetSet(availableProviders)
+	logger.Info("Catalog routing targets resolved", "catalog_routing_targets", len(routingTargets))
 
 	// OFF by default: wraps only the proxy's routing entrypoint, so rtr stays
 	// the *cluster.Multiversion the admin cast and semantic cache reference.
@@ -614,14 +616,14 @@ func main() {
 		rlHeaders := rlSidecarHeadersFromEnv()
 		rlRouter = rl.New(
 			rl.NewHTTPDeciderWithHeaders(rlSidecarURL, nil, rlTimeout, rlHeaders),
-			availableModels,
+			routingTargets,
 			availableProviders,
 		)
 		logger.Info(
 			"RL policy router wired",
 			"sidecar_url", rlSidecarURL,
 			"timeout_ms", rlTimeout.Milliseconds(),
-			"candidate_models", len(availableModels),
+			"candidate_models", len(routingTargets),
 			"modal_proxy_auth", len(rlHeaders) > 0,
 		)
 	} else {
@@ -654,12 +656,11 @@ func main() {
 		if capabilityErr != nil {
 			logger.Warn("HMM policy sidecar capabilities unavailable at boot; optional behavior remains disabled", "sidecar_url", hmmSidecarURL, "err", capabilityErr)
 		}
-		hmmPolicyRouter := hmm.New(hmmClient, availableModels, availableProviders)
+		hmmPolicyRouter := hmm.New(hmmClient, availableProviders)
 		hmmPolicyRouter.WithCapabilities(hmmCapabilities)
 		hmmEmbeddingPolicyRouter := hmm.NewForStrategy(
 			router.StrategyHMMEmbedding,
 			hmmClient,
-			availableModels,
 			availableProviders,
 		)
 		hmmEmbeddingPolicyRouter.WithCapabilities(hmmCapabilities)
@@ -689,7 +690,7 @@ func main() {
 			"sidecar_url", hmmSidecarURL,
 			"auth_mode", hmmAuthMode,
 			"timeout_ms", hmmTimeout.Milliseconds(),
-			"candidate_models", len(availableModels),
+			"candidate_models", len(routingTargets),
 			"strategies", []router.Strategy{router.StrategyHMM, router.StrategyHMMEmbedding},
 		)
 	} else {
@@ -721,7 +722,7 @@ func main() {
 		config.GetOr("ROUTER_POLICY_SIDECARS", ""),
 		config.GetOr("ROUTER_POLICY_SIDECAR_AUTH", ""),
 		parseEnvDurationMs("ROUTER_POLICY_SIDECAR_TIMEOUT_MS", policyclient.DefaultTimeout),
-		availableModels,
+		routingTargets,
 		availableProviders,
 		nil,
 		logger,
@@ -770,26 +771,26 @@ func main() {
 		WithPlanner(plannerCfg).
 		WithSummarizer(summarizer).
 		WithCompaction(compactionSz, compactionPct).
-		WithAvailableModels(availableModels).
+		WithAvailableModels(routingTargets).
 		WithDefaultBaselineModel(resolveDefaultBaselineModel()).
 		WithBillingService(billingSvc)
 	for _, spec := range configuredPolicySpecs {
 		proxySvc = proxySvc.WithPolicyStrategy(spec)
-		logger.Info("Generic policy sidecar wired", "strategy", spec.Strategy, "candidate_models", len(availableModels))
+		logger.Info("Generic policy sidecar wired", "strategy", spec.Strategy, "candidate_models", len(routingTargets))
 	}
 	logger.Info("Effort escalation configured", "enabled", effortEscalation)
 	logger.Info("Cross-vendor Claude Code orchestration tools configured", "enabled", ccOrchToolsCrossVendor)
 	logger.Info("Loop escalation configured", "enabled", loopEscalationEnabled, "holdout_pct", loopEscalationHoldoutPct)
 	logger.Info("Spiral shadow detector configured", "enabled", spiralShadowEnabled)
 	logger.Info("Text-repetition break configured", "enabled", textRepetitionBreakEnabled)
-	logger.Info("Planner configured", "enabled", plannerEnabled, "threshold_usd", plannerCfg.ThresholdUSD, "expected_remaining_turns", plannerCfg.ExpectedRemainingTurns, "tier_upgrade_enabled", plannerCfg.TierUpgradeEnabled, "cold_pin_follow_fresh", plannerCfg.ColdPinFollowFresh, "prefix_trim_free_switch", prefixTrimFreeSwitch, "available_models_count", len(availableModels))
+	logger.Info("Planner configured", "enabled", plannerEnabled, "threshold_usd", plannerCfg.ThresholdUSD, "expected_remaining_turns", plannerCfg.ExpectedRemainingTurns, "tier_upgrade_enabled", plannerCfg.TierUpgradeEnabled, "cold_pin_follow_fresh", plannerCfg.ColdPinFollowFresh, "prefix_trim_free_switch", prefixTrimFreeSwitch, "routing_targets_count", len(routingTargets))
 	logger.Info("Tool-result scoring configured", "enabled", scoreToolResultTurns)
 
 	// Fail loud if a deployed model is missing from the tier table;
 	// TierUnknown would silently disable the guard for that pair.
-	if plannerCfg.TierUpgradeEnabled && len(availableModels) > 0 {
-		deployed := make([]string, 0, len(availableModels))
-		for m := range availableModels {
+	if plannerCfg.TierUpgradeEnabled && len(routingTargets) > 0 {
+		deployed := make([]string, 0, len(routingTargets))
+		for m := range routingTargets {
 			deployed = append(deployed, m)
 		}
 		if err := catalog.ValidateDeployed(deployed); err != nil {
@@ -1444,28 +1445,6 @@ func resolveHardPinModel(available map[string]struct{}, logger *slog.Logger) (pr
 		return defaultHardPinProvider, defaultHardPinModel
 	}
 	return p, m
-}
-
-// resolveAvailableModels returns the boot-time set of routable model names
-// (default bundle's deployed_models ∩ registered providers), or nil on load
-// failure so the planner treats every pin as routable.
-func resolveAvailableModels(availableProviders map[string]struct{}, logger *slog.Logger) map[string]struct{} {
-	reqVersion := config.GetOr("ROUTER_CLUSTER_VERSION", cluster.LatestVersion)
-	defaultVersion, err := cluster.ResolveVersion(reqVersion)
-	if err != nil {
-		logger.Warn("Available-models set: could not resolve cluster version; planner will treat every pin as routable", "err", err)
-		return nil
-	}
-	bundle, err := cluster.LoadBundle(defaultVersion)
-	if err != nil {
-		logger.Warn("Available-models set: could not load bundle; planner will treat every pin as routable", "err", err)
-		return nil
-	}
-	out := cluster.RoutableModelSet(bundle.Registry, availableProviders)
-	if len(out) == 0 {
-		return nil
-	}
-	return out
 }
 
 // envVarHint returns the env var name for a provider's API key, for log

@@ -154,10 +154,11 @@ func (m Model) PrimaryProvider() string {
 }
 
 // Models is the source of truth, one struct literal per model, grouped by
-// family and tier. To add a model: append a Model{} below, and if the deploy
-// should route to it, list it in the cluster bundle's model_registry.json
-// (that file controls which versions route to it; this catalog controls
-// pricing/dispatch). No other files need to change.
+// family and tier. Tiered models with a registered provider are automatic
+// routing targets. Strategy artifacts own selection membership: legacy cluster
+// versions use their model_registry.json, while policy sidecars such as HMM
+// intersect catalog targets with their own roster. This catalog controls
+// pricing and dispatch for every strategy.
 var Models = []Model{
 	// --- Anthropic ---
 	// $1/$5 per the published table (the $0.80/$4 rate that used to sit here

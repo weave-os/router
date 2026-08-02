@@ -399,6 +399,34 @@ func TestNormalizeHMMStayPin_ReResolvesDisabledProvider(t *testing.T) {
 		"a sticky HMM pin must re-resolve a disabled provider for its retained model")
 }
 
+func TestNormalizeHMMStayPin_PreservesCatalogRoutableTerra(t *testing.T) {
+	availableProviders := map[string]struct{}{providers.ProviderOpenAI: {}}
+	svc := NewService(
+		nil,
+		map[string]providers.Client{providers.ProviderOpenAI: nil},
+		nil,
+		false,
+		nil,
+		nil,
+		false,
+		providers.ProviderAnthropic, "claude-haiku-4-5",
+		nil,
+	).WithAvailableModels(catalog.RoutingTargetSet(availableProviders))
+	pin := sessionpin.Pin{
+		Provider:        providers.ProviderOpenAI,
+		Model:           "gpt-5.6-terra",
+		LastServedModel: "gpt-5.6-terra",
+		LastTurnEndedAt: time.Now(),
+		PinnedUntil:     time.Now().Add(time.Hour),
+	}
+
+	normalized, ok := svc.normalizeHMMStayPin(router.Request{}, pin)
+
+	require.True(t, ok)
+	assert.Equal(t, "gpt-5.6-terra", normalized.Model)
+	assert.Equal(t, providers.ProviderOpenAI, normalized.Provider)
+}
+
 func TestRecordTurnUsage_HMMEVStayWritesHistoryOnly(t *testing.T) {
 	store := newStubPinStore()
 	svc := NewService(

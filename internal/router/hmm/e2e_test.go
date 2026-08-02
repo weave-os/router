@@ -50,7 +50,6 @@ func TestHTTPRouterEndToEndWithSidecar(t *testing.T) {
 
 	r := New(
 		policyclient.New(server.URL, server.Client(), 0),
-		map[string]struct{}{"moonshotai/kimi-k2.7": {}},
 		map[string]struct{}{providers.ProviderFireworks: {}},
 	)
 	decision, err := r.Route(context.Background(), router.Request{

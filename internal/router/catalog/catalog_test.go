@@ -139,6 +139,21 @@ func TestResolveBinding_GemmaUsesNativeGoogleUpstreamID(t *testing.T) {
 	assert.Equal(t, "gemma-4-26b-a4b-it", b.UpstreamID)
 }
 
+func TestRoutingTargetSet_FiltersByTierAndRegisteredProviders(t *testing.T) {
+	targets := RoutingTargetSet(map[string]struct{}{providers.ProviderOpenAI: {}})
+
+	assert.Contains(t, targets, "gpt-5.6-terra")
+	assert.NotContains(t, targets, "claude-sonnet-5", "unregistered providers must not contribute targets")
+	assert.NotContains(t, targets, "gpt-4o", "untiered passthrough models must not become routing targets")
+}
+
+func TestRoutingTargetSet_AcceptsAnyRegisteredFallbackBinding(t *testing.T) {
+	targets := RoutingTargetSet(map[string]struct{}{providers.ProviderOpenRouter: {}})
+
+	assert.Contains(t, targets, "qwen/qwen3-coder-next", "a registered fallback binding makes the model dispatchable")
+	assert.NotContains(t, targets, "gpt-5.6-terra", "models with no registered binding stay unavailable")
+}
+
 func TestAllowedAtOrBelow_FiltersOutUnknownTier(t *testing.T) {
 	allowed := AllowedAtOrBelow(TierMid)
 	// claude-haiku-4-5 (Low) and claude-sonnet-4-5 (Mid) should be in.

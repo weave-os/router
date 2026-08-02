@@ -228,6 +228,26 @@ func TestPrepareGemini_ReasoningEffortMapsToThinkingLevel_Gemini3x(t *testing.T)
 	}
 }
 
+func TestPrepareGemini_AnthropicAdaptiveThinkingMapsToGemini35Flash(t *testing.T) {
+	body := []byte(`{
+		"model":"claude-sonnet-5",
+		"max_tokens":4096,
+		"thinking":{"type":"adaptive"},
+		"output_config":{"effort":"high"},
+		"messages":[{"role":"user","content":"solve this"}]
+	}`)
+	env, err := translate.ParseAnthropic(body)
+	require.NoError(t, err)
+
+	prep, err := env.PrepareGemini(http.Header{}, translate.EmitOptions{TargetModel: "gemini-3.5-flash"})
+	require.NoError(t, err)
+	out := mustUnmarshal(t, prep.Body)
+	generationConfig := out["generationConfig"].(map[string]any)
+	thinkingConfig := generationConfig["thinkingConfig"].(map[string]any)
+	assert.Equal(t, "high", thinkingConfig["thinkingLevel"])
+	assert.NotContains(t, thinkingConfig, "thinkingBudget")
+}
+
 func TestPrepareGemini_StreamHintHeaderSet(t *testing.T) {
 	body := []byte(`{"messages":[{"role":"user","content":"x"}],"stream":true}`)
 	env, _ := translate.ParseOpenAI(body)
