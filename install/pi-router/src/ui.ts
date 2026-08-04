@@ -26,6 +26,16 @@ export interface RouterUiSnapshot {
 	savings: SavingsAggregate;
 }
 
+type LegacyCompatibleExtensionContext = ExtensionContext & { mode?: string };
+
+function isTuiContext(ctx: ExtensionContext): boolean {
+	const mode = (ctx as LegacyCompatibleExtensionContext).mode;
+	// Pi 0.74.2 supports headers and widgets but predates ctx.mode. In that
+	// release hasUI is true only for the interactive TUI, so it is the safe
+	// compatibility signal. Newer Pi releases expose mode and take precedence.
+	return mode === "tui" || (mode === undefined && ctx.hasUI);
+}
+
 function brand(text: string): string {
 	return `${BRAND_OPEN}${text}${BRAND_CLOSE}`;
 }
@@ -45,7 +55,7 @@ function headerLines(theme: Theme, width: number): string[] {
 }
 
 export function installLoomUi(ctx: ExtensionContext): void {
-	if (ctx.mode !== "tui") return;
+	if (!isTuiContext(ctx)) return;
 	ctx.ui.setTitle("Loom · Weave Router");
 	ctx.ui.setHeader((_tui: TUI, theme: Theme) => ({
 		invalidate() {},
@@ -59,7 +69,7 @@ export function installLoomUi(ctx: ExtensionContext): void {
 export function clearLoomUi(ctx: ExtensionContext): void {
 	if (!ctx.hasUI) return;
 	ctx.ui.setStatus(STATUS_KEY, undefined);
-	if (ctx.mode === "tui") {
+	if (isTuiContext(ctx)) {
 		ctx.ui.setWidget(WOOLY_WIDGET_KEY, undefined);
 		ctx.ui.setHeader(undefined);
 	}
@@ -74,7 +84,8 @@ export function updateRouterStatus(ctx: ExtensionContext, snapshot: RouterUiSnap
 	else if (requestedModel) route = `${requestedModel} · awaiting route`;
 	else route = "automatic routing";
 
-	const label = ctx.mode === "tui" ? ctx.ui.theme.bold(brand("WEAVE ROUTER")) : "WEAVE ROUTER";
+	const tui = isTuiContext(ctx);
+	const label = tui ? ctx.ui.theme.bold(brand("WEAVE ROUTER")) : "WEAVE ROUTER";
 	const detail = forcedModel ? `${forcedModel} [forced]` : `${route} · ${formatSavings(savings)}`;
-	ctx.ui.setStatus(STATUS_KEY, `${label} — ${ctx.mode === "tui" ? ctx.ui.theme.fg("dim", detail) : detail}`);
+	ctx.ui.setStatus(STATUS_KEY, `${label} — ${tui ? ctx.ui.theme.fg("dim", detail) : detail}`);
 }

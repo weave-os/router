@@ -31,8 +31,12 @@ from npm on next start and loads this extension via its `pi.extensions` field.
   The persistent status changes to `WEAVE ROUTER — <model> [forced]` after the
   router validates and canonicalizes the requested model.
 - **Per-process routing bias.** Static `x-weave-routing-*` knob headers bias the
-  router: quality on the main loop, speed + cheap on subagents, cheapest on
-  compaction.
+  router: quality on the main loop and speed + cheap on subagents.
+- **Long tool-loop compaction.** Pi 0.74 can cross its context threshold inside
+  an uninterrupted tool loop before its normal post-run compaction check. The
+  extension preserves a usable output budget for the real continuation and
+  compacts once the loop settles, while leaving ordinary threshold compaction
+  to Pi.
 - **Sticky sessions.** `metadata.user_id = "pi:<sessionId>"` pins the main loop
   to one model for the session; subagents get their own pins.
 - **`dispatch` tool — parallel, context-isolated subagents.** pi has none
@@ -65,7 +69,7 @@ from npm on next start and loads this extension via its `pi.extensions` field.
 | `WEAVE_PI_ALLOW_SUBAGENT_TOOLS` | unset | `1` lets `dispatch` grant subagents write/exec tools (bash, write, edit); default strips them |
 | `WEAVE_ROUTING_ALPHA` / `…_SPEED_WEIGHT` / `…_OUTPUT_COST_RATIO` / `…_EXPECTED_OUTPUT_TOKENS` | role preset | Override individual routing knobs (main process only — children always use their role preset) |
 | `WEAVE_NO_SAFETY` | unset | `1` disables the catastrophic-bash gate |
-| `WEAVE_CHEAP_COMPACTION` | unset | `1` enables the (experimental) cheap-compaction path |
+| `WEAVE_PI_AUTO_COMPACTION` | unset | `0` disables the routed tool-loop compaction safeguard |
 
 Internal: `WEAVE_PI_SUBAGENT=1` and `WEAVE_PI_SUBAGENT_ID` are set by `dispatch`
 on child processes; don't set them yourself.
@@ -83,5 +87,5 @@ version with each response so resumed totals remain auditable.
 
 ## Notes
 
-- Cheap compaction is currently a reserved flag — the handler defers to pi's
-  built-in compaction until the router-routed path is validated end-to-end.
+- Actual SDK/router probes keep their small output budget. Only a probe-sized
+  request carrying a real tool-result continuation is repaired.

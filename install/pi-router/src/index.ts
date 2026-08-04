@@ -9,7 +9,7 @@
  *                   detection.
  *   - Loom UI:      branded header, Wooly animation, actual route, and saved $.
  *   - safety:       block catastrophic bash (unless WEAVE_NO_SAFETY=1).
- *   - compaction:   experimental cheap path (only when WEAVE_CHEAP_COMPACTION=1).
+ *   - compaction:   protect long tool loops, then compact routed context.
  *   - dispatch:     parallel, context-isolated subagents — top-level process
  *                   only (no grandchildren).
  *
@@ -20,7 +20,7 @@
 import { fileURLToPath } from "node:url";
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { isSubagent } from "./config.js";
-import { registerCheapCompaction } from "./compaction.js";
+import { registerCompaction } from "./compaction.js";
 import { registerDispatch } from "./dispatch.js";
 import { registerForceModelCommands } from "./force-model.js";
 import { registerMetadata } from "./metadata.js";
@@ -40,9 +40,9 @@ export default function (pi: ExtensionAPI): void {
 	registerMetadata(pi);
 	registerForceModelCommands(pi);
 	registerRoutedModel(pi);
+	registerCompaction(pi);
 
 	if (process.env.WEAVE_NO_SAFETY !== "1") registerSafety(pi);
-	if (process.env.WEAVE_CHEAP_COMPACTION === "1") registerCheapCompaction(pi);
 
 	// Only the top-level process fans out. Children (WEAVE_PI_SUBAGENT=1) load
 	// this same extension but get no dispatch tool, so subagents can't spawn

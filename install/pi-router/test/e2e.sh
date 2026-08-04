@@ -17,8 +17,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PKG_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 INSTALL_SH="$(cd "$PKG_DIR/.." && pwd)/install.sh"
 EXT="$PKG_DIR/src/index.ts"
-SAVINGS_TEST="$SCRIPT_DIR/savings.test.ts"
-FORCE_MODEL_TEST="$SCRIPT_DIR/force-model.test.ts"
+UNIT_SUITE="$SCRIPT_DIR/unit-suite.ts"
 MOCK="$SCRIPT_DIR/mock_router.py"
 
 PORT="${MOCK_PORT:-8899}"
@@ -28,8 +27,7 @@ for tool in pi jq python3 curl; do
   command -v "$tool" >/dev/null 2>&1 || { echo "FATAL: '$tool' not on PATH"; exit 2; }
 done
 [ -f "$EXT" ]        || { echo "FATAL: extension not found: $EXT"; exit 2; }
-[ -f "$SAVINGS_TEST" ] || { echo "FATAL: savings test not found: $SAVINGS_TEST"; exit 2; }
-[ -f "$FORCE_MODEL_TEST" ] || { echo "FATAL: force-model test not found: $FORCE_MODEL_TEST"; exit 2; }
+[ -f "$UNIT_SUITE" ]  || { echo "FATAL: unit suite not found: $UNIT_SUITE"; exit 2; }
 [ -f "$INSTALL_SH" ] || { echo "FATAL: installer not found: $INSTALL_SH"; exit 2; }
 [ -f "$MOCK" ]       || { echo "FATAL: mock not found: $MOCK"; exit 2; }
 
@@ -129,23 +127,17 @@ printf '%s\n' "$STRIPPED" >"$PI_DIR/settings.json"
 
 # -------------------------------------------------------------------------
 phase "Phase 2 — generated pricing + savings contract"
-# Loading the focused node:test file through pi exercises the same TypeScript
-# loader and module resolution that the published extension uses.
+# Loading the focused node:test suite through pi exercises the same TypeScript
+# loader and module resolution that the published extension uses. The wrapper
+# deliberately is not named *.test.ts because Pi 0.74 excludes those paths.
 if with_timeout 30 env PI_CODING_AGENT_DIR="$PI_DIR" \
-  pi -e "$SAVINGS_TEST" --offline --list-models weave >"$WORK/savings.out" 2>&1 </dev/null; then
-  [ "$(grep -c '^✔ ' "$WORK/savings.out" || true)" = "8" ] \
-    && ok "generated catalog + savings arithmetic tests passed" \
-    || bad "savings tests did not report all eight passes (see $WORK/savings.out)"
+  pi -e "$UNIT_SUITE" --no-session --offline --model weave/claude-sonnet-4-6 \
+  -p "Run the unit suite." >"$WORK/unit.out" 2>&1 </dev/null; then
+  [ "$(grep -Ec '^(✔ |ok [0-9]+ - )' "$WORK/unit.out" || true)" = "22" ] \
+    && ok "pricing, force-model, UI, and compaction unit suite passed" \
+    || bad "unit suite did not report all 22 passes (see $WORK/unit.out)"
 else
-  bad "savings tests failed to load through pi (see $WORK/savings.out)"
-fi
-if with_timeout 30 env PI_CODING_AGENT_DIR="$PI_DIR" \
-  pi -e "$FORCE_MODEL_TEST" --offline --list-models weave >"$WORK/force-model.out" 2>&1 </dev/null; then
-  [ "$(grep -c '^✔ ' "$WORK/force-model.out" || true)" = "8" ] \
-    && ok "force-model command + branch restoration tests passed" \
-    || bad "force-model tests did not report all eight passes (see $WORK/force-model.out)"
-else
-  bad "force-model tests failed to load through pi (see $WORK/force-model.out)"
+  bad "unit suite failed to load through pi (see $WORK/unit.out)"
 fi
 
 # -------------------------------------------------------------------------
