@@ -83,7 +83,7 @@ func TestClassifyDispatchError_CreditsExhaustedIs402(t *testing.T) {
 	assert.Equal(t, proxy.DispatchErrorCreditsExhausted, cls.Kind)
 	assert.Equal(t, http.StatusPaymentRequired, cls.Status)
 	assert.Contains(t, cls.Message, "credits are exhausted", "the client message must explain the depleted balance")
-	assert.Contains(t, cls.Message, "router-credits", "the client message must surface the top-up CTA")
+	assert.Contains(t, cls.Message, "weave-router", "the client message must surface the top-up CTA")
 	assert.Equal(t, "warn", cls.LogLevel)
 	assert.False(t, cls.RetryAfter, "a retry won't help until credits are added")
 }

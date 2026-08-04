@@ -196,7 +196,7 @@ func anthropicOAuthCredentialRejected(err error) bool {
 // Duplicated from middleware.TopUpURL (proxy can't import the middleware
 // adapter without an import cycle) so subscription-only warnings and the
 // credits-exhausted 402 can surface the CTA.
-const topUpURL = "https://app.workweave.ai/settings/billing/router-credits"
+const topUpURL = "https://app.workweave.ai/organization/settings/weave-router"
 
 // subscriptionOnlyWarningMarker is prepended to a subscription-only bypass
 // response so the customer sees why they're being served on their own plan and

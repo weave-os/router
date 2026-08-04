@@ -14,7 +14,7 @@ import (
 
 // TopUpURL is the customer-facing page where org admins buy credits.
 // Returned in the 402 body so the client can surface a CTA.
-const TopUpURL = "https://app.workweave.ai/settings/billing/router-credits"
+const TopUpURL = "https://app.workweave.ai/organization/settings/weave-router"
 
 // WithBalanceCheck enforces prepaid credit gating on inference routes.
 // Attached only in managed mode and only after WithAuth, so the
