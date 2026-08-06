@@ -50,9 +50,7 @@ func (s *Service) runAgentShadowEvaluationRoute(
 		return turnLoopResult{}, err
 	}
 	rawModel := strings.TrimSpace(evaluation.Model)
-	// nil available: this call site re-walks req.EnabledProviders itself just
-	// below (with its own excludedProvidersForRequest gate), so the shared
-	// availability check in resolveForceModelWithEffort would be redundant.
+	// This call site applies its own availability gate below.
 	model, provider, known, _ := resolveForceModelWithEffort(rawModel, nil)
 	if !known || model != strings.ToLower(rawModel) {
 		return turnLoopResult{}, fmt.Errorf("agent-shadow model must be a canonical catalog id: %q", rawModel)

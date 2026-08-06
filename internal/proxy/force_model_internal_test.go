@@ -125,9 +125,7 @@ func TestResolveForceModel(t *testing.T) {
 			wantProvider: providers.ProviderFireworks,
 			wantKnown:    true,
 		},
-		// Heuristic fallback: not in the catalog, so known is false. The
-		// provider is a best-effort guess for logging only; the handler rejects
-		// these rather than pinning a model with no known tier.
+		// Unknown models are rejected rather than pinned.
 		{
 			name:         "heuristic openai — gpt-6 not in catalog",
 			input:        "gpt-6",
@@ -163,8 +161,7 @@ func TestResolveForceModel(t *testing.T) {
 			wantProvider: providers.ProviderAnthropic,
 			wantKnown:    false,
 		},
-		// Truncated command (the bug this guard closes): "/force-model gpt-"
-		// parses to "gpt-", which matches no catalog entry.
+		// Truncated command input is not a known model.
 		{
 			name:         "truncated gpt- is not known",
 			input:        "gpt-",
@@ -172,9 +169,7 @@ func TestResolveForceModel(t *testing.T) {
 			wantProvider: providers.ProviderOpenAI,
 			wantKnown:    false,
 		},
-		// Availability-aware resolution (#874): a multi-binding model whose
-		// primary binding is excluded/unregistered must not silently resolve
-		// to it — the same binding walk the scorer's resolveProviderFor does.
+		// Availability-aware resolution follows the ordered binding walk (#874).
 		{
 			name:         "deepseek-flash falls over to available fallback binding when primary excluded",
 			input:        "deepseek-flash",
@@ -196,10 +191,7 @@ func TestResolveForceModel(t *testing.T) {
 			input:     "deepseek-flash",
 			available: map[string]struct{}{providers.ProviderFireworks: {}},
 			wantID:    "deepseek/deepseek-v4-flash",
-			// Empty provider signals "recognized model, but no binding is
-			// available" — distinct from wantKnown=false (not a catalog model
-			// at all), so callers can reject with an accurate message instead
-			// of silently pinning an unservable provider.
+			// Empty provider means recognized but currently unservable.
 			wantProvider: "",
 			wantKnown:    true,
 		},

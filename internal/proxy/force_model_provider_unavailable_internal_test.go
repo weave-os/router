@@ -15,10 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Regression for #874: a stored forced pin whose provider is no longer in
-// req.EnabledProviders (excluded mid-session, BYOK creds removed, etc.) must
-// fall through to automatic routing rather than silently serving as if no
-// pin existed — the scorer must still see it as ineligible and route around it.
+// A pin with an unavailable provider falls through to automatic routing (#874).
 func TestRunTurnLoop_ForcedPin_FallsThroughWhenProviderUnavailable(t *testing.T) {
 	fr := &tierProbeRouter{available: map[string]struct{}{
 		"deepseek/deepseek-v4-flash": {},
@@ -41,8 +38,7 @@ func TestRunTurnLoop_ForcedPin_FallsThroughWhenProviderUnavailable(t *testing.T)
 
 	res, err := svc.runTurnLoop(context.Background(), env, feats, "key-1", uuid.New(), "", nil, router.Request{
 		RequestedModel: feats.Model,
-		// Makora excluded from this turn's enabled set — mirrors
-		// ROUTER_EXCLUDED_PROVIDERS=makora from the issue's repro.
+		// Makora is excluded from this turn's enabled set.
 		EnabledProviders: map[string]struct{}{providers.ProviderOpenRouter: {}, providers.ProviderAnthropic: {}},
 	})
 	require.NoError(t, err)

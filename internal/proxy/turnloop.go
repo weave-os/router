@@ -553,11 +553,8 @@ func (s *Service) runTurnLoop(
 			forcedTierFloor = catalog.TierFor(pin.Model)
 		}
 		if !providerEligible {
-			// The pinned provider became unavailable mid-session (exclusion
-			// changed, BYOK creds removed) — loud rather than silently falling
-			// through to automatic routing indistinguishable from "no pin"
-			// (#874). The pin row is left in storage; a later request with the
-			// provider re-enabled resumes serving it.
+			// The pinned provider is unavailable; preserve the pin for later
+			// re-enablement while routing this turn automatically (#874).
 			log.Warn("turnloop: forced pin's provider unavailable; falling through to automatic routing",
 				"pin_model", pin.Model,
 				"pin_provider", pin.Provider,

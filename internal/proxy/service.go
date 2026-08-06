@@ -2148,11 +2148,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	// env.body so the upstream never sees it). Session key is derived before
 	// extraction: DeriveSessionKey can fall back to prompt text, and deriving
 	// after the strip would mismatch subsequent turns with the unstripped message.
-	//
-	// enabledProviders computed here (ahead of its usual spot below routing
-	// diagnostics) so a forced pin's provider is validated against the same
-	// live availability set the scorer uses (#874) — a pin can't land on an
-	// excluded/unregistered binding.
+	// Resolve force-model providers against live availability (#874).
 	enabledProviders := s.enabledProvidersForRequest(ctx, providers.ProviderAnthropic, r.Header)
 	if billing.SubscriptionOnlyFromContext(ctx) {
 		enabledProviders = restrictToSubscriptionProviders(ctx, r.Header, enabledProviders)
@@ -4297,10 +4293,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	// env.body so the upstream never sees it). Session key is derived before
 	// extraction: DeriveSessionKey can fall back to prompt text, and deriving
 	// after the strip would mismatch subsequent turns with the unstripped message.
-	//
-	// enabledProviders computed here (ahead of its usual spot below routing
-	// diagnostics) so a forced pin's provider is validated against the same
-	// live availability set the scorer uses (#874).
+	// Resolve force-model providers against live availability (#874).
 	enabledProviders := s.enabledProvidersForRequest(ctx, providers.ProviderOpenAI, r.Header)
 	if billing.SubscriptionOnlyFromContext(ctx) {
 		enabledProviders = restrictToSubscriptionProviders(ctx, r.Header, enabledProviders)
