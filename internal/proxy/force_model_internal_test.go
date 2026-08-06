@@ -125,7 +125,9 @@ func TestResolveForceModel(t *testing.T) {
 			wantProvider: providers.ProviderFireworks,
 			wantKnown:    true,
 		},
-		// Unknown models are rejected rather than pinned.
+		// Heuristic fallback: not in the catalog, so known is false. The
+		// provider is a best-effort guess for logging only; the handler rejects
+		// these rather than pinning a model with no known tier.
 		{
 			name:         "heuristic openai — gpt-6 not in catalog",
 			input:        "gpt-6",
@@ -161,7 +163,8 @@ func TestResolveForceModel(t *testing.T) {
 			wantProvider: providers.ProviderAnthropic,
 			wantKnown:    false,
 		},
-		// Truncated command input is not a known model.
+		// Truncated command (the bug this guard closes): "/force-model gpt-"
+		// parses to "gpt-", which matches no catalog entry.
 		{
 			name:         "truncated gpt- is not known",
 			input:        "gpt-",

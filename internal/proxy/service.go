@@ -2144,15 +2144,17 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		"prompt_preview", observability.Preview(promptText, 200),
 	)
 
-	// Handle /force-model and /unforce-model before routing (stripped from
-	// env.body so the upstream never sees it). Session key is derived before
-	// extraction: DeriveSessionKey can fall back to prompt text, and deriving
-	// after the strip would mismatch subsequent turns with the unstripped message.
-	// Resolve force-model providers against live availability (#874).
+	// Resolved before force-model handling so a pin can only land on a
+	// provider this deployment can actually serve (#874).
 	enabledProviders := s.enabledProvidersForRequest(ctx, providers.ProviderAnthropic, r.Header)
 	if billing.SubscriptionOnlyFromContext(ctx) {
 		enabledProviders = restrictToSubscriptionProviders(ctx, r.Header, enabledProviders)
 	}
+
+	// Handle /force-model and /unforce-model before routing (stripped from
+	// env.body so the upstream never sees it). Session key is derived before
+	// extraction: DeriveSessionKey can fall back to prompt text, and deriving
+	// after the strip would mismatch subsequent turns with the unstripped message.
 	if !agentShadowMode && s.pinStore != nil {
 		if cmd, hasCmd := env.ExtractForceModelCommand(); hasCmd {
 			log.Info("ProxyMessages force-model command", "force_model_cmd", cmd)
@@ -4289,15 +4291,17 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		"prompt_preview", observability.Preview(promptText, 200),
 	)
 
-	// Handle /force-model and /unforce-model before routing (stripped from
-	// env.body so the upstream never sees it). Session key is derived before
-	// extraction: DeriveSessionKey can fall back to prompt text, and deriving
-	// after the strip would mismatch subsequent turns with the unstripped message.
-	// Resolve force-model providers against live availability (#874).
+	// Resolved before force-model handling so a pin can only land on a
+	// provider this deployment can actually serve (#874).
 	enabledProviders := s.enabledProvidersForRequest(ctx, providers.ProviderOpenAI, r.Header)
 	if billing.SubscriptionOnlyFromContext(ctx) {
 		enabledProviders = restrictToSubscriptionProviders(ctx, r.Header, enabledProviders)
 	}
+
+	// Handle /force-model and /unforce-model before routing (stripped from
+	// env.body so the upstream never sees it). Session key is derived before
+	// extraction: DeriveSessionKey can fall back to prompt text, and deriving
+	// after the strip would mismatch subsequent turns with the unstripped message.
 	if s.pinStore != nil {
 		if cmd, hasCmd := env.ExtractForceModelCommand(); hasCmd {
 			log.Info("ProxyOpenAIChatCompletion force-model command", "force_model_cmd", cmd)
