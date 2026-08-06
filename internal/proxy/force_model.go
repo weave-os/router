@@ -118,8 +118,7 @@ func resolveForceModel(model string, available map[string]struct{}) (canonicalID
 }
 
 // resolveForceModelWithEffort strips a `:level` suffix and resolves catalog
-// bindings in order against available. known remains true when no binding is
-// available; nil available means unrestricted and selects the primary binding.
+// bindings in order against available; known stays true when no binding is available.
 func resolveForceModelWithEffort(model string, available map[string]struct{}) (canonicalID, provider string, known bool, effort string) {
 	effortLevel, stripped := stripEffortSuffix(model)
 	model = stripped
@@ -175,9 +174,8 @@ func resolveForceModelWithEffort(model string, available map[string]struct{}) (c
 	}
 }
 
-// resolveForcedBinding narrows explicit openai/<id> inputs before walking
-// bindings in catalog order. nativeMismatch distinguishes no required-provider
-// binding from one that exists but is unavailable; nil available is unrestricted.
+// resolveForcedBinding walks bindings in catalog order against available.
+// nativeMismatch is true when requiredProvider has no binding; nil available is unrestricted.
 func resolveForcedBinding(m catalog.Model, requiredProvider string, available map[string]struct{}) (provider string, nativeMismatch bool) {
 	bindings := m.Providers
 	if requiredProvider != "" {
