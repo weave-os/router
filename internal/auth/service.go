@@ -120,9 +120,20 @@ func (s *Service) invalidateInstallation(installationID string) {
 	s.notifier.NotifyInstallationChanged(installationID)
 }
 
-// IssueAPIKey creates a new router API key and returns the raw token.
+// IssueAPIKey creates a new routing (data-plane) API key and returns the raw token.
 func (s *Service) IssueAPIKey(ctx context.Context, installationID string, name *string, createdBy *string) (*APIKey, string, error) {
-	rawToken := GenerateID(APIKeyPrefix)
+	return s.IssueScopedAPIKey(ctx, installationID, ScopeRouting, name, createdBy)
+}
+
+// IssueScopedAPIKey creates a new router API key under the given scope and
+// returns the raw token. The token prefix follows the scope, so the credential
+// advertises its own authority.
+func (s *Service) IssueScopedAPIKey(ctx context.Context, installationID string, scope APIKeyScope, name *string, createdBy *string) (*APIKey, string, error) {
+	if !scope.Valid() {
+		return nil, "", fmt.Errorf("%w: %q", ErrInvalidKeyScope, scope)
+	}
+	scope = scope.Normalized()
+	rawToken := GenerateID(scope.TokenPrefix())
 	keyHash, keyPrefix, keySuffix := APITokenFingerprint(rawToken)
 	externalID := GenerateID("kid")
 	key, err := s.apiKeys.Create(ctx, CreateAPIKeyParams{
@@ -132,6 +143,7 @@ func (s *Service) IssueAPIKey(ctx context.Context, installationID string, name *
 		KeyPrefix:      keyPrefix,
 		KeyHash:        keyHash,
 		KeySuffix:      keySuffix,
+		Scope:          scope,
 		CreatedBy:      createdBy,
 	})
 	if err != nil {
@@ -172,7 +184,7 @@ func (s *Service) RotateAPIKey(ctx context.Context, installationID, keyID string
 	if n == 0 {
 		return nil, "", ErrAPIKeyNotFound
 	}
-	key, raw, err := s.IssueAPIKey(ctx, installationID, target.Name, createdBy)
+	key, raw, err := s.IssueScopedAPIKey(ctx, installationID, target.Scope, target.Name, createdBy)
 	if err != nil {
 		return nil, "", err
 	}
@@ -352,8 +364,9 @@ func (s *Service) SetInstallationContentCaptureMode(ctx context.Context, externa
 	return nil
 }
 
-// VerifyAPIKey authenticates a raw bearer token against the cache then Postgres,
-// returning ErrInvalidPrefix/ErrInvalidToken on failure. The returned
+// VerifyAPIKey authenticates a raw bearer token for the data plane against the
+// cache then Postgres, returning ErrInvalidPrefix/ErrInvalidToken on failure and
+// ErrWrongKeyScope for a key that isn't routing-scoped. The returned
 // ExternalAPIKey slice has Plaintext populated, or nil if none exist. The
 // ClusterModelList slice carries the key's per-cluster ordered allowlists, or
 // nil when none are configured.
@@ -369,6 +382,9 @@ func (s *Service) VerifyAPIKey(ctx context.Context, rawToken string) (*Installat
 			return nil, nil, nil, nil, ErrInvalidToken
 		}
 		if cached.APIKey != nil {
+			if cached.APIKey.Scope.Normalized() != ScopeRouting {
+				return nil, nil, nil, nil, ErrWrongKeyScope
+			}
 			s.fireMarkUsed(cached.APIKey.ID)
 			return cached.Installation, cached.APIKey, cached.ExternalKeys, cached.ClusterModelLists, nil
 		}
@@ -382,6 +398,12 @@ func (s *Service) VerifyAPIKey(ctx context.Context, rawToken string) (*Installat
 			return nil, nil, nil, nil, ErrInvalidToken
 		}
 		return nil, nil, nil, nil, err
+	}
+
+	// Checked before the BYOK fetch: an analytics key must never cause provider
+	// secrets to be decrypted, let alone reach a caller.
+	if apiKey.Scope.Normalized() != ScopeRouting {
+		return nil, nil, nil, nil, ErrWrongKeyScope
 	}
 
 	var externalKeys []*ExternalAPIKey

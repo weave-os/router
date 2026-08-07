@@ -60,6 +60,7 @@ func toAuthAPIKey(row sqlc.RouterModelRouterAPIKey) *auth.APIKey {
 		KeyPrefix:      row.KeyPrefix,
 		KeyHash:        row.KeyHash,
 		KeySuffix:      row.KeySuffix,
+		Scope:          auth.APIKeyScope(row.Scope),
 		LastUsedAt:     timestampPtr(row.LastUsedAt),
 		CreatedAt:      timestampOrZero(row.CreatedAt),
 		DeletedAt:      timestampPtr(row.DeletedAt),

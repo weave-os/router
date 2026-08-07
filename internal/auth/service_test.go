@@ -22,6 +22,10 @@ type fakeAPIKeyRepository struct {
 	byHash   map[string]fakeKeyRow
 	override error
 
+	// echoCreate makes Create persist and echo back the params instead of
+	// erroring, for tests that exercise issuance rather than verification.
+	echoCreate bool
+
 	// markUsedPanic, when true, causes MarkUsed to panic so fireMarkUsed recovery can be exercised.
 	markUsedPanic bool
 
@@ -43,7 +47,20 @@ type fakeKeyRow struct {
 }
 
 func (f *fakeAPIKeyRepository) Create(ctx context.Context, params auth.CreateAPIKeyParams) (*auth.APIKey, error) {
-	return nil, errors.New("not used by these tests")
+	if !f.echoCreate {
+		return nil, errors.New("not used by these tests")
+	}
+	return &auth.APIKey{
+		ID:             params.ExternalID,
+		InstallationID: params.InstallationID,
+		ExternalID:     params.ExternalID,
+		Name:           params.Name,
+		KeyPrefix:      params.KeyPrefix,
+		KeyHash:        params.KeyHash,
+		KeySuffix:      params.KeySuffix,
+		Scope:          params.Scope,
+		CreatedBy:      params.CreatedBy,
+	}, nil
 }
 
 func (f *fakeAPIKeyRepository) GetActiveByHashWithInstallation(ctx context.Context, keyHash string) (*auth.APIKey, *auth.Installation, error) {

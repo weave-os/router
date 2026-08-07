@@ -17,12 +17,16 @@ type apiKeyResponse struct {
 	Name       *string    `json:"name"`
 	KeyPrefix  string     `json:"key_prefix"`
 	KeySuffix  string     `json:"key_suffix"`
+	Scope      string     `json:"scope"`
 	LastUsedAt *time.Time `json:"last_used_at"`
 	CreatedAt  time.Time  `json:"created_at"`
 }
 
 type issueAPIKeyRequest struct {
 	Name string `json:"name"`
+	// Scope defaults to routing when omitted, so existing clients keep issuing
+	// data-plane keys.
+	Scope string `json:"scope"`
 }
 
 type issueAPIKeyResponse struct {
@@ -36,6 +40,7 @@ func toAPIKeyResponse(k *auth.APIKey) apiKeyResponse {
 		Name:       k.Name,
 		KeyPrefix:  k.KeyPrefix,
 		KeySuffix:  k.KeySuffix,
+		Scope:      string(k.Scope),
 		LastUsedAt: k.LastUsedAt,
 		CreatedAt:  k.CreatedAt,
 	}
@@ -62,7 +67,8 @@ func ListAPIKeysHandler(authSvc *auth.Service) gin.HandlerFunc {
 
 // IssueAPIKeyHandler creates a new router API key for the installation. An
 // installation may hold multiple active keys at a time; callers issue, rotate,
-// and revoke them individually.
+// and revoke them individually. The optional scope picks between a routing
+// (rk_) key and a read-only analytics (ra_) key.
 func IssueAPIKeyHandler(authSvc *auth.Service) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		installation, ok := resolveInstallation(c, authSvc)
@@ -75,8 +81,16 @@ func IssueAPIKeyHandler(authSvc *auth.Service) gin.HandlerFunc {
 		if req.Name != "" {
 			name = &req.Name
 		}
-		key, rawToken, err := authSvc.IssueAPIKey(c.Request.Context(), installation.ID, name, nil)
+		scope := auth.ScopeRouting
+		if req.Scope != "" {
+			scope = auth.APIKeyScope(req.Scope)
+		}
+		key, rawToken, err := authSvc.IssueScopedAPIKey(c.Request.Context(), installation.ID, scope, name, nil)
 		if err != nil {
+			if errors.Is(err, auth.ErrInvalidKeyScope) {
+				c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "Unknown key scope."})
+				return
+			}
 			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Failed to issue API key."})
 			return
 		}

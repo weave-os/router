@@ -232,6 +232,8 @@ func handleAuthError(c *gin.Context, err error) {
 		logger.Debug("Auth rejected: invalid bearer prefix (expected rk_...)")
 	case errors.Is(err, auth.ErrInvalidToken):
 		logger.Debug("Auth rejected: bearer token did not match an active key")
+	case errors.Is(err, auth.ErrWrongKeyScope):
+		logger.Debug("Auth rejected: bearer key scope does not cover this surface")
 	default:
 		// Infra failure — not a bad key. 503 so clients retry instead of treating it as terminal.
 		logger.Error("Auth check errored", "err", err)

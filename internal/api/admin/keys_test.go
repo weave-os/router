@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -40,6 +41,7 @@ func (f *fakeAPIKeyRepository) Create(_ context.Context, params auth.CreateAPIKe
 		KeyPrefix:      params.KeyPrefix,
 		KeyHash:        params.KeyHash,
 		KeySuffix:      params.KeySuffix,
+		Scope:          params.Scope,
 		CreatedBy:      params.CreatedBy,
 		CreatedAt:      time.Now(),
 	}
@@ -165,6 +167,77 @@ func TestIssueAPIKeyHandler_ReturnsTokenMatchingFingerprint(t *testing.T) {
 		"the returned key_suffix must match the fingerprint derived from the raw token")
 	assert.True(t, auth.HasAPIKeyPrefix(resp.Token),
 		"issued router keys must carry the rk_ prefix")
+}
+
+func TestIssueAPIKeyHandler_ScopeSelectsCredentialKind(t *testing.T) {
+	tests := []struct {
+		name       string
+		bodyScope  string
+		wantScope  string
+		wantPrefix string
+	}{
+		{"defaults to routing", "", "routing", auth.APIKeyPrefix + "_"},
+		{"analytics", "analytics_read", "analytics_read", auth.AnalyticsAPIKeyPrefix + "_"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc := newAuthServiceForKeyTests(&fakeAPIKeyRepository{}, nil)
+
+			body, _ := json.Marshal(map[string]string{"scope": tt.bodyScope})
+			req := httptest.NewRequest(http.MethodPost, "/admin/v1/keys", bytes.NewReader(body))
+			req.Header.Set("Content-Type", "application/json")
+			rec := httptest.NewRecorder()
+			apiKeysEngine(svc).ServeHTTP(rec, req)
+
+			require.Equal(t, http.StatusCreated, rec.Code)
+			var resp struct {
+				Key struct {
+					Scope string `json:"scope"`
+				} `json:"key"`
+				Token string `json:"token"`
+			}
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			assert.Equal(t, tt.wantScope, resp.Key.Scope)
+			assert.True(t, strings.HasPrefix(resp.Token, tt.wantPrefix),
+				"token %q must be fronted by %q", resp.Token, tt.wantPrefix)
+		})
+	}
+}
+
+func TestIssueAPIKeyHandler_RejectsUnknownScope(t *testing.T) {
+	svc := newAuthServiceForKeyTests(&fakeAPIKeyRepository{}, nil)
+
+	body, _ := json.Marshal(map[string]string{"scope": "admin"})
+	req := httptest.NewRequest(http.MethodPost, "/admin/v1/keys", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	apiKeysEngine(svc).ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusBadRequest, rec.Code,
+		"an unrecognized scope must fail loudly rather than quietly minting a routing key")
+}
+
+// A rotated analytics key must come back as an analytics key; carrying forward
+// only the name would hand the ETL job a spend-capable credential.
+func TestRotateAPIKeyHandler_PreservesScope(t *testing.T) {
+	svc := newAuthServiceForKeyTests(&fakeAPIKeyRepository{}, nil)
+	oldKey, _, err := svc.IssueScopedAPIKey(context.Background(), testInstallationID, auth.ScopeAnalyticsRead, nil, nil)
+	require.NoError(t, err)
+
+	req := httptest.NewRequest(http.MethodPost, "/admin/v1/keys/"+oldKey.ID+"/rotate", nil)
+	rec := httptest.NewRecorder()
+	apiKeysEngine(svc).ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusCreated, rec.Code)
+	var resp struct {
+		Key struct {
+			Scope string `json:"scope"`
+		} `json:"key"`
+		Token string `json:"token"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	assert.Equal(t, string(auth.ScopeAnalyticsRead), resp.Key.Scope)
+	assert.True(t, strings.HasPrefix(resp.Token, auth.AnalyticsAPIKeyPrefix+"_"))
 }
 
 func TestRotateAPIKeyHandler_SoftDeletesOldKeyAndIssuesNew(t *testing.T) {

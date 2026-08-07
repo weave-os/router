@@ -1,3 +1,5 @@
+-- Creates a router API key. scope decides what the credential can do:
+-- 'routing' proxies inference (and can spend), 'analytics_read' is read-only.
 -- name: CreateModelRouterAPIKey :one
 INSERT INTO router.model_router_api_keys (
     installation_id,
@@ -6,7 +8,8 @@ INSERT INTO router.model_router_api_keys (
     key_prefix,
     key_hash,
     key_suffix,
-    created_by
+    created_by,
+    scope
 )
 VALUES (
     @installation_id::uuid,
@@ -15,7 +18,8 @@ VALUES (
     @key_prefix::varchar,
     @key_hash::varchar,
     @key_suffix::varchar,
-    @created_by
+    @created_by,
+    @scope::varchar
 )
 RETURNING *;
 

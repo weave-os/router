@@ -54,6 +54,8 @@ type RouterModelRouterAPIKey struct {
 	CreatedBy         *string
 	SpendCapUsdMicros *int64
 	SpentUsdMicros    int64
+	// routing = rk_ data-plane key (can proxy and spend); analytics_read = ra_ export key (read-only, non-billable)
+	Scope string
 }
 
 // Customer-owned provider API keys for BYOK routing

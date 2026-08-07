@@ -90,11 +90,16 @@ export interface MetricsDetails {
   rows: MetricsDetailRow[];
 }
 
+// "routing" keys (rk_) proxy inference; "analytics_read" keys (ra_) are
+// read-only export credentials that cannot route or spend.
+export type APIKeyScope = "routing" | "analytics_read";
+
 export interface APIKey {
   id: string;
   name: string | null;
   key_prefix: string;
   key_suffix: string;
+  scope: APIKeyScope;
   last_used_at: string | null;
   created_at: string;
 }
@@ -191,10 +196,10 @@ export const api = {
   },
   keys: {
     list: () => request<{ keys: APIKey[] }>("/keys"),
-    issue: (name?: string) =>
+    issue: (name?: string, scope: APIKeyScope = "routing") =>
       request<IssueAPIKeyResponse>("/keys", {
         method: "POST",
-        body: JSON.stringify({ name: name ?? "" }),
+        body: JSON.stringify({ name: name ?? "", scope }),
       }),
     // Soft-deletes the named key and issues a replacement in one round-trip.
     // The previous token stops working immediately. Carries forward the

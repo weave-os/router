@@ -12,6 +12,7 @@ import { Appearance, Intent } from "@/components/types";
 import {
   api,
   type APIKey,
+  type APIKeyScope,
   type DeployedModel,
   type ExternalKey,
   type RouterConfig,
@@ -166,6 +167,19 @@ function compareKeysByName(a: APIKey, b: APIKey): number {
   return a.name.localeCompare(b.name);
 }
 
+const SCOPE_OPTIONS: { value: APIKeyScope; label: string; hint: string }[] = [
+  { value: "routing", label: "Routing", hint: "Proxies inference through the router." },
+  {
+    value: "analytics_read",
+    label: "Analytics (read-only)",
+    hint: "Reads the analytics export. Cannot route requests or spend.",
+  },
+];
+
+function scopeLabel(scope: APIKeyScope): string {
+  return SCOPE_OPTIONS.find(o => o.value === scope)?.label ?? scope;
+}
+
 // Case-insensitive substring match over what the row actually shows: the label
 // ("Unnamed key" when there's no name), the raw prefix/suffix (so the last few
 // characters of a token match), and the exact "prefix…suffix" fingerprint that's
@@ -184,6 +198,7 @@ function RouterKeysPanel() {
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [name, setName] = useState("");
+  const [scope, setScope] = useState<APIKeyScope>("routing");
   const [creating, setCreating] = useState(false);
   const [rotating, setRotating] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
@@ -221,7 +236,7 @@ function RouterKeysPanel() {
     e.preventDefault();
     setCreating(true);
     try {
-      const res = await api.keys.issue(name.trim() || undefined);
+      const res = await api.keys.issue(name.trim() || undefined, scope);
       setNewToken(res.token);
       setName("");
       load();
@@ -306,29 +321,51 @@ function RouterKeysPanel() {
             <Card.Title variant="h4">Issue a new key</Card.Title>
           </Card.Header>
           <Card.Content>
-            <form onSubmit={handleCreate} className="flex items-end gap-3" autoComplete="off">
-              <div className="flex-1">
-                <Input
-                  label="Name (optional)"
-                  name="router-key-label"
-                  autoComplete="off"
-                  data-1p-ignore
-                  data-lpignore="true"
-                  data-form-type="other"
-                  placeholder="My API key"
-                  value={name}
-                  onChange={e => setName(e.target.value)}
-                />
+            <form onSubmit={handleCreate} className="flex flex-col gap-3" autoComplete="off">
+              <div className="flex items-end gap-3">
+                <div className="flex-1">
+                  <Input
+                    label="Name (optional)"
+                    name="router-key-label"
+                    autoComplete="off"
+                    data-1p-ignore
+                    data-lpignore="true"
+                    data-form-type="other"
+                    placeholder="My API key"
+                    value={name}
+                    onChange={e => setName(e.target.value)}
+                  />
+                </div>
+                <Button
+                  type="submit"
+                  appearance={Appearance.Filled}
+                  intent={Intent.Primary}
+                  className="!border-brand !bg-brand !text-white hover:!bg-brand/90"
+                  disabled={creating}
+                >
+                  {creating ? "Creating…" : "Create key"}
+                </Button>
               </div>
-              <Button
-                type="submit"
-                appearance={Appearance.Filled}
-                intent={Intent.Primary}
-                className="!border-brand !bg-brand !text-white hover:!bg-brand/90"
-                disabled={creating}
-              >
-                {creating ? "Creating…" : "Create key"}
-              </Button>
+              <div role="radiogroup" aria-label="Key scope" className="flex flex-wrap gap-2">
+                {SCOPE_OPTIONS.map(o => (
+                  <Button
+                    key={o.value}
+                    type="button"
+                    role="radio"
+                    aria-checked={scope === o.value}
+                    aria-selected={scope === o.value}
+                    size="sm"
+                    appearance={Appearance.Outlined}
+                    title={o.hint}
+                    onClick={() => setScope(o.value)}
+                  >
+                    {o.label}
+                  </Button>
+                ))}
+              </div>
+              <Text className="text-2xs text-muted-foreground">
+                {SCOPE_OPTIONS.find(o => o.value === scope)?.hint}
+              </Text>
             </form>
           </Card.Content>
         </Card>
@@ -362,8 +399,13 @@ function RouterKeysPanel() {
               {visibleKeys.map(k => (
                 <li key={k.id} className="flex items-center justify-between gap-3 px-5 py-3">
                   <div className="min-w-0 flex-1">
-                    <div className="text-xs font-medium text-foreground">
+                    <div className="flex items-center gap-2 text-xs font-medium text-foreground">
                       {k.name ?? UNNAMED_KEY_LABEL}
+                      {k.scope === "analytics_read" && (
+                        <span className="rounded bg-muted px-1.5 py-0.5 text-2xs font-normal text-muted-foreground">
+                          {scopeLabel(k.scope)}
+                        </span>
+                      )}
                     </div>
                     <p className="mt-0.5 truncate font-mono text-2xs text-muted-foreground">
                       {k.key_prefix}…{k.key_suffix}

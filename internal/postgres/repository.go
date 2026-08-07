@@ -237,6 +237,7 @@ func (r *apiKeyRepo) Create(ctx context.Context, params auth.CreateAPIKeyParams)
 		KeyHash:        params.KeyHash,
 		KeySuffix:      params.KeySuffix,
 		CreatedBy:      params.CreatedBy,
+		Scope:          string(params.Scope),
 	})
 	if err != nil {
 		return nil, err
