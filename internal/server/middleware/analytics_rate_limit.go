@@ -10,9 +10,7 @@ import (
 )
 
 // AnalyticsRequestsPerMinute is the export's per-key budget. Sized for a
-// batch ETL pull, not interactive browsing: at the 10k max page size it still
-// drains 600k rows a minute, while capping the load one misconfigured job can
-// put on the telemetry table.
+// batch ETL pull, not interactive browsing.
 const AnalyticsRequestsPerMinute = 60
 
 // analyticsLimiterCacheSize bounds the per-key limiter map; LRU eviction
@@ -22,9 +20,7 @@ const analyticsLimiterCacheSize = 1024
 
 // WithAnalyticsRateLimit throttles each analytics key to perMinute requests,
 // allowing a full minute's worth as burst so a paginating job isn't paced
-// between consecutive pages. Must run after WithAnalyticsKey, which is what
-// identifies the key. Unauthenticated requests pass through untouched; the
-// auth middleware has already rejected them.
+// between consecutive pages. Must run after WithAnalyticsKey.
 func WithAnalyticsRateLimit(perMinute int) gin.HandlerFunc {
 	if perMinute <= 0 {
 		perMinute = AnalyticsRequestsPerMinute
