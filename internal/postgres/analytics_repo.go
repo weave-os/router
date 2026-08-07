@@ -99,8 +99,7 @@ func decisionFromExportRow(row sqlc.GetRoutingDecisionsForExportRow) analytics.D
 }
 
 // savingsUSD is requested-model cost minus served-model cost. NULL when
-// neither side priced: unpriced turns persist zeros, which would otherwise
-// export as a real "saved nothing" datapoint.
+// neither side priced: unpriced turns persist zeros, not a real zero saving.
 func savingsUSD(requestedIn, requestedOut, actualIn, actualOut *int64) *float64 {
 	requested := derefInt64Zero(requestedIn) + derefInt64Zero(requestedOut)
 	actual := derefInt64Zero(actualIn) + derefInt64Zero(actualOut)
