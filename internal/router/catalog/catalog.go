@@ -161,17 +161,11 @@ func (m Model) PrimaryProvider() string {
 // pricing and dispatch for every strategy.
 var Models = []Model{
 	// --- Anthropic ---
-	// Snowflake Cortex serves part of the Claude family from inside the
-	// customer's own Snowflake account (only the models Cortex's Messages
-	// endpoint lists get a binding) and bills in Snowflake credits, not
-	// per-token dollars. Its bindings carry Anthropic's list prices as the
-	// closest available dollar proxy so EV math and telemetry stay on one
-	// scale — treat the resulting costs as indicative, not invoiced.
-	// Cache-read pricing is left unset (conservative
-	// DefaultCacheReadMultiplier) because Cortex publishes no prompt-cache
-	// discount. Cortex bindings trail Anthropic's, so they win only where
-	// Anthropic is absent from the request's enabled-provider set: the
-	// Snowflake-only deploy or BYOK installation.
+	// Snowflake Cortex bindings (only the Claude models its Messages endpoint
+	// lists) carry Anthropic list prices as a dollar proxy — Cortex bills in
+	// credits, so those costs are indicative, not invoiced. No cache-read
+	// discount is published. They trail Anthropic's binding, so they win only
+	// where Anthropic is absent from the enabled-provider set.
 	//
 	// $1/$5 per the published table (the $0.80/$4 rate that used to sit here
 	// is Haiku 3.5's row — Haiku 4.5 never shipped at that price).

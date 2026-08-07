@@ -317,12 +317,10 @@ func (s *Service) SetInstallationSubscriptionRoutingDisabled(ctx context.Context
 // off/hashed/full set.
 var ErrInvalidCaptureMode = errors.New("auth: invalid content capture mode")
 
-// SetInstallationContentCaptureMode persists the per-installation
-// content-capture ceiling ("off", "hashed", or "full"). Passing nil clears the
-// override so the deployment-wide mode applies. Validated here rather than
-// leaning on the column CHECK so an unrecognized value can't silently parse
-// down to "off" at request time. Invalidates the cache so the change applies on
-// the next request instead of waiting out the TTL.
+// SetInstallationContentCaptureMode persists the per-installation capture
+// ceiling ("off", "hashed", or "full"); nil clears the override. Validated here
+// rather than via the column CHECK so a bad value returns a typed error instead
+// of a 500. Invalidates the cache so the change takes effect immediately.
 func (s *Service) SetInstallationContentCaptureMode(ctx context.Context, externalID, installationID string, mode *string) error {
 	if mode != nil {
 		switch *mode {

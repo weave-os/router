@@ -55,11 +55,9 @@ const (
 	ProviderMakora     = "makora"
 	ProviderTogether   = "together"
 	ProviderXAI        = "xai"
-	// ProviderSnowflake is Snowflake Cortex REST. Its Messages surface
-	// (<base>/v1/messages) follows the Anthropic spec, so it joins
-	// FamilyAnthropic; only the credential header differs (Bearer, not
-	// x-api-key). Serves Claude models on the customer's own Snowflake
-	// account, so the base URL is per-account and has no default.
+	// ProviderSnowflake is Snowflake Cortex REST (Anthropic Messages spec, so
+	// FamilyAnthropic; Bearer auth rather than x-api-key). Base URL is
+	// per-account with no deployment default.
 	ProviderSnowflake = "snowflake"
 )
 
@@ -150,9 +148,7 @@ var APIKeyEnvVars = map[string]string{
 	ProviderMakora:     "MAKORA_API_KEY",
 	ProviderTogether:   "TOGETHER_API_KEY",
 	ProviderXAI:        "XAI_API_KEY",
-	// Snowflake's deployment-level credential is a programmatic access token
-	// (PAT), sent as a bearer. Pairs with SNOWFLAKE_BASE_URL — the account
-	// endpoint the token is scoped to.
+	// Pairs with SNOWFLAKE_BASE_URL, the account endpoint the PAT is scoped to.
 	ProviderSnowflake: "SNOWFLAKE_PAT",
 }
 
@@ -175,9 +171,8 @@ var CacheTTL = map[string]time.Duration{
 	ProviderFireworks:  5 * time.Minute,
 	ProviderBedrock:    5 * time.Minute,
 	ProviderXAI:        5 * time.Minute,
-	// Cortex fronts the same Anthropic models but publishes no prompt-cache
-	// lifetime, so it keeps the conservative minutes-scale window rather than
-	// inheriting Anthropic's 1h extended cache.
+	// Cortex publishes no prompt-cache lifetime, so it keeps the conservative
+	// window rather than inheriting Anthropic's 1h extended cache.
 	ProviderSnowflake: 5 * time.Minute,
 }
 

@@ -1,12 +1,7 @@
-// Package snowflake is the providers.Client adapter for Snowflake Cortex REST.
-//
-// Cortex's Messages surface (<base>/api/v2/cortex/v1/messages) follows the
-// Anthropic Messages spec and serves Claude models from inside the customer's
-// own Snowflake account, so this adapter is the Anthropic client configured for
-// Cortex rather than a second wire implementation. Two things differ from
-// api.anthropic.com: the credential is a Snowflake programmatic access token
-// (PAT) sent as Authorization: Bearer, and the base URL is per-account with no
-// deployment-wide default.
+// Package snowflake adapts the Anthropic Messages client for Snowflake Cortex
+// REST. Cortex's Messages surface follows the Anthropic spec; the differences
+// from api.anthropic.com are Bearer-scheme auth (a Snowflake PAT) and a
+// per-account base URL with no deployment-wide default.
 package snowflake
 
 import (

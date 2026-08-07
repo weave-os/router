@@ -1,5 +1,8 @@
 BEGIN;
 
+ALTER TABLE router.model_router_installations
+  DROP COLUMN content_capture_mode;
+
 -- Narrowing the CHECK fails while snowflake rows exist. Destructive by
 -- necessity: the rolled-back schema has no legal representation for them.
 DELETE FROM router.model_router_external_api_keys
