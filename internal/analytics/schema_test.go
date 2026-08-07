@@ -10,9 +10,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// The schema endpoint is the machine-readable contract a consumer generates
-// warehouse DDL from, so a field added to Decision without a matching entry
-// would silently ship an undocumented column.
+// The schema endpoint is the machine-readable contract; a Decision field without
+// a Schema entry would ship undocumented.
 func TestSchemaMatchesDecisionWireShape(t *testing.T) {
 	decision := reflect.TypeOf(analytics.Decision{})
 	names := make([]string, 0, decision.NumField())

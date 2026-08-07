@@ -3,8 +3,7 @@ package analytics
 import "workweave/router/internal/router/catalog"
 
 // ModelPrice is one model's export-facing price entry. Published so a consumer
-// can re-derive the cost columns itself instead of taking the router's savings
-// number on faith.
+// can recompute cost columns independently.
 type ModelPrice struct {
 	ID            string          `json:"id"`
 	Tier          string          `json:"tier"`
