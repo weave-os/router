@@ -197,9 +197,8 @@ func (s *Service) ListExternalAPIKeys(ctx context.Context, installationID string
 	return s.externalKeys.GetForInstallation(ctx, installationID)
 }
 
-// UpsertExternalAPIKey replaces any existing key for the provider and inserts a
-// new one. baseURL overrides the provider's deployment endpoint for this key;
-// nil or empty leaves the deployment default in place.
+// UpsertExternalAPIKey replaces the provider's key for the installation.
+// baseURL overrides the provider's deployment endpoint; nil leaves the default in place.
 func (s *Service) UpsertExternalAPIKey(ctx context.Context, installationID, provider, rawKey string, name *string, baseURL *string, createdBy *string) (*ExternalAPIKey, error) {
 	normalizedBaseURL, err := NormalizeBaseURL(baseURL)
 	if err != nil {
