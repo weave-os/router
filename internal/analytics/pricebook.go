@@ -22,11 +22,9 @@ type ProviderPrice struct {
 	CacheReadMultiplier float64 `json:"cache_read_multiplier"`
 }
 
-// PriceBook returns current prices for every model the router knows.
-//
-// These are today's prices, not the prices in force when a given row was
-// recorded. Re-pricing historical rows is only exact for periods with no price
-// change; the per-row cost columns remain the authoritative record.
+// PriceBook returns current prices for every model the router knows. These are
+// today's prices, not those in force when a given row was recorded; per-row
+// cost columns remain the authoritative record.
 func PriceBook() []ModelPrice {
 	out := make([]ModelPrice, 0, len(catalog.Models))
 	for _, m := range catalog.Models {

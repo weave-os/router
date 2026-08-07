@@ -78,9 +78,8 @@ const (
 // hmmRosterSource, when non-nil, mounts GET /v1/router/hmm-roster for the
 // control plane's cluster allowlist UI.
 //
-// analyticsSvc, when non-nil, mounts the /v1/analytics/* export surface. nil
-// (tests, deployments without telemetry storage) leaves it unmounted rather
-// than serving an endpoint that can only fail.
+// analyticsSvc, when non-nil, mounts the /v1/analytics/* export surface;
+// nil leaves it unmounted (tests, deployments without telemetry storage).
 func Register(engine *gin.Engine, authSvc *auth.Service, proxySvc *proxy.Service, deployedModels admin.DeployedModelsSource, hmmModels admin.HMMRosterSource, mode DeploymentMode, billingSvc *billing.Service, readinessChecker admin.HealthChecker, hmmRosterSource policy.RosterSource, analyticsSvc *analytics.Service) {
 	// Managed mode: BYOK is opt-in per installation (see WithAuth).
 	byokRequiresOptIn := mode == DeploymentModeManaged

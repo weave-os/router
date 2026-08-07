@@ -92,9 +92,7 @@ type Repository interface {
 type Page struct {
 	Decisions []Decision
 	// NextCursor is returned even on the final page so a drained consumer can
-	// persist it and resume from the same point once new rows land. It is
-	// empty only when the page is empty, where the caller keeps the cursor it
-	// already holds.
+	// persist it and resume once new rows land. Empty only when the page is empty.
 	NextCursor string
 	HasMore    bool
 }
