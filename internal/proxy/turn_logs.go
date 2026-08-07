@@ -31,14 +31,12 @@ const (
 	CaptureFull
 )
 
-// InstallationCaptureModeContextKey is the context key for the authed
-// installation's content-capture ceiling. Carried as ContentCaptureMode; absent
-// when the installation set no override. See effectiveCaptureMode.
+// InstallationCaptureModeContextKey carries the installation capture ceiling
+// (ContentCaptureMode); absent when no override is set.
 type InstallationCaptureModeContextKey struct{}
 
-// effectiveCaptureMode returns the stricter of the deployment-wide setting
-// and the per-installation override. The minimum wins so a tenant can only
-// tighten capture, never widen it past the deployment ceiling.
+// effectiveCaptureMode returns the stricter of the deployment-wide setting and
+// the per-installation override (minimum wins, so a tenant can only tighten).
 func (s *Service) effectiveCaptureMode(ctx context.Context) ContentCaptureMode {
 	override, ok := ctx.Value(InstallationCaptureModeContextKey{}).(ContentCaptureMode)
 	if !ok {

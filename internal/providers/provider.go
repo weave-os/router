@@ -55,9 +55,8 @@ const (
 	ProviderMakora     = "makora"
 	ProviderTogether   = "together"
 	ProviderXAI        = "xai"
-	// ProviderAnthropicGateway is an enterprise gateway serving Claude over the
-	// Anthropic Messages spec (so FamilyAnthropic) with Bearer auth rather than
-	// x-api-key. Its endpoint is per-tenant, with no deployment default.
+	// ProviderAnthropicGateway is an Anthropic-spec enterprise gateway using
+	// Bearer auth; its endpoint is per-tenant with no deployment default.
 	ProviderAnthropicGateway = "anthropic_gateway"
 )
 

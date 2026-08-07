@@ -20,10 +20,7 @@ import (
 
 const DefaultBaseURL = "https://api.anthropic.com"
 
-// AuthScheme selects the header the resolved credential is presented in.
-// Anthropic-spec upstreams agree on the body but not on the credential:
-// api.anthropic.com reads x-api-key, gateways in front of it read
-// Authorization: Bearer.
+// AuthScheme selects which credential header an Anthropic-spec upstream expects.
 type AuthScheme int
 
 const (
@@ -71,9 +68,8 @@ func NewClient(apiKey, baseURL string, opts ...Option) *Client {
 	for _, opt := range opts {
 		opt(c)
 	}
-	// Only api.anthropic.com has a sensible default endpoint. A Bearer-scheme
-	// gateway with no base URL must stay empty and fail, never silently ship a
-	// third party's token to Anthropic.
+	// Bearer gateways have no safe default; stay empty so a misconfigured client
+	// fails rather than silently hitting api.anthropic.com.
 	if c.baseURL == "" && c.authScheme == AuthAPIKeyHeader {
 		c.baseURL = DefaultBaseURL
 	}
