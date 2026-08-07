@@ -18,6 +18,7 @@ import (
 	"syscall"
 	"time"
 
+	"workweave/router/internal/analytics"
 	"workweave/router/internal/api/admin"
 	"workweave/router/internal/auth"
 	"workweave/router/internal/billing"
@@ -903,7 +904,8 @@ func main() {
 	// Lets the admin model-selection handler surface deployed models; nil
 	// fallback keeps non-cluster routers bootable.
 	deployedModels, _ := rtr.(*cluster.Multiversion)
-	server.Register(engine, authSvc, proxySvc, deployedModels, hmmRosterModels, deploymentMode, billingSvc, hmmReadinessChecker, hmmRosterSource)
+	analyticsSvc := analytics.NewService(repo.Analytics, time.Now)
+	server.Register(engine, authSvc, proxySvc, deployedModels, hmmRosterModels, deploymentMode, billingSvc, hmmReadinessChecker, hmmRosterSource, analyticsSvc)
 
 	srv := &http.Server{
 		Addr:    ":" + config.GetOr("PORT", "8080"),

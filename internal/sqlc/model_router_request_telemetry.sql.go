@@ -71,6 +71,245 @@ func (q *Queries) GetRequestForFeedback(ctx context.Context, arg GetRequestForFe
 	return i, err
 }
 
+const getRoutingDecisionsForExport = `-- name: GetRoutingDecisionsForExport :many
+SELECT
+    t.id,
+    t.created_at,
+    t.timestamp,
+    t.request_id,
+    t.trace_id,
+    t.session_id,
+    t.device_id,
+    t.client_app,
+    t.turn_type,
+    t.router_user_id,
+    u.email AS user_email,
+    u.claude_account_uuid AS user_account_uuid,
+    t.requested_model,
+    t.decision_model,
+    t.decision_provider,
+    t.candidate_models,
+    t.chosen_score,
+    t.decision_reason,
+    t.sticky_hit,
+    t.failover_used,
+    t.cross_format,
+    t.estimated_input_tokens,
+    t.input_tokens,
+    t.output_tokens,
+    t.cache_creation_tokens,
+    t.cache_read_tokens,
+    t.requested_input_cost_usd,
+    t.requested_output_cost_usd,
+    t.actual_input_cost_usd,
+    t.actual_output_cost_usd,
+    t.route_latency_ms,
+    t.upstream_latency_ms,
+    t.total_latency_ms,
+    t.ttft_ms,
+    t.upstream_status_code,
+    t.upstream_finish_reason,
+    t.stop_reason,
+    t.tool_use_blocks,
+    t.invalid_tool_args_blocks
+FROM router.model_router_request_telemetry t
+LEFT JOIN router.model_router_users u
+    ON u.id = t.router_user_id
+    AND u.deleted_at IS NULL
+WHERE t.installation_id = $1::uuid
+  AND t.span_type = 'router.upstream'
+  AND t.created_at >= $2::timestamptz
+  AND t.created_at < $3::timestamptz
+  AND (
+    $4::timestamptz IS NULL
+    OR (t.created_at, t.id) > ($4::timestamptz, $5::uuid)
+  )
+ORDER BY t.created_at ASC, t.id ASC
+LIMIT $6::int
+`
+
+type GetRoutingDecisionsForExportParams struct {
+	InstallationID  uuid.UUID
+	FromTime        pgtype.Timestamptz
+	ToTime          pgtype.Timestamptz
+	CursorCreatedAt pgtype.Timestamptz
+	CursorID        pgtype.UUID
+	RowLimit        int32
+}
+
+type GetRoutingDecisionsForExportRow struct {
+	ID                     uuid.UUID
+	CreatedAt              pgtype.Timestamptz
+	Timestamp              pgtype.Timestamptz
+	RequestID              string
+	TraceID                string
+	SessionID              *string
+	DeviceID               *string
+	ClientApp              *string
+	TurnType               *string
+	RouterUserID           pgtype.UUID
+	UserEmail              *string
+	UserAccountUUID        pgtype.UUID
+	RequestedModel         *string
+	DecisionModel          *string
+	DecisionProvider       *string
+	CandidateModels        []string
+	ChosenScore            *float64
+	DecisionReason         *string
+	StickyHit              *bool
+	FailoverUsed           *bool
+	CrossFormat            *bool
+	EstimatedInputTokens   *int32
+	InputTokens            *int32
+	OutputTokens           *int32
+	CacheCreationTokens    *int32
+	CacheReadTokens        *int32
+	RequestedInputCostUsd  *int64
+	RequestedOutputCostUsd *int64
+	ActualInputCostUsd     *int64
+	ActualOutputCostUsd    *int64
+	RouteLatencyMs         *int64
+	UpstreamLatencyMs      *int64
+	TotalLatencyMs         *int64
+	TtftMs                 *int64
+	UpstreamStatusCode     *int32
+	UpstreamFinishReason   *string
+	StopReason             *string
+	ToolUseBlocks          *int32
+	InvalidToolArgsBlocks  *int32
+}
+
+// Returns raw routing decisions for the analytics export, one row per upstream
+// action, ordered by the (created_at, id) keyset the export cursor pages on.
+// created_at (ingest time) rather than timestamp (event time) is the ordering
+// key: rows are written off the request path and land out of event-time order,
+// so only ingest order can guarantee "resume here and miss nothing".
+// cursor_created_at / cursor_id are NULL on the first page and carry the last
+// row of the previous page thereafter. The columns selected are the tier-b
+// export set; scorer internals (cluster_ids, candidate_scores, propensity,
+// alpha_breakdown, policy artifacts) and credential fragments are withheld.
+//
+//	SELECT
+//	    t.id,
+//	    t.created_at,
+//	    t.timestamp,
+//	    t.request_id,
+//	    t.trace_id,
+//	    t.session_id,
+//	    t.device_id,
+//	    t.client_app,
+//	    t.turn_type,
+//	    t.router_user_id,
+//	    u.email AS user_email,
+//	    u.claude_account_uuid AS user_account_uuid,
+//	    t.requested_model,
+//	    t.decision_model,
+//	    t.decision_provider,
+//	    t.candidate_models,
+//	    t.chosen_score,
+//	    t.decision_reason,
+//	    t.sticky_hit,
+//	    t.failover_used,
+//	    t.cross_format,
+//	    t.estimated_input_tokens,
+//	    t.input_tokens,
+//	    t.output_tokens,
+//	    t.cache_creation_tokens,
+//	    t.cache_read_tokens,
+//	    t.requested_input_cost_usd,
+//	    t.requested_output_cost_usd,
+//	    t.actual_input_cost_usd,
+//	    t.actual_output_cost_usd,
+//	    t.route_latency_ms,
+//	    t.upstream_latency_ms,
+//	    t.total_latency_ms,
+//	    t.ttft_ms,
+//	    t.upstream_status_code,
+//	    t.upstream_finish_reason,
+//	    t.stop_reason,
+//	    t.tool_use_blocks,
+//	    t.invalid_tool_args_blocks
+//	FROM router.model_router_request_telemetry t
+//	LEFT JOIN router.model_router_users u
+//	    ON u.id = t.router_user_id
+//	    AND u.deleted_at IS NULL
+//	WHERE t.installation_id = $1::uuid
+//	  AND t.span_type = 'router.upstream'
+//	  AND t.created_at >= $2::timestamptz
+//	  AND t.created_at < $3::timestamptz
+//	  AND (
+//	    $4::timestamptz IS NULL
+//	    OR (t.created_at, t.id) > ($4::timestamptz, $5::uuid)
+//	  )
+//	ORDER BY t.created_at ASC, t.id ASC
+//	LIMIT $6::int
+func (q *Queries) GetRoutingDecisionsForExport(ctx context.Context, arg GetRoutingDecisionsForExportParams) ([]GetRoutingDecisionsForExportRow, error) {
+	rows, err := q.db.Query(ctx, getRoutingDecisionsForExport,
+		arg.InstallationID,
+		arg.FromTime,
+		arg.ToTime,
+		arg.CursorCreatedAt,
+		arg.CursorID,
+		arg.RowLimit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetRoutingDecisionsForExportRow
+	for rows.Next() {
+		var i GetRoutingDecisionsForExportRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.CreatedAt,
+			&i.Timestamp,
+			&i.RequestID,
+			&i.TraceID,
+			&i.SessionID,
+			&i.DeviceID,
+			&i.ClientApp,
+			&i.TurnType,
+			&i.RouterUserID,
+			&i.UserEmail,
+			&i.UserAccountUUID,
+			&i.RequestedModel,
+			&i.DecisionModel,
+			&i.DecisionProvider,
+			&i.CandidateModels,
+			&i.ChosenScore,
+			&i.DecisionReason,
+			&i.StickyHit,
+			&i.FailoverUsed,
+			&i.CrossFormat,
+			&i.EstimatedInputTokens,
+			&i.InputTokens,
+			&i.OutputTokens,
+			&i.CacheCreationTokens,
+			&i.CacheReadTokens,
+			&i.RequestedInputCostUsd,
+			&i.RequestedOutputCostUsd,
+			&i.ActualInputCostUsd,
+			&i.ActualOutputCostUsd,
+			&i.RouteLatencyMs,
+			&i.UpstreamLatencyMs,
+			&i.TotalLatencyMs,
+			&i.TtftMs,
+			&i.UpstreamStatusCode,
+			&i.UpstreamFinishReason,
+			&i.StopReason,
+			&i.ToolUseBlocks,
+			&i.InvalidToolArgsBlocks,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getTelemetryBySessionAsc = `-- name: GetTelemetryBySessionAsc :one
 SELECT
     request_id,

@@ -19,6 +19,7 @@ type Repository struct {
 	ClusterModelLists auth.ClusterModelListRepository
 	Telemetry         *TelemetryRepo
 	Feedback          *FeedbackRepo
+	Analytics         *AnalyticsRepo
 }
 
 // NewRepository constructs a Repository. Pass auth.NoOpEncryptor{} for local dev without a keyset.
@@ -31,6 +32,7 @@ func NewRepository(tx sqlc.DBTX, encryptor auth.Encryptor) *Repository {
 		ClusterModelLists: NewClusterModelListRepo(tx),
 		Telemetry:         NewTelemetryRepo(tx),
 		Feedback:          NewFeedbackRepo(tx),
+		Analytics:         NewAnalyticsRepo(tx),
 	}
 }
 

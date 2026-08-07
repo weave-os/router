@@ -33,6 +33,9 @@ Three concentric layers. Imports flow inward only.
 |  |  internal/api/feedback    (/f/<token> no-login feedback     |  |
 |  |                            page; deliberately no auth       |  |
 |  |                            middleware)                      |  |
+|  |  internal/api/analytics   (/v1/analytics/* read-only        |  |
+|  |                            routing-decision export;         |  |
+|  |                            ra_ keys only)                   |  |
 |  |  internal/server          (route registration)              |  |
 |  |  internal/server/middleware (auth, timeout, cluster/embed   |  |
 |  |                              overrides, OTel timing)        |  |
@@ -67,6 +70,12 @@ Three concentric layers. Imports flow inward only.
 |  |  |  internal/feedback  (pure HMAC signer for the         |  |  |
 |  |  |                      no-login feedback-link token;    |  |  |
 |  |  |                      no I/O)                            |  |  |
+|  |  |  internal/analytics (routing-decision export domain:  |  |  |
+|  |  |                      Decision row shape, keyset       |  |  |
+|  |  |                      cursor, schema + price book;     |  |  |
+|  |  |                      Service + Repository iface,      |  |  |
+|  |  |                      Postgres impl in                 |  |  |
+|  |  |                      internal/postgres)                |  |  |
 |  |  |  internal/proxy     (routing/dispatch service:        |  |  |
 |  |  |                      Route, ProxyMessages,            |  |  |
 |  |  |                      ProxyOpenAIChatCompletion,       |  |  |
@@ -130,6 +139,7 @@ Pick by responsibility, then read that package's `CLAUDE.md`:
 | Routing / dispatch / per-action orchestration | `internal/proxy` (method on `*Service`) | [internal/proxy/CLAUDE.md](internal/proxy/CLAUDE.md) |
 | Balance check / inference debit | `internal/billing` (method on `*Service`) | — |
 | Feedback-link token signing (no I/O) | `internal/feedback` | — |
+| Routing-decision export row shape / cursor / schema | `internal/analytics` | — |
 | Cross-format wire conversion (no I/O) | `internal/translate` | [internal/translate/CLAUDE.md](internal/translate/CLAUDE.md) |
 | New upstream provider | `internal/providers/<name>/` | [internal/providers/CLAUDE.md](internal/providers/CLAUDE.md) |
 | New `Router` implementation | `internal/router/<name>/` | [internal/router/CLAUDE.md](internal/router/CLAUDE.md) |

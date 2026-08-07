@@ -506,3 +506,68 @@ WHERE installation_id = @installation_id::uuid
   AND span_type = 'router.upstream'
 ORDER BY timestamp DESC, request_id DESC
 LIMIT 1 OFFSET @turn_offset::int;
+
+-- Returns raw routing decisions for the analytics export, one row per upstream
+-- action, ordered by the (created_at, id) keyset the export cursor pages on.
+-- created_at (ingest time) rather than timestamp (event time) is the ordering
+-- key: rows are written off the request path and land out of event-time order,
+-- so only ingest order can guarantee "resume here and miss nothing".
+-- cursor_created_at / cursor_id are NULL on the first page and carry the last
+-- row of the previous page thereafter. The columns selected are the tier-b
+-- export set; scorer internals (cluster_ids, candidate_scores, propensity,
+-- alpha_breakdown, policy artifacts) and credential fragments are withheld.
+-- name: GetRoutingDecisionsForExport :many
+SELECT
+    t.id,
+    t.created_at,
+    t.timestamp,
+    t.request_id,
+    t.trace_id,
+    t.session_id,
+    t.device_id,
+    t.client_app,
+    t.turn_type,
+    t.router_user_id,
+    u.email AS user_email,
+    u.claude_account_uuid AS user_account_uuid,
+    t.requested_model,
+    t.decision_model,
+    t.decision_provider,
+    t.candidate_models,
+    t.chosen_score,
+    t.decision_reason,
+    t.sticky_hit,
+    t.failover_used,
+    t.cross_format,
+    t.estimated_input_tokens,
+    t.input_tokens,
+    t.output_tokens,
+    t.cache_creation_tokens,
+    t.cache_read_tokens,
+    t.requested_input_cost_usd,
+    t.requested_output_cost_usd,
+    t.actual_input_cost_usd,
+    t.actual_output_cost_usd,
+    t.route_latency_ms,
+    t.upstream_latency_ms,
+    t.total_latency_ms,
+    t.ttft_ms,
+    t.upstream_status_code,
+    t.upstream_finish_reason,
+    t.stop_reason,
+    t.tool_use_blocks,
+    t.invalid_tool_args_blocks
+FROM router.model_router_request_telemetry t
+LEFT JOIN router.model_router_users u
+    ON u.id = t.router_user_id
+    AND u.deleted_at IS NULL
+WHERE t.installation_id = @installation_id::uuid
+  AND t.span_type = 'router.upstream'
+  AND t.created_at >= @from_time::timestamptz
+  AND t.created_at < @to_time::timestamptz
+  AND (
+    sqlc.narg('cursor_created_at')::timestamptz IS NULL
+    OR (t.created_at, t.id) > (sqlc.narg('cursor_created_at')::timestamptz, sqlc.narg('cursor_id')::uuid)
+  )
+ORDER BY t.created_at ASC, t.id ASC
+LIMIT @row_limit::int;

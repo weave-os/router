@@ -10,12 +10,13 @@ Presentation layer. Handlers adapt HTTP ↔ Service. Read [root CLAUDE.md](../..
 - `anthropic/` — Anthropic Messages surface (`/v1/messages`, passthrough, `/v1/route`)
 - `openai/` — OpenAI Chat Completions (`/v1/chat/completions`)
 - `gemini/` — Gemini native (`/v1beta/models/:modelAction`)
+- `analytics/` — read-only routing-decision export (`/v1/analytics/routing-decisions`, `/models`, `/schema`). Authed by `ra_` analytics keys via `middleware.WithAnalyticsKey` **only** — no `WithAuth`, no balance check, no spend cap, since nothing here can route or spend.
 - `feedback/` — no-login feedback-link surface (`/f/<token>`, rating submit). The token itself (signed via [`internal/feedback`](../feedback)) is the sole credential, so this is the one subpackage that **deliberately carries no auth middleware** — do not add `WithAuth`/`WithAdminOnly` here; that would break the whole point of a shareable no-login link.
 
 ## Import rules
 
 - May import `internal/auth` (Service handle + middleware-context types) and `internal/proxy` (routing/dispatch service handle).
-- May import `internal/observability` for logging, `internal/providers` for shared sentinel errors, `internal/router/cluster` for `ErrClusterUnavailable` sentinel + `DeployedModelsSource` interface.
+- May import `internal/observability` for logging, `internal/providers` for shared sentinel errors, `internal/router/cluster` for `ErrClusterUnavailable` sentinel + `DeployedModelsSource` interface, `internal/analytics` for the export Service handle + row/schema types.
 - **Must not import** `internal/postgres`, any concrete `internal/providers/*` adapter, or `internal/translate` directly.
 - Concrete instances reach presentation only via constructor params from composition root.
 
