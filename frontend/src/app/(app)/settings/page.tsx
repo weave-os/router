@@ -322,6 +322,33 @@ function RouterKeysPanel() {
           </Card.Header>
           <Card.Content>
             <form onSubmit={handleCreate} className="flex flex-col gap-3" autoComplete="off">
+              {/* Ahead of the submit button in DOM order: picking the wrong scope
+                  mints a credential with the wrong authority, so the choice has to
+                  come before the button that acts on it. */}
+              <div className="flex flex-col gap-1.5">
+                <div role="radiogroup" aria-label="Key scope" className="flex flex-wrap gap-2">
+                  {SCOPE_OPTIONS.map(o => (
+                    <Button
+                      key={o.value}
+                      type="button"
+                      role="radio"
+                      aria-checked={scope === o.value}
+                      size="sm"
+                      appearance={scope === o.value ? Appearance.Filled : Appearance.Outlined}
+                      className={
+                        scope === o.value ? "!border-brand !bg-brand !text-white hover:!bg-brand/90" : undefined
+                      }
+                      title={o.hint}
+                      onClick={() => setScope(o.value)}
+                    >
+                      {o.label}
+                    </Button>
+                  ))}
+                </div>
+                <Text className="text-2xs text-muted-foreground">
+                  {SCOPE_OPTIONS.find(o => o.value === scope)?.hint}
+                </Text>
+              </div>
               <div className="flex items-end gap-3">
                 <div className="flex-1">
                   <Input
@@ -346,26 +373,6 @@ function RouterKeysPanel() {
                   {creating ? "Creating…" : "Create key"}
                 </Button>
               </div>
-              <div role="radiogroup" aria-label="Key scope" className="flex flex-wrap gap-2">
-                {SCOPE_OPTIONS.map(o => (
-                  <Button
-                    key={o.value}
-                    type="button"
-                    role="radio"
-                    aria-checked={scope === o.value}
-                    aria-selected={scope === o.value}
-                    size="sm"
-                    appearance={Appearance.Outlined}
-                    title={o.hint}
-                    onClick={() => setScope(o.value)}
-                  >
-                    {o.label}
-                  </Button>
-                ))}
-              </div>
-              <Text className="text-2xs text-muted-foreground">
-                {SCOPE_OPTIONS.find(o => o.value === scope)?.hint}
-              </Text>
             </form>
           </Card.Content>
         </Card>
