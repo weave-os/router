@@ -647,10 +647,9 @@ func sessionDisabledProvidersFromContext(ctx context.Context) []string {
 	return out
 }
 
-// policyExcludedProviders returns only the configured exclusions — the
-// deployment override or the installation's list. Session strike-outs are
-// deliberately left out: they're transient 529 evidence, so they may steer
-// routing but must not reject a forced model the operator does permit.
+// policyExcludedProviders returns configured exclusions only. Session
+// strike-outs are omitted — transient 529 evidence must not veto a force
+// the operator permits.
 func (s *Service) policyExcludedProviders(ctx context.Context) map[string]struct{} {
 	if s.excludedProvidersOverride != nil {
 		return s.excludedProvidersOverride

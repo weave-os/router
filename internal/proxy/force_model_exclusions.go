@@ -11,14 +11,12 @@ import (
 )
 
 // ErrForcedModelExcluded is returned when a caller forces a model the
-// installation's exclusion policy forbids. Exclusions win over the force, and
-// they win loudly: the alternative is a caller who believes they are on the
-// model they asked for while every turn is served by something else.
+// installation's exclusion policy forbids — exclusions win loudly so the
+// caller isn't silently served a different model every turn.
 var ErrForcedModelExcluded = errors.New("forced model is excluded")
 
-// ForcedModelExcludedError carries the caller-facing reason a forced model was
-// refused, so the HTTP boundary can name the offending model instead of
-// emitting a generic policy error.
+// ForcedModelExcludedError carries the caller-facing reason a forced model
+// was refused, so ClassifyDispatchError can name the model in the response.
 type ForcedModelExcludedError struct {
 	Model  string
 	Reason string
@@ -62,11 +60,9 @@ func (s *Service) forcedModelExclusionReason(ctx context.Context, model, provide
 	)
 }
 
-// servableBindings returns the providers that could actually serve model on
-// this deploy: its catalog bindings narrowed to the ones holding keys, or the
-// single resolved provider for IDs the catalog doesn't carry. Narrowing
-// matters — counting a binding to a provider this deploy never wired would let
-// a force through that dispatch then has nowhere to send.
+// servableBindings returns the catalog bindings for model that hold a
+// deployment key, or [provider] for passthrough IDs. Unkeyed bindings are
+// excluded — they can't be dispatched to, so shouldn't count as an escape hatch.
 func (s *Service) servableBindings(model, provider string) []string {
 	m, ok := catalog.ByID(model)
 	if !ok || len(m.Providers) == 0 {
