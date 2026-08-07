@@ -54,7 +54,11 @@ URL for that provider on that installation's requests. Set it in **Settings →
 Provider API keys → Endpoint URL**, or through the admin API:
 
 ```bash
-curl -X POST https://<router>/admin/v1/provider-keys \
+# /admin/v1 mutations take the dashboard cookie, not an rk_ bearer.
+curl -sS -c jar -X POST https://<router>/admin/v1/auth/login \
+  -H 'content-type: application/json' -d '{"password":"<admin password>"}'
+
+curl -sS -b jar -X POST https://<router>/admin/v1/provider-keys \
   -H 'content-type: application/json' \
   -d '{"provider":"anthropic_gateway","key":"<token>","base_url":"https://gateway.example.com/api"}'
 ```
