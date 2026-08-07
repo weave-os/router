@@ -115,6 +115,7 @@ type fakeInstallationRepository struct {
 	usageBypassEnabledByID          map[string]bool
 	usageBypassThresholdByID        map[string]*float64
 	subscriptionRoutingDisabledByID map[string]bool
+	contentCaptureModeByID          map[string]*string
 	// updateErr, when set, is returned by Update* methods instead of recording —
 	// simulates a zero-row update (stale/soft-deleted/cross-tenant id), which the
 	// real postgres repo surfaces as auth.ErrInstallationNotFound.
@@ -169,6 +170,16 @@ func (f *fakeInstallationRepository) UpdateRoutingPreference(ctx context.Context
 		f.routingQualityByID = map[string]*float64{}
 	}
 	f.routingQualityByID[id] = qualityWeight
+	return nil
+}
+func (f *fakeInstallationRepository) UpdateContentCaptureMode(ctx context.Context, externalID, id string, mode *string) error {
+	if f.updateErr != nil {
+		return f.updateErr
+	}
+	if f.contentCaptureModeByID == nil {
+		f.contentCaptureModeByID = map[string]*string{}
+	}
+	f.contentCaptureModeByID[id] = mode
 	return nil
 }
 func (f *fakeInstallationRepository) UpdateSubscriptionRoutingDisabled(ctx context.Context, externalID, id string, disabled bool) error {
@@ -798,6 +809,33 @@ func TestService_SetInstallationRoutingPreference(t *testing.T) {
 	})
 }
 
+func TestService_SetInstallationContentCaptureMode(t *testing.T) {
+	installRepo := &fakeInstallationRepository{}
+	svc := auth.NewService(installRepo, &fakeAPIKeyRepository{byHash: map[string]fakeKeyRow{}}, nil, nil, auth.NoOpAPIKeyCache{}, nil, frozenClock())
+	mode := func(s string) *string { return &s }
+
+	t.Run("persists a valid mode", func(t *testing.T) {
+		require.NoError(t, svc.SetInstallationContentCaptureMode(context.Background(), "ext-1", "inst-1", mode("hashed")))
+		require.NotNil(t, installRepo.contentCaptureModeByID["inst-1"])
+		assert.Equal(t, "hashed", *installRepo.contentCaptureModeByID["inst-1"])
+	})
+
+	t.Run("nil clears the override", func(t *testing.T) {
+		require.NoError(t, svc.SetInstallationContentCaptureMode(context.Background(), "ext-1", "inst-1", nil))
+		assert.Nil(t, installRepo.contentCaptureModeByID["inst-1"])
+	})
+
+	// The column has a CHECK constraint, but rejecting here keeps a typo from
+	// reaching the DB as a 500 — and a mode the parser doesn't know would
+	// silently read back as 'off'.
+	t.Run("rejects an unknown mode without writing", func(t *testing.T) {
+		err := svc.SetInstallationContentCaptureMode(context.Background(), "ext-1", "inst-2", mode("verbose"))
+		require.ErrorIs(t, err, auth.ErrInvalidCaptureMode)
+		_, written := installRepo.contentCaptureModeByID["inst-2"]
+		assert.False(t, written)
+	})
+}
+
 // A zero-row update (stale / soft-deleted / cross-tenant id) surfaces from the
 // repo as ErrInstallationNotFound. Every Set* method must propagate it AND must
 // not invalidate the cache — otherwise the write looks successful and the next
@@ -823,6 +861,10 @@ func TestService_SetInstallation_NotFoundDoesNotInvalidate(t *testing.T) {
 		}},
 		{"SubscriptionRoutingDisabled", func(ctx context.Context, svc *auth.Service) error {
 			return svc.SetInstallationSubscriptionRoutingDisabled(ctx, "ext-1", "missing-inst", true)
+		}},
+		{"ContentCaptureMode", func(ctx context.Context, svc *auth.Service) error {
+			mode := "off"
+			return svc.SetInstallationContentCaptureMode(ctx, "ext-1", "missing-inst", &mode)
 		}},
 	}
 

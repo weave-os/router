@@ -20,10 +20,42 @@ import (
 
 const DefaultBaseURL = "https://api.anthropic.com"
 
+// AuthScheme selects the header the resolved credential is presented in.
+// Anthropic-spec upstreams agree on the body but not on the credential: the
+// Anthropic API reads x-api-key, Snowflake Cortex reads Authorization: Bearer.
+type AuthScheme int
+
+const (
+	// AuthAPIKeyHeader sends the credential as x-api-key (api.anthropic.com).
+	AuthAPIKeyHeader AuthScheme = iota
+	// AuthBearer sends the credential as Authorization: Bearer. Subscription
+	// OAuth tokens use Bearer under either scheme.
+	AuthBearer
+)
+
+// Option configures a Client at construction.
+type Option func(*Client)
+
+// WithAuthScheme sets how the resolved credential is presented upstream.
+func WithAuthScheme(scheme AuthScheme) Option {
+	return func(c *Client) { c.authScheme = scheme }
+}
+
+// WithBaseURLRewriter installs a normalizer over the effective base URL,
+// letting an upstream whose Messages surface hangs off a fixed path prefix
+// accept the shorter account URL an operator is likely to paste.
+func WithBaseURLRewriter(fn func(string) string) Option {
+	return func(c *Client) { c.rewriteBaseURL = fn }
+}
+
 type Client struct {
 	apiKey  string
 	baseURL string
 	http    *http.Client
+	// authScheme is the credential header this upstream expects; zero value
+	// (AuthAPIKeyHeader) preserves Anthropic's own behavior.
+	authScheme     AuthScheme
+	rewriteBaseURL func(string) string
 	// sseIdleTimeout overrides httputil.DefaultSSEIdleTimeout when > 0; tests set
 	// it small so the output-stall watchdog fires before this one.
 	sseIdleTimeout time.Duration
@@ -37,15 +69,19 @@ type Client struct {
 	throughputOverride   bool
 }
 
-func NewClient(apiKey, baseURL string) *Client {
+func NewClient(apiKey, baseURL string, opts ...Option) *Client {
 	if baseURL == "" {
 		baseURL = DefaultBaseURL
 	}
-	return &Client{
+	c := &Client{
 		apiKey:  apiKey,
 		baseURL: baseURL,
 		http:    &http.Client{Transport: httputil.NewTransport(10*time.Second, 10*time.Second)},
 	}
+	for _, opt := range opts {
+		opt(c)
+	}
+	return c
 }
 
 // NewClientWithStallTimeouts is NewClient with watchdog budgets injected for testing.
@@ -100,7 +136,7 @@ const subscriptionTokenPrefix = "sk-ant-oat"
 // httputil.SanitizeInboundAuthHeader before relaying inbound auth upstream.
 func (c *Client) setAuth(ctx context.Context, upstream *http.Request, inbound *http.Request) {
 	if creds := proxy.CredentialsFromContext(ctx); creds != nil {
-		if creds.OAuth {
+		if creds.OAuth || c.authScheme == AuthBearer {
 			upstream.Header.Set("authorization", "Bearer "+string(creds.APIKey))
 			return
 		}
@@ -108,7 +144,18 @@ func (c *Client) setAuth(ctx context.Context, upstream *http.Request, inbound *h
 		return
 	}
 	if c.apiKey != "" {
+		if c.authScheme == AuthBearer {
+			upstream.Header.Set("authorization", "Bearer "+c.apiKey)
+			return
+		}
 		upstream.Header.Set("x-api-key", c.apiKey)
+		return
+	}
+	// Bearer-scheme upstreams are a different tenant boundary than
+	// api.anthropic.com: relaying the caller's Anthropic auth headers there
+	// would hand one vendor's credential to another. Send nothing and let the
+	// upstream 401.
+	if c.authScheme == AuthBearer {
 		return
 	}
 	if v := httputil.SanitizeInboundAuthHeader(inbound.Header.Get("authorization")); v != "" {
@@ -165,11 +212,21 @@ func mergeBeta(existing, token string) string {
 	return existing + "," + token
 }
 
+// effectiveBaseURL resolves the per-request base URL (BYOK override or the
+// deployment default), then applies the configured rewriter.
+func (c *Client) effectiveBaseURL(ctx context.Context) string {
+	baseURL := proxy.EffectiveBaseURL(ctx, c.baseURL)
+	if c.rewriteBaseURL != nil {
+		return c.rewriteBaseURL(baseURL)
+	}
+	return baseURL
+}
+
 func (c *Client) Proxy(ctx context.Context, decision router.Decision, prep providers.PreparedRequest, w http.ResponseWriter, r *http.Request) error {
 	ctx, cancel := context.WithCancelCause(ctx)
 	defer cancel(nil)
 
-	baseURL := proxy.EffectiveBaseURL(ctx, c.baseURL)
+	baseURL := c.effectiveBaseURL(ctx)
 	upstream, err := http.NewRequestWithContext(ctx, http.MethodPost, baseURL+"/v1/messages", bytes.NewReader(prep.Body))
 	if err != nil {
 		return fmt.Errorf("build upstream request: %w", err)
@@ -268,7 +325,7 @@ func (c *Client) Proxy(ctx context.Context, decision router.Decision, prep provi
 }
 
 func (c *Client) Passthrough(ctx context.Context, prep providers.PreparedRequest, w http.ResponseWriter, r *http.Request) error {
-	url := proxy.EffectiveBaseURL(ctx, c.baseURL) + r.URL.Path
+	url := c.effectiveBaseURL(ctx) + r.URL.Path
 	if r.URL.RawQuery != "" {
 		url += "?" + r.URL.RawQuery
 	}

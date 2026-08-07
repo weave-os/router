@@ -1769,7 +1769,7 @@ func (s *Service) withPolicyRequestContext(ctx context.Context, req router.Reque
 	clientIdentity := ClientIdentityFrom(ctx)
 	req.ClientApp = clientIdentity.ClientApp
 	req.RolloutID = policyRolloutIDFromContext(ctx)
-	req.CaptureMode = s.captureMode.String()
+	req.CaptureMode = s.effectiveCaptureMode(ctx).String()
 	req.TrainingAllowed, _ = ctx.Value(PolicyTrainingAllowedContextKey{}).(bool)
 	req.DebugEnabled, _ = ctx.Value(PolicyDebugEnabledContextKey{}).(bool)
 	req.RoutingIntent, _ = ctx.Value(PolicyRoutingIntentContextKey{}).(string)
@@ -2585,7 +2585,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			clientSink = translate.NewAnthropicRoutingFooterWriter(w, footer)
 		}
 	}
-	contentSink, contentCap := s.maybeCaptureResponse(clientSink)
+	contentSink, contentCap := s.maybeCaptureResponse(ctx, clientSink)
 	var policyOutcomeCap *captureWriter
 	if !agentShadowMode {
 		contentSink, policyOutcomeCap = s.capturePolicyOutcomeResponse(ctx, contentSink, routeRes, decision)
@@ -3074,7 +3074,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	applyRoutingStateAttrs(upstreamBuilder, routeRes, decision.Model, sessionKey)
 	addTimingAttrs(ctx, upstreamBuilder)
 
-	obs := buildObservationContext(ctx, decision, routeRes.Fresh, s.captureMode)
+	obs := buildObservationContext(ctx, decision, routeRes.Fresh, s.effectiveCaptureMode(ctx))
 	obs.applySpanAttrs(upstreamBuilder)
 
 	otel.Record(ctx, otel.Span{
@@ -3546,7 +3546,7 @@ func (s *Service) reportPolicyOutcome(ctx context.Context, res turnLoopResult, d
 		"client_app":                       clientIdentity.ClientApp,
 		"rollout_id":                       policyRolloutIDFromContext(ctx),
 		"training_allowed":                 trainingAllowed,
-		"capture_mode":                     s.captureMode.String(),
+		"capture_mode":                     s.effectiveCaptureMode(ctx).String(),
 		"policy_route_key":                 routeMetadata.PolicyRouteKey,
 		"policy_artifact_id":               routeMetadata.PolicyArtifactID,
 		"policy_artifact_sha256":           routeMetadata.PolicyArtifactSHA256,
@@ -4586,7 +4586,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 			clientSink = translate.NewOpenAIRoutingFooterWriter(w, footer)
 		}
 	}
-	contentSink, contentCap := s.maybeCaptureResponse(clientSink)
+	contentSink, contentCap := s.maybeCaptureResponse(ctx, clientSink)
 	preludeBuf := newPreludeBuffer(contentSink)
 	var rootSink http.ResponseWriter = preludeBuf
 
@@ -4887,7 +4887,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	applyRoutingStateAttrs(openaiUpstreamBuilder, routeRes, decision.Model, sessionKey)
 	addTimingAttrs(ctx, openaiUpstreamBuilder)
 
-	openaiObs := buildObservationContext(ctx, decision, routeRes.Fresh, s.captureMode)
+	openaiObs := buildObservationContext(ctx, decision, routeRes.Fresh, s.effectiveCaptureMode(ctx))
 	openaiObs.applySpanAttrs(openaiUpstreamBuilder)
 
 	otel.Record(ctx, otel.Span{

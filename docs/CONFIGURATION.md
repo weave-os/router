@@ -32,6 +32,15 @@ Claude Code keep using the user's logged-in plan.
 | `OPENAI_BASE_URL`     | `https://api.openai.com`                                  | Override for OpenAI (e.g. Azure OpenAI). |
 | `GOOGLE_API_KEY`      | *(none)*                                                  | Enables Gemini via its OpenAI-compatible endpoint. |
 | `GOOGLE_BASE_URL`     | `https://generativelanguage.googleapis.com/v1beta/openai` | Override for Gemini. |
+| `SNOWFLAKE_BASE_URL`  | *(none)*                                                  | Snowflake account endpoint, e.g. `https://<account>.snowflakecomputing.com` (the `/api/v2/cortex` suffix is added if absent). |
+| `SNOWFLAKE_PAT`       | *(none)*                                                  | Programmatic access token for Cortex, sent as `Authorization: Bearer`. Only used when `SNOWFLAKE_BASE_URL` is also set. |
+
+**Snowflake Cortex.** Cortex's `/api/v2/cortex/v1/messages` is Anthropic-
+compatible, so the router serves the Claude family through it with the same
+translation path as direct Anthropic — the difference is bearer auth and the
+per-account base URL. The provider is always registered so BYOK installations
+can point at their own account without deployment-level credentials; the env
+vars above are only for a deployment that has one Snowflake account of its own.
 
 **BYOK (per-installation keys).** Instead of (or in addition to) the env vars
 above, each installation can supply its own provider keys via the dashboard.
@@ -214,6 +223,13 @@ Captured bodies are in the client's native wire format (Anthropic / OpenAI /
 Gemini, matching the inbound surface). The `router.deployment_mode` resource
 attribute (`selfhosted` / `managed`) is stamped on every export so a collector
 can branch redaction or content-opt-out by deployment.
+
+`WV_CAPTURE_CONTENT` is the deployment-wide **ceiling**. An installation can
+tighten it below that (`GET`/`PUT /admin/v1/content-capture`, body
+`{"mode": "off" | "hashed" | "full"}`; `{"mode": null}` clears the override),
+and the effective mode for a request is the stricter of the two — so a tenant
+on a `full` deployment can opt down to `hashed` or `off`, but an installation
+asking for `full` under a `hashed` deployment still gets `hashed`.
 
 
 | Variable                         | Default      | Purpose |

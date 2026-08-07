@@ -30,7 +30,9 @@ func rosterIDFor(m catalog.Model) string {
 		return m.ID
 	}
 	switch m.PrimaryProvider() {
-	case providers.ProviderAnthropic:
+	case providers.ProviderAnthropic, providers.ProviderSnowflake:
+		// Cortex serves the Claude family unchanged, so a Snowflake-primary
+		// binding maps onto the same roster slug as the direct Anthropic one.
 		return "anthropic/" + m.ID
 	case providers.ProviderOpenAI:
 		return "openai/" + m.ID

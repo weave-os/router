@@ -31,6 +31,35 @@ const (
 	CaptureFull
 )
 
+// InstallationCaptureModeContextKey is the context key for the authed
+// installation's content-capture ceiling. Carried as ContentCaptureMode; absent
+// when the installation set no override. See effectiveCaptureMode.
+type InstallationCaptureModeContextKey struct{}
+
+// effectiveCaptureMode is the capture mode for this request: the stricter of
+// the deployment-wide setting and the installation's override. Taking the
+// minimum (Off < Hashed < Full) is what makes the override safe to expose —
+// a tenant can tighten capture below the deploy default, never widen it.
+func (s *Service) effectiveCaptureMode(ctx context.Context) ContentCaptureMode {
+	override, ok := ctx.Value(InstallationCaptureModeContextKey{}).(ContentCaptureMode)
+	if !ok {
+		return s.captureMode
+	}
+	return StricterCaptureMode(s.captureMode, override)
+}
+
+// StricterCaptureMode returns the less permissive of two capture modes.
+func StricterCaptureMode(a, b ContentCaptureMode) ContentCaptureMode {
+	if b < a {
+		return b
+	}
+	return a
+}
+
+// CaptureMode reports the deployment-wide capture setting, before any
+// per-installation override.
+func (s *Service) CaptureMode() ContentCaptureMode { return s.captureMode }
+
 // ContentKind tells the redaction hook whether it is scrubbing a request or a
 // response body, so callers can apply asymmetric policies.
 type ContentKind int
@@ -76,8 +105,8 @@ func (m ContentCaptureMode) String() string {
 // ResponsesWriter translates and emits an eager prelude to its inner writer, so
 // wrapping it externally would miss the prelude and capture pre-translation
 // bytes; instead we splice the capture writer at its true client boundary.
-func (s *Service) maybeCaptureResponse(w http.ResponseWriter) (http.ResponseWriter, *captureWriter) {
-	if s.captureMode == CaptureOff {
+func (s *Service) maybeCaptureResponse(ctx context.Context, w http.ResponseWriter) (http.ResponseWriter, *captureWriter) {
+	if s.effectiveCaptureMode(ctx) == CaptureOff {
 		return w, nil
 	}
 	if rw, ok := w.(*translate.ResponsesWriter); ok {
@@ -154,7 +183,8 @@ func sha256Hex(b []byte) string {
 // and appending content attributes per capture mode. No-op when capture is
 // off. base is cloned before appending so the span's attributes aren't mutated.
 func (s *Service) recordCallLog(ctx context.Context, base []*commonv1.KeyValue, isErr bool, reqBody, respBody []byte, respTruncated bool) {
-	if s.captureMode == CaptureOff {
+	mode := s.effectiveCaptureMode(ctx)
+	if mode == CaptureOff {
 		return
 	}
 
@@ -163,7 +193,7 @@ func (s *Service) recordCallLog(ctx context.Context, base []*commonv1.KeyValue, 
 		Int64("io.response_bytes", int64(len(respBody))).
 		Bool("io.truncated", respTruncated)
 
-	switch s.captureMode {
+	switch mode {
 	case CaptureFull:
 		content.String("io.request_body", s.redact(reqBody, ContentKindRequest)).
 			String("io.response_body", s.redact(respBody, ContentKindResponse))

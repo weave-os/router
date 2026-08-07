@@ -145,6 +145,10 @@ func withAPIKey(svc *auth.Service, byokRequiresOptIn bool) gin.HandlerFunc {
 			if installation.AITrainingAllowed {
 				ctx = context.WithValue(ctx, proxy.PolicyTrainingAllowedContextKey{}, true)
 			}
+			if installation.ContentCaptureMode != nil {
+				ctx = context.WithValue(ctx, proxy.InstallationCaptureModeContextKey{},
+					proxy.ParseCaptureMode(*installation.ContentCaptureMode))
+			}
 		}
 		byokAllowed := !byokRequiresOptIn || (installation != nil && installation.ByokEnabled)
 		if externalKeys != nil && byokAllowed {

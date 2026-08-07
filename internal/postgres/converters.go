@@ -47,6 +47,7 @@ func toAuthInstallation(row sqlc.RouterModelRouterInstallation) *auth.Installati
 		PolicyRoutingIntent:          derefString(row.PolicyRoutingIntent),
 		AITrainingAllowed:            row.AiTrainingAllowed,
 		ByokEnabled:                  row.ByokEnabled,
+		ContentCaptureMode:           row.ContentCaptureMode,
 	}
 }
 

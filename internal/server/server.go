@@ -152,6 +152,8 @@ func Register(engine *gin.Engine, authSvc *auth.Service, proxySvc *proxy.Service
 		mgmt.GET("/config", admin.ConfigHandler)
 		mgmt.GET("/routing-preferences", admin.GetRoutingPreferencesHandler(authSvc))
 		mgmt.PUT("/routing-preferences", admin.UpdateRoutingPreferencesHandler(authSvc))
+		mgmt.GET("/content-capture", admin.GetContentCaptureHandler(authSvc, proxySvc))
+		mgmt.PUT("/content-capture", admin.UpdateContentCaptureHandler(authSvc, proxySvc))
 		if deployedModels != nil {
 			mgmt.GET("/excluded-models", admin.GetExcludedModelsHandler(authSvc, deployedModels, proxySvc))
 			mgmt.PUT("/excluded-models", admin.UpdateExcludedModelsHandler(authSvc, deployedModels, proxySvc))
