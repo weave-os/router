@@ -11,8 +11,8 @@ import (
 var ErrInvalidCursor = errors.New("malformed analytics cursor")
 
 // Cursor is the position of the last row of a page: the keyset the next page
-// resumes strictly after. Two components because ingest timestamps collide —
-// the row id breaks the tie so no row is skipped or served twice.
+// resumes strictly after. Two components because ingest timestamps collide;
+// the row id breaks the tie.
 type Cursor struct {
 	RecordedAt time.Time
 	ID         string

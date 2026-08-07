@@ -35,9 +35,9 @@ type Decision struct {
 	DecisionProvider *string  `json:"decision_provider"`
 	CandidateModels  []string `json:"candidate_models"`
 	ChosenScore      *float64 `json:"chosen_score"`
-	// DecisionReason is free-form diagnostic prose, not a stable enum. Its
-	// format changes between router versions; group on DecisionModel /
-	// StickyHit / CandidateModels instead of parsing it.
+	// DecisionReason is free-form diagnostic prose whose format changes between
+	// router versions; do not parse it — group on DecisionModel / StickyHit /
+	// CandidateModels instead.
 	DecisionReason *string `json:"decision_reason"`
 	StickyHit      bool    `json:"sticky_hit"`
 	FailoverUsed   bool    `json:"failover_used"`

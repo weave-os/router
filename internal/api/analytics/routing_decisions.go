@@ -57,9 +57,8 @@ func RoutingDecisionsHandler(svc *analytics.Service) gin.HandlerFunc {
 			return
 		}
 
-		// The page is fully materialized before the first byte goes out, so a
-		// mid-stream repository error can't leave a consumer with a truncated
-		// page it would mistake for a complete one.
+		// Page is fully materialized before the first byte goes out; a mid-stream
+		// repository error can't leave a consumer with a truncated page.
 		c.Header(nextCursorHeader, page.NextCursor)
 		c.Header(hasMoreHeader, strconv.FormatBool(page.HasMore))
 		writePage(c, page)
