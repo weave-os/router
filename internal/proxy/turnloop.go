@@ -353,8 +353,18 @@ func (s *Service) runTurnLoop(
 	threadSessionKey := DeriveSessionKey(env, apiKeyID)
 	hardPinnedTurn := s.isHardPinnedTurn(ctx, res.TurnType)
 	if s.pinStore != nil && hardPinnedTurn {
-		if forcedPin, found := s.loadPin(ctx, threadSessionKey, res.PinRole); found &&
-			isUserForcedReason(forcedPin.Reason) && forcedPinEligible(forcedPin, req) {
+		forcedPin, found := s.loadPin(ctx, threadSessionKey, res.PinRole)
+		permitted := found && isUserForcedReason(forcedPin.Reason)
+		// Same binding remap as the main path: an excluded primary whose fallback
+		// is permitted must keep the force rather than lose the turn to the hard
+		// pin. Excluded outright, the pin is skipped and the hard pin applies —
+		// these are internal turns, so policy wins quietly instead of erroring.
+		if permitted {
+			binding, reason := s.forcedModelBinding(ctx, forcedPin.Model, forcedPin.Provider)
+			forcedPin.Provider = binding
+			permitted = reason == ""
+		}
+		if permitted && forcedPinEligible(forcedPin, req) {
 			res.SessionKey = threadSessionKey
 			res.PinModel = forcedPin.Model
 			res.PinAgeSec = pinAge(forcedPin)
@@ -471,6 +481,23 @@ func (s *Service) runTurnLoop(
 	// (routing miss) but DisabledProviders must still steer the scorer away
 	// from the struck-out provider this same turn; HMM-sticky strikes write
 	// to _hmm_history, not PinRole, so either row can carry evidence.
+	// Before the strike exemption below, so the exemption covers the binding the
+	// pin is actually honored on. Policy can change under a live session; refuse
+	// rather than silently re-routing to a model the caller believes is pinned.
+	if pinFound && isUserForcedReason(pin.Reason) {
+		binding, reason := s.forcedModelBinding(ctx, pin.Model, pin.Provider)
+		if reason != "" {
+			log.Warn("turnloop: forced pin refers to an excluded model",
+				"pin_model", pin.Model,
+				"pin_provider", pin.Provider,
+				"reason", reason,
+			)
+			return res, &ForcedModelExcludedError{Model: pin.Model, Reason: reason}
+		}
+		// The model survives on another binding, so follow it there instead of
+		// letting the eligibility check below drop the pin.
+		pin.Provider = binding
+	}
 	disabledProviders := mergeDisabledProviders(pin.DisabledProviders, hmmHistory.DisabledProviders)
 	// User-forced pin exempts its own provider: an explicit /force-model
 	// must not be silently reverted by the session-level breaker.
@@ -533,22 +560,6 @@ func (s *Service) runTurnLoop(
 	// the scorer call further down constrains the fresh decision to this tier
 	// instead of collapsing to the cheap tier-default. TierUnknown = no constraint.
 	forcedTierFloor := catalog.TierUnknown
-	if pinFound && isUserForcedReason(pin.Reason) {
-		// Policy can change under a live session; refuse rather than silently
-		// re-routing to a different model the caller still believes is pinned.
-		binding, reason := s.forcedModelBinding(ctx, pin.Model, pin.Provider)
-		if reason != "" {
-			log.Warn("turnloop: forced pin refers to an excluded model",
-				"pin_model", pin.Model,
-				"pin_provider", pin.Provider,
-				"reason", reason,
-			)
-			return res, &ForcedModelExcludedError{Model: pin.Model, Reason: reason}
-		}
-		// The model survives on another binding, so follow it there instead of
-		// letting the eligibility check below drop the pin.
-		pin.Provider = binding
-	}
 	if pinFound && (isUserForcedReason(pin.Reason) || pin.Reason == translate.ReasonLoopEscalation) {
 		_, excluded := req.ExcludedModels[pin.Model]
 		_, providerEnabled := req.EnabledProviders[pin.Provider]

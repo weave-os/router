@@ -11,6 +11,7 @@ import (
 	"workweave/router/internal/providers"
 	"workweave/router/internal/router"
 	"workweave/router/internal/router/sessionpin"
+	"workweave/router/internal/router/turntype"
 	"workweave/router/internal/translate"
 
 	"github.com/google/uuid"
@@ -312,6 +313,73 @@ func TestTurnLoop_ForcedPinFollowsSurvivingBinding(t *testing.T) {
 	assert.Equal(t, providers.ProviderAnthropicGateway, res.Decision.Provider)
 	assert.Equal(t, "claude-opus-5", res.Decision.Model)
 	assert.Empty(t, fr.captured, "the pin must not fall through to the scorer")
+}
+
+// TestTurnLoop_StrikeExemptionCoversRemappedBinding: the strike exemption must
+// be computed against the binding the pin is remapped to, or a 529 strike on
+// that binding vetoes the force the operator permits.
+func TestTurnLoop_StrikeExemptionCoversRemappedBinding(t *testing.T) {
+	fr := &tierProbeRouter{available: map[string]struct{}{"claude-haiku-4-5": {}}}
+	store := &overwritingPinStore{pin: sessionpin.Pin{
+		Provider:          providers.ProviderAnthropic,
+		Model:             "claude-opus-5",
+		Reason:            translate.ReasonUserForceModel,
+		PinnedUntil:       pinNeverExpires,
+		DisabledProviders: []string{providers.ProviderAnthropicGateway},
+	}, found: true}
+	svc := NewService(fr, nil, nil, false, nil, store, false,
+		providers.ProviderAnthropic, "claude-haiku-4-5", nil).
+		WithDeploymentKeyedProviders(keyed(
+			providers.ProviderAnthropic, providers.ProviderAnthropicGateway))
+
+	env := forceCommandEnv(t)
+	feats := env.RoutingFeatures(false)
+	res, err := svc.runTurnLoop(
+		excludedProvidersCtx(providers.ProviderAnthropic),
+		env, feats, "key-1", uuid.New(), "", nil,
+		router.Request{
+			RequestedModel:   feats.Model,
+			EnabledProviders: keyed(providers.ProviderAnthropicGateway),
+		})
+
+	require.NoError(t, err)
+	assert.True(t, res.StickyHit, "a session strike must not veto an explicit force")
+	assert.Equal(t, providers.ProviderAnthropicGateway, res.Decision.Provider)
+}
+
+// TestTurnLoop_HardPinnedTurnForcedPinFollowsSurvivingBinding: the hard-pinned
+// fast path (probe, compaction) gates on its own eligibility check, so it needs
+// the same remap or the force loses those turns to the hard pin.
+func TestTurnLoop_HardPinnedTurnForcedPinFollowsSurvivingBinding(t *testing.T) {
+	fr := &tierProbeRouter{available: map[string]struct{}{"claude-haiku-4-5": {}}}
+	store := &overwritingPinStore{pin: sessionpin.Pin{
+		Provider:    providers.ProviderAnthropic,
+		Model:       "claude-opus-5",
+		Reason:      translate.ReasonUserForceModel,
+		PinnedUntil: pinNeverExpires,
+	}, found: true}
+	svc := NewService(fr, nil, nil, false, nil, store, false,
+		providers.ProviderAnthropic, "claude-haiku-4-5", nil).
+		WithDeploymentKeyedProviders(keyed(
+			providers.ProviderAnthropic, providers.ProviderAnthropicGateway))
+
+	env, err := translate.ParseAnthropic([]byte(
+		`{"model":"claude-opus-4-8","max_tokens":1,"messages":[{"role":"user","content":"quota"}]}`))
+	require.NoError(t, err)
+	feats := env.RoutingFeatures(false)
+	res, err := svc.runTurnLoop(
+		excludedProvidersCtx(providers.ProviderAnthropic),
+		env, feats, "key-1", uuid.New(), "", nil,
+		router.Request{
+			RequestedModel:   feats.Model,
+			EnabledProviders: keyed(providers.ProviderAnthropicGateway),
+		})
+
+	require.NoError(t, err)
+	require.Equal(t, turntype.Probe, res.TurnType, "fixture must exercise the hard-pinned path")
+	assert.False(t, res.HardPinned, "the force outranks the hard pin")
+	assert.Equal(t, "claude-opus-5", res.Decision.Model)
+	assert.Equal(t, providers.ProviderAnthropicGateway, res.Decision.Provider)
 }
 
 func TestClassifyDispatchError_ForcedModelExcluded(t *testing.T) {
