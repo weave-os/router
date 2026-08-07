@@ -9,10 +9,13 @@ import (
 	"workweave/router/internal/proxy"
 	"workweave/router/internal/router"
 	"workweave/router/internal/router/cluster"
-	"workweave/router/internal/server/middleware"
 
 	"github.com/gin-gonic/gin"
 )
+
+// RouteSchemaVersionV1 is the schema_version field in POST /v1/route responses.
+// Bump on breaking shape changes; additive fields are backward-compatible.
+const RouteSchemaVersionV1 = "router_route_v1"
 
 func RouteHandler(svc *proxy.Service) gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -47,23 +50,20 @@ func RouteHandler(svc *proxy.Service) gin.HandlerFunc {
 		}
 
 		c.JSON(http.StatusOK, gin.H{
-			"model":    decision.Model,
-			"provider": decision.Provider,
-			"reason":   decision.Reason,
+			"schema_version": RouteSchemaVersionV1,
+			"model":          decision.Model,
+			"provider":       decision.Provider,
+			"reason":         decision.Reason,
 		})
 	}
 }
 
-// PreviewRouteHandler exposes the side-effect-free policy preview contract to
-// router-key installations authorized for evaluation headers.
+// PreviewRouteHandler exposes the side-effect-free policy preview contract.
+// Requires a valid rk_ bearer token and an HMM strategy header (response is
+// HMM-shaped: hmm_state_id, class_probabilities); needs a running sidecar.
 func PreviewRouteHandler(svc *proxy.Service) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		log := observability.FromGin(c)
-		installation := middleware.InstallationFrom(c)
-		if installation == nil || !installation.PolicyHeaderOverridesEnabled {
-			writeAnthropicError(c, http.StatusForbidden, "permission_error", "Route preview isn't enabled for this installation.")
-			return
-		}
 		strategy := router.StrategyFromContext(c.Request.Context())
 		if strategy != router.StrategyHMM && strategy != router.StrategyHMMEmbedding {
 			writeAnthropicError(c, http.StatusBadRequest, "invalid_request_error", "Route preview requires an HMM strategy.")

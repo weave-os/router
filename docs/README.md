@@ -7,6 +7,7 @@ Index of Markdown documentation in the `router/` repo.
 | [SEMANTICS.md](SEMANTICS.md) | **Canonical terminology** for sessions, rounds, turns, actions, and steps. Read this first before other docs. |
 | [CONFIGURATION.md](CONFIGURATION.md) | Environment variables, BYOK encryption, OTel knobs, cluster routing artifacts. |
 | [POLICY_ROUTER_HARNESS.md](POLICY_ROUTER_HARNESS.md) | Contract for out-of-process policy sidecars. |
+| [ROUTE_DECISION_API.md](ROUTE_DECISION_API.md) | Public contract for `POST /v1/route` and `/v1/route/preview` — get a routing decision without proxying. |
 | [TRANSLATION_COMPATIBILITY.md](TRANSLATION_COMPATIBILITY.md) | Cross-format translation requirements and rollout modes. |
 
 For engineering conventions (layer model, package layout, recipes), see the

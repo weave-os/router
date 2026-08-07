@@ -233,14 +233,19 @@ func Register(engine *gin.Engine, authSvc *auth.Service, proxySvc *proxy.Service
 	routeGroup := engine.Group("", routeMiddleware...)
 	routeGroup.POST("/v1/route", anthropicapi.RouteHandler(proxySvc))
 
+	// Preview uses the same request-shaping middleware as /v1/route: force-effort
+	// and cluster version feed policy arm hashing, so omitting either would cause
+	// divergence. Only billing gates are skipped — preview dispatches nothing.
 	previewGroup := engine.Group("",
 		middleware.WithTimingEntry(),
 		middleware.WithTimeout(routeTimeout),
 		middleware.WithAuth(authSvc, byokRequiresOptIn),
 		middleware.WithEmbedOnlyUserMessageOverride(),
+		middleware.WithClusterVersionOverride(),
 		middleware.WithRouterStrategyDefault(defaultStrategy, registeredStrategies...),
 		middleware.WithPolicyDebugOverride(),
 		middleware.WithRoutingKnobsOverride(),
+		middleware.WithForceEffortOverride(),
 	)
 	previewGroup.POST("/v1/route/preview", anthropicapi.PreviewRouteHandler(proxySvc))
 
