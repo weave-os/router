@@ -14,8 +14,7 @@ import (
 const AnalyticsRequestsPerMinute = 60
 
 // analyticsLimiterCacheSize bounds the per-key limiter map; LRU eviction
-// prevents unbounded growth as keys rotate. An evicted key restarts at full
-// burst.
+// prevents unbounded growth as keys rotate. An evicted key restarts at full burst.
 const analyticsLimiterCacheSize = 1024
 
 // WithAnalyticsRateLimit throttles each analytics key to perMinute requests,
