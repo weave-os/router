@@ -302,9 +302,8 @@ func main() {
 	}
 
 	{
-		// Anthropic-compatible enterprise gateway. Its endpoint is per-tenant with
-		// no vendor default, so a deployment-level token is only honored alongside
-		// a base URL — otherwise the provider stays BYOK-only.
+		// Endpoint is per-tenant with no vendor default; token is only used when a
+		// base URL is also set.
 		gatewayBaseURL := config.GetOr("ANTHROPIC_GATEWAY_BASE_URL", "")
 		gatewayToken := ""
 		if !byokOnly && gatewayBaseURL != "" {

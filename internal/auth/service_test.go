@@ -825,9 +825,8 @@ func TestService_SetInstallationContentCaptureMode(t *testing.T) {
 		assert.Nil(t, installRepo.contentCaptureModeByID["inst-1"])
 	})
 
-	// The column has a CHECK constraint, but rejecting here keeps a typo from
-	// reaching the DB as a 500 — and a mode the parser doesn't know would
-	// silently read back as 'off'.
+	// DB has a CHECK, but in-process validation avoids a 500, and an
+	// unrecognised mode would silently read back as 'off'.
 	t.Run("rejects an unknown mode without writing", func(t *testing.T) {
 		err := svc.SetInstallationContentCaptureMode(context.Background(), "ext-1", "inst-2", mode("verbose"))
 		require.ErrorIs(t, err, auth.ErrInvalidCaptureMode)

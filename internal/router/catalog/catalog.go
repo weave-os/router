@@ -161,9 +161,8 @@ func (m Model) PrimaryProvider() string {
 // pricing and dispatch for every strategy.
 var Models = []Model{
 	// --- Anthropic ---
-	// Gateway bindings carry Anthropic list prices as a proxy (indicative, not
-	// invoiced) and trail the Anthropic binding, so they win only when Anthropic
-	// is absent.
+	// Gateway bindings carry Anthropic list prices (indicative, not invoiced) and
+	// trail the Anthropic binding so they win only when Anthropic is absent.
 	//
 	// $1/$5 per the published table (the $0.80/$4 rate that used to sit here
 	// is Haiku 3.5's row — Haiku 4.5 never shipped at that price).
