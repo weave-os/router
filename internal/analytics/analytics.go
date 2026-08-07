@@ -1,8 +1,6 @@
-// Package analytics is the read-only routing-decision export domain: the row
-// shape an ETL job ingests, the keyset cursor it resumes on, and the field
-// dictionary that documents both. Row-level and unaggregated by design — the
-// dashboard's metrics endpoints answer "what is the total", this answers "give
-// me every decision". Pure inner ring; Postgres access is behind Repository.
+// Package analytics is the read-only routing-decision export domain: row shape,
+// keyset cursor, and field dictionary. Pure inner ring; Postgres access is
+// behind Repository.
 package analytics
 
 import (
@@ -11,17 +9,15 @@ import (
 )
 
 // Decision is one exported routing decision: a single upstream action, not a
-// user-visible request. Retries, failovers, compaction, title generation,
-// classifier calls and sub-agent turns each produce their own row, so
-// consumers group on RequestID / SessionID / TurnType rather than counting
-// rows as requests.
+// user-visible request. Retries, failovers, compaction, and sub-agent turns
+// each produce their own row, so consumers group on RequestID / TurnType
+// rather than counting rows as requests.
 //
-// Field names are the public export contract and are deliberately decoupled
-// from column names; nullable columns stay pointers so a warehouse sees NULL
-// instead of a fabricated zero. Keep Schema in sync — a test asserts it.
+// Nullable columns stay pointers so a warehouse sees NULL, not a fabricated
+// zero. Keep Schema in sync — a test asserts it.
 type Decision struct {
-	// ID is the telemetry row's primary key. Unique but not the dedupe key:
-	// use (RequestID, TurnType) semantics described in the docs instead.
+	// ID is unique per row and stable across replays, so it is what a consumer
+	// deduplicates on. RequestID is not: retries share one.
 	ID string `json:"id"`
 	// RecordedAt is ingest time and the export's ordering key.
 	RecordedAt time.Time `json:"recorded_at"`

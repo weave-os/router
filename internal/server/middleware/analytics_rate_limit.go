@@ -15,10 +15,9 @@ import (
 // put on the telemetry table.
 const AnalyticsRequestsPerMinute = 60
 
-// analyticsLimiterCacheSize bounds the limiter map. Keys are analytics keys,
-// of which an installation holds a handful; LRU eviction is what keeps a
-// long-lived process from growing a limiter per rotated key forever. An
-// evicted key simply starts with a full bucket.
+// analyticsLimiterCacheSize bounds the per-key limiter map; LRU eviction
+// prevents unbounded growth as keys rotate. An evicted key restarts at full
+// burst.
 const analyticsLimiterCacheSize = 1024
 
 // WithAnalyticsRateLimit throttles each analytics key to perMinute requests,

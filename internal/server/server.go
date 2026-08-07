@@ -43,10 +43,8 @@ const (
 	// feedbackTimeout bounds the no-login feedback link reads/writes. Both are
 	// single-row Postgres ops plus an async span emit, so 5s is generous.
 	feedbackTimeout = 5 * time.Second
-	// analyticsTimeout bounds an export page. A full 10k-row keyset page is a
-	// single indexed scan, but it runs against a table sized by total traffic
-	// and competes with the telemetry write path, so the budget is a batch
-	// job's, not an interactive request's.
+	// analyticsTimeout bounds an export page. Keyset scans on a high-volume
+	// telemetry table warrant a batch-job budget, not an interactive one.
 	analyticsTimeout = 60 * time.Second
 )
 
@@ -258,9 +256,7 @@ func Register(engine *gin.Engine, authSvc *auth.Service, proxySvc *proxy.Service
 	previewGroup.POST("/v1/route/preview", anthropicapi.PreviewRouteHandler(proxySvc))
 
 	// Read-only routing-decision export. Product surface, so it mounts in both
-	// modes. WithAnalyticsKey is the only auth here and accepts ra_ keys alone:
-	// no balance check, no spend cap, no BYOK resolution, because nothing on
-	// this group can route or spend.
+	// modes; ra_ keys only, no spend path.
 	if analyticsSvc != nil {
 		analyticsGroup := engine.Group("/v1/analytics",
 			middleware.WithTimeout(analyticsTimeout),

@@ -13,11 +13,9 @@ const (
 	// lets the service materialize a page and return the cursor as a response
 	// header rather than a trailer.
 	MaxLimit = 10000
-	// Holdback keeps the export's tail behind the present. Telemetry is written
-	// off the request path, so created_at (the inserting statement's time) can
-	// commit slightly out of keyset order; a page that stopped at "now" could
-	// step over a row still in flight. Ignoring the last minute is what makes
-	// "poll forever, never miss a row" true.
+	// Holdback keeps the export's tail behind now: telemetry rows are written
+	// off the request path and can commit slightly out of keyset order, so a
+	// page that reached "now" could step over a row still in flight.
 	Holdback = 60 * time.Second
 )
 

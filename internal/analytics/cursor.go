@@ -23,10 +23,8 @@ func (c Cursor) IsZero() bool {
 	return c.ID == "" && c.RecordedAt.IsZero()
 }
 
-// String encodes the cursor as an opaque token. Opaque so the keyset can
-// change shape later without breaking consumers that stored one; the encoding
-// is not a security boundary, and the window it addresses is already scoped to
-// the caller's own installation.
+// String encodes the cursor as an opaque token so the keyset shape can change
+// without breaking stored cursors. Not a security boundary.
 func (c Cursor) String() string {
 	if c.IsZero() {
 		return ""
