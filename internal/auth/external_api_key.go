@@ -38,11 +38,8 @@ type CreateExternalAPIKeyParams struct {
 	CreatedBy      *string
 }
 
-// NormalizeBaseURL trims and validates a BYOK endpoint override, returning nil
-// for nil/blank input. Providers append their own path (e.g. /v1/messages), so
-// a trailing slash is stripped to keep the joined URL well-formed. A relative
-// or scheme-less value would silently produce an unroutable upstream URL, so it
-// returns ErrInvalidBaseURL instead.
+// NormalizeBaseURL validates and normalizes a BYOK endpoint override: trims whitespace,
+// strips trailing slashes (providers append their own path), and rejects non-absolute http(s) URLs.
 func NormalizeBaseURL(raw *string) (*string, error) {
 	if raw == nil {
 		return nil, nil

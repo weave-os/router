@@ -229,9 +229,7 @@ func UpsertExternalKeyHandler(authSvc *auth.Service) gin.HandlerFunc {
 			c.AbortWithStatusJSON(http.StatusConflict, gin.H{"error": "Provider already configured via deployment environment variable. Remove the env var before adding a dashboard key."})
 			return
 		}
-		// Providers with no deployment endpoint are unreachable without a per-key
-		// URL, so an omitted base_url would store a credential that can never be
-		// dispatched.
+		// RequiresBaseURL providers have no default endpoint; omitting base_url makes the credential undispatchable.
 		if providers.RequiresBaseURL(req.Provider) && (req.BaseURL == nil || strings.TrimSpace(*req.BaseURL) == "") {
 			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "This provider requires a base URL — it has no default endpoint."})
 			return
