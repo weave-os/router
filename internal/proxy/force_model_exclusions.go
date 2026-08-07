@@ -27,17 +27,13 @@ func (e *ForcedModelExcludedError) Error() string { return e.Reason }
 // Unwrap ties the typed error to ErrForcedModelExcluded for errors.Is.
 func (e *ForcedModelExcludedError) Unwrap() error { return ErrForcedModelExcluded }
 
-// forcedModelBinding resolves the provider a forced model should pin to under
-// exclusion policy. reason is "" when the model is servable; otherwise it
-// explains the refusal in the caller's terms. provider is the binding the
-// force resolved to, and is returned as-is for passthrough IDs the catalog
-// doesn't carry.
+// forcedModelBinding resolves the provider a forced model should pin to
+// under exclusion policy. reason is "" when servable; provider is returned
+// as-is for passthrough IDs the catalog doesn't carry.
 //
-// The returned binding is not always the one passed in: forcing resolves to a
-// model's primary provider, so a model whose primary is excluded but whose
-// fallback isn't must pin the fallback. Pinning the excluded primary would
-// answer "force-model applied" and then lose the pin to the eligibility check
-// in runTurnLoop on the very next turn.
+// The returned binding is not always the input provider: forcing resolves to
+// a model's primary, so an excluded primary whose fallback is permitted must
+// pin the fallback — otherwise the eligibility check in runTurnLoop drops it.
 func (s *Service) forcedModelBinding(ctx context.Context, model, provider string) (binding, reason string) {
 	if _, drop := s.excludedModelsForRequest(ctx)[model]; drop {
 		return "", fmt.Sprintf("%s is excluded on this installation", model)
