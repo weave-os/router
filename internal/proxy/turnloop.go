@@ -355,10 +355,8 @@ func (s *Service) runTurnLoop(
 	if s.pinStore != nil && hardPinnedTurn {
 		forcedPin, found := s.loadPin(ctx, threadSessionKey, res.PinRole)
 		permitted := found && isUserForcedReason(forcedPin.Reason)
-		// Same binding remap as the main path: an excluded primary whose fallback
-		// is permitted must keep the force rather than lose the turn to the hard
-		// pin. Excluded outright, the pin is skipped and the hard pin applies —
-		// these are internal turns, so policy wins quietly instead of erroring.
+		// Same binding remap as the main path: excluded primary whose fallback
+		// is permitted stays forced; excluded outright, hard pin wins quietly.
 		if permitted {
 			binding, reason := s.forcedModelBinding(ctx, forcedPin.Model, forcedPin.Provider)
 			forcedPin.Provider = binding
@@ -481,9 +479,8 @@ func (s *Service) runTurnLoop(
 	// (routing miss) but DisabledProviders must still steer the scorer away
 	// from the struck-out provider this same turn; HMM-sticky strikes write
 	// to _hmm_history, not PinRole, so either row can carry evidence.
-	// Before the strike exemption below, so the exemption covers the binding the
-	// pin is actually honored on. Policy can change under a live session; refuse
-	// rather than silently re-routing to a model the caller believes is pinned.
+	// Before the strike exemption below, so the exemption covers the binding
+	// the pin is remapped to, not the (possibly excluded) stored provider.
 	if pinFound && isUserForcedReason(pin.Reason) {
 		binding, reason := s.forcedModelBinding(ctx, pin.Model, pin.Provider)
 		if reason != "" {
