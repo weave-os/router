@@ -28,10 +28,9 @@ func (e *ForcedModelExcludedError) Error() string { return e.Reason }
 // Unwrap ties the typed error to ErrForcedModelExcluded for errors.Is.
 func (e *ForcedModelExcludedError) Unwrap() error { return ErrForcedModelExcluded }
 
-// forcedModelExclusionReason explains, in the caller's terms, why exclusion
-// policy forbids serving model — "" when it is servable. provider is the
-// binding the force resolved to, used for models the catalog doesn't carry
-// (passthrough IDs have no binding list to check).
+// forcedModelExclusionReason returns why exclusion policy forbids forcing
+// model ("" when servable); provider is the resolved binding for passthrough
+// IDs that the catalog doesn't carry.
 func (s *Service) forcedModelExclusionReason(ctx context.Context, model, provider string) string {
 	for _, m := range installationExcludedModelsFromContext(ctx) {
 		if m == model {

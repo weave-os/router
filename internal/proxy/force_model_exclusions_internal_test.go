@@ -45,9 +45,8 @@ func forceCommandEnv(t *testing.T) *translate.RequestEnvelope {
 	return env
 }
 
-// TestForceModelCommand_RejectsSoleProviderExcluded is the core of authoritative
-// exclusions: pinning would have reported success and then served something
-// else on every later turn.
+// TestForceModelCommand_RejectsSoleProviderExcluded: core case — pinning
+// would have reported success, then served a different model every turn.
 func TestForceModelCommand_RejectsSoleProviderExcluded(t *testing.T) {
 	store := &recordingPinStore{}
 	svc := NewService(nil, nil, nil, false, nil, store, false,
@@ -189,9 +188,8 @@ func TestForceModelHeader_UnfencedInstallationUnaffected(t *testing.T) {
 	require.Len(t, store.upserts, 1)
 }
 
-// TestTurnLoop_ForcedPinToNewlyExcludedProviderRejects covers policy changing
-// under a live session: the pin predates the exclusion, and silently reverting
-// to automatic routing is what made this worth rejecting.
+// TestTurnLoop_ForcedPinToNewlyExcludedProviderRejects: policy can change
+// mid-session; the pre-exclusion pin would otherwise silently re-route.
 func TestTurnLoop_ForcedPinToNewlyExcludedProviderRejects(t *testing.T) {
 	fr := &tierProbeRouter{available: map[string]struct{}{"claude-haiku-4-5": {}}}
 	store := &overwritingPinStore{pin: sessionpin.Pin{
@@ -218,8 +216,7 @@ func TestTurnLoop_ForcedPinToNewlyExcludedProviderRejects(t *testing.T) {
 }
 
 // TestTurnLoop_AutomaticPinToExcludedProviderStillFallsThrough: only an
-// explicit user force is authoritative enough to fail the request; an automatic
-// pin must keep degrading gracefully.
+// explicit user force fails the request; automatic pins degrade gracefully.
 func TestTurnLoop_AutomaticPinToExcludedProviderStillFallsThrough(t *testing.T) {
 	fr := &tierProbeRouter{available: map[string]struct{}{"claude-haiku-4-5": {}}}
 	store := &overwritingPinStore{pin: sessionpin.Pin{
@@ -242,9 +239,8 @@ func TestTurnLoop_AutomaticPinToExcludedProviderStillFallsThrough(t *testing.T) 
 	require.NoError(t, err, "an automatic pin must not fail the request")
 }
 
-// TestForceModelCommand_AllowsWhenAnotherKeyedBindingServes: excluding a
-// provider only refuses the force when no other keyed binding can serve the
-// model. claude-opus-5 is also bound to the Anthropic-compatible gateway.
+// TestForceModelCommand_AllowsWhenAnotherKeyedBindingServes: excluding one
+// provider refuses a force only when no other keyed binding can serve it.
 func TestForceModelCommand_AllowsWhenAnotherKeyedBindingServes(t *testing.T) {
 	store := &recordingPinStore{}
 	svc := NewService(nil, nil, nil, false, nil, store, false,
