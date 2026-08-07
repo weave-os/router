@@ -12,14 +12,24 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      pull-requests: read
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
       - name: Fetch base branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
-          BASE_REF="${{ github.base_ref || 'main' }}"
+          # Ask the API rather than trusting the event payload: a stacked PR is
+          # retargeted at its parent branch after creation, and the payload can
+          # still carry main, which would count the parent's migration as new.
+          BASE_REF=$(gh api "repos/${{ github.repository }}/pulls/${PR_NUMBER}" --jq .base.ref 2>/dev/null || true)
+          if [ -z "$BASE_REF" ]; then
+            BASE_REF="${{ github.base_ref || 'main' }}"
+          fi
           if ! git fetch origin "${BASE_REF}:refs/remotes/origin/${BASE_REF}"; then
             if [[ "$BASE_REF" != graphite-base/* ]]; then
               exit 1
