@@ -8,9 +8,8 @@ var (
 	ErrInvalidPrefix = errors.New("invalid bearer key prefix")
 	ErrInvalidToken  = errors.New("invalid bearer key")
 
-	// ErrWrongKeyScope is returned when a valid key is presented to a surface
-	// its scope doesn't cover — an analytics key on the data plane, or a
-	// routing key on the analytics export. Collapses to the same opaque 401.
+	// ErrWrongKeyScope is returned when a key is valid but its scope doesn't
+	// cover the surface — analytics on data plane, or routing on export. Both collapse to 401.
 	ErrWrongKeyScope = errors.New("bearer key scope not valid for this surface")
 
 	// ErrInvalidKeyScope is returned when issuing a key with a scope the

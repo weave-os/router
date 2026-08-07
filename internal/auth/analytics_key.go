@@ -7,15 +7,13 @@ import (
 	"strings"
 )
 
-// VerifyAnalyticsAPIKey authenticates a raw bearer token for the read-only
-// analytics export. It returns ErrInvalidPrefix for a token that isn't an ra_
-// key, ErrInvalidToken when no active key matches, and ErrWrongKeyScope when a
-// live key is not analytics-scoped.
+// VerifyAnalyticsAPIKey authenticates a raw ra_ bearer token for the read-only
+// analytics export surface, returning ErrInvalidPrefix, ErrInvalidToken, or
+// ErrWrongKeyScope on failure.
 //
-// Deliberately narrower than VerifyAPIKey: no BYOK secrets and no per-cluster
-// allowlists are read, because nothing on the export surface may dispatch a
-// request. Analytics and routing tokens hash to different cache entries, so the
-// slimmer cached record can never be picked up by the data plane.
+// Narrower than VerifyAPIKey: no BYOK fetch, no cluster allowlists — analytics
+// and routing tokens hash to separate cache entries so neither surface can pick
+// up the other's cached record.
 func (s *Service) VerifyAnalyticsAPIKey(ctx context.Context, rawToken string) (*Installation, *APIKey, error) {
 	if !strings.HasPrefix(rawToken, AnalyticsAPIKeyPrefix+"_") {
 		return nil, nil, ErrInvalidPrefix
