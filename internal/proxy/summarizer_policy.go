@@ -25,18 +25,12 @@ type summarizerGate struct {
 	SkipReason string
 }
 
-// gateSummarizerCall decides whether the summary of a conversation may be sent
-// to provider/model for this request.
-//
-// A summary call ships the entire prior conversation upstream, so it is subject
-// to the same exclusions as routed traffic: a provider or model the operator
-// excluded must not receive the content it was excluded from seeing. Session
-// strike-outs are deliberately not consulted — transient 529 evidence is not a
-// policy statement, matching policyExcludedProviders.
-//
-// The tenant boundary is unchanged: prefer the caller's own forwarded
-// credentials, and rather than spend the deployment key on a BYOK/client-keyed
-// request, skip.
+// gateSummarizerCall decides whether a summary call may be dispatched to
+// provider/model. Summaries ship the full prior conversation, so policy
+// exclusions apply — policyExcludedProviders, not session strike-outs, which
+// are transient evidence. On BYOK/client-keyed requests without matching
+// forwarded creds, skip rather than spend the deployment key across the tenant
+// boundary.
 func (s *Service) gateSummarizerCall(ctx context.Context, provider, model string, headers http.Header) summarizerGate {
 	if _, excluded := s.policyExcludedProviders(ctx)[provider]; excluded {
 		return summarizerGate{SkipReason: summarizerSkipProviderExcluded}
@@ -53,11 +47,9 @@ func (s *Service) gateSummarizerCall(ctx context.Context, provider, model string
 	return summarizerGate{Creds: creds, Allowed: true}
 }
 
-// summarizerContext returns the context the summary call runs under: the
-// caller's own credentials when the gate resolved some, otherwise a context
-// stripped of any request credential (e.g. a subscription OAuth token) so the
-// synthetic call runs on the deployment key instead of inheriting one that
-// would 401 or cross a tenant boundary.
+// summarizerContext returns the context for the summary call: caller creds when
+// available, otherwise stripped so a subscription OAuth token can't 401 or
+// cross a tenant boundary.
 func (g summarizerGate) summarizerContext(ctx context.Context) context.Context {
 	if g.Creds != nil {
 		return context.WithValue(ctx, CredentialsContextKey{}, g.Creds)

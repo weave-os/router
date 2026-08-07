@@ -756,10 +756,8 @@ func TestTurnLoop_HandoverSkippedWhenClientCredsCrossProvider(t *testing.T) {
 	assert.Equal(t, "claude-haiku-4-5", rec.Header().Get(proxy.HeaderRouterModel), "switch must still happen with full history passed through")
 }
 
-// A summary carries the entire prior conversation, so an installation that
-// excluded the summarizer's provider must not have it sent there — even though
-// the request itself routes to a permitted provider and the deployment holds a
-// key for the excluded one.
+// An excluded summarizer provider must not receive the conversation even when
+// the routed model is permitted and the deployment holds a key for it.
 func TestTurnLoop_HandoverSkippedWhenSummarizerProviderExcluded(t *testing.T) {
 	store := newFakePinStore()
 	store.hasPin = true
