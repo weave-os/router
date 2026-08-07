@@ -9,9 +9,7 @@ import (
 const (
 	// DefaultLimit is the page size when the caller doesn't ask for one.
 	DefaultLimit = 1000
-	// MaxLimit caps a page. At ~600 B/row a full page is ~6 MB, which is what
-	// lets the service materialize a page and return the cursor as a response
-	// header rather than a trailer.
+	// MaxLimit caps a page so materializing one stays bounded in memory.
 	MaxLimit = 10000
 	// Holdback keeps the export's tail behind now: telemetry rows are written
 	// off the request path and can commit slightly out of keyset order, so a

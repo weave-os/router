@@ -11,10 +11,8 @@ import (
 // Decision is one exported routing decision: a single upstream action, not a
 // user-visible request. Retries, failovers, compaction, and sub-agent turns
 // each produce their own row, so consumers group on RequestID / TurnType
-// rather than counting rows as requests.
-//
-// Nullable columns stay pointers so a warehouse sees NULL, not a fabricated
-// zero. Keep Schema in sync — a test asserts it.
+// rather than counting rows as requests. Nullable columns stay pointers so a
+// warehouse sees NULL, not a fabricated zero.
 type Decision struct {
 	// ID is unique per row and stable across replays, so it is what a consumer
 	// deduplicates on. RequestID is not: retries share one.
@@ -54,8 +52,7 @@ type Decision struct {
 	CacheReadTokens      *int64 `json:"cache_read_tokens"`
 
 	// Requested* costs price the turn at the model the caller asked for;
-	// Actual* price the model the router served. Their difference is the
-	// savings claim, exported pre-computed as SavingsUSD.
+	// Actual* price the model the router served; their difference is SavingsUSD.
 	RequestedInputCostUSD  *float64 `json:"requested_input_cost_usd"`
 	RequestedOutputCostUSD *float64 `json:"requested_output_cost_usd"`
 	ActualInputCostUSD     *float64 `json:"actual_input_cost_usd"`
