@@ -113,6 +113,38 @@ curl -sS http://localhost:8080/v1/chat/completions \
 curl -sS http://localhost:8080/v1/route -H "Authorization: Bearer rk_..." -d '...'
 ```
 
+### What that stack looks like
+
+Only the grey boxes are off your machine. The router, the scorer, Postgres, and
+your provider keys all stay local; prompts go from the router straight to the
+provider you configured, never to Weave.
+
+```mermaid
+flowchart LR
+    client["Claude Code, Codex, opencode,<br/>pi, Cursor, your own app"]
+    router["Router :8080<br/>/v1/messages · /v1/chat/completions<br/>/v1beta/models · /v1/route"]
+    scorer["Cluster scorer<br/>in-process ONNX embedder"]
+    hmm["HMM policy sidecar :8093<br/>optional, make up-hmm"]
+    pg[("Postgres<br/>installations, rk_ keys,<br/>encrypted BYOK keys, usage")]
+    ui["Dashboard /ui<br/>selfhosted mode only"]
+    providers["Anthropic · OpenAI · Gemini<br/>OpenRouter and any<br/>OpenAI-compatible endpoint"]
+    otel["Your OTLP collector<br/>Honeycomb, Datadog, Grafana"]
+
+    client -->|"rk_… bearer token,<br/>streamed response back"| router
+    router -->|"embed and score the action"| scorer
+    router -.->|"ROUTER_DEFAULT_STRATEGY=hmm"| hmm
+    router -->|"auth, config, usage"| pg
+    pg --> ui
+    router -->|"provider key from env or BYOK"| providers
+    router -.->|"spans and usage logs"| otel
+
+    classDef external fill:#f4f4f5,stroke:#a1a1aa,color:#3f3f46
+    class providers,otel external
+```
+
+Multi-replica deployments also need Pub/Sub (`PUBSUB_*`) for cache
+invalidation; `docker compose` runs the emulator for you.
+
 ### Optional: self-host the frozen HMM policy
 
 The default stack uses the in-process cluster scorer. To run the frozen HMM
