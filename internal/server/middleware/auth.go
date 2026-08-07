@@ -111,6 +111,9 @@ func withAPIKey(svc *auth.Service, byokRequiresOptIn bool) gin.HandlerFunc {
 			if len(installation.ExcludedProviders) > 0 {
 				ctx = context.WithValue(ctx, proxy.InstallationExcludedProvidersContextKey{}, installation.ExcludedProviders)
 			}
+			if len(installation.AllowedProviders) > 0 {
+				ctx = context.WithValue(ctx, proxy.InstallationAllowedProvidersContextKey{}, installation.AllowedProviders)
+			}
 			if len(installation.PreferredModels) > 0 {
 				ctx = context.WithValue(ctx, proxy.InstallationPreferredModelsContextKey{}, installation.PreferredModels)
 			}

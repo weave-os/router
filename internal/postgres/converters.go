@@ -20,6 +20,10 @@ func toAuthInstallation(row sqlc.RouterModelRouterInstallation) *auth.Installati
 	if excludedProviders == nil {
 		excludedProviders = []string{}
 	}
+	allowedProviders := row.AllowedProviders
+	if allowedProviders == nil {
+		allowedProviders = []string{}
+	}
 	preferred := row.PreferredModels
 	if preferred == nil {
 		preferred = []string{}
@@ -34,6 +38,7 @@ func toAuthInstallation(row sqlc.RouterModelRouterInstallation) *auth.Installati
 		CreatedBy:                    row.CreatedBy,
 		ExcludedModels:               excluded,
 		ExcludedProviders:            excludedProviders,
+		AllowedProviders:             allowedProviders,
 		PreferredModels:              preferred,
 		RoutingQualityWeight:         row.RoutingQualityWeight,
 		UsageBypassEnabled:           row.UsageBypassEnabled,

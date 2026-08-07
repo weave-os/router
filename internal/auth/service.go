@@ -306,6 +306,38 @@ func (s *Service) SetInstallationExcludedProviders(ctx context.Context, external
 	return out, nil
 }
 
+// SetInstallationAllowedProviders replaces the per-installation provider egress
+// fence. An empty list removes the fence; a non-empty one is the exhaustive set
+// of providers the installation's traffic may reach.
+// allowed is the set of valid provider names; passing nil skips validation.
+func (s *Service) SetInstallationAllowedProviders(ctx context.Context, externalID, installationID string, providerNames []string, allowed map[string]struct{}) ([]string, error) {
+	if providerNames == nil {
+		providerNames = []string{}
+	}
+	if allowed != nil {
+		for _, p := range providerNames {
+			if _, ok := allowed[p]; !ok {
+				return nil, fmt.Errorf("%w: %q", ErrUnknownProvider, p)
+			}
+		}
+	}
+	// De-dupe while preserving order so the persisted list is stable.
+	seen := make(map[string]struct{}, len(providerNames))
+	out := make([]string, 0, len(providerNames))
+	for _, p := range providerNames {
+		if _, dup := seen[p]; dup {
+			continue
+		}
+		seen[p] = struct{}{}
+		out = append(out, p)
+	}
+	if err := s.installations.UpdateAllowedProviders(ctx, externalID, installationID, out); err != nil {
+		return nil, err
+	}
+	s.invalidateInstallation(installationID)
+	return out, nil
+}
+
 // SetInstallationRoutingPreference persists the routing quality weight (a
 // normalized fraction in [0, 1]). Passing nil clears it so the scorer reverts
 // to its tuned per-cluster defaults. Invalidates the cache so the change

@@ -38,6 +38,23 @@ func TestClassifyDispatchError_ProviderNotConfigured(t *testing.T) {
 	assert.False(t, cls.Kind.IsClientError(), "provider-not-configured is an upstream/routing problem, not a client-input one")
 }
 
+func TestClassifyDispatchError_ProviderNotAllowed(t *testing.T) {
+	// The wrapping the fence uses: fmt.Errorf("%w: %s", ErrProviderNotAllowed, name).
+	err := fmt.Errorf("%w: %s", proxy.ErrProviderNotAllowed, providers.ProviderOpenRouter)
+
+	cls, ok := proxy.ClassifyDispatchError(err)
+
+	require.True(t, ok, "ErrProviderNotAllowed must be classified")
+	assert.Equal(t, proxy.DispatchErrorProviderNotAllowed, cls.Kind)
+	assert.Equal(t, http.StatusForbidden, cls.Status)
+	assert.False(t, cls.RetryAfter, "retrying can't change which providers the installation is fenced to")
+	assert.Equal(t, "warn", cls.LogLevel)
+	assert.True(t, cls.Kind.IsClientError(),
+		"the deploy is healthy — surfacing this as api_error would blame us and invite a retry loop")
+	assert.NotContains(t, cls.Message, providers.ProviderOpenRouter,
+		"the fenced-off provider's name is deployment config, not something to hand back to the caller")
+}
+
 func TestClassifyDispatchError_UpstreamStatusErrorPreservesStatus(t *testing.T) {
 	err := &providers.UpstreamStatusError{Status: http.StatusTooManyRequests}
 

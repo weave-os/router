@@ -939,7 +939,10 @@ func (s *Service) runTurnLoop(
 			sumProvider = s.summarizer.Provider()
 			sumCreds = resolveSummarizerCreds(ctx, sumProvider, reqHeaders)
 			nonDepCreds := s.requestUsesNonDeploymentCreds(ctx, reqHeaders)
-			canCallSummarizer = sumCreds != nil || !nonDepCreds
+			// The summarizer holds its own client and never passes through
+			// s.provider, so the fence is checked here too — otherwise a fenced
+			// installation's conversation leaves via the summary call.
+			canCallSummarizer = (sumCreds != nil || !nonDepCreds) && s.providerAllowed(ctx, sumProvider)
 		}
 		switch {
 		case s.summarizer == nil:

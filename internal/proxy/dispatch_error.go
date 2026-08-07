@@ -29,6 +29,7 @@ const (
 	DispatchErrorUpstreamStatus
 	DispatchErrorNotImplemented
 	DispatchErrorProviderNotConfigured
+	DispatchErrorProviderNotAllowed
 	DispatchErrorRequestNotJSONObject
 	DispatchErrorNoEligibleProvider
 	DispatchErrorContextWindowExceeded
@@ -93,6 +94,14 @@ func ClassifyDispatchError(err error) (DispatchErrorClass, bool) {
 			Kind:    DispatchErrorProviderNotConfigured,
 			Status:  http.StatusBadGateway,
 			Message: "Provider not configured.",
+		}, true
+	case errors.Is(err, ErrProviderNotAllowed):
+		return DispatchErrorClass{
+			Kind:       DispatchErrorProviderNotAllowed,
+			Status:     http.StatusForbidden,
+			Message:    "No permitted provider can serve this request: the provider it routed to is outside this installation's allowed set.",
+			LogLevel:   "warn",
+			LogMessage: "Request refused by the provider egress fence",
 		}, true
 	case errors.Is(err, ErrRequestNotJSONObject):
 		return DispatchErrorClass{
@@ -244,7 +253,10 @@ func unwrapToSentinelMessage(err error) string {
 // rather than "api_error".
 func (k DispatchErrorKind) IsClientError() bool {
 	switch k {
-	case DispatchErrorRequestNotJSONObject, DispatchErrorNoEligibleProvider, DispatchErrorContextWindowExceeded, DispatchErrorInvalidRoutingKnobs, DispatchErrorTranslationIntrinsicallyIncompatible, DispatchErrorAnthropicCacheControlInvalid:
+	// ProviderNotAllowed belongs here because the deployment is healthy and the
+	// request simply asked for something this installation may not reach —
+	// "api_error" would read as our failure and invite a client retry loop.
+	case DispatchErrorRequestNotJSONObject, DispatchErrorNoEligibleProvider, DispatchErrorContextWindowExceeded, DispatchErrorInvalidRoutingKnobs, DispatchErrorTranslationIntrinsicallyIncompatible, DispatchErrorAnthropicCacheControlInvalid, DispatchErrorProviderNotAllowed:
 		return true
 	default:
 		return false

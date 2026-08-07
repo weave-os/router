@@ -159,6 +159,8 @@ func Register(engine *gin.Engine, authSvc *auth.Service, proxySvc *proxy.Service
 			mgmt.PUT("/excluded-models", admin.UpdateExcludedModelsHandler(authSvc, deployedModels, proxySvc))
 			mgmt.GET("/excluded-providers", admin.GetExcludedProvidersHandler(authSvc, deployedModels, proxySvc))
 			mgmt.PUT("/excluded-providers", admin.UpdateExcludedProvidersHandler(authSvc, deployedModels, proxySvc))
+			mgmt.GET("/allowed-providers", admin.GetAllowedProvidersHandler(authSvc, deployedModels, proxySvc))
+			mgmt.PUT("/allowed-providers", admin.UpdateAllowedProvidersHandler(authSvc, deployedModels, proxySvc))
 		}
 	}
 

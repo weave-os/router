@@ -124,6 +124,25 @@ If the cluster scorer can't run (missing model, embed timeout, etc.), the
 router returns HTTP 503 — it does *not* silently fall back to a default
 model. Failures are loud by design.
 
+### Provider egress fence
+
+| Variable                   | Default   | Purpose |
+| -------------------------- | --------- | ------- |
+| `ROUTER_ALLOWED_PROVIDERS` | *(unset)* | Comma-separated provider names (`anthropic,openai,…`). When set, **no** request on this deployment may reach a provider outside the list, whatever an installation is configured for. An unknown name panics at boot rather than fencing the deploy down to nothing. |
+
+Unset means installations are fenced individually or not at all. The
+per-installation list (`GET`/`PUT /admin/v1/allowed-providers`, body
+`{"allowed": ["anthropic"]}`; `{"allowed": []}` removes the fence) is
+rejected with 403 while `ROUTER_ALLOWED_PROVIDERS` is set — the deployment
+fence is a ceiling, not a default.
+
+The fence is a boundary, not a preference, which is what separates it from
+excluded providers: exclusions steer the scorer, but a fallback binding, a
+sticky session pin or a `/force-model` can still walk a request out to the
+provider they steered away from. Nothing walks out of the fence. Once it
+leaves no provider able to serve the request, the request fails with HTTP 403
+instead of reaching for one outside the list.
+
 ## Policy sidecars
 
 Out-of-process policy routers use the versioned contract in

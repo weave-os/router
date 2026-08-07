@@ -85,6 +85,23 @@ func TestUsageBypass_BelowThreshold_SkipsScorer(t *testing.T) {
 	assert.Equal(t, bypassRequestedMdl, rec.Header().Get("x-router-model"))
 }
 
+// The bypass path skips the scorer and dispatches straight to the
+// subscription's provider, so it would be a way around the fence. The gate
+// disengages instead, and the routed path then fails closed rather than
+// serving a fenced-off provider.
+func TestUsageBypass_FencedInstallationFailsClosed(t *testing.T) {
+	svc, _, p := bypassFixture(t, 0.20)
+	rec, req, body := bypassRequest(t)
+	ctx := context.WithValue(bypassCtx(0.80), proxy.InstallationAllowedProvidersContextKey{},
+		[]string{providers.ProviderOpenAI})
+
+	err := svc.ProxyMessages(ctx, body, rec, req)
+
+	require.ErrorIs(t, err, proxy.ErrProviderNotAllowed)
+	assert.Empty(t, p.proxyBodies, "the fenced-off provider must not be dispatched to")
+	assert.NotEqual(t, "usage_bypass", rec.Header().Get("x-router-decision"))
+}
+
 // TestUsageBypass_AtThreshold_EngagesRouting is the counterpart: once observed
 // utilization crosses the threshold, the scorer runs and substitutes its pick.
 func TestUsageBypass_AtThreshold_EngagesRouting(t *testing.T) {

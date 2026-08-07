@@ -111,6 +111,8 @@ type fakeInstallationRepository struct {
 	excludedModelsExternalByID      map[string]string
 	excludedProvidersByID           map[string][]string
 	excludedProvidersExternalByID   map[string]string
+	allowedProvidersByID            map[string][]string
+	allowedProvidersExternalByID    map[string]string
 	routingQualityByID              map[string]*float64
 	usageBypassEnabledByID          map[string]bool
 	usageBypassThresholdByID        map[string]*float64
@@ -160,6 +162,20 @@ func (f *fakeInstallationRepository) UpdateExcludedProviders(ctx context.Context
 	}
 	f.excludedProvidersByID[id] = append([]string{}, providerNames...)
 	f.excludedProvidersExternalByID[id] = externalID
+	return nil
+}
+func (f *fakeInstallationRepository) UpdateAllowedProviders(ctx context.Context, externalID, id string, providerNames []string) error {
+	if f.updateErr != nil {
+		return f.updateErr
+	}
+	if f.allowedProvidersByID == nil {
+		f.allowedProvidersByID = map[string][]string{}
+	}
+	if f.allowedProvidersExternalByID == nil {
+		f.allowedProvidersExternalByID = map[string]string{}
+	}
+	f.allowedProvidersByID[id] = append([]string{}, providerNames...)
+	f.allowedProvidersExternalByID[id] = externalID
 	return nil
 }
 func (f *fakeInstallationRepository) UpdateRoutingPreference(ctx context.Context, externalID, id string, qualityWeight *float64) error {
@@ -790,6 +806,45 @@ func TestService_SetInstallationExcludedProviders(t *testing.T) {
 	})
 }
 
+func TestService_SetInstallationAllowedProviders(t *testing.T) {
+	installRepo := &fakeInstallationRepository{}
+	svc := auth.NewService(installRepo, &fakeAPIKeyRepository{byHash: map[string]fakeKeyRow{}}, nil, nil, auth.NoOpAPIKeyCache{}, nil, frozenClock())
+
+	allowed := map[string]struct{}{"anthropic": {}, "fireworks": {}}
+
+	t.Run("persists deduped list scoped by external_id", func(t *testing.T) {
+		out, err := svc.SetInstallationAllowedProviders(context.Background(), "ext-1", "inst-1", []string{"fireworks", "fireworks", "anthropic"}, allowed)
+		require.NoError(t, err)
+		assert.Equal(t, []string{"fireworks", "anthropic"}, out, "duplicates collapsed; order preserved")
+		assert.Equal(t, []string{"fireworks", "anthropic"}, installRepo.allowedProvidersByID["inst-1"])
+		assert.Equal(t, "ext-1", installRepo.allowedProvidersExternalByID["inst-1"],
+			"external_id must be propagated to the repo for cross-tenant scoping")
+	})
+
+	// A typo'd name would fence the installation down to nothing it can
+	// actually reach, so an unknown provider must fail rather than persist.
+	t.Run("rejects unknown provider with ErrUnknownProvider", func(t *testing.T) {
+		_, err := svc.SetInstallationAllowedProviders(context.Background(), "ext-1", "inst-9", []string{"acme-cloud"}, allowed)
+		require.Error(t, err)
+		assert.True(t, errors.Is(err, auth.ErrUnknownProvider))
+		_, written := installRepo.allowedProvidersByID["inst-9"]
+		assert.False(t, written, "a rejected fence must not be persisted")
+	})
+
+	t.Run("nil allowed skips validation", func(t *testing.T) {
+		out, err := svc.SetInstallationAllowedProviders(context.Background(), "ext-2", "inst-2", []string{"anything-goes"}, nil)
+		require.NoError(t, err)
+		assert.Equal(t, []string{"anything-goes"}, out)
+	})
+
+	t.Run("nil providers persists empty slice, removing the fence", func(t *testing.T) {
+		out, err := svc.SetInstallationAllowedProviders(context.Background(), "ext-3", "inst-3", nil, allowed)
+		require.NoError(t, err)
+		assert.Equal(t, []string{}, out)
+		assert.Equal(t, []string{}, installRepo.allowedProvidersByID["inst-3"])
+	})
+}
+
 func TestService_SetInstallationRoutingPreference(t *testing.T) {
 	installRepo := &fakeInstallationRepository{}
 	svc := auth.NewService(installRepo, &fakeAPIKeyRepository{byHash: map[string]fakeKeyRow{}}, nil, nil, auth.NoOpAPIKeyCache{}, nil, frozenClock())
@@ -853,6 +908,10 @@ func TestService_SetInstallation_NotFoundDoesNotInvalidate(t *testing.T) {
 		}},
 		{"ExcludedProviders", func(ctx context.Context, svc *auth.Service) error {
 			_, err := svc.SetInstallationExcludedProviders(ctx, "ext-1", "missing-inst", []string{"openai"}, nil)
+			return err
+		}},
+		{"AllowedProviders", func(ctx context.Context, svc *auth.Service) error {
+			_, err := svc.SetInstallationAllowedProviders(ctx, "ext-1", "missing-inst", []string{"openai"}, nil)
 			return err
 		}},
 		{"RoutingPreference", func(ctx context.Context, svc *auth.Service) error {
@@ -931,6 +990,16 @@ func TestService_WriteHooksInvalidateAndNotify(t *testing.T) {
 			"excluded-model writes must call cache.InvalidateInstallation so the next request sees the new list")
 		assert.Equal(t, []string{installID}, nf.snapshot(),
 			"excluded-model writes must publish NOTIFY so peer replicas drop their cache too")
+	})
+
+	t.Run("SetInstallationAllowedProviders", func(t *testing.T) {
+		svc, cache, nf := makeSvc()
+		_, err := svc.SetInstallationAllowedProviders(context.Background(), "ext-1", installID, []string{"anthropic"}, nil)
+		require.NoError(t, err)
+		assert.Equal(t, []string{installID}, cache.invalidationSnapshot(),
+			"a stale cached installation would keep serving requests outside the new egress fence")
+		assert.Equal(t, []string{installID}, nf.snapshot(),
+			"egress-fence writes must publish NOTIFY so peer replicas drop their cache too")
 	})
 
 	t.Run("SetInstallationRoutingPreference", func(t *testing.T) {

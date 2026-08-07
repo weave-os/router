@@ -16,7 +16,7 @@ import {
   type ExternalKey,
   type RouterConfig,
 } from "@/lib/api";
-import { ChevronDown, Copy, Filter, KeyRound, Network, Plug, RotateCw, Search, Settings as SettingsIcon, SlidersHorizontal, Trash2 } from "lucide-react";
+import { ChevronDown, Copy, Filter, KeyRound, Network, Plug, RotateCw, Search, Settings as SettingsIcon, ShieldCheck, SlidersHorizontal, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 
 export default function SettingsPage() {
@@ -126,6 +126,26 @@ export default function SettingsPage() {
             unroutable.
           </Text>
           <ProviderSelectionPanel />
+        </Page.Section>
+
+        <Page.Section
+          className="py-3"
+          header={
+            <Page.SectionHeader>
+              <ShieldCheck className="size-4" />
+              <Text variant="h4" as="h3">
+                Egress fence
+              </Text>
+            </Page.SectionHeader>
+          }
+        >
+          <Text className="text-xs text-muted-foreground">
+            Restrict this installation to a fixed set of providers. Unlike
+            provider selection, nothing routes around it: a request that no
+            permitted provider can serve fails instead of falling back. Fence
+            nothing to leave every deployed provider reachable.
+          </Text>
+          <EgressFencePanel />
         </Page.Section>
 
         <Page.Section
@@ -1042,6 +1062,129 @@ function ProviderSelectionPanel() {
                 );
               })}
             </ul>
+          )}
+        </Card.Content>
+        <Card.Footer className="border-t border-border px-5 py-3">
+          <Button
+            onClick={save}
+            disabled={!dirty || saving || envOverrideActive}
+            intent={Intent.Primary}
+            appearance={Appearance.Filled}
+          >
+            {saving ? "Saving…" : "Save"}
+          </Button>
+        </Card.Footer>
+      </Card>
+    </>
+  );
+}
+
+
+function EgressFencePanel() {
+  const [available, setAvailable] = useState<string[] | null>(null);
+  const [allowed, setAllowed] = useState<Set<string>>(new Set());
+  const [savedAllowed, setSavedAllowed] = useState<Set<string>>(new Set());
+  const [envOverrideActive, setEnvOverrideActive] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    api.allowedProviders
+      .get()
+      .then(res => {
+        setAvailable(res.available);
+        const next = new Set(res.allowed);
+        setAllowed(next);
+        setSavedAllowed(next);
+        setEnvOverrideActive(res.env_override_active);
+      })
+      .catch((err: unknown) =>
+        setError(err instanceof Error ? err.message : "Failed to load providers."),
+      );
+  }, []);
+
+  const dirty =
+    allowed.size !== savedAllowed.size ||
+    Array.from(allowed).some(p => !savedAllowed.has(p));
+
+  function toggle(provider: string) {
+    if (envOverrideActive) return;
+    setAllowed(prev => {
+      const next = new Set(prev);
+      if (next.has(provider)) next.delete(provider);
+      else next.add(provider);
+      return next;
+    });
+  }
+
+  async function save() {
+    setSaving(true);
+    setError(null);
+    try {
+      const res = await api.allowedProviders.update(Array.from(allowed));
+      const next = new Set(res.allowed);
+      setAllowed(next);
+      setSavedAllowed(next);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Failed to save the egress fence.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (available == null) {
+    return (
+      <Card className="p-0">
+        <Card.Content>
+          <div className="px-5 py-8 text-center text-2xs text-muted-foreground">
+            {error != null ? "Failed to load" : "Loading…"}
+          </div>
+        </Card.Content>
+      </Card>
+    );
+  }
+
+  return (
+    <>
+      {error && <ErrorBanner>{error}</ErrorBanner>}
+      {envOverrideActive && (
+        <div className="rounded-md border border-border bg-muted/30 p-3 text-2xs text-muted-foreground">
+          Fence is pinned by <code className="font-mono">ROUTER_ALLOWED_PROVIDERS</code>; clear the
+          env var to edit here.
+        </div>
+      )}
+      <Card className="p-0">
+        <Card.Content>
+          {available.length === 0 ? (
+            <EmptyHint>No deployed providers. Check ROUTER_CLUSTER_VERSION and provider keys.</EmptyHint>
+          ) : (
+            <>
+              <ul className="space-y-1 px-5 py-3">
+                {available.map(p => (
+                  <li key={p} className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      id={`fence-${p}`}
+                      checked={allowed.has(p)}
+                      onChange={() => toggle(p)}
+                      disabled={envOverrideActive}
+                      className="size-3.5"
+                    />
+                    <label
+                      htmlFor={`fence-${p}`}
+                      className="cursor-pointer font-mono text-xs text-foreground"
+                    >
+                      {p}
+                    </label>
+                  </li>
+                ))}
+              </ul>
+              {allowed.size === 0 && (
+                <div className="px-5 pb-3 text-2xs text-muted-foreground">
+                  No fence: every deployed provider is reachable.
+                </div>
+              )}
+            </>
           )}
         </Card.Content>
         <Card.Footer className="border-t border-border px-5 py-3">

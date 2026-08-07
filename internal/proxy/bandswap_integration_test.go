@@ -117,4 +117,11 @@ func TestBandSwapServed_UnservableChoiceFallsBackToAnchor(t *testing.T) {
 	if got := s.bandSwapServed(context.Background(), turntype.MainLoop, pin, fresh, false, enabled, nil); got.Model != anchor {
 		t.Fatalf("ineligible-provider swap served %q, want anchor %q", got.Model, anchor)
 	}
+	// Chosen model's provider outside the egress fence -> anchor. Checked with
+	// a nil enabled set on purpose: that reads as "unrestricted" here, so the
+	// fence is the only thing standing between the swap and a fenced-off provider.
+	fenced := fencedCtx(providers.ProviderOpenRouter)
+	if got := s.bandSwapServed(fenced, turntype.MainLoop, pin, fresh, false, nil, nil); got.Model != anchor {
+		t.Fatalf("fenced-provider swap served %q, want anchor %q", got.Model, anchor)
+	}
 }

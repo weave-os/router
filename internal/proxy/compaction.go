@@ -223,6 +223,13 @@ func (s *Service) runCompactionSummary(ctx context.Context, env *translate.Reque
 		log.Info("Compaction Tier-3 skipped: would cross tenant boundary", "sum_provider", sumProvider)
 		return "", handover.Usage{}, "", false
 	}
+	// The summarizer dispatches on its own client, bypassing s.provider, so the
+	// fence is checked here or a fenced installation's history would leave via
+	// the compaction summary.
+	if !s.providerAllowed(ctx, sumProvider) {
+		log.Info("Compaction Tier-3 skipped: summarizer provider is outside the egress fence", "sum_provider", sumProvider)
+		return "", handover.Usage{}, "", false
+	}
 	summCtx := ctx
 	if sumCreds != nil {
 		summCtx = context.WithValue(ctx, CredentialsContextKey{}, sumCreds)

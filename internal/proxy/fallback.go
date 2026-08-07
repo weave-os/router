@@ -177,6 +177,16 @@ type failoverInputs struct {
 func (s *Service) dispatchWithFallback(ctx context.Context, in failoverInputs) (winnerIdx int, err error) {
 	log := observability.FromContext(ctx)
 	if len(in.bindings) == 0 {
+		// resolveBindingsForDispatch empties the list when the fence leaves
+		// nothing to dispatch to. Say so, rather than reporting the generic
+		// misconfiguration 502 below: the deploy is fine, the request simply
+		// has nowhere permitted to go.
+		if !s.providerAllowed(ctx, in.initialDecision.Provider) {
+			log.Warn("No permitted provider can serve the request",
+				"provider", in.initialDecision.Provider,
+				"model", in.initialDecision.Model)
+			return -1, fmt.Errorf("%w: %s", ErrProviderNotAllowed, in.initialDecision.Provider)
+		}
 		if in.initialDecision.Reason == translate.ReasonUserForceModel {
 			err := &providers.UpstreamErrorResponse{
 				Status: http.StatusServiceUnavailable,
@@ -207,11 +217,17 @@ func (s *Service) dispatchWithFallback(ctx context.Context, in failoverInputs) (
 		decision := in.initialDecision
 		decision.Provider = b.Provider
 
-		p, provErr := s.provider(b.Provider)
+		p, provErr := s.provider(attemptCtx, b.Provider)
 		if provErr != nil {
-			// Provider was eligible at boot but missing now — treat as
-			// retryable transport-class error and try the next binding.
-			log.Warn("dispatchWithFallback: provider not configured at runtime",
+			// Either the provider was eligible at boot but is missing now
+			// (treat as a retryable transport-class fault and walk on), or the
+			// egress fence refused it — which resolveBindingsForDispatch should
+			// already have filtered, so log it as the invariant breach it is.
+			msg := "dispatchWithFallback: provider not configured at runtime"
+			if errors.Is(provErr, ErrProviderNotAllowed) {
+				msg = "dispatchWithFallback: binding refused by the egress fence"
+			}
+			log.Warn(msg,
 				"provider", b.Provider,
 				"model", decision.Model,
 				"attempt_index", i)
@@ -369,6 +385,12 @@ func (s *Service) shouldFailover(ctx context.Context) bool {
 // slice carrying the already-resolved decision provider.
 func (s *Service) resolveBindingsForDispatch(ctx context.Context, decision router.Decision) []catalog.ProviderBinding {
 	primary := catalog.ProviderBinding{Provider: decision.Provider}
+	// Checked ahead of the single-attempt shortcuts below, not just on the
+	// failover path: BYOK and legacy deploys reach dispatch through them, and a
+	// fence that only held while failover was enabled would be no fence at all.
+	if !s.providerAllowed(ctx, decision.Provider) {
+		return nil
+	}
 	if !s.shouldFailover(ctx) {
 		return []catalog.ProviderBinding{primary}
 	}

@@ -843,6 +843,24 @@ func main() {
 		logger.Info("Provider exclusion override active", "excluded_providers", cleaned)
 	}
 
+	// ROUTER_ALLOWED_PROVIDERS pins a deployment-wide egress fence: no request
+	// may reach a provider outside it, whatever an installation's own fence
+	// says. Empty / unset → per-installation fences apply.
+	if allowedRaw := strings.TrimSpace(config.GetOr("ROUTER_ALLOWED_PROVIDERS", "")); allowedRaw != "" {
+		parts := strings.Split(allowedRaw, ",")
+		cleaned := make([]string, 0, len(parts))
+		for _, p := range parts {
+			if trimmed := strings.TrimSpace(p); trimmed != "" {
+				cleaned = append(cleaned, trimmed)
+			}
+		}
+		if unknown := providers.UnknownProviders(cleaned); len(unknown) > 0 {
+			panic(fmt.Sprintf("ROUTER_ALLOWED_PROVIDERS names unknown providers %v: a typo here fences the deploy down to nothing", unknown))
+		}
+		proxySvc = proxySvc.WithAllowedProvidersOverride(cleaned)
+		logger.Info("Provider egress fence active", "allowed_providers", cleaned)
+	}
+
 	// The usage observer is always wired (cheap, side-effect-free) even though
 	// the cost discount below is env-gated: it also feeds the per-installation
 	// usage-bypass gate, which is DB-gated and can't know the env flag's state.

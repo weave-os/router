@@ -148,6 +148,12 @@ export interface ExcludedProvidersResponse {
   env_override_active: boolean;
 }
 
+export interface AllowedProvidersResponse {
+  available: string[];
+  allowed: string[];
+  env_override_active: boolean;
+}
+
 export interface RoutingPreferencesResponse {
   quality: number;
   price: number;
@@ -229,6 +235,15 @@ export const api = {
       request<ExcludedProvidersResponse>("/excluded-providers", {
         method: "PUT",
         body: JSON.stringify({ excluded }),
+      }),
+  },
+  allowedProviders: {
+    get: () => request<AllowedProvidersResponse>("/allowed-providers"),
+    // An empty list removes the fence.
+    update: (allowed: string[]) =>
+      request<AllowedProvidersResponse>("/allowed-providers", {
+        method: "PUT",
+        body: JSON.stringify({ allowed }),
       }),
   },
   routingPreferences: {

@@ -56,6 +56,18 @@ WHERE id = @id::uuid
   AND external_id = @external_id::varchar
   AND deleted_at IS NULL;
 
+-- Replaces the per-installation provider egress fence, scoped to an external_id
+-- to prevent cross-tenant updates. Empty array means "unfenced"; a non-empty one
+-- is the exhaustive set of providers this installation's traffic may reach.
+-- Bumps updated_at so dashboards see the change.
+-- name: UpdateModelRouterInstallationAllowedProviders :execrows
+UPDATE router.model_router_installations
+SET allowed_providers = @allowed_providers::text[],
+    updated_at = NOW()
+WHERE id = @id::uuid
+  AND external_id = @external_id::varchar
+  AND deleted_at IS NULL;
+
 -- Sets the routing preference quality weight (a normalized fraction in [0, 1]),
 -- scoped to an external_id to prevent cross-tenant updates. NULL clears the
 -- preference so the scorer reverts to its tuned defaults.

@@ -258,7 +258,7 @@ func (s *Service) bypassToAnthropic(
 	w.Header().Set(HeaderRouterProvider, decision.Provider)
 	w.Header().Set(HeaderRouterModel, decision.Model)
 
-	p, provErr := s.provider(providers.ProviderAnthropic)
+	p, provErr := s.provider(ctx, providers.ProviderAnthropic)
 	if provErr != nil {
 		return provErr
 	}

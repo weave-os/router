@@ -119,6 +119,19 @@ func AllProviders() []string {
 	return out
 }
 
+// UnknownProviders returns the names in list that aren't known Provider*
+// constants, sorted. Empty result means every name is known.
+func UnknownProviders(list []string) []string {
+	out := make([]string, 0)
+	for _, p := range list {
+		if _, ok := ProviderFamilies[p]; !ok {
+			out = append(out, p)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
 // ValidateDispatchable reports an error if any registered provider is missing
 // from ProviderFamilies (would silently 502 at request time). Called at boot;
 // the composition root panics on error so this fails loudly, not in prod.

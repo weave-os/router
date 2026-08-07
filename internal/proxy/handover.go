@@ -317,7 +317,10 @@ func (s *Service) runCompactionHandover(ctx context.Context, env *translate.Requ
 		sumProvider = s.summarizer.Provider()
 		sumCreds = resolveSummarizerCreds(ctx, sumProvider, reqHeaders)
 		nonDepCreds := s.requestUsesNonDeploymentCreds(ctx, reqHeaders)
-		canCallSummarizer = sumCreds != nil || !nonDepCreds
+		// Fence check: the summarizer dispatches on its own client, bypassing
+		// s.provider, so a fenced installation would otherwise leak the
+		// conversation through the summary call.
+		canCallSummarizer = (sumCreds != nil || !nonDepCreds) && s.providerAllowed(ctx, sumProvider)
 	}
 
 	switch {

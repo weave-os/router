@@ -127,6 +127,25 @@ func TestMaybeCompact_Tier3Summarizes(t *testing.T) {
 	assert.Equal(t, DefaultHandoverModel, fake.lastModel)
 }
 
+// The compaction summarizer dispatches on its own client, bypassing
+// s.provider — without a fence check here a fenced installation's history
+// would leave through the summary call.
+func TestMaybeCompact_SummarizerOutsideFenceFallsBackToTrim(t *testing.T) {
+	fake := &fakeCompactionSummarizer{summary: "SHORT STRUCTURED SUMMARY"}
+	s := &Service{compactionTriggerPct: DefaultCompactionTriggerPct, compactionSummarizer: fake}
+	env, err := translate.ParseAnthropic(alternatingAnthropicBody(20, 200))
+	require.NoError(t, err)
+
+	ctx := context.WithValue(context.Background(), InstallationAllowedProvidersContextKey{},
+		[]string{providers.ProviderOpenAI}) // summarizer is Anthropic
+	res, err := s.maybeCompact(ctx, env, turntype.MainLoop, 0, 900, http.Header{})
+
+	require.NoError(t, err)
+	assert.Zero(t, fake.calls, "the fenced-off summarizer must not be called")
+	assert.False(t, res.Summarized)
+	assert.True(t, res.Applied, "the request must still be compacted, by trimming instead")
+}
+
 func TestMaybeCompact_ExceedsFloorReturnsSentinel(t *testing.T) {
 	s := &Service{compactionTriggerPct: DefaultCompactionTriggerPct} // nil summarizer
 	env, err := translate.ParseAnthropic(alternatingAnthropicBody(4, 400))

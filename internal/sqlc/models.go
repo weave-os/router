@@ -107,6 +107,8 @@ type RouterModelRouterInstallation struct {
 	ByokEnabled bool
 	// Per-installation capture ceiling (off|hashed|full); NULL uses the deployment default
 	ContentCaptureMode *string
+	// Egress fence: non-empty restricts this installation to these providers; empty means unfenced
+	AllowedProviders []string
 }
 
 type RouterModelRouterRequestTelemetry struct {

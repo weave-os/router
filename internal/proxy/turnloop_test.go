@@ -29,6 +29,7 @@ import (
 type fakeSummarizer struct {
 	summary   string
 	errOnCall error
+	provider  string // empty = Anthropic
 	calls     atomic.Int32
 }
 
@@ -40,7 +41,12 @@ func (f *fakeSummarizer) Summarize(ctx context.Context, env *translate.RequestEn
 	return f.summary, handover.Usage{}, nil
 }
 
-func (f *fakeSummarizer) Provider() string { return providers.ProviderAnthropic }
+func (f *fakeSummarizer) Provider() string {
+	if f.provider != "" {
+		return f.provider
+	}
+	return providers.ProviderAnthropic
+}
 
 // usageProvider writes an Anthropic response with the configured token
 // usage so the OTel UsageExtractor surfaces it to the cache-stats writeback.
@@ -746,6 +752,34 @@ func TestTurnLoop_HandoverSkippedWhenClientCredsCrossProvider(t *testing.T) {
 
 	assert.Equal(t, int32(0), sz.calls.Load(), "summarizer must NOT run when client creds are for a different provider than the summarizer")
 	assert.Equal(t, "claude-haiku-4-5", rec.Header().Get(proxy.HeaderRouterModel), "switch must still happen with full history passed through")
+}
+
+// The summarizer holds its own client and never passes through s.provider, so
+// it's a hole in the egress fence unless checked separately: a fenced
+// installation's prior conversation would leave via the summary call.
+func TestTurnLoop_HandoverSkippedWhenSummarizerProviderIsOutsideTheFence(t *testing.T) {
+	store := newFakePinStore()
+	store.hasPin = true
+	store.pin = sessionpin.Pin{
+		Provider:        providers.ProviderAnthropic,
+		Model:           "claude-opus-4-7",
+		Reason:          "cluster:v0.2",
+		PinnedUntil:     time.Now().Add(time.Hour),
+		LastInputTokens: 5000,
+		LastTurnEndedAt: time.Now().Add(-30 * time.Second),
+	}
+	fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-haiku-4-5", Reason: "cluster:v0.2"}}
+	sz := &fakeSummarizer{summary: "Should not be invoked.", provider: providers.ProviderOpenAI}
+	svc := newPinSvc(fr, store).WithSummarizer(sz)
+
+	ctx := context.WithValue(authedCtx(uuid.New().String()),
+		proxy.InstallationAllowedProvidersContextKey{}, []string{providers.ProviderAnthropic})
+	rec := httptest.NewRecorder()
+	httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	require.NoError(t, svc.ProxyMessages(ctx, largeBody(t), rec, httpReq))
+
+	assert.Equal(t, int32(0), sz.calls.Load(), "the summarizer's provider is outside the fence — it must not be called")
+	assert.Equal(t, "claude-haiku-4-5", rec.Header().Get(proxy.HeaderRouterModel), "the switch must still happen with full history passed through")
 }
 
 // ROUTER_PLANNER_ENABLED kill switch: an existing pin wins outright without

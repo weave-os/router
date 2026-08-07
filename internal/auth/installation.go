@@ -23,6 +23,12 @@ type Installation struct {
 	// ExcludedProviders is the per-installation provider exclusion list.
 	// Empty means no exclusion.
 	ExcludedProviders []string
+	// AllowedProviders is the per-installation egress fence: when non-empty it
+	// is the exhaustive set of providers this installation's traffic may reach,
+	// and a request that cannot be served from it fails rather than falling
+	// back to a provider outside the set. Empty means unfenced. Unlike
+	// ExcludedProviders, which shapes routing, this is enforced at dispatch.
+	AllowedProviders []string
 	// PreferredModels is the per-installation model priority ranking, in
 	// descending preference (index 0 = first preference). The scorer lifts each
 	// preferred model's score by a small, rank-decaying additive bonus so a
@@ -97,6 +103,9 @@ type InstallationRepository interface {
 	// UpdateExcludedProviders replaces the per-installation provider
 	// exclusion list. An empty (or nil) slice clears the list.
 	UpdateExcludedProviders(ctx context.Context, externalID, id string, providerNames []string) error
+	// UpdateAllowedProviders replaces the per-installation provider egress
+	// fence. An empty (or nil) slice removes the fence.
+	UpdateAllowedProviders(ctx context.Context, externalID, id string, providerNames []string) error
 	// UpdateRoutingPreference sets the routing quality weight (a normalized
 	// fraction in [0, 1]). Passing nil clears the preference so the scorer
 	// reverts to its tuned per-cluster defaults.

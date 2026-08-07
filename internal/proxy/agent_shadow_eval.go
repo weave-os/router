@@ -72,7 +72,7 @@ func (s *Service) runAgentShadowEvaluationRoute(
 			}
 		}
 	}
-	if _, err := s.provider(provider); err != nil {
+	if _, err := s.provider(ctx, provider); err != nil {
 		return turnLoopResult{}, fmt.Errorf("agent-shadow provider %q is unavailable: %w", provider, err)
 	}
 	decision := router.Decision{Model: model, Provider: provider, Reason: ReasonAgentShadowEval}

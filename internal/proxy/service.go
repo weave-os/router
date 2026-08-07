@@ -111,6 +111,10 @@ type Service struct {
 	// excludedModelsOverride, when non-nil, replaces the per-installation
 	// exclusion list on every request. Set from ROUTER_EXCLUDED_MODELS at boot.
 	excludedModelsOverride map[string]struct{}
+	// allowedProvidersOverride, when non-nil, is the deployment-wide egress
+	// fence: no request may reach a provider outside it, whatever the
+	// installation's own fence says. Set from ROUTER_ALLOWED_PROVIDERS at boot.
+	allowedProvidersOverride map[string]struct{}
 	// excludedProvidersOverride, when non-nil, replaces the per-installation
 	// provider exclusion list on every request. Set from
 	// ROUTER_EXCLUDED_PROVIDERS at boot.
@@ -329,6 +333,11 @@ type InstallationExcludedModelsContextKey struct{}
 // InstallationExcludedProvidersContextKey is the context key for the authed
 // installation's provider exclusion list. Carried as []string.
 type InstallationExcludedProvidersContextKey struct{}
+
+// InstallationAllowedProvidersContextKey is the context key for the authed
+// installation's provider egress fence. Carried as []string; empty/absent
+// means unfenced. See allowedProvidersForRequest.
+type InstallationAllowedProvidersContextKey struct{}
 
 // SessionDisabledProvidersContextKey carries providers struck out by repeated
 // 529 exhaustion ([]string). Stashed after runTurnLoop so
@@ -648,7 +657,8 @@ func sessionDisabledProvidersFromContext(ctx context.Context) []string {
 }
 
 // excludedProvidersForRequest merges the deployment/installation exclusion list
-// with any providers this session has struck out for repeated 529 exhaustion.
+// with any providers this session has struck out for repeated 529 exhaustion,
+// and with everything outside the request's egress fence.
 func (s *Service) excludedProvidersForRequest(ctx context.Context) map[string]struct{} {
 	var base map[string]struct{}
 	if s.excludedProvidersOverride != nil {
@@ -660,7 +670,8 @@ func (s *Service) excludedProvidersForRequest(ctx context.Context) map[string]st
 		}
 	}
 	sessionDisabled := sessionDisabledProvidersFromContext(ctx)
-	if len(sessionDisabled) == 0 {
+	fence := s.allowedProvidersForRequest(ctx)
+	if len(sessionDisabled) == 0 && fence == nil {
 		return base
 	}
 	out := make(map[string]struct{}, len(base)+len(sessionDisabled))
@@ -670,7 +681,58 @@ func (s *Service) excludedProvidersForRequest(ctx context.Context) map[string]st
 	for _, p := range sessionDisabled {
 		out[p] = struct{}{}
 	}
+	// Subtracting the fence's complement here means every surface that already
+	// honors exclusions -- scorer eligibility, failover binding resolution, the
+	// baseline rescue -- keeps traffic inside the fence without each having to
+	// know about it. It only shapes routing, though: dispatch fails closed on
+	// the fence in s.provider.
+	for _, p := range providers.AllProviders() {
+		if _, ok := fence[p]; fence != nil && !ok {
+			out[p] = struct{}{}
+		}
+	}
 	return out
+}
+
+// installationAllowedProvidersFromContext returns the egress fence stashed on
+// ctx by the auth middleware, or nil when the installation is unfenced.
+func installationAllowedProvidersFromContext(ctx context.Context) []string {
+	v := ctx.Value(InstallationAllowedProvidersContextKey{})
+	if v == nil {
+		return nil
+	}
+	out, _ := v.([]string)
+	return out
+}
+
+// allowedProvidersForRequest returns the request's egress fence: the exhaustive
+// set of providers this request may reach. nil means unfenced. The
+// deployment-wide override wins over the per-installation list, so a fenced
+// deploy can't be widened by installation data.
+func (s *Service) allowedProvidersForRequest(ctx context.Context) map[string]struct{} {
+	if s.allowedProvidersOverride != nil {
+		return s.allowedProvidersOverride
+	}
+	allowed := installationAllowedProvidersFromContext(ctx)
+	if len(allowed) == 0 {
+		return nil
+	}
+	out := make(map[string]struct{}, len(allowed))
+	for _, p := range allowed {
+		out[p] = struct{}{}
+	}
+	return out
+}
+
+// providerAllowed reports whether name sits inside the request's egress fence.
+// Always true for an unfenced request.
+func (s *Service) providerAllowed(ctx context.Context, name string) bool {
+	fence := s.allowedProvidersForRequest(ctx)
+	if fence == nil {
+		return true
+	}
+	_, ok := fence[name]
+	return ok
 }
 
 // installationPreferredModelsFromContext returns the per-installation model
@@ -1375,6 +1437,40 @@ func (s *Service) WithExcludedProvidersOverride(providerNames []string) *Service
 	return s
 }
 
+// WithAllowedProvidersOverride pins the egress fence to a deployment-wide set:
+// no request may reach a provider outside it, whatever the installation's own
+// fence says. Pass nil or an empty slice to leave installations unfenced.
+func (s *Service) WithAllowedProvidersOverride(providerNames []string) *Service {
+	if len(providerNames) == 0 {
+		s.allowedProvidersOverride = nil
+		return s
+	}
+	set := make(map[string]struct{}, len(providerNames))
+	for _, p := range providerNames {
+		set[p] = struct{}{}
+	}
+	s.allowedProvidersOverride = set
+	return s
+}
+
+// HasAllowedProvidersOverride reports whether a deployment-wide egress fence is active.
+func (s *Service) HasAllowedProvidersOverride() bool {
+	return s.allowedProvidersOverride != nil
+}
+
+// AllowedProvidersOverride returns a sorted copy of the deployment-wide fence.
+func (s *Service) AllowedProvidersOverride() []string {
+	if s.allowedProvidersOverride == nil {
+		return nil
+	}
+	out := make([]string, 0, len(s.allowedProvidersOverride))
+	for p := range s.allowedProvidersOverride {
+		out = append(out, p)
+	}
+	sort.Strings(out)
+	return out
+}
+
 // HasExcludedProvidersOverride reports whether an excluded-providers override is active.
 func (s *Service) HasExcludedProvidersOverride() bool {
 	return s.excludedProvidersOverride != nil
@@ -1521,6 +1617,12 @@ func (s *Service) MetricsRowsAll(ctx context.Context, from, to time.Time, limit 
 // provider that is not present in the registry.
 var ErrProviderNotConfigured = errors.New("provider not configured")
 
+// ErrProviderNotAllowed is returned when a dispatch would reach a provider
+// outside the request's egress fence. The request fails rather than falling
+// back to a permitted provider: silently serving elsewhere would break the
+// guarantee the fence exists to make.
+var ErrProviderNotAllowed = errors.New("provider outside the installation's egress fence")
+
 // ErrRequestNotJSONObject re-exports translate.ErrNotJSONObject so api/* handlers
 // avoid importing internal/translate directly (layering rule, root CLAUDE.md).
 var ErrRequestNotJSONObject = translate.ErrNotJSONObject
@@ -1610,7 +1712,13 @@ func (s *Service) ResolveEmbedOnlyUserMessage(ctx context.Context) bool {
 	return flag
 }
 
-func (s *Service) provider(name string) (providers.Client, error) {
+// provider resolves the client for name, refusing any provider outside the
+// request's egress fence. Every upstream dispatch acquires its client here, so
+// this is where the fence holds structurally rather than by routing hygiene.
+func (s *Service) provider(ctx context.Context, name string) (providers.Client, error) {
+	if !s.providerAllowed(ctx, name) {
+		return nil, fmt.Errorf("%w: %s", ErrProviderNotAllowed, name)
+	}
 	p, ok := s.providers[name]
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrProviderNotConfigured, name)
@@ -1826,7 +1934,7 @@ func (s *Service) PassthroughToProvider(ctx context.Context, body []byte, w http
 // the body scrubbed via envelope parsing; others receive it verbatim.
 func (s *Service) PassthroughToNamedProvider(ctx context.Context, providerName string, body []byte, w http.ResponseWriter, r *http.Request) error {
 	log := observability.Get()
-	p, err := s.provider(providerName)
+	p, err := s.provider(ctx, providerName)
 	if err != nil {
 		return err
 	}
@@ -2478,7 +2586,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		s.setFeedbackLinkHeader(w, installationID, externalID, requestID, auth.UserIDFrom(ctx))
 	}
 
-	if _, err := s.provider(decision.Provider); err != nil {
+	if _, err := s.provider(ctx, decision.Provider); err != nil {
 		return err
 	}
 
@@ -3661,7 +3769,11 @@ func (s *Service) bandSwapServed(ctx context.Context, turnType turntype.TurnType
 			return anchor
 		}
 		// nil enabledProviders means "no restriction" (boot behavior), matching
-		// turnloop's pin guard.
+		// turnloop's pin guard. The fence is checked separately because it must
+		// hold even then.
+		if !s.providerAllowed(ctx, served.Provider) {
+			return anchor
+		}
 		if _, registered := s.providers[served.Provider]; !registered {
 			return anchor
 		}
@@ -3853,8 +3965,9 @@ func (s *Service) enabledProvidersForRequest(ctx context.Context, surfaceProvide
 			}
 		}
 	}
-	// Provider exclusions trump every enrollment path above: an excluded
-	// provider must not be served even when credentials exist for it. The
+	// Provider exclusions (and the egress fence folded into them) trump every
+	// enrollment path above: a BYOK key or inbound client credential for a
+	// provider outside the fence must not enroll it. The
 	// scorer, hard-pin resolver, session pins, and tier clamp all consume
 	// this set, so subtracting here enforces the exclusion everywhere a
 	// routing decision is made.
@@ -4493,7 +4606,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		}
 	}
 
-	if _, err := s.provider(decision.Provider); err != nil {
+	if _, err := s.provider(ctx, decision.Provider); err != nil {
 		return err
 	}
 

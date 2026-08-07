@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"workweave/router/internal/auth"
+	"workweave/router/internal/providers"
 	"workweave/router/internal/proxy"
 	"workweave/router/internal/router"
 	"workweave/router/internal/server/middleware"
@@ -114,6 +115,10 @@ func (fakeInstallationRepository) UpdateExcludedProviders(ctx context.Context, e
 	return errors.New("not used")
 }
 
+func (fakeInstallationRepository) UpdateAllowedProviders(ctx context.Context, externalID, id string, providerNames []string) error {
+	return errors.New("not used")
+}
+
 func (fakeInstallationRepository) UpdateRoutingPreference(ctx context.Context, externalID, id string, qualityWeight *float64) error {
 	return errors.New("not used")
 }
@@ -165,6 +170,53 @@ func TestWithAuthPrefersRouterKeyHeader(t *testing.T) {
 	engine.ServeHTTP(rr, req)
 
 	require.Equal(t, http.StatusOK, rr.Code)
+}
+
+func TestWithAuthPropagatesAllowedProvidersFence(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	const routerToken = "rk_fence"
+	hash, prefix, suffix := auth.APITokenFingerprint(routerToken)
+	apiKey := &auth.APIKey{ID: "key-fence", KeyHash: hash, KeyPrefix: prefix, KeySuffix: suffix}
+	fenced := &auth.Installation{
+		ID: "inst-fence", ExternalID: "ext-fence",
+		AllowedProviders: []string{providers.ProviderAnthropic},
+	}
+	unfenced := &auth.Installation{ID: "inst-open", ExternalID: "ext-open"}
+
+	run := func(t *testing.T, installation *auth.Installation, probe gin.HandlerFunc) {
+		t.Helper()
+		repo := &fakeAPIKeyRepository{byHash: map[string]fakeKeyRow{
+			hash: {apiKey: apiKey, installation: installation},
+		}}
+		svc := auth.NewService(fakeInstallationRepository{}, repo, nil, nil, auth.NoOpAPIKeyCache{}, nil, func() time.Time { return time.Now() })
+		engine := gin.New()
+		engine.Use(middleware.WithAuth(svc, false))
+		engine.GET("/probe", probe)
+
+		req := httptest.NewRequest(http.MethodGet, "/probe", nil)
+		req.Header.Set(middleware.RouterKeyHeader, routerToken)
+		rr := httptest.NewRecorder()
+		engine.ServeHTTP(rr, req)
+		require.Equal(t, http.StatusOK, rr.Code)
+	}
+
+	// The fence is enforced entirely off this ctx key; dropping it here would
+	// let dispatch walk the request out to any wired provider.
+	t.Run("stored fence reaches the request context", func(t *testing.T) {
+		run(t, fenced, func(c *gin.Context) {
+			assert.Equal(t, []string{providers.ProviderAnthropic},
+				c.Request.Context().Value(proxy.InstallationAllowedProvidersContextKey{}))
+			c.Status(http.StatusOK)
+		})
+	})
+
+	t.Run("no stored fence leaves the request unfenced", func(t *testing.T) {
+		run(t, unfenced, func(c *gin.Context) {
+			assert.Nil(t, c.Request.Context().Value(proxy.InstallationAllowedProvidersContextKey{}),
+				"an empty list must mean unfenced, not fenced down to nothing")
+			c.Status(http.StatusOK)
+		})
+	})
 }
 
 func TestWithAuthPropagatesContentCaptureOverride(t *testing.T) {
