@@ -205,7 +205,9 @@ FROM routing_decisions WHERE recorded_at >= now() - interval '30 days';
 Cost fields are null for rows the router could not price (an unknown model, an
 upstream error before any usage was reported). They are null rather than `0` so
 they drop out of an average instead of dragging it down — filter explicitly if
-you want the priced subset.
+you want the priced subset. `savings_usd` follows the same rule: it is null
+when neither the requested nor the served side was priced, so an unpriced turn
+never reads as a genuine "saved nothing".
 
 `GET /v1/analytics/models` publishes the current price book — per model, per
 provider, input and output USD per 1M tokens plus the cache-read multiplier —
