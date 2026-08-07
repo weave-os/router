@@ -98,10 +98,8 @@ func decisionFromExportRow(row sqlc.GetRoutingDecisionsForExportRow) analytics.D
 	}
 }
 
-// savingsUSD is the export's savings claim: requested-model cost minus
-// served-model cost. NULL when neither side priced, so a consumer can tell
-// "no saving" from "no price data"; a missing side counts as zero because
-// pricing a turn the router never made has no other sensible value.
+// savingsUSD is requested-model cost minus served-model cost. NULL when all
+// four inputs are nil; a nil side counts as zero.
 func savingsUSD(requestedIn, requestedOut, actualIn, actualOut *int64) *float64 {
 	if requestedIn == nil && requestedOut == nil && actualIn == nil && actualOut == nil {
 		return nil

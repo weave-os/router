@@ -69,9 +69,8 @@ type Decision struct {
 	InvalidToolArgsBlocks *int64  `json:"invalid_tool_args_blocks"`
 }
 
-// Query is a single page request against the telemetry store, already
-// normalized by the Service: the window is half-open [From, To), the cursor is
-// decoded, and Limit is the row count to fetch.
+// Query is one normalized page request: window [From, To), optional keyset
+// cursor, and Limit rows to fetch.
 type Query struct {
 	InstallationID string
 	From           time.Time
