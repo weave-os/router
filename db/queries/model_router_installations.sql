@@ -80,11 +80,8 @@ WHERE id = @id::uuid
   AND external_id = @external_id::varchar
   AND deleted_at IS NULL;
 
--- Sets the per-installation content-capture ceiling ('off', 'hashed', or
--- 'full'), scoped to an external_id to prevent cross-tenant updates. NULL
--- clears the override so the deployment-wide capture mode applies. The
--- effective mode is the stricter of the two, so this can only ever reduce what
--- the deployment captures.
+-- Sets the per-installation capture ceiling ('off', 'hashed', or 'full'), scoped
+-- to an external_id to prevent cross-tenant updates. NULL clears the override.
 -- name: UpdateModelRouterInstallationContentCaptureMode :execrows
 UPDATE router.model_router_installations
 SET content_capture_mode = sqlc.narg('content_capture_mode'),

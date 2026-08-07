@@ -109,8 +109,7 @@ type InstallationRepository interface {
 	// the installation. When true, the scorer's subscription subsidy bonus is
 	// suppressed so routing decides on merits.
 	UpdateSubscriptionRoutingDisabled(ctx context.Context, externalID, id string, disabled bool) error
-	// UpdateContentCaptureMode sets the per-installation content-capture
-	// ceiling. Passing nil clears the override so the deployment-wide mode
-	// applies.
+	// UpdateContentCaptureMode sets the per-installation capture ceiling; nil
+	// clears the override.
 	UpdateContentCaptureMode(ctx context.Context, externalID, id string, mode *string) error
 }

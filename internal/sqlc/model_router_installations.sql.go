@@ -225,11 +225,8 @@ type UpdateModelRouterInstallationContentCaptureModeParams struct {
 	ExternalID         string
 }
 
-// Sets the per-installation content-capture ceiling ('off', 'hashed', or
-// 'full'), scoped to an external_id to prevent cross-tenant updates. NULL
-// clears the override so the deployment-wide capture mode applies. The
-// effective mode is the stricter of the two, so this can only ever reduce what
-// the deployment captures.
+// Sets the per-installation capture ceiling ('off', 'hashed', or 'full'), scoped
+// to an external_id to prevent cross-tenant updates. NULL clears the override.
 //
 //	UPDATE router.model_router_installations
 //	SET content_capture_mode = $1,

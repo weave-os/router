@@ -1,8 +1,7 @@
 BEGIN;
 
--- Anthropic-gateway BYOK. The provider CHECK is an allowlist, so without this a
--- customer storing their gateway token is rejected at INSERT — the only way to
--- reach a gateway, whose endpoint is per-tenant with no deployment default.
+-- The provider CHECK is an allowlist, so a gateway BYOK token is rejected at
+-- INSERT without this.
 ALTER TABLE router.model_router_external_api_keys
   DROP CONSTRAINT model_router_external_api_keys_provider_check;
 
@@ -13,11 +12,9 @@ ALTER TABLE router.model_router_external_api_keys
     'bedrock','makora','together','xai','anthropic_gateway'
   ));
 
--- Per-installation ceiling on prompt/response capture. WV_CAPTURE_CONTENT is
--- deployment-wide, so a tenant with a zero-retention requirement previously had
--- no way to opt out short of a dedicated deploy. NULL means "no override" and
--- keeps today's behavior; a set value can only tighten the deployment mode,
--- never loosen it (see proxy.Service.effectiveCaptureMode).
+-- Per-installation ceiling on the deployment-wide WV_CAPTURE_CONTENT: NULL
+-- keeps today's behavior, and a set value can only tighten, never loosen (see
+-- proxy.Service.effectiveCaptureMode).
 ALTER TABLE router.model_router_installations
   ADD COLUMN content_capture_mode TEXT
   CHECK (content_capture_mode IN ('off','hashed','full'));

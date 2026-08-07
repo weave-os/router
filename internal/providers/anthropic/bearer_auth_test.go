@@ -87,9 +87,8 @@ func TestBearerScheme_DoesNotRelayInboundAnthropicAuth(t *testing.T) {
 	var got captured
 	upstream := fakeGateway(t, &got)
 
-	// The x-api-key client falls back to the caller's own credential; a Bearer
-	// gateway must not, since an Anthropic key is meaningless to it and
-	// forwarding it leaks a credential across a tenant boundary.
+	// A Bearer gateway must not relay the caller's Anthropic key — it is
+	// meaningless there and leaks a credential across a tenant boundary.
 	c := anthropic.NewClient("", upstream.URL, anthropic.WithAuthScheme(anthropic.AuthBearer))
 	prep, clientReq := messagesRequest()
 	clientReq.Header.Set("Authorization", "Bearer anthropic-oauth-token")
