@@ -41,6 +41,36 @@ func TestDecisionFromExportRowUnpricedRowHasNullSavings(t *testing.T) {
 	assert.Nil(t, got.InputTokens)
 }
 
+// Telemetry persists zeros rather than NULLs for a turn no price book covered,
+// so all-zero costs are unpriced too.
+func TestDecisionFromExportRowZeroCostsHaveNullSavings(t *testing.T) {
+	zero := int64(0)
+
+	got := decisionFromExportRow(sqlc.GetRoutingDecisionsForExportRow{
+		RequestedInputCostUsd:  &zero,
+		RequestedOutputCostUsd: &zero,
+		ActualInputCostUsd:     &zero,
+		ActualOutputCostUsd:    &zero,
+	})
+
+	assert.Nil(t, got.SavingsUSD)
+}
+
+// A served model priced at zero against a paid requested model is a real
+// saving, not missing data.
+func TestDecisionFromExportRowFreeServedModelReportsSavings(t *testing.T) {
+	requestedIn := int64(2_000_000)
+	zero := int64(0)
+
+	got := decisionFromExportRow(sqlc.GetRoutingDecisionsForExportRow{
+		RequestedInputCostUsd: &requestedIn,
+		ActualInputCostUsd:    &zero,
+	})
+
+	require.NotNil(t, got.SavingsUSD)
+	assert.InDelta(t, 2.0, *got.SavingsUSD, 1e-9)
+}
+
 // Absent booleans are "did not happen", so they export as false rather than
 // forcing every consumer to handle a three-valued flag.
 func TestDecisionFromExportRowNullBooleansAreFalse(t *testing.T) {

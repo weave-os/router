@@ -98,15 +98,16 @@ func decisionFromExportRow(row sqlc.GetRoutingDecisionsForExportRow) analytics.D
 	}
 }
 
-// savingsUSD is requested-model cost minus served-model cost. NULL when all
-// four inputs are nil; a nil side counts as zero.
+// savingsUSD is requested-model cost minus served-model cost. NULL when
+// neither side priced: unpriced turns persist zeros, which would otherwise
+// export as a real "saved nothing" datapoint.
 func savingsUSD(requestedIn, requestedOut, actualIn, actualOut *int64) *float64 {
-	if requestedIn == nil && requestedOut == nil && actualIn == nil && actualOut == nil {
+	requested := derefInt64Zero(requestedIn) + derefInt64Zero(requestedOut)
+	actual := derefInt64Zero(actualIn) + derefInt64Zero(actualOut)
+	if requested == 0 && actual == 0 {
 		return nil
 	}
-	micros := derefInt64Zero(requestedIn) + derefInt64Zero(requestedOut) -
-		derefInt64Zero(actualIn) - derefInt64Zero(actualOut)
-	out := microsToUSD(micros)
+	out := microsToUSD(requested - actual)
 	return &out
 }
 

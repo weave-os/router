@@ -49,7 +49,7 @@ func Schema() []Field {
 		{"requested_output_cost_usd", "float", true, "Output cost had the requested model served the turn."},
 		{"actual_input_cost_usd", "float", true, "Input cost of the model that actually served the turn."},
 		{"actual_output_cost_usd", "float", true, "Output cost of the model that actually served the turn."},
-		{"savings_usd", "float", true, "requested_* minus actual_*. Precomputed for convenience; recomputable from the four cost columns."},
+		{"savings_usd", "float", true, "requested_* minus actual_*, null when neither side was priced. Recomputable from the four cost columns."},
 		{"route_latency_ms", "integer", true, "Time spent choosing a model."},
 		{"upstream_latency_ms", "integer", true, "Time spent waiting on the upstream provider."},
 		{"total_latency_ms", "integer", true, "End-to-end time for the action."},
