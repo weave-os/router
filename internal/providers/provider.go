@@ -55,6 +55,10 @@ const (
 	ProviderMakora     = "makora"
 	ProviderTogether   = "together"
 	ProviderXAI        = "xai"
+	// ProviderAnthropicGateway is an enterprise gateway serving Claude over the
+	// Anthropic Messages spec (so FamilyAnthropic) with Bearer auth rather than
+	// x-api-key. Its endpoint is per-tenant, with no deployment default.
+	ProviderAnthropicGateway = "anthropic_gateway"
 )
 
 // TranslationFamily is the wire-format family a provider speaks; the proxy
@@ -89,6 +93,8 @@ var ProviderFamilies = map[string]TranslationFamily{
 	ProviderMakora:     FamilyOpenAICompat,
 	ProviderTogether:   FamilyOpenAICompat,
 	ProviderXAI:        FamilyOpenAICompat,
+
+	ProviderAnthropicGateway: FamilyAnthropic,
 }
 
 // FamilyFor returns the translation family for a provider, or FamilyUnknown
@@ -143,6 +149,8 @@ var APIKeyEnvVars = map[string]string{
 	ProviderMakora:     "MAKORA_API_KEY",
 	ProviderTogether:   "TOGETHER_API_KEY",
 	ProviderXAI:        "XAI_API_KEY",
+	// Pairs with ANTHROPIC_GATEWAY_BASE_URL, the endpoint the token is scoped to.
+	ProviderAnthropicGateway: "ANTHROPIC_GATEWAY_TOKEN",
 }
 
 // APIKeyEnvVar returns the env-var name for the given provider, or empty
@@ -164,6 +172,9 @@ var CacheTTL = map[string]time.Duration{
 	ProviderFireworks:  5 * time.Minute,
 	ProviderBedrock:    5 * time.Minute,
 	ProviderXAI:        5 * time.Minute,
+	// A gateway publishes no prompt-cache lifetime of its own, so it keeps the
+	// conservative window rather than inheriting Anthropic's 1h extended cache.
+	ProviderAnthropicGateway: 5 * time.Minute,
 }
 
 // DefaultCacheTTL is the conservative fallback cache lifetime for providers

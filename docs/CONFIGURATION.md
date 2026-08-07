@@ -32,6 +32,17 @@ Claude Code keep using the user's logged-in plan.
 | `OPENAI_BASE_URL`     | `https://api.openai.com`                                  | Override for OpenAI (e.g. Azure OpenAI). |
 | `GOOGLE_API_KEY`      | *(none)*                                                  | Enables Gemini via its OpenAI-compatible endpoint. |
 | `GOOGLE_BASE_URL`     | `https://generativelanguage.googleapis.com/v1beta/openai` | Override for Gemini. |
+| `ANTHROPIC_GATEWAY_BASE_URL` | *(none)*                                           | Full endpoint of an Anthropic-compatible gateway; `/v1/messages` is appended to it. |
+| `ANTHROPIC_GATEWAY_TOKEN`    | *(none)*                                           | Token for that gateway, sent as `Authorization: Bearer`. Only used when `ANTHROPIC_GATEWAY_BASE_URL` is also set. |
+
+**Anthropic-compatible gateway.** Some enterprises front Claude with their own
+gateway that speaks the Anthropic Messages spec but authenticates with a bearer
+token instead of `x-api-key`. The router serves the Claude family through it on
+the same translation path as direct Anthropic. There is no default endpoint: an
+unconfigured gateway does *not* fall back to `api.anthropic.com`. The provider
+is always registered so BYOK installations can point at their own gateway
+without deployment-level credentials; the env vars above are only for a
+deployment that has a gateway of its own.
 
 **BYOK (per-installation keys).** Instead of (or in addition to) the env vars
 above, each installation can supply its own provider keys via the dashboard.
@@ -214,6 +225,13 @@ Captured bodies are in the client's native wire format (Anthropic / OpenAI /
 Gemini, matching the inbound surface). The `router.deployment_mode` resource
 attribute (`selfhosted` / `managed`) is stamped on every export so a collector
 can branch redaction or content-opt-out by deployment.
+
+`WV_CAPTURE_CONTENT` is the deployment-wide **ceiling**. An installation can
+tighten it below that (`GET`/`PUT /admin/v1/content-capture`, body
+`{"mode": "off" | "hashed" | "full"}`; `{"mode": null}` clears the override),
+and the effective mode for a request is the stricter of the two — so a tenant
+on a `full` deployment can opt down to `hashed` or `off`, but an installation
+asking for `full` under a `hashed` deployment still gets `hashed`.
 
 
 | Variable                         | Default      | Purpose |

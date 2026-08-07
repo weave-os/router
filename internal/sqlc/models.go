@@ -105,6 +105,8 @@ type RouterModelRouterInstallation struct {
 	AiTrainingAllowed bool
 	// Managed-mode opt-in: honor this installation's BYOK provider keys
 	ByokEnabled bool
+	// Per-installation capture ceiling (off|hashed|full); NULL uses the deployment default
+	ContentCaptureMode *string
 }
 
 type RouterModelRouterRequestTelemetry struct {

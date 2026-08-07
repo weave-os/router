@@ -313,6 +313,29 @@ func (s *Service) SetInstallationSubscriptionRoutingDisabled(ctx context.Context
 	return nil
 }
 
+// ErrInvalidCaptureMode is returned for a content-capture mode outside the
+// off/hashed/full set.
+var ErrInvalidCaptureMode = errors.New("auth: invalid content capture mode")
+
+// SetInstallationContentCaptureMode persists the per-installation capture
+// ceiling ("off", "hashed", or "full"); nil clears the override. Validated here
+// rather than via the column CHECK so a bad value returns a typed error instead
+// of a 500. Invalidates the cache so the change takes effect immediately.
+func (s *Service) SetInstallationContentCaptureMode(ctx context.Context, externalID, installationID string, mode *string) error {
+	if mode != nil {
+		switch *mode {
+		case "off", "hashed", "full":
+		default:
+			return fmt.Errorf("%w: %q", ErrInvalidCaptureMode, *mode)
+		}
+	}
+	if err := s.installations.UpdateContentCaptureMode(ctx, externalID, installationID, mode); err != nil {
+		return err
+	}
+	s.invalidateInstallation(installationID)
+	return nil
+}
+
 // VerifyAPIKey authenticates a raw bearer token against the cache then Postgres,
 // returning ErrInvalidPrefix/ErrInvalidToken on failure. The returned
 // ExternalAPIKey slice has Plaintext populated, or nil if none exist. The

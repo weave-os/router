@@ -123,6 +123,9 @@ func (fakeInstallationRepository) UpdateUsageBypass(ctx context.Context, externa
 func (fakeInstallationRepository) UpdateSubscriptionRoutingDisabled(ctx context.Context, externalID, id string, disabled bool) error {
 	return errors.New("not used")
 }
+func (fakeInstallationRepository) UpdateContentCaptureMode(ctx context.Context, externalID, id string, mode *string) error {
+	return errors.New("not used")
+}
 
 func TestWithAuthPrefersRouterKeyHeader(t *testing.T) {
 	gin.SetMode(gin.TestMode)
@@ -158,6 +161,62 @@ func TestWithAuthPrefersRouterKeyHeader(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/probe", nil)
 	req.Header.Set(middleware.RouterKeyHeader, routerToken)
 	req.Header.Set("Authorization", "Bearer anthropic-oauth-token")
+	rr := httptest.NewRecorder()
+	engine.ServeHTTP(rr, req)
+
+	require.Equal(t, http.StatusOK, rr.Code)
+}
+
+func TestWithAuthPropagatesContentCaptureOverride(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	const routerToken = "rk_capture"
+	hash, prefix, suffix := auth.APITokenFingerprint(routerToken)
+	apiKey := &auth.APIKey{ID: "key-capture", KeyHash: hash, KeyPrefix: prefix, KeySuffix: suffix}
+	mode := "off"
+	installation := &auth.Installation{ID: "inst-capture", ExternalID: "ext-capture", ContentCaptureMode: &mode}
+	repo := &fakeAPIKeyRepository{byHash: map[string]fakeKeyRow{
+		hash: {apiKey: apiKey, installation: installation},
+	}}
+	svc := auth.NewService(fakeInstallationRepository{}, repo, nil, nil, auth.NoOpAPIKeyCache{}, nil, func() time.Time { return time.Now() })
+
+	engine := gin.New()
+	engine.Use(middleware.WithAuth(svc, false))
+	engine.GET("/probe", func(c *gin.Context) {
+		// Without this the proxy only ever sees the deployment-wide mode, and
+		// an installation that asked for no retention still gets captured.
+		assert.Equal(t, proxy.CaptureOff, c.Request.Context().Value(proxy.InstallationCaptureModeContextKey{}))
+		c.Status(http.StatusOK)
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/probe", nil)
+	req.Header.Set(middleware.RouterKeyHeader, routerToken)
+	rr := httptest.NewRecorder()
+	engine.ServeHTTP(rr, req)
+
+	require.Equal(t, http.StatusOK, rr.Code)
+}
+
+func TestWithAuthOmitsContentCaptureOverrideWhenUnset(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	const routerToken = "rk_nocapture"
+	hash, prefix, suffix := auth.APITokenFingerprint(routerToken)
+	apiKey := &auth.APIKey{ID: "key-nocapture", KeyHash: hash, KeyPrefix: prefix, KeySuffix: suffix}
+	installation := &auth.Installation{ID: "inst-nocapture", ExternalID: "ext-nocapture"}
+	repo := &fakeAPIKeyRepository{byHash: map[string]fakeKeyRow{
+		hash: {apiKey: apiKey, installation: installation},
+	}}
+	svc := auth.NewService(fakeInstallationRepository{}, repo, nil, nil, auth.NoOpAPIKeyCache{}, nil, func() time.Time { return time.Now() })
+
+	engine := gin.New()
+	engine.Use(middleware.WithAuth(svc, false))
+	engine.GET("/probe", func(c *gin.Context) {
+		assert.Nil(t, c.Request.Context().Value(proxy.InstallationCaptureModeContextKey{}),
+			"no stored override must leave the deployment mode in charge, not pin it to off")
+		c.Status(http.StatusOK)
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/probe", nil)
+	req.Header.Set(middleware.RouterKeyHeader, routerToken)
 	rr := httptest.NewRecorder()
 	engine.ServeHTTP(rr, req)
 

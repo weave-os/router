@@ -26,15 +26,16 @@ func TestCatalog_EveryModelHasAtLeastOneBinding(t *testing.T) {
 
 func TestCatalog_BindingsReferenceCanonicalProviders(t *testing.T) {
 	known := map[string]struct{}{
-		providers.ProviderAnthropic:  {},
-		providers.ProviderOpenAI:     {},
-		providers.ProviderGoogle:     {},
-		providers.ProviderOpenRouter: {},
-		providers.ProviderFireworks:  {},
-		providers.ProviderBedrock:    {},
-		providers.ProviderMakora:     {},
-		providers.ProviderTogether:   {},
-		providers.ProviderXAI:        {},
+		providers.ProviderAnthropic:        {},
+		providers.ProviderOpenAI:           {},
+		providers.ProviderGoogle:           {},
+		providers.ProviderOpenRouter:       {},
+		providers.ProviderFireworks:        {},
+		providers.ProviderBedrock:          {},
+		providers.ProviderMakora:           {},
+		providers.ProviderTogether:         {},
+		providers.ProviderXAI:              {},
+		providers.ProviderAnthropicGateway: {},
 	}
 	for _, m := range Models {
 		for i, b := range m.Providers {

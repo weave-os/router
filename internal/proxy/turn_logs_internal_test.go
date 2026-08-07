@@ -46,7 +46,7 @@ func TestParseCaptureMode(t *testing.T) {
 func TestMaybeCaptureResponse_OffReturnsNil(t *testing.T) {
 	s := &Service{captureMode: CaptureOff}
 	rec := httptest.NewRecorder()
-	sink, cw := s.maybeCaptureResponse(rec)
+	sink, cw := s.maybeCaptureResponse(context.Background(), rec)
 	assert.Nil(t, cw)
 	assert.Same(t, http.ResponseWriter(rec), sink)
 
@@ -55,10 +55,37 @@ func TestMaybeCaptureResponse_OffReturnsNil(t *testing.T) {
 	assert.False(t, trunc)
 }
 
+func TestEffectiveCaptureMode_OverrideOnlyTightens(t *testing.T) {
+	modes := []ContentCaptureMode{CaptureOff, CaptureHashed, CaptureFull}
+	for _, deployment := range modes {
+		s := &Service{captureMode: deployment}
+		assert.Equal(t, deployment, s.effectiveCaptureMode(context.Background()),
+			"no installation override must leave the deployment mode untouched")
+		for _, override := range modes {
+			ctx := context.WithValue(context.Background(), InstallationCaptureModeContextKey{}, override)
+			got := s.effectiveCaptureMode(ctx)
+			assert.LessOrEqual(t, int(got), int(deployment),
+				"override %v must never widen deployment %v", override, deployment)
+			assert.LessOrEqual(t, int(got), int(override))
+		}
+	}
+}
+
+func TestMaybeCaptureResponse_InstallationOffSkipsCaptureUnderFullDeployment(t *testing.T) {
+	s := &Service{captureMode: CaptureFull, captureMaxBytes: 1024}
+	rec := httptest.NewRecorder()
+	ctx := context.WithValue(context.Background(), InstallationCaptureModeContextKey{}, CaptureOff)
+
+	sink, cw := s.maybeCaptureResponse(ctx, rec)
+
+	assert.Nil(t, cw, "an opted-out installation's response body must never be buffered")
+	assert.Same(t, http.ResponseWriter(rec), sink)
+}
+
 func TestMaybeCaptureResponse_CapturesAndTruncates(t *testing.T) {
 	s := &Service{captureMode: CaptureFull, captureMaxBytes: 1024}
 	rec := httptest.NewRecorder()
-	sink, cw := s.maybeCaptureResponse(rec)
+	sink, cw := s.maybeCaptureResponse(context.Background(), rec)
 	require.NotNil(t, cw)
 	_, _ = sink.Write([]byte("hello world"))
 	body, trunc := capturedResponse(cw)
@@ -69,7 +96,7 @@ func TestMaybeCaptureResponse_CapturesAndTruncates(t *testing.T) {
 	// Over-cap response is dropped and flagged truncated.
 	small := &Service{captureMode: CaptureFull, captureMaxBytes: 4}
 	rec2 := httptest.NewRecorder()
-	sink2, cap2 := small.maybeCaptureResponse(rec2)
+	sink2, cap2 := small.maybeCaptureResponse(context.Background(), rec2)
 	_, _ = sink2.Write([]byte("way too long"))
 	body2, trunc2 := capturedResponse(cap2)
 	assert.Nil(t, body2)
@@ -217,7 +244,7 @@ func TestDeferredCallLog_ReadsBodyAtRunTime(t *testing.T) {
 	// the (buffered) ResponsesWriter hasn't written the body yet — the emit is
 	// deferred rather than run inline.
 	rec := httptest.NewRecorder()
-	_, cw := s.maybeCaptureResponse(rec)
+	_, cw := s.maybeCaptureResponse(context.Background(), rec)
 	base := otel.NewAttrBuilder(1).String("decision.model", "m").Build()
 	h.fn = func() {
 		body, trunc := capturedResponse(cw)

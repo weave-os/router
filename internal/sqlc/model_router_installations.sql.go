@@ -22,7 +22,7 @@ VALUES (
     $2::varchar,
     $3
 )
-RETURNING id, external_id, name, created_at, updated_at, deleted_at, created_by, excluded_models, excluded_providers, routing_quality_weight, usage_bypass_enabled, usage_bypass_threshold, preferred_models, subscription_routing_disabled, routing_strategy, routing_rollout_id, policy_shadow_strategy, policy_debug_enabled, policy_header_overrides_enabled, policy_routing_intent, ai_training_allowed, byok_enabled
+RETURNING id, external_id, name, created_at, updated_at, deleted_at, created_by, excluded_models, excluded_providers, routing_quality_weight, usage_bypass_enabled, usage_bypass_threshold, preferred_models, subscription_routing_disabled, routing_strategy, routing_rollout_id, policy_shadow_strategy, policy_debug_enabled, policy_header_overrides_enabled, policy_routing_intent, ai_training_allowed, byok_enabled, content_capture_mode
 `
 
 type CreateModelRouterInstallationParams struct {
@@ -43,7 +43,7 @@ type CreateModelRouterInstallationParams struct {
 //	    $2::varchar,
 //	    $3
 //	)
-//	RETURNING id, external_id, name, created_at, updated_at, deleted_at, created_by, excluded_models, excluded_providers, routing_quality_weight, usage_bypass_enabled, usage_bypass_threshold, preferred_models, subscription_routing_disabled, routing_strategy, routing_rollout_id, policy_shadow_strategy, policy_debug_enabled, policy_header_overrides_enabled, policy_routing_intent, ai_training_allowed, byok_enabled
+//	RETURNING id, external_id, name, created_at, updated_at, deleted_at, created_by, excluded_models, excluded_providers, routing_quality_weight, usage_bypass_enabled, usage_bypass_threshold, preferred_models, subscription_routing_disabled, routing_strategy, routing_rollout_id, policy_shadow_strategy, policy_debug_enabled, policy_header_overrides_enabled, policy_routing_intent, ai_training_allowed, byok_enabled, content_capture_mode
 func (q *Queries) CreateModelRouterInstallation(ctx context.Context, arg CreateModelRouterInstallationParams) (RouterModelRouterInstallation, error) {
 	row := q.db.QueryRow(ctx, createModelRouterInstallation, arg.ExternalID, arg.Name, arg.CreatedBy)
 	var i RouterModelRouterInstallation
@@ -70,12 +70,13 @@ func (q *Queries) CreateModelRouterInstallation(ctx context.Context, arg CreateM
 		&i.PolicyRoutingIntent,
 		&i.AiTrainingAllowed,
 		&i.ByokEnabled,
+		&i.ContentCaptureMode,
 	)
 	return i, err
 }
 
 const getModelRouterInstallation = `-- name: GetModelRouterInstallation :one
-SELECT id, external_id, name, created_at, updated_at, deleted_at, created_by, excluded_models, excluded_providers, routing_quality_weight, usage_bypass_enabled, usage_bypass_threshold, preferred_models, subscription_routing_disabled, routing_strategy, routing_rollout_id, policy_shadow_strategy, policy_debug_enabled, policy_header_overrides_enabled, policy_routing_intent, ai_training_allowed, byok_enabled
+SELECT id, external_id, name, created_at, updated_at, deleted_at, created_by, excluded_models, excluded_providers, routing_quality_weight, usage_bypass_enabled, usage_bypass_threshold, preferred_models, subscription_routing_disabled, routing_strategy, routing_rollout_id, policy_shadow_strategy, policy_debug_enabled, policy_header_overrides_enabled, policy_routing_intent, ai_training_allowed, byok_enabled, content_capture_mode
 FROM router.model_router_installations
 WHERE id = $1::uuid
   AND external_id = $2::varchar
@@ -89,7 +90,7 @@ type GetModelRouterInstallationParams struct {
 
 // Gets an installation by id, scoped to an external_id to prevent cross-tenant access.
 //
-//	SELECT id, external_id, name, created_at, updated_at, deleted_at, created_by, excluded_models, excluded_providers, routing_quality_weight, usage_bypass_enabled, usage_bypass_threshold, preferred_models, subscription_routing_disabled, routing_strategy, routing_rollout_id, policy_shadow_strategy, policy_debug_enabled, policy_header_overrides_enabled, policy_routing_intent, ai_training_allowed, byok_enabled
+//	SELECT id, external_id, name, created_at, updated_at, deleted_at, created_by, excluded_models, excluded_providers, routing_quality_weight, usage_bypass_enabled, usage_bypass_threshold, preferred_models, subscription_routing_disabled, routing_strategy, routing_rollout_id, policy_shadow_strategy, policy_debug_enabled, policy_header_overrides_enabled, policy_routing_intent, ai_training_allowed, byok_enabled, content_capture_mode
 //	FROM router.model_router_installations
 //	WHERE id = $1::uuid
 //	  AND external_id = $2::varchar
@@ -120,12 +121,13 @@ func (q *Queries) GetModelRouterInstallation(ctx context.Context, arg GetModelRo
 		&i.PolicyRoutingIntent,
 		&i.AiTrainingAllowed,
 		&i.ByokEnabled,
+		&i.ContentCaptureMode,
 	)
 	return i, err
 }
 
 const listModelRouterInstallationsForExternalID = `-- name: ListModelRouterInstallationsForExternalID :many
-SELECT id, external_id, name, created_at, updated_at, deleted_at, created_by, excluded_models, excluded_providers, routing_quality_weight, usage_bypass_enabled, usage_bypass_threshold, preferred_models, subscription_routing_disabled, routing_strategy, routing_rollout_id, policy_shadow_strategy, policy_debug_enabled, policy_header_overrides_enabled, policy_routing_intent, ai_training_allowed, byok_enabled
+SELECT id, external_id, name, created_at, updated_at, deleted_at, created_by, excluded_models, excluded_providers, routing_quality_weight, usage_bypass_enabled, usage_bypass_threshold, preferred_models, subscription_routing_disabled, routing_strategy, routing_rollout_id, policy_shadow_strategy, policy_debug_enabled, policy_header_overrides_enabled, policy_routing_intent, ai_training_allowed, byok_enabled, content_capture_mode
 FROM router.model_router_installations
 WHERE external_id = $1::varchar
   AND deleted_at IS NULL
@@ -134,7 +136,7 @@ ORDER BY created_at DESC
 
 // ListModelRouterInstallationsForExternalID
 //
-//	SELECT id, external_id, name, created_at, updated_at, deleted_at, created_by, excluded_models, excluded_providers, routing_quality_weight, usage_bypass_enabled, usage_bypass_threshold, preferred_models, subscription_routing_disabled, routing_strategy, routing_rollout_id, policy_shadow_strategy, policy_debug_enabled, policy_header_overrides_enabled, policy_routing_intent, ai_training_allowed, byok_enabled
+//	SELECT id, external_id, name, created_at, updated_at, deleted_at, created_by, excluded_models, excluded_providers, routing_quality_weight, usage_bypass_enabled, usage_bypass_threshold, preferred_models, subscription_routing_disabled, routing_strategy, routing_rollout_id, policy_shadow_strategy, policy_debug_enabled, policy_header_overrides_enabled, policy_routing_intent, ai_training_allowed, byok_enabled, content_capture_mode
 //	FROM router.model_router_installations
 //	WHERE external_id = $1::varchar
 //	  AND deleted_at IS NULL
@@ -171,6 +173,7 @@ func (q *Queries) ListModelRouterInstallationsForExternalID(ctx context.Context,
 			&i.PolicyRoutingIntent,
 			&i.AiTrainingAllowed,
 			&i.ByokEnabled,
+			&i.ContentCaptureMode,
 		); err != nil {
 			return nil, err
 		}
@@ -205,6 +208,41 @@ type SoftDeleteModelRouterInstallationParams struct {
 func (q *Queries) SoftDeleteModelRouterInstallation(ctx context.Context, arg SoftDeleteModelRouterInstallationParams) error {
 	_, err := q.db.Exec(ctx, softDeleteModelRouterInstallation, arg.ID, arg.ExternalID)
 	return err
+}
+
+const updateModelRouterInstallationContentCaptureMode = `-- name: UpdateModelRouterInstallationContentCaptureMode :execrows
+UPDATE router.model_router_installations
+SET content_capture_mode = $1,
+    updated_at = NOW()
+WHERE id = $2::uuid
+  AND external_id = $3::varchar
+  AND deleted_at IS NULL
+`
+
+type UpdateModelRouterInstallationContentCaptureModeParams struct {
+	ContentCaptureMode *string
+	ID                 uuid.UUID
+	ExternalID         string
+}
+
+// Sets the per-installation content-capture ceiling ('off', 'hashed', or
+// 'full'), scoped to an external_id to prevent cross-tenant updates. NULL
+// clears the override so the deployment-wide capture mode applies. The
+// effective mode is the stricter of the two, so this can only ever reduce what
+// the deployment captures.
+//
+//	UPDATE router.model_router_installations
+//	SET content_capture_mode = $1,
+//	    updated_at = NOW()
+//	WHERE id = $2::uuid
+//	  AND external_id = $3::varchar
+//	  AND deleted_at IS NULL
+func (q *Queries) UpdateModelRouterInstallationContentCaptureMode(ctx context.Context, arg UpdateModelRouterInstallationContentCaptureModeParams) (int64, error) {
+	result, err := q.db.Exec(ctx, updateModelRouterInstallationContentCaptureMode, arg.ContentCaptureMode, arg.ID, arg.ExternalID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const updateModelRouterInstallationExcludedModels = `-- name: UpdateModelRouterInstallationExcludedModels :execrows

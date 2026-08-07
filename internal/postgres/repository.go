@@ -199,6 +199,26 @@ func (r *installationRepo) UpdateSubscriptionRoutingDisabled(ctx context.Context
 	return nil
 }
 
+func (r *installationRepo) UpdateContentCaptureMode(ctx context.Context, externalID, id string, mode *string) error {
+	parsed, err := uuid.Parse(id)
+	if err != nil {
+		return err
+	}
+	q := sqlc.New(r.tx)
+	rows, err := q.UpdateModelRouterInstallationContentCaptureMode(ctx, sqlc.UpdateModelRouterInstallationContentCaptureModeParams{
+		ID:                 parsed,
+		ExternalID:         externalID,
+		ContentCaptureMode: mode,
+	})
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return auth.ErrInstallationNotFound
+	}
+	return nil
+}
+
 type apiKeyRepo struct {
 	tx sqlc.DBTX
 }

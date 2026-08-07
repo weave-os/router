@@ -204,7 +204,7 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 			clientSink = translate.NewGeminiRoutingFooterWriter(w, footer)
 		}
 	}
-	contentSink, contentCap := s.maybeCaptureResponse(clientSink)
+	contentSink, contentCap := s.maybeCaptureResponse(ctx, clientSink)
 	// preludeBuf delays commit so a 429 or empty stream stays retryable.
 	preludeBuf := newPreludeBuffer(contentSink)
 	marker := suppressMarkerIfRequested(r.Header, routingMarkerFor(routeRes))

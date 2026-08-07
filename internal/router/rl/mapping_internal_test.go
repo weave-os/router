@@ -17,10 +17,11 @@ import (
 // dispatch drift guard) instead of silently falling through to the bare
 // model-ID default.
 var expectedRosterPrefix = map[string]string{
-	providers.ProviderAnthropic: "anthropic/",
-	providers.ProviderOpenAI:    "openai/",
-	providers.ProviderGoogle:    "google/",
-	providers.ProviderXAI:       "x-ai/",
+	providers.ProviderAnthropic:        "anthropic/",
+	providers.ProviderOpenAI:           "openai/",
+	providers.ProviderGoogle:           "google/",
+	providers.ProviderXAI:              "x-ai/",
+	providers.ProviderAnthropicGateway: "anthropic/",
 }
 
 // defaultRosterPrefixProviders are providers intentionally left off

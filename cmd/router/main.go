@@ -302,6 +302,25 @@ func main() {
 	}
 
 	{
+		// Anthropic-compatible enterprise gateway. Its endpoint is per-tenant with
+		// no vendor default, so a deployment-level token is only honored alongside
+		// a base URL — otherwise the provider stays BYOK-only.
+		gatewayBaseURL := config.GetOr("ANTHROPIC_GATEWAY_BASE_URL", "")
+		gatewayToken := ""
+		if !byokOnly && gatewayBaseURL != "" {
+			gatewayToken = config.GetOr(providers.APIKeyEnvVar(providers.ProviderAnthropicGateway), "")
+		}
+		providerMap[providers.ProviderAnthropicGateway] = anthropic.NewClient(
+			gatewayToken, gatewayBaseURL, anthropic.WithAuthScheme(anthropic.AuthBearer))
+		if gatewayToken != "" {
+			envKeyedProviders[providers.ProviderAnthropicGateway] = struct{}{}
+			logger.Info("Anthropic gateway provider enabled", "base_url", gatewayBaseURL)
+		} else {
+			logger.Info("Anthropic gateway provider registered (BYOK only — set ANTHROPIC_GATEWAY_TOKEN and ANTHROPIC_GATEWAY_BASE_URL for deployment-level use)")
+		}
+	}
+
+	{
 		// Native REST surface, required for multi-turn tool use against Gemini
 		// 3.x's opaque thought_signature field (not exposed via OpenAI-compat).
 		googleBaseURL := config.GetOr("GOOGLE_BASE_URL", googleProvider.NativeBaseURL)

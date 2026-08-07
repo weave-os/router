@@ -161,16 +161,24 @@ func (m Model) PrimaryProvider() string {
 // pricing and dispatch for every strategy.
 var Models = []Model{
 	// --- Anthropic ---
+	// Anthropic-gateway bindings carry Anthropic list prices as a dollar proxy (a
+	// gateway may bill in its own units — indicative, not invoiced), with no
+	// cache-read discount. They trail Anthropic's binding, so they win only where
+	// Anthropic is absent from the enabled-provider set.
+	//
 	// $1/$5 per the published table (the $0.80/$4 rate that used to sit here
 	// is Haiku 3.5's row — Haiku 4.5 never shipped at that price).
 	{ID: "claude-haiku-4-5", Tier: TierLow, ContextWindow: 200_000, Providers: []ProviderBinding{
 		{Provider: providers.ProviderAnthropic, Price: Pricing{InputUSDPer1M: 1.00, OutputUSDPer1M: 5.00, CacheReadMultiplier: 0.10}},
+		{Provider: providers.ProviderAnthropicGateway, Price: Pricing{InputUSDPer1M: 1.00, OutputUSDPer1M: 5.00}},
 	}},
 	{ID: "claude-sonnet-4-5", Tier: TierMid, ContextWindow: 200_000, Providers: []ProviderBinding{
 		{Provider: providers.ProviderAnthropic, Price: Pricing{InputUSDPer1M: 3.00, OutputUSDPer1M: 15.00, CacheReadMultiplier: 0.10}},
+		{Provider: providers.ProviderAnthropicGateway, Price: Pricing{InputUSDPer1M: 3.00, OutputUSDPer1M: 15.00}},
 	}},
 	{ID: "claude-sonnet-4-6", Tier: TierMid, ContextWindow: 200_000, Providers: []ProviderBinding{
 		{Provider: providers.ProviderAnthropic, Price: Pricing{InputUSDPer1M: 3.00, OutputUSDPer1M: 15.00, CacheReadMultiplier: 0.10}},
+		{Provider: providers.ProviderAnthropicGateway, Price: Pricing{InputUSDPer1M: 3.00, OutputUSDPer1M: 15.00}},
 	}},
 	// 1M context is behind the context-1m beta (catalog carries 200K like the
 	// rest of Sonnet). Priced at standard $3/$15, not the $2/$10 introductory
@@ -191,6 +199,7 @@ var Models = []Model{
 	}},
 	{ID: "claude-opus-4-5", ContextWindow: 200_000, Providers: []ProviderBinding{
 		{Provider: providers.ProviderAnthropic, Price: Pricing{InputUSDPer1M: 5.00, OutputUSDPer1M: 25.00, CacheReadMultiplier: 0.10}},
+		{Provider: providers.ProviderAnthropicGateway, Price: Pricing{InputUSDPer1M: 5.00, OutputUSDPer1M: 25.00}},
 	}},
 	// Opus 4.5+ is $5/$25 per MTok (down from $15/$75 on 4.1 and earlier).
 	// 4.6+/4.7+/4.8 support 1M context via the context-1m-2025-08-07 beta; the
@@ -198,9 +207,11 @@ var Models = []Model{
 	// header is present (contextWindowForRequest in proxy/service.go).
 	{ID: "claude-opus-4-6", Tier: TierHigh, ContextWindow: 200_000, Providers: []ProviderBinding{
 		{Provider: providers.ProviderAnthropic, Price: Pricing{InputUSDPer1M: 5.00, OutputUSDPer1M: 25.00, CacheReadMultiplier: 0.10}},
+		{Provider: providers.ProviderAnthropicGateway, Price: Pricing{InputUSDPer1M: 5.00, OutputUSDPer1M: 25.00}},
 	}},
 	{ID: "claude-opus-4-7", Tier: TierHigh, ContextWindow: 200_000, Providers: []ProviderBinding{
 		{Provider: providers.ProviderAnthropic, Price: Pricing{InputUSDPer1M: 5.00, OutputUSDPer1M: 25.00, CacheReadMultiplier: 0.10}},
+		{Provider: providers.ProviderAnthropicGateway, Price: Pricing{InputUSDPer1M: 5.00, OutputUSDPer1M: 25.00}},
 	}},
 	// Opus 4.8 retired from routing; kept as priced passthrough so lingering BYOK/direct pins bill at real cost.
 	{ID: "claude-opus-4-8", ContextWindow: 200_000, Providers: []ProviderBinding{
@@ -209,6 +220,7 @@ var Models = []Model{
 	// 1M context natively (no context-1m beta header), same $5/$25 as opus-4-8.
 	{ID: "claude-opus-5", Tier: TierHigh, ContextWindow: 1_000_000, Providers: []ProviderBinding{
 		{Provider: providers.ProviderAnthropic, Price: Pricing{InputUSDPer1M: 5.00, OutputUSDPer1M: 25.00, CacheReadMultiplier: 0.10}},
+		{Provider: providers.ProviderAnthropicGateway, Price: Pricing{InputUSDPer1M: 5.00, OutputUSDPer1M: 25.00}},
 	}},
 	// Ships 1M context by default (no beta header needed), unlike Opus 4.6+.
 	// Safety classifiers can return stop_reason "refusal" (HTTP 200); see
