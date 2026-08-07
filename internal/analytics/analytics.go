@@ -10,8 +10,7 @@ import (
 
 // Decision is one exported routing decision: a single upstream action, not a
 // user-visible request. Retries, failovers, compaction, and sub-agent turns
-// each produce their own row, so consumers group on RequestID / TurnType
-// rather than counting rows as requests.
+// each produce their own row, so consumers group on RequestID / TurnType.
 type Decision struct {
 	// ID is unique per row and stable across replays, so it is what a consumer
 	// deduplicates on. RequestID is not: retries share one.

@@ -14,9 +14,7 @@ type schemaResponse struct {
 	Notes   schemaResponseNote `json:"notes"`
 }
 
-// schemaResponseNote carries the two semantics a consumer cannot infer from
-// the field list but will get wrong without: what a row counts as, and how to
-// resume an incremental pull.
+// schemaResponseNote carries semantics a consumer cannot infer from the field list.
 type schemaResponseNote struct {
 	Grain          string `json:"grain"`
 	Idempotency    string `json:"idempotency"`

@@ -17,9 +17,8 @@ const (
 	Holdback = 60 * time.Second
 )
 
-// ErrWindowRequired is returned when neither a start time nor a cursor is
-// given. Defaulting to the beginning of retention would make a mistyped
-// request a full-history scan.
+// ErrWindowRequired is returned when neither since nor cursor is given;
+// omitting both would scan from the beginning of retention.
 var ErrWindowRequired = errors.New("since or cursor is required")
 
 // Service serves the routing-decision export.
