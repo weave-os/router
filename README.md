@@ -213,6 +213,8 @@ Settings → Models override above. See [install/README.md](install/README.md#sw
 | `POST /v1/route`               | Returns the decision, no upstream call   |
 | `GET /v1/models` &nbsp;·&nbsp; `POST /v1/messages/count_tokens` | Anthropic passthrough |
 | `GET /health` &nbsp;·&nbsp; `GET /readyz` &nbsp;·&nbsp; `GET /validate` | liveness + dependency readiness + key check |
+| `GET /v1/analytics/routing-decisions` | Raw routing decisions as cursor-paginated NDJSON ([docs](docs/ANALYTICS_EXPORT.md)) |
+| `GET /v1/analytics/schema` &nbsp;·&nbsp; `GET /v1/analytics/models` | Export field dictionary + price book |
 
 Keep liveness probes on `/health`. Point startup or readiness probes at
 `/readyz` when configured policy sidecars must be ready before traffic arrives.
@@ -223,6 +225,8 @@ Keep liveness probes on `/health`. Point startup or readiness probes at
   BYOK encryption, OTel knobs, cluster routing.
 - 🧭 [**Semantics and terminology**](docs/SEMANTICS.md): canonical definitions
   for session, round, turn, action, and step.
+- 📊 [**Analytics export**](docs/ANALYTICS_EXPORT.md): pulling raw routing
+  decisions into your own warehouse with a read-only key.
 - [**Policy router harness**](docs/POLICY_ROUTER_HARNESS.md): contract and
   rollout checklist for adding an out-of-process policy model.
 - 🛠️ [**Contributing**](CONTRIBUTING.md): layering rules, hot-reload dev,
