@@ -28,8 +28,7 @@ type schemaResponseNote struct {
 }
 
 // SchemaHandler serves GET /v1/analytics/schema: the machine-readable field
-// dictionary for the export, so a consumer can generate warehouse DDL and
-// detect additive changes without diffing docs.
+// dictionary so a consumer can generate warehouse DDL.
 func SchemaHandler() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		c.JSON(http.StatusOK, schemaResponse{
@@ -52,9 +51,8 @@ type modelsResponse struct {
 	Models []analytics.ModelPrice `json:"models"`
 }
 
-// ModelsHandler serves GET /v1/analytics/models: the current price book, so a
-// consumer can recompute the exported cost and savings columns independently
-// instead of treating the router's numbers as a black box.
+// ModelsHandler serves GET /v1/analytics/models: the current price book so a
+// consumer can recompute cost and savings columns independently.
 func ModelsHandler() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		c.JSON(http.StatusOK, modelsResponse{Models: analytics.PriceBook()})

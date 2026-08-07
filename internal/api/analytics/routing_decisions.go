@@ -1,6 +1,5 @@
 // Package analytics serves the read-only routing-decision export
-// (/v1/analytics/*). Authenticated by ra_ analytics keys only; it reads
-// telemetry and never routes, so nothing here can spend.
+// (/v1/analytics/*). ra_ analytics keys only; reads telemetry, never routes.
 package analytics
 
 import (
@@ -20,9 +19,8 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// Response headers carrying the keyset position of the page just served.
-// Headers rather than an envelope so the NDJSON body stays a clean stream of
-// rows that a warehouse loader can consume without unwrapping.
+// Headers rather than an envelope so the NDJSON body is a clean stream a
+// warehouse loader can ingest without unwrapping.
 const (
 	nextCursorHeader = "X-Weave-Next-Cursor"
 	hasMoreHeader    = "X-Weave-Has-More"
@@ -84,9 +82,8 @@ func writePage(c *gin.Context, page analytics.Page) {
 	}
 }
 
-// responseWriter negotiates gzip. Export pages are highly repetitive JSON and
-// compress by roughly an order of magnitude, which matters when a backfill
-// pulls millions of rows across the internet.
+// responseWriter negotiates gzip: export pages compress well, which matters
+// for large backfills.
 func responseWriter(c *gin.Context) (io.Writer, func()) {
 	c.Header("Content-Type", contentTypeNDJSON)
 	if !strings.Contains(c.GetHeader("Accept-Encoding"), "gzip") {

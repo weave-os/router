@@ -12,9 +12,8 @@ type ModelPrice struct {
 	Providers     []ProviderPrice `json:"providers"`
 }
 
-// ProviderPrice is one (provider, model) price binding. Ordered as the router
-// prefers them, so the first entry whose provider is enabled on the deployment
-// is the one that priced the turn.
+// ProviderPrice is one (provider, model) price binding. The router prefers
+// providers in this order; the first enabled one priced the turn.
 type ProviderPrice struct {
 	Provider            string  `json:"provider"`
 	InputUSDPer1M       float64 `json:"input_usd_per_1m"`
