@@ -315,9 +315,8 @@ func TestTurnLoop_ForcedPinFollowsSurvivingBinding(t *testing.T) {
 	assert.Empty(t, fr.captured, "the pin must not fall through to the scorer")
 }
 
-// TestTurnLoop_StrikeExemptionCoversRemappedBinding: the strike exemption must
-// be computed against the binding the pin is remapped to, or a 529 strike on
-// that binding vetoes the force the operator permits.
+// TestTurnLoop_StrikeExemptionCoversRemappedBinding: strike exemption must
+// cover the remapped binding, or a 529 strike on it vetoes the force.
 func TestTurnLoop_StrikeExemptionCoversRemappedBinding(t *testing.T) {
 	fr := &tierProbeRouter{available: map[string]struct{}{"claude-haiku-4-5": {}}}
 	store := &overwritingPinStore{pin: sessionpin.Pin{
@@ -347,9 +346,8 @@ func TestTurnLoop_StrikeExemptionCoversRemappedBinding(t *testing.T) {
 	assert.Equal(t, providers.ProviderAnthropicGateway, res.Decision.Provider)
 }
 
-// TestTurnLoop_HardPinnedTurnForcedPinFollowsSurvivingBinding: the hard-pinned
-// fast path (probe, compaction) gates on its own eligibility check, so it needs
-// the same remap or the force loses those turns to the hard pin.
+// TestTurnLoop_HardPinnedTurnForcedPinFollowsSurvivingBinding: the hard-pin
+// fast path needs the same remap or the force loses probe/compaction turns.
 func TestTurnLoop_HardPinnedTurnForcedPinFollowsSurvivingBinding(t *testing.T) {
 	fr := &tierProbeRouter{available: map[string]struct{}{"claude-haiku-4-5": {}}}
 	store := &overwritingPinStore{pin: sessionpin.Pin{

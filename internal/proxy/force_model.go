@@ -239,9 +239,9 @@ func (s *Service) setForceModelPin(
 // applyForceModelHeader honors the x-weave-force-model request header,
 // writing the same session pin the /force-model command writes. It's
 // (re)written on every request carrying the header. Unrecognized models are
-// ignored (routing proceeds automatically) rather than failing the request; a
-// model the installation excludes fails the request instead, since routing it
-// elsewhere would answer as a model the caller never asked for.
+// ignored (routing proceeds automatically) rather than failing the request;
+// an excluded model fails it — silently routing elsewhere would serve a model
+// the caller never asked for.
 //
 // A `:level` suffix is stashed on context as router.Overrides.ForceEffort
 // so pin + effort land in one header.
