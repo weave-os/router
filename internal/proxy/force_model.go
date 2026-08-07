@@ -239,7 +239,9 @@ func (s *Service) setForceModelPin(
 // applyForceModelHeader honors the x-weave-force-model request header,
 // writing the same session pin the /force-model command writes. It's
 // (re)written on every request carrying the header. Unrecognized models are
-// ignored (routing proceeds automatically) rather than failing the request.
+// ignored (routing proceeds automatically) rather than failing the request; a
+// model the installation excludes fails the request instead, since routing it
+// elsewhere would answer as a model the caller never asked for.
 //
 // A `:level` suffix is stashed on context as router.Overrides.ForceEffort
 // so pin + effort land in one header.
@@ -249,10 +251,10 @@ func (s *Service) applyForceModelHeader(
 	env *translate.RequestEnvelope,
 	installationID uuid.UUID,
 	sessionKey [sessionpin.SessionKeyLen]byte,
-) string {
+) (string, error) {
 	raw := strings.TrimSpace(r.Header.Get(ForceModelHeader))
 	if raw == "" {
-		return ""
+		return "", nil
 	}
 	log := observability.FromContext(ctx)
 	canonicalModel, provider, known, effortLevel := resolveForceModelWithEffort(raw)
@@ -276,15 +278,24 @@ func (s *Service) applyForceModelHeader(
 			"input_model", raw,
 			"session_key_hex", fmt.Sprintf("%x", sessionKey),
 		)
-		return ""
+		return "", nil
+	}
+	if reason := s.forcedModelExclusionReason(ctx, canonicalModel, provider); reason != "" {
+		log.Warn("x-weave-force-model: rejected excluded model",
+			"input_model", raw,
+			"canonical_model", canonicalModel,
+			"provider", provider,
+			"reason", reason,
+		)
+		return "", &ForcedModelExcludedError{Model: canonicalModel, Reason: reason}
 	}
 	if s.pinStore == nil {
-		return canonicalModel
+		return canonicalModel, nil
 	}
 	role := roleForTier(catalog.TierFor(env.Model()))
 	if err := s.setForceModelPin(ctx, sessionKey, role, installationID, canonicalModel, provider); err != nil {
 		log.Error("x-weave-force-model: pin store upsert failed", "err", err)
-		return canonicalModel
+		return canonicalModel, nil
 	}
 	log.Info("x-weave-force-model applied",
 		"input_model", raw,
@@ -294,7 +305,7 @@ func (s *Service) applyForceModelHeader(
 		"session_key_hex", fmt.Sprintf("%x", sessionKey),
 		"role", role,
 	)
-	return canonicalModel
+	return canonicalModel, nil
 }
 
 // handleForceModelCommand processes a /force-model or /unforce-model directive:
@@ -345,6 +356,21 @@ func (s *Service) handleForceModelCommand(
 		msg = fmt.Sprintf("✦ **Weave Router** → force-model: %q isn't a recognized model · keeping automatic routing. Use a full model ID, e.g. claude-opus-5, gpt-5.5, or gemini-3-pro-preview.\n\n", cmd.Model)
 		if env.SourceFormat() == translate.FormatOpenAI {
 			msg = fmt.Sprintf("Weave Router: force-model: %q isn't a recognized model; keeping automatic routing. Use a full model ID, e.g. claude-opus-5, gpt-5.5, or gemini-3-pro-preview.", cmd.Model)
+		}
+	} else if reason := s.forcedModelExclusionReason(ctx, canonicalModel, provider); reason != "" {
+		// Exclusions outrank the force. Pinning anyway would look accepted and
+		// then serve something else every turn; the prior pin is left untouched.
+		log.Warn("/force-model: rejected excluded model",
+			"input_model", cmd.Model,
+			"canonical_model", canonicalModel,
+			"provider", provider,
+			"reason", reason,
+			"session_key_hex", fmt.Sprintf("%x", sessionKey),
+			"role", role,
+		)
+		msg = fmt.Sprintf("✦ **Weave Router** → force-model rejected: %s · keeping automatic routing. Ask an admin to allow the provider, or force a model from one that is permitted.\n\n", reason)
+		if env.SourceFormat() == translate.FormatOpenAI {
+			msg = fmt.Sprintf("Weave Router: force-model rejected: %s; keeping automatic routing. Ask an admin to allow the provider, or force a model from one that is permitted.", reason)
 		}
 	} else {
 		if err := s.setForceModelPin(ctx, sessionKey, role, installationID, canonicalModel, provider); err != nil {

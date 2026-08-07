@@ -647,18 +647,29 @@ func sessionDisabledProvidersFromContext(ctx context.Context) []string {
 	return out
 }
 
+// policyExcludedProviders returns only the configured exclusions — the
+// deployment override or the installation's list. Session strike-outs are
+// deliberately left out: they're transient 529 evidence, so they may steer
+// routing but must not reject a forced model the operator does permit.
+func (s *Service) policyExcludedProviders(ctx context.Context) map[string]struct{} {
+	if s.excludedProvidersOverride != nil {
+		return s.excludedProvidersOverride
+	}
+	excluded := installationExcludedProvidersFromContext(ctx)
+	if len(excluded) == 0 {
+		return nil
+	}
+	out := make(map[string]struct{}, len(excluded))
+	for _, p := range excluded {
+		out[p] = struct{}{}
+	}
+	return out
+}
+
 // excludedProvidersForRequest merges the deployment/installation exclusion list
 // with any providers this session has struck out for repeated 529 exhaustion.
 func (s *Service) excludedProvidersForRequest(ctx context.Context) map[string]struct{} {
-	var base map[string]struct{}
-	if s.excludedProvidersOverride != nil {
-		base = s.excludedProvidersOverride
-	} else if excluded := installationExcludedProvidersFromContext(ctx); len(excluded) > 0 {
-		base = make(map[string]struct{}, len(excluded))
-		for _, p := range excluded {
-			base[p] = struct{}{}
-		}
-	}
+	base := s.policyExcludedProviders(ctx)
 	sessionDisabled := sessionDisabledProvidersFromContext(ctx)
 	if len(sessionDisabled) == 0 {
 		return base
@@ -2166,7 +2177,11 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	// the pin up and serves the requested model on this same turn.
 	forceModel := ""
 	if !agentShadowMode {
-		forceModel = s.applyForceModelHeader(ctx, r, env, installationID, sessionKey)
+		var forceErr error
+		forceModel, forceErr = s.applyForceModelHeader(ctx, r, env, installationID, sessionKey)
+		if forceErr != nil {
+			return forceErr
+		}
 	}
 
 	// Tool-call loop break: catches runaway OSS-model tool-call cycles (qwen3
@@ -4314,7 +4329,10 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	// Honor the x-weave-force-model header (headless equivalent of /force-model).
 	// Writes the user-forced pin and falls through to normal routing, which picks
 	// the pin up and serves the requested model on this same turn.
-	forceModel := s.applyForceModelHeader(ctx, r, env, installationID, sessionKey)
+	forceModel, forceErr := s.applyForceModelHeader(ctx, r, env, installationID, sessionKey)
+	if forceErr != nil {
+		return forceErr
+	}
 
 	// Wide cyclic re-read loop → escalate to opus (same path as the Anthropic
 	// ingress). See detectCyclicToolCallLoop / handleLoopEscalation.

@@ -533,6 +533,19 @@ func (s *Service) runTurnLoop(
 	// the scorer call further down constrains the fresh decision to this tier
 	// instead of collapsing to the cheap tier-default. TierUnknown = no constraint.
 	forcedTierFloor := catalog.TierUnknown
+	if pinFound && isUserForcedReason(pin.Reason) {
+		// Exclusion policy can change under a live session. Falling through to
+		// automatic routing would answer every later turn as a model the caller
+		// still believes they pinned, so refuse until they /unforce-model.
+		if reason := s.forcedModelExclusionReason(ctx, pin.Model, pin.Provider); reason != "" {
+			log.Warn("turnloop: forced pin refers to an excluded model",
+				"pin_model", pin.Model,
+				"pin_provider", pin.Provider,
+				"reason", reason,
+			)
+			return res, &ForcedModelExcludedError{Model: pin.Model, Reason: reason}
+		}
+	}
 	if pinFound && (isUserForcedReason(pin.Reason) || pin.Reason == translate.ReasonLoopEscalation) {
 		_, excluded := req.ExcludedModels[pin.Model]
 		_, providerEnabled := req.EnabledProviders[pin.Provider]

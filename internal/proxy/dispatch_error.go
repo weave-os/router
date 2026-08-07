@@ -44,6 +44,7 @@ const (
 	DispatchErrorUserSpendLimitReached
 	DispatchErrorSpendLimitUnavailable
 	DispatchErrorAnthropicCacheControlInvalid
+	DispatchErrorForcedModelExcluded
 )
 
 // DispatchErrorClass is the format-agnostic classification of a dispatch
@@ -75,7 +76,18 @@ type DispatchErrorClass struct {
 // themselves before falling through here.
 func ClassifyDispatchError(err error) (DispatchErrorClass, bool) {
 	var statusErr *providers.UpstreamStatusError
+	var forcedExcluded *ForcedModelExcludedError
 	switch {
+	case errors.As(err, &forcedExcluded):
+		// Ahead of the sentinel cases so the reason reaches the caller: a bare
+		// "forced model is excluded" doesn't say which model or why.
+		return DispatchErrorClass{
+			Kind:       DispatchErrorForcedModelExcluded,
+			Status:     http.StatusBadRequest,
+			Message:    forcedExcluded.Reason + ". Clear the force (/unforce-model) or pick a model from a permitted provider.",
+			LogLevel:   "warn",
+			LogMessage: "Rejected request: forced model is excluded on this installation",
+		}, true
 	case errors.As(err, &statusErr):
 		return DispatchErrorClass{
 			Kind:    DispatchErrorUpstreamStatus,
@@ -244,7 +256,7 @@ func unwrapToSentinelMessage(err error) string {
 // rather than "api_error".
 func (k DispatchErrorKind) IsClientError() bool {
 	switch k {
-	case DispatchErrorRequestNotJSONObject, DispatchErrorNoEligibleProvider, DispatchErrorContextWindowExceeded, DispatchErrorInvalidRoutingKnobs, DispatchErrorTranslationIntrinsicallyIncompatible, DispatchErrorAnthropicCacheControlInvalid:
+	case DispatchErrorRequestNotJSONObject, DispatchErrorNoEligibleProvider, DispatchErrorContextWindowExceeded, DispatchErrorInvalidRoutingKnobs, DispatchErrorTranslationIntrinsicallyIncompatible, DispatchErrorAnthropicCacheControlInvalid, DispatchErrorForcedModelExcluded:
 		return true
 	default:
 		return false

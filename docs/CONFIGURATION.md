@@ -10,6 +10,7 @@ This page is the exhaustive reference; the [README](../README.md) has the
 - [Postgres](#postgres)
 - [Server](#server)
 - [Routing](#routing)
+- [Provider and model exclusions](#provider-and-model-exclusions)
 - [Policy sidecars](#policy-sidecars)
 - [BYOK encryption](#byok-encryption)
 - [Telemetry (OpenTelemetry)](#telemetry-opentelemetry)
@@ -123,6 +124,36 @@ Set `DATABASE_URL` directly, or compose it from the individual vars:
 If the cluster scorer can't run (missing model, embed timeout, etc.), the
 router returns HTTP 503 — it does *not* silently fall back to a default
 model. Failures are loud by design.
+
+## Provider and model exclusions
+
+Exclusions keep traffic away from a provider or model — the control to reach
+for when an installation may only talk to, say, its own enterprise gateway.
+
+| Variable                     | Default  | Purpose |
+| ---------------------------- | -------- | ------- |
+| `ROUTER_EXCLUDED_PROVIDERS`  | *(none)* | Comma-separated provider names no request may be routed to. Pins the list deployment-wide: per-installation edits are refused (403) while it is set. |
+| `ROUTER_EXCLUDED_MODELS`     | *(none)* | Comma-separated model IDs no request may be routed to, same deployment-wide pinning. |
+
+Without either env var the lists come from the installation, editable in the
+dashboard or through `PUT /admin/v1/excluded-providers` and
+`PUT /admin/v1/excluded-models`.
+
+Exclusions are authoritative, not a preference. An excluded provider is
+subtracted from the request's eligible set before anything routes, so the
+scorer, the turn-type hard pins, session pins, and cross-binding failover all
+stay off it — including when the caller holds their own BYOK key for it.
+
+That extends to explicit forcing. `/force-model` and the `x-weave-force-model`
+header are refused when every provider that could serve the model is excluded:
+the command answers with the reason and leaves routing (and any prior pin)
+alone, and the header fails the request with HTTP 400. A model with one
+permitted binding left is forced normally and served through that binding. A
+live session whose forced pin is later excluded fails the same way rather than
+quietly reverting to automatic routing — clear it with `/unforce-model`.
+
+Excluding every provider that serves the models you route to leaves requests
+with nowhere to go (HTTP 503 from the scorer), so exclude deliberately.
 
 ## Policy sidecars
 
