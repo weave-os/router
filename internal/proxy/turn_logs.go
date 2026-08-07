@@ -36,10 +36,9 @@ const (
 // when the installation set no override. See effectiveCaptureMode.
 type InstallationCaptureModeContextKey struct{}
 
-// effectiveCaptureMode is the capture mode for this request: the stricter of
-// the deployment-wide setting and the installation's override. Taking the
-// minimum (Off < Hashed < Full) is what makes the override safe to expose —
-// a tenant can tighten capture below the deploy default, never widen it.
+// effectiveCaptureMode returns the stricter of the deployment-wide setting
+// and the per-installation override. The minimum wins so a tenant can only
+// tighten capture, never widen it past the deployment ceiling.
 func (s *Service) effectiveCaptureMode(ctx context.Context) ContentCaptureMode {
 	override, ok := ctx.Value(InstallationCaptureModeContextKey{}).(ContentCaptureMode)
 	if !ok {

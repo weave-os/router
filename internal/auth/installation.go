@@ -73,11 +73,9 @@ type Installation struct {
 	// ByokEnabled opts a managed-mode installation into BYOK; managed deploys
 	// are off by default (they bill via prepaid credits). Self-hosted ignores it.
 	ByokEnabled bool
-	// ContentCaptureMode caps how much prompt/response content the router
-	// captures for this installation ("off", "hashed", or "full"). nil means no
-	// override. It can only tighten the deployment-wide WV_CAPTURE_CONTENT
-	// setting, never loosen it, so a tenant under a zero-retention obligation
-	// can opt out without a dedicated deploy.
+	// ContentCaptureMode caps content capture for this installation
+	// ("off", "hashed", or "full"). nil means no override. It can only
+	// tighten the deployment-wide WV_CAPTURE_CONTENT setting, never loosen it.
 	ContentCaptureMode *string
 }
 

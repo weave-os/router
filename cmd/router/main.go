@@ -303,11 +303,9 @@ func main() {
 	}
 
 	{
-		// Cortex REST's Anthropic-compatible Messages surface, serving Claude
-		// from the customer's own Snowflake account. The base URL is
-		// account-specific with no vendor default, so a deployment-level PAT is
-		// only honored alongside SNOWFLAKE_BASE_URL — otherwise the provider
-		// stays BYOK-only, where each key carries its own account endpoint.
+		// Cortex Anthropic-compatible surface; base URL is per-account with no
+		// vendor default, so a deployment-level PAT is only honored alongside
+		// SNOWFLAKE_BASE_URL — otherwise the provider stays BYOK-only.
 		snowflakeBaseURL := config.GetOr("SNOWFLAKE_BASE_URL", "")
 		snowflakePAT := ""
 		if !byokOnly && snowflakeBaseURL != "" {
