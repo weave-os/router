@@ -3,7 +3,6 @@ package admin
 import (
 	"errors"
 	"net/http"
-	"strings"
 	"time"
 
 	"workweave/router/internal/auth"
@@ -229,15 +228,14 @@ func UpsertExternalKeyHandler(authSvc *auth.Service) gin.HandlerFunc {
 			c.AbortWithStatusJSON(http.StatusConflict, gin.H{"error": "Provider already configured via deployment environment variable. Remove the env var before adding a dashboard key."})
 			return
 		}
-		// RequiresBaseURL providers have no default endpoint; omitting base_url makes the credential undispatchable.
-		if providers.RequiresBaseURL(req.Provider) && (req.BaseURL == nil || strings.TrimSpace(*req.BaseURL) == "") {
-			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "This provider requires a base URL — it has no default endpoint."})
-			return
-		}
 		key, err := authSvc.UpsertExternalAPIKey(c.Request.Context(), installation.ID, req.Provider, req.Key, req.Name, req.BaseURL, nil)
 		if err != nil {
 			if errors.Is(err, auth.ErrInvalidBaseURL) {
 				c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "Base URL must be an absolute http(s) URL."})
+				return
+			}
+			if errors.Is(err, auth.ErrBaseURLRequired) {
+				c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "This provider requires a base URL — it has no default endpoint."})
 				return
 			}
 			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Failed to save provider key."})

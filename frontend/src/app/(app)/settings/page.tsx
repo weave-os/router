@@ -481,7 +481,8 @@ function ProviderKeysPanel() {
       : (available[0] ?? null);
 
   const baseURLRequired = provider != null && PROVIDERS_REQUIRING_BASE_URL.includes(provider);
-  const baseURLMissing = baseURLRequired && baseURL.trim() === "";
+  // Mirrors the server's normalization: a slash-only value normalizes away to nothing.
+  const baseURLMissing = baseURLRequired && baseURL.trim().replace(/\/+$/, "") === "";
 
   async function handleSave(e: React.FormEvent) {
     e.preventDefault();

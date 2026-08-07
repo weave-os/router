@@ -32,7 +32,7 @@ Claude Code keep using the user's logged-in plan.
 | `OPENAI_BASE_URL`     | `https://api.openai.com`                                  | Override for OpenAI (e.g. Azure OpenAI). |
 | `GOOGLE_API_KEY`      | *(none)*                                                  | Enables Gemini via its OpenAI-compatible endpoint. |
 | `GOOGLE_BASE_URL`     | `https://generativelanguage.googleapis.com/v1beta/openai` | Override for Gemini. |
-| `ANTHROPIC_GATEWAY_BASE_URL` | *(none)*                                           | Full endpoint of an Anthropic-compatible gateway; `/v1/messages` is appended to it. |
+| `ANTHROPIC_GATEWAY_BASE_URL` | *(none)*                                           | Base URL of an Anthropic-compatible gateway; `/v1/messages` is appended to it. |
 | `ANTHROPIC_GATEWAY_TOKEN`    | *(none)*                                           | Token for that gateway, sent as `Authorization: Bearer`. Only used when `ANTHROPIC_GATEWAY_BASE_URL` is also set. |
 
 **Anthropic-compatible gateway.** Some enterprises front Claude with their own

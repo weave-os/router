@@ -239,9 +239,10 @@ func TestListExternalKeysHandler_ReturnsProviderKeysForInstallation(t *testing.T
 // fakeExternalAPIKeyRepo records whether a key was actually persisted, so a test
 // can distinguish "guard rejected the write" from "write went through".
 type fakeExternalAPIKeyRepo struct {
-	created     int
-	createdBase *string
-	keys        []*auth.ExternalAPIKey
+	created               int
+	createdBase           *string
+	softDeletedByProvider int
+	keys                  []*auth.ExternalAPIKey
 }
 
 func (f *fakeExternalAPIKeyRepo) Create(_ context.Context, params auth.CreateExternalAPIKeyParams) (*auth.ExternalAPIKey, error) {
@@ -263,6 +264,7 @@ func (f *fakeExternalAPIKeyRepo) GetForInstallation(_ context.Context, installat
 	return out, nil
 }
 func (f *fakeExternalAPIKeyRepo) SoftDeleteByProvider(context.Context, string, string) error {
+	f.softDeletedByProvider++
 	return nil
 }
 func (f *fakeExternalAPIKeyRepo) SoftDelete(context.Context, string, string) error { return nil }
@@ -361,6 +363,23 @@ func TestUpsertExternalKeyHandler_RejectsGatewayKeyWithoutBaseURL(t *testing.T) 
 	assert.Equal(t, http.StatusBadRequest, rec.Code,
 		"a gateway has no default endpoint, so a key without one could never be dispatched")
 	assert.Equal(t, 0, repo.created, "the undispatchable key must not be persisted")
+}
+
+func TestUpsertExternalKeyHandler_RejectsGatewayKeyWithSlashOnlyBaseURL(t *testing.T) {
+	t.Setenv(providers.APIKeyEnvVar(providers.ProviderAnthropicGateway), "")
+
+	repo := &fakeExternalAPIKeyRepo{}
+	rec := postProviderKeyWithBaseURL(
+		upsertKeyEngine(newUpsertKeyService(repo)),
+		providers.ProviderAnthropicGateway,
+		"///",
+	)
+
+	assert.Equal(t, http.StatusBadRequest, rec.Code,
+		"a value that normalizes away to nothing leaves the same undispatchable key as omitting it")
+	assert.Equal(t, 0, repo.created)
+	assert.Equal(t, 0, repo.softDeletedByProvider,
+		"a rejected upsert must not take out the working key it would have replaced")
 }
 
 func TestUpsertExternalKeyHandler_RejectsRelativeBaseURL(t *testing.T) {

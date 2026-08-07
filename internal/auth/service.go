@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"workweave/router/internal/observability"
+	"workweave/router/internal/providers"
 
 	"github.com/hashicorp/golang-lru/v2/expirable"
 )
@@ -21,6 +22,9 @@ var ErrUnknownProvider = errors.New("auth: unknown provider")
 
 // ErrInvalidBaseURL is returned for a BYOK endpoint override that is not an absolute http(s) URL.
 var ErrInvalidBaseURL = errors.New("auth: invalid base url")
+
+// ErrBaseURLRequired is returned when a provider with no deployment endpoint is given no base URL.
+var ErrBaseURLRequired = errors.New("auth: base url required for provider")
 
 type Clock func() time.Time
 
@@ -200,6 +204,10 @@ func (s *Service) UpsertExternalAPIKey(ctx context.Context, installationID, prov
 	normalizedBaseURL, err := NormalizeBaseURL(baseURL)
 	if err != nil {
 		return nil, err
+	}
+	// Checked after normalization: a slash-only value normalizes away to nil.
+	if normalizedBaseURL == nil && providers.RequiresBaseURL(provider) {
+		return nil, fmt.Errorf("%w: %s", ErrBaseURLRequired, provider)
 	}
 	// Generate external ID first so it binds into the ciphertext as AAD.
 	externalID := GenerateID("ekid")
