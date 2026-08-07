@@ -181,14 +181,15 @@ function scopeLabel(scope: APIKeyScope): string {
 }
 
 // Case-insensitive substring match over what the row actually shows: the label
-// ("Unnamed key" when there's no name), the raw prefix/suffix (so the last few
-// characters of a token match), and the exact "prefix…suffix" fingerprint that's
-// rendered, so pasting the visible fingerprint verbatim also finds it.
+// ("Unnamed key" when there's no name), the scope badge, the raw prefix/suffix
+// (so the last few characters of a token match), and the exact "prefix…suffix"
+// fingerprint, so pasting the visible fingerprint verbatim also finds it.
 function keyMatchesQuery(k: APIKey, query: string): boolean {
   if (query === "") return true;
   const label = k.name ?? UNNAMED_KEY_LABEL;
+  const badge = k.scope === "analytics_read" ? scopeLabel(k.scope) : "";
   const haystack =
-    `${label} ${k.key_prefix} ${k.key_suffix} ${k.key_prefix}…${k.key_suffix}`.toLowerCase();
+    `${label} ${badge} ${k.key_prefix} ${k.key_suffix} ${k.key_prefix}…${k.key_suffix}`.toLowerCase();
   return haystack.includes(query);
 }
 
