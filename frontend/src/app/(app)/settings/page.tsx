@@ -66,7 +66,8 @@ export default function SettingsPage() {
           }
         >
           <Text className="text-xs text-muted-foreground">
-            Bring your own keys for Anthropic, OpenAI, Google, OpenRouter.
+            Bring your own keys for Anthropic, OpenAI, Google, OpenRouter, or an
+            Anthropic-compatible gateway.
           </Text>
           <ProviderKeysPanel />
         </Page.Section>
@@ -407,7 +408,7 @@ function RouterKeysPanel() {
 }
 
 
-const PROVIDERS = ["anthropic", "openai", "google", "openrouter"] as const;
+const PROVIDERS = ["anthropic", "openai", "google", "openrouter", "anthropic_gateway"] as const;
 type Provider = (typeof PROVIDERS)[number];
 
 const PROVIDER_LABEL: Record<Provider, string> = {
@@ -415,6 +416,7 @@ const PROVIDER_LABEL: Record<Provider, string> = {
   openai: "OpenAI",
   google: "Google",
   openrouter: "OpenRouter",
+  anthropic_gateway: "Anthropic-compatible gateway",
 };
 
 const PROVIDER_ENV_VAR: Record<Provider, string> = {
@@ -422,7 +424,12 @@ const PROVIDER_ENV_VAR: Record<Provider, string> = {
   openai: "OPENAI_API_KEY",
   google: "GOOGLE_API_KEY",
   openrouter: "OPENROUTER_API_KEY",
+  anthropic_gateway: "ANTHROPIC_GATEWAY_TOKEN",
 };
+
+// Providers with no vendor endpoint to fall back to: a key without a URL here
+// is stored but can never be dispatched, so the form blocks it up front.
+const PROVIDERS_REQUIRING_BASE_URL: readonly Provider[] = ["anthropic_gateway"];
 
 function providerLabel(p: Provider): string {
   return PROVIDER_LABEL[p];
@@ -435,6 +442,7 @@ function ProviderKeysPanel() {
   const [pickedProvider, setPickedProvider] = useState<Provider | null>(null);
   const [keyValue, setKeyValue] = useState("");
   const [name, setName] = useState("");
+  const [baseURL, setBaseURL] = useState("");
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState<string | null>(null);
 
@@ -472,14 +480,23 @@ function ProviderKeysPanel() {
       ? pickedProvider
       : (available[0] ?? null);
 
+  const baseURLRequired = provider != null && PROVIDERS_REQUIRING_BASE_URL.includes(provider);
+  const baseURLMissing = baseURLRequired && baseURL.trim() === "";
+
   async function handleSave(e: React.FormEvent) {
     e.preventDefault();
-    if (provider == null || keyValue.trim() === "") return;
+    if (provider == null || keyValue.trim() === "" || baseURLMissing) return;
     setSaving(true);
     try {
-      await api.providerKeys.upsert(provider, keyValue.trim(), name.trim() || undefined);
+      await api.providerKeys.upsert(
+        provider,
+        keyValue.trim(),
+        name.trim() || undefined,
+        baseURL.trim() || undefined,
+      );
       setKeyValue("");
       setName("");
+      setBaseURL("");
       load();
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Failed to save key");
@@ -529,6 +546,23 @@ function ProviderKeysPanel() {
                 />
               </div>
               <Input
+                label={baseURLRequired ? "Endpoint URL" : "Endpoint URL (optional)"}
+                name="provider-base-url"
+                autoComplete="off"
+                data-1p-ignore
+                data-lpignore="true"
+                data-form-type="other"
+                placeholder="https://gateway.example.com/api"
+                value={baseURL}
+                onChange={e => setBaseURL(e.target.value)}
+                required={baseURLRequired}
+              />
+              <Text className="text-2xs text-muted-foreground">
+                {baseURLRequired
+                  ? "This provider has no default endpoint. Give the full base URL; the router appends the API path (e.g. /v1/messages)."
+                  : "Leave blank to use the provider's default endpoint. The router appends the API path (e.g. /v1/messages)."}
+              </Text>
+              <Input
                 label="Name (optional)"
                 name="provider-key-label"
                 autoComplete="off"
@@ -545,7 +579,7 @@ function ProviderKeysPanel() {
                   appearance={Appearance.Filled}
                   intent={Intent.Primary}
                   className="!border-brand !bg-brand !text-white hover:!bg-brand/90"
-                  disabled={saving || keyValue.trim() === ""}
+                  disabled={saving || keyValue.trim() === "" || baseURLMissing}
                 >
                   {saving ? "Saving…" : "Save key"}
                 </Button>
@@ -604,6 +638,9 @@ function ProviderKeysPanel() {
                     </div>
                     <p className="mt-0.5 font-mono text-2xs text-muted-foreground">
                       {k.key_prefix}…{k.key_suffix}
+                      {k.base_url != null && k.base_url !== "" && (
+                        <span className="ml-2 font-sans">· {k.base_url}</span>
+                      )}
                     </p>
                   </div>
                   <Button

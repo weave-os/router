@@ -46,11 +46,24 @@ deployment that has a gateway of its own.
 
 **BYOK (per-installation keys).** Instead of (or in addition to) the env vars
 above, each installation can supply its own provider keys via the dashboard.
-Those are stored in Postgres and used only for that installation's traffic. A
-key may also carry its own base URL, which overrides the deployment's endpoint
-for that provider on that installation's requests — useful when a customer runs
-their own deployment of an OpenAI-compatible provider.
+Those are stored in Postgres and used only for that installation's traffic.
 See [BYOK encryption](#byok-encryption).
+
+Each key may also carry its own endpoint, which overrides the deployment's base
+URL for that provider on that installation's requests. Set it in **Settings →
+Provider API keys → Endpoint URL**, or through the admin API:
+
+```bash
+curl -X POST https://<router>/admin/v1/provider-keys \
+  -H 'content-type: application/json' \
+  -d '{"provider":"anthropic_gateway","key":"<token>","base_url":"https://gateway.example.com/api"}'
+```
+
+The value must be an absolute `http(s)` URL; anything else is rejected with
+`400`. A trailing slash is stripped, and the provider appends its own API path
+(`/v1/messages` for the Anthropic family), so give the base only. Omit the
+field to keep the deployment endpoint — except for `anthropic_gateway`, which
+has no default to fall back to and rejects a key without one.
 
 In `selfhosted` mode BYOK is always active (it's the only credentialing path).
 In `managed` mode it is opt-in per installation: the control plane sets

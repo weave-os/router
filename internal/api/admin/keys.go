@@ -3,6 +3,7 @@ package admin
 import (
 	"errors"
 	"net/http"
+	"strings"
 	"time"
 
 	"workweave/router/internal/auth"
@@ -161,6 +162,7 @@ type externalKeyResponse struct {
 	Name       *string    `json:"name"`
 	KeyPrefix  string     `json:"key_prefix"`
 	KeySuffix  string     `json:"key_suffix"`
+	BaseURL    string     `json:"base_url,omitempty"`
 	LastUsedAt *time.Time `json:"last_used_at"`
 	CreatedAt  time.Time  `json:"created_at"`
 }
@@ -169,6 +171,9 @@ type upsertExternalKeyRequest struct {
 	Provider string  `json:"provider" binding:"required"`
 	Key      string  `json:"key" binding:"required"`
 	Name     *string `json:"name"`
+	// BaseURL points this key at a non-default endpoint. Required for gateway
+	// providers, which have no deployment default to fall back to.
+	BaseURL *string `json:"base_url"`
 }
 
 func toExternalKeyResponse(k *auth.ExternalAPIKey) externalKeyResponse {
@@ -178,6 +183,7 @@ func toExternalKeyResponse(k *auth.ExternalAPIKey) externalKeyResponse {
 		Name:       k.Name,
 		KeyPrefix:  k.KeyPrefix,
 		KeySuffix:  k.KeySuffix,
+		BaseURL:    k.BaseURL,
 		LastUsedAt: k.LastUsedAt,
 		CreatedAt:  k.CreatedAt,
 	}
@@ -223,8 +229,19 @@ func UpsertExternalKeyHandler(authSvc *auth.Service) gin.HandlerFunc {
 			c.AbortWithStatusJSON(http.StatusConflict, gin.H{"error": "Provider already configured via deployment environment variable. Remove the env var before adding a dashboard key."})
 			return
 		}
-		key, err := authSvc.UpsertExternalAPIKey(c.Request.Context(), installation.ID, req.Provider, req.Key, req.Name, nil)
+		// Providers with no deployment endpoint are unreachable without a per-key
+		// URL, so an omitted base_url would store a credential that can never be
+		// dispatched.
+		if providers.RequiresBaseURL(req.Provider) && (req.BaseURL == nil || strings.TrimSpace(*req.BaseURL) == "") {
+			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "This provider requires a base URL — it has no default endpoint."})
+			return
+		}
+		key, err := authSvc.UpsertExternalAPIKey(c.Request.Context(), installation.ID, req.Provider, req.Key, req.Name, req.BaseURL, nil)
 		if err != nil {
+			if errors.Is(err, auth.ErrInvalidBaseURL) {
+				c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "Base URL must be an absolute http(s) URL."})
+				return
+			}
 			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Failed to save provider key."})
 			return
 		}

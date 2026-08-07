@@ -110,6 +110,8 @@ export interface ExternalKey {
   name: string | null;
   key_prefix: string;
   key_suffix: string;
+  // Endpoint this key is scoped to; absent when the provider's default is used.
+  base_url?: string;
   last_used_at: string | null;
   created_at: string;
 }
@@ -203,10 +205,10 @@ export const api = {
   },
   providerKeys: {
     list: () => request<{ keys: ExternalKey[] }>("/provider-keys"),
-    upsert: (provider: string, key: string, name?: string) =>
+    upsert: (provider: string, key: string, name?: string, baseURL?: string) =>
       request<ExternalKey>("/provider-keys", {
         method: "POST",
-        body: JSON.stringify({ provider, key, name }),
+        body: JSON.stringify({ provider, key, name, base_url: baseURL }),
       }),
     delete: (id: string) => request<void>(`/provider-keys/${id}`, { method: "DELETE" }),
   },

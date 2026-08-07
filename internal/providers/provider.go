@@ -158,6 +158,19 @@ func APIKeyEnvVar(provider string) string {
 	return APIKeyEnvVars[provider]
 }
 
+// baseURLRequiredProviders have no vendor endpoint to default to, so a
+// credential without a base URL is undispatchable.
+var baseURLRequiredProviders = map[string]struct{}{
+	ProviderAnthropicGateway: {},
+}
+
+// RequiresBaseURL reports whether a BYOK credential for this provider must
+// carry its own endpoint.
+func RequiresBaseURL(provider string) bool {
+	_, ok := baseURLRequiredProviders[provider]
+	return ok
+}
+
 // CacheTTL is the best-effort upstream prompt-cache lifetime per provider.
 // Anthropic's 1h extended cache is what pinSessionTTL is sized to; OSS
 // OpenAI-compatible providers cache on an undocumented minutes-scale window,

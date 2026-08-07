@@ -239,13 +239,19 @@ func TestListExternalKeysHandler_ReturnsProviderKeysForInstallation(t *testing.T
 // fakeExternalAPIKeyRepo records whether a key was actually persisted, so a test
 // can distinguish "guard rejected the write" from "write went through".
 type fakeExternalAPIKeyRepo struct {
-	created int
-	keys    []*auth.ExternalAPIKey
+	created     int
+	createdBase *string
+	keys        []*auth.ExternalAPIKey
 }
 
 func (f *fakeExternalAPIKeyRepo) Create(_ context.Context, params auth.CreateExternalAPIKeyParams) (*auth.ExternalAPIKey, error) {
 	f.created++
-	return &auth.ExternalAPIKey{ID: params.ExternalID, Provider: params.Provider}, nil
+	f.createdBase = params.BaseURL
+	key := &auth.ExternalAPIKey{ID: params.ExternalID, Provider: params.Provider}
+	if params.BaseURL != nil {
+		key.BaseURL = *params.BaseURL
+	}
+	return key, nil
 }
 func (f *fakeExternalAPIKeyRepo) GetForInstallation(_ context.Context, installationID string) ([]*auth.ExternalAPIKey, error) {
 	out := make([]*auth.ExternalAPIKey, 0, len(f.keys))
@@ -276,11 +282,24 @@ func upsertKeyEngine(svc *auth.Service) *gin.Engine {
 
 func postProviderKey(engine *gin.Engine, provider string) *httptest.ResponseRecorder {
 	body, _ := json.Marshal(map[string]string{"provider": provider, "key": "sk-test-key"})
+	return postProviderKeyBody(engine, body)
+}
+
+func postProviderKeyWithBaseURL(engine *gin.Engine, provider, baseURL string) *httptest.ResponseRecorder {
+	body, _ := json.Marshal(map[string]string{"provider": provider, "key": "sk-test-key", "base_url": baseURL})
+	return postProviderKeyBody(engine, body)
+}
+
+func postProviderKeyBody(engine *gin.Engine, body []byte) *httptest.ResponseRecorder {
 	req := httptest.NewRequest(http.MethodPost, "/admin/v1/provider-keys", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	engine.ServeHTTP(rec, req)
 	return rec
+}
+
+func newUpsertKeyService(repo auth.ExternalAPIKeyRepository) *auth.Service {
+	return auth.NewService(nil, nil, repo, nil, auth.NoOpAPIKeyCache{}, nil, func() time.Time { return time.Unix(0, 0) })
 }
 
 func TestUpsertExternalKeyHandler_RejectsEnvShadowedProvider(t *testing.T) {
@@ -308,4 +327,53 @@ func TestUpsertExternalKeyHandler_AllowsProviderWithoutEnvKey(t *testing.T) {
 
 	require.Equal(t, http.StatusCreated, rec.Code)
 	assert.Equal(t, 1, repo.created, "the BYOK key must be persisted when no env key shadows it")
+}
+
+func TestUpsertExternalKeyHandler_PersistsAndReturnsBaseURL(t *testing.T) {
+	t.Setenv(providers.APIKeyEnvVar(providers.ProviderAnthropicGateway), "")
+
+	repo := &fakeExternalAPIKeyRepo{}
+	rec := postProviderKeyWithBaseURL(
+		upsertKeyEngine(newUpsertKeyService(repo)),
+		providers.ProviderAnthropicGateway,
+		"https://gateway.example.com/llm/",
+	)
+
+	require.Equal(t, http.StatusCreated, rec.Code)
+	require.NotNil(t, repo.createdBase, "base_url must reach the repository — dropping it is what made BYOK gateways unreachable")
+	assert.Equal(t, "https://gateway.example.com/llm", *repo.createdBase,
+		"the trailing slash must be trimmed: providers append their own /v1/messages path")
+
+	var body struct {
+		BaseURL string `json:"base_url"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+	assert.Equal(t, "https://gateway.example.com/llm", body.BaseURL,
+		"the response must echo the stored endpoint so the dashboard can show where the key points")
+}
+
+func TestUpsertExternalKeyHandler_RejectsGatewayKeyWithoutBaseURL(t *testing.T) {
+	t.Setenv(providers.APIKeyEnvVar(providers.ProviderAnthropicGateway), "")
+
+	repo := &fakeExternalAPIKeyRepo{}
+	rec := postProviderKey(upsertKeyEngine(newUpsertKeyService(repo)), providers.ProviderAnthropicGateway)
+
+	assert.Equal(t, http.StatusBadRequest, rec.Code,
+		"a gateway has no default endpoint, so a key without one could never be dispatched")
+	assert.Equal(t, 0, repo.created, "the undispatchable key must not be persisted")
+}
+
+func TestUpsertExternalKeyHandler_RejectsRelativeBaseURL(t *testing.T) {
+	t.Setenv(providers.APIKeyEnvVar(providers.ProviderAnthropic), "")
+
+	repo := &fakeExternalAPIKeyRepo{}
+	rec := postProviderKeyWithBaseURL(
+		upsertKeyEngine(newUpsertKeyService(repo)),
+		providers.ProviderAnthropic,
+		"gateway.example.com",
+	)
+
+	assert.Equal(t, http.StatusBadRequest, rec.Code,
+		"a scheme-less base URL yields an unroutable upstream URL, so it must fail at write time, not at request time")
+	assert.Equal(t, 0, repo.created)
 }

@@ -2,6 +2,9 @@ package auth
 
 import (
 	"context"
+	"fmt"
+	"net/url"
+	"strings"
 	"time"
 )
 
@@ -33,6 +36,29 @@ type CreateExternalAPIKeyParams struct {
 	Name           *string
 	BaseURL        *string
 	CreatedBy      *string
+}
+
+// NormalizeBaseURL trims and validates a BYOK endpoint override, returning nil
+// for nil/blank input. Providers append their own path (e.g. /v1/messages), so
+// a trailing slash is stripped to keep the joined URL well-formed. A relative
+// or scheme-less value would silently produce an unroutable upstream URL, so it
+// returns ErrInvalidBaseURL instead.
+func NormalizeBaseURL(raw *string) (*string, error) {
+	if raw == nil {
+		return nil, nil
+	}
+	trimmed := strings.TrimRight(strings.TrimSpace(*raw), "/")
+	if trimmed == "" {
+		return nil, nil
+	}
+	parsed, err := url.Parse(trimmed)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %q", ErrInvalidBaseURL, trimmed)
+	}
+	if (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {
+		return nil, fmt.Errorf("%w: %q", ErrInvalidBaseURL, trimmed)
+	}
+	return &trimmed, nil
 }
 
 // ExternalAPIKeyRepository manages external API keys in storage.

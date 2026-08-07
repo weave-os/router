@@ -19,6 +19,9 @@ var ErrUnknownModel = errors.New("auth: unknown model id")
 // ErrUnknownProvider is returned when a requested provider name is not in the caller-supplied allowed set.
 var ErrUnknownProvider = errors.New("auth: unknown provider")
 
+// ErrInvalidBaseURL is returned for a BYOK endpoint override that is not an absolute http(s) URL.
+var ErrInvalidBaseURL = errors.New("auth: invalid base url")
+
 type Clock func() time.Time
 
 // InstallationChangeNotifier fans out installation-change events to peer replicas.
@@ -190,8 +193,14 @@ func (s *Service) ListExternalAPIKeys(ctx context.Context, installationID string
 	return s.externalKeys.GetForInstallation(ctx, installationID)
 }
 
-// UpsertExternalAPIKey replaces any existing key for the provider and inserts a new one.
-func (s *Service) UpsertExternalAPIKey(ctx context.Context, installationID, provider, rawKey string, name *string, createdBy *string) (*ExternalAPIKey, error) {
+// UpsertExternalAPIKey replaces any existing key for the provider and inserts a
+// new one. baseURL overrides the provider's deployment endpoint for this key;
+// nil or empty leaves the deployment default in place.
+func (s *Service) UpsertExternalAPIKey(ctx context.Context, installationID, provider, rawKey string, name *string, baseURL *string, createdBy *string) (*ExternalAPIKey, error) {
+	normalizedBaseURL, err := NormalizeBaseURL(baseURL)
+	if err != nil {
+		return nil, err
+	}
 	// Generate external ID first so it binds into the ciphertext as AAD.
 	externalID := GenerateID("ekid")
 	ciphertext, err := s.encryptor.Encrypt([]byte(rawKey), externalID, provider)
@@ -211,6 +220,7 @@ func (s *Service) UpsertExternalAPIKey(ctx context.Context, installationID, prov
 		KeySuffix:      suffix,
 		KeyFingerprint: hash,
 		Name:           name,
+		BaseURL:        normalizedBaseURL,
 		CreatedBy:      createdBy,
 	})
 	if err != nil {
