@@ -536,7 +536,8 @@ func (s *Service) runTurnLoop(
 	if pinFound && isUserForcedReason(pin.Reason) {
 		// Policy can change under a live session; refuse rather than silently
 		// re-routing to a different model the caller still believes is pinned.
-		if reason := s.forcedModelExclusionReason(ctx, pin.Model, pin.Provider); reason != "" {
+		binding, reason := s.forcedModelBinding(ctx, pin.Model, pin.Provider)
+		if reason != "" {
 			log.Warn("turnloop: forced pin refers to an excluded model",
 				"pin_model", pin.Model,
 				"pin_provider", pin.Provider,
@@ -544,6 +545,9 @@ func (s *Service) runTurnLoop(
 			)
 			return res, &ForcedModelExcludedError{Model: pin.Model, Reason: reason}
 		}
+		// The model survives on another binding, so follow it there instead of
+		// letting the eligibility check below drop the pin.
+		pin.Provider = binding
 	}
 	if pinFound && (isUserForcedReason(pin.Reason) || pin.Reason == translate.ReasonLoopEscalation) {
 		_, excluded := req.ExcludedModels[pin.Model]

@@ -280,7 +280,8 @@ func (s *Service) applyForceModelHeader(
 		)
 		return "", nil
 	}
-	if reason := s.forcedModelExclusionReason(ctx, canonicalModel, provider); reason != "" {
+	binding, reason := s.forcedModelBinding(ctx, canonicalModel, provider)
+	if reason != "" {
 		log.Warn("x-weave-force-model: rejected excluded model",
 			"input_model", raw,
 			"canonical_model", canonicalModel,
@@ -289,6 +290,7 @@ func (s *Service) applyForceModelHeader(
 		)
 		return "", &ForcedModelExcludedError{Model: canonicalModel, Reason: reason}
 	}
+	provider = binding
 	if s.pinStore == nil {
 		return canonicalModel, nil
 	}
@@ -357,7 +359,7 @@ func (s *Service) handleForceModelCommand(
 		if env.SourceFormat() == translate.FormatOpenAI {
 			msg = fmt.Sprintf("Weave Router: force-model: %q isn't a recognized model; keeping automatic routing. Use a full model ID, e.g. claude-opus-5, gpt-5.5, or gemini-3-pro-preview.", cmd.Model)
 		}
-	} else if reason := s.forcedModelExclusionReason(ctx, canonicalModel, provider); reason != "" {
+	} else if binding, reason := s.forcedModelBinding(ctx, canonicalModel, provider); reason != "" {
 		// Exclusions outrank the force. Pinning anyway would look accepted and
 		// then serve something else every turn; the prior pin is left untouched.
 		log.Warn("/force-model: rejected excluded model",
@@ -373,18 +375,18 @@ func (s *Service) handleForceModelCommand(
 			msg = fmt.Sprintf("Weave Router: force-model rejected: %s; keeping automatic routing. Ask an admin to allow the provider, or force a model from one that is permitted.", reason)
 		}
 	} else {
-		if err := s.setForceModelPin(ctx, sessionKey, role, installationID, canonicalModel, provider); err != nil {
+		if err := s.setForceModelPin(ctx, sessionKey, role, installationID, canonicalModel, binding); err != nil {
 			log.Error("/force-model: pin store upsert failed", "err", err)
 			return err
 		}
-		msg = fmt.Sprintf("✦ **Weave Router** → force-model applied: %s (%s) · Use /unforce-model to clear\n\n", canonicalModel, provider)
+		msg = fmt.Sprintf("✦ **Weave Router** → force-model applied: %s (%s) · Use /unforce-model to clear\n\n", canonicalModel, binding)
 		if env.SourceFormat() == translate.FormatOpenAI {
-			msg = fmt.Sprintf("Weave Router: force-model applied: %s (%s). Use /unforce-model to clear.", canonicalModel, provider)
+			msg = fmt.Sprintf("Weave Router: force-model applied: %s (%s). Use /unforce-model to clear.", canonicalModel, binding)
 		}
 		log.Debug("/force-model: session pin set",
 			"input_model", cmd.Model,
 			"canonical_model", canonicalModel,
-			"provider", provider,
+			"provider", binding,
 			"session_key_hex", fmt.Sprintf("%x", sessionKey),
 			"role", role,
 		)

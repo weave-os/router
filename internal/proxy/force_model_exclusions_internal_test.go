@@ -257,6 +257,61 @@ func TestForceModelCommand_AllowsWhenAnotherKeyedBindingServes(t *testing.T) {
 
 	require.Len(t, store.upserts, 1)
 	assert.Contains(t, rec.Body.String(), "force-model applied")
+	// Forcing resolves to the primary (excluded) binding, so pinning it
+	// verbatim would lose the pin to eligibility on the next turn.
+	assert.Equal(t, providers.ProviderAnthropicGateway, store.upserts[0].Provider,
+		"the pin must name the permitted binding, not the excluded primary")
+}
+
+// TestForceModelCommand_RejectsDeploymentExcludedModel: ROUTER_EXCLUDED_MODELS
+// is as authoritative as the per-installation list.
+func TestForceModelCommand_RejectsDeploymentExcludedModel(t *testing.T) {
+	store := &recordingPinStore{}
+	svc := NewService(nil, nil, nil, false, nil, store, false,
+		providers.ProviderAnthropic, "claude-haiku-4-5", nil).
+		WithDeploymentKeyedProviders(keyed(providers.ProviderAnthropic)).
+		WithExcludedModelsOverride([]string{"claude-opus-5"})
+
+	env := forceCommandEnv(t)
+	rec := httptest.NewRecorder()
+	require.NoError(t, svc.handleForceModelCommand(context.Background(), rec, env,
+		translate.ForceModelResult{Model: "opus"},
+		uuid.New(), DeriveSessionKey(env, "key-1"), 10))
+
+	assert.Empty(t, store.upserts, "an env-excluded model must not be pinned")
+	assert.Contains(t, rec.Body.String(), "force-model rejected")
+}
+
+// TestTurnLoop_ForcedPinFollowsSurvivingBinding: excluding the pinned provider
+// must move the pin to a permitted binding, not silently drop it to the scorer.
+func TestTurnLoop_ForcedPinFollowsSurvivingBinding(t *testing.T) {
+	fr := &tierProbeRouter{available: map[string]struct{}{"claude-haiku-4-5": {}}}
+	store := &overwritingPinStore{pin: sessionpin.Pin{
+		Provider:    providers.ProviderAnthropic,
+		Model:       "claude-opus-5",
+		Reason:      translate.ReasonUserForceModel,
+		PinnedUntil: pinNeverExpires,
+	}, found: true}
+	svc := NewService(fr, nil, nil, false, nil, store, false,
+		providers.ProviderAnthropic, "claude-haiku-4-5", nil).
+		WithDeploymentKeyedProviders(keyed(
+			providers.ProviderAnthropic, providers.ProviderAnthropicGateway))
+
+	env := forceCommandEnv(t)
+	feats := env.RoutingFeatures(false)
+	res, err := svc.runTurnLoop(
+		excludedProvidersCtx(providers.ProviderAnthropic),
+		env, feats, "key-1", uuid.New(), "", nil,
+		router.Request{
+			RequestedModel:   feats.Model,
+			EnabledProviders: keyed(providers.ProviderAnthropicGateway),
+		})
+
+	require.NoError(t, err)
+	assert.True(t, res.StickyHit, "the force must survive on the permitted binding")
+	assert.Equal(t, providers.ProviderAnthropicGateway, res.Decision.Provider)
+	assert.Equal(t, "claude-opus-5", res.Decision.Model)
+	assert.Empty(t, fr.captured, "the pin must not fall through to the scorer")
 }
 
 func TestClassifyDispatchError_ForcedModelExcluded(t *testing.T) {
