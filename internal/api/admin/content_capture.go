@@ -17,9 +17,8 @@ type CaptureModeSource interface {
 	CaptureMode() proxy.ContentCaptureMode
 }
 
-// contentCaptureResponse shows both inputs to the per-request decision so the
-// UI can explain why `effective` is what it is — an installation asking for
-// `full` under a `hashed` deployment still reads back `hashed`.
+// contentCaptureResponse shows deployment, installation, and effective capture
+// modes so the ceiling is visible rather than inferred.
 type contentCaptureResponse struct {
 	Deployment   string  `json:"deployment"`
 	Installation *string `json:"installation"`

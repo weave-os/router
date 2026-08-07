@@ -74,8 +74,8 @@ type Installation struct {
 	// are off by default (they bill via prepaid credits). Self-hosted ignores it.
 	ByokEnabled bool
 	// ContentCaptureMode caps content capture for this installation
-	// ("off", "hashed", or "full"). nil means no override. It can only
-	// tighten the deployment-wide WV_CAPTURE_CONTENT setting, never loosen it.
+	// ("off"|"hashed"|"full"); nil means no override; can only tighten
+	// WV_CAPTURE_CONTENT.
 	ContentCaptureMode *string
 }
 
