@@ -77,14 +77,8 @@ func decisionFromExportRow(row sqlc.GetRoutingDecisionsForExportRow) analytics.D
 		CacheCreationTokens:  int32PtrToInt64(row.CacheCreationTokens),
 		CacheReadTokens:      int32PtrToInt64(row.CacheReadTokens),
 
-		RequestedInputCostUSD:  microsPtrToUSD(row.RequestedInputCostUsd),
-		RequestedOutputCostUSD: microsPtrToUSD(row.RequestedOutputCostUsd),
-		ActualInputCostUSD:     microsPtrToUSD(row.ActualInputCostUsd),
-		ActualOutputCostUSD:    microsPtrToUSD(row.ActualOutputCostUsd),
-		SavingsUSD: savingsUSD(
-			row.RequestedInputCostUsd, row.RequestedOutputCostUsd,
-			row.ActualInputCostUsd, row.ActualOutputCostUsd,
-		),
+		ActualInputCostUSD:  microsPtrToUSD(row.ActualInputCostUsd),
+		ActualOutputCostUSD: microsPtrToUSD(row.ActualOutputCostUsd),
 
 		RouteLatencyMs:        row.RouteLatencyMs,
 		UpstreamLatencyMs:     row.UpstreamLatencyMs,
@@ -96,25 +90,6 @@ func decisionFromExportRow(row sqlc.GetRoutingDecisionsForExportRow) analytics.D
 		ToolUseBlocks:         int32PtrToInt64(row.ToolUseBlocks),
 		InvalidToolArgsBlocks: int32PtrToInt64(row.InvalidToolArgsBlocks),
 	}
-}
-
-// savingsUSD is requested-model cost minus served-model cost. NULL when
-// neither side priced: unpriced turns persist zeros, not a real zero saving.
-func savingsUSD(requestedIn, requestedOut, actualIn, actualOut *int64) *float64 {
-	requested := derefInt64Zero(requestedIn) + derefInt64Zero(requestedOut)
-	actual := derefInt64Zero(actualIn) + derefInt64Zero(actualOut)
-	if requested == 0 && actual == 0 {
-		return nil
-	}
-	out := microsToUSD(requested - actual)
-	return &out
-}
-
-func derefInt64Zero(v *int64) int64 {
-	if v == nil {
-		return 0
-	}
-	return *v
 }
 
 func int32PtrToInt64(v *int32) *int64 {

@@ -12,63 +12,28 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestDecisionFromExportRowMapsCostsAndSavings(t *testing.T) {
-	requestedIn := int64(3_000_000)
-	requestedOut := int64(1_500_000)
+func TestDecisionFromExportRowMapsServedCosts(t *testing.T) {
 	actualIn := int64(1_000_000)
 	actualOut := int64(250_000)
 
 	got := decisionFromExportRow(sqlc.GetRoutingDecisionsForExportRow{
-		RequestedInputCostUsd:  &requestedIn,
-		RequestedOutputCostUsd: &requestedOut,
-		ActualInputCostUsd:     &actualIn,
-		ActualOutputCostUsd:    &actualOut,
+		ActualInputCostUsd:  &actualIn,
+		ActualOutputCostUsd: &actualOut,
 	})
 
-	require.NotNil(t, got.SavingsUSD)
-	assert.InDelta(t, 3.25, *got.SavingsUSD, 1e-9)
-	assert.InDelta(t, 3.0, *got.RequestedInputCostUSD, 1e-9)
+	require.NotNil(t, got.ActualInputCostUSD)
+	assert.InDelta(t, 1.0, *got.ActualInputCostUSD, 1e-9)
 	assert.InDelta(t, 0.25, *got.ActualOutputCostUSD, 1e-9)
 }
 
-// A row with no cost data must export null savings, not a fabricated $0 that a
-// consumer would average into its savings number.
-func TestDecisionFromExportRowUnpricedRowHasNullSavings(t *testing.T) {
+// A row with no cost data exports nulls rather than a fabricated $0 that a
+// consumer would average into its spend number.
+func TestDecisionFromExportRowUnpricedRowHasNullCosts(t *testing.T) {
 	got := decisionFromExportRow(sqlc.GetRoutingDecisionsForExportRow{})
 
-	assert.Nil(t, got.SavingsUSD)
-	assert.Nil(t, got.RequestedInputCostUSD)
+	assert.Nil(t, got.ActualInputCostUSD)
+	assert.Nil(t, got.ActualOutputCostUSD)
 	assert.Nil(t, got.InputTokens)
-}
-
-// Telemetry persists zeros rather than NULLs for a turn no price book covered,
-// so all-zero costs are unpriced too.
-func TestDecisionFromExportRowZeroCostsHaveNullSavings(t *testing.T) {
-	zero := int64(0)
-
-	got := decisionFromExportRow(sqlc.GetRoutingDecisionsForExportRow{
-		RequestedInputCostUsd:  &zero,
-		RequestedOutputCostUsd: &zero,
-		ActualInputCostUsd:     &zero,
-		ActualOutputCostUsd:    &zero,
-	})
-
-	assert.Nil(t, got.SavingsUSD)
-}
-
-// A served model priced at zero against a paid requested model is a real
-// saving, not missing data.
-func TestDecisionFromExportRowFreeServedModelReportsSavings(t *testing.T) {
-	requestedIn := int64(2_000_000)
-	zero := int64(0)
-
-	got := decisionFromExportRow(sqlc.GetRoutingDecisionsForExportRow{
-		RequestedInputCostUsd: &requestedIn,
-		ActualInputCostUsd:    &zero,
-	})
-
-	require.NotNil(t, got.SavingsUSD)
-	assert.InDelta(t, 2.0, *got.SavingsUSD, 1e-9)
 }
 
 // Absent booleans are "did not happen", so they export as false rather than

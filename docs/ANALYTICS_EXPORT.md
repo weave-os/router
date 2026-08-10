@@ -170,7 +170,7 @@ Field groups:
 | End user | `user_id`, `user_email`, `user_account_uuid` |
 | Decision | `requested_model`, `decision_model`, `decision_provider`, `candidate_models`, `chosen_score`, `decision_reason`, `sticky_hit`, `failover_used`, `cross_format` |
 | Tokens | `estimated_input_tokens`, `input_tokens`, `output_tokens`, `cache_creation_tokens`, `cache_read_tokens` |
-| Economics | `requested_input_cost_usd`, `requested_output_cost_usd`, `actual_input_cost_usd`, `actual_output_cost_usd`, `savings_usd` |
+| Economics | `actual_input_cost_usd`, `actual_output_cost_usd` |
 | Performance | `route_latency_ms`, `upstream_latency_ms`, `total_latency_ms`, `ttft_ms` |
 | Outcome | `upstream_status_code`, `upstream_finish_reason`, `stop_reason`, `tool_use_blocks`, `invalid_tool_args_blocks` |
 
@@ -180,7 +180,9 @@ shadow and counterfactual evaluations, and every credential-bearing field.
 
 Schema changes are additive within a version; `version` in the `/schema`
 response bumps only if a field is removed or changes meaning. Write your loader
-to tolerate new columns.
+to tolerate new columns. Version `2` dropped `requested_input_cost_usd`,
+`requested_output_cost_usd`, and `savings_usd` — see
+[Computing savings yourself](#computing-savings-yourself).
 
 ### `decision_reason` is prose, not an enum
 
@@ -190,30 +192,39 @@ group by it — a dashboard built on string matching will break silently on a
 router upgrade. Group on the stable fields instead: `decision_model`,
 `sticky_hit`, `failover_used`, `candidate_models`.
 
-### Verifying the savings number yourself
+### Computing savings yourself
 
-Every row carries what the turn cost (`actual_*`) and what it would have cost
-had the requested model served it (`requested_*`). `savings_usd` is just
-`requested - actual`, precomputed for convenience:
+The export reports only what each turn actually cost (`actual_*`). It does not
+ship a counterfactual cost or a precomputed `savings_usd`, because the
+counterfactual depends on assumptions you should own: which baseline model you
+would otherwise have run, whether its prompt cache would have been as warm, and
+which price you hold it to.
+
+Build the baseline yourself from the token columns and a price book:
 
 ```sql
-SELECT sum(requested_input_cost_usd + requested_output_cost_usd
-         - actual_input_cost_usd  - actual_output_cost_usd) AS savings_usd
-FROM routing_decisions WHERE recorded_at >= now() - interval '30 days';
+WITH priced AS (
+    SELECT d.actual_input_cost_usd + d.actual_output_cost_usd AS actual_usd,
+           (d.input_tokens  / 1e6) * p.input_usd_per_1m
+         + (d.output_tokens / 1e6) * p.output_usd_per_1m       AS baseline_usd
+    FROM routing_decisions d
+    JOIN model_prices p ON p.model = d.requested_model
+    WHERE d.recorded_at >= now() - interval '30 days'
+      AND d.actual_input_cost_usd IS NOT NULL
+)
+SELECT sum(baseline_usd - actual_usd) AS savings_usd FROM priced;
 ```
+
+`GET /v1/analytics/models` publishes the price book that populates
+`model_prices` — per model, per provider, input and output USD per 1M tokens
+plus the cache-read multiplier. Note it reports **current** prices, not the
+prices in force when an old row was recorded; pin your own price table if you
+need the historical ones.
 
 Cost fields are null for rows the router could not price (an unknown model, an
 upstream error before any usage was reported). They are null rather than `0` so
-they drop out of an average instead of dragging it down — filter explicitly if
-you want the priced subset. `savings_usd` follows the same rule: it is null
-when neither the requested nor the served side was priced, so an unpriced turn
-never reads as a genuine "saved nothing".
-
-`GET /v1/analytics/models` publishes the current price book — per model, per
-provider, input and output USD per 1M tokens plus the cache-read multiplier —
-so you can rebuild the cost math from tokens. Note it reports **current**
-prices, not the prices in force when an old row was recorded; for historical
-rows, the per-row cost columns remain authoritative.
+they drop out of an average instead of dragging it down — filter explicitly, as
+above, if you want the priced subset.
 
 ---
 

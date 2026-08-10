@@ -49,13 +49,11 @@ type Decision struct {
 	CacheCreationTokens  *int64 `json:"cache_creation_tokens"`
 	CacheReadTokens      *int64 `json:"cache_read_tokens"`
 
-	// Requested* costs price the turn at the model the caller asked for;
-	// Actual* price the model the router served; their difference is SavingsUSD.
-	RequestedInputCostUSD  *float64 `json:"requested_input_cost_usd"`
-	RequestedOutputCostUSD *float64 `json:"requested_output_cost_usd"`
-	ActualInputCostUSD     *float64 `json:"actual_input_cost_usd"`
-	ActualOutputCostUSD    *float64 `json:"actual_output_cost_usd"`
-	SavingsUSD             *float64 `json:"savings_usd"`
+	// Actual* price the model that served the turn. Counterfactual cost is
+	// deliberately not exported: consumers reprice RequestedModel themselves
+	// from the token columns and /v1/analytics/models.
+	ActualInputCostUSD  *float64 `json:"actual_input_cost_usd"`
+	ActualOutputCostUSD *float64 `json:"actual_output_cost_usd"`
 
 	RouteLatencyMs        *int64  `json:"route_latency_ms"`
 	UpstreamLatencyMs     *int64  `json:"upstream_latency_ms"`

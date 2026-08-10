@@ -99,8 +99,6 @@ SELECT
     t.output_tokens,
     t.cache_creation_tokens,
     t.cache_read_tokens,
-    t.requested_input_cost_usd,
-    t.requested_output_cost_usd,
     t.actual_input_cost_usd,
     t.actual_output_cost_usd,
     t.route_latency_ms,
@@ -138,45 +136,43 @@ type GetRoutingDecisionsForExportParams struct {
 }
 
 type GetRoutingDecisionsForExportRow struct {
-	ID                     uuid.UUID
-	CreatedAt              pgtype.Timestamptz
-	Timestamp              pgtype.Timestamptz
-	RequestID              string
-	TraceID                string
-	SessionID              *string
-	DeviceID               *string
-	ClientApp              *string
-	TurnType               *string
-	RouterUserID           pgtype.UUID
-	UserEmail              *string
-	UserAccountUUID        pgtype.UUID
-	RequestedModel         *string
-	DecisionModel          *string
-	DecisionProvider       *string
-	CandidateModels        []string
-	ChosenScore            *float64
-	DecisionReason         *string
-	StickyHit              *bool
-	FailoverUsed           *bool
-	CrossFormat            *bool
-	EstimatedInputTokens   *int32
-	InputTokens            *int32
-	OutputTokens           *int32
-	CacheCreationTokens    *int32
-	CacheReadTokens        *int32
-	RequestedInputCostUsd  *int64
-	RequestedOutputCostUsd *int64
-	ActualInputCostUsd     *int64
-	ActualOutputCostUsd    *int64
-	RouteLatencyMs         *int64
-	UpstreamLatencyMs      *int64
-	TotalLatencyMs         *int64
-	TtftMs                 *int64
-	UpstreamStatusCode     *int32
-	UpstreamFinishReason   *string
-	StopReason             *string
-	ToolUseBlocks          *int32
-	InvalidToolArgsBlocks  *int32
+	ID                    uuid.UUID
+	CreatedAt             pgtype.Timestamptz
+	Timestamp             pgtype.Timestamptz
+	RequestID             string
+	TraceID               string
+	SessionID             *string
+	DeviceID              *string
+	ClientApp             *string
+	TurnType              *string
+	RouterUserID          pgtype.UUID
+	UserEmail             *string
+	UserAccountUUID       pgtype.UUID
+	RequestedModel        *string
+	DecisionModel         *string
+	DecisionProvider      *string
+	CandidateModels       []string
+	ChosenScore           *float64
+	DecisionReason        *string
+	StickyHit             *bool
+	FailoverUsed          *bool
+	CrossFormat           *bool
+	EstimatedInputTokens  *int32
+	InputTokens           *int32
+	OutputTokens          *int32
+	CacheCreationTokens   *int32
+	CacheReadTokens       *int32
+	ActualInputCostUsd    *int64
+	ActualOutputCostUsd   *int64
+	RouteLatencyMs        *int64
+	UpstreamLatencyMs     *int64
+	TotalLatencyMs        *int64
+	TtftMs                *int64
+	UpstreamStatusCode    *int32
+	UpstreamFinishReason  *string
+	StopReason            *string
+	ToolUseBlocks         *int32
+	InvalidToolArgsBlocks *int32
 }
 
 // Returns raw routing decisions for the analytics export, one row per upstream
@@ -216,8 +212,6 @@ type GetRoutingDecisionsForExportRow struct {
 //	    t.output_tokens,
 //	    t.cache_creation_tokens,
 //	    t.cache_read_tokens,
-//	    t.requested_input_cost_usd,
-//	    t.requested_output_cost_usd,
 //	    t.actual_input_cost_usd,
 //	    t.actual_output_cost_usd,
 //	    t.route_latency_ms,
@@ -286,8 +280,6 @@ func (q *Queries) GetRoutingDecisionsForExport(ctx context.Context, arg GetRouti
 			&i.OutputTokens,
 			&i.CacheCreationTokens,
 			&i.CacheReadTokens,
-			&i.RequestedInputCostUsd,
-			&i.RequestedOutputCostUsd,
 			&i.ActualInputCostUsd,
 			&i.ActualOutputCostUsd,
 			&i.RouteLatencyMs,

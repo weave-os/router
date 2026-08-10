@@ -544,8 +544,6 @@ SELECT
     t.output_tokens,
     t.cache_creation_tokens,
     t.cache_read_tokens,
-    t.requested_input_cost_usd,
-    t.requested_output_cost_usd,
     t.actual_input_cost_usd,
     t.actual_output_cost_usd,
     t.route_latency_ms,
