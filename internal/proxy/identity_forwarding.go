@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/url"
+	"strings"
 
 	"workweave/router/internal/auth"
 )
@@ -51,5 +52,7 @@ func identityHeaderValue(format string, identity ClientIdentity) string {
 		return ""
 	}
 	// Percent-encode so commas and non-ASCII in display names don't break the header grammar.
-	return url.QueryEscape(string(bag))
+	// QueryEscape's "+" for space is form encoding: a decodeURIComponent on the
+	// far side would read it literally and corrupt the name.
+	return strings.ReplaceAll(url.QueryEscape(string(bag)), "+", "%20")
 }

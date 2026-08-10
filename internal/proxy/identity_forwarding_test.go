@@ -50,6 +50,8 @@ func TestApplyIdentityHeader(t *testing.T) {
 		raw := upstream.Header.Get("X-Caller-Identity")
 		assert.NotContains(t, raw, ",",
 			"an unencoded display name would break the header's grammar at the first comma")
+		assert.NotContains(t, raw, "+",
+			"a form-encoded space decodes to a literal '+' under decodeURIComponent, corrupting the name")
 		decoded, err := url.QueryUnescape(raw)
 		require.NoError(t, err)
 		var bag map[string]string

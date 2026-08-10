@@ -95,7 +95,7 @@ curl -sS -b jar -X POST https://<router>/admin/v1/provider-keys \
        "identity_header":"X-Caller-Identity","identity_header_format":"json"}'
 ```
 
-`email` sends the bare address; `json` sends a URL-encoded JSON property bag
+`email` sends the bare address; `json` sends a percent-encoded JSON property bag
 (`user_email`, `user_name`, `session_id`, `client_app`, empty fields omitted).
 The header is set on the upstream request after the client's own headers, so a
 caller can't attribute their turns to someone else by sending it themselves, and
