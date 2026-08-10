@@ -49,9 +49,7 @@ type Decision struct {
 	CacheCreationTokens  *int64 `json:"cache_creation_tokens"`
 	CacheReadTokens      *int64 `json:"cache_read_tokens"`
 
-	// Actual* price the model that served the turn. Counterfactual cost is
-	// deliberately not exported: consumers reprice RequestedModel themselves
-	// from the token columns and /v1/analytics/models.
+	// Actual* price the served turn; counterfactual not exported — consumers reprice via RequestedModel + /v1/analytics/models.
 	ActualInputCostUSD  *float64 `json:"actual_input_cost_usd"`
 	ActualOutputCostUSD *float64 `json:"actual_output_cost_usd"`
 
