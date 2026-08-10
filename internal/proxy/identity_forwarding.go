@@ -50,8 +50,6 @@ func identityHeaderValue(format string, identity ClientIdentity) string {
 	if err != nil {
 		return ""
 	}
-	// Percent-encode so commas and non-ASCII in display names don't break the header grammar.
-	// QueryEscape's "+" for space is form encoding: a decodeURIComponent on the
-	// far side would read it literally and corrupt the name.
+	// Percent-encode with %20, not "+": QueryEscape uses form-encoding, which decodeURIComponent reads literally.
 	return strings.ReplaceAll(url.QueryEscape(string(bag)), "+", "%20")
 }
