@@ -193,9 +193,8 @@ type upsertExternalKeyRequest struct {
 	// ModelAliases maps catalog model IDs to the IDs this endpoint publishes
 	// them under, for endpoints with their own naming scheme.
 	ModelAliases map[string]string `json:"model_aliases"`
-	// IdentityHeader names the header carrying the caller's identity to this
-	// endpoint, for service-authenticated endpoints that still attribute spend
-	// per user. IdentityHeaderFormat is "email" or "json".
+	// IdentityHeader names the header carrying the caller's identity to this endpoint;
+	// for service-authenticated endpoints that attribute spend per user. Format: "email" or "json".
 	IdentityHeader       *string `json:"identity_header"`
 	IdentityHeaderFormat *string `json:"identity_header_format"`
 }

@@ -49,8 +49,7 @@ type CreateExternalAPIKeyParams struct {
 }
 
 // Identity header formats. IdentityFormatEmail sends the bare address;
-// IdentityFormatJSON sends a URL-encoded JSON property bag so an endpoint can
-// pick up display name, session, and client app alongside the address.
+// IdentityFormatJSON sends a URL-encoded JSON property bag (display name, session, client app).
 const (
 	IdentityFormatEmail = "email"
 	IdentityFormatJSON  = "json"
