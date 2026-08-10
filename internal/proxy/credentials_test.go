@@ -347,6 +347,16 @@ func TestApplyModelAlias(t *testing.T) {
 		assert.Equal(t, `{"model":"gw-fable","messages":[]}`, string(got))
 	})
 
+	t.Run("an alias equal to the catalog id still overwrites an adapter's rewrite", func(t *testing.T) {
+		ctx := context.WithValue(context.Background(), proxy.CredentialsContextKey{}, &proxy.Credentials{
+			ModelAliases: map[string]string{"claude-fable-5": "claude-fable-5"},
+		})
+		rewritten := []byte(`{"model":"vendor/claude-fable-5-0125","messages":[]}`)
+		got := proxy.ApplyModelAlias(ctx, rewritten, "claude-fable-5")
+		assert.Equal(t, `{"model":"claude-fable-5","messages":[]}`, string(got),
+			"a key that explicitly maps a model to the catalog id is opting out of the global binding's upstream id")
+	})
+
 	t.Run("leaves a body with no model field alone", func(t *testing.T) {
 		ctx := context.WithValue(context.Background(), proxy.CredentialsContextKey{}, &proxy.Credentials{
 			ModelAliases: map[string]string{"claude-fable-5": "gw-fable"},

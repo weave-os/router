@@ -76,8 +76,14 @@ func EffectiveUpstreamModel(ctx context.Context, model string) string {
 // ApplyModelAlias rewrites the body's top-level "model" field via the BYOK credential alias.
 // Unaliased bodies are returned untouched; the envelope stays the authority on every other request.
 func ApplyModelAlias(ctx context.Context, body []byte, model string) []byte {
-	upstreamModel := EffectiveUpstreamModel(ctx, model)
-	if upstreamModel == model || len(body) == 0 {
+	creds := CredentialsFromContext(ctx)
+	if creds == nil || len(body) == 0 {
+		return body
+	}
+	// Presence, not inequality: an alias equal to the catalog id still has to
+	// overwrite a catalog UpstreamID an adapter already wrote into the body.
+	upstreamModel, aliased := creds.ModelAliases[model]
+	if !aliased {
 		return body
 	}
 	if !gjson.GetBytes(body, "model").Exists() {
