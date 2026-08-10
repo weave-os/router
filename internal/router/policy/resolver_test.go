@@ -53,7 +53,7 @@ func TestResolverDefaultsUpstreamIDToCatalogID(t *testing.T) {
 
 func TestArmResolverEnumeratesEachAllowedProviderBinding(t *testing.T) {
 	resolver := policy.NewArmResolver(
-		set("deepseek/deepseek-v4-pro"),
+		set("minimax/minimax-m2.7"),
 		set(providers.ProviderTogether, providers.ProviderFireworks),
 		catalogRosterID,
 		policy.ManagedProviderPolicy(),
@@ -62,11 +62,11 @@ func TestArmResolverEnumeratesEachAllowedProviderBinding(t *testing.T) {
 	resolved := resolver.Resolve(router.Request{})
 
 	require.Len(t, resolved.Candidates, 2)
-	assert.Equal(t, "deepseek/deepseek-v4-pro", resolved.Candidates[0].RosterID)
-	assert.Equal(t, "deepseek/deepseek-v4-pro", resolved.Candidates[1].RosterID)
+	assert.Equal(t, "minimax/minimax-m2.7", resolved.Candidates[0].RosterID)
+	assert.Equal(t, "minimax/minimax-m2.7", resolved.Candidates[1].RosterID)
 	assert.NotEqual(t, resolved.Candidates[0].ArmID, resolved.Candidates[1].ArmID)
 	assert.Empty(t, resolved.ByRosterID)
-	assert.Equal(t, []string{"deepseek/deepseek-v4-pro"}, resolved.CandidateModels())
+	assert.Equal(t, []string{"minimax/minimax-m2.7"}, resolved.CandidateModels())
 	assert.Equal(t, map[string]string{
 		resolved.Candidates[0].ArmID: resolved.Candidates[0].Provider,
 		resolved.Candidates[1].ArmID: resolved.Candidates[1].Provider,
@@ -93,7 +93,7 @@ func TestArmResolverEnumeratesEachAllowedProviderBinding(t *testing.T) {
 
 func TestArmResolverRejectsRosterOnlySelectionForThreeBindings(t *testing.T) {
 	resolver := policy.NewArmResolver(
-		set("deepseek/deepseek-v4-pro"),
+		set("minimax/minimax-m2.7"),
 		set(
 			providers.ProviderTogether,
 			providers.ProviderFireworks,

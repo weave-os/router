@@ -360,6 +360,20 @@ func IsUpstreamModelNotFound(err error) bool {
 	return false
 }
 
+// IsUpstreamProviderBillingBlocked reports whether err is a buffered upstream
+// 402, meaning the provider refuses to serve the model on this account —
+// exhausted credits, or an endpoint moved behind a billing plan we are not on
+// (Makora EOL'd DeepSeek-V4-Pro this way). Like a 404 it is fatal for the
+// chosen binding but not for the model, so it gates cross-binding failover
+// only: a same-provider retry just re-bills the same rejection.
+func IsUpstreamProviderBillingBlocked(err error) bool {
+	var buffered *UpstreamErrorResponse
+	if errors.As(err, &buffered) {
+		return buffered.Status == http.StatusPaymentRequired
+	}
+	return false
+}
+
 // capabilityRejectionPhrases are prose 400 bodies meaning the model cannot
 // serve this request shape. Substring-matching is the only signal; keep phrases
 // narrow — a loose match fires on ordinary validation errors.

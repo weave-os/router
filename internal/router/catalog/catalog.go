@@ -383,9 +383,11 @@ var Models = []Model{
 			Price: Pricing{InputUSDPer1M: 0.1134, OutputUSDPer1M: 0.2791, CacheReadMultiplier: 0.20}},
 		{Provider: providers.ProviderOpenRouter, Price: Pricing{InputUSDPer1M: 0.140, OutputUSDPer1M: 0.280, CacheReadMultiplier: 0.10}},
 	}},
-	{ID: "deepseek/deepseek-v4-pro", Tier: TierHigh, ContextWindow: 1_048_576, ImageInput: ImageInputUnsupported, Providers: []ProviderBinding{
-		// Makora serves only V4-Flash, so Together is primary here: same
-		// $1.74/$3.48 as Fireworks with #1 AA throughput (~209 t/s vs ~120).
+	// Untiered: Makora EOL'd V4-Pro and recommends V4-Flash, which takes the
+	// tier. Priced and bound so session pins and /force-model still dispatch.
+	{ID: "deepseek/deepseek-v4-pro", ContextWindow: 1_048_576, ImageInput: ImageInputUnsupported, Providers: []ProviderBinding{
+		// Together is primary: same $1.74/$3.48 as Fireworks with #1 AA
+		// throughput (~209 t/s vs ~120).
 		{Provider: providers.ProviderTogether, UpstreamID: "deepseek-ai/DeepSeek-V4-Pro",
 			Price: Pricing{InputUSDPer1M: 1.740, OutputUSDPer1M: 3.480, CacheReadMultiplier: 0.20 / 1.740}},
 		{Provider: providers.ProviderFireworks, UpstreamID: "accounts/fireworks/models/deepseek-v4-pro",

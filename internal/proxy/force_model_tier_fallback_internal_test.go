@@ -120,7 +120,7 @@ func (s *overwritingPinStore) SweepExpired(context.Context) error { return nil }
 // pre-filter used to collapse all the way to the low-tier default instead of
 // the next-best same-tier model.
 func TestRunTurnLoop_ForcedModelContextOverflow_StaysInTier(t *testing.T) {
-	const forced = "deepseek/deepseek-v4-pro"
+	const forced = "z-ai/glm-5.2"
 	require.Equal(t, catalog.TierHigh, catalog.TierFor(forced), "test premise: forced model is high-tier")
 	require.Equal(t, catalog.TierLow, catalog.TierFor("claude-haiku-4-5"), "test premise: haiku is low-tier")
 	require.Equal(t, catalog.TierHigh, catalog.TierFor("claude-opus-5"), "test premise: opus is high-tier")

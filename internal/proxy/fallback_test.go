@@ -394,6 +394,84 @@ func TestDispatchWithFallback_ModelNotFoundSingleBindingFlushes(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 }
 
+func TestDispatchWithFallback_BillingBlockedFailsOverToNextBinding(t *testing.T) {
+	// Makora's V4-Pro EOL: 402 insufficient_credits on every turn while the
+	// other bindings still serve the model.
+	primary := &fakeClient{
+		name: "makora",
+		outcomes: []fakeOutcome{{err: &providers.UpstreamErrorResponse{
+			Status: 402,
+			Body:   []byte(`{"error":{"code":"insufficient_credits","message":"enable Pay as you go billing"}}`),
+		}}},
+	}
+	fallback := &fakeClient{
+		name:     "together",
+		outcomes: []fakeOutcome{{writeBytes: []byte("rescued")}},
+	}
+
+	s := newServiceWithProviders(t, map[string]providers.Client{
+		"makora":   primary,
+		"together": fallback,
+	})
+
+	rec := httptest.NewRecorder()
+	buf := newPreludeBuffer(rec)
+	r := httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+
+	winnerIdx, err := s.dispatchWithFallback(context.Background(), failoverInputs{
+		w:               rec,
+		buf:             buf,
+		initialDecision: router.Decision{Model: "deepseek/deepseek-v4-pro"},
+		bindings: []catalog.ProviderBinding{
+			{Provider: "makora"},
+			{Provider: "together"},
+		},
+		attempt: func(ctx context.Context, d router.Decision, p providers.Client) error {
+			buf.Seal()
+			return p.Proxy(ctx, d, providers.PreparedRequest{}, buf, r)
+		},
+		flushErr: flushBufferedIfPresent,
+	})
+
+	require.NoError(t, err, "402 on primary must fail over to the next binding")
+	assert.Equal(t, 1, winnerIdx, "fallback (index 1) wins")
+	assert.Equal(t, 1, primary.calls, "402 must not trigger same-binding retry")
+	assert.Equal(t, 1, fallback.calls)
+	assert.Equal(t, "rescued", rec.Body.String())
+}
+
+func TestDispatchWithFallback_BillingBlockedSingleBindingFlushes(t *testing.T) {
+	// 402 on the sole binding: nothing to walk to, and re-hitting the same
+	// provider only re-bills the same rejection.
+	only := &fakeClient{
+		name:     "makora",
+		outcomes: []fakeOutcome{{err: &providers.UpstreamErrorResponse{Status: 402, Body: []byte(`no credits`)}}},
+	}
+
+	s := newServiceWithProviders(t, map[string]providers.Client{"makora": only})
+
+	rec := httptest.NewRecorder()
+	buf := newPreludeBuffer(rec)
+	r := httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+
+	_, err := s.dispatchWithFallback(context.Background(), failoverInputs{
+		w:               rec,
+		buf:             buf,
+		initialDecision: router.Decision{Model: "deepseek/deepseek-v4-pro"},
+		bindings:        []catalog.ProviderBinding{{Provider: "makora"}},
+		attempt: func(ctx context.Context, d router.Decision, p providers.Client) error {
+			buf.Seal()
+			return p.Proxy(ctx, d, providers.PreparedRequest{}, buf, r)
+		},
+		flushErr: flushBufferedIfPresent,
+	})
+
+	require.Error(t, err)
+	assert.Equal(t, 1, only.calls, "402 must not same-binding-retry")
+	assert.Equal(t, http.StatusPaymentRequired, rec.Code)
+	assert.Equal(t, "no credits", rec.Body.String())
+}
+
 func TestDispatchWithFallback_NoRetryAfterBytesFlushed(t *testing.T) {
 	// Primary writes bytes then errors; even though retryable in isolation,
 	// partial SSE is already on the wire so the dispatcher can't retry.
@@ -793,6 +871,30 @@ func TestProvidersIsUpstreamModelNotFound(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			assert.Equal(t, c.want, providers.IsUpstreamModelNotFound(c.err))
+		})
+	}
+}
+
+func TestProvidersIsUpstreamProviderBillingBlocked(t *testing.T) {
+	cases := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{"nil", nil, false},
+		{"buffered 402", &providers.UpstreamErrorResponse{Status: 402}, true},
+		{"buffered 404", &providers.UpstreamErrorResponse{Status: 404}, false},
+		{"buffered 403", &providers.UpstreamErrorResponse{Status: 403}, false},
+		{"flushed 402 (already on wire)", &providers.UpstreamStatusError{Status: 402}, false},
+		{"transport error", errors.New("dial tcp"), false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			assert.Equal(t, c.want, providers.IsUpstreamProviderBillingBlocked(c.err))
+			if c.want {
+				assert.False(t, providers.IsRetryable(c.err),
+					"402 must stay out of same-binding retry")
+			}
 		})
 	}
 }

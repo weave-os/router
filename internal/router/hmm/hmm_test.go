@@ -200,7 +200,6 @@ func TestCatalogRoutingTargetsResolveCurrentHMMRosterArmsToProviders(t *testing.
 		"openai/gpt-5.4-nano",
 		"minimax/minimax-m3",
 		"moonshotai/kimi-k2.7-code",
-		"deepseek/deepseek-v4-pro",
 		"google/gemini-3.5-flash",
 		"anthropic/claude-sonnet-5",
 		"anthropic/claude-opus-5",

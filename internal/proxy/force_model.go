@@ -84,12 +84,14 @@ var forceModelAliases = map[string]string{
 	"gemini-flash":          "gemini-3-flash-preview",
 	"gemini-3-6-flash":      "gemini-3.6-flash",
 	"gemini-3-5-flash-lite": "gemini-3.5-flash-lite",
-	"deepseek":              "deepseek/deepseek-v4-pro",
-	"deepseek-pro":          "deepseek/deepseek-v4-pro",
-	"deepseek-flash":        "deepseek/deepseek-v4-flash",
-	"qwen":                  "qwen/qwen3-coder",
-	"qwen-coder":            "qwen/qwen3-coder",
-	"qwen3.7-plus":          "qwen/qwen3.7-plus",
+	// The family alias follows Makora's V4-Pro EOL onto Flash; deepseek-pro
+	// still names V4-Pro explicitly, which is passthrough-only now.
+	"deepseek":       "deepseek/deepseek-v4-flash",
+	"deepseek-pro":   "deepseek/deepseek-v4-pro",
+	"deepseek-flash": "deepseek/deepseek-v4-flash",
+	"qwen":           "qwen/qwen3-coder",
+	"qwen-coder":     "qwen/qwen3-coder",
+	"qwen3.7-plus":   "qwen/qwen3.7-plus",
 	// Generic kimi alias stays on 2.7; k3 is ~3x the price, so it needs an
 	// explicit pin rather than silently repricing everyone on the family alias.
 	"kimi":      "moonshotai/kimi-k2.7",
