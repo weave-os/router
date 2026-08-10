@@ -129,7 +129,7 @@ func TestSidecarRouterOnboardsFutureStrategyWithoutProxyChanges(t *testing.T) {
 func TestSidecarRouterDispatchesSidecarSelectedArm(t *testing.T) {
 	resolver := policy.NewArmResolver(
 		set("deepseek/deepseek-v4-pro"),
-		set(providers.ProviderMakora, providers.ProviderFireworks),
+		set(providers.ProviderTogether, providers.ProviderFireworks),
 		func(model catalog.Model) string { return model.ID },
 		policy.ManagedProviderPolicy(),
 	)
@@ -242,7 +242,7 @@ func TestSidecarRouterPreviewReturnsAllEligibleArmsWithoutLifecycleCallbacks(t *
 func TestSidecarRouterPreviewUsesArmSchemaAndIDs(t *testing.T) {
 	resolver := policy.NewArmResolver(
 		set("deepseek/deepseek-v4-pro"),
-		set(providers.ProviderMakora, providers.ProviderFireworks),
+		set(providers.ProviderTogether, providers.ProviderFireworks),
 		catalogRosterID,
 		policy.ManagedProviderPolicy(),
 	)

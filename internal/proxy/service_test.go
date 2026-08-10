@@ -726,7 +726,7 @@ func TestService_ProxyMessages_DispatchesBedrockMakoraTogether(t *testing.T) {
 		model    string
 	}{
 		{"bedrock", providers.ProviderBedrock, "moonshotai/kimi-k2.5"},
-		{"makora", providers.ProviderMakora, "deepseek/deepseek-v4-pro"},
+		{"makora", providers.ProviderMakora, "deepseek/deepseek-v4-flash"},
 		{"together", providers.ProviderTogether, "deepseek/deepseek-v4-pro"},
 	}
 	for _, tc := range cases {
@@ -760,7 +760,7 @@ func TestService_ProxyOpenAIChatCompletion_DispatchesBedrockMakoraTogether(t *te
 		model    string
 	}{
 		{"bedrock", providers.ProviderBedrock, "qwen/qwen3-coder-next"},
-		{"makora", providers.ProviderMakora, "deepseek/deepseek-v4-pro"},
+		{"makora", providers.ProviderMakora, "deepseek/deepseek-v4-flash"},
 		{"together", providers.ProviderTogether, "deepseek/deepseek-v4-pro"},
 	}
 	for _, tc := range cases {

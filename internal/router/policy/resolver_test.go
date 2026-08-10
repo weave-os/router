@@ -54,7 +54,7 @@ func TestResolverDefaultsUpstreamIDToCatalogID(t *testing.T) {
 func TestArmResolverEnumeratesEachAllowedProviderBinding(t *testing.T) {
 	resolver := policy.NewArmResolver(
 		set("deepseek/deepseek-v4-pro"),
-		set(providers.ProviderMakora, providers.ProviderFireworks),
+		set(providers.ProviderTogether, providers.ProviderFireworks),
 		catalogRosterID,
 		policy.ManagedProviderPolicy(),
 	)
@@ -95,7 +95,6 @@ func TestArmResolverRejectsRosterOnlySelectionForThreeBindings(t *testing.T) {
 	resolver := policy.NewArmResolver(
 		set("deepseek/deepseek-v4-pro"),
 		set(
-			providers.ProviderMakora,
 			providers.ProviderTogether,
 			providers.ProviderFireworks,
 			providers.ProviderOpenRouter,
@@ -106,7 +105,7 @@ func TestArmResolverRejectsRosterOnlySelectionForThreeBindings(t *testing.T) {
 
 	resolved := resolver.Resolve(router.Request{})
 
-	require.Len(t, resolved.Candidates, 4)
+	require.Len(t, resolved.Candidates, 3)
 	assert.Empty(t, resolved.ByRosterID)
 	_, ok := resolved.BindingForSelection("", "shared/arm")
 	assert.False(t, ok)

@@ -384,11 +384,8 @@ var Models = []Model{
 		{Provider: providers.ProviderOpenRouter, Price: Pricing{InputUSDPer1M: 0.140, OutputUSDPer1M: 0.280, CacheReadMultiplier: 0.10}},
 	}},
 	{ID: "deepseek/deepseek-v4-pro", Tier: TierHigh, ContextWindow: 1_048_576, ImageInput: ImageInputUnsupported, Providers: []ProviderBinding{
-		// Makora primary for cost ($1.318/$2.636 vs Together's $1.74/$3.48).
-		// Together ranks ahead of Fireworks as fallback: #1 AA throughput
-		// (~209 t/s vs Fireworks ~120) at the same price.
-		{Provider: providers.ProviderMakora, UpstreamID: "deepseek-ai/DeepSeek-V4-Pro",
-			Price: Pricing{InputUSDPer1M: 1.3180, OutputUSDPer1M: 2.6361, CacheReadMultiplier: 0.10}},
+		// Makora serves only V4-Flash, so Together is primary here: same
+		// $1.74/$3.48 as Fireworks with #1 AA throughput (~209 t/s vs ~120).
 		{Provider: providers.ProviderTogether, UpstreamID: "deepseek-ai/DeepSeek-V4-Pro",
 			Price: Pricing{InputUSDPer1M: 1.740, OutputUSDPer1M: 3.480, CacheReadMultiplier: 0.20 / 1.740}},
 		{Provider: providers.ProviderFireworks, UpstreamID: "accounts/fireworks/models/deepseek-v4-pro",
@@ -438,8 +435,6 @@ var Models = []Model{
 	// TierLow despite MoE size: active-parameter budget + AA Coding Index put
 	// it below v4-flash.
 	{ID: "qwen/qwen3.6-35b-a3b", Tier: TierLow, ContextWindow: 262_144, ImageInput: ImageInputUnsupported, Providers: []ProviderBinding{
-		{Provider: providers.ProviderMakora, UpstreamID: "unsloth/Qwen3.6-35B-A3B-NVFP4",
-			Price: Pricing{InputUSDPer1M: 0.1720, OutputUSDPer1M: 1.2002, CacheReadMultiplier: 0.75}},
 		{Provider: providers.ProviderOpenRouter, Price: Pricing{InputUSDPer1M: 0.150, OutputUSDPer1M: 1.000, CacheReadMultiplier: 0.10}},
 	}},
 	// Context window is 204,800 on Fireworks and OpenRouter despite MiniMax's

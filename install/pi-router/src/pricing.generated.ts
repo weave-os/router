@@ -6,7 +6,7 @@ export interface ModelPricing {
 	outputUsdPerMillion: number;
 }
 
-export const PRICING_VERSION = "catalog-sha256:a13e743aa9694647";
+export const PRICING_VERSION = "catalog-sha256:2cb9ec1c2289f4a9";
 
 export const MODEL_PRICING: Readonly<Record<string, ModelPricing>> = Object.freeze({
 	"claude-fable-5": { inputUsdPerMillion: 10, outputUsdPerMillion: 50 },
@@ -22,7 +22,7 @@ export const MODEL_PRICING: Readonly<Record<string, ModelPricing>> = Object.free
 	"claude-sonnet-4-6": { inputUsdPerMillion: 3, outputUsdPerMillion: 15 },
 	"claude-sonnet-5": { inputUsdPerMillion: 3, outputUsdPerMillion: 15 },
 	"deepseek/deepseek-v4-flash": { inputUsdPerMillion: 0.1134, outputUsdPerMillion: 0.2791 },
-	"deepseek/deepseek-v4-pro": { inputUsdPerMillion: 1.318, outputUsdPerMillion: 2.6361 },
+	"deepseek/deepseek-v4-pro": { inputUsdPerMillion: 1.74, outputUsdPerMillion: 3.48 },
 	"gemini-2.0-flash": { inputUsdPerMillion: 0.1, outputUsdPerMillion: 0.4 },
 	"gemini-2.0-flash-lite": { inputUsdPerMillion: 0.075, outputUsdPerMillion: 0.3 },
 	"gemini-2.5-flash": { inputUsdPerMillion: 0.3, outputUsdPerMillion: 1.2 },
@@ -70,7 +70,7 @@ export const MODEL_PRICING: Readonly<Record<string, ModelPricing>> = Object.free
 	"qwen/qwen3-coder-next": { inputUsdPerMillion: 0.5, outputUsdPerMillion: 1.2 },
 	"qwen/qwen3-next-80b-a3b-instruct": { inputUsdPerMillion: 0.15, outputUsdPerMillion: 1.2 },
 	"qwen/qwen3.5-flash-02-23": { inputUsdPerMillion: 0.05, outputUsdPerMillion: 0.15 },
-	"qwen/qwen3.6-35b-a3b": { inputUsdPerMillion: 0.172, outputUsdPerMillion: 1.2002 },
+	"qwen/qwen3.6-35b-a3b": { inputUsdPerMillion: 0.15, outputUsdPerMillion: 1 },
 	"qwen/qwen3.7-plus": { inputUsdPerMillion: 0.4, outputUsdPerMillion: 1.6 },
 	"xiaomi/mimo-v2.5-pro": { inputUsdPerMillion: 1, outputUsdPerMillion: 3 },
 	"z-ai/glm-5": { inputUsdPerMillion: 1, outputUsdPerMillion: 3.2 },
