@@ -22,9 +22,7 @@ type ExternalAPIKey struct {
 	// ModelAliases maps a catalog model ID to the upstream name this key's endpoint publishes.
 	// Nil means unchanged; routing, pricing, and telemetry always key off the catalog ID.
 	ModelAliases map[string]string
-	// IdentityHeader names the header carrying the caller's identity to this
-	// key's endpoint, empty when nothing is forwarded, paired with the format
-	// the value is rendered in.
+	// IdentityHeader and IdentityHeaderFormat name and shape the header sent to this key's endpoint; empty forwards nothing.
 	IdentityHeader       string
 	IdentityHeaderFormat string
 	CreatedAt            time.Time
@@ -61,9 +59,7 @@ const (
 // maxIdentityHeaderNameLength bounds the configured field name.
 const maxIdentityHeaderNameLength = 128
 
-// headersRejectedForIdentity are headers whose meaning the request depends on;
-// letting a tenant name one would let a misconfiguration strip upstream auth or
-// corrupt the body framing.
+// headersRejectedForIdentity are request-critical headers a tenant must not redirect identity into.
 var headersRejectedForIdentity = map[string]struct{}{
 	"authorization":  {},
 	"x-api-key":      {},
@@ -73,10 +69,8 @@ var headersRejectedForIdentity = map[string]struct{}{
 	"accept":         {},
 }
 
-// NormalizeIdentityHeader validates the header name and format an endpoint
-// wants the caller's identity in. Both nil (or a blank name) means forward
-// nothing; a name without a valid format, or vice versa, is rejected rather
-// than silently half-applied.
+// NormalizeIdentityHeader validates the header name and format; both nil clears forwarding.
+// Name and format must be set or cleared together.
 func NormalizeIdentityHeader(name, format *string) (*string, *string, error) {
 	trimmedName := ""
 	if name != nil {

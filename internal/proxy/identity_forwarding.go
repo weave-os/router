@@ -9,9 +9,7 @@ import (
 	"workweave/router/internal/auth"
 )
 
-// identityBag is the JSON property bag rendered for auth.IdentityFormatJSON.
-// Empty fields are omitted so an endpoint never has to distinguish "absent"
-// from "blank".
+// identityBag is the JSON property bag rendered for auth.IdentityFormatJSON; empty fields omitted.
 type identityBag struct {
 	UserEmail string `json:"user_email,omitempty"`
 	UserName  string `json:"user_name,omitempty"`
@@ -19,13 +17,9 @@ type identityBag struct {
 	ClientApp string `json:"client_app,omitempty"`
 }
 
-// ApplyIdentityHeader sets the caller-identity header the request's BYOK
-// endpoint asked for. No-op when the key configures none, or when the request
-// carries no identity to forward -- an endpoint attributing spend per user is
-// better served by an absent header than by an empty one.
-//
-// Called after the prepared request's own headers are copied so a configured
-// name always wins over a client-supplied value of the same name.
+// ApplyIdentityHeader sets the caller-identity header the BYOK endpoint configured.
+// No-op when none is configured, or when the request carries no identity.
+// Must be called after prep.Headers are copied so it wins over a client-supplied value.
 func ApplyIdentityHeader(ctx context.Context, upstream *http.Request) {
 	creds := CredentialsFromContext(ctx)
 	if creds == nil || creds.IdentityHeader == "" {
@@ -56,8 +50,6 @@ func identityHeaderValue(format string, identity ClientIdentity) string {
 	if err != nil {
 		return ""
 	}
-	// Percent-encoding keeps the value inside the header's token grammar: a
-	// display name with a comma or non-ASCII character would otherwise produce
-	// a header an upstream may reject or truncate.
+	// Percent-encode so commas and non-ASCII in display names don't break the header grammar.
 	return url.QueryEscape(string(bag))
 }
