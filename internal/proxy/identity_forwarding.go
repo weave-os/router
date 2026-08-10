@@ -18,9 +18,8 @@ type identityBag struct {
 	ClientApp string `json:"client_app,omitempty"`
 }
 
-// ApplyIdentityHeader sets the caller-identity header the BYOK endpoint configured.
-// No-op when none is configured, or when the request carries no identity.
-// Must be called after prep.Headers are copied so it wins over a client-supplied value.
+// ApplyIdentityHeader sets the caller-identity header the BYOK endpoint configured;
+// must be called after prep.Headers are copied so it wins over a client-supplied value.
 func ApplyIdentityHeader(ctx context.Context, upstream *http.Request) {
 	creds := CredentialsFromContext(ctx)
 	if creds == nil || creds.IdentityHeader == "" {
