@@ -170,14 +170,15 @@ func DeleteAPIKeyHandler(authSvc *auth.Service) gin.HandlerFunc {
 }
 
 type externalKeyResponse struct {
-	ID         string     `json:"id"`
-	Provider   string     `json:"provider"`
-	Name       *string    `json:"name"`
-	KeyPrefix  string     `json:"key_prefix"`
-	KeySuffix  string     `json:"key_suffix"`
-	BaseURL    string     `json:"base_url,omitempty"`
-	LastUsedAt *time.Time `json:"last_used_at"`
-	CreatedAt  time.Time  `json:"created_at"`
+	ID           string            `json:"id"`
+	Provider     string            `json:"provider"`
+	Name         *string           `json:"name"`
+	KeyPrefix    string            `json:"key_prefix"`
+	KeySuffix    string            `json:"key_suffix"`
+	BaseURL      string            `json:"base_url,omitempty"`
+	ModelAliases map[string]string `json:"model_aliases,omitempty"`
+	LastUsedAt   *time.Time        `json:"last_used_at"`
+	CreatedAt    time.Time         `json:"created_at"`
 }
 
 type upsertExternalKeyRequest struct {
@@ -187,18 +188,22 @@ type upsertExternalKeyRequest struct {
 	// BaseURL points this key at a non-default endpoint. Required for gateway
 	// providers, which have no deployment default to fall back to.
 	BaseURL *string `json:"base_url"`
+	// ModelAliases maps catalog model IDs to the IDs this endpoint publishes
+	// them under, for endpoints with their own naming scheme.
+	ModelAliases map[string]string `json:"model_aliases"`
 }
 
 func toExternalKeyResponse(k *auth.ExternalAPIKey) externalKeyResponse {
 	return externalKeyResponse{
-		ID:         k.ID,
-		Provider:   k.Provider,
-		Name:       k.Name,
-		KeyPrefix:  k.KeyPrefix,
-		KeySuffix:  k.KeySuffix,
-		BaseURL:    k.BaseURL,
-		LastUsedAt: k.LastUsedAt,
-		CreatedAt:  k.CreatedAt,
+		ID:           k.ID,
+		Provider:     k.Provider,
+		Name:         k.Name,
+		KeyPrefix:    k.KeyPrefix,
+		KeySuffix:    k.KeySuffix,
+		BaseURL:      k.BaseURL,
+		ModelAliases: k.ModelAliases,
+		LastUsedAt:   k.LastUsedAt,
+		CreatedAt:    k.CreatedAt,
 	}
 }
 
@@ -221,7 +226,10 @@ func ListExternalKeysHandler(authSvc *auth.Service) gin.HandlerFunc {
 	}
 }
 
-func UpsertExternalKeyHandler(authSvc *auth.Service) gin.HandlerFunc {
+// UpsertExternalKeyHandler stores a customer-owned provider key. models, when
+// non-nil, is the allowlist the request's model aliases are validated against
+// so a typo'd catalog ID is rejected instead of silently never matching.
+func UpsertExternalKeyHandler(authSvc *auth.Service, models DeployedModelsSource) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		installation, ok := resolveInstallation(c, authSvc)
 		if !ok {
@@ -242,8 +250,27 @@ func UpsertExternalKeyHandler(authSvc *auth.Service) gin.HandlerFunc {
 			c.AbortWithStatusJSON(http.StatusConflict, gin.H{"error": "Provider already configured via deployment environment variable. Remove the env var before adding a dashboard key."})
 			return
 		}
-		key, err := authSvc.UpsertExternalAPIKey(c.Request.Context(), installation.ID, req.Provider, req.Key, req.Name, req.BaseURL, nil)
+		var allowed map[string]struct{}
+		if models != nil {
+			deployed := models.DefaultDeployedModels()
+			allowed = make(map[string]struct{}, len(deployed))
+			for _, e := range deployed {
+				allowed[e.Model] = struct{}{}
+			}
+		}
+		key, err := authSvc.UpsertExternalAPIKey(c.Request.Context(), installation.ID, auth.UpsertExternalAPIKeyParams{
+			Provider:      req.Provider,
+			RawKey:        req.Key,
+			Name:          req.Name,
+			BaseURL:       req.BaseURL,
+			ModelAliases:  req.ModelAliases,
+			AllowedModels: allowed,
+		})
 		if err != nil {
+			if errors.Is(err, auth.ErrUnknownModel) || errors.Is(err, auth.ErrInvalidModelAlias) {
+				c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+				return
+			}
 			if errors.Is(err, auth.ErrInvalidBaseURL) {
 				c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "Base URL must be an absolute http(s) URL."})
 				return

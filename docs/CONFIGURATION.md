@@ -70,6 +70,21 @@ The value must be an absolute `http(s)` URL; anything else is rejected with
 field to keep the deployment endpoint — except for `anthropic_gateway`, which
 has no default to fall back to and rejects a key without one.
 
+A key may also carry a model alias map for endpoints that publish the catalog's
+models under their own names:
+
+```bash
+curl -sS -b jar -X POST https://<router>/admin/v1/provider-keys \
+  -H 'content-type: application/json' \
+  -d '{"provider":"anthropic_gateway","key":"<token>","base_url":"https://gateway.example.com/api",
+       "model_aliases":{"claude-fable-5":"internal.claude-fable-5"}}'
+```
+
+Keys are catalog model IDs (an ID outside the deployed catalog is rejected with
+`400`) and values are what goes on the wire to that endpoint. Only the outbound
+model name changes: routing, pricing, and analytics stay keyed on the catalog
+ID. Omit the field to send catalog IDs unchanged.
+
 In `selfhosted` mode BYOK is always active (it's the only credentialing path).
 In `managed` mode it is opt-in per installation: the control plane sets
 `byok_enabled` on the installation row, and until it does, the auth middleware

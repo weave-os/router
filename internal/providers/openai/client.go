@@ -209,6 +209,7 @@ func (c *Client) Proxy(ctx context.Context, decision router.Decision, prep provi
 		// Codex backend branch above understands "max" natively.
 		reqBody = maxEffortToXhigh(reqBody)
 	}
+	reqBody = proxy.ApplyModelAlias(ctx, reqBody, decision.Model)
 	upstream, err := http.NewRequestWithContext(ctx, http.MethodPost, baseURL+path, bytes.NewReader(reqBody))
 	if err != nil {
 		return fmt.Errorf("build upstream request: %w", err)

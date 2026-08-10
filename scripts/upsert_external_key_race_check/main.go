@@ -88,7 +88,11 @@ func checkUpsertExternalRace(ctx context.Context, pool *pgxpool.Pool) error {
 	fmt.Printf("provider=%s\n", providers.ProviderAnthropic)
 
 	seedName := "seed-byok"
-	seeded, err := seedSvc.UpsertExternalAPIKey(ctx, install.ID, providers.ProviderAnthropic, "sk-ant-race-seed-key", &seedName, nil, nil)
+	seeded, err := seedSvc.UpsertExternalAPIKey(ctx, install.ID, auth.UpsertExternalAPIKeyParams{
+		Provider: providers.ProviderAnthropic,
+		RawKey:   "sk-ant-race-seed-key",
+		Name:     &seedName,
+	})
 	if err != nil {
 		return fmt.Errorf("seed upsert: %w", err)
 	}
@@ -130,8 +134,11 @@ func checkUpsertExternalRace(ctx context.Context, pool *pgxpool.Pool) error {
 			ready.Done()
 			<-start
 			name := fmt.Sprintf("race-byok-%d", i)
-			key, err := raceSvc.UpsertExternalAPIKey(ctx, install.ID, providers.ProviderAnthropic,
-				fmt.Sprintf("sk-ant-race-upsert-%d-%s", i, uuid.NewString()[:8]), &name, nil, nil)
+			key, err := raceSvc.UpsertExternalAPIKey(ctx, install.ID, auth.UpsertExternalAPIKeyParams{
+				Provider: providers.ProviderAnthropic,
+				RawKey:   fmt.Sprintf("sk-ant-race-upsert-%d-%s", i, uuid.NewString()[:8]),
+				Name:     &name,
+			})
 			results[i] = result{key: key, err: err}
 		}()
 	}

@@ -7,6 +7,9 @@ import (
 
 	"workweave/router/internal/auth"
 	"workweave/router/internal/providers"
+
+	"github.com/tidwall/gjson"
+	"github.com/tidwall/sjson"
 )
 
 // subscriptionTokenPrefix marks a Claude subscription (Claude.ai OAuth)
@@ -42,6 +45,9 @@ type Credentials struct {
 	// BaseURL overrides the upstream endpoint per-request; non-empty only on BYOK
 	// credentials, where the boot-time deployment URL is provider-wide, not per-key.
 	BaseURL string
+	// ModelAliases rewrites the outbound model ID for endpoints publishing the
+	// catalog's models under their own names; non-empty only on BYOK credentials.
+	ModelAliases map[string]string
 }
 
 // EffectiveBaseURL returns the BYOK key's per-request base URL if set,
@@ -52,6 +58,40 @@ func EffectiveBaseURL(ctx context.Context, fallback string) string {
 		return fallback
 	}
 	return strings.TrimRight(creds.BaseURL, "/")
+}
+
+// EffectiveUpstreamModel returns the model ID this request's endpoint expects
+// for the routed catalog model, or model unchanged when the BYOK key carries no
+// alias for it. Only the outbound wire name changes -- routing, pricing, and
+// telemetry stay keyed on the catalog ID.
+func EffectiveUpstreamModel(ctx context.Context, model string) string {
+	creds := CredentialsFromContext(ctx)
+	if creds == nil {
+		return model
+	}
+	if alias, ok := creds.ModelAliases[model]; ok {
+		return alias
+	}
+	return model
+}
+
+// ApplyModelAlias rewrites the request body's top-level "model" field to the ID
+// this request's endpoint publishes the routed model under. Bodies whose model
+// isn't aliased are returned untouched, so the envelope stays the authority on
+// every other request.
+func ApplyModelAlias(ctx context.Context, body []byte, model string) []byte {
+	upstreamModel := EffectiveUpstreamModel(ctx, model)
+	if upstreamModel == model || len(body) == 0 {
+		return body
+	}
+	if !gjson.GetBytes(body, "model").Exists() {
+		return body
+	}
+	out, err := sjson.SetBytes(body, "model", upstreamModel)
+	if err != nil {
+		return body
+	}
+	return out
 }
 
 // ExternalAPIKeysContextKey is the request-context key for external API keys
@@ -71,9 +111,10 @@ func BuildCredentialsMap(keys []*auth.ExternalAPIKey) map[string]*Credentials {
 			continue
 		}
 		m[key.Provider] = &Credentials{
-			APIKey:  key.Plaintext,
-			Source:  credSourceBYOK,
-			BaseURL: key.BaseURL,
+			APIKey:       key.Plaintext,
+			Source:       credSourceBYOK,
+			BaseURL:      key.BaseURL,
+			ModelAliases: key.ModelAliases,
 		}
 	}
 	if len(m) == 0 {

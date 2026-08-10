@@ -26,6 +26,9 @@ var ErrInvalidBaseURL = errors.New("auth: invalid base url")
 // ErrBaseURLRequired is returned when a provider with no deployment endpoint is given no base URL.
 var ErrBaseURLRequired = errors.New("auth: base url required for provider")
 
+// ErrInvalidModelAlias is returned for a model alias map that is oversized or malformed.
+var ErrInvalidModelAlias = errors.New("auth: invalid model alias")
+
 type Clock func() time.Time
 
 // InstallationChangeNotifier fans out installation-change events to peer replicas.
@@ -209,10 +212,29 @@ func (s *Service) ListExternalAPIKeys(ctx context.Context, installationID string
 	return s.externalKeys.GetForInstallation(ctx, installationID)
 }
 
+// UpsertExternalAPIKeyParams carries one BYOK key's stored configuration plus
+// AllowedModels, the caller-supplied set the aliases are validated against.
+type UpsertExternalAPIKeyParams struct {
+	Provider string
+	RawKey   string
+	Name     *string
+	// BaseURL overrides the provider's deployment endpoint; nil keeps the default.
+	BaseURL *string
+	// ModelAliases rewrites outbound model IDs for this key's endpoint.
+	ModelAliases map[string]string
+	// AllowedModels is the valid catalog model ID set for alias validation; nil skips it.
+	AllowedModels map[string]struct{}
+	CreatedBy     *string
+}
+
 // UpsertExternalAPIKey replaces the provider's key for the installation.
-// baseURL overrides the provider's deployment endpoint; nil leaves the default in place.
-func (s *Service) UpsertExternalAPIKey(ctx context.Context, installationID, provider, rawKey string, name *string, baseURL *string, createdBy *string) (*ExternalAPIKey, error) {
-	normalizedBaseURL, err := NormalizeBaseURL(baseURL)
+func (s *Service) UpsertExternalAPIKey(ctx context.Context, installationID string, params UpsertExternalAPIKeyParams) (*ExternalAPIKey, error) {
+	provider, rawKey := params.Provider, params.RawKey
+	normalizedBaseURL, err := NormalizeBaseURL(params.BaseURL)
+	if err != nil {
+		return nil, err
+	}
+	normalizedAliases, err := NormalizeModelAliases(params.ModelAliases, params.AllowedModels)
 	if err != nil {
 		return nil, err
 	}
@@ -238,9 +260,10 @@ func (s *Service) UpsertExternalAPIKey(ctx context.Context, installationID, prov
 		KeyPrefix:      prefix,
 		KeySuffix:      suffix,
 		KeyFingerprint: hash,
-		Name:           name,
+		Name:           params.Name,
 		BaseURL:        normalizedBaseURL,
-		CreatedBy:      createdBy,
+		ModelAliases:   normalizedAliases,
+		CreatedBy:      params.CreatedBy,
 	})
 	if err != nil {
 		return nil, err

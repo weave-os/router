@@ -207,7 +207,8 @@ func (c *Client) Proxy(ctx context.Context, decision router.Decision, prep provi
 	defer cancel(nil)
 
 	baseURL := proxy.EffectiveBaseURL(ctx, c.baseURL)
-	upstream, err := http.NewRequestWithContext(ctx, http.MethodPost, baseURL+"/v1/messages", bytes.NewReader(prep.Body))
+	body := proxy.ApplyModelAlias(ctx, prep.Body, decision.Model)
+	upstream, err := http.NewRequestWithContext(ctx, http.MethodPost, baseURL+"/v1/messages", bytes.NewReader(body))
 	if err != nil {
 		return fmt.Errorf("build upstream request: %w", err)
 	}

@@ -511,3 +511,35 @@ func TestProxy_StampsTimingOnError(t *testing.T) {
 	assert.NotZero(t, tm.UpstreamFirstByteNanos.Load(), "must stamp UpstreamFirstByteNanos on error body read")
 	assert.NotZero(t, tm.UpstreamEOFNanos.Load(), "must stamp UpstreamEOFNanos after error body is drained")
 }
+
+func TestProxy_RewritesModelForAliasedBYOKEndpoint(t *testing.T) {
+	var gotBody map[string]any
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		require.NoError(t, json.Unmarshal(body, &gotBody))
+		w.Header().Set("content-type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"msg_1"}`))
+	}))
+	defer upstream.Close()
+
+	ctx := context.WithValue(context.Background(), proxy.CredentialsContextKey{}, &proxy.Credentials{
+		APIKey:       []byte("gateway-token"),
+		ModelAliases: map[string]string{"claude-fable-5": "internal.claude-fable-5"},
+	})
+	prep := providers.PreparedRequest{
+		Body:    []byte(`{"model":"claude-fable-5","messages":[{"role":"user","content":"hi"}]}`),
+		Headers: make(http.Header),
+	}
+
+	err := anthropic.NewClient("test-key", upstream.URL).Proxy(
+		ctx,
+		router.Decision{Model: "claude-fable-5"},
+		prep,
+		httptest.NewRecorder(),
+		httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader("")),
+	)
+
+	require.NoError(t, err)
+	assert.Equal(t, "internal.claude-fable-5", gotBody["model"],
+		"an endpoint publishing its own model names 404s on the catalog id, so the alias must reach the wire")
+}

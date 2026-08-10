@@ -78,6 +78,8 @@ type RouterModelRouterExternalAPIKey struct {
 	CreatedBy      *string
 	// Customer-supplied upstream base URL; NULL uses the deployment default for the provider
 	BaseURL *string
+	// Catalog model id -> upstream model id rewrite for this key's endpoint; NULL means no rewrite
+	ModelAliases []byte
 }
 
 // Customer router installations; owns API keys

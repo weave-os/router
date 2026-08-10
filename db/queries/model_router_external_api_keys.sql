@@ -12,6 +12,7 @@ INSERT INTO router.model_router_external_api_keys (
     key_fingerprint,
     name,
     base_url,
+    model_aliases,
     created_by
 )
 VALUES (
@@ -24,6 +25,7 @@ VALUES (
     @key_fingerprint::varchar,
     @name,
     @base_url,
+    sqlc.narg('model_aliases')::jsonb,
     @created_by
 )
 RETURNING *;

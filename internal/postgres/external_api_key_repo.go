@@ -2,6 +2,8 @@ package postgres
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 
 	"workweave/router/internal/auth"
 	"workweave/router/internal/sqlc"
@@ -26,6 +28,11 @@ func (r *ExternalAPIKeyRepo) Create(ctx context.Context, params auth.CreateExter
 		return nil, err
 	}
 
+	aliases, err := marshalModelAliases(params.ModelAliases)
+	if err != nil {
+		return nil, err
+	}
+
 	q := sqlc.New(r.tx)
 	row, err := q.CreateExternalAPIKey(ctx, sqlc.CreateExternalAPIKeyParams{
 		InstallationID: installationUUID,
@@ -37,13 +44,14 @@ func (r *ExternalAPIKeyRepo) Create(ctx context.Context, params auth.CreateExter
 		KeyFingerprint: params.KeyFingerprint,
 		Name:           params.Name,
 		BaseURL:        params.BaseURL,
+		ModelAliases:   aliases,
 		CreatedBy:      params.CreatedBy,
 	})
 	if err != nil {
 		return nil, err
 	}
 
-	return toExternalAPIKey(row), nil
+	return toExternalAPIKey(row)
 }
 
 func (r *ExternalAPIKeyRepo) GetForInstallation(ctx context.Context, installationID string) ([]*auth.ExternalAPIKey, error) {
@@ -60,7 +68,10 @@ func (r *ExternalAPIKeyRepo) GetForInstallation(ctx context.Context, installatio
 
 	keys := make([]*auth.ExternalAPIKey, 0, len(rows))
 	for _, row := range rows {
-		key := toExternalAPIKey(row)
+		key, err := toExternalAPIKey(row)
+		if err != nil {
+			return nil, err
+		}
 		plaintext, err := r.encryptor.Decrypt(row.KeyCiphertext, row.ExternalID, row.Provider)
 		if err != nil {
 			return nil, err
@@ -108,7 +119,20 @@ func (r *ExternalAPIKeyRepo) MarkUsed(ctx context.Context, id string) error {
 	return q.MarkExternalAPIKeyUsed(ctx, keyUUID)
 }
 
-func toExternalAPIKey(row sqlc.RouterModelRouterExternalAPIKey) *auth.ExternalAPIKey {
+// marshalModelAliases encodes the alias map for the jsonb column; a nil or
+// empty map stores SQL NULL so "no aliases" has one on-disk representation.
+func marshalModelAliases(aliases map[string]string) ([]byte, error) {
+	if len(aliases) == 0 {
+		return nil, nil
+	}
+	encoded, err := json.Marshal(aliases)
+	if err != nil {
+		return nil, fmt.Errorf("encode model aliases: %w", err)
+	}
+	return encoded, nil
+}
+
+func toExternalAPIKey(row sqlc.RouterModelRouterExternalAPIKey) (*auth.ExternalAPIKey, error) {
 	key := &auth.ExternalAPIKey{
 		ID:             row.ID.String(),
 		InstallationID: row.InstallationID.String(),
@@ -121,5 +145,10 @@ func toExternalAPIKey(row sqlc.RouterModelRouterExternalAPIKey) *auth.ExternalAP
 	}
 	key.Name = row.Name
 	key.LastUsedAt = timestampPtr(row.LastUsedAt)
-	return key
+	if len(row.ModelAliases) > 0 {
+		if err := json.Unmarshal(row.ModelAliases, &key.ModelAliases); err != nil {
+			return nil, fmt.Errorf("decode model aliases for key %s: %w", key.ID, err)
+		}
+	}
+	return key, nil
 }

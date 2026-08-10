@@ -178,6 +178,8 @@ func (c *Client) Proxy(ctx context.Context, decision router.Decision, prep provi
 	defer cancel(nil)
 
 	body := rewriteModelField(prep.Body, c.modelIDMap)
+	// Applied after the catalog map so a BYOK endpoint's own naming wins.
+	body = proxy.ApplyModelAlias(ctx, body, decision.Model)
 	baseURL := proxy.EffectiveBaseURL(ctx, c.baseURL)
 	upstream, err := http.NewRequestWithContext(ctx, http.MethodPost, baseURL+"/chat/completions", bytes.NewReader(body))
 	if err != nil {

@@ -963,7 +963,10 @@ func TestService_WriteHooksInvalidateAndNotify(t *testing.T) {
 
 	t.Run("UpsertExternalAPIKey", func(t *testing.T) {
 		svc, cache, nf := makeSvc()
-		_, err := svc.UpsertExternalAPIKey(context.Background(), installID, "anthropic", "sk-abc", nil, nil, nil)
+		_, err := svc.UpsertExternalAPIKey(context.Background(), installID, auth.UpsertExternalAPIKeyParams{
+			Provider: "anthropic",
+			RawKey:   "sk-abc",
+		})
 		require.NoError(t, err)
 		assert.Equal(t, []string{installID}, cache.invalidationSnapshot(),
 			"BYOK upsert must drop the cached ExternalKeys so the new credential is picked up on the next request, not in 5 minutes")

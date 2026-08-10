@@ -15,6 +15,7 @@ import (
 	"workweave/router/internal/api/admin"
 	"workweave/router/internal/auth"
 	"workweave/router/internal/providers"
+	"workweave/router/internal/router/cluster"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
@@ -314,6 +315,7 @@ func TestListExternalKeysHandler_ReturnsProviderKeysForInstallation(t *testing.T
 type fakeExternalAPIKeyRepo struct {
 	created               int
 	createdBase           *string
+	createdAliases        map[string]string
 	softDeletedByProvider int
 	keys                  []*auth.ExternalAPIKey
 }
@@ -321,7 +323,8 @@ type fakeExternalAPIKeyRepo struct {
 func (f *fakeExternalAPIKeyRepo) Create(_ context.Context, params auth.CreateExternalAPIKeyParams) (*auth.ExternalAPIKey, error) {
 	f.created++
 	f.createdBase = params.BaseURL
-	key := &auth.ExternalAPIKey{ID: params.ExternalID, Provider: params.Provider}
+	f.createdAliases = params.ModelAliases
+	key := &auth.ExternalAPIKey{ID: params.ExternalID, Provider: params.Provider, ModelAliases: params.ModelAliases}
 	if params.BaseURL != nil {
 		key.BaseURL = *params.BaseURL
 	}
@@ -347,11 +350,15 @@ func (f *fakeExternalAPIKeyRepo) MarkUsed(context.Context, string) error        
 // an already-authed installation, so the handler reaches the env-shadow guard
 // without a real auth flow.
 func upsertKeyEngine(svc *auth.Service) *gin.Engine {
+	return upsertKeyEngineWithModels(svc, nil)
+}
+
+func upsertKeyEngineWithModels(svc *auth.Service, models admin.DeployedModelsSource) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	engine := gin.New()
 	engine.POST("/admin/v1/provider-keys", func(c *gin.Context) {
 		c.Set("router_installation", &auth.Installation{ID: "inst-1"})
-	}, admin.UpsertExternalKeyHandler(svc))
+	}, admin.UpsertExternalKeyHandler(svc, models))
 	return engine
 }
 
@@ -468,4 +475,54 @@ func TestUpsertExternalKeyHandler_RejectsRelativeBaseURL(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code,
 		"a scheme-less base URL yields an unroutable upstream URL, so it must fail at write time, not at request time")
 	assert.Equal(t, 0, repo.created)
+}
+
+func postProviderKeyWithAliases(engine *gin.Engine, provider string, aliases map[string]string) *httptest.ResponseRecorder {
+	body, _ := json.Marshal(map[string]any{"provider": provider, "key": "sk-test-key", "model_aliases": aliases})
+	return postProviderKeyBody(engine, body)
+}
+
+func TestUpsertExternalKeyHandler_PersistsAndReturnsModelAliases(t *testing.T) {
+	t.Setenv(providers.APIKeyEnvVar(providers.ProviderAnthropic), "")
+
+	repo := &fakeExternalAPIKeyRepo{}
+	models := fakeDeployedModels{entries: []cluster.DeployedEntry{
+		{Model: "claude-fable-5", Provider: providers.ProviderAnthropic},
+	}}
+	rec := postProviderKeyWithAliases(
+		upsertKeyEngineWithModels(newUpsertKeyService(repo), models),
+		providers.ProviderAnthropic,
+		map[string]string{"claude-fable-5": " gateway-claude-fable-5 "},
+	)
+
+	require.Equal(t, http.StatusCreated, rec.Code)
+	assert.Equal(t, map[string]string{"claude-fable-5": "gateway-claude-fable-5"}, repo.createdAliases,
+		"the alias must reach the repository trimmed, or the endpoint gets a padded model name it can't match")
+
+	var body struct {
+		ModelAliases map[string]string `json:"model_aliases"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+	assert.Equal(t, map[string]string{"claude-fable-5": "gateway-claude-fable-5"}, body.ModelAliases,
+		"the response must echo the stored aliases so the dashboard can show the mapping")
+}
+
+func TestUpsertExternalKeyHandler_RejectsAliasForUnknownModel(t *testing.T) {
+	t.Setenv(providers.APIKeyEnvVar(providers.ProviderAnthropic), "")
+
+	repo := &fakeExternalAPIKeyRepo{}
+	models := fakeDeployedModels{entries: []cluster.DeployedEntry{
+		{Model: "claude-fable-5", Provider: providers.ProviderAnthropic},
+	}}
+	rec := postProviderKeyWithAliases(
+		upsertKeyEngineWithModels(newUpsertKeyService(repo), models),
+		providers.ProviderAnthropic,
+		map[string]string{"claude-fabel-5": "gateway-claude-fable-5"},
+	)
+
+	assert.Equal(t, http.StatusBadRequest, rec.Code,
+		"a typo'd catalog id would silently never match a routed model, so it must fail at write time")
+	assert.Equal(t, 0, repo.created)
+	assert.Equal(t, 0, repo.softDeletedByProvider,
+		"a rejected upsert must not take out the working key it would have replaced")
 }
