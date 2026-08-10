@@ -19,9 +19,8 @@ type ExternalAPIKey struct {
 	KeyFingerprint string
 	// BaseURL overrides the provider's deployment endpoint for this key; non-empty on BYOK keys only.
 	BaseURL string
-	// ModelAliases maps a catalog model ID to the ID this key's endpoint
-	// publishes it under. Nil means the catalog ID goes on the wire unchanged;
-	// routing, pricing, and telemetry always key off the catalog ID.
+	// ModelAliases maps a catalog model ID to the upstream name this key's endpoint publishes.
+	// Nil means unchanged; routing, pricing, and telemetry always key off the catalog ID.
 	ModelAliases map[string]string
 	CreatedAt    time.Time
 	LastUsedAt   *time.Time
@@ -50,9 +49,8 @@ const maxModelAliases = 256
 // maxModelAliasLength bounds a single alias, matching the model-id column width.
 const maxModelAliasLength = 255
 
-// NormalizeModelAliases trims every entry and drops the ones mapping a model to
-// nothing. allowed is the set of valid catalog model IDs; nil skips that check.
-// Returns nil when nothing survives, so "no aliases" has one representation.
+// NormalizeModelAliases trims and validates entries against allowed catalog IDs (nil skips).
+// Returns nil when nothing survives so "no aliases" has one representation.
 func NormalizeModelAliases(raw map[string]string, allowed map[string]struct{}) (map[string]string, error) {
 	if len(raw) > maxModelAliases {
 		return nil, fmt.Errorf("%w: %d entries exceeds the limit of %d", ErrInvalidModelAlias, len(raw), maxModelAliases)

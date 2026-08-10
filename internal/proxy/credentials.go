@@ -60,10 +60,8 @@ func EffectiveBaseURL(ctx context.Context, fallback string) string {
 	return strings.TrimRight(creds.BaseURL, "/")
 }
 
-// EffectiveUpstreamModel returns the model ID this request's endpoint expects
-// for the routed catalog model, or model unchanged when the BYOK key carries no
-// alias for it. Only the outbound wire name changes -- routing, pricing, and
-// telemetry stay keyed on the catalog ID.
+// EffectiveUpstreamModel returns the aliased model name for this request's endpoint, or model
+// unchanged. Only the outbound wire name changes -- routing, pricing, and telemetry use the catalog ID.
 func EffectiveUpstreamModel(ctx context.Context, model string) string {
 	creds := CredentialsFromContext(ctx)
 	if creds == nil {
@@ -75,10 +73,8 @@ func EffectiveUpstreamModel(ctx context.Context, model string) string {
 	return model
 }
 
-// ApplyModelAlias rewrites the request body's top-level "model" field to the ID
-// this request's endpoint publishes the routed model under. Bodies whose model
-// isn't aliased are returned untouched, so the envelope stays the authority on
-// every other request.
+// ApplyModelAlias rewrites the body's top-level "model" field via the BYOK credential alias.
+// Unaliased bodies are returned untouched; the envelope stays the authority on every other request.
 func ApplyModelAlias(ctx context.Context, body []byte, model string) []byte {
 	upstreamModel := EffectiveUpstreamModel(ctx, model)
 	if upstreamModel == model || len(body) == 0 {

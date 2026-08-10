@@ -226,9 +226,8 @@ func ListExternalKeysHandler(authSvc *auth.Service) gin.HandlerFunc {
 	}
 }
 
-// UpsertExternalKeyHandler stores a customer-owned provider key. models, when
-// non-nil, is the allowlist the request's model aliases are validated against
-// so a typo'd catalog ID is rejected instead of silently never matching.
+// UpsertExternalKeyHandler stores a BYOK provider key; models (non-nil) validates aliases
+// against the deployed catalog so a typo'd ID fails at write time, not silently at runtime.
 func UpsertExternalKeyHandler(authSvc *auth.Service, models DeployedModelsSource) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		installation, ok := resolveInstallation(c, authSvc)
