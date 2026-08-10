@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"workweave/router/internal/auth"
 	"workweave/router/internal/providers"
 	"workweave/router/internal/providers/anthropic"
 	"workweave/router/internal/proxy"
@@ -542,4 +543,37 @@ func TestProxy_RewritesModelForAliasedBYOKEndpoint(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "internal.claude-fable-5", gotBody["model"],
 		"an endpoint publishing its own model names 404s on the catalog id, so the alias must reach the wire")
+}
+
+func TestProxy_ForwardsConfiguredIdentityHeader(t *testing.T) {
+	var gotIdentity string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotIdentity = r.Header.Get("X-Caller-Identity")
+		w.Header().Set("content-type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"msg_1"}`))
+	}))
+	defer upstream.Close()
+
+	ctx := context.WithValue(context.Background(), proxy.CredentialsContextKey{}, &proxy.Credentials{
+		APIKey:               []byte("gateway-token"),
+		IdentityHeader:       "X-Caller-Identity",
+		IdentityHeaderFormat: auth.IdentityFormatEmail,
+	})
+	ctx = context.WithValue(ctx, proxy.ClientIdentityContextKey{}, proxy.ClientIdentity{Email: "engineer@example.com"})
+
+	prep := providers.PreparedRequest{
+		Body:    []byte(`{"model":"claude-fable-5","messages":[{"role":"user","content":"hi"}]}`),
+		Headers: make(http.Header),
+	}
+	err := anthropic.NewClient("test-key", upstream.URL).Proxy(
+		ctx,
+		router.Decision{Model: "claude-fable-5"},
+		prep,
+		httptest.NewRecorder(),
+		httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader("")),
+	)
+
+	require.NoError(t, err)
+	assert.Equal(t, "engineer@example.com", gotIdentity,
+		"an endpoint authenticating the service, not the person, can only attribute spend from this header")
 }

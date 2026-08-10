@@ -103,6 +103,7 @@ func (c *NativeClient) Proxy(ctx context.Context, decision router.Decision, prep
 	for k, vs := range prep.Headers {
 		upstream.Header[http.CanonicalHeaderKey(k)] = vs
 	}
+	proxy.ApplyIdentityHeader(ctx, upstream)
 	if stream {
 		upstream.Header.Set("Accept", "text/event-stream")
 	}

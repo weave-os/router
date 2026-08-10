@@ -29,6 +29,10 @@ var ErrBaseURLRequired = errors.New("auth: base url required for provider")
 // ErrInvalidModelAlias is returned for a model alias map that is oversized or malformed.
 var ErrInvalidModelAlias = errors.New("auth: invalid model alias")
 
+// ErrInvalidIdentityHeader is returned for an identity-forwarding header that is
+// unnamed, reserved, or in an unknown format.
+var ErrInvalidIdentityHeader = errors.New("auth: invalid identity header")
+
 type Clock func() time.Time
 
 // InstallationChangeNotifier fans out installation-change events to peer replicas.
@@ -224,7 +228,11 @@ type UpsertExternalAPIKeyParams struct {
 	ModelAliases map[string]string
 	// AllowedModels is the valid catalog model ID set for alias validation; nil skips it.
 	AllowedModels map[string]struct{}
-	CreatedBy     *string
+	// IdentityHeader names the header the endpoint wants the caller's identity
+	// in, rendered per IdentityHeaderFormat; both nil forwards nothing.
+	IdentityHeader       *string
+	IdentityHeaderFormat *string
+	CreatedBy            *string
 }
 
 // UpsertExternalAPIKey replaces the provider's key for the installation.
@@ -235,6 +243,10 @@ func (s *Service) UpsertExternalAPIKey(ctx context.Context, installationID strin
 		return nil, err
 	}
 	normalizedAliases, err := NormalizeModelAliases(params.ModelAliases, params.AllowedModels)
+	if err != nil {
+		return nil, err
+	}
+	identityHeader, identityFormat, err := NormalizeIdentityHeader(params.IdentityHeader, params.IdentityHeaderFormat)
 	if err != nil {
 		return nil, err
 	}
@@ -263,7 +275,10 @@ func (s *Service) UpsertExternalAPIKey(ctx context.Context, installationID strin
 		Name:           params.Name,
 		BaseURL:        normalizedBaseURL,
 		ModelAliases:   normalizedAliases,
-		CreatedBy:      params.CreatedBy,
+
+		IdentityHeader:       identityHeader,
+		IdentityHeaderFormat: identityFormat,
+		CreatedBy:            params.CreatedBy,
 	})
 	if err != nil {
 		return nil, err

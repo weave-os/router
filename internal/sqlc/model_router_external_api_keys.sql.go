@@ -23,6 +23,8 @@ INSERT INTO router.model_router_external_api_keys (
     name,
     base_url,
     model_aliases,
+    identity_header_name,
+    identity_header_format,
     created_by
 )
 VALUES (
@@ -36,23 +38,27 @@ VALUES (
     $8,
     $9,
     $10::jsonb,
-    $11
+    $11::text,
+    $12::text,
+    $13
 )
-RETURNING id, installation_id, external_id, provider, key_ciphertext, key_prefix, key_suffix, key_fingerprint, name, last_used_at, created_at, updated_at, deleted_at, created_by, base_url, model_aliases
+RETURNING id, installation_id, external_id, provider, key_ciphertext, key_prefix, key_suffix, key_fingerprint, name, last_used_at, created_at, updated_at, deleted_at, created_by, base_url, model_aliases, identity_header_name, identity_header_format
 `
 
 type CreateExternalAPIKeyParams struct {
-	InstallationID uuid.UUID
-	ExternalID     string
-	Provider       string
-	KeyCiphertext  []byte
-	KeyPrefix      string
-	KeySuffix      string
-	KeyFingerprint string
-	Name           *string
-	BaseURL        *string
-	ModelAliases   []byte
-	CreatedBy      *string
+	InstallationID       uuid.UUID
+	ExternalID           string
+	Provider             string
+	KeyCiphertext        []byte
+	KeyPrefix            string
+	KeySuffix            string
+	KeyFingerprint       string
+	Name                 *string
+	BaseURL              *string
+	ModelAliases         []byte
+	IdentityHeaderName   *string
+	IdentityHeaderFormat *string
+	CreatedBy            *string
 }
 
 // Creates a new external API key for an installation. The unique index on
@@ -70,6 +76,8 @@ type CreateExternalAPIKeyParams struct {
 //	    name,
 //	    base_url,
 //	    model_aliases,
+//	    identity_header_name,
+//	    identity_header_format,
 //	    created_by
 //	)
 //	VALUES (
@@ -83,9 +91,11 @@ type CreateExternalAPIKeyParams struct {
 //	    $8,
 //	    $9,
 //	    $10::jsonb,
-//	    $11
+//	    $11::text,
+//	    $12::text,
+//	    $13
 //	)
-//	RETURNING id, installation_id, external_id, provider, key_ciphertext, key_prefix, key_suffix, key_fingerprint, name, last_used_at, created_at, updated_at, deleted_at, created_by, base_url, model_aliases
+//	RETURNING id, installation_id, external_id, provider, key_ciphertext, key_prefix, key_suffix, key_fingerprint, name, last_used_at, created_at, updated_at, deleted_at, created_by, base_url, model_aliases, identity_header_name, identity_header_format
 func (q *Queries) CreateExternalAPIKey(ctx context.Context, arg CreateExternalAPIKeyParams) (RouterModelRouterExternalAPIKey, error) {
 	row := q.db.QueryRow(ctx, createExternalAPIKey,
 		arg.InstallationID,
@@ -98,6 +108,8 @@ func (q *Queries) CreateExternalAPIKey(ctx context.Context, arg CreateExternalAP
 		arg.Name,
 		arg.BaseURL,
 		arg.ModelAliases,
+		arg.IdentityHeaderName,
+		arg.IdentityHeaderFormat,
 		arg.CreatedBy,
 	)
 	var i RouterModelRouterExternalAPIKey
@@ -118,12 +130,14 @@ func (q *Queries) CreateExternalAPIKey(ctx context.Context, arg CreateExternalAP
 		&i.CreatedBy,
 		&i.BaseURL,
 		&i.ModelAliases,
+		&i.IdentityHeaderName,
+		&i.IdentityHeaderFormat,
 	)
 	return i, err
 }
 
 const getActiveExternalAPIKeysForInstallation = `-- name: GetActiveExternalAPIKeysForInstallation :many
-SELECT id, installation_id, external_id, provider, key_ciphertext, key_prefix, key_suffix, key_fingerprint, name, last_used_at, created_at, updated_at, deleted_at, created_by, base_url, model_aliases
+SELECT id, installation_id, external_id, provider, key_ciphertext, key_prefix, key_suffix, key_fingerprint, name, last_used_at, created_at, updated_at, deleted_at, created_by, base_url, model_aliases, identity_header_name, identity_header_format
 FROM router.model_router_external_api_keys
 WHERE installation_id = $1::uuid
   AND deleted_at IS NULL
@@ -133,7 +147,7 @@ ORDER BY provider, created_at DESC
 // Returns all active external API keys for an installation. Used by the auth
 // cache to populate the ExternalKeys map on cache miss.
 //
-//	SELECT id, installation_id, external_id, provider, key_ciphertext, key_prefix, key_suffix, key_fingerprint, name, last_used_at, created_at, updated_at, deleted_at, created_by, base_url, model_aliases
+//	SELECT id, installation_id, external_id, provider, key_ciphertext, key_prefix, key_suffix, key_fingerprint, name, last_used_at, created_at, updated_at, deleted_at, created_by, base_url, model_aliases, identity_header_name, identity_header_format
 //	FROM router.model_router_external_api_keys
 //	WHERE installation_id = $1::uuid
 //	  AND deleted_at IS NULL
@@ -164,6 +178,8 @@ func (q *Queries) GetActiveExternalAPIKeysForInstallation(ctx context.Context, i
 			&i.CreatedBy,
 			&i.BaseURL,
 			&i.ModelAliases,
+			&i.IdentityHeaderName,
+			&i.IdentityHeaderFormat,
 		); err != nil {
 			return nil, err
 		}

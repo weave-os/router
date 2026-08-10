@@ -80,6 +80,10 @@ type RouterModelRouterExternalAPIKey struct {
 	BaseURL *string
 	// Catalog model id -> upstream model id rewrite for this key's endpoint; NULL means no rewrite
 	ModelAliases []byte
+	// Header carrying the caller identity to this key's endpoint; NULL forwards nothing
+	IdentityHeaderName *string
+	// email = bare address, json = URL-encoded JSON property bag
+	IdentityHeaderFormat *string
 }
 
 // Customer router installations; owns API keys

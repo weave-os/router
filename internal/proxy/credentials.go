@@ -48,6 +48,10 @@ type Credentials struct {
 	// ModelAliases rewrites the outbound model ID for endpoints publishing the
 	// catalog's models under their own names; non-empty only on BYOK credentials.
 	ModelAliases map[string]string
+	// IdentityHeader and IdentityHeaderFormat name and shape the header this
+	// endpoint wants the caller's identity in; empty forwards nothing.
+	IdentityHeader       string
+	IdentityHeaderFormat string
 }
 
 // EffectiveBaseURL returns the BYOK key's per-request base URL if set,
@@ -117,6 +121,9 @@ func BuildCredentialsMap(keys []*auth.ExternalAPIKey) map[string]*Credentials {
 			Source:       credSourceBYOK,
 			BaseURL:      key.BaseURL,
 			ModelAliases: key.ModelAliases,
+
+			IdentityHeader:       key.IdentityHeader,
+			IdentityHeaderFormat: key.IdentityHeaderFormat,
 		}
 	}
 	if len(m) == 0 {

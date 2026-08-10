@@ -218,6 +218,7 @@ func (c *Client) Proxy(ctx context.Context, decision router.Decision, prep provi
 		upstream.Header[http.CanonicalHeaderKey(k)] = vs
 	}
 	c.applyOAuthBeta(ctx, upstream, r)
+	proxy.ApplyIdentityHeader(ctx, upstream)
 	if v := r.Header.Get("accept"); v != "" {
 		upstream.Header.Set("accept", v)
 	}

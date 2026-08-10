@@ -316,6 +316,7 @@ type fakeExternalAPIKeyRepo struct {
 	created               int
 	createdBase           *string
 	createdAliases        map[string]string
+	createdIdentityHeader string
 	softDeletedByProvider int
 	keys                  []*auth.ExternalAPIKey
 }
@@ -325,6 +326,13 @@ func (f *fakeExternalAPIKeyRepo) Create(_ context.Context, params auth.CreateExt
 	f.createdBase = params.BaseURL
 	f.createdAliases = params.ModelAliases
 	key := &auth.ExternalAPIKey{ID: params.ExternalID, Provider: params.Provider, ModelAliases: params.ModelAliases}
+	if params.IdentityHeader != nil {
+		f.createdIdentityHeader = *params.IdentityHeader
+		key.IdentityHeader = *params.IdentityHeader
+	}
+	if params.IdentityHeaderFormat != nil {
+		key.IdentityHeaderFormat = *params.IdentityHeaderFormat
+	}
 	if params.BaseURL != nil {
 		key.BaseURL = *params.BaseURL
 	}
@@ -522,6 +530,52 @@ func TestUpsertExternalKeyHandler_RejectsAliasForUnknownModel(t *testing.T) {
 
 	assert.Equal(t, http.StatusBadRequest, rec.Code,
 		"a typo'd catalog id would silently never match a routed model, so it must fail at write time")
+	assert.Equal(t, 0, repo.created)
+	assert.Equal(t, 0, repo.softDeletedByProvider,
+		"a rejected upsert must not take out the working key it would have replaced")
+}
+
+func postProviderKeyWithIdentityHeader(engine *gin.Engine, provider, header, format string) *httptest.ResponseRecorder {
+	body, _ := json.Marshal(map[string]any{
+		"provider": provider, "key": "sk-test-key",
+		"identity_header": header, "identity_header_format": format,
+	})
+	return postProviderKeyBody(engine, body)
+}
+
+func TestUpsertExternalKeyHandler_PersistsAndReturnsIdentityHeader(t *testing.T) {
+	t.Setenv(providers.APIKeyEnvVar(providers.ProviderAnthropic), "")
+
+	repo := &fakeExternalAPIKeyRepo{}
+	rec := postProviderKeyWithIdentityHeader(
+		upsertKeyEngine(newUpsertKeyService(repo)),
+		providers.ProviderAnthropic, " X-Caller-Identity ", "JSON",
+	)
+
+	require.Equal(t, http.StatusCreated, rec.Code)
+	assert.Equal(t, "X-Caller-Identity", repo.createdIdentityHeader)
+
+	var body struct {
+		IdentityHeader       string `json:"identity_header"`
+		IdentityHeaderFormat string `json:"identity_header_format"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+	assert.Equal(t, "X-Caller-Identity", body.IdentityHeader)
+	assert.Equal(t, "json", body.IdentityHeaderFormat,
+		"the response must echo the stored config so the dashboard can show what the endpoint receives")
+}
+
+func TestUpsertExternalKeyHandler_RejectsReservedIdentityHeader(t *testing.T) {
+	t.Setenv(providers.APIKeyEnvVar(providers.ProviderAnthropic), "")
+
+	repo := &fakeExternalAPIKeyRepo{}
+	rec := postProviderKeyWithIdentityHeader(
+		upsertKeyEngine(newUpsertKeyService(repo)),
+		providers.ProviderAnthropic, "Authorization", "email",
+	)
+
+	assert.Equal(t, http.StatusBadRequest, rec.Code,
+		"forwarding identity into Authorization would overwrite the upstream credential")
 	assert.Equal(t, 0, repo.created)
 	assert.Equal(t, 0, repo.softDeletedByProvider,
 		"a rejected upsert must not take out the working key it would have replaced")

@@ -13,6 +13,8 @@ INSERT INTO router.model_router_external_api_keys (
     name,
     base_url,
     model_aliases,
+    identity_header_name,
+    identity_header_format,
     created_by
 )
 VALUES (
@@ -26,6 +28,8 @@ VALUES (
     @name,
     @base_url,
     sqlc.narg('model_aliases')::jsonb,
+    sqlc.narg('identity_header_name')::text,
+    sqlc.narg('identity_header_format')::text,
     @created_by
 )
 RETURNING *;

@@ -85,6 +85,25 @@ Keys are catalog model IDs (an ID outside the deployed catalog is rejected with
 model name changes: routing, pricing, and analytics stay keyed on the catalog
 ID. Omit the field to send catalog IDs unchanged.
 
+An endpoint that authenticates the org rather than the person can be given the
+calling user in a header of its choosing:
+
+```bash
+curl -sS -b jar -X POST https://<router>/admin/v1/provider-keys \
+  -H 'content-type: application/json' \
+  -d '{"provider":"anthropic_gateway","key":"<token>",
+       "identity_header":"X-Caller-Identity","identity_header_format":"json"}'
+```
+
+`email` sends the bare address; `json` sends a URL-encoded JSON property bag
+(`user_email`, `user_name`, `session_id`, `client_app`, empty fields omitted).
+The header is set on the upstream request after the client's own headers, so a
+caller can't attribute their turns to someone else by sending it themselves, and
+nothing is sent when the request carries no identity. Naming a header the
+request depends on (`Authorization`, `x-api-key`, `Host`, `Content-Type`,
+`Content-Length`, `Accept`) is rejected with `400`. Omit both fields to forward
+nothing — identity only ever reaches the endpoint configured to receive it.
+
 In `selfhosted` mode BYOK is always active (it's the only credentialing path).
 In `managed` mode it is opt-in per installation: the control plane sets
 `byok_enabled` on the installation row, and until it does, the auth middleware

@@ -88,3 +88,47 @@ func TestNormalizeModelAliases(t *testing.T) {
 		require.ErrorIs(t, err, auth.ErrInvalidModelAlias)
 	})
 }
+
+func TestNormalizeIdentityHeader(t *testing.T) {
+	t.Run("both empty forwards nothing", func(t *testing.T) {
+		name, format, err := auth.NormalizeIdentityHeader(nil, nil)
+		require.NoError(t, err)
+		assert.Nil(t, name)
+		assert.Nil(t, format)
+	})
+
+	t.Run("trims and lowercases the format", func(t *testing.T) {
+		name, format, err := auth.NormalizeIdentityHeader(ptr("  X-Caller-Identity "), ptr(" JSON "))
+		require.NoError(t, err)
+		require.NotNil(t, name)
+		require.NotNil(t, format)
+		assert.Equal(t, "X-Caller-Identity", *name)
+		assert.Equal(t, auth.IdentityFormatJSON, *format)
+	})
+
+	t.Run("rejects a format without a name", func(t *testing.T) {
+		_, _, err := auth.NormalizeIdentityHeader(nil, ptr("email"))
+		require.ErrorIs(t, err, auth.ErrInvalidIdentityHeader)
+	})
+
+	t.Run("rejects an unknown format", func(t *testing.T) {
+		_, _, err := auth.NormalizeIdentityHeader(ptr("X-Caller-Identity"), ptr("protobuf"))
+		require.ErrorIs(t, err, auth.ErrInvalidIdentityHeader)
+	})
+
+	t.Run("rejects a name that is not a field token", func(t *testing.T) {
+		for _, bad := range []string{"X Caller Identity", "X-Caller:Identity", "X-Caller\nIdentity"} {
+			_, _, err := auth.NormalizeIdentityHeader(ptr(bad), ptr("email"))
+			require.ErrorIsf(t, err, auth.ErrInvalidIdentityHeader,
+				"%q would let a config value inject or split a header", bad)
+		}
+	})
+
+	t.Run("rejects a reserved header", func(t *testing.T) {
+		for _, reserved := range []string{"Authorization", "x-api-key", "Content-Length"} {
+			_, _, err := auth.NormalizeIdentityHeader(ptr(reserved), ptr("email"))
+			require.ErrorIsf(t, err, auth.ErrInvalidIdentityHeader,
+				"naming %q would let identity forwarding strip or corrupt the upstream request", reserved)
+		}
+	})
+}

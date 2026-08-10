@@ -22,8 +22,13 @@ type ExternalAPIKey struct {
 	// ModelAliases maps a catalog model ID to the upstream name this key's endpoint publishes.
 	// Nil means unchanged; routing, pricing, and telemetry always key off the catalog ID.
 	ModelAliases map[string]string
-	CreatedAt    time.Time
-	LastUsedAt   *time.Time
+	// IdentityHeader names the header carrying the caller's identity to this
+	// key's endpoint, empty when nothing is forwarded, paired with the format
+	// the value is rendered in.
+	IdentityHeader       string
+	IdentityHeaderFormat string
+	CreatedAt            time.Time
+	LastUsedAt           *time.Time
 	// Plaintext is populated after decrypt; never logged.
 	Plaintext []byte
 }
@@ -39,7 +44,77 @@ type CreateExternalAPIKeyParams struct {
 	Name           *string
 	BaseURL        *string
 	ModelAliases   map[string]string
-	CreatedBy      *string
+	// IdentityHeader and IdentityHeaderFormat are set or cleared together.
+	IdentityHeader       *string
+	IdentityHeaderFormat *string
+	CreatedBy            *string
+}
+
+// Identity header formats. IdentityFormatEmail sends the bare address;
+// IdentityFormatJSON sends a URL-encoded JSON property bag so an endpoint can
+// pick up display name, session, and client app alongside the address.
+const (
+	IdentityFormatEmail = "email"
+	IdentityFormatJSON  = "json"
+)
+
+// maxIdentityHeaderNameLength bounds the configured field name.
+const maxIdentityHeaderNameLength = 128
+
+// headersRejectedForIdentity are headers whose meaning the request depends on;
+// letting a tenant name one would let a misconfiguration strip upstream auth or
+// corrupt the body framing.
+var headersRejectedForIdentity = map[string]struct{}{
+	"authorization":  {},
+	"x-api-key":      {},
+	"host":           {},
+	"content-type":   {},
+	"content-length": {},
+	"accept":         {},
+}
+
+// NormalizeIdentityHeader validates the header name and format an endpoint
+// wants the caller's identity in. Both nil (or a blank name) means forward
+// nothing; a name without a valid format, or vice versa, is rejected rather
+// than silently half-applied.
+func NormalizeIdentityHeader(name, format *string) (*string, *string, error) {
+	trimmedName := ""
+	if name != nil {
+		trimmedName = strings.TrimSpace(*name)
+	}
+	trimmedFormat := ""
+	if format != nil {
+		trimmedFormat = strings.ToLower(strings.TrimSpace(*format))
+	}
+	if trimmedName == "" && trimmedFormat == "" {
+		return nil, nil, nil
+	}
+	if trimmedName == "" {
+		return nil, nil, fmt.Errorf("%w: a format needs a header name", ErrInvalidIdentityHeader)
+	}
+	if !validHeaderName(trimmedName) {
+		return nil, nil, fmt.Errorf("%w: %q is not a valid header name", ErrInvalidIdentityHeader, trimmedName)
+	}
+	if _, rejected := headersRejectedForIdentity[strings.ToLower(trimmedName)]; rejected {
+		return nil, nil, fmt.Errorf("%w: %q is reserved", ErrInvalidIdentityHeader, trimmedName)
+	}
+	if trimmedFormat != IdentityFormatEmail && trimmedFormat != IdentityFormatJSON {
+		return nil, nil, fmt.Errorf("%w: unknown format %q", ErrInvalidIdentityHeader, trimmedFormat)
+	}
+	return &trimmedName, &trimmedFormat, nil
+}
+
+// headerNameChars are the RFC 9110 token characters a field name may contain.
+const headerNameChars = "!#$%&'*+-.^_`|~0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+
+// validHeaderName reports whether s is an RFC 9110 field name (a token).
+func validHeaderName(s string) bool {
+	if len(s) > maxIdentityHeaderNameLength {
+		return false
+	}
+	return strings.IndexFunc(s, func(r rune) bool {
+		return !strings.ContainsRune(headerNameChars, r)
+	}) < 0
 }
 
 // maxModelAliases bounds one key's alias map: generous next to any real

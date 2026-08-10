@@ -170,15 +170,17 @@ func DeleteAPIKeyHandler(authSvc *auth.Service) gin.HandlerFunc {
 }
 
 type externalKeyResponse struct {
-	ID           string            `json:"id"`
-	Provider     string            `json:"provider"`
-	Name         *string           `json:"name"`
-	KeyPrefix    string            `json:"key_prefix"`
-	KeySuffix    string            `json:"key_suffix"`
-	BaseURL      string            `json:"base_url,omitempty"`
-	ModelAliases map[string]string `json:"model_aliases,omitempty"`
-	LastUsedAt   *time.Time        `json:"last_used_at"`
-	CreatedAt    time.Time         `json:"created_at"`
+	ID                   string            `json:"id"`
+	Provider             string            `json:"provider"`
+	Name                 *string           `json:"name"`
+	KeyPrefix            string            `json:"key_prefix"`
+	KeySuffix            string            `json:"key_suffix"`
+	BaseURL              string            `json:"base_url,omitempty"`
+	ModelAliases         map[string]string `json:"model_aliases,omitempty"`
+	IdentityHeader       string            `json:"identity_header,omitempty"`
+	IdentityHeaderFormat string            `json:"identity_header_format,omitempty"`
+	LastUsedAt           *time.Time        `json:"last_used_at"`
+	CreatedAt            time.Time         `json:"created_at"`
 }
 
 type upsertExternalKeyRequest struct {
@@ -191,19 +193,26 @@ type upsertExternalKeyRequest struct {
 	// ModelAliases maps catalog model IDs to the IDs this endpoint publishes
 	// them under, for endpoints with their own naming scheme.
 	ModelAliases map[string]string `json:"model_aliases"`
+	// IdentityHeader names the header carrying the caller's identity to this
+	// endpoint, for service-authenticated endpoints that still attribute spend
+	// per user. IdentityHeaderFormat is "email" or "json".
+	IdentityHeader       *string `json:"identity_header"`
+	IdentityHeaderFormat *string `json:"identity_header_format"`
 }
 
 func toExternalKeyResponse(k *auth.ExternalAPIKey) externalKeyResponse {
 	return externalKeyResponse{
-		ID:           k.ID,
-		Provider:     k.Provider,
-		Name:         k.Name,
-		KeyPrefix:    k.KeyPrefix,
-		KeySuffix:    k.KeySuffix,
-		BaseURL:      k.BaseURL,
-		ModelAliases: k.ModelAliases,
-		LastUsedAt:   k.LastUsedAt,
-		CreatedAt:    k.CreatedAt,
+		ID:                   k.ID,
+		Provider:             k.Provider,
+		Name:                 k.Name,
+		KeyPrefix:            k.KeyPrefix,
+		KeySuffix:            k.KeySuffix,
+		BaseURL:              k.BaseURL,
+		ModelAliases:         k.ModelAliases,
+		IdentityHeader:       k.IdentityHeader,
+		IdentityHeaderFormat: k.IdentityHeaderFormat,
+		LastUsedAt:           k.LastUsedAt,
+		CreatedAt:            k.CreatedAt,
 	}
 }
 
@@ -264,9 +273,13 @@ func UpsertExternalKeyHandler(authSvc *auth.Service, models DeployedModelsSource
 			BaseURL:       req.BaseURL,
 			ModelAliases:  req.ModelAliases,
 			AllowedModels: allowed,
+
+			IdentityHeader:       req.IdentityHeader,
+			IdentityHeaderFormat: req.IdentityHeaderFormat,
 		})
 		if err != nil {
-			if errors.Is(err, auth.ErrUnknownModel) || errors.Is(err, auth.ErrInvalidModelAlias) {
+			if errors.Is(err, auth.ErrUnknownModel) || errors.Is(err, auth.ErrInvalidModelAlias) ||
+				errors.Is(err, auth.ErrInvalidIdentityHeader) {
 				c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 				return
 			}
