@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"workweave/router/internal/router"
+	"workweave/router/internal/router/catalog"
 )
 
 // fakeEmbedder returns a fixed vector or error; captures last text for
@@ -1144,6 +1145,44 @@ func TestScorer_DeployedModelsReturnsBootCandidates(t *testing.T) {
 	// Two-provider scorer fixture has gpt-5 + claude-opus-4-7.
 	assert.Contains(t, models, "gpt-5")
 	assert.Contains(t, models, "claude-opus-4-7")
+}
+
+// A bundle is frozen at training time, so its registry keeps naming models
+// the catalog has since retired (untiered). Those must not stay routable.
+func TestScorer_DropsCatalogRetiredRegistryEntries(t *testing.T) {
+	const retired = "deepseek/deepseek-v4-pro"
+	m, ok := catalog.ByID(retired)
+	require.True(t, ok, "test premise: retired model is still in the catalog for passthrough")
+	require.Equal(t, catalog.TierUnknown, m.Tier, "test premise: retired model is untiered")
+
+	dim := EmbedDim
+	c0 := make([]float32, dim)
+	c0[0] = 1
+	cb := buildCentroidsBlob(t, 1, dim, c0)
+	rb := []byte(`{"rankings": {"0": {
+		"deepseek/deepseek-v4-pro": 0.99,
+		"deepseek/deepseek-v4-flash": 0.50
+	}}}`)
+	regb := []byte(`{
+		"deployed_models": [
+			{"model": "deepseek/deepseek-v4-pro", "provider": "together", "bench_column": "x", "proxy": true},
+			{"model": "deepseek/deepseek-v4-flash", "provider": "makora", "bench_column": "y", "proxy": true}
+		]
+	}`)
+	cfg := cfgForTest()
+	cfg.TopP = 1
+	s, err := NewScorer(bundleFromBlobs(t, "v-test-retired", cb, rb, regb), cfg, &fakeEmbedder{vec: makeOpusVec()},
+		map[string]struct{}{"together": {}, "makora": {}})
+	require.NoError(t, err)
+
+	for _, e := range s.DeployedModels() {
+		assert.NotEqual(t, retired, e.Model, "retired catalog model must not be a cluster candidate")
+	}
+
+	// It outranks flash in the bundle, so it would win argmax if eligible.
+	got, err := s.Route(context.Background(), router.Request{PromptText: strings.Repeat("x", 100)})
+	require.NoError(t, err)
+	assert.Equal(t, "deepseek/deepseek-v4-flash", got.Model)
 }
 
 func TestScorer_V2DynamicScoring(t *testing.T) {

@@ -344,13 +344,18 @@ func (s *Scorer) applyDialAlpha(t float64, alpha, floor []float64) {
 // modelID and returns the first binding whose Provider name is in
 // available. Falls back to the registry's recorded provider for models
 // absent from the catalog (defense in depth). Returns "" when no binding
-// resolves under the available set.
+// resolves under the available set, or when the catalog has retired the
+// model: an untiered row is passthrough-only, and a frozen bundle's
+// registry still names models the catalog has since stopped routing to.
 func resolveProviderFor(modelID, registryProvider string, available map[string]struct{}) string {
 	m, ok := catalog.ByID(modelID)
 	if !ok {
 		if _, ok := available[registryProvider]; ok {
 			return registryProvider
 		}
+		return ""
+	}
+	if m.Tier == catalog.TierUnknown {
 		return ""
 	}
 	for _, b := range m.Providers {
