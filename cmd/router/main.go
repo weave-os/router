@@ -199,6 +199,11 @@ func main() {
 	// platform-key mode gated by balance checks. Self-hosted is never BYOK-only.
 	byokOnly := deploymentMode == server.DeploymentModeManaged && billingSvc == nil
 
+	modelAliases, err := resolveModelAliases(logger)
+	if err != nil {
+		panic(err)
+	}
+
 	// Always registered. With ANTHROPIC_API_KEY (selfhosted only) the router
 	// uses its own key; otherwise client auth headers pass through directly.
 	anthropicKey := ""
@@ -264,7 +269,7 @@ func main() {
 		if !byokOnly && openRouterPlatformEnabled {
 			openRouterKey = config.GetOr("OPENROUTER_API_KEY", "")
 		}
-		providerMap[providers.ProviderOpenRouter] = openaiCompatProvider.NewClient(openRouterKey, openRouterBaseURL)
+		providerMap[providers.ProviderOpenRouter] = openaiCompatProvider.NewClientWithModelIDMap(openRouterKey, openRouterBaseURL, modelAliases[providers.ProviderOpenRouter])
 		switch {
 		case byokOnly:
 			logger.Info("OpenRouter provider enabled (BYOK only)", "base_url", openRouterBaseURL)
@@ -283,7 +288,7 @@ func main() {
 		registerDeploymentKeyedProvider(providerMap, envKeyedProviders, logger,
 			providers.ProviderFireworks, "Fireworks", "FIREWORKS_API_KEY", fireworksBaseURL, byokOnly,
 			func(key, baseURL string) providers.Client {
-				return openaiCompatProvider.NewClientWithModelIDMap(key, baseURL, upstreamIDsForProvider(providers.ProviderFireworks))
+				return openaiCompatProvider.NewClientWithModelIDMap(key, baseURL, modelAliases[providers.ProviderFireworks])
 			})
 	}
 
@@ -294,7 +299,7 @@ func main() {
 		registerDeploymentKeyedProvider(providerMap, envKeyedProviders, logger,
 			providers.ProviderMakora, "Makora", "MAKORA_API_KEY", makoraBaseURL, byokOnly,
 			func(key, baseURL string) providers.Client {
-				return openaiCompatProvider.NewClientWithModelIDMap(key, baseURL, upstreamIDsForProvider(providers.ProviderMakora))
+				return openaiCompatProvider.NewClientWithModelIDMap(key, baseURL, modelAliases[providers.ProviderMakora])
 			})
 	}
 
@@ -307,7 +312,7 @@ func main() {
 		registerDeploymentKeyedProvider(providerMap, envKeyedProviders, logger,
 			providers.ProviderTogether, "Together", "TOGETHER_API_KEY", togetherBaseURL, byokOnly,
 			func(key, baseURL string) providers.Client {
-				return openaiCompatProvider.NewClientWithModelIDMap(key, baseURL, upstreamIDsForProvider(providers.ProviderTogether))
+				return openaiCompatProvider.NewClientWithModelIDMap(key, baseURL, modelAliases[providers.ProviderTogether])
 			})
 	}
 
@@ -317,7 +322,7 @@ func main() {
 		registerDeploymentKeyedProvider(providerMap, envKeyedProviders, logger,
 			providers.ProviderMiniMax, "MiniMax", "MINIMAX_API_KEY", minimaxBaseURL, byokOnly,
 			func(key, baseURL string) providers.Client {
-				return openaiCompatProvider.NewClientWithModelIDMap(key, baseURL, upstreamIDsForProvider(providers.ProviderMiniMax))
+				return openaiCompatProvider.NewClientWithModelIDMap(key, baseURL, modelAliases[providers.ProviderMiniMax])
 			})
 	}
 
@@ -326,7 +331,7 @@ func main() {
 		registerDeploymentKeyedProvider(providerMap, envKeyedProviders, logger,
 			providers.ProviderXAI, "XAI", "XAI_API_KEY", xaiBaseURL, byokOnly,
 			func(key, baseURL string) providers.Client {
-				return openaiCompatProvider.NewClient(key, baseURL)
+				return openaiCompatProvider.NewClientWithModelIDMap(key, baseURL, modelAliases[providers.ProviderXAI])
 			})
 	}
 
@@ -335,7 +340,7 @@ func main() {
 		registerDeploymentKeyedProvider(providerMap, envKeyedProviders, logger,
 			providers.ProviderMeta, "Meta", "META_API_KEY", metaBaseURL, byokOnly,
 			func(key, baseURL string) providers.Client {
-				return openaiCompatProvider.NewClient(key, baseURL)
+				return openaiCompatProvider.NewClientWithModelIDMap(key, baseURL, modelAliases[providers.ProviderMeta])
 			})
 	}
 
@@ -346,7 +351,7 @@ func main() {
 		registerDeploymentKeyedProvider(providerMap, envKeyedProviders, logger,
 			providers.ProviderWafer, "Wafer", "WAFER_API_KEY", waferBaseURL, byokOnly,
 			func(key, baseURL string) providers.Client {
-				return openaiCompatProvider.NewClientWithModelIDMap(key, baseURL, upstreamIDsForProvider(providers.ProviderWafer)).
+				return openaiCompatProvider.NewClientWithModelIDMap(key, baseURL, modelAliases[providers.ProviderWafer]).
 					WithProtectedHeaders(http.Header{"Wafer-ZDR": []string{"required"}})
 			})
 	}
@@ -382,7 +387,7 @@ func main() {
 		registerDeploymentKeyedProvider(providerMap, envKeyedProviders, logger,
 			providers.ProviderBedrock, "Bedrock", "AWS_BEARER_TOKEN_BEDROCK", bedrockBaseURL, byokOnly,
 			func(key, baseURL string) providers.Client {
-				return openaiCompatProvider.NewClientWithModelIDMap(key, baseURL, upstreamIDsForProvider(providers.ProviderBedrock))
+				return openaiCompatProvider.NewClientWithModelIDMap(key, baseURL, modelAliases[providers.ProviderBedrock])
 			},
 			"region", bedrockRegion)
 	}
@@ -2058,9 +2063,6 @@ func envVarHint(provider string) string {
 	return "<unknown provider " + provider + ">"
 }
 
-// upstreamIDsForProvider maps public model ID -> upstream model ID for a
-// provider's bindings with a non-empty UpstreamID; nil if no rewriting is
-// needed (e.g. OpenRouter, where the slug IS the upstream ID).
 // registerDeploymentKeyedProvider resolves a provider's deployment-level API
 // key (respecting byokOnly), constructs its client via newClient, registers
 // it in providerMap, and logs its BYOK/keyed/passthrough state. Shared by the
@@ -2092,21 +2094,6 @@ func registerDeploymentKeyedProvider(
 	default:
 		logger.Info(displayName+" provider registered (BYOK only — set "+keyEnvVar+" for deployment-level use)", "base_url", baseURL)
 	}
-}
-
-func upstreamIDsForProvider(provider string) map[string]string {
-	out := make(map[string]string)
-	for _, m := range catalog.Models {
-		for _, b := range m.Providers {
-			if b.Provider == provider && b.UpstreamID != "" {
-				out[m.ID] = b.UpstreamID
-			}
-		}
-	}
-	if len(out) == 0 {
-		return nil
-	}
-	return out
 }
 
 func runEscalationSweep(ctx context.Context, store escalation.Store) {

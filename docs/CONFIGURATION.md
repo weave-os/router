@@ -51,6 +51,7 @@ Claude Code keep using the user's logged-in plan.
 | `OPENAI_GATEWAY_TOKEN`       | *(none)*                                           | Token for that gateway, sent as `Authorization: Bearer`. Only used when `OPENAI_GATEWAY_BASE_URL` is also set. |
 | `WAFER_API_KEY`   | *(none)*                                                  | Enables Wafer Serverless (both its OpenAI-compatible `wafer` and Anthropic-compatible `wafer_anthropic` surfaces; one key covers both). |
 | `WAFER_BASE_URL`  | `https://pass.wafer.ai/v1`                                | Override for the Wafer OpenAI-compatible endpoint (`wafer_anthropic` uses the fixed `/v1/messages` endpoint). |
+| `ROUTER_<PROVIDER>_MODEL_ALIASES` | *(none)*                                      | JSON map of catalog model ID to the name that provider's endpoint publishes. See [Deployment-level model aliases](#deployment-level-model-aliases). |
 
 **Anthropic-compatible gateway.** Some enterprises front Claude with their own
 gateway that speaks the Anthropic Messages spec but authenticates with a bearer
@@ -121,6 +122,29 @@ thinking blocks and `cache_control` natively) and falls back to the other. A
 tenant that can't issue a long-lived PAT configures each key with an RSA
 private key instead — see [Key-pair auth](#key-pair-auth) — or with no secret
 at all, see [Workload identity federation](#workload-identity-federation).
+### Deployment-level model aliases
+
+An OpenAI-compatible endpoint may publish the catalog's models under its own
+names: a gateway that serves `deepseek-v4-flash` where the catalog says
+`deepseek/deepseek-v4-flash`, or a Bedrock-backed proxy that expects AWS
+dot-form IDs. Point a provider at the endpoint with its `*_BASE_URL` and remap
+the outbound names with `ROUTER_<PROVIDER>_MODEL_ALIASES`:
+
+```bash
+OPENROUTER_BASE_URL=https://gateway.example.com/v1
+ROUTER_OPENROUTER_MODEL_ALIASES='{"deepseek/deepseek-v4-flash":"deepseek-v4-flash","xiaomi/mimo-v2.5-pro":"mimo-v2.5-pro"}'
+```
+
+`<PROVIDER>` is the upper-cased provider name — `OPENROUTER`, `FIREWORKS`,
+`MAKORA`, `MINIMAX`, `TOGETHER`, `XAI`, `META`, `WAFER`, or `BEDROCK`. Keys are
+catalog model IDs and values are what goes on the wire. Only the outbound model
+name changes: routing, pricing, and analytics stay keyed on the catalog ID.
+
+Entries layer on top of the catalog's own per-binding upstream IDs, so aliasing
+one model leaves that provider's other bindings alone, and a BYOK key's
+`model_aliases` still wins over both. A malformed value aborts boot. An alias
+naming a model outside the deployed catalog is logged and skipped, so retiring a
+model can't turn a stale alias into a failed start.
 
 **BYOK (per-installation keys).** Instead of (or in addition to) the env vars
 above, each installation can supply its own provider keys via the dashboard.
