@@ -415,7 +415,9 @@ resolve_user_email() {
 
 # write_codex_config writes a managed [model_providers.weave] block to the
 # Codex CLI's config.toml. Sets `model_provider = "weave"` at the top level so
-# Codex picks the routed provider by default. Both lines live inside the
+# Codex picks the routed provider by default. The provider requires OpenAI
+# authentication, preserving the user's ChatGPT plan credential and forwarding
+# it to the router alongside the router key. Both settings live inside the
 # managed-block markers so uninstall removes them cleanly. We strip any
 # top-level `model_provider = ...` declaration OUTSIDE the markers before
 # appending so the file doesn't end up with a duplicate key (TOML rejects
@@ -476,6 +478,7 @@ model_provider = "weave"
 name = "Weave Router"
 base_url = "${esc_url}/v1"
 wire_api = "responses"
+requires_openai_auth = true
 ${headers_line}
 ${WEAVE_CODEX_END_MARKER}
 TOML

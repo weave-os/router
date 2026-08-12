@@ -62,10 +62,11 @@ Four install targets:
   api.anthropic.com.
 - **Codex** (`--codex`) — patches `~/.codex/config.toml` (or
   `<repo>/.codex/config.toml`) with a managed `[model_providers.weave]`
-  block plus `model_provider = "weave"`. OpenAI plan credentials flow
-  through to api.openai.com. The block lives between begin/end markers so
-  re-running the installer rewrites it cleanly and `--uninstall --codex`
-  removes it without touching the rest of your config.
+  block plus `model_provider = "weave"`. The provider requires and forwards
+  the existing ChatGPT OAuth login for plan-backed routing. The block lives
+  between begin/end markers so re-running the installer rewrites it cleanly
+  and `--uninstall --codex` removes it without touching the rest of your
+  config.
 - **opencode** (`--opencode`) — merges a `provider.weave` entry (backed by
   opencode's built-in `@ai-sdk/anthropic` provider) into
   `~/.config/opencode/opencode.json` (or `<repo>/opencode.json` with

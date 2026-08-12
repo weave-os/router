@@ -169,10 +169,11 @@ above.
 **Codex** (OpenAI CLI). `npx @workweave/router --codex` patches
 `~/.codex/config.toml` (or `<repo>/.codex/config.toml` with `--scope project`)
 with a managed `[model_providers.weave]` block and sets `model_provider = "weave"`.
-Codex's existing `OPENAI_API_KEY` flows through to api.openai.com for the
-plan-based passthrough; the router key rides in an `X-Weave-Router-Key` HTTP
-header. Re-install and `--uninstall --codex` rewrite/remove only the managed
-block, leaving the rest of your Codex config untouched.
+The provider requires Codex's existing ChatGPT OAuth login, which Codex forwards
+to the router for plan-based passthrough; the router key rides in an
+`X-Weave-Router-Key` HTTP header. Re-install and `--uninstall --codex`
+rewrite/remove only the managed block, leaving the rest of your Codex config
+untouched.
 
 **opencode.** `npx @workweave/router --opencode` merges a `provider.weave`
 entry into `~/.config/opencode/opencode.json` (or `<repo>/opencode.json`

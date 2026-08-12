@@ -111,7 +111,7 @@ logged-in user's Team/Pro/Max/individual plan.
 
 | Path                       | Purpose                                                       |
 | -------------------------- | ------------------------------------------------------------- |
-| `~/.codex/config.toml`     | Adds a managed `[model_providers.weave]` block + sets top-level `model_provider = "weave"`, both between `# >>> weave-router managed` markers. Anything outside the markers is preserved. |
+| `~/.codex/config.toml`     | Adds a managed `[model_providers.weave]` block + sets top-level `model_provider = "weave"`, both between `# >>> weave-router managed` markers. The provider requires and forwards the existing ChatGPT OAuth login for plan-backed routing; anything outside the markers is preserved. |
 
 **Project scope (`--scope project`):**
 

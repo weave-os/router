@@ -9,7 +9,7 @@
 #   (and .env.local if present). Start Postgres via `make db` or point
 #   DATABASE_URL at any Postgres you already have running.
 
-.PHONY: generate generate-statusline build test test-verbose test-statusline smoke initdb migrate-up migrate-down migrate-create seed setup full-setup db dev check fmt vet precommit install-hooks help install-cc uninstall-cc up up-hmm down down-hmm logs
+.PHONY: generate generate-statusline build test test-verbose test-statusline test-install smoke initdb migrate-up migrate-down migrate-create seed setup full-setup db dev check fmt vet precommit install-hooks help install-cc uninstall-cc up up-hmm down down-hmm logs
 
 # Load DATABASE_URL from .env files (matches docker-compose defaults).
 -include .env.development
@@ -37,6 +37,9 @@ test-verbose: ## Run all tests with verbose output
 
 test-statusline: ## Run the cc-statusline.sh regression tests (offline)
 	@bash install/tests/cc-statusline_test.sh
+
+test-install: ## Run offline installer regression tests
+	@bash install/tests/codex_install_test.sh
 
 smoke: ## Pre-merge smoke suite: real router stack + real Anthropic (needs ANTHROPIC_API_KEY)
 	./scripts/smoke/run.sh
@@ -179,7 +182,7 @@ fmt: ## Check gofmt (fails on unformatted files)
 vet: ## Run go vet
 	go vet ./...
 
-precommit: fmt vet build test test-statusline ## Fast pre-commit check (no codegen, no DB)
+precommit: fmt vet build test test-statusline test-install ## Fast pre-commit check (no codegen, no DB)
 
 install-hooks: ## Install git pre-commit hook
 	@HOOK_DIR=$$(git rev-parse --git-common-dir)/hooks; \
@@ -188,7 +191,7 @@ install-hooks: ## Install git pre-commit hook
 	chmod +x "$$HOOK_DIR/pre-commit"; \
 	echo "Pre-commit hook installed at $$HOOK_DIR/pre-commit"
 
-check: generate fmt vet build test test-statusline ## Full CI-equivalent check
+check: generate fmt vet build test test-statusline test-install ## Full CI-equivalent check
 	@if ! git diff --quiet internal/sqlc/; then \
 		echo "error: sqlc generation produced uncommitted changes"; \
 		git diff internal/sqlc/; \
