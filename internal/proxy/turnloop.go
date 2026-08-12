@@ -179,6 +179,60 @@ const (
 	hmmReasonPhaseChange          = "hmm_phase_change"
 )
 
+// hmmPinStickyArmSelectorUnavailReason is the PinTier value recorded when a
+// same-cluster reroute is suppressed because it came from
+// hmmArmSelectorUnavailableSentinel fallback noise rather than a real
+// scorer decision.
+const hmmPinStickyArmSelectorUnavailReason = "hmm_pin_sticky_arm_selector_unavailable"
+
+// hmmArmSelectorUnavailableSentinel mirrors
+// ml_dev.hmm_router.route_selector.PIN_STICKY_OVERRIDE_ELIGIBLE_SENTINEL.
+// The sidecar's Reason string is opaque to Go, so a substring match is the
+// cheapest way to detect "this fresh decision is a legacy-pairwise-bandit
+// fallback draw, not a contextual-arm-selector decision" without a schema
+// bump. Keep these two constants in sync across the Python/Go boundary.
+const hmmArmSelectorUnavailableSentinel = "[pin_sticky_override_eligible]"
+
+// stickPinOnArmSelectorUnavailable reports whether an authoritative-per-turn
+// HMM decision should be suppressed in favor of the active pin. It exists
+// because the contextual arm-selector falls back to a per-turn
+// epsilon-greedy bandit draw over the WHOLE cluster roster whenever fewer
+// than two roster arms have real training data in that cluster
+// (arm_selector.py's ArmSelectorUnavailableError) — with
+// authoritative-per-turn selection this fallback re-rolls independently on
+// every tool_result turn, producing visible mid-conversation churn between
+// arms nobody trained a preference between. A genuine EV upgrade, tier
+// change, or cache-breaking event must still switch normally, so this only
+// fires when the fresh decision itself carries the fallback sentinel.
+//
+// NOTE on tier check: the legacy pairwise bandit draws only within one
+// cluster's roster (roster_arms = self.roster.arms_for(cluster) at
+// route_selector.py:358, then bandit.choose(eligible_arms=eligible_arms) at
+// :432) — so the reroute is ALWAYS within the same cluster. A catalog-tier
+// mismatch between pin and fresh is NOT necessarily evidence of an upgrade:
+// in the prod incident the cluster was 'high' and the two candidates
+// (claude-sonnet-5 mid-tier, z-ai/glm-5.2 high-tier) are in DIFFERENT
+// catalog tiers despite being in the same HMM cluster. We gate on the
+// sentinel alone, not on tier.
+func stickPinOnArmSelectorUnavailable(fresh router.Decision, pin sessionpin.Pin, pinFound, prefixBroken bool) bool {
+	if !pinFound || pin.Model == "" {
+		return false
+	}
+	if !isHMMPinReason(pin.Reason) {
+		return false
+	}
+	if !strings.Contains(fresh.Reason, hmmArmSelectorUnavailableSentinel) {
+		return false
+	}
+	if pin.Model == fresh.Model {
+		return false
+	}
+	if prefixBroken {
+		return false
+	}
+	return true
+}
+
 func hmmHistoryRole(role string) string {
 	if role == "" {
 		role = sessionpin.DefaultRole
@@ -812,6 +866,20 @@ func (s *Service) runTurnLoop(
 	)
 	res.Fresh = fresh
 	if res.AuthoritativePerTurn {
+		if s.hmPinStickyOnArmSelectorUnavail && stickPinOnArmSelectorUnavailable(fresh, pin, pinFound, prefixBroken) {
+			decision := pinDecision(pin)
+			res.Decision = decision
+			res.StickyHit = true
+			res.PinTier = hmmPinStickyArmSelectorUnavailReason
+			log.Info("turnloop suppressed arm-selector-unavailable reroute; keeping session pin",
+				"pin_model", pin.Model,
+				"pin_provider", pin.Provider,
+				"fresh_model", fresh.Model,
+				"fresh_provider", fresh.Provider,
+			)
+			s.refreshPin(ctx, installationID, res.SessionKey, pin, res.PinRole, decision)
+			return res, nil
+		}
 		res.Decision = fresh
 		res.PinTier = "authoritative_per_turn"
 		s.writeNewPin(ctx, installationID, res.SessionKey, res.PinRole, fresh)

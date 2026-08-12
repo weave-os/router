@@ -577,6 +577,7 @@ func main() {
 	prefixTrimFreeSwitch := config.GetOr("ROUTER_PREFIX_TRIM_FREE_SWITCH", "true") == "true"
 	hmmUpgradeConfidence := parseEnvFloat("ROUTER_HMM_UPGRADE_CONFIDENCE_THRESHOLD", 0.85)
 	hmmSameTierPin := config.GetOr("ROUTER_HMM_SAME_TIER_PIN", "false") == "true"
+	hmPinStickyOnArmSelectorUnavail := config.GetOr("ROUTER_HMM_PIN_STICKY_ON_ARM_SELECTOR_UNAVAIL", "false") == "true"
 	handoverProviderName := config.GetOr("ROUTER_HANDOVER_PROVIDER", providers.ProviderAnthropic)
 	handoverModel := config.GetOr("ROUTER_HANDOVER_MODEL", proxy.DefaultHandoverModel)
 	handoverTimeout := parseEnvDurationMs("ROUTER_HANDOVER_TIMEOUT_MS", proxy.DefaultHandoverTimeout)
@@ -775,6 +776,7 @@ func main() {
 		WithPrefixTrimFreeSwitch(prefixTrimFreeSwitch).
 		WithHMMUpgradeConfidenceThreshold(hmmUpgradeConfidence).
 		WithHMMSameTierPin(hmmSameTierPin).
+		WithHMPinStickyOnArmSelectorUnavail(hmPinStickyOnArmSelectorUnavail).
 		WithEscapeNormalize(escapeNormalize).
 		WithEffortEscalation(effortEscalation).
 		WithCCOrchestrationToolsCrossVendor(ccOrchToolsCrossVendor).
