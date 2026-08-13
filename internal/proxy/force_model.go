@@ -97,10 +97,10 @@ var forceModelAliases = map[string]string{
 	"qwen-coder":     "qwen/qwen3-coder",
 	// qwen3.7-plus is retired from routing but still servable as passthrough;
 	// keep its own-name alias so direct pins resolve.
-	"qwen3.7-plus":   "qwen/qwen3.7-plus",
-	"qwen-max":       "qwen/qwen3.8-max",
-	"qwen3.8-max":    "qwen/qwen3.8-max",
-	"qwen3.8":        "qwen/qwen3.8-max",
+	"qwen3.7-plus": "qwen/qwen3.7-plus",
+	"qwen-max":     "qwen/qwen3.8-max",
+	"qwen3.8-max":  "qwen/qwen3.8-max",
+	"qwen3.8":      "qwen/qwen3.8-max",
 	// Generic kimi alias stays on 2.7; k3 is ~3x the price, so it needs an
 	// explicit pin rather than silently repricing everyone on the family alias.
 	"kimi":      "moonshotai/kimi-k2.7",
