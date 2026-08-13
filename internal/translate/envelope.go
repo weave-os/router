@@ -1187,7 +1187,7 @@ var modelMaxOutputTokens = map[string]int{
 	"gpt-5.5-nano": 128000,
 	"gpt-5.6-sol":  128000, "gpt-5.6-terra": 128000, "gpt-5.6-luna": 128000,
 	"grok-4.5": 131072, "grok-4.6": 131072,
-	"o1":       100000, "o1-pro": 100000, "o1-mini": 65536,
+	"o1": 100000, "o1-pro": 100000, "o1-mini": 65536,
 	"o3": 100000, "o3-pro": 100000, "o3-mini": 100000,
 	"o4-mini":              100000,
 	"gemini-3-pro-preview": 65536, "gemini-3.1-pro-preview": 65536,
