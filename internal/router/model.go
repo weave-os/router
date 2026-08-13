@@ -123,10 +123,8 @@ var (
 var (
 	openaiReasoning = NewSpecWithReasoning(ReasoningCapabilities{Levels: []string{"low", "medium", "high"}, SupportsBudget: true}, CapReasoning)
 	openaiBase      = NewSpec()
-	// grok-4.6 adds the "xhigh" effort tier that 4.5 lacked; mirrors the
-	// reasoning_effort menu xAI documents for grok-4.6. SupportsBudget stays
-	// false: xAI's API accepts the effort value but no reasoning_budget knob.
-	grok46 = NewSpecWithReasoning(ReasoningCapabilities{Levels: []string{"low", "medium", "high", "xhigh"}, SupportsBudget: true}, CapReasoning, CapXhighEffort)
+	// grok-4.6: openaiReasoning + the extra "xhigh" level.
+	grok46          = NewSpecWithReasoning(ReasoningCapabilities{Levels: []string{"low", "medium", "high", "xhigh"}, SupportsBudget: true}, CapReasoning, CapXhighEffort)
 )
 
 // Gemini's OpenAI-compatible endpoint does not honor reasoning_effort or
