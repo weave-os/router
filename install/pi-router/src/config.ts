@@ -225,9 +225,10 @@ export const WEAVE_MODELS: ProviderModelConfig[] = [
 	model("claude-opus-4-7", "Claude Opus 4.7 (via Weave Router)", 64000),
 	model("claude-sonnet-4-6", "Claude Sonnet 4.6 (via Weave Router)", 64000),
 	model("claude-haiku-4-5", "Claude Haiku 4.5 (via Weave Router)", 32000),
+	model("grok-4.6", "Grok 4.6 (via Weave Router)", 131072, 500000),
 ];
 
-function model(id: string, name: string, maxTokens: number): ProviderModelConfig {
+function model(id: string, name: string, maxTokens: number, contextWindow: number = 200000): ProviderModelConfig {
 	return {
 		id,
 		name,
@@ -235,7 +236,7 @@ function model(id: string, name: string, maxTokens: number): ProviderModelConfig
 		input: ["text", "image"],
 		// Real cost is decided by the router per request and is unknown client-side.
 		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-		contextWindow: 200000,
+		contextWindow,
 		maxTokens,
 	};
 }

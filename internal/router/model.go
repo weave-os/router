@@ -168,6 +168,10 @@ var registry = map[string]ModelSpec{
 	// rejects stop / presence / frequency penalties (CapReasoning strips stop).
 	"grok-4.5": openaiReasoning,
 
+	// grok-4.6: same reasoning_effort surface as grok-4.5 per xAI's launch
+	// notes — low/medium/high, default high, no auto mode.
+	"grok-4.6": openaiReasoning,
+
 	"gpt-5.4":      openaiReasoning,
 	"gpt-5.4-pro":  openaiReasoning,
 	"gpt-5.4-mini": openaiReasoning,

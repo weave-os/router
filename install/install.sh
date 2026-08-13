@@ -777,7 +777,8 @@ write_pi_models_config() {
         { id: "claude-sonnet-4-6", name: "Claude Sonnet 4.6 (via Weave Router)", reasoning: true, input: ["text","image"], contextWindow: 200000, maxTokens: 64000 },
         { id: "claude-haiku-4-5",  name: "Claude Haiku 4.5 (via Weave Router)",  reasoning: true, input: ["text","image"], contextWindow: 200000, maxTokens: 32000 },
         { id: "gpt-5.6-sol",       name: "GPT-5.6 Sol (via Weave Router)",       reasoning: true, input: ["text","image"], contextWindow: 1050000, maxTokens: 128000 },
-        { id: "grok-4.5",          name: "Grok 4.5 (via Weave Router)",          reasoning: true, input: ["text","image"], contextWindow: 500000, maxTokens: 131072 }
+        { id: "grok-4.5",          name: "Grok 4.5 (via Weave Router)",          reasoning: true, input: ["text","image"], contextWindow: 500000, maxTokens: 131072 },
+        { id: "grok-4.6",          name: "Grok 4.6 (via Weave Router)",          reasoning: true, input: ["text","image"], contextWindow: 500000, maxTokens: 131072 }
       ]
     }
   ')"
@@ -2168,6 +2169,7 @@ prices='{
     "gpt-5.6-sol":                      0.005,
     "gpt-5.6-terra":                    0.0025,
     "grok-4.5":                         0.002,
+    "grok-4.6":                         0.002,
     "minimax/minimax-m2.7":             0.0003,
     "minimax/minimax-m3":               0.0003,
     "mistralai/mistral-small-2603":     0.0002,
@@ -2237,6 +2239,7 @@ prices='{
     "gpt-5.6-sol":                      0.03,
     "gpt-5.6-terra":                    0.015,
     "grok-4.5":                         0.006,
+    "grok-4.6":                         0.006,
     "minimax/minimax-m2.7":             0.0012,
     "minimax/minimax-m3":               0.0012,
     "mistralai/mistral-small-2603":     0.0006,

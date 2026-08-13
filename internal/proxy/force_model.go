@@ -74,6 +74,13 @@ var forceModelAliases = map[string]string{
 	"grok-4.5":              "grok-4.5",
 	"grok4.5":               "grok-4.5",
 	"xai":                   "grok-4.5",
+	// Grok 4.6 (launched 2026-08-12) is the xAI flagship; the bare "grok"
+	// alias keeps pointing at 4.5 for backward compatibility with existing
+	// pins/cron jobs, but a "grok-max" alias surfaces 4.6 for users who want
+	// the newest model. Both 4.5 and 4.6 stay routable.
+	"grok-4.6":              "grok-4.6",
+	"grok4.6":               "grok-4.6",
+	"grok-max":              "grok-4.6",
 	"gpt-5-4":               "gpt-5.4",
 	"gpt-5-4-pro":           "gpt-5.4-pro",
 	"gpt-5-4-mini":          "gpt-5.4-mini",

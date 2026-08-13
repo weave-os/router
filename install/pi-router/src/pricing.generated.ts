@@ -6,7 +6,7 @@ export interface ModelPricing {
 	outputUsdPerMillion: number;
 }
 
-export const PRICING_VERSION = "catalog-sha256:2cb9ec1c2289f4a9";
+export const PRICING_VERSION = "catalog-sha256:e94ef91780cd28c7";
 
 export const MODEL_PRICING: Readonly<Record<string, ModelPricing>> = Object.freeze({
 	"claude-fable-5": { inputUsdPerMillion: 10, outputUsdPerMillion: 50 },
@@ -57,6 +57,7 @@ export const MODEL_PRICING: Readonly<Record<string, ModelPricing>> = Object.free
 	"gpt-5.6-sol": { inputUsdPerMillion: 5, outputUsdPerMillion: 30 },
 	"gpt-5.6-terra": { inputUsdPerMillion: 2.5, outputUsdPerMillion: 15 },
 	"grok-4.5": { inputUsdPerMillion: 2, outputUsdPerMillion: 6 },
+	"grok-4.6": { inputUsdPerMillion: 2, outputUsdPerMillion: 6 },
 	"minimax/minimax-m2.7": { inputUsdPerMillion: 0.3, outputUsdPerMillion: 1.2 },
 	"minimax/minimax-m3": { inputUsdPerMillion: 0.3, outputUsdPerMillion: 1.2 },
 	"mistralai/mistral-small-2603": { inputUsdPerMillion: 0.2, outputUsdPerMillion: 0.6 },

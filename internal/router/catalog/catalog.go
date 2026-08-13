@@ -299,7 +299,16 @@ var Models = []Model{
 	}},
 
 	// --- xAI Grok --- native only; OpenRouter unused in prod.
+	// Grok 4.6 launched 2026-08-12 as the xAI flagship ("most intelligent"),
+	// positioned by xAI at parity with GPT-5.6 Sol. Pricing is tiered at
+	// 200K prompt tokens (2x above the threshold); the catalog uses the
+	// standard (<200K) rate as the binding's published price, matching the
+	// grok-4.5 convention — long-context repricing is a future model.go
+	// follow-up rather than a structure change to Pricing.
 	{ID: "grok-4.5", Tier: TierHigh, ContextWindow: 500_000, Providers: []ProviderBinding{
+		{Provider: providers.ProviderXAI, Price: Pricing{InputUSDPer1M: 2.00, OutputUSDPer1M: 6.00, CacheReadMultiplier: 0.25}},
+	}},
+	{ID: "grok-4.6", Tier: TierHigh, ContextWindow: 500_000, Providers: []ProviderBinding{
 		{Provider: providers.ProviderXAI, Price: Pricing{InputUSDPer1M: 2.00, OutputUSDPer1M: 6.00, CacheReadMultiplier: 0.25}},
 	}},
 
