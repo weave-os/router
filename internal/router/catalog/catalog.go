@@ -507,11 +507,19 @@ var Models = []Model{
 	{ID: "qwen/qwen3.5-flash-02-23", Tier: TierLow, ContextWindow: 1_000_000, ImageInput: ImageInputUnsupported, Providers: []ProviderBinding{
 		{Provider: providers.ProviderOpenRouter, Price: Pricing{InputUSDPer1M: 0.050, OutputUSDPer1M: 0.150, CacheReadMultiplier: 0.10}},
 	}},
-	// Fireworks-only: the closed Alibaba API surface is deliberately avoided
-	// (Fireworks is SOC-2, keeps prompts off Alibaba); OpenRouter's route for
-	// this model forwards to Alibaba, so it's skipped.
-	{ID: "qwen/qwen3.7-plus", Tier: TierHigh, ContextWindow: 262_144, Providers: []ProviderBinding{
+	// qwen3.7-plus retired from routing (superseded by qwen3.8-max below);
+	// kept as priced passthrough so lingering BYOK/direct pins bill at real cost.
+	{ID: "qwen/qwen3.7-plus", ContextWindow: 262_144, Providers: []ProviderBinding{
 		{Provider: providers.ProviderFireworks, UpstreamID: "accounts/fireworks/models/qwen3p7-plus",
 			Price: Pricing{InputUSDPer1M: 0.400, OutputUSDPer1M: 1.600, CacheReadMultiplier: 0.20}},
+	}},
+	// Fireworks-only: the closed Alibaba API surface is deliberately avoided
+	// (Fireworks is SOC-2, keeps prompts off Alibaba); OpenRouter's/Together's
+	// routes for this model forward to Alibaba/DashScope, so they're skipped.
+	// Catalog reports Fireworks' native 262_144 context, not the 1M figure
+	// Alibaba/OpenRouter market for the hosted "Max" API surface.
+	{ID: "qwen/qwen3.8-max", Tier: TierHigh, ContextWindow: 262_144, Providers: []ProviderBinding{
+		{Provider: providers.ProviderFireworks, UpstreamID: "accounts/fireworks/models/qwen3p8-max",
+			Price: Pricing{InputUSDPer1M: 2.000, OutputUSDPer1M: 6.000, CacheReadMultiplier: 0.125}},
 	}},
 }

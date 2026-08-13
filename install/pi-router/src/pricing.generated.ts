@@ -6,7 +6,7 @@ export interface ModelPricing {
 	outputUsdPerMillion: number;
 }
 
-export const PRICING_VERSION = "catalog-sha256:e94ef91780cd28c7";
+export const PRICING_VERSION = "catalog-sha256:f2841a252235d113";
 
 export const MODEL_PRICING: Readonly<Record<string, ModelPricing>> = Object.freeze({
 	"claude-fable-5": { inputUsdPerMillion: 10, outputUsdPerMillion: 50 },
@@ -73,6 +73,7 @@ export const MODEL_PRICING: Readonly<Record<string, ModelPricing>> = Object.free
 	"qwen/qwen3.5-flash-02-23": { inputUsdPerMillion: 0.05, outputUsdPerMillion: 0.15 },
 	"qwen/qwen3.6-35b-a3b": { inputUsdPerMillion: 0.15, outputUsdPerMillion: 1 },
 	"qwen/qwen3.7-plus": { inputUsdPerMillion: 0.4, outputUsdPerMillion: 1.6 },
+	"qwen/qwen3.8-max": { inputUsdPerMillion: 2, outputUsdPerMillion: 6 },
 	"xiaomi/mimo-v2.5-pro": { inputUsdPerMillion: 1, outputUsdPerMillion: 3 },
 	"z-ai/glm-5": { inputUsdPerMillion: 1, outputUsdPerMillion: 3.2 },
 	"z-ai/glm-5.1": { inputUsdPerMillion: 1.4, outputUsdPerMillion: 4.4 },

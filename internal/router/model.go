@@ -226,6 +226,7 @@ var registry = map[string]ModelSpec{
 	"qwen/qwen3-30b-a3b-instruct-2507": openAICompatBase,
 	"qwen/qwen3-coder-next":            openAICompatBase,
 	"qwen/qwen3-next-80b-a3b-instruct": openAICompatBase,
+	"qwen/qwen3.8-max":                 openAICompatBase,
 }
 
 // ValidateCatalogReasoningCapabilities validates every declared model at
