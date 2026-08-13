@@ -209,6 +209,43 @@ func TestResponsesToChatCompletions_LeavesUserContentAlone(t *testing.T) {
 	assert.Contains(t, messages[0].Get("content").Str, "**WEAVE ROUTER**")
 }
 
+func TestStripRoutingBadgeFromResponsesInput_PreservesNativeFields(t *testing.T) {
+	body := []byte(`{
+		"model":"gpt-5.6-sol",
+		"input":[
+			{"type":"message","role":"user","content":[{"type":"input_text","text":"**WEAVE ROUTER** — quoted\n\ndo not strip"}]},
+			{"type":"reasoning","id":"rs_1","encrypted_content":"opaque"},
+			{"type":"message","id":"msg_1","role":"assistant","status":"completed","content":[
+				{"type":"refusal","refusal":""},
+				{"type":"output_text","text":"**Weave Router** — gpt-5.6-terra ← gpt-5.6-sol\n\nanswer","annotations":[{"type":"url_citation","url":"https://example.com"}]},
+				{"type":"output_text","text":"**WEAVE ROUTER** — user-authored\n\nlater part"}
+			]},
+			{"type":"function_call","id":"fc_1","call_id":"call_1","name":"lookup","arguments":"{\"x\":1}"}
+		],
+		"metadata":{"keep":true}
+	}`)
+
+	out, err := translate.StripRoutingBadgeFromResponsesInput(body)
+	require.NoError(t, err)
+
+	root := gjson.ParseBytes(out)
+	assert.Equal(t, "**WEAVE ROUTER** — quoted\n\ndo not strip", root.Get("input.0.content.0.text").Str)
+	assert.Equal(t, "opaque", root.Get("input.1.encrypted_content").Str)
+	assert.Equal(t, "answer", root.Get("input.2.content.1.text").Str)
+	assert.Equal(t, "https://example.com", root.Get("input.2.content.1.annotations.0.url").Str)
+	assert.Equal(t, "**WEAVE ROUTER** — user-authored\n\nlater part", root.Get("input.2.content.2.text").Str)
+	assert.Equal(t, "call_1", root.Get("input.3.call_id").Str)
+	assert.True(t, root.Get("metadata.keep").Bool())
+}
+
+func TestStripRoutingBadgeFromResponsesInput_NoMatchPreservesBytes(t *testing.T) {
+	body := []byte("{ \"model\" : \"gpt-5.6-sol\", \"input\" : [{\"type\":\"message\",\"role\":\"assistant\",\"content\":\"plain answer\"}] }\n")
+
+	out, err := translate.StripRoutingBadgeFromResponsesInput(body)
+	require.NoError(t, err)
+	assert.Equal(t, body, out)
+}
+
 func TestResponsesToChatCompletions_MaxOutputAndDropsReasoning(t *testing.T) {
 	body := []byte(`{
 		"model": "gpt-5",
@@ -355,6 +392,79 @@ func TestResponsesWriter_PassthroughForwardsVerbatim(t *testing.T) {
 	// Output is exactly the upstream bytes: no chat->Responses translation, no
 	// synthesized or duplicated events.
 	assert.Equal(t, native, rec.Body.String())
+}
+
+func TestResponsesWriter_PassthroughBadgePreservesNativeStream(t *testing.T) {
+	for _, terminalType := range []string{"response.completed", "response.incomplete"} {
+		t.Run(terminalType, func(t *testing.T) {
+			payloads := []string{
+				`{"type":"response.created","sequence_number":0,"response":{"id":"resp_native","model":"gpt-5.6-terra","status":"in_progress","output":[]}}`,
+				`{"type":"response.in_progress","sequence_number":1,"response":{"id":"resp_native","model":"gpt-5.6-terra","status":"in_progress","output":[]}}`,
+				`{"type":"response.output_item.added","sequence_number":2,"output_index":0,"item":{"id":"msg_native","type":"message","role":"assistant","status":"in_progress","content":[]}}`,
+				`{"type":"response.content_part.added","sequence_number":3,"item_id":"msg_native","output_index":0,"content_index":0,"part":{"type":"output_text","text":"","annotations":[]}}`,
+				`{"type":"response.output_text.delta","sequence_number":4,"item_id":"msg_native","output_index":0,"content_index":0,"delta":"o"}`,
+				`{"type":"response.output_text.delta","sequence_number":5,"item_id":"msg_native","output_index":0,"content_index":0,"delta":"k"}`,
+				`{"type":"response.output_text.done","sequence_number":6,"item_id":"msg_native","output_index":0,"content_index":0,"text":"ok"}`,
+				`{"type":"response.content_part.done","sequence_number":7,"item_id":"msg_native","output_index":0,"content_index":0,"part":{"type":"output_text","text":"ok","annotations":[]}}`,
+				`{"type":"response.output_item.done","sequence_number":8,"output_index":0,"item":{"id":"msg_native","type":"message","role":"assistant","status":"completed","content":[{"type":"output_text","text":"ok","annotations":[]}]}}`,
+				`{"type":"response.output_item.added","sequence_number":9,"output_index":1,"item":{"id":"fc_native","type":"function_call","call_id":"call_native","name":"lookup","arguments":"","status":"in_progress"}}`,
+				`{"type":"response.function_call_arguments.delta","sequence_number":10,"item_id":"fc_native","output_index":1,"delta":"{\"x\":1}"}`,
+				`{"type":"response.function_call_arguments.done","sequence_number":11,"item_id":"fc_native","output_index":1,"arguments":"{\"x\":1}"}`,
+				`{"type":"response.output_item.done","sequence_number":12,"output_index":1,"item":{"id":"fc_native","type":"function_call","call_id":"call_native","name":"lookup","arguments":"{\"x\":1}","status":"completed"}}`,
+				`{"type":"` + terminalType + `","sequence_number":13,"response":{"id":"resp_native","model":"gpt-5.6-terra","status":"completed","output":[{"id":"msg_native","type":"message","role":"assistant","status":"completed","content":[{"type":"output_text","text":"ok","annotations":[]}]},{"id":"fc_native","type":"function_call","call_id":"call_native","name":"lookup","arguments":"{\"x\":1}","status":"completed"}]}}`,
+			}
+			var native strings.Builder
+			for _, payload := range payloads {
+				native.WriteString("event: " + gjson.Get(payload, "type").Str + "\n")
+				native.WriteString("data: " + payload + "\n\n")
+			}
+
+			rec := httptest.NewRecorder()
+			w := translate.NewResponsesWriter(rec, "gpt-5.6-sol")
+			w.SetPassthroughBadge()
+			w.Header().Set("Content-Type", "text/event-stream")
+			w.Header().Set("x-router-model", "gpt-5.6-terra")
+			w.WriteHeader(200)
+
+			raw := []byte(native.String())
+			for start := 0; start < len(raw); start += 37 {
+				end := min(start+37, len(raw))
+				_, err := w.Write(raw[start:end])
+				require.NoError(t, err)
+			}
+			require.NoError(t, w.Finalize())
+
+			events := parseSSEEvents(t, rec.Body.Bytes())
+			require.Len(t, events, len(payloads))
+			for index, event := range events {
+				assert.EqualValues(t, index, event["sequence_number"], "sequence number at event %d", index)
+				assert.Equal(t, gjson.Get(payloads[index], "type").Str, event["type"])
+			}
+
+			badge := "**Weave Router** — gpt-5.6-terra ← gpt-5.6-sol\n\n"
+			assert.Equal(t, badge+"o", events[4]["delta"], "only the first text delta gets the badge")
+			assert.Equal(t, "k", events[5]["delta"], "later deltas stay native")
+			assert.Equal(t, badge+"ok", events[6]["text"])
+			assert.Equal(t, badge+"ok", events[7]["part"].(map[string]any)["text"])
+			assert.Equal(t, badge+"ok", events[8]["item"].(map[string]any)["content"].([]any)[0].(map[string]any)["text"])
+			response := events[13]["response"].(map[string]any)
+			assert.Equal(t, "resp_native", response["id"])
+			assert.Equal(t, "gpt-5.6-terra", response["model"])
+			output := response["output"].([]any)
+			assert.Equal(t, badge+"ok", output[0].(map[string]any)["content"].([]any)[0].(map[string]any)["text"])
+
+			// Tool events and the completed aggregate tool item stay untouched.
+			for _, index := range []int{9, 10, 11, 12} {
+				var original map[string]any
+				require.NoError(t, json.Unmarshal([]byte(payloads[index]), &original))
+				assert.Equal(t, original, events[index])
+			}
+			var originalTerminal map[string]any
+			require.NoError(t, json.Unmarshal([]byte(payloads[13]), &originalTerminal))
+			originalTool := originalTerminal["response"].(map[string]any)["output"].([]any)[1]
+			assert.Equal(t, originalTool, output[1])
+		})
+	}
 }
 
 func TestResponsesWriter_PrependsBadgeOnSwap(t *testing.T) {

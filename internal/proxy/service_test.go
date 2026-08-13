@@ -22,6 +22,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/tidwall/gjson"
 )
 
 type fakeRouter struct {
@@ -304,6 +305,75 @@ func TestService_ProxyOpenAIResponses_CustomToolUsesNativeOpenAIFamily(t *testin
 	assert.JSONEq(t, `{"id":"resp_1","object":"response","output":[]}`, rec.Body.String())
 }
 
+func TestService_ProxyOpenAIResponses_NativeBadgeIsCodexOnlyAndHonorsSuppression(t *testing.T) {
+	const native = "event: response.output_text.delta\n" +
+		"data: {\"type\":\"response.output_text.delta\",\"sequence_number\":0,\"item_id\":\"msg_1\",\"output_index\":0,\"content_index\":0,\"delta\":\"ok\"}\n\n" +
+		"event: response.output_item.done\n" +
+		"data: {\"type\":\"response.output_item.done\",\"sequence_number\":1,\"output_index\":0,\"item\":{\"id\":\"msg_1\",\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"ok\"}]}}\n\n" +
+		"event: response.completed\n" +
+		"data: {\"type\":\"response.completed\",\"sequence_number\":2,\"response\":{\"id\":\"resp_1\",\"model\":\"gpt-5.6-terra\",\"output\":[{\"id\":\"msg_1\",\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"ok\"}]}]}}\n\n"
+	const priorBadge = "**Weave Router** — gpt-5.6-sol\n\nold answer"
+
+	for _, tc := range []struct {
+		name       string
+		clientApp  string
+		marker     string
+		suggestion bool
+		wantBadge  bool
+		wantStrip  bool
+	}{
+		{name: "Codex", clientApp: proxy.ClientAppCodex, wantBadge: true, wantStrip: true},
+		{name: "Codex marker opt-out", clientApp: proxy.ClientAppCodex, marker: "off", wantStrip: true},
+		{name: "Codex suggestion mode", clientApp: proxy.ClientAppCodex, suggestion: true, wantStrip: true},
+		{name: "non-Codex", clientApp: proxy.ClientAppOpencode},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			provider := &fakeProvider{proxyResponse: func(w http.ResponseWriter) {
+				w.Header().Set("Content-Type", "text/event-stream")
+				w.WriteHeader(http.StatusOK)
+				_, _ = io.WriteString(w, native)
+			}}
+			fr := &fakeRouter{decision: router.Decision{
+				Provider: providers.ProviderOpenAI,
+				Model:    "gpt-5.6-terra",
+				Reason:   "test",
+			}}
+			svc := proxy.NewService(fr, map[string]providers.Client{
+				providers.ProviderOpenAI: provider,
+			}, nil, false, nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil)
+
+			ctx := context.WithValue(context.Background(), proxy.OpenAISubscriptionContextKey{}, "eyJhbGciOiJSUzI1NiJ9.codex.sig")
+			ctx = context.WithValue(ctx, proxy.OpenAIAccountIDContextKey{}, "acct-123")
+			ctx = context.WithValue(ctx, proxy.ClientIdentityContextKey{}, proxy.ClientIdentity{ClientApp: tc.clientApp})
+			body := []byte(`{"model":"gpt-5.6-sol","stream":true,"input":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"**Weave Router** — gpt-5.6-sol\n\nold answer"}]},{"type":"message","role":"user","content":"continue"}]}`)
+			rec := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(""))
+			if tc.marker != "" {
+				req.Header.Set("X-Weave-Routing-Marker", tc.marker)
+			}
+			if tc.suggestion {
+				req.Header.Set("x-weave-suggestion-mode", "true")
+			}
+
+			require.NoError(t, svc.ProxyOpenAIResponses(ctx, body, rec, req))
+			require.Len(t, provider.proxyBodies, 1)
+			assert.Equal(t, "gpt-5.6-terra", gjson.GetBytes(provider.proxyBodies[0], "model").Str)
+			upstreamHistory := gjson.GetBytes(provider.proxyBodies[0], "input.0.content.0.text").Str
+			if tc.wantStrip {
+				assert.Equal(t, "old answer", upstreamHistory)
+			} else {
+				assert.Equal(t, priorBadge, upstreamHistory)
+			}
+			if tc.wantBadge {
+				assert.Contains(t, rec.Body.String(), "**Weave Router** — gpt-5.6-terra ← gpt-5.6-sol")
+				assert.NotEqual(t, native, rec.Body.String())
+			} else {
+				assert.Equal(t, native, rec.Body.String(), "suppressed and non-Codex clients retain byte identity")
+			}
+		})
+	}
+}
+
 func TestService_CodexRequestRoutesInfrastructureOpenAIModelWithoutOAuth(t *testing.T) {
 	provider := &fakeProvider{proxyResponse: func(w http.ResponseWriter) {
 		w.Header().Set("Content-Type", "application/json")
@@ -407,6 +477,80 @@ func TestService_ProxyOpenAIResponses_CodexPassthroughUsesChatForOpenAICompatPro
 	assert.Equal(t, providers.EndpointChatCompletions, openRouter.proxyEndpoints[0])
 	assert.Contains(t, string(openRouter.proxyBodies[0]), `"messages"`)
 	assert.NotContains(t, string(openRouter.proxyBodies[0]), `"input_text"`)
+}
+
+func TestService_ProxyOpenAIResponses_CodexPortableBridgeKeepsHMMProvidersAndRestoresCustomTool(t *testing.T) {
+	fireworks := &fakeProvider{proxyResponse: func(w http.ResponseWriter) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		_, _ = io.WriteString(w,
+			`data: {"id":"chatcmpl_1","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_new","type":"function","function":{"name":"exec","arguments":"{\"input\":\"return tools.apply_patch({});\"}"}}]},"finish_reason":null}]}`+"\n\n"+
+				`data: {"id":"chatcmpl_1","object":"chat.completion.chunk","choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}]}`+"\n\n"+
+				"data: [DONE]\n\n")
+	}}
+	fr := &fakeRouter{decision: router.Decision{
+		Provider: providers.ProviderFireworks,
+		Model:    "moonshotai/kimi-k2.7",
+		Reason:   "hmm:test",
+	}}
+	svc := proxy.NewService(fr, map[string]providers.Client{
+		providers.ProviderOpenAI:    &fakeProvider{},
+		providers.ProviderAnthropic: &fakeProvider{},
+		providers.ProviderFireworks: fireworks,
+		providers.ProviderGoogle:    &fakeProvider{},
+		providers.ProviderTogether:  &fakeProvider{},
+	}, nil, false, nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil).
+		WithDeploymentKeyedProviders(map[string]struct{}{
+			providers.ProviderOpenAI:    {},
+			providers.ProviderAnthropic: {},
+			providers.ProviderFireworks: {},
+			providers.ProviderGoogle:    {},
+			providers.ProviderTogether:  {},
+		})
+
+	ctx := context.WithValue(context.Background(), proxy.OpenAISubscriptionContextKey{}, "eyJhbGciOiJSUzI1NiJ9.codex.sig")
+	ctx = context.WithValue(ctx, proxy.OpenAIAccountIDContextKey{}, "acct-123")
+	ctx = context.WithValue(ctx, proxy.ClientIdentityContextKey{}, proxy.ClientIdentity{ClientApp: proxy.ClientAppCodex})
+	body := []byte(`{
+		"model":"gpt-5.6-sol",
+		"stream":true,
+		"input":[
+			{"type":"reasoning","id":"rs_1","summary":[],"encrypted_content":"opaque"},
+			{"type":"custom_tool_call","id":"ctc_old","call_id":"call_old","name":"exec","input":"return tools.read({});"},
+			{"type":"custom_tool_call_output","call_id":"call_old","output":[{"type":"input_text","text":"first"},{"type":"input_text","text":"second"}]},
+			{"type":"function_call","id":"fc_old","call_id":"call_send","namespace":"collaboration","name":"send_message","arguments":"{\"target\":\"/root\"}"},
+			{"type":"function_call_output","call_id":"call_send","output":"ok"},
+			{"type":"message","role":"user","content":[{"type":"input_text","text":"continue"}]}
+		],
+		"tools":[{"type":"namespace","name":"functions","tools":[
+			{"type":"custom","name":"exec","description":"Run code mode","format":{"type":"grammar","syntax":"lark","definition":"start: /.+/"}},
+			{"type":"namespace","name":"collaboration","tools":[{"type":"function","name":"send_message","parameters":{"type":"object"}}]}
+		]}]
+	}`)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(""))
+
+	require.NoError(t, svc.ProxyOpenAIResponses(ctx, body, rec, req))
+	require.NotNil(t, fr.capturedReq)
+	assert.True(t, fr.capturedReq.HasTools)
+	assert.Contains(t, fr.capturedReq.EnabledProviders, providers.ProviderOpenAI)
+	assert.Contains(t, fr.capturedReq.EnabledProviders, providers.ProviderFireworks,
+		"portable Codex turns must reach the ordinary deployed HMM provider roster")
+	assert.Contains(t, fr.capturedReq.EnabledProviders, providers.ProviderAnthropic)
+	assert.Contains(t, fr.capturedReq.EnabledProviders, providers.ProviderGoogle)
+	assert.Contains(t, fr.capturedReq.EnabledProviders, providers.ProviderTogether)
+	require.Len(t, fireworks.proxyBodies, 1)
+	chatBody := fireworks.proxyBodies[0]
+	assert.Equal(t, "moonshotai/kimi-k2.7", gjson.GetBytes(chatBody, "model").Str)
+	assert.Equal(t, "exec", gjson.GetBytes(chatBody, "tools.0.function.name").Str)
+	assert.Equal(t, "collaboration__send_message", gjson.GetBytes(chatBody, "tools.1.function.name").Str)
+	assert.Contains(t, string(chatBody), `"tool_call_id":"call_old"`)
+	assert.Contains(t, string(chatBody), "first")
+	assert.Contains(t, string(chatBody), "second")
+	assert.Contains(t, rec.Body.String(), `"type":"custom_tool_call"`)
+	assert.Contains(t, rec.Body.String(), `"name":"exec"`)
+	assert.Contains(t, rec.Body.String(), `"input":"return tools.apply_patch({});"`)
+	assert.NotContains(t, rec.Body.String(), `"type":"function_call","status":"completed","call_id":"call_new"`)
 }
 
 func (f *fakeProvider) Passthrough(ctx context.Context, prep providers.PreparedRequest, w http.ResponseWriter, r *http.Request) error {

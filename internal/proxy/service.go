@@ -4712,7 +4712,16 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		// single-binding GPT model with no cross-format fallback to retry
 		// into. If a GPT model ever gains a fallback, gate this per-attempt.
 		if verbatimPassthrough {
-			rw.SetPassthrough()
+			markerEnabled := suppressMarkerIfRequested(r.Header, "enabled") != "" && !routeRes.SuggestionMode
+			mandatoryWarning := billing.SubscriptionOnlyFromContext(ctx)
+			if clientID.ClientApp == ClientAppCodex && (markerEnabled || mandatoryWarning) {
+				if mandatoryWarning {
+					rw.SetBadgeText(subscriptionOnlyWarningMarkerCodex)
+				}
+				rw.SetPassthroughBadge()
+			} else {
+				rw.SetPassthrough()
+			}
 		}
 		if len(bindings) <= 1 {
 			if err := rw.Prelude(env.Stream()); err != nil {
@@ -5113,17 +5122,34 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 // pricing, and translation matrix unchanged.
 func (s *Service) ProxyOpenAIResponses(ctx context.Context, body []byte, w http.ResponseWriter, r *http.Request) error {
 	ctx = s.withUsageObserver(ctx, r.Header)
-	conversion, err := translate.ConvertResponsesToChatCompletions(body)
+	clientAppCodex := ClientIdentityFrom(ctx).ClientApp == ClientAppCodex
+	conversion, err := translate.ConvertResponsesToChatCompletionsWithOptions(body, translate.ResponsesConversionOptions{
+		PortableCodex: clientAppCodex,
+	})
 	if err != nil {
 		return fmt.Errorf("translate responses request: %w", err)
 	}
 	chatBody, model := conversion.Body, conversion.Model
+	codexNativeRequest := codexResponsesRequest(ctx, r.Header)
 	// Keep original bytes only when the request is unrepresentable as Chat
 	// Completions (NativeOnly) or a Codex subscription is using its direct endpoint.
-	if conversion.Requirements.NativeOnly || codexResponsesRequest(ctx, r.Header) {
-		ctx = context.WithValue(ctx, codexResponsesBodyContextKey{}, conversion.OriginalBody)
+	if conversion.Requirements.NativeOnly || codexNativeRequest {
+		nativeBody := conversion.OriginalBody
+		if clientAppCodex {
+			// Codex records response.output_item.done as conversation history and
+			// sends it back in the next native request. Remove only the badge this
+			// client opted into so router text never reaches the selected model.
+			nativeBody, err = translate.StripRoutingBadgeFromResponsesInput(nativeBody)
+			if err != nil {
+				return fmt.Errorf("strip native Responses routing badge: %w", err)
+			}
+		}
+		ctx = context.WithValue(ctx, codexResponsesBodyContextKey{}, nativeBody)
 	}
-	if conversion.Requirements.NativeOnly {
+	// Routing and sticky-state hashes must describe the exact native payload
+	// that an OpenAI/Codex decision will receive, even when the portable Codex
+	// projection lets HMM consider other deployed providers.
+	if conversion.Requirements.NativeOnly || (clientAppCodex && codexNativeRequest) {
 		originalEnvelope, parseErr := translate.ParseOpenAI(conversion.OriginalBody)
 		if parseErr != nil {
 			return fmt.Errorf("parse native Responses request: %w", parseErr)
@@ -5136,6 +5162,7 @@ func (s *Service) ProxyOpenAIResponses(ctx context.Context, body []byte, w http.
 	// Routing, billing, and telemetry are reused via
 	// ProxyOpenAIChatCompletion; chatBody is used only for routing features.
 	wrapper := translate.NewResponsesWriter(w, model)
+	wrapper.SetToolMappings(conversion.ToolMappings)
 	// Defer the high-fidelity call-log emission until after Finalize: the
 	// ResponsesWriter buffers (non-streaming) and emits tail events only in
 	// Finalize, so the captured io.response_body is incomplete until then.
