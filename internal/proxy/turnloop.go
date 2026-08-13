@@ -187,11 +187,22 @@ const hmmPinStickyArmSelectorUnavailReason = "hmm_pin_sticky_arm_selector_unavai
 // draw without a schema bump. Keep in sync across the Python/Go boundary.
 const hmmArmSelectorUnavailableSentinel = "[pin_sticky_override_eligible]"
 
+// decisionPolicyGroup returns the policy cluster/group a decision was drawn
+// from, or "" for reconstructed pins and routers that report no group.
+func decisionPolicyGroup(dec router.Decision) string {
+	if dec.Metadata == nil {
+		return ""
+	}
+	return dec.Metadata.PolicyGroup
+}
+
 // stickPinOnArmSelectorUnavailable reports whether the active pin should override a fresh
 // authoritative-per-turn decision. Returns true only when the fresh Reason carries
 // hmmArmSelectorUnavailableSentinel — the arm-selector fell back to per-turn epsilon-greedy
 // draws over the full cluster roster (ArmSelectorUnavailableError), causing churn on every
 // tool_result turn. No tier check: the bandit draws within one cluster, not one catalog tier.
+// Both sides must report the SAME policy group, so a classifier escalation into a different
+// cluster still switches through even when that cluster's selector is also undertrained.
 func stickPinOnArmSelectorUnavailable(fresh router.Decision, pin sessionpin.Pin, pinFound, prefixBroken bool) bool {
 	if !pinFound || pin.Model == "" {
 		return false
@@ -200,6 +211,12 @@ func stickPinOnArmSelectorUnavailable(fresh router.Decision, pin sessionpin.Pin,
 		return false
 	}
 	if !strings.Contains(fresh.Reason, hmmArmSelectorUnavailableSentinel) {
+		return false
+	}
+	// Unknown group on either side means we cannot prove the reroute stayed in
+	// the pin's cluster, so fail open and let the fresh decision serve.
+	freshGroup := decisionPolicyGroup(fresh)
+	if freshGroup == "" || pin.PolicyGroup == "" || freshGroup != pin.PolicyGroup {
 		return false
 	}
 	if pin.Model == fresh.Model {
@@ -1371,9 +1388,12 @@ func (s *Service) refreshPin(ctx context.Context, installationID uuid.UUID, sess
 		Model:          chosen.Model,
 		// No scorer runs on a plain refresh, so carry the existing pair
 		// forward unchanged (ON CONFLICT preserves an empty one).
-		PairedProvider:        existing.PairedProvider,
-		PairedModel:           existing.PairedModel,
-		Reason:                chosen.Reason,
+		PairedProvider: existing.PairedProvider,
+		PairedModel:    existing.PairedModel,
+		Reason:         chosen.Reason,
+		// Same rationale as the pair above: a refresh runs no policy, so the
+		// reconstructed decision carries no group. Carry the stored one forward.
+		PolicyGroup:           existing.PolicyGroup,
 		TurnCount:             1,
 		PinnedUntil:           pinExpiry(chosen.Reason),
 		LastInputTokens:       existing.LastInputTokens,
@@ -1412,6 +1432,7 @@ func (s *Service) writeNewPin(ctx context.Context, installationID uuid.UUID, ses
 		PairedProvider: pairedProvider,
 		PairedModel:    pairedModel,
 		Reason:         chosen.Reason,
+		PolicyGroup:    decisionPolicyGroup(chosen),
 		TurnCount:      1,
 		PinnedUntil:    pinExpiry(chosen.Reason),
 	}

@@ -390,6 +390,7 @@ func (r *SidecarRouter) Route(ctx context.Context, req router.Request) (router.D
 			RouteID:                       routeID,
 			Strategy:                      string(strategy),
 			PolicyRouteKey:                res.PolicyRouteKey,
+			PolicyGroup:                   res.PolicyGroup,
 			PolicyArtifactID:              res.PolicyArtifactID,
 			PolicyArtifactSHA256:          res.PolicyArtifactSHA256,
 			RosterVersion:                 res.RosterVersion,

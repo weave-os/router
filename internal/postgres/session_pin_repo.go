@@ -50,6 +50,7 @@ func (r *SessionPinRepo) Upsert(ctx context.Context, p sessionpin.Pin) error {
 		PairedProvider: p.PairedProvider,
 		PairedModel:    p.PairedModel,
 		DecisionReason: p.Reason,
+		PolicyGroup:    p.PolicyGroup,
 		TurnCount:      int32(p.TurnCount),
 		PinnedUntil:    pgtype.Timestamp{Time: p.PinnedUntil.UTC(), Valid: true},
 	})
@@ -160,6 +161,7 @@ func toSessionPin(row sqlc.RouterSessionPin) sessionpin.Pin {
 		PairedProvider:            row.PairedProvider,
 		PairedModel:               row.PairedModel,
 		Reason:                    row.DecisionReason,
+		PolicyGroup:               row.PolicyGroup,
 		TurnCount:                 int(row.TurnCount),
 		PinnedUntil:               timestampOrZero(row.PinnedUntil),
 		FirstPinnedAt:             timestampOrZero(row.FirstPinnedAt),

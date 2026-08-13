@@ -445,6 +445,7 @@ type RouterSessionPin struct {
 	PairedModel               string
 	ConsecutiveOverloadErrors int32
 	DisabledProviders         []string
+	PolicyGroup               string
 }
 
 // Shadow-mode spiral (death-march) detections: log-only fire-rate corpus measured on live traffic before escalation is armed

@@ -25,17 +25,30 @@ const hmmPinStickyTestFallbackReason = "arm-selector unavailable for 'high': arm
 
 // TestStickPinOnArmSelectorUnavailable directly exercises the pure predicate
 // against the full stick/no-stick matrix. Only the exact
-// arm-selector-unavailable-fallback + same-HMM-pin-reason + different model +
-// non-trimmed combination may suppress a fresh decision.
+// arm-selector-unavailable-fallback + same-HMM-pin-reason + same-policy-group +
+// different model + non-trimmed combination may suppress a fresh decision.
 func TestStickPinOnArmSelectorUnavailable(t *testing.T) {
 	const pinnedModel = "claude-opus-4-7"         // catalog.TierHigh
 	const sameTierFresh = "claude-opus-4-6"       // catalog.TierHigh
-	const differentTierFresh = "claude-haiku-4-5" // catalog.TierLow — different tier, but the legacy bandit draws within one cluster, not within one catalog tier, so the sentinel alone gates this case.
+	const differentTierFresh = "claude-haiku-4-5" // catalog.TierLow — different tier, but the legacy bandit draws within one cluster, not within one catalog tier, so tier is not what gates this case.
+	const pinnedGroup = "high"
+	const otherGroup = "low"
 
 	basePin := sessionpin.Pin{
-		Provider: providers.ProviderAnthropic,
-		Model:    pinnedModel,
-		Reason:   "hmm_policy(classifier 'high' (p=0.32))",
+		Provider:    providers.ProviderAnthropic,
+		Model:       pinnedModel,
+		Reason:      "hmm_policy(classifier 'high' (p=0.32))",
+		PolicyGroup: pinnedGroup,
+	}
+
+	// fallbackDecision builds a fresh decision carrying the arm-selector
+	// fallback sentinel and the supplied policy group.
+	fallbackDecision := func(model, group string) router.Decision {
+		return router.Decision{
+			Model:    model,
+			Reason:   hmmPinStickyTestFallbackReason,
+			Metadata: &router.RoutingMetadata{PolicyGroup: group},
+		}
 	}
 
 	tests := []struct {
@@ -47,61 +60,87 @@ func TestStickPinOnArmSelectorUnavailable(t *testing.T) {
 		want         bool
 	}{
 		{
-			name:     "sticks: fallback sentinel, same HMM pin, different model",
+			name:     "sticks: fallback sentinel, same HMM pin, same group, different model",
+			fresh:    fallbackDecision(sameTierFresh, pinnedGroup),
+			pin:      basePin,
+			pinFound: true,
+			want:     true,
+		},
+		{
+			name:     "sticks even if catalog tier differs, as long as the group matches",
+			fresh:    fallbackDecision(differentTierFresh, pinnedGroup),
+			pin:      basePin,
+			pinFound: true,
+			want:     true,
+		},
+		{
+			name:     "no stick: classifier escalated into a different cluster",
+			fresh:    fallbackDecision(differentTierFresh, otherGroup),
+			pin:      basePin,
+			pinFound: true,
+			want:     false,
+		},
+		{
+			name:     "no stick: fresh decision reports no group (cannot prove same cluster)",
 			fresh:    router.Decision{Model: sameTierFresh, Reason: hmmPinStickyTestFallbackReason},
 			pin:      basePin,
 			pinFound: true,
-			want:     true,
+			want:     false,
 		},
 		{
-			name:     "sticks even if catalog tier differs (real prod bug shape)",
-			fresh:    router.Decision{Model: differentTierFresh, Reason: hmmPinStickyTestFallbackReason},
-			pin:      basePin,
+			name:  "no stick: pin predates group persistence",
+			fresh: fallbackDecision(sameTierFresh, pinnedGroup),
+			pin: sessionpin.Pin{
+				Provider: providers.ProviderAnthropic,
+				Model:    pinnedModel,
+				Reason:   "hmm_policy(classifier 'high' (p=0.32))",
+			},
 			pinFound: true,
-			want:     true,
+			want:     false,
 		},
 		{
 			name:     "no stick: fresh has no sentinel (real scorer decision)",
-			fresh:    router.Decision{Model: sameTierFresh, Reason: "hmm_policy(classifier 'high' (p=0.91); arm-selector XGBoost greedy arm)"},
+			fresh:    router.Decision{Model: sameTierFresh, Reason: "hmm_policy(classifier 'high' (p=0.91); arm-selector XGBoost greedy arm)", Metadata: &router.RoutingMetadata{PolicyGroup: pinnedGroup}},
 			pin:      basePin,
 			pinFound: true,
 			want:     false,
 		},
 		{
 			name:     "no stick: no active pin",
-			fresh:    router.Decision{Model: sameTierFresh, Reason: hmmPinStickyTestFallbackReason},
+			fresh:    fallbackDecision(sameTierFresh, pinnedGroup),
 			pin:      sessionpin.Pin{},
 			pinFound: false,
 			want:     false,
 		},
 		{
 			name:     "no stick: pin found but empty model",
-			fresh:    router.Decision{Model: sameTierFresh, Reason: hmmPinStickyTestFallbackReason},
-			pin:      sessionpin.Pin{Reason: "hmm_policy(...)"},
+			fresh:    fallbackDecision(sameTierFresh, pinnedGroup),
+			pin:      sessionpin.Pin{Reason: "hmm_policy(...)", PolicyGroup: pinnedGroup},
 			pinFound: true,
 			want:     false,
 		},
 		{
 			name:  "no stick: pin reason is not HMM-written (stale cluster pin)",
-			fresh: router.Decision{Model: sameTierFresh, Reason: hmmPinStickyTestFallbackReason},
+			fresh: fallbackDecision(sameTierFresh, pinnedGroup),
 			pin: sessionpin.Pin{
-				Provider: providers.ProviderAnthropic,
-				Model:    pinnedModel,
-				Reason:   "cluster:v0.2",
+				Provider:    providers.ProviderAnthropic,
+				Model:       pinnedModel,
+				Reason:      "cluster:v0.2",
+				PolicyGroup: pinnedGroup,
 			},
 			pinFound: true,
 			want:     false,
 		},
 		{
 			name:     "no stick: scorer agrees with pin (no-op)",
-			fresh:    router.Decision{Model: pinnedModel, Reason: hmmPinStickyTestFallbackReason},
+			fresh:    fallbackDecision(pinnedModel, pinnedGroup),
 			pin:      basePin,
 			pinFound: true,
 			want:     false,
 		},
 		{
 			name:         "no stick: prefix trimmed (cache broken)",
-			fresh:        router.Decision{Model: sameTierFresh, Reason: hmmPinStickyTestFallbackReason},
+			fresh:        fallbackDecision(sameTierFresh, pinnedGroup),
 			pin:          basePin,
 			pinFound:     true,
 			prefixBroken: true,
@@ -128,31 +167,45 @@ func (r *hmmPinStickyTestRouter) Route(_ context.Context, _ router.Request) (rou
 }
 
 // TestHMMPinStickyOnArmSelectorUnavailableWiredIntoTurnLoop proves the
-// pure predicate is actually consulted on the AuthoritativePerTurn path and
-// that the kill switch (ROUTER_HMM_PIN_STICKY_ON_ARM_SELECTOR_UNAVAIL) gates
-// it end to end: same inputs, opposite outcomes with the switch flipped.
+// pure predicate is actually consulted on the AuthoritativePerTurn path, that
+// the kill switch (ROUTER_HMM_PIN_STICKY_ON_ARM_SELECTOR_UNAVAIL) gates it end
+// to end, and that an authoritative decision landing in a different policy
+// group still switches through even with the switch enabled.
 func TestHMMPinStickyOnArmSelectorUnavailableWiredIntoTurnLoop(t *testing.T) {
 	strategy := router.Strategy("hmm-pin-sticky-wiring-test")
 	const pinnedModel = "claude-opus-4-7"
 	const sameTierFresh = "claude-opus-4-6"
+	const pinnedGroup = "high"
+	const otherGroup = "low"
 
 	tests := []struct {
 		name          string
 		enabled       bool
+		freshGroup    string
 		wantStickyHit bool
 		wantModel     string
 		wantPinTier   string
 	}{
 		{
-			name:          "enabled: suppresses reroute, keeps pin",
+			name:          "enabled, same group: suppresses reroute, keeps pin",
 			enabled:       true,
+			freshGroup:    pinnedGroup,
 			wantStickyHit: true,
 			wantModel:     pinnedModel,
 			wantPinTier:   hmmPinStickyArmSelectorUnavailReason,
 		},
 		{
+			name:          "enabled, different group: authoritative escalation still serves",
+			enabled:       true,
+			freshGroup:    otherGroup,
+			wantStickyHit: false,
+			wantModel:     sameTierFresh,
+			wantPinTier:   "authoritative_per_turn",
+		},
+		{
 			name:          "disabled: fresh decision serves as usual",
 			enabled:       false,
+			freshGroup:    pinnedGroup,
 			wantStickyHit: false,
 			wantModel:     sameTierFresh,
 			wantPinTier:   "authoritative_per_turn",
@@ -167,6 +220,7 @@ func TestHMMPinStickyOnArmSelectorUnavailableWiredIntoTurnLoop(t *testing.T) {
 				Provider:        providers.ProviderAnthropic,
 				Model:           pinnedModel,
 				Reason:          "hmm_policy(classifier 'high' (p=0.32))",
+				PolicyGroup:     pinnedGroup,
 				PinnedUntil:     time.Now().Add(time.Hour),
 				LastTurnEndedAt: time.Now().Add(-time.Minute),
 				LastServedModel: pinnedModel,
@@ -175,6 +229,7 @@ func TestHMMPinStickyOnArmSelectorUnavailableWiredIntoTurnLoop(t *testing.T) {
 				Provider: providers.ProviderAnthropic,
 				Model:    sameTierFresh,
 				Reason:   hmmPinStickyTestFallbackReason,
+				Metadata: &router.RoutingMetadata{PolicyGroup: test.freshGroup},
 			}}
 			svc := NewService(
 				nil,
@@ -224,6 +279,19 @@ func TestHMMPinStickyOnArmSelectorUnavailableWiredIntoTurnLoop(t *testing.T) {
 			assert.Equal(t, test.wantStickyHit, result.StickyHit)
 			assert.Equal(t, test.wantModel, result.Decision.Model)
 			assert.Equal(t, test.wantPinTier, result.PinTier)
+
+			// The predicate can only compare groups if the write path actually
+			// persists one: a fresh authoritative write carries the decision's
+			// group, a suppressed reroute carries the pin's forward.
+			store.mu.Lock()
+			upserts := append([]sessionpin.Pin(nil), store.upserts...)
+			store.mu.Unlock()
+			require.NotEmpty(t, upserts)
+			wantGroup := test.freshGroup
+			if test.wantStickyHit {
+				wantGroup = pinnedGroup
+			}
+			assert.Equal(t, wantGroup, upserts[len(upserts)-1].PolicyGroup)
 		})
 	}
 }

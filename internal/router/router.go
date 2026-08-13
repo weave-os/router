@@ -241,6 +241,10 @@ type RoutingMetadata struct {
 	// PolicyRouteKey is the generic policy-internal bucket/arm key used for
 	// online learning. HMM routing_bucket values map here.
 	PolicyRouteKey string
+	// PolicyGroup is the policy-internal cluster/group the decision was drawn
+	// from (HMM complexity cluster). Session pins persist it so a later turn can
+	// tell a within-cluster reroute from a genuine cluster change.
+	PolicyGroup string
 	// Policy artifact metadata identifies the immutable production package.
 	PolicyArtifactID     string
 	PolicyArtifactSHA256 string

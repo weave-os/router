@@ -36,16 +36,23 @@ WHERE session_key = @session_key::bytea
 -- inherits a stale runner-up across a non-scorer model change, and never
 -- collapses pinned_model and paired_model onto the same slug. A later per-turn
 -- swap policy reads the pair that matches the active decision.
+--
+-- policy_group follows the same three-way maintenance: a fresh policy decision
+-- supplies a non-empty group, a same-model refresh preserves the stored one, and
+-- a model change without a group (force-model, loop-break, eviction) clears it.
+-- The pin-sticky arm-selector guard compares it against the fresh decision's
+-- group, so a stale group must never survive onto a different pinned model.
 -- name: UpsertSessionPin :exec
 INSERT INTO router.session_pins (
   session_key, role, installation_id, pinned_provider,
   pinned_model, paired_provider, paired_model,
-  decision_reason, turn_count, pinned_until
+  decision_reason, policy_group, turn_count, pinned_until
 ) VALUES (
   @session_key::bytea, @role::varchar, @installation_id::uuid,
   @pinned_provider::varchar, @pinned_model::varchar,
   @paired_provider::varchar, @paired_model::varchar,
-  @decision_reason::text, @turn_count::int, @pinned_until::timestamp
+  @decision_reason::text, @policy_group::varchar,
+  @turn_count::int, @pinned_until::timestamp
 )
 ON CONFLICT (session_key, role) DO UPDATE SET
   pinned_provider = EXCLUDED.pinned_provider,
@@ -74,6 +81,13 @@ ON CONFLICT (session_key, role) DO UPDATE SET
       THEN EXCLUDED.paired_model
     WHEN EXCLUDED.pinned_model = router.session_pins.pinned_model
       THEN router.session_pins.paired_model
+    ELSE ''
+  END,
+  policy_group = CASE
+    WHEN EXCLUDED.policy_group <> ''
+      THEN EXCLUDED.policy_group
+    WHEN EXCLUDED.pinned_model = router.session_pins.pinned_model
+      THEN router.session_pins.policy_group
     ELSE ''
   END,
   consecutive_upstream_errors = CASE
