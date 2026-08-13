@@ -79,10 +79,8 @@ func TestCandidateK12Loads(t *testing.T) {
 		assert.InDeltaf(t, 0.7, a, 1e-9, "cluster %d alpha must be the 0.7 sweet spot", i)
 	}
 
-	// 18 of the frozen bundle's 21: deepseek-v4-pro, claude-opus-4-8, and
-	// qwen/qwen3.7-plus were retired to passthrough-only in the catalog after
-	// this bundle was trained, so the scorer drops them. None leads a
-	// cluster, so the win mix below is unaffected.
+	// 18 of 21: deepseek-v4-pro, claude-opus-4-8, qwen/qwen3.7-plus retired to
+	// passthrough-only after this bundle was trained; none leads a cluster.
 	require.Len(t, s.models, 18, "retired models must be the only ones dropped under the full provider set")
 
 	wins := map[string]int{}

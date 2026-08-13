@@ -513,11 +513,8 @@ var Models = []Model{
 		{Provider: providers.ProviderFireworks, UpstreamID: "accounts/fireworks/models/qwen3p7-plus",
 			Price: Pricing{InputUSDPer1M: 0.400, OutputUSDPer1M: 1.600, CacheReadMultiplier: 0.20}},
 	}},
-	// Fireworks-only: the closed Alibaba API surface is deliberately avoided
-	// (Fireworks is SOC-2, keeps prompts off Alibaba); OpenRouter's/Together's
-	// routes for this model forward to Alibaba/DashScope, so they're skipped.
-	// Catalog reports Fireworks' native 262_144 context, not the 1M figure
-	// Alibaba/OpenRouter market for the hosted "Max" API surface.
+	// Fireworks-only: SOC-2 compliance; OpenRouter's/Together's routes forward to
+	// Alibaba/DashScope. Context 262_144 is Fireworks' native limit (not Alibaba's 1M).
 	{ID: "qwen/qwen3.8-max", Tier: TierHigh, ContextWindow: 262_144, Providers: []ProviderBinding{
 		{Provider: providers.ProviderFireworks, UpstreamID: "accounts/fireworks/models/qwen3p8-max",
 			Price: Pricing{InputUSDPer1M: 2.000, OutputUSDPer1M: 6.000, CacheReadMultiplier: 0.125}},
