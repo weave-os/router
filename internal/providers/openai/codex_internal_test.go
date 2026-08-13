@@ -48,13 +48,13 @@ func TestProxy_CodexSubscriptionDispatch(t *testing.T) {
 	c := NewClient("deployment-key", upstream.URL)
 	c.codexBaseURL = upstream.URL // point the Codex backend at the test server
 
-	body := []byte(`{"model":"gpt-5.5","input":"hi","stream":true}`)
+	body := []byte(`{"model":"gpt-5.6-sol","input":"hi","stream":true}`)
 	prep := providers.PreparedRequest{Body: body, Endpoint: providers.EndpointResponses, Headers: make(http.Header)}
 	rec := httptest.NewRecorder()
 	clientReq := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(""))
 
 	ctx := codexCtx("eyJhbGciOiJ-codex-jwt", "acct-12345")
-	err := c.Proxy(ctx, router.Decision{Model: "gpt-5.5", Provider: providers.ProviderOpenAI}, prep, rec, clientReq)
+	err := c.Proxy(ctx, router.Decision{Model: "gpt-5.6-sol", Provider: providers.ProviderOpenAI}, prep, rec, clientReq)
 	require.NoError(t, err)
 
 	assert.Equal(t, "/responses", gotPath, "a Codex subscription turn must hit the Codex backend's /responses endpoint, not api.openai.com")
@@ -64,6 +64,28 @@ func TestProxy_CodexSubscriptionDispatch(t *testing.T) {
 	assert.Equal(t, "codex_cli_rs", gotOriginator)
 	assert.Empty(t, rec.Header().Get("x-api-key"))
 	assert.Equal(t, body, gotBody, "the prepared Responses body must reach the Codex backend unchanged")
+}
+
+func TestProxy_CodexSubscriptionCredentialRejectsInfrastructureModel(t *testing.T) {
+	c := NewClient("deployment-key", "https://api.openai.example")
+	prep := providers.PreparedRequest{
+		Body:     []byte(`{"model":"gpt-5.4-nano","input":"hi"}`),
+		Endpoint: providers.EndpointResponses,
+		Headers:  make(http.Header),
+	}
+	rec := httptest.NewRecorder()
+	clientReq := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(""))
+
+	err := c.Proxy(
+		codexCtx("eyJhbGciOiJ-codex-jwt", "acct-12345"),
+		router.Decision{Model: "gpt-5.4-nano", Provider: providers.ProviderOpenAI},
+		prep,
+		rec,
+		clientReq,
+	)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "refusing Codex subscription credential")
 }
 
 // TestProxy_CodexCredOnChatEndpointDoesNotMisroute guards the Bugbot finding:
@@ -84,12 +106,12 @@ func TestProxy_CodexCredOnChatEndpointDoesNotMisroute(t *testing.T) {
 	c.codexBaseURL = "https://chatgpt.example.invalid" // must NOT be used for a chat body
 
 	// EndpointChatCompletions (zero value) — a chat-shaped body.
-	prep := providers.PreparedRequest{Body: []byte(`{"model":"gpt-5.5","messages":[]}`), Headers: make(http.Header)}
+	prep := providers.PreparedRequest{Body: []byte(`{"model":"gpt-5.6-sol","messages":[]}`), Headers: make(http.Header)}
 	rec := httptest.NewRecorder()
 	clientReq := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(""))
 
 	ctx := codexCtx("eyJhbGciOiJ-codex-jwt", "acct-12345")
-	err := c.Proxy(ctx, router.Decision{Model: "gpt-5.5", Provider: providers.ProviderOpenAI}, prep, rec, clientReq)
+	err := c.Proxy(ctx, router.Decision{Model: "gpt-5.6-sol", Provider: providers.ProviderOpenAI}, prep, rec, clientReq)
 	require.NoError(t, err)
 
 	assert.Equal(t, "/v1/chat/completions", gotPath,

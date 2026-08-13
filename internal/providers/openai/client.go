@@ -170,6 +170,15 @@ func (c *Client) setAuth(ctx context.Context, upstream *http.Request, inbound *h
 		upstream.Header.Set("Authorization", "Bearer "+c.apiKey)
 		return
 	}
+	// A ChatGPT OAuth bearer is valid only against the Codex backend. When
+	// model-aware credential resolution deliberately suppresses it for an
+	// infrastructure-served OpenAI model, never let the generic passthrough
+	// tier relay the same bearer to api.openai.com. Inspect the complete
+	// credential shape: an ordinary sk- API key remains a client credential
+	// even if a caller also supplied a stray ChatGPT-Account-ID header.
+	if creds := proxy.ExtractClientCredentials(providers.ProviderOpenAI, inbound.Header); creds != nil && creds.OAuth {
+		return
+	}
 	v := inbound.Header.Get("authorization")
 	if v == "" {
 		return
@@ -191,6 +200,9 @@ func (c *Client) Proxy(ctx context.Context, decision router.Decision, prep provi
 	// that happens to resolve a Codex credential never hits the Codex
 	// /responses endpoint (Responses schema only).
 	codexCreds := codexSubscriptionCreds(ctx)
+	if codexCreds != nil && !proxy.CodexSubscriptionCoversModel(decision.Model) {
+		return fmt.Errorf("refusing Codex subscription credential for infrastructure model %q", decision.Model)
+	}
 	useCodex := codexCreds != nil && prep.Endpoint == providers.EndpointResponses
 	// A BYOK key may point at a customer-hosted OpenAI-compatible endpoint; the
 	// Codex branch below still wins, since a Codex subscription bearer only

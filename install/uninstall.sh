@@ -30,6 +30,7 @@ install_dir=""
 target="claude"
 
 err()  { printf "\033[31merror:\033[0m %s\n" "$*" >&2; }
+warn() { printf "\033[33mwarning:\033[0m %s\n" "$*" >&2; }
 info() { printf "\033[36m==>\033[0m %s\n" "$*"; }
 ok()   { printf "\033[32m✓\033[0m %s\n" "$*"; }
 
@@ -91,6 +92,7 @@ fi
 # Markers must stay in sync with install.sh. Keep verbatim.
 WEAVE_CODEX_BEGIN_MARKER="# >>> weave-router managed (do not edit between markers) >>>"
 WEAVE_CODEX_END_MARKER="# <<< weave-router managed <<<"
+WEAVE_CODEX_SKILL_MARKER="<!-- weave-router managed disable-routing skill -->"
 
 # strip_codex_block rewrites config.toml without the managed block and any
 # top-level `model_provider = "weave"` that lived outside the markers (which
@@ -434,6 +436,26 @@ if [ "$target" = "codex" ]; then
       fi
     done
     rmdir "$codex_prompts_dir" 2>/dev/null || true
+  fi
+
+  # The installer-owned skill switches Codex back to its normal provider. It
+  # is separate from config.toml, so remove it when removing the router too.
+  # A same-named skill without our marker belongs to the user and is preserved.
+  codex_skill_dir="$codex_dir/skills/disable-routing"
+  codex_skill_file="$codex_skill_dir/SKILL.md"
+  if [ -d "$codex_skill_dir" ]; then
+    refuse_if_symlink "$codex_skill_dir"
+    if [ -f "$codex_skill_file" ]; then
+      refuse_if_symlink "$codex_skill_file"
+      if grep -Fq "$WEAVE_CODEX_SKILL_MARKER" "$codex_skill_file"; then
+        rm -f "$codex_skill_file"
+        ok "Removed $codex_skill_file"
+      else
+        warn "Leaving user-owned Codex skill at $codex_skill_file untouched."
+      fi
+    fi
+    rmdir "$codex_skill_dir" 2>/dev/null || true
+    rmdir "$codex_dir/skills" 2>/dev/null || true
   fi
 
   if [ -n "$install_dir" ]; then

@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"slices"
 	"time"
 
 	"github.com/google/uuid"
@@ -72,7 +71,7 @@ func (s *Service) usageBypassEngaged(ctx context.Context, headers http.Header, r
 	case providers.ProviderAnthropic:
 		token = anthroTok
 	case providers.ProviderOpenAI:
-		if !slices.Contains(codexCoveredModels, model) {
+		if !codexSubscriptionCoversModel(model) {
 			return "", false
 		}
 		token = codexTok
@@ -267,7 +266,7 @@ func (s *Service) bypassToAnthropic(
 	// the subscription (or BYOK / client) credential exactly as a routed turn
 	// would, and so servedOnSubscription / the usage observer key off the same
 	// token the upstream call sends.
-	ctx = resolveAndInjectCredentials(ctx, decision.Provider, r.Header)
+	ctx = resolveAndInjectCredentials(ctx, decision.Provider, decision.Model, r.Header)
 
 	outputReserve := contextWindowOutputReserve
 	if feats.MaxTokens > outputReserve {

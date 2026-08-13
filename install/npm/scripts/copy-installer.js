@@ -42,6 +42,18 @@ for (const f of readdirSync(commandsSrc)) {
   console.log(`Copied commands/${f}.`);
 }
 
+// Codex discovers local skills under $CODEX_HOME/skills. Bundle the one
+// installer-owned template explicitly, refusing a source symlink just as the
+// command-file packaging path above does.
+const codexSkillSrc = path.join(installDir, "codex-skills", "disable-routing", "SKILL.md");
+const codexSkillDst = path.join(root, "codex-skills", "disable-routing", "SKILL.md");
+if (lstatSync(codexSkillSrc).isSymbolicLink()) {
+  throw new Error(`Refusing to package symlinked Codex skill: ${codexSkillSrc}`);
+}
+mkdirSync(path.dirname(codexSkillDst), { recursive: true });
+copyFileSync(codexSkillSrc, codexSkillDst);
+console.log("Copied codex-skills/disable-routing/SKILL.md.");
+
 // Bundle the pi extension so the single @workweave/router package is BOTH the
 // installer and the pi-router extension: pi loads it via the "pi.extensions"
 // field in package.json, and install.sh adds `npm:@workweave/router` to pi's

@@ -20,13 +20,28 @@ const (
 	routePathResponses       = "/v1/responses"
 )
 
-// codexCoveredModels is the conservative set of GPT models a ChatGPT/Codex
-// subscription actually pays for via the Codex backend (chatgpt.com/backend-api/
-// codex). Deliberately a curated allowlist, not "every OpenAI model": the plan
-// only bills the Codex-served GPT family, so subsidizing an OpenAI model the
-// backend won't bill would bias toward a turn that then 4xxs. Extend as the
-// catalog's Codex-billable GPT set grows.
-var codexCoveredModels = []string{"gpt-5.5", "gpt-5.4", "gpt-5.4-mini"}
+// codexCoveredModels is the fail-closed set of models the Codex CLI may serve
+// through the caller's ChatGPT OAuth credential. Deliberately a curated
+// allowlist, not "every OpenAI model": infrastructure-served OpenAI models
+// share ProviderOpenAI with the native Codex family, but must use BYOK or the
+// router deployment credential instead of chatgpt.com/backend-api/codex.
+var codexCoveredModels = []string{"gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"}
+
+// CodexSubscriptionCoversModel reports whether model may receive the caller's
+// ChatGPT OAuth credential. Exact canonical IDs only; aliases are resolved
+// before routing, and unknown/future models fail closed.
+func CodexSubscriptionCoversModel(model string) bool {
+	for _, covered := range codexCoveredModels {
+		if model == covered {
+			return true
+		}
+	}
+	return false
+}
+
+func codexSubscriptionCoversModel(model string) bool {
+	return CodexSubscriptionCoversModel(model)
+}
 
 // claudeCoveredModels returns the catalog models a Claude (Pro/Max) subscription
 // covers — every Anthropic-primary model. Derived from the catalog so it tracks
@@ -98,9 +113,10 @@ func presentSubscriptionTokens(ctx context.Context, headers http.Header) (codex,
 	return codex, anthropic
 }
 
-// subscriptionServableProviders returns the providers the caller's own
-// subscription can serve inference on: OpenAI for a Codex (ChatGPT) sub,
-// Anthropic for a Claude sub. Empty when the caller presents no usable sub.
+// subscriptionServableProviders returns the provider lanes the caller's own
+// subscription can enter: OpenAI for a Codex (ChatGPT) sub, Anthropic for a
+// Claude sub. Codex model coverage is narrower than its provider lane and is
+// applied by excludeCodexOAuthOnlyModels before routing.
 func subscriptionServableProviders(ctx context.Context, headers http.Header) map[string]struct{} {
 	codex, anthropic := presentSubscriptionTokens(ctx, headers)
 	out := make(map[string]struct{}, 2)
@@ -134,9 +150,10 @@ func restrictToSubscriptionProviders(ctx context.Context, headers http.Header, e
 }
 
 // RequestPresentsCoveringSubscription reports whether the request carries a
-// validated subscription credential capable of serving inference on routePath:
-// a Claude (sk-ant-oat…) sub for /v1/messages, a Codex sub for /v1/chat/completions
-// and /v1/responses. Any other route returns false.
+// validated subscription credential that can serve at least one model on
+// routePath: a Claude (sk-ant-oat…) sub for /v1/messages, a Codex sub for
+// /v1/chat/completions and /v1/responses. Codex's exact model coverage is
+// applied downstream before selection. Any other route returns false.
 //
 // Scoped to the covering family (not "any subscription present") so a Codex
 // bearer on /v1/messages — which can't serve that route — doesn't exempt a

@@ -169,11 +169,21 @@ above.
 **Codex** (OpenAI CLI). `npx @workweave/router --codex` patches
 `~/.codex/config.toml` (or `<repo>/.codex/config.toml` with `--scope project`)
 with a managed `[model_providers.weave]` block and sets `model_provider = "weave"`.
-The provider requires Codex's existing ChatGPT OAuth login, which Codex forwards
-to the router for plan-based passthrough; the router key rides in an
-`X-Weave-Router-Key` HTTP header. Re-install and `--uninstall --codex`
-rewrite/remove only the managed block, leaving the rest of your Codex config
-untouched.
+The provider preserves Codex's existing ChatGPT OAuth login while the router
+key rides in an `X-Weave-Router-Key` HTTP header and the installer selects the
+HMM strategy for the public hosted endpoint. `--codex --local` and custom
+self-hosted URLs keep their router's configured default because the HMM
+sidecar is optional. HMM and forced selections in the native Codex family
+(`gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-5.6-luna`) use that OAuth credential;
+every other selected model uses its WorkWeave deployment or BYOK credential,
+matching the Claude Code plugin's model-to-credential dispatch.
+Codex does not load third-party slash-command files; send router directives
+with one leading space (for example, ` /force-model gpt-5.6-terra`). Re-install
+and `--uninstall --codex` rewrite/remove only the managed block, leaving the
+rest of your Codex config untouched. Invoke `$disable-routing` to switch the
+next Codex session back to its normal provider, or run
+`npx @workweave/router disable-routing` in a shell; a literal
+`/disable-routing` is not a third-party extension point in Codex.
 
 **opencode.** `npx @workweave/router --opencode` merges a `provider.weave`
 entry into `~/.config/opencode/opencode.json` (or `<repo>/opencode.json`

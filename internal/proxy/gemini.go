@@ -185,7 +185,7 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 		opts.ForceEffort = knobs.ForceEffort
 		opts.ForceReasoningEffort = translate.ResolveForceEffort(opts.Capabilities, opts.ForceEffort)
 	}
-	ctx = resolveAndInjectCredentials(ctx, decision.Provider, r.Header)
+	ctx = resolveAndInjectCredentials(ctx, decision.Provider, decision.Model, r.Header)
 
 	prep, emitErr := env.PrepareGemini(r.Header, opts)
 	if emitErr != nil {

@@ -118,10 +118,37 @@ func TestService_PreviewAnthropicRouteBuildsServingCandidateContextWithoutDispat
 	assert.Contains(t, previewer.previewReq.EnabledProviders, providers.ProviderAnthropic)
 	assert.Contains(t, previewer.previewReq.EnabledProviders, providers.ProviderOpenAI)
 	assert.Contains(t, previewer.previewReq.ExcludedModels, "gpt-5.5-mini")
+	assert.NotContains(t, previewer.previewReq.ExcludedModels, "gpt-5.4-nano",
+		"a normal non-Codex preview must retain infrastructure OpenAI candidates")
 	assert.Equal(t, []string{"claude-opus-4-8"}, previewer.previewReq.PreferredModels)
 	assert.False(t, previewer.previewReq.TrainingAllowed)
 	assert.Empty(t, anthropicProvider.proxyBodies)
 	assert.Empty(t, openAIProvider.proxyBodies)
+}
+
+func TestService_PreviewAnthropicRouteExcludesInfrastructureModelsForOAuthOnlyCodex(t *testing.T) {
+	previewer := &fakePreviewRouter{previewResult: policy.PreviewResult{
+		SchemaVersion: policy.SchemaVersionV1,
+	}}
+	svc := proxy.NewService(&fakeRouter{}, map[string]providers.Client{
+		providers.ProviderOpenAI: &fakeProvider{},
+	}, nil, false, nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil).
+		WithByokOnly(true).
+		WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyHMM, Router: previewer})
+
+	ctx := router.WithStrategy(context.Background(), router.StrategyHMM)
+	ctx = context.WithValue(ctx, proxy.OpenAISubscriptionContextKey{}, "eyJhbGciOiJSUzI1NiJ9.codex.sig")
+	ctx = context.WithValue(ctx, proxy.OpenAIAccountIDContextKey{}, "acct-123")
+	body := []byte(`{"model":"claude-opus-4-8","messages":[{"role":"user","content":"preview this turn"}],"max_tokens":1024}`)
+
+	_, err := svc.PreviewAnthropicRoute(ctx, body, http.Header{})
+
+	require.NoError(t, err)
+	require.NotNil(t, previewer.previewReq)
+	assert.Contains(t, previewer.previewReq.EnabledProviders, providers.ProviderOpenAI)
+	assert.Contains(t, previewer.previewReq.ExcludedModels, "gpt-5.4-nano",
+		"route and HMM previews must not advertise models that Codex OAuth cannot serve")
+	assert.NotContains(t, previewer.previewReq.ExcludedModels, "gpt-5.6-sol")
 }
 
 func TestService_AgentShadowEvaluationForcesEphemerallyWithoutServingRouter(t *testing.T) {
@@ -275,6 +302,86 @@ func TestService_ProxyOpenAIResponses_CustomToolUsesNativeOpenAIFamily(t *testin
 	assert.JSONEq(t, `{"model":"gpt-5.5","input":"apply a patch","reasoning":{"effort":"high"},"tools":[{"type":"custom","name":"apply_patch"}]}`, string(provider.proxyBodies[0]))
 	assert.Equal(t, providers.EndpointResponses, provider.proxyEndpoints[0])
 	assert.JSONEq(t, `{"id":"resp_1","object":"response","output":[]}`, rec.Body.String())
+}
+
+func TestService_CodexRequestRoutesInfrastructureOpenAIModelWithoutOAuth(t *testing.T) {
+	provider := &fakeProvider{proxyResponse: func(w http.ResponseWriter) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"id":"resp_1","object":"response","output":[]}`)
+	}}
+	fr := &fakeRouter{decision: router.Decision{
+		Provider: providers.ProviderOpenAI,
+		Model:    "gpt-5.4-nano",
+		Reason:   "hmm:test",
+	}}
+	svc := proxy.NewService(fr, map[string]providers.Client{
+		providers.ProviderOpenAI: provider,
+	}, nil, false, nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil).
+		WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderOpenAI: {}})
+
+	ctx := context.WithValue(context.Background(), proxy.OpenAISubscriptionContextKey{}, "eyJhbGciOiJSUzI1NiJ9.codex.sig")
+	ctx = context.WithValue(ctx, proxy.OpenAIAccountIDContextKey{}, "acct-123")
+	body := []byte(`{"model":"gpt-5.6-sol","input":"route this turn"}`)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(""))
+
+	require.NoError(t, svc.ProxyOpenAIResponses(ctx, body, rec, req))
+	require.Len(t, provider.proxyBodies, 1)
+	assert.Equal(t, providers.EndpointResponses, provider.proxyEndpoints[0])
+	assert.Contains(t, string(provider.proxyBodies[0]), `"model":"gpt-5.4-nano"`)
+	assert.Nil(t, provider.proxyCreds[0],
+		"an HMM-selected infrastructure model must use the OpenAI deployment key, never caller OAuth")
+}
+
+func TestService_CodexForcedModelUsesModelScopedCredential(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		model     string
+		wantOAuth bool
+	}{
+		{name: "native Codex model", model: "gpt-5.6-terra", wantOAuth: true},
+		{name: "infrastructure OpenAI model", model: "gpt-5.4-nano", wantOAuth: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			provider := &fakeProvider{proxyResponse: func(w http.ResponseWriter) {
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = io.WriteString(w, `{"id":"resp_1","object":"response","output":[]}`)
+			}}
+			store := newFakePinStore()
+			store.hasPin = true
+			store.pin = sessionpin.Pin{
+				Provider:    providers.ProviderOpenAI,
+				Model:       tc.model,
+				Reason:      translate.ReasonUserForceModel,
+				PinnedUntil: time.Now().Add(time.Hour),
+			}
+			fr := &fakeRouter{err: errors.New("forced pin must bypass the scorer")}
+			svc := proxy.NewService(fr, map[string]providers.Client{
+				providers.ProviderOpenAI: provider,
+			}, nil, false, nil, store, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil).
+				WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderOpenAI: {}})
+
+			ctx := authedCtx("11111111-1111-1111-1111-111111111111")
+			ctx = context.WithValue(ctx, proxy.OpenAISubscriptionContextKey{}, "eyJhbGciOiJSUzI1NiJ9.codex.sig")
+			ctx = context.WithValue(ctx, proxy.OpenAIAccountIDContextKey{}, "acct-123")
+			body := []byte(`{"model":"gpt-5.6-sol","input":"use the forced model"}`)
+			rec := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(""))
+
+			require.NoError(t, svc.ProxyOpenAIResponses(ctx, body, rec, req))
+			assert.Zero(t, fr.routeCalls, "the stored user-forced model must bypass automatic routing")
+			require.Len(t, provider.proxyCreds, 1)
+			if tc.wantOAuth {
+				require.NotNil(t, provider.proxyCreds[0])
+				assert.True(t, provider.proxyCreds[0].OAuth)
+				assert.Equal(t, "codex_subscription", provider.proxyCreds[0].Source)
+			} else {
+				assert.Nil(t, provider.proxyCreds[0],
+					"the infrastructure model must fall through to the OpenAI deployment key")
+			}
+			assert.Contains(t, string(provider.proxyBodies[0]), `"model":"`+tc.model+`"`)
+		})
+	}
 }
 
 func TestService_ProxyOpenAIResponses_CodexPassthroughUsesChatForOpenAICompatProvider(t *testing.T) {

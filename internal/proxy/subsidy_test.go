@@ -95,10 +95,12 @@ func TestSubsidy_RecordReadKeyAgreement(t *testing.T) {
 	// subsidyFactors must read back the SAME key and discount covered GPT models.
 	factors := s.subsidyFactors(ctx, headers)
 	require.NotNil(t, factors, "headroom was observed; factors must be non-nil")
-	f, ok := factors["gpt-5.5"]
+	f, ok := factors["gpt-5.6-sol"]
 	require.True(t, ok, "covered GPT model must be subsidized")
 	assert.Less(t, f, 1.0, "10%% used → discounted below full price")
 	assert.GreaterOrEqual(t, f, 0.05, "never below epsilon")
+	assert.NotContains(t, factors, "gpt-5.4-nano",
+		"infrastructure OpenAI models must not receive the caller-subscription discount")
 }
 
 // Bootstrap: a present subscription with NO observed headroom yet must still

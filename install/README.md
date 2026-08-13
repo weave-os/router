@@ -70,6 +70,13 @@ the target flag:
 ./router/install/install.sh --codex --local --scope project    # team scope Codex
 ```
 
+Self-hosted routers, including the bundled local stack, may not run the optional
+HMM sidecar. For that reason, Codex `--local` and custom `--base-url` installs
+do not force a strategy header; they keep that router's configured default.
+Installs targeting the public `https://router.workweave.ai` endpoint select HMM
+automatically. A self-hosted HMM deployment can add
+`X-Weave-Router-Strategy: hmm` explicitly to its managed Codex config.
+
 ### Self-hosted on a custom URL
 
 ```bash
@@ -111,7 +118,7 @@ logged-in user's Team/Pro/Max/individual plan.
 
 | Path                       | Purpose                                                       |
 | -------------------------- | ------------------------------------------------------------- |
-| `~/.codex/config.toml`     | Adds a managed `[model_providers.weave]` block + sets top-level `model_provider = "weave"`, both between `# >>> weave-router managed` markers. The provider requires and forwards the existing ChatGPT OAuth login for plan-backed routing; anything outside the markers is preserved. |
+| `~/.codex/config.toml`     | Adds a managed `[model_providers.weave]` block + sets top-level `model_provider = "weave"`, both between `# >>> weave-router managed` markers. The provider preserves the existing ChatGPT OAuth login; the public hosted endpoint selects HMM while self-hosted URLs keep their router default. Anything outside the markers is preserved. |
 
 **Project scope (`--scope project`):**
 
@@ -126,6 +133,32 @@ up the project-local config instead of `~/.codex/`.
 Re-running the installer rewrites only the managed block (TOML between the
 markers + a top-level `model_provider =` outside it). Everything else —
 profiles, alternate providers, comments — stays untouched.
+
+Routing is model-aware after HMM or force-model selection. The native Codex
+models `gpt-5.6-sol`, `gpt-5.6-terra`, and `gpt-5.6-luna` use the caller's
+ChatGPT OAuth plan. Other OpenAI, Anthropic, Gemini, and OpenAI-compatible
+models use their matching WorkWeave deployment or BYOK credentials, just as
+they do when routed from Claude Code.
+
+Codex does not load third-party Markdown slash commands. To send a router
+directive, start the message with one literal space so Codex submits it as a
+normal prompt rather than consuming it as an unknown local command:
+
+```text
+ /force-model gpt-5.6-terra
+ /unforce-model
+ /rf - the previous response was too slow --label=high
+```
+
+To return to regular Codex, invoke the installer-provided Codex skill as
+`$disable-routing`. It runs the safe local off toggle, preserves the router
+configuration and ChatGPT OAuth, and takes effect when you start the next
+`codex` session. A literal `/disable-routing` is not possible because Codex
+reserves slash commands for its built-ins. The shell equivalent is:
+
+```bash
+npx --package @workweave/router -y -- weave-router disable-routing
+```
 
 ### opencode (`--opencode`)
 
@@ -188,6 +221,7 @@ instant. These never prompt for a key and require an explicit client:
 npx @workweave/router off --claude       # route Claude Code directly to Anthropic
 npx @workweave/router on --claude        # route Claude Code through the router again
 npx @workweave/router status --codex     # report whether Codex is on the router or direct
+npx @workweave/router disable-routing    # switch Codex back to its default provider
 npx @workweave/router off --opencode --scope project   # project-scoped opencode
 ```
 
@@ -229,10 +263,12 @@ errors invoking `cc-statusline.sh`. The script needs `jq` on PATH.
 
 1. Open `~/.codex/config.toml` (or `<repo>/.codex/config.toml` for project
    scope) and confirm the `# >>> weave-router managed >>>` block exists with
-   your `X-Weave-Router-Key`.
+   your `X-Weave-Router-Key`. Hosted installs also contain
+   `X-Weave-Router-Strategy = "hmm"`; self-hosted installs intentionally do not.
 2. Run `codex` and issue a turn. Provider should be `Weave Router`.
-3. Check the router's dashboard at `<base-url>/ui/dashboard` to see the
-   routed decision.
+3. Check the router's dashboard at `<base-url>/ui/dashboard` to see the HMM
+   routed decision; Codex's `/status` shows its request model, not the
+   upstream model selected by the router.
 
 **opencode:**
 

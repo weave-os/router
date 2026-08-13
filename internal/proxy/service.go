@@ -1840,7 +1840,7 @@ func (s *Service) PassthroughToNamedProvider(ctx context.Context, providerName s
 	if err != nil {
 		return err
 	}
-	ctx = resolveAndInjectCredentials(ctx, providerName, r.Header)
+	ctx = resolveAndInjectCredentials(ctx, providerName, "", r.Header)
 
 	// Claude Code sends its 1M-context model variant tag (e.g.
 	// "claude-opus-4-8[1m]") in the body. It is a client display convention,
@@ -2229,7 +2229,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	if feats.MaxTokens > outputReserve {
 		outputReserve = feats.MaxTokens
 	}
-	baseExcluded := s.excludedModelsForRequest(ctx)
+	baseExcluded := s.excludeCodexOAuthOnlyModels(ctx, r.Header, enabledProviders, s.excludedModelsForRequest(ctx))
 
 	// Snapshot inbound (client-sent) state BEFORE any env rewrite. The
 	// compaction tracker, spiral scan, and tool-output telemetry must compare
@@ -2561,7 +2561,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	if s.claudeSubscriptionExhausted(ctx, r.Header) {
 		ctx = withSuppressedClaudeSubscription(ctx)
 	}
-	ctx = resolveAndInjectCredentials(ctx, decision.Provider, r.Header)
+	ctx = resolveAndInjectCredentials(ctx, decision.Provider, decision.Model, r.Header)
 
 	// Wrap every request (not just multi-binding) in a preludeBuffer so a
 	// pre-first-byte upstream error can discard the buffered prelude (marker +
@@ -2917,7 +2917,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 				ctx = withSuppressedClaudeSubscription(ctx)
 				baselineCtx = withSuppressedClaudeSubscription(baselineCtx)
 			}
-			baselineCtx = resolveAndInjectCredentials(baselineCtx, providers.ProviderAnthropic, r.Header)
+			baselineCtx = resolveAndInjectCredentials(baselineCtx, providers.ProviderAnthropic, baselineModel, r.Header)
 			baselineBindings := s.resolveBindingsForDispatch(baselineCtx, baselineDecision)
 			baselineMarker := suppressMarkerIfRequested(r.Header, baselineRoutingMarkerFor(routeRes, baselineModel))
 			baselineAttempt := s.anthropicNativeAttempt(env, r, baselinePrep, sink, preludeBuf, baselineMarker, setExtractor)
@@ -2958,7 +2958,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		(providers.IsRetryable(proxyErr) || anthropicOAuthCredentialRejected(proxyErr)) {
 		subscriptionRetryRan = true
 		subCtx := withSuppressedClaudeSubscription(ctx)
-		subCtx = resolveAndInjectCredentials(subCtx, providers.ProviderAnthropic, r.Header)
+		subCtx = resolveAndInjectCredentials(subCtx, providers.ProviderAnthropic, decision.Model, r.Header)
 		// Model is unchanged, but rebuild prep so the retry gets a pristine
 		// PreparedRequest under the suppressed-subscription context.
 		subPrep, subEmitErr := env.PrepareAnthropic(r.Header, opts)
@@ -3022,7 +3022,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	if subscriptionFailoverUsed {
 		ctx = withSuppressedClaudeSubscription(ctx)
 	}
-	ctx = resolveAndInjectCredentials(ctx, finalProvider, r.Header)
+	ctx = resolveAndInjectCredentials(ctx, finalProvider, decision.Model, r.Header)
 
 	// Re-resolve pricing for the binding that actually served: the
 	// pre-dispatch lookup always returns the catalog's PRIMARY binding price,
@@ -3878,9 +3878,72 @@ func (s *Service) enabledProvidersForRequest(ctx context.Context, surfaceProvide
 	return out
 }
 
-// resolveAndInjectCredentials resolves credentials for provider and stashes
-// them on ctx, in precedence order: Claude subscription (Anthropic only),
-// then BYOK, then a client-supplied header credential.
+// hasOpenAIInfrastructureCredential reports whether an OpenAI model can be
+// served without the caller's ChatGPT OAuth: deployment key, installation
+// BYOK, or a non-OAuth client credential on an unkeyed passthrough request.
+func (s *Service) hasOpenAIInfrastructureCredential(ctx context.Context, headers http.Header) bool {
+	if byokServedForProvider(ctx, providers.ProviderOpenAI) {
+		return true
+	}
+	if !s.byokOnly {
+		if s.deploymentKeyedProviders == nil {
+			_, registered := s.providers[providers.ProviderOpenAI]
+			if registered {
+				return true
+			}
+		} else if _, keyed := s.deploymentKeyedProviders[providers.ProviderOpenAI]; keyed {
+			return true
+		}
+	}
+	if installationIDFromContext(ctx) == uuid.Nil {
+		if client := ExtractClientCredentials(providers.ProviderOpenAI, headers); client != nil && !client.OAuth {
+			return true
+		}
+	}
+	return false
+}
+
+// excludeCodexOAuthOnlyModels keeps model eligibility aligned with credential
+// resolution. When ChatGPT OAuth is the only way OpenAI became eligible (or
+// billing has restricted the turn to subscriptions), only the exact native
+// Codex family may select the OpenAI binding. Infrastructure-backed requests
+// retain the full catalog and route other OpenAI models normally.
+func (s *Service) excludeCodexOAuthOnlyModels(
+	ctx context.Context,
+	headers http.Header,
+	enabledProviders map[string]struct{},
+	excluded map[string]struct{},
+) map[string]struct{} {
+	codex, _ := presentSubscriptionTokens(ctx, headers)
+	if codex == "" || (!billing.SubscriptionOnlyFromContext(ctx) && s.hasOpenAIInfrastructureCredential(ctx, headers)) {
+		return excluded
+	}
+	for _, model := range catalog.Models {
+		if codexSubscriptionCoversModel(model.ID) {
+			continue
+		}
+		// Match catalog binding resolution: the first enabled binding is the one
+		// this model would dispatch through. If that binding is OAuth-only OpenAI,
+		// the whole model is ineligible for this request.
+		for _, binding := range model.Providers {
+			if enabledProviders != nil {
+				if _, enabled := enabledProviders[binding.Provider]; !enabled {
+					continue
+				}
+			}
+			if binding.Provider == providers.ProviderOpenAI {
+				excluded = excludingModel(excluded, model.ID)
+			}
+			break
+		}
+	}
+	return excluded
+}
+
+// resolveAndInjectCredentials resolves credentials for the selected provider
+// and model and stashes them on ctx. Claude OAuth applies to Anthropic models;
+// Codex OAuth applies only to the explicit native Codex model family. All other
+// selections fall through to BYOK, a client API key, or the deployment key.
 //
 // Subscription-first lets a caller's own Claude subscription pay for Claude
 // turns. It arrives via the dedicated X-Weave-Anthropic-Subscription header,
@@ -3892,12 +3955,14 @@ func (s *Service) enabledProvidersForRequest(ctx context.Context, surfaceProvide
 // API key is NOT extracted on the router-key path, since that would forward
 // the client's inbound key to a different upstream provider. The deployment
 // env key is the correct fallback there.
-func resolveAndInjectCredentials(ctx context.Context, provider string, headers http.Header) context.Context {
+func resolveAndInjectCredentials(ctx context.Context, provider, model string, headers http.Header) context.Context {
 	routerKeyed := installationIDFromContext(ctx) != (uuid.UUID{})
-	// Skip subscription OAuth (fall through to BYOK / deployment key): exhausted (Anthropic-only, avoid re-429) or toggle off (provider-wide).
+	// Skip subscription OAuth (fall through to BYOK / deployment key):
+	// exhausted (Anthropic-only, avoid re-429), toggle off (provider-wide), or
+	// an OpenAI-provider model outside the native Codex OAuth family.
 	subDisabled := subscriptionRoutingDisabledForRequest(ctx)
 	suppressClaudeSub := claudeSubscriptionSuppressed(ctx) || subDisabled
-	suppressCodexSub := subDisabled
+	suppressCodexSub := subDisabled || !codexSubscriptionCoversModel(model)
 	if provider == providers.ProviderAnthropic && !suppressClaudeSub {
 		// Subscription-first (subscription -> BYOK -> deployment), resolved here
 		// explicitly rather than relying on BYOK being absent off the router-key
@@ -4393,7 +4458,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	if feats.MaxTokens > outputReserveOAI {
 		outputReserveOAI = feats.MaxTokens
 	}
-	baseExcludedOAI := s.excludedModelsForRequest(ctx)
+	baseExcludedOAI := s.excludeCodexOAuthOnlyModels(ctx, r.Header, enabledProviders, s.excludedModelsForRequest(ctx))
 
 	// Snapshot the inbound tool-output size before any env rewrite (proactive
 	// compaction below, or runTurnLoop's switch handover); see toolResultBytesPtr.
@@ -4573,7 +4638,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		opts.ForceReasoningEffort = forcedReasoningEffort(decision.Model, routeRes.EscalateEffort)
 	}
 
-	ctx = resolveAndInjectCredentials(ctx, decision.Provider, r.Header)
+	ctx = resolveAndInjectCredentials(ctx, decision.Provider, decision.Model, r.Header)
 
 	// See ProxyMessages for the preludeBuffer rationale — wrap unconditionally
 	// so single-binding upstream errors don't strand the routing-marker chunk
@@ -4847,7 +4912,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 
 	// Re-resolve credentials for the binding that actually served — each
 	// failover attempt gets its own context with potentially different creds.
-	ctx = resolveAndInjectCredentials(ctx, finalProvider, r.Header)
+	ctx = resolveAndInjectCredentials(ctx, finalProvider, decision.Model, r.Header)
 
 	// Re-resolve pricing for the binding that actually served (see ProxyMessages).
 	if actBindingPricing, ok := catalog.PriceFor(finalProvider, decision.Model); ok {

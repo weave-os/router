@@ -131,7 +131,7 @@ func TestUsageBypass_CodexSubscriptionPreservesRequestedModel(t *testing.T) {
 		Enabled:   true,
 		Threshold: &threshold,
 	})
-	body := []byte(`{"model":"gpt-5.5","messages":[{"role":"user","content":"hi"}]}`)
+	body := []byte(`{"model":"gpt-5.6-sol","messages":[{"role":"user","content":"hi"}]}`)
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(""))
 
@@ -139,9 +139,9 @@ func TestUsageBypass_CodexSubscriptionPreservesRequestedModel(t *testing.T) {
 
 	assert.Equal(t, 0, fr.routeCalls, "strict pass-through must not call the scorer")
 	require.Len(t, p.proxyBodies, 1)
-	assert.Contains(t, string(p.proxyBodies[0]), `"model":"gpt-5.5"`)
+	assert.Contains(t, string(p.proxyBodies[0]), `"model":"gpt-5.6-sol"`)
 	assert.Equal(t, "usage_bypass", rec.Header().Get("x-router-decision"))
-	assert.Equal(t, "gpt-5.5", rec.Header().Get("x-router-model"))
+	assert.Equal(t, "gpt-5.6-sol", rec.Header().Get("x-router-model"))
 }
 
 // TestUsageBypass_GateDisabled_EngagesRouting: with no per-installation config

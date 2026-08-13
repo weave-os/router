@@ -52,6 +52,7 @@
 #   npx @workweave/router off --claude                     # route directly to Anthropic again (Claude Code)
 #   npx @workweave/router on --codex                       # route through the Weave Router again (Codex)
 #   npx @workweave/router status --opencode                # report whether opencode is on the router or direct
+#   npx @workweave/router disable-routing                   # Codex shortcut: use Codex's normal provider again
 # Claude Code reads env at launch, so an off/on takes effect on the next
 # `claude` start; Codex and opencode re-read config every invocation.
 # Cursor's base URL lives in its own settings UI (no file we own), so there's
@@ -61,8 +62,9 @@ set -euo pipefail
 
 # ---------- defaults ----------
 
-# The hosted Weave Router URL. Override with --base-url for self-hosted.
-DEFAULT_BASE_URL="${WEAVE_ROUTER_URL:-https://router.workweave.ai}"
+# The public hosted Weave Router URL. Override with --base-url for self-hosted.
+HOSTED_BASE_URL="https://router.workweave.ai"
+DEFAULT_BASE_URL="${WEAVE_ROUTER_URL:-$HOSTED_BASE_URL}"
 
 
 scope="user"
@@ -88,6 +90,7 @@ target_explicit="false"
 # "status" toggle or report an existing install without touching the router
 # key/identity — see the toggle_* helpers and the dispatch block below.
 mode="install"
+disable_routing_alias="false"
 
 # ---------- helpers ----------
 
@@ -297,6 +300,7 @@ refuse_if_symlink() {
 # --codex) can find and replace the block instead of duplicating it.
 WEAVE_CODEX_BEGIN_MARKER="# >>> weave-router managed (do not edit between markers) >>>"
 WEAVE_CODEX_END_MARKER="# <<< weave-router managed <<<"
+WEAVE_CODEX_SKILL_MARKER="<!-- weave-router managed disable-routing skill -->"
 
 # ---------- identity helpers ----------
 #
@@ -416,9 +420,11 @@ resolve_user_email() {
 # write_codex_config writes a managed [model_providers.weave] block to the
 # Codex CLI's config.toml. Sets `model_provider = "weave"` at the top level so
 # Codex picks the routed provider by default. The provider requires OpenAI
-# authentication, preserving the user's ChatGPT plan credential and forwarding
-# it to the router alongside the router key. Both settings live inside the
-# managed-block markers so uninstall removes them cleanly. We strip any
+# authentication, preserving the user's ChatGPT plan credential while the
+# router key is sent independently. The router applies OAuth only to its
+# native gpt-5.6 Sol/Terra/Luna family; all other routed models use WorkWeave
+# deployment or BYOK credentials. Both settings live inside the managed-block
+# markers so uninstall removes them cleanly. We strip any
 # top-level `model_provider = ...` declaration OUTSIDE the markers before
 # appending so the file doesn't end up with a duplicate key (TOML rejects
 # that). Inline `model_provider` keys inside `[profiles.*]` sections stay
@@ -464,6 +470,14 @@ write_codex_config() {
   # that share the same router key. The router otherwise has to guess from
   # User-Agent.
   headers_parts="${headers_parts}, \"X-App\" = \"codex\""
+  # Match the public hosted Claude Code installation: Codex needs this
+  # explicit policy selection because that endpoint otherwise uses its
+  # cluster default. Self-hosted endpoints may not run the optional HMM
+  # sidecar, so every custom URL deliberately keeps the router's own default.
+  # Keep this inside the managed block so a re-install can change it safely.
+  if [ "$block_url" = "$HOSTED_BASE_URL" ]; then
+    headers_parts="${headers_parts}, \"X-Weave-Router-Strategy\" = \"hmm\""
+  fi
   local headers_line="http_headers = { ${headers_parts} }"
 
   local block
@@ -947,6 +961,12 @@ while [ $# -gt 0 ]; do
       # npm wrapper forwards argv verbatim so either form reaches us.
       mode="${1#--}"; shift
       ;;
+    disable-routing|--disable-routing)
+      # Convenience alias for the Codex-specific off toggle. Unlike generic
+      # `off`, it deliberately resolves the target after all flags are parsed,
+      # so `disable-routing --claude` cannot silently change Claude settings.
+      mode="off"; disable_routing_alias="true"; shift
+      ;;
     -h|--help)
       usage 0
       ;;
@@ -955,6 +975,15 @@ while [ $# -gt 0 ]; do
       ;;
   esac
 done
+
+if [ "$disable_routing_alias" = "true" ]; then
+  if [ "$target_explicit" = "true" ] && [ "$target" != "codex" ]; then
+    err "disable-routing only applies to Codex; omit the client flag or use --codex."
+    exit 2
+  fi
+  target="codex"
+  target_explicit="true"
+fi
 
 # Toggle verbs only flip config install.sh already wrote: no key, no identity,
 # no prompts. Require an explicit client so we never guess which config to
@@ -1684,19 +1713,21 @@ else
   info "No identity set — router traffic will be attributed by account UUID only."
 fi
 
-# ---------- slash command wrappers (shared by both targets) ----------
+# ---------- slash command wrappers (Claude Code and opencode) ----------
 #
-# Claude Code intercepts any prompt starting with "/" as a local slash command,
-# so a typed /force-model would resolve to "Unknown command" and never reach
-# the router. Codex CLI does the same (its built-in / menu has its own set).
-# Drop wrapper markdown files into the per-target commands directory so the
-# slash invocation expands locally into a literal "/force-model …" prompt that
-# the router's first-line parser picks up.
+# Claude Code and opencode expand command Markdown locally rather than sending
+# the literal invocation to the model, so they need wrappers that expand to a
+# router directive.
 #
 # Layout:
 #   Claude:  <settings_dir>/commands/{force-model,unforce-model}.md  → /force-model
-#   Codex:   <codex_dir>/prompts/{force-model,unforce-model}.md      → /prompts:force-model
 #   opencode: <commands_dir>/{force-model,unforce-model}.md          → /force-model
+#
+# Codex intentionally is not listed: its slash menu only exposes built-in
+# commands and does not load these Markdown wrappers. A user can send a router
+# directive by starting it with one literal space (for example,
+# ` /force-model gpt-5.6-terra`); Codex submits the trimmed prompt to the
+# router without interpreting it as a local slash command.
 #
 # Files come from install/commands/ in the repo (or the colocated commands/
 # directory the npm package ships alongside install.sh).
@@ -1719,11 +1750,11 @@ install_slash_commands() {
   fi
   mkdir -p "$dst_dir"
 
-  # force-model/unforce-model are router-intercepted prompt expansions and
-  # apply to every target. The router-off/on/status wrappers shell out to this
-  # installer to flip the *local* config, so they're Claude Code-only and need
-  # the install scope baked into the command (the .md can't discover it at
-  # invocation time). {{SCOPE}} is substituted accordingly.
+  # force-model/unforce-model are router-intercepted prompt expansions for the
+  # command-capable clients. The router-off/on/status wrappers shell out to
+  # this installer to flip the *local* config, so they're Claude Code-only and
+  # need the install scope baked into the command (the .md can't discover it
+  # at invocation time). {{SCOPE}} is substituted accordingly.
   installed="force-model, unforce-model, router-feedback, fm, ufm, rf"
   cmds="force-model unforce-model router-feedback fm ufm rf"
   if [ "$target" = "claude" ]; then
@@ -1758,12 +1789,103 @@ install_slash_commands() {
   ok "Slash commands written to $dst_dir ($installed)"
 }
 
+# Codex builds before custom prompt discovery existed were given wrapper files
+# under ~/.codex/prompts. They were never invocable as the advertised aliases.
+# Remove only byte-for-byte copies of our old wrappers; retain any prompt the
+# user has changed or created independently.
+remove_obsolete_codex_prompt_wrappers() {
+  local dst_dir="$1"
+  local commands_src_dir=""
+  local candidate cmd src dst
+
+  [ -d "$dst_dir" ] || return 0
+  for candidate in \
+    "$script_dir/commands" \
+    "$script_dir/../commands"
+  do
+    if [ -d "$candidate" ]; then
+      commands_src_dir="$candidate"
+      break
+    fi
+  done
+  [ -n "$commands_src_dir" ] || return 0
+
+  if [ "$scope" = "project" ] || [ -n "$install_dir" ]; then
+    refuse_if_symlink "$dst_dir"
+  fi
+
+  for cmd in force-model unforce-model router-feedback fm ufm rf; do
+    src="$commands_src_dir/$cmd.md"
+    dst="$dst_dir/$cmd.md"
+    [ -f "$src" ] && [ -f "$dst" ] || continue
+    # A symlink is user-controlled at user scope. Leave it untouched; project
+    # scope rejects it through the same guard used by normal installs.
+    [ -L "$dst" ] && continue
+    if [ "$scope" = "project" ] || [ -n "$install_dir" ]; then
+      refuse_if_symlink "$dst"
+    fi
+    cmp -s "$src" "$dst" && rm -f "$dst"
+  done
+  rmdir "$dst_dir" 2>/dev/null || true
+}
+
+# Codex skills are the supported local extension surface for an action that
+# must edit Codex's configuration. A literal third-party slash command cannot
+# do this because Codex reserves `/…` for built-ins. The skill is invoked as
+# `$disable-routing`, asks Codex to run the existing safe toggle, and leaves
+# the managed router block in place for a later re-enable.
+install_codex_disable_routing_skill() {
+  local skill_src=""
+  local candidate dst_dir dst_file scope_args body
+  for candidate in \
+    "$script_dir/codex-skills/disable-routing/SKILL.md" \
+    "$script_dir/../codex-skills/disable-routing/SKILL.md"
+  do
+    if [ -f "$candidate" ]; then
+      skill_src="$candidate"
+      break
+    fi
+  done
+  [ -n "$skill_src" ] || { warn "Codex disable-routing skill template is missing; router configuration is still installed."; return 0; }
+  grep -Fq "$WEAVE_CODEX_SKILL_MARKER" "$skill_src" \
+    || { warn "Codex disable-routing skill template has no ownership marker; leaving skills unchanged."; return 0; }
+
+  dst_dir="$codex_dir/skills/disable-routing"
+  dst_file="$dst_dir/SKILL.md"
+  if [ "$scope" = "project" ] || [ -n "$install_dir" ]; then
+    refuse_if_symlink "$codex_dir/skills"
+    refuse_if_symlink "$dst_dir"
+    refuse_if_symlink "$dst_file"
+  elif [ -L "$codex_dir/skills" ] || [ -L "$dst_dir" ] || [ -L "$dst_file" ]; then
+    warn "Codex disable-routing skill path contains a symlink; leaving it untouched."
+    return 0
+  fi
+  if [ -e "$dst_file" ] && { [ ! -f "$dst_file" ] || ! grep -Fq "$WEAVE_CODEX_SKILL_MARKER" "$dst_file"; }; then
+    warn "A user-owned Codex disable-routing skill already exists at $dst_file; leaving it untouched."
+    return 0
+  fi
+  mkdir -p "$dst_dir"
+
+  scope_args=""
+  if [ -n "$install_dir" ]; then
+    scope_args=" --dir $(printf '%q' "$install_dir")"
+  elif [ "$scope" = "project" ]; then
+    scope_args=" --scope project"
+  fi
+  body="$(<"$skill_src")"
+  body="${body//\{\{SCOPE\}\}/$scope_args}"
+  printf '%s\n' "$body" >"$dst_file"
+  ok "Codex skill installed: \$disable-routing"
+}
+
 # ---------- codex install path (dispatch + exit before the Claude-only writes) ----------
 
 if [ "$target" = "codex" ]; then
   write_codex_config "$codex_config_file" "$base_url" "$api_key" "$user_email" "$user_name"
   ok "Codex config written to $codex_config_file"
-  install_slash_commands "$codex_dir/prompts"
+  remove_obsolete_codex_prompt_wrappers "$codex_dir/prompts"
+  install_codex_disable_routing_skill
+  info "Codex router directives: begin the message with one space, e.g. ' /force-model gpt-5.6-terra'."
 
   # Project scope: ensure the per-teammate config (which holds the router key)
   # is gitignored. The base URL is the same for every teammate, so a

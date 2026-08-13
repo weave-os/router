@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"testing"
 
+	"workweave/router/internal/auth"
+	"workweave/router/internal/billing"
 	"workweave/router/internal/providers"
 
 	"github.com/stretchr/testify/assert"
@@ -227,6 +229,54 @@ func TestEnabledProvidersForRequest_CodexSubscriptionEnrollsOpenAI(t *testing.T)
 		got := makeService().enabledProvidersForRequest(ctx, providers.ProviderOpenAI, http.Header{})
 		assert.NotContains(t, got, providers.ProviderOpenAI,
 			"a provider exclusion must subtract OpenAI even when a Codex subscription is present")
+	})
+}
+
+func TestExcludeCodexOAuthOnlyModels(t *testing.T) {
+	const codexJWT = "eyJhbGciOiJSUzI1NiJ9.codex.sig"
+	ctx := context.WithValue(routerKeyedCtx(), OpenAISubscriptionContextKey{}, codexJWT)
+	ctx = context.WithValue(ctx, OpenAIAccountIDContextKey{}, "acct-123")
+	enabled := map[string]struct{}{providers.ProviderOpenAI: {}}
+
+	t.Run("OAuth-only excludes infrastructure OpenAI models", func(t *testing.T) {
+		s := &Service{
+			byokOnly:                     true,
+			providers:                    map[string]providers.Client{providers.ProviderOpenAI: nil},
+			deploymentKeyedProviders:     map[string]struct{}{},
+			passthroughEligibleProviders: map[string]struct{}{},
+		}
+		got := s.excludeCodexOAuthOnlyModels(ctx, http.Header{}, enabled, nil)
+		assert.Contains(t, got, "gpt-5.4-nano")
+		assert.NotContains(t, got, "gpt-5.6-sol")
+		assert.NotContains(t, got, "gpt-5.6-terra")
+		assert.NotContains(t, got, "gpt-5.6-luna")
+	})
+
+	t.Run("OpenAI BYOK keeps infrastructure models eligible", func(t *testing.T) {
+		s := &Service{
+			byokOnly:                     true,
+			providers:                    map[string]providers.Client{providers.ProviderOpenAI: nil},
+			deploymentKeyedProviders:     map[string]struct{}{},
+			passthroughEligibleProviders: map[string]struct{}{},
+		}
+		byokCtx := context.WithValue(ctx, ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
+			{Provider: providers.ProviderOpenAI, Plaintext: []byte("sk-oai-byok")},
+		})
+		got := s.excludeCodexOAuthOnlyModels(byokCtx, http.Header{}, enabled, nil)
+		assert.NotContains(t, got, "gpt-5.4-nano")
+	})
+
+	t.Run("subscription-only ignores infrastructure credentials", func(t *testing.T) {
+		s := &Service{
+			providers: map[string]providers.Client{providers.ProviderOpenAI: nil},
+			deploymentKeyedProviders: map[string]struct{}{
+				providers.ProviderOpenAI: {},
+			},
+			passthroughEligibleProviders: map[string]struct{}{},
+		}
+		got := s.excludeCodexOAuthOnlyModels(billing.WithSubscriptionOnly(ctx), http.Header{}, enabled, nil)
+		assert.Contains(t, got, "gpt-5.4-nano")
+		assert.NotContains(t, got, "gpt-5.6-sol")
 	})
 }
 

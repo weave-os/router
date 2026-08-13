@@ -38,7 +38,31 @@ func TestSetAuth_PassthroughRejectsRouterKey(t *testing.T) {
 		c.setAuth(context.Background(), upstream, inbound)
 
 		assert.Equal(t, "Bearer sk-proj-real", upstream.Header.Get("Authorization"),
-			"Codex plan keys must reach api.openai.com untouched")
+			"genuine OpenAI API keys must reach api.openai.com untouched")
+	})
+
+	t.Run("ChatGPT OAuth is never forwarded to public OpenAI", func(t *testing.T) {
+		inbound := httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+		inbound.Header.Set("Authorization", "Bearer eyJhbGciOi.codex.jwt")
+		inbound.Header.Set("ChatGPT-Account-ID", "acct-123")
+		upstream := httptest.NewRequest(http.MethodPost, "https://api.openai.com/v1/responses", nil)
+
+		c.setAuth(context.Background(), upstream, inbound)
+
+		assert.Empty(t, upstream.Header.Get("Authorization"),
+			"a suppressed ChatGPT bearer must never fall through to api.openai.com")
+	})
+
+	t.Run("genuine OpenAI Bearer with stray account id still flows through", func(t *testing.T) {
+		inbound := httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+		inbound.Header.Set("Authorization", "Bearer sk-proj-real")
+		inbound.Header.Set("ChatGPT-Account-ID", "acct-stray")
+		upstream := httptest.NewRequest(http.MethodPost, "https://api.openai.com/v1/responses", nil)
+
+		c.setAuth(context.Background(), upstream, inbound)
+
+		assert.Equal(t, "Bearer sk-proj-real", upstream.Header.Get("Authorization"),
+			"a non-OAuth OpenAI client key must be unaffected by Codex-specific hardening")
 	})
 
 	t.Run("non-Bearer authorization flows through", func(t *testing.T) {

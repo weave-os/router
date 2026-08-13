@@ -17,6 +17,7 @@
     "uninstall.sh",
     "cc-statusline.sh",
     "commands/",
+    "codex-skills/",
     "pi-router/",
     "opencode-weave/",
     "README.md",
