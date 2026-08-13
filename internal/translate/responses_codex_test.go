@@ -1,6 +1,7 @@
 package translate_test
 
 import (
+	"encoding/json"
 	"testing"
 
 	"workweave/router/internal/translate"
@@ -17,7 +18,7 @@ func TestConvertResponsesToChatCompletionsWithOptions_PortableCodexTools(t *test
 		"input":[
 			{"type":"additional_tools","role":"developer","tools":[
 				{"type":"namespace","name":"functions","description":"default","tools":[
-					{"type":"function","name":"lookup","description":"look up","parameters":{"type":"object","properties":{"q":{"type":"string"}}}},
+					{"type":"function","name":"lookup","description":"look up","parameters":{"type":"object","$defs":{"query":{"type":"string","minLength":1}},"properties":{"q":{"$ref":"#/$defs/query"}}}},
 					{"type":"custom","name":"exec","description":"run code","format":{"type":"grammar","syntax":"javascript","definition":"program"}}
 				]},
 				{"type":"namespace","name":"a","description":"first","tools":[
@@ -42,6 +43,10 @@ func TestConvertResponsesToChatCompletionsWithOptions_PortableCodexTools(t *test
 	tools := gjson.GetBytes(converted.Body, "tools").Array()
 	require.Len(t, tools, 4)
 	assert.Equal(t, "lookup", tools[0].Get("function.name").Str)
+	assert.Equal(t, "string", tools[0].Get("function.parameters.properties.q.type").Str)
+	assert.Equal(t, int64(1), tools[0].Get("function.parameters.properties.q.minLength").Int())
+	assert.False(t, tools[0].Get("function.parameters.$defs").Exists())
+	assert.NotContains(t, tools[0].Get("function.parameters").Raw, `"$ref"`)
 	assert.Equal(t, "exec", tools[1].Get("function.name").Str)
 	assert.Equal(t, "string", tools[1].Get("function.parameters.properties.input.type").Str)
 	assert.Equal(t, "a__b__c", tools[2].Get("function.name").Str)
@@ -57,6 +62,7 @@ func TestConvertResponsesToChatCompletionsWithOptions_PortableCodexTools(t *test
 	assert.Equal(t, "user", gjson.GetBytes(converted.Body, "messages.1.role").Str)
 	assert.Equal(t, "do it", gjson.GetBytes(converted.Body, "messages.1.content.0.text").Str)
 	assertReportCode(t, converted.Report, "responses_developer_message_projected")
+	assertReportCode(t, converted.Report, "responses_function_schema_inlined")
 	assert.NotEmpty(t, converted.Report)
 }
 
@@ -190,9 +196,11 @@ func TestConvertResponsesToChatCompletionsWithOptions_PortableCodexCustomStructu
 
 func TestConvertResponsesToChatCompletionsWithOptions_PortableCodexStructuredTextFormat(t *testing.T) {
 	body := []byte(`{
-		"model":"gpt-5.6-sol",
-		"input":"answer",
-		"text":{"verbosity":"low","format":{"type":"json_schema","name":"answer","strict":true,"schema":{"type":"object","properties":{"answer":{"type":"string"}},"required":["answer"]}}}
+			"model":"gpt-5.6-sol",
+			"input":"answer",
+			"service_tier":"priority",
+			"prompt_cache_key":"caller-key",
+			"text":{"verbosity":"low","format":{"type":"json_schema","name":"answer","strict":true,"schema":{"type":"object","properties":{"answer":{"type":"string"}},"required":["answer"]}}}
 	}`)
 
 	converted, err := translate.ConvertResponsesToChatCompletionsWithOptions(body, translate.ResponsesConversionOptions{PortableCodex: true})
@@ -201,6 +209,55 @@ func TestConvertResponsesToChatCompletionsWithOptions_PortableCodexStructuredTex
 	assert.Equal(t, "answer", gjson.GetBytes(converted.Body, "response_format.json_schema.name").Str)
 	assert.True(t, gjson.GetBytes(converted.Body, "response_format.json_schema.strict").Bool())
 	assert.Equal(t, "string", gjson.GetBytes(converted.Body, "response_format.json_schema.schema.properties.answer.type").Str)
+	assert.Equal(t, "system", gjson.GetBytes(converted.Body, "messages.0.role").Str)
+	assert.Equal(t, "Keep the response concise and focused.", gjson.GetBytes(converted.Body, "messages.0.content").Str)
+	assert.Equal(t, "answer", gjson.GetBytes(converted.Body, "messages.1.content").Str)
+	assert.False(t, gjson.GetBytes(converted.Body, "service_tier").Exists())
+	assert.False(t, gjson.GetBytes(converted.Body, "prompt_cache_key").Exists())
+	assert.Equal(t, "priority", gjson.GetBytes(converted.OriginalBody, "service_tier").Str)
+	assert.Equal(t, "caller-key", gjson.GetBytes(converted.OriginalBody, "prompt_cache_key").Str)
+	assertReportCode(t, converted.Report, "responses_text_verbosity_projected")
+	assertReportCode(t, converted.Report, "responses_service_tier_dropped")
+	assertReportCode(t, converted.Report, "responses_prompt_cache_key_dropped")
+}
+
+func TestConvertResponsesToChatCompletionsWithOptions_PortableCodexUnsupportedVerbosityStaysNative(t *testing.T) {
+	body := []byte(`{"model":"gpt-5.6-sol","input":"answer","text":{"verbosity":"future"}}`)
+
+	converted, err := translate.ConvertResponsesToChatCompletionsWithOptions(body, translate.ResponsesConversionOptions{PortableCodex: true})
+	require.NoError(t, err)
+	assert.True(t, converted.Requirements.NativeOnly)
+	assertReportCode(t, converted.Report, "responses_text_verbosity_native_only")
+}
+
+func TestConvertResponsesToChatCompletionsWithOptions_PortableCodexUnresolvedToolRefStaysNative(t *testing.T) {
+	body := []byte(`{"model":"gpt-5.6-sol","input":"answer","tools":[{"type":"function","name":"lookup","parameters":{"type":"object","properties":{"q":{"$ref":"https://example.com/query.json"}}}}]}`)
+
+	converted, err := translate.ConvertResponsesToChatCompletionsWithOptions(body, translate.ResponsesConversionOptions{PortableCodex: true})
+	require.NoError(t, err)
+	assert.True(t, converted.Requirements.NativeOnly)
+	assert.Empty(t, gjson.GetBytes(converted.Body, "tools").Array())
+	assertReportCode(t, converted.Report, "responses_function_schema_native_only")
+}
+
+func TestConvertResponsesToChatCompletionsWithOptions_PortableCodexBadgeNeedsProvenance(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		text string
+		want string
+	}{
+		{name: "injected badge", text: "\u2063\u2060\u2063\u2060**Weave Router** — gpt-5.6-terra\n\nanswer", want: "answer"},
+		{name: "organic heading", text: "**Weave Router** — an ordinary heading\n\nkeep this", want: "**Weave Router** — an ordinary heading\n\nkeep this"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			encoded, err := json.Marshal(tc.text)
+			require.NoError(t, err)
+			body := []byte(`{"model":"gpt-5.6-sol","input":[{"type":"message","role":"assistant","content":` + string(encoded) + `}]}`)
+			converted, err := translate.ConvertResponsesToChatCompletionsWithOptions(body, translate.ResponsesConversionOptions{PortableCodex: true})
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, gjson.GetBytes(converted.Body, "messages.0.content").Str)
+		})
+	}
 }
 
 func TestConvertResponsesToChatCompletionsWithOptions_PortableCodexUnknownStaysNative(t *testing.T) {

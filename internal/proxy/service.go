@@ -5162,6 +5162,9 @@ func (s *Service) ProxyOpenAIResponses(ctx context.Context, body []byte, w http.
 	// Routing, billing, and telemetry are reused via
 	// ProxyOpenAIChatCompletion; chatBody is used only for routing features.
 	wrapper := translate.NewResponsesWriter(w, model)
+	if clientAppCodex {
+		wrapper.EnableCodexBadgeProvenance()
+	}
 	wrapper.SetToolMappings(conversion.ToolMappings)
 	// Defer the high-fidelity call-log emission until after Finalize: the
 	// ResponsesWriter buffers (non-streaming) and emits tail events only in

@@ -16,6 +16,8 @@ import (
 	"github.com/tidwall/gjson"
 )
 
+const codexResponsesBadgeSentinelForTest = "\u2063\u2060\u2063\u2060"
+
 func TestResponsesToChatCompletions_InstructionsAndInput(t *testing.T) {
 	body := []byte(`{
 		"model": "gpt-5",
@@ -217,7 +219,7 @@ func TestStripRoutingBadgeFromResponsesInput_PreservesNativeFields(t *testing.T)
 			{"type":"reasoning","id":"rs_1","encrypted_content":"opaque"},
 			{"type":"message","id":"msg_1","role":"assistant","status":"completed","content":[
 				{"type":"refusal","refusal":""},
-				{"type":"output_text","text":"**Weave Router** — gpt-5.6-terra ← gpt-5.6-sol\n\nanswer","annotations":[{"type":"url_citation","url":"https://example.com"}]},
+				{"type":"output_text","text":"\u2063\u2060\u2063\u2060**Weave Router** — gpt-5.6-terra ← gpt-5.6-sol\n\nanswer","annotations":[{"type":"url_citation","url":"https://example.com"}]},
 				{"type":"output_text","text":"**WEAVE ROUTER** — user-authored\n\nlater part"}
 			]},
 			{"type":"function_call","id":"fc_1","call_id":"call_1","name":"lookup","arguments":"{\"x\":1}"}
@@ -240,6 +242,14 @@ func TestStripRoutingBadgeFromResponsesInput_PreservesNativeFields(t *testing.T)
 
 func TestStripRoutingBadgeFromResponsesInput_NoMatchPreservesBytes(t *testing.T) {
 	body := []byte("{ \"model\" : \"gpt-5.6-sol\", \"input\" : [{\"type\":\"message\",\"role\":\"assistant\",\"content\":\"plain answer\"}] }\n")
+
+	out, err := translate.StripRoutingBadgeFromResponsesInput(body)
+	require.NoError(t, err)
+	assert.Equal(t, body, out)
+}
+
+func TestStripRoutingBadgeFromResponsesInput_PreservesOrganicAssistantHeading(t *testing.T) {
+	body := []byte("{ \"model\" : \"gpt-5.6-sol\", \"input\" : [{\"type\":\"message\",\"role\":\"assistant\",\"content\":\"**WEAVE ROUTER** — an ordinary heading\\n\\nkeep this paragraph\"}] }\n")
 
 	out, err := translate.StripRoutingBadgeFromResponsesInput(body)
 	require.NoError(t, err)
@@ -441,7 +451,7 @@ func TestResponsesWriter_PassthroughBadgePreservesNativeStream(t *testing.T) {
 				assert.Equal(t, gjson.Get(payloads[index], "type").Str, event["type"])
 			}
 
-			badge := "**Weave Router** — gpt-5.6-terra ← gpt-5.6-sol\n\n"
+			badge := codexResponsesBadgeSentinelForTest + "**Weave Router** — gpt-5.6-terra ← gpt-5.6-sol\n\n"
 			assert.Equal(t, badge+"o", events[4]["delta"], "only the first text delta gets the badge")
 			assert.Equal(t, "k", events[5]["delta"], "later deltas stay native")
 			assert.Equal(t, badge+"ok", events[6]["text"])
@@ -465,6 +475,29 @@ func TestResponsesWriter_PassthroughBadgePreservesNativeStream(t *testing.T) {
 			assert.Equal(t, originalTool, output[1])
 		})
 	}
+}
+
+func TestResponsesWriter_PassthroughBadgeCanGrowPastOriginalEventCapacity(t *testing.T) {
+	rec := httptest.NewRecorder()
+	w := translate.NewResponsesWriter(rec, "gpt-5.6-sol")
+	badge := strings.Repeat("routed-model ", 511) + "routed-model"
+	w.SetBadgeText(badge)
+	w.SetPassthroughBadge()
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("x-router-model", "gpt-5.6-terra")
+	w.WriteHeader(200)
+
+	native := `event: response.output_text.delta
+data: {"type":"response.output_text.delta","item_id":"msg_native","output_index":0,"content_index":0,"delta":"ok"}
+
+`
+	_, err := w.Write([]byte(native))
+	require.NoError(t, err)
+	require.NoError(t, w.Finalize())
+
+	events := parseSSEEvents(t, rec.Body.Bytes())
+	require.Len(t, events, 1)
+	assert.Equal(t, codexResponsesBadgeSentinelForTest+badge+"\n\nok", events[0]["delta"])
 }
 
 func TestResponsesWriter_PrependsBadgeOnSwap(t *testing.T) {

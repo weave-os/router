@@ -82,8 +82,17 @@ func convertPortableCodexResponses(body []byte) (ResponsesConversion, error) {
 
 	converter.collectDeclaredTools(root)
 	messages := converter.convertInput(root.Get("input"))
+	var systemMessages []map[string]any
 	if instructions := root.Get("instructions").Str; instructions != "" {
-		messages = append([]map[string]any{{"role": "system", "content": instructions}}, messages...)
+		systemMessages = append(systemMessages, map[string]any{"role": "system", "content": instructions})
+	}
+	if verbosity := root.Get("text.verbosity"); verbosity.Exists() {
+		if instruction, ok := converter.convertTextVerbosity(verbosity); ok {
+			systemMessages = append(systemMessages, map[string]any{"role": "system", "content": instruction})
+		}
+	}
+	if len(systemMessages) > 0 {
+		messages = append(systemMessages, messages...)
 	}
 	out["messages"] = messages
 	if len(converter.tools) > 0 {
@@ -168,7 +177,24 @@ func (c *portableCodexResponsesConverter) collectFunctionTool(tool gjson.Result,
 		function["description"] = description
 	}
 	if parameters := firstExisting(tool.Get("parameters"), tool.Get("function.parameters")); parameters.Exists() {
-		function["parameters"] = json.RawMessage(parameters.Raw)
+		var schema any
+		if !parameters.IsObject() || json.Unmarshal([]byte(parameters.Raw), &schema) != nil {
+			c.markNativeOnly("responses_function_schema_native_only", path+".parameters")
+			return
+		}
+		hadDefinitions := schemaContainsDefinitionsOrRefs(schema)
+		schema = inlineSchemaDefs(schema)
+		if schemaContainsDefinitionsOrRefs(schema) {
+			// Cyclic and external references cannot be made self-contained. Keep
+			// this turn on native Responses instead of sending an invalid schema
+			// to a Chat-only provider.
+			c.markNativeOnly("responses_function_schema_native_only", path+".parameters")
+			return
+		}
+		function["parameters"] = schema
+		if hadDefinitions {
+			c.report("responses_function_schema_inlined", "inlined", path+".parameters")
+		}
 	}
 	if strict := firstExisting(tool.Get("strict"), tool.Get("function.strict")); strict.Exists() {
 		function["strict"] = strict.Bool()
@@ -331,7 +357,7 @@ func (c *portableCodexResponsesConverter) convertMessageContent(content gjson.Re
 	if content.Type == gjson.String {
 		text := content.Str
 		if role == "assistant" {
-			text = responsesBadgePattern.ReplaceAllString(text, "")
+			text = codexResponsesBadgePattern.ReplaceAllString(text, "")
 		}
 		return text, true
 	}
@@ -348,7 +374,7 @@ func (c *portableCodexResponsesConverter) convertMessageContent(content gjson.Re
 		case "input_text", "output_text", "text":
 			text := part.Get("text").Str
 			if role == "assistant" && firstAssistantText {
-				text = responsesBadgePattern.ReplaceAllString(text, "")
+				text = codexResponsesBadgePattern.ReplaceAllString(text, "")
 				firstAssistantText = false
 			}
 			parts = append(parts, map[string]any{"type": "text", "text": text})
@@ -498,11 +524,13 @@ func (c *portableCodexResponsesConverter) copyRequestControls(root gjson.Result,
 	if metadata := root.Get("metadata"); metadata.IsObject() {
 		out["metadata"] = json.RawMessage(metadata.Raw)
 	}
-	if serviceTier := root.Get("service_tier"); serviceTier.Type == gjson.String {
-		out["service_tier"] = serviceTier.Str
+	if serviceTier := root.Get("service_tier"); serviceTier.Exists() {
+		// OriginalBody retains this OpenAI-only hint for native OpenAI dispatch.
+		// The portable body may be sent to any HMM-selected Chat provider.
+		c.report("responses_service_tier_dropped", "dropped", "service_tier")
 	}
-	if promptCacheKey := root.Get("prompt_cache_key"); promptCacheKey.Type == gjson.String {
-		out["prompt_cache_key"] = promptCacheKey.Str
+	if promptCacheKey := root.Get("prompt_cache_key"); promptCacheKey.Exists() {
+		c.report("responses_prompt_cache_key_dropped", "dropped", "prompt_cache_key")
 	}
 	if responseFormat := root.Get("response_format"); responseFormat.IsObject() {
 		out["response_format"] = json.RawMessage(responseFormat.Raw)
@@ -513,6 +541,27 @@ func (c *portableCodexResponsesConverter) copyRequestControls(root gjson.Result,
 			out["response_format"] = converted
 		}
 	}
+}
+
+func (c *portableCodexResponsesConverter) convertTextVerbosity(verbosity gjson.Result) (string, bool) {
+	if verbosity.Type != gjson.String {
+		c.markNativeOnly("responses_text_verbosity_native_only", "text.verbosity")
+		return "", false
+	}
+	var instruction string
+	switch verbosity.Str {
+	case "low":
+		instruction = "Keep the response concise and focused."
+	case "medium":
+		instruction = "Use a moderate level of detail in the response."
+	case "high":
+		instruction = "Provide a detailed and thorough response."
+	default:
+		c.markNativeOnly("responses_text_verbosity_native_only", "text.verbosity")
+		return "", false
+	}
+	c.report("responses_text_verbosity_projected", "projected", "text.verbosity")
+	return instruction, true
 }
 
 func (c *portableCodexResponsesConverter) convertToolChoice(choice gjson.Result) (any, bool) {
@@ -677,4 +726,47 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
+}
+
+func schemaContainsDefinitionsOrRefs(node any) bool {
+	var visit func(any) bool
+	visit = func(value any) bool {
+		switch typed := value.(type) {
+		case map[string]any:
+			if _, ok := typed["$ref"]; ok {
+				return true
+			}
+			if _, ok := typed["$defs"]; ok {
+				return true
+			}
+			if _, ok := typed["definitions"]; ok {
+				return true
+			}
+			for key, child := range typed {
+				// Keys inside properties are user field names, not schema
+				// keywords. Recurse into each property's schema instead.
+				if key == "properties" {
+					if properties, ok := child.(map[string]any); ok {
+						for _, propertySchema := range properties {
+							if visit(propertySchema) {
+								return true
+							}
+						}
+					}
+					continue
+				}
+				if visit(child) {
+					return true
+				}
+			}
+		case []any:
+			for _, child := range typed {
+				if visit(child) {
+					return true
+				}
+			}
+		}
+		return false
+	}
+	return visit(node)
 }

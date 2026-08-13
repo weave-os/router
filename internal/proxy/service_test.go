@@ -312,7 +312,7 @@ func TestService_ProxyOpenAIResponses_NativeBadgeIsCodexOnlyAndHonorsSuppression
 		"data: {\"type\":\"response.output_item.done\",\"sequence_number\":1,\"output_index\":0,\"item\":{\"id\":\"msg_1\",\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"ok\"}]}}\n\n" +
 		"event: response.completed\n" +
 		"data: {\"type\":\"response.completed\",\"sequence_number\":2,\"response\":{\"id\":\"resp_1\",\"model\":\"gpt-5.6-terra\",\"output\":[{\"id\":\"msg_1\",\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"ok\"}]}]}}\n\n"
-	const priorBadge = "**Weave Router** — gpt-5.6-sol\n\nold answer"
+	const priorBadge = "\u2063\u2060\u2063\u2060**Weave Router** — gpt-5.6-sol\n\nold answer"
 
 	for _, tc := range []struct {
 		name       string
@@ -345,7 +345,7 @@ func TestService_ProxyOpenAIResponses_NativeBadgeIsCodexOnlyAndHonorsSuppression
 			ctx := context.WithValue(context.Background(), proxy.OpenAISubscriptionContextKey{}, "eyJhbGciOiJSUzI1NiJ9.codex.sig")
 			ctx = context.WithValue(ctx, proxy.OpenAIAccountIDContextKey{}, "acct-123")
 			ctx = context.WithValue(ctx, proxy.ClientIdentityContextKey{}, proxy.ClientIdentity{ClientApp: tc.clientApp})
-			body := []byte(`{"model":"gpt-5.6-sol","stream":true,"input":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"**Weave Router** — gpt-5.6-sol\n\nold answer"}]},{"type":"message","role":"user","content":"continue"}]}`)
+			body := []byte(`{"model":"gpt-5.6-sol","stream":true,"input":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"\u2063\u2060\u2063\u2060**Weave Router** — gpt-5.6-sol\n\nold answer"}]},{"type":"message","role":"user","content":"continue"}]}`)
 			rec := httptest.NewRecorder()
 			req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(""))
 			if tc.marker != "" {
@@ -512,9 +512,12 @@ func TestService_ProxyOpenAIResponses_CodexPortableBridgeKeepsHMMProvidersAndRes
 	ctx = context.WithValue(ctx, proxy.OpenAIAccountIDContextKey{}, "acct-123")
 	ctx = context.WithValue(ctx, proxy.ClientIdentityContextKey{}, proxy.ClientIdentity{ClientApp: proxy.ClientAppCodex})
 	body := []byte(`{
-		"model":"gpt-5.6-sol",
-		"stream":true,
-		"input":[
+			"model":"gpt-5.6-sol",
+			"stream":true,
+			"service_tier":"priority",
+			"prompt_cache_key":"codex-cache-key",
+			"text":{"verbosity":"low"},
+			"input":[
 			{"type":"reasoning","id":"rs_1","summary":[],"encrypted_content":"opaque"},
 			{"type":"custom_tool_call","id":"ctc_old","call_id":"call_old","name":"exec","input":"return tools.read({});"},
 			{"type":"custom_tool_call_output","call_id":"call_old","output":[{"type":"input_text","text":"first"},{"type":"input_text","text":"second"}]},
@@ -524,7 +527,7 @@ func TestService_ProxyOpenAIResponses_CodexPortableBridgeKeepsHMMProvidersAndRes
 		],
 		"tools":[{"type":"namespace","name":"functions","tools":[
 			{"type":"custom","name":"exec","description":"Run code mode","format":{"type":"grammar","syntax":"lark","definition":"start: /.+/"}},
-			{"type":"namespace","name":"collaboration","tools":[{"type":"function","name":"send_message","parameters":{"type":"object"}}]}
+				{"type":"namespace","name":"collaboration","tools":[{"type":"function","name":"send_message","parameters":{"type":"object","$defs":{"target":{"type":"string"}},"properties":{"target":{"$ref":"#/$defs/target"}}}}]}
 		]}]
 	}`)
 	rec := httptest.NewRecorder()
@@ -544,6 +547,12 @@ func TestService_ProxyOpenAIResponses_CodexPortableBridgeKeepsHMMProvidersAndRes
 	assert.Equal(t, "moonshotai/kimi-k2.7", gjson.GetBytes(chatBody, "model").Str)
 	assert.Equal(t, "exec", gjson.GetBytes(chatBody, "tools.0.function.name").Str)
 	assert.Equal(t, "collaboration__send_message", gjson.GetBytes(chatBody, "tools.1.function.name").Str)
+	assert.Equal(t, "string", gjson.GetBytes(chatBody, "tools.1.function.parameters.properties.target.type").Str)
+	assert.False(t, gjson.GetBytes(chatBody, "tools.1.function.parameters.$defs").Exists())
+	assert.NotContains(t, gjson.GetBytes(chatBody, "tools.1.function.parameters").Raw, `"$ref"`)
+	assert.False(t, gjson.GetBytes(chatBody, "service_tier").Exists())
+	assert.False(t, gjson.GetBytes(chatBody, "prompt_cache_key").Exists())
+	assert.Equal(t, "Keep the response concise and focused.", gjson.GetBytes(chatBody, "messages.0.content").Str)
 	assert.Contains(t, string(chatBody), `"tool_call_id":"call_old"`)
 	assert.Contains(t, string(chatBody), "first")
 	assert.Contains(t, string(chatBody), "second")

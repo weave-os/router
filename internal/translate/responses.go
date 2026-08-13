@@ -277,10 +277,19 @@ func responsesInputItemToMessages(item gjson.Result) ([]map[string]any, error) {
 // upstream.
 var responsesBadgePattern = regexp.MustCompile(`(?is)\A(?:\*\*WEAVE ROUTER\*\* — .*?\n\n|✦ \*\*WEAVE ROUTER\*\* → .*?\n\n)`)
 
-// StripRoutingBadgeFromResponsesInput removes a router badge from prior
-// assistant message items while preserving every other native Responses field.
-// Callers should scope this to clients for which the router itself injected the
-// badge; generic native Responses callers retain byte-for-byte input semantics.
+// codexResponsesBadgeSentinel is an invisible, router-owned prefix carried in
+// Codex assistant history. Native/portable Codex ingress requires this prefix
+// before removing badge text, so ordinary assistant prose that happens to
+// begin with the visible Weave heading is never mistaken for injected metadata.
+const codexResponsesBadgeSentinel = "\u2063\u2060\u2063\u2060"
+
+var codexResponsesBadgePattern = regexp.MustCompile(
+	`(?is)\A` + regexp.QuoteMeta(codexResponsesBadgeSentinel) +
+		`(?:\*\*WEAVE ROUTER\*\* — .*?\n\n|✦ \*\*WEAVE ROUTER\*\* → .*?\n\n)`,
+)
+
+// StripRoutingBadgeFromResponsesInput removes a provenance-marked router badge
+// from assistant items. Call only for clients opted into the Codex badge.
 func StripRoutingBadgeFromResponsesInput(body []byte) ([]byte, error) {
 	input := gjson.GetBytes(body, "input")
 	if !input.IsArray() {
@@ -300,7 +309,7 @@ func StripRoutingBadgeFromResponsesInput(body []byte) ([]byte, error) {
 
 		content := item.Get("content")
 		if content.Type == gjson.String {
-			stripped := responsesBadgePattern.ReplaceAllString(content.Str, "")
+			stripped := codexResponsesBadgePattern.ReplaceAllString(content.Str, "")
 			if stripped == content.Str {
 				continue
 			}
@@ -320,7 +329,7 @@ func StripRoutingBadgeFromResponsesInput(body []byte) ([]byte, error) {
 			switch part.Get("type").Str {
 			case "input_text", "output_text", "text":
 				text := part.Get("text").Str
-				stripped := responsesBadgePattern.ReplaceAllString(text, "")
+				stripped := codexResponsesBadgePattern.ReplaceAllString(text, "")
 				if stripped != text {
 					var err error
 					path := "input." + strconv.Itoa(itemIndex) + ".content." + strconv.Itoa(partIndex) + ".text"
@@ -414,6 +423,7 @@ type ResponsesWriter struct {
 	completedEmitted           bool
 	badgePrepended             bool
 	badgeText                  string
+	codexBadgeProvenance       bool
 	nativeBadgeTargetSelected  bool
 	nativeBadgeDeltaPrepended  bool
 	nativeBadgeItemID          string
@@ -512,6 +522,13 @@ func (t *ResponsesWriter) SetBadgeText(text string) {
 	t.badgeText = text + "\n\n"
 }
 
+// EnableCodexBadgeProvenance marks any in-band Responses badge with the
+// invisible prefix required by Codex-specific ingress stripping. It is kept
+// opt-in so other Responses clients preserve their existing wire behavior.
+func (t *ResponsesWriter) EnableCodexBadgeProvenance() {
+	t.codexBadgeProvenance = true
+}
+
 func (t *ResponsesWriter) Header() http.Header { return t.inner.Header() }
 
 // SetPassthrough switches to verbatim mode: bytes forwarded unchanged, no
@@ -526,6 +543,7 @@ func (t *ResponsesWriter) SetPassthrough() { t.passthrough = true }
 // fields in the first assistant message; event order, sequence numbers,
 // response/item ids, output indices, reasoning, and tool calls remain native.
 func (t *ResponsesWriter) SetPassthroughBadge() {
+	t.EnableCodexBadgeProvenance()
 	t.passthrough = true
 	t.passthroughBadge = true
 }
@@ -819,7 +837,7 @@ func (t *ResponsesWriter) observeNativeBadgeTarget(ref nativeResponsesBadgeRef) 
 
 func (t *ResponsesWriter) prefixNativeBadge(data []byte, path string) ([]byte, bool) {
 	text := gjson.GetBytes(data, path)
-	if text.Type != gjson.String || text.Str == "" || responsesBadgePattern.MatchString(text.Str) {
+	if text.Type != gjson.String || text.Str == "" || codexResponsesBadgePattern.MatchString(text.Str) {
 		return data, false
 	}
 	badge := t.computeBadgeText()
@@ -946,7 +964,10 @@ func (t *ResponsesWriter) rewriteNativeResponsesEvent(raw []byte) []byte {
 	if offset < 0 {
 		return raw
 	}
-	rewritten := make([]byte, 0, len(raw)-len(data)+len(rewrittenData))
+	// Preallocate only the already-realized event size. The badge may make the
+	// payload larger; append can grow safely without overflow-prone capacity
+	// arithmetic over provider-controlled stream lengths.
+	rewritten := make([]byte, 0, len(raw))
 	rewritten = append(rewritten, raw[:offset]...)
 	rewritten = append(rewritten, rewrittenData...)
 	rewritten = append(rewritten, raw[offset+len(data):]...)
@@ -1229,17 +1250,23 @@ func (t *ResponsesWriter) nextOutputIndex() int {
 // delta, e.g. "**Weave Router** — <routed> ← <requested>" (arrow only when
 // swapped). Returns "" if no routed model is known yet.
 func (t *ResponsesWriter) computeBadgeText() string {
+	var badge string
 	if t.badgeText != "" {
-		return t.badgeText
+		badge = t.badgeText
+	} else {
+		if t.model == "" {
+			return ""
+		}
+		badge = "**Weave Router** — " + t.model
+		if t.requestedModel != "" && t.requestedModel != t.model {
+			badge += " ← " + t.requestedModel
+		}
+		badge += "\n\n"
 	}
-	if t.model == "" {
-		return ""
+	if t.codexBadgeProvenance && !strings.HasPrefix(badge, codexResponsesBadgeSentinel) {
+		badge = codexResponsesBadgeSentinel + badge
 	}
-	badge := "**Weave Router** — " + t.model
-	if t.requestedModel != "" && t.requestedModel != t.model {
-		badge += " ← " + t.requestedModel
-	}
-	return badge + "\n\n"
+	return badge
 }
 
 func (t *ResponsesWriter) closeOpenItems() error {
