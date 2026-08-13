@@ -280,7 +280,11 @@ var Models = []Model{
 	{ID: "gpt-5.5-mini", Tier: TierMid, ContextWindow: 1_000_000, Providers: []ProviderBinding{
 		{Provider: providers.ProviderOpenAI, Price: Pricing{InputUSDPer1M: 0.50, OutputUSDPer1M: 2.50, CacheReadMultiplier: 0.10}},
 	}},
-	{ID: "gpt-5.5", Tier: TierHigh, ContextWindow: 1_050_000, Providers: []ProviderBinding{
+	// gpt-5.5 retired from routing; kept as priced passthrough so lingering
+	// session pins and direct requests still bill at real cost. The HMM rosters
+	// dropped it, but an untiered row is what also removes it from cluster
+	// candidates — leaving it tiered kept the legacy strategy selecting it.
+	{ID: "gpt-5.5", ContextWindow: 1_050_000, Providers: []ProviderBinding{
 		{Provider: providers.ProviderOpenAI, Price: Pricing{InputUSDPer1M: 5.00, OutputUSDPer1M: 30.00, CacheReadMultiplier: 0.10}},
 	}},
 	{ID: "gpt-5.5-pro", Tier: TierHigh, ContextWindow: 1_000_000, Providers: []ProviderBinding{

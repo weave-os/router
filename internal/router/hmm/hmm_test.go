@@ -203,7 +203,6 @@ func TestCatalogRoutingTargetsResolveCurrentHMMRosterArmsToProviders(t *testing.
 		"google/gemini-3.5-flash",
 		"anthropic/claude-sonnet-5",
 		"anthropic/claude-opus-5",
-		"openai/gpt-5.5",
 		"openai/gpt-5.6-terra",
 		"z-ai/glm-5.2",
 		"google/gemini-3.1-pro-preview",

@@ -50,7 +50,7 @@ func TestResolveForceModel(t *testing.T) {
 		{
 			name:         "alias gpt",
 			input:        "gpt",
-			wantID:       "gpt-5.5",
+			wantID:       "gpt-5.6-sol",
 			wantProvider: providers.ProviderOpenAI,
 			wantKnown:    true,
 		},

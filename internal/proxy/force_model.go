@@ -55,8 +55,12 @@ var forceModelAliases = map[string]string{
 	"claude-haiku":  "claude-haiku-4-5",
 	"haiku-4-5":     "claude-haiku-4-5",
 	"haiku-4.5":     "claude-haiku-4-5",
-	"gpt":           "gpt-5.5",
-	"openai":        "gpt-5.5",
+	// Generic GPT aliases follow the current flagship, not a pinned version;
+	// they pointed at gpt-5.5 until it was retired. Version-specific aliases
+	// (gpt-5-5*) deliberately still resolve to their exact model, which stays
+	// available as priced passthrough.
+	"gpt":    "gpt-5.6-sol",
+	"openai": "gpt-5.6-sol",
 	// The bare gpt-5.6 alias routes to Sol, matching OpenAI's own alias.
 	"gpt-5.6":       "gpt-5.6-sol",
 	"gpt-5-6":       "gpt-5.6-sol",
