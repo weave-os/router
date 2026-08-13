@@ -5,6 +5,8 @@ internal/proxy/force_model.go
   s_8536ef2e5ef215::t_e3ec703aa5d6f7 62-63
 internal/router/catalog/catalog.go
   s_8536ef2e5ef215::t_7b9cf1089c681d 283-287
+internal/router/cluster/candidate_k12_test.go
+  s_8536ef2e5ef215::t_365d58d1e5770b 82-86
 ---
 {
   "schema_version": "authorship/3.0.0",
