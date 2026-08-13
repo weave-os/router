@@ -179,41 +179,19 @@ const (
 	hmmReasonPhaseChange          = "hmm_phase_change"
 )
 
-// hmmPinStickyArmSelectorUnavailReason is the PinTier value recorded when a
-// same-cluster reroute is suppressed because it came from
-// hmmArmSelectorUnavailableSentinel fallback noise rather than a real
-// scorer decision.
+// hmmPinStickyArmSelectorUnavailReason is the PinTier value when a reroute is suppressed by the arm-selector unavailable fallback.
 const hmmPinStickyArmSelectorUnavailReason = "hmm_pin_sticky_arm_selector_unavailable"
 
-// hmmArmSelectorUnavailableSentinel mirrors
-// ml_dev.hmm_router.route_selector.PIN_STICKY_OVERRIDE_ELIGIBLE_SENTINEL.
-// The sidecar's Reason string is opaque to Go, so a substring match is the
-// cheapest way to detect "this fresh decision is a legacy-pairwise-bandit
-// fallback draw, not a contextual-arm-selector decision" without a schema
-// bump. Keep these two constants in sync across the Python/Go boundary.
+// hmmArmSelectorUnavailableSentinel mirrors ml_dev.hmm_router.route_selector.PIN_STICKY_OVERRIDE_ELIGIBLE_SENTINEL.
+// Substring-matched against the sidecar's opaque Reason string to detect a legacy pairwise-bandit fallback
+// draw without a schema bump. Keep in sync across the Python/Go boundary.
 const hmmArmSelectorUnavailableSentinel = "[pin_sticky_override_eligible]"
 
-// stickPinOnArmSelectorUnavailable reports whether an authoritative-per-turn
-// HMM decision should be suppressed in favor of the active pin. It exists
-// because the contextual arm-selector falls back to a per-turn
-// epsilon-greedy bandit draw over the WHOLE cluster roster whenever fewer
-// than two roster arms have real training data in that cluster
-// (arm_selector.py's ArmSelectorUnavailableError) — with
-// authoritative-per-turn selection this fallback re-rolls independently on
-// every tool_result turn, producing visible mid-conversation churn between
-// arms nobody trained a preference between. A genuine EV upgrade, tier
-// change, or cache-breaking event must still switch normally, so this only
-// fires when the fresh decision itself carries the fallback sentinel.
-//
-// NOTE on tier check: the legacy pairwise bandit draws only within one
-// cluster's roster (roster_arms = self.roster.arms_for(cluster) at
-// route_selector.py:358, then bandit.choose(eligible_arms=eligible_arms) at
-// :432) — so the reroute is ALWAYS within the same cluster. A catalog-tier
-// mismatch between pin and fresh is NOT necessarily evidence of an upgrade:
-// in the prod incident the cluster was 'high' and the two candidates
-// (claude-sonnet-5 mid-tier, z-ai/glm-5.2 high-tier) are in DIFFERENT
-// catalog tiers despite being in the same HMM cluster. We gate on the
-// sentinel alone, not on tier.
+// stickPinOnArmSelectorUnavailable reports whether the active pin should override a fresh
+// authoritative-per-turn decision. Returns true only when the fresh Reason carries
+// hmmArmSelectorUnavailableSentinel — the arm-selector fell back to per-turn epsilon-greedy
+// draws over the full cluster roster (ArmSelectorUnavailableError), causing churn on every
+// tool_result turn. No tier check: the bandit draws within one cluster, not one catalog tier.
 func stickPinOnArmSelectorUnavailable(fresh router.Decision, pin sessionpin.Pin, pinFound, prefixBroken bool) bool {
 	if !pinFound || pin.Model == "" {
 		return false
