@@ -43,10 +43,9 @@ type Pin struct {
 	PairedProvider string
 	PairedModel    string
 	Reason         string
-	// PolicyGroup is the policy-internal cluster/group the pinned decision came
-	// from (HMM complexity cluster), copied from RoutingMetadata.PolicyGroup.
-	// Empty for non-policy pins. Comparing it to a fresh decision's group
-	// separates a within-cluster reroute from a genuine cluster change.
+	// PolicyGroup is the HMM complexity cluster the pinned decision came from
+	// (RoutingMetadata.PolicyGroup). Compared to the fresh decision's group to
+	// distinguish a within-cluster reroute from a genuine cluster change.
 	PolicyGroup               string
 	TurnCount                 int
 	PinnedUntil               time.Time

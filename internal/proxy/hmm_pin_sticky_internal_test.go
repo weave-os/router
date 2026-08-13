@@ -23,10 +23,7 @@ const hmmPinStickyTestFallbackReason = "arm-selector unavailable for 'high': arm
 	"legacy pairwise arm 'z-ai/glm-5.2' among 2/5 eligible [explored] " +
 	hmmArmSelectorUnavailableSentinel
 
-// TestStickPinOnArmSelectorUnavailable directly exercises the pure predicate
-// against the full stick/no-stick matrix. Only the exact
-// arm-selector-unavailable-fallback + same-HMM-pin-reason + same-policy-group +
-// different model + non-trimmed combination may suppress a fresh decision.
+// TestStickPinOnArmSelectorUnavailable exercises the pure predicate against the full stick/no-stick matrix.
 func TestStickPinOnArmSelectorUnavailable(t *testing.T) {
 	const pinnedModel = "claude-opus-4-7"         // catalog.TierHigh
 	const sameTierFresh = "claude-opus-4-6"       // catalog.TierHigh
@@ -166,11 +163,8 @@ func (r *hmmPinStickyTestRouter) Route(_ context.Context, _ router.Request) (rou
 	return r.decision, nil
 }
 
-// TestHMMPinStickyOnArmSelectorUnavailableWiredIntoTurnLoop proves the
-// pure predicate is actually consulted on the AuthoritativePerTurn path, that
-// the kill switch (ROUTER_HMM_PIN_STICKY_ON_ARM_SELECTOR_UNAVAIL) gates it end
-// to end, and that an authoritative decision landing in a different policy
-// group still switches through even with the switch enabled.
+// TestHMMPinStickyOnArmSelectorUnavailableWiredIntoTurnLoop proves the kill switch gates the
+// predicate end to end and that an authoritative cluster escalation still serves.
 func TestHMMPinStickyOnArmSelectorUnavailableWiredIntoTurnLoop(t *testing.T) {
 	strategy := router.Strategy("hmm-pin-sticky-wiring-test")
 	const pinnedModel = "claude-opus-4-7"

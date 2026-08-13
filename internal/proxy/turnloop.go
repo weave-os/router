@@ -197,12 +197,10 @@ func decisionPolicyGroup(dec router.Decision) string {
 }
 
 // stickPinOnArmSelectorUnavailable reports whether the active pin should override a fresh
-// authoritative-per-turn decision. Returns true only when the fresh Reason carries
-// hmmArmSelectorUnavailableSentinel — the arm-selector fell back to per-turn epsilon-greedy
-// draws over the full cluster roster (ArmSelectorUnavailableError), causing churn on every
-// tool_result turn. No tier check: the bandit draws within one cluster, not one catalog tier.
-// Both sides must report the SAME policy group, so a classifier escalation into a different
-// cluster still switches through even when that cluster's selector is also undertrained.
+// authoritative-per-turn decision when hmmArmSelectorUnavailableSentinel is present —
+// the arm-selector fell back to per-turn epsilon-greedy draws (ArmSelectorUnavailableError),
+// causing turn-to-turn churn. No tier check: the bandit draws within one cluster, not one
+// catalog tier; both groups must match so a genuine cluster escalation still switches through.
 func stickPinOnArmSelectorUnavailable(fresh router.Decision, pin sessionpin.Pin, pinFound, prefixBroken bool) bool {
 	if !pinFound || pin.Model == "" {
 		return false
