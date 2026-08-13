@@ -545,7 +545,8 @@ if [ -f "$settings_file" ]; then
          then del(.statusLine) else . end)
     | (if (.apiKeyHelper // "" | tostring | endswith("weave-key.sh"))
          then del(.apiKeyHelper) else . end)
-    | (if (.attribution.commit == "Co-Authored-By: Weave Router <router@workweave.ai>"
+    | (if ((.attribution.commit == "Co-Authored-By: Weave Router <router@workweave.ai>"
+              or .attribution.commit == "Co-Authored-By: Weave Router <noreply@workweave.ai>")
               and .attribution.pr == "🤖 Generated with [Weave Router](https://router.workweave.ai)")
          then del(.attribution) else . end)
   ' "$settings_file")"
