@@ -1183,10 +1183,8 @@ func (t *ResponsesWriter) appendToolCall(idx int, tc gjson.Result) error {
 		if item.name == "" {
 			item.name = entry.Name
 		}
-		// The portable Codex bridge needs the function name to decide whether
-		// this is a Responses function_call or custom_tool_call. Buffer rare
-		// nameless leading chunks until a later delta supplies the name. The
-		// nil-mapping legacy path retains its prior immediate emission.
+		// Buffer nameless chunks; the mapping decides function_call vs
+		// custom_tool_call only once the name arrives from a later delta.
 		if len(t.toolMappings) == 0 || item.name != "" {
 			if err := t.emitFunctionCallItemAdded(item); err != nil {
 				return err

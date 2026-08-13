@@ -334,9 +334,8 @@ func (c *portableCodexResponsesConverter) convertMessage(item gjson.Result, path
 		}
 	}
 	if role == "developer" {
-		// Responses Lite carries Codex base instructions as a developer input
-		// message. System is the portable equivalent understood by Chat-only
-		// providers and their downstream protocol adapters.
+		// Responses Lite sends base instructions as developer-role messages;
+		// project to system for Chat-only provider compatibility.
 		role = "system"
 		c.report("responses_developer_message_projected", "projected", path+".role")
 	}
