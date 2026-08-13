@@ -2670,7 +2670,7 @@ if [ "$scope" = "project" ] && [ -z "$install_dir" ]; then
     env: { ANTHROPIC_BASE_URL: $url, ENABLE_TOOL_SEARCH: "auto" },
     statusLine: { type: "command", command: $sl },
     attribution: {
-      commit: "Co-Authored-By: Weave Router <noreply@workweave.ai>",
+      commit: "Co-Authored-By: Weave Router <router@workweave.ai>",
       pr: "🤖 Generated with [Weave Router](https://router.workweave.ai)"
     }
   }' >"$tmp_patch"
@@ -2679,7 +2679,7 @@ else
     env: { ANTHROPIC_BASE_URL: $url, ANTHROPIC_CUSTOM_HEADERS: $header, ENABLE_TOOL_SEARCH: "auto" },
     statusLine: { type: "command", command: $sl },
     attribution: {
-      commit: "Co-Authored-By: Weave Router <noreply@workweave.ai>",
+      commit: "Co-Authored-By: Weave Router <router@workweave.ai>",
       pr: "🤖 Generated with [Weave Router](https://router.workweave.ai)"
     }
   }' >"$tmp_patch"
