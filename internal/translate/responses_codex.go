@@ -185,9 +185,7 @@ func (c *portableCodexResponsesConverter) collectFunctionTool(tool gjson.Result,
 		hadDefinitions := schemaContainsDefinitionsOrRefs(schema)
 		schema = inlineSchemaDefs(schema)
 		if schemaContainsDefinitionsOrRefs(schema) {
-			// Cyclic and external references cannot be made self-contained. Keep
-			// this turn on native Responses instead of sending an invalid schema
-			// to a Chat-only provider.
+			// Unresolvable refs can't be made self-contained; keep native.
 			c.markNativeOnly("responses_function_schema_native_only", path+".parameters")
 			return
 		}

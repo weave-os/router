@@ -277,10 +277,8 @@ func responsesInputItemToMessages(item gjson.Result) ([]map[string]any, error) {
 // upstream.
 var responsesBadgePattern = regexp.MustCompile(`(?is)\A(?:\*\*WEAVE ROUTER\*\* — .*?\n\n|✦ \*\*WEAVE ROUTER\*\* → .*?\n\n)`)
 
-// codexResponsesBadgeSentinel is an invisible, router-owned prefix carried in
-// Codex assistant history. Native/portable Codex ingress requires this prefix
-// before removing badge text, so ordinary assistant prose that happens to
-// begin with the visible Weave heading is never mistaken for injected metadata.
+// codexResponsesBadgeSentinel is an invisible router-owned prefix that
+// distinguishes injected badge text from user-authored assistant prose.
 const codexResponsesBadgeSentinel = "\u2063\u2060\u2063\u2060"
 
 var codexResponsesBadgePattern = regexp.MustCompile(
@@ -522,9 +520,8 @@ func (t *ResponsesWriter) SetBadgeText(text string) {
 	t.badgeText = text + "\n\n"
 }
 
-// EnableCodexBadgeProvenance marks any in-band Responses badge with the
-// invisible prefix required by Codex-specific ingress stripping. It is kept
-// opt-in so other Responses clients preserve their existing wire behavior.
+// EnableCodexBadgeProvenance prefixes in-band badges with the invisible
+// sentinel so ingress stripping only removes router-injected text.
 func (t *ResponsesWriter) EnableCodexBadgeProvenance() {
 	t.codexBadgeProvenance = true
 }
@@ -964,9 +961,7 @@ func (t *ResponsesWriter) rewriteNativeResponsesEvent(raw []byte) []byte {
 	if offset < 0 {
 		return raw
 	}
-	// Preallocate only the already-realized event size. The badge may make the
-	// payload larger; append can grow safely without overflow-prone capacity
-	// arithmetic over provider-controlled stream lengths.
+	// Preallocate only len(raw); badge growth is handled safely by append.
 	rewritten := make([]byte, 0, len(raw))
 	rewritten = append(rewritten, raw[:offset]...)
 	rewritten = append(rewritten, rewrittenData...)
