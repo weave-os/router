@@ -69,6 +69,8 @@ func isQwen3Family(model string) bool {
 // (huggingface.co/Qwen/Qwen3-235B-A22B-Instruct-2507), applied only when the
 // client hasn't set the field. presence_penalty=1.5 suppresses the
 // "same tool, same args, N times" loop the Instruct variant is prone to.
+// qwen3RepetitionPenalty is skipped on Fireworks targets — see
+// applyQwen3SamplersIfNeeded.
 const (
 	qwen3Temperature       = 0.7
 	qwen3TopP              = 0.8

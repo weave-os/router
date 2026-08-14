@@ -220,7 +220,7 @@ func (e *RequestEnvelope) buildOpenAIFromOpenAI(opts EmitOptions) ([]byte, error
 			}
 		}
 	}
-	body, err = applyQwen3SamplersIfNeeded(body, opts.TargetModel)
+	body, err = applyQwen3SamplersIfNeeded(body, opts)
 	if err != nil {
 		return nil, err
 	}
@@ -332,7 +332,7 @@ func (e *RequestEnvelope) buildOpenAIFromAnthropic(opts EmitOptions) ([]byte, pr
 	}
 
 	jw.EndObj()
-	body, err = applyQwen3SamplersIfNeeded(jw.Bytes(), opts.TargetModel)
+	body, err = applyQwen3SamplersIfNeeded(jw.Bytes(), opts)
 	if err != nil {
 		return nil, stats, err
 	}
@@ -375,9 +375,14 @@ func applyGLM51FlagsIfNeeded(body []byte, opts EmitOptions) ([]byte, error) {
 // applyQwen3SamplersIfNeeded layers the Qwen3 model-card sampling defaults
 // onto the body for qwen3-family models, unless the client already set them.
 // The recommendation is model-keyed, not provider-keyed, so it's applied
-// across all OpenAI-compat providers.
-func applyQwen3SamplersIfNeeded(body []byte, model string) ([]byte, error) {
-	if !isQwen3Family(model) {
+// across all OpenAI-compat providers — except repetition_penalty, which
+// Fireworks' serving stack 400s on ("repetition_penalty can't be combined
+// with frequency_penalty or presence_penalty") when presence_penalty is also
+// set; presence_penalty is the one that actually suppresses the tool-call
+// loop (see qwen3PresencePenalty doc), so it wins and repetition_penalty is
+// dropped there instead of the other way around.
+func applyQwen3SamplersIfNeeded(body []byte, opts EmitOptions) ([]byte, error) {
+	if !isQwen3Family(opts.TargetModel) {
 		return body, nil
 	}
 	type sampler struct {
@@ -388,7 +393,9 @@ func applyQwen3SamplersIfNeeded(body []byte, model string) ([]byte, error) {
 		{"temperature", qwen3Temperature},
 		{"top_p", qwen3TopP},
 		{"presence_penalty", qwen3PresencePenalty},
-		{"repetition_penalty", qwen3RepetitionPenalty},
+	}
+	if opts.TargetProvider != providers.ProviderFireworks {
+		defaults = append(defaults, sampler{"repetition_penalty", qwen3RepetitionPenalty})
 	}
 	for _, s := range defaults {
 		if gjson.GetBytes(body, s.key).Exists() {
