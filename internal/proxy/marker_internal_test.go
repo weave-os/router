@@ -345,6 +345,38 @@ func TestRoutingMarkerFor_ClampsSidecarDisplayMarker(t *testing.T) {
 	assert.Contains(t, got, "✦ **Weave Router** → ")
 }
 
+func TestRoutingMarkerFor_SidecarDisplayMarkerSuppressedWhenServedModelUnchanged(t *testing.T) {
+	// The HMM sidecar renders `<model> · <cluster reason>` (e.g. "fast route
+	// for this turn") on every /route call regardless of whether the served
+	// model actually changed from the prior turn. Without this gate the same
+	// sub-agent would see the badge repeated turn after turn.
+	got := routingMarkerFor(turnLoopResult{
+		Decision: router.Decision{
+			Model: "deepseek/deepseek-v4-flash",
+			Metadata: &router.RoutingMetadata{
+				DisplayMarker: "✦ **Weave Router** → deepseek/deepseek-v4-flash · fast route for this turn",
+			},
+		},
+		PriorServedModel: "deepseek/deepseek-v4-flash",
+	})
+	assert.Empty(t, got, "sidecar marker must be suppressed when the served model did not change")
+}
+
+func TestRoutingMarkerFor_SidecarDisplayMarkerShownOnGenuineSwitch(t *testing.T) {
+	// Sanity check the other side: when the served model genuinely changes
+	// the sidecar marker still renders.
+	got := routingMarkerFor(turnLoopResult{
+		Decision: router.Decision{
+			Model: "deepseek/deepseek-v4-flash",
+			Metadata: &router.RoutingMetadata{
+				DisplayMarker: "✦ **Weave Router** → deepseek/deepseek-v4-flash · fast route for this turn",
+			},
+		},
+		PriorServedModel: "claude-sonnet-5",
+	})
+	assert.Equal(t, "✦ **Weave Router** → deepseek/deepseek-v4-flash · fast route for this turn\n\n", got)
+}
+
 func TestBaselineRoutingMarkerFor_SuppressedWhenBaselineAlreadyServing(t *testing.T) {
 	got := baselineRoutingMarkerFor(turnLoopResult{
 		PriorServedModel: "claude-opus-4-8",

@@ -446,14 +446,6 @@ func routingMarkerFor(res turnLoopResult) string {
 	if res.SuggestionMode {
 		return ""
 	}
-	// A sidecar-supplied marker is a genuine per-turn status line (e.g.
-	// "Delegating work with ...") independent of whether the serving model
-	// changed, so it bypasses the switch gate below and always prints.
-	if decision.Metadata != nil {
-		if marker := sanitizeSidecarDisplayMarker(decision.Metadata.DisplayMarker); marker != "" {
-			return marker + "\n\n"
-		}
-	}
 	// Hard pins (compaction / sub-agent) return before the pin is loaded, so
 	// PriorServedModel is always empty there — suppress explicitly rather than
 	// letting it read as a first turn.
@@ -461,9 +453,24 @@ func routingMarkerFor(res turnLoopResult) string {
 		return ""
 	}
 	// Same model as last turn: the user already knows. Empty prior model means
-	// the first turn of this session (or role), which still shows.
+	// the first turn of this session (or role), which still shows. Applies to
+	// both the planner-style marker and the sidecar-supplied display marker —
+	// the HMM sidecar renders `<model> · <cluster reason>` on every /route call
+	// regardless of whether the model actually changed, so a literal "fast route
+	// for this turn" / "best pick for this turn" repeating each turn would
+	// otherwise be visible even when nothing switched. Hard-pin carve-outs and
+	// first-turn (empty prior) cases still flow to the sidecar marker below.
 	if res.PriorServedModel == res.Decision.Model {
 		return ""
+	}
+	// A sidecar-supplied marker is a genuine per-turn status line (e.g.
+	// "Delegating work with ...") independent of whether the serving model
+	// changed, so it bypasses the planner-free / switch gate below and always
+	// prints when reached.
+	if decision.Metadata != nil {
+		if marker := sanitizeSidecarDisplayMarker(decision.Metadata.DisplayMarker); marker != "" {
+			return marker + "\n\n"
+		}
 	}
 	parts := []string{"✦ **Weave Router** → " + decision.Model}
 	if reason := routingReasonShort(res); reason != "" {
