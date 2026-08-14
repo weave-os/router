@@ -3234,26 +3234,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			s.billCompactionSummary(ctx, requestID, externalID, compRes.SummaryUsage)
 		}
 		if compactionHandoverOutcome.Invoked && !compactionHandoverOutcome.FallbackToFullHistory {
-			sumUsage := compactionHandoverOutcome.SummaryUsage
-			if sumUsage.Model != "" && (sumUsage.InputTokens > 0 || sumUsage.OutputTokens > 0) {
-				sumPricing, _ := catalog.PrimaryPriceFor(sumUsage.Model)
-				apiKeyID, _ := ctx.Value(APIKeyIDContextKey{}).(string)
-				s.fireBilling(ctx, billing.DebitInferenceParams{
-					OrganizationID:  externalID,
-					RouterRequestID: requestID + "_compaction_summary",
-					Model:           sumUsage.Model,
-					Provider:        sumUsage.Provider,
-					InputTokens:     sumUsage.InputTokens,
-					OutputTokens:    sumUsage.OutputTokens,
-					CacheCreation:   sumUsage.CacheCreation,
-					CacheRead:       sumUsage.CacheRead,
-					Pricing:         sumPricing,
-					HasOverride:     billing.HasOverrideFromContext(ctx),
-					ByokServed:      byokServedForProvider(ctx, sumUsage.Provider),
-					APIKeyID:        apiKeyID,
-					RouterUserID:    auth.UserIDFrom(ctx),
-				})
-			}
+			s.billAuxiliaryInference(ctx, requestID, auxSuffixCompactionHandoverSummry, externalID, compactionHandoverOutcome.SummaryUsage)
 		}
 	}
 
@@ -4196,25 +4177,7 @@ func (s *Service) emitBilling(ctx context.Context, requestID, externalID string,
 	// token. If a BYOK key was used, that spend hit the customer's account —
 	// so bill the fee rather than full cost.
 	if routeRes.Handover.Invoked && !routeRes.Handover.FallbackToFullHistory {
-		sumUsage := routeRes.Handover.SummaryUsage
-		if sumUsage.Model != "" && (sumUsage.InputTokens > 0 || sumUsage.OutputTokens > 0) {
-			sumPricing, _ := catalog.PrimaryPriceFor(sumUsage.Model)
-			s.fireBilling(ctx, billing.DebitInferenceParams{
-				OrganizationID:  externalID,
-				RouterRequestID: requestID + "_summary",
-				Model:           sumUsage.Model,
-				Provider:        sumUsage.Provider,
-				InputTokens:     sumUsage.InputTokens,
-				OutputTokens:    sumUsage.OutputTokens,
-				CacheCreation:   sumUsage.CacheCreation,
-				CacheRead:       sumUsage.CacheRead,
-				Pricing:         sumPricing,
-				HasOverride:     hasOverride,
-				ByokServed:      byokServedForProvider(ctx, sumUsage.Provider),
-				APIKeyID:        apiKeyID,
-				RouterUserID:    auth.UserIDFrom(ctx),
-			})
-		}
+		s.billAuxiliaryInference(ctx, requestID, auxSuffixHandoverSummary, externalID, routeRes.Handover.SummaryUsage)
 	}
 }
 

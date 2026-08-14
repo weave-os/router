@@ -6,8 +6,6 @@ import (
 	"fmt"
 	"net/http"
 
-	"workweave/router/internal/auth"
-	"workweave/router/internal/billing"
 	"workweave/router/internal/observability"
 	"workweave/router/internal/router/catalog"
 	"workweave/router/internal/router/handover"
@@ -178,29 +176,11 @@ func (s *Service) maybeCompact(ctx context.Context, env *translate.RequestEnvelo
 }
 
 // billCompactionSummary debits the compaction summary call as its own ledger
-// row (mirrors the switch-handover summary billing). No-ops when billing is
-// unwired or the usage carries no tokens.
+// row and records its session-tagged telemetry row (mirrors the
+// switch-handover summary billing). No-ops when billing is unwired or the
+// usage carries no tokens.
 func (s *Service) billCompactionSummary(ctx context.Context, requestID, externalID string, usage handover.Usage) {
-	if usage.Model == "" || (usage.InputTokens == 0 && usage.OutputTokens == 0) {
-		return
-	}
-	sumPricing, _ := catalog.PrimaryPriceFor(usage.Model)
-	apiKeyID, _ := ctx.Value(APIKeyIDContextKey{}).(string)
-	s.fireBilling(ctx, billing.DebitInferenceParams{
-		OrganizationID:  externalID,
-		RouterRequestID: requestID + "_precompaction_summary",
-		Model:           usage.Model,
-		Provider:        usage.Provider,
-		InputTokens:     usage.InputTokens,
-		OutputTokens:    usage.OutputTokens,
-		CacheCreation:   usage.CacheCreation,
-		CacheRead:       usage.CacheRead,
-		Pricing:         sumPricing,
-		HasOverride:     billing.HasOverrideFromContext(ctx),
-		ByokServed:      byokServedForProvider(ctx, usage.Provider),
-		APIKeyID:        apiKeyID,
-		RouterUserID:    auth.UserIDFrom(ctx),
-	})
+	s.billAuxiliaryInference(ctx, requestID, auxSuffixPrecompactionSummary, externalID, usage)
 }
 
 // runCompactionSummary picks a window-aware summarizer model and dispatches the
