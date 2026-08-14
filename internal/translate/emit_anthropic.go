@@ -837,7 +837,21 @@ func sanitizeToolUseID(id string) string {
 // some vLLM/SGLang hosts) reuse a stable id every turn; Claude Code dedupes
 // by id and silently drops repeats, stalling the session. Nonce shared per
 // response so ids pair within a turn. Idempotent; empty id gets synthetic one.
+//
+// id may already carry a Gemini thoughtSignature embedded by embedSignatureInID
+// (the Gemini->OpenAI emit path embeds it before this ever runs). The
+// signature is extracted first and re-embedded after nonce-ing the clean id —
+// appending the nonce directly to an already-embedded id would land it inside
+// the base64 payload, corrupting the length (and thus the signature) rather
+// than the id.
 func uniqueToolUseIDWithNonce(id, nonce string) string {
+	cleanID, sig := extractSignatureFromID(id)
+	return embedSignatureInID(uniqueSanitizedIDWithNonce(cleanID, nonce), sig)
+}
+
+// uniqueSanitizedIDWithNonce is uniqueToolUseIDWithNonce's inner id+nonce
+// logic, applied only to the signature-free id portion.
+func uniqueSanitizedIDWithNonce(id, nonce string) string {
 	if nonce == "" {
 		return sanitizeToolUseID(id)
 	}

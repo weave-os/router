@@ -21,6 +21,22 @@ func TestSanitizeToolUseID_PreservesLongThoughtSignatureID(t *testing.T) {
 	assert.NotEmpty(t, sig, "thoughtSignature still recoverable after sanitize")
 }
 
+func TestUniqueToolUseIDWithNoncePreservesEmbeddedThoughtSignature(t *testing.T) {
+	// Regression: appending the response nonce directly to an id that already
+	// carries an embedded Gemini thoughtSignature (Gemini->OpenAI->Anthropic
+	// chain) landed the nonce inside the base64 payload, corrupting its length
+	// and making the next-turn thoughtSignature unparseable upstream.
+	sig := strings.Repeat("signature-data/", 200)
+	embedded := embedSignatureInID("call_abc", sig)
+
+	got := uniqueToolUseIDWithNonce(embedded, "0123456789ab")
+	cleanID, gotSig := extractSignatureFromID(got)
+
+	assert.Equal(t, "call_abc_0123456789ab", cleanID)
+	assert.Equal(t, sig, gotSig)
+	assert.Equal(t, got, uniqueToolUseIDWithNonce(got, "0123456789ab"))
+}
+
 func TestOpenAIReasoningSignatureRoundTrip(t *testing.T) {
 	sig := encodeOpenAIReasoningSignature("rs_123", "enc_opaque")
 	require.NotEmpty(t, sig)
