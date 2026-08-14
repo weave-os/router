@@ -446,18 +446,26 @@ func routingMarkerFor(res turnLoopResult) string {
 	if res.SuggestionMode {
 		return ""
 	}
-	// Suppress on tool-result follow-ups (would re-emit a duplicate mid-stream),
-	// but always show it if the model changed, even with an unknown reason code.
-	modelChanged := res.PriorServedModel != "" && res.PriorServedModel != res.Decision.Model
-	if res.PlannerDecision.Reason == "" && !res.HardPinned && res.StickyHit && !modelChanged {
-		return ""
-	}
-	parts := []string{"✦ **Weave Router** → " + decision.Model}
+	// A sidecar-supplied marker is a genuine per-turn status line (e.g.
+	// "Delegating work with ...") independent of whether the serving model
+	// changed, so it bypasses the switch gate below and always prints.
 	if decision.Metadata != nil {
 		if marker := sanitizeSidecarDisplayMarker(decision.Metadata.DisplayMarker); marker != "" {
 			return marker + "\n\n"
 		}
 	}
+	// Hard pins (compaction / sub-agent) return before the pin is loaded, so
+	// PriorServedModel is always empty there — suppress explicitly rather than
+	// letting it read as a first turn.
+	if res.HardPinned {
+		return ""
+	}
+	// Same model as last turn: the user already knows. Empty prior model means
+	// the first turn of this session (or role), which still shows.
+	if res.PriorServedModel == res.Decision.Model {
+		return ""
+	}
+	parts := []string{"✦ **Weave Router** → " + decision.Model}
 	if reason := routingReasonShort(res); reason != "" {
 		parts = append(parts, reason)
 	}
@@ -501,7 +509,6 @@ func sanitizeSidecarDisplayMarker(raw string) string {
 // the marker wording; tests assert the mapping against these constants rather
 // than re-spelling the literals.
 const (
-	markerReasonHardPinned    = "pinned for compaction / sub-agent"
 	markerReasonUserForced    = "pinned by force-model"
 	markerReasonLoopEscalated = "escalated due to loop"
 	markerReasonSwitched      = "switched for positive EV after cache eviction"
@@ -519,15 +526,17 @@ func baselineRoutingMarkerFor(res turnLoopResult, baselineModel string) string {
 	if res.SuggestionMode || baselineModel == "" {
 		return ""
 	}
+	// A failover that lands back on the model already serving is a no-op repeat;
+	// only a genuine switch to a different model is worth surfacing.
+	if res.PriorServedModel == baselineModel {
+		return ""
+	}
 	return "✦ **Weave Router** → " + baselineModel + " · " + markerReasonBaseline + "\n\n"
 }
 
 // routingReasonShort returns a short user-facing reason for the routing
 // decision, or empty when the underlying code is internal recovery noise.
 func routingReasonShort(res turnLoopResult) string {
-	if res.HardPinned {
-		return markerReasonHardPinned
-	}
 	if res.PlannerDecision.Reason != "" {
 		return humanReasonFromPlanner(res.PlannerDecision.Reason)
 	}

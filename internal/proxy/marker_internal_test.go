@@ -37,59 +37,43 @@ func TestRoutingMarkerFor_PlannerPaths(t *testing.T) {
 			},
 		},
 		{
-			name: "ev_negative: planner stayed",
+			// Stay reasons only fire when the scorer/planner re-confirmed the same
+			// model already serving this session — which is exactly the case the
+			// switch-only gate now suppresses.
+			name: "ev_negative: same model as last turn, marker suppressed",
 			res: turnLoopResult{
-				Decision:        decision,
-				PlannerDecision: planner.Decision{Reason: planner.ReasonEVNegative},
+				Decision:         decision,
+				PlannerDecision:  planner.Decision{Reason: planner.ReasonEVNegative},
+				PriorServedModel: decision.Model,
 			},
-			wantContains: []string{
-				"· " + markerReasonStayed,
-			},
-			wantNotContain: []string{
-				"(openrouter)",
-				"reason:",
-				"ev_negative",
-			},
+			wantEmpty: true,
 		},
 		{
-			name: "no_prior_usage: collapses into stayed bucket",
+			name: "no_prior_usage: same model as last turn, marker suppressed",
 			res: turnLoopResult{
-				Decision:        decision,
-				PlannerDecision: planner.Decision{Reason: planner.ReasonNoPriorUsage},
+				Decision:         decision,
+				PlannerDecision:  planner.Decision{Reason: planner.ReasonNoPriorUsage},
+				PriorServedModel: decision.Model,
 			},
-			wantContains: []string{
-				"· " + markerReasonStayed,
-			},
-			wantNotContain: []string{
-				"no cache stats",
-			},
+			wantEmpty: true,
 		},
 		{
-			name: "same_tier_pinned: collapses into stayed bucket",
+			name: "same_tier_pinned: same model as last turn, marker suppressed",
 			res: turnLoopResult{
-				Decision:        decision,
-				PlannerDecision: planner.Decision{Reason: planner.ReasonSameTierPinned},
+				Decision:         decision,
+				PlannerDecision:  planner.Decision{Reason: planner.ReasonSameTierPinned},
+				PriorServedModel: decision.Model,
 			},
-			wantContains: []string{
-				"· " + markerReasonStayed,
-			},
-			wantNotContain: []string{
-				"same_tier_pinned",
-			},
+			wantEmpty: true,
 		},
 		{
-			name: "same_model: collapses into best-pick bucket",
+			name: "same_model: same model as last turn, marker suppressed",
 			res: turnLoopResult{
-				Decision:        decision,
-				PlannerDecision: planner.Decision{Reason: planner.ReasonSameModel},
+				Decision:         decision,
+				PlannerDecision:  planner.Decision{Reason: planner.ReasonSameModel},
+				PriorServedModel: decision.Model,
 			},
-			wantContains: []string{
-				"· " + markerReasonBestPick,
-			},
-			wantNotContain: []string{
-				"scorer matches the pin",
-				"reason:",
-			},
+			wantEmpty: true,
 		},
 		{
 			name: "tier_upgrade: planner bumped to a higher tier",
@@ -141,18 +125,12 @@ func TestRoutingMarkerFor_PlannerPaths(t *testing.T) {
 			},
 		},
 		{
-			name: "hard-pin path: planner didn't run, mark it accordingly",
+			name: "hard-pin path: marker suppressed regardless of prior model",
 			res: turnLoopResult{
 				Decision:   decision,
 				HardPinned: true,
 			},
-			wantContains: []string{
-				"· " + markerReasonHardPinned,
-			},
-			wantNotContain: []string{
-				"hard pin",
-				"reason:",
-			},
+			wantEmpty: true,
 		},
 		{
 			name: "tool-result short-circuit: marker suppressed",
@@ -365,6 +343,20 @@ func TestRoutingMarkerFor_ClampsSidecarDisplayMarker(t *testing.T) {
 
 	assert.LessOrEqual(t, len([]rune(strings.TrimSpace(got))), maxSidecarDisplayMarkerRunes)
 	assert.Contains(t, got, "✦ **Weave Router** → ")
+}
+
+func TestBaselineRoutingMarkerFor_SuppressedWhenBaselineAlreadyServing(t *testing.T) {
+	got := baselineRoutingMarkerFor(turnLoopResult{
+		PriorServedModel: "claude-opus-4-8",
+	}, "claude-opus-4-8")
+	assert.Empty(t, got, "a failover that lands back on the model already serving must stay quiet")
+}
+
+func TestBaselineRoutingMarkerFor_ShowsOnGenuineSwitch(t *testing.T) {
+	got := baselineRoutingMarkerFor(turnLoopResult{
+		PriorServedModel: "deepseek/deepseek-v4-pro",
+	}, "claude-opus-4-8")
+	assert.Equal(t, "✦ **Weave Router** → claude-opus-4-8 · "+markerReasonBaseline+"\n\n", got)
 }
 
 func TestHumanReasonFromPlanner_UnknownCodeIsSilenced(t *testing.T) {
