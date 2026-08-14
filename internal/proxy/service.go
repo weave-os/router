@@ -94,6 +94,8 @@ type Service struct {
 	// classifier on the shared hard pin.
 	subAgentProvider string
 	subAgentModel    string
+	// respectRequestedModel is the allowlist of canonical models served verbatim.
+	respectRequestedModel map[string]struct{}
 	// telemetry is an optional repository for persisting per-request telemetry.
 	telemetry TelemetryRepository
 	// captureMode controls whether high-fidelity `router.call` OTLP log
@@ -144,6 +146,8 @@ type Service struct {
 	// for MainLoop parity; when false, the pin is reused verbatim (#82 path).
 	// Runs the embedder on ToolResult traffic (majority of turns).
 	scoreToolResultTurns bool
+	// toolResultTierCeiling caps ToolResult routing at the requested tier.
+	toolResultTierCeiling bool
 	// cyberRefusalRepin is the kill switch (ROUTER_CYBER_REFUSAL_REPIN, default
 	// false). When true, a safety refusal on the anthropic-native path re-pins
 	// the session off the refusing model (opus ~45% refusal rate; sonnet 0%).
@@ -510,10 +514,12 @@ func sanitizeSidecarDisplayMarker(raw string) string {
 // than re-spelling the literals.
 const (
 	markerReasonUserForced    = "pinned by force-model"
+	markerReasonHardPinned    = "pinned by router configuration"
 	markerReasonLoopEscalated = "escalated due to loop"
 	markerReasonSwitched      = "switched for positive EV after cache eviction"
 	markerReasonStayed        = "stayed on your last pick"
 	markerReasonTierUpgrade   = "upgraded to a stronger tier"
+	markerReasonRequested     = "served the model you asked for"
 	markerReasonBestPick      = "best pick for this turn"
 	markerReasonBaseline      = "fell back to baseline after provider outage"
 )
@@ -537,6 +543,12 @@ func baselineRoutingMarkerFor(res turnLoopResult, baselineModel string) string {
 // routingReasonShort returns a short user-facing reason for the routing
 // decision, or empty when the underlying code is internal recovery noise.
 func routingReasonShort(res turnLoopResult) string {
+	if res.Decision.Reason == reasonRequestedModelRespected {
+		return markerReasonRequested
+	}
+	if res.HardPinned {
+		return markerReasonHardPinned
+	}
 	if res.PlannerDecision.Reason != "" {
 		return humanReasonFromPlanner(res.PlannerDecision.Reason)
 	}
@@ -893,6 +905,44 @@ func (s *Service) restrictToTier(excluded map[string]struct{}, tier catalog.Tier
 	return out, true
 }
 
+func (s *Service) applyToolResultTierCeiling(excluded map[string]struct{}, tt turntype.TurnType, requestedModel string) map[string]struct{} {
+	if !s.toolResultTierCeiling || tt != turntype.ToolResult {
+		return excluded
+	}
+	ceiling := catalog.TierFor(requestedModel)
+	if ceiling == catalog.TierUnknown {
+		return excluded
+	}
+	allowed := catalog.AllowedAtOrBelow(ceiling)
+	out := make(map[string]struct{}, len(excluded))
+	for k := range excluded {
+		out[k] = struct{}{}
+	}
+	survivors := 0
+	consider := func(model string) {
+		if _, ok := allowed[model]; ok {
+			if _, excluded := excluded[model]; !excluded {
+				survivors++
+			}
+			return
+		}
+		out[model] = struct{}{}
+	}
+	if s.availableModels != nil {
+		for model := range s.availableModels {
+			consider(model)
+		}
+	} else {
+		for _, model := range catalog.Models {
+			consider(model.ID)
+		}
+	}
+	if survivors == 0 {
+		return excluded
+	}
+	return out
+}
+
 // CredentialsFromContext returns the resolved credentials stashed on ctx.
 func CredentialsFromContext(ctx context.Context) *Credentials {
 	v := ctx.Value(CredentialsContextKey{})
@@ -1093,6 +1143,11 @@ func (s *Service) WithPlannerEnabled(enabled bool) *Service {
 // WithScoreToolResultTurns sets ROUTER_SCORE_TOOL_RESULT_TURNS; see scoreToolResultTurns.
 func (s *Service) WithScoreToolResultTurns(enabled bool) *Service {
 	s.scoreToolResultTurns = enabled
+	return s
+}
+
+func (s *Service) WithToolResultTierCeiling(enabled bool) *Service {
+	s.toolResultTierCeiling = enabled
 	return s
 }
 
@@ -1335,6 +1390,26 @@ func (s *Service) WithDefaultBaselineModel(model string) *Service {
 func (s *Service) WithSubAgentOverride(provider, model string) *Service {
 	s.subAgentProvider = provider
 	s.subAgentModel = model
+	return s
+}
+
+func (s *Service) WithRespectRequestedModel(models []string) *Service {
+	honored := make(map[string]struct{}, len(models))
+	for _, m := range models {
+		canonical, _, known := resolveForceModel(strings.TrimSpace(m))
+		if !known {
+			observability.Get().Warn("Requested-model honor entry is not in catalog; skipping",
+				"model", strings.TrimSpace(m),
+			)
+			continue
+		}
+		honored[canonical] = struct{}{}
+	}
+	if len(honored) == 0 {
+		s.respectRequestedModel = nil
+		return s
+	}
+	s.respectRequestedModel = honored
 	return s
 }
 
@@ -2303,7 +2378,6 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			"excluded_models", strings.Join(geminiUnsigned, ","),
 		)
 	}
-
 	routeStart := time.Now()
 	req := router.Request{
 		RequestedModel:               feats.Model,

@@ -167,6 +167,51 @@ func TestScorer_PicksClusterAlignedModel(t *testing.T) {
 	assert.Contains(t, got.Reason, "model=claude-opus-4-7")
 }
 
+func TestScorer_StaticClusterPinOverridesArgmax(t *testing.T) {
+	emb := &fakeEmbedder{vec: makeOpusVec()}
+	cfg := cfgForTest()
+	cfg.StaticClusterPin = map[int]string{0: "claude-haiku-4-5"}
+	s := newScorerForTest(t, emb, cfg)
+
+	got, err := s.Route(context.Background(), router.Request{
+		PromptText: strings.Repeat("x", 100),
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "claude-haiku-4-5", got.Model)
+	assert.Equal(t, "anthropic", got.Provider)
+	assert.Contains(t, got.Reason, "cluster-pin:v-test top_p=[0]")
+	assert.Contains(t, got.Reason, "model=claude-haiku-4-5")
+}
+
+func TestScorer_StaticClusterPinFallsThroughWhenIneligible(t *testing.T) {
+	emb := &fakeEmbedder{vec: makeOpusVec()}
+	cfg := cfgForTest()
+	cfg.StaticClusterPin = map[int]string{0: "claude-haiku-4-5"}
+	s := newScorerForTest(t, emb, cfg)
+
+	got, err := s.Route(context.Background(), router.Request{
+		PromptText:     strings.Repeat("x", 100),
+		ExcludedModels: map[string]struct{}{"claude-haiku-4-5": {}},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "claude-opus-4-7", got.Model, "excluded pin falls through to normal argmax")
+	assert.Contains(t, got.Reason, "cluster:v-test top_p=[0]", "unpinned path keeps the plain prefix")
+}
+
+func TestScorer_StaticClusterPinNoEntryForCluster(t *testing.T) {
+	emb := &fakeEmbedder{vec: makeOpusVec()}
+	cfg := cfgForTest()
+	cfg.StaticClusterPin = map[int]string{1: "claude-haiku-4-5"} // only cluster 1 pinned
+	s := newScorerForTest(t, emb, cfg)
+
+	got, err := s.Route(context.Background(), router.Request{
+		PromptText: strings.Repeat("x", 100),
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "claude-opus-4-7", got.Model)
+	assert.Contains(t, got.Reason, "cluster:v-test top_p=[0]")
+}
+
 // TestScorer_SubscriptionCostFactorNoop: on the V1 fallback bundle (no
 // model_axes), a 1.0 subsidy factor must be a no-op on routing and score.
 func TestScorer_SubscriptionCostFactorNoop(t *testing.T) {

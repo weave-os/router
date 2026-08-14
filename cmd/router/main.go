@@ -537,6 +537,11 @@ func main() {
 	// below can be overridden per deployment.
 	plannerEnabled := config.GetOr("ROUTER_PLANNER_ENABLED", "true") == "true"
 	scoreToolResultTurns := config.GetOr("ROUTER_SCORE_TOOL_RESULT_TURNS", "true") == "true"
+	// ROUTER_TOOL_RESULT_TIER_CEILING (default off): excludes above-tier models
+	// from ToolResult turns before the scorer runs, capping candidates at or
+	// below the turn's requested-model tier. Eval/debug lever — see
+	// Service.applyToolResultTierCeiling.
+	toolResultTierCeiling := config.GetOr("ROUTER_TOOL_RESULT_TIER_CEILING", "false") == "true"
 	// Defensive backstop for Anthropic's cyber safety classifier: re-pin a
 	// session off a model that returned a safety refusal. Default off; enabled
 	// on the defensive deploy. Fallback target when the pin has no runner-up.
@@ -771,6 +776,7 @@ func main() {
 		WithSubAgentOverride(subAgentProvider, subAgentModel).
 		WithPlannerEnabled(plannerEnabled).
 		WithScoreToolResultTurns(scoreToolResultTurns).
+		WithToolResultTierCeiling(toolResultTierCeiling).
 		WithCyberRefusalRepin(cyberRefusalRepin).
 		WithCyberRefusalFallbackModel(cyberRefusalFallbackModel).
 		WithPrefixTrimFreeSwitch(prefixTrimFreeSwitch).
@@ -844,6 +850,18 @@ func main() {
 		}
 		proxySvc = proxySvc.WithExcludedProvidersOverride(cleaned)
 		logger.Info("Provider exclusion override active", "excluded_providers", cleaned)
+	}
+
+	if respectRaw := strings.TrimSpace(config.GetOr("ROUTER_RESPECT_REQUESTED_MODEL", "")); respectRaw != "" {
+		parts := strings.Split(respectRaw, ",")
+		cleaned := make([]string, 0, len(parts))
+		for _, p := range parts {
+			if trimmed := strings.TrimSpace(p); trimmed != "" {
+				cleaned = append(cleaned, trimmed)
+			}
+		}
+		proxySvc = proxySvc.WithRespectRequestedModel(cleaned)
+		logger.Info("Requested-model passthrough active", "honored_models", cleaned)
 	}
 
 	// The usage observer is always wired (cheap, side-effect-free) even though
@@ -1068,6 +1086,13 @@ func buildClusterScorer(availableProviders map[string]struct{}) (router.Router, 
 		} else {
 			cfg.TopP = n
 			logger.Info("Cluster top_p overridden", "top_p", n)
+		}
+	}
+	if v := strings.TrimSpace(config.GetOr("ROUTER_STATIC_CLUSTER_PIN", "")); v != "" {
+		pins := parseStaticClusterPins(v, logger)
+		if len(pins) > 0 {
+			cfg.StaticClusterPin = pins
+			logger.Info("Static cluster pin active", "pins", pins)
 		}
 	}
 	scorers := make(map[string]*cluster.Scorer, len(versions))
