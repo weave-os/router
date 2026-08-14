@@ -257,8 +257,8 @@ func (s *Service) hasSubAgentOverride() bool {
 const reasonRequestedModelRespected = "requested_model_respected"
 
 // honoredRequestedModel returns an eligible allowlisted requested model.
-// Unknown or ineligible entries fall back to routing because the list is not
-// an explicit per-request override like force-model.
+// Unknown or ineligible entries route normally because this config list is not
+// a per-request override like force-model.
 func (s *Service) honoredRequestedModel(ctx context.Context, req router.Request) (model, provider string, ok bool) {
 	if len(s.respectRequestedModel) == 0 || req.RequestedModel == "" {
 		return "", "", false
