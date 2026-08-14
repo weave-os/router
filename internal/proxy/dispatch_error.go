@@ -11,6 +11,7 @@ import (
 	"workweave/router/internal/router/bandit"
 	"workweave/router/internal/router/cluster"
 	"workweave/router/internal/router/hmm"
+	"workweave/router/internal/router/policy"
 	"workweave/router/internal/router/rl"
 	"workweave/router/internal/translate"
 )
@@ -45,6 +46,9 @@ const (
 	DispatchErrorSpendLimitUnavailable
 	DispatchErrorAnthropicCacheControlInvalid
 	DispatchErrorForcedModelExcluded
+	DispatchErrorForcedModelUnknown
+	DispatchErrorForcedClusterUnsupportedStrategy
+	DispatchErrorForcedClusterUnservable
 )
 
 // DispatchErrorClass is the format-agnostic classification of a dispatch
@@ -77,6 +81,9 @@ type DispatchErrorClass struct {
 func ClassifyDispatchError(err error) (DispatchErrorClass, bool) {
 	var statusErr *providers.UpstreamStatusError
 	var forcedExcluded *ForcedModelExcludedError
+	var forcedUnknown *ForcedModelUnknownError
+	var forcedClusterStrategy *ForcedClusterUnsupportedStrategyError
+	var forcedClusterUnservable *policy.ForcedClusterUnservableError
 	switch {
 	case errors.As(err, &forcedExcluded):
 		// Ahead of the sentinel cases so the reason reaches the caller: a bare
@@ -87,6 +94,30 @@ func ClassifyDispatchError(err error) (DispatchErrorClass, bool) {
 			Message:    forcedExcluded.Reason + ". Clear the force (/unforce-model) or pick a model from a permitted provider.",
 			LogLevel:   "warn",
 			LogMessage: "Rejected request: forced model is excluded on this installation",
+		}, true
+	case errors.As(err, &forcedUnknown):
+		return DispatchErrorClass{
+			Kind:       DispatchErrorForcedModelUnknown,
+			Status:     http.StatusBadRequest,
+			Message:    forcedUnknown.Error() + ". Use a full model ID, e.g. claude-opus-5, gpt-5.6-sol, or gemini-3-pro-preview.",
+			LogLevel:   "warn",
+			LogMessage: "Rejected request: forced model is not a known model",
+		}, true
+	case errors.As(err, &forcedClusterStrategy):
+		return DispatchErrorClass{
+			Kind:       DispatchErrorForcedClusterUnsupportedStrategy,
+			Status:     http.StatusBadRequest,
+			Message:    forcedClusterStrategy.Error() + ". Clear " + ForceClusterHeader + ", or move the installation to a policy-sidecar strategy.",
+			LogLevel:   "warn",
+			LogMessage: "Rejected request: forced cluster on a strategy with no policy sidecar",
+		}, true
+	case errors.As(err, &forcedClusterUnservable):
+		return DispatchErrorClass{
+			Kind:       DispatchErrorForcedClusterUnservable,
+			Status:     http.StatusBadRequest,
+			Message:    forcedClusterUnservable.Reason + ". Clear " + ForceClusterHeader + " or update the cluster's model list.",
+			LogLevel:   "warn",
+			LogMessage: "Rejected request: forced cluster has no eligible model",
 		}, true
 	case errors.As(err, &statusErr):
 		return DispatchErrorClass{
@@ -256,7 +287,7 @@ func unwrapToSentinelMessage(err error) string {
 // rather than "api_error".
 func (k DispatchErrorKind) IsClientError() bool {
 	switch k {
-	case DispatchErrorRequestNotJSONObject, DispatchErrorNoEligibleProvider, DispatchErrorContextWindowExceeded, DispatchErrorInvalidRoutingKnobs, DispatchErrorTranslationIntrinsicallyIncompatible, DispatchErrorAnthropicCacheControlInvalid, DispatchErrorForcedModelExcluded:
+	case DispatchErrorRequestNotJSONObject, DispatchErrorNoEligibleProvider, DispatchErrorContextWindowExceeded, DispatchErrorInvalidRoutingKnobs, DispatchErrorTranslationIntrinsicallyIncompatible, DispatchErrorAnthropicCacheControlInvalid, DispatchErrorForcedModelExcluded, DispatchErrorForcedModelUnknown, DispatchErrorForcedClusterUnsupportedStrategy, DispatchErrorForcedClusterUnservable:
 		return true
 	default:
 		return false

@@ -117,7 +117,7 @@ across both providers, a few cents. Skip recording OpenAI by omitting
 | File | Scenario |
 |---|---|
 | `smoke/boot_test.go` | `/health`, `/v1/version`, `/v1/router/models` respond and are well-formed |
-| `smoke/basic_test.go` | `/force-model` command turn; non-stream turn (usage + decision headers); streamed turn well-ordered |
+| `smoke/basic_test.go` | `/force-model` command turn; non-stream turn (usage + decision headers); streamed turn well-ordered; `x-weave-force-cluster` / unknown `x-weave-force-model` refused with 400 pre-dispatch |
 | `smoke/cache_test.go` | router-injected caching warms then reads; client-at-capacity doesn't over-inject; `ttl=1h` breakpoint not poisoned; overflow rejected cleanly by the router |
 | `smoke/streaming_test.go` | tool-use stream lifecycle: balanced `content_block_start/stop`, exactly one `message_stop`, `stop_reason` present |
 | `smoke/openai_test.go` | OpenAI Responses-API translation path (gpt-5.x + tools): a genuinely typeless optional tool param round-trips without a 400; basic turn served correctly |

@@ -317,7 +317,32 @@ func (r *SidecarRouter) Route(ctx context.Context, req router.Request) (router.D
 	overrideArmID := res.ArmID
 	overrideRosterID := res.Model
 	overrideReasonSuffix := ""
-	if len(req.ClusterArmOverrides) > 0 && len(res.RankedFallback) > 0 {
+	// reselected records that the served arm is the router's pick rather than the
+	// sidecar's, which is the only case where res.Provider legitimately names a
+	// different provider than the resolved binding.
+	reselected := false
+	switch {
+	case req.ForceCluster != "":
+		// Returned unwrapped: the caller's dispatch classifier matches the typed
+		// error to a 400, and burying it under the strategy's unavailable sentinel
+		// would report a bad header as a sidecar outage.
+		outcome, err := ApplyClusterArmOverridesRequireMatch(req.ClusterArmOverrides, res.RankedFallback, resolved, res.Model, req.ForceCluster)
+		if err != nil {
+			return router.Decision{}, err
+		}
+		overrideArmID = outcome.ArmID
+		overrideRosterID = outcome.RosterID
+		// Annotated even when the forced cluster is the one the sidecar picked
+		// anyway, so telemetry can tell a constrained turn from a free one.
+		overrideReasonSuffix = ":force_cluster"
+		reselected = outcome.Changed
+		observability.FromContext(ctx).Info("Forced cluster applied",
+			"strategy", strategy,
+			"group", outcome.Group,
+			"sidecar_arm", res.Model,
+			"forced_arm", outcome.RosterID,
+		)
+	case len(req.ClusterArmOverrides) > 0 && len(res.RankedFallback) > 0:
 		outcome := ApplyClusterArmOverrides(req.ClusterArmOverrides, res.RankedFallback, resolved, res.Model)
 		if outcome.Applied && outcome.RosterID != "" {
 			// Use the resolved arm ID: on arm-enumerating resolvers a roster ID can
@@ -326,6 +351,7 @@ func (r *SidecarRouter) Route(ctx context.Context, req router.Request) (router.D
 			overrideRosterID = outcome.RosterID
 			if outcome.Changed {
 				overrideReasonSuffix = ":cluster_override"
+				reselected = true
 				observability.FromContext(ctx).Info("Cluster allowlist override applied",
 					"strategy", strategy,
 					"group", outcome.Group,
@@ -340,7 +366,7 @@ func (r *SidecarRouter) Route(ctx context.Context, req router.Request) (router.D
 	if !ok {
 		return router.Decision{}, fmt.Errorf("%s: sidecar returned unknown arm %q or model %q: %w", strategy, overrideArmID, overrideRosterID, r.config.Unavailable)
 	}
-	if res.Provider != "" && overrideReasonSuffix == "" && res.Provider != binding.Provider {
+	if res.Provider != "" && !reselected && res.Provider != binding.Provider {
 		return router.Decision{}, fmt.Errorf("%s: sidecar returned provider %q for %q, expected %q: %w", strategy, res.Provider, res.Model, binding.Provider, r.config.Unavailable)
 	}
 

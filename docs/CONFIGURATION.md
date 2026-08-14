@@ -184,10 +184,49 @@ the command answers with the reason and leaves routing (and any prior pin)
 alone, and the header fails the request with HTTP 400. A model with one
 permitted binding left is forced normally and served through that binding. A
 live session whose forced pin is later excluded fails the same way rather than
-quietly reverting to automatic routing — clear it with `/unforce-model`.
+quietly reverting to automatic routing — clear it with `/unforce-model`. The
+same holds a level up: exclusions that empty a forced routing cluster fail the
+request too (see [Forcing a model or a routing
+cluster](#forcing-a-model-or-a-routing-cluster)).
 
 Excluding every provider that serves the models you route to leaves requests
 with nowhere to go (HTTP 503 from the scorer), so exclude deliberately.
+
+## Forcing a model or a routing cluster
+
+Two request headers let a headless caller (eval harness, CI, any client whose
+UI eats slash commands) override routing. Both fail the request rather than
+routing on, so a typo can't look like it took effect.
+
+| Header | Effect |
+| ------ | ------ |
+| `x-weave-force-model` | Pins the session to one model, exactly as `/force-model` does. Accepts a canonical catalog ID or an alias (`opus`, `gpt`, `qwen-max`, …) plus an optional `:level` effort suffix (`opus:high`). A value naming no catalog model is HTTP 400. |
+| `x-weave-force-cluster` | Constrains serving to one of the policy sidecar's routing clusters, leaving the choice *within* it to the policy. |
+
+`x-weave-force-cluster` takes an opaque label — the router holds no list of
+valid ones. The live cluster vocabulary belongs to the deployed policy artifact
+and changes when it does, so the only authority is the roster the sidecar
+reports on that very request; a hardcoded list would silently go stale on the
+next roster bump. Consequences:
+
+- A label absent from the live roster is HTTP 400, whether it's a typo or a
+  cluster the current artifact retired. Both are equally unservable.
+- A label that *is* in the roster but has no eligible model for this request
+  (everything in it excluded, over-window, or filtered out on capability) is
+  also HTTP 400 — including when a per-key cluster model list empties it.
+- The header only works on the `hmm` / `hmm_embedding` strategies. The default
+  `cluster` strategy scores anonymous centroids with no named groups, so there
+  is nothing to constrain to and the request is HTTP 400 rather than a silent
+  no-op.
+- A sidecar too old to report its clusters also 400s. The constraint can't be
+  proven against a roster the router can't see, and serving anyway would ignore
+  the force.
+
+Unlike `x-weave-force-model` the cluster header writes no session pin: every
+turn carrying it is constrained on its own merits. Which models make up a
+cluster stays control-plane config (the dashboard's per-API-key "Cluster model
+lists" panel) — the header only says *which* cluster this turn must come from,
+and any list configured for that cluster still orders the arm that serves.
 
 ## Policy sidecars
 

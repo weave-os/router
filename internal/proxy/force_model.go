@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -23,9 +24,28 @@ import (
 // /force-model chat command. Needed for headless clients (eval harness, CI
 // smoke runs): Claude Code eats "/force-model …" as a client-side slash
 // command before it reaches the router. The header rides on every request,
-// so the pin is (re)written and served on the same turn. Unrecognized values
-// are ignored; routing proceeds automatically rather than failing.
+// so the pin is (re)written and served on the same turn. Values that name no
+// catalog model fail the request; so do excluded ones.
 const ForceModelHeader = "x-weave-force-model"
+
+// ErrForcedModelUnknown is returned when a caller forces a model name that
+// resolves to no catalog entry. Failing is the point: routing on regardless
+// serves a model the caller never asked for while looking like the force took.
+var ErrForcedModelUnknown = errors.New("forced model is not a known model")
+
+// ForcedModelUnknownError carries the unresolvable value so the dispatch
+// classifier can quote it back.
+type ForcedModelUnknownError struct {
+	Model string
+}
+
+// Error implements error.
+func (e *ForcedModelUnknownError) Error() string {
+	return fmt.Sprintf("%q is not a known model", e.Model)
+}
+
+// Unwrap ties the typed error to ErrForcedModelUnknown for errors.Is.
+func (e *ForcedModelUnknownError) Unwrap() error { return ErrForcedModelUnknown }
 
 var forceModelAliases = map[string]string{
 	"anthropic":   "claude-opus-5",
@@ -253,10 +273,9 @@ func (s *Service) setForceModelPin(
 
 // applyForceModelHeader honors the x-weave-force-model request header,
 // writing the same session pin the /force-model command writes. It's
-// (re)written on every request carrying the header. Unrecognized models are
-// ignored (routing proceeds automatically) rather than failing the request;
-// an excluded model fails it — silently routing elsewhere would serve a model
-// the caller never asked for.
+// (re)written on every request carrying the header. A model that names no
+// catalog entry, or one the exclusion policy forbids, fails the request —
+// silently routing elsewhere would serve a model the caller never asked for.
 //
 // A `:level` suffix is stashed on context as router.Overrides.ForceEffort
 // so pin + effort land in one header.
@@ -289,11 +308,11 @@ func (s *Service) applyForceModelHeader(
 		*r = *r.WithContext(router.WithRoutingKnobs(r.Context(), &merged))
 	}
 	if !known {
-		log.Info("x-weave-force-model: ignoring unrecognized model; routing automatically",
+		log.Warn("x-weave-force-model: rejected unrecognized model",
 			"input_model", raw,
 			"session_key_hex", fmt.Sprintf("%x", sessionKey),
 		)
-		return "", nil
+		return "", &ForcedModelUnknownError{Model: raw}
 	}
 	binding, reason := s.forcedModelBinding(ctx, canonicalModel, provider)
 	if reason != "" {

@@ -90,8 +90,14 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 
 	subAgentHint := r.Header.Get("x-weave-subagent-type")
 
+	forceCluster, forceErr := applyForceClusterHeader(ctx, r)
+	if forceErr != nil {
+		return forceErr
+	}
+
 	routeRequest := router.Request{
 		RequestedModel:               feats.Model,
+		ForceCluster:                 forceCluster,
 		EstimatedInputTokens:         feats.Tokens,
 		HasTools:                     feats.HasTools,
 		HasImages:                    feats.HasImages,

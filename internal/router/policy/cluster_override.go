@@ -1,5 +1,29 @@
 package policy
 
+import (
+	"errors"
+	"fmt"
+)
+
+// ErrForcedClusterUnservable is returned when a caller forces a classifier
+// group that this request cannot be served from — the label is not in the live
+// roster, or it is but has no eligible arm left after exclusions, capability
+// filtering, and any per-key allowlist.
+var ErrForcedClusterUnservable = errors.New("forced cluster has no eligible model")
+
+// ForcedClusterUnservableError carries the caller-facing reason a forced
+// cluster was refused, so the dispatch classifier can name the cluster.
+type ForcedClusterUnservableError struct {
+	Cluster string
+	Reason  string
+}
+
+// Error implements error.
+func (e *ForcedClusterUnservableError) Error() string { return e.Reason }
+
+// Unwrap ties the typed error to ErrForcedClusterUnservable for errors.Is.
+func (e *ForcedClusterUnservableError) Unwrap() error { return ErrForcedClusterUnservable }
+
 // ClusterOverrideResult is the outcome of applying per-key cluster allowlists
 // to a sidecar decision.
 type ClusterOverrideResult struct {
@@ -33,29 +57,18 @@ func ApplyClusterArmOverrides(
 		return ClusterOverrideResult{}
 	}
 
-	catalogToRoster := make(map[string]string, len(resolved.Candidates))
-	rosterToArm := make(map[string]string, len(resolved.Candidates))
-	eligibleRosterIDs := make(map[string]struct{}, len(resolved.Candidates))
-	for _, candidate := range resolved.Candidates {
-		if _, exists := catalogToRoster[candidate.CatalogID]; !exists {
-			catalogToRoster[candidate.CatalogID] = candidate.RosterID
-		}
-		if _, exists := rosterToArm[candidate.RosterID]; !exists {
-			rosterToArm[candidate.RosterID] = candidate.ArmID
-		}
-		eligibleRosterIDs[candidate.RosterID] = struct{}{}
-	}
+	index := indexCandidates(resolved)
 
 	for _, group := range rankedFallback {
 		override, hasOverride := overrides[group.Group]
-		effective := effectiveArms(group, override, hasOverride, catalogToRoster, eligibleRosterIDs)
+		effective := effectiveArms(group, override, hasOverride, index.catalogToRoster, index.eligibleRosterIDs)
 		if len(effective) == 0 {
 			continue
 		}
 		selected := effective[0]
 		return ClusterOverrideResult{
 			RosterID: selected,
-			ArmID:    rosterToArm[selected],
+			ArmID:    index.rosterToArm[selected],
 			Group:    group.Group,
 			Applied:  true,
 			Changed:  selected != sidecarRosterID,
@@ -66,6 +79,90 @@ func ApplyClusterArmOverrides(
 	// not-applied so the caller keeps the sidecar's selection (fail-open); the
 	// alternative — no eligible arm anywhere — would hard-fail the turn.
 	return ClusterOverrideResult{}
+}
+
+// ApplyClusterArmOverridesRequireMatch is ApplyClusterArmOverrides's fail-closed
+// sibling for a caller-forced cluster. A per-key allowlist is control-plane
+// config validated against the roster at write time, so falling open to the
+// sidecar's own pick is right for it; a forced label is unvalidated caller input
+// on this turn, so an unmatched or emptied group is an error rather than a
+// silent fall-through to a cluster the caller didn't ask for.
+func ApplyClusterArmOverridesRequireMatch(
+	overrides map[string][]string,
+	rankedFallback []PreviewGroup,
+	resolved ResolvedCandidates,
+	sidecarRosterID string,
+	requiredLabel string,
+) (ClusterOverrideResult, error) {
+	if len(rankedFallback) == 0 {
+		// Opposite polarity to the fail-open path above: with no ranked fallback
+		// there is no roster to prove the constraint against, and serving the
+		// sidecar's unconstrained pick would silently ignore the force.
+		return ClusterOverrideResult{}, &ForcedClusterUnservableError{
+			Cluster: requiredLabel,
+			Reason:  fmt.Sprintf("cannot force cluster %q: the policy sidecar does not report its routing clusters", requiredLabel),
+		}
+	}
+
+	var matched PreviewGroup
+	found := false
+	for _, group := range rankedFallback {
+		if group.Group == requiredLabel {
+			matched = group
+			found = true
+			break
+		}
+	}
+	if !found {
+		return ClusterOverrideResult{}, &ForcedClusterUnservableError{
+			Cluster: requiredLabel,
+			Reason:  fmt.Sprintf("%q is not a routing cluster on this installation", requiredLabel),
+		}
+	}
+
+	index := indexCandidates(resolved)
+	override, hasOverride := overrides[requiredLabel]
+	effective := effectiveArms(matched, override, hasOverride, index.catalogToRoster, index.eligibleRosterIDs)
+	if len(effective) == 0 {
+		return ClusterOverrideResult{}, &ForcedClusterUnservableError{
+			Cluster: requiredLabel,
+			Reason:  fmt.Sprintf("no model in cluster %q can serve this request", requiredLabel),
+		}
+	}
+
+	selected := effective[0]
+	return ClusterOverrideResult{
+		RosterID: selected,
+		ArmID:    index.rosterToArm[selected],
+		Group:    requiredLabel,
+		Applied:  true,
+		Changed:  selected != sidecarRosterID,
+	}, nil
+}
+
+// candidateIndex is the per-request lookup set both override paths need.
+type candidateIndex struct {
+	catalogToRoster   map[string]string
+	rosterToArm       map[string]string
+	eligibleRosterIDs map[string]struct{}
+}
+
+func indexCandidates(resolved ResolvedCandidates) candidateIndex {
+	index := candidateIndex{
+		catalogToRoster:   make(map[string]string, len(resolved.Candidates)),
+		rosterToArm:       make(map[string]string, len(resolved.Candidates)),
+		eligibleRosterIDs: make(map[string]struct{}, len(resolved.Candidates)),
+	}
+	for _, candidate := range resolved.Candidates {
+		if _, exists := index.catalogToRoster[candidate.CatalogID]; !exists {
+			index.catalogToRoster[candidate.CatalogID] = candidate.RosterID
+		}
+		if _, exists := index.rosterToArm[candidate.RosterID]; !exists {
+			index.rosterToArm[candidate.RosterID] = candidate.ArmID
+		}
+		index.eligibleRosterIDs[candidate.RosterID] = struct{}{}
+	}
+	return index
 }
 
 // effectiveArms returns the ordered eligible roster arms for one ranked group

@@ -2194,9 +2194,14 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	// Writes the user-forced pin and falls through to normal routing, which picks
 	// the pin up and serves the requested model on this same turn.
 	forceModel := ""
+	forceCluster := ""
 	if !agentShadowMode {
 		var forceErr error
 		forceModel, forceErr = s.applyForceModelHeader(ctx, r, env, installationID, sessionKey)
+		if forceErr != nil {
+			return forceErr
+		}
+		forceCluster, forceErr = applyForceClusterHeader(ctx, r)
 		if forceErr != nil {
 			return forceErr
 		}
@@ -2308,6 +2313,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	req := router.Request{
 		RequestedModel:               feats.Model,
 		ForceModel:                   forceModel,
+		ForceCluster:                 forceCluster,
 		EstimatedInputTokens:         feats.Tokens,
 		HasTools:                     feats.HasTools,
 		HasImages:                    feats.HasImages,
@@ -4379,6 +4385,10 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	if forceErr != nil {
 		return forceErr
 	}
+	forceCluster, forceErr := applyForceClusterHeader(ctx, r)
+	if forceErr != nil {
+		return forceErr
+	}
 
 	// Wide cyclic re-read loop → escalate to opus (same path as the Anthropic
 	// ingress). See detectCyclicToolCallLoop / handleLoopEscalation.
@@ -4490,6 +4500,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	routeRequest := router.Request{
 		RequestedModel:               feats.Model,
 		ForceModel:                   forceModel,
+		ForceCluster:                 forceCluster,
 		EstimatedInputTokens:         feats.Tokens,
 		HasTools:                     feats.HasTools,
 		HasImages:                    feats.HasImages,

@@ -1409,9 +1409,10 @@ func TestService_ForceModelHeader_WritesUserForcedPin(t *testing.T) {
 	assert.Equal(t, "claude-opus-5", fr.capturedReq.ForceModel, "valid force-model header must bypass router decorators")
 }
 
-// An unrecognized x-weave-force-model value must be ignored, so a typo
-// can't strand a session on an unservable directive.
-func TestService_ForceModelHeader_UnknownModelIgnored(t *testing.T) {
+// An unrecognized x-weave-force-model value fails the request: routing on
+// regardless would serve a model the caller never asked for while looking to
+// them like the force took.
+func TestService_ForceModelHeader_UnknownModelRejected(t *testing.T) {
 	store := newFakePinStore()
 	fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-haiku-4-5", Reason: "fresh"}}
 	svc := newPinSvc(fr, store)
@@ -1420,12 +1421,15 @@ func TestService_ForceModelHeader_UnknownModelIgnored(t *testing.T) {
 	rec := httptest.NewRecorder()
 	httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
 	httpReq.Header.Set(proxy.ForceModelHeader, "totally-not-a-model")
-	require.NoError(t, svc.ProxyMessages(ctx, []byte(pinTestBody), rec, httpReq))
+	err := svc.ProxyMessages(ctx, []byte(pinTestBody), rec, httpReq)
 
-	waitForUpsert(t, store) // normal routing still writes a fresh pin
+	require.Error(t, err)
+	cls, ok := proxy.ClassifyDispatchError(err)
+	require.True(t, ok)
+	assert.Equal(t, http.StatusBadRequest, cls.Status)
+	assert.Contains(t, cls.Message, "totally-not-a-model")
+	assert.Equal(t, 0, fr.routeCalls, "an unservable force must not fall through to the scorer")
 	store.mu.Lock()
 	defer store.mu.Unlock()
-	for _, p := range store.upserts {
-		assert.NotEqual(t, translate.ReasonUserForceModel, p.Reason, "unrecognized header must not write a user_forced pin")
-	}
+	assert.Empty(t, store.upserts, "a refused force must not write any pin")
 }

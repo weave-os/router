@@ -138,3 +138,77 @@ func TestApplyClusterArmOverrides_OldSidecarNoFallbackKeepsSidecar(t *testing.T)
 	out := policy.ApplyClusterArmOverrides(overrides, nil, resolved, "anthropic/opus")
 	assert.False(t, out.Applied, "no ranked fallback (old sidecar) must fail open")
 }
+
+func TestApplyClusterArmOverridesRequireMatch_ServesFirstEligibleArm(t *testing.T) {
+	ranked := []policy.PreviewGroup{
+		{Group: "maximum", EligibleArms: []string{"anthropic/opus", "anthropic/fable"}},
+		{Group: "fast", EligibleArms: []string{"anthropic/haiku"}},
+	}
+	resolved := resolvedFor(map[string]string{
+		"opus": "anthropic/opus", "fable": "anthropic/fable", "haiku": "anthropic/haiku",
+	})
+
+	// The sidecar's own pick was in "fast"; forcing "maximum" must move off it.
+	out, err := policy.ApplyClusterArmOverridesRequireMatch(nil, ranked, resolved, "anthropic/haiku", "maximum")
+	require.NoError(t, err)
+	assert.Equal(t, "anthropic/opus", out.RosterID, "the forced group's first eligible arm must serve")
+	assert.Equal(t, "maximum", out.Group)
+	assert.True(t, out.Changed)
+}
+
+func TestApplyClusterArmOverridesRequireMatch_HonorsPerKeyOverride(t *testing.T) {
+	ranked := []policy.PreviewGroup{
+		{Group: "maximum", EligibleArms: []string{"anthropic/opus", "anthropic/fable"}},
+	}
+	resolved := resolvedFor(map[string]string{"opus": "anthropic/opus", "fable": "anthropic/fable"})
+	overrides := map[string][]string{"maximum": {"fable", "opus"}}
+
+	out, err := policy.ApplyClusterArmOverridesRequireMatch(overrides, ranked, resolved, "anthropic/opus", "maximum")
+	require.NoError(t, err)
+	assert.Equal(t, "anthropic/fable", out.RosterID,
+		"the key's own ordering must still narrow the forced group")
+}
+
+func TestApplyClusterArmOverridesRequireMatch_UnknownLabelErrors(t *testing.T) {
+	ranked := []policy.PreviewGroup{
+		{Group: "maximum", EligibleArms: []string{"anthropic/opus"}},
+	}
+	resolved := resolvedFor(map[string]string{"opus": "anthropic/opus"})
+
+	_, err := policy.ApplyClusterArmOverridesRequireMatch(nil, ranked, resolved, "anthropic/opus", "explore")
+	require.ErrorIs(t, err, policy.ErrForcedClusterUnservable)
+	assert.Contains(t, err.Error(), "explore",
+		"a retired or misspelled label must be named back to the caller")
+}
+
+func TestApplyClusterArmOverridesRequireMatch_EmptyGroupErrors(t *testing.T) {
+	ranked := []policy.PreviewGroup{
+		{Group: "maximum", RosterArms: []string{"anthropic/opus"}, EligibleArms: nil},
+		{Group: "fast", EligibleArms: []string{"anthropic/haiku"}},
+	}
+	resolved := resolvedFor(map[string]string{"haiku": "anthropic/haiku"})
+
+	// The group exists but every arm was filtered out for this request; serving
+	// "fast" instead would silently ignore the force.
+	_, err := policy.ApplyClusterArmOverridesRequireMatch(nil, ranked, resolved, "anthropic/haiku", "maximum")
+	require.ErrorIs(t, err, policy.ErrForcedClusterUnservable)
+}
+
+func TestApplyClusterArmOverridesRequireMatch_OverrideEmptiesGroupErrors(t *testing.T) {
+	ranked := []policy.PreviewGroup{
+		{Group: "maximum", EligibleArms: []string{"anthropic/opus"}},
+	}
+	resolved := resolvedFor(map[string]string{"opus": "anthropic/opus"})
+	overrides := map[string][]string{"maximum": {"ghost"}}
+
+	_, err := policy.ApplyClusterArmOverridesRequireMatch(overrides, ranked, resolved, "anthropic/opus", "maximum")
+	require.ErrorIs(t, err, policy.ErrForcedClusterUnservable)
+}
+
+func TestApplyClusterArmOverridesRequireMatch_NoRankedFallbackFailsClosed(t *testing.T) {
+	resolved := resolvedFor(map[string]string{"opus": "anthropic/opus"})
+
+	_, err := policy.ApplyClusterArmOverridesRequireMatch(nil, nil, resolved, "anthropic/opus", "maximum")
+	require.ErrorIs(t, err, policy.ErrForcedClusterUnservable,
+		"unlike a DB override, a forced cluster cannot fail open — there is no roster to prove it against")
+}

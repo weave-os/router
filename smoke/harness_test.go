@@ -50,6 +50,10 @@ const anthropicVersion = "2023-06-01"
 // Must match internal/proxy/force_model.go:ForceModelHeader.
 const forceModelHeader = "x-weave-force-model"
 
+// forceClusterHeader constrains serving to one policy-sidecar routing cluster.
+// Must match internal/proxy/force_cluster.go:ForceClusterHeader.
+const forceClusterHeader = "x-weave-force-cluster"
+
 // httpClient is shared; the streaming scenarios need a generous timeout because
 // real Anthropic turns can take several seconds.
 var httpClient = &http.Client{Timeout: 90 * time.Second}
@@ -171,12 +175,19 @@ func call(t *testing.T, body []byte) response {
 // when stream:true, JSON otherwise.
 func callModel(t *testing.T, body []byte, model string) response {
 	t.Helper()
+	return callModelWithHeaders(t, body, model, nil)
+}
+
+// callModelWithHeaders is callModel plus extra request headers, for scenarios
+// that drive a router header rather than just the model pin.
+func callModelWithHeaders(t *testing.T, body []byte, model string, extra map[string]string) response {
+	t.Helper()
 	streaming := jsonBool(body, "stream")
 
 	var resp response
 	var err error
 	for attempt := 0; attempt < 2; attempt++ {
-		resp, err = doCall(body, streaming, model)
+		resp, err = doCall(body, streaming, model, extra)
 		if err != nil {
 			t.Fatalf("request failed: %v", err)
 		}
@@ -193,7 +204,7 @@ func callModel(t *testing.T, body []byte, model string) response {
 	return resp
 }
 
-func doCall(body []byte, streaming bool, model string) (response, error) {
+func doCall(body []byte, streaming bool, model string, extra map[string]string) (response, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
 
@@ -208,6 +219,9 @@ func doCall(body []byte, streaming bool, model string) (response, error) {
 	// (those must route through the command handler, not re-pin).
 	if !isForceModelCommand(body) {
 		req.Header.Set(forceModelHeader, model)
+	}
+	for k, v := range extra {
+		req.Header.Set(k, v)
 	}
 
 	httpResp, err := httpClient.Do(req)

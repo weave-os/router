@@ -58,6 +58,46 @@ func TestBasic(t *testing.T) {
 	})
 }
 
+// TestForceHeaderRejections covers the two force-header refusals that resolve
+// before any upstream call, so they need no cassette and run in replay-only CI.
+//
+// The success path (a label that IS in the live roster serving from that
+// cluster's arms) is deliberately absent: it needs the HMM sidecar container,
+// which the smoke stack doesn't boot, and the MITM proxy intercepts only
+// outbound HTTPS provider calls — not the router's plain-HTTP sidecar hop — so
+// there is nothing to record it against. Verify that path against a real
+// sidecar (`make up-hmm`).
+func TestForceHeaderRejections(t *testing.T) {
+	t.Run("force-cluster on the default cluster strategy is refused", func(t *testing.T) {
+		// The default strategy scores anonymous centroids, so there is no named
+		// cluster to constrain to. Silently serving would look like the force took.
+		body := newRequest("smoke-force-cluster-unsupported").tokens(64).
+			text("Reply with exactly the word: ok").build(t)
+		r := callModelWithHeaders(t, body, cfg.PinModel,
+			map[string]string{forceClusterHeader: "maximum"})
+
+		if r.status != http.StatusBadRequest {
+			t.Fatalf("want 400, got %d; body: %s", r.status, truncate(r.body, 600))
+		}
+		if !strings.Contains(string(r.body), "invalid_request_error") {
+			t.Errorf("want an invalid_request_error envelope, got: %s", truncate(r.body, 600))
+		}
+	})
+
+	t.Run("force-model naming no catalog model is refused", func(t *testing.T) {
+		body := newRequest("smoke-force-model-unknown").tokens(64).
+			text("Reply with exactly the word: ok").build(t)
+		r := callModel(t, body, "totally-not-a-model")
+
+		if r.status != http.StatusBadRequest {
+			t.Fatalf("want 400, got %d; body: %s", r.status, truncate(r.body, 600))
+		}
+		if !strings.Contains(string(r.body), "totally-not-a-model") {
+			t.Errorf("want the unresolvable value quoted back, got: %s", truncate(r.body, 600))
+		}
+	})
+}
+
 // assertServedByPin checks the x-router-model / x-router-provider decision
 // headers name the pinned model on Anthropic.
 func assertServedByPin(t *testing.T, r response) {

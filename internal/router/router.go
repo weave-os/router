@@ -86,7 +86,17 @@ type Request struct {
 	// ForceModel is the canonical model named by a valid explicit force-model
 	// request. Router decorators must preserve the underlying selection rather
 	// than applying alternative-policy behavior such as exploration.
-	ForceModel           string
+	ForceModel string
+	// ForceCluster is the sidecar classifier-group label forced by
+	// x-weave-force-cluster on this turn. Empty means no cluster constraint.
+	// Unlike ForceModel (which pins one canonical model), it constrains the pool
+	// the policy's own selection may draw from; the sidecar is never told a
+	// cluster is forced, so enforcement is a router-side re-check of the live
+	// Result.RankedFallback after the sidecar responds (see
+	// policy.ApplyClusterArmOverridesRequireMatch). Meaningless outside the
+	// hmm/hmm_embedding strategies, which the proxy construction sites reject
+	// with a typed error rather than silently ignoring.
+	ForceCluster         string
 	EstimatedInputTokens int
 	// OrganizationID and InstallationID are opaque external identifiers used
 	// to correlate policy decisions with rollout and privacy state.

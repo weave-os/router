@@ -12,6 +12,7 @@ import (
 	"workweave/router/internal/router/bandit"
 	"workweave/router/internal/router/cluster"
 	"workweave/router/internal/router/hmm"
+	"workweave/router/internal/router/policy"
 	"workweave/router/internal/router/rl"
 	"workweave/router/internal/translate"
 
@@ -168,4 +169,47 @@ func TestClassifyDispatchError_AnthropicCacheControlInvalidTTLOrderingIs400(t *t
 	assert.True(t, cls.Kind.IsClientError())
 	assert.NotContains(t, cls.Message, "emit body:", "the internal wrap-chain prefix must not leak into the client-facing message")
 	assert.Contains(t, cls.Message, "ttl=1h cache_control must not follow ttl=5m")
+}
+
+func TestClassifyDispatchError_ForcedModelUnknownIs400(t *testing.T) {
+	cls, ok := proxy.ClassifyDispatchError(&proxy.ForcedModelUnknownError{Model: "gpt-"})
+
+	require.True(t, ok)
+	assert.Equal(t, proxy.DispatchErrorForcedModelUnknown, cls.Kind)
+	assert.Equal(t, http.StatusBadRequest, cls.Status)
+	assert.True(t, cls.Kind.IsClientError(), "an unresolvable force is a client-input problem")
+	assert.Contains(t, cls.Message, "gpt-", "the caller must see the value that failed to resolve")
+	assert.Equal(t, "warn", cls.LogLevel)
+}
+
+func TestClassifyDispatchError_ForcedClusterUnsupportedStrategyIs400(t *testing.T) {
+	cls, ok := proxy.ClassifyDispatchError(&proxy.ForcedClusterUnsupportedStrategyError{
+		Cluster:  "maximum",
+		Strategy: "cluster",
+	})
+
+	require.True(t, ok)
+	assert.Equal(t, proxy.DispatchErrorForcedClusterUnsupportedStrategy, cls.Kind)
+	assert.Equal(t, http.StatusBadRequest, cls.Status)
+	assert.True(t, cls.Kind.IsClientError())
+	assert.Contains(t, cls.Message, "maximum")
+	assert.Contains(t, cls.Message, proxy.ForceClusterHeader, "the caller must be told which header to clear")
+}
+
+// The unservable error is raised inside the policy router, so it must classify
+// through the wrap chain Route returns it in — not just bare.
+func TestClassifyDispatchError_ForcedClusterUnservableIs400(t *testing.T) {
+	err := fmt.Errorf("route: %w", &policy.ForcedClusterUnservableError{
+		Cluster: "explore",
+		Reason:  `"explore" is not a routing cluster on this installation`,
+	})
+
+	cls, ok := proxy.ClassifyDispatchError(err)
+
+	require.True(t, ok)
+	assert.Equal(t, proxy.DispatchErrorForcedClusterUnservable, cls.Kind)
+	assert.Equal(t, http.StatusBadRequest, cls.Status)
+	assert.True(t, cls.Kind.IsClientError(), "a bad cluster label is a client error, not a sidecar outage")
+	assert.Contains(t, cls.Message, "explore")
+	assert.NotContains(t, cls.Message, "route:", "the internal wrap prefix must not leak to the client")
 }
