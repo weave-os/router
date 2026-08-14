@@ -903,7 +903,6 @@ func (s *Service) restrictToTier(excluded map[string]struct{}, tier catalog.Tier
 
 // applyToolResultTierCeiling fails open when no eligible survivor remains so
 // an evaluation constraint cannot turn a routable request into a hard failure.
-// It uses the deployed model set when available, otherwise the full catalog.
 func (s *Service) applyToolResultTierCeiling(excluded map[string]struct{}, tt turntype.TurnType, requestedModel string) map[string]struct{} {
 	if !s.toolResultTierCeiling || tt != turntype.ToolResult {
 		return excluded

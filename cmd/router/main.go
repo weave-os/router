@@ -537,10 +537,7 @@ func main() {
 	// below can be overridden per deployment.
 	plannerEnabled := config.GetOr("ROUTER_PLANNER_ENABLED", "true") == "true"
 	scoreToolResultTurns := config.GetOr("ROUTER_SCORE_TOOL_RESULT_TURNS", "true") == "true"
-	// ROUTER_TOOL_RESULT_TIER_CEILING (default off): excludes above-tier models
-	// from ToolResult turns before the scorer runs, capping candidates at or
-	// below the turn's requested-model tier. Eval/debug lever — see
-	// Service.applyToolResultTierCeiling.
+	// Keep ToolResult candidates within the requested tier for safer evaluation.
 	toolResultTierCeiling := config.GetOr("ROUTER_TOOL_RESULT_TIER_CEILING", "false") == "true"
 	// Defensive backstop for Anthropic's cyber safety classifier: re-pin a
 	// session off a model that returned a safety refusal. Default off; enabled
