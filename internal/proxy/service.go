@@ -514,7 +514,6 @@ func sanitizeSidecarDisplayMarker(raw string) string {
 // than re-spelling the literals.
 const (
 	markerReasonUserForced    = "pinned by force-model"
-	markerReasonHardPinned    = "pinned by router configuration"
 	markerReasonLoopEscalated = "escalated due to loop"
 	markerReasonSwitched      = "switched for positive EV after cache eviction"
 	markerReasonStayed        = "stayed on your last pick"
@@ -545,9 +544,6 @@ func baselineRoutingMarkerFor(res turnLoopResult, baselineModel string) string {
 func routingReasonShort(res turnLoopResult) string {
 	if res.Decision.Reason == reasonRequestedModelRespected {
 		return markerReasonRequested
-	}
-	if res.HardPinned {
-		return markerReasonHardPinned
 	}
 	if res.PlannerDecision.Reason != "" {
 		return humanReasonFromPlanner(res.PlannerDecision.Reason)
@@ -905,6 +901,9 @@ func (s *Service) restrictToTier(excluded map[string]struct{}, tier catalog.Tier
 	return out, true
 }
 
+// applyToolResultTierCeiling fails open when no eligible survivor remains so
+// an evaluation constraint cannot turn a routable request into a hard failure.
+// It uses the deployed model set when available, otherwise the full catalog.
 func (s *Service) applyToolResultTierCeiling(excluded map[string]struct{}, tt turntype.TurnType, requestedModel string) map[string]struct{} {
 	if !s.toolResultTierCeiling || tt != turntype.ToolResult {
 		return excluded
@@ -1146,6 +1145,7 @@ func (s *Service) WithScoreToolResultTurns(enabled bool) *Service {
 	return s
 }
 
+// WithToolResultTierCeiling enables the ToolResult tier ceiling.
 func (s *Service) WithToolResultTierCeiling(enabled bool) *Service {
 	s.toolResultTierCeiling = enabled
 	return s
@@ -1393,6 +1393,7 @@ func (s *Service) WithSubAgentOverride(provider, model string) *Service {
 	return s
 }
 
+// WithRespectRequestedModel sets models that may bypass automatic routing.
 func (s *Service) WithRespectRequestedModel(models []string) *Service {
 	honored := make(map[string]struct{}, len(models))
 	for _, m := range models {

@@ -257,6 +257,8 @@ func (s *Service) hasSubAgentOverride() bool {
 const reasonRequestedModelRespected = "requested_model_respected"
 
 // honoredRequestedModel returns an eligible allowlisted requested model.
+// Unknown or ineligible entries fall back to routing because the list is not
+// an explicit per-request override like force-model.
 func (s *Service) honoredRequestedModel(ctx context.Context, req router.Request) (model, provider string, ok bool) {
 	if len(s.respectRequestedModel) == 0 || req.RequestedModel == "" {
 		return "", "", false
@@ -782,10 +784,9 @@ func (s *Service) runTurnLoop(
 				policyExcluded := s.excludedModelsForRequest(ctx)
 				_, policyExcludes := policyExcluded[pin.Model]
 				compatibilityExcludes := req.TranslationRequirements.Images && !catalog.AcceptsImages(pin.Model)
-				ceilingExcludes := false
-				if ceilingExcluded := s.applyToolResultTierCeiling(nil, res.TurnType, feats.Model); ceilingExcluded != nil {
-					_, ceilingExcludes = ceilingExcluded[pin.Model]
-				}
+				ceilingExcluded := s.applyToolResultTierCeiling(nil, res.TurnType, feats.Model)
+				_, ceilingExcludes := ceilingExcluded[pin.Model]
+				preserved := false
 				if !policyExcludes && !compatibilityExcludes && !ceilingExcludes {
 					if len(req.ExcludedModels) > 0 {
 						pruned := make(map[string]struct{}, len(req.ExcludedModels)-1)
@@ -800,16 +801,23 @@ func (s *Service) runTurnLoop(
 					// cleared this model's context-overflow exclusion, so it must
 					// not linger in the safety set and block usage bypass.
 					delete(req.SafetyExcludedModels, pin.Model)
+					preserved = true
 				} else if ceilingExcludes {
+					log.Info("Session pin excluded by ToolResult tier ceiling; falling through to scorer",
+						"pin_model", pin.Model,
+						"pin_provider", pin.Provider,
+					)
 					pinFound = false
 					pin = sessionpin.Pin{}
 				}
-				log.Info("Session pin preserved despite context-window pre-filter exclusion",
-					"pin_model", pin.Model,
-					"token_estimate", pinTokenEstimate,
-					"needed", needed,
-					"model_context_window", modelCW,
-				)
+				if preserved {
+					log.Info("Session pin preserved despite context-window pre-filter exclusion",
+						"pin_model", pin.Model,
+						"token_estimate", pinTokenEstimate,
+						"needed", needed,
+						"model_context_window", modelCW,
+					)
+				}
 			}
 		}
 	}

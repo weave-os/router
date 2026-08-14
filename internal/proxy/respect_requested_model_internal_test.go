@@ -214,39 +214,56 @@ func TestApplyToolResultTierCeiling_NoSurvivorIsNoOp(t *testing.T) {
 
 func TestRunTurnLoop_ToolResultCeilingAppliesAcrossSurfaces(t *testing.T) {
 	tests := []struct {
-		name string
-		env  *translate.RequestEnvelope
+		name   string
+		env    *translate.RequestEnvelope
+		assert string
 	}{
 		{
-			name: "messages",
-			env:  mustParseEnvelope(t, `{"model":"claude-haiku-4-5","messages":[{"role":"user","content":"run"},{"role":"assistant","content":[{"type":"tool_use","id":"t1","name":"Bash","input":{}}]},{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":"done"}]}]}`, true),
+			name:   "messages",
+			env:    mustParseEnvelope(t, `{"model":"claude-haiku-4-5","messages":[{"role":"user","content":"run"},{"role":"assistant","content":[{"type":"tool_use","id":"t1","name":"Bash","input":{}}]},{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":"done"}]}]}`, "anthropic"),
+			assert: "gpt-5.4-pro",
 		},
 		{
-			name: "openai_chat_completions",
-			env:  mustParseEnvelope(t, `{"model":"gpt-5.4-mini","messages":[{"role":"user","content":"run"},{"role":"assistant","tool_calls":[{"id":"t1","type":"function","function":{"name":"Bash","arguments":"{}"}}]},{"role":"tool","tool_call_id":"t1","content":"done"}]}`, false),
+			name:   "openai_chat_completions",
+			env:    mustParseEnvelope(t, `{"model":"gpt-5.4-mini","messages":[{"role":"user","content":"run"},{"role":"assistant","tool_calls":[{"id":"t1","type":"function","function":{"name":"Bash","arguments":"{}"}}]},{"role":"tool","tool_call_id":"t1","content":"done"}]}`, "openai"),
+			assert: "gpt-5.4-pro",
+		},
+		{
+			name:   "gemini",
+			env:    mustParseEnvelope(t, `{"model":"gemini-3-flash-preview","contents":[{"role":"user","parts":[{"text":"run"}]},{"role":"model","parts":[{"functionCall":{"name":"Bash","args":{}}}]},{"role":"user","parts":[{"functionResponse":{"name":"Bash","response":{"output":"done"}}}]}]}`, "gemini"),
+			assert: "gemini-3.1-pro-preview",
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			fr := &tierProbeRouter{available: map[string]struct{}{
-				"claude-haiku-4-5": {},
-				"claude-opus-5":    {},
-				"gpt-5.4-mini":     {},
-				"gpt-5.4-pro":      {},
+				"claude-haiku-4-5":       {},
+				"claude-opus-5":          {},
+				"gpt-5.4-mini":           {},
+				"gpt-5.4-pro":            {},
+				"gemini-3-flash-preview": {},
+				"gemini-3.1-pro-preview": {},
 			}}
+			if tt.name == "gemini" {
+				fr.provider = providers.ProviderGoogle
+			}
 			svc := &Service{router: fr, toolResultTierCeiling: true}
 			feats := tt.env.RoutingFeatures(false)
-			_, err := svc.runTurnLoop(context.Background(), tt.env, feats, "key-1", uuid.Nil, "", nil,
+			ctx := context.Background()
+			if tt.name == "gemini" {
+				ctx = context.WithValue(ctx, translationPlanAppliedContextKey{}, true)
+			}
+			_, err := svc.runTurnLoop(ctx, tt.env, feats, "key-1", uuid.Nil, "", nil,
 				router.Request{RequestedModel: feats.Model})
 			require.NoError(t, err)
 			require.Len(t, fr.captured, 1)
-			assert.Contains(t, fr.captured[0].ExcludedModels, "gpt-5.4-pro")
+			assert.Contains(t, fr.captured[0].ExcludedModels, tt.assert)
 		})
 	}
 }
 
 func TestRunTurnLoop_ToolResultCeilingDropsAboveCeilingStickyPin(t *testing.T) {
-	env := mustParseEnvelope(t, `{"model":"claude-haiku-4-5","messages":[{"role":"user","content":"run"},{"role":"assistant","content":[{"type":"tool_use","id":"t1","name":"Bash","input":{}}]},{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":"done"}]}]}`, true)
+	env := mustParseEnvelope(t, `{"model":"claude-haiku-4-5","messages":[{"role":"user","content":"run"},{"role":"assistant","content":[{"type":"tool_use","id":"t1","name":"Bash","input":{}}]},{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":"done"}]}]}`, "anthropic")
 	store := &overwritingPinStore{pin: sessionpin.Pin{
 		Provider:    providers.ProviderAnthropic,
 		Model:       "claude-opus-5",
@@ -272,16 +289,21 @@ func TestRunTurnLoop_ToolResultCeilingDropsAboveCeilingStickyPin(t *testing.T) {
 	assert.False(t, res.StickyHit)
 }
 
-func mustParseEnvelope(t *testing.T, body string, anthropic bool) *translate.RequestEnvelope {
+func mustParseEnvelope(t *testing.T, body, format string) *translate.RequestEnvelope {
 	t.Helper()
 	var (
 		env *translate.RequestEnvelope
 		err error
 	)
-	if anthropic {
+	switch format {
+	case "anthropic":
 		env, err = translate.ParseAnthropic([]byte(body))
-	} else {
+	case "openai":
 		env, err = translate.ParseOpenAI([]byte(body))
+	case "gemini":
+		env, err = translate.ParseGemini([]byte(body))
+	default:
+		t.Fatalf("unknown envelope format %q", format)
 	}
 	require.NoError(t, err)
 	return env

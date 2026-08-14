@@ -24,6 +24,7 @@ import (
 type tierProbeRouter struct {
 	available map[string]struct{}
 	captured  []router.Request
+	provider  string
 }
 
 func (r *tierProbeRouter) Route(_ context.Context, req router.Request) (router.Decision, error) {
@@ -41,7 +42,11 @@ func (r *tierProbeRouter) Route(_ context.Context, req router.Request) (router.D
 	if best == "" {
 		return router.Decision{}, errors.New("no eligible candidate")
 	}
-	return router.Decision{Provider: providers.ProviderAnthropic, Model: best, Reason: "fake"}, nil
+	provider := r.provider
+	if provider == "" {
+		provider = providers.ProviderAnthropic
+	}
+	return router.Decision{Provider: provider, Model: best, Reason: "fake"}, nil
 }
 
 // forcedPinStore returns a single user-forced pin for every lookup.
