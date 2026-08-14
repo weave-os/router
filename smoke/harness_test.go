@@ -272,7 +272,12 @@ func parseSSE(r io.Reader) (events []string, msg *anthropicMessage, raw []byte, 
 
 // applyStreamEvent folds a single SSE data payload into the reconstructed
 // message: message_start carries the initial message (model + input usage),
-// message_delta carries stop_reason and output-token usage.
+// message_delta carries stop_reason and usage. Input-side usage can arrive on
+// either event: a plain upstream response puts it on message_start, but the
+// routing-marker writer emits a synthetic message_start (before the upstream
+// call even lands, for TTFB) with zeroed usage and folds the real input
+// counts into message_delta.usage once upstream responds — so message_delta
+// must win over a zero value from message_start, not just add output tokens.
 func applyStreamEvent(msg *anthropicMessage, event, payload string) {
 	switch event {
 	case "message_start":
@@ -295,6 +300,15 @@ func applyStreamEvent(msg *anthropicMessage, event, payload string) {
 		if json.Unmarshal([]byte(payload), &env) == nil {
 			if env.Delta.StopReason != "" {
 				msg.StopReason = env.Delta.StopReason
+			}
+			if env.Usage.InputTokens > 0 {
+				msg.Usage.InputTokens = env.Usage.InputTokens
+			}
+			if env.Usage.CacheCreationInputTokens > 0 {
+				msg.Usage.CacheCreationInputTokens = env.Usage.CacheCreationInputTokens
+			}
+			if env.Usage.CacheReadInputTokens > 0 {
+				msg.Usage.CacheReadInputTokens = env.Usage.CacheReadInputTokens
 			}
 			if env.Usage.OutputTokens > 0 {
 				msg.Usage.OutputTokens = env.Usage.OutputTokens
