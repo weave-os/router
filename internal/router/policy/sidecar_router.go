@@ -390,6 +390,15 @@ func (r *SidecarRouter) Route(ctx context.Context, req router.Request) (router.D
 	}
 	reason += overrideReasonSuffix
 
+	// The sidecar builds DisplayMarker from its own pre-override pick; once the
+	// router reselects a different arm, that string names the wrong model.
+	// Drop it so routingMarkerFor() falls through to the generic path, which
+	// renders the actually-served binding.CatalogID instead.
+	displayMarker := res.DisplayMarker
+	if reselected {
+		displayMarker = ""
+	}
+
 	observability.FromContext(ctx).Info("Policy router decided",
 		"strategy", strategy,
 		"execution_mode", executionMode,
@@ -412,7 +421,7 @@ func (r *SidecarRouter) Route(ctx context.Context, req router.Request) (router.D
 			CandidateArmScores:            resolved.ArmCandidateScores(res.CandidateScores),
 			ChosenScore:                   float32(res.Score),
 			Propensity:                    propensity,
-			DisplayMarker:                 res.DisplayMarker,
+			DisplayMarker:                 displayMarker,
 			RouteID:                       routeID,
 			Strategy:                      string(strategy),
 			PolicyRouteKey:                res.PolicyRouteKey,

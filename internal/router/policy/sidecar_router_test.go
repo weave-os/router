@@ -449,6 +449,49 @@ func TestSidecarRouterAppliesClusterArmOverride(t *testing.T) {
 		"an override that changes the pick must annotate the reason")
 }
 
+// The sidecar's DisplayMarker names its pre-override pick (opus). Once the
+// router reselects sonnet-5, that marker must not survive into the decision
+// metadata, or the banner and telemetry disagree about the served model.
+func TestSidecarRouterClusterOverrideSuppressesStaleDisplayMarker(t *testing.T) {
+	resolver := policy.NewResolver(
+		set("claude-opus-4-8", "claude-sonnet-5"),
+		set(providers.ProviderAnthropic),
+		clusterOverrideMapper,
+		policy.ManagedProviderPolicy(),
+	)
+	decider := &recordingPolicy{result: policy.Result{
+		SchemaVersion: policy.SchemaVersionV1,
+		Model:         "anthropic/claude-opus-4-8",
+		Provider:      providers.ProviderAnthropic,
+		Score:         0.8,
+		PolicyGroup:   "maximum",
+		DisplayMarker: "✦ **Weave Router** → Delegating work with claude-opus-4-8",
+		RankedFallback: []policy.PreviewGroup{{
+			Group:        "maximum",
+			Probability:  0.8,
+			RosterArms:   []string{"anthropic/claude-opus-4-8", "anthropic/claude-sonnet-5"},
+			EligibleArms: []string{"anthropic/claude-opus-4-8", "anthropic/claude-sonnet-5"},
+		}},
+	}}
+	adapter := policy.NewSidecarRouter(policy.SidecarRouterConfig{
+		Strategy: router.StrategyHMM,
+	}, decider, resolver).WithCapabilities(policy.Capabilities{
+		SchemaVersion:         policy.SchemaVersionV1,
+		ReportsRankedFallback: false,
+	})
+
+	decision, err := adapter.Route(context.Background(), router.Request{
+		ClusterArmOverrides: map[string][]string{
+			"maximum": {"claude-sonnet-5", "claude-opus-4-8"},
+		},
+	})
+
+	require.NoError(t, err)
+	require.Equal(t, "claude-sonnet-5", decision.Model)
+	assert.Empty(t, decision.Metadata.DisplayMarker,
+		"a reselected arm must drop the sidecar's stale marker so the generic path renders the served model")
+}
+
 func TestSidecarRouterClusterOverrideResolvesArmEnumeratingBinding(t *testing.T) {
 	// Arm-enumerating resolver: arm IDs differ from roster IDs. Binding resolution
 	// must go through the arm ID — shared roster IDs are dropped from ByRosterID as
@@ -555,6 +598,39 @@ func TestSidecarRouterServesWithinForcedCluster(t *testing.T) {
 	assert.Contains(t, decision.Reason, "force_cluster")
 	assert.Len(t, decider.query.Candidates, 2,
 		"the sidecar still classifies over the full candidate set; the force is enforced router-side")
+}
+
+// Same stale-marker hazard as the cluster_override branch: a forced cluster
+// that reselects away from the sidecar's argmax must not carry the sidecar's
+// marker for its own (unserved) pick into the decision.
+func TestSidecarRouterForcedClusterSuppressesStaleDisplayMarker(t *testing.T) {
+	resolver := policy.NewResolver(
+		set("claude-opus-4-8", "claude-haiku-4-5"),
+		set(providers.ProviderAnthropic),
+		clusterOverrideMapper,
+		policy.ManagedProviderPolicy(),
+	)
+	decider := &recordingPolicy{result: policy.Result{
+		SchemaVersion: policy.SchemaVersionV1,
+		Model:         "anthropic/claude-opus-4-8",
+		Provider:      providers.ProviderAnthropic,
+		PolicyGroup:   "maximum",
+		DisplayMarker: "✦ **Weave Router** → Delegating work with claude-opus-4-8",
+		RankedFallback: []policy.PreviewGroup{
+			{Group: "maximum", Probability: 0.8, EligibleArms: []string{"anthropic/claude-opus-4-8"}},
+			{Group: "fast", Probability: 0.2, EligibleArms: []string{"anthropic/claude-haiku-4-5"}},
+		},
+	}}
+	adapter := policy.NewSidecarRouter(policy.SidecarRouterConfig{
+		Strategy: router.StrategyHMM,
+	}, decider, resolver)
+
+	decision, err := adapter.Route(context.Background(), router.Request{ForceCluster: "fast"})
+
+	require.NoError(t, err)
+	require.Equal(t, "claude-haiku-4-5", decision.Model)
+	assert.Empty(t, decision.Metadata.DisplayMarker,
+		"the forced cluster serves haiku, not the sidecar's opus pick named in its marker")
 }
 
 // A force that coincides with the sidecar's own pick must not waive the
