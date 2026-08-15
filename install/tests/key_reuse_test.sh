@@ -152,9 +152,15 @@ fi
 # and into .weave-parked.json. A re-run while toggled off must still find the key
 # there (not demand a fresh paste) and must not silently retarget the endpoint at
 # the hosted default just because --base-url wasn't repeated.
+#
+# It must also leave the toggle in a coherent state: an update rewrites the full
+# router config live, so it re-enables the router and has to consume the sidecar.
+# Leaving it behind desyncs the toggle — `status` would keep reporting off while
+# traffic routes through the router, and `off` would no-op instead of undoing it.
 
 off_home="$work/off"; mkdir -p "$off_home"
 off_settings="$off_home/.claude/settings.json"
+off_parked="$off_home/.claude/.weave-parked.json"
 custom_url="http://custom-router.internal:9999"
 
 HOME="$off_home" XDG_CACHE_HOME="$off_home/.cache" PATH="$test_path" NO_COLOR=1 \
@@ -169,12 +175,21 @@ check "off parks the router key, not settings.json" "$(installed_key "$off_setti
 # carry-over behavior this checks.
 HOME="$off_home" XDG_CACHE_HOME="$off_home/.cache" PATH="$test_path" NO_COLOR=1 \
   bash "$installer" update --claude </dev/null >/dev/null 2>&1
-check "update while off finds the parked key" \
-  "$(jq -r '.env.ANTHROPIC_CUSTOM_HEADERS // ""' "$off_home/.claude/.weave-parked.json" 2>/dev/null \
-     | sed -n 's/^X-Weave-Router-Key: //p')" \
-  "rk_off"
+check "update while off recovers the parked key into settings.json" \
+  "$(installed_key "$off_settings")" "rk_off"
 check "update while off preserves the custom base URL, not the hosted default" \
   "$(jq -r '.env.ANTHROPIC_BASE_URL // ""' "$off_settings")" "$custom_url"
+
+# The sidecar has to be gone, or the toggle is desynced from what's live.
+[ ! -f "$off_parked" ] && ok "update while off consumes the parked sidecar" \
+  || no "update while off consumes the parked sidecar" "sidecar removed" "file still present"
+
+# The real symptom of a desync: `off` silently no-ops because the stale sidecar
+# makes it think it's already off, leaving router config live with no way back.
+HOME="$off_home" PATH="$test_path" NO_COLOR=1 \
+  bash "$installer" off --claude </dev/null >/dev/null 2>&1
+check "off still works after an update that ran while off" \
+  "$(installed_key "$off_settings")" ""
 
 echo
 echo "$pass passed, $fail failed"

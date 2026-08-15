@@ -3053,6 +3053,15 @@ write_claude_settings() {
   fi
 }
 
+# write_claude_settings rewrote the full router config live, so a parked
+# sidecar left over from `off` is now redundant: the router is back on and the
+# key/base URL it preserved are in the settings files. Leave it in place and
+# `status` would keep reporting off, and `off` would no-op against live router
+# config the user can no longer toggle.
+if [ "$target" = "claude" ] && [ -f "$settings_dir/.weave-parked.json" ]; then
+  rm -f "$settings_dir/.weave-parked.json"
+fi
+
 write_claude_settings "$api_key"
 
 # Slash command wrappers — see install_slash_commands() below for the why.
