@@ -40,6 +40,7 @@ test-statusline: ## Run the cc-statusline.sh regression tests (offline)
 
 test-install: ## Run offline installer regression tests
 	@bash install/tests/codex_install_test.sh
+	@bash install/tests/key_reuse_test.sh
 
 smoke: ## Pre-merge smoke suite: real router stack + real Anthropic (needs ANTHROPIC_API_KEY)
 	./scripts/smoke/run.sh

@@ -125,6 +125,141 @@ weave_self_refresh() {
 }
 weave_self_refresh 2>/dev/null || true
 
+# ---------- background slash-command refresh ----------
+#
+# The /force-model, /router-* … wrappers under <install>/.claude/commands/ are
+# written once at install time and then never touched again, so a user who
+# doesn't re-run the installer keeps whatever set shipped that day. This script
+# is the only thing Claude Code invokes on every turn, so it doubles as the
+# refresh point for them: same rate limit, same detached fork, same
+# content-diff no-op as the self-refresh above.
+#
+# Never clobber a wrapper the user edited. The only way to tell an edit from a
+# stale copy is to remember what we last downloaded, so each canonical file is
+# cached (unrendered) per install under the user cache dir and a wrapper is
+# replaced only when its bytes still match that baseline. With no baseline yet
+# we can't prove anything, so the first run only seeds the cache and a swap can
+# happen from the next one on. install.sh seeds it too, so fresh installs skip
+# that warm-up round.
+#
+# Opt out with WEAVE_COMMANDS_UPDATE=0 (WEAVE_STATUSLINE_UPDATE=0 disables this
+# too, along with every other network path here). Override the source with
+# WEAVE_COMMANDS_URL_BASE=..., e.g. for self-hosters who fork.
+
+# weave_render_command prints $1 with the installer's {{SCOPE}} placeholder
+# replaced by $2, matching how install_slash_commands writes the same file.
+# Trailing newlines are stripped on both sides of every comparison below.
+weave_render_command() {
+  local body
+  body="$(cat "$1" 2>/dev/null)" || return 1
+  printf '%s' "${body//\{\{SCOPE\}\}/$2}"
+}
+
+weave_sync_commands() {
+  [ "${WEAVE_STATUSLINE_UPDATE:-1}" = "0" ] && return 0
+  [ "${WEAVE_COMMANDS_UPDATE:-1}" = "0" ] && return 0
+  command -v curl >/dev/null 2>&1 || return 0
+
+  local self="${BASH_SOURCE[0]:-$0}" self_dir cmd_dir
+  self_dir="$(cd "$(dirname "$self")" 2>/dev/null && pwd -P)" || return 0
+  # User scope installs this script at <base>/.weave/, project and --dir at
+  # <base>/.claude/. Claude Code reads commands from <base>/.claude/commands in
+  # both layouts.
+  case "${self_dir##*/}" in
+    .weave)  cmd_dir="${self_dir%/*}/.claude/commands" ;;
+    .claude) cmd_dir="$self_dir/commands" ;;
+    *)       return 0 ;;
+  esac
+  [ -d "$cmd_dir" ] && [ -w "$cmd_dir" ] || return 0
+
+  local cache_dir="${XDG_CACHE_HOME:-$HOME/.cache}/weave-router"
+  local dir_slug
+  dir_slug="$(printf '%s' "$cmd_dir" | tr -c 'A-Za-z0-9._-' '_')"
+  # Baseline is keyed by install, not shared: two installs refresh on their own
+  # clocks, and a shared baseline updated by one would make the other's still-
+  # canonical wrappers look user-edited and freeze them forever.
+  local baseline_dir="$cache_dir/commands${dir_slug}"
+  local stamp="$cache_dir/checked-at${dir_slug}.commands"
+  mkdir -p "$baseline_dir" 2>/dev/null || return 0
+
+  local interval_days="${WEAVE_STATUSLINE_UPDATE_INTERVAL_DAYS:-7}"
+  local now stamp_mtime
+  now="$(date +%s 2>/dev/null)" || return 0
+  if [ -f "$stamp" ]; then
+    stamp_mtime="$(stat -c %Y "$stamp" 2>/dev/null || stat -f %m "$stamp" 2>/dev/null)" || stamp_mtime=0
+  else
+    stamp_mtime=0
+  fi
+  if [ -n "${stamp_mtime:-}" ] && [ "$stamp_mtime" -gt 0 ] \
+     && [ $(( now - stamp_mtime )) -lt $(( interval_days * 86400 )) ]; then
+    return 0
+  fi
+  # Stamp before forking, same as the self-refresh: Claude Code calls us on
+  # every turn and concurrent invocations must not all start downloading.
+  : > "$stamp" 2>/dev/null || return 0
+
+  # router-off/on/status bake this install's scope selector into their npx
+  # line (upstream carries {{SCOPE}} there). Recover it from the installed copy
+  # so a project or --dir install keeps toggling its own config; when it can't
+  # be recovered those three are skipped rather than rewritten to point at the
+  # user-scope install.
+  local scope_args="" scope_known="false" off="$cmd_dir/router-off.md"
+  if [ -f "$off" ] && grep -q '^`npx @workweave/router off --claude.*`$' "$off" 2>/dev/null; then
+    scope_known="true"
+    scope_args="$(sed -n 's|^`npx @workweave/router off --claude\(.*\)`$|\1|p' "$off" | head -n 1)"
+  fi
+
+  local url_base="${WEAVE_COMMANDS_URL_BASE:-https://raw.githubusercontent.com/workweave/router/main/install/commands}"
+  local name installed raw prev tmp new_body prev_body installed_body
+  (
+    # Detach stdin (CC pipes JSON to us) so curl can't consume it, and silence
+    # everything so no output leaks into the statusline.
+    exec </dev/null
+    for name in force-model unforce-model router-feedback fm ufm rf \
+                router-off router-on router-status router-session; do
+      installed="$cmd_dir/$name.md"
+      # Only ever refresh a wrapper that is already installed: a missing one
+      # was uninstalled or deliberately deleted, and resurrecting it would be
+      # a surprise. A symlink is user-owned; leave it alone.
+      [ -f "$installed" ] || continue
+      [ -L "$installed" ] && continue
+
+      raw="$baseline_dir/$name.md.tmp.$$"
+      curl -fsSL --max-time 15 "$url_base/$name.md" -o "$raw" 2>/dev/null || { rm -f "$raw"; continue; }
+      # Shape check: every wrapper opens with YAML front matter, so a 404 page
+      # or a truncated body can never be installed as a command.
+      if [ ! -s "$raw" ] || [ "$(head -n 1 "$raw")" != "---" ]; then
+        rm -f "$raw"
+        continue
+      fi
+
+      prev="$baseline_dir/$name.md"
+      if grep -q '{{SCOPE}}' "$raw" && [ "$scope_known" != "true" ]; then
+        mv "$raw" "$prev" 2>/dev/null || rm -f "$raw"
+        continue
+      fi
+
+      if [ -f "$prev" ]; then
+        new_body="$(weave_render_command "$raw" "$scope_args")"
+        prev_body="$(weave_render_command "$prev" "$scope_args")"
+        installed_body="$(cat "$installed" 2>/dev/null)" || installed_body=""
+        if [ "$prev_body" = "$installed_body" ] && [ "$new_body" != "$installed_body" ]; then
+          tmp="$installed.tmp.$$"
+          if printf '%s\n' "$new_body" >"$tmp" 2>/dev/null; then
+            mv "$tmp" "$installed" 2>/dev/null || rm -f "$tmp"
+          else
+            rm -f "$tmp"
+          fi
+        fi
+      fi
+      mv "$raw" "$prev" 2>/dev/null || rm -f "$raw"
+    done
+  ) >/dev/null 2>&1 &
+  disown 2>/dev/null || true
+  return 0
+}
+weave_sync_commands 2>/dev/null || true
+
 input="$(cat)"
 transcript_path="$(printf '%s' "$input" | jq -r '.transcript_path // empty')"
 # Prefer model.id over display_name: pricing keys + the routed model id in

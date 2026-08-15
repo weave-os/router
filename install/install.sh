@@ -43,7 +43,14 @@
 #   npx @workweave/router --base-url http://localhost:8080 # self-hosted, custom port
 #   npx @workweave/router --non-interactive                # require WEAVE_ROUTER_KEY env var (defaults target to claude)
 #   npx @workweave/router --quiet                          # suppress banner, ping check, and trailing tips
+#   npx @workweave/router --rotate-key                     # ignore the installed key and prompt for a new one
 #   npx @workweave/router --uninstall                      # remove a previous install (delegates to uninstall.sh)
+#
+# Re-running the installer reuses the key already on disk, so you only paste it
+# once. `update` is the scriptable form of that: it never prompts, refreshes the
+# managed config + assets in place, and errors (rather than asking) when no key
+# can be found:
+#   npx @workweave/router update --claude                  # refresh the Claude Code install in place
 #
 # Toggle an existing install on/off without losing the router config (so
 # switching back is instant). These never prompt for a key and require an
@@ -86,11 +93,19 @@ router_key_header="X-Weave-Router-Key"
 target="claude"
 target_explicit="false"
 
-# Operation mode. "install" (default) writes/refreshes config. "off"/"on"/
+# Operation mode. "install" (default) writes/refreshes config. "update" is a
+# never-prompting install that reuses the key already on disk. "off"/"on"/
 # "status" toggle or report an existing install without touching the router
 # key/identity — see the toggle_* helpers and the dispatch block below.
 mode="install"
 disable_routing_alias="false"
+
+# --rotate-key forces the interactive key prompt even when a usable key is
+# already installed, so a rotated key can replace it.
+rotate_key="false"
+# Where $api_key came from: env | disk | prompt. Drives the fallback re-prompt
+# when /validate rejects a key we read back off disk.
+api_key_source=""
 
 # ---------- helpers ----------
 
@@ -938,6 +953,9 @@ while [ $# -gt 0 ]; do
     --quiet)
       quiet="true"; shift
       ;;
+    --rotate-key)
+      rotate_key="true"; shift
+      ;;
     --dir)
       install_dir="${2:-}"; shift 2
       [ -n "$install_dir" ] || { err "--dir requires a path."; exit 2; }
@@ -961,6 +979,11 @@ while [ $# -gt 0 ]; do
       # Toggle/report verbs. Bare (off) or dashed (--off) both accepted; the
       # npm wrapper forwards argv verbatim so either form reaches us.
       mode="${1#--}"; shift
+      ;;
+    update|--update)
+      # Non-interactive refresh of an existing install. Takes the same target
+      # and scope flags as install; resolves the key from env or disk only.
+      mode="update"; shift
       ;;
     disable-routing|--disable-routing)
       # Convenience alias for the Codex-specific off toggle. Unlike generic
@@ -989,10 +1012,26 @@ fi
 # Toggle verbs only flip config install.sh already wrote: no key, no identity,
 # no prompts. Require an explicit client so we never guess which config to
 # touch, and suppress every interactive prompt downstream.
-if [ "$mode" != "install" ]; then
+if [ "$mode" != "install" ] && [ "$mode" != "update" ]; then
   non_interactive="true"
   if [ "$target_explicit" != "true" ]; then
     err "'$mode' requires an explicit client: --claude, --codex, or --opencode."
+    exit 2
+  fi
+fi
+
+# `update` is an install that never prompts: it refreshes the managed config
+# and assets using the key already on disk (or in the environment). Suppressing
+# prompts here also settles the target/scope pickers below on their defaults,
+# which is what a cron/script caller wants.
+if [ "$mode" = "update" ]; then
+  non_interactive="true"
+  if [ "$rotate_key" = "true" ]; then
+    err "--rotate-key needs a prompt, which 'update' never issues. Re-run the installer without 'update'."
+    exit 2
+  fi
+  if [ "$target" != "claude" ]; then
+    err "'update' currently supports --claude only. Re-run the installer for $target (it reuses your installed key)."
     exit 2
   fi
 fi
@@ -1116,6 +1155,8 @@ fi
 
 if [ "$mode" = "install" ]; then
   [ "$quiet" = "true" ] || info "scope=${C_BOLD}${scope}${C_RESET}  target=${C_BOLD}${target}${C_RESET}  base_url=${C_BOLD}${base_url}${C_RESET}"
+elif [ "$mode" = "update" ]; then
+  [ "$quiet" = "true" ] || info "mode=${C_BOLD}update${C_RESET}  scope=${C_BOLD}${scope}${C_RESET}  target=${C_BOLD}${target}${C_RESET}  base_url=${C_BOLD}${base_url}${C_RESET}"
 else
   [ "$quiet" = "true" ] || info "mode=${C_BOLD}${mode}${C_RESET}  scope=${C_BOLD}${scope}${C_RESET}  target=${C_BOLD}${target}${C_RESET}"
 fi
@@ -1127,9 +1168,11 @@ fi
 if [ "$target" = "claude" ] || [ "$target" = "opencode" ] || [ "$target" = "pi" ]; then
   require_cmd jq    "macOS: 'brew install jq' · Debian/Ubuntu: 'sudo apt install jq'"
 fi
-# curl is only used by the install path's health/validate probes; toggles never
-# hit the network.
-[ "$mode" = "install" ] && require_cmd curl  "macOS/Linux: usually preinstalled — check your package manager"
+# curl is only used by the install/update paths' health/validate probes;
+# toggles never hit the network.
+if [ "$mode" = "install" ] || [ "$mode" = "update" ]; then
+  require_cmd curl  "macOS/Linux: usually preinstalled — check your package manager"
+fi
 
 case "$target" in
   claude)
@@ -1331,6 +1374,19 @@ json_get() {
   jq -r "${2} // empty" "$1" 2>/dev/null || true
 }
 
+# read_claude_key prints the router key already installed in the given settings
+# file, or nothing when the file is absent / carries no key header. Claude Code
+# packs several headers into one newline-delimited ANTHROPIC_CUSTOM_HEADERS
+# value, so we pick the router-key line out of it and trim the header name.
+# Read-only and tolerant of every missing-file case — never trips set -e.
+read_claude_key() {
+  [ -n "${1:-}" ] || return 0
+  json_get "$1" '.env.ANTHROPIC_CUSTOM_HEADERS' \
+    | sed -n "s/^[[:space:]]*${router_key_header}:[[:space:]]*//p" \
+    | head -n 1 \
+    | tr -d '[:space:]'
+}
+
 # claude_key_present returns 0 when the given settings file's
 # env.ANTHROPIC_CUSTOM_HEADERS carries the router key header. "On" is only valid
 # when this is true: in project scope the committed settings.json holds the
@@ -1338,10 +1394,7 @@ json_get() {
 # (or the parked sidecar), so a router URL alone doesn't mean requests can
 # authenticate.
 claude_key_present() {
-  case "$(json_get "$1" '.env.ANTHROPIC_CUSTOM_HEADERS')" in
-    *X-Weave-Router-Key*) return 0 ;;
-    *) return 1 ;;
-  esac
+  [ -n "$(read_claude_key "$1")" ]
 }
 
 # gitignore_add appends an entry to the repo .gitignore in project scope so a
@@ -1646,7 +1699,7 @@ toggle_opencode() {
   esac
 }
 
-if [ "$mode" != "install" ]; then
+if [ "$mode" != "install" ] && [ "$mode" != "update" ]; then
   case "$target" in
     claude)   toggle_claude ;;
     codex)    toggle_codex ;;
@@ -1656,34 +1709,82 @@ if [ "$mode" != "install" ]; then
 fi
 
 # ---------- token handling ----------
+#
+# Resolution order: WEAVE_ROUTER_KEY, then the key this install already wrote to
+# disk, then an interactive prompt. Reading the installed key back is what makes
+# a re-run painless — the installer refreshes assets and config shape often
+# enough that users re-run it routinely, and re-pasting a key every time is pure
+# friction. --rotate-key skips the read-back so a new key can replace the old.
+
+# read_installed_key prints the router key this install already has on disk, or
+# nothing. Only Claude Code is supported today; the other targets still prompt.
+read_installed_key() {
+  [ "$target" = "claude" ] || return 0
+  local key=""
+  # Mirror where the install path writes the key: project scope (no --dir) puts
+  # it in the gitignored settings.local.json, everything else inlines it into
+  # settings.json. Check the other file too — a scope was possibly changed, or a
+  # project checkout may carry a committed header from an older install.
+  if [ "$scope" = "project" ] && [ -z "$install_dir" ]; then
+    key="$(read_claude_key "$local_settings_file")"
+    [ -n "$key" ] || key="$(read_claude_key "$settings_file")"
+  else
+    key="$(read_claude_key "$settings_file")"
+    [ -n "$key" ] || key="$(read_claude_key "$local_settings_file")"
+  fi
+  printf '%s' "$key"
+}
+
+# prompt_for_key reads a key from the controlling terminal into $api_key. Only
+# ever called on an interactive install; callers check first.
+prompt_for_key() {
+  # Read from /dev/tty explicitly so the prompt works under `curl -fsSL ... | sh`,
+  # where stdin is the curl pipe (already at EOF by the time we get here, and
+  # `set -e` would abort on read returning 1).
+  # _spin_cleanup (installed globally above) already restores stty echo on
+  # any exit path, so we don't need a separate trap here — that would
+  # overwrite the spinner cleanup and leak the cursor / child PID on Ctrl-C.
+  printf "%sGet your Weave Router API key at %s%s\n" "$C_BRAND" "$base_url" "$C_RESET"
+  printf "%sPaste your key here (rk_…):%s " "$C_DIM" "$C_RESET"
+  stty -echo </dev/tty 2>/dev/null || true
+  read -r api_key </dev/tty
+  stty echo </dev/tty 2>/dev/null || true
+  printf "\n"
+  api_key_source="prompt"
+  [ -n "$api_key" ] || { err "No key provided."; exit 1; }
+}
 
 api_key=""
+installed_key=""
+[ "$rotate_key" = "true" ] || installed_key="$(read_installed_key)"
+
 if [ -n "${WEAVE_ROUTER_KEY:-}" ]; then
-    api_key="$WEAVE_ROUTER_KEY"
-    info "Using WEAVE_ROUTER_KEY from environment."
-  elif [ "$non_interactive" = "true" ]; then
-    err "--non-interactive set but WEAVE_ROUTER_KEY is empty. Export it and re-run."
-    exit 1
+  api_key="$WEAVE_ROUTER_KEY"
+  api_key_source="env"
+  info "Using WEAVE_ROUTER_KEY from environment."
+elif [ -n "$installed_key" ]; then
+  api_key="$installed_key"
+  api_key_source="disk"
+  [ "$quiet" = "true" ] || info "Reusing the router key already installed (pass --rotate-key to replace it)."
+elif [ "$mode" = "update" ]; then
+  err "No router key found for $target. Export WEAVE_ROUTER_KEY, or run the installer once to set one up."
+  exit 1
+elif [ "$non_interactive" = "true" ]; then
+  if [ "$rotate_key" = "true" ]; then
+    err "--rotate-key needs either a prompt or WEAVE_ROUTER_KEY, and neither is available. Export the new key and re-run."
   else
-    # Read from /dev/tty explicitly so the prompt works under `curl -fsSL ... | sh`,
-    # where stdin is the curl pipe (already at EOF by the time we get here, and
-    # `set -e` would abort on read returning 1). If /dev/tty isn't available
-    # (e.g. CI without a controlling terminal) the user must use --non-interactive.
-    if [ ! -r /dev/tty ]; then
-      err "No controlling terminal — set WEAVE_ROUTER_KEY and re-run with --non-interactive."
-      exit 1
-    fi
-    # _spin_cleanup (installed globally above) already restores stty echo on
-    # any exit path, so we don't need a separate trap here — that would
-    # overwrite the spinner cleanup and leak the cursor / child PID on Ctrl-C.
-    printf "%sGet your Weave Router API key at %s%s\n" "$C_BRAND" "$base_url" "$C_RESET"
-    printf "%sPaste your key here (rk_…):%s " "$C_DIM" "$C_RESET"
-    stty -echo </dev/tty 2>/dev/null || true
-    read -r api_key </dev/tty
-    stty echo </dev/tty 2>/dev/null || true
-    printf "\n"
-    [ -n "$api_key" ] || { err "No key provided."; exit 1; }
+    err "--non-interactive set but WEAVE_ROUTER_KEY is empty and no installed key was found. Export it and re-run."
   fi
+  exit 1
+else
+  # If /dev/tty isn't available (e.g. CI without a controlling terminal) the
+  # user must use --non-interactive.
+  if [ ! -r /dev/tty ]; then
+    err "No controlling terminal — set WEAVE_ROUTER_KEY and re-run with --non-interactive."
+    exit 1
+  fi
+  prompt_for_key
+fi
 
 # ---------- identity (user email + name) ----------
 #
@@ -1787,7 +1888,38 @@ install_slash_commands() {
     body="${body//\{\{SCOPE\}\}/$scope_args}"
     printf '%s\n' "$body" >"$dst"
   done
+  seed_command_baseline "$commands_src_dir" "$cmds"
   ok "Slash commands written to $dst_dir ($installed)"
+}
+
+# seed_command_baseline records the canonical (unrendered) wrapper bodies this
+# run installed, in the cache dir the statusline's background refresh reads. The
+# refresh replaces an installed wrapper only when its bytes still match that
+# baseline, which is how it tells "stale copy" from "user edited it" — without a
+# seed it has to spend one whole interval establishing one. Claude Code only:
+# the statusline is the refresh point and it only ever runs there.
+#
+# Keyed off the statusline's own location, exactly as the refresh derives it, so
+# both sides land on the same cache path.
+seed_command_baseline() {
+  local src_dir="$1" names="$2"
+  [ "$target" = "claude" ] || return 0
+  local sl_dir cmd_dir
+  sl_dir="$(cd "$(dirname "$statusline_file")" 2>/dev/null && pwd -P)" || return 0
+  case "${sl_dir##*/}" in
+    .weave)  cmd_dir="${sl_dir%/*}/.claude/commands" ;;
+    .claude) cmd_dir="$sl_dir/commands" ;;
+    *)       return 0 ;;
+  esac
+  local dir_slug
+  dir_slug="$(printf '%s' "$cmd_dir" | tr -c 'A-Za-z0-9._-' '_')"
+  local baseline_dir="${XDG_CACHE_HOME:-$HOME/.cache}/weave-router/commands${dir_slug}"
+  mkdir -p "$baseline_dir" 2>/dev/null || return 0
+  local name
+  for name in $names; do
+    [ -f "$src_dir/$name.md" ] || continue
+    cp "$src_dir/$name.md" "$baseline_dir/$name.md" 2>/dev/null || true
+  done
 }
 
 # Codex builds before custom prompt discovery existed were given wrapper files
@@ -2216,6 +2348,141 @@ weave_self_refresh() {
   return 0
 }
 weave_self_refresh 2>/dev/null || true
+
+# ---------- background slash-command refresh ----------
+#
+# The /force-model, /router-* … wrappers under <install>/.claude/commands/ are
+# written once at install time and then never touched again, so a user who
+# doesn't re-run the installer keeps whatever set shipped that day. This script
+# is the only thing Claude Code invokes on every turn, so it doubles as the
+# refresh point for them: same rate limit, same detached fork, same
+# content-diff no-op as the self-refresh above.
+#
+# Never clobber a wrapper the user edited. The only way to tell an edit from a
+# stale copy is to remember what we last downloaded, so each canonical file is
+# cached (unrendered) per install under the user cache dir and a wrapper is
+# replaced only when its bytes still match that baseline. With no baseline yet
+# we can't prove anything, so the first run only seeds the cache and a swap can
+# happen from the next one on. install.sh seeds it too, so fresh installs skip
+# that warm-up round.
+#
+# Opt out with WEAVE_COMMANDS_UPDATE=0 (WEAVE_STATUSLINE_UPDATE=0 disables this
+# too, along with every other network path here). Override the source with
+# WEAVE_COMMANDS_URL_BASE=..., e.g. for self-hosters who fork.
+
+# weave_render_command prints $1 with the installer's {{SCOPE}} placeholder
+# replaced by $2, matching how install_slash_commands writes the same file.
+# Trailing newlines are stripped on both sides of every comparison below.
+weave_render_command() {
+  local body
+  body="$(cat "$1" 2>/dev/null)" || return 1
+  printf '%s' "${body//\{\{SCOPE\}\}/$2}"
+}
+
+weave_sync_commands() {
+  [ "${WEAVE_STATUSLINE_UPDATE:-1}" = "0" ] && return 0
+  [ "${WEAVE_COMMANDS_UPDATE:-1}" = "0" ] && return 0
+  command -v curl >/dev/null 2>&1 || return 0
+
+  local self="${BASH_SOURCE[0]:-$0}" self_dir cmd_dir
+  self_dir="$(cd "$(dirname "$self")" 2>/dev/null && pwd -P)" || return 0
+  # User scope installs this script at <base>/.weave/, project and --dir at
+  # <base>/.claude/. Claude Code reads commands from <base>/.claude/commands in
+  # both layouts.
+  case "${self_dir##*/}" in
+    .weave)  cmd_dir="${self_dir%/*}/.claude/commands" ;;
+    .claude) cmd_dir="$self_dir/commands" ;;
+    *)       return 0 ;;
+  esac
+  [ -d "$cmd_dir" ] && [ -w "$cmd_dir" ] || return 0
+
+  local cache_dir="${XDG_CACHE_HOME:-$HOME/.cache}/weave-router"
+  local dir_slug
+  dir_slug="$(printf '%s' "$cmd_dir" | tr -c 'A-Za-z0-9._-' '_')"
+  # Baseline is keyed by install, not shared: two installs refresh on their own
+  # clocks, and a shared baseline updated by one would make the other's still-
+  # canonical wrappers look user-edited and freeze them forever.
+  local baseline_dir="$cache_dir/commands${dir_slug}"
+  local stamp="$cache_dir/checked-at${dir_slug}.commands"
+  mkdir -p "$baseline_dir" 2>/dev/null || return 0
+
+  local interval_days="${WEAVE_STATUSLINE_UPDATE_INTERVAL_DAYS:-7}"
+  local now stamp_mtime
+  now="$(date +%s 2>/dev/null)" || return 0
+  if [ -f "$stamp" ]; then
+    stamp_mtime="$(stat -c %Y "$stamp" 2>/dev/null || stat -f %m "$stamp" 2>/dev/null)" || stamp_mtime=0
+  else
+    stamp_mtime=0
+  fi
+  if [ -n "${stamp_mtime:-}" ] && [ "$stamp_mtime" -gt 0 ] \
+     && [ $(( now - stamp_mtime )) -lt $(( interval_days * 86400 )) ]; then
+    return 0
+  fi
+  # Stamp before forking, same as the self-refresh: Claude Code calls us on
+  # every turn and concurrent invocations must not all start downloading.
+  : > "$stamp" 2>/dev/null || return 0
+
+  # router-off/on/status bake this install's scope selector into their npx
+  # line (upstream carries {{SCOPE}} there). Recover it from the installed copy
+  # so a project or --dir install keeps toggling its own config; when it can't
+  # be recovered those three are skipped rather than rewritten to point at the
+  # user-scope install.
+  local scope_args="" scope_known="false" off="$cmd_dir/router-off.md"
+  if [ -f "$off" ] && grep -q '^`npx @workweave/router off --claude.*`$' "$off" 2>/dev/null; then
+    scope_known="true"
+    scope_args="$(sed -n 's|^`npx @workweave/router off --claude\(.*\)`$|\1|p' "$off" | head -n 1)"
+  fi
+
+  local url_base="${WEAVE_COMMANDS_URL_BASE:-https://raw.githubusercontent.com/workweave/router/main/install/commands}"
+  local name installed raw prev tmp new_body prev_body installed_body
+  (
+    # Detach stdin (CC pipes JSON to us) so curl can't consume it, and silence
+    # everything so no output leaks into the statusline.
+    exec </dev/null
+    for name in force-model unforce-model router-feedback fm ufm rf \
+                router-off router-on router-status router-session; do
+      installed="$cmd_dir/$name.md"
+      # Only ever refresh a wrapper that is already installed: a missing one
+      # was uninstalled or deliberately deleted, and resurrecting it would be
+      # a surprise. A symlink is user-owned; leave it alone.
+      [ -f "$installed" ] || continue
+      [ -L "$installed" ] && continue
+
+      raw="$baseline_dir/$name.md.tmp.$$"
+      curl -fsSL --max-time 15 "$url_base/$name.md" -o "$raw" 2>/dev/null || { rm -f "$raw"; continue; }
+      # Shape check: every wrapper opens with YAML front matter, so a 404 page
+      # or a truncated body can never be installed as a command.
+      if [ ! -s "$raw" ] || [ "$(head -n 1 "$raw")" != "---" ]; then
+        rm -f "$raw"
+        continue
+      fi
+
+      prev="$baseline_dir/$name.md"
+      if grep -q '{{SCOPE}}' "$raw" && [ "$scope_known" != "true" ]; then
+        mv "$raw" "$prev" 2>/dev/null || rm -f "$raw"
+        continue
+      fi
+
+      if [ -f "$prev" ]; then
+        new_body="$(weave_render_command "$raw" "$scope_args")"
+        prev_body="$(weave_render_command "$prev" "$scope_args")"
+        installed_body="$(cat "$installed" 2>/dev/null)" || installed_body=""
+        if [ "$prev_body" = "$installed_body" ] && [ "$new_body" != "$installed_body" ]; then
+          tmp="$installed.tmp.$$"
+          if printf '%s\n' "$new_body" >"$tmp" 2>/dev/null; then
+            mv "$tmp" "$installed" 2>/dev/null || rm -f "$tmp"
+          else
+            rm -f "$tmp"
+          fi
+        fi
+      fi
+      mv "$raw" "$prev" 2>/dev/null || rm -f "$raw"
+    done
+  ) >/dev/null 2>&1 &
+  disown 2>/dev/null || true
+  return 0
+}
+weave_sync_commands 2>/dev/null || true
 
 input="$(cat)"
 transcript_path="$(printf '%s' "$input" | jq -r '.transcript_path // empty')"
@@ -2646,86 +2913,97 @@ tmp_patch="$(mktemp)"
 # leave the cursor hidden if Ctrl-C lands during settings.json patching.
 trap '_spin_cleanup; rm -f "$tmp_patch"' EXIT INT TERM HUP
 
-# Claude Code splits ANTHROPIC_CUSTOM_HEADERS on newlines, so multiple headers
-# ride in the same env var separated by \n. Append identity headers alongside
-# the router key so a single var carries them all. When email/name are empty
-# we keep the bare router-key form so a re-install for a user who opted out
-# cleanly removes the old line.
-custom_headers="$router_key_header: $api_key"
-if [ -n "$user_email" ]; then
-  custom_headers="$custom_headers"$'\n'"X-Weave-User-Email: $user_email"
-fi
-if [ -n "$user_name" ]; then
-  custom_headers="$custom_headers"$'\n'"X-Weave-User-Name: $user_name"
-fi
-custom_headers="$custom_headers"$'\n'"X-App: claude-code"
+# write_claude_settings merges the router config into settings.json (and, in
+# project scope, the key header into settings.local.json) for the key in $1.
+# Factored out so the /validate fallback can rewrite both files with a
+# replacement key without re-running the whole install.
+write_claude_settings() {
+  local block_key="$1"
 
-# Setting ANTHROPIC_BASE_URL makes Claude Code treat us as non-first-party and
-# disable MCP tool-search deferral, inlining every tool schema into every request
-# — a large uncompactable prefix that can push a session into an autocompact
-# thrash loop. ENABLE_TOOL_SEARCH=auto restores on-demand loading (Claude Code's
-# own first-party default).
-if [ "$scope" = "project" ] && [ -z "$install_dir" ]; then
-  jq -n --arg url "$base_url" --arg sl "$statusline_path_for_settings" '{
-    env: { ANTHROPIC_BASE_URL: $url, ENABLE_TOOL_SEARCH: "auto" },
-    statusLine: { type: "command", command: $sl },
-    attribution: {
-      commit: "Co-Authored-By: Weave Router <router@workweave.ai>",
-      pr: "🤖 Generated with [Weave Router](https://router.workweave.ai)"
-    }
-  }' >"$tmp_patch"
-else
-  jq -n --arg url "$base_url" --arg header "$custom_headers" --arg sl "$statusline_path_for_settings" '{
-    env: { ANTHROPIC_BASE_URL: $url, ANTHROPIC_CUSTOM_HEADERS: $header, ENABLE_TOOL_SEARCH: "auto" },
-    statusLine: { type: "command", command: $sl },
-    attribution: {
-      commit: "Co-Authored-By: Weave Router <router@workweave.ai>",
-      pr: "🤖 Generated with [Weave Router](https://router.workweave.ai)"
-    }
-  }' >"$tmp_patch"
-fi
+  # Claude Code splits ANTHROPIC_CUSTOM_HEADERS on newlines, so multiple headers
+  # ride in the same env var separated by \n. Append identity headers alongside
+  # the router key so a single var carries them all. When email/name are empty
+  # we keep the bare router-key form so a re-install for a user who opted out
+  # cleanly removes the old line.
+  local custom_headers="$router_key_header: $block_key"
+  if [ -n "$user_email" ]; then
+    custom_headers="$custom_headers"$'\n'"X-Weave-User-Email: $user_email"
+  fi
+  if [ -n "$user_name" ]; then
+    custom_headers="$custom_headers"$'\n'"X-Weave-User-Name: $user_name"
+  fi
+  custom_headers="$custom_headers"$'\n'"X-App: claude-code"
 
-# Merge with existing settings. Deep-merge env and replace statusLine.
-# We strip router-owned auth from the existing settings BEFORE merging —
-# otherwise switching auth mode (key→dev-mode) would leave stale credentials
-# behind. ANTHROPIC_AUTH_TOKEN/apiKeyHelper are also removed to migrate older
-# installs that used them for router auth.
-if [ -f "$settings_file" ]; then
-  merged="$(jq -s '.[0] as $a | .[1] as $b
-    | $a
-    | .env = (($a.env // {} | del(.ANTHROPIC_AUTH_TOKEN, .ANTHROPIC_CUSTOM_HEADERS)) + ($b.env // {}))
-    | (if (.env | length) == 0 then del(.env) else . end)
-    | del(.apiKeyHelper)
-    | (if $b.statusLine then .statusLine = $b.statusLine else . end)
-    | (if $b.attribution then .attribution = $b.attribution else . end)
-  ' "$settings_file" "$tmp_patch")"
-  printf '%s\n' "$merged" >"$settings_file"
-else
-  cp "$tmp_patch" "$settings_file"
-fi
-ok "Settings written to $settings_file"
+  # Setting ANTHROPIC_BASE_URL makes Claude Code treat us as non-first-party and
+  # disable MCP tool-search deferral, inlining every tool schema into every request
+  # — a large uncompactable prefix that can push a session into an autocompact
+  # thrash loop. ENABLE_TOOL_SEARCH=auto restores on-demand loading (Claude Code's
+  # own first-party default).
+  if [ "$scope" = "project" ] && [ -z "$install_dir" ]; then
+    jq -n --arg url "$base_url" --arg sl "$statusline_path_for_settings" '{
+      env: { ANTHROPIC_BASE_URL: $url, ENABLE_TOOL_SEARCH: "auto" },
+      statusLine: { type: "command", command: $sl },
+      attribution: {
+        commit: "Co-Authored-By: Weave Router <router@workweave.ai>",
+        pr: "🤖 Generated with [Weave Router](https://router.workweave.ai)"
+      }
+    }' >"$tmp_patch"
+  else
+    jq -n --arg url "$base_url" --arg header "$custom_headers" --arg sl "$statusline_path_for_settings" '{
+      env: { ANTHROPIC_BASE_URL: $url, ANTHROPIC_CUSTOM_HEADERS: $header, ENABLE_TOOL_SEARCH: "auto" },
+      statusLine: { type: "command", command: $sl },
+      attribution: {
+        commit: "Co-Authored-By: Weave Router <router@workweave.ai>",
+        pr: "🤖 Generated with [Weave Router](https://router.workweave.ai)"
+      }
+    }' >"$tmp_patch"
+  fi
 
-# Slash command wrappers — see install_slash_commands() below for the why.
-install_slash_commands "$settings_dir/commands"
-
-if [ "$scope" = "project" ] && [ -z "$install_dir" ]; then
-  jq -n --arg header "$custom_headers" '{
-    env: { ANTHROPIC_CUSTOM_HEADERS: $header }
-  }' >"$tmp_patch"
-  if [ -f "$local_settings_file" ]; then
+  # Merge with existing settings. Deep-merge env and replace statusLine.
+  # We strip router-owned auth from the existing settings BEFORE merging —
+  # otherwise switching auth mode (key→dev-mode) would leave stale credentials
+  # behind. ANTHROPIC_AUTH_TOKEN/apiKeyHelper are also removed to migrate older
+  # installs that used them for router auth.
+  local merged
+  if [ -f "$settings_file" ]; then
     merged="$(jq -s '.[0] as $a | .[1] as $b
       | $a
       | .env = (($a.env // {} | del(.ANTHROPIC_AUTH_TOKEN, .ANTHROPIC_CUSTOM_HEADERS)) + ($b.env // {}))
       | (if (.env | length) == 0 then del(.env) else . end)
       | del(.apiKeyHelper)
-    ' "$local_settings_file" "$tmp_patch")"
-    printf '%s\n' "$merged" >"$local_settings_file"
+      | (if $b.statusLine then .statusLine = $b.statusLine else . end)
+      | (if $b.attribution then .attribution = $b.attribution else . end)
+    ' "$settings_file" "$tmp_patch")"
+    printf '%s\n' "$merged" >"$settings_file"
   else
-    cp "$tmp_patch" "$local_settings_file"
+    cp "$tmp_patch" "$settings_file"
   fi
-  chmod 600 "$local_settings_file"
-  ok "Router key header written to $local_settings_file"
-fi
+  ok "Settings written to $settings_file"
+
+  if [ "$scope" = "project" ] && [ -z "$install_dir" ]; then
+    jq -n --arg header "$custom_headers" '{
+      env: { ANTHROPIC_CUSTOM_HEADERS: $header }
+    }' >"$tmp_patch"
+    if [ -f "$local_settings_file" ]; then
+      merged="$(jq -s '.[0] as $a | .[1] as $b
+        | $a
+        | .env = (($a.env // {} | del(.ANTHROPIC_AUTH_TOKEN, .ANTHROPIC_CUSTOM_HEADERS)) + ($b.env // {}))
+        | (if (.env | length) == 0 then del(.env) else . end)
+        | del(.apiKeyHelper)
+      ' "$local_settings_file" "$tmp_patch")"
+      printf '%s\n' "$merged" >"$local_settings_file"
+    else
+      cp "$tmp_patch" "$local_settings_file"
+    fi
+    chmod 600 "$local_settings_file"
+    ok "Router key header written to $local_settings_file"
+  fi
+}
+
+write_claude_settings "$api_key"
+
+# Slash command wrappers — see install_slash_commands() below for the why.
+install_slash_commands "$settings_dir/commands"
 
 # ---------- gitignore for project scope ----------
 
@@ -2766,13 +3044,43 @@ if [ -n "$api_key" ]; then
       | curl -fsS --max-time 5 --header @- "$base_url/validate"
   }
   if ! spin "Validating API key" validate_key; then
-    warn "Router rejected the API key (check it matches the dashboard at $base_url)."
+    # A key we read back off disk can have been revoked or rotated since it was
+    # installed, and reusing it silently would leave a broken install behind
+    # exactly where the old behavior (always prompt) would have fixed it. Ask
+    # once, then rewrite the settings with whatever the user pastes. Anywhere a
+    # prompt isn't available — non-interactive, update, --quiet, no tty, or a
+    # key that didn't come from disk — keep the historical warn-and-continue.
+    if [ "$api_key_source" = "disk" ] && [ "$non_interactive" != "true" ] \
+       && [ "$quiet" != "true" ] && [ -r /dev/tty ]; then
+      warn "The router key already installed was rejected (revoked or rotated)."
+      prompt_for_key
+      write_claude_settings "$api_key"
+      if ! spin "Validating API key" validate_key; then
+        warn "Router rejected the API key (check it matches the dashboard at $base_url)."
+      fi
+    elif [ "$mode" = "update" ]; then
+      # update is meant for cron/scripting: a rejected key is a real failure,
+      # not a note in the log. --quiet callers opted out of the noise.
+      if [ "$quiet" = "true" ]; then
+        warn "Router rejected the installed API key. Re-run the installer to set a new one."
+      else
+        err "Router rejected the installed API key. Re-run the installer to set a new one."
+        exit 1
+      fi
+    else
+      warn "Router rejected the API key (check it matches the dashboard at $base_url)."
+    fi
   fi
 fi
 
 # ---------- done ----------
 
 printf "\n"
+if [ "$mode" = "update" ]; then
+  printf "%s✓%s %s%sWeave Router config refreshed for Claude Code.%s\n" \
+    "$C_GREEN" "$C_RESET" "$C_BOLD" "$C_BRAND" "$C_RESET"
+  exit 0
+fi
 printf "%s✓%s %s%sWeave Router installed for Claude Code.%s\n" \
   "$C_GREEN" "$C_RESET" "$C_BOLD" "$C_BRAND" "$C_RESET"
 print_uninstall_hint

@@ -273,6 +273,123 @@ echo "{\"model\":{\"id\":\"$STALE_MODEL\"}}" \
     bash "$c/cc.sh" >/dev/null 2>&1
 check "missing transcript exits 0" "$?" 0
 
+# ---------- slash-command refresh ----------
+#
+# The wrappers under <install>/.claude/commands/ have no other refresh point —
+# the statusline is the only thing Claude Code runs every turn. Same offline
+# technique: a file:// "upstream" commands dir the fixtures mutate per case.
+
+commands_upstream="$work/commands-upstream"
+mkdir -p "$commands_upstream"
+cp "$script_dir/../commands"/*.md "$commands_upstream/"
+
+# Lay out a user-scope install: statusline under .weave/, wrappers under
+# .claude/commands/, and a seeded baseline (what install.sh writes) holding the
+# unrendered canonical bodies.
+make_command_install() { # make_command_install <root> <cache_home> [scope_args]
+  local root="$1" cache="$2" scope_args="${3:-}" name body
+  mkdir -p "$root/.weave" "$root/.claude/commands"
+  cp "$upstream" "$root/.weave/cc-statusline.sh"
+  chmod +x "$root/.weave/cc-statusline.sh"
+  local baseline="$cache/weave-router/commands$(printf '%s' "$(cd "$root/.claude/commands" && pwd -P)" | tr -c 'A-Za-z0-9._-' '_')"
+  mkdir -p "$baseline"
+  for name in "$script_dir/../commands"/*.md; do
+    body="$(cat "$name")"
+    printf '%s\n' "${body//\{\{SCOPE\}\}/$scope_args}" >"$root/.claude/commands/$(basename "$name")"
+    cp "$name" "$baseline/$(basename "$name")"
+  done
+}
+
+# WEAVE_STATUSLINE_UPDATE=0 is a master kill switch that covers this path too,
+# so these cases can't use it to isolate the wrapper refresh. Point the script's
+# own refresh at the same offline fixture instead — it lands as a content no-op.
+sync_commands() { # sync_commands <root> <cache_home> <commands_url_base>
+  echo "{\"model\":{\"id\":\"$STALE_MODEL\"},\"transcript_path\":\"$transcript\"}" \
+    | XDG_CACHE_HOME="$2" WEAVE_STATUSLINE_URL="file://$upstream" WEAVE_COMMANDS_URL_BASE="$3" \
+      bash "$1/.weave/cc-statusline.sh" >/dev/null 2>&1
+}
+
+# An upstream wrapper change reaches an untouched install.
+c="$work/cmd1"; mkdir -p "$c/cache"; make_command_install "$c/root" "$c/cache"
+printf '%s\n' '---' 'description: refreshed fm.' '---' '' '/force-model $ARGUMENTS' \
+  >"$commands_upstream/fm.md"
+sync_commands "$c/root" "$c/cache" "file://$commands_upstream"
+if wait_for 20 grep -q 'refreshed fm.' "$c/root/.claude/commands/fm.md"; then
+  ok "an upstream wrapper change reaches the install"
+else
+  no "an upstream wrapper change reaches the install" "refreshed body" "$(cat "$c/root/.claude/commands/fm.md")"
+fi
+
+# A wrapper the user edited is theirs. Overwriting it is the one unrecoverable
+# mistake here, so the baseline comparison must veto the swap.
+c="$work/cmd2"; mkdir -p "$c/cache"; make_command_install "$c/root" "$c/cache"
+printf '%s\n' 'MY OWN WRAPPER' >"$c/root/.claude/commands/rf.md"
+printf '%s\n' '---' 'description: refreshed rf.' '---' '' '/router-feedback $ARGUMENTS' \
+  >"$commands_upstream/rf.md"
+sync_commands "$c/root" "$c/cache" "file://$commands_upstream"
+sleep 1
+check "a user-edited wrapper is never overwritten" \
+  "$(cat "$c/root/.claude/commands/rf.md")" "MY OWN WRAPPER"
+
+# The router-* wrappers bake this install's scope into their npx line. A
+# refresh that dropped it would point a project install's toggle at the
+# user-scope config — silently flipping the wrong install.
+c="$work/cmd3"; mkdir -p "$c/cache"
+make_command_install "$c/root" "$c/cache" " --scope project"
+printf '%s\n' '---' 'description: refreshed off.' 'allowed-tools: Bash(npx:*)' '---' '' \
+  'Turn it off:' '' '`npx @workweave/router off --claude{{SCOPE}}`' \
+  >"$commands_upstream/router-off.md"
+sync_commands "$c/root" "$c/cache" "file://$commands_upstream"
+if wait_for 20 grep -q 'refreshed off.' "$c/root/.claude/commands/router-off.md"; then
+  check_contains "refreshed router-off keeps this install's scope" \
+    "$(cat "$c/root/.claude/commands/router-off.md")" 'off --claude --scope project'
+else
+  no "refreshed router-off keeps this install's scope" "refreshed body" "not refreshed"
+fi
+
+# A 404 (or any HTML error page) must never land as a slash command.
+c="$work/cmd4"; mkdir -p "$c/cache"; make_command_install "$c/root" "$c/cache"
+before="$(cat "$c/root/.claude/commands/fm.md")"
+sync_commands "$c/root" "$c/cache" "file://$work/no-such-commands-dir"
+sleep 1
+check "a failed fetch leaves the installed wrapper alone" \
+  "$(cat "$c/root/.claude/commands/fm.md")" "$before"
+
+# A wrapper the user uninstalled must stay uninstalled — resurrecting it is a
+# surprise, and the refresh has no way to know it was ever wanted.
+c="$work/cmd5"; mkdir -p "$c/cache"; make_command_install "$c/root" "$c/cache"
+rm -f "$c/root/.claude/commands/ufm.md"
+sync_commands "$c/root" "$c/cache" "file://$commands_upstream"
+sleep 1
+if [ -e "$c/root/.claude/commands/ufm.md" ]; then
+  no "a removed wrapper is not resurrected" "still absent" "file re-created"
+else
+  ok "a removed wrapper is not resurrected"
+fi
+
+# Opt-out has to cover this path too, not just the script's own refresh.
+c="$work/cmd6"; mkdir -p "$c/cache"; make_command_install "$c/root" "$c/cache"
+before="$(cat "$c/root/.claude/commands/fm.md")"
+echo "{\"model\":{\"id\":\"$STALE_MODEL\"},\"transcript_path\":\"$transcript\"}" \
+  | XDG_CACHE_HOME="$c/cache" WEAVE_STATUSLINE_URL="file://$upstream" WEAVE_COMMANDS_UPDATE=0 \
+    WEAVE_COMMANDS_URL_BASE="file://$commands_upstream" \
+    bash "$c/root/.weave/cc-statusline.sh" >/dev/null 2>&1
+sleep 1
+check "WEAVE_COMMANDS_UPDATE=0 suppresses the wrapper refresh" \
+  "$(cat "$c/root/.claude/commands/fm.md")" "$before"
+
+# The master kill switch has to cover the wrapper refresh too, not just the
+# script's own — a user who opted out of one network path opted out of both.
+c="$work/cmd7"; mkdir -p "$c/cache"; make_command_install "$c/root" "$c/cache"
+before="$(cat "$c/root/.claude/commands/fm.md")"
+echo "{\"model\":{\"id\":\"$STALE_MODEL\"},\"transcript_path\":\"$transcript\"}" \
+  | XDG_CACHE_HOME="$c/cache" WEAVE_STATUSLINE_UPDATE=0 \
+    WEAVE_COMMANDS_URL_BASE="file://$commands_upstream" \
+    bash "$c/root/.weave/cc-statusline.sh" >/dev/null 2>&1
+sleep 1
+check "WEAVE_STATUSLINE_UPDATE=0 suppresses the wrapper refresh too" \
+  "$(cat "$c/root/.claude/commands/fm.md")" "$before"
+
 # install.sh ships the statusline as a heredoc; genprices keeps only the price
 # block in sync, so a code edit to one copy silently diverges from the other.
 installer="$script_dir/../install.sh"

@@ -47,7 +47,8 @@ Without `--scope`, it then asks user vs. project (defaults to user).
 useful for CI and `curl | sh` pipelines.
 
 The installer also prompts for your API key (or reads `$WEAVE_ROUTER_KEY`
-for non-interactive installs).
+for non-interactive installs). Re-running it reuses the key already on disk,
+so you only ever paste it once — see [Staying up to date](#staying-up-to-date).
 
 ### Self-hosted via `docker compose` (zero-config)
 
@@ -194,7 +195,8 @@ claude                                             # or `CODEX_HOME=.codex codex
 ```
 
 The `--scope project` step only needs to run once per checkout (re-run if
-`cc-statusline.sh` is updated upstream).
+`cc-statusline.sh` is updated upstream; the re-run reuses your installed key,
+so no key paste is needed).
 
 ## Flags
 
@@ -207,9 +209,64 @@ The `--scope project` step only needs to run once per checkout (re-run if
 | `--local`                  | off                           | Shortcut for the bundled docker-compose router (`localhost:8080`).      |
 | `--base-url <url>`         | `https://router.workweave.ai` | Override the router endpoint. Use for self-hosted / custom port.        |
 | `--non-interactive`        | off                           | Fail if `$WEAVE_ROUTER_KEY` isn't set instead of prompting. Defaults target to Claude Code so existing CI pipelines don't shift semantics. |
+| `--rotate-key`             | off                           | Ignore the key already installed and prompt for a new one (or take `$WEAVE_ROUTER_KEY`). Use when rotating a key. |
 
 Override the default base URL globally by setting `$WEAVE_ROUTER_URL` before
 running the installer.
+
+## Staying up to date
+
+The installer is re-run periodically because the pieces it writes do change —
+statusline features and pricing, slash commands, config shape. Two things make
+that painless.
+
+**Your key is remembered.** Key resolution order is `$WEAVE_ROUTER_KEY` →
+the key already installed for this target and scope → interactive prompt. So a
+plain re-run needs no key at all:
+
+```bash
+npx @workweave/router --claude                  # reuses the installed key
+npx @workweave/router --claude --rotate-key     # ignore it, prompt for a new one
+```
+
+If the installed key turns out to be revoked, an interactive run says so and
+asks once for a replacement rather than leaving a broken install behind.
+
+**`update` is the scriptable form.** It never prompts, resolves the key from
+env or disk only, refreshes the managed config and assets in place, and errors
+(rather than asking) if no key can be found — safe for cron:
+
+```bash
+npx @workweave/router update --claude                    # user scope
+npx @workweave/router update --claude --scope project    # in the repo
+```
+
+A rejected key is an error for `update` (exit 1), not a warning, so a scheduled
+run surfaces a revoked key instead of logging past it. `update` currently
+supports `--claude`; for the other targets re-run the installer normally — it
+reuses your installed key the same way.
+
+**Claude Code also refreshes itself.** `cc-statusline.sh` checks
+`raw.githubusercontent.com` for a newer copy of itself at most once every
+`$WEAVE_STATUSLINE_UPDATE_INTERVAL_DAYS` (default 7) in a detached background
+fork, and on the same schedule refreshes the `.claude/commands/*.md` slash-command
+wrappers. Both swap only on a real content change, and a wrapper is replaced
+only when its bytes still match the last canonical copy — a wrapper you edited
+is never overwritten, and one you deleted is never resurrected. All state
+(stamps, baselines) lives under `${XDG_CACHE_HOME:-~/.cache}/weave-router/`, so
+nothing lands in a repo working tree.
+
+| Environment variable                       | Default | Effect                                                        |
+| ------------------------------------------ | ------- | ------------------------------------------------------------- |
+| `WEAVE_STATUSLINE_UPDATE=0`                 | on      | Disable every background network path in the statusline.       |
+| `WEAVE_COMMANDS_UPDATE=0`                   | on      | Disable only the slash-command refresh.                        |
+| `WEAVE_STATUSLINE_UPDATE_INTERVAL_DAYS`     | `7`     | How often either check may run.                                |
+| `WEAVE_STATUSLINE_URL`                      | GitHub raw | Source for the statusline (self-hosters who fork).          |
+| `WEAVE_COMMANDS_URL_BASE`                   | GitHub raw | Source directory for the slash-command wrappers.            |
+
+Codex, opencode, and pi have no equivalent per-turn hook, so they don't
+auto-refresh. Re-run the installer for those (`npx @workweave/router --codex`
+and friends) — thanks to key reuse, that no longer means re-pasting a key.
 
 ## Switching on and off
 
