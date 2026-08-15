@@ -78,6 +78,7 @@ scope="user"
 scope_explicit="false"
 install_dir=""
 base_url=""
+base_url_explicit="false"
 non_interactive="false"
 quiet="false"
 router_key_header="X-Weave-Router-Key"
@@ -941,10 +942,12 @@ while [ $# -gt 0 ]; do
     --base-url)
       base_url="${2:-}"; shift 2
       [ -n "$base_url" ] || { err "--base-url requires a value."; exit 2; }
+      base_url_explicit="true"
       ;;
     --local)
       # Shorthand for local dev: localhost:8080 (matches `wv mr` / `make dev` default PORT).
       base_url="http://localhost:8080"
+      base_url_explicit="true"
       shift
       ;;
     --non-interactive)
@@ -1153,11 +1156,7 @@ fi
 
 # ---------- pre-flight ----------
 
-if [ "$mode" = "install" ]; then
-  [ "$quiet" = "true" ] || info "scope=${C_BOLD}${scope}${C_RESET}  target=${C_BOLD}${target}${C_RESET}  base_url=${C_BOLD}${base_url}${C_RESET}"
-elif [ "$mode" = "update" ]; then
-  [ "$quiet" = "true" ] || info "mode=${C_BOLD}update${C_RESET}  scope=${C_BOLD}${scope}${C_RESET}  target=${C_BOLD}${target}${C_RESET}  base_url=${C_BOLD}${base_url}${C_RESET}"
-else
+if [ "$mode" != "install" ] && [ "$mode" != "update" ]; then
   [ "$quiet" = "true" ] || info "mode=${C_BOLD}${mode}${C_RESET}  scope=${C_BOLD}${scope}${C_RESET}  target=${C_BOLD}${target}${C_RESET}"
 fi
 
@@ -1708,6 +1707,39 @@ if [ "$mode" != "install" ] && [ "$mode" != "update" ]; then
   exit 0
 fi
 
+# ---------- endpoint carry-over for update ----------
+#
+# `update` refreshes an install in place, so it must not silently retarget a
+# self-hosted or custom endpoint at the hosted default just because --base-url
+# wasn't repeated. Read the endpoint already configured and keep it; an explicit
+# --base-url / --local still wins, and install mode is untouched (it is how you
+# deliberately move an install to a new endpoint).
+#
+# `off` parks the router URL and points Claude Code at Anthropic, so the parked
+# sidecar is the authority while toggled off — reading the live file there would
+# pin the install to api.anthropic.com.
+if [ "$mode" = "update" ] && [ "$base_url_explicit" != "true" ] && [ "$target" = "claude" ]; then
+  installed_base=""
+  for candidate in \
+    "$settings_dir/.weave-parked.json" \
+    "$settings_file" \
+    "$local_settings_file"
+  do
+    installed_base="$(json_get "$candidate" '.env.ANTHROPIC_BASE_URL')"
+    router_shaped_url "$installed_base" && break
+    installed_base=""
+  done
+  if [ -n "$installed_base" ]; then
+    base_url="${installed_base%/}"
+  fi
+fi
+
+if [ "$mode" = "install" ]; then
+  [ "$quiet" = "true" ] || info "scope=${C_BOLD}${scope}${C_RESET}  target=${C_BOLD}${target}${C_RESET}  base_url=${C_BOLD}${base_url}${C_RESET}"
+else
+  [ "$quiet" = "true" ] || info "mode=${C_BOLD}update${C_RESET}  scope=${C_BOLD}${scope}${C_RESET}  target=${C_BOLD}${target}${C_RESET}  base_url=${C_BOLD}${base_url}${C_RESET}"
+fi
+
 # ---------- token handling ----------
 #
 # Resolution order: WEAVE_ROUTER_KEY, then the key this install already wrote to
@@ -1732,6 +1764,11 @@ read_installed_key() {
     key="$(read_claude_key "$settings_file")"
     [ -n "$key" ] || key="$(read_claude_key "$local_settings_file")"
   fi
+  # Last resort: `off` moves the key header out of the settings files and into
+  # the parked sidecar, so an install/update run while toggled off finds nothing
+  # above even though the key is still on disk. Same {"env":{…}} shape, so
+  # read_claude_key reads it directly.
+  [ -n "$key" ] || key="$(read_claude_key "$settings_dir/.weave-parked.json")"
   printf '%s' "$key"
 }
 
@@ -2366,9 +2403,22 @@ weave_self_refresh 2>/dev/null || true
 # happen from the next one on. install.sh seeds it too, so fresh installs skip
 # that warm-up round.
 #
+# Never touch a wrapper git tracks either. A project-scope install writes the
+# wrappers into the repo's own .claude/commands/, and unlike cc-statusline.sh
+# the installer does not gitignore them — so an unattended weekly rewrite would
+# surface as unexplained dirty files (and could ride along in someone's commit).
+# Only the installer changes tracked files, and only when a human runs it.
+#
 # Opt out with WEAVE_COMMANDS_UPDATE=0 (WEAVE_STATUSLINE_UPDATE=0 disables this
 # too, along with every other network path here). Override the source with
 # WEAVE_COMMANDS_URL_BASE=..., e.g. for self-hosters who fork.
+
+# weave_command_tracked_by_git returns 0 when $1 is a file git tracks. Used to
+# leave repo-committed wrappers alone; no git (or no repo) means untracked.
+weave_command_tracked_by_git() {
+  command -v git >/dev/null 2>&1 || return 1
+  git -C "$(dirname "$1")" ls-files --error-unmatch -- "$1" >/dev/null 2>&1
+}
 
 # weave_render_command prints $1 with the installer's {{SCOPE}} placeholder
 # replaced by $2, matching how install_slash_commands writes the same file.
@@ -2444,9 +2494,12 @@ weave_sync_commands() {
       installed="$cmd_dir/$name.md"
       # Only ever refresh a wrapper that is already installed: a missing one
       # was uninstalled or deliberately deleted, and resurrecting it would be
-      # a surprise. A symlink is user-owned; leave it alone.
+      # a surprise. A symlink is user-owned; leave it alone. A git-tracked
+      # wrapper belongs to the repo — rewriting it would dirty a working tree
+      # nobody asked us to touch.
       [ -f "$installed" ] || continue
       [ -L "$installed" ] && continue
+      weave_command_tracked_by_git "$installed" && continue
 
       raw="$baseline_dir/$name.md.tmp.$$"
       curl -fsSL --max-time 15 "$url_base/$name.md" -o "$raw" 2>/dev/null || { rm -f "$raw"; continue; }
@@ -3060,13 +3113,15 @@ if [ -n "$api_key" ]; then
       fi
     elif [ "$mode" = "update" ]; then
       # update is meant for cron/scripting: a rejected key is a real failure,
-      # not a note in the log. --quiet callers opted out of the noise.
+      # not a note in the log. --quiet callers opted out of the noise, not out
+      # of the nonzero exit — a scheduled run that reports success here would
+      # hide a revoked key indefinitely.
       if [ "$quiet" = "true" ]; then
         warn "Router rejected the installed API key. Re-run the installer to set a new one."
       else
         err "Router rejected the installed API key. Re-run the installer to set a new one."
-        exit 1
       fi
+      exit 1
     else
       warn "Router rejected the API key (check it matches the dashboard at $base_url)."
     fi

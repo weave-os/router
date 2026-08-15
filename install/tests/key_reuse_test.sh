@@ -108,10 +108,11 @@ run "$upd_home" -- update --claude
 check "update surfaces a rejected key as an error" "$?" 1
 check "update still refreshed the config" "$(installed_key "$upd_settings")" "rk_upd"
 
-# --quiet downgrades that to a warning: quiet callers opted out of the noise
-# and out of a nonzero exit for a config refresh that did land.
+# --quiet downgrades the message to a warning but must not downgrade the exit
+# code: a cron job checks $? for success, and a scheduled run that reports 0
+# here would silently hide a revoked key until the router starts 401ing.
 run "$upd_home" -- update --claude --quiet
-check "quiet update exits 0 despite the rejection" "$?" 0
+check "quiet update still exits nonzero on rejection" "$?" 1
 
 # update never prompts, so it has no use for a flag whose whole job is to force
 # one. Accepting it silently would look like rotation happened.
@@ -144,6 +145,36 @@ if grep -q '{{SCOPE}}' "$baseline/router-off.md" 2>/dev/null; then
 else
   no "seeded baseline keeps the {{SCOPE}} placeholder" "unrendered copy" "placeholder substituted"
 fi
+
+# ---------- update after `off`: parked sidecar key + base URL carry-over ----------
+#
+# `off` moves the router URL and key header out of settings.json/settings.local.json
+# and into .weave-parked.json. A re-run while toggled off must still find the key
+# there (not demand a fresh paste) and must not silently retarget the endpoint at
+# the hosted default just because --base-url wasn't repeated.
+
+off_home="$work/off"; mkdir -p "$off_home"
+off_settings="$off_home/.claude/settings.json"
+custom_url="http://custom-router.internal:9999"
+
+HOME="$off_home" XDG_CACHE_HOME="$off_home/.cache" PATH="$test_path" NO_COLOR=1 \
+  WEAVE_ROUTER_KEY="rk_off" \
+  bash "$installer" --claude --scope user --quiet --non-interactive --base-url "$custom_url" </dev/null >/dev/null 2>&1
+HOME="$off_home" PATH="$test_path" NO_COLOR=1 \
+  bash "$installer" off --claude </dev/null >/dev/null 2>&1
+check "off parks the router key, not settings.json" "$(installed_key "$off_settings")" ""
+
+# Direct invocation, not the `run` helper — `run` always appends its own
+# --base-url, which would make base_url_explicit=true and defeat the very
+# carry-over behavior this checks.
+HOME="$off_home" XDG_CACHE_HOME="$off_home/.cache" PATH="$test_path" NO_COLOR=1 \
+  bash "$installer" update --claude </dev/null >/dev/null 2>&1
+check "update while off finds the parked key" \
+  "$(jq -r '.env.ANTHROPIC_CUSTOM_HEADERS // ""' "$off_home/.claude/.weave-parked.json" 2>/dev/null \
+     | sed -n 's/^X-Weave-Router-Key: //p')" \
+  "rk_off"
+check "update while off preserves the custom base URL, not the hosted default" \
+  "$(jq -r '.env.ANTHROPIC_BASE_URL // ""' "$off_settings")" "$custom_url"
 
 echo
 echo "$pass passed, $fail failed"

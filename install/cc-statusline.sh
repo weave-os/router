@@ -142,9 +142,22 @@ weave_self_refresh 2>/dev/null || true
 # happen from the next one on. install.sh seeds it too, so fresh installs skip
 # that warm-up round.
 #
+# Never touch a wrapper git tracks either. A project-scope install writes the
+# wrappers into the repo's own .claude/commands/, and unlike cc-statusline.sh
+# the installer does not gitignore them — so an unattended weekly rewrite would
+# surface as unexplained dirty files (and could ride along in someone's commit).
+# Only the installer changes tracked files, and only when a human runs it.
+#
 # Opt out with WEAVE_COMMANDS_UPDATE=0 (WEAVE_STATUSLINE_UPDATE=0 disables this
 # too, along with every other network path here). Override the source with
 # WEAVE_COMMANDS_URL_BASE=..., e.g. for self-hosters who fork.
+
+# weave_command_tracked_by_git returns 0 when $1 is a file git tracks. Used to
+# leave repo-committed wrappers alone; no git (or no repo) means untracked.
+weave_command_tracked_by_git() {
+  command -v git >/dev/null 2>&1 || return 1
+  git -C "$(dirname "$1")" ls-files --error-unmatch -- "$1" >/dev/null 2>&1
+}
 
 # weave_render_command prints $1 with the installer's {{SCOPE}} placeholder
 # replaced by $2, matching how install_slash_commands writes the same file.
@@ -220,9 +233,12 @@ weave_sync_commands() {
       installed="$cmd_dir/$name.md"
       # Only ever refresh a wrapper that is already installed: a missing one
       # was uninstalled or deliberately deleted, and resurrecting it would be
-      # a surprise. A symlink is user-owned; leave it alone.
+      # a surprise. A symlink is user-owned; leave it alone. A git-tracked
+      # wrapper belongs to the repo — rewriting it would dirty a working tree
+      # nobody asked us to touch.
       [ -f "$installed" ] || continue
       [ -L "$installed" ] && continue
+      weave_command_tracked_by_git "$installed" && continue
 
       raw="$baseline_dir/$name.md.tmp.$$"
       curl -fsSL --max-time 15 "$url_base/$name.md" -o "$raw" 2>/dev/null || { rm -f "$raw"; continue; }

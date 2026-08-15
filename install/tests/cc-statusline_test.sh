@@ -331,6 +331,20 @@ sleep 1
 check "a user-edited wrapper is never overwritten" \
   "$(cat "$c/root/.claude/commands/rf.md")" "MY OWN WRAPPER"
 
+# A project-scope install writes wrappers straight into the repo's own
+# .claude/commands/ and (unlike cc-statusline.sh) does not gitignore them, so a
+# git-tracked wrapper must never be rewritten by the unattended weekly refresh —
+# that would surface as unexplained dirty files in someone's working tree.
+c="$work/cmd2b"; mkdir -p "$c/cache"; make_command_install "$c/root" "$c/cache"
+( cd "$c/root" && git init -q . && git add .claude/commands/fm.md && git commit -q -m "commit wrappers" )
+before="$(cat "$c/root/.claude/commands/fm.md")"
+printf '%s\n' '---' 'description: refreshed fm again.' '---' '' '/force-model $ARGUMENTS' \
+  >"$commands_upstream/fm.md"
+sync_commands "$c/root" "$c/cache" "file://$commands_upstream"
+sleep 1
+check "a git-tracked wrapper is never overwritten" \
+  "$(cat "$c/root/.claude/commands/fm.md")" "$before"
+
 # The router-* wrappers bake this install's scope into their npx line. A
 # refresh that dropped it would point a project install's toggle at the
 # user-scope config — silently flipping the wrong install.
