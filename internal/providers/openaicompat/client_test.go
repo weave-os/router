@@ -281,9 +281,8 @@ func TestProxy_4xxStillBuffered(t *testing.T) {
 		"sanity: 400 must classify as non-retryable")
 }
 
-// TestGatewayClient_UnconfiguredBaseURLDoesNotFallBackToOpenRouter: a customer
-// gateway's endpoint is per-tenant, so an unconfigured one must fail rather
-// than send that tenant's traffic (and token) to the OpenRouter default.
+// TestGatewayClient_UnconfiguredBaseURLDoesNotFallBackToOpenRouter: an
+// unconfigured gateway must fail, not silently spend the tenant's token.
 func TestGatewayClient_UnconfiguredBaseURLDoesNotFallBackToOpenRouter(t *testing.T) {
 	c := openaicompat.NewGatewayClient("gateway-token", "")
 	rec := httptest.NewRecorder()
