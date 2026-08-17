@@ -183,6 +183,7 @@ var Models = []Model{
 	// rate (through 2026-08-31) — avoids a compile-time price going stale.
 	{ID: "claude-sonnet-5", Tier: TierMid, ContextWindow: 200_000, Providers: []ProviderBinding{
 		{Provider: providers.ProviderAnthropic, Price: Pricing{InputUSDPer1M: 3.00, OutputUSDPer1M: 15.00, CacheReadMultiplier: 0.10}},
+		{Provider: providers.ProviderAnthropicGateway, Price: Pricing{InputUSDPer1M: 3.00, OutputUSDPer1M: 15.00}},
 	}},
 	// Legacy Opus IDs kept passthrough-priced (no Tier — not a routing
 	// target; see gpt-4o below for the same pattern) so BYOK/direct-model
@@ -214,6 +215,7 @@ var Models = []Model{
 	// Opus 4.8 retired from routing; kept as priced passthrough so lingering BYOK/direct pins bill at real cost.
 	{ID: "claude-opus-4-8", ContextWindow: 200_000, Providers: []ProviderBinding{
 		{Provider: providers.ProviderAnthropic, Price: Pricing{InputUSDPer1M: 5.00, OutputUSDPer1M: 25.00, CacheReadMultiplier: 0.10}},
+		{Provider: providers.ProviderAnthropicGateway, Price: Pricing{InputUSDPer1M: 5.00, OutputUSDPer1M: 25.00}},
 	}},
 	// 1M context natively (no context-1m beta header), same $5/$25 as opus-4-8.
 	{ID: "claude-opus-5", Tier: TierHigh, ContextWindow: 1_000_000, Providers: []ProviderBinding{
