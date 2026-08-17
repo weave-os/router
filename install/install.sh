@@ -3038,9 +3038,14 @@ write_claude_settings() {
       env: { ANTHROPIC_CUSTOM_HEADERS: $header }
     }' >"$tmp_patch"
     if [ -f "$local_settings_file" ]; then
+      # Also strip ANTHROPIC_BASE_URL: `off` in project scope points this file
+      # straight at Anthropic (the committed settings.json carries the router
+      # URL instead). Leaving that override in place would have every request
+      # keep bypassing the router even though this install/update just wrote
+      # a fresh key and reports success.
       merged="$(jq -s '.[0] as $a | .[1] as $b
         | $a
-        | .env = (($a.env // {} | del(.ANTHROPIC_AUTH_TOKEN, .ANTHROPIC_CUSTOM_HEADERS)) + ($b.env // {}))
+        | .env = (($a.env // {} | del(.ANTHROPIC_AUTH_TOKEN, .ANTHROPIC_CUSTOM_HEADERS, .ANTHROPIC_BASE_URL)) + ($b.env // {}))
         | (if (.env | length) == 0 then del(.env) else . end)
         | del(.apiKeyHelper)
       ' "$local_settings_file" "$tmp_patch")"

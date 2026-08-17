@@ -191,6 +191,38 @@ HOME="$off_home" PATH="$test_path" NO_COLOR=1 \
 check "off still works after an update that ran while off" \
   "$(installed_key "$off_settings")" ""
 
+# ---------- project scope: update while off must drop the direct override ----------
+#
+# In project scope `off` parks settings.local.json's env and then overrides
+# ANTHROPIC_BASE_URL to Anthropic *in that same file*, since the committed
+# settings.json (shared by the team) never carries the off state. write_claude_settings'
+# local-file merge has to strip that override same as it strips the old auth
+# headers, or it silently wins over the freshly-written router URL and a
+# "successful" update leaves Claude Code talking straight to Anthropic.
+
+proj_off_home="$work/project-off"; proj_off="$work/project-off-repo"
+mkdir -p "$proj_off_home" "$proj_off"
+git -C "$proj_off" init -q .
+proj_off_settings="$proj_off/.claude/settings.json"
+proj_off_local="$proj_off/.claude/settings.local.json"
+
+( cd "$proj_off" && HOME="$proj_off_home" XDG_CACHE_HOME="$proj_off_home/.cache" PATH="$test_path" NO_COLOR=1 \
+    WEAVE_ROUTER_KEY="rk_proj_off" \
+    bash "$installer" --claude --scope project --quiet --non-interactive </dev/null >/dev/null 2>&1 )
+( cd "$proj_off" && HOME="$proj_off_home" PATH="$test_path" NO_COLOR=1 \
+    bash "$installer" off --claude --scope project </dev/null >/dev/null 2>&1 )
+check "project off overrides settings.local.json's base URL" \
+  "$(jq -r '.env.ANTHROPIC_BASE_URL // ""' "$proj_off_local")" "https://api.anthropic.com"
+
+( cd "$proj_off" && HOME="$proj_off_home" XDG_CACHE_HOME="$proj_off_home/.cache" PATH="$test_path" NO_COLOR=1 \
+    bash "$installer" update --claude --scope project </dev/null >/dev/null 2>&1 )
+check "update while off (project scope) recovers the key into settings.local.json" \
+  "$(installed_key "$proj_off_local")" "rk_proj_off"
+check "update while off (project scope) drops the direct-to-Anthropic override" \
+  "$(jq -r '.env.ANTHROPIC_BASE_URL // ""' "$proj_off_local")" ""
+check "update while off (project scope) leaves the router URL live in settings.json" \
+  "$(jq -r '.env.ANTHROPIC_BASE_URL // ""' "$proj_off_settings")" "https://router.workweave.ai"
+
 echo
 echo "$pass passed, $fail failed"
 [ "$fail" -eq 0 ]
