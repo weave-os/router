@@ -47,6 +47,90 @@ func ResolveBinding(id string, available map[string]struct{}) (ProviderBinding, 
 	return ProviderBinding{}, false
 }
 
+// ResolveBindingWithCustom resolves like ResolveBinding, then falls back to
+// the request's custom bindings (`router.Request.CustomBindings`: catalog
+// model ID -> providers declared by a key's configuration). The synthesized
+// binding inherits the model's primary pricing — a custom endpoint bills on
+// its own contract, and the list price is the only rate we have.
+func ResolveBindingWithCustom(id string, available map[string]struct{}, custom map[string][]string) (ProviderBinding, bool) {
+	if b, ok := ResolveBinding(id, available); ok {
+		return b, true
+	}
+	m, ok := ByID(id)
+	if !ok {
+		return ProviderBinding{}, false
+	}
+	provider := CustomProviderFor(id, available, custom)
+	if provider == "" {
+		return ProviderBinding{}, false
+	}
+	binding := ProviderBinding{Provider: provider}
+	if len(m.Providers) > 0 {
+		binding.Price = m.Providers[0].Price
+	}
+	return binding, true
+}
+
+// CustomProviderFor returns the first available configuration-declared
+// provider for the model, or "" when none is.
+func CustomProviderFor(id string, available map[string]struct{}, custom map[string][]string) string {
+	if ps := customProvidersFor(id, available, custom); len(ps) > 0 {
+		return ps[0]
+	}
+	return ""
+}
+
+// customProvidersFor returns the model's available configuration-declared
+// providers, skipping any the catalog already binds so a model never resolves
+// to the same provider twice.
+func customProvidersFor(id string, available map[string]struct{}, custom map[string][]string) []string {
+	if len(custom) == 0 {
+		return nil
+	}
+	m, known := ByID(id)
+	if !known {
+		return nil
+	}
+	bound := make(map[string]struct{}, len(m.Providers))
+	for _, b := range m.Providers {
+		bound[b.Provider] = struct{}{}
+	}
+	var out []string
+	for _, provider := range custom[m.ID] {
+		if _, ok := available[provider]; !ok {
+			continue
+		}
+		if _, dup := bound[provider]; dup {
+			continue
+		}
+		out = append(out, provider)
+	}
+	return out
+}
+
+// EnumerateBindingsWithCustom is EnumerateBindings plus the request's
+// configuration-declared bindings, appended after the catalog's own so a
+// wired direct vendor stays primary and a custom endpoint only ever serves as
+// a later failover target. Synthesized bindings inherit primary pricing.
+func EnumerateBindingsWithCustom(id string, available map[string]struct{}, custom map[string][]string) []IndexedBinding {
+	out := EnumerateBindings(id, available)
+	customProviders := customProvidersFor(id, available, custom)
+	if len(customProviders) == 0 {
+		return out
+	}
+	m, _ := ByID(id)
+	next := len(m.Providers)
+	for _, provider := range customProviders {
+		binding := ProviderBinding{Provider: provider}
+		if len(m.Providers) > 0 {
+			binding.Price = m.Providers[0].Price
+		}
+		out = append(out, IndexedBinding{Index: next, ProviderBinding: binding})
+		next++
+	}
+	return out
+}
+
 // AvailableBindings returns every ProviderBinding for the model whose Provider
 // is in `available`, in catalog order. Used by the proxy's failover loop:
 // index 0 is primary, indexes >0 are ordered fallbacks.

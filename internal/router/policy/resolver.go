@@ -277,13 +277,14 @@ func (r *Resolver) Resolve(req router.Request) ResolvedCandidates {
 		if providerSet == nil {
 			providerSet = r.available
 		}
-		allowedBindings := catalog.EnumerateBindings(
+		allowedBindings := catalog.EnumerateBindingsWithCustom(
 			id,
 			r.allowedProviders(providerSet),
+			req.CustomBindings,
 		)
 		if len(allowedBindings) == 0 {
 			reason := ExclusionNoProvider
-			if unrestrictedBindings := catalog.EnumerateBindings(id, providerSet); len(unrestrictedBindings) > 0 {
+			if unrestrictedBindings := catalog.EnumerateBindingsWithCustom(id, providerSet, req.CustomBindings); len(unrestrictedBindings) > 0 {
 				reason = ExclusionProviderPolicy
 			}
 			diagnostics = append(diagnostics, Diagnostic{CatalogID: id, RosterID: rosterID, Reason: reason})

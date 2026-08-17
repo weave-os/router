@@ -1207,12 +1207,13 @@ func (s *Service) normalizeHMMStayPin(req router.Request, p sessionpin.Pin) (ses
 	// binding; validate before reusing, or re-resolve against available providers.
 	if p.Provider != "" {
 		if _, enabled := providerSet[p.Provider]; enabled {
-			if _, valid := catalog.ResolveBinding(model, map[string]struct{}{p.Provider: {}}); valid {
+			pinned := map[string]struct{}{p.Provider: {}}
+			if _, valid := catalog.ResolveBindingWithCustom(model, pinned, req.CustomBindings); valid {
 				return p, true
 			}
 		}
 	}
-	binding, ok := catalog.ResolveBinding(model, providerSet)
+	binding, ok := catalog.ResolveBindingWithCustom(model, providerSet, req.CustomBindings)
 	if !ok {
 		return sessionpin.Pin{}, false
 	}
