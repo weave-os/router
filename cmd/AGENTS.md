@@ -15,6 +15,7 @@ Composition root. Only place that constructs concrete adapters + wires them toge
   - `runSessionPinSweep` — TTL sweep loop
   - `resolveHardPinModel` / `resolveDefaultBaselineModel` / `resolveAvailableModels` — boot-time model resolution
   - `registerDeploymentKeyedProvider` — shared "resolve key → build client → log" registration for the providers whose gating collapses to that shape (Fireworks, Makora, Together, Bedrock, Google); OpenRouter and Anthropic/OpenAI stay bespoke
+  - `resolveModelAliases` ([`model_aliases.go`](router/model_aliases.go)) — each OpenAI-compatible provider's outbound model ID map: catalog `UpstreamID` bindings with `ROUTER_<PROVIDER>_MODEL_ALIASES` overrides layered on top
   - small env parsers (e.g. `envVarHint`, `parseEnvInt`, `parseEnvFloat`, `parseEnvDurationMs`)
 - **No more heuristic-fallback router.** If cluster routing fails to boot, `main.go` panics. Misconfiguration must abort the process rather than silently degrade.
 - **Never introduce DI container, reflection-based wiring, or service locator.** Composition = plain Go function calls.

@@ -35,6 +35,7 @@ Claude Code keep using the user's logged-in plan.
 | `GOOGLE_BASE_URL`     | `https://generativelanguage.googleapis.com/v1beta/openai` | Override for Gemini. |
 | `ANTHROPIC_GATEWAY_BASE_URL` | *(none)*                                           | Base URL of an Anthropic-compatible gateway; `/v1/messages` is appended to it. |
 | `ANTHROPIC_GATEWAY_TOKEN`    | *(none)*                                           | Token for that gateway, sent as `Authorization: Bearer`. Only used when `ANTHROPIC_GATEWAY_BASE_URL` is also set. |
+| `ROUTER_<PROVIDER>_MODEL_ALIASES` | *(none)*                                      | JSON map of catalog model ID to the name that provider's endpoint publishes. See [Deployment-level model aliases](#deployment-level-model-aliases). |
 
 **Anthropic-compatible gateway.** Some enterprises front Claude with their own
 gateway that speaks the Anthropic Messages spec but authenticates with a bearer
@@ -44,6 +45,30 @@ unconfigured gateway does *not* fall back to `api.anthropic.com`. The provider
 is always registered so BYOK installations can point at their own gateway
 without deployment-level credentials; the env vars above are only for a
 deployment that has a gateway of its own.
+
+### Deployment-level model aliases
+
+An OpenAI-compatible endpoint may publish the catalog's models under its own
+names: a gateway that serves `deepseek-v4-flash` where the catalog says
+`deepseek/deepseek-v4-flash`, or a Bedrock-backed proxy that expects AWS
+dot-form IDs. Point a provider at the endpoint with its `*_BASE_URL` and remap
+the outbound names with `ROUTER_<PROVIDER>_MODEL_ALIASES`:
+
+```bash
+OPENROUTER_BASE_URL=https://gateway.example.com/v1
+ROUTER_OPENROUTER_MODEL_ALIASES='{"deepseek/deepseek-v4-flash":"deepseek-v4-flash","xiaomi/mimo-v2.5-pro":"mimo-v2.5-pro"}'
+```
+
+`<PROVIDER>` is the upper-cased provider name — `OPENROUTER`, `FIREWORKS`,
+`MAKORA`, `TOGETHER`, `XAI`, or `BEDROCK`. Keys are catalog model IDs and values
+are what goes on the wire. Only the outbound model name changes: routing,
+pricing, and analytics stay keyed on the catalog ID.
+
+Entries layer on top of the catalog's own per-binding upstream IDs, so aliasing
+one model leaves that provider's other bindings alone, and a BYOK key's
+`model_aliases` still wins over both. A malformed value aborts boot. An alias
+naming a model outside the deployed catalog is logged and skipped, so retiring a
+model can't turn a stale alias into a failed start.
 
 **BYOK (per-installation keys).** Instead of (or in addition to) the env vars
 above, each installation can supply its own provider keys via the dashboard.
