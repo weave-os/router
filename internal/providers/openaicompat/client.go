@@ -84,6 +84,18 @@ func NewClientWithModelIDMap(apiKey, baseURL string, modelIDMap map[string]strin
 	if baseURL == "" {
 		baseURL = DefaultBaseURL
 	}
+	return newClient(apiKey, baseURL, modelIDMap)
+}
+
+// NewGatewayClient builds a client for a customer-supplied OpenAI-spec
+// endpoint. Unlike NewClient it applies no default base URL: a gateway's
+// endpoint is per-tenant, so an unconfigured one must fail rather than
+// silently dispatch the tenant's traffic to OpenRouter.
+func NewGatewayClient(apiKey, baseURL string) *Client {
+	return newClient(apiKey, baseURL, nil)
+}
+
+func newClient(apiKey, baseURL string, modelIDMap map[string]string) *Client {
 	return &Client{
 		apiKey:     apiKey,
 		baseURL:    strings.TrimRight(baseURL, "/"),

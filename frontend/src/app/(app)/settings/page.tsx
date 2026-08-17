@@ -458,7 +458,7 @@ function RouterKeysPanel() {
 }
 
 
-const PROVIDERS = ["anthropic", "openai", "google", "openrouter", "anthropic_gateway"] as const;
+const PROVIDERS = ["anthropic", "openai", "google", "openrouter", "anthropic_gateway", "openai_gateway"] as const;
 type Provider = (typeof PROVIDERS)[number];
 
 const PROVIDER_LABEL: Record<Provider, string> = {
@@ -467,6 +467,7 @@ const PROVIDER_LABEL: Record<Provider, string> = {
   google: "Google",
   openrouter: "OpenRouter",
   anthropic_gateway: "Anthropic-compatible gateway",
+  openai_gateway: "OpenAI-compatible gateway",
 };
 
 const PROVIDER_ENV_VAR: Record<Provider, string> = {
@@ -475,11 +476,12 @@ const PROVIDER_ENV_VAR: Record<Provider, string> = {
   google: "GOOGLE_API_KEY",
   openrouter: "OPENROUTER_API_KEY",
   anthropic_gateway: "ANTHROPIC_GATEWAY_TOKEN",
+  openai_gateway: "OPENAI_GATEWAY_TOKEN",
 };
 
 // Providers with no vendor endpoint to fall back to: a key without a URL here
 // is stored but can never be dispatched, so the form blocks it up front.
-const PROVIDERS_REQUIRING_BASE_URL: readonly Provider[] = ["anthropic_gateway"];
+const PROVIDERS_REQUIRING_BASE_URL: readonly Provider[] = ["anthropic_gateway", "openai_gateway"];
 
 function providerLabel(p: Provider): string {
   return PROVIDER_LABEL[p];

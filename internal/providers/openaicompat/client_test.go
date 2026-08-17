@@ -280,3 +280,40 @@ func TestProxy_4xxStillBuffered(t *testing.T) {
 	assert.False(t, providers.IsRetryableStatus(buffered.Status),
 		"sanity: 400 must classify as non-retryable")
 }
+
+// TestGatewayClient_UnconfiguredBaseURLDoesNotFallBackToOpenRouter: a customer
+// gateway's endpoint is per-tenant, so an unconfigured one must fail rather
+// than send that tenant's traffic (and token) to the OpenRouter default.
+func TestGatewayClient_UnconfiguredBaseURLDoesNotFallBackToOpenRouter(t *testing.T) {
+	c := openaicompat.NewGatewayClient("gateway-token", "")
+	rec := httptest.NewRecorder()
+	clientReq := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(""))
+	prep := providers.PreparedRequest{Body: []byte(`{"model":"gpt-5","messages":[]}`), Headers: make(http.Header)}
+
+	err := c.Proxy(context.Background(), router.Decision{Model: "gpt-5"}, prep, rec, clientReq)
+
+	require.Error(t, err)
+	assert.NotContains(t, err.Error(), "openrouter.ai")
+}
+
+// TestGatewayClient_DispatchesToConfiguredEndpoint: the gateway path is
+// otherwise the plain Chat Completions one, bearer-authenticated.
+func TestGatewayClient_DispatchesToConfiguredEndpoint(t *testing.T) {
+	var gotPath, gotAuth string
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath, gotAuth = r.URL.Path, r.Header.Get("Authorization")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"chatcmpl-gw","object":"chat.completion"}`))
+	}))
+	defer upstream.Close()
+
+	c := openaicompat.NewGatewayClient("gateway-token", upstream.URL+"/api/v2/cortex/v1")
+	rec := httptest.NewRecorder()
+	clientReq := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(""))
+	prep := providers.PreparedRequest{Body: []byte(`{"model":"gpt-5","messages":[]}`), Headers: make(http.Header)}
+
+	require.NoError(t, c.Proxy(context.Background(), router.Decision{Model: "gpt-5"}, prep, rec, clientReq))
+	assert.Equal(t, "/api/v2/cortex/v1/chat/completions", gotPath)
+	assert.Equal(t, "Bearer gateway-token", gotAuth)
+}

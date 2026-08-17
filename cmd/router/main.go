@@ -321,6 +321,23 @@ func main() {
 	}
 
 	{
+		// Same arrangement for the OpenAI-spec surface of a customer gateway
+		// (Snowflake Cortex serves its non-Claude models only here).
+		gatewayBaseURL := config.GetOr("OPENAI_GATEWAY_BASE_URL", "")
+		gatewayToken := ""
+		if !byokOnly && gatewayBaseURL != "" {
+			gatewayToken = config.GetOr(providers.APIKeyEnvVar(providers.ProviderOpenAIGateway), "")
+		}
+		providerMap[providers.ProviderOpenAIGateway] = openaiCompatProvider.NewGatewayClient(gatewayToken, gatewayBaseURL)
+		if gatewayToken != "" {
+			envKeyedProviders[providers.ProviderOpenAIGateway] = struct{}{}
+			logger.Info("OpenAI gateway provider enabled", "base_url", gatewayBaseURL)
+		} else {
+			logger.Info("OpenAI gateway provider registered (BYOK only — set OPENAI_GATEWAY_TOKEN and OPENAI_GATEWAY_BASE_URL for deployment-level use)")
+		}
+	}
+
+	{
 		// Native REST surface, required for multi-turn tool use against Gemini
 		// 3.x's opaque thought_signature field (not exposed via OpenAI-compat).
 		googleBaseURL := config.GetOr("GOOGLE_BASE_URL", googleProvider.NativeBaseURL)

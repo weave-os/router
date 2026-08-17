@@ -35,6 +35,8 @@ Claude Code keep using the user's logged-in plan.
 | `GOOGLE_BASE_URL`     | `https://generativelanguage.googleapis.com/v1beta/openai` | Override for Gemini. |
 | `ANTHROPIC_GATEWAY_BASE_URL` | *(none)*                                           | Base URL of an Anthropic-compatible gateway; `/v1/messages` is appended to it. |
 | `ANTHROPIC_GATEWAY_TOKEN`    | *(none)*                                           | Token for that gateway, sent as `Authorization: Bearer`. Only used when `ANTHROPIC_GATEWAY_BASE_URL` is also set. |
+| `OPENAI_GATEWAY_BASE_URL`    | *(none)*                                           | Base URL of an OpenAI-compatible gateway; `/chat/completions` is appended to it. |
+| `OPENAI_GATEWAY_TOKEN`       | *(none)*                                           | Token for that gateway, sent as `Authorization: Bearer`. Only used when `OPENAI_GATEWAY_BASE_URL` is also set. |
 
 **Anthropic-compatible gateway.** Some enterprises front Claude with their own
 gateway that speaks the Anthropic Messages spec but authenticates with a bearer
@@ -44,6 +46,35 @@ unconfigured gateway does *not* fall back to `api.anthropic.com`. The provider
 is always registered so BYOK installations can point at their own gateway
 without deployment-level credentials; the env vars above are only for a
 deployment that has a gateway of its own.
+
+**OpenAI-compatible gateway.** `openai_gateway` is the same arrangement one
+wire family over: a customer endpoint speaking OpenAI Chat Completions, bearer
+auth, no default endpoint. Use it for gateways that serve models the Anthropic
+spec can't carry.
+
+An endpoint that publishes both surfaces is configured as two keys pointing at
+the same base URL. Snowflake Cortex, for example, serves Claude at
+`/api/v2/cortex/v1/messages` and everything else (GPT, Llama, Mistral,
+DeepSeek, Arctic) at `/api/v2/cortex/v1/chat/completions`:
+
+```bash
+# Claude family over the Anthropic surface.
+curl -sS -b jar -X POST https://<router>/admin/v1/provider-keys \
+  -H 'content-type: application/json' \
+  -d '{"provider":"anthropic_gateway","key":"<snowflake PAT>",
+       "base_url":"https://<account>.snowflakecomputing.com/api/v2/cortex/v1"}'
+
+# Everything else over the Chat Completions surface, under Cortex's own IDs.
+curl -sS -b jar -X POST https://<router>/admin/v1/provider-keys \
+  -H 'content-type: application/json' \
+  -d '{"provider":"openai_gateway","key":"<snowflake PAT>",
+       "base_url":"https://<account>.snowflakecomputing.com/api/v2/cortex/v1",
+       "model_aliases":{"gpt-5":"openai-gpt-5"}}'
+```
+
+Both keys carry the same PAT; per model, the catalog's binding order decides
+which surface serves it, so Claude prefers the Anthropic one (it carries
+thinking blocks and `cache_control` natively) and falls back to the other.
 
 **BYOK (per-installation keys).** Instead of (or in addition to) the env vars
 above, each installation can supply its own provider keys via the dashboard.
@@ -66,9 +97,10 @@ curl -sS -b jar -X POST https://<router>/admin/v1/provider-keys \
 
 The value must be an absolute `http(s)` URL; anything else is rejected with
 `400`. A trailing slash is stripped, and the provider appends its own API path
-(`/v1/messages` for the Anthropic family), so give the base only. Omit the
-field to keep the deployment endpoint — except for `anthropic_gateway`, which
-has no default to fall back to and rejects a key without one.
+(`/v1/messages` for the Anthropic family, `/chat/completions` for the OpenAI
+one), so give the base only. Omit the field to keep the deployment endpoint —
+except for `anthropic_gateway` and `openai_gateway`, which have no default to
+fall back to and reject a key without one.
 
 A key may also carry a model alias map for endpoints that publish the catalog's
 models under their own names:

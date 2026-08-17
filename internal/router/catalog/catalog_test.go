@@ -36,6 +36,7 @@ func TestCatalog_BindingsReferenceCanonicalProviders(t *testing.T) {
 		providers.ProviderTogether:         {},
 		providers.ProviderXAI:              {},
 		providers.ProviderAnthropicGateway: {},
+		providers.ProviderOpenAIGateway:    {},
 	}
 	for _, m := range Models {
 		for i, b := range m.Providers {

@@ -133,6 +133,11 @@ func applySessionAffinity(body []byte, headers http.Header, opts EmitOptions) ([
 	case providers.ProviderBedrock:
 		// Explicit cachePoint caching, centrally routed — no replica roulette.
 		return body, nil
+	case providers.ProviderOpenAIGateway:
+		// A customer-run endpoint publishes no affinity contract, and an
+		// enterprise gateway is as likely to reject an unknown header as to
+		// ignore it — so it gets nothing rather than the generic default.
+		return body, nil
 	case providers.ProviderXAI:
 		// Chat Completions affinity header; Responses API uses prompt_cache_key
 		// (we stay on chat/completions for CapReasoning×xAI in Stage A).

@@ -37,6 +37,9 @@ var expectedSessionAffinityMechanism = map[string]sessionAffinityMechanism{
 	providers.ProviderOpenAI:     mechanismPromptCacheKeyBody,
 	providers.ProviderXAI:        mechanismGrokConvIDHeader,
 	providers.ProviderBedrock:    mechanismNone,
+	// A customer endpoint publishes no affinity contract and may reject an
+	// unknown header outright.
+	providers.ProviderOpenAIGateway: mechanismNone,
 }
 
 // defaultMechanismProviders are OpenAI-compat providers intentionally left
