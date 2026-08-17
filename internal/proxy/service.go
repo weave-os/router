@@ -1852,11 +1852,9 @@ func (s *Service) RouteAnthropicRequest(ctx context.Context, body []byte, header
 }
 
 // PassthroughToProvider forwards a non-routing request to the default
-// (Anthropic) provider for metadata endpoints (count_tokens, models). A
-// count_tokens request with no Anthropic credential in reach — a gateway-only
-// deployment whose Bearer gateway (e.g. Snowflake Cortex) exposes no
-// count_tokens endpoint — is answered locally with an estimate so the client's
-// pre-flight token count doesn't hard-fail.
+// (Anthropic) provider for metadata endpoints (count_tokens, models). If no
+// Anthropic credential is reachable (gateway-only deployment), count_tokens is
+// answered locally with an estimate instead of hard-failing.
 func (s *Service) PassthroughToProvider(ctx context.Context, body []byte, w http.ResponseWriter, r *http.Request) error {
 	if isCountTokensRequest(r) && !s.anthropicCredentialReachable(ctx, r.Header) {
 		if err := writeLocalCountTokens(w, body); err == nil {

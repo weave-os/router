@@ -592,10 +592,8 @@ func TestService_PassthroughToNamedProvider_ResolvesBYOKCredential(t *testing.T)
 	assert.Equal(t, "https://byok.example.com", provider.passthroughCreds[0].BaseURL)
 }
 
-// TestService_PassthroughToProvider_CountTokensLocalFallback: a gateway-only
-// deployment (e.g. anthropic_gateway pointing at Snowflake Cortex, which has
-// no count_tokens endpoint) must answer count_tokens locally instead of
-// dispatching a credential-less call to direct Anthropic.
+// TestService_PassthroughToProvider_CountTokensLocalFallback verifies that a
+// gateway-only deployment (no Anthropic credential) answers count_tokens locally.
 func TestService_PassthroughToProvider_CountTokensLocalFallback(t *testing.T) {
 	anthropicProvider := &fakeProvider{}
 	gatewayProvider := &fakeProvider{}
@@ -617,9 +615,8 @@ func TestService_PassthroughToProvider_CountTokensLocalFallback(t *testing.T) {
 	assert.Positive(t, tokens.Int())
 }
 
-// TestService_PassthroughToProvider_CountTokensForwardsWithCredential: a
-// reachable Anthropic credential (deployment key or BYOK) keeps count_tokens
-// on the real upstream — the local estimate is a last resort only.
+// TestService_PassthroughToProvider_CountTokensForwardsWithCredential verifies
+// that a reachable Anthropic credential keeps count_tokens on the real upstream.
 func TestService_PassthroughToProvider_CountTokensForwardsWithCredential(t *testing.T) {
 	body := []byte(`{"model":"claude-sonnet-4-6","messages":[{"role":"user","content":"hello"}]}`)
 
