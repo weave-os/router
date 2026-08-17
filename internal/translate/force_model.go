@@ -17,6 +17,11 @@ const ReasonUserForceModel = "user_forced"
 // ReasonUserForceModel, so the session doesn't re-route back into the loop.
 const ReasonLoopEscalation = "loop_escalation"
 
+// ReasonHarnessEscalation marks a per-turn decision replaced by the
+// harness-protocol escalation clamp (route up, never down). Per-TURN only —
+// never written as a session-pin reason.
+const ReasonHarnessEscalation = "harness_escalation"
+
 // ForceModelResult holds the parsed outcome of a force-model command.
 type ForceModelResult struct {
 	// Model is the target model name; empty when Clear is true.
