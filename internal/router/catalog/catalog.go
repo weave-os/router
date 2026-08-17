@@ -163,9 +163,8 @@ var Models = []Model{
 	// --- Anthropic ---
 	// Gateway bindings carry Anthropic list prices (indicative, not invoiced) and
 	// trail the Anthropic binding so they win only when Anthropic is absent.
-	// A Claude model reachable through both gateway surfaces prefers the
-	// Anthropic-spec one: it carries thinking blocks and cache_control natively,
-	// where the Chat Completions surface loses them in translation.
+	// Anthropic-spec wins over openai_gateway: thinking blocks and cache_control
+	// survive natively; Chat Completions loses them in translation.
 	//
 	// $1/$5 per the published table (the $0.80/$4 rate that used to sit here
 	// is Haiku 3.5's row — Haiku 4.5 never shipped at that price).
@@ -261,10 +260,8 @@ var Models = []Model{
 	{ID: "gpt-5-nano", ContextWindow: 400_000, Providers: []ProviderBinding{
 		{Provider: providers.ProviderOpenAI, Price: Pricing{InputUSDPer1M: 0.10, OutputUSDPer1M: 0.40, CacheReadMultiplier: 0.10}},
 	}},
-	// The OpenAI-spec gateway bindings mirror the Anthropic ones: OpenAI list
-	// price (indicative), trailing so the direct vendor wins where present. A
-	// gateway that publishes its own model IDs (Snowflake's openai-gpt-5) maps
-	// them via the key's model_aliases.
+	// openai_gateway bindings: indicative list price, trailing (direct vendor
+	// wins). Gateway-specific model IDs map via the key's model_aliases.
 	{ID: "gpt-5-mini", ContextWindow: 400_000, Providers: []ProviderBinding{
 		{Provider: providers.ProviderOpenAI, Price: Pricing{InputUSDPer1M: 0.50, OutputUSDPer1M: 2.00, CacheReadMultiplier: 0.10}},
 		{Provider: providers.ProviderOpenAIGateway, Price: Pricing{InputUSDPer1M: 0.50, OutputUSDPer1M: 2.00}},

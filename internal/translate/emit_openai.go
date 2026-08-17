@@ -134,9 +134,7 @@ func applySessionAffinity(body []byte, headers http.Header, opts EmitOptions) ([
 		// Explicit cachePoint caching, centrally routed — no replica roulette.
 		return body, nil
 	case providers.ProviderOpenAIGateway:
-		// A customer-run endpoint publishes no affinity contract, and an
-		// enterprise gateway is as likely to reject an unknown header as to
-		// ignore it — so it gets nothing rather than the generic default.
+		// Customer endpoint: no affinity contract; may reject unknown headers.
 		return body, nil
 	case providers.ProviderXAI:
 		// Chat Completions affinity header; Responses API uses prompt_cache_key

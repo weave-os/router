@@ -58,11 +58,9 @@ const (
 	// ProviderAnthropicGateway is an Anthropic-spec enterprise gateway using
 	// Bearer auth; its endpoint is per-tenant with no deployment default.
 	ProviderAnthropicGateway = "anthropic_gateway"
-	// ProviderOpenAIGateway is the same arrangement one family over: an
-	// OpenAI-Chat-Completions-spec enterprise gateway with a per-tenant
-	// endpoint. Serves the model classes an Anthropic-spec gateway cannot
-	// (Snowflake Cortex publishes both surfaces, but only its Chat Completions
-	// one carries the non-Claude models).
+	// ProviderOpenAIGateway is the OpenAI-Chat-Completions-spec counterpart
+	// to ProviderAnthropicGateway: a per-tenant endpoint, bearer auth, no
+	// deployment default. Serves model classes the Anthropic spec cannot carry.
 	ProviderOpenAIGateway = "openai_gateway"
 )
 
