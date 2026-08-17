@@ -4,6 +4,7 @@ import asyncio
 import math
 import os
 from collections import OrderedDict
+from dataclasses import dataclass
 from typing import Protocol
 
 import httpx
@@ -170,6 +171,24 @@ async def verify_embedding_contract(
     return similarity
 
 
+@dataclass(frozen=True, slots=True)
+class EmbedStats:
+    """Per-call cache accounting for one ``CachedEmbedder.embed`` invocation.
+
+    ``fetched`` is the number of texts that actually crossed the network. It is
+    the interesting one: the policy embeds the whole conversation on every turn,
+    so a warm cache should leave only the newest turn(s) to fetch, and a
+    persistently high ``fetched`` means the cache is not doing its job (each
+    process holds its own LRU, so a session spread across instances re-fetches
+    turns another instance already has).
+    """
+
+    requested: int
+    unique: int
+    cached: int
+    fetched: int
+
+
 class CachedEmbedder:
     def __init__(self, inner: Embedder, dimensions: int) -> None:
         self.inner = inner
@@ -178,6 +197,18 @@ class CachedEmbedder:
         self.lock = asyncio.Lock()
 
     async def embed(self, texts: list[str]) -> list[np.ndarray]:
+        vectors, _ = await self.embed_with_stats(texts)
+        return vectors
+
+    async def embed_with_stats(
+        self, texts: list[str]
+    ) -> tuple[list[np.ndarray], EmbedStats]:
+        """Same as :meth:`embed`, plus what the cache did.
+
+        Stats are returned rather than recorded on the instance because the
+        sidecar serves several requests concurrently, so an instance attribute
+        would be read by the wrong request.
+        """
         unique = list(dict.fromkeys(texts))
         async with self.lock:
             cached = {text: self.cache[text] for text in unique if text in self.cache}
@@ -199,4 +230,10 @@ class CachedEmbedder:
             while len(self.cache) > MAX_CACHE_ITEMS:
                 self.cache.popitem(last=False)
         resolved = {**cached, **fetched}
-        return [resolved[text] for text in texts]
+        stats = EmbedStats(
+            requested=len(texts),
+            unique=len(unique),
+            cached=len(cached),
+            fetched=len(missing),
+        )
+        return [resolved[text] for text in texts], stats

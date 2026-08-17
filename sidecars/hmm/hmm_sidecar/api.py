@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import os
+import sys
 from contextlib import asynccontextmanager
 from typing import Any
 
@@ -19,10 +20,34 @@ from .policy import FrozenPolicy
 
 log = logging.getLogger(__name__)
 VERSION = os.environ.get("VERSION", "dev")
+LOG_LEVEL = os.environ.get("HMM_LOG_LEVEL", "INFO").upper()
+
+
+def configure_logging() -> None:
+    """Make this package's INFO records reach stdout.
+
+    uvicorn configures only its own ``uvicorn*`` loggers and the root logger has
+    no handler, so anything below WARNING emitted here falls through to
+    ``logging.lastResort`` and is silently dropped — which is why the per-stage
+    route timings were invisible until this ran.
+
+    Deliberately not ``basicConfig``: a handler is attached only when nothing
+    else has configured logging. If a host already owns the root logger, raising
+    this logger's level is enough for records to propagate into that setup, and
+    adding our own handler would duplicate every line.
+    """
+    package_log = logging.getLogger(__package__ or "hmm_sidecar")
+    package_log.setLevel(getattr(logging, LOG_LEVEL, logging.INFO))
+    if logging.getLogger().handlers or package_log.handlers:
+        return
+    handler = logging.StreamHandler(sys.stdout)
+    handler.setFormatter(logging.Formatter("%(levelname)s: %(name)s %(message)s"))
+    package_log.addHandler(handler)
 
 
 @asynccontextmanager
 async def lifespan(application: FastAPI):
+    configure_logging()
     try:
         artifacts = resolve_artifacts()
         embedder = build_embedder(artifacts.manifest.embedding_contract)
@@ -139,7 +164,7 @@ async def route(payload: dict[str, Any]) -> JSONResponse:
     if payload.get("schema_version") not in (None, SCHEMA_VERSION):
         return JSONResponse({"error": "unsupported policy schema"}, status_code=400)
     try:
-        result = await policy.route(payload)
+        result, timings = await policy.route_with_timings(payload)
     except (ValueError, EmbeddingError) as exc:
         log.warning("HMM route request rejected: %s", exc)
         return JSONResponse({"error": "route request rejected"}, status_code=422)
@@ -148,6 +173,11 @@ async def route(payload: dict[str, Any]) -> JSONResponse:
         return JSONResponse(
             {"error": f"route failed: {type(exc).__name__}"}, status_code=503
         )
+    # One line per decision, durations and counts only. The routing decision is
+    # serialized ahead of the upstream request, so this is the only place the
+    # per-stage cost of that wait is observable; the response contract carries
+    # no timing fields and the caller sees a single opaque total.
+    log.info("hmm route timing %s", timings.log_fields())
     return JSONResponse(
         {
             "schema_version": SCHEMA_VERSION,

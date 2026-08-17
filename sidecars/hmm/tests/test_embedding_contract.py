@@ -135,3 +135,62 @@ async def test_cache_returns_hits_that_are_evicted_during_a_concurrent_fetch(
     assert len(vectors) == 2
     np.testing.assert_array_equal(vectors[0], [1.0, 2.0, 3.0])
     np.testing.assert_array_equal(vectors[1], [1.0, 2.0, 3.0])
+
+
+async def test_embed_stats_count_only_the_texts_that_crossed_the_network() -> None:
+    """The fetched count is the signal the timing log exists to expose.
+
+    The policy embeds the whole conversation on every turn, so a warm cache must
+    leave only the new text to fetch. Counting requested texts instead of misses
+    would report a constant batch size and hide the cache working (or not).
+    """
+
+    class CountingEmbedder:
+        def __init__(self) -> None:
+            self.calls: list[list[str]] = []
+
+        async def embed(self, texts: list[str]) -> list[list[float]]:
+            self.calls.append(list(texts))
+            return [[1.0, 2.0, 3.0] for _ in texts]
+
+    inner = CountingEmbedder()
+    embedder = CachedEmbedder(inner, dimensions=3)
+
+    _, first = await embedder.embed_with_stats(["turn-1", "turn-2"])
+    assert (first.requested, first.unique, first.cached, first.fetched) == (2, 2, 0, 2)
+
+    # Next turn of the same conversation: two texts already seen, one new.
+    _, second = await embedder.embed_with_stats(["turn-1", "turn-2", "turn-3"])
+    assert (second.requested, second.unique, second.cached, second.fetched) == (
+        3,
+        3,
+        2,
+        1,
+    )
+    assert inner.calls == [["turn-1", "turn-2"], ["turn-3"]]
+
+
+async def test_embed_stats_collapse_duplicate_texts() -> None:
+    """Duplicate turns are embedded once, and the stats must say so."""
+
+    inner = FakeEmbedder([1.0, 2.0, 3.0])
+    embedder = CachedEmbedder(inner, dimensions=3)
+
+    vectors, stats = await embedder.embed_with_stats(["same", "same", "same"])
+
+    assert len(vectors) == 3
+    assert (stats.requested, stats.unique, stats.fetched) == (3, 1, 1)
+
+
+async def test_embed_returns_the_same_vectors_with_or_without_stats() -> None:
+    """embed() is the compatibility wrapper; it must not drift from the stats path."""
+
+    inner = FakeEmbedder([4.0, 5.0, 6.0])
+    embedder = CachedEmbedder(inner, dimensions=3)
+
+    plain = await embedder.embed(["a", "b"])
+    with_stats, _ = await embedder.embed_with_stats(["a", "b"])
+
+    assert len(plain) == len(with_stats) == 2
+    for left, right in zip(plain, with_stats, strict=True):
+        np.testing.assert_array_equal(left, right)

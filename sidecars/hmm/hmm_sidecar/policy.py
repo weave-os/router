@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import time
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -9,7 +11,7 @@ import numpy as np
 
 from .artifacts import FrozenArtifacts
 from .classifier import FrozenClassifier
-from .embeddings import CachedEmbedder, Embedder
+from .embeddings import CachedEmbedder, Embedder, EmbedStats
 from .features import (
     classifier_features,
     conversation_sequence,
@@ -18,6 +20,70 @@ from .features import (
 )
 from .hmm import FrozenHMM
 from .schemas import Candidate, RankedFallback, RoutePreviewResult, RouteResult
+
+
+@dataclass(frozen=True, slots=True)
+class RouteTimings:
+    """Wall-clock cost of each stage of one routing decision, in milliseconds.
+
+    The decision runs to completion before the router dispatches the upstream
+    request, so this is time added to the caller's wait for a first token. It is
+    reported per stage because the stages have very different characters: the
+    embed hop is a network round trip whose cost tracks how many turns missed
+    the cache, while the rest is local numpy/XGBoost work that tracks sequence
+    length. Without the split, a regression in either is a single opaque number.
+
+    Carries no text, ids, or model output — only durations and counts — so it is
+    safe to log verbatim.
+    """
+
+    sequence_ms: float
+    embed_ms: float
+    hmm_ms: float
+    classifier_ms: float
+    total_ms: float
+    turns: int
+    embed_requested: int
+    embed_cached: int
+    embed_fetched: int
+
+    @classmethod
+    def build(
+        cls,
+        *,
+        started: float,
+        sequence_ms: float,
+        embed_ms: float,
+        hmm_ms: float,
+        classifier_ms: float,
+        turns: int,
+        stats: EmbedStats,
+    ) -> RouteTimings:
+        return cls(
+            sequence_ms=sequence_ms,
+            embed_ms=embed_ms,
+            hmm_ms=hmm_ms,
+            classifier_ms=classifier_ms,
+            total_ms=(time.perf_counter() - started) * 1000.0,
+            turns=turns,
+            embed_requested=stats.requested,
+            embed_cached=stats.cached,
+            embed_fetched=stats.fetched,
+        )
+
+    def log_fields(self) -> str:
+        """Compact ``key=value`` rendering for one log line."""
+        return (
+            f"total_ms={self.total_ms:.1f} "
+            f"sequence_ms={self.sequence_ms:.1f} "
+            f"embed_ms={self.embed_ms:.1f} "
+            f"hmm_ms={self.hmm_ms:.1f} "
+            f"classifier_ms={self.classifier_ms:.1f} "
+            f"turns={self.turns} "
+            f"embed_requested={self.embed_requested} "
+            f"embed_cached={self.embed_cached} "
+            f"embed_fetched={self.embed_fetched}"
+        )
 
 
 def select_roster_group(
@@ -116,7 +182,8 @@ class FrozenPolicy:
 
     async def _evaluate(
         self, payload: dict[str, Any], *, allow_empty_candidates: bool
-    ) -> tuple[list[Candidate], Any, Any]:
+    ) -> tuple[list[Candidate], Any, Any, RouteTimings]:
+        started = time.perf_counter()
         candidates = [
             Candidate.model_validate(value) for value in payload.get("candidates") or []
         ]
@@ -125,9 +192,22 @@ class FrozenPolicy:
         by_roster = {candidate.roster_id: candidate for candidate in candidates}
         if len(by_roster) != len(candidates):
             raise ValueError("candidate roster_id values must be unique")
+
+        mark = time.perf_counter()
         turns = conversation_sequence(payload)
-        embeddings = await self.embedder.embed([turn.text for turn in turns])
+        sequence_ms = (time.perf_counter() - mark) * 1000.0
+
+        mark = time.perf_counter()
+        embeddings, embed_stats = await self.embedder.embed_with_stats(
+            [turn.text for turn in turns]
+        )
+        embed_ms = (time.perf_counter() - mark) * 1000.0
+
+        mark = time.perf_counter()
         readout = self.hmm.posterior(raw_hmm_features(embeddings, turns))
+        hmm_ms = (time.perf_counter() - mark) * 1000.0
+
+        mark = time.perf_counter()
         feature_row = classifier_features(
             embedding=embeddings[-1],
             gamma=readout.gamma[-1],
@@ -138,10 +218,21 @@ class FrozenPolicy:
             tool_context=tool_context_features(payload),
         )
         classification = self.classifier.predict(feature_row)
-        return candidates, readout, classification
+        classifier_ms = (time.perf_counter() - mark) * 1000.0
+
+        timings = RouteTimings.build(
+            started=started,
+            sequence_ms=sequence_ms,
+            embed_ms=embed_ms,
+            hmm_ms=hmm_ms,
+            classifier_ms=classifier_ms,
+            turns=len(turns),
+            stats=embed_stats,
+        )
+        return candidates, readout, classification, timings
 
     async def preview(self, payload: dict[str, Any]) -> RoutePreviewResult:
-        candidates, readout, classification = await self._evaluate(
+        candidates, readout, classification, _ = await self._evaluate(
             payload, allow_empty_candidates=True
         )
         selected_group, eligible_arms, ranked_fallback = select_roster_group(
@@ -166,7 +257,19 @@ class FrozenPolicy:
         )
 
     async def route(self, payload: dict[str, Any]) -> RouteResult:
-        candidates, readout, classification = await self._evaluate(
+        result, _ = await self.route_with_timings(payload)
+        return result
+
+    async def route_with_timings(
+        self, payload: dict[str, Any]
+    ) -> tuple[RouteResult, RouteTimings]:
+        """Same as :meth:`route`, plus the per-stage cost of producing it.
+
+        Split out rather than folded into :class:`RouteResult` so the response
+        the router validates stays byte-identical — timings are an operational
+        signal, not part of the policy contract.
+        """
+        candidates, readout, classification, timings = await self._evaluate(
             payload, allow_empty_candidates=False
         )
         by_roster = {candidate.roster_id: candidate for candidate in candidates}
@@ -206,7 +309,7 @@ class FrozenPolicy:
             f"raw_top={classification.label!r}); "
             f"frozen roster arm {selected_roster_id!r}"
         )
-        return RouteResult(
+        result = RouteResult(
             route_id=route_id,
             selected_roster_id=selected.roster_id,
             selected_provider=selected.provider,
@@ -233,3 +336,4 @@ class FrozenPolicy:
                 "frozen_policy": True,
             },
         )
+        return result, timings

@@ -139,3 +139,152 @@ async def test_published_package_routes_an_offered_candidate(
     # cluster allowlist overrides.
     assert result.ranked_fallback
     assert any(group.group == selected_label for group in result.ranked_fallback)
+
+
+async def test_stage_timings_attribute_slow_work_to_the_stage_that_did_it() -> None:
+    """A slow embed must show up as embed_ms, not smeared across the total.
+
+    This is the property the whole change exists for: the router only ever saw
+    one opaque number, so a regression in the network hop and a regression in
+    the local model work looked identical. The test makes a stage deliberately
+    slow and asserts the split points at it.
+    """
+    import asyncio
+    import types
+
+    import numpy as np
+
+    from hmm_sidecar.embeddings import CachedEmbedder
+
+    dims = 4
+    embed_delay_s = 0.05
+
+    class SlowEmbedder:
+        async def embed(self, texts: list[str]) -> list[list[float]]:
+            await asyncio.sleep(embed_delay_s)
+            return [[0.1] * dims for _ in texts]
+
+    class FakeHMM:
+        n_states = 2
+
+        def posterior(self, features: np.ndarray):
+            steps = features.shape[0]
+            return types.SimpleNamespace(
+                gamma=np.full((steps, self.n_states), 0.5),
+                state=1,
+                previous_state=0,
+                state_path=[0] * steps,
+                confidence=0.5,
+                margin=0.0,
+            )
+
+    class FakeClassifier:
+        classes = ("fast", "maximum")
+
+        def predict(self, row: np.ndarray):
+            del row
+            return types.SimpleNamespace(
+                label="fast", probabilities={"fast": 0.7, "maximum": 0.3}
+            )
+
+    policy = object.__new__(FrozenPolicy)
+    policy.embedder = CachedEmbedder(SlowEmbedder(), dimensions=dims)
+    policy.hmm = FakeHMM()
+    policy.classifier = FakeClassifier()
+
+    payload = {
+        "candidates": [
+            {
+                "roster_id": "provider/a",
+                "catalog_id": "model-a",
+                "provider": "provider",
+            }
+        ],
+        "conversation_messages": [
+            {"role": "user", "text": "Inspect the repository."},
+            {"role": "assistant", "text": "Done."},
+            {"role": "user", "text": "Now fix the bug."},
+        ],
+    }
+
+    _, _, _, timings = await policy._evaluate(payload, allow_empty_candidates=False)
+
+    assert timings.embed_ms >= embed_delay_s * 1000 * 0.9
+    assert timings.hmm_ms < timings.embed_ms
+    assert timings.classifier_ms < timings.embed_ms
+    assert timings.total_ms >= timings.embed_ms
+    assert timings.turns == 3
+    assert timings.embed_requested == 3
+    assert timings.embed_fetched == 3
+    assert timings.embed_cached == 0
+
+
+async def test_stage_timings_report_cache_hits_on_a_continuing_conversation() -> None:
+    """Second turn of a session re-sends earlier turns; those must count as hits."""
+    import types
+
+    import numpy as np
+
+    from hmm_sidecar.embeddings import CachedEmbedder
+
+    dims = 4
+
+    class CountingEmbedder:
+        def __init__(self) -> None:
+            self.batches: list[int] = []
+
+        async def embed(self, texts: list[str]) -> list[list[float]]:
+            self.batches.append(len(texts))
+            return [[0.2] * dims for _ in texts]
+
+    class FakeHMM:
+        def posterior(self, features: np.ndarray):
+            steps = features.shape[0]
+            return types.SimpleNamespace(
+                gamma=np.full((steps, 2), 0.5),
+                state=0,
+                previous_state=0,
+                state_path=[0] * steps,
+                confidence=0.5,
+                margin=0.0,
+            )
+
+    class FakeClassifier:
+        classes = ("fast", "maximum")
+
+        def predict(self, row: np.ndarray):
+            del row
+            return types.SimpleNamespace(
+                label="fast", probabilities={"fast": 0.6, "maximum": 0.4}
+            )
+
+    inner = CountingEmbedder()
+    policy = object.__new__(FrozenPolicy)
+    policy.embedder = CachedEmbedder(inner, dimensions=dims)
+    policy.hmm = FakeHMM()
+    policy.classifier = FakeClassifier()
+
+    candidates = [
+        {"roster_id": "provider/a", "catalog_id": "model-a", "provider": "provider"}
+    ]
+    first = {
+        "candidates": candidates,
+        "conversation_messages": [{"role": "user", "text": "Inspect the repository."}],
+    }
+    second = {
+        "candidates": candidates,
+        "conversation_messages": [
+            {"role": "user", "text": "Inspect the repository."},
+            {"role": "assistant", "text": "Done."},
+            {"role": "user", "text": "Now fix the bug."},
+        ],
+    }
+
+    *_, first_timings = await policy._evaluate(first, allow_empty_candidates=False)
+    *_, second_timings = await policy._evaluate(second, allow_empty_candidates=False)
+
+    assert (first_timings.embed_cached, first_timings.embed_fetched) == (0, 1)
+    # The opening turn's text repeats verbatim, so only the new turns are fetched.
+    assert second_timings.embed_cached == 1
+    assert second_timings.embed_fetched == 2
+    assert inner.batches == [1, 2]
