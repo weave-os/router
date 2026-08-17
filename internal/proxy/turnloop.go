@@ -157,6 +157,10 @@ type turnLoopResult struct {
 	// exhaustion. Stashed on ctx so resolveBindingsForDispatch's failover
 	// walk also honors the exclusion, not just this turn's scorer.
 	SessionDisabledProviders []string
+	// HarnessEscalated is true when the harness-protocol escalation clamp
+	// replaced this turn's decision (see applyHarnessEscalation). Per-turn
+	// only — never persisted to a session pin.
+	HarnessEscalated bool
 }
 
 // modelSwitched reports whether the Anthropic emit path must strip historical
@@ -296,13 +300,23 @@ func (s *Service) isHardPinnedTurn(ctx context.Context, tt turntype.TurnType) bo
 			return false
 		}
 		return s.hardPinExplore || s.hasSubAgentOverride()
+	case turntype.SubAgentHarnessMeta:
+		// Never hard-pinned: the harness escalation clamp routes sub-agent
+		// harness turns UP (its job), overriding any low-tier background pin a
+		// hard pin here would impose.
+		return false
 	default:
 		return false
 	}
 }
 
+// authoritativePolicyTurn reports whether tt is a model-authoritative policy
+// turn. Compared on tt.Base() so the harness variants (HarnessMeta →
+// MainLoop, Recovery → ToolResult) keep the authoritative-policy behavior of
+// their underlying shape, while SubAgentHarnessMeta (→ SubAgentDispatch) stays
+// out.
 func authoritativePolicyTurn(tt turntype.TurnType) bool {
-	return tt == turntype.MainLoop || tt == turntype.ToolResult
+	return tt.Base() == turntype.MainLoop || tt.Base() == turntype.ToolResult
 }
 
 func isUserForcedReason(reason string) bool {
@@ -348,13 +362,35 @@ func forcedPinEligible(pin sessionpin.Pin, req router.Request) bool {
 	return ok
 }
 
-// runTurnLoop is the format-agnostic routing orchestrator: detect turn type,
+// runTurnLoop is the format-agnostic routing orchestrator. It is the single
+// choke point every decision path passes through exactly once: after the
+// routing decision resolves it applies the harness-protocol escalation clamp
+// (route harness-bound turns up, never down), then returns the result.
+func (s *Service) runTurnLoop(
+	ctx context.Context,
+	env *translate.RequestEnvelope,
+	feats translate.RoutingFeatures,
+	apiKeyID string,
+	installationID uuid.UUID,
+	subAgentHint string,
+	reqHeaders http.Header,
+	req router.Request,
+) (turnLoopResult, error) {
+	res, err := s.runTurnLoopInner(ctx, env, feats, apiKeyID, installationID, subAgentHint, reqHeaders, req)
+	if err != nil {
+		return turnLoopResult{}, err
+	}
+	s.applyHarnessEscalation(ctx, &res, req)
+	return res, nil
+}
+
+// runTurnLoopInner is the body of the routing orchestrator: detect turn type,
 // short-circuit hard pins, load pin, run scorer, hand to planner, and on
 // switch attempt bounded-cost handover.
 //
 // installationID == uuid.Nil skips the async pin upsert (rows need one); the
 // rest of the path runs normally.
-func (s *Service) runTurnLoop(
+func (s *Service) runTurnLoopInner(
 	ctx context.Context,
 	env *translate.RequestEnvelope,
 	feats translate.RoutingFeatures,
@@ -460,6 +496,8 @@ func (s *Service) runTurnLoop(
 		provider, model := s.hardPinProvider, s.hardPinModel
 		// Sub-agent override is explicit operator config (mirrors ROUTER_HARD_PIN_MODEL
 		// semantics), so it skips hardPinResolver rather than being resolved dynamically.
+		// SubAgentHarnessMeta never reaches here: isHardPinnedTurn returns false for
+		// it, so the harness escalation clamp (not a hard pin) routes it up.
 		useSubAgentOverride := res.TurnType == turntype.SubAgentDispatch && s.hasSubAgentOverride()
 		if useSubAgentOverride {
 			provider, model = s.subAgentProvider, s.subAgentModel
@@ -826,7 +864,7 @@ func (s *Service) runTurnLoop(
 	// Switches degrade safely — handover.RewriteEnvelope strips orphaned tool_results.
 	if !res.AuthoritativePerTurn &&
 		!s.scoreToolResultTurns &&
-		res.TurnType == turntype.ToolResult &&
+		res.TurnType.Base() == turntype.ToolResult &&
 		pinFound {
 		decision := pinDecision(pin)
 		res.Decision = decision
@@ -1427,9 +1465,12 @@ func buildPolicyTurnContext(
 		previousProvider = previous.Provider
 	}
 	return &router.PolicyTurnContext{
-		VisibleTurnIndex:    visibleTurnIndex,
-		SessionTurnCount:    sessionTurnCount,
-		TurnType:            string(res.TurnType),
+		VisibleTurnIndex: visibleTurnIndex,
+		SessionTurnCount: sessionTurnCount,
+		// Base() keeps the policy sidecar's turn-type vocabulary stable: the
+		// harness variants report their underlying shape so a deployed roster
+		// does not need to re-publish when a new harness detection lands.
+		TurnType:            string(res.TurnType.Base()),
 		PreviousServedModel: res.PriorServedModel,
 		PreviousProvider:    previousProvider,
 		CacheState:          cacheState,

@@ -1,0 +1,170 @@
+// The harness-protocol escalation clamp is a deterministic per-turn guard that
+// routes harness-bound turns UP, never down. Detected harness variants
+// (HarnessMeta, SubAgentHarnessMeta, Recovery — see turntype.HarnessEscalation)
+// operate the harness control plane (plan-mode tools, deferred-tool discovery,
+// recovery from harness-shape failures); a non-Anthropic or weak upstream that
+// hallucinates those primitives corrupts the client's harness state. So once
+// the routing decision resolves, if the chosen model is not a strong
+// Claude-family TierHigh model the decision is replaced with the escalation
+// target. The clamp is per-TURN and non-persisted — it only rewrites the
+// current decision; it never touches session pins, so the next turn routes
+// through the normal pipeline again.
+package proxy
+
+import (
+	"context"
+
+	"workweave/router/internal/observability"
+	"workweave/router/internal/providers"
+	"workweave/router/internal/router"
+	"workweave/router/internal/router/catalog"
+	"workweave/router/internal/translate"
+)
+
+// Harness-escalation action taxonomy, recorded per clamp attempt. Exactly one
+// applies. Mirrors the loop-escalation action-taxonomy comment style
+// (loop_detection.go): each name records why the clamp did or did not engage.
+const (
+	// harnessActionEscalated: the decision was replaced with escalateModel.
+	harnessActionEscalated = "escalated"
+	// harnessActionAlreadyStrong: the resolved decision is already a strong
+	// Claude-family model — the clamp is a no-op.
+	harnessActionAlreadyStrong = "already_strong"
+	// harnessActionUsageBypass: the caller's subscription usage-bypass outranks
+	// the clamp; the requested model is served straight through.
+	harnessActionUsageBypass = "usage_bypass"
+	// harnessActionHardPinned: an operator/planner hard pin outranks the clamp;
+	// the pinned decision is left in place.
+	harnessActionHardPinned = "hard_pinned"
+	// harnessActionUserForced: a /force-model pin (or x-weave-force-model)
+	// outranks the clamp; the forced model is left in place.
+	harnessActionUserForced = "user_forced"
+	// harnessActionAlreadyEscalated: the decision was already replaced by the
+	// loop-escalation pin (an earlier, stronger escalation) — no further clamp.
+	harnessActionAlreadyEscalated = "already_escalated"
+	// harnessActionDisabled: the ROUTER_HARNESS_ESCALATION_ENABLED kill switch
+	// is off; the clamp does not engage.
+	harnessActionDisabled = "disabled"
+	// harnessActionProviderIneligible: anthropic is not in the request's
+	// enabled-provider set (or the set is empty of anthropic), so the escalate
+	// target is unservable; the original decision stands.
+	harnessActionProviderIneligible = "provider_ineligible"
+	// harnessActionModelExcluded: the request's excluded-models set blocks
+	// escalateModel; the original decision stands.
+	harnessActionModelExcluded = "model_excluded"
+)
+
+// applyHarnessEscalation clamps a resolved harness-protocol turn decision to a
+// strong Claude-family model (route up, never down). It runs exactly once per
+// turn, after routing, as the single choke point on every decision path.
+//
+// The clamp is a deterministic decision rewrite and never errors: every branch
+// either leaves res.Decision untouched (logging why) or replaces it with
+// {anthropic, escalateModel}. Pins, PinTier, StickyHit and Fresh are never
+// mutated — the next turn routes fresh.
+func (s *Service) applyHarnessEscalation(ctx context.Context, res *turnLoopResult, req router.Request) {
+	if !res.TurnType.HarnessEscalation() {
+		return
+	}
+	log := observability.FromContext(ctx)
+
+	// Precedence: a subscription usage-bypass, an operator/planner hard pin, and
+	// a user /force-model pin each outrank the clamp (the same three that
+	// outrank loop escalation). A loop-escalation decision already landed on
+	// opus — a stronger escalation than this clamp — so it needs no rewrite.
+	switch {
+	case res.UsageBypass:
+		log.Info("router.harness_escalation",
+			"action", harnessActionUsageBypass,
+			"turn_type", string(res.TurnType),
+			"from_model", res.Decision.Model,
+			"from_provider", res.Decision.Provider,
+			"to_model", escalateModel,
+		)
+		return
+	case res.HardPinned:
+		log.Info("router.harness_escalation",
+			"action", harnessActionHardPinned,
+			"turn_type", string(res.TurnType),
+			"from_model", res.Decision.Model,
+			"from_provider", res.Decision.Provider,
+			"to_model", escalateModel,
+		)
+		return
+	case isUserForcedReason(res.Decision.Reason):
+		log.Info("router.harness_escalation",
+			"action", harnessActionUserForced,
+			"turn_type", string(res.TurnType),
+			"from_model", res.Decision.Model,
+			"from_provider", res.Decision.Provider,
+			"to_model", escalateModel,
+		)
+		return
+	case res.Decision.Reason == translate.ReasonLoopEscalation:
+		log.Info("router.harness_escalation",
+			"action", harnessActionAlreadyEscalated,
+			"turn_type", string(res.TurnType),
+			"from_model", res.Decision.Model,
+			"from_provider", res.Decision.Provider,
+			"to_model", escalateModel,
+		)
+		return
+	case !s.harnessEscalationEnabled:
+		log.Info("router.harness_escalation",
+			"action", harnessActionDisabled,
+			"turn_type", string(res.TurnType),
+			"from_model", res.Decision.Model,
+			"from_provider", res.Decision.Provider,
+			"to_model", escalateModel,
+		)
+		return
+	case catalog.IsClaudeFamily(res.Decision.Model) && catalog.TierFor(res.Decision.Model) >= catalog.TierHigh:
+		log.Info("router.harness_escalation",
+			"action", harnessActionAlreadyStrong,
+			"turn_type", string(res.TurnType),
+			"from_model", res.Decision.Model,
+			"from_provider", res.Decision.Provider,
+			"to_model", escalateModel,
+		)
+		return
+	}
+
+	// Eligible-provider / excluded-model guards: the escalate target must be
+	// servable for this request, or clamping would dead-end the turn.
+	if req.EnabledProviders != nil {
+		if _, ok := req.EnabledProviders[providers.ProviderAnthropic]; !ok {
+			log.Info("router.harness_escalation",
+				"action", harnessActionProviderIneligible,
+				"turn_type", string(res.TurnType),
+				"from_model", res.Decision.Model,
+				"from_provider", res.Decision.Provider,
+				"to_model", escalateModel,
+			)
+			return
+		}
+	}
+	if _, ok := req.ExcludedModels[escalateModel]; ok {
+		log.Info("router.harness_escalation",
+			"action", harnessActionModelExcluded,
+			"turn_type", string(res.TurnType),
+			"from_model", res.Decision.Model,
+			"from_provider", res.Decision.Provider,
+			"to_model", escalateModel,
+		)
+		return
+	}
+
+	log.Info("router.harness_escalation",
+		"action", harnessActionEscalated,
+		"turn_type", string(res.TurnType),
+		"from_model", res.Decision.Model,
+		"from_provider", res.Decision.Provider,
+		"to_model", escalateModel,
+	)
+	res.Decision = router.Decision{
+		Provider: providers.ProviderAnthropic,
+		Model:    escalateModel,
+		Reason:   translate.ReasonHarnessEscalation,
+	}
+	res.HarnessEscalated = true
+}

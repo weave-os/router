@@ -206,7 +206,10 @@ func (s *Service) feedbackFooter(clientApp string, tt turntype.TurnType) string 
 	if _, ok := terminalFeedbackClients[clientApp]; !ok {
 		return ""
 	}
-	if tt != turntype.MainLoop && tt != turntype.ToolResult {
+	// Base() so the harness variants (HarnessMeta/Recovery, whose underlying
+	// shape is MainLoop/ToolResult) still surface the footer; SubAgentHarnessMeta
+	// (-> SubAgentDispatch) stays excluded like any other sub-agent dispatch.
+	if tt.Base() != turntype.MainLoop && tt.Base() != turntype.ToolResult {
 		return ""
 	}
 	return feedbackFooterText
