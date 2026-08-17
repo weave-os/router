@@ -1901,7 +1901,7 @@ func writeLocalCountTokens(w http.ResponseWriter, body []byte) error {
 	}
 	w.Header().Set("content-type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	_, err = fmt.Fprintf(w, `{"input_tokens":%d}`, env.FullTokenEstimate())
+	_, err = fmt.Fprintf(w, `{"input_tokens":%d}`, env.ContextOverflowTokenEstimate())
 	return err
 }
 
