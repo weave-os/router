@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"sort"
@@ -16,6 +17,7 @@ import (
 	"workweave/router/internal/router/catalog"
 	"workweave/router/internal/router/cluster"
 	"workweave/router/internal/router/handover"
+	"workweave/router/internal/router/hmm"
 	"workweave/router/internal/router/planner"
 	"workweave/router/internal/router/sessionpin"
 	"workweave/router/internal/router/turntype"
@@ -102,6 +104,13 @@ type turnLoopResult struct {
 	UsageBypass bool
 	PinTier     string
 	PinAgeSec   int64
+	// PolicyFallback is true when Decision was served by degrading a policy
+	// sidecar deadline/transport failure to a session pin or the tier-3
+	// static default, instead of the sidecar's own ranking. Callers must
+	// exclude such turns from bandit training (no propensity was ever
+	// assigned) and flag them on the route ledger/OTel span so degraded-mode
+	// spend is distinguishable from policy-attributable spend.
+	PolicyFallback bool
 	// RequestedTier drives the session-pin role split (roleForTier) so a
 	// low-tier background turn and a high-tier main turn never share a pin.
 	RequestedTier catalog.Tier
@@ -224,6 +233,34 @@ func stickPinOnArmSelectorUnavailable(fresh router.Decision, pin sessionpin.Pin,
 		return false
 	}
 	return true
+}
+
+// policyDeadlineFallbackReason is the PinTier value when a policy sidecar
+// deadline/transport failure degrades to a session pin or the tier-3 static
+// default, instead of a 503.
+const policyDeadlineFallbackReason = "policy_deadline_last_known_good"
+
+// policyDeadlineDefaultReason is the router.Decision.Reason value when a
+// policy sidecar deadline/transport failure with no session pin falls all the
+// way to the tier-3 static safe default model.
+const policyDeadlineDefaultReason = "policy_deadline_default_model"
+
+// isPolicyDeadlineErr reports whether err is the policy sidecar missing its
+// deadline (or an equivalent transport failure), as opposed to a contract
+// violation. Only the former is safe to degrade: a contract violation (unknown
+// arm, provider mismatch, bad schema) means the router and sidecar disagree
+// about the roster, and serving on that basis would write a wrong route
+// ledger. Both context.DeadlineExceeded/Canceled and hmm.ErrHMMUnavailable
+// must be present in the chain — sidecar_router.go wraps contract violations
+// with ErrHMMUnavailable too, so the deadline/cancel check is load-bearing.
+func isPolicyDeadlineErr(err error) bool {
+	if err == nil {
+		return false
+	}
+	if !errors.Is(err, hmm.ErrHMMUnavailable) {
+		return false
+	}
+	return errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled)
 }
 
 func hmmHistoryRole(role string) string {
@@ -847,6 +884,52 @@ func (s *Service) runTurnLoop(
 	if !routed {
 		dec, err := s.routeFor(ctx, req)
 		if err != nil {
+			// A policy DEADLINE is not a reason to fail the user: every
+			// resolved candidate was already dispatchable, so losing the
+			// ranking costs model quality, not correctness. Degrade to this
+			// session's last-known-good pin, or (no pin yet — ~0.2% of
+			// failures) the tier-3 static default. Contract violations
+			// (unknown arm, provider mismatch, bad schema) deliberately still
+			// fail closed via isPolicyDeadlineErr's DeadlineExceeded/Canceled
+			// check.
+			if s.policyDeadlineFallback && isPolicyDeadlineErr(err) {
+				if pinFound && pin.Model != "" {
+					decision := pinDecision(pin)
+					// Overwrite Reason (rather than keep the pin's original
+					// hmm_policy(...) string) so the telemetry row's
+					// DecisionReason column distinguishes a degraded-mode
+					// fallback turn from a genuine policy-chosen STAY — both
+					// would otherwise read identically in cost-of-routing
+					// analytics.
+					decision.Reason = policyDeadlineFallbackReason
+					res.Decision = decision
+					res.StickyHit = true
+					res.PinTier = policyDeadlineFallbackReason
+					res.PolicyFallback = true
+					log.Warn("policy sidecar missed its deadline; serving session pin",
+						"err", err,
+						"pin_model", pin.Model,
+						"pin_provider", pin.Provider,
+						"pin_policy_group", pin.PolicyGroup,
+						"requested_model", req.RequestedModel,
+					)
+					s.refreshPin(ctx, installationID, res.SessionKey, pin, res.PinRole, decision)
+					return res, nil
+				}
+				if decision, ok := s.policyDeadlineDefaultDecision(); ok {
+					res.Decision = decision
+					res.PinTier = policyDeadlineFallbackReason
+					res.PolicyFallback = true
+					log.Warn("policy sidecar missed its deadline; no session pin, serving tier-3 default",
+						"err", err,
+						"default_model", decision.Model,
+						"default_provider", decision.Provider,
+						"requested_model", req.RequestedModel,
+					)
+					s.writeNewPin(ctx, installationID, res.SessionKey, res.PinRole, decision)
+					return res, nil
+				}
+			}
 			log.Error("turnloop scorer failed", "err", err, "requested_model", req.RequestedModel)
 			return res, err
 		}

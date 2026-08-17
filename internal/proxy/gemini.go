@@ -154,6 +154,7 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 		String("decision.model", decision.Model).
 		String("decision.provider", decision.Provider).
 		String("decision.reason", decision.Reason).
+		Bool("routing.policy_fallback", routeRes.PolicyFallback).
 		Bool("routing.sticky_hit", stickyHit).
 		Bool("routing.session_pin_hit", pinTier == "in_proc" || pinTier == "postgres").
 		String("routing.session_pin_tier", pinTier).
