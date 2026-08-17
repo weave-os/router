@@ -1872,9 +1872,8 @@ func isCountTokensRequest(r *http.Request) bool {
 	return r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/count_tokens")
 }
 
-// anthropicCredentialReachable reports whether a passthrough dispatch to
-// direct Anthropic could authenticate: a BYOK Anthropic key, the deployment's
-// own key, the caller's Claude subscription, or an inbound client credential.
+// anthropicCredentialReachable reports whether any Anthropic credential
+// (BYOK, deployment key, subscription, or inbound client key) is reachable.
 func (s *Service) anthropicCredentialReachable(ctx context.Context, headers http.Header) bool {
 	if s.anthropicFallbackKeyAvailable(ctx) {
 		return true
