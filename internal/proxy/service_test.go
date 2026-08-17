@@ -592,6 +592,63 @@ func TestService_PassthroughToNamedProvider_ResolvesBYOKCredential(t *testing.T)
 	assert.Equal(t, "https://byok.example.com", provider.passthroughCreds[0].BaseURL)
 }
 
+// TestService_PassthroughToProvider_CountTokensLocalFallback: a gateway-only
+// deployment (e.g. anthropic_gateway pointing at Snowflake Cortex, which has
+// no count_tokens endpoint) must answer count_tokens locally instead of
+// dispatching a credential-less call to direct Anthropic.
+func TestService_PassthroughToProvider_CountTokensLocalFallback(t *testing.T) {
+	anthropicProvider := &fakeProvider{}
+	gatewayProvider := &fakeProvider{}
+	svc := makeProxyService(router.Decision{}, map[string]providers.Client{
+		providers.ProviderAnthropic:        anthropicProvider,
+		providers.ProviderAnthropicGateway: gatewayProvider,
+	}).WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropicGateway: {}})
+
+	body := []byte(`{"model":"claude-sonnet-4-6","messages":[{"role":"user","content":"hello world"}]}`)
+	httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages/count_tokens", strings.NewReader(""))
+	rec := httptest.NewRecorder()
+
+	require.NoError(t, svc.PassthroughToProvider(context.Background(), body, rec, httpReq))
+	assert.Empty(t, anthropicProvider.passthroughCreds, "no upstream dispatch when no Anthropic credential is reachable")
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, "application/json", rec.Header().Get("content-type"))
+	tokens := gjson.GetBytes(rec.Body.Bytes(), "input_tokens")
+	require.True(t, tokens.Exists())
+	assert.Positive(t, tokens.Int())
+}
+
+// TestService_PassthroughToProvider_CountTokensForwardsWithCredential: a
+// reachable Anthropic credential (deployment key or BYOK) keeps count_tokens
+// on the real upstream — the local estimate is a last resort only.
+func TestService_PassthroughToProvider_CountTokensForwardsWithCredential(t *testing.T) {
+	body := []byte(`{"model":"claude-sonnet-4-6","messages":[{"role":"user","content":"hello"}]}`)
+
+	t.Run("deployment key", func(t *testing.T) {
+		provider := &fakeProvider{}
+		svc := makeProxyService(router.Decision{}, map[string]providers.Client{providers.ProviderAnthropic: provider}).
+			WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}})
+		httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages/count_tokens", strings.NewReader(""))
+		rec := httptest.NewRecorder()
+
+		require.NoError(t, svc.PassthroughToProvider(context.Background(), body, rec, httpReq))
+		assert.Len(t, provider.passthroughCreds, 1, "deployment-keyed Anthropic must forward upstream")
+	})
+
+	t.Run("BYOK key", func(t *testing.T) {
+		provider := &fakeProvider{}
+		svc := makeProxyService(router.Decision{}, map[string]providers.Client{providers.ProviderAnthropic: provider}).
+			WithDeploymentKeyedProviders(map[string]struct{}{})
+		ctx := context.WithValue(context.Background(), proxy.ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
+			{Provider: providers.ProviderAnthropic, Plaintext: []byte("sk-ant-byok")},
+		})
+		httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages/count_tokens", strings.NewReader(""))
+		rec := httptest.NewRecorder()
+
+		require.NoError(t, svc.PassthroughToProvider(ctx, body, rec, httpReq))
+		assert.Len(t, provider.passthroughCreds, 1, "BYOK Anthropic must forward upstream")
+	})
+}
+
 func TestService_ProxyMessages_PropagatesUpstreamStatusError(t *testing.T) {
 	upstreamErr := &providers.UpstreamStatusError{Status: 400}
 	provider := &fakeProvider{proxyErr: upstreamErr}
