@@ -48,10 +48,8 @@ func ResolveBinding(id string, available map[string]struct{}) (ProviderBinding, 
 }
 
 // ResolveBindingWithCustom resolves like ResolveBinding, then falls back to
-// the request's custom bindings (`router.Request.CustomBindings`: catalog
-// model ID -> providers declared by a key's configuration). The synthesized
-// binding inherits the model's primary pricing — a custom endpoint bills on
-// its own contract, and the list price is the only rate we have.
+// configuration-declared bindings. Synthesized bindings inherit primary pricing
+// (custom endpoint bills on its own contract; list price is the only rate we have).
 func ResolveBindingWithCustom(id string, available map[string]struct{}, custom map[string][]string) (ProviderBinding, bool) {
 	if b, ok := ResolveBinding(id, available); ok {
 		return b, true
@@ -108,10 +106,9 @@ func customProvidersFor(id string, available map[string]struct{}, custom map[str
 	return out
 }
 
-// EnumerateBindingsWithCustom is EnumerateBindings plus the request's
-// configuration-declared bindings, appended after the catalog's own so a
-// wired direct vendor stays primary and a custom endpoint only ever serves as
-// a later failover target. Synthesized bindings inherit primary pricing.
+// EnumerateBindingsWithCustom is EnumerateBindings plus configuration-declared
+// bindings appended after catalog entries; catalog provider wins on overlap.
+// Synthesized bindings inherit primary pricing.
 func EnumerateBindingsWithCustom(id string, available map[string]struct{}, custom map[string][]string) []IndexedBinding {
 	out := EnumerateBindings(id, available)
 	customProviders := customProvidersFor(id, available, custom)

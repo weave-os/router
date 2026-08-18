@@ -8,11 +8,9 @@ import (
 	"workweave/router/internal/router/catalog"
 )
 
-// customBindingsForRequest derives the request's configuration-declared
-// provider bindings from its BYOK keys: a custom endpoint's model_aliases
-// names the catalog models it serves, so onboarding one is a key edit rather
-// than a catalog edit per (endpoint, model) pair. Catalog bindings still rank
-// first, so a wired direct vendor keeps the model.
+// customBindingsForRequest derives configuration-declared provider bindings
+// from BYOK keys: model_aliases names the catalog models a custom endpoint
+// serves; catalog bindings rank first so a direct vendor still wins.
 func (s *Service) customBindingsForRequest(ctx context.Context) map[string][]string {
 	return customBindingsFromKeys(externalKeysFromContext(ctx))
 }

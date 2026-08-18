@@ -139,10 +139,9 @@ type Request struct {
 	ClientSessionID string
 	// Per-request provider gating — nil means unrestricted.
 	EnabledProviders map[string]struct{}
-	// CustomBindings maps a catalog model ID to providers that serve it by
-	// configuration rather than by a catalog binding — a custom endpoint
-	// declares the models it carries through its key's model_aliases. They
-	// rank after the catalog's own bindings, so a direct vendor still wins.
+	// CustomBindings maps catalog model ID to configuration-declared providers
+	// (from a key's model_aliases). They rank after catalog bindings, so a
+	// wired direct vendor still wins.
 	CustomBindings map[string][]string
 	// Per-request model exclusion — nil or empty means no exclusion.
 	// If filtering empties eligible set, scorer returns ErrNoEligibleProvider.
