@@ -676,7 +676,7 @@ func main() {
 	if hmmSidecarURL := config.GetOr("ROUTER_HMM_SIDECAR_URL", ""); hmmSidecarURL != "" {
 		hmmTimeout := parseEnvDurationMs("ROUTER_HMM_SIDECAR_TIMEOUT_MS", policyclient.DefaultTimeout)
 		hmmAuthMode := config.GetOr("ROUTER_HMM_SIDECAR_AUTH", policySidecarAuthNone)
-		hmmAttemptTimeout := parseEnvDurationMs(
+		hmmAttemptTimeout := parseEnvAttemptTimeoutMs(
 			"ROUTER_HMM_SIDECAR_ATTEMPT_TIMEOUT_MS",
 			policyclient.DeriveAttemptTimeout(hmmTimeout),
 		)
@@ -1353,6 +1353,16 @@ func parseEnvDurationMs(key string, fallback time.Duration) time.Duration {
 		return fallback
 	}
 	return time.Duration(ms) * time.Millisecond
+}
+
+// parseEnvAttemptTimeoutMs is parseEnvDurationMs with 0 kept as a real value:
+// it is how an operator disables the per-attempt bound, which the shared parser
+// would otherwise reject and invert into the derived bound.
+func parseEnvAttemptTimeoutMs(key string, fallback time.Duration) time.Duration {
+	if ms, err := strconv.Atoi(config.GetOr(key, "")); err == nil && ms == 0 {
+		return 0
+	}
+	return parseEnvDurationMs(key, fallback)
 }
 
 // buildSemanticCache constructs the cross-request semantic cache, or nil when
