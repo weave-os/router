@@ -36,6 +36,16 @@ func (s *Service) grantPostCommandContinuation(
 	if !found || pin.Model == "" || pin.Provider == "" || isUserForcedReason(pin.Reason) {
 		return
 	}
+	if maxedModel := maxedOutServedModel(pin); maxedModel != "" {
+		observability.FromContext(ctx).Info(
+			"skipping one-shot post-command continuation for maxed-out pin",
+			"pin_model", pin.Model,
+			"maxed_model", maxedModel,
+			"last_output_tokens", pin.LastOutputTokens,
+			"role", role,
+		)
+		return
+	}
 	pin.Role = commandContinuationRole(role)
 	pin.InstallationID = installationID
 	pin.TurnCount = 1
