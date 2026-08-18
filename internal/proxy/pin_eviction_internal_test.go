@@ -25,6 +25,8 @@ type evictionStubPinStore struct {
 	incrementNext  []int // values returned by IncrementUpstreamErrors, in order
 	resetCalls     int
 	upserts        []sessionpin.Pin
+	continuations  map[string]sessionpin.Pin
+	consumeRoles   []string
 }
 
 func (s *evictionStubPinStore) Get(context.Context, [sessionpin.SessionKeyLen]byte, string) (sessionpin.Pin, bool, error) {
@@ -73,8 +75,18 @@ func (s *evictionStubPinStore) DisableProvider(context.Context, [sessionpin.Sess
 	return nil
 }
 
-func (s *evictionStubPinStore) Consume(context.Context, [sessionpin.SessionKeyLen]byte, string) (sessionpin.Pin, bool, error) {
-	return sessionpin.Pin{}, false, nil
+func (s *evictionStubPinStore) Consume(_ context.Context, key [sessionpin.SessionKeyLen]byte, role string) (sessionpin.Pin, bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.consumeRoles = append(s.consumeRoles, role)
+	pin, found := s.continuations[role]
+	if !found || !pin.PinnedUntil.After(time.Now()) {
+		return sessionpin.Pin{}, false, nil
+	}
+	delete(s.continuations, role)
+	pin.SessionKey = key
+	pin.Role = role
+	return pin, true, nil
 }
 
 func (s *evictionStubPinStore) SweepExpired(context.Context) error { return nil }
@@ -154,6 +166,31 @@ func TestMaybeEvictPin_SecondStrikeExpires(t *testing.T) {
 		"eviction reason is the audit trail that distinguishes this path from force-model / loop-break")
 }
 
+func TestExpireSessionPinInvalidatesPostCommandContinuation(t *testing.T) {
+	continuationRole := commandContinuationRole(sessionpin.DefaultRole)
+	store := &evictionStubPinStore{continuations: map[string]sessionpin.Pin{
+		continuationRole: {
+			Provider:    providers.ProviderAnthropic,
+			Model:       "claude-haiku-4-5",
+			PinnedUntil: time.Now().Add(time.Minute),
+		},
+	}}
+	svc := newEvictionTestService(store)
+
+	err := svc.expireSessionPin(
+		context.Background(),
+		uuid.New(),
+		nonZeroSessionKey(),
+		sessionpin.DefaultRole,
+		"degenerate_response",
+	)
+
+	require.NoError(t, err)
+	require.Len(t, store.upserts, 1)
+	assert.Equal(t, []string{continuationRole}, store.consumeRoles)
+	assert.Empty(t, store.continuations, "clearing a source pin must also remove its pending continuation")
+}
+
 func TestExpireSessionPinAndHMMHistoryExpiresBothRoles(t *testing.T) {
 	store := &evictionStubPinStore{}
 	svc := newEvictionTestService(store)
@@ -172,6 +209,8 @@ func TestExpireSessionPinAndHMMHistoryExpiresBothRoles(t *testing.T) {
 	require.Len(t, store.upserts, 2)
 	assert.Equal(t, sessionpin.DefaultRole, store.upserts[0].Role)
 	assert.Equal(t, hmmHistoryRole(sessionpin.DefaultRole), store.upserts[1].Role)
+	assert.Equal(t, []string{commandContinuationRole(sessionpin.DefaultRole)}, store.consumeRoles,
+		"only the primary pin may invalidate a post-command continuation")
 	for _, expired := range store.upserts {
 		assert.Equal(t, installationID, expired.InstallationID)
 		assert.Empty(t, expired.Provider)

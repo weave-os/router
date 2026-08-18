@@ -73,3 +73,25 @@ func (s *Service) consumePostCommandContinuation(
 	}
 	return pin, found
 }
+
+// invalidatePostCommandContinuation removes an active one-shot continuation
+// after its source pin has been intentionally cleared. Consume is safe here:
+// it deletes only an unexpired continuation for this exact session and role.
+func (s *Service) invalidatePostCommandContinuation(
+	ctx context.Context,
+	sessionKey [sessionpin.SessionKeyLen]byte,
+	role string,
+) error {
+	if s.pinStore == nil {
+		return nil
+	}
+	_, _, err := s.pinStore.Consume(context.Background(), sessionKey, commandContinuationRole(role))
+	if err != nil {
+		observability.FromContext(ctx).Error(
+			"post-command continuation invalidation failed",
+			"err", err,
+			"role", role,
+		)
+	}
+	return err
+}

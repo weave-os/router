@@ -35,6 +35,20 @@ func (s *Service) expireSessionPin(
 	role string,
 	reason string,
 ) error {
+	return s.expireSessionPinRow(ctx, installationID, sessionKey, role, reason, true)
+}
+
+// expireSessionPinRow writes the expired marker. Only a primary routing pin
+// can own a post-command continuation; HMM history rows must not derive a
+// second role suffix because router.session_pins.role is bounded.
+func (s *Service) expireSessionPinRow(
+	ctx context.Context,
+	installationID uuid.UUID,
+	sessionKey [sessionpin.SessionKeyLen]byte,
+	role string,
+	reason string,
+	invalidateContinuation bool,
+) error {
 	expired := sessionpin.Pin{
 		SessionKey:     sessionKey,
 		Role:           role,
@@ -45,7 +59,13 @@ func (s *Service) expireSessionPin(
 		TurnCount:      1,
 		PinnedUntil:    time.Now().Add(-time.Second),
 	}
-	return s.pinStore.Upsert(context.Background(), expired)
+	if err := s.pinStore.Upsert(context.Background(), expired); err != nil {
+		return err
+	}
+	if !invalidateContinuation {
+		return nil
+	}
+	return s.invalidatePostCommandContinuation(ctx, sessionKey, role)
 }
 
 func (s *Service) expireSessionPinAndHMMHistory(
@@ -62,7 +82,7 @@ func (s *Service) expireSessionPinAndHMMHistory(
 	if historyRole == role {
 		return nil
 	}
-	return s.expireSessionPin(ctx, installationID, sessionKey, historyRole, reason)
+	return s.expireSessionPinRow(ctx, installationID, sessionKey, historyRole, reason, false)
 }
 
 // evictPinAfterDegenerateResponse expires the session pin after a degenerate

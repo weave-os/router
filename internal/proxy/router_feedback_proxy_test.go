@@ -294,6 +294,84 @@ func TestService_RouterFeedbackCommand_DoesNotContinueMaxedPin(t *testing.T) {
 	assert.Equal(t, "claude-sonnet-4-6", followupRecorder.Header().Get(proxy.HeaderRouterModel))
 }
 
+func TestService_RouterFeedbackCommand_DoesNotResurrectClearedPin(t *testing.T) {
+	const feedbackBody = `{
+		"model":"claude-sonnet-4-6",
+		"max_tokens":1024,
+		"metadata":{"user_id":"pi:cleared-post-command"},
+		"messages":[
+			{"role":"user","content":"inspect the router state"},
+			{"role":"assistant","content":"I found the route."},
+			{"role":"user","content":"/rf+"}
+		]
+	}`
+	const followupBody = `{
+		"model":"claude-sonnet-4-6",
+		"max_tokens":1024,
+		"metadata":{"user_id":"pi:cleared-post-command"},
+		"messages":[
+			{"role":"user","content":"inspect the router state"},
+			{"role":"assistant","content":"I found the route."},
+			{"role":"user","content":"/rf+"},
+			{"role":"assistant","content":"✦ **Weave Router** → Feedback recorded 👍.\n\n"},
+			{"role":"user","content":"continue"}
+		]
+	}`
+
+	store := newFakePinStore()
+	store.hasPin = true
+	store.pin = sessionpin.Pin{
+		Provider:        providers.ProviderAnthropic,
+		Model:           "claude-haiku-4-5",
+		Reason:          "hmm_policy(label=balanced)",
+		LastServedModel: "claude-haiku-4-5",
+		PinnedUntil:     time.Now().Add(time.Minute),
+	}
+	policyRouter := &fakePolicyFeedbackRouter{decision: router.Decision{
+		Provider: providers.ProviderAnthropic,
+		Model:    "claude-sonnet-4-6",
+		Reason:   "hmm_policy(label=high)",
+		Metadata: &router.RoutingMetadata{Strategy: string(router.StrategyHMMEmbedding)},
+	}}
+	fr := &fakeRouter{decision: router.Decision{
+		Provider: providers.ProviderAnthropic,
+		Model:    "claude-sonnet-4-6",
+		Reason:   "cluster",
+	}}
+	svc := newPinSvc(fr, store).WithPolicyStrategy(policy.StrategySpec{
+		Strategy: router.StrategyHMMEmbedding,
+		Router:   policyRouter,
+		Capabilities: policy.Capabilities{
+			SchemaVersion:                 policy.SchemaVersionV1,
+			AuthoritativePerTurnSelection: true,
+		},
+	})
+	ctx := router.WithStrategy(authedCtx(uuid.NewString()), router.StrategyHMMEmbedding)
+	httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+
+	require.NoError(t, svc.ProxyMessages(ctx, []byte(feedbackBody), httptest.NewRecorder(), httpReq))
+	store.mu.Lock()
+	continuationCount := len(store.commandContinuations)
+	// Simulate a later intentional eviction. The continuation remains here to
+	// verify the turn loop cannot revive the cleared source pin if cleanup was
+	// delayed or ran on another process.
+	store.pin = sessionpin.Pin{
+		Reason:      "degenerate_response",
+		PinnedUntil: time.Now().Add(-time.Second),
+	}
+	store.mu.Unlock()
+	require.Equal(t, 1, continuationCount, "feedback must create the expected one-shot continuation")
+
+	followupRecorder := httptest.NewRecorder()
+	require.NoError(t, svc.ProxyMessages(ctx, []byte(followupBody), followupRecorder, httpReq))
+	require.Len(t, policyRouter.Requests(), 1, "a stale continuation must not restore an intentionally cleared route")
+	assert.Equal(t, "claude-sonnet-4-6", followupRecorder.Header().Get(proxy.HeaderRouterModel))
+	store.mu.Lock()
+	continuationCount = len(store.commandContinuations)
+	store.mu.Unlock()
+	assert.Zero(t, continuationCount, "the rejected continuation must be consumed")
+}
+
 func TestService_RouterFeedbackCommand_ForwardsPolicyFeedback(t *testing.T) {
 	const body = `{
 		"model":"claude-sonnet-4-6",

@@ -587,6 +587,14 @@ func (s *Service) runTurnLoop(
 	res.SessionKey = sessionKey
 
 	pin, pinFound := s.loadPin(ctx, res.SessionKey, res.PinRole)
+	// A deliberate clear is stored as an expired, blank pin with a reason.
+	// Natural expiry retains the model/provider and may still use a renewed
+	// one-shot command continuation, but an explicit clear must never be
+	// undone by a stale continuation row.
+	clearedPinReason := ""
+	if !pinFound && pin.Model == "" && pin.Provider == "" && pin.Reason != "" {
+		clearedPinReason = pin.Reason
+	}
 	hmmHistory := s.loadHMMHistory(ctx, res.SessionKey, res.PinRole)
 	commandContinuation := sessionpin.Pin{}
 	commandContinuationFound := false
@@ -854,6 +862,14 @@ func (s *Service) runTurnLoop(
 	// A router slash command is synthetic and intentionally skips upstream
 	// dispatch. Its next normal turn must keep the current automatic model once
 	// instead of treating the command boundary as a fresh HMM decision.
+	if commandContinuationFound && clearedPinReason != "" {
+		log.Info("discarding post-command continuation after source pin clear",
+			"clear_reason", clearedPinReason,
+			"pin_model", commandContinuation.Model,
+			"pin_provider", commandContinuation.Provider,
+		)
+		commandContinuationFound = false
+	}
 	if commandContinuationFound && pinEligible(commandContinuation, req) {
 		decision := pinDecision(commandContinuation)
 		res.Decision = decision
