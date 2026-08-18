@@ -103,9 +103,8 @@ type Result struct {
 	DisplayMarker        string
 	PolicyArtifactID     string
 	PolicyArtifactSHA256 string
-	// EmbedMs is the embedding duration in milliseconds the policy sidecar
-	// reported for this decision. Nil when the sidecar did not measure one;
-	// a present 0 is a real (warm-cache) measurement.
+	// EmbedMs is the sidecar's embedding duration in ms; nil when embedding
+	// didn't run, present 0 is a real warm-cache measurement.
 	EmbedMs       *float64
 	RosterVersion string
 	DebugRef      string

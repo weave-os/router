@@ -3397,9 +3397,9 @@ func applyPlannerAttrs(b *otel.AttrBuilder, res turnLoopResult) *otel.AttrBuilde
 	return b
 }
 
-// applyEmbedLatencyAttr reads the FRESH decision's EmbedMs, not the served
-// one: a planner STAY has nil Metadata even when the sidecar embedded this
-// turn. Absent = no embedding ran; present 0 = warm cache.
+// applyEmbedLatencyAttr reads Fresh.Metadata, not the served decision:
+// STAY replaces the decision with a pin (nil Metadata) even when the
+// sidecar embedded this turn. Absent = no embedding; present 0 = warm cache.
 func applyEmbedLatencyAttr(b *otel.AttrBuilder, res turnLoopResult) *otel.AttrBuilder {
 	if res.Fresh.Metadata != nil && res.Fresh.Metadata.EmbedMs != nil {
 		b.Int64("latency.embed_ms", int64(math.Round(*res.Fresh.Metadata.EmbedMs)))

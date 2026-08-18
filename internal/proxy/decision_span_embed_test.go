@@ -156,9 +156,8 @@ func TestDecisionSpan_EmbedMsAbsent_NilMetadataAndNilEmbedMiss(t *testing.T) {
 	}
 }
 
-// TestDecisionSpan_EmbedMs_SurvivesPlannerStay pins the STAY path: the
-// planner serves a pin-derived decision (nil Metadata), but embed_ms must
-// still be emitted from the fresh sidecar measurement.
+// TestDecisionSpan_EmbedMs_SurvivesPlannerStay pins the STAY path:
+// embed_ms must still be emitted from the fresh sidecar measurement.
 func TestDecisionSpan_EmbedMs_SurvivesPlannerStay(t *testing.T) {
 	collector := newBypassSpanCollector(t)
 	store := newStubPinStore()
