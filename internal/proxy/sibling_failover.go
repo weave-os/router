@@ -12,18 +12,10 @@ import (
 const ReasonSiblingFailover = "sibling_failover"
 
 // siblingFailoverDecision picks a stand-in for a routed model whose bindings
-// all failed. The routing metadata's candidate set is the definition of "same
-// cluster": it is the eligible pool the decision was drawn from, already
-// filtered for this turn's capability and context requirements and ordered by
-// the policy's own preference, so walking it keeps the rescue inside the
-// quality band the policy accepted. A replayed session pin carries no
-// candidate list, only the runner-up frozen at pin time.
-//
-// Candidates on the provider that just failed rank last: an overloaded
-// provider is the common cause of exhaustion, so a peer served elsewhere is
-// likelier to succeed. Reports false when no distinct servable candidate
-// exists, including when the deploy has no keyed-provider set at all — that
-// legacy mode can't tell which providers are dispatchable.
+// all failed. Walks CandidateModels (the policy's scored pool for this turn,
+// already filtered for capability/context), plus PairedModel as a last resort
+// for replayed pins. Candidates on the failed provider rank last. Reports false
+// when no distinct servable candidate exists or the keyed-provider set is unset.
 func (s *Service) siblingFailoverDecision(ctx context.Context, failed router.Decision, estimatedTokens int) (router.Decision, bool) {
 	md := failed.Metadata
 	if md == nil || s.deploymentKeyedProviders == nil {
