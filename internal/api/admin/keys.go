@@ -179,6 +179,9 @@ type externalKeyResponse struct {
 	ModelAliases         map[string]string `json:"model_aliases,omitempty"`
 	IdentityHeader       string            `json:"identity_header,omitempty"`
 	IdentityHeaderFormat string            `json:"identity_header_format,omitempty"`
+	AuthType             string            `json:"auth_type,omitempty"`
+	AuthAccount          string            `json:"auth_account,omitempty"`
+	AuthUser             string            `json:"auth_user,omitempty"`
 	LastUsedAt           *time.Time        `json:"last_used_at"`
 	CreatedAt            time.Time         `json:"created_at"`
 }
@@ -197,6 +200,11 @@ type upsertExternalKeyRequest struct {
 	// for service-authenticated endpoints that attribute spend per user. Format: "email" or "json".
 	IdentityHeader       *string `json:"identity_header"`
 	IdentityHeaderFormat *string `json:"identity_header_format"`
+	// AuthType is "bearer" (default) or "keypair_jwt", where Key is an RSA private
+	// key and the router signs a short-lived token for AuthAccount/AuthUser.
+	AuthType    string  `json:"auth_type"`
+	AuthAccount *string `json:"auth_account"`
+	AuthUser    *string `json:"auth_user"`
 }
 
 func toExternalKeyResponse(k *auth.ExternalAPIKey) externalKeyResponse {
@@ -210,6 +218,9 @@ func toExternalKeyResponse(k *auth.ExternalAPIKey) externalKeyResponse {
 		ModelAliases:         k.ModelAliases,
 		IdentityHeader:       k.IdentityHeader,
 		IdentityHeaderFormat: k.IdentityHeaderFormat,
+		AuthType:             k.AuthType,
+		AuthAccount:          k.AuthAccount,
+		AuthUser:             k.AuthUser,
 		LastUsedAt:           k.LastUsedAt,
 		CreatedAt:            k.CreatedAt,
 	}
@@ -268,10 +279,13 @@ func UpsertExternalKeyHandler(authSvc *auth.Service, models DeployedModelsSource
 
 			IdentityHeader:       req.IdentityHeader,
 			IdentityHeaderFormat: req.IdentityHeaderFormat,
+			AuthType:             req.AuthType,
+			AuthAccount:          req.AuthAccount,
+			AuthUser:             req.AuthUser,
 		})
 		if err != nil {
 			if errors.Is(err, auth.ErrUnknownModel) || errors.Is(err, auth.ErrInvalidModelAlias) ||
-				errors.Is(err, auth.ErrInvalidIdentityHeader) {
+				errors.Is(err, auth.ErrInvalidIdentityHeader) || errors.Is(err, auth.ErrInvalidKeypairAuth) {
 				c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 				return
 			}

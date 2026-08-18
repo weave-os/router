@@ -589,6 +589,9 @@ function ProviderKeysPanel() {
   const [keyValue, setKeyValue] = useState("");
   const [name, setName] = useState("");
   const [baseURL, setBaseURL] = useState("");
+  const [keypairAuth, setKeypairAuth] = useState(false);
+  const [authAccount, setAuthAccount] = useState("");
+  const [authUser, setAuthUser] = useState("");
   const [aliasRows, setAliasRows] = useState<AliasRow[]>([]);
   const [catalogModels, setCatalogModels] = useState<DeployedModel[]>([]);
   const [editingAliases, setEditingAliases] = useState<string | null>(null);
@@ -642,10 +645,16 @@ function ProviderKeysPanel() {
   const baseURLRequired = provider != null && PROVIDERS_REQUIRING_BASE_URL.includes(provider);
   // Mirrors the server's normalization: a slash-only value normalizes away to nothing.
   const baseURLMissing = baseURLRequired && baseURL.trim().replace(/\/+$/, "") === "";
+  // Key-pair auth is a gateway-only credential shape; the vendor providers
+  // authenticate with their own API keys.
+  const keypairOffered = baseURLRequired;
+  const usingKeypair = keypairOffered && keypairAuth;
+  const keypairIncomplete = usingKeypair && (authAccount.trim() === "" || authUser.trim() === "");
+  const saveDisabled = saving || keyValue.trim() === "" || baseURLMissing || keypairIncomplete;
 
   async function handleSave(e: React.FormEvent) {
     e.preventDefault();
-    if (provider == null || keyValue.trim() === "" || baseURLMissing) return;
+    if (provider == null || saveDisabled) return;
     setSaving(true);
     try {
       await api.providerKeys.upsert(
@@ -654,10 +663,14 @@ function ProviderKeysPanel() {
         name.trim() || undefined,
         baseURL.trim() || undefined,
         aliasMapFrom(aliasRows),
+        usingKeypair ? { account: authAccount.trim(), user: authUser.trim() } : undefined,
       );
       setKeyValue("");
       setName("");
       setBaseURL("");
+      setKeypairAuth(false);
+      setAuthAccount("");
+      setAuthUser("");
       setAliasRows([]);
       load();
     } catch (err: unknown) {
@@ -707,20 +720,85 @@ function ProviderKeysPanel() {
             <form onSubmit={handleSave} className="space-y-3" autoComplete="off">
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-[200px_1fr]">
                 <ProviderPicker value={provider} onChange={setPickedProvider} options={available} />
-                <Input
-                  label="API key"
-                  type="password"
-                  name="provider-api-key"
-                  autoComplete="new-password"
-                  data-1p-ignore
-                  data-lpignore="true"
-                  data-form-type="other"
-                  placeholder="sk-..."
-                  value={keyValue}
-                  onChange={e => setKeyValue(e.target.value)}
-                  required
-                />
+                {usingKeypair ? (
+                  <div className="flex flex-col gap-1.5">
+                    <label htmlFor="provider-private-key" className="text-xs font-medium text-foreground">
+                      Private key (PEM)
+                    </label>
+                    <textarea
+                      id="provider-private-key"
+                      name="provider-private-key"
+                      autoComplete="off"
+                      data-1p-ignore
+                      data-lpignore="true"
+                      data-form-type="other"
+                      spellCheck={false}
+                      rows={4}
+                      className="w-full rounded-md border border-input bg-background px-3 py-2 font-mono text-2xs shadow-sm transition-colors placeholder:text-muted-foreground focus-visible:border-foreground/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
+                      placeholder="-----BEGIN PRIVATE KEY-----"
+                      value={keyValue}
+                      onChange={e => setKeyValue(e.target.value)}
+                      required
+                    />
+                  </div>
+                ) : (
+                  <Input
+                    label="API key"
+                    type="password"
+                    name="provider-api-key"
+                    autoComplete="new-password"
+                    data-1p-ignore
+                    data-lpignore="true"
+                    data-form-type="other"
+                    placeholder="sk-..."
+                    value={keyValue}
+                    onChange={e => setKeyValue(e.target.value)}
+                    required
+                  />
+                )}
               </div>
+              {keypairOffered ? (
+                <div className="flex flex-col gap-1.5">
+                  <label htmlFor="provider-auth-type" className="text-xs font-medium text-foreground">
+                    Authentication
+                  </label>
+                  <select
+                    id="provider-auth-type"
+                    name="provider-auth-type"
+                    className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:border-foreground/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
+                    value={keypairAuth ? "keypair_jwt" : "bearer"}
+                    onChange={e => {
+                      setKeypairAuth(e.target.value === "keypair_jwt");
+                      setKeyValue("");
+                    }}
+                  >
+                    <option value="bearer">Token (sent as-is)</option>
+                    <option value="keypair_jwt">Key pair (router signs a short-lived token)</option>
+                  </select>
+                </div>
+              ) : null}
+              {usingKeypair ? (
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <Input
+                    label="Account identifier"
+                    name="provider-auth-account"
+                    autoComplete="off"
+                    placeholder="MYORG-MYACCOUNT"
+                    value={authAccount}
+                    onChange={e => setAuthAccount(e.target.value)}
+                    required
+                  />
+                  <Input
+                    label="User"
+                    name="provider-auth-user"
+                    autoComplete="off"
+                    placeholder="SERVICE_USER"
+                    value={authUser}
+                    onChange={e => setAuthUser(e.target.value)}
+                    required
+                  />
+                </div>
+              ) : null}
               <Input
                 label={baseURLRequired ? "Endpoint URL" : "Endpoint URL (optional)"}
                 name="provider-base-url"
@@ -761,7 +839,7 @@ function ProviderKeysPanel() {
                   appearance={Appearance.Filled}
                   intent={Intent.Primary}
                   className="!border-brand !bg-brand !text-white hover:!bg-brand/90"
-                  disabled={saving || keyValue.trim() === "" || baseURLMissing}
+                  disabled={saveDisabled}
                 >
                   {saving ? "Saving…" : "Save key"}
                 </Button>

@@ -120,6 +120,12 @@ export interface ExternalKey {
   // Catalog model ID -> the ID this endpoint publishes it under; absent when it
   // uses catalog names directly.
   model_aliases?: Record<string, string>;
+  // "bearer" (send the stored secret) or "keypair_jwt" (the secret is an RSA
+  // private key the router signs short-lived tokens with); absent means bearer.
+  auth_type?: string;
+  // Principal a minted token is issued for; present only with keypair_jwt.
+  auth_account?: string;
+  auth_user?: string;
   last_used_at: string | null;
   created_at: string;
 }
@@ -219,6 +225,7 @@ export const api = {
       name?: string,
       baseURL?: string,
       modelAliases?: Record<string, string>,
+      keypairAuth?: { account: string; user: string },
     ) =>
       request<ExternalKey>("/provider-keys", {
         method: "POST",
@@ -228,6 +235,9 @@ export const api = {
           name,
           base_url: baseURL,
           model_aliases: modelAliases,
+          auth_type: keypairAuth ? "keypair_jwt" : "bearer",
+          auth_account: keypairAuth?.account,
+          auth_user: keypairAuth?.user,
         }),
       }),
     // Replaces the alias map in place; the stored secret is untouched, so

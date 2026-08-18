@@ -25,8 +25,16 @@ type ExternalAPIKey struct {
 	// IdentityHeader and IdentityHeaderFormat name and shape the header sent to this key's endpoint; empty forwards nothing.
 	IdentityHeader       string
 	IdentityHeaderFormat string
-	CreatedAt            time.Time
-	LastUsedAt           *time.Time
+	// AuthType is how Plaintext authenticates upstream: AuthTypeBearer sends it
+	// verbatim, AuthTypeKeypairJWT treats it as an RSA private key signing
+	// short-lived JWTs.
+	AuthType string
+	// AuthAccount and AuthUser identify the principal a minted JWT is issued
+	// for; empty unless AuthType is AuthTypeKeypairJWT.
+	AuthAccount string
+	AuthUser    string
+	CreatedAt   time.Time
+	LastUsedAt  *time.Time
 	// Plaintext is populated after decrypt; never logged.
 	Plaintext []byte
 }
@@ -45,8 +53,20 @@ type CreateExternalAPIKeyParams struct {
 	// IdentityHeader and IdentityHeaderFormat are set or cleared together.
 	IdentityHeader       *string
 	IdentityHeaderFormat *string
-	CreatedBy            *string
+	AuthType             string
+	// AuthAccount and AuthUser are required for AuthTypeKeypairJWT, nil otherwise.
+	AuthAccount *string
+	AuthUser    *string
+	CreatedBy   *string
 }
+
+// Authentication types for a stored BYOK secret. AuthTypeBearer sends the secret
+// verbatim; AuthTypeKeypairJWT stores an RSA private key and mints a short-lived
+// JWT per request window.
+const (
+	AuthTypeBearer     = "bearer"
+	AuthTypeKeypairJWT = "keypair_jwt"
+)
 
 // Identity header formats. IdentityFormatEmail sends the bare address;
 // IdentityFormatJSON sends a URL-encoded JSON property bag (display name, session, client app).
@@ -164,6 +184,47 @@ func NormalizeBaseURL(raw *string) (*string, error) {
 		return nil, fmt.Errorf("%w: %q", ErrInvalidBaseURL, trimmed)
 	}
 	return &trimmed, nil
+}
+
+// maxKeypairFieldLength bounds the account and user identifiers.
+const maxKeypairFieldLength = 255
+
+// NormalizeKeypairAuth validates an auth type with its account/user pair, returning
+// the canonical type plus, for key-pair auth, the uppercased principal the JWT claims
+// require. An empty type means AuthTypeBearer, which carries no principal.
+func NormalizeKeypairAuth(authType string, account, user *string) (string, *string, *string, error) {
+	normalized := strings.ToLower(strings.TrimSpace(authType))
+	// An account locator carries its region as dotted suffixes; the JWT claims
+	// want the bare locator. Org-qualified identifiers are hyphenated and unaffected.
+	upperAccount, _, _ := strings.Cut(strings.ToUpper(trimmedValue(account)), ".")
+	upperUser := strings.ToUpper(trimmedValue(user))
+	if normalized == "" {
+		normalized = AuthTypeBearer
+	}
+	if normalized == AuthTypeBearer {
+		if upperAccount != "" || upperUser != "" {
+			return "", nil, nil, fmt.Errorf("%w: account and user apply to %s only", ErrInvalidKeypairAuth, AuthTypeKeypairJWT)
+		}
+		return AuthTypeBearer, nil, nil, nil
+	}
+	if normalized != AuthTypeKeypairJWT {
+		return "", nil, nil, fmt.Errorf("%w: unknown auth type %q", ErrInvalidKeypairAuth, authType)
+	}
+	if upperAccount == "" || upperUser == "" {
+		return "", nil, nil, fmt.Errorf("%w: %s needs both an account and a user", ErrInvalidKeypairAuth, AuthTypeKeypairJWT)
+	}
+	if len(upperAccount) > maxKeypairFieldLength || len(upperUser) > maxKeypairFieldLength {
+		return "", nil, nil, fmt.Errorf("%w: account and user are limited to %d characters", ErrInvalidKeypairAuth, maxKeypairFieldLength)
+	}
+	return AuthTypeKeypairJWT, &upperAccount, &upperUser, nil
+}
+
+// trimmedValue returns the trimmed value behind s, or "" when s is nil.
+func trimmedValue(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return strings.TrimSpace(*s)
 }
 
 // ExternalAPIKeyRepository manages external API keys in storage.

@@ -33,6 +33,10 @@ var ErrInvalidModelAlias = errors.New("auth: invalid model alias")
 // unnamed, reserved, or in an unknown format.
 var ErrInvalidIdentityHeader = errors.New("auth: invalid identity header")
 
+// ErrInvalidKeypairAuth is returned for a key-pair credential whose auth type,
+// principal, or private key is unusable.
+var ErrInvalidKeypairAuth = errors.New("auth: invalid keypair auth")
+
 type Clock func() time.Time
 
 // InstallationChangeNotifier fans out installation-change events to peer replicas.
@@ -59,6 +63,7 @@ type Service struct {
 	notifier          InstallationChangeNotifier
 	now               Clock
 	encryptor         Encryptor
+	keypairTokens     *KeypairTokenCache
 
 	// adminPassword and adminSessionKey are empty when admin login is disabled.
 	adminPassword   string
@@ -91,6 +96,7 @@ func NewService(
 		notifier:      NoOpInstallationChangeNotifier{},
 		now:           now,
 		encryptor:     NoOpEncryptor{},
+		keypairTokens: NewKeypairTokenCache(now),
 	}
 }
 
@@ -232,7 +238,12 @@ type UpsertExternalAPIKeyParams struct {
 	// in, rendered per IdentityHeaderFormat; both nil forwards nothing.
 	IdentityHeader       *string
 	IdentityHeaderFormat *string
-	CreatedBy            *string
+	// AuthType selects how RawKey authenticates upstream; empty means AuthTypeBearer.
+	// AuthTypeKeypairJWT makes RawKey an RSA private key issued for AuthAccount/AuthUser.
+	AuthType    string
+	AuthAccount *string
+	AuthUser    *string
+	CreatedBy   *string
 }
 
 // UpsertExternalAPIKey replaces the provider's key for the installation.
@@ -249,6 +260,20 @@ func (s *Service) UpsertExternalAPIKey(ctx context.Context, installationID strin
 	identityHeader, identityFormat, err := NormalizeIdentityHeader(params.IdentityHeader, params.IdentityHeaderFormat)
 	if err != nil {
 		return nil, err
+	}
+	authType, authAccount, authUser, err := NormalizeKeypairAuth(params.AuthType, params.AuthAccount, params.AuthUser)
+	if err != nil {
+		return nil, err
+	}
+	if authType == AuthTypeKeypairJWT {
+		if !providers.RequiresBaseURL(provider) {
+			return nil, fmt.Errorf("%w: %s does not accept key-pair credentials", ErrInvalidKeypairAuth, provider)
+		}
+		// Reject an unusable private key here rather than at the first upstream
+		// call, where the only symptom is a 401 nobody can trace to the paste.
+		if _, err := ParseKeypairPrivateKey([]byte(rawKey)); err != nil {
+			return nil, err
+		}
 	}
 	// Checked after normalization: a slash-only value normalizes away to nil.
 	if normalizedBaseURL == nil && providers.RequiresBaseURL(provider) {
@@ -278,6 +303,9 @@ func (s *Service) UpsertExternalAPIKey(ctx context.Context, installationID strin
 
 		IdentityHeader:       identityHeader,
 		IdentityHeaderFormat: identityFormat,
+		AuthType:             authType,
+		AuthAccount:          authAccount,
+		AuthUser:             authUser,
 		CreatedBy:            params.CreatedBy,
 	})
 	if err != nil {
@@ -438,7 +466,7 @@ func (s *Service) VerifyAPIKey(ctx context.Context, rawToken string) (*Installat
 				return nil, nil, nil, nil, ErrWrongKeyScope
 			}
 			s.fireMarkUsed(cached.APIKey.ID)
-			return cached.Installation, cached.APIKey, cached.ExternalKeys, cached.ClusterModelLists, nil
+			return cached.Installation, cached.APIKey, s.resolveUpstreamSecrets(cached.ExternalKeys), cached.ClusterModelLists, nil
 		}
 		// Malformed positive entry (nil APIKey): fall through to DB lookup.
 	}
@@ -485,7 +513,7 @@ func (s *Service) VerifyAPIKey(ctx context.Context, rawToken string) (*Installat
 		s.cache.Set(keyHash, CachedKey{APIKey: apiKey, Installation: installation, ExternalKeys: externalKeys, ClusterModelLists: clusterModelLists})
 	}
 	s.fireMarkUsed(apiKey.ID)
-	return installation, apiKey, externalKeys, clusterModelLists, nil
+	return installation, apiKey, s.resolveUpstreamSecrets(externalKeys), clusterModelLists, nil
 }
 
 // ResolveAndStashUser upserts a router user and stashes the ID on ctx. Email

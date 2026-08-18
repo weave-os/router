@@ -127,6 +127,29 @@ curl -sS -b jar -X PUT https://<router>/admin/v1/provider-keys/<key id>/model-al
   -d '{"model_aliases":{"claude-fable-5":"internal.claude-fable-5"}}'
 ```
 
+**Key-pair auth.** A gateway whose tenant forbids long-lived tokens can be
+given an RSA private key instead: the router signs a short-lived RS256 JWT for
+the configured principal and sends it as the bearer, re-signing well before the
+one-hour ceiling upstreams like Snowflake impose on such tokens.
+
+```bash
+curl -sS -b jar -X POST https://<router>/admin/v1/provider-keys \
+  -H 'content-type: application/json' \
+  -d '{"provider":"openai_gateway","auth_type":"keypair_jwt",
+       "auth_account":"MYORG-MYACCOUNT","auth_user":"SERVICE_USER",
+       "key":"-----BEGIN PRIVATE KEY-----\n...",
+       "base_url":"https://<account>.snowflakecomputing.com/api/v2/cortex/v1"}'
+```
+
+The key must be an unencrypted PKCS#1 or PKCS#8 RSA key of at least 2048 bits —
+passphrase-protected keys are rejected, since there is nobody to prompt. Its
+public half must already be assigned to the upstream user (Snowflake:
+`ALTER USER ... SET RSA_PUBLIC_KEY`), whose default role needs
+`SNOWFLAKE.CORTEX_USER`. Account locators drop their region and cloud suffixes
+(`xy12345.us-east-1.aws` → `XY12345`). The same fields are available in
+**Settings → Provider API keys → Authentication**; `auth_type` defaults to
+`bearer`, which sends the stored secret verbatim as today.
+
 An endpoint that authenticates the org rather than the person can be given the
 calling user in a header of its choosing:
 
