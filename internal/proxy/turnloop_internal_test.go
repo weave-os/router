@@ -96,6 +96,28 @@ func TestPinCacheCold_OrdinaryAndHMMShareTheSameRule(t *testing.T) {
 	assert.True(t, pinCacheCold(cold, false), "an expired pin is cold without a prefix break")
 }
 
+func TestApplyPinEvidence_UsesAvailablePriorTurnData(t *testing.T) {
+	t.Parallel()
+
+	zeroTimestamp := turnLoopResult{}
+	applyPinEvidence(&zeroTimestamp, sessionpin.Pin{
+		Provider: providers.ProviderAnthropic,
+		Model:    "claude-haiku-4-5",
+	})
+	assert.Equal(t, providers.ProviderAnthropic, zeroTimestamp.PinProvider)
+	assert.Nil(t, zeroTimestamp.PriorTurnGapMS)
+
+	withHistory := turnLoopResult{}
+	applyPinEvidence(&withHistory, sessionpin.Pin{
+		Provider:        providers.ProviderFireworks,
+		Model:           "accounts/fireworks/models/qwen3-235b-a22b",
+		LastTurnEndedAt: time.Now().Add(-time.Second),
+	})
+	assert.Equal(t, providers.ProviderFireworks, withHistory.PinProvider)
+	require.NotNil(t, withHistory.PriorTurnGapMS)
+	assert.Greater(t, *withHistory.PriorTurnGapMS, int64(0))
+}
+
 // TestRecordTurnUsage_WritesToStore guards the synchronous UpdateUsage write:
 // recordTurnUsage must persist Last* fields in-line so the planner has
 // prior-turn evidence by the next turn.

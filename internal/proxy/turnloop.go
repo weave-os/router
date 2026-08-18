@@ -92,6 +92,16 @@ func pinCacheCold(pin sessionpin.Pin, prefixBroken bool) bool {
 	return !cacheWarm(pin) || prefixBroken
 }
 
+func applyPinEvidence(res *turnLoopResult, pin sessionpin.Pin) {
+	res.PinModel = pin.Model
+	res.PinProvider = pin.Provider
+	res.PinAgeSec = pinAge(pin)
+	if !pin.LastTurnEndedAt.IsZero() {
+		gapMS := time.Since(pin.LastTurnEndedAt).Milliseconds()
+		res.PriorTurnGapMS = &gapMS
+	}
+}
+
 // turnLoopResult bundles the routing decision and pin/planner state.
 type turnLoopResult struct {
 	Decision       router.Decision
@@ -614,11 +624,7 @@ func (s *Service) runTurnLoop(
 	res.EscalateEffort = pinFound && !pin.LastTurnEndedAt.IsZero() &&
 		(pin.LastOutputTokens == 0 || pin.ConsecutiveUpstreamErrors > 0)
 	if pinFound {
-		res.PinModel = pin.Model
-		res.PinProvider = pin.Provider
-		res.PinAgeSec = pinAge(pin)
-		gapMS := time.Since(pin.LastTurnEndedAt).Milliseconds()
-		res.PriorTurnGapMS = &gapMS
+		applyPinEvidence(&res, pin)
 		log.Info("turnloop pin lookup hit",
 			"pin_model", pin.Model,
 			"pin_provider", pin.Provider,
@@ -976,6 +982,9 @@ func (s *Service) runTurnLoop(
 		res.PlannerDecision = hmmPlannerDecision
 		if hmmStayModel != "" {
 			res.PinModel = hmmStayModel
+			if hmmPin, ok := s.hmmStayPin(req, activePin, hmmHistory); ok && hmmPin.Model == hmmStayModel {
+				applyPinEvidence(&res, hmmPin)
+			}
 		}
 		if hmmSticky {
 			res.StickyHit = true
