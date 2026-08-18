@@ -102,22 +102,31 @@ func TestStrictify_ArrayItemsRecurse(t *testing.T) {
 	assert.Equal(t, false, items["additionalProperties"])
 }
 
-// An array typed node with no "items" key must get a synthesized items
-// sub-schema; without it OpenAI strict mode 400s on the missing type.
-func TestStrictify_ArrayWithoutItemsGetsSynthesizedItems(t *testing.T) {
-	out, ok := strictifyFromJSON(t, `{
+// An array typed node with no "items" key has no declared element type;
+// strict mode can't express that and must bail rather than guess.
+func TestStrictify_ArrayWithoutItemsKeyBails(t *testing.T) {
+	_, ok := strictifyFromJSON(t, `{
 		"type":"object",
 		"properties":{
 			"value":{"type":"array","description":"Filter value(s) as array"}
 		},
 		"required":["value"]
 	}`)
-	require.True(t, ok, "an array with no items key must not make the schema non-strictifiable")
+	require.False(t, ok, "an array with no declared element type is not expressible in strict mode; must bail")
+}
 
-	value := out["properties"].(map[string]any)["value"].(map[string]any)
-	items, present := value["items"]
-	require.True(t, present, "strict mode rejects an array schema with no items sub-schema")
-	assert.Contains(t, items, "type")
+// sanitizeOpenAIToolSchema (run before strictify on the emit path) fills a
+// placeholder items:{} for a bare array — same "no element type" case as
+// above, just already carrying an items key.
+func TestStrictify_ArrayWithEmptyItemsPlaceholderBails(t *testing.T) {
+	_, ok := strictifyFromJSON(t, `{
+		"type":"object",
+		"properties":{
+			"value":{"type":"array","items":{},"description":"Filter value(s) as array"}
+		},
+		"required":["value"]
+	}`)
+	require.False(t, ok, "an empty items placeholder carries no element type; must bail like the no-items-key case")
 }
 
 func TestStrictify_EnumOptionalWrapsInAnyOf(t *testing.T) {

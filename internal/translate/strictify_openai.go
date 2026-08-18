@@ -124,14 +124,16 @@ func strictifyNode(node map[string]any, depth int, propCount *int) (out map[stri
 		if !sok {
 			return nil, false
 		}
+		if !schemaHasStrictType(si) {
+			// No declared element type (absent or sanitize's items:{} placeholder) —
+			// synthesizing a narrower type would silently reject valid non-primitive
+			// elements, so bail the whole tool to non-strict instead.
+			return nil, false
+		}
 		res["items"] = si
 	} else if typeIncludesArray(res["type"]) {
-		// A node typed "array" with no "items" key at all (the MCP tool declared
-		// the value as an untyped array, e.g. keywords-ai's list_logs filter
-		// "value": {"type":"array"}) — OpenAI strict mode 400s with "schema must
-		// have a 'type' key" pointing at the missing items sub-schema. Synthesize
-		// a permissive one rather than bailing non-strict for the whole tool.
-		res["items"] = permissiveAnySchema()
+		// Same "no declared element type" case as above.
+		return nil, false
 	}
 
 	properties, hasProps := res["properties"].(map[string]any)
