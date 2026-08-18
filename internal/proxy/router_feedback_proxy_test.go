@@ -172,6 +172,7 @@ func TestService_RouterFeedbackCommand_PreservesAutomaticPinForOneFollowup(t *te
 		]
 	}`
 
+	sourceExpiry := time.Now().Add(time.Minute)
 	store := newFakePinStore()
 	store.hasPin = true
 	store.pin = sessionpin.Pin{
@@ -179,7 +180,7 @@ func TestService_RouterFeedbackCommand_PreservesAutomaticPinForOneFollowup(t *te
 		Model:           "claude-haiku-4-5",
 		Reason:          "hmm_policy(label=balanced)",
 		LastServedModel: "claude-haiku-4-5",
-		PinnedUntil:     time.Now().Add(time.Hour),
+		PinnedUntil:     sourceExpiry,
 	}
 	policyRouter := &fakePolicyFeedbackRouter{decision: router.Decision{
 		Provider: providers.ProviderAnthropic,
@@ -201,6 +202,15 @@ func TestService_RouterFeedbackCommand_PreservesAutomaticPinForOneFollowup(t *te
 
 	require.NoError(t, svc.ProxyMessages(ctx, []byte(feedbackBody), httptest.NewRecorder(), httpReq))
 	assert.Empty(t, policyRouter.Requests(), "the synthetic feedback response must not route")
+	store.mu.Lock()
+	continuations := make([]sessionpin.Pin, 0, len(store.commandContinuations))
+	for _, continuation := range store.commandContinuations {
+		continuations = append(continuations, continuation)
+	}
+	store.mu.Unlock()
+	require.Len(t, continuations, 1)
+	assert.True(t, continuations[0].PinnedUntil.After(sourceExpiry),
+		"the continuation must renew a near-expiry automatic pin")
 
 	followupRecorder := httptest.NewRecorder()
 	require.NoError(t, svc.ProxyMessages(ctx, []byte(followupBody), followupRecorder, httpReq))
