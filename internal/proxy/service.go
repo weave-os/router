@@ -2769,11 +2769,9 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	// translators validate/repair model tool calls against it. Nil if no tools.
 	toolValidator := env.ToolValidator()
 	setExtractor := func(e *otel.UsageExtractor) { extractor = e }
-	// buildAttempt keys dispatch off the provider's translation family, not a
-	// hardcoded name list, so a new OpenAI-compat provider routes here as soon
-	// as it has a ProviderFamilies entry (see internal/providers/provider.go).
-	// It stays a function because an in-turn model failover re-emits the request
-	// for a candidate that may sit in a different family than the primary.
+	// buildAttempt dispatches by translation family so new OpenAI-compat
+	// providers route automatically; a closure so in-turn model failover can
+	// re-emit for a candidate in a different family.
 	buildAttempt := func(target router.Decision, targetOpts translate.EmitOptions, targetMarker string) (dispatchAttempt, error) {
 		switch providers.FamilyFor(target.Provider) {
 		case providers.FamilyAnthropic:
@@ -2986,12 +2984,9 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		!billing.SubscriptionOnlyFromContext(ctx) &&
 		s.anthropicFallbackKeyAvailable(ctx)
 
-	// Same-cluster model failover eligibility: a provider-wide overload leaves a
-	// single-binding model nowhere to fail over to, so every retry hits the same
-	// dark upstream. Degrade instead to a candidate the policy already scored
-	// for this turn. Gated like baseline failover, plus subscription-only mode:
-	// serving a different model there would incur exactly the paid spend that
-	// mode forbids.
+	// Same-cluster model failover: when the routed model's only binding is dark,
+	// degrade to a peer the policy already scored. Gated out for subscription-only
+	// turns (a different model incurs the paid spend that mode forbids).
 	siblingDecision, siblingFound := s.siblingFailoverDecision(ctx, decision, feats.Tokens)
 	siblingViable := s.siblingFailover &&
 		siblingFound &&
@@ -3151,10 +3146,8 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		flushUpstreamErrorAsAnthropic(contentSink, proxyErr)
 	}
 
-	// Same-cluster failover: the routed model is exhausted on every binding it
-	// has, pre-commit — re-dispatch the next candidate from this turn's routing
-	// decision rather than surfacing an overload the model can't retry out of.
-	// Last rescue in the chain, so it only runs when the earlier ones didn't.
+	// Same-cluster failover: all bindings exhausted pre-commit — re-dispatch
+	// the next policy candidate. Last in the rescue chain.
 	siblingFailoverUsed := false
 	siblingRescueRan := false
 	siblingRescueOwed := siblingViable && !baselineAttempted && !subscriptionRetryRan
