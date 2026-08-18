@@ -20,9 +20,8 @@ import (
 	"workweave/router/internal/translate"
 )
 
-// policyDeadlineTestErr mirrors the real error chain: policyclient wraps
-// context.DeadlineExceeded with %w; SidecarRouter wraps that with hmm.ErrHMMUnavailable
-// via %w:%w (sidecar_router.go:311). Both must survive for errors.Is to see them.
+// policyDeadlineTestErr mirrors the real chain: policyclient wraps context.DeadlineExceeded with %w;
+// SidecarRouter wraps that with hmm.ErrHMMUnavailable via %w:%w. Both must survive for errors.Is.
 var policyDeadlineTestErr = fmt.Errorf(
 	"hmm_embedding: sidecar decide: policy sidecar retries exhausted: %w: %w",
 	context.DeadlineExceeded,

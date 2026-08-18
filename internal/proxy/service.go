@@ -136,9 +136,8 @@ type Service struct {
 	// hmPinStickyOnArmSelectorUnavail suppresses a fresh decision that came from the arm-selector
 	// unavailable fallback bandit. Env ROUTER_HMM_PIN_STICKY_ON_ARM_SELECTOR_UNAVAIL, off by default.
 	hmPinStickyOnArmSelectorUnavail bool
-	// policyDeadlineFallback degrades a policy sidecar deadline/transport
-	// failure to the session's last-known-good pin instead of a 503. Kill
-	// switch: env ROUTER_POLICY_DEADLINE_FALLBACK, off by default.
+	// policyDeadlineFallback degrades a policy sidecar deadline/transport failure to
+	// the session pin instead of a 503. Kill switch: env ROUTER_POLICY_DEADLINE_FALLBACK, off by default.
 	policyDeadlineFallback bool
 	// policyDeadlineDefaultModel is the tier-3 static fallback on a policy deadline
 	// miss with no session pin (~0.2% of failures); empty = fail-closed (503). Env ROUTER_POLICY_DEADLINE_DEFAULT_MODEL.
