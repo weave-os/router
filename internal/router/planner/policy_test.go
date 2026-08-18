@@ -135,10 +135,12 @@ func TestDecide_PrimaryPriceFallbackIsExplicit(t *testing.T) {
 	assert.False(t, got.FreshPriceFallback)
 
 	missing := in
-	missing.Pin.Model = modelUnknown
-	missing.AvailableModels = map[string]struct{}{modelUnknown: {}, modelOpus: {}}
+	missing.Fresh.Model = modelUnknown
+	missing.AvailableModels = map[string]struct{}{modelHaiku: {}, modelUnknown: {}}
 	got = planner.Decide(missing, defaultCfg)
 	require.Equal(t, planner.ReasonPricingMissing, got.Reason)
+	assert.True(t, got.PinPriceFallback, "successful fallback pricing must be retained on a missing-price decision")
+	assert.False(t, got.FreshPriceFallback)
 }
 
 // With ColdPinFollowFresh enabled, a cold pin follows the scorer's fresh pick

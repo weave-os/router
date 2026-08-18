@@ -137,7 +137,12 @@ func Decide(in Inputs, cfg EVConfig) Decision {
 	pinPrice, pinPriceFallback, ok1 := priceForDecision(in.Pin.Provider, in.Pin.Model)
 	freshPrice, freshPriceFallback, ok2 := priceForDecision(in.Fresh.Provider, in.Fresh.Model)
 	if !ok1 || !ok2 {
-		return Decision{Outcome: OutcomeStay, Reason: ReasonPricingMissing}
+		return Decision{
+			Outcome:            OutcomeStay,
+			Reason:             ReasonPricingMissing,
+			PinPriceFallback:   pinPriceFallback && ok1,
+			FreshPriceFallback: freshPriceFallback && ok2,
+		}
 	}
 	// Subscription discount: price a covered model at its subsidized marginal
 	// cost in the EV math too, so a pin on a cheap model correctly switches to a
