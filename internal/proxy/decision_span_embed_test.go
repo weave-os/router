@@ -180,10 +180,8 @@ func TestDecisionSpan_EmbedMs_SurvivesPlannerStay(t *testing.T) {
 	assert.Equal(t, int64(13), got)
 }
 
-// TestDecisionSpan_SidecarTimings_AllThreeStagesPresent pins that EmbedMs,
-// SelectMs, and OtherMs each land on their own span attribute with
-// independent rounding — the three stages are non-overlapping measurements
-// of one sidecar call, not one value repeated three ways.
+// TestDecisionSpan_SidecarTimings_AllThreeStagesPresent verifies each stage
+// lands on its own attribute with independent rounding.
 func TestDecisionSpan_SidecarTimings_AllThreeStagesPresent(t *testing.T) {
 	collector := newBypassSpanCollector(t)
 	svc := newEmbedTestService(t, collector, &embedTestRouter{metadata: &router.RoutingMetadata{SidecarTimings: &router.SidecarTimings{
