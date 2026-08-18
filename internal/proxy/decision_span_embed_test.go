@@ -46,7 +46,8 @@ func (embedTestProvider) Passthrough(context.Context, providers.PreparedRequest,
 }
 
 // spanEmbedInt returns the int64 value of the named attribute on the span, or
-// 0 (and false) if it isn't present.
+// 0 (and false) if it isn't present. Shared by all sidecar-latency attrs
+// (embed_ms, sidecar_select_ms, sidecar_other_ms) since they're all int64.
 func spanEmbedInt(sp *tracev1.Span, key string) (int64, bool) {
 	for _, kv := range sp.Attributes {
 		if kv.Key != key {
@@ -108,7 +109,7 @@ func decisionSpanEmbed(t *testing.T, svc *Service, collector *bypassSpanCollecto
 // 12.5ms must round to 13, not truncate to 12.
 func TestDecisionSpan_EmbedMsHit_Present(t *testing.T) {
 	collector := newBypassSpanCollector(t)
-	svc := newEmbedTestService(t, collector, &embedTestRouter{metadata: &router.RoutingMetadata{EmbedMs: embedMsPtr(12.5)}}, nil)
+	svc := newEmbedTestService(t, collector, &embedTestRouter{metadata: &router.RoutingMetadata{SidecarTimings: &router.SidecarTimings{EmbedMs: embedMsPtr(12.5)}}}, nil)
 
 	sp := decisionSpanEmbed(t, svc, collector)
 
@@ -123,7 +124,7 @@ func TestDecisionSpan_EmbedMsHit_Present(t *testing.T) {
 // rounds to a PRESENT 0 int64 — distinct from the attribute being absent.
 func TestDecisionSpan_EmbedMsWarmCache_PresentZero(t *testing.T) {
 	collector := newBypassSpanCollector(t)
-	svc := newEmbedTestService(t, collector, &embedTestRouter{metadata: &router.RoutingMetadata{EmbedMs: embedMsPtr(0.4)}}, nil)
+	svc := newEmbedTestService(t, collector, &embedTestRouter{metadata: &router.RoutingMetadata{SidecarTimings: &router.SidecarTimings{EmbedMs: embedMsPtr(0.4)}}}, nil)
 
 	sp := decisionSpanEmbed(t, svc, collector)
 
@@ -140,7 +141,8 @@ func TestDecisionSpan_EmbedMsAbsent_NilMetadataAndNilEmbedMiss(t *testing.T) {
 		metadata *router.RoutingMetadata
 	}{
 		{name: "nil metadata", metadata: nil},
-		{name: "metadata without embed", metadata: &router.RoutingMetadata{}},
+		{name: "metadata without sidecar timings", metadata: &router.RoutingMetadata{}},
+		{name: "sidecar timings without embed", metadata: &router.RoutingMetadata{SidecarTimings: &router.SidecarTimings{}}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			collector := newBypassSpanCollector(t)
@@ -168,7 +170,7 @@ func TestDecisionSpan_EmbedMs_SurvivesPlannerStay(t *testing.T) {
 		Reason:      "cluster",
 		PinnedUntil: time.Now().Add(time.Hour),
 	}
-	svc := newEmbedTestService(t, collector, &embedTestRouter{metadata: &router.RoutingMetadata{EmbedMs: embedMsPtr(12.5)}}, store)
+	svc := newEmbedTestService(t, collector, &embedTestRouter{metadata: &router.RoutingMetadata{SidecarTimings: &router.SidecarTimings{EmbedMs: embedMsPtr(12.5)}}}, store)
 
 	sp := decisionSpanEmbed(t, svc, collector)
 
@@ -178,7 +180,55 @@ func TestDecisionSpan_EmbedMs_SurvivesPlannerStay(t *testing.T) {
 	assert.Equal(t, int64(13), got)
 }
 
-// TestPinDecision_NeverRehydratesMetadata guards against stale embed_ms
+// TestDecisionSpan_SidecarTimings_AllThreeStagesPresent pins that EmbedMs,
+// SelectMs, and OtherMs each land on their own span attribute with
+// independent rounding — the three stages are non-overlapping measurements
+// of one sidecar call, not one value repeated three ways.
+func TestDecisionSpan_SidecarTimings_AllThreeStagesPresent(t *testing.T) {
+	collector := newBypassSpanCollector(t)
+	svc := newEmbedTestService(t, collector, &embedTestRouter{metadata: &router.RoutingMetadata{SidecarTimings: &router.SidecarTimings{
+		EmbedMs:  embedMsPtr(12.5),
+		SelectMs: embedMsPtr(3.2),
+		OtherMs:  embedMsPtr(7.6),
+	}}}, nil)
+
+	sp := decisionSpanEmbed(t, svc, collector)
+
+	embedMs, embedPresent := spanEmbedInt(sp, "latency.embed_ms")
+	require.True(t, embedPresent, "EmbedMs must carry latency.embed_ms")
+	assert.Equal(t, int64(13), embedMs)
+
+	selectMs, selectPresent := spanEmbedInt(sp, "latency.sidecar_select_ms")
+	require.True(t, selectPresent, "SelectMs must carry latency.sidecar_select_ms")
+	assert.Equal(t, int64(3), selectMs)
+
+	otherMs, otherPresent := spanEmbedInt(sp, "latency.sidecar_other_ms")
+	require.True(t, otherPresent, "OtherMs must carry latency.sidecar_other_ms")
+	assert.Equal(t, int64(8), otherMs, "7.6 must round up to 8, not truncate to 7")
+}
+
+// TestDecisionSpan_SidecarTimings_OnlySelectMsSet pins that each of the
+// three stage attrs is emitted independently: a nil EmbedMs/OtherMs must not
+// suppress SelectMs, and SelectMs alone must not fabricate the other two.
+func TestDecisionSpan_SidecarTimings_OnlySelectMsSet(t *testing.T) {
+	collector := newBypassSpanCollector(t)
+	svc := newEmbedTestService(t, collector, &embedTestRouter{metadata: &router.RoutingMetadata{SidecarTimings: &router.SidecarTimings{
+		SelectMs: embedMsPtr(3.2),
+	}}}, nil)
+
+	sp := decisionSpanEmbed(t, svc, collector)
+
+	selectMs, selectPresent := spanEmbedInt(sp, "latency.sidecar_select_ms")
+	require.True(t, selectPresent, "SelectMs must carry latency.sidecar_select_ms even when the other two stages are nil")
+	assert.Equal(t, int64(3), selectMs)
+
+	_, embedPresent := spanEmbedInt(sp, "latency.embed_ms")
+	assert.False(t, embedPresent, "nil EmbedMs must not emit latency.embed_ms")
+	_, otherPresent := spanEmbedInt(sp, "latency.sidecar_other_ms")
+	assert.False(t, otherPresent, "nil OtherMs must not emit latency.sidecar_other_ms")
+}
+
+// TestPinDecision_NeverRehydratesMetadata guards against stale sidecar-timing
 // replay: pins must rehydrate with Metadata nil.
 func TestPinDecision_NeverRehydratesMetadata(t *testing.T) {
 	dec := pinDecision(sessionpin.Pin{
@@ -186,5 +236,5 @@ func TestPinDecision_NeverRehydratesMetadata(t *testing.T) {
 		Model:    "claude-haiku-4-5",
 		Reason:   "compaction",
 	})
-	assert.Nil(t, dec.Metadata, "pins must never carry routing metadata — rehydrating it would replay stale embed measurements")
+	assert.Nil(t, dec.Metadata, "pins must never carry routing metadata — rehydrating it would replay stale sidecar timings")
 }

@@ -373,9 +373,40 @@ type routeResponse struct {
 }
 
 // routeTimings is the sidecar's optional per-request latency breakdown.
-// EmbedMs is nil (not zero) when embedding didn't run for this request.
+// Fields are nil (not zero) when the sidecar didn't measure that stage;
+// route_ms spans the whole decision and is a superset of the other stages.
 type routeTimings struct {
-	EmbedMs *float64 `json:"embed_ms"`
+	RouteMs  *float64 `json:"route_ms"`
+	SelectMs *float64 `json:"select_ms"`
+	EmbedMs  *float64 `json:"embed_ms"`
+}
+
+// decomposeTimings converts the sidecar's overlapping wire timings into
+// non-overlapping stages: embedding, arm selection, and the remainder of the
+// sidecar's route handler. Returns nil when the sidecar measured nothing.
+func decomposeTimings(wire *routeTimings) *router.SidecarTimings {
+	if wire == nil || (wire.RouteMs == nil && wire.SelectMs == nil && wire.EmbedMs == nil) {
+		return nil
+	}
+	timings := &router.SidecarTimings{
+		EmbedMs:  wire.EmbedMs,
+		SelectMs: wire.SelectMs,
+	}
+	if wire.RouteMs != nil {
+		other := *wire.RouteMs - floatOrZero(wire.EmbedMs) - floatOrZero(wire.SelectMs)
+		if other < 0 {
+			other = 0
+		}
+		timings.OtherMs = &other
+	}
+	return timings
+}
+
+func floatOrZero(value *float64) float64 {
+	if value == nil {
+		return 0
+	}
+	return *value
 }
 
 type previewResponse struct {
@@ -430,10 +461,6 @@ func (c *Client) Decide(ctx context.Context, query policy.Query) (policy.Result,
 	if parsed.ChosenScore != nil {
 		score = *parsed.ChosenScore
 	}
-	var embedMs *float64
-	if parsed.Timings != nil {
-		embedMs = parsed.Timings.EmbedMs
-	}
 	return policy.Result{
 		SchemaVersion:        parsed.SchemaVersion,
 		RouteID:              parsed.RouteID,
@@ -458,7 +485,7 @@ func (c *Client) Decide(ctx context.Context, query policy.Query) (policy.Result,
 		DebugRef:             parsed.DebugRef,
 		Debug:                parsed.Debug,
 		RankedFallback:       parsed.RankedFallback,
-		EmbedMs:              embedMs,
+		Timings:              decomposeTimings(parsed.Timings),
 	}, nil
 }
 

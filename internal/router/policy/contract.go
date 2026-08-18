@@ -103,9 +103,9 @@ type Result struct {
 	DisplayMarker        string
 	PolicyArtifactID     string
 	PolicyArtifactSHA256 string
-	// EmbedMs is the sidecar's embedding duration in ms; nil when embedding
-	// didn't run, present 0 is a real warm-cache measurement.
-	EmbedMs       *float64
+	// Timings is the sidecar's per-stage decision cost decomposed into
+	// non-overlapping stages; nil when the sidecar reported no timings.
+	Timings       *router.SidecarTimings
 	RosterVersion string
 	DebugRef      string
 	Debug         map[string]interface{}

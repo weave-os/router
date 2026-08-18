@@ -263,9 +263,9 @@ type RoutingMetadata struct {
 	PolicyArtifactID     string
 	PolicyArtifactSHA256 string
 	RosterVersion        string
-	// EmbedMs is set only on fresh sidecar decisions; never persist into pins
-	// or a replayed pin re-emits a stale measurement.
-	EmbedMs              *float64
+	// SidecarTimings is set only on fresh sidecar decisions; never persist
+	// into pins or a replayed pin re-emits a stale measurement.
+	SidecarTimings       *SidecarTimings
 	SelectedArmID        string
 	SelectedUpstreamID   string
 	BindingIndex         int
@@ -303,6 +303,16 @@ type RoutingMetadata struct {
 	PairedModel    string
 	PairedProvider string
 	PairedScore    float32
+}
+
+// SidecarTimings is the policy sidecar's per-stage decision cost in
+// milliseconds, decomposed into non-overlapping stages that sum to the
+// sidecar's self-reported decision total. A nil field was not measured;
+// present 0 is a real sub-millisecond measurement.
+type SidecarTimings struct {
+	EmbedMs  *float64 // embedding round trip
+	SelectMs *float64 // arm selection
+	OtherMs  *float64 // remainder of the sidecar's route handler
 }
 
 type Router interface {

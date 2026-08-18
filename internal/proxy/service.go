@@ -2625,7 +2625,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		Float64("catalog.actual_input_per_1m", actPricing.InputUSDPer1M).
 		Float64("catalog.actual_output_per_1m", actPricing.OutputUSDPer1M).
 		Int64("latency.route_ms", routeMs)
-	applyEmbedLatencyAttr(decisionBuilder, routeRes)
+	applySidecarLatencyAttrs(decisionBuilder, routeRes)
 	applyPlannerAttrs(decisionBuilder, routeRes)
 	applyRoutingStateAttrs(decisionBuilder, routeRes, decision.Model, sessionKey)
 	otel.Record(ctx, otel.Span{
@@ -3397,12 +3397,24 @@ func applyPlannerAttrs(b *otel.AttrBuilder, res turnLoopResult) *otel.AttrBuilde
 	return b
 }
 
-// applyEmbedLatencyAttr reads Fresh.Metadata, not the served decision:
+// applySidecarLatencyAttrs reads Fresh.Metadata, not the served decision:
 // STAY replaces the decision with a pin (nil Metadata) even when the
-// sidecar embedded this turn. Absent = no embedding; present 0 = warm cache.
-func applyEmbedLatencyAttr(b *otel.AttrBuilder, res turnLoopResult) *otel.AttrBuilder {
-	if res.Fresh.Metadata != nil && res.Fresh.Metadata.EmbedMs != nil {
-		b.Int64("latency.embed_ms", int64(math.Round(*res.Fresh.Metadata.EmbedMs)))
+// sidecar ran this turn. Absent = stage not measured; present 0 = sub-ms.
+// Each of the three stages emits independently so a nil field on one
+// doesn't suppress the others.
+func applySidecarLatencyAttrs(b *otel.AttrBuilder, res turnLoopResult) *otel.AttrBuilder {
+	if res.Fresh.Metadata == nil || res.Fresh.Metadata.SidecarTimings == nil {
+		return b
+	}
+	st := res.Fresh.Metadata.SidecarTimings
+	if st.EmbedMs != nil {
+		b.Int64("latency.embed_ms", int64(math.Round(*st.EmbedMs)))
+	}
+	if st.SelectMs != nil {
+		b.Int64("latency.sidecar_select_ms", int64(math.Round(*st.SelectMs)))
+	}
+	if st.OtherMs != nil {
+		b.Int64("latency.sidecar_other_ms", int64(math.Round(*st.OtherMs)))
 	}
 	return b
 }
@@ -4730,7 +4742,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		Float64("catalog.actual_input_per_1m", actPricing.InputUSDPer1M).
 		Float64("catalog.actual_output_per_1m", actPricing.OutputUSDPer1M).
 		Int64("latency.route_ms", routeMs)
-	applyEmbedLatencyAttr(openaiDecisionBuilder, routeRes)
+	applySidecarLatencyAttrs(openaiDecisionBuilder, routeRes)
 	applyPlannerAttrs(openaiDecisionBuilder, routeRes)
 	applyRoutingStateAttrs(openaiDecisionBuilder, routeRes, decision.Model, sessionKey)
 	otel.Record(ctx, otel.Span{

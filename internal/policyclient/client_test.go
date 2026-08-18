@@ -163,11 +163,12 @@ func TestClientPostsVersionedRouteAndParsesPolicyMetadata(t *testing.T) {
 	assert.Equal(t, map[string]float32{"moonshotai/kimi-k2.7-code": 0.91}, result.CandidateScores)
 }
 
-func TestClientDecideParsesEmbedMs(t *testing.T) {
+func decideWithTimings(t *testing.T, timings *routeTimings) policy.Result {
+	t.Helper()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_ = json.NewEncoder(w).Encode(routeResponse{
 			SelectedRosterID: "anthropic/claude-opus-4-8",
-			Timings:          &routeTimings{EmbedMs: floatPtr(12.5)},
+			Timings:          timings,
 		})
 	}))
 	defer server.Close()
@@ -175,31 +176,45 @@ func TestClientDecideParsesEmbedMs(t *testing.T) {
 	result, err := New(server.URL, server.Client(), 0).Decide(context.Background(), policy.Query{
 		Candidates: []policy.Candidate{{RosterID: "anthropic/claude-opus-4-8", CatalogID: "claude-opus-4-8", Provider: providers.ProviderAnthropic}},
 	})
-
 	require.NoError(t, err)
-	require.NotNil(t, result.EmbedMs)
-	assert.Equal(t, 12.5, *result.EmbedMs)
+	return result
 }
 
-func TestClientDecidePreservesPresentZeroEmbedMs(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		_ = json.NewEncoder(w).Encode(routeResponse{
-			SelectedRosterID: "anthropic/claude-opus-4-8",
-			Timings:          &routeTimings{EmbedMs: floatPtr(0)},
-		})
-	}))
-	defer server.Close()
+func TestClientDecideDecomposesFullTimingsIntoDisjointStagesSummingToRouteMs(t *testing.T) {
+	const routeMs = 20.0
+	result := decideWithTimings(t, &routeTimings{RouteMs: floatPtr(routeMs), SelectMs: floatPtr(3.5), EmbedMs: floatPtr(12.5)})
 
-	result, err := New(server.URL, server.Client(), 0).Decide(context.Background(), policy.Query{
-		Candidates: []policy.Candidate{{RosterID: "anthropic/claude-opus-4-8", CatalogID: "claude-opus-4-8", Provider: providers.ProviderAnthropic}},
-	})
-
-	require.NoError(t, err)
-	require.NotNil(t, result.EmbedMs)
-	assert.Equal(t, 0.0, *result.EmbedMs)
+	require.NotNil(t, result.Timings)
+	require.NotNil(t, result.Timings.EmbedMs)
+	require.NotNil(t, result.Timings.SelectMs)
+	require.NotNil(t, result.Timings.OtherMs)
+	assert.Equal(t, 12.5, *result.Timings.EmbedMs)
+	assert.Equal(t, 3.5, *result.Timings.SelectMs)
+	assert.Equal(t, routeMs-12.5-3.5, *result.Timings.OtherMs)
+	assert.Equal(t, routeMs, *result.Timings.EmbedMs+*result.Timings.SelectMs+*result.Timings.OtherMs)
 }
 
-func TestClientDecideLeavesEmbedMsNilWhenTimingsOmitted(t *testing.T) {
+func TestClientDecideLeavesSelectAndOtherNilForEmbedOnlyTimings(t *testing.T) {
+	result := decideWithTimings(t, &routeTimings{EmbedMs: floatPtr(12.5)})
+
+	require.NotNil(t, result.Timings)
+	require.NotNil(t, result.Timings.EmbedMs)
+	assert.Equal(t, 12.5, *result.Timings.EmbedMs)
+	assert.Nil(t, result.Timings.SelectMs)
+	assert.Nil(t, result.Timings.OtherMs)
+}
+
+func TestClientDecidePreservesPresentZeroEmbedMsAndComputesOtherFromRoute(t *testing.T) {
+	result := decideWithTimings(t, &routeTimings{RouteMs: floatPtr(5), SelectMs: floatPtr(2), EmbedMs: floatPtr(0)})
+
+	require.NotNil(t, result.Timings)
+	require.NotNil(t, result.Timings.EmbedMs)
+	require.NotNil(t, result.Timings.OtherMs)
+	assert.Equal(t, 0.0, *result.Timings.EmbedMs)
+	assert.Equal(t, 3.0, *result.Timings.OtherMs)
+}
+
+func TestClientDecideLeavesTimingsNilWhenOmittedEntirely(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]interface{}{"model": "anthropic/claude-opus-4-8"})
 	}))
@@ -210,7 +225,15 @@ func TestClientDecideLeavesEmbedMsNilWhenTimingsOmitted(t *testing.T) {
 	})
 
 	require.NoError(t, err)
-	assert.Nil(t, result.EmbedMs)
+	assert.Nil(t, result.Timings)
+}
+
+func TestClientDecideClampsOtherMsToZeroWhenStagesExceedRouteMs(t *testing.T) {
+	result := decideWithTimings(t, &routeTimings{RouteMs: floatPtr(5), SelectMs: floatPtr(4), EmbedMs: floatPtr(3)})
+
+	require.NotNil(t, result.Timings)
+	require.NotNil(t, result.Timings.OtherMs)
+	assert.Equal(t, 0.0, *result.Timings.OtherMs)
 }
 
 func TestClientOmitsV2CandidateFieldsFromV1(t *testing.T) {
