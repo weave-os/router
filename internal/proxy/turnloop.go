@@ -302,8 +302,7 @@ func (s *Service) isHardPinnedTurn(ctx context.Context, tt turntype.TurnType) bo
 		return s.hardPinExplore || s.hasSubAgentOverride()
 	case turntype.SubAgentHarnessMeta:
 		// Never hard-pinned: the harness escalation clamp routes sub-agent
-		// harness turns UP (its job), overriding any low-tier background pin a
-		// hard pin here would impose.
+		// harness turns UP, overriding any low-tier background pin.
 		return false
 	default:
 		return false
@@ -311,9 +310,8 @@ func (s *Service) isHardPinnedTurn(ctx context.Context, tt turntype.TurnType) bo
 }
 
 // authoritativePolicyTurn reports whether tt is a model-authoritative policy
-// turn. Uses tt.Base() so the harness variants (HarnessMeta → MainLoop,
-// Recovery → ToolResult) keep the authoritative-policy behavior of their
-// underlying shape.
+// turn. Uses tt.Base() so harness variants (HarnessMeta → MainLoop,
+// Recovery → ToolResult) inherit the policy behavior of their base shape.
 func authoritativePolicyTurn(tt turntype.TurnType) bool {
 	return tt.Base() == turntype.MainLoop || tt.Base() == turntype.ToolResult
 }

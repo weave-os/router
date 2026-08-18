@@ -47,9 +47,8 @@ const (
 	// stays suppressed on this replica; the DB row is the durable record.
 	claimedToolFiredCacheTTL = 24 * time.Hour
 	// claimedToolWindowBytes is the lowercased window scanned around each
-	// declared tool-name occurrence. Long enough to span "There is no ... tool
-	// in my available toolset"-style sentences, short enough to not match a
-	// "not available" elsewhere in a long reply.
+	// declared tool-name occurrence — wide enough to catch multi-clause denials
+	// without matching stray "not available" elsewhere in a long reply.
 	claimedToolWindowBytes = 160
 	// claimedToolNoPrecedeBytes is how far before an occurrence "no " /
 	// "there is no " (the "no <tool> tool" signal) is checked.
@@ -304,9 +303,8 @@ func (s *Service) maybeReportClaimedToolUnavailable(
 			RequestID:      requestID,
 			RouteID:        routeID,
 		}
-		// context.Background(): the request ctx may already be canceled by the
-		// time this runs post-stream; losing the row would drop the failing
-		// turn from the auto corpus.
+		// context.Background(): the request ctx may be canceled post-stream;
+		// a canceled ctx would silently drop the row from the auto corpus.
 		if err := s.feedbackStore.InsertRouterFeedback(context.Background(), event); err != nil {
 			log.Error("router.claimed_tool_unavailable: feedback insert failed", "err", err)
 			continue // leave the LRU unset so the next turn retries
