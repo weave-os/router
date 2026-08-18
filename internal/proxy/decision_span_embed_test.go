@@ -61,9 +61,8 @@ func spanEmbedInt(sp *tracev1.Span, key string) (int64, bool) {
 
 func embedMsPtr(ms float64) *float64 { return &ms }
 
-// embedTurnBody mirrors the force-cluster harness body: tools + a real
-// max_tokens keep the turn off the classifier/probe hard-pin fast paths,
-// which would never reach the router at all.
+// embedTurnBody mirrors the force-cluster harness body: tools + max_tokens
+// keep the turn off the classifier/probe hard-pin fast paths.
 func embedTurnBody() []byte {
 	return []byte(`{"model":"claude-opus-4-8","max_tokens":4096,` +
 		`"tools":[{"name":"Bash","input_schema":{"type":"object"}}],` +
@@ -120,10 +119,8 @@ func TestDecisionSpan_EmbedMsHit_Present(t *testing.T) {
 	assert.True(t, routePresent, "the established route_ms attribute must stay present")
 }
 
-// TestDecisionSpan_EmbedMsWarmCache_PresentZero pins the warm-cache contract:
-// a present sub-half-millisecond embed (0.4ms) round-zeros to a PRESENT 0,
-// which downstream ingests as a real measurement — distinct from the
-// attribute being absent.
+// TestDecisionSpan_EmbedMsWarmCache_PresentZero pins that a present 0.4ms
+// rounds to a PRESENT 0 int64 — distinct from the attribute being absent.
 func TestDecisionSpan_EmbedMsWarmCache_PresentZero(t *testing.T) {
 	collector := newBypassSpanCollector(t)
 	svc := newEmbedTestService(t, collector, &embedTestRouter{metadata: &router.RoutingMetadata{EmbedMs: embedMsPtr(0.4)}}, nil)
@@ -159,10 +156,9 @@ func TestDecisionSpan_EmbedMsAbsent_NilMetadataAndNilEmbedMiss(t *testing.T) {
 	}
 }
 
-// TestDecisionSpan_EmbedMs_SurvivesPlannerStay pins the STAY path: a live
-// same-model pin makes the planner serve the pin-derived decision (nil
-// Metadata), but the sidecar still embedded this turn, so the span must
-// carry the fresh measurement.
+// TestDecisionSpan_EmbedMs_SurvivesPlannerStay pins the STAY path: the
+// planner serves a pin-derived decision (nil Metadata), but embed_ms must
+// still be emitted from the fresh sidecar measurement.
 func TestDecisionSpan_EmbedMs_SurvivesPlannerStay(t *testing.T) {
 	collector := newBypassSpanCollector(t)
 	store := newStubPinStore()
