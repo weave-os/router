@@ -431,6 +431,8 @@ var Models = []Model{
 	}},
 	// Untiered: Makora EOL'd V4-Pro and recommends V4-Flash, which takes the
 	// tier. Priced and bound so session pins and /force-model still dispatch.
+	// This bare alias is the OLD 0423 release; the routable one is the dated
+	// 0813 entry below, which is what AA actually benchmarks.
 	{ID: "deepseek/deepseek-v4-pro", ContextWindow: 1_048_576, ImageInput: ImageInputUnsupported, Providers: []ProviderBinding{
 		// Together is primary: same $1.74/$3.48 as Fireworks with #1 AA
 		// throughput (~209 t/s vs ~120).
@@ -439,6 +441,14 @@ var Models = []Model{
 		{Provider: providers.ProviderFireworks, UpstreamID: "accounts/fireworks/models/deepseek-v4-pro",
 			Price: Pricing{InputUSDPer1M: 1.740, OutputUSDPer1M: 3.480, CacheReadMultiplier: 0.0862}},
 		{Provider: providers.ProviderOpenRouter, Price: Pricing{InputUSDPer1M: 0.435, OutputUSDPer1M: 0.870, CacheReadMultiplier: 0.10}},
+	}},
+	// The current V4-Pro release, and the one Artificial Analysis scores
+	// (agentic index 49.56; our aa_skill_scores entry already carries
+	// aa_name "DeepSeek V4 Pro 0813"). The bare deepseek/deepseek-v4-pro alias
+	// above resolves to the retired 0423 build, so the HMM roster must target
+	// this dated ID to route to what it was actually ranked on.
+	{ID: "deepseek/deepseek-v4-pro-0813", Tier: TierMid, ContextWindow: 1_048_576, ImageInput: ImageInputUnsupported, Providers: []ProviderBinding{
+		{Provider: providers.ProviderOpenRouter, Price: Pricing{InputUSDPer1M: 0.660, OutputUSDPer1M: 1.980, CacheReadMultiplier: 0.022 / 0.660}},
 	}},
 	{ID: "moonshotai/kimi-k2.5", Tier: TierHigh, ContextWindow: 262_144, ImageInput: ImageInputUnsupported, Providers: []ProviderBinding{
 		{Provider: providers.ProviderBedrock, UpstreamID: "moonshotai.kimi-k2.5",

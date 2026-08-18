@@ -6,7 +6,7 @@ export interface ModelPricing {
 	outputUsdPerMillion: number;
 }
 
-export const PRICING_VERSION = "catalog-sha256:33d266d6882bba0f";
+export const PRICING_VERSION = "catalog-sha256:5bb3cdf60b286396";
 
 export const MODEL_PRICING: Readonly<Record<string, ModelPricing>> = Object.freeze({
 	"claude-fable-5": { inputUsdPerMillion: 10, outputUsdPerMillion: 50 },
@@ -23,6 +23,7 @@ export const MODEL_PRICING: Readonly<Record<string, ModelPricing>> = Object.free
 	"claude-sonnet-5": { inputUsdPerMillion: 3, outputUsdPerMillion: 15 },
 	"deepseek/deepseek-v4-flash": { inputUsdPerMillion: 0.1134, outputUsdPerMillion: 0.2791 },
 	"deepseek/deepseek-v4-pro": { inputUsdPerMillion: 1.74, outputUsdPerMillion: 3.48 },
+	"deepseek/deepseek-v4-pro-0813": { inputUsdPerMillion: 0.66, outputUsdPerMillion: 1.98 },
 	"gemini-2.0-flash": { inputUsdPerMillion: 0.1, outputUsdPerMillion: 0.4 },
 	"gemini-2.0-flash-lite": { inputUsdPerMillion: 0.075, outputUsdPerMillion: 0.3 },
 	"gemini-2.5-flash": { inputUsdPerMillion: 0.3, outputUsdPerMillion: 1.2 },
