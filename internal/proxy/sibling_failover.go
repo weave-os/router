@@ -16,7 +16,9 @@ const ReasonSiblingFailover = "sibling_failover"
 // already filtered for capability/context), plus PairedModel as a last resort
 // for replayed pins. Candidates on the failed provider rank last. Reports false
 // when no distinct servable candidate exists or the keyed-provider set is unset.
-func (s *Service) siblingFailoverDecision(ctx context.Context, failed router.Decision, estimatedTokens int) (router.Decision, bool) {
+// Context fit uses the same estimator as the pre-route overflow filter, so a
+// tool-heavy turn can't degrade onto a candidate too small to hold it.
+func (s *Service) siblingFailoverDecision(ctx context.Context, failed router.Decision, est, sigSavings, outputReserve int) (router.Decision, bool) {
 	md := failed.Metadata
 	if md == nil || s.deploymentKeyedProviders == nil {
 		return router.Decision{}, false
@@ -32,7 +34,7 @@ func (s *Service) siblingFailoverDecision(ctx context.Context, failed router.Dec
 		if _, drop := excludedModels[id]; drop {
 			continue
 		}
-		if window := catalog.ContextWindowFor(id); window > 0 && estimatedTokens > window {
+		if !siblingFitsContext(id, est, sigSavings, outputReserve) {
 			continue
 		}
 		provider, ok := siblingProvider(id, md.CandidateProviders, available)
@@ -50,6 +52,18 @@ func (s *Service) siblingFailoverDecision(ctx context.Context, failed router.Dec
 		return sameProvider[0], true
 	}
 	return router.Decision{}, false
+}
+
+// siblingFitsContext mirrors excludeContextOverflowModels for one candidate.
+func siblingFitsContext(model string, est, sigSavings, outputReserve int) bool {
+	if est <= 0 {
+		return true
+	}
+	needed := est + outputReserve
+	if sigSavings > 0 && modelStripsAnthropicSignatures(model) {
+		needed -= sigSavings
+	}
+	return needed <= contextWindowForRequest(model)
 }
 
 // siblingCandidateOrder lists rescue candidates in policy-preference order,

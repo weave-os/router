@@ -1,6 +1,7 @@
 package proxy_test
 
 import (
+	"context"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -265,4 +266,66 @@ func TestProxyMessages_OverloadWithoutCandidatesSurfacesUpstreamError(t *testing
 	defer mu.Unlock()
 	assert.Greater(t, anthropicCount, 1, "same-binding retries still run")
 	assert.Contains(t, rec.Body.String(), "Overloaded", "the deferred upstream error must reach the client")
+}
+
+// TestProxyMessages_SubscriptionOverloadSurfacesOnceAfterRetry: a
+// subscription-served turn carries a customer credential, so shouldFailover
+// keeps it on its own binding — the Weave-key retry runs, and when that hits
+// the same overloaded endpoint the error must reach the client exactly once
+// with no cluster peer dispatched behind it.
+func TestProxyMessages_SubscriptionOverloadSurfacesOnceAfterRetry(t *testing.T) {
+	var (
+		mu             sync.Mutex
+		anthropicCount int
+		fireworksCount int
+	)
+
+	anthropicUpstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		mu.Lock()
+		anthropicCount++
+		mu.Unlock()
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(statusOverloaded)
+		_, _ = w.Write([]byte(overloadedSSE))
+	}))
+	defer anthropicUpstream.Close()
+
+	fireworks := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		mu.Lock()
+		fireworksCount++
+		mu.Unlock()
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer fireworks.Close()
+
+	svc := proxy.NewService(
+		&fakeRouter{decision: siblingClusterDecision("")},
+		map[string]providers.Client{
+			providers.ProviderAnthropic: anthropic.NewClient("test-anthropic-key", anthropicUpstream.URL),
+			providers.ProviderFireworks: openaicompat.NewClient("test-fw-key", fireworks.URL),
+		},
+		nil, false, nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil,
+	).WithDeploymentKeyedProviders(map[string]struct{}{
+		providers.ProviderAnthropic: {},
+		providers.ProviderFireworks: {},
+	})
+
+	ctx := context.WithValue(
+		authedCtx("11111111-1111-1111-1111-111111111111"),
+		proxy.AnthropicSubscriptionContextKey{},
+		"sk-ant-oat01-subscription-token",
+	)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	body := []byte(`{"model":"claude-opus-4-8","stream":true,"messages":[{"role":"user","content":"hi"}]}`)
+
+	err := svc.ProxyMessages(ctx, body, rec, req)
+	require.Error(t, err, "a customer-credentialed turn has nowhere to degrade to")
+
+	mu.Lock()
+	defer mu.Unlock()
+	assert.Greater(t, anthropicCount, 1, "the subscription retry reruns the same model on the Weave key")
+	assert.Zero(t, fireworksCount, "a subscription credential binds the turn to its own provider")
+	assert.Equal(t, 1, strings.Count(rec.Body.String(), "overloaded_error"),
+		"the deferred overload is flushed exactly once across the rescue chain")
 }

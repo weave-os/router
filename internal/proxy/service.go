@@ -2987,7 +2987,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	// Same-cluster model failover: when the routed model's only binding is dark,
 	// degrade to a peer the policy already scored. Gated out for subscription-only
 	// turns (a different model incurs the paid spend that mode forbids).
-	siblingDecision, siblingFound := s.siblingFailoverDecision(ctx, decision, feats.Tokens)
+	siblingDecision, siblingFound := s.siblingFailoverDecision(ctx, decision, overflowEstimate, env.SignatureTokenSavings(), outputReserve)
 	siblingViable := s.siblingFailover &&
 		siblingFound &&
 		!agentShadowMode &&
@@ -3007,6 +3007,19 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		flushErr:               flushUpstreamErrorAsAnthropic,
 		deferFlushOnExhaustion: baselineViable || subscriptionRetryEligible || siblingViable,
 	})
+
+	// The deferred upstream error must reach the client exactly once: every
+	// rescue below hands ownership to the next one, and whichever declines to
+	// run flushes. Writing it also forecloses any later rescue — the bytes are
+	// on the wire.
+	deferredErrFlushed := false
+	flushDeferredErr := func() {
+		if deferredErrFlushed {
+			return
+		}
+		deferredErrFlushed = true
+		flushUpstreamErrorAsAnthropic(contentSink, proxyErr)
+	}
 
 	// The routed model's bindings all failed with a fault another model could
 	// satisfy, pre-commit — re-dispatch the requested model on Anthropic.
@@ -3047,7 +3060,9 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		baselinePrep, baselineEmitErr := env.PrepareAnthropic(r.Header, baselineOpts)
 		if baselineEmitErr != nil {
 			log.Error("Baseline failover: emit Anthropic body failed; surfacing original error", "err", baselineEmitErr, "baseline_model", baselineModel)
-			flushUpstreamErrorAsAnthropic(contentSink, proxyErr)
+			if !siblingViable {
+				flushDeferredErr()
+			}
 		} else {
 			log.Warn("Baseline failover: routed model exhausted, retrying requested model on Anthropic",
 				"failed_model", decision.Model,
@@ -3087,7 +3102,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		// surface the deferred original error now. Guard must match
 		// deferFlushOnExhaustion above, or a deferred error is never flushed —
 		// unless the sibling rescue below owns the deferred flush instead.
-		flushUpstreamErrorAsAnthropic(contentSink, proxyErr)
+		flushDeferredErr()
 	}
 
 	// Subscription-credit failover: suppress the OAuth token and retry the SAME
@@ -3107,7 +3122,9 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		subPrep, subEmitErr := env.PrepareAnthropic(r.Header, opts)
 		if subEmitErr != nil {
 			log.Error("Subscription failover: emit Anthropic body failed; surfacing original error", "err", subEmitErr, "model", decision.Model)
-			flushUpstreamErrorAsAnthropic(contentSink, proxyErr)
+			if !siblingViable {
+				flushDeferredErr()
+			}
 		} else if subBindings := s.resolveBindingsForDispatch(subCtx, decision); len(subBindings) == 0 {
 			// No usable Anthropic binding under suppression — surface the
 			// original retryable error (real throttle) rather than a synthetic
@@ -3117,7 +3134,9 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 				"model", decision.Model,
 				"err", proxyErr,
 				"upstream_status", upstreamStatus(proxyErr))
-			flushUpstreamErrorAsAnthropic(contentSink, proxyErr)
+			if !siblingViable {
+				flushDeferredErr()
+			}
 		} else {
 			log.Warn("Subscription failover: subscription throttled/timed out, retrying requested model on Weave key",
 				"model", decision.Model,
@@ -3135,6 +3154,9 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 				bindings:        subBindings,
 				attempt:         subAttempt,
 				flushErr:        flushUpstreamErrorAsAnthropic,
+				// A failed retry keeps the same dark model; hold the error so
+				// the sibling rescue below can still serve the turn.
+				deferFlushOnExhaustion: siblingViable,
 			})
 			bindings = subBindings
 			subscriptionFailoverUsed = proxyErr == nil
@@ -3143,14 +3165,18 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	// The subscription retry didn't run (mid-stream commit, or non-retryable
 	// error); surface the deferred original error now so it's never dropped.
 	if subscriptionRetryEligible && !siblingViable && !baselineAttempted && !subscriptionRetryRan && proxyErr != nil && !preludeBuf.Committed() {
-		flushUpstreamErrorAsAnthropic(contentSink, proxyErr)
+		flushDeferredErr()
 	}
 
 	// Same-cluster failover: all bindings exhausted pre-commit — re-dispatch
 	// the next policy candidate. Last in the rescue chain.
 	siblingFailoverUsed := false
 	siblingRescueRan := false
-	siblingRescueOwed := siblingViable && !baselineAttempted && !subscriptionRetryRan
+	// Keyed off the flush, not off whether an earlier rescue ran: a failed
+	// subscription retry keeps the same dark model, so the overload it surfaces
+	// is exactly what a cluster peer rescues — but once the error is on the
+	// wire, no rescue may follow it.
+	siblingRescueOwed := siblingViable && !baselineAttempted && !deferredErrFlushed
 	if siblingRescueOwed && proxyErr != nil && !preludeBuf.Committed() &&
 		(providers.IsRetryable(proxyErr) ||
 			providers.IsUpstreamModelNotFound(proxyErr) ||
@@ -3210,7 +3236,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	// The sibling rescue didn't run; surface the deferred original error now so
 	// it's never dropped.
 	if siblingRescueOwed && !siblingRescueRan && proxyErr != nil && !preludeBuf.Committed() {
-		flushUpstreamErrorAsAnthropic(contentSink, proxyErr)
+		flushDeferredErr()
 	}
 
 	finalProvider := primaryProvider
