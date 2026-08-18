@@ -163,6 +163,56 @@ func TestClientPostsVersionedRouteAndParsesPolicyMetadata(t *testing.T) {
 	assert.Equal(t, map[string]float32{"moonshotai/kimi-k2.7-code": 0.91}, result.CandidateScores)
 }
 
+func TestClientDecideParsesEmbedMs(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(routeResponse{
+			SelectedRosterID: "anthropic/claude-opus-4-8",
+			Timings:          &routeTimings{EmbedMs: floatPtr(12.5)},
+		})
+	}))
+	defer server.Close()
+
+	result, err := New(server.URL, server.Client(), 0).Decide(context.Background(), policy.Query{
+		Candidates: []policy.Candidate{{RosterID: "anthropic/claude-opus-4-8", CatalogID: "claude-opus-4-8", Provider: providers.ProviderAnthropic}},
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, result.EmbedMs)
+	assert.Equal(t, 12.5, *result.EmbedMs)
+}
+
+func TestClientDecidePreservesPresentZeroEmbedMs(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(routeResponse{
+			SelectedRosterID: "anthropic/claude-opus-4-8",
+			Timings:          &routeTimings{EmbedMs: floatPtr(0)},
+		})
+	}))
+	defer server.Close()
+
+	result, err := New(server.URL, server.Client(), 0).Decide(context.Background(), policy.Query{
+		Candidates: []policy.Candidate{{RosterID: "anthropic/claude-opus-4-8", CatalogID: "claude-opus-4-8", Provider: providers.ProviderAnthropic}},
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, result.EmbedMs)
+	assert.Equal(t, 0.0, *result.EmbedMs)
+}
+
+func TestClientDecideLeavesEmbedMsNilWhenTimingsOmitted(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{"model": "anthropic/claude-opus-4-8"})
+	}))
+	defer server.Close()
+
+	result, err := New(server.URL, server.Client(), 0).Decide(context.Background(), policy.Query{
+		Candidates: []policy.Candidate{{RosterID: "anthropic/claude-opus-4-8", CatalogID: "claude-opus-4-8", Provider: providers.ProviderAnthropic}},
+	})
+
+	require.NoError(t, err)
+	assert.Nil(t, result.EmbedMs)
+}
+
 func TestClientOmitsV2CandidateFieldsFromV1(t *testing.T) {
 	body, err := marshalRouteRequest(policy.Query{
 		SchemaVersion: policy.SchemaVersionV1,

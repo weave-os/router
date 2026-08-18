@@ -103,9 +103,13 @@ type Result struct {
 	DisplayMarker        string
 	PolicyArtifactID     string
 	PolicyArtifactSHA256 string
-	RosterVersion        string
-	DebugRef             string
-	Debug                map[string]interface{}
+	// EmbedMs is the embedding duration in milliseconds the policy sidecar
+	// reported for this decision. Nil when the sidecar did not measure one;
+	// a present 0 is a real (warm-cache) measurement.
+	EmbedMs       *float64
+	RosterVersion string
+	DebugRef      string
+	Debug         map[string]interface{}
 	// RankedFallback is every classifier group in serving fallback order, each
 	// with its full and eligible roster arms. Populated when ReportsRankedFallback;
 	// empty on older sidecars (arm override fails open).

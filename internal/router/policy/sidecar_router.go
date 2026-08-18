@@ -429,6 +429,7 @@ func (r *SidecarRouter) Route(ctx context.Context, req router.Request) (router.D
 			PolicyArtifactID:              res.PolicyArtifactID,
 			PolicyArtifactSHA256:          res.PolicyArtifactSHA256,
 			RosterVersion:                 res.RosterVersion,
+			EmbedMs:                       res.EmbedMs,
 			SelectedArmID:                 binding.ArmID,
 			SidecarSchemaVersion:          res.SchemaVersion,
 			DebugRef:                      debugRef,

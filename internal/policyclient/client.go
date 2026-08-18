@@ -368,7 +368,14 @@ type routeResponse struct {
 	DebugRef             string                 `json:"debug_ref"`
 	Debug                map[string]interface{} `json:"debug"`
 	RankedFallback       []policy.PreviewGroup  `json:"ranked_fallback"`
+	Timings              *routeTimings          `json:"timings"`
 	Error                string                 `json:"error"`
+}
+
+// routeTimings is the sidecar's optional per-request latency breakdown.
+// EmbedMs is nil (not zero) when embedding didn't run for this request.
+type routeTimings struct {
+	EmbedMs *float64 `json:"embed_ms"`
 }
 
 type previewResponse struct {
@@ -423,6 +430,10 @@ func (c *Client) Decide(ctx context.Context, query policy.Query) (policy.Result,
 	if parsed.ChosenScore != nil {
 		score = *parsed.ChosenScore
 	}
+	var embedMs *float64
+	if parsed.Timings != nil {
+		embedMs = parsed.Timings.EmbedMs
+	}
 	return policy.Result{
 		SchemaVersion:        parsed.SchemaVersion,
 		RouteID:              parsed.RouteID,
@@ -447,6 +458,7 @@ func (c *Client) Decide(ctx context.Context, query policy.Query) (policy.Result,
 		DebugRef:             parsed.DebugRef,
 		Debug:                parsed.Debug,
 		RankedFallback:       parsed.RankedFallback,
+		EmbedMs:              embedMs,
 	}, nil
 }
 

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math"
 	"net/http"
 	"sort"
 	"strings"
@@ -2624,6 +2625,9 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		Float64("catalog.actual_input_per_1m", actPricing.InputUSDPer1M).
 		Float64("catalog.actual_output_per_1m", actPricing.OutputUSDPer1M).
 		Int64("latency.route_ms", routeMs)
+	if decision.Metadata != nil && decision.Metadata.EmbedMs != nil {
+		decisionBuilder.Int64("latency.embed_ms", int64(math.Round(*decision.Metadata.EmbedMs)))
+	}
 	applyPlannerAttrs(decisionBuilder, routeRes)
 	applyRoutingStateAttrs(decisionBuilder, routeRes, decision.Model, sessionKey)
 	otel.Record(ctx, otel.Span{
@@ -4718,6 +4722,9 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		Float64("catalog.actual_input_per_1m", actPricing.InputUSDPer1M).
 		Float64("catalog.actual_output_per_1m", actPricing.OutputUSDPer1M).
 		Int64("latency.route_ms", routeMs)
+	if decision.Metadata != nil && decision.Metadata.EmbedMs != nil {
+		openaiDecisionBuilder.Int64("latency.embed_ms", int64(math.Round(*decision.Metadata.EmbedMs)))
+	}
 	applyPlannerAttrs(openaiDecisionBuilder, routeRes)
 	applyRoutingStateAttrs(openaiDecisionBuilder, routeRes, decision.Model, sessionKey)
 	otel.Record(ctx, otel.Span{
