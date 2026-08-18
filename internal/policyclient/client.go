@@ -26,10 +26,7 @@ const (
 	routeRetryBackoff    = 50 * time.Millisecond
 )
 
-// A stalled sidecar instance otherwise consumes the whole decision budget on
-// its first attempt, so the retries below never run and the caller sees a
-// deadline instead of a decision served by a healthy instance. Each attempt is
-// bounded by a share of the budget, leaving room for at least one retry.
+// Per-attempt bound so a stalled instance cannot consume the whole decision budget and prevent retries.
 const (
 	defaultAttemptFraction = 0.6
 	minAttemptTimeout      = 500 * time.Millisecond
@@ -655,9 +652,7 @@ func (c *Client) doPolicyRequest(ctx context.Context, path string, body []byte) 
 	return nil, nil, fmt.Errorf("policy sidecar retries exhausted: %w", lastErr)
 }
 
-// doPolicyAttempt runs one bounded attempt. It reports done when the loop must
-// stop, either with a usable response or with a fatal error; otherwise the
-// returned error is the retryable failure to record.
+// doPolicyAttempt runs one bounded attempt; returns done=true on a final outcome (success or fatal error).
 func (c *Client) doPolicyAttempt(
 	ctx context.Context,
 	attempt int,
@@ -697,9 +692,7 @@ func (c *Client) attemptContext(ctx context.Context) (context.Context, context.C
 	return context.WithTimeout(ctx, c.attemptTimeout)
 }
 
-// attemptError labels a failure caused by the per-attempt bound rather than by
-// the sidecar itself, so "retries exhausted" stays diagnosable. It keeps
-// wrapping context.DeadlineExceeded either way: callers degrade on it.
+// attemptError distinguishes per-attempt-bound timeouts from sidecar failures; always wraps context.DeadlineExceeded so callers can degrade on it.
 func (c *Client) attemptError(ctx, attemptCtx context.Context, attempt int, err error) error {
 	if ctx.Err() == nil && errors.Is(attemptCtx.Err(), context.DeadlineExceeded) {
 		return fmt.Errorf(
