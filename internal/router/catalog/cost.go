@@ -7,8 +7,9 @@ import (
 )
 
 // EffectiveInputCost returns the true USD input cost after applying cache
-// pricing. Fresh tokens at base rate; cache-creation at 1.25x; cache-read
-// at the binding's effective multiplier. upstreamProvider distinguishes
+// pricing. Fresh tokens at base rate; cache-creation at the binding's
+// effective write multiplier; cache-read at the binding's effective read
+// multiplier. upstreamProvider distinguishes
 // Anthropic (input_tokens is fresh-only) from OpenAI / Gemini
 // (prompt_tokens includes cached tokens — must subtract).
 //
@@ -23,7 +24,7 @@ func EffectiveInputCost(inputTokens, cacheCreation, cacheRead int, pricePer1M fl
 		fresh = 0
 	}
 	return (float64(fresh) +
-		float64(cacheCreation)*1.25 +
+		float64(cacheCreation)*p.EffectiveCacheWriteMultiplier() +
 		float64(cacheRead)*p.EffectiveCacheReadMultiplier()) / 1_000_000 * pricePer1M
 }
 

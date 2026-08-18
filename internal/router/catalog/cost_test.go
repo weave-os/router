@@ -68,3 +68,13 @@ func TestUSDToMicros_RoundsHalfAwayFromZero(t *testing.T) {
 	// rounds half away from zero, matching both legacy implementations).
 	assert.Equal(t, int64(6_750_001), catalog.USDToMicros(6.7500005))
 }
+
+func TestEffectiveInputCost_UsesBindingCacheWritePrice(t *testing.T) {
+	price := catalog.Pricing{InputUSDPer1M: 2, CacheReadMultiplier: 0.5, CacheWriteMultiplier: 2}
+	got := catalog.EffectiveInputCost(100, 10, 20, price.InputUSDPer1M, price, "openai")
+	assert.InDelta(t, 0.0002, got, 1e-12)
+
+	price.CacheWriteMultiplier = 0
+	legacy := catalog.EffectiveInputCost(100, 10, 20, price.InputUSDPer1M, price, "openai")
+	assert.InDelta(t, 0.000185, legacy, 1e-12, "unspecified values preserve legacy 1.25x behavior")
+}

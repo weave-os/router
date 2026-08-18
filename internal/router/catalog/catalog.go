@@ -40,6 +40,10 @@ func (t Tier) String() string {
 type Pricing struct {
 	InputUSDPer1M  float64
 	OutputUSDPer1M float64
+	// CacheWriteMultiplier is the cache-creation input price relative to base
+	// input price. Zero means the vendor has not published a binding-specific
+	// value, so existing production pricing is preserved.
+	CacheWriteMultiplier float64
 	// CacheReadMultiplier is the cost of a cache hit relative to the base
 	// input price (e.g. 0.10 for Anthropic, 0.50 for OpenAI). Zero means
 	// "unspecified — use DefaultCacheReadMultiplier".
@@ -51,6 +55,10 @@ type Pricing struct {
 // treat unknown providers as free caching, low enough to not block switches.
 const DefaultCacheReadMultiplier = 0.5
 
+// DefaultCacheWriteMultiplier preserves the legacy production cache-creation
+// calculation until provider/model/retention-specific data is verified.
+const DefaultCacheWriteMultiplier = 1.25
+
 // EffectiveCacheReadMultiplier returns CacheReadMultiplier if set, else
 // DefaultCacheReadMultiplier.
 func (p Pricing) EffectiveCacheReadMultiplier() float64 {
@@ -58,6 +66,15 @@ func (p Pricing) EffectiveCacheReadMultiplier() float64 {
 		return p.CacheReadMultiplier
 	}
 	return DefaultCacheReadMultiplier
+}
+
+// EffectiveCacheWriteMultiplier returns the binding-specific cache-write
+// multiplier when known, otherwise the legacy production multiplier.
+func (p Pricing) EffectiveCacheWriteMultiplier() float64 {
+	if p.CacheWriteMultiplier > 0 {
+		return p.CacheWriteMultiplier
+	}
+	return DefaultCacheWriteMultiplier
 }
 
 // ProviderBinding is one (provider, upstream-model-ID, price) tuple for a
