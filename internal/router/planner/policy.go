@@ -44,11 +44,8 @@ type Decision struct {
 	ExpectedSavingsUSD float64
 	EvictionCostUSD    float64
 	ThresholdUSD       float64
-	// PinPriceFallback and FreshPriceFallback report that the named provider
-	// binding was absent and pricing fell back to the model's primary binding.
-	// Custom and legacy decisions can legitimately take this path; callers use
-	// these fields to distinguish that deliberate approximation from normal
-	// provider-specific pricing.
+	// PinPriceFallback and FreshPriceFallback are true when the named provider
+	// binding has no catalog entry and pricing fell back to the model's primary binding.
 	PinPriceFallback   bool
 	FreshPriceFallback bool
 	// PinCacheCold echoes the warmth assumption the EV math ran under, for
@@ -195,10 +192,8 @@ func Decide(in Inputs, cfg EVConfig) Decision {
 	return d
 }
 
-// priceForDecision prices the provider/model binding named by a routing
-// decision. Older pins and custom bindings can name a provider that is not in
-// the compiled catalog; retain the primary-binding price as an explicit,
-// observable fallback until the custom binding has pricing metadata.
+// priceForDecision returns the price for the named provider/model binding,
+// falling back to the model's primary binding when the provider is absent from the catalog.
 func priceForDecision(provider, model string) (catalog.Pricing, bool, bool) {
 	if provider != "" {
 		if price, ok := catalog.PriceFor(provider, model); ok {
