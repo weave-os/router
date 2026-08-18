@@ -366,6 +366,12 @@ var Models = []Model{
 	{ID: "gemini-3.6-flash", Tier: TierMid, ContextWindow: 1_048_576, Providers: []ProviderBinding{
 		{Provider: providers.ProviderGoogle, Price: Pricing{InputUSDPer1M: 1.50, OutputUSDPer1M: 7.50, CacheReadMultiplier: 0.10}},
 	}},
+	// Priced at the standard post-promo rate ($1.50/$7.50, matching 3.6-flash)
+	// rather than the $0.75/$3.75 introductory rate shared with 3.6-flash
+	// (through 2026-12-31) — avoids a compile-time price going stale.
+	{ID: "gemini-3.7-flash", Tier: TierMid, ContextWindow: 1_048_576, Providers: []ProviderBinding{
+		{Provider: providers.ProviderGoogle, Price: Pricing{InputUSDPer1M: 1.50, OutputUSDPer1M: 7.50, CacheReadMultiplier: 0.10}},
+	}},
 	{ID: "google/gemma-4-26b-a4b-it", Tier: TierLow, ContextWindow: 262_144, Providers: []ProviderBinding{
 		{Provider: providers.ProviderGoogle, UpstreamID: "gemma-4-26b-a4b-it", Price: Pricing{InputUSDPer1M: 0.15, OutputUSDPer1M: 0.60, CacheReadMultiplier: 0.10}},
 	}},

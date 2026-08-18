@@ -112,6 +112,7 @@ var forceModelAliases = map[string]string{
 	"gemini-flash":          "gemini-3-flash-preview",
 	"gemini-3-6-flash":      "gemini-3.6-flash",
 	"gemini-3-5-flash-lite": "gemini-3.5-flash-lite",
+	"gemini-3-7-flash":      "gemini-3.7-flash",
 	// The family alias follows Makora's V4-Pro EOL onto Flash; deepseek-pro
 	// still names V4-Pro explicitly, which is passthrough-only now.
 	"deepseek":       "deepseek/deepseek-v4-flash",
