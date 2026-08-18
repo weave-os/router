@@ -365,7 +365,7 @@ func excludingModel(excluded map[string]struct{}, model string) map[string]struc
 	return out
 }
 
-func forcedPinEligible(pin sessionpin.Pin, req router.Request) bool {
+func pinEligible(pin sessionpin.Pin, req router.Request) bool {
 	if pin.Model == "" || pin.Provider == "" {
 		return false
 	}
@@ -380,6 +380,10 @@ func forcedPinEligible(pin sessionpin.Pin, req router.Request) bool {
 	}
 	_, ok := req.EnabledProviders[pin.Provider]
 	return ok
+}
+
+func forcedPinEligible(pin sessionpin.Pin, req router.Request) bool {
+	return pinEligible(pin, req)
 }
 
 // runTurnLoop is the format-agnostic routing orchestrator: detect turn type,
@@ -584,6 +588,11 @@ func (s *Service) runTurnLoop(
 
 	pin, pinFound := s.loadPin(ctx, res.SessionKey, res.PinRole)
 	hmmHistory := s.loadHMMHistory(ctx, res.SessionKey, res.PinRole)
+	commandContinuation := sessionpin.Pin{}
+	commandContinuationFound := false
+	if res.TurnType == turntype.MainLoop {
+		commandContinuation, commandContinuationFound = s.consumePostCommandContinuation(ctx, res.SessionKey, res.PinRole)
+	}
 	// Applied regardless of pinFound: eviction sets PinnedUntil in the past
 	// (routing miss) but DisabledProviders must still steer the scorer away
 	// from the struck-out provider this same turn; HMM-sticky strikes write
@@ -840,6 +849,27 @@ func (s *Service) runTurnLoop(
 	}
 	if !pinFound {
 		clearPinEvidence(&res)
+	}
+
+	// A router slash command is synthetic and intentionally skips upstream
+	// dispatch. Its next normal turn must keep the current automatic model once
+	// instead of treating the command boundary as a fresh HMM decision.
+	if commandContinuationFound && pinEligible(commandContinuation, req) {
+		decision := pinDecision(commandContinuation)
+		res.Decision = decision
+		res.StickyHit = true
+		res.PinTier = "post_command_continuation"
+		res.PinModel = commandContinuation.Model
+		res.PinAgeSec = pinAge(commandContinuation)
+		res.PriorServedModel, res.SessionEverSwitched = switchHistoryFromPins(commandContinuation, hmmHistory)
+		res.EscalateEffort = !commandContinuation.LastTurnEndedAt.IsZero() &&
+			(commandContinuation.LastOutputTokens == 0 || commandContinuation.ConsecutiveUpstreamErrors > 0)
+		log.Info("turnloop used one-shot post-command continuation",
+			"pin_model", commandContinuation.Model,
+			"pin_provider", commandContinuation.Provider,
+		)
+		s.refreshPin(ctx, installationID, res.SessionKey, commandContinuation, res.PinRole, decision)
+		return res, nil
 	}
 
 	// Positioned after hard-pin/forced-pin (higher precedence) and after all

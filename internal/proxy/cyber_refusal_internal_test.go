@@ -49,6 +49,9 @@ func (f *repinFakeStore) ResetOverloadErrors(context.Context, [sessionpin.Sessio
 func (f *repinFakeStore) DisableProvider(context.Context, [sessionpin.SessionKeyLen]byte, string, string) error {
 	return nil
 }
+func (f *repinFakeStore) Consume(context.Context, [sessionpin.SessionKeyLen]byte, string) (sessionpin.Pin, bool, error) {
+	return sessionpin.Pin{}, false, nil
+}
 func (f *repinFakeStore) SweepExpired(context.Context) error { return nil }
 
 // A realistic Anthropic-native refusal SSE (the router-visible wire shape:

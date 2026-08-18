@@ -78,6 +78,10 @@ func (s *overloadStubPinStore) DisableProvider(_ context.Context, _ [sessionpin.
 	return nil
 }
 
+func (s *overloadStubPinStore) Consume(context.Context, [sessionpin.SessionKeyLen]byte, string) (sessionpin.Pin, bool, error) {
+	return sessionpin.Pin{}, false, nil
+}
+
 func (s *overloadStubPinStore) SweepExpired(context.Context) error { return nil }
 
 func newOverloadTestService(store *overloadStubPinStore) *Service {

@@ -39,6 +39,22 @@ func (r *SessionPinRepo) Get(ctx context.Context, sessionKey [sessionpin.Session
 	return toSessionPin(row), true, nil
 }
 
+// Consume atomically removes and returns an unexpired one-shot pin.
+func (r *SessionPinRepo) Consume(ctx context.Context, sessionKey [sessionpin.SessionKeyLen]byte, role string) (sessionpin.Pin, bool, error) {
+	q := sqlc.New(r.tx)
+	row, err := q.DeleteSessionPin(ctx, sqlc.DeleteSessionPinParams{
+		SessionKey: sessionKey[:],
+		Role:       role,
+	})
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return sessionpin.Pin{}, false, nil
+		}
+		return sessionpin.Pin{}, false, err
+	}
+	return toSessionPin(row), true, nil
+}
+
 func (r *SessionPinRepo) Upsert(ctx context.Context, p sessionpin.Pin) error {
 	q := sqlc.New(r.tx)
 	return q.UpsertSessionPin(ctx, sqlc.UpsertSessionPinParams{

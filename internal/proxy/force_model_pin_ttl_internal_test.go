@@ -46,6 +46,9 @@ func (s *recordingPinStore) ResetOverloadErrors(context.Context, [sessionpin.Ses
 func (s *recordingPinStore) DisableProvider(context.Context, [sessionpin.SessionKeyLen]byte, string, string) error {
 	return nil
 }
+func (s *recordingPinStore) Consume(context.Context, [sessionpin.SessionKeyLen]byte, string) (sessionpin.Pin, bool, error) {
+	return sessionpin.Pin{}, false, nil
+}
 func (s *recordingPinStore) SweepExpired(context.Context) error { return nil }
 
 // TestPinExpiry_UserForcedNeverExpires is the regression for the debug-session

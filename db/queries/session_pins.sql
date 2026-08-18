@@ -10,6 +10,15 @@ FROM router.session_pins
 WHERE session_key = @session_key::bytea
   AND role        = @role::varchar;
 
+-- Atomically consumes one active pin so a one-shot continuation cannot be
+-- reused by concurrent requests. Expired rows remain for the normal sweep.
+-- name: DeleteSessionPin :one
+DELETE FROM router.session_pins
+WHERE session_key = @session_key::bytea
+  AND role        = @role::varchar
+  AND pinned_until > CURRENT_TIMESTAMP
+RETURNING *;
+
 -- Upserts a pin, refreshing pinned_until on every hit (sliding TTL).
 -- turn_count increments on conflict so we can observe how many turns a
 -- single (session_key, role) lives for. installation_id is set on first

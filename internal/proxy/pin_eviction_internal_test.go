@@ -73,6 +73,10 @@ func (s *evictionStubPinStore) DisableProvider(context.Context, [sessionpin.Sess
 	return nil
 }
 
+func (s *evictionStubPinStore) Consume(context.Context, [sessionpin.SessionKeyLen]byte, string) (sessionpin.Pin, bool, error) {
+	return sessionpin.Pin{}, false, nil
+}
+
 func (s *evictionStubPinStore) SweepExpired(context.Context) error { return nil }
 
 func newEvictionTestService(store *evictionStubPinStore) *Service {

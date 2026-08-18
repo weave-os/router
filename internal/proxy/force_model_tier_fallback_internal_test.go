@@ -74,6 +74,9 @@ func (s *forcedPinStore) ResetOverloadErrors(context.Context, [sessionpin.Sessio
 func (s *forcedPinStore) DisableProvider(context.Context, [sessionpin.SessionKeyLen]byte, string, string) error {
 	return nil
 }
+func (s *forcedPinStore) Consume(context.Context, [sessionpin.SessionKeyLen]byte, string) (sessionpin.Pin, bool, error) {
+	return sessionpin.Pin{}, false, nil
+}
 func (s *forcedPinStore) SweepExpired(context.Context) error { return nil }
 
 type overwritingPinStore struct {
@@ -113,6 +116,9 @@ func (s *overwritingPinStore) ResetOverloadErrors(context.Context, [sessionpin.S
 }
 func (s *overwritingPinStore) DisableProvider(context.Context, [sessionpin.SessionKeyLen]byte, string, string) error {
 	return nil
+}
+func (s *overwritingPinStore) Consume(context.Context, [sessionpin.SessionKeyLen]byte, string) (sessionpin.Pin, bool, error) {
+	return sessionpin.Pin{}, false, nil
 }
 func (s *overwritingPinStore) SweepExpired(context.Context) error { return nil }
 

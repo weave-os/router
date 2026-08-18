@@ -79,6 +79,10 @@ func (s *stubPinStore) DisableProvider(context.Context, [sessionpin.SessionKeyLe
 	return nil
 }
 
+func (s *stubPinStore) Consume(context.Context, [sessionpin.SessionKeyLen]byte, string) (sessionpin.Pin, bool, error) {
+	return sessionpin.Pin{}, false, nil
+}
+
 func (s *stubPinStore) SweepExpired(context.Context) error { return nil }
 
 func TestPinCacheCold_OrdinaryAndHMMShareTheSameRule(t *testing.T) {

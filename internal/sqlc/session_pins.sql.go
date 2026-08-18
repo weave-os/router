@@ -12,6 +12,58 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const deleteSessionPin = `-- name: DeleteSessionPin :one
+DELETE FROM router.session_pins
+WHERE session_key = $1::bytea
+  AND role        = $2::varchar
+  AND pinned_until > CURRENT_TIMESTAMP
+RETURNING session_key, role, installation_id, pinned_provider, pinned_model, decision_reason, turn_count, pinned_until, first_pinned_at, last_seen_at, last_input_tokens, last_cached_read_tokens, last_cached_write_tokens, last_output_tokens, last_turn_ended_at, consecutive_upstream_errors, last_served_model, has_ever_switched, paired_provider, paired_model, consecutive_overload_errors, disabled_providers, policy_group
+`
+
+type DeleteSessionPinParams struct {
+	SessionKey []byte
+	Role       string
+}
+
+// Atomically consumes one active pin so a one-shot continuation cannot be
+// reused by concurrent requests. Expired rows remain for the normal sweep.
+//
+//	DELETE FROM router.session_pins
+//	WHERE session_key = $1::bytea
+//	  AND role        = $2::varchar
+//	  AND pinned_until > CURRENT_TIMESTAMP
+//	RETURNING session_key, role, installation_id, pinned_provider, pinned_model, decision_reason, turn_count, pinned_until, first_pinned_at, last_seen_at, last_input_tokens, last_cached_read_tokens, last_cached_write_tokens, last_output_tokens, last_turn_ended_at, consecutive_upstream_errors, last_served_model, has_ever_switched, paired_provider, paired_model, consecutive_overload_errors, disabled_providers, policy_group
+func (q *Queries) DeleteSessionPin(ctx context.Context, arg DeleteSessionPinParams) (RouterSessionPin, error) {
+	row := q.db.QueryRow(ctx, deleteSessionPin, arg.SessionKey, arg.Role)
+	var i RouterSessionPin
+	err := row.Scan(
+		&i.SessionKey,
+		&i.Role,
+		&i.InstallationID,
+		&i.PinnedProvider,
+		&i.PinnedModel,
+		&i.DecisionReason,
+		&i.TurnCount,
+		&i.PinnedUntil,
+		&i.FirstPinnedAt,
+		&i.LastSeenAt,
+		&i.LastInputTokens,
+		&i.LastCachedReadTokens,
+		&i.LastCachedWriteTokens,
+		&i.LastOutputTokens,
+		&i.LastTurnEndedAt,
+		&i.ConsecutiveUpstreamErrors,
+		&i.LastServedModel,
+		&i.HasEverSwitched,
+		&i.PairedProvider,
+		&i.PairedModel,
+		&i.ConsecutiveOverloadErrors,
+		&i.DisabledProviders,
+		&i.PolicyGroup,
+	)
+	return i, err
+}
+
 const disableSessionPinProvider = `-- name: DisableSessionPinProvider :exec
 UPDATE router.session_pins
 SET disabled_providers = CASE

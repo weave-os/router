@@ -2254,13 +2254,21 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	if !agentShadowMode && s.pinStore != nil {
 		if cmd, hasCmd := env.ExtractForceModelCommand(); hasCmd {
 			log.Info("ProxyMessages force-model command", "force_model_cmd", cmd)
-			return s.handleForceModelCommand(ctx, w, env, cmd, installationID, sessionKey, feats.Tokens)
+			if err := s.handleForceModelCommand(ctx, w, env, cmd, installationID, sessionKey, feats.Tokens); err != nil {
+				return err
+			}
+			s.grantPostCommandContinuation(ctx, installationID, sessionKey, roleForTier(catalog.TierFor(feats.Model)))
+			return nil
 		}
 	}
 	if !agentShadowMode {
 		if cmd, hasCmd := env.ExtractRouterFeedbackCommand(); hasCmd {
 			log.Info("ProxyMessages router-feedback command")
-			return s.handleRouterFeedbackCommand(ctx, w, env, cmd, installationID, sessionKey, feats.Tokens)
+			if err := s.handleRouterFeedbackCommand(ctx, w, env, cmd, installationID, sessionKey, feats.Tokens); err != nil {
+				return err
+			}
+			s.grantPostCommandContinuation(ctx, installationID, sessionKey, roleForTier(catalog.TierFor(feats.Model)))
+			return nil
 		}
 	}
 
@@ -4527,12 +4535,20 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	if s.pinStore != nil {
 		if cmd, hasCmd := env.ExtractForceModelCommand(); hasCmd {
 			log.Info("ProxyOpenAIChatCompletion force-model command", "force_model_cmd", cmd)
-			return s.handleForceModelCommand(ctx, w, env, cmd, installationID, sessionKey, feats.Tokens)
+			if err := s.handleForceModelCommand(ctx, w, env, cmd, installationID, sessionKey, feats.Tokens); err != nil {
+				return err
+			}
+			s.grantPostCommandContinuation(ctx, installationID, sessionKey, roleForTier(catalog.TierFor(feats.Model)))
+			return nil
 		}
 	}
 	if cmd, hasCmd := env.ExtractRouterFeedbackCommand(); hasCmd {
 		log.Info("ProxyOpenAIChatCompletion router-feedback command")
-		return s.handleRouterFeedbackCommand(ctx, w, env, cmd, installationID, sessionKey, feats.Tokens)
+		if err := s.handleRouterFeedbackCommand(ctx, w, env, cmd, installationID, sessionKey, feats.Tokens); err != nil {
+			return err
+		}
+		s.grantPostCommandContinuation(ctx, installationID, sessionKey, roleForTier(catalog.TierFor(feats.Model)))
+		return nil
 	}
 
 	// Honor the x-weave-force-model header (headless equivalent of /force-model).

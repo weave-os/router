@@ -45,12 +45,14 @@ type fakePinStore struct {
 	overloadIncrementCalls int
 	overloadResetCalls     int
 	disabledProviders      []string
+	commandContinuations   map[string]sessionpin.Pin
 }
 
 func newFakePinStore() *fakePinStore {
 	return &fakePinStore{
-		upsertCh: make(chan struct{}, 16),
-		usageCh:  make(chan struct{}, 16),
+		upsertCh:             make(chan struct{}, 16),
+		usageCh:              make(chan struct{}, 16),
+		commandContinuations: make(map[string]sessionpin.Pin),
 	}
 }
 
@@ -70,6 +72,15 @@ func (f *fakePinStore) Get(ctx context.Context, key [sessionpin.SessionKeyLen]by
 		pin.Role = role
 		return pin, true, nil
 	}
+	if strings.HasSuffix(role, "_cmd_next") {
+		pin, found := f.commandContinuations[role]
+		if !found {
+			return sessionpin.Pin{}, false, nil
+		}
+		pin.SessionKey = key
+		pin.Role = role
+		return pin, true, nil
+	}
 	if !f.hasPin {
 		return sessionpin.Pin{}, false, nil
 	}
@@ -82,12 +93,28 @@ func (f *fakePinStore) Get(ctx context.Context, key [sessionpin.SessionKeyLen]by
 func (f *fakePinStore) Upsert(ctx context.Context, p sessionpin.Pin) error {
 	f.mu.Lock()
 	f.upserts = append(f.upserts, p)
+	if strings.HasSuffix(p.Role, "_cmd_next") {
+		f.commandContinuations[p.Role] = p
+	}
 	f.mu.Unlock()
 	select {
 	case f.upsertCh <- struct{}{}:
 	default:
 	}
 	return nil
+}
+
+func (f *fakePinStore) Consume(ctx context.Context, key [sessionpin.SessionKeyLen]byte, role string) (sessionpin.Pin, bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	pin, found := f.commandContinuations[role]
+	if !found || !pin.PinnedUntil.After(time.Now()) {
+		return sessionpin.Pin{}, false, nil
+	}
+	delete(f.commandContinuations, role)
+	pin.SessionKey = key
+	pin.Role = role
+	return pin, true, nil
 }
 
 func (f *fakePinStore) UpdateUsage(ctx context.Context, key [sessionpin.SessionKeyLen]byte, role string, usage sessionpin.Usage) error {

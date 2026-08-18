@@ -108,6 +108,10 @@ type Usage struct {
 // read-modify-write race; it returns (0, nil) for a missing pin.
 type Store interface {
 	Get(ctx context.Context, sessionKey [SessionKeyLen]byte, role string) (Pin, bool, error)
+	// Consume atomically removes and returns one unexpired pin. It is used for
+	// one-shot continuations, where a Get followed by an expiry write could let
+	// two concurrent requests reuse the same pin.
+	Consume(ctx context.Context, sessionKey [SessionKeyLen]byte, role string) (Pin, bool, error)
 	Upsert(ctx context.Context, p Pin) error
 	UpdateUsage(ctx context.Context, sessionKey [SessionKeyLen]byte, role string, usage Usage) error
 	IncrementUpstreamErrors(ctx context.Context, sessionKey [SessionKeyLen]byte, role string) (int, error)
