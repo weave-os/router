@@ -172,6 +172,8 @@ type ExternalAPIKeyRepository interface {
 	// GetForInstallation returns all active keys with Plaintext populated.
 	GetForInstallation(ctx context.Context, installationID string) ([]*ExternalAPIKey, error)
 	SoftDeleteByProvider(ctx context.Context, installationID, provider string) error
+	// UpdateModelAliases replaces one key's alias map, leaving the stored secret untouched.
+	UpdateModelAliases(ctx context.Context, installationID, id string, aliases map[string]string) (*ExternalAPIKey, error)
 	SoftDelete(ctx context.Context, installationID, id string) error
 	MarkUsed(ctx context.Context, id string) error
 }

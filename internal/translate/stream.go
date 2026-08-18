@@ -1434,10 +1434,7 @@ func upstreamErrorMessage(body string, status int) string {
 }
 
 func (t *AnthropicSSETranslator) emitMessageStart() error {
-	model := t.modelFromUpstream
-	if model == "" {
-		model = t.requestModel
-	}
+	model := clientFacingModel(t.requestModel, t.modelFromUpstream)
 	// Fires eagerly from Prelude before any upstream id arrives, so a
 	// generated fallback is the common case. Must be unique per response:
 	// clients like ccusage dedupe usage records by message id, so a constant

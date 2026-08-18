@@ -257,14 +257,7 @@ func UpsertExternalKeyHandler(authSvc *auth.Service, models DeployedModelsSource
 			c.AbortWithStatusJSON(http.StatusConflict, gin.H{"error": "Provider already configured via deployment environment variable. Remove the env var before adding a dashboard key."})
 			return
 		}
-		var allowed map[string]struct{}
-		if models != nil {
-			deployed := models.DefaultDeployedModels()
-			allowed = make(map[string]struct{}, len(deployed))
-			for _, e := range deployed {
-				allowed[e.Model] = struct{}{}
-			}
-		}
+		allowed := deployedModelIDs(models)
 		key, err := authSvc.UpsertExternalAPIKey(c.Request.Context(), installation.ID, auth.UpsertExternalAPIKeyParams{
 			Provider:      req.Provider,
 			RawKey:        req.Key,
@@ -295,6 +288,57 @@ func UpsertExternalKeyHandler(authSvc *auth.Service, models DeployedModelsSource
 		}
 		c.JSON(http.StatusCreated, toExternalKeyResponse(key))
 	}
+}
+
+type updateExternalKeyAliasesRequest struct {
+	// ModelAliases replaces the key's whole map; an empty object clears it.
+	ModelAliases map[string]string `json:"model_aliases"`
+}
+
+// UpdateExternalKeyAliasesHandler edits a stored key's model aliases in place,
+// so retargeting a custom endpoint's model names doesn't require re-entering
+// the credential the dashboard can no longer show. models (non-nil) validates
+// aliases against the deployed catalog, as the upsert path does.
+func UpdateExternalKeyAliasesHandler(authSvc *auth.Service, models DeployedModelsSource) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		installation, ok := resolveInstallation(c, authSvc)
+		if !ok {
+			return
+		}
+		id := c.Param("id")
+		if id == "" {
+			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "Missing ID."})
+			return
+		}
+		var req updateExternalKeyAliasesRequest
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "Invalid request body."})
+			return
+		}
+		key, err := authSvc.SetExternalAPIKeyModelAliases(c.Request.Context(), installation.ID, id, req.ModelAliases, deployedModelIDs(models))
+		if err != nil {
+			if errors.Is(err, auth.ErrUnknownModel) || errors.Is(err, auth.ErrInvalidModelAlias) {
+				c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+				return
+			}
+			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Failed to update model aliases."})
+			return
+		}
+		c.JSON(http.StatusOK, toExternalKeyResponse(key))
+	}
+}
+
+// deployedModelIDs is the alias-validation set; nil source means skip validation.
+func deployedModelIDs(models DeployedModelsSource) map[string]struct{} {
+	if models == nil {
+		return nil
+	}
+	deployed := models.DefaultDeployedModels()
+	allowed := make(map[string]struct{}, len(deployed))
+	for _, e := range deployed {
+		allowed[e.Model] = struct{}{}
+	}
+	return allowed
 }
 
 func DeleteExternalKeyHandler(authSvc *auth.Service) gin.HandlerFunc {

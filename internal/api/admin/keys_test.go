@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -352,7 +353,16 @@ func (f *fakeExternalAPIKeyRepo) SoftDeleteByProvider(context.Context, string, s
 	return nil
 }
 func (f *fakeExternalAPIKeyRepo) SoftDelete(context.Context, string, string) error { return nil }
-func (f *fakeExternalAPIKeyRepo) MarkUsed(context.Context, string) error           { return nil }
+func (f *fakeExternalAPIKeyRepo) UpdateModelAliases(_ context.Context, installationID, id string, aliases map[string]string) (*auth.ExternalAPIKey, error) {
+	for _, k := range f.keys {
+		if k.ID == id && k.InstallationID == installationID {
+			k.ModelAliases = aliases
+			return k, nil
+		}
+	}
+	return nil, errors.New("key not found")
+}
+func (f *fakeExternalAPIKeyRepo) MarkUsed(context.Context, string) error { return nil }
 
 // upsertKeyEngine wires UpsertExternalKeyHandler behind a middleware that injects
 // an already-authed installation, so the handler reaches the env-shadow guard
@@ -579,4 +589,52 @@ func TestUpsertExternalKeyHandler_RejectsReservedIdentityHeader(t *testing.T) {
 	assert.Equal(t, 0, repo.created)
 	assert.Equal(t, 0, repo.softDeletedByProvider,
 		"a rejected upsert must not take out the working key it would have replaced")
+}
+
+func aliasUpdateEngine(svc *auth.Service, models admin.DeployedModelsSource) *gin.Engine {
+	gin.SetMode(gin.TestMode)
+	engine := gin.New()
+	engine.PUT("/admin/v1/provider-keys/:id/model-aliases", func(c *gin.Context) {
+		c.Set("router_installation", &auth.Installation{ID: "inst-1"})
+	}, admin.UpdateExternalKeyAliasesHandler(svc, models))
+	return engine
+}
+
+func putModelAliases(engine *gin.Engine, id string, aliases map[string]string) *httptest.ResponseRecorder {
+	body, _ := json.Marshal(map[string]any{"model_aliases": aliases})
+	req := httptest.NewRequest(http.MethodPut, "/admin/v1/provider-keys/"+id+"/model-aliases", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	engine.ServeHTTP(rec, req)
+	return rec
+}
+
+func TestUpdateExternalKeyAliasesHandler_ReplacesAliasesWithoutTheSecret(t *testing.T) {
+	repo := &fakeExternalAPIKeyRepo{keys: []*auth.ExternalAPIKey{
+		{ID: "ext-1", InstallationID: "inst-1", Provider: providers.ProviderOpenAIGateway},
+	}}
+	models := fakeDeployedModels{entries: []cluster.DeployedEntry{{Model: "gpt-5", Provider: providers.ProviderOpenAI}}}
+
+	rec := putModelAliases(aliasUpdateEngine(newUpsertKeyService(repo), models), "ext-1", map[string]string{"gpt-5": "openai-gpt-5"})
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, map[string]string{"gpt-5": "openai-gpt-5"}, repo.keys[0].ModelAliases,
+		"editing aliases must not require re-entering a credential the dashboard can't show")
+	var body struct {
+		ModelAliases map[string]string `json:"model_aliases"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+	assert.Equal(t, map[string]string{"gpt-5": "openai-gpt-5"}, body.ModelAliases)
+}
+
+func TestUpdateExternalKeyAliasesHandler_RejectsUnknownCatalogModel(t *testing.T) {
+	repo := &fakeExternalAPIKeyRepo{keys: []*auth.ExternalAPIKey{
+		{ID: "ext-1", InstallationID: "inst-1", Provider: providers.ProviderOpenAIGateway},
+	}}
+	models := fakeDeployedModels{entries: []cluster.DeployedEntry{{Model: "gpt-5", Provider: providers.ProviderOpenAI}}}
+
+	rec := putModelAliases(aliasUpdateEngine(newUpsertKeyService(repo), models), "ext-1", map[string]string{"gpt-6": "openai-gpt-6"})
+
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Nil(t, repo.keys[0].ModelAliases, "a typo'd catalog id must fail at write time, not silently at runtime")
 }

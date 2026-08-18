@@ -117,6 +117,9 @@ export interface ExternalKey {
   key_suffix: string;
   // Endpoint this key is scoped to; absent when the provider's default is used.
   base_url?: string;
+  // Catalog model ID -> the ID this endpoint publishes it under; absent when it
+  // uses catalog names directly.
+  model_aliases?: Record<string, string>;
   last_used_at: string | null;
   created_at: string;
 }
@@ -210,10 +213,29 @@ export const api = {
   },
   providerKeys: {
     list: () => request<{ keys: ExternalKey[] }>("/provider-keys"),
-    upsert: (provider: string, key: string, name?: string, baseURL?: string) =>
+    upsert: (
+      provider: string,
+      key: string,
+      name?: string,
+      baseURL?: string,
+      modelAliases?: Record<string, string>,
+    ) =>
       request<ExternalKey>("/provider-keys", {
         method: "POST",
-        body: JSON.stringify({ provider, key, name, base_url: baseURL }),
+        body: JSON.stringify({
+          provider,
+          key,
+          name,
+          base_url: baseURL,
+          model_aliases: modelAliases,
+        }),
+      }),
+    // Replaces the alias map in place; the stored secret is untouched, so
+    // retargeting model names doesn't need the credential re-entered.
+    updateModelAliases: (id: string, modelAliases: Record<string, string>) =>
+      request<ExternalKey>(`/provider-keys/${id}/model-aliases`, {
+        method: "PUT",
+        body: JSON.stringify({ model_aliases: modelAliases }),
       }),
     delete: (id: string) => request<void>(`/provider-keys/${id}`, { method: "DELETE" }),
   },

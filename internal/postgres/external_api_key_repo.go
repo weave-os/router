@@ -97,6 +97,31 @@ func (r *ExternalAPIKeyRepo) SoftDeleteByProvider(ctx context.Context, installat
 	})
 }
 
+func (r *ExternalAPIKeyRepo) UpdateModelAliases(ctx context.Context, installationID, id string, aliases map[string]string) (*auth.ExternalAPIKey, error) {
+	installationUUID, err := uuid.Parse(installationID)
+	if err != nil {
+		return nil, err
+	}
+	keyUUID, err := uuid.Parse(id)
+	if err != nil {
+		return nil, err
+	}
+	encoded, err := marshalModelAliases(aliases)
+	if err != nil {
+		return nil, err
+	}
+	q := sqlc.New(r.tx)
+	row, err := q.UpdateExternalAPIKeyModelAliases(ctx, sqlc.UpdateExternalAPIKeyModelAliasesParams{
+		ID:             keyUUID,
+		InstallationID: installationUUID,
+		ModelAliases:   encoded,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return toExternalAPIKey(row)
+}
+
 func (r *ExternalAPIKeyRepo) SoftDelete(ctx context.Context, installationID, id string) error {
 	installationUUID, err := uuid.Parse(installationID)
 	if err != nil {

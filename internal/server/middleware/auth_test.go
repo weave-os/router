@@ -40,6 +40,10 @@ func (f *fakeExternalAPIKeyRepository) SoftDelete(context.Context, string, strin
 	return errors.New("not used")
 }
 
+func (f *fakeExternalAPIKeyRepository) UpdateModelAliases(context.Context, string, string, map[string]string) (*auth.ExternalAPIKey, error) {
+	return nil, errors.New("not used")
+}
+
 func (f *fakeExternalAPIKeyRepository) MarkUsed(context.Context, string) error {
 	return nil
 }

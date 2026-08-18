@@ -34,10 +34,7 @@ func responsesToAnthropicResponse(body []byte, requestModel string, toolValidato
 	if id == "" {
 		id = "msg_" + newResponsesID("resp")
 	}
-	model := root.Get("model").String()
-	if model == "" {
-		model = requestModel
-	}
+	model := clientFacingModel(requestModel, root.Get("model").String())
 
 	hasToolCall := false
 	root.Get("output").ForEach(func(_, item gjson.Result) bool {

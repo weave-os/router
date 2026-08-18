@@ -287,6 +287,22 @@ func (s *Service) UpsertExternalAPIKey(ctx context.Context, installationID strin
 	return key, nil
 }
 
+// SetExternalAPIKeyModelAliases replaces one BYOK key's alias map without
+// re-entering the secret. allowed is the valid catalog model ID set aliases are
+// validated against; nil skips validation.
+func (s *Service) SetExternalAPIKeyModelAliases(ctx context.Context, installationID, id string, aliases map[string]string, allowed map[string]struct{}) (*ExternalAPIKey, error) {
+	normalized, err := NormalizeModelAliases(aliases, allowed)
+	if err != nil {
+		return nil, err
+	}
+	key, err := s.externalKeys.UpdateModelAliases(ctx, installationID, id, normalized)
+	if err != nil {
+		return nil, err
+	}
+	s.invalidateInstallation(installationID)
+	return key, nil
+}
+
 // DeleteExternalAPIKey soft-deletes a specific provider API key.
 func (s *Service) DeleteExternalAPIKey(ctx context.Context, installationID, id string) error {
 	if err := s.externalKeys.SoftDelete(ctx, installationID, id); err != nil {

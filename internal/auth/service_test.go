@@ -119,6 +119,16 @@ func (f *fakeExternalAPIKeyRepo) SoftDelete(ctx context.Context, installationID,
 	return nil
 }
 
+func (f *fakeExternalAPIKeyRepo) UpdateModelAliases(ctx context.Context, installationID, id string, aliases map[string]string) (*auth.ExternalAPIKey, error) {
+	for _, k := range f.keys {
+		if k.ID == id {
+			k.ModelAliases = aliases
+			return k, nil
+		}
+	}
+	return nil, f.err
+}
+
 func (f *fakeExternalAPIKeyRepo) MarkUsed(ctx context.Context, id string) error {
 	return nil
 }

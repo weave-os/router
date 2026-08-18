@@ -43,6 +43,17 @@ WHERE installation_id = @installation_id::uuid
   AND deleted_at IS NULL
 ORDER BY provider, created_at DESC;
 
+-- Replaces one key's model alias map without touching the stored secret, so the
+-- dashboard can edit aliases without the operator re-entering the credential.
+-- Cross-tenant safe via installation_id predicate.
+-- name: UpdateExternalAPIKeyModelAliases :one
+UPDATE router.model_router_external_api_keys
+SET model_aliases = sqlc.narg('model_aliases')::jsonb, updated_at = CURRENT_TIMESTAMP
+WHERE id = @id::uuid
+  AND installation_id = @installation_id::uuid
+  AND deleted_at IS NULL
+RETURNING *;
+
 -- Soft-deletes an external API key. Cross-tenant safe via installation_id predicate.
 -- name: SoftDeleteExternalAPIKey :exec
 UPDATE router.model_router_external_api_keys

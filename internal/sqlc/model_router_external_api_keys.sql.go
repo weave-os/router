@@ -258,3 +258,54 @@ func (q *Queries) SoftDeleteExternalAPIKeyByProvider(ctx context.Context, arg So
 	_, err := q.db.Exec(ctx, softDeleteExternalAPIKeyByProvider, arg.InstallationID, arg.Provider)
 	return err
 }
+
+const updateExternalAPIKeyModelAliases = `-- name: UpdateExternalAPIKeyModelAliases :one
+UPDATE router.model_router_external_api_keys
+SET model_aliases = $1::jsonb, updated_at = CURRENT_TIMESTAMP
+WHERE id = $2::uuid
+  AND installation_id = $3::uuid
+  AND deleted_at IS NULL
+RETURNING id, installation_id, external_id, provider, key_ciphertext, key_prefix, key_suffix, key_fingerprint, name, last_used_at, created_at, updated_at, deleted_at, created_by, base_url, model_aliases, identity_header_name, identity_header_format
+`
+
+type UpdateExternalAPIKeyModelAliasesParams struct {
+	ModelAliases   []byte
+	ID             uuid.UUID
+	InstallationID uuid.UUID
+}
+
+// Replaces one key's model alias map without touching the stored secret, so the
+// dashboard can edit aliases without the operator re-entering the credential.
+// Cross-tenant safe via installation_id predicate.
+//
+//	UPDATE router.model_router_external_api_keys
+//	SET model_aliases = $1::jsonb, updated_at = CURRENT_TIMESTAMP
+//	WHERE id = $2::uuid
+//	  AND installation_id = $3::uuid
+//	  AND deleted_at IS NULL
+//	RETURNING id, installation_id, external_id, provider, key_ciphertext, key_prefix, key_suffix, key_fingerprint, name, last_used_at, created_at, updated_at, deleted_at, created_by, base_url, model_aliases, identity_header_name, identity_header_format
+func (q *Queries) UpdateExternalAPIKeyModelAliases(ctx context.Context, arg UpdateExternalAPIKeyModelAliasesParams) (RouterModelRouterExternalAPIKey, error) {
+	row := q.db.QueryRow(ctx, updateExternalAPIKeyModelAliases, arg.ModelAliases, arg.ID, arg.InstallationID)
+	var i RouterModelRouterExternalAPIKey
+	err := row.Scan(
+		&i.ID,
+		&i.InstallationID,
+		&i.ExternalID,
+		&i.Provider,
+		&i.KeyCiphertext,
+		&i.KeyPrefix,
+		&i.KeySuffix,
+		&i.KeyFingerprint,
+		&i.Name,
+		&i.LastUsedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.DeletedAt,
+		&i.CreatedBy,
+		&i.BaseURL,
+		&i.ModelAliases,
+		&i.IdentityHeaderName,
+		&i.IdentityHeaderFormat,
+	)
+	return i, err
+}

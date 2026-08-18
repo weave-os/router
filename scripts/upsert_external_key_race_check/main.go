@@ -261,6 +261,9 @@ func (r *holdingExternalRepo) SoftDeleteByProvider(ctx context.Context, installa
 func (r *holdingExternalRepo) SoftDelete(ctx context.Context, installationID, id string) error {
 	return r.inner.SoftDelete(ctx, installationID, id)
 }
+func (r *holdingExternalRepo) UpdateModelAliases(ctx context.Context, installationID, id string, aliases map[string]string) (*auth.ExternalAPIKey, error) {
+	return r.inner.UpdateModelAliases(ctx, installationID, id, aliases)
+}
 func (r *holdingExternalRepo) MarkUsed(ctx context.Context, id string) error {
 	return r.inner.MarkUsed(ctx, id)
 }

@@ -117,6 +117,16 @@ Keys are catalog model IDs (an ID outside the deployed catalog is rejected with
 model name changes: routing, pricing, and analytics stay keyed on the catalog
 ID. Omit the field to send catalog IDs unchanged.
 
+The map is editable in **Settings → Provider API keys → Edit aliases**, or on
+its own endpoint, which replaces the whole map and leaves the stored secret
+alone — so retargeting model names doesn't need the credential re-entered:
+
+```bash
+curl -sS -b jar -X PUT https://<router>/admin/v1/provider-keys/<key id>/model-aliases \
+  -H 'content-type: application/json' \
+  -d '{"model_aliases":{"claude-fable-5":"internal.claude-fable-5"}}'
+```
+
 An endpoint that authenticates the org rather than the person can be given the
 calling user in a header of its choosing:
 

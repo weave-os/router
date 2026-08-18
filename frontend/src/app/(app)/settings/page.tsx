@@ -487,6 +487,100 @@ function providerLabel(p: Provider): string {
   return PROVIDER_LABEL[p];
 }
 
+// AliasRow is the editor's working shape: the map is only formed on save, so a
+// half-typed or duplicate row can exist without clobbering another entry.
+interface AliasRow {
+  model: string;
+  alias: string;
+}
+
+function aliasRowsFrom(aliases: Record<string, string> | undefined): AliasRow[] {
+  return Object.entries(aliases ?? {}).map(([model, alias]) => ({ model, alias }));
+}
+
+function aliasMapFrom(rows: AliasRow[]): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const row of rows) {
+    const model = row.model.trim();
+    const alias = row.alias.trim();
+    if (model !== "" && alias !== "") out[model] = alias;
+  }
+  return out;
+}
+
+// ModelAliasEditor maps catalog model IDs to the names a custom endpoint
+// publishes them under. Routing, pricing, and analytics stay keyed by the
+// catalog ID; only the outbound request carries the alias.
+function ModelAliasEditor({
+  rows,
+  onChange,
+  models,
+  idPrefix,
+}: {
+  rows: AliasRow[];
+  onChange: (rows: AliasRow[]) => void;
+  models: DeployedModel[];
+  idPrefix: string;
+}) {
+  const listID = `${idPrefix}-catalog-models`;
+  return (
+    <div className="flex flex-col gap-2">
+      <span className="text-xs font-medium text-foreground">Model aliases (optional)</span>
+      <datalist id={listID}>
+        {models.map(m => (
+          <option key={m.model} value={m.model} />
+        ))}
+      </datalist>
+      {rows.map((row, i) => (
+        <div key={i} className="grid grid-cols-[1fr_1fr_auto] items-center gap-2">
+          <Input
+            id={`${idPrefix}-model-${i}`}
+            list={listID}
+            autoComplete="off"
+            placeholder="gpt-5"
+            value={row.model}
+            onChange={e =>
+              onChange(rows.map((r, j) => (i === j ? { ...r, model: e.target.value } : r)))
+            }
+          />
+          <Input
+            id={`${idPrefix}-alias-${i}`}
+            autoComplete="off"
+            placeholder="openai-gpt-5"
+            value={row.alias}
+            onChange={e =>
+              onChange(rows.map((r, j) => (i === j ? { ...r, alias: e.target.value } : r)))
+            }
+          />
+          <Button
+            type="button"
+            appearance={Appearance.Hollow}
+            intent={Intent.Danger}
+            size="icon"
+            onClick={() => onChange(rows.filter((_, j) => j !== i))}
+            title="Remove alias."
+          >
+            <Trash2 className="size-3.5" />
+          </Button>
+        </div>
+      ))}
+      <div>
+        <Button
+          type="button"
+          appearance={Appearance.Outlined}
+          onClick={() => onChange([...rows, { model: "", alias: "" }])}
+        >
+          Add alias
+        </Button>
+      </div>
+      <Text className="text-2xs text-muted-foreground">
+        Left: the catalog model the router routes to. Right: the ID this endpoint publishes it
+        under. Only the outbound request is rewritten — routing and billing stay on the catalog ID.
+      </Text>
+    </div>
+  );
+}
+
 function ProviderKeysPanel() {
   const [keys, setKeys] = useState<ExternalKey[]>([]);
   const [envKeyed, setEnvKeyed] = useState<Provider[]>([]);
@@ -495,6 +589,11 @@ function ProviderKeysPanel() {
   const [keyValue, setKeyValue] = useState("");
   const [name, setName] = useState("");
   const [baseURL, setBaseURL] = useState("");
+  const [aliasRows, setAliasRows] = useState<AliasRow[]>([]);
+  const [catalogModels, setCatalogModels] = useState<DeployedModel[]>([]);
+  const [editingAliases, setEditingAliases] = useState<string | null>(null);
+  const [editAliasRows, setEditAliasRows] = useState<AliasRow[]>([]);
+  const [savingAliases, setSavingAliases] = useState(false);
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState<string | null>(null);
 
@@ -525,6 +624,14 @@ function ProviderKeysPanel() {
       });
   }, []);
 
+  useEffect(() => {
+    api.excludedModels
+      .get()
+      // Non-fatal: aliases stay typeable, just without catalog suggestions.
+      .then(r => setCatalogModels(r.available ?? []))
+      .catch(() => setCatalogModels([]));
+  }, []);
+
   const taken = new Set<string>([...keys.map(k => k.provider), ...envKeyed]);
   const available: Provider[] = PROVIDERS.filter(p => !taken.has(p));
   const provider: Provider | null =
@@ -546,15 +653,31 @@ function ProviderKeysPanel() {
         keyValue.trim(),
         name.trim() || undefined,
         baseURL.trim() || undefined,
+        aliasMapFrom(aliasRows),
       );
       setKeyValue("");
       setName("");
       setBaseURL("");
+      setAliasRows([]);
       load();
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Failed to save key");
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function handleSaveAliases(id: string) {
+    setSavingAliases(true);
+    setError(null);
+    try {
+      await api.providerKeys.updateModelAliases(id, aliasMapFrom(editAliasRows));
+      setEditingAliases(null);
+      load();
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Failed to save model aliases.");
+    } finally {
+      setSavingAliases(false);
     }
   }
 
@@ -626,6 +749,12 @@ function ProviderKeysPanel() {
                 value={name}
                 onChange={e => setName(e.target.value)}
               />
+              <ModelAliasEditor
+                rows={aliasRows}
+                onChange={setAliasRows}
+                models={catalogModels}
+                idPrefix="new-key"
+              />
               <div>
                 <Button
                   type="submit"
@@ -679,33 +808,79 @@ function ProviderKeysPanel() {
                 </li>
               ))}
               {keys.map(k => (
-                <li key={k.id} className="flex items-center justify-between px-5 py-3">
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs font-medium text-foreground">
-                        {PROVIDER_LABEL[k.provider as Provider] ?? k.provider}
-                      </span>
-                      {k.name != null && (
-                        <span className="text-2xs text-muted-foreground">· {k.name}</span>
-                      )}
+                <li key={k.id} className="px-5 py-3">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-medium text-foreground">
+                          {PROVIDER_LABEL[k.provider as Provider] ?? k.provider}
+                        </span>
+                        {k.name != null && (
+                          <span className="text-2xs text-muted-foreground">· {k.name}</span>
+                        )}
+                      </div>
+                      <p className="mt-0.5 font-mono text-2xs text-muted-foreground">
+                        {k.key_prefix}…{k.key_suffix}
+                        {k.base_url != null && k.base_url !== "" && (
+                          <span className="ml-2 font-sans">· {k.base_url}</span>
+                        )}
+                      </p>
+                      <p className="mt-0.5 text-2xs text-muted-foreground">
+                        {Object.keys(k.model_aliases ?? {}).length === 0
+                          ? "No model aliases"
+                          : Object.entries(k.model_aliases ?? {})
+                              .map(([model, alias]) => `${model} → ${alias}`)
+                              .join(", ")}
+                      </p>
                     </div>
-                    <p className="mt-0.5 font-mono text-2xs text-muted-foreground">
-                      {k.key_prefix}…{k.key_suffix}
-                      {k.base_url != null && k.base_url !== "" && (
-                        <span className="ml-2 font-sans">· {k.base_url}</span>
-                      )}
-                    </p>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        appearance={Appearance.Outlined}
+                        size="sm"
+                        onClick={() => {
+                          if (editingAliases === k.id) {
+                            setEditingAliases(null);
+                            return;
+                          }
+                          setEditingAliases(k.id);
+                          setEditAliasRows(aliasRowsFrom(k.model_aliases));
+                        }}
+                      >
+                        {editingAliases === k.id ? "Cancel" : "Edit aliases"}
+                      </Button>
+                      <Button
+                        appearance={Appearance.Hollow}
+                        intent={Intent.Danger}
+                        size="icon"
+                        onClick={() => handleDelete(k.id)}
+                        disabled={deleting === k.id}
+                        title="Revoke key."
+                      >
+                        <Trash2 className="size-3.5" />
+                      </Button>
+                    </div>
                   </div>
-                  <Button
-                    appearance={Appearance.Hollow}
-                    intent={Intent.Danger}
-                    size="icon"
-                    onClick={() => handleDelete(k.id)}
-                    disabled={deleting === k.id}
-                    title="Revoke key."
-                  >
-                    <Trash2 className="size-3.5" />
-                  </Button>
+                  {editingAliases === k.id && (
+                    <div className="mt-3 flex flex-col gap-2 border-t border-border pt-3">
+                      <ModelAliasEditor
+                        rows={editAliasRows}
+                        onChange={setEditAliasRows}
+                        models={catalogModels}
+                        idPrefix={`key-${k.id}`}
+                      />
+                      <div>
+                        <Button
+                          appearance={Appearance.Filled}
+                          intent={Intent.Primary}
+                          className="!border-brand !bg-brand !text-white hover:!bg-brand/90"
+                          onClick={() => handleSaveAliases(k.id)}
+                          disabled={savingAliases}
+                        >
+                          {savingAliases ? "Saving…" : "Save aliases"}
+                        </Button>
+                      </div>
+                    </div>
+                  )}
                 </li>
               ))}
             </ul>

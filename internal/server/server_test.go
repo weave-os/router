@@ -70,6 +70,7 @@ func TestRegister_DeploymentMode(t *testing.T) {
 		"DELETE /admin/v1/keys/:id",
 		"GET /admin/v1/provider-keys",
 		"POST /admin/v1/provider-keys",
+		"PUT /admin/v1/provider-keys/:id/model-aliases",
 		"DELETE /admin/v1/provider-keys/:id",
 		"GET /admin/v1/config",
 		"GET /admin/v1/excluded-models",
