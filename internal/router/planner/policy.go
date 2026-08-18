@@ -44,6 +44,13 @@ type Decision struct {
 	ExpectedSavingsUSD float64
 	EvictionCostUSD    float64
 	ThresholdUSD       float64
+	// PinPriceFallback and FreshPriceFallback report that the named provider
+	// binding was absent and pricing fell back to the model's primary binding.
+	// Custom and legacy decisions can legitimately take this path; callers use
+	// these fields to distinguish that deliberate approximation from normal
+	// provider-specific pricing.
+	PinPriceFallback   bool
+	FreshPriceFallback bool
 	// PinCacheCold echoes the warmth assumption the EV math ran under, for
 	// observability. Only meaningful on the EV path; false on early returns.
 	PinCacheCold bool
@@ -127,8 +134,8 @@ func Decide(in Inputs, cfg EVConfig) Decision {
 		return Decision{Outcome: OutcomeStay, Reason: ReasonNoPriorUsage}
 	}
 
-	pinPrice, ok1 := catalog.PrimaryPriceFor(in.Pin.Model)
-	freshPrice, ok2 := catalog.PrimaryPriceFor(in.Fresh.Model)
+	pinPrice, pinPriceFallback, ok1 := priceForDecision(in.Pin.Provider, in.Pin.Model)
+	freshPrice, freshPriceFallback, ok2 := priceForDecision(in.Fresh.Provider, in.Fresh.Model)
 	if !ok1 || !ok2 {
 		return Decision{Outcome: OutcomeStay, Reason: ReasonPricingMissing}
 	}
@@ -163,6 +170,8 @@ func Decide(in Inputs, cfg EVConfig) Decision {
 		EvictionCostUSD:    evictionCost,
 		ThresholdUSD:       cfg.ThresholdUSD,
 		PinCacheCold:       in.PinCacheCold,
+		PinPriceFallback:   pinPriceFallback,
+		FreshPriceFallback: freshPriceFallback,
 	}
 	switch {
 	case expectedSavings-evictionCost > cfg.ThresholdUSD:
@@ -179,6 +188,20 @@ func Decide(in Inputs, cfg EVConfig) Decision {
 		d.Reason = ReasonEVNegative
 	}
 	return d
+}
+
+// priceForDecision prices the provider/model binding named by a routing
+// decision. Older pins and custom bindings can name a provider that is not in
+// the compiled catalog; retain the primary-binding price as an explicit,
+// observable fallback until the custom binding has pricing metadata.
+func priceForDecision(provider, model string) (catalog.Pricing, bool, bool) {
+	if provider != "" {
+		if price, ok := catalog.PriceFor(provider, model); ok {
+			return price, false, true
+		}
+	}
+	price, ok := catalog.PrimaryPriceFor(model)
+	return price, true, ok
 }
 
 // applySubsidy scales a model's price by its subscription cost factor when the

@@ -5,7 +5,9 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
+	"workweave/router/internal/providers"
 	"workweave/router/internal/router"
 	"workweave/router/internal/router/planner"
 	"workweave/router/internal/router/sessionpin"
@@ -79,6 +81,64 @@ func TestDecide_SubscriptionDiscountFlipsSwitch(t *testing.T) {
 	zero := planner.Decide(zeroFactor, defaultCfg)
 	assert.Equal(t, planner.OutcomeSwitch, zero.Outcome,
 		"a 0.0 covered-model factor must still be treated as free (switch), not uncovered")
+}
+
+func TestDecide_UsesNamedProviderBindings(t *testing.T) {
+	t.Parallel()
+
+	base := planner.Inputs{
+		Pin: sessionpin.Pin{
+			Provider:        providers.ProviderMakora,
+			Model:           "deepseek/deepseek-v4-flash",
+			LastTurnEndedAt: time.Date(2026, 5, 12, 12, 0, 0, 0, time.UTC),
+		},
+		Fresh: router.Decision{
+			Provider: providers.ProviderOpenRouter,
+			Model:    "qwen/qwen3-coder-next",
+		},
+		EstimatedInputTokens: 1_000_000,
+		AvailableModels: map[string]struct{}{
+			"deepseek/deepseek-v4-flash": {},
+			"qwen/qwen3-coder-next":      {},
+		},
+	}
+
+	makoraPin := planner.Decide(base, planner.EVConfig{ExpectedRemainingTurns: 3})
+	assert.InDelta(t, -0.03696, makoraPin.ExpectedSavingsUSD, 1e-9)
+	assert.False(t, makoraPin.PinPriceFallback)
+	assert.False(t, makoraPin.FreshPriceFallback)
+
+	openRouterPinInput := base
+	openRouterPinInput.Pin.Provider = providers.ProviderOpenRouter
+	openRouterPin := planner.Decide(openRouterPinInput, planner.EVConfig{ExpectedRemainingTurns: 3})
+	assert.InDelta(t, -0.063, openRouterPin.ExpectedSavingsUSD, 1e-9)
+	assert.NotEqual(t, makoraPin.ExpectedSavingsUSD, openRouterPin.ExpectedSavingsUSD,
+		"the pin's named provider must affect its cache economics")
+}
+
+func TestDecide_PrimaryPriceFallbackIsExplicit(t *testing.T) {
+	t.Parallel()
+
+	in := planner.Inputs{
+		Pin: sessionpin.Pin{
+			Provider:        "custom-provider",
+			Model:           modelHaiku,
+			LastTurnEndedAt: time.Date(2026, 5, 12, 12, 0, 0, 0, time.UTC),
+		},
+		Fresh:                router.Decision{Provider: providers.ProviderAnthropic, Model: modelOpus},
+		EstimatedInputTokens: 50_000,
+		AvailableModels:      availableAll,
+	}
+
+	got := planner.Decide(in, defaultCfg)
+	assert.True(t, got.PinPriceFallback, "custom bindings use the documented primary-price fallback")
+	assert.False(t, got.FreshPriceFallback)
+
+	missing := in
+	missing.Pin.Model = modelUnknown
+	missing.AvailableModels = map[string]struct{}{modelUnknown: {}, modelOpus: {}}
+	got = planner.Decide(missing, defaultCfg)
+	require.Equal(t, planner.ReasonPricingMissing, got.Reason)
 }
 
 // With ColdPinFollowFresh enabled, a cold pin follows the scorer's fresh pick
