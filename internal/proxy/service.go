@@ -3384,6 +3384,10 @@ func applyPlannerAttrs(b *otel.AttrBuilder, res turnLoopResult) *otel.AttrBuilde
 			String("planner.reason", res.PlannerDecision.Reason).
 			Float64("planner.expected_savings_usd", res.PlannerDecision.ExpectedSavingsUSD).
 			Float64("planner.eviction_cost_usd", res.PlannerDecision.EvictionCostUSD).
+			String("planner.shadow_outcome", plannerOutcome(res.PlannerDecision.ShadowOutcome)).
+			Float64("planner.shadow_expected_savings_usd", res.PlannerDecision.ShadowExpectedSavingsUSD).
+			Float64("planner.shadow_stay_cost_usd", res.PlannerDecision.ShadowStayCostUSD).
+			Float64("planner.shadow_switch_cost_usd", res.PlannerDecision.ShadowSwitchCostUSD).
 			Float64("planner.threshold_usd", res.PlannerDecision.ThresholdUSD).
 			String("planner.pin_model", res.PinModel).
 			String("planner.fresh_model", res.Fresh.Model).
@@ -3402,6 +3406,13 @@ func applyPlannerAttrs(b *otel.AttrBuilder, res turnLoopResult) *otel.AttrBuilde
 		Int64("handover.summary_tokens", int64(res.Handover.SummaryTokens)).
 		Bool("handover.fallback_to_full_history", res.Handover.FallbackToFullHistory)
 	return b
+}
+
+func plannerOutcome(outcome planner.Outcome) string {
+	if outcome == planner.OutcomeSwitch {
+		return "switch"
+	}
+	return "stay"
 }
 
 // applySidecarLatencyAttrs reads Fresh.Metadata, not the served decision:

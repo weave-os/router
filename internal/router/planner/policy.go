@@ -48,6 +48,12 @@ type Decision struct {
 	// binding has no catalog entry and pricing fell back to the model's primary binding.
 	PinPriceFallback   bool
 	FreshPriceFallback bool
+	// Shadow* is the inclusive current-plus-future cache model. It is emitted
+	// for calibration only; Outcome continues to use the production policy.
+	ShadowOutcome            Outcome
+	ShadowExpectedSavingsUSD float64
+	ShadowStayCostUSD        float64
+	ShadowSwitchCostUSD      float64
 	// PinCacheCold echoes the warmth assumption the EV math ran under, for
 	// observability. Only meaningful on the EV path; false on early returns.
 	PinCacheCold bool
@@ -76,7 +82,11 @@ type Inputs struct {
 	Pin                  sessionpin.Pin
 	Fresh                router.Decision
 	EstimatedInputTokens int
-	AvailableModels      map[string]struct{}
+	// CacheablePrefixTokens estimates the stable portion of the input. It is
+	// used only by the shadow model; production continues to use its existing
+	// full-input approximation until calibrated.
+	CacheablePrefixTokens int
+	AvailableModels       map[string]struct{}
 	// PinCacheCold reports that the pin's upstream prompt cache has lapsed —
 	// no turn completed within the pinned provider's cache TTL. The proxy
 	// computes this (it owns the clock); the planner stays a pure function.
@@ -175,6 +185,9 @@ func Decide(in Inputs, cfg EVConfig) Decision {
 		PinPriceFallback:   pinPriceFallback,
 		FreshPriceFallback: freshPriceFallback,
 	}
+	d.ShadowOutcome, d.ShadowExpectedSavingsUSD, d.ShadowStayCostUSD, d.ShadowSwitchCostUSD = shadowCosts(
+		pinPrice, freshPrice, tokens, float64(in.CacheablePrefixTokens), cfg.ExpectedRemainingTurns, in.PinCacheCold, cfg.ThresholdUSD,
+	)
 	switch {
 	case expectedSavings-evictionCost > cfg.ThresholdUSD:
 		d.Outcome = OutcomeSwitch
@@ -190,6 +203,34 @@ func Decide(in Inputs, cfg EVConfig) Decision {
 		d.Reason = ReasonEVNegative
 	}
 	return d
+}
+
+// shadowCosts evaluates the inclusive-action model in shadow only.
+// N counts the current action once; K cacheable-prefix tokens get cache pricing.
+func shadowCosts(pin, fresh catalog.Pricing, total, prefix float64, remaining int, pinCold bool, threshold float64) (Outcome, float64, float64, float64) {
+	if remaining < 1 {
+		remaining = 1
+	}
+	prefix = min(max(prefix, 0), total)
+	tail := total - prefix
+	warm := func(p catalog.Pricing) float64 {
+		return (prefix*p.InputUSDPer1M*p.EffectiveCacheReadMultiplier() + tail*p.InputUSDPer1M) / 1e6
+	}
+	cold := func(p catalog.Pricing) float64 {
+		return (prefix*p.InputUSDPer1M*p.EffectiveCacheWriteMultiplier() + tail*p.InputUSDPer1M) / 1e6
+	}
+	pinWarm, freshWarm := warm(pin), warm(fresh)
+	stayCurrent := pinWarm
+	if pinCold {
+		stayCurrent = cold(pin)
+	}
+	stay := stayCurrent + float64(remaining-1)*pinWarm
+	switchCost := cold(fresh) + float64(remaining-1)*freshWarm
+	savings := stay - switchCost
+	if savings > threshold {
+		return OutcomeSwitch, savings, stay, switchCost
+	}
+	return OutcomeStay, savings, stay, switchCost
 }
 
 // priceForDecision returns the price for the named provider/model binding,

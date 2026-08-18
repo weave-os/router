@@ -143,6 +143,32 @@ func TestDecide_PrimaryPriceFallbackIsExplicit(t *testing.T) {
 	assert.False(t, got.FreshPriceFallback)
 }
 
+func TestDecide_ShadowInclusiveCostModel(t *testing.T) {
+	t.Parallel()
+
+	in := planner.Inputs{
+		Pin:                   pinWithUsage(modelOpus),
+		Fresh:                 router.Decision{Model: modelHaiku},
+		EstimatedInputTokens:  100,
+		CacheablePrefixTokens: 60,
+		AvailableModels:       availableAll,
+	}
+	got := planner.Decide(in, planner.EVConfig{ExpectedRemainingTurns: 1})
+	assert.InDelta(t, got.ShadowStayCostUSD, got.ShadowExpectedSavingsUSD+got.ShadowSwitchCostUSD, 1e-12)
+	assert.Greater(t, got.ShadowSwitchCostUSD, 0.0, "N=1 prices the current switch action exactly once")
+
+	in.CacheablePrefixTokens = 0
+	noPrefix := planner.Decide(in, planner.EVConfig{ExpectedRemainingTurns: 1})
+	in.PinCacheCold = true
+	noPrefixCold := planner.Decide(in, planner.EVConfig{ExpectedRemainingTurns: 1})
+	assert.InDelta(t, noPrefix.ShadowStayCostUSD, noPrefixCold.ShadowStayCostUSD, 1e-12,
+		"K=0 removes cache-write advantage")
+
+	in.CacheablePrefixTokens = 100
+	cold := planner.Decide(in, planner.EVConfig{ExpectedRemainingTurns: 1})
+	assert.Greater(t, cold.ShadowStayCostUSD, got.ShadowStayCostUSD, "a cold pin pays its current cache write")
+}
+
 // With ColdPinFollowFresh enabled, a cold pin follows the scorer's fresh pick
 // even when the raw-price EV is below threshold.
 func TestDecide_ColdPinFollowFresh(t *testing.T) {
