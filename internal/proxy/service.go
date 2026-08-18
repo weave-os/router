@@ -155,6 +155,11 @@ type Service struct {
 	// false). When true, a safety refusal on the anthropic-native path re-pins
 	// the session off the refusing model (opus ~45% refusal rate; sonnet 0%).
 	cyberRefusalRepin bool
+
+	// siblingFailover is the kill switch (ROUTER_SIBLING_FAILOVER, default on)
+	// for degrading to a same-cluster candidate when every binding of the
+	// routed model fails with a transient upstream fault.
+	siblingFailover bool
 	// cyberRefusalFallbackModel is the model to re-pin to on a cyber refusal
 	// when the session pin carries no runner-up (PairedModel). Set from
 	// ROUTER_CYBER_REFUSAL_FALLBACK_MODEL; defaults to claude-sonnet-5.
@@ -530,6 +535,7 @@ const (
 	markerReasonTierUpgrade   = "upgraded to a stronger tier"
 	markerReasonBestPick      = "best pick for this turn"
 	markerReasonBaseline      = "fell back to baseline after provider outage"
+	markerReasonSibling       = "switched after the picked model was overloaded"
 )
 
 // baselineRoutingMarkerFor renders the routing badge for an in-turn baseline
@@ -546,6 +552,15 @@ func baselineRoutingMarkerFor(res turnLoopResult, baselineModel string) string {
 		return ""
 	}
 	return "✦ **Weave Router** → " + baselineModel + " · " + markerReasonBaseline + "\n\n"
+}
+
+// siblingRoutingMarkerFor renders the routing badge for an in-turn same-cluster
+// failover, naming the candidate that actually serves.
+func siblingRoutingMarkerFor(res turnLoopResult, siblingModel string) string {
+	if res.SuggestionMode || siblingModel == "" || res.PriorServedModel == siblingModel {
+		return ""
+	}
+	return "✦ **Weave Router** → " + siblingModel + " · " + markerReasonSibling + "\n\n"
 }
 
 // routingReasonShort returns a short user-facing reason for the routing
@@ -1069,6 +1084,7 @@ func NewService(r router.Router, providerMap map[string]providers.Client, emitte
 		scoreToolResultTurns:          true,
 		loopEscalationEnabled:         true,
 		cyberRefusalRepin:             false,
+		siblingFailover:               true,
 		cyberRefusalFallbackModel:     "claude-sonnet-5",
 	}
 }
@@ -1114,6 +1130,13 @@ func (s *Service) WithScoreToolResultTurns(enabled bool) *Service {
 // (ROUTER_CYBER_REFUSAL_REPIN); see cyberRefusalRepin.
 func (s *Service) WithCyberRefusalRepin(enabled bool) *Service {
 	s.cyberRefusalRepin = enabled
+	return s
+}
+
+// WithSiblingFailover is the kill switch for same-cluster model failover
+// (ROUTER_SIBLING_FAILOVER); see siblingFailover.
+func (s *Service) WithSiblingFailover(enabled bool) *Service {
+	s.siblingFailover = enabled
 	return s
 }
 
@@ -2746,167 +2769,175 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	// translators validate/repair model tool calls against it. Nil if no tools.
 	toolValidator := env.ToolValidator()
 	setExtractor := func(e *otel.UsageExtractor) { extractor = e }
-	var attempt dispatchAttempt
-	// Dispatch keys off the provider's translation family, not a hardcoded name
-	// list, so a new OpenAI-compat provider routes here as soon as it has a
-	// ProviderFamilies entry (see internal/providers/provider.go).
-	switch providers.FamilyFor(decision.Provider) {
-	case providers.FamilyAnthropic:
-		prep, emitErr := env.PrepareAnthropic(r.Header, opts)
-		if emitErr != nil {
-			log.Error("Failed to emit Anthropic body", "err", emitErr)
-			return fmt.Errorf("emit body: %w", emitErr)
-		}
-		logUpstreamBody(log, routeRes.SessionKey, decision, feats, prep.Body)
-		attempt = s.anthropicNativeAttempt(env, r, prep, sink, preludeBuf, marker, setExtractor)
-	case providers.FamilyOpenAICompat:
-		crossFormat = true
-		// Prep rebuilt per attempt: targetIsOpenRouter(opts) gates four
-		// OpenRouter-only body fields. On failover from Fireworks to
-		// OpenRouter, the body must be re-emitted with TargetProvider =
-		// openrouter so those gates fire.
-		attempt = func(actx context.Context, d router.Decision, p providers.Client) error {
-			attemptOpts := opts
-			attemptOpts.TargetProvider = d.Provider
-			respSummary = translate.ResponseSummary{}
-			// Reasoning OpenAI models (gpt-5.x) reject tools/stop/reasoning_effort
-			// on /v1/chat/completions; agentic tool turns must use Responses
-			// instead. Scoped to direct OpenAI (the only one with /v1/responses).
-			useResponses := translate.UseOpenAIResponsesAPI(
-				d.Provider, attemptOpts.Capabilities, feats.HasTools)
-			var prep providers.PreparedRequest
-			var emitErr error
-			if useResponses {
-				prep, emitErr = env.PrepareOpenAIResponses(r.Header, attemptOpts)
-			} else {
-				prep, emitErr = env.PrepareOpenAI(r.Header, attemptOpts)
-			}
+	// buildAttempt keys dispatch off the provider's translation family, not a
+	// hardcoded name list, so a new OpenAI-compat provider routes here as soon
+	// as it has a ProviderFamilies entry (see internal/providers/provider.go).
+	// It stays a function because an in-turn model failover re-emits the request
+	// for a candidate that may sit in a different family than the primary.
+	buildAttempt := func(target router.Decision, targetOpts translate.EmitOptions, targetMarker string) (dispatchAttempt, error) {
+		switch providers.FamilyFor(target.Provider) {
+		case providers.FamilyAnthropic:
+			prep, emitErr := env.PrepareAnthropic(r.Header, targetOpts)
 			if emitErr != nil {
-				log.Error("Failed to translate Anthropic request to OpenAI format", "err", emitErr, "decision_provider", d.Provider, "responses_api", useResponses)
-				return fmt.Errorf("translate anthropic request: %w", emitErr)
+				log.Error("Failed to emit Anthropic body", "err", emitErr)
+				return nil, fmt.Errorf("emit body: %w", emitErr)
 			}
-			reqStats = prep.Stats
-			logUpstreamBody(log, routeRes.SessionKey, d, feats, prep.Body)
-			var usage otel.UsageSink
-			if s.usageRequired() {
-				extractor = otel.NewUsageExtractor(nil, d.Provider)
-				usage = extractor
-			}
-			var translator translate.ResponseTranslator
-			if useResponses {
-				translator = translate.NewResponsesToAnthropicWriter(sink, d.Model, usage).
-					WithRoutingMarker(marker).
-					WithEstimatedInputTokens(feats.Tokens).
-					WithRequestHadTools(feats.HasTools).
-					WithToolValidator(toolValidator)
-			} else {
-				translator = translate.NewAnthropicSSETranslator(sink, d.Model, usage).
-					WithRoutingMarker(marker).
-					WithEstimatedInputTokens(feats.Tokens).
-					WithRequestHadTools(feats.HasTools).
-					WithThinkTagReasoning(catalog.ThinkTagReasoningFor(d.Model)).
-					WithEscapeNormalize(s.escapeNormalize).
-					WithToolValidator(toolValidator)
-			}
-			if err := translator.Prelude(env.Stream()); err != nil {
-				log.Error("Anthropic SSE prelude failed (OpenAI upstream)", "err", err)
-			}
-			if preludeBuf != nil {
-				preludeBuf.Seal()
-			}
-			err := p.Proxy(actx, d, prep, translator, r)
-			// Post-commit: HTTP 200 + message_start already on the wire, so
-			// render the error as an in-stream `event: error` frame instead of
-			// a corrupting trailing envelope. Pre-commit errors go through
-			// dispatchWithFallback instead.
-			if err != nil && env.Stream() && preludeBuf.Committed() {
-				err = emitAnthropicSSEErrorEvent(sink, err)
-			}
-			finErr := finalizeAfterProxy(err, translator.Finalize)
-			respSummary = translator.Summary()
-			return finErr
-		}
-	case providers.FamilyGemini:
-		crossFormat = true
-		prep, emitErr := env.PrepareGemini(r.Header, opts)
-		reqStats = prep.Stats
-		if emitErr != nil {
-			log.Error("Failed to translate Anthropic request to Gemini format", "err", emitErr)
-			return fmt.Errorf("translate anthropic request to gemini: %w", emitErr)
-		}
-		logUpstreamBody(log, routeRes.SessionKey, decision, feats, prep.Body)
-		// geminiUsedValidated marks a request sent with
-		// functionCallingConfig.mode=VALIDATED (Gemini 3.x, tools, unforced
-		// choice): Gemini compiles each tool schema into a decode-time grammar,
-		// and one it can't compile 400s the whole request. Retried once below
-		// with mode=AUTO if nothing has reached the client yet.
-		geminiUsedValidated := prep.Stats.GeminiValidatedToolMode
-		// dispatchGemini does one call and returns the raw upstream error plus a
-		// finalize thunk, split so the attempt can inspect a pre-commit 400
-		// before finalize commits the prelude buffer and forecloses the retry.
-		// Translators are stateful, so a retry rebuilds the chain via a fresh call.
-		dispatchGemini := func(actx context.Context, d router.Decision, p providers.Client, pr providers.PreparedRequest) (error, func(error) error) {
-			respSummary = translate.ResponseSummary{}
-			var usage otel.UsageSink
-			if s.usageRequired() {
-				extractor = otel.NewUsageExtractor(nil, d.Provider)
-				usage = extractor
-			}
-			// SSE chain: Gemini → OpenAI → Anthropic.
-			anthropicTr := translate.NewAnthropicSSETranslator(sink, d.Model, usage).
-				WithRoutingMarker(marker).
-				WithEstimatedInputTokens(feats.Tokens).
-				WithRequestHadTools(feats.HasTools).
-				WithEscapeNormalize(s.escapeNormalize).
-				WithToolValidator(toolValidator)
-			if err := anthropicTr.Prelude(env.Stream()); err != nil {
-				log.Error("Anthropic SSE prelude failed (Gemini upstream)", "err", err)
-			}
-			if preludeBuf != nil {
-				preludeBuf.Seal()
-			}
-			geminiTr := translate.NewGeminiToOpenAISSETranslator(anthropicTr, d.Model, nil)
-			rawErr := p.Proxy(actx, d, pr, geminiTr, r)
-			finalize := func(err error) error {
-				// Post-commit: see the OpenAI-compat case above.
+			crossFormat = false
+			logUpstreamBody(log, routeRes.SessionKey, target, feats, prep.Body)
+			return s.anthropicNativeAttempt(env, r, prep, sink, preludeBuf, targetMarker, setExtractor), nil
+		case providers.FamilyOpenAICompat:
+			crossFormat = true
+			// Prep rebuilt per attempt: targetIsOpenRouter(opts) gates four
+			// OpenRouter-only body fields. On failover from Fireworks to
+			// OpenRouter, the body must be re-emitted with TargetProvider =
+			// openrouter so those gates fire.
+			return func(actx context.Context, d router.Decision, p providers.Client) error {
+				attemptOpts := targetOpts
+				attemptOpts.TargetProvider = d.Provider
+				respSummary = translate.ResponseSummary{}
+				// Reasoning OpenAI models (gpt-5.x) reject tools/stop/reasoning_effort
+				// on /v1/chat/completions; agentic tool turns must use Responses
+				// instead. Scoped to direct OpenAI (the only one with /v1/responses).
+				useResponses := translate.UseOpenAIResponsesAPI(
+					d.Provider, attemptOpts.Capabilities, feats.HasTools)
+				var prep providers.PreparedRequest
+				var emitErr error
+				if useResponses {
+					prep, emitErr = env.PrepareOpenAIResponses(r.Header, attemptOpts)
+				} else {
+					prep, emitErr = env.PrepareOpenAI(r.Header, attemptOpts)
+				}
+				if emitErr != nil {
+					log.Error("Failed to translate Anthropic request to OpenAI format", "err", emitErr, "decision_provider", d.Provider, "responses_api", useResponses)
+					return fmt.Errorf("translate anthropic request: %w", emitErr)
+				}
+				reqStats = prep.Stats
+				logUpstreamBody(log, routeRes.SessionKey, d, feats, prep.Body)
+				var usage otel.UsageSink
+				if s.usageRequired() {
+					extractor = otel.NewUsageExtractor(nil, d.Provider)
+					usage = extractor
+				}
+				var translator translate.ResponseTranslator
+				if useResponses {
+					translator = translate.NewResponsesToAnthropicWriter(sink, d.Model, usage).
+						WithRoutingMarker(targetMarker).
+						WithEstimatedInputTokens(feats.Tokens).
+						WithRequestHadTools(feats.HasTools).
+						WithToolValidator(toolValidator)
+				} else {
+					translator = translate.NewAnthropicSSETranslator(sink, d.Model, usage).
+						WithRoutingMarker(targetMarker).
+						WithEstimatedInputTokens(feats.Tokens).
+						WithRequestHadTools(feats.HasTools).
+						WithThinkTagReasoning(catalog.ThinkTagReasoningFor(d.Model)).
+						WithEscapeNormalize(s.escapeNormalize).
+						WithToolValidator(toolValidator)
+				}
+				if err := translator.Prelude(env.Stream()); err != nil {
+					log.Error("Anthropic SSE prelude failed (OpenAI upstream)", "err", err)
+				}
+				if preludeBuf != nil {
+					preludeBuf.Seal()
+				}
+				err := p.Proxy(actx, d, prep, translator, r)
+				// Post-commit: HTTP 200 + message_start already on the wire, so
+				// render the error as an in-stream `event: error` frame instead of
+				// a corrupting trailing envelope. Pre-commit errors go through
+				// dispatchWithFallback instead.
 				if err != nil && env.Stream() && preludeBuf.Committed() {
 					err = emitAnthropicSSEErrorEvent(sink, err)
 				}
-				err = finalizeAfterProxy(err, geminiTr.Finalize)
-				finErr := finalizeAfterProxy(err, anthropicTr.Finalize)
-				respSummary = anthropicTr.Summary()
+				finErr := finalizeAfterProxy(err, translator.Finalize)
+				respSummary = translator.Summary()
 				return finErr
+			}, nil
+		case providers.FamilyGemini:
+			prep, emitErr := env.PrepareGemini(r.Header, targetOpts)
+			reqStats = prep.Stats
+			if emitErr != nil {
+				log.Error("Failed to translate Anthropic request to Gemini format", "err", emitErr)
+				return nil, fmt.Errorf("translate anthropic request to gemini: %w", emitErr)
 			}
-			return rawErr, finalize
-		}
-		attempt = func(actx context.Context, d router.Decision, p providers.Client) error {
-			rawErr, finalize := dispatchGemini(actx, d, p, prep)
-			// VALIDATED-mode schema-grammar 400: retry once with mode=AUTO while
-			// pre-commit. AUTO only drops the grammar constraint, so it can't make
-			// things worse — a non-schema 400 just 400s again normally. The first
-			// attempt's translators are abandoned (Discard).
-			if rawErr != nil && geminiUsedValidated && !committed(preludeBuf) && upstreamStatus(rawErr) == http.StatusBadRequest {
-				autoOpts := opts
-				autoOpts.DowngradeGeminiValidatedToAuto = true
-				autoPrep, autoErr := env.PrepareGemini(r.Header, autoOpts)
-				if autoErr != nil {
-					log.Error("Failed to re-translate Gemini request with tool mode AUTO", "err", autoErr)
-					return finalize(rawErr)
+			crossFormat = true
+			logUpstreamBody(log, routeRes.SessionKey, target, feats, prep.Body)
+			// geminiUsedValidated marks a request sent with
+			// functionCallingConfig.mode=VALIDATED (Gemini 3.x, tools, unforced
+			// choice): Gemini compiles each tool schema into a decode-time grammar,
+			// and one it can't compile 400s the whole request. Retried once below
+			// with mode=AUTO if nothing has reached the client yet.
+			geminiUsedValidated := prep.Stats.GeminiValidatedToolMode
+			// dispatchGemini does one call and returns the raw upstream error plus a
+			// finalize thunk, split so the attempt can inspect a pre-commit 400
+			// before finalize commits the prelude buffer and forecloses the retry.
+			// Translators are stateful, so a retry rebuilds the chain via a fresh call.
+			dispatchGemini := func(actx context.Context, d router.Decision, p providers.Client, pr providers.PreparedRequest) (error, func(error) error) {
+				respSummary = translate.ResponseSummary{}
+				var usage otel.UsageSink
+				if s.usageRequired() {
+					extractor = otel.NewUsageExtractor(nil, d.Provider)
+					usage = extractor
 				}
-				log.Warn("Retrying Gemini request with functionCallingConfig.mode=AUTO after VALIDATED-mode 400",
-					"model", d.Model,
-					"request_id", requestID)
+				// SSE chain: Gemini → OpenAI → Anthropic.
+				anthropicTr := translate.NewAnthropicSSETranslator(sink, d.Model, usage).
+					WithRoutingMarker(targetMarker).
+					WithEstimatedInputTokens(feats.Tokens).
+					WithRequestHadTools(feats.HasTools).
+					WithEscapeNormalize(s.escapeNormalize).
+					WithToolValidator(toolValidator)
+				if err := anthropicTr.Prelude(env.Stream()); err != nil {
+					log.Error("Anthropic SSE prelude failed (Gemini upstream)", "err", err)
+				}
 				if preludeBuf != nil {
-					preludeBuf.Discard()
+					preludeBuf.Seal()
 				}
-				reqStats = autoPrep.Stats
-				logUpstreamBody(log, routeRes.SessionKey, d, feats, autoPrep.Body)
-				rawErr, finalize = dispatchGemini(actx, d, p, autoPrep)
+				geminiTr := translate.NewGeminiToOpenAISSETranslator(anthropicTr, d.Model, nil)
+				rawErr := p.Proxy(actx, d, pr, geminiTr, r)
+				finalize := func(err error) error {
+					// Post-commit: see the OpenAI-compat case above.
+					if err != nil && env.Stream() && preludeBuf.Committed() {
+						err = emitAnthropicSSEErrorEvent(sink, err)
+					}
+					err = finalizeAfterProxy(err, geminiTr.Finalize)
+					finErr := finalizeAfterProxy(err, anthropicTr.Finalize)
+					respSummary = anthropicTr.Summary()
+					return finErr
+				}
+				return rawErr, finalize
 			}
-			return finalize(rawErr)
+			return func(actx context.Context, d router.Decision, p providers.Client) error {
+				rawErr, finalize := dispatchGemini(actx, d, p, prep)
+				// VALIDATED-mode schema-grammar 400: retry once with mode=AUTO while
+				// pre-commit. AUTO only drops the grammar constraint, so it can't make
+				// things worse — a non-schema 400 just 400s again normally. The first
+				// attempt's translators are abandoned (Discard).
+				if rawErr != nil && geminiUsedValidated && !committed(preludeBuf) && upstreamStatus(rawErr) == http.StatusBadRequest {
+					autoOpts := targetOpts
+					autoOpts.DowngradeGeminiValidatedToAuto = true
+					autoPrep, autoErr := env.PrepareGemini(r.Header, autoOpts)
+					if autoErr != nil {
+						log.Error("Failed to re-translate Gemini request with tool mode AUTO", "err", autoErr)
+						return finalize(rawErr)
+					}
+					log.Warn("Retrying Gemini request with functionCallingConfig.mode=AUTO after VALIDATED-mode 400",
+						"model", d.Model,
+						"request_id", requestID)
+					if preludeBuf != nil {
+						preludeBuf.Discard()
+					}
+					reqStats = autoPrep.Stats
+					logUpstreamBody(log, routeRes.SessionKey, d, feats, autoPrep.Body)
+					rawErr, finalize = dispatchGemini(actx, d, p, autoPrep)
+				}
+				return finalize(rawErr)
+			}, nil
+		default:
+			return nil, fmt.Errorf("%w: %s (no translation path defined for inbound Anthropic Messages)", ErrProviderNotConfigured, target.Provider)
 		}
-	default:
-		return fmt.Errorf("%w: %s (no translation path defined for inbound Anthropic Messages)", ErrProviderNotConfigured, decision.Provider)
+	}
+	attempt, attemptBuildErr := buildAttempt(decision, opts, marker)
+	if attemptBuildErr != nil {
+		return attemptBuildErr
 	}
 
 	// In-turn baseline failover eligibility: when the router cost-routes to an
@@ -2955,6 +2986,20 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		!billing.SubscriptionOnlyFromContext(ctx) &&
 		s.anthropicFallbackKeyAvailable(ctx)
 
+	// Same-cluster model failover eligibility: a provider-wide overload leaves a
+	// single-binding model nowhere to fail over to, so every retry hits the same
+	// dark upstream. Degrade instead to a candidate the policy already scored
+	// for this turn. Gated like baseline failover, plus subscription-only mode:
+	// serving a different model there would incur exactly the paid spend that
+	// mode forbids.
+	siblingDecision, siblingFound := s.siblingFailoverDecision(ctx, decision, feats.Tokens)
+	siblingViable := s.siblingFailover &&
+		siblingFound &&
+		!agentShadowMode &&
+		decision.Reason != translate.ReasonUserForceModel &&
+		s.shouldFailover(ctx) &&
+		!billing.SubscriptionOnlyFromContext(ctx)
+
 	primaryProvider := decision.Provider
 	var winnerIdx int
 	winnerIdx, proxyErr = s.dispatchWithFallback(ctx, failoverInputs{
@@ -2965,7 +3010,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		bindings:               bindings,
 		attempt:                attempt,
 		flushErr:               flushUpstreamErrorAsAnthropic,
-		deferFlushOnExhaustion: baselineViable || subscriptionRetryEligible,
+		deferFlushOnExhaustion: baselineViable || subscriptionRetryEligible || siblingViable,
 	})
 
 	// The routed model's bindings all failed with a fault another model could
@@ -3042,10 +3087,11 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			// not report baseline_failover=true and skew bake-off analysis.
 			baselineFailoverUsed = proxyErr == nil
 		}
-	} else if baselineViable && proxyErr != nil {
+	} else if baselineViable && !siblingViable && proxyErr != nil {
 		// Baseline didn't run (mid-stream commit, or non-failoverable error);
 		// surface the deferred original error now. Guard must match
-		// deferFlushOnExhaustion above, or a deferred error is never flushed.
+		// deferFlushOnExhaustion above, or a deferred error is never flushed —
+		// unless the sibling rescue below owns the deferred flush instead.
 		flushUpstreamErrorAsAnthropic(contentSink, proxyErr)
 	}
 
@@ -3101,7 +3147,75 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	}
 	// The subscription retry didn't run (mid-stream commit, or non-retryable
 	// error); surface the deferred original error now so it's never dropped.
-	if subscriptionRetryEligible && !baselineAttempted && !subscriptionRetryRan && proxyErr != nil && !preludeBuf.Committed() {
+	if subscriptionRetryEligible && !siblingViable && !baselineAttempted && !subscriptionRetryRan && proxyErr != nil && !preludeBuf.Committed() {
+		flushUpstreamErrorAsAnthropic(contentSink, proxyErr)
+	}
+
+	// Same-cluster failover: the routed model is exhausted on every binding it
+	// has, pre-commit — re-dispatch the next candidate from this turn's routing
+	// decision rather than surfacing an overload the model can't retry out of.
+	// Last rescue in the chain, so it only runs when the earlier ones didn't.
+	siblingFailoverUsed := false
+	siblingRescueRan := false
+	siblingRescueOwed := siblingViable && !baselineAttempted && !subscriptionRetryRan
+	if siblingRescueOwed && proxyErr != nil && !preludeBuf.Committed() &&
+		(providers.IsRetryable(proxyErr) ||
+			providers.IsUpstreamModelNotFound(proxyErr) ||
+			providers.IsUpstreamProviderBillingBlocked(proxyErr)) {
+		siblingOpts := opts
+		siblingOpts.TargetModel = siblingDecision.Model
+		siblingOpts.TargetProvider = siblingDecision.Provider
+		siblingOpts.Capabilities = router.Lookup(siblingDecision.Model)
+		// The turn now serves a model the session hasn't seen, so signed
+		// thinking blocks from the prior model must not be replayed verbatim.
+		siblingOpts.ModelSwitched = true
+		if knobs := routingKnobsForRequest(ctx); knobs != nil && knobs.ForceEffort != "" {
+			siblingOpts.ForceEffort = knobs.ForceEffort
+			siblingOpts.ForceReasoningEffort = translate.ResolveForceEffort(siblingOpts.Capabilities, knobs.ForceEffort)
+		} else if s.effortEscalation {
+			siblingOpts.ForceReasoningEffort = forcedReasoningEffort(siblingDecision.Model, routeRes.EscalateEffort)
+		}
+		siblingCtx := resolveAndInjectCredentials(ctx, siblingDecision.Provider, siblingDecision.Model, r.Header)
+		siblingBindings := s.resolveBindingsForDispatch(siblingCtx, siblingDecision)
+		siblingMarker := suppressMarkerIfRequested(r.Header, siblingRoutingMarkerFor(routeRes, siblingDecision.Model))
+		siblingAttempt, siblingBuildErr := buildAttempt(siblingDecision, siblingOpts, siblingMarker)
+		switch {
+		case siblingBuildErr != nil:
+			log.Error("Sibling failover: preparing the candidate request failed; surfacing original error",
+				"err", siblingBuildErr,
+				"sibling_model", siblingDecision.Model)
+		case len(siblingBindings) == 0:
+			log.Warn("Sibling failover: candidate has no usable binding; surfacing original error",
+				"sibling_model", siblingDecision.Model,
+				"sibling_provider", siblingDecision.Provider,
+				"err", proxyErr)
+		default:
+			log.Warn("Sibling failover: routed model exhausted, retrying a same-cluster candidate",
+				"failed_model", decision.Model,
+				"failed_provider", primaryProvider,
+				"sibling_model", siblingDecision.Model,
+				"sibling_provider", siblingDecision.Provider,
+				"upstream_status", upstreamStatus(proxyErr),
+				"err", proxyErr)
+			siblingRescueRan = true
+			respSummary = translate.ResponseSummary{}
+			reqStats = providers.RequestMutationStats{}
+			winnerIdx, proxyErr = s.dispatchWithFallback(siblingCtx, failoverInputs{
+				w:               contentSink,
+				buf:             preludeBuf,
+				initialDecision: siblingDecision,
+				bindings:        siblingBindings,
+				attempt:         siblingAttempt,
+				flushErr:        flushUpstreamErrorAsAnthropic,
+			})
+			decision = siblingDecision
+			bindings = siblingBindings
+			siblingFailoverUsed = proxyErr == nil
+		}
+	}
+	// The sibling rescue didn't run; surface the deferred original error now so
+	// it's never dropped.
+	if siblingRescueOwed && !siblingRescueRan && proxyErr != nil && !preludeBuf.Committed() {
 		flushUpstreamErrorAsAnthropic(contentSink, proxyErr)
 	}
 
@@ -3183,9 +3297,10 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		String("dispatch.primary_provider", primaryProvider).
 		String("dispatch.final_provider", finalProvider).
 		Int64("dispatch.fallback_attempts", int64(winnerIdx)).
-		Bool("dispatch.failover_used", finalProvider != primaryProvider || subscriptionFailoverUsed).
+		Bool("dispatch.failover_used", finalProvider != primaryProvider || subscriptionFailoverUsed || siblingFailoverUsed).
 		Bool("dispatch.baseline_failover", baselineFailoverUsed).
-		Bool("dispatch.subscription_failover", subscriptionFailoverUsed)
+		Bool("dispatch.subscription_failover", subscriptionFailoverUsed).
+		Bool("dispatch.sibling_failover", siblingFailoverUsed)
 	applyPlannerAttrs(upstreamBuilder, routeRes)
 	applyRoutingStateAttrs(upstreamBuilder, routeRes, decision.Model, sessionKey)
 	addTimingAttrs(ctx, upstreamBuilder)
@@ -3216,7 +3331,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		// Same-provider subscription->Weave retries keep finalProvider ==
 		// primaryProvider, so OR in subscriptionFailoverUsed to match the OTel
 		// span + completion log.
-		failoverUsed := finalProvider != primaryProvider || subscriptionFailoverUsed
+		failoverUsed := finalProvider != primaryProvider || subscriptionFailoverUsed || siblingFailoverUsed
 		degShadow := proxyErr == nil && isDegenerateResponse(out, respSummary.ToolUseBlocks, respSummary.StopReason, respSummary.StopReasonDemoted)
 		if degShadow && !agentShadowMode {
 			log.Info("router.degenerate_shadow",

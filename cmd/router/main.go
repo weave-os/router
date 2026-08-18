@@ -560,6 +560,9 @@ func main() {
 	cyberRefusalRepin := config.GetOr("ROUTER_CYBER_REFUSAL_REPIN", "false") == "true"
 	cyberRefusalFallbackModel := config.GetOr("ROUTER_CYBER_REFUSAL_FALLBACK_MODEL", "claude-sonnet-5")
 	effortEscalation := config.GetOr("ROUTER_EFFORT_ESCALATION", "false") == "true"
+	// Kill switch for degrading to a same-cluster candidate when the routed
+	// model's bindings are all exhausted by a transient upstream fault.
+	siblingFailover := config.GetOr("ROUTER_SIBLING_FAILOVER", "true") == "true"
 	ccOrchToolsCrossVendor := config.GetOr("ROUTER_CC_ORCH_TOOLS_CROSSVENDOR", "true") == "true"
 	// Per-turn large-vs-small action-classifier swap. Off by default until the
 	// Layer-2 extrinsic validation clears it; enabling loads the compiled-in head.
@@ -805,6 +808,7 @@ func main() {
 		WithScoreToolResultTurns(scoreToolResultTurns).
 		WithCyberRefusalRepin(cyberRefusalRepin).
 		WithCyberRefusalFallbackModel(cyberRefusalFallbackModel).
+		WithSiblingFailover(siblingFailover).
 		WithPrefixTrimFreeSwitch(prefixTrimFreeSwitch).
 		WithHMMUpgradeConfidenceThreshold(hmmUpgradeConfidence).
 		WithHMMSameTierPin(hmmSameTierPin).
