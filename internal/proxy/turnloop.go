@@ -102,6 +102,13 @@ func applyPinEvidence(res *turnLoopResult, pin sessionpin.Pin) {
 	}
 }
 
+func clearPinEvidence(res *turnLoopResult) {
+	res.PinModel = ""
+	res.PinProvider = ""
+	res.PinAgeSec = 0
+	res.PriorTurnGapMS = nil
+}
+
 // turnLoopResult bundles the routing decision and pin/planner state.
 type turnLoopResult struct {
 	Decision       router.Decision
@@ -823,6 +830,9 @@ func (s *Service) runTurnLoop(
 		)
 		pinFound = false
 		pin = sessionpin.Pin{}
+	}
+	if !pinFound {
+		clearPinEvidence(&res)
 	}
 
 	// Positioned after hard-pin/forced-pin (higher precedence) and after all

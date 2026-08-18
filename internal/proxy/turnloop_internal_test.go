@@ -116,6 +116,12 @@ func TestApplyPinEvidence_UsesAvailablePriorTurnData(t *testing.T) {
 	assert.Equal(t, providers.ProviderFireworks, withHistory.PinProvider)
 	require.NotNil(t, withHistory.PriorTurnGapMS)
 	assert.Greater(t, *withHistory.PriorTurnGapMS, int64(0))
+
+	clearPinEvidence(&withHistory)
+	assert.Empty(t, withHistory.PinModel)
+	assert.Empty(t, withHistory.PinProvider)
+	assert.Zero(t, withHistory.PinAgeSec)
+	assert.Nil(t, withHistory.PriorTurnGapMS)
 }
 
 // TestRecordTurnUsage_WritesToStore guards the synchronous UpdateUsage write:
