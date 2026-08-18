@@ -260,6 +260,94 @@ func TestDetectFromEnvelope_Anthropic(t *testing.T) {
 			body: `{"model":"claude-opus-4-7","max_tokens":64,"metadata":{"user_id":"subagent:Explore"},"messages":[{"role":"user","content":"grep"}]}`,
 			want: turntype.SubAgentDispatch,
 		},
+		{
+			// The real failing fixture: a sub-agent dispatched to load a
+			// deferred tool's schema was routed to a weak model that cannot
+			// honor the deferred-tool protocol. Detected via header hint.
+			name: "sub-agent dispatch asking for a deferred tool schema is sub_agent_harness_meta",
+			body: `{"model":"claude-haiku-4-5","tools":[{"name":"ToolSearch","input_schema":{"type":"object"}}],"messages":[{"role":"user","content":"Load EnterPlanMode tool schema"}]}`,
+			hint: "general-purpose",
+			want: turntype.SubAgentHarnessMeta,
+		},
+		{
+			// Same fixture reached via the <transcript> signal instead of the
+			// header — both sub-agent detection paths must escalate.
+			name: "sub-agent via <transcript> asking for a deferred tool schema is sub_agent_harness_meta",
+			body: `{"model":"claude-opus-4-7","messages":[{"role":"user","content":"<transcript>\nUser: Load EnterPlanMode tool schema\n</transcript>"}]}`,
+			want: turntype.SubAgentHarnessMeta,
+		},
+		{
+			name: "sub-agent dispatch asking for plan mode is sub_agent_harness_meta",
+			body: `{"model":"claude-haiku-4-5","messages":[{"role":"user","content":"Enter plan mode before editing the files"}]}`,
+			hint: "general-purpose",
+			want: turntype.SubAgentHarnessMeta,
+		},
+		{
+			// Regression guard: an ordinary code-search dispatch must stay on
+			// the cheap sub-agent path. Escalating every sub-agent would undo
+			// the whole point of sub-agent routing.
+			name: "sub-agent with a plain coding prompt stays sub_agent_dispatch",
+			body: `{"model":"claude-haiku-4-5","messages":[{"role":"user","content":"Find all callers of foo in pkg/bar"}]}`,
+			hint: "Explore",
+			want: turntype.SubAgentDispatch,
+		},
+		{
+			// Claude Code emits <command-message>/<command-name> verbatim for
+			// slash + skill invocations; paired with a harness reference this
+			// is a control-plane turn.
+			name: "slash command invoking plan mode is harness_meta",
+			body: `{"model":"claude-opus-4-7","tools":[{"name":"Bash","input_schema":{"type":"object"}}],"messages":[{"role":"user","content":"<command-message>qplan</command-message><command-name>/qplan</command-name>\nPlan the change, then call ExitPlanMode to leave plan mode."}]}`,
+			want: turntype.HarnessMeta,
+		},
+		{
+			// Half the AND: command markers alone must not escalate, or every
+			// slash command in the harness would route up.
+			name: "slash command with no harness reference stays main_loop",
+			body: `{"model":"claude-opus-4-7","tools":[{"name":"Bash","input_schema":{"type":"object"}}],"messages":[{"role":"user","content":"<command-name>/standup</command-name>\nSummarize what I shipped yesterday."}]}`,
+			want: turntype.MainLoop,
+		},
+		{
+			// Other half of the AND: prose that merely discusses a harness
+			// tool is not an invocation of it.
+			name: "prose mentioning ToolSearch without command markers stays main_loop",
+			body: `{"model":"claude-opus-4-7","tools":[{"name":"Bash","input_schema":{"type":"object"}}],"messages":[{"role":"user","content":"Explain how ToolSearch works and whether deferred tool loading is worth it."}]}`,
+			want: turntype.MainLoop,
+		},
+		{
+			// Errored tool_result naming a harness primitive: the previous
+			// turn's deferred-tool call failed, so retry on a strong model.
+			name: "errored InputValidationError about a deferred tool is recovery",
+			body: `{"model":"claude-sonnet-4-5","tools":[{"name":"Bash","input_schema":{"type":"object"}}],"messages":[
+					{"role":"user","content":"enter plan mode"},
+					{"role":"assistant","content":[{"type":"tool_use","id":"t1","name":"EnterPlanMode","input":{}}]},
+					{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","is_error":true,"content":"InputValidationError: tool EnterPlanMode requires its schema to be fetched first"}]}
+				]}`,
+			want: turntype.Recovery,
+		},
+		{
+			// Regression guard: an ordinary parameter-type mistake is a normal
+			// retry, not a harness failure. Escalating these would route up on
+			// every sloppy tool call.
+			name: "errored InputValidationError about an ordinary schema mistake stays tool_result",
+			body: `{"model":"claude-sonnet-4-5","tools":[{"name":"Bash","input_schema":{"type":"object"}}],"messages":[
+					{"role":"user","content":"run it"},
+					{"role":"assistant","content":[{"type":"tool_use","id":"t1","name":"Bash","input":{}}]},
+					{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","is_error":true,"content":"InputValidationError: command must be a string, got number"}]}
+				]}`,
+			want: turntype.ToolResult,
+		},
+		{
+			// Regression guard: is_error is load-bearing. A SUCCESSFUL tool
+			// result that happens to print the phrase (e.g. grepping this very
+			// test file) must not escalate.
+			name: "successful tool_result mentioning InputValidationError stays tool_result",
+			body: `{"model":"claude-sonnet-4-5","tools":[{"name":"Bash","input_schema":{"type":"object"}}],"messages":[
+					{"role":"user","content":"grep the logs"},
+					{"role":"assistant","content":[{"type":"tool_use","id":"t1","name":"Bash","input":{}}]},
+					{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":"harness.go:42: InputValidationError EnterPlanMode deferred"}]}
+				]}`,
+			want: turntype.ToolResult,
+		},
 	}
 
 	for _, tc := range tests {
@@ -346,6 +434,22 @@ func TestDetectFromEnvelope_OpenAI(t *testing.T) {
 			body: `{"model":"gpt-4o","max_tokens":1,"messages":[{"role":"user","content":"quota"}]}`,
 			want: turntype.Probe,
 		},
+		{
+			// Harness-meta detection is gated on Anthropic wire format (the
+			// markers are a Claude Code emission). A Codex/OpenAI client that
+			// echoes marker-shaped text must not be escalated.
+			name: "command-marker text in OpenAI body is not harness_meta",
+			body: `{"model":"gpt-4o","tools":[{"type":"function","function":{"name":"Bash","parameters":{"type":"object"}}}],"messages":[
+					{"role":"user","content":"<command-message>qplan</command-message><command-name>/qplan</command-name>\nPlan it, then ExitPlanMode to leave plan mode."}
+				]}`,
+			want: turntype.MainLoop,
+		},
+		{
+			name: "sub-agent dispatch mentioning plan mode stays sub_agent_dispatch",
+			body: `{"model":"gpt-4o","messages":[{"role":"user","content":"Enter plan mode before editing the files"}]}`,
+			hint: "Explore",
+			want: turntype.SubAgentDispatch,
+		},
 	}
 
 	for _, tc := range tests {
@@ -429,6 +533,12 @@ func TestDetectFromEnvelope_Gemini(t *testing.T) {
 			body: `{"generationConfig":{"maxOutputTokens":1},"contents":[{"role":"user","parts":[{"text":"quota"}]}]}`,
 			want: turntype.Probe,
 		},
+		{
+			name: "sub-agent dispatch mentioning plan mode stays sub_agent_dispatch",
+			body: `{"contents":[{"role":"user","parts":[{"text":"Enter plan mode before editing the files"}]}]}`,
+			hint: "Explore",
+			want: turntype.SubAgentDispatch,
+		},
 	}
 
 	for _, tc := range tests {
@@ -445,4 +555,44 @@ func TestDetectFromEnvelope_Gemini(t *testing.T) {
 func TestDetectFromEnvelope_NilEnv(t *testing.T) {
 	got := turntype.DetectFromEnvelope(nil, translate.RoutingFeatures{}, "")
 	assert.Equal(t, turntype.MainLoop, got)
+}
+
+func TestTurnType_Base(t *testing.T) {
+	tests := []struct {
+		name string
+		in   turntype.TurnType
+		want turntype.TurnType
+	}{
+		// Harness variants collapse to their underlying shape.
+		{"harness_meta maps to main_loop", turntype.HarnessMeta, turntype.MainLoop},
+		{"sub_agent_harness_meta maps to sub_agent_dispatch", turntype.SubAgentHarnessMeta, turntype.SubAgentDispatch},
+		{"recovery maps to tool_result", turntype.Recovery, turntype.ToolResult},
+		// Existing values are identity.
+		{"main_loop identity", turntype.MainLoop, turntype.MainLoop},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, tc.in.Base())
+		})
+	}
+}
+
+func TestTurnType_HarnessEscalation(t *testing.T) {
+	tests := []struct {
+		name string
+		in   turntype.TurnType
+		want bool
+	}{
+		// The three new values escalate.
+		{"harness_meta escalates", turntype.HarnessMeta, true},
+		{"sub_agent_harness_meta escalates", turntype.SubAgentHarnessMeta, true},
+		{"recovery escalates", turntype.Recovery, true},
+		// Existing values do not.
+		{"main_loop does not escalate", turntype.MainLoop, false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, tc.in.HarnessEscalation())
+		})
+	}
 }

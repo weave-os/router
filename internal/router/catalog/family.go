@@ -13,6 +13,16 @@ import (
 // number (gpt-4o) don't match and are treated as singleton families.
 var familyVersionPattern = regexp.MustCompile(`^(.+?)(\d+)(?:[.-](\d+))?(-[a-z][a-z0-9\-]*)?$`)
 
+// IsClaudeFamily reports whether id's family is a Claude family (family name
+// starts with "claude"). Unknown/ungenerational ids (gpt-4o, "") are false.
+func IsClaudeFamily(id string) bool {
+	family, _, ok := FamilyAndVersion(id)
+	if !ok {
+		return false
+	}
+	return strings.HasPrefix(family, "claude")
+}
+
 // FamilyAndVersion parses id into a family key (generation stripped, suffix
 // kept, e.g. "gpt-5.4-mini" → family "gpt-mini") and a (major, minor) version
 // tuple. ok=false means id has no generation number; treat as singleton family.

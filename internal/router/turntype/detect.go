@@ -26,6 +26,18 @@ const (
 	// Classifier: short-form classification call (security monitor, etc.).
 	// Hard-pinned AND skips session-pin creation.
 	Classifier TurnType = "classifier"
+	// HarnessMeta: main-turn skill/command invocation referencing harness primitives
+	// (plan-mode tools, deferred-tool discovery, etc.). Clamped to a strong Claude-family
+	// model — a non-Anthropic upstream that hallucinates harness primitives corrupts client state.
+	HarnessMeta TurnType = "harness_meta"
+	// SubAgentHarnessMeta: sub-agent dispatch whose prompt references harness primitives.
+	// Same clamp as HarnessMeta; scoped to sub-agent turns so escalation doesn't bleed
+	// into the orchestrated sub-agent path.
+	SubAgentHarnessMeta TurnType = "sub_agent_harness_meta"
+	// Recovery: tool-result turn recovering from a deferred-tool InputValidationError.
+	// Previous tool call failed for a harness reason (not a schema mistake); routing
+	// up retries against a model that knows the deferred-tool protocol.
+	Recovery TurnType = "recovery"
 )
 
 const probeMaxTokensThreshold = 4
@@ -61,10 +73,22 @@ func DetectFromEnvelope(env *translate.RequestEnvelope, feats translate.RoutingF
 		return Compaction
 	}
 	if isSubAgentDispatch(env.MetadataUserID(), env.FirstUserMessageText(), subAgentHint) {
+		if env.SourceFormat() == translate.FormatAnthropic && isHarnessMetaSubAgent(env.FirstUserMessageText()) {
+			return SubAgentHarnessMeta
+		}
 		return SubAgentDispatch
 	}
 	if isClassifier(feats) {
 		return Classifier
+	}
+	// Recovery before harness-meta: a tool_result turn must NEVER classify as HarnessMeta
+	// (its underlying shape is a continuation). The explicit LastKind guard below enforces
+	// this even when a tool_result turn's <system-reminder> contains command markers.
+	if env.SourceFormat() == translate.FormatAnthropic && isRecoveryTurn(env, feats) {
+		return Recovery
+	}
+	if env.SourceFormat() == translate.FormatAnthropic && feats.LastKind != "tool_result" && isHarnessMetaMainTurn(env) {
+		return HarnessMeta
 	}
 	if feats.LastKind == "tool_result" {
 		return ToolResult
@@ -129,4 +153,33 @@ func isSubAgentDispatch(metadataUserID, firstUserText, subAgentHint string) bool
 		prefix = prefix[:sniffLen]
 	}
 	return strings.Contains(prefix, "<transcript>")
+}
+
+// Base returns the underlying turn shape for call sites keeping the pre-harness
+// vocabulary stable (policy sidecar labels must not change when new harness
+// detections land). HarnessMeta → MainLoop, SubAgentHarnessMeta →
+// SubAgentDispatch, Recovery → ToolResult; identity otherwise.
+func (t TurnType) Base() TurnType {
+	switch t {
+	case HarnessMeta:
+		return MainLoop
+	case SubAgentHarnessMeta:
+		return SubAgentDispatch
+	case Recovery:
+		return ToolResult
+	default:
+		return t
+	}
+}
+
+// HarnessEscalation reports whether the proxy's escalation clamp should
+// treat the turn as harness-bound (route up, never down). True for exactly
+// the three new harness-variant turn types; every existing value is false.
+func (t TurnType) HarnessEscalation() bool {
+	switch t {
+	case HarnessMeta, SubAgentHarnessMeta, Recovery:
+		return true
+	default:
+		return false
+	}
 }

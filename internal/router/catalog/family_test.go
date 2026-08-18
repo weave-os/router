@@ -67,6 +67,29 @@ func TestFamilyAndVersion(t *testing.T) {
 	}
 }
 
+func TestIsClaudeFamily(t *testing.T) {
+	tests := []struct {
+		id   string
+		want bool
+	}{
+		{"claude-opus-5", true},
+		{"claude-fable-5", true},
+		{"claude-haiku-4-5", true},
+		{"claude-opus-4-6", true},
+		{"gpt-5", false},
+		{"qwen/qwen3.8-max", false},
+		{"deepseek/deepseek-v4-flash", false},
+		{"", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.id, func(t *testing.T) {
+			if got := IsClaudeFamily(tt.id); got != tt.want {
+				t.Errorf("IsClaudeFamily(%q) = %v, want %v", tt.id, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestFamilyDuplicates(t *testing.T) {
 	ids := []string{
 		"claude-haiku-4-5",

@@ -1,6 +1,8 @@
 package translate
 
 import (
+	"sort"
+
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 )
@@ -69,6 +71,18 @@ var claudeCodeOnlyToolNames = map[string]struct{}{
 func isClaudeCodeOnlyTool(name string) bool {
 	_, ok := claudeCodeOnlyToolNames[name]
 	return ok
+}
+
+// ClaudeCodeOnlyToolNames returns a sorted copy of the Claude-Code-only tool
+// names. Exported so the turntype harness-reference gate can scan for these
+// names without duplicating the set. Sorted for deterministic iteration.
+func ClaudeCodeOnlyToolNames() []string {
+	names := make([]string, 0, len(claudeCodeOnlyToolNames))
+	for name := range claudeCodeOnlyToolNames {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
 }
 
 // claudeCodeOrchestrationToolNames is the subset of claudeCodeOnlyToolNames

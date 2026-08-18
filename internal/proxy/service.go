@@ -177,6 +177,10 @@ type Service struct {
 	// escalate-to-opus action. False keeps detection/telemetry running
 	// (action=disabled) but writes no escalation pin. Defaults true.
 	loopEscalationEnabled bool
+	// harnessEscalationEnabled is the kill switch for the harness-protocol
+	// escalation clamp. False keeps detection/telemetry running (action=disabled)
+	// but skips the clamp. Defaults true; knob: ROUTER_HARNESS_ESCALATION_ENABLED.
+	harnessEscalationEnabled bool
 	// loopEscalationHoldoutPct is the percentage of loop-detected sessions
 	// deterministically assigned to a log-not-act holdout, so the self-recovery
 	// baseline can be subtracted from rescue-rate claims. 0 disables it.
@@ -196,6 +200,9 @@ type Service struct {
 	// spiralTracker de-duplicates shadow fires per (session, role, reason) on
 	// this replica.
 	spiralTracker *spiralTracker
+	// claimedToolTracker de-duplicates claimed-tool-unavailable auto-feedback
+	// per (session, role, tool) on this replica (see claimed_tool_unavailable.go).
+	claimedToolTracker *claimedToolTracker
 	// spiralShadowStore persists shadow spiral detections durably
 	// (router.spiral_shadow_events) and enforces the once-per-(session,
 	// reason) budget. Nil degrades to log-only fires.
@@ -523,13 +530,14 @@ func sanitizeSidecarDisplayMarker(raw string) string {
 // the marker wording; tests assert the mapping against these constants rather
 // than re-spelling the literals.
 const (
-	markerReasonUserForced    = "pinned by force-model"
-	markerReasonLoopEscalated = "escalated due to loop"
-	markerReasonSwitched      = "switched for positive EV after cache eviction"
-	markerReasonStayed        = "stayed on your last pick"
-	markerReasonTierUpgrade   = "upgraded to a stronger tier"
-	markerReasonBestPick      = "best pick for this turn"
-	markerReasonBaseline      = "fell back to baseline after provider outage"
+	markerReasonUserForced       = "pinned by force-model"
+	markerReasonLoopEscalated    = "escalated due to loop"
+	markerReasonHarnessEscalated = "escalated for harness protocol"
+	markerReasonSwitched         = "switched for positive EV after cache eviction"
+	markerReasonStayed           = "stayed on your last pick"
+	markerReasonTierUpgrade      = "upgraded to a stronger tier"
+	markerReasonBestPick         = "best pick for this turn"
+	markerReasonBaseline         = "fell back to baseline after provider outage"
 )
 
 // baselineRoutingMarkerFor renders the routing badge for an in-turn baseline
@@ -559,6 +567,8 @@ func routingReasonShort(res turnLoopResult) string {
 		return markerReasonUserForced
 	case translate.ReasonLoopEscalation:
 		return markerReasonLoopEscalated
+	case translate.ReasonHarnessEscalation:
+		return markerReasonHarnessEscalated
 	}
 	return markerReasonBestPick
 }
@@ -1052,6 +1062,7 @@ func NewService(r router.Router, providerMap map[string]providers.Client, emitte
 		compaction:                   newCompactionTracker(),
 		prefixTrimFreeSwitch:         true,
 		spiralTracker:                newSpiralTracker(),
+		claimedToolTracker:           newClaimedToolTracker(),
 		spiralShadowEnabled:          true,
 		textRepetitionBreakEnabled:   true,
 		ccOrchToolsCrossVendor:       true,
@@ -1068,6 +1079,7 @@ func NewService(r router.Router, providerMap map[string]providers.Client, emitte
 		plannerEnabled:                true,
 		scoreToolResultTurns:          true,
 		loopEscalationEnabled:         true,
+		harnessEscalationEnabled:      true,
 		cyberRefusalRepin:             false,
 		cyberRefusalFallbackModel:     "claude-sonnet-5",
 	}
@@ -1224,6 +1236,14 @@ func (s *Service) WithLoopEscalationConfig(enabled bool, holdoutPct int) *Servic
 		holdoutPct = 100
 	}
 	s.loopEscalationHoldoutPct = holdoutPct
+	return s
+}
+
+// WithHarnessEscalationConfig sets the harness-protocol escalation clamp
+// kill switch. enabled=false keeps the clamp from engaging (action=disabled)
+// while harness turn-type detection and routing continue unchanged.
+func (s *Service) WithHarnessEscalationConfig(enabled bool) *Service {
+	s.harnessEscalationEnabled = enabled
 	return s
 }
 
@@ -2506,7 +2526,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 
 	// Text-repetition break: fresh tool calls each turn defeat the no-progress
 	// fingerprint; repeated narration is the durable tell. See text_repetition.go.
-	if !agentShadowMode && !routeRes.AuthoritativePerTurn && s.textRepetitionBreakEnabled && (tt == turntype.MainLoop || tt == turntype.ToolResult) {
+	if !agentShadowMode && !routeRes.AuthoritativePerTurn && s.textRepetitionBreakEnabled && (tt.Base() == turntype.MainLoop || tt.Base() == turntype.ToolResult) {
 		if looped, count, sampleHash := detectTextRepetition(env); looped {
 			role := roleForTier(catalog.TierFor(feats.Model))
 			return s.handleTextRepetitionBreak(ctx, w, env, count, sampleHash, installationID, routeRes.SessionKey, role, decision.Model, decision.Provider, feats.Tokens)
@@ -2518,7 +2538,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	// reason), so fire rates/precision can be measured before any escalation
 	// is armed. Main-loop / tool-result turns only — hard-pinned turn types
 	// carry history shapes that mimic the signals.
-	if !agentShadowMode && s.spiralShadowEnabled && (tt == turntype.MainLoop || tt == turntype.ToolResult) {
+	if !agentShadowMode && s.spiralShadowEnabled && (tt.Base() == turntype.MainLoop || tt.Base() == turntype.ToolResult) {
 		if reasons := spiralReasons(inboundSpiralSignals); len(reasons) > 0 {
 			role := roleForTier(catalog.TierFor(feats.Model))
 			// Use the bindRequestLogger digest, not routeRes.SessionKey (zero
@@ -3204,6 +3224,10 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	if !agentShadowMode {
 		s.recordCallLog(ctx, upstreamBuilder.Build(), proxyErr != nil, body, respBody, respTrunc)
 	}
+	// Eval rows must not enter the auto-feedback corpus either.
+	if !agentShadowMode {
+		s.maybeReportClaimedToolUnavailable(ctx, respBody, env.Stream(), env.AvailableToolNames(), installationID, sessionKey, routeRes.PinRole, feats.Model, decision.Model, requestID, obs.RouteID, clientID)
+	}
 	otel.Flush(ctx)
 
 	if !agentShadowMode {
@@ -3768,6 +3792,9 @@ func (s *Service) policyDeadlineDefaultDecision(req router.Request) (router.Deci
 // stays anchored so the pair survives for the next turn's swap.
 func (s *Service) bandSwapServed(ctx context.Context, turnType turntype.TurnType, pin sessionpin.Pin, fresh router.Decision, hasImages bool, enabledProviders, excludedModels map[string]struct{}) router.Decision {
 	anchor := pinDecision(pin)
+	// turnType intentionally compared raw (not Base()): a harness-variant turn
+	// (Recovery is the tool-result shape) skips band swap and serves the anchor,
+	// leaving the harness escalation clamp to decide the model for that turn.
 	if s.bandSwap == nil || pin.PairedModel == "" || turnType != turntype.MainLoop {
 		return anchor
 	}
@@ -4236,7 +4263,7 @@ func int64PtrIf(known bool, v int64) *int64 {
 // history, so a trailing assistant reply after a prior tool_result would
 // otherwise write a stale non-NULL value.
 func toolResultBytesPtr(inbound translate.LastUserMessageInfo, tt turntype.TurnType) *int32 {
-	if tt != turntype.ToolResult || !inbound.HasToolResult {
+	if tt.Base() != turntype.ToolResult || !inbound.HasToolResult {
 		return nil
 	}
 	v := int32(inbound.ToolResultBytes)

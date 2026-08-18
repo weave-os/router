@@ -585,6 +585,9 @@ func main() {
 	// Enforcing text-repetition break ships enabled; the switch is the kill
 	// switch if it ever false-positives on legit repeated narration.
 	textRepetitionBreakEnabled := config.GetOr("ROUTER_TEXT_REPETITION_BREAK_ENABLED", "true") == "true"
+	// Harness-protocol escalation clamp ships enabled; the switch exists so a
+	// misdetection (turntype false positive) can be killed without a redeploy.
+	harnessEscalationEnabled := config.GetOr("ROUTER_HARNESS_ESCALATION_ENABLED", "true") == "true"
 	plannerCfg := planner.EVConfig{
 		ThresholdUSD:           parseEnvFloat("ROUTER_SWITCH_EV_THRESHOLD_USD", proxy.DefaultPlannerThresholdUSD),
 		ExpectedRemainingTurns: parseEnvInt("ROUTER_SWITCH_EXPECTED_REMAINING_TURNS", proxy.DefaultPlannerExpectedRemainingTurns),
@@ -817,6 +820,7 @@ func main() {
 		WithBandSwap(bandSwapEnabled).
 		WithLoopEscalationConfig(loopEscalationEnabled, loopEscalationHoldoutPct).
 		WithLoopEscalationStore(repo.Telemetry).
+		WithHarnessEscalationConfig(harnessEscalationEnabled).
 		WithSpiralShadowConfig(spiralShadowEnabled).
 		WithSpiralShadowStore(repo.Telemetry).
 		WithTextRepetitionBreak(textRepetitionBreakEnabled).
@@ -834,6 +838,7 @@ func main() {
 	logger.Info("Effort escalation configured", "enabled", effortEscalation)
 	logger.Info("Cross-vendor Claude Code orchestration tools configured", "enabled", ccOrchToolsCrossVendor)
 	logger.Info("Loop escalation configured", "enabled", loopEscalationEnabled, "holdout_pct", loopEscalationHoldoutPct)
+	logger.Info("Harness escalation configured", "enabled", harnessEscalationEnabled)
 	logger.Info("Spiral shadow detector configured", "enabled", spiralShadowEnabled)
 	logger.Info("Text-repetition break configured", "enabled", textRepetitionBreakEnabled)
 	logger.Info("Planner configured", "enabled", plannerEnabled, "threshold_usd", plannerCfg.ThresholdUSD, "expected_remaining_turns", plannerCfg.ExpectedRemainingTurns, "tier_upgrade_enabled", plannerCfg.TierUpgradeEnabled, "cold_pin_follow_fresh", plannerCfg.ColdPinFollowFresh, "prefix_trim_free_switch", prefixTrimFreeSwitch, "routing_targets_count", len(routingTargets))
