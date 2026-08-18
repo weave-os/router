@@ -287,9 +287,7 @@ func (s *Service) UpsertExternalAPIKey(ctx context.Context, installationID strin
 	return key, nil
 }
 
-// SetExternalAPIKeyModelAliases replaces one BYOK key's alias map without
-// re-entering the secret. allowed is the valid catalog model ID set aliases are
-// validated against; nil skips validation.
+// SetExternalAPIKeyModelAliases replaces a BYOK key's alias map; nil allowed skips catalog validation.
 func (s *Service) SetExternalAPIKeyModelAliases(ctx context.Context, installationID, id string, aliases map[string]string, allowed map[string]struct{}) (*ExternalAPIKey, error) {
 	normalized, err := NormalizeModelAliases(aliases, allowed)
 	if err != nil {

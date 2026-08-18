@@ -13,9 +13,8 @@ import (
 	"github.com/tidwall/gjson"
 )
 
-// clientFacingModel picks the model id echoed to the client: the routed
-// catalog id wins over the upstream's own, so a BYOK endpoint's alias
-// (model_aliases) never leaks out and streaming and non-streaming agree.
+// clientFacingModel returns requestModel when set, so BYOK aliases (model_aliases) never leak
+// to the client and streaming/non-streaming responses agree on the same id.
 func clientFacingModel(requestModel, upstreamModel string) string {
 	if requestModel != "" {
 		return requestModel
