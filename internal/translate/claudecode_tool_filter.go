@@ -74,10 +74,8 @@ func isClaudeCodeOnlyTool(name string) bool {
 }
 
 // ClaudeCodeOnlyToolNames returns a sorted copy of the Claude-Code-only tool
-// names. Exported for the turntype package's harness-reference gate, which
-// scans prompt text for these names to detect harness-protocol-bound turns;
-// sharing the list keeps the gate in sync with the emit-path filter instead
-// of duplicating the name set. Sorted for deterministic iteration.
+// names. Exported so the turntype harness-reference gate can scan for these
+// names without duplicating the set. Sorted for deterministic iteration.
 func ClaudeCodeOnlyToolNames() []string {
 	names := make([]string, 0, len(claudeCodeOnlyToolNames))
 	for name := range claudeCodeOnlyToolNames {

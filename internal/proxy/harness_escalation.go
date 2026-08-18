@@ -14,9 +14,8 @@ import (
 	"workweave/router/internal/translate"
 )
 
-// Harness-escalation action taxonomy, recorded per clamp attempt. Exactly one
-// applies. Mirrors the loop-escalation action-taxonomy comment style
-// (loop_detection.go): each name records why the clamp did or did not engage.
+// Harness-escalation action taxonomy. Exactly one value applies per clamp
+// attempt; each records why the clamp engaged or was skipped.
 const (
 	// harnessActionEscalated: the decision was replaced with escalateModel.
 	harnessActionEscalated = "escalated"

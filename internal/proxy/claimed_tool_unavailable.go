@@ -44,8 +44,7 @@ const (
 	// claimedToolFiredCacheSize bounds the per-replica dedup LRU.
 	claimedToolFiredCacheSize = 4096
 	// claimedToolFiredCacheTTL is how long a fired (session, role, tool)
-	// stays suppressed on this replica. The durable once-per-event budget is
-	// cheap; this only trims repeat rows for very long sessions.
+	// stays suppressed on this replica; the DB row is the durable record.
 	claimedToolFiredCacheTTL = 24 * time.Hour
 	// claimedToolWindowBytes is the lowercased window scanned around each
 	// declared tool-name occurrence. Long enough to span "There is no ... tool
