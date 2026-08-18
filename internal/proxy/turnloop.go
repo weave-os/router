@@ -109,6 +109,10 @@ func clearPinEvidence(res *turnLoopResult) {
 	res.PriorTurnGapMS = nil
 }
 
+func cacheablePrefixTokens(pin sessionpin.Pin, total int) int {
+	return min(pin.LastCachedReadTokens+pin.LastCachedWriteTokens, total)
+}
+
 // turnLoopResult bundles the routing decision and pin/planner state.
 type turnLoopResult struct {
 	Decision       router.Decision
@@ -1072,7 +1076,7 @@ func (s *Service) runTurnLoop(
 		Pin:                   pin,
 		Fresh:                 fresh,
 		EstimatedInputTokens:  feats.Tokens,
-		CacheablePrefixTokens: min(pin.LastCachedReadTokens, feats.Tokens),
+		CacheablePrefixTokens: cacheablePrefixTokens(pin, feats.Tokens),
 		AvailableModels:       s.availableModels,
 		// A trimmed prefix kills the cache even inside the provider TTL.
 		PinCacheCold: pinFound && pinCacheCold(pin, prefixBroken),
@@ -1196,7 +1200,7 @@ func (s *Service) hmmCostGatedDecision(
 		Pin:                   stayPin,
 		Fresh:                 fresh,
 		EstimatedInputTokens:  estimatedInputTokens,
-		CacheablePrefixTokens: min(stayPin.LastCachedReadTokens, estimatedInputTokens),
+		CacheablePrefixTokens: cacheablePrefixTokens(stayPin, estimatedInputTokens),
 		AvailableModels:       s.availableModels,
 		PinCacheCold:          pinCacheCold(stayPin, prefixBroken),
 		SubsidizedCostFactor:  req.SubsidizedModelCostFactor,

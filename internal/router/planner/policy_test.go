@@ -154,6 +154,7 @@ func TestDecide_ShadowInclusiveCostModel(t *testing.T) {
 		AvailableModels:       availableAll,
 	}
 	got := planner.Decide(in, planner.EVConfig{ExpectedRemainingTurns: 1})
+	assert.True(t, got.ShadowComputed)
 	assert.InDelta(t, got.ShadowStayCostUSD, got.ShadowExpectedSavingsUSD+got.ShadowSwitchCostUSD, 1e-12)
 	assert.Greater(t, got.ShadowSwitchCostUSD, 0.0, "N=1 prices the current switch action exactly once")
 

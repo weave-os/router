@@ -48,8 +48,8 @@ type Decision struct {
 	// binding has no catalog entry and pricing fell back to the model's primary binding.
 	PinPriceFallback   bool
 	FreshPriceFallback bool
-	// Shadow* is the inclusive current-plus-future cache model. It is emitted
-	// for calibration only; Outcome continues to use the production policy.
+	// Shadow* is calibration-only; Outcome continues to use the production policy.
+	ShadowComputed           bool
 	ShadowOutcome            Outcome
 	ShadowExpectedSavingsUSD float64
 	ShadowStayCostUSD        float64
@@ -188,6 +188,7 @@ func Decide(in Inputs, cfg EVConfig) Decision {
 	d.ShadowOutcome, d.ShadowExpectedSavingsUSD, d.ShadowStayCostUSD, d.ShadowSwitchCostUSD = shadowCosts(
 		pinPrice, freshPrice, tokens, float64(in.CacheablePrefixTokens), cfg.ExpectedRemainingTurns, in.PinCacheCold, cfg.ThresholdUSD,
 	)
+	d.ShadowComputed = true
 	switch {
 	case expectedSavings-evictionCost > cfg.ThresholdUSD:
 		d.Outcome = OutcomeSwitch

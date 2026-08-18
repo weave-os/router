@@ -331,11 +331,14 @@ func TestApplyRoutingStateAttrs_UsesRequestKeyWhenRoutingKeyIsEmpty(t *testing.T
 
 func TestApplyPlannerAttrs_OmitsDetailsWhenSkipped(t *testing.T) {
 	b := otel.NewAttrBuilder(8)
-	applyPlannerAttrs(b, turnLoopResult{})
+	applyPlannerAttrs(b, turnLoopResult{PlannerDecision: planner.Decision{Reason: planner.ReasonNoPin}})
 	attrs := attrsByKey(b.Build())
 
-	assert.NotContains(t, attrs, "planner.outcome")
-	assert.NotContains(t, attrs, "planner.pin_cache_warm")
+	assert.Contains(t, attrs, "planner.outcome")
+	assert.NotContains(t, attrs, "planner.shadow_outcome")
+	assert.NotContains(t, attrs, "planner.shadow_expected_savings_usd")
+	assert.NotContains(t, attrs, "planner.shadow_stay_cost_usd")
+	assert.NotContains(t, attrs, "planner.shadow_switch_cost_usd")
 	assert.Contains(t, attrs, "handover.invoked")
 }
 
@@ -347,12 +350,16 @@ func TestApplyPlannerAttrs_EmitsDetailsWhenEvaluated(t *testing.T) {
 		PinProvider:  providers.ProviderAnthropic,
 		PrefixBroken: true,
 		PlannerDecision: planner.Decision{
-			Outcome:            planner.OutcomeStay,
-			Reason:             planner.ReasonEVNegative,
-			ExpectedSavingsUSD: 0.002,
-			EvictionCostUSD:    0.003,
-			ThresholdUSD:       0.001,
-			PinCacheCold:       false,
+			Outcome:             planner.OutcomeStay,
+			Reason:              planner.ReasonEVNegative,
+			ShadowComputed:      true,
+			ShadowOutcome:       planner.OutcomeSwitch,
+			ShadowStayCostUSD:   0.003,
+			ShadowSwitchCostUSD: 0.001,
+			ExpectedSavingsUSD:  0.002,
+			EvictionCostUSD:     0.003,
+			ThresholdUSD:        0.001,
+			PinCacheCold:        false,
 		},
 	}
 	b := otel.NewAttrBuilder(16)
@@ -365,4 +372,5 @@ func TestApplyPlannerAttrs_EmitsDetailsWhenEvaluated(t *testing.T) {
 	assert.Equal(t, providers.ProviderAnthropic, attrs["cache.pin_provider"].GetStringValue())
 	assert.False(t, attrs["cache.prefix_stable"].GetBoolValue())
 	assert.InDelta(t, 0.003, attrs["planner.eviction_cost_usd"].GetDoubleValue(), 1e-12)
+	assert.Equal(t, "switch", attrs["planner.shadow_outcome"].GetStringValue())
 }
