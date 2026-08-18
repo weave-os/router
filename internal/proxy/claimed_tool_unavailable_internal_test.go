@@ -246,6 +246,24 @@ func TestMaybeReportClaimedToolUnavailable_InsertsOneEvent(t *testing.T) {
 	assert.Equal(t, "sess-1", ev.SessionID)
 }
 
+func TestNewService_InitializesClaimedToolTracker(t *testing.T) {
+	store := &claimedToolFakeStore{}
+	svc := NewService(nil, nil, nil, false, nil, nil, false, "", "", nil).
+		WithRouterFeedbackStore(store)
+	installationID, sessionKey := claimedToolHost()
+	body := []byte(`{"content":[{"type":"text","text":"There is no ToolSearch tool in my available toolset."}]}`)
+
+	svc.maybeReportClaimedToolUnavailable(
+		context.Background(), body, false, []string{"ToolSearch"},
+		installationID, sessionKey, "default_high", "claude-sonnet-5", "qwen3",
+		"req-new-service", "route-1", ClientIdentity{},
+	)
+
+	events := store.snap()
+	require.Len(t, events, 1)
+	assert.Equal(t, "claimed-tool-unavailable:ToolSearch", events[0].Feedback)
+}
+
 func TestMaybeReportClaimedToolUnavailable_DedupesSecondCall(t *testing.T) {
 	store := &claimedToolFakeStore{}
 	svc := claimedToolService(store)

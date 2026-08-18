@@ -8,17 +8,10 @@ import (
 
 // LastUserToolResultErrorText returns the concatenated text of the last user
 // message's errored (is_error: true) tool_result blocks, truncated to
-// maxBytes. Anthropic format only — returns "" for OpenAI/Gemini, whose
-// tool-failure shapes carry no equivalent is_error marker on the wire.
-//
-// Exists separately from LastUserMessageInfo because the turntype harness
-// gate needs the failure text itself, not just the presence/size of a
-// tool_result: distinguishing a deferred-tool InputValidationError from an
-// ordinary schema mistake requires reading the payload.
-//
-// tool_result `content` may be a plain string OR an array of typed blocks
-// ({"type":"text","text":...}); both shapes are handled. Blocks are joined
-// with a newline. maxBytes <= 0 returns "".
+// maxBytes. Anthropic format only (OpenAI/Gemini carry no equivalent is_error marker).
+// Exists separately from LastUserMessageInfo because the turntype harness gate
+// needs the failure text to distinguish a deferred-tool InputValidationError
+// from an ordinary schema mistake. maxBytes <= 0 returns "".
 func (e *RequestEnvelope) LastUserToolResultErrorText(maxBytes int) string {
 	if e.format != FormatAnthropic || maxBytes <= 0 {
 		return ""

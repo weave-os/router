@@ -277,6 +277,12 @@ func TestDetectFromEnvelope_Anthropic(t *testing.T) {
 			want: turntype.SubAgentHarnessMeta,
 		},
 		{
+			name: "sub-agent dispatch asking for plan mode is sub_agent_harness_meta",
+			body: `{"model":"claude-haiku-4-5","messages":[{"role":"user","content":"Enter plan mode before editing the files"}]}`,
+			hint: "general-purpose",
+			want: turntype.SubAgentHarnessMeta,
+		},
+		{
 			// Regression guard: an ordinary code-search dispatch must stay on
 			// the cheap sub-agent path. Escalating every sub-agent would undo
 			// the whole point of sub-agent routing.
@@ -438,6 +444,12 @@ func TestDetectFromEnvelope_OpenAI(t *testing.T) {
 				]}`,
 			want: turntype.MainLoop,
 		},
+		{
+			name: "sub-agent dispatch mentioning plan mode stays sub_agent_dispatch",
+			body: `{"model":"gpt-4o","messages":[{"role":"user","content":"Enter plan mode before editing the files"}]}`,
+			hint: "Explore",
+			want: turntype.SubAgentDispatch,
+		},
 	}
 
 	for _, tc := range tests {
@@ -520,6 +532,12 @@ func TestDetectFromEnvelope_Gemini(t *testing.T) {
 			name: "generationConfig.maxOutputTokens=1 is probe",
 			body: `{"generationConfig":{"maxOutputTokens":1},"contents":[{"role":"user","parts":[{"text":"quota"}]}]}`,
 			want: turntype.Probe,
+		},
+		{
+			name: "sub-agent dispatch mentioning plan mode stays sub_agent_dispatch",
+			body: `{"contents":[{"role":"user","parts":[{"text":"Enter plan mode before editing the files"}]}]}`,
+			hint: "Explore",
+			want: turntype.SubAgentDispatch,
 		},
 	}
 

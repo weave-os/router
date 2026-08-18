@@ -15,25 +15,16 @@ const (
 	harnessMetaSubAgentScanMaxBytes = 4096
 )
 
-// Harness-reference keyword gate (case-insensitive). "plan mode" + "tool
-// schema" + "deferred tool" are the three human-language phrases a CC turn
-// uses when invoking the harness control plane; false-positive aversion
-// matters because the proxy preserves model choice based on this signal.
-// Claude-Code-only tool names (matched case-sensitively per the PascalCase
-// convention in translate/claudecode_tool_filter.go) are layered on top of
-// the phrase match so a sub-agent dispatch whose first user line is
-// literally "Load EnterPlanMode tool schema" cannot drift past the gate
-// just because it lacks the prose phrases.
+// Harness-reference keyword gate (case-insensitive). Phrases cover
+// human-language harness control-plane invocations; CC-only tool names
+// (case-sensitive word boundaries) layer on top so a dispatch like
+// "Load EnterPlanMode tool schema" is caught even without the prose phrases.
 var harnessKeywordPhrases = []string{"plan mode", "tool schema", "deferred tool"}
 
-// harnessMetaCCToolScanNames is the CC-only tool-name set filtered down to
-// only names whose length is > 8. The short names ("Task", "Agent",
-// "Skill", "Workflow", "LSP", "TaskGet") appear constantly in ordinary
-// prompts and even inside non-harness sub-agent dispatch text, so excluding
-// them keeps the gate tight: a real harness-meta turn references a SPECIFIC
-// tool, not the family name. Built once at init from
-// translate.ClaudeCodeOnlyToolNames() so a future rename in the CC tool
-// list flows through automatically.
+// harnessMetaCCToolScanNames is the CC-only tool-name set filtered to names
+// longer than 8 bytes. Short names ("Task", "Agent", "Workflow") appear in
+// ordinary prompts and would false-positive; specific long names are safe.
+// Built once at init from translate.ClaudeCodeOnlyToolNames().
 var harnessMetaCCToolScanNames []string
 
 func init() {
@@ -92,7 +83,6 @@ func containsWord(haystack, needle string) bool {
 		if leftOK && rightOK {
 			return true
 		}
-		// advance past this candidate index to keep scanning.
 		start = idx + 1
 	}
 	return false
@@ -152,18 +142,11 @@ func isHarnessMetaMainTurn(env *translate.RequestEnvelope) bool {
 	return referencesHarnessPrimitives(text)
 }
 
-// isRecoveryTurn reports whether this is a tool_result turn recovering
-// from a deferred-tool InputValidationError. Requires BOTH:
-//   - feats.LastKind == "tool_result" (gated by the caller; re-checked
-//     defensively),
-//   - the errored tool_result payload contains "InputValidationError",
-//   - and either the substring "deferred" (any case) OR any CC-only tool
-//     name matched by the shared harness gate.
-//
-// The hard AND prevents ordinary schema-mistake retries (wrong parameter
-// type on Bash, etc.) from being misclassified as harness control-plane
-// failures — only the ones whose failure mentions a deferred-tool or other
-// harness primitive are gated up.
+// isRecoveryTurn reports whether this tool_result turn is recovering from a
+// deferred-tool InputValidationError. Requires both "InputValidationError" in
+// the errored payload AND a deferred/harness-primitive reference — the AND
+// prevents ordinary schema-mistake retries (wrong Bash param type) from being
+// misclassified as harness control-plane failures.
 func isRecoveryTurn(env *translate.RequestEnvelope, feats translate.RoutingFeatures) bool {
 	if env == nil {
 		return false

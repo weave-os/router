@@ -78,7 +78,7 @@ func DetectFromEnvelope(env *translate.RequestEnvelope, feats translate.RoutingF
 		return Compaction
 	}
 	if isSubAgentDispatch(env.MetadataUserID(), env.FirstUserMessageText(), subAgentHint) {
-		if isHarnessMetaSubAgent(env.FirstUserMessageText()) {
+		if env.SourceFormat() == translate.FormatAnthropic && isHarnessMetaSubAgent(env.FirstUserMessageText()) {
 			return SubAgentHarnessMeta
 		}
 		return SubAgentDispatch

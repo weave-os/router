@@ -1,9 +1,6 @@
 // The claimed-tool-unavailable detector flags a routed model that says a
-// tool is not in its toolset while the request actually declared that tool —
-// a detectable model failure. Post-stream: capture-gated (no respBody means
-// no-op, e.g. self-hosted no-capture deploys). Persist-only — writes a
-// source="auto" negative RouterFeedbackEvent offline; it never influences
-// routing, pins, or the live reward loop (ML consumes the auto rows offline).
+// declared tool is unavailable. It persists source="auto" negative feedback
+// after capture, without influencing routing or pins.
 package proxy
 
 import (
@@ -152,12 +149,10 @@ func nonStreamingText(respBody []byte) string {
 }
 
 // detectClaimedToolUnavailable scans text for each declared tool name and
-// reports the names the model claims unavailable. Name matching is
-// case-SENSITIVE with word boundaries (a name nested inside a longer
-// identifier does not count); around each occurrence a lowercased
-// ±claimedToolWindowBytes window is checked against claimedUnavailablePhrases,
-// or a "no "/"there is no " immediately preceding the name. Returns deduped
-// findings capped at claimedToolMaxFindings. Pure — unit-test directly.
+// reports names claimed unavailable: case-sensitive word-boundary match,
+// ±claimedToolWindowBytes window against claimedUnavailablePhrases or a
+// preceding "no"/"there is no". Returns deduped findings capped at
+// claimedToolMaxFindings. Pure — unit-test directly.
 func detectClaimedToolUnavailable(text string, availableTools []string) []string {
 	if text == "" || len(availableTools) == 0 {
 		return nil

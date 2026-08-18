@@ -1063,6 +1063,7 @@ func NewService(r router.Router, providerMap map[string]providers.Client, emitte
 		compaction:                   newCompactionTracker(),
 		prefixTrimFreeSwitch:         true,
 		spiralTracker:                newSpiralTracker(),
+		claimedToolTracker:           newClaimedToolTracker(),
 		spiralShadowEnabled:          true,
 		textRepetitionBreakEnabled:   true,
 		ccOrchToolsCrossVendor:       true,

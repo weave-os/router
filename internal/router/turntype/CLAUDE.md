@@ -1,6 +1,6 @@
-# internal/router/turntype — CLAUDE
+# internal/router/turntype — AGENTS
 
-> **Mirror notice.** Verbatim sync with [AGENTS.md](AGENTS.md). **Update both together** — divergence = bug.
+> **Mirror notice.** Verbatim sync with [CLAUDE.md](CLAUDE.md). **Update both together** — divergence = bug.
 
 Inbound turn-type classifier. Read [root CLAUDE.md](../../../CLAUDE.md) first.
 

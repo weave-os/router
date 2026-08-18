@@ -1,14 +1,8 @@
-// The harness-protocol escalation clamp is a deterministic per-turn guard that
-// routes harness-bound turns UP, never down. Detected harness variants
-// (HarnessMeta, SubAgentHarnessMeta, Recovery — see turntype.HarnessEscalation)
-// operate the harness control plane (plan-mode tools, deferred-tool discovery,
-// recovery from harness-shape failures); a non-Anthropic or weak upstream that
-// hallucinates those primitives corrupts the client's harness state. So once
-// the routing decision resolves, if the chosen model is not a strong
-// Claude-family TierHigh model the decision is replaced with the escalation
-// target. The clamp is per-TURN and non-persisted — it only rewrites the
-// current decision; it never touches session pins, so the next turn routes
-// through the normal pipeline again.
+// Package-level doc: harness-bound turns (HarnessMeta, SubAgentHarnessMeta,
+// Recovery) must be served by a strong Claude-family model; a weak or
+// non-Anthropic upstream that hallucinates harness primitives corrupts the
+// client's harness state. applyHarnessEscalation enforces this per-turn,
+// non-persisted (never touches session pins).
 package proxy
 
 import (
@@ -55,13 +49,8 @@ const (
 )
 
 // applyHarnessEscalation clamps a resolved harness-protocol turn decision to a
-// strong Claude-family model (route up, never down). It runs exactly once per
-// turn, after routing, as the single choke point on every decision path.
-//
-// The clamp is a deterministic decision rewrite and never errors: every branch
-// either leaves res.Decision untouched (logging why) or replaces it with
-// {anthropic, escalateModel}. Pins, PinTier, StickyHit and Fresh are never
-// mutated — the next turn routes fresh.
+// strong Claude-family model (route up, never down). It rewrites only the
+// current decision; pins, PinTier, StickyHit, and Fresh remain unchanged.
 func (s *Service) applyHarnessEscalation(ctx context.Context, res *turnLoopResult, req router.Request) {
 	if !res.TurnType.HarnessEscalation() {
 		return
