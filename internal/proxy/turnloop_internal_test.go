@@ -81,6 +81,21 @@ func (s *stubPinStore) DisableProvider(context.Context, [sessionpin.SessionKeyLe
 
 func (s *stubPinStore) SweepExpired(context.Context) error { return nil }
 
+func TestPinCacheCold_OrdinaryAndHMMShareTheSameRule(t *testing.T) {
+	t.Parallel()
+
+	warm := sessionpin.Pin{
+		Provider:        providers.ProviderAnthropic,
+		LastTurnEndedAt: time.Now().Add(-time.Minute),
+	}
+	cold := warm
+	cold.LastTurnEndedAt = time.Now().Add(-2 * time.Hour)
+
+	assert.False(t, pinCacheCold(warm, false), "a warm unmodified prefix remains cache-eligible")
+	assert.True(t, pinCacheCold(warm, true), "a prefix break makes a warm pin cold")
+	assert.True(t, pinCacheCold(cold, false), "an expired pin is cold without a prefix break")
+}
+
 // TestRecordTurnUsage_WritesToStore guards the synchronous UpdateUsage write:
 // recordTurnUsage must persist Last* fields in-line so the planner has
 // prior-turn evidence by the next turn.

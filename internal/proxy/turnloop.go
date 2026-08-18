@@ -87,6 +87,13 @@ func cacheWarm(pin sessionpin.Pin) bool {
 	return time.Since(pin.LastTurnEndedAt) < providers.CacheTTLFor(pin.Provider)
 }
 
+// pinCacheCold is the shared planner contract for ordinary and HMM routes.
+// Semantic routing chooses the fresh candidate; the Go planner owns the cache
+// economics and must treat an unstable prefix as cold regardless of TTL.
+func pinCacheCold(pin sessionpin.Pin, prefixBroken bool) bool {
+	return !cacheWarm(pin) || prefixBroken
+}
+
 // turnLoopResult bundles the routing decision and pin/planner state.
 type turnLoopResult struct {
 	Decision       router.Decision
@@ -1041,7 +1048,7 @@ func (s *Service) runTurnLoop(
 		EstimatedInputTokens: feats.Tokens,
 		AvailableModels:      s.availableModels,
 		// A trimmed prefix kills the cache even inside the provider TTL.
-		PinCacheCold: pinFound && (!cacheWarm(pin) || prefixBroken),
+		PinCacheCold: pinFound && pinCacheCold(pin, prefixBroken),
 		// Applies the subsidy discount to pinned sessions too, not just fresh
 		// decisions. nil when subscription-aware routing is off.
 		SubsidizedCostFactor: req.SubsidizedModelCostFactor,
@@ -1155,15 +1162,16 @@ func (s *Service) hmmCostGatedDecision(
 	}
 
 	cfg := s.planner
-	// HMM owns semantic upgrades. The generic planner tier guard is too coarse
-	// here because HMM clusters and router catalog tiers are not the same axis.
+	// HMM owns semantic selection; the shared Go planner owns cache economics.
+	// The generic tier guard is too coarse here because HMM clusters and router
+	// catalog tiers are not the same axis.
 	cfg.TierUpgradeEnabled = false
 	base := planner.Decide(planner.Inputs{
 		Pin:                  stayPin,
 		Fresh:                fresh,
 		EstimatedInputTokens: estimatedInputTokens,
 		AvailableModels:      s.availableModels,
-		PinCacheCold:         !cacheWarm(stayPin) || prefixBroken,
+		PinCacheCold:         pinCacheCold(stayPin, prefixBroken),
 		SubsidizedCostFactor: req.SubsidizedModelCostFactor,
 	}, cfg)
 
