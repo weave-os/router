@@ -109,6 +109,11 @@ type turnLoopResult struct {
 	UsageBypass bool
 	PinTier     string
 	PinAgeSec   int64
+	// PinProvider, PrefixBroken, and PriorTurnGapMS preserve the cache-state
+	// evidence used by the planner for span-level shadow analysis.
+	PinProvider    string
+	PrefixBroken   bool
+	PriorTurnGapMS *int64
 	// PolicyFallback is true when the decision came from degrading a policy sidecar
 	// deadline to a session pin or tier-3 default. Exclude from bandit training and
 	// flag on the OTel span so degraded-mode spend is distinguishable.
@@ -523,6 +528,7 @@ func (s *Service) runTurnLoop(
 	// prefixTrimFreeSwitch gates actions only; detection stays unconditional
 	// so the compaction handover keeps working when the lever is off.
 	prefixBroken := s.prefixTrimFreeSwitch && res.PrefixTrimmed
+	res.PrefixBroken = prefixBroken
 	if res.PrefixTrimmed {
 		log.Info("turnloop detected client history trim",
 			"message_count", feats.MessageCount,
@@ -609,7 +615,10 @@ func (s *Service) runTurnLoop(
 		(pin.LastOutputTokens == 0 || pin.ConsecutiveUpstreamErrors > 0)
 	if pinFound {
 		res.PinModel = pin.Model
+		res.PinProvider = pin.Provider
 		res.PinAgeSec = pinAge(pin)
+		gapMS := time.Since(pin.LastTurnEndedAt).Milliseconds()
+		res.PriorTurnGapMS = &gapMS
 		log.Info("turnloop pin lookup hit",
 			"pin_model", pin.Model,
 			"pin_provider", pin.Provider,

@@ -17,6 +17,7 @@ import (
 	collogspb "go.opentelemetry.io/proto/otlp/collector/logs/v1"
 
 	"workweave/router/internal/observability/otel"
+	"workweave/router/internal/providers"
 	"workweave/router/internal/router"
 	"workweave/router/internal/router/planner"
 	"workweave/router/internal/router/sessionpin"
@@ -340,9 +341,11 @@ func TestApplyPlannerAttrs_OmitsDetailsWhenSkipped(t *testing.T) {
 
 func TestApplyPlannerAttrs_EmitsDetailsWhenEvaluated(t *testing.T) {
 	res := turnLoopResult{
-		Decision: router.Decision{Model: "claude-haiku-4-5"},
-		Fresh:    router.Decision{Model: "claude-opus-4-7"},
-		PinModel: "claude-haiku-4-5",
+		Decision:     router.Decision{Model: "claude-haiku-4-5"},
+		Fresh:        router.Decision{Model: "claude-opus-4-7"},
+		PinModel:     "claude-haiku-4-5",
+		PinProvider:  providers.ProviderAnthropic,
+		PrefixBroken: true,
 		PlannerDecision: planner.Decision{
 			Outcome:            planner.OutcomeStay,
 			Reason:             planner.ReasonEVNegative,
@@ -359,5 +362,7 @@ func TestApplyPlannerAttrs_EmitsDetailsWhenEvaluated(t *testing.T) {
 	assert.Equal(t, "stay", attrs["planner.outcome"].GetStringValue())
 	assert.Equal(t, planner.ReasonEVNegative, attrs["planner.reason"].GetStringValue())
 	assert.True(t, attrs["planner.pin_cache_warm"].GetBoolValue())
+	assert.Equal(t, providers.ProviderAnthropic, attrs["cache.pin_provider"].GetStringValue())
+	assert.False(t, attrs["cache.prefix_stable"].GetBoolValue())
 	assert.InDelta(t, 0.003, attrs["planner.eviction_cost_usd"].GetDoubleValue(), 1e-12)
 }

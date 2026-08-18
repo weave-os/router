@@ -3389,8 +3389,13 @@ func applyPlannerAttrs(b *otel.AttrBuilder, res turnLoopResult) *otel.AttrBuilde
 			String("planner.fresh_model", res.Fresh.Model).
 			String("planner.chosen_model", res.Decision.Model).
 			Bool("planner.pin_cache_warm", !res.PlannerDecision.PinCacheCold).
+			String("cache.pin_provider", res.PinProvider).
+			Bool("cache.prefix_stable", !res.PrefixBroken).
 			Bool("planner.pin_price_fallback", res.PlannerDecision.PinPriceFallback).
 			Bool("planner.fresh_price_fallback", res.PlannerDecision.FreshPriceFallback)
+		if res.PriorTurnGapMS != nil {
+			b.Int64("cache.prior_turn_gap_ms", *res.PriorTurnGapMS)
+		}
 	}
 	b.Bool("handover.invoked", res.Handover.Invoked).
 		Int64("handover.latency_ms", res.Handover.LatencyMS).
@@ -3462,6 +3467,9 @@ func plannerLogFields(res turnLoopResult) []any {
 		"planner_fresh_model", res.Fresh.Model,
 		"planner_chosen_model", res.Decision.Model,
 		"planner_pin_cache_warm", pinCacheWarm,
+		"cache_pin_provider", res.PinProvider,
+		"cache_prefix_stable", !res.PrefixBroken,
+		"cache_prior_turn_gap_ms", res.PriorTurnGapMS,
 		"planner_pin_price_fallback", res.PlannerDecision.PinPriceFallback,
 		"planner_fresh_price_fallback", res.PlannerDecision.FreshPriceFallback,
 	}
