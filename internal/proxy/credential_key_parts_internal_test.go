@@ -56,9 +56,7 @@ func TestCredentialKeyParts_ShortKey(t *testing.T) {
 	assert.Equal(t, credSourceClient, src)
 }
 
-// The analytics export derives subscription_served (and its $0 cost) from the
-// persisted credential_source string, so these two values are a wire contract
-// with db/queries/model_router_request_telemetry.sql, not free-form labels.
+// These string values are a wire contract with the SQL export query; changing them breaks subscription_served.
 func TestCredentialSources_OAuthValuesMatchExportContract(t *testing.T) {
 	assert.Equal(t, "subscription", credSourceSubscription)
 	assert.Equal(t, "codex_subscription", credSourceCodexSubscription)

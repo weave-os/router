@@ -101,9 +101,7 @@ func int32PtrToInt64(v *int32) *int64 {
 	return &out
 }
 
-// servedCostUSD prices a turn as the installation actually paid for it: a turn
-// dispatched on the caller's own subscription is covered by that quota, so it
-// exports $0 instead of the catalog rate it would have cost on a Weave key.
+// servedCostUSD returns $0 for subscription-served turns (quota already paid) and the catalog rate otherwise.
 func servedCostUSD(micros *int64, subscriptionServed bool) *float64 {
 	if micros == nil {
 		return nil

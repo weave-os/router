@@ -49,9 +49,7 @@ type Decision struct {
 	CacheCreationTokens  *int64 `json:"cache_creation_tokens"`
 	CacheReadTokens      *int64 `json:"cache_read_tokens"`
 
-	// SubscriptionServed marks a turn dispatched on the caller's own Claude or
-	// Codex subscription. Its quota already paid for the turn, so Actual* are $0
-	// while the token counts stay real.
+	// SubscriptionServed turns are covered by the caller's own quota; Actual* export as $0 while token counts stay real.
 	SubscriptionServed bool `json:"subscription_served"`
 	// Actual* price the served turn; counterfactual not exported — consumers reprice via RequestedModel + /v1/analytics/models.
 	ActualInputCostUSD  *float64 `json:"actual_input_cost_usd"`
