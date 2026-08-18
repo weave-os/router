@@ -6,10 +6,8 @@ import (
 	"workweave/router/internal/translate"
 )
 
-// Bounded prefixes the harness-meta sniffers scan before giving up. A real
-// Claude Code command dispatch keeps the skill/command markers + the harness
-// reference well within the first few KB; binding the scan protects against
-// pathological-but-templated requests padding out the prefix.
+// Scan caps for harness-meta sniffers. Real Claude Code command dispatches keep
+// skill/command markers + harness references well within the first few KB.
 const (
 	harnessMetaMainTurnScanMaxBytes = 16384
 	harnessMetaSubAgentScanMaxBytes = 4096
@@ -97,10 +95,8 @@ func isWordRune(r rune) bool {
 }
 
 // isHarnessMetaSubAgent reports whether the first user text of a sub-agent
-// dispatch prompt references harness primitives. Bounded by
-// harnessMetaSubAgentScanMaxBytes so we never walk the entirety of a
-// long dispatch prompt — the harness signal always sits in the first KB
-// of the dispatched prompt (CC's Agent tool template).
+// dispatch prompt references harness primitives. Bounded by harnessMetaSubAgentScanMaxBytes;
+// the harness signal always appears in the first KB of the Agent tool template.
 func isHarnessMetaSubAgent(firstUserText string) bool {
 	if firstUserText == "" {
 		return false
