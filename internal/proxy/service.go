@@ -1151,18 +1151,14 @@ func (s *Service) WithHMPinStickyOnArmSelectorUnavail(enabled bool) *Service {
 	return s
 }
 
-// WithPolicyDeadlineFallback is the kill switch (ROUTER_POLICY_DEADLINE_FALLBACK)
-// for degrading a policy sidecar deadline/transport failure to the session's
-// last-known-good pin instead of a 503.
+// WithPolicyDeadlineFallback sets the kill switch (ROUTER_POLICY_DEADLINE_FALLBACK) for degrading a policy sidecar deadline to the session pin instead of a 503.
 func (s *Service) WithPolicyDeadlineFallback(enabled bool) *Service {
 	s.policyDeadlineFallback = enabled
 	return s
 }
 
-// WithPolicyDeadlineDefaultModel sets the tier-3 static safe default model
-// served on a policy deadline miss when the session has no pin yet
-// (ROUTER_POLICY_DEADLINE_DEFAULT_MODEL). Empty preserves fail-closed (503)
-// for pinless sessions.
+// WithPolicyDeadlineDefaultModel sets ROUTER_POLICY_DEADLINE_DEFAULT_MODEL: the tier-3 static fallback
+// on a deadline miss with no pin yet. Empty preserves fail-closed (503) for pinless sessions.
 func (s *Service) WithPolicyDeadlineDefaultModel(model string) *Service {
 	s.policyDeadlineDefaultModel = model
 	return s

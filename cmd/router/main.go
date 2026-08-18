@@ -578,15 +578,10 @@ func main() {
 	hmmUpgradeConfidence := parseEnvFloat("ROUTER_HMM_UPGRADE_CONFIDENCE_THRESHOLD", 0.85)
 	hmmSameTierPin := config.GetOr("ROUTER_HMM_SAME_TIER_PIN", "false") == "true"
 	hmPinStickyOnArmSelectorUnavail := config.GetOr("ROUTER_HMM_PIN_STICKY_ON_ARM_SELECTOR_UNAVAIL", "false") == "true"
-	// policyDeadlineFallback degrades a policy sidecar deadline/transport
-	// failure to the session pin (or the tier-3 static default below) instead
-	// of a 503. Off by default: enabling requires a build with this fallback
-	// wired, so a self-hoster on an old binary can't set the env var and get
-	// a config no-op.
+	// policyDeadlineFallback degrades a policy sidecar deadline/transport failure to
+	// the session pin (or tier-3 default below) instead of a 503. Kill switch; off by default.
 	policyDeadlineFallback := config.GetOr("ROUTER_POLICY_DEADLINE_FALLBACK", "false") == "true"
-	// policyDeadlineDefaultModel is the tier-3 static safe default served on a
-	// policy deadline miss with no session pin yet (~0.2% of failures). Empty
-	// (default) preserves fail-closed (503) for pinless sessions.
+	// policyDeadlineDefaultModel is the tier-3 static fallback on a deadline miss with no pin; empty = fail-closed.
 	policyDeadlineDefaultModel := config.GetOr("ROUTER_POLICY_DEADLINE_DEFAULT_MODEL", "")
 	handoverProviderName := config.GetOr("ROUTER_HANDOVER_PROVIDER", providers.ProviderAnthropic)
 	handoverModel := config.GetOr("ROUTER_HANDOVER_MODEL", proxy.DefaultHandoverModel)

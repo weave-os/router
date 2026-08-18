@@ -232,14 +232,10 @@ func stickPinOnArmSelectorUnavailable(fresh router.Decision, pin sessionpin.Pin,
 	return true
 }
 
-// policyDeadlineFallbackReason is the PinTier value when a policy sidecar
-// deadline/transport failure degrades to a session pin or the tier-3 static
-// default, instead of a 503.
+// policyDeadlineFallbackReason is set as PinTier when a policy sidecar deadline degrades to a pin or tier-3 default.
 const policyDeadlineFallbackReason = "policy_deadline_last_known_good"
 
-// policyDeadlineDefaultReason is the router.Decision.Reason value when a
-// policy sidecar deadline/transport failure with no session pin falls all the
-// way to the tier-3 static safe default model.
+// policyDeadlineDefaultReason is the Decision.Reason when a deadline miss with no pin falls to the tier-3 default.
 const policyDeadlineDefaultReason = "policy_deadline_default_model"
 
 // isPolicyDeadlineErr reports whether err is a policy sidecar deadline/transport

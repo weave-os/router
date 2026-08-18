@@ -29,10 +29,8 @@ var policyDeadlineTestErr = fmt.Errorf(
 	hmm.ErrHMMUnavailable,
 )
 
-// policyContractViolationTestErr mirrors a genuine contract violation
-// (sidecar_router.go:367/370) — also wraps hmm.ErrHMMUnavailable, but without
-// a deadline/cancel in the chain. isPolicyDeadlineErr must return false for
-// this so contract violations still fail closed.
+// policyContractViolationTestErr mirrors a contract violation (sidecar_router.go:367/370): wraps
+// ErrHMMUnavailable without a deadline/cancel, so isPolicyDeadlineErr must return false.
 var policyContractViolationTestErr = fmt.Errorf(
 	"hmm_embedding: sidecar returned unknown arm %q or model %q: %w",
 	"bogus-arm", "bogus-model",
@@ -299,10 +297,8 @@ func TestTurnLoop_DeadlineFallbackKillSwitchOff(t *testing.T) {
 	assert.ErrorIs(t, err, hmm.ErrHMMUnavailable)
 }
 
-// TestTurnLoop_DeadlineFallbackContractViolationStillFailsClosed is the
-// required regression: a contract violation (not a deadline/transport
-// failure) must never degrade, even with the fallback enabled and a pin
-// present. Serving on a contract violation would write a wrong route ledger.
+// TestTurnLoop_DeadlineFallbackContractViolationStillFailsClosed: contract violations must never
+// degrade even with fallback enabled — serving one would write a wrong route ledger.
 func TestTurnLoop_DeadlineFallbackContractViolationStillFailsClosed(t *testing.T) {
 	strategy := router.Strategy("policy-deadline-fallback-contract-violation-test")
 	const pinnedModel = "claude-sonnet-4-6"
