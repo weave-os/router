@@ -125,9 +125,8 @@ func strictifyNode(node map[string]any, depth int, propCount *int) (out map[stri
 			return nil, false
 		}
 		if !schemaHasStrictType(si) {
-			// No declared element type (absent or sanitize's items:{} placeholder) —
-			// synthesizing a narrower type would silently reject valid non-primitive
-			// elements, so bail the whole tool to non-strict instead.
+			// No declared element type — synthesizing would silently reject valid
+			// non-primitive elements; bail the whole tool to non-strict instead.
 			return nil, false
 		}
 		res["items"] = si

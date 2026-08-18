@@ -115,9 +115,8 @@ func TestStrictify_ArrayWithoutItemsKeyBails(t *testing.T) {
 	require.False(t, ok, "an array with no declared element type is not expressible in strict mode; must bail")
 }
 
-// sanitizeOpenAIToolSchema (run before strictify on the emit path) fills a
-// placeholder items:{} for a bare array — same "no element type" case as
-// above, just already carrying an items key.
+// sanitizeOpenAIToolSchema inserts items:{} for bare arrays before strictify
+// runs — this exercises that path; must also bail.
 func TestStrictify_ArrayWithEmptyItemsPlaceholderBails(t *testing.T) {
 	_, ok := strictifyFromJSON(t, `{
 		"type":"object",
