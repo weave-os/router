@@ -295,9 +295,8 @@ type updateExternalKeyAliasesRequest struct {
 	ModelAliases map[string]string `json:"model_aliases"`
 }
 
-// UpdateExternalKeyAliasesHandler edits a stored key's model aliases without
-// re-entering the credential the dashboard can no longer show. 404 when the id
-// is not owned by the caller's installation.
+// UpdateExternalKeyAliasesHandler edits a stored key's model aliases without re-entering
+// the credential; returns 404 for missing or cross-tenant ids.
 func UpdateExternalKeyAliasesHandler(authSvc *auth.Service, models DeployedModelsSource) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		installation, ok := resolveInstallation(c, authSvc)
