@@ -82,9 +82,8 @@ type Inputs struct {
 	Pin                  sessionpin.Pin
 	Fresh                router.Decision
 	EstimatedInputTokens int
-	// CacheablePrefixTokens estimates the stable portion of the input. It is
-	// used only by the shadow model; production continues to use its existing
-	// full-input approximation until calibrated.
+	// CacheablePrefixTokens estimates the stable portion of the input.
+	// Shadow-only; production uses EstimatedInputTokens until calibrated.
 	CacheablePrefixTokens int
 	AvailableModels       map[string]struct{}
 	// PinCacheCold reports that the pin's upstream prompt cache has lapsed —

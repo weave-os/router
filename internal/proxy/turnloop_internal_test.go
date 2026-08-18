@@ -129,6 +129,7 @@ func TestCacheablePrefixTokens_UsesReadOrWriteEvidence(t *testing.T) {
 
 	assert.Equal(t, 4_000, cacheablePrefixTokens(sessionpin.Pin{LastCachedWriteTokens: 4_000}, 10_000))
 	assert.Equal(t, 2_000, cacheablePrefixTokens(sessionpin.Pin{LastCachedReadTokens: 4_000}, 2_000))
+	assert.Equal(t, 7_000, cacheablePrefixTokens(sessionpin.Pin{LastCachedReadTokens: 4_000, LastCachedWriteTokens: 3_000}, 10_000))
 }
 
 // TestRecordTurnUsage_WritesToStore guards the synchronous UpdateUsage write:
