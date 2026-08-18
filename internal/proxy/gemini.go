@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"math"
 	"net/http"
 	"time"
 
@@ -169,9 +168,7 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 		Float64("catalog.actual_input_per_1m", actPricing.InputUSDPer1M).
 		Float64("catalog.actual_output_per_1m", actPricing.OutputUSDPer1M).
 		Int64("latency.route_ms", routeMs)
-	if decision.Metadata != nil && decision.Metadata.EmbedMs != nil {
-		geminiDecisionBuilder.Int64("latency.embed_ms", int64(math.Round(*decision.Metadata.EmbedMs)))
-	}
+	applyEmbedLatencyAttr(geminiDecisionBuilder, routeRes)
 	applyPlannerAttrs(geminiDecisionBuilder, routeRes)
 	applyRoutingStateAttrs(geminiDecisionBuilder, routeRes, decision.Model, sessionKey)
 	otel.Record(ctx, otel.Span{

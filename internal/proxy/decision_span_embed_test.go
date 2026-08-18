@@ -70,10 +70,9 @@ func embedTurnBody() []byte {
 		`"messages":[{"role":"user","content":"hi"}]}`)
 }
 
-// newEmbedTestService wires a nil pin store so the turn loop takes the fresh
-// scorer branch; a tools + max_tokens body keeps the turn off the
-// classifier/probe hard-pin fast paths, which would never reach the router.
-func newEmbedTestService(t *testing.T, collector *bypassSpanCollector, rt router.Router) *Service {
+// newEmbedTestService wires the given pin store (nil = fresh scorer branch);
+// the tools + max_tokens body keeps turns off the hard-pin fast paths.
+func newEmbedTestService(t *testing.T, collector *bypassSpanCollector, rt router.Router, pins sessionpin.Store) *Service {
 	t.Helper()
 	emitter, err := otel.NewEmitter(otel.EmitterConfig{
 		Endpoint:      collector.srv.URL,
@@ -84,13 +83,12 @@ func newEmbedTestService(t *testing.T, collector *bypassSpanCollector, rt router
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = emitter.Shutdown(context.Background()) })
-	return NewService(rt, map[string]providers.Client{providers.ProviderAnthropic: embedTestProvider{}}, emitter, false, nil, nil, false,
+	return NewService(rt, map[string]providers.Client{providers.ProviderAnthropic: embedTestProvider{}}, emitter, false, nil, pins, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil)
 }
 
-// decisionSpanEmbed drives one Anthropic turn through the service and returns
-// the exported router.decision span. The emitter shutdown is synchronous, so
-// the collector is quiescent afterwards (span assertions are read-only to it).
+// decisionSpanEmbed drives one Anthropic turn and returns the exported
+// router.decision span; emitter shutdown is synchronous so spans are stable.
 func decisionSpanEmbed(t *testing.T, svc *Service, collector *bypassSpanCollector) *tracev1.Span {
 	t.Helper()
 	rec := httptest.NewRecorder()
@@ -107,13 +105,11 @@ func decisionSpanEmbed(t *testing.T, svc *Service, collector *bypassSpanCollecto
 	return spans[0]
 }
 
-// TestDecisionSpan_EmbedMsHit_Present pins the latency.embed_ms attribute as
-// an int64 carrying the whole-millisecond embed time. The
-// float->int64 conversion is lossy at half-millisecond boundaries: a 12.5ms
-// embed must round UP to 13, never truncate to 12.
+// TestDecisionSpan_EmbedMsHit_Present pins latency.embed_ms as int64;
+// 12.5ms must round to 13, not truncate to 12.
 func TestDecisionSpan_EmbedMsHit_Present(t *testing.T) {
 	collector := newBypassSpanCollector(t)
-	svc := newEmbedTestService(t, collector, &embedTestRouter{metadata: &router.RoutingMetadata{EmbedMs: embedMsPtr(12.5)}})
+	svc := newEmbedTestService(t, collector, &embedTestRouter{metadata: &router.RoutingMetadata{EmbedMs: embedMsPtr(12.5)}}, nil)
 
 	sp := decisionSpanEmbed(t, svc, collector)
 
@@ -130,7 +126,7 @@ func TestDecisionSpan_EmbedMsHit_Present(t *testing.T) {
 // attribute being absent.
 func TestDecisionSpan_EmbedMsWarmCache_PresentZero(t *testing.T) {
 	collector := newBypassSpanCollector(t)
-	svc := newEmbedTestService(t, collector, &embedTestRouter{metadata: &router.RoutingMetadata{EmbedMs: embedMsPtr(0.4)}})
+	svc := newEmbedTestService(t, collector, &embedTestRouter{metadata: &router.RoutingMetadata{EmbedMs: embedMsPtr(0.4)}}, nil)
 
 	sp := decisionSpanEmbed(t, svc, collector)
 
@@ -139,11 +135,8 @@ func TestDecisionSpan_EmbedMsWarmCache_PresentZero(t *testing.T) {
 	assert.Zero(t, embedMs)
 }
 
-// TestDecisionSpan_EmbedMsAbsent_NilMetadataAndNilEmbedMiss pins the nil
-// guard: a decision that never computed the embedding (Metadata nil, or
-// metadata present without EmbedMs) must NOT fabricate a zero measurement.
-// Presence is the contract — an absent attribute is upstream's signal to
-// skip the metric entirely.
+// TestDecisionSpan_EmbedMsAbsent_NilMetadataAndNilEmbedMiss pins that absent
+// embedding must not fabricate a zero — absence is the upstream skip signal.
 func TestDecisionSpan_EmbedMsAbsent_NilMetadataAndNilEmbedMiss(t *testing.T) {
 	for _, tc := range []struct {
 		name     string
@@ -154,7 +147,7 @@ func TestDecisionSpan_EmbedMsAbsent_NilMetadataAndNilEmbedMiss(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			collector := newBypassSpanCollector(t)
-			svc := newEmbedTestService(t, collector, &embedTestRouter{metadata: tc.metadata})
+			svc := newEmbedTestService(t, collector, &embedTestRouter{metadata: tc.metadata}, nil)
 
 			sp := decisionSpanEmbed(t, svc, collector)
 
@@ -166,11 +159,32 @@ func TestDecisionSpan_EmbedMsAbsent_NilMetadataAndNilEmbedMiss(t *testing.T) {
 	}
 }
 
-// TestPinDecision_NeverRehydratesMetadata pins the replay guard: pinDecision
-// rehydrates a decision from a stored pin with Metadata nil. Embedding is not
-// persisted into pins, and must stay that way — a pin that carried Metadata
-// would re-emit a stale latency.embed_ms measurement on every subsequent
-// sticky hit as if it were a fresh decision.
+// TestDecisionSpan_EmbedMs_SurvivesPlannerStay pins the STAY path: a live
+// same-model pin makes the planner serve the pin-derived decision (nil
+// Metadata), but the sidecar still embedded this turn, so the span must
+// carry the fresh measurement.
+func TestDecisionSpan_EmbedMs_SurvivesPlannerStay(t *testing.T) {
+	collector := newBypassSpanCollector(t)
+	store := newStubPinStore()
+	store.getFound = true
+	store.getPin = sessionpin.Pin{
+		Provider:    providers.ProviderAnthropic,
+		Model:       "claude-haiku-4-5",
+		Reason:      "cluster",
+		PinnedUntil: time.Now().Add(time.Hour),
+	}
+	svc := newEmbedTestService(t, collector, &embedTestRouter{metadata: &router.RoutingMetadata{EmbedMs: embedMsPtr(12.5)}}, store)
+
+	sp := decisionSpanEmbed(t, svc, collector)
+
+	require.Equal(t, "stay", spanStr(t, sp, "planner.outcome"), "pin must be served via a planner STAY for this test to pin anything")
+	got, present := spanEmbedInt(sp, "latency.embed_ms")
+	require.True(t, present, "a STAY turn still embedded this request — dropping it undercounts EMBED on sticky sessions")
+	assert.Equal(t, int64(13), got)
+}
+
+// TestPinDecision_NeverRehydratesMetadata guards against stale embed_ms
+// replay: pins must rehydrate with Metadata nil.
 func TestPinDecision_NeverRehydratesMetadata(t *testing.T) {
 	dec := pinDecision(sessionpin.Pin{
 		Provider: providers.ProviderAnthropic,
