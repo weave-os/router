@@ -7,6 +7,7 @@ This page is the exhaustive reference; the [README](../README.md) has the
 ## Table of contents
 
 - [Provider API keys](#provider-api-keys)
+  - [Key-pair auth](#key-pair-auth)
 - [Postgres](#postgres)
 - [Server](#server)
 - [Routing](#routing)
@@ -74,7 +75,9 @@ curl -sS -b jar -X POST https://<router>/admin/v1/provider-keys \
 
 Both keys carry the same PAT; per model, the catalog's binding order decides
 which surface serves it, so Claude prefers the Anthropic one (it carries
-thinking blocks and `cache_control` natively) and falls back to the other.
+thinking blocks and `cache_control` natively) and falls back to the other. A
+tenant that can't issue a long-lived PAT configures each key with an RSA
+private key instead — see [Key-pair auth](#key-pair-auth).
 
 **BYOK (per-installation keys).** Instead of (or in addition to) the env vars
 above, each installation can supply its own provider keys via the dashboard.
@@ -127,10 +130,14 @@ curl -sS -b jar -X PUT https://<router>/admin/v1/provider-keys/<key id>/model-al
   -d '{"model_aliases":{"claude-fable-5":"internal.claude-fable-5"}}'
 ```
 
-**Key-pair auth.** A gateway whose tenant forbids long-lived tokens can be
-given an RSA private key instead: the router signs a short-lived RS256 JWT for
-the configured principal and sends it as the bearer, re-signing well before the
-one-hour ceiling upstreams like Snowflake impose on such tokens.
+### Key-pair auth
+
+A gateway whose tenant forbids long-lived tokens can be given an RSA private
+key instead: the router signs a short-lived RS256 JWT for the configured
+principal and sends it as the bearer, re-signing well before the one-hour
+ceiling upstreams like Snowflake impose on such tokens. The key is stored in
+the same encrypted column as a PAT (see [BYOK encryption](#byok-encryption))
+and is never returned by the API or rendered back in the dashboard.
 
 ```bash
 curl -sS -b jar -X POST https://<router>/admin/v1/provider-keys \
@@ -145,10 +152,30 @@ The key must be an unencrypted PKCS#1 or PKCS#8 RSA key of at least 2048 bits �
 passphrase-protected keys are rejected, since there is nobody to prompt. Its
 public half must already be assigned to the upstream user (Snowflake:
 `ALTER USER ... SET RSA_PUBLIC_KEY`), whose default role needs
-`SNOWFLAKE.CORTEX_USER`. Account locators drop their region and cloud suffixes
-(`xy12345.us-east-1.aws` → `XY12345`). The same fields are available in
-**Settings → Provider API keys → Authentication**; `auth_type` defaults to
-`bearer`, which sends the stored secret verbatim as today.
+`SNOWFLAKE.CORTEX_USER` (or `SNOWFLAKE.CORTEX_REST_API_USER`). Account locators
+drop their region and cloud suffixes (`xy12345.us-east-1.aws` → `XY12345`);
+org-qualified identifiers (`myorg-myaccount`) are used as they are. The same
+fields are available in **Settings → Provider API keys → Authentication**;
+`auth_type` defaults to `bearer`, which sends the stored secret verbatim as
+today.
+
+The minted token claims `iss = ACCOUNT.USER.SHA256:<public key fingerprint>`
+and `sub = ACCOUNT.USER`, uppercased, valid 55 minutes and re-signed after 45,
+so rotating the stored key takes effect on the next request rather than at the
+old token's expiry. Only the auth type and principal are readable back:
+
+```bash
+curl -sS -b jar https://<router>/admin/v1/provider-keys
+# {"keys":[{"provider":"openai_gateway","auth_type":"keypair_jwt",
+#           "auth_account":"MYORG-MYACCOUNT","auth_user":"SERVICE_USER", ...}]}
+```
+
+A key whose token can't be signed (wrong secret pasted, unreadable key) is
+dropped from that request's credentials rather than sent upstream as-is, so
+routing falls back to another binding instead of leaking the key. Misconfigured
+input is rejected at write time with a `400`: a non-RSA or under-2048-bit key,
+a passphrase-protected key, a missing account or user, or key-pair auth on a
+vendor provider (only `anthropic_gateway` and `openai_gateway` accept it).
 
 An endpoint that authenticates the org rather than the person can be given the
 calling user in a header of its choosing:
