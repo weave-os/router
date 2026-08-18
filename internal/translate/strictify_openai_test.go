@@ -102,6 +102,28 @@ func TestStrictify_ArrayItemsRecurse(t *testing.T) {
 	assert.Equal(t, false, items["additionalProperties"])
 }
 
+// Prod repro (2026-08-18, keywords-ai MCP list_logs/list_traces): a filter
+// value field declared "type":"array" with no "items" key at all — a bare
+// array with an undeclared element type, valid JSON Schema but something
+// OpenAI strict mode has no way to express without a synthesized items
+// sub-schema. Pre-fix it rode through untouched and OpenAI 400'd with
+// "schema must have a 'type' key" on the missing items context.
+func TestStrictify_ArrayWithoutItemsGetsSynthesizedItems(t *testing.T) {
+	out, ok := strictifyFromJSON(t, `{
+		"type":"object",
+		"properties":{
+			"value":{"type":"array","description":"Filter value(s) as array"}
+		},
+		"required":["value"]
+	}`)
+	require.True(t, ok, "an array with no items key must not make the schema non-strictifiable")
+
+	value := out["properties"].(map[string]any)["value"].(map[string]any)
+	items, present := value["items"]
+	require.True(t, present, "strict mode rejects an array schema with no items sub-schema")
+	assert.Contains(t, items, "type")
+}
+
 func TestStrictify_EnumOptionalWrapsInAnyOf(t *testing.T) {
 	out, ok := strictifyFromJSON(t, `{
 		"type":"object",

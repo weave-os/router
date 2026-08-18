@@ -125,6 +125,13 @@ func strictifyNode(node map[string]any, depth int, propCount *int) (out map[stri
 			return nil, false
 		}
 		res["items"] = si
+	} else if typeIncludesArray(res["type"]) {
+		// A node typed "array" with no "items" key at all (the MCP tool declared
+		// the value as an untyped array, e.g. keywords-ai's list_logs filter
+		// "value": {"type":"array"}) — OpenAI strict mode 400s with "schema must
+		// have a 'type' key" pointing at the missing items sub-schema. Synthesize
+		// a permissive one rather than bailing non-strict for the whole tool.
+		res["items"] = permissiveAnySchema()
 	}
 
 	properties, hasProps := res["properties"].(map[string]any)
@@ -219,12 +226,36 @@ func makeNullable(node map[string]any) map[string]any {
 		"additionalProperties": false,
 		"properties":           map[string]any{},
 		"required":             []any{},
-		"items":                map[string]any{"type": []any{"string", "number", "boolean", "null"}},
+		"items":                permissiveAnySchema(),
 	}
 	for k, v := range node {
 		branch[k] = v
 	}
 	return map[string]any{"anyOf": []any{branch, map[string]any{"type": "null"}}}
+}
+
+// typeIncludesArray reports whether a node's "type" value (string or union
+// list form) includes "array".
+func typeIncludesArray(t any) bool {
+	switch v := t.(type) {
+	case string:
+		return v == "array"
+	case []any:
+		for _, e := range v {
+			if s, isStr := e.(string); isStr && s == "array" {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// permissiveAnySchema is the items sub-schema synthesized for an array node
+// that declared no element type at all — mirrors the value-type union
+// makeNullable uses for a fully typeless node, minus "array"/"object" so it
+// can't recurse into itself.
+func permissiveAnySchema() map[string]any {
+	return map[string]any{"type": []any{"string", "number", "boolean", "null"}}
 }
 
 // schemaHasStrictType reports whether node carries a type OpenAI strict mode
