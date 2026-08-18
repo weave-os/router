@@ -40,9 +40,8 @@ func (t Tier) String() string {
 type Pricing struct {
 	InputUSDPer1M  float64
 	OutputUSDPer1M float64
-	// CacheWriteMultiplier is the cache-creation input price relative to base
-	// input price. Zero means the vendor has not published a binding-specific
-	// value, so existing production pricing is preserved.
+	// CacheWriteMultiplier is the cache-creation price relative to base input price.
+	// Zero means unspecified — existing production pricing is preserved.
 	CacheWriteMultiplier float64
 	// CacheReadMultiplier is the cost of a cache hit relative to the base
 	// input price (e.g. 0.10 for Anthropic, 0.50 for OpenAI). Zero means
