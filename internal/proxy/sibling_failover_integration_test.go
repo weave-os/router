@@ -44,11 +44,9 @@ func siblingClusterDecision(reason string) router.Decision {
 	}
 }
 
-// TestProxyMessages_OverloadedModelDegradesToSameClusterCandidate: an Anthropic
-// model with a single deployment-keyed binding 529s on every attempt, so the
-// turn re-dispatches the next candidate the policy scored for it instead of
-// surfacing the overload. Reproduces the prod incident where claude-opus-5
-// retried the same dark endpoint three times and 529'd the client.
+// TestProxyMessages_OverloadedModelDegradesToSameClusterCandidate: a sole-binding
+// Anthropic model 529s on every attempt; the turn must re-dispatch the next
+// policy candidate rather than surfacing the overload to the client.
 func TestProxyMessages_OverloadedModelDegradesToSameClusterCandidate(t *testing.T) {
 	var (
 		mu             sync.Mutex
@@ -268,11 +266,9 @@ func TestProxyMessages_OverloadWithoutCandidatesSurfacesUpstreamError(t *testing
 	assert.Contains(t, rec.Body.String(), "Overloaded", "the deferred upstream error must reach the client")
 }
 
-// TestProxyMessages_SubscriptionOverloadSurfacesOnceAfterRetry: a
-// subscription-served turn carries a customer credential, so shouldFailover
-// keeps it on its own binding — the Weave-key retry runs, and when that hits
-// the same overloaded endpoint the error must reach the client exactly once
-// with no cluster peer dispatched behind it.
+// TestProxyMessages_SubscriptionOverloadSurfacesOnceAfterRetry: a customer
+// credential binds the turn to its provider, so sibling rescue is ineligible;
+// the Weave-key retry runs and the overload surfaces exactly once.
 func TestProxyMessages_SubscriptionOverloadSurfacesOnceAfterRetry(t *testing.T) {
 	var (
 		mu             sync.Mutex

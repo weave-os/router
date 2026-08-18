@@ -13,11 +13,9 @@ const ReasonSiblingFailover = "sibling_failover"
 
 // siblingFailoverDecision picks a stand-in for a routed model whose bindings
 // all failed. Walks CandidateModels (the policy's scored pool for this turn,
-// already filtered for capability/context), plus PairedModel as a last resort
-// for replayed pins. Candidates on the failed provider rank last. Reports false
-// when no distinct servable candidate exists or the keyed-provider set is unset.
-// Context fit uses the same estimator as the pre-route overflow filter, so a
-// tool-heavy turn can't degrade onto a candidate too small to hold it.
+// already filtered for capability/context), plus PairedModel last for replayed
+// pins. Candidates on the failed provider rank last; context fit uses the same
+// dual-estimator as the pre-route overflow filter to reject under-sized peers.
 func (s *Service) siblingFailoverDecision(ctx context.Context, failed router.Decision, est, sigSavings, outputReserve int) (router.Decision, bool) {
 	md := failed.Metadata
 	if md == nil || s.deploymentKeyedProviders == nil {
