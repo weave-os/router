@@ -2659,8 +2659,10 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	// another turn on it (429 until reset). Suppress the spent token so
 	// resolution falls through to the deployment/BYOK key — the turn serves on
 	// the Weave key (full cost) instead of hard-failing. Only fires once the
-	// observer has recorded exhaustion and a fallback key exists.
-	if s.claudeSubscriptionExhausted(ctx, r.Header) {
+	// observer has recorded exhaustion and a fallback key exists. Recorded so
+	// the marker built below can surface the billable-failover warning.
+	subscriptionFailingOver := s.claudeSubscriptionExhausted(ctx, r.Header)
+	if subscriptionFailingOver {
 		ctx = withSuppressedClaudeSubscription(ctx)
 	}
 	ctx = resolveAndInjectCredentials(ctx, decision.Provider, decision.Model, r.Header)
@@ -2741,6 +2743,12 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	// turn reaching here is served free and should carry the top-up CTA.
 	if billing.SubscriptionOnlyFromContext(ctx) {
 		marker = subscriptionOnlyWarningMarker
+	} else if subscriptionFailingOver {
+		// Subscription hit its 5h/7d limit pre-dispatch: the turn is about to
+		// serve on the billable Weave/BYOK key instead. Not gated by the
+		// routing-marker opt-out — same billing-state-change rule as the
+		// subscription-only warning above.
+		marker = subscriptionFailoverWarningMarker
 	}
 	// toolValidator compiles the request's tool schemas once (LRU-cached);
 	// translators validate/repair model tool calls against it. Nil if no tools.
@@ -3082,7 +3090,10 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 				"model", decision.Model,
 				"err", proxyErr,
 				"upstream_status", upstreamStatus(proxyErr))
-			subAttempt := s.anthropicNativeAttempt(env, r, subPrep, sink, preludeBuf, marker, setExtractor)
+			// Swap in the billable-failover warning for this retry attempt — safe
+			// because reaching here already required preludeBuf.Committed() ==
+			// false, so nothing under the original marker has hit the wire yet.
+			subAttempt := s.anthropicNativeAttempt(env, r, subPrep, sink, preludeBuf, subscriptionFailoverWarningMarker, setExtractor)
 			crossFormat = false
 			respSummary = translate.ResponseSummary{}
 			reqStats = providers.RequestMutationStats{}
@@ -3151,6 +3162,11 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 
 	in, out := extractor.Tokens()
 	cacheCreation, cacheRead := extractor.CacheTokens()
+	// Computed here (rather than only at the later Postgres-telemetry site)
+	// so credential.source and the combined subscription-failover flag reach
+	// the router.call OTLP log record — WorkWeave's ingest reads that record,
+	// not this router's own Postgres telemetry table.
+	_, _, credSourceForAttrs := s.credentialKeyParts(ctx)
 	upstreamBuilder := otel.NewAttrBuilder(40).
 		String("request_id", requestID).
 		String("external_id", externalID).
@@ -3185,7 +3201,16 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		Int64("dispatch.fallback_attempts", int64(winnerIdx)).
 		Bool("dispatch.failover_used", finalProvider != primaryProvider || subscriptionFailoverUsed).
 		Bool("dispatch.baseline_failover", baselineFailoverUsed).
-		Bool("dispatch.subscription_failover", subscriptionFailoverUsed)
+		Bool("dispatch.subscription_failover", subscriptionFailoverUsed).
+		// Combined pre-emptive (subscriptionFailingOver, an exhausted observer
+		// snapshot skipping dispatch entirely) OR reactive
+		// (subscriptionFailoverUsed, a live 429/OAuth-rejection retry) signal —
+		// either means this turn is billed on the Weave/BYOK key instead of the
+		// caller's own subscription. dispatch.subscription_failover above only
+		// covers the reactive branch; this one is the authoritative bit for
+		// admin alerting downstream.
+		Bool("dispatch.subscription_failover_billable", subscriptionFailingOver || subscriptionFailoverUsed).
+		String("credential.source", credSourceForAttrs)
 	applyPlannerAttrs(upstreamBuilder, routeRes)
 	applyRoutingStateAttrs(upstreamBuilder, routeRes, decision.Model, sessionKey)
 	addTimingAttrs(ctx, upstreamBuilder)
@@ -5062,6 +5087,9 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 
 	in, out := extractor.Tokens()
 	cacheCreation, cacheRead := extractor.CacheTokens()
+	// See ProxyMessages for why this is computed before the builder rather
+	// than only at the later Postgres-telemetry site.
+	_, _, openaiCredSourceForAttrs := s.credentialKeyParts(ctx)
 	openaiUpstreamBuilder := otel.NewAttrBuilder(40).
 		String("request_id", requestID).
 		String("external_id", externalID).
@@ -5092,7 +5120,8 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		String("dispatch.primary_provider", primaryProvider).
 		String("dispatch.final_provider", finalProvider).
 		Int64("dispatch.fallback_attempts", int64(winnerIdx)).
-		Bool("dispatch.failover_used", finalProvider != primaryProvider)
+		Bool("dispatch.failover_used", finalProvider != primaryProvider).
+		String("credential.source", openaiCredSourceForAttrs)
 	applyPlannerAttrs(openaiUpstreamBuilder, routeRes)
 	applyRoutingStateAttrs(openaiUpstreamBuilder, routeRes, decision.Model, sessionKey)
 	addTimingAttrs(ctx, openaiUpstreamBuilder)
