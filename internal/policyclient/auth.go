@@ -14,7 +14,7 @@ import (
 
 // NewGoogleIDToken builds a Client that attaches a Google-signed ID token
 // (audience = sidecar origin) to every request; for Cloud Run sidecars only.
-func NewGoogleIDToken(baseURL string, timeout time.Duration) (*Client, error) {
+func NewGoogleIDToken(baseURL string, timeout time.Duration, opts ...Option) (*Client, error) {
 	normalizedBaseURL, audience, err := googleIDTokenURLs(baseURL)
 	if err != nil {
 		return nil, fmt.Errorf("build Google ID-token policy client: %w", err)
@@ -30,7 +30,7 @@ func NewGoogleIDToken(baseURL string, timeout time.Duration) (*Client, error) {
 	if err != nil {
 		return nil, fmt.Errorf("build Google ID-token HTTP client for %q: %w", audience, err)
 	}
-	return New(normalizedBaseURL, httpClient, timeout), nil
+	return New(normalizedBaseURL, httpClient, timeout, opts...), nil
 }
 
 func googleIDTokenURLs(baseURL string) (string, string, error) {

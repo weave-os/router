@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -25,6 +26,40 @@ const (
 	routeRetryBackoff    = 50 * time.Millisecond
 )
 
+// A stalled sidecar instance otherwise consumes the whole decision budget on
+// its first attempt, so the retries below never run and the caller sees a
+// deadline instead of a decision served by a healthy instance. Each attempt is
+// bounded by a share of the budget, leaving room for at least one retry.
+const (
+	defaultAttemptFraction = 0.6
+	minAttemptTimeout      = 500 * time.Millisecond
+)
+
+// Option customizes a policy sidecar client.
+type Option func(*Client)
+
+// WithAttemptTimeout bounds a single HTTP attempt. A non-positive duration
+// lets one attempt consume the client's whole decision budget.
+func WithAttemptTimeout(timeout time.Duration) Option {
+	return func(c *Client) { c.attemptTimeout = timeout }
+}
+
+// DeriveAttemptTimeout is the per-attempt bound applied when none is
+// configured.
+func DeriveAttemptTimeout(timeout time.Duration) time.Duration {
+	if timeout <= 0 {
+		timeout = DefaultTimeout
+	}
+	attemptTimeout := time.Duration(float64(timeout) * defaultAttemptFraction)
+	if attemptTimeout < minAttemptTimeout {
+		attemptTimeout = minAttemptTimeout
+	}
+	if attemptTimeout > timeout {
+		attemptTimeout = timeout
+	}
+	return attemptTimeout
+}
+
 const (
 	maxRouteMessages           = 96
 	maxRouteMessageTextChars   = 3000
@@ -35,20 +70,30 @@ const (
 
 // Client calls a versioned policy sidecar.
 type Client struct {
-	baseURL string
-	client  *http.Client
-	timeout time.Duration
+	baseURL        string
+	client         *http.Client
+	timeout        time.Duration
+	attemptTimeout time.Duration
 }
 
 // New builds a policy sidecar client. A nil HTTP client uses a bounded default.
-func New(baseURL string, client *http.Client, timeout time.Duration) *Client {
+func New(baseURL string, client *http.Client, timeout time.Duration, opts ...Option) *Client {
 	if timeout <= 0 {
 		timeout = DefaultTimeout
 	}
 	if client == nil {
 		client = &http.Client{Timeout: timeout}
 	}
-	return &Client{baseURL: strings.TrimRight(baseURL, "/"), client: client, timeout: timeout}
+	sidecar := &Client{
+		baseURL:        strings.TrimRight(baseURL, "/"),
+		client:         client,
+		timeout:        timeout,
+		attemptTimeout: DeriveAttemptTimeout(timeout),
+	}
+	for _, opt := range opts {
+		opt(sidecar)
+	}
+	return sidecar
 }
 
 // CheckHealth verifies that the policy sidecar is ready to serve traffic.
@@ -588,25 +633,14 @@ func pointerTo[T any](value T) *T {
 func (c *Client) doPolicyRequest(ctx context.Context, path string, body []byte) (*http.Response, []byte, error) {
 	var lastErr error
 	for attempt := 1; attempt <= defaultRouteAttempts; attempt++ {
-		req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+path, bytes.NewReader(body))
-		if err != nil {
-			return nil, nil, fmt.Errorf("build policy route request: %w", err)
+		if err := ctx.Err(); err != nil {
+			return nil, nil, fmt.Errorf("policy sidecar retries exhausted: %w", err)
 		}
-		req.Header.Set("content-type", "application/json")
-		resp, err := c.client.Do(req)
-		if err != nil {
-			lastErr = fmt.Errorf("call policy sidecar: %w", err)
-		} else {
-			payload, readErr := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-			resp.Body.Close()
-			if readErr != nil {
-				lastErr = fmt.Errorf("read policy route response: %w", readErr)
-			} else if !isTransientPolicyStatus(resp.StatusCode) {
-				return resp, payload, nil
-			} else {
-				lastErr = policyStatusError(resp.StatusCode, payload)
-			}
+		resp, payload, done, attemptErr := c.doPolicyAttempt(ctx, attempt, path, body)
+		if done {
+			return resp, payload, attemptErr
 		}
+		lastErr = attemptErr
 		if attempt == defaultRouteAttempts {
 			break
 		}
@@ -619,6 +653,63 @@ func (c *Client) doPolicyRequest(ctx context.Context, path string, body []byte) 
 		}
 	}
 	return nil, nil, fmt.Errorf("policy sidecar retries exhausted: %w", lastErr)
+}
+
+// doPolicyAttempt runs one bounded attempt. It reports done when the loop must
+// stop, either with a usable response or with a fatal error; otherwise the
+// returned error is the retryable failure to record.
+func (c *Client) doPolicyAttempt(
+	ctx context.Context,
+	attempt int,
+	path string,
+	body []byte,
+) (*http.Response, []byte, bool, error) {
+	attemptCtx, cancel := c.attemptContext(ctx)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(attemptCtx, http.MethodPost, c.baseURL+path, bytes.NewReader(body))
+	if err != nil {
+		return nil, nil, true, fmt.Errorf("build policy route request: %w", err)
+	}
+	req.Header.Set("content-type", "application/json")
+
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return nil, nil, false, c.attemptError(ctx, attemptCtx, attempt, fmt.Errorf("call policy sidecar: %w", err))
+	}
+	payload, readErr := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	resp.Body.Close()
+	if readErr != nil {
+		return nil, nil, false, c.attemptError(ctx, attemptCtx, attempt, fmt.Errorf("read policy route response: %w", readErr))
+	}
+	if !isTransientPolicyStatus(resp.StatusCode) {
+		return resp, payload, true, nil
+	}
+	return nil, nil, false, policyStatusError(resp.StatusCode, payload)
+}
+
+// attemptContext bounds one attempt so a single stalled instance cannot spend
+// the whole decision budget. The parent deadline still caps the attempt.
+func (c *Client) attemptContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	if c.attemptTimeout <= 0 {
+		return context.WithCancel(ctx)
+	}
+	return context.WithTimeout(ctx, c.attemptTimeout)
+}
+
+// attemptError labels a failure caused by the per-attempt bound rather than by
+// the sidecar itself, so "retries exhausted" stays diagnosable. It keeps
+// wrapping context.DeadlineExceeded either way: callers degrade on it.
+func (c *Client) attemptError(ctx, attemptCtx context.Context, attempt int, err error) error {
+	if ctx.Err() == nil && errors.Is(attemptCtx.Err(), context.DeadlineExceeded) {
+		return fmt.Errorf(
+			"policy sidecar attempt %d exceeded its %s attempt budget: %w",
+			attempt,
+			c.attemptTimeout,
+			context.DeadlineExceeded,
+		)
+	}
+	return err
 }
 
 func isTransientPolicyStatus(status int) bool {

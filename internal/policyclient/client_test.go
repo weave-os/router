@@ -413,6 +413,86 @@ func TestClientReturnsErrorAfterTransientRetriesExhausted(t *testing.T) {
 	assert.Equal(t, 3, attempts)
 }
 
+func TestClientRetriesPastStalledSidecarInstanceWithinBudget(t *testing.T) {
+	attempts := 0
+	release := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		attempts++
+		if attempts == 1 {
+			<-release
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"schema_version":     policy.SchemaVersionV1,
+			"selected_roster_id": "model-a",
+		})
+	}))
+	defer server.Close()
+	defer close(release)
+
+	result, err := New(server.URL, server.Client(), 5*time.Second, WithAttemptTimeout(150*time.Millisecond)).Decide(
+		context.Background(),
+		policy.Query{Candidates: []policy.Candidate{{RosterID: "model-a"}}},
+	)
+
+	require.NoError(t, err)
+	assert.Equal(t, "model-a", result.Model)
+	assert.Equal(t, 2, attempts)
+}
+
+func TestClientReportsAttemptBudgetWhenEveryAttemptStalls(t *testing.T) {
+	attempts := 0
+	release := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
+		attempts++
+		<-release
+	}))
+	defer server.Close()
+	defer close(release)
+
+	_, err := New(server.URL, server.Client(), 5*time.Second, WithAttemptTimeout(100*time.Millisecond)).Decide(
+		context.Background(),
+		policy.Query{Candidates: []policy.Candidate{{RosterID: "model-a"}}},
+	)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "attempt budget")
+	// The proxy degrades on deadline errors, so the attempt bound must not
+	// disguise itself as an ordinary transport failure.
+	assert.ErrorIs(t, err, context.DeadlineExceeded)
+	assert.Equal(t, defaultRouteAttempts, attempts)
+}
+
+func TestClientAttemptBudgetNeverOutlivesDecisionBudget(t *testing.T) {
+	attempts := 0
+	release := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
+		attempts++
+		<-release
+	}))
+	defer server.Close()
+	defer close(release)
+
+	started := time.Now()
+	_, err := New(server.URL, server.Client(), 200*time.Millisecond, WithAttemptTimeout(time.Minute)).Decide(
+		context.Background(),
+		policy.Query{Candidates: []policy.Candidate{{RosterID: "model-a"}}},
+	)
+
+	require.Error(t, err)
+	assert.ErrorIs(t, err, context.DeadlineExceeded)
+	assert.Less(t, time.Since(started), 3*time.Second)
+	assert.Equal(t, 1, attempts)
+}
+
+func TestDeriveAttemptTimeoutLeavesRoomForRetries(t *testing.T) {
+	assert.Equal(t, 1800*time.Millisecond, DeriveAttemptTimeout(DefaultTimeout))
+	assert.Equal(t, 1800*time.Millisecond, DeriveAttemptTimeout(0))
+	// Budgets too small to split still get one usable attempt.
+	assert.Equal(t, 300*time.Millisecond, DeriveAttemptTimeout(300*time.Millisecond))
+	assert.Equal(t, minAttemptTimeout, DeriveAttemptTimeout(700*time.Millisecond))
+}
+
 func TestClientCapabilities(t *testing.T) {
 	for _, schemaVersion := range []string{policy.SchemaVersionV1, policy.SchemaVersionV2} {
 		t.Run(schemaVersion, func(t *testing.T) {

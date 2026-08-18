@@ -676,7 +676,16 @@ func main() {
 	if hmmSidecarURL := config.GetOr("ROUTER_HMM_SIDECAR_URL", ""); hmmSidecarURL != "" {
 		hmmTimeout := parseEnvDurationMs("ROUTER_HMM_SIDECAR_TIMEOUT_MS", policyclient.DefaultTimeout)
 		hmmAuthMode := config.GetOr("ROUTER_HMM_SIDECAR_AUTH", policySidecarAuthNone)
-		hmmClient, clientErr := buildHMMPolicyClient(hmmSidecarURL, hmmAuthMode, hmmTimeout)
+		hmmAttemptTimeout := parseEnvDurationMs(
+			"ROUTER_HMM_SIDECAR_ATTEMPT_TIMEOUT_MS",
+			policyclient.DeriveAttemptTimeout(hmmTimeout),
+		)
+		hmmClient, clientErr := buildHMMPolicyClient(
+			hmmSidecarURL,
+			hmmAuthMode,
+			hmmTimeout,
+			policyclient.WithAttemptTimeout(hmmAttemptTimeout),
+		)
 		if clientErr != nil {
 			logger.Error("HMM policy sidecar client failed to build; refusing to boot", "auth_mode", hmmAuthMode, "err", clientErr)
 			panic(clientErr)
@@ -725,6 +734,7 @@ func main() {
 			"sidecar_url", hmmSidecarURL,
 			"auth_mode", hmmAuthMode,
 			"timeout_ms", hmmTimeout.Milliseconds(),
+			"attempt_timeout_ms", hmmAttemptTimeout.Milliseconds(),
 			"candidate_models", len(routingTargets),
 			"strategies", []router.Strategy{router.StrategyHMM, router.StrategyHMMEmbedding},
 		)

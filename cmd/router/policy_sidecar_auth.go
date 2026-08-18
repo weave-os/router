@@ -14,19 +14,27 @@ const (
 	policySidecarAuthGoogleIDToken = "google-id-token"
 )
 
-func buildHMMPolicyClient(sidecarURL, authMode string, timeout time.Duration) (*policyclient.Client, error) {
+type googleIDTokenClientFactory func(string, time.Duration, ...policyclient.Option) (*policyclient.Client, error)
+
+func buildHMMPolicyClient(
+	sidecarURL, authMode string,
+	timeout time.Duration,
+	opts ...policyclient.Option,
+) (*policyclient.Client, error) {
 	return buildHMMPolicyClientWithGoogleIDTokenFactory(
 		sidecarURL,
 		authMode,
 		timeout,
 		policyclient.NewGoogleIDToken,
+		opts...,
 	)
 }
 
 func buildHMMPolicyClientWithGoogleIDTokenFactory(
 	sidecarURL, authMode string,
 	timeout time.Duration,
-	newGoogleIDTokenClient func(string, time.Duration) (*policyclient.Client, error),
+	newGoogleIDTokenClient googleIDTokenClientFactory,
+	opts ...policyclient.Option,
 ) (*policyclient.Client, error) {
 	return buildPolicyClientWithGoogleIDTokenFactory(
 		sidecarURL,
@@ -35,6 +43,7 @@ func buildHMMPolicyClientWithGoogleIDTokenFactory(
 		nil,
 		"ROUTER_HMM_SIDECAR_AUTH",
 		newGoogleIDTokenClient,
+		opts...,
 	)
 }
 
@@ -42,6 +51,7 @@ func buildConfiguredPolicyClient(
 	sidecarURL, authMode string,
 	timeout time.Duration,
 	httpClient *http.Client,
+	opts ...policyclient.Option,
 ) (*policyclient.Client, error) {
 	return buildPolicyClientWithGoogleIDTokenFactory(
 		sidecarURL,
@@ -50,6 +60,7 @@ func buildConfiguredPolicyClient(
 		httpClient,
 		"ROUTER_POLICY_SIDECAR_AUTH",
 		policyclient.NewGoogleIDToken,
+		opts...,
 	)
 }
 
@@ -57,7 +68,8 @@ func buildConfiguredPolicyClientWithGoogleIDTokenFactory(
 	sidecarURL, authMode string,
 	timeout time.Duration,
 	httpClient *http.Client,
-	newGoogleIDTokenClient func(string, time.Duration) (*policyclient.Client, error),
+	newGoogleIDTokenClient googleIDTokenClientFactory,
+	opts ...policyclient.Option,
 ) (*policyclient.Client, error) {
 	return buildPolicyClientWithGoogleIDTokenFactory(
 		sidecarURL,
@@ -66,6 +78,7 @@ func buildConfiguredPolicyClientWithGoogleIDTokenFactory(
 		httpClient,
 		"ROUTER_POLICY_SIDECAR_AUTH",
 		newGoogleIDTokenClient,
+		opts...,
 	)
 }
 
@@ -74,13 +87,14 @@ func buildPolicyClientWithGoogleIDTokenFactory(
 	timeout time.Duration,
 	httpClient *http.Client,
 	authSetting string,
-	newGoogleIDTokenClient func(string, time.Duration) (*policyclient.Client, error),
+	newGoogleIDTokenClient googleIDTokenClientFactory,
+	opts ...policyclient.Option,
 ) (*policyclient.Client, error) {
 	switch strings.ToLower(strings.TrimSpace(authMode)) {
 	case "", policySidecarAuthNone:
-		return policyclient.New(sidecarURL, httpClient, timeout), nil
+		return policyclient.New(sidecarURL, httpClient, timeout, opts...), nil
 	case policySidecarAuthGoogleIDToken:
-		return newGoogleIDTokenClient(sidecarURL, timeout)
+		return newGoogleIDTokenClient(sidecarURL, timeout, opts...)
 	default:
 		return nil, fmt.Errorf(
 			"unsupported %s %q (expected %q or %q)",

@@ -33,7 +33,7 @@ func TestBuildHMMPolicyClientFailsClosedWhenGoogleCredentialsCannotBuild(t *test
 		"https://sidecar.internal",
 		"google-id-token",
 		time.Second,
-		func(string, time.Duration) (*policyclient.Client, error) { return nil, wantErr },
+		func(string, time.Duration, ...policyclient.Option) (*policyclient.Client, error) { return nil, wantErr },
 	)
 
 	require.ErrorIs(t, err, wantErr)
@@ -60,9 +60,9 @@ func TestBuildConfiguredPolicyClientUsesGoogleIDTokenAudience(t *testing.T) {
 		policySidecarAuthGoogleIDToken,
 		time.Second,
 		nil,
-		func(gotAudience string, _ time.Duration) (*policyclient.Client, error) {
+		func(gotAudience string, _ time.Duration, opts ...policyclient.Option) (*policyclient.Client, error) {
 			audience = gotAudience
-			return policyclient.New(gotAudience, nil, time.Second), nil
+			return policyclient.New(gotAudience, nil, time.Second, opts...), nil
 		},
 	)
 
