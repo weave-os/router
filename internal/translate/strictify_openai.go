@@ -250,10 +250,8 @@ func typeIncludesArray(t any) bool {
 	return false
 }
 
-// permissiveAnySchema is the items sub-schema synthesized for an array node
-// that declared no element type at all — mirrors the value-type union
-// makeNullable uses for a fully typeless node, minus "array"/"object" so it
-// can't recurse into itself.
+// permissiveAnySchema returns the items sub-schema for a bare array node —
+// excludes "array"/"object" to avoid recursive strictification.
 func permissiveAnySchema() map[string]any {
 	return map[string]any{"type": []any{"string", "number", "boolean", "null"}}
 }
