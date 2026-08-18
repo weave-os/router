@@ -130,10 +130,9 @@ func isHarnessMetaMainTurn(env *translate.RequestEnvelope) bool {
 }
 
 // isRecoveryTurn reports whether this tool_result turn is recovering from a
-// deferred-tool InputValidationError. Requires both "InputValidationError" in
-// the errored payload AND a deferred/harness-primitive reference — the AND
-// prevents ordinary schema-mistake retries (wrong Bash param type) from being
-// misclassified as harness control-plane failures.
+// deferred-tool InputValidationError. Requires BOTH the error text AND a
+// harness-primitive reference — preventing ordinary schema-mistake retries
+// from being routed up to opus.
 func isRecoveryTurn(env *translate.RequestEnvelope, feats translate.RoutingFeatures) bool {
 	if env == nil {
 		return false
@@ -153,8 +152,7 @@ func isRecoveryTurn(env *translate.RequestEnvelope, feats translate.RoutingFeatu
 
 // hasDeferredToolContext reports whether the errored text references a
 // deferred-tool context: literally the substring "deferred" (any case) OR
-// any CC-only tool name. Same case-sensitivity rules as
-// referencesHarnessPrimitives for the tool-name sweep.
+// any CC-only tool name via referencesHarnessPrimitives.
 func hasDeferredToolContext(text string) bool {
 	if strings.Contains(strings.ToLower(text), "deferred") {
 		return true

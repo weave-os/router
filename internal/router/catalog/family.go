@@ -15,8 +15,6 @@ var familyVersionPattern = regexp.MustCompile(`^(.+?)(\d+)(?:[.-](\d+))?(-[a-z][
 
 // IsClaudeFamily reports whether id's family is a Claude family (family name
 // starts with "claude"). Unknown/ungenerational ids (gpt-4o, "") are false.
-// Used by the harness-protocol escalation clamp to test whether a resolved
-// decision already sits on a strong Claude-family model.
 func IsClaudeFamily(id string) bool {
 	family, _, ok := FamilyAndVersion(id)
 	if !ok {

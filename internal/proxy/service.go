@@ -177,10 +177,8 @@ type Service struct {
 	// (action=disabled) but writes no escalation pin. Defaults true.
 	loopEscalationEnabled bool
 	// harnessEscalationEnabled is the kill switch for the harness-protocol
-	// escalate clamp (route harness-bound turns up, never down). False keeps
-	// the clamp from engaging (action=disabled) while harness turn-type
-	// detection and routing continue unchanged. Defaults true; knob is
-	// ROUTER_HARNESS_ESCALATION_ENABLED.
+	// escalation clamp. False keeps detection/telemetry running (action=disabled)
+	// but skips the clamp. Defaults true; knob: ROUTER_HARNESS_ESCALATION_ENABLED.
 	harnessEscalationEnabled bool
 	// loopEscalationHoldoutPct is the percentage of loop-detected sessions
 	// deterministically assigned to a log-not-act holdout, so the self-recovery

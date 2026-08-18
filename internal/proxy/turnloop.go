@@ -311,10 +311,9 @@ func (s *Service) isHardPinnedTurn(ctx context.Context, tt turntype.TurnType) bo
 }
 
 // authoritativePolicyTurn reports whether tt is a model-authoritative policy
-// turn. Compared on tt.Base() so the harness variants (HarnessMeta →
-// MainLoop, Recovery → ToolResult) keep the authoritative-policy behavior of
-// their underlying shape, while SubAgentHarnessMeta (→ SubAgentDispatch) stays
-// out.
+// turn. Uses tt.Base() so the harness variants (HarnessMeta → MainLoop,
+// Recovery → ToolResult) keep the authoritative-policy behavior of their
+// underlying shape.
 func authoritativePolicyTurn(tt turntype.TurnType) bool {
 	return tt.Base() == turntype.MainLoop || tt.Base() == turntype.ToolResult
 }
@@ -362,10 +361,8 @@ func forcedPinEligible(pin sessionpin.Pin, req router.Request) bool {
 	return ok
 }
 
-// runTurnLoop is the format-agnostic routing orchestrator. It is the single
-// choke point every decision path passes through exactly once: after the
-// routing decision resolves it applies the harness-protocol escalation clamp
-// (route harness-bound turns up, never down), then returns the result.
+// runTurnLoop wraps runTurnLoopInner with the harness-protocol escalation
+// clamp (route harness-bound turns up, never down).
 func (s *Service) runTurnLoop(
 	ctx context.Context,
 	env *translate.RequestEnvelope,
