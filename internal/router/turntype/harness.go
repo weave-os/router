@@ -40,12 +40,9 @@ func init() {
 	}
 }
 
-// referencesHarnessPrimitives returns true when text is plausibly invoking
-// a harness control-plane primitive. Prose phrases are matched
-// case-insensitively (LLM text is loose); CC-only tool names are matched
-// case-sensitively with word boundaries so a backticked/quoted name hits
-// while an incidental mention like "MyToolSearchThing" or "TaskProvider"
-// does not.
+// referencesHarnessPrimitives reports whether text plausibly invokes a harness
+// control-plane primitive. Prose phrases are matched case-insensitively; CC-only
+// tool names use case-sensitive word boundaries.
 func referencesHarnessPrimitives(text string) bool {
 	if text == "" {
 		return false
@@ -64,12 +61,9 @@ func referencesHarnessPrimitives(text string) bool {
 	return false
 }
 
-// containsWord reports whether needle appears in haystack as a
-// contiguous run framed by non-word runes (anything outside [A-Za-z0-9_]).
-// Case-sensitive per the PascalCase rule in
-// translate/claudecode_tool_filter.go:65-68 (CC emits tool names verbatim).
-// Bounded search protects against pathological inputs but no input here
-// exceeds harnessMetaMainTurnScanMaxBytes / harnessMetaSubAgentScanMaxBytes.
+// containsWord reports whether needle appears in haystack with word boundaries
+// (outside [A-Za-z0-9_]). Case-sensitive: CC emits tool names verbatim
+// (PascalCase), matching translate/claudecode_tool_filter.go:65-68.
 func containsWord(haystack, needle string) bool {
 	for start := 0; start <= len(haystack)-len(needle); {
 		idx := strings.Index(haystack[start:], needle)
@@ -118,13 +112,10 @@ func isHarnessMetaSubAgent(firstUserText string) bool {
 	return referencesHarnessPrimitives(scanned)
 }
 
-// isHarnessMetaMainTurn reports whether the last user message in a
-// non-sub-agent, non-classifier main turn is a Claude Code skill/command
-// invocation referencing harness primitives. Requires BOTH a command
-// marker (Claude Code emits "<command-name>...</command-name>" and
-// "<command-message>...</command-message>" verbatim for slash and skill
-// invocations) AND the shared harness-reference gate — the AND keeps
-// ordinary slash commands like /standup or /help from escalating.
+// isHarnessMetaMainTurn reports whether the last user message is a Claude Code
+// skill/command invocation referencing harness primitives. Requires BOTH a
+// command marker AND the harness-reference gate — the AND prevents ordinary
+// slash commands like /standup from escalating.
 func isHarnessMetaMainTurn(env *translate.RequestEnvelope) bool {
 	if env == nil {
 		return false

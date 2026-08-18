@@ -18,11 +18,9 @@ import (
 	"github.com/tidwall/gjson"
 )
 
-// claimedUnavailablePhrases are the "claimed unavailable" tell-strings matched
-// against the lowercased ±160-byte window around a declared tool name. Each is
-// a loose substring: "not available" captures "is not available" / "not
-// available in my toolset", "don't have access" covers "I don't have access".
-// Keep this a package var so tests pin the exact list.
+// claimedUnavailablePhrases are the loose substrings matched against the
+// lowercased ±160-byte window around a declared tool name.
+// Package var so tests pin the exact list.
 var claimedUnavailablePhrases = []string{
 	"not available",
 	"isn't available",
@@ -80,11 +78,9 @@ func claimedToolFiredKey(sessionKey [sessionpin.SessionKeyLen]byte, role, tool s
 	return string(sessionKey[:]) + "\x00" + role + "\x00" + tool
 }
 
-// claimedToolUnavailableFromBody extracts the model's response text from the
-// captured client-bound bytes — Anthropic SSE frames when streaming, a single
-// JSON body otherwise — and reports the declared tools it claims unavailable.
-// Malformed/truncated input fails open (returns no findings): the capture cap
-// can cut mid-frame, and this detector must never error or panic.
+// claimedToolUnavailableFromBody extracts response text (SSE or JSON) and
+// returns declared tools the model claims unavailable. Malformed input fails
+// open (no findings) — the capture cap can cut mid-frame.
 func claimedToolUnavailableFromBody(respBody []byte, streaming bool, availableTools []string) []string {
 	if !streaming {
 		return detectClaimedToolUnavailable(nonStreamingText(respBody), availableTools)
@@ -149,10 +145,8 @@ func nonStreamingText(respBody []byte) string {
 }
 
 // detectClaimedToolUnavailable scans text for each declared tool name and
-// reports names claimed unavailable: case-sensitive word-boundary match,
-// ±claimedToolWindowBytes window against claimedUnavailablePhrases or a
-// preceding "no"/"there is no". Returns deduped findings capped at
-// claimedToolMaxFindings. Pure — unit-test directly.
+// reports names the model claims unavailable, capped at claimedToolMaxFindings.
+// Pure — unit-test directly.
 func detectClaimedToolUnavailable(text string, availableTools []string) []string {
 	if text == "" || len(availableTools) == 0 {
 		return nil
@@ -257,10 +251,8 @@ func endsWithNoPhrase(lower string) bool {
 }
 
 // maybeReportClaimedToolUnavailable persists one source="auto" negative
-// RouterFeedbackEvent per (session, role, tool) when the captured response
-// text claims a declared tool is unavailable. Best-effort and off the
-// response path: capture-gated (no respBody -> no-op), never influences
-// routing, and hard stops on nil deps.
+// RouterFeedbackEvent per (session, role, tool). Best-effort, off the response
+// path; no-ops on nil deps or missing respBody/tools.
 func (s *Service) maybeReportClaimedToolUnavailable(
 	ctx context.Context,
 	respBody []byte,

@@ -163,13 +163,10 @@ func isSubAgentDispatch(metadataUserID, firstUserText, subAgentHint string) bool
 	return strings.Contains(prefix, "<transcript>")
 }
 
-// Base returns the underlying turn shape a harness variant should be treated
-// as at call sites that must keep behavior-compatible with the pre-harness
-// vocabulary (the policy sidecar in particular: its turn-type labels must
-// stay stable so a deployed roster does not need to re-publish when a new
-// harness detection lands). Maps HarnessMeta → MainLoop,
-// SubAgentHarnessMeta → SubAgentDispatch, Recovery → ToolResult; identity
-// for every other value.
+// Base returns the underlying turn shape for call sites keeping the pre-harness
+// vocabulary stable (policy sidecar labels must not change when new harness
+// detections land). HarnessMeta → MainLoop, SubAgentHarnessMeta →
+// SubAgentDispatch, Recovery → ToolResult; identity otherwise.
 func (t TurnType) Base() TurnType {
 	switch t {
 	case HarnessMeta:

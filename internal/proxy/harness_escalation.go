@@ -1,8 +1,7 @@
-// Package-level doc: harness-bound turns (HarnessMeta, SubAgentHarnessMeta,
-// Recovery) must be served by a strong Claude-family model; a weak or
-// non-Anthropic upstream that hallucinates harness primitives corrupts the
-// client's harness state. applyHarnessEscalation enforces this per-turn,
-// non-persisted (never touches session pins).
+// applyHarnessEscalation clamps harness-bound turns (HarnessMeta,
+// SubAgentHarnessMeta, Recovery) to a strong Claude-family model — a weak or
+// non-Anthropic upstream that hallucinates harness primitives corrupts client
+// harness state. Per-turn only; never touches session pins.
 package proxy
 
 import (
