@@ -204,16 +204,14 @@ func rightIdentifierEdge(s string, i int) bool {
 
 // isIdentifierClass is the identifier-boundary class: ASCII letter, digit, or
 // underscore. Bytes >= 0x80 count as boundaries (a surrounding non-ASCII
-// character must never break a match), and single-byte reads avoid any
-// partial-rune decoding on multibyte text.
+// character must never break a match).
 func isIdentifierClass(b byte) bool {
 	return (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z') || (b >= '0' && b <= '9') || b == '_'
 }
 
-// windowClaimsUnavailable checks the "no <tool> tool" precede signal (a "no "
-// or "there is no " ending within claimedToolNoPrecedeBytes before the match)
-// and the lowercased ±claimedToolWindowBytes window around the occurrence for
-// any claimedUnavailablePhrases entry.
+// windowClaimsUnavailable checks a ±claimedToolWindowBytes window around
+// each occurrence for unavailable-claim phrases, plus the "no <tool>" precede
+// signal via endsWithNoPhrase.
 func windowClaimsUnavailable(lower string, occStart, occEnd int) bool {
 	// The direct precedent: "...no " / "...there is no " ending immediately
 	// before the name. Covers "no <name> tool" without needing a window phrase.

@@ -13,10 +13,9 @@ const (
 	harnessMetaSubAgentScanMaxBytes = 4096
 )
 
-// Harness-reference keyword gate (case-insensitive). Phrases cover
-// human-language harness control-plane invocations; CC-only tool names
-// (case-sensitive word boundaries) layer on top so a dispatch like
-// "Load EnterPlanMode tool schema" is caught even without the prose phrases.
+// Harness-reference keyword gate (case-insensitive). Prose phrases match
+// human-language control-plane invocations; CC-only tool names (case-sensitive
+// word boundaries) add a second layer for dispatch-style prompts.
 var harnessKeywordPhrases = []string{"plan mode", "tool schema", "deferred tool"}
 
 // harnessMetaCCToolScanNames is the CC-only tool-name set filtered to names
