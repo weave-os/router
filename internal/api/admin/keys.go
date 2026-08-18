@@ -295,10 +295,8 @@ type updateExternalKeyAliasesRequest struct {
 	ModelAliases map[string]string `json:"model_aliases"`
 }
 
-// UpdateExternalKeyAliasesHandler edits a stored key's model aliases in place,
-// so retargeting a custom endpoint's model names doesn't require re-entering
-// the credential the dashboard can no longer show. models (non-nil) validates
-// aliases against the deployed catalog, as the upsert path does.
+// UpdateExternalKeyAliasesHandler edits a stored key's model aliases without
+// re-entering the credential the dashboard can no longer show.
 func UpdateExternalKeyAliasesHandler(authSvc *auth.Service, models DeployedModelsSource) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		installation, ok := resolveInstallation(c, authSvc)

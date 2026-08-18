@@ -469,9 +469,7 @@ func TestOpenAIToAnthropicResponse_FallbackModelFromRequest(t *testing.T) {
 	assert.Equal(t, "fallback-model", doc["model"])
 }
 
-// A BYOK endpoint reached through model_aliases answers under its own upstream
-// id; the client must still see the catalog id it asked for, as streaming's
-// message_start reports.
+// Alias must not leak to the client; requestModel wins over upstream's self-reported id.
 func TestOpenAIToAnthropicResponse_ReportsRoutedModelNotUpstreamAlias(t *testing.T) {
 	body := []byte(`{"id":"chatcmpl-x","model":"openai-gpt-5","choices":[{"index":0,"message":{"role":"assistant","content":"hi"},"finish_reason":"stop"}],"usage":{"prompt_tokens":5,"completion_tokens":2,"total_tokens":7}}`)
 	out, err := translate.OpenAIToAnthropicResponse(body, "gpt-5")
