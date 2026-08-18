@@ -140,10 +140,8 @@ type Service struct {
 	// failure to the session's last-known-good pin instead of a 503. Kill
 	// switch: env ROUTER_POLICY_DEADLINE_FALLBACK, off by default.
 	policyDeadlineFallback bool
-	// policyDeadlineDefaultModel is the tier-3 static safe default served on a
-	// policy deadline miss when the session has no pin yet (~0.2% of
-	// failures). Empty preserves fail-closed (503) for pinless sessions. Env
-	// ROUTER_POLICY_DEADLINE_DEFAULT_MODEL.
+	// policyDeadlineDefaultModel is the tier-3 static fallback on a policy deadline
+	// miss with no session pin (~0.2% of failures); empty = fail-closed (503). Env ROUTER_POLICY_DEADLINE_DEFAULT_MODEL.
 	policyDeadlineDefaultModel string
 	// plannerEnabled is the kill switch. When false, the orchestrator falls
 	// back to first-decision-wins behavior.
@@ -3717,18 +3715,29 @@ func pinDecision(p sessionpin.Pin) router.Decision {
 	}
 }
 
-// policyDeadlineDefaultDecision resolves the configured tier-3 static safe
-// default model (ROUTER_POLICY_DEADLINE_DEFAULT_MODEL) to a dispatchable
-// router.Decision against this deployment's registered providers. It reports
-// false if no default is configured or the configured model has no live
-// provider binding here — callers must fail closed (503) in that case, not
-// silently serve an undispatchable decision.
-func (s *Service) policyDeadlineDefaultDecision() (router.Decision, bool) {
+// policyDeadlineDefaultDecision resolves ROUTER_POLICY_DEADLINE_DEFAULT_MODEL to a
+// dispatchable Decision, honouring this turn's eligibility (enabled providers and
+// excluded models). Reports false when unset, excluded, or without a live binding —
+// callers must fail closed (503), not serve an ineligible decision.
+func (s *Service) policyDeadlineDefaultDecision(req router.Request) (router.Decision, bool) {
 	if s.policyDeadlineDefaultModel == "" {
 		return router.Decision{}, false
 	}
+	if _, excluded := req.ExcludedModels[s.policyDeadlineDefaultModel]; excluded {
+		return router.Decision{}, false
+	}
+	if _, excluded := req.SafetyExcludedModels[s.policyDeadlineDefaultModel]; excluded {
+		return router.Decision{}, false
+	}
+	// nil EnabledProviders means unrestricted, so fall back to everything this
+	// deployment registered; otherwise only providers this turn can authenticate.
 	providerSet := make(map[string]struct{}, len(s.providers))
 	for provider := range s.providers {
+		if req.EnabledProviders != nil {
+			if _, enabled := req.EnabledProviders[provider]; !enabled {
+				continue
+			}
+		}
 		providerSet[provider] = struct{}{}
 	}
 	binding, ok := catalog.ResolveBinding(s.policyDeadlineDefaultModel, providerSet)

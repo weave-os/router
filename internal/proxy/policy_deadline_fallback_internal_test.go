@@ -20,11 +20,9 @@ import (
 	"workweave/router/internal/translate"
 )
 
-// policyDeadlineTestErr mirrors the real error chain a deadline-exceeded
-// sidecar call produces: policyclient wraps context.DeadlineExceeded with %w,
-// SidecarRouter.Decide wraps that with hmm.ErrHMMUnavailable via %w: %w (see
-// internal/router/policy/sidecar_router.go:311). Both sentinels must survive
-// via errors.Is for isPolicyDeadlineErr to see them.
+// policyDeadlineTestErr mirrors the real error chain: policyclient wraps
+// context.DeadlineExceeded with %w; SidecarRouter wraps that with hmm.ErrHMMUnavailable
+// via %w:%w (sidecar_router.go:311). Both must survive for errors.Is to see them.
 var policyDeadlineTestErr = fmt.Errorf(
 	"hmm_embedding: sidecar decide: policy sidecar retries exhausted: %w: %w",
 	context.DeadlineExceeded,
@@ -137,7 +135,12 @@ func buildPolicyDeadlineFallbackService(
 		})
 }
 
-func runPolicyDeadlineFallbackTurnLoop(t *testing.T, svc *Service, strategy router.Strategy) (turnLoopResult, error) {
+func runPolicyDeadlineFallbackTurnLoop(
+	t *testing.T,
+	svc *Service,
+	strategy router.Strategy,
+	excludedModels ...string,
+) (turnLoopResult, error) {
 	t.Helper()
 	env, err := translate.ParseAnthropic(
 		[]byte(`{"model":"claude-opus-4-8","messages":[{"role":"user","content":"continue"}]}`),
@@ -145,11 +148,19 @@ func runPolicyDeadlineFallbackTurnLoop(t *testing.T, svc *Service, strategy rout
 	require.NoError(t, err)
 	features := env.RoutingFeatures(false)
 	ctx := router.WithStrategy(context.Background(), strategy)
+	var excluded map[string]struct{}
+	if len(excludedModels) > 0 {
+		excluded = make(map[string]struct{}, len(excludedModels))
+		for _, model := range excludedModels {
+			excluded[model] = struct{}{}
+		}
+	}
 	req := router.Request{
 		RequestedModel:       features.Model,
 		EstimatedInputTokens: features.Tokens,
 		HasTools:             features.HasTools,
 		ConversationMessages: conversationMessagesForRouting(env),
+		ExcludedModels:       excluded,
 	}
 	return svc.runTurnLoop(ctx, env, features, "api-key", uuid.New(), "", http.Header{}, req)
 }
@@ -191,6 +202,31 @@ func TestTurnLoop_DeadlineFallbackToPin(t *testing.T) {
 	store.mu.Unlock()
 	require.NotEmpty(t, upserts)
 	assert.Equal(t, pinnedModel, upserts[len(upserts)-1].Model)
+	assert.Equal(t, store.getPin.Reason, upserts[len(upserts)-1].Reason,
+		"the persisted pin must keep its hmm_policy reason so later turns still see an HMM pin")
+}
+
+// TestTurnLoop_DeadlineFallbackDefaultExcludedFailsClosed proves the tier-3
+// default honours this turn's exclusions instead of serving (and pinning) a
+// model the request forbids.
+func TestTurnLoop_DeadlineFallbackDefaultExcludedFailsClosed(t *testing.T) {
+	strategy := router.Strategy("policy-deadline-fallback-default-excluded-test")
+	const defaultModel = "claude-haiku-4-5"
+
+	store := newStubPinStore()
+	store.getFound = false
+
+	svc := buildPolicyDeadlineFallbackService(t, strategy, policyDeadlineTestErr, store, true, defaultModel)
+
+	_, err := runPolicyDeadlineFallbackTurnLoop(t, svc, strategy, defaultModel)
+
+	require.Error(t, err, "an excluded tier-3 default must fail closed, not be served")
+	assert.ErrorIs(t, err, hmm.ErrHMMUnavailable)
+
+	store.mu.Lock()
+	upserts := append([]sessionpin.Pin(nil), store.upserts...)
+	store.mu.Unlock()
+	assert.Empty(t, upserts, "an excluded model must never be persisted as a pin")
 }
 
 // TestTurnLoop_DeadlineFallbackToTierThreeDefault covers the pinless branch:
