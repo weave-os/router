@@ -205,9 +205,8 @@ func TestDecisionSpan_SidecarTimings_AllThreeStagesPresent(t *testing.T) {
 	assert.Equal(t, int64(8), otherMs, "7.6 must round up to 8, not truncate to 7")
 }
 
-// TestDecisionSpan_SidecarTimings_OnlySelectMsSet pins that each of the
-// three stage attrs is emitted independently: a nil EmbedMs/OtherMs must not
-// suppress SelectMs, and SelectMs alone must not fabricate the other two.
+// TestDecisionSpan_SidecarTimings_OnlySelectMsSet verifies each stage attr
+// is emitted independently: present SelectMs must not suppress or fabricate siblings.
 func TestDecisionSpan_SidecarTimings_OnlySelectMsSet(t *testing.T) {
 	collector := newBypassSpanCollector(t)
 	svc := newEmbedTestService(t, collector, &embedTestRouter{metadata: &router.RoutingMetadata{SidecarTimings: &router.SidecarTimings{
