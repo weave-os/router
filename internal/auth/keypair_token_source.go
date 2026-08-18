@@ -70,10 +70,8 @@ func (c *KeypairTokenCache) Bearer(key *ExternalAPIKey) ([]byte, error) {
 	return minted, nil
 }
 
-// resolveUpstreamSecrets returns keys whose Plaintext is the credential to send
-// upstream, minting JWTs for key-pair keys. A key whose token cannot be minted is
-// dropped rather than sent as a raw private key, so routing never picks a
-// provider whose call would 401 — or worse, leak the key.
+// resolveUpstreamSecrets replaces each key's Plaintext with its upstream credential, minting
+// JWTs as needed. Keys that fail to mint are dropped — never sent as raw private keys.
 func (s *Service) resolveUpstreamSecrets(keys []*ExternalAPIKey) []*ExternalAPIKey {
 	if !anyKeypairAuth(keys) {
 		return keys

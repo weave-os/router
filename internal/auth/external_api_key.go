@@ -25,9 +25,7 @@ type ExternalAPIKey struct {
 	// IdentityHeader and IdentityHeaderFormat name and shape the header sent to this key's endpoint; empty forwards nothing.
 	IdentityHeader       string
 	IdentityHeaderFormat string
-	// AuthType is how Plaintext authenticates upstream: AuthTypeBearer sends it
-	// verbatim, AuthTypeKeypairJWT treats it as an RSA private key signing
-	// short-lived JWTs.
+	// AuthType is how Plaintext authenticates upstream; see AuthType* constants.
 	AuthType string
 	// AuthAccount and AuthUser identify the principal a minted JWT is issued
 	// for; empty unless AuthType is AuthTypeKeypairJWT.
@@ -60,9 +58,7 @@ type CreateExternalAPIKeyParams struct {
 	CreatedBy   *string
 }
 
-// Authentication types for a stored BYOK secret. AuthTypeBearer sends the secret
-// verbatim; AuthTypeKeypairJWT stores an RSA private key and mints a short-lived
-// JWT per request window.
+// AuthTypeBearer sends the secret verbatim; AuthTypeKeypairJWT signs a short-lived JWT with it.
 const (
 	AuthTypeBearer     = "bearer"
 	AuthTypeKeypairJWT = "keypair_jwt"
@@ -189,9 +185,8 @@ func NormalizeBaseURL(raw *string) (*string, error) {
 // maxKeypairFieldLength bounds the account and user identifiers.
 const maxKeypairFieldLength = 255
 
-// NormalizeKeypairAuth validates an auth type with its account/user pair, returning
-// the canonical type plus, for key-pair auth, the uppercased principal the JWT claims
-// require. An empty type means AuthTypeBearer, which carries no principal.
+// NormalizeKeypairAuth validates authType with its account/user pair and returns the canonical
+// form. An empty type defaults to AuthTypeBearer. For keypair_jwt, principal fields are uppercased.
 func NormalizeKeypairAuth(authType string, account, user *string) (string, *string, *string, error) {
 	normalized := strings.ToLower(strings.TrimSpace(authType))
 	// An account locator carries its region as dotted suffixes; the JWT claims
