@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -360,7 +359,7 @@ func (f *fakeExternalAPIKeyRepo) UpdateModelAliases(_ context.Context, installat
 			return k, nil
 		}
 	}
-	return nil, errors.New("key not found")
+	return nil, auth.ErrExternalAPIKeyNotFound
 }
 func (f *fakeExternalAPIKeyRepo) MarkUsed(context.Context, string) error { return nil }
 
@@ -637,4 +636,16 @@ func TestUpdateExternalKeyAliasesHandler_RejectsUnknownCatalogModel(t *testing.T
 
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 	assert.Nil(t, repo.keys[0].ModelAliases, "a typo'd catalog id must fail at write time, not silently at runtime")
+}
+
+func TestUpdateExternalKeyAliasesHandler_ForeignKeyIsNotFound(t *testing.T) {
+	repo := &fakeExternalAPIKeyRepo{keys: []*auth.ExternalAPIKey{
+		{ID: "ext-1", InstallationID: "inst-2", Provider: providers.ProviderOpenAIGateway},
+	}}
+	models := fakeDeployedModels{entries: []cluster.DeployedEntry{{Model: "gpt-5", Provider: providers.ProviderOpenAI}}}
+
+	rec := putModelAliases(aliasUpdateEngine(newUpsertKeyService(repo), models), "ext-1", map[string]string{"gpt-5": "openai-gpt-5"})
+
+	assert.Equal(t, http.StatusNotFound, rec.Code, "another tenant's key must read as absent, not as a server error")
+	assert.Nil(t, repo.keys[0].ModelAliases)
 }

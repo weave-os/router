@@ -3,6 +3,8 @@ package translate_test
 import (
 	"encoding/base64"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -475,6 +477,33 @@ func TestOpenAIToAnthropicResponse_ReportsRoutedModelNotUpstreamAlias(t *testing
 	out, err := translate.OpenAIToAnthropicResponse(body, "gpt-5")
 	require.NoError(t, err)
 	assert.Equal(t, "gpt-5", unmarshal(t, out)["model"])
+}
+
+// Same guarantee on the streaming side: chunks carry the routed id, not the
+// alias the upstream names itself in message_start.
+func TestSSETranslator_ReportsRoutedModelNotUpstreamAlias(t *testing.T) {
+	rec := httptest.NewRecorder()
+	translator := translate.NewSSETranslator(rec, "claude-sonnet-4-5", nil)
+	translator.Header().Set("Content-Type", "text/event-stream")
+	translator.WriteHeader(http.StatusOK)
+
+	events := []string{
+		"event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_1\",\"model\":\"internal.claude-sonnet-4-5\",\"role\":\"assistant\",\"content\":[],\"usage\":{\"input_tokens\":1,\"output_tokens\":1}}}\n\n",
+		"event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n",
+		"event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"hi\"}}\n\n",
+		"event: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":0}\n\n",
+		"event: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":2}}\n\n",
+		"event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n",
+	}
+	for _, event := range events {
+		_, err := translator.Write([]byte(event))
+		require.NoError(t, err)
+	}
+	require.NoError(t, translator.Finalize())
+
+	body := rec.Body.String()
+	assert.Contains(t, body, `"model":"claude-sonnet-4-5"`)
+	assert.NotContains(t, body, "internal.claude-sonnet-4-5")
 }
 
 func TestAnthropicToOpenAIResponse_ReportsRoutedModelNotUpstreamAlias(t *testing.T) {

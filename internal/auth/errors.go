@@ -20,6 +20,10 @@ var (
 	// either missing or owned by a different installation.
 	ErrAPIKeyNotFound = errors.New("api key not found")
 
+	// ErrExternalAPIKeyNotFound is returned when a BYOK-key update matches no
+	// row — missing, soft-deleted, or owned by another installation.
+	ErrExternalAPIKeyNotFound = errors.New("external api key not found")
+
 	// ErrInstallationNotFound is returned when an installation update matches no
 	// row — a stale, soft-deleted, or cross-tenant id. Without it a zero-row
 	// UPDATE looks like success, so the caller would invalidate the cache and

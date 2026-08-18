@@ -2,7 +2,9 @@ package postgres
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	"workweave/router/internal/auth"
@@ -117,6 +119,9 @@ func (r *ExternalAPIKeyRepo) UpdateModelAliases(ctx context.Context, installatio
 		ModelAliases:   encoded,
 	})
 	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, auth.ErrExternalAPIKeyNotFound
+		}
 		return nil, err
 	}
 	return toExternalAPIKey(row)

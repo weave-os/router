@@ -213,7 +213,9 @@ func (t *SSETranslator) handleMessageStart(data []byte) error {
 	if id := gjson.GetBytes(data, "message.id").Str; id != "" {
 		t.msgID = strings.Clone(id)
 	}
-	if m := gjson.GetBytes(data, "message.model").Str; m != "" {
+	// Only when the route named no model: the upstream reports a BYOK
+	// endpoint's alias, which must not reach the client.
+	if m := gjson.GetBytes(data, "message.model").Str; m != "" && t.model == "" {
 		t.model = strings.Clone(m)
 	}
 
