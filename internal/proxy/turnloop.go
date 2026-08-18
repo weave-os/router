@@ -109,7 +109,10 @@ func clearPinEvidence(res *turnLoopResult) {
 	res.PriorTurnGapMS = nil
 }
 
-func cacheablePrefixTokens(pin sessionpin.Pin, total int) int {
+func cacheablePrefixTokens(pin sessionpin.Pin, total int, prefixBroken bool) int {
+	if prefixBroken {
+		return 0
+	}
 	return min(pin.LastCachedReadTokens+pin.LastCachedWriteTokens, total)
 }
 
@@ -1076,7 +1079,7 @@ func (s *Service) runTurnLoop(
 		Pin:                   pin,
 		Fresh:                 fresh,
 		EstimatedInputTokens:  feats.Tokens,
-		CacheablePrefixTokens: cacheablePrefixTokens(pin, feats.Tokens),
+		CacheablePrefixTokens: cacheablePrefixTokens(pin, feats.Tokens, prefixBroken),
 		AvailableModels:       s.availableModels,
 		// A trimmed prefix kills the cache even inside the provider TTL.
 		PinCacheCold: pinFound && pinCacheCold(pin, prefixBroken),
@@ -1200,7 +1203,7 @@ func (s *Service) hmmCostGatedDecision(
 		Pin:                   stayPin,
 		Fresh:                 fresh,
 		EstimatedInputTokens:  estimatedInputTokens,
-		CacheablePrefixTokens: cacheablePrefixTokens(stayPin, estimatedInputTokens),
+		CacheablePrefixTokens: cacheablePrefixTokens(stayPin, estimatedInputTokens, prefixBroken),
 		AvailableModels:       s.availableModels,
 		PinCacheCold:          pinCacheCold(stayPin, prefixBroken),
 		SubsidizedCostFactor:  req.SubsidizedModelCostFactor,
