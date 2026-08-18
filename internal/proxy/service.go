@@ -3172,9 +3172,8 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	siblingFailoverUsed := false
 	siblingRescueRan := false
 	// Keyed off the flush, not off whether an earlier rescue ran: a failed
-	// subscription retry keeps the same dark model, so the overload it surfaces
-	// is exactly what a cluster peer rescues — but once the error is on the
-	// wire, no rescue may follow it.
+	// subscription retry keeps the same dark model, so a cluster peer can still
+	// serve — but only before the deferred error reaches the wire.
 	siblingRescueOwed := siblingViable && !baselineAttempted && !deferredErrFlushed
 	if siblingRescueOwed && proxyErr != nil && !preludeBuf.Committed() &&
 		(providers.IsRetryable(proxyErr) ||
