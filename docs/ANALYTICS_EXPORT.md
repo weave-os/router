@@ -170,7 +170,7 @@ Field groups:
 | End user | `user_id`, `user_email`, `user_account_uuid` |
 | Decision | `requested_model`, `decision_model`, `decision_provider`, `candidate_models`, `chosen_score`, `decision_reason`, `sticky_hit`, `failover_used`, `cross_format` |
 | Tokens | `estimated_input_tokens`, `input_tokens`, `output_tokens`, `cache_creation_tokens`, `cache_read_tokens` |
-| Economics | `actual_input_cost_usd`, `actual_output_cost_usd` |
+| Economics | `subscription_served`, `actual_input_cost_usd`, `actual_output_cost_usd` |
 | Performance | `route_latency_ms`, `upstream_latency_ms`, `total_latency_ms`, `ttft_ms` |
 | Outcome | `upstream_status_code`, `upstream_finish_reason`, `stop_reason`, `tool_use_blocks`, `invalid_tool_args_blocks` |
 
@@ -182,7 +182,9 @@ Schema changes are additive within a version; `version` in the `/schema`
 response bumps only if a field is removed or changes meaning. Write your loader
 to tolerate new columns. Version `2` dropped `requested_input_cost_usd`,
 `requested_output_cost_usd`, and `savings_usd` — see
-[Computing savings yourself](#computing-savings-yourself).
+[Computing savings yourself](#computing-savings-yourself). Version `3` added
+`subscription_served` and zeroed the `actual_*` costs of those rows — see
+[Subscription-served turns cost $0](#subscription-served-turns-cost-0).
 
 ### `decision_reason` is prose, not an enum
 
@@ -225,6 +227,17 @@ Cost fields are null for rows the router could not price (an unknown model, an
 upstream error before any usage was reported). They are null rather than `0` so
 they drop out of an average instead of dragging it down — filter explicitly, as
 above, if you want the priced subset.
+
+### Subscription-served turns cost $0
+
+When a turn is dispatched on the caller's own Claude or Codex subscription, that
+subscription's quota pays for it and no API-priced spend is incurred.
+`subscription_served` is `true` on those rows, their token counts are the real
+upstream numbers, and `actual_input_cost_usd` / `actual_output_cost_usd` are
+`0` — pricing them at catalog rates would overcount spend. A turn that starts on
+a spent subscription and fails over to a Weave or BYOK key is priced normally:
+the flag follows the credential that actually served the turn, not the one the
+client presented.
 
 ---
 

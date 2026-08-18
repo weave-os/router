@@ -26,6 +26,46 @@ func TestDecisionFromExportRowMapsServedCosts(t *testing.T) {
 	assert.InDelta(t, 0.25, *got.ActualOutputCostUSD, 1e-9)
 }
 
+// A subscription-served turn is paid for by the caller's own quota, so it
+// exports $0 against real token counts instead of the catalog rate.
+func TestDecisionFromExportRowSubscriptionServedCostsAreZero(t *testing.T) {
+	actualIn := int64(1_000_000)
+	actualOut := int64(250_000)
+	inputTokens := int32(4_200)
+
+	got := decisionFromExportRow(sqlc.GetRoutingDecisionsForExportRow{
+		SubscriptionServed:  true,
+		ActualInputCostUsd:  &actualIn,
+		ActualOutputCostUsd: &actualOut,
+		InputTokens:         &inputTokens,
+	})
+
+	assert.True(t, got.SubscriptionServed)
+	require.NotNil(t, got.ActualInputCostUSD)
+	require.NotNil(t, got.ActualOutputCostUSD)
+	assert.Zero(t, *got.ActualInputCostUSD)
+	assert.Zero(t, *got.ActualOutputCostUSD)
+	require.NotNil(t, got.InputTokens)
+	assert.Equal(t, int64(4_200), *got.InputTokens)
+}
+
+// A turn that failed over off a spent subscription was paid for with a Weave or
+// BYOK key, so it keeps its catalog price.
+func TestDecisionFromExportRowFailoverOffSubscriptionKeepsCost(t *testing.T) {
+	actualIn := int64(1_000_000)
+	failover := true
+
+	got := decisionFromExportRow(sqlc.GetRoutingDecisionsForExportRow{
+		SubscriptionServed: false,
+		FailoverUsed:       &failover,
+		ActualInputCostUsd: &actualIn,
+	})
+
+	assert.False(t, got.SubscriptionServed)
+	require.NotNil(t, got.ActualInputCostUSD)
+	assert.InDelta(t, 1.0, *got.ActualInputCostUSD, 1e-9)
+}
+
 // A row with no cost data exports nulls rather than a fabricated $0 that a
 // consumer would average into its spend number.
 func TestDecisionFromExportRowUnpricedRowHasNullCosts(t *testing.T) {

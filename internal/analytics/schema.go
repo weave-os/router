@@ -2,7 +2,7 @@ package analytics
 
 // SchemaVersion identifies the export contract. Additive field changes keep
 // the version; a removal or a semantic change bumps it.
-const SchemaVersion = "2"
+const SchemaVersion = "3"
 
 // Field documents one exported column so a consumer can generate warehouse DDL
 // without reading prose docs.
@@ -45,8 +45,9 @@ func Schema() []Field {
 		{"output_tokens", "integer", true, "Output tokens reported by the upstream."},
 		{"cache_creation_tokens", "integer", true, "Tokens written to the upstream prompt cache."},
 		{"cache_read_tokens", "integer", true, "Tokens served from the upstream prompt cache."},
-		{"actual_input_cost_usd", "float", true, "Input cost of the model that actually served the turn."},
-		{"actual_output_cost_usd", "float", true, "Output cost of the model that actually served the turn."},
+		{"subscription_served", "boolean", false, "True when the turn ran on the caller's own Claude/Codex subscription. Its quota already paid for the turn, so the actual_* costs are 0 while the token counts stay real."},
+		{"actual_input_cost_usd", "float", true, "Input cost of the model that actually served the turn. 0 when subscription_served."},
+		{"actual_output_cost_usd", "float", true, "Output cost of the model that actually served the turn. 0 when subscription_served."},
 		{"route_latency_ms", "integer", true, "Time spent choosing a model."},
 		{"upstream_latency_ms", "integer", true, "Time spent waiting on the upstream provider."},
 		{"total_latency_ms", "integer", true, "End-to-end time for the action."},

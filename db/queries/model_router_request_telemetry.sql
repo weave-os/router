@@ -544,6 +544,10 @@ SELECT
     t.output_tokens,
     t.cache_creation_tokens,
     t.cache_read_tokens,
+    -- The turn ran on the caller's own Claude/Codex subscription, so its
+    -- quota already paid for it and the export reports $0 against the real
+    -- token counts. credential_source itself stays internal.
+    (t.credential_source IN ('subscription', 'codex_subscription'))::boolean AS subscription_served,
     t.actual_input_cost_usd,
     t.actual_output_cost_usd,
     t.route_latency_ms,
