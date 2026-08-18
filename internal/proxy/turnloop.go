@@ -87,9 +87,7 @@ func cacheWarm(pin sessionpin.Pin) bool {
 	return time.Since(pin.LastTurnEndedAt) < providers.CacheTTLFor(pin.Provider)
 }
 
-// pinCacheCold is the shared planner contract for ordinary and HMM routes.
-// Semantic routing chooses the fresh candidate; the Go planner owns the cache
-// economics and must treat an unstable prefix as cold regardless of TTL.
+// pinCacheCold keeps ordinary and HMM paths on the same cache-economics rule.
 func pinCacheCold(pin sessionpin.Pin, prefixBroken bool) bool {
 	return !cacheWarm(pin) || prefixBroken
 }
@@ -1162,9 +1160,8 @@ func (s *Service) hmmCostGatedDecision(
 	}
 
 	cfg := s.planner
-	// HMM owns semantic selection; the shared Go planner owns cache economics.
-	// The generic tier guard is too coarse here because HMM clusters and router
-	// catalog tiers are not the same axis.
+	// HMM owns semantic selection; the shared Go planner owns cache economics
+	// because HMM clusters and catalog tiers are not the same axis.
 	cfg.TierUpgradeEnabled = false
 	base := planner.Decide(planner.Inputs{
 		Pin:                  stayPin,
