@@ -381,9 +381,7 @@ type routeTimings struct {
 	EmbedMs  *float64 `json:"embed_ms"`
 }
 
-// decomposeTimings converts the sidecar's overlapping wire timings into
-// non-overlapping stages: embedding, arm selection, and the remainder of the
-// sidecar's route handler. Returns nil when the sidecar measured nothing.
+// decomposeTimings converts sidecar wire timings into non-overlapping stages; nil when nothing was measured.
 func decomposeTimings(wire *routeTimings) *router.SidecarTimings {
 	if wire == nil || (wire.RouteMs == nil && wire.SelectMs == nil && wire.EmbedMs == nil) {
 		return nil
@@ -395,7 +393,9 @@ func decomposeTimings(wire *routeTimings) *router.SidecarTimings {
 	if wire.RouteMs != nil {
 		other := *wire.RouteMs - floatOrZero(wire.EmbedMs) - floatOrZero(wire.SelectMs)
 		if other < 0 {
-			other = 0
+			// Stages exceeding the total they were measured inside of mean the
+			// breakdown can't be trusted for disjoint attribution; drop it.
+			return nil
 		}
 		timings.OtherMs = &other
 	}

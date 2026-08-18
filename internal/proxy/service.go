@@ -3400,8 +3400,6 @@ func applyPlannerAttrs(b *otel.AttrBuilder, res turnLoopResult) *otel.AttrBuilde
 // applySidecarLatencyAttrs reads Fresh.Metadata, not the served decision:
 // STAY replaces the decision with a pin (nil Metadata) even when the
 // sidecar ran this turn. Absent = stage not measured; present 0 = sub-ms.
-// Each of the three stages emits independently so a nil field on one
-// doesn't suppress the others.
 func applySidecarLatencyAttrs(b *otel.AttrBuilder, res turnLoopResult) *otel.AttrBuilder {
 	if res.Fresh.Metadata == nil || res.Fresh.Metadata.SidecarTimings == nil {
 		return b

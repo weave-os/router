@@ -305,10 +305,8 @@ type RoutingMetadata struct {
 	PairedScore    float32
 }
 
-// SidecarTimings is the policy sidecar's per-stage decision cost in
-// milliseconds, decomposed into non-overlapping stages that sum to the
-// sidecar's self-reported decision total. A nil field was not measured;
-// present 0 is a real sub-millisecond measurement.
+// SidecarTimings holds the sidecar's per-stage decision cost in milliseconds.
+// A nil field was not measured; present 0 is a real sub-millisecond measurement.
 type SidecarTimings struct {
 	EmbedMs  *float64 // embedding round trip
 	SelectMs *float64 // arm selection

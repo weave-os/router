@@ -228,12 +228,10 @@ func TestClientDecideLeavesTimingsNilWhenOmittedEntirely(t *testing.T) {
 	assert.Nil(t, result.Timings)
 }
 
-func TestClientDecideClampsOtherMsToZeroWhenStagesExceedRouteMs(t *testing.T) {
+func TestClientDecideDropsTimingsWhenStagesExceedRouteMs(t *testing.T) {
 	result := decideWithTimings(t, &routeTimings{RouteMs: floatPtr(5), SelectMs: floatPtr(4), EmbedMs: floatPtr(3)})
 
-	require.NotNil(t, result.Timings)
-	require.NotNil(t, result.Timings.OtherMs)
-	assert.Equal(t, 0.0, *result.Timings.OtherMs)
+	assert.Nil(t, result.Timings, "an inconsistent breakdown must be dropped, not published with overlapping stages")
 }
 
 func TestClientOmitsV2CandidateFieldsFromV1(t *testing.T) {
