@@ -3008,10 +3008,9 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		deferFlushOnExhaustion: baselineViable || subscriptionRetryEligible || siblingViable,
 	})
 
-	// The deferred upstream error must reach the client exactly once: every
-	// rescue below hands ownership to the next one, and whichever declines to
-	// run flushes. Writing it also forecloses any later rescue — the bytes are
-	// on the wire.
+	// The deferred upstream error must reach the client exactly once: each
+	// rescue hands ownership to the next, and whichever declines to run flushes.
+	// Writing it forecloses any later rescue.
 	deferredErrFlushed := false
 	flushDeferredErr := func() {
 		if deferredErrFlushed {
