@@ -3070,6 +3070,71 @@ weave_sync_commands() {
 }
 weave_sync_commands 2>/dev/null || true
 
+# ---------- org "hide terminal surfaces" gate ----------
+#
+# When the org has hidden the router's terminal surfaces, the statusline
+# renders nothing: this prints no output and exits 0, leaving the slot blank.
+# The setting is read from GET /v1/display-settings with the install's own
+# router key and cached per install for WEAVE_DISPLAY_SETTINGS_TTL_SECONDS
+# (default 1h) so a turn never blocks on the network. Any failure to reach the
+# router or read credentials renders the statusline normally (fail-open) — an
+# org that hasn't hidden anything must see no behavior change.
+weave_hidden_gate() {
+  command -v curl >/dev/null 2>&1 || return 1
+  command -v jq >/dev/null 2>&1 || return 1
+
+  local cache_dir="${XDG_CACHE_HOME:-$HOME/.cache}/weave-router"
+  mkdir -p "$cache_dir" 2>/dev/null || return 1
+  local self="${BASH_SOURCE[0]:-$0}"
+  local script_slug
+  script_slug="$(printf '%s' "$self" | tr -c 'A-Za-z0-9._-' '_')"
+  local cache="$cache_dir/display-settings${script_slug}"
+  local ttl="${WEAVE_DISPLAY_SETTINGS_TTL_SECONDS:-3600}"
+
+  local now mtime
+  now="$(date +%s 2>/dev/null)" || now=0
+  if [ -f "$cache" ]; then
+    mtime="$(stat -c %Y "$cache" 2>/dev/null || stat -f %m "$cache" 2>/dev/null)" || mtime=0
+    if [ -n "${mtime:-}" ] && [ "$mtime" -gt 0 ] && [ $(( now - mtime )) -lt "$ttl" ]; then
+      [ "$(cat "$cache" 2>/dev/null)" = "1" ]
+      return
+    fi
+  fi
+
+  # Resolve the router base URL and key from the Claude Code settings the
+  # installer wrote. User scope keeps both in ~/.claude/settings.json; project
+  # scope splits the key into settings.local.json. ANTHROPIC_BASE_URL and
+  # WEAVE_ROUTER_BASE_URL may also be set in the environment.
+  local settings="$HOME/.claude/settings.json"
+  local local_settings="$HOME/.claude/settings.local.json"
+  local base_url="${WEAVE_ROUTER_BASE_URL:-${ANTHROPIC_BASE_URL:-}}"
+  local key="${WEAVE_ROUTER_KEY:-}"
+  if [ -z "$key" ] && [ -f "$settings" ]; then
+    key="$(jq -r '.env.ANTHROPIC_CUSTOM_HEADERS // "" | split("\n")[] | select(startswith("X-Weave-Router-Key:")) | sub("^X-Weave-Router-Key:[[:space:]]*";"")' "$settings" 2>/dev/null | head -n1)"
+  fi
+  if [ -z "$key" ] && [ -f "$local_settings" ]; then
+    key="$(jq -r '.env.ANTHROPIC_CUSTOM_HEADERS // "" | split("\n")[] | select(startswith("X-Weave-Router-Key:")) | sub("^X-Weave-Router-Key:[[:space:]]*";"")' "$local_settings" 2>/dev/null | head -n1)"
+  fi
+  if [ -z "$base_url" ] && [ -f "$settings" ]; then
+    base_url="$(jq -r '.env.ANTHROPIC_BASE_URL // empty' "$settings" 2>/dev/null)"
+  fi
+  [ -n "$base_url" ] && [ -n "$key" ] || return 1
+
+  local body hidden=""
+  body="$(curl -fsS --max-time 5 -H "X-Weave-Router-Key: $key" "${base_url%/}/v1/display-settings" 2>/dev/null)" || { [ -f "$cache" ] && { [ "$(cat "$cache" 2>/dev/null)" = "1" ] && return 0 || return 1; }; return 1; }
+  hidden="$(printf '%s' "$body" | jq -r '.hide_terminal_surfaces // false' 2>/dev/null)"
+  if [ "$hidden" = "true" ]; then
+    printf '1' >"$cache" 2>/dev/null
+    return 0
+  fi
+  printf '0' >"$cache" 2>/dev/null
+  return 1
+}
+
+if weave_hidden_gate; then
+  exit 0
+fi
+
 input="$(cat)"
 transcript_path="$(printf '%s' "$input" | jq -r '.transcript_path // empty')"
 # Prefer model.id over display_name: pricing keys + the routed model id in

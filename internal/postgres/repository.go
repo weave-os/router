@@ -221,6 +221,26 @@ func (r *installationRepo) UpdateContentCaptureMode(ctx context.Context, externa
 	return nil
 }
 
+func (r *installationRepo) UpdateHideTerminalSurfaces(ctx context.Context, externalID, id string, hide bool) error {
+	parsed, err := uuid.Parse(id)
+	if err != nil {
+		return err
+	}
+	q := sqlc.New(r.tx)
+	rows, err := q.UpdateModelRouterInstallationHideTerminalSurfaces(ctx, sqlc.UpdateModelRouterInstallationHideTerminalSurfacesParams{
+		ID:                   parsed,
+		ExternalID:           externalID,
+		HideTerminalSurfaces: hide,
+	})
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return auth.ErrInstallationNotFound
+	}
+	return nil
+}
+
 type apiKeyRepo struct {
 	tx sqlc.DBTX
 }

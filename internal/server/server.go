@@ -225,6 +225,10 @@ func Register(engine *gin.Engine, authSvc *auth.Service, proxySvc *proxy.Service
 	passthroughGroup.POST("/v1/messages/count_tokens", anthropicapi.PassthroughHandler(proxySvc))
 	passthroughGroup.GET("/v1/models", openaiapi.ModelsHandler(anthropicapi.PassthroughHandler(proxySvc)))
 	passthroughGroup.GET("/v1/models/:model", anthropicapi.PassthroughHandler(proxySvc))
+	// Per-installation terminal-surface display toggles, read by the installer
+	// and statusline with the same rk_ key. Read-only and free of billing
+	// internals, so it rides the cheap passthrough group.
+	passthroughGroup.GET("/v1/display-settings", admin.DisplaySettingsHandler)
 
 	routeMiddleware := []gin.HandlerFunc{
 		middleware.WithTimeout(routeTimeout),

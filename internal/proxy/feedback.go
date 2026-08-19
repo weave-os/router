@@ -163,8 +163,13 @@ func (s *Service) mintFeedbackToken(installationID uuid.UUID, externalID, reques
 }
 
 // setFeedbackLinkHeader mints a signed feedback link and sets it on the
-// response. No-op when the feature is unwired or any required id is missing.
-func (s *Service) setFeedbackLinkHeader(w http.ResponseWriter, installationID uuid.UUID, externalID, requestID, routerUserID string) {
+// response. No-op when the feature is unwired, any required id is missing, or
+// the installation has hidden its terminal surfaces (the link displays the
+// routing decision, which hidden orgs don't surface).
+func (s *Service) setFeedbackLinkHeader(ctx context.Context, w http.ResponseWriter, installationID uuid.UUID, externalID, requestID, routerUserID string) {
+	if hideTerminalSurfacesForRequest(ctx) {
+		return
+	}
 	token := s.mintFeedbackToken(installationID, externalID, requestID, routerUserID)
 	if token == "" {
 		return
@@ -199,7 +204,10 @@ const feedbackFooterText = "\n\n_Weave Router feedback:_ `/rf +` good experience
 // dispatches and machine turns (compaction, probe, title-gen, classifier)
 // render final text the user didn't directly initiate, where a trailing /rf
 // hint would strand beneath it (e.g. under an Explore subagent's result).
-func (s *Service) feedbackFooter(clientApp string, tt turntype.TurnType) string {
+func (s *Service) feedbackFooter(ctx context.Context, clientApp string, tt turntype.TurnType) string {
+	if hideTerminalSurfacesForRequest(ctx) {
+		return ""
+	}
 	if s.feedbackStore == nil {
 		return ""
 	}

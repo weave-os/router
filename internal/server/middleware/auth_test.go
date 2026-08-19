@@ -130,6 +130,9 @@ func (fakeInstallationRepository) UpdateSubscriptionRoutingDisabled(ctx context.
 func (fakeInstallationRepository) UpdateContentCaptureMode(ctx context.Context, externalID, id string, mode *string) error {
 	return errors.New("not used")
 }
+func (fakeInstallationRepository) UpdateHideTerminalSurfaces(ctx context.Context, externalID, id string, hide bool) error {
+	return errors.New("not used")
+}
 
 func TestWithAuthPrefersRouterKeyHeader(t *testing.T) {
 	gin.SetMode(gin.TestMode)

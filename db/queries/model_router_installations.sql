@@ -102,3 +102,15 @@ SET subscription_routing_disabled = @subscription_routing_disabled::boolean,
 WHERE id = @id::uuid
   AND external_id = @external_id::varchar
   AND deleted_at IS NULL;
+
+-- Toggles hiding the router's terminal surfaces (routing marker, feedback
+-- footer, statusline) for the installation, scoped to an external_id to
+-- prevent cross-tenant updates. Requests route identically; only what is
+-- rendered in the caller's terminal changes.
+-- name: UpdateModelRouterInstallationHideTerminalSurfaces :execrows
+UPDATE router.model_router_installations
+SET hide_terminal_surfaces = @hide_terminal_surfaces::boolean,
+    updated_at = NOW()
+WHERE id = @id::uuid
+  AND external_id = @external_id::varchar
+  AND deleted_at IS NULL;

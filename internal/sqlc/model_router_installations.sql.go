@@ -22,7 +22,7 @@ VALUES (
     $2::varchar,
     $3
 )
-RETURNING id, external_id, name, created_at, updated_at, deleted_at, created_by, excluded_models, excluded_providers, routing_quality_weight, usage_bypass_enabled, usage_bypass_threshold, preferred_models, subscription_routing_disabled, routing_strategy, routing_rollout_id, policy_shadow_strategy, policy_debug_enabled, policy_header_overrides_enabled, policy_routing_intent, ai_training_allowed, byok_enabled, content_capture_mode
+RETURNING id, external_id, name, created_at, updated_at, deleted_at, created_by, excluded_models, excluded_providers, routing_quality_weight, usage_bypass_enabled, usage_bypass_threshold, preferred_models, subscription_routing_disabled, routing_strategy, routing_rollout_id, policy_shadow_strategy, policy_debug_enabled, policy_header_overrides_enabled, policy_routing_intent, ai_training_allowed, byok_enabled, content_capture_mode, hide_terminal_surfaces
 `
 
 type CreateModelRouterInstallationParams struct {
@@ -43,7 +43,7 @@ type CreateModelRouterInstallationParams struct {
 //	    $2::varchar,
 //	    $3
 //	)
-//	RETURNING id, external_id, name, created_at, updated_at, deleted_at, created_by, excluded_models, excluded_providers, routing_quality_weight, usage_bypass_enabled, usage_bypass_threshold, preferred_models, subscription_routing_disabled, routing_strategy, routing_rollout_id, policy_shadow_strategy, policy_debug_enabled, policy_header_overrides_enabled, policy_routing_intent, ai_training_allowed, byok_enabled, content_capture_mode
+//	RETURNING id, external_id, name, created_at, updated_at, deleted_at, created_by, excluded_models, excluded_providers, routing_quality_weight, usage_bypass_enabled, usage_bypass_threshold, preferred_models, subscription_routing_disabled, routing_strategy, routing_rollout_id, policy_shadow_strategy, policy_debug_enabled, policy_header_overrides_enabled, policy_routing_intent, ai_training_allowed, byok_enabled, content_capture_mode, hide_terminal_surfaces
 func (q *Queries) CreateModelRouterInstallation(ctx context.Context, arg CreateModelRouterInstallationParams) (RouterModelRouterInstallation, error) {
 	row := q.db.QueryRow(ctx, createModelRouterInstallation, arg.ExternalID, arg.Name, arg.CreatedBy)
 	var i RouterModelRouterInstallation
@@ -71,12 +71,13 @@ func (q *Queries) CreateModelRouterInstallation(ctx context.Context, arg CreateM
 		&i.AiTrainingAllowed,
 		&i.ByokEnabled,
 		&i.ContentCaptureMode,
+		&i.HideTerminalSurfaces,
 	)
 	return i, err
 }
 
 const getModelRouterInstallation = `-- name: GetModelRouterInstallation :one
-SELECT id, external_id, name, created_at, updated_at, deleted_at, created_by, excluded_models, excluded_providers, routing_quality_weight, usage_bypass_enabled, usage_bypass_threshold, preferred_models, subscription_routing_disabled, routing_strategy, routing_rollout_id, policy_shadow_strategy, policy_debug_enabled, policy_header_overrides_enabled, policy_routing_intent, ai_training_allowed, byok_enabled, content_capture_mode
+SELECT id, external_id, name, created_at, updated_at, deleted_at, created_by, excluded_models, excluded_providers, routing_quality_weight, usage_bypass_enabled, usage_bypass_threshold, preferred_models, subscription_routing_disabled, routing_strategy, routing_rollout_id, policy_shadow_strategy, policy_debug_enabled, policy_header_overrides_enabled, policy_routing_intent, ai_training_allowed, byok_enabled, content_capture_mode, hide_terminal_surfaces
 FROM router.model_router_installations
 WHERE id = $1::uuid
   AND external_id = $2::varchar
@@ -90,7 +91,7 @@ type GetModelRouterInstallationParams struct {
 
 // Gets an installation by id, scoped to an external_id to prevent cross-tenant access.
 //
-//	SELECT id, external_id, name, created_at, updated_at, deleted_at, created_by, excluded_models, excluded_providers, routing_quality_weight, usage_bypass_enabled, usage_bypass_threshold, preferred_models, subscription_routing_disabled, routing_strategy, routing_rollout_id, policy_shadow_strategy, policy_debug_enabled, policy_header_overrides_enabled, policy_routing_intent, ai_training_allowed, byok_enabled, content_capture_mode
+//	SELECT id, external_id, name, created_at, updated_at, deleted_at, created_by, excluded_models, excluded_providers, routing_quality_weight, usage_bypass_enabled, usage_bypass_threshold, preferred_models, subscription_routing_disabled, routing_strategy, routing_rollout_id, policy_shadow_strategy, policy_debug_enabled, policy_header_overrides_enabled, policy_routing_intent, ai_training_allowed, byok_enabled, content_capture_mode, hide_terminal_surfaces
 //	FROM router.model_router_installations
 //	WHERE id = $1::uuid
 //	  AND external_id = $2::varchar
@@ -122,12 +123,13 @@ func (q *Queries) GetModelRouterInstallation(ctx context.Context, arg GetModelRo
 		&i.AiTrainingAllowed,
 		&i.ByokEnabled,
 		&i.ContentCaptureMode,
+		&i.HideTerminalSurfaces,
 	)
 	return i, err
 }
 
 const listModelRouterInstallationsForExternalID = `-- name: ListModelRouterInstallationsForExternalID :many
-SELECT id, external_id, name, created_at, updated_at, deleted_at, created_by, excluded_models, excluded_providers, routing_quality_weight, usage_bypass_enabled, usage_bypass_threshold, preferred_models, subscription_routing_disabled, routing_strategy, routing_rollout_id, policy_shadow_strategy, policy_debug_enabled, policy_header_overrides_enabled, policy_routing_intent, ai_training_allowed, byok_enabled, content_capture_mode
+SELECT id, external_id, name, created_at, updated_at, deleted_at, created_by, excluded_models, excluded_providers, routing_quality_weight, usage_bypass_enabled, usage_bypass_threshold, preferred_models, subscription_routing_disabled, routing_strategy, routing_rollout_id, policy_shadow_strategy, policy_debug_enabled, policy_header_overrides_enabled, policy_routing_intent, ai_training_allowed, byok_enabled, content_capture_mode, hide_terminal_surfaces
 FROM router.model_router_installations
 WHERE external_id = $1::varchar
   AND deleted_at IS NULL
@@ -136,7 +138,7 @@ ORDER BY created_at DESC
 
 // ListModelRouterInstallationsForExternalID
 //
-//	SELECT id, external_id, name, created_at, updated_at, deleted_at, created_by, excluded_models, excluded_providers, routing_quality_weight, usage_bypass_enabled, usage_bypass_threshold, preferred_models, subscription_routing_disabled, routing_strategy, routing_rollout_id, policy_shadow_strategy, policy_debug_enabled, policy_header_overrides_enabled, policy_routing_intent, ai_training_allowed, byok_enabled, content_capture_mode
+//	SELECT id, external_id, name, created_at, updated_at, deleted_at, created_by, excluded_models, excluded_providers, routing_quality_weight, usage_bypass_enabled, usage_bypass_threshold, preferred_models, subscription_routing_disabled, routing_strategy, routing_rollout_id, policy_shadow_strategy, policy_debug_enabled, policy_header_overrides_enabled, policy_routing_intent, ai_training_allowed, byok_enabled, content_capture_mode, hide_terminal_surfaces
 //	FROM router.model_router_installations
 //	WHERE external_id = $1::varchar
 //	  AND deleted_at IS NULL
@@ -174,6 +176,7 @@ func (q *Queries) ListModelRouterInstallationsForExternalID(ctx context.Context,
 			&i.AiTrainingAllowed,
 			&i.ByokEnabled,
 			&i.ContentCaptureMode,
+			&i.HideTerminalSurfaces,
 		); err != nil {
 			return nil, err
 		}
@@ -302,6 +305,40 @@ type UpdateModelRouterInstallationExcludedProvidersParams struct {
 //	  AND deleted_at IS NULL
 func (q *Queries) UpdateModelRouterInstallationExcludedProviders(ctx context.Context, arg UpdateModelRouterInstallationExcludedProvidersParams) (int64, error) {
 	result, err := q.db.Exec(ctx, updateModelRouterInstallationExcludedProviders, arg.ExcludedProviders, arg.ID, arg.ExternalID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const updateModelRouterInstallationHideTerminalSurfaces = `-- name: UpdateModelRouterInstallationHideTerminalSurfaces :execrows
+UPDATE router.model_router_installations
+SET hide_terminal_surfaces = $1::boolean,
+    updated_at = NOW()
+WHERE id = $2::uuid
+  AND external_id = $3::varchar
+  AND deleted_at IS NULL
+`
+
+type UpdateModelRouterInstallationHideTerminalSurfacesParams struct {
+	HideTerminalSurfaces bool
+	ID                   uuid.UUID
+	ExternalID           string
+}
+
+// Toggles hiding the router's terminal surfaces (routing marker, feedback
+// footer, statusline) for the installation, scoped to an external_id to
+// prevent cross-tenant updates. Requests route identically; only what is
+// rendered in the caller's terminal changes.
+//
+//	UPDATE router.model_router_installations
+//	SET hide_terminal_surfaces = $1::boolean,
+//	    updated_at = NOW()
+//	WHERE id = $2::uuid
+//	  AND external_id = $3::varchar
+//	  AND deleted_at IS NULL
+func (q *Queries) UpdateModelRouterInstallationHideTerminalSurfaces(ctx context.Context, arg UpdateModelRouterInstallationHideTerminalSurfacesParams) (int64, error) {
+	result, err := q.db.Exec(ctx, updateModelRouterInstallationHideTerminalSurfaces, arg.HideTerminalSurfaces, arg.ID, arg.ExternalID)
 	if err != nil {
 		return 0, err
 	}

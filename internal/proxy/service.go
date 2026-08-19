@@ -378,6 +378,13 @@ type InstallationUsageBypassContextKey struct{}
 // routing decides on merits. See subscriptionRoutingDisabledForRequest.
 type InstallationSubscriptionRoutingDisabledContextKey struct{}
 
+// InstallationHideTerminalSurfacesContextKey is the context key for the authed
+// installation's "hide terminal surfaces" toggle. Carried as bool; absent
+// (== false) when the installation hasn't hidden them. When set, the routing
+// marker, feedback footer, and feedback-link header are suppressed. See
+// hideTerminalSurfacesForRequest.
+type InstallationHideTerminalSurfacesContextKey struct{}
+
 // PolicyTrainingAllowedContextKey carries the installation's explicit
 // learning eligibility. Absence is fail-closed (false).
 type PolicyTrainingAllowedContextKey struct{}
@@ -438,9 +445,13 @@ type policyOutcomeResponse struct {
 }
 
 // suppressMarkerIfRequested returns "" when the request opted out via
-// routingMarkerHeader, otherwise the marker unchanged. Only applies to the
-// per-turn routing badge; no-progress/loop/force-model markers always fire.
-func suppressMarkerIfRequested(h http.Header, marker string) string {
+// routingMarkerHeader or the installation has hidden terminal surfaces,
+// otherwise the marker unchanged. Only applies to the per-turn routing badge;
+// no-progress/loop/force-model markers always fire.
+func suppressMarkerIfRequested(ctx context.Context, h http.Header, marker string) string {
+	if hideTerminalSurfacesForRequest(ctx) {
+		return ""
+	}
 	switch strings.ToLower(strings.TrimSpace(h.Get(routingMarkerHeader))) {
 	case "off", "false", "0", "none":
 		return ""
@@ -613,6 +624,14 @@ func installationExcludedModelsFromContext(ctx context.Context) []string {
 func subscriptionRoutingDisabledForRequest(ctx context.Context) bool {
 	disabled, _ := ctx.Value(InstallationSubscriptionRoutingDisabledContextKey{}).(bool)
 	return disabled
+}
+
+// hideTerminalSurfacesForRequest reports whether the authed installation has
+// hidden the router's terminal surfaces. When true, the routing marker,
+// feedback footer, and feedback-link header are suppressed for this request.
+func hideTerminalSurfacesForRequest(ctx context.Context) bool {
+	hide, _ := ctx.Value(InstallationHideTerminalSurfacesContextKey{}).(bool)
+	return hide
 }
 
 // routingKnobsForRequest resolves the routing knobs for a request. The
@@ -2620,7 +2639,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	w.Header().Set(HeaderRouterProvider, decision.Provider)
 	w.Header().Set(HeaderRouterModel, decision.Model)
 	if !agentShadowMode {
-		s.setFeedbackLinkHeader(w, installationID, externalID, requestID, auth.UserIDFrom(ctx))
+		s.setFeedbackLinkHeader(ctx, w, installationID, externalID, requestID, auth.UserIDFrom(ctx))
 	}
 
 	if _, err := s.provider(decision.Provider); err != nil {
@@ -2728,7 +2747,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	// cached/logged bodies. Transparent when streaming/feedback is off.
 	clientSink := w
 	if env.Stream() && !agentShadowMode {
-		if footer := s.feedbackFooter(ClientIdentityFrom(ctx).ClientApp, routeRes.TurnType); footer != "" {
+		if footer := s.feedbackFooter(ctx, ClientIdentityFrom(ctx).ClientApp, routeRes.TurnType); footer != "" {
 			clientSink = translate.NewAnthropicRoutingFooterWriter(w, footer)
 		}
 	}
@@ -2764,7 +2783,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	// request body. Zero for Anthropic-native passthrough.
 	var reqStats providers.RequestMutationStats
 
-	marker := suppressMarkerIfRequested(r.Header, routingMarkerFor(routeRes))
+	marker := suppressMarkerIfRequested(ctx, r.Header, routingMarkerFor(routeRes))
 	// Subscription-only served-on-sub turn: replace the routing marker with the
 	// depleted-credits warning (like the OpenAI path and the usage-bypass path),
 	// not gated by the routing-marker opt-out. The pre-dispatch guard above has
@@ -3083,7 +3102,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			}
 			baselineCtx = resolveAndInjectCredentials(baselineCtx, providers.ProviderAnthropic, baselineModel, r.Header)
 			baselineBindings := s.resolveBindingsForDispatch(baselineCtx, baselineDecision)
-			baselineMarker := suppressMarkerIfRequested(r.Header, baselineRoutingMarkerFor(routeRes, baselineModel))
+			baselineMarker := suppressMarkerIfRequested(ctx, r.Header, baselineRoutingMarkerFor(routeRes, baselineModel))
 			baselineAttempt := s.anthropicNativeAttempt(env, r, baselinePrep, sink, preludeBuf, baselineMarker, setExtractor)
 			crossFormat = false
 			respSummary = translate.ResponseSummary{}
@@ -3202,7 +3221,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		}
 		siblingCtx := resolveAndInjectCredentials(ctx, siblingDecision.Provider, siblingDecision.Model, r.Header)
 		siblingBindings := s.resolveBindingsForDispatch(siblingCtx, siblingDecision)
-		siblingMarker := suppressMarkerIfRequested(r.Header, siblingRoutingMarkerFor(routeRes, siblingDecision.Model))
+		siblingMarker := suppressMarkerIfRequested(ctx, r.Header, siblingRoutingMarkerFor(routeRes, siblingDecision.Model))
 		siblingAttempt, siblingBuildErr := buildAttempt(siblingDecision, siblingOpts, siblingMarker)
 		switch {
 		case siblingBuildErr != nil:
@@ -4882,7 +4901,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	w.Header().Set(HeaderRouterDecision, decision.Reason)
 	w.Header().Set(HeaderRouterProvider, decision.Provider)
 	w.Header().Set(HeaderRouterModel, decision.Model)
-	s.setFeedbackLinkHeader(w, installationID, externalID, requestID, auth.UserIDFrom(ctx))
+	s.setFeedbackLinkHeader(ctx, w, installationID, externalID, requestID, auth.UserIDFrom(ctx))
 
 	reqPricing := otel.Lookup(s.baselineFor(feats.Model))
 	actPricing := otel.Lookup(decision.Model)
@@ -4966,7 +4985,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	// special-casing — /v1/responses footers are a follow-up.
 	clientSink := w
 	if _, isResponses := w.(*translate.ResponsesWriter); env.Stream() && !isResponses {
-		if footer := s.feedbackFooter(ClientIdentityFrom(ctx).ClientApp, routeRes.TurnType); footer != "" {
+		if footer := s.feedbackFooter(ctx, ClientIdentityFrom(ctx).ClientApp, routeRes.TurnType); footer != "" {
 			clientSink = translate.NewOpenAIRoutingFooterWriter(w, footer)
 		}
 	}
@@ -4974,7 +4993,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	preludeBuf := newPreludeBuffer(contentSink)
 	var rootSink http.ResponseWriter = preludeBuf
 
-	marker := suppressMarkerIfRequested(r.Header, routingMarkerFor(routeRes))
+	marker := suppressMarkerIfRequested(ctx, r.Header, routingMarkerFor(routeRes))
 	if billing.SubscriptionOnlyFromContext(ctx) {
 		// Always surface the depleted-credits warning (not gated by the
 		// routing-marker opt-out): a billing state change the caller must see.
@@ -5004,7 +5023,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		// single-binding GPT model with no cross-format fallback to retry
 		// into. If a GPT model ever gains a fallback, gate this per-attempt.
 		if verbatimPassthrough {
-			markerEnabled := suppressMarkerIfRequested(r.Header, "enabled") != "" && !routeRes.SuggestionMode
+			markerEnabled := suppressMarkerIfRequested(ctx, r.Header, "enabled") != "" && !routeRes.SuggestionMode
 			mandatoryWarning := billing.SubscriptionOnlyFromContext(ctx)
 			if clientID.ClientApp == ClientAppCodex && (markerEnabled || mandatoryWarning) {
 				if mandatoryWarning {

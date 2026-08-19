@@ -143,6 +143,7 @@ type fakeInstallationRepository struct {
 	usageBypassThresholdByID        map[string]*float64
 	subscriptionRoutingDisabledByID map[string]bool
 	contentCaptureModeByID          map[string]*string
+	hideTerminalSurfacesByID        map[string]bool
 	// updateErr, when set, is returned by Update* methods instead of recording —
 	// simulates a zero-row update (stale/soft-deleted/cross-tenant id), which the
 	// real postgres repo surfaces as auth.ErrInstallationNotFound.
@@ -217,6 +218,16 @@ func (f *fakeInstallationRepository) UpdateSubscriptionRoutingDisabled(ctx conte
 		f.subscriptionRoutingDisabledByID = map[string]bool{}
 	}
 	f.subscriptionRoutingDisabledByID[id] = disabled
+	return nil
+}
+func (f *fakeInstallationRepository) UpdateHideTerminalSurfaces(ctx context.Context, externalID, id string, hide bool) error {
+	if f.updateErr != nil {
+		return f.updateErr
+	}
+	if f.hideTerminalSurfacesByID == nil {
+		f.hideTerminalSurfacesByID = map[string]bool{}
+	}
+	f.hideTerminalSurfacesByID[id] = hide
 	return nil
 }
 func (f *fakeInstallationRepository) UpdateUsageBypass(ctx context.Context, externalID, id string, enabled bool, threshold *float64) error {

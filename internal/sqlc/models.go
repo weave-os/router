@@ -120,7 +120,8 @@ type RouterModelRouterInstallation struct {
 	// Managed-mode opt-in: honor this installation's BYOK provider keys
 	ByokEnabled bool
 	// Per-installation capture ceiling (off|hashed|full); NULL uses the deployment default
-	ContentCaptureMode *string
+	ContentCaptureMode   *string
+	HideTerminalSurfaces bool
 }
 
 type RouterModelRouterRequestTelemetry struct {

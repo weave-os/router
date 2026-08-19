@@ -48,6 +48,7 @@ func toAuthInstallation(row sqlc.RouterModelRouterInstallation) *auth.Installati
 		AITrainingAllowed:            row.AiTrainingAllowed,
 		ByokEnabled:                  row.ByokEnabled,
 		ContentCaptureMode:           row.ContentCaptureMode,
+		HideTerminalSurfaces:         row.HideTerminalSurfaces,
 	}
 }
 
