@@ -28,8 +28,7 @@ const (
 var ErrWIFUnavailable = errors.New("auth: workload identity federation is not configured")
 
 // WIFTokenSource produces the router's own workload attestation. Implementations
-// talk to a metadata server or read a projected token, so they are adapters and
-// every call must honour ctx.
+// talk to a metadata server or filesystem, so every call must honour ctx.
 type WIFTokenSource interface {
 	// Attestation returns the full credential to send as the bearer value,
 	// already in Snowflake's WIF.<provider>.<token> form.

@@ -6,10 +6,8 @@ import (
 	"workweave/router/internal/observability"
 )
 
-// resolveUpstreamSecrets replaces each key's Plaintext with the credential its auth type
-// sends upstream: the stored secret for bearer keys, a minted JWT for key-pair keys, a
-// workload attestation for WIF keys. Keys that fail to resolve are dropped — never sent
-// as a raw private key, and never sent as an empty bearer.
+// resolveUpstreamSecrets replaces each key's Plaintext with its upstream credential.
+// Keys that fail to resolve are dropped — never sent as a raw key or empty bearer.
 func (s *Service) resolveUpstreamSecrets(ctx context.Context, keys []*ExternalAPIKey) []*ExternalAPIKey {
 	if !anyDerivedAuth(keys) {
 		return keys

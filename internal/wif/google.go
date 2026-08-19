@@ -1,6 +1,5 @@
-// Package wif provides workload attestation sources for upstreams that accept
-// workload identity federation. Adapters: they talk to a cloud metadata server
-// or the local filesystem, and satisfy auth.WIFTokenSource.
+// Package wif provides workload attestation sources that satisfy auth.WIFTokenSource.
+// Adapters: talk to a cloud metadata server or read a projected token file.
 package wif
 
 import (
