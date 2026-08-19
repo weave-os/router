@@ -122,6 +122,8 @@ type RouterModelRouterInstallation struct {
 	// Per-installation capture ceiling (off|hashed|full); NULL uses the deployment default
 	ContentCaptureMode   *string
 	HideTerminalSurfaces bool
+	// Org-level positive model allowlist. Empty = no restriction. Effective set = allowed_models minus excluded_models. Fail-closed: an allowlist with no eligible overlap refuses the turn.
+	AllowedModels []string
 }
 
 type RouterModelRouterRequestTelemetry struct {
