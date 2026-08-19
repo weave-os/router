@@ -187,6 +187,21 @@ contains "enable reports the model" "$out" "model gpt-5.6 is enabled"
 check "enable removes from the exclusion list" \
   "$(grep -c '^POST /admin/v1/excluded-models/remove {"model":"gpt-5.6"}$' "$REQUEST_LOG")" "1"
 
+# A flag may appear before, after, or between operands — the slash wrapper's
+# first call is `models --claude` (flag before any sub-verb), so a follow-up
+# `enable`/`disable` written the same way must not become "Unknown flag".
+: >"$REQUEST_LOG"
+run_models "$home" -- --claude enable gpt-5.6
+check "enable with the client flag before the sub-verb exits 0" "$rc" "0"
+check "enable with the client flag before the sub-verb still calls the API" \
+  "$(grep -c '^POST /admin/v1/excluded-models/remove {"model":"gpt-5.6"}$' "$REQUEST_LOG")" "1"
+
+: >"$REQUEST_LOG"
+run_models "$home" -- disable --claude gpt-5.6
+check "disable with the client flag between the verb and the id exits 0" "$rc" "0"
+check "disable with the client flag between the verb and the id still calls the API" \
+  "$(grep -c '^POST /admin/v1/excluded-models {"model":"gpt-5.6"}$' "$REQUEST_LOG")" "1"
+
 : >"$REQUEST_LOG"
 run_models "$home" -- disable claude-haiku-4-5 gpt-5.6 --claude
 check "disable accepts several models in one call" \
@@ -234,6 +249,26 @@ esac
 run_models "$home" -- disable gpt-5.6 --claude
 check "editing against a router without the API fails" "$rc" "1"
 contains "the failure names the dashboard" "$out" "router.workweave.ai/dashboard/settings"
+
+# `models providers` is read-only, same as `models list` — it must degrade the
+# same way on a 404 rather than hard-failing while listing still succeeds.
+run_models "$home" -- providers --claude
+check "providers list against a router without the API still exits 0" "$rc" "0"
+contains "providers list falls back to the public catalog" "$out" "anthropic"
+contains "providers list says where selection lives" "$out" "router.workweave.ai/dashboard/settings"
+case "$out" in
+  *"[x]"*|*"[ ]"*) no "the providers fallback claims no on/off state" "no checkbox markers" "$out" ;;
+  *)               ok "the providers fallback claims no on/off state" ;;
+esac
+
+run_models_stdout "$home" -- providers --claude --json
+check "providers list --json against a router without the API emits the provider names" \
+  "$(printf '%s' "$out" | jq -c 'sort')" '["anthropic","openai"]'
+
+run_models "$home" -- providers disable openai --claude
+check "editing providers against a router without the API still fails" "$rc" "1"
+contains "the providers failure names the dashboard" "$out" "router.workweave.ai/dashboard/settings"
+
 ROUTER_MODE="full"
 
 # ---------- unreachable router ----------

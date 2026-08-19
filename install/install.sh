@@ -1020,16 +1020,11 @@ while [ $# -gt 0 ]; do
       mode="off"; disable_routing_alias="true"; shift
       ;;
     models|--models)
-      # Model selection. Everything up to the next flag is the sub-verb and its
-      # operands, so `models disable a b --claude` reads naturally; the flags
-      # after them fall back through to this same parser.
+      # Model selection. Sub-verb and operand collection happens in the
+      # catch-all arm below (guarded on mode="models"), not here — that lets
+      # `--claude`/`--json`/etc. appear before, after, or between operands
+      # instead of only after every operand has been consumed.
       mode="models"; shift
-      while [ $# -gt 0 ]; do
-        case "$1" in
-          -*) break ;;
-          *)  models_args="${models_args}${models_args:+$'\n'}$1"; shift ;;
-        esac
-      done
       ;;
     --json)
       models_json="true"; shift
@@ -1038,7 +1033,16 @@ while [ $# -gt 0 ]; do
       usage 0
       ;;
     *)
-      err "Unknown flag: $1."; usage 2
+      # In `models` mode, a bare (non-dashed) word is a sub-verb or operand —
+      # collect it and keep parsing, so a flag can appear before, after, or
+      # between them (`models --claude enable x` and `models enable x --claude`
+      # both work). A dashed token nothing above matched is still an error,
+      # models mode or not.
+      if [ "$mode" = "models" ] && [ "${1#-}" = "$1" ]; then
+        models_args="${models_args}${models_args:+$'\n'}$1"; shift
+      else
+        err "Unknown flag: $1."; usage 2
+      fi
       ;;
   esac
 done
@@ -1953,19 +1957,33 @@ models_print_preferred() {
 # Deliberately not rendered as a checklist — this endpoint reports the deployed
 # catalog, not the installation's selection, so marking every row [x] would
 # claim models are enabled that the dashboard may well have excluded.
+#
+# $1 selects what to print from the same catalog payload: "models" (the
+# default) or "providers" — `models providers` hits this same 404 and must
+# degrade the same way `models list` does rather than hard-failing, since both
+# are read-only listing commands.
 models_list_catalog() {
-  models_api GET "$MODELS_CATALOG_PATH" || models_fail "listing models"
+  local what="${1:-models}"
+  models_api GET "$MODELS_CATALOG_PATH" || models_fail "listing $what"
   if [ "$models_json" = "true" ]; then
-    printf '%s\n' "$models_http_body"
+    if [ "$what" = "providers" ]; then
+      printf '%s' "$models_http_body" | jq -c '[.models[].provider] | unique'
+    else
+      printf '%s\n' "$models_http_body"
+    fi
     return 0
   fi
-  printf "%s%sWeave Router models%s %s· %s%s\n" "$C_BOLD" "$C_BRAND" "$C_RESET" "$C_DIM" "$base_url" "$C_RESET"
+  printf "%s%sWeave Router %s%s %s· %s%s\n" "$C_BOLD" "$C_BRAND" "$what" "$C_RESET" "$C_DIM" "$base_url" "$C_RESET"
   printf "%severything this router can route to%s\n\n" "$C_DIM" "$C_RESET"
-  printf '%s' "$models_http_body" | jq -r --arg reset "$C_RESET" --arg bold "$C_BOLD" '
-    .models | group_by(.provider)[]
-    | ($bold + .[0].provider + $reset),
-      (.[] | "  " + .model)
-  '
+  if [ "$what" = "providers" ]; then
+    printf '%s' "$models_http_body" | jq -r '[.models[].provider] | unique[] | "  " + .'
+  else
+    printf '%s' "$models_http_body" | jq -r --arg reset "$C_RESET" --arg bold "$C_BOLD" '
+      .models | group_by(.provider)[]
+      | ($bold + .[0].provider + $reset),
+        (.[] | "  " + .model)
+    '
+  fi
   printf "\n%sThis router does not report which of them your installation has enabled:%s\n" "$C_DIM" "$C_RESET"
   printf "%sselection is an organization-wide setting here. See it, and change it, at%s\n" "$C_DIM" "$C_RESET"
   printf "%s%s%s\n" "$C_DIM" "$MODELS_DASHBOARD_URL" "$C_RESET"
@@ -1975,7 +1993,7 @@ models_list() {
   if ! models_api GET "/admin/v1/models"; then
     # Only a missing API is worth degrading for; anything else is a real error.
     [ "$models_http_status" = "404" ] || models_fail "listing models"
-    models_list_catalog
+    models_list_catalog models
     return 0
   fi
   if [ "$models_json" = "true" ]; then
@@ -1989,7 +2007,15 @@ models_list() {
 }
 
 models_providers_list() {
-  models_api GET "/admin/v1/providers" || models_fail "listing providers"
+  if ! models_api GET "/admin/v1/providers"; then
+    # Same 404 degrade as models_list: a router with no model-selection API
+    # still answers the unauthed catalog, and this is a read-only listing
+    # command same as `models list` — no reason to hard-fail one and not
+    # the other.
+    [ "$models_http_status" = "404" ] || models_fail "listing providers"
+    models_list_catalog providers
+    return 0
+  fi
   if [ "$models_json" = "true" ]; then
     printf '%s\n' "$models_http_body"
     return 0
