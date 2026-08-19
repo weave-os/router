@@ -32,6 +32,13 @@ type Capabilities struct {
 	// ReportsRankedFallback declares that the sidecar returns ranked_fallback on
 	// the serving /route response. When false, cluster arm overrides fail open.
 	ReportsRankedFallback bool `json:"reports_ranked_fallback"`
+	// HonorsClusterModelLists declares that per-cluster model selections (org
+	// key-scoped and per-user) actually affect serving. Derived from
+	// ReportsRankedFallback, which is the precondition: without a ranked
+	// fallback the override machinery has nothing to re-select against and
+	// fails open. The control plane reads this to hide the per-cluster
+	// selection UI for strategies that would silently ignore it.
+	HonorsClusterModelLists bool `json:"honors_cluster_model_lists"`
 	// AuthoritativePerTurnSelection makes eligible main/tool-result decisions
 	// model-authoritative through dispatch.
 	AuthoritativePerTurnSelection bool `json:"authoritative_per_turn_selection"`

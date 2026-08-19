@@ -95,16 +95,19 @@ type subscriberReceiver interface {
 // payload to the local cache; cache TTL is the fallback under sustained outages.
 type InvalidationListener struct {
 	subscriber subscriberReceiver
-	cache      auth.APIKeyCache
+	caches     []auth.InstallationInvalidator
 	done       chan struct{}
 }
 
-// NewInvalidationListener wires a listener that drops entries from cache when
-// any replica (including this one's own writers) publishes on the topic.
-func NewInvalidationListener(subscriber *gcppubsub.Subscriber, cache auth.APIKeyCache) *InvalidationListener {
+// NewInvalidationListener wires a listener that drops entries from every
+// supplied cache when any replica (including this one's own writers) publishes
+// on the topic. Variadic because installation-scoped state lives in more than
+// one cache — the API-key cache and the per-user cluster-selection cache — and
+// one installation-changed message must reach all of them.
+func NewInvalidationListener(subscriber *gcppubsub.Subscriber, caches ...auth.InstallationInvalidator) *InvalidationListener {
 	return &InvalidationListener{
 		subscriber: subscriber,
-		cache:      cache,
+		caches:     caches,
 		done:       make(chan struct{}),
 	}
 }
@@ -119,7 +122,9 @@ func (l *InvalidationListener) Run(ctx context.Context) {
 	err := l.subscriber.Receive(ctx, func(_ context.Context, msg *gcppubsub.Message) {
 		installationID := string(msg.Data)
 		if installationID != "" {
-			l.cache.InvalidateInstallation(installationID)
+			for _, c := range l.caches {
+				c.InvalidateInstallation(installationID)
+			}
 		}
 		msg.Ack()
 	})

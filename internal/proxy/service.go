@@ -843,14 +843,13 @@ func (s *Service) preferredModelsForRequest(ctx context.Context) []string {
 }
 
 // clusterArmOverridesForRequest returns per-cluster arm overrides from ctx, or
-// nil when none are configured. Only consumed by the HMM sidecar router.
+// nil when none are configured. Merges the API-key-scoped list (org default)
+// with the resolved user's own selection — see mergeClusterOverrides for the
+// composition rule. Only consumed by the HMM sidecar router.
 func clusterArmOverridesForRequest(ctx context.Context) map[string][]string {
 	v := ctx.Value(ClusterModelListsContextKey{})
-	if v == nil {
-		return nil
-	}
-	out, _ := v.(map[string][]string)
-	return out
+	keyScoped, _ := v.(map[string][]string)
+	return mergeClusterOverrides(keyScoped, auth.UserClusterModelListsFrom(ctx))
 }
 
 // contextWindowOutputReserve is the minimum tokens reserved for the model's

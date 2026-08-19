@@ -8,10 +8,23 @@ import (
 // UserIDContextKey is the request-context key for the resolved router user ID.
 type UserIDContextKey struct{}
 
+// UserClusterModelListsContextKey is the request-context key for the resolved
+// user's per-cluster model selections (cluster label → ordered catalog model
+// IDs). Lives in auth rather than proxy because proxy imports auth, and the
+// value is resolved during user resolution, not in the auth middleware.
+type UserClusterModelListsContextKey struct{}
+
 // UserIDFrom returns the router user ID stashed on ctx, or "" if absent.
 func UserIDFrom(ctx context.Context) string {
 	s, _ := ctx.Value(UserIDContextKey{}).(string)
 	return s
+}
+
+// UserClusterModelListsFrom returns the resolved user's per-cluster model
+// selections stashed on ctx, or nil when the user configured none.
+func UserClusterModelListsFrom(ctx context.Context) map[string][]string {
+	m, _ := ctx.Value(UserClusterModelListsContextKey{}).(map[string][]string)
+	return m
 }
 
 // User is an end-user identity scoped to an installation.

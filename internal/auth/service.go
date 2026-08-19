@@ -53,17 +53,19 @@ func (NoOpInstallationChangeNotifier) NotifyInstallationChanged(string) {}
 
 // Service authenticates incoming bearer tokens. Identity only; routing/dispatch lives in proxy.Service.
 type Service struct {
-	installations     InstallationRepository
-	apiKeys           APIKeyRepository
-	externalKeys      ExternalAPIKeyRepository
-	users             UserRepository
-	clusterModelLists ClusterModelListRepository
-	cache             APIKeyCache
-	userCache         UserCache
-	notifier          InstallationChangeNotifier
-	now               Clock
-	encryptor         Encryptor
-	keypairTokens     *KeypairTokenCache
+	installations         InstallationRepository
+	apiKeys               APIKeyRepository
+	externalKeys          ExternalAPIKeyRepository
+	users                 UserRepository
+	clusterModelLists     ClusterModelListRepository
+	userClusterModelLists UserClusterModelListRepository
+	cache                 APIKeyCache
+	userCache             UserCache
+	userClusterCache      UserClusterListCache
+	notifier              InstallationChangeNotifier
+	now                   Clock
+	encryptor             Encryptor
+	keypairTokens         *KeypairTokenCache
 	// wifTokens is nil unless the deployment runs with a workload identity;
 	// WIF keys are then dropped rather than sent without a credential.
 	wifTokens WIFTokenSource
@@ -90,16 +92,17 @@ func NewService(
 		userCache = NoOpUserCache{}
 	}
 	return &Service{
-		installations: installations,
-		apiKeys:       apiKeys,
-		externalKeys:  externalKeys,
-		users:         users,
-		cache:         cache,
-		userCache:     userCache,
-		notifier:      NoOpInstallationChangeNotifier{},
-		now:           now,
-		encryptor:     NoOpEncryptor{},
-		keypairTokens: NewKeypairTokenCache(now),
+		installations:    installations,
+		apiKeys:          apiKeys,
+		externalKeys:     externalKeys,
+		users:            users,
+		cache:            cache,
+		userCache:        userCache,
+		userClusterCache: NoOpUserClusterListCache{},
+		notifier:         NoOpInstallationChangeNotifier{},
+		now:              now,
+		encryptor:        NoOpEncryptor{},
+		keypairTokens:    NewKeypairTokenCache(now),
 	}
 }
 
@@ -119,6 +122,19 @@ func (s *Service) WithWIFTokenSource(src WIFTokenSource) *Service {
 // defaults. Kept off NewService so existing callers/tests stay source-stable.
 func (s *Service) WithClusterModelLists(repo ClusterModelListRepository) *Service {
 	s.clusterModelLists = repo
+	return s
+}
+
+// WithUserClusterModelLists wires the per-user per-cluster selection repo and
+// its cache. When unset, ResolveAndStashUser stashes no selections and routing
+// keeps the key-scoped list (or artifact defaults). Pass a nil cache for the
+// no-op. Kept off NewService so existing callers/tests stay source-stable.
+func (s *Service) WithUserClusterModelLists(repo UserClusterModelListRepository, cache UserClusterListCache) *Service {
+	s.userClusterModelLists = repo
+	if cache == nil {
+		cache = NoOpUserClusterListCache{}
+	}
+	s.userClusterCache = cache
 	return s
 }
 
@@ -596,7 +612,7 @@ func (s *Service) ResolveAndStashUser(ctx context.Context, installationID, email
 	identityKey := userIdentityKey(email, claudeAccountUUID)
 	if cached, ok := s.userCache.Get(installationID, identityKey); ok {
 		log.Debug("ResolveAndStashUser cache hit", "installation_id", installationID, "user_id", cached)
-		return context.WithValue(ctx, UserIDContextKey{}, cached)
+		return s.withUserClusterLists(ctx, installationID, cached)
 	}
 
 	var namePtr *string
@@ -635,7 +651,49 @@ func (s *Service) ResolveAndStashUser(ctx context.Context, installationID, email
 	}
 	s.userCache.Set(installationID, identityKey, user.ID)
 	log.Debug("ResolveAndStashUser upsert ok", "installation_id", installationID, "user_id", user.ID)
-	return context.WithValue(ctx, UserIDContextKey{}, user.ID)
+	return s.withUserClusterLists(ctx, installationID, user.ID)
+}
+
+// withUserClusterLists stashes the router user ID plus that user's per-cluster
+// model selections on ctx. Called from both the cache-hit and upsert paths of
+// ResolveAndStashUser so a warm user cache doesn't silently skip the selection
+// load.
+//
+// Fail-open on error, matching VerifyAPIKey's handling of key-scoped cluster
+// lists: a transient DB error serves this request on artifact-default routing
+// rather than failing an authenticated request, and the empty result is not
+// cached so the outage can't disable selections for the full TTL. A successful
+// empty result IS cached — most users configure nothing, and re-querying for
+// them on every request is the common case, not the exception.
+func (s *Service) withUserClusterLists(ctx context.Context, installationID, routerUserID string) context.Context {
+	ctx = context.WithValue(ctx, UserIDContextKey{}, routerUserID)
+	if s.userClusterModelLists == nil || routerUserID == "" {
+		return ctx
+	}
+	lists, ok := s.userClusterCache.Get(routerUserID)
+	if !ok {
+		fetched, err := s.userClusterModelLists.GetForUser(ctx, routerUserID)
+		if err != nil {
+			observability.Get().Warn("Failed to fetch user cluster model lists", "router_user_id", routerUserID, "err", err)
+			return ctx
+		}
+		lists = fetched
+		s.userClusterCache.Set(installationID, routerUserID, lists)
+	}
+	if len(lists) == 0 {
+		return ctx
+	}
+	overrides := make(map[string][]string, len(lists))
+	for _, l := range lists {
+		if len(l.Models) == 0 {
+			continue
+		}
+		overrides[l.ClusterLabel] = l.Models
+	}
+	if len(overrides) == 0 {
+		return ctx
+	}
+	return context.WithValue(ctx, UserClusterModelListsContextKey{}, overrides)
 }
 
 func userIdentityKey(email, claudeAccountUUID string) string {

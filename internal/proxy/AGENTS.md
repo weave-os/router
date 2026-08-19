@@ -41,6 +41,45 @@ The provider-backed `Summarizer` implementation for handover lives in [`handover
 
 `ProxyMessages` / `ProxyOpenAIChatCompletion` call [`maybeCompact`](compaction.go) **before** routing so an over-long session is compacted rather than dead-ending in the scorer with no eligible provider. It engages when the estimate reaches `ROUTER_COMPACTION_PCT` (default 0.85) of the largest eligible model's window and runs Claude Code's tiered cascade: (1) `ClearOldToolResults` — local, clears stale tool results; (2) structured 9-section summary via a **window-aware** Anthropic-family summarizer (`SummarizeForCompaction`; haiku when the history fits, `claude-fable-5` for larger) rewritten with `RewriteForCompaction(summary, recentTurns)`; (3) progressive `TrimLastNMessages` rescue. If even the trimmed floor overflows, it returns `ErrContextWindowExceeded` → HTTP 413 (distinct from the "no provider keys" `ErrNoEligibleProvider`). The summary call is billed as a `_precompaction_summary` ledger row. Trigger below the window (not at overflow) is load-bearing: a summarizer can only ingest a history that still fits *some* model.
 
+## Model-restriction layers
+
+Three distinct restrictions compose, and the layering is deliberate — do not
+collapse them.
+
+| Layer | Scope | Polarity | Where enforced |
+|---|---|---|---|
+| `allowed_models` | org (installation) | fail-closed | desugared into `ExcludedModels` by `excludedModelsForRequest` |
+| `excluded_models` | org (installation) | fail-closed | scorer + policy resolver |
+| `cluster_model_lists` | API key (org default) | fail-open | `policy.ApplyClusterArmOverrides` |
+| `model_router_user_cluster_model_lists` | router user | fail-open | same, after `mergeClusterOverrides` |
+
+**The allowlist is desugared, not separately filtered.** `excludedModelsForRequest`
+adds every routable model absent from a non-empty allowlist to the exclusion
+set, so all six existing enforcement sites honor it with no new filter loops.
+`router.Request.AllowedModels` exists only so errors and diagnostics can name
+the allowlist instead of dumping the desugared exclusion list.
+
+**The fail-open/fail-closed asymmetry is load-bearing.** An org allowlist is a
+compliance control (a breach is worse than an outage); a user's per-cluster
+selection is a preference (hard-failing a turn because a personal pick went
+stale is a terrible trade). This composes safely ONLY because the allowlist
+binds upstream in the resolver, while the preference binds downstream in the
+override layer — falling open there falls back to a selection that is already
+allowlist-constrained. **Never enforce the allowlist in the override layer**;
+fail-open would silently defeat it.
+
+**Per-cluster lists intersect, never override.** `mergeClusterOverrides`
+intersects a user's selection with the API-key-scoped list. A plain override
+would let an individual re-admit a model the org deliberately removed —
+privilege escalation through an admin control.
+
+**Two paths deliberately bypass `excluded_models` and need explicit allowlist
+handling:** `usageBypassEngaged` (consults `SafetyExcludedModels`, since
+exclusions are a preference the bypass may override — but an allowlist is not)
+and `ROUTER_EXCLUDED_MODELS` (an operator escape hatch that short-circuits
+`excludedModelsForRequest` entirely; intentional, so an operator debugging a
+deployment is not constrained by one org's config).
+
 ## Translation
 
 `proxy.Service` is the **only caller of [`../translate`](../translate)**. Keep providers ignorant of cross-format concerns. See [translate/CLAUDE.md](../translate/CLAUDE.md) for the recipe.

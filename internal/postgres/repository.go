@@ -17,22 +17,26 @@ type Repository struct {
 	ExternalAPIKeys   auth.ExternalAPIKeyRepository
 	Users             auth.UserRepository
 	ClusterModelLists auth.ClusterModelListRepository
-	Telemetry         *TelemetryRepo
-	Feedback          *FeedbackRepo
-	Analytics         *AnalyticsRepo
+	// UserClusterModelLists is the per-user sibling of ClusterModelLists: the
+	// key-scoped list is the org default, this narrows it per router user.
+	UserClusterModelLists auth.UserClusterModelListRepository
+	Telemetry             *TelemetryRepo
+	Feedback              *FeedbackRepo
+	Analytics             *AnalyticsRepo
 }
 
 // NewRepository constructs a Repository. Pass auth.NoOpEncryptor{} for local dev without a keyset.
 func NewRepository(tx sqlc.DBTX, encryptor auth.Encryptor) *Repository {
 	return &Repository{
-		Installations:     &installationRepo{tx: tx},
-		APIKeys:           &apiKeyRepo{tx: tx},
-		ExternalAPIKeys:   NewExternalAPIKeyRepo(tx, encryptor),
-		Users:             NewUserRepository(tx),
-		ClusterModelLists: NewClusterModelListRepo(tx),
-		Telemetry:         NewTelemetryRepo(tx),
-		Feedback:          NewFeedbackRepo(tx),
-		Analytics:         NewAnalyticsRepo(tx),
+		Installations:         &installationRepo{tx: tx},
+		APIKeys:               &apiKeyRepo{tx: tx},
+		ExternalAPIKeys:       NewExternalAPIKeyRepo(tx, encryptor),
+		Users:                 NewUserRepository(tx),
+		ClusterModelLists:     NewClusterModelListRepo(tx),
+		UserClusterModelLists: NewUserClusterModelListRepo(tx),
+		Telemetry:             NewTelemetryRepo(tx),
+		Feedback:              NewFeedbackRepo(tx),
+		Analytics:             NewAnalyticsRepo(tx),
 	}
 }
 

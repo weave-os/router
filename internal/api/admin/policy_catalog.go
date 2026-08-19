@@ -30,11 +30,17 @@ func PolicyCatalogHandler(service *proxy.Service, defaultStrategy router.Strateg
 				HonorsQualityPriceBias: true,
 				SupportsPreview:        true,
 				SupportsShadow:         true,
+				// The cluster scorer has no ranked fallback to re-select
+				// against, so per-cluster model selections are inert on it.
+				HonorsClusterModelLists: false,
 			},
 		}}
 		if service != nil {
 			for _, strategy := range service.RegisteredStrategies() {
 				capabilities, _ := service.PolicyCapabilities(strategy)
+				// Derived, not separately negotiated: ranked fallback is the
+				// precondition for cluster overrides taking effect.
+				capabilities.HonorsClusterModelLists = capabilities.ReportsRankedFallback
 				entries = append(entries, policyCatalogEntry{
 					Strategy:     strategy,
 					Available:    service.PolicyStrategyAvailable(strategy),
