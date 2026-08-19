@@ -247,11 +247,11 @@ Keep liveness probes on `/health`. Point startup or readiness probes at
 
 ## Star history
 
-<a href="https://star-history.com/#workweave/router&Date">
+<a href="https://star-history.dera.page/#workweave/router&Date">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=workweave/router&type=Date&theme=dark" />
-    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=workweave/router&type=Date" />
-    <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=workweave/router&type=Date" />
+    <source media="(prefers-color-scheme: dark)" srcset="https://star-history.dera.page/svg?repos=workweave/router&type=Date&theme=dark" />
+    <source media="(prefers-color-scheme: light)" srcset="https://star-history.dera.page/svg?repos=workweave/router&type=Date" />
+    <img alt="Star History Chart" src="https://star-history.dera.page/svg?repos=workweave/router&type=Date" />
   </picture>
 </a>
 
