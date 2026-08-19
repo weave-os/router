@@ -1,0 +1,27 @@
+install/install.sh
+  s_4e4a6bb1bab297::t_dc2f3c96d621c3 2580,2653
+install/cc-statusline.sh
+  s_4e4a6bb1bab297::t_dc2f3c96d621c3 319,392
+internal/router/catalog/catalog.go
+  s_4e4a6bb1bab297::t_51f2a1e2098ec6 445-446,448-449
+install/npm/package.json
+  s_4e4a6bb1bab297::t_7eedd9990de50d 3
+install/pi-router/src/pricing.generated.ts
+  s_4e4a6bb1bab297::t_1b7fa173ee5c16 9,26
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "861f438ae7e83893a96fc3ce98c640510a402c06",
+  "prompts": {},
+  "sessions": {
+    "s_4e4a6bb1bab297": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a228e414-4b90-47ac-afc8-0453d740f411",
+        "model": "claude-sonnet-5"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}
