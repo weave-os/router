@@ -1476,25 +1476,34 @@ claude_key_present() {
 # nothing. Only Claude Code is supported today; the other targets still prompt.
 # Defined up here rather than with the rest of token handling because `models`
 # dispatches (and needs a key) before that section runs.
+#
+# models_key_file_order echoes the precedence this uses, so a caller that needs
+# to know *which* file the key came from can walk the same list (a command
+# substitution around this function would discard any global it set).
+models_key_file_order() {
+  if [ "$scope" = "project" ] && [ -z "$install_dir" ]; then
+    printf '%s\n%s\n%s\n' "$local_settings_file" "$settings_file" "$settings_dir/.weave-parked.json"
+  else
+    printf '%s\n%s\n%s\n' "$settings_file" "$local_settings_file" "$settings_dir/.weave-parked.json"
+  fi
+}
+
 read_installed_key() {
   [ "$target" = "claude" ] || return 0
-  local key=""
+  local key="" candidate
   # Mirror where the install path writes the key: project scope (no --dir) puts
   # it in the gitignored settings.local.json, everything else inlines it into
   # settings.json. Check the other file too — a scope was possibly changed, or a
   # project checkout may carry a committed header from an older install.
-  if [ "$scope" = "project" ] && [ -z "$install_dir" ]; then
-    key="$(read_claude_key "$local_settings_file")"
-    [ -n "$key" ] || key="$(read_claude_key "$settings_file")"
-  else
-    key="$(read_claude_key "$settings_file")"
-    [ -n "$key" ] || key="$(read_claude_key "$local_settings_file")"
-  fi
-  # Last resort: `off` moves the key header out of the settings files and into
-  # the parked sidecar, so an install/update run while toggled off finds nothing
-  # above even though the key is still on disk. Same {"env":{…}} shape, so
-  # read_claude_key reads it directly.
-  [ -n "$key" ] || key="$(read_claude_key "$settings_dir/.weave-parked.json")"
+  # The parked sidecar is last: `off` moves the key header out of the settings
+  # files and into it, so a run while toggled off finds nothing above even
+  # though the key is still on disk. Same {"env":{…}} shape, so read_claude_key
+  # reads it directly.
+  while IFS= read -r candidate; do
+    [ -n "$candidate" ] || continue
+    key="$(read_claude_key "$candidate")"
+    [ -n "$key" ] && break
+  done <<<"$(models_key_file_order)"
   printf '%s' "$key"
 }
 
@@ -1503,20 +1512,50 @@ read_installed_key() {
 # one. The parked sidecar comes first: `off` moves the router URL there and
 # leaves api.anthropic.com in the live file, so reading the live file while
 # toggled off would report Anthropic as the router.
+#
+# models_base_file_order echoes that same precedence for callers that need to
+# know which file supplied the endpoint (see models_key_file_order).
+models_base_file_order() {
+  printf '%s\n%s\n%s\n' "$settings_dir/.weave-parked.json" "$settings_file" "$local_settings_file"
+}
+
 resolve_installed_base_url() {
   local candidate found
-  for candidate in \
-    "$settings_dir/.weave-parked.json" \
-    "$settings_file" \
-    "$local_settings_file"
-  do
+  while IFS= read -r candidate; do
+    [ -n "$candidate" ] || continue
     found="$(json_get "$candidate" '.env.ANTHROPIC_BASE_URL')"
     if router_shaped_url "$found"; then
       printf '%s' "${found%/}"
       return 0
     fi
-  done
+  done <<<"$(models_base_file_order)"
   printf ''
+}
+
+# models_endpoint_is_trusted returns 0 when it is safe to send the router key
+# resolved from $2 to the endpoint resolved from $1.
+#
+# Project scope deliberately splits the two: the endpoint lives in the
+# committed settings.json (teammates share it) while each teammate's key lives
+# in the gitignored settings.local.json. That split is fine on its own, but it
+# means a *hostile* repo can commit a settings.json naming an endpoint it
+# controls and have this command mail the developer's key to it. Endpoint and
+# credential from the same file are self-consistent and always fine. When they
+# differ, the endpoint must be one the user vouched for out-of-band — the
+# hosted default, or an explicit --base-url — rather than whatever the checkout
+# happened to contain.
+models_endpoint_is_trusted() {
+  local url="$1" base_src="$2" key_src="$3"
+  [ "$base_url_explicit" = "true" ] && return 0
+  [ "$url" = "$HOSTED_BASE_URL" ] && return 0
+  [ -n "$base_src" ] && [ "$base_src" = "$key_src" ] && return 0
+  # A repo can only pre-plant a file git tracks; an untracked local file is the
+  # user's own. If the endpoint's file isn't tracked, it wasn't planted. Checked
+  # inline rather than via weave_command_tracked_by_git, which is defined further
+  # down (inside the statusline heredoc's neighborhood) and isn't in scope here.
+  command -v git >/dev/null 2>&1 || return 1
+  git -C "$(dirname "$base_src")" ls-files --error-unmatch -- "$base_src" >/dev/null 2>&1 || return 0
+  return 1
 }
 
 # gitignore_add appends an entry to the repo .gitignore in project scope so a
@@ -2050,7 +2089,12 @@ models_toggle() {
     if ! models_api POST "$path" "$body"; then
       models_fail "$doing $label '$id'"
     fi
-    if [ "$action" = "enable" ]; then
+    # Under --json the router's own response body is the output: a scripted
+    # caller parses stdout, and printing prose there makes it report a parse
+    # failure for a mutation that already succeeded.
+    if [ "$models_json" = "true" ]; then
+      printf '%s\n' "$models_http_body"
+    elif [ "$action" = "enable" ]; then
       printf "%s✓%s %s %s%s%s is enabled\n" "$C_GREEN" "$C_RESET" "$label" "$C_BOLD" "$id" "$C_RESET"
     else
       printf "%s✓%s %s %s%s%s is disabled — the router will not pick it\n" "$C_GREEN" "$C_RESET" "$label" "$C_BOLD" "$id" "$C_RESET"
@@ -2069,6 +2113,10 @@ models_prefer() {
     body="$(printf '%s' "$ids" | jq -c -R -s '{preferred: (split("\n") | map(select(length > 0)))}')"
   fi
   models_api PUT "/admin/v1/preferred-models" "$body" || models_fail "setting the preferred-model ranking"
+  if [ "$models_json" = "true" ]; then
+    printf '%s\n' "$models_http_body"
+    return 0
+  fi
   stored="$(printf '%s' "$models_http_body" | jq -r '(.preferred // []) | join(" > ")')"
   if [ -n "$stored" ]; then
     printf "%s✓%s Preferred order: %s\n" "$C_GREEN" "$C_RESET" "$stored"
@@ -2132,6 +2180,11 @@ run_models() {
 }
 
 if [ "$mode" = "models" ]; then
+  # Which file supplied the endpoint / the key. Empty means "not from a settings
+  # file" — an explicit --base-url, or WEAVE_ROUTER_KEY. Initialized before the
+  # branches below so `set -u` holds on every path.
+  models_base_source=""
+  models_key_source=""
   # Editing model selection needs the endpoint and key of one specific install,
   # never the hosted defaults: a self-hosted user pointing at their own router
   # would otherwise silently edit the hosted one's installation.
@@ -2142,10 +2195,52 @@ if [ "$mode" = "models" ]; then
       exit 1
     fi
     base_url="$models_base"
+    # resolve_installed_base_url ran in a command substitution, so any global it
+    # set died with that subshell. Recover the source by walking the same
+    # precedence to find which file holds the endpoint we just adopted.
+    while IFS= read -r models_src_candidate; do
+      [ -n "$models_src_candidate" ] || continue
+      models_src_url="$(json_get "$models_src_candidate" '.env.ANTHROPIC_BASE_URL')"
+      if [ "${models_src_url%/}" = "$models_base" ]; then
+        models_base_source="$models_src_candidate"
+        break
+      fi
+    done <<<"$(models_base_file_order)"
   fi
-  api_key="${WEAVE_ROUTER_KEY:-$(read_installed_key)}"
+  # WEAVE_ROUTER_KEY is the user's own choice, so it pairs with any endpoint.
+  if [ -n "${WEAVE_ROUTER_KEY:-}" ]; then
+    api_key="$WEAVE_ROUTER_KEY"
+    models_key_source="env:WEAVE_ROUTER_KEY"
+  else
+    api_key="$(read_installed_key)"
+    # Same subshell caveat as the endpoint above: recover which file the key
+    # came from by re-reading them in read_installed_key's own precedence.
+    models_key_source=""
+    while IFS= read -r models_src_candidate; do
+      [ -n "$models_src_candidate" ] || continue
+      if [ -n "$(read_claude_key "$models_src_candidate")" ]; then
+        models_key_source="$models_src_candidate"
+        break
+      fi
+    done <<<"$(models_key_file_order)"
+  fi
   if [ -z "$api_key" ]; then
     err "No router key found for Claude Code in this scope. Re-run 'npx @workweave/router --claude', or export WEAVE_ROUTER_KEY."
+    exit 1
+  fi
+  # Never send a key to an endpoint the checkout supplied. See
+  # models_endpoint_is_trusted: a hostile repo can commit a settings.json naming
+  # its own router, and pairing that with the teammate key from the gitignored
+  # settings.local.json would hand the key to whoever wrote the repo.
+  if [ "$models_key_source" != "env:WEAVE_ROUTER_KEY" ] \
+     && ! models_endpoint_is_trusted "$base_url" "$models_base_source" "$models_key_source"; then
+    err "Refusing to send this installation's router key to $base_url."
+    printf "  %sThat endpoint comes from %s, which git tracks — a checked-out repo can set it —%s\n" \
+      "$C_DIM" "${models_base_source##*/}" "$C_RESET" >&2
+    printf "  %swhile the key comes from %s. Pass --base-url <url> to confirm the endpoint,%s\n" \
+      "$C_DIM" "${models_key_source##*/}" "$C_RESET" >&2
+    printf "  %sor re-run 'npx @workweave/router --claude' to install against the one you want.%s\n" \
+      "$C_DIM" "$C_RESET" >&2
     exit 1
   fi
   run_models

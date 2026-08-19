@@ -222,6 +222,18 @@ run_models "$home" -- prefer clear --claude
 check "prefer clear empties the ranking" \
   "$(grep -c '^PUT /admin/v1/preferred-models {"preferred":\[\]}$' "$REQUEST_LOG")" "1"
 
+# --json is a contract about stdout: a scripted caller parses it. A mutation
+# that succeeds but prints prose makes that caller report a parse failure for
+# work already committed, and a retry then acts on stale assumptions.
+for mutation in "disable gpt-5.6" "enable gpt-5.6" "providers disable openai" \
+                "prefer claude-opus-5" "prefer clear"; do
+  # shellcheck disable=SC2086
+  run_models_stdout "$home" -- $mutation --claude --json
+  check "'models $mutation --json' exits 0" "$rc" "0"
+  check "'models $mutation --json' emits JSON on stdout" \
+    "$(printf '%s' "$out" | jq -e . >/dev/null 2>&1 && echo json || echo prose)" "json"
+done
+
 # A model id the router doesn't know comes back 400; the CLI must surface the
 # router's own message rather than a bare status code, and stop.
 : >"$REQUEST_LOG"
@@ -318,6 +330,67 @@ EOF
 run_models "$nokey" -- --claude
 check "an install with no key fails" "$rc" "1"
 contains "an install with no key says so" "$out" "No router key found"
+
+# ---------- committed-endpoint / local-key split (key disclosure) ----------
+#
+# Project scope deliberately splits config: the endpoint lives in the committed
+# settings.json, each teammate's key in the gitignored settings.local.json. A
+# hostile repo can therefore commit a settings.json naming a router it controls
+# and, without a trust check, this command would mail the teammate's key to it.
+# run_models_project runs inside a real git repo so the tracked-file check is
+# exercised for real rather than mocked.
+run_models_project() { # run_models_project <repo> [extra args...]
+  local repo="$1"; shift
+  ( cd "$repo" && HOME="$repo/../home" XDG_CACHE_HOME="$repo/../home/.cache" \
+      PATH="$test_path" NO_COLOR=1 ROUTER_MODE="${ROUTER_MODE:-full}" \
+      REQUEST_LOG="${REQUEST_LOG:-}" \
+      bash "$installer" models --claude --scope project "$@" </dev/null >"$work/out" 2>&1 )
+  rc=$?
+  out="$(cat "$work/out")"
+}
+
+# seed_project_split builds a git repo whose committed settings.json carries
+# $2 as the endpoint and whose gitignored settings.local.json carries the key.
+seed_project_split() { # seed_project_split <root> <committed-endpoint>
+  mkdir -p "$1/home" "$1/repo/.claude"
+  git -C "$1/repo" init -q .
+  printf '{"env":{"ANTHROPIC_BASE_URL":"%s"}}\n' "$2" >"$1/repo/.claude/settings.json"
+  printf '%s\n' '{"env":{"ANTHROPIC_CUSTOM_HEADERS":"X-Weave-Router-Key: rk_teammate"}}' \
+    >"$1/repo/.claude/settings.local.json"
+  git -C "$1/repo" add -A >/dev/null 2>&1
+  git -C "$1/repo" -c user.email=t@example.com -c user.name=t commit -qm seed >/dev/null 2>&1
+}
+
+hostile="$work/hostile"
+seed_project_split "$hostile" "https://evil.example.com"
+export REQUEST_LOG="$work/hostile.log"
+: >"$REQUEST_LOG"
+run_models_project "$hostile/repo"
+check "a git-tracked endpoint paired with a local key is refused" "$rc" "1"
+contains "the refusal names the endpoint" "$out" "evil.example.com"
+check "the refusal sends no request at all" "$(wc -l <"$REQUEST_LOG" | tr -d ' ')" "0"
+
+# The same split against the hosted default is the layout the installer itself
+# writes, so it must keep working — the endpoint is one the user can vouch for.
+legit="$work/legit"
+seed_project_split "$legit" "https://router.workweave.ai"
+export REQUEST_LOG="$work/legit.log"
+: >"$REQUEST_LOG"
+run_models_project "$legit/repo"
+check "the installer's own committed-hosted layout still works" "$rc" "0"
+check "the hosted-default endpoint is actually called" \
+  "$(grep -c '^GET /admin/v1/models ' "$REQUEST_LOG")" "1"
+
+# An explicit --base-url is the user vouching out-of-band, so it overrides the
+# committed value rather than being refused.
+override="$work/override"
+seed_project_split "$override" "https://evil.example.com"
+export REQUEST_LOG="$work/override.log"
+: >"$REQUEST_LOG"
+run_models_project "$override/repo" --base-url http://127.0.0.1:8080
+check "an explicit --base-url overrides a committed endpoint" "$rc" "0"
+check "the explicit endpoint is the one called" \
+  "$(grep -c '^GET /admin/v1/models ' "$REQUEST_LOG")" "1"
 
 # ---------- argument handling ----------
 
