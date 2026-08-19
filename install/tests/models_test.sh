@@ -351,12 +351,20 @@ run_models_project() { # run_models_project <repo> [extra args...]
 
 # seed_project_split builds a git repo whose committed settings.json carries
 # $2 as the endpoint and whose gitignored settings.local.json carries the key.
-seed_project_split() { # seed_project_split <root> <committed-endpoint>
+# A third "trusted" argument simulates the marker written by the installer for
+# project-scoped self-hosted installs.
+seed_project_split() { # seed_project_split <root> <committed-endpoint> [trusted]
   mkdir -p "$1/home" "$1/repo/.claude"
   git -C "$1/repo" init -q .
   printf '{"env":{"ANTHROPIC_BASE_URL":"%s"}}\n' "$2" >"$1/repo/.claude/settings.json"
-  printf '%s\n' '{"env":{"ANTHROPIC_CUSTOM_HEADERS":"X-Weave-Router-Key: rk_teammate"}}' \
-    >"$1/repo/.claude/settings.local.json"
+  if [ "${3:-}" = "trusted" ]; then
+    printf '{"env":{"ANTHROPIC_CUSTOM_HEADERS":"X-Weave-Router-Key: rk_teammate","WEAVE_ROUTER_BASE_URL":"%s"}}\n' "$2" \
+      >"$1/repo/.claude/settings.local.json"
+  else
+    printf '%s\n' '{"env":{"ANTHROPIC_CUSTOM_HEADERS":"X-Weave-Router-Key: rk_teammate"}}' \
+      >"$1/repo/.claude/settings.local.json"
+  fi
+  printf '.claude/settings.local.json\n' >"$1/repo/.gitignore"
   git -C "$1/repo" add -A >/dev/null 2>&1
   git -C "$1/repo" -c user.email=t@example.com -c user.name=t commit -qm seed >/dev/null 2>&1
 }
@@ -379,6 +387,22 @@ export REQUEST_LOG="$work/legit.log"
 run_models_project "$legit/repo"
 check "the installer's own committed-hosted layout still works" "$rc" "0"
 check "the hosted-default endpoint is actually called" \
+  "$(grep -c '^GET /admin/v1/models ' "$REQUEST_LOG")" "1"
+
+# A self-hosted project endpoint gets the same marker from a real installer
+# run, so the split layout is accepted after installation rather than only for
+# the hosted default.
+selfhosted_project="$work/selfhosted-project"
+mkdir -p "$selfhosted_project/home" "$selfhosted_project/repo"
+git -C "$selfhosted_project/repo" init -q .
+(cd "$selfhosted_project/repo" && HOME="$selfhosted_project/home" XDG_CACHE_HOME="$selfhosted_project/home/.cache" \
+  PATH="$test_path" NO_COLOR=1 WEAVE_ROUTER_KEY=rk_teammate \
+  bash "$installer" --claude --scope project --quiet --non-interactive --base-url http://127.0.0.1:8080 >/dev/null 2>&1)
+export REQUEST_LOG="$work/selfhosted-project.log"
+: >"$REQUEST_LOG"
+run_models_project "$selfhosted_project/repo"
+check "the installer's committed self-hosted layout still works" "$rc" "0"
+check "the trusted self-hosted endpoint is actually called" \
   "$(grep -c '^GET /admin/v1/models ' "$REQUEST_LOG")" "1"
 
 # An explicit --base-url is the user vouching out-of-band, so it overrides the

@@ -1549,6 +1549,19 @@ models_endpoint_is_trusted() {
   [ "$base_url_explicit" = "true" ] && return 0
   [ "$url" = "$HOSTED_BASE_URL" ] && return 0
   [ -n "$base_src" ] && [ "$base_src" = "$key_src" ] && return 0
+  # Project-scoped self-hosted installs intentionally split the endpoint and
+  # key. The installer writes a gitignored marker beside the key; require that
+  # marker to match before trusting the split. A tracked/symlinked local file is
+  # not a teammate's private configuration and cannot vouch for an endpoint.
+  if [ "$key_src" = "$local_settings_file" ] && [ ! -L "$key_src" ]; then
+    local marked_url
+    marked_url="$(json_get "$key_src" '.env.WEAVE_ROUTER_BASE_URL')"
+    if [ "${marked_url%/}" = "${url%/}" ]; then
+      command -v git >/dev/null 2>&1 || return 1
+      git -C "$(dirname "$key_src")" ls-files --error-unmatch -- "$key_src" >/dev/null 2>&1 && return 1
+      return 0
+    fi
+  fi
   # A repo can only pre-plant a file git tracks; an untracked local file is the
   # user's own. If the endpoint's file isn't tracked, it wasn't planted. Checked
   # inline rather than via weave_command_tracked_by_git, which is defined further
@@ -3558,8 +3571,8 @@ write_claude_settings() {
   ok "Settings written to $settings_file"
 
   if [ "$scope" = "project" ] && [ -z "$install_dir" ]; then
-    jq -n --arg header "$custom_headers" '{
-      env: { ANTHROPIC_CUSTOM_HEADERS: $header }
+    jq -n --arg header "$custom_headers" --arg router_url "$base_url" '{
+      env: { ANTHROPIC_CUSTOM_HEADERS: $header, WEAVE_ROUTER_BASE_URL: $router_url }
     }' >"$tmp_patch"
     if [ -f "$local_settings_file" ]; then
       # Also strip ANTHROPIC_BASE_URL: `off` in project scope points this file
