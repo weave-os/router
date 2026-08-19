@@ -27,9 +27,8 @@ func NewGoogleTokenSource(audience string) *GoogleTokenSource {
 	return &GoogleTokenSource{audience: audience}
 }
 
-// Attestation returns the Snowflake-shaped GCP credential. The underlying
-// credentials cache and refresh the ID token, so the metadata server is hit
-// once per token lifetime rather than once per request.
+// Attestation returns the Snowflake-shaped GCP credential. The underlying credentials
+// cache and refresh the ID token, so the metadata server is hit once per token lifetime.
 func (s *GoogleTokenSource) Attestation(ctx context.Context) ([]byte, error) {
 	creds, err := s.credentials()
 	if err != nil {

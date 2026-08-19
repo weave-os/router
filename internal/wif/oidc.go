@@ -9,9 +9,8 @@ import (
 	"workweave/router/internal/auth"
 )
 
-// FileTokenSource reads a projected OIDC token — a Kubernetes service-account
-// token, typically — from disk. The file is re-read every call because the
-// projecting runtime rewrites it in place before expiry.
+// FileTokenSource reads a projected OIDC token from disk on every call;
+// the projecting runtime rewrites the file in place before expiry.
 type FileTokenSource struct {
 	path string
 }

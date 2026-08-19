@@ -52,9 +52,8 @@ type Credentials struct {
 	// endpoint wants the caller's identity in; empty forwards nothing.
 	IdentityHeader       string
 	IdentityHeaderFormat string
-	// AuthType is the BYOK key's auth mode (see auth.AuthType*). APIKey already
-	// holds the derived credential; this only tells the adapter how the upstream
-	// must be told to read it.
+	// AuthType is the BYOK key's auth mode (see auth.AuthType*). APIKey already holds
+	// the derived credential; this tells the adapter how the upstream must read it.
 	AuthType string
 }
 

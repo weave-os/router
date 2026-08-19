@@ -7,9 +7,8 @@ import (
 	"strings"
 )
 
-// Snowflake workload identity federation constants. The attestation travels in
-// the usual bearer slot, so the header below is what tells the upstream to read
-// it as a federated identity rather than as a Snowflake-issued token.
+// Snowflake workload identity federation constants. The token-type header
+// tells the upstream to read the bearer as a federated identity, not a Snowflake-issued token.
 const (
 	WIFTokenTypeHeader = "X-Snowflake-Authorization-Token-Type"
 	WIFTokenTypeValue  = "WORKLOAD_IDENTITY_FEDERATION"

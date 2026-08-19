@@ -202,9 +202,8 @@ type upsertExternalKeyRequest struct {
 	// for service-authenticated endpoints that attribute spend per user. Format: "email" or "json".
 	IdentityHeader       *string `json:"identity_header"`
 	IdentityHeaderFormat *string `json:"identity_header_format"`
-	// AuthType is "bearer" (default), "keypair_jwt" — Key is an RSA private key and the
-	// router signs a short-lived token for AuthAccount/AuthUser — or "wif", where the
-	// router attests its own workload identity and Key/AuthAccount/AuthUser stay empty.
+	// AuthType is "bearer" (default), "keypair_jwt" (Key is RSA; router signs a short-lived JWT
+	// for AuthAccount/AuthUser), or "wif" (no secret; router attests its own workload identity).
 	AuthType    string  `json:"auth_type"`
 	AuthAccount *string `json:"auth_account"`
 	AuthUser    *string `json:"auth_user"`
