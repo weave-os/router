@@ -553,6 +553,60 @@ func TestService_HardPin_CompactionAlwaysRoutesToHaiku(t *testing.T) {
 	}
 }
 
+func TestService_HardPin_RetiredGrok45OverridesAreRejected(t *testing.T) {
+	for _, tc := range []struct {
+		name         string
+		body         string
+		hardPinModel string
+		withSubAgent bool
+	}{
+		{
+			name:         "shared hard pin",
+			body:         compactionBody,
+			hardPinModel: "grok-4.5",
+		},
+		{
+			name:         "subagent override",
+			body:         exploreBody,
+			hardPinModel: "claude-haiku-4-5",
+			withSubAgent: true,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			store := newFakePinStore()
+			fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-opus-4-7", Reason: "cluster"}}
+			svc := proxy.NewService(
+				fr,
+				map[string]providers.Client{
+					providers.ProviderAnthropic: &fakeProvider{},
+					providers.ProviderXAI:       &fakeProvider{},
+				},
+				nil,
+				false,
+				nil,
+				store,
+				false,
+				providers.ProviderXAI,
+				tc.hardPinModel,
+				nil,
+			)
+			if tc.withSubAgent {
+				svc = svc.WithSubAgentOverride(providers.ProviderXAI, "grok-4.5")
+			}
+
+			ctx := authedCtx(uuid.New().String())
+			rec := httptest.NewRecorder()
+			httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+			err := svc.ProxyMessages(ctx, []byte(tc.body), rec, httpReq)
+
+			require.Error(t, err)
+			assert.ErrorIs(t, err, cluster.ErrNoEligibleProvider)
+			assert.Equal(t, 0, fr.routeCalls, "configured hard pins bypass the scorer but must fail before upstream dispatch")
+			assert.NotEqual(t, "grok-4.5", rec.Header().Get(proxy.HeaderRouterModel))
+		})
+	}
+}
+
 func TestService_HardPin_ExploreRoutesToHaikuWhenFlagOn(t *testing.T) {
 	store := newFakePinStore()
 	fr := &fakeRouter{decision: router.Decision{Provider: "anthropic", Model: "claude-opus-4-7", Reason: "cluster"}}
@@ -1311,6 +1365,78 @@ func TestService_ForcedPin_ReasonStaysUserForced(t *testing.T) {
 
 	assert.Equal(t, "claude-opus-4-7", rec.Header().Get(proxy.HeaderRouterModel))
 	assert.Equal(t, translate.ReasonUserForceModel, rec.Header().Get(proxy.HeaderRouterDecision), "forced pin keeps the plain user_forced reason")
+}
+
+func TestService_RetiredGrok45StoredPinsNeverDispatch(t *testing.T) {
+	for _, tc := range []struct {
+		name         string
+		pinReason    string
+		continuation bool
+	}{
+		{name: "user forced", pinReason: translate.ReasonUserForceModel},
+		{name: "automatic", pinReason: "cluster:v0.75"},
+		{name: "post command continuation", continuation: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			store := newFakePinStore()
+			retiredPin := sessionpin.Pin{
+				Provider:    providers.ProviderXAI,
+				Model:       "grok-4.5",
+				Reason:      tc.pinReason,
+				PinnedUntil: time.Now().Add(30 * time.Minute),
+			}
+			if tc.continuation {
+				store.commandContinuations["default_high_cmd_next"] = retiredPin
+			} else {
+				store.hasPin = true
+				store.pin = retiredPin
+			}
+
+			fr := &fakeRouter{decision: router.Decision{
+				Provider: providers.ProviderAnthropic,
+				Model:    "claude-haiku-4-5",
+				Reason:   "cluster:v0.75",
+			}}
+			svc := proxy.NewService(
+				fr,
+				map[string]providers.Client{
+					providers.ProviderAnthropic: &fakeProvider{},
+					providers.ProviderXAI:       &fakeProvider{},
+				},
+				nil,
+				false,
+				nil,
+				store,
+				false,
+				providers.ProviderAnthropic,
+				"claude-haiku-4-5",
+				nil,
+			)
+
+			ctx := authedCtx(uuid.New().String())
+			rec := httptest.NewRecorder()
+			httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+			require.NoError(t, svc.ProxyMessages(ctx, []byte(pinTestBody), rec, httpReq))
+
+			assert.Equal(t, 1, fr.routeCalls, "retired stored state must fall through to the scorer")
+			assert.Equal(t, "claude-haiku-4-5", rec.Header().Get(proxy.HeaderRouterModel))
+
+			store.mu.Lock()
+			defer store.mu.Unlock()
+			if tc.continuation {
+				assert.NotContains(t, store.commandContinuations, "default_high_cmd_next", "retired continuation must be consumed without dispatch")
+				return
+			}
+			var expired bool
+			for _, pin := range store.upserts {
+				if pin.Reason == "model_retired" && pin.Model == "" && !pin.PinnedUntil.After(time.Now()) {
+					expired = true
+					break
+				}
+			}
+			assert.True(t, expired, "retired active pin must be persisted as expired")
+		})
+	}
 }
 
 // A loop_escalation pin is treated like /force-model: bypasses the scorer.

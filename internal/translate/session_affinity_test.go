@@ -105,7 +105,7 @@ func TestSessionAffinity_XAIUsesGrokConvIDHeader(t *testing.T) {
 	require.NoError(t, err)
 
 	out, err := env.PrepareOpenAI(nil, translate.EmitOptions{
-		TargetModel:     "grok-4.5",
+		TargetModel:     "grok-4.6",
 		TargetProvider:  providers.ProviderXAI,
 		SessionAffinity: affinityKey,
 	})

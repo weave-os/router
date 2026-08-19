@@ -336,9 +336,6 @@ var Models = []Model{
 
 	// --- xAI Grok --- native only; OpenRouter unused in prod.
 	// Standard rate (<200K) used; long-context repricing is a future Pricing follow-up.
-	{ID: "grok-4.5", Tier: TierHigh, ContextWindow: 500_000, Providers: []ProviderBinding{
-		{Provider: providers.ProviderXAI, Price: Pricing{InputUSDPer1M: 2.00, OutputUSDPer1M: 6.00, CacheReadMultiplier: 0.25}},
-	}},
 	{ID: "grok-4.6", Tier: TierHigh, ContextWindow: 500_000, Providers: []ProviderBinding{
 		{Provider: providers.ProviderXAI, Price: Pricing{InputUSDPer1M: 2.00, OutputUSDPer1M: 6.00, CacheReadMultiplier: 0.25}},
 	}},

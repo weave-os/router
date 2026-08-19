@@ -142,6 +142,9 @@ func (s *ProviderSummarizer) summarize(ctx context.Context, env *translate.Reque
 	if s.client == nil {
 		return "", handover.Usage{}, errors.New("handover: nil provider client")
 	}
+	if isRetiredModel(model) {
+		return "", handover.Usage{}, fmt.Errorf("%s summary model %q is retired", kind, model)
+	}
 
 	body, err := buildSummaryRequestBody(env, model, instruction, maxTokens)
 	if err != nil {

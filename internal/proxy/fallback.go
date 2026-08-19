@@ -369,6 +369,9 @@ func (s *Service) shouldFailover(ctx context.Context) bool {
 // When failover is disabled or unavailable, returns a single-element
 // slice carrying the already-resolved decision provider.
 func (s *Service) resolveBindingsForDispatch(ctx context.Context, decision router.Decision) []catalog.ProviderBinding {
+	if isRetiredModel(decision.Model) {
+		return nil
+	}
 	primary := catalog.ProviderBinding{Provider: decision.Provider}
 	if !s.shouldFailover(ctx) {
 		return []catalog.ProviderBinding{primary}

@@ -166,12 +166,8 @@ var registry = map[string]ModelSpec{
 	"gpt-5.5-mini": openaiReasoning,
 	"gpt-5.5-nano": openaiReasoning,
 
-	// grok-4.5: reasoning_effort low/medium/high (default high); cannot disable;
-	// rejects stop / presence / frequency penalties (CapReasoning strips stop).
-	"grok-4.5": openaiReasoning,
-
-	// grok-4.6: grok-4.5 added an "xhigh" effort that xAI didn't document for 4.5;
-	// xAI's 4.6 docs keep the low/medium/high/xhigh menu. CapReasoning + CapXhighEffort.
+	// grok-4.6 accepts low/medium/high/xhigh effort, cannot disable reasoning,
+	// and rejects stop / presence / frequency penalties.
 	"grok-4.6": grok46,
 
 	"gpt-5.4":      openaiReasoning,

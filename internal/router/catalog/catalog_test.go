@@ -79,6 +79,15 @@ func TestByID_UnknownReturnsFalse(t *testing.T) {
 	assert.False(t, ok)
 }
 
+func TestByID_RetiredGrok45ReturnsFalse(t *testing.T) {
+	_, ok := ByID("grok-4.5")
+	assert.False(t, ok)
+
+	current, ok := ByID("grok-4.6")
+	require.True(t, ok)
+	assert.Equal(t, "grok-4.6", current.ID)
+}
+
 func TestPriceFor_UnknownProviderForKnownModel(t *testing.T) {
 	// claude-opus-4-7 is anthropic-only — asking for openai must miss.
 	_, ok := PriceFor(providers.ProviderOpenAI, "claude-opus-4-7")

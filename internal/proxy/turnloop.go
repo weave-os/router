@@ -369,6 +369,9 @@ func pinEligible(pin sessionpin.Pin, req router.Request) bool {
 	if pin.Model == "" || pin.Provider == "" {
 		return false
 	}
+	if isRetiredModel(pin.Model) {
+		return false
+	}
 	if _, excluded := req.ExcludedModels[pin.Model]; excluded {
 		return false
 	}
@@ -528,6 +531,9 @@ func (s *Service) runTurnLoop(
 				return res, fmt.Errorf("hard-pin model %q is ineligible for %s: %w", model, res.TurnType, cluster.ErrNoEligibleProvider)
 			}
 		}
+		if isRetiredModel(model) {
+			return res, fmt.Errorf("hard-pin model %q is retired for %s: %w", model, res.TurnType, cluster.ErrNoEligibleProvider)
+		}
 		// Operator hard-pins (ROUTER_HARD_PIN_MODEL) bypass the tier ceiling
 		// by design; clamping would silently defeat an explicit operator opt-in.
 		hardDecision := router.Decision{
@@ -587,6 +593,20 @@ func (s *Service) runTurnLoop(
 	res.SessionKey = sessionKey
 
 	pin, pinFound := s.loadPin(ctx, res.SessionKey, res.PinRole)
+	if pinFound && isRetiredModel(pin.Model) {
+		log.Warn("session pin refers to a retired model; falling through to scorer",
+			"pin_model", pin.Model,
+			"pin_provider", pin.Provider,
+			"pin_reason", pin.Reason,
+		)
+		if installationID != uuid.Nil {
+			if err := s.expireSessionPin(ctx, installationID, res.SessionKey, res.PinRole, "model_retired"); err != nil {
+				log.Error("retired session pin eviction failed", "err", err, "pin_model", pin.Model, "role", res.PinRole)
+			}
+		}
+		pinFound = false
+		pin = sessionpin.Pin{}
+	}
 	// A deliberate clear is stored as an expired, blank pin with a reason.
 	// Natural expiry retains the model/provider and may still use a renewed
 	// one-shot command continuation, but an explicit clear must never be

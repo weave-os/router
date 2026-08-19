@@ -747,6 +747,11 @@ func TestShouldFailover(t *testing.T) {
 }
 
 func TestResolveBindingsForDispatch(t *testing.T) {
+	t.Run("retired model has no dispatch binding", func(t *testing.T) {
+		s := &Service{deploymentKeyedProviders: map[string]struct{}{providers.ProviderXAI: {}}}
+		bs := s.resolveBindingsForDispatch(context.Background(), router.Decision{Model: "grok-4.5", Provider: providers.ProviderXAI})
+		assert.Empty(t, bs, "a retired model must never reach an upstream, including through passthrough fallback")
+	})
 	t.Run("BYOK active returns single primary", func(t *testing.T) {
 		s := &Service{}
 		ctx := context.WithValue(context.Background(), CredentialsContextKey{}, &Credentials{APIKey: []byte("k"), Source: "client"})

@@ -25,9 +25,11 @@ type fakeHandoverProvider struct {
 	respStatus  int
 	sleep       time.Duration
 	upstreamErr error
+	calls       int
 }
 
 func (f *fakeHandoverProvider) Proxy(ctx context.Context, _ router.Decision, _ providers.PreparedRequest, w http.ResponseWriter, _ *http.Request) error {
+	f.calls++
 	if f.sleep > 0 {
 		select {
 		case <-time.After(f.sleep):
@@ -163,4 +165,23 @@ func TestProviderSummarizer_NilEnvelopeReturnsError(t *testing.T) {
 
 	_, _, err := s.Summarize(context.Background(), nil)
 	require.Error(t, err)
+}
+
+func TestProviderSummarizer_RetiredGrok45NeverCallsUpstream(t *testing.T) {
+	t.Parallel()
+
+	env, err := translate.ParseAnthropic([]byte(sampleConversation))
+	require.NoError(t, err)
+
+	fake := &fakeHandoverProvider{
+		respBody:   canonicalAnthropicResponse,
+		respStatus: http.StatusOK,
+	}
+	s := NewProviderSummarizer(fake, "grok-4.5", 200*time.Millisecond)
+
+	got, _, err := s.Summarize(context.Background(), env)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "retired")
+	assert.Empty(t, got)
+	assert.Zero(t, fake.calls, "retired handover model must be rejected before provider dispatch")
 }

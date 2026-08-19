@@ -124,6 +124,20 @@ func TestResolveForceModel(t *testing.T) {
 			wantProvider: providers.ProviderFireworks,
 			wantKnown:    true,
 		},
+		{
+			name:         "alias grok follows current flagship",
+			input:        "grok",
+			wantID:       "grok-4.6",
+			wantProvider: providers.ProviderXAI,
+			wantKnown:    true,
+		},
+		{
+			name:         "alias xai follows current flagship",
+			input:        "xai",
+			wantID:       "grok-4.6",
+			wantProvider: providers.ProviderXAI,
+			wantKnown:    true,
+		},
 		// Heuristic fallback: not in the catalog, so known is false. The
 		// provider is a best-effort guess for logging only; the handler rejects
 		// these rather than pinning a model with no known tier.
@@ -181,4 +195,9 @@ func TestResolveForceModel(t *testing.T) {
 			assert.Equal(t, tt.wantKnown, gotKnown, "known")
 		})
 	}
+}
+
+func TestResolveForceModelRejectsRetiredGrok45(t *testing.T) {
+	_, _, known := resolveForceModel("grok-4.5")
+	assert.False(t, known)
 }

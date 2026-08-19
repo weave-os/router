@@ -234,7 +234,7 @@ func TestOpenAISameFormat_ReasoningStripsUnsupportedSampling(t *testing.T) {
 		"presence_penalty":0.5,
 		"frequency_penalty":0.3
 	}`)
-	for _, model := range []string{"gpt-5.5", "grok-4.5"} {
+	for _, model := range []string{"gpt-5.5", "grok-4.6"} {
 		t.Run(model, func(t *testing.T) {
 			opts := translate.EmitOptions{
 				TargetModel:  model,
@@ -249,10 +249,10 @@ func TestOpenAISameFormat_ReasoningStripsUnsupportedSampling(t *testing.T) {
 }
 
 func TestOpenAISameFormat_GrokMaxCompletionTokensCap(t *testing.T) {
-	body := []byte(`{"model":"grok-4.5","messages":[{"role":"user","content":"hi"}],"max_completion_tokens":999999}`)
+	body := []byte(`{"model":"grok-4.6","messages":[{"role":"user","content":"hi"}],"max_completion_tokens":999999}`)
 	opts := translate.EmitOptions{
-		TargetModel:  "grok-4.5",
-		Capabilities: router.Lookup("grok-4.5"),
+		TargetModel:  "grok-4.6",
+		Capabilities: router.Lookup("grok-4.6"),
 	}
 	out := parseAndEmit(t, body, "openai", opts)
 	assert.Equal(t, float64(131072), out["max_completion_tokens"])

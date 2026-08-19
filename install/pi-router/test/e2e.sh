@@ -104,6 +104,10 @@ jq -e '.providers.weave.headers["x-weave-routing-alpha"] == "0.8" and .providers
   && ok "models.json carries main-loop knobs (0.8 / 0.05)" || bad "models.json knobs wrong"
 jq -e '.providers.weave.headers["X-Weave-User-Email"] == "e2e@workweave.ai"' "$PI_DIR/models.json" >/dev/null 2>&1 \
   && ok "identity baked into models.json headers" || bad "identity header missing in models.json"
+jq -e '.providers.weave.models | any(.id == "grok-4.6")' "$PI_DIR/models.json" >/dev/null 2>&1 \
+  && ok "models.json includes Grok 4.6" || bad "models.json missing Grok 4.6"
+jq -e '.providers.weave.models | all(.id != "grok-4.5")' "$PI_DIR/models.json" >/dev/null 2>&1 \
+  && ok "models.json excludes retired Grok 4.5" || bad "models.json still includes retired Grok 4.5"
 
 PERM="$(stat -f '%Lp' "$PI_DIR/.weave_router_key" 2>/dev/null || stat -c '%a' "$PI_DIR/.weave_router_key" 2>/dev/null || echo '?')"
 [ "$PERM" = "600" ] && ok "key file mode 600" || bad "key file mode $PERM (want 600)"
