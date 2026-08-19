@@ -442,12 +442,11 @@ var Models = []Model{
 			Price: Pricing{InputUSDPer1M: 1.740, OutputUSDPer1M: 3.480, CacheReadMultiplier: 0.0862}},
 		{Provider: providers.ProviderOpenRouter, Price: Pricing{InputUSDPer1M: 0.435, OutputUSDPer1M: 0.870, CacheReadMultiplier: 0.10}},
 	}},
-	// The current V4-Pro release, and the one Artificial Analysis scores
-	// (agentic index 49.56; our aa_skill_scores entry already carries
-	// aa_name "DeepSeek V4 Pro 0813"). The bare deepseek/deepseek-v4-pro alias
-	// above resolves to the retired 0423 build, so the HMM roster must target
-	// this dated ID to route to what it was actually ranked on.
+	// Routable dated release; bare alias resolves to the retired 0423 build.
+	// HMM roster must target this ID to route to what it was actually ranked on.
 	{ID: "deepseek/deepseek-v4-pro-0813", Tier: TierMid, ContextWindow: 1_048_576, ImageInput: ImageInputUnsupported, Providers: []ProviderBinding{
+		{Provider: providers.ProviderFireworks, UpstreamID: "accounts/fireworks/models/deepseek-v4-pro-0813",
+			Price: Pricing{InputUSDPer1M: 1.320, OutputUSDPer1M: 3.960, CacheReadMultiplier: 0.044 / 1.320}},
 		{Provider: providers.ProviderOpenRouter, Price: Pricing{InputUSDPer1M: 0.660, OutputUSDPer1M: 1.980, CacheReadMultiplier: 0.022 / 0.660}},
 	}},
 	{ID: "moonshotai/kimi-k2.5", Tier: TierHigh, ContextWindow: 262_144, ImageInput: ImageInputUnsupported, Providers: []ProviderBinding{
