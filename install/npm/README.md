@@ -54,6 +54,19 @@ slash commands. The shell equivalent is `npx @workweave/router disable-routing`.
 Cursor has no config file we own — toggle its base URL override in **Settings →
 Models** instead.
 
+Pick which models the router is allowed to route to:
+
+```bash
+npx @workweave/router models --claude                  # list every model, with its on/off state
+npx @workweave/router models disable gpt-5.6 --claude  # take one out of rotation
+npx @workweave/router models enable gpt-5.6 --claude   # put it back
+```
+
+Inside Claude Code that's `/router-models` (alias `/models`). Editing needs a
+router that serves the model-selection API; against the Weave-hosted router the
+list still prints and points you at the dashboard, where model selection is an
+organization-wide setting.
+
 Uninstall:
 
 ```bash

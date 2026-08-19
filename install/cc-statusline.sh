@@ -229,7 +229,8 @@ weave_sync_commands() {
     # everything so no output leaks into the statusline.
     exec </dev/null
     for name in force-model unforce-model router-feedback fm ufm rf \
-                router-off router-on router-status router-session; do
+                router-off router-on router-status router-session \
+                router-models models; do
       installed="$cmd_dir/$name.md"
       # Only ever refresh a wrapper that is already installed: a missing one
       # was uninstalled or deliberately deleted, and resurrecting it would be

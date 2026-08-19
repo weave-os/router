@@ -210,6 +210,15 @@ reports which way it's pointing. Claude Code also gets `/router-off`,
 `/router-on`, and `/router-status` slash commands. Cursor toggles via the same
 Settings → Models override above. See [install/README.md](install/README.md#switching-on-and-off).
 
+**Choosing which models the router may pick.** `npx @workweave/router models
+--claude` lists every deployed model with its on/off state, and `models enable`
+/ `models disable` change it — the same setting as the dashboard's settings
+page, edited from the terminal. Claude Code gets this as `/router-models`
+(alias `/models`). Requires a router that serves the model-selection API;
+against the Weave-hosted router the list still prints and points you at the
+dashboard, where selection is an organization-wide setting. See
+[install/README.md](install/README.md#choosing-which-models-the-router-may-pick).
+
 > Two keys, don't mix them up:
 > - `sk-or-...` / `sk-ant-...` / `sk-...` = your **upstream** provider key. Lives in `.env.local`.
 > - `rk_...` = your **router** key. Clients send this as a Bearer token.

@@ -119,6 +119,19 @@ jobs:
       - name: Run statusline tests
         run: make test-statusline
 
+  # Same rationale as the statusline: install.sh is shipped standalone, so its
+  # config patching, key reuse, and the `models` API client are only ever
+  # covered here. Fully offline — fake curl, isolated $HOME.
+  test-install:
+    name: Test installer
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run installer tests
+        run: make test-install
+
   test-hmm-sidecar:
     name: Test frozen HMM sidecar
     runs-on: ubuntu-latest

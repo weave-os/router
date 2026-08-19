@@ -285,8 +285,8 @@ npx @workweave/router off --opencode --scope project   # project-scoped opencode
 Inside Claude Code you can also run the slash commands `/router-off`,
 `/router-on`, `/router-status`, and `/router-session` (which prints the
 session id used for telemetry correlation and transcript lookup) — installed
-alongside `/force-model` (alias `/fm`), `/unforce-model` (alias `/ufm`), and
-`/router-feedback` (alias `/rf`).
+alongside `/force-model` (alias `/fm`), `/unforce-model` (alias `/ufm`),
+`/router-feedback` (alias `/rf`), and `/router-models` (alias `/models`).
 
 What each `off` does (and `on` reverses byte-for-byte):
 
@@ -303,6 +303,55 @@ What each `off` does (and `on` reverses byte-for-byte):
 **Cursor** has no config file we own — its base URL lives in Cursor's own
 settings UI. To toggle it, open **Settings → Models → Override OpenAI Base
 URL** and turn the override (`<base-url>/v1`) on or off there.
+
+## Choosing which models the router may pick
+
+`models` reads and edits the model selection for the installation whose key is
+on disk — the same list, and the same stored setting, as the checkboxes on the
+router dashboard's settings page. It writes nothing locally: the endpoint and
+router key both come from the install already configured, so a self-hosted
+install talks to its own router with its own key, and the key is never passed
+as a command-line argument.
+
+```bash
+npx @workweave/router models --claude                          # every model, with its on/off state
+npx @workweave/router models disable gpt-5.6 --claude          # take a model out of rotation
+npx @workweave/router models enable gpt-5.6 --claude           # put it back
+npx @workweave/router models providers --claude                # same, one row per provider
+npx @workweave/router models providers disable openai --claude # drop a whole provider
+npx @workweave/router models prefer claude-opus-5 --claude     # priority ranking ('clear' to drop it)
+npx @workweave/router models list --json --claude              # machine-readable, for scripts
+```
+
+The list groups by provider and marks each model `[x]` (the router may pick it)
+or `[ ]` (it may not):
+
+```
+Weave Router models · http://localhost:8080
+2 of 3 enabled
+
+anthropic
+  [x] claude-opus-5
+  [ ] claude-haiku-4-5
+openai
+  [x] gpt-5.6
+```
+
+Inside Claude Code, `/router-models` (alias `/models`) runs the same thing and
+turns the result into a checklist you can edit conversationally — `/models
+disable haiku` disables it and re-lists.
+
+Changes take effect on the router's next routing decision; nothing restarts.
+A model excluded here is never selected, so excluding everything in a cluster
+leaves the router nothing to pick — re-enable rather than empty it out.
+
+Editing requires a router that serves the model-selection API (self-hosted and
+local routers do). The Weave-hosted router keeps model selection with the
+organization instead, so there `models` lists what the router can pick from and
+points you at <https://router.workweave.ai/dashboard/settings>. If your
+deployment pins the lists via `ROUTER_EXCLUDED_MODELS` /
+`ROUTER_EXCLUDED_PROVIDERS`, the router refuses the edit and says so — clear the
+env var to make the setting editable.
 
 ## Verifying
 

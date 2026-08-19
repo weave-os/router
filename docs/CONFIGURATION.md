@@ -265,6 +265,13 @@ Without either env var the lists come from the installation, editable in the
 dashboard or through `PUT /admin/v1/excluded-providers` and
 `PUT /admin/v1/excluded-models`.
 
+From a terminal, `npx @workweave/router models --claude` lists every deployed
+model with its on/off state and `models enable` / `models disable` edit it,
+reading the endpoint and key from the Claude Code install already on disk.
+Claude Code gets the same thing as `/router-models` (alias `/models`). While
+either env var is set the CLI surfaces the 403 verbatim rather than pretending
+the edit landed. See [install/README.md](../install/README.md#choosing-which-models-the-router-may-pick).
+
 Exclusions are authoritative, not a preference. An excluded provider is
 subtracted from the request's eligible set before anything routes, so the
 scorer, the turn-type hard pins, session pins, and cross-binding failover all
