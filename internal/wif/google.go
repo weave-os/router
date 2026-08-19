@@ -42,9 +42,8 @@ func (s *GoogleTokenSource) Attestation(ctx context.Context) ([]byte, error) {
 	return auth.WIFCredential(auth.WIFProviderGCP, token.Value)
 }
 
-// credentials builds the ID-token credentials on first use. Deferred rather than
-// done at startup: constructing them requires a workload identity, and a
-// deployment with no WIF keys must still boot off GCP.
+// credentials builds the ID-token credentials on first use; deferred so a
+// deployment with no WIF keys can still boot without a workload identity.
 func (s *GoogleTokenSource) credentials() (*gauth.Credentials, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

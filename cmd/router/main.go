@@ -1213,9 +1213,8 @@ func buildClusterScorer(availableProviders map[string]struct{}) (router.Router, 
 }
 
 // buildWIFTokenSource constructs the workload attestation source backing BYOK
-// keys with auth_type=wif. Returns nil when ROUTER_WIF_PROVIDER is unset, which
-// leaves such keys unusable rather than sent without a credential — the identity
-// is the deployment's own, so only the operator can say what attests it.
+// keys with auth_type=wif. Returns nil when ROUTER_WIF_PROVIDER is unset — the
+// identity is the deployment's own, so only the operator can configure it.
 func buildWIFTokenSource(logger *slog.Logger) auth.WIFTokenSource {
 	provider := strings.ToUpper(strings.TrimSpace(config.GetOr("ROUTER_WIF_PROVIDER", "")))
 	audience := config.GetOr("ROUTER_WIF_AUDIENCE", auth.WIFAudience)
