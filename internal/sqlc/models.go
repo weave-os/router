@@ -221,6 +221,18 @@ type RouterModelRouterUser struct {
 	DisplayName *string
 }
 
+type RouterModelRouterUserClusterModelList struct {
+	RouterUserID uuid.UUID
+	// Free-form label from the deployed HMM roster artifact (see GET /v1/router/hmm-roster). Not an enum — a roster bump can add or rename clusters.
+	ClusterLabel string
+	// Denormalized for control-plane queries. The router never reads it — lookups are by router_user_id only.
+	OrganizationID string
+	Models         []string
+	CreatedBy      *string
+	CreatedAt      pgtype.Timestamptz
+	UpdatedAt      pgtype.Timestamptz
+}
+
 type RouterModelRouterUserMonthlySpend struct {
 	RouterUserID   uuid.UUID
 	Month          pgtype.Date
