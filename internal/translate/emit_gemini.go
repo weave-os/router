@@ -1412,9 +1412,7 @@ func sanitizeGeminiSchemaNode(v any, path string) (any, error) {
 	if err := validateGeminiRequired(out, path); err != nil {
 		return nil, err
 	}
-	if err := validateGeminiEnum(out, path); err != nil {
-		return nil, err
-	}
+	resolveGeminiEnum(out)
 	return out, nil
 }
 
@@ -1605,44 +1603,37 @@ func validateGeminiRequired(schema map[string]any, path string) error {
 	return nil
 }
 
-func validateGeminiEnum(schema map[string]any, path string) error {
+// resolveGeminiEnum drops an enum Gemini cannot represent. Google's function
+// declaration schema types every enum member as TYPE_STRING, so a numeric,
+// boolean, or null member 400s the whole request ("Invalid value at
+// ...enum[0] (TYPE_STRING), 7") regardless of the sibling "type". Stringifying
+// would change the tool's input language — toolcheck validates model output
+// against the ORIGINAL schema, so a coerced "7" would then read as a violation
+// of the caller's `enum: [7]`. Dropping is the lossless option: the value set
+// is unenforced upstream but still enforced where it matters (#65, #83; #764
+// regressed this to a validate-and-reject that missed type-less enums).
+func resolveGeminiEnum(schema map[string]any) {
 	values, exists := schema["enum"]
 	if !exists {
-		return nil
+		return
 	}
-	enum, ok := values.([]any)
-	if !ok || len(enum) == 0 {
-		return fmt.Errorf("%w at %s.enum: expected non-empty array", ErrGeminiSchemaIncompatible, path)
+	if enum, ok := values.([]any); ok && len(enum) > 0 && allStringEnum(enum) {
+		return
 	}
-	typ, _ := schema["type"].(string)
-	for _, value := range enum {
-		if !enumMatchesType(value, typ, schema["nullable"] == true) {
-			return fmt.Errorf("%w at %s.enum: value needs type coercion", ErrGeminiSchemaIncompatible, path)
-		}
+	delete(schema, "enum")
+	// format:"enum" without an enum is itself unrepresentable.
+	if format, _ := schema["format"].(string); format == "enum" {
+		delete(schema, "format")
 	}
-	return nil
 }
 
-func enumMatchesType(value any, typ string, nullable bool) bool {
-	if value == nil {
-		return nullable || typ == ""
+func allStringEnum(enum []any) bool {
+	for _, value := range enum {
+		if _, ok := value.(string); !ok {
+			return false
+		}
 	}
-	if typ == "" {
-		return true
-	}
-	switch typ {
-	case "string":
-		_, ok := value.(string)
-		return ok
-	case "boolean":
-		_, ok := value.(bool)
-		return ok
-	case "number", "integer":
-		_, ok := value.(float64)
-		return ok
-	default:
-		return false
-	}
+	return true
 }
 
 func valueInEnum(value, enum any) bool {

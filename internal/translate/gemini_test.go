@@ -1042,6 +1042,56 @@ func TestPrepareGemini_PreservesEnumValueTypes(t *testing.T) {
 	assert.Equal(t, []any{"a", "b"}, normal["enum"], "well-formed enums must pass through unchanged")
 }
 
+func TestPrepareGemini_DropsNonStringEnums(t *testing.T) {
+	// Google types every function-declaration enum member as TYPE_STRING and
+	// 400s on anything else, regardless of the sibling "type" — the prod
+	// failure was a type-less numeric enum:
+	//   Invalid value at '...properties[1].value.enum[0]' (TYPE_STRING), 7
+	// Dropping is lossless where it counts: toolcheck validates emitted tool
+	// calls against the ORIGINAL inbound schema, so the value set is still
+	// enforced. Stringifying would instead change the tool's input language.
+	body := []byte(`{
+		"messages": [{"role":"user","content":"hi"}],
+		"tools": [{
+			"name":"lookback",
+			"input_schema":{
+				"type":"object",
+				"properties":{
+					"untyped_numeric":{"enum":[7,14,30]},
+					"typed_numeric":{"type":"integer","enum":[7,14,30]},
+					"mixed":{"enum":["all",30]},
+					"boolean":{"type":"boolean","enum":[true,false]},
+					"nullable":{"type":"string","nullable":true,"enum":["a",null]},
+					"format_enum":{"type":"string","format":"enum","enum":[1,2]},
+					"strings":{"type":"string","enum":["day","week"]}
+				}
+			}
+		}]
+	}`)
+	env, err := translate.ParseAnthropic(body)
+	require.NoError(t, err)
+	prep, err := env.PrepareGemini(http.Header{}, translate.EmitOptions{})
+	require.NoError(t, err, "an unrepresentable enum must not fail the whole tool")
+
+	out := mustUnmarshal(t, prep.Body)
+	params := out["tools"].([]any)[0].(map[string]any)["functionDeclarations"].([]any)[0].(map[string]any)["parameters"].(map[string]any)
+	props := params["properties"].(map[string]any)
+
+	for _, name := range []string{"untyped_numeric", "typed_numeric", "mixed", "boolean", "nullable", "format_enum"} {
+		assert.NotContains(t, props[name], "enum", "%s: non-string enum must be dropped", name)
+	}
+
+	// Only the enum is dropped — the rest of each property survives.
+	assert.Equal(t, "integer", props["typed_numeric"].(map[string]any)["type"])
+	assert.Equal(t, "boolean", props["boolean"].(map[string]any)["type"])
+
+	// format:"enum" is meaningless once the enum is gone, so it goes too.
+	assert.NotContains(t, props["format_enum"], "format")
+
+	assert.Equal(t, []any{"day", "week"}, props["strings"].(map[string]any)["enum"],
+		"all-string enums must pass through unchanged")
+}
+
 func TestPrepareGemini_UserDefinedPropertyNamedProperties(t *testing.T) {
 	// A user-defined property named "properties" must not be mistaken for the
 	// JSON Schema "properties" keyword. Its value schema must still be
