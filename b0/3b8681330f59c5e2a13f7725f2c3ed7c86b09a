@@ -1,0 +1,26 @@
+internal/proxy/failover_integration_test.go
+  s_47783247659c21::t_fa2f1d563f34eb 553-554,565,578-580
+  s_47783247659c21::t_e30b3b5b385a01 625
+  s_47783247659c21::t_e763cbd9a35d2a 629,637-638,649-651
+internal/proxy/service.go
+  s_47783247659c21::t_4f9dd0f5e167e3 2958-2962
+  s_47783247659c21::t_a40155e0d223d7 2997-3006
+  s_47783247659c21::t_45a392e786f010 4797-4798
+  s_47783247659c21::t_5696642959eb7d 4764-4766
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.16",
+  "base_commit_sha": "b03b8681330f59c5e2a13f7725f2c3ed7c86b09a",
+  "prompts": {},
+  "sessions": {
+    "s_47783247659c21": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "eaf8ec23-54c7-48fc-9f7e-f55965119527",
+        "model": "claude-sonnet-5"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}
