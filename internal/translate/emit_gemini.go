@@ -1161,6 +1161,18 @@ func stopToArrayRaw(r gjson.Result) string {
 }
 
 func applyGeminiReasoning(intent ReasoningIntent, opts EmitOptions) (ReasoningIntent, error) {
+	// Anthropic's legacy thinking API carries a numeric token budget, but Gemini
+	// 3.x accepts only named thinking levels. Normalize at the Gemini boundary so
+	// the generic capability validator still rejects numeric budgets for targets
+	// that genuinely cannot represent them.
+	if isGemini3xModel(opts.TargetModel) && intent.Kind == ReasoningBudget {
+		intent.Kind = ReasoningLevel
+		intent.Level = effortForBudget(intent.BudgetTokens)
+		intent.NormalizationNotes = append(
+			intent.NormalizationNotes,
+			"Gemini 3.x normalized numeric thinking budget to "+intent.Level+" thinking level",
+		)
+	}
 	caps := opts.Capabilities
 	if len(caps.Reasoning().Levels) == 0 {
 		caps = router.Lookup(opts.TargetModel)

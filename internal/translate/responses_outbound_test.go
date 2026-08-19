@@ -398,14 +398,38 @@ func TestResponsesToAnthropicResponse_StopReasons(t *testing.T) {
 	require.Error(t, err)
 }
 
-// gemini-3.x uses string `thinkingLevel`, not the legacy numeric `thinkingBudget`
-// (sending both 400s).
+// Anthropic's numeric thinking budget must be normalized to Gemini 3.x's named
+// thinkingLevel before generic capability validation, otherwise a valid HMM
+// route to Gemini fails locally before any upstream call.
 func TestPrepareGemini_ThinkingBudgetToThinkingConfig(t *testing.T) {
-	body := []byte(`{"model":"claude-opus-4-8","max_tokens":1024,"messages":[{"role":"user","content":"hi"}],"thinking":{"type":"enabled","budget_tokens":31999}}`)
-	env, err := translate.ParseAnthropic(body)
-	require.NoError(t, err)
-	_, err = env.PrepareGemini(nil, translate.EmitOptions{TargetModel: "gemini-3.1-pro-preview", Capabilities: router.Lookup("gemini-3.1-pro-preview")})
-	require.ErrorIs(t, err, translate.ErrReasoningIncompatible)
+	for _, tc := range []struct {
+		budget int
+		level  string
+	}{
+		{budget: 2048, level: "low"},
+		{budget: 8192, level: "medium"},
+		{budget: 31999, level: "high"},
+	} {
+		t.Run(tc.level, func(t *testing.T) {
+			body := []byte(`{"model":"claude-opus-4-8","max_tokens":1024,"messages":[{"role":"user","content":"hi"}],"thinking":{"type":"enabled","budget_tokens":` + itoa(tc.budget) + `}}`)
+			env, err := translate.ParseAnthropic(body)
+			require.NoError(t, err)
+			prep, err := env.PrepareGemini(nil, translate.EmitOptions{
+				TargetModel:  "gemini-3.7-flash",
+				Capabilities: router.Lookup("gemini-3.7-flash"),
+			})
+			require.NoError(t, err)
+
+			var out map[string]any
+			require.NoError(t, json.Unmarshal(prep.Body, &out))
+			gen, ok := out["generationConfig"].(map[string]any)
+			require.True(t, ok, "generationConfig present")
+			thinking, ok := gen["thinkingConfig"].(map[string]any)
+			require.True(t, ok, "thinkingConfig set from thinking budget")
+			assert.Equal(t, tc.level, thinking["thinkingLevel"])
+			assert.NotContains(t, thinking, "thinkingBudget")
+		})
+	}
 }
 
 // gemini-2.5 (legacy) keeps the numeric thinkingBudget — thinkingLevel is 3.x only.

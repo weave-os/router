@@ -65,6 +65,24 @@ func TestConformance_GeminiNative(t *testing.T) {
 			},
 		},
 		{
+			// Regression for Anthropic ingress: Claude Code's numeric thinking
+			// budget must reach Gemini 3.x as a named thinkingLevel, rather than
+			// failing local translation before the provider call.
+			name:            "gemini_native/thinking_budget_gemini37",
+			provider:        providers.ProviderGoogle,
+			model:           "gemini-3.7-flash",
+			newClient:       geminiClient,
+			inbound:         `{"model":"gemini-3.7-flash","stream":true,"max_tokens":1024,"thinking":{"type":"enabled","budget_tokens":31999},"messages":[{"role":"user","content":"Think hard."}]}`,
+			stream:          true,
+			upstreamFixture: "gemini_native/basic_text.upstream.sse",
+			wantUpstream: func(t *testing.T, path string, body []byte, _ http.Header) {
+				assert.Contains(t, path, "gemini-3.7-flash:streamGenerateContent")
+				tc := gjson.GetBytes(body, "generationConfig.thinkingConfig")
+				assert.Equal(t, "high", tc.Get("thinkingLevel").String())
+				assert.False(t, tc.Get("thinkingBudget").Exists())
+			},
+		},
+		{
 			// The 2.5 counterpart: numeric thinkingBudget, no thinkingLevel.
 			name:            "gemini_native/thinking_budget_gemini25",
 			provider:        providers.ProviderGoogle,
