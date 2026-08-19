@@ -1603,15 +1603,11 @@ func validateGeminiRequired(schema map[string]any, path string) error {
 	return nil
 }
 
-// resolveGeminiEnum drops an enum Gemini cannot represent. Google's function
-// declaration schema types every enum member as TYPE_STRING, so a numeric,
-// boolean, or null member 400s the whole request ("Invalid value at
-// ...enum[0] (TYPE_STRING), 7") regardless of the sibling "type". Stringifying
-// would change the tool's input language — toolcheck validates model output
-// against the ORIGINAL schema, so a coerced "7" would then read as a violation
-// of the caller's `enum: [7]`. Dropping is the lossless option: the value set
-// is unenforced upstream but still enforced where it matters (#65, #83; #764
-// regressed this to a validate-and-reject that missed type-less enums).
+// resolveGeminiEnum drops enum keys Gemini cannot represent. Google types
+// every enum member as TYPE_STRING and 400s on anything else. Stringifying
+// was rejected: toolcheck validates model output against the ORIGINAL schema,
+// so a coerced "7" breaks the caller's `enum: [7]`. Dropping is lossless
+// where it counts (#65, #83; #764 regressed this by missing type-less enums).
 func resolveGeminiEnum(schema map[string]any) {
 	values, exists := schema["enum"]
 	if !exists {

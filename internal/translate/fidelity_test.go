@@ -21,11 +21,9 @@ func TestPrepareGemini_SchemaFidelity(t *testing.T) {
 		check   func(*testing.T, map[string]any)
 	}{
 		{
-			// Gemini types every enum member as TYPE_STRING, so the enum a
-			// numeric const lowers to is unrepresentable and gets dropped —
-			// same reasoning as additionalProperties below: toolcheck still
-			// enforces const against the original inbound schema. Keeping the
-			// enum 400s the request ("(TYPE_STRING), 7").
+			// Gemini types every enum member as TYPE_STRING; a numeric const lowers
+			// to a numeric enum that 400s the request, so it gets dropped. toolcheck
+			// still enforces const against the original schema.
 			name:   "numeric const drops the unrepresentable enum but keeps the type",
 			schema: `{"type":"number","const":7}`,
 			check: func(t *testing.T, schema map[string]any) {

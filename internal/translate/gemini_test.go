@@ -1043,13 +1043,8 @@ func TestPrepareGemini_PreservesEnumValueTypes(t *testing.T) {
 }
 
 func TestPrepareGemini_DropsNonStringEnums(t *testing.T) {
-	// Google types every function-declaration enum member as TYPE_STRING and
-	// 400s on anything else, regardless of the sibling "type" — the prod
-	// failure was a type-less numeric enum:
-	//   Invalid value at '...properties[1].value.enum[0]' (TYPE_STRING), 7
-	// Dropping is lossless where it counts: toolcheck validates emitted tool
-	// calls against the ORIGINAL inbound schema, so the value set is still
-	// enforced. Stringifying would instead change the tool's input language.
+	// Gemini types every enum member as TYPE_STRING and 400s on anything else.
+	// Dropping is lossless: toolcheck enforces against the original schema.
 	body := []byte(`{
 		"messages": [{"role":"user","content":"hi"}],
 		"tools": [{
