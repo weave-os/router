@@ -188,9 +188,8 @@ func NormalizeBaseURL(raw *string) (*string, error) {
 // maxKeypairFieldLength bounds the account and user identifiers.
 const maxKeypairFieldLength = 255
 
-// NormalizeAuthType validates authType with its account/user pair and returns the canonical
-// form. An empty type defaults to AuthTypeBearer. For keypair_jwt, principal fields are uppercased;
-// wif takes neither, since the attestation names the principal.
+// NormalizeAuthType validates authType with its account/user pair. Empty defaults to bearer;
+// keypair_jwt uppercases principal fields; wif accepts neither (the attestation names the principal).
 func NormalizeAuthType(authType string, account, user *string) (string, *string, *string, error) {
 	normalized := strings.ToLower(strings.TrimSpace(authType))
 	// An account locator carries its region as dotted suffixes; the JWT claims
