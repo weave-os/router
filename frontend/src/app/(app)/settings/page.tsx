@@ -15,6 +15,7 @@ import {
   type APIKeyScope,
   type DeployedModel,
   type ExternalKey,
+  type ProviderAuthType,
   type RouterConfig,
 } from "@/lib/api";
 import { ChevronDown, Copy, Filter, KeyRound, Network, Plug, RotateCw, Search, Settings as SettingsIcon, SlidersHorizontal, Trash2 } from "lucide-react";
@@ -589,7 +590,7 @@ function ProviderKeysPanel() {
   const [keyValue, setKeyValue] = useState("");
   const [name, setName] = useState("");
   const [baseURL, setBaseURL] = useState("");
-  const [keypairAuth, setKeypairAuth] = useState(false);
+  const [authType, setAuthType] = useState<ProviderAuthType>("bearer");
   const [authAccount, setAuthAccount] = useState("");
   const [authUser, setAuthUser] = useState("");
   const [aliasRows, setAliasRows] = useState<AliasRow[]>([]);
@@ -645,12 +646,15 @@ function ProviderKeysPanel() {
   const baseURLRequired = provider != null && PROVIDERS_REQUIRING_BASE_URL.includes(provider);
   // Mirrors the server's normalization: a slash-only value normalizes away to nothing.
   const baseURLMissing = baseURLRequired && baseURL.trim().replace(/\/+$/, "") === "";
-  // Key-pair auth is a gateway-only credential shape; the vendor providers
-  // authenticate with their own API keys.
-  const keypairOffered = baseURLRequired;
-  const usingKeypair = keypairOffered && keypairAuth;
+  // Key-pair and workload-identity auth are gateway-only credential shapes; the
+  // vendor providers authenticate with their own API keys.
+  const authTypeOffered = baseURLRequired;
+  const usingKeypair = authTypeOffered && authType === "keypair_jwt";
+  const usingWIF = authTypeOffered && authType === "wif";
   const keypairIncomplete = usingKeypair && (authAccount.trim() === "" || authUser.trim() === "");
-  const saveDisabled = saving || keyValue.trim() === "" || baseURLMissing || keypairIncomplete;
+  // A WIF key carries no secret, so an empty key field is the expected state.
+  const keyMissing = !usingWIF && keyValue.trim() === "";
+  const saveDisabled = saving || keyMissing || baseURLMissing || keypairIncomplete;
 
   async function handleSave(e: React.FormEvent) {
     e.preventDefault();
@@ -659,16 +663,18 @@ function ProviderKeysPanel() {
     try {
       await api.providerKeys.upsert(
         provider,
-        keyValue.trim(),
+        usingWIF ? "" : keyValue.trim(),
         name.trim() || undefined,
         baseURL.trim() || undefined,
         aliasMapFrom(aliasRows),
-        usingKeypair ? { account: authAccount.trim(), user: authUser.trim() } : undefined,
+        usingKeypair
+          ? { type: authType, account: authAccount.trim(), user: authUser.trim() }
+          : { type: authTypeOffered ? authType : "bearer" },
       );
       setKeyValue("");
       setName("");
       setBaseURL("");
-      setKeypairAuth(false);
+      setAuthType("bearer");
       setAuthAccount("");
       setAuthUser("");
       setAliasRows([]);
@@ -720,7 +726,7 @@ function ProviderKeysPanel() {
             <form onSubmit={handleSave} className="space-y-3" autoComplete="off">
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-[200px_1fr]">
                 <ProviderPicker value={provider} onChange={setPickedProvider} options={available} />
-                {usingKeypair ? (
+                {usingWIF ? null : usingKeypair ? (
                   <div className="flex flex-col gap-1.5">
                     <label htmlFor="provider-private-key" className="text-xs font-medium text-foreground">
                       Private key (PEM)
@@ -757,7 +763,7 @@ function ProviderKeysPanel() {
                   />
                 )}
               </div>
-              {keypairOffered ? (
+              {authTypeOffered ? (
                 <div className="flex flex-col gap-1.5">
                   <label htmlFor="provider-auth-type" className="text-xs font-medium text-foreground">
                     Authentication
@@ -766,15 +772,22 @@ function ProviderKeysPanel() {
                     id="provider-auth-type"
                     name="provider-auth-type"
                     className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:border-foreground/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
-                    value={keypairAuth ? "keypair_jwt" : "bearer"}
+                    value={authType}
                     onChange={e => {
-                      setKeypairAuth(e.target.value === "keypair_jwt");
+                      setAuthType(e.target.value as ProviderAuthType);
                       setKeyValue("");
                     }}
                   >
                     <option value="bearer">Token (sent as-is)</option>
                     <option value="keypair_jwt">Key pair (router signs a short-lived token)</option>
+                    <option value="wif">Workload identity (router attests its own identity)</option>
                   </select>
+                  {usingWIF ? (
+                    <Text className="text-2xs text-muted-foreground">
+                      No credential to enter. Grant this router&apos;s workload identity access to the
+                      endpoint&apos;s service user.
+                    </Text>
+                  ) : null}
                 </div>
               ) : null}
               {usingKeypair ? (

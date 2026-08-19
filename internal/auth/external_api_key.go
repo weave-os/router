@@ -28,7 +28,8 @@ type ExternalAPIKey struct {
 	// AuthType is how Plaintext authenticates upstream; see AuthType* constants.
 	AuthType string
 	// AuthAccount and AuthUser identify the principal a minted JWT is issued
-	// for; empty unless AuthType is AuthTypeKeypairJWT.
+	// for; empty unless AuthType is AuthTypeKeypairJWT. Under AuthTypeWIF the
+	// principal comes from the attestation, so both stay empty.
 	AuthAccount string
 	AuthUser    string
 	CreatedAt   time.Time
@@ -58,10 +59,12 @@ type CreateExternalAPIKeyParams struct {
 	CreatedBy   *string
 }
 
-// AuthTypeBearer sends the secret verbatim; AuthTypeKeypairJWT signs a short-lived JWT with it.
+// AuthTypeBearer sends the secret verbatim; AuthTypeKeypairJWT signs a short-lived JWT with it;
+// AuthTypeWIF stores no secret and attests the router's own workload identity per request.
 const (
 	AuthTypeBearer     = "bearer"
 	AuthTypeKeypairJWT = "keypair_jwt"
+	AuthTypeWIF        = "wif"
 )
 
 // Identity header formats. IdentityFormatEmail sends the bare address;
@@ -185,9 +188,10 @@ func NormalizeBaseURL(raw *string) (*string, error) {
 // maxKeypairFieldLength bounds the account and user identifiers.
 const maxKeypairFieldLength = 255
 
-// NormalizeKeypairAuth validates authType with its account/user pair and returns the canonical
-// form. An empty type defaults to AuthTypeBearer. For keypair_jwt, principal fields are uppercased.
-func NormalizeKeypairAuth(authType string, account, user *string) (string, *string, *string, error) {
+// NormalizeAuthType validates authType with its account/user pair and returns the canonical
+// form. An empty type defaults to AuthTypeBearer. For keypair_jwt, principal fields are uppercased;
+// wif takes neither, since the attestation names the principal.
+func NormalizeAuthType(authType string, account, user *string) (string, *string, *string, error) {
 	normalized := strings.ToLower(strings.TrimSpace(authType))
 	// An account locator carries its region as dotted suffixes; the JWT claims
 	// want the bare locator. Org-qualified identifiers are hyphenated and unaffected.
@@ -196,11 +200,11 @@ func NormalizeKeypairAuth(authType string, account, user *string) (string, *stri
 	if normalized == "" {
 		normalized = AuthTypeBearer
 	}
-	if normalized == AuthTypeBearer {
+	if normalized == AuthTypeBearer || normalized == AuthTypeWIF {
 		if upperAccount != "" || upperUser != "" {
 			return "", nil, nil, fmt.Errorf("%w: account and user apply to %s only", ErrInvalidKeypairAuth, AuthTypeKeypairJWT)
 		}
-		return AuthTypeBearer, nil, nil, nil
+		return normalized, nil, nil, nil
 	}
 	if normalized != AuthTypeKeypairJWT {
 		return "", nil, nil, fmt.Errorf("%w: unknown auth type %q", ErrInvalidKeypairAuth, authType)

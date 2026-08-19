@@ -187,9 +187,11 @@ type externalKeyResponse struct {
 }
 
 type upsertExternalKeyRequest struct {
-	Provider string  `json:"provider" binding:"required"`
-	Key      string  `json:"key" binding:"required"`
-	Name     *string `json:"name"`
+	Provider string `json:"provider" binding:"required"`
+	// Key is required for every auth type but "wif", which carries no secret;
+	// the binding can't express that, so the emptiness check lives below.
+	Key  string  `json:"key"`
+	Name *string `json:"name"`
 	// BaseURL points this key at a non-default endpoint. Required for gateway
 	// providers, which have no deployment default to fall back to.
 	BaseURL *string `json:"base_url"`
@@ -200,8 +202,9 @@ type upsertExternalKeyRequest struct {
 	// for service-authenticated endpoints that attribute spend per user. Format: "email" or "json".
 	IdentityHeader       *string `json:"identity_header"`
 	IdentityHeaderFormat *string `json:"identity_header_format"`
-	// AuthType is "bearer" (default) or "keypair_jwt", where Key is an RSA private
-	// key and the router signs a short-lived token for AuthAccount/AuthUser.
+	// AuthType is "bearer" (default), "keypair_jwt" — Key is an RSA private key and the
+	// router signs a short-lived token for AuthAccount/AuthUser — or "wif", where the
+	// router attests its own workload identity and Key/AuthAccount/AuthUser stay empty.
 	AuthType    string  `json:"auth_type"`
 	AuthAccount *string `json:"auth_account"`
 	AuthUser    *string `json:"auth_user"`
@@ -255,6 +258,10 @@ func UpsertExternalKeyHandler(authSvc *auth.Service, models DeployedModelsSource
 		}
 		var req upsertExternalKeyRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
+			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "Provider and key are required."})
+			return
+		}
+		if req.Key == "" && req.AuthType != auth.AuthTypeWIF {
 			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "Provider and key are required."})
 			return
 		}

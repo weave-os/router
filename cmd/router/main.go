@@ -50,6 +50,7 @@ import (
 	"workweave/router/internal/router/rl"
 	"workweave/router/internal/router/sessionpin"
 	"workweave/router/internal/server"
+	"workweave/router/internal/wif"
 
 	_ "time/tzdata"
 
@@ -407,7 +408,8 @@ func main() {
 	authSvc := auth.NewService(repo.Installations, repo.APIKeys, repo.ExternalAPIKeys, repo.Users, cache, userCache, time.Now).
 		WithEncryptor(encryptor).
 		WithInstallationChangeNotifier(notifier).
-		WithClusterModelLists(repo.ClusterModelLists)
+		WithClusterModelLists(repo.ClusterModelLists).
+		WithWIFTokenSource(buildWIFTokenSource(logger))
 
 	// Fans out Pub/Sub invalidations to this replica's cache; the 5-min TTL
 	// is the safety net if the listener falls behind.
@@ -1208,6 +1210,35 @@ func buildClusterScorer(availableProviders map[string]struct{}) (router.Router, 
 	}
 
 	return multi, defaultEmbedderID, nil
+}
+
+// buildWIFTokenSource constructs the workload attestation source backing BYOK
+// keys with auth_type=wif. Returns nil when ROUTER_WIF_PROVIDER is unset, which
+// leaves such keys unusable rather than sent without a credential — the identity
+// is the deployment's own, so only the operator can say what attests it.
+func buildWIFTokenSource(logger *slog.Logger) auth.WIFTokenSource {
+	provider := strings.ToUpper(strings.TrimSpace(config.GetOr("ROUTER_WIF_PROVIDER", "")))
+	audience := config.GetOr("ROUTER_WIF_AUDIENCE", auth.WIFAudience)
+	switch provider {
+	case "":
+		return nil
+	case auth.WIFProviderGCP:
+		logger.Info("Workload identity federation enabled", "provider", provider, "audience", audience)
+		return wif.NewGoogleTokenSource(audience)
+	case auth.WIFProviderOIDC:
+		path := config.GetOr("ROUTER_WIF_OIDC_TOKEN_FILE", "")
+		if path == "" {
+			err := fmt.Errorf("ROUTER_WIF_PROVIDER=%s requires ROUTER_WIF_OIDC_TOKEN_FILE", provider)
+			logger.Error("Refusing to boot with incomplete workload identity configuration", "err", err)
+			panic(err)
+		}
+		logger.Info("Workload identity federation enabled", "provider", provider, "token_file", path)
+		return wif.NewFileTokenSource(path)
+	default:
+		err := fmt.Errorf("Invalid ROUTER_WIF_PROVIDER %q (expected %q or %q)", provider, auth.WIFProviderGCP, auth.WIFProviderOIDC)
+		logger.Error("Refusing to boot with invalid workload identity provider", "err", err)
+		panic(err)
+	}
 }
 
 // buildOtelEmitter constructs the OTel span emitter from environment

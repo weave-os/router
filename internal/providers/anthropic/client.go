@@ -218,6 +218,7 @@ func (c *Client) Proxy(ctx context.Context, decision router.Decision, prep provi
 		upstream.Header[http.CanonicalHeaderKey(k)] = vs
 	}
 	c.applyOAuthBeta(ctx, upstream, r)
+	proxy.ApplyWIFTokenType(ctx, upstream)
 	proxy.ApplyIdentityHeader(ctx, upstream)
 	if v := r.Header.Get("accept"); v != "" {
 		upstream.Header.Set("accept", v)
@@ -324,6 +325,7 @@ func (c *Client) Passthrough(ctx context.Context, prep providers.PreparedRequest
 		upstream.Header[http.CanonicalHeaderKey(k)] = vs
 	}
 	c.applyOAuthBeta(ctx, upstream, r)
+	proxy.ApplyWIFTokenType(ctx, upstream)
 	if v := r.Header.Get("accept"); v != "" {
 		upstream.Header.Set("accept", v)
 	}

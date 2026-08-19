@@ -64,6 +64,9 @@ type Service struct {
 	now               Clock
 	encryptor         Encryptor
 	keypairTokens     *KeypairTokenCache
+	// wifTokens is nil unless the deployment runs with a workload identity;
+	// WIF keys are then dropped rather than sent without a credential.
+	wifTokens WIFTokenSource
 
 	// adminPassword and adminSessionKey are empty when admin login is disabled.
 	adminPassword   string
@@ -102,6 +105,12 @@ func NewService(
 
 func (s *Service) WithEncryptor(e Encryptor) *Service {
 	s.encryptor = e
+	return s
+}
+
+// WithWIFTokenSource wires the attestation source backing AuthTypeWIF keys.
+func (s *Service) WithWIFTokenSource(src WIFTokenSource) *Service {
+	s.wifTokens = src
 	return s
 }
 
@@ -261,9 +270,19 @@ func (s *Service) UpsertExternalAPIKey(ctx context.Context, installationID strin
 	if err != nil {
 		return nil, err
 	}
-	authType, authAccount, authUser, err := NormalizeKeypairAuth(params.AuthType, params.AuthAccount, params.AuthUser)
+	authType, authAccount, authUser, err := NormalizeAuthType(params.AuthType, params.AuthAccount, params.AuthUser)
 	if err != nil {
 		return nil, err
+	}
+	if authType == AuthTypeWIF {
+		if !providers.RequiresBaseURL(provider) {
+			return nil, fmt.Errorf("%w: %s does not accept workload identity credentials", ErrInvalidKeypairAuth, provider)
+		}
+		// The attestation is minted per request from the router's own identity, so a
+		// pasted secret here would be stored and never used.
+		if rawKey != "" {
+			return nil, fmt.Errorf("%w: %s takes no key material", ErrInvalidKeypairAuth, AuthTypeWIF)
+		}
 	}
 	if authType == AuthTypeKeypairJWT {
 		if !providers.RequiresBaseURL(provider) {
@@ -466,7 +485,7 @@ func (s *Service) VerifyAPIKey(ctx context.Context, rawToken string) (*Installat
 				return nil, nil, nil, nil, ErrWrongKeyScope
 			}
 			s.fireMarkUsed(cached.APIKey.ID)
-			return cached.Installation, cached.APIKey, s.resolveUpstreamSecrets(cached.ExternalKeys), cached.ClusterModelLists, nil
+			return cached.Installation, cached.APIKey, s.resolveUpstreamSecrets(ctx, cached.ExternalKeys), cached.ClusterModelLists, nil
 		}
 		// Malformed positive entry (nil APIKey): fall through to DB lookup.
 	}
@@ -513,7 +532,7 @@ func (s *Service) VerifyAPIKey(ctx context.Context, rawToken string) (*Installat
 		s.cache.Set(keyHash, CachedKey{APIKey: apiKey, Installation: installation, ExternalKeys: externalKeys, ClusterModelLists: clusterModelLists})
 	}
 	s.fireMarkUsed(apiKey.ID)
-	return installation, apiKey, s.resolveUpstreamSecrets(externalKeys), clusterModelLists, nil
+	return installation, apiKey, s.resolveUpstreamSecrets(ctx, externalKeys), clusterModelLists, nil
 }
 
 // ResolveAndStashUser upserts a router user and stashes the ID on ctx. Email

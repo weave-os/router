@@ -138,9 +138,9 @@ func TestParseKeypairPrivateKey_RejectsUnusableKeys(t *testing.T) {
 	}
 }
 
-func TestNormalizeKeypairAuth_UppercasesPrincipalAndStripsRegion(t *testing.T) {
+func TestNormalizeAuthType_UppercasesPrincipalAndStripsRegion(t *testing.T) {
 	account, user := "xy12345.us-east-1.aws", "service_user"
-	authType, gotAccount, gotUser, err := auth.NormalizeKeypairAuth("keypair_jwt", &account, &user)
+	authType, gotAccount, gotUser, err := auth.NormalizeAuthType("keypair_jwt", &account, &user)
 	require.NoError(t, err)
 
 	assert.Equal(t, auth.AuthTypeKeypairJWT, authType)
@@ -151,7 +151,7 @@ func TestNormalizeKeypairAuth_UppercasesPrincipalAndStripsRegion(t *testing.T) {
 	assert.Equal(t, "SERVICE_USER", *gotUser)
 }
 
-func TestNormalizeKeypairAuth_Rejects(t *testing.T) {
+func TestNormalizeAuthType_Rejects(t *testing.T) {
 	value := "MYORG-MYACCOUNT"
 	cases := map[string]struct {
 		authType      string
@@ -164,14 +164,14 @@ func TestNormalizeKeypairAuth_Rejects(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			_, _, _, err := auth.NormalizeKeypairAuth(tc.authType, tc.account, tc.user)
+			_, _, _, err := auth.NormalizeAuthType(tc.authType, tc.account, tc.user)
 			require.ErrorIs(t, err, auth.ErrInvalidKeypairAuth)
 		})
 	}
 }
 
-func TestNormalizeKeypairAuth_EmptyTypeDefaultsToBearer(t *testing.T) {
-	authType, account, user, err := auth.NormalizeKeypairAuth("", nil, nil)
+func TestNormalizeAuthType_EmptyTypeDefaultsToBearer(t *testing.T) {
+	authType, account, user, err := auth.NormalizeAuthType("", nil, nil)
 	require.NoError(t, err)
 	assert.Equal(t, auth.AuthTypeBearer, authType,
 		"a request that says nothing about auth must keep today's send-the-secret behavior")

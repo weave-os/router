@@ -8,6 +8,7 @@ This page is the exhaustive reference; the [README](../README.md) has the
 
 - [Provider API keys](#provider-api-keys)
   - [Key-pair auth](#key-pair-auth)
+  - [Workload identity federation](#workload-identity-federation)
 - [Postgres](#postgres)
 - [Server](#server)
 - [Routing](#routing)
@@ -77,7 +78,8 @@ Both keys carry the same PAT; per model, the catalog's binding order decides
 which surface serves it, so Claude prefers the Anthropic one (it carries
 thinking blocks and `cache_control` natively) and falls back to the other. A
 tenant that can't issue a long-lived PAT configures each key with an RSA
-private key instead — see [Key-pair auth](#key-pair-auth).
+private key instead — see [Key-pair auth](#key-pair-auth) — or with no secret
+at all, see [Workload identity federation](#workload-identity-federation).
 
 **BYOK (per-installation keys).** Instead of (or in addition to) the env vars
 above, each installation can supply its own provider keys via the dashboard.
@@ -176,6 +178,54 @@ routing falls back to another binding instead of leaking the key. Misconfigured
 input is rejected at write time with a `400`: a non-RSA or under-2048-bit key,
 a passphrase-protected key, a missing account or user, or key-pair auth on a
 vendor provider (only `anthropic_gateway` and `openai_gateway` accept it).
+
+### Workload identity federation
+
+A tenant that wants no credential in the router's database at all can trust the
+router's *own* cloud identity instead. The router attests itself per request —
+a Google-signed ID token for the service account it runs as, or a projected
+OIDC token mounted into its pod — and sends the attestation as the bearer:
+
+```text
+Authorization: Bearer WIF.GCP.<attestation>
+X-Snowflake-Authorization-Token-Type: WORKLOAD_IDENTITY_FEDERATION
+```
+
+The attestation source is deployment-wide, not per key, because it identifies
+the router process rather than a tenant:
+
+| Variable                     | Default                  | Effect |
+| ---------------------------- | ------------------------ | ------ |
+| `ROUTER_WIF_PROVIDER`        | *(none)*                 | `GCP` or `OIDC`. Unset disables workload identity: a `wif` key is dropped from that request's credentials. Any other value aborts boot. |
+| `ROUTER_WIF_AUDIENCE`        | `snowflakecomputing.com` | Audience of the minted GCP ID token. Snowflake requires the default; override only for a non-Snowflake upstream. |
+| `ROUTER_WIF_OIDC_TOKEN_FILE` | *(none)*                 | Path to the projected token, re-read per request so a rotated token is picked up. Required when `ROUTER_WIF_PROVIDER=OIDC`; boot aborts without it. |
+
+A key then carries no secret at all:
+
+```bash
+curl -sS -b jar -X POST https://<router>/admin/v1/provider-keys \
+  -H 'content-type: application/json' \
+  -d '{"provider":"openai_gateway","auth_type":"wif",
+       "base_url":"https://<account>.snowflakecomputing.com/api/v2/cortex/v1"}'
+```
+
+Upstream, the service user is created without a password or key and is bound to
+the workload's identity (Snowflake:
+`CREATE SECURITY INTEGRATION ... TYPE = WORKLOAD_IDENTITY` plus a
+`WORKLOAD_IDENTITY` on the user; see Snowflake's
+[workload identity federation](https://docs.snowflake.com/en/user-guide/workload-identity-federation)
+guide), with the same `SNOWFLAKE.CORTEX_USER` grant key-pair auth needs. Note
+that every installation using `wif` authenticates as the *same* workload — the
+router's — so spend attribution upstream is per deployment, not per tenant; use
+`identity_header` below if the endpoint needs the calling user.
+
+As with key-pair auth, a key whose attestation can't be obtained (no source
+wired, metadata server unreachable, token file missing) is dropped from that
+request's credentials rather than dispatched with an empty bearer. Passing
+`key`, `auth_account`, or `auth_user` alongside `auth_type: "wif"` is rejected
+with a `400` — the principal lives in the attestation, and a stored secret would
+never be used. The mode is also available in **Settings → Provider API keys →
+Authentication**.
 
 An endpoint that authenticates the org rather than the person can be given the
 calling user in a header of its choosing:

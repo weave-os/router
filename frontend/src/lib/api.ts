@@ -109,6 +109,10 @@ export interface IssueAPIKeyResponse {
   token: string;
 }
 
+// ProviderAuthType is how a BYOK key authenticates upstream. "wif" keys hold no
+// secret at all: the router presents its own workload attestation per request.
+export type ProviderAuthType = "bearer" | "keypair_jwt" | "wif";
+
 export interface ExternalKey {
   id: string;
   provider: string;
@@ -120,9 +124,10 @@ export interface ExternalKey {
   // Catalog model ID -> the ID this endpoint publishes it under; absent when it
   // uses catalog names directly.
   model_aliases?: Record<string, string>;
-  // "bearer" (send the stored secret) or "keypair_jwt" (the secret is an RSA
-  // private key the router signs short-lived tokens with); absent means bearer.
-  auth_type?: string;
+  // "bearer" (send the stored secret), "keypair_jwt" (the secret is an RSA
+  // private key the router signs short-lived tokens with), or "wif" (no stored
+  // secret; the router attests its own workload identity); absent means bearer.
+  auth_type?: ProviderAuthType;
   // Principal a minted token is issued for; present only with keypair_jwt.
   auth_account?: string;
   auth_user?: string;
@@ -225,7 +230,7 @@ export const api = {
       name?: string,
       baseURL?: string,
       modelAliases?: Record<string, string>,
-      keypairAuth?: { account: string; user: string },
+      auth?: { type: ProviderAuthType; account?: string; user?: string },
     ) =>
       request<ExternalKey>("/provider-keys", {
         method: "POST",
@@ -235,9 +240,9 @@ export const api = {
           name,
           base_url: baseURL,
           model_aliases: modelAliases,
-          auth_type: keypairAuth ? "keypair_jwt" : "bearer",
-          auth_account: keypairAuth?.account,
-          auth_user: keypairAuth?.user,
+          auth_type: auth?.type ?? "bearer",
+          auth_account: auth?.account,
+          auth_user: auth?.user,
         }),
       }),
     // Replaces the alias map in place; the stored secret is untouched, so

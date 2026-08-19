@@ -3,8 +3,6 @@ package auth
 import (
 	"time"
 
-	"workweave/router/internal/observability"
-
 	lru "github.com/hashicorp/golang-lru/v2"
 )
 
@@ -68,41 +66,4 @@ func (c *KeypairTokenCache) Bearer(key *ExternalAPIKey) ([]byte, error) {
 		expiresAt:   now.Add(keypairTokenReuse),
 	})
 	return minted, nil
-}
-
-// resolveUpstreamSecrets replaces each key's Plaintext with its upstream credential, minting
-// JWTs as needed. Keys that fail to mint are dropped — never sent as raw private keys.
-func (s *Service) resolveUpstreamSecrets(keys []*ExternalAPIKey) []*ExternalAPIKey {
-	if !anyKeypairAuth(keys) {
-		return keys
-	}
-	resolved := make([]*ExternalAPIKey, 0, len(keys))
-	for _, key := range keys {
-		bearer, err := s.keypairTokens.Bearer(key)
-		if err != nil {
-			observability.Get().Warn("Failed to mint keypair token for external API key",
-				"external_api_key_id", key.ID, "provider", key.Provider, "err", err)
-			continue
-		}
-		if key.AuthType != AuthTypeKeypairJWT {
-			resolved = append(resolved, key)
-			continue
-		}
-		// Copy so the minted token never overwrites the private key held by the
-		// shared cache entry these keys came from.
-		withToken := *key
-		withToken.Plaintext = bearer
-		resolved = append(resolved, &withToken)
-	}
-	return resolved
-}
-
-// anyKeypairAuth reports whether any key needs a minted token.
-func anyKeypairAuth(keys []*ExternalAPIKey) bool {
-	for _, key := range keys {
-		if key.AuthType == AuthTypeKeypairJWT {
-			return true
-		}
-	}
-	return false
 }

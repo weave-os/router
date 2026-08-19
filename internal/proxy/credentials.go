@@ -52,6 +52,10 @@ type Credentials struct {
 	// endpoint wants the caller's identity in; empty forwards nothing.
 	IdentityHeader       string
 	IdentityHeaderFormat string
+	// AuthType is the BYOK key's auth mode (see auth.AuthType*). APIKey already
+	// holds the derived credential; this only tells the adapter how the upstream
+	// must be told to read it.
+	AuthType string
 }
 
 // EffectiveBaseURL returns the BYOK key's per-request base URL if set,
@@ -124,6 +128,7 @@ func BuildCredentialsMap(keys []*auth.ExternalAPIKey) map[string]*Credentials {
 
 			IdentityHeader:       key.IdentityHeader,
 			IdentityHeaderFormat: key.IdentityHeaderFormat,
+			AuthType:             key.AuthType,
 		}
 	}
 	if len(m) == 0 {
