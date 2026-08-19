@@ -84,7 +84,7 @@ type RouterModelRouterExternalAPIKey struct {
 	IdentityHeaderName *string
 	// email = bare address, json = URL-encoded JSON property bag
 	IdentityHeaderFormat *string
-	// bearer = send the stored secret as-is, keypair_jwt = the secret is an RSA private key the router signs short-lived JWTs with
+	// bearer = send the stored secret as-is, keypair_jwt = the secret is an RSA private key the router signs short-lived JWTs with, wif = no stored secret, the router attests its own workload identity
 	AuthType string
 	// Account identifier the minted JWT is issued for; NULL unless auth_type is keypair_jwt
 	AuthAccount *string
