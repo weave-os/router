@@ -32,6 +32,7 @@ const (
 	DispatchErrorProviderNotConfigured
 	DispatchErrorRequestNotJSONObject
 	DispatchErrorNoEligibleProvider
+	DispatchErrorAllowlistEmptiesPool
 	DispatchErrorContextWindowExceeded
 	DispatchErrorInvalidRoutingKnobs
 	DispatchErrorRLPolicyUnavailable
@@ -170,6 +171,17 @@ func ClassifyDispatchError(err error) (DispatchErrorClass, bool) {
 			LogLevel:   "warn",
 			LogMessage: "Compatible translation provider unavailable",
 		}, true
+	// Must precede the ErrNoEligibleProvider case: ErrAllowlistEmptiesPool
+	// wraps it, so the generic case would otherwise match first and report a
+	// missing-provider-keys problem for what is actually a config decision.
+	case errors.Is(err, cluster.ErrAllowlistEmptiesPool):
+		return DispatchErrorClass{
+			Kind:       DispatchErrorAllowlistEmptiesPool,
+			Status:     http.StatusBadRequest,
+			Message:    "No allowed model can serve this request: your organization's model allowlist has no eligible overlap. Ask your org admin to widen it.",
+			LogLevel:   "warn",
+			LogMessage: "Model allowlist leaves no eligible candidates",
+		}, true
 	case errors.Is(err, cluster.ErrNoEligibleProvider):
 		return DispatchErrorClass{
 			Kind:       DispatchErrorNoEligibleProvider,
@@ -287,7 +299,7 @@ func unwrapToSentinelMessage(err error) string {
 // rather than "api_error".
 func (k DispatchErrorKind) IsClientError() bool {
 	switch k {
-	case DispatchErrorRequestNotJSONObject, DispatchErrorNoEligibleProvider, DispatchErrorContextWindowExceeded, DispatchErrorInvalidRoutingKnobs, DispatchErrorTranslationIntrinsicallyIncompatible, DispatchErrorAnthropicCacheControlInvalid, DispatchErrorForcedModelExcluded, DispatchErrorForcedModelUnknown, DispatchErrorForcedClusterUnsupportedStrategy, DispatchErrorForcedClusterUnservable:
+	case DispatchErrorRequestNotJSONObject, DispatchErrorNoEligibleProvider, DispatchErrorAllowlistEmptiesPool, DispatchErrorContextWindowExceeded, DispatchErrorInvalidRoutingKnobs, DispatchErrorTranslationIntrinsicallyIncompatible, DispatchErrorAnthropicCacheControlInvalid, DispatchErrorForcedModelExcluded, DispatchErrorForcedModelUnknown, DispatchErrorForcedClusterUnsupportedStrategy, DispatchErrorForcedClusterUnservable:
 		return true
 	default:
 		return false

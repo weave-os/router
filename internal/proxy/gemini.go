@@ -111,6 +111,7 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 		EnabledProviders:             s.enabledProvidersForRequest(ctx, providers.ProviderGoogle, r.Header),
 		CustomBindings:               s.customBindingsForRequest(ctx),
 		ExcludedModels:               s.excludedModelsForRequest(ctx),
+		AllowedModels:                allowedModelsForRequest(ctx),
 		PreferredModels:              s.preferredModelsForRequest(ctx),
 		RoutingKnobs:                 router.RoutingKnobsFromContext(ctx),
 		ClusterArmOverrides:          clusterArmOverridesForRequest(ctx),

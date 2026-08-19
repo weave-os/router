@@ -45,6 +45,18 @@ WHERE id = @id::uuid
   AND external_id = @external_id::varchar
   AND deleted_at IS NULL;
 
+-- Replaces the per-installation positive model allowlist, scoped to an
+-- external_id to prevent cross-tenant updates. Empty array means "no
+-- restriction" (all models routable), NOT "no models". Bumps updated_at so
+-- dashboards see the change.
+-- name: UpdateModelRouterInstallationAllowedModels :execrows
+UPDATE router.model_router_installations
+SET allowed_models = @allowed_models::text[],
+    updated_at = NOW()
+WHERE id = @id::uuid
+  AND external_id = @external_id::varchar
+  AND deleted_at IS NULL;
+
 -- Replaces the per-installation provider exclusion list, scoped to an
 -- external_id to prevent cross-tenant updates. Empty array means "no
 -- exclusion". Bumps updated_at so dashboards see the change.

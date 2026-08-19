@@ -36,6 +36,10 @@ type ExclusionReason string
 const (
 	// ExclusionRequested means the installation or request excluded the model.
 	ExclusionRequested ExclusionReason = "requested_exclusion"
+	// ExclusionNotAllowlisted means the org's positive model allowlist omits the
+	// model. Reported ahead of ExclusionRequested (the allowlist is desugared
+	// into the exclusion set upstream) so diagnostics name the real cause.
+	ExclusionNotAllowlisted ExclusionReason = "not_allowlisted"
 	// ExclusionUnknownCatalogModel means the deployed set named no catalog row.
 	ExclusionUnknownCatalogModel ExclusionReason = "unknown_catalog_model"
 	// ExclusionUnmappedRoster means the strategy intentionally has no roster ID.
@@ -254,7 +258,13 @@ func (r *Resolver) Resolve(req router.Request) ResolvedCandidates {
 
 	for _, id := range deployedIDs {
 		if _, excluded := req.ExcludedModels[id]; excluded {
-			diagnostics = append(diagnostics, Diagnostic{CatalogID: id, Reason: ExclusionRequested})
+			reason := ExclusionRequested
+			if len(req.AllowedModels) > 0 {
+				if _, allowed := req.AllowedModels[id]; !allowed {
+					reason = ExclusionNotAllowlisted
+				}
+			}
+			diagnostics = append(diagnostics, Diagnostic{CatalogID: id, Reason: reason})
 			continue
 		}
 		model, ok := catalog.ByID(id)

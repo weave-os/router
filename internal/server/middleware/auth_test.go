@@ -114,6 +114,10 @@ func (fakeInstallationRepository) UpdateExcludedModels(ctx context.Context, exte
 	return errors.New("not used")
 }
 
+func (fakeInstallationRepository) UpdateAllowedModels(ctx context.Context, externalID, id string, models []string) error {
+	return errors.New("not used")
+}
+
 func (fakeInstallationRepository) UpdateExcludedProviders(ctx context.Context, externalID, id string, providerNames []string) error {
 	return errors.New("not used")
 }

@@ -147,6 +147,12 @@ type Request struct {
 	// If filtering empties eligible set, scorer returns ErrNoEligibleProvider.
 	// Full union: installation excluded_models plus request-time safety filters.
 	ExcludedModels map[string]struct{}
+	// AllowedModels is the org's positive model allowlist as a set; nil means no
+	// restriction. Enforcement is already effected through ExcludedModels (the
+	// proxy desugars the allowlist into it), so nothing needs to filter on this
+	// field. It exists so the scorer and resolver can NAME the constraint in
+	// errors and diagnostics rather than reporting a large exclusion list.
+	AllowedModels map[string]struct{}
 	// SafetyExcludedModels holds only the hard request-time constraints a model
 	// physically cannot satisfy: context-window overflow and gemini-unsigned
 	// history — not the installation's excluded_models policy. The bypass gate

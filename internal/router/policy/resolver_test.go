@@ -252,3 +252,53 @@ func set(values ...string) map[string]struct{} {
 	}
 	return result
 }
+
+// The allowlist is desugared into ExcludedModels before the resolver runs, so
+// diagnostics would otherwise attribute every non-allowlisted model to an
+// explicit exclusion the admin never made. AllowedModels lets the resolver
+// report the real cause.
+func TestResolverReportsNotAllowlistedSeparatelyFromRequestedExclusion(t *testing.T) {
+	resolver := policy.NewResolver(
+		set("claude-opus-4-8", "claude-haiku-4-5"),
+		set(providers.ProviderAnthropic),
+		catalogRosterID,
+		policy.ManagedProviderPolicy(),
+	)
+
+	resolved := resolver.Resolve(router.Request{
+		// Both are excluded on the wire; only one is an explicit exclusion.
+		ExcludedModels: map[string]struct{}{
+			"claude-opus-4-8":  {},
+			"claude-haiku-4-5": {},
+		},
+		AllowedModels: map[string]struct{}{"claude-haiku-4-5": {}},
+	})
+
+	assert.Contains(t, resolved.Diagnostics, policy.Diagnostic{
+		CatalogID: "claude-opus-4-8",
+		Reason:    policy.ExclusionNotAllowlisted,
+	}, "a model absent from the allowlist must be reported as not-allowlisted")
+	assert.Contains(t, resolved.Diagnostics, policy.Diagnostic{
+		CatalogID: "claude-haiku-4-5",
+		Reason:    policy.ExclusionRequested,
+	}, "an allowlisted model excluded explicitly stays a requested exclusion")
+}
+
+// Without an allowlist configured, exclusion diagnostics must be unchanged.
+func TestResolverKeepsRequestedExclusionWhenNoAllowlist(t *testing.T) {
+	resolver := policy.NewResolver(
+		set("claude-opus-4-8"),
+		set(providers.ProviderAnthropic),
+		catalogRosterID,
+		policy.ManagedProviderPolicy(),
+	)
+
+	resolved := resolver.Resolve(router.Request{
+		ExcludedModels: map[string]struct{}{"claude-opus-4-8": {}},
+	})
+
+	assert.Contains(t, resolved.Diagnostics, policy.Diagnostic{
+		CatalogID: "claude-opus-4-8",
+		Reason:    policy.ExclusionRequested,
+	})
+}

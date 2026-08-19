@@ -20,6 +20,12 @@ type Installation struct {
 	// ExcludedModels is the per-installation model exclusion list.
 	// Empty means no exclusion.
 	ExcludedModels []string
+	// AllowedModels is the per-installation positive model allowlist: when
+	// non-empty, routing is confined to these models. Composes with (does not
+	// replace) ExcludedModels — the effective set is AllowedModels minus
+	// ExcludedModels. Empty means no restriction. Fail-closed: an allowlist
+	// with no eligible overlap refuses the turn.
+	AllowedModels []string
 	// ExcludedProviders is the per-installation provider exclusion list.
 	// Empty means no exclusion.
 	ExcludedProviders []string
@@ -97,6 +103,10 @@ type InstallationRepository interface {
 	// UpdateExcludedModels replaces the per-installation exclusion list.
 	// An empty (or nil) slice clears the list.
 	UpdateExcludedModels(ctx context.Context, externalID, id string, models []string) error
+	// UpdateAllowedModels replaces the per-installation positive model
+	// allowlist. An empty (or nil) slice clears it, which means "no
+	// restriction" — NOT "no models routable".
+	UpdateAllowedModels(ctx context.Context, externalID, id string, models []string) error
 	// UpdateExcludedProviders replaces the per-installation provider
 	// exclusion list. An empty (or nil) slice clears the list.
 	UpdateExcludedProviders(ctx context.Context, externalID, id string, providerNames []string) error

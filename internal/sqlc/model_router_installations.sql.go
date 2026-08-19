@@ -216,6 +216,40 @@ func (q *Queries) SoftDeleteModelRouterInstallation(ctx context.Context, arg Sof
 	return err
 }
 
+const updateModelRouterInstallationAllowedModels = `-- name: UpdateModelRouterInstallationAllowedModels :execrows
+UPDATE router.model_router_installations
+SET allowed_models = $1::text[],
+    updated_at = NOW()
+WHERE id = $2::uuid
+  AND external_id = $3::varchar
+  AND deleted_at IS NULL
+`
+
+type UpdateModelRouterInstallationAllowedModelsParams struct {
+	AllowedModels []string
+	ID            uuid.UUID
+	ExternalID    string
+}
+
+// Replaces the per-installation positive model allowlist, scoped to an
+// external_id to prevent cross-tenant updates. Empty array means "no
+// restriction" (all models routable), NOT "no models". Bumps updated_at so
+// dashboards see the change.
+//
+//	UPDATE router.model_router_installations
+//	SET allowed_models = $1::text[],
+//	    updated_at = NOW()
+//	WHERE id = $2::uuid
+//	  AND external_id = $3::varchar
+//	  AND deleted_at IS NULL
+func (q *Queries) UpdateModelRouterInstallationAllowedModels(ctx context.Context, arg UpdateModelRouterInstallationAllowedModelsParams) (int64, error) {
+	result, err := q.db.Exec(ctx, updateModelRouterInstallationAllowedModels, arg.AllowedModels, arg.ID, arg.ExternalID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const updateModelRouterInstallationContentCaptureMode = `-- name: UpdateModelRouterInstallationContentCaptureMode :execrows
 UPDATE router.model_router_installations
 SET content_capture_mode = $1,

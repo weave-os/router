@@ -387,6 +387,39 @@ func (s *Service) SetInstallationExcludedModels(ctx context.Context, externalID,
 	return out, nil
 }
 
+// SetInstallationAllowedModels replaces the per-installation positive model
+// allowlist. An empty list clears the restriction (all deployed models
+// routable) — it does NOT mean "no models". allowed is the set of valid model
+// IDs; passing nil skips validation, and validation is skipped entirely when
+// models is empty so a catalog outage can never block clearing a restriction.
+func (s *Service) SetInstallationAllowedModels(ctx context.Context, externalID, installationID string, models []string, allowed map[string]struct{}) ([]string, error) {
+	if models == nil {
+		models = []string{}
+	}
+	if allowed != nil && len(models) > 0 {
+		for _, m := range models {
+			if _, ok := allowed[m]; !ok {
+				return nil, fmt.Errorf("%w: %q", ErrUnknownModel, m)
+			}
+		}
+	}
+	// De-dupe while preserving order so the persisted list is stable.
+	seen := make(map[string]struct{}, len(models))
+	out := make([]string, 0, len(models))
+	for _, m := range models {
+		if _, dup := seen[m]; dup {
+			continue
+		}
+		seen[m] = struct{}{}
+		out = append(out, m)
+	}
+	if err := s.installations.UpdateAllowedModels(ctx, externalID, installationID, out); err != nil {
+		return nil, err
+	}
+	s.invalidateInstallation(installationID)
+	return out, nil
+}
+
 // SetInstallationExcludedProviders replaces the per-installation provider exclusion list.
 // allowed is the set of valid provider names; passing nil skips validation.
 func (s *Service) SetInstallationExcludedProviders(ctx context.Context, externalID, installationID string, providerNames []string, allowed map[string]struct{}) ([]string, error) {

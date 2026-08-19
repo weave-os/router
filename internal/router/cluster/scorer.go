@@ -22,6 +22,12 @@ var ErrClusterUnavailable = errors.New("cluster: routing unavailable")
 // overlap with boot-time candidates. Callers map to HTTP 4xx.
 var ErrNoEligibleProvider = errors.New("cluster: no eligible provider for request")
 
+// ErrAllowlistEmptiesPool is returned when the org's positive model allowlist
+// leaves no eligible candidate. Wraps ErrNoEligibleProvider so existing
+// errors.Is checks keep matching, while letting the HTTP layer name the
+// allowlist instead of dumping the desugared exclusion list.
+var ErrAllowlistEmptiesPool = fmt.Errorf("cluster: model allowlist leaves no eligible candidates: %w", ErrNoEligibleProvider)
+
 // ErrInvalidRoutingKnobs is returned when effective routing knobs fail validation.
 var ErrInvalidRoutingKnobs = errors.New("cluster: invalid routing knobs")
 
@@ -527,6 +533,18 @@ func (s *Scorer) Route(ctx context.Context, req router.Request) (router.Decision
 			}
 		}
 		if len(filtered) == 0 {
+			// An allowlist is desugared into ExcludedModels upstream, so report
+			// the allowlist as the cause when one is configured — otherwise the
+			// error names dozens of implicitly-excluded models and reads as a
+			// bug rather than a policy decision.
+			if len(req.AllowedModels) > 0 {
+				log.Warn(
+					"Cluster scorer: model allowlist empties eligible pool; returning ErrAllowlistEmptiesPool",
+					"allowed_models", sortedKeys(req.AllowedModels),
+					"requested_model", req.RequestedModel,
+				)
+				return router.Decision{}, fmt.Errorf("allowed models %v leave no eligible candidates: %w", sortedKeys(req.AllowedModels), ErrAllowlistEmptiesPool)
+			}
 			log.Warn(
 				"Cluster scorer: exclusion list empties eligible pool; returning ErrNoEligibleProvider",
 				"excluded_models", sortedKeys(req.ExcludedModels),

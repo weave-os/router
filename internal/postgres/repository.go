@@ -117,6 +117,29 @@ func (r *installationRepo) UpdateExcludedModels(ctx context.Context, externalID,
 	return nil
 }
 
+func (r *installationRepo) UpdateAllowedModels(ctx context.Context, externalID, id string, models []string) error {
+	parsed, err := uuid.Parse(id)
+	if err != nil {
+		return err
+	}
+	if models == nil {
+		models = []string{}
+	}
+	q := sqlc.New(r.tx)
+	rows, err := q.UpdateModelRouterInstallationAllowedModels(ctx, sqlc.UpdateModelRouterInstallationAllowedModelsParams{
+		ID:            parsed,
+		ExternalID:    externalID,
+		AllowedModels: models,
+	})
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return auth.ErrInstallationNotFound
+	}
+	return nil
+}
+
 func (r *installationRepo) UpdateExcludedProviders(ctx context.Context, externalID, id string, providerNames []string) error {
 	parsed, err := uuid.Parse(id)
 	if err != nil {

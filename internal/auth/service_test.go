@@ -136,6 +136,8 @@ func (f *fakeExternalAPIKeyRepo) MarkUsed(ctx context.Context, id string) error 
 type fakeInstallationRepository struct {
 	excludedModelsByID              map[string][]string
 	excludedModelsExternalByID      map[string]string
+	allowedModelsByID               map[string][]string
+	allowedModelsExternalByID       map[string]string
 	excludedProvidersByID           map[string][]string
 	excludedProvidersExternalByID   map[string]string
 	routingQualityByID              map[string]*float64
@@ -174,6 +176,20 @@ func (f *fakeInstallationRepository) UpdateExcludedModels(ctx context.Context, e
 	}
 	f.excludedModelsByID[id] = append([]string{}, models...)
 	f.excludedModelsExternalByID[id] = externalID
+	return nil
+}
+func (f *fakeInstallationRepository) UpdateAllowedModels(ctx context.Context, externalID, id string, models []string) error {
+	if f.updateErr != nil {
+		return f.updateErr
+	}
+	if f.allowedModelsByID == nil {
+		f.allowedModelsByID = map[string][]string{}
+	}
+	if f.allowedModelsExternalByID == nil {
+		f.allowedModelsExternalByID = map[string]string{}
+	}
+	f.allowedModelsByID[id] = append([]string{}, models...)
+	f.allowedModelsExternalByID[id] = externalID
 	return nil
 }
 func (f *fakeInstallationRepository) UpdateExcludedProviders(ctx context.Context, externalID, id string, providerNames []string) error {

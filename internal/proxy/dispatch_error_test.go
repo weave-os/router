@@ -68,6 +68,23 @@ func TestClassifyDispatchError_NoEligibleProviderIsClientErrorAndWarns(t *testin
 	assert.False(t, cls.RetryAfter)
 }
 
+// The allowlist sentinel wraps ErrNoEligibleProvider, so ordering in the
+// classifier's switch is load-bearing: the generic case would otherwise match
+// first and tell an admin they have no provider keys when in fact their own
+// allowlist is the cause.
+func TestClassifyDispatchError_AllowlistEmptiesPoolPrecedesNoEligibleProvider(t *testing.T) {
+	cls, ok := proxy.ClassifyDispatchError(cluster.ErrAllowlistEmptiesPool)
+
+	require.True(t, ok)
+	assert.Equal(t, proxy.DispatchErrorAllowlistEmptiesPool, cls.Kind)
+	assert.NotEqual(t, proxy.DispatchErrorNoEligibleProvider, cls.Kind, "must not fall through to the generic no-eligible-provider case")
+	assert.Equal(t, http.StatusBadRequest, cls.Status)
+	assert.True(t, cls.Kind.IsClientError())
+	assert.Equal(t, "warn", cls.LogLevel)
+	assert.False(t, cls.RetryAfter)
+	assert.Contains(t, cls.Message, "allowlist")
+}
+
 func TestClassifyDispatchError_BanditRLandHMMUnavailableRetry(t *testing.T) {
 	for _, err := range []error{bandit.ErrBanditUnavailable, rl.ErrPolicyUnavailable, hmm.ErrHMMUnavailable} {
 		cls, ok := proxy.ClassifyDispatchError(err)

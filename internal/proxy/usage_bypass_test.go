@@ -189,6 +189,39 @@ func TestUsageBypass_InstallationExcludedModel_StillBypasses(t *testing.T) {
 	assert.Equal(t, bypassRequestedMdl, rec.Header().Get("x-router-model"), "bypass must serve the requested model, not a substituted one")
 }
 
+// TestUsageBypass_NotAllowlistedModel_EngagesRouting is the counterpart to the
+// excluded-model case above, and the reason the allowlist needed an explicit
+// check in usageBypassEngaged: excluded_models is a routing preference the
+// bypass may override, but the org allowlist is a compliance boundary it must
+// not. Without the check, every subscription-backed turn would pass straight
+// through to any requested model and the allowlist would be silently inert for
+// exactly the traffic that skips routing.
+func TestUsageBypass_NotAllowlistedModel_EngagesRouting(t *testing.T) {
+	svc, fr, _ := bypassFixture(t, 0.20)
+	rec, req, body := bypassRequest(t)
+	// The org allowlists only the scorer's pick, never the requested model.
+	ctx := context.WithValue(bypassCtx(0.80), proxy.InstallationAllowedModelsContextKey{}, []string{bypassScorerPickMdl})
+
+	require.NoError(t, svc.ProxyMessages(ctx, body, rec, req))
+
+	assert.Equal(t, 1, fr.routeCalls, "a model outside the org allowlist must NOT bypass — the allowlist is a compliance boundary, not a preference")
+	assert.Equal(t, bypassScorerPickMdl, rec.Header().Get("x-router-model"), "routing must serve an allowlisted model instead")
+}
+
+// TestUsageBypass_AllowlistedModel_StillBypasses: the allowlist check must gate
+// only non-allowlisted models — an allowlisted model keeps its fast path.
+func TestUsageBypass_AllowlistedModel_StillBypasses(t *testing.T) {
+	svc, fr, p := bypassFixture(t, 0.20)
+	rec, req, body := bypassRequest(t)
+	ctx := context.WithValue(bypassCtx(0.80), proxy.InstallationAllowedModelsContextKey{}, []string{bypassRequestedMdl})
+
+	require.NoError(t, svc.ProxyMessages(ctx, body, rec, req))
+
+	assert.Equal(t, 0, fr.routeCalls, "an allowlisted model must still bypass")
+	require.Len(t, p.proxyBodies, 1)
+	assert.Equal(t, bypassRequestedMdl, rec.Header().Get("x-router-model"))
+}
+
 // TestUsageBypass_MaxedOutModel_EngagesRouting: the maxed-out guard writes
 // the saturated model to SafetyExcludedModels so an auto-continue re-request
 // falls through to the scorer, preventing bypass from reopening the max-output loop.
