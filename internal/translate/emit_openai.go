@@ -564,7 +564,10 @@ func buildOpenAIToolCall(block gjson.Result) string {
 
 // writeOpenAIUserFromAnthropic emits zero or more OpenAI messages for an
 // Anthropic user message. Mixed content (tool_result + text + image) is split
-// into separate tool-role messages followed by a single user message.
+// into separate tool-role messages followed by a single user message. Images
+// nested inside tool_result blocks (e.g. a screenshot returned by a Read tool
+// call) cannot ride a role:tool message — OpenAI tool content is text-only —
+// so they are hoisted into that trailing user message instead of being dropped.
 func writeOpenAIUserFromAnthropic(jw *jsonWriter, msg gjson.Result) {
 	content := msg.Get("content")
 	switch content.Type {
@@ -592,6 +595,16 @@ func writeOpenAIUserFromAnthropic(jw *jsonWriter, msg gjson.Result) {
 		switch block.Get("type").String() {
 		case "tool_result":
 			toolResultRaws = append(toolResultRaws, buildOpenAIToolResultMessage(block))
+			// Hoist nested images into the trailing user message; role:tool
+			// content is text-only, so leaving them here would drop them.
+			block.Get("content").ForEach(func(_, inner gjson.Result) bool {
+				if inner.Get("type").String() == "image" {
+					if part := buildOpenAIImagePart(inner); part != "" {
+						userPartRaws = append(userPartRaws, part)
+					}
+				}
+				return true
+			})
 		case "text":
 			inner := newJSONWriter()
 			inner.Obj()

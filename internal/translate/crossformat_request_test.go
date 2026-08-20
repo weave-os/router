@@ -921,6 +921,100 @@ func TestCrossFormat_AnthropicToOpenAI_Image(t *testing.T) {
 	assert.Contains(t, url, "iVBORw0KGgo=")
 }
 
+// Agent harnesses return screenshots nested inside tool_result blocks rather
+// than at the top level of the user message. OpenAI role:tool content is
+// text-only, so the image must be hoisted into the trailing user message —
+// dropping it leaves the upstream model staring at an empty tool result.
+func TestCrossFormat_AnthropicToOpenAI_ToolResultImageHoisted(t *testing.T) {
+	body := []byte(`{
+		"model": "claude-opus-4-8",
+		"messages": [
+			{"role": "user", "content": [{"type": "text", "text": "Read the screenshot"}]},
+			{"role": "assistant", "content": [
+				{"type": "tool_use", "id": "toolu_1", "name": "Read", "input": {"file_path": "/tmp/shot.png"}}
+			]},
+			{"role": "user", "content": [
+				{"type": "tool_result", "tool_use_id": "toolu_1", "content": [
+					{"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": "iVBORw0KGgo="}}
+				]}
+			]}
+		],
+		"max_tokens": 512
+	}`)
+
+	env, err := translate.ParseAnthropic(body)
+	require.NoError(t, err)
+	prep, err := env.PrepareOpenAI(http.Header{}, translate.EmitOptions{
+		TargetModel:    "gpt-4",
+		TargetProvider: "openai",
+	})
+	require.NoError(t, err)
+
+	doc := unmarshalBody(t, prep.Body)
+	msgs := getArray(t, doc, "messages")
+	require.Len(t, msgs, 4)
+
+	toolMsg := msgAt(t, msgs, 2)
+	assert.Equal(t, "tool", toolMsg["role"])
+	assert.Equal(t, "toolu_1", toolMsg["tool_call_id"])
+	assert.Equal(t, "", toolMsg["content"], "text-only tool content stays empty")
+
+	userMsg := msgAt(t, msgs, 3)
+	assert.Equal(t, "user", userMsg["role"], "hoisted image rides a trailing user message")
+	content := userMsg["content"].([]any)
+	require.Len(t, content, 1)
+	imgPart := content[0].(map[string]any)
+	assert.Equal(t, "image_url", imgPart["type"])
+	imageURL := getMap(t, imgPart, "image_url")
+	url, ok := imageURL["url"].(string)
+	require.True(t, ok)
+	assert.Equal(t, "data:image/png;base64,iVBORw0KGgo=", url)
+}
+
+// A tool_result carrying both text and an image keeps its text on the tool
+// message; only the image is hoisted.
+func TestCrossFormat_AnthropicToOpenAI_ToolResultTextAndImageSplit(t *testing.T) {
+	body := []byte(`{
+		"model": "claude-opus-4-8",
+		"messages": [
+			{"role": "user", "content": [{"type": "text", "text": "Read the screenshot"}]},
+			{"role": "assistant", "content": [
+				{"type": "tool_use", "id": "toolu_1", "name": "Read", "input": {"file_path": "/tmp/shot.png"}}
+			]},
+			{"role": "user", "content": [
+				{"type": "tool_result", "tool_use_id": "toolu_1", "content": [
+					{"type": "text", "text": "PNG image data, 2986 x 546"},
+					{"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": "iVBORw0KGgo="}}
+				]}
+			]}
+		],
+		"max_tokens": 512
+	}`)
+
+	env, err := translate.ParseAnthropic(body)
+	require.NoError(t, err)
+	prep, err := env.PrepareOpenAI(http.Header{}, translate.EmitOptions{
+		TargetModel:    "gpt-4",
+		TargetProvider: "openai",
+	})
+	require.NoError(t, err)
+
+	doc := unmarshalBody(t, prep.Body)
+	msgs := getArray(t, doc, "messages")
+	require.Len(t, msgs, 4)
+
+	toolMsg := msgAt(t, msgs, 2)
+	assert.Equal(t, "tool", toolMsg["role"])
+	assert.Equal(t, "PNG image data, 2986 x 546", toolMsg["content"], "text stays on the tool message")
+
+	userMsg := msgAt(t, msgs, 3)
+	assert.Equal(t, "user", userMsg["role"])
+	content := userMsg["content"].([]any)
+	require.Len(t, content, 1)
+	imgPart := content[0].(map[string]any)
+	assert.Equal(t, "image_url", imgPart["type"], "only the image is hoisted")
+}
+
 func TestCrossFormat_AnthropicToOpenAI_ArraySystemFlattened(t *testing.T) {
 	env, err := translate.ParseAnthropic(anthropicArraySystemConversation)
 	require.NoError(t, err)
