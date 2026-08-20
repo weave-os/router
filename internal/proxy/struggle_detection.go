@@ -95,8 +95,7 @@ func struggleReasons(turnCount int, wall time.Duration) []string {
 }
 
 // handleStruggleShadow records one durable event + one log line per (session,
-// role, reason). Takes no routing action. Gated upstream by
-// struggleShadowEnabled and the turn-type guard.
+// role, reason). Takes no routing action.
 func (s *Service) handleStruggleShadow(
 	ctx context.Context,
 	reason string,
