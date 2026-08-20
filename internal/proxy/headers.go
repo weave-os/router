@@ -11,6 +11,10 @@ const (
 	HeaderRouterProvider = "x-router-provider"
 	// HeaderRouterModel carries the model that served the turn.
 	HeaderRouterModel = "x-router-model"
+	// HeaderRouterContextWindow carries the effective context window (tokens)
+	// of the model that served the turn, so window-aware clients (pi) can budget
+	// auto-compaction against the served model rather than the requested one.
+	HeaderRouterContextWindow = "x-router-context-window"
 	// HeaderRouterCache reports semantic-cache status; value is RouterCacheHit
 	// on a cache hit and the header is omitted otherwise.
 	HeaderRouterCache = "x-router-cache"

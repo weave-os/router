@@ -10,6 +10,7 @@ import (
 	"math"
 	"net/http"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -1744,13 +1745,14 @@ const semanticCacheMaxBodyBytes = 1 << 20
 // no telemetry row to back a feedback page, so the link is omitted on hits
 // entirely — the skip here guards against ever replaying the cached one.
 var headersToSkipOnHit = map[string]struct{}{
-	"Request-Id":            {},
-	"X-Request-Id":          {},
-	"X-Router-Decision":     {},
-	"X-Router-Provider":     {},
-	"X-Router-Model":        {},
-	"X-Router-Cache":        {},
-	"X-Router-Feedback-Url": {},
+	"Request-Id":              {},
+	"X-Request-Id":            {},
+	"X-Router-Decision":       {},
+	"X-Router-Provider":       {},
+	"X-Router-Model":          {},
+	"X-Router-Context-Window": {},
+	"X-Router-Cache":          {},
+	"X-Router-Feedback-Url":   {},
 }
 
 // cloneCacheHeaders snapshots a header set for storage, dropping transient
@@ -1781,6 +1783,7 @@ func (s *Service) writeCachedResponse(w http.ResponseWriter, resp cache.CachedRe
 	w.Header().Set(HeaderRouterDecision, decision.Reason)
 	w.Header().Set(HeaderRouterProvider, decision.Provider)
 	w.Header().Set(HeaderRouterModel, decision.Model)
+	w.Header().Set(HeaderRouterContextWindow, strconv.Itoa(contextWindowForRequest(decision.Model)))
 	w.Header().Set(HeaderRouterCache, RouterCacheHit)
 	if resp.StatusCode != 0 && resp.StatusCode != http.StatusOK {
 		w.WriteHeader(resp.StatusCode)
@@ -2760,6 +2763,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	w.Header().Set(HeaderRouterDecision, decision.Reason)
 	w.Header().Set(HeaderRouterProvider, decision.Provider)
 	w.Header().Set(HeaderRouterModel, decision.Model)
+	w.Header().Set(HeaderRouterContextWindow, strconv.Itoa(contextWindowForRequest(decision.Model)))
 	if !agentShadowMode {
 		s.setFeedbackLinkHeader(ctx, w, installationID, externalID, requestID, auth.UserIDFrom(ctx))
 	}
@@ -5026,6 +5030,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	w.Header().Set(HeaderRouterDecision, decision.Reason)
 	w.Header().Set(HeaderRouterProvider, decision.Provider)
 	w.Header().Set(HeaderRouterModel, decision.Model)
+	w.Header().Set(HeaderRouterContextWindow, strconv.Itoa(contextWindowForRequest(decision.Model)))
 	s.setFeedbackLinkHeader(ctx, w, installationID, externalID, requestID, auth.UserIDFrom(ctx))
 
 	reqPricing := otel.Lookup(s.baselineFor(feats.Model))

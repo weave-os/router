@@ -205,6 +205,9 @@ func TestService_AgentShadowEvaluationForcesEphemerallyWithoutServingRouter(t *t
 	assert.Contains(t, string(provider.proxyBodies[0]), "old-result-0")
 	assert.NotContains(t, string(provider.proxyBodies[0]), "stale-signature")
 	assert.Equal(t, "claude-opus-4-8", rec.Header().Get(proxy.HeaderRouterModel))
+	// claude-opus-4-8 is CapExtendedContext, so the served context window header
+	// reports the effective 1M window clients should budget against.
+	assert.Equal(t, "1000000", rec.Header().Get(proxy.HeaderRouterContextWindow))
 	assert.Equal(t, providers.ProviderAnthropic, rec.Header().Get(proxy.HeaderRouterProvider))
 	assert.Equal(t, proxy.ReasonAgentShadowEval, rec.Header().Get(proxy.HeaderRouterDecision))
 	assert.Never(t, func() bool {
@@ -251,6 +254,8 @@ func TestService_AgentShadowEvaluationNeverSubstitutesRequestedBaseline(t *testi
 	assert.NotEmpty(t, openAIProvider.proxyBodies, "the planned candidate must be attempted")
 	assert.Empty(t, anthropicProvider.proxyBodies, "eval forcing must never dispatch the request baseline")
 	assert.Equal(t, "gpt-5.5", rec.Header().Get(proxy.HeaderRouterModel))
+	// gpt-5.5 is not CapExtendedContext, so the header carries its catalog window.
+	assert.Equal(t, "1050000", rec.Header().Get(proxy.HeaderRouterContextWindow))
 }
 
 func TestService_AgentShadowEvaluationNeverRetriesSubscriptionOnDeploymentKey(t *testing.T) {

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/google/uuid"
@@ -264,6 +265,7 @@ func (s *Service) bypassToAnthropic(
 	w.Header().Set(HeaderRouterDecision, decision.Reason)
 	w.Header().Set(HeaderRouterProvider, decision.Provider)
 	w.Header().Set(HeaderRouterModel, decision.Model)
+	w.Header().Set(HeaderRouterContextWindow, strconv.Itoa(contextWindowForRequest(decision.Model)))
 
 	p, provErr := s.provider(providers.ProviderAnthropic)
 	if provErr != nil {
