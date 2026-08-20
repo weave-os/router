@@ -15,6 +15,7 @@ import { Card } from "@/components/molecules/Card";
 import { Page } from "@/components/Page";
 import { PageHeader } from "@/components/PageHeader";
 import { ResponsiveGrid } from "@/components/ResponsiveGrid";
+import { RouterOnboarding } from "@/components/RouterOnboarding";
 import { Statistic } from "@/components/Statistic";
 import {
   api,
@@ -38,6 +39,9 @@ function formatNumber(v: number): string {
   return String(v);
 }
 
+// "checking" suppresses a flash of either surface until the keys probe lands.
+type OnboardingState = "checking" | "needed" | "done";
+
 export default function DashboardPage() {
   const dashboardFilters = useDashboardFilters("30d");
   const { fromISO, toISO, granularity, range } = dashboardFilters.filters;
@@ -46,8 +50,33 @@ export default function DashboardPage() {
   const [buckets, setBuckets] = useState<TimeseriesBucket[]>([]);
   const [modelBuckets, setModelBuckets] = useState<ModelBreakdownBucket[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [onboarding, setOnboarding] = useState<OnboardingState>("checking");
+
+  // A router that has never served a request has nothing to chart, so a fresh
+  // install lands in onboarding instead of on six empty charts. "Served at
+  // least once" is the gate rather than "has a key": a key alone doesn't mean
+  // any harness was ever pointed here.
+  useEffect(() => {
+    let cancelled = false;
+    api.keys
+      .list()
+      .then(res => {
+        if (cancelled) return;
+        const used = (res.keys ?? []).some(k => k.scope === "routing" && k.last_used_at != null);
+        setOnboarding(used ? "done" : "needed");
+      })
+      // Non-fatal: on a failed probe show the dashboard rather than trapping
+      // an established install in onboarding.
+      .catch(() => {
+        if (!cancelled) setOnboarding("done");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
+    if (onboarding !== "done") return;
     let cancelled = false;
     setError(null);
     Promise.all([
@@ -68,7 +97,12 @@ export default function DashboardPage() {
     return () => {
       cancelled = true;
     };
-  }, [fromISO, toISO, granularity]);
+  }, [fromISO, toISO, granularity, onboarding]);
+
+  if (onboarding === "checking") return null;
+  if (onboarding === "needed") {
+    return <RouterOnboarding onComplete={() => setOnboarding("done")} />;
+  }
 
   if (error) {
     return (

@@ -3,10 +3,11 @@
 import { EmptyHint, ErrorBanner, formatDate } from "./shared";
 import { Text } from "@/components/atoms/Text";
 import { Input } from "@/components/Input";
+import { InstallCommandPicker } from "@/components/InstallCommandPicker";
 import { Button } from "@/components/molecules/Button";
 import { Card } from "@/components/molecules/Card";
 import { Appearance, Intent } from "@/components/types";
-import { api, type APIKey, type APIKeyScope } from "@/lib/api";
+import { api, type APIKey, type APIKeyScope, type IssueAPIKeyResponse } from "@/lib/api";
 import { Copy, RotateCw, Search, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 
@@ -62,7 +63,10 @@ export function RouterKeysPanel() {
   const [creating, setCreating] = useState(false);
   const [rotating, setRotating] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
-  const [newToken, setNewToken] = useState<string | null>(null);
+  // Holds the issued token together with the scope it was minted for: only a
+  // routing key has an installer to offer, and rotate carries forward the
+  // rotated key's scope rather than whatever the create form currently shows.
+  const [issued, setIssued] = useState<IssueAPIKeyResponse | null>(null);
   const [copied, setCopied] = useState(false);
 
   const hasKey = keys.length > 0;
@@ -97,7 +101,7 @@ export function RouterKeysPanel() {
     setCreating(true);
     try {
       const res = await api.keys.issue(name.trim() || undefined, scope);
-      setNewToken(res.token);
+      setIssued(res);
       setName("");
       load();
     } catch (err: unknown) {
@@ -115,7 +119,7 @@ export function RouterKeysPanel() {
     setRotating(id);
     try {
       const res = await api.keys.rotate(id);
-      setNewToken(res.token);
+      setIssued(res);
       load();
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Failed to rotate key.");
@@ -141,8 +145,8 @@ export function RouterKeysPanel() {
   }
 
   function handleCopy() {
-    if (newToken == null) return;
-    navigator.clipboard.writeText(newToken).then(() => {
+    if (issued == null) return;
+    navigator.clipboard.writeText(issued.token).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     });
@@ -152,23 +156,38 @@ export function RouterKeysPanel() {
     <>
       {error && <ErrorBanner>{error}</ErrorBanner>}
 
-      {newToken != null && (
-        <div className="rounded-lg border border-success/30 bg-success/5 p-4">
-          <Text className="mb-2 text-xs font-medium text-success">
-            Key created. Copy it; it won&apos;t be shown again.
-          </Text>
-          <div className="flex items-center gap-2">
-            <code className="flex-1 rounded bg-muted px-3 py-1.5 font-mono text-2xs text-foreground">
-              {newToken}
-            </code>
-            <Button appearance={Appearance.Outlined} size="sm" onClick={handleCopy}>
-              <Copy className="size-3.5" />
-              {copied ? "Copied" : "Copy"}
-            </Button>
+      {issued != null && (
+        <div className="flex flex-col gap-3 rounded-lg border border-success/30 bg-success/5 p-4">
+          <div className="flex flex-col gap-2">
+            <Text className="text-xs font-medium text-success">
+              Key created. Copy it; it won&apos;t be shown again.
+            </Text>
+            <div className="flex items-center gap-2">
+              <code className="flex-1 rounded bg-muted px-3 py-1.5 font-mono text-2xs text-foreground">
+                {issued.token}
+              </code>
+              <Button appearance={Appearance.Outlined} size="sm" onClick={handleCopy}>
+                <Copy className="size-3.5" />
+                {copied ? "Copied" : "Copy"}
+              </Button>
+            </div>
           </div>
+
+          {/* A routing key is only useful once a harness points at it, so the
+              installer command ships with the token rather than leaving the
+              user to hunt for it. Analytics keys have nothing to install. */}
+          {issued.key.scope === "routing" && (
+            <div className="flex flex-col gap-2 border-t border-success/30 pt-3">
+              <Text className="text-xs font-medium text-foreground">
+                Point a harness at this router
+              </Text>
+              <InstallCommandPicker token={issued.token} />
+            </div>
+          )}
+
           <button
-            className="mt-2 text-2xs text-muted-foreground underline"
-            onClick={() => setNewToken(null)}
+            className="self-start text-2xs text-muted-foreground underline"
+            onClick={() => setIssued(null)}
           >
             Dismiss
           </button>
