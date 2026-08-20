@@ -184,3 +184,23 @@ test("guards against a reroute to a smaller served context window", () => {
 
 	assert.equal(compactCalls(), 1);
 });
+
+test("compacts itself when the final turn exceeds a smaller served window", () => {
+	// Registered window is 1M, but the router served a 200k window. The final
+	// turn (250k) is above the served threshold (183_616) yet well below the
+	// registered 1M. Pi budgets against the registered window and would never
+	// compact here, so the extension must compact itself instead of deferring.
+	const extension = extensionHarness((callback) => callback());
+	const { ctx, compactCalls } = contextHarness(1_000_000);
+	extension.emit("agent_start", { type: "agent_start" }, ctx);
+	extension.emit(
+		"after_provider_response",
+		{ type: "after_provider_response", status: 200, headers: { "x-router-context-window": "200000" } },
+		ctx,
+	);
+	extension.emit("turn_end", { type: "turn_end", message: assistant(100_000), toolResults: [] }, ctx);
+	extension.emit("turn_end", { type: "turn_end", message: assistant(250_000), toolResults: [] }, ctx);
+	extension.emit("agent_end", { type: "agent_end", messages: [] }, ctx);
+
+	assert.equal(compactCalls(), 1);
+});
