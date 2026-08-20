@@ -36,7 +36,10 @@ from npm on next start and loads this extension via its `pi.extensions` field.
   an uninterrupted tool loop before its normal post-run compaction check. The
   extension preserves a usable output budget for the real continuation and
   compacts once the loop settles, while leaving ordinary threshold compaction
-  to Pi.
+  to Pi. When the router reports the served model's real window via
+  `x-router-context-window`, that budget replaces the requested model's static
+  200K assumption, so a 1M-context model serving a 200K session is not
+  pre-compacted (and a smaller served model still compacts early enough).
 - **Sticky sessions.** `metadata.user_id = "pi:<sessionId>"` pins the main loop
   to one model for the session; subagents get their own pins.
 - **`dispatch` tool — parallel, context-isolated subagents.** pi has none

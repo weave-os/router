@@ -21,6 +21,7 @@ import type {
 	TurnEndEvent,
 } from "@mariozechner/pi-coding-agent";
 import type { AssistantMessage } from "@mariozechner/pi-ai";
+import { ROUTED_CONTEXT_WINDOW_HEADER } from "./config.js";
 
 const PROBE_MAX_TOKENS = 4;
 const CONTINUATION_MAX_TOKENS = 16_384;
@@ -86,11 +87,15 @@ export function registerCompaction(pi: ExtensionAPI, schedule: Schedule = (callb
 	let lastTurnTokens = 0;
 	let repairedContinuation = false;
 	let compactionScheduled = false;
+	// Effective context window reported by the router for the model that
+	// actually served the response; undefined when the header is absent.
+	let servedContextWindow: number | undefined;
 
 	const resetRun = () => {
 		highWaterTokens = 0;
 		lastTurnTokens = 0;
 		repairedContinuation = false;
+		servedContextWindow = undefined;
 	};
 
 	const finishCompaction = (ctx: ExtensionContext) => {
@@ -107,6 +112,14 @@ export function registerCompaction(pi: ExtensionAPI, schedule: Schedule = (callb
 		if (repairClampedToolContinuation(event.payload)) repairedContinuation = true;
 	});
 
+	pi.on("after_provider_response", (event) => {
+		if (event.status < 200 || event.status >= 300) return;
+		const raw = event.headers?.[ROUTED_CONTEXT_WINDOW_HEADER];
+		if (typeof raw !== "string" || !/^\d+$/.test(raw)) return;
+		const servedWindow = Number(raw);
+		if (servedWindow > COMPACTION_RESERVE_TOKENS) servedContextWindow = servedWindow;
+	});
+
 	pi.on("turn_end", (event: TurnEndEvent) => {
 		if (event.message.role !== "assistant") return;
 		lastTurnTokens = contextTokens(event.message as AssistantMessage);
@@ -115,13 +128,22 @@ export function registerCompaction(pi: ExtensionAPI, schedule: Schedule = (callb
 
 	pi.on("agent_end", (_event: AgentEndEvent, ctx: ExtensionContext) => {
 		if (process.env.WEAVE_PI_AUTO_COMPACTION === "0" || compactionScheduled) return;
-		const contextWindow = ctx.model?.contextWindow ?? ctx.getContextUsage()?.contextWindow ?? 0;
+		// The routed provider's reported window is authoritative for what is
+		// actually holding context; the requested model's static window is only
+		// the fallback when the router did not report one.
+		const contextWindow = servedContextWindow ?? ctx.model?.contextWindow ?? ctx.getContextUsage()?.contextWindow ?? 0;
 		if (contextWindow <= COMPACTION_RESERVE_TOKENS) return;
 		const threshold = contextWindow - COMPACTION_RESERVE_TOKENS;
+		const requestedWindow = ctx.model?.contextWindow ?? ctx.getContextUsage()?.contextWindow ?? 0;
+		const requestedThreshold = requestedWindow - COMPACTION_RESERVE_TOKENS;
 		// Pi's built-in check runs immediately after this event and owns the
-		// ordinary final-turn threshold case. Starting another compaction while
-		// that async summary is in flight would race it.
-		if (lastTurnTokens > threshold) return;
+		// ordinary final-turn threshold case; starting another compaction while
+		// that async summary is in flight would race it. But Pi only fires when
+		// the requested model's budget is exceeded. When the served window is
+		// smaller than the requested budget, a final turn above the served
+		// threshold and below the requested one would otherwise fall through
+		// both sides and overflow the served model - so compact it here.
+		if (lastTurnTokens > threshold && lastTurnTokens > requestedThreshold) return;
 		if (!repairedContinuation && highWaterTokens <= threshold) return;
 
 		compactionScheduled = true;
