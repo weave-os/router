@@ -1,0 +1,9 @@
+"$schema" = "https://conductor.build/schemas/settings.repo.schema.json"
+
+# Gitignored files every new workspace needs, copied from the repo root.
+# Defining this replaces Conductor's built-in `.env*` default, so `.env*`
+# is repeated here explicitly. Patterns use .gitignore syntax.
+file_include_globs = """
+.env*
+**/.deployment.json
+"""
