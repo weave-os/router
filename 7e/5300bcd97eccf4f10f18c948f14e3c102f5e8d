@@ -1,0 +1,27 @@
+install/npm/README.md
+  s_cf418399adffae::t_81351fd1fb4b9a 87-101
+install/npm/package.json
+  s_cf418399adffae::t_d79913b8210ad0 6-7
+install/README.md
+  s_cf418399adffae::t_235b056b1d38a2 25-27,30
+install/install.sh
+  s_cf418399adffae::t_294ff35325cc48 130-133
+install/pi-router/README.md
+  s_cf418399adffae::t_ae694a20b68cbd 12-13
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.16",
+  "base_commit_sha": "7e5300bcd97eccf4f10f18c948f14e3c102f5e8d",
+  "prompts": {},
+  "sessions": {
+    "s_cf418399adffae": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "917838df-4804-4164-a17b-8e9e783dd86d",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}
