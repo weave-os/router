@@ -137,6 +137,11 @@ type Service struct {
 	// hmPinStickyOnArmSelectorUnavail suppresses a fresh decision that came from the arm-selector
 	// unavailable fallback bandit. Env ROUTER_HMM_PIN_STICKY_ON_ARM_SELECTOR_UNAVAIL, off by default.
 	hmPinStickyOnArmSelectorUnavail bool
+	// authoritativeUpgradeGate applies the upgrade-confidence threshold to
+	// authoritative-per-turn decisions too: a scored fresh decision that is
+	// pricier than the session pin only escalates at confidence >=
+	// hmmUpgradeConfidenceThreshold. Env ROUTER_AUTHORITATIVE_UPGRADE_GATE, on by default.
+	authoritativeUpgradeGate bool
 	// policyDeadlineFallback degrades a policy sidecar deadline/transport failure to
 	// the session pin instead of a 503. Kill switch: env ROUTER_POLICY_DEADLINE_FALLBACK, off by default.
 	policyDeadlineFallback bool
@@ -1108,6 +1113,7 @@ func NewService(r router.Router, providerMap map[string]providers.Client, emitte
 			TierUpgradeEnabled:     DefaultPlannerTierUpgradeEnabled,
 		},
 		hmmUpgradeConfidenceThreshold: defaultHMMUpgradeConfidenceThreshold,
+		authoritativeUpgradeGate:      true,
 		plannerEnabled:                true,
 		scoreToolResultTurns:          true,
 		loopEscalationEnabled:         true,
@@ -1199,6 +1205,14 @@ func (s *Service) WithHMMSameTierPin(enabled bool) *Service {
 // for suppressing a reroute caused by the arm-selector unavailable fallback bandit.
 func (s *Service) WithHMPinStickyOnArmSelectorUnavail(enabled bool) *Service {
 	s.hmPinStickyOnArmSelectorUnavail = enabled
+	return s
+}
+
+// WithAuthoritativeUpgradeGate is the kill switch (ROUTER_AUTHORITATIVE_UPGRADE_GATE)
+// for applying the upgrade-confidence threshold to authoritative-per-turn
+// decisions. On by default; disabling restores verbatim policy selection.
+func (s *Service) WithAuthoritativeUpgradeGate(enabled bool) *Service {
+	s.authoritativeUpgradeGate = enabled
 	return s
 }
 

@@ -1033,6 +1033,30 @@ func (s *Service) runTurnLoop(
 			s.refreshPin(ctx, installationID, res.SessionKey, pin, res.PinRole, decision)
 			return res, nil
 		}
+		// Upgrade-confidence guard: authoritative selection bypasses the HMM
+		// cost gate, but the escalation floor still applies. A scored fresh
+		// decision that costs more than the pinned model only wins at
+		// confidence >= threshold; below it the session stays on its pin.
+		// Unscored decisions, downgrades, and unpinned turns pass through.
+		if s.authoritativeUpgradeGate && pinFound && pin.Model != "" && pin.Model != fresh.Model &&
+			hmmFreshIsMoreExpensive(pin.Model, fresh.Model, req.SubsidizedModelCostFactor) {
+			if confidence, ok := hmmDecisionConfidence(fresh); ok && confidence < s.hmmUpgradeConfidenceThreshold {
+				decision := pinDecision(pin)
+				res.Decision = decision
+				res.StickyHit = true
+				res.PinTier = "authoritative_" + hmmReasonUpgradeConfidenceLow
+				log.Info("turnloop suppressed low-confidence authoritative upgrade; keeping session pin",
+					"pin_model", pin.Model,
+					"pin_provider", pin.Provider,
+					"fresh_model", fresh.Model,
+					"fresh_provider", fresh.Provider,
+					"confidence", confidence,
+					"threshold", s.hmmUpgradeConfidenceThreshold,
+				)
+				s.refreshPin(ctx, installationID, res.SessionKey, pin, res.PinRole, decision)
+				return res, nil
+			}
+		}
 		res.Decision = fresh
 		res.PinTier = "authoritative_per_turn"
 		s.writeNewPin(ctx, installationID, res.SessionKey, res.PinRole, fresh)

@@ -603,6 +603,9 @@ func main() {
 	hmmUpgradeConfidence := parseEnvFloat("ROUTER_HMM_UPGRADE_CONFIDENCE_THRESHOLD", 0.85)
 	hmmSameTierPin := config.GetOr("ROUTER_HMM_SAME_TIER_PIN", "false") == "true"
 	hmPinStickyOnArmSelectorUnavail := config.GetOr("ROUTER_HMM_PIN_STICKY_ON_ARM_SELECTOR_UNAVAIL", "false") == "true"
+	// authoritativeUpgradeGate keeps the 0.85 escalation floor active for authoritative-per-turn
+	// policies; kill switch for a return to verbatim policy selection.
+	authoritativeUpgradeGate := config.GetOr("ROUTER_AUTHORITATIVE_UPGRADE_GATE", "true") == "true"
 	// policyDeadlineFallback degrades a policy sidecar deadline/transport failure to
 	// the session pin (or tier-3 default below) instead of a 503. Kill switch; off by default.
 	policyDeadlineFallback := config.GetOr("ROUTER_POLICY_DEADLINE_FALLBACK", "false") == "true"
@@ -818,6 +821,7 @@ func main() {
 		WithHMMUpgradeConfidenceThreshold(hmmUpgradeConfidence).
 		WithHMMSameTierPin(hmmSameTierPin).
 		WithHMPinStickyOnArmSelectorUnavail(hmPinStickyOnArmSelectorUnavail).
+		WithAuthoritativeUpgradeGate(authoritativeUpgradeGate).
 		WithPolicyDeadlineFallback(policyDeadlineFallback).
 		WithPolicyDeadlineDefaultModel(policyDeadlineDefaultModel).
 		WithEscapeNormalize(escapeNormalize).
