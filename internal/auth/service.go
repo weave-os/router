@@ -711,8 +711,7 @@ func (s *Service) fireMarkUsed(apiKeyID string) {
 }
 
 // fireMarkFirstRequestServed stamps the installation-level onboarding flag
-// off the request path (same rationale as fireMarkUsed). Not called from the
-// analytics path — an analytics read is not a routed request.
+// off the request path (same rationale as fireMarkUsed; not called on the analytics path).
 func (s *Service) fireMarkFirstRequestServed(installationID string) {
 	log := observability.Get().With("installation_id", installationID)
 	observability.SafeGo(log, 2*time.Second, "fireMarkFirstRequestServed", func(ctx context.Context) {

@@ -16,8 +16,7 @@ type onboardingResponse struct {
 }
 
 // OnboardingHandler reports whether this installation has ever served a routed
-// request, which is what the dashboard uses to decide between the first-run
-// onboarding flow and the metrics view.
+// request; the dashboard uses it to gate the first-run flow vs. the metrics view.
 func OnboardingHandler(authSvc *auth.Service) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		installation, ok := resolveInstallation(c, authSvc)
