@@ -19,32 +19,19 @@ const ReasonLoopEscalation = "loop_escalation"
 
 // ForceModelResult holds the parsed outcome of a force-model command.
 type ForceModelResult struct {
-	// Model is the target model name; empty when Clear or List is true.
+	// Model is the target model name; empty when Clear is true.
 	Model string
 	// Clear is true for /unforce-model.
 	Clear bool
-	// List is true for a bare /force-model with no model argument: the caller
-	// answers with the pinnable-model listing instead of pinning anything.
-	List bool
 }
-
-// ForceModelKnown reports whether a candidate string names a pinnable model.
-// Supplied by the caller so the parser can consume a multi-word model name
-// ("qwen 3.8") without this package needing to know the model catalog.
-type ForceModelKnown func(candidate string) bool
 
 // ExtractForceModelCommand scans the last user-role message in env for a
 // /force-model <model> or /unforce-model directive, stripping it from
 // env.body. Returns (zero, false) when no command is present.
-//
-// known decides how many words of the argument belong to the model name: the
-// longest leading run of words it accepts wins, and the remainder stays in the
-// message as the user's prompt. A nil known (or one that accepts nothing)
-// falls back to a single word, which is what the pre-multi-word behavior did.
-func (env *RequestEnvelope) ExtractForceModelCommand(known ForceModelKnown) (ForceModelResult, bool) {
+func (env *RequestEnvelope) ExtractForceModelCommand() (ForceModelResult, bool) {
 	var res ForceModelResult
 	found := env.extractLeadingCommand(func(text string) (bool, string) {
-		r, ok, stripped := parseForceModelCommand(text, known)
+		r, ok, stripped := parseForceModelCommand(text)
 		if ok {
 			res = r
 		}
@@ -135,21 +122,10 @@ func (env *RequestEnvelope) extractLeadingCommand(parse func(text string) (found
 // (pi, opencode, raw API); Claude Code/Codex expand to the canonical form
 // client-side.
 //
-// The model argument may span several words ("/fm qwen 3.8"), so the split
-// between model name and trailing prompt is resolved by `known` rather than
-// assumed at the first space: the longest leading run of words `known`
-// accepts is the model, and the rest is the prompt. Without that, "/fm qwen
-// 3.8" silently pinned "qwen" and dropped "3.8" — a wrong model served under
-// an ack that looked like it took.
-//
-// A bare "/force-model" with no argument sets List: users who don't know the
-// exact slug need to see the pinnable set, and the old behavior (no match, so
-// the literal text forwarded upstream) answered that with a model's guess.
-//
 // Leading <tag>...</tag> blocks (e.g. <system-reminder>, <command-name>
 // injected by Claude Code) are skipped before the leading-line check, and
 // preserved in the stripped output.
-func parseForceModelCommand(text string, known ForceModelKnown) (res ForceModelResult, found bool, stripped string) {
+func parseForceModelCommand(text string) (res ForceModelResult, found bool, stripped string) {
 	prefixEnd := leadingInjectedPrefixEnd(text)
 	prefix := text[:prefixEnd]
 	body := text[prefixEnd:]
@@ -165,18 +141,13 @@ func parseForceModelCommand(text string, known ForceModelKnown) (res ForceModelR
 		if after, ok := cutAnyPrefix(trimmed, "/force-model ", "/fm "); ok {
 			parts := strings.Fields(strings.TrimSpace(after))
 			if len(parts) > 0 {
-				n := forceModelNameWords(parts, known)
-				res = ForceModelResult{Model: strings.Join(parts[:n], " ")}
-				if len(parts) > n {
-					cmdTail = strings.Join(parts[n:], " ")
+				res = ForceModelResult{Model: parts[0]}
+				if len(parts) > 1 {
+					cmdTail = strings.Join(parts[1:], " ")
 				}
 				found = true
 				cmdIdx = i
 			}
-		} else if trimmed == "/force-model" || trimmed == "/fm" {
-			res = ForceModelResult{List: true}
-			found = true
-			cmdIdx = i
 		} else if trimmed == "/unforce-model" || trimmed == "/ufm" {
 			res = ForceModelResult{Clear: true}
 			found = true
@@ -197,55 +168,6 @@ func parseForceModelCommand(text string, known ForceModelKnown) (res ForceModelR
 	stripped = strings.TrimSpace(prefix + bodyStripped)
 	return res, true, stripped
 }
-
-// forceModelNameWords returns how many leading words of parts form the model
-// name, preferring the longest run known accepts ("qwen 3.8" over "qwen").
-// When no multi-word run resolves, version-like tokens are absorbed anyway:
-// without that, "/fm qwen 9.9" silently pins qwen3-coder instead of rejecting.
-func forceModelNameWords(parts []string, known ForceModelKnown) int {
-	if known == nil {
-		return 1
-	}
-	// Bounded so a long pasted prompt after the model name isn't re-joined and
-	// re-checked on every word; no model name approaches this many words.
-	limit := min(len(parts), maxForceModelNameWords)
-	for n := limit; n > 1; n-- {
-		if known(strings.Join(parts[:n], " ")) {
-			return n
-		}
-	}
-	n := 1
-	for n < len(parts) && looksLikeVersionToken(parts[n]) {
-		n++
-	}
-	return n
-}
-
-// looksLikeVersionToken reports whether s reads as a version fragment of a
-// model name rather than the first word of a prompt: it must start with a
-// digit and contain only digits and version punctuation.
-func looksLikeVersionToken(s string) bool {
-	if s == "" || s[0] < '0' || s[0] > '9' {
-		return false
-	}
-	for i := range len(s) {
-		c := s[i]
-		if (c >= '0' && c <= '9') || c == '.' || c == '-' || c == '_' {
-			continue
-		}
-		// A trailing letter run is still version-shaped ("4o", "2507b").
-		if (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') {
-			continue
-		}
-		return false
-	}
-	return true
-}
-
-// maxForceModelNameWords caps how many leading words are considered part of a
-// model name. Four covers the wordiest real aliases ("claude opus 4 8") with
-// room to spare.
-const maxForceModelNameWords = 4
 
 // cutAnyPrefix returns text with the first matching prefix removed. Prefix
 // order matters only for overlapping prefixes; the command forms used here
