@@ -921,10 +921,8 @@ func TestCrossFormat_AnthropicToOpenAI_Image(t *testing.T) {
 	assert.Contains(t, url, "iVBORw0KGgo=")
 }
 
-// Agent harnesses return screenshots nested inside tool_result blocks rather
-// than at the top level of the user message. OpenAI role:tool content is
-// text-only, so the image must be hoisted into the trailing user message —
-// dropping it leaves the upstream model staring at an empty tool result.
+// Agent harnesses return screenshots in tool_result blocks; OpenAI role:tool
+// content is text-only, so images must be hoisted into the trailing user message.
 func TestCrossFormat_AnthropicToOpenAI_ToolResultImageHoisted(t *testing.T) {
 	body := []byte(`{
 		"model": "claude-opus-4-8",
