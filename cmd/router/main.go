@@ -606,6 +606,9 @@ func main() {
 	// authoritativeUpgradeGate keeps the 0.85 escalation floor active for authoritative-per-turn
 	// policies; kill switch for a return to verbatim policy selection.
 	authoritativeUpgradeGate := config.GetOr("ROUTER_AUTHORITATIVE_UPGRADE_GATE", "true") == "true"
+	// authoritativeEvictionVeto keeps the planner's cache-eviction economics active for
+	// authoritative-per-turn policies; kill switch to let those switches bypass EV.
+	authoritativeEvictionVeto := config.GetOr("ROUTER_AUTHORITATIVE_EVICTION_VETO", "true") == "true"
 	// policyDeadlineFallback degrades a policy sidecar deadline/transport failure to
 	// the session pin (or tier-3 default below) instead of a 503. Kill switch; off by default.
 	policyDeadlineFallback := config.GetOr("ROUTER_POLICY_DEADLINE_FALLBACK", "false") == "true"
@@ -822,6 +825,7 @@ func main() {
 		WithHMMSameTierPin(hmmSameTierPin).
 		WithHMPinStickyOnArmSelectorUnavail(hmPinStickyOnArmSelectorUnavail).
 		WithAuthoritativeUpgradeGate(authoritativeUpgradeGate).
+		WithAuthoritativeEvictionVeto(authoritativeEvictionVeto).
 		WithPolicyDeadlineFallback(policyDeadlineFallback).
 		WithPolicyDeadlineDefaultModel(policyDeadlineDefaultModel).
 		WithEscapeNormalize(escapeNormalize).

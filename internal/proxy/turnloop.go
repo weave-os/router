@@ -1057,6 +1057,46 @@ func (s *Service) runTurnLoop(
 				return res, nil
 			}
 		}
+		// Cache-economics veto: authoritative selection owns the semantic
+		// choice; the shared planner owns cache economics, exactly as on the
+		// HMM cost-gated path. Upgrades are governed by the confidence gate
+		// above (mirroring the confident-upgrade override); for downgrades and
+		// lateral moves, a cross-model switch only proceeds when the planner
+		// agrees it is worth paying the pin's cache eviction.
+		if s.authoritativeEvictionVeto && pinFound && pin.Model != "" && pin.Model != fresh.Model &&
+			!hmmFreshIsMoreExpensive(pin.Model, fresh.Model, req.SubsidizedModelCostFactor) {
+			cfg := s.planner
+			// Policy owns semantic selection; the planner contributes cache
+			// economics only, same contract as hmmCostGatedDecision.
+			cfg.TierUpgradeEnabled = false
+			plannerDecision := planner.Decide(planner.Inputs{
+				Pin:                   pin,
+				Fresh:                 fresh,
+				EstimatedInputTokens:  feats.Tokens,
+				CacheablePrefixTokens: cacheablePrefixTokens(pin, feats.Tokens, prefixBroken),
+				AvailableModels:       s.availableModels,
+				PinCacheCold:          pinCacheCold(pin, prefixBroken),
+				SubsidizedCostFactor:  req.SubsidizedModelCostFactor,
+			}, cfg)
+			if plannerDecision.Outcome == planner.OutcomeStay {
+				decision := pinDecision(pin)
+				res.Decision = decision
+				res.PlannerDecision = plannerDecision
+				res.StickyHit = true
+				res.PinTier = "authoritative_ev_stay_" + plannerDecision.Reason
+				log.Info("turnloop suppressed authoritative switch; cache economics favor the pin",
+					"pin_model", pin.Model,
+					"pin_provider", pin.Provider,
+					"fresh_model", fresh.Model,
+					"fresh_provider", fresh.Provider,
+					"planner_reason", plannerDecision.Reason,
+					"eviction_cost_usd", plannerDecision.EvictionCostUSD,
+					"expected_savings_usd", plannerDecision.ExpectedSavingsUSD,
+				)
+				s.refreshPin(ctx, installationID, res.SessionKey, pin, res.PinRole, decision)
+				return res, nil
+			}
+		}
 		res.Decision = fresh
 		res.PinTier = "authoritative_per_turn"
 		s.writeNewPin(ctx, installationID, res.SessionKey, res.PinRole, fresh)

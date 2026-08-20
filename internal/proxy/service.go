@@ -142,6 +142,11 @@ type Service struct {
 	// pricier than the session pin only escalates at confidence >=
 	// hmmUpgradeConfidenceThreshold. Env ROUTER_AUTHORITATIVE_UPGRADE_GATE, on by default.
 	authoritativeUpgradeGate bool
+	// authoritativeEvictionVeto applies the shared planner's cache economics
+	// to authoritative-per-turn decisions too: a non-upgrade cross-model
+	// switch only proceeds when the planner agrees it is worth paying the
+	// pin's cache eviction. Env ROUTER_AUTHORITATIVE_EVICTION_VETO, on by default.
+	authoritativeEvictionVeto bool
 	// policyDeadlineFallback degrades a policy sidecar deadline/transport failure to
 	// the session pin instead of a 503. Kill switch: env ROUTER_POLICY_DEADLINE_FALLBACK, off by default.
 	policyDeadlineFallback bool
@@ -1114,6 +1119,7 @@ func NewService(r router.Router, providerMap map[string]providers.Client, emitte
 		},
 		hmmUpgradeConfidenceThreshold: defaultHMMUpgradeConfidenceThreshold,
 		authoritativeUpgradeGate:      true,
+		authoritativeEvictionVeto:     true,
 		plannerEnabled:                true,
 		scoreToolResultTurns:          true,
 		loopEscalationEnabled:         true,
@@ -1213,6 +1219,14 @@ func (s *Service) WithHMPinStickyOnArmSelectorUnavail(enabled bool) *Service {
 // decisions. On by default; disabling restores verbatim policy selection.
 func (s *Service) WithAuthoritativeUpgradeGate(enabled bool) *Service {
 	s.authoritativeUpgradeGate = enabled
+	return s
+}
+
+// WithAuthoritativeEvictionVeto is the kill switch (ROUTER_AUTHORITATIVE_EVICTION_VETO)
+// for applying the planner's cache-eviction economics to authoritative-per-turn
+// decisions. On by default; disabling lets authoritative switches bypass EV.
+func (s *Service) WithAuthoritativeEvictionVeto(enabled bool) *Service {
+	s.authoritativeEvictionVeto = enabled
 	return s
 }
 

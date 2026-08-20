@@ -60,7 +60,7 @@ func TestAuthoritativePolicySelectsEveryEligibleTurn(t *testing.T) {
 			pinExpires: time.Now().Add(time.Hour),
 		},
 		{
-			name:       "main loop ignores planner stay",
+			name:       "main loop serves policy pick with economics gated off",
 			body:       []byte(`{"model":"claude-opus-4-8","messages":[{"role":"user","content":"fix the failing test"}]}`),
 			pinFound:   true,
 			pinExpires: time.Now().Add(time.Hour),
@@ -131,6 +131,10 @@ func TestAuthoritativePolicySelectsEveryEligibleTurn(t *testing.T) {
 					ThresholdUSD:           1_000_000,
 					ExpectedRemainingTurns: 3,
 				}).
+				// Cache-economics gating of authoritative switches is covered by
+				// TestAuthoritativeEvictionVeto; keep it off so this table stays
+				// focused on turn-eligibility mechanics.
+				WithAuthoritativeEvictionVeto(false).
 				WithSummarizer(summarizer).
 				WithPolicyStrategy(policy.StrategySpec{
 					Strategy: strategy,
@@ -377,10 +381,11 @@ func TestAuthoritativeUpgradeConfidenceGate(t *testing.T) {
 			store := newStubPinStore()
 			store.getFound = test.pinFound
 			store.getPin = sessionpin.Pin{
-				Provider:    providers.ProviderAnthropic,
-				Model:       test.pinModel,
-				Reason:      "hmm_policy(classifier 'fast' (p=0.60))",
-				PinnedUntil: time.Now().Add(time.Hour),
+				Provider:        providers.ProviderAnthropic,
+				Model:           test.pinModel,
+				Reason:          "hmm_policy(classifier 'fast' (p=0.60))",
+				PinnedUntil:     time.Now().Add(time.Hour),
+				LastTurnEndedAt: time.Now(),
 			}
 			policyRouter := &authoritativeTestRouter{decision: test.fresh}
 			svc := NewService(
@@ -404,6 +409,165 @@ func TestAuthoritativeUpgradeConfidenceGate(t *testing.T) {
 			})
 			if test.gateOff {
 				svc = svc.WithAuthoritativeUpgradeGate(false)
+			}
+			// Keep the eviction veto's economics out of this gate's way: with a
+			// long horizon the downgrade's savings dominate its eviction cost.
+			svc.planner.ExpectedRemainingTurns = 1000
+			env, err := translate.ParseAnthropic(body)
+			require.NoError(t, err)
+			features := env.RoutingFeatures(false)
+
+			result, err := svc.runTurnLoop(
+				router.WithStrategy(context.Background(), strategy),
+				env,
+				features,
+				"api-key",
+				uuid.New(),
+				"",
+				http.Header{},
+				router.Request{
+					RequestedModel:       features.Model,
+					ConversationMessages: conversationMessagesForRouting(env),
+				},
+			)
+
+			require.NoError(t, err)
+			assert.True(t, result.AuthoritativePerTurn)
+			assert.Equal(t, test.wantModel, result.Decision.Model)
+			assert.Equal(t, test.wantSticky, result.StickyHit)
+			assert.Equal(t, test.wantTier, result.PinTier)
+		})
+	}
+}
+
+func TestAuthoritativeEvictionVeto(t *testing.T) {
+	strategy := router.Strategy("authoritative-eviction-test")
+	body := []byte(`{"model":"claude-opus-4-8","messages":[{"role":"user","content":"fix the failing test"}]}`)
+
+	tests := []struct {
+		name            string
+		vetoOff         bool
+		pinModel        string
+		pinWarm         bool
+		fresh           router.Decision
+		plannerRemain   int
+		wantModel       string
+		wantSticky      bool
+		wantTier        string
+	}{
+		{
+			name:     "negative EV keeps warm pin on downgrade",
+			pinModel: "claude-opus-4-8",
+			pinWarm:  true,
+			fresh: router.Decision{
+				Provider: providers.ProviderAnthropic,
+				Model:    "claude-haiku-4-5",
+				Reason:   "authoritative-eviction-test_policy",
+			},
+			plannerRemain: 1,
+			wantModel:     "claude-opus-4-8",
+			wantSticky:    true,
+			wantTier:      "authoritative_ev_stay_ev_negative",
+		},
+		{
+			name:     "positive EV serves fresh downgrade",
+			pinModel: "claude-opus-4-8",
+			pinWarm:  true,
+			fresh: router.Decision{
+				Provider: providers.ProviderAnthropic,
+				Model:    "claude-haiku-4-5",
+				Reason:   "authoritative-eviction-test_policy",
+			},
+			plannerRemain: 1000,
+			wantModel:     "claude-haiku-4-5",
+			wantSticky:    false,
+			wantTier:      "authoritative_per_turn",
+		},
+		{
+			name:     "confident upgrade bypasses veto",
+			pinModel: "claude-haiku-4-5",
+			pinWarm:  true,
+			fresh: router.Decision{
+				Provider: providers.ProviderAnthropic,
+				Model:    "claude-opus-4-8",
+				Reason:   "hmm_policy(classifier 'maximum' (p=0.91))",
+				Metadata: &router.RoutingMetadata{ChosenScore: 0.91},
+			},
+			plannerRemain: 1,
+			wantModel:     "claude-opus-4-8",
+			wantSticky:    false,
+			wantTier:      "authoritative_per_turn",
+		},
+		{
+			name:     "pin without prior usage stays",
+			pinModel: "claude-opus-4-8",
+			pinWarm:  false,
+			fresh: router.Decision{
+				Provider: providers.ProviderAnthropic,
+				Model:    "claude-haiku-4-5",
+				Reason:   "authoritative-eviction-test_policy",
+			},
+			plannerRemain: 1000,
+			wantModel:     "claude-opus-4-8",
+			wantSticky:    true,
+			wantTier:      "authoritative_ev_stay_no_prior_usage",
+		},
+		{
+			name:     "veto disabled serves fresh",
+			vetoOff:  true,
+			pinModel: "claude-opus-4-8",
+			pinWarm:  true,
+			fresh: router.Decision{
+				Provider: providers.ProviderAnthropic,
+				Model:    "claude-haiku-4-5",
+				Reason:   "authoritative-eviction-test_policy",
+			},
+			plannerRemain: 1,
+			wantModel:     "claude-haiku-4-5",
+			wantSticky:    false,
+			wantTier:      "authoritative_per_turn",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			store := newStubPinStore()
+			store.getFound = true
+			pin := sessionpin.Pin{
+				Provider:    providers.ProviderAnthropic,
+				Model:       test.pinModel,
+				Reason:      "hmm_policy(classifier 'high' (p=0.60))",
+				PinnedUntil: time.Now().Add(time.Hour),
+			}
+			if test.pinWarm {
+				pin.LastTurnEndedAt = time.Now()
+			}
+			store.getPin = pin
+			policyRouter := &authoritativeTestRouter{decision: test.fresh}
+			svc := NewService(
+				nil,
+				nil,
+				nil,
+				false,
+				nil,
+				store,
+				false,
+				providers.ProviderAnthropic,
+				"claude-haiku-4-5",
+				nil,
+			).WithPolicyStrategy(policy.StrategySpec{
+				Strategy: strategy,
+				Router:   policyRouter,
+				Capabilities: policy.Capabilities{
+					SchemaVersion:                 policy.SchemaVersionV1,
+					AuthoritativePerTurnSelection: true,
+				},
+			})
+			if test.plannerRemain > 0 {
+				svc.planner.ExpectedRemainingTurns = test.plannerRemain
+			}
+			if test.vetoOff {
+				svc = svc.WithAuthoritativeEvictionVeto(false)
 			}
 			env, err := translate.ParseAnthropic(body)
 			require.NoError(t, err)

@@ -237,6 +237,10 @@ func TestHMMPinStickyOnArmSelectorUnavailableWiredIntoTurnLoop(t *testing.T) {
 				"claude-haiku-4-5",
 				nil,
 			).WithHMPinStickyOnArmSelectorUnavail(test.enabled).
+				// Cache-economics gating of authoritative switches is covered by
+				// TestAuthoritativeEvictionVeto; keep it off so this table stays
+				// focused on the arm-selector-unavailable sticky guard.
+				WithAuthoritativeEvictionVeto(false).
 				WithPolicyStrategy(policy.StrategySpec{
 					Strategy: strategy,
 					Router:   policyRouter,
