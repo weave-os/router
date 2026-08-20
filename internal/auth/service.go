@@ -542,7 +542,8 @@ func (s *Service) VerifyAPIKey(ctx context.Context, rawToken string) (*Installat
 			if cached.APIKey.Scope.Normalized() != ScopeRouting {
 				return nil, nil, nil, nil, ErrWrongKeyScope
 			}
-			s.fireMarkUsed(cached.APIKey.ID, cached.APIKey.InstallationID)
+			s.fireMarkUsed(cached.APIKey.ID)
+			s.fireMarkFirstRequestServed(cached.APIKey.InstallationID)
 			return cached.Installation, cached.APIKey, s.resolveUpstreamSecrets(ctx, cached.ExternalKeys), cached.ClusterModelLists, nil
 		}
 		// Malformed positive entry (nil APIKey): fall through to DB lookup.
@@ -589,7 +590,8 @@ func (s *Service) VerifyAPIKey(ctx context.Context, rawToken string) (*Installat
 	if clusterModelListsFetchOK {
 		s.cache.Set(keyHash, CachedKey{APIKey: apiKey, Installation: installation, ExternalKeys: externalKeys, ClusterModelLists: clusterModelLists})
 	}
-	s.fireMarkUsed(apiKey.ID, apiKey.InstallationID)
+	s.fireMarkUsed(apiKey.ID)
+	s.fireMarkFirstRequestServed(apiKey.InstallationID)
 	return installation, apiKey, s.resolveUpstreamSecrets(ctx, externalKeys), clusterModelLists, nil
 }
 
@@ -699,23 +701,28 @@ func userIdentityKey(email, claudeAccountUUID string) string {
 
 // fireMarkUsed runs the last_used_at update off the request path. Uses context.Background because
 // the parent ctx is often canceled (response written) before the UPDATE completes.
-//
-// A non-empty installationID also stamps that installation's
-// first_request_served_at, which is what onboarding is gated on: it has to
-// outlive the rotation of whatever key served the first request. Callers pass
-// "" when the read wasn't a routed request (an analytics export doesn't route),
-// so reading the export can't mark an installation as onboarded.
-func (s *Service) fireMarkUsed(apiKeyID, installationID string) {
+func (s *Service) fireMarkUsed(apiKeyID string) {
 	log := observability.Get().With("api_key_id", apiKeyID)
 	observability.SafeGo(log, 2*time.Second, "fireMarkUsed", func(ctx context.Context) {
 		if err := s.apiKeys.MarkUsed(ctx, apiKeyID); err != nil {
 			log.Warn("Failed to mark router api key used", "err", err)
 		}
-		if installationID == "" {
-			return
-		}
+	})
+}
+
+// fireMarkFirstRequestServed stamps the installation's first_request_served_at
+// off the request path, same rationale as fireMarkUsed for context.Background.
+// That flag is what the dashboard gates first-run onboarding on, so it lives on
+// the installation rather than the key: it has to outlive the rotation of
+// whatever key served the first request.
+//
+// Deliberately called only from the routing path. An analytics export doesn't
+// route a request, so reading it must not mark an installation as onboarded.
+func (s *Service) fireMarkFirstRequestServed(installationID string) {
+	log := observability.Get().With("installation_id", installationID)
+	observability.SafeGo(log, 2*time.Second, "fireMarkFirstRequestServed", func(ctx context.Context) {
 		if err := s.installations.MarkFirstRequestServed(ctx, installationID); err != nil {
-			log.Warn("Failed to mark installation first request served", "err", err, "installation_id", installationID)
+			log.Warn("Failed to mark installation first request served", "err", err)
 		}
 	})
 }
