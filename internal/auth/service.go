@@ -388,10 +388,9 @@ func (s *Service) SetInstallationExcludedModels(ctx context.Context, externalID,
 }
 
 // SetInstallationAllowedModels replaces the per-installation positive model
-// allowlist. An empty list clears the restriction (all deployed models
-// routable) — it does NOT mean "no models". allowed is the set of valid model
-// IDs; passing nil skips validation, and validation is skipped entirely when
-// models is empty so a catalog outage can never block clearing a restriction.
+// allowlist. Empty list clears the restriction (all models routable — NOT "no
+// models"). Validation skipped when models is empty so a catalog outage can't
+// block clearing a restriction; pass nil allowed to skip validation entirely.
 func (s *Service) SetInstallationAllowedModels(ctx context.Context, externalID, installationID string, models []string, allowed map[string]struct{}) ([]string, error) {
 	if models == nil {
 		models = []string{}
