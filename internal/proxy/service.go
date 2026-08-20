@@ -2402,7 +2402,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	// extraction: DeriveSessionKey can fall back to prompt text, and deriving
 	// after the strip would mismatch subsequent turns with the unstripped message.
 	if !agentShadowMode && s.pinStore != nil {
-		if cmd, hasCmd := env.ExtractForceModelCommand(); hasCmd {
+		if cmd, hasCmd := env.ExtractForceModelCommand(forceModelNameKnown); hasCmd {
 			log.Info("ProxyMessages force-model command", "force_model_cmd", cmd)
 			if err := s.handleForceModelCommand(ctx, w, env, cmd, installationID, sessionKey, feats.Tokens); err != nil {
 				return err
@@ -4833,7 +4833,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	// extraction: DeriveSessionKey can fall back to prompt text, and deriving
 	// after the strip would mismatch subsequent turns with the unstripped message.
 	if s.pinStore != nil {
-		if cmd, hasCmd := env.ExtractForceModelCommand(); hasCmd {
+		if cmd, hasCmd := env.ExtractForceModelCommand(forceModelNameKnown); hasCmd {
 			log.Info("ProxyOpenAIChatCompletion force-model command", "force_model_cmd", cmd)
 			if err := s.handleForceModelCommand(ctx, w, env, cmd, installationID, sessionKey, feats.Tokens); err != nil {
 				return err

@@ -343,13 +343,28 @@ with nowhere to go (HTTP 503 from the scorer), so exclude deliberately.
 
 ## Forcing a model or a routing cluster
 
+`/force-model <model>` (alias `/fm`) pins the session to one model. The model
+may be a canonical catalog ID, an alias (`opus`, `qwen-max`, …), or the way you
+would say it out loud — separators are insignificant, so `qwen 3.8`,
+`qwen-3.8`, and `qwen3.8` all reach `qwen/qwen3.8-max`. Anything after the
+model name stays in the turn as your prompt (`/fm qwen 3.8 fix the test`).
+
+Run `/force-model` with no argument to list every model this installation can
+pin, grouped into automatic-routing targets and passthrough-only models, with
+each one's provider and shorthands. The listing is derived from the same gate
+that admits a pin, so anything it names will be accepted. It is not the policy
+sidecar's roster: models that are pinnable but never chosen automatically —
+and models the sidecar's roster omits — appear too, because you can reach
+them. An unrecognized model is refused with the closest matching IDs rather
+than pinned, and any prior pin is left alone.
+
 Two request headers let a headless caller (eval harness, CI, any client whose
 UI eats slash commands) override routing. Both fail the request rather than
 routing on, so a typo can't look like it took effect.
 
 | Header | Effect |
 | ------ | ------ |
-| `x-weave-force-model` | Pins the session to one model, exactly as `/force-model` does. Accepts a canonical catalog ID or an alias (`opus`, `gpt`, `qwen-max`, …) plus an optional `:level` effort suffix (`opus:high`). A value naming no catalog model is HTTP 400. |
+| `x-weave-force-model` | Pins the session to one model, exactly as `/force-model` does. Accepts a canonical catalog ID or an alias (`opus`, `gpt`, `qwen-max`, …), with separators insignificant (`qwen 3.8` = `qwen3.8`), plus an optional `:level` effort suffix (`opus:high`). A value naming no catalog model is HTTP 400. |
 | `x-weave-force-cluster` | Constrains serving to one of the policy sidecar's routing clusters, leaving the choice *within* it to the policy. |
 
 `x-weave-force-cluster` takes an opaque label — the router holds no list of

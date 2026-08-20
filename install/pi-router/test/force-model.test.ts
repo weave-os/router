@@ -79,12 +79,29 @@ test("queues commands as follow-ups while Pi is streaming", async () => {
 	assert.deepEqual(sent, [{ content: "/unforce-model", options: { deliverAs: "followUp" } }]);
 });
 
-test("missing force-model arguments warn without starting a turn", async () => {
+test("a bare force-model forwards to the router for the pinnable-model listing", async () => {
 	const { commands, sent } = extensionHarness();
 	const { ctx, notifications } = commandContext();
 	await commands.get("fm")?.handler("   ", ctx);
-	assert.deepEqual(sent, []);
-	assert.deepEqual(notifications, [{ message: "Usage: /fm <model-id>", level: "warning" }]);
+	// Forwarded, not refused: the router answers a bare command with the list
+	// of models this installation can pin.
+	assert.deepEqual(sent, [{ content: "/force-model", options: undefined }]);
+	assert.deepEqual(notifications, []);
+});
+
+test("the listing acknowledgement is a no-op that preserves an existing pin", () => {
+	assert.deepEqual(
+		parseForceModelAcknowledgement("✦ **Weave Router** → force-model: pick a model by id, e.g. `/force-model claude-opus-5`"),
+		{ kind: "noop" },
+	);
+
+	const entries = [
+		messageEntry("user", "/force-model haiku"),
+		messageEntry("assistant", "✦ **Weave Router** → force-model applied: claude-haiku-4-5 (anthropic) · Use /unforce-model to clear"),
+		messageEntry("user", "/force-model"),
+		messageEntry("assistant", "✦ **Weave Router** → force-model: pick a model by id, e.g. `/force-model claude-opus-5`"),
+	];
+	assert.equal(forcedModelFromBranch(entries), "claude-haiku-4-5");
 });
 
 test("parses applied, cleared, and rejected router acknowledgements", () => {

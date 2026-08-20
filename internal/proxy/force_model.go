@@ -153,6 +153,15 @@ func resolveForceModel(model string) (canonicalID, provider string, known bool) 
 	return canon, prov, kn
 }
 
+// forceModelNameKnown is the translate.ForceModelKnown the command parser uses
+// to decide how many words of "/fm qwen 3.8 fix the bug" are the model name.
+// It answers with the same resolver that later performs the pin, so the parser
+// and the pin can never disagree about where the model name ends.
+func forceModelNameKnown(candidate string) bool {
+	_, _, known := resolveForceModel(candidate)
+	return known
+}
+
 // resolveForceModelWithEffort is like resolveForceModel but also strips a
 // `:level` suffix. `known` is true only for catalog matches; known=false +
 // effort!="" lets callers surface "model not found" without losing the effort.
@@ -188,6 +197,14 @@ func resolveForceModelWithEffort(model string) (canonicalID, provider string, kn
 			return matched.ID, matched.Providers[0].Provider, true, effort
 		}
 	}
+	// Separator-insensitive retry: users type the model the way they say it
+	// ("qwen 3.8", "gpt 5.6 sol"), not the way the catalog spells it. Compare
+	// on a form with every separator removed so spaces, hyphens, dots, and
+	// underscores are all interchangeable. Runs only after the exact lookups
+	// above, so it can never override a precise match.
+	if id, prov, ok := resolveForceModelLoose(model, requiredProvider); ok {
+		return id, prov, true, effort
+	}
 	if requiredProvider != "" {
 		return unknownID, requiredProvider, false, effort
 	}
@@ -206,6 +223,97 @@ func resolveForceModelWithEffort(model string) (canonicalID, provider string, kn
 		return model, providers.ProviderAnthropic, false, effort
 	}
 }
+
+// resolveForceModelLoose matches model against aliases and catalog IDs with
+// all separators removed. A catalog ID's trailing path segment also matches
+// ("qwen3.8max" → "qwen/qwen3.8-max"), mirroring the exact-suffix pass above.
+// Ambiguous matches are rejected rather than guessed: silently pinning one of
+// several plausible models is the failure this whole path exists to avoid.
+//
+// A leading or trailing separator means the input is truncated mid-type
+// ("gpt-"), not merely punctuated differently, so those are refused — folding
+// them away would turn "gpt-" into the "gpt" alias and pin a model the user
+// never finished naming.
+func resolveForceModelLoose(model, requiredProvider string) (canonicalID, provider string, known bool) {
+	if model == "" || isModelSeparator(rune(model[0])) || isModelSeparator(rune(model[len(model)-1])) {
+		return "", "", false
+	}
+	key := foldModelSeparators(model)
+	if key == "" {
+		return "", "", false
+	}
+	if alias, ok := foldedForceModelAliases[key]; ok {
+		if m, found := catalog.ByID(alias); found && len(m.Providers) > 0 &&
+			(requiredProvider == "" || m.Providers[0].Provider == requiredProvider) {
+			return m.ID, m.Providers[0].Provider, true
+		}
+	}
+	var matched catalog.Model
+	matches := 0
+	for _, m := range catalog.Models {
+		if len(m.Providers) == 0 || (requiredProvider != "" && m.Providers[0].Provider != requiredProvider) {
+			continue
+		}
+		folded := foldModelSeparators(m.ID)
+		_, tail, hasSlash := strings.Cut(m.ID, "/")
+		if folded != key && !(hasSlash && foldModelSeparators(tail) == key) {
+			continue
+		}
+		matched = m
+		matches++
+	}
+	if matches != 1 {
+		return "", "", false
+	}
+	return matched.ID, matched.Providers[0].Provider, true
+}
+
+// foldModelSeparators lowercases and drops every character that only ever
+// separates words in a model name, so "Qwen 3.8 Max", "qwen-3.8-max", and
+// "qwen3.8max" all fold together.
+func foldModelSeparators(s string) string {
+	var b strings.Builder
+	b.Grow(len(s))
+	for _, r := range strings.ToLower(s) {
+		if isModelSeparator(r) {
+			continue
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
+}
+
+// isModelSeparator reports whether r only ever separates words in a model
+// name, making it insignificant for matching.
+func isModelSeparator(r rune) bool {
+	switch r {
+	case ' ', '\t', '-', '_', '.', '/':
+		return true
+	default:
+		return false
+	}
+}
+
+// foldedForceModelAliases indexes forceModelAliases by folded key so the loose
+// pass reaches aliases too ("qwen max" → "qwen-max" → qwen/qwen3.8-max).
+// Collisions after folding are dropped: two aliases that fold alike can point
+// at different models, and guessing between them is what breaks trust here.
+var foldedForceModelAliases = func() map[string]string {
+	folded := make(map[string]string, len(forceModelAliases))
+	ambiguous := make(map[string]struct{})
+	for alias, target := range forceModelAliases {
+		key := foldModelSeparators(alias)
+		if existing, seen := folded[key]; seen && existing != target {
+			ambiguous[key] = struct{}{}
+			continue
+		}
+		folded[key] = target
+	}
+	for key := range ambiguous {
+		delete(folded, key)
+	}
+	return folded
+}()
 
 // stripEffortSuffix splits a `:level` suffix off model, canonicalizes it via
 // CanonicalizeEffort, and returns ("", model) when no recognized suffix found.
@@ -366,7 +474,15 @@ func (s *Service) handleForceModelCommand(
 	// StripRoutingMarkerFromMessages strips it from later inbound requests;
 	// otherwise it'd persist in history and leak router internals upstream.
 	var msg string
-	if cmd.Clear {
+	if cmd.List {
+		// A bare /force-model is a request to see the options, not a failed
+		// pin: answer with the listing and leave any existing pin alone.
+		msg = renderForceModelListing(s.pinnableModels(ctx), env.SourceFormat())
+		log.Debug("/force-model: listed pinnable models",
+			"session_key_hex", fmt.Sprintf("%x", sessionKey),
+			"role", role,
+		)
+	} else if cmd.Clear {
 		if s.pinStore != nil && installationID != uuid.Nil {
 			if err := s.expireSessionPin(ctx, installationID, sessionKey, role, "user_unforced"); err != nil {
 				log.Error("/unforce-model: pin store upsert failed", "err", err)
@@ -385,15 +501,14 @@ func (s *Service) handleForceModelCommand(
 	} else if canonicalModel, provider, known := resolveForceModel(cmd.Model); !known {
 		// Not in the catalog (e.g. truncated "/force-model gpt-") — reject
 		// rather than pin something we can't honor; prior pin left untouched.
+		// The suggestions come from the same gate that admits a pin, so a
+		// user who guessed wrong is shown ids that will actually work.
 		log.Info("/force-model: rejected unknown model",
 			"input_model", cmd.Model,
 			"session_key_hex", fmt.Sprintf("%x", sessionKey),
 			"role", role,
 		)
-		msg = fmt.Sprintf("✦ **Weave Router** → force-model: %q isn't a recognized model · keeping automatic routing. Use a full model ID, e.g. claude-opus-5, gpt-5.5, or gemini-3-pro-preview.\n\n", cmd.Model)
-		if env.SourceFormat() == translate.FormatOpenAI {
-			msg = fmt.Sprintf("Weave Router: force-model: %q isn't a recognized model; keeping automatic routing. Use a full model ID, e.g. claude-opus-5, gpt-5.5, or gemini-3-pro-preview.", cmd.Model)
-		}
+		msg = renderForceModelRejection(cmd.Model, s.pinnableModels(ctx), env.SourceFormat())
 	} else if binding, reason := s.forcedModelBinding(ctx, canonicalModel, provider); reason != "" {
 		// Exclusions outrank the force. Pinning anyway would look accepted and
 		// then serve something else every turn; the prior pin is left untouched.

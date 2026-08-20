@@ -44,7 +44,9 @@ function messageText(message: unknown): string | undefined {
 
 export function parseForceModelDirective(text: string): ForceModelDirective | undefined {
 	const command = text.trim();
-	if (/^\/(?:force-model|fm)\s+\S+/i.test(command)) return "force";
+	// The argument is optional: a bare /fm asks the router for the listing of
+	// pinnable models. The (\s|$) boundary keeps /fmt from matching.
+	if (/^\/(?:force-model|fm)(?:\s|$)/i.test(command)) return "force";
 	if (/^\/(?:unforce-model|ufm)$/i.test(command)) return "clear";
 	return undefined;
 }
@@ -54,6 +56,9 @@ export function parseForceModelAcknowledgement(text: string): ForceModelTransiti
 	if (applied) return { kind: "applied", model: applied[1] };
 	if (/force-model cleared/i.test(text)) return { kind: "cleared" };
 	if (/is(?:n't| not) a recognized model/i.test(text)) return { kind: "noop" };
+	// The bare-command listing changes no pin state, so it must read as a
+	// no-op — treating it as a failed force would drop a live pin from the UI.
+	if (/force-model: pick a model by id|no models are available to pin/i.test(text)) return { kind: "noop" };
 	return undefined;
 }
 
@@ -100,12 +105,10 @@ function sendRouterCommand(pi: ExtensionAPI, command: string, ctx: ExtensionComm
 
 export function registerForceModelCommands(pi: ExtensionAPI): void {
 	const forceModel = async (args: string, ctx: ExtensionCommandContext): Promise<void> => {
-		const modelAndPrompt = args.trim();
-		if (!modelAndPrompt) {
-			ctx.ui.notify("Usage: /fm <model-id>", "warning");
-			return;
-		}
-		sendRouterCommand(pi, `/force-model ${modelAndPrompt}`, ctx);
+		// A bare /fm is forwarded, not refused: the router answers it with the
+		// listing of pinnable models, which is what someone who doesn't know
+		// the exact slug is asking for.
+		sendRouterCommand(pi, `/force-model ${args.trim()}`.trimEnd(), ctx);
 	};
 	const clearForceModel = async (_args: string, ctx: ExtensionCommandContext): Promise<void> => {
 		sendRouterCommand(pi, "/unforce-model", ctx);

@@ -163,13 +163,74 @@ func TestResolveForceModel(t *testing.T) {
 			wantKnown:    false,
 		},
 		// Truncated command (the bug this guard closes): "/force-model gpt-"
-		// parses to "gpt-", which matches no catalog entry.
+		// parses to "gpt-", which matches no catalog entry. The
+		// separator-insensitive pass must not rescue it into the "gpt" alias —
+		// a trailing separator means the user is mid-type, not punctuating.
 		{
 			name:         "truncated gpt- is not known",
 			input:        "gpt-",
 			wantID:       "gpt-",
 			wantProvider: providers.ProviderOpenAI,
 			wantKnown:    false,
+		},
+		{
+			name:         "truncated qwen- is not known",
+			input:        "qwen-",
+			wantID:       "qwen-",
+			wantProvider: providers.ProviderAnthropic,
+			wantKnown:    false,
+		},
+		// Space-separated forms: users type the model the way they say it.
+		// "/fm qwen 3.8" previously resolved to qwen/qwen3-coder — a different
+		// model served under an ack that read as if the pin took.
+		{
+			name:         "space-separated qwen 3.8",
+			input:        "qwen 3.8",
+			wantID:       "qwen/qwen3.8-max",
+			wantProvider: providers.ProviderFireworks,
+			wantKnown:    true,
+		},
+		{
+			name:         "space-separated qwen max",
+			input:        "qwen max",
+			wantID:       "qwen/qwen3.8-max",
+			wantProvider: providers.ProviderFireworks,
+			wantKnown:    true,
+		},
+		{
+			name:         "space-separated full catalog id",
+			input:        "qwen 3.8 max",
+			wantID:       "qwen/qwen3.8-max",
+			wantProvider: providers.ProviderFireworks,
+			wantKnown:    true,
+		},
+		{
+			name:         "mixed case and spacing",
+			input:        "Qwen 3.8 Max",
+			wantID:       "qwen/qwen3.8-max",
+			wantProvider: providers.ProviderFireworks,
+			wantKnown:    true,
+		},
+		{
+			name:         "space-separated gpt 5.6 sol",
+			input:        "gpt 5.6 sol",
+			wantID:       "gpt-5.6-sol",
+			wantProvider: providers.ProviderOpenAI,
+			wantKnown:    true,
+		},
+		{
+			name:         "space-separated claude opus 5",
+			input:        "claude opus 5",
+			wantID:       "claude-opus-5",
+			wantProvider: providers.ProviderAnthropic,
+			wantKnown:    true,
+		},
+		{
+			name:         "space-separated kimi k3",
+			input:        "kimi k3",
+			wantID:       "moonshotai/kimi-k3",
+			wantProvider: providers.ProviderFireworks,
+			wantKnown:    true,
 		},
 	}
 

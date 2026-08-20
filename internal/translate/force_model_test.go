@@ -10,6 +10,20 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// knownTestModels stands in for the proxy's catalog resolver. It accepts a
+// small fixed set including a multi-word name, so the parser's model-name/
+// prompt split is exercised without this package depending on the catalog.
+func knownTestModels(candidate string) bool {
+	switch candidate {
+	case "deepseek/deepseek-v4-pro", "claude-opus-4-7", "gpt-5", "haiku",
+		"gemini-2.5-pro", "qwen/qwen3-235b-a22b-2507", "qwen/qwen3.6-35b-a3b",
+		"qwen 3.8", "gpt 5.6 sol":
+		return true
+	default:
+		return false
+	}
+}
+
 func TestParseForceModelCommand_ForceModel(t *testing.T) {
 	tests := []struct {
 		name         string
@@ -69,13 +83,75 @@ func TestParseForceModelCommand_ForceModel(t *testing.T) {
 			wantStripped: "then help",
 		},
 		{
-			name:      "no command",
-			input:     "Can you help me debug this code?",
-			wantFound: false,
+			// The model name can be several words; the split between name and
+			// prompt comes from `known`, not from the first space. Splitting at
+			// the space pinned "qwen" and served the wrong model.
+			name:         "multi-word model name",
+			input:        "/fm qwen 3.8",
+			wantModel:    "qwen 3.8",
+			wantFound:    true,
+			wantStripped: "",
 		},
 		{
-			name:      "force-model without model name is ignored",
-			input:     "/force-model ",
+			name:         "multi-word model name with trailing prompt",
+			input:        "/force-model qwen 3.8 fix the failing test",
+			wantModel:    "qwen 3.8",
+			wantFound:    true,
+			wantStripped: "fix the failing test",
+		},
+		{
+			name:         "three-word model name",
+			input:        "/fm gpt 5.6 sol and explain",
+			wantModel:    "gpt 5.6 sol",
+			wantFound:    true,
+			wantStripped: "and explain",
+		},
+		{
+			// The longest accepted run wins: "gpt-5" alone is also known, but
+			// the user named the more specific model.
+			name:         "longest known run wins over shorter prefix",
+			input:        "/fm qwen 3.8",
+			wantModel:    "qwen 3.8",
+			wantFound:    true,
+			wantStripped: "",
+		},
+		{
+			// Unknown multi-word input keeps the single-word split so the
+			// rejection names what the user typed rather than a whole prompt.
+			name:         "unknown model falls back to one word",
+			input:        "/fm bogus model name",
+			wantModel:    "bogus",
+			wantFound:    true,
+			wantStripped: "model name",
+		},
+		{
+			// A mistyped version must stay attached to the model name. Split at
+			// the space, "qwen" alone is a valid alias, so this would silently
+			// pin qwen3-coder instead of rejecting a model the user never named.
+			name:         "unknown version token stays with the model name",
+			input:        "/fm qwen 9.9",
+			wantModel:    "qwen 9.9",
+			wantFound:    true,
+			wantStripped: "",
+		},
+		{
+			name:         "unknown version token followed by a prompt",
+			input:        "/fm qwen 9.9 fix the test",
+			wantModel:    "qwen 9.9",
+			wantFound:    true,
+			wantStripped: "fix the test",
+		},
+		{
+			// A word-initial prompt is not a version, so it stays a prompt.
+			name:         "known model followed by a word prompt",
+			input:        "/fm haiku summarize this",
+			wantModel:    "haiku",
+			wantFound:    true,
+			wantStripped: "summarize this",
+		},
+		{
+			name:      "no command",
+			input:     "Can you help me debug this code?",
 			wantFound: false,
 		},
 		{
@@ -129,7 +205,7 @@ func TestParseForceModelCommand_ForceModel(t *testing.T) {
 			env, err := translate.ParseAnthropic(buildAnthropicBody(t, tt.input))
 			require.NoError(t, err)
 
-			res, found := env.ExtractForceModelCommand()
+			res, found := env.ExtractForceModelCommand(knownTestModels)
 			assert.Equal(t, tt.wantFound, found)
 			if !tt.wantFound {
 				return
@@ -144,13 +220,32 @@ func TestParseForceModelCommand_ForceModel(t *testing.T) {
 	}
 }
 
+// A bare /force-model asks for the pinnable-model listing. It must not be
+// mistaken for a pin (no Model) or a clear (no Clear) — and it must be
+// recognized at all, so the literal text is never forwarded to a model that
+// would answer the question by guessing.
+func TestParseForceModelCommand_BareCommandRequestsListing(t *testing.T) {
+	for _, input := range []string{"/force-model", "/fm", "  /force-model  ", "/force-model "} {
+		t.Run(input, func(t *testing.T) {
+			env, err := translate.ParseAnthropic(buildAnthropicBody(t, input))
+			require.NoError(t, err)
+
+			res, found := env.ExtractForceModelCommand(knownTestModels)
+			require.True(t, found)
+			assert.True(t, res.List)
+			assert.False(t, res.Clear)
+			assert.Empty(t, res.Model)
+		})
+	}
+}
+
 func TestParseForceModelCommand_UnforceModel(t *testing.T) {
 	for _, input := range []string{"/unforce-model", "/ufm"} {
 		t.Run(input, func(t *testing.T) {
 			env, err := translate.ParseAnthropic(buildAnthropicBody(t, input))
 			require.NoError(t, err)
 
-			res, found := env.ExtractForceModelCommand()
+			res, found := env.ExtractForceModelCommand(knownTestModels)
 			require.True(t, found)
 			assert.True(t, res.Clear)
 			assert.Empty(t, res.Model)
@@ -168,7 +263,7 @@ func TestExtractForceModelCommand_OpenAIFormat(t *testing.T) {
 	env, err := translate.ParseOpenAI(body)
 	require.NoError(t, err)
 
-	res, found := env.ExtractForceModelCommand()
+	res, found := env.ExtractForceModelCommand(knownTestModels)
 	require.True(t, found)
 	assert.Equal(t, "gpt-5", res.Model)
 	assert.False(t, res.Clear)
@@ -191,7 +286,7 @@ func TestExtractForceModelCommand_ArrayContent(t *testing.T) {
 	env, err := translate.ParseAnthropic(body)
 	require.NoError(t, err)
 
-	res, found := env.ExtractForceModelCommand()
+	res, found := env.ExtractForceModelCommand(knownTestModels)
 	require.True(t, found)
 	assert.Equal(t, "gpt-5", res.Model)
 
@@ -218,7 +313,7 @@ func TestExtractForceModelCommand_ArrayContentMultipleTextBlocks(t *testing.T) {
 	env, err := translate.ParseAnthropic(body)
 	require.NoError(t, err)
 
-	res, found := env.ExtractForceModelCommand()
+	res, found := env.ExtractForceModelCommand(knownTestModels)
 	require.True(t, found, "directive in a non-first text block must still be recognized")
 	assert.Equal(t, "qwen/qwen3.6-35b-a3b", res.Model)
 
@@ -245,7 +340,7 @@ func TestExtractForceModelCommand_NoUserMessage(t *testing.T) {
 	env, err := translate.ParseAnthropic(body)
 	require.NoError(t, err)
 
-	_, found := env.ExtractForceModelCommand()
+	_, found := env.ExtractForceModelCommand(knownTestModels)
 	assert.False(t, found)
 }
 
@@ -258,7 +353,7 @@ func TestExtractForceModelCommand_GeminiFormatIgnored(t *testing.T) {
 	env, err := translate.ParseGemini(body)
 	require.NoError(t, err)
 
-	_, found := env.ExtractForceModelCommand()
+	_, found := env.ExtractForceModelCommand(knownTestModels)
 	assert.False(t, found, "Gemini format should not be scanned for force-model commands")
 }
 
