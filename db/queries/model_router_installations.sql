@@ -126,3 +126,13 @@ SET hide_terminal_surfaces = @hide_terminal_surfaces::boolean,
 WHERE id = @id::uuid
   AND external_id = @external_id::varchar
   AND deleted_at IS NULL;
+
+-- Stamps first_request_served_at the first time this installation routes a
+-- request. WHERE IS NULL makes the update a no-op after the first write, so
+-- the timestamp records the *first* request and rotation never resets it.
+-- name: MarkModelRouterInstallationFirstRequestServed :exec
+UPDATE router.model_router_installations
+SET first_request_served_at = NOW()
+WHERE id = @id::uuid
+  AND deleted_at IS NULL
+  AND first_request_served_at IS NULL;

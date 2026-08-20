@@ -124,6 +124,8 @@ type RouterModelRouterInstallation struct {
 	HideTerminalSurfaces bool
 	// Org-level positive model allowlist. Empty = no restriction. Effective set = allowed_models minus excluded_models. Fail-closed: an allowlist with no eligible overlap refuses the turn.
 	AllowedModels []string
+	// Timestamp of the installation's first routed request. Monotonic — never moves backwards or clears on key rotation.
+	FirstRequestServedAt pgtype.Timestamptz
 }
 
 type RouterModelRouterRequestTelemetry struct {

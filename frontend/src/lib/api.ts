@@ -145,6 +145,13 @@ export interface RouterConfig {
   env_provider_keys: string[];
 }
 
+// Whether this installation has ever served a routed request. Set once and
+// never cleared, so it survives key rotation — the dashboard gates first-run
+// onboarding on this rather than on a key's last_used_at.
+export interface OnboardingStatus {
+  first_request_served_at: string | null;
+}
+
 export interface MeResponse {
   authenticated: boolean;
   subject?: string;
@@ -256,6 +263,9 @@ export const api = {
   },
   config: {
     get: () => request<RouterConfig>("/config"),
+  },
+  onboarding: {
+    get: () => request<OnboardingStatus>("/onboarding"),
   },
   excludedModels: {
     get: () => request<ExcludedModelsResponse>("/excluded-models"),

@@ -98,6 +98,15 @@ func (r *installationRepo) SoftDelete(ctx context.Context, externalID, id string
 	})
 }
 
+func (r *installationRepo) MarkFirstRequestServed(ctx context.Context, id string) error {
+	parsed, err := uuid.Parse(id)
+	if err != nil {
+		return err
+	}
+	q := sqlc.New(r.tx)
+	return q.MarkModelRouterInstallationFirstRequestServed(ctx, parsed)
+}
+
 func (r *installationRepo) UpdateExcludedModels(ctx context.Context, externalID, id string, models []string) error {
 	parsed, err := uuid.Parse(id)
 	if err != nil {

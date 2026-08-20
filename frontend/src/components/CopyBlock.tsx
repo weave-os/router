@@ -17,12 +17,18 @@ interface CopyBlockProps {
  * line if the user prefers to copy by hand.
  */
 export function CopyBlock({ value, title }: CopyBlockProps) {
-  const [copied, setCopied] = useState(false);
+  // Keyed by the value that was copied rather than a bare boolean: switching
+  // harness or scope swaps `value` under us, and a stale "Copied" would claim
+  // the clipboard holds a command it doesn't.
+  const [copiedValue, setCopiedValue] = useState<string | null>(null);
+  const copied = copiedValue === value;
 
   function handleCopy() {
     navigator.clipboard.writeText(value).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
+      setCopiedValue(value);
+      setTimeout(() => {
+        setCopiedValue(current => (current === value ? null : current));
+      }, 2000);
     });
   }
 

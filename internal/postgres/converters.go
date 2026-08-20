@@ -54,6 +54,7 @@ func toAuthInstallation(row sqlc.RouterModelRouterInstallation) *auth.Installati
 		ByokEnabled:                  row.ByokEnabled,
 		ContentCaptureMode:           row.ContentCaptureMode,
 		HideTerminalSurfaces:         row.HideTerminalSurfaces,
+		FirstRequestServedAt:         timestamptzPtr(row.FirstRequestServedAt),
 	}
 }
 
@@ -82,6 +83,14 @@ func timestampOrZero(t pgtype.Timestamp) time.Time {
 }
 
 func timestampPtr(t pgtype.Timestamp) *time.Time {
+	if !t.Valid {
+		return nil
+	}
+	out := t.Time
+	return &out
+}
+
+func timestamptzPtr(t pgtype.Timestamptz) *time.Time {
 	if !t.Valid {
 		return nil
 	}

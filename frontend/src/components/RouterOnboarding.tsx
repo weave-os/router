@@ -4,7 +4,7 @@ import { CopyBlock } from "@/components/CopyBlock";
 import { Text } from "@/components/atoms/Text";
 import { Button } from "@/components/molecules/Button";
 import { Appearance } from "@/components/types";
-import { api, type APIKey, type IssueAPIKeyResponse } from "@/lib/api";
+import { api, type IssueAPIKeyResponse } from "@/lib/api";
 import {
   HARNESSES,
   type HarnessID,
@@ -19,13 +19,23 @@ import { useEffect, useState } from "react";
 
 const POLL_INTERVAL_MS = 3000;
 
+// Name given to the key minted during onboarding, so it's recognizable in the
+// keys list later instead of showing up as "Unnamed key".
+const ONBOARDING_KEY_NAME = "Onboarding key";
+
+// Stand-in for the bearer token in a command shown to someone who already has
+// a key: the raw token exists only at issuance and can't be recovered here.
+const KEY_PLACEHOLDER = "<YOUR_ROUTER_KEY>";
+
 type StepID = "setup" | "harness" | "scope" | "install";
 
 const STEPS: StepID[] = ["setup", "harness", "scope", "install"];
 
 interface RouterOnboardingProps {
-  /** Called once the router has served its first request through any key. */
+  /** Called once the router has served its first request. */
   onComplete: () => void;
+  /** Called when the user opts out of the flow before that happens. */
+  onSkip: () => void;
 }
 
 /**
@@ -38,19 +48,45 @@ interface RouterOnboardingProps {
  * surfaces teach the same mental model, but the base URL comes from this
  * deployment's own origin rather than the hosted endpoint.
  */
-export function RouterOnboarding({ onComplete }: RouterOnboardingProps) {
+export function RouterOnboarding({ onComplete, onSkip }: RouterOnboardingProps) {
   const [step, setStep] = useState<StepID>("setup");
   const [harnessID, setHarnessID] = useState<HarnessID | null>(null);
   const [scope, setScope] = useState<InstallScope>("user");
   const [issued, setIssued] = useState<IssueAPIKeyResponse | null>(null);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [existingKeyCount, setExistingKeyCount] = useState<number | null>(null);
+
+  // An install that already holds routing keys shouldn't be offered "issue a
+  // key" again as if it were brand new: the raw token of an existing key can
+  // never be re-shown, so minting another on every revisit would pile up
+  // unused rk_ keys. Such a visit lands on the harness step and the install
+  // step renders the placeholder command instead of an inlined token.
+  useEffect(() => {
+    let cancelled = false;
+    api.keys
+      .list()
+      .then(res => {
+        if (cancelled) return;
+        const routing = (res.keys ?? []).filter(k => k.scope === "routing");
+        setExistingKeyCount(routing.length);
+        setStep(prev => (prev === "setup" && routing.length > 0 ? "harness" : prev));
+      })
+      // Non-fatal: on a failed probe keep the setup step, which is still a
+      // valid entry point.
+      .catch(() => {
+        if (!cancelled) setExistingKeyCount(0);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   async function handleGetStarted() {
     setCreating(true);
     setError(null);
     try {
-      const res = await api.keys.issue("Onboarding key");
+      const res = await api.keys.issue(ONBOARDING_KEY_NAME);
       setIssued(res);
       setStep("harness");
     } catch (err: unknown) {
@@ -91,13 +127,15 @@ export function RouterOnboarding({ onComplete }: RouterOnboardingProps) {
           }}
         />
       )}
-      {step === "install" && harnessID != null && issued != null && (
+      {step === "install" && harnessID != null && (
         <InstallStep
           harnessID={harnessID}
           scope={scope}
-          token={issued.token}
+          token={issued?.token}
+          hasExistingKey={(existingKeyCount ?? 0) > 0}
           onBack={() => setStep("scope")}
           onComplete={onComplete}
+          onSkip={onSkip}
         />
       )}
 
@@ -258,14 +296,19 @@ function InstallStep({
   harnessID,
   scope,
   token,
+  hasExistingKey,
   onBack,
   onComplete,
+  onSkip,
 }: {
   harnessID: HarnessID;
   scope: InstallScope;
-  token: string;
+  /** Undefined when no key was minted this session (a revisit). */
+  token?: string;
+  hasExistingKey: boolean;
   onBack: () => void;
   onComplete: () => void;
+  onSkip: () => void;
 }) {
   const origin = routerOrigin();
   const selected = harness(harnessID);
@@ -292,19 +335,30 @@ function InstallStep({
           <Text className="text-2xs text-muted-foreground">Preparing install command…</Text>
         ) : (
           <CopyBlock
-            value={installCommand(harnessID, scope, token, origin)}
+            value={installCommand(harnessID, scope, token ?? KEY_PLACEHOLDER, origin)}
             title="Copy install command"
           />
         )}
       </div>
 
-      <div className="flex w-full flex-col gap-2">
-        <Text className="text-xs font-medium">Your API key</Text>
-        <CopyBlock value={token} title="Copy API key" />
+      {token != null ? (
+        <div className="flex w-full flex-col gap-2">
+          <Text className="text-xs font-medium">Your API key</Text>
+          <CopyBlock value={token} title="Copy API key" />
+          <Text className="text-2xs text-muted-foreground">
+            This is the only time the full key is shown. Save it somewhere safe.
+          </Text>
+        </div>
+      ) : (
+        // A key already existed when this flow started, and a raw token is only
+        // ever shown at issuance. Rather than mint a spare key the user didn't
+        // ask for, the command ships with a placeholder to fill in.
         <Text className="text-2xs text-muted-foreground">
-          This is the only time the full key is shown. Save it somewhere safe.
+          {hasExistingKey
+            ? `Replace ${KEY_PLACEHOLDER} with an existing router key, or issue a new one from Settings.`
+            : `Replace ${KEY_PLACEHOLDER} with your router key.`}
         </Text>
-      </div>
+      )}
 
       <div className="flex items-center gap-2 text-muted-foreground">
         <Loader2 className="size-4 animate-spin text-brand" />
@@ -318,7 +372,7 @@ function InstallStep({
         <Button appearance={Appearance.Hollow} onClick={onBack} className="text-xs text-muted-foreground">
           Back
         </Button>
-        <Button appearance={Appearance.Outlined} size="sm" onClick={onComplete}>
+        <Button appearance={Appearance.Outlined} size="sm" onClick={onSkip}>
           Skip to dashboard
         </Button>
       </div>
@@ -327,9 +381,12 @@ function InstallStep({
 }
 
 /**
- * True once any routing key reports a `last_used_at`, i.e. the router has
- * actually served a request. Polls because the signal arrives out-of-band
- * (from the user's terminal), not from anything this page did.
+ * True once the installation has served a routed request. Reads the
+ * installation-level flag rather than any key's `last_used_at`: that flag is
+ * set once and survives rotation, so rotating the key that served the first
+ * request can't drop the user back into onboarding. Polls because the signal
+ * arrives out-of-band (from the user's terminal), not from anything this page
+ * did.
  */
 function useFirstRequest(): boolean {
   const [pinged, setPinged] = useState(false);
@@ -339,11 +396,11 @@ function useFirstRequest(): boolean {
     let cancelled = false;
 
     function check() {
-      api.keys
-        .list()
+      api.onboarding
+        .get()
         .then(res => {
           if (cancelled) return;
-          if ((res.keys ?? []).some(hasBeenUsed)) setPinged(true);
+          if (res.first_request_served_at != null) setPinged(true);
         })
         // Non-fatal: a failed poll just means we try again on the next tick.
         .catch(() => undefined);
@@ -358,8 +415,4 @@ function useFirstRequest(): boolean {
   }, [pinged]);
 
   return pinged;
-}
-
-function hasBeenUsed(key: APIKey): boolean {
-  return key.scope === "routing" && key.last_used_at != null;
 }

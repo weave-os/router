@@ -146,23 +146,44 @@ type fakeInstallationRepository struct {
 	subscriptionRoutingDisabledByID map[string]bool
 	contentCaptureModeByID          map[string]*string
 	hideTerminalSurfacesByID        map[string]bool
+	// firstRequestServedIDs counts MarkFirstRequestServed calls per installation
+	// so tests can assert a routed request stamps the onboarding flag (and that
+	// an analytics read does not).
+	firstRequestServedIDs map[string]int
+	mu                    sync.Mutex
 	// updateErr, when set, is returned by Update* methods instead of recording —
 	// simulates a zero-row update (stale/soft-deleted/cross-tenant id), which the
 	// real postgres repo surfaces as auth.ErrInstallationNotFound.
 	updateErr error
 }
 
-func (fakeInstallationRepository) Create(ctx context.Context, params auth.CreateInstallationParams) (*auth.Installation, error) {
+func (*fakeInstallationRepository) Create(ctx context.Context, params auth.CreateInstallationParams) (*auth.Installation, error) {
 	return nil, errors.New("not used")
 }
-func (fakeInstallationRepository) Get(ctx context.Context, externalID, id string) (*auth.Installation, error) {
+func (*fakeInstallationRepository) Get(ctx context.Context, externalID, id string) (*auth.Installation, error) {
 	return nil, errors.New("not used")
 }
-func (fakeInstallationRepository) ListForExternalID(ctx context.Context, externalID string) ([]*auth.Installation, error) {
+func (*fakeInstallationRepository) ListForExternalID(ctx context.Context, externalID string) ([]*auth.Installation, error) {
 	return nil, errors.New("not used")
 }
-func (fakeInstallationRepository) SoftDelete(ctx context.Context, externalID, id string) error {
+func (*fakeInstallationRepository) SoftDelete(ctx context.Context, externalID, id string) error {
 	return errors.New("not used")
+}
+func (f *fakeInstallationRepository) MarkFirstRequestServed(ctx context.Context, id string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.firstRequestServedIDs == nil {
+		f.firstRequestServedIDs = map[string]int{}
+	}
+	f.firstRequestServedIDs[id]++
+	return nil
+}
+
+// firstRequestServedCount reports how many times the installation was stamped.
+func (f *fakeInstallationRepository) firstRequestServedCount(id string) int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.firstRequestServedIDs[id]
 }
 func (f *fakeInstallationRepository) UpdateExcludedModels(ctx context.Context, externalID, id string, models []string) error {
 	if f.updateErr != nil {
@@ -268,12 +289,24 @@ func frozenClock() auth.Clock {
 
 func makeService(t *testing.T, rows ...fakeKeyRow) (*auth.Service, *fakeAPIKeyRepository) {
 	t.Helper()
+	svc, apiKeys, _ := makeServiceWithInstallations(t, rows...)
+	return svc, apiKeys
+}
+
+// makeServiceWithInstallations is makeService plus a handle on the installation
+// repo, for tests that assert on the installation-level onboarding stamp.
+func makeServiceWithInstallations(
+	t *testing.T,
+	rows ...fakeKeyRow,
+) (*auth.Service, *fakeAPIKeyRepository, *fakeInstallationRepository) {
+	t.Helper()
 	apiKeys := &fakeAPIKeyRepository{byHash: map[string]fakeKeyRow{}}
 	for _, row := range rows {
 		apiKeys.byHash[row.apiKey.KeyHash] = row
 	}
+	installations := &fakeInstallationRepository{}
 	svc := auth.NewService(
-		&fakeInstallationRepository{},
+		installations,
 		apiKeys,
 		nil,
 		nil,
@@ -281,7 +314,7 @@ func makeService(t *testing.T, rows ...fakeKeyRow) (*auth.Service, *fakeAPIKeyRe
 		nil,
 		frozenClock(),
 	)
-	return svc, apiKeys
+	return svc, apiKeys, installations
 }
 
 type recordingAPIKeyCache struct {
@@ -469,6 +502,63 @@ func TestService_VerifyAPIKey_HappyPathReturnsInstallationAndKey(t *testing.T) {
 		return len(snap) == 1 && snap[0] == "key_xyz"
 	}, 500*time.Millisecond, 10*time.Millisecond,
 		"VerifyAPIKey must asynchronously call MarkUsed with the matched key id")
+}
+
+// The dashboard gates first-run onboarding on the installation-level stamp
+// rather than a key's last_used_at, precisely so rotating the key that served
+// the first request can't reset it. That only holds if verifying a routing key
+// actually stamps the installation.
+func TestService_VerifyAPIKey_StampsInstallationFirstRequestServed(t *testing.T) {
+	rawToken := "rk_first_request_token_for_test"
+	keyHash := auth.HashAPIKeySHA256(rawToken)
+
+	install := &auth.Installation{ID: "install_onboard", ExternalID: "org_acme", Name: "prod"}
+	key := &auth.APIKey{
+		ID:             "key_onboard",
+		InstallationID: install.ID,
+		KeyHash:        keyHash,
+		Scope:          auth.ScopeRouting,
+	}
+
+	svc, _, installations := makeServiceWithInstallations(t, fakeKeyRow{apiKey: key, installation: install})
+
+	_, _, _, _, err := svc.VerifyAPIKey(context.Background(), rawToken)
+	require.NoError(t, err)
+
+	require.Eventually(t, func() bool {
+		return installations.firstRequestServedCount("install_onboard") == 1
+	}, 500*time.Millisecond, 10*time.Millisecond,
+		"a routed request must stamp the installation's first_request_served_at")
+}
+
+// An analytics export is not a routed request, so reading it must not mark the
+// installation as having served traffic — otherwise pulling the export on a
+// fresh deploy would skip the user past onboarding they never completed.
+func TestService_VerifyAnalyticsKey_DoesNotStampFirstRequestServed(t *testing.T) {
+	rawToken := "ra_analytics_token_for_test"
+	keyHash := auth.HashAPIKeySHA256(rawToken)
+
+	install := &auth.Installation{ID: "install_analytics", ExternalID: "org_acme", Name: "prod"}
+	key := &auth.APIKey{
+		ID:             "key_analytics",
+		InstallationID: install.ID,
+		KeyHash:        keyHash,
+		Scope:          auth.ScopeAnalyticsRead,
+	}
+
+	svc, apiKeys, installations := makeServiceWithInstallations(t, fakeKeyRow{apiKey: key, installation: install})
+
+	_, _, err := svc.VerifyAnalyticsAPIKey(context.Background(), rawToken)
+	require.NoError(t, err)
+
+	// Wait for the async MarkUsed to land, so the assertion below observes the
+	// completed goroutine rather than racing ahead of it.
+	require.Eventually(t, func() bool {
+		return len(apiKeys.markUsedSnapshot()) == 1
+	}, 500*time.Millisecond, 10*time.Millisecond)
+
+	assert.Zero(t, installations.firstRequestServedCount("install_analytics"),
+		"reading the analytics export must not mark the installation as having served a request")
 }
 
 func TestService_VerifyAPIKey_RecoversFromMarkUsedPanic(t *testing.T) {

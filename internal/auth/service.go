@@ -542,7 +542,7 @@ func (s *Service) VerifyAPIKey(ctx context.Context, rawToken string) (*Installat
 			if cached.APIKey.Scope.Normalized() != ScopeRouting {
 				return nil, nil, nil, nil, ErrWrongKeyScope
 			}
-			s.fireMarkUsed(cached.APIKey.ID)
+			s.fireMarkUsed(cached.APIKey.ID, cached.APIKey.InstallationID)
 			return cached.Installation, cached.APIKey, s.resolveUpstreamSecrets(ctx, cached.ExternalKeys), cached.ClusterModelLists, nil
 		}
 		// Malformed positive entry (nil APIKey): fall through to DB lookup.
@@ -589,7 +589,7 @@ func (s *Service) VerifyAPIKey(ctx context.Context, rawToken string) (*Installat
 	if clusterModelListsFetchOK {
 		s.cache.Set(keyHash, CachedKey{APIKey: apiKey, Installation: installation, ExternalKeys: externalKeys, ClusterModelLists: clusterModelLists})
 	}
-	s.fireMarkUsed(apiKey.ID)
+	s.fireMarkUsed(apiKey.ID, apiKey.InstallationID)
 	return installation, apiKey, s.resolveUpstreamSecrets(ctx, externalKeys), clusterModelLists, nil
 }
 
@@ -699,11 +699,23 @@ func userIdentityKey(email, claudeAccountUUID string) string {
 
 // fireMarkUsed runs the last_used_at update off the request path. Uses context.Background because
 // the parent ctx is often canceled (response written) before the UPDATE completes.
-func (s *Service) fireMarkUsed(apiKeyID string) {
+//
+// A non-empty installationID also stamps that installation's
+// first_request_served_at, which is what onboarding is gated on: it has to
+// outlive the rotation of whatever key served the first request. Callers pass
+// "" when the read wasn't a routed request (an analytics export doesn't route),
+// so reading the export can't mark an installation as onboarded.
+func (s *Service) fireMarkUsed(apiKeyID, installationID string) {
 	log := observability.Get().With("api_key_id", apiKeyID)
 	observability.SafeGo(log, 2*time.Second, "fireMarkUsed", func(ctx context.Context) {
 		if err := s.apiKeys.MarkUsed(ctx, apiKeyID); err != nil {
 			log.Warn("Failed to mark router api key used", "err", err)
+		}
+		if installationID == "" {
+			return
+		}
+		if err := s.installations.MarkFirstRequestServed(ctx, installationID); err != nil {
+			log.Warn("Failed to mark installation first request served", "err", err, "installation_id", installationID)
 		}
 	})
 }

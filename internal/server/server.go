@@ -159,6 +159,7 @@ func Register(engine *gin.Engine, authSvc *auth.Service, proxySvc *proxy.Service
 		mgmt.PUT("/provider-keys/:id/model-aliases", admin.UpdateExternalKeyAliasesHandler(authSvc, deployedModels))
 		mgmt.DELETE("/provider-keys/:id", admin.DeleteExternalKeyHandler(authSvc))
 		mgmt.GET("/config", admin.ConfigHandler)
+		mgmt.GET("/onboarding", admin.OnboardingHandler(authSvc))
 		mgmt.GET("/routing-preferences", admin.GetRoutingPreferencesHandler(authSvc))
 		mgmt.PUT("/routing-preferences", admin.UpdateRoutingPreferencesHandler(authSvc))
 		mgmt.GET("/content-capture", admin.GetContentCaptureHandler(authSvc, proxySvc))

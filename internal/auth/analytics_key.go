@@ -29,7 +29,7 @@ func (s *Service) VerifyAnalyticsAPIKey(ctx context.Context, rawToken string) (*
 			if cached.APIKey.Scope != ScopeAnalyticsRead {
 				return nil, nil, ErrWrongKeyScope
 			}
-			s.fireMarkUsed(cached.APIKey.ID)
+			s.fireMarkUsed(cached.APIKey.ID, "")
 			return cached.Installation, cached.APIKey, nil
 		}
 	}
@@ -50,6 +50,6 @@ func (s *Service) VerifyAnalyticsAPIKey(ctx context.Context, rawToken string) (*
 	}
 
 	s.cache.Set(keyHash, CachedKey{APIKey: apiKey, Installation: installation})
-	s.fireMarkUsed(apiKey.ID)
+	s.fireMarkUsed(apiKey.ID, "")
 	return installation, apiKey, nil
 }
