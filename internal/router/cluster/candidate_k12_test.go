@@ -63,9 +63,7 @@ func TestCandidateK12Loads(t *testing.T) {
 	s, err := NewScorer(bundle, DefaultConfig(), &fakeEmbedder{dim: bundle.Centroids.Dim}, providers)
 	require.NoError(t, err, "candidate-k12 must construct a Scorer")
 
-	// glm-5.2 must be routable (resolvable provider binding). fable-5 is
-	// deliberately NOT routable: it was retired to catalog passthrough, so the
-	// candidate's former fable-5-led mix no longer routes through it.
+	// glm-5.2 routable; fable-5 retired to passthrough, deliberately excluded.
 	routable := RoutableModelSet(bundle.Registry, providers)
 	for _, m := range []string{"z-ai/glm-5.2", "claude-sonnet-5"} {
 		_, ok := routable[m]
@@ -84,10 +82,9 @@ func TestCandidateK12Loads(t *testing.T) {
 		assert.InDeltaf(t, 0.7, a, 1e-9, "cluster %d alpha must be the 0.7 sweet spot", i)
 	}
 
-	// 16 of the frozen bundle's 21: deepseek-v4-pro, claude-opus-4-8,
-	// qwen/qwen3.7-plus, gpt-5.5 and claude-fable-5 were retired to
-	// passthrough-only in the catalog, so the scorer drops them. fable-5 led
-	// four clusters in the original mix; dropping it reshapes the wins below.
+	// 16 of the frozen bundle's 21: deepseek-v4-pro, opus-4-8, qwen3.7-plus,
+	// gpt-5.5 and fable-5 retired to passthrough; fable-5 led 4 clusters so
+	// dropping it reshapes the wins below.
 	require.Len(t, s.models, 16, "retired models must be the only ones dropped under the full provider set")
 
 	wins := map[string]int{}
@@ -98,9 +95,7 @@ func TestCandidateK12Loads(t *testing.T) {
 		wins[winner]++
 	}
 
-	// With fable-5 retired from routing, the candidate's former fable-5-led
-	// clusters regress under the full-catalog blend: c1 to claude-sonnet-5,
-	// c7/c10/c11 to glm-5.2. The mix is still glm-5.2-led.
+	// fable-5 retired: c1→sonnet-5, c7/c10/c11→glm-5.2; mix still glm-5.2-led.
 	assert.Equal(t, 11, wins["z-ai/glm-5.2"], "glm-5.2 must lead 11 clusters at alpha=0.7 after fable-5 retirement")
 	assert.Equal(t, 1, wins["claude-sonnet-5"], "claude-sonnet-5 must lead 1 cluster at alpha=0.7 after fable-5 retirement")
 	// No retired-to-passthrough model should win a cluster.
