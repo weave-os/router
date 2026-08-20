@@ -124,6 +124,34 @@ func TestResolveForceModel(t *testing.T) {
 			wantProvider: providers.ProviderFireworks,
 			wantKnown:    true,
 		},
+		{
+			name:         "canonical qwen3.8-max with vendor prefix",
+			input:        "qwen/qwen3.8-max",
+			wantID:       "qwen/qwen3.8-max",
+			wantProvider: providers.ProviderFireworks,
+			wantKnown:    true,
+		},
+		{
+			name:         "dash spelling qwen/qwen-3.8-max",
+			input:        "qwen/qwen-3.8-max",
+			wantID:       "qwen/qwen3.8-max",
+			wantProvider: providers.ProviderFireworks,
+			wantKnown:    true,
+		},
+		{
+			name:         "dash spelling qwen-3.8-max",
+			input:        "qwen-3.8-max",
+			wantID:       "qwen/qwen3.8-max",
+			wantProvider: providers.ProviderFireworks,
+			wantKnown:    true,
+		},
+		{
+			name:         "dash spelling qwen-3.8",
+			input:        "qwen-3.8",
+			wantID:       "qwen/qwen3.8-max",
+			wantProvider: providers.ProviderFireworks,
+			wantKnown:    true,
+		},
 		// Heuristic fallback: not in the catalog, so known is false. The
 		// provider is a best-effort guess for logging only; the handler rejects
 		// these rather than pinning a model with no known tier.

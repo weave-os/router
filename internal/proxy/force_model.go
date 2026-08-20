@@ -126,6 +126,10 @@ var forceModelAliases = map[string]string{
 	"qwen-max":     "qwen/qwen3.8-max",
 	"qwen3.8-max":  "qwen/qwen3.8-max",
 	"qwen3.8":      "qwen/qwen3.8-max",
+	// Dash-form spellings people type from memory; the catalog ID uses dots.
+	"qwen/qwen-3.8-max": "qwen/qwen3.8-max",
+	"qwen-3.8-max":      "qwen/qwen3.8-max",
+	"qwen-3.8":          "qwen/qwen3.8-max",
 	// Generic kimi alias stays on 2.7; k3 is ~3x the price, so it needs an
 	// explicit pin rather than silently repricing everyone on the family alias.
 	"kimi":      "moonshotai/kimi-k2.7",
