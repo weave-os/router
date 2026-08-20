@@ -68,10 +68,8 @@ func TestClassifyDispatchError_NoEligibleProviderIsClientErrorAndWarns(t *testin
 	assert.False(t, cls.RetryAfter)
 }
 
-// The allowlist sentinel wraps ErrNoEligibleProvider, so ordering in the
-// classifier's switch is load-bearing: the generic case would otherwise match
-// first and tell an admin they have no provider keys when in fact their own
-// allowlist is the cause.
+// ErrAllowlistEmptiesPool wraps ErrNoEligibleProvider, so switch ordering is
+// load-bearing: the generic case must not match first and misattribute the cause.
 func TestClassifyDispatchError_AllowlistEmptiesPoolPrecedesNoEligibleProvider(t *testing.T) {
 	cls, ok := proxy.ClassifyDispatchError(cluster.ErrAllowlistEmptiesPool)
 

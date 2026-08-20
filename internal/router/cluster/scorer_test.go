@@ -1001,10 +1001,8 @@ func TestScorer_ExcludedModelsEmptyingPoolReturnsErrNoEligibleProvider(t *testin
 	assert.False(t, errors.Is(err, ErrClusterUnavailable))
 }
 
-// An allowlist that leaves no eligible candidate must surface the
-// allowlist-specific sentinel — which still wraps ErrNoEligibleProvider so
-// every existing errors.Is check keeps matching — rather than reporting the
-// desugared exclusion list, which reads as a bug instead of a config decision.
+// ErrAllowlistEmptiesPool must wrap ErrNoEligibleProvider (existing checks keep
+// matching) and name the allowlist, not the desugared exclusion list.
 func TestScorer_AllowlistEmptyingPoolReturnsErrAllowlistEmptiesPool(t *testing.T) {
 	emb := &fakeEmbedder{vec: makeOpusVec()}
 	s := newTwoProviderScorer(t, emb)

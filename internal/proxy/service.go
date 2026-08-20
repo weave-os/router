@@ -663,11 +663,9 @@ func allowedModelsForRequest(ctx context.Context) map[string]struct{} {
 }
 
 // modelPermittedByAllowlist reports whether model clears the org's positive
-// allowlist. Callers that resolve a model OUTSIDE routableUniverse must use
-// this rather than relying on the ExcludedModels desugaring: the desugaring
-// only excludes members of that universe, so a passthrough-only model (priced,
-// no Tier) never lands in the exclusion set and would otherwise slip past the
-// allowlist. Empty allowlist = no restriction.
+// allowlist. Must be used directly for models outside routableUniverse —
+// passthrough-only models (no Tier) never enter the desugared exclusion set.
+// Empty allowlist = no restriction.
 func modelPermittedByAllowlist(ctx context.Context, model string) bool {
 	allowed := allowedModelsForRequest(ctx)
 	if len(allowed) == 0 {

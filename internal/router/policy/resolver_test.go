@@ -253,10 +253,8 @@ func set(values ...string) map[string]struct{} {
 	return result
 }
 
-// The allowlist is desugared into ExcludedModels before the resolver runs, so
-// diagnostics would otherwise attribute every non-allowlisted model to an
-// explicit exclusion the admin never made. AllowedModels lets the resolver
-// report the real cause.
+// The allowlist desugars into ExcludedModels, so diagnostics must distinguish
+// not-allowlisted from an explicit admin exclusion via AllowedModels.
 func TestResolverReportsNotAllowlistedSeparatelyFromRequestedExclusion(t *testing.T) {
 	resolver := policy.NewResolver(
 		set("claude-opus-4-8", "claude-haiku-4-5"),
