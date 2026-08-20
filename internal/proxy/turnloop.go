@@ -665,7 +665,10 @@ func (s *Service) runTurnLoop(
 		// pin-drop guards below (context window, exclusion) can clear the pin:
 		// they describe the session, not the pin's survival, and the struggle
 		// detector still needs them on the turn a drop happens.
-		res.PinTurnCount = pin.TurnCount
+		// +1: the stored count is completed turns; this in-flight turn is the
+		// next one, so the operating points fire ON it (turn 30 reads 30),
+		// matching Phase 0's inclusive rule mining.
+		res.PinTurnCount = pin.TurnCount + 1
 		res.PinFirstPinnedAt = pin.FirstPinnedAt
 		applyPinEvidence(&res, pin)
 		log.Info("turnloop pin lookup hit",

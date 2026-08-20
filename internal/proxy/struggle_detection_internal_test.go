@@ -2,12 +2,18 @@ package proxy
 
 import (
 	"context"
+	"net/http"
 	"testing"
 	"time"
 
+	"workweave/router/internal/providers"
+	"workweave/router/internal/router"
 	"workweave/router/internal/router/sessionpin"
+	"workweave/router/internal/translate"
 
 	"github.com/google/uuid"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestStruggleReasons_HealthySessionNeverFires(t *testing.T) {
@@ -268,4 +274,43 @@ func TestHandleStruggleShadow_NilInstallationSkipsStore(t *testing.T) {
 	if len(store.events) != 0 {
 		t.Fatalf("events = %d, want 0 (nil installation must not write)", len(store.events))
 	}
+}
+
+// Regression (cursor bugbot): PinTurnCount was copied from the pin before this
+// turn's upsert incremented turn_count, so the stored count lagged by one and
+// the operating points fired on turns 31/81 instead of ON turns 30/80 as Phase
+// 0 mined them. The stamped count is completed turns + this in-flight turn.
+func TestRunTurnLoop_PinTurnCountsCurrentTurnInclusively(t *testing.T) {
+	fr := &tierProbeRouter{available: map[string]struct{}{"claude-sonnet-4-6": {}}}
+	store := newStubPinStore()
+	store.getFound = true
+	store.getPin = sessionpin.Pin{
+		Provider:        providers.ProviderAnthropic,
+		Model:           "claude-sonnet-4-6",
+		Reason:          "fake",
+		PinnedUntil:     time.Now().Add(time.Hour),
+		TurnCount:       struggleEarlyTurns - 1,
+		FirstPinnedAt:   time.Now().Add(-struggleEarlyWall - time.Minute),
+		LastServedModel: "claude-sonnet-4-6",
+	}
+	svc := NewService(fr, nil, nil, false, nil, store, false,
+		providers.ProviderAnthropic, "claude-haiku-4-5", nil).
+		WithAvailableModels(fr.available).
+		WithPlannerEnabled(false)
+
+	env, err := translate.ParseAnthropic(
+		[]byte(`{"model":"claude-sonnet-4-6","messages":[{"role":"user","content":"continue"}]}`),
+	)
+	require.NoError(t, err)
+	feats := env.RoutingFeatures(false)
+
+	res, err := svc.runTurnLoop(context.Background(), env, feats, "key-struggle", uuid.New(), "", http.Header{}, router.Request{
+		RequestedModel: feats.Model,
+	})
+	require.NoError(t, err)
+
+	assert.Equal(t, struggleEarlyTurns, res.PinTurnCount,
+		"the in-flight turn counts inclusively: stored %d becomes %d, not %d",
+		struggleEarlyTurns-1, struggleEarlyTurns, struggleEarlyTurns-1)
+	assert.False(t, res.PinFirstPinnedAt.IsZero())
 }

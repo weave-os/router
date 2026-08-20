@@ -2588,12 +2588,8 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		}
 	}
 
-	// Shadow-mode struggle detector: log-only session-level grind signals (a
-	// long-running session that never converges), once per (session, reason).
-	// Complements the spiral detector, which needs per-turn content signatures:
-	// a session can grind through varied, valid tool calls that no per-turn
-	// signal flags. Turn count and session age come from the pin, so this
-	// no-ops until a session has been pinned at least once.
+	// Shadow-mode struggle detector: log-only, once per (session, reason).
+	// Turn count and age come from the pin — no-ops on fresh (unpinned) sessions.
 	if !agentShadowMode && s.struggleShadowEnabled && (tt == turntype.MainLoop || tt == turntype.ToolResult) {
 		var wall time.Duration
 		if !routeRes.PinFirstPinnedAt.IsZero() {

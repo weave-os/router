@@ -11,21 +11,11 @@ import (
 	lru "github.com/hashicorp/golang-lru/v2/expirable"
 )
 
-// Shadow-mode struggle detector: flags sessions that are taking far too long
-// WITHOUT the literal loop signatures the existing detectors catch (identical
-// tool calls, or cyclic re-reads with no edits). LOG ONLY — records one durable
-// event per operating point per session, no routing change. Events are joined
-// offline against model_router_request_telemetry / session outcomes to measure
-// fire rate and lead time before any escalation is armed.
-//
-// Operating points are session-scoped turn/wall-clock thresholds, not per-turn
-// content signals: the distinguishing failure mode is a session that grinds
-// through varied, technically-valid tool calls without converging (a slow grind
-// — distinct signatures, some edits, nonzero output, just no progress). That
-// shape defeats the per-turn detectors, which need literal repetition.
-// Thresholds come from offline mining of prod telemetry (Phase 0):
-// mid-session force-model (the user overriding the router) is the label, and
-// long-but-healthy sessions are the confound.
+// Shadow-mode struggle detector: flags sessions that grind through varied,
+// technically-valid tool calls without converging — a shape the per-turn
+// detectors miss (they need literal repetition). LOG ONLY — one durable event
+// per operating point per session; joined offline against telemetry to pick an
+// operating point before arming.
 const (
 	// struggleReasonEarly is the cheap operating point: sessions where users
 	// most often bail. Reserved for a cost-neutral same-cluster "sideways"
@@ -70,10 +60,8 @@ type StruggleShadowEvent struct {
 	EstInputTokens int32
 }
 
-// struggleFiredCache de-dupes shadow fires per (session, role, reason) per
-// replica so the durable budget query runs once per ~hour, not every turn.
-// Cross-replica dupes are still possible before the durable count lands;
-// offline analysis de-dupes by (session_key, role, reason).
+// struggleFiredCache de-dupes per (session, role, reason) per replica;
+// cross-replica dupes are resolved offline.
 const (
 	struggleFiredCacheSize = 8192
 	struggleFiredCacheTTL  = time.Hour
@@ -93,11 +81,9 @@ func struggleFiredKey(sessionKey [sessionpin.SessionKeyLen]byte, role, reason st
 	return string(sessionKey[:]) + "\x00" + role + "\x00" + reason
 }
 
-// struggleReasons returns the operating point a session of this age and size
-// crosses, or nil. The two points are not exclusive: a session can satisfy
-// both, but only the higher (later) one is returned so escalation stages map to
-// distinct rows. A missing pin yields turnCount 0 and a zero duration, which
-// falls below every threshold.
+// struggleReasons returns the highest operating point crossed, or nil.
+// Late supersedes early so each escalation stage maps to a distinct row.
+// A missing pin yields zero values that fall below every threshold.
 func struggleReasons(turnCount int, wall time.Duration) []string {
 	if turnCount >= struggleLateTurns && wall >= struggleLateWall {
 		return []string{struggleReasonLateStr}
