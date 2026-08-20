@@ -173,3 +173,20 @@ test("does not shrink the budget when the served window header is absent", () =>
 	// stays below it, so Pi's ordinary threshold compaction owns the case.
 	assert.equal(compactCalls(), 0);
 });
+
+test("compacts an over-threshold final turn when the served window is smaller than the requested budget", () => {
+	const extension = extensionHarness((callback) => callback());
+	const { ctx, compactCalls } = contextHarness(1_000_000);
+	extension.emit("agent_start", { type: "agent_start" }, ctx);
+	extension.emit(
+		"after_provider_response",
+		{ type: "after_provider_response", status: 200, headers: { "x-router-context-window": "200000" } },
+		ctx,
+	);
+	extension.emit("turn_end", { type: "turn_end", message: assistant(190_000), toolResults: [] }, ctx);
+	extension.emit("agent_end", { type: "agent_end", messages: [] }, ctx);
+
+	// 190K sits above the served 200K budget threshold (183,616) but below the
+	// requested 1M budget - Pi would not compact, so the extension must.
+	assert.equal(compactCalls(), 1);
+});

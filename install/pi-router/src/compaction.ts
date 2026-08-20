@@ -134,10 +134,16 @@ export function registerCompaction(pi: ExtensionAPI, schedule: Schedule = (callb
 		const contextWindow = servedContextWindow ?? ctx.model?.contextWindow ?? ctx.getContextUsage()?.contextWindow ?? 0;
 		if (contextWindow <= COMPACTION_RESERVE_TOKENS) return;
 		const threshold = contextWindow - COMPACTION_RESERVE_TOKENS;
+		const requestedWindow = ctx.model?.contextWindow ?? ctx.getContextUsage()?.contextWindow ?? 0;
+		const requestedThreshold = requestedWindow - COMPACTION_RESERVE_TOKENS;
 		// Pi's built-in check runs immediately after this event and owns the
-		// ordinary final-turn threshold case. Starting another compaction while
-		// that async summary is in flight would race it.
-		if (lastTurnTokens > threshold) return;
+		// ordinary final-turn threshold case; starting another compaction while
+		// that async summary is in flight would race it. But Pi only fires when
+		// the requested model's budget is exceeded. When the served window is
+		// smaller than the requested budget, a final turn above the served
+		// threshold and below the requested one would otherwise fall through
+		// both sides and overflow the served model - so compact it here.
+		if (lastTurnTokens > threshold && lastTurnTokens > requestedThreshold) return;
 		if (!repairedContinuation && highWaterTokens <= threshold) return;
 
 		compactionScheduled = true;
