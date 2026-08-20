@@ -8,17 +8,12 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// displaySettingsResponse is the client-facing view of the per-installation
-// terminal-surface display toggles. The installer and statusline read it with
-// the data-plane rk_ key to decide whether to render router surfaces
-// (statusline bar today); it carries no billing or routing internals.
+// displaySettingsResponse is the per-installation toggle set read by the installer and statusline.
 type displaySettingsResponse struct {
 	HideTerminalSurfaces bool `json:"hide_terminal_surfaces"`
 }
 
-// DisplaySettingsHandler returns the calling installation's display toggles.
-// Bearer rk_ auth only (mounted on the data plane, not the admin dashboard):
-// the key identifies the org, so the response is already scoped to the caller.
+// DisplaySettingsHandler returns the calling installation's display toggles (scoped to the caller by the rk_ bearer key).
 func DisplaySettingsHandler(c *gin.Context) {
 	installation := middleware.InstallationFrom(c)
 	if installation == nil {

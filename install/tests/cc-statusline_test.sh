@@ -404,6 +404,79 @@ sleep 1
 check "WEAVE_STATUSLINE_UPDATE=0 suppresses the wrapper refresh too" \
   "$(cat "$c/root/.claude/commands/fm.md")" "$before"
 
+# ---------- org "hide terminal surfaces" gate ----------
+#
+# The gate reads the org setting from GET /v1/display-settings. These cases stub
+# that endpoint with a tiny file:// server so no network is touched. The router
+# URL must be http for curl to reach the stub, so each case writes the stub's
+# address into the install's own settings (overriding WEAVE_ROUTER_BASE_URL).
+#
+# Drive the gate through a simpler seam than a live socket: WEAVE_ROUTER_BASE_URL
+# accepts a file:// URL, which curl reads as the response body. That exercises
+# the full parse-and-decide path (and the credential lookup) without a network.
+# The key just needs to be present and non-empty for the gate to proceed.
+#
+# write_install <base> <scope:user|project> <key> <url> — lay down a statusline
+# copy plus the settings.json/settings.local.json the gate reads, in the layout
+# the installer uses for that scope.
+write_install() { # write_install <base> <scope> <key> <display_settings_url>
+  local base="$1" scope="$2" key="$3" url="$4"
+  if [ "$scope" = "user" ]; then
+    mkdir -p "$base/.weave" "$base/.claude"
+    cp "$upstream" "$base/.weave/cc-statusline.sh"
+    cat > "$base/.claude/settings.json" <<EOF
+{"env":{"ANTHROPIC_BASE_URL":"$url","ANTHROPIC_CUSTOM_HEADERS":"X-Weave-Router-Key: $key"}}
+EOF
+    chmod +x "$base/.weave/cc-statusline.sh"
+  else
+    mkdir -p "$base/.claude"
+    cp "$upstream" "$base/.claude/cc-statusline.sh"
+    cat > "$base/.claude/settings.json" <<EOF
+{"env":{"ANTHROPIC_BASE_URL":"$url"}}
+EOF
+    cat > "$base/.claude/settings.local.json" <<EOF
+{"env":{"ANTHROPIC_CUSTOM_HEADERS":"X-Weave-Router-Key: $key"}}
+EOF
+    chmod +x "$base/.claude/cc-statusline.sh"
+  fi
+}
+
+# Project-scope hidden install renders blank: the gate reads the PROJECT key and
+# settings, sees hide_terminal_surfaces=true, and exits before printing.
+c="$work/g1"; mkdir -p "$c/proj/.claude" "$c/cache"
+printf '{"hide_terminal_surfaces": true}' > "$c/ds.json"
+write_install "$c/proj" project "rk_proj_hidden" "file://$c/ds.json"
+out="$(echo "{\"model\":{\"id\":\"$STALE_MODEL\"},\"transcript_path\":\"$transcript\"}" \
+  | XDG_CACHE_HOME="$c/cache" WEAVE_STATUSLINE_UPDATE=0 WEAVE_COMMANDS_UPDATE=0 HOME="$c/home" \
+    WEAVE_ROUTER_BASE_URL= ANTHROPIC_BASE_URL= WEAVE_ROUTER_KEY= ANTHROPIC_CUSTOM_HEADERS= \
+    bash "$c/proj/.claude/cc-statusline.sh" 2>&1)"
+check "project-scope hidden org renders a blank statusline" "$out" ""
+
+# The same project install must NOT fall back to the user-scope key: with a
+# hidden project org but a visible user org in $HOME, the project key wins and
+# the statusline still goes blank.
+c="$work/g2"; mkdir -p "$c/proj/.claude" "$c/home/.claude" "$c/cache"
+printf '{"hide_terminal_surfaces": true}' > "$c/ds_proj.json"
+printf '{"hide_terminal_surfaces": false}' > "$c/ds_user.json"
+write_install "$c/proj" project "rk_proj_hidden" "file://$c/ds_proj.json"
+write_install "$c/home" user "rk_user_visible" "file://$c/ds_user.json"
+out="$(echo "{\"model\":{\"id\":\"$STALE_MODEL\"},\"transcript_path\":\"$transcript\"}" \
+  | XDG_CACHE_HOME="$c/cache" WEAVE_STATUSLINE_UPDATE=0 WEAVE_COMMANDS_UPDATE=0 HOME="$c/home" \
+    WEAVE_ROUTER_BASE_URL= ANTHROPIC_BASE_URL= WEAVE_ROUTER_KEY= ANTHROPIC_CUSTOM_HEADERS= \
+    bash "$c/proj/.claude/cc-statusline.sh" 2>&1)"
+check "project install uses its own key, not the user-scope one" "$out" ""
+
+# Visible org (hidden=false) renders normally — the gate fails open and the
+# statusline still prints the routed model.
+c="$work/g3"; mkdir -p "$c/proj/.claude" "$c/cache"
+printf '{"hide_terminal_surfaces": false}' > "$c/ds.json"
+write_install "$c/proj" project "rk_proj_visible" "file://$c/ds.json"
+out="$(echo "{\"model\":{\"id\":\"$STALE_MODEL\"},\"transcript_path\":\"$transcript\"}" \
+  | XDG_CACHE_HOME="$c/cache" WEAVE_STATUSLINE_UPDATE=0 WEAVE_COMMANDS_UPDATE=0 HOME="$c/home" \
+    WEAVE_ROUTER_BASE_URL= ANTHROPIC_BASE_URL= WEAVE_ROUTER_KEY= ANTHROPIC_CUSTOM_HEADERS= \
+    bash "$c/proj/.claude/cc-statusline.sh" 2>&1 | sed 's/\x1b\[[0-9;]*m//g')"
+check_contains "visible org still renders the statusline" "$out" "deepseek/deepseek-v4-pro"
+
 # install.sh ships the statusline as a heredoc; genprices keeps only the price
 # block in sync, so a code edit to one copy silently diverges from the other.
 installer="$script_dir/../install.sh"

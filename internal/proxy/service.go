@@ -378,11 +378,9 @@ type InstallationUsageBypassContextKey struct{}
 // routing decides on merits. See subscriptionRoutingDisabledForRequest.
 type InstallationSubscriptionRoutingDisabledContextKey struct{}
 
-// InstallationHideTerminalSurfacesContextKey is the context key for the authed
-// installation's "hide terminal surfaces" toggle. Carried as bool; absent
-// (== false) when the installation hasn't hidden them. When set, the routing
-// marker, feedback footer, and feedback-link header are suppressed. See
-// hideTerminalSurfacesForRequest.
+// InstallationHideTerminalSurfacesContextKey is the context key for the
+// installation's hide-terminal-surfaces toggle (bool; absent == false).
+// Suppresses the routing marker, feedback footer, and feedback-link header.
 type InstallationHideTerminalSurfacesContextKey struct{}
 
 // PolicyTrainingAllowedContextKey carries the installation's explicit
@@ -626,9 +624,7 @@ func subscriptionRoutingDisabledForRequest(ctx context.Context) bool {
 	return disabled
 }
 
-// hideTerminalSurfacesForRequest reports whether the authed installation has
-// hidden the router's terminal surfaces. When true, the routing marker,
-// feedback footer, and feedback-link header are suppressed for this request.
+// hideTerminalSurfacesForRequest reports whether terminal surfaces are hidden for this request.
 func hideTerminalSurfacesForRequest(ctx context.Context) bool {
 	hide, _ := ctx.Value(InstallationHideTerminalSurfacesContextKey{}).(bool)
 	return hide

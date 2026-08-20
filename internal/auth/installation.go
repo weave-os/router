@@ -77,11 +77,8 @@ type Installation struct {
 	// ("off"|"hashed"|"full"); nil means no override; can only tighten
 	// WV_CAPTURE_CONTENT.
 	ContentCaptureMode *string
-	// HideTerminalSurfaces hides the router's terminal surfaces (routing
-	// marker, feedback footer, statusline) from the caller. Requests route
-	// identically; only what is rendered in the terminal changes. Feedback
-	// submission/recording is unaffected. Defaults false -- preserves today's
-	// behavior.
+	// HideTerminalSurfaces suppresses the routing marker, feedback footer, and
+	// statusline; routing and feedback recording are unaffected. Defaults false.
 	HideTerminalSurfaces bool
 }
 

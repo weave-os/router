@@ -441,10 +441,8 @@ func (s *Service) SetInstallationSubscriptionRoutingDisabled(ctx context.Context
 	return nil
 }
 
-// SetInstallationHideTerminalSurfaces toggles hiding the router's terminal
-// surfaces (routing marker, feedback footer, statusline) for the installation.
-// Invalidates the cache so the change applies on the next request instead of
-// waiting out the TTL.
+// SetInstallationHideTerminalSurfaces persists the toggle and invalidates the
+// auth cache so the change takes effect on the next request.
 func (s *Service) SetInstallationHideTerminalSurfaces(ctx context.Context, externalID, installationID string, hide bool) error {
 	if err := s.installations.UpdateHideTerminalSurfaces(ctx, externalID, installationID, hide); err != nil {
 		return err

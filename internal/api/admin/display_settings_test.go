@@ -13,10 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// DisplaySettingsHandler must report the installation's hide_terminal_surfaces
-// flag verbatim so the installer/statusline can render the slot blank when the
-// org has hidden router surfaces, and reject requests with no installation
-// (the rk_ auth middleware populates the gin context upstream).
+// TestDisplaySettingsHandler covers the flag passthrough and unauthenticated rejection.
 func TestDisplaySettingsHandler(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 

@@ -309,11 +309,20 @@ weave_hidden_gate() {
   fi
 
   # Resolve the router base URL and key from the Claude Code settings the
-  # installer wrote. User scope keeps both in ~/.claude/settings.json; project
-  # scope splits the key into settings.local.json. ANTHROPIC_BASE_URL and
+  # installer wrote. Project/--dir installs put both under <base>/.claude
+  # alongside this script (key in settings.local.json), while a user-scope
+  # install lives under ~/.weave and reads ~/.claude. Resolve relative to the
+  # script's own location, falling back to user scope, so a project install
+  # never reads (or leaks) the user-scope key. ANTHROPIC_BASE_URL and
   # WEAVE_ROUTER_BASE_URL may also be set in the environment.
-  local settings="$HOME/.claude/settings.json"
-  local local_settings="$HOME/.claude/settings.local.json"
+  local self_dir
+  self_dir="$(cd "$(dirname "$self")" 2>/dev/null && pwd)"
+  local settings_base="$HOME"
+  case "$self_dir" in
+    */.claude) settings_base="${self_dir%/.claude}" ;;
+  esac
+  local settings="$settings_base/.claude/settings.json"
+  local local_settings="$settings_base/.claude/settings.local.json"
   local base_url="${WEAVE_ROUTER_BASE_URL:-${ANTHROPIC_BASE_URL:-}}"
   local key="${WEAVE_ROUTER_KEY:-}"
   if [ -z "$key" ] && [ -f "$settings" ]; then
@@ -327,8 +336,16 @@ weave_hidden_gate() {
   fi
   [ -n "$base_url" ] && [ -n "$key" ] || return 1
 
+  # A file:// base URL is the offline/test seam: curl reads it as the response
+  # body directly, so the endpoint path is meaningless for it. Real router URLs
+  # (https) get /v1/display-settings appended.
+  local url="${base_url%/}"
+  case "$url" in
+    file://*) ;;
+    *) url="$url/v1/display-settings" ;;
+  esac
   local body hidden=""
-  body="$(curl -fsS --max-time 5 -H "X-Weave-Router-Key: $key" "${base_url%/}/v1/display-settings" 2>/dev/null)" || { [ -f "$cache" ] && { [ "$(cat "$cache" 2>/dev/null)" = "1" ] && return 0 || return 1; }; return 1; }
+  body="$(curl -fsS --max-time 5 -H "X-Weave-Router-Key: $key" "$url" 2>/dev/null)" || { [ -f "$cache" ] && { [ "$(cat "$cache" 2>/dev/null)" = "1" ] && return 0 || return 1; }; return 1; }
   hidden="$(printf '%s' "$body" | jq -r '.hide_terminal_surfaces // false' 2>/dev/null)"
   if [ "$hidden" = "true" ]; then
     printf '1' >"$cache" 2>/dev/null
@@ -338,7 +355,7 @@ weave_hidden_gate() {
   return 1
 }
 
-if weave_hidden_gate; then
+if weave_hidden_gate </dev/null; then
   exit 0
 fi
 
