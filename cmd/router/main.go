@@ -9,7 +9,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"math"
 	"net/http"
 	"net/url"
 	"os"
@@ -84,12 +83,7 @@ func main() {
 	// with pinning on, that's the migrate-to-Memorystore signal, not a bigger pool.
 	// ROUTER_POSTGRES_MAX_CONNS overrides for high-concurrency deploys;
 	// raise only after checking pgxpool wait p95 (see comment above).
-	maxConns := parseEnvInt("ROUTER_POSTGRES_MAX_CONNS", 6)
-	if maxConns > math.MaxInt32 {
-		logger.Warn("ROUTER_POSTGRES_MAX_CONNS exceeds int32 range; clamping", "value", maxConns)
-		maxConns = math.MaxInt32
-	}
-	cfg.MaxConns = int32(maxConns)
+	cfg.MaxConns = parseEnvInt32("ROUTER_POSTGRES_MAX_CONNS", 6)
 	cfg.MinConns = 1
 	cfg.MaxConnLifetime = 30 * time.Minute
 	cfg.MaxConnIdleTime = 10 * time.Minute
@@ -1337,6 +1331,23 @@ func parseEnvInt(key string, fallback int) int {
 		return fallback
 	}
 	return n
+}
+
+// parseEnvInt32 reads an env var as a positive int32. Parses at bit size 32 so
+// the value is int32-width at the source — no int->int32 narrowing on the
+// returned value. Returns fallback when the var is unset, empty, out of
+// int32 range, or unparseable.
+func parseEnvInt32(key string, fallback int32) int32 {
+	raw := config.GetOr(key, "")
+	if raw == "" {
+		return fallback
+	}
+	n, err := strconv.ParseInt(raw, 10, 32)
+	if err != nil || n <= 0 {
+		observability.Get().Warn("Invalid env var; using default", "key", key, "value", raw, "default", fallback)
+		return fallback
+	}
+	return int32(n)
 }
 
 // parseEnvFloat reads an env var as a float64, falling back on unset/empty/
