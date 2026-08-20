@@ -37,14 +37,14 @@ function assistant(totalTokens: number) {
 	};
 }
 
-function contextHarness() {
+function contextHarness(modelWindow = 200_000) {
 	let compactCalls = 0;
 	let status: string | undefined;
 	const branch: any[] = [];
 	const ctx = {
 		hasUI: true,
-		model: { contextWindow: 200_000 },
-		getContextUsage: () => ({ tokens: 0, contextWindow: 200_000, percent: 0 }),
+		model: { contextWindow: modelWindow },
+		getContextUsage: () => ({ tokens: 0, contextWindow: modelWindow, percent: 0 }),
 		sessionManager: { getBranch: () => branch },
 		ui: {
 			setStatus(_key: string, value: string | undefined) {
@@ -121,5 +121,55 @@ test("leaves an over-threshold final turn to Pi's built-in compaction", () => {
 	extension.emit("turn_end", { type: "turn_end", message: assistant(190_000), toolResults: [] }, ctx);
 	extension.emit("agent_end", { type: "agent_end", messages: [] }, ctx);
 
+	assert.equal(compactCalls(), 0);
+});
+
+test("budgets compaction off the served x-router-context-window, not the requested model", () => {
+	const extension = extensionHarness((callback) => callback());
+	// ctx.model is the client's requested model (200K); the router's header
+	// reports the window of the model that actually served the response (1M).
+	const { ctx, compactCalls } = contextHarness();
+	extension.emit("agent_start", { type: "agent_start" }, ctx);
+	extension.emit(
+		"after_provider_response",
+		{ type: "after_provider_response", status: 200, headers: { "x-router-context-window": "1000000" } },
+		ctx,
+	);
+	extension.emit("turn_end", { type: "turn_end", message: assistant(250_000), toolResults: [] }, ctx);
+	extension.emit("agent_end", { type: "agent_end", messages: [] }, ctx);
+
+	// 250K is above the 200K requested-model budget but inside the served 1M
+	// budget, so the extension must not pre-compact.
+	assert.equal(compactCalls(), 0);
+});
+
+test("compacts when the served window is smaller than the requested model's", () => {
+	const extension = extensionHarness((callback) => callback());
+	const { ctx, compactCalls } = contextHarness(1_000_000);
+	extension.emit("agent_start", { type: "agent_start" }, ctx);
+	extension.emit(
+		"after_provider_response",
+		{ type: "after_provider_response", status: 200, headers: { "x-router-context-window": "200000" } },
+		ctx,
+	);
+	extension.emit("turn_end", { type: "turn_end", message: assistant(250_000), toolResults: [] }, ctx);
+	extension.emit("turn_end", { type: "turn_end", message: assistant(50_000), toolResults: [] }, ctx);
+	extension.emit("agent_end", { type: "agent_end", messages: [] }, ctx);
+
+	// highWater 250K exceeds the served 200K budget even though the requested
+	// model window is 1M, so a mid-loop compaction is required.
+	assert.equal(compactCalls(), 1);
+});
+
+test("does not shrink the budget when the served window header is absent", () => {
+	const extension = extensionHarness((callback) => callback());
+	const { ctx, compactCalls } = contextHarness(1_000_000);
+	extension.emit("agent_start", { type: "agent_start" }, ctx);
+	extension.emit("turn_end", { type: "turn_end", message: assistant(250_000), toolResults: [] }, ctx);
+	extension.emit("turn_end", { type: "turn_end", message: assistant(50_000), toolResults: [] }, ctx);
+	extension.emit("agent_end", { type: "agent_end", messages: [] }, ctx);
+
+	// Without the routed window, the 1M requested budget applies and the run
+	// stays below it, so Pi's ordinary threshold compaction owns the case.
 	assert.equal(compactCalls(), 0);
 });
