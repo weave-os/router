@@ -475,3 +475,18 @@ type RouterSpiralShadowEvent struct {
 	ToolCallCount    int32
 	MessageCount     int32
 }
+
+type RouterStruggleShadowEvent struct {
+	ID                  uuid.UUID
+	CreatedAt           pgtype.Timestamptz
+	InstallationID      uuid.UUID
+	SessionKey          []byte
+	Role                string
+	RoutedModel         string
+	TurnType            string
+	Reason              string
+	TurnCount           int32
+	WallSeconds         int64
+	SessionEverSwitched bool
+	EstInputTokens      int32
+}

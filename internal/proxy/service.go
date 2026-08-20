@@ -201,6 +201,17 @@ type Service struct {
 	// spiralTracker de-duplicates shadow fires per (session, role, reason) on
 	// this replica.
 	spiralTracker *spiralTracker
+	// struggleShadowEnabled gates the shadow-mode struggle detector (log-only
+	// session-level grind signals; see struggle_detection.go). Defaults true —
+	// shadow mode changes no routing behavior.
+	struggleShadowEnabled bool
+	// struggleTracker de-duplicates shadow fires per (session, role, reason) on
+	// this replica.
+	struggleTracker *struggleTracker
+	// struggleShadowStore persists shadow struggle detections durably
+	// (router.struggle_shadow_events) and enforces the once-per-(session,
+	// reason) budget. Nil degrades to log-only fires.
+	struggleShadowStore StruggleShadowStore
 	// spiralShadowStore persists shadow spiral detections durably
 	// (router.spiral_shadow_events) and enforces the once-per-(session,
 	// reason) budget. Nil degrades to log-only fires.
@@ -1068,6 +1079,8 @@ func NewService(r router.Router, providerMap map[string]providers.Client, emitte
 		prefixTrimFreeSwitch:         true,
 		spiralTracker:                newSpiralTracker(),
 		spiralShadowEnabled:          true,
+		struggleTracker:              newStruggleTracker(),
+		struggleShadowEnabled:        true,
 		textRepetitionBreakEnabled:   true,
 		ccOrchToolsCrossVendor:       true,
 		hardPinExplore:               hardPinExplore,
@@ -1280,6 +1293,22 @@ func (s *Service) WithTextRepetitionBreak(enabled bool) *Service {
 // replica-local de-duplication.
 func (s *Service) WithSpiralShadowStore(store SpiralShadowStore) *Service {
 	s.spiralShadowStore = store
+	return s
+}
+
+// WithStruggleShadowConfig sets the shadow-mode struggle detector kill switch.
+// enabled=false skips the check entirely. Shadow mode takes no routing action
+// either way; the switch exists to shed the per-turn check if it misbehaves.
+func (s *Service) WithStruggleShadowConfig(enabled bool) *Service {
+	s.struggleShadowEnabled = enabled
+	return s
+}
+
+// WithStruggleShadowStore wires the durable sink for shadow struggle events
+// (router.struggle_shadow_events). Nil degrades to log-only fires with
+// replica-local de-duplication.
+func (s *Service) WithStruggleShadowStore(store StruggleShadowStore) *Service {
+	s.struggleShadowStore = store
 	return s
 }
 
@@ -2556,6 +2585,26 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			// with no pin store), so the spiral event's session_key matches the
 			// telemetry row's in every mode for the offline join.
 			s.handleSpiralShadow(ctx, inboundSpiralSignals, reasons, installationID, sessionKey, role, decision.Model, string(tt))
+		}
+	}
+
+	// Shadow-mode struggle detector: log-only session-level grind signals (a
+	// long-running session that never converges), once per (session, reason).
+	// Complements the spiral detector, which needs per-turn content signatures:
+	// a session can grind through varied, valid tool calls that no per-turn
+	// signal flags. Turn count and session age come from the pin, so this
+	// no-ops until a session has been pinned at least once.
+	if !agentShadowMode && s.struggleShadowEnabled && (tt == turntype.MainLoop || tt == turntype.ToolResult) {
+		var wall time.Duration
+		if !routeRes.PinFirstPinnedAt.IsZero() {
+			wall = time.Since(routeRes.PinFirstPinnedAt)
+		}
+		if reasons := struggleReasons(routeRes.PinTurnCount, wall); len(reasons) > 0 {
+			role := roleForTier(catalog.TierFor(feats.Model))
+			// Same session_key rationale as the spiral block above.
+			s.handleStruggleShadow(ctx, reasons[0], installationID, sessionKey, role,
+				decision.Model, string(tt), routeRes.PinTurnCount, wall,
+				routeRes.SessionEverSwitched, feats.Tokens)
 		}
 	}
 

@@ -237,6 +237,37 @@ func (r *TelemetryRepo) CountSpiralShadowEvents(ctx context.Context, sessionKey 
 	})
 }
 
+var _ proxy.StruggleShadowStore = (*TelemetryRepo)(nil)
+
+func (r *TelemetryRepo) InsertStruggleShadowEvent(ctx context.Context, p proxy.StruggleShadowEvent) error {
+	id, err := uuid.Parse(p.InstallationID)
+	if err != nil {
+		return err
+	}
+	q := sqlc.New(r.tx)
+	return q.InsertStruggleShadowEvent(ctx, sqlc.InsertStruggleShadowEventParams{
+		InstallationID:      id,
+		SessionKey:          p.SessionKey,
+		Role:                p.Role,
+		RoutedModel:         p.RoutedModel,
+		TurnType:            p.TurnType,
+		Reason:              p.Reason,
+		TurnCount:           p.TurnCount,
+		WallSeconds:         p.WallSeconds,
+		SessionEverSwitched: p.SessionEverSwitched,
+		EstInputTokens:      p.EstInputTokens,
+	})
+}
+
+func (r *TelemetryRepo) CountStruggleShadowEvents(ctx context.Context, sessionKey []byte, role, reason string) (count int64, err error) {
+	q := sqlc.New(r.tx)
+	return q.CountStruggleShadowEvents(ctx, sqlc.CountStruggleShadowEventsParams{
+		SessionKey: sessionKey,
+		Role:       role,
+		Reason:     reason,
+	})
+}
+
 func (r *TelemetryRepo) GetTelemetrySummary(ctx context.Context, installationID string, from, to time.Time) (proxy.TelemetrySummary, error) {
 	id, err := uuid.Parse(installationID)
 	if err != nil {
