@@ -1,0 +1,29 @@
+internal/proxy/auxiliary_inference.go
+  s_05332cfebfc6c9::t_296b92901fc7ee 62
+cmd/router/main.go
+  s_05332cfebfc6c9::t_67fafa500edb6d 84-87
+internal/proxy/auxiliary_inference_internal_test.go
+  s_05332cfebfc6c9::t_37e9389d319ba2 305
+internal/proxy/service.go
+  s_05332cfebfc6c9::t_935c18d621225b 4521
+  s_05332cfebfc6c9::t_296b92901fc7ee 4487
+  s_05332cfebfc6c9::t_3583b7547f4eae 4513-4520,4531-4544,4546
+  s_05332cfebfc6c9::t_e10c78e6cfad90 4551
+  s_05332cfebfc6c9::t_af177a6d703ba6 4545
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "3af855459976e4ec46cf64a922ee22c11a19bc41",
+  "prompts": {},
+  "sessions": {
+    "s_05332cfebfc6c9": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "85913535-0f0d-42ed-bbe1-807f1beee73e",
+        "model": "moonshotai/kimi-k3"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}
