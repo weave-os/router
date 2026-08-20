@@ -4,8 +4,10 @@ db/migrations/0057_installation-allowed-models.down.sql
   s_2f40bb97923467::t_6741724ca179d9 1-6
 internal/sqlc/model_router_api_keys.sql.go
   s_2f40bb97923467::t_e134458f32484d 172
+  s_2f40bb97923467::t_a8430564d66844 105,124
 internal/sqlc/model_router_installations.sql.go
   s_2f40bb97923467::t_e134458f32484d 75,128,182
+  s_2f40bb97923467::t_a8430564d66844 25,46,81,95,134,143
 internal/sqlc/models.go
   s_2f40bb97923467::t_e134458f32484d 125-126
 ---
