@@ -35,11 +35,8 @@ func TestWithDefaultBaselineModel(t *testing.T) {
 	assert.Equal(t, "claude-sonnet-4-5", s.defaultBaselineModel)
 }
 
-// The baseline is derived from the client's requested model, which can be a
-// passthrough-only catalog model — and passthrough models never enter the
-// desugared exclusion set. If the baseline rescue path read only
-// ExcludedModels, an allowed model's dispatch failure would rescue the turn
-// onto a model the org prohibits.
+// The baseline rescue path must check the allowlist directly: passthrough-only
+// models never enter the desugared exclusion set, so ExcludedModels alone won't block them.
 func TestBaselineModelPermittedByAllowlist(t *testing.T) {
 	restricted := context.WithValue(context.Background(),
 		InstallationAllowedModelsContextKey{}, []string{"claude-opus-5"})
