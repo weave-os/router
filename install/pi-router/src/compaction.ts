@@ -150,17 +150,16 @@ export function registerCompaction(pi: ExtensionAPI, schedule: Schedule = (callb
 		const registeredWindow = ctx.model?.contextWindow ?? ctx.getContextUsage()?.contextWindow ?? 0;
 		const contextWindow = servedContextWindow ?? registeredWindow;
 		if (contextWindow <= COMPACTION_RESERVE_TOKENS) return;
-		const threshold = contextWindow - COMPACTION_RESERVE_TOKENS;
+		const servedThreshold = contextWindow - COMPACTION_RESERVE_TOKENS;
+		const registeredThreshold = registeredWindow - COMPACTION_RESERVE_TOKENS;
 		// Pi's built-in check runs immediately after this event and budgets against
-		// the REGISTERED model window. Deferring the over-threshold final turn to Pi
-		// is only safe when Pi's window is no larger than ours (registered <= served):
-		// otherwise the router served a smaller window than Pi knows about, Pi would
-		// compact too late (or not at all) for our budget, and the session stays over
-		// the served limit. In that case we compact ourselves. Starting a manual
-		// compaction while Pi's async summary is in flight would race it, so we only
-		// race Pi when Pi will not make the call Pi owns.
-		if (registeredWindow <= contextWindow && lastTurnTokens > threshold) return;
-		if (!repairedContinuation && highWaterTokens <= threshold) return;
+		// the REGISTERED model window. If the final turn clears Pi's registered
+		// threshold, Pi will compact asynchronously — deferring is correct, and
+		// scheduling our own would race that async compaction. Otherwise Pi will not
+		// act, so we compact ourselves when the run crossed the SERVED threshold
+		// (which can be smaller than the registered window after a reroute).
+		if (lastTurnTokens > registeredThreshold) return;
+		if (!repairedContinuation && highWaterTokens <= servedThreshold) return;
 
 		compactionScheduled = true;
 		const previousCompactionId = latestCompactionId(ctx);

@@ -204,3 +204,21 @@ test("compacts itself when the final turn exceeds a smaller served window", () =
 
 	assert.equal(compactCalls(), 1);
 });
+
+test("defers to Pi when the final turn clears the registered threshold (no race)", () => {
+	// Registered window is 1M, served 200k, and the final turn (990k) clears Pi's
+	// registered threshold (983_616). Pi's built-in compaction will fire after
+	// agent_end, so scheduling our own would race it — the extension must defer.
+	const extension = extensionHarness((callback) => callback());
+	const { ctx, compactCalls } = contextHarness(1_000_000);
+	extension.emit("agent_start", { type: "agent_start" }, ctx);
+	extension.emit(
+		"after_provider_response",
+		{ type: "after_provider_response", status: 200, headers: { "x-router-context-window": "200000" } },
+		ctx,
+	);
+	extension.emit("turn_end", { type: "turn_end", message: assistant(990_000), toolResults: [] }, ctx);
+	extension.emit("agent_end", { type: "agent_end", messages: [] }, ctx);
+
+	assert.equal(compactCalls(), 0);
+});
