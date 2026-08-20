@@ -270,7 +270,10 @@ type RoutingMetadata struct {
 	RosterVersion        string
 	// SidecarTimings is set only on fresh sidecar decisions; never persist
 	// into pins or a replayed pin re-emits a stale measurement.
-	SidecarTimings       *SidecarTimings
+	SidecarTimings *SidecarTimings
+	// SidecarStats is set only on fresh sidecar decisions; never persist
+	// into pins or a replayed pin re-emits a stale measurement.
+	SidecarStats         *SidecarServingStats
 	SelectedArmID        string
 	SelectedUpstreamID   string
 	BindingIndex         int
@@ -316,6 +319,18 @@ type SidecarTimings struct {
 	EmbedMs  *float64 // embedding round trip
 	SelectMs *float64 // arm selection
 	OtherMs  *float64 // remainder of the sidecar's route handler
+}
+
+// SidecarServingStats holds per-decision serving stats sampled by the
+// sidecar: per-request embed-cache deltas (present only when the embed
+// stage ran) and instance gauges. A nil field was not reported by the
+// sidecar; present 0 is a measured zero and must be preserved as such.
+type SidecarServingStats struct {
+	EmbedCacheHits      *int64
+	EmbedCacheMisses    *int64
+	EmbedCacheEvictions *int64
+	RoutesInflight      *int64
+	OverrunsLive        *int64
 }
 
 type Router interface {

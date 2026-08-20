@@ -144,7 +144,7 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 
 	reqPricing := otel.Lookup(s.baselineFor(feats.Model))
 	actPricing := otel.Lookup(decision.Model)
-	geminiDecisionBuilder := otel.NewAttrBuilder(40).
+	geminiDecisionBuilder := otel.NewAttrBuilder(45).
 		String("request_id", requestID).
 		String("external_id", externalID).
 		String("client.device_id", clientID.DeviceID).
@@ -169,7 +169,7 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 		Float64("catalog.actual_input_per_1m", actPricing.InputUSDPer1M).
 		Float64("catalog.actual_output_per_1m", actPricing.OutputUSDPer1M).
 		Int64("latency.route_ms", routeMs)
-	applySidecarLatencyAttrs(geminiDecisionBuilder, routeRes)
+	applySidecarAttrs(geminiDecisionBuilder, routeRes)
 	applyPlannerAttrs(geminiDecisionBuilder, routeRes)
 	applyRoutingStateAttrs(geminiDecisionBuilder, routeRes, decision.Model, sessionKey)
 	otel.Record(ctx, otel.Span{

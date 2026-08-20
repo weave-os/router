@@ -234,6 +234,76 @@ func TestClientDecideDropsTimingsWhenStagesExceedRouteMs(t *testing.T) {
 	assert.Nil(t, result.Timings, "an inconsistent breakdown must be dropped, not published with overlapping stages")
 }
 
+func TestClientDecidePopulatesServingStatsFromTimings(t *testing.T) {
+	result := decideWithTimings(t, &routeTimings{
+		RouteMs:             floatPtr(20),
+		SelectMs:            floatPtr(3.5),
+		EmbedMs:             floatPtr(12.5),
+		EmbedCacheHits:      int64Ptr(42),
+		EmbedCacheMisses:    int64Ptr(0),
+		EmbedCacheEvictions: int64Ptr(3),
+		RoutesInflight:      int64Ptr(7),
+		OverrunsLive:        int64Ptr(1),
+	})
+
+	require.NotNil(t, result.ServingStats)
+	require.NotNil(t, result.ServingStats.EmbedCacheHits)
+	require.NotNil(t, result.ServingStats.EmbedCacheMisses, "a measured zero must be preserved as present-0, not collapsed to nil")
+	require.NotNil(t, result.ServingStats.EmbedCacheEvictions)
+	require.NotNil(t, result.ServingStats.RoutesInflight)
+	require.NotNil(t, result.ServingStats.OverrunsLive)
+	assert.Equal(t, int64(42), *result.ServingStats.EmbedCacheHits)
+	assert.Equal(t, int64(0), *result.ServingStats.EmbedCacheMisses)
+	assert.Equal(t, int64(3), *result.ServingStats.EmbedCacheEvictions)
+	assert.Equal(t, int64(7), *result.ServingStats.RoutesInflight)
+	assert.Equal(t, int64(1), *result.ServingStats.OverrunsLive)
+}
+
+func TestClientDecideLeavesServingStatsNilWhenStatsAbsent(t *testing.T) {
+	result := decideWithTimings(t, &routeTimings{RouteMs: floatPtr(20), SelectMs: floatPtr(3.5), EmbedMs: floatPtr(12.5)})
+
+	assert.Nil(t, result.ServingStats, "a sidecar that only reports latency must not synthesize serving stats")
+}
+
+func TestClientDecideServingStatsSurviveUntrustedLatencyBreakdown(t *testing.T) {
+	result := decideWithTimings(t, &routeTimings{
+		RouteMs:             floatPtr(5),
+		SelectMs:            floatPtr(4),
+		EmbedMs:             floatPtr(3),
+		EmbedCacheHits:      int64Ptr(10),
+		EmbedCacheMisses:    int64Ptr(2),
+		EmbedCacheEvictions: int64Ptr(0),
+		RoutesInflight:      int64Ptr(5),
+		OverrunsLive:        int64Ptr(0),
+	})
+
+	assert.Nil(t, result.Timings, "an inconsistent breakdown must still be dropped")
+	require.NotNil(t, result.ServingStats, "stats live in a sibling struct precisely so the latency-consistency check can't drop them along with a distrusted breakdown")
+	require.NotNil(t, result.ServingStats.EmbedCacheHits)
+	require.NotNil(t, result.ServingStats.EmbedCacheMisses)
+	require.NotNil(t, result.ServingStats.EmbedCacheEvictions, "a measured zero must be preserved as present-0, not collapsed to nil")
+	require.NotNil(t, result.ServingStats.RoutesInflight)
+	require.NotNil(t, result.ServingStats.OverrunsLive, "a measured zero must be preserved as present-0, not collapsed to nil")
+	assert.Equal(t, int64(10), *result.ServingStats.EmbedCacheHits)
+	assert.Equal(t, int64(2), *result.ServingStats.EmbedCacheMisses)
+	assert.Equal(t, int64(0), *result.ServingStats.EmbedCacheEvictions)
+	assert.Equal(t, int64(5), *result.ServingStats.RoutesInflight)
+	assert.Equal(t, int64(0), *result.ServingStats.OverrunsLive)
+}
+
+func TestClientDecidePopulatesServingStatsWhenOnlyStatsReported(t *testing.T) {
+	result := decideWithTimings(t, &routeTimings{
+		EmbedCacheHits:      int64Ptr(1),
+		EmbedCacheMisses:    int64Ptr(1),
+		EmbedCacheEvictions: int64Ptr(1),
+		RoutesInflight:      int64Ptr(1),
+		OverrunsLive:        int64Ptr(1),
+	})
+
+	assert.Nil(t, result.Timings, "no latency fields were reported, so there is nothing for decomposeTimings to build")
+	assert.NotNil(t, result.ServingStats, "stats do not depend on any latency field being present")
+}
+
 func TestClientOmitsV2CandidateFieldsFromV1(t *testing.T) {
 	body, err := marshalRouteRequest(policy.Query{
 		SchemaVersion: policy.SchemaVersionV1,
@@ -712,3 +782,5 @@ func TestRouteMessagesPreservesLatestUserWhenPayloadIsCapped(t *testing.T) {
 func floatPtr(value float64) *float64 { return &value }
 
 func intPointer(value int) *int { return &value }
+
+func int64Ptr(value int64) *int64 { return &value }

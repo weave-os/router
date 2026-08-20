@@ -110,7 +110,10 @@ type Result struct {
 	PolicyArtifactSHA256 string
 	// Timings is the sidecar's per-stage decision cost decomposed into
 	// non-overlapping stages; nil when the sidecar reported no timings.
-	Timings       *router.SidecarTimings
+	Timings *router.SidecarTimings
+	// ServingStats is the sidecar's serving stats passed through verbatim;
+	// nil when the sidecar reported none.
+	ServingStats  *router.SidecarServingStats
 	RosterVersion string
 	DebugRef      string
 	Debug         map[string]interface{}

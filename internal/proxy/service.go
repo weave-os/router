@@ -2770,7 +2770,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 
 	reqPricing := otel.Lookup(s.baselineFor(feats.Model))
 	actPricing := otel.Lookup(decision.Model)
-	decisionBuilder := otel.NewAttrBuilder(40).
+	decisionBuilder := otel.NewAttrBuilder(45).
 		String("request_id", requestID).
 		String("external_id", externalID).
 		String("router_user_id", auth.UserIDFrom(ctx)).
@@ -2797,7 +2797,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		Float64("catalog.actual_input_per_1m", actPricing.InputUSDPer1M).
 		Float64("catalog.actual_output_per_1m", actPricing.OutputUSDPer1M).
 		Int64("latency.route_ms", routeMs)
-	applySidecarLatencyAttrs(decisionBuilder, routeRes)
+	applySidecarAttrs(decisionBuilder, routeRes)
 	applyPlannerAttrs(decisionBuilder, routeRes)
 	applyRoutingStateAttrs(decisionBuilder, routeRes, decision.Model, sessionKey)
 	otel.Record(ctx, otel.Span{
@@ -3701,21 +3701,41 @@ func plannerOutcome(outcome planner.Outcome) string {
 	return "stay"
 }
 
-// applySidecarLatencyAttrs reads Fresh.Metadata, not the served decision:
+// applySidecarAttrs reads Fresh.Metadata, not the served decision:
 // STAY replaces the decision with a pin (nil Metadata) even when the sidecar ran this turn.
-func applySidecarLatencyAttrs(b *otel.AttrBuilder, res turnLoopResult) *otel.AttrBuilder {
-	if res.Fresh.Metadata == nil || res.Fresh.Metadata.SidecarTimings == nil {
+// Timings and serving stats are independent, separately-nilable payloads on the same
+// Metadata, so each gets its own guard below.
+func applySidecarAttrs(b *otel.AttrBuilder, res turnLoopResult) *otel.AttrBuilder {
+	if res.Fresh.Metadata == nil {
 		return b
 	}
-	st := res.Fresh.Metadata.SidecarTimings
-	if st.EmbedMs != nil {
-		b.Int64("latency.embed_ms", int64(math.Round(*st.EmbedMs)))
+	if st := res.Fresh.Metadata.SidecarTimings; st != nil {
+		if st.EmbedMs != nil {
+			b.Int64("latency.embed_ms", int64(math.Round(*st.EmbedMs)))
+		}
+		if st.SelectMs != nil {
+			b.Int64("latency.sidecar_select_ms", int64(math.Round(*st.SelectMs)))
+		}
+		if st.OtherMs != nil {
+			b.Int64("latency.sidecar_other_ms", int64(math.Round(*st.OtherMs)))
+		}
 	}
-	if st.SelectMs != nil {
-		b.Int64("latency.sidecar_select_ms", int64(math.Round(*st.SelectMs)))
-	}
-	if st.OtherMs != nil {
-		b.Int64("latency.sidecar_other_ms", int64(math.Round(*st.OtherMs)))
+	if ss := res.Fresh.Metadata.SidecarStats; ss != nil {
+		if ss.EmbedCacheHits != nil {
+			b.Int64("routing.embed_cache_hits", *ss.EmbedCacheHits)
+		}
+		if ss.EmbedCacheMisses != nil {
+			b.Int64("routing.embed_cache_misses", *ss.EmbedCacheMisses)
+		}
+		if ss.EmbedCacheEvictions != nil {
+			b.Int64("routing.embed_cache_evictions", *ss.EmbedCacheEvictions)
+		}
+		if ss.RoutesInflight != nil {
+			b.Int64("routing.sidecar_inflight", *ss.RoutesInflight)
+		}
+		if ss.OverrunsLive != nil {
+			b.Int64("routing.sidecar_overruns_live", *ss.OverrunsLive)
+		}
 	}
 	return b
 }
@@ -5030,7 +5050,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 
 	reqPricing := otel.Lookup(s.baselineFor(feats.Model))
 	actPricing := otel.Lookup(decision.Model)
-	openaiDecisionBuilder := otel.NewAttrBuilder(40).
+	openaiDecisionBuilder := otel.NewAttrBuilder(45).
 		String("request_id", requestID).
 		String("external_id", externalID).
 		String("router_user_id", auth.UserIDFrom(ctx)).
@@ -5057,7 +5077,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		Float64("catalog.actual_input_per_1m", actPricing.InputUSDPer1M).
 		Float64("catalog.actual_output_per_1m", actPricing.OutputUSDPer1M).
 		Int64("latency.route_ms", routeMs)
-	applySidecarLatencyAttrs(openaiDecisionBuilder, routeRes)
+	applySidecarAttrs(openaiDecisionBuilder, routeRes)
 	applyPlannerAttrs(openaiDecisionBuilder, routeRes)
 	applyRoutingStateAttrs(openaiDecisionBuilder, routeRes, decision.Model, sessionKey)
 	otel.Record(ctx, otel.Span{
