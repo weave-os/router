@@ -1,12 +1,10 @@
 package proxy
 
-// mergeClusterOverrides composes the API-key-scoped cluster lists (org default)
-// with the router user's own per-cluster selection.
-//
-// Composition is INTERSECTION with user order preserved — not "user wins" —
-// so an individual cannot re-admit a model the org's key list removed (privilege
-// escalation through an admin control). An empty intersection falls back to the
-// key list; the org allowlist is desugared upstream so needs no handling here.
+// mergeClusterOverrides intersects the key-scoped (org default) and user
+// cluster lists, preserving user order. Intersection, not "user wins": a
+// plain override would let a user re-admit a model the org deliberately
+// removed (privilege escalation). Empty intersection falls back to the key
+// list; the org allowlist is desugared upstream so needs no handling here.
 // Returns nil when neither side is configured.
 func mergeClusterOverrides(key, user map[string][]string) map[string][]string {
 	if len(key) == 0 && len(user) == 0 {
