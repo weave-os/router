@@ -393,3 +393,55 @@ func TestClassifyDispatchError_ForcedModelExcluded(t *testing.T) {
 	assert.Contains(t, cls.Message, "claude-opus-5")
 	assert.Contains(t, cls.Message, "/unforce-model")
 }
+
+// TestForcedModelBinding_RejectsPassthroughModelOutsideAllowlist covers the
+// hole the allowlist desugaring cannot close on its own: the desugaring only
+// excludes members of routableUniverse, and claude-opus-4-8 is passthrough-only
+// (priced, no Tier) so it is never in that set. Checking only ExcludedModels
+// would let an org that allowlists just claude-opus-5 still force and serve it.
+func TestForcedModelBinding_RejectsPassthroughModelOutsideAllowlist(t *testing.T) {
+	svc := NewService(nil, nil, nil, false, nil, nil, false,
+		providers.ProviderAnthropic, "claude-haiku-4-5", nil).
+		WithDeploymentKeyedProviders(keyed(providers.ProviderAnthropic)).
+		// availableModels set to a routing-targets-only universe, matching
+		// production (catalog.RoutingTargetSet excludes passthrough-only
+		// models) — nil here would enumerate the whole catalog and mask the
+		// hole this test exists to close.
+		WithAvailableModels(map[string]struct{}{"claude-opus-5": {}})
+
+	ctx := context.WithValue(context.Background(),
+		InstallationAllowedModelsContextKey{}, []string{"claude-opus-5"})
+
+	binding, reason := svc.forcedModelBinding(ctx, "claude-opus-4-8", providers.ProviderAnthropic)
+
+	assert.Empty(t, binding, "a passthrough model outside the allowlist must not resolve a binding")
+	assert.Contains(t, reason, "allowed-model list",
+		"the refusal must name the allowlist, not a generic exclusion")
+}
+
+// The allowlist must only ever narrow: an allowlisted model still forces fine.
+func TestForcedModelBinding_AllowsPassthroughModelInsideAllowlist(t *testing.T) {
+	svc := NewService(nil, nil, nil, false, nil, nil, false,
+		providers.ProviderAnthropic, "claude-haiku-4-5", nil).
+		WithDeploymentKeyedProviders(keyed(providers.ProviderAnthropic))
+
+	ctx := context.WithValue(context.Background(),
+		InstallationAllowedModelsContextKey{}, []string{"claude-opus-4-8"})
+
+	binding, reason := svc.forcedModelBinding(ctx, "claude-opus-4-8", providers.ProviderAnthropic)
+
+	assert.Empty(t, reason)
+	assert.Equal(t, providers.ProviderAnthropic, binding)
+}
+
+// No allowlist configured = no restriction, so passthrough forcing is unchanged.
+func TestForcedModelBinding_NoAllowlistLeavesPassthroughForcingUnchanged(t *testing.T) {
+	svc := NewService(nil, nil, nil, false, nil, nil, false,
+		providers.ProviderAnthropic, "claude-haiku-4-5", nil).
+		WithDeploymentKeyedProviders(keyed(providers.ProviderAnthropic))
+
+	binding, reason := svc.forcedModelBinding(context.Background(), "claude-opus-4-8", providers.ProviderAnthropic)
+
+	assert.Empty(t, reason)
+	assert.Equal(t, providers.ProviderAnthropic, binding)
+}

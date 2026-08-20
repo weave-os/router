@@ -89,12 +89,9 @@ func (s *Service) usageBypassEngaged(ctx context.Context, headers http.Header, r
 	if _, excluded := req.SafetyExcludedModels[model]; excluded {
 		return "", false
 	}
-	// The org's positive allowlist is NOT a routing preference — it is a
-	// compliance boundary, so unlike excluded_models the bypass must honor it.
-	// Checked explicitly rather than via SafetyExcludedModels, which has other
-	// readers with different semantics. Without this, every subscription-backed
-	// turn would pass straight through to any requested model and the allowlist
-	// would be silently inert for exactly the traffic that skips routing.
+	// Allowlist is a compliance boundary, not a routing preference —
+	// unlike excluded_models the bypass must honor it. Checked explicitly
+	// because SafetyExcludedModels has different readers and semantics.
 	if len(req.AllowedModels) > 0 {
 		if _, allowed := req.AllowedModels[model]; !allowed {
 			return "", false

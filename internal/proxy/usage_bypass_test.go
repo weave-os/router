@@ -189,13 +189,8 @@ func TestUsageBypass_InstallationExcludedModel_StillBypasses(t *testing.T) {
 	assert.Equal(t, bypassRequestedMdl, rec.Header().Get("x-router-model"), "bypass must serve the requested model, not a substituted one")
 }
 
-// TestUsageBypass_NotAllowlistedModel_EngagesRouting is the counterpart to the
-// excluded-model case above, and the reason the allowlist needed an explicit
-// check in usageBypassEngaged: excluded_models is a routing preference the
-// bypass may override, but the org allowlist is a compliance boundary it must
-// not. Without the check, every subscription-backed turn would pass straight
-// through to any requested model and the allowlist would be silently inert for
-// exactly the traffic that skips routing.
+// TestUsageBypass_NotAllowlistedModel_EngagesRouting: allowlist is a
+// compliance boundary (not a preference), so bypass must not skip it.
 func TestUsageBypass_NotAllowlistedModel_EngagesRouting(t *testing.T) {
 	svc, fr, _ := bypassFixture(t, 0.20)
 	rec, req, body := bypassRequest(t)

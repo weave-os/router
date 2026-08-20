@@ -35,15 +35,12 @@ func (e *ForcedModelExcludedError) Unwrap() error { return ErrForcedModelExclude
 // a model's primary, so an excluded primary whose fallback is permitted must
 // pin the fallback — otherwise the eligibility check in runTurnLoop drops it.
 func (s *Service) forcedModelBinding(ctx context.Context, model, provider string) (binding, reason string) {
+	// Checked directly, not via the exclusion set: a forced model may be
+	// passthrough-only and so never enters the desugared exclusions.
+	if !modelPermittedByAllowlist(ctx, model) {
+		return "", fmt.Sprintf("%s is not on this organization's allowed-model list", model)
+	}
 	if _, drop := s.excludedModelsForRequest(ctx)[model]; drop {
-		// The allowlist is desugared into the exclusion set, so distinguish the
-		// two here — telling an engineer their model is "excluded" when the org
-		// simply never allowlisted it sends them to the wrong setting.
-		if allowed := allowedModelsForRequest(ctx); len(allowed) > 0 {
-			if _, ok := allowed[model]; !ok {
-				return "", fmt.Sprintf("%s is not on this organization's allowed-model list", model)
-			}
-		}
 		return "", fmt.Sprintf("%s is excluded on this installation", model)
 	}
 	excluded := s.policyExcludedProviders(ctx)

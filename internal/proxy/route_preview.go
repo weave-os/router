@@ -83,6 +83,7 @@ func (s *Service) anthropicRoutingRequest(ctx context.Context, body []byte, head
 		EnabledProviders:             enabledProviders,
 		CustomBindings:               s.customBindingsForRequest(ctx),
 		ExcludedModels:               excluded,
+		AllowedModels:                allowedModelsForRequest(ctx),
 		PreferredModels:              s.preferredModelsForRequest(ctx),
 		RoutingKnobs:                 routingKnobsForRequest(ctx),
 	}, nil

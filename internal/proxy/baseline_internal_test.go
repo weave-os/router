@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -32,4 +33,22 @@ func TestWithDefaultBaselineModel(t *testing.T) {
 	s := &Service{}
 	s.WithDefaultBaselineModel("claude-sonnet-4-5")
 	assert.Equal(t, "claude-sonnet-4-5", s.defaultBaselineModel)
+}
+
+// The baseline is derived from the client's requested model, which can be a
+// passthrough-only catalog model — and passthrough models never enter the
+// desugared exclusion set. If the baseline rescue path read only
+// ExcludedModels, an allowed model's dispatch failure would rescue the turn
+// onto a model the org prohibits.
+func TestBaselineModelPermittedByAllowlist(t *testing.T) {
+	restricted := context.WithValue(context.Background(),
+		InstallationAllowedModelsContextKey{}, []string{"claude-opus-5"})
+
+	assert.True(t, modelPermittedByAllowlist(restricted, "claude-opus-5"),
+		"an allowlisted model clears the gate")
+	assert.False(t, modelPermittedByAllowlist(restricted, "claude-opus-4-8"),
+		"a passthrough-only model outside the allowlist must NOT be rescued to")
+
+	assert.True(t, modelPermittedByAllowlist(context.Background(), "claude-opus-4-8"),
+		"no allowlist means no restriction, so passthrough stays servable")
 }

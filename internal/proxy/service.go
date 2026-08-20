@@ -662,6 +662,21 @@ func allowedModelsForRequest(ctx context.Context) map[string]struct{} {
 	return out
 }
 
+// modelPermittedByAllowlist reports whether model clears the org's positive
+// allowlist. Callers that resolve a model OUTSIDE routableUniverse must use
+// this rather than relying on the ExcludedModels desugaring: the desugaring
+// only excludes members of that universe, so a passthrough-only model (priced,
+// no Tier) never lands in the exclusion set and would otherwise slip past the
+// allowlist. Empty allowlist = no restriction.
+func modelPermittedByAllowlist(ctx context.Context, model string) bool {
+	allowed := allowedModelsForRequest(ctx)
+	if len(allowed) == 0 {
+		return true
+	}
+	_, ok := allowed[model]
+	return ok
+}
+
 // routableUniverse is every model this deployment can serve: the configured
 // availableModels set, or the whole catalog when it is nil. Extracted so the
 // allowlist desugaring and restrictToTier share one universe definition and
@@ -728,12 +743,9 @@ func (s *Service) safetyExcludedModels(env *translate.RequestEnvelope, outputRes
 }
 
 // excludedModelsForRequest returns the request's model exclusion set.
-// Env override wins — an operator debugging a deployment is deliberately not
-// constrained by per-org config; this is an intentional escape hatch, not an
-// oversight. Otherwise the installation list is converted to a set, then
-// desugared with the positive allowlist: every routable model absent from a
-// non-empty allowlist is excluded, so the allowlist is fail-closed by reusing
-// exactly the exclusion machinery.
+// Env override wins (intentional escape hatch, not an oversight).
+// Otherwise desugars the positive allowlist into the exclusion set:
+// every routable model absent from a non-empty allowlist is excluded.
 func (s *Service) excludedModelsForRequest(ctx context.Context) map[string]struct{} {
 	if s.excludedModelsOverride != nil {
 		return s.excludedModelsOverride
@@ -3089,12 +3101,14 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	baselineModel := s.baselineFor(feats.Model)
 	baselineCatalog, baselineKnown := catalog.ByID(baselineModel)
 	_, anthropicExcluded := s.excludedProvidersForRequest(ctx)[providers.ProviderAnthropic]
+	baselineAllowed := modelPermittedByAllowlist(ctx, baselineModel)
 	// baselineViable omits authoritative-per-turn: that contract governs which
 	// model the policy picks, not whether a provably-unservable request can be rescued.
 	baselineViable := !agentShadowMode &&
 		decision.Reason != translate.ReasonUserForceModel &&
 		s.shouldFailover(ctx) &&
 		!anthropicExcluded &&
+		baselineAllowed &&
 		decision.Provider != providers.ProviderAnthropic &&
 		baselineModel != decision.Model &&
 		baselineKnown && baselineCatalog.PrimaryProvider() == providers.ProviderAnthropic
