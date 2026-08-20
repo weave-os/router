@@ -293,8 +293,10 @@ func TestContextWindowFor_KnownModels(t *testing.T) {
 	// GLM-5 serves ~200K (max_position_embeddings 202752); GLM-5.2 confirmed at 1M.
 	assert.Equal(t, 202_752, ContextWindowFor("z-ai/glm-5"))
 	assert.Equal(t, 1_048_576, ContextWindowFor("z-ai/glm-5.2"))
-	// qwen/qwen3.8-max is a 1M model (served window confirmed on OpenRouter).
-	assert.Equal(t, 1_000_000, ContextWindowFor("qwen/qwen3.8-max"))
+	// qwen/qwen3.8-max is Fireworks-only; the served window there is ~131K,
+	// not the 1M the model card / OpenRouter list. Prod observed constant 400s
+	// "The prompt is too long ... model maximum context length: 131069".
+	assert.Equal(t, 131_072, ContextWindowFor("qwen/qwen3.8-max"))
 	assert.Equal(t, 204_800, ContextWindowFor("minimax/minimax-m2.7"))
 	// Unknown model falls back to DefaultContextWindow.
 	assert.Equal(t, DefaultContextWindow, ContextWindowFor("not-a-real-model"))

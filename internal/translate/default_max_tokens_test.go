@@ -178,3 +178,45 @@ func TestOpenAISameFormat_ExplicitMaxTokensClampsToKimiK3Ceiling(t *testing.T) {
 	out := parseAndEmit(t, body, "openai", opts)
 	assert.Equal(t, float64(32000), out["max_tokens"])
 }
+
+// Regression: qwen/qwen3.8-max was absent from modelMaxOutputTokens, so an
+// explicit Claude Code max_tokens of 64000/32000 was clamped to the 8192
+// generic fallback. Fireworks serves a 64000 output ceiling, so a 32000
+// request must be passed through, not truncated to an 8th.
+func TestOpenAISameFormat_ExplicitMaxTokensNotClampedTo8192ForQwen38Max(t *testing.T) {
+	body := []byte(`{"model":"gpt-4o","messages":[{"role":"user","content":"hi"}],"max_tokens":32000}`)
+	opts := translate.EmitOptions{
+		TargetModel:  "qwen/qwen3.8-max",
+		Capabilities: router.Lookup("qwen/qwen3.8-max"),
+	}
+	out := parseAndEmit(t, body, "openai", opts)
+	assert.Equal(t, float64(32000), out["max_tokens"])
+}
+
+// The flag ceiling (64000) is preserved — the clamp must not ask Qwen for
+// more than its served output limit.
+func TestOpenAISameFormat_Qwen38MaxClampsAt64000Ceiling(t *testing.T) {
+	body := []byte(`{"model":"gpt-4o","messages":[{"role":"user","content":"hi"}],"max_tokens":65536}`)
+	opts := translate.EmitOptions{
+		TargetModel:  "qwen/qwen3.8-max",
+		Capabilities: router.Lookup("qwen/qwen3.8-max"),
+	}
+	out := parseAndEmit(t, body, "openai", opts)
+	assert.Equal(t, float64(64000), out["max_tokens"])
+}
+
+// Same shape on the Anthropic->OpenAI cross-format path (the actual Claude
+// Code route): the explicit 64000 must not be clamped to 8192.
+func TestCrossFormat_AnthropicToOpenAI_Qwen38MaxExplicitMaxTokensPassedThrough(t *testing.T) {
+	body := []byte(`{"model":"claude-sonnet-4-20250514","messages":[{"role":"user","content":"hi"}],"max_tokens":64000}`)
+	env, err := translate.ParseAnthropic(body)
+	require.NoError(t, err)
+	prep, err := env.PrepareOpenAI(http.Header{}, translate.EmitOptions{
+		TargetModel:  "qwen/qwen3.8-max",
+		Capabilities: router.Lookup("qwen/qwen3.8-max"),
+	})
+	require.NoError(t, err)
+	var out map[string]any
+	require.NoError(t, json.Unmarshal(prep.Body, &out))
+	assert.Equal(t, float64(64000), out["max_tokens"])
+}
