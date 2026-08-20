@@ -572,12 +572,9 @@ var Models = []Model{
 			Price: Pricing{InputUSDPer1M: 0.400, OutputUSDPer1M: 1.600, CacheReadMultiplier: 0.20}},
 	}},
 	// Fireworks-only: SOC-2 compliance; OpenRouter's/Together's routes forward to
-	// Alibaba/DashScope. The 1M figure in the prompt cache / model docs is NOT
-	// what the Fireworks endpoint exposes: prod observations consistently 400
-	// "The prompt is too long: <N>, model maximum context length: 131069" on
-	// requests over ~131K (and a 262141 window on the larger shard). Until
-	// Fireworks raises the served window, treat 131072 as the routing budget so
-	// the overflow pre-filter excludes the arm instead of hard-400ing the turn.
+	// Alibaba/DashScope. Fireworks caps at 131069, not the 1M in model docs:
+	// prod 400s "The prompt is too long ... model maximum context length: 131069".
+	// Use 131072 so the overflow pre-filter blocks over-budget requests instead.
 	{ID: "qwen/qwen3.8-max", Tier: TierHigh, ContextWindow: 131_072, Providers: []ProviderBinding{
 		{Provider: providers.ProviderFireworks, UpstreamID: "accounts/fireworks/models/qwen3p8-max",
 			Price: Pricing{InputUSDPer1M: 2.000, OutputUSDPer1M: 6.000, CacheReadMultiplier: 0.125}},

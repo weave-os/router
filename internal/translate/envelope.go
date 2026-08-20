@@ -1199,16 +1199,13 @@ var modelMaxOutputTokens = map[string]int{
 	"gemini-2.5-flash-lite": 65536,
 	"gemini-2.0-flash":      8192, "gemini-2.0-flash-lite": 8192,
 	// Keyed by full catalog ID, since decision.Model keeps the vendor prefix.
-	// OSS models genuinely accept far more than the 8192 generic fallback;
-	// leaving them unlisted clamped Claude Code's 64K output request to 8192,
-	// truncating every long turn (finish_reason="length"). When a provider's
-	// served output ceiling is higher than 131072, the overshoot only matters
-	// for pathological single turns; the 8192 floor was the actual defect.
+	// OSS models accept far more than the 8192 fallback; leaving them unlisted
+	// clamped Claude Code's 64K output request, truncating every long turn.
 	"moonshotai/kimi-k3":               131072,
 	"qwen/qwen3.8-max":                 64000, // Fireworks reports a 64000 output token ceiling
-	"qwen/qwen3-coder-next":            65536,
-	"qwen/qwen3-235b-a22b-2507":        65536,
-	"qwen/qwen3-next-80b-a3b-instruct": 65536,
+	"qwen/qwen3-coder-next":            16384, // Bedrock (primary) caps Qwen models at 16K output
+	"qwen/qwen3-235b-a22b-2507":        16384,
+	"qwen/qwen3-next-80b-a3b-instruct": 16384,
 	"deepseek/deepseek-v4-flash":       131072, // DeepSeek V4 documents 384K max output
 	"deepseek/deepseek-v4-pro":         131072,
 	"deepseek/deepseek-v4-pro-0813":    131072,
