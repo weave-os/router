@@ -178,3 +178,22 @@ func TestOpenAISameFormat_ExplicitMaxTokensClampsToKimiK3Ceiling(t *testing.T) {
 	out := parseAndEmit(t, body, "openai", opts)
 	assert.Equal(t, float64(32000), out["max_tokens"])
 }
+
+// Regression: qwen/qwen3.8-max was absent from modelMaxOutputTokens, so a
+// Claude Code turn requesting max_tokens=64000 was clamped to the 8192
+// fallback. Qwen3-Max serves 32k output on Fireworks (qwen3p8-max); every
+// agentic turn ended in finish_reason=length and an auto-resume loop until
+// the client surfaced "response exceeded the 64000 output token maximum".
+func TestOpenAISameFormat_ExplicitMaxTokensClampsToQwen38MaxCeiling(t *testing.T) {
+	body := []byte(`{"model":"gpt-4o","messages":[{"role":"user","content":"hi"}],"max_tokens":64000}`)
+	opts := translate.EmitOptions{
+		TargetModel:  "qwen/qwen3.8-max",
+		Capabilities: router.Lookup("qwen/qwen3.8-max"),
+	}
+	out := parseAndEmit(t, body, "openai", opts)
+	assert.Equal(t, float64(32768), out["max_tokens"])
+
+	body = []byte(`{"model":"gpt-4o","messages":[{"role":"user","content":"hi"}],"max_tokens":16384}`)
+	out = parseAndEmit(t, body, "openai", opts)
+	assert.Equal(t, float64(16384), out["max_tokens"])
+}

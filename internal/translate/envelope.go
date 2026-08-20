@@ -1201,6 +1201,10 @@ var modelMaxOutputTokens = map[string]int{
 	// Keyed by full catalog ID, since decision.Model keeps the vendor prefix.
 	// Other OSS rows are still absent and so inherit the 8192 fallback.
 	"moonshotai/kimi-k3": 131072,
+	// Qwen3-Max family serves 32k output on Fireworks (qwen3p8-max). Without
+	// this entry a Claude Code max_tokens=64000 turn was clamped to the 8192
+	// fallback and truncated every agentic turn (finish_reason=length loop).
+	"qwen/qwen3.8-max": 32768,
 }
 
 const defaultMaxOutputTokenCap = 8192
