@@ -10,11 +10,8 @@ import (
 )
 
 type onboardingResponse struct {
-	// FirstRequestServedAt is when this installation first routed a request,
-	// or null if it never has. Set once and never cleared, so it stays put
-	// across key rotation — the dashboard gates first-run onboarding on it
-	// rather than on any single key's last_used_at, which disappears with the
-	// key that earned it.
+	// FirstRequestServedAt is when this installation first routed a request;
+	// null until then. Set once and never cleared, so it survives key rotation.
 	FirstRequestServedAt *time.Time `json:"first_request_served_at"`
 }
 

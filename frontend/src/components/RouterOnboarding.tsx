@@ -325,8 +325,9 @@ function InstallStep({
           Run the install command
         </Text>
         <Text className="text-xs text-muted-foreground">
-          Paste this into your terminal. It points {selected.label} at this router with your key
-          already inlined.
+          {token != null
+            ? `Paste this into your terminal. It points ${selected.label} at this router with your key already inlined.`
+            : `Paste this into your terminal after swapping in your key. It points ${selected.label} at this router.`}
         </Text>
       </div>
 

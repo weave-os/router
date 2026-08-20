@@ -146,9 +146,7 @@ type fakeInstallationRepository struct {
 	subscriptionRoutingDisabledByID map[string]bool
 	contentCaptureModeByID          map[string]*string
 	hideTerminalSurfacesByID        map[string]bool
-	// firstRequestServedIDs counts MarkFirstRequestServed calls per installation
-	// so tests can assert a routed request stamps the onboarding flag (and that
-	// an analytics read does not).
+	// firstRequestServedIDs counts MarkFirstRequestServed calls per installation.
 	firstRequestServedIDs map[string]int
 	mu                    sync.Mutex
 	// updateErr, when set, is returned by Update* methods instead of recording —
@@ -504,10 +502,8 @@ func TestService_VerifyAPIKey_HappyPathReturnsInstallationAndKey(t *testing.T) {
 		"VerifyAPIKey must asynchronously call MarkUsed with the matched key id")
 }
 
-// The dashboard gates first-run onboarding on the installation-level stamp
-// rather than a key's last_used_at, precisely so rotating the key that served
-// the first request can't reset it. That only holds if verifying a routing key
-// actually stamps the installation.
+// VerifyAPIKey must stamp the installation-level onboarding flag, not just
+// the key's last_used_at, so the flag survives key rotation.
 func TestService_VerifyAPIKey_StampsInstallationFirstRequestServed(t *testing.T) {
 	rawToken := "rk_first_request_token_for_test"
 	keyHash := auth.HashAPIKeySHA256(rawToken)
@@ -531,9 +527,7 @@ func TestService_VerifyAPIKey_StampsInstallationFirstRequestServed(t *testing.T)
 		"a routed request must stamp the installation's first_request_served_at")
 }
 
-// An analytics export is not a routed request, so reading it must not mark the
-// installation as having served traffic — otherwise pulling the export on a
-// fresh deploy would skip the user past onboarding they never completed.
+// An analytics read is not a routed request and must not advance onboarding.
 func TestService_VerifyAnalyticsKey_DoesNotStampFirstRequestServed(t *testing.T) {
 	rawToken := "ra_analytics_token_for_test"
 	keyHash := auth.HashAPIKeySHA256(rawToken)

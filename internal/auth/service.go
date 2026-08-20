@@ -710,14 +710,9 @@ func (s *Service) fireMarkUsed(apiKeyID string) {
 	})
 }
 
-// fireMarkFirstRequestServed stamps the installation's first_request_served_at
-// off the request path, same rationale as fireMarkUsed for context.Background.
-// That flag is what the dashboard gates first-run onboarding on, so it lives on
-// the installation rather than the key: it has to outlive the rotation of
-// whatever key served the first request.
-//
-// Deliberately called only from the routing path. An analytics export doesn't
-// route a request, so reading it must not mark an installation as onboarded.
+// fireMarkFirstRequestServed stamps the installation-level onboarding flag
+// off the request path (same rationale as fireMarkUsed). Not called from the
+// analytics path — an analytics read is not a routed request.
 func (s *Service) fireMarkFirstRequestServed(installationID string) {
 	log := observability.Get().With("installation_id", installationID)
 	observability.SafeGo(log, 2*time.Second, "fireMarkFirstRequestServed", func(ctx context.Context) {
