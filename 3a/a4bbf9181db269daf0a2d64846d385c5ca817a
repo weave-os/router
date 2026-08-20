@@ -1,0 +1,26 @@
+install/install.sh
+  s_32ab2cb9054632::t_049abcf51dc096 1036-1045
+  s_32ab2cb9054632::t_da8098bf0770c0 2010-2018
+  s_32ab2cb9054632::t_8b81d73610feaa 1996
+  s_32ab2cb9054632::t_b2146f21568938 1023-1026
+  s_32ab2cb9054632::t_1799b57a3e4c25 1960-1964,1966-1967,1969-1973,1976,1978-1986
+install/tests/models_test.sh
+  s_32ab2cb9054632::t_b53956e9a3170b 190-204
+  s_32ab2cb9054632::t_26c9ac59ba38ca 252-271
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "3aa4bbf9181db269daf0a2d64846d385c5ca817a",
+  "prompts": {},
+  "sessions": {
+    "s_32ab2cb9054632": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6f6090cd-f83b-4eff-b1c3-94b47d9dd39e",
+        "model": "claude-sonnet-5"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}
