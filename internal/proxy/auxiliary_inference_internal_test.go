@@ -302,6 +302,7 @@ func TestBillAuxiliaryInferenceUsesSummarizerProviderForBYOK(t *testing.T) {
 	})
 	s.billAuxiliaryInference(ctx, auxTestRequestID, auxSuffixHandoverSummary, auxTestOrgID, auxTestUsage())
 
+	time.Sleep(50 * time.Millisecond)
 	debits := billingRepo.snapshot()
 	require.Len(t, debits, 1)
 	assert.Zero(t, debits[0].DeltaUsdMicros,

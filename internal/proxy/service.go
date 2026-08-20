@@ -4636,7 +4636,7 @@ func (s *Service) emitBilling(ctx context.Context, requestID, externalID string,
 	}
 	hasOverride := billing.HasOverrideFromContext(ctx)
 	apiKeyID, _ := ctx.Value(APIKeyIDContextKey{}).(string)
-	s.fireBilling(ctx, billing.DebitInferenceParams{
+	s.fireBilling(billing.DebitInferenceParams{
 		OrganizationID:     externalID,
 		RouterRequestID:    requestID,
 		Model:              decision.Model,
@@ -4662,12 +4662,15 @@ func (s *Service) emitBilling(ctx context.Context, requestID, externalID string,
 }
 
 // fireBilling debits the org's prepaid credit balance for one upstream call.
-// Synchronous so the ledger row is durable before handler return, but uses
-// context.Background() so customer cancellation doesn't abort the write —
-// the inference was already served, so the bookkeeping still owed. On
-// failure, logs Error for manual reconciliation; the customer's response is
-// unaffected since they already got it.
-func (s *Service) fireBilling(ctx context.Context, p billing.DebitInferenceParams) {
+// Async via SafeGo so the multi-CTE ledger write (which serializes on the org's
+// single balance row) is off the request path — at scale the response has
+// already been fully streamed before this runs, so durability-before-return
+// buys nothing but pool contention. context.Background() so customer
+// cancellation doesn't abort the write — the inference was already served, so
+// the bookkeeping still owed. On failure, logs Error for manual
+// reconciliation; the customer's response is unaffected since they already
+// got it.
+func (s *Service) fireBilling(p billing.DebitInferenceParams) {
 	if s.billing == nil {
 		return
 	}
@@ -4677,27 +4680,27 @@ func (s *Service) fireBilling(ctx context.Context, p billing.DebitInferenceParam
 		observability.Get().Debug("Billing debit skipped: no organization_id on request")
 		return
 	}
-	dbCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	balance, err := s.billing.DebitForInference(dbCtx, p)
-	if err == nil {
-		observability.Get().Debug("Billing debit complete",
-			"organization_id", p.OrganizationID,
-			"router_request_id", p.RouterRequestID,
-			"model", p.Model,
-			"balance_usd_micros", balance,
-			"override", p.HasOverride,
-			"subscription_served", p.SubscriptionServed,
-			"byok_served", p.ByokServed,
-		)
-		return
-	}
-	logBillingDebitFailure(ctx, p, err)
+	observability.SafeGo(observability.Get(), 5*time.Second, "fireBilling", func(dbCtx context.Context) {
+		balance, err := s.billing.DebitForInference(dbCtx, p)
+		if err == nil {
+			observability.Get().Debug("Billing debit complete",
+				"organization_id", p.OrganizationID,
+				"router_request_id", p.RouterRequestID,
+				"model", p.Model,
+				"balance_usd_micros", balance,
+				"override", p.HasOverride,
+				"subscription_served", p.SubscriptionServed,
+				"byok_served", p.ByokServed,
+			)
+			return
+		}
+		logBillingDebitFailure(p, err)
+	})
 }
 
 // logBillingDebitFailure emits a structured Error log so on-call alerting can
 // fire on the resulting log rate without a new prometheus dependency.
-func logBillingDebitFailure(ctx context.Context, p billing.DebitInferenceParams, err error) {
+func logBillingDebitFailure(p billing.DebitInferenceParams, err error) {
 	observability.Get().Error("router_billing_debit_failed",
 		"err", err,
 		"organization_id", p.OrganizationID,

@@ -81,7 +81,10 @@ func main() {
 	// 6 conns covers MarkUsed writes plus session-pin traffic (auth-cache and
 	// the in-proc LRU absorb most reads). If pgxpool wait p95 climbs above 1ms
 	// with pinning on, that's the migrate-to-Memorystore signal, not a bigger pool.
-	cfg.MaxConns = 6
+	// ROUTER_POSTGRES_MAX_CONNS overrides for high-concurrency deploys (e.g. the
+	// 300-engineer POC); terraform pins it there. Watch the documented tripwire
+	// (pgxpool wait p95) before raising without removing load.
+	cfg.MaxConns = int32(parseEnvInt("ROUTER_POSTGRES_MAX_CONNS", 6))
 	cfg.MinConns = 1
 	cfg.MaxConnLifetime = 30 * time.Minute
 	cfg.MaxConnIdleTime = 10 * time.Minute
