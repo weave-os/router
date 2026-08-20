@@ -187,10 +187,8 @@ type turnLoopResult struct {
 	// the escalate-on-failure policy (Service.effortEscalation) reads it to
 	// bump a gpt-5.x turn from low to high effort, and is a no-op when disabled.
 	EscalateEffort bool
-	// PinTurnCount is the pin's cumulative routed-turn count and
-	// PinFirstPinnedAt the pin's creation time (session start). Read only by
-	// the shadow struggle detector, which needs session age + turn count; both
-	// are zero when no pin exists, so the detector no-ops on fresh sessions.
+	// PinTurnCount and PinFirstPinnedAt are session age + turn count from the
+	// loaded pin; zero when no pin exists, so the detector no-ops on fresh sessions.
 	PinTurnCount     int
 	PinFirstPinnedAt time.Time
 	// SessionDisabledProviders are providers struck out by repeated 529
@@ -661,13 +659,10 @@ func (s *Service) runTurnLoop(
 	res.EscalateEffort = pinFound && !pin.LastTurnEndedAt.IsZero() &&
 		(pin.LastOutputTokens == 0 || pin.ConsecutiveUpstreamErrors > 0)
 	if pinFound {
-		// Session age + turn count are stamped here, before the same-turn
-		// pin-drop guards below (context window, exclusion) can clear the pin:
-		// they describe the session, not the pin's survival, and the struggle
-		// detector still needs them on the turn a drop happens.
-		// +1: the stored count is completed turns; this in-flight turn is the
-		// next one, so the operating points fire ON it (turn 30 reads 30),
-		// matching Phase 0's inclusive rule mining.
+		// Stamped before pin-drop guards (context-window eviction, exclusion)
+		// so the detector still sees them on the turn the pin is dropped.
+		// +1: stored count is completed turns; this in-flight turn is the next,
+		// so thresholds fire ON 30/80 (matching Phase 0's inclusive mining).
 		res.PinTurnCount = pin.TurnCount + 1
 		res.PinFirstPinnedAt = pin.FirstPinnedAt
 		applyPinEvidence(&res, pin)
