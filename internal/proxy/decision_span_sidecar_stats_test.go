@@ -67,10 +67,8 @@ func TestDecisionSpan_SidecarStats_PresentZeroIsEmittedAsZero(t *testing.T) {
 	assert.Zero(t, misses)
 }
 
-// TestDecisionSpan_SidecarStats_Absent covers every shape of "not reported":
-// nil Metadata, nil SidecarStats, and a partially-populated SidecarStats where
-// only the set field ("routing.sidecar_inflight") must be present and every
-// other of the five attrs must be absent.
+// TestDecisionSpan_SidecarStats_Absent covers nil Metadata, nil SidecarStats,
+// and a partial SidecarStats (only the set field must appear).
 func TestDecisionSpan_SidecarStats_Absent(t *testing.T) {
 	allFiveKeys := []string{
 		"routing.embed_cache_hits",

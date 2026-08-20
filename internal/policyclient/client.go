@@ -373,12 +373,8 @@ type routeResponse struct {
 }
 
 // routeTimings is the sidecar's optional per-request latency breakdown plus
-// serving stats. Fields are nil (not zero) when the sidecar didn't measure
-// that stage or report that stat; route_ms spans the whole decision and is a
-// superset of the other latency stages. The serving-stats fields are
-// independent of the latency stages: embed cache deltas are per-request
-// (present only when the embed stage ran) and the roster gauges are instance
-// snapshots, always present on stats-capable sidecars.
+// serving stats. Fields are nil (not zero) when not measured/reported;
+// route_ms spans the whole decision and is a superset of the other stages.
 type routeTimings struct {
 	RouteMs             *float64 `json:"route_ms"`
 	SelectMs            *float64 `json:"select_ms"`
