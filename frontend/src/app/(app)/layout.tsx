@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 
+import { SettingsSidebar } from "@/components/SettingsSidebar";
 import { Sidebar } from "@/components/Sidebar";
 import { SidebarLayout } from "@/components/SidebarLayout";
 import { api } from "@/lib/api";
@@ -43,5 +44,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     return <SidebarLayout sidebar={<div className="md:w-[244px]" />}>{null}</SidebarLayout>;
   }
 
-  return <SidebarLayout sidebar={<Sidebar />}>{children}</SidebarLayout>;
+  const sidebar = pathname.startsWith("/settings") ? <SettingsSidebar /> : <Sidebar />;
+
+  return <SidebarLayout sidebar={sidebar}>{children}</SidebarLayout>;
 }
