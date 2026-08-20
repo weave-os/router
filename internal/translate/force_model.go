@@ -199,16 +199,9 @@ func parseForceModelCommand(text string, known ForceModelKnown) (res ForceModelR
 }
 
 // forceModelNameWords returns how many leading words of parts form the model
-// name. It prefers the longest run `known` accepts, so a multi-word name wins
-// over a shorter prefix that also resolves ("qwen 3.8" over "qwen").
-//
-// When no multi-word run resolves, the name still absorbs any immediately
-// following version-like tokens ("9.9", "4o"). Without that, "/fm qwen 9.9"
-// falls back to the one word "qwen" — which IS a known alias — and silently
-// pins qwen3-coder for a model the user never named. A prompt effectively
-// never begins with a bare version token, while a mistyped model version
-// routinely does, so absorbing it turns a wrong pin into an honest rejection
-// that names what was typed.
+// name, preferring the longest run known accepts ("qwen 3.8" over "qwen").
+// When no multi-word run resolves, version-like tokens are absorbed anyway:
+// without that, "/fm qwen 9.9" silently pins qwen3-coder instead of rejecting.
 func forceModelNameWords(parts []string, known ForceModelKnown) int {
 	if known == nil {
 		return 1

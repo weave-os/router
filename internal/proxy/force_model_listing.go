@@ -25,15 +25,10 @@ type forceModelListEntry struct {
 	Aliases []string
 }
 
-// pinnableModels returns every model this installation can pin, in the order
-// the listing renders them. A model qualifies when it has a servable binding
-// here AND forcedModelBinding accepts it — the listing is derived from the
-// same gate that admits the pin, so it can't advertise a model that would be
-// refused a moment later.
-//
-// Passthrough-only (untiered) catalog rows are included: they are legitimately
-// pinnable even though automatic routing will never select them, and omitting
-// them is what makes a user believe a model they can reach doesn't exist.
+// pinnableModels returns every model this installation can pin, derived from
+// the same gate (forcedModelBinding) that admits the pin — so it can't
+// advertise a model that would be refused. Untiered (passthrough-only) rows
+// are included: omitting them hides models a user can actually reach.
 func (s *Service) pinnableModels(ctx context.Context) []forceModelListEntry {
 	aliases := aliasesByCanonicalID()
 

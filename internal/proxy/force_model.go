@@ -225,15 +225,9 @@ func resolveForceModelWithEffort(model string) (canonicalID, provider string, kn
 }
 
 // resolveForceModelLoose matches model against aliases and catalog IDs with
-// all separators removed. A catalog ID's trailing path segment also matches
-// ("qwen3.8max" → "qwen/qwen3.8-max"), mirroring the exact-suffix pass above.
-// Ambiguous matches are rejected rather than guessed: silently pinning one of
-// several plausible models is the failure this whole path exists to avoid.
-//
-// A leading or trailing separator means the input is truncated mid-type
-// ("gpt-"), not merely punctuated differently, so those are refused — folding
-// them away would turn "gpt-" into the "gpt" alias and pin a model the user
-// never finished naming.
+// all separators removed. Trailing path segments also match ("qwen3.8max" →
+// "qwen/qwen3.8-max"). Ambiguous matches are refused. Leading/trailing
+// separators ("gpt-") are refused: folding them would pin the wrong model.
 func resolveForceModelLoose(model, requiredProvider string) (canonicalID, provider string, known bool) {
 	if model == "" || isModelSeparator(rune(model[0])) || isModelSeparator(rune(model[len(model)-1])) {
 		return "", "", false
