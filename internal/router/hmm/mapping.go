@@ -14,6 +14,12 @@ var rosterAliases = map[string]string{
 	"claude-opus-4-8":      "anthropic/claude-opus-4.8",
 	"claude-fable-5":       "anthropic/claude-fable-5",
 	"moonshotai/kimi-k2.7": "moonshotai/kimi-k2.7-code",
+	// Bare first-party xAI IDs have no provider prefix to inherit, and the
+	// switch below deliberately stays empty for them (a bare ID whose primary
+	// provider is a hosting platform would be ambiguous). An explicit alias is
+	// what makes an xAI-native model roster-addressable.
+	"grok-4.5": "x-ai/grok-4.5",
+	"grok-4.6": "x-ai/grok-4.6",
 }
 
 func rosterIDFor(m catalog.Model) string {

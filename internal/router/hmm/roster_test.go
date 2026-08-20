@@ -17,6 +17,7 @@ func TestDeployedModelsForRosterIDs_MapsRosterSlugsToCatalogEntries(t *testing.T
 		"openai/gpt-5.6-sol",
 		"anthropic/claude-opus-4.8",
 		"deepseek/deepseek-v4-flash",
+		"x-ai/grok-4.6",
 	})
 
 	byModel := make(map[string]string, len(got))
@@ -26,6 +27,9 @@ func TestDeployedModelsForRosterIDs_MapsRosterSlugsToCatalogEntries(t *testing.T
 
 	assert.Equal(t, providers.ProviderOpenAI, byModel["gpt-5.6-sol"])
 	assert.Equal(t, providers.ProviderAnthropic, byModel["claude-opus-4-8"])
+	// Bare first-party xAI IDs map through an explicit roster alias; the
+	// provider is the native xAI binding.
+	assert.Equal(t, providers.ProviderXAI, byModel["grok-4.6"])
 	// OSS slugs already carry their provider prefix, so the roster_id equals
 	// the catalog ID; provider is whatever the catalog lists first.
 	require.Contains(t, byModel, "deepseek/deepseek-v4-flash")

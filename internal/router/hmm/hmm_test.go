@@ -206,9 +206,25 @@ func TestCatalogRoutingTargetsResolveCurrentHMMRosterArmsToProviders(t *testing.
 		"openai/gpt-5.6-terra",
 		"z-ai/glm-5.2",
 		"google/gemini-3.1-pro-preview",
+		"x-ai/grok-4.6",
 	} {
 		assert.Contains(t, gotRosterIDs, rosterID)
 	}
+}
+
+func TestRosterIDForMapsBareGrokIDsToXAIRosterSlugs(t *testing.T) {
+	grok46, ok := catalog.ByID("grok-4.6")
+	require.True(t, ok)
+	assert.Equal(t, "x-ai/grok-4.6", rosterIDFor(grok46))
+
+	grok45, ok := catalog.ByID("grok-4.5")
+	require.True(t, ok)
+	assert.Equal(t, "x-ai/grok-4.5", rosterIDFor(grok45))
+
+	// The reverse mapping must land on the bare catalog ID the dispatch path
+	// consumes, not echo the prefixed roster slug back.
+	assert.Equal(t, "grok-4.6", CatalogIDForRoster("x-ai/grok-4.6"))
+	assert.Equal(t, "grok-4.5", CatalogIDForRoster("x-ai/grok-4.5"))
 }
 
 func TestRouterOffersAndSelectsTerraWithoutLegacyDeployedSet(t *testing.T) {
