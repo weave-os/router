@@ -291,7 +291,11 @@ var Models = []Model{
 	}},
 
 	// --- OpenAI GPT-5.4 ---
-	{ID: "gpt-5.4-nano", Tier: TierMid, ContextWindow: 1_000_000, Providers: []ProviderBinding{
+	// gpt-5.4-nano serves a 400K window (OpenRouter listing + direct-OpenAI
+	// capacity), not 1M — overstating lets the overflow pre-filter route a
+	// >400K request onto a model that hard-400s upstream. gpt-5.4/-mini share
+	// the family's 400K ceiling.
+	{ID: "gpt-5.4-nano", Tier: TierMid, ContextWindow: 400_000, Providers: []ProviderBinding{
 		{Provider: providers.ProviderOpenAI, Price: Pricing{InputUSDPer1M: 0.20, OutputUSDPer1M: 1.25, CacheReadMultiplier: 0.10}},
 	}},
 	{ID: "gpt-5.4-mini", Tier: TierMid, ContextWindow: 400_000, Providers: []ProviderBinding{
@@ -530,10 +534,11 @@ var Models = []Model{
 			Price: Pricing{InputUSDPer1M: 1.400, OutputUSDPer1M: 4.400, CacheReadMultiplier: 0.26 / 1.40}},
 		{Provider: providers.ProviderOpenRouter, Price: Pricing{InputUSDPer1M: 0.980, OutputUSDPer1M: 3.080, CacheReadMultiplier: 0.18 / 0.98}},
 	}},
-	// ContextWindow held at glm-family 202_752 pending confirmation of the
-	// Fireworks served window — overstating triggers hard 400s (cf. the
-	// minimax 1M->204800 incident).
-	{ID: "z-ai/glm-5.2", Tier: TierHigh, ContextWindow: 202_752, ImageInput: ImageInputUnsupported, Providers: []ProviderBinding{
+	// ContextWindow 1_048_576 confirmed from OpenRouter (context_length) and
+	// Fireworks serving manifest (1_048_575) — the earlier 202_752 was held
+	// pending that confirmation (cf. the minimax 1M->204800 incident, which is
+	// the risk if a served cap is overstated, not understated).
+	{ID: "z-ai/glm-5.2", Tier: TierHigh, ContextWindow: 1_048_576, ImageInput: ImageInputUnsupported, Providers: []ProviderBinding{
 		// Together leads: #1 AA throughput (~382 t/s vs Fireworks ~347) at the
 		// same $1.40/$4.40 price.
 		{Provider: providers.ProviderTogether, UpstreamID: "zai-org/GLM-5.2",
@@ -566,8 +571,9 @@ var Models = []Model{
 			Price: Pricing{InputUSDPer1M: 0.400, OutputUSDPer1M: 1.600, CacheReadMultiplier: 0.20}},
 	}},
 	// Fireworks-only: SOC-2 compliance; OpenRouter's/Together's routes forward to
-	// Alibaba/DashScope. Context 262_144 is Fireworks' native limit (not Alibaba's 1M).
-	{ID: "qwen/qwen3.8-max", Tier: TierHigh, ContextWindow: 262_144, Providers: []ProviderBinding{
+	// Alibaba/DashScope. Served window 1M confirmed on OpenRouter (context_length
+	// 1_000_000) and the model's own 1M capability; Fireworks serves the full 1M.
+	{ID: "qwen/qwen3.8-max", Tier: TierHigh, ContextWindow: 1_000_000, Providers: []ProviderBinding{
 		{Provider: providers.ProviderFireworks, UpstreamID: "accounts/fireworks/models/qwen3p8-max",
 			Price: Pricing{InputUSDPer1M: 2.000, OutputUSDPer1M: 6.000, CacheReadMultiplier: 0.125}},
 	}},

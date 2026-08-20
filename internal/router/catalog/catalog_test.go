@@ -275,6 +275,8 @@ func TestContextWindowFor_KnownModels(t *testing.T) {
 	// GPT-5 family has large context windows.
 	assert.Equal(t, 400_000, ContextWindowFor("gpt-5"))
 	assert.Equal(t, 1_000_000, ContextWindowFor("gpt-5.4"))
+	// gpt-5.4-nano serves a 400K window (OpenRouter + direct-OpenAI), not 1M.
+	assert.Equal(t, 400_000, ContextWindowFor("gpt-5.4-nano"))
 	assert.Equal(t, 1_050_000, ContextWindowFor("gpt-5.5"))
 	assert.Equal(t, 1_050_000, ContextWindowFor("gpt-5.6-sol"))
 	assert.Equal(t, 1_050_000, ContextWindowFor("gpt-5.6-terra"))
@@ -288,8 +290,11 @@ func TestContextWindowFor_KnownModels(t *testing.T) {
 	assert.Equal(t, 1_048_576, ContextWindowFor("deepseek/deepseek-v4-flash"))
 	// Most OSS models serve a 256K window (Qwen3 / Kimi families).
 	assert.Equal(t, 262_144, ContextWindowFor("moonshotai/kimi-k2.5"))
-	// GLM-5 serves ~200K (max_position_embeddings 202752); MiniMax M2.7 is 204800.
+	// GLM-5 serves ~200K (max_position_embeddings 202752); GLM-5.2 confirmed at 1M.
 	assert.Equal(t, 202_752, ContextWindowFor("z-ai/glm-5"))
+	assert.Equal(t, 1_048_576, ContextWindowFor("z-ai/glm-5.2"))
+	// qwen/qwen3.8-max is a 1M model (served window confirmed on OpenRouter).
+	assert.Equal(t, 1_000_000, ContextWindowFor("qwen/qwen3.8-max"))
 	assert.Equal(t, 204_800, ContextWindowFor("minimax/minimax-m2.7"))
 	// Unknown model falls back to DefaultContextWindow.
 	assert.Equal(t, DefaultContextWindow, ContextWindowFor("not-a-real-model"))
