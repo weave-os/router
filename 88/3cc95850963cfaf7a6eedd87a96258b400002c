@@ -1,0 +1,21 @@
+internal/router/hmm/hmm.go
+  s_b9c4e87805c9ed::t_46ec510483c65a 64-69
+internal/router/hmm/hmm_test.go
+  s_b9c4e87805c9ed::t_f22aa06cc05f71 240-263
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.16",
+  "base_commit_sha": "883cc95850963cfaf7a6eedd87a96258b400002c",
+  "prompts": {},
+  "sessions": {
+    "s_b9c4e87805c9ed": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "86fffb10-d46c-4a7d-89fd-66d1da45ab83",
+        "model": "gpt-5.5"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}
