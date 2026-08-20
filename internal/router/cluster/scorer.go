@@ -531,10 +531,8 @@ func (s *Scorer) Route(ctx context.Context, req router.Request) (router.Decision
 			}
 		}
 		if len(filtered) == 0 {
-			// An allowlist is desugared into ExcludedModels upstream, so report
-			// the allowlist as the cause when one is configured — otherwise the
-			// error names dozens of implicitly-excluded models and reads as a
-			// bug rather than a policy decision.
+			// Allowlist is desugared into ExcludedModels upstream; name it
+			// explicitly so the error reads as a config decision, not a bug.
 			if len(req.AllowedModels) > 0 {
 				log.Warn(
 					"Cluster scorer: model allowlist empties eligible pool; returning ErrAllowlistEmptiesPool",

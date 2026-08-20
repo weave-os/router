@@ -73,9 +73,8 @@ func TestExcludedModelsForRequest_EmptyAllowlistIsANoOp(t *testing.T) {
 	assert.Equal(t, map[string]struct{}{"a": {}}, got)
 }
 
-// An allowlist entry naming a model this deployment can't serve is a harmless
-// no-op rather than an error — a stale entry after a catalog removal must not
-// break routing for the models that remain.
+// An undeployed allowlist entry (e.g. stale after catalog removal) must
+// be a silent no-op, not an error that breaks routing for remaining models.
 func TestExcludedModelsForRequest_UndeployedAllowlistEntryIgnored(t *testing.T) {
 	s := &Service{availableModels: map[string]struct{}{"a": {}, "b": {}}}
 

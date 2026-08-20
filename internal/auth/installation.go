@@ -101,9 +101,8 @@ type InstallationRepository interface {
 	// UpdateExcludedModels replaces the per-installation exclusion list.
 	// An empty (or nil) slice clears the list.
 	UpdateExcludedModels(ctx context.Context, externalID, id string, models []string) error
-	// UpdateAllowedModels replaces the per-installation positive model
-	// allowlist. An empty (or nil) slice clears it, which means "no
-	// restriction" — NOT "no models routable".
+	// UpdateAllowedModels replaces the positive model allowlist.
+	// Empty (or nil) means no restriction — NOT "no models routable".
 	UpdateAllowedModels(ctx context.Context, externalID, id string, models []string) error
 	// UpdateExcludedProviders replaces the per-installation provider
 	// exclusion list. An empty (or nil) slice clears the list.
