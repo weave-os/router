@@ -163,9 +163,8 @@ func (s *Service) mintFeedbackToken(installationID uuid.UUID, externalID, reques
 }
 
 // setFeedbackLinkHeader mints a signed feedback link and sets it on the
-// response. No-op when the feature is unwired, any required id is missing, or
-// the installation has hidden its terminal surfaces (the link displays the
-// routing decision, which hidden orgs don't surface).
+// response. No-op when the feature is unwired, any required id is missing,
+// or the installation has hidden its terminal surfaces.
 func (s *Service) setFeedbackLinkHeader(ctx context.Context, w http.ResponseWriter, installationID uuid.UUID, externalID, requestID, routerUserID string) {
 	if hideTerminalSurfacesForRequest(ctx) {
 		return

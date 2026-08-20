@@ -379,8 +379,8 @@ type InstallationUsageBypassContextKey struct{}
 type InstallationSubscriptionRoutingDisabledContextKey struct{}
 
 // InstallationHideTerminalSurfacesContextKey is the context key for the
-// installation's hide-terminal-surfaces toggle (bool; absent == false).
-// Suppresses the routing marker, feedback footer, and feedback-link header.
+// installation's hide-terminal-surfaces toggle (bool; absent == false);
+// suppresses the routing marker, feedback footer, and feedback-link header.
 type InstallationHideTerminalSurfacesContextKey struct{}
 
 // PolicyTrainingAllowedContextKey carries the installation's explicit
