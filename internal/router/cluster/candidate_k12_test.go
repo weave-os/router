@@ -40,8 +40,9 @@ func TestCandidateK12Loads(t *testing.T) {
 		}
 	}
 
-	// The three headline models for this candidate must be in the roster + axes.
-	for _, m := range []string{"claude-fable-5", "z-ai/glm-5.2", "claude-sonnet-5"} {
+	// The roster + axes for this candidate must include the incumbent arm
+	// (glm-5.2) and the catalog still tracks fable-5 as a passthrough entry.
+	for _, m := range []string{"claude-fable-5", "z-ai/glm-5.2"} {
 		assert.Contains(t, models, m, "%s must be a deployed model", m)
 		_, ok := bundle.ModelAxes[m]
 		assert.Truef(t, ok, "%s must have operational axes", m)
@@ -62,12 +63,16 @@ func TestCandidateK12Loads(t *testing.T) {
 	s, err := NewScorer(bundle, DefaultConfig(), &fakeEmbedder{dim: bundle.Centroids.Dim}, providers)
 	require.NoError(t, err, "candidate-k12 must construct a Scorer")
 
-	// fable-5, glm-5.2, sonnet-5 must be routable (resolvable provider binding).
+	// glm-5.2 must be routable (resolvable provider binding). fable-5 is
+	// deliberately NOT routable: it was retired to catalog passthrough, so the
+	// candidate's former fable-5-led mix no longer routes through it.
 	routable := RoutableModelSet(bundle.Registry, providers)
-	for _, m := range []string{"claude-fable-5", "z-ai/glm-5.2", "claude-sonnet-5"} {
+	for _, m := range []string{"z-ai/glm-5.2", "claude-sonnet-5"} {
 		_, ok := routable[m]
 		assert.Truef(t, ok, "%s must be routable", m)
 	}
+	_, fableRoutable := routable["claude-fable-5"]
+	assert.Falsef(t, fableRoutable, "fable-5 retired from routing; must not be a cluster target")
 
 	// Per-cluster argmax through the live v2 blend (the authoritative runtime
 	// path: blendScoresV2 over a single cluster with the bundle's default knobs =
@@ -79,11 +84,11 @@ func TestCandidateK12Loads(t *testing.T) {
 		assert.InDeltaf(t, 0.7, a, 1e-9, "cluster %d alpha must be the 0.7 sweet spot", i)
 	}
 
-	// 17 of the frozen bundle's 21: deepseek-v4-pro, claude-opus-4-8,
-	// qwen/qwen3.7-plus and gpt-5.5 were retired to passthrough-only in the
-	// catalog after this bundle was trained, so the scorer drops them. None
-	// leads a cluster, so the win mix below is unaffected.
-	require.Len(t, s.models, 17, "retired models must be the only ones dropped under the full provider set")
+	// 16 of the frozen bundle's 21: deepseek-v4-pro, claude-opus-4-8,
+	// qwen/qwen3.7-plus, gpt-5.5 and claude-fable-5 were retired to
+	// passthrough-only in the catalog, so the scorer drops them. fable-5 led
+	// four clusters in the original mix; dropping it reshapes the wins below.
+	require.Len(t, s.models, 16, "retired models must be the only ones dropped under the full provider set")
 
 	wins := map[string]int{}
 	for c := 0; c < bundle.Centroids.K; c++ {
@@ -93,9 +98,13 @@ func TestCandidateK12Loads(t *testing.T) {
 		wins[winner]++
 	}
 
-	// The bake-off candidate is intentionally a glm-5.2 + fable-5 coding mix.
-	assert.Equal(t, 8, wins["z-ai/glm-5.2"], "glm-5.2 must lead 8 clusters at alpha=0.7")
-	assert.Equal(t, 4, wins["claude-fable-5"], "fable-5 must lead 4 clusters at alpha=0.7")
+	// With fable-5 retired from routing, the candidate's former fable-5-led
+	// clusters regress under the full-catalog blend: c1 to claude-sonnet-5,
+	// c7/c10/c11 to glm-5.2. The mix is still glm-5.2-led.
+	assert.Equal(t, 11, wins["z-ai/glm-5.2"], "glm-5.2 must lead 11 clusters at alpha=0.7 after fable-5 retirement")
+	assert.Equal(t, 1, wins["claude-sonnet-5"], "claude-sonnet-5 must lead 1 cluster at alpha=0.7 after fable-5 retirement")
+	// No retired-to-passthrough model should win a cluster.
+	assert.Zero(t, wins["claude-fable-5"], "fable-5 is retired; no cluster should route to it")
 	// No opus/haiku/legacy-sonnet cluster wins — the whole point of the candidate.
 	assert.Zero(t, wins["claude-opus-4-8"], "no cluster should route to opus-4-8 at the screen alpha")
 	assert.Zero(t, wins["claude-haiku-4-5"], "no cluster should route to haiku at the screen alpha")

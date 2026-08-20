@@ -206,7 +206,6 @@ func TestCatalogRoutingTargetsResolveCurrentHMMRosterArmsToProviders(t *testing.
 		"openai/gpt-5.6-terra",
 		"z-ai/glm-5.2",
 		"google/gemini-3.1-pro-preview",
-		"anthropic/claude-fable-5",
 	} {
 		assert.Contains(t, gotRosterIDs, rosterID)
 	}

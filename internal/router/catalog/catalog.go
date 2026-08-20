@@ -247,10 +247,11 @@ var Models = []Model{
 		{Provider: providers.ProviderAnthropicGateway, Price: Pricing{InputUSDPer1M: 5.00, OutputUSDPer1M: 25.00}},
 		{Provider: providers.ProviderOpenAIGateway, Price: Pricing{InputUSDPer1M: 5.00, OutputUSDPer1M: 25.00}},
 	}},
-	// Ships 1M context by default (no beta header needed), unlike Opus 4.6+.
+	// Fable 5 retired from routing; kept as priced passthrough so lingering
+	// BYOK/direct pins and the compaction summarizer bill at real cost.
 	// Safety classifiers can return stop_reason "refusal" (HTTP 200); see
 	// mapStopReason in translate.
-	{ID: "claude-fable-5", Tier: TierHigh, ContextWindow: 1_000_000, Providers: []ProviderBinding{
+	{ID: "claude-fable-5", ContextWindow: 1_000_000, Providers: []ProviderBinding{
 		{Provider: providers.ProviderAnthropic, Price: Pricing{InputUSDPer1M: 10.00, OutputUSDPer1M: 50.00, CacheReadMultiplier: 0.10}},
 	}},
 
