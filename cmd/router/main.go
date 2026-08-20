@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math"
 	"net/http"
 	"net/url"
 	"os"
@@ -81,14 +82,22 @@ func main() {
 	// 6 conns covers MarkUsed writes plus session-pin traffic (auth-cache and
 	// the in-proc LRU absorb most reads). If pgxpool wait p95 climbs above 1ms
 	// with pinning on, that's the migrate-to-Memorystore signal, not a bigger pool.
-	// ROUTER_POSTGRES_MAX_CONNS overrides for high-concurrency deploys (e.g. the
-	// 300-engineer POC); terraform pins it there. Watch the documented tripwire
-	// (pgxpool wait p95) before raising without removing load.
-	cfg.MaxConns = int32(parseEnvInt("ROUTER_POSTGRES_MAX_CONNS", 6))
+	// ROUTER_POSTGRES_MAX_CONNS overrides for high-concurrency deploys;
+	// raise only after checking pgxpool wait p95 (see comment above).
+	maxConns := parseEnvInt("ROUTER_POSTGRES_MAX_CONNS", 6)
+	if maxConns > math.MaxInt32 {
+		logger.Warn("ROUTER_POSTGRES_MAX_CONNS exceeds int32 range; clamping", "value", maxConns)
+		maxConns = math.MaxInt32
+	}
+	cfg.MaxConns = int32(maxConns)
 	cfg.MinConns = 1
 	cfg.MaxConnLifetime = 30 * time.Minute
 	cfg.MaxConnIdleTime = 10 * time.Minute
 	cfg.HealthCheckPeriod = 1 * time.Minute
+
+	// Tracks async billing debits so graceful shutdown can drain them before
+	// pool.Close (see the drain Wait call after srv.Shutdown).
+	billingInflight := &observability.TrackedGroup{}
 
 	pool, err := pgxpool.NewWithConfig(context.Background(), cfg)
 	if err != nil {
@@ -847,7 +856,8 @@ func main() {
 		WithCompaction(compactionSz, compactionPct).
 		WithAvailableModels(routingTargets).
 		WithDefaultBaselineModel(resolveDefaultBaselineModel()).
-		WithBillingService(billingSvc)
+		WithBillingService(billingSvc).
+		WithBillingDrainGroup(billingInflight)
 	for _, spec := range configuredPolicySpecs {
 		proxySvc = proxySvc.WithPolicyStrategy(spec)
 		logger.Info("Generic policy sidecar wired", "strategy", spec.Strategy, "candidate_models", len(routingTargets))
@@ -1003,15 +1013,21 @@ func main() {
 		logger.Info("Received shutdown signal; draining", "signal", sig.String())
 	}
 
-	// Cloud Run gives 10s between SIGTERM and SIGKILL; budget across three
+	// Cloud Run gives 10s between SIGTERM and SIGKILL; budget across four
 	// flush stages (defer on apm.Shutdown would never run in time):
-	//   srv.Shutdown 6.0s + emitter.Shutdown 1.5s + apm.Shutdown 1.5s = 9.0s,
-	//   leaving ~1s slack.
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), 6*time.Second)
+	//   srv.Shutdown 4.5s + billing drain 1.5s + emitter.Shutdown 1.5s
+	//   + apm.Shutdown 1.5s = 9.0s, leaving ~1s slack.
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 4500*time.Millisecond)
 	defer cancel()
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		logger.Error("Graceful shutdown failed", "err", err)
 	}
+	// srv.Shutdown only waits for handler goroutines; billing debits run in
+	// SafeGoTracked goroutines it doesn't know about. Drain them before the
+	// deferred pool.Close runs so a deploy or scale-to-zero can't SIGKILL an
+	// in-flight debit and leave served inference unbilled. Bounded by each
+	// debit's own 5s timeout; the 1.5s window above covers the ledger write.
+	billingInflight.Wait()
 	emitterCtx, emitterCancel := context.WithTimeout(context.Background(), 1500*time.Millisecond)
 	defer emitterCancel()
 	if err := emitter.Shutdown(emitterCtx); err != nil {

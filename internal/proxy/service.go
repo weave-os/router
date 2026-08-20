@@ -247,6 +247,9 @@ type Service struct {
 	// each completed upstream call. Wired only in managed mode; the
 	// composition root leaves this nil for selfhosted deployments.
 	billing *billing.Service
+	// billingInflight tracks async billing debits so graceful shutdown can
+	// drain them before the DB pool closes (see WithBillingDrainGroup).
+	billingInflight *observability.TrackedGroup
 	// retrySleep, when non-nil, overrides the same-binding backoff wait in
 	// dispatchWithFallback. Tests inject a no-op to avoid real delays; prod
 	// leaves it nil and falls back to sleepWithContext.
@@ -1618,6 +1621,15 @@ func (s *Service) newTelemetryBuffer() *otel.Buffer {
 // that depleted its balance is 402'd before reaching the proxy.
 func (s *Service) WithBillingService(b *billing.Service) *Service {
 	s.billing = b
+	return s
+}
+
+// WithBillingDrainGroup registers the group that async billing debits are
+// tracked against, so graceful shutdown can Wait for in-flight debits before
+// closing the DB pool. Without it a SIGTERM during a debit can kill the write
+// and leave served inference unbilled.
+func (s *Service) WithBillingDrainGroup(g *observability.TrackedGroup) *Service {
+	s.billingInflight = g
 	return s
 }
 
@@ -4662,14 +4674,10 @@ func (s *Service) emitBilling(ctx context.Context, requestID, externalID string,
 }
 
 // fireBilling debits the org's prepaid credit balance for one upstream call.
-// Async via SafeGo so the multi-CTE ledger write (which serializes on the org's
-// single balance row) is off the request path — at scale the response has
-// already been fully streamed before this runs, so durability-before-return
-// buys nothing but pool contention. context.Background() so customer
-// cancellation doesn't abort the write — the inference was already served, so
-// the bookkeeping still owed. On failure, logs Error for manual
-// reconciliation; the customer's response is unaffected since they already
-// got it.
+// Async via SafeGo: the multi-CTE ledger write serializes on the org's single
+// balance row, causing pool contention under load. The debit is tracked on
+// billingInflight so graceful shutdown drains it before the DB pool closes;
+// failures log Error for manual reconciliation.
 func (s *Service) fireBilling(p billing.DebitInferenceParams) {
 	if s.billing == nil {
 		return
@@ -4680,22 +4688,27 @@ func (s *Service) fireBilling(p billing.DebitInferenceParams) {
 		observability.Get().Debug("Billing debit skipped: no organization_id on request")
 		return
 	}
-	observability.SafeGo(observability.Get(), 5*time.Second, "fireBilling", func(dbCtx context.Context) {
+	debit := func(dbCtx context.Context) {
 		balance, err := s.billing.DebitForInference(dbCtx, p)
-		if err == nil {
-			observability.Get().Debug("Billing debit complete",
-				"organization_id", p.OrganizationID,
-				"router_request_id", p.RouterRequestID,
-				"model", p.Model,
-				"balance_usd_micros", balance,
-				"override", p.HasOverride,
-				"subscription_served", p.SubscriptionServed,
-				"byok_served", p.ByokServed,
-			)
+		if err != nil {
+			logBillingDebitFailure(p, err)
 			return
 		}
-		logBillingDebitFailure(p, err)
-	})
+		observability.Get().Debug("Billing debit complete",
+			"organization_id", p.OrganizationID,
+			"router_request_id", p.RouterRequestID,
+			"model", p.Model,
+			"balance_usd_micros", balance,
+			"override", p.HasOverride,
+			"subscription_served", p.SubscriptionServed,
+			"byok_served", p.ByokServed,
+		)
+	}
+	if s.billingInflight != nil {
+		observability.SafeGoTracked(s.billingInflight, observability.Get(), 5*time.Second, "fireBilling", debit)
+		return
+	}
+	observability.SafeGo(observability.Get(), 5*time.Second, "fireBilling", debit)
 }
 
 // logBillingDebitFailure emits a structured Error log so on-call alerting can

@@ -237,8 +237,13 @@ func TestBillAuxiliaryInferenceMatchesLedgerAmount(t *testing.T) {
 
 	rows := telemetryRepo.waitForRows(1)
 	require.Len(t, rows, 1)
-	debits := billingRepo.snapshot()
-	require.Len(t, debits, 1, "fireBilling is synchronous, so the debit must already be recorded")
+	// fireBilling is async (SafeGo), so poll until the debit lands instead of
+	// snapshotting once.
+	var debits []billing.DebitParams
+	require.Eventually(t, func() bool {
+		debits = billingRepo.snapshot()
+		return len(debits) >= 1
+	}, 2*time.Second, 5*time.Millisecond, "billing debit must be recorded")
 
 	telemetryMicros := catalog.USDToMicros(rows[0].ActualInputCostUSD) +
 		catalog.USDToMicros(rows[0].ActualOutputCostUSD)
