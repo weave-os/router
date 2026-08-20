@@ -654,17 +654,11 @@ func (s *Service) ResolveAndStashUser(ctx context.Context, installationID, email
 	return s.withUserClusterLists(ctx, installationID, user.ID)
 }
 
-// withUserClusterLists stashes the router user ID plus that user's per-cluster
-// model selections on ctx. Called from both the cache-hit and upsert paths of
-// ResolveAndStashUser so a warm user cache doesn't silently skip the selection
-// load.
-//
-// Fail-open on error, matching VerifyAPIKey's handling of key-scoped cluster
-// lists: a transient DB error serves this request on artifact-default routing
-// rather than failing an authenticated request, and the empty result is not
-// cached so the outage can't disable selections for the full TTL. A successful
-// empty result IS cached — most users configure nothing, and re-querying for
-// them on every request is the common case, not the exception.
+// withUserClusterLists stashes the router user ID and per-cluster selections on
+// ctx. Runs on both the cache-hit and upsert paths so a warm identity cache
+// doesn't silently drop selections. Fail-open: a DB error skips stashing
+// (not cached) so the default routing serves; a successful empty result IS
+// cached since most users configure nothing.
 func (s *Service) withUserClusterLists(ctx context.Context, installationID, routerUserID string) context.Context {
 	ctx = context.WithValue(ctx, UserIDContextKey{}, routerUserID)
 	if s.userClusterModelLists == nil || routerUserID == "" {

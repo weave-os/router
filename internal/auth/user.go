@@ -8,10 +8,9 @@ import (
 // UserIDContextKey is the request-context key for the resolved router user ID.
 type UserIDContextKey struct{}
 
-// UserClusterModelListsContextKey is the request-context key for the resolved
-// user's per-cluster model selections (cluster label → ordered catalog model
-// IDs). Lives in auth rather than proxy because proxy imports auth, and the
-// value is resolved during user resolution, not in the auth middleware.
+// UserClusterModelListsContextKey is the request-context key for the resolved user's
+// per-cluster model selections (cluster label → ordered catalog model IDs).
+// Lives in auth (not proxy) because proxy imports auth and the value is set during user resolution.
 type UserClusterModelListsContextKey struct{}
 
 // UserIDFrom returns the router user ID stashed on ctx, or "" if absent.

@@ -99,11 +99,9 @@ type InvalidationListener struct {
 	done       chan struct{}
 }
 
-// NewInvalidationListener wires a listener that drops entries from every
-// supplied cache when any replica (including this one's own writers) publishes
-// on the topic. Variadic because installation-scoped state lives in more than
-// one cache — the API-key cache and the per-user cluster-selection cache — and
-// one installation-changed message must reach all of them.
+// NewInvalidationListener wires a listener that drops entries from every supplied
+// cache on publish. Variadic so one installation-changed message fans out to both
+// the API-key cache and the per-user cluster-selection cache.
 func NewInvalidationListener(subscriber *gcppubsub.Subscriber, caches ...auth.InstallationInvalidator) *InvalidationListener {
 	return &InvalidationListener{
 		subscriber: subscriber,

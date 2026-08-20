@@ -32,15 +32,11 @@ func (NoOpUserClusterListCache) Set(string, string, []UserClusterModelList) {
 }
 func (NoOpUserClusterListCache) InvalidateInstallation(string) {}
 
-// LRUUserClusterListCache caches per-user cluster selections with a
-// byInstallation secondary index so the existing installation-invalidation
-// Pub/Sub message evicts them too. Structure mirrors LRUAPIKeyCache — including
-// the invalidationGen race guard — rather than inventing a second concurrency
-// approach for the same problem.
-//
-// A successful empty result IS cached: most users configure nothing, and an
-// uncached miss would put a DB round trip on every request from every
-// unconfigured user.
+// LRUUserClusterListCache caches per-user cluster selections with a byInstallation
+// secondary index so installation-invalidation Pub/Sub messages evict them too.
+// Mirrors LRUAPIKeyCache (including the invalidationGen race guard). Caches a
+// successful empty result: most users configure nothing, so an uncached miss would
+// hit the DB on every request from every unconfigured user.
 type LRUUserClusterListCache struct {
 	mu             sync.Mutex
 	entries        *expirable.LRU[string, []UserClusterModelList]

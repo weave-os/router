@@ -375,9 +375,7 @@ func main() {
 
 	cache := auth.NewLRUAPIKeyCache(10000, 50000, 5*time.Minute, 60*time.Second)
 	userCache := auth.NewLRUUserCache(50000, 10*time.Minute)
-	// TTL matched to the API-key cache (not the 10-min user-identity TTL) so both
-	// halves of the model-restriction feature share one worst-case staleness
-	// bound under a Pub/Sub outage.
+	// 5-min TTL matches the API-key cache so both halves share one staleness bound under a Pub/Sub outage.
 	userClusterCache := auth.NewLRUUserClusterListCache(50000, 5*time.Minute)
 
 	pubsubProjectID := config.MustGet("PUBSUB_PROJECT_ID")
