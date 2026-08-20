@@ -22,10 +22,8 @@ var ErrClusterUnavailable = errors.New("cluster: routing unavailable")
 // overlap with boot-time candidates. Callers map to HTTP 4xx.
 var ErrNoEligibleProvider = errors.New("cluster: no eligible provider for request")
 
-// ErrAllowlistEmptiesPool is returned when the org's positive model allowlist
-// leaves no eligible candidate. Wraps ErrNoEligibleProvider so existing
-// errors.Is checks keep matching, while letting the HTTP layer name the
-// allowlist instead of dumping the desugared exclusion list.
+// ErrAllowlistEmptiesPool wraps ErrNoEligibleProvider so existing errors.Is
+// checks keep matching, while naming the allowlist instead of the desugared exclusion list.
 var ErrAllowlistEmptiesPool = fmt.Errorf("cluster: model allowlist leaves no eligible candidates: %w", ErrNoEligibleProvider)
 
 // ErrInvalidRoutingKnobs is returned when effective routing knobs fail validation.

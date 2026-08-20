@@ -20,11 +20,9 @@ type Installation struct {
 	// ExcludedModels is the per-installation model exclusion list.
 	// Empty means no exclusion.
 	ExcludedModels []string
-	// AllowedModels is the per-installation positive model allowlist: when
-	// non-empty, routing is confined to these models. Composes with (does not
-	// replace) ExcludedModels — the effective set is AllowedModels minus
-	// ExcludedModels. Empty means no restriction. Fail-closed: an allowlist
-	// with no eligible overlap refuses the turn.
+	// AllowedModels is the org's positive model allowlist; when non-empty,
+	// routing is confined to these models minus ExcludedModels.
+	// Empty = no restriction; fail-closed when no eligible overlap remains.
 	AllowedModels []string
 	// ExcludedProviders is the per-installation provider exclusion list.
 	// Empty means no exclusion.
