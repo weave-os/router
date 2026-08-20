@@ -220,12 +220,17 @@ export function providerHeaders(role: Role, key: string): Record<string, string>
 // dispatched child (and a `pi -e` smoke test with no models.json) can still
 // resolve `weave/<model>`. The list mirrors the installer's headline models;
 // the router re-routes every request regardless, so this is a UX/label surface.
+// The context windows mirror the router's catalog for these models (see
+// internal/router/catalog) so the footer and auto-compaction budget reflect
+// what the router actually serves; per-request reroutes can still land on a
+// different window, which the served-window header reports on the response.
 export const WEAVE_MODELS: ProviderModelConfig[] = [
-	model("claude-opus-4-8", "Claude Opus 4.8 (via Weave Router)", 64000),
-	model("claude-opus-4-7", "Claude Opus 4.7 (via Weave Router)", 64000),
-	model("claude-sonnet-4-6", "Claude Sonnet 4.6 (via Weave Router)", 64000),
-	model("claude-haiku-4-5", "Claude Haiku 4.5 (via Weave Router)", 32000),
-	model("grok-4.6", "Grok 4.6 (via Weave Router)", 131072, 500000),
+	model("claude-opus-4-8", "Claude Opus 4.8 (via Weave Router)", 64000, 1_000_000),
+	model("claude-opus-4-7", "Claude Opus 4.7 (via Weave Router)", 64000, 1_000_000),
+	model("claude-sonnet-4-6", "Claude Sonnet 4.6 (via Weave Router)", 64000, 1_000_000),
+	model("claude-haiku-4-5", "Claude Haiku 4.5 (via Weave Router)", 32000, 200_000),
+	model("grok-4.6", "Grok 4.6 (via Weave Router)", 131072, 500_000),
+	model("qwen/qwen3.8-max", "Qwen 3.8 Max (via Weave Router)", 131072, 1_000_000),
 ];
 
 function model(id: string, name: string, maxTokens: number, contextWindow: number = 200000): ProviderModelConfig {
@@ -246,6 +251,8 @@ function model(id: string, name: string, maxTokens: number, contextWindow: numbe
 export const ROUTED_MODEL_HEADER = (process.env.WEAVE_ROUTED_MODEL_HEADER || "x-router-model").toLowerCase();
 export const ROUTED_PROVIDER_HEADER = "x-router-provider";
 export const ROUTER_DECISION_HEADER = "x-router-decision";
+/** Context window (tokens) of the model that actually served the routed response. */
+export const ROUTED_CONTEXT_WINDOW_HEADER = "x-router-context-window";
 /** Marker a headless child prints to stderr so the parent dispatch can read its routed model. */
 export const ROUTED_MODEL_STDERR_PREFIX = "weave-routed-model:";
 

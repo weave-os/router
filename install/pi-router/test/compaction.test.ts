@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
-import { registerCompaction, repairClampedToolContinuation } from "../src/compaction.js";
+import { registerCompaction, parseRoutedContextWindow, repairClampedToolContinuation } from "../src/compaction.js";
 
 type CapturedHandler = (event: any, ctx: ExtensionContext) => unknown;
 
@@ -37,14 +37,14 @@ function assistant(totalTokens: number) {
 	};
 }
 
-function contextHarness() {
+function contextHarness(registeredWindow = 200_000) {
 	let compactCalls = 0;
 	let status: string | undefined;
 	const branch: any[] = [];
 	const ctx = {
 		hasUI: true,
-		model: { contextWindow: 200_000 },
-		getContextUsage: () => ({ tokens: 0, contextWindow: 200_000, percent: 0 }),
+		model: { contextWindow: registeredWindow },
+		getContextUsage: () => ({ tokens: 0, contextWindow: registeredWindow, percent: 0 }),
 		sessionManager: { getBranch: () => branch },
 		ui: {
 			setStatus(_key: string, value: string | undefined) {
@@ -122,4 +122,65 @@ test("leaves an over-threshold final turn to Pi's built-in compaction", () => {
 	extension.emit("agent_end", { type: "agent_end", messages: [] }, ctx);
 
 	assert.equal(compactCalls(), 0);
+});
+
+test("parseRoutedContextWindow accepts only sane positive integers", () => {
+	assert.equal(parseRoutedContextWindow(undefined), undefined);
+	assert.equal(parseRoutedContextWindow(""), undefined);
+	assert.equal(parseRoutedContextWindow("abc"), undefined);
+	assert.equal(parseRoutedContextWindow("1.5"), undefined);
+	assert.equal(parseRoutedContextWindow("0"), undefined);
+	assert.equal(parseRoutedContextWindow("200000"), 200_000);
+	assert.equal(parseRoutedContextWindow("1000000"), 1_000_000);
+});
+
+test("prefers the router-served context window so a large model does not compact early", () => {
+	// The registered virtual model window is 200k, but the router reports it
+	// served a 1M window. A tool loop well above the 200k threshold must not
+	// trigger the extension's manual compaction.
+	const extension = extensionHarness((callback) => callback());
+	const { ctx, compactCalls } = contextHarness();
+	extension.emit("agent_start", { type: "agent_start" }, ctx);
+	extension.emit(
+		"after_provider_response",
+		{ type: "after_provider_response", status: 200, headers: { "x-router-context-window": "1000000" } },
+		ctx,
+	);
+	extension.emit("turn_end", { type: "turn_end", message: assistant(300_000), toolResults: [] }, ctx);
+	extension.emit("turn_end", { type: "turn_end", message: assistant(150_000), toolResults: [] }, ctx);
+	extension.emit("agent_end", { type: "agent_end", messages: [] }, ctx);
+
+	assert.equal(compactCalls(), 0);
+});
+
+test("without a served-window header the registered model window still gates compaction", () => {
+	// Same run shape as above, but no served-window header: the registered 200k
+	// window is authoritative, so the run does early-compact.
+	const extension = extensionHarness((callback) => callback());
+	const { ctx, compactCalls } = contextHarness();
+	extension.emit("agent_start", { type: "agent_start" }, ctx);
+	extension.emit("turn_end", { type: "turn_end", message: assistant(300_000), toolResults: [] }, ctx);
+	extension.emit("turn_end", { type: "turn_end", message: assistant(150_000), toolResults: [] }, ctx);
+	extension.emit("agent_end", { type: "agent_end", messages: [] }, ctx);
+
+	assert.equal(compactCalls(), 1);
+});
+
+test("guards against a reroute to a smaller served context window", () => {
+	// The registered model window is 1M (a cap-extended opus/sonnet), but the
+	// router served responses from a 200k window (e.g. haiku or a small reroute).
+	// The run must compact at the served window, not the registered 1M.
+	const extension = extensionHarness((callback) => callback());
+	const { ctx, compactCalls } = contextHarness(1_000_000);
+	extension.emit("agent_start", { type: "agent_start" }, ctx);
+	extension.emit(
+		"after_provider_response",
+		{ type: "after_provider_response", status: 200, headers: { "x-router-context-window": "200000" } },
+		ctx,
+	);
+	extension.emit("turn_end", { type: "turn_end", message: assistant(250_000), toolResults: [] }, ctx);
+	extension.emit("turn_end", { type: "turn_end", message: assistant(100_000), toolResults: [] }, ctx);
+	extension.emit("agent_end", { type: "agent_end", messages: [] }, ctx);
+
+	assert.equal(compactCalls(), 1);
 });

@@ -21,6 +21,7 @@ import type {
 	TurnEndEvent,
 } from "@mariozechner/pi-coding-agent";
 import type { AssistantMessage } from "@mariozechner/pi-ai";
+import { ROUTED_CONTEXT_WINDOW_HEADER } from "./config.js";
 
 const PROBE_MAX_TOKENS = 4;
 const CONTINUATION_MAX_TOKENS = 16_384;
@@ -50,6 +51,19 @@ function containsToolResult(messages: unknown): boolean {
 		const content = (message as ProviderMessage).content;
 		return Array.isArray(content) && content.some((block: unknown) => isRecord(block) && block.type === "tool_result");
 	});
+}
+
+/**
+ * Parse the router-served context window header, rejecting absent, fractional,
+ * or out-of-range values. The header reflects what the router actually served
+ * for a request, which can differ from the requested model's registered window
+ * (reroutes to a smaller window, e.g. minimax-m2.7 204_800 or haiku 200_000).
+ */
+export function parseRoutedContextWindow(value: string | undefined): number | undefined {
+	if (!value) return undefined;
+	if (!/^[1-9]\d*$/.test(value)) return undefined;
+	const contextWindow = Number(value);
+	return Number.isSafeInteger(contextWindow) && contextWindow > 0 ? contextWindow : undefined;
 }
 
 /**
@@ -86,11 +100,20 @@ export function registerCompaction(pi: ExtensionAPI, schedule: Schedule = (callb
 	let lastTurnTokens = 0;
 	let repairedContinuation = false;
 	let compactionScheduled = false;
+	// Smallest served context window observed on a response this run. The router
+	// can reroute any request regardless of the requested model, so the served
+	// window is authoritative for the compaction budget. Tracking the minimum
+	// (not the latest or the max) is the conservative choice: if the router ever
+	// routed to a smaller window during the run, that window could clamp again,
+	// so the budget must respect it. Fall back to the registered model window
+	// until the first routed response.
+	let servedContextWindow: number | undefined;
 
 	const resetRun = () => {
 		highWaterTokens = 0;
 		lastTurnTokens = 0;
 		repairedContinuation = false;
+		servedContextWindow = undefined;
 	};
 
 	const finishCompaction = (ctx: ExtensionContext) => {
@@ -107,6 +130,15 @@ export function registerCompaction(pi: ExtensionAPI, schedule: Schedule = (callb
 		if (repairClampedToolContinuation(event.payload)) repairedContinuation = true;
 	});
 
+	pi.on("after_provider_response", (event, _ctx: ExtensionContext) => {
+		if (event.status < 200 || event.status >= 300) return;
+		const contextWindow = parseRoutedContextWindow(event.headers?.[ROUTED_CONTEXT_WINDOW_HEADER]);
+		if (contextWindow === undefined) return;
+		if (servedContextWindow === undefined || contextWindow < servedContextWindow) {
+			servedContextWindow = contextWindow;
+		}
+	});
+
 	pi.on("turn_end", (event: TurnEndEvent) => {
 		if (event.message.role !== "assistant") return;
 		lastTurnTokens = contextTokens(event.message as AssistantMessage);
@@ -115,7 +147,8 @@ export function registerCompaction(pi: ExtensionAPI, schedule: Schedule = (callb
 
 	pi.on("agent_end", (_event: AgentEndEvent, ctx: ExtensionContext) => {
 		if (process.env.WEAVE_PI_AUTO_COMPACTION === "0" || compactionScheduled) return;
-		const contextWindow = ctx.model?.contextWindow ?? ctx.getContextUsage()?.contextWindow ?? 0;
+		const contextWindow =
+			servedContextWindow ?? ctx.model?.contextWindow ?? ctx.getContextUsage()?.contextWindow ?? 0;
 		if (contextWindow <= COMPACTION_RESERVE_TOKENS) return;
 		const threshold = contextWindow - COMPACTION_RESERVE_TOKENS;
 		// Pi's built-in check runs immediately after this event and owns the
