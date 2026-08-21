@@ -25,9 +25,8 @@ const anthropicVersion = "2023-06-01"
 // reports has_more can't loop forever.
 const maxModelListPages = 20
 
-// ListModels fetches GET {base}/v1/models and returns the model IDs the
-// endpoint publishes ({"data":[{"id":...}]}), sorted and deduplicated.
-// The surface paginates (has_more/last_id), so all pages are walked.
+// ListModels fetches GET {base}/v1/models and returns sorted, deduplicated model IDs.
+// Paginates via has_more/last_id; all pages are walked up to maxModelListPages.
 func (c *Client) ListModels(ctx context.Context) ([]string, error) {
 	baseURL := proxy.EffectiveBaseURL(ctx, c.baseURL)
 	if baseURL == "" {
