@@ -22,11 +22,14 @@ import type {
 } from "@mariozechner/pi-coding-agent";
 import type { AssistantMessage } from "@mariozechner/pi-ai";
 import { ROUTED_CONTEXT_WINDOW_HEADER } from "./config.js";
+import { parseRoutedContextWindow } from "./context-window.js";
 
 const PROBE_MAX_TOKENS = 4;
 const CONTINUATION_MAX_TOKENS = 16_384;
 const COMPACTION_RESERVE_TOKENS = 16_384;
 const STATUS_KEY = "weave-compaction";
+/** Pi does not retry threshold compaction automatically, so resume our tool loop explicitly. */
+export const ROUTED_COMPACTION_CONTINUATION = "Continue from the compacted context. Pick up exactly where you left off.";
 
 interface ProviderPayload {
 	max_tokens?: unknown;
@@ -51,19 +54,6 @@ function containsToolResult(messages: unknown): boolean {
 		const content = (message as ProviderMessage).content;
 		return Array.isArray(content) && content.some((block: unknown) => isRecord(block) && block.type === "tool_result");
 	});
-}
-
-/**
- * Parse the router-served context window header, rejecting absent, fractional,
- * or out-of-range values. The header reflects what the router actually served
- * for a request, which can differ from the requested model's registered window
- * (reroutes to a smaller window, e.g. minimax-m2.7 204_800 or haiku 200_000).
- */
-export function parseRoutedContextWindow(value: string | undefined): number | undefined {
-	if (!value) return undefined;
-	if (!/^[1-9]\d*$/.test(value)) return undefined;
-	const contextWindow = Number(value);
-	return Number.isSafeInteger(contextWindow) && contextWindow > 0 ? contextWindow : undefined;
 }
 
 /**
@@ -176,7 +166,13 @@ export function registerCompaction(pi: ExtensionAPI, schedule: Schedule = (callb
 			}
 			if (ctx.hasUI) ctx.ui.setStatus(STATUS_KEY, "compacting routed context...");
 			ctx.compact({
-				onComplete: () => finishCompaction(ctx),
+				onComplete: () => {
+					finishCompaction(ctx);
+					// Pi only auto-retries an overflow compaction. This compaction is
+					// extension-owned and follows a routed tool loop, so queue the next
+					// turn after its summary is committed rather than leaving the agent idle.
+					pi.sendUserMessage(ROUTED_COMPACTION_CONTINUATION);
+				},
 				onError: (error) => {
 					compactionScheduled = false;
 					if (ctx.hasUI) ctx.ui.setStatus(STATUS_KEY, `compaction failed: ${error.message}`);

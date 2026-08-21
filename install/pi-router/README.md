@@ -32,11 +32,11 @@ from npm on next start and loads this extension via its `pi.extensions` field.
   router validates and canonicalizes the requested model.
 - **Per-process routing bias.** Static `x-weave-routing-*` knob headers bias the
   router: quality on the main loop and speed + cheap on subagents.
-- **Long tool-loop compaction.** Pi 0.74 can cross its context threshold inside
-  an uninterrupted tool loop before its normal post-run compaction check. The
-  extension preserves a usable output budget for the real continuation and
-  compacts once the loop settles, while leaving ordinary threshold compaction
-  to Pi.
+- **Long tool-loop compaction.** Pi can cross its context threshold inside an
+  uninterrupted tool loop before its normal post-run compaction check. The
+  extension preserves a usable output budget for the real continuation,
+  compacts once the loop settles, and resumes that extension-owned tool loop.
+  Ordinary Pi threshold compaction remains under Pi's control.
 - **Sticky sessions.** `metadata.user_id = "pi:<sessionId>"` pins the main loop
   to one model for the session; subagents get their own pins.
 - **`dispatch` tool — parallel, context-isolated subagents.** pi has none

@@ -13,10 +13,14 @@ import {
 	isSubagent,
 	ROUTED_MODEL_HEADER,
 	ROUTED_MODEL_STDERR_PREFIX,
+	ROUTED_CONTEXT_WINDOW_HEADER,
 	ROUTED_PROVIDER_HEADER,
 	ROUTER_DECISION_HEADER,
+	PROVIDER_NAME,
 } from "./config.js";
+import { parseRoutedContextWindow } from "./context-window.js";
 import { forcedModelFromBranch } from "./force-model.js";
+import { registerWeave } from "./provider.js";
 import {
 	aggregateSavings,
 	createSavingsEntry,
@@ -90,6 +94,9 @@ export function registerRoutedModel(pi: ExtensionAPI): void {
 	});
 
 	pi.on("model_select", (event, ctx: ExtensionContext) => {
+		// A new requested model has not yet received a router-confirmed window.
+		// Restore the conservative virtual-model default until its first response.
+		registerWeave(pi);
 		if (isSubagent()) return;
 		requestedModel = event.model.id;
 		routedModel = undefined;
@@ -100,6 +107,10 @@ export function registerRoutedModel(pi: ExtensionAPI): void {
 		if (event.status < 200 || event.status >= 300) return;
 		const model = event.headers?.[ROUTED_MODEL_HEADER];
 		if (!model) return;
+		const contextWindow = parseRoutedContextWindow(event.headers?.[ROUTED_CONTEXT_WINDOW_HEADER]);
+		if (contextWindow && ctx.model?.provider === PROVIDER_NAME) {
+			registerWeave(pi, { modelId: ctx.model.id, contextWindow });
+		}
 		const route: PendingRoute = {
 			...(ctx.model?.id ? { requestedModel: ctx.model.id } : {}),
 			routedModel: normalizeModelId(model),
@@ -130,6 +141,9 @@ export function registerRoutedModel(pi: ExtensionAPI): void {
 		const restoredForcedModel = forcedModelFromBranch(ctx.sessionManager.getBranch());
 		if (restoredForcedModel !== forcedModel) {
 			forcedModel = restoredForcedModel;
+			// Force-model directives take effect between responses, before the next
+			// served-window header can arrive. Fall back to the conservative value.
+			registerWeave(pi);
 			refresh(ctx);
 		}
 		const pending = pendingRoutes.shift();
@@ -153,6 +167,9 @@ export function registerRoutedModel(pi: ExtensionAPI): void {
 	});
 
 	pi.on("session_tree", (_event, ctx: ExtensionContext) => {
+		// A branch can have been served by another pinned model. Do not carry that
+		// window into the first request on the newly selected branch.
+		registerWeave(pi);
 		if (isSubagent()) return;
 		restore(ctx);
 		refresh(ctx);
