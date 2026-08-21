@@ -322,10 +322,8 @@ func TestResolveForceModel_GrokFamilyAlias(t *testing.T) {
 	}
 }
 
-// xAI's server-side reasoning_effort default for grok-4.x is "high" and not
-// disableable; a bare pin sends no effort, which measured as a ~15.4s p50
-// TTFT stall (2026-08-21). A bare grok pin must therefore carry the "low"
-// floor, and an explicit :level suffix must always win over it.
+// xAI's grok-4.x effort default is "high" and not disableable; bare grok pins must
+// carry the "low" floor, and an explicit :level suffix must always win.
 func TestResolveForceModel_GrokEffortFloor(t *testing.T) {
 	tests := []struct {
 		name       string
