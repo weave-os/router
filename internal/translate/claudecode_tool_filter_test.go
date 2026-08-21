@@ -90,6 +90,7 @@ const claudeCodeMixedToolBody = `{
 		{"name":"KillShell","description":"bg kill","input_schema":{"type":"object"}},
 		{"name":"Task","description":"sub-agent dispatch","input_schema":{"type":"object"}},
 		{"name":"Agent","description":"sub-agent dispatch","input_schema":{"type":"object"}},
+		{"name":"SendMessage","description":"","input_schema":{"type":"object"}},
 		{"name":"TaskCreate","description":"","input_schema":{"type":"object"}},
 		{"name":"TaskUpdate","description":"","input_schema":{"type":"object"}},
 		{"name":"TaskList","description":"","input_schema":{"type":"object"}},
@@ -124,6 +125,7 @@ func TestStripCCTools_AnthropicSourceOpenAITarget_DropsCCOnlyKeepsReal(t *testin
 		"coding + scheduling tools survive; CC-only control-plane schemas stripped on Anthropic→OpenAI")
 	assert.NotContains(t, names, "Task")
 	assert.NotContains(t, names, "Agent")
+	assert.NotContains(t, names, "SendMessage")
 	assert.NotContains(t, names, "ToolSearch")
 }
 
@@ -190,6 +192,7 @@ func TestKeepOrchestrationTools_OpenAITarget_KeepsOrchestrationDropsRest(t *test
 		"Task", "Agent", "TaskCreate", "TaskUpdate", "TaskList",
 		"EnterPlanMode", "ExitPlanMode", "UpdatePlan", "Skill", "Workflow",
 	}, names, "orchestration + scheduling tools survive when the flag is on")
+	assert.NotContains(t, names, "SendMessage", "non-orchestration CC-only tools stay stripped")
 	assert.NotContains(t, names, "AskUserQuestion", "non-orchestration CC-only tools stay stripped")
 	assert.NotContains(t, names, "ToolSearch")
 	assert.NotContains(t, names, "TodoWrite")
@@ -241,6 +244,7 @@ func TestKeepOrchestrationTools_GeminiTarget_KeepsOrchestrationDropsRest(t *test
 		"Task", "Agent", "TaskCreate", "TaskUpdate", "TaskList",
 		"EnterPlanMode", "ExitPlanMode", "UpdatePlan", "Skill", "Workflow",
 	}, names, "Anthropic→Gemini keeps orchestration + scheduling tools when the flag is on")
+	assert.NotContains(t, names, "SendMessage")
 	assert.NotContains(t, names, "AskUserQuestion")
 	assert.NotContains(t, names, "ToolSearch")
 }

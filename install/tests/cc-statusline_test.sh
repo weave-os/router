@@ -86,6 +86,11 @@ line_count_at_least() { # line_count_at_least <file> <n>
   [ "$(wc -l < "$1" | tr -d ' ')" -ge "$2" ]
 }
 
+# `wait_for` runs its argv, so a negated condition needs to be its own command.
+not_a_dir() { # not_a_dir <path>
+  [ ! -d "$1" ]
+}
+
 # curl must speak file:// for the offline fixtures to work. Fail loudly rather
 # than silently skipping the download-dependent cases.
 probe="$work/probe.txt"
@@ -406,15 +411,13 @@ check "WEAVE_STATUSLINE_UPDATE=0 suppresses the wrapper refresh too" \
 
 # ---------- org "hide terminal surfaces" gate ----------
 #
-# The gate reads the org setting from GET /v1/display-settings. These cases stub
-# that endpoint with a tiny file:// server so no network is touched. The router
-# URL must be http for curl to reach the stub, so each case writes the stub's
-# address into the install's own settings (overriding WEAVE_ROUTER_BASE_URL).
-#
-# Drive the gate through a simpler seam than a live socket: WEAVE_ROUTER_BASE_URL
-# accepts a file:// URL, which curl reads as the response body. That exercises
-# the full parse-and-decide path (and the credential lookup) without a network.
-# The key just needs to be present and non-empty for the gate to proceed.
+# The gate decides from a per-install cache file only; the network fetch runs
+# in a detached background refresh that repopulates the cache for the NEXT
+# invocation, and a missing or stale cache fails open. These cases stub
+# GET /v1/display-settings via the file:// seam: WEAVE_ROUTER_BASE_URL or the
+# install's ANTHROPIC_BASE_URL accepts a file:// URL, which curl reads as the
+# response body, exercising the full parse-and-decide path without a network.
+# The key just needs to be present and non-empty for the refresh to proceed.
 #
 # write_install <base> <scope:user|project> <key> <url> — lay down a statusline
 # copy plus the settings.json/settings.local.json the gate reads, in the layout
@@ -441,11 +444,24 @@ EOF
   fi
 }
 
-# Project-scope hidden install renders blank: the gate reads the PROJECT key and
-# settings, sees hide_terminal_surfaces=true, and exits before printing.
+# gate_cache <cache_home> <script> — the cache file the gate reads/writes for
+# this install (mirrors the slug derivation in cc-statusline.sh).
+gate_cache() {
+  echo "$1/weave-router/display-settings$(printf '%s' "$2" | tr -c 'A-Za-z0-9._-' '_')"
+}
+
+# Hidden org goes blank via the cache: the first run fails open while the
+# background refresh caches hide=true, and the second run decides from it.
 c="$work/g1"; mkdir -p "$c/proj/.claude" "$c/cache"
 printf '{"hide_terminal_surfaces": true}' > "$c/ds.json"
 write_install "$c/proj" project "rk_proj_hidden" "file://$c/ds.json"
+cache_file="$(gate_cache "$c/cache" "$c/proj/.claude/cc-statusline.sh")"
+echo "{\"model\":{\"id\":\"$STALE_MODEL\"},\"transcript_path\":\"$transcript\"}" \
+  | XDG_CACHE_HOME="$c/cache" WEAVE_STATUSLINE_UPDATE=0 WEAVE_COMMANDS_UPDATE=0 HOME="$c/home" \
+    WEAVE_ROUTER_BASE_URL= ANTHROPIC_BASE_URL= WEAVE_ROUTER_KEY= ANTHROPIC_CUSTOM_HEADERS= \
+    bash "$c/proj/.claude/cc-statusline.sh" >/dev/null 2>&1
+wait_for 5 test -f "$cache_file"
+check "background refresh caches the hidden setting" "$(cat "$cache_file" 2>/dev/null)" "1"
 out="$(echo "{\"model\":{\"id\":\"$STALE_MODEL\"},\"transcript_path\":\"$transcript\"}" \
   | XDG_CACHE_HOME="$c/cache" WEAVE_STATUSLINE_UPDATE=0 WEAVE_COMMANDS_UPDATE=0 HOME="$c/home" \
     WEAVE_ROUTER_BASE_URL= ANTHROPIC_BASE_URL= WEAVE_ROUTER_KEY= ANTHROPIC_CUSTOM_HEADERS= \
@@ -453,29 +469,194 @@ out="$(echo "{\"model\":{\"id\":\"$STALE_MODEL\"},\"transcript_path\":\"$transcr
 check "project-scope hidden org renders a blank statusline" "$out" ""
 
 # The same project install must NOT fall back to the user-scope key: with a
-# hidden project org but a visible user org in $HOME, the project key wins and
-# the statusline still goes blank.
+# hidden project org but a visible user org in $HOME, the refresh caches from
+# the project key ("1"), not the user key ("0"), and the statusline goes blank.
 c="$work/g2"; mkdir -p "$c/proj/.claude" "$c/home/.claude" "$c/cache"
 printf '{"hide_terminal_surfaces": true}' > "$c/ds_proj.json"
 printf '{"hide_terminal_surfaces": false}' > "$c/ds_user.json"
 write_install "$c/proj" project "rk_proj_hidden" "file://$c/ds_proj.json"
 write_install "$c/home" user "rk_user_visible" "file://$c/ds_user.json"
+cache_file="$(gate_cache "$c/cache" "$c/proj/.claude/cc-statusline.sh")"
+echo "{\"model\":{\"id\":\"$STALE_MODEL\"},\"transcript_path\":\"$transcript\"}" \
+  | XDG_CACHE_HOME="$c/cache" WEAVE_STATUSLINE_UPDATE=0 WEAVE_COMMANDS_UPDATE=0 HOME="$c/home" \
+    WEAVE_ROUTER_BASE_URL= ANTHROPIC_BASE_URL= WEAVE_ROUTER_KEY= ANTHROPIC_CUSTOM_HEADERS= \
+    bash "$c/proj/.claude/cc-statusline.sh" >/dev/null 2>&1
+wait_for 5 test -f "$cache_file"
+check "project install caches from its own key, not the user-scope one" \
+  "$(cat "$cache_file" 2>/dev/null)" "1"
 out="$(echo "{\"model\":{\"id\":\"$STALE_MODEL\"},\"transcript_path\":\"$transcript\"}" \
   | XDG_CACHE_HOME="$c/cache" WEAVE_STATUSLINE_UPDATE=0 WEAVE_COMMANDS_UPDATE=0 HOME="$c/home" \
     WEAVE_ROUTER_BASE_URL= ANTHROPIC_BASE_URL= WEAVE_ROUTER_KEY= ANTHROPIC_CUSTOM_HEADERS= \
     bash "$c/proj/.claude/cc-statusline.sh" 2>&1)"
-check "project install uses its own key, not the user-scope one" "$out" ""
+check "project install hides via its own org setting" "$out" ""
 
-# Visible org (hidden=false) renders normally — the gate fails open and the
-# statusline still prints the routed model.
+# Visible org (hidden=false) caches "0" and keeps rendering normally.
 c="$work/g3"; mkdir -p "$c/proj/.claude" "$c/cache"
 printf '{"hide_terminal_surfaces": false}' > "$c/ds.json"
 write_install "$c/proj" project "rk_proj_visible" "file://$c/ds.json"
+cache_file="$(gate_cache "$c/cache" "$c/proj/.claude/cc-statusline.sh")"
+echo "{\"model\":{\"id\":\"$STALE_MODEL\"},\"transcript_path\":\"$transcript\"}" \
+  | XDG_CACHE_HOME="$c/cache" WEAVE_STATUSLINE_UPDATE=0 WEAVE_COMMANDS_UPDATE=0 HOME="$c/home" \
+    WEAVE_ROUTER_BASE_URL= ANTHROPIC_BASE_URL= WEAVE_ROUTER_KEY= ANTHROPIC_CUSTOM_HEADERS= \
+    bash "$c/proj/.claude/cc-statusline.sh" >/dev/null 2>&1
+wait_for 5 test -f "$cache_file"
+check "visible org caches the visible setting" "$(cat "$cache_file" 2>/dev/null)" "0"
 out="$(echo "{\"model\":{\"id\":\"$STALE_MODEL\"},\"transcript_path\":\"$transcript\"}" \
   | XDG_CACHE_HOME="$c/cache" WEAVE_STATUSLINE_UPDATE=0 WEAVE_COMMANDS_UPDATE=0 HOME="$c/home" \
     WEAVE_ROUTER_BASE_URL= ANTHROPIC_BASE_URL= WEAVE_ROUTER_KEY= ANTHROPIC_CUSTOM_HEADERS= \
     bash "$c/proj/.claude/cc-statusline.sh" 2>&1 | sed 's/\x1b\[[0-9;]*m//g')"
 check_contains "visible org still renders the statusline" "$out" "deepseek/deepseek-v4-pro"
+
+# A fresh hidden cache decides without any network access: the install points
+# at an unreachable endpoint, but the pre-seeded fresh cache blanks the
+# statusline on the very first run.
+c="$work/g4"; mkdir -p "$c/proj/.claude" "$c/cache"
+write_install "$c/proj" project "rk_key" "file://$c/missing.json"
+cache_file="$(gate_cache "$c/cache" "$c/proj/.claude/cc-statusline.sh")"
+mkdir -p "$(dirname "$cache_file")"
+printf '1' > "$cache_file"
+out="$(echo "{\"model\":{\"id\":\"$STALE_MODEL\"},\"transcript_path\":\"$transcript\"}" \
+  | XDG_CACHE_HOME="$c/cache" WEAVE_STATUSLINE_UPDATE=0 WEAVE_COMMANDS_UPDATE=0 HOME="$c/home" \
+    WEAVE_ROUTER_BASE_URL= ANTHROPIC_BASE_URL= WEAVE_ROUTER_KEY= ANTHROPIC_CUSTOM_HEADERS= \
+    bash "$c/proj/.claude/cc-statusline.sh" 2>&1)"
+check "fresh hidden cache blanks the statusline without touching the network" "$out" ""
+
+# A STALE hidden cache must fail open, not pin the gate closed: with the TTL
+# forced to zero the pre-seeded "1" is stale, the endpoint is unreachable, and
+# the statusline renders normally instead of staying hidden forever.
+c="$work/g5"; mkdir -p "$c/proj/.claude" "$c/cache"
+write_install "$c/proj" project "rk_key" "file://$c/missing.json"
+cache_file="$(gate_cache "$c/cache" "$c/proj/.claude/cc-statusline.sh")"
+mkdir -p "$(dirname "$cache_file")"
+printf '1' > "$cache_file"
+out="$(echo "{\"model\":{\"id\":\"$STALE_MODEL\"},\"transcript_path\":\"$transcript\"}" \
+  | XDG_CACHE_HOME="$c/cache" WEAVE_STATUSLINE_UPDATE=0 WEAVE_COMMANDS_UPDATE=0 HOME="$c/home" \
+    WEAVE_ROUTER_BASE_URL= ANTHROPIC_BASE_URL= WEAVE_ROUTER_KEY= ANTHROPIC_CUSTOM_HEADERS= \
+    WEAVE_DISPLAY_SETTINGS_TTL_SECONDS=0 \
+    bash "$c/proj/.claude/cc-statusline.sh" 2>&1 | sed 's/\x1b\[[0-9;]*m//g')"
+check_contains "stale hidden cache fails open when the router is unreachable" "$out" "deepseek/deepseek-v4-pro"
+sleep 1
+check "failed refresh leaves the stale cache untouched" "$(cat "$cache_file" 2>/dev/null)" "1"
+
+# Cache miss with an unreachable router renders normally (fail-open on first
+# run) and the failed refresh leaves no cache file behind.
+c="$work/g6"; mkdir -p "$c/proj/.claude" "$c/cache"
+write_install "$c/proj" project "rk_key" "file://$c/missing.json"
+cache_file="$(gate_cache "$c/cache" "$c/proj/.claude/cc-statusline.sh")"
+out="$(echo "{\"model\":{\"id\":\"$STALE_MODEL\"},\"transcript_path\":\"$transcript\"}" \
+  | XDG_CACHE_HOME="$c/cache" WEAVE_STATUSLINE_UPDATE=0 WEAVE_COMMANDS_UPDATE=0 HOME="$c/home" \
+    WEAVE_ROUTER_BASE_URL= ANTHROPIC_BASE_URL= WEAVE_ROUTER_KEY= ANTHROPIC_CUSTOM_HEADERS= \
+    bash "$c/proj/.claude/cc-statusline.sh" 2>&1 | sed 's/\x1b\[[0-9;]*m//g')"
+check_contains "cache miss with an unreachable router renders normally" "$out" "deepseek/deepseek-v4-pro"
+sleep 1
+check "failed refresh writes no cache file" "$(test -f "$cache_file" && echo present || echo absent)" "absent"
+
+# Concurrent refreshes must never be in flight at the same time: two
+# overlapping requests can complete out of order, and the loser's write would
+# replace a newer setting with an older one AND stamp it fresh, pinning the
+# gate on a stale value for a whole TTL. The curl shim below stalls the first
+# responder on hide=true until a second answers hide=false, so an unserialized
+# implementation has both in flight together and ends on the stale "1".
+c="$work/g7"; mkdir -p "$c/proj/.claude" "$c/cache" "$c/bin"
+write_install "$c/proj" project "rk_key" "file://$c/ds.json"
+printf '{"hide_terminal_surfaces": true}' > "$c/ds.json"
+cache_file="$(gate_cache "$c/cache" "$c/proj/.claude/cc-statusline.sh")"
+cat > "$c/bin/curl" <<'SHIM'
+#!/usr/bin/env bash
+# Claim a turn number atomically — mkdir is the test-and-set; a read-then-write
+# counter races here exactly as it would in the code under test.
+n=1
+while ! mkdir "$WEAVE_TEST_TURNS/$n" 2>/dev/null; do n=$((n + 1)); done
+echo "$n" >> "$WEAVE_TEST_CALLS"
+# Announce this fetch for its whole duration; a concurrent one records a
+# violation. This is what the mutex must make impossible.
+[ -e "$WEAVE_TEST_INFLIGHT" ] && echo overlap >> "$WEAVE_TEST_OVERLAP"
+: > "$WEAVE_TEST_INFLIGHT"
+if [ "$n" -eq 1 ]; then
+  # Stall the stale responder until the fresh one has written, or until the
+  # deadline passes (serialized runs never produce a second call, and this
+  # test must not hang waiting for one that will never come).
+  for _ in $(seq 1 60); do
+    [ -f "$WEAVE_TEST_RELEASE" ] && break
+    sleep 0.05
+  done
+  rm -f "$WEAVE_TEST_INFLIGHT"
+  printf '{"hide_terminal_surfaces": true}'
+else
+  rm -f "$WEAVE_TEST_INFLIGHT"
+  printf '{"hide_terminal_surfaces": false}'
+  : > "$WEAVE_TEST_RELEASE"
+fi
+SHIM
+chmod +x "$c/bin/curl"
+mkdir -p "$c/turns"; : > "$c/calls"; : > "$c/overlap"; rm -f "$c/inflight"
+for _ in 1 2; do
+  echo "{\"model\":{\"id\":\"$STALE_MODEL\"},\"transcript_path\":\"$transcript\"}" \
+    | PATH="$c/bin:$PATH" XDG_CACHE_HOME="$c/cache" WEAVE_STATUSLINE_UPDATE=0 \
+      WEAVE_COMMANDS_UPDATE=0 HOME="$c/home" WEAVE_ROUTER_BASE_URL= ANTHROPIC_BASE_URL= \
+      WEAVE_ROUTER_KEY= ANTHROPIC_CUSTOM_HEADERS= WEAVE_TEST_TURNS="$c/turns" \
+      WEAVE_TEST_CALLS="$c/calls" WEAVE_TEST_RELEASE="$c/release" \
+      WEAVE_TEST_INFLIGHT="$c/inflight" WEAVE_TEST_OVERLAP="$c/overlap" \
+      bash "$c/proj/.claude/cc-statusline.sh" >/dev/null 2>&1 &
+done
+wait
+# Both refreshes are detached, so the foreground exit says nothing about them.
+wait_for 15 test -f "$cache_file"
+sleep 3
+# Mutual exclusion is the property under test, so assert on overlap rather than
+# a fetch count: two invocations that happen to serialize (the first finishes
+# and releases before the second starts) fetch twice quite legitimately, and on
+# a slow runner that is what happens. Asserting the cached VALUE would be
+# tautological — with one fetch it is the first responder's either way.
+check "concurrent refreshes never fetch at the same time" \
+  "$(wc -l < "$c/overlap" | tr -d ' ')" 0
+# Guard against the above passing vacuously because nothing ever fetched.
+if [ "$(wc -l < "$c/calls" | tr -d ' ')" -ge 1 ]; then
+  ok "a stale cache does trigger a background refresh"
+else
+  no "a stale cache does trigger a background refresh" "at least one fetch" "no fetch happened"
+fi
+
+# An ABANDONED lock (crashed holder) must not block refreshes forever: a
+# pre-seeded lock older than the reclaim threshold gets taken over, the fetch
+# happens, and the lock is released rather than leaked.
+c="$work/g8"; mkdir -p "$c/proj/.claude" "$c/cache" "$c/bin"
+write_install "$c/proj" project "rk_key" "file://$c/ds.json"
+printf '{"hide_terminal_surfaces": true}' > "$c/ds.json"
+cache_file="$(gate_cache "$c/cache" "$c/proj/.claude/cc-statusline.sh")"
+mkdir -p "$(dirname "$cache_file")"
+mkdir -p "$cache_file.lock"
+touch -t 202001010000 "$cache_file.lock"
+echo "{\"model\":{\"id\":\"$STALE_MODEL\"},\"transcript_path\":\"$transcript\"}" \
+  | XDG_CACHE_HOME="$c/cache" WEAVE_STATUSLINE_UPDATE=0 WEAVE_COMMANDS_UPDATE=0 HOME="$c/home" \
+    WEAVE_ROUTER_BASE_URL= ANTHROPIC_BASE_URL= WEAVE_ROUTER_KEY= ANTHROPIC_CUSTOM_HEADERS= \
+    bash "$c/proj/.claude/cc-statusline.sh" >/dev/null 2>&1
+wait_for 15 test -f "$cache_file"
+check "an abandoned lock is reclaimed rather than blocking refreshes forever" \
+  "$(cat "$cache_file" 2>/dev/null)" "1"
+# The cache is written just before the lock is released, so sampling right
+# after the write catches the holder mid-release. Poll for the release.
+if wait_for 15 not_a_dir "$cache_file.lock"; then
+  ok "a reclaimed lock is released, not leaked"
+else
+  no "a reclaimed lock is released, not leaked" "lock removed" "still held after 15s"
+fi
+
+# A lock a live holder still owns must be left alone: a fresh lock means a
+# refresh is already in flight, so this invocation must not fetch behind it.
+c="$work/g9"; mkdir -p "$c/proj/.claude" "$c/cache"
+write_install "$c/proj" project "rk_key" "file://$c/ds.json"
+printf '{"hide_terminal_surfaces": true}' > "$c/ds.json"
+cache_file="$(gate_cache "$c/cache" "$c/proj/.claude/cc-statusline.sh")"
+mkdir -p "$(dirname "$cache_file")"
+mkdir -p "$cache_file.lock"
+echo "{\"model\":{\"id\":\"$STALE_MODEL\"},\"transcript_path\":\"$transcript\"}" \
+  | XDG_CACHE_HOME="$c/cache" WEAVE_STATUSLINE_UPDATE=0 WEAVE_COMMANDS_UPDATE=0 HOME="$c/home" \
+    WEAVE_ROUTER_BASE_URL= ANTHROPIC_BASE_URL= WEAVE_ROUTER_KEY= ANTHROPIC_CUSTOM_HEADERS= \
+    bash "$c/proj/.claude/cc-statusline.sh" >/dev/null 2>&1
+sleep 2
+check "a lock a live holder owns is left alone" \
+  "$(test -f "$cache_file" && echo wrote || echo skipped)" "skipped"
 
 # install.sh ships the statusline as a heredoc; genprices keeps only the price
 # block in sync, so a code edit to one copy silently diverges from the other.

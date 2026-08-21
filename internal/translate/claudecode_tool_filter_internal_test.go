@@ -36,6 +36,7 @@ func TestShouldStripCCTool(t *testing.T) {
 		{"AskUserQuestion", true, true},  // CC-only non-orchestration: stripped even when flag on
 		{"ToolSearch", true, true},       // CC-only non-orchestration: stripped even when flag on
 		{"TodoWrite", false, true},       // CC-only non-orchestration: stripped
+		{"SendMessage", true, true},      // CC-only subagent messaging: stripped even when flag on
 	}
 	for _, tc := range cases {
 		if got := shouldStripCCTool(tc.name, tc.keepOrchestration); got != tc.want {

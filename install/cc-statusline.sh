@@ -281,11 +281,25 @@ weave_sync_commands 2>/dev/null || true
 #
 # When the org has hidden the router's terminal surfaces, the statusline
 # renders nothing: this prints no output and exits 0, leaving the slot blank.
-# The setting is read from GET /v1/display-settings with the install's own
-# router key and cached per install for WEAVE_DISPLAY_SETTINGS_TTL_SECONDS
-# (default 1h) so a turn never blocks on the network. Any failure to reach the
-# router or read credentials renders the statusline normally (fail-open) — an
-# org that hasn't hidden anything must see no behavior change.
+# The setting comes from GET /v1/display-settings with the install's own
+# router key, but the foreground path NEVER touches the network: it decides
+# solely from a per-install cache file (TTL WEAVE_DISPLAY_SETTINGS_TTL_SECONDS,
+# default 1h), and a missing or stale cache fails open — the statusline
+# renders normally. When the cache is missing or stale a detached background
+# refresh re-fetches the setting and rewrites the cache atomically, so the
+# next turn picks up the fresh value; a refresh failure simply leaves the
+# cache stale, which keeps failing open rather than pinning the gate closed.
+#
+# Claude Code runs the statusline every turn, so several invocations can see a
+# stale cache at once. Letting each fetch independently is not safe: the
+# responses can land out of order, and the loser's mv would replace a newer
+# setting with an older one AND stamp it fresh, pinning the gate on a stale
+# value for a full TTL. Refreshes are therefore serialized per cache key on a
+# mkdir mutex (atomic everywhere; flock is absent on macOS), held across both
+# the fetch and the write. A refresh that finds the mutex held exits rather
+# than queueing — the in-flight one is at least as fresh as anything it would
+# fetch, so waiting only to overwrite it is the bug. The one path that is not
+# strictly exclusive is reclaiming a lock whose holder died; see below.
 weave_hidden_gate() {
   command -v curl >/dev/null 2>&1 || return 1
   command -v jq >/dev/null 2>&1 || return 1
@@ -298,60 +312,101 @@ weave_hidden_gate() {
   local cache="$cache_dir/display-settings${script_slug}"
   local ttl="${WEAVE_DISPLAY_SETTINGS_TTL_SECONDS:-3600}"
 
-  local now mtime
+  local now mtime fresh="false"
   now="$(date +%s 2>/dev/null)" || now=0
   if [ -f "$cache" ]; then
     mtime="$(stat -c %Y "$cache" 2>/dev/null || stat -f %m "$cache" 2>/dev/null)" || mtime=0
     if [ -n "${mtime:-}" ] && [ "$mtime" -gt 0 ] && [ $(( now - mtime )) -lt "$ttl" ]; then
-      [ "$(cat "$cache" 2>/dev/null)" = "1" ]
-      return
+      fresh="true"
     fi
   fi
 
-  # Resolve the router base URL and key from the Claude Code settings the
-  # installer wrote. Project/--dir installs put both under <base>/.claude
-  # alongside this script (key in settings.local.json), while a user-scope
-  # install lives under ~/.weave and reads ~/.claude. Resolve relative to the
+  # Foreground decision: only a fresh cache hides the surfaces. Anything else
+  # (no cache, stale cache, unreadable cache) renders normally so a slow or
+  # unreachable router can never stall a turn or wedge the statusline blank.
+  if [ "$fresh" = "true" ]; then
+    [ "$(cat "$cache" 2>/dev/null)" = "1" ]
+    return
+  fi
+
+  # Background refresh for the next invocation. Resolve the router base URL
+  # and key inside the subshell from the Claude Code settings the installer
+  # wrote: project/--dir installs put both under <base>/.claude alongside
+  # this script (key in settings.local.json), while a user-scope install
+  # lives under ~/.weave and reads ~/.claude. Resolve relative to the
   # script's own location, falling back to user scope, so a project install
   # never reads (or leaks) the user-scope key. ANTHROPIC_BASE_URL and
-  # WEAVE_ROUTER_BASE_URL may also be set in the environment.
-  local self_dir
-  self_dir="$(cd "$(dirname "$self")" 2>/dev/null && pwd)"
-  local settings_base="$HOME"
-  case "$self_dir" in
-    */.claude) settings_base="${self_dir%/.claude}" ;;
-  esac
-  local settings="$settings_base/.claude/settings.json"
-  local local_settings="$settings_base/.claude/settings.local.json"
-  local base_url="${WEAVE_ROUTER_BASE_URL:-${ANTHROPIC_BASE_URL:-}}"
-  local key="${WEAVE_ROUTER_KEY:-}"
-  if [ -z "$key" ] && [ -f "$settings" ]; then
-    key="$(jq -r '.env.ANTHROPIC_CUSTOM_HEADERS // "" | split("\n")[] | select(startswith("X-Weave-Router-Key:")) | sub("^X-Weave-Router-Key:[[:space:]]*";"")' "$settings" 2>/dev/null | head -n1)"
-  fi
-  if [ -z "$key" ] && [ -f "$local_settings" ]; then
-    key="$(jq -r '.env.ANTHROPIC_CUSTOM_HEADERS // "" | split("\n")[] | select(startswith("X-Weave-Router-Key:")) | sub("^X-Weave-Router-Key:[[:space:]]*";"")' "$local_settings" 2>/dev/null | head -n1)"
-  fi
-  if [ -z "$base_url" ] && [ -f "$settings" ]; then
-    base_url="$(jq -r '.env.ANTHROPIC_BASE_URL // empty' "$settings" 2>/dev/null)"
-  fi
-  [ -n "$base_url" ] && [ -n "$key" ] || return 1
-
-  # A file:// base URL is the offline/test seam: curl reads it as the response
-  # body directly, so the endpoint path is meaningless for it. Real router URLs
+  # WEAVE_ROUTER_BASE_URL may also be set in the environment. A file:// base
+  # URL is the offline/test seam: curl reads it as the response body
+  # directly, so the endpoint path is meaningless for it; real router URLs
   # (https) get /v1/display-settings appended.
-  local url="${base_url%/}"
-  case "$url" in
-    file://*) ;;
-    *) url="$url/v1/display-settings" ;;
-  esac
-  local body hidden=""
-  body="$(curl -fsS --max-time 5 -H "X-Weave-Router-Key: $key" "$url" 2>/dev/null)" || { [ -f "$cache" ] && { [ "$(cat "$cache" 2>/dev/null)" = "1" ] && return 0 || return 1; }; return 1; }
-  hidden="$(printf '%s' "$body" | jq -r '.hide_terminal_surfaces // false' 2>/dev/null)"
-  if [ "$hidden" = "true" ]; then
-    printf '1' >"$cache" 2>/dev/null
-    return 0
-  fi
-  printf '0' >"$cache" 2>/dev/null
+  (
+    exec </dev/null
+
+    # Take the per-cache-key mutex, or bail. mkdir is the portable atomic
+    # test-and-set. A crashed holder would otherwise block refreshes forever,
+    # so a lock older than the fetch timeout is treated as abandoned and
+    # reclaimed. Releasing from a trap covers every exit path below.
+    lock="$cache.lock"
+    if ! mkdir "$lock" 2>/dev/null; then
+      lock_mtime="$(stat -c %Y "$lock" 2>/dev/null || stat -f %m "$lock" 2>/dev/null)" || lock_mtime=0
+      lock_now="$(date +%s 2>/dev/null)" || lock_now=0
+      if [ "${lock_mtime:-0}" -le 0 ] || [ $(( lock_now - lock_mtime )) -le 30 ]; then
+        exit 0
+      fi
+      # Reclaiming an abandoned lock must not be delete-then-recreate. With
+      # `rm -rf` + `mkdir`, refreshers that all see the same stale lock each
+      # delete the next one's freshly created directory, so many end up holding
+      # it at once (measured at 50 claimants: 4-11 concurrent holders) and their
+      # writes can land out of order. Renaming is atomic, so only one racer can
+      # move a given directory aside and the losers exit instead of clobbering
+      # the winner (same measurement: 1-2). It is not a perfect mutex — a
+      # straggler can still reclaim the new lock a winner just created, since
+      # nothing distinguishes it from the stale one — but real refreshes arrive
+      # one per turn rather than 50 at once, and the staleness threshold below
+      # is what bounds the rest.
+      dead="$lock.dead.$$"
+      mv "$lock" "$dead" 2>/dev/null || exit 0
+      rm -rf "$dead" 2>/dev/null
+      mkdir "$lock" 2>/dev/null || exit 0
+    fi
+    trap 'rmdir "$lock" 2>/dev/null' EXIT
+
+    self_dir="$(cd "$(dirname "$self")" 2>/dev/null && pwd)"
+    settings_base="$HOME"
+    case "$self_dir" in
+      */.claude) settings_base="${self_dir%/.claude}" ;;
+    esac
+    settings="$settings_base/.claude/settings.json"
+    local_settings="$settings_base/.claude/settings.local.json"
+    base_url="${WEAVE_ROUTER_BASE_URL:-${ANTHROPIC_BASE_URL:-}}"
+    key="${WEAVE_ROUTER_KEY:-}"
+    if [ -z "$key" ] && [ -f "$settings" ]; then
+      key="$(jq -r '.env.ANTHROPIC_CUSTOM_HEADERS // "" | split("\n")[] | select(startswith("X-Weave-Router-Key:")) | sub("^X-Weave-Router-Key:[[:space:]]*";"")' "$settings" 2>/dev/null | head -n1)"
+    fi
+    if [ -z "$key" ] && [ -f "$local_settings" ]; then
+      key="$(jq -r '.env.ANTHROPIC_CUSTOM_HEADERS // "" | split("\n")[] | select(startswith("X-Weave-Router-Key:")) | sub("^X-Weave-Router-Key:[[:space:]]*";"")' "$local_settings" 2>/dev/null | head -n1)"
+    fi
+    if [ -z "$base_url" ] && [ -f "$settings" ]; then
+      base_url="$(jq -r '.env.ANTHROPIC_BASE_URL // empty' "$settings" 2>/dev/null)"
+    fi
+    [ -n "$base_url" ] && [ -n "$key" ] || exit 0
+    url="${base_url%/}"
+    case "$url" in
+      file://*) ;;
+      *) url="$url/v1/display-settings" ;;
+    esac
+    body="$(curl -fsS --max-time 5 -H "X-Weave-Router-Key: $key" "$url" 2>/dev/null)" || exit 0
+    hidden="$(printf '%s' "$body" | jq -r '.hide_terminal_surfaces // false' 2>/dev/null)"
+    tmp="$cache.tmp.$$"
+    if [ "$hidden" = "true" ]; then
+      printf '1' >"$tmp" 2>/dev/null && mv "$tmp" "$cache" 2>/dev/null
+    else
+      printf '0' >"$tmp" 2>/dev/null && mv "$tmp" "$cache" 2>/dev/null
+    fi
+    rm -f "$tmp" 2>/dev/null
+  ) >/dev/null 2>&1 &
+  disown 2>/dev/null || true
   return 1
 }
 
