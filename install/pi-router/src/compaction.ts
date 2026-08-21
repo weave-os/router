@@ -171,7 +171,12 @@ export function registerCompaction(pi: ExtensionAPI, schedule: Schedule = (callb
 					// Pi only auto-retries an overflow compaction. This compaction is
 					// extension-owned and follows a routed tool loop, so queue the next
 					// turn after its summary is committed rather than leaving the agent idle.
-					pi.sendUserMessage(ROUTED_COMPACTION_CONTINUATION);
+					// A user may have started another turn while the compaction ran; in
+					// that case Pi requires an explicit follow-up delivery mode.
+					pi.sendUserMessage(
+						ROUTED_COMPACTION_CONTINUATION,
+						ctx.isIdle() ? undefined : { deliverAs: "followUp" },
+					);
 				},
 				onError: (error) => {
 					compactionScheduled = false;
