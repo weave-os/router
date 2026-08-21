@@ -3376,6 +3376,12 @@ if [[ -n "$transcript_path" && -f "$transcript_path" ]]; then
   #   * unrecognized model        → "… isn't a recognized model · keeping
   #                                  automatic routing" — a NO-OP: the prior
   #                                  pin, if any, is left untouched
+  #   * listing (historical)      → "… pick a model by id …" / "no models are
+  #                                  available to pin …" — also NO-OPs. The
+  #                                  router no longer emits these, but a
+  #                                  transcript written while it did still
+  #                                  carries them, and they must not read as
+  #                                  a clear or a live pin loses its [forced]
   # These persist on disk (the ingress stripper only scrubs them from upstream
   # requests). Classify each weave-router turn newest-first, skip the no-op
   # "rejected" acks, and let the latest real state change decide: an "applied"
@@ -3389,6 +3395,7 @@ if [[ -n "$transcript_path" && -f "$transcript_path" ]]; then
         | ([.message.content[]? | select(.type? == "text") | .text] | join(" ") | gsub("[\n\r]"; " ")) as $t
         | if ($t | test("force-model applied:")) then "APPLIED " + ($t | capture("force-model applied: (?<m>[^ ]+)").m)
           elif ($t | test("isn.t a recognized model")) then "REJECTED"
+          elif ($t | test("pick a model by id|no models are available to pin")) then "REJECTED"
           else "CLEARED" end' 2>/dev/null \
     | grep -m1 -v '^REJECTED$' || true)"
   if [[ "$force_state" == APPLIED\ * ]]; then
