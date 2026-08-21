@@ -649,6 +649,19 @@ func TestDefaultBudgetFitsASecondFullAttempt(t *testing.T) {
 	const knownSidecarInferenceDeadline = 1500 * time.Millisecond
 	assert.Greater(t, attemptTimeout, knownSidecarInferenceDeadline,
 		"an attempt must outlive the sidecar's own deadline so its answer is seen")
+
+	// The floor is what holds that guarantee for explicitly-configured budgets:
+	// the fraction alone gives 0.4 x 3s = 1.2s, under the sidecar's deadline, so
+	// a deployment setting ROUTER_*_SIDECAR_TIMEOUT_MS=3000 would cancel
+	// degrades it used to wait for.
+	assert.Greater(t, DeriveAttemptTimeout(3*time.Second), knownSidecarInferenceDeadline,
+		"a 3s configured budget must still outlive the sidecar deadline")
+	assert.Equal(t, sidecarInferenceFloor, DeriveAttemptTimeout(3*time.Second))
+
+	// Budgets too small to seat the floor and still leave a retry keep the old
+	// behaviour rather than spending everything on attempt 1.
+	assert.Equal(t, minAttemptTimeout, DeriveAttemptTimeout(700*time.Millisecond))
+	assert.Equal(t, 300*time.Millisecond, DeriveAttemptTimeout(300*time.Millisecond))
 }
 
 // TestRetriesExhaustedKeepsBothTheSidecarErrorAndTheDeadline: a sidecar 503 must
@@ -679,28 +692,52 @@ func TestRetriesExhaustedKeepsBothTheSidecarErrorAndTheDeadline(t *testing.T) {
 		"the deadline must stay wrapped so the policy-deadline fallback still degrades")
 }
 
-// TestExhaustedPolicyErrShapes pins the three ways the ladder can end.
+// TestExhaustedPolicyErrShapes pins every way the ladder can end.
 func TestExhaustedPolicyErrShapes(t *testing.T) {
 	sidecarErr := &PolicyStatusError{Status: http.StatusServiceUnavailable, Message: "fail closed"}
 
-	both := exhaustedPolicyErr(sidecarErr, context.DeadlineExceeded)
+	both := exhaustedPolicyErr(sidecarErr, nil, context.DeadlineExceeded)
 	assert.ErrorIs(t, both, context.DeadlineExceeded)
 	assert.Contains(t, both.Error(), "fail closed")
 
-	onlySidecar := exhaustedPolicyErr(sidecarErr, nil)
-	assert.NotErrorIs(t, onlySidecar, context.DeadlineExceeded)
+	onlySidecar := exhaustedPolicyErr(sidecarErr, nil, nil)
+	assert.NotErrorIs(t, onlySidecar, context.DeadlineExceeded,
+		"with no deadline anywhere, none should be invented")
 	assert.Contains(t, onlySidecar.Error(), "fail closed")
 
-	onlyDeadline := exhaustedPolicyErr(nil, context.DeadlineExceeded)
+	onlyDeadline := exhaustedPolicyErr(nil, nil, context.DeadlineExceeded)
 	assert.ErrorIs(t, onlyDeadline, context.DeadlineExceeded)
 	assert.Contains(t, onlyDeadline.Error(), "retries exhausted")
 
 	// A transport deadline is not printed twice: the sentinel is already
 	// reachable through the wrapped attempt error.
 	transportErr := fmt.Errorf("call policy sidecar: %w", context.DeadlineExceeded)
-	deduped := exhaustedPolicyErr(transportErr, context.DeadlineExceeded)
+	deduped := exhaustedPolicyErr(nil, transportErr, context.DeadlineExceeded)
 	assert.ErrorIs(t, deduped, context.DeadlineExceeded)
 	assert.Equal(t, 1, strings.Count(deduped.Error(), context.DeadlineExceeded.Error()))
+
+	cancelled := exhaustedPolicyErr(nil, fmt.Errorf("call policy sidecar: %w", context.Canceled), nil)
+	assert.ErrorIs(t, cancelled, context.Canceled)
+}
+
+// TestExhaustedLadderKeepsTheDeadlineWhenPreferringAStatus is the regression
+// guard for the case the ladder actually hits: two slow sidecar 503s, then a
+// third attempt the parent deadline truncates. The status is the better
+// diagnosis, but discarding the truncated attempt's deadline would make
+// isPolicyDeadlineErr miss and stop the policy-deadline fallback from degrading —
+// turning this into the user-facing 503 the fallback exists to prevent.
+func TestExhaustedLadderKeepsTheDeadlineWhenPreferringAStatus(t *testing.T) {
+	statusErr := &PolicyStatusError{Status: http.StatusServiceUnavailable, Message: "hmm inference exceeded its deadline"}
+	truncated := fmt.Errorf("call policy sidecar: %w", context.DeadlineExceeded)
+
+	// ctxErr is nil: the loop exhausted its attempts rather than tripping
+	// ctx.Done(), which is exactly where the deadline used to be dropped.
+	err := exhaustedPolicyErr(statusErr, truncated, nil)
+
+	assert.Contains(t, err.Error(), "hmm inference exceeded its deadline",
+		"the sidecar's diagnosis must still surface")
+	assert.ErrorIs(t, err, context.DeadlineExceeded,
+		"the deadline must survive so the policy-deadline fallback degrades")
 }
 
 // TestExhaustedLadderPrefersTheSidecarStatusOverATruncatedAttempt: the last
@@ -715,7 +752,7 @@ func TestExhaustedLadderPrefersTheSidecarStatusOverATruncatedAttempt(t *testing.
 	assert.Same(t, truncated, preferStatusErr(nil, truncated),
 		"with no status seen, the transport error is all there is")
 
-	surfaced := exhaustedPolicyErr(preferStatusErr(statusErr, truncated), context.DeadlineExceeded)
+	surfaced := exhaustedPolicyErr(statusErr, truncated, context.DeadlineExceeded)
 	assert.Contains(t, surfaced.Error(), "hmm inference exceeded its deadline")
 	assert.ErrorIs(t, surfaced, context.DeadlineExceeded,
 		"the policy-deadline fallback must still recognise this as degradable")

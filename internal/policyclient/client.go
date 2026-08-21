@@ -41,6 +41,12 @@ const (
 const (
 	defaultAttemptFraction = 0.4
 	minAttemptTimeout      = 500 * time.Millisecond
+	// sidecarInferenceFloor is the smallest per-attempt bound that still
+	// outlives a policy sidecar's own inference deadline. What an attempt has to
+	// survive is that deadline, which does not scale with the router's budget —
+	// so a pure fraction silently drops below it on smaller configured budgets
+	// (0.4 x 3s = 1.2s < 1.5s). Applied only when the budget can afford it.
+	sidecarInferenceFloor = 1800 * time.Millisecond
 )
 
 // Option customizes a policy sidecar client.
@@ -59,6 +65,12 @@ func DeriveAttemptTimeout(timeout time.Duration) time.Duration {
 		timeout = DefaultTimeout
 	}
 	attemptTimeout := time.Duration(float64(timeout) * defaultAttemptFraction)
+	// A budget too small to seat the floor and still leave a retry keeps the
+	// old leave-room-for-a-retry behaviour rather than spending everything on
+	// attempt 1.
+	if attemptTimeout < sidecarInferenceFloor && timeout >= sidecarInferenceFloor+minAttemptTimeout {
+		attemptTimeout = sidecarInferenceFloor
+	}
 	if attemptTimeout < minAttemptTimeout {
 		attemptTimeout = minAttemptTimeout
 	}
@@ -708,7 +720,7 @@ func (c *Client) doPolicyRequest(ctx context.Context, path string, body []byte) 
 	var lastErr, lastStatusErr error
 	for attempt := 1; attempt <= defaultRouteAttempts; attempt++ {
 		if err := ctx.Err(); err != nil {
-			return nil, nil, exhaustedPolicyErr(preferStatusErr(lastStatusErr, lastErr), err)
+			return nil, nil, exhaustedPolicyErr(lastStatusErr, lastErr, err)
 		}
 		resp, payload, done, attemptErr := c.doPolicyAttempt(ctx, attempt, path, body)
 		if done {
@@ -726,11 +738,11 @@ func (c *Client) doPolicyRequest(ctx context.Context, path string, body []byte) 
 		select {
 		case <-ctx.Done():
 			timer.Stop()
-			return nil, nil, exhaustedPolicyErr(preferStatusErr(lastStatusErr, lastErr), ctx.Err())
+			return nil, nil, exhaustedPolicyErr(lastStatusErr, lastErr, ctx.Err())
 		case <-timer.C:
 		}
 	}
-	return nil, nil, exhaustedPolicyErr(preferStatusErr(lastStatusErr, lastErr), nil)
+	return nil, nil, exhaustedPolicyErr(lastStatusErr, lastErr, nil)
 }
 
 // preferStatusErr picks the sidecar's own status over a transport failure, so an
@@ -742,23 +754,49 @@ func preferStatusErr(statusErr, lastErr error) error {
 	return lastErr
 }
 
-// exhaustedPolicyErr reports why the ladder ended. The sidecar's own error must
-// survive: context.DeadlineExceeded alone reads as "never replied" and hides
-// whether the sidecar actually returned a status. Both are wrapped so
-// isPolicyDeadlineErr still matches for the degrade path.
-func exhaustedPolicyErr(lastErr, ctxErr error) error {
+// exhaustedPolicyErr reports why the ladder ended: the sidecar's own status when
+// it gave one (the better diagnosis), always carrying whatever deadline or
+// cancel signal the ladder saw anywhere.
+//
+// Both halves are load-bearing. Reporting only the deadline reads as "the
+// sidecar never replied" and hides a status it did return; dropping the deadline
+// to report the status makes isPolicyDeadlineErr miss, which stops the
+// policy-deadline fallback from degrading and hands the caller the very 503 that
+// path exists to avoid. The ladder hits exactly that case when two slow sidecar
+// 503s leave a third attempt for the parent deadline to truncate.
+func exhaustedPolicyErr(statusErr, lastErr, ctxErr error) error {
+	primary := preferStatusErr(statusErr, lastErr)
+	deadline := cancellationSignal(ctxErr, lastErr, statusErr)
 	switch {
-	case lastErr == nil && ctxErr == nil:
+	case primary == nil && deadline == nil:
 		return errors.New("policy sidecar retries exhausted")
-	case lastErr == nil:
-		return fmt.Errorf("policy sidecar retries exhausted: %w", ctxErr)
+	case primary == nil:
+		return fmt.Errorf("policy sidecar retries exhausted: %w", deadline)
 	// errors.Is keeps a transport deadline from being printed twice; the
-	// wrapped sentinel is already reachable through lastErr.
-	case ctxErr == nil || errors.Is(lastErr, ctxErr):
-		return fmt.Errorf("policy sidecar retries exhausted: %w", lastErr)
+	// sentinel is already reachable through primary.
+	case deadline == nil || errors.Is(primary, deadline):
+		return fmt.Errorf("policy sidecar retries exhausted: %w", primary)
 	default:
-		return fmt.Errorf("policy sidecar retries exhausted: %w: %w", lastErr, ctxErr)
+		return fmt.Errorf("policy sidecar retries exhausted: %w: %w", primary, deadline)
 	}
+}
+
+// cancellationSignal returns the first context sentinel reachable from any
+// candidate, so preferring a status error for its diagnosis never costs the
+// caller the deadline it needs to degrade on.
+func cancellationSignal(candidates ...error) error {
+	for _, candidate := range candidates {
+		if candidate == nil {
+			continue
+		}
+		if errors.Is(candidate, context.DeadlineExceeded) {
+			return context.DeadlineExceeded
+		}
+		if errors.Is(candidate, context.Canceled) {
+			return context.Canceled
+		}
+	}
+	return nil
 }
 
 // doPolicyAttempt runs one bounded attempt; returns done=true on a final outcome (success or fatal error).
