@@ -173,9 +173,7 @@ func ClassifyDispatchError(err error) (DispatchErrorClass, bool) {
 			LogMessage: "Compatible translation provider unavailable",
 		}, true
 	case translate.IsIntrinsicallyIncompatible(err):
-		// Only reached when the baseline rescue in ProxyMessages either didn't
-		// apply or also failed — a routed model that provably can't serve this
-		// request shape, with nowhere left to retry.
+		// Only reached when every rescue was unavailable or also failed.
 		return DispatchErrorClass{
 			Kind:       DispatchErrorRoutedModelIncompatible,
 			Status:     http.StatusBadGateway,

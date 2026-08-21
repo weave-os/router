@@ -3087,10 +3087,8 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		}
 	}
 	attempt, attemptBuildErr := buildAttempt(decision, opts, marker)
-	// An intrinsically-incompatible build error (unrepresentable tool schema,
-	// reasoning intent, or unsigned Gemini tool history) means the routed model
-	// provably can't serve this request shape; let it fall through so the
-	// baseline rescue below can serve it on Anthropic instead of 502ing.
+	// An intrinsically-incompatible build error means the routed model provably
+	// can't serve this shape — let it fall through to the baseline rescue below.
 	if attemptBuildErr != nil && !translate.IsIntrinsicallyIncompatible(attemptBuildErr) {
 		return attemptBuildErr
 	}

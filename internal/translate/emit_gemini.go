@@ -1331,10 +1331,8 @@ func sanitizeGeminiSchemaNode(v any, path string) (any, error) {
 		delete(base, "allOf")
 		node, ok = mergeSchemaMapsExact(base, merged)
 		if !ok {
-			// A merge conflict here is no longer fatal: the caller only needs a
-			// superset-safe schema for generation hints, so fall back to keeping
-			// the sibling (base) side of any remaining conflict rather than
-			// rejecting the whole tool.
+			// No longer fatal: generation hints only need a superset-safe schema,
+			// so keep the sibling (base) side on conflict.
 			node = mergeSchemaMapsLenient(base, merged)
 			widened = true
 			observability.Get().Info("Gemini allOf conflicts with sibling constraints — keeping sibling values", "path", path)
@@ -1623,11 +1621,8 @@ func mergeSchemaMapsLenient(left, right map[string]any) map[string]any {
 	return out
 }
 
-// pruneGeminiRequired drops required entries that reference no declared
-// property. Widening an allOf can remove the branch that declared a property
-// another branch (or a sibling constraint) still lists as required; keeping
-// that entry would make validateGeminiRequired reject the widened schema
-// outright, defeating the point of widening.
+// pruneGeminiRequired drops required entries whose property was removed by
+// widening; Gemini 400s on required-without-property, defeating the widen.
 func pruneGeminiRequired(node map[string]any) {
 	required, ok := node["required"].([]any)
 	if !ok {
