@@ -28,14 +28,15 @@ import (
 // not a CC-internal control-plane tool.
 var claudeCodeOnlyToolNames = map[string]struct{}{
 	// Subagent dispatch. Task = pre-2.1 name; Agent = current CC name.
-	"Task":       {},
-	"Agent":      {},
-	"TaskCreate": {},
-	"TaskUpdate": {},
-	"TaskGet":    {},
-	"TaskList":   {},
-	"TaskOutput": {},
-	"TaskStop":   {},
+	"Task":        {},
+	"Agent":       {},
+	"TaskCreate":  {},
+	"TaskUpdate":  {},
+	"TaskGet":     {},
+	"TaskList":    {},
+	"TaskOutput":  {},
+	"TaskStop":    {},
+	"SendMessage": {}, // teammate/subagent messaging: CC-internal like Task*
 	// Plan mode / skills / workflows.
 	"EnterPlanMode":   {},
 	"ExitPlanMode":    {},
