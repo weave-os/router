@@ -2,6 +2,7 @@ package pubsub
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -26,6 +27,10 @@ const replicaSubscriptionTTL = 24 * time.Hour
 // subscriptionDeleteTimeout bounds the cleanup call during shutdown so a slow
 // Pub/Sub admin API can't hold up termination indefinitely.
 const subscriptionDeleteTimeout = 10 * time.Second
+
+// errMissingPrefix means the subscription env var is misconfigured — a
+// permanent error that retrying cannot fix, so boot should fail fast.
+var errMissingPrefix = errors.New("subscription prefix is required")
 
 // publisher is the narrow seam NotifyInstallationChanged needs from a GCP
 // Pub/Sub Publisher: publish installationID and synchronously wait for the
@@ -147,7 +152,7 @@ func CreateReplicaSubscription(
 	prefix string,
 ) (subscriptionName string, cleanup func(), err error) {
 	if prefix == "" {
-		return "", nil, fmt.Errorf("subscription prefix is required")
+		return "", nil, errMissingPrefix
 	}
 	subID := fmt.Sprintf("%s-%s", strings.TrimRight(prefix, "-"), uuid.NewString())
 	subscriptionName = fmt.Sprintf("projects/%s/subscriptions/%s", projectID, subID)

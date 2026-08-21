@@ -416,26 +416,19 @@ func main() {
 		WithWIFTokenSource(buildWIFTokenSource(logger))
 
 	// Fans out Pub/Sub invalidations to this replica's cache; the 5-min TTL
-	// is the safety net if the listener falls behind.
-	subCtx, subCancel := context.WithTimeout(context.Background(), 30*time.Second)
-	subscriptionName, deleteSubscription, err := routerpubsub.CreateReplicaSubscription(
-		subCtx, pubsubClient, pubsubProjectID, pubsubTopicID, pubsubSubscriptionPrefix,
+	// is the safety net if the listener falls behind — including while the
+	// subscription is still being created after a transient boot failure
+	// (slow Pub/Sub admin API on a cold start degrades to TTL-only
+	// invalidation with background retry; only misconfiguration aborts boot).
+	invalidation, err := routerpubsub.StartReplicaInvalidation(
+		pubsubClient, pubsubProjectID, pubsubTopicID, pubsubSubscriptionPrefix,
+		cache, userClusterCache,
 	)
-	subCancel()
 	if err != nil {
 		logger.Error("Failed to create per-replica invalidation subscription", "err", err)
 		panic(err)
 	}
-	defer deleteSubscription()
-	logger.Info("Created per-replica invalidation subscription", "subscription", subscriptionName)
-
-	listener := routerpubsub.NewInvalidationListener(pubsubClient.Subscriber(subscriptionName), cache, userClusterCache)
-	listenerCtx, listenerCancel := context.WithCancel(context.Background())
-	defer func() {
-		listenerCancel()
-		listener.Wait()
-	}()
-	safeGo(logger, "invalidation-listener", func() { listener.Run(listenerCtx) })
+	defer invalidation.Stop()
 
 	// Managed mode doesn't mount the dashboard, so this only matters selfhosted.
 	if deploymentMode == server.DeploymentModeSelfHosted {
