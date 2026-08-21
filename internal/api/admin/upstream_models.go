@@ -11,10 +11,8 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// discoverModelsRequest carries an unsaved key's connection details so the
-// dashboard can list an endpoint's models before the key is persisted. Only
-// bearer credentials are accepted here; derived auth types (key pair, WIF)
-// need the stored key, so those flows save first and use the GET route.
+// discoverModelsRequest carries an unsaved key's connection details for pre-save model discovery.
+// Only bearer auth is accepted; derived types (key-pair, WIF) need the stored secret and use the GET route.
 type discoverModelsRequest struct {
 	Provider string  `json:"provider" binding:"required"`
 	Key      string  `json:"key" binding:"required"`
@@ -50,10 +48,8 @@ func DiscoverModelsHandler(proxySvc *proxy.Service) gin.HandlerFunc {
 	}
 }
 
-// ListUpstreamModelsHandler returns the model IDs a saved BYOK key's endpoint
-// publishes, so the dashboard can offer them as alias targets instead of
-// hand-typed names. 501 means the provider has no model-listing surface and
-// manual alias entry remains the path.
+// ListUpstreamModelsHandler returns model IDs a saved BYOK endpoint publishes.
+// 501 means no listing surface; keep manual alias entry.
 func ListUpstreamModelsHandler(authSvc *auth.Service, proxySvc *proxy.Service) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		installation, ok := resolveInstallation(c, authSvc)
@@ -88,9 +84,7 @@ func ListUpstreamModelsHandler(authSvc *auth.Service, proxySvc *proxy.Service) g
 	}
 }
 
-// abortForListingError maps a model-listing failure to an HTTP status: 501
-// tells the dashboard to keep manual alias entry, anything else is the
-// endpoint's fault and maps to 502.
+// abortForListingError maps listing errors to HTTP: 501 = no surface (keep manual entry), else 502.
 func abortForListingError(c *gin.Context, provider, keyID string, err error) {
 	if errors.Is(err, proxy.ErrModelListingUnsupported) || errors.Is(err, proxy.ErrProviderNotConfigured) {
 		c.AbortWithStatusJSON(http.StatusNotImplemented, gin.H{"error": "This provider does not support model listing; enter aliases manually."})
