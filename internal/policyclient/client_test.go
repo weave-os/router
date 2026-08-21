@@ -649,10 +649,8 @@ func TestDefaultBudgetFitsASecondFullAttempt(t *testing.T) {
 	assert.Greater(t, attemptTimeout, knownSidecarInferenceDeadline,
 		"an attempt must outlive the sidecar's own deadline so its answer is seen")
 
-	// The floor is what holds that guarantee for explicitly-configured budgets:
-	// the fraction alone gives 0.4 x 3s = 1.2s, under the sidecar's deadline, so
-	// a deployment setting ROUTER_*_SIDECAR_TIMEOUT_MS=3000 would cancel
-	// degrades it used to wait for.
+	// The floor holds this for smaller configured budgets: 0.4 x 3s = 1.2s < 1.5s,
+	// so a deployment using ROUTER_*_SIDECAR_TIMEOUT_MS=3000 would cancel degrades.
 	assert.Greater(t, DeriveAttemptTimeout(3*time.Second), knownSidecarInferenceDeadline,
 		"a 3s configured budget must still outlive the sidecar deadline")
 	assert.Equal(t, sidecarInferenceFloor, DeriveAttemptTimeout(3*time.Second))
@@ -720,11 +718,8 @@ func TestExhaustedPolicyErrShapes(t *testing.T) {
 }
 
 // TestExhaustedLadderKeepsTheDeadlineWhenPreferringAStatus is the regression
-// guard for the case the ladder actually hits: two slow sidecar 503s, then a
-// third attempt the parent deadline truncates. The status is the better
-// diagnosis, but discarding the truncated attempt's deadline would make
-// isPolicyDeadlineErr miss and stop the policy-deadline fallback from degrading —
-// turning this into the user-facing 503 the fallback exists to prevent.
+// guard: preferring the status over a truncated final attempt must not drop the
+// deadline, or isPolicyDeadlineErr misses and the fallback fails to degrade.
 func TestExhaustedLadderKeepsTheDeadlineWhenPreferringAStatus(t *testing.T) {
 	statusErr := &PolicyStatusError{Status: http.StatusServiceUnavailable, Message: "hmm inference exceeded its deadline"}
 	truncated := fmt.Errorf("call policy sidecar: %w", context.DeadlineExceeded)

@@ -29,23 +29,17 @@ const (
 )
 
 // Per-attempt bound so a stalled instance cannot consume the whole decision
-// budget and prevent retries. Sized so a second FULL attempt still fits
-// (2 x fraction x timeout + backoff <= timeout). Three full attempts
-// deliberately do not fit; the third covers fast failures — connection refused,
-// an instant 5xx — which return in milliseconds.
-//
-// The bound must also exceed the sidecar's own inference deadline (the HMM
-// sidecar degrades to the session's prior state at 1.5s), or the router cancels
-// a request the sidecar was about to answer and turns a successful degrade into
-// a router-side timeout. 0.4 x 4.5s = 1.8s satisfies both.
+// budget and prevent retries. Sized so a second full attempt still fits
+// (2 x fraction x timeout + backoff <= timeout); three full attempts
+// deliberately do not fit — the third covers fast failures only. The bound must
+// exceed the sidecar's own inference deadline (HMM: 1.5s), or the router
+// cancels a request it was about to answer. 0.4 x 4.5s = 1.8s satisfies both.
 const (
 	defaultAttemptFraction = 0.4
 	minAttemptTimeout      = 500 * time.Millisecond
 	// sidecarInferenceFloor is the smallest per-attempt bound that still
-	// outlives a policy sidecar's own inference deadline. What an attempt has to
-	// survive is that deadline, which does not scale with the router's budget —
-	// so a pure fraction silently drops below it on smaller configured budgets
-	// (0.4 x 3s = 1.2s < 1.5s). Applied only when the budget can afford it.
+	// outlives a policy sidecar's own inference deadline (constant, not
+	// fraction-scaling). Applied only when the budget can afford a retry too.
 	sidecarInferenceFloor = 1800 * time.Millisecond
 )
 
@@ -65,9 +59,7 @@ func DeriveAttemptTimeout(timeout time.Duration) time.Duration {
 		timeout = DefaultTimeout
 	}
 	attemptTimeout := time.Duration(float64(timeout) * defaultAttemptFraction)
-	// A budget too small to seat the floor and still leave a retry keeps the
-	// old leave-room-for-a-retry behaviour rather than spending everything on
-	// attempt 1.
+	// Budgets too small to seat the floor and still leave a retry keep the old behaviour.
 	if attemptTimeout < sidecarInferenceFloor && timeout >= sidecarInferenceFloor+minAttemptTimeout {
 		attemptTimeout = sidecarInferenceFloor
 	}
@@ -754,16 +746,11 @@ func preferStatusErr(statusErr, lastErr error) error {
 	return lastErr
 }
 
-// exhaustedPolicyErr reports why the ladder ended: the sidecar's own status when
-// it gave one (the better diagnosis), always carrying whatever deadline or
-// cancel signal the ladder saw anywhere.
-//
-// Both halves are load-bearing. Reporting only the deadline reads as "the
-// sidecar never replied" and hides a status it did return; dropping the deadline
-// to report the status makes isPolicyDeadlineErr miss, which stops the
-// policy-deadline fallback from degrading and hands the caller the very 503 that
-// path exists to avoid. The ladder hits exactly that case when two slow sidecar
-// 503s leave a third attempt for the parent deadline to truncate.
+// exhaustedPolicyErr reports why the ladder ended. Both the sidecar's status and
+// the deadline are preserved: the status is the sidecar's own diagnosis; the
+// deadline keeps isPolicyDeadlineErr matching so the policy-deadline fallback
+// still degrades instead of handing the caller the 503 that fallback exists to
+// prevent.
 func exhaustedPolicyErr(statusErr, lastErr, ctxErr error) error {
 	primary := preferStatusErr(statusErr, lastErr)
 	deadline := cancellationSignal(ctxErr, lastErr, statusErr)
