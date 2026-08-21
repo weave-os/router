@@ -90,6 +90,8 @@ type RouterModelRouterExternalAPIKey struct {
 	AuthAccount *string
 	// User the minted JWT authenticates as; NULL unless auth_type is keypair_jwt
 	AuthUser *string
+	// Weave account that soft-deleted or replaced this key; NULL when the router deleted it internally or attribution predates the column
+	DeletedBy *string
 }
 
 // Customer router installations; owns API keys
