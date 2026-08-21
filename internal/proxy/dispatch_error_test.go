@@ -39,6 +39,49 @@ func TestClassifyDispatchError_ProviderNotConfigured(t *testing.T) {
 	assert.False(t, cls.Kind.IsClientError(), "provider-not-configured is an upstream/routing problem, not a client-input one")
 }
 
+// TestClassifyDispatchError_UntranslatableToolSchema locks in the status that
+// stops the retry storm: the unclassified fall-through used to return 502
+// "Upstream call failed." for a request no upstream ever saw, and Claude Code
+// retried each doomed turn eleven times.
+func TestClassifyDispatchError_UntranslatableToolSchema(t *testing.T) {
+	tests := []struct {
+		name     string
+		err      error
+		wantTool string
+	}{
+		{
+			// The exact wrapping service.go's Gemini branch produces.
+			name:     "schema incompatible",
+			wantTool: "SendMessage",
+			err: fmt.Errorf("translate anthropic request to gemini: %w",
+				fmt.Errorf("function %q input_schema: %w", "SendMessage",
+					fmt.Errorf("%w at $.properties.to.allOf[1]: %q is unsatisfiable across branches",
+						translate.ErrGeminiSchemaIncompatible, "pattern"))),
+		},
+		{
+			name:     "duplicate declaration conflict",
+			wantTool: "read",
+			err: fmt.Errorf("translate anthropic request to gemini: %w",
+				fmt.Errorf("%w: duplicate declaration %q differs",
+					translate.ErrGeminiToolDeclarationConflict, "read")),
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			cls, ok := proxy.ClassifyDispatchError(test.err)
+
+			require.True(t, ok, "an untranslatable tool schema must be classified")
+			assert.Equal(t, proxy.DispatchErrorToolSchemaUntranslatable, cls.Kind)
+			assert.Equal(t, http.StatusBadRequest, cls.Status)
+			assert.False(t, cls.RetryAfter, "retrying an unrepresentable schema is futile")
+			assert.True(t, cls.Kind.IsClientError(),
+				"the tool schema is the client's to fix, so the envelope is invalid_request_error")
+			assert.Contains(t, cls.Message, test.wantTool,
+				"the message must name the offending tool")
+		})
+	}
+}
+
 func TestClassifyDispatchError_UpstreamStatusErrorPreservesStatus(t *testing.T) {
 	err := &providers.UpstreamStatusError{Status: http.StatusTooManyRequests}
 

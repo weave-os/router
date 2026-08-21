@@ -3086,11 +3086,6 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			return nil, fmt.Errorf("%w: %s (no translation path defined for inbound Anthropic Messages)", ErrProviderNotConfigured, target.Provider)
 		}
 	}
-	attempt, attemptBuildErr := buildAttempt(decision, opts, marker)
-	if attemptBuildErr != nil {
-		return attemptBuildErr
-	}
-
 	// In-turn baseline failover eligibility: when the router cost-routes to an
 	// OSS/Gemini model and every binding fails, fall back to the requested
 	// model on Anthropic instead of hard-failing. Eligible only when: not
@@ -3114,6 +3109,121 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		baselineModel != decision.Model &&
 		baselineKnown && baselineCatalog.PrimaryProvider() == providers.ProviderAnthropic
 	baselineEligible := !routeRes.AuthoritativePerTurn && baselineViable
+
+	// Built after baseline eligibility so an untranslatable tool schema can be
+	// rescued below rather than hard-failing the turn.
+	attempt, attemptBuildErr := buildAttempt(decision, opts, marker)
+	toolSchemaRescueUsed := false
+	if attemptBuildErr != nil && baselineEligible && isUntranslatableToolSchemaErr(attemptBuildErr) {
+		// A tool schema the routed provider's function-calling grammar cannot
+		// express is a property of the ROUTE, not of the request: the same tools
+		// translate fine for Anthropic. Nothing has reached the wire yet, so
+		// serve the baseline instead of an error the client will retry ten
+		// times. Without this, one unrepresentable tool fails every turn of
+		// every session that declares it — 9,337 requests for a single
+		// installation on 2026-08-20, none of them visible in telemetry.
+		rescueDecision := decision
+		rescueDecision.Model = baselineModel
+		rescueDecision.Provider = providers.ProviderAnthropic
+		rescueOpts := opts
+		rescueOpts.TargetModel = baselineModel
+		rescueOpts.TargetProvider = providers.ProviderAnthropic
+		rescueOpts.Capabilities = router.Lookup(baselineModel)
+		// Recompute against the model that actually serves: see the same
+		// reasoning in the post-dispatch baseline failover below.
+		rescueOpts.ModelSwitched = routeRes.PriorServedModel != baselineModel || routeRes.SessionEverSwitched
+		if knobs := routingKnobsForRequest(ctx); knobs != nil && knobs.ForceEffort != "" {
+			rescueOpts.ForceEffort = knobs.ForceEffort
+			rescueOpts.ForceReasoningEffort = translate.ResolveForceEffort(rescueOpts.Capabilities, knobs.ForceEffort)
+		} else if s.effortEscalation {
+			rescueOpts.ForceReasoningEffort = forcedReasoningEffort(baselineModel, routeRes.EscalateEffort)
+		}
+		rescueCtx := ctx
+		if s.claudeSubscriptionExhausted(ctx, r.Header) {
+			rescueCtx = withSuppressedClaudeSubscription(rescueCtx)
+		}
+		rescueCtx = resolveAndInjectCredentials(rescueCtx, providers.ProviderAnthropic, baselineModel, r.Header)
+		rescueBindings := s.resolveBindingsForDispatch(rescueCtx, rescueDecision)
+		rescueMarker := suppressMarkerIfRequested(ctx, r.Header, baselineRoutingMarkerFor(routeRes, baselineModel))
+		rescueAttempt, rescueBuildErr := buildAttempt(rescueDecision, rescueOpts, rescueMarker)
+		switch {
+		case rescueBuildErr != nil:
+			log.Error("Tool-schema rescue: preparing the baseline request also failed; surfacing the original error",
+				"err", rescueBuildErr,
+				"baseline_model", baselineModel)
+		case len(rescueBindings) == 0:
+			log.Error("Tool-schema rescue: baseline has no usable binding; surfacing the original error",
+				"err", attemptBuildErr,
+				"baseline_model", baselineModel)
+		default:
+			log.Warn("Tool-schema rescue: routed provider cannot express a tool schema, serving the baseline on Anthropic",
+				"err", attemptBuildErr,
+				"failed_model", decision.Model,
+				"failed_provider", decision.Provider,
+				"baseline_model", baselineModel)
+			// Pre-dispatch, so swapping the routed decision wholesale is safe:
+			// every downstream reader (markers, telemetry, billing) then
+			// describes the model that actually serves. The policy-outcome
+			// capture wired above still names the original decision, matching
+			// the post-dispatch sibling/baseline rescues.
+			ctx = rescueCtx
+			decision = rescueDecision
+			opts = rescueOpts
+			marker = rescueMarker
+			bindings = rescueBindings
+			attempt = rescueAttempt
+			attemptBuildErr = nil
+			toolSchemaRescueUsed = true
+		}
+	}
+	if attemptBuildErr != nil {
+		// Pre-dispatch failures used to return here with no telemetry row at
+		// all, so a provider failing most of its requests still read as 100%
+		// healthy on the dashboard. Record the turn with the status the client
+		// is about to receive before surfacing it.
+		failStatus := http.StatusBadGateway
+		if cls, classified := ClassifyDispatchError(attemptBuildErr); classified {
+			failStatus = cls.Status
+		}
+		if !agentShadowMode && installationID != uuid.Nil {
+			obs := buildObservationContext(ctx, decision, routeRes.Fresh, s.effectiveCaptureMode(ctx))
+			s.fireTelemetry(InsertTelemetryParams{
+				InstallationID:       installationID.String(),
+				APIKeyID:             apiKeyIDFromContext(ctx),
+				RequestID:            requestID,
+				SpanType:             "router.upstream",
+				TraceID:              requestID,
+				Timestamp:            requestStart,
+				RequestedModel:       feats.Model,
+				DecisionModel:        decision.Model,
+				DecisionProvider:     decision.Provider,
+				DecisionReason:       decision.Reason,
+				EstimatedInputTokens: int32(feats.Tokens),
+				StickyHit:            stickyHit,
+				EmbedInput:           embedInput,
+				RouteLatencyMs:       routeMs,
+				TotalLatencyMs:       time.Since(requestStart).Milliseconds(),
+				// No upstream call happened, so tokens and cost stay zero.
+				UpstreamStatusCode:   int32(failStatus),
+				ClusterIDs:           obs.ClusterIDs,
+				CandidateModels:      obs.CandidateModels,
+				ChosenScore:          obs.ChosenScore,
+				CandidateScores:      obs.CandidateScores,
+				Propensity:           obs.Propensity,
+				ClusterRouterVersion: obs.ClusterRouterVersion,
+				Strategy:             obs.Strategy,
+				RouteID:              obs.RouteID,
+				PolicyRouteKey:       obs.PolicyRouteKey,
+				PolicyArtifactID:     obs.PolicyArtifactID,
+				PolicyArtifactSHA256: obs.PolicyArtifactSHA256,
+				RosterVersion:        obs.RosterVersion,
+				SidecarSchemaVersion: obs.SidecarSchemaVersion,
+				SessionKey:           routeRes.SessionKey[:],
+				Role:                 stickyStateRole(routeRes),
+			})
+		}
+		return attemptBuildErr
+	}
 
 	// Subscription-credit failover eligibility. A Claude turn served on the
 	// caller's subscription (sk-ant-oat) is pinned to a single Anthropic
@@ -3504,7 +3614,10 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		// Same-provider subscription->Weave retries keep finalProvider ==
 		// primaryProvider, so OR in subscriptionFailoverUsed to match the OTel
 		// span + completion log.
-		failoverUsed := finalProvider != primaryProvider || subscriptionFailoverUsed || siblingFailoverUsed
+		// toolSchemaRescueUsed is ORed in because that rescue swaps the decision
+		// before primaryProvider is read, so finalProvider == primaryProvider
+		// even though the turn did leave its routed provider.
+		failoverUsed := finalProvider != primaryProvider || subscriptionFailoverUsed || siblingFailoverUsed || toolSchemaRescueUsed
 		degShadow := proxyErr == nil && isDegenerateResponse(out, respSummary.ToolUseBlocks, respSummary.StopReason, respSummary.StopReasonDemoted)
 		if degShadow && !agentShadowMode {
 			log.Info("router.degenerate_shadow",
@@ -3651,7 +3764,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		)
 	}
 
-	log.Info("ProxyMessages complete", append([]any{"requested_model", feats.Model, "baseline_model", s.baselineFor(feats.Model), "decision_model", decision.Model, "decision_provider", decision.Provider, "primary_provider", primaryProvider, "fallback_attempts", winnerIdx, "failover_used", finalProvider != primaryProvider || subscriptionFailoverUsed || siblingFailoverUsed, "subscription_failover", subscriptionFailoverUsed, "decision_reason", decision.Reason, "requested_tier", routeRes.RequestedTier.String(), "decision_tier", catalog.TierFor(decision.Model).String(), "embedded_tokens", len(promptText) / 4, "total_input_tokens", feats.Tokens, "has_tools", feats.HasTools, "message_count", feats.MessageCount, "last_kind", feats.LastKind, "last_preview", feats.LastPreview, "embed_input", embedInput, "cross_format", crossFormat, "sticky_hit", stickyHit, "route_ms", routeMs, "proxy_ms", proxyMs, "proxy_err", proxyErr, "upstream_status", upstreamStatus(proxyErr), "upstream_finish_reason", respSummary.UpstreamFinishReason, "resp_stop_reason", respSummary.StopReason, "stop_reason_promoted", respSummary.StopReasonPromoted, "tool_use_blocks", respSummary.ToolUseBlocks, "invalid_tool_args_blocks", respSummary.InvalidToolArgsBlocks, "text_only_turn_nudged", respSummary.TextOnlyTurnNudged, "stop_reason_demoted", respSummary.StopReasonDemoted, "suppressed_tool_calls", respSummary.SuppressedToolCalls, "tool_call_invalid_blocks", len(respSummary.ToolCallIssues), "cc_only_tools_stripped", reqStats.CCOnlyToolsStripped, "gemini_reminder_injected", reqStats.GeminiReminderInjected, "gemini_validated_tool_mode", reqStats.GeminiValidatedToolMode, "resp_output_tokens", respSummary.OutputTokens, "prelude_committed", preludeBuf.Committed(), "routing_marker", marker, "prior_served_model", routeRes.PriorServedModel, "hard_pinned", routeRes.HardPinned}, plannerLogFields(routeRes)...)...)
+	log.Info("ProxyMessages complete", append([]any{"requested_model", feats.Model, "baseline_model", s.baselineFor(feats.Model), "decision_model", decision.Model, "decision_provider", decision.Provider, "primary_provider", primaryProvider, "fallback_attempts", winnerIdx, "failover_used", finalProvider != primaryProvider || subscriptionFailoverUsed || siblingFailoverUsed || toolSchemaRescueUsed, "subscription_failover", subscriptionFailoverUsed, "tool_schema_rescue", toolSchemaRescueUsed, "decision_reason", decision.Reason, "requested_tier", routeRes.RequestedTier.String(), "decision_tier", catalog.TierFor(decision.Model).String(), "embedded_tokens", len(promptText) / 4, "total_input_tokens", feats.Tokens, "has_tools", feats.HasTools, "message_count", feats.MessageCount, "last_kind", feats.LastKind, "last_preview", feats.LastPreview, "embed_input", embedInput, "cross_format", crossFormat, "sticky_hit", stickyHit, "route_ms", routeMs, "proxy_ms", proxyMs, "proxy_err", proxyErr, "upstream_status", upstreamStatus(proxyErr), "upstream_finish_reason", respSummary.UpstreamFinishReason, "resp_stop_reason", respSummary.StopReason, "stop_reason_promoted", respSummary.StopReasonPromoted, "tool_use_blocks", respSummary.ToolUseBlocks, "invalid_tool_args_blocks", respSummary.InvalidToolArgsBlocks, "text_only_turn_nudged", respSummary.TextOnlyTurnNudged, "stop_reason_demoted", respSummary.StopReasonDemoted, "suppressed_tool_calls", respSummary.SuppressedToolCalls, "tool_call_invalid_blocks", len(respSummary.ToolCallIssues), "cc_only_tools_stripped", reqStats.CCOnlyToolsStripped, "gemini_reminder_injected", reqStats.GeminiReminderInjected, "gemini_validated_tool_mode", reqStats.GeminiValidatedToolMode, "resp_output_tokens", respSummary.OutputTokens, "prelude_committed", preludeBuf.Committed(), "routing_marker", marker, "prior_served_model", routeRes.PriorServedModel, "hard_pinned", routeRes.HardPinned}, plannerLogFields(routeRes)...)...)
 	policyRespBody, policyRespTrunc := capturedResponse(policyOutcomeCap)
 	var policyResp *policyOutcomeResponse
 	if policyOutcomeCap != nil {

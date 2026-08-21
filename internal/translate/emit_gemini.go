@@ -1322,9 +1322,13 @@ func sanitizeGeminiSchemaNode(v any, path string) (any, error) {
 		}
 		base := mergeSchemaMaps(node, nil, false)
 		delete(base, "allOf")
-		node, ok = mergeSchemaMapsExact(base, merged)
+		var conflictKey string
+		node, conflictKey, ok = mergeSchemaMapsExact(base, merged)
 		if !ok {
-			return nil, fmt.Errorf("%w at %s.allOf: branches conflict with sibling constraints", ErrGeminiSchemaIncompatible, path)
+			return nil, fmt.Errorf(
+				"%w at %s.allOf: %q is unsatisfiable against the sibling constraints",
+				ErrGeminiSchemaIncompatible, path, conflictKey,
+			)
 		}
 	}
 	if _, exists := node["oneOf"]; exists {
@@ -1474,10 +1478,14 @@ func mergeGeminiAllOf(v any, path string) (map[string]any, error) {
 		if !ok {
 			return nil, fmt.Errorf("%w at %s[%d]: branch is not an object schema", ErrGeminiSchemaIncompatible, path, i)
 		}
+		var conflictKey string
 		var mergedOK bool
-		merged, mergedOK = mergeSchemaMapsExact(merged, object)
+		merged, conflictKey, mergedOK = mergeSchemaMapsExact(merged, object)
 		if !mergedOK {
-			return nil, fmt.Errorf("%w at %s[%d]: branches conflict", ErrGeminiSchemaIncompatible, path, i)
+			return nil, fmt.Errorf(
+				"%w at %s[%d]: %q is unsatisfiable across branches",
+				ErrGeminiSchemaIncompatible, path, i, conflictKey,
+			)
 		}
 	}
 	return merged, nil
@@ -1496,7 +1504,20 @@ func mergeSchemaMaps(base, extra map[string]any, overwrite bool) map[string]any 
 	return out
 }
 
-func mergeSchemaMapsExact(left, right map[string]any) (map[string]any, bool) {
+// mergeSchemaMapsExact merges two schemas that must BOTH hold — the allOf
+// branches of one node, or an allOf result against its sibling constraints —
+// by intersecting each shared keyword. It reports false only when the
+// intersection is genuinely empty (no value could satisfy both), never merely
+// because two branches spell a constraint differently.
+//
+// The equality-or-reject version of this function 502'd every request carrying
+// a tool whose schema intersects two string refinements: two `pattern`s, or a
+// `$defs` description bound narrowed twice. allOf means intersection, so
+// "different" is the normal case, not a conflict.
+// conflictKey names the keyword (or dotted path to it) whose intersection was
+// empty, so the error a rejected tool produces says which constraint could not
+// be satisfied instead of only "branches conflict".
+func mergeSchemaMapsExact(left, right map[string]any) (merged map[string]any, conflictKey string, ok bool) {
 	out := mergeSchemaMaps(left, nil, false)
 	for key, value := range right {
 		current, exists := out[key]
@@ -1504,31 +1525,304 @@ func mergeSchemaMapsExact(left, right map[string]any) (map[string]any, bool) {
 			out[key] = deepCopyJSON(value)
 			continue
 		}
-		if key == "properties" {
-			leftProperties, leftOK := current.(map[string]any)
-			rightProperties, rightOK := value.(map[string]any)
-			if !leftOK || !rightOK {
-				return nil, false
+		intersected, childKey, intersectedOK := intersectSchemaKeyword(key, current, value)
+		if !intersectedOK {
+			if childKey != "" {
+				return nil, key + "." + childKey, false
 			}
-			mergedProperties, ok := mergeSchemaMapsExact(leftProperties, rightProperties)
-			if !ok {
-				return nil, false
-			}
-			out[key] = mergedProperties
-			continue
+			return nil, key, false
 		}
-		if key == "required" {
-			out[key] = uniqueStrings(current, value)
-			if out[key] == nil {
-				return nil, false
-			}
-			continue
-		}
-		if !semanticJSONEqual(current, value) {
-			return nil, false
+		out[key] = intersected
+	}
+	// nullable is a permission, not a restriction: alone among these keywords,
+	// its ABSENCE narrows the schema. The per-key loop copies a key present on
+	// only one side, which for nullable would hand back a schema admitting null
+	// when the other side forbids it — so reconcile it from both inputs, and
+	// only when one of them actually says something about null (otherwise a
+	// merge of two unrelated bounds would sprout a nullable flag).
+	if schemaMentionsNull(left) || schemaMentionsNull(right) {
+		if schemaAllowsNull(left) && schemaAllowsNull(right) {
+			out["nullable"] = true
+		} else {
+			delete(out, "nullable")
 		}
 	}
+	return out, "", true
+}
+
+// schemaMentionsNull reports whether a schema says anything about null, in
+// either spelling: the sanitized `nullable` flag, or the raw ["<type>","null"]
+// union an un-sanitized sibling schema can still carry at the allOf seam.
+func schemaMentionsNull(schema map[string]any) bool {
+	if _, hasFlag := schema["nullable"]; hasFlag {
+		return true
+	}
+	typeValue, hasType := schema["type"]
+	if !hasType {
+		return false
+	}
+	_, nullable, ok := splitNullableType(typeValue)
+	return ok && nullable
+}
+
+// schemaAllowsNull reports whether a schema admits null. A schema with no type
+// constraint and no nullable flag constrains nothing, so it admits null.
+func schemaAllowsNull(schema map[string]any) bool {
+	if flag, ok := schema["nullable"].(bool); ok {
+		return flag
+	}
+	typeValue, hasType := schema["type"]
+	if !hasType {
+		return true
+	}
+	_, nullable, ok := splitNullableType(typeValue)
+	return ok && nullable
+}
+
+// schemaLowerBoundKeys/schemaUpperBoundKeys hold the keywords whose
+// intersection is the stricter of the two bounds.
+var (
+	schemaLowerBoundKeys = map[string]struct{}{
+		"minimum":       {},
+		"minLength":     {},
+		"minItems":      {},
+		"minProperties": {},
+	}
+	schemaUpperBoundKeys = map[string]struct{}{
+		"maximum":       {},
+		"maxLength":     {},
+		"maxItems":      {},
+		"maxProperties": {},
+	}
+)
+
+// schemaAnnotationKeys carry documentation, not constraints. Two branches
+// describing the same field differently is not an unsatisfiable schema, and
+// Gemini accepts exactly one value, so the left (parent, or earlier-branch)
+// spelling wins.
+var schemaAnnotationKeys = map[string]struct{}{
+	"description":      {},
+	"title":            {},
+	"default":          {},
+	"example":          {},
+	"propertyOrdering": {},
+}
+
+// schemaSingleValuedConstraintKeys are real constraints that a Gemini schema
+// can only carry once. The true intersection of two different values is
+// narrower than either, so keeping the left one WIDENS the tool's accepted
+// input language. That is the same trade already made for
+// exclusiveMinimum -> minimum (resolveGeminiExclusiveBound) and for dropping
+// unsupported `format` values: a slightly wide tool schema routes and the
+// tool's own handler still validates its arguments, whereas a rejected one
+// fails the whole turn.
+var schemaSingleValuedConstraintKeys = map[string]struct{}{
+	"pattern": {},
+	"format":  {},
+}
+
+// intersectSchemaKeyword intersects one keyword's two values under allOf
+// semantics. Unknown keywords keep the old equality rule: silently picking a
+// side for a constraint this function does not understand could widen a tool's
+// input language without anyone noticing.
+func intersectSchemaKeyword(key string, left, right any) (value any, conflictKey string, ok bool) {
+	switch key {
+	case "properties":
+		leftProperties, leftOK := left.(map[string]any)
+		rightProperties, rightOK := right.(map[string]any)
+		if !leftOK || !rightOK {
+			return nil, "", false
+		}
+		merged, childKey, mergedOK := intersectSchemaProperties(leftProperties, rightProperties)
+		if !mergedOK {
+			return nil, childKey, false
+		}
+		return merged, "", true
+	case "items":
+		leftItems, leftOK := left.(map[string]any)
+		rightItems, rightOK := right.(map[string]any)
+		if !leftOK || !rightOK {
+			// items may legitimately be a non-object (a bool schema); fall back
+			// to equality rather than pretending to intersect it.
+			if semanticJSONEqual(left, right) {
+				return deepCopyJSON(left), "", true
+			}
+			return nil, "", false
+		}
+		merged, childKey, mergedOK := mergeSchemaMapsExact(leftItems, rightItems)
+		if !mergedOK {
+			return nil, childKey, false
+		}
+		return merged, "", true
+	case "required":
+		merged := uniqueStrings(left, right)
+		if merged == nil {
+			return nil, "", false
+		}
+		return merged, "", true
+	case "type":
+		merged, mergedOK := intersectSchemaType(left, right)
+		return merged, "", mergedOK
+	case "enum":
+		merged, mergedOK := intersectSchemaEnum(left, right)
+		return merged, "", mergedOK
+	case "nullable":
+		// A value has to satisfy both branches, so null is permitted only if
+		// both permit it.
+		leftNullable, leftOK := left.(bool)
+		rightNullable, rightOK := right.(bool)
+		if !leftOK || !rightOK {
+			return nil, "", false
+		}
+		return leftNullable && rightNullable, "", true
+	}
+	if _, isAnnotation := schemaAnnotationKeys[key]; isAnnotation {
+		return deepCopyJSON(left), "", true
+	}
+	if _, isSingleValued := schemaSingleValuedConstraintKeys[key]; isSingleValued {
+		return deepCopyJSON(left), "", true
+	}
+	if _, isLowerBound := schemaLowerBoundKeys[key]; isLowerBound {
+		merged, mergedOK := intersectNumericBound(left, right, true)
+		return merged, "", mergedOK
+	}
+	if _, isUpperBound := schemaUpperBoundKeys[key]; isUpperBound {
+		merged, mergedOK := intersectNumericBound(left, right, false)
+		return merged, "", mergedOK
+	}
+	if !semanticJSONEqual(left, right) {
+		return nil, "", false
+	}
+	return deepCopyJSON(left), "", true
+}
+
+// intersectSchemaProperties merges two `properties` maps. Its keys are property
+// NAMES, not schema keywords, so a shared name recurses as a whole schema
+// instead of going through intersectSchemaKeyword — which would have compared
+// two sub-schemas for equality and rejected any property both branches
+// constrain differently.
+func intersectSchemaProperties(left, right map[string]any) (merged map[string]any, conflictKey string, ok bool) {
+	out := make(map[string]any, len(left)+len(right))
+	for name, schema := range left {
+		out[name] = deepCopyJSON(schema)
+	}
+	for name, schema := range right {
+		current, exists := out[name]
+		if !exists {
+			out[name] = deepCopyJSON(schema)
+			continue
+		}
+		leftNode, leftOK := current.(map[string]any)
+		rightNode, rightOK := schema.(map[string]any)
+		if !leftOK || !rightOK {
+			if semanticJSONEqual(current, schema) {
+				continue
+			}
+			return nil, name, false
+		}
+		intersected, childKey, intersectedOK := mergeSchemaMapsExact(leftNode, rightNode)
+		if !intersectedOK {
+			if childKey != "" {
+				return nil, name + "." + childKey, false
+			}
+			return nil, name, false
+		}
+		out[name] = intersected
+	}
+	return out, "", true
+}
+
+// intersectSchemaType intersects two `type` values. Branches are sanitized
+// before they reach here so their type is a bare string, but the sibling
+// schema merged in at the allOf seam is still raw and may carry the
+// ["string","null"] union form, so both sides are normalized first.
+func intersectSchemaType(left, right any) (value any, ok bool) {
+	// Nullability rides on the `nullable` key, reconciled once per merge by
+	// mergeSchemaMapsExact, so it is deliberately ignored here: letting both
+	// spellings decide would let them disagree.
+	leftName, _, leftOK := splitNullableType(left)
+	rightName, _, rightOK := splitNullableType(right)
+	if !leftOK || !rightOK {
+		return nil, false
+	}
+	name := leftName
+	switch {
+	case leftName == rightName:
+	case leftName == "integer" && rightName == "number",
+		leftName == "number" && rightName == "integer":
+		// Every integer is a number, so the intersection is the integers.
+		name = "integer"
+	default:
+		// No value is two different JSON types at once.
+		return nil, false
+	}
+	return name, true
+}
+
+// splitNullableType reads a `type` value as (name, nullable). It accepts the
+// bare string form and the two-element ["<type>","null"] union; anything else
+// (a three-way union, a non-string entry) is not representable and reports
+// ok=false so the caller rejects rather than guesses.
+func splitNullableType(v any) (name string, nullable bool, ok bool) {
+	if single, isString := v.(string); isString {
+		return single, false, true
+	}
+	names, isArray := v.([]any)
+	if !isArray || len(names) != 2 {
+		return "", false, false
+	}
+	for _, candidate := range names {
+		entry, isString := candidate.(string)
+		if !isString {
+			return "", false, false
+		}
+		if entry == "null" {
+			nullable = true
+			continue
+		}
+		if name != "" {
+			return "", false, false
+		}
+		name = entry
+	}
+	if name == "" || !nullable {
+		return "", false, false
+	}
+	return name, true, true
+}
+
+// intersectSchemaEnum keeps only the values both branches allow. Disjoint
+// enums are a genuinely unsatisfiable schema, so that case still rejects.
+func intersectSchemaEnum(left, right any) (value any, ok bool) {
+	leftValues, leftOK := left.([]any)
+	if _, rightOK := right.([]any); !leftOK || !rightOK {
+		return nil, false
+	}
+	out := make([]any, 0, len(leftValues))
+	for _, candidate := range leftValues {
+		if valueInEnum(candidate, right) && !valueInEnum(candidate, out) {
+			out = append(out, deepCopyJSON(candidate))
+		}
+	}
+	if len(out) == 0 {
+		return nil, false
+	}
 	return out, true
+}
+
+// intersectNumericBound keeps the stricter bound: the larger of two lower
+// bounds, the smaller of two upper bounds. Non-numeric bounds fall back to the
+// equality rule rather than being silently reordered.
+func intersectNumericBound(left, right any, keepLarger bool) (value any, ok bool) {
+	leftValue, leftOK := left.(float64)
+	rightValue, rightOK := right.(float64)
+	if !leftOK || !rightOK {
+		return deepCopyJSON(left), semanticJSONEqual(left, right)
+	}
+	if keepLarger == (leftValue > rightValue) {
+		return leftValue, true
+	}
+	return rightValue, true
 }
 
 func uniqueStrings(left, right any) any {

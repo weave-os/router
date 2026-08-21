@@ -83,6 +83,72 @@ func TestPrepareGemini_SchemaFidelity(t *testing.T) {
 				assert.Equal(t, "object", schema["type"])
 			},
 		},
+		{
+			// The prod incident: Claude Code's SendMessage "to" property is an
+			// allOf of two string refinements. Requiring the branches to be
+			// byte-equal 502'd ~9k requests a day for one installation, so a
+			// satisfiable intersection must now merge instead of rejecting.
+			name:   "allOf of two patterns keeps one instead of rejecting",
+			schema: `{"type":"object","properties":{"to":{"type":"string","allOf":[{"type":"string","pattern":"^[^\n\r]*$"},{"type":"string","pattern":"^[\\s\\S]{0,300}$"}]}}}`,
+			check: func(t *testing.T, schema map[string]any) {
+				to := schema["properties"].(map[string]any)["to"].(map[string]any)
+				assert.Equal(t, "string", to["type"])
+				assert.Contains(t, to, "pattern", "one of the two patterns must survive")
+			},
+		},
+		{
+			name:   "allOf branches with different descriptions merge",
+			schema: `{"allOf":[{"type":"string","description":"one"},{"type":"string","description":"two"}]}`,
+			check: func(t *testing.T, schema map[string]any) {
+				assert.Equal(t, "string", schema["type"])
+				assert.Contains(t, []any{"one", "two"}, schema["description"])
+			},
+		},
+		{
+			name:   "allOf keeps the stricter of two bounds",
+			schema: `{"allOf":[{"type":"string","minLength":2,"maxLength":90},{"type":"string","minLength":5,"maxLength":40}]}`,
+			check: func(t *testing.T, schema map[string]any) {
+				assert.Equal(t, float64(5), schema["minLength"], "the larger lower bound wins")
+				assert.Equal(t, float64(40), schema["maxLength"], "the smaller upper bound wins")
+			},
+		},
+		{
+			name:   "allOf intersects overlapping enums",
+			schema: `{"allOf":[{"type":"string","enum":["a","b","c"]},{"type":"string","enum":["b","c","d"]}]}`,
+			check: func(t *testing.T, schema map[string]any) {
+				assert.ElementsMatch(t, []any{"b", "c"}, schema["enum"])
+			},
+		},
+		{
+			name:    "allOf of disjoint enums is genuinely unsatisfiable",
+			schema:  `{"allOf":[{"type":"string","enum":["a"]},{"type":"string","enum":["b"]}]}`,
+			wantErr: translate.ErrGeminiSchemaIncompatible,
+		},
+		{
+			name:   "allOf of integer and number narrows to integer",
+			schema: `{"allOf":[{"type":"integer"},{"type":"number"}]}`,
+			check: func(t *testing.T, schema map[string]any) {
+				assert.Equal(t, "integer", schema["type"])
+			},
+		},
+		{
+			// nullable is a constraint, not an annotation: a value must satisfy
+			// both branches, so one branch forbidding null forbids it outright.
+			name:   "allOf nullability is ANDed, not ORed",
+			schema: `{"allOf":[{"type":["string","null"]},{"type":"string"}]}`,
+			check: func(t *testing.T, schema map[string]any) {
+				assert.Equal(t, "string", schema["type"])
+				assert.NotEqual(t, true, schema["nullable"])
+			},
+		},
+		{
+			name:   "allOf merges nested object properties recursively",
+			schema: `{"allOf":[{"type":"object","properties":{"inner":{"type":"string","minLength":1}}},{"type":"object","properties":{"inner":{"type":"string","minLength":4}}}]}`,
+			check: func(t *testing.T, schema map[string]any) {
+				inner := schema["properties"].(map[string]any)["inner"].(map[string]any)
+				assert.Equal(t, float64(4), inner["minLength"])
+			},
+		},
 	}
 
 	for _, tt := range tests {

@@ -50,7 +50,17 @@ const (
 	DispatchErrorForcedModelUnknown
 	DispatchErrorForcedClusterUnsupportedStrategy
 	DispatchErrorForcedClusterUnservable
+	DispatchErrorToolSchemaUntranslatable
 )
+
+// isUntranslatableToolSchemaErr reports whether err is a tool schema the routed
+// provider's function-calling grammar cannot express. Pre-dispatch and
+// route-specific: the same tools translate for another provider, so the caller
+// can rescue the turn instead of failing it.
+func isUntranslatableToolSchemaErr(err error) bool {
+	return errors.Is(err, translate.ErrGeminiSchemaIncompatible) ||
+		errors.Is(err, translate.ErrGeminiToolDeclarationConflict)
+}
 
 // DispatchErrorClass is the format-agnostic classification of a dispatch
 // error: the HTTP status to return, the client-facing message, whether to
@@ -161,6 +171,18 @@ func ClassifyDispatchError(err error) (DispatchErrorClass, bool) {
 			Message:    "This request requires a native compatibility path that the router does not support.",
 			LogLevel:   "warn",
 			LogMessage: "Translation requirements are intrinsically incompatible",
+		}, true
+	case isUntranslatableToolSchemaErr(err):
+		// 400, not 502: nothing was dispatched and retrying is futile. The
+		// unclassified 502 this used to fall through to told Claude Code the
+		// upstream had failed, so it retried the same doomed request eleven
+		// times per turn.
+		return DispatchErrorClass{
+			Kind:       DispatchErrorToolSchemaUntranslatable,
+			Status:     http.StatusBadRequest,
+			Message:    "A tool's input schema cannot be expressed in the routed provider's function-calling schema: " + err.Error() + ". Simplify that tool's schema, or exclude this provider for the installation.",
+			LogLevel:   "error",
+			LogMessage: "Rejected request: a tool schema is not representable for the routed provider",
 		}, true
 	case errors.Is(err, ErrTranslationCompatibleProviderUnavailable):
 		return DispatchErrorClass{
@@ -299,7 +321,7 @@ func unwrapToSentinelMessage(err error) string {
 // rather than "api_error".
 func (k DispatchErrorKind) IsClientError() bool {
 	switch k {
-	case DispatchErrorRequestNotJSONObject, DispatchErrorNoEligibleProvider, DispatchErrorAllowlistEmptiesPool, DispatchErrorContextWindowExceeded, DispatchErrorInvalidRoutingKnobs, DispatchErrorTranslationIntrinsicallyIncompatible, DispatchErrorAnthropicCacheControlInvalid, DispatchErrorForcedModelExcluded, DispatchErrorForcedModelUnknown, DispatchErrorForcedClusterUnsupportedStrategy, DispatchErrorForcedClusterUnservable:
+	case DispatchErrorRequestNotJSONObject, DispatchErrorNoEligibleProvider, DispatchErrorAllowlistEmptiesPool, DispatchErrorContextWindowExceeded, DispatchErrorInvalidRoutingKnobs, DispatchErrorTranslationIntrinsicallyIncompatible, DispatchErrorAnthropicCacheControlInvalid, DispatchErrorForcedModelExcluded, DispatchErrorForcedModelUnknown, DispatchErrorForcedClusterUnsupportedStrategy, DispatchErrorForcedClusterUnservable, DispatchErrorToolSchemaUntranslatable:
 		return true
 	default:
 		return false
