@@ -471,9 +471,9 @@ func newResponsesID(prefix string) string {
 	return prefix + "_" + strconv.FormatUint(responsesIDCounter.Add(1), 36) + strconv.FormatInt(time.Now().UnixNano()&0xffffff, 36)
 }
 
-// toolCallItemIDPrefix returns "ctc" for custom_tool_call and "fc" for
-// function_call. A strict Responses client (e.g. Codex) replays the id on
-// the next turn, so a wrong prefix causes a 400 there.
+// toolCallItemIDPrefix returns the id prefix required by a strict Responses
+// client (e.g. Codex): ctc_ for custom_tool_call, fc_ for function_call;
+// wrong prefix causes a 400 on the next turn when the client replays the id.
 func toolCallItemIDPrefix(custom bool) string {
 	if custom {
 		return "ctc"
