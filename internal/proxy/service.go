@@ -1439,6 +1439,12 @@ func (s *Service) WithContentCapture(mode ContentCaptureMode, maxBytes int, reda
 //     "high" default, a ~15 s fixed TTFT stall on every pinned turn.
 //   - everything else: "" — left to its own path.
 func forcedReasoningEffort(model string, escalate bool) string {
+	// The grok floor is unconditional (not gated on effortEscalation): a bare
+	// pin that omits effort falls to xAI's non-disableable "high" default, a
+	// ~15 s fixed TTFT stall — a defect to correct, not an escalation to tune.
+	if strings.HasPrefix(model, "grok-") {
+		return "low"
+	}
 	switch {
 	case strings.HasPrefix(model, "gpt-5"):
 		if escalate {
@@ -1446,8 +1452,6 @@ func forcedReasoningEffort(model string, escalate bool) string {
 		}
 		return "low"
 	case strings.HasPrefix(model, "gemini-3"):
-		return "low"
-	case strings.HasPrefix(model, "grok-"):
 		return "low"
 	default:
 		return ""
@@ -2831,8 +2835,8 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	if knobs := routingKnobsForRequest(ctx); knobs != nil && knobs.ForceEffort != "" {
 		opts.ForceEffort = knobs.ForceEffort
 		opts.ForceReasoningEffort = translate.ResolveForceEffort(opts.Capabilities, opts.ForceEffort)
-	} else if s.effortEscalation {
-		opts.ForceReasoningEffort = forcedReasoningEffort(decision.Model, routeRes.EscalateEffort)
+	} else if effort := forcedReasoningEffort(decision.Model, routeRes.EscalateEffort); effort != "" && (s.effortEscalation || strings.HasPrefix(decision.Model, "grok-")) {
+		opts.ForceReasoningEffort = effort
 	}
 
 	// A caller whose Claude subscription has bound its plan window can't serve
@@ -3212,8 +3216,8 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		if knobs := routingKnobsForRequest(ctx); knobs != nil && knobs.ForceEffort != "" {
 			baselineOpts.ForceEffort = knobs.ForceEffort
 			baselineOpts.ForceReasoningEffort = translate.ResolveForceEffort(baselineOpts.Capabilities, knobs.ForceEffort)
-		} else if s.effortEscalation {
-			baselineOpts.ForceReasoningEffort = forcedReasoningEffort(baselineModel, routeRes.EscalateEffort)
+		} else if effort := forcedReasoningEffort(baselineModel, routeRes.EscalateEffort); effort != "" && (s.effortEscalation || strings.HasPrefix(baselineModel, "grok-")) {
+			baselineOpts.ForceReasoningEffort = effort
 		}
 		baselinePrep, baselineEmitErr := env.PrepareAnthropic(r.Header, baselineOpts)
 		if baselineEmitErr != nil {
@@ -3348,8 +3352,8 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		if knobs := routingKnobsForRequest(ctx); knobs != nil && knobs.ForceEffort != "" {
 			siblingOpts.ForceEffort = knobs.ForceEffort
 			siblingOpts.ForceReasoningEffort = translate.ResolveForceEffort(siblingOpts.Capabilities, knobs.ForceEffort)
-		} else if s.effortEscalation {
-			siblingOpts.ForceReasoningEffort = forcedReasoningEffort(siblingDecision.Model, routeRes.EscalateEffort)
+		} else if effort := forcedReasoningEffort(siblingDecision.Model, routeRes.EscalateEffort); effort != "" && (s.effortEscalation || strings.HasPrefix(siblingDecision.Model, "grok-")) {
+			siblingOpts.ForceReasoningEffort = effort
 		}
 		siblingCtx := resolveAndInjectCredentials(ctx, siblingDecision.Provider, siblingDecision.Model, r.Header)
 		siblingBindings := s.resolveBindingsForDispatch(siblingCtx, siblingDecision)
@@ -5109,8 +5113,8 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	if knobs := routingKnobsForRequest(ctx); knobs != nil && knobs.ForceEffort != "" {
 		opts.ForceEffort = knobs.ForceEffort
 		opts.ForceReasoningEffort = translate.ResolveForceEffort(opts.Capabilities, opts.ForceEffort)
-	} else if s.effortEscalation {
-		opts.ForceReasoningEffort = forcedReasoningEffort(decision.Model, routeRes.EscalateEffort)
+	} else if effort := forcedReasoningEffort(decision.Model, routeRes.EscalateEffort); effort != "" && (s.effortEscalation || strings.HasPrefix(decision.Model, "grok-")) {
+		opts.ForceReasoningEffort = effort
 	}
 
 	ctx = resolveAndInjectCredentials(ctx, decision.Provider, decision.Model, r.Header)
