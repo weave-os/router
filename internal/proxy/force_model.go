@@ -156,6 +156,14 @@ func resolveForceModel(model string) (canonicalID, provider string, known bool) 
 // resolveForceModelWithEffort is like resolveForceModel but also strips a
 // `:level` suffix. `known` is true only for catalog matches; known=false +
 // effort!="" lets callers surface "model not found" without losing the effort.
+//
+// Matching is exact. The input (after lowercasing, trimming, and stripping the
+// optional openai/ and :level affixes) must equal a catalog ID, an alias, or a
+// slash-form model's bare name — there is no prefix, substring, or
+// nearest-match fallback. Approximate matching silently served a model the
+// caller never named: "qwen 3.8" resolved through the bare "qwen" alias to
+// qwen3-coder under an ack that read like the pin took. An unrecognized name
+// must fail loudly instead.
 func resolveForceModelWithEffort(model string) (canonicalID, provider string, known bool, effort string) {
 	effortLevel, stripped := stripEffortSuffix(model)
 	model = stripped
@@ -170,23 +178,11 @@ func resolveForceModelWithEffort(model string) (canonicalID, provider string, kn
 	}
 	if alias, ok := forceModelAliases[model]; ok {
 		model = alias
+	} else if canonical, ok := bareCatalogNames[model]; ok {
+		model = canonical
 	}
 	if m, ok := catalog.ByID(model); ok && len(m.Providers) > 0 && (requiredProvider == "" || m.Providers[0].Provider == requiredProvider) {
 		return m.ID, m.Providers[0].Provider, true, effort
-	}
-	if !strings.Contains(model, "/") {
-		suffix := "/" + model
-		var matched catalog.Model
-		var matches int
-		for _, m := range catalog.Models {
-			if strings.HasSuffix(m.ID, suffix) && len(m.Providers) > 0 && (requiredProvider == "" || m.Providers[0].Provider == requiredProvider) {
-				matched = m
-				matches++
-			}
-		}
-		if matches == 1 && len(matched.Providers) > 0 {
-			return matched.ID, matched.Providers[0].Provider, true, effort
-		}
 	}
 	if requiredProvider != "" {
 		return unknownID, requiredProvider, false, effort
@@ -206,6 +202,39 @@ func resolveForceModelWithEffort(model string) (canonicalID, provider string, kn
 		return model, providers.ProviderAnthropic, false, effort
 	}
 }
+
+// bareCatalogNames maps a slash-form model's trailing segment to its canonical
+// ID ("qwen3-coder" → "qwen/qwen3-coder"), so the vendor prefix stays optional.
+// Built once at init as an exact lookup, replacing a runtime HasSuffix scan
+// over the catalog: same reach, but a name either is a key or is unknown.
+//
+// A tail is omitted when it would be ambiguous or would shadow a more specific
+// binding — two models sharing a tail, a tail equal to some model's full ID, or
+// a tail already spelled by an alias. Guarding here (rather than at lookup)
+// keeps the resolver a single map read; TestBareCatalogNames_Unambiguous
+// asserts the table stays collision-free as models are added.
+var bareCatalogNames = func() map[string]string {
+	owners := make(map[string][]string)
+	for _, m := range catalog.Models {
+		if _, tail, ok := strings.Cut(m.ID, "/"); ok && len(m.Providers) > 0 {
+			owners[tail] = append(owners[tail], m.ID)
+		}
+	}
+	out := make(map[string]string, len(owners))
+	for tail, ids := range owners {
+		if len(ids) > 1 {
+			continue
+		}
+		if _, isFullID := catalog.ByID(tail); isFullID {
+			continue
+		}
+		if _, aliased := forceModelAliases[tail]; aliased {
+			continue
+		}
+		out[tail] = ids[0]
+	}
+	return out
+}()
 
 // stripEffortSuffix splits a `:level` suffix off model, canonicalizes it via
 // CanonicalizeEffort, and returns ("", model) when no recognized suffix found.

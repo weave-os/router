@@ -122,6 +122,14 @@ func (env *RequestEnvelope) extractLeadingCommand(parse func(text string) (found
 // (pi, opencode, raw API); Claude Code/Codex expand to the canonical form
 // client-side.
 //
+// The whole rest of the command line is the model name, not just its first
+// word. Taking only the first word made "/fm qwen 3.8" pin the bare alias
+// "qwen" — a different model — and silently drop "3.8" into the prompt, so a
+// mistyped name looked like it took. Consuming the line means such input is
+// matched (and rejected) as the single string the user actually typed. Put a
+// prompt on the next line; a same-line prompt is no longer separable from a
+// multi-word model name.
+//
 // Leading <tag>...</tag> blocks (e.g. <system-reminder>, <command-name>
 // injected by Claude Code) are skipped before the leading-line check, and
 // preserved in the stripped output.
@@ -132,19 +140,16 @@ func parseForceModelCommand(text string) (res ForceModelResult, found bool, stri
 
 	lines := strings.Split(body, "\n")
 	cmdIdx := -1
-	cmdTail := ""
 	for i, line := range lines {
 		trimmed := strings.TrimSpace(line)
 		if trimmed == "" {
 			continue
 		}
 		if after, ok := cutAnyPrefix(trimmed, "/force-model ", "/fm "); ok {
-			parts := strings.Fields(strings.TrimSpace(after))
-			if len(parts) > 0 {
-				res = ForceModelResult{Model: parts[0]}
-				if len(parts) > 1 {
-					cmdTail = strings.Join(parts[1:], " ")
-				}
+			// Fields+Join collapses runs of whitespace so "/fm  qwen   3.8"
+			// and "/fm qwen 3.8" are the same string to the resolver.
+			if name := strings.Join(strings.Fields(after), " "); name != "" {
+				res = ForceModelResult{Model: name}
 				found = true
 				cmdIdx = i
 			}
@@ -160,9 +165,6 @@ func parseForceModelCommand(text string) (res ForceModelResult, found bool, stri
 	}
 	remaining := make([]string, 0, len(lines))
 	remaining = append(remaining, lines[:cmdIdx]...)
-	if cmdTail != "" {
-		remaining = append(remaining, cmdTail)
-	}
 	remaining = append(remaining, lines[cmdIdx+1:]...)
 	bodyStripped := strings.Join(remaining, "\n")
 	stripped = strings.TrimSpace(prefix + bodyStripped)

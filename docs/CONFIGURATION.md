@@ -343,13 +343,31 @@ with nowhere to go (HTTP 503 from the scorer), so exclude deliberately.
 
 ## Forcing a model or a routing cluster
 
+`/force-model <model>` (alias `/fm`) pins the session to one model. The name is
+matched **exactly** — it must be a canonical catalog ID (`qwen/qwen3.8-max`),
+that model's bare name without the vendor prefix (`qwen3.8-max`), or an alias
+(`opus`, `qwen-max`), optionally with a `:level` effort suffix (`opus:high`).
+There is no prefix, substring, or nearest-match fallback: a name the router
+doesn't recognize is refused, never approximated.
+
+That strictness is the point. Approximate matching served a model the caller
+never named — `/fm qwen 3.8` resolved through the bare `qwen` alias to
+`qwen/qwen3-coder` and acked as if the pin took. The whole rest of the command
+line is now read as the model name, so that input is rejected instead. To pin
+and prompt in one turn, put the prompt on the **next line**:
+
+```
+/force-model qwen/qwen3.8-max
+now fix the failing test
+```
+
 Two request headers let a headless caller (eval harness, CI, any client whose
 UI eats slash commands) override routing. Both fail the request rather than
 routing on, so a typo can't look like it took effect.
 
 | Header | Effect |
 | ------ | ------ |
-| `x-weave-force-model` | Pins the session to one model, exactly as `/force-model` does. Accepts a canonical catalog ID or an alias (`opus`, `gpt`, `qwen-max`, …) plus an optional `:level` effort suffix (`opus:high`). A value naming no catalog model is HTTP 400. |
+| `x-weave-force-model` | Pins the session to one model, exactly as `/force-model` does — same exact-match rule. Accepts a canonical catalog ID, a bare name, or an alias (`opus`, `gpt`, `qwen-max`, …) plus an optional `:level` effort suffix (`opus:high`). A value naming no catalog model is HTTP 400. |
 | `x-weave-force-cluster` | Constrains serving to one of the policy sidecar's routing clusters, leaving the choice *within* it to the policy. |
 
 `x-weave-force-cluster` takes an opaque label — the router holds no list of

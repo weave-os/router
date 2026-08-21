@@ -61,9 +61,12 @@ test("registers the Claude-parity command aliases", () => {
 	assert.deepEqual([...commands.keys()], ["fm", "force-model", "ufm", "unforce-model"]);
 });
 
-test("forwards one canonical force-model turn and preserves trailing prompt text", async () => {
+test("forwards one canonical force-model turn with the argument verbatim", async () => {
 	const { commands, sent } = extensionHarness();
 	const { ctx } = commandContext();
+	// The extension only trims and forwards; the router owns what counts as a
+	// model name. It now reads the whole argument as the name, so "haiku fix
+	// the tests" is rejected there rather than split into a pin plus a prompt.
 	await commands.get("fm")?.handler("  haiku fix the tests  ", ctx);
 	await commands.get("force-model")?.handler("gpt-5", ctx);
 	assert.deepEqual(sent, [

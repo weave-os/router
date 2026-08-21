@@ -1,11 +1,14 @@
 package proxy
 
 import (
+	"strings"
 	"testing"
 
 	"workweave/router/internal/providers"
+	"workweave/router/internal/router/catalog"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestResolveForceModel(t *testing.T) {
@@ -171,6 +174,56 @@ func TestResolveForceModel(t *testing.T) {
 			wantProvider: providers.ProviderOpenAI,
 			wantKnown:    false,
 		},
+		// Matching is exact: a name that merely contains, or is contained by, a
+		// real one is unknown. "qwen 3.8" is the reported bug — it used to
+		// resolve through the bare "qwen" alias and silently serve qwen3-coder.
+		{
+			name:         "spaced model name is not known",
+			input:        "qwen 3.8",
+			wantID:       "qwen 3.8",
+			wantProvider: providers.ProviderAnthropic,
+			wantKnown:    false,
+		},
+		{
+			name:         "spaced alias is not known",
+			input:        "qwen max",
+			wantID:       "qwen max",
+			wantProvider: providers.ProviderAnthropic,
+			wantKnown:    false,
+		},
+		{
+			name:         "model name with a trailing prompt is not known",
+			input:        "gpt-5 help me debug this",
+			wantID:       "gpt-5 help me debug this",
+			wantProvider: providers.ProviderOpenAI,
+			wantKnown:    false,
+		},
+		{
+			// A prefix of a real ID must not resolve to it. (Contrast
+			// "claude-opus", which resolves only because it's an explicit
+			// alias — deliberate shorthands still work, guesses don't.)
+			name:         "prefix of a real id is not known",
+			input:        "claude-sonnet-4",
+			wantID:       "claude-sonnet-4",
+			wantProvider: providers.ProviderAnthropic,
+			wantKnown:    false,
+		},
+		{
+			// The bare-name table is exact too: a tail fragment is not a tail.
+			name:         "fragment of a bare name is not known",
+			input:        "mimo",
+			wantID:       "mimo",
+			wantProvider: providers.ProviderAnthropic,
+			wantKnown:    false,
+		},
+		{
+			// The vendor prefix stays optional via an exact bare-name entry.
+			name:         "bare name of a slash-form model",
+			input:        "mimo-v2.5-pro",
+			wantID:       "xiaomi/mimo-v2.5-pro",
+			wantProvider: providers.ProviderOpenRouter,
+			wantKnown:    true,
+		},
 	}
 
 	for _, tt := range tests {
@@ -180,5 +233,49 @@ func TestResolveForceModel(t *testing.T) {
 			assert.Equal(t, tt.wantProvider, gotProvider, "provider")
 			assert.Equal(t, tt.wantKnown, gotKnown, "known")
 		})
+	}
+}
+
+// The bare-name table must stay unambiguous as models are added: a tail shared
+// by two models, or one that collides with a full ID or an alias, would make a
+// bare name resolve to an arbitrary winner — the silent-wrong-model failure
+// exact matching exists to prevent. Such tails are dropped, not guessed.
+func TestBareCatalogNames_Unambiguous(t *testing.T) {
+	tails := make(map[string][]string)
+	for _, m := range catalog.Models {
+		if _, tail, ok := strings.Cut(m.ID, "/"); ok && len(m.Providers) > 0 {
+			tails[tail] = append(tails[tail], m.ID)
+		}
+	}
+
+	for tail, owners := range tails {
+		mapped, listed := bareCatalogNames[tail]
+		_, isFullID := catalog.ByID(tail)
+		_, aliased := forceModelAliases[tail]
+
+		if len(owners) > 1 || isFullID || aliased {
+			assert.False(t, listed,
+				"ambiguous tail %q (owners=%v full_id=%v aliased=%v) must not be a bare name",
+				tail, owners, isFullID, aliased)
+			continue
+		}
+		require.True(t, listed, "unambiguous tail %q must be reachable without its vendor prefix", tail)
+		assert.Equal(t, owners[0], mapped)
+	}
+
+	// Every entry must name a real, servable model.
+	for tail, id := range bareCatalogNames {
+		m, ok := catalog.ByID(id)
+		require.True(t, ok, "bare name %q maps to unknown model %q", tail, id)
+		assert.NotEmpty(t, m.Providers, "bare name %q maps to unservable model %q", tail, id)
+	}
+}
+
+// An alias must win over a bare catalog name, so a deliberate alias can never
+// be shadowed by an incidental tail collision.
+func TestBareCatalogNames_AliasesTakePrecedence(t *testing.T) {
+	for alias := range forceModelAliases {
+		_, shadowed := bareCatalogNames[alias]
+		assert.False(t, shadowed, "alias %q must not also be a bare-name entry", alias)
 	}
 }

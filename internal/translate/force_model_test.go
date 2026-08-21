@@ -33,8 +33,37 @@ func TestParseForceModelCommand_ForceModel(t *testing.T) {
 			wantStripped: "Please help me with this.",
 		},
 		{
-			name:         "command with same-line trailing prompt",
+			// The whole rest of the line is the model name. Taking only the
+			// first word made "/fm qwen 3.8" pin the bare "qwen" alias — a
+			// different model — so a same-line prompt is no longer separable
+			// from a multi-word name. Put the prompt on the next line.
+			name:         "same-line text is part of the model name",
 			input:        "/force-model gpt-5 help me debug this",
+			wantModel:    "gpt-5 help me debug this",
+			wantFound:    true,
+			wantStripped: "",
+		},
+		{
+			// The reported bug: this must reach the resolver as one string so
+			// it can be rejected, not split into a pin for "qwen" plus a "3.8"
+			// prompt.
+			name:         "multi-word model name is kept whole",
+			input:        "/fm qwen 3.8",
+			wantModel:    "qwen 3.8",
+			wantFound:    true,
+			wantStripped: "",
+		},
+		{
+			name:         "internal whitespace runs collapse",
+			input:        "/fm  qwen    3.8",
+			wantModel:    "qwen 3.8",
+			wantFound:    true,
+			wantStripped: "",
+		},
+		{
+			// A next-line prompt is the supported way to pin and prompt at once.
+			name:         "next-line prompt is preserved",
+			input:        "/force-model gpt-5\nhelp me debug this",
 			wantModel:    "gpt-5",
 			wantFound:    true,
 			wantStripped: "help me debug this",
