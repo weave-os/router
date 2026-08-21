@@ -1023,11 +1023,10 @@ func main() {
 		logger.Error("Graceful shutdown failed", "err", err)
 	}
 	// srv.Shutdown only waits for handler goroutines; billing debits run in
-	// SafeGoTracked goroutines it doesn't know about. Drain them before the
-	// deferred pool.Close runs so a deploy or scale-to-zero can't SIGKILL an
-	// in-flight debit and leave served inference unbilled. Cancel aborts any
-	// overrunning debit at its next context check (inner timeout), and the
-	// bounded wait keeps the whole drain inside the 1.5s budget above.
+	// SafeGoTracked goroutines it doesn't know about. Drain before pool.Close
+	// so a deploy or scale-to-zero can't SIGKILL an in-flight debit. Cancel
+	// aborts overruns at their next context check; the bounded wait keeps the
+	// drain inside the 1.5s budget above.
 	billingDrainCtx, billingDrainCancel := context.WithTimeout(context.Background(), 1500*time.Millisecond)
 	defer billingDrainCancel()
 	billingInflight.Cancel()

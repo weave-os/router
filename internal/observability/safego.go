@@ -33,13 +33,10 @@ func SafeGo(log *slog.Logger, timeout time.Duration, name string, fn func(ctx co
 	}()
 }
 
-// TrackedGroup is a cancellable accounting of SafeGo-style background work.
-// Use it when the operation must not be dropped at shutdown (e.g. billing
-// debits): launch with SafeGoTracked, then during a bounded shutdown call
-// Cancel — which aborts every in-flight operation at its next context check —
-// and WaitWithContext, so work is neither abandoned before it lands nor left
-// running past the SIGKILL window. Create with NewTrackedGroup; the zero
-// value has no cancellable context and must not be used.
+// TrackedGroup is a WaitGroup for SafeGo-style background work that must not
+// be dropped at shutdown (e.g. billing debits). Create with NewTrackedGroup,
+// which wires a cancellable context so shutdown can abort in-flight work
+// rather than waiting on its individual timeouts.
 type TrackedGroup struct {
 	wg     sync.WaitGroup
 	ctx    context.Context

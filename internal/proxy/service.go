@@ -1625,9 +1625,7 @@ func (s *Service) WithBillingService(b *billing.Service) *Service {
 }
 
 // WithBillingDrainGroup registers the group that async billing debits are
-// tracked against, so graceful shutdown can Wait for in-flight debits before
-// closing the DB pool. Without it a SIGTERM during a debit can kill the write
-// and leave served inference unbilled.
+// tracked against so graceful shutdown can drain in-flight debits before pool.Close.
 func (s *Service) WithBillingDrainGroup(g *observability.TrackedGroup) *Service {
 	s.billingInflight = g
 	return s
@@ -4675,10 +4673,7 @@ func (s *Service) emitBilling(ctx context.Context, requestID, externalID string,
 
 // fireBilling debits the org's prepaid credit balance for one upstream call.
 // Async via SafeGo: the multi-CTE ledger write serializes on the org's single
-// balance row, causing pool contention under load. context.Background() so
-// customer cancellation doesn't abort billing for an already-served inference;
-// on failure, logs Error for manual reconciliation. Tracked on billingInflight
-// so shutdown drains it before the DB pool closes.
+// balance row, causing pool contention under load; failures log Error for manual reconciliation.
 func (s *Service) fireBilling(p billing.DebitInferenceParams) {
 	if s.billing == nil {
 		return
