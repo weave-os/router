@@ -94,11 +94,15 @@ var forceModelAliases = map[string]string{
 	"gpt-5-5-pro":   "gpt-5.5-pro",
 	"gpt-5-5-mini":  "gpt-5.5-mini",
 	"gpt-5-5-nano":  "gpt-5.5-nano",
-	"grok":          "grok-4.5",
-	"grok-4.5":      "grok-4.5",
-	"grok4.5":       "grok-4.5",
-	"xai":           "grok-4.5",
-	// "grok" stays at 4.5 for backward compat; "grok-max" surfaces 4.6.
+	// grok-4.5 is retired from routing: it has no AA Agentic Index score, was
+	// never rostered, and pins to it underperformed with slow TTFT (default-high
+	// reasoning_effort on xAI native). The family aliases follow the current
+	// flagship, 4.6; the model itself stays servable as priced passthrough via
+	// its own-name alias so existing explicit pins keep resolving.
+	"grok":                  "grok-4.6",
+	"grok-4.5":              "grok-4.5",
+	"grok4.5":               "grok-4.5",
+	"xai":                   "grok-4.6",
 	"grok-4.6":              "grok-4.6",
 	"grok4.6":               "grok-4.6",
 	"grok-max":              "grok-4.6",
@@ -182,6 +186,9 @@ func resolveForceModelWithEffort(model string) (canonicalID, provider string, kn
 		model = canonical
 	}
 	if m, ok := catalog.ByID(model); ok && len(m.Providers) > 0 && (requiredProvider == "" || m.Providers[0].Provider == requiredProvider) {
+		if effort == "" {
+			effort = defaultForceEffort[m.ID]
+		}
 		return m.ID, m.Providers[0].Provider, true, effort
 	}
 	if requiredProvider != "" {
@@ -201,6 +208,17 @@ func resolveForceModelWithEffort(model string) (canonicalID, provider string, kn
 	default:
 		return model, providers.ProviderAnthropic, false, effort
 	}
+}
+
+// defaultForceEffort pins a reasoning_effort floor for models whose provider
+// default is unusable when the field is omitted. A bare pin sends no effort at
+// all, and xAI's server-side default for grok-4.x is "high" and not
+// disableable — measured 2026-08-21 as a ~15.4s p50 TTFT stall on a fixed
+// reasoning pass, with a tight p50/p90 band (15,444/15,985 ms) that marks a
+// fixed stall, not variable prefill. An explicit :level suffix always wins.
+var defaultForceEffort = map[string]string{
+	"grok-4.5": "low",
+	"grok-4.6": "low",
 }
 
 // bareCatalogNames maps a slash-form model's bare tail to its canonical

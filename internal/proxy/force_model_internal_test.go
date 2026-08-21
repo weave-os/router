@@ -307,3 +307,44 @@ func TestBareCatalogNames_AliasesTakePrecedence(t *testing.T) {
 		assert.False(t, shadowed, "alias %q must not also be a bare-name entry", alias)
 	}
 }
+
+// The grok family alias follows the current flagship (4.6), never the retired
+// 4.5; xai is a vendor shorthand for the same flagship. Own-name pins still
+// resolve exactly, so an explicit grok-4.5 keeps working as passthrough.
+func TestResolveForceModel_GrokFamilyAlias(t *testing.T) {
+	for _, input := range []string{"grok", "xai"} {
+		t.Run(input, func(t *testing.T) {
+			gotID, gotProvider, gotKnown := resolveForceModel(input)
+			assert.Equal(t, "grok-4.6", gotID, "canonical id")
+			assert.Equal(t, providers.ProviderXAI, gotProvider, "provider")
+			assert.True(t, gotKnown, "known")
+		})
+	}
+}
+
+// xAI's server-side reasoning_effort default for grok-4.x is "high" and not
+// disableable; a bare pin sends no effort, which measured as a ~15.4s p50
+// TTFT stall (2026-08-21). A bare grok pin must therefore carry the "low"
+// floor, and an explicit :level suffix must always win over it.
+func TestResolveForceModel_GrokEffortFloor(t *testing.T) {
+	tests := []struct {
+		name       string
+		input      string
+		wantID     string
+		wantEffort string
+	}{
+		{name: "family alias bare", input: "grok", wantID: "grok-4.6", wantEffort: "low"},
+		{name: "own-name 4.6 bare", input: "grok-4.6", wantID: "grok-4.6", wantEffort: "low"},
+		{name: "own-name 4.5 bare", input: "grok-4.5", wantID: "grok-4.5", wantEffort: "low"},
+		{name: "explicit suffix wins", input: "grok-4.6:high", wantID: "grok-4.6", wantEffort: "high"},
+		{name: "non-grok carries no floor", input: "gpt", wantID: "gpt-5.6-sol", wantEffort: ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotID, _, gotKnown, gotEffort := resolveForceModelWithEffort(tt.input)
+			assert.Equal(t, tt.wantID, gotID, "canonical id")
+			assert.True(t, gotKnown, "known")
+			assert.Equal(t, tt.wantEffort, gotEffort, "effort")
+		})
+	}
+}
