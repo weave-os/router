@@ -50,7 +50,7 @@ func clampOpenAIToolCallID(id string) string {
 	if len(cleanID) <= maxToolCallIDLen {
 		return cleanID
 	}
-	sum := sha1.Sum([]byte(id))
+	sum := sha1.Sum([]byte(cleanID))
 	return "tc_" + hex.EncodeToString(sum[:])
 }
 
@@ -934,7 +934,18 @@ func addOpenAIAnyOfBranchType(node any) {
 }
 
 func appendSchemaConstraintDescription(node map[string]any, key string, value any) {
-	note := fmt.Sprintf("(%s: %v)", key, compactJSONValue(value))
+	// Hash the constraint value rather than emitting it verbatim. OpenAI-compat
+	// grammar compilers (Fireworks) unify tool-schema definitions by rendering
+	// the full schema — description included — so two tools declaring the same
+	// property with different patterns (Claude Code's Task/AskUserQuestion
+	// "description" fields) produce two conflicting rendered definitions and the
+	// request 400s with "Conflict in schema definitions for key 'description'".
+	// An 8-hex-char fingerprint keeps identical patterns byte-identical (no
+	// false conflict) while making the note unifier-safe and leak-free (patterns
+	// can carry prompt text).
+	raw := compactJSONValue(value)
+	fingerprint := sha1.Sum([]byte(key + "|" + raw))
+	note := fmt.Sprintf("(%s constraint %s)", key, hex.EncodeToString(fingerprint[:4]))
 	if desc, _ := node["description"].(string); desc != "" {
 		node["description"] = desc + " " + note
 		return

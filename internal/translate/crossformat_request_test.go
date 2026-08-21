@@ -1445,7 +1445,8 @@ func TestCrossFormat_AnthropicToOpenAI_StripsUnsupportedToolSchemaPattern(t *tes
 	amount := getMap(t, props, "amount")
 	assert.NotContains(t, amount, "pattern", "OpenAI-compatible providers can reject unsupported JSON Schema regexes")
 	assert.Contains(t, amount["description"], "decimal")
-	assert.Contains(t, amount["description"], "pattern:")
+	assert.Contains(t, amount["description"], "pattern constraint", "the dropped constraint survives as a hashed note")
+	assert.NotContains(t, amount["description"], "^(?!", "the raw pattern is hashed, not embedded verbatim")
 
 	msgs := getArray(t, doc, "messages")
 	assistant := msgAt(t, msgs, 1)

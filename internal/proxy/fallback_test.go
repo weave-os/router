@@ -156,6 +156,52 @@ func TestDispatchWithFallback_RetriesOnRetryableBufferedError(t *testing.T) {
 	assert.Equal(t, "fireworks", rec.Header().Get(HeaderRouterFallbackFrom))
 }
 
+// TestDispatchWithFallback_SchemaRejectionDoesNotFailoverCrossBinding pins the
+// dispatch-loop boundary: a buffered 400 schema rejection stays non-failable in
+// dispatchWithFallback (a same-family binding compiles the identical grammar).
+// The cross-arm rescue for this class lives in the sibling/baseline gates, not
+// here — see service.go's IsUpstreamSchemaRejection clauses.
+func TestDispatchWithFallback_SchemaRejectionDoesNotFailoverCrossBinding(t *testing.T) {
+	primary := &fakeClient{
+		name: "fireworks",
+		outcomes: []fakeOutcome{{err: &providers.UpstreamErrorResponse{
+			Status: http.StatusBadRequest,
+			Body:   []byte(`{"error":{"message":"Conflict in schema definitions for key ‘description’"}}`),
+		}}},
+	}
+	fallback := &fakeClient{
+		name:     "openrouter",
+		outcomes: []fakeOutcome{{writeBytes: []byte("rescued")}},
+	}
+
+	s := newServiceWithProviders(t, map[string]providers.Client{
+		"fireworks":  primary,
+		"openrouter": fallback,
+	})
+
+	rec := httptest.NewRecorder()
+	buf := newPreludeBuffer(rec)
+	r := httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+
+	_, err := s.dispatchWithFallback(context.Background(), failoverInputs{
+		w:               rec,
+		buf:             buf,
+		initialDecision: router.Decision{Model: "moonshotai/kimi-k3"},
+		bindings: []catalog.ProviderBinding{
+			{Provider: "fireworks"},
+			{Provider: "openrouter"},
+		},
+		attempt: func(ctx context.Context, d router.Decision, p providers.Client) error {
+			buf.Seal()
+			return p.Proxy(ctx, d, providers.PreparedRequest{}, buf, r)
+		},
+	})
+
+	require.Error(t, err, "the 400 surfaces; dispatchWithFallback does not rescue it")
+	assert.True(t, providers.IsUpstreamSchemaRejection(err), "the error is recognized as a schema rejection")
+	assert.Equal(t, 0, fallback.calls, "no cross-binding failover within the dispatch loop")
+}
+
 func TestDispatchWithFallback_RetriesOnTransportError(t *testing.T) {
 	primary := &fakeClient{
 		name:     "fireworks",

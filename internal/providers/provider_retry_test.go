@@ -129,3 +129,89 @@ func TestIsUpstreamCapabilityRejection(t *testing.T) {
 	assert.False(t, providers.IsUpstreamCapabilityRejection(nil))
 	assert.False(t, providers.IsUpstreamCapabilityRejection(fmt.Errorf("transport blew up")))
 }
+
+// TestIsUpstreamSchemaRejection pins the phrase set for the Fireworks
+// grammar-compiler 400 ("Conflict in schema definitions") and asserts the class
+// is NOT treated as same-binding-retryable, model-not-found, or a capability
+// rejection — it is a cross-binding rescue signal only.
+func TestIsUpstreamSchemaRejection(t *testing.T) {
+	cases := []struct {
+		name   string
+		status int
+		body   string
+		want   bool
+	}{
+		{
+			name:   "fireworks schema-definition conflict",
+			status: http.StatusBadRequest,
+			body:   `{"error":{"message":"Conflict in schema definitions for key ‘description’. Previous: (pattern: ^[^\\n\\r]*$), New: (pattern: ^[\\s\\S]{0,300}$)"}}`,
+			want:   true,
+		},
+		{
+			name:   "grammar compile failure",
+			status: http.StatusBadRequest,
+			body:   `{"error":{"message":"failed to compile grammar for tool 'Task'"}}`,
+			want:   true,
+		},
+		{
+			name:   "case insensitive",
+			status: http.StatusBadRequest,
+			body:   `{"error":{"message":"Invalid Tool Schema: unexpected key"}}`,
+			want:   true,
+		},
+		{
+			name:   "ordinary validation 400 is not a schema rejection",
+			status: http.StatusBadRequest,
+			body:   `{"error":{"message":"messages: at least one message is required"}}`,
+			want:   false,
+		},
+		{
+			name:   "capability rejection is a different class",
+			status: http.StatusBadRequest,
+			body:   `{"error":{"message":"not a multimodal model"}}`,
+			want:   false,
+		},
+		{
+			name:   "500 is not a schema rejection",
+			status: http.StatusInternalServerError,
+			body:   `{"error":{"message":"Conflict in schema definitions"}}`,
+			want:   false,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := &providers.UpstreamErrorResponse{Status: tc.status, Body: []byte(tc.body)}
+			assert.Equal(t, tc.want, providers.IsUpstreamSchemaRejection(err))
+			if tc.want {
+				assert.False(t, providers.IsRetryable(err),
+					"a schema rejection must not trigger same-binding retries (identical re-POST 400s)")
+				assert.False(t, providers.IsUpstreamModelNotFound(err))
+				assert.False(t, providers.IsUpstreamCapabilityRejection(err),
+					"schema rejection is cross-binding retryable; capability rejection is not")
+			}
+		})
+	}
+	assert.False(t, providers.IsUpstreamSchemaRejection(nil))
+	assert.False(t, providers.IsUpstreamSchemaRejection(fmt.Errorf("transport blew up")))
+}
+
+// TestUpstreamErrorBodyMessage pins the buffered-body extraction used by the
+// ProxyMessages complete log: nested error.message wins, top-level message is
+// the fallback, and a non-JSON body is returned truncated rather than dropped.
+func TestUpstreamErrorBodyMessage(t *testing.T) {
+	nested := &providers.UpstreamErrorResponse{Status: 400, Body: []byte(`{"error":{"message":"Conflict in schema definitions for key ‘description’","type":"invalid_request_error"}}`)}
+	assert.Equal(t, "Conflict in schema definitions for key ‘description’", providers.UpstreamErrorBodyMessage(nested))
+
+	toplevel := &providers.UpstreamErrorResponse{Status: 400, Body: []byte(`{"message":"bad request"}`)}
+	assert.Equal(t, "bad request", providers.UpstreamErrorBodyMessage(toplevel))
+
+	raw := &providers.UpstreamErrorResponse{Status: 502, Body: []byte("Bad Gateway from LB")}
+	assert.Equal(t, "Bad Gateway from LB", providers.UpstreamErrorBodyMessage(raw))
+
+	assert.Equal(t, "", providers.UpstreamErrorBodyMessage(nil))
+	assert.Equal(t, "", providers.UpstreamErrorBodyMessage(&providers.UpstreamStatusError{Status: 400}))
+	assert.Equal(t, "", providers.UpstreamErrorBodyMessage(&providers.UpstreamErrorResponse{Status: 400}))
+
+	big := &providers.UpstreamErrorResponse{Status: 400, Body: []byte(strings.Repeat("x", 5000))}
+	assert.LessOrEqual(t, len(providers.UpstreamErrorBodyMessage(big)), 1024, "body is capped")
+}

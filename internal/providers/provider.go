@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/tidwall/gjson"
 	"net/http"
 	"net/url"
 	"sort"
@@ -407,6 +408,69 @@ func IsUpstreamCapabilityRejection(err error) bool {
 		}
 	}
 	return false
+}
+
+// schemaRejectionPhrases are prose 400 bodies meaning the provider compiled the
+// request's tool schemas into a decode-time grammar and rejected them. Unlike
+// capabilityRejectionPhrases (a property of the model — retry identically
+// elsewhere), a schema/grammar rejection is a property of this provider's
+// grammar compiler, so a sibling or baseline binding CAN serve the same
+// request. Keep phrases narrow — a loose match rescues a genuinely malformed
+// client request onto a different provider, masking the client bug.
+var schemaRejectionPhrases = []string{
+	// Fireworks grammar-compiler conflict across tool schemas.
+	"conflict in schema definitions",
+	// Generic grammar/structured-output rejection phrasings.
+	"failed to compile grammar",
+	"could not compile grammar",
+	"invalid tool schema",
+	"invalid function schema",
+	"schema is not representable",
+	"invalid input schema",
+}
+
+// IsUpstreamSchemaRejection reports whether err is a buffered upstream 400 from
+// the provider's tool-schema/grammar compilation — the class behind the
+// Fireworks "Conflict in schema definitions" dead turns. Cross-binding
+// retryable (a different provider's compiler accepts the same schemas); not a
+// same-binding retry signal (identical re-POST 400s identically).
+func IsUpstreamSchemaRejection(err error) bool {
+	var buffered *UpstreamErrorResponse
+	if !errors.As(err, &buffered) || buffered.Status != http.StatusBadRequest {
+		return false
+	}
+	body := strings.ToLower(string(buffered.Body))
+	for _, phrase := range schemaRejectionPhrases {
+		if strings.Contains(body, phrase) {
+			return true
+		}
+	}
+	return false
+}
+
+// UpstreamErrorBodyMessage extracts the provider's error message from a
+// buffered non-2xx body for diagnostics. Prefers the nested
+// {"error":{"message": ...}} shape both OpenAI-compat and Anthropic emit, then
+// top-level "message", then a truncated raw body. Returns "" for non-buffered
+// errors or an unhelpfully empty body. Capped so a pathological body can't
+// bloat the log line.
+func UpstreamErrorBodyMessage(err error) string {
+	const maxBodyLogBytes = 1024
+	var buffered *UpstreamErrorResponse
+	if !errors.As(err, &buffered) || len(buffered.Body) == 0 {
+		return ""
+	}
+	body := buffered.Body
+	if len(body) > maxBodyLogBytes {
+		body = body[:maxBodyLogBytes]
+	}
+	if msg := gjson.GetBytes(body, "error.message"); msg.Exists() {
+		return msg.String()
+	}
+	if msg := gjson.GetBytes(body, "message"); msg.Exists() {
+		return msg.String()
+	}
+	return strings.TrimSpace(string(body))
 }
 
 // PreparedRequest holds the encoded target-format request body and format-specific header overrides.

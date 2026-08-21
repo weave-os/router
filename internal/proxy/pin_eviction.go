@@ -14,9 +14,13 @@ import (
 )
 
 // pinEvictionStrikeThreshold is the consecutive-non-retryable-4xx count that
-// expires a sticky pin. Two (not one) tolerates a single transient 400
-// without flushing a working pin's prompt cache.
-const pinEvictionStrikeThreshold = 2
+// expires a sticky pin. One strike: a non-retryable 400 (provider grammar/
+// schema rejection, capability rejection) is deterministic per-arm, so a
+// second attempt on the same pinned model 400s identically — waiting for two
+// locks the session onto a dead arm for its lifetime (the 2026-08-21 Fireworks
+// "Conflict in schema definitions" lockout). The prompt-cache cost of a single
+// spurious eviction is far cheaper than a dead session.
+const pinEvictionStrikeThreshold = 1
 
 // expireSessionPin writes an already-expired sessionpin.Pin so the next
 // turn's loadPin discards it and the session re-routes via the cluster

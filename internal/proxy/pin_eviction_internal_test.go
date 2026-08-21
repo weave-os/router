@@ -115,7 +115,11 @@ func nonZeroSessionKey() [sessionpin.SessionKeyLen]byte {
 
 // A single 400 must increment the counter but not evict — eviction waits for
 // a second consecutive strike so one-off bad requests don't flush a warm pin.
-func TestMaybeEvictPin_FirstStrikeOnlyIncrements(t *testing.T) {
+// The 2026-08-21 Fireworks "Conflict in schema definitions" lockout: a
+// non-retryable 4xx is deterministic per-arm, so a single strike must evict —
+// waiting for a second leaves the session pinned to a model that 400s
+// identically on every subsequent turn.
+func TestMaybeEvictPin_FirstStrikeExpires(t *testing.T) {
 	store := &evictionStubPinStore{incrementNext: []int{1}}
 	svc := newEvictionTestService(store)
 
@@ -132,7 +136,8 @@ func TestMaybeEvictPin_FirstStrikeOnlyIncrements(t *testing.T) {
 
 	assert.Equal(t, 1, store.incrementCalls, "first 4xx must increment exactly once")
 	assert.Equal(t, 0, store.resetCalls, "reset must not fire on a failed turn")
-	assert.Empty(t, store.upserts, "first strike must not expire the pin — eviction waits for strike #2")
+	require.Len(t, store.upserts, 1, "one deterministic 4xx strike must evict the pin")
+	assert.True(t, store.upserts[0].PinnedUntil.Before(time.Now()), "eviction expires the pin")
 }
 
 // Guards against the session 93e918bf regression, where no eviction path existed.
