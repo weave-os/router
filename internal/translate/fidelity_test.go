@@ -68,9 +68,8 @@ func TestPrepareGemini_SchemaFidelity(t *testing.T) {
 			},
 		},
 		{
-			// A dropped branch can leave sibling `required` referencing a
-			// property no surviving branch declares; Gemini rejects that
-			// outright, so the prune must run whenever a branch was widened.
+			// A widened branch can orphan sibling `required` entries;
+			// Gemini rejects required-without-property, so prune after widening.
 			name:   "required is pruned when the branch that declared it is dropped",
 			schema: `{"type":"object","required":["b"],"allOf":[{"type":"object","properties":{"a":{"type":"string"}},"pattern":"^1"},{"type":"object","properties":{"b":{"type":"string"}},"pattern":"^2"}]}`,
 			check: func(t *testing.T, schema map[string]any) {
@@ -88,10 +87,8 @@ func TestPrepareGemini_SchemaFidelity(t *testing.T) {
 			},
 		},
 		{
-			// oneOf has no widening path (selecting a branch would silently
-			// narrow the tool's input language), so the schema is still
-			// unrepresentable — but the per-tool backstop keeps the request
-			// alive by emitting the declaration without parameters.
+			// oneOf has no safe widening path — per-tool backstop degrades
+			// to no parameters rather than silently narrowing the input language.
 			name:         "oneOf degrades the tool rather than selecting a branch",
 			schema:       `{"oneOf":[{"type":"string"},{"type":"number"}]}`,
 			wantDegraded: true,

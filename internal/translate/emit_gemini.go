@@ -490,10 +490,8 @@ func writeGeminiToolsFromOpenAI(jw *jsonWriter, body []byte) error {
 			}
 			clean, err := sanitizeSchemaForGemini(schema)
 			if err != nil {
-				// The client validates/executes tool calls itself and toolcheck
-				// validates model output against the ORIGINAL schema, so a
-				// declaration with no parameters is safe — a hard failure here
-				// would 502 the whole request over one unrepresentable tool.
+				// Tool schemas are generation hints; a parameterless declaration is
+				// safe — the client validates against the ORIGINAL schema.
 				observability.Get().Warn("Gemini tool schema is unrepresentable — emitting declaration without parameters", "tool_name", name, "err", err)
 			} else {
 				declaration["parameters"] = clean

@@ -1277,10 +1277,8 @@ func TestPrepareGemini_ConvertsBoolPropertySchemas(t *testing.T) {
 }
 
 func TestPrepareGemini_SendMessageToAllOfRegression(t *testing.T) {
-	// Prod regression: a Claude Code SendMessage-shaped tool whose "to"
-	// property is an allOf of two same-typed branches with differing
-	// descriptions. This used to fail the whole request with
-	// ErrGeminiSchemaIncompatible ("branches conflict"); it must now widen.
+	// Regression: allOf branches with differing descriptions must widen
+	// (annotation merge), not fail the whole request.
 	body := []byte(`{
 		"messages": [{"role":"user","content":"hi"}],
 		"tools": [{
@@ -1317,9 +1315,7 @@ func TestPrepareGemini_SendMessageToAllOfRegression(t *testing.T) {
 }
 
 func TestPrepareGemini_UnrepresentableToolSchemaDegradesToNoParameters(t *testing.T) {
-	// oneOf has no widening path (selecting a branch would silently narrow
-	// the tool's input language) — the per-tool backstop emits without
-	// parameters, keeping other healthy tools alive.
+	// oneOf has no widening path — per-tool backstop keeps healthy tools alive.
 	body := []byte(`{
 		"messages": [{"role":"user","content":"hi"}],
 		"tools": [

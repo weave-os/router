@@ -3155,9 +3155,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	primaryProvider := decision.Provider
 	var winnerIdx int
 	if attemptBuildErr != nil {
-		// Nothing was dispatched — the build failure enters the rescue chain as
-		// if every binding failed pre-commit. preludeBuf is uncommitted by
-		// construction: Seal() only happens inside a dispatched attempt.
+		// Nothing was dispatched — enters the rescue chain as if every binding pre-committed failed.
 		winnerIdx, proxyErr = -1, attemptBuildErr
 	} else {
 		winnerIdx, proxyErr = s.dispatchWithFallback(ctx, failoverInputs{
