@@ -3082,6 +3082,16 @@ weave_sync_commands 2>/dev/null || true
 # refresh re-fetches the setting and rewrites the cache atomically, so the
 # next turn picks up the fresh value; a refresh failure simply leaves the
 # cache stale, which keeps failing open rather than pinning the gate closed.
+#
+# Claude Code runs the statusline every turn, so several invocations can see a
+# stale cache at once. Letting each fetch independently is not safe: the
+# responses can land out of order, and the loser's mv would replace a newer
+# setting with an older one AND stamp it fresh, pinning the gate on a stale
+# value for a full TTL. At most one refresh per cache key therefore runs at a
+# time, guarded by a mkdir mutex (atomic everywhere; flock is absent on macOS)
+# held across both the fetch and the write. A refresh that finds the mutex held
+# exits rather than queueing — the in-flight one is at least as fresh as
+# anything it would fetch, so waiting only to overwrite it is the bug.
 weave_hidden_gate() {
   command -v curl >/dev/null 2>&1 || return 1
   command -v jq >/dev/null 2>&1 || return 1
@@ -3124,6 +3134,24 @@ weave_hidden_gate() {
   # (https) get /v1/display-settings appended.
   (
     exec </dev/null
+
+    # Take the per-cache-key mutex, or bail. mkdir is the portable atomic
+    # test-and-set. A crashed holder would otherwise block refreshes forever,
+    # so a lock older than the fetch timeout is treated as abandoned and
+    # reclaimed. Releasing from a trap covers every exit path below.
+    lock="$cache.lock"
+    if ! mkdir "$lock" 2>/dev/null; then
+      lock_mtime="$(stat -c %Y "$lock" 2>/dev/null || stat -f %m "$lock" 2>/dev/null)" || lock_mtime=0
+      lock_now="$(date +%s 2>/dev/null)" || lock_now=0
+      if [ "${lock_mtime:-0}" -gt 0 ] && [ $(( lock_now - lock_mtime )) -gt 30 ]; then
+        rm -rf "$lock" 2>/dev/null
+        mkdir "$lock" 2>/dev/null || exit 0
+      else
+        exit 0
+      fi
+    fi
+    trap 'rmdir "$lock" 2>/dev/null' EXIT
+
     self_dir="$(cd "$(dirname "$self")" 2>/dev/null && pwd)"
     settings_base="$HOME"
     case "$self_dir" in

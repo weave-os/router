@@ -545,6 +545,62 @@ out="$(echo "{\"model\":{\"id\":\"$STALE_MODEL\"},\"transcript_path\":\"$transcr
 check_contains "cache miss with an unreachable router renders normally" "$out" "deepseek/deepseek-v4-pro"
 sleep 1
 check "failed refresh writes no cache file" "$(test -f "$cache_file" && echo present || echo absent)" "absent"
+
+# Concurrent refreshes must not both fetch: two in-flight requests can complete
+# out of order, and the loser's write would replace a newer setting with an
+# older one AND stamp it fresh, pinning the gate on a stale value for a whole
+# TTL. The curl shim makes that ordering deterministic — whichever refresh
+# calls first is stalled serving hide=true until a second one answers
+# hide=false — so an unserialized implementation performs two fetches and ends
+# on the stale "1", while a serialized one fetches exactly once.
+c="$work/g7"; mkdir -p "$c/proj/.claude" "$c/cache" "$c/bin"
+write_install "$c/proj" project "rk_key" "file://$c/ds.json"
+printf '{"hide_terminal_surfaces": true}' > "$c/ds.json"
+cache_file="$(gate_cache "$c/cache" "$c/proj/.claude/cc-statusline.sh")"
+cat > "$c/bin/curl" <<'SHIM'
+#!/usr/bin/env bash
+# Claim a turn number atomically — mkdir is the test-and-set; a read-then-write
+# counter races here exactly as it would in the code under test.
+n=1
+while ! mkdir "$WEAVE_TEST_TURNS/$n" 2>/dev/null; do n=$((n + 1)); done
+echo "$n" >> "$WEAVE_TEST_CALLS"
+if [ "$n" -eq 1 ]; then
+  # Stall the stale responder until the fresh one has written, or until the
+  # deadline passes (serialized runs never produce a second call, and this
+  # test must not hang waiting for one that will never come).
+  for _ in $(seq 1 60); do
+    [ -f "$WEAVE_TEST_RELEASE" ] && break
+    sleep 0.05
+  done
+  printf '{"hide_terminal_surfaces": true}'
+else
+  printf '{"hide_terminal_surfaces": false}'
+  : > "$WEAVE_TEST_RELEASE"
+fi
+SHIM
+chmod +x "$c/bin/curl"
+mkdir -p "$c/turns"; : > "$c/calls"
+for _ in 1 2; do
+  echo "{\"model\":{\"id\":\"$STALE_MODEL\"},\"transcript_path\":\"$transcript\"}" \
+    | PATH="$c/bin:$PATH" XDG_CACHE_HOME="$c/cache" WEAVE_STATUSLINE_UPDATE=0 \
+      WEAVE_COMMANDS_UPDATE=0 HOME="$c/home" WEAVE_ROUTER_BASE_URL= ANTHROPIC_BASE_URL= \
+      WEAVE_ROUTER_KEY= ANTHROPIC_CUSTOM_HEADERS= WEAVE_TEST_TURNS="$c/turns" \
+      WEAVE_TEST_CALLS="$c/calls" WEAVE_TEST_RELEASE="$c/release" \
+      bash "$c/proj/.claude/cc-statusline.sh" >/dev/null 2>&1 &
+done
+wait
+# Both refreshes are detached, so the foreground exit says nothing about them.
+wait_for 15 test -f "$cache_file"
+sleep 3
+# The discriminating assertion. Asserting the cached VALUE instead would be
+# tautological: with one fetch the value is turn 1's either way.
+check "concurrent refreshes never fetch at the same time" \
+  "$(wc -l < "$c/calls" | tr -d ' ')" 1
+# The second invocation must still have rendered rather than blocking on the
+# mutex the first one holds — a refresh that queues would stall the turn.
+check "the refresh that loses the mutex leaves the cache to the winner" \
+  "$(cat "$cache_file" 2>/dev/null)" "1"
+
 # install.sh ships the statusline as a heredoc; genprices keeps only the price
 # block in sync, so a code edit to one copy silently diverges from the other.
 installer="$script_dir/../install.sh"
