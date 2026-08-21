@@ -410,13 +410,11 @@ func IsUpstreamCapabilityRejection(err error) bool {
 	return false
 }
 
-// schemaRejectionPhrases are prose 400 bodies meaning the provider compiled the
-// request's tool schemas into a decode-time grammar and rejected them. Unlike
-// capabilityRejectionPhrases (a property of the model — retry identically
-// elsewhere), a schema/grammar rejection is a property of this provider's
-// grammar compiler, so a sibling or baseline binding CAN serve the same
-// request. Keep phrases narrow — a loose match rescues a genuinely malformed
-// client request onto a different provider, masking the client bug.
+// schemaRejectionPhrases are prose 400 bodies from provider grammar/schema
+// compilation. Unlike capability rejections (a model property, same phrasing on
+// any binding), a schema rejection is compiler-specific — a sibling or baseline
+// binding CAN accept the same schemas. Keep phrases narrow: a loose match
+// rescues a genuinely malformed request onto another provider, masking the bug.
 var schemaRejectionPhrases = []string{
 	// Fireworks grammar-compiler conflict across tool schemas.
 	"conflict in schema definitions",
@@ -448,12 +446,10 @@ func IsUpstreamSchemaRejection(err error) bool {
 	return false
 }
 
-// UpstreamErrorBodyMessage extracts the provider's error message from a
-// buffered non-2xx body for diagnostics. Prefers the nested
-// {"error":{"message": ...}} shape both OpenAI-compat and Anthropic emit, then
-// top-level "message", then a truncated raw body. Returns "" for non-buffered
-// errors or an unhelpfully empty body. Capped so a pathological body can't
-// bloat the log line.
+// UpstreamErrorBodyMessage extracts a provider's error message from a buffered
+// non-2xx body for diagnostics: prefers {"error":{"message":...}}, then
+// top-level "message", then truncated raw body. Returns "" for non-buffered or
+// empty bodies. Capped at 1 KiB.
 func UpstreamErrorBodyMessage(err error) string {
 	const maxBodyLogBytes = 1024
 	var buffered *UpstreamErrorResponse

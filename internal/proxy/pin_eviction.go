@@ -20,7 +20,12 @@ import (
 // locks the session onto a dead arm for its lifetime (the 2026-08-21 Fireworks
 // "Conflict in schema definitions" lockout). The prompt-cache cost of a single
 // spurious eviction is far cheaper than a dead session.
-const pinEvictionStrikeThreshold = 1
+// Generic counter: a single request-specific 400 (validation, malformed body)
+// must not throw away a working pin's prompt cache — the deterministic
+// dead-arm classes (schema/capability/intrinsically-incompatible) evict
+// immediately via maybeExpireDeadArmPin, so this threshold only guards the
+// residual non-deterministic 4xx noise.
+const pinEvictionStrikeThreshold = 2
 
 // expireSessionPin writes an already-expired sessionpin.Pin so the next
 // turn's loadPin discards it and the session re-routes via the cluster
@@ -128,21 +133,20 @@ func (s *Service) evictPinAfterDegenerateResponse(
 }
 
 // maybeExpireDeadArmPin expires the sticky pin when the pinned arm provably
-// cannot serve the request shape (schema/capability/intrinsically-incompatible
-// rejection) even if a sibling/baseline rescue served THIS turn. Without it a
-// successful rescue nils proxyErr, maybeEvictPinAfterUpstreamErr resets the
-// strike counter, and the dead arm stays pinned — every later turn re-burns the
-// deterministic 400 then rescues again. The rejection flag is snapshotted
-// before the rescue runs so a success doesn't hide it.
+// cannot serve the request shape (schema/capability rejection) even after a
+// sibling/baseline rescue. A successful rescue nils proxyErr, so
+// maybeEvictPinAfterUpstreamErr resets the strike counter and the dead arm
+// stays pinned — every subsequent turn burns another deterministic 400. Never
+// expires a user force-model pin (HasPrefix covers the +tier_clamp suffix).
 func (s *Service) maybeExpireDeadArmPin(
 	ctx context.Context,
-	rescued bool,
 	deadArmRejected bool,
+	decisionReason string,
 	installationID uuid.UUID,
 	sessionKey [sessionpin.SessionKeyLen]byte,
 	role string,
 ) {
-	if !rescued || !deadArmRejected || s.pinStore == nil || installationID == uuid.Nil || sessionKey == ([sessionpin.SessionKeyLen]byte{}) {
+	if !deadArmRejected || s.pinStore == nil || installationID == uuid.Nil || sessionKey == ([sessionpin.SessionKeyLen]byte{}) || strings.HasPrefix(decisionReason, translate.ReasonUserForceModel) {
 		return
 	}
 	log := observability.FromContext(ctx)

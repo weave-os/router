@@ -3645,11 +3645,9 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		s.maybeEvictPinAfterUpstreamErr(ctx, stickyHit, proxyErr, decision.Reason, installationID, routeRes.SessionKey, stickyStateRole(routeRes))
 
 		// A schema/capability/incompatible rejection marks the pinned arm provably
-		// dead for this request shape — the pin must not stay on it even when the
-		// sibling/baseline rescue served the turn, or every later turn re-burns the
-		// same deterministic 400 (then rescues again). Expire it now, regardless of
-		// proxyErr (the rescue outcome), so the next turn re-routes clean.
-		s.maybeExpireDeadArmPin(ctx, baselineFailoverUsed || siblingFailoverUsed, deadArmRejected, installationID, routeRes.SessionKey, stickyStateRole(routeRes))
+		// dead for this request shape — the pin must not stay on it even when a
+		// rescue served the turn (which would nill proxyErr and reset the counter).
+		s.maybeExpireDeadArmPin(ctx, deadArmRejected, decision.Reason, installationID, routeRes.SessionKey, stickyStateRole(routeRes))
 
 		// Two-strike provider disable: complements the 4xx eviction above;
 		// 529 is retryable in-turn so it never trips that counter.

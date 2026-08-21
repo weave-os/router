@@ -6,12 +6,10 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// TestSanitizeOpenAIToolSchema_ConflictingPatternsStayUnifierSafe covers the
-// 2026-08-21 Fireworks "Conflict in schema definitions for key 'description'"
-// lockout: two tools declaring the same property with different patterns must
-// not, after sanitization, produce conflicting rendered definitions. Identical
-// patterns must stay byte-identical (no false conflict); different patterns must
-// differ; and the raw pattern must not leak verbatim into the description.
+// TestSanitizeOpenAIToolSchema_ConflictingPatternsStayUnifierSafe guards the
+// 2026-08-21 Fireworks "Conflict in schema definitions" fix: identical patterns
+// must stay byte-identical; different patterns must differ; raw regex must not
+// appear verbatim in the description.
 func TestSanitizeOpenAIToolSchema_ConflictingPatternsStayUnifierSafe(t *testing.T) {
 	prop := func(pattern string) map[string]any {
 		return map[string]any{
