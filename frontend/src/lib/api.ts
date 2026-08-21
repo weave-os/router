@@ -260,6 +260,16 @@ export const api = {
         body: JSON.stringify({ model_aliases: modelAliases }),
       }),
     delete: (id: string) => request<void>(`/provider-keys/${id}`, { method: "DELETE" }),
+    // Lists the model IDs a saved key's endpoint publishes.
+    listUpstreamModels: (id: string) =>
+      request<{ models: string[] }>(`/provider-keys/${id}/models`),
+    // Lists an endpoint's models before the key is saved; the credential is
+    // used for the one upstream call and never persisted.
+    discoverModels: (provider: string, key: string, baseURL?: string) =>
+      request<{ models: string[] }>("/provider-keys/discover-models", {
+        method: "POST",
+        body: JSON.stringify({ provider, key, base_url: baseURL }),
+      }),
   },
   config: {
     get: () => request<RouterConfig>("/config"),

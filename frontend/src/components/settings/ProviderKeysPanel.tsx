@@ -67,6 +67,33 @@ function aliasMapFrom(rows: AliasRow[]): Record<string, string> {
   return out;
 }
 
+// matchesCatalogID reports whether an endpoint-published ID is unambiguously
+// the given catalog model under a vendor prefix (e.g. "openai-gpt-5" or
+// "openai/gpt-5" for catalog "gpt-5").
+function matchesCatalogID(endpointID: string, model: string): boolean {
+  const id = endpointID.toLowerCase();
+  const m = model.toLowerCase();
+  return id === m || id.endsWith(`-${m}`) || id.endsWith(`/${m}`) || id.endsWith(`.${m}`);
+}
+
+// autoMatchRows pre-fills alias rows for catalog models the endpoint publishes
+// under exactly one recognizable name. Ambiguous (multiple candidates) or
+// already-mapped models are left alone rather than guessed.
+function autoMatchRows(
+  models: DeployedModel[],
+  endpointModels: string[],
+  existing: AliasRow[],
+): AliasRow[] {
+  const taken = new Set(existing.map(r => r.model.trim()).filter(m => m !== ""));
+  const added: AliasRow[] = [];
+  for (const m of models) {
+    if (taken.has(m.model)) continue;
+    const matches = endpointModels.filter(id => matchesCatalogID(id, m.model));
+    if (matches.length === 1) added.push({ model: m.model, alias: matches[0] });
+  }
+  return added;
+}
+
 // ModelAliasEditor maps catalog model IDs to the names a custom endpoint
 // publishes them under. Routing, pricing, and analytics stay keyed by the
 // catalog ID; only the outbound request carries the alias.
@@ -75,54 +102,112 @@ function ModelAliasEditor({
   onChange,
   models,
   idPrefix,
+  endpointModels,
+  onFetchModels,
+  fetching,
+  fetchHint,
 }: {
   rows: AliasRow[];
   onChange: (rows: AliasRow[]) => void;
   models: DeployedModel[];
   idPrefix: string;
+  // Endpoint-published model IDs, once fetched; null until then.
+  endpointModels: string[] | null;
+  onFetchModels?: () => void;
+  fetching?: boolean;
+  // Why fetching is unavailable right now (e.g. missing key/URL); shown next
+  // to a disabled button.
+  fetchHint?: string | null;
 }) {
   const listID = `${idPrefix}-catalog-models`;
+  const endpointListID = `${idPrefix}-endpoint-models`;
   return (
     <div className="flex flex-col gap-2">
-      <span className="text-xs font-medium text-foreground">Model aliases (optional)</span>
+      <div className="flex items-center justify-between">
+        <span className="text-xs font-medium text-foreground">Model aliases (optional)</span>
+        {onFetchModels != null && (
+          <div className="flex items-center gap-2">
+            {fetchHint != null && (
+              <Text className="text-2xs text-muted-foreground">{fetchHint}</Text>
+            )}
+            <Button
+              type="button"
+              appearance={Appearance.Outlined}
+              size="sm"
+              onClick={onFetchModels}
+              disabled={fetching || fetchHint != null}
+            >
+              {fetching ? "Fetching…" : "Fetch models from endpoint"}
+            </Button>
+          </div>
+        )}
+      </div>
       <datalist id={listID}>
         {models.map(m => (
           <option key={m.model} value={m.model} />
         ))}
       </datalist>
-      {rows.map((row, i) => (
-        <div key={i} className="grid grid-cols-[1fr_1fr_auto] items-center gap-2">
-          <Input
-            id={`${idPrefix}-model-${i}`}
-            list={listID}
-            autoComplete="off"
-            placeholder="gpt-5"
-            value={row.model}
-            onChange={e =>
-              onChange(rows.map((r, j) => (i === j ? { ...r, model: e.target.value } : r)))
-            }
-          />
-          <Input
-            id={`${idPrefix}-alias-${i}`}
-            autoComplete="off"
-            placeholder="openai-gpt-5"
-            value={row.alias}
-            onChange={e =>
-              onChange(rows.map((r, j) => (i === j ? { ...r, alias: e.target.value } : r)))
-            }
-          />
-          <Button
-            type="button"
-            appearance={Appearance.Hollow}
-            intent={Intent.Danger}
-            size="icon"
-            onClick={() => onChange(rows.filter((_, j) => j !== i))}
-            title="Remove alias."
-          >
-            <Trash2 className="size-3.5" />
-          </Button>
-        </div>
-      ))}
+      {endpointModels != null && (
+        <datalist id={endpointListID}>
+          {endpointModels.map(id => (
+            <option key={id} value={id} />
+          ))}
+        </datalist>
+      )}
+      {endpointModels != null && endpointModels.length === 0 && (
+        <Text className="text-2xs text-muted-foreground">
+          The endpoint returned no models; enter aliases manually.
+        </Text>
+      )}
+      {rows.map((row, i) => {
+        const alias = row.alias.trim();
+        const unlisted =
+          endpointModels != null &&
+          endpointModels.length > 0 &&
+          alias !== "" &&
+          !endpointModels.includes(alias);
+        return (
+          <div key={i} className="flex flex-col gap-1">
+            <div className="grid grid-cols-[1fr_1fr_auto] items-center gap-2">
+              <Input
+                id={`${idPrefix}-model-${i}`}
+                list={listID}
+                autoComplete="off"
+                placeholder="gpt-5"
+                value={row.model}
+                onChange={e =>
+                  onChange(rows.map((r, j) => (i === j ? { ...r, model: e.target.value } : r)))
+                }
+              />
+              <Input
+                id={`${idPrefix}-alias-${i}`}
+                list={endpointModels != null && endpointModels.length > 0 ? endpointListID : undefined}
+                autoComplete="off"
+                placeholder="openai-gpt-5"
+                value={row.alias}
+                onChange={e =>
+                  onChange(rows.map((r, j) => (i === j ? { ...r, alias: e.target.value } : r)))
+                }
+              />
+              <Button
+                type="button"
+                appearance={Appearance.Hollow}
+                intent={Intent.Danger}
+                size="icon"
+                onClick={() => onChange(rows.filter((_, j) => j !== i))}
+                title="Remove alias."
+              >
+                <Trash2 className="size-3.5" />
+              </Button>
+            </div>
+            {unlisted && (
+              <Text className="text-2xs text-amber-600">
+                “{alias}” is not in the endpoint&apos;s published model list.
+              </Text>
+            )}
+          </div>
+        );
+      })}
       <div>
         <Button
           type="button"
@@ -158,6 +243,10 @@ export function ProviderKeysPanel() {
   const [savingAliases, setSavingAliases] = useState(false);
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState<string | null>(null);
+  const [newEndpointModels, setNewEndpointModels] = useState<string[] | null>(null);
+  const [fetchingNewModels, setFetchingNewModels] = useState(false);
+  const [editEndpointModels, setEditEndpointModels] = useState<string[] | null>(null);
+  const [fetchingEditModels, setFetchingEditModels] = useState(false);
 
   function load() {
     api.providerKeys
@@ -213,6 +302,52 @@ export function ProviderKeysPanel() {
   // A WIF key carries no secret, so an empty key field is the expected state.
   const keyMissing = !usingWIF && keyValue.trim() === "";
   const saveDisabled = saving || keyMissing || baseURLMissing || keypairIncomplete;
+  // Pre-save discovery can only authenticate with a token sent as-is; derived
+  // auth (key pair, WIF) needs the stored key, so those save first and fetch
+  // from the saved entry.
+  const fetchHint =
+    authTypeOffered && authType !== "bearer"
+      ? "Save the key first, then fetch from the saved entry."
+      : keyMissing
+        ? "Enter the API key first."
+        : baseURLMissing
+          ? "Enter the endpoint URL first."
+          : null;
+
+  async function handleFetchNewModels() {
+    if (provider == null) return;
+    setFetchingNewModels(true);
+    setError(null);
+    try {
+      const r = await api.providerKeys.discoverModels(
+        provider,
+        keyValue.trim(),
+        baseURL.trim() || undefined,
+      );
+      const models = r.models ?? [];
+      setNewEndpointModels(models);
+      setAliasRows(rows => [...rows, ...autoMatchRows(catalogModels, models, rows)]);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Failed to fetch models from the endpoint.");
+    } finally {
+      setFetchingNewModels(false);
+    }
+  }
+
+  async function handleFetchEditModels(id: string) {
+    setFetchingEditModels(true);
+    setError(null);
+    try {
+      const r = await api.providerKeys.listUpstreamModels(id);
+      const models = r.models ?? [];
+      setEditEndpointModels(models);
+      setEditAliasRows(rows => [...rows, ...autoMatchRows(catalogModels, models, rows)]);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Failed to fetch models from the endpoint.");
+    } finally {
+      setFetchingEditModels(false);
+    }
+  }
 
   async function handleSave(e: React.FormEvent) {
     e.preventDefault();
@@ -236,6 +371,7 @@ export function ProviderKeysPanel() {
       setAuthAccount("");
       setAuthUser("");
       setAliasRows([]);
+      setNewEndpointModels(null);
       load();
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Failed to save key");
@@ -403,6 +539,10 @@ export function ProviderKeysPanel() {
                 onChange={setAliasRows}
                 models={catalogModels}
                 idPrefix="new-key"
+                endpointModels={newEndpointModels}
+                onFetchModels={authTypeOffered ? handleFetchNewModels : undefined}
+                fetching={fetchingNewModels}
+                fetchHint={fetchHint}
               />
               <div>
                 <Button
@@ -493,6 +633,7 @@ export function ProviderKeysPanel() {
                           }
                           setEditingAliases(k.id);
                           setEditAliasRows(aliasRowsFrom(k.model_aliases));
+                          setEditEndpointModels(null);
                         }}
                       >
                         {editingAliases === k.id ? "Cancel" : "Edit aliases"}
@@ -516,6 +657,9 @@ export function ProviderKeysPanel() {
                         onChange={setEditAliasRows}
                         models={catalogModels}
                         idPrefix={`key-${k.id}`}
+                        endpointModels={editEndpointModels}
+                        onFetchModels={() => handleFetchEditModels(k.id)}
+                        fetching={fetchingEditModels}
                       />
                       <div>
                         <Button

@@ -33,6 +33,27 @@ func (s *Service) resolveUpstreamSecrets(ctx context.Context, keys []*ExternalAP
 	return resolved
 }
 
+// ExternalAPIKeyWithCredential returns one BYOK key with Plaintext resolved to
+// the credential an upstream call would use (derived auth types included), so
+// callers like upstream model discovery authenticate exactly like inference.
+func (s *Service) ExternalAPIKeyWithCredential(ctx context.Context, installationID, id string) (*ExternalAPIKey, error) {
+	keys, err := s.externalKeys.GetForInstallation(ctx, installationID)
+	if err != nil {
+		return nil, err
+	}
+	for _, key := range keys {
+		if key.ID != id {
+			continue
+		}
+		resolved := s.resolveUpstreamSecrets(ctx, []*ExternalAPIKey{key})
+		if len(resolved) == 0 || len(resolved[0].Plaintext) == 0 {
+			return nil, ErrUpstreamCredentialUnavailable
+		}
+		return resolved[0], nil
+	}
+	return nil, ErrExternalAPIKeyNotFound
+}
+
 // upstreamCredential derives the bearer value for a key whose stored secret is not itself
 // the credential.
 func (s *Service) upstreamCredential(ctx context.Context, key *ExternalAPIKey) ([]byte, error) {

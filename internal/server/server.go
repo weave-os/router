@@ -157,6 +157,10 @@ func Register(engine *gin.Engine, authSvc *auth.Service, proxySvc *proxy.Service
 		mgmt.GET("/provider-keys", admin.ListExternalKeysHandler(authSvc))
 		mgmt.POST("/provider-keys", admin.UpsertExternalKeyHandler(authSvc, deployedModels))
 		mgmt.PUT("/provider-keys/:id/model-aliases", admin.UpdateExternalKeyAliasesHandler(authSvc, deployedModels))
+		// Discovery hits the provider endpoint itself; the group's adminTimeout
+		// (10s) bounds that upstream GET /models call.
+		mgmt.GET("/provider-keys/:id/models", admin.ListUpstreamModelsHandler(authSvc, proxySvc))
+		mgmt.POST("/provider-keys/discover-models", admin.DiscoverModelsHandler(proxySvc))
 		mgmt.DELETE("/provider-keys/:id", admin.DeleteExternalKeyHandler(authSvc))
 		mgmt.GET("/config", admin.ConfigHandler)
 		mgmt.GET("/onboarding", admin.OnboardingHandler(authSvc))
