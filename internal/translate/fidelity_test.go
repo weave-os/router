@@ -94,6 +94,21 @@ func TestPrepareGemini_SchemaFidelity(t *testing.T) {
 			wantErr: translate.ErrGeminiSchemaIncompatible,
 		},
 		{
+			// pattern is a constraint, not an annotation: identical branch
+			// patterns merge, but differing ones are a conflict — keeping only
+			// the left would widen the accepted set beyond the original schema.
+			name:   "allOf identical patterns merge",
+			schema: `{"allOf":[{"type":"string","pattern":"^[A-Z]{3}$"},{"type":"string","pattern":"^[A-Z]{3}$"}]}`,
+			check: func(t *testing.T, schema map[string]any) {
+				assert.Equal(t, "^[A-Z]{3}$", schema["pattern"])
+			},
+		},
+		{
+			name:    "allOf differing patterns reject",
+			schema:  `{"allOf":[{"type":"string","pattern":"^[A-Z]+$"},{"type":"string","pattern":"^[A-Z]{3}$"}]}`,
+			wantErr: translate.ErrGeminiSchemaIncompatible,
+		},
+		{
 			name:   "allOf intersects a property declared by both branches",
 			schema: `{"allOf":[{"type":"object","properties":{"id":{"type":"string","minLength":1}}},{"type":"object","properties":{"id":{"type":"string","minLength":4}}}]}`,
 			check: func(t *testing.T, schema map[string]any) {

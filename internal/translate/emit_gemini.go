@@ -1504,13 +1504,14 @@ func mergeSchemaMaps(base, extra map[string]any, overwrite bool) map[string]any 
 
 // geminiAnnotationKeys carry no validation semantics, so two allOf branches
 // disagreeing on one is not a conflict. The left (outer/earlier) value wins.
+// pattern is deliberately absent: it is a constraint, and two branches'
+// regexes cannot be intersected — keeping only the left would widen the
+// accepted set — so differing patterns stay a conflict like pre-fix.
 var geminiAnnotationKeys = map[string]struct{}{
 	"description": {},
 	"title":       {},
 	"default":     {},
 	"example":     {},
-	// Two regexes can't be intersected; left wins, which is safe (never wider than true intersection).
-	"pattern": {},
 }
 
 // geminiStricterBoundKeys map a bound keyword to whether the intersection of
