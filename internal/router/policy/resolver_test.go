@@ -253,8 +253,8 @@ func set(values ...string) map[string]struct{} {
 	return result
 }
 
-// The allowlist desugars into ExcludedModels, so diagnostics must distinguish
-// not-allowlisted from an explicit admin exclusion via AllowedModels.
+// The resolver enforces a positive allowlist before explicit exclusions, so
+// diagnostics still distinguish not-allowlisted from admin-excluded models.
 func TestResolverReportsNotAllowlistedSeparatelyFromRequestedExclusion(t *testing.T) {
 	resolver := policy.NewResolver(
 		set("claude-opus-4-8", "claude-haiku-4-5"),
@@ -298,5 +298,24 @@ func TestResolverKeepsRequestedExclusionWhenNoAllowlist(t *testing.T) {
 	assert.Contains(t, resolved.Diagnostics, policy.Diagnostic{
 		CatalogID: "claude-opus-4-8",
 		Reason:    policy.ExclusionRequested,
+	})
+}
+
+func TestResolverDirectlyEnforcesAllowlistForStrategySpecificCandidates(t *testing.T) {
+	resolver := policy.NewResolver(
+		set("gpt-5.6-luna-pro"),
+		set(providers.ProviderOpenAI),
+		catalogRosterID,
+		policy.ManagedProviderPolicy(),
+	)
+
+	resolved := resolver.Resolve(router.Request{
+		AllowedModels: map[string]struct{}{"claude-haiku-4-5": {}},
+	})
+
+	assert.Empty(t, resolved.Candidates)
+	assert.Contains(t, resolved.Diagnostics, policy.Diagnostic{
+		CatalogID: "gpt-5.6-luna-pro",
+		Reason:    policy.ExclusionNotAllowlisted,
 	})
 }

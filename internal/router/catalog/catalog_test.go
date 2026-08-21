@@ -141,6 +141,35 @@ func TestResolveBinding_GemmaUsesNativeGoogleUpstreamID(t *testing.T) {
 	assert.Equal(t, "gemma-4-26b-a4b-it", b.UpstreamID)
 }
 
+func TestGPT56ProCatalogRowsAreDirectOpenAIRoutable(t *testing.T) {
+	cases := []struct {
+		model          string
+		inputUSDPer1M  float64
+		outputUSDPer1M float64
+	}{
+		{"gpt-5.6-luna-pro", 0.20, 1.20},
+		{"gpt-5.6-sol-pro", 2.50, 15.00},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.model, func(t *testing.T) {
+			model, ok := ByID(tc.model)
+			require.True(t, ok)
+			assert.Equal(t, TierUnknown, model.Tier)
+			assert.True(t, model.HMMTarget)
+			assert.Equal(t, 1_050_000, model.ContextWindow)
+
+			binding, ok := ResolveBinding(tc.model, map[string]struct{}{providers.ProviderOpenAI: {}})
+			require.True(t, ok)
+			assert.Equal(t, providers.ProviderOpenAI, binding.Provider)
+			assert.Empty(t, binding.UpstreamID)
+			assert.Equal(t, tc.inputUSDPer1M, binding.Price.InputUSDPer1M)
+			assert.Equal(t, tc.outputUSDPer1M, binding.Price.OutputUSDPer1M)
+			assert.Equal(t, 0.10, binding.Price.CacheReadMultiplier)
+		})
+	}
+}
+
 func TestRoutingTargetSet_FiltersByTierAndRegisteredProviders(t *testing.T) {
 	targets := RoutingTargetSet(map[string]struct{}{providers.ProviderOpenAI: {}})
 
@@ -154,6 +183,18 @@ func TestRoutingTargetSet_AcceptsAnyRegisteredFallbackBinding(t *testing.T) {
 
 	assert.Contains(t, targets, "qwen/qwen3-coder-next", "a registered fallback binding makes the model dispatchable")
 	assert.NotContains(t, targets, "gpt-5.6-terra", "models with no registered binding stay unavailable")
+}
+
+func TestHMMRoutingTargetSetIncludesHMMOnlyTargets(t *testing.T) {
+	available := map[string]struct{}{providers.ProviderOpenAI: {}}
+	genericTargets := RoutingTargetSet(available)
+	hmmTargets := HMMRoutingTargetSet(available)
+
+	for _, model := range []string{"gpt-5.6-luna-pro", "gpt-5.6-sol-pro"} {
+		assert.NotContains(t, genericTargets, model)
+		assert.Contains(t, hmmTargets, model)
+	}
+	assert.Contains(t, hmmTargets, "gpt-5.6-terra")
 }
 
 func TestAllowedAtOrBelow_FiltersOutUnknownTier(t *testing.T) {
@@ -279,8 +320,10 @@ func TestContextWindowFor_KnownModels(t *testing.T) {
 	assert.Equal(t, 400_000, ContextWindowFor("gpt-5.4-nano"))
 	assert.Equal(t, 1_050_000, ContextWindowFor("gpt-5.5"))
 	assert.Equal(t, 1_050_000, ContextWindowFor("gpt-5.6-sol"))
+	assert.Equal(t, 1_050_000, ContextWindowFor("gpt-5.6-sol-pro"))
 	assert.Equal(t, 1_050_000, ContextWindowFor("gpt-5.6-terra"))
 	assert.Equal(t, 1_050_000, ContextWindowFor("gpt-5.6-luna"))
+	assert.Equal(t, 1_050_000, ContextWindowFor("gpt-5.6-luna-pro"))
 	// GPT-4.1 family has 1M context.
 	assert.Equal(t, 1_047_576, ContextWindowFor("gpt-4.1"))
 	// Gemini models have 1M context.

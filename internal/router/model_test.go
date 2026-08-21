@@ -26,6 +26,8 @@ func TestLookup_DateSuffixNormalization(t *testing.T) {
 		{"anthropic haiku dated", "claude-haiku-4-5-20251001", false, true, false},
 		{"anthropic opus dated", "claude-opus-4-7-20260301", true, false, false},
 		{"openai dated", "gpt-4o-2024-08-06", false, false, false},
+		{"openai luna pro registered", "gpt-5.6-luna-pro", false, false, true},
+		{"openai sol pro registered", "gpt-5.6-sol-pro", false, false, true},
 		{"google flash registered", "gemini-2.5-flash", false, false, false},
 		{"google pro registered", "gemini-2.5-pro", false, false, false},
 		{"openrouter qwen registered", "qwen/qwen3-coder-next", false, false, false},

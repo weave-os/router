@@ -135,9 +135,12 @@ type Model struct {
 	// ID is the public slash-form (or bare) model ID exposed to clients,
 	// e.g. "claude-opus-4-7" or "deepseek/deepseek-v4-pro".
 	ID string
-	// Tier is the coarse capability bucket. TierUnknown means the model
-	// is not deployable as a routing target (passthrough only).
+	// Tier is the coarse capability bucket. TierUnknown excludes the model
+	// from generic automatic routing; an HMM-only target may opt in separately.
 	Tier Tier
+	// HMMTarget allows an otherwise untiered catalog row to be offered to an HMM
+	// policy sidecar without adding it to the generic cluster candidate set.
+	HMMTarget bool
 	// ContextWindow is the model's total input+output token budget in tokens.
 	// 0 means use catalog.DefaultContextWindow.
 	ContextWindow int
@@ -328,15 +331,21 @@ var Models = []Model{
 		{Provider: providers.ProviderOpenAI, Price: Pricing{InputUSDPer1M: 30.00, OutputUSDPer1M: 180.00, CacheReadMultiplier: 1.0}},
 	}},
 
-	// --- OpenAI GPT-5.6 --- three-tier family (Sol/Terra/Luna), GA 2026-07-09.
+	// --- OpenAI GPT-5.6 --- Sol/Terra/Luna family, GA 2026-07-09.
 	{ID: "gpt-5.6-luna", Tier: TierMid, ContextWindow: 1_050_000, Providers: []ProviderBinding{
 		{Provider: providers.ProviderOpenAI, Price: Pricing{InputUSDPer1M: 1.00, OutputUSDPer1M: 6.00, CacheReadMultiplier: 0.10}},
+	}},
+	{ID: "gpt-5.6-luna-pro", HMMTarget: true, ContextWindow: 1_050_000, Providers: []ProviderBinding{
+		{Provider: providers.ProviderOpenAI, Price: Pricing{InputUSDPer1M: 0.20, OutputUSDPer1M: 1.20, CacheReadMultiplier: 0.10}},
 	}},
 	{ID: "gpt-5.6-terra", Tier: TierHigh, ContextWindow: 1_050_000, Providers: []ProviderBinding{
 		{Provider: providers.ProviderOpenAI, Price: Pricing{InputUSDPer1M: 2.50, OutputUSDPer1M: 15.00, CacheReadMultiplier: 0.10}},
 	}},
 	{ID: "gpt-5.6-sol", Tier: TierHigh, ContextWindow: 1_050_000, Providers: []ProviderBinding{
 		{Provider: providers.ProviderOpenAI, Price: Pricing{InputUSDPer1M: 5.00, OutputUSDPer1M: 30.00, CacheReadMultiplier: 0.10}},
+	}},
+	{ID: "gpt-5.6-sol-pro", HMMTarget: true, ContextWindow: 1_050_000, Providers: []ProviderBinding{
+		{Provider: providers.ProviderOpenAI, Price: Pricing{InputUSDPer1M: 2.50, OutputUSDPer1M: 15.00, CacheReadMultiplier: 0.10}},
 	}},
 
 	// --- xAI Grok --- native only; OpenRouter unused in prod.

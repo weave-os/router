@@ -37,8 +37,9 @@ const (
 	// ExclusionRequested means the installation or request excluded the model.
 	ExclusionRequested ExclusionReason = "requested_exclusion"
 	// ExclusionNotAllowlisted means the org's positive model allowlist omits the
-	// model. Reported ahead of ExclusionRequested (the allowlist is desugared
-	// into the exclusion set upstream) so diagnostics name the real cause.
+	// model. The resolver enforces it directly as well as honoring the usual
+	// upstream exclusion desugaring, so strategy-specific candidates cannot
+	// bypass the allowlist.
 	ExclusionNotAllowlisted ExclusionReason = "not_allowlisted"
 	// ExclusionUnknownCatalogModel means the deployed set named no catalog row.
 	ExclusionUnknownCatalogModel ExclusionReason = "unknown_catalog_model"
@@ -257,14 +258,14 @@ func (r *Resolver) Resolve(req router.Request) ResolvedCandidates {
 	sort.Strings(deployedIDs)
 
 	for _, id := range deployedIDs {
-		if _, excluded := req.ExcludedModels[id]; excluded {
-			reason := ExclusionRequested
-			if len(req.AllowedModels) > 0 {
-				if _, allowed := req.AllowedModels[id]; !allowed {
-					reason = ExclusionNotAllowlisted
-				}
+		if len(req.AllowedModels) > 0 {
+			if _, allowed := req.AllowedModels[id]; !allowed {
+				diagnostics = append(diagnostics, Diagnostic{CatalogID: id, Reason: ExclusionNotAllowlisted})
+				continue
 			}
-			diagnostics = append(diagnostics, Diagnostic{CatalogID: id, Reason: reason})
+		}
+		if _, excluded := req.ExcludedModels[id]; excluded {
+			diagnostics = append(diagnostics, Diagnostic{CatalogID: id, Reason: ExclusionRequested})
 			continue
 		}
 		model, ok := catalog.ByID(id)

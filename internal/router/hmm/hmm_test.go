@@ -204,6 +204,8 @@ func TestCatalogRoutingTargetsResolveCurrentHMMRosterArmsToProviders(t *testing.
 		"anthropic/claude-sonnet-5",
 		"anthropic/claude-opus-5",
 		"openai/gpt-5.6-terra",
+		"openai/gpt-5.6-luna-pro",
+		"openai/gpt-5.6-sol-pro",
 		"z-ai/glm-5.2",
 		"google/gemini-3.1-pro-preview",
 		"x-ai/grok-4.6",
@@ -240,6 +242,26 @@ func TestRouterOffersAndSelectsTerraWithoutLegacyDeployedSet(t *testing.T) {
 	assert.Equal(t, "gpt-5.6-terra", decision.Model)
 	assert.Equal(t, providers.ProviderOpenAI, decision.Provider)
 	assert.Contains(t, candidateRosterIDs(decider.query.Candidates), "openai/gpt-5.6-terra")
+}
+
+func TestRouterOffersAndSelectsHMMOnlyGPT56ProTargets(t *testing.T) {
+	for _, model := range []string{"gpt-5.6-luna-pro", "gpt-5.6-sol-pro"} {
+		t.Run(model, func(t *testing.T) {
+			rosterID := "openai/" + model
+			decider := &fakeDecider{res: Result{
+				Model:    rosterID,
+				Provider: providers.ProviderOpenAI,
+			}}
+			r := New(decider, map[string]struct{}{providers.ProviderOpenAI: {}})
+
+			decision, err := r.Route(context.Background(), router.Request{PromptText: "solve this"})
+
+			require.NoError(t, err)
+			assert.Equal(t, model, decision.Model)
+			assert.Equal(t, providers.ProviderOpenAI, decision.Provider)
+			assert.Contains(t, candidateRosterIDs(decider.query.Candidates), rosterID)
+		})
+	}
 }
 
 func TestRouterDoesNotOfferTerraWithoutRegisteredOpenAIProvider(t *testing.T) {

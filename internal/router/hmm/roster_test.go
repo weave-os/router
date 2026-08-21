@@ -15,6 +15,8 @@ func TestDeployedModelsForRosterIDs_MapsRosterSlugsToCatalogEntries(t *testing.T
 	// catalog IDs and primary provider, matching the cluster source shape.
 	got := hmm.DeployedModelsForRosterIDs([]string{
 		"openai/gpt-5.6-sol",
+		"openai/gpt-5.6-sol-pro",
+		"openai/gpt-5.6-luna-pro",
 		"anthropic/claude-opus-4.8",
 		"deepseek/deepseek-v4-flash",
 		"x-ai/grok-4.6",
@@ -26,6 +28,8 @@ func TestDeployedModelsForRosterIDs_MapsRosterSlugsToCatalogEntries(t *testing.T
 	}
 
 	assert.Equal(t, providers.ProviderOpenAI, byModel["gpt-5.6-sol"])
+	assert.Equal(t, providers.ProviderOpenAI, byModel["gpt-5.6-sol-pro"])
+	assert.Equal(t, providers.ProviderOpenAI, byModel["gpt-5.6-luna-pro"])
 	assert.Equal(t, providers.ProviderAnthropic, byModel["claude-opus-4-8"])
 	// Bare first-party xAI IDs map through an explicit roster alias; the
 	// provider is the native xAI binding.

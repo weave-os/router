@@ -41,7 +41,7 @@ func NewForStrategy(strategy router.Strategy, decider Decider, availableProvider
 	return newWithRoutingTargets(
 		strategy,
 		decider,
-		catalog.RoutingTargetSet(availableProviders),
+		catalog.HMMRoutingTargetSet(availableProviders),
 		availableProviders,
 	)
 }

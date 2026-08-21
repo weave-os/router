@@ -217,6 +217,19 @@ func TestOpenAISameFormat_Qwen38MaxClampsAt64000Ceiling(t *testing.T) {
 	assert.Equal(t, float64(64000), out["max_tokens"])
 }
 
+func TestOpenAISameFormat_GPT56ProClampsAt128000Ceiling(t *testing.T) {
+	for _, model := range []string{"gpt-5.6-luna-pro", "gpt-5.6-sol-pro"} {
+		body := []byte(`{"model":"gpt-4o","messages":[{"role":"user","content":"hi"}],"max_tokens":131072}`)
+		opts := translate.EmitOptions{
+			TargetModel:  model,
+			Capabilities: router.Lookup(model),
+		}
+		out := parseAndEmit(t, body, "openai", opts)
+		assert.Equal(t, float64(128000), out["max_completion_tokens"], model)
+		assert.NotContains(t, out, "max_tokens", model)
+	}
+}
+
 // Same shape on the Anthropic->OpenAI cross-format path (the actual Claude
 // Code route): the explicit 64000 must not be clamped to 8192.
 func TestCrossFormat_AnthropicToOpenAI_Qwen38MaxExplicitMaxTokensPassedThrough(t *testing.T) {
