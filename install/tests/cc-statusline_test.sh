@@ -86,6 +86,11 @@ line_count_at_least() { # line_count_at_least <file> <n>
   [ "$(wc -l < "$1" | tr -d ' ')" -ge "$2" ]
 }
 
+# `wait_for` runs its argv, so a negated condition needs to be its own command.
+not_a_dir() { # not_a_dir <path>
+  [ ! -d "$1" ]
+}
+
 # curl must speak file:// for the offline fixtures to work. Fail loudly rather
 # than silently skipping the download-dependent cases.
 probe="$work/probe.txt"
@@ -546,13 +551,12 @@ check_contains "cache miss with an unreachable router renders normally" "$out" "
 sleep 1
 check "failed refresh writes no cache file" "$(test -f "$cache_file" && echo present || echo absent)" "absent"
 
-# Concurrent refreshes must not both fetch: two in-flight requests can complete
-# out of order, and the loser's write would replace a newer setting with an
-# older one AND stamp it fresh, pinning the gate on a stale value for a whole
-# TTL. The curl shim makes that ordering deterministic — whichever refresh
-# calls first is stalled serving hide=true until a second one answers
-# hide=false — so an unserialized implementation performs two fetches and ends
-# on the stale "1", while a serialized one fetches exactly once.
+# Concurrent refreshes must never be in flight at the same time: two
+# overlapping requests can complete out of order, and the loser's write would
+# replace a newer setting with an older one AND stamp it fresh, pinning the
+# gate on a stale value for a whole TTL. The curl shim below stalls the first
+# responder on hide=true until a second answers hide=false, so an unserialized
+# implementation has both in flight together and ends on the stale "1".
 c="$work/g7"; mkdir -p "$c/proj/.claude" "$c/cache" "$c/bin"
 write_install "$c/proj" project "rk_key" "file://$c/ds.json"
 printf '{"hide_terminal_surfaces": true}' > "$c/ds.json"
@@ -564,6 +568,10 @@ cat > "$c/bin/curl" <<'SHIM'
 n=1
 while ! mkdir "$WEAVE_TEST_TURNS/$n" 2>/dev/null; do n=$((n + 1)); done
 echo "$n" >> "$WEAVE_TEST_CALLS"
+# Announce this fetch for its whole duration; a concurrent one records a
+# violation. This is what the mutex must make impossible.
+[ -e "$WEAVE_TEST_INFLIGHT" ] && echo overlap >> "$WEAVE_TEST_OVERLAP"
+: > "$WEAVE_TEST_INFLIGHT"
 if [ "$n" -eq 1 ]; then
   # Stall the stale responder until the fresh one has written, or until the
   # deadline passes (serialized runs never produce a second call, and this
@@ -572,71 +580,83 @@ if [ "$n" -eq 1 ]; then
     [ -f "$WEAVE_TEST_RELEASE" ] && break
     sleep 0.05
   done
+  rm -f "$WEAVE_TEST_INFLIGHT"
   printf '{"hide_terminal_surfaces": true}'
 else
+  rm -f "$WEAVE_TEST_INFLIGHT"
   printf '{"hide_terminal_surfaces": false}'
   : > "$WEAVE_TEST_RELEASE"
 fi
 SHIM
 chmod +x "$c/bin/curl"
-mkdir -p "$c/turns"; : > "$c/calls"
+mkdir -p "$c/turns"; : > "$c/calls"; : > "$c/overlap"; rm -f "$c/inflight"
 for _ in 1 2; do
   echo "{\"model\":{\"id\":\"$STALE_MODEL\"},\"transcript_path\":\"$transcript\"}" \
     | PATH="$c/bin:$PATH" XDG_CACHE_HOME="$c/cache" WEAVE_STATUSLINE_UPDATE=0 \
       WEAVE_COMMANDS_UPDATE=0 HOME="$c/home" WEAVE_ROUTER_BASE_URL= ANTHROPIC_BASE_URL= \
       WEAVE_ROUTER_KEY= ANTHROPIC_CUSTOM_HEADERS= WEAVE_TEST_TURNS="$c/turns" \
       WEAVE_TEST_CALLS="$c/calls" WEAVE_TEST_RELEASE="$c/release" \
+      WEAVE_TEST_INFLIGHT="$c/inflight" WEAVE_TEST_OVERLAP="$c/overlap" \
       bash "$c/proj/.claude/cc-statusline.sh" >/dev/null 2>&1 &
 done
 wait
 # Both refreshes are detached, so the foreground exit says nothing about them.
 wait_for 15 test -f "$cache_file"
 sleep 3
-# The discriminating assertion. Asserting the cached VALUE instead would be
-# tautological: with one fetch the value is turn 1's either way.
+# Mutual exclusion is the property under test, so assert on overlap rather than
+# a fetch count: two invocations that happen to serialize (the first finishes
+# and releases before the second starts) fetch twice quite legitimately, and on
+# a slow runner that is what happens. Asserting the cached VALUE would be
+# tautological — with one fetch it is the first responder's either way.
 check "concurrent refreshes never fetch at the same time" \
-  "$(wc -l < "$c/calls" | tr -d ' ')" 1
-# The second invocation must still have rendered rather than blocking on the
-# mutex the first one holds — a refresh that queues would stall the turn.
-check "the refresh that loses the mutex leaves the cache to the winner" \
-  "$(cat "$cache_file" 2>/dev/null)" "1"
+  "$(wc -l < "$c/overlap" | tr -d ' ')" 0
+# Guard against the above passing vacuously because nothing ever fetched.
+if [ "$(wc -l < "$c/calls" | tr -d ' ')" -ge 1 ]; then
+  ok "a stale cache does trigger a background refresh"
+else
+  no "a stale cache does trigger a background refresh" "at least one fetch" "no fetch happened"
+fi
 
-# Reclaiming an ABANDONED lock (crashed holder) must stay mutually exclusive.
-# `rm -rf` + `mkdir` is not atomic: refreshers that all see the same stale lock
-# each delete the next one's freshly created directory and all proceed to
-# fetch, restoring the out-of-order race. Pre-seed an old lock, start several
-# invocations at once, and require exactly one fetch.
+# An ABANDONED lock (crashed holder) must not block refreshes forever: a
+# pre-seeded lock older than the reclaim threshold gets taken over, the fetch
+# happens, and the lock is released rather than leaked.
 c="$work/g8"; mkdir -p "$c/proj/.claude" "$c/cache" "$c/bin"
 write_install "$c/proj" project "rk_key" "file://$c/ds.json"
 printf '{"hide_terminal_surfaces": true}' > "$c/ds.json"
 cache_file="$(gate_cache "$c/cache" "$c/proj/.claude/cc-statusline.sh")"
 mkdir -p "$(dirname "$cache_file")"
-# An abandoned lock, well past the 30s reclaim threshold.
 mkdir -p "$cache_file.lock"
 touch -t 202001010000 "$cache_file.lock"
-cat > "$c/bin/curl" <<'SHIM'
-#!/usr/bin/env bash
-# Record the fetch, and dwell long enough that a second racer would overlap.
-echo x >> "$WEAVE_TEST_CALLS"
-sleep 1
-printf '{"hide_terminal_surfaces": true}'
-SHIM
-chmod +x "$c/bin/curl"
-: > "$c/calls"
-for _ in 1 2 3 4 5; do
-  echo "{\"model\":{\"id\":\"$STALE_MODEL\"},\"transcript_path\":\"$transcript\"}" \
-    | PATH="$c/bin:$PATH" XDG_CACHE_HOME="$c/cache" WEAVE_STATUSLINE_UPDATE=0 \
-      WEAVE_COMMANDS_UPDATE=0 HOME="$c/home" WEAVE_ROUTER_BASE_URL= ANTHROPIC_BASE_URL= \
-      WEAVE_ROUTER_KEY= ANTHROPIC_CUSTOM_HEADERS= WEAVE_TEST_CALLS="$c/calls" \
-      bash "$c/proj/.claude/cc-statusline.sh" >/dev/null 2>&1 &
-done
-wait
+echo "{\"model\":{\"id\":\"$STALE_MODEL\"},\"transcript_path\":\"$transcript\"}" \
+  | XDG_CACHE_HOME="$c/cache" WEAVE_STATUSLINE_UPDATE=0 WEAVE_COMMANDS_UPDATE=0 HOME="$c/home" \
+    WEAVE_ROUTER_BASE_URL= ANTHROPIC_BASE_URL= WEAVE_ROUTER_KEY= ANTHROPIC_CUSTOM_HEADERS= \
+    bash "$c/proj/.claude/cc-statusline.sh" >/dev/null 2>&1
 wait_for 15 test -f "$cache_file"
-sleep 3
-check "racing reclaim of an abandoned lock still fetches exactly once" \
-  "$(wc -l < "$c/calls" | tr -d ' ')" 1
-check "a reclaimed lock is released, not leaked" \
-  "$(test -d "$cache_file.lock" && echo held || echo released)" "released"
+check "an abandoned lock is reclaimed rather than blocking refreshes forever" \
+  "$(cat "$cache_file" 2>/dev/null)" "1"
+# The cache is written just before the lock is released, so sampling right
+# after the write catches the holder mid-release. Poll for the release.
+if wait_for 15 not_a_dir "$cache_file.lock"; then
+  ok "a reclaimed lock is released, not leaked"
+else
+  no "a reclaimed lock is released, not leaked" "lock removed" "still held after 15s"
+fi
+
+# A lock a live holder still owns must be left alone: a fresh lock means a
+# refresh is already in flight, so this invocation must not fetch behind it.
+c="$work/g9"; mkdir -p "$c/proj/.claude" "$c/cache"
+write_install "$c/proj" project "rk_key" "file://$c/ds.json"
+printf '{"hide_terminal_surfaces": true}' > "$c/ds.json"
+cache_file="$(gate_cache "$c/cache" "$c/proj/.claude/cc-statusline.sh")"
+mkdir -p "$(dirname "$cache_file")"
+mkdir -p "$cache_file.lock"
+echo "{\"model\":{\"id\":\"$STALE_MODEL\"},\"transcript_path\":\"$transcript\"}" \
+  | XDG_CACHE_HOME="$c/cache" WEAVE_STATUSLINE_UPDATE=0 WEAVE_COMMANDS_UPDATE=0 HOME="$c/home" \
+    WEAVE_ROUTER_BASE_URL= ANTHROPIC_BASE_URL= WEAVE_ROUTER_KEY= ANTHROPIC_CUSTOM_HEADERS= \
+    bash "$c/proj/.claude/cc-statusline.sh" >/dev/null 2>&1
+sleep 2
+check "a lock a live holder owns is left alone" \
+  "$(test -f "$cache_file" && echo wrote || echo skipped)" "skipped"
 
 # install.sh ships the statusline as a heredoc; genprices keeps only the price
 # block in sync, so a code edit to one copy silently diverges from the other.

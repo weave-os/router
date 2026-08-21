@@ -3087,11 +3087,12 @@ weave_sync_commands 2>/dev/null || true
 # stale cache at once. Letting each fetch independently is not safe: the
 # responses can land out of order, and the loser's mv would replace a newer
 # setting with an older one AND stamp it fresh, pinning the gate on a stale
-# value for a full TTL. At most one refresh per cache key therefore runs at a
-# time, guarded by a mkdir mutex (atomic everywhere; flock is absent on macOS)
-# held across both the fetch and the write. A refresh that finds the mutex held
-# exits rather than queueing — the in-flight one is at least as fresh as
-# anything it would fetch, so waiting only to overwrite it is the bug.
+# value for a full TTL. Refreshes are therefore serialized per cache key on a
+# mkdir mutex (atomic everywhere; flock is absent on macOS), held across both
+# the fetch and the write. A refresh that finds the mutex held exits rather
+# than queueing — the in-flight one is at least as fresh as anything it would
+# fetch, so waiting only to overwrite it is the bug. The one path that is not
+# strictly exclusive is reclaiming a lock whose holder died; see below.
 weave_hidden_gate() {
   command -v curl >/dev/null 2>&1 || return 1
   command -v jq >/dev/null 2>&1 || return 1
@@ -3146,14 +3147,17 @@ weave_hidden_gate() {
       if [ "${lock_mtime:-0}" -le 0 ] || [ $(( lock_now - lock_mtime )) -le 30 ]; then
         exit 0
       fi
-      # Reclaiming an abandoned lock must itself be atomic. `rm -rf` followed
-      # by `mkdir` is not: two refreshers that both see the same stale lock
-      # would each delete the other's freshly created one and both proceed to
-      # fetch, restoring the very race this mutex exists to prevent. Renaming
-      # is atomic, so exactly one racer can move the stale directory aside —
-      # the loser's mv finds nothing there and exits instead of clobbering the
-      # winner. Re-acquiring can still lose to an unrelated invocation that
-      # grabbed the now-free lock first, which is fine: someone holds it.
+      # Reclaiming an abandoned lock must not be delete-then-recreate. With
+      # `rm -rf` + `mkdir`, refreshers that all see the same stale lock each
+      # delete the next one's freshly created directory, so many end up holding
+      # it at once (measured at 50 claimants: 4-11 concurrent holders) and their
+      # writes can land out of order. Renaming is atomic, so only one racer can
+      # move a given directory aside and the losers exit instead of clobbering
+      # the winner (same measurement: 1-2). It is not a perfect mutex — a
+      # straggler can still reclaim the new lock a winner just created, since
+      # nothing distinguishes it from the stale one — but real refreshes arrive
+      # one per turn rather than 50 at once, and the staleness threshold below
+      # is what bounds the rest.
       dead="$lock.dead.$$"
       mv "$lock" "$dead" 2>/dev/null || exit 0
       rm -rf "$dead" 2>/dev/null
