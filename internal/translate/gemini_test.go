@@ -1276,13 +1276,14 @@ func TestPrepareGemini_ConvertsBoolPropertySchemas(t *testing.T) {
 	assert.Equal(t, "string", rp["type"])
 }
 
-func TestPrepareGemini_SendMessageToAllOfRegression(t *testing.T) {
-	// Regression: allOf branches with differing descriptions must widen
-	// (annotation merge), not fail the whole request.
+func TestPrepareGemini_ToolAllOfAnnotationRegression(t *testing.T) {
+	// Regression (prod shape: SendMessage.to): allOf branches with differing
+	// descriptions must widen (annotation merge), not fail the whole request.
+	// Uses a non-CC-internal tool name so the claudecode filter keeps it.
 	body := []byte(`{
 		"messages": [{"role":"user","content":"hi"}],
 		"tools": [{
-			"name":"SendMessage",
+			"name":"NotifyTeammate",
 			"input_schema":{
 				"type":"object",
 				"properties":{
