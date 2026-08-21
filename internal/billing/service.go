@@ -66,9 +66,10 @@ const EntryTypeInference = "inference"
 // router.organization_credit_ledger.entry_type.
 const EntryTypeByokFee = "byok_fee"
 
-// ByokFeeRate is Weave's platform fee on a BYOK turn, as a fraction of the
-// upstream cost the customer paid their own provider.
-const ByokFeeRate = 0.05
+// DefaultByokFeeRate is the default platform fee on a BYOK turn, as a
+// fraction of the upstream cost the customer paid their own provider.
+// Zero: BYOK turns are free unless BYOK_FEE_RATE opts a deployment in.
+const DefaultByokFeeRate = 0.0
 
 // MinBalanceMicros: requests 402 when balance <= this. 0 matches
 // OpenAI/Anthropic prepaid semantics — block at zero, let in-flight
@@ -78,14 +79,26 @@ const MinBalanceMicros int64 = 0
 // Service orchestrates balance reads and debits. No I/O of its own — all
 // persistence flows through the Repo interface.
 type Service struct {
-	repo    Repo
-	autopay AutopayNotifier
+	repo        Repo
+	autopay     AutopayNotifier
+	byokFeeRate float64
 }
 
 // NewService constructs a billing service. The Repo is required; nil panics
 // at request time, so the composition root must guard against it.
 func NewService(repo Repo) *Service {
-	return &Service{repo: repo}
+	return &Service{repo: repo, byokFeeRate: DefaultByokFeeRate}
+}
+
+// WithByokFeeRate sets the platform fee charged on BYOK turns, as a
+// fraction of upstream cost (e.g. 0.05 for 5%), and returns the service
+// for chaining. Negative rates clamp to zero.
+func (s *Service) WithByokFeeRate(rate float64) *Service {
+	if rate < 0 {
+		rate = 0
+	}
+	s.byokFeeRate = rate
+	return s
 }
 
 // AutopayNotifier signals the control plane that an org's balance just
@@ -203,7 +216,8 @@ type DebitInferenceParams struct {
 	// subscription token, so Weave charges nothing.
 	SubscriptionServed bool
 	// ByokServed: turn ran on the customer's own provider key; Weave charges
-	// only ByokFeeRate of the upstream cost rather than full inference cost.
+	// only the configured BYOK fee rate of the upstream cost rather than
+	// full inference cost.
 	ByokServed bool
 	// APIKeyID attributes the debit to the authenticating key for
 	// spend-cap tracking; empty leaves per-key spend untouched.
@@ -219,7 +233,8 @@ type DebitInferenceParams struct {
 // records NotionalCostMicros as a shadow trail.
 //
 // A BYOK turn debits 0 on the inference row (the customer paid their own
-// provider) and adds a byok_fee row for ByokFeeRate of the upstream cost.
+// provider) and adds a byok_fee row for the configured fee rate of the
+// upstream cost (no fee row when the rate is zero).
 // Override and subscription outrank BYOK.
 //
 // Returns the post-debit balance (0 on override, since balance doesn't
@@ -236,7 +251,7 @@ func (s *Service) DebitForInference(ctx context.Context, p DebitInferenceParams)
 	case p.ByokServed:
 		// Customer paid their upstream directly; Weave charges only the fee.
 		delta = 0
-		fee = -byokFeeMicros(notional)
+		fee = -s.byokFeeMicros(notional)
 	}
 	balanceAfter, err := s.repo.DebitInference(ctx, DebitParams{
 		OrganizationID:     p.OrganizationID,
@@ -320,11 +335,11 @@ func computeNotionalMicros(p DebitInferenceParams) int64 {
 // byokFeeMicros returns Weave's platform fee as a positive micros magnitude.
 // Integer math avoids a float round-trip; rounds half away from zero so a
 // sub-micro fee rounds up rather than disappearing.
-func byokFeeMicros(notionalMicros int64) int64 {
+func (s *Service) byokFeeMicros(notionalMicros int64) int64 {
 	if notionalMicros <= 0 {
 		return 0
 	}
-	const scale = 10_000 // ByokFeeRate expressed as basis-points-of-a-basis-point
-	rate := int64(ByokFeeRate * scale)
+	const scale = 10_000 // the rate expressed as basis-points-of-a-basis-point
+	rate := int64(s.byokFeeRate * scale)
 	return (notionalMicros*rate + scale/2) / scale
 }

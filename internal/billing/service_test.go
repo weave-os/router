@@ -196,7 +196,7 @@ func TestDebitForInference_ByokChargesFeeOnlyNotUpstreamCost(t *testing.T) {
 	// debits only its platform fee. The inference row still carries the full
 	// notional cost so the savings dashboard can price the turn.
 	repo := &fakeRepo{balanceRowExists: true, balanceMicros: 10_000_000}
-	svc := billing.NewService(repo)
+	svc := billing.NewService(repo).WithByokFeeRate(0.05)
 	p := catalog.Pricing{InputUSDPer1M: 3.00, OutputUSDPer1M: 15.00, CacheReadMultiplier: 0.10}
 	balance, err := svc.DebitForInference(context.Background(), billing.DebitInferenceParams{
 		OrganizationID:  "org_byok",
@@ -228,10 +228,10 @@ func TestDebitForInference_ByokChargesFeeOnlyNotUpstreamCost(t *testing.T) {
 }
 
 func TestDebitForInference_ByokFeeIsExactlyFivePercent(t *testing.T) {
-	// Guards the rate itself: a refactor that changes rounding or the constant
-	// silently re-prices every BYOK customer.
+	// Guards the rate math: a refactor that changes rounding silently
+	// re-prices every BYOK customer on a fee-charging deployment.
 	repo := &fakeRepo{balanceRowExists: true, balanceMicros: 1_000_000_000}
-	svc := billing.NewService(repo)
+	svc := billing.NewService(repo).WithByokFeeRate(0.05)
 	_, err := svc.DebitForInference(context.Background(), billing.DebitInferenceParams{
 		OrganizationID:  "org_byok",
 		RouterRequestID: "req_round",
@@ -249,10 +249,33 @@ func TestDebitForInference_ByokFeeIsExactlyFivePercent(t *testing.T) {
 		"$100 of customer upstream spend must bill exactly $5")
 }
 
+func TestDebitForInference_ByokDefaultRateChargesNoFee(t *testing.T) {
+	// The default BYOK fee rate is zero: a BYOK turn debits nothing and
+	// writes no fee, only the $0 inference row with its notional trail.
+	repo := &fakeRepo{balanceRowExists: true, balanceMicros: 10_000_000}
+	svc := billing.NewService(repo)
+	balance, err := svc.DebitForInference(context.Background(), billing.DebitInferenceParams{
+		OrganizationID:  "org_byok",
+		RouterRequestID: "req_free",
+		Model:           "m",
+		Provider:        providers.ProviderAnthropic,
+		InputTokens:     1_000_000,
+		Pricing:         catalog.Pricing{InputUSDPer1M: 3.00},
+		ByokServed:      true,
+	})
+	require.NoError(t, err)
+	require.Len(t, repo.ledgerCalls, 1)
+	row := repo.ledgerCalls[0]
+	assert.Equal(t, int64(0), row.DeltaUsdMicros)
+	assert.Equal(t, int64(0), row.FeeUsdMicros, "zero rate must charge no fee")
+	assert.Equal(t, int64(3_000_000), row.NotionalCostMicros)
+	assert.Equal(t, int64(10_000_000), balance, "balance unchanged")
+}
+
 func TestDebitForInference_OverrideOutranksByok(t *testing.T) {
 	// A free-credits/internal org must not be charged a BYOK fee.
 	repo := &fakeRepo{balanceRowExists: true, balanceMicros: 10_000_000}
-	svc := billing.NewService(repo)
+	svc := billing.NewService(repo).WithByokFeeRate(0.05)
 	_, err := svc.DebitForInference(context.Background(), billing.DebitInferenceParams{
 		OrganizationID:  "org_override",
 		RouterRequestID: "req_ovr",
@@ -620,7 +643,7 @@ func TestDebitForInference_ByokReturnsPostFeeBalance(t *testing.T) {
 	// before the fee CTE runs, so returning it would give a stale figure and
 	// maybeSignalRecharge would miss threshold crossings on fee-only debits.
 	repo := &fakeRepo{balanceRowExists: true, balanceMicros: 1_000_000}
-	svc := billing.NewService(repo)
+	svc := billing.NewService(repo).WithByokFeeRate(0.05)
 	balance, err := svc.DebitForInference(context.Background(), billing.DebitInferenceParams{
 		OrganizationID: "org_byok",
 		InputTokens:    1_000_000,
@@ -648,7 +671,7 @@ func TestDebitForInference_ByokFeeCrossingSignalsAutopay(t *testing.T) {
 		autopayThreshold: 975_000,
 	}
 	notifier := &fakeAutopayNotifier{}
-	svc := billing.NewService(repo).WithAutopayNotifier(notifier)
+	svc := billing.NewService(repo).WithAutopayNotifier(notifier).WithByokFeeRate(0.05)
 
 	_, err := svc.DebitForInference(context.Background(), billing.DebitInferenceParams{
 		OrganizationID: "org_byok",

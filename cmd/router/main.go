@@ -158,6 +158,7 @@ func main() {
 	// silently falling to BYOK-only, which would 400 every request.
 	var billingSvc *billing.Service
 	if deploymentMode == server.DeploymentModeManaged {
+		byokFeeRate := parseEnvFloat("BYOK_FEE_RATE", billing.DefaultByokFeeRate)
 		billingRepo := postgres.NewBillingRepo(pool)
 		bootCtx, bootCancel := context.WithTimeout(context.Background(), 5*time.Second)
 		tablesExist, billingCheckErr := billingRepo.BillingTablesExist(bootCtx)
@@ -165,12 +166,12 @@ func main() {
 		switch {
 		case billingCheckErr != nil:
 			logger.Warn("Boot billing health check errored; defaulting to billing-enabled in managed mode", "err", billingCheckErr)
-			billingSvc = billing.NewService(billingRepo)
+			billingSvc = billing.NewService(billingRepo).WithByokFeeRate(byokFeeRate)
 		case !tablesExist:
 			logger.Warn("Billing tables missing from router schema; staying in BYOK-only mode. Apply db migration 0006_credit_billing to enable billing.")
 		default:
-			billingSvc = billing.NewService(billingRepo)
-			logger.Info("Router billing enabled", "min_balance_usd_micros", billing.MinBalanceMicros)
+			billingSvc = billing.NewService(billingRepo).WithByokFeeRate(byokFeeRate)
+			logger.Info("Router billing enabled", "min_balance_usd_micros", billing.MinBalanceMicros, "byok_fee_rate", byokFeeRate)
 		}
 	}
 
