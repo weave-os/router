@@ -1322,7 +1322,7 @@ func sanitizeGeminiSchemaNode(v any, path string) (any, error) {
 		}
 		base := mergeSchemaMaps(node, nil, false)
 		delete(base, "allOf")
-		node, ok = mergeSchemaMapsExact(base, merged)
+		node, ok = intersectGeminiSchemas(base, merged)
 		if !ok {
 			return nil, fmt.Errorf("%w at %s.allOf: branches conflict with sibling constraints", ErrGeminiSchemaIncompatible, path)
 		}
@@ -1475,12 +1475,33 @@ func mergeGeminiAllOf(v any, path string) (map[string]any, error) {
 			return nil, fmt.Errorf("%w at %s[%d]: branch is not an object schema", ErrGeminiSchemaIncompatible, path, i)
 		}
 		var mergedOK bool
-		merged, mergedOK = mergeSchemaMapsExact(merged, object)
+		merged, mergedOK = intersectGeminiSchemas(merged, clampGeminiBranchNullability(object))
 		if !mergedOK {
 			return nil, fmt.Errorf("%w at %s[%d]: branches conflict", ErrGeminiSchemaIncompatible, path, i)
 		}
 	}
+	// An absent nullable is indistinguishable from false, so drop it rather
+	// than emit the noisier explicit form clampGeminiBranchNullability adds.
+	if nullable, ok := merged["nullable"].(bool); ok && !nullable {
+		delete(merged, "nullable")
+	}
 	return merged, nil
+}
+
+// clampGeminiBranchNullability makes an allOf branch's nullability explicit so
+// the merge can intersect it. Omitting nullable alongside a declared type
+// asserts non-nullable; a branch that declares no type (a pure annotation
+// branch) constrains nothing and is left alone.
+func clampGeminiBranchNullability(branch map[string]any) map[string]any {
+	if _, hasType := branch["type"]; !hasType {
+		return branch
+	}
+	if _, hasNullable := branch["nullable"]; hasNullable {
+		return branch
+	}
+	out := mergeSchemaMaps(branch, nil, false)
+	out["nullable"] = false
+	return out
 }
 
 func mergeSchemaMaps(base, extra map[string]any, overwrite bool) map[string]any {
@@ -1496,7 +1517,38 @@ func mergeSchemaMaps(base, extra map[string]any, overwrite bool) map[string]any 
 	return out
 }
 
-func mergeSchemaMapsExact(left, right map[string]any) (map[string]any, bool) {
+// geminiAnnotationKeys carry no validation semantics, so two allOf branches
+// disagreeing on one is not a conflict. The left (outer/earlier) value wins.
+var geminiAnnotationKeys = map[string]struct{}{
+	"description": {},
+	"title":       {},
+	"default":     {},
+	"example":     {},
+	// Two regexes cannot be intersected; keeping the left one only ever
+	// accepts a superset of the true intersection, so it never rejects input
+	// the original schema allows.
+	"pattern": {},
+}
+
+// geminiStricterBoundKeys map a bound keyword to whether the intersection of
+// two values is the larger one (lower bounds) or the smaller one (upper).
+var geminiStricterBoundKeys = map[string]bool{
+	"minimum":       true,
+	"minLength":     true,
+	"minItems":      true,
+	"minProperties": true,
+	"maximum":       false,
+	"maxLength":     false,
+	"maxItems":      false,
+	"maxProperties": false,
+}
+
+// intersectGeminiSchemas intersects two sanitized schema objects, which is what
+// allOf means. Only a genuinely unsatisfiable pair (disagreeing type, disjoint
+// enum) is a conflict — differing bounds narrow and differing annotations are
+// not constraints at all. Requiring byte equality here instead rejected the
+// whole tool for schemas Gemini can represent perfectly well.
+func intersectGeminiSchemas(left, right map[string]any) (map[string]any, bool) {
 	out := mergeSchemaMaps(left, nil, false)
 	for key, value := range right {
 		current, exists := out[key]
@@ -1510,7 +1562,7 @@ func mergeSchemaMapsExact(left, right map[string]any) (map[string]any, bool) {
 			if !leftOK || !rightOK {
 				return nil, false
 			}
-			mergedProperties, ok := mergeSchemaMapsExact(leftProperties, rightProperties)
+			mergedProperties, ok := mergeGeminiPropertyMaps(leftProperties, rightProperties)
 			if !ok {
 				return nil, false
 			}
@@ -1524,11 +1576,118 @@ func mergeSchemaMapsExact(left, right map[string]any) (map[string]any, bool) {
 			}
 			continue
 		}
+		if key == "items" {
+			leftItems, leftOK := current.(map[string]any)
+			rightItems, rightOK := value.(map[string]any)
+			if !leftOK || !rightOK {
+				return nil, false
+			}
+			mergedItems, ok := intersectGeminiSchemas(leftItems, rightItems)
+			if !ok {
+				return nil, false
+			}
+			out[key] = mergedItems
+			continue
+		}
+		if _, isAnnotation := geminiAnnotationKeys[key]; isAnnotation {
+			continue
+		}
+		// nullable intersects: the merged schema admits null only if both
+		// branches do.
+		if key == "nullable" {
+			leftNullable, leftOK := current.(bool)
+			rightNullable, rightOK := value.(bool)
+			if !leftOK || !rightOK {
+				return nil, false
+			}
+			out[key] = leftNullable && rightNullable
+			continue
+		}
+		if key == "enum" {
+			shared, ok := intersectEnums(current, value)
+			if !ok {
+				return nil, false
+			}
+			out[key] = shared
+			continue
+		}
+		if larger, isBound := geminiStricterBoundKeys[key]; isBound {
+			stricter, ok := stricterBound(current, value, larger)
+			if !ok {
+				return nil, false
+			}
+			out[key] = stricter
+			continue
+		}
 		if !semanticJSONEqual(current, value) {
 			return nil, false
 		}
 	}
 	return out, true
+}
+
+// mergeGeminiPropertyMaps merges two `properties` maps. A name declared by
+// both branches has its two subschemas intersected, not compared for equality.
+func mergeGeminiPropertyMaps(left, right map[string]any) (map[string]any, bool) {
+	out := mergeSchemaMaps(left, nil, false)
+	for name, value := range right {
+		current, exists := out[name]
+		if !exists {
+			out[name] = deepCopyJSON(value)
+			continue
+		}
+		leftSchema, leftOK := current.(map[string]any)
+		rightSchema, rightOK := value.(map[string]any)
+		if !leftOK || !rightOK {
+			if !semanticJSONEqual(current, value) {
+				return nil, false
+			}
+			continue
+		}
+		merged, ok := intersectGeminiSchemas(leftSchema, rightSchema)
+		if !ok {
+			return nil, false
+		}
+		out[name] = merged
+	}
+	return out, true
+}
+
+// intersectEnums keeps the members present in both branches, preserving the
+// left order. A disjoint pair is unsatisfiable, so it reports a conflict.
+func intersectEnums(left, right any) (any, bool) {
+	leftValues, leftOK := left.([]any)
+	rightValues, rightOK := right.([]any)
+	if !leftOK || !rightOK {
+		return nil, false
+	}
+	shared := make([]any, 0, len(leftValues))
+	for _, candidate := range leftValues {
+		if valueInEnum(candidate, rightValues) {
+			shared = append(shared, deepCopyJSON(candidate))
+		}
+	}
+	if len(shared) == 0 {
+		return nil, false
+	}
+	return shared, true
+}
+
+// stricterBound returns whichever of the two numeric bounds is the tighter
+// one, which is exactly the intersection for a bound keyword.
+func stricterBound(left, right any, larger bool) (any, bool) {
+	leftValue, leftOK := left.(float64)
+	rightValue, rightOK := right.(float64)
+	if !leftOK || !rightOK {
+		if !semanticJSONEqual(left, right) {
+			return nil, false
+		}
+		return deepCopyJSON(left), true
+	}
+	if larger == (rightValue > leftValue) {
+		return rightValue, true
+	}
+	return leftValue, true
 }
 
 func uniqueStrings(left, right any) any {

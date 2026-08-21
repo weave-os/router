@@ -53,6 +53,90 @@ func TestPrepareGemini_SchemaFidelity(t *testing.T) {
 			wantErr: translate.ErrGeminiSchemaIncompatible,
 		},
 		{
+			// An allOf branch that only annotates (the prod-observed shape on a
+			// nested property) is not a conflict; annotations are not
+			// constraints, so the outer branch's value wins.
+			name:   "allOf branches disagreeing on annotations merge",
+			schema: `{"type":"object","properties":{"to":{"allOf":[{"type":"string","description":"A","title":"T1"},{"type":"string","description":"B","title":"T2"}]}}}`,
+			check: func(t *testing.T, schema map[string]any) {
+				to := schema["properties"].(map[string]any)["to"].(map[string]any)
+				assert.Equal(t, "string", to["type"])
+				assert.Equal(t, "A", to["description"])
+				assert.Equal(t, "T1", to["title"])
+			},
+		},
+		{
+			name:   "allOf bounds narrow to the stricter of each pair",
+			schema: `{"allOf":[{"type":"string","minLength":1,"maxLength":10},{"type":"string","minLength":5,"maxLength":8}]}`,
+			check: func(t *testing.T, schema map[string]any) {
+				assert.Equal(t, float64(5), schema["minLength"])
+				assert.Equal(t, float64(8), schema["maxLength"])
+			},
+		},
+		{
+			name:   "allOf numeric bounds narrow regardless of branch order",
+			schema: `{"allOf":[{"type":"integer","minimum":10,"maximum":20},{"type":"integer","minimum":2,"maximum":50}]}`,
+			check: func(t *testing.T, schema map[string]any) {
+				assert.Equal(t, float64(10), schema["minimum"])
+				assert.Equal(t, float64(20), schema["maximum"])
+			},
+		},
+		{
+			name:   "allOf enums intersect to the shared members",
+			schema: `{"allOf":[{"type":"string","enum":["a","b","c"]},{"type":"string","enum":["b","c","d"]}]}`,
+			check: func(t *testing.T, schema map[string]any) {
+				assert.Equal(t, []any{"b", "c"}, schema["enum"])
+			},
+		},
+		{
+			// Disjoint enums admit no value at all, so this stays a conflict
+			// rather than silently widening the tool's input language.
+			name:    "allOf disjoint enums reject",
+			schema:  `{"allOf":[{"type":"string","enum":["a"]},{"type":"string","enum":["b"]}]}`,
+			wantErr: translate.ErrGeminiSchemaIncompatible,
+		},
+		{
+			name:   "allOf intersects a property declared by both branches",
+			schema: `{"allOf":[{"type":"object","properties":{"id":{"type":"string","minLength":1}}},{"type":"object","properties":{"id":{"type":"string","minLength":4}}}]}`,
+			check: func(t *testing.T, schema map[string]any) {
+				id := schema["properties"].(map[string]any)["id"].(map[string]any)
+				assert.Equal(t, "string", id["type"])
+				assert.Equal(t, float64(4), id["minLength"])
+			},
+		},
+		{
+			name:    "allOf conflict nested under a shared property still rejects",
+			schema:  `{"allOf":[{"type":"object","properties":{"id":{"type":"string"}}},{"type":"object","properties":{"id":{"type":"number"}}}]}`,
+			wantErr: translate.ErrGeminiSchemaIncompatible,
+		},
+		{
+			name:   "allOf array item schemas intersect",
+			schema: `{"allOf":[{"type":"array","items":{"type":"string","minLength":2}},{"type":"array","items":{"type":"string","minLength":6}}]}`,
+			check: func(t *testing.T, schema map[string]any) {
+				items := schema["items"].(map[string]any)
+				assert.Equal(t, "string", items["type"])
+				assert.Equal(t, float64(6), items["minLength"])
+			},
+		},
+		{
+			// nullable intersects: a nullable branch AND a non-nullable one is
+			// non-nullable, which Gemini spells as the absence of the key.
+			name:   "allOf nullable requires both branches to admit null",
+			schema: `{"allOf":[{"type":["string","null"]},{"type":"string"}]}`,
+			check: func(t *testing.T, schema map[string]any) {
+				assert.Equal(t, "string", schema["type"])
+				assert.NotContains(t, schema, "nullable")
+			},
+		},
+		{
+			name:   "allOf keeps nullable when both branches admit null",
+			schema: `{"allOf":[{"type":["string","null"]},{"type":["string","null"]}]}`,
+			check: func(t *testing.T, schema map[string]any) {
+				assert.Equal(t, "string", schema["type"])
+				assert.Equal(t, true, schema["nullable"])
+			},
+		},
+		{
 			name:   "anyOf preserves every branch",
 			schema: `{"anyOf":[{"type":"string"},{"type":"number"}]}`,
 			check: func(t *testing.T, schema map[string]any) {
