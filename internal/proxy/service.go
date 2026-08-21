@@ -4675,9 +4675,10 @@ func (s *Service) emitBilling(ctx context.Context, requestID, externalID string,
 
 // fireBilling debits the org's prepaid credit balance for one upstream call.
 // Async via SafeGo: the multi-CTE ledger write serializes on the org's single
-// balance row, causing pool contention under load. The debit is tracked on
-// billingInflight so graceful shutdown drains it before the DB pool closes;
-// failures log Error for manual reconciliation.
+// balance row, causing pool contention under load. context.Background() so
+// customer cancellation doesn't abort billing for an already-served inference;
+// on failure, logs Error for manual reconciliation. Tracked on billingInflight
+// so shutdown drains it before the DB pool closes.
 func (s *Service) fireBilling(p billing.DebitInferenceParams) {
 	if s.billing == nil {
 		return

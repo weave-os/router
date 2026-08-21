@@ -81,8 +81,7 @@ func main() {
 	// 6 conns covers MarkUsed writes plus session-pin traffic (auth-cache and
 	// the in-proc LRU absorb most reads). If pgxpool wait p95 climbs above 1ms
 	// with pinning on, that's the migrate-to-Memorystore signal, not a bigger pool.
-	// ROUTER_POSTGRES_MAX_CONNS overrides for high-concurrency deploys;
-	// raise only after checking pgxpool wait p95 (see comment above).
+	// ROUTER_POSTGRES_MAX_CONNS overrides for high-concurrency deploys.
 	cfg.MaxConns = parseEnvInt32("ROUTER_POSTGRES_MAX_CONNS", 6)
 	cfg.MinConns = 1
 	cfg.MaxConnLifetime = 30 * time.Minute
@@ -91,7 +90,7 @@ func main() {
 
 	// Tracks async billing debits so graceful shutdown can drain them before
 	// pool.Close (see the drain Wait call after srv.Shutdown).
-	billingInflight := &observability.TrackedGroup{}
+	billingInflight := observability.NewTrackedGroup()
 
 	pool, err := pgxpool.NewWithConfig(context.Background(), cfg)
 	if err != nil {
@@ -997,8 +996,15 @@ func main() {
 	select {
 	case err := <-serverErr:
 		logger.Error("Server exited with error", "err", err)
-		// A ListenAndServe failure bypasses the SIGTERM path below, so flush
-		// APM here too or the traces describing the failure never reach SigNoz.
+		// A ListenAndServe failure bypasses the SIGTERM path below, so drain
+		// billing here too (pool.Close runs via defer) or in-flight debits are
+		// dropped.
+		serverErrDrainCtx, serverErrDrainCancel := context.WithTimeout(context.Background(), 1500*time.Millisecond)
+		defer serverErrDrainCancel()
+		billingInflight.Cancel()
+		billingInflight.WaitWithContext(serverErrDrainCtx)
+		// Flush APM here too or the traces describing the failure never reach
+		// SigNoz (same reason it's after the drain: drain first, then flush).
 		apmFailCtx, apmFailCancel := context.WithTimeout(context.Background(), 1500*time.Millisecond)
 		defer apmFailCancel()
 		apm.ShutdownWithContext(apmFailCtx)
@@ -1019,9 +1025,13 @@ func main() {
 	// srv.Shutdown only waits for handler goroutines; billing debits run in
 	// SafeGoTracked goroutines it doesn't know about. Drain them before the
 	// deferred pool.Close runs so a deploy or scale-to-zero can't SIGKILL an
-	// in-flight debit and leave served inference unbilled. Bounded by each
-	// debit's own 5s timeout; the 1.5s window above covers the ledger write.
-	billingInflight.Wait()
+	// in-flight debit and leave served inference unbilled. Cancel aborts any
+	// overrunning debit at its next context check (inner timeout), and the
+	// bounded wait keeps the whole drain inside the 1.5s budget above.
+	billingDrainCtx, billingDrainCancel := context.WithTimeout(context.Background(), 1500*time.Millisecond)
+	defer billingDrainCancel()
+	billingInflight.Cancel()
+	billingInflight.WaitWithContext(billingDrainCtx)
 	emitterCtx, emitterCancel := context.WithTimeout(context.Background(), 1500*time.Millisecond)
 	defer emitterCancel()
 	if err := emitter.Shutdown(emitterCtx); err != nil {

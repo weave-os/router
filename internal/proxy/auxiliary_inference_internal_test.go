@@ -290,8 +290,10 @@ func TestBillAuxiliaryInferenceBillsWithoutInstallation(t *testing.T) {
 		ClientIdentity{SessionID: auxTestSessionID})
 	s.billAuxiliaryInference(ctx, auxTestRequestID, auxSuffixHandoverSummary, auxTestOrgID, auxTestUsage())
 
-	time.Sleep(50 * time.Millisecond)
-	assert.Len(t, billingRepo.snapshot(), 1, "the customer is still charged for the call")
+	// fireBilling is async (SafeGo), so poll rather than sleep.
+	require.Eventually(t, func() bool {
+		return len(billingRepo.snapshot()) >= 1
+	}, 2*time.Second, 5*time.Millisecond, "the customer is still charged for the call")
 	assert.Empty(t, telemetryRepo.snapshot(), "no installation means no row to attribute")
 }
 
@@ -307,8 +309,13 @@ func TestBillAuxiliaryInferenceUsesSummarizerProviderForBYOK(t *testing.T) {
 	})
 	s.billAuxiliaryInference(ctx, auxTestRequestID, auxSuffixHandoverSummary, auxTestOrgID, auxTestUsage())
 
-	time.Sleep(50 * time.Millisecond)
-	debits := billingRepo.snapshot()
+	// fireBilling is async (SafeGo), so poll until the debit lands instead of
+	// sleeping a fixed duration that can race under slow scheduling.
+	var debits []billing.DebitParams
+	require.Eventually(t, func() bool {
+		debits = billingRepo.snapshot()
+		return len(debits) >= 1
+	}, 2*time.Second, 5*time.Millisecond, "billing debit must be recorded")
 	require.Len(t, debits, 1)
 	assert.Zero(t, debits[0].DeltaUsdMicros,
 		"a BYOK-served summary debits no inference cost — the customer paid their own upstream")
