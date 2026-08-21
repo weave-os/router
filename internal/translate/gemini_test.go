@@ -1310,7 +1310,7 @@ func TestPrepareGemini_SendMessageToAllOfRegression(t *testing.T) {
 
 	to := props["to"].(map[string]any)
 	assert.Equal(t, "string", to["type"])
-	assert.Equal(t, "Recipient: teammate name", to["description"], "later branch's annotation wins")
+	assert.Equal(t, "Teammate recipient", to["description"], "earlier branch's annotation wins")
 	assert.ElementsMatch(t, []any{"message", "to"}, params["required"])
 }
 

@@ -60,11 +60,11 @@ func TestPrepareGemini_SchemaFidelity(t *testing.T) {
 			},
 		},
 		{
-			name:   "allOf annotation conflict merges with later branch winning",
+			name:   "allOf annotation conflict merges with earlier branch winning",
 			schema: `{"allOf":[{"type":"string","description":"from the base type"},{"type":"string","description":"per-tool override"}]}`,
 			check: func(t *testing.T, schema map[string]any) {
 				assert.Equal(t, "string", schema["type"])
-				assert.Equal(t, "per-tool override", schema["description"])
+				assert.Equal(t, "from the base type", schema["description"])
 			},
 		},
 		{
@@ -77,6 +77,136 @@ func TestPrepareGemini_SchemaFidelity(t *testing.T) {
 				assert.Contains(t, props, "a")
 				assert.NotContains(t, props, "b")
 				assert.NotContains(t, schema, "required")
+			},
+		},
+		{
+			// Annotation-only branch (prod-observed shape); outer branch value wins.
+			name:   "allOf branches disagreeing on annotations merge",
+			schema: `{"type":"object","properties":{"to":{"allOf":[{"type":"string","description":"A","title":"T1"},{"type":"string","description":"B","title":"T2"}]}}}`,
+			check: func(t *testing.T, schema map[string]any) {
+				to := schema["properties"].(map[string]any)["to"].(map[string]any)
+				assert.Equal(t, "string", to["type"])
+				assert.Equal(t, "A", to["description"])
+				assert.Equal(t, "T1", to["title"])
+			},
+		},
+		{
+			name:   "allOf bounds narrow to the stricter of each pair",
+			schema: `{"allOf":[{"type":"string","minLength":1,"maxLength":10},{"type":"string","minLength":5,"maxLength":8}]}`,
+			check: func(t *testing.T, schema map[string]any) {
+				assert.Equal(t, float64(5), schema["minLength"])
+				assert.Equal(t, float64(8), schema["maxLength"])
+			},
+		},
+		{
+			name:   "allOf numeric bounds narrow regardless of branch order",
+			schema: `{"allOf":[{"type":"integer","minimum":10,"maximum":20},{"type":"integer","minimum":2,"maximum":50}]}`,
+			check: func(t *testing.T, schema map[string]any) {
+				assert.Equal(t, float64(10), schema["minimum"])
+				assert.Equal(t, float64(20), schema["maximum"])
+			},
+		},
+		{
+			name:   "allOf enums intersect to the shared members",
+			schema: `{"allOf":[{"type":"string","enum":["a","b","c"]},{"type":"string","enum":["b","c","d"]}]}`,
+			check: func(t *testing.T, schema map[string]any) {
+				assert.Equal(t, []any{"b", "c"}, schema["enum"])
+			},
+		},
+		{
+			// Disjoint enums admit no value at all — an unsatisfiable
+			// intersection — so the conflicting branch is dropped (widened)
+			// rather than failing the request.
+			name:   "allOf disjoint enums widen by dropping the later branch",
+			schema: `{"allOf":[{"type":"string","enum":["a"]},{"type":"string","enum":["b"]}]}`,
+			check: func(t *testing.T, schema map[string]any) {
+				assert.Equal(t, []any{"a"}, schema["enum"])
+			},
+		},
+		{
+			// pattern is a constraint, not an annotation: identical branch
+			// patterns merge; differing regexes cannot be intersected, so the
+			// later branch is dropped (widened) instead.
+			name:   "allOf identical patterns merge",
+			schema: `{"allOf":[{"type":"string","pattern":"^[A-Z]{3}$"},{"type":"string","pattern":"^[A-Z]{3}$"}]}`,
+			check: func(t *testing.T, schema map[string]any) {
+				assert.Equal(t, "^[A-Z]{3}$", schema["pattern"])
+			},
+		},
+		{
+			name:   "allOf differing patterns widen by dropping the later branch",
+			schema: `{"allOf":[{"type":"string","pattern":"^[A-Z]+$"},{"type":"string","pattern":"^[A-Z]{3}$"}]}`,
+			check: func(t *testing.T, schema map[string]any) {
+				assert.Equal(t, "^[A-Z]+$", schema["pattern"])
+			},
+		},
+		{
+			name:   "allOf intersects a property declared by both branches",
+			schema: `{"allOf":[{"type":"object","properties":{"id":{"type":"string","minLength":1}}},{"type":"object","properties":{"id":{"type":"string","minLength":4}}}]}`,
+			check: func(t *testing.T, schema map[string]any) {
+				id := schema["properties"].(map[string]any)["id"].(map[string]any)
+				assert.Equal(t, "string", id["type"])
+				assert.Equal(t, float64(4), id["minLength"])
+			},
+		},
+		{
+			// A type conflict nested under a shared property makes the later
+			// branch unmergeable, so it is dropped (widened).
+			name:   "allOf conflict nested under a shared property widens",
+			schema: `{"allOf":[{"type":"object","properties":{"id":{"type":"string"}}},{"type":"object","properties":{"id":{"type":"number"}}}]}`,
+			check: func(t *testing.T, schema map[string]any) {
+				id := schema["properties"].(map[string]any)["id"].(map[string]any)
+				assert.Equal(t, "string", id["type"])
+			},
+		},
+		{
+			name:   "allOf array item schemas intersect",
+			schema: `{"allOf":[{"type":"array","items":{"type":"string","minLength":2}},{"type":"array","items":{"type":"string","minLength":6}}]}`,
+			check: func(t *testing.T, schema map[string]any) {
+				items := schema["items"].(map[string]any)
+				assert.Equal(t, "string", items["type"])
+				assert.Equal(t, float64(6), items["minLength"])
+			},
+		},
+		{
+			// nullable intersects: a nullable branch AND a non-nullable one is
+			// non-nullable, which Gemini spells as the absence of the key.
+			name:   "allOf nullable requires both branches to admit null",
+			schema: `{"allOf":[{"type":["string","null"]},{"type":"string"}]}`,
+			check: func(t *testing.T, schema map[string]any) {
+				assert.Equal(t, "string", schema["type"])
+				assert.NotContains(t, schema, "nullable")
+			},
+		},
+		{
+			name:   "allOf keeps nullable when both branches admit null",
+			schema: `{"allOf":[{"type":["string","null"]},{"type":["string","null"]}]}`,
+			check: func(t *testing.T, schema map[string]any) {
+				assert.Equal(t, "string", schema["type"])
+				assert.Equal(t, true, schema["nullable"])
+			},
+		},
+		{
+			// A typed sibling that omits nullable is non-nullable, so a nullable
+			// allOf branch must not widen it back (regression: intersect used to
+			// absorb nullable:true from the branch over the sibling's implicit
+			// non-nullability).
+			name:   "nullable allOf branch does not widen a non-null sibling",
+			schema: `{"type":"string","allOf":[{"type":["string","null"]}]}`,
+			check: func(t *testing.T, schema map[string]any) {
+				assert.Equal(t, "string", schema["type"])
+				assert.NotContains(t, schema, "nullable")
+			},
+		},
+		{
+			// A nullable sibling combined with an identical nullable branch
+			// stays nullable rather than misreading the raw sibling type array as
+			// non-null and rejecting the pair as conflicting.
+			name:   "nullable sibling plus same nullable branch merges",
+			schema: `{"type":["string","null"],"allOf":[{"type":["string","null"]}]}`,
+			check: func(t *testing.T, schema map[string]any) {
+				assert.Equal(t, "string", schema["type"])
+				assert.Equal(t, true, schema["nullable"])
 			},
 		},
 		{
