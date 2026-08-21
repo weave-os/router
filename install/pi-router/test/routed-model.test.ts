@@ -62,7 +62,7 @@ function contextWindow(registration: ProviderRegistration, modelId: string): num
 	return registration.config.models?.find((model) => model.id === modelId)?.contextWindow;
 }
 
-test("uses the served context-window header for Pi's active Weave model", () => {
+test("uses the served context-window header only for Pi's active Weave model", () => {
 	withRouterKey(() => {
 		const extension = extensionHarness();
 		extension.emit(
@@ -79,7 +79,7 @@ test("uses the served context-window header for Pi's active Weave model", () => 
 		assert.equal(extension.registrations[0]?.name, PROVIDER_NAME);
 		assert.equal(extension.registrations[0]?.config.models?.length, WEAVE_MODELS.length);
 		assert.equal(contextWindow(extension.registrations[0]!, "claude-haiku-4-5"), 1_000_000);
-		assert.equal(contextWindow(extension.registrations[0]!, "claude-sonnet-4-6"), 1_000_000);
+		assert.equal(contextWindow(extension.registrations[0]!, "grok-4.6"), 500_000);
 		assert.equal(WEAVE_MODELS.find((model) => model.id === "claude-haiku-4-5")?.contextWindow, 200_000);
 	});
 });
