@@ -749,8 +749,7 @@ func preferStatusErr(statusErr, lastErr error) error {
 // exhaustedPolicyErr reports why the ladder ended. Both the sidecar's status and
 // the deadline are preserved: the status is the sidecar's own diagnosis; the
 // deadline keeps isPolicyDeadlineErr matching so the policy-deadline fallback
-// still degrades instead of handing the caller the 503 that fallback exists to
-// prevent.
+// still degrades rather than surfacing the 503 that fallback exists to prevent.
 func exhaustedPolicyErr(statusErr, lastErr, ctxErr error) error {
 	primary := preferStatusErr(statusErr, lastErr)
 	deadline := cancellationSignal(ctxErr, lastErr, statusErr)
@@ -846,10 +845,9 @@ func isTransientPolicyStatus(status int) bool {
 		status == http.StatusGatewayTimeout
 }
 
-// PolicyStatusError is a non-2xx response from the sidecar. It is typed so the
-// retry ladder can prefer it over a later attempt's transport error: a status is
-// the sidecar's own diagnosis of the failure, whereas a truncated final
-// attempt's "context deadline exceeded" only says the budget ran out.
+// PolicyStatusError is a non-2xx response from the sidecar, typed so the retry
+// ladder can prefer it over a transport error: a status is the sidecar's own
+// diagnosis; "context deadline exceeded" only says the budget ran out.
 type PolicyStatusError struct {
 	Status  int
 	Message string
