@@ -127,6 +127,30 @@ func (s *Service) evictPinAfterDegenerateResponse(
 	)
 }
 
+// maybeExpireDeadArmPin expires the sticky pin when the pinned arm provably
+// cannot serve the request shape (schema/capability/intrinsically-incompatible
+// rejection) even if a sibling/baseline rescue served THIS turn. Without it a
+// successful rescue nils proxyErr, maybeEvictPinAfterUpstreamErr resets the
+// strike counter, and the dead arm stays pinned — every later turn re-burns the
+// deterministic 400 then rescues again. The rejection flag is snapshotted
+// before the rescue runs so a success doesn't hide it.
+func (s *Service) maybeExpireDeadArmPin(
+	ctx context.Context,
+	rescued bool,
+	deadArmRejected bool,
+	installationID uuid.UUID,
+	sessionKey [sessionpin.SessionKeyLen]byte,
+	role string,
+) {
+	if !rescued || !deadArmRejected || s.pinStore == nil || installationID == uuid.Nil || sessionKey == ([sessionpin.SessionKeyLen]byte{}) {
+		return
+	}
+	log := observability.FromContext(ctx)
+	if err := s.expireSessionPin(ctx, installationID, sessionKey, role, "dead_arm_rejected"); err != nil {
+		log.Error("pin eviction after dead-arm rejection failed", "err", err, "role", role)
+	}
+}
+
 // maybeEvictPinAfterUpstreamErr applies the two-strike eviction policy for a
 // turn run against a sticky pin: a successful turn resets the strike counter,
 // a non-retryable upstream 4xx increments it, and hitting

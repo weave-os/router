@@ -3198,6 +3198,11 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	// Capability rejection means the routed model cannot serve this shape at all —
 	// rescue via baseline even when the policy owns per-turn selection.
 	capabilityRejected := providers.IsUpstreamCapabilityRejection(proxyErr)
+	// A provably-dead-arm rejection (schema/capability/intrinsically-incompatible)
+	// is snapshotted before any rescue runs — the rescue nils proxyErr on
+	// success, which would otherwise hide the rejection from the post-rescue
+	// pin-eviction decision below.
+	deadArmRejected := capabilityRejected || providers.IsUpstreamSchemaRejection(proxyErr) || translate.IsIntrinsicallyIncompatible(proxyErr)
 	if capabilityRejected {
 		log.Error("Upstream rejected the request as unsupported by the routed model",
 			"model", decision.Model,
@@ -3638,6 +3643,13 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	// persistent counter hits threshold; successful turns reset it.
 	if !agentShadowMode {
 		s.maybeEvictPinAfterUpstreamErr(ctx, stickyHit, proxyErr, decision.Reason, installationID, routeRes.SessionKey, stickyStateRole(routeRes))
+
+		// A schema/capability/incompatible rejection marks the pinned arm provably
+		// dead for this request shape — the pin must not stay on it even when the
+		// sibling/baseline rescue served the turn, or every later turn re-burns the
+		// same deterministic 400 (then rescues again). Expire it now, regardless of
+		// proxyErr (the rescue outcome), so the next turn re-routes clean.
+		s.maybeExpireDeadArmPin(ctx, baselineFailoverUsed || siblingFailoverUsed, deadArmRejected, installationID, routeRes.SessionKey, stickyStateRole(routeRes))
 
 		// Two-strike provider disable: complements the 4xx eviction above;
 		// 529 is retryable in-turn so it never trips that counter.

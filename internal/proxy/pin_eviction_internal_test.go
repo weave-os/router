@@ -371,3 +371,42 @@ func TestMaybeEvictPin_NonUpstreamErrorIgnored(t *testing.T) {
 	assert.Zero(t, store.incrementCalls)
 	assert.Empty(t, store.upserts)
 }
+
+// TestMaybeExpireDeadArmPin covers the Bugbot finding on PR #992: when a
+// schema/capability rejection is rescued by the sibling or baseline arm, the
+// rescue nils proxyErr, so maybeEvictPinAfterUpstreamErr RESETS the strike
+// counter and the dead arm stays pinned — every later turn re-burns the
+// deterministic 400 then rescues again. maybeExpireDeadArmPin must expire the
+// pin the moment the rejection is known, regardless of rescue outcome.
+func TestMaybeExpireDeadArmPin(t *testing.T) {
+	installationID := uuid.New()
+	sessionKey := nonZeroSessionKey()
+
+	cases := []struct {
+		name      string
+		rescued   bool
+		rejected  bool
+		wantFired bool
+	}{
+		{"successful rescue of a dead-arm rejection evicts the pin", true, true, true},
+		{"rescue without a dead-arm rejection leaves the pin", true, false, false},
+		{"rejection with no rescue is handled by the two-strike path, not here", false, true, false},
+		{"no rejection, no rescue, no eviction", false, false, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			store := &evictionStubPinStore{}
+			svc := newEvictionTestService(store)
+			svc.maybeExpireDeadArmPin(context.Background(), tc.rescued, tc.rejected, installationID, sessionKey, sessionpin.DefaultRole)
+			if tc.wantFired {
+				require.Len(t, store.upserts, 1, "rejected-then-rescued turn must expire the pin")
+				expired := store.upserts[0]
+				assert.Equal(t, sessionpin.DefaultRole, expired.Role)
+				assert.Equal(t, installationID, expired.InstallationID)
+				assert.True(t, expired.PinnedUntil.Before(time.Now()), "eviction expires the pin")
+			} else {
+				assert.Empty(t, store.upserts, "pin must survive when the rejection/outcome doesn't warrant eviction")
+			}
+		})
+	}
+}
