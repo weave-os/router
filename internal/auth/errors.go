@@ -24,9 +24,8 @@ var (
 	// row — missing, soft-deleted, or owned by another installation.
 	ErrExternalAPIKeyNotFound = errors.New("external api key not found")
 
-	// ErrUpstreamCredentialUnavailable is returned when a key exists but its
-	// upstream credential cannot be produced (derived-auth signing/attestation
-	// failed or the stored secret is empty).
+	// ErrUpstreamCredentialUnavailable is returned when a key exists but its credential cannot be
+	// produced — derived-auth signing/attestation failed or the stored secret is empty.
 	ErrUpstreamCredentialUnavailable = errors.New("upstream credential unavailable")
 
 	// ErrInstallationNotFound is returned when an installation update matches no

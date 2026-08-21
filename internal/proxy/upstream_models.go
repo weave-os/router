@@ -12,9 +12,8 @@ import (
 // model-listing surface; callers keep the manual alias-entry path.
 var ErrModelListingUnsupported = errors.New("provider does not support model listing")
 
-// ListUpstreamModels queries a provider endpoint for the model IDs it
-// publishes, authenticating with creds exactly as an inference call would.
-// A nil creds falls back to the deployment-level key and base URL.
+// ListUpstreamModels queries a provider endpoint for the model IDs it publishes,
+// authenticating with creds exactly as an inference call would (nil creds → deployment-level key).
 func (s *Service) ListUpstreamModels(ctx context.Context, provider string, creds *Credentials) ([]string, error) {
 	client, ok := s.providers[provider]
 	if !ok {

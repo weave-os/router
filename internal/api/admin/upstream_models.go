@@ -19,9 +19,8 @@ type discoverModelsRequest struct {
 	BaseURL  *string `json:"base_url"`
 }
 
-// DiscoverModelsHandler lists the models an endpoint publishes using
-// credentials from the request body, for keys not yet saved. The credential is
-// used for the single upstream call and never persisted or echoed back.
+// DiscoverModelsHandler lists models an endpoint publishes using unsaved bearer credentials.
+// The credential is used for a single upstream call; it is never persisted or echoed back.
 func DiscoverModelsHandler(proxySvc *proxy.Service) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req discoverModelsRequest
