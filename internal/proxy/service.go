@@ -1439,9 +1439,8 @@ func (s *Service) WithContentCapture(mode ContentCaptureMode, maxBytes int, reda
 //     "high" default, a ~15 s fixed TTFT stall on every pinned turn.
 //   - everything else: "" — left to its own path.
 func forcedReasoningEffort(model string, escalate bool) string {
-	// The grok floor is unconditional (not gated on effortEscalation): a bare
-	// pin that omits effort falls to xAI's non-disableable "high" default, a
-	// ~15 s fixed TTFT stall — a defect to correct, not an escalation to tune.
+	// Unconditional: omitting effort falls to xAI's non-disableable "high" default
+	// (~15 s TTFT stall) — a defect to correct, not an escalation to tune.
 	if strings.HasPrefix(model, "grok-") {
 		return "low"
 	}
