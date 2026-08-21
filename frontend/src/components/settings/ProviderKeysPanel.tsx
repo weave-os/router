@@ -332,6 +332,7 @@ export function ProviderKeysPanel() {
     if (autoFetchedRef.current === signature) return;
     // Inputs changed: any in-flight or previously fetched inventory belongs
     // to a different endpoint.
+    autoFetchedRef.current = null;
     newFetchSeqRef.current++;
     setNewEndpointModels(null);
     setFetchingNewModels(false);
