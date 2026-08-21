@@ -1193,8 +1193,7 @@ func (t *ResponsesWriter) appendToolCall(idx int, tc gjson.Result) error {
 			item.name = entry.Name
 		}
 		// Buffer nameless chunks; the mapping decides function_call vs
-		// custom_tool_call only once the name arrives from a later delta;
-		// mint itemID here so mapping.Custom is settled and gets ctc_/fc_.
+		// custom_tool_call only once the name arrives from a later delta.
 		if len(t.toolMappings) == 0 || item.name != "" {
 			item.itemID = newResponsesID(toolCallItemIDPrefix(item.mapping.Custom))
 			if err := t.emitFunctionCallItemAdded(item); err != nil {
