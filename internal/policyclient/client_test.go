@@ -635,19 +635,14 @@ func TestDeriveAttemptTimeoutLeavesRoomForRetries(t *testing.T) {
 	assert.Equal(t, minAttemptTimeout, DeriveAttemptTimeout(700*time.Millisecond))
 }
 
-// TestDefaultBudgetFitsASecondFullAttempt is the arithmetic guard the old
-// constants failed: 3 x 1.8s cannot happen inside 3s, so a sidecar that took
-// its full attempt bound got a truncated attempt 2 and no attempt 3, and the
-// caller was told "context deadline exceeded" for what was really one try.
+// TestDefaultBudgetFitsASecondFullAttempt guards that two full attempts plus
+// backoff fit in DefaultTimeout, and that the bound outlives the sidecar's own deadline.
 func TestDefaultBudgetFitsASecondFullAttempt(t *testing.T) {
 	attemptTimeout := DeriveAttemptTimeout(DefaultTimeout)
 	firstBackoff := time.Duration(1) * routeRetryBackoff
 
 	require.LessOrEqual(t, 2*attemptTimeout+firstBackoff, DefaultTimeout,
 		"two full attempts plus the first backoff must fit in the decision budget")
-	assert.LessOrEqual(t, attemptTimeout, DefaultTimeout/defaultRouteAttempts+attemptTimeout,
-		"the per-attempt bound must not exceed what the ladder can spend")
-
 	// A per-attempt bound below a sidecar's own inference deadline would cancel
 	// a request it was about to answer, turning its degrade path into a
 	// router-side timeout. The HMM sidecar degrades at 1.5s.
@@ -656,10 +651,8 @@ func TestDefaultBudgetFitsASecondFullAttempt(t *testing.T) {
 		"an attempt must outlive the sidecar's own deadline so its answer is seen")
 }
 
-// TestRetriesExhaustedKeepsBothTheSidecarErrorAndTheDeadline: a sidecar that
-// fails closed slowly used to surface as a bare "context deadline exceeded",
-// which reads as "never replied". Prod spent ~390 turns a day that way while
-// the sidecar was returning its own 503 every time.
+// TestRetriesExhaustedKeepsBothTheSidecarErrorAndTheDeadline: a sidecar 503 must
+// survive alongside the deadline so the policy-deadline fallback still degrades.
 func TestRetriesExhaustedKeepsBothTheSidecarErrorAndTheDeadline(t *testing.T) {
 	attempts := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {

@@ -19,12 +19,8 @@ import (
 )
 
 // DefaultTimeout bounds a single delegated policy decision. It has to hold more
-// than one full attempt or the retry ladder below is decoration: at the old 3s,
-// attempt 1's 1.8s bound plus a backoff left ~1.15s, so attempt 2 was always
-// truncated by the parent deadline and attempt 3 never ran. 4.5s fits two full
-// attempts (1.8 + 0.05 + 1.8 = 3.65s) with the third still available to the
-// fast-failure case (connection refused, an instant 5xx) that returns in
-// milliseconds.
+// than one full attempt: 2x1.8s + a 50ms backoff = 3.65s, so the old 3s starved
+// attempt 2 and left attempt 3 unreachable.
 const DefaultTimeout = 4500 * time.Millisecond
 
 const (
@@ -33,15 +29,15 @@ const (
 )
 
 // Per-attempt bound so a stalled instance cannot consume the whole decision
-// budget and prevent retries. The fraction is deliberately at/below
-// 1/defaultRouteAttempts: above that, attempt 1 can claim more than its share
-// and starve the retries it exists to enable.
+// budget and prevent retries. Sized so a second FULL attempt still fits
+// (2 x fraction x timeout + backoff <= timeout). Three full attempts
+// deliberately do not fit; the third covers fast failures — connection refused,
+// an instant 5xx — which return in milliseconds.
 //
-// The absolute value matters as much as the ratio. A policy sidecar with its
-// own inference deadline answers just inside it (the HMM sidecar degrades to
-// the session's prior state at 1.5s), so an attempt bound below that deadline
-// cancels a request the sidecar was about to answer and converts a successful
-// degrade into a router-side timeout. 0.4 x 4.5s keeps the bound at 1.8s.
+// The bound must also exceed the sidecar's own inference deadline (the HMM
+// sidecar degrades to the session's prior state at 1.5s), or the router cancels
+// a request the sidecar was about to answer and turns a successful degrade into
+// a router-side timeout. 0.4 x 4.5s = 1.8s satisfies both.
 const (
 	defaultAttemptFraction = 0.4
 	minAttemptTimeout      = 500 * time.Millisecond
@@ -708,9 +704,7 @@ func pointerTo[T any](value T) *T {
 }
 
 func (c *Client) doPolicyRequest(ctx context.Context, path string, body []byte) (*http.Response, []byte, error) {
-	// lastErr is the most recent failure; lastStatusErr is the most recent one
-	// the sidecar itself reported. They diverge exactly when the budget runs out
-	// mid-ladder, which is when the diagnosis matters most.
+	// lastStatusErr is the sidecar's own diagnosis; it diverges from lastErr when the budget cuts a final attempt short.
 	var lastErr, lastStatusErr error
 	for attempt := 1; attempt <= defaultRouteAttempts; attempt++ {
 		if err := ctx.Err(); err != nil {
@@ -739,11 +733,8 @@ func (c *Client) doPolicyRequest(ctx context.Context, path string, body []byte) 
 	return nil, nil, exhaustedPolicyErr(preferStatusErr(lastStatusErr, lastErr), nil)
 }
 
-// preferStatusErr picks the sidecar's own status over a transport failure. The
-// final attempt of an exhausted ladder is usually the one the parent deadline
-// truncated, so without this the reported cause is always the budget and never
-// the sidecar — which is how ~390 fail-closed 503s a day were logged as
-// timeouts and the router never once recorded "policy sidecar status 503".
+// preferStatusErr picks the sidecar's own status over a transport failure, so an
+// exhausted ladder surfaces the sidecar's diagnosis and not the budget expiry.
 func preferStatusErr(statusErr, lastErr error) error {
 	if statusErr != nil {
 		return statusErr
@@ -751,14 +742,10 @@ func preferStatusErr(statusErr, lastErr error) error {
 	return lastErr
 }
 
-// exhaustedPolicyErr reports why the ladder ended. The sidecar's own error is
-// the diagnosis and has to survive: when the budget runs out after the sidecar
-// has already answered — its own fail-closed 503, or a 500 — reporting only
-// context.DeadlineExceeded reads as "the sidecar never replied" and hides the
-// real cause. In prod that masked 1,807 requests failing on a sidecar
-// TypeError and ~390/day failing on the sidecar's own 503; neither ever
-// appeared as anything but a timeout. Both errors are wrapped so callers that
-// degrade on the deadline (isPolicyDeadlineErr) still match.
+// exhaustedPolicyErr reports why the ladder ended. The sidecar's own error must
+// survive: context.DeadlineExceeded alone reads as "never replied" and hides
+// whether the sidecar actually returned a status. Both are wrapped so
+// isPolicyDeadlineErr still matches for the degrade path.
 func exhaustedPolicyErr(lastErr, ctxErr error) error {
 	switch {
 	case lastErr == nil && ctxErr == nil:
