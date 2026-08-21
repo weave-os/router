@@ -19,9 +19,7 @@ import (
 	"github.com/tidwall/gjson"
 )
 
-// TestProxyMessages_GeminiBuildIncompatibilityFailsOverToBaselineAnthropic:
-// PrepareGemini fails before Google is dialed; the turn must be rescued on
-// Anthropic, not surface a 502.
+// PrepareGemini fails before Google is dialed; the turn must be rescued on Anthropic.
 func TestProxyMessages_GeminiBuildIncompatibilityFailsOverToBaselineAnthropic(t *testing.T) {
 	var (
 		mu                     sync.Mutex

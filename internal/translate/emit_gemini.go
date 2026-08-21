@@ -1544,10 +1544,8 @@ func mergeSchemaMaps(base, extra map[string]any, overwrite bool) map[string]any 
 }
 
 // geminiAnnotationKeys carry no validation semantics, so two allOf branches
-// disagreeing on one is not a conflict. The left (outer/earlier) value wins.
-// pattern is deliberately absent: it is a constraint, and two branches'
-// regexes cannot be intersected — keeping only the left would widen the
-// accepted set — so differing patterns stay a conflict like pre-fix.
+// disagreeing on one is not a conflict — the left (earlier) value wins.
+// pattern is absent: regexes cannot be intersected, so differing patterns conflict.
 var geminiAnnotationKeys = map[string]struct{}{
 	"description": {},
 	"title":       {},
@@ -1651,13 +1649,25 @@ func intersectGeminiSchemas(left, right map[string]any) (map[string]any, bool) {
 	return out, true
 }
 
-// clampNullableTyped makes a typed schema's implicit non-nullability explicit:
-// Gemini treats an absent nullable as non-nullable, so it only means something
-// when intersection ANDs two ops. A schema with no type constrains nothing and
-// is returned unchanged.
+// clampNullableTyped makes implicit non-nullability explicit on typed schemas:
+// Gemini treats an absent nullable as false, so AND-ing two ops needs the
+// value present on both sides. A raw operand's type:[T,"null"] array is
+// lowered here too — nested siblings reach intersection before their own
+// sanitize pass normalizes them.
 func clampNullableTyped(schema map[string]any) map[string]any {
-	if _, hasType := schema["type"]; !hasType {
+	typeValue, hasType := schema["type"]
+	if !hasType {
 		return schema
+	}
+	if types, isArray := typeValue.([]any); isArray {
+		primary, ok := lowerNullableTypeArray(types)
+		if !ok {
+			return schema
+		}
+		out := mergeSchemaMaps(schema, nil, false)
+		out["type"] = primary
+		out["nullable"] = true
+		return out
 	}
 	if _, hasNullable := schema["nullable"]; hasNullable {
 		return schema
@@ -1665,6 +1675,37 @@ func clampNullableTyped(schema map[string]any) map[string]any {
 	out := mergeSchemaMaps(schema, nil, false)
 	out["nullable"] = false
 	return out
+}
+
+// lowerNullableTypeArray reports the non-null member of an exact [T, "null"]
+// type pair; any other array shape is left for the sanitize pass to reject.
+func lowerNullableTypeArray(types []any) (string, bool) {
+	if len(types) != 2 {
+		return "", false
+	}
+	primary := ""
+	hasNull := false
+	for _, candidate := range types {
+		name, ok := candidate.(string)
+		if !ok {
+			return "", false
+		}
+		if name == "null" {
+			if hasNull {
+				return "", false
+			}
+			hasNull = true
+			continue
+		}
+		if primary != "" {
+			return "", false
+		}
+		primary = name
+	}
+	if primary == "" || !hasNull {
+		return "", false
+	}
+	return primary, true
 }
 
 // stripEmptyNullable removes a nullable:false that is indistinguishable from an
