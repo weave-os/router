@@ -3,6 +3,7 @@ package translate_test
 import (
 	"encoding/json"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"workweave/router/internal/translate"
@@ -63,9 +64,14 @@ func TestResponsesWriter_RestoresCodexCustomToolFromSplitChatArguments(t *testin
 	assert.Equal(t, "exec", item["name"])
 	assert.Equal(t, "call_exec", item["call_id"])
 	assert.Equal(t, "const x = 1;", item["input"])
+	// A custom_tool_call item's own id must carry the ctc_ prefix the
+	// Responses API requires for this type, not fc_ (reserved for
+	// function_call) — Codex stores and replays this id next turn.
+	assert.Truef(t, strings.HasPrefix(item["id"].(string), "ctc_"), "custom_tool_call id %q must start with ctc_", item["id"])
 	output := completed["response"].(map[string]any)["output"].([]any)
 	assert.Equal(t, "custom_tool_call", output[0].(map[string]any)["type"])
 	assert.Equal(t, "const x = 1;", output[0].(map[string]any)["input"])
+	assert.Truef(t, strings.HasPrefix(output[0].(map[string]any)["id"].(string), "ctc_"), "response.completed custom_tool_call id %q must start with ctc_", output[0].(map[string]any)["id"])
 }
 
 func TestResponsesWriter_RestoresCodexFunctionNamespace(t *testing.T) {
@@ -94,6 +100,7 @@ func TestResponsesWriter_RestoresCodexFunctionNamespace(t *testing.T) {
 		assert.Equal(t, "send_message", item["name"])
 		assert.Equal(t, "collaboration", item["namespace"])
 		assert.JSONEq(t, `{"target":"/root"}`, item["arguments"].(string))
+		assert.Truef(t, strings.HasPrefix(item["id"].(string), "fc_"), "function_call id %q must start with fc_", item["id"])
 		return
 	}
 	t.Fatal("missing namespaced function_call output item")
@@ -128,6 +135,7 @@ func TestResponsesWriter_NonStreamingRestoresCodexCustomTool(t *testing.T) {
 	assert.Equal(t, "custom_tool_call", output[0].(map[string]any)["type"])
 	assert.Equal(t, "exec", output[0].(map[string]any)["name"])
 	assert.Equal(t, "return 1;", output[0].(map[string]any)["input"])
+	assert.Truef(t, strings.HasPrefix(output[0].(map[string]any)["id"].(string), "ctc_"), "non-streaming custom_tool_call id %q must start with ctc_", output[0].(map[string]any)["id"])
 }
 
 func TestResponsesWriter_RejectsMalformedCodexCustomWrapperAndTerminatesFailed(t *testing.T) {
@@ -181,6 +189,10 @@ func TestResponsesWriter_PortableCodexBuffersUntilLateCustomToolName(t *testing.
 		item := event["item"].(map[string]any)
 		assert.NotEmpty(t, item["name"])
 		assert.Equal(t, "custom_tool_call", item["type"])
+		// The item is created on the first (nameless) delta, before
+		// mapping.Custom is knowable from tool_call name alone here — the id
+		// must still land on ctc_, minted once the name arrives.
+		assert.Truef(t, strings.HasPrefix(item["id"].(string), "ctc_"), "late-named custom_tool_call id %q must start with ctc_", item["id"])
 		customAdded = customAdded || event["type"] == "response.output_item.added"
 		customDone = customDone || event["type"] == "response.output_item.done"
 		if event["type"] == "response.output_item.done" {
