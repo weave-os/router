@@ -1,0 +1,41 @@
+internal/proxy/pin_eviction_internal_test.go
+  s_05c9c8c10e8ecd::t_7061848cc4b48a 118-122,139-140
+internal/proxy/service.go
+  s_05c9c8c10e8ecd::t_2baab3c247b777 3350-3351
+  s_05c9c8c10e8ecd::t_0a214015ec309e 3669,5581
+internal/translate/emit_openai_test.go
+  s_05c9c8c10e8ecd::t_6b90e059ab8f4e 1-19
+  s_05c9c8c10e8ecd::t_37deb2879e7968 20-22
+  s_05c9c8c10e8ecd::t_76f903dc482c0e 23-42
+internal/providers/provider_retry_test.go
+  s_05c9c8c10e8ecd::t_d9b6521238ebae 132-217
+internal/translate/crossformat_request_test.go
+  s_05c9c8c10e8ecd::t_23a2769b736f5b 1448-1449
+internal/proxy/fallback_test.go
+  s_05c9c8c10e8ecd::t_6d855e1afe2303 159-204
+internal/proxy/pin_eviction.go
+  s_05c9c8c10e8ecd::t_80c645d57f66df 17-23
+internal/providers/provider.go
+  s_05c9c8c10e8ecd::t_3f6de15f73177f 413-474
+  s_05c9c8c10e8ecd::t_ccef92daaafb1c 8
+  s_05c9c8c10e8ecd::t_652842a572e6e0 475
+internal/translate/emit_openai.go
+  s_05c9c8c10e8ecd::t_e4f5a42326d5cb 53
+  s_05c9c8c10e8ecd::t_7dc6b0dabc1740 937-948
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.23",
+  "base_commit_sha": "58efd913452f84e91729cf2cfa208d88d372e29d",
+  "prompts": {},
+  "sessions": {
+    "s_05c9c8c10e8ecd": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "19b8ac3e-3407-419b-ac32-8fb3d3d2e2c3",
+        "model": "moonshotai/kimi-k3"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}
