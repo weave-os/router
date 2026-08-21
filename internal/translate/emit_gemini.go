@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strings"
 
+	"workweave/router/internal/observability"
 	"workweave/router/internal/providers"
 	"workweave/router/internal/router"
 
@@ -489,10 +490,14 @@ func writeGeminiToolsFromOpenAI(jw *jsonWriter, body []byte) error {
 			}
 			clean, err := sanitizeSchemaForGemini(schema)
 			if err != nil {
-				emitErr = fmt.Errorf("function %q parameters: %w", name, err)
-				return false
+				// The client validates/executes tool calls itself and toolcheck
+				// validates model output against the ORIGINAL schema, so a
+				// declaration with no parameters is safe — a hard failure here
+				// would 502 the whole request over one unrepresentable tool.
+				observability.Get().Warn("Gemini tool schema is unrepresentable — emitting declaration without parameters", "tool_name", name, "err", err)
+			} else {
+				declaration["parameters"] = clean
 			}
-			declaration["parameters"] = clean
 		}
 		declarations = append(declarations, declaration)
 		return true
@@ -982,10 +987,12 @@ func writeGeminiToolsFromAnthropic(jw *jsonWriter, body []byte) error {
 			}
 			clean, err := sanitizeSchemaForGemini(schema)
 			if err != nil {
-				emitErr = fmt.Errorf("function %q input_schema: %w", name, err)
-				return false
+				// See writeGeminiToolsFromOpenAI: a widened/missing schema is
+				// always safe here, so degrade instead of failing the request.
+				observability.Get().Warn("Gemini tool schema is unrepresentable — emitting declaration without parameters", "tool_name", name, "err", err)
+			} else {
+				declaration["parameters"] = clean
 			}
-			declaration["parameters"] = clean
 		}
 		declarations = append(declarations, declaration)
 		return true
@@ -1316,7 +1323,7 @@ func sanitizeGeminiSchemaNode(v any, path string) (any, error) {
 	}
 
 	if allOf, exists := node["allOf"]; exists {
-		merged, err := mergeGeminiAllOf(allOf, path+".allOf")
+		merged, widened, err := mergeGeminiAllOf(allOf, path+".allOf")
 		if err != nil {
 			return nil, err
 		}
@@ -1324,7 +1331,16 @@ func sanitizeGeminiSchemaNode(v any, path string) (any, error) {
 		delete(base, "allOf")
 		node, ok = mergeSchemaMapsExact(base, merged)
 		if !ok {
-			return nil, fmt.Errorf("%w at %s.allOf: branches conflict with sibling constraints", ErrGeminiSchemaIncompatible, path)
+			// A merge conflict here is no longer fatal: the caller only needs a
+			// superset-safe schema for generation hints, so fall back to keeping
+			// the sibling (base) side of any remaining conflict rather than
+			// rejecting the whole tool.
+			node = mergeSchemaMapsLenient(base, merged)
+			widened = true
+			observability.Get().Info("Gemini allOf conflicts with sibling constraints — keeping sibling values", "path", path)
+		}
+		if widened {
+			pruneGeminiRequired(node)
 		}
 	}
 	if _, exists := node["oneOf"]; exists {
@@ -1459,28 +1475,61 @@ func resolveGeminiExclusiveBound(node, out map[string]any, key, exclusiveKey, pa
 	return nil
 }
 
-func mergeGeminiAllOf(v any, path string) (map[string]any, error) {
+// mergeGeminiAllOf merges allOf branches into a single Gemini-representable
+// schema, widening by dropping any branch it cannot merge rather than
+// rejecting the whole tool. Tool input schemas are generation hints only —
+// the client validates/executes tool calls itself and toolcheck validates
+// model output against the ORIGINAL schema — so a superset schema is always
+// safe; the alternative (failing the request) is strictly worse for every
+// caller. widened reports whether any branch was dropped, so the caller can
+// re-validate constraints (like required) that assumed every branch merged.
+func mergeGeminiAllOf(v any, path string) (merged map[string]any, widened bool, err error) {
 	branches, ok := v.([]any)
 	if !ok || len(branches) == 0 {
-		return nil, fmt.Errorf("%w at %s: expected non-empty array", ErrGeminiSchemaIncompatible, path)
+		return nil, false, fmt.Errorf("%w at %s: expected non-empty array", ErrGeminiSchemaIncompatible, path)
 	}
-	merged := map[string]any{}
+	merged = map[string]any{}
+	var (
+		matched  bool
+		firstErr error
+	)
 	for i, branch := range branches {
-		clean, err := sanitizeGeminiSchemaNode(branch, fmt.Sprintf("%s[%d]", path, i))
-		if err != nil {
-			return nil, err
+		branchPath := fmt.Sprintf("%s[%d]", path, i)
+		clean, cleanErr := sanitizeGeminiSchemaNode(branch, branchPath)
+		if cleanErr != nil {
+			widened = true
+			if firstErr == nil {
+				firstErr = cleanErr
+			}
+			observability.Get().Info("Gemini allOf branch is unrepresentable — widening by dropping it", "path", branchPath, "err", cleanErr)
+			continue
 		}
-		object, ok := clean.(map[string]any)
-		if !ok {
-			return nil, fmt.Errorf("%w at %s[%d]: branch is not an object schema", ErrGeminiSchemaIncompatible, path, i)
+		object, isObject := clean.(map[string]any)
+		if !isObject {
+			widened = true
+			branchErr := fmt.Errorf("%w at %s: branch is not an object schema", ErrGeminiSchemaIncompatible, branchPath)
+			if firstErr == nil {
+				firstErr = branchErr
+			}
+			observability.Get().Info("Gemini allOf branch is unrepresentable — widening by dropping it", "path", branchPath, "err", branchErr)
+			continue
 		}
-		var mergedOK bool
-		merged, mergedOK = mergeSchemaMapsExact(merged, object)
+		candidate, mergedOK := mergeSchemaMapsExact(merged, object)
 		if !mergedOK {
-			return nil, fmt.Errorf("%w at %s[%d]: branches conflict", ErrGeminiSchemaIncompatible, path, i)
+			widened = true
+			if firstErr == nil {
+				firstErr = fmt.Errorf("%w at %s: branch conflicts with prior branches", ErrGeminiSchemaIncompatible, branchPath)
+			}
+			observability.Get().Info("Gemini allOf branch is unrepresentable — widening by dropping it", "path", branchPath, "conflict", "branch conflicts with prior branches")
+			continue
 		}
+		merged = candidate
+		matched = true
 	}
-	return merged, nil
+	if !matched {
+		return nil, false, firstErr
+	}
+	return merged, widened, nil
 }
 
 func mergeSchemaMaps(base, extra map[string]any, overwrite bool) map[string]any {
@@ -1494,6 +1543,17 @@ func mergeSchemaMaps(base, extra map[string]any, overwrite bool) map[string]any 
 		}
 	}
 	return out
+}
+
+// geminiAnnotationKeys are schema keywords that document a value rather than
+// constrain what the model may generate. allOf branches disagreeing on one of
+// these isn't a real conflict, so mergeSchemaMapsExact lets the later branch
+// win instead of rejecting the merge.
+var geminiAnnotationKeys = map[string]struct{}{
+	"description": {},
+	"title":       {},
+	"default":     {},
+	"example":     {},
 }
 
 func mergeSchemaMapsExact(left, right map[string]any) (map[string]any, bool) {
@@ -1524,11 +1584,83 @@ func mergeSchemaMapsExact(left, right map[string]any) (map[string]any, bool) {
 			}
 			continue
 		}
+		if _, isAnnotation := geminiAnnotationKeys[key]; isAnnotation {
+			out[key] = deepCopyJSON(value)
+			continue
+		}
 		if !semanticJSONEqual(current, value) {
 			return nil, false
 		}
 	}
 	return out, true
+}
+
+// mergeSchemaMapsLenient merges left and right like mergeSchemaMapsExact but
+// never fails: it's the fallback once an allOf branch has already been
+// widened away, so the goal shifts from "prove no conflict" to "produce some
+// representable schema." properties recurse leniently; required unions via
+// uniqueStrings, keeping left's value if the input is too malformed to union;
+// any other conflicting key keeps left. Annotation-key conflicts never reach
+// here — mergeSchemaMapsExact already resolves those right-wins before this
+// fallback is needed, so this path's left-wins default doesn't apply to them.
+func mergeSchemaMapsLenient(left, right map[string]any) map[string]any {
+	out := mergeSchemaMaps(left, nil, false)
+	for key, value := range right {
+		current, exists := out[key]
+		if !exists {
+			out[key] = deepCopyJSON(value)
+			continue
+		}
+		if key == "properties" {
+			leftProperties, leftOK := current.(map[string]any)
+			rightProperties, rightOK := value.(map[string]any)
+			if !leftOK || !rightOK {
+				continue
+			}
+			out[key] = mergeSchemaMapsLenient(leftProperties, rightProperties)
+			continue
+		}
+		if key == "required" {
+			if merged := uniqueStrings(current, value); merged != nil {
+				out[key] = merged
+			}
+			continue
+		}
+		// Any other conflict keeps left (out[key] is already current).
+	}
+	return out
+}
+
+// pruneGeminiRequired drops required entries that reference no declared
+// property. Widening an allOf can remove the branch that declared a property
+// another branch (or a sibling constraint) still lists as required; keeping
+// that entry would make validateGeminiRequired reject the widened schema
+// outright, defeating the point of widening.
+func pruneGeminiRequired(node map[string]any) {
+	required, ok := node["required"].([]any)
+	if !ok {
+		return
+	}
+	properties, _ := node["properties"].(map[string]any)
+	if properties == nil {
+		delete(node, "required")
+		return
+	}
+	kept := make([]any, 0, len(required))
+	for _, entry := range required {
+		name, ok := entry.(string)
+		if !ok {
+			continue
+		}
+		if _, exists := properties[name]; exists {
+			kept = append(kept, name)
+		}
+	}
+	if len(kept) == 0 {
+		delete(node, "required")
+		return
+	}
+	node["required"] = kept
 }
 
 func uniqueStrings(left, right any) any {

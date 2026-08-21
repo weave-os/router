@@ -15,10 +15,13 @@ import (
 
 func TestPrepareGemini_SchemaFidelity(t *testing.T) {
 	tests := []struct {
-		name    string
-		schema  string
-		wantErr error
-		check   func(*testing.T, map[string]any)
+		name   string
+		schema string
+		// wantDegraded expects the request to succeed with the tool's
+		// declaration emitted WITHOUT parameters (the per-tool backstop for
+		// schemas that stay unrepresentable after widening).
+		wantDegraded bool
+		check        func(*testing.T, map[string]any)
 	}{
 		{
 			// Gemini types every enum member as TYPE_STRING; a numeric const lowers
@@ -48,9 +51,37 @@ func TestPrepareGemini_SchemaFidelity(t *testing.T) {
 			},
 		},
 		{
-			name:    "allOf conflict rejects",
-			schema:  `{"allOf":[{"type":"string"},{"type":"number"}]}`,
-			wantErr: translate.ErrGeminiSchemaIncompatible,
+			// Tool input schemas are generation hints only — the client
+			// validates/executes tool calls itself and toolcheck validates
+			// model output against the ORIGINAL schema — so widening by
+			// dropping the conflicting branch is always safe; failing the
+			// whole request over one unrepresentable allOf is strictly worse.
+			name:   "allOf conflict widens by dropping the conflicting branch",
+			schema: `{"allOf":[{"type":"string"},{"type":"number"}]}`,
+			check: func(t *testing.T, schema map[string]any) {
+				assert.Equal(t, "string", schema["type"])
+			},
+		},
+		{
+			name:   "allOf annotation conflict merges with later branch winning",
+			schema: `{"allOf":[{"type":"string","description":"from the base type"},{"type":"string","description":"per-tool override"}]}`,
+			check: func(t *testing.T, schema map[string]any) {
+				assert.Equal(t, "string", schema["type"])
+				assert.Equal(t, "per-tool override", schema["description"])
+			},
+		},
+		{
+			// A dropped branch can leave sibling `required` referencing a
+			// property no surviving branch declares; Gemini rejects that
+			// outright, so the prune must run whenever a branch was widened.
+			name:   "required is pruned when the branch that declared it is dropped",
+			schema: `{"type":"object","required":["b"],"allOf":[{"type":"object","properties":{"a":{"type":"string"}},"pattern":"^1"},{"type":"object","properties":{"b":{"type":"string"}},"pattern":"^2"}]}`,
+			check: func(t *testing.T, schema map[string]any) {
+				props := schema["properties"].(map[string]any)
+				assert.Contains(t, props, "a")
+				assert.NotContains(t, props, "b")
+				assert.NotContains(t, schema, "required")
+			},
 		},
 		{
 			name:   "anyOf preserves every branch",
@@ -60,14 +91,18 @@ func TestPrepareGemini_SchemaFidelity(t *testing.T) {
 			},
 		},
 		{
-			name:    "oneOf rejects rather than selecting a branch",
-			schema:  `{"oneOf":[{"type":"string"},{"type":"number"}]}`,
-			wantErr: translate.ErrGeminiSchemaIncompatible,
+			// oneOf has no widening path (selecting a branch would silently
+			// narrow the tool's input language), so the schema is still
+			// unrepresentable — but the per-tool backstop keeps the request
+			// alive by emitting the declaration without parameters.
+			name:         "oneOf degrades the tool rather than selecting a branch",
+			schema:       `{"oneOf":[{"type":"string"},{"type":"number"}]}`,
+			wantDegraded: true,
 		},
 		{
-			name:    "unresolved reference rejects",
-			schema:  `{"$ref":"#/$defs/Missing","$defs":{"Present":{"type":"string"}}}`,
-			wantErr: translate.ErrGeminiSchemaIncompatible,
+			name:         "unresolved reference degrades the tool",
+			schema:       `{"$ref":"#/$defs/Missing","$defs":{"Present":{"type":"string"}}}`,
+			wantDegraded: true,
 		},
 		{
 			// additionalProperties has no Gemini equivalent (Gemini always
@@ -91,15 +126,15 @@ func TestPrepareGemini_SchemaFidelity(t *testing.T) {
 			env, err := translate.ParseAnthropic(body)
 			require.NoError(t, err)
 			prep, err := env.PrepareGemini(http.Header{}, translate.EmitOptions{TargetModel: "gemini-3.1-pro-preview"})
-			if tt.wantErr != nil {
-				require.ErrorIs(t, err, tt.wantErr)
-				return
-			}
 			require.NoError(t, err)
 			var out map[string]any
 			require.NoError(t, json.Unmarshal(prep.Body, &out))
-			schema := out["tools"].([]any)[0].(map[string]any)["functionDeclarations"].([]any)[0].(map[string]any)["parameters"].(map[string]any)
-			tt.check(t, schema)
+			declaration := out["tools"].([]any)[0].(map[string]any)["functionDeclarations"].([]any)[0].(map[string]any)
+			if tt.wantDegraded {
+				assert.NotContains(t, declaration, "parameters")
+				return
+			}
+			tt.check(t, declaration["parameters"].(map[string]any))
 		})
 	}
 }
