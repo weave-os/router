@@ -51,11 +51,8 @@ func TestPrepareGemini_SchemaFidelity(t *testing.T) {
 			},
 		},
 		{
-			// Tool input schemas are generation hints only — the client
-			// validates/executes tool calls itself and toolcheck validates
-			// model output against the ORIGINAL schema — so widening by
-			// dropping the conflicting branch is always safe; failing the
-			// whole request over one unrepresentable allOf is strictly worse.
+			// Tool schemas are generation hints; the client validates against the
+			// ORIGINAL schema, so a widened superset is always safe.
 			name:   "allOf conflict widens by dropping the conflicting branch",
 			schema: `{"allOf":[{"type":"string"},{"type":"number"}]}`,
 			check: func(t *testing.T, schema map[string]any) {

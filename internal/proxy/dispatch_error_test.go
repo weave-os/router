@@ -229,9 +229,7 @@ func TestClassifyDispatchError_ForcedClusterUnservableIs400(t *testing.T) {
 	assert.NotContains(t, cls.Message, "route:", "the internal wrap prefix must not leak to the client")
 }
 
-// When the baseline rescue doesn't apply (or also fails), a build-time
-// intrinsic-incompatibility error must classify as a clear 502 instead of
-// falling through to a generic upstream-failure response.
+// Build-time intrinsic-incompatibility must classify as a clear 502.
 func TestClassifyDispatchError_RoutedModelIncompatibleIs502(t *testing.T) {
 	err := fmt.Errorf("translate anthropic request to gemini: %w", translate.ErrGeminiUnsignedToolHistory)
 
