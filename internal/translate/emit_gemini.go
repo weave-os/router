@@ -1651,9 +1651,8 @@ func intersectGeminiSchemas(left, right map[string]any) (map[string]any, bool) {
 
 // clampNullableTyped makes implicit non-nullability explicit on typed schemas:
 // Gemini treats an absent nullable as false, so AND-ing two ops needs the
-// value present on both sides. A raw operand's type:[T,"null"] array is
-// lowered here too — nested siblings reach intersection before their own
-// sanitize pass normalizes them.
+// value present on both sides; a raw type:[T,"null"] array is also lowered
+// here — nested siblings arrive before the sanitize pass normalizes them.
 func clampNullableTyped(schema map[string]any) map[string]any {
 	typeValue, hasType := schema["type"]
 	if !hasType {
@@ -1788,9 +1787,10 @@ func stricterBound(left, right any, larger bool) (any, bool) {
 // mergeSchemaMapsLenient merges like intersectGeminiSchemas but never fails:
 // once a branch has been widened away the goal shifts from "prove no conflict"
 // to "produce some representable schema" — properties recurse, required unions,
-// any other conflict keeps left.
+// any other conflict keeps left. Left is clamped first so a typed left that
+// omits nullable cannot absorb a widening nullable:true from right.
 func mergeSchemaMapsLenient(left, right map[string]any) map[string]any {
-	out := mergeSchemaMaps(left, nil, false)
+	out := mergeSchemaMaps(clampNullableTyped(left), nil, false)
 	for key, value := range right {
 		current, exists := out[key]
 		if !exists {
@@ -1803,7 +1803,7 @@ func mergeSchemaMapsLenient(left, right map[string]any) map[string]any {
 			if !leftOK || !rightOK {
 				continue
 			}
-			out[key] = mergeSchemaMapsLenient(leftProperties, rightProperties)
+			out[key] = mergePropertyMapsLenient(leftProperties, rightProperties)
 			continue
 		}
 		if key == "required" {
@@ -1813,6 +1813,18 @@ func mergeSchemaMapsLenient(left, right map[string]any) map[string]any {
 			continue
 		}
 		// Any other conflict keeps left (out[key] is already current).
+	}
+	return stripEmptyNullable(out)
+}
+
+// mergePropertyMapsLenient merges two `properties` maps under lenient rules:
+// a name on both sides keeps left's subschema; names only on right are added.
+func mergePropertyMapsLenient(left, right map[string]any) map[string]any {
+	out := mergeSchemaMaps(left, nil, false)
+	for name, value := range right {
+		if _, exists := out[name]; !exists {
+			out[name] = deepCopyJSON(value)
+		}
 	}
 	return out
 }

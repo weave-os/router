@@ -199,10 +199,20 @@ func TestPrepareGemini_SchemaFidelity(t *testing.T) {
 			},
 		},
 		{
-			// A NESTED sibling property may still carry a raw type:[T,"null"]
-			// array when it reaches intersection (only the top level is
-			// normalized before the sibling merge); it must intersect with the
-			// branch's constraints, not fail into the lenient path and drop them.
+			// On the lenient (conflict) path the sibling stays authoritative:
+			// a nullable branch must not smuggle nullable:true onto a typed
+			// sibling that omitted it.
+			name:   "lenient fallback does not widen a non-null sibling to nullable",
+			schema: `{"type":"string","pattern":"^a","allOf":[{"type":["string","null"],"pattern":"^b"}]}`,
+			check: func(t *testing.T, schema map[string]any) {
+				assert.Equal(t, "string", schema["type"])
+				assert.Equal(t, "^a", schema["pattern"])
+				assert.NotContains(t, schema, "nullable")
+			},
+		},
+		{
+			// A NESTED sibling property may carry a raw type:[T,"null"] before
+			// its own sanitize pass runs — it must still intersect, not fall to lenient.
 			name:   "raw nullable type array on a nested sibling property still intersects",
 			schema: `{"type":"object","properties":{"id":{"type":["string","null"]}},"allOf":[{"type":"object","properties":{"id":{"type":"string","minLength":4}}}]}`,
 			check: func(t *testing.T, schema map[string]any) {

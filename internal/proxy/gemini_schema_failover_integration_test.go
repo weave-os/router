@@ -70,9 +70,7 @@ func TestProxyMessages_GeminiBuildIncompatibilityFailsOverToBaselineAnthropic(t 
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
-	// The tool_use id carries no "__thought__" signature, so
-	// HasUnsignedToolCallHistory is true and PrepareGemini deterministically
-	// fails with ErrGeminiUnsignedToolHistory against a Gemini 3.x target.
+	// The unsigned tool_use id triggers ErrGeminiUnsignedToolHistory; Google is never dialed.
 	body := []byte(`{"model":"claude-opus-4-8","stream":true,"messages":[` +
 		`{"role":"user","content":"please continue"},` +
 		`{"role":"assistant","content":[{"type":"tool_use","id":"toolu_1","name":"Bash","input":{}}]},` +
