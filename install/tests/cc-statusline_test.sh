@@ -601,6 +601,43 @@ check "concurrent refreshes never fetch at the same time" \
 check "the refresh that loses the mutex leaves the cache to the winner" \
   "$(cat "$cache_file" 2>/dev/null)" "1"
 
+# Reclaiming an ABANDONED lock (crashed holder) must stay mutually exclusive.
+# `rm -rf` + `mkdir` is not atomic: refreshers that all see the same stale lock
+# each delete the next one's freshly created directory and all proceed to
+# fetch, restoring the out-of-order race. Pre-seed an old lock, start several
+# invocations at once, and require exactly one fetch.
+c="$work/g8"; mkdir -p "$c/proj/.claude" "$c/cache" "$c/bin"
+write_install "$c/proj" project "rk_key" "file://$c/ds.json"
+printf '{"hide_terminal_surfaces": true}' > "$c/ds.json"
+cache_file="$(gate_cache "$c/cache" "$c/proj/.claude/cc-statusline.sh")"
+mkdir -p "$(dirname "$cache_file")"
+# An abandoned lock, well past the 30s reclaim threshold.
+mkdir -p "$cache_file.lock"
+touch -t 202001010000 "$cache_file.lock"
+cat > "$c/bin/curl" <<'SHIM'
+#!/usr/bin/env bash
+# Record the fetch, and dwell long enough that a second racer would overlap.
+echo x >> "$WEAVE_TEST_CALLS"
+sleep 1
+printf '{"hide_terminal_surfaces": true}'
+SHIM
+chmod +x "$c/bin/curl"
+: > "$c/calls"
+for _ in 1 2 3 4 5; do
+  echo "{\"model\":{\"id\":\"$STALE_MODEL\"},\"transcript_path\":\"$transcript\"}" \
+    | PATH="$c/bin:$PATH" XDG_CACHE_HOME="$c/cache" WEAVE_STATUSLINE_UPDATE=0 \
+      WEAVE_COMMANDS_UPDATE=0 HOME="$c/home" WEAVE_ROUTER_BASE_URL= ANTHROPIC_BASE_URL= \
+      WEAVE_ROUTER_KEY= ANTHROPIC_CUSTOM_HEADERS= WEAVE_TEST_CALLS="$c/calls" \
+      bash "$c/proj/.claude/cc-statusline.sh" >/dev/null 2>&1 &
+done
+wait
+wait_for 15 test -f "$cache_file"
+sleep 3
+check "racing reclaim of an abandoned lock still fetches exactly once" \
+  "$(wc -l < "$c/calls" | tr -d ' ')" 1
+check "a reclaimed lock is released, not leaked" \
+  "$(test -d "$cache_file.lock" && echo held || echo released)" "released"
+
 # install.sh ships the statusline as a heredoc; genprices keeps only the price
 # block in sync, so a code edit to one copy silently diverges from the other.
 installer="$script_dir/../install.sh"

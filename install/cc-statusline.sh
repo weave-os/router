@@ -350,12 +350,21 @@ weave_hidden_gate() {
     if ! mkdir "$lock" 2>/dev/null; then
       lock_mtime="$(stat -c %Y "$lock" 2>/dev/null || stat -f %m "$lock" 2>/dev/null)" || lock_mtime=0
       lock_now="$(date +%s 2>/dev/null)" || lock_now=0
-      if [ "${lock_mtime:-0}" -gt 0 ] && [ $(( lock_now - lock_mtime )) -gt 30 ]; then
-        rm -rf "$lock" 2>/dev/null
-        mkdir "$lock" 2>/dev/null || exit 0
-      else
+      if [ "${lock_mtime:-0}" -le 0 ] || [ $(( lock_now - lock_mtime )) -le 30 ]; then
         exit 0
       fi
+      # Reclaiming an abandoned lock must itself be atomic. `rm -rf` followed
+      # by `mkdir` is not: two refreshers that both see the same stale lock
+      # would each delete the other's freshly created one and both proceed to
+      # fetch, restoring the very race this mutex exists to prevent. Renaming
+      # is atomic, so exactly one racer can move the stale directory aside —
+      # the loser's mv finds nothing there and exits instead of clobbering the
+      # winner. Re-acquiring can still lose to an unrelated invocation that
+      # grabbed the now-free lock first, which is fine: someone holds it.
+      dead="$lock.dead.$$"
+      mv "$lock" "$dead" 2>/dev/null || exit 0
+      rm -rf "$dead" 2>/dev/null
+      mkdir "$lock" 2>/dev/null || exit 0
     fi
     trap 'rmdir "$lock" 2>/dev/null' EXIT
 
