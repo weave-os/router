@@ -52,9 +52,9 @@ func TestClassifyDispatchError_UntranslatableToolSchema(t *testing.T) {
 		{
 			// The exact wrapping service.go's Gemini branch produces.
 			name:     "schema incompatible",
-			wantTool: "SendMessage",
+			wantTool: "weave_send_message",
 			err: fmt.Errorf("translate anthropic request to gemini: %w",
-				fmt.Errorf("function %q input_schema: %w", "SendMessage",
+				fmt.Errorf("function %q input_schema: %w", "weave_send_message",
 					fmt.Errorf("%w at $.properties.to.allOf[1]: %q is unsatisfiable across branches",
 						translate.ErrGeminiSchemaIncompatible, "pattern"))),
 		},

@@ -23,9 +23,14 @@ import (
 // whose input schema has no Gemini representation (oneOf). The router
 // cost-routes it to Gemini, so PrepareGemini fails before anything is
 // dispatched.
+//
+// The tool is deliberately NOT one of claudeCodeOnlyToolNames: those are
+// stripped from cross-vendor emit before the translator runs (#986 added the
+// real-world offender, SendMessage, to that list), which would make these tests
+// exercise the tool filter instead of the schema translator they are about.
 const untranslatableToolBody = `{"model":"claude-opus-4-8","stream":true,` +
 	`"messages":[{"role":"user","content":"hi"}],` +
-	`"tools":[{"name":"SendMessage","input_schema":{"type":"object","properties":` +
+	`"tools":[{"name":"weave_send_message","input_schema":{"type":"object","properties":` +
 	`{"to":{"oneOf":[{"type":"string"},{"type":"number"}]}}}}]}`
 
 // TestProxyMessages_UntranslatableToolSchemaRescuesToBaseline: a tool schema
@@ -112,7 +117,7 @@ func TestProxyMessages_UntranslatableToolSchemaWithNoBaselineIsClassified(t *tes
 	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
 	body := []byte(`{"model":"gemini-2.5-pro","stream":true,` +
 		`"messages":[{"role":"user","content":"hi"}],` +
-		`"tools":[{"name":"SendMessage","input_schema":{"type":"object","properties":` +
+		`"tools":[{"name":"weave_send_message","input_schema":{"type":"object","properties":` +
 		`{"to":{"oneOf":[{"type":"string"},{"type":"number"}]}}}}]}`)
 
 	err := svc.ProxyMessages(
