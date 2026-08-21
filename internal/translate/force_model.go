@@ -122,13 +122,10 @@ func (env *RequestEnvelope) extractLeadingCommand(parse func(text string) (found
 // (pi, opencode, raw API); Claude Code/Codex expand to the canonical form
 // client-side.
 //
-// The whole rest of the command line is the model name, not just its first
-// word. Taking only the first word made "/fm qwen 3.8" pin the bare alias
-// "qwen" — a different model — and silently drop "3.8" into the prompt, so a
-// mistyped name looked like it took. Consuming the line means such input is
-// matched (and rejected) as the single string the user actually typed. Put a
-// prompt on the next line; a same-line prompt is no longer separable from a
-// multi-word model name.
+// The whole rest of the command line is the model name: same-line text is
+// inseparable from a multi-word model name, so put the prompt on the next
+// line. Prevents silently pinning the "qwen" alias when the user typed
+// "qwen 3.8" and having the ack look like it took.
 //
 // Leading <tag>...</tag> blocks (e.g. <system-reminder>, <command-name>
 // injected by Claude Code) are skipped before the leading-line check, and
