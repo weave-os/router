@@ -1322,6 +1322,12 @@ func sanitizeGeminiSchemaNode(v any, path string) (any, error) {
 		}
 		base := mergeSchemaMaps(node, nil, false)
 		delete(base, "allOf")
+		// The merged branches arrived here already nullability-normalized
+		// (type:["x","null"] lowered to type + nullable:true); the sibling map
+		// is still raw, so normalize it before intersecting on equal footing.
+		if err := normalizeGeminiNullableType(base, path); err != nil {
+			return nil, err
+		}
 		node, ok = intersectGeminiSchemas(base, merged)
 		if !ok {
 			return nil, fmt.Errorf("%w at %s.allOf: branches conflict with sibling constraints", ErrGeminiSchemaIncompatible, path)
@@ -1425,7 +1431,7 @@ func sanitizeGeminiSchemaNode(v any, path string) (any, error) {
 		return nil, err
 	}
 	resolveGeminiEnum(out)
-	return out, nil
+	return stripEmptyNullable(out), nil
 }
 
 // resolveGeminiExclusiveBound writes the inclusive bound key ("minimum" or
@@ -1475,31 +1481,12 @@ func mergeGeminiAllOf(v any, path string) (map[string]any, error) {
 			return nil, fmt.Errorf("%w at %s[%d]: branch is not an object schema", ErrGeminiSchemaIncompatible, path, i)
 		}
 		var mergedOK bool
-		merged, mergedOK = intersectGeminiSchemas(merged, clampGeminiBranchNullability(object))
+		merged, mergedOK = intersectGeminiSchemas(merged, object)
 		if !mergedOK {
 			return nil, fmt.Errorf("%w at %s[%d]: branches conflict", ErrGeminiSchemaIncompatible, path, i)
 		}
 	}
-	// An absent nullable is indistinguishable from false, so drop it rather
-	// than emit the noisier explicit form clampGeminiBranchNullability adds.
-	if nullable, ok := merged["nullable"].(bool); ok && !nullable {
-		delete(merged, "nullable")
-	}
-	return merged, nil
-}
-
-// clampGeminiBranchNullability sets nullable=false on any branch that declares
-// a type but omits nullable, since omission asserts non-nullable in Gemini.
-func clampGeminiBranchNullability(branch map[string]any) map[string]any {
-	if _, hasType := branch["type"]; !hasType {
-		return branch
-	}
-	if _, hasNullable := branch["nullable"]; hasNullable {
-		return branch
-	}
-	out := mergeSchemaMaps(branch, nil, false)
-	out["nullable"] = false
-	return out
+	return stripEmptyNullable(merged), nil
 }
 
 func mergeSchemaMaps(base, extra map[string]any, overwrite bool) map[string]any {
@@ -1542,6 +1529,8 @@ var geminiStricterBoundKeys = map[string]bool{
 // intersectGeminiSchemas merges two allOf branches: bounds narrow, annotations
 // defer to the left branch, and only disagreeing types or disjoint enums conflict.
 func intersectGeminiSchemas(left, right map[string]any) (map[string]any, bool) {
+	left = clampNullableTyped(left)
+	right = clampNullableTyped(right)
 	out := mergeSchemaMaps(left, nil, false)
 	for key, value := range right {
 		current, exists := out[key]
@@ -1585,8 +1574,9 @@ func intersectGeminiSchemas(left, right map[string]any) (map[string]any, bool) {
 		if _, isAnnotation := geminiAnnotationKeys[key]; isAnnotation {
 			continue
 		}
-		// nullable intersects: the merged schema admits null only if both
-		// branches do.
+		// nullable ANDs across clamps: a typed operand with no nullable key was
+		// explicitly set to false above, so the intersection requires both to
+		// admit null.
 		if key == "nullable" {
 			leftNullable, leftOK := current.(bool)
 			rightNullable, rightOK := value.(bool)
@@ -1617,6 +1607,35 @@ func intersectGeminiSchemas(left, right map[string]any) (map[string]any, bool) {
 		}
 	}
 	return out, true
+}
+
+// clampNullableTyped makes a typed schema's implicit non-nullability explicit:
+// Gemini treats an absent nullable as non-nullable, so it only means something
+// when intersection ANDs two ops. A schema with no type constrains nothing and
+// is returned unchanged.
+func clampNullableTyped(schema map[string]any) map[string]any {
+	if _, hasType := schema["type"]; !hasType {
+		return schema
+	}
+	if _, hasNullable := schema["nullable"]; hasNullable {
+		return schema
+	}
+	out := mergeSchemaMaps(schema, nil, false)
+	out["nullable"] = false
+	return out
+}
+
+// stripEmptyNullable removes a nullable:false that is indistinguishable from an
+// absent key, keeping emitted schemas clean. A typed schema may carry a
+// redundant nullable:false after intersection.
+func stripEmptyNullable(schema map[string]any) map[string]any {
+	if _, hasType := schema["type"]; !hasType {
+		return schema
+	}
+	if nullable, ok := schema["nullable"].(bool); ok && !nullable {
+		delete(schema, "nullable")
+	}
+	return schema
 }
 
 // mergeGeminiPropertyMaps merges two `properties` maps. A name declared by

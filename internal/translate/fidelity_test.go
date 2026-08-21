@@ -135,6 +135,29 @@ func TestPrepareGemini_SchemaFidelity(t *testing.T) {
 			},
 		},
 		{
+			// A typed sibling that omits nullable is non-nullable, so a nullable
+			// allOf branch must not widen it back (regression: intersect used to
+			// absorb nullable:true from the branch over the sibling's implicit
+			// non-nullability).
+			name:   "nullable allOf branch does not widen a non-null sibling",
+			schema: `{"type":"string","allOf":[{"type":["string","null"]}]}`,
+			check: func(t *testing.T, schema map[string]any) {
+				assert.Equal(t, "string", schema["type"])
+				assert.NotContains(t, schema, "nullable")
+			},
+		},
+		{
+			// A nullable sibling combined with an identical nullable branch
+			// stays nullable rather than misreading the raw sibling type array as
+			// non-null and rejecting the pair as conflicting.
+			name:   "nullable sibling plus same nullable branch merges",
+			schema: `{"type":["string","null"],"allOf":[{"type":["string","null"]}]}`,
+			check: func(t *testing.T, schema map[string]any) {
+				assert.Equal(t, "string", schema["type"])
+				assert.Equal(t, true, schema["nullable"])
+			},
+		},
+		{
 			name:   "anyOf preserves every branch",
 			schema: `{"anyOf":[{"type":"string"},{"type":"number"}]}`,
 			check: func(t *testing.T, schema map[string]any) {
