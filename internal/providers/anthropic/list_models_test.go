@@ -51,6 +51,29 @@ func TestListModels_BYOKCredentialsOverrideBaseURL(t *testing.T) {
 	assert.Equal(t, "Bearer byok-token", gotAuth)
 }
 
+func TestListModels_WalksAllPages(t *testing.T) {
+	var afterIDs []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		after := r.URL.Query().Get("after_id")
+		afterIDs = append(afterIDs, after)
+		switch after {
+		case "":
+			_, _ = w.Write([]byte(`{"data":[{"id":"claude-a"},{"id":"claude-b"}],"has_more":true,"last_id":"claude-b"}`))
+		case "claude-b":
+			_, _ = w.Write([]byte(`{"data":[{"id":"claude-c"}],"has_more":false,"last_id":"claude-c"}`))
+		default:
+			t.Errorf("unexpected after_id %q", after)
+		}
+	}))
+	defer srv.Close()
+
+	c := anthropic.NewClient("tok", srv.URL, anthropic.WithAuthScheme(anthropic.AuthBearer))
+	models, err := c.ListModels(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, []string{"claude-a", "claude-b", "claude-c"}, models)
+	assert.Equal(t, []string{"", "claude-b"}, afterIDs)
+}
+
 func TestListModels_UpstreamErrorStatus(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		http.Error(w, `{"error":"nope"}`, http.StatusForbidden)

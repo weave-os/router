@@ -250,6 +250,12 @@ export function ProviderKeysPanel() {
   // Signature of the last auto-fetched (provider, key, URL) tuple, so typing
   // pauses trigger one discovery call rather than one per keystroke burst.
   const autoFetchedRef = useRef<string | null>(null);
+  // Bumped whenever the form inputs change so a slower in-flight response
+  // for a previous endpoint can't land as the current one's inventory.
+  const newFetchSeqRef = useRef(0);
+  // The key ID an edit-side listing is for; a response for any other key
+  // (switched or closed editor) is discarded.
+  const editFetchIDRef = useRef<string | null>(null);
 
   function load() {
     api.providerKeys
@@ -322,9 +328,14 @@ export function ProviderKeysPanel() {
   // Discover models as soon as a usable key + URL are entered, so endpoint IDs
   // and auto-matched aliases appear without an extra click.
   useEffect(() => {
-    if (!canFetchNew) return;
     const signature = `${provider}\n${keyValue.trim()}\n${baseURL.trim()}`;
     if (autoFetchedRef.current === signature) return;
+    // Inputs changed: any in-flight or previously fetched inventory belongs
+    // to a different endpoint.
+    newFetchSeqRef.current++;
+    setNewEndpointModels(null);
+    setFetchingNewModels(false);
+    if (!canFetchNew) return;
     const timer = setTimeout(() => {
       autoFetchedRef.current = signature;
       void handleFetchNewModels();
@@ -335,6 +346,7 @@ export function ProviderKeysPanel() {
 
   async function handleFetchNewModels() {
     if (provider == null) return;
+    const seq = ++newFetchSeqRef.current;
     setFetchingNewModels(true);
     setError(null);
     try {
@@ -343,28 +355,33 @@ export function ProviderKeysPanel() {
         keyValue.trim(),
         baseURL.trim() || undefined,
       );
+      if (seq !== newFetchSeqRef.current) return;
       const models = r.models ?? [];
       setNewEndpointModels(models);
       setAliasRows(rows => [...rows, ...autoMatchRows(catalogModels, models, rows)]);
     } catch (err: unknown) {
+      if (seq !== newFetchSeqRef.current) return;
       setError(err instanceof Error ? err.message : "Failed to fetch models from the endpoint.");
     } finally {
-      setFetchingNewModels(false);
+      if (seq === newFetchSeqRef.current) setFetchingNewModels(false);
     }
   }
 
   async function handleFetchEditModels(id: string) {
+    editFetchIDRef.current = id;
     setFetchingEditModels(true);
     setError(null);
     try {
       const r = await api.providerKeys.listUpstreamModels(id);
+      if (editFetchIDRef.current !== id) return;
       const models = r.models ?? [];
       setEditEndpointModels(models);
       setEditAliasRows(rows => [...rows, ...autoMatchRows(catalogModels, models, rows)]);
     } catch (err: unknown) {
+      if (editFetchIDRef.current !== id) return;
       setError(err instanceof Error ? err.message : "Failed to fetch models from the endpoint.");
     } finally {
-      setFetchingEditModels(false);
+      if (editFetchIDRef.current === id) setFetchingEditModels(false);
     }
   }
 
@@ -648,11 +665,15 @@ export function ProviderKeysPanel() {
                         onClick={() => {
                           if (editingAliases === k.id) {
                             setEditingAliases(null);
+                            editFetchIDRef.current = null;
+                            setFetchingEditModels(false);
                             return;
                           }
                           setEditingAliases(k.id);
                           setEditAliasRows(aliasRowsFrom(k.model_aliases));
                           setEditEndpointModels(null);
+                          editFetchIDRef.current = null;
+                          setFetchingEditModels(false);
                           // Gateways publish their inventory; pull it right
                           // away so aliases are linkable without a click.
                           if ((PROVIDERS_REQUIRING_BASE_URL as readonly string[]).includes(k.provider)) {
