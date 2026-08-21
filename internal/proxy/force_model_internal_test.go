@@ -308,9 +308,7 @@ func TestBareCatalogNames_AliasesTakePrecedence(t *testing.T) {
 	}
 }
 
-// The grok family alias follows the current flagship (4.6), never the retired
-// 4.5; xai is a vendor shorthand for the same flagship. Own-name pins still
-// resolve exactly, so an explicit grok-4.5 keeps working as passthrough.
+// grok-4.5 is retired; family aliases (grok, xai) now follow flagship 4.6, own-name pins still resolve exactly.
 func TestResolveForceModel_GrokFamilyAlias(t *testing.T) {
 	for _, input := range []string{"grok", "xai"} {
 		t.Run(input, func(t *testing.T) {
@@ -322,27 +320,10 @@ func TestResolveForceModel_GrokFamilyAlias(t *testing.T) {
 	}
 }
 
-// xAI's grok-4.x effort default is "high" and not disableable; bare grok pins must
-// carry the "low" floor, and an explicit :level suffix must always win.
-func TestResolveForceModel_GrokEffortFloor(t *testing.T) {
-	tests := []struct {
-		name       string
-		input      string
-		wantID     string
-		wantEffort string
-	}{
-		{name: "family alias bare", input: "grok", wantID: "grok-4.6", wantEffort: "low"},
-		{name: "own-name 4.6 bare", input: "grok-4.6", wantID: "grok-4.6", wantEffort: "low"},
-		{name: "own-name 4.5 bare", input: "grok-4.5", wantID: "grok-4.5", wantEffort: "low"},
-		{name: "explicit suffix wins", input: "grok-4.6:high", wantID: "grok-4.6", wantEffort: "high"},
-		{name: "non-grok carries no floor", input: "gpt", wantID: "gpt-5.6-sol", wantEffort: ""},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			gotID, _, gotKnown, gotEffort := resolveForceModelWithEffort(tt.input)
-			assert.Equal(t, tt.wantID, gotID, "canonical id")
-			assert.True(t, gotKnown, "known")
-			assert.Equal(t, tt.wantEffort, gotEffort, "effort")
-		})
-	}
+// An explicit :level suffix must survive resolution to its catalog model.
+func TestResolveForceModel_EffortSuffixPreserved(t *testing.T) {
+	gotID, _, gotKnown, gotEffort := resolveForceModelWithEffort("grok-4.6:high")
+	assert.Equal(t, "grok-4.6", gotID, "canonical id")
+	assert.True(t, gotKnown, "known")
+	assert.Equal(t, "high", gotEffort, "effort")
 }

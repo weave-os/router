@@ -1435,6 +1435,8 @@ func (s *Service) WithContentCapture(mode ContentCaptureMode, maxBytes int, reda
 //     On SWE-Bench Pro this beats both fixed policies (24% < 32% < ~40% resolved)
 //     since high is spent only where it flips the outcome.
 //   - gemini-3.x: pinned "low" — effort-immune on hard tasks (0/15 in the sweep).
+//   - grok-4.x: pinned "low" — omitting effort falls to xAI's non-disableable
+//     "high" default, a ~15 s fixed TTFT stall on every pinned turn.
 //   - everything else: "" — left to its own path.
 func forcedReasoningEffort(model string, escalate bool) string {
 	switch {
@@ -1444,6 +1446,8 @@ func forcedReasoningEffort(model string, escalate bool) string {
 		}
 		return "low"
 	case strings.HasPrefix(model, "gemini-3"):
+		return "low"
+	case strings.HasPrefix(model, "grok-"):
 		return "low"
 	default:
 		return ""

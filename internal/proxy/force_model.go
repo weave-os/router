@@ -183,9 +183,6 @@ func resolveForceModelWithEffort(model string) (canonicalID, provider string, kn
 		model = canonical
 	}
 	if m, ok := catalog.ByID(model); ok && len(m.Providers) > 0 && (requiredProvider == "" || m.Providers[0].Provider == requiredProvider) {
-		if effort == "" {
-			effort = defaultForceEffort[m.ID]
-		}
 		return m.ID, m.Providers[0].Provider, true, effort
 	}
 	if requiredProvider != "" {
@@ -205,14 +202,6 @@ func resolveForceModelWithEffort(model string) (canonicalID, provider string, kn
 	default:
 		return model, providers.ProviderAnthropic, false, effort
 	}
-}
-
-// defaultForceEffort floors reasoning_effort for models whose provider default is unusable
-// when the field is omitted. xAI's grok-4.x server-side default is "high" and not
-// disableable, causing a ~15 s p50 TTFT stall. An explicit :level suffix always wins.
-var defaultForceEffort = map[string]string{
-	"grok-4.5": "low",
-	"grok-4.6": "low",
 }
 
 // bareCatalogNames maps a slash-form model's bare tail to its canonical
