@@ -15,7 +15,7 @@ import {
   type ProviderAuthType,
 } from "@/lib/api";
 import { ChevronDown, Trash2 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 const PROVIDERS = ["anthropic", "openai", "google", "openrouter", "anthropic_gateway", "openai_gateway"] as const;
 type Provider = (typeof PROVIDERS)[number];
@@ -247,6 +247,9 @@ export function ProviderKeysPanel() {
   const [fetchingNewModels, setFetchingNewModels] = useState(false);
   const [editEndpointModels, setEditEndpointModels] = useState<string[] | null>(null);
   const [fetchingEditModels, setFetchingEditModels] = useState(false);
+  // Signature of the last auto-fetched (provider, key, URL) tuple, so typing
+  // pauses trigger one discovery call rather than one per keystroke burst.
+  const autoFetchedRef = useRef<string | null>(null);
 
   function load() {
     api.providerKeys
@@ -313,6 +316,22 @@ export function ProviderKeysPanel() {
         : baseURLMissing
           ? "Enter the endpoint URL first."
           : null;
+
+  const canFetchNew = provider != null && authTypeOffered && authType === "bearer" && !keyMissing && !baseURLMissing;
+
+  // Discover models as soon as a usable key + URL are entered, so endpoint IDs
+  // and auto-matched aliases appear without an extra click.
+  useEffect(() => {
+    if (!canFetchNew) return;
+    const signature = `${provider}\n${keyValue.trim()}\n${baseURL.trim()}`;
+    if (autoFetchedRef.current === signature) return;
+    const timer = setTimeout(() => {
+      autoFetchedRef.current = signature;
+      void handleFetchNewModels();
+    }, 800);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canFetchNew, provider, keyValue, baseURL]);
 
   async function handleFetchNewModels() {
     if (provider == null) return;
@@ -634,6 +653,11 @@ export function ProviderKeysPanel() {
                           setEditingAliases(k.id);
                           setEditAliasRows(aliasRowsFrom(k.model_aliases));
                           setEditEndpointModels(null);
+                          // Gateways publish their inventory; pull it right
+                          // away so aliases are linkable without a click.
+                          if ((PROVIDERS_REQUIRING_BASE_URL as readonly string[]).includes(k.provider)) {
+                            void handleFetchEditModels(k.id);
+                          }
                         }}
                       >
                         {editingAliases === k.id ? "Cancel" : "Edit aliases"}
