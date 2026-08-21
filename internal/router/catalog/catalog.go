@@ -462,10 +462,7 @@ var Models = []Model{
 	// above resolves to the retired 0423 build, so the HMM roster must target
 	// this dated ID to route to what it was actually ranked on.
 	{ID: "deepseek/deepseek-v4-pro-0813", Tier: TierMid, ContextWindow: 1_048_576, ImageInput: ImageInputUnsupported, Providers: []ProviderBinding{
-		// Together is primary: same $1.74/$3.48 as Fireworks with #1 AA
-		// throughput (~209 t/s vs ~120). The bare upstream IDs resolve to the
-		// current release (0813); the retired 0423 alias above is the one that
-		// EOL'd, not these provider endpoints.
+		// Together first: higher throughput (~209 t/s vs Fireworks ~120) at equal price. Upstream IDs here track current 0813; the retired alias is the 0423 entry above.
 		{Provider: providers.ProviderTogether, UpstreamID: "deepseek-ai/DeepSeek-V4-Pro",
 			Price: Pricing{InputUSDPer1M: 1.740, OutputUSDPer1M: 3.480, CacheReadMultiplier: 0.20 / 1.740}},
 		{Provider: providers.ProviderFireworks, UpstreamID: "accounts/fireworks/models/deepseek-v4-pro",
