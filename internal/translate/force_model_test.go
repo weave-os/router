@@ -33,10 +33,6 @@ func TestParseForceModelCommand_ForceModel(t *testing.T) {
 			wantStripped: "Please help me with this.",
 		},
 		{
-			// The whole rest of the line is the model name. Taking only the
-			// first word made "/fm qwen 3.8" pin the bare "qwen" alias — a
-			// different model — so a same-line prompt is no longer separable
-			// from a multi-word name. Put the prompt on the next line.
 			name:         "same-line text is part of the model name",
 			input:        "/force-model gpt-5 help me debug this",
 			wantModel:    "gpt-5 help me debug this",
@@ -44,9 +40,6 @@ func TestParseForceModelCommand_ForceModel(t *testing.T) {
 			wantStripped: "",
 		},
 		{
-			// The reported bug: this must reach the resolver as one string so
-			// it can be rejected, not split into a pin for "qwen" plus a "3.8"
-			// prompt.
 			name:         "multi-word model name is kept whole",
 			input:        "/fm qwen 3.8",
 			wantModel:    "qwen 3.8",

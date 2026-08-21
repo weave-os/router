@@ -157,13 +157,9 @@ func resolveForceModel(model string) (canonicalID, provider string, known bool) 
 // `:level` suffix. `known` is true only for catalog matches; known=false +
 // effort!="" lets callers surface "model not found" without losing the effort.
 //
-// Matching is exact. The input (after lowercasing, trimming, and stripping the
-// optional openai/ and :level affixes) must equal a catalog ID, an alias, or a
-// slash-form model's bare name — there is no prefix, substring, or
-// nearest-match fallback. Approximate matching silently served a model the
-// caller never named: "qwen 3.8" resolved through the bare "qwen" alias to
-// qwen3-coder under an ack that read like the pin took. An unrecognized name
-// must fail loudly instead.
+// Matching is exact: no prefix, substring, or nearest-match fallback.
+// Approximate matching silently served the wrong model; an unrecognized
+// name must fail loudly instead.
 func resolveForceModelWithEffort(model string) (canonicalID, provider string, known bool, effort string) {
 	effortLevel, stripped := stripEffortSuffix(model)
 	model = stripped
@@ -203,16 +199,10 @@ func resolveForceModelWithEffort(model string) (canonicalID, provider string, kn
 	}
 }
 
-// bareCatalogNames maps a slash-form model's trailing segment to its canonical
-// ID ("qwen3-coder" → "qwen/qwen3-coder"), so the vendor prefix stays optional.
-// Built once at init as an exact lookup, replacing a runtime HasSuffix scan
-// over the catalog: same reach, but a name either is a key or is unknown.
-//
-// A tail is omitted when it would be ambiguous or would shadow a more specific
-// binding — two models sharing a tail, a tail equal to some model's full ID, or
-// a tail already spelled by an alias. Guarding here (rather than at lookup)
-// keeps the resolver a single map read; TestBareCatalogNames_Unambiguous
-// asserts the table stays collision-free as models are added.
+// bareCatalogNames maps a slash-form model's bare tail to its canonical
+// ID ("qwen3-coder" -> "qwen/qwen3-coder") for vendor-prefix-optional lookup.
+// Tails that are ambiguous, match a full catalog ID, or duplicate an alias
+// are excluded; TestBareCatalogNames_Unambiguous asserts the invariant.
 var bareCatalogNames = func() map[string]string {
 	owners := make(map[string][]string)
 	for _, m := range catalog.Models {
