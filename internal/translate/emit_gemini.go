@@ -1488,10 +1488,8 @@ func mergeGeminiAllOf(v any, path string) (map[string]any, error) {
 	return merged, nil
 }
 
-// clampGeminiBranchNullability makes an allOf branch's nullability explicit so
-// the merge can intersect it. Omitting nullable alongside a declared type
-// asserts non-nullable; a branch that declares no type (a pure annotation
-// branch) constrains nothing and is left alone.
+// clampGeminiBranchNullability sets nullable=false on any branch that declares
+// a type but omits nullable, since omission asserts non-nullable in Gemini.
 func clampGeminiBranchNullability(branch map[string]any) map[string]any {
 	if _, hasType := branch["type"]; !hasType {
 		return branch
@@ -1524,9 +1522,7 @@ var geminiAnnotationKeys = map[string]struct{}{
 	"title":       {},
 	"default":     {},
 	"example":     {},
-	// Two regexes cannot be intersected; keeping the left one only ever
-	// accepts a superset of the true intersection, so it never rejects input
-	// the original schema allows.
+	// Two regexes can't be intersected; left wins, which is safe (never wider than true intersection).
 	"pattern": {},
 }
 
@@ -1543,11 +1539,8 @@ var geminiStricterBoundKeys = map[string]bool{
 	"maxProperties": false,
 }
 
-// intersectGeminiSchemas intersects two sanitized schema objects, which is what
-// allOf means. Only a genuinely unsatisfiable pair (disagreeing type, disjoint
-// enum) is a conflict — differing bounds narrow and differing annotations are
-// not constraints at all. Requiring byte equality here instead rejected the
-// whole tool for schemas Gemini can represent perfectly well.
+// intersectGeminiSchemas merges two allOf branches: bounds narrow, annotations
+// defer to the left branch, and only disagreeing types or disjoint enums conflict.
 func intersectGeminiSchemas(left, right map[string]any) (map[string]any, bool) {
 	out := mergeSchemaMaps(left, nil, false)
 	for key, value := range right {

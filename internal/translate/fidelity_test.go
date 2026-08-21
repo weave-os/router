@@ -53,9 +53,7 @@ func TestPrepareGemini_SchemaFidelity(t *testing.T) {
 			wantErr: translate.ErrGeminiSchemaIncompatible,
 		},
 		{
-			// An allOf branch that only annotates (the prod-observed shape on a
-			// nested property) is not a conflict; annotations are not
-			// constraints, so the outer branch's value wins.
+			// Annotation-only branch (prod-observed shape); outer branch value wins.
 			name:   "allOf branches disagreeing on annotations merge",
 			schema: `{"type":"object","properties":{"to":{"allOf":[{"type":"string","description":"A","title":"T1"},{"type":"string","description":"B","title":"T2"}]}}}`,
 			check: func(t *testing.T, schema map[string]any) {
