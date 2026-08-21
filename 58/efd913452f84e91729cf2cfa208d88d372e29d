@@ -3,6 +3,7 @@ internal/proxy/pin_eviction_internal_test.go
 internal/proxy/service.go
   s_05c9c8c10e8ecd::t_2baab3c247b777 3350-3351
   s_05c9c8c10e8ecd::t_0a214015ec309e 3669,5581
+  s_05c9c8c10e8ecd::t_36812d30feefb2 3210
 internal/translate/emit_openai_test.go
   s_05c9c8c10e8ecd::t_6b90e059ab8f4e 1-19
   s_05c9c8c10e8ecd::t_37deb2879e7968 20-22
