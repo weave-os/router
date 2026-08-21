@@ -66,9 +66,7 @@ const EntryTypeInference = "inference"
 // router.organization_credit_ledger.entry_type.
 const EntryTypeByokFee = "byok_fee"
 
-// DefaultByokFeeRate is the default platform fee on a BYOK turn, as a
-// fraction of the upstream cost the customer paid their own provider.
-// Zero: BYOK turns are free unless BYOK_FEE_RATE opts a deployment in.
+// DefaultByokFeeRate is the BYOK platform fee fraction; zero means no fee unless BYOK_FEE_RATE opts a deployment in.
 const DefaultByokFeeRate = 0.0
 
 // MinBalanceMicros: requests 402 when balance <= this. 0 matches
@@ -90,9 +88,7 @@ func NewService(repo Repo) *Service {
 	return &Service{repo: repo, byokFeeRate: DefaultByokFeeRate}
 }
 
-// WithByokFeeRate sets the platform fee charged on BYOK turns, as a
-// fraction of upstream cost (e.g. 0.05 for 5%), and returns the service
-// for chaining. Negative rates clamp to zero.
+// WithByokFeeRate sets the BYOK platform fee as a fraction of upstream cost (e.g. 0.05 = 5%). Negative rates clamp to zero.
 func (s *Service) WithByokFeeRate(rate float64) *Service {
 	if rate < 0 {
 		rate = 0
