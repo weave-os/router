@@ -1539,10 +1539,8 @@ func mergeSchemaMaps(base, extra map[string]any, overwrite bool) map[string]any 
 	return out
 }
 
-// geminiAnnotationKeys are schema keywords that document a value rather than
-// constrain what the model may generate. allOf branches disagreeing on one of
-// these isn't a real conflict, so mergeSchemaMapsExact lets the later branch
-// win instead of rejecting the merge.
+// geminiAnnotationKeys are schema keywords that document rather than
+// constrain; allOf branches may disagree on them without real conflict.
 var geminiAnnotationKeys = map[string]struct{}{
 	"description": {},
 	"title":       {},

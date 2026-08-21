@@ -711,9 +711,8 @@ func TestPrepareGemini_WidensExclusiveBoundsToInclusive(t *testing.T) {
 
 func TestPrepareGemini_DanglingRequiredDegradesToNoParameters(t *testing.T) {
 	// Gemini 400s when "required" names a property not in "properties" —
-	// valid JSON Schema, so MCP tool schemas can carry it. The strict
-	// validator still flags it, but the per-tool backstop emits the
-	// declaration without parameters instead of failing the whole request.
+	// valid JSON Schema, so MCP tool schemas can carry it; the backstop
+	// degrades that tool instead of failing the whole request.
 	body := []byte(`{
 		"messages": [{"role":"user","content":"hi"}],
 		"tools": [{
@@ -793,9 +792,8 @@ func TestPrepareGemini_PreservesPropertyNamedRequired(t *testing.T) {
 
 func TestPrepareGemini_VendorExtensionKeysDegradeToNoParameters(t *testing.T) {
 	// MCP schemas derived from Google APIs embed vendor extensions
-	// (`x-google-*`) at every level; Gemini 400s on unknown fields and the
-	// sanitizer's allowlist rejects them. The per-tool backstop turns that
-	// into a parameterless declaration instead of failing the request.
+	// (`x-google-*`) at every level; Gemini 400s on unknown fields,
+	// so the per-tool backstop degrades rather than 502ing.
 	body := []byte(`{
 		"messages": [{"role":"user","content":"hi"}],
 		"tools": [{
@@ -916,9 +914,8 @@ func TestPrepareGemini_DropsUnsupportedFormatValues(t *testing.T) {
 
 func TestPrepareGemini_ItemsFalseDegradesToNoParameters(t *testing.T) {
 	// MCP schemas use boolean `items`; Gemini's proto Schema.items rejects
-	// booleans. `items: true` collapses to the permissive empty schema, but
-	// `items: false` (an unsatisfiable array) stays unrepresentable — the
-	// per-tool backstop degrades that tool instead of failing the request.
+	// booleans. `items: true` collapses to the permissive empty schema;
+	// `items: false` (unsatisfiable) stays unrepresentable — backstop degrades.
 	body := []byte(`{
 		"messages": [{"role":"user","content":"hi"}],
 		"tools": [{
@@ -1320,10 +1317,9 @@ func TestPrepareGemini_SendMessageToAllOfRegression(t *testing.T) {
 }
 
 func TestPrepareGemini_UnrepresentableToolSchemaDegradesToNoParameters(t *testing.T) {
-	// oneOf has no widening path (selecting a branch would silently narrow the
-	// tool's input language), so it stays a hard sanitize failure. The
-	// per-tool backstop must still keep the rest of the request alive by
-	// emitting the declaration without parameters instead of 502ing.
+	// oneOf has no widening path (selecting a branch would silently narrow
+	// the tool's input language) — the per-tool backstop emits without
+	// parameters, keeping other healthy tools alive.
 	body := []byte(`{
 		"messages": [{"role":"user","content":"hi"}],
 		"tools": [
