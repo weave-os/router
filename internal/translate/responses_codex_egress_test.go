@@ -64,9 +64,7 @@ func TestResponsesWriter_RestoresCodexCustomToolFromSplitChatArguments(t *testin
 	assert.Equal(t, "exec", item["name"])
 	assert.Equal(t, "call_exec", item["call_id"])
 	assert.Equal(t, "const x = 1;", item["input"])
-	// A custom_tool_call item's own id must carry the ctc_ prefix the
-	// Responses API requires for this type, not fc_ (reserved for
-	// function_call) — Codex stores and replays this id next turn.
+	// ctc_ required for custom_tool_call; Codex replays this id next turn.
 	assert.Truef(t, strings.HasPrefix(item["id"].(string), "ctc_"), "custom_tool_call id %q must start with ctc_", item["id"])
 	output := completed["response"].(map[string]any)["output"].([]any)
 	assert.Equal(t, "custom_tool_call", output[0].(map[string]any)["type"])
@@ -189,9 +187,7 @@ func TestResponsesWriter_PortableCodexBuffersUntilLateCustomToolName(t *testing.
 		item := event["item"].(map[string]any)
 		assert.NotEmpty(t, item["name"])
 		assert.Equal(t, "custom_tool_call", item["type"])
-		// The item is created on the first (nameless) delta, before
-		// mapping.Custom is knowable from tool_call name alone here — the id
-		// must still land on ctc_, minted once the name arrives.
+		// id must be ctc_ even though name (and thus mapping.Custom) arrives late.
 		assert.Truef(t, strings.HasPrefix(item["id"].(string), "ctc_"), "late-named custom_tool_call id %q must start with ctc_", item["id"])
 		customAdded = customAdded || event["type"] == "response.output_item.added"
 		customDone = customDone || event["type"] == "response.output_item.done"

@@ -471,11 +471,9 @@ func newResponsesID(prefix string) string {
 	return prefix + "_" + strconv.FormatUint(responsesIDCounter.Add(1), 36) + strconv.FormatInt(time.Now().UnixNano()&0xffffff, 36)
 }
 
-// toolCallItemIDPrefix picks the Responses API item-id prefix a strict
-// consumer requires for the item's wire type: "ctc" for custom_tool_call,
-// "fc" for function_call. A client that stores the item and replays it next
-// turn (Codex) round-trips whichever prefix we mint, so getting this wrong
-// only surfaces as a 400 on the following turn.
+// toolCallItemIDPrefix returns "ctc" for custom_tool_call and "fc" for
+// function_call. A strict Responses client (e.g. Codex) replays the id on
+// the next turn, so a wrong prefix causes a 400 there.
 func toolCallItemIDPrefix(custom bool) string {
 	if custom {
 		return "ctc"
@@ -1195,9 +1193,8 @@ func (t *ResponsesWriter) appendToolCall(idx int, tc gjson.Result) error {
 			item.name = entry.Name
 		}
 		// Buffer nameless chunks; the mapping decides function_call vs
-		// custom_tool_call only once the name arrives from a later delta. The
-		// item ID is minted alongside emitFunctionCallItemAdded below, once
-		// mapping.Custom is settled, so it gets the matching ctc_/fc_ prefix.
+		// custom_tool_call only once the name arrives from a later delta;
+		// mint itemID here so mapping.Custom is settled and gets ctc_/fc_.
 		if len(t.toolMappings) == 0 || item.name != "" {
 			item.itemID = newResponsesID(toolCallItemIDPrefix(item.mapping.Custom))
 			if err := t.emitFunctionCallItemAdded(item); err != nil {
