@@ -643,9 +643,8 @@ func TestDefaultBudgetFitsASecondFullAttempt(t *testing.T) {
 
 	require.LessOrEqual(t, 2*attemptTimeout+firstBackoff, DefaultTimeout,
 		"two full attempts plus the first backoff must fit in the decision budget")
-	// A per-attempt bound below a sidecar's own inference deadline would cancel
-	// a request it was about to answer, turning its degrade path into a
-	// router-side timeout. The HMM sidecar degrades at 1.5s.
+	// An attempt bound under the sidecar's own deadline (HMM: 1.5s) cancels a
+	// request it was about to answer, turning a degrade into a router-side timeout.
 	const knownSidecarInferenceDeadline = 1500 * time.Millisecond
 	assert.Greater(t, attemptTimeout, knownSidecarInferenceDeadline,
 		"an attempt must outlive the sidecar's own deadline so its answer is seen")
@@ -740,9 +739,8 @@ func TestExhaustedLadderKeepsTheDeadlineWhenPreferringAStatus(t *testing.T) {
 		"the deadline must survive so the policy-deadline fallback degrades")
 }
 
-// TestExhaustedLadderPrefersTheSidecarStatusOverATruncatedAttempt: the last
-// attempt of an exhausted ladder is usually the one the budget truncated, so
-// the earlier status — the sidecar's actual diagnosis — must be what surfaces.
+// TestExhaustedLadderPrefersTheSidecarStatusOverATruncatedAttempt: the earlier
+// sidecar status must surface over a budget-truncated final attempt.
 func TestExhaustedLadderPrefersTheSidecarStatusOverATruncatedAttempt(t *testing.T) {
 	statusErr := &PolicyStatusError{Status: http.StatusServiceUnavailable, Message: "hmm inference exceeded its deadline"}
 	truncated := fmt.Errorf("call policy sidecar: %w", context.DeadlineExceeded)
