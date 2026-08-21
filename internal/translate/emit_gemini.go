@@ -1476,13 +1476,9 @@ func resolveGeminiExclusiveBound(node, out map[string]any, key, exclusiveKey, pa
 }
 
 // mergeGeminiAllOf merges allOf branches into a single Gemini-representable
-// schema, widening by dropping any branch it cannot merge rather than
-// rejecting the whole tool. Tool input schemas are generation hints only —
-// the client validates/executes tool calls itself and toolcheck validates
-// model output against the ORIGINAL schema — so a superset schema is always
-// safe; the alternative (failing the request) is strictly worse for every
-// caller. widened reports whether any branch was dropped, so the caller can
-// re-validate constraints (like required) that assumed every branch merged.
+// schema, widening (dropping unrepresentable branches) instead of rejecting.
+// widened reports whether any branch was dropped, so the caller can
+// re-validate constraints (e.g. required) that assumed every branch merged.
 func mergeGeminiAllOf(v any, path string) (merged map[string]any, widened bool, err error) {
 	branches, ok := v.([]any)
 	if !ok || len(branches) == 0 {
@@ -1595,14 +1591,10 @@ func mergeSchemaMapsExact(left, right map[string]any) (map[string]any, bool) {
 	return out, true
 }
 
-// mergeSchemaMapsLenient merges left and right like mergeSchemaMapsExact but
-// never fails: it's the fallback once an allOf branch has already been
-// widened away, so the goal shifts from "prove no conflict" to "produce some
-// representable schema." properties recurse leniently; required unions via
-// uniqueStrings, keeping left's value if the input is too malformed to union;
-// any other conflicting key keeps left. Annotation-key conflicts never reach
-// here — mergeSchemaMapsExact already resolves those right-wins before this
-// fallback is needed, so this path's left-wins default doesn't apply to them.
+// mergeSchemaMapsLenient merges like mergeSchemaMapsExact but never fails:
+// once a branch has been widened away the goal shifts from "prove no conflict"
+// to "produce some representable schema" — properties recurse, required unions,
+// any other conflict keeps left.
 func mergeSchemaMapsLenient(left, right map[string]any) map[string]any {
 	out := mergeSchemaMaps(left, nil, false)
 	for key, value := range right {

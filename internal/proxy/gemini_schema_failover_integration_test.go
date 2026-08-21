@@ -20,11 +20,8 @@ import (
 )
 
 // TestProxyMessages_GeminiBuildIncompatibilityFailsOverToBaselineAnthropic:
-// when the router routes to a Gemini 3.x model but the inbound history is
-// unsigned tool-call history, PrepareGemini fails at request-BUILD time
-// (before any binding is ever dispatched) — the routed model provably can't
-// serve this request shape. The turn must still be rescued on the requested
-// model via Anthropic instead of surfacing a bare 502.
+// PrepareGemini fails before Google is dialed; the turn must be rescued on
+// Anthropic, not surface a 502.
 func TestProxyMessages_GeminiBuildIncompatibilityFailsOverToBaselineAnthropic(t *testing.T) {
 	var (
 		mu                     sync.Mutex
