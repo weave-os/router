@@ -91,11 +91,9 @@ func (s *Service) maxEligibleContextWindow(policyExcluded, enabledProviders map[
 }
 
 // maxContextWindowForModel returns the largest context window any enabled
-// binding of model can serve. Compaction decides when to SHRINK, not what to
-// exclude, so it must be as generous as the best enabled binding allows — a
-// 1M-capable fallback for a 512K-primary model justifies holding off
-// compaction. Falls back to the model-level window when enabledProviders is
-// nil or no enabled binding exists.
+// binding of model can serve. Uses MAX (not MIN) because compaction decides
+// when to SHRINK — a 1M fallback justifies holding off even with a 512K primary.
+// Falls back to the model-level window when enabledProviders is nil.
 func maxContextWindowForModel(model string, enabledProviders map[string]struct{}) int {
 	cw := contextWindowForRequest(model)
 	if len(enabledProviders) == 0 {

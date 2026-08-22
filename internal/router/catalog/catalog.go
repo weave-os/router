@@ -91,8 +91,7 @@ type ProviderBinding struct {
 	// Price is the per-provider pricing for this binding.
 	Price Pricing
 	// ContextWindow overrides the model-level ContextWindow for this binding.
-	// 0 means inherit the model-level value. Use when a model's served window
-	// differs by provider (e.g. Together serves 512K while Fireworks serves 1M).
+	// Zero means inherit. Use when the served window differs by provider.
 	ContextWindow int
 }
 

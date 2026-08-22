@@ -119,11 +119,9 @@ func TestShouldEnableExtendedContext(t *testing.T) {
 	assert.True(t, shouldEnableExtendedContext(180_000, 8_000), "near-200K request opts into 1M")
 }
 
-// TestExcludeContextOverflowModels_MultiBindingMinWindow is the regression for
-// session 9424eef5: deepseek-v4-pro-0813 has Together primary (512K served)
-// and Fireworks/OpenRouter fallbacks (1M). The pre-filter must use the MIN
-// across enabled bindings because the primary dispatches first — a 610K request
-// cannot count on the 1M fallback, and routing it to Together would hard-400.
+// TestExcludeContextOverflowModels_MultiBindingMinWindow: Together (512K primary)
+// plus Fireworks (1M fallback) — pre-filter must use MIN because primary dispatches
+// first; a 610K request cannot rely on the 1M fallback to avoid a hard-400.
 func TestExcludeContextOverflowModels_MultiBindingMinWindow(t *testing.T) {
 	available := map[string]struct{}{
 		"deepseek/deepseek-v4-pro-0813": {},

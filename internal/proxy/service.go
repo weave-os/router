@@ -887,10 +887,9 @@ func contextWindowForRequest(modelID string, provider ...string) int {
 }
 
 // minContextWindowForModel returns the smallest context window any enabled
-// binding can serve. The pre-filter must assume the primary binding (first
-// enabled in catalog order) dispatches first — a 512K primary nulls a 1M
-// fallback for filtering purposes. Falls back to the model-level window when
-// enabledProviders is nil.
+// binding can serve. Uses MIN because the primary binding dispatches first —
+// a 512K primary blocks even when a 1M fallback exists. Nil enabledProviders
+// falls back to the model-level window.
 func minContextWindowForModel(model string, enabledProviders map[string]struct{}) int {
 	cw := contextWindowForRequest(model)
 	if len(enabledProviders) == 0 {

@@ -283,10 +283,9 @@ func ContextWindowFor(id string) int {
 	return m.ContextWindow
 }
 
-// ContextWindowForBinding returns the context window served by the given
-// provider for the given model. A non-zero ProviderBinding.ContextWindow
-// overrides the model-level value; otherwise the model-level ContextWindow
-// applies. Returns DefaultContextWindow for an unknown model.
+// ContextWindowForBinding returns the context window for modelID on provider,
+// preferring a non-zero ProviderBinding.ContextWindow over the model-level value.
+// Returns DefaultContextWindow for an unknown model.
 func ContextWindowForBinding(modelID, provider string) int {
 	m, ok := ByID(modelID)
 	if !ok {
