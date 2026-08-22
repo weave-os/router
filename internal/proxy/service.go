@@ -503,7 +503,7 @@ func routingMarkerFor(res turnLoopResult) string {
 	// for this turn" / "best pick for this turn" repeating each turn would
 	// otherwise be visible even when nothing switched. Hard-pin carve-outs and
 	// first-turn (empty prior) cases still flow to the sidecar marker below.
-	if res.PriorServedModel == res.Decision.Model {
+	if res.PriorServedModel == res.Decision.ServedIdentity() {
 		return ""
 	}
 	// A sidecar-supplied marker is a genuine per-turn status line (e.g.
@@ -579,7 +579,7 @@ func baselineRoutingMarkerFor(res turnLoopResult, baselineModel string) string {
 	}
 	// A failover that lands back on the model already serving is a no-op repeat;
 	// only a genuine switch to a different model is worth surfacing.
-	if res.PriorServedModel == baselineModel {
+	if baseModelOf(res.PriorServedModel) == baselineModel {
 		return ""
 	}
 	return "✦ **Weave Router** → " + baselineModel + " · " + markerReasonBaseline + "\n\n"
@@ -588,7 +588,7 @@ func baselineRoutingMarkerFor(res turnLoopResult, baselineModel string) string {
 // siblingRoutingMarkerFor renders the routing badge for an in-turn same-cluster
 // failover, naming the candidate that actually serves.
 func siblingRoutingMarkerFor(res turnLoopResult, siblingModel string) string {
-	if res.SuggestionMode || siblingModel == "" || res.PriorServedModel == siblingModel {
+	if res.SuggestionMode || siblingModel == "" || baseModelOf(res.PriorServedModel) == siblingModel {
 		return ""
 	}
 	return "✦ **Weave Router** → " + siblingModel + " · " + markerReasonSibling + "\n\n"
@@ -3249,8 +3249,12 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		baselineOpts.Capabilities = router.Lookup(baselineModel)
 		// Recompute against the model that actually serves, not the cost-routed
 		// OSS id — otherwise PrepareAnthropic may leave stale signed thinking
-		// blocks the baseline model rejects (400).
-		baselineOpts.ModelSwitched = routeRes.PriorServedModel != baselineModel || routeRes.SessionEverSwitched
+		// blocks the baseline model rejects (400). Compare bare model IDs:
+		// baselineModel carries no effort, and any effort on the prior identity
+		// belonged to a different model, so the model comparison already
+		// subsumes it.
+		baselineOpts.ModelSwitched = baseModelOf(routeRes.PriorServedModel) != baselineModel ||
+			routeRes.SessionEverSwitched
 		if knobs := routingKnobsForRequest(ctx); knobs != nil && knobs.ForceEffort != "" {
 			baselineOpts.ForceEffort = knobs.ForceEffort
 			baselineOpts.ForceReasoningEffort = translate.ResolveForceEffort(baselineOpts.Capabilities, knobs.ForceEffort)
@@ -3542,7 +3546,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	otel.Flush(ctx)
 
 	if !agentShadowMode {
-		s.recordTurnUsage(routeRes, finalProvider, decision.Model, in, out, cacheCreation, cacheRead)
+		s.recordTurnUsage(routeRes, finalProvider, decision.ServedIdentity(), in, out, cacheCreation, cacheRead)
 	}
 
 	// Eval rows must not enter serving telemetry; they would corrupt offline policy analysis.
@@ -5530,7 +5534,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		emitCallLog()
 	}
 
-	s.recordTurnUsage(routeRes, finalProvider, decision.Model, in, out, cacheCreation, cacheRead)
+	s.recordTurnUsage(routeRes, finalProvider, decision.ServedIdentity(), in, out, cacheCreation, cacheRead)
 
 	if proxyErr == nil {
 		s.emitBilling(ctx, requestID, externalID, decision, actPricing, routeRes, in, out, cacheCreation, cacheRead)
