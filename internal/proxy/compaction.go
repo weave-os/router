@@ -95,14 +95,14 @@ func (s *Service) maxEligibleContextWindow(policyExcluded, enabledProviders map[
 // when to SHRINK — a 1M fallback justifies holding off even with a 512K primary.
 // Falls back to the model-level window when enabledProviders is nil.
 func maxContextWindowForModel(model string, enabledProviders map[string]struct{}) int {
-	cw := contextWindowForRequest(model)
 	if len(enabledProviders) == 0 {
-		return cw
+		return contextWindowForRequest(model)
 	}
 	m, ok := catalog.ByID(model)
 	if !ok || len(m.Providers) == 0 {
-		return cw
+		return contextWindowForRequest(model)
 	}
+	cw := 0
 	for _, b := range m.Providers {
 		if _, enabled := enabledProviders[b.Provider]; !enabled {
 			continue
@@ -110,6 +110,9 @@ func maxContextWindowForModel(model string, enabledProviders map[string]struct{}
 		if w := catalog.ContextWindowForBinding(model, b.Provider); w > cw {
 			cw = w
 		}
+	}
+	if cw == 0 {
+		return contextWindowForRequest(model)
 	}
 	return cw
 }
