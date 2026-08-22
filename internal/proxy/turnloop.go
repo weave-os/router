@@ -318,6 +318,38 @@ func (s *Service) hasSubAgentOverride() bool {
 	return s.subAgentProvider != "" && s.subAgentModel != ""
 }
 
+// reasonRequestedModelRespected identifies a verbatim requested-model decision.
+const reasonRequestedModelRespected = "requested_model_respected"
+
+// honoredRequestedModel returns an eligible allowlisted requested model.
+// Unknown or ineligible entries route normally because this config list is not
+// a per-request override like force-model.
+func (s *Service) honoredRequestedModel(ctx context.Context, req router.Request) (model, provider string, ok bool) {
+	if len(s.respectRequestedModel) == 0 || req.RequestedModel == "" {
+		return "", "", false
+	}
+	canonical, canonicalProvider, known := resolveForceModel(req.RequestedModel)
+	if !known {
+		return "", "", false
+	}
+	if _, honored := s.respectRequestedModel[canonical]; !honored {
+		return "", "", false
+	}
+	binding, reason := s.forcedModelBinding(ctx, canonical, canonicalProvider)
+	if reason != "" {
+		return "", "", false
+	}
+	if _, excluded := req.ExcludedModels[canonical]; excluded {
+		return "", "", false
+	}
+	if req.EnabledProviders != nil {
+		if _, enabled := req.EnabledProviders[binding]; !enabled {
+			return "", "", false
+		}
+	}
+	return canonical, binding, true
+}
+
 // isHardPinnedTurn reports whether a turn type bypasses pin lookup/write,
 // planner, and scorer entirely via the boot-time hard pin. These turns are
 // also skipped by proactive compaction: they are either tiny (probe/title-gen/
@@ -453,6 +485,15 @@ func (s *Service) runTurnLoop(
 	res.AuthoritativePerTurn = authoritativePolicyTurn(res.TurnType) &&
 		s.authoritativePerTurnSelection(ctx)
 	res.PinRole = roleForTier(res.RequestedTier)
+	beforeCeiling := len(req.ExcludedModels)
+	req.ExcludedModels = s.applyToolResultTierCeiling(req.ExcludedModels, res.TurnType, feats.Model)
+	if len(req.ExcludedModels) > beforeCeiling {
+		log.Info("tool_result tier ceiling: excluded above-tier models",
+			"requested_model", feats.Model,
+			"requested_tier", res.RequestedTier.String(),
+			"excluded_count", len(req.ExcludedModels)-beforeCeiling,
+		)
+	}
 	log.Info("turnloop classified",
 		"turn_type", string(res.TurnType),
 		"requested_tier", res.RequestedTier.String(),
@@ -468,7 +509,8 @@ func (s *Service) runTurnLoop(
 	// the turn-type hard pin; only check here so ordinary turns use the normal flow.
 	threadSessionKey := DeriveSessionKey(env, apiKeyID)
 	hardPinnedTurn := s.isHardPinnedTurn(ctx, res.TurnType)
-	if s.pinStore != nil && hardPinnedTurn {
+	honoredModel, honoredProvider, honorApplies := s.honoredRequestedModel(ctx, req)
+	if s.pinStore != nil && (hardPinnedTurn || honorApplies) {
 		forcedPin, found := s.loadPin(ctx, threadSessionKey, res.PinRole)
 		permitted := found && isUserForcedReason(forcedPin.Reason)
 		// Same binding remap as the main path: excluded primary whose fallback
@@ -543,6 +585,25 @@ func (s *Service) runTurnLoop(
 		res.StickyHit = true
 		res.HardPinned = true
 		res.PinTier = string(res.TurnType) + "_hard_pin"
+		return res, nil
+	}
+
+	if honorApplies {
+		log.Info("requested model respected; bypassing planner and scorer",
+			"requested_model", req.RequestedModel,
+			"served_model", honoredModel,
+			"provider", honoredProvider,
+		)
+		res.Decision = router.Decision{
+			Provider: honoredProvider,
+			Model:    honoredModel,
+			Reason:   reasonRequestedModelRespected,
+		}
+		res.StickyHit = true
+		// Bypasses pin lookup/write like the hard pins above: a per-request
+		// frontmatter pin must not anchor the session it happens to run inside.
+		res.HardPinned = true
+		res.PinTier = reasonRequestedModelRespected
 		return res, nil
 	}
 
@@ -811,7 +872,10 @@ func (s *Service) runTurnLoop(
 				policyExcluded := s.excludedModelsForRequest(ctx)
 				_, policyExcludes := policyExcluded[pin.Model]
 				compatibilityExcludes := req.TranslationRequirements.Images && !catalog.AcceptsImages(pin.Model)
-				if !policyExcludes && !compatibilityExcludes {
+				ceilingExcluded := s.applyToolResultTierCeiling(nil, res.TurnType, feats.Model)
+				_, ceilingExcludes := ceilingExcluded[pin.Model]
+				preserved := false
+				if !policyExcludes && !compatibilityExcludes && !ceilingExcludes {
 					if len(req.ExcludedModels) > 0 {
 						pruned := make(map[string]struct{}, len(req.ExcludedModels)-1)
 						for k := range req.ExcludedModels {
@@ -825,13 +889,23 @@ func (s *Service) runTurnLoop(
 					// cleared this model's context-overflow exclusion, so it must
 					// not linger in the safety set and block usage bypass.
 					delete(req.SafetyExcludedModels, pin.Model)
+					preserved = true
+				} else if ceilingExcludes {
+					log.Info("Session pin excluded by ToolResult tier ceiling; falling through to scorer",
+						"pin_model", pin.Model,
+						"pin_provider", pin.Provider,
+					)
+					pinFound = false
+					pin = sessionpin.Pin{}
 				}
-				log.Info("Session pin preserved despite context-window pre-filter exclusion",
-					"pin_model", pin.Model,
-					"token_estimate", pinTokenEstimate,
-					"needed", needed,
-					"model_context_window", modelCW,
-				)
+				if preserved {
+					log.Info("Session pin preserved despite context-window pre-filter exclusion",
+						"pin_model", pin.Model,
+						"token_estimate", pinTokenEstimate,
+						"needed", needed,
+						"model_context_window", modelCW,
+					)
+				}
 			}
 		}
 	}
