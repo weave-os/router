@@ -1,0 +1,34 @@
+internal/proxy/decision_span_embed_test.go
+  s_6f4a846a4668de::t_1ad2710976ba3b 86
+  s_6f4a846a4668de::t_5d8ff5b39ca587 108-109,112
+  s_6f4a846a4668de::t_5b7951f1a23bfb 150
+  s_6f4a846a4668de::t_423e5b3954204c 73-75
+  s_6f4a846a4668de::t_46d444fecf3b30 90-91
+  s_6f4a846a4668de::t_e888f2900a3d0a 138-139
+  s_6f4a846a4668de::t_fa26c648f5295c 162-187
+  s_6f4a846a4668de::t_9f52b838dfac18 129
+internal/proxy/gemini.go
+  s_6f4a846a4668de::t_9bd74e4ef39e28 171
+internal/router/router.go
+  s_6f4a846a4668de::t_c493103fe0c26d 266-267
+internal/proxy/service.go
+  s_6f4a846a4668de::t_a67cddf7c81855 4734
+  s_6f4a846a4668de::t_1a171bf042452c 2628
+  s_6f4a846a4668de::t_3f27794787e130 3400-3410
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "d990161d54cfa4983ff2944ca483281e54995e91",
+  "prompts": {},
+  "sessions": {
+    "s_6f4a846a4668de": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e6c92e57-fb01-4ba2-a97a-d59cab7d572e",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Drew Bailey <drew@workweave.ai>"
+    }
+  }
+}

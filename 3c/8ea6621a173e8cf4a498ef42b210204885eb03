@@ -1,0 +1,26 @@
+internal/router/model.go
+  s_6de4212cfed736::t_a2689ca32750ad 175-177
+  s_6de4212cfed736::t_03e0de4ce86844 126-129
+internal/router/catalog/catalog.go
+  s_6de4212cfed736::t_6a8bf38a77c1ac 302
+internal/proxy/force_model.go
+  s_6de4212cfed736::t_accdb27e52e515 77
+internal/translate/envelope.go
+  s_6de4212cfed736::t_74e05ed206d452 1189
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "3c8ea6621a173e8cf4a498ef42b210204885eb03",
+  "prompts": {},
+  "sessions": {
+    "s_6de4212cfed736": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3fcc2a5a-c427-4f5d-9a37-2e458ac4d309",
+        "model": "minimax/minimax-m3"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}
