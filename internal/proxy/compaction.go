@@ -107,7 +107,7 @@ func maxContextWindowForModel(model string, enabledProviders map[string]struct{}
 		if _, enabled := enabledProviders[b.Provider]; !enabled {
 			continue
 		}
-		if w := catalog.ContextWindowForBinding(model, b.Provider); w > cw {
+		if w := contextWindowForRequest(model, b.Provider); w > cw {
 			cw = w
 		}
 	}
