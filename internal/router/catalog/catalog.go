@@ -90,6 +90,10 @@ type ProviderBinding struct {
 	UpstreamID string
 	// Price is the per-provider pricing for this binding.
 	Price Pricing
+	// ContextWindow overrides the model-level ContextWindow for this binding.
+	// 0 means inherit the model-level value. Use when a model's served window
+	// differs by provider (e.g. Together serves 512K while Fireworks serves 1M).
+	ContextWindow int
 }
 
 // ToolUseQuality marks a model's reliability under has_tools=true turns.
@@ -449,9 +453,9 @@ var Models = []Model{
 	// 0813 entry below, which is what AA actually benchmarks.
 	{ID: "deepseek/deepseek-v4-pro", ContextWindow: 1_048_576, ImageInput: ImageInputUnsupported, Providers: []ProviderBinding{
 		// Together is primary: same $1.74/$3.48 as Fireworks with #1 AA
-		// throughput (~209 t/s vs ~120).
+		// throughput (~209 t/s vs ~120). Together serves only 512K context.
 		{Provider: providers.ProviderTogether, UpstreamID: "deepseek-ai/DeepSeek-V4-Pro",
-			Price: Pricing{InputUSDPer1M: 1.740, OutputUSDPer1M: 3.480, CacheReadMultiplier: 0.20 / 1.740}},
+			ContextWindow: 512_000, Price: Pricing{InputUSDPer1M: 1.740, OutputUSDPer1M: 3.480, CacheReadMultiplier: 0.20 / 1.740}},
 		{Provider: providers.ProviderFireworks, UpstreamID: "accounts/fireworks/models/deepseek-v4-pro",
 			Price: Pricing{InputUSDPer1M: 1.740, OutputUSDPer1M: 3.480, CacheReadMultiplier: 0.0862}},
 		{Provider: providers.ProviderOpenRouter, Price: Pricing{InputUSDPer1M: 0.435, OutputUSDPer1M: 0.870, CacheReadMultiplier: 0.10}},
@@ -462,9 +466,9 @@ var Models = []Model{
 	// above resolves to the retired 0423 build, so the HMM roster must target
 	// this dated ID to route to what it was actually ranked on.
 	{ID: "deepseek/deepseek-v4-pro-0813", Tier: TierMid, ContextWindow: 1_048_576, ImageInput: ImageInputUnsupported, Providers: []ProviderBinding{
-		// Together first: higher throughput (~209 t/s vs Fireworks ~120) at equal price. Upstream IDs here track current 0813; the retired alias is the 0423 entry above.
+		// Together first: higher throughput (~209 t/s vs Fireworks ~120) at equal price. Together serves only 512K context.
 		{Provider: providers.ProviderTogether, UpstreamID: "deepseek-ai/DeepSeek-V4-Pro",
-			Price: Pricing{InputUSDPer1M: 1.740, OutputUSDPer1M: 3.480, CacheReadMultiplier: 0.20 / 1.740}},
+			ContextWindow: 512_000, Price: Pricing{InputUSDPer1M: 1.740, OutputUSDPer1M: 3.480, CacheReadMultiplier: 0.20 / 1.740}},
 		{Provider: providers.ProviderFireworks, UpstreamID: "accounts/fireworks/models/deepseek-v4-pro",
 			Price: Pricing{InputUSDPer1M: 1.740, OutputUSDPer1M: 3.480, CacheReadMultiplier: 0.0862}},
 		{Provider: providers.ProviderOpenRouter, Price: Pricing{InputUSDPer1M: 0.660, OutputUSDPer1M: 1.980, CacheReadMultiplier: 0.022 / 0.660}},

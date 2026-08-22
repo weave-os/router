@@ -233,7 +233,7 @@ func (s *Service) dispatchWithFallback(ctx context.Context, in failoverInputs) (
 				// Refresh: decision.Model can change on baseline failover, so
 				// x-router-model must never name a model that didn't serve.
 				in.w.Header().Set(HeaderRouterModel, decision.Model)
-				in.w.Header().Set(HeaderRouterContextWindow, strconv.Itoa(contextWindowForRequest(decision.Model)))
+				in.w.Header().Set(HeaderRouterContextWindow, strconv.Itoa(contextWindowForRequest(decision.Model, decision.Provider)))
 				if i > 0 {
 					in.w.Header().Set(HeaderRouterFallbackFrom, in.bindings[0].Provider)
 					in.w.Header().Set(HeaderRouterFallbackAttempt, attemptIdxLabel(i))

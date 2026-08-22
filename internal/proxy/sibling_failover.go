@@ -32,11 +32,11 @@ func (s *Service) siblingFailoverDecision(ctx context.Context, failed router.Dec
 		if _, drop := excludedModels[id]; drop {
 			continue
 		}
-		if !siblingFitsContext(id, est, sigSavings, outputReserve) {
-			continue
-		}
 		provider, ok := siblingProvider(id, md.CandidateProviders, available)
 		if !ok {
+			continue
+		}
+		if !siblingFitsContext(id, provider, est, sigSavings, outputReserve) {
 			continue
 		}
 		candidate := siblingDecisionFor(failed, id, provider)
@@ -53,7 +53,7 @@ func (s *Service) siblingFailoverDecision(ctx context.Context, failed router.Dec
 }
 
 // siblingFitsContext mirrors excludeContextOverflowModels for one candidate.
-func siblingFitsContext(model string, est, sigSavings, outputReserve int) bool {
+func siblingFitsContext(model, provider string, est, sigSavings, outputReserve int) bool {
 	if est <= 0 {
 		return true
 	}
@@ -61,7 +61,7 @@ func siblingFitsContext(model string, est, sigSavings, outputReserve int) bool {
 	if sigSavings > 0 && modelStripsAnthropicSignatures(model) {
 		needed -= sigSavings
 	}
-	return needed <= contextWindowForRequest(model)
+	return needed <= contextWindowForRequest(model, provider)
 }
 
 // siblingCandidateOrder lists rescue candidates in policy-preference order,

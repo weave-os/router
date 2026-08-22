@@ -792,7 +792,7 @@ func (s *Service) runTurnLoop(
 				pinTokenEstimate -= env.SignatureTokenSavings()
 			}
 			needed := pinTokenEstimate + outputReserveForPin
-			modelCW := contextWindowForRequest(pin.Model)
+			modelCW := contextWindowForRequest(pin.Model, pin.Provider)
 			if needed > modelCW {
 				log.Info("Session pin excluded by context-window pre-filter; falling through to scorer",
 					"pin_model", pin.Model,

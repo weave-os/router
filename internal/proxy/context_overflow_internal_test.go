@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"workweave/router/internal/providers"
 	"workweave/router/internal/translate"
 
 	"github.com/stretchr/testify/assert"
@@ -30,7 +31,7 @@ func TestExcludeContextOverflowModels_KeepsExtendedContextModel(t *testing.T) {
 		"claude-haiku-4-5": {},
 	}
 
-	out, overflowed := excludeContextOverflowModels(250_000, 0, 8_000, nil, available)
+	out, overflowed := excludeContextOverflowModels(250_000, 0, 8_000, nil, nil, available)
 
 	assert.Contains(t, overflowed, "claude-haiku-4-5", "200K-only model overflows a 258K request")
 	assert.NotContains(t, overflowed, "claude-opus-4-8", "extended-context model fits at 1M and must stay eligible")
@@ -46,7 +47,7 @@ func TestExcludeContextOverflowModels_NoOverflowUnderWindow(t *testing.T) {
 		"claude-haiku-4-5": {},
 	}
 
-	out, overflowed := excludeContextOverflowModels(10_000, 0, 8_000, nil, available)
+	out, overflowed := excludeContextOverflowModels(10_000, 0, 8_000, nil, nil, available)
 
 	assert.Empty(t, overflowed)
 	assert.Nil(t, out, "no additions returns the original (nil) denylist unchanged")
@@ -67,7 +68,7 @@ func TestExcludeContextOverflowModels_SignatureSavingsOnlyForStrippingTargets(t 
 	}
 
 	// est+reserve = 268K overflows kimi's 262144 without savings; -20K savings = 248K fits.
-	out, overflowed := excludeContextOverflowModels(260_000, 20_000, 8_000, nil, available)
+	out, overflowed := excludeContextOverflowModels(260_000, 20_000, 8_000, nil, nil, available)
 
 	assert.NotContains(t, overflowed, "moonshotai/kimi-k2.7", "OSS target strips signatures, so the savings keep it under its 256K window")
 	assert.Contains(t, overflowed, "claude-haiku-4-5", "Anthropic target keeps signatures, so the savings do not apply and it overflows 200K")
@@ -94,14 +95,14 @@ func TestSafetyExcludedModels_CatchesPolicyExcludedOverflow(t *testing.T) {
 	// is already excluded) — so the overflow denylist it returns is empty.
 	_, routingOverflowed := excludeContextOverflowModels(
 		env.ContextOverflowTokenEstimate(), env.SignatureTokenSavings(), 8_000,
-		map[string]struct{}{"claude-haiku-4-5": {}}, s.availableModels,
+		nil, map[string]struct{}{"claude-haiku-4-5": {}}, s.availableModels,
 	)
 	assert.NotContains(t, routingOverflowed, "claude-haiku-4-5",
 		"the routing filter skips a policy-excluded model — this is the gap safetyExcludedModels must close")
 
 	// safetyExcludedModels re-runs against an empty base, so it DOES catch the
 	// overflow regardless of policy exclusion.
-	safety := s.safetyExcludedModels(env, 8_000)
+	safety := s.safetyExcludedModels(env, 8_000, nil)
 	_, blocked := safety["claude-haiku-4-5"]
 	assert.True(t, blocked, "a policy-excluded model that also overflows must land in the safety set so bypass blocks it")
 }
@@ -116,4 +117,47 @@ func TestShouldEnableExtendedContext(t *testing.T) {
 	// A ~250K-real-token request estimates well above the trigger even with the
 	// ÷5 undercount, so the beta is enabled before it can 400 on the 200K default.
 	assert.True(t, shouldEnableExtendedContext(180_000, 8_000), "near-200K request opts into 1M")
+}
+
+// TestExcludeContextOverflowModels_MultiBindingMinWindow is the regression for
+// session 9424eef5: deepseek-v4-pro-0813 has Together primary (512K served)
+// and Fireworks/OpenRouter fallbacks (1M). The pre-filter must use the MIN
+// across enabled bindings because the primary dispatches first — a 610K request
+// cannot count on the 1M fallback, and routing it to Together would hard-400.
+func TestExcludeContextOverflowModels_MultiBindingMinWindow(t *testing.T) {
+	available := map[string]struct{}{
+		"deepseek/deepseek-v4-pro-0813": {},
+	}
+	enabledBoth := map[string]struct{}{
+		providers.ProviderTogether:   {},
+		providers.ProviderFireworks:  {},
+	}
+	enabledTogetherOnly := map[string]struct{}{
+		providers.ProviderTogether: {},
+	}
+	enabledFireworksOnly := map[string]struct{}{
+		providers.ProviderFireworks: {},
+	}
+
+	// 610016 = the exact overflow estimate from the failing session + 64K reserve.
+	// Together (512K) < needed => excluded; Fireworks (1M) > needed => safe.
+	outBoth, overflowedBoth := excludeContextOverflowModels(546_016, 0, 64_000, enabledBoth, nil, available)
+	assert.Contains(t, overflowedBoth, "deepseek/deepseek-v4-pro-0813",
+		"Together 512K primary binding must exclude the model when both are keyed")
+	assert.Contains(t, outBoth, "deepseek/deepseek-v4-pro-0813", "model must be in the exclusion map")
+
+	// Together-only deploy: excluded.
+	_, overflowedTogether := excludeContextOverflowModels(546_016, 0, 64_000, enabledTogetherOnly, nil, available)
+	assert.Contains(t, overflowedTogether, "deepseek/deepseek-v4-pro-0813",
+		"Together-only deploy must exclude at 610K (512K window)")
+
+	// Fireworks-only deploy: NOT excluded (genuinely serves 1M).
+	_, overflowedFireworks := excludeContextOverflowModels(546_016, 0, 64_000, enabledFireworksOnly, nil, available)
+	assert.NotContains(t, overflowedFireworks, "deepseek/deepseek-v4-pro-0813",
+		"Fireworks-only deploy must not exclude at 610K (1M window)")
+
+	// nil enabledProviders: passes through to model-level (1M), NOT excluded.
+	_, overflowedNil := excludeContextOverflowModels(546_016, 0, 64_000, nil, nil, available)
+	assert.NotContains(t, overflowedNil, "deepseek/deepseek-v4-pro-0813",
+		"nil enabledProviders retains legacy model-level behavior")
 }

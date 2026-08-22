@@ -56,6 +56,7 @@ func (s *Service) anthropicRoutingRequest(ctx context.Context, body []byte, head
 		env.ContextOverflowTokenEstimate(),
 		env.SignatureTokenSavings(),
 		outputReserve,
+		enabledProviders,
 		excluded,
 		s.availableModels,
 	)

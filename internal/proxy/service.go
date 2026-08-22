@@ -725,8 +725,8 @@ func routingKnobsForRequest(ctx context.Context) *router.Overrides {
 // excluded_models, so a policy-excluded overflow model would be absent from
 // those lists yet must still block bypass (it would 400 on the subscription).
 // Returns nil when neither filter fires.
-func (s *Service) safetyExcludedModels(env *translate.RequestEnvelope, outputReserve int) map[string]struct{} {
-	_, overflowed := excludeContextOverflowModels(env.ContextOverflowTokenEstimate(), env.SignatureTokenSavings(), outputReserve, nil, s.availableModels)
+func (s *Service) safetyExcludedModels(env *translate.RequestEnvelope, outputReserve int, enabledProviders map[string]struct{}) map[string]struct{} {
+	_, overflowed := excludeContextOverflowModels(env.ContextOverflowTokenEstimate(), env.SignatureTokenSavings(), outputReserve, enabledProviders, nil, s.availableModels)
 	_, geminiUnsigned := excludeGemini3xOnUnsignedHistory(env, nil, s.availableModels)
 	if len(overflowed) == 0 && len(geminiUnsigned) == 0 {
 		return nil
@@ -876,11 +876,39 @@ func shouldEnableExtendedContext(est, outputReserve int) bool {
 // proxy unconditionally injects the context-1m beta for them — gating on the
 // client's beta header or the token estimate instead would let a large
 // request slip onto 200K and overflow on the first turn.
-func contextWindowForRequest(modelID string) int {
+func contextWindowForRequest(modelID string, provider ...string) int {
 	if router.Lookup(modelID).Supports(router.CapExtendedContext) {
 		return 1_000_000
 	}
+	if len(provider) > 0 && provider[0] != "" {
+		return catalog.ContextWindowForBinding(modelID, provider[0])
+	}
 	return catalog.ContextWindowFor(modelID)
+}
+
+// minContextWindowForModel returns the smallest context window any enabled
+// binding can serve. The pre-filter must assume the primary binding (first
+// enabled in catalog order) dispatches first — a 512K primary nulls a 1M
+// fallback for filtering purposes. Falls back to the model-level window when
+// enabledProviders is nil.
+func minContextWindowForModel(model string, enabledProviders map[string]struct{}) int {
+	cw := contextWindowForRequest(model)
+	if len(enabledProviders) == 0 {
+		return cw
+	}
+	m, ok := catalog.ByID(model)
+	if !ok || len(m.Providers) == 0 {
+		return cw
+	}
+	for _, b := range m.Providers {
+		if _, enabled := enabledProviders[b.Provider]; !enabled {
+			continue
+		}
+		if w := catalog.ContextWindowForBinding(model, b.Provider); w < cw {
+			cw = w
+		}
+	}
+	return cw
 }
 
 // modelStripsAnthropicSignatures reports whether dispatching to model drops
@@ -903,7 +931,7 @@ func modelStripsAnthropicSignatures(model string) bool {
 // subtracted only for stripping targets, so Anthropic passthrough is still
 // checked against the full body. Returns excluded unchanged and nil when
 // nothing is added.
-func excludeContextOverflowModels(est, sigSavings, outputReserve int, excluded, available map[string]struct{}) (map[string]struct{}, []string) {
+func excludeContextOverflowModels(est, sigSavings, outputReserve int, enabledProviders, excluded, available map[string]struct{}) (map[string]struct{}, []string) {
 	if est <= 0 {
 		return excluded, nil
 	}
@@ -917,7 +945,7 @@ func excludeContextOverflowModels(est, sigSavings, outputReserve int, excluded, 
 		if sigSavings > 0 && modelStripsAnthropicSignatures(model) {
 			needed -= sigSavings
 		}
-		cw := contextWindowForRequest(model)
+		cw := minContextWindowForModel(model, enabledProviders)
 		if needed <= cw {
 			continue
 		}
@@ -1790,7 +1818,7 @@ func (s *Service) writeCachedResponse(w http.ResponseWriter, resp cache.CachedRe
 	w.Header().Set(HeaderRouterDecision, decision.Reason)
 	w.Header().Set(HeaderRouterProvider, decision.Provider)
 	w.Header().Set(HeaderRouterModel, decision.Model)
-	w.Header().Set(HeaderRouterContextWindow, strconv.Itoa(contextWindowForRequest(decision.Model)))
+	w.Header().Set(HeaderRouterContextWindow, strconv.Itoa(contextWindowForRequest(decision.Model, decision.Provider)))
 	w.Header().Set(HeaderRouterCache, RouterCacheHit)
 	if resp.StatusCode != 0 && resp.StatusCode != http.StatusOK {
 		w.WriteHeader(resp.StatusCode)
@@ -2509,7 +2537,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	// fit the largest eligible model BEFORE routing, so a genuinely huge
 	// session is compacted (à la Claude Code) instead of dead-ending in the
 	// scorer with no eligible provider. Mutates env; feats is recomputed after.
-	maxEligibleWindow := s.maxEligibleContextWindow(baseExcluded, env.SignatureTokenSavings())
+	maxEligibleWindow := s.maxEligibleContextWindow(baseExcluded, enabledProviders, env.SignatureTokenSavings())
 	var compRes compactionResult
 	if !agentShadowMode {
 		var compErr error
@@ -2532,7 +2560,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	}
 
 	overflowEstimate := env.ContextOverflowTokenEstimate()
-	excluded, ctxOverflowed := excludeContextOverflowModels(overflowEstimate, env.SignatureTokenSavings(), outputReserve, baseExcluded, s.availableModels)
+	excluded, ctxOverflowed := excludeContextOverflowModels(overflowEstimate, env.SignatureTokenSavings(), outputReserve, enabledProviders, baseExcluded, s.availableModels)
 	if len(ctxOverflowed) > 0 {
 		log.Info("context window pre-filter: excluded over-capacity models",
 			"overflow_token_estimate", overflowEstimate,
@@ -2573,7 +2601,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		CustomBindings:       s.customBindingsForRequest(ctx),
 		ExcludedModels:       excluded,
 		AllowedModels:        allowedModelsForRequest(ctx),
-		SafetyExcludedModels: s.safetyExcludedModels(env, outputReserve),
+		SafetyExcludedModels: s.safetyExcludedModels(env, outputReserve, enabledProviders),
 		PreferredModels:      s.preferredModelsForRequest(ctx),
 		RoutingKnobs:         routingKnobsForRequest(ctx),
 		ClusterArmOverrides:  clusterArmOverridesForRequest(ctx),
@@ -2770,7 +2798,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	w.Header().Set(HeaderRouterDecision, decision.Reason)
 	w.Header().Set(HeaderRouterProvider, decision.Provider)
 	w.Header().Set(HeaderRouterModel, decision.Model)
-	w.Header().Set(HeaderRouterContextWindow, strconv.Itoa(contextWindowForRequest(decision.Model)))
+	w.Header().Set(HeaderRouterContextWindow, strconv.Itoa(contextWindowForRequest(decision.Model, decision.Provider)))
 	if !agentShadowMode {
 		s.setFeedbackLinkHeader(ctx, w, installationID, externalID, requestID, auth.UserIDFrom(ctx))
 	}
@@ -4958,7 +4986,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	// Codex passthrough bodies, which are forwarded verbatim.
 	var compResOAI compactionResult
 	if !responsesPassthrough {
-		maxEligibleWindowOAI := s.maxEligibleContextWindow(baseExcludedOAI, env.SignatureTokenSavings())
+		maxEligibleWindowOAI := s.maxEligibleContextWindow(baseExcludedOAI, enabledProviders, env.SignatureTokenSavings())
 		var compErrOAI error
 		compResOAI, compErrOAI = s.maybeCompact(ctx, env, turntype.DetectFromEnvelope(env, feats, subAgentHint), outputReserveOAI, maxEligibleWindowOAI, r.Header)
 		if compErrOAI != nil {
@@ -4979,7 +5007,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	}
 
 	overflowEstimateOAI := env.ContextOverflowTokenEstimate()
-	excludedOAI, ctxOverflowedOAI := excludeContextOverflowModels(overflowEstimateOAI, env.SignatureTokenSavings(), outputReserveOAI, baseExcludedOAI, s.availableModels)
+	excludedOAI, ctxOverflowedOAI := excludeContextOverflowModels(overflowEstimateOAI, env.SignatureTokenSavings(), outputReserveOAI, enabledProviders, baseExcludedOAI, s.availableModels)
 	if len(ctxOverflowedOAI) > 0 {
 		log.Info("context window pre-filter: excluded over-capacity models",
 			"overflow_token_estimate", overflowEstimateOAI,
@@ -5018,7 +5046,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		CustomBindings:       s.customBindingsForRequest(ctx),
 		ExcludedModels:       excludedOAI,
 		AllowedModels:        allowedModelsForRequest(ctx),
-		SafetyExcludedModels: s.safetyExcludedModels(env, outputReserveOAI),
+		SafetyExcludedModels: s.safetyExcludedModels(env, outputReserveOAI, enabledProviders),
 		PreferredModels:      s.preferredModelsForRequest(ctx),
 		RoutingKnobs:         routingKnobsForRequest(ctx),
 		ClusterArmOverrides:  clusterArmOverridesForRequest(ctx),
@@ -5075,7 +5103,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	w.Header().Set(HeaderRouterDecision, decision.Reason)
 	w.Header().Set(HeaderRouterProvider, decision.Provider)
 	w.Header().Set(HeaderRouterModel, decision.Model)
-	w.Header().Set(HeaderRouterContextWindow, strconv.Itoa(contextWindowForRequest(decision.Model)))
+	w.Header().Set(HeaderRouterContextWindow, strconv.Itoa(contextWindowForRequest(decision.Model, decision.Provider)))
 	s.setFeedbackLinkHeader(ctx, w, installationID, externalID, requestID, auth.UserIDFrom(ctx))
 
 	reqPricing := otel.Lookup(s.baselineFor(feats.Model))
