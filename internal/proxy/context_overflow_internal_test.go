@@ -127,8 +127,8 @@ func TestExcludeContextOverflowModels_MultiBindingMinWindow(t *testing.T) {
 		"deepseek/deepseek-v4-pro-0813": {},
 	}
 	enabledBoth := map[string]struct{}{
-		providers.ProviderTogether:   {},
-		providers.ProviderFireworks:  {},
+		providers.ProviderTogether:  {},
+		providers.ProviderFireworks: {},
 	}
 	enabledTogetherOnly := map[string]struct{}{
 		providers.ProviderTogether: {},
