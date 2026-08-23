@@ -126,7 +126,6 @@ func anthropicErrorType(kind proxy.DispatchErrorKind) string {
 // per-request telemetry, so without this they are invisible to alerting.
 func logOversizeBody(log *slog.Logger, r *http.Request) {
 	log.Warn("Request body too large",
-		"path", r.URL.Path,
 		"content_length", r.ContentLength,
 		"max_body_bytes", proxy.MaxRequestBodyBytes,
 		"client_session_id", r.Header.Get("X-Claude-Code-Session-Id"),
