@@ -410,9 +410,7 @@ func (r *Resolver) Resolve(req router.Request) ResolvedCandidates {
 
 // BindingForSelection resolves a sidecar selection by arm ID first, then
 // preserves legacy roster-ID selection for existing policy artifacts.
-// Effort-qualified selections (e.g. "anthropic/claude-opus-5:xhigh") are split
-// so the base arm/roster ID drives the lookup — resolver maps are keyed on base
-// IDs — and the canonical effort level is copied onto the returned binding.
+// Effort-qualified arm/roster IDs are split before map lookup; base ID drives resolution and the suffix sets Binding.Effort.
 func (r ResolvedCandidates) BindingForSelection(armID, rosterID string) (Binding, bool) {
 	if armID != "" {
 		lookup, effort := splitEffort(armID)
@@ -429,9 +427,7 @@ func (r ResolvedCandidates) BindingForSelection(armID, rosterID string) (Binding
 	return binding, ok
 }
 
-// splitEffort separates a canonical effort suffix from an arm ID, mirroring
-// hmm.SplitEffort so only recognized levels are treated as effort suffixes and
-// non-effort model IDs containing ":" (e.g. "upsonic/tiger-rag") stay intact.
+// splitEffort mirrors hmm.SplitEffort: only recognized effort levels are stripped; model IDs with ":" (e.g. "anthropic/opus-5:custom") stay intact.
 func splitEffort(armID string) (string, string) {
 	for i := len(armID) - 1; i > 0; i-- {
 		if armID[i] == ':' {

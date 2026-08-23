@@ -439,6 +439,7 @@ func (r *SidecarRouter) Route(ctx context.Context, req router.Request) (router.D
 			SelectedUpstreamID:            binding.UpstreamID,
 			BindingIndex:                  binding.BindingIndex,
 			CandidateArmIDs:               resolved.CandidateArmIDs(),
+			ArmScores:                     res.ArmScores,
 		},
 	}, nil
 }

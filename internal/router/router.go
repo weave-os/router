@@ -329,6 +329,9 @@ type RoutingMetadata struct {
 	PairedModel    string
 	PairedProvider string
 	PairedScore    float32
+	// ArmScores is per-arm WMI scores for the cluster this decision was drawn
+	// from. Populated from a B1+ sidecar; absent on older sidecars.
+	ArmScores map[string]float32
 }
 
 // SidecarTimings holds the sidecar's per-stage decision cost in milliseconds.

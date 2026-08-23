@@ -320,10 +320,7 @@ func TestResolverDirectlyEnforcesAllowlistForStrategySpecificCandidates(t *testi
 	})
 }
 
-// BindingForSelection must split an effort suffix before map lookup: resolver
-// maps are keyed on base arm/roster IDs, so an effort-qualified sidecar
-// selection ("anthropic/claude-opus-5:xhigh") must look up the base ID and
-// propagate the canonical effort level onto the returned binding.
+// Effort-qualified arm/roster selections must resolve via base ID and propagate the effort level.
 func TestBindingForSelectionResolvesEffortQualifiedArmID(t *testing.T) {
 	resolved := policy.ResolvedCandidates{
 		ByArmID: map[string]policy.Binding{
@@ -357,17 +354,20 @@ func TestBindingForSelectionResolvesEffortQualifiedArmID(t *testing.T) {
 	}
 }
 
-// A non-effort model ID containing ":" (e.g. "anthropic/claude-opus-5") must not
-// have its suffix mistaken for an effort level; the full ID drives the lookup.
-func TestBindingForSelectionDoesNotTreatColonModelIDAsEffort(t *testing.T) {
+// A colon-carrying ID whose suffix is not a recognized effort level must not
+// be silently stripped to its base — splitEffort only ever drops effort
+// suffixes, so a non-effort ":" stays part of the lookup key and misses the
+// base-keyed maps rather than misrouting.
+func TestBindingForSelectionDoesNotResolveNonEffortColonSuffix(t *testing.T) {
 	resolved := policy.ResolvedCandidates{
+		ByArmID: map[string]policy.Binding{
+			"anthropic/claude-opus-5": {CatalogID: "claude-opus-5", Provider: providers.ProviderAnthropic},
+		},
 		ByRosterID: map[string]policy.Binding{
-			"upsonic/tiger-rag": {ArmID: "upsonic/tiger-rag", CatalogID: "upsonic/tiger-rag", Provider: providers.ProviderOpenRouter},
+			"anthropic/claude-opus-5": {CatalogID: "claude-opus-5", Provider: providers.ProviderAnthropic},
 		},
 	}
 
-	binding, ok := resolved.BindingForSelection("", "upsonic/tiger-rag")
-	require.True(t, ok)
-	assert.Equal(t, "upsonic/tiger-rag", binding.CatalogID)
-	assert.Empty(t, binding.Effort)
+	_, ok := resolved.BindingForSelection("anthropic/claude-opus-5:custom", "anthropic/claude-opus-5:custom")
+	assert.False(t, ok, "a non-effort colon suffix must not be stripped to reach the base-keyed binding")
 }
