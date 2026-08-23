@@ -12,8 +12,7 @@ import (
 	"github.com/google/uuid"
 )
 
-// StruggleEscalationStore persists struggle escalation events
-// (router.struggle_escalation_events). CountStruggleEscalationEvents enforces
+// StruggleEscalationStore persists struggle escalation events; Count enforces
 // the once-per-(session, role) budget across replicas.
 type StruggleEscalationStore interface {
 	InsertStruggleEscalationEvent(ctx context.Context, p StruggleEscalationEvent) error
@@ -33,8 +32,9 @@ type StruggleEscalationEvent struct {
 	SessionEverSwitched bool
 }
 
-// StruggleEscalationRoster picks the next untried arm in the same cluster for
-// a sideways move.
+// StruggleEscalationRoster picks the next untried arm in the same cluster.
+// SidewaysTarget returns the next-ranked arm skipping currentModel. check(model)
+// should validate the candidate is dispatchable (available, binding exists).
 type StruggleEscalationRoster interface {
 	SidewaysTarget(ctx context.Context, policyGroup, currentModel string, exclude map[string]struct{}, check func(model string) bool) (string, error)
 }
