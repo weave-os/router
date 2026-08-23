@@ -7,17 +7,10 @@ import (
 )
 
 // Per-organization resolution for the behavioral feature flags registered in
-// internal/flags.
-//
-// Each resolver reads the installation override carried on ctx and falls back to
-// the Service field holding this deployment's env-resolved default, so precedence
-// is per-org override > deployment default. Call sites must use these rather than
-// reading the Service field directly; a direct field read silently ignores the
-// per-org override, which is the exact bug this indirection exists to prevent.
-//
-// ResolveEmbedOnlyUserMessage lives in service.go instead of here because it also
-// layers a per-request header override on top, making its precedence chain
-// header > per-org > deployment default.
+// internal/flags. Precedence is per-org override > deployment default.
+// Call sites must use these instead of reading Service fields directly;
+// a direct field read silently ignores any per-org override.
+// ResolveEmbedOnlyUserMessage lives in service.go (header > per-org > default).
 
 // ResolveStruggleShadowEnabled reports whether the session-level struggle
 // detector runs for this request.

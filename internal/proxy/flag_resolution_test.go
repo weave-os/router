@@ -14,10 +14,6 @@ import (
 // newFlagTestService builds a Service with no providers wired: these tests only
 // exercise flag resolution, which touches nothing but the Service's flag fields
 // and the request context.
-//
-// embedOnly is NewService's 4th positional arg, so it is set here; every other
-// registered flag keeps the NewService default and is overridden per-test via the
-// With* setters.
 func newFlagTestService(embedOnly bool) *proxy.Service {
 	return proxy.NewService(
 		nil, map[string]providers.Client{}, nil, embedOnly, nil, nil,

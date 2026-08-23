@@ -338,13 +338,9 @@ func (o Overrides) Keys() (keys []Key) {
 }
 
 // ParseOverrides decodes a flag_overrides JSONB payload. Empty or JSON null
-// yields an empty Overrides and no error, so an installation that has never been
-// configured is not an error case.
-//
-// Every key must be registered and overridable, and every value must match its
-// registered Kind. A violation is returned as an error rather than skipped: a
-// silently-dropped override reads at the call site as "the default applied",
-// which is exactly the ambiguity this mechanism exists to remove.
+// yields an empty Overrides and no error. Every key must be registered and
+// overridable, and every value must match its registered Kind; a violation
+// is returned as an error rather than silently dropped.
 func ParseOverrides(raw []byte) (o Overrides, err error) {
 	if len(raw) == 0 {
 		return Overrides{}, nil
