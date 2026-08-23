@@ -163,10 +163,8 @@ func (s *Service) WithFlagOverridesDisabled(disabled bool) *Service {
 }
 
 // FlagOverridesDisabled reports whether per-organization flag overrides are
-// suppressed deployment-wide. Read by the auth middleware, which decides whether
-// to stash an installation's overrides on the request context; the switch is not
-// applied to the cached Installation itself because that pointer is shared across
-// concurrent requests.
+// suppressed deployment-wide. Not applied to the cached Installation pointer
+// (shared across concurrent requests) — only stamped onto each request context.
 func (s *Service) FlagOverridesDisabled() bool {
 	return s.flagOverridesDisabled
 }
@@ -550,18 +548,18 @@ var ErrFlagNotOverridable = errors.New("auth: flag is not overridable per organi
 
 // SetInstallationFlagOverrides persists the per-installation behavioral flag
 // override set and invalidates the auth cache so the change takes effect on the
-// next request. The whole sparse set is written: an override is cleared by
-// omitting its key, so callers read the current set, modify it, and pass it back.
-//
-// Every key is re-validated against the registry here rather than trusting the
-// caller, so a stale admin UI or a direct API call cannot persist a key that the
-// read path will later reject.
+// next request. The whole sparse set is written (clear an override by omitting
+// its key). Every key is re-validated against the registry so a stale caller
+// cannot persist a key the read path will later reject.
 func (s *Service) SetInstallationFlagOverrides(ctx context.Context, externalID, installationID string, overrides flags.Overrides) error {
 	for _, key := range overrides.Keys() {
 		def, ok := flags.Lookup(key)
 		if !ok || !def.OrgOverridable {
 			return fmt.Errorf("%w: %q", ErrFlagNotOverridable, key)
 		}
+	}
+	if err := flags.ValidateOverrides(overrides); err != nil {
+		return err
 	}
 	if err := s.installations.UpdateFlagOverrides(ctx, externalID, installationID, overrides); err != nil {
 		return err

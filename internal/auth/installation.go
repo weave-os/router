@@ -88,11 +88,9 @@ type Installation struct {
 	// FirstRequestServedAt is when this installation first routed a request.
 	// Set once and never cleared so it survives key rotation.
 	FirstRequestServedAt *time.Time
-	// FlagOverrides is the sparse per-organization override set for the
-	// behavioral feature flags registered in internal/flags. An absent key means
-	// "inherit the deployment default", so the zero value leaves every flag on
-	// its env-resolved default. Applied at read sites via flags.BoolOr and
-	// friends, and ignored entirely when ROUTER_FLAG_OVERRIDES_DISABLED is set.
+	// FlagOverrides is the sparse per-organization override set for behavioral
+	// flags; zero value inherits every deployment default. Ignored when
+	// ROUTER_FLAG_OVERRIDES_DISABLED is set.
 	FlagOverrides flags.Overrides
 }
 

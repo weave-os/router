@@ -79,6 +79,40 @@ func TestEmptyOverridesMarshalsToEmptyObject(t *testing.T) {
 	assert.JSONEq(t, `{}`, string(encoded))
 }
 
+func TestValidateOverridesRejectsWrongKindAndSemanticValues(t *testing.T) {
+	for name, overrides := range map[string]flags.Overrides{
+		"wrong typed map": {
+			Ints: map[flags.Key]int{flags.KeyPlannerEnabled: 1},
+		},
+		"holdout above 100": {
+			Ints: map[flags.Key]int{flags.KeyLoopEscalationHoldoutPct: 101},
+		},
+		"holdout below 0": {
+			Ints: map[flags.Key]int{flags.KeyStruggleEscalationHoldout: -1},
+		},
+		"duplicate key across maps": {
+			Bools: map[flags.Key]bool{flags.KeyPlannerEnabled: true},
+			Ints:  map[flags.Key]int{flags.KeyPlannerEnabled: 1},
+		},
+		"empty fallback model": {
+			Strings: map[flags.Key]string{flags.KeyCyberRefusalFallback: "  "},
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			require.Error(t, flags.ValidateOverrides(overrides))
+		})
+	}
+}
+
+func TestValidateOverridesAcceptsTypedValues(t *testing.T) {
+	o := flags.Overrides{
+		Bools:   map[flags.Key]bool{flags.KeyStruggleEscalationEnabled: true},
+		Ints:    map[flags.Key]int{flags.KeyStruggleEscalationHoldout: 50},
+		Strings: map[flags.Key]string{flags.KeyCyberRefusalFallback: "claude-opus-5"},
+	}
+	require.NoError(t, flags.ValidateOverrides(o))
+}
+
 func TestAccessorsFallBackToDeploymentDefault(t *testing.T) {
 	// A bare context carries no overrides at all.
 	assert.True(t, flags.BoolOr(context.Background(), flags.KeyPlannerEnabled, true))

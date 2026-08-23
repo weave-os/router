@@ -23,6 +23,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"slices"
+	"strings"
 )
 
 // Key is the stable storage identifier for a flag. It is the JSON object key in
@@ -238,9 +239,78 @@ type Overrides struct {
 	Strings map[Key]string
 }
 
+// ErrUnknownKey means an override refers to a flag absent from Registry.
+var ErrUnknownKey = fmt.Errorf("flags: unknown flag key")
+
+// ErrNotOverridable means an override refers to a registered flag that is not
+// allowed to vary per organization.
+var ErrNotOverridable = fmt.Errorf("flags: flag is not overridable per organization")
+
+// ErrWrongKind means a typed override was put in the map for a different Kind.
+var ErrWrongKind = fmt.Errorf("flags: override value has the wrong kind")
+
+// ErrInvalidValue means a typed override violates a registered semantic
+// constraint, such as a percentage outside [0, 100].
+var ErrInvalidValue = fmt.Errorf("flags: invalid override value")
+
 // IsEmpty reports whether o carries no overrides at all.
 func (o Overrides) IsEmpty() bool {
 	return len(o.Bools) == 0 && len(o.Ints) == 0 && len(o.Floats) == 0 && len(o.Strings) == 0
+}
+
+// ValidateOverrides checks a typed override set before it is persisted. The
+// JSON parser performs the same checks after decoding, but callers that already
+// have typed maps (notably auth.Service) must not be able to bypass them. A key
+// appearing in two maps is rejected because JSON would otherwise silently pick
+// whichever map is marshaled last.
+func ValidateOverrides(o Overrides) error {
+	seen := make(map[Key]struct{}, len(o.Bools)+len(o.Ints)+len(o.Floats)+len(o.Strings))
+	check := func(key Key, kind Kind) error {
+		if _, duplicate := seen[key]; duplicate {
+			return fmt.Errorf("%w: %q appears in multiple typed maps", ErrWrongKind, key)
+		}
+		seen[key] = struct{}{}
+		def, ok := definitions[key]
+		if !ok {
+			return fmt.Errorf("%w: %q", ErrUnknownKey, key)
+		}
+		if !def.OrgOverridable {
+			return fmt.Errorf("%w: %q", ErrNotOverridable, key)
+		}
+		if def.Kind != kind {
+			return fmt.Errorf("%w: %q is %s, got %s", ErrWrongKind, key, def.Kind, kind)
+		}
+		return nil
+	}
+	for key := range o.Bools {
+		if err := check(key, KindBool); err != nil {
+			return err
+		}
+	}
+	for key, value := range o.Ints {
+		if err := check(key, KindInt); err != nil {
+			return err
+		}
+		if key == KeyLoopEscalationHoldoutPct || key == KeyStruggleEscalationHoldout {
+			if value < 0 || value > 100 {
+				return fmt.Errorf("%w: %q must be between 0 and 100, got %d", ErrInvalidValue, key, value)
+			}
+		}
+	}
+	for key := range o.Floats {
+		if err := check(key, KindFloat); err != nil {
+			return err
+		}
+	}
+	for key, value := range o.Strings {
+		if err := check(key, KindString); err != nil {
+			return err
+		}
+		if key == KeyCyberRefusalFallback && strings.TrimSpace(value) == "" {
+			return fmt.Errorf("%w: %q cannot be empty", ErrInvalidValue, key)
+		}
+	}
+	return nil
 }
 
 // Keys returns every overridden key, sorted, for logging and tests.
@@ -292,6 +362,9 @@ func ParseOverrides(raw []byte) (o Overrides, err error) {
 		if err != nil {
 			return Overrides{}, err
 		}
+	}
+	if err := ValidateOverrides(o); err != nil {
+		return Overrides{}, err
 	}
 	return o, nil
 }

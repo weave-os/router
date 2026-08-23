@@ -1406,12 +1406,9 @@ func feedbackLinkTTL() time.Duration {
 }
 
 // publishFlagRegistry writes internal/flags.Registry to router.flag_definitions,
-// pairing each entry with the deployment default resolved above.
-//
-// defaults is passed in rather than derived because the resolved values are
-// ordinary locals scattered through main(); a registry entry with no matching
-// default is published with an empty default and logged, so the omission shows up
-// as "unknown" in the admin UI instead of silently misreporting a value.
+// pairing each entry with the deployment default resolved above. defaults is
+// passed in (not derived) because the resolved values are ordinary locals
+// scattered through main(); a missing key is logged and published as empty.
 func publishFlagRegistry(logger *slog.Logger, repo *postgres.FlagDefinitionRepo, defaults map[flags.Key]string) {
 	published := make([]flags.PublishedDefinition, 0, len(flags.Registry))
 	for _, def := range flags.Registry {
