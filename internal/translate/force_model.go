@@ -17,6 +17,12 @@ const ReasonUserForceModel = "user_forced"
 // ReasonUserForceModel, so the session doesn't re-route back into the loop.
 const ReasonLoopEscalation = "loop_escalation"
 
+// ReasonStruggleEscalation marks a session pin created when the struggle
+// detector arms an early sideways move (turns >= 30, wall >= 10m). Immutable
+// sticky like ReasonLoopEscalation — the session must not re-route back into
+// the struggling model.
+const ReasonStruggleEscalation = "struggle_escalation"
+
 // ForceModelResult holds the parsed outcome of a force-model command.
 type ForceModelResult struct {
 	// Model is the target model name; empty when Clear is true.

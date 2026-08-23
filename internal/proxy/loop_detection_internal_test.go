@@ -350,11 +350,11 @@ func TestHandleLoopEscalation_ExistingEscalationPinIsSilent(t *testing.T) {
 
 func TestInLoopEscalationHoldout_DeterministicAndProportional(t *testing.T) {
 	key := loopTestKey(9)
-	assert.False(t, inLoopEscalationHoldout(key, 0), "pct 0 disables the holdout")
-	assert.True(t, inLoopEscalationHoldout(key, 100), "pct 100 holds out everything")
+	assert.False(t, DeterministicHoldout(key, 0), "pct 0 disables the holdout")
+	assert.True(t, DeterministicHoldout(key, 100), "pct 100 holds out everything")
 	assert.Equal(t,
-		inLoopEscalationHoldout(key, 10),
-		inLoopEscalationHoldout(key, 10),
+		DeterministicHoldout(key, 10),
+		DeterministicHoldout(key, 10),
 		"same key must always land in the same bucket")
 
 	// sha256-derived keys are uniform; at pct=10 over 2000 keys the holdout
@@ -365,7 +365,7 @@ func TestInLoopEscalationHoldout_DeterministicAndProportional(t *testing.T) {
 		sum := sha256.Sum256([]byte{byte(i), byte(i >> 8)})
 		var k [sessionpin.SessionKeyLen]byte
 		copy(k[:], sum[:])
-		if inLoopEscalationHoldout(k, 10) {
+		if DeterministicHoldout(k, 10) {
 			held++
 		}
 	}

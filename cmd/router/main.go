@@ -594,6 +594,18 @@ func main() {
 	// Session-level struggle detector, also log-only and shipped enabled.
 	// Switch sheds the per-turn check if it misbehaves; exists for symmetry with the spiral detector.
 	struggleShadowEnabled := config.GetOr("ROUTER_STRUGGLE_SHADOW_ENABLED", "true") == "true"
+
+	struggleEscalationEnabled := config.GetOr("ROUTER_STRUGGLE_ESCALATION_ENABLED", "false") == "true"
+	struggleEscalationHoldoutPct := 50
+	if raw := config.GetOr("ROUTER_STRUGGLE_ESCALATION_HOLDOUT_PCT", ""); raw != "" {
+		var n int
+		if _, scanErr := fmt.Sscanf(raw, "%d", &n); scanErr != nil || n < 0 || n > 100 {
+			logger.Warn("Invalid env var; using default", "key", "ROUTER_STRUGGLE_ESCALATION_HOLDOUT_PCT", "value", raw, "default", struggleEscalationHoldoutPct)
+		} else {
+			struggleEscalationHoldoutPct = n
+		}
+	}
+	var struggleRoster proxy.StruggleEscalationRoster
 	// Enforcing text-repetition break ships enabled; the switch is the kill
 	// switch if it ever false-positives on legit repeated narration.
 	textRepetitionBreakEnabled := config.GetOr("ROUTER_TEXT_REPETITION_BREAK_ENABLED", "true") == "true"
@@ -713,6 +725,7 @@ func main() {
 		hmmReadinessChecker = hmmClient
 		hmmRosterSource = hmmClient
 		hmmRosterModels = newHMMRosterSource(hmmClient, hmmTimeout)
+		struggleRoster = proxy.NewStruggleRoster(hmmRosterSource)
 		capabilityCtx, cancelCapabilityDiscovery := context.WithTimeout(context.Background(), hmmTimeout)
 		var capabilityErr error
 		hmmCapabilities, capabilityErr = hmmClient.Capabilities(capabilityCtx)
@@ -838,6 +851,9 @@ func main() {
 		WithSpiralShadowStore(repo.Telemetry).
 		WithStruggleShadowConfig(struggleShadowEnabled).
 		WithStruggleShadowStore(repo.Telemetry).
+		WithStruggleEscalationConfig(struggleEscalationEnabled, struggleEscalationHoldoutPct).
+		WithStruggleEscalationStore(repo.Telemetry).
+		WithStruggleEscalationRoster(struggleRoster).
 		WithTextRepetitionBreak(textRepetitionBreakEnabled).
 		WithRouterFeedbackStore(repo.Telemetry).
 		WithPlanner(plannerCfg).

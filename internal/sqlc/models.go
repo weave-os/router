@@ -495,6 +495,20 @@ type RouterSpiralShadowEvent struct {
 	MessageCount     int32
 }
 
+type RouterStruggleEscalationEvent struct {
+	ID                  uuid.UUID
+	CreatedAt           pgtype.Timestamptz
+	InstallationID      uuid.UUID
+	SessionKey          []byte
+	Role                string
+	StrugglingModel     string
+	Action              string
+	EscalationTarget    string
+	TurnCount           int32
+	WallSeconds         int64
+	SessionEverSwitched bool
+}
+
 type RouterStruggleShadowEvent struct {
 	ID                  uuid.UUID
 	CreatedAt           pgtype.Timestamptz

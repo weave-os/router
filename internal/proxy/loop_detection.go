@@ -58,9 +58,9 @@ const (
 	loopActionDisabled = "disabled"
 )
 
-// inLoopEscalationHoldout deterministically buckets a session using the
-// session key (already uniform sha256), so the bucket is stable across replicas/retries.
-func inLoopEscalationHoldout(sessionKey [sessionpin.SessionKeyLen]byte, pct int) bool {
+// DeterministicHoldout deterministically buckets a session using the session
+// key (already uniform sha256), so the bucket is stable across replicas/retries.
+func DeterministicHoldout(sessionKey [sessionpin.SessionKeyLen]byte, pct int) bool {
 	if pct <= 0 {
 		return false
 	}
@@ -221,7 +221,7 @@ func (s *Service) handleLoopEscalation(
 	// Holdout only applies when the event can be recorded (wired store + real
 	// installation id) — otherwise withholding the rescue is pure loss, not measurement.
 	holdout := s.loopEscalationStore != nil && installationID != uuid.Nil &&
-		inLoopEscalationHoldout(sessionKey, s.loopEscalationHoldoutPct)
+		DeterministicHoldout(sessionKey, s.loopEscalationHoldoutPct)
 
 	action := loopActionEscalated
 	switch {

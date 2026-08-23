@@ -218,6 +218,19 @@ type Service struct {
 	// (router.struggle_shadow_events) and enforces the once-per-(session,
 	// reason) budget. Nil degrades to log-only fires.
 	struggleShadowStore StruggleShadowStore
+	// struggleEscalationEnabled is the kill switch for the struggle escalation
+	// detector. When true, sessions crossing the early operating point
+	// (turns>=30, wall>=10m) receive an automatic sideways move. Default off.
+	struggleEscalationEnabled bool
+	// struggleEscalationHoldoutPct is the percentage of struggling sessions
+	// withheld for measurement. Only applies when a store is wired.
+	struggleEscalationHoldoutPct int
+	// struggleEscalationStore persists struggle escalation events durably
+	// (router.struggle_escalation_events). Set by WithStruggleEscalationStore.
+	struggleEscalationStore StruggleEscalationStore
+	// struggleEscalationRoster picks the next untried arm in the same cluster
+	// for a sideways move. Set by WithStruggleEscalationRoster.
+	struggleEscalationRoster StruggleEscalationRoster
 	// spiralShadowStore persists shadow spiral detections durably
 	// (router.spiral_shadow_events) and enforces the once-per-(session,
 	// reason) budget. Nil degrades to log-only fires.
@@ -561,6 +574,7 @@ func sanitizeSidecarDisplayMarker(raw string) string {
 const (
 	markerReasonUserForced    = "pinned by force-model"
 	markerReasonLoopEscalated = "escalated due to loop"
+	markerReasonStruggleEscalated = "picked a different model to break a grind"
 	markerReasonSwitched      = "switched for positive EV after cache eviction"
 	markerReasonStayed        = "stayed on your last pick"
 	markerReasonTierUpgrade   = "upgraded to a stronger tier"
@@ -605,6 +619,8 @@ func routingReasonShort(res turnLoopResult) string {
 		return markerReasonUserForced
 	case translate.ReasonLoopEscalation:
 		return markerReasonLoopEscalated
+	case translate.ReasonStruggleEscalation:
+		return markerReasonStruggleEscalated
 	}
 	return markerReasonBestPick
 }
@@ -1432,6 +1448,31 @@ func (s *Service) WithStruggleShadowConfig(enabled bool) *Service {
 // replica-local de-duplication.
 func (s *Service) WithStruggleShadowStore(store StruggleShadowStore) *Service {
 	s.struggleShadowStore = store
+	return s
+}
+// WithStruggleEscalationConfig sets the struggle escalation kill switch and
+// holdout. enabled=false makes the pre-routing handler a no-op. holdoutPct
+// (0-100) withholds that percentage of struggling sessions for measurement.
+func (s *Service) WithStruggleEscalationConfig(enabled bool, holdoutPct int) *Service {
+	s.struggleEscalationEnabled = enabled
+	if holdoutPct < 0 { holdoutPct = 0 }
+	if holdoutPct > 100 { holdoutPct = 100 }
+	s.struggleEscalationHoldoutPct = holdoutPct
+	return s
+}
+
+// WithStruggleEscalationStore wires the durable sink for struggle escalation
+// events (router.struggle_escalation_events). Nil disables persistence, the
+// holdout, and the cross-TTL once-per-session budget.
+func (s *Service) WithStruggleEscalationStore(store StruggleEscalationStore) *Service {
+	s.struggleEscalationStore = store
+	return s
+}
+
+// WithStruggleEscalationRoster wires the sideways-target picker. Nil disables
+// sideways target selection (events are still recorded as no_sideways_target).
+func (s *Service) WithStruggleEscalationRoster(roster StruggleEscalationRoster) *Service {
+	s.struggleEscalationRoster = roster
 	return s
 }
 
@@ -2495,6 +2536,13 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		}
 	}
 
+	// Struggle escalation: early sideways move when a session grinds past
+	// 30 turns / 10 min without converging. Writes a sticky pin; runTurnLoop
+	// picks it up and dispatches the sideways target on the same turn.
+	if !agentShadowMode && s.struggleEscalationEnabled && (turntype.DetectFromEnvelope(env, feats, "") == turntype.MainLoop || turntype.DetectFromEnvelope(env, feats, "") == turntype.ToolResult) {
+		struggleRole := roleForTier(catalog.TierFor(feats.Model))
+		s.handleStruggleEscalation(ctx, installationID, sessionKey, struggleRole)
+	}
 	// Surface inbound tool_use / tool_result blocks the model is about to see.
 	// Lets us audit whether a misbehaving turn was provoked by a malformed prior
 	// tool_result or an out-of-shape tool spec, without dumping the whole body.
@@ -2699,7 +2747,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 
 	// Text-repetition break: fresh tool calls each turn defeat the no-progress
 	// fingerprint; repeated narration is the durable tell. See text_repetition.go.
-	if !agentShadowMode && !routeRes.AuthoritativePerTurn && s.textRepetitionBreakEnabled && (tt == turntype.MainLoop || tt == turntype.ToolResult) {
+	if !agentShadowMode && !routeRes.AuthoritativePerTurn && s.textRepetitionBreakEnabled && (turntype.DetectFromEnvelope(env, feats, "") == turntype.MainLoop || turntype.DetectFromEnvelope(env, feats, "") == turntype.ToolResult) {
 		if looped, count, sampleHash := detectTextRepetition(env); looped {
 			role := roleForTier(catalog.TierFor(feats.Model))
 			return s.handleTextRepetitionBreak(ctx, w, env, count, sampleHash, installationID, routeRes.SessionKey, role, decision.Model, decision.Provider, feats.Tokens)
@@ -2711,7 +2759,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	// reason), so fire rates/precision can be measured before any escalation
 	// is armed. Main-loop / tool-result turns only — hard-pinned turn types
 	// carry history shapes that mimic the signals.
-	if !agentShadowMode && s.spiralShadowEnabled && (tt == turntype.MainLoop || tt == turntype.ToolResult) {
+	if !agentShadowMode && s.spiralShadowEnabled && (turntype.DetectFromEnvelope(env, feats, "") == turntype.MainLoop || turntype.DetectFromEnvelope(env, feats, "") == turntype.ToolResult) {
 		if reasons := spiralReasons(inboundSpiralSignals); len(reasons) > 0 {
 			role := roleForTier(catalog.TierFor(feats.Model))
 			// Use the bindRequestLogger digest, not routeRes.SessionKey (zero
@@ -2723,7 +2771,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 
 	// Shadow-mode struggle detector: log-only, once per (session, reason).
 	// Turn count and age come from the pin — no-ops on fresh (unpinned) sessions.
-	if !agentShadowMode && s.struggleShadowEnabled && (tt == turntype.MainLoop || tt == turntype.ToolResult) {
+	if !agentShadowMode && s.struggleShadowEnabled && (turntype.DetectFromEnvelope(env, feats, "") == turntype.MainLoop || turntype.DetectFromEnvelope(env, feats, "") == turntype.ToolResult) {
 		var wall time.Duration
 		if !routeRes.PinFirstPinnedAt.IsZero() {
 			wall = time.Since(routeRes.PinFirstPinnedAt)

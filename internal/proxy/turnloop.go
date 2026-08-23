@@ -694,7 +694,7 @@ func (s *Service) runTurnLoop(
 	// the scorer call further down constrains the fresh decision to this tier
 	// instead of collapsing to the cheap tier-default. TierUnknown = no constraint.
 	forcedTierFloor := catalog.TierUnknown
-	if pinFound && (isUserForcedReason(pin.Reason) || pin.Reason == translate.ReasonLoopEscalation) {
+	if pinFound && (isUserForcedReason(pin.Reason) || pin.Reason == translate.ReasonLoopEscalation || pin.Reason == translate.ReasonStruggleEscalation) {
 		_, excluded := req.ExcludedModels[pin.Model]
 		_, providerEnabled := req.EnabledProviders[pin.Provider]
 		providerEligible := req.EnabledProviders == nil || providerEnabled
