@@ -409,9 +409,7 @@ func (r *Resolver) Resolve(req router.Request) ResolvedCandidates {
 
 // BindingForSelection resolves a sidecar selection by arm ID first, then
 // preserves legacy roster-ID selection for existing policy artifacts.
-// Returns the binding with Effort populated when the arm carries an effort
-// suffix. For effort-qualified arms, the lookup splits the suffix before
-// matching the resolver map (those maps are keyed on base roster IDs).
+// Effort is populated from the arm suffix; base-ID lookup is used because resolver maps are keyed on bare roster IDs.
 func (r ResolvedCandidates) BindingForSelection(armID, rosterID string) (Binding, bool) {
 	if armID != "" {
 		if binding, ok := r.ByArmID[armID]; ok {

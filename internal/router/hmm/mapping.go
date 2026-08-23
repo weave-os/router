@@ -41,9 +41,7 @@ func rosterIDFor(m catalog.Model) string {
 	return ""
 }
 
-// SplitEffort separates a roster arm ID of the form "model:effort" into its
-// base model and canonical effort level.  A bare arm without a recognised
-// effort suffix returns (armID, "").
+// SplitEffort splits a roster arm ID of the form "model:effort" into its base model and canonical effort level; bare arms return (armID, "").
 func SplitEffort(armID string) (baseID string, effort string) {
 	if idx := strings.LastIndex(armID, ":"); idx > 0 {
 		suffix := armID[idx+1:]
