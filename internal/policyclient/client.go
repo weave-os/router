@@ -383,6 +383,7 @@ type routeResponse struct {
 	DebugRef             string                 `json:"debug_ref"`
 	Debug                map[string]interface{} `json:"debug"`
 	RankedFallback       []policy.PreviewGroup  `json:"ranked_fallback"`
+	ArmScores            map[string]float32     `json:"arm_scores"`
 	Timings              *routeTimings          `json:"timings"`
 	Error                string                 `json:"error"`
 }
@@ -525,6 +526,7 @@ func (c *Client) Decide(ctx context.Context, query policy.Query) (policy.Result,
 		DebugRef:             parsed.DebugRef,
 		Debug:                parsed.Debug,
 		RankedFallback:       parsed.RankedFallback,
+		ArmScores:            parsed.ArmScores,
 		Timings:              decomposeTimings(parsed.Timings),
 		ServingStats:         extractServingStats(parsed.Timings),
 	}, nil

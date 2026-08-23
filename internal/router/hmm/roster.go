@@ -7,6 +7,8 @@ import (
 
 // DeployedModelsForRosterIDs maps sidecar roster IDs to catalog {model, provider} entries.
 // Unknown IDs are dropped; first occurrence wins on duplicates.
+// Effort-suffixed arms (e.g. "anthropic/claude-opus-5:xhigh") are mapped to
+// their base catalog model.
 func DeployedModelsForRosterIDs(rosterIDs []string) []cluster.DeployedEntry {
 	inverse := make(map[string]catalog.Model, len(catalog.Models))
 	for _, m := range catalog.Models {
@@ -22,7 +24,8 @@ func DeployedModelsForRosterIDs(rosterIDs []string) []cluster.DeployedEntry {
 	out := make([]cluster.DeployedEntry, 0, len(rosterIDs))
 	seen := make(map[string]struct{}, len(rosterIDs))
 	for _, rosterID := range rosterIDs {
-		m, ok := inverse[rosterID]
+		baseID, _ := SplitEffort(rosterID)
+		m, ok := inverse[baseID]
 		if !ok {
 			continue
 		}

@@ -112,6 +112,9 @@ type Binding struct {
 	ModelRevision                string
 	ReasoningConfigurationSHA256 string
 	ToolConfigurationSHA256      string
+	// Effort is the canonical reasoning-effort level, split from the arm ID
+	// when the roster carries effort-qualified arms (e.g. "model:xhigh").
+	Effort string
 }
 
 // ResolvedCandidates is the complete result of candidate resolution.
@@ -406,13 +409,34 @@ func (r *Resolver) Resolve(req router.Request) ResolvedCandidates {
 
 // BindingForSelection resolves a sidecar selection by arm ID first, then
 // preserves legacy roster-ID selection for existing policy artifacts.
+// Returns the binding with Effort populated when the arm carries an effort
+// suffix. For effort-qualified arms, the lookup splits the suffix before
+// matching the resolver map (those maps are keyed on base roster IDs).
 func (r ResolvedCandidates) BindingForSelection(armID, rosterID string) (Binding, bool) {
 	if armID != "" {
-		binding, ok := r.ByArmID[armID]
-		return binding, ok
+		if binding, ok := r.ByArmID[armID]; ok {
+			if _, effort := hmmSplitEffort(armID); effort != "" {
+				binding.Effort = effort
+			}
+			return binding, ok
+		}
 	}
 	binding, ok := r.ByRosterID[rosterID]
+	if ok {
+		if _, effort := hmmSplitEffort(rosterID); effort != "" {
+			binding.Effort = effort
+		}
+	}
 	return binding, ok
+}
+
+func hmmSplitEffort(armID string) (string, string) {
+	for i := len(armID) - 1; i > 0; i-- {
+		if armID[i] == ':' {
+			return armID[:i], armID[i+1:]
+		}
+	}
+	return armID, ""
 }
 
 func estimatedCostUSD(req router.Request, pricing catalog.Pricing) float64 {

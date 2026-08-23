@@ -412,6 +412,7 @@ func (r *SidecarRouter) Route(ctx context.Context, req router.Request) (router.D
 	return router.Decision{
 		Provider: binding.Provider,
 		Model:    binding.CatalogID,
+		Effort:   binding.Effort,
 		Reason:   reason,
 		Metadata: &router.RoutingMetadata{
 			CandidateModels:               resolved.CandidateModels(),
