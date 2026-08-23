@@ -6,18 +6,12 @@ import (
 	"workweave/router/internal/router"
 )
 
-// effortHysteresisThreshold is the minimum WMI-score gap required for an
-// effort-only change on the same base model within the same cluster.
-// Below this, the incumbent is held to avoid cache-prefix invalidation
-// and thinking-block thrash from noise.
+// effortHysteresisThreshold is the minimum WMI-score gap to hold the incumbent
+// effort, avoiding cache-prefix invalidation and thinking-block thrash.
 const effortHysteresisThreshold = 1.0
 
-// applyEffortHysteresis decides whether to keep the incumbent effort or switch
-// to the challenger. Both are same-cluster arms the sidecar ranked within the
-// same complexity bucket, so their scores (wmi_low/wmi_medium/wmi_high/wmi_max)
-// are comparable.
-//
-// Returns true when hysteresis passed (switch is allowed or N/A).
+// applyEffortHysteresis returns true when the effort switch is allowed (or N/A).
+// Same-cluster arm scores are on a shared scale, so a gap below the threshold holds the incumbent.
 func applyEffortHysteresis(prev router.Decision, fresh router.Decision) bool {
 	if fresh.Metadata == nil || fresh.Metadata.ArmScores == nil {
 		return true
