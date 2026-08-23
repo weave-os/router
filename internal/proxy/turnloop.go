@@ -1079,12 +1079,11 @@ func (s *Service) runTurnLoop(
 		)
 		res.Decision = hmmDecision
 		res.PlannerDecision = hmmPlannerDecision
-		heldEffort := effortHysteresisHold(fresh.Metadata, res.PriorServedModel, hmmDecision.Effort)
-		if heldEffort != "" && heldEffort != hmmDecision.Effort {
+		// Runs after the planner assignment above, so the hold survives in the
+		// reason a bake-off reads rather than being overwritten by it.
+		if heldEffort := effortHysteresisHold(fresh, res.PriorServedModel, hmmDecision.Model, hmmDecision.Effort); heldEffort != "" {
 			res.Decision.Effort = heldEffort
-			if res.PlannerDecision.Reason == "" {
-				res.PlannerDecision.Reason = "effort_hysteresis"
-			}
+			res.PlannerDecision.Reason = appendEffortHysteresisReason(res.PlannerDecision.Reason)
 			log.Info("HMM effort hysteresis held incumbent",
 				"incumbent", res.PriorServedModel,
 				"challenger_effort", hmmDecision.Effort,

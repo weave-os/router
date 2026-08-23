@@ -354,10 +354,8 @@ func TestBindingForSelectionResolvesEffortQualifiedArmID(t *testing.T) {
 	}
 }
 
-// A colon-carrying ID whose suffix is not a recognized effort level must not
-// be silently stripped to its base — splitEffort only ever drops effort
-// suffixes, so a non-effort ":" stays part of the lookup key and misses the
-// base-keyed maps rather than misrouting.
+// splitEffort drops only recognized effort suffixes, so a non-effort ":"
+// suffix misses the base-keyed maps rather than misrouting to the base.
 func TestBindingForSelectionDoesNotResolveNonEffortColonSuffix(t *testing.T) {
 	resolved := policy.ResolvedCandidates{
 		ByArmID: map[string]policy.Binding{

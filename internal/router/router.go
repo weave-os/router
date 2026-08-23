@@ -291,8 +291,12 @@ type RoutingMetadata struct {
 	SidecarTimings *SidecarTimings
 	// SidecarStats is set only on fresh sidecar decisions; never persist
 	// into pins or a replayed pin re-emits a stale measurement.
-	SidecarStats         *SidecarServingStats
-	SelectedArmID        string
+	SidecarStats  *SidecarServingStats
+	SelectedArmID string
+	// SelectedRosterArmID is the served arm as the sidecar names it, effort
+	// suffix intact — SelectedArmID has been split for binding resolution, so
+	// only this form keys into ArmScores.
+	SelectedRosterArmID  string
 	SelectedUpstreamID   string
 	BindingIndex         int
 	CandidateArmIDs      []string
