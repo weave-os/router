@@ -76,6 +76,11 @@ type Definition struct {
 	OrgOverridable bool
 }
 
+// RegistryVersion changes whenever Registry's membership changes. Publish uses
+// it to make pruning safe during rolling deploys: a revision with an older
+// registry version may not delete definitions published by a newer revision.
+const RegistryVersion = 1
+
 // Registry is the curated allowlist of flags that may carry a per-organization
 // override. It is deliberately explicit rather than derived from the env var
 // namespace: most ROUTER_* vars are infra (sidecar URLs, secrets, asset paths),

@@ -30,7 +30,9 @@ type RouterFlagDefinition struct {
 	// Whether a per-organization override may be written for this flag. A registered-but-not-overridable flag is shown read-only and rejects writes.
 	OrgOverridable bool
 	Description    string
-	UpdatedAt      pgtype.Timestamptz
+	// Monotonic internal/flags.Registry version. Pruning only considers rows at or below the current version, so an older rolling-deploy revision cannot delete a newer definition.
+	RegistryVersion int32
+	UpdatedAt       pgtype.Timestamptz
 }
 
 // Cyclic tool-call loop detections: ops signal and (session, looping_model) -> looped training labels

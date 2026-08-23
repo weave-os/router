@@ -25,7 +25,9 @@ func NewFlagDefinitionRepo(tx sqlc.DBTX) *FlagDefinitionRepo {
 // Not run in a transaction: every replica publishes the same rows at boot, so a
 // partial write is corrected by the next boot (or by a peer replica finishing its
 // own pass), and holding a transaction open across the whole registry would
-// serialize concurrent replica startups for no benefit.
+// serialize concurrent replica startups for no benefit. RegistryVersion makes
+// the prune safe during rolling deploys: an older revision cannot delete a row
+// written by a newer revision.
 func (r *FlagDefinitionRepo) Publish(ctx context.Context, defs []flags.PublishedDefinition) error {
 	q := sqlc.New(r.tx)
 	keys := make([]string, 0, len(defs))
@@ -38,15 +40,23 @@ func (r *FlagDefinitionRepo) Publish(ctx context.Context, defs []flags.Published
 			DeploymentDefault: defaultValue,
 			OrgOverridable:    def.OrgOverridable,
 			Description:       def.Description,
+			RegistryVersion:   flags.RegistryVersion,
 		})
 		if err != nil {
 			return fmt.Errorf("upsert flag definition %q: %w", def.Key, err)
 		}
 		keys = append(keys, string(def.Key))
 	}
-	err := q.DeleteFlagDefinitionsNotIn(ctx, keys)
+	err := q.DeleteFlagDefinitionsNotIn(ctx, sqlc.DeleteFlagDefinitionsNotInParams{
+		Keys:            keys,
+		RegistryVersion: flags.RegistryVersion,
+	})
 	if err != nil {
 		return fmt.Errorf("prune retired flag definitions: %w", err)
 	}
 	return nil
 }
+
+// Keep the repository's generated DB contract and the registry in sync at
+// compile time.
+var _ flags.DefinitionRepository = (*FlagDefinitionRepo)(nil)

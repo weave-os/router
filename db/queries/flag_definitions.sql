@@ -12,6 +12,7 @@ INSERT INTO router.flag_definitions (
     deployment_default,
     org_overridable,
     description,
+    registry_version,
     updated_at
 )
 VALUES (
@@ -21,6 +22,7 @@ VALUES (
     @deployment_default::text,
     @org_overridable::boolean,
     @description::text,
+    @registry_version::integer,
     NOW()
 )
 ON CONFLICT (key) DO UPDATE
@@ -29,15 +31,17 @@ SET kind = EXCLUDED.kind,
     deployment_default = EXCLUDED.deployment_default,
     org_overridable = EXCLUDED.org_overridable,
     description = EXCLUDED.description,
+    registry_version = EXCLUDED.registry_version,
     updated_at = NOW();
 
--- Drops rows for flags no longer in the compiled-in registry, so a retired flag
--- stops being offered in the admin UI. Retiring a flag does NOT clear overrides
--- already stored against it on installation rows; those are rejected at parse
--- time instead, which surfaces the stale key loudly rather than ignoring it.
+-- Drops rows for flags no longer in the compiled-in registry. The registry
+-- version guard makes this safe during rolling deploys: an older revision may
+-- prune definitions at its own version, but cannot remove rows published by a
+-- newer revision whose registry may have grown.
 -- name: DeleteFlagDefinitionsNotIn :exec
 DELETE FROM router.flag_definitions
-WHERE key <> ALL(@keys::text[]);
+WHERE registry_version <= @registry_version::integer
+  AND key <> ALL(@keys::text[]);
 
 -- name: ListFlagDefinitions :many
 SELECT *

@@ -11,30 +11,37 @@ import (
 
 const deleteFlagDefinitionsNotIn = `-- name: DeleteFlagDefinitionsNotIn :exec
 DELETE FROM router.flag_definitions
-WHERE key <> ALL($1::text[])
+WHERE registry_version <= $1::integer
+  AND key <> ALL($2::text[])
 `
 
-// Drops rows for flags no longer in the compiled-in registry, so a retired flag
-// stops being offered in the admin UI. Retiring a flag does NOT clear overrides
-// already stored against it on installation rows; those are rejected at parse
-// time instead, which surfaces the stale key loudly rather than ignoring it.
+type DeleteFlagDefinitionsNotInParams struct {
+	RegistryVersion int32
+	Keys            []string
+}
+
+// Drops rows for flags no longer in the compiled-in registry. The registry
+// version guard makes this safe during rolling deploys: an older revision may
+// prune definitions at its own version, but cannot remove rows published by a
+// newer revision whose registry may have grown.
 //
 //	DELETE FROM router.flag_definitions
-//	WHERE key <> ALL($1::text[])
-func (q *Queries) DeleteFlagDefinitionsNotIn(ctx context.Context, keys []string) error {
-	_, err := q.db.Exec(ctx, deleteFlagDefinitionsNotIn, keys)
+//	WHERE registry_version <= $1::integer
+//	  AND key <> ALL($2::text[])
+func (q *Queries) DeleteFlagDefinitionsNotIn(ctx context.Context, arg DeleteFlagDefinitionsNotInParams) error {
+	_, err := q.db.Exec(ctx, deleteFlagDefinitionsNotIn, arg.RegistryVersion, arg.Keys)
 	return err
 }
 
 const listFlagDefinitions = `-- name: ListFlagDefinitions :many
-SELECT key, kind, env_var, deployment_default, org_overridable, description, updated_at
+SELECT key, kind, env_var, deployment_default, org_overridable, description, registry_version, updated_at
 FROM router.flag_definitions
 ORDER BY key
 `
 
 // ListFlagDefinitions
 //
-//	SELECT key, kind, env_var, deployment_default, org_overridable, description, updated_at
+//	SELECT key, kind, env_var, deployment_default, org_overridable, description, registry_version, updated_at
 //	FROM router.flag_definitions
 //	ORDER BY key
 func (q *Queries) ListFlagDefinitions(ctx context.Context) ([]RouterFlagDefinition, error) {
@@ -53,6 +60,7 @@ func (q *Queries) ListFlagDefinitions(ctx context.Context) ([]RouterFlagDefiniti
 			&i.DeploymentDefault,
 			&i.OrgOverridable,
 			&i.Description,
+			&i.RegistryVersion,
 			&i.UpdatedAt,
 		); err != nil {
 			return nil, err
@@ -73,6 +81,7 @@ INSERT INTO router.flag_definitions (
     deployment_default,
     org_overridable,
     description,
+    registry_version,
     updated_at
 )
 VALUES (
@@ -82,6 +91,7 @@ VALUES (
     $4::text,
     $5::boolean,
     $6::text,
+    $7::integer,
     NOW()
 )
 ON CONFLICT (key) DO UPDATE
@@ -90,6 +100,7 @@ SET kind = EXCLUDED.kind,
     deployment_default = EXCLUDED.deployment_default,
     org_overridable = EXCLUDED.org_overridable,
     description = EXCLUDED.description,
+    registry_version = EXCLUDED.registry_version,
     updated_at = NOW()
 `
 
@@ -100,6 +111,7 @@ type UpsertFlagDefinitionParams struct {
 	DeploymentDefault string
 	OrgOverridable    bool
 	Description       string
+	RegistryVersion   int32
 }
 
 // Upserts one row of the published flag registry. Called once per flag at router
@@ -116,6 +128,7 @@ type UpsertFlagDefinitionParams struct {
 //	    deployment_default,
 //	    org_overridable,
 //	    description,
+//	    registry_version,
 //	    updated_at
 //	)
 //	VALUES (
@@ -125,6 +138,7 @@ type UpsertFlagDefinitionParams struct {
 //	    $4::text,
 //	    $5::boolean,
 //	    $6::text,
+//	    $7::integer,
 //	    NOW()
 //	)
 //	ON CONFLICT (key) DO UPDATE
@@ -133,6 +147,7 @@ type UpsertFlagDefinitionParams struct {
 //	    deployment_default = EXCLUDED.deployment_default,
 //	    org_overridable = EXCLUDED.org_overridable,
 //	    description = EXCLUDED.description,
+//	    registry_version = EXCLUDED.registry_version,
 //	    updated_at = NOW()
 func (q *Queries) UpsertFlagDefinition(ctx context.Context, arg UpsertFlagDefinitionParams) error {
 	_, err := q.db.Exec(ctx, upsertFlagDefinition,
@@ -142,6 +157,7 @@ func (q *Queries) UpsertFlagDefinition(ctx context.Context, arg UpsertFlagDefini
 		arg.DeploymentDefault,
 		arg.OrgOverridable,
 		arg.Description,
+		arg.RegistryVersion,
 	)
 	return err
 }

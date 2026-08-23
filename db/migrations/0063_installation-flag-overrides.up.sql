@@ -34,6 +34,7 @@ CREATE TABLE router.flag_definitions (
     deployment_default TEXT,
     org_overridable    BOOLEAN NOT NULL,
     description        TEXT NOT NULL DEFAULT '',
+    registry_version   INTEGER NOT NULL,
     updated_at         TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
@@ -41,5 +42,6 @@ COMMENT ON TABLE router.flag_definitions IS 'Published mirror of internal/flags.
 COMMENT ON COLUMN router.flag_definitions.kind IS 'Value type: bool, int, float, or string. A stored override whose JSON type disagrees is rejected at parse time.';
 COMMENT ON COLUMN router.flag_definitions.deployment_default IS 'Deployment default as resolved from env_var at the last boot, rendered as text. Display only; the routing path reads the live in-process value, not this column.';
 COMMENT ON COLUMN router.flag_definitions.org_overridable IS 'Whether a per-organization override may be written for this flag. A registered-but-not-overridable flag is shown read-only and rejects writes.';
+COMMENT ON COLUMN router.flag_definitions.registry_version IS 'Monotonic internal/flags.Registry version. Pruning only considers rows at or below the current version, so an older rolling-deploy revision cannot delete a newer definition.';
 
 COMMIT;
