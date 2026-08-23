@@ -319,3 +319,55 @@ func TestResolverDirectlyEnforcesAllowlistForStrategySpecificCandidates(t *testi
 		Reason:    policy.ExclusionNotAllowlisted,
 	})
 }
+
+// BindingForSelection must split an effort suffix before map lookup: resolver
+// maps are keyed on base arm/roster IDs, so an effort-qualified sidecar
+// selection ("anthropic/claude-opus-5:xhigh") must look up the base ID and
+// propagate the canonical effort level onto the returned binding.
+func TestBindingForSelectionResolvesEffortQualifiedArmID(t *testing.T) {
+	resolved := policy.ResolvedCandidates{
+		ByArmID: map[string]policy.Binding{
+			"anthropic/claude-opus-5": {ArmID: "anthropic/claude-opus-5", CatalogID: "claude-opus-5", Provider: providers.ProviderAnthropic},
+		},
+		ByRosterID: map[string]policy.Binding{
+			"anthropic/claude-opus-5": {ArmID: "anthropic/claude-opus-5", CatalogID: "claude-opus-5", Provider: providers.ProviderAnthropic},
+		},
+	}
+
+	for _, tc := range []struct {
+		name       string
+		armID      string
+		rosterID   string
+		wantFound  bool
+		wantEffort string
+	}{
+		{name: "effort-qualified arm id", armID: "anthropic/claude-opus-5:xhigh", wantFound: true, wantEffort: "xhigh"},
+		{name: "effort-qualified roster id", rosterID: "anthropic/claude-opus-5:xhigh", wantFound: true, wantEffort: "xhigh"},
+		{name: "bare arm id", armID: "anthropic/claude-opus-5", wantFound: true, wantEffort: ""},
+		{name: "unknown arm id", armID: "unknown/model", wantFound: false, wantEffort: ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			binding, ok := resolved.BindingForSelection(tc.armID, tc.rosterID)
+			assert.Equal(t, tc.wantFound, ok)
+			if tc.wantFound {
+				assert.Equal(t, "claude-opus-5", binding.CatalogID)
+				assert.Equal(t, tc.wantEffort, binding.Effort)
+			}
+		})
+	}
+}
+
+// A non-effort model ID containing ":" (e.g. "anthropic/claude-opus-5") must not
+// have its suffix mistaken for an effort level; the full ID drives the lookup.
+func TestBindingForSelectionDoesNotTreatColonModelIDAsEffort(t *testing.T) {
+	resolved := policy.ResolvedCandidates{
+		ByRosterID: map[string]policy.Binding{
+			"upsonic/tiger-rag": {ArmID: "upsonic/tiger-rag", CatalogID: "upsonic/tiger-rag", Provider: providers.ProviderOpenRouter},
+		},
+	}
+
+	binding, ok := resolved.BindingForSelection("", "upsonic/tiger-rag")
+	require.True(t, ok)
+	assert.Equal(t, "upsonic/tiger-rag", binding.CatalogID)
+	assert.Empty(t, binding.Effort)
+}

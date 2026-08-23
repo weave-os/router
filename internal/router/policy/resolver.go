@@ -8,6 +8,7 @@ import (
 	"workweave/router/internal/providers"
 	"workweave/router/internal/router"
 	"workweave/router/internal/router/catalog"
+	"workweave/router/internal/translate"
 )
 
 // RosterMapper maps a catalog model to the identifier understood by a policy
@@ -409,29 +410,36 @@ func (r *Resolver) Resolve(req router.Request) ResolvedCandidates {
 
 // BindingForSelection resolves a sidecar selection by arm ID first, then
 // preserves legacy roster-ID selection for existing policy artifacts.
-// Effort is populated from the arm suffix; base-ID lookup is used because resolver maps are keyed on bare roster IDs.
+// Effort-qualified selections (e.g. "anthropic/claude-opus-5:xhigh") are split
+// so the base arm/roster ID drives the lookup — resolver maps are keyed on base
+// IDs — and the canonical effort level is copied onto the returned binding.
 func (r ResolvedCandidates) BindingForSelection(armID, rosterID string) (Binding, bool) {
 	if armID != "" {
-		if binding, ok := r.ByArmID[armID]; ok {
-			if _, effort := hmmSplitEffort(armID); effort != "" {
-				binding.Effort = effort
-			}
+		lookup, effort := splitEffort(armID)
+		if binding, ok := r.ByArmID[lookup]; ok {
+			binding.Effort = effort
 			return binding, ok
 		}
 	}
-	binding, ok := r.ByRosterID[rosterID]
+	lookup, effort := splitEffort(rosterID)
+	binding, ok := r.ByRosterID[lookup]
 	if ok {
-		if _, effort := hmmSplitEffort(rosterID); effort != "" {
-			binding.Effort = effort
-		}
+		binding.Effort = effort
 	}
 	return binding, ok
 }
 
-func hmmSplitEffort(armID string) (string, string) {
+// splitEffort separates a canonical effort suffix from an arm ID, mirroring
+// hmm.SplitEffort so only recognized levels are treated as effort suffixes and
+// non-effort model IDs containing ":" (e.g. "upsonic/tiger-rag") stay intact.
+func splitEffort(armID string) (string, string) {
 	for i := len(armID) - 1; i > 0; i-- {
 		if armID[i] == ':' {
-			return armID[:i], armID[i+1:]
+			suffix := armID[i+1:]
+			if translate.CanonicalizeEffort(suffix) == suffix && translate.IsValidEffort(suffix) {
+				return armID[:i], suffix
+			}
+			return armID, ""
 		}
 	}
 	return armID, ""
