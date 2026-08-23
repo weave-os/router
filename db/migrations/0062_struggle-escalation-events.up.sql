@@ -19,7 +19,7 @@ CREATE TABLE router.struggle_escalation_events (
     session_ever_switched BOOLEAN NOT NULL
 );
 
-CREATE INDEX struggle_escalation_events_session_role_idx
+CREATE UNIQUE INDEX struggle_escalation_events_session_role_idx
     ON router.struggle_escalation_events (session_key, role);
 CREATE INDEX struggle_escalation_events_installation_created_idx
     ON router.struggle_escalation_events (installation_id, created_at DESC);

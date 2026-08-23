@@ -572,15 +572,15 @@ func sanitizeSidecarDisplayMarker(raw string) string {
 // the marker wording; tests assert the mapping against these constants rather
 // than re-spelling the literals.
 const (
-	markerReasonUserForced    = "pinned by force-model"
-	markerReasonLoopEscalated = "escalated due to loop"
+	markerReasonUserForced        = "pinned by force-model"
+	markerReasonLoopEscalated     = "escalated due to loop"
 	markerReasonStruggleEscalated = "picked a different model to break a grind"
-	markerReasonSwitched      = "switched for positive EV after cache eviction"
-	markerReasonStayed        = "stayed on your last pick"
-	markerReasonTierUpgrade   = "upgraded to a stronger tier"
-	markerReasonBestPick      = "best pick for this turn"
-	markerReasonBaseline      = "fell back to baseline after provider outage"
-	markerReasonSibling       = "switched after the picked model was overloaded"
+	markerReasonSwitched          = "switched for positive EV after cache eviction"
+	markerReasonStayed            = "stayed on your last pick"
+	markerReasonTierUpgrade       = "upgraded to a stronger tier"
+	markerReasonBestPick          = "best pick for this turn"
+	markerReasonBaseline          = "fell back to baseline after provider outage"
+	markerReasonSibling           = "switched after the picked model was overloaded"
 )
 
 // baselineRoutingMarkerFor renders the routing badge for an in-turn baseline
@@ -1450,13 +1450,18 @@ func (s *Service) WithStruggleShadowStore(store StruggleShadowStore) *Service {
 	s.struggleShadowStore = store
 	return s
 }
+
 // WithStruggleEscalationConfig sets the struggle escalation kill switch and
 // holdout. enabled=false makes the pre-routing handler a no-op. holdoutPct
 // (0-100) withholds that percentage of struggling sessions for measurement.
 func (s *Service) WithStruggleEscalationConfig(enabled bool, holdoutPct int) *Service {
 	s.struggleEscalationEnabled = enabled
-	if holdoutPct < 0 { holdoutPct = 0 }
-	if holdoutPct > 100 { holdoutPct = 100 }
+	if holdoutPct < 0 {
+		holdoutPct = 0
+	}
+	if holdoutPct > 100 {
+		holdoutPct = 100
+	}
 	s.struggleEscalationHoldoutPct = holdoutPct
 	return s
 }

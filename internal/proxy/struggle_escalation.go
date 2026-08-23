@@ -89,7 +89,8 @@ func (s *Service) handleStruggleEscalation(
 		wall = time.Since(pin.FirstPinnedAt)
 	}
 
-	reasons := struggleReasons(pin.TurnCount, wall)
+	// +1: the stored count is completed turns; this in-flight turn is the next.
+	reasons := struggleReasons(pin.TurnCount+1, wall)
 	if len(reasons) == 0 || reasons[0] != struggleReasonEarlyStr {
 		return // not yet struggling, or only "late" (not armed)
 	}
