@@ -1464,9 +1464,8 @@ func (s *Service) WithStruggleEscalationConfig(enabled bool, holdoutPct int) *Se
 	return s
 }
 
-// WithStruggleEscalationStore wires the durable sink for struggle escalation
-// events (router.struggle_escalation_events). Nil disables persistence, the
-// holdout, and the cross-TTL once-per-session budget.
+// WithStruggleEscalationStore wires the durable sink for struggle escalation events
+// (router.struggle_escalation_events); nil disables persistence, holdout, and budget.
 func (s *Service) WithStruggleEscalationStore(store StruggleEscalationStore) *Service {
 	s.struggleEscalationStore = store
 	return s

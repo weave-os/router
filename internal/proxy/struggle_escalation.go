@@ -50,9 +50,8 @@ const (
 )
 
 // handleStruggleEscalation arms a sideways move for a grinding session
-// (turns >= 30, wall >= 30m). Must be called before routing so runTurnLoop
-// picks up the sticky pin on the same turn. Idempotent via the pin check
-// plus a durable once-per-session budget.
+// (turns >= 30, wall >= 10m). Must run before routing so runTurnLoop picks
+// up the sticky pin on the same turn; idempotent via durable once-per-session budget.
 func (s *Service) handleStruggleEscalation(
 	ctx context.Context,
 	installationID uuid.UUID,
