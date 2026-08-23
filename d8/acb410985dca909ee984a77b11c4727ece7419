@@ -38,6 +38,7 @@ internal/auth/service_test.go
   s_f9ea2f7c1258a0::t_cc6d61267e1565 988-1024
 internal/proxy/loop_detection.go
   s_f9ea2f7c1258a0::t_d55125f21d307a 228
+  s_f9ea2f7c1258a0::t_5465135dc06e06 224
 internal/proxy/service.go
   s_f9ea2f7c1258a0::t_1e49103cd7bb64 20
   s_f9ea2f7c1258a0::t_18c7b7a5b13e5c 2457,4911
@@ -45,6 +46,9 @@ internal/proxy/service.go
   s_f9ea2f7c1258a0::t_cef34e26f2bf6c 1885,1890
   s_f9ea2f7c1258a0::t_bb16ea558ccea9 2976,3229
   s_f9ea2f7c1258a0::t_161d66ac0feb63 2911,3308,3445,5208
+  s_f9ea2f7c1258a0::t_e9fe6e3c683a03 2761
+  s_f9ea2f7c1258a0::t_0410c9d4e75f1c 2749
+  s_f9ea2f7c1258a0::t_f1813c69dc8587 2773
 internal/proxy/gemini.go
   s_f9ea2f7c1258a0::t_18c7b7a5b13e5c 68
 internal/auth/installation.go
