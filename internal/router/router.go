@@ -238,17 +238,12 @@ const (
 type Decision struct {
 	Provider string
 	Model    string
-	// Effort is the canonical reasoning-effort level the policy selected for
-	// this turn ("low".."xhigh"), empty when the policy expressed no
-	// preference. Model stays a bare catalog ID so catalog.ByID lookups for
-	// pricing, context window, and capabilities keep working; effort travels
-	// alongside it and is applied by the emit path via EmitOptions.ForceEffort.
-	//
-	// Effort participates in serving identity: ServedIdentity() folds it into
-	// the string the session pin compares across turns, so an effort-only
-	// change is treated as a model switch (thinking-block signatures are only
-	// valid for the exact model+effort that produced them, and effort reshapes
-	// the Anthropic prompt-cache prefix).
+	// Effort is the canonical reasoning-effort level selected for this turn
+	// ("low".."xhigh"), empty when the policy expressed no preference. Model
+	// stays a bare catalog ID so catalog.ByID lookups keep working; effort is
+	// applied by the emit path via EmitOptions.ForceEffort. An effort-only
+	// change registers as a model switch via ServedIdentity() because it
+	// invalidates thinking-block signatures and the prompt-cache prefix.
 	Effort string
 	Reason string
 	// Nil for non-content-aware routers; nil-check before dereferencing.
@@ -257,13 +252,8 @@ type Decision struct {
 
 // ServedIdentity returns the model identity to persist and compare across
 // turns: the bare model when no effort was selected, else "model:effort".
-//
-// This is the value session pins store as LastServedModel. Comparing identities
-// rather than bare model IDs is what makes an effort-only change register as a
-// switch. Pins written before effort existed hold a bare ID, so the first turn
-// after rollout compares "m" against "m:high" and reports a switch — the
-// conservative direction (strip stale thinking blocks, lose one cache prefix)
-// rather than the unsafe one.
+// Pins written before effort existed hold a bare ID, so the first post-rollout
+// turn compares "m" against "m:high" and reports a switch — conservative, not unsafe.
 func (d Decision) ServedIdentity() string {
 	if d.Effort == "" {
 		return d.Model

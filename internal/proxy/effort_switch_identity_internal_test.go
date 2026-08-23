@@ -9,11 +9,8 @@ import (
 	"workweave/router/internal/router/sessionpin"
 )
 
-// An effort change on the SAME model rewrites the Anthropic prompt-cache prefix
-// and invalidates thinking-block signatures exactly like a model change does,
-// so it has to register as a switch. Before serving identities were compared,
-// both turns produced Decision.Model == "claude-opus-5" and the switch went
-// undetected — carrying stale signed thinking blocks into a 400.
+// An effort change on the same model invalidates thinking-block signatures
+// and the prompt-cache prefix exactly like a model change, so it must count as a switch.
 func TestModelSwitched_EffortChangeOnSameModelCountsAsSwitch(t *testing.T) {
 	res := turnLoopResult{
 		PriorServedModel: "claude-opus-5:low",
@@ -34,10 +31,8 @@ func TestModelSwitched_SameModelAndEffortIsNotASwitch(t *testing.T) {
 		"an unchanged model+effort must not report a switch")
 }
 
-// Pins written before effort existed hold a bare model ID. Comparing that to a
-// new "model:effort" identity reports a switch, which is the conservative
-// direction (strip stale blocks, lose one cache prefix) rather than the unsafe
-// one.
+// A bare legacy pin compared against a "model:effort" identity reports a switch — the
+// conservative direction — rather than the unsafe one.
 func TestModelSwitched_LegacyBarePinReportsSwitchAgainstEffortIdentity(t *testing.T) {
 	res := turnLoopResult{
 		PriorServedModel: "claude-opus-5",
@@ -69,10 +64,8 @@ func TestServedIdentity_FoldsEffortAndOmitsWhenAbsent(t *testing.T) {
 		router.Decision{Model: "claude-opus-5"}.ServedIdentity())
 }
 
-// ExcludedModels / SafetyExcludedModels are keyed on bare catalog IDs, so the
-// loop-breaker must strip effort off the pin's serving identity. Leaving it on
-// would make the exclusion silently never match, disabling loop-breaking for
-// every effort-carrying turn.
+// ExcludedModels / SafetyExcludedModels are keyed on bare catalog IDs;
+// leaving effort on would silently disable loop-breaking for effort-carrying turns.
 func TestMaxedOutServedModel_StripsEffortSoExclusionMatches(t *testing.T) {
 	pin := sessionpin.Pin{
 		LastServedModel:  "claude-opus-5:xhigh",

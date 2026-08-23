@@ -203,10 +203,8 @@ type turnLoopResult struct {
 // turn, so stale-signed blocks from an earlier cross-model excursion would
 // otherwise 400 with "Invalid signature in thinking block" on every later turn.
 func (r turnLoopResult) modelSwitched() bool {
-	// Compare serving identities, not bare model IDs: a same-model effort
-	// change (opus-5:low -> opus-5:xhigh) rewrites the Anthropic prompt-cache
-	// prefix and invalidates thinking-block signatures exactly like a model
-	// change does, so it has to count as a switch.
+	// Compare serving identities: a same-model effort change reshapes the
+	// prompt-cache prefix and invalidates thinking-block signatures.
 	transition := r.PriorServedModel != "" && r.PriorServedModel != r.Decision.ServedIdentity()
 	return transition || r.SessionEverSwitched || r.StripThinkingBlocks
 }
@@ -1451,12 +1449,9 @@ func maxedOutServedModel(pin sessionpin.Pin) string {
 	if model == "" {
 		model = pin.Model
 	}
-	// LastServedModel is a serving identity ("model:effort" once the policy
-	// selects effort), but ExcludedModels / SafetyExcludedModels are keyed on
-	// bare catalog IDs. Strip the effort so the exclusion actually matches;
-	// leaving it on would silently disable loop-breaking for effort-carrying
-	// turns. Exclusion stays model-level on purpose: a model that saturated the
-	// output ceiling is barred at every effort for this turn.
+	// ExcludedModels / SafetyExcludedModels key on bare catalog IDs; strip effort
+	// so the exclusion matches. Exclusion is model-level: saturate at any effort
+	// and the model is barred at every effort for this turn.
 	return baseModelOf(model)
 }
 
