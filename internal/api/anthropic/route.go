@@ -25,6 +25,7 @@ func RouteHandler(svc *proxy.Service) gin.HandlerFunc {
 			return
 		}
 		if len(body) > proxy.MaxRequestBodyBytes {
+			logOversizeBody(log, c.Request)
 			writeAnthropicError(c, http.StatusRequestEntityTooLarge, "invalid_request_error", "Request body too large.")
 			return
 		}
@@ -77,6 +78,7 @@ func PreviewRouteHandler(svc *proxy.Service) gin.HandlerFunc {
 			return
 		}
 		if len(body) > proxy.MaxRequestBodyBytes {
+			logOversizeBody(log, c.Request)
 			writeAnthropicError(c, http.StatusRequestEntityTooLarge, "invalid_request_error", "Request body too large.")
 			return
 		}

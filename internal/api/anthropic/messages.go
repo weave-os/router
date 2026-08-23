@@ -4,6 +4,7 @@ package anthropic
 import (
 	"context"
 	"io"
+	"log/slog"
 	"net/http"
 
 	"workweave/router/internal/auth"
@@ -15,19 +16,18 @@ import (
 	"github.com/tidwall/gjson"
 )
 
-const maxBodyBytes = 10 * 1024 * 1024
-
 func MessagesHandler(svc *proxy.Service, authSvc *auth.Service) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		log := observability.FromGin(c)
 
-		body, err := io.ReadAll(io.LimitReader(c.Request.Body, maxBodyBytes+1))
+		body, err := io.ReadAll(io.LimitReader(c.Request.Body, proxy.MaxRequestBodyBytes+1))
 		if err != nil {
 			log.Debug("Failed to read request body", "err", err)
 			writeAnthropicError(c, http.StatusBadRequest, "invalid_request_error", "Failed to read request body.")
 			return
 		}
-		if len(body) > maxBodyBytes {
+		if len(body) > proxy.MaxRequestBodyBytes {
+			logOversizeBody(log, c.Request)
 			writeAnthropicError(c, http.StatusRequestEntityTooLarge, "invalid_request_error", "Request body too large.")
 			return
 		}
@@ -120,6 +120,21 @@ func anthropicErrorType(kind proxy.DispatchErrorKind) string {
 		return "invalid_request_error"
 	}
 	return "api_error"
+}
+
+// logOversizeBody records a body-cap rejection. These never reach
+// ProxyMessages, so they emit no per-request telemetry and are invisible to
+// both the router timeline and the router_calls-derived error alerting —
+// without this line an oversize session can only be found in the Cloud Run
+// access log, with no session to attribute it to.
+func logOversizeBody(log *slog.Logger, r *http.Request) {
+	log.Warn("Request body too large",
+		"path", r.URL.Path,
+		"content_length", r.ContentLength,
+		"max_body_bytes", proxy.MaxRequestBodyBytes,
+		"client_session_id", r.Header.Get("X-Claude-Code-Session-Id"),
+		"user_agent", r.UserAgent(),
+	)
 }
 
 func writeAnthropicError(c *gin.Context, status int, errType, message string) {
