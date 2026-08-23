@@ -25,8 +25,18 @@ func (s *Service) ResolveStruggleShadowEnabled(ctx context.Context) bool {
 	return flags.BoolOr(ctx, flags.KeyStruggleShadowEnabled, s.struggleShadowEnabled)
 }
 
-// ResolveSpiralShadowEnabled reports whether the per-turn spiral detector runs
-// for this request.
+// ResolveStruggleEscalationEnabled reports whether struggling sessions may make
+// an early sideways escalation for this request.
+func (s *Service) ResolveStruggleEscalationEnabled(ctx context.Context) bool {
+	return flags.BoolOr(ctx, flags.KeyStruggleEscalationEnabled, s.struggleEscalationEnabled)
+}
+
+// ResolveStruggleEscalationHoldoutPct returns the percentage of struggle
+// detections recorded without escalating, as a self-recovery baseline.
+func (s *Service) ResolveStruggleEscalationHoldoutPct(ctx context.Context) int {
+	return flags.IntOr(ctx, flags.KeyStruggleEscalationHoldout, s.struggleEscalationHoldoutPct)
+}
+
 func (s *Service) ResolveSpiralShadowEnabled(ctx context.Context) bool {
 	return flags.BoolOr(ctx, flags.KeySpiralShadowEnabled, s.spiralShadowEnabled)
 }

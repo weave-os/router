@@ -43,20 +43,22 @@ const (
 
 // Registered flag keys. Each corresponds to exactly one entry in Registry.
 const (
-	KeyStruggleShadowEnabled    Key = "struggle_shadow_enabled"
-	KeySpiralShadowEnabled      Key = "spiral_shadow_enabled"
-	KeyLoopEscalationEnabled    Key = "loop_escalation_enabled"
-	KeyLoopEscalationHoldoutPct Key = "loop_escalation_holdout_pct"
-	KeyTextRepetitionBreak      Key = "text_repetition_break_enabled"
-	KeyPlannerEnabled           Key = "planner_enabled"
-	KeyScoreToolResultTurns     Key = "score_tool_result_turns"
-	KeyPrefixTrimFreeSwitch     Key = "prefix_trim_free_switch"
-	KeyAuthoritativeUpgradeGate Key = "authoritative_upgrade_gate"
-	KeySiblingFailover          Key = "sibling_failover"
-	KeyEffortEscalation         Key = "effort_escalation"
-	KeyCyberRefusalRepin        Key = "cyber_refusal_repin"
-	KeyCyberRefusalFallback     Key = "cyber_refusal_fallback_model"
-	KeyEmbedOnlyUserMessage     Key = "embed_only_user_message"
+	KeyStruggleShadowEnabled     Key = "struggle_shadow_enabled"
+	KeyStruggleEscalationEnabled Key = "struggle_escalation_enabled"
+	KeyStruggleEscalationHoldout Key = "struggle_escalation_holdout_pct"
+	KeySpiralShadowEnabled       Key = "spiral_shadow_enabled"
+	KeyLoopEscalationEnabled     Key = "loop_escalation_enabled"
+	KeyLoopEscalationHoldoutPct  Key = "loop_escalation_holdout_pct"
+	KeyTextRepetitionBreak       Key = "text_repetition_break_enabled"
+	KeyPlannerEnabled            Key = "planner_enabled"
+	KeyScoreToolResultTurns      Key = "score_tool_result_turns"
+	KeyPrefixTrimFreeSwitch      Key = "prefix_trim_free_switch"
+	KeyAuthoritativeUpgradeGate  Key = "authoritative_upgrade_gate"
+	KeySiblingFailover           Key = "sibling_failover"
+	KeyEffortEscalation          Key = "effort_escalation"
+	KeyCyberRefusalRepin         Key = "cyber_refusal_repin"
+	KeyCyberRefusalFallback      Key = "cyber_refusal_fallback_model"
+	KeyEmbedOnlyUserMessage      Key = "embed_only_user_message"
 )
 
 // Definition describes one overridable flag. DeploymentDefault is not stored
@@ -84,6 +86,20 @@ var Registry = []Definition{
 		EnvVar:         "ROUTER_STRUGGLE_SHADOW_ENABLED",
 		Kind:           KindBool,
 		Description:    "Session-level struggle detector (log-only; writes struggle_shadow_events).",
+		OrgOverridable: true,
+	},
+	{
+		Key:            KeyStruggleEscalationEnabled,
+		EnvVar:         "ROUTER_STRUGGLE_ESCALATION_ENABLED",
+		Kind:           KindBool,
+		Description:    "Early sideways escalation for sessions struggling in a repeated tool-call cycle.",
+		OrgOverridable: true,
+	},
+	{
+		Key:            KeyStruggleEscalationHoldout,
+		EnvVar:         "ROUTER_STRUGGLE_ESCALATION_HOLDOUT_PCT",
+		Kind:           KindInt,
+		Description:    "Percent of struggle detections recorded without escalating, as a self-recovery baseline. 0-100.",
 		OrgOverridable: true,
 	},
 	{

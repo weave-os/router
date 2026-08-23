@@ -2538,7 +2538,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 
 	// Struggle escalation: writes a sticky pin before routing so runTurnLoop
 	// dispatches the sideways target on the same turn.
-	if !agentShadowMode && s.struggleEscalationEnabled && (turntype.DetectFromEnvelope(env, feats, "") == turntype.MainLoop || turntype.DetectFromEnvelope(env, feats, "") == turntype.ToolResult) {
+	if !agentShadowMode && s.ResolveStruggleEscalationEnabled(ctx) && (turntype.DetectFromEnvelope(env, feats, "") == turntype.MainLoop || turntype.DetectFromEnvelope(env, feats, "") == turntype.ToolResult) {
 		struggleRole := roleForTier(catalog.TierFor(feats.Model))
 		s.handleStruggleEscalation(ctx, installationID, sessionKey, struggleRole)
 	}

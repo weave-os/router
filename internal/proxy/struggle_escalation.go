@@ -105,12 +105,12 @@ func (s *Service) handleStruggleEscalation(
 	}
 
 	holdout := s.struggleEscalationStore != nil && installationID != uuid.Nil &&
-		DeterministicHoldout(sessionKey, s.struggleEscalationHoldoutPct)
+		DeterministicHoldout(sessionKey, s.ResolveStruggleEscalationHoldoutPct(ctx))
 
 	action := struggleActionSideways
 	var escalationTarget string
 	switch {
-	case !s.struggleEscalationEnabled:
+	case !s.ResolveStruggleEscalationEnabled(ctx):
 		action = struggleActionDisabled
 	case userForced:
 		action = struggleActionUserForced

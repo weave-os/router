@@ -826,20 +826,22 @@ func main() {
 	// effort: the table is never read on the request path, so a failure here
 	// degrades that UI and nothing else.
 	publishFlagRegistry(logger, repo.FlagDefinitions, map[flags.Key]string{
-		flags.KeyStruggleShadowEnabled:    boolDefault(struggleShadowEnabled),
-		flags.KeySpiralShadowEnabled:      boolDefault(spiralShadowEnabled),
-		flags.KeyLoopEscalationEnabled:    boolDefault(loopEscalationEnabled),
-		flags.KeyLoopEscalationHoldoutPct: strconv.Itoa(loopEscalationHoldoutPct),
-		flags.KeyTextRepetitionBreak:      boolDefault(textRepetitionBreakEnabled),
-		flags.KeyPlannerEnabled:           boolDefault(plannerEnabled),
-		flags.KeyScoreToolResultTurns:     boolDefault(scoreToolResultTurns),
-		flags.KeyPrefixTrimFreeSwitch:     boolDefault(prefixTrimFreeSwitch),
-		flags.KeyAuthoritativeUpgradeGate: boolDefault(authoritativeUpgradeGate),
-		flags.KeySiblingFailover:          boolDefault(siblingFailover),
-		flags.KeyEffortEscalation:         boolDefault(effortEscalation),
-		flags.KeyCyberRefusalRepin:        boolDefault(cyberRefusalRepin),
-		flags.KeyCyberRefusalFallback:     cyberRefusalFallbackModel,
-		flags.KeyEmbedOnlyUserMessage:     boolDefault(embedOnlyUser),
+		flags.KeyStruggleShadowEnabled:     boolDefault(struggleShadowEnabled),
+		flags.KeyStruggleEscalationEnabled: boolDefault(struggleEscalationEnabled),
+		flags.KeyStruggleEscalationHoldout: strconv.Itoa(struggleEscalationHoldoutPct),
+		flags.KeySpiralShadowEnabled:       boolDefault(spiralShadowEnabled),
+		flags.KeyLoopEscalationEnabled:     boolDefault(loopEscalationEnabled),
+		flags.KeyLoopEscalationHoldoutPct:  strconv.Itoa(loopEscalationHoldoutPct),
+		flags.KeyTextRepetitionBreak:       boolDefault(textRepetitionBreakEnabled),
+		flags.KeyPlannerEnabled:            boolDefault(plannerEnabled),
+		flags.KeyScoreToolResultTurns:      boolDefault(scoreToolResultTurns),
+		flags.KeyPrefixTrimFreeSwitch:      boolDefault(prefixTrimFreeSwitch),
+		flags.KeyAuthoritativeUpgradeGate:  boolDefault(authoritativeUpgradeGate),
+		flags.KeySiblingFailover:           boolDefault(siblingFailover),
+		flags.KeyEffortEscalation:          boolDefault(effortEscalation),
+		flags.KeyCyberRefusalRepin:         boolDefault(cyberRefusalRepin),
+		flags.KeyCyberRefusalFallback:      cyberRefusalFallbackModel,
+		flags.KeyEmbedOnlyUserMessage:      boolDefault(embedOnlyUser),
 	})
 
 	proxySvc := proxy.NewService(routeEntry, providerMap, telemetryEmitter, embedOnlyUser, semanticCache, pinStore, hardPinExplore, hardPinProvider, hardPinModel, repo.Telemetry).
