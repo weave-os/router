@@ -49,15 +49,10 @@ const (
 	struggleActionNoEligibleArms = "no_eligible_arms"
 )
 
-// handleStruggleEscalation arms a sideways move for a grinding session.
-// Modelled on handleLoopEscalation: does its own pin lookup, writes a sticky
-// pin with ReasonStruggleEscalation if the session crosses the early operating
-// point (turns >= 30, wall >= 10m), then records a durable event row. The
-// shadow call site continues logging independently.
-//
-// Called BEFORE routing; if a pin is written, runTurnLoop picks it up and
-// dispatches the sideways target on the same turn. Idempotent via the pin
-// check plus a durable once-per-session budget.
+// handleStruggleEscalation arms a sideways move for a grinding session
+// (turns >= 30, wall >= 30m). Must be called before routing so runTurnLoop
+// picks up the sticky pin on the same turn. Idempotent via the pin check
+// plus a durable once-per-session budget.
 func (s *Service) handleStruggleEscalation(
 	ctx context.Context,
 	installationID uuid.UUID,
@@ -144,8 +139,10 @@ func (s *Service) handleStruggleEscalation(
 		} else if target == "" {
 			action = struggleActionNoEligibleArms
 		} else {
-			binding, ok := catalog.ResolveBinding(target, nil)
-			if !ok {
+			m, mok := catalog.ByID(target)
+			if !mok || len(m.Providers) == 0 {
+				action = struggleActionNoEligibleArms
+			} else if installationID == uuid.Nil {
 				action = struggleActionNoEligibleArms
 			} else {
 				escalationTarget = target
@@ -153,7 +150,7 @@ func (s *Service) handleStruggleEscalation(
 					SessionKey:      sessionKey,
 					Role:            role,
 					InstallationID:  installationID,
-					Provider:        binding.Provider,
+					Provider:        m.Providers[0].Provider,
 					Model:           target,
 					Reason:          translate.ReasonStruggleEscalation,
 					TurnCount:       1,
