@@ -122,11 +122,8 @@ func anthropicErrorType(kind proxy.DispatchErrorKind) string {
 	return "api_error"
 }
 
-// logOversizeBody records a body-cap rejection. These never reach
-// ProxyMessages, so they emit no per-request telemetry and are invisible to
-// both the router timeline and the router_calls-derived error alerting —
-// without this line an oversize session can only be found in the Cloud Run
-// access log, with no session to attribute it to.
+// logOversizeBody logs a body-cap rejection. Pre-dispatch rejections emit no
+// per-request telemetry, so without this they are invisible to alerting.
 func logOversizeBody(log *slog.Logger, r *http.Request) {
 	log.Warn("Request body too large",
 		"path", r.URL.Path,

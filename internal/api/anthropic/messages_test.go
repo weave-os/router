@@ -154,9 +154,7 @@ func TestMessagesHandler_RequestTooLarge(t *testing.T) {
 	assert.Equal(t, "invalid_request_error", errObj["type"])
 }
 
-// Claude Code sessions with long tool-result histories routinely exceed 11 MB;
-// those were rejected at the ingress gate before the cap was raised to
-// Anthropic's own 32 MB limit.
+// Bodies over the old 10 MB cap but under Anthropic's 32 MB limit must not be rejected.
 func TestMessagesHandler_BodyOverLegacyTenMegabyteCapIsAccepted(t *testing.T) {
 	svc := newTestService(&fakeRouter{}, "", nil)
 	engine := messagesEngine(svc)
