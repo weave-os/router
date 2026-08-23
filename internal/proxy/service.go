@@ -218,9 +218,8 @@ type Service struct {
 	// (router.struggle_shadow_events) and enforces the once-per-(session,
 	// reason) budget. Nil degrades to log-only fires.
 	struggleShadowStore StruggleShadowStore
-	// struggleEscalationEnabled is the kill switch for the struggle escalation
-	// detector. When true, sessions crossing the early operating point
-	// (turns>=30, wall>=10m) receive an automatic sideways move. Default off.
+	// struggleEscalationEnabled is the kill switch; arms early sideways move
+	// (turns>=30, wall>=10m). Default off (ROUTER_STRUGGLE_ESCALATION_ENABLED).
 	struggleEscalationEnabled bool
 	// struggleEscalationHoldoutPct is the percentage of struggling sessions
 	// withheld for measurement. Only applies when a store is wired.
@@ -1451,9 +1450,8 @@ func (s *Service) WithStruggleShadowStore(store StruggleShadowStore) *Service {
 	return s
 }
 
-// WithStruggleEscalationConfig sets the struggle escalation kill switch and
-// holdout. enabled=false makes the pre-routing handler a no-op. holdoutPct
-// (0-100) withholds that percentage of struggling sessions for measurement.
+// WithStruggleEscalationConfig sets the kill switch and holdout percentage
+// (0–100); enabled=false makes the handler a no-op regardless of holdoutPct.
 func (s *Service) WithStruggleEscalationConfig(enabled bool, holdoutPct int) *Service {
 	s.struggleEscalationEnabled = enabled
 	if holdoutPct < 0 {

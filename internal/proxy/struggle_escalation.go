@@ -188,7 +188,7 @@ func (s *Service) handleStruggleEscalation(
 			StrugglingModel:     strugglingModel,
 			Action:              action,
 			EscalationTarget:    escalationTarget,
-			TurnCount:           int32(pin.TurnCount),
+			TurnCount:           int32(pin.TurnCount + 1), // +1: stored is completed turns; event records the in-flight count
 			WallSeconds:         int64(wall.Seconds()),
 			SessionEverSwitched: pin.HasEverSwitched,
 		}
