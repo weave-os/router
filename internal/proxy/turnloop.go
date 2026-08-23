@@ -1078,16 +1078,19 @@ func (s *Service) runTurnLoop(
 			prefixBroken,
 		)
 		res.Decision = hmmDecision
-		prevDecision := pinDecision(activePin)
-		if !applyEffortHysteresis(prevDecision, fresh) {
-			res.Decision = fresh
-			res.Decision.Effort = prevDecision.Effort
+		res.PlannerDecision = hmmPlannerDecision
+		heldEffort := effortHysteresisHold(fresh.Metadata, res.PriorServedModel, hmmDecision.Effort)
+		if heldEffort != "" && heldEffort != hmmDecision.Effort {
+			res.Decision.Effort = heldEffort
 			if res.PlannerDecision.Reason == "" {
 				res.PlannerDecision.Reason = "effort_hysteresis"
 			}
-			log.Info("HMM effort hysteresis held incumbent", "incumbent", prevDecision.ServedIdentity(), "challenger", fresh.ServedIdentity())
+			log.Info("HMM effort hysteresis held incumbent",
+				"incumbent", res.PriorServedModel,
+				"challenger_effort", hmmDecision.Effort,
+				"serving_effort", heldEffort,
+			)
 		}
-		res.PlannerDecision = hmmPlannerDecision
 		if hmmStayModel != "" {
 			res.PinModel = hmmStayModel
 			if hmmPin, ok := s.hmmStayPin(req, activePin, hmmHistory); ok && hmmPin.Model == hmmStayModel {
