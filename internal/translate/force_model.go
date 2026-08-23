@@ -19,7 +19,7 @@ const ReasonLoopEscalation = "loop_escalation"
 
 // ReasonStruggleEscalation marks a session pin created when the struggle
 // detector arms an early sideways move (turns >= 30, wall >= 10m). Immutable
-// sticky like ReasonLoopEscalation — re-routing back to the struggling model.
+// sticky like ReasonLoopEscalation.
 const ReasonStruggleEscalation = "struggle_escalation"
 
 // ForceModelResult holds the parsed outcome of a force-model command.
