@@ -24,6 +24,7 @@ import (
 	"workweave/router/internal/billing"
 	"workweave/router/internal/config"
 	"workweave/router/internal/feedback"
+	"workweave/router/internal/flags"
 	"workweave/router/internal/observability"
 	"workweave/router/internal/observability/apm"
 	"workweave/router/internal/observability/otel"
@@ -408,12 +409,21 @@ func main() {
 		}
 	}
 
+	// Deployment-wide escape hatch: suppresses every per-organization flag
+	// override so an incident rollback via env var always wins. Off by default,
+	// i.e. per-org overrides are honored.
+	flagOverridesDisabled := config.GetOr("ROUTER_FLAG_OVERRIDES_DISABLED", "false") == "true"
+	if flagOverridesDisabled {
+		logger.Info("Per-organization flag overrides disabled deployment-wide (ROUTER_FLAG_OVERRIDES_DISABLED=true)")
+	}
+
 	authSvc := auth.NewService(repo.Installations, repo.APIKeys, repo.ExternalAPIKeys, repo.Users, cache, userCache, time.Now).
 		WithEncryptor(encryptor).
 		WithInstallationChangeNotifier(notifier).
 		WithClusterModelLists(repo.ClusterModelLists).
 		WithUserClusterModelLists(repo.UserClusterModelLists, userClusterCache).
-		WithWIFTokenSource(buildWIFTokenSource(logger))
+		WithWIFTokenSource(buildWIFTokenSource(logger)).
+		WithFlagOverridesDisabled(flagOverridesDisabled)
 
 	// Fans out Pub/Sub invalidations to this replica's cache; the 5-min TTL
 	// is the safety net if the listener falls behind.
@@ -809,6 +819,28 @@ func main() {
 		logger.Error("Generic policy sidecar configuration is invalid", "err", err)
 		panic(err)
 	}
+
+	// Publish the compiled-in flag registry, stamped with the defaults this
+	// process actually resolved, so the Weave control plane can render and
+	// validate the per-org override UI without importing router code. Best
+	// effort: the table is never read on the request path, so a failure here
+	// degrades that UI and nothing else.
+	publishFlagRegistry(logger, repo.FlagDefinitions, map[flags.Key]string{
+		flags.KeyStruggleShadowEnabled:    boolDefault(struggleShadowEnabled),
+		flags.KeySpiralShadowEnabled:      boolDefault(spiralShadowEnabled),
+		flags.KeyLoopEscalationEnabled:    boolDefault(loopEscalationEnabled),
+		flags.KeyLoopEscalationHoldoutPct: strconv.Itoa(loopEscalationHoldoutPct),
+		flags.KeyTextRepetitionBreak:      boolDefault(textRepetitionBreakEnabled),
+		flags.KeyPlannerEnabled:           boolDefault(plannerEnabled),
+		flags.KeyScoreToolResultTurns:     boolDefault(scoreToolResultTurns),
+		flags.KeyPrefixTrimFreeSwitch:     boolDefault(prefixTrimFreeSwitch),
+		flags.KeyAuthoritativeUpgradeGate: boolDefault(authoritativeUpgradeGate),
+		flags.KeySiblingFailover:          boolDefault(siblingFailover),
+		flags.KeyEffortEscalation:         boolDefault(effortEscalation),
+		flags.KeyCyberRefusalRepin:        boolDefault(cyberRefusalRepin),
+		flags.KeyCyberRefusalFallback:     cyberRefusalFallbackModel,
+		flags.KeyEmbedOnlyUserMessage:     boolDefault(embedOnlyUser),
+	})
 
 	proxySvc := proxy.NewService(routeEntry, providerMap, telemetryEmitter, embedOnlyUser, semanticCache, pinStore, hardPinExplore, hardPinProvider, hardPinModel, repo.Telemetry).
 		WithTranslationCompatibilityMode(proxy.TranslationCompatibilityMode(translationCompatibilityMode)).
@@ -1371,6 +1403,32 @@ func feedbackLinkTTL() time.Duration {
 	return time.Duration(sec) * time.Second
 }
 
+// publishFlagRegistry writes internal/flags.Registry to router.flag_definitions,
+// pairing each entry with the deployment default resolved above.
+//
+// defaults is passed in rather than derived because the resolved values are
+// ordinary locals scattered through main(); a registry entry with no matching
+// default is published with an empty default and logged, so the omission shows up
+// as "unknown" in the admin UI instead of silently misreporting a value.
+func publishFlagRegistry(logger *slog.Logger, repo *postgres.FlagDefinitionRepo, defaults map[flags.Key]string) {
+	published := make([]flags.PublishedDefinition, 0, len(flags.Registry))
+	for _, def := range flags.Registry {
+		value, ok := defaults[def.Key]
+		if !ok {
+			logger.Warn("Flag registered without a published deployment default", "flag", def.Key, "env_var", def.EnvVar)
+		}
+		published = append(published, flags.PublishedDefinition{Definition: def, DeploymentDefault: value})
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), flagRegistryPublishTimeout)
+	defer cancel()
+	err := repo.Publish(ctx, published)
+	if err != nil {
+		logger.Error("Failed to publish flag registry; per-org flag override UI may be stale", "err", err)
+		return
+	}
+	logger.Info("Published flag registry", "count", len(published))
+}
+
 // boolDefault renders a bool default for config.GetOr on bool envs.
 func boolDefault(b bool) string {
 	if b {
@@ -1532,6 +1590,9 @@ func runSessionPinSweep(ctx context.Context, store sessionpin.Store) {
 const (
 	defaultHardPinProvider = providers.ProviderAnthropic
 	defaultHardPinModel    = "claude-haiku-4-5"
+	// flagRegistryPublishTimeout bounds the boot-time registry publish so a slow
+	// or unreachable database delays startup by seconds, not indefinitely.
+	flagRegistryPublishTimeout = 10 * time.Second
 )
 
 // resolveDefaultBaselineModel returns the cost-comparison baseline used when

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"workweave/router/internal/auth"
+	"workweave/router/internal/flags"
 	"workweave/router/internal/proxy"
 	"workweave/router/internal/router"
 	"workweave/router/internal/server/middleware"
@@ -139,6 +140,10 @@ func (fakeInstallationRepository) UpdateContentCaptureMode(ctx context.Context, 
 	return errors.New("not used")
 }
 func (fakeInstallationRepository) UpdateHideTerminalSurfaces(ctx context.Context, externalID, id string, hide bool) error {
+	return errors.New("not used")
+}
+
+func (fakeInstallationRepository) UpdateFlagOverrides(ctx context.Context, externalID, id string, overrides flags.Overrides) error {
 	return errors.New("not used")
 }
 

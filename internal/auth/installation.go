@@ -6,6 +6,7 @@ import (
 	"context"
 	"time"
 
+	"workweave/router/internal/flags"
 	"workweave/router/internal/router"
 )
 
@@ -87,6 +88,12 @@ type Installation struct {
 	// FirstRequestServedAt is when this installation first routed a request.
 	// Set once and never cleared so it survives key rotation.
 	FirstRequestServedAt *time.Time
+	// FlagOverrides is the sparse per-organization override set for the
+	// behavioral feature flags registered in internal/flags. An absent key means
+	// "inherit the deployment default", so the zero value leaves every flag on
+	// its env-resolved default. Applied at read sites via flags.BoolOr and
+	// friends, and ignored entirely when ROUTER_FLAG_OVERRIDES_DISABLED is set.
+	FlagOverrides flags.Overrides
 }
 
 type CreateInstallationParams struct {
@@ -130,4 +137,8 @@ type InstallationRepository interface {
 	// UpdateHideTerminalSurfaces toggles hiding the router's terminal surfaces
 	// (routing marker, feedback footer, statusline) for the installation.
 	UpdateHideTerminalSurfaces(ctx context.Context, externalID, id string, hide bool) error
+	// UpdateFlagOverrides replaces the per-installation behavioral flag override
+	// set. The whole sparse set is written, not a delta, so clearing one override
+	// means omitting its key. An empty Overrides clears every override.
+	UpdateFlagOverrides(ctx context.Context, externalID, id string, overrides flags.Overrides) error
 }

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"workweave/router/internal/auth"
+	"workweave/router/internal/flags"
 	"workweave/router/internal/observability"
 
 	"github.com/stretchr/testify/assert"
@@ -146,6 +147,7 @@ type fakeInstallationRepository struct {
 	subscriptionRoutingDisabledByID map[string]bool
 	contentCaptureModeByID          map[string]*string
 	hideTerminalSurfacesByID        map[string]bool
+	flagOverridesByID               map[string]flags.Overrides
 	// firstRequestServedIDs counts MarkFirstRequestServed calls per installation.
 	firstRequestServedIDs map[string]int
 	mu                    sync.Mutex
@@ -253,6 +255,16 @@ func (f *fakeInstallationRepository) UpdateSubscriptionRoutingDisabled(ctx conte
 		f.subscriptionRoutingDisabledByID = map[string]bool{}
 	}
 	f.subscriptionRoutingDisabledByID[id] = disabled
+	return nil
+}
+func (f *fakeInstallationRepository) UpdateFlagOverrides(ctx context.Context, externalID, id string, overrides flags.Overrides) error {
+	if f.updateErr != nil {
+		return f.updateErr
+	}
+	if f.flagOverridesByID == nil {
+		f.flagOverridesByID = map[string]flags.Overrides{}
+	}
+	f.flagOverridesByID[id] = overrides
 	return nil
 }
 func (f *fakeInstallationRepository) UpdateHideTerminalSurfaces(ctx context.Context, externalID, id string, hide bool) error {
@@ -971,6 +983,43 @@ func TestService_SetInstallationContentCaptureMode(t *testing.T) {
 		_, written := installRepo.contentCaptureModeByID["inst-2"]
 		assert.False(t, written)
 	})
+}
+
+func TestService_SetInstallationFlagOverrides(t *testing.T) {
+	installRepo := &fakeInstallationRepository{}
+	svc := auth.NewService(installRepo, &fakeAPIKeyRepository{byHash: map[string]fakeKeyRow{}}, nil, nil, auth.NoOpAPIKeyCache{}, nil, frozenClock())
+
+	t.Run("persists a registered override", func(t *testing.T) {
+		set := flags.Overrides{Bools: map[flags.Key]bool{flags.KeyStruggleShadowEnabled: false}}
+		require.NoError(t, svc.SetInstallationFlagOverrides(context.Background(), "ext-1", "inst-1", set))
+		assert.Equal(t, set, installRepo.flagOverridesByID["inst-1"])
+	})
+
+	t.Run("an empty set clears every override", func(t *testing.T) {
+		require.NoError(t, svc.SetInstallationFlagOverrides(context.Background(), "ext-1", "inst-1", flags.Overrides{}))
+		assert.True(t, installRepo.flagOverridesByID["inst-1"].IsEmpty())
+	})
+
+	// Overrides built directly from map literals skip ParseOverrides' validation,
+	// so the Service re-checks. Persisting an unregistered key would store a value
+	// the read path then rejects, disabling every override for that org.
+	t.Run("rejects an unregistered key without writing", func(t *testing.T) {
+		bad := flags.Overrides{Bools: map[flags.Key]bool{flags.Key("not_a_flag"): true}}
+		err := svc.SetInstallationFlagOverrides(context.Background(), "ext-1", "inst-2", bad)
+		require.ErrorIs(t, err, auth.ErrFlagNotOverridable)
+		_, written := installRepo.flagOverridesByID["inst-2"]
+		assert.False(t, written)
+	})
+}
+
+func TestService_FlagOverridesDisabledEscapeHatch(t *testing.T) {
+	installRepo := &fakeInstallationRepository{}
+	newSvc := func() *auth.Service {
+		return auth.NewService(installRepo, &fakeAPIKeyRepository{byHash: map[string]fakeKeyRow{}}, nil, nil, auth.NoOpAPIKeyCache{}, nil, frozenClock())
+	}
+
+	assert.False(t, newSvc().FlagOverridesDisabled(), "overrides are honored by default")
+	assert.True(t, newSvc().WithFlagOverridesDisabled(true).FlagOverridesDisabled())
 }
 
 // A zero-row update (stale / soft-deleted / cross-tenant id) surfaces from the

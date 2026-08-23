@@ -561,7 +561,7 @@ func (s *Service) runTurnLoop(
 	)
 	// prefixTrimFreeSwitch gates actions only; detection stays unconditional
 	// so the compaction handover keeps working when the lever is off.
-	prefixBroken := s.prefixTrimFreeSwitch && res.PrefixTrimmed
+	prefixBroken := s.ResolvePrefixTrimFreeSwitch(ctx) && res.PrefixTrimmed
 	res.PrefixBroken = prefixBroken
 	if res.PrefixTrimmed {
 		log.Info("turnloop detected client history trim",
@@ -920,7 +920,7 @@ func (s *Service) runTurnLoop(
 	// translate.userPromptTextGJSON strips tool_result blocks from the embed input.
 	// Switches degrade safely — handover.RewriteEnvelope strips orphaned tool_results.
 	if !res.AuthoritativePerTurn &&
-		!s.scoreToolResultTurns &&
+		!s.ResolveScoreToolResultTurns(ctx) &&
 		res.TurnType == turntype.ToolResult &&
 		pinFound {
 		decision := pinDecision(pin)
@@ -932,7 +932,7 @@ func (s *Service) runTurnLoop(
 	}
 
 	// Planner-disabled + pin found: preserve first-decision-wins behavior.
-	if !res.AuthoritativePerTurn && !s.plannerEnabled && pinFound {
+	if !res.AuthoritativePerTurn && !s.ResolvePlannerEnabled(ctx) && pinFound {
 		decision := pinDecision(pin)
 		res.Decision = decision
 		res.StickyHit = true
@@ -1040,7 +1040,7 @@ func (s *Service) runTurnLoop(
 		// decision that costs more than the pinned model only wins at
 		// confidence >= threshold; below it the session stays on its pin.
 		// Unscored decisions, downgrades, and unpinned turns pass through.
-		if s.authoritativeUpgradeGate && pinFound && pin.Model != "" && pin.Model != fresh.Model &&
+		if s.ResolveAuthoritativeUpgradeGate(ctx) && pinFound && pin.Model != "" && pin.Model != fresh.Model &&
 			hmmFreshIsMoreExpensive(pin.Model, fresh.Model, req.SubsidizedModelCostFactor) {
 			if confidence, ok := hmmDecisionConfidence(fresh); ok && confidence < s.hmmUpgradeConfidenceThreshold {
 				decision := pinDecision(pin)
@@ -1162,7 +1162,7 @@ func (s *Service) runTurnLoop(
 		}
 	}
 
-	if !s.plannerEnabled {
+	if !s.ResolvePlannerEnabled(ctx) {
 		res.Decision = fresh
 		s.writeNewPin(ctx, installationID, res.SessionKey, res.PinRole, fresh)
 		return res, nil

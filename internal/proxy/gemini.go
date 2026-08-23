@@ -65,10 +65,7 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 		log.Error("Failed to parse Gemini request", "err", parseErr)
 		return fmt.Errorf("parse request: %w", parseErr)
 	}
-	embedFlag := s.embedOnlyUserMessage
-	if v, ok := embedOnlyUserMessageOverride(ctx); ok {
-		embedFlag = v
-	}
+	embedFlag := s.ResolveEmbedOnlyUserMessage(ctx)
 	feats := env.RoutingFeatures(embedFlag)
 	promptText := feats.PromptText
 	embedInput := "concatenated_stream"

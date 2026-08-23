@@ -1,0 +1,419 @@
+// Package flags resolves per-organization overrides for the router's behavioral
+// feature flags.
+//
+// Every behavioral flag has a deployment-wide default read once at boot from an
+// env var in cmd/router/main.go and held as a *proxy.Service field. This package
+// layers a sparse per-organization override on top of that default, so a flag can
+// be piloted (or disabled) for one installation without a global rollout.
+//
+// Precedence at a read site is header override > per-org override > deployment
+// default. The header layer is owned by the individual override helpers that
+// already exist in internal/proxy; this package supplies the middle layer via
+// BoolOr and friends, each of which takes the deployment default as its last
+// argument and returns it unchanged when the request carries no override.
+//
+// The package is I/O-free: it owns the value types, the registry, and the context
+// key, so both internal/proxy (inner ring) and internal/server/middleware
+// (adapter) can use it without an import cycle — the same shape as
+// internal/router's WithRoutingKnobs.
+package flags
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"slices"
+)
+
+// Key is the stable storage identifier for a flag. It is the JSON object key in
+// the installation's flag_overrides column and the primary key in
+// router.flag_definitions, so renaming one orphans existing overrides.
+type Key string
+
+// Kind is a flag's value type. A stored override whose JSON type disagrees with
+// its registered Kind is rejected at parse time rather than coerced.
+type Kind string
+
+const (
+	KindBool   Kind = "bool"
+	KindInt    Kind = "int"
+	KindFloat  Kind = "float"
+	KindString Kind = "string"
+)
+
+// Registered flag keys. Each corresponds to exactly one entry in Registry.
+const (
+	KeyStruggleShadowEnabled    Key = "struggle_shadow_enabled"
+	KeySpiralShadowEnabled      Key = "spiral_shadow_enabled"
+	KeyLoopEscalationEnabled    Key = "loop_escalation_enabled"
+	KeyLoopEscalationHoldoutPct Key = "loop_escalation_holdout_pct"
+	KeyTextRepetitionBreak      Key = "text_repetition_break_enabled"
+	KeyPlannerEnabled           Key = "planner_enabled"
+	KeyScoreToolResultTurns     Key = "score_tool_result_turns"
+	KeyPrefixTrimFreeSwitch     Key = "prefix_trim_free_switch"
+	KeyAuthoritativeUpgradeGate Key = "authoritative_upgrade_gate"
+	KeySiblingFailover          Key = "sibling_failover"
+	KeyEffortEscalation         Key = "effort_escalation"
+	KeyCyberRefusalRepin        Key = "cyber_refusal_repin"
+	KeyCyberRefusalFallback     Key = "cyber_refusal_fallback_model"
+	KeyEmbedOnlyUserMessage     Key = "embed_only_user_message"
+)
+
+// Definition describes one overridable flag. DeploymentDefault is not stored
+// here: it lives in the env var and is resolved at boot, then published to
+// router.flag_definitions for the admin UI to display.
+type Definition struct {
+	Key         Key
+	EnvVar      string
+	Kind        Kind
+	Description string
+	// OrgOverridable gates whether a per-organization override may be written.
+	// A registered-but-not-overridable flag still publishes its definition (so
+	// the admin UI can show it read-only) but rejects writes.
+	OrgOverridable bool
+}
+
+// Registry is the curated allowlist of flags that may carry a per-organization
+// override. It is deliberately explicit rather than derived from the env var
+// namespace: most ROUTER_* vars are infra (sidecar URLs, secrets, asset paths),
+// are already per-installation columns on model_router_installations, or are
+// consumed at construction time and have no per-request read site to override.
+var Registry = []Definition{
+	{
+		Key:            KeyStruggleShadowEnabled,
+		EnvVar:         "ROUTER_STRUGGLE_SHADOW_ENABLED",
+		Kind:           KindBool,
+		Description:    "Session-level struggle detector (log-only; writes struggle_shadow_events).",
+		OrgOverridable: true,
+	},
+	{
+		Key:            KeySpiralShadowEnabled,
+		EnvVar:         "ROUTER_SPIRAL_SHADOW_ENABLED",
+		Kind:           KindBool,
+		Description:    "Per-turn spiral detector (log-only).",
+		OrgOverridable: true,
+	},
+	{
+		Key:            KeyLoopEscalationEnabled,
+		EnvVar:         "ROUTER_LOOP_ESCALATION_ENABLED",
+		Kind:           KindBool,
+		Description:    "Cyclic-loop escalate-to-opus action. Detection telemetry continues when off.",
+		OrgOverridable: true,
+	},
+	{
+		Key:            KeyLoopEscalationHoldoutPct,
+		EnvVar:         "ROUTER_LOOP_ESCALATION_HOLDOUT_PCT",
+		Kind:           KindInt,
+		Description:    "Percent of loop detections recorded without escalating, as a self-recovery baseline. 0-100.",
+		OrgOverridable: true,
+	},
+	{
+		Key:            KeyTextRepetitionBreak,
+		EnvVar:         "ROUTER_TEXT_REPETITION_BREAK_ENABLED",
+		Kind:           KindBool,
+		Description:    "Enforcing text-repetition loop break.",
+		OrgOverridable: true,
+	},
+	{
+		Key:            KeyPlannerEnabled,
+		EnvVar:         "ROUTER_PLANNER_ENABLED",
+		Kind:           KindBool,
+		Description:    "Cache-aware EV planner for mid-session model switches.",
+		OrgOverridable: true,
+	},
+	{
+		Key:            KeyScoreToolResultTurns,
+		EnvVar:         "ROUTER_SCORE_TOOL_RESULT_TURNS",
+		Kind:           KindBool,
+		Description:    "Re-score tool-result turns instead of following the session pin.",
+		OrgOverridable: true,
+	},
+	{
+		Key:            KeyPrefixTrimFreeSwitch,
+		EnvVar:         "ROUTER_PREFIX_TRIM_FREE_SWITCH",
+		Kind:           KindBool,
+		Description:    "Treat a trimmed prompt prefix as a free switch point (cache already lost).",
+		OrgOverridable: true,
+	},
+	{
+		Key:            KeyAuthoritativeUpgradeGate,
+		EnvVar:         "ROUTER_AUTHORITATIVE_UPGRADE_GATE",
+		Kind:           KindBool,
+		Description:    "Keep the confidence floor active for authoritative-per-turn policies.",
+		OrgOverridable: true,
+	},
+	{
+		Key:            KeySiblingFailover,
+		EnvVar:         "ROUTER_SIBLING_FAILOVER",
+		Kind:           KindBool,
+		Description:    "Degrade to a same-cluster candidate when every binding for the routed model is exhausted.",
+		OrgOverridable: true,
+	},
+	{
+		Key:            KeyEffortEscalation,
+		EnvVar:         "ROUTER_EFFORT_ESCALATION",
+		Kind:           KindBool,
+		Description:    "Apply policy-requested reasoning-effort escalation.",
+		OrgOverridable: true,
+	},
+	{
+		Key:            KeyCyberRefusalRepin,
+		EnvVar:         "ROUTER_CYBER_REFUSAL_REPIN",
+		Kind:           KindBool,
+		Description:    "Re-pin a session off a model that returned a cyber safety refusal.",
+		OrgOverridable: true,
+	},
+	{
+		Key:            KeyCyberRefusalFallback,
+		EnvVar:         "ROUTER_CYBER_REFUSAL_FALLBACK_MODEL",
+		Kind:           KindString,
+		Description:    "Fallback model for a cyber-refusal re-pin with no runner-up.",
+		OrgOverridable: true,
+	},
+	{
+		Key:            KeyEmbedOnlyUserMessage,
+		EnvVar:         "ROUTER_EMBED_ONLY_USER_MESSAGE",
+		Kind:           KindBool,
+		Description:    "Embed user-role text only, instead of the concatenated stream.",
+		OrgOverridable: true,
+	},
+}
+
+// definitions indexes Registry by key for O(1) validation.
+var definitions = func() map[Key]Definition {
+	m := make(map[Key]Definition, len(Registry))
+	for _, d := range Registry {
+		m[d.Key] = d
+	}
+	return m
+}()
+
+// Lookup returns the definition for key.
+func Lookup(key Key) (def Definition, ok bool) {
+	def, ok = definitions[key]
+	return def, ok
+}
+
+// PublishedDefinition pairs a registry entry with the deployment default this
+// process actually resolved from the environment at boot.
+type PublishedDefinition struct {
+	Definition
+	// DeploymentDefault is the resolved default rendered as text. It is display
+	// metadata for the control plane's admin UI, never read back by routing.
+	DeploymentDefault string
+}
+
+// DefinitionRepository publishes the registry so the Weave control plane can
+// render and validate the per-org override UI without importing router code.
+// Implemented by internal/postgres.
+type DefinitionRepository interface {
+	// Publish upserts every supplied definition and removes rows for flags no
+	// longer in the registry.
+	Publish(ctx context.Context, defs []PublishedDefinition) error
+}
+
+// Overrides is a sparse set of per-organization flag values. Values are held in
+// per-Kind maps rather than a single map of a sum type so that reads are
+// type-safe without assertions and an empty Overrides costs no allocation.
+type Overrides struct {
+	Bools   map[Key]bool
+	Ints    map[Key]int
+	Floats  map[Key]float64
+	Strings map[Key]string
+}
+
+// IsEmpty reports whether o carries no overrides at all.
+func (o Overrides) IsEmpty() bool {
+	return len(o.Bools) == 0 && len(o.Ints) == 0 && len(o.Floats) == 0 && len(o.Strings) == 0
+}
+
+// Keys returns every overridden key, sorted, for logging and tests.
+func (o Overrides) Keys() (keys []Key) {
+	keys = make([]Key, 0, len(o.Bools)+len(o.Ints)+len(o.Floats)+len(o.Strings))
+	for k := range o.Bools {
+		keys = append(keys, k)
+	}
+	for k := range o.Ints {
+		keys = append(keys, k)
+	}
+	for k := range o.Floats {
+		keys = append(keys, k)
+	}
+	for k := range o.Strings {
+		keys = append(keys, k)
+	}
+	slices.Sort(keys)
+	return keys
+}
+
+// ParseOverrides decodes a flag_overrides JSONB payload. Empty or JSON null
+// yields an empty Overrides and no error, so an installation that has never been
+// configured is not an error case.
+//
+// Every key must be registered and overridable, and every value must match its
+// registered Kind. A violation is returned as an error rather than skipped: a
+// silently-dropped override reads at the call site as "the default applied",
+// which is exactly the ambiguity this mechanism exists to remove.
+func ParseOverrides(raw []byte) (o Overrides, err error) {
+	if len(raw) == 0 {
+		return Overrides{}, nil
+	}
+	var decoded map[string]json.RawMessage
+	err = json.Unmarshal(raw, &decoded)
+	if err != nil {
+		return Overrides{}, fmt.Errorf("flags: decode overrides: %w", err)
+	}
+	for name, rawValue := range decoded {
+		key := Key(name)
+		def, ok := definitions[key]
+		if !ok {
+			return Overrides{}, fmt.Errorf("flags: unknown flag %q", name)
+		}
+		if !def.OrgOverridable {
+			return Overrides{}, fmt.Errorf("flags: flag %q is not overridable per organization", name)
+		}
+		err = o.set(def, rawValue)
+		if err != nil {
+			return Overrides{}, err
+		}
+	}
+	return o, nil
+}
+
+// set decodes one value into the map matching def.Kind.
+func (o *Overrides) set(def Definition, rawValue []byte) (err error) {
+	switch def.Kind {
+	case KindBool:
+		var v bool
+		err = json.Unmarshal(rawValue, &v)
+		if err != nil {
+			return fmt.Errorf("flags: flag %q expects a boolean: %w", def.Key, err)
+		}
+		if o.Bools == nil {
+			o.Bools = make(map[Key]bool)
+		}
+		o.Bools[def.Key] = v
+	case KindInt:
+		var v int
+		err = json.Unmarshal(rawValue, &v)
+		if err != nil {
+			return fmt.Errorf("flags: flag %q expects an integer: %w", def.Key, err)
+		}
+		if o.Ints == nil {
+			o.Ints = make(map[Key]int)
+		}
+		o.Ints[def.Key] = v
+	case KindFloat:
+		var v float64
+		err = json.Unmarshal(rawValue, &v)
+		if err != nil {
+			return fmt.Errorf("flags: flag %q expects a number: %w", def.Key, err)
+		}
+		if o.Floats == nil {
+			o.Floats = make(map[Key]float64)
+		}
+		o.Floats[def.Key] = v
+	case KindString:
+		var v string
+		err = json.Unmarshal(rawValue, &v)
+		if err != nil {
+			return fmt.Errorf("flags: flag %q expects a string: %w", def.Key, err)
+		}
+		if o.Strings == nil {
+			o.Strings = make(map[Key]string)
+		}
+		o.Strings[def.Key] = v
+	default:
+		return fmt.Errorf("flags: flag %q has unsupported kind %q", def.Key, def.Kind)
+	}
+	return nil
+}
+
+// MarshalJSON renders the override set as the flat object stored in the
+// flag_overrides column, so ParseOverrides(json.Marshal(o)) round-trips. An
+// empty set marshals to "{}" rather than null, matching the column default.
+func (o Overrides) MarshalJSON() (data []byte, err error) {
+	flat := make(map[string]any, len(o.Bools)+len(o.Ints)+len(o.Floats)+len(o.Strings))
+	for k, v := range o.Bools {
+		flat[string(k)] = v
+	}
+	for k, v := range o.Ints {
+		flat[string(k)] = v
+	}
+	for k, v := range o.Floats {
+		flat[string(k)] = v
+	}
+	for k, v := range o.Strings {
+		flat[string(k)] = v
+	}
+	return json.Marshal(flat)
+}
+
+type overridesContextKey struct{}
+
+// WithOverrides stashes per-organization overrides on ctx. An empty set leaves
+// ctx unchanged so the accessors take their cheap path.
+func WithOverrides(ctx context.Context, o Overrides) context.Context {
+	if o.IsEmpty() {
+		return ctx
+	}
+	return context.WithValue(ctx, overridesContextKey{}, o)
+}
+
+// OverridesFromContext returns the per-organization overrides carried by ctx.
+func OverridesFromContext(ctx context.Context) (o Overrides, ok bool) {
+	o, ok = ctx.Value(overridesContextKey{}).(Overrides)
+	return o, ok
+}
+
+// BoolOr returns the per-organization override for key, or deploymentDefault
+// when the request carries none.
+func BoolOr(ctx context.Context, key Key, deploymentDefault bool) (value bool) {
+	o, ok := OverridesFromContext(ctx)
+	if !ok {
+		return deploymentDefault
+	}
+	if v, found := o.Bools[key]; found {
+		return v
+	}
+	return deploymentDefault
+}
+
+// IntOr returns the per-organization override for key, or deploymentDefault
+// when the request carries none.
+func IntOr(ctx context.Context, key Key, deploymentDefault int) (value int) {
+	o, ok := OverridesFromContext(ctx)
+	if !ok {
+		return deploymentDefault
+	}
+	if v, found := o.Ints[key]; found {
+		return v
+	}
+	return deploymentDefault
+}
+
+// FloatOr returns the per-organization override for key, or deploymentDefault
+// when the request carries none.
+func FloatOr(ctx context.Context, key Key, deploymentDefault float64) (value float64) {
+	o, ok := OverridesFromContext(ctx)
+	if !ok {
+		return deploymentDefault
+	}
+	if v, found := o.Floats[key]; found {
+		return v
+	}
+	return deploymentDefault
+}
+
+// StringOr returns the per-organization override for key, or deploymentDefault
+// when the request carries none.
+func StringOr(ctx context.Context, key Key, deploymentDefault string) (value string) {
+	o, ok := OverridesFromContext(ctx)
+	if !ok {
+		return deploymentDefault
+	}
+	if v, found := o.Strings[key]; found {
+		return v
+	}
+	return deploymentDefault
+}

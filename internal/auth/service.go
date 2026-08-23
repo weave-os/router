@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"workweave/router/internal/flags"
 	"workweave/router/internal/observability"
 	"workweave/router/internal/providers"
 
@@ -69,6 +70,12 @@ type Service struct {
 	// wifTokens is nil unless the deployment runs with a workload identity;
 	// WIF keys are then dropped rather than sent without a credential.
 	wifTokens WIFTokenSource
+
+	// flagOverridesDisabled is the deployment-wide escape hatch
+	// (ROUTER_FLAG_OVERRIDES_DISABLED). When set, per-organization flag
+	// overrides are not applied to any request, so an incident rollback via env
+	// var cannot be defeated by a stored per-org row.
+	flagOverridesDisabled bool
 
 	// adminPassword and adminSessionKey are empty when admin login is disabled.
 	adminPassword   string
@@ -146,6 +153,22 @@ func (s *Service) WithInstallationChangeNotifier(n InstallationChangeNotifier) *
 	}
 	s.notifier = n
 	return s
+}
+
+// WithFlagOverridesDisabled sets the deployment-wide escape hatch that suppresses
+// every per-organization flag override, so an env-var rollback always wins.
+func (s *Service) WithFlagOverridesDisabled(disabled bool) *Service {
+	s.flagOverridesDisabled = disabled
+	return s
+}
+
+// FlagOverridesDisabled reports whether per-organization flag overrides are
+// suppressed deployment-wide. Read by the auth middleware, which decides whether
+// to stash an installation's overrides on the request context; the switch is not
+// applied to the cached Installation itself because that pointer is shared across
+// concurrent requests.
+func (s *Service) FlagOverridesDisabled() bool {
+	return s.flagOverridesDisabled
 }
 
 // invalidateInstallation evicts the local cache and fans out to peer replicas.
@@ -515,6 +538,32 @@ func (s *Service) SetInstallationContentCaptureMode(ctx context.Context, externa
 		}
 	}
 	if err := s.installations.UpdateContentCaptureMode(ctx, externalID, installationID, mode); err != nil {
+		return err
+	}
+	s.invalidateInstallation(installationID)
+	return nil
+}
+
+// ErrFlagNotOverridable is returned for a flag key that is unknown to the
+// registry or registered as not per-organization overridable.
+var ErrFlagNotOverridable = errors.New("auth: flag is not overridable per organization")
+
+// SetInstallationFlagOverrides persists the per-installation behavioral flag
+// override set and invalidates the auth cache so the change takes effect on the
+// next request. The whole sparse set is written: an override is cleared by
+// omitting its key, so callers read the current set, modify it, and pass it back.
+//
+// Every key is re-validated against the registry here rather than trusting the
+// caller, so a stale admin UI or a direct API call cannot persist a key that the
+// read path will later reject.
+func (s *Service) SetInstallationFlagOverrides(ctx context.Context, externalID, installationID string, overrides flags.Overrides) error {
+	for _, key := range overrides.Keys() {
+		def, ok := flags.Lookup(key)
+		if !ok || !def.OrgOverridable {
+			return fmt.Errorf("%w: %q", ErrFlagNotOverridable, key)
+		}
+	}
+	if err := s.installations.UpdateFlagOverrides(ctx, externalID, installationID, overrides); err != nil {
 		return err
 	}
 	s.invalidateInstallation(installationID)

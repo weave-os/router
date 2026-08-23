@@ -221,11 +221,11 @@ func (s *Service) handleLoopEscalation(
 	// Holdout only applies when the event can be recorded (wired store + real
 	// installation id) — otherwise withholding the rescue is pure loss, not measurement.
 	holdout := s.loopEscalationStore != nil && installationID != uuid.Nil &&
-		DeterministicHoldout(sessionKey, s.loopEscalationHoldoutPct)
+		DeterministicHoldout(sessionKey, s.ResolveLoopEscalationHoldoutPct(ctx))
 
 	action := loopActionEscalated
 	switch {
-	case !s.loopEscalationEnabled:
+	case !s.ResolveLoopEscalationEnabled(ctx):
 		action = loopActionDisabled
 	case userForced:
 		action = loopActionUserForced

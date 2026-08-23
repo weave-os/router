@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"workweave/router/internal/auth"
+	"workweave/router/internal/flags"
 	"workweave/router/internal/observability"
 	"workweave/router/internal/proxy"
 	"workweave/router/internal/router"
@@ -154,6 +155,13 @@ func withAPIKey(svc *auth.Service, byokRequiresOptIn bool) gin.HandlerFunc {
 			if installation.ContentCaptureMode != nil {
 				ctx = context.WithValue(ctx, proxy.InstallationCaptureModeContextKey{},
 					proxy.ParseCaptureMode(*installation.ContentCaptureMode))
+			}
+			// Per-organization behavioral flag overrides. Skipped entirely when
+			// the deployment-wide escape hatch is set, so an env-var rollback
+			// can't be defeated by a stored per-org row. WithOverrides is a
+			// no-op for an empty set, which is the common case.
+			if !svc.FlagOverridesDisabled() {
+				ctx = flags.WithOverrides(ctx, installation.FlagOverrides)
 			}
 		}
 		byokAllowed := !byokRequiresOptIn || (installation != nil && installation.ByokEnabled)

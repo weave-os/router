@@ -17,6 +17,7 @@ import (
 	"workweave/router/internal/auth"
 	"workweave/router/internal/billing"
 	"workweave/router/internal/feedback"
+	"workweave/router/internal/flags"
 	"workweave/router/internal/observability"
 	"workweave/router/internal/observability/otel"
 	"workweave/router/internal/providers"
@@ -1881,12 +1882,12 @@ func embedOnlyUserMessageOverride(ctx context.Context) (bool, bool) {
 }
 
 // ResolveEmbedOnlyUserMessage reports the effective embed-only-user flag for
-// ctx, applying the per-request override (if set) on top of the service
+// ctx. Precedence is header override > per-organization override > service
 // default. Exposed so handlers outside this package (e.g. /v1/route) can use
 // the same resolution as ProxyMessages and stay in sync with customer-visible
 // routing behavior.
 func (s *Service) ResolveEmbedOnlyUserMessage(ctx context.Context) bool {
-	flag := s.embedOnlyUserMessage
+	flag := flags.BoolOr(ctx, flags.KeyEmbedOnlyUserMessage, s.embedOnlyUserMessage)
 	if v, ok := embedOnlyUserMessageOverride(ctx); ok {
 		flag = v
 	}
@@ -2344,7 +2345,7 @@ func (s *Service) maybeRepinOnRefusal(ctx context.Context, obs *refusalObserver,
 	log := observability.FromContext(ctx)
 	// Prefer the scorer's runner-up (PairedModel); use context.Background() because
 	// the request ctx may already be canceled when the response has been written.
-	fbModel, fbProvider := s.cyberRefusalFallbackModel, ""
+	fbModel, fbProvider := s.ResolveCyberRefusalFallbackModel(ctx), ""
 	if existing, found, err := s.pinStore.Get(context.Background(), sessionKey, role); err == nil && found && existing.PairedModel != "" {
 		fbModel, fbProvider = existing.PairedModel, existing.PairedProvider
 	}
@@ -2453,10 +2454,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		log.Info("Sanitized orphaned tool calls before dispatch", "sanitized", sanitized)
 	}
 
-	embedFlag := s.embedOnlyUserMessage
-	if v, ok := embedOnlyUserMessageOverride(ctx); ok {
-		embedFlag = v
-	}
+	embedFlag := s.ResolveEmbedOnlyUserMessage(ctx)
 	feats := env.RoutingFeatures(embedFlag)
 	promptText := feats.PromptText
 	embedInput := "concatenated_stream"
@@ -2576,7 +2574,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	// proactive compaction just below or runTurnLoop's switch-handover rewrite.
 	inboundToolCallCount := len(env.AssistantToolCallSignatures())
 	var inboundSpiralSignals spiralSignals
-	if s.spiralShadowEnabled {
+	if s.ResolveSpiralShadowEnabled(ctx) {
 		inboundSpiralSignals = computeSpiralSignals(env, feats.MessageCount)
 	}
 	inboundLastUser := env.LastUserMessage()
@@ -2748,7 +2746,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 
 	// Text-repetition break: fresh tool calls each turn defeat the no-progress
 	// fingerprint; repeated narration is the durable tell. See text_repetition.go.
-	if !agentShadowMode && !routeRes.AuthoritativePerTurn && s.textRepetitionBreakEnabled && (turntype.DetectFromEnvelope(env, feats, "") == turntype.MainLoop || turntype.DetectFromEnvelope(env, feats, "") == turntype.ToolResult) {
+	if !agentShadowMode && !routeRes.AuthoritativePerTurn && s.ResolveTextRepetitionBreakEnabled(ctx) && (turntype.DetectFromEnvelope(env, feats, "") == turntype.MainLoop || turntype.DetectFromEnvelope(env, feats, "") == turntype.ToolResult) {
 		if looped, count, sampleHash := detectTextRepetition(env); looped {
 			role := roleForTier(catalog.TierFor(feats.Model))
 			return s.handleTextRepetitionBreak(ctx, w, env, count, sampleHash, installationID, routeRes.SessionKey, role, decision.Model, decision.Provider, feats.Tokens)
@@ -2760,7 +2758,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	// reason), so fire rates/precision can be measured before any escalation
 	// is armed. Main-loop / tool-result turns only — hard-pinned turn types
 	// carry history shapes that mimic the signals.
-	if !agentShadowMode && s.spiralShadowEnabled && (turntype.DetectFromEnvelope(env, feats, "") == turntype.MainLoop || turntype.DetectFromEnvelope(env, feats, "") == turntype.ToolResult) {
+	if !agentShadowMode && s.ResolveSpiralShadowEnabled(ctx) && (turntype.DetectFromEnvelope(env, feats, "") == turntype.MainLoop || turntype.DetectFromEnvelope(env, feats, "") == turntype.ToolResult) {
 		if reasons := spiralReasons(inboundSpiralSignals); len(reasons) > 0 {
 			role := roleForTier(catalog.TierFor(feats.Model))
 			// Use the bindRequestLogger digest, not routeRes.SessionKey (zero
@@ -2772,7 +2770,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 
 	// Shadow-mode struggle detector: log-only, once per (session, reason).
 	// Turn count and age come from the pin — no-ops on fresh (unpinned) sessions.
-	if !agentShadowMode && s.struggleShadowEnabled && (turntype.DetectFromEnvelope(env, feats, "") == turntype.MainLoop || turntype.DetectFromEnvelope(env, feats, "") == turntype.ToolResult) {
+	if !agentShadowMode && s.ResolveStruggleShadowEnabled(ctx) && (turntype.DetectFromEnvelope(env, feats, "") == turntype.MainLoop || turntype.DetectFromEnvelope(env, feats, "") == turntype.ToolResult) {
 		var wall time.Duration
 		if !routeRes.PinFirstPinnedAt.IsZero() {
 			wall = time.Since(routeRes.PinFirstPinnedAt)
@@ -2910,7 +2908,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	if knobs := routingKnobsForRequest(ctx); knobs != nil && knobs.ForceEffort != "" {
 		opts.ForceEffort = knobs.ForceEffort
 		opts.ForceReasoningEffort = translate.ResolveForceEffort(opts.Capabilities, opts.ForceEffort)
-	} else if effort := forcedReasoningEffort(decision.Model, routeRes.EscalateEffort); effort != "" && (s.effortEscalation || strings.HasPrefix(decision.Model, "grok-")) {
+	} else if effort := forcedReasoningEffort(decision.Model, routeRes.EscalateEffort); effort != "" && (s.ResolveEffortEscalation(ctx) || strings.HasPrefix(decision.Model, "grok-")) {
 		opts.ForceReasoningEffort = effort
 	}
 
@@ -2975,7 +2973,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	}
 	// Wrap sink to observe refusals on the native path (no translator Summary here).
 	var refusalObs *refusalObserver
-	if s.cyberRefusalRepin {
+	if s.ResolveCyberRefusalRepin(ctx) {
 		refusalObs = newRefusalObserver(sink)
 		sink = refusalObs
 	}
@@ -3228,7 +3226,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	// degrade to a peer the policy already scored. Gated out for subscription-only
 	// turns (a different model incurs the paid spend that mode forbids).
 	siblingDecision, siblingFound := s.siblingFailoverDecision(ctx, decision, overflowEstimate, env.SignatureTokenSavings(), outputReserve)
-	siblingViable := s.siblingFailover &&
+	siblingViable := s.ResolveSiblingFailover(ctx) &&
 		siblingFound &&
 		!agentShadowMode &&
 		decision.Reason != translate.ReasonUserForceModel &&
@@ -3307,7 +3305,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		if knobs := routingKnobsForRequest(ctx); knobs != nil && knobs.ForceEffort != "" {
 			baselineOpts.ForceEffort = knobs.ForceEffort
 			baselineOpts.ForceReasoningEffort = translate.ResolveForceEffort(baselineOpts.Capabilities, knobs.ForceEffort)
-		} else if effort := forcedReasoningEffort(baselineModel, routeRes.EscalateEffort); effort != "" && (s.effortEscalation || strings.HasPrefix(baselineModel, "grok-")) {
+		} else if effort := forcedReasoningEffort(baselineModel, routeRes.EscalateEffort); effort != "" && (s.ResolveEffortEscalation(ctx) || strings.HasPrefix(baselineModel, "grok-")) {
 			baselineOpts.ForceReasoningEffort = effort
 		}
 		baselinePrep, baselineEmitErr := env.PrepareAnthropic(r.Header, baselineOpts)
@@ -3444,7 +3442,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		if knobs := routingKnobsForRequest(ctx); knobs != nil && knobs.ForceEffort != "" {
 			siblingOpts.ForceEffort = knobs.ForceEffort
 			siblingOpts.ForceReasoningEffort = translate.ResolveForceEffort(siblingOpts.Capabilities, knobs.ForceEffort)
-		} else if effort := forcedReasoningEffort(siblingDecision.Model, routeRes.EscalateEffort); effort != "" && (s.effortEscalation || strings.HasPrefix(siblingDecision.Model, "grok-")) {
+		} else if effort := forcedReasoningEffort(siblingDecision.Model, routeRes.EscalateEffort); effort != "" && (s.ResolveEffortEscalation(ctx) || strings.HasPrefix(siblingDecision.Model, "grok-")) {
 			siblingOpts.ForceReasoningEffort = effort
 		}
 		siblingCtx := resolveAndInjectCredentials(ctx, siblingDecision.Provider, siblingDecision.Model, r.Header)
@@ -4910,10 +4908,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	if sanitized := env.SanitizeOrphanedToolCalls(); sanitized > 0 {
 		log.Info("Sanitized orphaned tool calls before dispatch", "sanitized", sanitized)
 	}
-	embedFlag := s.embedOnlyUserMessage
-	if v, ok := embedOnlyUserMessageOverride(ctx); ok {
-		embedFlag = v
-	}
+	embedFlag := s.ResolveEmbedOnlyUserMessage(ctx)
 	feats := env.RoutingFeatures(embedFlag)
 	promptText := feats.PromptText
 	embedInput := "concatenated_stream"
@@ -5210,7 +5205,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	if knobs := routingKnobsForRequest(ctx); knobs != nil && knobs.ForceEffort != "" {
 		opts.ForceEffort = knobs.ForceEffort
 		opts.ForceReasoningEffort = translate.ResolveForceEffort(opts.Capabilities, opts.ForceEffort)
-	} else if effort := forcedReasoningEffort(decision.Model, routeRes.EscalateEffort); effort != "" && (s.effortEscalation || strings.HasPrefix(decision.Model, "grok-")) {
+	} else if effort := forcedReasoningEffort(decision.Model, routeRes.EscalateEffort); effort != "" && (s.ResolveEffortEscalation(ctx) || strings.HasPrefix(decision.Model, "grok-")) {
 		opts.ForceReasoningEffort = effort
 	}
 

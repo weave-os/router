@@ -19,6 +19,20 @@ type RouterClusterModelList struct {
 	UpdatedAt      pgtype.Timestamptz
 }
 
+// Published mirror of internal/flags.Registry, upserted by the router at boot. Read by the Weave control plane to render the per-org flag override admin UI. Never read on the request path.
+type RouterFlagDefinition struct {
+	Key string
+	// Value type: bool, int, float, or string. A stored override whose JSON type disagrees is rejected at parse time.
+	Kind   string
+	EnvVar string
+	// Deployment default as resolved from env_var at the last boot, rendered as text. Display only; the routing path reads the live in-process value, not this column.
+	DeploymentDefault *string
+	// Whether a per-organization override may be written for this flag. A registered-but-not-overridable flag is shown read-only and rejects writes.
+	OrgOverridable bool
+	Description    string
+	UpdatedAt      pgtype.Timestamptz
+}
+
 // Cyclic tool-call loop detections: ops signal and (session, looping_model) -> looped training labels
 type RouterLoopEscalationEvent struct {
 	ID             uuid.UUID
@@ -128,6 +142,8 @@ type RouterModelRouterInstallation struct {
 	AllowedModels []string
 	// Timestamp of the installation's first routed request. Monotonic — never moves backwards or clears on key rotation.
 	FirstRequestServedAt pgtype.Timestamptz
+	// Sparse per-org behavioral flag overrides, keyed by internal/flags registry key. Empty object = inherit every deployment default. Precedence: header override > this > env default, unless ROUTER_FLAG_OVERRIDES_DISABLED is set.
+	FlagOverrides []byte
 }
 
 type RouterModelRouterRequestTelemetry struct {

@@ -3,8 +3,10 @@ package postgres
 
 import (
 	"context"
+	"encoding/json"
 
 	"workweave/router/internal/auth"
+	"workweave/router/internal/flags"
 	"workweave/router/internal/sqlc"
 
 	"github.com/google/uuid"
@@ -23,6 +25,7 @@ type Repository struct {
 	Telemetry             *TelemetryRepo
 	Feedback              *FeedbackRepo
 	Analytics             *AnalyticsRepo
+	FlagDefinitions       *FlagDefinitionRepo
 }
 
 // NewRepository constructs a Repository. Pass auth.NoOpEncryptor{} for local dev without a keyset.
@@ -37,6 +40,7 @@ func NewRepository(tx sqlc.DBTX, encryptor auth.Encryptor) *Repository {
 		Telemetry:             NewTelemetryRepo(tx),
 		Feedback:              NewFeedbackRepo(tx),
 		Analytics:             NewAnalyticsRepo(tx),
+		FlagDefinitions:       NewFlagDefinitionRepo(tx),
 	}
 }
 
@@ -267,6 +271,33 @@ func (r *installationRepo) UpdateHideTerminalSurfaces(ctx context.Context, exter
 		ID:                   parsed,
 		ExternalID:           externalID,
 		HideTerminalSurfaces: hide,
+	})
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return auth.ErrInstallationNotFound
+	}
+	return nil
+}
+
+// UpdateFlagOverrides writes the whole sparse override set. Callers pass the
+// post-modification set (read-modify-write), so an override is cleared by
+// omitting its key rather than by writing a sentinel value.
+func (r *installationRepo) UpdateFlagOverrides(ctx context.Context, externalID, id string, overrides flags.Overrides) error {
+	parsed, err := uuid.Parse(id)
+	if err != nil {
+		return err
+	}
+	payload, err := json.Marshal(overrides)
+	if err != nil {
+		return err
+	}
+	q := sqlc.New(r.tx)
+	rows, err := q.UpdateModelRouterInstallationFlagOverrides(ctx, sqlc.UpdateModelRouterInstallationFlagOverridesParams{
+		ID:            parsed,
+		ExternalID:    externalID,
+		FlagOverrides: payload,
 	})
 	if err != nil {
 		return err

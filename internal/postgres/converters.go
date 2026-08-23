@@ -4,6 +4,8 @@ import (
 	"time"
 
 	"workweave/router/internal/auth"
+	"workweave/router/internal/flags"
+	"workweave/router/internal/observability"
 	"workweave/router/internal/router"
 	"workweave/router/internal/sqlc"
 
@@ -27,6 +29,23 @@ func toAuthInstallation(row sqlc.RouterModelRouterInstallation) *auth.Installati
 	allowed := row.AllowedModels
 	if allowed == nil {
 		allowed = []string{}
+	}
+	// Parsed here rather than at the read site so the cost is paid once per
+	// API-key cache fill instead of once per request. A malformed or retired-key
+	// payload degrades to "no overrides" (every flag on its deployment default)
+	// rather than failing the request: an org's stored override should never be
+	// able to take its own traffic down. Writes are validated against the
+	// registry up front, so in practice this only fires for a flag that was
+	// retired from the registry while an override for it was still stored.
+	overrides, err := flags.ParseOverrides(row.FlagOverrides)
+	if err != nil {
+		observability.Get().Error(
+			"Failed to parse installation flag overrides; falling back to deployment defaults",
+			"err", err,
+			"installation_id", row.ID.String(),
+			"external_id", row.ExternalID,
+		)
+		overrides = flags.Overrides{}
 	}
 	return &auth.Installation{
 		ID:                           row.ID.String(),
@@ -55,6 +74,7 @@ func toAuthInstallation(row sqlc.RouterModelRouterInstallation) *auth.Installati
 		ContentCaptureMode:           row.ContentCaptureMode,
 		HideTerminalSurfaces:         row.HideTerminalSurfaces,
 		FirstRequestServedAt:         timestamptzPtr(row.FirstRequestServedAt),
+		FlagOverrides:                overrides,
 	}
 }
 
