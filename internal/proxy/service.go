@@ -370,9 +370,9 @@ type OpenAIAccountIDContextKey struct{}
 // Responses body to the Codex backend (its presence marks the passthrough).
 type codexResponsesBodyContextKey struct{}
 
-// openAIResponsesBodyCandidateContextKey carries the original Responses body
-// when function tools make native dispatch preferable for a direct OpenAI
-// reasoning model, while keeping the request portable for other providers.
+// openAIResponsesBodyCandidateContextKey carries the Responses body for
+// function-tool turns; OpenAI reasoning gets native dispatch, others get
+// the translated chat form.
 type openAIResponsesBodyCandidateContextKey struct{}
 
 // nativeResponsesReasoningHashContextKey preserves reasoning that only native
@@ -5567,9 +5567,8 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 			err := p.Proxy(actx, d, prep, proxyWriter, r)
 			// Post-commit: bytes already on the wire, render as an in-stream
 			// frame instead of a corrupting envelope (pre-commit goes through
-			// dispatchWithFallback). Native Responses attempts already deliver
-			// the upstream's own Responses error event; translated attempts need
-			// an OpenAI-shaped error frame for the outer Responses writer.
+			// dispatchWithFallback). Native Responses dispatch delivers the
+			// upstream's own error event; translated dispatch needs an injected one.
 			if err != nil && !useNative && env.Stream() && preludeBuf.Committed() {
 				err = emitOpenAISSEErrorEvent(sink, err)
 			}
