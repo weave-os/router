@@ -1205,6 +1205,11 @@ const DefaultPlannerTierUpgradeEnabled = true
 // shadow telemetry before arming.
 const DefaultPlannerColdPinFollowFresh = false
 
+// DefaultPlannerCorrectedEconomics ships OFF. The corrected cost model changes
+// routing, so it is armed per environment (staging first) rather than by
+// merging. See docs/CONFIGURATION.md for the measured effect.
+const DefaultPlannerCorrectedEconomics = false
+
 func NewService(r router.Router, providerMap map[string]providers.Client, emitter TelemetryEmitter, embedOnlyUserMessage bool, semanticCache *cache.Cache, pinStore sessionpin.Store, hardPinExplore bool, hardPinProvider, hardPinModel string, telemetry TelemetryRepository) *Service {
 	return &Service{
 		router:                       r,
@@ -1265,6 +1270,7 @@ func (s *Service) WithPlanner(cfg planner.EVConfig) *Service {
 	}
 	s.planner.TierUpgradeEnabled = cfg.TierUpgradeEnabled
 	s.planner.ColdPinFollowFresh = cfg.ColdPinFollowFresh
+	s.planner.CorrectedEconomics = cfg.CorrectedEconomics
 	return s
 }
 

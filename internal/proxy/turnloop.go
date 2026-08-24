@@ -116,6 +116,22 @@ func cacheablePrefixTokens(pin sessionpin.Pin, total int, prefixBroken bool) int
 	return min(pin.LastCachedReadTokens+pin.LastCachedWriteTokens, total)
 }
 
+// plannerInputTokens is the planner's own prompt-size estimate. feats.Tokens is
+// text-only and runs 2.4-5.5x low, which would drive the planner's
+// cacheable-share ratio to 1 and reinstate the assumption CorrectedEconomics
+// removes. feats.Tokens must NOT be fixed in place: it is an HMM sidecar
+// feature whose pinned bandit prior was calibrated on these values, and it
+// seeds the client-visible message_start.usage.input_tokens.
+func plannerInputTokens(env *translate.RequestEnvelope, feats translate.RoutingFeatures) int {
+	if env == nil {
+		return feats.Tokens
+	}
+	if full := env.FullTokenEstimate(); full > feats.Tokens {
+		return full
+	}
+	return feats.Tokens
+}
+
 // turnLoopResult bundles the routing decision and pin/planner state.
 type turnLoopResult struct {
 	Decision       router.Decision
@@ -1074,7 +1090,7 @@ func (s *Service) runTurnLoop(
 			activePin,
 			hmmHistory,
 			fresh,
-			feats.Tokens,
+			plannerInputTokens(env, feats),
 			prefixBroken,
 		)
 		res.Decision = hmmDecision
@@ -1168,11 +1184,13 @@ func (s *Service) runTurnLoop(
 		return res, nil
 	}
 
+	plannerTokens := plannerInputTokens(env, feats)
 	plannerIn := planner.Inputs{
 		Pin:                   pin,
 		Fresh:                 fresh,
-		EstimatedInputTokens:  feats.Tokens,
-		CacheablePrefixTokens: cacheablePrefixTokens(pin, feats.Tokens, prefixBroken),
+		EstimatedInputTokens:  plannerTokens,
+		CacheablePrefixTokens: cacheablePrefixTokens(pin, plannerTokens, prefixBroken),
+		PriorOutputTokens:     pin.LastOutputTokens,
 		AvailableModels:       s.availableModels,
 		// A trimmed prefix kills the cache even inside the provider TTL.
 		PinCacheCold: pinFound && pinCacheCold(pin, prefixBroken),
@@ -1297,6 +1315,7 @@ func (s *Service) hmmCostGatedDecision(
 		Fresh:                 fresh,
 		EstimatedInputTokens:  estimatedInputTokens,
 		CacheablePrefixTokens: cacheablePrefixTokens(stayPin, estimatedInputTokens, prefixBroken),
+		PriorOutputTokens:     stayPin.LastOutputTokens,
 		AvailableModels:       s.availableModels,
 		PinCacheCold:          pinCacheCold(stayPin, prefixBroken),
 		SubsidizedCostFactor:  req.SubsidizedModelCostFactor,
