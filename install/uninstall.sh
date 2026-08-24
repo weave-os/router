@@ -558,11 +558,12 @@ fi
 
 if [ -n "$local_settings_file" ] && [ -f "$local_settings_file" ]; then
   # ANTHROPIC_BASE_URL only lives here when a project install was toggled off
-  # (the off path overrides it to Anthropic in the local file); scrub it too so
-  # uninstall fully reverts a toggled-off install.
+  # (the off path overrides it to Anthropic in the local file). Project installs
+  # also keep WEAVE_ROUTER_BASE_URL here as a private endpoint marker beside the
+  # router key; scrub both so uninstall fully reverts the local config.
   cleaned="$(jq '
     if .env then
-      .env |= (del(.ANTHROPIC_BASE_URL, .ANTHROPIC_AUTH_TOKEN, .ANTHROPIC_CUSTOM_HEADERS, .ENABLE_TOOL_SEARCH))
+      .env |= (del(.ANTHROPIC_BASE_URL, .ANTHROPIC_AUTH_TOKEN, .ANTHROPIC_CUSTOM_HEADERS, .ENABLE_TOOL_SEARCH, .WEAVE_ROUTER_BASE_URL))
       | (if (.env | length) == 0 then del(.env) else . end)
     else . end
     | del(.apiKeyHelper)

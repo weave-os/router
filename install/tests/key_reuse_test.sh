@@ -10,7 +10,9 @@ set -uo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 installer="${INSTALLER:-$script_dir/../install.sh}"
+uninstaller="${UNINSTALLER:-$script_dir/../uninstall.sh}"
 [ -f "$installer" ] || { echo "cannot find installer at $installer" >&2; exit 1; }
+[ -f "$uninstaller" ] || { echo "cannot find uninstaller at $uninstaller" >&2; exit 1; }
 
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
@@ -89,6 +91,35 @@ local_settings="$proj/.claude/settings.local.json"
 check "project install stores the key locally" "$(installed_key "$local_settings")" "rk_proj"
 ( cd "$proj" && run "$proj_home" -- --claude --scope project --quiet --non-interactive )
 check "project re-run reuses settings.local.json key" "$(installed_key "$local_settings")" "rk_proj"
+# Project uninstall must remove both the active router config and the private
+# endpoint marker without touching unrelated Claude settings.
+project_settings="$proj/.claude/settings.json"
+printf '%s\n' '{"model":"opus[1m]","hooks":{"PostToolUse":[{"hooks":[{"type":"command","command":"telemetry"}]}]}}' >"$project_settings"
+( cd "$proj" && run "$proj_home" rk_proj -- --claude --scope project --quiet --non-interactive )
+check "project install writes the endpoint marker" \
+  "$(jq -r '.env.WEAVE_ROUTER_BASE_URL // ""' "$local_settings")" "http://127.0.0.1:9"
+
+jq '.env.KEEP_ME = "preserve"' "$local_settings" >"$local_settings.tmp" && mv "$local_settings.tmp" "$local_settings"
+( cd "$proj" && HOME="$proj_home" PATH="$test_path" NO_COLOR=1 \
+    bash "$uninstaller" --claude --scope project </dev/null >/dev/null 2>&1 )
+check "project uninstall succeeds" "$?" 0
+check "project uninstall removes the endpoint marker" \
+  "$(jq -r '.env.WEAVE_ROUTER_BASE_URL // ""' "$local_settings")" ""
+check "project uninstall removes the router key" "$(installed_key "$local_settings")" ""
+check "project uninstall preserves unrelated local env" \
+  "$(jq -r '.env.KEEP_ME // ""' "$local_settings")" "preserve"
+check "project uninstall preserves the model" \
+  "$(jq -r '.model // ""' "$project_settings")" "opus[1m]"
+check "project uninstall preserves hooks" \
+  "$(jq -r '.hooks.PostToolUse[0].hooks[0].command // ""' "$project_settings")" "telemetry"
+
+# Repeating uninstall is a supported no-op and must not remove the unrelated
+# local setting left above.
+( cd "$proj" && HOME="$proj_home" PATH="$test_path" NO_COLOR=1 \
+    bash "$uninstaller" --claude --scope project </dev/null >/dev/null 2>&1 )
+check "project uninstall is idempotent" "$?" 0
+check "second uninstall preserves unrelated local env" \
+  "$(jq -r '.env.KEEP_ME // ""' "$local_settings")" "preserve"
 
 # ---------- update ----------
 
