@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"workweave/router/internal/auth"
+	"workweave/router/internal/observability"
 	"workweave/router/internal/proxy"
 
 	"github.com/gin-gonic/gin"
@@ -39,6 +40,8 @@ func InternalListUpstreamModelsHandler(authSvc *auth.Service, proxySvc *proxy.Se
 				c.AbortWithStatusJSON(http.StatusBadGateway, gin.H{"error": "Could not resolve this key's upstream credential."})
 				return
 			}
+			observability.FromGin(c).Error("Failed to load provider key for model discovery",
+				"installation_id", req.InstallationID, "external_api_key_id", req.KeyID, "err", err)
 			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Failed to load provider key."})
 			return
 		}

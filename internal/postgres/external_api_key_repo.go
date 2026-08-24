@@ -80,11 +80,15 @@ func (r *ExternalAPIKeyRepo) GetForInstallation(ctx context.Context, installatio
 		if err != nil {
 			return nil, err
 		}
-		plaintext, err := r.encryptor.Decrypt(row.KeyCiphertext, row.ExternalID, row.Provider)
-		if err != nil {
-			return nil, err
+		// Workload-identity rows store no secret at all — the credential is
+		// minted per request — so there is nothing to decrypt.
+		if len(row.KeyCiphertext) > 0 {
+			plaintext, err := r.encryptor.Decrypt(row.KeyCiphertext, row.ExternalID, row.Provider)
+			if err != nil {
+				return nil, err
+			}
+			key.Plaintext = plaintext
 		}
-		key.Plaintext = plaintext
 		keys = append(keys, key)
 	}
 	return keys, nil
