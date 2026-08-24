@@ -50,7 +50,9 @@ from npm on next start and loads this extension via its `pi.extensions` field.
   rust-analyzer). Servers are spawned lazily per workspace root, shut down
   after idling, and shared with dispatch subagents through a parent-side local
   socket — a fan-out reuses the parent's warm servers instead of cold-starting
-  its own. Disable with `WEAVE_PI_NO_LSP=1`.
+  its own. A bundled `lsp-guide` skill (`/skill:lsp-guide`) carries the usage
+  recipes (per-operation cookbook, the locate-then-references flow, caveats).
+  Disable with `WEAVE_PI_NO_LSP=1`.
 - **Opt-in language-server install — nothing installs silently.** Two ways in:
   pass `--lsp go,typescript` to the installer, or let the assistant offer.
   When the workspace contains a language whose server is missing, the
