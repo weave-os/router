@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"workweave/router/internal/auth"
 	"workweave/router/internal/providers"
 	"workweave/router/internal/router"
 	"workweave/router/internal/router/sessionpin"
@@ -439,4 +440,41 @@ func TestForcedModelBinding_NoAllowlistLeavesPassthroughForcingUnchanged(t *test
 
 	assert.Empty(t, reason)
 	assert.Equal(t, providers.ProviderAnthropic, binding)
+}
+
+func gatewayKeyCtx(model string) context.Context {
+	return context.WithValue(context.Background(), ExternalAPIKeysContextKey{},
+		[]*auth.ExternalAPIKey{{
+			Provider:     providers.ProviderAnthropicGateway,
+			Plaintext:    []byte("pat"),
+			ModelAliases: map[string]string{model: "upstream-name"},
+		}})
+}
+
+// Gateway-exclusive routing drops the vendor primary, so a force resolved to
+// it would be rejected by the pin check and route automatically instead.
+func TestForcedModelBinding_GatewayExclusivePinsTheGateway(t *testing.T) {
+	svc := NewService(nil, nil, nil, false, nil, nil, false,
+		providers.ProviderAnthropic, "claude-haiku-4-5", nil).
+		WithDeploymentKeyedProviders(keyed(providers.ProviderAnthropic))
+
+	binding, reason := svc.forcedModelBinding(
+		gatewayKeyCtx("claude-opus-5"), "claude-opus-5", providers.ProviderAnthropic)
+
+	assert.Empty(t, reason)
+	assert.Equal(t, providers.ProviderAnthropicGateway, binding)
+}
+
+// A gateway serves only what its aliases name, so forcing anything else must
+// be refused loudly rather than pinned to an unroutable vendor.
+func TestForcedModelBinding_GatewayExclusiveRefusesUnaliasedModel(t *testing.T) {
+	svc := NewService(nil, nil, nil, false, nil, nil, false,
+		providers.ProviderAnthropic, "claude-haiku-4-5", nil).
+		WithDeploymentKeyedProviders(keyed(providers.ProviderAnthropic))
+
+	binding, reason := svc.forcedModelBinding(
+		gatewayKeyCtx("claude-opus-5"), "claude-haiku-4-5", providers.ProviderAnthropic)
+
+	assert.Empty(t, binding)
+	assert.Contains(t, reason, "gateway keys")
 }
