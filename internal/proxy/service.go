@@ -5159,8 +5159,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	inboundLastUser := env.LastUserMessage()
 
 	// Proactive context-window compaction, as in ProxyMessages. Skipped for
-	// native bodies (compaction rewrites the envelope without updating the native
-	// copy); portable candidates defer until after routing.
+	// native bodies (would update the wrong copy) and portable candidates (deferred).
 	var compResOAI compactionResult
 	if !responsesPassthrough && len(responsesBodyCandidate) == 0 {
 		maxEligibleWindowOAI := s.maxEligibleContextWindow(baseExcludedOAI, enabledProviders, env.SignatureTokenSavings())
