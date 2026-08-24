@@ -92,10 +92,8 @@ type Client struct {
 	// authScheme is the credential header this upstream expects; zero value
 	// (AuthAPIKeyHeader) preserves Anthropic's own behavior.
 	authScheme AuthScheme
-	// modelIDMap rewrites the request body's "model" field before sending, when
-	// the router's public slug differs from the upstream's canonical ID
-	// (e.g. Wafer's "GLM-5.2" vs the router's "z-ai/glm-5.2"). Nil/empty = no
-	// rewrite.
+	// modelIDMap rewrites the body's "model" field when the router slug differs
+	// from the upstream ID (e.g. "z-ai/glm-5.2" -> "GLM-5.2"). Nil = no rewrite.
 	modelIDMap map[string]string
 	// defaultHeaders are set on every upstream request (Proxy + Passthrough)
 	// before prep.Headers / inbound headers apply.
