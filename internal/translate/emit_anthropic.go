@@ -77,10 +77,8 @@ const serverSideFallbackBeta = "server-side-fallback-2026-07-01"
 
 // applyServerSideFallback injects fallbacks:"default" so Anthropic re-serves
 // a safety-refused turn instead of returning stop_reason:"refusal" (HTTP 200).
-// Refusals arrive mid-stream, so only Anthropic can rescue the flagged turn.
-// A client-supplied "fallbacks" is left untouched on a target that accepts it,
-// and dropped otherwise: only CapServerSideFallback models take the field, so
-// forwarding it after a re-pin (or to a gateway) 400s the request.
+// A client-supplied "fallbacks" is left untouched; on non-CapServerSideFallback
+// targets (re-pin destination, gateway) the field is dropped — forwarding it 400s.
 func applyServerSideFallback(body []byte, opts EmitOptions) ([]byte, error) {
 	if opts.TargetProvider != providers.ProviderAnthropic ||
 		!opts.Capabilities.Supports(router.CapServerSideFallback) {
