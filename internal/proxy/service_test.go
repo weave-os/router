@@ -282,6 +282,53 @@ func TestService_AgentShadowEvaluationNeverRetriesSubscriptionOnDeploymentKey(t 
 	assert.True(t, provider.proxyCreds[0].OAuth, "the single attempt must use the supplied subscription")
 }
 
+func TestService_ProxyOpenAIResponses_FunctionToolsUseNativeEndpointForReasoningOpenAI(t *testing.T) {
+	provider := &fakeProvider{proxyResponse: func(w http.ResponseWriter) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"id":"resp_1","object":"response","output":[]}`)
+	}}
+	fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: "gpt-5.6-luna", Reason: "test"}}
+	svc := proxy.NewService(fr, map[string]providers.Client{
+		providers.ProviderOpenAI: provider,
+	}, nil, false, nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-luna", nil)
+
+	body := []byte(`{"model":"auto","input":[{"type":"message","role":"user","content":"call the tool"}],"tools":[{"type":"function","name":"lookup","description":"Look something up","parameters":{"type":"object","properties":{}}}],"tool_choice":"auto"}`)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(""))
+
+	require.NoError(t, svc.ProxyOpenAIResponses(context.Background(), body, rec, req))
+	require.Len(t, provider.proxyBodies, 1)
+	assert.Equal(t, providers.EndpointResponses, provider.proxyEndpoints[0])
+	assert.Equal(t, "gpt-5.6-luna", gjson.GetBytes(provider.proxyBodies[0], "model").Str)
+	assert.True(t, gjson.GetBytes(provider.proxyBodies[0], "input").Exists())
+	assert.True(t, gjson.GetBytes(provider.proxyBodies[0], "tools").Exists())
+	assert.Equal(t, "auto", gjson.GetBytes(provider.proxyBodies[0], "tool_choice").Str)
+	assert.False(t, gjson.GetBytes(provider.proxyBodies[0], "messages").Exists())
+	assert.JSONEq(t, `{"id":"resp_1","object":"response","output":[]}`, rec.Body.String())
+}
+
+func TestService_ProxyOpenAIResponses_FunctionToolsStayPortableForOtherProviders(t *testing.T) {
+	provider := &fakeProvider{proxyResponse: func(w http.ResponseWriter) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = io.WriteString(w, `{"id":"chatcmpl_1","object":"chat.completion","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}]}`)
+	}}
+	fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderFireworks, Model: "gpt-5.6-luna", Reason: "test"}}
+	svc := proxy.NewService(fr, map[string]providers.Client{
+		providers.ProviderFireworks: provider,
+	}, nil, false, nil, nil, false, providers.ProviderFireworks, "gpt-5.6-luna", nil)
+
+	body := []byte(`{"model":"auto","input":[{"type":"message","role":"user","content":"call the tool"}],"tools":[{"type":"function","name":"lookup","parameters":{"type":"object","properties":{}}}]}`)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(""))
+
+	require.NoError(t, svc.ProxyOpenAIResponses(context.Background(), body, rec, req))
+	require.Len(t, provider.proxyBodies, 1)
+	assert.Equal(t, providers.EndpointChatCompletions, provider.proxyEndpoints[0])
+	assert.True(t, gjson.GetBytes(provider.proxyBodies[0], "messages").Exists())
+	assert.False(t, gjson.GetBytes(provider.proxyBodies[0], "input").Exists())
+}
+
 func TestService_ProxyOpenAIResponses_CustomToolUsesNativeOpenAIFamily(t *testing.T) {
 	provider := &fakeProvider{proxyResponse: func(w http.ResponseWriter) {
 		w.Header().Set("Content-Type", "application/json")

@@ -544,6 +544,14 @@ func (t *ResponsesWriter) Header() http.Header { return t.inner.Header() }
 // routing, before Prelude).
 func (t *ResponsesWriter) SetPassthrough() { t.passthrough = true }
 
+// SetTranslated switches back to Chat Completions translation before any bytes
+// reach the client. This is used when a native Responses attempt fails before
+// commit and fallback dispatch selects a translated provider.
+func (t *ResponsesWriter) SetTranslated() {
+	t.passthrough = false
+	t.passthroughBadge = false
+}
+
 // SetPassthroughBadge switches to native Responses passthrough while opting
 // into a Codex-visible routed-model badge. It rewrites only existing text
 // fields in the first assistant message; event order, sequence numbers,

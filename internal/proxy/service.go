@@ -370,6 +370,11 @@ type OpenAIAccountIDContextKey struct{}
 // Responses body to the Codex backend (its presence marks the passthrough).
 type codexResponsesBodyContextKey struct{}
 
+// openAIResponsesBodyCandidateContextKey carries the original Responses body
+// when function tools make native dispatch preferable for a direct OpenAI
+// reasoning model, while keeping the request portable for other providers.
+type openAIResponsesBodyCandidateContextKey struct{}
+
 // nativeResponsesReasoningHashContextKey preserves reasoning that only native
 // Responses dispatch can represent.
 type nativeResponsesReasoningHashContextKey struct{}
@@ -5131,6 +5136,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	// Subscriptions are credentials scoped to the routed model, not a pinned
 	// provider.
 	responsesBody, _ := ctx.Value(codexResponsesBodyContextKey{}).([]byte)
+	responsesBodyCandidate, _ := ctx.Value(openAIResponsesBodyCandidateContextKey{}).([]byte)
 	responsesPassthrough := len(responsesBody) > 0
 	reasoningConfigurationHash := env.ReasoningConfigurationSHA256()
 	if nativeResponsesHash, ok := ctx.Value(nativeResponsesReasoningHashContextKey{}).(string); ok {
@@ -5341,6 +5347,17 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	// on the wire when the upstream never produces a first byte.
 	bindings := s.resolveBindingsForDispatch(ctx, decision)
 
+	useNativeResponses := func(d router.Decision) bool {
+		if d.Provider != providers.ProviderOpenAI {
+			return false
+		}
+		if responsesPassthrough {
+			return true
+		}
+		return len(responsesBodyCandidate) > 0 && translate.UseOpenAIResponsesAPI(
+			d.Provider, router.Lookup(d.Model), feats.HasTools)
+	}
+
 	// Subscription-only mode: the turn must serve on the caller's own
 	// subscription (Codex/Claude OAuth). If routing didn't resolve to a
 	// subscription-served credential, refuse (402) rather than dispatch to a
@@ -5377,7 +5394,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 
 	// Inject verbose routing marker when policy debug is enabled; gated on
 	// verbatimPassthrough (verbatim OpenAI frames can't have chunks injected).
-	verbatimPassthrough := responsesPassthrough && decision.Provider == providers.ProviderOpenAI
+	verbatimPassthrough := useNativeResponses(decision)
 	debugEnabled, _ := ctx.Value(PolicyDebugEnabledContextKey{}).(bool)
 	if rw, ok := w.(*translate.ResponsesWriter); ok && marker != "" && !verbatimPassthrough && (debugEnabled || billing.SubscriptionOnlyFromContext(ctx)) {
 		rw.SetBadgeText(marker)
@@ -5466,15 +5483,27 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		// OpenRouter-only body fields that Fireworks/Bedrock/Makora/Together
 		// should not see. On failover to OpenRouter the body must be re-emitted.
 		attempt = func(actx context.Context, d router.Decision, p providers.Client) error {
+			useNative := useNativeResponses(d)
+			if rw, ok := w.(*translate.ResponsesWriter); ok {
+				if useNative {
+					rw.SetPassthrough()
+				} else {
+					rw.SetTranslated()
+				}
+			}
 			var prep providers.PreparedRequest
-			if responsesPassthrough && d.Provider == providers.ProviderOpenAI {
+			if useNative {
 				// Dispatch the caller's ORIGINAL Responses body (untranslated) to
 				// the OpenAI Responses endpoint, rewriting only the model. This keeps
 				// native Responses extensions lossless.
-				outBody, setErr := sjson.SetBytes(responsesBody, "model", d.Model)
+				nativeBody := responsesBody
+				if len(nativeBody) == 0 {
+					nativeBody = responsesBodyCandidate
+				}
+				outBody, setErr := sjson.SetBytes(nativeBody, "model", d.Model)
 				if setErr != nil {
-					log.Error("Failed to set routed model on Codex Responses body", "err", setErr, "decision_model", d.Model)
-					return fmt.Errorf("set codex model: %w", setErr)
+					log.Error("Failed to set routed model on OpenAI Responses body", "err", setErr, "decision_model", d.Model)
+					return fmt.Errorf("set OpenAI Responses model: %w", setErr)
 				}
 				prep = providers.PreparedRequest{
 					Body:     outBody,
@@ -5506,13 +5535,10 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 			err := p.Proxy(actx, d, prep, proxyWriter, r)
 			// Post-commit: bytes already on the wire, render as an in-stream
 			// frame instead of a corrupting envelope (pre-commit goes through
-			// dispatchWithFallback). Gate on THIS attempt being the verbatim
-			// Codex backend, not responsesPassthrough alone: a native request can
-			// still route to Claude/OSS through the translating ResponsesWriter,
-			// which needs its own error frame — only the verbatim Codex attempt
-			// already delivered the upstream's own Responses error event.
-			verbatimCodex := responsesPassthrough && d.Provider == providers.ProviderOpenAI
-			if err != nil && !verbatimCodex && env.Stream() && preludeBuf.Committed() {
+			// dispatchWithFallback). Native Responses attempts already deliver
+			// the upstream's own Responses error event; translated attempts need
+			// an OpenAI-shaped error frame for the outer Responses writer.
+			if err != nil && !useNative && env.Stream() && preludeBuf.Committed() {
 				err = emitOpenAISSEErrorEvent(sink, err)
 			}
 			return err
@@ -5817,6 +5843,12 @@ func (s *Service) ProxyOpenAIResponses(ctx context.Context, body []byte, w http.
 	}
 	chatBody, model := conversion.Body, conversion.Model
 	codexNativeRequest := codexResponsesRequest(ctx, r.Header)
+	// Function-tool requests remain portable for routing, but retain their
+	// original Responses body so direct OpenAI reasoning models can avoid the
+	// incompatible Chat Completions surface.
+	if conversion.Requirements.FunctionTools {
+		ctx = context.WithValue(ctx, openAIResponsesBodyCandidateContextKey{}, conversion.OriginalBody)
+	}
 	// Keep original bytes only when the request is unrepresentable as Chat
 	// Completions (NativeOnly) or a Codex subscription is using its direct endpoint.
 	if conversion.Requirements.NativeOnly || codexNativeRequest {
