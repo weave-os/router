@@ -262,6 +262,16 @@ const TOOL_DESCRIPTION = [
 	`References are capped at ${LSP_MAX_REFERENCES}. The first query in a workspace can take a while as the server indexes.`,
 ].join(" ");
 
+const TOOL_PROMPT_SNIPPET = "Language-server code intelligence: definition, references, hover, documentSymbol, diagnostics (Go, TS/JS, Python, Rust)";
+
+// The description alone does not change tool choice: models reach for text
+// search on symbol questions by habit. These land in the system prompt's
+// Guidelines section, which is what actually steers the pick.
+const TOOL_PROMPT_GUIDELINES = [
+	"Use lsp instead of grep for symbol questions — where a symbol is defined or used, its type or signature, a file's structure, or compile errors. Text search matches strings; lsp resolves through imports and types.",
+	"To find every usage of a symbol: locate its declaration first (grep or lsp documentSymbol), then call lsp references at that exact line and column — a text match list is not a references answer.",
+];
+
 const EXIT_SWEEP_KEY = Symbol.for("weave.pi.lsp.exitSweep");
 
 interface ExitSweepState {
@@ -330,6 +340,8 @@ function registerBrokerBackedTool(pi: ExtensionAPI, deps: LspToolDeps): void {
 		name: "lsp",
 		label: "LSP",
 		description: TOOL_DESCRIPTION,
+		promptSnippet: TOOL_PROMPT_SNIPPET,
+		promptGuidelines: TOOL_PROMPT_GUIDELINES,
 		parameters: LspParams,
 		executionMode: "parallel",
 
@@ -366,6 +378,8 @@ function registerPoolBackedTool(pi: ExtensionAPI, deps: LspToolDeps): LspBrokerP
 		name: "lsp",
 		label: "LSP",
 		description: TOOL_DESCRIPTION,
+		promptSnippet: TOOL_PROMPT_SNIPPET,
+		promptGuidelines: TOOL_PROMPT_GUIDELINES,
 		parameters: LspParams,
 		executionMode: "parallel",
 
