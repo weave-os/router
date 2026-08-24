@@ -168,10 +168,8 @@ type Service struct {
 	// for degrading to a same-cluster candidate when every binding of the
 	// routed model fails with a transient upstream fault.
 	siblingFailover bool
-	// sseKeepalive is how long a committed Anthropic stream may send the client
-	// nothing before a `ping` goes out (ROUTER_SSE_KEEPALIVE_INTERVAL_SECONDS,
-	// 0 disables). Guards against client-side byte watchdogs during a reasoning
-	// phase that produces no client-facing frames; see sse.KeepaliveWriter.
+	// sseKeepalive is the client-silence budget before a ping is injected
+	// (ROUTER_SSE_KEEPALIVE_INTERVAL_SECONDS; 0 disables). See sse.KeepaliveWriter.
 	sseKeepalive time.Duration
 	// cyberRefusalFallbackModel is the model to re-pin to on a cyber refusal
 	// when the session pin carries no runner-up (PairedModel). Set from

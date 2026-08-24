@@ -198,10 +198,8 @@ func waitFor(cond func() bool) bool {
 	return cond()
 }
 
-// A write error must reap the goroutine on its own. Close() short-circuits once
-// emission has already halted, so if the loop waited to be told to exit, every
-// client that disconnects mid-stream would leak a ticker for the process
-// lifetime.
+// A write error must reap the goroutine on its own; otherwise every client
+// disconnect leaks a ticker for the process lifetime.
 func TestKeepaliveWriter_WriteErrorReapsGoroutine(t *testing.T) {
 	baseline := runtime.NumGoroutine()
 	rec := newSyncRecorder()
