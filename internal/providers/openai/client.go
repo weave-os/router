@@ -94,9 +94,8 @@ func NewClient(apiKey, baseURL string) *Client {
 	return NewClientWithModelIDMap(apiKey, baseURL, nil)
 }
 
-// NewClientWithModelIDMap builds a client that rewrites the body's top-level
-// "model" field before forwarding when the requested model has a mapping.
-// Pass nil to disable rewriting.
+// NewClientWithModelIDMap builds a client that rewrites the "model" field before forwarding.
+// Pass nil to skip rewriting.
 func NewClientWithModelIDMap(apiKey, baseURL string, modelIDMap map[string]string) *Client {
 	return newClientWithModelIDMap(apiKey, baseURL, responseHeaderTimeout, modelIDMap)
 }
@@ -158,9 +157,8 @@ func (c *Client) outputStallTimeout() time.Duration {
 	return httputil.DefaultResponsesOutputStallTimeout
 }
 
-// rewriteModelField rewrites the body's top-level "model" field according to
-// modelIDMap. Returns the input unchanged when the map is empty, the body
-// isn't a JSON object, or the model isn't mapped.
+// rewriteModelField rewrites the body's top-level "model" field via modelIDMap.
+// Returns body unchanged when the map is empty or the model isn't present.
 func rewriteModelField(body []byte, modelIDMap map[string]string) []byte {
 	if len(modelIDMap) == 0 || len(body) == 0 {
 		return body
