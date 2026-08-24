@@ -151,7 +151,7 @@ func (c *NativeClient) Proxy(ctx context.Context, decision router.Decision, prep
 	// byte-idle-guarded only.
 	if arm, ok := w.(providers.OutputProgressArmer); ok {
 		outMark, outStop := httputil.StartIdleWatchdogCause(ctx, cancel, c.outputStallTimeout(), httputil.ErrUpstreamOutputStall)
-		if arm.ArmOutputProgress(outMark) {
+		if arm.ArmOutputProgress(timing.FirstOutputMark(ctx, outMark)) {
 			defer outStop()
 		} else {
 			outStop()

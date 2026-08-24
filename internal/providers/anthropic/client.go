@@ -295,7 +295,7 @@ func (c *Client) Proxy(ctx context.Context, decision router.Decision, prep provi
 			outMark()
 			tpMark()
 		}
-		if arm.ArmOutputProgress(combined) {
+		if arm.ArmOutputProgress(timing.FirstOutputMark(ctx, combined)) {
 			defer outStop()
 			defer tpStop()
 		} else {
