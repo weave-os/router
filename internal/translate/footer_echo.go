@@ -2,15 +2,11 @@ package translate
 
 import "github.com/tidwall/gjson"
 
-// FeedbackFooterSinceLastHumanTurn reports whether an assistant message after
-// the conversation's most recent human-authored turn still carries the echoed
-// feedback footer. True means the session already rendered the /rf hint and
-// has only advanced through tool results and client-injected continuations
-// (e.g. background-task completions) since — each such continuation ends in
-// its own natural stop, so re-rendering would stack duplicate hints.
-//
-// Handles the Anthropic and OpenAI messages[] shapes. Must run on the inbound
-// body before StripFeedbackFooterFromMessages removes the echo.
+// FeedbackFooterSinceLastHumanTurn reports whether an assistant message
+// after the most recent human-authored turn still carries the echoed feedback
+// footer — if so, background-task continuations would stack duplicate hints.
+// Handles Anthropic and OpenAI messages[] shapes. Must run before
+// StripFeedbackFooterFromMessages removes the echo.
 func FeedbackFooterSinceLastHumanTurn(body []byte) bool {
 	msgs := gjson.GetBytes(body, "messages")
 	if !msgs.IsArray() {
