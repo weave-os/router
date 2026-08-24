@@ -75,8 +75,11 @@ type Client struct {
 	throughputOverride   bool
 	// defaultHeaders are set on every upstream request (Proxy + Passthrough)
 	// before prep.Headers / inbound headers apply, so per-request values still
-	// win. Used for provider-mandated headers.
+	// win.
 	defaultHeaders http.Header
+	// protectedHeaders are set after prep.Headers / inbound headers apply, so
+	// provider-mandated values cannot be overridden.
+	protectedHeaders http.Header
 }
 
 func NewClient(apiKey, baseURL string) *Client {
@@ -109,11 +112,17 @@ func newClient(apiKey, baseURL string, modelIDMap map[string]string) *Client {
 	}
 }
 
-// WithDefaultHeaders returns c with headers set on every upstream request —
-// for provider-mandated headers. Prepared and inbound per-request headers are
-// applied afterwards and can override a value, but cannot remove one.
+// WithDefaultHeaders returns c with headers set on every upstream request.
+// Prepared and inbound per-request headers can override these values.
 func (c *Client) WithDefaultHeaders(h http.Header) *Client {
 	c.defaultHeaders = h.Clone()
+	return c
+}
+
+// WithProtectedHeaders returns c with headers that cannot be overridden by
+// prepared or inbound per-request headers.
+func (c *Client) WithProtectedHeaders(h http.Header) *Client {
+	c.protectedHeaders = h.Clone()
 	return c
 }
 
@@ -121,6 +130,14 @@ func (c *Client) WithDefaultHeaders(h http.Header) *Client {
 // own headers on top.
 func (c *Client) applyDefaultHeaders(req *http.Request) {
 	for k, vs := range c.defaultHeaders {
+		req.Header[http.CanonicalHeaderKey(k)] = append([]string(nil), vs...)
+	}
+}
+
+// applyProtectedHeaders restores c.protectedHeaders after callers layer their
+// own headers.
+func (c *Client) applyProtectedHeaders(req *http.Request) {
+	for k, vs := range c.protectedHeaders {
 		req.Header[http.CanonicalHeaderKey(k)] = append([]string(nil), vs...)
 	}
 }
@@ -223,6 +240,7 @@ func (c *Client) Proxy(ctx context.Context, decision router.Decision, prep provi
 	for k, vs := range prep.Headers {
 		upstream.Header[http.CanonicalHeaderKey(k)] = vs
 	}
+	c.applyProtectedHeaders(upstream)
 	c.setAuth(ctx, upstream)
 	proxy.ApplyWIFTokenType(ctx, upstream)
 	proxy.ApplyIdentityHeader(ctx, upstream)
@@ -342,6 +360,7 @@ func (c *Client) Passthrough(ctx context.Context, prep providers.PreparedRequest
 	for k, vs := range prep.Headers {
 		upstream.Header[http.CanonicalHeaderKey(k)] = vs
 	}
+	c.applyProtectedHeaders(upstream)
 	c.setAuth(ctx, upstream)
 	proxy.ApplyWIFTokenType(ctx, upstream)
 	if v := r.Header.Get("Accept"); v != "" {

@@ -23,9 +23,7 @@ import (
 const DefaultBaseURL = "https://api.anthropic.com"
 
 // WaferMessagesBaseURL is Wafer Serverless' Anthropic-compatible Messages
-// endpoint; pair with WithAuthScheme(AuthBearer) and WithDefaultHeaders to
-// send the Wafer key + its request headers on the Anthropic wire format.
-// Forwarded to by the anthropic client's Proxy/Passthrough as {baseURL}/v1/messages.
+// endpoint; pair with WithAuthScheme(AuthBearer) and a Wafer-ZDR default header.
 const WaferMessagesBaseURL = "https://pass.wafer.ai"
 
 // AuthScheme selects which credential header an Anthropic-spec upstream expects.
@@ -47,11 +45,17 @@ func WithAuthScheme(scheme AuthScheme) Option {
 	return func(c *Client) { c.authScheme = scheme }
 }
 
-// WithDefaultHeaders returns c with headers set on every upstream request —
-// for provider-mandated headers. Prepared and inbound per-request headers are
-// applied afterwards and can override a value, but cannot remove one.
+// WithDefaultHeaders returns c with headers set on every upstream request.
+// Prepared and inbound per-request headers can override these values.
 func (c *Client) WithDefaultHeaders(h http.Header) *Client {
 	c.defaultHeaders = h.Clone()
+	return c
+}
+
+// WithProtectedHeaders returns c with headers that cannot be overridden by
+// prepared or inbound per-request headers.
+func (c *Client) WithProtectedHeaders(h http.Header) *Client {
+	c.protectedHeaders = h.Clone()
 	return c
 }
 
@@ -96,6 +100,9 @@ type Client struct {
 	// defaultHeaders are set on every upstream request (Proxy + Passthrough)
 	// before prep.Headers / inbound headers apply.
 	defaultHeaders http.Header
+	// protectedHeaders are set after prep.Headers / inbound headers apply, so
+	// provider-mandated values cannot be overridden.
+	protectedHeaders http.Header
 	// sseIdleTimeout overrides httputil.DefaultSSEIdleTimeout when > 0; tests set
 	// it small so the output-stall watchdog fires before this one.
 	sseIdleTimeout time.Duration
@@ -165,6 +172,14 @@ func (c *Client) throughputParams() (window, minElapsed time.Duration, minDeltas
 // own headers on top.
 func (c *Client) applyDefaultHeaders(req *http.Request) {
 	for k, vs := range c.defaultHeaders {
+		req.Header[http.CanonicalHeaderKey(k)] = append([]string(nil), vs...)
+	}
+}
+
+// applyProtectedHeaders restores c.protectedHeaders after callers layer their
+// own headers.
+func (c *Client) applyProtectedHeaders(req *http.Request) {
+	for k, vs := range c.protectedHeaders {
 		req.Header[http.CanonicalHeaderKey(k)] = append([]string(nil), vs...)
 	}
 }
@@ -278,6 +293,7 @@ func (c *Client) Proxy(ctx context.Context, decision router.Decision, prep provi
 	for k, vs := range prep.Headers {
 		upstream.Header[http.CanonicalHeaderKey(k)] = vs
 	}
+	c.applyProtectedHeaders(upstream)
 	c.applyOAuthBeta(ctx, upstream, r)
 	proxy.ApplyWIFTokenType(ctx, upstream)
 	proxy.ApplyIdentityHeader(ctx, upstream)
@@ -386,6 +402,7 @@ func (c *Client) Passthrough(ctx context.Context, prep providers.PreparedRequest
 	for k, vs := range prep.Headers {
 		upstream.Header[http.CanonicalHeaderKey(k)] = vs
 	}
+	c.applyProtectedHeaders(upstream)
 	c.applyOAuthBeta(ctx, upstream, r)
 	proxy.ApplyWIFTokenType(ctx, upstream)
 	if v := r.Header.Get("accept"); v != "" {

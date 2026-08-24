@@ -55,14 +55,11 @@ const (
 	ProviderMakora     = "makora"
 	ProviderTogether   = "together"
 	ProviderXAI        = "xai"
-	// ProviderWafer is Wafer Serverless (pass.wafer.ai), its OpenAI-compatible
-	// Chat Completions surface. Wafer's Anthropic Messages surface is the
-	// separate ProviderWaferAnthropic; both share the WAFER_API_KEY.
+	// ProviderWafer is Wafer Serverless' OpenAI-compatible surface; see
+	// ProviderWaferAnthropic for the Anthropic-spec surface (shared WAFER_API_KEY).
 	ProviderWafer = "wafer"
-	// ProviderWaferAnthropic is Wafer Serverless' Anthropic-compatible Messages
-	// endpoint (pass.wafer.ai/v1/messages), bearer auth, fixed endpoint. Serves
-	// the same non-Claude models as ProviderWafer over the Anthropic wire
-	// format so Anthropic-spec harnesses (Claude Code) can reach them.
+	// ProviderWaferAnthropic is Wafer Serverless' Anthropic-spec Messages surface
+	// (pass.wafer.ai/v1/messages, bearer auth); shares WAFER_API_KEY with ProviderWafer.
 	ProviderWaferAnthropic = "wafer_anthropic"
 	// ProviderAnthropicGateway is an Anthropic-spec enterprise gateway using
 	// Bearer auth; its endpoint is per-tenant with no deployment default.

@@ -386,3 +386,51 @@ func TestProxy_PreparedHeadersOverrideDefaults(t *testing.T) {
 	require.NoError(t, c.Proxy(context.Background(), router.Decision{Model: "m"}, prep, rec, clientReq))
 	assert.Equal(t, "per-request", gotHeader)
 }
+
+// TestProxyAndPassthrough_ProtectedHeadersOverridePreparedHeaders ensures a
+// provider-mandated header cannot be downgraded by translated request headers
+// on either dispatch path.
+func TestProxyAndPassthrough_ProtectedHeadersOverridePreparedHeaders(t *testing.T) {
+	for _, routed := range []bool{true, false} {
+		name := "passthrough"
+		if routed {
+			name = "proxy"
+		}
+		t.Run(name, func(t *testing.T) {
+			var gotZDR string
+			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				gotZDR = r.Header.Get("Wafer-ZDR")
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(`{"id":"chatcmpl-zdr","object":"chat.completion"}`))
+			}))
+			defer upstream.Close()
+
+			c := openaicompat.NewClient("test-key", upstream.URL+"/v1").
+				WithProtectedHeaders(http.Header{"Wafer-ZDR": []string{"required"}})
+			rec := httptest.NewRecorder()
+			path := "/v1/models"
+			prep := providers.PreparedRequest{Headers: make(http.Header)}
+			if routed {
+				path = "/v1/chat/completions"
+				prep.Body = []byte(`{"model":"m","messages":[]}`)
+			} else {
+				prep.Body = []byte(`{"object":"list","data":[]}`)
+			}
+			prep.Headers.Set("Wafer-ZDR", "disabled")
+			clientReq := httptest.NewRequest(http.MethodPost, path, strings.NewReader(""))
+			if !routed {
+				clientReq = httptest.NewRequest(http.MethodGet, path, nil)
+			}
+
+			var err error
+			if routed {
+				err = c.Proxy(context.Background(), router.Decision{Model: "m"}, prep, rec, clientReq)
+			} else {
+				err = c.Passthrough(context.Background(), prep, rec, clientReq)
+			}
+
+			require.NoError(t, err)
+			assert.Equal(t, "required", gotZDR)
+		})
+	}
+}

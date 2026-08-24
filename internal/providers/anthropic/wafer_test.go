@@ -48,7 +48,7 @@ func TestWaferMessages_SendsBearerAuthZDRAndRewritesModel(t *testing.T) {
 	upstream := fakeWaferMessages(t, &got)
 
 	c := anthropic.NewClient("wfr_…", upstream.URL, anthropic.WithAuthScheme(anthropic.AuthBearer)).
-		WithDefaultHeaders(http.Header{"Wafer-ZDR": []string{"required"}}).
+		WithProtectedHeaders(http.Header{"Wafer-ZDR": []string{"required"}}).
 		WithModelIDMap(map[string]string{"z-ai/glm-5.2": "GLM-5.2"})
 	rec := httptest.NewRecorder()
 	clientReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
@@ -82,4 +82,42 @@ func TestWaferMessages_PreferredModelNotMappedForwardsVerbatim(t *testing.T) {
 
 	require.NoError(t, c.Proxy(context.Background(), router.Decision{Model: "some-other"}, prep, rec, clientReq))
 	assert.Equal(t, "some-other", got.body["model"])
+}
+
+// TestWaferMessages_ProtectedZDRSurvivesPreparedHeaders covers both Anthropic
+// dispatch paths so translated headers cannot disable Wafer's required ZDR.
+func TestWaferMessages_ProtectedZDRSurvivesPreparedHeaders(t *testing.T) {
+	for _, routed := range []bool{true, false} {
+		name := "passthrough"
+		if routed {
+			name = "proxy"
+		}
+		t.Run(name, func(t *testing.T) {
+			var got waferCapture
+			upstream := fakeWaferMessages(t, &got)
+			c := anthropic.NewClient("wfr_…", upstream.URL, anthropic.WithAuthScheme(anthropic.AuthBearer)).
+				WithProtectedHeaders(http.Header{"Wafer-ZDR": []string{"required"}})
+			rec := httptest.NewRecorder()
+			prep := providers.PreparedRequest{Headers: make(http.Header)}
+			prep.Headers.Set("Wafer-ZDR", "disabled")
+			path := "/v1/messages"
+			clientReq := httptest.NewRequest(http.MethodPost, path, strings.NewReader(""))
+			if routed {
+				prep.Body = []byte(`{"model":"m","messages":[]}`)
+			} else {
+				clientReq = httptest.NewRequest(http.MethodPost, path, strings.NewReader(`{"model":"m"}`))
+				prep.Body = []byte(`{"model":"m"}`)
+			}
+
+			var err error
+			if routed {
+				err = c.Proxy(context.Background(), router.Decision{Model: "m"}, prep, rec, clientReq)
+			} else {
+				err = c.Passthrough(context.Background(), prep, rec, clientReq)
+			}
+
+			require.NoError(t, err)
+			assert.Equal(t, "required", got.zdR)
+		})
+	}
 }

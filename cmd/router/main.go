@@ -289,24 +289,20 @@ func main() {
 	}
 
 	{
-		// Wafer Serverless (pass.wafer.ai). Every request carries
-		// Wafer-ZDR: required so prompts get zero-data-retention handling;
-		// Wafer rejects a request whose model doesn't support ZDR rather than
-		// serving it without retention.
+		// Wafer-ZDR: required — Wafer rejects requests whose model doesn't
+		// support ZDR rather than serve them without retention.
 		waferBaseURL := config.GetOr("WAFER_BASE_URL", openaiCompatProvider.WaferBaseURL)
 		registerDeploymentKeyedProvider(providerMap, envKeyedProviders, logger,
 			providers.ProviderWafer, "Wafer", "WAFER_API_KEY", waferBaseURL, byokOnly,
 			func(key, baseURL string) providers.Client {
 				return openaiCompatProvider.NewClientWithModelIDMap(key, baseURL, upstreamIDsForProvider(providers.ProviderWafer)).
-					WithDefaultHeaders(http.Header{"Wafer-ZDR": []string{"required"}})
+					WithProtectedHeaders(http.Header{"Wafer-ZDR": []string{"required"}})
 			})
 	}
 
 	{
-		// Wafer's Anthropic-compatible Messages surface (same account key as
-		// ProviderWafer, fixed endpoint). Lets an Anthropic-spec harness reach
-		// the non-Claude models Wafer serves over the Messages wire format;
-		// the bearer scheme matches Wafer's Authorization: Bearer auth.
+		// Wafer's Anthropic-compatible Messages surface; same WAFER_API_KEY,
+		// bearer auth, fixed endpoint.
 		waferAnthropicKey := ""
 		if !byokOnly {
 			waferAnthropicKey = config.GetOr(providers.APIKeyEnvVar(providers.ProviderWaferAnthropic), "")
@@ -315,7 +311,7 @@ func main() {
 		providerMap[providers.ProviderWaferAnthropic] = anthropic.NewClient(
 			waferAnthropicKey, waferMessagesBaseURL,
 			anthropic.WithAuthScheme(anthropic.AuthBearer)).
-			WithDefaultHeaders(http.Header{"Wafer-ZDR": []string{"required"}}).
+			WithProtectedHeaders(http.Header{"Wafer-ZDR": []string{"required"}}).
 			WithModelIDMap(upstreamIDsForProvider(providers.ProviderWaferAnthropic))
 		if waferAnthropicKey != "" {
 			envKeyedProviders[providers.ProviderWaferAnthropic] = struct{}{}
