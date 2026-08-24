@@ -329,9 +329,9 @@ test("the client syncs a document as didOpen then didChange, and stays quiet whe
 	const client = new LspClient("/repo", fake.transport, CLIENT_OPTIONS);
 	const uri = "file:///repo/main.go";
 
-	await client.ensureDocument(uri, "one", "go");
-	await client.ensureDocument(uri, "one", "go");
-	await client.ensureDocument(uri, "two", "go");
+	assert.equal(await client.ensureDocument(uri, "one", "go"), "open");
+	assert.equal(await client.ensureDocument(uri, "one", "go"), "none");
+	assert.equal(await client.ensureDocument(uri, "two", "go"), "change");
 
 	const notifications = fake.sent.filter((message) => message.method?.startsWith("textDocument/did"));
 	assert.deepEqual(
@@ -648,6 +648,56 @@ test("a definition with no result is reported as text at the queried position", 
 		which: () => "/usr/bin/gopls",
 	});
 	assert.equal(text, "No definition found at main.go:3:6");
+});
+
+test("repeat diagnostics on an unchanged file returns the cached publish as fresh, without waiting", async () => {
+	const { dir, file } = goProject();
+	const pool = new LspServerPool(
+		{ maxServers: 4, idleMs: 60_000, ...CLIENT_OPTIONS },
+		{
+			createClient: (_spec, _binary, root, options) => {
+				const fake = fakeTransport({ autoHandshake: true });
+				fake.onRequest("textDocument/didOpen", (message) => {
+					const uri = (message.params as { textDocument: { uri: string } }).textDocument.uri;
+					fake.receive({
+						method: "textDocument/publishDiagnostics",
+						params: { uri, diagnostics: [{ range: { start: { line: 0, character: 0 }, end: { line: 0, character: 1 } }, severity: 2, message: "unused" }] },
+					});
+				});
+				return new LspClient(root, fake.transport, options);
+			},
+		},
+	);
+	const deps = { pool, which: () => "/usr/bin/gopls", diagnosticsWaitMs: 60_000 };
+
+	const first = await runLspOperation({ operation: "diagnostics", path: file }, dir, deps);
+	assert.match(first, /unused/);
+	// The 60s wait budget makes the assertion sharp: a second call that demanded
+	// a newer publish would hang here instead of returning the current cache.
+	const second = await runLspOperation({ operation: "diagnostics", path: file }, dir, deps);
+	assert.match(second, /unused/);
+	assert.doesNotMatch(second, /may be stale/);
+});
+
+test("fallback bin dirs honor GOBIN, the first GOPATH element, and CARGO_HOME", () => {
+	const seen: string[] = [];
+	const which = (command: string) => {
+		seen.push(command);
+		return undefined;
+	};
+
+	resolveBinary(GOPLS, which, { GOBIN: "/custom/gobin", GOPATH: `/work/gopath${path.delimiter}/second/gopath` });
+	assert.ok(seen.includes(path.join("/custom/gobin", "gopls")));
+	assert.ok(seen.includes(path.join("/work/gopath", "bin", "gopls")));
+	assert.ok(!seen.some((candidate) => candidate.includes(path.join("second", "gopath"))));
+
+	seen.length = 0;
+	resolveBinary(GOPLS, which, {});
+	assert.ok(seen.some((candidate) => candidate.endsWith(path.join("go", "bin", "gopls"))));
+
+	seen.length = 0;
+	resolveBinary(RUST_SPEC, which, { CARGO_HOME: "/opt/cargo" });
+	assert.ok(seen.includes(path.join("/opt/cargo", "bin", "rust-analyzer")));
 });
 
 // ---------- lsp-install ----------

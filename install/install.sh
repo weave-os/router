@@ -899,11 +899,14 @@ install_lsp_servers() {
   local langs="$1" lang
   local seen=" "
   for lang in $(printf '%s' "$langs" | tr ',' ' '); do
-    local id="" bin="" alt_bin="" toolchain="" fallback_dir=""
+    local id="" bin="" alt_bin="" toolchain="" fallback_dir="" gopath=""
     local cmd=""
     case "$(printf '%s' "$lang" | tr '[:upper:]' '[:lower:]')" in
       go|golang)
-        id="go"; bin="gopls"; toolchain="go"; fallback_dir="$HOME/go/bin"
+        id="go"; bin="gopls"; toolchain="go"
+        # go install honors $GOBIN, else <first GOPATH element>/bin (default ~/go/bin).
+        gopath="${GOPATH:-$HOME/go}"
+        fallback_dir="${GOBIN:-${gopath%%:*}/bin}"
         cmd="go install golang.org/x/tools/gopls@latest"
         ;;
       ts|typescript|js|javascript)
@@ -915,7 +918,9 @@ install_lsp_servers() {
         cmd="npm i -g pyright"
         ;;
       rs|rust)
-        id="rust"; bin="rust-analyzer"; toolchain="rustup"; fallback_dir="$HOME/.cargo/bin"
+        id="rust"; bin="rust-analyzer"; toolchain="rustup"
+        # rustup honors $CARGO_HOME (default ~/.cargo).
+        fallback_dir="${CARGO_HOME:-$HOME/.cargo}/bin"
         cmd="rustup component add rust-analyzer"
         ;;
       *)

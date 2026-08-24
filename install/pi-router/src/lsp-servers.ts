@@ -34,10 +34,26 @@ export interface LanguageServerSpec {
 	install: ServerInstall;
 	/**
 	 * Where the install command drops its binary when that directory is not on
-	 * PATH ("~" expands to the home dir). Lets a just-installed server resolve
-	 * immediately instead of failing until the user edits their PATH.
+	 * PATH ("~" expands to the home dir). A function of the environment because
+	 * the toolchains honor overrides (GOBIN / GOPATH / CARGO_HOME) — hardcoding
+	 * the defaults would lose a successful install to a non-default location.
 	 */
-	fallbackDirs: string[];
+	fallbackDirs(env: NodeJS.ProcessEnv): string[];
+}
+
+/** `go install` target: $GOBIN, else <first GOPATH element>/bin, else ~/go/bin. */
+export function goBinDirs(env: NodeJS.ProcessEnv): string[] {
+	const dirs: string[] = [];
+	if (env.GOBIN?.trim()) dirs.push(env.GOBIN.trim());
+	const gopathFirst = env.GOPATH?.split(path.delimiter)[0]?.trim();
+	dirs.push(gopathFirst ? path.join(gopathFirst, "bin") : "~/go/bin");
+	return dirs;
+}
+
+/** rustup/cargo bin dir: $CARGO_HOME/bin, else ~/.cargo/bin. */
+export function cargoBinDirs(env: NodeJS.ProcessEnv): string[] {
+	const cargoHome = env.CARGO_HOME?.trim();
+	return [cargoHome ? path.join(cargoHome, "bin") : "~/.cargo/bin"];
 }
 
 export const LSP_SERVERS: LanguageServerSpec[] = [
@@ -48,7 +64,7 @@ export const LSP_SERVERS: LanguageServerSpec[] = [
 		binaries: [{ command: "gopls", args: ["serve"] }],
 		rootMarkers: ["go.work", "go.mod"],
 		install: { requires: "go", command: ["go", "install", "golang.org/x/tools/gopls@latest"] },
-		fallbackDirs: ["~/go/bin"],
+		fallbackDirs: goBinDirs,
 	},
 	{
 		id: "typescript",
@@ -66,7 +82,7 @@ export const LSP_SERVERS: LanguageServerSpec[] = [
 		binaries: [{ command: "typescript-language-server", args: ["--stdio"] }],
 		rootMarkers: ["tsconfig.json", "jsconfig.json", "package.json", ".git"],
 		install: { requires: "npm", command: ["npm", "i", "-g", "typescript-language-server", "typescript"] },
-		fallbackDirs: [],
+		fallbackDirs: () => [],
 	},
 	{
 		id: "pyright",
@@ -78,7 +94,7 @@ export const LSP_SERVERS: LanguageServerSpec[] = [
 		],
 		rootMarkers: ["pyrightconfig.json", "pyproject.toml", "setup.py", "requirements.txt", ".git"],
 		install: { requires: "npm", command: ["npm", "i", "-g", "pyright"] },
-		fallbackDirs: [],
+		fallbackDirs: () => [],
 	},
 	{
 		id: "rust-analyzer",
@@ -87,7 +103,7 @@ export const LSP_SERVERS: LanguageServerSpec[] = [
 		binaries: [{ command: "rust-analyzer", args: [] }],
 		rootMarkers: ["Cargo.toml"],
 		install: { requires: "rustup", command: ["rustup", "component", "add", "rust-analyzer"] },
-		fallbackDirs: ["~/.cargo/bin"],
+		fallbackDirs: cargoBinDirs,
 	},
 ];
 
@@ -167,11 +183,15 @@ function expandHome(dir: string): string {
 	return dir.startsWith("~/") ? path.join(os.homedir(), dir.slice(2)) : dir;
 }
 
-export function resolveBinary(spec: LanguageServerSpec, which: WhichFn = defaultWhich): ServerBinary | undefined {
+export function resolveBinary(
+	spec: LanguageServerSpec,
+	which: WhichFn = defaultWhich,
+	env: NodeJS.ProcessEnv = process.env,
+): ServerBinary | undefined {
 	for (const binary of spec.binaries) {
 		// Fallback candidates are absolute, which defaultWhich checks directly;
 		// routing them through `which` keeps a single injectable seam.
-		const candidates = [binary.command, ...spec.fallbackDirs.map((dir) => path.join(expandHome(dir), binary.command))];
+		const candidates = [binary.command, ...spec.fallbackDirs(env).map((dir) => path.join(expandHome(dir), binary.command))];
 		for (const candidate of candidates) {
 			const resolved = which(candidate);
 			if (resolved) return { command: resolved, args: binary.args };

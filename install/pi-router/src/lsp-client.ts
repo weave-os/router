@@ -219,12 +219,13 @@ export class LspClient {
 		this.notify("initialized", {});
 	}
 
-	async ensureDocument(uri: string, text: string, languageId: string): Promise<void> {
+	/** Returns the sync action taken, so callers can tell a real didOpen/didChange from a no-op. */
+	async ensureDocument(uri: string, text: string, languageId: string): Promise<DocumentSyncPlan["action"]> {
 		// Tool executionMode is parallel and broker requests interleave with the
 		// main loop's, so version numbering is serialized on one chain.
 		const run = this.syncChain.then(() => {
 			const plan = planDocumentSync(this.documents.get(uri), text);
-			if (plan.action === "none") return;
+			if (plan.action === "none") return plan.action;
 			if (plan.action === "open") {
 				this.notify("textDocument/didOpen", { textDocument: { uri, languageId, version: plan.version, text } });
 			} else {
@@ -234,8 +235,12 @@ export class LspClient {
 				});
 			}
 			this.documents.set(uri, { version: plan.version, text });
+			return plan.action;
 		});
-		this.syncChain = run.catch(() => undefined);
+		this.syncChain = run.then(
+			() => undefined,
+			() => undefined,
+		);
 		return run;
 	}
 

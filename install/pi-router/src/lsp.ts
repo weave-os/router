@@ -125,6 +125,7 @@ async function queryClient(
 	cwd: string,
 	deps: LspRunDeps,
 	generation: number,
+	syncAction: "open" | "change" | "none",
 	signal?: AbortSignal,
 ): Promise<string> {
 	const uri = pathToUri(target);
@@ -168,9 +169,15 @@ async function queryClient(
 			return rendered || `No symbols found in ${shown}`;
 		}
 		case "diagnostics": {
+			// A no-op sync means the server already analyzed exactly this buffer, so
+			// whatever it last published for the file IS current — demanding a newer
+			// generation would burn the whole wait window and then mislabel a
+			// perfectly fresh result as stale. Only a real didOpen/didChange (which
+			// provokes a republish) requires a publish newer than the pre-sync mark.
+			const sinceGeneration = syncAction === "none" ? 0 : generation;
 			const { items, fresh } = await client.waitForDiagnostics(
 				uri,
-				generation,
+				sinceGeneration,
 				deps.diagnosticsWaitMs ?? LSP_DIAGNOSTICS_WAIT_MS,
 				signal,
 			);
@@ -218,8 +225,8 @@ export async function runLspOperation(
 			// Capture before syncing: an ensureDocument that provokes a publish must
 			// count as newer than what we already had cached.
 			const generation = client.diagnosticsGeneration();
-			await client.ensureDocument(pathToUri(target), readFile(target), languageIdFor(spec, target));
-			return await queryClient(client, params, target, cwd, deps, generation, signal);
+			const syncAction = await client.ensureDocument(pathToUri(target), readFile(target), languageIdFor(spec, target));
+			return await queryClient(client, params, target, cwd, deps, generation, syncAction, signal);
 		} catch (error) {
 			lastError = error as Error;
 			// Only a died-under-us server earns a second spawn. Retrying a timeout or
