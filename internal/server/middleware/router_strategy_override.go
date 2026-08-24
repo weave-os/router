@@ -36,6 +36,12 @@ func WithRouterStrategyDefault(defaultStrategy router.Strategy, available ...rou
 		}
 	}
 	for _, strategy := range available {
+		// hmm_beta is selected exclusively from the durable per-session /beta
+		// preference. It must never be activated by a request header, an
+		// installation default, or a deployment default.
+		if strategy == router.StrategyHMMBeta {
+			continue
+		}
 		allowed[strategy] = struct{}{}
 	}
 	defaultStrategy = normalizeRouterStrategyDefault(defaultStrategy, allowed)
@@ -84,6 +90,9 @@ func NormalizeRouterStrategyDefault(defaultStrategy router.Strategy, available .
 	allowed := make(map[router.Strategy]struct{}, len(available)+1)
 	allowed[router.StrategyCluster] = struct{}{}
 	for _, strategy := range available {
+		if strategy == router.StrategyHMMBeta {
+			continue
+		}
 		allowed[strategy] = struct{}{}
 	}
 	return normalizeRouterStrategyDefault(defaultStrategy, allowed)

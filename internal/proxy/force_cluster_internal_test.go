@@ -33,7 +33,7 @@ func TestApplyForceClusterHeader_AbsentIsNoOp(t *testing.T) {
 }
 
 func TestApplyForceClusterHeader_ThreadsLabelOnHMMStrategy(t *testing.T) {
-	for _, strategy := range []router.Strategy{router.StrategyHMM, router.StrategyHMMEmbedding} {
+	for _, strategy := range []router.Strategy{router.StrategyHMM, router.StrategyHMMEmbedding, router.StrategyHMMBeta} {
 		t.Run(string(strategy), func(t *testing.T) {
 			ctx := router.WithStrategy(context.Background(), strategy)
 

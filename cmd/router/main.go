@@ -50,6 +50,7 @@ import (
 	"workweave/router/internal/router/policy"
 	"workweave/router/internal/router/rl"
 	"workweave/router/internal/router/sessionpin"
+	"workweave/router/internal/router/sessionstrategy"
 	"workweave/router/internal/server"
 	"workweave/router/internal/wif"
 
@@ -712,6 +713,7 @@ func main() {
 	// hmm then routes through it. Unset fails closed with 503.
 	var hmmRouter router.Router
 	var hmmEmbeddingRouter router.Router
+	var hmmBetaRouter router.Router
 	var hmmCapabilities policy.Capabilities
 	var hmmReadinessChecker admin.HealthChecker
 	var hmmRosterSource policy.RosterSource
@@ -786,6 +788,75 @@ func main() {
 		logger.Info("HMM policy routers disabled (ROUTER_HMM_SIDECAR_URL unset); HMM strategies will return 503")
 	}
 
+	// The beta HMM is intentionally a separate sidecar: stable continues to
+	// use its existing policy while /beta sessions opt into an independently
+	// deployed beta HMM policy. If the beta sidecar is absent or unhealthy,
+	// beta requests fail closed without changing stable routing.
+	var hmmBetaCapabilities policy.Capabilities
+	if hmmBetaSidecarURL := config.GetOr("ROUTER_HMM_BETA_SIDECAR_URL", ""); hmmBetaSidecarURL != "" {
+		hmmBetaTimeout := parseEnvDurationMs("ROUTER_HMM_BETA_SIDECAR_TIMEOUT_MS", policyclient.DefaultTimeout)
+		hmmBetaAuthMode := config.GetOr("ROUTER_HMM_BETA_SIDECAR_AUTH", policySidecarAuthNone)
+		hmmBetaAttemptTimeout := parseEnvAttemptTimeoutMs(
+			"ROUTER_HMM_BETA_SIDECAR_ATTEMPT_TIMEOUT_MS",
+			policyclient.DeriveAttemptTimeout(hmmBetaTimeout),
+		)
+		hmmBetaClient, clientErr := buildHMMBetaPolicyClient(
+			hmmBetaSidecarURL,
+			hmmBetaAuthMode,
+			hmmBetaTimeout,
+			policyclient.WithAttemptTimeout(hmmBetaAttemptTimeout),
+		)
+		if clientErr != nil {
+			// Beta is an optional isolation ring. A malformed beta-only auth
+			// setting must not take the stable router down with it.
+			logger.Error("beta HMM policy sidecar client failed to build; beta disabled", "auth_mode", hmmBetaAuthMode, "err", clientErr)
+		} else {
+			capabilityCtx, cancelCapabilityDiscovery := context.WithTimeout(context.Background(), hmmBetaTimeout)
+			var capabilityErr error
+			hmmBetaCapabilities, capabilityErr = hmmBetaClient.Capabilities(capabilityCtx)
+			cancelCapabilityDiscovery()
+			if capabilityErr != nil {
+				logger.Warn("beta HMM policy sidecar capabilities unavailable at boot; optional behavior remains disabled", "sidecar_url", hmmBetaSidecarURL, "err", capabilityErr)
+			}
+			hmmBetaPolicyRouter := hmm.NewForStrategy(
+				router.StrategyHMMBeta,
+				hmmBetaClient,
+				availableProviders,
+			)
+			hmmBetaPolicyRouter.WithCapabilities(hmmBetaCapabilities)
+			if capabilityErr != nil {
+				go func() {
+					retryErr := retryPolicyCapabilitiesUntilAvailable(
+						context.Background(),
+						hmmBetaClient,
+						hmmBetaTimeout,
+						hmmCapabilityRetryInterval,
+						func(capabilities policy.Capabilities) {
+							hmmBetaPolicyRouter.WithCapabilities(capabilities)
+						},
+					)
+					if retryErr != nil {
+						logger.Warn("beta HMM policy sidecar capability refresh stopped", "sidecar_url", hmmBetaSidecarURL, "err", retryErr)
+						return
+					}
+					logger.Info("beta HMM policy sidecar capabilities discovered after boot", "sidecar_url", hmmBetaSidecarURL)
+				}()
+			}
+			hmmBetaRouter = hmmBetaPolicyRouter
+			logger.Info(
+				"beta HMM policy router wired",
+				"sidecar_url", hmmBetaSidecarURL,
+				"auth_mode", hmmBetaAuthMode,
+				"timeout_ms", hmmBetaTimeout.Milliseconds(),
+				"attempt_timeout_ms", hmmBetaAttemptTimeout.Milliseconds(),
+				"candidate_models", len(routingTargets),
+				"strategy", router.StrategyHMMBeta,
+			)
+		}
+	} else {
+		logger.Info("beta HMM policy router disabled (ROUTER_HMM_BETA_SIDECAR_URL unset); /beta will be unavailable")
+	}
+
 	// Wired only when ROUTER_BANDIT_POSTERIOR_FILE points at a ts_posterior.json;
 	// x-weave-router-strategy: bandit then routes through it. Wraps the raw
 	// cluster scorer, not the explore wrapper. Unset -> nil -> 503.
@@ -845,7 +916,14 @@ func main() {
 		flags.KeyEmbedOnlyUserMessage:      boolDefault(embedOnlyUser),
 	})
 
+	// Always read durable preferences, even while the optional beta client is
+	// unavailable. Existing beta sessions then fail closed through the nil
+	// policy registration instead of silently falling back to stable routing;
+	// /beta can still disable that preference.
+	var sessionStrategyStore sessionstrategy.Store = postgres.NewSessionStrategyRepo(pool)
+
 	proxySvc := proxy.NewService(routeEntry, providerMap, telemetryEmitter, embedOnlyUser, semanticCache, pinStore, hardPinExplore, hardPinProvider, hardPinModel, repo.Telemetry).
+		WithSessionStrategyStore(sessionStrategyStore).
 		WithTranslationCompatibilityMode(proxy.TranslationCompatibilityMode(translationCompatibilityMode)).
 		WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyRL, Router: rlRouter, Unavailable: rl.ErrPolicyUnavailable}).
 		WithPolicyStrategy(policy.StrategySpec{
@@ -855,6 +933,10 @@ func main() {
 		WithPolicyStrategy(policy.StrategySpec{
 			Strategy: router.StrategyHMMEmbedding, Router: hmmEmbeddingRouter, Unavailable: hmm.ErrHMMUnavailable,
 			Capabilities: hmmCapabilities,
+		}).
+		WithPolicyStrategy(policy.StrategySpec{
+			Strategy: router.StrategyHMMBeta, Router: hmmBetaRouter, Unavailable: hmm.ErrHMMUnavailable,
+			Capabilities: hmmBetaCapabilities,
 		}).
 		WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyBandit, Router: banditRouter, Unavailable: bandit.ErrBanditUnavailable}).
 		WithContentCapture(captureMode, captureMaxBytes, nil).

@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"workweave/router/internal/observability"
+	"workweave/router/internal/router"
 	"workweave/router/internal/router/catalog"
 	"workweave/router/internal/router/sessionpin"
 	"workweave/router/internal/translate"
@@ -68,7 +69,7 @@ func (s *Service) handleStruggleEscalation(
 		log.Error("struggle-escalation: pin lookup failed", "err", err)
 		return
 	}
-	if !found {
+	if !found || !pinMatchesEffectiveStrategy(ctx, pin) {
 		return
 	}
 
@@ -153,6 +154,7 @@ func (s *Service) handleStruggleEscalation(
 					Provider:        m.Providers[0].Provider,
 					Model:           target,
 					Reason:          translate.ReasonStruggleEscalation,
+					Strategy:        router.StrategyFromContext(ctx),
 					TurnCount:       1,
 					PinnedUntil:     time.Now().Add(pinSessionTTL),
 					PolicyGroup:     pin.PolicyGroup,

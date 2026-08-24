@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"workweave/router/internal/providers"
+	"workweave/router/internal/router"
 	"workweave/router/internal/router/sessionpin"
 	"workweave/router/internal/translate"
 
@@ -44,7 +45,7 @@ func (s *evictionStubPinStore) UpdateUsage(context.Context, [sessionpin.SessionK
 	return nil
 }
 
-func (s *evictionStubPinStore) IncrementUpstreamErrors(context.Context, [sessionpin.SessionKeyLen]byte, string) (int, error) {
+func (s *evictionStubPinStore) IncrementUpstreamErrors(context.Context, [sessionpin.SessionKeyLen]byte, string, router.Strategy) (int, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.incrementCalls++
@@ -56,26 +57,26 @@ func (s *evictionStubPinStore) IncrementUpstreamErrors(context.Context, [session
 	return v, nil
 }
 
-func (s *evictionStubPinStore) ResetUpstreamErrors(context.Context, [sessionpin.SessionKeyLen]byte, string) error {
+func (s *evictionStubPinStore) ResetUpstreamErrors(context.Context, [sessionpin.SessionKeyLen]byte, string, router.Strategy) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.resetCalls++
 	return nil
 }
 
-func (s *evictionStubPinStore) IncrementOverloadErrors(context.Context, [sessionpin.SessionKeyLen]byte, string) (int, error) {
+func (s *evictionStubPinStore) IncrementOverloadErrors(context.Context, [sessionpin.SessionKeyLen]byte, string, router.Strategy) (int, error) {
 	return 0, nil
 }
 
-func (s *evictionStubPinStore) ResetOverloadErrors(context.Context, [sessionpin.SessionKeyLen]byte, string) error {
+func (s *evictionStubPinStore) ResetOverloadErrors(context.Context, [sessionpin.SessionKeyLen]byte, string, router.Strategy) error {
 	return nil
 }
 
-func (s *evictionStubPinStore) DisableProvider(context.Context, [sessionpin.SessionKeyLen]byte, string, string) error {
+func (s *evictionStubPinStore) DisableProvider(context.Context, [sessionpin.SessionKeyLen]byte, string, string, router.Strategy) error {
 	return nil
 }
 
-func (s *evictionStubPinStore) Consume(_ context.Context, key [sessionpin.SessionKeyLen]byte, role string) (sessionpin.Pin, bool, error) {
+func (s *evictionStubPinStore) Consume(_ context.Context, key [sessionpin.SessionKeyLen]byte, role string, _ router.Strategy) (sessionpin.Pin, bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.consumeRoles = append(s.consumeRoles, role)

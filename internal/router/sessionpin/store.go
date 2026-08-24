@@ -6,6 +6,8 @@ import (
 	"context"
 	"time"
 
+	"workweave/router/internal/router"
+
 	"github.com/google/uuid"
 )
 
@@ -43,6 +45,9 @@ type Pin struct {
 	PairedProvider string
 	PairedModel    string
 	Reason         string
+	// Strategy is the routing strategy that produced the pin. During rollout,
+	// non-beta stable strategies may accept an empty legacy value; beta never does.
+	Strategy router.Strategy
 	// PolicyGroup is the HMM complexity cluster the pinned decision came from
 	// (RoutingMetadata.PolicyGroup). Compared to the fresh decision's group to
 	// distinguish a within-cluster reroute from a genuine cluster change.
@@ -80,6 +85,9 @@ type Pin struct {
 
 // Usage captures the previous turn's upstream token accounting.
 type Usage struct {
+	// Strategy is the routing strategy whose pin may receive this usage. The
+	// update is ignored when the row has since been replaced by another strategy.
+	Strategy          router.Strategy
 	InputTokens       int
 	CachedReadTokens  int
 	CachedWriteTokens int
@@ -100,8 +108,8 @@ type Usage struct {
 }
 
 // Store is the I/O surface for session pins. Get returns (zero, false, nil)
-// when no row exists; UpdateUsage/IncrementUpstreamErrors/ResetUpstreamErrors
-// are no-ops on an evicted or missing pin.
+// when no row exists. In-place mutations are no-ops on an evicted, missing, or
+// different-strategy pin so a late request cannot mutate a replacement row.
 //
 // IncrementUpstreamErrors atomically bumps the error counter and returns the
 // new count so the turn loop can two-strike-evict without a cross-pod
@@ -111,20 +119,20 @@ type Store interface {
 	// Consume atomically removes and returns one unexpired pin. It is used for
 	// one-shot continuations, where a Get followed by an expiry write could let
 	// two concurrent requests reuse the same pin.
-	Consume(ctx context.Context, sessionKey [SessionKeyLen]byte, role string) (Pin, bool, error)
+	Consume(ctx context.Context, sessionKey [SessionKeyLen]byte, role string, expectedStrategy router.Strategy) (Pin, bool, error)
 	Upsert(ctx context.Context, p Pin) error
 	UpdateUsage(ctx context.Context, sessionKey [SessionKeyLen]byte, role string, usage Usage) error
-	IncrementUpstreamErrors(ctx context.Context, sessionKey [SessionKeyLen]byte, role string) (int, error)
-	ResetUpstreamErrors(ctx context.Context, sessionKey [SessionKeyLen]byte, role string) error
+	IncrementUpstreamErrors(ctx context.Context, sessionKey [SessionKeyLen]byte, role string, expectedStrategy router.Strategy) (int, error)
+	ResetUpstreamErrors(ctx context.Context, sessionKey [SessionKeyLen]byte, role string, expectedStrategy router.Strategy) error
 	// IncrementOverloadErrors atomically bumps ConsecutiveOverloadErrors and
 	// returns the new count, mirroring IncrementUpstreamErrors but for
 	// client-visible 529 exhaustion instead of non-retryable 4xx.
-	IncrementOverloadErrors(ctx context.Context, sessionKey [SessionKeyLen]byte, role string) (int, error)
+	IncrementOverloadErrors(ctx context.Context, sessionKey [SessionKeyLen]byte, role string, expectedStrategy router.Strategy) (int, error)
 	// ResetOverloadErrors clears ConsecutiveOverloadErrors after a successful
 	// turn, mirroring ResetUpstreamErrors.
-	ResetOverloadErrors(ctx context.Context, sessionKey [SessionKeyLen]byte, role string) error
+	ResetOverloadErrors(ctx context.Context, sessionKey [SessionKeyLen]byte, role string, expectedStrategy router.Strategy) error
 	// DisableProvider appends provider to DisabledProviders (deduped) and
 	// resets ConsecutiveOverloadErrors in the same write.
-	DisableProvider(ctx context.Context, sessionKey [SessionKeyLen]byte, role, provider string) error
+	DisableProvider(ctx context.Context, sessionKey [SessionKeyLen]byte, role, provider string, expectedStrategy router.Strategy) error
 	SweepExpired(ctx context.Context) error
 }

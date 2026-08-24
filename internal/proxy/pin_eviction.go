@@ -7,6 +7,7 @@ import (
 
 	"workweave/router/internal/observability"
 	"workweave/router/internal/providers"
+	"workweave/router/internal/router"
 	"workweave/router/internal/router/sessionpin"
 	"workweave/router/internal/translate"
 
@@ -65,6 +66,7 @@ func (s *Service) expireSessionPinRow(
 		Provider:       "",
 		Model:          "",
 		Reason:         reason,
+		Strategy:       router.StrategyFromContext(ctx),
 		TurnCount:      1,
 		PinnedUntil:    time.Now().Add(-time.Second),
 	}
@@ -192,7 +194,7 @@ func (s *Service) maybeEvictPinAfterUpstreamErr(
 	if proxyErr == nil {
 		// context.Background(): the request ctx is already canceled by the
 		// time streaming finishes, but this reset must still go through.
-		if err := s.pinStore.ResetUpstreamErrors(context.Background(), sessionKey, role); err != nil {
+		if err := s.pinStore.ResetUpstreamErrors(context.Background(), sessionKey, role, router.StrategyFromContext(ctx)); err != nil {
 			log.Error("pin error-counter reset failed", "err", err, "role", role)
 		}
 		return
@@ -208,7 +210,7 @@ func (s *Service) maybeEvictPinAfterUpstreamErr(
 		return
 	}
 
-	count, err := s.pinStore.IncrementUpstreamErrors(context.Background(), sessionKey, role)
+	count, err := s.pinStore.IncrementUpstreamErrors(context.Background(), sessionKey, role, router.StrategyFromContext(ctx))
 	if err != nil {
 		log.Error("pin error-counter increment failed", "err", err, "role", role, "upstream_status", status)
 		return

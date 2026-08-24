@@ -9,9 +9,8 @@ import (
 // implementation. Strategy-specific sentinels may wrap this error.
 var ErrStrategyUnavailable = errors.New("router: strategy unavailable")
 
-// Strategy names a routing strategy a request can opt into via the
-// x-weave-router-strategy header. The zero value ("") means the deployment
-// default (cluster).
+// Strategy identifies the routing policy selected for a request. The zero
+// value ("") means the deployment default (cluster).
 type Strategy string
 
 const (
@@ -25,6 +24,9 @@ const (
 	StrategyHMM Strategy = "hmm"
 	// StrategyHMMEmbedding uses the HMM sidecar with the embedding-quality-seeded bandit prior.
 	StrategyHMMEmbedding Strategy = "hmm_embedding"
+	// StrategyHMMBeta routes through an independently deployed beta HMM policy.
+	// It is selected only by the session-scoped /beta toggle.
+	StrategyHMMBeta Strategy = "hmm_beta"
 	// StrategyBandit routes via Thompson sampling over a frozen
 	// ts_posterior.json (cluster×model reward posterior). Opt-in only; wired
 	// when ROUTER_BANDIT_POSTERIOR_FILE is set at boot.
@@ -34,7 +36,7 @@ const (
 // IsHMMStrategy reports whether strategy uses the HMM policy contract and
 // lifecycle semantics.
 func IsHMMStrategy(strategy Strategy) bool {
-	return strategy == StrategyHMM || strategy == StrategyHMMEmbedding
+	return strategy == StrategyHMM || strategy == StrategyHMMEmbedding || strategy == StrategyHMMBeta
 }
 
 type strategyContextKey struct{}

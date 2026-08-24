@@ -104,7 +104,7 @@ func (f *fakePinStore) Upsert(ctx context.Context, p sessionpin.Pin) error {
 	return nil
 }
 
-func (f *fakePinStore) Consume(ctx context.Context, key [sessionpin.SessionKeyLen]byte, role string) (sessionpin.Pin, bool, error) {
+func (f *fakePinStore) Consume(ctx context.Context, key [sessionpin.SessionKeyLen]byte, role string, expected router.Strategy) (sessionpin.Pin, bool, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	pin, found := f.commandContinuations[role]
@@ -128,7 +128,7 @@ func (f *fakePinStore) UpdateUsage(ctx context.Context, key [sessionpin.SessionK
 	return nil
 }
 
-func (f *fakePinStore) IncrementUpstreamErrors(ctx context.Context, key [sessionpin.SessionKeyLen]byte, role string) (int, error) {
+func (f *fakePinStore) IncrementUpstreamErrors(ctx context.Context, key [sessionpin.SessionKeyLen]byte, role string, expected router.Strategy) (int, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.incrementCalls++
@@ -138,14 +138,14 @@ func (f *fakePinStore) IncrementUpstreamErrors(ctx context.Context, key [session
 	return f.incrementReturns, nil
 }
 
-func (f *fakePinStore) ResetUpstreamErrors(ctx context.Context, key [sessionpin.SessionKeyLen]byte, role string) error {
+func (f *fakePinStore) ResetUpstreamErrors(ctx context.Context, key [sessionpin.SessionKeyLen]byte, role string, expected router.Strategy) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.resetCalls++
 	return nil
 }
 
-func (f *fakePinStore) IncrementOverloadErrors(ctx context.Context, key [sessionpin.SessionKeyLen]byte, role string) (int, error) {
+func (f *fakePinStore) IncrementOverloadErrors(ctx context.Context, key [sessionpin.SessionKeyLen]byte, role string, expected router.Strategy) (int, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.overloadIncrementCalls++
@@ -158,7 +158,7 @@ func (f *fakePinStore) IncrementOverloadErrors(ctx context.Context, key [session
 	return f.pin.ConsecutiveOverloadErrors, nil
 }
 
-func (f *fakePinStore) ResetOverloadErrors(ctx context.Context, key [sessionpin.SessionKeyLen]byte, role string) error {
+func (f *fakePinStore) ResetOverloadErrors(ctx context.Context, key [sessionpin.SessionKeyLen]byte, role string, expected router.Strategy) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.overloadResetCalls++
@@ -168,7 +168,7 @@ func (f *fakePinStore) ResetOverloadErrors(ctx context.Context, key [sessionpin.
 	return nil
 }
 
-func (f *fakePinStore) DisableProvider(ctx context.Context, key [sessionpin.SessionKeyLen]byte, role, provider string) error {
+func (f *fakePinStore) DisableProvider(ctx context.Context, key [sessionpin.SessionKeyLen]byte, role, provider string, expected router.Strategy) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.disabledProviders = append(f.disabledProviders, provider)

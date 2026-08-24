@@ -33,6 +33,7 @@ import (
 	"workweave/router/internal/router/policy"
 	"workweave/router/internal/router/rl"
 	"workweave/router/internal/router/sessionpin"
+	"workweave/router/internal/router/sessionstrategy"
 	"workweave/router/internal/router/turntype"
 	"workweave/router/internal/sse"
 	"workweave/router/internal/timing"
@@ -64,6 +65,9 @@ type Service struct {
 	// pinStore persists session-sticky routing decisions. Nil when the feature
 	// flag is off; the orchestrator then runs the scorer every turn.
 	pinStore sessionpin.Store
+	// sessionStrategyStore persists the explicit per-session /beta selection.
+	// Stable routing is represented by no row.
+	sessionStrategyStore sessionstrategy.Store
 	// noProgress tracks per-session dispatch fingerprints to catch the
 	// cross-envelope subagent loop (parent agent re-spawning identical
 	// sub-conversations). Nil disables the detector.
@@ -2082,7 +2086,7 @@ func defaultStrategyUnavailable(strategy router.Strategy) error {
 	switch strategy {
 	case router.StrategyRL:
 		return rl.ErrPolicyUnavailable
-	case router.StrategyHMM, router.StrategyHMMEmbedding:
+	case router.StrategyHMM, router.StrategyHMMEmbedding, router.StrategyHMMBeta:
 		return hmm.ErrHMMUnavailable
 	case router.StrategyBandit:
 		return bandit.ErrBanditUnavailable
@@ -2103,7 +2107,7 @@ func (s *Service) Route(ctx context.Context, req router.Request) (router.Decisio
 // callers in internal/api/* never import internal/translate directly,
 // matching ProxyMessages.
 func (s *Service) RouteAnthropicRequest(ctx context.Context, body []byte, headers http.Header) (decision router.Decision, err error) {
-	req, err := s.anthropicRoutingRequest(ctx, body, headers)
+	ctx, req, err := s.anthropicRoutingRequest(ctx, body, headers, "anthropic_route")
 	if err != nil {
 		return decision, err
 	}
@@ -2363,7 +2367,7 @@ func (s *Service) maybeRepinOnRefusal(ctx context.Context, obs *refusalObserver,
 	// Prefer the scorer's runner-up (PairedModel); use context.Background() because
 	// the request ctx may already be canceled when the response has been written.
 	fbModel, fbProvider := s.ResolveCyberRefusalFallbackModel(ctx), ""
-	if existing, found, err := s.pinStore.Get(context.Background(), sessionKey, role); err == nil && found && existing.PairedModel != "" {
+	if existing, found, err := s.pinStore.Get(context.Background(), sessionKey, role); err == nil && found && pinMatchesEffectiveStrategy(ctx, existing) && existing.PairedModel != "" {
 		fbModel, fbProvider = existing.PairedModel, existing.PairedProvider
 	}
 	if fbProvider == "" {
@@ -2383,6 +2387,7 @@ func (s *Service) maybeRepinOnRefusal(ctx context.Context, obs *refusalObserver,
 		Provider:       fbProvider,
 		Model:          fbModel,
 		Reason:         "cyber-refusal-repin",
+		Strategy:       router.StrategyFromContext(ctx),
 		TurnCount:      1,
 		PinnedUntil:    pinExpiry("cyber-refusal-repin"),
 	}
@@ -2466,6 +2471,9 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	if removed := env.StripRouterFeedbackArtifacts(); removed > 0 {
 		log.Info("Stripped router-feedback artifacts from Anthropic history", "removed_messages", removed)
 	}
+	if removed := env.StripBetaArtifacts(); removed > 0 {
+		log.Info("Stripped beta artifacts from Anthropic history", "removed_messages", removed)
+	}
 	// A dangling tool_use left by a prior mid-stream failure 400s permanently
 	// on providers that validate tool-call/response pairing (Together); other
 	// providers silently accept it, so the failure only shows up depending on
@@ -2492,6 +2500,21 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		"total_input_tokens", feats.Tokens,
 		"prompt_preview", observability.Preview(promptText, 200),
 	)
+
+	// /beta is a server-authoritative session toggle. It never reaches an
+	// upstream and deliberately does not create a post-command continuation:
+	// the next normal turn must be freshly routed by the selected policy.
+	if !agentShadowMode {
+		if cmd, hasCmd := env.ExtractBetaCommand(); hasCmd {
+			log.Info("ProxyMessages beta command")
+			return s.handleBetaCommand(ctx, w, env, cmd, installationID, sessionKey, feats.Tokens)
+		}
+		ctx, err = s.applySessionStrategy(ctx, installationID, sessionKey)
+		if err != nil {
+			return err
+		}
+		*r = *r.WithContext(ctx)
+	}
 
 	// Handle /force-model and /unforce-model before routing (stripped from
 	// env.body so the upstream never sees it). Session key is derived before
@@ -3987,6 +4010,7 @@ func (s *Service) recordTurnUsage(res turnLoopResult, servedProvider, servedMode
 		return
 	}
 	usage := sessionpin.Usage{
+		Strategy:            strategyForTurnLoopResult(res),
 		InputTokens:         in,
 		CachedReadTokens:    cacheRead,
 		CachedWriteTokens:   cacheCreation,
@@ -4019,23 +4043,25 @@ func (s *Service) recordHMMTurnHistory(res turnLoopResult, servedProvider, serve
 		return
 	}
 	hasUsage := in != 0 || out != 0 || cacheCreation != 0 || cacheRead != 0
+	strategyCtx := strategyContext(strategyForTurnLoopResult(res))
 	historyProvider := servedProvider
 	if !hasUsage {
 		// A failed turn has no usage writeback; preserve the prior provider to
 		// avoid an invalid model/provider pair on the next HMM stay.
-		if prior := s.loadHMMHistory(context.Background(), res.SessionKey, res.PinRole); prior.Provider != "" {
+		if prior := s.loadHMMHistory(strategyCtx, res.SessionKey, res.PinRole); prior.Provider != "" {
 			historyProvider = prior.Provider
 		}
 	}
 	role := hmmHistoryRole(res.PinRole)
 	// The upsert only refreshes the row's TTL/turn_count/provider (ON CONFLICT
 	// leaves the usage columns untouched), so it is always safe to run.
-	s.upsertPin(context.Background(), sessionpin.Pin{
+	s.upsertPin(strategyCtx, sessionpin.Pin{
 		SessionKey:     res.SessionKey,
 		Role:           role,
 		InstallationID: res.InstallationID,
 		Provider:       historyProvider,
 		Reason:         hmmHistoryStoredReason(res),
+		Strategy:       router.StrategyFromContext(strategyCtx),
 		TurnCount:      1,
 		PinnedUntil:    pinExpiry(hmmHistoryReason),
 	})
@@ -4046,6 +4072,7 @@ func (s *Service) recordHMMTurnHistory(res turnLoopResult, servedProvider, serve
 	}
 	now := time.Now()
 	if err := s.pinStore.UpdateUsage(context.Background(), res.SessionKey, role, sessionpin.Usage{
+		Strategy:            router.StrategyFromContext(strategyCtx),
 		InputTokens:         in,
 		CachedReadTokens:    cacheRead,
 		CachedWriteTokens:   cacheCreation,
@@ -4928,6 +4955,9 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	if removed := env.StripRouterFeedbackArtifacts(); removed > 0 {
 		log.Info("Stripped router-feedback artifacts from OpenAI history", "removed_messages", removed)
 	}
+	if removed := env.StripBetaArtifacts(); removed > 0 {
+		log.Info("Stripped beta artifacts from OpenAI history", "removed_messages", removed)
+	}
 	// A dangling tool_use left by a prior mid-stream failure 400s permanently
 	// on providers that validate tool-call/response pairing (Together); other
 	// providers silently accept it, so the failure only shows up depending on
@@ -4955,6 +4985,19 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		"total_input_tokens", feats.Tokens,
 		"prompt_preview", observability.Preview(promptText, 200),
 	)
+
+	// Handle the server-authoritative /beta session toggle before every other
+	// routing command. The command itself never reaches an upstream and does
+	// not receive a one-shot continuation from the previous strategy.
+	if cmd, hasCmd := env.ExtractBetaCommand(); hasCmd {
+		log.Info("ProxyOpenAIChatCompletion beta command")
+		return s.handleBetaCommand(ctx, w, env, cmd, installationID, sessionKey, feats.Tokens)
+	}
+	ctx, err = s.applySessionStrategy(ctx, installationID, sessionKey)
+	if err != nil {
+		return err
+	}
+	*r = *r.WithContext(ctx)
 
 	// Handle /force-model and /unforce-model before routing (stripped from
 	// env.body so the upstream never sees it). Session key is derived before

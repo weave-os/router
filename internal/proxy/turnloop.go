@@ -121,9 +121,13 @@ type turnLoopResult struct {
 	Decision       router.Decision
 	SessionKey     [sessionpin.SessionKeyLen]byte
 	InstallationID uuid.UUID
-	TurnType       turntype.TurnType
-	StickyHit      bool
-	HardPinned     bool
+	// Strategy is the effective request strategy. It is carried through the
+	// response path so async pin usage/history writes remain strategy-bound
+	// after the request context is no longer available.
+	Strategy   router.Strategy
+	TurnType   turntype.TurnType
+	StickyHit  bool
+	HardPinned bool
 	// AuthoritativePerTurn is true only for eligible main/tool-result turns
 	// whose active policy declared model-authoritative dispatch.
 	AuthoritativePerTurn bool
@@ -448,6 +452,7 @@ func (s *Service) runTurnLoop(
 	}
 	res := turnLoopResult{
 		InstallationID: installationID,
+		Strategy:       router.StrategyFromContext(ctx),
 		TurnType:       turntype.DetectFromEnvelope(env, feats, subAgentHint),
 		PinTier:        "miss",
 		RequestedTier:  catalog.TierFor(feats.Model),
@@ -1505,6 +1510,9 @@ func (s *Service) loadPin(ctx context.Context, sessionKey [sessionpin.SessionKey
 	if !found {
 		return sessionpin.Pin{}, false
 	}
+	if !pinMatchesEffectiveStrategy(ctx, pin) {
+		return sessionpin.Pin{}, false
+	}
 	if !pin.PinnedUntil.After(time.Now()) {
 		return pin, false
 	}
@@ -1519,6 +1527,9 @@ func (s *Service) loadHMMHistory(ctx context.Context, sessionKey [sessionpin.Ses
 		return sessionpin.Pin{}
 	}
 	if !found {
+		return sessionpin.Pin{}
+	}
+	if !pinMatchesEffectiveStrategy(ctx, pin) {
 		return sessionpin.Pin{}
 	}
 	return pin
@@ -1604,6 +1615,7 @@ func (s *Service) refreshPin(ctx context.Context, installationID uuid.UUID, sess
 		PairedProvider: existing.PairedProvider,
 		PairedModel:    existing.PairedModel,
 		Reason:         chosen.Reason,
+		Strategy:       router.StrategyFromContext(ctx),
 		// Same rationale as the pair above: a refresh runs no policy, so the
 		// reconstructed decision carries no group. Carry the stored one forward.
 		PolicyGroup:           existing.PolicyGroup,
@@ -1645,6 +1657,7 @@ func (s *Service) writeNewPin(ctx context.Context, installationID uuid.UUID, ses
 		PairedProvider: pairedProvider,
 		PairedModel:    pairedModel,
 		Reason:         chosen.Reason,
+		Strategy:       router.StrategyFromContext(ctx),
 		PolicyGroup:    decisionPolicyGroup(chosen),
 		TurnCount:      1,
 		PinnedUntil:    pinExpiry(chosen.Reason),
@@ -1657,6 +1670,9 @@ func (s *Service) writeNewPin(ctx context.Context, installationID uuid.UUID, ses
 // finished streaming.
 func (s *Service) upsertPin(ctx context.Context, p sessionpin.Pin) {
 	log := observability.FromContext(ctx)
+	if p.Strategy == "" {
+		p.Strategy = router.StrategyFromContext(ctx)
+	}
 	if err := s.pinStore.Upsert(context.Background(), p); err != nil {
 		log.Error("session pin upsert failed", "err", err)
 		return

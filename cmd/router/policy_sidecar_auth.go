@@ -30,6 +30,22 @@ func buildHMMPolicyClient(
 	)
 }
 
+func buildHMMBetaPolicyClient(
+	sidecarURL, authMode string,
+	timeout time.Duration,
+	opts ...policyclient.Option,
+) (*policyclient.Client, error) {
+	return buildPolicyClientWithGoogleIDTokenFactory(
+		sidecarURL,
+		authMode,
+		timeout,
+		nil,
+		"ROUTER_HMM_BETA_SIDECAR_AUTH",
+		policyclient.NewGoogleIDToken,
+		opts...,
+	)
+}
+
 func buildHMMPolicyClientWithGoogleIDTokenFactory(
 	sidecarURL, authMode string,
 	timeout time.Duration,

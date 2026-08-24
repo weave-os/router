@@ -11,6 +11,8 @@ set -uo pipefail
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 installer="${INSTALLER:-$script_dir/../install.sh}"
 [ -f "$installer" ] || { echo "cannot find installer at $installer" >&2; exit 1; }
+uninstaller="${UNINSTALLER:-$script_dir/../uninstall.sh}"
+[ -f "$uninstaller" ] || { echo "cannot find uninstaller at $uninstaller" >&2; exit 1; }
 
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
@@ -124,6 +126,13 @@ check "update rejects --rotate-key" "$?" 2
 run "$upd_home" -- update --codex
 check "update rejects an unsupported target" "$?" 2
 
+# Update uses the same canonical command roster as install, so it must add a
+# newly shipped wrapper to an existing installation.
+rm -f "$upd_home/.claude/commands/beta.md"
+run "$upd_home" -- update --claude --quiet
+check "update installs the beta slash command" \
+  "$(sed -n '5p' "$upd_home/.claude/commands/beta.md" 2>/dev/null)" "/beta \$ARGUMENTS"
+
 # ---------- command baseline seeding ----------
 #
 # The statusline's background wrapper refresh only swaps a file whose bytes
@@ -133,17 +142,30 @@ check "update rejects an unsupported target" "$?" 2
 # mktemp hands back /var/... for /private/var/....
 cmd_dir_real="$(cd "$upd_home/.claude/commands" && pwd -P)"
 baseline="$upd_home/.cache/weave-router/commands$(printf '%s' "$cmd_dir_real" | tr -c 'A-Za-z0-9._-' '_')"
-if [ -f "$baseline/force-model.md" ] && [ -f "$baseline/router-off.md" ]; then
+if [ -f "$baseline/force-model.md" ] && [ -f "$baseline/beta.md" ] && [ -f "$baseline/router-off.md" ]; then
   ok "install seeds the slash-command baseline"
 else
   no "install seeds the slash-command baseline" "canonical wrappers cached" "missing under $baseline"
 fi
+check "install writes the beta slash command" \
+  "$(sed -n '5p' "$upd_home/.claude/commands/beta.md" 2>/dev/null)" "/beta \$ARGUMENTS"
 # Baselines are the UNRENDERED canonical files: the refresh renders {{SCOPE}}
 # per install, and a pre-rendered baseline would never match upstream.
 if grep -q '{{SCOPE}}' "$baseline/router-off.md" 2>/dev/null; then
   ok "seeded baseline keeps the {{SCOPE}} placeholder"
 else
   no "seeded baseline keeps the {{SCOPE}} placeholder" "unrendered copy" "placeholder substituted"
+fi
+
+# Claude uninstall removes only installer-owned wrappers, including /beta.
+uninstall_home="$work/uninstall"; mkdir -p "$uninstall_home"
+run "$uninstall_home" rk_uninstall -- --claude --scope user --quiet --non-interactive
+HOME="$uninstall_home" XDG_CACHE_HOME="$uninstall_home/.cache" PATH="$test_path" NO_COLOR=1 \
+  bash "$uninstaller" --claude --scope user >/dev/null 2>&1
+if [ ! -e "$uninstall_home/.claude/commands/beta.md" ]; then
+  ok "uninstall removes the beta slash command"
+else
+  no "uninstall removes the beta slash command" "file absent" "file remains"
 fi
 
 # ---------- update after `off`: parked sidecar key + base URL carry-over ----------

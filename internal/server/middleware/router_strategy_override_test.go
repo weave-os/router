@@ -122,6 +122,29 @@ func TestRouterStrategyOverride_ExplicitClusterWinsOverDeploymentDefault(t *test
 func TestNormalizeRouterStrategyDefault(t *testing.T) {
 	assert.Equal(t, router.StrategyHMM, middleware.NormalizeRouterStrategyDefault(router.StrategyHMM, router.StrategyHMM))
 	assert.Equal(t, router.StrategyCluster, middleware.NormalizeRouterStrategyDefault(router.Strategy("typo"), router.StrategyHMM))
+	assert.Equal(t, router.StrategyCluster,
+		middleware.NormalizeRouterStrategyDefault(router.StrategyHMMBeta, router.StrategyHMMBeta),
+		"beta cannot be activated by a deployment default")
+}
+
+func TestRouterStrategyOverride_BetaHeaderCannotActivateBeta(t *testing.T) {
+	got := runStrategyOverride(
+		t,
+		&auth.Installation{ID: "inst-beta", PolicyHeaderOverridesEnabled: true},
+		string(router.StrategyHMMBeta),
+		router.StrategyHMMBeta,
+	)
+	assert.Equal(t, router.StrategyCluster, got)
+}
+
+func TestRouterStrategyOverride_InstallationDefaultBetaCannotActivateBeta(t *testing.T) {
+	got := runStrategyOverride(
+		t,
+		&auth.Installation{ID: "inst-beta", RoutingStrategy: router.StrategyHMMBeta},
+		"",
+		router.StrategyHMMBeta,
+	)
+	assert.Equal(t, router.StrategyCluster, got)
 }
 
 func TestRouterStrategyOverride_UnknownValueIgnored(t *testing.T) {
