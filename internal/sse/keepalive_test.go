@@ -129,6 +129,39 @@ func TestKeepaliveWriter_NeverSplitsARecord(t *testing.T) {
 		"the record must be reassembled intact")
 }
 
+// SSE terminators are CRLF or LF and can straddle two writes. A boundary test
+// that only matched "\n\n" within a single write silently disabled keepalives
+// for both shapes — the exact stall this writer exists to prevent.
+func TestKeepaliveWriter_RecognizesEveryRecordSeparator(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		writes []string
+		want   bool
+	}{
+		{"lf", []string{"event: a\ndata: {}\n\n"}, true},
+		{"crlf", []string{"event: a\r\ndata: {}\r\n\r\n"}, true},
+		{"mixed", []string{"event: a\ndata: {}\n\r\n"}, true},
+		{"separator split across writes", []string{"event: a\ndata: {}\n", "\n"}, true},
+		{"record split mid-field", []string{"event: a\ndata: {", "}\n\n"}, true},
+		{"single terminator is not a blank line", []string{"data: {}\r\n"}, false},
+		{"trailing lone CR may be half a CRLF", []string{"data: {}\n\r"}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rec := newSyncRecorder()
+			k := sse.NewKeepaliveWriter(rec, []byte(pingFrame), testKeepalive)
+			defer k.Close()
+
+			for _, w := range tc.writes {
+				_, err := k.Write([]byte(w))
+				require.NoError(t, err)
+			}
+
+			got := waitFor(func() bool { return pings(rec.body()) >= 1 })
+			assert.Equal(t, tc.want, got)
+		})
+	}
+}
+
 // A stream that is actively delivering content needs no padding.
 func TestKeepaliveWriter_ActiveStreamNotPadded(t *testing.T) {
 	rec := newSyncRecorder()

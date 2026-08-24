@@ -7,9 +7,29 @@ import (
 	"time"
 )
 
-// recordSep terminates an SSE record. A keepalive is only safe to inject when
-// the last write landed on one.
-var recordSep = []byte("\n\n")
+// maxRecordSepLen is the longest SSE record separator ("\r\n\r\n"), and so the
+// number of trailing bytes that must be carried across writes to recognize one.
+const maxRecordSepLen = 4
+
+// endsOnBlankLine reports whether b ends on a blank line — an SSE record
+// separator. Line terminators are CRLF or LF; a trailing lone CR is treated as
+// unterminated because it may be the first half of a CRLF still in flight, and
+// injecting between the two would split the record.
+func endsOnBlankLine(b []byte) bool {
+	rest, ok := trimLineEnd(b)
+	if !ok {
+		return false
+	}
+	_, ok = trimLineEnd(rest)
+	return ok
+}
+
+func trimLineEnd(b []byte) ([]byte, bool) {
+	if !bytes.HasSuffix(b, []byte("\n")) {
+		return nil, false
+	}
+	return bytes.TrimSuffix(b[:len(b)-1], []byte("\r")), true
+}
 
 // KeepaliveWriter injects a caller-supplied SSE frame whenever a committed
 // stream has sent the client nothing for interval. Clients time out on bytes,
@@ -25,10 +45,13 @@ type KeepaliveWriter struct {
 	frame    []byte
 	interval time.Duration
 
-	mu         sync.Mutex
-	last       time.Time
-	atBoundary bool
-	armed      bool
+	mu   sync.Mutex
+	last time.Time
+	// tail is the last maxRecordSepLen bytes written to the client. A separator
+	// can straddle two writes, so the boundary test runs over this rather than
+	// over the latest write alone.
+	tail  []byte
+	armed bool
 	// stopped halts emission (write error or Close); closed records that Close
 	// has run. Distinct because a write error must not make Close skip the
 	// channel close that reaps the goroutine.
@@ -67,9 +90,7 @@ func (k *KeepaliveWriter) Write(p []byte) (n int, err error) {
 
 	n, err = k.inner.Write(p)
 	k.last = time.Now()
-	if n > 0 {
-		k.atBoundary = bytes.HasSuffix(p[:n], recordSep)
-	}
+	k.noteWritten(p[:n])
 	if !k.armed && !k.stopped && k.interval > 0 {
 		k.armed = true
 		go k.loop()
@@ -134,7 +155,7 @@ func (k *KeepaliveWriter) emitIfSilent() bool {
 	if k.stopped {
 		return false
 	}
-	if !k.atBoundary || time.Since(k.last) < k.interval {
+	if !endsOnBlankLine(k.tail) || time.Since(k.last) < k.interval {
 		return true
 	}
 	if _, err := k.inner.Write(k.frame); err != nil {
@@ -146,6 +167,20 @@ func (k *KeepaliveWriter) emitIfSilent() bool {
 	if k.flusher != nil {
 		k.flusher.Flush()
 	}
+	k.noteWritten(k.frame)
 	k.last = time.Now()
 	return true
+}
+
+// noteWritten keeps the trailing maxRecordSepLen bytes of the client-facing
+// stream, bounded regardless of how large p is.
+func (k *KeepaliveWriter) noteWritten(p []byte) {
+	if len(p) >= maxRecordSepLen {
+		k.tail = append(k.tail[:0], p[len(p)-maxRecordSepLen:]...)
+		return
+	}
+	k.tail = append(k.tail, p...)
+	if len(k.tail) > maxRecordSepLen {
+		k.tail = append(k.tail[:0], k.tail[len(k.tail)-maxRecordSepLen:]...)
+	}
 }
