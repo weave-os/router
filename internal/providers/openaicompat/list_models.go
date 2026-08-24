@@ -6,9 +6,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"sort"
+	"strings"
 
-	"github.com/tidwall/gjson"
 	"workweave/router/internal/providers"
 	"workweave/router/internal/proxy"
 )
@@ -17,15 +16,33 @@ import (
 const maxModelListBytes = 1 << 20
 
 // ListModels fetches GET {base}/models and returns the model IDs the endpoint
-// publishes (OpenAI list shape: {"data":[{"id":...}]}), sorted and deduplicated.
+// publishes, sorted and deduplicated. Gateways that mount their chat surface
+// under /v1 but their catalog above it (Snowflake Cortex serves
+// /api/v2/cortex/models next to /api/v2/cortex/v1/chat/completions) are retried
+// one path segment up on a 404.
 func (c *Client) ListModels(ctx context.Context) ([]string, error) {
 	baseURL := proxy.EffectiveBaseURL(ctx, c.baseURL)
 	if baseURL == "" {
 		return nil, errors.New("no base URL configured for model listing")
 	}
-	upstream, err := http.NewRequestWithContext(ctx, http.MethodGet, baseURL+"/models", nil)
+	ids, status, err := c.listModelsAt(ctx, baseURL+"/models")
+	if status != http.StatusNotFound {
+		return ids, err
+	}
+	root, trimmed := strings.CutSuffix(baseURL, "/v1")
+	if !trimmed {
+		return ids, err
+	}
+	ids, _, err = c.listModelsAt(ctx, root+"/models")
+	return ids, err
+}
+
+// listModelsAt reads one model-list URL, also reporting the upstream status so
+// the caller can decide whether another path is worth trying.
+func (c *Client) listModelsAt(ctx context.Context, listURL string) ([]string, int, error) {
+	upstream, err := http.NewRequestWithContext(ctx, http.MethodGet, listURL, nil)
 	if err != nil {
-		return nil, fmt.Errorf("build model-list request: %w", err)
+		return nil, 0, fmt.Errorf("build model-list request: %w", err)
 	}
 	c.setAuth(ctx, upstream)
 	proxy.ApplyWIFTokenType(ctx, upstream)
@@ -33,41 +50,18 @@ func (c *Client) ListModels(ctx context.Context) ([]string, error) {
 
 	resp, err := c.http.Do(upstream)
 	if err != nil {
-		return nil, fmt.Errorf("model-list call: %w", err)
+		return nil, 0, fmt.Errorf("model-list call: %w", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode >= 400 {
-		return nil, fmt.Errorf("model listing returned status %d", resp.StatusCode)
+		return nil, resp.StatusCode, fmt.Errorf("model listing returned status %d", resp.StatusCode)
 	}
 	body, err := io.ReadAll(io.LimitReader(resp.Body, maxModelListBytes))
 	if err != nil {
-		return nil, fmt.Errorf("read model-list response: %w", err)
+		return nil, resp.StatusCode, fmt.Errorf("read model-list response: %w", err)
 	}
-	return parseModelListIDs(body)
-}
-
-// parseModelListIDs extracts sorted, deduplicated model IDs from an OpenAI-shaped
-// model list body ({"data":[{"id":...}]}).
-func parseModelListIDs(body []byte) ([]string, error) {
-	data := gjson.GetBytes(body, "data")
-	if !data.IsArray() {
-		return nil, errors.New("model listing response has no data array")
-	}
-	seen := make(map[string]struct{})
-	var ids []string
-	for _, entry := range data.Array() {
-		id := entry.Get("id").String()
-		if id == "" {
-			continue
-		}
-		if _, dup := seen[id]; dup {
-			continue
-		}
-		seen[id] = struct{}{}
-		ids = append(ids, id)
-	}
-	sort.Strings(ids)
-	return ids, nil
+	ids, err := providers.ParseModelIDs(body)
+	return ids, resp.StatusCode, err
 }
 
 var _ providers.ModelLister = (*Client)(nil)

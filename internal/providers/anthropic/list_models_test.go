@@ -85,3 +85,24 @@ func TestListModels_UpstreamErrorStatus(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "403")
 }
+
+// Snowflake Cortex speaks the Messages API at {base}/v1/messages but hosts no
+// /v1/models; its catalog lives at {base}/models in a bare-array shape.
+func TestListModels_FallsBackToGatewayCatalogOn404(t *testing.T) {
+	var gotPaths []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPaths = append(gotPaths, r.URL.Path)
+		if r.URL.Path != "/models" {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		_, _ = w.Write([]byte(`{"models":["claude-opus-5","claude-haiku-4-5"]}`))
+	}))
+	defer srv.Close()
+
+	c := anthropic.NewClient("gw-token", srv.URL, anthropic.WithAuthScheme(anthropic.AuthBearer))
+	models, err := c.ListModels(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, []string{"claude-haiku-4-5", "claude-opus-5"}, models)
+	assert.Equal(t, []string{"/v1/models", "/models"}, gotPaths)
+}
