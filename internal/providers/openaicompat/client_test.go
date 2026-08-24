@@ -361,9 +361,8 @@ func TestPassthrough_DefaultHeadersSentOnEveryRequest(t *testing.T) {
 	assert.Equal(t, "required", gotZDR)
 }
 
-// TestProxy_PreparedHeadersOverrideDefaults: per-request prepared headers are
-// applied after defaults, so a translation-layer value wins over the
-// configured default for the same header name.
+// TestProxy_PreparedHeadersOverrideDefaults: per-request prepared headers
+// win over WithDefaultHeaders values for the same key.
 func TestProxy_PreparedHeadersOverrideDefaults(t *testing.T) {
 	var gotHeader string
 

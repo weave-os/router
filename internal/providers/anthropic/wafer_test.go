@@ -40,9 +40,8 @@ func fakeWaferMessages(t *testing.T, got *waferCapture) *httptest.Server {
 	return srv
 }
 
-// TestWaferMessages_SendsBearerAuthZDRAndRewritesModel covers the full Wafer
-// Anthropic-spec contract: bearer auth, the mandatory Wafer-ZDR header, and
-// the router-slug → Wafer model-ID rewrite, all on the /v1/messages path.
+// TestWaferMessages_SendsBearerAuthZDRAndRewritesModel: bearer auth,
+// Wafer-ZDR: required, and router-slug → upstream ID rewrite on /v1/messages.
 func TestWaferMessages_SendsBearerAuthZDRAndRewritesModel(t *testing.T) {
 	var got waferCapture
 	upstream := fakeWaferMessages(t, &got)

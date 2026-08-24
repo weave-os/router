@@ -66,9 +66,8 @@ func (c *Client) WithModelIDMap(modelIDMap map[string]string) *Client {
 	return c
 }
 
-// rewriteModelField rewrites the body's top-level "model" according to
-// modelIDMap. Returns the input unchanged when the map is empty or the model
-// isn't mapped (mirrors openaicompat's rewriteModelField).
+// rewriteModelField rewrites the body's top-level "model" via modelIDMap
+// (mirrors openaicompat's rewriteModelField). Nil map or missing key = no-op.
 func rewriteModelField(body []byte, modelIDMap map[string]string) []byte {
 	if len(modelIDMap) == 0 || len(body) == 0 {
 		return body

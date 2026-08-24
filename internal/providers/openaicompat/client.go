@@ -73,9 +73,8 @@ type Client struct {
 	throughputMinElapsed time.Duration
 	throughputMinDeltas  int
 	throughputOverride   bool
-	// defaultHeaders are set on every upstream request (Proxy + Passthrough)
-	// before prep.Headers / inbound headers apply, so per-request values still
-	// win.
+	// defaultHeaders are set on every upstream request before prep.Headers
+	// apply, so per-request values override them.
 	defaultHeaders http.Header
 	// protectedHeaders are set after prep.Headers / inbound headers apply, so
 	// provider-mandated values cannot be overridden.
