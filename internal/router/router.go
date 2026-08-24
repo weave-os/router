@@ -145,9 +145,7 @@ type Request struct {
 	// aliases are the only thing that can be routed.
 	CustomBindings map[string][]string
 	// GatewayProviders is the installation's BYOK gateway providers. Non-empty
-	// means gateway-exclusive routing: the tenant's own endpoint is the only
-	// upstream, so only models its keys alias are routable and the org's
-	// provider exclusions no longer apply.
+	// means gateway-exclusive routing: only aliased models are routable.
 	GatewayProviders map[string]struct{}
 	// Per-request model exclusion — nil or empty means no exclusion.
 	// If filtering empties eligible set, scorer returns ErrNoEligibleProvider.

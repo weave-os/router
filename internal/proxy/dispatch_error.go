@@ -243,9 +243,8 @@ func ClassifyDispatchError(err error) (DispatchErrorClass, bool) {
 			LogLevel:   "warn",
 			LogMessage: "Invalid routing knobs supplied",
 		}, true
-	// Must precede every policy-unavailable case: an empty candidate set wraps
-	// both sentinels, and reporting the router as down hides the configuration
-	// the caller actually has to fix.
+	// Must precede every policy-unavailable case: ErrGatewayServesNoDeployedModel
+	// also wraps ErrHMMUnavailable, and the more-specific sentinel wins.
 	case errors.Is(err, policy.ErrGatewayServesNoDeployedModel):
 		return DispatchErrorClass{
 			Kind:       DispatchErrorGatewayServesNoModel,

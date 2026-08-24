@@ -301,10 +301,8 @@ func TestEnabledProvidersForRequest_DeploymentKeyedStillCrossSurface(t *testing.
 		"env-keyed providers must remain eligible cross-surface; only passthrough is surface-scoped")
 }
 
-// TestEnabledProvidersForRequest_GatewayKeyDisplacesVendors guards the strict
-// BYOK rule: a tenant that wired its own gateway mandated that endpoint, so no
-// vendor may stay eligible — and their provider exclusions stop mattering,
-// since excluding the vendors was the only lever they previously had.
+// TestEnabledProvidersForRequest_GatewayKeyDisplacesVendors: a tenant's own
+// gateway is the exclusive upstream; no vendor may stay eligible.
 func TestEnabledProvidersForRequest_GatewayKeyDisplacesVendors(t *testing.T) {
 	s := &Service{
 		providers: map[string]providers.Client{

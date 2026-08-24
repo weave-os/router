@@ -16,12 +16,8 @@ func (s *Service) customBindingsForRequest(ctx context.Context) map[string][]str
 	return customBindingsFromKeys(externalKeysFromContext(ctx))
 }
 
-// gatewayProvidersForRequest returns the installation's BYOK gateway providers.
-// A gateway is the tenant's own endpoint, so configuring one makes it the only
-// upstream the router may use — vendor bindings and the org's provider
-// exclusions stop applying. Deployment-level gateway keys are deliberately not
-// included: a self-hosted deployment keyed for a gateway still serves the
-// catalog's own gateway bindings.
+// gatewayProvidersForRequest returns BYOK gateway providers for this request.
+// Deployment-level gateway keys are excluded: they keep serving catalog bindings.
 func (s *Service) gatewayProvidersForRequest(ctx context.Context) map[string]struct{} {
 	return gatewayProvidersFromKeys(externalKeysFromContext(ctx))
 }

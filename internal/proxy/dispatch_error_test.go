@@ -252,10 +252,8 @@ func TestClassifyDispatchError_ReasoningIncompatibleClassifiesAsRoutedModelIncom
 	assert.Equal(t, http.StatusBadGateway, cls.Status)
 }
 
-// TestClassifyDispatchError_GatewayServesNoModel guards the Snowflake outage
-// shape: the sidecar error wraps ErrHMMUnavailable too, and answering "router
-// unavailable" sent the customer looking for an outage instead of the missing
-// aliases on their gateway keys.
+// TestClassifyDispatchError_GatewayServesNoModel: sidecar wraps both sentinels;
+// the specific one must win over the generic "router unavailable" shape.
 func TestClassifyDispatchError_GatewayServesNoModel(t *testing.T) {
 	err := fmt.Errorf("hmm_embedding: no eligible candidate: %w: %w",
 		policy.ErrGatewayServesNoDeployedModel, hmm.ErrHMMUnavailable)
