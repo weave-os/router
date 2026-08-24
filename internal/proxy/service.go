@@ -5159,10 +5159,9 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	// compaction below, or runTurnLoop's switch handover); see toolResultBytesPtr.
 	inboundLastUser := env.LastUserMessage()
 
-	// Proactive context-window compaction, as in ProxyMessages. Native Codex
-	// bodies must skip it because compaction rewrites the chat envelope without
-	// updating that native body; portable candidates are compacted after routing
-	// if the selected provider does not use native Responses.
+	// Proactive context-window compaction, as in ProxyMessages. Skipped for
+	// native bodies (compaction rewrites the envelope without updating the native
+	// copy); portable candidates defer until after routing.
 	var compResOAI compactionResult
 	if !responsesPassthrough && len(responsesBodyCandidate) == 0 {
 		maxEligibleWindowOAI := s.maxEligibleContextWindow(baseExcludedOAI, enabledProviders, env.SignatureTokenSavings())
@@ -5261,9 +5260,8 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 			d.Provider, router.Lookup(d.Model), feats.HasTools)
 	}
 
-	// Portable Responses requests can still use proactive compaction. Defer it
-	// until after routing so native OpenAI reasoning requests retain their exact
-	// input body while other providers receive the compacted chat envelope.
+	// Portable Responses requests defer proactive compaction until after routing;
+	// native OpenAI reasoning keeps the original input, others get compacted chat.
 	if len(responsesBodyCandidate) > 0 && !useNativeResponses(decision) {
 		maxEligibleWindowOAI := s.maxEligibleContextWindow(baseExcludedOAI, enabledProviders, env.SignatureTokenSavings())
 		var compErrOAI error
