@@ -128,9 +128,8 @@ func TestKeepaliveWriter_NeverSplitsARecord(t *testing.T) {
 		"the record must be reassembled intact")
 }
 
-// SSE terminators are CRLF or LF and can straddle two writes. A boundary test
-// that only matched "\n\n" within a single write silently disabled keepalives
-// for both shapes — the exact stall this writer exists to prevent.
+// SSE terminators are CRLF or LF and can straddle two writes; both shapes
+// silently disabled keepalives when the boundary check only matched "\n\n".
 func TestKeepaliveWriter_RecognizesEveryRecordSeparator(t *testing.T) {
 	for _, tc := range []struct {
 		name   string
@@ -216,9 +215,8 @@ func TestKeepaliveWriter_DisabledByNonPositiveInterval(t *testing.T) {
 	assert.Zero(t, pings(rec.body()), "interval <= 0 must disable keepalives")
 }
 
-// waitFor polls cond on the CALLING goroutine. testify's Eventually evaluates
-// its condition in a fresh goroutine, which perturbs the very count the
-// goroutine-leak test measures.
+// waitFor polls on the calling goroutine; testify.Eventually evaluates in a
+// fresh goroutine, which perturbs the goroutine count the leak test measures.
 func waitFor(cond func() bool) bool {
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
