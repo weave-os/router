@@ -2184,6 +2184,12 @@ func (s *Service) PassthroughToNamedProvider(ctx context.Context, providerName s
 		if canon, had, cerr := translate.CanonicalizeModelInBody(body); cerr == nil && had {
 			body = canon
 		}
+		// Same reason as the variant tag above: a provider-qualified id is
+		// valid at ingress and on the routing path, but the native Anthropic
+		// API 404s on it.
+		if bare, had, cerr := translate.StripProviderPrefixInBody(body, providerName); cerr == nil && had {
+			body = bare
+		}
 	}
 
 	var prep providers.PreparedRequest
