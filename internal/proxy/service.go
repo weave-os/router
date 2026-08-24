@@ -160,9 +160,16 @@ type Service struct {
 	// Runs the embedder on ToolResult traffic (majority of turns).
 	scoreToolResultTurns bool
 	// cyberRefusalRepin is the kill switch (ROUTER_CYBER_REFUSAL_REPIN, default
-	// false). When true, a safety refusal on the anthropic-native path re-pins
+	// on). When true, a safety refusal on the anthropic-native path re-pins
 	// the session off the refusing model (opus ~45% refusal rate; sonnet 0%).
+	// Refusal detection itself is unconditional — the flag gates only the action.
 	cyberRefusalRepin bool
+	// anthropicServerSideFallback opts Anthropic-targeted requests into
+	// Anthropic's server-side fallback beta (ROUTER_ANTHROPIC_SERVER_SIDE_FALLBACK,
+	// default on), which re-serves a safety-refused turn on a fallback model
+	// instead of returning the refusal. Rescues the flagged turn itself, which a
+	// post-turn re-pin cannot.
+	anthropicServerSideFallback bool
 
 	// siblingFailover is the kill switch (ROUTER_SIBLING_FAILOVER, default on)
 	// for degrading to a same-cluster candidate when every binding of the
@@ -1231,7 +1238,8 @@ func NewService(r router.Router, providerMap map[string]providers.Client, emitte
 		plannerEnabled:                true,
 		scoreToolResultTurns:          true,
 		loopEscalationEnabled:         true,
-		cyberRefusalRepin:             false,
+		cyberRefusalRepin:             true,
+		anthropicServerSideFallback:   true,
 		siblingFailover:               true,
 		cyberRefusalFallbackModel:     "claude-sonnet-5",
 	}
@@ -1274,10 +1282,18 @@ func (s *Service) WithScoreToolResultTurns(enabled bool) *Service {
 	return s
 }
 
-// WithCyberRefusalRepin is the kill switch for the cyber-refusal re-pin backstop
+// WithCyberRefusalRepin is the kill switch for the safety-refusal re-pin backstop
 // (ROUTER_CYBER_REFUSAL_REPIN); see cyberRefusalRepin.
 func (s *Service) WithCyberRefusalRepin(enabled bool) *Service {
 	s.cyberRefusalRepin = enabled
+	return s
+}
+
+// WithAnthropicServerSideFallback is the kill switch for Anthropic's
+// server-side fallback beta (ROUTER_ANTHROPIC_SERVER_SIDE_FALLBACK); see
+// anthropicServerSideFallback.
+func (s *Service) WithAnthropicServerSideFallback(enabled bool) *Service {
+	s.anthropicServerSideFallback = enabled
 	return s
 }
 
@@ -2270,6 +2286,10 @@ func (s *Service) anthropicNativeAttempt(
 	}
 }
 
+// anthropicRefusalStopReason is Anthropic's stop_reason for a turn its safety
+// classifiers decline (HTTP 200).
+const anthropicRefusalStopReason = "refusal"
+
 // refusalScanCap bounds how many response bytes a refusalObserver accumulates
 // while scanning for a safety-refusal signal. A refusal surfaces in the opening
 // events, so a small window catches it without buffering a whole response.
@@ -2286,9 +2306,13 @@ const refusalScanOverlap = 32
 // because the native path has no translator Summary to read from.
 // See detectRefusalSignal.
 type refusalObserver struct {
-	inner   http.ResponseWriter
-	buf     []byte
-	refused bool
+	inner http.ResponseWriter
+	buf   []byte
+	// refused reports a safety refusal in the observed prefix; category is
+	// Anthropic's refusal category (cyber, reasoning_extraction, ...) when the
+	// response carried one, else empty.
+	refused  bool
+	category string
 }
 
 func newRefusalObserver(inner http.ResponseWriter) *refusalObserver {
@@ -2317,6 +2341,9 @@ func (o *refusalObserver) Write(p []byte) (int, error) {
 		}
 		if detectRefusalSignal(o.buf[scanFrom:]) {
 			o.refused = true
+			// Scan the whole prefix for the category: it may sit before the
+			// signal that tripped detection.
+			o.category = refusalCategory(o.buf)
 		}
 	}
 	return o.inner.Write(p)
@@ -2339,10 +2366,58 @@ func detectRefusalSignal(b []byte) bool {
 	return bytes.Contains(bytes.ToLower(b), []byte("safeguards flagged"))
 }
 
+// refusalCategoryMaxLen bounds a plausible category token, so a malformed or
+// adversarial response can't turn an unterminated field into a log-field blob.
+const refusalCategoryMaxLen = 64
+
+// refusalCategoryKeys are the JSON fields Anthropic carries the refusal
+// category in; the rendered client-facing text carries it as `[category]`
+// after "Details: " instead.
+var refusalCategoryKeys = [][]byte{
+	[]byte(`"api_refusal_category":"`),
+	[]byte(`"refusal_category":"`),
+	[]byte(`"category":"`),
+}
+
+// refusalCategory extracts Anthropic's refusal category (cyber,
+// reasoning_extraction, ...) from an observed response prefix. Empty when the
+// response carries none — the category is telemetry, never a control signal.
+func refusalCategory(b []byte) string {
+	for _, key := range refusalCategoryKeys {
+		if v, ok := delimitedValue(b, key, '"'); ok {
+			return v
+		}
+	}
+	if v, ok := delimitedValue(b, []byte("Details: ["), ']'); ok {
+		return v
+	}
+	return ""
+}
+
+// delimitedValue returns the bytes between the first occurrence of prefix and
+// the next end byte, when non-empty and within refusalCategoryMaxLen.
+func delimitedValue(b, prefix []byte, end byte) (string, bool) {
+	i := bytes.Index(b, prefix)
+	if i < 0 {
+		return "", false
+	}
+	rest := b[i+len(prefix):]
+	j := bytes.IndexByte(rest, end)
+	if j <= 0 || j > refusalCategoryMaxLen {
+		return "", false
+	}
+	return string(rest[:j]), true
+}
+
 // maybeRepinOnRefusal re-pins the session off the refusing model post-turn
 // so subsequent turns route to a non-refusing model.
 func (s *Service) maybeRepinOnRefusal(ctx context.Context, obs *refusalObserver, sessionKey [sessionpin.SessionKeyLen]byte, role string, served router.Decision) {
 	if obs == nil || !obs.refused || s.pinStore == nil {
+		return
+	}
+	// Detection is unconditional so refusals stay measurable; the flag gates
+	// only the re-pin action.
+	if !s.ResolveCyberRefusalRepin(ctx) {
 		return
 	}
 	installationID := installationIDFromContext(ctx)
@@ -2372,8 +2447,8 @@ func (s *Service) maybeRepinOnRefusal(ctx context.Context, obs *refusalObserver,
 		}
 	}
 	if fbModel == "" || fbProvider == "" || fbModel == served.Model {
-		log.Warn("cyber refusal observed but no distinct fallback model available; not re-pinning",
-			"from_model", served.Model, "fallback_model", fbModel)
+		log.Warn("safety refusal observed but no distinct fallback model available; not re-pinning",
+			"from_model", served.Model, "fallback_model", fbModel, "refusal_category", obs.category)
 		return
 	}
 	pin := sessionpin.Pin{
@@ -2392,8 +2467,9 @@ func (s *Service) maybeRepinOnRefusal(ctx context.Context, obs *refusalObserver,
 		log.Error("cyber-refusal re-pin: pin upsert failed", "err", err, "from_model", served.Model, "to_model", fbModel)
 		return
 	}
-	log.Info("cyber refusal — re-pinned session off refusing model",
+	log.Info("safety refusal — re-pinned session off refusing model",
 		"session_key", shortSessionKey(sessionKey),
+		"refusal_category", obs.category,
 		"from_model", served.Model,
 		"to_model", fbModel,
 		"to_provider", fbProvider)
@@ -2924,6 +3000,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		SessionAffinity:                   sessionAffinityHint(routeRes.SessionKey),
 		ModelSwitched:                     routeRes.modelSwitched(),
 		EnableExtendedContext:             shouldEnableExtendedContext(env.FullTokenEstimate(), outputReserve),
+		EnableServerSideFallback:          s.ResolveAnthropicServerSideFallback(ctx),
 		KeepCrossVendorOrchestrationTools: s.ccOrchToolsCrossVendor,
 	}
 	// User-forced effort wins over effortEscalation; also pre-populate
@@ -3001,12 +3078,12 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		captureW = newCaptureWriter(rootSink, semanticCacheMaxBodyBytes)
 		sink = captureW
 	}
-	// Wrap sink to observe refusals on the native path (no translator Summary here).
-	var refusalObs *refusalObserver
-	if s.ResolveCyberRefusalRepin(ctx) {
-		refusalObs = newRefusalObserver(sink)
-		sink = refusalObs
-	}
+	// Wrap sink to observe refusals on the native path (no translator Summary
+	// here). Unconditional: the completion log and routing_decisions row are the
+	// only place a refusal is measurable on this path, so detection must not
+	// depend on the re-pin action's kill switch.
+	refusalObs := newRefusalObserver(sink)
+	sink = refusalObs
 
 	proxyStart := time.Now()
 	var proxyErr error
@@ -3564,6 +3641,13 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 
 	proxyMs := time.Since(proxyStart).Milliseconds()
 
+	// The anthropic-native path has no translator Summary, so a refusal there
+	// would otherwise never reach the completion log or the routing_decisions
+	// row — exactly the path Anthropic's safety classifiers fire on.
+	if refusalObs.refused && respSummary.StopReason == "" {
+		respSummary.StopReason = anthropicRefusalStopReason
+	}
+
 	in, out := extractor.Tokens()
 	cacheCreation, cacheRead := extractor.CacheTokens()
 	upstreamBuilder := otel.NewAttrBuilder(40).
@@ -3582,6 +3666,8 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		String("routing.turn_type", string(routeRes.TurnType)).
 		String("upstream.finish_reason", respSummary.UpstreamFinishReason).
 		String("upstream.stop_reason", respSummary.StopReason).
+		Bool("upstream.refusal", refusalObs.refused).
+		String("upstream.refusal_category", refusalObs.category).
 		Int64("usage.input_tokens", int64(in)).
 		Int64("usage.output_tokens", int64(out)).
 		Int64("usage.cache_creation_input_tokens", int64(cacheCreation)).
@@ -3765,7 +3851,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			s.maybeDisableProviderAfterOverload(ctx, stickyHit, proxyErr, finalProvider, decision.Reason, installationID, routeRes.SessionKey, stickyStateRole(routeRes), routeRes.PinRole)
 		}
 
-		// Re-pin the session off the refusing model if a cyber refusal was observed.
+		// Re-pin the session off the refusing model if a safety refusal was observed.
 		s.maybeRepinOnRefusal(ctx, refusalObs, routeRes.SessionKey, stickyStateRole(routeRes), decision)
 	}
 
@@ -3784,7 +3870,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		)
 	}
 
-	log.Info("ProxyMessages complete", append([]any{"requested_model", feats.Model, "baseline_model", s.baselineFor(feats.Model), "decision_model", decision.Model, "decision_provider", decision.Provider, "primary_provider", primaryProvider, "fallback_attempts", winnerIdx, "failover_used", finalProvider != primaryProvider || subscriptionFailoverUsed || siblingFailoverUsed, "subscription_failover", subscriptionFailoverUsed, "decision_reason", decision.Reason, "requested_tier", routeRes.RequestedTier.String(), "decision_tier", catalog.TierFor(decision.Model).String(), "embedded_tokens", len(promptText) / 4, "total_input_tokens", feats.Tokens, "has_tools", feats.HasTools, "message_count", feats.MessageCount, "last_kind", feats.LastKind, "last_preview", feats.LastPreview, "embed_input", embedInput, "cross_format", crossFormat, "sticky_hit", stickyHit, "route_ms", routeMs, "proxy_ms", proxyMs, "proxy_err", proxyErr, "upstream_err_body", providers.UpstreamErrorBodyMessage(proxyErr), "upstream_status", upstreamStatus(proxyErr), "upstream_finish_reason", respSummary.UpstreamFinishReason, "resp_stop_reason", respSummary.StopReason, "stop_reason_promoted", respSummary.StopReasonPromoted, "tool_use_blocks", respSummary.ToolUseBlocks, "invalid_tool_args_blocks", respSummary.InvalidToolArgsBlocks, "text_only_turn_nudged", respSummary.TextOnlyTurnNudged, "stop_reason_demoted", respSummary.StopReasonDemoted, "suppressed_tool_calls", respSummary.SuppressedToolCalls, "tool_call_invalid_blocks", len(respSummary.ToolCallIssues), "cc_only_tools_stripped", reqStats.CCOnlyToolsStripped, "gemini_reminder_injected", reqStats.GeminiReminderInjected, "gemini_validated_tool_mode", reqStats.GeminiValidatedToolMode, "resp_output_tokens", respSummary.OutputTokens, "prelude_committed", preludeBuf.Committed(), "routing_marker", marker, "prior_served_model", routeRes.PriorServedModel, "hard_pinned", routeRes.HardPinned}, plannerLogFields(routeRes)...)...)
+	log.Info("ProxyMessages complete", append([]any{"requested_model", feats.Model, "baseline_model", s.baselineFor(feats.Model), "decision_model", decision.Model, "decision_provider", decision.Provider, "primary_provider", primaryProvider, "fallback_attempts", winnerIdx, "failover_used", finalProvider != primaryProvider || subscriptionFailoverUsed || siblingFailoverUsed, "subscription_failover", subscriptionFailoverUsed, "decision_reason", decision.Reason, "requested_tier", routeRes.RequestedTier.String(), "decision_tier", catalog.TierFor(decision.Model).String(), "embedded_tokens", len(promptText) / 4, "total_input_tokens", feats.Tokens, "has_tools", feats.HasTools, "message_count", feats.MessageCount, "last_kind", feats.LastKind, "last_preview", feats.LastPreview, "embed_input", embedInput, "cross_format", crossFormat, "sticky_hit", stickyHit, "route_ms", routeMs, "proxy_ms", proxyMs, "proxy_err", proxyErr, "upstream_err_body", providers.UpstreamErrorBodyMessage(proxyErr), "upstream_status", upstreamStatus(proxyErr), "upstream_finish_reason", respSummary.UpstreamFinishReason, "resp_stop_reason", respSummary.StopReason, "resp_refusal", refusalObs.refused, "resp_refusal_category", refusalObs.category, "stop_reason_promoted", respSummary.StopReasonPromoted, "tool_use_blocks", respSummary.ToolUseBlocks, "invalid_tool_args_blocks", respSummary.InvalidToolArgsBlocks, "text_only_turn_nudged", respSummary.TextOnlyTurnNudged, "stop_reason_demoted", respSummary.StopReasonDemoted, "suppressed_tool_calls", respSummary.SuppressedToolCalls, "tool_call_invalid_blocks", len(respSummary.ToolCallIssues), "cc_only_tools_stripped", reqStats.CCOnlyToolsStripped, "gemini_reminder_injected", reqStats.GeminiReminderInjected, "gemini_validated_tool_mode", reqStats.GeminiValidatedToolMode, "resp_output_tokens", respSummary.OutputTokens, "prelude_committed", preludeBuf.Committed(), "routing_marker", marker, "prior_served_model", routeRes.PriorServedModel, "hard_pinned", routeRes.HardPinned}, plannerLogFields(routeRes)...)...)
 	policyRespBody, policyRespTrunc := capturedResponse(policyOutcomeCap)
 	var policyResp *policyOutcomeResponse
 	if policyOutcomeCap != nil {
@@ -5226,13 +5312,14 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	otel.Flush(ctx)
 
 	opts := translate.EmitOptions{
-		TargetModel:           decision.Model,
-		TargetProvider:        decision.Provider,
-		Capabilities:          router.Lookup(decision.Model),
-		IncludeStreamUsage:    s.usageRequired(),
-		SessionAffinity:       sessionAffinityHint(routeRes.SessionKey),
-		ModelSwitched:         routeRes.modelSwitched(),
-		EnableExtendedContext: shouldEnableExtendedContext(env.FullTokenEstimate(), outputReserveOAI),
+		TargetModel:              decision.Model,
+		TargetProvider:           decision.Provider,
+		Capabilities:             router.Lookup(decision.Model),
+		IncludeStreamUsage:       s.usageRequired(),
+		SessionAffinity:          sessionAffinityHint(routeRes.SessionKey),
+		EnableServerSideFallback: s.ResolveAnthropicServerSideFallback(ctx),
+		ModelSwitched:            routeRes.modelSwitched(),
+		EnableExtendedContext:    shouldEnableExtendedContext(env.FullTokenEstimate(), outputReserveOAI),
 	}
 	if knobs := routingKnobsForRequest(ctx); knobs != nil && knobs.ForceEffort != "" {
 		opts.ForceEffort = knobs.ForceEffort

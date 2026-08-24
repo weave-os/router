@@ -570,11 +570,13 @@ func main() {
 	// below can be overridden per deployment.
 	plannerEnabled := config.GetOr("ROUTER_PLANNER_ENABLED", "true") == "true"
 	scoreToolResultTurns := config.GetOr("ROUTER_SCORE_TOOL_RESULT_TURNS", "true") == "true"
-	// Defensive backstop for Anthropic's cyber safety classifier: re-pin a
-	// session off a model that returned a safety refusal. Default off; enabled
-	// on the defensive deploy. Fallback target when the pin has no runner-up.
-	cyberRefusalRepin := config.GetOr("ROUTER_CYBER_REFUSAL_REPIN", "false") == "true"
+	// Defensive backstop for Anthropic's safety classifiers (cyber,
+	// reasoning_extraction, ...): re-pin a session off a model that returned a
+	// safety refusal, and ask Anthropic to re-serve the refused turn itself.
+	// Fallback target is used when the pin carries no runner-up.
+	cyberRefusalRepin := config.GetOr("ROUTER_CYBER_REFUSAL_REPIN", "true") == "true"
 	cyberRefusalFallbackModel := config.GetOr("ROUTER_CYBER_REFUSAL_FALLBACK_MODEL", "claude-sonnet-5")
+	anthropicServerSideFallback := config.GetOr("ROUTER_ANTHROPIC_SERVER_SIDE_FALLBACK", "true") == "true"
 	effortEscalation := config.GetOr("ROUTER_EFFORT_ESCALATION", "false") == "true"
 	// Kill switch for degrading to a same-cluster candidate when the routed
 	// model's bindings are all exhausted by a transient upstream fault.
@@ -842,6 +844,7 @@ func main() {
 		flags.KeyEffortEscalation:          boolDefault(effortEscalation),
 		flags.KeyCyberRefusalRepin:         boolDefault(cyberRefusalRepin),
 		flags.KeyCyberRefusalFallback:      cyberRefusalFallbackModel,
+		flags.KeyAnthropicServerFallback:   boolDefault(anthropicServerSideFallback),
 		flags.KeyEmbedOnlyUserMessage:      boolDefault(embedOnlyUser),
 	})
 
@@ -868,6 +871,7 @@ func main() {
 		WithScoreToolResultTurns(scoreToolResultTurns).
 		WithCyberRefusalRepin(cyberRefusalRepin).
 		WithCyberRefusalFallbackModel(cyberRefusalFallbackModel).
+		WithAnthropicServerSideFallback(anthropicServerSideFallback).
 		WithSiblingFailover(siblingFailover).
 		WithSSEKeepalive(sseKeepalive).
 		WithPrefixTrimFreeSwitch(prefixTrimFreeSwitch).

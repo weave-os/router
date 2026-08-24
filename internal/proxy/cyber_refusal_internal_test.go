@@ -74,6 +74,40 @@ event: message_delta
 data: {"type":"message_delta","delta":{"stop_reason":"end_turn","stop_sequence":null}}
 `
 
+func TestRefusalCategory(t *testing.T) {
+	cases := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{"api_refusal_category", `{"api_refusal_category":"reasoning_extraction"}`, "reasoning_extraction"},
+		{"rendered client text", "safeguards flagged this message. Details: [reasoning_extraction] Request ID: req_1", "reasoning_extraction"},
+		{"no category", `"stop_reason":"refusal"`, ""},
+		{"unterminated field", `{"api_refusal_category":"cyber`, ""},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := refusalCategory([]byte(c.in)); got != c.want {
+				t.Fatalf("refusalCategory(%q) = %q, want %q", c.in, got, c.want)
+			}
+		})
+	}
+}
+
+func TestRefusalObserver_CapturesCategory(t *testing.T) {
+	rec := httptest.NewRecorder()
+	obs := newRefusalObserver(rec)
+	if _, err := obs.Write([]byte(`data: {"type":"message_delta","delta":{"stop_reason":"refusal","api_refusal_category":"reasoning_extraction"}}`)); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	if !obs.refused {
+		t.Fatal("refusal not detected")
+	}
+	if obs.category != "reasoning_extraction" {
+		t.Fatalf("category = %q, want reasoning_extraction", obs.category)
+	}
+}
+
 func TestDetectRefusalSignal(t *testing.T) {
 	cases := []struct {
 		name string
@@ -134,7 +168,7 @@ func repinCtx() context.Context {
 
 func TestMaybeRepinOnRefusal_RepinsToFallbackModel(t *testing.T) {
 	store := &repinFakeStore{} // no existing pin -> no PairedModel
-	s := &Service{pinStore: store, cyberRefusalFallbackModel: "claude-sonnet-5"}
+	s := &Service{pinStore: store, cyberRefusalRepin: true, cyberRefusalFallbackModel: "claude-sonnet-5"}
 	obs := &refusalObserver{refused: true}
 	served := router.Decision{Provider: "anthropic", Model: "claude-opus-4-8"}
 
@@ -160,7 +194,7 @@ func TestMaybeRepinOnRefusal_PrefersPairedModel(t *testing.T) {
 		hasPin: true,
 		getPin: sessionpin.Pin{PairedModel: "claude-haiku-4-5", PairedProvider: "anthropic"},
 	}
-	s := &Service{pinStore: store, cyberRefusalFallbackModel: "claude-sonnet-5"}
+	s := &Service{pinStore: store, cyberRefusalRepin: true, cyberRefusalFallbackModel: "claude-sonnet-5"}
 	obs := &refusalObserver{refused: true}
 	served := router.Decision{Provider: "anthropic", Model: "claude-opus-4-8"}
 
@@ -181,9 +215,9 @@ func TestMaybeRepinOnRefusal_NoOpCases(t *testing.T) {
 	served := router.Decision{Provider: "anthropic", Model: "claude-opus-4-8"}
 	key := [sessionpin.SessionKeyLen]byte{7}
 
-	t.Run("nil observer (flag off)", func(t *testing.T) {
+	t.Run("nil observer", func(t *testing.T) {
 		store := &repinFakeStore{}
-		s := &Service{pinStore: store, cyberRefusalFallbackModel: "claude-sonnet-5"}
+		s := &Service{pinStore: store, cyberRefusalRepin: true, cyberRefusalFallbackModel: "claude-sonnet-5"}
 		s.maybeRepinOnRefusal(repinCtx(), nil, key, "main_loop", served)
 		if len(store.upserts) != 0 {
 			t.Fatalf("nil observer should not re-pin, got %d upserts", len(store.upserts))
@@ -192,16 +226,25 @@ func TestMaybeRepinOnRefusal_NoOpCases(t *testing.T) {
 
 	t.Run("no refusal observed", func(t *testing.T) {
 		store := &repinFakeStore{}
-		s := &Service{pinStore: store, cyberRefusalFallbackModel: "claude-sonnet-5"}
+		s := &Service{pinStore: store, cyberRefusalRepin: true, cyberRefusalFallbackModel: "claude-sonnet-5"}
 		s.maybeRepinOnRefusal(repinCtx(), &refusalObserver{refused: false}, key, "main_loop", served)
 		if len(store.upserts) != 0 {
 			t.Fatalf("no refusal should not re-pin, got %d upserts", len(store.upserts))
 		}
 	})
 
+	t.Run("re-pin disabled", func(t *testing.T) {
+		store := &repinFakeStore{}
+		s := &Service{pinStore: store, cyberRefusalRepin: false, cyberRefusalFallbackModel: "claude-sonnet-5"}
+		s.maybeRepinOnRefusal(repinCtx(), &refusalObserver{refused: true}, key, "main_loop", served)
+		if len(store.upserts) != 0 {
+			t.Fatalf("re-pin disabled should not upsert, got %d", len(store.upserts))
+		}
+	})
+
 	t.Run("served model already the fallback", func(t *testing.T) {
 		store := &repinFakeStore{}
-		s := &Service{pinStore: store, cyberRefusalFallbackModel: "claude-sonnet-5"}
+		s := &Service{pinStore: store, cyberRefusalRepin: true, cyberRefusalFallbackModel: "claude-sonnet-5"}
 		alreadyFallback := router.Decision{Provider: "anthropic", Model: "claude-sonnet-5"}
 		s.maybeRepinOnRefusal(repinCtx(), &refusalObserver{refused: true}, key, "main_loop", alreadyFallback)
 		if len(store.upserts) != 0 {

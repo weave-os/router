@@ -61,6 +61,10 @@ type EmitOptions struct {
 	// instead of 200K, avoiding a 400 "prompt is too long" on large requests.
 	// No-op below 200K input. deriveAnthropicHeaders gates on CapExtendedContext.
 	EnableExtendedContext bool
+	// EnableServerSideFallback opts an Anthropic-targeted request into
+	// Anthropic re-serving a safety-refused turn on a fallback model. Ignored
+	// for non-first-party Anthropic targets; see applyServerSideFallback.
+	EnableServerSideFallback bool
 	// KeepCrossVendorOrchestrationTools preserves CC orchestration tools
 	// (Task*, Workflow, Skill, plan-mode) on cross-vendor emit; other CC-only
 	// tools are always stripped. Set from ROUTER_CC_ORCH_TOOLS_CROSSVENDOR;

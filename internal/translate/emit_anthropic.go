@@ -35,6 +35,10 @@ func (e *RequestEnvelope) PrepareAnthropic(in http.Header, opts EmitOptions) (pr
 	if err != nil {
 		return providers.PreparedRequest{}, err
 	}
+	body, err = applyServerSideFallback(body, opts)
+	if err != nil {
+		return providers.PreparedRequest{}, err
+	}
 	return providers.PreparedRequest{Body: body, Headers: deriveAnthropicHeaders(in, opts, body)}, nil
 }
 
@@ -52,6 +56,9 @@ func deriveAnthropicHeaders(in http.Header, opts EmitOptions, body []byte) http.
 	if gjson.GetBytes(body, "context_management").Exists() {
 		beta = ensureBetaToken(beta, contextManagementBeta)
 	}
+	if gjson.GetBytes(body, "fallbacks").Exists() {
+		beta = ensureBetaToken(beta, serverSideFallbackBeta)
+	}
 	if beta != "" {
 		h.Set("anthropic-beta", beta)
 	}
@@ -63,6 +70,27 @@ func deriveAnthropicHeaders(in http.Header, opts EmitOptions, body []byte) http.
 const context1MBeta = "context-1m-2025-08-07"
 
 const contextManagementBeta = "context-management-2025-06-27"
+
+// serverSideFallbackBeta opts a request into Anthropic re-serving a
+// safety-refused turn on a fallback model instead of returning the refusal.
+// First-party Anthropic only: no gateway binding documents the field, and an
+// unknown top-level key is a 400 there.
+const serverSideFallbackBeta = "server-side-fallback-2026-07-01"
+
+// applyServerSideFallback asks Anthropic to re-serve a turn its safety
+// classifiers decline (stop_reason "refusal" on HTTP 200) on a fallback model.
+// Such a refusal is otherwise terminal for the turn: the router only observes
+// it once the response is already streaming, so it can re-pin the session for
+// the next turn but never rescue the flagged one. A client-supplied
+// "fallbacks" is left untouched.
+func applyServerSideFallback(body []byte, opts EmitOptions) ([]byte, error) {
+	if !opts.EnableServerSideFallback ||
+		opts.TargetProvider != providers.ProviderAnthropic ||
+		gjson.GetBytes(body, "fallbacks").Exists() {
+		return body, nil
+	}
+	return sjson.SetBytes(body, "fallbacks", "default")
+}
 
 // ensureBetaToken appends token to a comma-separated anthropic-beta list when
 // absent, preserving any tokens the client already sent.

@@ -59,6 +59,7 @@ const (
 	KeyEffortEscalation          Key = "effort_escalation"
 	KeyCyberRefusalRepin         Key = "cyber_refusal_repin"
 	KeyCyberRefusalFallback      Key = "cyber_refusal_fallback_model"
+	KeyAnthropicServerFallback   Key = "anthropic_server_side_fallback"
 	KeyEmbedOnlyUserMessage      Key = "embed_only_user_message"
 )
 
@@ -79,7 +80,7 @@ type Definition struct {
 // RegistryVersion changes whenever Registry's membership changes. Publish uses
 // it to make pruning safe during rolling deploys: a revision with an older
 // registry version may not delete definitions published by a newer revision.
-const RegistryVersion = 1
+const RegistryVersion = 2
 
 // Registry is the curated allowlist of flags that may carry a per-organization
 // override. It is deliberately explicit rather than derived from the env var
@@ -182,14 +183,21 @@ var Registry = []Definition{
 		Key:            KeyCyberRefusalRepin,
 		EnvVar:         "ROUTER_CYBER_REFUSAL_REPIN",
 		Kind:           KindBool,
-		Description:    "Re-pin a session off a model that returned a cyber safety refusal.",
+		Description:    "Re-pin a session off a model that returned a safety refusal (cyber, reasoning_extraction, ...).",
 		OrgOverridable: true,
 	},
 	{
 		Key:            KeyCyberRefusalFallback,
 		EnvVar:         "ROUTER_CYBER_REFUSAL_FALLBACK_MODEL",
 		Kind:           KindString,
-		Description:    "Fallback model for a cyber-refusal re-pin with no runner-up.",
+		Description:    "Fallback model for a safety-refusal re-pin with no runner-up.",
+		OrgOverridable: true,
+	},
+	{
+		Key:            KeyAnthropicServerFallback,
+		EnvVar:         "ROUTER_ANTHROPIC_SERVER_SIDE_FALLBACK",
+		Kind:           KindBool,
+		Description:    "Ask Anthropic to re-serve a safety-refused turn on a fallback model instead of returning the refusal.",
 		OrgOverridable: true,
 	},
 	{

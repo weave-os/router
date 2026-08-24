@@ -88,14 +88,20 @@ func (s *Service) ResolveEffortEscalation(ctx context.Context) bool {
 	return flags.BoolOr(ctx, flags.KeyEffortEscalation, s.effortEscalation)
 }
 
-// ResolveCyberRefusalRepin reports whether a cyber safety refusal re-pins the
+// ResolveCyberRefusalRepin reports whether a safety refusal re-pins the
 // session off the refusing model.
 func (s *Service) ResolveCyberRefusalRepin(ctx context.Context) bool {
 	return flags.BoolOr(ctx, flags.KeyCyberRefusalRepin, s.cyberRefusalRepin)
 }
 
-// ResolveCyberRefusalFallbackModel returns the model to re-pin to on a cyber
+// ResolveCyberRefusalFallbackModel returns the model to re-pin to on a safety
 // refusal with no runner-up.
 func (s *Service) ResolveCyberRefusalFallbackModel(ctx context.Context) string {
 	return flags.StringOr(ctx, flags.KeyCyberRefusalFallback, s.cyberRefusalFallbackModel)
+}
+
+// ResolveAnthropicServerSideFallback reports whether Anthropic-targeted
+// requests ask Anthropic to re-serve a safety-refused turn on a fallback model.
+func (s *Service) ResolveAnthropicServerSideFallback(ctx context.Context) bool {
+	return flags.BoolOr(ctx, flags.KeyAnthropicServerFallback, s.anthropicServerSideFallback)
 }
