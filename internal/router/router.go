@@ -141,8 +141,14 @@ type Request struct {
 	EnabledProviders map[string]struct{}
 	// CustomBindings maps catalog model ID to configuration-declared providers
 	// (from a key's model_aliases). They rank after catalog bindings, so a
-	// wired direct vendor still wins.
+	// wired direct vendor still wins — except under GatewayProviders, where the
+	// aliases are the only thing that can be routed.
 	CustomBindings map[string][]string
+	// GatewayProviders is the installation's BYOK gateway providers. Non-empty
+	// means gateway-exclusive routing: the tenant's own endpoint is the only
+	// upstream, so only models its keys alias are routable and the org's
+	// provider exclusions no longer apply.
+	GatewayProviders map[string]struct{}
 	// Per-request model exclusion — nil or empty means no exclusion.
 	// If filtering empties eligible set, scorer returns ErrNoEligibleProvider.
 	// Full union: installation excluded_models plus request-time safety filters.

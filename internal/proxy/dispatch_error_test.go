@@ -251,3 +251,41 @@ func TestClassifyDispatchError_ReasoningIncompatibleClassifiesAsRoutedModelIncom
 	assert.Equal(t, proxy.DispatchErrorRoutedModelIncompatible, cls.Kind)
 	assert.Equal(t, http.StatusBadGateway, cls.Status)
 }
+
+// TestClassifyDispatchError_GatewayServesNoModel guards the Snowflake outage
+// shape: the sidecar error wraps ErrHMMUnavailable too, and answering "router
+// unavailable" sent the customer looking for an outage instead of the missing
+// aliases on their gateway keys.
+func TestClassifyDispatchError_GatewayServesNoModel(t *testing.T) {
+	err := fmt.Errorf("hmm_embedding: no eligible candidate: %w: %w",
+		policy.ErrGatewayServesNoDeployedModel, hmm.ErrHMMUnavailable)
+
+	cls, ok := proxy.ClassifyDispatchError(err)
+
+	require.True(t, ok)
+	assert.Equal(t, proxy.DispatchErrorGatewayServesNoModel, cls.Kind)
+	assert.Equal(t, http.StatusBadRequest, cls.Status)
+	assert.Contains(t, cls.Message, "model aliases")
+	assert.False(t, cls.RetryAfter, "retrying cannot fix a configuration that routes nowhere")
+	assert.True(t, cls.Kind.IsClientError())
+}
+
+func TestClassifyDispatchError_NoRoutableModels(t *testing.T) {
+	err := fmt.Errorf("hmm_embedding: no eligible candidate: %w: %w",
+		policy.ErrNoRoutableModels, hmm.ErrHMMUnavailable)
+
+	cls, ok := proxy.ClassifyDispatchError(err)
+
+	require.True(t, ok)
+	assert.Equal(t, proxy.DispatchErrorNoRoutableModels, cls.Kind)
+	assert.Equal(t, http.StatusBadRequest, cls.Status)
+	assert.False(t, cls.RetryAfter)
+}
+
+func TestClassifyDispatchError_HMMUnavailableStaysAnOutage(t *testing.T) {
+	cls, ok := proxy.ClassifyDispatchError(fmt.Errorf("hmm: sidecar decide: %w", hmm.ErrHMMUnavailable))
+
+	require.True(t, ok)
+	assert.Equal(t, proxy.DispatchErrorHMMUnavailable, cls.Kind)
+	assert.Equal(t, http.StatusServiceUnavailable, cls.Status)
+}

@@ -80,6 +80,21 @@ and `ROUTER_EXCLUDED_MODELS` (an operator escape hatch that short-circuits
 `excludedModelsForRequest` entirely; intentional, so an operator debugging a
 deployment is not constrained by one org's config).
 
+**A BYOK gateway overrides all of it.** When the installation has its own
+gateway key (`anthropic_gateway` / `openai_gateway`),
+`enabledProvidersForRequest` returns only those gateways and
+`router.Request.GatewayProviders` puts the resolver in gateway-exclusive mode:
+vendor bindings are dropped, `excluded_providers` becomes a no-op, and the only
+routable models are the ones a gateway key's `model_aliases` names. A tenant
+that wired its own endpoint mandated it — routing around it is a compliance
+break, and excluding every vendor by hand (the old lever) is what silently
+emptied one org's candidate set. A key with no aliases therefore serves
+nothing: resolution comes back empty with `ExclusionGatewayNotServed` and
+dispatch answers `policy.ErrGatewayServesNoDeployedModel` (HTTP 400, "add
+aliases") instead of reporting the router as unavailable. Deployment-keyed
+gateways are excluded from this: a self-hosted deployment keyed for a gateway
+still serves the catalog's own gateway bindings.
+
 ## Translation
 
 `proxy.Service` is the **only caller of [`../translate`](../translate)**. Keep providers ignorant of cross-format concerns. See [translate/CLAUDE.md](../translate/CLAUDE.md) for the recipe.

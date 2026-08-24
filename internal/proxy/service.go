@@ -2743,6 +2743,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		ClientSessionID:      env.ClientSessionID(),
 		EnabledProviders:     enabledProviders,
 		CustomBindings:       s.customBindingsForRequest(ctx),
+		GatewayProviders:     s.gatewayProvidersForRequest(ctx),
 		ExcludedModels:       excluded,
 		AllowedModels:        allowedModelsForRequest(ctx),
 		SafetyExcludedModels: s.safetyExcludedModels(env, outputReserve, enabledProviders),
@@ -4562,6 +4563,13 @@ func (s *Service) enabledProvidersForRequest(ctx context.Context, surfaceProvide
 	for p := range s.excludedProvidersForRequest(ctx) {
 		delete(out, p)
 	}
+	// A BYOK gateway is the tenant's own endpoint and displaces every other
+	// upstream: routing through a vendor would send their traffic outside the
+	// gateway they mandated. Applied last so no enrollment path above can
+	// re-admit a vendor, and their provider exclusions become moot.
+	if gateways := s.gatewayProvidersForRequest(ctx); len(gateways) > 0 {
+		return gateways
+	}
 	return out
 }
 
@@ -5206,6 +5214,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		ClientSessionID:      env.ClientSessionID(),
 		EnabledProviders:     enabledProviders,
 		CustomBindings:       s.customBindingsForRequest(ctx),
+		GatewayProviders:     s.gatewayProvidersForRequest(ctx),
 		ExcludedModels:       excludedOAI,
 		AllowedModels:        allowedModelsForRequest(ctx),
 		SafetyExcludedModels: s.safetyExcludedModels(env, outputReserveOAI, enabledProviders),

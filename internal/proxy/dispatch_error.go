@@ -51,6 +51,8 @@ const (
 	DispatchErrorForcedClusterUnsupportedStrategy
 	DispatchErrorForcedClusterUnservable
 	DispatchErrorRoutedModelIncompatible
+	DispatchErrorGatewayServesNoModel
+	DispatchErrorNoRoutableModels
 )
 
 // DispatchErrorClass is the format-agnostic classification of a dispatch
@@ -241,6 +243,25 @@ func ClassifyDispatchError(err error) (DispatchErrorClass, bool) {
 			LogLevel:   "warn",
 			LogMessage: "Invalid routing knobs supplied",
 		}, true
+	// Must precede every policy-unavailable case: an empty candidate set wraps
+	// both sentinels, and reporting the router as down hides the configuration
+	// the caller actually has to fix.
+	case errors.Is(err, policy.ErrGatewayServesNoDeployedModel):
+		return DispatchErrorClass{
+			Kind:       DispatchErrorGatewayServesNoModel,
+			Status:     http.StatusBadRequest,
+			Message:    "No model can be routed through your gateway: your gateway keys don't alias any available model. Add model aliases on the key mapping each model you want routed to the name your gateway serves it under.",
+			LogLevel:   "warn",
+			LogMessage: "Gateway-exclusive routing has no aliased model",
+		}, true
+	case errors.Is(err, policy.ErrNoRoutableModels):
+		return DispatchErrorClass{
+			Kind:       DispatchErrorNoRoutableModels,
+			Status:     http.StatusBadRequest,
+			Message:    "No model is routable for your organization: the current model and provider selection leaves nothing this request can run on. Ask your org admin to widen it.",
+			LogLevel:   "warn",
+			LogMessage: "Installation configuration leaves no routable model",
+		}, true
 	case errors.Is(err, rl.ErrPolicyUnavailable):
 		return DispatchErrorClass{
 			Kind:       DispatchErrorRLPolicyUnavailable,
@@ -309,7 +330,7 @@ func unwrapToSentinelMessage(err error) string {
 // rather than "api_error".
 func (k DispatchErrorKind) IsClientError() bool {
 	switch k {
-	case DispatchErrorRequestNotJSONObject, DispatchErrorNoEligibleProvider, DispatchErrorAllowlistEmptiesPool, DispatchErrorContextWindowExceeded, DispatchErrorInvalidRoutingKnobs, DispatchErrorTranslationIntrinsicallyIncompatible, DispatchErrorAnthropicCacheControlInvalid, DispatchErrorForcedModelExcluded, DispatchErrorForcedModelUnknown, DispatchErrorForcedClusterUnsupportedStrategy, DispatchErrorForcedClusterUnservable:
+	case DispatchErrorRequestNotJSONObject, DispatchErrorNoEligibleProvider, DispatchErrorAllowlistEmptiesPool, DispatchErrorContextWindowExceeded, DispatchErrorInvalidRoutingKnobs, DispatchErrorTranslationIntrinsicallyIncompatible, DispatchErrorAnthropicCacheControlInvalid, DispatchErrorForcedModelExcluded, DispatchErrorForcedModelUnknown, DispatchErrorForcedClusterUnsupportedStrategy, DispatchErrorForcedClusterUnservable, DispatchErrorGatewayServesNoModel, DispatchErrorNoRoutableModels:
 		return true
 	default:
 		return false

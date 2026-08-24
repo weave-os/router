@@ -5,6 +5,7 @@ import (
 	"sort"
 
 	"workweave/router/internal/auth"
+	"workweave/router/internal/providers"
 	"workweave/router/internal/router/catalog"
 )
 
@@ -13,6 +14,30 @@ import (
 // serves; catalog bindings rank first so a direct vendor still wins.
 func (s *Service) customBindingsForRequest(ctx context.Context) map[string][]string {
 	return customBindingsFromKeys(externalKeysFromContext(ctx))
+}
+
+// gatewayProvidersForRequest returns the installation's BYOK gateway providers.
+// A gateway is the tenant's own endpoint, so configuring one makes it the only
+// upstream the router may use — vendor bindings and the org's provider
+// exclusions stop applying. Deployment-level gateway keys are deliberately not
+// included: a self-hosted deployment keyed for a gateway still serves the
+// catalog's own gateway bindings.
+func (s *Service) gatewayProvidersForRequest(ctx context.Context) map[string]struct{} {
+	return gatewayProvidersFromKeys(externalKeysFromContext(ctx))
+}
+
+func gatewayProvidersFromKeys(keys []*auth.ExternalAPIKey) map[string]struct{} {
+	var out map[string]struct{}
+	for _, key := range keys {
+		if len(key.Plaintext) == 0 || !providers.IsGateway(key.Provider) {
+			continue
+		}
+		if out == nil {
+			out = make(map[string]struct{}, len(keys))
+		}
+		out[key.Provider] = struct{}{}
+	}
+	return out
 }
 
 func customBindingsFromKeys(keys []*auth.ExternalAPIKey) map[string][]string {

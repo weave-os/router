@@ -275,7 +275,8 @@ func (r *SidecarRouter) Route(ctx context.Context, req router.Request) (router.D
 	}
 	resolved := r.resolver.Resolve(req)
 	if len(resolved.Candidates) == 0 {
-		return router.Decision{}, fmt.Errorf("%s: no eligible candidate: %w", strategy, r.config.Unavailable)
+		return router.Decision{}, fmt.Errorf("%s: no eligible candidate: %w: %w",
+			strategy, emptyCandidateError(resolved.Diagnostics), r.config.Unavailable)
 	}
 	requestRouteID := uuid.NewString()
 	res, err := r.decider.Decide(ctx, Query{

@@ -369,3 +369,106 @@ func TestBindingForSelectionDoesNotResolveNonEffortColonSuffix(t *testing.T) {
 	_, ok := resolved.BindingForSelection("anthropic/claude-opus-5:custom", "anthropic/claude-opus-5:custom")
 	assert.False(t, ok, "a non-effort colon suffix must not be stripped to reach the base-keyed binding")
 }
+
+func TestResolverRoutesOnlyGatewayAliasedModelsWhenGatewayConfigured(t *testing.T) {
+	resolver := policy.NewResolver(
+		set("claude-opus-5", "claude-sonnet-5", "gpt-5.5"),
+		set(providers.ProviderAnthropic, providers.ProviderOpenAI, providers.ProviderAnthropicGateway),
+		catalogRosterID,
+		policy.ManagedProviderPolicy(),
+	)
+
+	resolved := resolver.Resolve(router.Request{
+		EnabledProviders: set(providers.ProviderAnthropicGateway),
+		GatewayProviders: set(providers.ProviderAnthropicGateway),
+		CustomBindings:   map[string][]string{"claude-opus-5": {providers.ProviderAnthropicGateway}},
+	})
+
+	require.Len(t, resolved.Candidates, 1)
+	assert.Equal(t, "claude-opus-5", resolved.Candidates[0].CatalogID)
+	assert.Equal(t, providers.ProviderAnthropicGateway, resolved.Candidates[0].Provider)
+	assert.Contains(t, resolved.Diagnostics, policy.Diagnostic{
+		CatalogID: "claude-sonnet-5",
+		RosterID:  "claude-sonnet-5",
+		Reason:    policy.ExclusionGatewayNotServed,
+	})
+	assert.Contains(t, resolved.Diagnostics, policy.Diagnostic{
+		CatalogID: "gpt-5.5",
+		RosterID:  "gpt-5.5",
+		Reason:    policy.ExclusionGatewayNotServed,
+	})
+}
+
+func TestResolverIgnoresProviderExclusionsForGatewayRouting(t *testing.T) {
+	// The org that broke prod excluded every vendor to force its gateway; with
+	// gateway routing those exclusions must not touch the gateway's own models.
+	resolver := policy.NewResolver(
+		set("claude-opus-5"),
+		set(providers.ProviderAnthropicGateway),
+		catalogRosterID,
+		policy.ManagedProviderPolicy(),
+	)
+
+	resolved := resolver.Resolve(router.Request{
+		EnabledProviders: set(providers.ProviderAnthropicGateway),
+		GatewayProviders: set(providers.ProviderAnthropicGateway),
+		CustomBindings:   map[string][]string{"claude-opus-5": {providers.ProviderAnthropicGateway}},
+	})
+
+	require.Len(t, resolved.Candidates, 1)
+	assert.Equal(t, providers.ProviderAnthropicGateway, resolved.Candidates[0].Provider)
+}
+
+func TestResolverYieldsNoCandidatesWhenGatewayKeysHaveNoAliases(t *testing.T) {
+	resolver := policy.NewResolver(
+		set("claude-opus-5", "gpt-5.5"),
+		set(providers.ProviderAnthropic, providers.ProviderOpenAIGateway),
+		catalogRosterID,
+		policy.ManagedProviderPolicy(),
+	)
+
+	resolved := resolver.Resolve(router.Request{
+		EnabledProviders: set(providers.ProviderOpenAIGateway),
+		GatewayProviders: set(providers.ProviderOpenAIGateway),
+	})
+
+	assert.Empty(t, resolved.Candidates)
+	for _, diagnostic := range resolved.Diagnostics {
+		assert.Equal(t, policy.ExclusionGatewayNotServed, diagnostic.Reason)
+	}
+}
+
+func TestResolverEnumeratesEveryAliasingGatewayForAModel(t *testing.T) {
+	resolver := policy.NewArmResolver(
+		set("claude-opus-5"),
+		set(providers.ProviderAnthropicGateway, providers.ProviderOpenAIGateway),
+		catalogRosterID,
+		policy.ManagedProviderPolicy(),
+	)
+
+	resolved := resolver.Resolve(router.Request{
+		EnabledProviders: set(providers.ProviderAnthropicGateway, providers.ProviderOpenAIGateway),
+		GatewayProviders: set(providers.ProviderAnthropicGateway, providers.ProviderOpenAIGateway),
+		CustomBindings: map[string][]string{
+			"claude-opus-5": {providers.ProviderAnthropicGateway, providers.ProviderOpenAIGateway},
+		},
+	})
+
+	require.Len(t, resolved.Candidates, 2)
+	assert.Equal(t, providers.ProviderAnthropicGateway, resolved.Candidates[0].Provider)
+	assert.Equal(t, providers.ProviderOpenAIGateway, resolved.Candidates[1].Provider)
+}
+
+func TestResolverKeepsVendorRoutingWhenNoGatewayConfigured(t *testing.T) {
+	resolver := policy.NewResolver(
+		set("claude-opus-5"),
+		set(providers.ProviderAnthropic),
+		catalogRosterID,
+		policy.ManagedProviderPolicy(),
+	)
+
+	resolved := resolver.Resolve(router.Request{})
+
+	require.Len(t, resolved.Candidates, 1)
+	assert.Equal(t, providers.ProviderAnthropic, resolved.Candidates[0].Provider)
+}

@@ -83,6 +83,7 @@ func (s *Service) anthropicRoutingRequest(ctx context.Context, body []byte, head
 		ClientSessionID:              env.ClientSessionID(),
 		EnabledProviders:             enabledProviders,
 		CustomBindings:               s.customBindingsForRequest(ctx),
+		GatewayProviders:             s.gatewayProvidersForRequest(ctx),
 		ExcludedModels:               excluded,
 		AllowedModels:                allowedModelsForRequest(ctx),
 		PreferredModels:              s.preferredModelsForRequest(ctx),
