@@ -166,8 +166,8 @@ type Service struct {
 	cyberRefusalRepin bool
 	// anthropicServerSideFallback (ROUTER_ANTHROPIC_SERVER_SIDE_FALLBACK, default on)
 	// opts Anthropic-targeted requests into server-side fallback: Anthropic re-serves
-	// a refused turn instead of returning the refusal. Distinct from cyberRefusalRepin,
-	// which only re-pins future turns.
+	// a refused turn on a fallback model (rescues the current turn; cyberRefusalRepin
+	// only re-pins future turns).
 	anthropicServerSideFallback bool
 
 	// siblingFailover is the kill switch (ROUTER_SIBLING_FAILOVER, default on)
@@ -3639,9 +3639,8 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 
 	proxyMs := time.Since(proxyStart).Milliseconds()
 
-	// The anthropic-native path has no translator Summary, so a refusal there
-	// would otherwise never reach the completion log or the routing_decisions
-	// row — exactly the path Anthropic's safety classifiers fire on.
+	// On the native path there is no translator Summary, so a refusal would
+	// otherwise never reach the completion log or the routing_decisions row.
 	if refusalObs.refused && respSummary.StopReason == "" {
 		respSummary.StopReason = anthropicRefusalStopReason
 	}
