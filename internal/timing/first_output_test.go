@@ -12,9 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// The whole point of the field: a reasoning turn's first BYTE lands in
-// milliseconds (the response envelope) while its first renderable token can be
-// minutes out, so TTFB reports a healthy stream on a turn nobody can see.
+// First output must be later than first byte on a reasoning-stall stream.
 func TestFirstOutputMark_MeasuresOutputNotFirstByte(t *testing.T) {
 	ctx, tm := timing.WithTiming(context.Background())
 

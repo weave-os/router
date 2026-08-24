@@ -33,12 +33,8 @@ func attrInt(sp *tracev1.Span, key string) (int64, bool) {
 	return 0, false
 }
 
-// TestUpstreamSpan_FirstOutputMs_ExceedsTTFTOnReasoningStall is the reason the
-// attribute exists. TTFB stops at the response envelope, so the prod
-// 2026-08-24 turns reported a healthy ~1.8s TTFT while their first renderable
-// token was minutes away — the failure was invisible on every dashboard.
-// latency.first_output_ms must measure the first OUTPUT-BEARING frame, so a
-// role-only keepalive followed by a stall must not satisfy it.
+// TestUpstreamSpan_FirstOutputMs_ExceedsTTFTOnReasoningStall verifies that
+// a role-only keepalive does not satisfy first_output_ms.
 func TestUpstreamSpan_FirstOutputMs_ExceedsTTFTOnReasoningStall(t *testing.T) {
 	const preOutputStall = 120 * time.Millisecond
 

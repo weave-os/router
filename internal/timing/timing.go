@@ -21,10 +21,8 @@ type Timing struct {
 	UpstreamRequestNanos   atomic.Int64
 	UpstreamHeadersNanos   atomic.Int64
 	UpstreamFirstByteNanos atomic.Int64
-	// UpstreamFirstOutputNanos is the first OUTPUT-BEARING frame, which is not
-	// the first byte: a reasoning model emits envelope and reasoning frames for
-	// minutes before any content the client can render. TTFB therefore reports
-	// ~2s on a turn whose first visible token is 5 minutes out.
+	// UpstreamFirstOutputNanos is the first OUTPUT-BEARING frame: a reasoning
+	// model emits envelope/reasoning frames before any renderable content.
 	UpstreamFirstOutputNanos atomic.Int64
 	UpstreamEOFNanos         atomic.Int64
 }

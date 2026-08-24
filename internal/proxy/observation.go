@@ -43,10 +43,8 @@ type observationContext struct {
 	// TTFTMs is the upstream-request-to-first-byte delta in ms. Pointer because
 	// zero is a legitimate sub-millisecond measurement.
 	TTFTMs *int64
-	// FirstOutputMs is upstream-request to first OUTPUT-BEARING frame. TTFTMs
-	// stops at the response envelope, so a turn that reasons for minutes before
-	// emitting a renderable token still reports a healthy TTFT; this is the
-	// delta that exposes it.
+	// FirstOutputMs is upstream-request to first OUTPUT-BEARING frame;
+	// unlike TTFTMs, not satisfied by a reasoning-only envelope.
 	FirstOutputMs *int64
 	// CandidateScores is the pre-argmax score vector, JSON-marshaled for the
 	// jsonb column (nil if none). Off-policy substrate only — never read on the request path.
