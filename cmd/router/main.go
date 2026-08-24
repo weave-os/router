@@ -208,7 +208,11 @@ func main() {
 		}
 		// Codex (ChatGPT) subscription reroute to the Codex backend lives in
 		// the OpenAI client itself, keyed off the resolved credential.
-		providerMap[providers.ProviderOpenAI] = openaiProvider.NewClient(openaiKey, openaiBaseURL)
+		providerMap[providers.ProviderOpenAI] = openaiProvider.NewClientWithModelIDMap(
+			openaiKey,
+			openaiBaseURL,
+			upstreamIDsForProvider(providers.ProviderOpenAI),
+		)
 		switch {
 		case byokOnly:
 			logger.Info("OpenAI provider enabled (BYOK only)", "base_url", openaiBaseURL)

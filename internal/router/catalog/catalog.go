@@ -83,10 +83,8 @@ type ProviderBinding struct {
 	// Provider is one of the providers.Provider* constants.
 	Provider string
 	// UpstreamID is the model ID the upstream API expects. Empty means
-	// "same as Model.ID" (no rewrite). Non-empty is fed to the
-	// openaicompat client's modelIDMap so the body's "model" field is
-	// rewritten at proxy time (e.g. Bedrock's dot-form, Makora's
-	// HuggingFace form).
+	// "same as Model.ID" (no rewrite). Non-empty is fed to the provider
+	// adapter's modelIDMap so the body's "model" field is rewritten at proxy time.
 	UpstreamID string
 	// Price is the per-provider pricing for this binding.
 	Price Pricing

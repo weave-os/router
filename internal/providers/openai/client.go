@@ -76,6 +76,8 @@ type Client struct {
 	apiKey  string
 	baseURL string
 	http    *http.Client
+	// modelIDMap rewrites routed catalog IDs to the upstream model IDs.
+	modelIDMap map[string]string
 	// sseIdleTimeout, when > 0, overrides the per-endpoint idle-progress
 	// threshold. Tests inject a small value to exercise the stall watchdog
 	// without waiting out the real threshold.
@@ -89,19 +91,31 @@ type Client struct {
 }
 
 func NewClient(apiKey, baseURL string) *Client {
-	return NewClientWithResponseHeaderTimeout(apiKey, baseURL, responseHeaderTimeout)
+	return NewClientWithModelIDMap(apiKey, baseURL, nil)
+}
+
+// NewClientWithModelIDMap builds a client that rewrites the body's top-level
+// "model" field before forwarding when the requested model has a mapping.
+// Pass nil to disable rewriting.
+func NewClientWithModelIDMap(apiKey, baseURL string, modelIDMap map[string]string) *Client {
+	return newClientWithModelIDMap(apiKey, baseURL, responseHeaderTimeout, modelIDMap)
 }
 
 // NewClientWithResponseHeaderTimeout is NewClient with a caller-chosen
 // time-to-first-byte guard, so tests can exercise bounded-stall behavior
 // (#331) without waiting out the 120s default.
 func NewClientWithResponseHeaderTimeout(apiKey, baseURL string, headerTimeout time.Duration) *Client {
+	return newClientWithModelIDMap(apiKey, baseURL, headerTimeout, nil)
+}
+
+func newClientWithModelIDMap(apiKey, baseURL string, headerTimeout time.Duration, modelIDMap map[string]string) *Client {
 	if baseURL == "" {
 		baseURL = DefaultBaseURL
 	}
 	return &Client{
 		apiKey:       apiKey,
 		baseURL:      baseURL,
+		modelIDMap:   modelIDMap,
 		codexBaseURL: chatGPTCodexBaseURL,
 		http:         &http.Client{Transport: httputil.NewTransportWithResponseHeaderTimeout(5*time.Second, 5*time.Second, headerTimeout)},
 	}
@@ -142,6 +156,25 @@ func (c *Client) outputStallTimeout() time.Duration {
 		return c.outputStall
 	}
 	return httputil.DefaultResponsesOutputStallTimeout
+}
+
+// rewriteModelField rewrites the body's top-level "model" field according to
+// modelIDMap. Returns the input unchanged when the map is empty, the body
+// isn't a JSON object, or the model isn't mapped.
+func rewriteModelField(body []byte, modelIDMap map[string]string) []byte {
+	if len(modelIDMap) == 0 || len(body) == 0 {
+		return body
+	}
+	model := gjson.GetBytes(body, "model").String()
+	upstream, ok := modelIDMap[model]
+	if !ok {
+		return body
+	}
+	out, err := sjson.SetBytes(body, "model", upstream)
+	if err != nil {
+		return body
+	}
+	return out
 }
 
 // stallBudgetFor returns the budget the watchdog identified by cause used, so
@@ -212,7 +245,7 @@ func (c *Client) Proxy(ctx context.Context, decision router.Decision, prep provi
 	if prep.Endpoint == providers.EndpointResponses {
 		path = "/v1/responses"
 	}
-	reqBody := prep.Body
+	reqBody := rewriteModelField(prep.Body, c.modelIDMap)
 	if useCodex {
 		baseURL = c.codexBaseURL
 		path = codexResponsesPath
@@ -221,6 +254,7 @@ func (c *Client) Proxy(ctx context.Context, decision router.Decision, prep provi
 		// Codex backend branch above understands "max" natively.
 		reqBody = maxEffortToXhigh(reqBody)
 	}
+	// Applied after the catalog map so a BYOK endpoint's own naming wins.
 	reqBody = proxy.ApplyModelAlias(ctx, reqBody, decision.Model)
 	upstream, err := http.NewRequestWithContext(ctx, http.MethodPost, baseURL+path, bytes.NewReader(reqBody))
 	if err != nil {
