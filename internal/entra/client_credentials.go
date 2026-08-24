@@ -23,6 +23,7 @@ const (
 	cacheSize       = 1024
 	refreshFraction = 0.8
 	maxErrorBody    = 4 * 1024
+	mintTimeout     = 30 * time.Second
 )
 
 type cachedToken struct {
@@ -85,8 +86,13 @@ func (s *ClientCredentialsSource) Token(ctx context.Context, key *auth.ExternalA
 		return append([]byte(nil), cached.token...), nil
 	}
 
+	// The shared mint runs under a detached context so a caller that cancels
+	// doesn't abort the flight for waiters whose own contexts are still live;
+	// each caller still stops waiting on its own ctx in the select below.
 	result := s.group.DoChan(cacheKey, func() (any, error) {
-		return s.mint(ctx, key, cacheKey)
+		mintCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), mintTimeout)
+		defer cancel()
+		return s.mint(mintCtx, key, cacheKey)
 	})
 	select {
 	case <-ctx.Done():
@@ -118,7 +124,7 @@ func (s *ClientCredentialsSource) mint(ctx context.Context, key *auth.ExternalAP
 	form := url.Values{
 		"client_id":     {clientID},
 		"client_secret": {string(key.Plaintext)},
-		"scope":         {auth.EntraScope},
+		"scope":         {auth.EntraScopeForBaseURL(key.BaseURL)},
 		"grant_type":    {"client_credentials"},
 	}
 	request, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, strings.NewReader(form.Encode()))

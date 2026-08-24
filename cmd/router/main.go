@@ -1279,9 +1279,8 @@ func buildClusterScorer(availableProviders map[string]struct{}) (router.Router, 
 	return multi, defaultEmbedderID, nil
 }
 
-// buildEntraTokenSource constructs the per-key Microsoft Entra client-credentials
-// source backing BYOK keys with auth_type=azure_entra. The source is lazy: a
-// deployment without Azure keys never contacts Microsoft Entra.
+// buildEntraTokenSource returns the lazy Microsoft Entra client-credentials token source;
+// a deployment without Azure keys never contacts Microsoft Entra.
 func buildEntraTokenSource(logger *slog.Logger) auth.EntraTokenSource {
 	logger.Debug("Microsoft Entra client credentials token source initialized")
 	return entra.NewClientCredentialsSource(&http.Client{Timeout: 10 * time.Second}, time.Now)

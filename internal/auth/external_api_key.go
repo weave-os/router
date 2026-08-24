@@ -27,9 +27,8 @@ type ExternalAPIKey struct {
 	IdentityHeaderFormat string
 	// AuthType is how Plaintext authenticates upstream; see AuthType* constants.
 	AuthType string
-	// AuthAccount and AuthUser identify the principal a minted JWT is issued
-	// for; empty unless AuthType is AuthTypeKeypairJWT or AuthTypeAzureEntra.
-	// Under AuthTypeWIF the principal comes from the attestation, so both stay empty.
+	// AuthAccount and AuthUser identify the upstream principal; empty unless
+	// AuthType is AuthTypeKeypairJWT or AuthTypeAzureEntra.
 	AuthAccount string
 	AuthUser    string
 	CreatedAt   time.Time
@@ -53,9 +52,8 @@ type CreateExternalAPIKeyParams struct {
 	IdentityHeader       *string
 	IdentityHeaderFormat *string
 	AuthType             string
-	// AuthAccount and AuthUser identify the principal a minted JWT is issued
-	// for; empty unless AuthType is AuthTypeKeypairJWT or AuthTypeAzureEntra.
-	// Under AuthTypeWIF the principal comes from the attestation, so both stay empty.
+	// AuthAccount and AuthUser identify the upstream principal; empty unless
+	// AuthType is AuthTypeKeypairJWT or AuthTypeAzureEntra.
 	AuthAccount *string
 	AuthUser    *string
 	CreatedBy   *string
@@ -67,9 +65,8 @@ type CreateExternalAPIKeyParams struct {
 const (
 	AuthTypeBearer     = "bearer"
 	AuthTypeKeypairJWT = "keypair_jwt"
-	// AuthTypeAzureEntra uses the stored client secret to mint a short-lived
-	// Microsoft Entra token. AuthAccount is the tenant ID and AuthUser is the
-	// client ID.
+	// AuthTypeAzureEntra exchanges the stored client secret for a short-lived Entra token;
+	// AuthAccount is the tenant ID, AuthUser is the client ID.
 	AuthTypeAzureEntra = "azure_entra"
 	AuthTypeWIF        = "wif"
 )

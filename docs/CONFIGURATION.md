@@ -285,7 +285,9 @@ curl -sS -b jar -X POST https://<router>/admin/v1/provider-keys \
 
 The application must have permission to call the Azure resource (for example,
 **Foundry User** for Foundry Claude or **Cognitive Services OpenAI User** for
-Azure OpenAI). The token scope is `https://ai.azure.com/.default`.
+Azure OpenAI). The token scope follows the endpoint: `https://ai.azure.com/.default`
+for Foundry, and `https://cognitiveservices.azure.com/.default` for
+`*.openai.azure.com` resources.
 
 The router runs on GCP Cloud Run, so Azure managed identity is not available to
 it. Use a service principal for this mode. Workload identity federation from a
