@@ -34,6 +34,8 @@ const (
 	TogetherBaseURL = "https://api.together.xyz/v1"
 	// XAIBaseURL is SpaceXAI's OpenAI-compatible Chat Completions surface.
 	XAIBaseURL = "https://api.x.ai/v1"
+	// WaferBaseURL is Wafer Serverless' OpenAI-compatible surface.
+	WaferBaseURL = "https://pass.wafer.ai/v1"
 )
 
 // BedrockMantleBaseURLTemplate is the OpenAI-compatible bedrock-mantle endpoint
@@ -71,6 +73,10 @@ type Client struct {
 	throughputMinElapsed time.Duration
 	throughputMinDeltas  int
 	throughputOverride   bool
+	// defaultHeaders are set on every upstream request (Proxy + Passthrough)
+	// before prep.Headers / inbound headers apply, so per-request values still
+	// win. Used for provider-mandated headers.
+	defaultHeaders http.Header
 }
 
 func NewClient(apiKey, baseURL string) *Client {
@@ -100,6 +106,22 @@ func newClient(apiKey, baseURL string, modelIDMap map[string]string) *Client {
 		baseURL:    strings.TrimRight(baseURL, "/"),
 		http:       &http.Client{Transport: httputil.NewTransport(5*time.Second, 5*time.Second)},
 		modelIDMap: modelIDMap,
+	}
+}
+
+// WithDefaultHeaders returns c with headers set on every upstream request —
+// for provider-mandated headers. Prepared and inbound per-request headers are
+// applied afterwards and can override a value, but cannot remove one.
+func (c *Client) WithDefaultHeaders(h http.Header) *Client {
+	c.defaultHeaders = h.Clone()
+	return c
+}
+
+// applyDefaultHeaders sets c.defaultHeaders on req before callers layer their
+// own headers on top.
+func (c *Client) applyDefaultHeaders(req *http.Request) {
+	for k, vs := range c.defaultHeaders {
+		req.Header[http.CanonicalHeaderKey(k)] = append([]string(nil), vs...)
 	}
 }
 
@@ -196,6 +218,7 @@ func (c *Client) Proxy(ctx context.Context, decision router.Decision, prep provi
 	if err != nil {
 		return fmt.Errorf("build upstream request: %w", err)
 	}
+	c.applyDefaultHeaders(upstream)
 	upstream.Header.Set("Content-Type", "application/json")
 	for k, vs := range prep.Headers {
 		upstream.Header[http.CanonicalHeaderKey(k)] = vs
@@ -312,6 +335,7 @@ func (c *Client) Passthrough(ctx context.Context, prep providers.PreparedRequest
 	if err != nil {
 		return fmt.Errorf("build upstream passthrough request: %w", err)
 	}
+	c.applyDefaultHeaders(upstream)
 	if ct := r.Header.Get("Content-Type"); ct != "" {
 		upstream.Header.Set("Content-Type", ct)
 	}

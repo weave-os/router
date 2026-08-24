@@ -35,6 +35,8 @@ func TestCatalog_BindingsReferenceCanonicalProviders(t *testing.T) {
 		providers.ProviderMakora:           {},
 		providers.ProviderTogether:         {},
 		providers.ProviderXAI:              {},
+		providers.ProviderWafer:            {},
+		providers.ProviderWaferAnthropic:   {},
 		providers.ProviderAnthropicGateway: {},
 		providers.ProviderOpenAIGateway:    {},
 	}
@@ -307,4 +309,86 @@ func TestValidateDeployed_FlagsMissingAndUntiered(t *testing.T) {
 	err = ValidateDeployed([]string{"gpt-4o"})
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "gpt-4o")
+}
+
+// TestResolveBinding_WaferTrailingBindings pin the trailing-binding order:
+// Wafer only resolves when the earlier providers are absent, so a deploy with
+// Together/Fireworks/OpenRouter wired never displaces them onto Wafer.
+func TestResolveBinding_WaferTrailingBindings(t *testing.T) {
+	// glm-5.2: Together leads; Wafer only when nothing ahead of it is available.
+	b, ok := ResolveBinding("z-ai/glm-5.2", map[string]struct{}{providers.ProviderTogether: {}, providers.ProviderWafer: {}})
+	require.True(t, ok)
+	assert.Equal(t, providers.ProviderTogether, b.Provider)
+
+	b, ok = ResolveBinding("z-ai/glm-5.2", map[string]struct{}{providers.ProviderWafer: {}})
+	require.True(t, ok)
+	assert.Equal(t, providers.ProviderWafer, b.Provider)
+	assert.Equal(t, "GLM-5.2", b.UpstreamID)
+
+	// wafer_anthropic (Anthropic-spec Messages) trails the OpenAI-compat wafer,
+	// so it resolves only when the OpenAI-compat surface is also absent.
+	b, ok = ResolveBinding("z-ai/glm-5.2", map[string]struct{}{providers.ProviderWaferAnthropic: {}})
+	require.True(t, ok)
+	assert.Equal(t, providers.ProviderWaferAnthropic, b.Provider)
+	assert.Equal(t, "GLM-5.2", b.UpstreamID)
+
+	b, ok = ResolveBinding("z-ai/glm-5.2", map[string]struct{}{providers.ProviderWafer: {}, providers.ProviderWaferAnthropic: {}})
+	require.True(t, ok)
+	assert.Equal(t, providers.ProviderWafer, b.Provider, "OpenAI-compat wafer must win over wafer_anthropic")
+
+	// kimi-k3: Fireworks leads, OpenRouter second, Wafer last.
+	b, ok = ResolveBinding("moonshotai/kimi-k3", map[string]struct{}{providers.ProviderOpenRouter: {}, providers.ProviderWafer: {}})
+	require.True(t, ok)
+	assert.Equal(t, providers.ProviderOpenRouter, b.Provider)
+
+	b, ok = ResolveBinding("moonshotai/kimi-k3", map[string]struct{}{providers.ProviderWafer: {}})
+	require.True(t, ok)
+	assert.Equal(t, "Kimi-K3", b.UpstreamID)
+
+	b, ok = ResolveBinding("moonshotai/kimi-k3", map[string]struct{}{providers.ProviderWaferAnthropic: {}})
+	require.True(t, ok)
+	assert.Equal(t, providers.ProviderWaferAnthropic, b.Provider)
+	assert.Equal(t, "Kimi-K3", b.UpstreamID)
+
+	// deepseek-v4-flash: Makora leads, OpenRouter second, Wafer's fast-tier
+	// binding last; wafer_anthropic trails it.
+	b, ok = ResolveBinding("deepseek/deepseek-v4-flash", map[string]struct{}{providers.ProviderOpenRouter: {}, providers.ProviderWafer: {}})
+	require.True(t, ok)
+	assert.Equal(t, providers.ProviderOpenRouter, b.Provider)
+
+	b, ok = ResolveBinding("deepseek/deepseek-v4-flash", map[string]struct{}{providers.ProviderWafer: {}})
+	require.True(t, ok)
+	assert.Equal(t, providers.ProviderWafer, b.Provider)
+	assert.Equal(t, "DeepSeek-V4-Flash-0731-Fast", b.UpstreamID)
+
+	b, ok = ResolveBinding("deepseek/deepseek-v4-flash", map[string]struct{}{providers.ProviderWaferAnthropic: {}})
+	require.True(t, ok)
+	assert.Equal(t, providers.ProviderWaferAnthropic, b.Provider)
+	assert.Equal(t, "DeepSeek-V4-Flash-0731-Fast", b.UpstreamID)
+}
+
+// TestWaferPricing pins the per-1M rates and cache multipliers as published on
+// wafer.ai, since billing debits flow straight through these numbers.
+func TestWaferPricing(t *testing.T) {
+	cases := []struct {
+		model     string
+		inputUSD  float64
+		outputUSD float64
+		cacheRead float64
+	}{
+		{"z-ai/glm-5.2", 1.260, 3.960, 0.23 / 1.260},
+		{"moonshotai/kimi-k3", 3.000, 15.000, 0.10},
+		{"deepseek/deepseek-v4-flash", 0.280, 0.560, 0.07 / 0.280},
+	}
+	for _, tc := range cases {
+		t.Run(tc.model, func(t *testing.T) {
+			for _, provider := range []string{providers.ProviderWafer, providers.ProviderWaferAnthropic} {
+				p, ok := PriceFor(provider, tc.model)
+				require.True(t, ok)
+				assert.InDelta(t, tc.inputUSD, p.InputUSDPer1M, 1e-9)
+				assert.InDelta(t, tc.outputUSD, p.OutputUSDPer1M, 1e-9)
+				assert.InDelta(t, tc.cacheRead, p.CacheReadMultiplier, 1e-9)
+			}
+		})
+	}
 }

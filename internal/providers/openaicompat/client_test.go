@@ -316,3 +316,73 @@ func TestGatewayClient_DispatchesToConfiguredEndpoint(t *testing.T) {
 	assert.Equal(t, "/api/v2/cortex/v1/chat/completions", gotPath)
 	assert.Equal(t, "Bearer gateway-token", gotAuth)
 }
+
+// TestProxy_DefaultHeadersSentOnEveryRequest: provider-mandated headers
+// configured via WithDefaultHeaders ride on every Proxy dispatch.
+func TestProxy_DefaultHeadersSentOnEveryRequest(t *testing.T) {
+	var gotZDR string
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotZDR = r.Header.Get("Wafer-ZDR")
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"id":"chatcmpl-zdr","object":"chat.completion"}`))
+	}))
+	defer upstream.Close()
+
+	c := openaicompat.NewClient("test-key", upstream.URL+"/v1").
+		WithDefaultHeaders(http.Header{"Wafer-ZDR": []string{"required"}})
+	rec := httptest.NewRecorder()
+	clientReq := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(""))
+	prep := providers.PreparedRequest{Body: []byte(`{"model":"GLM-5.2","messages":[]}`), Headers: make(http.Header)}
+
+	require.NoError(t, c.Proxy(context.Background(), router.Decision{Model: "z-ai/glm-5.2"}, prep, rec, clientReq))
+	assert.Equal(t, "required", gotZDR)
+}
+
+// TestPassthrough_DefaultHeadersSentOnEveryRequest: default headers must also
+// ride passthrough calls, not just routed ones.
+func TestPassthrough_DefaultHeadersSentOnEveryRequest(t *testing.T) {
+	var gotZDR string
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotZDR = r.Header.Get("Wafer-ZDR")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"object":"list","data":[]}`))
+	}))
+	defer upstream.Close()
+
+	c := openaicompat.NewClient("test-key", upstream.URL+"/v1").
+		WithDefaultHeaders(http.Header{"Wafer-ZDR": []string{"required"}})
+	rec := httptest.NewRecorder()
+	clientReq := httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+
+	require.NoError(t, c.Passthrough(context.Background(), providers.PreparedRequest{Headers: make(http.Header)}, rec, clientReq))
+	assert.Equal(t, "required", gotZDR)
+}
+
+// TestProxy_PreparedHeadersOverrideDefaults: per-request prepared headers are
+// applied after defaults, so a translation-layer value wins over the
+// configured default for the same header name.
+func TestProxy_PreparedHeadersOverrideDefaults(t *testing.T) {
+	var gotHeader string
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotHeader = r.Header.Get("X-Custom")
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"id":"chatcmpl-o","object":"chat.completion"}`))
+	}))
+	defer upstream.Close()
+
+	c := openaicompat.NewClient("test-key", upstream.URL+"/v1").
+		WithDefaultHeaders(http.Header{"X-Custom": []string{"default"}})
+	rec := httptest.NewRecorder()
+	clientReq := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(""))
+	prepHeaders := http.Header{}
+	prepHeaders.Set("X-Custom", "per-request")
+	prep := providers.PreparedRequest{Body: []byte(`{"model":"m","messages":[]}`), Headers: prepHeaders}
+
+	require.NoError(t, c.Proxy(context.Background(), router.Decision{Model: "m"}, prep, rec, clientReq))
+	assert.Equal(t, "per-request", gotHeader)
+}

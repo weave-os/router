@@ -55,6 +55,15 @@ const (
 	ProviderMakora     = "makora"
 	ProviderTogether   = "together"
 	ProviderXAI        = "xai"
+	// ProviderWafer is Wafer Serverless (pass.wafer.ai), its OpenAI-compatible
+	// Chat Completions surface. Wafer's Anthropic Messages surface is the
+	// separate ProviderWaferAnthropic; both share the WAFER_API_KEY.
+	ProviderWafer = "wafer"
+	// ProviderWaferAnthropic is Wafer Serverless' Anthropic-compatible Messages
+	// endpoint (pass.wafer.ai/v1/messages), bearer auth, fixed endpoint. Serves
+	// the same non-Claude models as ProviderWafer over the Anthropic wire
+	// format so Anthropic-spec harnesses (Claude Code) can reach them.
+	ProviderWaferAnthropic = "wafer_anthropic"
 	// ProviderAnthropicGateway is an Anthropic-spec enterprise gateway using
 	// Bearer auth; its endpoint is per-tenant with no deployment default.
 	ProviderAnthropicGateway = "anthropic_gateway"
@@ -74,11 +83,12 @@ const (
 	// FamilyUnknown is the zero value (no ProviderFamilies entry).
 	// ValidateDispatchable panics at boot if a registered provider maps to it.
 	FamilyUnknown TranslationFamily = iota
-	// FamilyAnthropic speaks the Anthropic Messages wire format natively.
+	// FamilyAnthropic speaks the Anthropic Messages wire format natively
+	// (Anthropic itself plus Anthropic-compatible gateways such as Wafer's).
 	FamilyAnthropic
 	// FamilyOpenAICompat speaks the OpenAI Chat Completions wire format
 	// (OpenAI itself plus every OpenAI-compatible upstream: OpenRouter,
-	// Fireworks, Bedrock's OpenAI-compat surface, Makora, Together, XAI).
+	// Fireworks, Bedrock's OpenAI-compat surface, Makora, Together, XAI, Wafer).
 	FamilyOpenAICompat
 	// FamilyGemini speaks the Google Generative Language (Gemini) wire format.
 	FamilyGemini
@@ -96,7 +106,9 @@ var ProviderFamilies = map[string]TranslationFamily{
 	ProviderMakora:     FamilyOpenAICompat,
 	ProviderTogether:   FamilyOpenAICompat,
 	ProviderXAI:        FamilyOpenAICompat,
+	ProviderWafer:      FamilyOpenAICompat,
 
+	ProviderWaferAnthropic:   FamilyAnthropic,
 	ProviderAnthropicGateway: FamilyAnthropic,
 	ProviderOpenAIGateway:    FamilyOpenAICompat,
 }
@@ -153,6 +165,9 @@ var APIKeyEnvVars = map[string]string{
 	ProviderMakora:     "MAKORA_API_KEY",
 	ProviderTogether:   "TOGETHER_API_KEY",
 	ProviderXAI:        "XAI_API_KEY",
+	// Wafer's two surfaces share a single account key.
+	ProviderWafer:          "WAFER_API_KEY",
+	ProviderWaferAnthropic: "WAFER_API_KEY",
 	// Pairs with ANTHROPIC_GATEWAY_BASE_URL, the endpoint the token is scoped to.
 	ProviderAnthropicGateway: "ANTHROPIC_GATEWAY_TOKEN",
 	// Pairs with OPENAI_GATEWAY_BASE_URL, likewise.
@@ -185,13 +200,15 @@ func RequiresBaseURL(provider string) bool {
 // so a pin can outlive the cache — the planner uses this to stop crediting a
 // stale pin a cache-read discount it no longer earns.
 var CacheTTL = map[string]time.Duration{
-	ProviderAnthropic:  time.Hour,
-	ProviderOpenAI:     5 * time.Minute,
-	ProviderGoogle:     5 * time.Minute,
-	ProviderOpenRouter: 5 * time.Minute,
-	ProviderFireworks:  5 * time.Minute,
-	ProviderBedrock:    5 * time.Minute,
-	ProviderXAI:        5 * time.Minute,
+	ProviderAnthropic:      time.Hour,
+	ProviderOpenAI:         5 * time.Minute,
+	ProviderGoogle:         5 * time.Minute,
+	ProviderOpenRouter:     5 * time.Minute,
+	ProviderFireworks:      5 * time.Minute,
+	ProviderBedrock:        5 * time.Minute,
+	ProviderXAI:            5 * time.Minute,
+	ProviderWafer:          5 * time.Minute,
+	ProviderWaferAnthropic: 5 * time.Minute,
 	// A gateway publishes no prompt-cache lifetime of its own, so it keeps the
 	// conservative window rather than inheriting Anthropic's 1h extended cache.
 	ProviderAnthropicGateway: 5 * time.Minute,

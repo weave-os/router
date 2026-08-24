@@ -49,6 +49,7 @@ var defaultMechanismProviders = map[string]struct{}{
 	providers.ProviderFireworks: {},
 	providers.ProviderMakora:    {},
 	providers.ProviderTogether:  {},
+	providers.ProviderWafer:     {},
 }
 
 // TestSessionAffinityCoversEveryOpenAICompatProvider guards against a new

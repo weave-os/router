@@ -289,6 +289,43 @@ func main() {
 	}
 
 	{
+		// Wafer Serverless (pass.wafer.ai). Every request carries
+		// Wafer-ZDR: required so prompts get zero-data-retention handling;
+		// Wafer rejects a request whose model doesn't support ZDR rather than
+		// serving it without retention.
+		waferBaseURL := config.GetOr("WAFER_BASE_URL", openaiCompatProvider.WaferBaseURL)
+		registerDeploymentKeyedProvider(providerMap, envKeyedProviders, logger,
+			providers.ProviderWafer, "Wafer", "WAFER_API_KEY", waferBaseURL, byokOnly,
+			func(key, baseURL string) providers.Client {
+				return openaiCompatProvider.NewClientWithModelIDMap(key, baseURL, upstreamIDsForProvider(providers.ProviderWafer)).
+					WithDefaultHeaders(http.Header{"Wafer-ZDR": []string{"required"}})
+			})
+	}
+
+	{
+		// Wafer's Anthropic-compatible Messages surface (same account key as
+		// ProviderWafer, fixed endpoint). Lets an Anthropic-spec harness reach
+		// the non-Claude models Wafer serves over the Messages wire format;
+		// the bearer scheme matches Wafer's Authorization: Bearer auth.
+		waferAnthropicKey := ""
+		if !byokOnly {
+			waferAnthropicKey = config.GetOr(providers.APIKeyEnvVar(providers.ProviderWaferAnthropic), "")
+		}
+		waferMessagesBaseURL := anthropic.WaferMessagesBaseURL
+		providerMap[providers.ProviderWaferAnthropic] = anthropic.NewClient(
+			waferAnthropicKey, waferMessagesBaseURL,
+			anthropic.WithAuthScheme(anthropic.AuthBearer)).
+			WithDefaultHeaders(http.Header{"Wafer-ZDR": []string{"required"}}).
+			WithModelIDMap(upstreamIDsForProvider(providers.ProviderWaferAnthropic))
+		if waferAnthropicKey != "" {
+			envKeyedProviders[providers.ProviderWaferAnthropic] = struct{}{}
+			logger.Info("Wafer Anthropic provider enabled", "base_url", waferMessagesBaseURL)
+		} else {
+			logger.Info("Wafer Anthropic provider registered (BYOK only — set WAFER_API_KEY for deployment-level use)", "base_url", waferMessagesBaseURL)
+		}
+	}
+
+	{
 		// "bedrock-mantle" OpenAI-compatible surface (AWS-recommended over
 		// bedrock-runtime/InvokeModel). Auth is a static Bedrock API key
 		// (AWS_BEARER_TOKEN_BEDROCK), not SigV4, so the standard bearer flow
