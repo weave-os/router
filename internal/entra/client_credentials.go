@@ -86,9 +86,8 @@ func (s *ClientCredentialsSource) Token(ctx context.Context, key *auth.ExternalA
 		return append([]byte(nil), cached.token...), nil
 	}
 
-	// The shared mint runs under a detached context so a caller that cancels
-	// doesn't abort the flight for waiters whose own contexts are still live;
-	// each caller still stops waiting on its own ctx in the select below.
+	// The shared mint runs under a detached context so a cancelling caller
+	// doesn't abort the flight for waiters whose own contexts are still live.
 	result := s.group.DoChan(cacheKey, func() (any, error) {
 		mintCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), mintTimeout)
 		defer cancel()
