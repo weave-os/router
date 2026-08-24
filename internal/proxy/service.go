@@ -2427,7 +2427,9 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	// Same for the one-click thumbs footer (and its signed rate URLs), which
 	// would otherwise shift assistant prefixes off the prompt cache.
 	// Best-effort: log-and-continue on failure rather than abort over cosmetic
-	// cleanup, matching the OpenAI chat path.
+	// cleanup, matching the OpenAI chat path. The echo check must read the body
+	// before the strip erases its evidence.
+	footerEchoedSinceHumanTurn := translate.FeedbackFooterSinceLastHumanTurn(body)
 	if strippedBody, ferr := translate.StripFeedbackFooterFromMessages(body); ferr != nil {
 		log.Error("Failed to strip feedback footer from inbound messages", "err", ferr)
 	} else {
@@ -2982,7 +2984,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			defer keepalive.Close()
 			clientSink = keepalive
 		}
-		if footer := s.feedbackFooter(ctx, ClientIdentityFrom(ctx).ClientApp, routeRes.TurnType); footer != "" {
+		if footer := s.feedbackFooter(ctx, ClientIdentityFrom(ctx).ClientApp, routeRes.TurnType, footerEchoedSinceHumanTurn); footer != "" {
 			clientSink = translate.NewAnthropicRoutingFooterWriter(clientSink, footer)
 		}
 	}
@@ -4908,7 +4910,9 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	// Same for the one-click thumbs footer (and its signed rate URLs), which
 	// would otherwise shift assistant prefixes off the prompt cache.
 	// Best-effort: log-and-continue on failure rather than abort over cosmetic
-	// cleanup, matching the Anthropic Messages path.
+	// cleanup, matching the Anthropic Messages path. The echo check must read
+	// the body before the strip erases its evidence.
+	footerEchoedSinceHumanTurn := translate.FeedbackFooterSinceLastHumanTurn(body)
 	strippedBody, stripErr = translate.StripFeedbackFooterFromMessages(body)
 	if stripErr != nil {
 		log.Error("Failed to strip feedback footer from OpenAI messages", "err", stripErr)
@@ -5263,7 +5267,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	// special-casing — /v1/responses footers are a follow-up.
 	clientSink := w
 	if _, isResponses := w.(*translate.ResponsesWriter); env.Stream() && !isResponses {
-		if footer := s.feedbackFooter(ctx, ClientIdentityFrom(ctx).ClientApp, routeRes.TurnType); footer != "" {
+		if footer := s.feedbackFooter(ctx, ClientIdentityFrom(ctx).ClientApp, routeRes.TurnType, footerEchoedSinceHumanTurn); footer != "" {
 			clientSink = translate.NewOpenAIRoutingFooterWriter(w, footer)
 		}
 	}
