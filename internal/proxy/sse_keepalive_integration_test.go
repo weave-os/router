@@ -17,9 +17,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestProxyMessages_KeepaliveDuringUpstreamSilence verifies that a stream
-// committed upstream but silent during reasoning is padded with pings so the
-// client byte watchdog does not abort a healthy turn.
+// TestProxyMessages_KeepaliveDuringUpstreamSilence verifies a committed stream
+// silent during reasoning is padded so the client byte watchdog doesn't abort it.
 func TestProxyMessages_KeepaliveDuringUpstreamSilence(t *testing.T) {
 	const upstreamSilence = 250 * time.Millisecond
 

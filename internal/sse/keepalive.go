@@ -11,10 +11,9 @@ import (
 // number of trailing bytes that must be carried across writes to recognize one.
 const maxRecordSepLen = 4
 
-// endsOnBlankLine reports whether b ends on a blank line — an SSE record
-// separator. Line terminators are CRLF or LF; a trailing lone CR is treated as
-// unterminated because it may be the first half of a CRLF still in flight, and
-// injecting between the two would split the record.
+// endsOnBlankLine reports whether b ends on an SSE record separator (blank
+// line). A trailing lone CR is treated as unterminated — it may be the first
+// half of a CRLF still in flight; injecting between the two would split the record.
 func endsOnBlankLine(b []byte) bool {
 	rest, ok := trimLineEnd(b)
 	if !ok {
@@ -53,8 +52,7 @@ type KeepaliveWriter struct {
 	tail  []byte
 	armed bool
 	// stopped halts emission (write error or Close); closed records that Close
-	// has run. Distinct because a write error must not make Close skip the
-	// channel close that reaps the goroutine.
+	// has run. Distinct: a write error must not let Close skip the goroutine reap.
 	stopped bool
 	closed  bool
 
@@ -106,9 +104,8 @@ func (k *KeepaliveWriter) Flush() {
 	}
 }
 
-// Close stops the keepalive and blocks until any in-flight frame has been
-// written, so a keepalive can never race a handler that has already returned.
-// Safe to call on an unarmed writer and safe to call more than once.
+// Close stops the keepalive, blocking until any in-flight frame is written.
+// Safe on an unarmed writer and idempotent.
 func (k *KeepaliveWriter) Close() {
 	k.mu.Lock()
 	if k.closed {
