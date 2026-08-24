@@ -451,11 +451,12 @@ func (s *Service) runTurnLoop(
 		req.InstallationID = installationID.String()
 	}
 	res := turnLoopResult{
-		InstallationID: installationID,
-		Strategy:       router.StrategyFromContext(ctx),
-		TurnType:       turntype.DetectFromEnvelope(env, feats, subAgentHint),
-		PinTier:        "miss",
-		RequestedTier:  catalog.TierFor(feats.Model),
+		InstallationID:      installationID,
+		Strategy:            router.StrategyFromContext(ctx),
+		TurnType:            turntype.DetectFromEnvelope(env, feats, subAgentHint),
+		PinTier:             "miss",
+		RequestedTier:       catalog.TierFor(feats.Model),
+		StripThinkingBlocks: betaArtifactHistoryFromContext(ctx),
 	}
 	res.AuthoritativePerTurn = authoritativePolicyTurn(res.TurnType) &&
 		s.authoritativePerTurnSelection(ctx)

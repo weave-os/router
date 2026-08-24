@@ -36,9 +36,7 @@ func WithRouterStrategyDefault(defaultStrategy router.Strategy, available ...rou
 		}
 	}
 	for _, strategy := range available {
-		// hmm_beta is selected exclusively from the durable per-session /beta
-		// preference. It must never be activated by a request header, an
-		// installation default, or a deployment default.
+		// hmm_beta is session-only: never activated by header, installation, or deployment default.
 		if strategy == router.StrategyHMMBeta {
 			continue
 		}

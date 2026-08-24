@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/http"
 	"net/http/httptest"
 	"testing"
 
@@ -24,6 +25,31 @@ type betaTestRouter struct {
 	calls    int
 	requests []router.Request
 	decision router.Decision
+}
+
+type betaCaptureProvider struct {
+	body []byte
+}
+
+func (p *betaCaptureProvider) Proxy(
+	_ context.Context,
+	_ router.Decision,
+	req providers.PreparedRequest,
+	_ http.ResponseWriter,
+	_ *http.Request,
+) error {
+	p.body = append([]byte(nil), req.Body...)
+	return nil
+}
+
+func (p *betaCaptureProvider) Passthrough(
+	_ context.Context,
+	req providers.PreparedRequest,
+	_ http.ResponseWriter,
+	_ *http.Request,
+) error {
+	p.body = append([]byte(nil), req.Body...)
+	return nil
 }
 
 func (r *betaTestRouter) Route(_ context.Context, req router.Request) (router.Decision, error) {
@@ -487,6 +513,55 @@ func TestProxyEntrypointsStripHistoricalBetaArtifactsBeforeRouting(t *testing.T)
 			assert.Contains(t, routing.requests[0].PromptText, "continue with the implementation")
 			assert.Len(t, routing.requests[0].ConversationMessages, 3,
 				"the command and acknowledgement must both be absent from routing features")
+		})
+	}
+}
+
+func TestHistoricalBetaArtifactsStripStaleThinkingSignatures(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		ack  string
+	}{
+		{name: "after enabling beta", ack: "✦ **Weave Router** → Beta enabled. Type /beta again to turn it off.\n\n"},
+		{name: "after restoring stable", ack: "✦ **Weave Router** → Beta disabled. Stable routing restored.\n\n"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			routing := &betaTestRouter{decision: router.Decision{
+				Provider: providers.ProviderAnthropic,
+				Model:    "claude-opus-4-7",
+				Reason:   "test",
+			}}
+			provider := &betaCaptureProvider{}
+			svc := NewService(
+				routing,
+				map[string]providers.Client{providers.ProviderAnthropic: provider},
+				nil, false, nil, nil, false,
+				providers.ProviderAnthropic, "claude-opus-4-7", nil,
+			)
+			body := []byte(`{
+				"model":"claude-opus-4-7",
+				"messages":[
+					{"role":"user","content":"inspect this repository"},
+					{"role":"assistant","content":[
+						{"type":"thinking","thinking":"old thought","signature":"stale-signature"},
+						{"type":"text","text":"I will inspect it."}
+					]},
+					{"role":"user","content":"/beta"},
+					{"role":"assistant","content":` + mustJSONQuote(t, tt.ack) + `},
+					{"role":"user","content":"continue with the implementation"}
+				],
+				"max_tokens":4096,
+				"thinking":{"type":"adaptive"}
+			}`)
+			request := httptest.NewRequest("POST", "/v1/messages", nil)
+			response := httptest.NewRecorder()
+
+			require.NoError(t, svc.ProxyMessages(context.Background(), body, response, request))
+			require.NotEmpty(t, provider.body)
+			assert.NotContains(t, string(provider.body), "stale-signature")
+			assert.NotContains(t, string(provider.body), `"type":"thinking"`)
+			assert.NotContains(t, string(provider.body), "/beta")
+			assert.Contains(t, string(provider.body), "continue with the implementation")
 		})
 	}
 }

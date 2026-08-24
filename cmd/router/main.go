@@ -788,10 +788,8 @@ func main() {
 		logger.Info("HMM policy routers disabled (ROUTER_HMM_SIDECAR_URL unset); HMM strategies will return 503")
 	}
 
-	// The beta HMM is intentionally a separate sidecar: stable continues to
-	// use its existing policy while /beta sessions opt into an independently
-	// deployed beta HMM policy. If the beta sidecar is absent or unhealthy,
-	// beta requests fail closed without changing stable routing.
+	// Separate sidecar: /beta opts into an independently deployed beta policy;
+	// absent or unhealthy beta fails closed without affecting stable routing.
 	var hmmBetaCapabilities policy.Capabilities
 	if hmmBetaSidecarURL := config.GetOr("ROUTER_HMM_BETA_SIDECAR_URL", ""); hmmBetaSidecarURL != "" {
 		hmmBetaTimeout := parseEnvDurationMs("ROUTER_HMM_BETA_SIDECAR_TIMEOUT_MS", policyclient.DefaultTimeout)
@@ -916,10 +914,8 @@ func main() {
 		flags.KeyEmbedOnlyUserMessage:      boolDefault(embedOnlyUser),
 	})
 
-	// Always read durable preferences, even while the optional beta client is
-	// unavailable. Existing beta sessions then fail closed through the nil
-	// policy registration instead of silently falling back to stable routing;
-	// /beta can still disable that preference.
+	// Always wire even when beta is unavailable: existing beta sessions fail
+	// closed via nil policy registration rather than silently falling to stable.
 	var sessionStrategyStore sessionstrategy.Store = postgres.NewSessionStrategyRepo(pool)
 
 	proxySvc := proxy.NewService(routeEntry, providerMap, telemetryEmitter, embedOnlyUser, semanticCache, pinStore, hardPinExplore, hardPinProvider, hardPinModel, repo.Telemetry).

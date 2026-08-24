@@ -2472,6 +2472,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		log.Info("Stripped router-feedback artifacts from Anthropic history", "removed_messages", removed)
 	}
 	if removed := env.StripBetaArtifacts(); removed > 0 {
+		ctx = withBetaArtifactHistory(ctx)
 		log.Info("Stripped beta artifacts from Anthropic history", "removed_messages", removed)
 	}
 	// A dangling tool_use left by a prior mid-stream failure 400s permanently
@@ -2501,9 +2502,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		"prompt_preview", observability.Preview(promptText, 200),
 	)
 
-	// /beta is a server-authoritative session toggle. It never reaches an
-	// upstream and deliberately does not create a post-command continuation:
-	// the next normal turn must be freshly routed by the selected policy.
+	// /beta toggle: handled server-side, never forwarded upstream, no post-command continuation.
 	if !agentShadowMode {
 		if cmd, hasCmd := env.ExtractBetaCommand(); hasCmd {
 			log.Info("ProxyMessages beta command")
@@ -4956,6 +4955,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		log.Info("Stripped router-feedback artifacts from OpenAI history", "removed_messages", removed)
 	}
 	if removed := env.StripBetaArtifacts(); removed > 0 {
+		ctx = withBetaArtifactHistory(ctx)
 		log.Info("Stripped beta artifacts from OpenAI history", "removed_messages", removed)
 	}
 	// A dangling tool_use left by a prior mid-stream failure 400s permanently
@@ -4986,9 +4986,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		"prompt_preview", observability.Preview(promptText, 200),
 	)
 
-	// Handle the server-authoritative /beta session toggle before every other
-	// routing command. The command itself never reaches an upstream and does
-	// not receive a one-shot continuation from the previous strategy.
+	// /beta toggle: handled server-side before other routing commands; no post-command continuation.
 	if cmd, hasCmd := env.ExtractBetaCommand(); hasCmd {
 		log.Info("ProxyOpenAIChatCompletion beta command")
 		return s.handleBetaCommand(ctx, w, env, cmd, installationID, sessionKey, feats.Tokens)

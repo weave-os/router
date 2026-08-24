@@ -8,10 +8,8 @@ import (
 )
 
 // pinMatchesEffectiveStrategy reports whether a stored pin belongs to the
-// strategy serving this request. Legacy rows predate strategy persistence and
-// remain eligible for stable strategies during rollout, but the opt-in beta
-// strategy must never inherit one. Conversely, an explicit beta pin is never
-// reusable after the session returns to stable routing.
+// strategy serving this request. Legacy (empty Strategy) rows remain eligible
+// for non-beta strategies during rollout; beta never inherits a legacy pin.
 func pinMatchesEffectiveStrategy(ctx context.Context, pin sessionpin.Pin) bool {
 	expected := router.StrategyFromContext(ctx)
 	if pin.Strategy == expected {

@@ -22,6 +22,19 @@ const (
 	betaUnavailable     = "Beta is unavailable for this session."
 )
 
+type betaArtifactHistoryContextKey struct{}
+
+// Historical /beta control turns prove this transcript crossed a policy
+// boundary even though its strategy-specific pin history was invalidated.
+func withBetaArtifactHistory(ctx context.Context) context.Context {
+	return context.WithValue(ctx, betaArtifactHistoryContextKey{}, true)
+}
+
+func betaArtifactHistoryFromContext(ctx context.Context) bool {
+	found, _ := ctx.Value(betaArtifactHistoryContextKey{}).(bool)
+	return found
+}
+
 // WithSessionStrategyStore wires durable per-session routing preferences.
 // A nil store leaves normal routing unchanged and makes /beta unavailable.
 func (s *Service) WithSessionStrategyStore(store sessionstrategy.Store) *Service {
@@ -96,9 +109,8 @@ func (s *Service) handleBetaCommand(
 	}
 
 	log := observability.FromContext(ctx)
-	// Persist the mode first. Strategy-bound pin reads make every old-strategy
-	// row unusable immediately; cleanup then conditionally consumes only rows
-	// from that old strategy, so it cannot overwrite a concurrent new-mode pin.
+	// Persist first: strategy-bound reads make old-strategy pins ineligible
+	// immediately, so cleanup cannot overwrite a concurrent new-mode pin.
 	if err := s.invalidateSessionRoutingState(
 		router.WithStrategy(ctx, previousStrategy),
 		sessionKey,
