@@ -2969,10 +2969,8 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	// cached/logged bodies. Transparent when streaming/feedback is off.
 	clientSink := w
 	if env.Stream() && !agentShadowMode {
-		// Innermost wrap (closest to the socket) so the keepalive observes the
-		// bytes that actually reach the client, and arms only once preludeBuffer
-		// commits — a ping before that would strand a response the router still
-		// wants to retry on another binding.
+		// Innermost wrap: arms only once preludeBuffer commits, so a keepalive
+		// can never strand a response the router still wants to retry.
 		if s.sseKeepalive > 0 {
 			keepalive := sse.NewKeepaliveWriter(clientSink, anthropicPingFrame, s.sseKeepalive)
 			defer keepalive.Close()

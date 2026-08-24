@@ -93,9 +93,8 @@ func TestKeepaliveWriter_EmitsAfterSilence(t *testing.T) {
 		"keepalives must not precede the real stream")
 }
 
-// The writer must stay dormant until the first byte reaches the client. Arming
-// earlier would let a keepalive commit a response the router still wants to
-// retry on another provider.
+// Arms on first byte so a keepalive cannot commit a response the router
+// still wants to retry on another provider.
 func TestKeepaliveWriter_SilentUntilFirstWrite(t *testing.T) {
 	rec := newSyncRecorder()
 	k := sse.NewKeepaliveWriter(rec, []byte(pingFrame), testKeepalive)
