@@ -11,6 +11,7 @@ Installed automatically by the Weave Router installer:
 ```bash
 WEAVE_ROUTER_KEY=rk_… npx --package @workweave/router -y -- weave-router --pi
 WEAVE_ROUTER_KEY=rk_… npx --package @workweave/router -y -- weave-router --pi --local  # local router
+WEAVE_ROUTER_KEY=rk_… npx --package @workweave/router -y -- weave-router --pi --lsp go,typescript  # + language servers for the lsp tool
 ```
 
 That writes `~/.pi/agent/models.json` (the `weave` provider), adds
@@ -43,6 +44,24 @@ from npm on next start and loads this extension via its `pi.extensions` field.
   natively. `dispatch` spawns child `pi` processes (read-only by default), runs
   them concurrently, and returns only each subagent's final answer — intermediate
   tool output stays in the child, so the main context stays small.
+- **`lsp` tool — code intelligence through a language server.** definition,
+  references, hover, documentSymbol, and diagnostics for Go, TypeScript/
+  JavaScript, Python, and Rust (gopls, typescript-language-server, pyright,
+  rust-analyzer). Servers are spawned lazily per workspace root, shut down
+  after idling, and shared with dispatch subagents through a parent-side local
+  socket — a fan-out reuses the parent's warm servers instead of cold-starting
+  its own. Disable with `WEAVE_PI_NO_LSP=1`.
+- **Opt-in language-server install — nothing installs silently.** Two ways in:
+  pass `--lsp go,typescript` to the installer, or let the assistant offer.
+  When the workspace contains a language whose server is missing, the
+  assistant offers once in conversation ("I can enable go LSP support if
+  you'd like — just say the word!"); a yes runs the install through the
+  `lsp_enable` tool (main process only — subagents can't trigger installs), a
+  "don't ask again" is persisted per language in `<agentDir>/.weave_lsp.json`
+  and respected across sessions. Installs need that language's toolchain
+  (`go`, `npm`, or `rustup`) on PATH; when the toolchain itself is missing,
+  the bundled `install-lsps` skill (`/skill:install-lsps`) walks the agent
+  through installing it — again only with explicit consent.
 - **Persistent route + savings display.** Shows
   `WEAVE ROUTER — <routed> ← <selected> · saved $X.XX` below pi's native footer
   data. Savings compare the selected and routed catalog prices against the same
@@ -70,9 +89,17 @@ from npm on next start and loads this extension via its `pi.extensions` field.
 | `WEAVE_ROUTING_ALPHA` / `…_SPEED_WEIGHT` / `…_OUTPUT_COST_RATIO` / `…_EXPECTED_OUTPUT_TOKENS` | role preset | Override individual routing knobs (main process only — children always use their role preset) |
 | `WEAVE_NO_SAFETY` | unset | `1` disables the catastrophic-bash gate |
 | `WEAVE_PI_AUTO_COMPACTION` | unset | `0` disables the routed tool-loop compaction safeguard |
+| `WEAVE_PI_NO_LSP` | unset | `1` disables the `lsp` tool, the server pool, and the subagent broker |
+| `WEAVE_PI_LSP_IDLE_MS` | `300000` | Idle window before an unused language server is shut down |
+| `WEAVE_PI_LSP_REQUEST_TIMEOUT_MS` | `15000` | Per-request budget once a server is warm |
+| `WEAVE_PI_LSP_WARMUP_TIMEOUT_MS` | `60000` | Budget for initialize + the first query (indexing) |
+| `WEAVE_PI_LSP_DIAGNOSTICS_WAIT_MS` | `3000` | How long `diagnostics` waits for a fresh publish |
+| `WEAVE_PI_LSP_MAX_SERVERS` | `4` | LRU cap on concurrently live language servers |
+| `WEAVE_PI_LSP_MAX_REFERENCES` | `100` | Cap on reported reference sites |
 
-Internal: `WEAVE_PI_SUBAGENT=1` and `WEAVE_PI_SUBAGENT_ID` are set by `dispatch`
-on child processes; don't set them yourself.
+Internal: `WEAVE_PI_SUBAGENT=1`, `WEAVE_PI_SUBAGENT_ID`, `WEAVE_PI_LSP_BROKER`,
+and `WEAVE_PI_LSP_BROKER_TOKEN` are set by `dispatch` on child processes; don't
+set them yourself.
 
 ## Billing
 

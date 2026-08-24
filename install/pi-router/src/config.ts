@@ -71,6 +71,11 @@ export function getKeyFilePath(): string {
 	return process.env.WEAVE_ROUTER_KEY_FILE?.trim() || path.join(getAgentDir(), ".weave_router_key");
 }
 
+/** Persisted LSP preferences (per-language "don't offer again" dismissals). */
+export function getLspPrefsPath(): string {
+	return path.join(getAgentDir(), ".weave_lsp.json");
+}
+
 interface WeaveProviderConfig {
 	baseUrl?: string;
 	apiKey?: string;
@@ -261,6 +266,23 @@ export const DISPATCH_CONCURRENCY = Math.max(1, numEnv("WEAVE_PI_DISPATCH_CONCUR
 export const MAX_SUBAGENTS = 8;
 export const SUBAGENT_TIMEOUT_MS = Math.max(1000, numEnv("WEAVE_PI_SUBAGENT_TIMEOUT_MS", 600000));
 export const DEFAULT_READONLY_TOOLS = ["read", "grep", "find", "ls"];
+
+// ---------- LSP tunables ----------
+
+/** Idle window before an unused language server is shut down. */
+export const LSP_IDLE_MS = Math.max(10_000, numEnv("WEAVE_PI_LSP_IDLE_MS", 300_000));
+export const LSP_REQUEST_TIMEOUT_MS = Math.max(1000, numEnv("WEAVE_PI_LSP_REQUEST_TIMEOUT_MS", 15_000));
+/** Budget for `initialize` and the first query, which race the server's initial indexing pass. */
+export const LSP_WARMUP_TIMEOUT_MS = Math.max(5000, numEnv("WEAVE_PI_LSP_WARMUP_TIMEOUT_MS", 60_000));
+export const LSP_DIAGNOSTICS_WAIT_MS = Math.max(500, numEnv("WEAVE_PI_LSP_DIAGNOSTICS_WAIT_MS", 3000));
+export const LSP_MAX_SERVERS = Math.max(1, numEnv("WEAVE_PI_LSP_MAX_SERVERS", 4));
+export const LSP_MAX_REFERENCES = Math.max(1, numEnv("WEAVE_PI_LSP_MAX_REFERENCES", 100));
+
+// Set by dispatch on children so a subagent reaches the parent's warm server
+// pool over a local socket instead of cold-starting its own gopls. Internal:
+// never set these yourself.
+export const LSP_BROKER_ENV = "WEAVE_PI_LSP_BROKER";
+export const LSP_BROKER_TOKEN_ENV = "WEAVE_PI_LSP_BROKER_TOKEN";
 
 // Tools that let a subagent mutate the filesystem or run arbitrary commands.
 // dispatch strips these from model-requested per-task `tools` (and downgrades

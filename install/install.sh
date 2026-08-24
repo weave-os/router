@@ -37,6 +37,8 @@
 #   npx @workweave/router --codex                          # skip the picker, target Codex
 #   npx @workweave/router --opencode                       # skip the picker, target opencode
 #   npx @workweave/router --pi                              # skip the picker, target pi
+#   npx @workweave/router --pi --lsp go,typescript          # also install language servers for pi's lsp tool
+#                                                             (go/typescript/python/rust; needs that language's toolchain)
 #   npx @workweave/router --scope project                  # commit-with-team install
 #   npx @workweave/router --dir /tmp/my-sandbox            # isolated throwaway install
 #   npx @workweave/router --local                          # local router on localhost:8080
@@ -125,6 +127,10 @@ disable_routing_alias="false"
 # `set -u` would not. --json switches the output to the raw API payload.
 models_args=""
 models_json="false"
+
+# --lsp <langs>: comma-separated languages whose language servers to install
+# for the pi extension's `lsp` tool (pi target only). Empty = don't install any.
+lsp_langs=""
 
 # --rotate-key forces the interactive key prompt even when a usable key is
 # already installed, so a rotated key can replace it.
@@ -884,6 +890,64 @@ write_pi_settings_config() {
   printf '%s\n' "$merged" >"$settings_file"
 }
 
+# Language-server installs for the pi extension's `lsp` tool (--lsp go,ts,...).
+# The alias -> server -> toolchain matrix mirrors LSP_SERVERS in
+# install/pi-router/src/lsp-servers.ts — keep the two in lockstep. Every
+# failure is a warn-and-continue: a missing toolchain must not fail the router
+# install, and the extension re-offers conversationally at session start.
+install_lsp_servers() {
+  local langs="$1" lang
+  local seen=" "
+  for lang in $(printf '%s' "$langs" | tr ',' ' '); do
+    local id="" bin="" alt_bin="" toolchain="" fallback_dir=""
+    local cmd=""
+    case "$(printf '%s' "$lang" | tr '[:upper:]' '[:lower:]')" in
+      go|golang)
+        id="go"; bin="gopls"; toolchain="go"; fallback_dir="$HOME/go/bin"
+        cmd="go install golang.org/x/tools/gopls@latest"
+        ;;
+      ts|typescript|js|javascript)
+        id="typescript"; bin="typescript-language-server"; toolchain="npm"
+        cmd="npm i -g typescript-language-server typescript"
+        ;;
+      py|python)
+        id="python"; bin="pyright-langserver"; alt_bin="basedpyright-langserver"; toolchain="npm"
+        cmd="npm i -g pyright"
+        ;;
+      rs|rust)
+        id="rust"; bin="rust-analyzer"; toolchain="rustup"; fallback_dir="$HOME/.cargo/bin"
+        cmd="rustup component add rust-analyzer"
+        ;;
+      *)
+        warn "--lsp: unknown language '$lang' (valid: go, typescript, python, rust). Skipping."
+        continue
+        ;;
+    esac
+    case "$seen" in *" $id "*) continue ;; esac
+    seen="$seen$id "
+
+    if command -v "$bin" >/dev/null 2>&1 \
+      || { [ -n "$alt_bin" ] && command -v "$alt_bin" >/dev/null 2>&1; } \
+      || { [ -n "$fallback_dir" ] && [ -x "$fallback_dir/$bin" ]; }; then
+      ok "$id language server already installed ($bin)"
+      continue
+    fi
+    if ! command -v "$toolchain" >/dev/null 2>&1; then
+      warn "--lsp $id: needs '$toolchain' on PATH (install command: $cmd). Skipping — re-run after installing the $toolchain toolchain."
+      continue
+    fi
+    # shellcheck disable=SC2086 — $cmd is a fixed argv from the case above, never user input.
+    if spin "Installing $id language server" $cmd; then
+      ok "$id language server installed ($cmd)"
+      if [ -n "$fallback_dir" ] && ! command -v "$bin" >/dev/null 2>&1; then
+        info "$bin landed in $fallback_dir (not on PATH). The pi lsp tool finds it there; other tools may need a PATH entry."
+      fi
+    else
+      warn "--lsp $id: '$cmd' failed. Run it manually, or ask pi to enable $id LSP support later."
+    fi
+  done
+}
+
 # resolve_user_name mirrors resolve_user_email but for display name. Priority:
 # WEAVE_USER_NAME env override → git config user.name → empty. We don't
 # prompt for name independently: if email prompting yielded nothing, name
@@ -997,6 +1061,10 @@ while [ $# -gt 0 ]; do
     --pi)
       target="pi"; target_explicit="true"; shift
       ;;
+    --lsp)
+      lsp_langs="${2:-}"; shift 2
+      [ -n "$lsp_langs" ] || { err "--lsp requires a comma-separated language list (go,typescript,python,rust)."; exit 2; }
+      ;;
     --claude)
       # No-op selector for symmetry with --codex / --opencode. Useful in
       # pipelines that want to skip the interactive picker without depending
@@ -1046,6 +1114,16 @@ while [ $# -gt 0 ]; do
       ;;
   esac
 done
+
+# --lsp is a pi-extension feature, so it implies the pi target; combining it
+# with another explicit target is a contradiction, not a preference.
+if [ -n "$lsp_langs" ]; then
+  if [ "$target_explicit" = "true" ] && [ "$target" != "pi" ]; then
+    err "--lsp only applies to the pi target (the lsp tool ships in the pi extension). Drop --lsp or use --pi."
+    exit 2
+  fi
+  target="pi"; target_explicit="true"
+fi
 
 if [ "$disable_routing_alias" = "true" ]; then
   if [ "$target_explicit" = "true" ] && [ "$target" != "codex" ]; then
@@ -2772,6 +2850,10 @@ if [ "$target" = "pi" ]; then
     if ! spin "Validating API key" validate_pi_key; then
       warn "Router rejected the API key (check it matches the dashboard at $base_url/ui/)."
     fi
+  fi
+
+  if [ -n "$lsp_langs" ]; then
+    install_lsp_servers "$lsp_langs"
   fi
 
   printf "\n"

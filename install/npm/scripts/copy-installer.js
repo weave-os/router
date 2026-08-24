@@ -62,11 +62,14 @@ const piSrc = path.join(installDir, "pi-router", "src");
 const piDst = path.join(root, "pi-router", "src");
 mkdirSync(path.dirname(piDst), { recursive: true });
 cpSync(piSrc, piDst, { recursive: true });
+// pi discovers these through package.json's "pi.skills" once the package is
+// installed — no installer involvement.
+cpSync(path.join(installDir, "pi-router", "skills"), path.join(root, "pi-router", "skills"), { recursive: true });
 // package.json marks the sources as ESM (type:module); README is docs.
 for (const f of ["package.json", "README.md"]) {
   copyFileSync(path.join(installDir, "pi-router", f), path.join(root, "pi-router", f));
 }
-console.log("Copied pi-router/ (extension).");
+console.log("Copied pi-router/ (extension + skills).");
 
 // Bundle the opencode Codex-subscription plugin the same way. install.sh
 // (--codex/--opencode) drops opencode-weave/src/index.ts into the user's

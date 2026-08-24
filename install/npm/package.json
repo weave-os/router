@@ -9,6 +9,9 @@
   "pi": {
     "extensions": [
       "./pi-router/src/index.ts"
+    ],
+    "skills": [
+      "./pi-router/skills"
     ]
   },
   "files": [
