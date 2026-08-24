@@ -292,6 +292,72 @@ test("the pool evicts the least recently used server once over its cap", async (
 	assert.equal(spawns, 4);
 });
 
+test("entries still initializing are exempt from LRU eviction, so concurrent cold acquires all complete", async () => {
+	const fakes: FakeTransport[] = [];
+	const initIds: Array<{ fake: FakeTransport; id: number }> = [];
+	const pool = new LspServerPool(
+		{ maxServers: 1, idleMs: 60_000, ...CLIENT_OPTIONS },
+		{
+			createClient: (_spec, _binary, root, options) => {
+				const fake = fakeTransport();
+				fakes.push(fake);
+				fake.onRequest("initialize", (message) => initIds.push({ fake, id: message.id as number }));
+				fake.onRequest("shutdown", (message) => fake.receive({ id: message.id as number, result: null }));
+				return new LspClient(root, fake.transport, options);
+			},
+		},
+	);
+
+	// Two cold acquires over a cap of 1 — both handshakes still pending.
+	const first = pool.acquire(GOPLS, GOPLS_BINARY, "/a");
+	const second = pool.acquire(GOPLS, GOPLS_BINARY, "/b");
+	await new Promise((resolve) => setImmediate(resolve));
+	assert.equal(fakes.length, 2);
+	assert.deepEqual(
+		fakes.map((fake) => fake.killed()),
+		[false, false],
+	);
+
+	for (const { fake, id } of initIds) fake.receive({ id, result: { capabilities: {} } });
+	const [clientA, clientB] = await Promise.all([first, second]);
+	assert.equal(clientA.dead, false);
+	assert.equal(clientB.dead, false);
+
+	// With both settled, the next acquire enforces the cap again.
+	const third = pool.acquire(GOPLS, GOPLS_BINARY, "/c");
+	await new Promise((resolve) => setImmediate(resolve));
+	assert.equal(fakes.slice(0, 2).some((fake) => fake.killed()), true);
+	for (const { fake, id } of initIds.slice(2)) fake.receive({ id, result: { capabilities: {} } });
+	await third;
+});
+
+test("the idle timer defers disposal while a request is in flight", async () => {
+	const fakes: FakeTransport[] = [];
+	const pool = new LspServerPool(
+		{ maxServers: 4, idleMs: 40, ...CLIENT_OPTIONS },
+		{
+			createClient: (_spec, _binary, root, options) => {
+				const fake = fakeTransport({ autoHandshake: true });
+				fakes.push(fake);
+				return new LspClient(root, fake.transport, options);
+			},
+		},
+	);
+	const client = await pool.acquire(GOPLS, GOPLS_BINARY, "/repo");
+	const pending = client.request("textDocument/references", {});
+
+	// Two idle windows pass with the request still outstanding — no disposal.
+	await new Promise((resolve) => setTimeout(resolve, 100));
+	assert.equal(fakes[0].killed(), false);
+
+	const id = fakes[0].sent.find((message) => message.method === "textDocument/references")?.id as number;
+	fakes[0].receive({ id, result: [] });
+	await pending;
+	// Once idle for real, the next window reclaims it.
+	await new Promise((resolve) => setTimeout(resolve, 100));
+	assert.equal(fakes[0].killed(), true);
+});
+
 test("the pool replaces a server that died rather than handing it out again", async () => {
 	let spawns = 0;
 	const transports: FakeTransport[] = [];
@@ -784,6 +850,37 @@ test("installServer runs the registry argv and reports success once the binary r
 	assert.deepEqual(spawned, { command: "rustup", args: ["component", "add", "rust-analyzer"] });
 	assert.equal(result.ok, true);
 	assert.match(result.text, /lsp tool now works for rust/);
+});
+
+test("a cancelled install settles only after the child exits, escalating SIGTERM to SIGKILL", async () => {
+	const signals: string[] = [];
+	const handlers = new Map<string, (arg: unknown) => void>();
+	// A child that ignores SIGTERM and dies only on SIGKILL.
+	const stubbornChild = {
+		stdout: { on: () => undefined },
+		stderr: { on: () => undefined },
+		on: (event: string, handler: (arg: unknown) => void) => handlers.set(event, handler),
+		kill: (signal: string) => {
+			signals.push(signal);
+			if (signal === "SIGKILL") queueMicrotask(() => handlers.get("close")?.(null));
+			return true;
+		},
+	};
+
+	const started = Date.now();
+	const result = await installServer(RUST_SPEC, {
+		which: (command) => (command === "rustup" ? "/usr/bin/rustup" : undefined),
+		spawnFn: () => stubbornChild as never,
+		timeoutMs: 30,
+		killGraceMs: 40,
+	});
+
+	// Settled via close after the SIGKILL escalation — not at SIGTERM time.
+	assert.deepEqual(signals, ["SIGTERM", "SIGKILL"]);
+	assert.ok(Date.now() - started >= 60, "must wait out timeout + kill grace before settling");
+	assert.equal(result.ok, false);
+	assert.match(result.text, /timed out/);
+	assert.match(result.text, /stopped/);
 });
 
 test("a failed install surfaces the exit code and last output line", async () => {

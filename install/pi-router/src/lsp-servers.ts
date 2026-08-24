@@ -223,6 +223,8 @@ interface PoolEntry {
 	client: LspClient;
 	ready: Promise<LspClient>;
 	lastUsed: number;
+	/** False until initialize succeeds — pending entries are exempt from idle and LRU eviction. */
+	initialized: boolean;
 	idleTimer?: NodeJS.Timeout;
 }
 
@@ -269,7 +271,15 @@ export class LspServerPool {
 		let entry = this.entries.get(key);
 		if (!entry) {
 			const client = this.createClient(spec, binary, root, this.options);
-			const created: PoolEntry = { client, ready: client.initialize().then(() => client), lastUsed: this.now() };
+			const created: PoolEntry = { client, ready: Promise.resolve(client), lastUsed: this.now(), initialized: false };
+			created.ready = client.initialize().then(() => {
+				// Only now does the entry become evictable: an idle timer or LRU pass
+				// during the (up to warmup-length) handshake would dispose a client
+				// its original caller is still awaiting.
+				created.initialized = true;
+				if (this.entries.get(key) === created) this.armIdleTimer(key, created);
+				return client;
+			});
 			this.entries.set(key, created);
 			// A failed handshake must not stay cached as a poisoned promise.
 			created.ready.catch(() => {
@@ -280,7 +290,7 @@ export class LspServerPool {
 		}
 
 		entry.lastUsed = this.now();
-		this.armIdleTimer(key, entry);
+		if (entry.initialized) this.armIdleTimer(key, entry);
 		this.evictOverCap(key);
 		return abortable(entry.ready, signal);
 	}
@@ -317,6 +327,12 @@ export class LspServerPool {
 	private armIdleTimer(key: string, entry: PoolEntry): void {
 		if (entry.idleTimer) clearTimeout(entry.idleTimer);
 		entry.idleTimer = setTimeout(() => {
+			// A slow request (or diagnostics wait) can outlive a short idle window;
+			// "idle" means no in-flight work, not merely no recent acquire.
+			if (entry.client.busy && !entry.client.dead) {
+				this.armIdleTimer(key, entry);
+				return;
+			}
 			this.forget(key, entry);
 			void entry.client.dispose();
 		}, this.options.idleMs);
@@ -329,6 +345,9 @@ export class LspServerPool {
 			let oldestEntry: PoolEntry | undefined;
 			for (const [key, entry] of this.entries) {
 				if (key === keepKey) continue;
+				// Still initializing = someone is awaiting it. The cap is soft during
+				// warmup; the overflow is reclaimed on the next settled acquire.
+				if (!entry.initialized) continue;
 				if (!oldestEntry || entry.lastUsed < oldestEntry.lastUsed) {
 					oldestKey = key;
 					oldestEntry = entry;

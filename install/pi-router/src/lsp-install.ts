@@ -23,6 +23,7 @@ import {
 } from "./lsp-servers.js";
 
 const INSTALL_TIMEOUT_MS = 300_000;
+const INSTALL_KILL_GRACE_MS = 5000;
 const OUTPUT_TAIL_BYTES = 2048;
 const MAX_SCAN_ENTRIES = 50;
 const SKIPPED_SCAN_DIRS = new Set(["node_modules", "vendor", "dist", "build", "target"]);
@@ -117,6 +118,7 @@ export interface InstallDeps {
 	which?: WhichFn;
 	spawnFn?: SpawnFn;
 	timeoutMs?: number;
+	killGraceMs?: number;
 }
 
 /** Run the spec's install command. Only ever called with the user's explicit consent. */
@@ -137,30 +139,39 @@ export async function installServer(spec: LanguageServerSpec, deps: InstallDeps 
 	const [command, ...args] = spec.install.command;
 	const spawnFn = deps.spawnFn ?? nodeSpawn;
 	const timeoutMs = deps.timeoutMs ?? INSTALL_TIMEOUT_MS;
+	const killGraceMs = deps.killGraceMs ?? INSTALL_KILL_GRACE_MS;
 
-	const outcome = await new Promise<{ code: number | null; output: string }>((resolve) => {
+	const outcome = await new Promise<{ code: number | null; output: string; cancelled?: "aborted" | "timed out" }>((resolve) => {
 		const child = spawnFn(command, args, { shell: false, stdio: ["ignore", "pipe", "pipe"] });
 		let tail = "";
 		let settled = false;
+		let cancelled: "aborted" | "timed out" | undefined;
+		let killTimer: NodeJS.Timeout | undefined;
 		const settle = (code: number | null): void => {
 			if (settled) return;
 			settled = true;
 			clearTimeout(timer);
+			if (killTimer) clearTimeout(killTimer);
 			signal?.removeEventListener("abort", onAbort);
-			resolve({ code, output: tail });
+			resolve({ code, output: tail, cancelled });
 		};
 		const append = (chunk: Buffer): void => {
 			tail = (tail + chunk.toString("utf8")).slice(-OUTPUT_TAIL_BYTES);
 		};
-		const onAbort = (): void => {
+		// Cancellation must not settle before the child actually exits — an
+		// installer that shrugs off SIGTERM would keep mutating the system after
+		// we reported failure. Settle on close, escalating to SIGKILL if needed.
+		const cancel = (reason: "aborted" | "timed out"): void => {
+			if (settled || cancelled) return;
+			cancelled = reason;
 			child.kill("SIGTERM");
-			settle(null);
+			killTimer = setTimeout(() => {
+				if (!settled) child.kill("SIGKILL");
+			}, killGraceMs);
+			killTimer.unref?.();
 		};
-		const timer = setTimeout(() => {
-			append(Buffer.from(`\ntimed out after ${Math.round(timeoutMs / 1000)}s`));
-			child.kill("SIGTERM");
-			settle(null);
-		}, timeoutMs);
+		const onAbort = (): void => cancel("aborted");
+		const timer = setTimeout(() => cancel("timed out"), timeoutMs);
 		timer.unref?.();
 
 		child.stdout?.on("data", append);
@@ -182,6 +193,12 @@ export async function installServer(spec: LanguageServerSpec, deps: InstallDeps 
 			.map((line) => line.trim())
 			.filter(Boolean)
 			.pop() ?? "";
+	if (outcome.cancelled) {
+		return {
+			ok: false,
+			text: `Installing the ${spec.language} language server ${outcome.cancelled} (\`${commandText}\`); the installer process was stopped. The install may be partial — re-run \`${commandText}\` to complete it.`,
+		};
+	}
 	if (outcome.code !== 0) {
 		return {
 			ok: false,

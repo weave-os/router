@@ -183,6 +183,11 @@ export class LspClient {
 		return this.closeInfo !== undefined || this.disposed;
 	}
 
+	/** True while any request or diagnostics wait is in flight — the pool must not idle-dispose a busy client. */
+	get busy(): boolean {
+		return this.pending.size > 0 || this.diagnosticsWaiters.length > 0;
+	}
+
 	/** Shared across callers and never cancelled by one of them leaving: a rejected handshake poisons the pool entry. */
 	initialize(): Promise<void> {
 		if (!this.initializePromise) this.initializePromise = this.performInitialize();
