@@ -15,7 +15,6 @@ const internalServiceTokenHeader = "X-Weave-Internal-Token" //nolint:gosec // he
 // WithInternalServiceAuth authenticates control-plane-to-router calls against
 // a shared secret. Rejects everything when token is empty.
 func WithInternalServiceAuth(token string) gin.HandlerFunc {
-func WithInternalServiceAuth(token string) gin.HandlerFunc {
 	expected := []byte(token)
 	return func(c *gin.Context) {
 		presented := strings.TrimSpace(c.GetHeader(internalServiceTokenHeader))

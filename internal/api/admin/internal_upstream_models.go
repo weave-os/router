@@ -23,7 +23,6 @@ type internalUpstreamModelsRequest struct {
 // credentials are minted per request and never leave the router, so the
 // control plane cannot make this call itself.
 func InternalListUpstreamModelsHandler(authSvc *auth.Service, proxySvc *proxy.Service) gin.HandlerFunc {
-func InternalListUpstreamModelsHandler(authSvc *auth.Service, proxySvc *proxy.Service) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req internalUpstreamModelsRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
