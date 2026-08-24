@@ -5138,7 +5138,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	responsesBody, _ := ctx.Value(codexResponsesBodyContextKey{}).([]byte)
 	responsesBodyCandidate, _ := ctx.Value(openAIResponsesBodyCandidateContextKey{}).([]byte)
 	responsesPassthrough := len(responsesBody) > 0
-	nativeResponsesBodyAvailable := responsesPassthrough || len(responsesBodyCandidate) > 0
+	nativeResponsesBodyAvailable := responsesPassthrough
 	reasoningConfigurationHash := env.ReasoningConfigurationSHA256()
 	if nativeResponsesHash, ok := ctx.Value(nativeResponsesReasoningHashContextKey{}).(string); ok {
 		reasoningConfigurationHash = nativeResponsesHash
@@ -5159,11 +5159,12 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	// compaction below, or runTurnLoop's switch handover); see toolResultBytesPtr.
 	inboundLastUser := env.LastUserMessage()
 
-	// Proactive context-window compaction, as in ProxyMessages. Skip it when
-	// the original Responses body must be preserved because compaction rewrites
-	// the chat envelope without updating that native body.
+	// Proactive context-window compaction, as in ProxyMessages. Native Codex
+	// bodies must skip it because compaction rewrites the chat envelope without
+	// updating that native body; portable candidates are compacted after routing
+	// if the selected provider does not use native Responses.
 	var compResOAI compactionResult
-	if !nativeResponsesBodyAvailable {
+	if !responsesPassthrough && len(responsesBodyCandidate) == 0 {
 		maxEligibleWindowOAI := s.maxEligibleContextWindow(baseExcludedOAI, enabledProviders, env.SignatureTokenSavings())
 		var compErrOAI error
 		compResOAI, compErrOAI = s.maybeCompact(ctx, env, turntype.DetectFromEnvelope(env, feats, subAgentHint), outputReserveOAI, maxEligibleWindowOAI, r.Header)
@@ -5249,9 +5250,44 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	pinAgeSec := routeRes.PinAgeSec
 	s.logPlannerOutcome(ctx, routeRes)
 
+	useNativeResponses := func(d router.Decision) bool {
+		if d.Provider != providers.ProviderOpenAI {
+			return false
+		}
+		if responsesPassthrough {
+			return true
+		}
+		return len(responsesBodyCandidate) > 0 && translate.UseOpenAIResponsesAPI(
+			d.Provider, router.Lookup(d.Model), feats.HasTools)
+	}
+
+	// Portable Responses requests can still use proactive compaction. Defer it
+	// until after routing so native OpenAI reasoning requests retain their exact
+	// input body while other providers receive the compacted chat envelope.
+	if len(responsesBodyCandidate) > 0 && !useNativeResponses(decision) {
+		maxEligibleWindowOAI := s.maxEligibleContextWindow(baseExcludedOAI, enabledProviders, env.SignatureTokenSavings())
+		var compErrOAI error
+		compResOAI, compErrOAI = s.maybeCompact(ctx, env, tt, outputReserveOAI, maxEligibleWindowOAI, r.Header)
+		if compErrOAI != nil {
+			log.Warn("Compaction could not fit request to any eligible model",
+				"err", compErrOAI, "final_estimate", compResOAI.FinalEstimate, "max_window", maxEligibleWindowOAI, "requested_model", feats.Model)
+			return compErrOAI
+		}
+		if compResOAI.Applied {
+			feats = env.RoutingFeatures(embedFlag)
+			log.Info("Proactive compaction applied",
+				"tool_results_cleared", compResOAI.ToolResultsCleared,
+				"summarized", compResOAI.Summarized,
+				"summary_model", compResOAI.SummaryModel,
+				"trimmed_to_recent", compResOAI.TrimmedToRecent,
+				"final_estimate", compResOAI.FinalEstimate,
+			)
+		}
+	}
+
 	// See the ProxyMessages cache-eligibility note: subsidized requests bypass the
 	// semantic cache (the key doesn't capture headroom-dependent model choice).
-	cacheEligible := s.semanticCacheAllowed(ctx) && s.semanticCache != nil && !env.Stream() && decision.Metadata != nil && externalID != "" && !bypassEval && !nativeResponsesBodyAvailable && !billing.SubscriptionOnlyFromContext(ctx) && len(s.subsidyFactors(ctx, r.Header)) == 0
+	cacheEligible := s.semanticCacheAllowed(ctx) && s.semanticCache != nil && !env.Stream() && decision.Metadata != nil && externalID != "" && !bypassEval && !nativeResponsesBodyAvailable && !useNativeResponses(decision) && !billing.SubscriptionOnlyFromContext(ctx) && len(s.subsidyFactors(ctx, r.Header)) == 0
 	if cacheEligible {
 		if resp, hit := s.semanticCache.Lookup(externalID, cache.FormatOpenAI, decision.Metadata.Embedding, decision.Metadata.ClusterIDs, decision.Metadata.ClusterRouterVersion, decision.Metadata.EffectiveKnobsHash); hit {
 			s.writeCachedResponse(w, resp, decision)
@@ -5348,17 +5384,6 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	// so single-binding upstream errors don't strand the routing-marker chunk
 	// on the wire when the upstream never produces a first byte.
 	bindings := s.resolveBindingsForDispatch(ctx, decision)
-
-	useNativeResponses := func(d router.Decision) bool {
-		if d.Provider != providers.ProviderOpenAI {
-			return false
-		}
-		if responsesPassthrough {
-			return true
-		}
-		return len(responsesBodyCandidate) > 0 && translate.UseOpenAIResponsesAPI(
-			d.Provider, router.Lookup(d.Model), feats.HasTools)
-	}
 
 	// Subscription-only mode: the turn must serve on the caller's own
 	// subscription (Codex/Claude OAuth). If routing didn't resolve to a
@@ -5850,8 +5875,8 @@ func (s *Service) ProxyOpenAIResponses(ctx context.Context, body []byte, w http.
 	}
 	chatBody, model := conversion.Body, conversion.Model
 	codexNativeRequest := codexResponsesRequest(ctx, r.Header)
-	// Retain original body for function-tool turns so OpenAI reasoning models
-	// get native Responses dispatch instead of the incompatible Chat Completions surface.
+	// Keep original body for tool turns so native Responses dispatch can be used
+	// when OpenAI reasoning models are selected.
 	if conversion.Requirements.FunctionTools {
 		candidateBody := conversion.OriginalBody
 		if clientAppCodex {
