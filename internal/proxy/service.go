@@ -370,9 +370,8 @@ type OpenAIAccountIDContextKey struct{}
 // Responses body to the Codex backend (its presence marks the passthrough).
 type codexResponsesBodyContextKey struct{}
 
-// openAIResponsesBodyCandidateContextKey carries the Responses body for
-// function-tool turns; OpenAI reasoning gets native dispatch, others get
-// the translated chat form.
+// openAIResponsesBodyCandidateContextKey carries the original Responses body
+// for function-tool turns so OpenAI reasoning models get native dispatch.
 type openAIResponsesBodyCandidateContextKey struct{}
 
 // nativeResponsesReasoningHashContextKey preserves reasoning that only native
