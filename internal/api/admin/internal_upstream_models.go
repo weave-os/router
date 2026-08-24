@@ -19,12 +19,10 @@ type internalUpstreamModelsRequest struct {
 }
 
 // InternalListUpstreamModelsHandler lists the models a saved BYOK endpoint
-// publishes, for the Weave control plane. It exists because key-pair and
-// workload-identity credentials are minted here per request and never leave
-// the router, so the control plane cannot make the upstream call itself.
-//
-// Ownership is the caller's responsibility; the key is still scoped to the
-// named installation, so a wrong pairing is a 404 rather than a leak.
+// publishes, for the Weave control plane. Key-pair and workload-identity
+// credentials are minted per request and never leave the router, so the
+// control plane cannot make this call itself.
+func InternalListUpstreamModelsHandler(authSvc *auth.Service, proxySvc *proxy.Service) gin.HandlerFunc {
 func InternalListUpstreamModelsHandler(authSvc *auth.Service, proxySvc *proxy.Service) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req internalUpstreamModelsRequest
