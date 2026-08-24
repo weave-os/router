@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"net/http"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -181,6 +182,41 @@ func TestKeepaliveWriter_DisabledByNonPositiveInterval(t *testing.T) {
 	time.Sleep(6 * testKeepalive)
 
 	assert.Zero(t, pings(rec.body()), "interval <= 0 must disable keepalives")
+}
+
+// waitFor polls cond on the CALLING goroutine. testify's Eventually evaluates
+// its condition in a fresh goroutine, which perturbs the very count the
+// goroutine-leak test measures.
+func waitFor(cond func() bool) bool {
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if cond() {
+			return true
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	return cond()
+}
+
+// A write error must reap the goroutine on its own. Close() short-circuits once
+// emission has already halted, so if the loop waited to be told to exit, every
+// client that disconnects mid-stream would leak a ticker for the process
+// lifetime.
+func TestKeepaliveWriter_WriteErrorReapsGoroutine(t *testing.T) {
+	baseline := runtime.NumGoroutine()
+	rec := newSyncRecorder()
+	k := sse.NewKeepaliveWriter(rec, []byte(pingFrame), testKeepalive)
+	defer k.Close()
+
+	_, err := k.Write([]byte("event: message_start\ndata: {}\n\n"))
+	require.NoError(t, err)
+	require.True(t, waitFor(func() bool { return pings(rec.body()) >= 1 }))
+	require.Greater(t, runtime.NumGoroutine(), baseline, "loop must be running")
+
+	rec.setWriteErr(errors.New("connection reset"))
+
+	assert.True(t, waitFor(func() bool { return runtime.NumGoroutine() <= baseline }),
+		"the keepalive goroutine must exit on write error, not linger until Close")
 }
 
 // A dead client socket must not spin the keepalive goroutine forever.

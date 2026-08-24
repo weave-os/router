@@ -2395,10 +2395,8 @@ func (s *Service) maybeRepinOnRefusal(ctx context.Context, obs *refusalObserver,
 		"to_provider", fbProvider)
 }
 
-// anthropicPingFrame is the no-op heartbeat the Anthropic Messages stream
-// defines. Clients ignore it; its only job is to put bytes on the wire so a
-// client-side idle watchdog does not mistake a long reasoning phase for a dead
-// connection.
+// anthropicPingFrame keeps a client-facing stream byte-alive during long
+// upstream reasoning phases that produce no translatable frames.
 var anthropicPingFrame = []byte(sseEvent("ping", `{"type":"ping"}`))
 
 func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.ResponseWriter, r *http.Request) error {

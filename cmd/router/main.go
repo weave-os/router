@@ -1407,11 +1407,9 @@ func feedbackLinkTTL() time.Duration {
 	return time.Duration(sec) * time.Second
 }
 
-// sseKeepaliveInterval resolves the client-facing silence budget before the
-// router injects an SSE `ping` (ROUTER_SSE_KEEPALIVE_INTERVAL_SECONDS). Default
-// 15s sits far below the 180s byte watchdog Claude Code applies to a
-// first-party stream. An explicit 0 disables keepalives, so it is parsed inline
-// rather than via parseEnvInt, which would reject 0.
+// sseKeepaliveInterval resolves ROUTER_SSE_KEEPALIVE_INTERVAL_SECONDS.
+// 0 is valid (kill switch), so it is parsed inline rather than via parseEnvInt,
+// which would reject 0. Default is 15s.
 func sseKeepaliveInterval() time.Duration {
 	const defaultSec = 15
 	raw := config.GetOr("ROUTER_SSE_KEEPALIVE_INTERVAL_SECONDS", "")

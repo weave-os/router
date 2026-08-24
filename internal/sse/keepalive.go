@@ -12,20 +12,13 @@ import (
 var recordSep = []byte("\n\n")
 
 // KeepaliveWriter injects a caller-supplied SSE frame whenever a committed
-// stream has sent the client nothing for interval.
+// stream has sent the client nothing for interval. Clients time out on bytes,
+// not semantic events; a long reasoning phase produces no translatable frames,
+// so the router must pad the gap itself.
 //
-// Clients time a stream out on received BYTES, not on semantic events: Claude
-// Code aborts a first-party stream after 180s of byte silence. A long upstream
-// reasoning phase translates to zero client-facing frames, so a healthy turn
-// that will complete reads as a dead connection — prod 2026-08-24, three
-// gpt-5.6-luna turns that each spent their whole 64K output budget reasoning for
-// 320-360s and were killed client-side at exactly 180s. Anthropic's own API
-// emits `ping` for this reason; translated streams had no equivalent.
-//
-// The timer arms on the first byte through the writer, which for a
-// preludeBuffer-wrapped chain is the commit point, so a keepalive can never
-// commit a response the router still wants to retry elsewhere. Frames go out
-// only at a record boundary, so one can never land inside a partial event.
+// Arms on first byte (the preludeBuffer commit point) so a keepalive can never
+// force a response that the router still wants to retry. Emits only at a record
+// boundary so it can never split an event.
 type KeepaliveWriter struct {
 	inner    http.ResponseWriter
 	flusher  http.Flusher
@@ -36,7 +29,11 @@ type KeepaliveWriter struct {
 	last       time.Time
 	atBoundary bool
 	armed      bool
-	stopped    bool
+	// stopped halts emission (write error or Close); closed records that Close
+	// has run. Distinct because a write error must not make Close skip the
+	// channel close that reaps the goroutine.
+	stopped bool
+	closed  bool
 
 	stop chan struct{}
 	done chan struct{}
@@ -93,11 +90,16 @@ func (k *KeepaliveWriter) Flush() {
 // Safe to call on an unarmed writer and safe to call more than once.
 func (k *KeepaliveWriter) Close() {
 	k.mu.Lock()
-	armed, alreadyStopped := k.armed, k.stopped
+	if k.closed {
+		k.mu.Unlock()
+		return
+	}
+	k.closed = true
 	k.stopped = true
+	armed := k.armed
 	k.mu.Unlock()
 
-	if !armed || alreadyStopped {
+	if !armed {
 		return
 	}
 	close(k.stop)
@@ -117,26 +119,33 @@ func (k *KeepaliveWriter) loop() {
 		case <-k.stop:
 			return
 		case <-tick.C:
-			k.emitIfSilent()
+			if !k.emitIfSilent() {
+				return
+			}
 		}
 	}
 }
 
-func (k *KeepaliveWriter) emitIfSilent() {
+// emitIfSilent reports whether the caller should keep ticking.
+func (k *KeepaliveWriter) emitIfSilent() bool {
 	k.mu.Lock()
 	defer k.mu.Unlock()
 
-	if k.stopped || !k.atBoundary || time.Since(k.last) < k.interval {
-		return
+	if k.stopped {
+		return false
+	}
+	if !k.atBoundary || time.Since(k.last) < k.interval {
+		return true
 	}
 	if _, err := k.inner.Write(k.frame); err != nil {
 		// A broken client connection is the handler's error to report; stop
 		// emitting rather than spinning on a dead socket.
 		k.stopped = true
-		return
+		return false
 	}
 	if k.flusher != nil {
 		k.flusher.Flush()
 	}
 	k.last = time.Now()
+	return true
 }

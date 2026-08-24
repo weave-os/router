@@ -17,11 +17,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestProxyMessages_KeepaliveDuringUpstreamSilence is the end-to-end guard for
-// the prod 2026-08-24 failure: an upstream that commits a stream and then goes
-// quiet for minutes (a reasoning phase producing no client-facing frames) left
-// Claude Code with zero bytes and tripped its 180s byte watchdog, even though
-// the turn completed successfully upstream. The router must pad the gap.
+// TestProxyMessages_KeepaliveDuringUpstreamSilence verifies that a stream
+// committed upstream but silent during reasoning is padded with pings so the
+// client byte watchdog does not abort a healthy turn.
 func TestProxyMessages_KeepaliveDuringUpstreamSilence(t *testing.T) {
 	const upstreamSilence = 250 * time.Millisecond
 
