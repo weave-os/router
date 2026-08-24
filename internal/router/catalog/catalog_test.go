@@ -141,14 +141,31 @@ func TestResolveBinding_GemmaUsesNativeGoogleUpstreamID(t *testing.T) {
 	assert.Equal(t, "gemma-4-26b-a4b-it", b.UpstreamID)
 }
 
+func TestResolveBinding_GPT56ProUsesNativeOpenAIUpstreamIDs(t *testing.T) {
+	cases := map[string]string{
+		"gpt-5.6-luna-pro": "gpt-5.6-luna",
+		"gpt-5.6-sol-pro":  "gpt-5.6-sol",
+	}
+
+	for alias, upstreamID := range cases {
+		t.Run(alias, func(t *testing.T) {
+			binding, ok := ResolveBinding(alias, map[string]struct{}{providers.ProviderOpenAI: {}})
+			require.True(t, ok)
+			assert.Equal(t, providers.ProviderOpenAI, binding.Provider)
+			assert.Equal(t, upstreamID, binding.UpstreamID)
+		})
+	}
+}
+
 func TestGPT56ProCatalogRowsAreDirectOpenAIRoutable(t *testing.T) {
 	cases := []struct {
 		model          string
+		upstreamID     string
 		inputUSDPer1M  float64
 		outputUSDPer1M float64
 	}{
-		{"gpt-5.6-luna-pro", 0.20, 1.20},
-		{"gpt-5.6-sol-pro", 2.50, 15.00},
+		{"gpt-5.6-luna-pro", "gpt-5.6-luna", 1.00, 6.00},
+		{"gpt-5.6-sol-pro", "gpt-5.6-sol", 5.00, 30.00},
 	}
 
 	for _, tc := range cases {
@@ -162,7 +179,7 @@ func TestGPT56ProCatalogRowsAreDirectOpenAIRoutable(t *testing.T) {
 			binding, ok := ResolveBinding(tc.model, map[string]struct{}{providers.ProviderOpenAI: {}})
 			require.True(t, ok)
 			assert.Equal(t, providers.ProviderOpenAI, binding.Provider)
-			assert.Empty(t, binding.UpstreamID)
+			assert.Equal(t, tc.upstreamID, binding.UpstreamID)
 			assert.Equal(t, tc.inputUSDPer1M, binding.Price.InputUSDPer1M)
 			assert.Equal(t, tc.outputUSDPer1M, binding.Price.OutputUSDPer1M)
 			assert.Equal(t, 0.10, binding.Price.CacheReadMultiplier)
