@@ -3078,9 +3078,8 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		sink = captureW
 	}
 	// Wrap sink to observe refusals on the native path (no translator Summary
-	// here). Unconditional: the completion log and routing_decisions row are the
-	// only place a refusal is measurable on this path, so detection must not
-	// depend on the re-pin action's kill switch.
+	// here). Detection is unconditional: refusals must be measurable independently
+	// of the re-pin kill switch.
 	refusalObs := newRefusalObserver(sink)
 	sink = refusalObs
 

@@ -71,10 +71,8 @@ const context1MBeta = "context-1m-2025-08-07"
 
 const contextManagementBeta = "context-management-2025-06-27"
 
-// serverSideFallbackBeta opts a request into Anthropic re-serving a
-// safety-refused turn on a fallback model instead of returning the refusal.
-// First-party Anthropic only: no gateway binding documents the field, and an
-// unknown top-level key is a 400 there.
+// serverSideFallbackBeta is the first-party Anthropic beta for server-side
+// fallback; gateways reject the unknown top-level key with a 400.
 const serverSideFallbackBeta = "server-side-fallback-2026-07-01"
 
 // applyServerSideFallback injects fallbacks:"default" so Anthropic re-serves
