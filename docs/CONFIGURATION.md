@@ -246,6 +246,58 @@ request depends on (`Authorization`, `x-api-key`, `Host`, `Content-Type`,
 `Content-Length`, `Accept`) is rejected with `400`. Omit both fields to forward
 nothing — identity only ever reaches the endpoint configured to receive it.
 
+
+### Microsoft Entra client credentials
+
+A tenant that uses Microsoft Foundry or Azure OpenAI can give the router an
+Entra application instead of a long-lived inference token. The stored secret is
+the application's client secret; the router exchanges it for a short-lived
+bearer token at the tenant's Microsoft identity endpoint and refreshes it before
+expiry. The secret is never sent to the inference endpoint.
+
+Use `azure_entra` only with `anthropic_gateway` (Foundry Claude) or
+`openai_gateway` (Azure OpenAI v1). The `auth_account` is the Entra tenant ID
+and `auth_user` is the application/client ID. The endpoint URL must be the
+provider's base URL; the router appends `/v1/messages` or `/chat/completions`.
+Azure deployment names belong in `model_aliases`:
+
+```bash
+# Foundry Claude: https://<resource>.services.ai.azure.com/anthropic/v1/messages
+curl -sS -b jar -X POST https://<router>/admin/v1/provider-keys \
+  -H 'content-type: application/json' \
+  -d '{"provider":"anthropic_gateway","auth_type":"azure_entra",
+       "key":"<entra-client-secret>",
+       "auth_account":"<tenant-id>",
+       "auth_user":"<client-id>",
+       "base_url":"https://<resource>.services.ai.azure.com/anthropic",
+       "model_aliases":{"claude-opus-5":"<deployment-name>"}}'
+
+# Azure OpenAI v1: https://<resource>.openai.azure.com/openai/v1/chat/completions
+curl -sS -b jar -X POST https://<router>/admin/v1/provider-keys \
+  -H 'content-type: application/json' \
+  -d '{"provider":"openai_gateway","auth_type":"azure_entra",
+       "key":"<entra-client-secret>",
+       "auth_account":"<tenant-id>",
+       "auth_user":"<client-id>",
+       "base_url":"https://<resource>.openai.azure.com/openai/v1",
+       "model_aliases":{"gpt-5":"<deployment-name>"}}'
+```
+
+The application must have permission to call the Azure resource (for example,
+**Foundry User** for Foundry Claude or **Cognitive Services OpenAI User** for
+Azure OpenAI). The token scope is `https://ai.azure.com/.default`.
+
+The router runs on GCP Cloud Run, so Azure managed identity is not available to
+it. Use a service principal for this mode. Workload identity federation from a
+GCP service account is a separate deployment-wide mode and is not the same as a
+per-tenant Entra application credential.
+
+Azure OpenAI's older dated `/openai/deployments/...` route is not supported by
+this gateway configuration; use the v1 endpoint shape above. Azure-hosted
+Foundry Claude deployments have a narrower feature set than Anthropic-hosted
+deployments, including restrictions on server-side tools, MCP, structured
+outputs, Agent Skills, programmatic tool calling, and the Files API.
+
 In `selfhosted` mode BYOK is always active (it's the only credentialing path).
 In `managed` mode it is opt-in per installation: the control plane sets
 `byok_enabled` on the installation row, and until it does, the auth middleware

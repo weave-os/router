@@ -28,8 +28,8 @@ type ExternalAPIKey struct {
 	// AuthType is how Plaintext authenticates upstream; see AuthType* constants.
 	AuthType string
 	// AuthAccount and AuthUser identify the principal a minted JWT is issued
-	// for; empty unless AuthType is AuthTypeKeypairJWT. Under AuthTypeWIF the
-	// principal comes from the attestation, so both stay empty.
+	// for; empty unless AuthType is AuthTypeKeypairJWT or AuthTypeAzureEntra.
+	// Under AuthTypeWIF the principal comes from the attestation, so both stay empty.
 	AuthAccount string
 	AuthUser    string
 	CreatedAt   time.Time
@@ -53,17 +53,24 @@ type CreateExternalAPIKeyParams struct {
 	IdentityHeader       *string
 	IdentityHeaderFormat *string
 	AuthType             string
-	// AuthAccount and AuthUser are required for AuthTypeKeypairJWT, nil otherwise.
+	// AuthAccount and AuthUser identify the principal a minted JWT is issued
+	// for; empty unless AuthType is AuthTypeKeypairJWT or AuthTypeAzureEntra.
+	// Under AuthTypeWIF the principal comes from the attestation, so both stay empty.
 	AuthAccount *string
 	AuthUser    *string
 	CreatedBy   *string
 }
 
 // AuthTypeBearer sends the secret verbatim; AuthTypeKeypairJWT signs a short-lived JWT with it;
-// AuthTypeWIF stores no secret and attests the router's own workload identity per request.
+// AuthTypeWIF stores no secret and attests the router's own workload identity per request;
+// AuthTypeAzureEntra exchanges the secret for a short-lived Microsoft Entra bearer token.
 const (
 	AuthTypeBearer     = "bearer"
 	AuthTypeKeypairJWT = "keypair_jwt"
+	// AuthTypeAzureEntra uses the stored client secret to mint a short-lived
+	// Microsoft Entra token. AuthAccount is the tenant ID and AuthUser is the
+	// client ID.
+	AuthTypeAzureEntra = "azure_entra"
 	AuthTypeWIF        = "wif"
 )
 
@@ -189,7 +196,8 @@ func NormalizeBaseURL(raw *string) (*string, error) {
 const maxKeypairFieldLength = 255
 
 // NormalizeAuthType validates authType with its account/user pair. Empty defaults to bearer;
-// keypair_jwt uppercases principal fields; wif accepts neither (the attestation names the principal).
+// keypair_jwt uppercases principal fields; azure_entra preserves the tenant and client IDs;
+// wif accepts neither because the attestation names the principal.
 func NormalizeAuthType(authType string, account, user *string) (string, *string, *string, error) {
 	normalized := strings.ToLower(strings.TrimSpace(authType))
 	// An account locator carries its region as dotted suffixes; the JWT claims
@@ -198,6 +206,17 @@ func NormalizeAuthType(authType string, account, user *string) (string, *string,
 	upperUser := strings.ToUpper(trimmedValue(user))
 	if normalized == "" {
 		normalized = AuthTypeBearer
+	}
+	if normalized == AuthTypeAzureEntra {
+		tenantID := strings.TrimSpace(trimmedValue(account))
+		clientID := strings.TrimSpace(trimmedValue(user))
+		if tenantID == "" || clientID == "" {
+			return "", nil, nil, fmt.Errorf("%w: %s needs both a tenant ID and a client ID", ErrInvalidEntraAuth, AuthTypeAzureEntra)
+		}
+		if len(tenantID) > maxKeypairFieldLength || len(clientID) > maxKeypairFieldLength {
+			return "", nil, nil, fmt.Errorf("%w: tenant ID and client ID are limited to %d characters", ErrInvalidEntraAuth, maxKeypairFieldLength)
+		}
+		return normalized, &tenantID, &clientID, nil
 	}
 	if normalized == AuthTypeBearer || normalized == AuthTypeWIF {
 		if upperAccount != "" || upperUser != "" {

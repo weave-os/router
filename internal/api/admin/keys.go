@@ -291,7 +291,8 @@ func UpsertExternalKeyHandler(authSvc *auth.Service, models DeployedModelsSource
 		})
 		if err != nil {
 			if errors.Is(err, auth.ErrUnknownModel) || errors.Is(err, auth.ErrInvalidModelAlias) ||
-				errors.Is(err, auth.ErrInvalidIdentityHeader) || errors.Is(err, auth.ErrInvalidKeypairAuth) {
+				errors.Is(err, auth.ErrInvalidIdentityHeader) || errors.Is(err, auth.ErrInvalidKeypairAuth) ||
+				errors.Is(err, auth.ErrInvalidEntraAuth) {
 				c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 				return
 			}

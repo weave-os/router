@@ -14,7 +14,7 @@ func (s *Service) resolveUpstreamSecrets(ctx context.Context, keys []*ExternalAP
 	}
 	resolved := make([]*ExternalAPIKey, 0, len(keys))
 	for _, key := range keys {
-		if key.AuthType != AuthTypeKeypairJWT && key.AuthType != AuthTypeWIF {
+		if key.AuthType != AuthTypeKeypairJWT && key.AuthType != AuthTypeWIF && key.AuthType != AuthTypeAzureEntra {
 			resolved = append(resolved, key)
 			continue
 		}
@@ -56,19 +56,26 @@ func (s *Service) ExternalAPIKeyWithCredential(ctx context.Context, installation
 // upstreamCredential derives the bearer value for a key whose stored secret is not itself
 // the credential.
 func (s *Service) upstreamCredential(ctx context.Context, key *ExternalAPIKey) ([]byte, error) {
-	if key.AuthType == AuthTypeWIF {
+	switch key.AuthType {
+	case AuthTypeWIF:
 		if s.wifTokens == nil {
 			return nil, ErrWIFUnavailable
 		}
 		return s.wifTokens.Attestation(ctx)
+	case AuthTypeAzureEntra:
+		if s.entraTokens == nil {
+			return nil, ErrEntraUnavailable
+		}
+		return s.entraTokens.Token(ctx, key)
+	default:
+		return s.keypairTokens.Bearer(key)
 	}
-	return s.keypairTokens.Bearer(key)
 }
 
 // anyDerivedAuth reports whether any key's credential has to be derived rather than sent as stored.
 func anyDerivedAuth(keys []*ExternalAPIKey) bool {
 	for _, key := range keys {
-		if key.AuthType == AuthTypeKeypairJWT || key.AuthType == AuthTypeWIF {
+		if key.AuthType == AuthTypeKeypairJWT || key.AuthType == AuthTypeWIF || key.AuthType == AuthTypeAzureEntra {
 			return true
 		}
 	}

@@ -41,7 +41,7 @@ func TestApplyWIFTokenType_OverridesClientSuppliedValue(t *testing.T) {
 }
 
 func TestApplyWIFTokenType_LeavesOtherAuthTypesAlone(t *testing.T) {
-	for _, authType := range []string{auth.AuthTypeBearer, auth.AuthTypeKeypairJWT, ""} {
+	for _, authType := range []string{auth.AuthTypeBearer, auth.AuthTypeKeypairJWT, auth.AuthTypeAzureEntra, ""} {
 		req := requestWithCredentials(t, &proxy.Credentials{APIKey: []byte("secret"), AuthType: authType})
 
 		proxy.ApplyWIFTokenType(req.Context(), req)

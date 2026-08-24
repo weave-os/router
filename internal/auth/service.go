@@ -38,6 +38,10 @@ var ErrInvalidIdentityHeader = errors.New("auth: invalid identity header")
 // principal, or private key is unusable.
 var ErrInvalidKeypairAuth = errors.New("auth: invalid keypair auth")
 
+// ErrInvalidEntraAuth is returned for an Azure Entra credential whose
+// principal or client secret is unusable.
+var ErrInvalidEntraAuth = errors.New("auth: invalid Microsoft Entra auth")
+
 type Clock func() time.Time
 
 // InstallationChangeNotifier fans out installation-change events to peer replicas.
@@ -70,6 +74,10 @@ type Service struct {
 	// wifTokens is nil unless the deployment runs with a workload identity;
 	// WIF keys are then dropped rather than sent without a credential.
 	wifTokens WIFTokenSource
+
+	// entraTokens is nil unless the deployment has an Entra token source;
+	// Azure Entra keys are then dropped rather than sent as client secrets.
+	entraTokens EntraTokenSource
 
 	// flagOverridesDisabled is the deployment-wide escape hatch
 	// (ROUTER_FLAG_OVERRIDES_DISABLED). When set, per-organization flag
@@ -121,6 +129,12 @@ func (s *Service) WithEncryptor(e Encryptor) *Service {
 // WithWIFTokenSource wires the attestation source backing AuthTypeWIF keys.
 func (s *Service) WithWIFTokenSource(src WIFTokenSource) *Service {
 	s.wifTokens = src
+	return s
+}
+
+// WithEntraTokenSource wires the source backing AuthTypeAzureEntra keys.
+func (s *Service) WithEntraTokenSource(src EntraTokenSource) *Service {
+	s.entraTokens = src
 	return s
 }
 
@@ -286,6 +300,7 @@ type UpsertExternalAPIKeyParams struct {
 	IdentityHeaderFormat *string
 	// AuthType selects how RawKey authenticates upstream; empty means AuthTypeBearer.
 	// AuthTypeKeypairJWT makes RawKey an RSA private key issued for AuthAccount/AuthUser.
+	// AuthTypeAzureEntra makes RawKey an Entra client secret for AuthAccount/AuthUser.
 	AuthType    string
 	AuthAccount *string
 	AuthUser    *string
@@ -319,6 +334,14 @@ func (s *Service) UpsertExternalAPIKey(ctx context.Context, installationID strin
 		// pasted secret here would be stored and never used.
 		if rawKey != "" {
 			return nil, fmt.Errorf("%w: %s takes no key material", ErrInvalidKeypairAuth, AuthTypeWIF)
+		}
+	}
+	if authType == AuthTypeAzureEntra {
+		if !providers.RequiresBaseURL(provider) {
+			return nil, fmt.Errorf("%w: %s does not accept Microsoft Entra credentials", ErrInvalidEntraAuth, provider)
+		}
+		if rawKey == "" {
+			return nil, fmt.Errorf("%w: %s needs a client secret", ErrInvalidEntraAuth, AuthTypeAzureEntra)
 		}
 	}
 	if authType == AuthTypeKeypairJWT {

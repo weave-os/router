@@ -302,15 +302,17 @@ export function ProviderKeysPanel() {
   const baseURLRequired = provider != null && PROVIDERS_REQUIRING_BASE_URL.includes(provider);
   // Mirrors the server's normalization: a slash-only value normalizes away to nothing.
   const baseURLMissing = baseURLRequired && baseURL.trim().replace(/\/+$/, "") === "";
-  // Key-pair and workload-identity auth are gateway-only credential shapes; the
+  // Key-pair, workload-identity, and Entra auth are gateway-only credential shapes; the
   // vendor providers authenticate with their own API keys.
   const authTypeOffered = baseURLRequired;
   const usingKeypair = authTypeOffered && authType === "keypair_jwt";
   const usingWIF = authTypeOffered && authType === "wif";
+  const usingEntra = authTypeOffered && authType === "azure_entra";
   const keypairIncomplete = usingKeypair && (authAccount.trim() === "" || authUser.trim() === "");
+  const entraIncomplete = usingEntra && (authAccount.trim() === "" || authUser.trim() === "");
   // A WIF key carries no secret, so an empty key field is the expected state.
   const keyMissing = !usingWIF && keyValue.trim() === "";
-  const saveDisabled = saving || keyMissing || baseURLMissing || keypairIncomplete;
+  const saveDisabled = saving || keyMissing || baseURLMissing || keypairIncomplete || entraIncomplete;
   // Pre-save discovery can only authenticate with a token sent as-is; derived
   // auth (key pair, WIF) needs the stored key, so those save first and fetch
   // from the saved entry.
@@ -397,7 +399,7 @@ export function ProviderKeysPanel() {
         name.trim() || undefined,
         baseURL.trim() || undefined,
         aliasMapFrom(aliasRows),
-        usingKeypair
+        usingKeypair || usingEntra
           ? { type: authType, account: authAccount.trim(), user: authUser.trim() }
           : { type: authTypeOffered ? authType : "bearer" },
       );
@@ -480,14 +482,14 @@ export function ProviderKeysPanel() {
                   </div>
                 ) : (
                   <Input
-                    label="API key"
+                    label={usingEntra ? "Client secret" : "API key"}
                     type="password"
                     name="provider-api-key"
                     autoComplete="new-password"
                     data-1p-ignore
                     data-lpignore="true"
                     data-form-type="other"
-                    placeholder="sk-..."
+                    placeholder={usingEntra ? "Azure Entra client secret" : "sk-..."}
                     value={keyValue}
                     onChange={e => setKeyValue(e.target.value)}
                     required
@@ -512,6 +514,7 @@ export function ProviderKeysPanel() {
                     <option value="bearer">Token (sent as-is)</option>
                     <option value="keypair_jwt">Key pair (router signs a short-lived token)</option>
                     <option value="wif">Workload identity (router attests its own identity)</option>
+                    <option value="azure_entra">Microsoft Entra (router mints a short-lived token)</option>
                   </select>
                   {usingWIF ? (
                     <Text className="text-2xs text-muted-foreground">
@@ -521,27 +524,33 @@ export function ProviderKeysPanel() {
                   ) : null}
                 </div>
               ) : null}
-              {usingKeypair ? (
+              {usingKeypair || usingEntra ? (
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <Input
-                    label="Account identifier"
+                    label={usingEntra ? "Tenant ID" : "Account identifier"}
                     name="provider-auth-account"
                     autoComplete="off"
-                    placeholder="MYORG-MYACCOUNT"
+                    placeholder={usingEntra ? "00000000-0000-0000-0000-000000000000" : "MYORG-MYACCOUNT"}
                     value={authAccount}
                     onChange={e => setAuthAccount(e.target.value)}
                     required
                   />
                   <Input
-                    label="User"
+                    label={usingEntra ? "Client ID" : "User"}
                     name="provider-auth-user"
                     autoComplete="off"
-                    placeholder="SERVICE_USER"
+                    placeholder={usingEntra ? "00000000-0000-0000-0000-000000000000" : "SERVICE_USER"}
                     value={authUser}
                     onChange={e => setAuthUser(e.target.value)}
                     required
                   />
                 </div>
+              ) : null}
+              {usingEntra ? (
+                <Text className="text-2xs text-muted-foreground">
+                  The router exchanges the client secret for a short-lived Entra token and sends only
+                  that token to Azure.
+                </Text>
               ) : null}
               <Input
                 label={baseURLRequired ? "Endpoint URL" : "Endpoint URL (optional)"}

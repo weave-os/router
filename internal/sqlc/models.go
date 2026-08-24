@@ -100,11 +100,11 @@ type RouterModelRouterExternalAPIKey struct {
 	IdentityHeaderName *string
 	// email = bare address, json = URL-encoded JSON property bag
 	IdentityHeaderFormat *string
-	// bearer = send the stored secret as-is, keypair_jwt = the secret is an RSA private key the router signs short-lived JWTs with, wif = no stored secret, the router attests its own workload identity
+	// bearer = send the stored secret as-is, keypair_jwt = the secret is an RSA private key the router signs short-lived JWTs with, wif = no stored secret and the router attests its own workload identity, azure_entra = the secret is an Azure Entra client secret used to mint a short-lived bearer token
 	AuthType string
-	// Account identifier the minted JWT is issued for; NULL unless auth_type is keypair_jwt
+	// Account identifier for keypair_jwt, or Microsoft Entra tenant ID for azure_entra
 	AuthAccount *string
-	// User the minted JWT authenticates as; NULL unless auth_type is keypair_jwt
+	// User/principal for keypair_jwt, or Microsoft Entra client ID for azure_entra
 	AuthUser *string
 	// Weave account that soft-deleted or replaced this key; NULL when the router deleted it internally or attribution predates the column
 	DeletedBy *string
