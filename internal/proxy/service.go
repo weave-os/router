@@ -34,6 +34,7 @@ import (
 	"workweave/router/internal/router/rl"
 	"workweave/router/internal/router/sessionpin"
 	"workweave/router/internal/router/turntype"
+	"workweave/router/internal/sse"
 	"workweave/router/internal/timing"
 	"workweave/router/internal/translate"
 
@@ -167,6 +168,11 @@ type Service struct {
 	// for degrading to a same-cluster candidate when every binding of the
 	// routed model fails with a transient upstream fault.
 	siblingFailover bool
+	// sseKeepalive is how long a committed Anthropic stream may send the client
+	// nothing before a `ping` goes out (ROUTER_SSE_KEEPALIVE_INTERVAL_SECONDS,
+	// 0 disables). Guards against client-side byte watchdogs during a reasoning
+	// phase that produces no client-facing frames; see sse.KeepaliveWriter.
+	sseKeepalive time.Duration
 	// cyberRefusalFallbackModel is the model to re-pin to on a cyber refusal
 	// when the session pin carries no runner-up (PairedModel). Set from
 	// ROUTER_CYBER_REFUSAL_FALLBACK_MODEL; defaults to claude-sonnet-5.
@@ -1284,6 +1290,13 @@ func (s *Service) WithSiblingFailover(enabled bool) *Service {
 	return s
 }
 
+// WithSSEKeepalive sets the client-facing silence budget before a `ping` is
+// injected into a committed Anthropic stream. Non-positive disables it.
+func (s *Service) WithSSEKeepalive(interval time.Duration) *Service {
+	s.sseKeepalive = interval
+	return s
+}
+
 // WithCyberRefusalFallbackModel sets the re-pin target used when the session pin
 // carries no runner-up (ROUTER_CYBER_REFUSAL_FALLBACK_MODEL). Empty is ignored.
 func (s *Service) WithCyberRefusalFallbackModel(model string) *Service {
@@ -2382,6 +2395,12 @@ func (s *Service) maybeRepinOnRefusal(ctx context.Context, obs *refusalObserver,
 		"to_provider", fbProvider)
 }
 
+// anthropicPingFrame is the no-op heartbeat the Anthropic Messages stream
+// defines. Clients ignore it; its only job is to put bytes on the wire so a
+// client-side idle watchdog does not mistake a long reasoning phase for a dead
+// connection.
+var anthropicPingFrame = []byte(sseEvent("ping", `{"type":"ping"}`))
+
 func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.ResponseWriter, r *http.Request) error {
 	ctx, err := s.checkUserMonthlySpendLimit(ctx, r.Header, r.URL.Path)
 	if err != nil {
@@ -2954,8 +2973,17 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	// cached/logged bodies. Transparent when streaming/feedback is off.
 	clientSink := w
 	if env.Stream() && !agentShadowMode {
+		// Innermost wrap (closest to the socket) so the keepalive observes the
+		// bytes that actually reach the client, and arms only once preludeBuffer
+		// commits — a ping before that would strand a response the router still
+		// wants to retry on another binding.
+		if s.sseKeepalive > 0 {
+			keepalive := sse.NewKeepaliveWriter(clientSink, anthropicPingFrame, s.sseKeepalive)
+			defer keepalive.Close()
+			clientSink = keepalive
+		}
 		if footer := s.feedbackFooter(ctx, ClientIdentityFrom(ctx).ClientApp, routeRes.TurnType); footer != "" {
-			clientSink = translate.NewAnthropicRoutingFooterWriter(w, footer)
+			clientSink = translate.NewAnthropicRoutingFooterWriter(clientSink, footer)
 		}
 	}
 	contentSink, contentCap := s.maybeCaptureResponse(ctx, clientSink)

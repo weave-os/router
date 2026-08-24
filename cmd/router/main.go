@@ -579,6 +579,7 @@ func main() {
 	// Kill switch for degrading to a same-cluster candidate when the routed
 	// model's bindings are all exhausted by a transient upstream fault.
 	siblingFailover := config.GetOr("ROUTER_SIBLING_FAILOVER", "true") == "true"
+	sseKeepalive := sseKeepaliveInterval()
 	ccOrchToolsCrossVendor := config.GetOr("ROUTER_CC_ORCH_TOOLS_CROSSVENDOR", "true") == "true"
 	// Per-turn large-vs-small action-classifier swap. Off by default until the
 	// Layer-2 extrinsic validation clears it; enabling loads the compiled-in head.
@@ -868,6 +869,7 @@ func main() {
 		WithCyberRefusalRepin(cyberRefusalRepin).
 		WithCyberRefusalFallbackModel(cyberRefusalFallbackModel).
 		WithSiblingFailover(siblingFailover).
+		WithSSEKeepalive(sseKeepalive).
 		WithPrefixTrimFreeSwitch(prefixTrimFreeSwitch).
 		WithHMMUpgradeConfidenceThreshold(hmmUpgradeConfidence).
 		WithHMMSameTierPin(hmmSameTierPin).
@@ -1400,6 +1402,25 @@ func feedbackLinkTTL() time.Duration {
 	sec, err := strconv.Atoi(raw)
 	if err != nil || sec < 0 {
 		observability.Get().Warn("Invalid env var; using default", "key", "ROUTER_FEEDBACK_LINK_TTL_SEC", "value", raw, "default", defaultSec)
+		return defaultSec * time.Second
+	}
+	return time.Duration(sec) * time.Second
+}
+
+// sseKeepaliveInterval resolves the client-facing silence budget before the
+// router injects an SSE `ping` (ROUTER_SSE_KEEPALIVE_INTERVAL_SECONDS). Default
+// 15s sits far below the 180s byte watchdog Claude Code applies to a
+// first-party stream. An explicit 0 disables keepalives, so it is parsed inline
+// rather than via parseEnvInt, which would reject 0.
+func sseKeepaliveInterval() time.Duration {
+	const defaultSec = 15
+	raw := config.GetOr("ROUTER_SSE_KEEPALIVE_INTERVAL_SECONDS", "")
+	if raw == "" {
+		return defaultSec * time.Second
+	}
+	sec, err := strconv.Atoi(raw)
+	if err != nil || sec < 0 {
+		observability.Get().Warn("Invalid env var; using default", "key", "ROUTER_SSE_KEEPALIVE_INTERVAL_SECONDS", "value", raw, "default", defaultSec)
 		return defaultSec * time.Second
 	}
 	return time.Duration(sec) * time.Second

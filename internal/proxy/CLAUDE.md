@@ -108,6 +108,42 @@ Per-attempt body rebuild: each closure constructs `EmitOptions` with `TargetProv
 - Cancel/deadline classified as non-retryable: client disconnect or per-request budget elapse must not waste a second upstream call.
 - After dispatch, `actPricing` is re-resolved against the WINNING binding via `catalog.PriceFor(finalProvider, decision.Model)` so debits and OTel `cost.actual_*` reflect the actually-served provider's per-1M rate (the catalog's `PrimaryPriceFor` would otherwise always return the primary's).
 
+## Client-facing SSE keepalive
+
+Clients time a stream out on received BYTES, not on semantic events: Claude Code
+aborts a first-party stream (which includes any `ANTHROPIC_BASE_URL` override,
+so all routed traffic) after **180s** of byte silence. A long reasoning phase
+translates to zero client-facing frames, so a healthy turn reads as a dead
+connection — prod 2026-08-24, three `gpt-5.6-luna` turns that each spent their
+whole 64K output budget reasoning for 320-360s and were killed client-side at
+exactly 180s while the router went on to complete them successfully.
+
+None of the upstream watchdogs can cover this. They measure the *upstream* leg:
+byte-idle keeps getting reset by Responses bookkeeping frames, and the
+output-stall budget (240s) is longer than the client's 180s by design. The gap
+is the *client* leg, so `ProxyMessages` wraps the client writer in
+[`sse.KeepaliveWriter`](../sse/keepalive.go), which emits `anthropicPingFrame`
+after `ROUTER_SSE_KEEPALIVE_INTERVAL_SECONDS` (default 15s, 0 disables) of
+silence. This is what direct-to-Anthropic already gets for free — Anthropic's own
+API emits `ping` for exactly this reason (see `anthropic_footer.go`, which
+forwards them).
+
+**Invariants:**
+- **Innermost wrap.** The keepalive sits closest to the socket, below the
+  feedback footer, so it observes the bytes that actually reach the client
+  rather than what the proxy handed to the next translator.
+- **Arms on first byte, never before.** For a `preludeBuffer`-wrapped chain the
+  first byte through is the commit point, so a keepalive can never commit a
+  response the router still wants to retry on another binding.
+- **Record-boundary only.** A frame goes out only when the last write ended on a
+  blank line, so a keepalive can never land inside a partially written event.
+- **`Close()` before the handler returns** (deferred at the wrap site) and it
+  blocks on any in-flight frame, so no keepalive outlives the response.
+
+Only the Anthropic Messages surface is wrapped today — that is where the failure
+was observed. `KeepaliveWriter` takes the frame as a parameter, so adding the
+OpenAI/Gemini surfaces is a wiring change plus their own frame.
+
 ## `OnUpstreamMeta` callbacks
 
 Provider adapters call back into `proxy.OnUpstreamMeta` so streaming responses record usage/headers back to proxy without coupling provider packages to proxy internals. The catalog / planner stack depends on per-action token counts being recorded promptly — **don't add a provider that forgets to call the callback.**
