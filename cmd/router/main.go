@@ -1407,9 +1407,8 @@ func feedbackLinkTTL() time.Duration {
 	return time.Duration(sec) * time.Second
 }
 
-// sseKeepaliveInterval resolves ROUTER_SSE_KEEPALIVE_INTERVAL_SECONDS.
-// 0 is valid (kill switch), so it is parsed inline rather than via parseEnvInt,
-// which would reject 0. Default is 15s.
+// sseKeepaliveInterval parses ROUTER_SSE_KEEPALIVE_INTERVAL_SECONDS.
+// Handled inline because 0 is a valid kill-switch value that parseEnvInt rejects.
 func sseKeepaliveInterval() time.Duration {
 	const defaultSec = 15
 	raw := config.GetOr("ROUTER_SSE_KEEPALIVE_INTERVAL_SECONDS", "")

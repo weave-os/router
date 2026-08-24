@@ -46,9 +46,8 @@ type KeepaliveWriter struct {
 
 	mu   sync.Mutex
 	last time.Time
-	// tail is the last maxRecordSepLen bytes written to the client. A separator
-	// can straddle two writes, so the boundary test runs over this rather than
-	// over the latest write alone.
+	// tail holds the last maxRecordSepLen bytes so a record separator
+	// that straddles two writes is still detected.
 	tail  []byte
 	armed bool
 	// stopped halts emission (write error or Close); closed records that Close
