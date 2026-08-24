@@ -78,11 +78,18 @@ const serverSideFallbackBeta = "server-side-fallback-2026-07-01"
 // applyServerSideFallback injects fallbacks:"default" so Anthropic re-serves
 // a safety-refused turn instead of returning stop_reason:"refusal" (HTTP 200).
 // Refusals arrive mid-stream, so only Anthropic can rescue the flagged turn.
-// A client-supplied "fallbacks" is left untouched.
+// A client-supplied "fallbacks" is left untouched on a target that accepts it,
+// and dropped otherwise: only CapServerSideFallback models take the field, so
+// forwarding it after a re-pin (or to a gateway) 400s the request.
 func applyServerSideFallback(body []byte, opts EmitOptions) ([]byte, error) {
-	if !opts.EnableServerSideFallback ||
-		opts.TargetProvider != providers.ProviderAnthropic ||
-		gjson.GetBytes(body, "fallbacks").Exists() {
+	if opts.TargetProvider != providers.ProviderAnthropic ||
+		!opts.Capabilities.Supports(router.CapServerSideFallback) {
+		if !gjson.GetBytes(body, "fallbacks").Exists() {
+			return body, nil
+		}
+		return sjson.DeleteBytes(body, "fallbacks")
+	}
+	if !opts.EnableServerSideFallback || gjson.GetBytes(body, "fallbacks").Exists() {
 		return body, nil
 	}
 	return sjson.SetBytes(body, "fallbacks", "default")
@@ -113,6 +120,9 @@ func filterBetaHeader(beta, targetModel string) string {
 }
 
 func betaCompatible(token string, spec router.ModelSpec) bool {
+	if strings.Contains(token, "server-side-fallback") {
+		return spec.Supports(router.CapServerSideFallback)
+	}
 	if strings.Contains(token, "context-1m") {
 		return spec.Supports(router.CapExtendedContext)
 	}

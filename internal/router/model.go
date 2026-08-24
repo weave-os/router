@@ -16,6 +16,10 @@ const (
 	// CapXhighEffort marks models supporting effort "xhigh" (opus-4-7+ only;
 	// sonnet-4-6 400s on it). Emit clamps to "max" when unsupported.
 	CapXhighEffort ModelCapability = "xhigh_effort"
+	// CapServerSideFallback marks models accepting the top-level "fallbacks"
+	// field (opus-5 and fable-5 today — the models whose safety classifiers can
+	// return stop_reason "refusal"). Every other Claude 400s on the field.
+	CapServerSideFallback ModelCapability = "server_side_fallback"
 )
 
 // ModelSpec describes what a model supports. Zero value is safe: provider
@@ -117,7 +121,9 @@ var (
 	// Opus 4.7+ (and fable) additionally accept effort level "xhigh"; the
 	// older adaptive models (opus-4-6, sonnet-4-6) top out at "max".
 	anthropicAdaptiveXhigh = NewSpecWithReasoning(ReasoningCapabilities{Levels: []string{"low", "medium", "high", "max", "xhigh"}, AlwaysOn: true}, CapAdaptiveThinking, CapExtendedContext, CapXhighEffort)
-	anthropicExtended      = NewSpecWithReasoning(ReasoningCapabilities{Levels: []string{"low", "medium", "high"}, SupportsBudget: true}, CapExtendedThinking)
+	// Opus 5 / Fable 5 add server-side fallback on top of the xhigh menu.
+	anthropicAdaptiveFallback = NewSpecWithReasoning(ReasoningCapabilities{Levels: []string{"low", "medium", "high", "max", "xhigh"}, AlwaysOn: true}, CapAdaptiveThinking, CapExtendedContext, CapXhighEffort, CapServerSideFallback)
+	anthropicExtended         = NewSpecWithReasoning(ReasoningCapabilities{Levels: []string{"low", "medium", "high"}, SupportsBudget: true}, CapExtendedThinking)
 )
 
 var (
@@ -137,8 +143,8 @@ var openAICompatBase = NewSpec()
 var registry = map[string]ModelSpec{
 	// claude-fable-5 has adaptive thinking always on (disabled is rejected);
 	// 1M context is native, so CapExtendedContext's beta header is a no-op.
-	"claude-fable-5":  anthropicAdaptiveXhigh,
-	"claude-opus-5":   anthropicAdaptiveXhigh,
+	"claude-fable-5":  anthropicAdaptiveFallback,
+	"claude-opus-5":   anthropicAdaptiveFallback,
 	"claude-opus-4-8": anthropicAdaptiveXhigh,
 	"claude-opus-4-7": anthropicAdaptiveXhigh,
 	// claude-sonnet-5 mirrors sonnet-4-6: no xhigh, since Sonnet tops out at
