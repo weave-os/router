@@ -53,10 +53,10 @@ func (c *Client) listModelsAt(ctx context.Context, listURL string) ([]string, in
 		return nil, 0, fmt.Errorf("model-list call: %w", err)
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode >= 400 {
-		return nil, resp.StatusCode, fmt.Errorf("model listing returned status %d", resp.StatusCode)
-	}
 	body, err := io.ReadAll(io.LimitReader(resp.Body, maxModelListBytes))
+	if resp.StatusCode >= 400 {
+		return nil, resp.StatusCode, providers.ModelListStatusError(resp.StatusCode, body)
+	}
 	if err != nil {
 		return nil, resp.StatusCode, fmt.Errorf("read model-list response: %w", err)
 	}

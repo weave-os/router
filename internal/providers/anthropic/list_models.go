@@ -62,7 +62,7 @@ func (c *Client) ListModels(ctx context.Context) ([]string, error) {
 			return c.listGatewayModels(ctx, baseURL)
 		}
 		if resp.StatusCode >= 400 {
-			return nil, fmt.Errorf("model listing returned status %d", resp.StatusCode)
+			return nil, providers.ModelListStatusError(resp.StatusCode, body)
 		}
 		if err != nil {
 			return nil, fmt.Errorf("read model-list response: %w", err)
@@ -105,10 +105,10 @@ func (c *Client) listGatewayModels(ctx context.Context, baseURL string) ([]strin
 		return nil, fmt.Errorf("model-list call: %w", err)
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode >= 400 {
-		return nil, fmt.Errorf("model listing returned status %d", resp.StatusCode)
-	}
 	body, err := io.ReadAll(io.LimitReader(resp.Body, maxModelListBytes))
+	if resp.StatusCode >= 400 {
+		return nil, providers.ModelListStatusError(resp.StatusCode, body)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("read model-list response: %w", err)
 	}
