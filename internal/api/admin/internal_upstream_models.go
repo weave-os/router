@@ -1,0 +1,56 @@
+package admin
+
+import (
+	"errors"
+	"net/http"
+
+	"workweave/router/internal/auth"
+	"workweave/router/internal/proxy"
+
+	"github.com/gin-gonic/gin"
+)
+
+// internalUpstreamModelsRequest names the saved key to list models for. The
+// control plane owns the installation row, so it passes the installation ID it
+// already holds rather than the router re-deriving one from a session.
+type internalUpstreamModelsRequest struct {
+	InstallationID string `json:"installation_id" binding:"required"`
+	KeyID          string `json:"key_id" binding:"required"`
+}
+
+// InternalListUpstreamModelsHandler lists the models a saved BYOK endpoint
+// publishes, for the Weave control plane. It exists because key-pair and
+// workload-identity credentials are minted here per request and never leave
+// the router, so the control plane cannot make the upstream call itself.
+//
+// Ownership is the caller's responsibility; the key is still scoped to the
+// named installation, so a wrong pairing is a 404 rather than a leak.
+func InternalListUpstreamModelsHandler(authSvc *auth.Service, proxySvc *proxy.Service) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var req internalUpstreamModelsRequest
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "Installation ID and key ID are required."})
+			return
+		}
+		key, err := authSvc.ExternalAPIKeyWithCredential(c.Request.Context(), req.InstallationID, req.KeyID)
+		if err != nil {
+			if errors.Is(err, auth.ErrExternalAPIKeyNotFound) {
+				c.AbortWithStatusJSON(http.StatusNotFound, gin.H{"error": "Provider key not found."})
+				return
+			}
+			if errors.Is(err, auth.ErrUpstreamCredentialUnavailable) {
+				c.AbortWithStatusJSON(http.StatusBadGateway, gin.H{"error": "Could not resolve this key's upstream credential."})
+				return
+			}
+			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Failed to load provider key."})
+			return
+		}
+		creds := proxy.BuildCredentialsMap([]*auth.ExternalAPIKey{key})[key.Provider]
+		models, err := proxySvc.ListUpstreamModels(c.Request.Context(), key.Provider, creds)
+		if err != nil {
+			abortForListingError(c, key.Provider, key.ID, err)
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"models": models})
+	}
+}
