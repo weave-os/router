@@ -164,11 +164,10 @@ type Service struct {
 	// the session off the refusing model (opus ~45% refusal rate; sonnet 0%).
 	// Refusal detection itself is unconditional — the flag gates only the action.
 	cyberRefusalRepin bool
-	// anthropicServerSideFallback opts Anthropic-targeted requests into
-	// Anthropic's server-side fallback beta (ROUTER_ANTHROPIC_SERVER_SIDE_FALLBACK,
-	// default on), which re-serves a safety-refused turn on a fallback model
-	// instead of returning the refusal. Rescues the flagged turn itself, which a
-	// post-turn re-pin cannot.
+	// anthropicServerSideFallback (ROUTER_ANTHROPIC_SERVER_SIDE_FALLBACK, default on)
+	// opts Anthropic-targeted requests into server-side fallback: Anthropic re-serves
+	// a refused turn instead of returning the refusal. Distinct from cyberRefusalRepin,
+	// which only re-pins future turns.
 	anthropicServerSideFallback bool
 
 	// siblingFailover is the kill switch (ROUTER_SIBLING_FAILOVER, default on)

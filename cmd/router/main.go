@@ -570,10 +570,8 @@ func main() {
 	// below can be overridden per deployment.
 	plannerEnabled := config.GetOr("ROUTER_PLANNER_ENABLED", "true") == "true"
 	scoreToolResultTurns := config.GetOr("ROUTER_SCORE_TOOL_RESULT_TURNS", "true") == "true"
-	// Defensive backstop for Anthropic's safety classifiers (cyber,
-	// reasoning_extraction, ...): re-pin a session off a model that returned a
-	// safety refusal, and ask Anthropic to re-serve the refused turn itself.
-	// Fallback target is used when the pin carries no runner-up.
+	// Safety-refusal backstop: re-pin session off the refusing model and ask
+	// Anthropic to re-serve the refused turn on a fallback model.
 	cyberRefusalRepin := config.GetOr("ROUTER_CYBER_REFUSAL_REPIN", "true") == "true"
 	cyberRefusalFallbackModel := config.GetOr("ROUTER_CYBER_REFUSAL_FALLBACK_MODEL", "claude-sonnet-5")
 	anthropicServerSideFallback := config.GetOr("ROUTER_ANTHROPIC_SERVER_SIDE_FALLBACK", "true") == "true"

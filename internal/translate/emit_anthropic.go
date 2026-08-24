@@ -77,12 +77,10 @@ const contextManagementBeta = "context-management-2025-06-27"
 // unknown top-level key is a 400 there.
 const serverSideFallbackBeta = "server-side-fallback-2026-07-01"
 
-// applyServerSideFallback asks Anthropic to re-serve a turn its safety
-// classifiers decline (stop_reason "refusal" on HTTP 200) on a fallback model.
-// Such a refusal is otherwise terminal for the turn: the router only observes
-// it once the response is already streaming, so it can re-pin the session for
-// the next turn but never rescue the flagged one. A client-supplied
-// "fallbacks" is left untouched.
+// applyServerSideFallback injects fallbacks:"default" so Anthropic re-serves
+// a safety-refused turn instead of returning stop_reason:"refusal" (HTTP 200).
+// Refusals arrive mid-stream, so only Anthropic can rescue the flagged turn.
+// A client-supplied "fallbacks" is left untouched.
 func applyServerSideFallback(body []byte, opts EmitOptions) ([]byte, error) {
 	if !opts.EnableServerSideFallback ||
 		opts.TargetProvider != providers.ProviderAnthropic ||
