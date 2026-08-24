@@ -511,14 +511,9 @@ write_codex_config() {
   # that share the same router key. The router otherwise has to guess from
   # User-Agent.
   headers_parts="${headers_parts}, \"X-App\" = \"codex\""
-  # Match the public hosted Claude Code installation: Codex needs this
-  # explicit policy selection because that endpoint otherwise uses its
-  # cluster default. Self-hosted endpoints may not run the optional HMM
-  # sidecar, so every custom URL deliberately keeps the router's own default.
-  # Keep this inside the managed block so a re-install can change it safely.
-  if [ "$block_url" = "$HOSTED_BASE_URL" ]; then
-    headers_parts="${headers_parts}, \"X-Weave-Router-Strategy\" = \"hmm\""
-  fi
+  # No strategy header: pinning one here freezes installed clients on whatever
+  # policy was current at install time, so a deployment-default change never
+  # reaches them. Every endpoint, hosted or self-hosted, uses its own default.
   local headers_line="http_headers = { ${headers_parts} }"
 
   local block

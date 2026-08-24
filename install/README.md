@@ -71,12 +71,12 @@ the target flag:
 ./router/install/install.sh --codex --local --scope project    # team scope Codex
 ```
 
-Self-hosted routers, including the bundled local stack, may not run the optional
-HMM sidecar. For that reason, Codex `--local` and custom `--base-url` installs
-do not force a strategy header; they keep that router's configured default.
-Installs targeting the public `https://router.workweave.ai` endpoint select HMM
-automatically. A self-hosted HMM deployment can add
-`X-Weave-Router-Strategy: hmm` explicitly to its managed Codex config.
+No Codex install forces a strategy header; every install keeps the target
+router's configured default, so a deployment-default change reaches clients
+that were installed earlier. This also matters for self-hosted routers,
+including the bundled local stack, which may not run the optional HMM sidecar.
+A deployment that wants a specific policy can add `X-Weave-Router-Strategy`
+explicitly to its managed Codex config.
 
 ### Self-hosted on a custom URL
 
@@ -119,7 +119,7 @@ logged-in user's Team/Pro/Max/individual plan.
 
 | Path                       | Purpose                                                       |
 | -------------------------- | ------------------------------------------------------------- |
-| `~/.codex/config.toml`     | Adds a managed `[model_providers.weave]` block + sets top-level `model_provider = "weave"`, both between `# >>> weave-router managed` markers. The provider preserves the existing ChatGPT OAuth login; the public hosted endpoint selects HMM while self-hosted URLs keep their router default. Anything outside the markers is preserved. |
+| `~/.codex/config.toml`     | Adds a managed `[model_providers.weave]` block + sets top-level `model_provider = "weave"`, both between `# >>> weave-router managed` markers. The provider preserves the existing ChatGPT OAuth login and keeps the target router's default routing strategy. Anything outside the markers is preserved. |
 
 **Project scope (`--scope project`):**
 
@@ -369,8 +369,8 @@ errors invoking `cc-statusline.sh`. The script needs `jq` on PATH.
 
 1. Open `~/.codex/config.toml` (or `<repo>/.codex/config.toml` for project
    scope) and confirm the `# >>> weave-router managed >>>` block exists with
-   your `X-Weave-Router-Key`. Hosted installs also contain
-   `X-Weave-Router-Strategy = "hmm"`; self-hosted installs intentionally do not.
+   your `X-Weave-Router-Key`. No install writes an `X-Weave-Router-Strategy`
+   header; the router's own default applies.
 2. Run `codex` and issue a turn. Provider should be `Weave Router`.
 3. Check the router's dashboard at `<base-url>/ui/dashboard` to see the HMM
    routed decision; Codex's `/status` shows its request model, not the

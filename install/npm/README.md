@@ -95,9 +95,8 @@ Four install targets:
 - **Codex** (`--codex`) — patches `~/.codex/config.toml` (or
   `<repo>/.codex/config.toml`) with a managed `[model_providers.weave]`
   block plus `model_provider = "weave"`. The provider preserves the existing
-  ChatGPT OAuth login. The public hosted endpoint sends
-  `X-Weave-Router-Strategy: hmm`; `--local` and custom self-hosted URLs keep
-  their router's configured default because its HMM sidecar is optional. HMM or forced
+  ChatGPT OAuth login. No install pins `X-Weave-Router-Strategy`; every
+  endpoint keeps its router's configured default. HMM or forced
   `gpt-5.6-sol`, `gpt-5.6-terra`, and `gpt-5.6-luna` turns use that plan;
   every other selected model uses its WorkWeave deployment or BYOK credential.
   The block lives between begin/end markers

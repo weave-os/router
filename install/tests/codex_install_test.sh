@@ -68,12 +68,12 @@ grep -qx 'model_provider = "weave"' "$config" \
   || fail "Weave was not selected as the default provider"
 grep -qx 'requires_openai_auth = true' "$config" \
   || fail "Weave provider does not require ChatGPT OAuth"
-grep -Fq '"X-Weave-Router-Strategy" = "hmm"' "$config" \
-  || fail "Codex provider does not select HMM routing"
+if grep -Fq 'X-Weave-Router-Strategy' "$config"; then
+  fail "Codex provider pinned a routing strategy instead of the router default"
+fi
 
-# Self-hosted routers may not have the optional HMM sidecar. Both --local and
-# a custom --base-url must keep the router's own default instead of forcing a
-# 503, while a later public-hosted install restores the explicit HMM header.
+# No install target pins a strategy: every endpoint, hosted or self-hosted,
+# uses the router's own deployment default.
 run_local_install
 grep -Fq 'base_url = "http://localhost:8080/v1"' "$config" \
   || fail "Codex --local did not select the local router"
@@ -87,8 +87,9 @@ if grep -Fq 'X-Weave-Router-Strategy' "$config"; then
   fail "Codex custom --base-url forced the optional HMM strategy"
 fi
 run_hosted_install
-grep -Fq '"X-Weave-Router-Strategy" = "hmm"' "$config" \
-  || fail "public-hosted Codex reinstall did not restore HMM routing"
+if grep -Fq 'X-Weave-Router-Strategy' "$config"; then
+  fail "public-hosted Codex reinstall pinned a routing strategy"
+fi
 
 # The stale wrappers must no longer suggest unsupported `/prompts:*` aliases.
 for command in force-model unforce-model router-feedback fm ufm rf; do
