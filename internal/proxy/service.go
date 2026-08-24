@@ -5853,7 +5853,14 @@ func (s *Service) ProxyOpenAIResponses(ctx context.Context, body []byte, w http.
 	// Retain original body for function-tool turns so OpenAI reasoning models
 	// get native Responses dispatch instead of the incompatible Chat Completions surface.
 	if conversion.Requirements.FunctionTools {
-		ctx = context.WithValue(ctx, openAIResponsesBodyCandidateContextKey{}, conversion.OriginalBody)
+		candidateBody := conversion.OriginalBody
+		if clientAppCodex {
+			candidateBody, err = translate.StripRoutingBadgeFromResponsesInput(candidateBody)
+			if err != nil {
+				return fmt.Errorf("strip candidate Responses routing badge: %w", err)
+			}
+		}
+		ctx = context.WithValue(ctx, openAIResponsesBodyCandidateContextKey{}, candidateBody)
 	}
 	// Keep original bytes only when the request is unrepresentable as Chat
 	// Completions (NativeOnly) or a Codex subscription is using its direct endpoint.

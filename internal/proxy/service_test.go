@@ -308,6 +308,30 @@ func TestService_ProxyOpenAIResponses_FunctionToolsUseNativeEndpointForReasoning
 	assert.JSONEq(t, `{"id":"resp_1","object":"response","output":[]}`, rec.Body.String())
 }
 
+func TestService_ProxyOpenAIResponses_CodexCandidateStripsBadgeWithoutSubscription(t *testing.T) {
+	provider := &fakeProvider{proxyResponse: func(w http.ResponseWriter) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"id":"resp_1","object":"response","output":[]}`)
+	}}
+	fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: "gpt-5.6-luna", Reason: "test"}}
+	svc := proxy.NewService(fr, map[string]providers.Client{
+		providers.ProviderOpenAI: provider,
+	}, nil, false, nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-luna", nil)
+
+	ctx := context.WithValue(context.Background(), proxy.ClientIdentityContextKey{}, proxy.ClientIdentity{ClientApp: proxy.ClientAppCodex})
+	body := []byte(`{"model":"auto","input":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"BADGE_PLACEHOLDERold answer"}]},{"type":"message","role":"user","content":"call the tool"}],"tools":[{"type":"function","name":"lookup","parameters":{"type":"object","properties":{}}}]}`)
+	const badge = "⁣⁠⁣⁠**Weave Router** — gpt-5.6-sol\\n\\n"
+	body = []byte(strings.Replace(string(body), "BADGE_PLACEHOLDER", badge, 1))
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(""))
+
+	require.NoError(t, svc.ProxyOpenAIResponses(ctx, body, rec, req))
+	require.Len(t, provider.proxyBodies, 1)
+	assert.Equal(t, providers.EndpointResponses, provider.proxyEndpoints[0])
+	assert.Equal(t, "old answer", gjson.GetBytes(provider.proxyBodies[0], "input.0.content.0.text").Str)
+	assert.NotContains(t, string(provider.proxyBodies[0]), badge)
+}
+
 func TestService_ProxyOpenAIResponses_FunctionToolsStayPortableForOtherProviders(t *testing.T) {
 	provider := &fakeProvider{proxyResponse: func(w http.ResponseWriter) {
 		w.Header().Set("Content-Type", "application/json")
