@@ -5138,6 +5138,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	responsesBody, _ := ctx.Value(codexResponsesBodyContextKey{}).([]byte)
 	responsesBodyCandidate, _ := ctx.Value(openAIResponsesBodyCandidateContextKey{}).([]byte)
 	responsesPassthrough := len(responsesBody) > 0
+	nativeResponsesBodyAvailable := responsesPassthrough || len(responsesBodyCandidate) > 0
 	reasoningConfigurationHash := env.ReasoningConfigurationSHA256()
 	if nativeResponsesHash, ok := ctx.Value(nativeResponsesReasoningHashContextKey{}).(string); ok {
 		reasoningConfigurationHash = nativeResponsesHash
@@ -5158,10 +5159,11 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	// compaction below, or runTurnLoop's switch handover); see toolResultBytesPtr.
 	inboundLastUser := env.LastUserMessage()
 
-	// Proactive context-window compaction, as in ProxyMessages. Skipped for
-	// Codex passthrough bodies, which are forwarded verbatim.
+	// Proactive context-window compaction, as in ProxyMessages. Skip it when
+	// the original Responses body must be preserved because compaction rewrites
+	// the chat envelope without updating that native body.
 	var compResOAI compactionResult
-	if !responsesPassthrough {
+	if !nativeResponsesBodyAvailable {
 		maxEligibleWindowOAI := s.maxEligibleContextWindow(baseExcludedOAI, enabledProviders, env.SignatureTokenSavings())
 		var compErrOAI error
 		compResOAI, compErrOAI = s.maybeCompact(ctx, env, turntype.DetectFromEnvelope(env, feats, subAgentHint), outputReserveOAI, maxEligibleWindowOAI, r.Header)
@@ -5249,7 +5251,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 
 	// See the ProxyMessages cache-eligibility note: subsidized requests bypass the
 	// semantic cache (the key doesn't capture headroom-dependent model choice).
-	cacheEligible := s.semanticCacheAllowed(ctx) && s.semanticCache != nil && !env.Stream() && decision.Metadata != nil && externalID != "" && !bypassEval && !responsesPassthrough && !billing.SubscriptionOnlyFromContext(ctx) && len(s.subsidyFactors(ctx, r.Header)) == 0
+	cacheEligible := s.semanticCacheAllowed(ctx) && s.semanticCache != nil && !env.Stream() && decision.Metadata != nil && externalID != "" && !bypassEval && !nativeResponsesBodyAvailable && !billing.SubscriptionOnlyFromContext(ctx) && len(s.subsidyFactors(ctx, r.Header)) == 0
 	if cacheEligible {
 		if resp, hit := s.semanticCache.Lookup(externalID, cache.FormatOpenAI, decision.Metadata.Embedding, decision.Metadata.ClusterIDs, decision.Metadata.ClusterRouterVersion, decision.Metadata.EffectiveKnobsHash); hit {
 			s.writeCachedResponse(w, resp, decision)
@@ -5499,6 +5501,11 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 				nativeBody := responsesBody
 				if len(nativeBody) == 0 {
 					nativeBody = responsesBodyCandidate
+				}
+				nativeBody, affinityErr := translate.ApplyOpenAIResponsesSessionAffinity(nativeBody, opts.SessionAffinity)
+				if affinityErr != nil {
+					log.Error("Failed to set OpenAI Responses prompt cache key", "err", affinityErr, "decision_model", d.Model)
+					return fmt.Errorf("set OpenAI Responses prompt cache key: %w", affinityErr)
 				}
 				outBody, setErr := sjson.SetBytes(nativeBody, "model", d.Model)
 				if setErr != nil {
@@ -5843,9 +5850,8 @@ func (s *Service) ProxyOpenAIResponses(ctx context.Context, body []byte, w http.
 	}
 	chatBody, model := conversion.Body, conversion.Model
 	codexNativeRequest := codexResponsesRequest(ctx, r.Header)
-	// Function-tool requests remain portable for routing, but retain their
-	// original Responses body so direct OpenAI reasoning models can avoid the
-	// incompatible Chat Completions surface.
+	// Retain original body for function-tool turns so OpenAI reasoning models
+	// get native Responses dispatch instead of the incompatible Chat Completions surface.
 	if conversion.Requirements.FunctionTools {
 		ctx = context.WithValue(ctx, openAIResponsesBodyCandidateContextKey{}, conversion.OriginalBody)
 	}

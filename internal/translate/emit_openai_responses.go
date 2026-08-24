@@ -30,6 +30,15 @@ func (e *RequestEnvelope) PrepareOpenAIResponses(in http.Header, opts EmitOption
 	return providers.PreparedRequest{Body: body, Endpoint: providers.EndpointResponses, Stats: stats}, nil
 }
 
+// ApplyOpenAIResponsesSessionAffinity adds the OpenAI Responses prompt-cache
+// key using the same precedence as Chat Completions emission.
+func ApplyOpenAIResponsesSessionAffinity(body []byte, sessionAffinity string) ([]byte, error) {
+	return applySessionAffinity(body, make(http.Header), EmitOptions{
+		TargetProvider:  providers.ProviderOpenAI,
+		SessionAffinity: sessionAffinity,
+	})
+}
+
 // ResponseTranslator is the common surface the proxy's cross-format OpenAI
 // dispatch drives. AnthropicSSETranslator (chat/completions) and
 // ResponsesToAnthropicWriter (Responses API) both implement it.

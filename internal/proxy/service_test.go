@@ -303,6 +303,7 @@ func TestService_ProxyOpenAIResponses_FunctionToolsUseNativeEndpointForReasoning
 	assert.True(t, gjson.GetBytes(provider.proxyBodies[0], "input").Exists())
 	assert.True(t, gjson.GetBytes(provider.proxyBodies[0], "tools").Exists())
 	assert.Equal(t, "auto", gjson.GetBytes(provider.proxyBodies[0], "tool_choice").Str)
+	assert.NotEmpty(t, gjson.GetBytes(provider.proxyBodies[0], "prompt_cache_key").Str)
 	assert.False(t, gjson.GetBytes(provider.proxyBodies[0], "messages").Exists())
 	assert.JSONEq(t, `{"id":"resp_1","object":"response","output":[]}`, rec.Body.String())
 }
@@ -352,7 +353,12 @@ func TestService_ProxyOpenAIResponses_CustomToolUsesNativeOpenAIFamily(t *testin
 	assert.Equal(t, originalEnvelope.ToolConfigurationSHA256(), fr.capturedReq.ToolConfigurationSHA256)
 	assert.Equal(t, map[string]struct{}{providers.ProviderOpenAI: {}}, fr.capturedReq.EnabledProviders)
 	require.Len(t, provider.proxyBodies, 1)
-	assert.JSONEq(t, `{"model":"gpt-5.5","input":"apply a patch","reasoning":{"effort":"high"},"tools":[{"type":"custom","name":"apply_patch"}]}`, string(provider.proxyBodies[0]))
+	assert.Equal(t, "gpt-5.5", gjson.GetBytes(provider.proxyBodies[0], "model").Str)
+	assert.Equal(t, "apply a patch", gjson.GetBytes(provider.proxyBodies[0], "input").Str)
+	assert.Equal(t, "high", gjson.GetBytes(provider.proxyBodies[0], "reasoning.effort").Str)
+	assert.Equal(t, "custom", gjson.GetBytes(provider.proxyBodies[0], "tools.0.type").Str)
+	assert.Equal(t, "apply_patch", gjson.GetBytes(provider.proxyBodies[0], "tools.0.name").Str)
+	assert.NotEmpty(t, gjson.GetBytes(provider.proxyBodies[0], "prompt_cache_key").Str)
 	assert.Equal(t, providers.EndpointResponses, provider.proxyEndpoints[0])
 	assert.JSONEq(t, `{"id":"resp_1","object":"response","output":[]}`, rec.Body.String())
 }

@@ -544,9 +544,8 @@ func (t *ResponsesWriter) Header() http.Header { return t.inner.Header() }
 // routing, before Prelude).
 func (t *ResponsesWriter) SetPassthrough() { t.passthrough = true }
 
-// SetTranslated switches back to Chat Completions translation before any bytes
-// reach the client. This is used when a native Responses attempt fails before
-// commit and fallback dispatch selects a translated provider.
+// SetTranslated reverts to Chat Completions translation mode. Called on
+// pre-commit fallback when a native Responses attempt fails and a translated provider is selected.
 func (t *ResponsesWriter) SetTranslated() {
 	t.passthrough = false
 	t.passthroughBadge = false
