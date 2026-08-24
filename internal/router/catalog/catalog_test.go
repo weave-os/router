@@ -141,22 +141,6 @@ func TestResolveBinding_GemmaUsesNativeGoogleUpstreamID(t *testing.T) {
 	assert.Equal(t, "gemma-4-26b-a4b-it", b.UpstreamID)
 }
 
-func TestResolveBinding_GPT56ProUsesNativeOpenAIUpstreamIDs(t *testing.T) {
-	cases := map[string]string{
-		"gpt-5.6-luna-pro": "gpt-5.6-luna",
-		"gpt-5.6-sol-pro":  "gpt-5.6-sol",
-	}
-
-	for alias, upstreamID := range cases {
-		t.Run(alias, func(t *testing.T) {
-			binding, ok := ResolveBinding(alias, map[string]struct{}{providers.ProviderOpenAI: {}})
-			require.True(t, ok)
-			assert.Equal(t, providers.ProviderOpenAI, binding.Provider)
-			assert.Equal(t, upstreamID, binding.UpstreamID)
-		})
-	}
-}
-
 func TestGPT56ProCatalogRowsAreDirectOpenAIRoutable(t *testing.T) {
 	cases := []struct {
 		model          string
