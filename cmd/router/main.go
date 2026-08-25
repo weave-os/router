@@ -1471,29 +1471,6 @@ func sseKeepaliveInterval() time.Duration {
 	return time.Duration(sec) * time.Second
 }
 
-// publishFlagRegistry writes internal/flags.Registry to router.flag_definitions,
-// pairing each entry with the deployment default resolved above. defaults is
-// passed in (not derived) because the resolved values are ordinary locals
-// scattered through main(); a missing key is logged and published as empty.
-func publishFlagRegistry(logger *slog.Logger, repo *postgres.FlagDefinitionRepo, defaults map[flags.Key]string) {
-	published := make([]flags.PublishedDefinition, 0, len(flags.Registry))
-	for _, def := range flags.Registry {
-		value, ok := defaults[def.Key]
-		if !ok {
-			logger.Warn("Flag registered without a published deployment default", "flag", def.Key, "env_var", def.EnvVar)
-		}
-		published = append(published, flags.PublishedDefinition{Definition: def, DeploymentDefault: value})
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), flagRegistryPublishTimeout)
-	defer cancel()
-	err := repo.Publish(ctx, published)
-	if err != nil {
-		logger.Error("Failed to publish flag registry; per-org flag override UI may be stale", "err", err)
-		return
-	}
-	logger.Info("Published flag registry", "count", len(published))
-}
-
 // boolDefault renders a bool default for config.GetOr on bool envs.
 func boolDefault(b bool) string {
 	if b {
@@ -1655,9 +1632,6 @@ func runSessionPinSweep(ctx context.Context, store sessionpin.Store) {
 const (
 	defaultHardPinProvider = providers.ProviderAnthropic
 	defaultHardPinModel    = "claude-haiku-4-5"
-	// flagRegistryPublishTimeout bounds the boot-time registry publish so a slow
-	// or unreachable database delays startup by seconds, not indefinitely.
-	flagRegistryPublishTimeout = 10 * time.Second
 )
 
 // resolveDefaultBaselineModel returns the cost-comparison baseline used when
