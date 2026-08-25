@@ -109,19 +109,36 @@ func clearPinEvidence(res *turnLoopResult) {
 	res.PriorTurnGapMS = nil
 }
 
-func cacheablePrefixTokens(pin sessionpin.Pin, total int, prefixBroken bool) int {
+// cacheablePrefixTokens projects the pin's own previous-turn cache-hit share
+// onto this turn's prompt. The share is a ratio of two MEASURED counters, so it
+// is immune to the current turn's estimate being off; dividing measured cached
+// tokens by an estimated current total is not, and biases k toward 1.
+//
+// Reports false when the pin carries no usage telemetry, so the planner can
+// tell that apart from a measured zero.
+func cacheablePrefixTokens(pin sessionpin.Pin, total int, prefixBroken bool) (int, bool) {
 	if prefixBroken {
-		return 0
+		return 0, true // a client trim really did evict the prefix
 	}
-	return min(pin.LastCachedReadTokens+pin.LastCachedWriteTokens, total)
+	cached := pin.LastCachedReadTokens + pin.LastCachedWriteTokens
+	// input_tokens is fresh-only on Anthropic (disjoint from read/write) but is
+	// prompt_tokens — already cache-inclusive — everywhere else. Mirrors
+	// catalog.EffectiveInputCost's provider branch.
+	prior := pin.LastInputTokens
+	if pin.Provider == providers.ProviderAnthropic {
+		prior += cached
+	}
+	if prior <= 0 {
+		return 0, false
+	}
+	share := min(1.0, float64(cached)/float64(prior))
+	return int(share * float64(total)), true
 }
 
-// plannerInputTokens is the planner's own prompt-size estimate. feats.Tokens is
-// text-only and runs 2.4-5.5x low, which would drive the planner's
-// cacheable-share ratio to 1 and reinstate the assumption CorrectedEconomics
-// removes. feats.Tokens must NOT be fixed in place: it is an HMM sidecar
-// feature whose pinned bandit prior was calibrated on these values, and it
-// seeds the client-visible message_start.usage.input_tokens.
+// plannerInputTokens returns the planner's prompt-size estimate from
+// env.FullTokenEstimate. feats.Tokens is text-only and runs low; do NOT replace
+// it at its call sites — it is an HMM sidecar feature calibrated on those
+// values and seeds client-visible input_tokens.
 func plannerInputTokens(env *translate.RequestEnvelope, feats translate.RoutingFeatures) int {
 	if env == nil {
 		return feats.Tokens
@@ -130,6 +147,17 @@ func plannerInputTokens(env *translate.RequestEnvelope, feats translate.RoutingF
 		return full
 	}
 	return feats.Tokens
+}
+
+// plannerTokensFor keeps the corrected estimate behind the flag. Legacy EV
+// scales linearly with token count against a fixed dollar threshold, so feeding
+// it a bigger number would move STAY/SWITCH on deploy — breaking the
+// off-by-default rollout this change promises.
+func (s *Service) plannerTokensFor(env *translate.RequestEnvelope, feats translate.RoutingFeatures) int {
+	if !s.planner.CorrectedEconomics {
+		return feats.Tokens
+	}
+	return plannerInputTokens(env, feats)
 }
 
 // turnLoopResult bundles the routing decision and pin/planner state.
@@ -1090,7 +1118,7 @@ func (s *Service) runTurnLoop(
 			activePin,
 			hmmHistory,
 			fresh,
-			plannerInputTokens(env, feats),
+			s.plannerTokensFor(env, feats),
 			prefixBroken,
 		)
 		res.Decision = hmmDecision
@@ -1184,12 +1212,14 @@ func (s *Service) runTurnLoop(
 		return res, nil
 	}
 
-	plannerTokens := plannerInputTokens(env, feats)
+	plannerTokens := s.plannerTokensFor(env, feats)
+	prefixTokens, prefixKnown := cacheablePrefixTokens(pin, plannerTokens, prefixBroken)
 	plannerIn := planner.Inputs{
 		Pin:                   pin,
 		Fresh:                 fresh,
 		EstimatedInputTokens:  plannerTokens,
-		CacheablePrefixTokens: cacheablePrefixTokens(pin, plannerTokens, prefixBroken),
+		CacheablePrefixTokens: prefixTokens,
+		CachePrefixKnown:      prefixKnown,
 		PriorOutputTokens:     pin.LastOutputTokens,
 		AvailableModels:       s.availableModels,
 		// A trimmed prefix kills the cache even inside the provider TTL.
@@ -1310,11 +1340,13 @@ func (s *Service) hmmCostGatedDecision(
 	// HMM owns semantic selection; the shared Go planner owns cache economics
 	// because HMM clusters and catalog tiers are not the same axis.
 	cfg.TierUpgradeEnabled = false
+	stayPrefix, stayPrefixKnown := cacheablePrefixTokens(stayPin, estimatedInputTokens, prefixBroken)
 	base := planner.Decide(planner.Inputs{
 		Pin:                   stayPin,
 		Fresh:                 fresh,
 		EstimatedInputTokens:  estimatedInputTokens,
-		CacheablePrefixTokens: cacheablePrefixTokens(stayPin, estimatedInputTokens, prefixBroken),
+		CacheablePrefixTokens: stayPrefix,
+		CachePrefixKnown:      stayPrefixKnown,
 		PriorOutputTokens:     stayPin.LastOutputTokens,
 		AvailableModels:       s.availableModels,
 		PinCacheCold:          pinCacheCold(stayPin, prefixBroken),

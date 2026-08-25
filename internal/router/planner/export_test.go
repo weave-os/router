@@ -12,6 +12,7 @@ func CorrectedTermsForTest(
 	in := Inputs{
 		EstimatedInputTokens:  int(tokens),
 		CacheablePrefixTokens: int(tokens * k),
+		CachePrefixKnown:      true,
 		PriorOutputTokens:     int(priorOutput),
 		PinCacheCold:          cold,
 	}

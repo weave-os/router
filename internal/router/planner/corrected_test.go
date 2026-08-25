@@ -36,19 +36,16 @@ func correctedInputs(pinModel, freshModel string, tokens, prefix, priorOut int, 
 		Fresh:                 router.Decision{Model: freshModel, Provider: "anthropic"},
 		EstimatedInputTokens:  tokens,
 		CacheablePrefixTokens: prefix,
+		CachePrefixKnown:      true,
 		PriorOutputTokens:     priorOut,
 		PinCacheCold:          cold,
 	}
 }
 
-// The safety property: merging must not move a routing decision until an
-// operator arms the flag.
-//
-// Sonnet->Haiku is the pair that distinguishes the two models. Legacy's
-// break-even is N*m/(N*m + 1 - m) = 0.25 at N=3, m=0.10, and Haiku is 0.333x
-// Sonnet, so legacy stays. (Opus->Haiku is 0.20x and legacy already switches,
-// which is why it cannot be used to show the difference.) At a measured
-// cacheable share of 0.4 the corrected rate sees the uncached tail and moves.
+// The safety property: merging must not move routing until the flag is armed.
+// Sonnet->Haiku is chosen because legacy's break-even (0.25 at N=3, m=0.10)
+// sits above Haiku's 0.333x, so legacy stays; Opus->Haiku is 0.20x and legacy
+// already switches, so it cannot show the difference.
 func TestCorrectedEconomicsIsOffByDefault(t *testing.T) {
 	in := correctedInputs("claude-sonnet-5", "claude-haiku-4-5", 200_000, 80_000, 1200, false)
 
@@ -121,13 +118,37 @@ func TestCorrectedEVCountsOutputPrice(t *testing.T) {
 		"switching to a 5x-dearer-output model on a 60k-token completion is not a saving")
 }
 
-// An un-migrated call site must degrade to the old behaviour, not to a wild k=0.
+// An un-migrated call site — one that supplies no prefix telemetry at all —
+// must degrade to the old behaviour, not to a wild k=0.
 func TestCacheableShareFallsBackToLegacyWhenUninstrumented(t *testing.T) {
 	in := correctedInputs("claude-opus-5", "claude-haiku-4-5", 200_000, 0, 0, false)
+	in.CachePrefixKnown = false
 	corrected := planner.Decide(in, correctedCfg(3))
 	legacy := planner.Decide(in, legacyCfg(3))
 	assert.InDelta(t, legacy.ExpectedSavingsUSD, corrected.ExpectedSavingsUSD, 1e-12,
 		"k=1 must collapse the corrected rate back onto price*multiplier")
+}
+
+// A MEASURED zero prefix is a real cold cache and must be priced as one. The
+// fallback that turns missing telemetry into k=1 must not swallow it, or a
+// genuinely uncached pin is priced as fully cached and charged an eviction for
+// a prefix that does not exist.
+func TestExplicitZeroPrefixIsNotTreatedAsFullyCached(t *testing.T) {
+	measuredZero := correctedInputs("claude-opus-5", "claude-haiku-4-5", 200_000, 0, 0, false)
+	measuredZero.CachePrefixKnown = true
+
+	noEvidence := measuredZero
+	noEvidence.CachePrefixKnown = false
+
+	zero := planner.Decide(measuredZero, correctedCfg(3))
+	absent := planner.Decide(noEvidence, correctedCfg(3))
+
+	assert.Greater(t, zero.ExpectedSavingsUSD, absent.ExpectedSavingsUSD,
+		"an uncached prompt is billed at full rate on both sides, so the 5x gap is undiscounted")
+	assert.Zero(t, zero.EvictionCostUSD,
+		"there is no live prefix to evict")
+	assert.Greater(t, absent.EvictionCostUSD, 0.0,
+		"the no-telemetry fallback still assumes a full prefix worth evicting")
 }
 
 // Eviction is (w-m) -- the write paid in place of the read -- not the (1-m)

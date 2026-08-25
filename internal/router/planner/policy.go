@@ -88,8 +88,13 @@ type Inputs struct {
 	EstimatedInputTokens int
 	// CacheablePrefixTokens estimates the stable portion of the input.
 	// Shadow-only until CorrectedEconomics is armed, which reads it as the
-	// numerator of the cacheable share.
+	// numerator of the cacheable share. Meaningful only when CachePrefixKnown.
 	CacheablePrefixTokens int
+	// CachePrefixKnown distinguishes a measured zero prefix from no telemetry
+	// at all. Without it a genuinely uncached pin would fall back to k=1 and be
+	// priced as fully cached — the exact inversion CorrectedEconomics exists to
+	// remove.
+	CachePrefixKnown bool
 	// PriorOutputTokens estimates this turn's completion from the last one, so
 	// CorrectedEconomics can price output — which the legacy path ignores
 	// entirely. Zero disables the term rather than asserting a free completion.
@@ -209,11 +214,8 @@ func Decide(in Inputs, cfg EVConfig) Decision {
 // legacyEV is the original math, retained verbatim so CorrectedEconomics=false
 // is bit-for-bit unchanged.
 func legacyEV(pin, fresh catalog.Pricing, tokens float64, pinCold bool, cfg EVConfig) (savings, eviction float64) {
-	// Per-model cache-read multipliers scale savings: only the cache-read
-	// portion of per-turn delta accrues over the horizon — but only while the
-	// pin's cache is warm. A cold pin earns no discount and switching evicts
-	// nothing (both sides pay one cold prefill), so price both uncached and
-	// let raw economics and the tier guard decide.
+	// Cache multipliers apply only while the pin is warm; a cold pin pays full
+	// rate on both sides, so eviction is zero and raw economics decide.
 	pinMult, freshMult := 1.0, 1.0
 	if !pinCold {
 		pinMult = pin.EffectiveCacheReadMultiplier()
@@ -249,11 +251,15 @@ func correctedEV(pin, fresh catalog.Pricing, in Inputs, cfg EVConfig) (savings, 
 }
 
 // cacheableShare is the pin's own previous-turn cache-hit share; persistence
-// beat a trained model on 154k production turns. Falls back to 1 — the legacy
-// assumption — so an uninstrumented caller degrades safely rather than to k=0.
+// beat a trained model on 154k production turns. A measured zero is a real
+// cold prefix and must stay 0 — only the absence of telemetry falls back to 1,
+// the legacy assumption, so an uninstrumented caller degrades safely.
 func cacheableShare(in Inputs) float64 {
-	if in.EstimatedInputTokens <= 0 || in.CacheablePrefixTokens <= 0 {
+	if !in.CachePrefixKnown {
 		return 1
+	}
+	if in.EstimatedInputTokens <= 0 || in.CacheablePrefixTokens <= 0 {
+		return 0
 	}
 	return min(1, float64(in.CacheablePrefixTokens)/float64(in.EstimatedInputTokens))
 }

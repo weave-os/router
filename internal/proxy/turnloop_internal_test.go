@@ -131,11 +131,27 @@ func TestApplyPinEvidence_UsesAvailablePriorTurnData(t *testing.T) {
 func TestCacheablePrefixTokens_UsesReadOrWriteEvidence(t *testing.T) {
 	t.Parallel()
 
-	pin := sessionpin.Pin{LastCachedReadTokens: 4_000, LastCachedWriteTokens: 3_000}
-	assert.Equal(t, 4_000, cacheablePrefixTokens(sessionpin.Pin{LastCachedWriteTokens: 4_000}, 10_000, false))
-	assert.Equal(t, 2_000, cacheablePrefixTokens(sessionpin.Pin{LastCachedReadTokens: 4_000}, 2_000, false))
-	assert.Equal(t, 7_000, cacheablePrefixTokens(pin, 10_000, false))
-	assert.Zero(t, cacheablePrefixTokens(pin, 10_000, true))
+	// Read and write both count as prior-turn cache evidence. The prior total
+	// is 10k (compat basis: LastInputTokens already includes cached), so a 4k
+	// write is a 0.4 share and projects to 4k of a 10k prompt.
+	writeOnly := sessionpin.Pin{LastInputTokens: 10_000, LastCachedWriteTokens: 4_000}
+	got, known := cacheablePrefixTokens(writeOnly, 10_000, false)
+	assert.True(t, known)
+	assert.Equal(t, 4_000, got)
+
+	// The share is scale-free: the same 0.4 on a 2k prompt is 800 tokens, not
+	// the old min(evidence, total) clamp.
+	readOnly := sessionpin.Pin{LastInputTokens: 10_000, LastCachedReadTokens: 4_000}
+	got, _ = cacheablePrefixTokens(readOnly, 2_000, false)
+	assert.Equal(t, 800, got)
+
+	both := sessionpin.Pin{LastInputTokens: 10_000, LastCachedReadTokens: 4_000, LastCachedWriteTokens: 3_000}
+	got, _ = cacheablePrefixTokens(both, 10_000, false)
+	assert.Equal(t, 7_000, got)
+
+	trimmed, trimmedKnown := cacheablePrefixTokens(both, 10_000, true)
+	assert.Zero(t, trimmed)
+	assert.True(t, trimmedKnown, "a client trim is a measured eviction, not missing evidence")
 }
 
 // TestRecordTurnUsage_WritesToStore guards the synchronous UpdateUsage write:
