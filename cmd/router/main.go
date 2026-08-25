@@ -1653,9 +1653,11 @@ func cortexWebSearch(logger *slog.Logger) websearch.Executor {
 	}
 	role := config.GetOr("SNOWFLAKE_AGENT_ROLE", "")
 	hostSuffix := config.GetOr("SNOWFLAKE_AGENT_HOST_SUFFIX", "")
+	timeout := parseEnvDurationMs("SNOWFLAKE_AGENT_TIMEOUT_MS", 0)
 	logger.Info("Cortex Agents web-search executor enabled",
-		"snowflake_role", role, "host_suffix_override", hostSuffix)
-	opts := []cortexagents.Option{cortexagents.WithRole(role)}
+		"snowflake_role", role, "host_suffix_override", hostSuffix,
+		"timeout_ms", timeout.Milliseconds())
+	opts := []cortexagents.Option{cortexagents.WithRole(role), cortexagents.WithTimeout(timeout)}
 	if hostSuffix != "" {
 		opts = append(opts, cortexagents.WithHostSuffix(hostSuffix))
 	}

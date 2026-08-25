@@ -40,8 +40,11 @@ const responseInstruction = "Answer the search query directly and concisely from
 const defaultHostSuffix = "snowflakecomputing.com"
 
 // defaultTimeout bounds one agent run. Agent orchestration is slower than a
-// raw search API, and the caller is a blocked client turn.
-const defaultTimeout = 30 * time.Second
+// raw search API, and the caller is a blocked client turn. Observed runs sit
+// around 20s and reach 27s, so the bound is well clear of the tail: expiring
+// early costs the turn a 400 from the gateway, which is the failure this
+// executor exists to prevent.
+const defaultTimeout = 90 * time.Second
 
 // Option configures a Client at construction.
 type Option func(*Client)
@@ -85,10 +88,15 @@ func NewClient(baseURL string, opts ...Option) *Client {
 		baseURL:    strings.TrimRight(baseURL, "/"),
 		hostSuffix: defaultHostSuffix,
 		timeout:    defaultTimeout,
-		http:       &http.Client{Transport: httputil.NewTransport(10*time.Second, 10*time.Second)},
 	}
 	for _, opt := range opts {
 		opt(c)
+	}
+	// agent:run buffers the whole run before the first byte, so the
+	// time-to-first-byte guard has to be the run budget, not the 30s default
+	// meant for streaming upstreams.
+	c.http = &http.Client{
+		Transport: httputil.NewTransportWithResponseHeaderTimeout(10*time.Second, 10*time.Second, c.timeout),
 	}
 	return c
 }
