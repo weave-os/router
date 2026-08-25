@@ -3772,7 +3772,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			// same misbehaving model — this turn already streamed and can't retry.
 			s.evictPinAfterDegenerateResponse(ctx, stickyHit, decision.Reason, installationID, routeRes.SessionKey, stickyStateRole(routeRes))
 		}
-		s.fireTelemetry(InsertTelemetryParams{
+		tel := InsertTelemetryParams{
 			InstallationID:         installationID.String(),
 			APIKeyID:               apiKeyIDFromContext(ctx),
 			RequestID:              requestID,
@@ -3855,7 +3855,9 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			CredentialSource:    credSource,
 			// Phase 0 instrumentation — Anthropic only; see unified_limit_capture.go.
 			UnifiedLimitHeaders: unifiedLimitHeadersJSON(ctx),
-		})
+		}
+		applyPlannerTelemetry(&tel, routeRes)
+		s.fireTelemetry(tel)
 	}
 
 	// No-op when billing is unwired (selfhosted); only reached on a real
@@ -5760,7 +5762,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	installationIDOAI, _ := ctx.Value(InstallationIDContextKey{}).(string)
 	if installationIDOAI != "" {
 		credentialKeyPrefix, credentialKeySuffix, credSource := s.credentialKeyParts(ctx)
-		s.fireTelemetry(InsertTelemetryParams{
+		telOAI := InsertTelemetryParams{
 			InstallationID:         installationIDOAI,
 			APIKeyID:               apiKeyIDFromContext(ctx),
 			RequestID:              requestID,
@@ -5825,7 +5827,9 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 			CredentialKeyPrefix: credentialKeyPrefix,
 			CredentialKeySuffix: credentialKeySuffix,
 			CredentialSource:    credSource,
-		})
+		}
+		applyPlannerTelemetry(&telOAI, routeRes)
+		s.fireTelemetry(telOAI)
 	}
 
 	log.Info("ProxyOpenAIChatCompletion complete", append([]any{"requested_model", feats.Model, "baseline_model", s.baselineFor(feats.Model), "decision_model", decision.Model, "decision_provider", decision.Provider, "primary_provider", primaryProvider, "fallback_attempts", winnerIdx, "failover_used", finalProvider != primaryProvider, "decision_reason", decision.Reason, "requested_tier", routeRes.RequestedTier.String(), "decision_tier", catalog.TierFor(decision.Model).String(), "embedded_tokens", len(promptText) / 4, "total_input_tokens", feats.Tokens, "has_tools", feats.HasTools, "embed_input", embedInput, "cross_format", crossFormat, "sticky_hit", stickyHit, "pin_tier", pinTier, "turn_type", string(tt), "route_ms", routeMs, "proxy_ms", proxyMs, "proxy_err", proxyErr, "upstream_err_body", providers.UpstreamErrorBodyMessage(proxyErr), "upstream_status", upstreamStatus(proxyErr), "routing_marker", marker, "prior_served_model", routeRes.PriorServedModel, "hard_pinned", routeRes.HardPinned}, plannerLogFields(routeRes)...)...)

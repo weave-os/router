@@ -129,6 +129,20 @@ type InsertTelemetryParams struct {
 	// set, pre-marshaled JSON. Phase 0 instrumentation — nil on non-subscription
 	// turns. Nothing reads this yet.
 	UnifiedLimitHeaders []byte
+
+	// Planner* persist the cache-eviction planner's per-turn verdict. Empty /
+	// nil leave the columns NULL — the planner does not run on every path, and
+	// a stored zero must not read as evidence that it did. Cost fields are
+	// float64 USD at this boundary; the postgres adapter converts to micros.
+	PlannerOutcome                  string
+	PlannerReason                   string
+	PlannerPinModel                 string
+	PlannerPinProvider              string
+	PlannerExpectedSavingsUSD       *float64
+	PlannerEvictionCostUSD          *float64
+	PlannerPinCacheCold             *bool
+	PlannerShadowOutcome            string
+	PlannerShadowExpectedSavingsUSD *float64
 }
 
 // TelemetrySummary holds aggregated totals for the dashboard cards.
@@ -189,4 +203,29 @@ type TelemetryTurnResult struct {
 	RouteID          string
 	Strategy         string
 	Timestamp        time.Time
+}
+
+// applyPlannerTelemetry copies the planner's per-turn verdict onto a telemetry
+// row. Leaves every field zero when the planner did not run (Reason == "") so
+// the columns stay NULL. Cost fields are pointers for the same reason: a
+// stored 0.0 would look like a computed EV of zero.
+func applyPlannerTelemetry(p *InsertTelemetryParams, res turnLoopResult) {
+	if p == nil || res.PlannerDecision.Reason == "" {
+		return
+	}
+	p.PlannerOutcome = plannerOutcomeAttr(res)
+	p.PlannerReason = res.PlannerDecision.Reason
+	p.PlannerPinModel = res.PinModel
+	p.PlannerPinProvider = res.PinProvider
+	savings := res.PlannerDecision.ExpectedSavingsUSD
+	eviction := res.PlannerDecision.EvictionCostUSD
+	p.PlannerExpectedSavingsUSD = &savings
+	p.PlannerEvictionCostUSD = &eviction
+	cold := res.PlannerDecision.PinCacheCold
+	p.PlannerPinCacheCold = &cold
+	if res.PlannerDecision.ShadowComputed {
+		p.PlannerShadowOutcome = plannerOutcome(res.PlannerDecision.ShadowOutcome)
+		shadow := res.PlannerDecision.ShadowExpectedSavingsUSD
+		p.PlannerShadowExpectedSavingsUSD = &shadow
+	}
 }

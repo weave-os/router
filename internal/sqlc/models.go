@@ -226,6 +226,24 @@ type RouterModelRouterRequestTelemetry struct {
 	CaptureMode          *string
 	DebugRef             *string
 	UnifiedLimitHeaders  []byte
+	// Planner verdict for this turn: stay or switch. NULL when the planner did not run.
+	PlannerOutcome *string
+	// Snake-case planner reason (ev_positive, ev_negative, same_model, no_pin, …). NULL when the planner did not run.
+	PlannerReason *string
+	// Pinned model the planner compared against. On a switch this is the model that was abandoned; decision_model is the one served.
+	PlannerPinModel *string
+	// Provider binding of the pin the planner priced. Distinct from decision_provider on a switch.
+	PlannerPinProvider *string
+	// Planner expected_savings as USD micros (USD × 1e6), not float USD. NULL when the planner did not run.
+	PlannerExpectedSavingsUsdMicros *int64
+	// Planner eviction_cost as USD micros (USD × 1e6), not float USD. NULL when the planner did not run.
+	PlannerEvictionCostUsdMicros *int64
+	// Whether the EV math priced the pin as cache-cold. NULL when the planner did not run.
+	PlannerPinCacheCold *bool
+	// Shadow (corrected-economics) verdict: stay or switch. NULL when the shadow was not computed.
+	PlannerShadowOutcome *string
+	// Shadow expected_savings as USD micros (USD × 1e6). NULL when the shadow was not computed.
+	PlannerShadowSavingsUsdMicros *int64
 }
 
 // End-user identities seen on inbound requests, scoped to an installation. Replaces the per-user API key pattern.
@@ -364,62 +382,83 @@ type RouterPolicyShadowDecision struct {
 }
 
 type RouterProductionRequestTelemetry struct {
-	ID                     uuid.UUID
-	InstallationID         uuid.UUID
-	RequestID              string
-	SpanType               string
-	TraceID                string
-	Timestamp              pgtype.Timestamptz
-	RequestedModel         *string
-	DecisionModel          *string
-	DecisionProvider       *string
-	DecisionReason         *string
-	EstimatedInputTokens   *int32
-	StickyHit              *bool
-	EmbedInput             *string
-	InputTokens            *int32
-	OutputTokens           *int32
-	RequestedInputCostUsd  *int64
-	RequestedOutputCostUsd *int64
-	ActualInputCostUsd     *int64
-	ActualOutputCostUsd    *int64
-	RouteLatencyMs         *int64
-	UpstreamLatencyMs      *int64
-	TotalLatencyMs         *int64
-	CrossFormat            *bool
-	UpstreamStatusCode     *int32
-	CreatedAt              pgtype.Timestamptz
-	ClusterIds             []int32
-	CandidateModels        []string
-	ChosenScore            *float64
-	AlphaBreakdown         []byte
-	ClusterRouterVersion   *string
-	TtftMs                 *int64
-	CacheCreationTokens    *int32
-	CacheReadTokens        *int32
-	DeviceID               *string
-	SessionID              *string
-	CandidateScores        []byte
-	Propensity             *float64
-	RouterUserID           pgtype.UUID
-	ClientApp              *string
-	TurnType               *string
-	RolloutID              *string
-	UpstreamFinishReason   *string
-	StopReason             *string
-	ToolUseBlocks          *int32
-	InvalidToolArgsBlocks  *int32
-	FailoverUsed           *bool
-	DegenerateShadow       *bool
-	SessionKey             []byte
-	Role                   *string
-	FreshDecisionModel     *string
-	FreshCandidateScores   []byte
-	PinAgeSec              *int64
-	ToolResultBytes        *int32
-	CredentialKeyPrefix    *string
-	CredentialKeySuffix    *string
-	CredentialSource       *string
+	ID                              uuid.UUID
+	InstallationID                  uuid.UUID
+	RequestID                       string
+	SpanType                        string
+	TraceID                         string
+	Timestamp                       pgtype.Timestamptz
+	RequestedModel                  *string
+	DecisionModel                   *string
+	DecisionProvider                *string
+	DecisionReason                  *string
+	EstimatedInputTokens            *int32
+	StickyHit                       *bool
+	EmbedInput                      *string
+	InputTokens                     *int32
+	OutputTokens                    *int32
+	RequestedInputCostUsd           *int64
+	RequestedOutputCostUsd          *int64
+	ActualInputCostUsd              *int64
+	ActualOutputCostUsd             *int64
+	RouteLatencyMs                  *int64
+	UpstreamLatencyMs               *int64
+	TotalLatencyMs                  *int64
+	CrossFormat                     *bool
+	UpstreamStatusCode              *int32
+	CreatedAt                       pgtype.Timestamptz
+	ClusterIds                      []int32
+	CandidateModels                 []string
+	ChosenScore                     *float64
+	AlphaBreakdown                  []byte
+	ClusterRouterVersion            *string
+	TtftMs                          *int64
+	CacheCreationTokens             *int32
+	CacheReadTokens                 *int32
+	DeviceID                        *string
+	SessionID                       *string
+	CandidateScores                 []byte
+	Propensity                      *float64
+	RouterUserID                    pgtype.UUID
+	ClientApp                       *string
+	TurnType                        *string
+	RolloutID                       *string
+	UpstreamFinishReason            *string
+	StopReason                      *string
+	ToolUseBlocks                   *int32
+	InvalidToolArgsBlocks           *int32
+	FailoverUsed                    *bool
+	DegenerateShadow                *bool
+	SessionKey                      []byte
+	Role                            *string
+	FreshDecisionModel              *string
+	FreshCandidateScores            []byte
+	PinAgeSec                       *int64
+	ToolResultBytes                 *int32
+	CredentialKeyPrefix             *string
+	CredentialKeySuffix             *string
+	CredentialSource                *string
+	APIKeyID                        pgtype.UUID
+	Strategy                        *string
+	RouteID                         *string
+	PolicyRouteKey                  *string
+	PolicyArtifactID                *string
+	PolicyArtifactSha256            *string
+	RosterVersion                   *string
+	SidecarSchemaVersion            *string
+	TrainingAllowed                 *bool
+	CaptureMode                     *string
+	DebugRef                        *string
+	UnifiedLimitHeaders             []byte
+	PlannerOutcome                  *string
+	PlannerReason                   *string
+	PlannerPinModel                 *string
+	PlannerPinProvider              *string
+	PlannerExpectedSavingsUsdMicros *int64
+	PlannerEvictionCostUsdMicros    *int64
+	PlannerPinCacheCold             *bool
+	PlannerShadowOutcome            *string
+	PlannerShadowSavingsUsdMicros   *int64
 }
 
 // Router-owned per-request human feedback captured via the no-login feedback link; mirrored into Weave via the router.feedback OTLP span
