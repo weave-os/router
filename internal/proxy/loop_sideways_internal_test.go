@@ -12,9 +12,7 @@ import (
 	"workweave/router/internal/translate"
 )
 
-// newLoopSidewaysSvc wires the pieces handleToolCallLoopSideways touches: the
-// pin store it reads and re-pins, the roster it picks a target from, and the
-// event store the rescue is recorded in.
+// newLoopSidewaysSvc wires the pin store, roster, and event store that handleToolCallLoopSideways touches.
 func newLoopSidewaysSvc(pins *stubPinStore, events *recordingLoopStore, clusters map[string][]string) *Service {
 	return NewService(nil, nil, nil, false, nil, pins, false, "anthropic", "claude-haiku-4-5", nil).
 		WithLoopEscalationConfig(true, 0).

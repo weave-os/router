@@ -493,11 +493,9 @@ func loopAttribution(pinnedModel, pinnedProvider, requestedModel, requestedProvi
 }
 
 // handleToolCallLoopBreak is the last resort when no sideways rescue was
-// available: it writes a synthetic end_turn response and expires the session
-// pin so the next turn re-routes instead of re-anchoring on the looping model.
-// Pin expiry is best-effort — a write failure logs but doesn't block the
-// response — and is skipped for a user-forced pin, which outranks automatic
-// eviction just as it outranks the sideways move.
+// available: writes a synthetic end_turn and expires the session pin so the
+// next turn re-routes. Pin expiry is best-effort (write failure logs only)
+// and is skipped when preserveForcedPin — user-forced pins outrank eviction.
 func (s *Service) handleToolCallLoopBreak(
 	ctx context.Context,
 	w http.ResponseWriter,
