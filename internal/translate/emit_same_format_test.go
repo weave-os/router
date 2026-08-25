@@ -395,9 +395,7 @@ func TestAnthropicSameFormat_LeadingSystemMessageHoistedWhenNoSystemField(t *tes
 }
 
 func TestAnthropicSameFormat_MidConversationSystemMessageDemotedInPlace(t *testing.T) {
-	// Hoisting a mid-conversation system message would move its text in front of
-	// the whole history and invalidate the cached prefix, so it stays where it
-	// is as a user message.
+	// Mid-conversation system messages are demoted in place; hoisting would shift the cached prefix.
 	body := []byte(`{"model":"claude-sonnet-4-20250514","system":"rules","messages":[{"role":"user","content":"hi"},{"role":"assistant","content":"ok"},{"role":"system","content":"be terse"}],"max_tokens":1024}`)
 	opts := translate.EmitOptions{
 		TargetModel:  "claude-opus-4-7",
