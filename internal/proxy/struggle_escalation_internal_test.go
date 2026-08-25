@@ -232,6 +232,26 @@ func TestHandleStruggleEscalation_EvidenceStaysOffTheOpeningTurns(t *testing.T) 
 	assert.Empty(t, events.events)
 }
 
+func TestHandleStruggleEscalation_EvidenceCannotArmALateSession(t *testing.T) {
+	pins := newStubPinStore()
+	pins.getFound = true
+	pin := strugglingPin("claude-haiku-4-5", "balanced")
+	pin.TurnCount = struggleLateTurns
+	pin.FirstPinnedAt = time.Now().Add(-struggleLateWall - time.Minute)
+	pins.getPin = pin
+	events := &recordingStruggleStore{}
+	svc := newStruggleEscalationSvc(pins, events, map[string][]string{
+		"balanced": {"anthropic/claude-haiku-4.5"},
+		"high":     {"anthropic/claude-opus-5"},
+	}).WithStruggleEvidenceArming(true)
+
+	svc.handleStruggleEscalation(context.Background(), uuid.New(), struggleTestKey(7), "default",
+		[]string{spiralReasonPingPong})
+
+	assert.Empty(t, pins.upserts, "late is deliberately unarmed; evidence must not smuggle it in")
+	assert.Empty(t, events.events)
+}
+
 func TestHandleStruggleEscalation_TimerArmingKeepsItsAttribution(t *testing.T) {
 	pins := newStubPinStore()
 	pins.getFound = true

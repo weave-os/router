@@ -873,6 +873,7 @@ func main() {
 		flags.KeyStruggleShadowEnabled:     boolDefault(struggleShadowEnabled),
 		flags.KeyStruggleEscalationEnabled: boolDefault(struggleEscalationEnabled),
 		flags.KeyStruggleEscalationHoldout: strconv.Itoa(struggleEscalationHoldoutPct),
+		flags.KeyStruggleEvidenceArming:    boolDefault(struggleEvidenceArming),
 		flags.KeySpiralShadowEnabled:       boolDefault(spiralShadowEnabled),
 		flags.KeyLoopEscalationEnabled:     boolDefault(loopEscalationEnabled),
 		flags.KeyLoopEscalationHoldoutPct:  strconv.Itoa(loopEscalationHoldoutPct),

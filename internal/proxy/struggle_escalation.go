@@ -111,9 +111,9 @@ func (s *Service) handleStruggleEscalation(
 	timerArmed := len(reasons) > 0 && reasons[0] == struggleReasonEarlyStr
 
 	// Evidence arming fires ahead of the timer, so it must not also fire
-	// behind it: a session past the thresholds is the timer's case regardless
-	// of which signals happen to be present.
-	evidenceArmed := !timerArmed &&
+	// behind it: any timer reason at all (including the unarmed "late") means
+	// the session is the timer's case, whatever signals are present.
+	evidenceArmed := len(reasons) == 0 &&
 		len(evidence) > 0 &&
 		turnCount >= struggleEvidenceMinTurns &&
 		s.ResolveStruggleEvidenceArming(ctx)
