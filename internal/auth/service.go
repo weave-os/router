@@ -34,6 +34,10 @@ var ErrInvalidModelAlias = errors.New("auth: invalid model alias")
 // unnamed, reserved, or in an unknown format.
 var ErrInvalidIdentityHeader = errors.New("auth: invalid identity header")
 
+// ErrInvalidForwardedHeader is returned for a client-header passthrough entry
+// that is malformed or names a reserved header.
+var ErrInvalidForwardedHeader = errors.New("auth: invalid forwarded header")
+
 // ErrInvalidKeypairAuth is returned for a key-pair credential whose auth type,
 // principal, or private key is unusable.
 var ErrInvalidKeypairAuth = errors.New("auth: invalid keypair auth")
@@ -298,6 +302,11 @@ type UpsertExternalAPIKeyParams struct {
 	// in, rendered per IdentityHeaderFormat; both nil forwards nothing.
 	IdentityHeader       *string
 	IdentityHeaderFormat *string
+	// ForwardedClientHeaders names inbound client headers copied verbatim to this
+	// endpoint; BaggageHeader is its JSON baggage header, re-emitted with the
+	// caller's email under on-behalf-of. Both empty forwards nothing.
+	ForwardedClientHeaders []string
+	BaggageHeader          *string
 	// AuthType selects how RawKey authenticates upstream; empty means AuthTypeBearer.
 	// AuthTypeKeypairJWT makes RawKey an RSA private key issued for AuthAccount/AuthUser.
 	// AuthTypeAzureEntra makes RawKey an Entra client secret for AuthAccount/AuthUser.
@@ -319,6 +328,14 @@ func (s *Service) UpsertExternalAPIKey(ctx context.Context, installationID strin
 		return nil, err
 	}
 	identityHeader, identityFormat, err := NormalizeIdentityHeader(params.IdentityHeader, params.IdentityHeaderFormat)
+	if err != nil {
+		return nil, err
+	}
+	forwardedHeaders, err := NormalizeForwardedClientHeaders(params.ForwardedClientHeaders)
+	if err != nil {
+		return nil, err
+	}
+	baggageHeader, err := NormalizeBaggageHeader(params.BaggageHeader)
 	if err != nil {
 		return nil, err
 	}
@@ -380,12 +397,15 @@ func (s *Service) UpsertExternalAPIKey(ctx context.Context, installationID strin
 		BaseURL:        normalizedBaseURL,
 		ModelAliases:   normalizedAliases,
 
-		IdentityHeader:       identityHeader,
-		IdentityHeaderFormat: identityFormat,
-		AuthType:             authType,
-		AuthAccount:          authAccount,
-		AuthUser:             authUser,
-		CreatedBy:            params.CreatedBy,
+		IdentityHeader:         identityHeader,
+		IdentityHeaderFormat:   identityFormat,
+		ForwardedClientHeaders: forwardedHeaders,
+		BaggageHeader:          baggageHeader,
+
+		AuthType:    authType,
+		AuthAccount: authAccount,
+		AuthUser:    authUser,
+		CreatedBy:   params.CreatedBy,
 	})
 	if err != nil {
 		return nil, err

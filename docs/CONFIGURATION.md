@@ -277,6 +277,28 @@ request depends on (`Authorization`, `x-api-key`, `Host`, `Content-Type`,
 `Content-Length`, `Accept`) is rejected with `400`. Omit both fields to forward
 nothing — identity only ever reaches the endpoint configured to receive it.
 
+An endpoint that runs its own observability (Snowflake Cortex) can also have the
+caller's own correlation headers survive the hop, and its baggage header
+re-emitted with the router-resolved user:
+
+```bash
+curl -sS -b jar -X POST https://<router>/admin/v1/provider-keys \
+  -H 'content-type: application/json' \
+  -d '{"provider":"anthropic_gateway","key":"<token>",
+       "forwarded_client_headers":["X-SNOWFLAKE-APPLICATION","X-Claude-Code-Session-Id"],
+       "baggage_header":"X-SNOWFLAKE-BAGGAGE"}'
+```
+
+`forwarded_client_headers` are copied verbatim from the inbound request (up to
+16, blanks and duplicates dropped). `baggage_header` is read as a raw JSON
+object and re-sent with `"on-behalf-of": "<X-Weave-User-Email>"` added — other
+keys are preserved, and a client-supplied `on-behalf-of` is replaced so
+attribution stays the router's. A request with no resolved email forwards the
+caller's bag unchanged; a bag that isn't a JSON object travels unchanged. Both
+fields reject the same request-critical header names as `identity_header`, and
+both are applied after the client's headers so nothing upstream-critical can be
+overwritten. Omit both to forward nothing.
+
 
 ### Microsoft Entra client credentials
 

@@ -48,12 +48,15 @@ func (r *ExternalAPIKeyRepo) Create(ctx context.Context, params auth.CreateExter
 		BaseURL:        params.BaseURL,
 		ModelAliases:   aliases,
 
-		IdentityHeaderName:   params.IdentityHeader,
-		IdentityHeaderFormat: params.IdentityHeaderFormat,
-		AuthType:             params.AuthType,
-		AuthAccount:          params.AuthAccount,
-		AuthUser:             params.AuthUser,
-		CreatedBy:            params.CreatedBy,
+		IdentityHeaderName:     params.IdentityHeader,
+		IdentityHeaderFormat:   params.IdentityHeaderFormat,
+		ForwardedClientHeaders: params.ForwardedClientHeaders,
+		BaggageHeader:          params.BaggageHeader,
+
+		AuthType:    params.AuthType,
+		AuthAccount: params.AuthAccount,
+		AuthUser:    params.AuthUser,
+		CreatedBy:   params.CreatedBy,
 	})
 	if err != nil {
 		return nil, err
@@ -182,12 +185,15 @@ func toExternalAPIKey(row sqlc.RouterModelRouterExternalAPIKey) (*auth.ExternalA
 		KeyFingerprint: row.KeyFingerprint,
 		BaseURL:        derefString(row.BaseURL),
 
-		IdentityHeader:       derefString(row.IdentityHeaderName),
-		IdentityHeaderFormat: derefString(row.IdentityHeaderFormat),
-		AuthType:             row.AuthType,
-		AuthAccount:          derefString(row.AuthAccount),
-		AuthUser:             derefString(row.AuthUser),
-		CreatedAt:            timestampOrZero(row.CreatedAt),
+		IdentityHeader:         derefString(row.IdentityHeaderName),
+		IdentityHeaderFormat:   derefString(row.IdentityHeaderFormat),
+		ForwardedClientHeaders: row.ForwardedClientHeaders,
+		BaggageHeader:          derefString(row.BaggageHeader),
+
+		AuthType:    row.AuthType,
+		AuthAccount: derefString(row.AuthAccount),
+		AuthUser:    derefString(row.AuthUser),
+		CreatedAt:   timestampOrZero(row.CreatedAt),
 	}
 	key.Name = row.Name
 	key.LastUsedAt = timestampPtr(row.LastUsedAt)

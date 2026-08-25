@@ -313,6 +313,7 @@ func (c *Client) proxyTo(ctx context.Context, cancel context.CancelCauseFunc, ur
 	c.applyOAuthBeta(ctx, upstream, r)
 	proxy.ApplyWIFTokenType(ctx, upstream)
 	proxy.ApplyIdentityHeader(ctx, upstream)
+	proxy.ApplyForwardedClientHeaders(ctx, upstream, r.Header)
 	if v := r.Header.Get("accept"); v != "" {
 		upstream.Header.Set("accept", v)
 	}
@@ -421,6 +422,7 @@ func (c *Client) Passthrough(ctx context.Context, prep providers.PreparedRequest
 	c.applyProtectedHeaders(upstream)
 	c.applyOAuthBeta(ctx, upstream, r)
 	proxy.ApplyWIFTokenType(ctx, upstream)
+	proxy.ApplyForwardedClientHeaders(ctx, upstream, r.Header)
 	if v := r.Header.Get("accept"); v != "" {
 		upstream.Header.Set("accept", v)
 	}
