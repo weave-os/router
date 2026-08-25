@@ -689,12 +689,9 @@ func (e *RequestEnvelope) buildAnthropicFromAnthropic(opts EmitOptions) ([]byte,
 // which Anthropic's Messages API 400s on and which can appear after a
 // mid-session switch back to an Anthropic model.
 //
-// Only the leading run is hoisted into the top-level "system" field. A system
-// message that appears mid-conversation is rewritten in place as a user
-// message: hoisting it would move its text in front of the entire history, so
-// every new one shifts the cached prefix and forces a full re-write of the
-// prompt. Clients that emit a system reminder per turn (Claude Code) otherwise
-// lose the prompt cache on almost every turn. No-op if none present.
+// Only the leading run is hoisted; mid-conversation system messages are
+// rewritten as user messages in place so a per-turn reminder does not shift
+// the cached prefix and force a full re-cache every turn. No-op if none present.
 func hoistAnthropicSystemMessages(body []byte) ([]byte, error) {
 	msgs := gjson.GetBytes(body, "messages")
 	if !msgs.IsArray() {
