@@ -511,6 +511,10 @@ type RouterSpiralShadowEvent struct {
 	MonologueLen     int32
 	ToolCallCount    int32
 	MessageCount     int32
+	// Length of the trailing A/B/A/B alternation between exactly two tool-call signatures
+	PingPongLen int32
+	// Tool calls made since the last non-errored edit/write tool_result; 0 when the session has never attempted an edit
+	StepsSinceProgress int32
 }
 
 type RouterStruggleEscalationEvent struct {
@@ -525,6 +529,10 @@ type RouterStruggleEscalationEvent struct {
 	TurnCount           int32
 	WallSeconds         int64
 	SessionEverSwitched bool
+	// What armed this escalation: turn_wall (turn/wall thresholds) or evidence (behavioral signals)
+	ArmingMode string
+	// Spiral signal classes present at arming time (err_streak, same_file_thrash, repetition, monologue, ping_pong, no_progress)
+	EvidenceReasons []string
 }
 
 type RouterStruggleShadowEvent struct {

@@ -84,6 +84,12 @@ type SpiralShadowEvent struct {
 	MonologueLen     int32
 	ToolCallCount    int32
 	MessageCount     int32
+	// PingPongLen is the trailing A/B/A/B alternation length between exactly
+	// two tool-call signatures.
+	PingPongLen int32
+	// StepsSinceProgress is the number of tool calls made since the last
+	// non-errored edit/write result; zero when no edit was ever attempted.
+	StepsSinceProgress int32
 }
 
 // spiralSignals is the per-turn signal snapshot, a pure function of the

@@ -30,6 +30,11 @@ type StruggleEscalationEvent struct {
 	TurnCount           int32
 	WallSeconds         int64
 	SessionEverSwitched bool
+	// ArmingMode is what crossed first: the turn/wall thresholds
+	// (struggleArmingTurnWall) or the behavioral signals (struggleArmingEvidence).
+	ArmingMode string
+	// EvidenceReasons are the spiral signal classes present at arming time.
+	EvidenceReasons []string
 }
 
 // StruggleEscalationRoster picks the arm a struggling session moves to.
@@ -48,6 +53,12 @@ const (
 	struggleActionUserForced     = "user_forced"
 	struggleActionNoTarget       = "no_sideways_target"
 	struggleActionNoEligibleArms = "no_eligible_arms"
+)
+
+// Struggle arming modes: which detector crossed for this escalation.
+const (
+	struggleArmingTurnWall = "turn_wall"
+	struggleArmingEvidence = "evidence"
 )
 
 // handleStruggleEscalation arms an up-cluster move (sideways only when no
@@ -197,6 +208,7 @@ func (s *Service) handleStruggleEscalation(
 			TurnCount:           int32(pin.TurnCount + 1), // +1: stored is completed turns; event records the in-flight count
 			WallSeconds:         int64(wall.Seconds()),
 			SessionEverSwitched: pin.HasEverSwitched,
+			ArmingMode:          struggleArmingTurnWall,
 		}
 		if err := s.struggleEscalationStore.InsertStruggleEscalationEvent(context.Background(), event); err != nil {
 			log.Error("struggle-escalation: event insert failed", "err", err)

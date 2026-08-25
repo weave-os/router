@@ -193,6 +193,8 @@ func (r *TelemetryRepo) InsertStruggleEscalationEvent(ctx context.Context, p pro
 		TurnCount:           p.TurnCount,
 		WallSeconds:         p.WallSeconds,
 		SessionEverSwitched: p.SessionEverSwitched,
+		ArmingMode:          p.ArmingMode,
+		EvidenceReasons:     p.EvidenceReasons,
 	})
 }
 
@@ -239,21 +241,23 @@ func (r *TelemetryRepo) InsertSpiralShadowEvent(ctx context.Context, p proxy.Spi
 	}
 	q := sqlc.New(r.tx)
 	return q.InsertSpiralShadowEvent(ctx, sqlc.InsertSpiralShadowEventParams{
-		InstallationID:   id,
-		SessionKey:       p.SessionKey,
-		Role:             p.Role,
-		RoutedModel:      p.RoutedModel,
-		TurnType:         p.TurnType,
-		Reason:           p.Reason,
-		ErrStreak:        p.ErrStreak,
-		ErroredResults:   p.ErroredResults,
-		ToolResults:      p.ToolResults,
-		MaxSameFileEdits: p.MaxSameFileEdits,
-		SameFilePathHash: p.SameFilePathHash,
-		RepeatFrac:       p.RepeatFrac,
-		MonologueLen:     p.MonologueLen,
-		ToolCallCount:    p.ToolCallCount,
-		MessageCount:     p.MessageCount,
+		InstallationID:     id,
+		SessionKey:         p.SessionKey,
+		Role:               p.Role,
+		RoutedModel:        p.RoutedModel,
+		TurnType:           p.TurnType,
+		Reason:             p.Reason,
+		ErrStreak:          p.ErrStreak,
+		ErroredResults:     p.ErroredResults,
+		ToolResults:        p.ToolResults,
+		MaxSameFileEdits:   p.MaxSameFileEdits,
+		SameFilePathHash:   p.SameFilePathHash,
+		RepeatFrac:         p.RepeatFrac,
+		MonologueLen:       p.MonologueLen,
+		ToolCallCount:      p.ToolCallCount,
+		MessageCount:       p.MessageCount,
+		PingPongLen:        p.PingPongLen,
+		StepsSinceProgress: p.StepsSinceProgress,
 	})
 }
 

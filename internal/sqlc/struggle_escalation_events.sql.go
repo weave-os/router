@@ -40,11 +40,12 @@ const insertStruggleEscalationEvent = `-- name: InsertStruggleEscalationEvent :e
 INSERT INTO router.struggle_escalation_events (
     installation_id, session_key, role, struggling_model,
     action, escalation_target, turn_count, wall_seconds,
-    session_ever_switched
+    session_ever_switched, arming_mode, evidence_reasons
 ) VALUES (
     $1::uuid, $2::bytea, $3::varchar,
     $4::varchar, $5::varchar, $6::varchar,
-    $7::int, $8::bigint, $9::boolean
+    $7::int, $8::bigint, $9::boolean,
+    $10::varchar, $11::varchar[]
 )
 `
 
@@ -58,6 +59,8 @@ type InsertStruggleEscalationEventParams struct {
 	TurnCount           int32
 	WallSeconds         int64
 	SessionEverSwitched bool
+	ArmingMode          string
+	EvidenceReasons     []string
 }
 
 // InsertStruggleEscalationEvent
@@ -65,11 +68,12 @@ type InsertStruggleEscalationEventParams struct {
 //	INSERT INTO router.struggle_escalation_events (
 //	    installation_id, session_key, role, struggling_model,
 //	    action, escalation_target, turn_count, wall_seconds,
-//	    session_ever_switched
+//	    session_ever_switched, arming_mode, evidence_reasons
 //	) VALUES (
 //	    $1::uuid, $2::bytea, $3::varchar,
 //	    $4::varchar, $5::varchar, $6::varchar,
-//	    $7::int, $8::bigint, $9::boolean
+//	    $7::int, $8::bigint, $9::boolean,
+//	    $10::varchar, $11::varchar[]
 //	)
 func (q *Queries) InsertStruggleEscalationEvent(ctx context.Context, arg InsertStruggleEscalationEventParams) error {
 	_, err := q.db.Exec(ctx, insertStruggleEscalationEvent,
@@ -82,6 +86,8 @@ func (q *Queries) InsertStruggleEscalationEvent(ctx context.Context, arg InsertS
 		arg.TurnCount,
 		arg.WallSeconds,
 		arg.SessionEverSwitched,
+		arg.ArmingMode,
+		arg.EvidenceReasons,
 	)
 	return err
 }
