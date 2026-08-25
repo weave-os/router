@@ -2,7 +2,6 @@ package postgres
 
 import (
 	"context"
-	"math"
 	"time"
 
 	"workweave/router/internal/proxy"
@@ -25,12 +24,12 @@ func microsToUSD(micros int64) float64 {
 }
 
 // int64PtrFromUSD converts *float64 USD to *int64 micros. nil stays nil.
-// Unlike catalog.USDToMicros this preserves sign — stay-turn EV is often negative.
+// Uses SignedUSDToMicros so stay-turn EV (often negative) is not clamped to 0.
 func int64PtrFromUSD(usd *float64) *int64 {
 	if usd == nil {
 		return nil
 	}
-	v := int64(math.Round(*usd * 1_000_000))
+	v := catalog.SignedUSDToMicros(*usd)
 	return &v
 }
 

@@ -47,3 +47,13 @@ func USDToMicros(f float64) int64 {
 	}
 	return int64(math.Round(f * 1_000_000))
 }
+
+// SignedUSDToMicros is USDToMicros without the negative clamp. Planner EV
+// terms are signed (stay turns are often negative); NaN/Inf still collapse
+// to 0 so a non-finite value cannot persist as BIGINT garbage.
+func SignedUSDToMicros(f float64) int64 {
+	if math.IsNaN(f) || math.IsInf(f, 0) {
+		return 0
+	}
+	return int64(math.Round(f * 1_000_000))
+}
