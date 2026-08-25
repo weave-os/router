@@ -17,6 +17,12 @@ const ReasonUserForceModel = "user_forced"
 // ReasonUserForceModel, so the session doesn't re-route back into the loop.
 const ReasonLoopEscalation = "loop_escalation"
 
+// ReasonLoopSideways marks a session pin created when the tight tool-call loop
+// detector moves a looping session onto a different arm instead of stopping the
+// turn. Immutable sticky like ReasonLoopEscalation, so the session can't
+// re-route back onto the model it was looping on.
+const ReasonLoopSideways = "loop_sideways"
+
 // ReasonStruggleEscalation marks a session pin created when the struggle
 // detector arms an early sideways move (turns >= 30, wall >= 10m). Immutable
 // sticky like ReasonLoopEscalation.

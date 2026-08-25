@@ -9,6 +9,7 @@ import (
 
 	"workweave/router/internal/observability"
 	"workweave/router/internal/providers"
+	"workweave/router/internal/router/catalog"
 	"workweave/router/internal/router/sessionpin"
 	"workweave/router/internal/translate"
 
@@ -78,9 +79,18 @@ const (
 	loopDetectionMaxRepeats = 5
 )
 
+// pollToolNames read a side channel that changes underneath a byte-identical
+// request: draining a background shell's buffer returns new output every call
+// with the same arguments. Repetition is the tool's normal usage, not loop
+// evidence — prod 2026-08-25 stopped a healthy session on 5x `shell_output`.
+var pollToolNames = map[string]struct{}{
+	"shell_output": {}, "get_output": {}, "BashOutput": {},
+}
+
 // detectToolCallLoop reports whether the same (tool_name, args) signature
 // repeats loopDetectionMaxRepeats+ times within the last loopDetectionWindowSize
 // tool calls, returning the signature and count for logs/the stop message.
+// Poll-style tools are counted for window position but never trip the break.
 func detectToolCallLoop(env *translate.RequestEnvelope) (looped bool, sig translate.ToolCallSig, count int) {
 	sigs := env.AssistantToolCallSignatures()
 	if len(sigs) < loopDetectionMaxRepeats {
@@ -94,6 +104,9 @@ func detectToolCallLoop(env *translate.RequestEnvelope) (looped bool, sig transl
 	counts := make(map[string]int, len(window))
 	keys := make(map[string]translate.ToolCallSig, len(window))
 	for _, s := range window {
+		if _, isPoll := pollToolNames[s.Name]; isPoll {
+			continue
+		}
 		key := s.Name + "\x00" + s.InputHash
 		counts[key]++
 		keys[key] = s
@@ -308,10 +321,191 @@ func (s *Service) handleLoopEscalation(
 	}
 }
 
-// handleToolCallLoopBreak short-circuits a runaway tool-call loop: writes a
-// synthetic end_turn response and expires the session pin so the next turn
-// re-routes instead of re-anchoring on the looping model. Pin expiry is
-// best-effort — a write failure logs but doesn't block the response.
+// loopSidewaysResult reports whether the rescue re-pinned the session and, for
+// the caller's fallback path, who was looping and whether the pin is a user's.
+type loopSidewaysResult struct {
+	Moved           bool
+	LoopingModel    string
+	LoopingProvider string
+	UserForced      bool
+}
+
+// Sideways-rescue action taxonomy for a tight tool-call loop. Exactly one applies.
+const (
+	// loopSidewaysMoved: the session was re-pinned onto a different arm and
+	// this same turn dispatches there.
+	loopSidewaysMoved = "moved"
+	// loopSidewaysNoPin: no pin to read, so neither the looping model nor its
+	// cluster is known — nothing to move sideways from.
+	loopSidewaysNoPin = "no_pin"
+	// loopSidewaysUserForced: a /force-model pin outranks the automatic move.
+	loopSidewaysUserForced = "user_forced"
+	// loopSidewaysAlreadyMoved: this session was already rescued onto another
+	// arm; looping again there is a task problem, not a misroute.
+	loopSidewaysAlreadyMoved = "already_moved"
+	// loopSidewaysNoTarget: no dispatchable arm above or beside the pin's cluster.
+	loopSidewaysNoTarget = "no_target"
+	// loopSidewaysDisabled: the loop-escalation kill switch is off.
+	loopSidewaysDisabled = "disabled"
+)
+
+// handleToolCallLoopSideways rescues a tight tool-call loop by re-pinning the
+// session onto a different arm — the cheapest cluster above the pin's own, else
+// a sideways arm within it — instead of stopping the turn. It writes no
+// response, so routing picks the new pin up and dispatches this same turn.
+//
+// The result also names the model that was actually looping (the pin), which is
+// NOT the client's requested model: this runs before routing, so the caller's
+// feats.Model is the inbound baseline and misattributes the loop on any
+// re-routed session.
+func (s *Service) handleToolCallLoopSideways(
+	ctx context.Context,
+	sig translate.ToolCallSig,
+	count int,
+	installationID uuid.UUID,
+	sessionKey [sessionpin.SessionKeyLen]byte,
+	role string,
+) loopSidewaysResult {
+	log := observability.FromContext(ctx)
+
+	if s.pinStore == nil || installationID == uuid.Nil {
+		return loopSidewaysResult{}
+	}
+	pin, found, err := s.pinStore.Get(ctx, sessionKey, role)
+	if err != nil {
+		log.Error("loop-sideways: pin lookup failed", "err", err)
+		return loopSidewaysResult{}
+	}
+	if !found {
+		log.Info("router.loop_sideways",
+			"action", loopSidewaysNoPin,
+			"loop_tool", sig.Name,
+			"repeat_count", count,
+			"session_key_prefix", shortSessionKey(sessionKey),
+			"role", role,
+		)
+		return loopSidewaysResult{}
+	}
+
+	action := loopSidewaysMoved
+	var target, targetCluster, targetProvider string
+	switch {
+	case !s.ResolveLoopEscalationEnabled(ctx):
+		action = loopSidewaysDisabled
+	case isUserForcedReason(pin.Reason):
+		action = loopSidewaysUserForced
+	case pin.Reason == translate.ReasonLoopSideways ||
+		pin.Reason == translate.ReasonLoopEscalation ||
+		pin.Reason == translate.ReasonStruggleEscalation:
+		action = loopSidewaysAlreadyMoved
+	case pin.Model == "" || pin.PolicyGroup == "" || s.struggleEscalationRoster == nil:
+		action = loopSidewaysNoTarget
+	default:
+		t, cluster, rosterErr := s.struggleEscalationRoster.EscalationTarget(
+			ctx, pin.PolicyGroup, pin.Model, nil,
+			func(model string) bool {
+				if s.availableModels != nil {
+					if _, ok := s.availableModels[model]; !ok {
+						return false
+					}
+				}
+				return true
+			},
+		)
+		if rosterErr != nil {
+			log.Error("loop-sideways: roster lookup failed", "err", rosterErr)
+			action = loopSidewaysNoTarget
+			break
+		}
+		m, mok := catalog.ByID(t)
+		if t == "" || !mok || len(m.Providers) == 0 {
+			action = loopSidewaysNoTarget
+			break
+		}
+		target, targetCluster, targetProvider = t, cluster, m.Providers[0].Provider
+		// context.Background(): the request ctx may already be canceled; the
+		// pin must land or this turn dispatches back onto the looping model.
+		upsertErr := s.pinStore.Upsert(context.Background(), sessionpin.Pin{
+			SessionKey:      sessionKey,
+			Role:            role,
+			InstallationID:  installationID,
+			Provider:        m.Providers[0].Provider,
+			Model:           target,
+			Reason:          translate.ReasonLoopSideways,
+			TurnCount:       1,
+			PinnedUntil:     time.Now().Add(pinSessionTTL),
+			PolicyGroup:     targetCluster,
+			LastServedModel: pin.LastServedModel,
+		})
+		if upsertErr != nil {
+			log.Error("loop-sideways: pin upsert failed", "err", upsertErr)
+			action = loopSidewaysNoTarget
+			target, targetCluster, targetProvider = "", "", ""
+		}
+	}
+
+	log.Info("router.loop_sideways",
+		"looping_model", pin.Model,
+		"looping_provider", pin.Provider,
+		"action", action,
+		"escalation_target", target,
+		"escalation_provider", targetProvider,
+		"escalation_cluster", targetCluster,
+		"policy_group", pin.PolicyGroup,
+		"loop_tool", sig.Name,
+		"loop_input_hash", sig.InputHash,
+		"repeat_count", count,
+		"window_size", loopDetectionWindowSize,
+		"session_key_prefix", shortSessionKey(sessionKey),
+		"role", role,
+	)
+
+	if action != loopSidewaysMoved {
+		return loopSidewaysResult{
+			LoopingModel:    pin.Model,
+			LoopingProvider: pin.Provider,
+			UserForced:      action == loopSidewaysUserForced,
+		}
+	}
+	if s.loopEscalationStore != nil {
+		event := LoopEscalationEvent{
+			InstallationID:   installationID.String(),
+			SessionKey:       sessionKey[:],
+			Role:             role,
+			LoopingModel:     pin.Model,
+			Action:           struggleActionSideways,
+			EscalationTarget: target,
+			LoopTool:         sig.Name,
+			LoopInputHash:    sig.InputHash,
+			RepeatCount:      int32(count),
+			WindowSize:       loopDetectionWindowSize,
+		}
+		if err := s.loopEscalationStore.InsertLoopEscalationEvent(context.Background(), event); err != nil {
+			log.Error("loop-sideways: event insert failed", "err", err)
+		}
+	}
+	return loopSidewaysResult{Moved: true, LoopingModel: pin.Model, LoopingProvider: pin.Provider}
+}
+
+// loopAttribution names the model that was actually looping. The pinned model
+// is authoritative — loop detection runs before routing, so the inbound
+// requested model is only a fallback for a session with no pin to read.
+func loopAttribution(pinnedModel, pinnedProvider, requestedModel, requestedProvider string) (model, provider string) {
+	if pinnedModel == "" {
+		return requestedModel, requestedProvider
+	}
+	if pinnedProvider == "" {
+		return pinnedModel, requestedProvider
+	}
+	return pinnedModel, pinnedProvider
+}
+
+// handleToolCallLoopBreak is the last resort when no sideways rescue was
+// available: it writes a synthetic end_turn response and expires the session
+// pin so the next turn re-routes instead of re-anchoring on the looping model.
+// Pin expiry is best-effort — a write failure logs but doesn't block the
+// response — and is skipped for a user-forced pin, which outranks automatic
+// eviction just as it outranks the sideways move.
 func (s *Service) handleToolCallLoopBreak(
 	ctx context.Context,
 	w http.ResponseWriter,
@@ -323,6 +517,7 @@ func (s *Service) handleToolCallLoopBreak(
 	role string,
 	loopingModel string,
 	loopingProvider string,
+	preserveForcedPin bool,
 	inputTokens int,
 ) error {
 	log := observability.FromContext(ctx)
@@ -351,7 +546,7 @@ func (s *Service) handleToolCallLoopBreak(
 
 	// Expire the pin in Postgres (not just the in-proc cache) so a racing
 	// reader on another pod can't repopulate the LRU from the stale row.
-	if s.pinStore != nil && installationID != uuid.Nil {
+	if s.pinStore != nil && installationID != uuid.Nil && !preserveForcedPin {
 		if err := s.expireSessionPinAndHMMHistory(ctx, installationID, sessionKey, role, "tool_call_loop_break"); err != nil {
 			log.Error("loop-break: pin store upsert failed", "err", err)
 		}
