@@ -343,7 +343,7 @@ func TestResponsesToAnthropicResponse(t *testing.T) {
         {"type":"message","id":"m1","role":"assistant","content":[{"type":"output_text","text":"here is the fix"}]},
         {"type":"function_call","id":"fc1","call_id":"call_9","name":"bash","arguments":"{\"command\":\"go test\"}"}
       ],
-      "usage":{"input_tokens":1200,"output_tokens":340,"output_tokens_details":{"reasoning_tokens":256},"input_tokens_details":{"cached_tokens":800}}
+      "usage":{"input_tokens":1200,"output_tokens":340,"output_tokens_details":{"reasoning_tokens":256},"input_tokens_details":{"cached_tokens":800,"cache_write_tokens":256}}
     }`)
 	out, err := translate.ResponsesToAnthropicResponse(body, "gpt-5.5")
 	require.NoError(t, err)
@@ -377,9 +377,10 @@ func TestResponsesToAnthropicResponse(t *testing.T) {
 	input, _ := b2["input"].(map[string]any)
 	assert.Equal(t, "go test", input["command"], "arguments string parsed back to an input object")
 	usage, _ := msg["usage"].(map[string]any)
-	assert.EqualValues(t, 1200, usage["input_tokens"])
+	assert.EqualValues(t, 144, usage["input_tokens"], "Anthropic input_tokens is fresh-only")
 	assert.EqualValues(t, 340, usage["output_tokens"])
 	assert.EqualValues(t, 800, usage["cache_read_input_tokens"])
+	assert.EqualValues(t, 256, usage["cache_creation_input_tokens"])
 }
 
 func TestResponsesToAnthropicResponse_StopReasons(t *testing.T) {

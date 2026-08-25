@@ -653,6 +653,9 @@ type ResponseSummary struct {
 	// CacheReadTokens is cache_read_input_tokens (Anthropic) or cached_tokens
 	// (OpenAI), when reported.
 	CacheReadTokens int
+	// CacheCreationTokens is cache_creation_input_tokens (Anthropic) or
+	// cache_write_tokens (OpenAI GPT-5.6+), when reported.
+	CacheCreationTokens int
 }
 
 // Summary returns the response summary for observability. Call after Finalize;
@@ -671,6 +674,7 @@ func (t *AnthropicSSETranslator) Summary() ResponseSummary {
 		OutputTokens:          t.usageOutputTokens,
 		InputTokens:           t.usageInputTokens,
 		CacheReadTokens:       t.usageCacheReadTokens,
+		CacheCreationTokens:   t.usageCacheCreationTokens,
 	}
 }
 
@@ -815,10 +819,8 @@ func (t *AnthropicSSETranslator) Finalize() error {
 				int(usage.Get("prompt_tokens").Int()),
 				int(usage.Get("completion_tokens").Int()),
 			)
-			t.usageSink.RecordCacheUsage(
-				int(usage.Get("prompt_tokens_details.cache_creation_tokens").Int()),
-				int(usage.Get("prompt_tokens_details.cached_tokens").Int()),
-			)
+			cw, cr := OpenAICacheTokens(usage)
+			t.usageSink.RecordCacheUsage(cw, cr)
 		}
 	}
 
@@ -943,16 +945,15 @@ func (t *AnthropicSSETranslator) extractAndForwardUsage(data []byte) {
 	}
 	prompt := usage.Get("prompt_tokens").Int()
 	completion := usage.Get("completion_tokens").Int()
-	cachedRead := usage.Get("prompt_tokens_details.cached_tokens").Int()
+	cacheCreation, cachedRead := OpenAICacheTokens(usage)
 	t.usageInputTokens = int(prompt)
 	t.usageOutputTokens = int(completion)
-	cacheCreation := usage.Get("prompt_tokens_details.cache_creation_tokens").Int()
-	t.usageCacheCreationTokens = int(cacheCreation)
-	t.usageCacheReadTokens = int(cachedRead)
+	t.usageCacheCreationTokens = cacheCreation
+	t.usageCacheReadTokens = cachedRead
 	t.hasUsage = true
 	if t.usageSink != nil {
 		t.usageSink.RecordUsage(int(prompt), int(completion))
-		t.usageSink.RecordCacheUsage(int(cacheCreation), int(cachedRead))
+		t.usageSink.RecordCacheUsage(cacheCreation, cachedRead)
 	}
 }
 

@@ -354,6 +354,10 @@ type EmitOverrides struct {
 	// `signature`. Set unconditionally for Anthropic targets: unsigned blocks are
 	// cross-format artifacts; Anthropic 400s on them regardless of switch state.
 	StripUnsignedThinkingBlocks bool
+	// StripForeignSignedThinkingBlocks removes `thinking` blocks whose signature
+	// is a router-minted cross-format envelope (`encodeOpenAIReasoningSignature`),
+	// not a real Anthropic signature. Set unconditionally for Anthropic targets.
+	StripForeignSignedThinkingBlocks bool
 	// SanitizeToolUseIDs rewrites tool_use.id / tool_use_id values outside
 	// ^[a-zA-Z0-9_-]+$. Always set for Anthropic targets: upstreams like
 	// Kimi-k2.6 emit IDs (e.g. "functions.Read:0") Anthropic rejects on replay.
@@ -395,10 +399,18 @@ func applyOverrides(body []byte, ov EmitOverrides) ([]byte, error) {
 		if err != nil {
 			return nil, fmt.Errorf("strip thinking blocks: %w", err)
 		}
-	} else if ov.StripUnsignedThinkingBlocks {
-		out, err = stripUnsignedThinkingBlocksBytes(out)
-		if err != nil {
-			return nil, fmt.Errorf("strip unsigned thinking blocks: %w", err)
+	} else {
+		if ov.StripUnsignedThinkingBlocks {
+			out, err = stripUnsignedThinkingBlocksBytes(out)
+			if err != nil {
+				return nil, fmt.Errorf("strip unsigned thinking blocks: %w", err)
+			}
+		}
+		if ov.StripForeignSignedThinkingBlocks {
+			out, err = stripForeignSignedThinkingBlocksBytes(out)
+			if err != nil {
+				return nil, fmt.Errorf("strip foreign-signed thinking blocks: %w", err)
+			}
 		}
 	}
 
@@ -638,6 +650,21 @@ func stripUnsignedThinkingBlocksBytes(body []byte) ([]byte, error) {
 
 func isUnsignedThinkingBlock(block gjson.Result) bool {
 	return block.Get("type").String() == "thinking" && block.Get("signature").String() == ""
+}
+
+// stripForeignSignedThinkingBlocksBytes removes `thinking` blocks carrying a
+// router-minted cross-format signature (`encodeOpenAIReasoningSignature`);
+// ModelSwitched misses these when client-side compaction re-keys the session.
+func stripForeignSignedThinkingBlocksBytes(body []byte) ([]byte, error) {
+	return rewriteMessageBlocks(body, isForeignSignedThinkingBlock, dropMatchedBlock)
+}
+
+func isForeignSignedThinkingBlock(block gjson.Result) bool {
+	if block.Get("type").String() != "thinking" {
+		return false
+	}
+	_, _, ok := decodeOpenAIReasoningSignature(block.Get("signature").String())
+	return ok
 }
 
 // dropMatchedBlock drops any block that matched needsRewrite by returning "".
@@ -1149,8 +1176,11 @@ func resolveAnthropicOverrides(body []byte, opts EmitOptions) EmitOverrides {
 	}
 
 	// Floor under the switch-history guard: Anthropic rejects unsigned blocks
-	// regardless of pin TTL, so strip them unconditionally (#860).
+	// regardless of pin TTL, so strip them unconditionally (#860). Foreign-signed
+	// blocks fail the same way and are missed by ModelSwitched when client-side
+	// compaction re-keys the session.
 	ov.StripUnsignedThinkingBlocks = true
+	ov.StripForeignSignedThinkingBlocks = true
 
 	if !gjson.GetBytes(body, "max_tokens").Exists() {
 		ov.DefaultMaxTokensKey = "max_tokens"

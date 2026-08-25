@@ -213,9 +213,10 @@ data: {"type":"response.completed","response":{"id":"r","status":"completed","mo
 	require.NoError(t, w.Finalize())
 
 	got := w.Summary()
-	assert.Equal(t, 1200, got.InputTokens)
+	assert.Equal(t, 1200, got.InputTokens, "summary keeps OpenAI inclusive input for billing")
 	assert.Equal(t, 340, got.OutputTokens)
 	assert.Equal(t, 800, got.CacheReadTokens)
+	assert.Equal(t, 0, got.CacheCreationTokens)
 }
 
 // No delta events: falls back to item.arguments on output_item.done, not {}.
