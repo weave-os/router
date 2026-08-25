@@ -1,6 +1,7 @@
 package translate_test
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -1129,4 +1130,80 @@ func TestAnthropicSameFormat_NonXhighEffortUntouchedByClamp(t *testing.T) {
 	outputConfig, _ := out["output_config"].(map[string]any)
 	require.NotNil(t, outputConfig)
 	assert.Equal(t, "high", outputConfig["effort"], "supported effort levels must pass through unchanged")
+}
+
+// openAIReasoningSignature mirrors what the Responses→Anthropic writers mint:
+// an OpenAI reasoning item smuggled through the Anthropic `signature` field so
+// the reasoning can be replayed to OpenAI on the next turn.
+func openAIReasoningSignature(t *testing.T, id, enc string) string {
+	t.Helper()
+	raw, err := json.Marshal(map[string]any{"v": 1, "provider": "openai", "id": id, "enc": enc})
+	require.NoError(t, err)
+	return base64.StdEncoding.EncodeToString(raw)
+}
+
+// TestAnthropicSameFormat_ForeignSignedThinkingStrippedWithoutModelSwitch is
+// the prod regression: a session served by an OpenAI model replays thinking
+// blocks whose signature is our own cross-format envelope. A client-side
+// compaction rewrites the first user message, which re-keys the session and
+// loses the pin, so ModelSwitched is false on the turn that re-routes to
+// Anthropic — and Anthropic answers "Invalid signature in thinking block".
+func TestAnthropicSameFormat_ForeignSignedThinkingStrippedWithoutModelSwitch(t *testing.T) {
+	sig := openAIReasoningSignature(t, "rs_abc123", "gAAAAA")
+	body := []byte(fmt.Sprintf(
+		`{"model":"claude-opus-4-7","messages":[{"role":"user","content":"hi"},{"role":"assistant","content":[{"type":"thinking","thinking":"openai reasoning","signature":%q},{"type":"text","text":"reply"}]}],"max_tokens":1024,"thinking":{"type":"adaptive"}}`,
+		sig))
+	opts := translate.EmitOptions{
+		TargetModel:   "claude-opus-4-7",
+		Capabilities:  router.Lookup("claude-opus-4-7"),
+		ModelSwitched: false,
+	}
+	out := parseAndEmit(t, body, "anthropic", opts)
+	msgs, _ := out["messages"].([]any)
+	require.Len(t, msgs, 2)
+	assistantMsg, _ := msgs[1].(map[string]any)
+	content, _ := assistantMsg["content"].([]any)
+	require.Len(t, content, 1, "a foreign-signed thinking block must be stripped even when the pin reports no switch")
+	block, _ := content[0].(map[string]any)
+	assert.Equal(t, "text", block["type"], "only the text block should survive the strip")
+}
+
+// TestAnthropicSameFormat_ForeignSignedThinkingStrippedAnthropicSignedKept
+// pins the discrimination: only the cross-format envelope is dropped, an
+// Anthropic-minted signature still rides along for cache and reasoning
+// continuity.
+func TestAnthropicSameFormat_ForeignSignedThinkingStrippedAnthropicSignedKept(t *testing.T) {
+	sig := openAIReasoningSignature(t, "rs_abc123", "gAAAAA")
+	body := []byte(fmt.Sprintf(
+		`{"model":"claude-opus-4-7","messages":[{"role":"assistant","content":[{"type":"thinking","thinking":"anthropic","signature":"ErUBCkYIBRgCKkA"},{"type":"thinking","thinking":"openai","signature":%q},{"type":"text","text":"reply"}]}],"max_tokens":1024,"thinking":{"type":"adaptive"}}`,
+		sig))
+	opts := translate.EmitOptions{
+		TargetModel:  "claude-opus-4-7",
+		Capabilities: router.Lookup("claude-opus-4-7"),
+	}
+	out := parseAndEmit(t, body, "anthropic", opts)
+	msgs, _ := out["messages"].([]any)
+	require.Len(t, msgs, 1)
+	assistantMsg, _ := msgs[0].(map[string]any)
+	content, _ := assistantMsg["content"].([]any)
+	require.Len(t, content, 2, "only the foreign-signed thinking block should be dropped")
+	kept, _ := content[0].(map[string]any)
+	assert.Equal(t, "ErUBCkYIBRgCKkA", kept["signature"], "the Anthropic-signed block must survive intact")
+}
+
+// TestAnthropicSameFormat_ForeignSignedThinkingOnlyMessageDropped: stripping
+// the only block in an assistant message must drop the message, never emit
+// content:[] (which Anthropic rejects too).
+func TestAnthropicSameFormat_ForeignSignedThinkingOnlyMessageDropped(t *testing.T) {
+	sig := openAIReasoningSignature(t, "rs_abc123", "gAAAAA")
+	body := []byte(fmt.Sprintf(
+		`{"model":"claude-opus-4-7","messages":[{"role":"user","content":"hi"},{"role":"assistant","content":[{"type":"thinking","thinking":"openai","signature":%q}]},{"role":"user","content":"continue"}],"max_tokens":1024,"thinking":{"type":"adaptive"}}`,
+		sig))
+	opts := translate.EmitOptions{
+		TargetModel:  "claude-opus-4-7",
+		Capabilities: router.Lookup("claude-opus-4-7"),
+	}
+	out := parseAndEmit(t, body, "anthropic", opts)
+	msgs, _ := out["messages"].([]any)
+	require.Len(t, msgs, 2, "the foreign-signed-thinking-only assistant message must be dropped entirely")
 }
