@@ -60,6 +60,7 @@ func (c *Client) getModelList(ctx context.Context, listURL string, withEntity bo
 	}
 	if withEntity {
 		upstream.Header.Set("Content-Type", "application/json")
+		upstream.Header.Set("Accept", "application/json")
 	}
 	c.setAuth(ctx, upstream)
 	proxy.ApplyWIFTokenType(ctx, upstream)

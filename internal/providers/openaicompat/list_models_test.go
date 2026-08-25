@@ -111,6 +111,7 @@ func TestListModels_RetriesWithEntityWhenGatewayDemandsOne(t *testing.T) {
 			return
 		}
 		assert.Equal(t, "application/json", r.Header.Get("Content-Type"))
+		assert.Equal(t, "application/json", r.Header.Get("Accept"))
 		_, _ = w.Write([]byte(`{"models":["claude-4-sonnet","openai-gpt-5"]}`))
 	}))
 	defer srv.Close()

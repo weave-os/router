@@ -112,6 +112,7 @@ func (c *Client) getGatewayModels(ctx context.Context, baseURL string, withEntit
 	}
 	if withEntity {
 		upstream.Header.Set("Content-Type", "application/json")
+		upstream.Header.Set("Accept", "application/json")
 	}
 	upstream.Header.Set("anthropic-version", anthropicVersion)
 	c.setAuth(ctx, upstream, upstream)
