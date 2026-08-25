@@ -10,6 +10,11 @@ BEGIN;
 -- The three cost columns are named `_usd_micros` on purpose. The existing
 -- `*_cost_usd` columns on this table are bigint micros; that trap has already
 -- cost one 1e6-scale misread. These names make the unit unambiguous.
+--
+-- Do not rebuild production_request_telemetry here. That view was last frozen
+-- in 0028; a CREATE VIEW ... SELECT * would pull in columns added by 0033 /
+-- 0035 / 0039 and break those migrations' downs (they DROP the column without
+-- dropping the view). Planner columns are read from the table.
 ALTER TABLE router.model_router_request_telemetry
     ADD COLUMN planner_outcome                      VARCHAR,
     ADD COLUMN planner_reason                       VARCHAR,
@@ -39,14 +44,5 @@ COMMENT ON COLUMN router.model_router_request_telemetry.planner_shadow_outcome I
     'Shadow (corrected-economics) verdict: stay or switch. NULL when the shadow was not computed.';
 COMMENT ON COLUMN router.model_router_request_telemetry.planner_shadow_savings_usd_micros IS
     'Shadow expected_savings as USD micros (USD × 1e6). NULL when the shadow was not computed.';
-
--- Recreate the production-traffic view so the new columns surface through it
--- (CREATE VIEW ... SELECT * freezes its column list at creation). Body
--- unchanged from migration 0028.
-DROP VIEW router.production_request_telemetry;
-CREATE VIEW router.production_request_telemetry AS
-SELECT * FROM router.model_router_request_telemetry
-WHERE span_type = 'router.upstream'
-  AND (client_app IS NULL OR client_app NOT LIKE 'weave-eval%');
 
 COMMIT;
