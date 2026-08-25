@@ -236,8 +236,7 @@ type Service struct {
 	// withheld for measurement. Only applies when a store is wired.
 	struggleEscalationHoldoutPct int
 	// struggleEvidenceArming lets behavioral spiral evidence arm an escalation
-	// before the turn/wall thresholds are met. Default off
-	// (ROUTER_STRUGGLE_EVIDENCE_ARMING).
+	// before the turn/wall thresholds. Default off (ROUTER_STRUGGLE_EVIDENCE_ARMING).
 	struggleEvidenceArming bool
 	// struggleEscalationStore persists struggle escalation events durably
 	// (router.struggle_escalation_events). Set by WithStruggleEscalationStore.
@@ -1502,8 +1501,7 @@ func (s *Service) WithStruggleEscalationConfig(enabled bool, holdoutPct int) *Se
 }
 
 // WithStruggleEvidenceArming sets whether behavioral spiral evidence may arm a
-// struggle escalation on its own (default off). The turn/wall gate stays armed
-// either way; this only adds an earlier, evidence-backed entry point.
+// struggle escalation before the turn/wall thresholds (default off).
 func (s *Service) WithStruggleEvidenceArming(enabled bool) *Service {
 	s.struggleEvidenceArming = enabled
 	return s

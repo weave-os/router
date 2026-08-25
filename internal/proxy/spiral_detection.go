@@ -51,9 +51,8 @@ const (
 	// Trailing A/B/A/B run length between exactly two distinct signatures;
 	// 6 = three round trips: two is a legitimate read-edit-read-edit rhythm.
 	spiralPingPongThreshold = 6
-	// Tool calls since the last non-errored edit, counted only once the
-	// session has landed or attempted an edit — a pure Explore phase makes no
-	// edits by design and must not read as stalled.
+	// Tool calls since the last non-errored edit; only meaningful once the
+	// session has attempted an edit (pure Explore phases make none).
 	spiralNoProgressThreshold = 15
 )
 
