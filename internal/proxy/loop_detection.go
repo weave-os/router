@@ -5,6 +5,8 @@ import (
 	"encoding/binary"
 	"fmt"
 	"net/http"
+	"slices"
+	"strings"
 	"time"
 
 	"workweave/router/internal/observability"
@@ -347,6 +349,42 @@ const (
 	loopSidewaysDisabled = "disabled"
 )
 
+// effortVariantSuffixes name catalog IDs that are the same engine dialed to a
+// different reasoning budget rather than a genuinely different model.
+var effortVariantSuffixes = []string{"pro", "thinking"}
+
+// sameEngine reports whether candidate is the looping model wearing a different
+// effort level ("gpt-5.6-luna" vs "gpt-5.6-luna-pro" or "…:high"). More
+// thinking on the same weights repeats the same tool call, so a rescue that
+// only changes effort is not a rescue.
+func sameEngine(current, candidate string) bool {
+	current, candidate = baseModelOf(current), baseModelOf(candidate)
+	if current == candidate {
+		return true
+	}
+	long, short := current, candidate
+	if len(short) > len(long) {
+		long, short = short, long
+	}
+	suffix, ok := strings.CutPrefix(long, short+"-")
+	if !ok {
+		return false
+	}
+	return slices.Contains(effortVariantSuffixes, suffix) || translate.IsValidEffort(suffix)
+}
+
+// sameEngineModels is the exclusion set for a sideways rescue: the looping
+// model plus every catalog entry that is only an effort variant of it.
+func sameEngineModels(current string) map[string]struct{} {
+	exclude := map[string]struct{}{current: {}}
+	for _, m := range catalog.Models {
+		if sameEngine(current, m.ID) {
+			exclude[m.ID] = struct{}{}
+		}
+	}
+	return exclude
+}
+
 // handleToolCallLoopSideways rescues a tight tool-call loop by re-pinning the
 // session onto a different arm instead of stopping the turn. Returns a result
 // naming the looping model (the pin, not feats.Model, which is the pre-routing
@@ -395,7 +433,7 @@ func (s *Service) handleToolCallLoopSideways(
 		action = loopSidewaysNoTarget
 	default:
 		t, cluster, rosterErr := s.struggleEscalationRoster.EscalationTarget(
-			ctx, pin.PolicyGroup, pin.Model, nil,
+			ctx, pin.PolicyGroup, pin.Model, sameEngineModels(pin.Model),
 			func(model string) bool {
 				if s.availableModels != nil {
 					if _, ok := s.availableModels[model]; !ok {

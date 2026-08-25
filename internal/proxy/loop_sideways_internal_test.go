@@ -55,6 +55,40 @@ func TestHandleToolCallLoopSideways_RePinsOntoAnotherArm(t *testing.T) {
 	assert.Equal(t, "claude-opus-5", events.events[0].EscalationTarget)
 }
 
+func TestHandleToolCallLoopSideways_SkipsEffortVariantsOfTheLoopingModel(t *testing.T) {
+	pins := newStubPinStore()
+	pins.getPin, pins.getFound = loopSidewaysPin("gpt-5.6-luna", "hmm_sticky"), true
+	svc := newLoopSidewaysSvc(pins, &recordingLoopStore{}, map[string][]string{
+		"balanced": {"openai/gpt-5.6-luna"},
+		"high":     {"openai/gpt-5.6-luna-pro", "anthropic/claude-opus-5"},
+	})
+
+	res := svc.handleToolCallLoopSideways(context.Background(), loopTestSig, 5, uuid.New(), loopTestKey(8), "default")
+
+	assert.True(t, res.Moved)
+	require.Len(t, pins.upserts, 1)
+	assert.Equal(t, "claude-opus-5", pins.upserts[0].Model,
+		"more effort on the same engine repeats the same tool call — the rescue must change model")
+}
+
+func TestSameEngine(t *testing.T) {
+	cases := []struct {
+		current, candidate string
+		want               bool
+	}{
+		{"gpt-5.6-luna", "gpt-5.6-luna", true},
+		{"gpt-5.6-luna", "gpt-5.6-luna-pro", true},
+		{"gpt-5.6-luna", "gpt-5.6-luna:high", true},
+		{"gpt-5.6-luna", "gpt-5.6-terra", false},
+		{"gpt-5.6-luna", "gpt-5.6-sol-pro", false},
+		{"gpt-5.4", "gpt-5.4-mini", false},
+		{"claude-opus-5", "claude-opus-4-5", false},
+	}
+	for _, c := range cases {
+		assert.Equal(t, c.want, sameEngine(c.current, c.candidate), "sameEngine(%q, %q)", c.current, c.candidate)
+	}
+}
+
 func TestHandleToolCallLoopSideways_LeavesUserForcedPinAlone(t *testing.T) {
 	pins := newStubPinStore()
 	pins.getPin, pins.getFound = loopSidewaysPin("claude-haiku-4-5", translate.ReasonUserForceModel), true
