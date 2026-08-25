@@ -1,0 +1,21 @@
+internal/proxy/struggle_escalation.go
+  s_daddca850ac23d::t_c90e6f16294e32 191
+internal/proxy/service.go
+  s_daddca850ac23d::t_c90e6f16294e32 221-222,1453-1454
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.23",
+  "base_commit_sha": "5885fc4444f1a9cefbeac67c7eb921cdc91de3fe",
+  "prompts": {},
+  "sessions": {
+    "s_daddca850ac23d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "1e3098e4-eb30-4e8b-823c-74a083bc8bae",
+        "model": "moonshotai/kimi-k3"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

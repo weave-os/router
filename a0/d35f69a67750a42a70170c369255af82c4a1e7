@@ -1,0 +1,25 @@
+internal/proxy/service.go
+  s_b40f812e11f9a2::t_87bb4a19322247 5264-5287
+  s_b40f812e11f9a2::t_68b57905560dd7 5878-5879
+  s_b40f812e11f9a2::t_ddcbe7b2edc76d 5167
+  s_b40f812e11f9a2::t_6810cff179a762 5290
+  s_b40f812e11f9a2::t_7141aa8d4ceee2 5253-5263
+  s_b40f812e11f9a2::t_704b2a1a8c4e0d 5141
+  s_b40f812e11f9a2::t_d2c69ef61f08c6 5162-5165
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "a0d35f69a67750a42a70170c369255af82c4a1e7",
+  "prompts": {},
+  "sessions": {
+    "s_b40f812e11f9a2": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "be376180-8312-42f8-a2e9-87f208750c73",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}
