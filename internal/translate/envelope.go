@@ -355,10 +355,8 @@ type EmitOverrides struct {
 	// cross-format artifacts; Anthropic 400s on them regardless of switch state.
 	StripUnsignedThinkingBlocks bool
 	// StripForeignSignedThinkingBlocks removes `thinking` blocks whose signature
-	// is a router-minted cross-format envelope (an OpenAI reasoning item carried
-	// through `encodeOpenAIReasoningSignature`) rather than a real Anthropic
-	// signature. Set unconditionally for Anthropic targets: Anthropic validates
-	// the opaque signature and answers "Invalid signature in thinking block".
+	// is a router-minted cross-format envelope (`encodeOpenAIReasoningSignature`),
+	// not a real Anthropic signature. Set unconditionally for Anthropic targets.
 	StripForeignSignedThinkingBlocks bool
 	// SanitizeToolUseIDs rewrites tool_use.id / tool_use_id values outside
 	// ^[a-zA-Z0-9_-]+$. Always set for Anthropic targets: upstreams like
@@ -655,9 +653,8 @@ func isUnsignedThinkingBlock(block gjson.Result) bool {
 }
 
 // stripForeignSignedThinkingBlocksBytes removes `thinking` blocks carrying a
-// router-minted cross-format signature (an OpenAI reasoning item encoded by
-// encodeOpenAIReasoningSignature). Anthropic validates the field and 400s;
-// ModelSwitched misses it when client-side compaction re-keys the session.
+// router-minted cross-format signature (`encodeOpenAIReasoningSignature`);
+// ModelSwitched misses these when client-side compaction re-keys the session.
 func stripForeignSignedThinkingBlocksBytes(body []byte) ([]byte, error) {
 	return rewriteMessageBlocks(body, isForeignSignedThinkingBlock, dropMatchedBlock)
 }
