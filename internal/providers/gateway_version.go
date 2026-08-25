@@ -10,10 +10,7 @@ import (
 const versionSegment = "/v1"
 
 // GatewayVersionMemo resolves gateway base URLs that disagree with an adapter's
-// canonical suffix on the "/v1" segment. Base URLs are probed, not rewritten;
-// a successful alternate is memoized so later requests skip the miss.
-//
-// The zero value is ready to use.
+// canonical suffix on the "/v1" segment, probing then memoizing the alternate.
 type GatewayVersionMemo struct {
 	learned sync.Map // base URL -> struct{}
 }
