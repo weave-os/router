@@ -130,10 +130,8 @@ type InsertTelemetryParams struct {
 	// turns. Nothing reads this yet.
 	UnifiedLimitHeaders []byte
 
-	// Planner* persist the cache-eviction planner's per-turn verdict. Empty /
-	// nil leave the columns NULL — the planner does not run on every path, and
-	// a stored zero must not read as evidence that it did. Cost fields are
-	// float64 USD at this boundary; the postgres adapter converts to micros.
+	// Planner* columns persist the per-turn verdict. nil/empty when planner did not run;
+	// a stored zero must not read as evidence. Cost fields are float64 USD; postgres adapter converts to micros.
 	PlannerOutcome                  string
 	PlannerReason                   string
 	PlannerPinModel                 string
@@ -205,10 +203,8 @@ type TelemetryTurnResult struct {
 	Timestamp        time.Time
 }
 
-// applyPlannerTelemetry copies the planner's per-turn verdict onto a telemetry
-// row. Leaves every field zero when the planner did not run (Reason == "") so
-// the columns stay NULL. Cost fields are pointers for the same reason: a
-// stored 0.0 would look like a computed EV of zero.
+// applyPlannerTelemetry copies the planner verdict onto p. No-ops when Reason == ""
+// so all Planner* columns stay NULL; a stored 0.0 would falsely imply the planner ran.
 func applyPlannerTelemetry(p *InsertTelemetryParams, res turnLoopResult) {
 	if p == nil || res.PlannerDecision.Reason == "" {
 		return
