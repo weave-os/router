@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"workweave/router/internal/flags"
+	"workweave/router/internal/observability"
 )
 
 const (
@@ -34,14 +35,12 @@ func publishFlagRegistry(logger *slog.Logger, publisher flagDefinitionPublisher,
 		}
 		published = append(published, flags.PublishedDefinition{Definition: def, DeploymentDefault: value})
 	}
-	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), flagRegistryPublishBudget)
-		defer cancel()
+	observability.SafeGo(logger, flagRegistryPublishBudget, "flag_registry_publish", func(ctx context.Context) {
 		publishFlagRegistryWithRetry(
 			ctx, logger, publisher, published,
 			flagRegistryPublishTimeout, flagRegistryPublishRetryInterval,
 		)
-	}()
+	})
 }
 
 // publishFlagRegistryWithRetry retries until ctx expires. Retrying is safe
