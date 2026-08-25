@@ -38,13 +38,7 @@ func AnthropicClientResponseText(body []byte) string {
 		if text := event.Get("delta.text"); text.Type == gjson.String {
 			out.WriteString(text.String())
 		}
-		block := event.Get("content_block")
-		switch block.Get("type").String() {
-		case "text":
-			out.WriteString(block.Get("text").String())
-		case "tool_use":
-			appendToolCallMarker(&out, block.Get("name").String())
-		}
+		appendAnthropicResponseBlock(&out, event.Get("content_block"), false)
 	}
 	return cleanAnthropicResponseText(out.String())
 }
@@ -53,23 +47,33 @@ func anthropicResponseContentText(content gjson.Result) string {
 	if !content.IsArray() {
 		return ""
 	}
-	var parts []string
+	var out strings.Builder
 	content.ForEach(func(_, block gjson.Result) bool {
-		switch block.Get("type").String() {
-		case "text":
-			if text := block.Get("text").String(); text != "" {
-				parts = append(parts, text)
-			}
-		case "tool_use":
-			name := strings.TrimSpace(block.Get("name").String())
-			if name == "" {
-				name = "tool"
-			}
-			parts = append(parts, "[tool call] "+name)
-		}
+		appendAnthropicResponseBlock(&out, block, true)
 		return true
 	})
-	return strings.Join(parts, "\n")
+	return out.String()
+}
+
+func appendAnthropicResponseBlock(out *strings.Builder, block gjson.Result, newlineBeforeTool bool) {
+	switch block.Get("type").String() {
+	case "text":
+		text := block.Get("text").String()
+		if newlineBeforeTool && out.Len() > 0 && text != "" {
+			out.WriteByte('\n')
+		}
+		out.WriteString(text)
+	case "tool_use", "server_tool_use":
+		if newlineBeforeTool && out.Len() > 0 {
+			out.WriteByte('\n')
+		}
+		appendToolCallMarker(out, block.Get("name").String())
+	case "web_search_tool_result", "web_fetch_tool_result":
+		if newlineBeforeTool && out.Len() > 0 {
+			out.WriteByte('\n')
+		}
+		appendToolCallMarker(out, strings.TrimSuffix(block.Get("type").String(), "_tool_result"))
+	}
 }
 
 func appendToolCallMarker(out *strings.Builder, name string) {

@@ -7,7 +7,7 @@ import (
 	"github.com/tidwall/gjson"
 )
 
-var anthropicServerToolType = regexp.MustCompile(`^(web_search|web_fetch|code_execution|computer|bash|text_editor)_\d{8}$`)
+var anthropicServerToolType = regexp.MustCompile(`^(web_search|web_fetch|code_execution)_\d{8}$`)
 
 var openAIServerToolTypes = map[string]struct{}{
 	"web_search":           {},
