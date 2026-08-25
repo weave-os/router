@@ -8,11 +8,8 @@ import (
 	"workweave/router/internal/router/policy"
 )
 
-// struggleClusterLadder orders the complexity clusters from cheapest to
-// strongest, with each rung listing the labels of every roster vocabulary that
-// sits at that cost point: the five-class roster's "fast"/"explore" share the
-// bottom rung (identical arms and cost reference), and the four-class roster's
-// "low"/"medium" are the same rungs as "fast"/"balanced".
+// struggleClusterLadder orders clusters cheapest-to-strongest. fast/explore/low
+// share a rung because they carry identical arms and cost_ref in the roster JSON.
 var struggleClusterLadder = [][]string{
 	{"fast", "explore", "low"},
 	{"balanced", "medium"},
@@ -51,12 +48,9 @@ type struggleRoster struct {
 	source policy.RosterSource
 }
 
-// EscalationTarget returns the top-ranked dispatchable arm from the cheapest
-// cluster above policyGroup, falling back to a sideways move (the next-ranked
-// arm in policyGroup itself) when no higher cluster can serve the session. The
-// returned cluster is the one the target came from. check(model) should
-// validate the candidate is dispatchable (available, not excluded,
-// image-capable, binding exists).
+// EscalationTarget returns the top-ranked arm from the cheapest cluster above
+// policyGroup, or the next-ranked arm within policyGroup when nothing above can
+// serve. The returned cluster identifies where the target came from.
 func (r *struggleRoster) EscalationTarget(
 	ctx context.Context,
 	policyGroup, currentModel string,

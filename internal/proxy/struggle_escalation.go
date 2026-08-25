@@ -33,10 +33,8 @@ type StruggleEscalationEvent struct {
 }
 
 // StruggleEscalationRoster picks the arm a struggling session moves to.
-// EscalationTarget prefers the strongest cluster above policyGroup and falls
-// back to a sideways move within policyGroup, skipping currentModel and
-// returning the cluster the target came from. check(model) should validate the
-// candidate is dispatchable (available, binding exists).
+// EscalationTarget prefers the cheapest cluster above policyGroup, falling back
+// to a sideways arm in policyGroup. check(model) validates dispatchability.
 type StruggleEscalationRoster interface {
 	EscalationTarget(ctx context.Context, policyGroup, currentModel string, exclude map[string]struct{}, check func(model string) bool) (target, cluster string, err error)
 }
