@@ -92,7 +92,7 @@ func TestReportPolicyOutcome_UsesFreshMetadataForStickyServedDecision(t *testing
 		assert.Equal(t, "done", payload["response_text"])
 		assert.NotContains(t, payload, "response_body")
 		assert.NotContains(t, payload, "response_body_format")
-		assert.NotContains(t, payload, "response_body_truncated")
+		assert.Equal(t, false, payload["response_body_truncated"])
 		assert.Equal(t, wantCost, payload["cost_usd"])
 	case <-time.After(time.Second):
 		t.Fatal("timed out waiting for HMM outcome payload")
