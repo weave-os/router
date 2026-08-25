@@ -37,6 +37,7 @@ import (
 	"workweave/router/internal/sse"
 	"workweave/router/internal/timing"
 	"workweave/router/internal/translate"
+	"workweave/router/internal/websearch"
 
 	"github.com/google/uuid"
 	"github.com/tidwall/sjson"
@@ -254,6 +255,9 @@ type Service struct {
 	// summarizer produces a bounded-cost handover summary on switch turns.
 	// nil passes the full prior history through unchanged.
 	summarizer handover.Summarizer
+	// webSearch executes Anthropic's native web-search server tool for
+	// upstreams that reject it. nil leaves such turns on normal routing.
+	webSearch websearch.Executor
 	// compactionSummarizer produces the structured summary for the proactive
 	// context-window compaction cascade (maybeCompact). nil disables Tier-3
 	// summarization (the cascade still runs Tier-1 cleanup + trim rescue).
@@ -1578,6 +1582,14 @@ func (s *Service) WithSummarizer(sz handover.Summarizer) *Service {
 	return s
 }
 
+// WithWebSearchExecutor installs the backend that runs Anthropic's native
+// web-search server tool when the routed upstream rejects it. nil leaves
+// those turns on normal routing.
+func (s *Service) WithWebSearchExecutor(ex websearch.Executor) *Service {
+	s.webSearch = ex
+	return s
+}
+
 // WithCompaction installs the summarizer and trigger threshold for the
 // proactive context-window compaction cascade (maybeCompact). pct == 0
 // disables compaction (operators set ROUTER_COMPACTION_PCT=0 to turn the
@@ -2680,6 +2692,13 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	// turn (e.g. a hard-pin or force-model) still didn't resolve onto the sub.
 	if billing.SubscriptionOnlyFromContext(ctx) {
 		enabledProviders = restrictToSubscriptionProviders(ctx, r.Header, enabledProviders)
+	}
+
+	// Anthropic's native web-search server tool, when no enabled provider runs
+	// it. Served before routing: the scorer's only lever is picking a model,
+	// and for a gateway-exclusive tenant every candidate rejects the tool.
+	if s.serveNativeWebSearch(ctx, body, feats.Model, env.Stream(), feats.Tokens, enabledProviders, r.Header, w) {
+		return nil
 	}
 
 	// Pre-filter models whose context window cannot fit this request.

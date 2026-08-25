@@ -51,6 +51,27 @@ is always registered so BYOK installations can point at their own gateway
 without deployment-level credentials; the env vars above are only for a
 deployment that has a gateway of its own.
 
+**Native web search on a gateway.** An Anthropic-spec gateway relays to a
+backend that implements function tools only, so Claude Code's WebSearch turn
+comes back as `tool type 'web_search_20250305' is not supported for this
+model`. For Snowflake Cortex the capability exists on a different endpoint —
+`POST /api/v2/cortex/agent:run` with a `web_search` tool spec — so the router
+executes the search there, on the tenant's own credential, and returns the
+`server_tool_use` / `web_search_tool_result` blocks the client expects. The
+base URL and token come from the request's gateway key (WIF included), so no
+extra deployment config is needed.
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `ROUTER_CORTEX_WEB_SEARCH` | `true` | Kill switch. `false` leaves native web-search turns on normal routing (they fail upstream on gateways that reject the tool). |
+| `SNOWFLAKE_AGENT_ROLE` | *(none)* | Sent as `X-Snowflake-Role` on `agent:run`. Leave unset to use the service user's default role. |
+
+Snowflake-side prerequisites: an ACCOUNTADMIN must enable web search at the
+account level, and the authenticating user needs a role with agent privileges
+plus a default warehouse it can USAGE (or an explicit `SNOWFLAKE_AGENT_ROLE`
+that has one). Cortex's web search is served from Brave's index, so queries
+and results leave Snowflake's perimeter under Snowflake's vendor agreement.
+
 **OpenAI-compatible gateway.** `openai_gateway` is the same arrangement one
 wire family over: a customer endpoint speaking OpenAI Chat Completions, bearer
 auth, no default endpoint. Use it for gateways that serve models the Anthropic

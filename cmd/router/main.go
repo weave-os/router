@@ -33,6 +33,7 @@ import (
 	"workweave/router/internal/postgres"
 	"workweave/router/internal/providers"
 	"workweave/router/internal/providers/anthropic"
+	"workweave/router/internal/providers/cortexagents"
 	googleProvider "workweave/router/internal/providers/google"
 	openaiProvider "workweave/router/internal/providers/openai"
 	openaiCompatProvider "workweave/router/internal/providers/openaicompat"
@@ -52,6 +53,7 @@ import (
 	"workweave/router/internal/router/rl"
 	"workweave/router/internal/router/sessionpin"
 	"workweave/router/internal/server"
+	"workweave/router/internal/websearch"
 	"workweave/router/internal/wif"
 
 	_ "time/tzdata"
@@ -941,6 +943,7 @@ func main() {
 		WithRouterFeedbackStore(repo.Telemetry).
 		WithPlanner(plannerCfg).
 		WithSummarizer(summarizer).
+		WithWebSearchExecutor(cortexWebSearch(logger)).
 		WithCompaction(compactionSz, compactionPct).
 		WithAvailableModels(routingTargets).
 		WithDefaultBaselineModel(resolveDefaultBaselineModel()).
@@ -1639,6 +1642,26 @@ const (
 	defaultHardPinProvider = providers.ProviderAnthropic
 	defaultHardPinModel    = "claude-haiku-4-5"
 )
+
+// cortexWebSearch builds the executor that serves Anthropic's native
+// web-search server tool on Snowflake Cortex Agents (agent:run), for gateway
+// tenants whose only Anthropic-capable upstream rejects the tool. Returns nil
+// when disabled, leaving those turns on normal routing.
+//
+// The base URL and credential come from the request's gateway key, so no
+// deployment-level Snowflake config is required to enable it.
+func cortexWebSearch(logger *slog.Logger) websearch.Executor {
+	if config.GetOr("ROUTER_CORTEX_WEB_SEARCH", "true") != "true" {
+		logger.Info("Cortex Agents web-search executor disabled (ROUTER_CORTEX_WEB_SEARCH)")
+		return nil
+	}
+	role := config.GetOr("SNOWFLAKE_AGENT_ROLE", "")
+	logger.Info("Cortex Agents web-search executor enabled", "snowflake_role", role)
+	return cortexagents.NewClient(
+		config.GetOr("ANTHROPIC_GATEWAY_BASE_URL", ""),
+		cortexagents.WithRole(role),
+	)
+}
 
 // resolveDefaultBaselineModel returns the cost-comparison baseline used when
 // RequestedModel has no pricing entry. Uses os.LookupEnv directly (not
