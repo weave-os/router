@@ -68,11 +68,6 @@ func appendAnthropicResponseBlock(out *strings.Builder, block gjson.Result, newl
 			out.WriteByte('\n')
 		}
 		appendToolCallMarker(out, block.Get("name").String())
-	case "web_search_tool_result", "web_fetch_tool_result":
-		if newlineBeforeTool && out.Len() > 0 {
-			out.WriteByte('\n')
-		}
-		appendToolCallMarker(out, strings.TrimSuffix(block.Get("type").String(), "_tool_result"))
 	}
 }
 
