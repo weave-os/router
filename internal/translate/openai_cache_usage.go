@@ -3,10 +3,8 @@ package translate
 import "github.com/tidwall/gjson"
 
 // OpenAICacheTokens extracts cache-write and cache-read counts from an OpenAI
-// usage object. GPT-5.6+ reports writes as cache_write_tokens (Responses:
-// input_tokens_details; Chat Completions: prompt_tokens_details). Older
-// shapes only have cached_tokens. cache_creation_tokens is accepted as a
-// fallback for OpenAI-compat hosts that already emit our internal name.
+// usage object. GPT-5.6+ reports cache_write_tokens; cache_creation_tokens is
+// a compat fallback for hosts that already emit our internal name.
 func OpenAICacheTokens(usage gjson.Result) (cacheWrite, cacheRead int) {
 	if !usage.Exists() {
 		return 0, 0
