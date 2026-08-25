@@ -32,15 +32,18 @@ type StruggleEscalationEvent struct {
 	SessionEverSwitched bool
 }
 
-// StruggleEscalationRoster picks the next untried arm in the same cluster.
-// SidewaysTarget returns the next-ranked arm skipping currentModel. check(model)
-// should validate the candidate is dispatchable (available, binding exists).
+// StruggleEscalationRoster picks the arm a struggling session moves to.
+// EscalationTarget prefers the strongest cluster above policyGroup and falls
+// back to a sideways move within policyGroup, skipping currentModel and
+// returning the cluster the target came from. check(model) should validate the
+// candidate is dispatchable (available, binding exists).
 type StruggleEscalationRoster interface {
-	SidewaysTarget(ctx context.Context, policyGroup, currentModel string, exclude map[string]struct{}, check func(model string) bool) (string, error)
+	EscalationTarget(ctx context.Context, policyGroup, currentModel string, exclude map[string]struct{}, check func(model string) bool) (target, cluster string, err error)
 }
 
 // Struggle escalation action taxonomy.
 const (
+	struggleActionUpCluster      = "up_cluster"
 	struggleActionSideways       = "sideways"
 	struggleActionHoldout        = "holdout"
 	struggleActionDisabled       = "disabled"
@@ -49,7 +52,8 @@ const (
 	struggleActionNoEligibleArms = "no_eligible_arms"
 )
 
-// handleStruggleEscalation arms a sideways move for a grinding session
+// handleStruggleEscalation arms an up-cluster move (sideways only when no
+// higher cluster can serve) for a grinding session
 // (turns >= 30, wall >= 10m). Must run before routing so runTurnLoop picks
 // up the sticky pin on the same turn; idempotent via durable once-per-session budget.
 func (s *Service) handleStruggleEscalation(
@@ -108,7 +112,7 @@ func (s *Service) handleStruggleEscalation(
 		DeterministicHoldout(sessionKey, s.ResolveStruggleEscalationHoldoutPct(ctx))
 
 	action := struggleActionSideways
-	var escalationTarget string
+	var escalationTarget, escalationCluster string
 	switch {
 	case !s.ResolveStruggleEscalationEnabled(ctx):
 		action = struggleActionDisabled
@@ -121,7 +125,7 @@ func (s *Service) handleStruggleEscalation(
 	case s.struggleEscalationRoster == nil:
 		action = struggleActionNoTarget
 	default:
-		target, err := s.struggleEscalationRoster.SidewaysTarget(
+		target, targetCluster, err := s.struggleEscalationRoster.EscalationTarget(
 			ctx, pin.PolicyGroup, pin.Model,
 			nil,
 			func(model string) bool {
@@ -146,6 +150,10 @@ func (s *Service) handleStruggleEscalation(
 				action = struggleActionNoEligibleArms
 			} else {
 				escalationTarget = target
+				escalationCluster = targetCluster
+				if targetCluster != pin.PolicyGroup {
+					action = struggleActionUpCluster
+				}
 				upsertErr := s.pinStore.Upsert(context.Background(), sessionpin.Pin{
 					SessionKey:      sessionKey,
 					Role:            role,
@@ -155,7 +163,7 @@ func (s *Service) handleStruggleEscalation(
 					Reason:          translate.ReasonStruggleEscalation,
 					TurnCount:       1,
 					PinnedUntil:     time.Now().Add(pinSessionTTL),
-					PolicyGroup:     pin.PolicyGroup,
+					PolicyGroup:     targetCluster,
 					LastServedModel: pin.LastServedModel,
 				})
 				if upsertErr != nil {
@@ -170,6 +178,7 @@ func (s *Service) handleStruggleEscalation(
 		"struggling_model", strugglingModel,
 		"action", action,
 		"escalation_target", escalationTarget,
+		"escalation_cluster", escalationCluster,
 		"user_forced", userForced,
 		"turn_count", pin.TurnCount,
 		"wall_seconds", int64(wall.Seconds()),

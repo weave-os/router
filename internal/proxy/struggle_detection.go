@@ -18,8 +18,8 @@ import (
 // operating point before arming.
 const (
 	// struggleReasonEarly is the cheap operating point: sessions where users
-	// most often bail. Reserved for a cost-neutral same-cluster "sideways"
-	// move (next untried arm); too loose to justify an "up" bump on its own.
+	// most often bail. Arms the escalation move — the next cluster up, or a
+	// same-cluster "sideways" arm when nothing above can serve the session.
 	struggleEarlyTurns     = 30
 	struggleEarlyWall      = 10 * time.Minute
 	struggleReasonEarlyStr = "early"
