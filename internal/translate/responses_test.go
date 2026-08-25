@@ -20,7 +20,7 @@ const codexResponsesBadgeSentinelForTest = "\u2063\u2060\u2063\u2060"
 
 func TestRebuildOpenAIResponsesBody_UsesCompactedChatHistory(t *testing.T) {
 	original := []byte(`{"model":"auto","instructions":"old instructions","input":"old input","tools":[{"type":"function","name":"lookup"}],"stream":true}`)
-	compactedChat := []byte(`{"messages":[{"role":"system","content":"new instructions"},{"role":"user","content":[{"type":"text","text":"look this up"}]},{"role":"assistant","content":null,"tool_calls":[{"id":"call_1","type":"function","function":{"name":"lookup","arguments":"{\"q\":\"value\"}"}}]},{"role":"tool","tool_call_id":"call_1","content":"result"}]}`)
+	compactedChat := []byte(`{"messages":[{"role":"system","content":"new instructions"},{"role":"user","content":[{"type":"text","text":"look this up"}]},{"role":"assistant","content":"","tool_calls":[{"id":"call_1","type":"function","function":{"name":"lookup","arguments":"{\"q\":\"value\"}"}}]},{"role":"tool","tool_call_id":"call_1","content":"result"}]}`)
 
 	rebuilt, err := translate.RebuildOpenAIResponsesBody(original, compactedChat)
 	require.NoError(t, err)

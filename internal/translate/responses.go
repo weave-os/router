@@ -186,6 +186,9 @@ func responsesMessageContent(content json.RawMessage, role string) json.RawMessa
 	}
 	var text string
 	if json.Unmarshal(content, &text) == nil {
+		if text == "" {
+			return nil
+		}
 		return content
 	}
 	var parts []map[string]json.RawMessage
