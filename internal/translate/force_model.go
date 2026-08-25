@@ -162,10 +162,9 @@ func (env *RequestEnvelope) extractLeadingCommandWithSource(parse func(text stri
 	return false, false
 }
 
-// dropCommandBlock deletes the command-bearing block at dropPath, cascading to
-// the whole message when that empties its content array. Reports false when the
-// drop would leave no messages: providers reject an empty content array or an
-// empty history, so the caller falls back to blanking the command text instead.
+// dropCommandBlock deletes the block at dropPath, cascading to the whole
+// message when that empties its content array, and reports false when the
+// result would be an empty history (providers reject empty content arrays).
 func dropCommandBlock(body []byte, dropPath string, msgIdx int) ([]byte, bool) {
 	out, err := sjson.DeleteBytes(body, dropPath)
 	if err != nil {
