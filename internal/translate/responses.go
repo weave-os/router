@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"regexp"
@@ -41,20 +42,174 @@ type ResponseTransform struct {
 	Path   string
 }
 
-// ResponsesToChatCompletions converts an OpenAI Responses API request into a
-// Chat Completions request so the existing proxy path can dispatch it
-// unchanged. Returns the rewritten body, whether streaming was requested, and
-// the requested model (empty if absent). Handles only the subset of the
-// Responses spec Codex actually emits: instructions, input items (message /
-// function_call / function_call_output), tools, tool_choice,
-// max_output_tokens, temperature, top_p, parallel_tool_calls, metadata.
-//
-// Codex's `reasoning` field is dropped intentionally: this runs before
-// routing, so the served provider (and its native thinking knob) is unknown.
-// Forwarding it as `reasoning_effort` broke every non-Gemini model — Codex
-// sends invalid values (e.g. "none"), and gpt-5.x rejects `reasoning_effort`
-// alongside tools, both causing an upstream 400 mid-stream. Per-provider
-// reasoning is still driven downstream from the request's own signals.
+// RebuildOpenAIResponsesBody replaces a Responses request's input with the
+// current, potentially compacted, Chat Completions message history.
+func RebuildOpenAIResponsesBody(originalBody, chatBody []byte) ([]byte, error) {
+	var responses map[string]json.RawMessage
+	err := json.Unmarshal(originalBody, &responses)
+	if err != nil {
+		return nil, fmt.Errorf("decode Responses body: %w", err)
+	}
+
+	var chat struct {
+		Messages []json.RawMessage `json:"messages"`
+	}
+	err = json.Unmarshal(chatBody, &chat)
+	if err != nil {
+		return nil, fmt.Errorf("decode compacted Chat Completions body: %w", err)
+	}
+	if chat.Messages == nil {
+		return nil, errors.New("compacted Chat Completions body has no messages")
+	}
+
+	input := make([]json.RawMessage, 0, len(chat.Messages))
+	instructions := make([]string, 0)
+	for _, rawMessage := range chat.Messages {
+		var message struct {
+			Role      string          `json:"role"`
+			Content   json.RawMessage `json:"content"`
+			ToolCalls []struct {
+				ID       string `json:"id"`
+				Function struct {
+					Name      string `json:"name"`
+					Arguments string `json:"arguments"`
+				} `json:"function"`
+			} `json:"tool_calls"`
+			ToolCallID string `json:"tool_call_id"`
+		}
+		err = json.Unmarshal(rawMessage, &message)
+		if err != nil {
+			return nil, fmt.Errorf("decode compacted Chat Completions message: %w", err)
+		}
+
+		switch message.Role {
+		case "system", "developer":
+			if text := chatMessageText(message.Content); text != "" {
+				instructions = append(instructions, text)
+			}
+		case "user", "assistant":
+			content := responsesMessageContent(message.Content, message.Role)
+			if content != nil {
+				item := struct {
+					Type    string          `json:"type"`
+					Role    string          `json:"role"`
+					Content json.RawMessage `json:"content"`
+				}{
+					Type:    "message",
+					Role:    message.Role,
+					Content: content,
+				}
+				encoded, marshalErr := json.Marshal(item)
+				if marshalErr != nil {
+					return nil, fmt.Errorf("encode Responses message: %w", marshalErr)
+				}
+				input = append(input, encoded)
+			}
+			for _, toolCall := range message.ToolCalls {
+				encoded, marshalErr := json.Marshal(struct {
+					Type      string `json:"type"`
+					CallID    string `json:"call_id"`
+					Name      string `json:"name"`
+					Arguments string `json:"arguments"`
+				}{
+					Type:      "function_call",
+					CallID:    toolCall.ID,
+					Name:      toolCall.Function.Name,
+					Arguments: toolCall.Function.Arguments,
+				})
+				if marshalErr != nil {
+					return nil, fmt.Errorf("encode Responses function call: %w", marshalErr)
+				}
+				input = append(input, encoded)
+			}
+		case "tool":
+			output := message.Content
+			if len(output) == 0 || string(output) == "null" {
+				output = json.RawMessage(`""`)
+			}
+			encoded, marshalErr := json.Marshal(struct {
+				Type   string          `json:"type"`
+				CallID string          `json:"call_id"`
+				Output json.RawMessage `json:"output"`
+			}{
+				Type:   "function_call_output",
+				CallID: message.ToolCallID,
+				Output: output,
+			})
+			if marshalErr != nil {
+				return nil, fmt.Errorf("encode Responses function output: %w", marshalErr)
+			}
+			input = append(input, encoded)
+		default:
+			input = append(input, rawMessage)
+		}
+	}
+
+	encodedInput, err := json.Marshal(input)
+	if err != nil {
+		return nil, fmt.Errorf("encode Responses input: %w", err)
+	}
+	responses["input"] = encodedInput
+	if len(instructions) > 0 {
+		encodedInstructions, marshalErr := json.Marshal(strings.Join(instructions, "\n\n"))
+		if marshalErr != nil {
+			return nil, fmt.Errorf("encode Responses instructions: %w", marshalErr)
+		}
+		responses["instructions"] = encodedInstructions
+	}
+	return json.Marshal(responses)
+}
+
+func chatMessageText(content json.RawMessage) string {
+	var text string
+	if json.Unmarshal(content, &text) == nil {
+		return text
+	}
+	var parts []struct {
+		Text string `json:"text"`
+	}
+	if json.Unmarshal(content, &parts) != nil {
+		return ""
+	}
+	texts := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if part.Text != "" {
+			texts = append(texts, part.Text)
+		}
+	}
+	return strings.Join(texts, "\n")
+}
+
+func responsesMessageContent(content json.RawMessage, role string) json.RawMessage {
+	if len(content) == 0 || string(content) == "null" {
+		return nil
+	}
+	var text string
+	if json.Unmarshal(content, &text) == nil {
+		return content
+	}
+	var parts []map[string]json.RawMessage
+	if json.Unmarshal(content, &parts) != nil {
+		return content
+	}
+	for _, part := range parts {
+		var partType string
+		if json.Unmarshal(part["type"], &partType) == nil && partType == "text" {
+			if role == "assistant" {
+				part["type"] = json.RawMessage(`"output_text"`)
+			} else {
+				part["type"] = json.RawMessage(`"input_text"`)
+			}
+		}
+	}
+	encoded, err := json.Marshal(parts)
+	if err != nil {
+		return content
+	}
+	return encoded
+}
+
+// ResponsesToChatCompletions converts a Responses request to Chat Completions.
 func ResponsesToChatCompletions(body []byte) ([]byte, bool, string, error) {
 	result, err := ConvertResponsesToChatCompletions(body)
 	if err != nil {

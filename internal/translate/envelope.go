@@ -123,6 +123,9 @@ func validateJSONObject(body []byte) error {
 
 func (e *RequestEnvelope) SourceFormat() Format { return e.format }
 
+// OpenAIChatBody returns a copy of the current OpenAI Chat Completions body.
+func (e *RequestEnvelope) OpenAIChatBody() []byte { return append([]byte(nil), e.body...) }
+
 // Stream reports whether the request has "stream": true. Rejects numeric coercion.
 // For Gemini ingress, the handler injects a synthetic "stream": true.
 func (e *RequestEnvelope) Stream() bool {

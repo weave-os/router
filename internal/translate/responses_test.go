@@ -18,6 +18,24 @@ import (
 
 const codexResponsesBadgeSentinelForTest = "\u2063\u2060\u2063\u2060"
 
+func TestRebuildOpenAIResponsesBody_UsesCompactedChatHistory(t *testing.T) {
+	original := []byte(`{"model":"auto","instructions":"old instructions","input":"old input","tools":[{"type":"function","name":"lookup"}],"stream":true}`)
+	compactedChat := []byte(`{"messages":[{"role":"system","content":"new instructions"},{"role":"user","content":[{"type":"text","text":"look this up"}]},{"role":"assistant","content":null,"tool_calls":[{"id":"call_1","type":"function","function":{"name":"lookup","arguments":"{\"q\":\"value\"}"}}]},{"role":"tool","tool_call_id":"call_1","content":"result"}]}`)
+
+	rebuilt, err := translate.RebuildOpenAIResponsesBody(original, compactedChat)
+	require.NoError(t, err)
+	assert.Equal(t, "auto", gjson.GetBytes(rebuilt, "model").Str)
+	assert.Equal(t, "new instructions", gjson.GetBytes(rebuilt, "instructions").Str)
+	assert.Equal(t, "look this up", gjson.GetBytes(rebuilt, "input.0.content.0.text").Str)
+	assert.Equal(t, "input_text", gjson.GetBytes(rebuilt, "input.0.content.0.type").Str)
+	assert.Equal(t, "function_call", gjson.GetBytes(rebuilt, "input.1.type").Str)
+	assert.Equal(t, "call_1", gjson.GetBytes(rebuilt, "input.1.call_id").Str)
+	assert.Equal(t, "{\"q\":\"value\"}", gjson.GetBytes(rebuilt, "input.1.arguments").Str)
+	assert.Equal(t, "function_call_output", gjson.GetBytes(rebuilt, "input.2.type").Str)
+	assert.Equal(t, "result", gjson.GetBytes(rebuilt, "input.2.output").Str)
+	assert.Equal(t, "lookup", gjson.GetBytes(rebuilt, "tools.0.name").Str)
+}
+
 func TestResponsesToChatCompletions_InstructionsAndInput(t *testing.T) {
 	body := []byte(`{
 		"model": "gpt-5",

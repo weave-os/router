@@ -5171,9 +5171,11 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		}
 		if compResOAI.Applied {
 			if len(responsesBodyCandidate) > 0 {
-				// Compaction rewrote the chat envelope; the original Responses body
-				// still has the full history and must not be dispatched natively.
-				responsesBodyCandidate = nil
+				responsesBodyCandidate, compErrOAI = translate.RebuildOpenAIResponsesBody(responsesBodyCandidate, env.OpenAIChatBody())
+				if compErrOAI != nil {
+					log.Error("Failed to rebuild compacted OpenAI Responses body", "err", compErrOAI)
+					return fmt.Errorf("rebuild compacted Responses body: %w", compErrOAI)
+				}
 			}
 			feats = env.RoutingFeatures(embedFlag)
 			log.Info("Proactive compaction applied",
