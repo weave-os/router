@@ -10,13 +10,10 @@ import (
 const versionSegment = "/v1"
 
 // GatewayVersionMemo resolves gateway base URLs that disagree with an adapter's
-// canonical suffix on the "/v1" segment (Snowflake Cortex mounts its catalog at
-// /api/v2/cortex/models but chat at /api/v2/cortex/v1/chat/completions). Base
-// URLs are probed, not rewritten; a successful alternate is remembered so later
-// requests skip the miss.
+// canonical suffix on the "/v1" segment. Base URLs are probed, not rewritten;
+// a successful alternate is memoized so later requests skip the miss.
 //
-// The zero value is ready to use. Entries are bounded by the number of distinct
-// gateway base URLs a deployment serves.
+// The zero value is ready to use.
 type GatewayVersionMemo struct {
 	learned sync.Map // base URL -> struct{}
 }
@@ -41,9 +38,8 @@ func (m *GatewayVersionMemo) Learn(baseURL string) {
 	m.learned.Store(baseURL, struct{}{})
 }
 
-// altVersionedURL returns the URL that moves suffix's version segment across the
-// base-URL boundary: appended when the base omits it, dropped from the base when
-// the suffix already carries it. Empty when base and suffix already agree.
+// altVersionedURL returns the alternate URL when base and suffix disagree on the
+// "/v1" segment. Empty when they already agree.
 func altVersionedURL(baseURL, suffix string) string {
 	root, baseVersioned := strings.CutSuffix(baseURL, versionSegment)
 	suffixVersioned := strings.HasPrefix(suffix, versionSegment+"/")
