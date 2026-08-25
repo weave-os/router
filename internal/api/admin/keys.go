@@ -205,10 +205,7 @@ type upsertExternalKeyRequest struct {
 	// for service-authenticated endpoints that attribute spend per user. Format: "email" or "json".
 	IdentityHeader       *string `json:"identity_header"`
 	IdentityHeaderFormat *string `json:"identity_header_format"`
-	// ForwardedClientHeaders names inbound client headers copied verbatim to this
-	// endpoint (vendor correlation ids such as X-SNOWFLAKE-APPLICATION);
-	// BaggageHeader is its JSON baggage header, re-emitted with the caller's email
-	// under on-behalf-of.
+	// ForwardedClientHeaders and BaggageHeader configure client-header passthrough to this endpoint.
 	ForwardedClientHeaders []string `json:"forwarded_client_headers"`
 	BaggageHeader          *string  `json:"baggage_header"`
 	// AuthType is "bearer" (default), "keypair_jwt" (Key is RSA; router signs a short-lived JWT

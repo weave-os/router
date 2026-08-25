@@ -6,17 +6,13 @@ import (
 	"net/http"
 )
 
-// baggageOnBehalfOf is the member the router contributes to a vendor baggage
-// header so a gateway fronting its own observability can attribute a turn to a
-// person. Agreed wire shape with Snowflake Cortex: raw JSON, no percent-encoding.
+// baggageOnBehalfOf is the key the router adds to the vendor's baggage header.
+// Wire shape agreed with Snowflake Cortex: raw JSON, no percent-encoding.
 const baggageOnBehalfOf = "on-behalf-of"
 
-// ApplyForwardedClientHeaders copies the inbound headers this endpoint asked
-// for onto the upstream request and re-emits its baggage header with the
-// router-resolved user email. Must be called after prep.Headers are copied and
-// the adapter's protected headers reapplied, so the endpoint sees the caller's
-// own correlation ids without a client being able to forge the identity the
-// router derived. inbound may be nil for router-originated calls.
+// ApplyForwardedClientHeaders copies the configured inbound headers to the upstream request
+// and re-emits the baggage header with the router-resolved email. Must be called after
+// prep.Headers are copied and protected headers reapplied so a caller cannot forge identity.
 func ApplyForwardedClientHeaders(ctx context.Context, upstream *http.Request, inbound http.Header) {
 	creds := CredentialsFromContext(ctx)
 	if creds == nil {
@@ -35,10 +31,8 @@ func ApplyForwardedClientHeaders(ctx context.Context, upstream *http.Request, in
 	}
 }
 
-// mergeBaggageEmail returns the caller's baggage object with the resolved email
-// under on-behalf-of, overwriting any value the client sent: the endpoint
-// attributes spend off this bag, so a forged member must not survive. A bag
-// that isn't a JSON object travels unchanged rather than being discarded.
+// mergeBaggageEmail injects the router-resolved email as on-behalf-of, overwriting any
+// client-supplied value (forged attribution must not survive). Non-JSON bags pass through.
 func mergeBaggageEmail(baggage, email string) string {
 	if email == "" {
 		return baggage

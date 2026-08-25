@@ -302,9 +302,7 @@ type UpsertExternalAPIKeyParams struct {
 	// in, rendered per IdentityHeaderFormat; both nil forwards nothing.
 	IdentityHeader       *string
 	IdentityHeaderFormat *string
-	// ForwardedClientHeaders names inbound client headers copied verbatim to this
-	// endpoint; BaggageHeader is its JSON baggage header, re-emitted with the
-	// caller's email under on-behalf-of. Both empty forwards nothing.
+	// ForwardedClientHeaders and BaggageHeader configure client-header passthrough; nil forwards nothing.
 	ForwardedClientHeaders []string
 	BaggageHeader          *string
 	// AuthType selects how RawKey authenticates upstream; empty means AuthTypeBearer.

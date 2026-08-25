@@ -52,9 +52,7 @@ type Credentials struct {
 	// endpoint wants the caller's identity in; empty forwards nothing.
 	IdentityHeader       string
 	IdentityHeaderFormat string
-	// ForwardedClientHeaders are inbound client header names copied verbatim to
-	// this endpoint; BaggageHeader is its JSON baggage header, re-emitted with the
-	// caller's email under on-behalf-of. Both empty forwards nothing.
+	// ForwardedClientHeaders and BaggageHeader configure client-header passthrough; empty forwards nothing.
 	ForwardedClientHeaders []string
 	BaggageHeader          string
 	// AuthType is the BYOK key's auth mode (see auth.AuthType*). APIKey already holds

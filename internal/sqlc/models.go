@@ -110,7 +110,7 @@ type RouterModelRouterExternalAPIKey struct {
 	DeletedBy *string
 	// Inbound client header names copied verbatim to this key's endpoint; NULL forwards nothing
 	ForwardedClientHeaders []string
-	// W3C baggage header forwarded to this key's endpoint with the resolved user_email appended; NULL forwards nothing
+	// JSON baggage header forwarded to this key's endpoint with the resolved caller email under on-behalf-of; NULL forwards nothing
 	BaggageHeader *string
 }
 
