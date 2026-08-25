@@ -5171,9 +5171,8 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		}
 		if compResOAI.Applied {
 			if len(responsesBodyCandidate) > 0 {
-				// The compacted chat envelope is authoritative when overflow required
-				// compaction before routing; the original Responses body is no longer
-				// safe to dispatch natively because it still contains the full history.
+				// Compaction rewrote the chat envelope; the original Responses body
+				// still has the full history and must not be dispatched natively.
 				responsesBodyCandidate = nil
 			}
 			feats = env.RoutingFeatures(embedFlag)
