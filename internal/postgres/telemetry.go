@@ -194,7 +194,8 @@ func (r *TelemetryRepo) InsertStruggleEscalationEvent(ctx context.Context, p pro
 		WallSeconds:         p.WallSeconds,
 		SessionEverSwitched: p.SessionEverSwitched,
 		ArmingMode:          p.ArmingMode,
-		EvidenceReasons:     p.EvidenceReasons,
+		// Non-null column: a nil slice would encode as NULL.
+		EvidenceReasons: append([]string{}, p.EvidenceReasons...),
 	})
 }
 

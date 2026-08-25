@@ -133,7 +133,7 @@ func TestHandleStruggleEscalation_PinsTheClusterAbove(t *testing.T) {
 		"high":     {"anthropic/claude-opus-5"},
 	})
 
-	svc.handleStruggleEscalation(context.Background(), uuid.New(), struggleTestKey(1), "default")
+	svc.handleStruggleEscalation(context.Background(), uuid.New(), struggleTestKey(1), "default", nil)
 
 	require.Len(t, pins.upserts, 1)
 	assert.Equal(t, "claude-opus-5", pins.upserts[0].Model)
@@ -154,7 +154,7 @@ func TestHandleStruggleEscalation_SidewaysWhenTheClusterAboveCannotServe(t *test
 		"balanced": {"anthropic/claude-haiku-4.5", "anthropic/claude-sonnet-4-5"},
 	})
 
-	svc.handleStruggleEscalation(context.Background(), uuid.New(), struggleTestKey(2), "default")
+	svc.handleStruggleEscalation(context.Background(), uuid.New(), struggleTestKey(2), "default", nil)
 
 	require.Len(t, pins.upserts, 1)
 	assert.Equal(t, "claude-sonnet-4-5", pins.upserts[0].Model)
@@ -162,4 +162,90 @@ func TestHandleStruggleEscalation_SidewaysWhenTheClusterAboveCannotServe(t *test
 
 	require.Len(t, events.events, 1)
 	assert.Equal(t, struggleActionSideways, events.events[0].Action)
+}
+
+// quietPin sits below the turn/wall thresholds, so only evidence can arm it.
+func quietPin(model, group string) sessionpin.Pin {
+	return sessionpin.Pin{
+		Model:         model,
+		PolicyGroup:   group,
+		Reason:        "hmm_sticky",
+		TurnCount:     struggleEvidenceMinTurns,
+		FirstPinnedAt: time.Now().Add(-time.Minute),
+	}
+}
+
+func TestHandleStruggleEscalation_EvidenceIsInertWhileTheFlagIsOff(t *testing.T) {
+	pins := newStubPinStore()
+	pins.getFound = true
+	pins.getPin = quietPin("claude-haiku-4-5", "balanced")
+	events := &recordingStruggleStore{}
+	svc := newStruggleEscalationSvc(pins, events, map[string][]string{
+		"balanced": {"anthropic/claude-haiku-4.5"},
+		"high":     {"anthropic/claude-opus-5"},
+	})
+
+	svc.handleStruggleEscalation(context.Background(), uuid.New(), struggleTestKey(3), "default",
+		[]string{spiralReasonPingPong})
+
+	assert.Empty(t, pins.upserts, "evidence must not repin until the arming flag is on")
+	assert.Empty(t, events.events)
+}
+
+func TestHandleStruggleEscalation_EvidenceArmsBeforeTheThresholds(t *testing.T) {
+	pins := newStubPinStore()
+	pins.getFound = true
+	pins.getPin = quietPin("claude-haiku-4-5", "balanced")
+	events := &recordingStruggleStore{}
+	svc := newStruggleEscalationSvc(pins, events, map[string][]string{
+		"balanced": {"anthropic/claude-haiku-4.5"},
+		"high":     {"anthropic/claude-opus-5"},
+	}).WithStruggleEvidenceArming(true)
+
+	svc.handleStruggleEscalation(context.Background(), uuid.New(), struggleTestKey(4), "default",
+		[]string{spiralReasonPingPong, spiralReasonNoProgress})
+
+	require.Len(t, pins.upserts, 1)
+	assert.Equal(t, "claude-opus-5", pins.upserts[0].Model)
+
+	require.Len(t, events.events, 1)
+	assert.Equal(t, struggleArmingEvidence, events.events[0].ArmingMode)
+	assert.Equal(t, []string{spiralReasonPingPong, spiralReasonNoProgress}, events.events[0].EvidenceReasons)
+}
+
+func TestHandleStruggleEscalation_EvidenceStaysOffTheOpeningTurns(t *testing.T) {
+	pins := newStubPinStore()
+	pins.getFound = true
+	pin := quietPin("claude-haiku-4-5", "balanced")
+	pin.TurnCount = struggleEvidenceMinTurns - 2 // +1 in-flight still short
+	pins.getPin = pin
+	events := &recordingStruggleStore{}
+	svc := newStruggleEscalationSvc(pins, events, map[string][]string{
+		"balanced": {"anthropic/claude-haiku-4.5"},
+		"high":     {"anthropic/claude-opus-5"},
+	}).WithStruggleEvidenceArming(true)
+
+	svc.handleStruggleEscalation(context.Background(), uuid.New(), struggleTestKey(5), "default",
+		[]string{spiralReasonPingPong})
+
+	assert.Empty(t, pins.upserts, "an imported history must not repin on turn one")
+	assert.Empty(t, events.events)
+}
+
+func TestHandleStruggleEscalation_TimerArmingKeepsItsAttribution(t *testing.T) {
+	pins := newStubPinStore()
+	pins.getFound = true
+	pins.getPin = strugglingPin("claude-haiku-4-5", "balanced")
+	events := &recordingStruggleStore{}
+	svc := newStruggleEscalationSvc(pins, events, map[string][]string{
+		"balanced": {"anthropic/claude-haiku-4.5"},
+		"high":     {"anthropic/claude-opus-5"},
+	}).WithStruggleEvidenceArming(true)
+
+	svc.handleStruggleEscalation(context.Background(), uuid.New(), struggleTestKey(6), "default",
+		[]string{spiralReasonErrStreak})
+
+	require.Len(t, events.events, 1)
+	assert.Equal(t, struggleArmingTurnWall, events.events[0].ArmingMode,
+		"past the thresholds the timer owns the fire, evidence or not")
 }

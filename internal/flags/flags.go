@@ -47,6 +47,7 @@ const (
 	KeyStruggleShadowEnabled     Key = "struggle_shadow_enabled"
 	KeyStruggleEscalationEnabled Key = "struggle_escalation_enabled"
 	KeyStruggleEscalationHoldout Key = "struggle_escalation_holdout_pct"
+	KeyStruggleEvidenceArming    Key = "struggle_evidence_arming"
 	KeySpiralShadowEnabled       Key = "spiral_shadow_enabled"
 	KeyLoopEscalationEnabled     Key = "loop_escalation_enabled"
 	KeyLoopEscalationHoldoutPct  Key = "loop_escalation_holdout_pct"
@@ -80,7 +81,7 @@ type Definition struct {
 // RegistryVersion changes whenever Registry's membership changes. Publish uses
 // it to make pruning safe during rolling deploys: a revision with an older
 // registry version may not delete definitions published by a newer revision.
-const RegistryVersion = 2
+const RegistryVersion = 3
 
 // Registry is the curated allowlist of flags that may carry a per-organization
 // override. It is deliberately explicit rather than derived from the env var
@@ -107,6 +108,13 @@ var Registry = []Definition{
 		EnvVar:         "ROUTER_STRUGGLE_ESCALATION_HOLDOUT_PCT",
 		Kind:           KindInt,
 		Description:    "Percent of struggle detections recorded without escalating, as a self-recovery baseline. 0-100.",
+		OrgOverridable: true,
+	},
+	{
+		Key:            KeyStruggleEvidenceArming,
+		EnvVar:         "ROUTER_STRUGGLE_EVIDENCE_ARMING",
+		Kind:           KindBool,
+		Description:    "Let behavioral spiral evidence arm a struggle escalation before the 30-turn/10-minute thresholds.",
 		OrgOverridable: true,
 	},
 	{

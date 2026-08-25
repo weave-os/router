@@ -61,15 +61,24 @@ const (
 	struggleArmingEvidence = "evidence"
 )
 
+// struggleEvidenceMinTurns keeps evidence arming off the first few turns of a
+// session. The spiral signals already need 12 tool calls, but a client that
+// replays a long imported history can present them on turn one, where a
+// re-pin buys nothing and loses the prefix cache.
+const struggleEvidenceMinTurns = 8
+
 // handleStruggleEscalation arms an up-cluster move (sideways only when no
-// higher cluster can serve) for a grinding session
-// (turns >= 30, wall >= 10m). Must run before routing so runTurnLoop picks
-// up the sticky pin on the same turn; idempotent via durable once-per-session budget.
+// higher cluster can serve) for a grinding session: either the turn/wall
+// thresholds (turns >= 30, wall >= 10m) or, when evidence arming is on, the
+// behavioral spiral signals in evidence. Must run before routing so runTurnLoop
+// picks up the sticky pin on the same turn; idempotent via durable
+// once-per-session budget.
 func (s *Service) handleStruggleEscalation(
 	ctx context.Context,
 	installationID uuid.UUID,
 	sessionKey [sessionpin.SessionKeyLen]byte,
 	role string,
+	evidence []string,
 ) {
 	log := observability.FromContext(ctx)
 
@@ -102,9 +111,24 @@ func (s *Service) handleStruggleEscalation(
 	}
 
 	// +1: the stored count is completed turns; this in-flight turn is the next.
-	reasons := struggleReasons(pin.TurnCount+1, wall)
-	if len(reasons) == 0 || reasons[0] != struggleReasonEarlyStr {
+	turnCount := pin.TurnCount + 1
+	reasons := struggleReasons(turnCount, wall)
+	timerArmed := len(reasons) > 0 && reasons[0] == struggleReasonEarlyStr
+
+	// Evidence arming fires ahead of the timer, so it must not also fire
+	// behind it: a session past the thresholds is the timer's case regardless
+	// of which signals happen to be present.
+	evidenceArmed := !timerArmed &&
+		len(evidence) > 0 &&
+		turnCount >= struggleEvidenceMinTurns &&
+		s.ResolveStruggleEvidenceArming(ctx)
+
+	if !timerArmed && !evidenceArmed {
 		return // not yet struggling, or only "late" (not armed)
+	}
+	armingMode := struggleArmingTurnWall
+	if evidenceArmed {
+		armingMode = struggleArmingEvidence
 	}
 
 	// Once-per-session budget.
@@ -186,6 +210,8 @@ func (s *Service) handleStruggleEscalation(
 	log.Info("router.struggle_escalation",
 		"struggling_model", strugglingModel,
 		"action", action,
+		"arming_mode", armingMode,
+		"evidence_reasons", evidence,
 		"escalation_target", escalationTarget,
 		"escalation_cluster", escalationCluster,
 		"user_forced", userForced,
@@ -205,10 +231,11 @@ func (s *Service) handleStruggleEscalation(
 			StrugglingModel:     strugglingModel,
 			Action:              action,
 			EscalationTarget:    escalationTarget,
-			TurnCount:           int32(pin.TurnCount + 1), // +1: stored is completed turns; event records the in-flight count
+			TurnCount:           int32(turnCount),
 			WallSeconds:         int64(wall.Seconds()),
 			SessionEverSwitched: pin.HasEverSwitched,
-			ArmingMode:          struggleArmingTurnWall,
+			ArmingMode:          armingMode,
+			EvidenceReasons:     evidence,
 		}
 		if err := s.struggleEscalationStore.InsertStruggleEscalationEvent(context.Background(), event); err != nil {
 			log.Error("struggle-escalation: event insert failed", "err", err)

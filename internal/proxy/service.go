@@ -235,6 +235,10 @@ type Service struct {
 	// struggleEscalationHoldoutPct is the percentage of struggling sessions
 	// withheld for measurement. Only applies when a store is wired.
 	struggleEscalationHoldoutPct int
+	// struggleEvidenceArming lets behavioral spiral evidence arm an escalation
+	// before the turn/wall thresholds are met. Default off
+	// (ROUTER_STRUGGLE_EVIDENCE_ARMING).
+	struggleEvidenceArming bool
 	// struggleEscalationStore persists struggle escalation events durably
 	// (router.struggle_escalation_events). Set by WithStruggleEscalationStore.
 	struggleEscalationStore StruggleEscalationStore
@@ -1497,6 +1501,14 @@ func (s *Service) WithStruggleEscalationConfig(enabled bool, holdoutPct int) *Se
 	return s
 }
 
+// WithStruggleEvidenceArming sets whether behavioral spiral evidence may arm a
+// struggle escalation on its own (default off). The turn/wall gate stays armed
+// either way; this only adds an earlier, evidence-backed entry point.
+func (s *Service) WithStruggleEvidenceArming(enabled bool) *Service {
+	s.struggleEvidenceArming = enabled
+	return s
+}
+
 // WithStruggleEscalationStore wires the durable sink for struggle escalation events
 // (router.struggle_escalation_events); nil disables persistence, holdout, and budget.
 func (s *Service) WithStruggleEscalationStore(store StruggleEscalationStore) *Service {
@@ -2640,11 +2652,22 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		}
 	}
 
+	// Spiral snapshot: the shadow detector reads it after routing, but the
+	// escalation gate just below needs it too when evidence arming is on, and
+	// both must see the client-sent body — this is still ahead of every env
+	// rewrite (proactive compaction, switch handover).
+	var inboundSpiralSignals spiralSignals
+	var inboundSpiralReasons []string
+	if s.ResolveSpiralShadowEnabled(ctx) || s.ResolveStruggleEvidenceArming(ctx) {
+		inboundSpiralSignals = computeSpiralSignals(env, feats.MessageCount)
+		inboundSpiralReasons = spiralReasons(inboundSpiralSignals)
+	}
+
 	// Struggle escalation: writes a sticky pin before routing so runTurnLoop
 	// dispatches the sideways target on the same turn.
 	if !agentShadowMode && s.ResolveStruggleEscalationEnabled(ctx) && (turntype.DetectFromEnvelope(env, feats, "") == turntype.MainLoop || turntype.DetectFromEnvelope(env, feats, "") == turntype.ToolResult) {
 		struggleRole := roleForTier(catalog.TierFor(feats.Model))
-		s.handleStruggleEscalation(ctx, installationID, sessionKey, struggleRole)
+		s.handleStruggleEscalation(ctx, installationID, sessionKey, struggleRole, inboundSpiralReasons)
 	}
 	// Surface inbound tool_use / tool_result blocks the model is about to see.
 	// Lets us audit whether a misbehaving turn was provoked by a malformed prior
@@ -2677,10 +2700,6 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	// what the client actually sent, not a router-shortened body — either the
 	// proactive compaction just below or runTurnLoop's switch-handover rewrite.
 	inboundToolCallCount := len(env.AssistantToolCallSignatures())
-	var inboundSpiralSignals spiralSignals
-	if s.ResolveSpiralShadowEnabled(ctx) {
-		inboundSpiralSignals = computeSpiralSignals(env, feats.MessageCount)
-	}
 	inboundLastUser := env.LastUserMessage()
 
 	// Proactive context-window compaction: shrink an over-long conversation to
@@ -2864,12 +2883,12 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	// is armed. Main-loop / tool-result turns only — hard-pinned turn types
 	// carry history shapes that mimic the signals.
 	if !agentShadowMode && s.ResolveSpiralShadowEnabled(ctx) && (turntype.DetectFromEnvelope(env, feats, "") == turntype.MainLoop || turntype.DetectFromEnvelope(env, feats, "") == turntype.ToolResult) {
-		if reasons := spiralReasons(inboundSpiralSignals); len(reasons) > 0 {
+		if len(inboundSpiralReasons) > 0 {
 			role := roleForTier(catalog.TierFor(feats.Model))
 			// Use the bindRequestLogger digest, not routeRes.SessionKey (zero
 			// with no pin store), so the spiral event's session_key matches the
 			// telemetry row's in every mode for the offline join.
-			s.handleSpiralShadow(ctx, inboundSpiralSignals, reasons, installationID, sessionKey, role, decision.Model, string(tt))
+			s.handleSpiralShadow(ctx, inboundSpiralSignals, inboundSpiralReasons, installationID, sessionKey, role, decision.Model, string(tt))
 		}
 	}
 

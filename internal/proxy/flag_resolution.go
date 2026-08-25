@@ -30,6 +30,12 @@ func (s *Service) ResolveStruggleEscalationHoldoutPct(ctx context.Context) int {
 	return flags.IntOr(ctx, flags.KeyStruggleEscalationHoldout, s.struggleEscalationHoldoutPct)
 }
 
+// ResolveStruggleEvidenceArming reports whether behavioral spiral evidence may
+// arm an escalation for this request, ahead of the turn/wall thresholds.
+func (s *Service) ResolveStruggleEvidenceArming(ctx context.Context) bool {
+	return flags.BoolOr(ctx, flags.KeyStruggleEvidenceArming, s.struggleEvidenceArming)
+}
+
 func (s *Service) ResolveSpiralShadowEnabled(ctx context.Context) bool {
 	return flags.BoolOr(ctx, flags.KeySpiralShadowEnabled, s.spiralShadowEnabled)
 }
