@@ -663,9 +663,8 @@ func (t *ResponsesToAnthropicWriter) finalizeBuffered() error {
 		return t.finalizeError()
 	}
 	root := gjson.ParseBytes(anthropic)
-	// Record the original OpenAI usage (cache-inclusive input). The
-	// Anthropic body below is fresh-only for the client/statusline;
-	// EffectiveInputCost subtracts cache from the sink's inclusive count.
+	// Anthropic body is fresh-only for the client; sink keeps OpenAI's cache-inclusive
+	// count so EffectiveInputCost can apply the correct multipliers.
 	t.recordOpenAIUsage(resp.Get("usage"))
 	t.emittedStopReason = root.Get("stop_reason").String()
 	root.Get("content").ForEach(func(_, block gjson.Result) bool {
