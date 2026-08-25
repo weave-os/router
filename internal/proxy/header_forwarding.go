@@ -10,9 +10,8 @@ import (
 // Wire shape agreed with Snowflake Cortex: raw JSON, no percent-encoding.
 const baggageOnBehalfOf = "on-behalf-of"
 
-// ApplyForwardedClientHeaders copies the configured inbound headers to the upstream request
-// and re-emits the baggage header with the router-resolved email. Must be called after
-// prep.Headers are copied and protected headers reapplied so a caller cannot forge identity.
+// ApplyForwardedClientHeaders copies configured inbound headers and re-emits the baggage header
+// with the resolved email. Must be called after prep.Headers are set and protected headers reapplied.
 func ApplyForwardedClientHeaders(ctx context.Context, upstream *http.Request, inbound http.Header) {
 	creds := CredentialsFromContext(ctx)
 	if creds == nil {

@@ -132,9 +132,8 @@ func NormalizeIdentityHeader(name, format *string) (*string, *string, error) {
 // vendor's correlation header set, small enough to keep the auth cache tidy.
 const maxForwardedClientHeaders = 16
 
-// NormalizeForwardedClientHeaders trims, de-duplicates, and validates the header
-// names copied verbatim to an endpoint. Returns nil when nothing survives so
-// "forwards nothing" has one representation.
+// NormalizeForwardedClientHeaders validates and de-duplicates header names; returns nil when none
+// survive so "forwards nothing" has one canonical representation.
 func NormalizeForwardedClientHeaders(raw []string) ([]string, error) {
 	if len(raw) > maxForwardedClientHeaders {
 		return nil, fmt.Errorf("%w: %d headers exceeds the limit of %d", ErrInvalidForwardedHeader, len(raw), maxForwardedClientHeaders)
