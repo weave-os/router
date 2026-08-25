@@ -85,10 +85,8 @@ func TestExcludedModelsForRequest_UndeployedAllowlistEntryIgnored(t *testing.T) 
 	assert.NotContains(t, got, "retired-model")
 }
 
-// The failure mode the admin allowlist guard exists to prevent: when NO entry
-// is routable, the desugaring excludes the entire pool and the scorer returns
-// ErrAllowlistEmptiesPool (400) for every routed request. Membership validation
-// is catalog-wide, so a tierless row like claude-opus-4-8 clears it.
+// WhollyUnroutableAllowlistEmptiesThePool: no routable entry means the
+// desugaring excludes the entire pool, so every routed request 400s.
 func TestExcludedModelsForRequest_WhollyUnroutableAllowlistEmptiesThePool(t *testing.T) {
 	s := &Service{availableModels: map[string]struct{}{"a": {}, "b": {}}}
 
@@ -97,16 +95,14 @@ func TestExcludedModelsForRequest_WhollyUnroutableAllowlistEmptiesThePool(t *tes
 	assert.Equal(t, s.availableModels, got, "every routable model must be excluded")
 }
 
-// RoutableModels backs the admin guard, so it must agree with the desugaring's
-// universe exactly — a narrower view would let a pool-emptying list through.
+// RoutableModels must match the desugaring universe exactly.
 func TestRoutableModels_MatchesDesugaringUniverse(t *testing.T) {
 	s := &Service{availableModels: map[string]struct{}{"a": {}, "b": {}}}
 
 	assert.Equal(t, s.routableUniverse(), s.RoutableModels())
 }
 
-// The accessor hands its map to an HTTP handler; sharing the internal map would
-// let a caller mutate what every subsequent request routes against.
+// The accessor must return a copy so callers cannot mutate routing state.
 func TestRoutableModels_ReturnsACopy(t *testing.T) {
 	s := &Service{availableModels: map[string]struct{}{"a": {}}}
 
@@ -116,8 +112,7 @@ func TestRoutableModels_ReturnsACopy(t *testing.T) {
 	assert.NotContains(t, s.availableModels, "injected")
 }
 
-// server.Register mounts the admin routes with a nil *Service in self-hosted
-// tests, which reaches the guard as a typed-nil interface.
+// A typed-nil *Service from server.Register must not panic.
 func TestRoutableModels_NilServiceReportsUnknownUniverse(t *testing.T) {
 	var s *Service
 

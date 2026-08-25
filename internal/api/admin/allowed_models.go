@@ -66,9 +66,7 @@ func UpdateAllowedModelsHandler(authSvc *auth.Service, _ DeployedModelsSource, r
 			return
 		}
 
-		// Membership is catalog-wide, not roster-scoped: force-model and
-		// hard-pin reach rows the router never scores, so an admin must be able
-		// to opt those in.
+		// Membership is catalog-wide so force-model can name non-roster rows.
 		allowed := make(map[string]struct{})
 		for _, e := range fullCatalogDTO() {
 			allowed[e.Model] = struct{}{}

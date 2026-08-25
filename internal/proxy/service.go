@@ -1687,9 +1687,8 @@ func (s *Service) HasExcludedModelsOverride() bool {
 // route, so the admin guard and request-time desugaring share one definition
 // and cannot drift.
 func (s *Service) RoutableModels() map[string]struct{} {
-	// A nil Service reaches here as a typed-nil interface from server.Register
-	// (self-hosted tests wire the admin routes without a proxy); report an
-	// unknown universe rather than panicking.
+	// A nil Service arrives as a typed-nil interface from server.Register;
+	// return nil rather than panicking.
 	if s == nil {
 		return nil
 	}

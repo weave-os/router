@@ -40,9 +40,7 @@ func putAllowedModels(t *testing.T, routable admin.RoutableModelsSource, allowed
 	return rec
 }
 
-// claude-opus-4-8 is a real catalog row with no tier, so it passes catalog
-// membership yet can never be routed. Saving it alone would desugar into
-// "exclude every routable model" and 400 every routed request.
+// A catalog-valid but unroutable-only list must 400 before it is saved.
 func TestUpdateAllowedModelsHandler_RejectsAllowlistWithNoRoutableMember(t *testing.T) {
 	rec := putAllowedModels(t,
 		stubRoutableModels{models: map[string]struct{}{"claude-opus-4-7": {}}},
@@ -56,8 +54,7 @@ func TestUpdateAllowedModelsHandler_RejectsAllowlistWithNoRoutableMember(t *test
 	assert.Contains(t, body["error"], "no model this deployment can route")
 }
 
-// Membership validation still runs and still reports unknown IDs distinctly,
-// so a typo does not get reported as a routability problem.
+// Unknown IDs must not be reported as a routability problem.
 func TestUpdateAllowedModelsHandler_RejectsUnknownModelBeforeRoutabilityCheck(t *testing.T) {
 	rec := putAllowedModels(t,
 		stubRoutableModels{models: map[string]struct{}{"claude-opus-4-7": {}}},
