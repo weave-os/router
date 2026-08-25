@@ -22,6 +22,10 @@ When a new inbound format needs to talk to an existing upstream provider with a 
 
 Anthropic-only fields (`thinking`, `cache_control`, `metadata`, Anthropic beta headers) are stripped at translation time **and again defensively in the OpenAI / openaicompat adapters**. Keep both checks — belt-and-suspenders is intentional because the field set drifts as Anthropic adds beta features.
 
+## Prefix-stable system handling (load-bearing)
+
+Anthropic 400s on `role:"system"` inside `messages`, so `hoistAnthropicSystemMessages` clears them — but only the **leading** run is hoisted into `system`. A mid-conversation system message is demoted to `user` **in place**. Hoisting it instead would move its text in front of the whole history, so a client that emits a system reminder per turn (Claude Code) shifts the cached prefix on every turn and re-writes the entire prompt; prod traffic showed ~890k cache-creation tokens per turn against a flat 17.5k read.
+
 ## `<think>` content-channel extraction (gated)
 
 Some OpenAI-compat upstreams (today `xiaomi/mimo-v2.5-pro`) stream chain-of-thought as inline `<think>…</think>` in the **`content`** channel rather than `reasoning_content`/`reasoning`. Left alone, Claude Code renders the raw tags as prose. When the catalog model carries `ThinkTagReasoning: true` (plumbed to the translator via `WithThinkTagReasoning`), [`think_tag.go`](think_tag.go)'s `thinkTagSplitter` reroutes a **leading** `<think>` block into an Anthropic thinking block; everything else passes through as text. Anchored to the start (after leading whitespace) — a mid-prose `<think>` mention stays text, mirroring `leadsWithToolishMarkup`. The splitter is streaming-safe: it buffers at most `len("</think>")-1` bytes (no whole-response buffering), so a tag split across SSE deltas is still caught. Off by default; only `xiaomi/mimo-v2.5-pro` enables it, and only on the OpenAI-compat chat-completions chain (the Gemini chain stays off).

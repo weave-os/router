@@ -370,10 +370,11 @@ func TestOpenAIToAnthropic_StripsUnsupportedToolSchemaPattern(t *testing.T) {
 	assert.Equal(t, "decimal", amount["description"])
 }
 
-func TestAnthropicSameFormat_SystemMessageHoistedWhenNoSystemField(t *testing.T) {
+func TestAnthropicSameFormat_LeadingSystemMessageHoistedWhenNoSystemField(t *testing.T) {
 	// A role:"system" message inside the messages array is invalid for the
-	// Anthropic Messages API; it must be hoisted to the top-level system field.
-	body := []byte(`{"model":"claude-sonnet-4-20250514","messages":[{"role":"user","content":"hi"},{"role":"system","content":"be terse"},{"role":"assistant","content":"ok"}],"max_tokens":1024}`)
+	// Anthropic Messages API; a leading one is hoisted to the top-level system
+	// field, where it costs nothing to put it in front of the history.
+	body := []byte(`{"model":"claude-sonnet-4-20250514","messages":[{"role":"system","content":"be terse"},{"role":"user","content":"hi"},{"role":"assistant","content":"ok"}],"max_tokens":1024}`)
 	opts := translate.EmitOptions{
 		TargetModel:  "claude-opus-4-7",
 		Capabilities: router.Lookup("claude-opus-4-7"),
@@ -391,6 +392,53 @@ func TestAnthropicSameFormat_SystemMessageHoistedWhenNoSystemField(t *testing.T)
 	block, _ := sys[0].(map[string]any)
 	assert.Equal(t, "text", block["type"])
 	assert.Equal(t, "be terse", block["text"])
+}
+
+func TestAnthropicSameFormat_MidConversationSystemMessageDemotedInPlace(t *testing.T) {
+	// Hoisting a mid-conversation system message would move its text in front of
+	// the whole history and invalidate the cached prefix, so it stays where it
+	// is as a user message.
+	body := []byte(`{"model":"claude-sonnet-4-20250514","system":"rules","messages":[{"role":"user","content":"hi"},{"role":"assistant","content":"ok"},{"role":"system","content":"be terse"}],"max_tokens":1024}`)
+	opts := translate.EmitOptions{
+		TargetModel:  "claude-opus-4-7",
+		Capabilities: router.Lookup("claude-opus-4-7"),
+	}
+	out := parseAndEmit(t, body, "anthropic", opts)
+
+	assert.Equal(t, "rules", out["system"], "system field untouched")
+	msgs, _ := out["messages"].([]any)
+	require.Len(t, msgs, 3, "message kept at its original index")
+	last, _ := msgs[2].(map[string]any)
+	assert.Equal(t, "user", last["role"])
+	blocks, _ := last["content"].([]any)
+	require.Len(t, blocks, 1)
+	block, _ := blocks[0].(map[string]any)
+	assert.Equal(t, "be terse", block["text"])
+	for _, m := range msgs {
+		mm, _ := m.(map[string]any)
+		assert.NotEqual(t, "system", mm["role"], "no system role left in messages")
+	}
+}
+
+func TestAnthropicSameFormat_NewSystemMessageLeavesEarlierTurnsInPlace(t *testing.T) {
+	// The cache-affecting property: a system reminder arriving on a later turn
+	// must not shift any earlier message, or the whole cached prefix moves.
+	opts := translate.EmitOptions{
+		TargetModel:  "claude-opus-4-7",
+		Capabilities: router.Lookup("claude-opus-4-7"),
+	}
+	head := `{"model":"claude-sonnet-4-20250514","system":"rules","messages":[{"role":"user","content":"hi"},{"role":"system","content":"reminder one"},{"role":"assistant","content":"ok"}`
+	before := parseAndEmit(t, []byte(head+`],"max_tokens":1024}`), "anthropic", opts)
+	after := parseAndEmit(t, []byte(head+`,{"role":"system","content":"reminder two"}],"max_tokens":1024}`), "anthropic", opts)
+
+	beforeMsgs, _ := before["messages"].([]any)
+	afterMsgs, _ := after["messages"].([]any)
+	require.Len(t, beforeMsgs, 3)
+	require.Len(t, afterMsgs, 4)
+	// Index 2 carries the tail cache breakpoint in `before` only, so compare the
+	// turns ahead of it — those are the ones a growing prefix must not move.
+	assert.Equal(t, beforeMsgs[:2], afterMsgs[:2])
+	assert.Equal(t, before["system"], after["system"])
 }
 
 func TestAnthropicSameFormat_SystemMessageMergedWithExistingSystem(t *testing.T) {

@@ -685,28 +685,52 @@ func (e *RequestEnvelope) buildAnthropicFromAnthropic(opts EmitOptions) ([]byte,
 	return applyOverrides(body, ov)
 }
 
-// hoistAnthropicSystemMessages moves role:"system" entries out of "messages"
-// into the top-level "system" field. Anthropic's Messages API 400s on a system
-// role inside messages, which can happen on a mid-session switch back to an
-// Anthropic model; this mirrors the hoisting writeAnthropicSystemAndMessages
-// already does on the OpenAI->Anthropic path. No-op if none present.
+// hoistAnthropicSystemMessages clears role:"system" entries out of "messages",
+// which Anthropic's Messages API 400s on and which can appear after a
+// mid-session switch back to an Anthropic model.
+//
+// Only the leading run is hoisted into the top-level "system" field. A system
+// message that appears mid-conversation is rewritten in place as a user
+// message: hoisting it would move its text in front of the entire history, so
+// every new one shifts the cached prefix and forces a full re-write of the
+// prompt. Clients that emit a system reminder per turn (Claude Code) otherwise
+// lose the prompt cache on almost every turn. No-op if none present.
 func hoistAnthropicSystemMessages(body []byte) ([]byte, error) {
 	msgs := gjson.GetBytes(body, "messages")
 	if !msgs.IsArray() {
 		return body, nil
 	}
 
-	var hoisted []string // text extracted from in-array system messages, in order
-	var kept []string    // raw non-system message objects
+	var hoisted []string // text from the leading system run, in order
+	var kept []string    // raw message objects, system entries demoted to user
+	leading := true
+	rewritten := false
 	for _, msg := range msgs.Array() {
-		if msg.Get("role").String() == "system" {
+		isSystem := msg.Get("role").String() == "system"
+		switch {
+		case isSystem && leading:
 			hoisted = append(hoisted, anthropicSystemTexts(msg.Get("content"))...)
-			continue
+		case isSystem:
+			demoted, err := sjson.Set(msg.Raw, "role", "user")
+			if err != nil {
+				return nil, fmt.Errorf("demote system message: %w", err)
+			}
+			kept = append(kept, demoted)
+			rewritten = true
+		default:
+			leading = false
+			kept = append(kept, msg.Raw)
 		}
-		kept = append(kept, msg.Raw)
+	}
+	if len(hoisted) == 0 && !rewritten {
+		return body, nil
 	}
 	if len(hoisted) == 0 {
-		return body, nil
+		out, err := sjson.SetRawBytes(body, "messages", []byte("["+strings.Join(kept, ",")+"]"))
+		if err != nil {
+			return nil, fmt.Errorf("rebuild messages: %w", err)
+		}
+		return out, nil
 	}
 
 	// Merge: existing top-level system blocks first, then the hoisted text.
