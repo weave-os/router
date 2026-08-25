@@ -39,9 +39,8 @@ func reasoningEffortAcceptedOnChatCompletions(opts EmitOptions) bool {
 }
 
 // samplersAcceptedOnChatCompletions reports whether the target accepts
-// temperature / top_p on /v1/chat/completions. Reasoning gpt-5.x models accept
-// only the default (1) and 400 on anything else; OSS CapReasoning targets
-// (OpenRouter, xAI) sample normally.
+// temperature / top_p on /v1/chat/completions. Reasoning gpt-5.x models 400 on
+// non-default values; OSS CapReasoning targets (OpenRouter, xAI) sample normally.
 func samplersAcceptedOnChatCompletions(opts EmitOptions) bool {
 	return !opts.Capabilities.Supports(router.CapReasoning) || !strings.HasPrefix(opts.TargetModel, "gpt-5")
 }
