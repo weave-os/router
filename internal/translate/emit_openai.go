@@ -38,6 +38,15 @@ func reasoningEffortAcceptedOnChatCompletions(opts EmitOptions) bool {
 	return true
 }
 
+// samplersAcceptedOnChatCompletions reports whether the target accepts
+// temperature / top_p on /v1/chat/completions. Reasoning gpt-5.x models accept
+// only the default (1) and 400 on anything else; every other CapReasoning
+// target (OpenRouter OSS, xAI) samples normally. The Responses path omits both
+// fields for the same reason.
+func samplersAcceptedOnChatCompletions(opts EmitOptions) bool {
+	return !opts.Capabilities.Supports(router.CapReasoning) || !strings.HasPrefix(opts.TargetModel, "gpt-5")
+}
+
 // clampOpenAIToolCallID makes a tool-call id safe for the OpenAI wire format:
 // strips any smuggled Gemini thoughtSignature, then hashes ids still over 64
 // chars so a tool_use block and its tool_result stay paired on the same id.
@@ -282,12 +291,13 @@ func (e *RequestEnvelope) buildOpenAIFromAnthropic(opts EmitOptions) ([]byte, pr
 
 	// Temperature, top_p
 	clientSetTemp := false
-	if r := gjson.GetBytes(body, "temperature"); r.Exists() {
+	samplersAccepted := samplersAcceptedOnChatCompletions(opts)
+	if r := gjson.GetBytes(body, "temperature"); r.Exists() && samplersAccepted {
 		jw.Key("temperature")
 		jw.Raw(r.Raw)
 		clientSetTemp = true
 	}
-	if r := gjson.GetBytes(body, "top_p"); r.Exists() {
+	if r := gjson.GetBytes(body, "top_p"); r.Exists() && samplersAccepted {
 		jw.Key("top_p")
 		jw.Raw(r.Raw)
 	}

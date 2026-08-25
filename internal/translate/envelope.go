@@ -983,6 +983,14 @@ func resolveOpenAIOverrides(body []byte, opts EmitOptions) EmitOverrides {
 		}
 	}
 
+	if !samplersAcceptedOnChatCompletions(opts) {
+		for _, key := range []string{"temperature", "top_p"} {
+			if gjson.GetBytes(body, key).Exists() {
+				ov.DeleteKeys = append(ov.DeleteKeys, key)
+			}
+		}
+	}
+
 	hasMaxTokens := gjson.GetBytes(body, "max_tokens").Exists()
 	hasMaxComp := gjson.GetBytes(body, "max_completion_tokens").Exists()
 
