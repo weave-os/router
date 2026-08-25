@@ -82,11 +82,12 @@ type ResponsesToAnthropicWriter struct {
 	toolCallIssues []toolcheck.Issue
 
 	// Captured from the terminal response.completed/.failed/.incomplete event.
-	finalStopReason string
-	hasUsage        bool
-	usageInput      int
-	usageOutput     int
-	usageCacheRead  int
+	finalStopReason    string
+	hasUsage           bool
+	usageInput         int
+	usageOutput        int
+	usageCacheRead     int
+	usageCacheCreation int
 
 	// Summary fields.
 	toolUseCount      int
@@ -238,12 +239,13 @@ func (t *ResponsesToAnthropicWriter) Finalize() error {
 
 func (t *ResponsesToAnthropicWriter) Summary() ResponseSummary {
 	return ResponseSummary{
-		StopReason:      t.emittedStopReason,
-		ToolUseBlocks:   t.toolUseCount,
-		ToolCallIssues:  t.toolCallIssues,
-		OutputTokens:    t.usageOutput,
-		InputTokens:     t.usageInput,
-		CacheReadTokens: t.usageCacheRead,
+		StopReason:          t.emittedStopReason,
+		ToolUseBlocks:       t.toolUseCount,
+		ToolCallIssues:      t.toolCallIssues,
+		OutputTokens:        t.usageOutput,
+		InputTokens:         t.usageInput,
+		CacheReadTokens:     t.usageCacheRead,
+		CacheCreationTokens: t.usageCacheCreation,
 	}
 }
 
@@ -574,10 +576,10 @@ func (t *ResponsesToAnthropicWriter) captureFinalResponse(data []byte) {
 		t.hasUsage = true
 		t.usageInput = int(usage.Get("input_tokens").Int())
 		t.usageOutput = int(usage.Get("output_tokens").Int())
-		t.usageCacheRead = int(usage.Get("input_tokens_details.cached_tokens").Int())
+		t.usageCacheCreation, t.usageCacheRead = OpenAICacheTokens(usage)
 		if t.usageSink != nil {
 			t.usageSink.RecordUsage(t.usageInput, t.usageOutput)
-			t.usageSink.RecordCacheUsage(0, t.usageCacheRead)
+			t.usageSink.RecordCacheUsage(t.usageCacheCreation, t.usageCacheRead)
 		}
 	}
 }
@@ -686,6 +688,7 @@ func (t *ResponsesToAnthropicWriter) captureBufferedUsage(usage gjson.Result) {
 	t.usageInput = int(usage.Get("input_tokens").Int())
 	t.usageOutput = int(usage.Get("output_tokens").Int())
 	t.usageCacheRead = int(usage.Get("cache_read_input_tokens").Int())
+	t.usageCacheCreation = int(usage.Get("cache_creation_input_tokens").Int())
 }
 
 func (t *ResponsesToAnthropicWriter) recordBufferedUsage(usage gjson.Result) {
@@ -693,7 +696,10 @@ func (t *ResponsesToAnthropicWriter) recordBufferedUsage(usage gjson.Result) {
 		return
 	}
 	t.usageSink.RecordUsage(int(usage.Get("input_tokens").Int()), int(usage.Get("output_tokens").Int()))
-	t.usageSink.RecordCacheUsage(0, int(usage.Get("cache_read_input_tokens").Int()))
+	t.usageSink.RecordCacheUsage(
+		int(usage.Get("cache_creation_input_tokens").Int()),
+		int(usage.Get("cache_read_input_tokens").Int()),
+	)
 }
 
 // finalizeError renders a one-shot Anthropic error body. Streaming errors are
@@ -998,13 +1004,17 @@ func (t *ResponsesToAnthropicWriter) emitMessageDelta(stopReason string) error {
 	sse.WriteJSONString(t.bw, stopReason)
 	t.bw.WriteString(",\"stop_sequence\":null},\"usage\":{")
 	if t.hasUsage {
-		// Anthropic's input_tokens is fresh-only; subtract cached reads so the
+		// Anthropic's input_tokens is fresh-only; subtract cache so the
 		// statusline formula doesn't double-count.
-		freshInput := max(0, t.usageInput-t.usageCacheRead)
+		freshInput := max(0, t.usageInput-t.usageCacheCreation-t.usageCacheRead)
 		t.bw.WriteString("\"input_tokens\":")
 		sse.WriteJSONInt(t.bw, int64(freshInput))
 		t.bw.WriteString(",\"output_tokens\":")
 		sse.WriteJSONInt(t.bw, int64(t.usageOutput))
+		if t.usageCacheCreation > 0 {
+			t.bw.WriteString(",\"cache_creation_input_tokens\":")
+			sse.WriteJSONInt(t.bw, int64(t.usageCacheCreation))
+		}
 		if t.usageCacheRead > 0 {
 			t.bw.WriteString(",\"cache_read_input_tokens\":")
 			sse.WriteJSONInt(t.bw, int64(t.usageCacheRead))

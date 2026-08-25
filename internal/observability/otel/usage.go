@@ -105,8 +105,8 @@ func (u *UsageExtractor) RecordUsage(inputTokens, outputTokens int) {
 	}
 }
 
-// RecordCacheUsage sets cache token counts directly. OpenAI has no cache-creation
-// concept, so callers pass 0 for cacheCreationTokens.
+// RecordCacheUsage sets cache token counts directly. Pass 0 for a field the
+// provider does not emit.
 func (u *UsageExtractor) RecordCacheUsage(cacheCreationTokens, cacheReadTokens int) {
 	if cacheCreationTokens > 0 {
 		u.cacheCreation = cacheCreationTokens
@@ -248,7 +248,7 @@ func (u *UsageExtractor) tryExtractFromJSON() {
 }
 
 // extractUsageGJSON probes usage fields via gjson (no json.Unmarshal/map allocs).
-// OpenAI has no cache-creation field; cacheRead maps from cached_tokens.
+// OpenAI cache-read maps from cached_tokens; GPT-5.6+ cache-write maps from cache_write_tokens.
 // Google's native :generateContent uses usageMetadata; its OpenAI-compat surface
 // uses the OpenAI shape instead.
 func extractUsageGJSON(data []byte, provider string) (input, output, cacheCreation, cacheRead int, found bool) {
@@ -288,15 +288,39 @@ func extractUsageGJSON(data []byte, provider string) (input, output, cacheCreati
 		if pt := usage.Get("prompt_tokens"); pt.Exists() {
 			input = int(pt.Int())
 			output = int(usage.Get("completion_tokens").Int())
-			cacheRead = int(usage.Get("prompt_tokens_details.cached_tokens").Int())
 		} else {
 			input = int(usage.Get("input_tokens").Int())
 			output = int(usage.Get("output_tokens").Int())
-			cacheRead = int(usage.Get("input_tokens_details.cached_tokens").Int())
 		}
+		cacheCreation, cacheRead = openaiCacheTokens(usage)
 	default:
 		return 0, 0, 0, 0, false
 	}
 
 	return input, output, cacheCreation, cacheRead, true
+}
+
+// openaiCacheTokens mirrors translate.OpenAICacheTokens. Duplicated here so
+// otel does not import translate (translate already imports observability).
+func openaiCacheTokens(usage gjson.Result) (cacheWrite, cacheRead int) {
+	if !usage.Exists() {
+		return 0, 0
+	}
+	for _, prefix := range []string{"input_tokens_details", "prompt_tokens_details"} {
+		details := usage.Get(prefix)
+		if !details.Exists() {
+			continue
+		}
+		if cacheRead == 0 {
+			cacheRead = int(details.Get("cached_tokens").Int())
+		}
+		if cacheWrite == 0 {
+			if w := details.Get("cache_write_tokens"); w.Exists() {
+				cacheWrite = int(w.Int())
+			} else {
+				cacheWrite = int(details.Get("cache_creation_tokens").Int())
+			}
+		}
+	}
+	return cacheWrite, cacheRead
 }
