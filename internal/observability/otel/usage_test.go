@@ -258,10 +258,8 @@ func TestUsageExtractor_GoogleNativeCacheTokens_NonStreaming(t *testing.T) {
 }
 
 func TestUsageExtractor_AnthropicGatewayStreaming(t *testing.T) {
-	// An Anthropic-spec gateway is dispatched natively (no translator to call
-	// RecordUsage), so the extractor's own sniffing is the only usage source.
-	// Keying it off the provider literal made every gateway turn record zero
-	// tokens, which zeroed its cost and savings on the router dashboard.
+	// Gateway providers use the native path (no translator RecordUsage call),
+	// so the extractor's sniffing is the only usage source.
 	rec := httptest.NewRecorder()
 	ext := otel.NewUsageExtractor(rec, "anthropic_gateway")
 

@@ -159,10 +159,8 @@ func (u *UsageExtractor) scanBuffer() {
 	u.tryExtractFromJSON()
 }
 
-// Dispatch is family-based, not provider-literal: an Anthropic-spec gateway
-// (anthropic_gateway, wafer_anthropic) streams Anthropic frames and is served
-// natively, so a provider-literal switch silently recorded zero usage — which
-// zeroed its tokens, cost, and savings on the router dashboard.
+// Dispatch is family-based so Anthropic-spec gateway providers
+// (e.g. anthropic_gateway) are parsed correctly instead of recording zero usage.
 func (u *UsageExtractor) extractFromSSEEvent(eventType []byte, data []byte) {
 	switch providers.FamilyFor(u.provider) {
 	case providers.FamilyAnthropic:
