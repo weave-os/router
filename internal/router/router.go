@@ -123,7 +123,11 @@ type Request struct {
 	// routers that need multi-turn context.
 	ConversationMessages []ConversationMessage
 	// AvailableTools is a bounded list of tool names declared on this request.
+	// Deprecated: use Tools for structural capability decisions.
 	AvailableTools []string
+	// Tools preserves the provider-facing declaration shape needed to
+	// distinguish provider-executed tools from client-executed functions.
+	Tools []ToolDescriptor
 	// PolicyTurnContext carries persisted, content-free state from the turn
 	// orchestrator. Nil keeps older policy clients wire-compatible.
 	PolicyTurnContext *PolicyTurnContext
@@ -194,6 +198,13 @@ type Request struct {
 	// → ordered catalog model IDs (index 0 = highest priority). Absent clusters
 	// keep the artifact default. Nil means no override.
 	ClusterArmOverrides map[string][]string
+}
+
+// ToolDescriptor records the source declaration facts relevant to routing.
+type ToolDescriptor struct {
+	Name           string
+	Type           string
+	ServerExecuted bool
 }
 
 type ConversationMessage struct {

@@ -79,7 +79,7 @@ func TestClientPostsVersionedRouteAndParsesPolicyMetadata(t *testing.T) {
 		TurnContext: &router.PolicyTurnContext{
 			VisibleTurnIndex:    7,
 			SessionTurnCount:    9,
-			TurnType:            "tool_result",
+			TurnType:            "sub_agent_dispatch",
 			PreviousServedModel: "claude-opus-4-8",
 			PreviousProvider:    providers.ProviderAnthropic,
 			CacheState:          router.PolicyCacheStateWarm,
@@ -87,7 +87,10 @@ func TestClientPostsVersionedRouteAndParsesPolicyMetadata(t *testing.T) {
 			SessionEverSwitched: true,
 			HistoryTruncated:    true,
 		},
-		AvailableTools:  []string{"Read", "Grep", "Read", ""},
+		AvailableTools: []string{"Read", "Grep", "Read", ""},
+		Tools: []router.ToolDescriptor{
+			{Name: "WebSearch", Type: "web_search_20260318", ServerExecuted: true},
+		},
 		FeedbackKey:     "feedback-session",
 		FeedbackRole:    "default",
 		ClientSessionID: "client-session-abc",
@@ -123,7 +126,7 @@ func TestClientPostsVersionedRouteAndParsesPolicyMetadata(t *testing.T) {
 	assert.Equal(t, 7, *got.VisibleTurnIndex)
 	require.NotNil(t, got.SessionTurnCount)
 	assert.Equal(t, 9, *got.SessionTurnCount)
-	assert.Equal(t, "tool_result", got.TurnType)
+	assert.Equal(t, "sub_agent_dispatch", got.TurnType)
 	assert.Equal(t, "claude-opus-4-8", got.PreviousServedModel)
 	assert.Equal(t, providers.ProviderAnthropic, got.PreviousProvider)
 	assert.Equal(t, router.PolicyCacheStateWarm, got.CacheState)
@@ -134,6 +137,8 @@ func TestClientPostsVersionedRouteAndParsesPolicyMetadata(t *testing.T) {
 	require.NotNil(t, got.HistoryTruncated)
 	assert.True(t, *got.HistoryTruncated)
 	assert.Equal(t, []string{"Read", "Grep"}, got.AvailableTools)
+	assert.Equal(t, []routeTool{{Name: "WebSearch", Type: "web_search_20260318", ServerExecuted: true}}, got.Tools)
+	assert.True(t, got.IsSubagent)
 	assert.Equal(t, "feedback-session", got.FeedbackKey)
 	assert.Equal(t, "default", got.FeedbackRole)
 	assert.Equal(t, "client-session-abc", got.ClientSessionID)

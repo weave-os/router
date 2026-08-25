@@ -76,6 +76,7 @@ const (
 	maxRouteMessages           = 96
 	maxRouteMessageTextChars   = 3000
 	maxRouteMessageTotalChars  = 48000
+	maxRouteTools              = 96
 	maxRouteToolCallInputKeys  = 24
 	maxRouteToolCallInputChars = 80
 )
@@ -264,6 +265,7 @@ type routeRequest struct {
 	PromptText                string            `json:"prompt_text"`
 	LatestUserText            string            `json:"latest_user_text,omitempty"`
 	TurnIndex                 int               `json:"turn_index"`
+	IsSubagent                bool              `json:"is_subagent"`
 	VisibleTurnIndex          *int              `json:"visible_turn_index,omitempty"`
 	SessionTurnCount          *int              `json:"session_turn_count,omitempty"`
 	TurnType                  string            `json:"turn_type,omitempty"`
@@ -276,6 +278,7 @@ type routeRequest struct {
 	ConversationMessages      []routeMessage    `json:"conversation_messages,omitempty"`
 	TrainingConversationDelta []routeMessage    `json:"training_conversation_delta,omitempty"`
 	AvailableTools            []string          `json:"available_tools,omitempty"`
+	Tools                     []routeTool       `json:"tools,omitempty"`
 	FeedbackKey               string            `json:"feedback_key,omitempty"`
 	FeedbackRole              string            `json:"feedback_role,omitempty"`
 	ClientSessionID           string            `json:"client_session_id,omitempty"`
@@ -330,6 +333,12 @@ type routeMessage struct {
 	Text        string            `json:"text,omitempty"`
 	ToolCalls   []routeToolCall   `json:"tool_calls,omitempty"`
 	ToolResults []routeToolResult `json:"tool_results,omitempty"`
+}
+
+type routeTool struct {
+	Name           string `json:"name"`
+	Type           string `json:"type,omitempty"`
+	ServerExecuted bool   `json:"server_executed,omitempty"`
 }
 
 type routeToolCall struct {
@@ -637,6 +646,7 @@ func marshalRouteRequest(query policy.Query) ([]byte, error) {
 		PromptText:                query.PromptText,
 		LatestUserText:            latestUserText(messages),
 		TurnIndex:                 wireTurnIndex,
+		IsSubagent:                turnType == "sub_agent_dispatch",
 		VisibleTurnIndex:          visibleTurnIndex,
 		SessionTurnCount:          sessionTurnCount,
 		TurnType:                  turnType,
@@ -649,6 +659,7 @@ func marshalRouteRequest(query policy.Query) ([]byte, error) {
 		ConversationMessages:      messages,
 		TrainingConversationDelta: trainingDelta,
 		AvailableTools:            clipRouteValues(query.AvailableTools, maxRouteToolCallInputKeys, maxRouteToolCallInputChars),
+		Tools:                     routeTools(query.Tools),
 		FeedbackKey:               query.FeedbackKey,
 		FeedbackRole:              query.FeedbackRole,
 		ClientSessionID:           query.ClientSessionID,
@@ -1110,6 +1121,33 @@ func firstFloat(values ...*float64) *float64 {
 		}
 	}
 	return nil
+}
+
+func routeTools(tools []router.ToolDescriptor) []routeTool {
+	if len(tools) == 0 {
+		return nil
+	}
+	if len(tools) > maxRouteTools {
+		tools = tools[:maxRouteTools]
+	}
+	out := make([]routeTool, 0, len(tools))
+	seen := make(map[routeTool]struct{}, len(tools))
+	for _, tool := range tools {
+		wireTool := routeTool{
+			Name:           clipRouteText(tool.Name, maxRouteToolCallInputChars),
+			Type:           clipRouteText(tool.Type, maxRouteToolCallInputChars),
+			ServerExecuted: tool.ServerExecuted,
+		}
+		if wireTool.Name == "" && wireTool.Type == "" {
+			continue
+		}
+		if _, ok := seen[wireTool]; ok {
+			continue
+		}
+		seen[wireTool] = struct{}{}
+		out = append(out, wireTool)
+	}
+	return out
 }
 
 func clipRouteValues(values []string, maxValues, maxChars int) []string {

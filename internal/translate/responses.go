@@ -81,7 +81,7 @@ func ConvertResponsesToChatCompletions(body []byte) (ResponsesConversion, error)
 	}
 	result.Requirements.Images = gjson.GetBytes(body, "input").Exists() && containsAnyKey(body, "image_url", "input_image")
 	result.Requirements.Audio, result.Requirements.Files = openAIMediaRequirements(body)
-	result.Requirements.CitationsOrSearch = containsAnyKey(body, "web_search", "web_search_preview", "file_search", "computer_use")
+	result.Requirements.CitationsOrSearch = len(nativeServerToolsFromBody(body, FormatOpenAI)) > 0
 	result.Requirements.StructuredOutput = root.Get("text.format").Exists() || root.Get("response_format").Exists()
 	out := map[string]any{}
 

@@ -48,6 +48,17 @@ func conversationMessagesForRouting(env *translate.RequestEnvelope) []router.Con
 	return out
 }
 
+func toolsForRouting(env *translate.RequestEnvelope) []router.ToolDescriptor {
+	if env == nil {
+		return nil
+	}
+	tools := env.ToolDescriptors()
+	if len(tools) == 0 {
+		return nil
+	}
+	return append([]router.ToolDescriptor(nil), tools...)
+}
+
 func availableToolsForRouting(env *translate.RequestEnvelope) []string {
 	if env == nil {
 		return nil

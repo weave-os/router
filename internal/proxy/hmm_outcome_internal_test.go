@@ -62,8 +62,7 @@ func TestReportPolicyOutcome_UsesFreshMetadataForStickyServedDecision(t *testing
 		outputTokens = 10
 	)
 	s.reportPolicyOutcome(ctx, routeRes, served, providers.ProviderAnthropic, 100, inputTokens, outputTokens, 0, 0, 12, 34, nil, &policyOutcomeResponse{
-		Body:      []byte(`{"content":[{"type":"text","text":"done"}]}`),
-		Truncated: false,
+		Body: []byte(`{"content":[{"type":"text","text":"done"}]}`),
 	})
 
 	price, ok := catalog.PriceFor(providers.ProviderAnthropic, "claude-haiku-4-5")
@@ -90,9 +89,10 @@ func TestReportPolicyOutcome_UsesFreshMetadataForStickyServedDecision(t *testing
 		assert.Equal(t, "rollout-1", payload["rollout_id"])
 		assert.Equal(t, true, payload["training_allowed"])
 		assert.Equal(t, true, payload["sticky_hit"])
-		assert.Equal(t, `{"content":[{"type":"text","text":"done"}]}`, payload["response_body"])
-		assert.Equal(t, "client_anthropic", payload["response_body_format"])
-		assert.Equal(t, false, payload["response_body_truncated"])
+		assert.Equal(t, "done", payload["response_text"])
+		assert.NotContains(t, payload, "response_body")
+		assert.NotContains(t, payload, "response_body_format")
+		assert.NotContains(t, payload, "response_body_truncated")
 		assert.Equal(t, wantCost, payload["cost_usd"])
 	case <-time.After(time.Second):
 		t.Fatal("timed out waiting for HMM outcome payload")

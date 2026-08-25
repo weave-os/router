@@ -78,6 +78,7 @@ func (s *Service) anthropicRoutingRequest(ctx context.Context, body []byte, head
 		PromptText:                   promptText,
 		ConversationMessages:         conversationMessagesForRouting(env),
 		AvailableTools:               availableToolsForRouting(env),
+		Tools:                        toolsForRouting(env),
 		OrganizationID:               organizationID,
 		InstallationID:               installationID,
 		ClientSessionID:              env.ClientSessionID(),
