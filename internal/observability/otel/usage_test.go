@@ -257,6 +257,70 @@ func TestUsageExtractor_GoogleNativeCacheTokens_NonStreaming(t *testing.T) {
 	assert.Equal(t, 1024, cacheRead)
 }
 
+func TestUsageExtractor_AnthropicGatewayStreaming(t *testing.T) {
+	// An Anthropic-spec gateway is dispatched natively (no translator to call
+	// RecordUsage), so the extractor's own sniffing is the only usage source.
+	// Keying it off the provider literal made every gateway turn record zero
+	// tokens, which zeroed its cost and savings on the router dashboard.
+	rec := httptest.NewRecorder()
+	ext := otel.NewUsageExtractor(rec, "anthropic_gateway")
+
+	events := []string{
+		"event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_1\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"claude-opus-5\",\"usage\":{\"input_tokens\":100,\"output_tokens\":0,\"cache_read_input_tokens\":900}}}\n\n",
+		"event: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":25}}\n\n",
+	}
+	for _, e := range events {
+		_, err := ext.Write([]byte(e))
+		require.NoError(t, err)
+	}
+
+	in, out := ext.Tokens()
+	assert.Equal(t, 100, in)
+	assert.Equal(t, 25, out)
+
+	_, cacheRead := ext.CacheTokens()
+	assert.Equal(t, 900, cacheRead)
+}
+
+func TestUsageExtractor_OpenAIGatewayStreaming(t *testing.T) {
+	rec := httptest.NewRecorder()
+	ext := otel.NewUsageExtractor(rec, "openai_gateway")
+
+	events := []string{
+		"data: {\"id\":\"chatcmpl-1\",\"object\":\"chat.completion.chunk\",\"choices\":[{\"delta\":{\"content\":\"Hi\"}}]}\n\n",
+		"data: {\"id\":\"chatcmpl-1\",\"object\":\"chat.completion.chunk\",\"choices\":[],\"usage\":{\"prompt_tokens\":20,\"completion_tokens\":12}}\n\n",
+		"data: [DONE]\n\n",
+	}
+	for _, e := range events {
+		_, err := ext.Write([]byte(e))
+		require.NoError(t, err)
+	}
+
+	in, out := ext.Tokens()
+	assert.Equal(t, 20, in)
+	assert.Equal(t, 12, out)
+}
+
+func TestUsageExtractor_RecordedUsageSurvivesUsagelessChunk(t *testing.T) {
+	// Some OpenAI-compat upstreams keep emitting a null/empty usage object
+	// after the terminal chunk; that must not wipe the counts already seen.
+	rec := httptest.NewRecorder()
+	ext := otel.NewUsageExtractor(rec, "openai_gateway")
+
+	events := []string{
+		"data: {\"id\":\"chatcmpl-1\",\"object\":\"chat.completion.chunk\",\"choices\":[],\"usage\":{\"prompt_tokens\":20,\"completion_tokens\":12}}\n\n",
+		"data: {\"id\":\"chatcmpl-1\",\"object\":\"chat.completion.chunk\",\"choices\":[],\"usage\":{}}\n\n",
+	}
+	for _, e := range events {
+		_, err := ext.Write([]byte(e))
+		require.NoError(t, err)
+	}
+
+	in, out := ext.Tokens()
+	assert.Equal(t, 20, in)
+	assert.Equal(t, 12, out)
+}
+
 func TestUsageExtractor_RecordCacheUsage_NilReceiver(t *testing.T) {
 	var ext *otel.UsageExtractor
 	creation, read := ext.CacheTokens()

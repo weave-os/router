@@ -159,11 +159,15 @@ func (u *UsageExtractor) scanBuffer() {
 	u.tryExtractFromJSON()
 }
 
+// Dispatch is family-based, not provider-literal: an Anthropic-spec gateway
+// (anthropic_gateway, wafer_anthropic) streams Anthropic frames and is served
+// natively, so a provider-literal switch silently recorded zero usage — which
+// zeroed its tokens, cost, and savings on the router dashboard.
 func (u *UsageExtractor) extractFromSSEEvent(eventType []byte, data []byte) {
-	switch u.provider {
-	case providers.ProviderAnthropic:
+	switch providers.FamilyFor(u.provider) {
+	case providers.FamilyAnthropic:
 		u.extractAnthropicSSE(eventType, data)
-	case providers.ProviderOpenAI, providers.ProviderGoogle:
+	case providers.FamilyOpenAICompat, providers.FamilyGemini:
 		u.extractOpenAISSE(data)
 	}
 }
@@ -207,8 +211,12 @@ func (u *UsageExtractor) extractOpenAISSE(data []byte) {
 		return
 	}
 
-	u.input = input
-	u.output = output
+	if input > 0 {
+		u.input = input
+	}
+	if output > 0 {
+		u.output = output
+	}
 	if cacheCreation > 0 {
 		u.cacheCreation = cacheCreation
 	}
@@ -246,7 +254,9 @@ func (u *UsageExtractor) tryExtractFromJSON() {
 // Google's native :generateContent uses usageMetadata; its OpenAI-compat surface
 // uses the OpenAI shape instead.
 func extractUsageGJSON(data []byte, provider string) (input, output, cacheCreation, cacheRead int, found bool) {
-	if provider == providers.ProviderGoogle {
+	family := providers.FamilyFor(provider)
+
+	if family == providers.FamilyGemini {
 		if meta := gjson.GetBytes(data, "usageMetadata"); meta.Exists() {
 			input = int(meta.Get("promptTokenCount").Int())
 			output = int(meta.Get("candidatesTokenCount").Int())
@@ -256,25 +266,25 @@ func extractUsageGJSON(data []byte, provider string) (input, output, cacheCreati
 	}
 
 	usage := gjson.GetBytes(data, "usage")
-	if !usage.Exists() && provider == providers.ProviderAnthropic {
+	if !usage.Exists() && family == providers.FamilyAnthropic {
 		usage = gjson.GetBytes(data, "message.usage")
 	}
 	// OpenAI Responses streaming nests usage under the terminal response event
 	// (response.completed); the non-streaming body carries it at the top level.
-	if !usage.Exists() && provider == providers.ProviderOpenAI {
+	if !usage.Exists() && family == providers.FamilyOpenAICompat {
 		usage = gjson.GetBytes(data, "response.usage")
 	}
 	if !usage.Exists() {
 		return 0, 0, 0, 0, false
 	}
 
-	switch provider {
-	case providers.ProviderAnthropic:
+	switch family {
+	case providers.FamilyAnthropic:
 		input = int(usage.Get("input_tokens").Int())
 		output = int(usage.Get("output_tokens").Int())
 		cacheCreation = int(usage.Get("cache_creation_input_tokens").Int())
 		cacheRead = int(usage.Get("cache_read_input_tokens").Int())
-	case providers.ProviderOpenAI, providers.ProviderGoogle:
+	case providers.FamilyOpenAICompat, providers.FamilyGemini:
 		// Chat Completions uses prompt_tokens/completion_tokens; Responses API
 		// (Codex passthrough) uses input_tokens/output_tokens. Probe both.
 		if pt := usage.Get("prompt_tokens"); pt.Exists() {
