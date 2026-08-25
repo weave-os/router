@@ -180,6 +180,19 @@ func TestSearchRefusesNonSnowflakeGateway(t *testing.T) {
 	}
 }
 
+func TestSearchAcceptsMixedCaseGatewayHost(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		io.WriteString(w, `{"content":[]}`)
+	}))
+	defer srv.Close()
+
+	// DNS is case-insensitive, and a BYOK base URL is whatever the tenant typed.
+	url := strings.Replace(srv.URL, "127.0.0.1", "LocalHost", 1)
+	if _, err := cortexagents.NewClient("", cortexagents.WithHostSuffix("LOCALHOST")).Search(wifContext(url), websearch.Query{Text: "q"}); err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+}
+
 func TestSearchOmitsRoleHeaderAndTokenTypeWhenNotApplicable(t *testing.T) {
 	var hasRole, hasTokenType bool
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

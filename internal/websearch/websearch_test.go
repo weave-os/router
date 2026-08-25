@@ -107,6 +107,17 @@ func TestDetectSearchTurnHonorsForcedToolChoice(t *testing.T) {
 	}
 }
 
+func TestDetectSearchTurnIgnoresChoiceForcingAnotherTool(t *testing.T) {
+	body := []byte(`{
+		"tools":[{"type":"web_search_20250305","name":"web_search"},{"name":"Bash"}],
+		"tool_choice":{"type":"tool","name":"Bash"},
+		"messages":[{"role":"user","content":"list the files here"}]
+	}`)
+	if _, ok := websearch.DetectSearchTurn(body); ok {
+		t.Fatal("a turn forcing a different tool must route normally")
+	}
+}
+
 func TestSynthesizeMessagePreservesClientToolName(t *testing.T) {
 	resp := websearch.Response{
 		Summary: "Cortex Agents expose a native web_search tool.",

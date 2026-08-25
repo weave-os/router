@@ -55,7 +55,7 @@ func WithRole(role string) Option {
 // WithHostSuffix overrides the host suffix a gateway base URL must match for
 // the search to be attempted.
 func WithHostSuffix(suffix string) Option {
-	return func(c *Client) { c.hostSuffix = strings.TrimSpace(suffix) }
+	return func(c *Client) { c.hostSuffix = strings.ToLower(strings.TrimSpace(suffix)) }
 }
 
 // WithTimeout overrides the per-search timeout. Zero or negative is ignored.
@@ -159,7 +159,8 @@ func (c *Client) checkHost(baseURL string) error {
 	if err != nil {
 		return fmt.Errorf("cortexagents: parse base URL: %w", err)
 	}
-	host := u.Hostname()
+	// DNS is case-insensitive; a BYOK base URL is whatever the tenant typed.
+	host := strings.ToLower(u.Hostname())
 	if host != c.hostSuffix && !strings.HasSuffix(host, "."+c.hostSuffix) {
 		return fmt.Errorf("cortexagents: gateway host %q is not %s", host, c.hostSuffix)
 	}

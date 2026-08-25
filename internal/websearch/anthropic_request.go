@@ -83,7 +83,8 @@ func StripServerTools(body []byte) ([]byte, int) {
 // declared. Anything longer is a real conversation that happens to offer the
 // tool, and must keep going to the model.
 func DetectSearchTurn(body []byte) (Query, bool) {
-	if _, ok := FindServerTool(body); !ok {
+	tool, ok := FindServerTool(body)
+	if !ok {
 		return Query{}, false
 	}
 	messages := gjson.GetBytes(body, "messages").Array()
@@ -94,7 +95,10 @@ func DetectSearchTurn(body []byte) (Query, bool) {
 	if text == "" {
 		return Query{}, false
 	}
-	forced := strings.HasPrefix(gjson.GetBytes(body, "tool_choice.type").String(), "tool")
+	// A forced choice only counts when it names the search tool; forcing some
+	// other tool is an ordinary turn that happens to also declare web_search.
+	forced := gjson.GetBytes(body, "tool_choice.type").String() == "tool" &&
+		gjson.GetBytes(body, "tool_choice.name").String() == tool.Name
 	trimmed, prompted := cutSearchPrompt(text)
 	if !forced && !prompted {
 		return Query{}, false
