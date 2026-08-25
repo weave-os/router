@@ -61,10 +61,8 @@ const (
 	struggleArmingEvidence = "evidence"
 )
 
-// struggleEvidenceMinTurns keeps evidence arming off the first few turns of a
-// session. The spiral signals already need 12 tool calls, but a client that
-// replays a long imported history can present them on turn one, where a
-// re-pin buys nothing and loses the prefix cache.
+// struggleEvidenceMinTurns guards against imported-history replay: a client
+// can present 15+ stalled tool calls on turn one, where a re-pin buys nothing.
 const struggleEvidenceMinTurns = 8
 
 // handleStruggleEscalation arms an up-cluster (or sideways) move for a

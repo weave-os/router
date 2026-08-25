@@ -48,9 +48,8 @@ const (
 	// real user input. Set above the text-only nudge threshold to avoid
 	// double-reporting.
 	spiralMonologueThreshold = 4
-	// Trailing A/B/A/B alternation length between exactly two signatures
-	// (SageRoute's ping-pong). Three full round trips: two are a legitimate
-	// read-edit-read-edit rhythm.
+	// Trailing A/B/A/B run length between exactly two distinct signatures;
+	// 6 = three round trips: two is a legitimate read-edit-read-edit rhythm.
 	spiralPingPongThreshold = 6
 	// Tool calls since the last non-errored edit, counted only once the
 	// session has landed or attempted an edit — a pure Explore phase makes no

@@ -114,10 +114,8 @@ type ToolCallOutcome struct {
 	Errored  bool
 }
 
-// AssistantToolCallOutcomes returns every assistant tool_use in history order,
-// each paired with its tool_result outcome (matched by tool_use_id). Feeds the
-// steps-since-progress signal, which needs the outcome per call rather than
-// the tail-streak aggregate ToolResultErrors gives. Anthropic format only.
+// AssistantToolCallOutcomes returns every assistant tool_use in history order
+// paired with its tool_result outcome (matched by tool_use_id). Anthropic format only.
 func (e *RequestEnvelope) AssistantToolCallOutcomes() []ToolCallOutcome {
 	if e.format != FormatAnthropic {
 		return nil
