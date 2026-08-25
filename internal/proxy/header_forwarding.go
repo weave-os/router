@@ -41,6 +41,10 @@ func mergeBaggageEmail(baggage, email string) string {
 		if err := json.Unmarshal([]byte(baggage), &bag); err != nil {
 			return baggage
 		}
+		// JSON null decodes without error but nils the map.
+		if bag == nil {
+			return baggage
+		}
 	}
 	encodedEmail, err := json.Marshal(email)
 	if err != nil {

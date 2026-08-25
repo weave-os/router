@@ -106,6 +106,17 @@ func TestApplyForwardedClientHeaders(t *testing.T) {
 			"a bag we cannot parse must still reach the endpoint rather than be discarded")
 	})
 
+	t.Run("forwards a null bag unchanged", func(t *testing.T) {
+		upstream := httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+		ctx := identityCtx(snowflakeCreds, identity)
+		require.NotPanics(t, func() {
+			proxy.ApplyForwardedClientHeaders(ctx, upstream, inbound(map[string]string{
+				"X-SNOWFLAKE-BAGGAGE": "null",
+			}))
+		})
+		assert.Equal(t, "null", upstream.Header.Get("X-SNOWFLAKE-BAGGAGE"))
+	})
+
 	t.Run("does not overwrite auth with a blank inbound value", func(t *testing.T) {
 		upstream := httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
 		upstream.Header.Set("X-SNOWFLAKE-APPLICATION", "")
