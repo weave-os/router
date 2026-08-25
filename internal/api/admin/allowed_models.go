@@ -23,7 +23,7 @@ type updateAllowedModelsRequest struct {
 // GetAllowedModelsHandler returns deployed models and the installation's
 // positive allowlist. An empty list means no restriction — every deployed
 // model is routable, subject to the separate exclusion list.
-func GetAllowedModelsHandler(authSvc *auth.Service, models DeployedModelsSource) gin.HandlerFunc {
+func GetAllowedModelsHandler(authSvc *auth.Service, _ DeployedModelsSource) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		installation, ok := resolveInstallation(c, authSvc)
 		if !ok {
@@ -34,7 +34,7 @@ func GetAllowedModelsHandler(authSvc *auth.Service, models DeployedModelsSource)
 		sort.Strings(allowed)
 
 		c.JSON(http.StatusOK, allowedModelsResponse{
-			Available: deployedModelsDTO(models),
+			Available: fullCatalogDTO(),
 			Allowed:   allowed,
 		})
 	}
@@ -43,7 +43,7 @@ func GetAllowedModelsHandler(authSvc *auth.Service, models DeployedModelsSource)
 // UpdateAllowedModelsHandler replaces the installation's positive allowlist.
 // 400 on unknown model IDs. Unlike the exclusion list there is no env override
 // to contend with — the allowlist is purely a per-installation control.
-func UpdateAllowedModelsHandler(authSvc *auth.Service, models DeployedModelsSource) gin.HandlerFunc {
+func UpdateAllowedModelsHandler(authSvc *auth.Service, _ DeployedModelsSource) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		log := observability.FromGin(c)
 		installation, ok := resolveInstallation(c, authSvc)
@@ -57,9 +57,8 @@ func UpdateAllowedModelsHandler(authSvc *auth.Service, models DeployedModelsSour
 			return
 		}
 
-		deployed := models.DefaultDeployedModels()
-		allowed := make(map[string]struct{}, len(deployed))
-		for _, e := range deployed {
+		allowed := make(map[string]struct{})
+		for _, e := range fullCatalogDTO() {
 			allowed[e.Model] = struct{}{}
 		}
 
@@ -76,7 +75,7 @@ func UpdateAllowedModelsHandler(authSvc *auth.Service, models DeployedModelsSour
 
 		sort.Strings(stored)
 		c.JSON(http.StatusOK, allowedModelsResponse{
-			Available: deployedModelsDTO(models),
+			Available: fullCatalogDTO(),
 			Allowed:   stored,
 		})
 	}
