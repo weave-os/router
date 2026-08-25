@@ -181,10 +181,8 @@ func (e *RequestEnvelope) buildAnthropicFromOpenAI(opts EmitOptions) ([]byte, er
 }
 
 // writeAnthropicSystemAndMessages extracts the leading run of system-role
-// messages into the Anthropic "system" field and writes the rest as Anthropic
-// content. Mid-conversation system messages become user messages in place;
-// lifting them into "system" would shift the cached prefix on every turn (see
-// hoistAnthropicSystemMessages).
+// messages into the Anthropic "system" field; mid-conversation system messages
+// become user messages in place so they don't shift the cached prefix.
 func writeAnthropicSystemAndMessages(jw *jsonWriter, body []byte) {
 	messages := gjson.GetBytes(body, "messages")
 	if !messages.Exists() {
@@ -696,13 +694,10 @@ func (e *RequestEnvelope) buildAnthropicFromAnthropic(opts EmitOptions) ([]byte,
 	return applyOverrides(body, ov)
 }
 
-// hoistAnthropicSystemMessages clears role:"system" entries out of "messages",
-// which Anthropic's Messages API 400s on and which can appear after a
-// mid-session switch back to an Anthropic model.
-//
-// Only the leading run is hoisted; mid-conversation system messages are
-// rewritten as user messages in place so a per-turn reminder does not shift
-// the cached prefix and force a full re-cache every turn. No-op if none present.
+// hoistAnthropicSystemMessages clears role:"system" entries from "messages"
+// (Anthropic's API 400s on them after a mid-session model switch). Only the
+// leading run is hoisted; mid-conversation ones are rewritten as user messages
+// in place to keep the cached prefix stable. No-op if none present.
 func hoistAnthropicSystemMessages(body []byte) ([]byte, error) {
 	msgs := gjson.GetBytes(body, "messages")
 	if !msgs.IsArray() {
