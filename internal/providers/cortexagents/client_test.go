@@ -54,7 +54,7 @@ func TestSearchSendsWIFAuthenticatedAgentRun(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	client := cortexagents.NewClient("", cortexagents.WithRole("ROUTER_AGENT"))
+	client := cortexagents.NewClient("", cortexagents.WithRole("ROUTER_AGENT"), cortexagents.WithHostSuffix("127.0.0.1"))
 	resp, err := client.Search(wifContext(srv.URL+"/api/v2/cortex"), websearch.Query{Text: "cortex agents web search", MaxResults: 5})
 	if err != nil {
 		t.Fatalf("Search: %v", err)
@@ -112,7 +112,7 @@ func TestSearchDropsInferenceVersionSegmentFromBaseURL(t *testing.T) {
 
 	// A gateway key configured for /v1/messages carries the /v1 segment;
 	// agent:run is mounted on the Cortex root instead.
-	if _, err := cortexagents.NewClient("").Search(wifContext(srv.URL+"/api/v2/cortex/v1"), websearch.Query{Text: "q"}); err != nil {
+	if _, err := cortexagents.NewClient("", cortexagents.WithHostSuffix("127.0.0.1")).Search(wifContext(srv.URL+"/api/v2/cortex/v1"), websearch.Query{Text: "q"}); err != nil {
 		t.Fatalf("Search: %v", err)
 	}
 	if gotPath != "/api/v2/cortex/agent:run" {
@@ -132,7 +132,7 @@ func TestSearchCapsResultsAtRequestedMax(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.Write(payload) }))
 	defer srv.Close()
 
-	resp, err := cortexagents.NewClient("").Search(wifContext(srv.URL), websearch.Query{Text: "q", MaxResults: 3})
+	resp, err := cortexagents.NewClient("", cortexagents.WithHostSuffix("127.0.0.1")).Search(wifContext(srv.URL), websearch.Query{Text: "q", MaxResults: 3})
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}
@@ -148,7 +148,7 @@ func TestSearchSurfacesUpstreamError(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	_, err := cortexagents.NewClient("").Search(wifContext(srv.URL), websearch.Query{Text: "q"})
+	_, err := cortexagents.NewClient("", cortexagents.WithHostSuffix("127.0.0.1")).Search(wifContext(srv.URL), websearch.Query{Text: "q"})
 	if err == nil {
 		t.Fatal("expected an error for a 403")
 	}
@@ -167,6 +167,19 @@ func TestSearchRequiresCredentialAndQuery(t *testing.T) {
 	}
 }
 
+func TestSearchRefusesNonSnowflakeGateway(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		t.Error("a non-Snowflake gateway must never be probed for agent:run")
+		io.WriteString(w, `{"content":[]}`)
+	}))
+	defer srv.Close()
+
+	_, err := cortexagents.NewClient("").Search(wifContext(srv.URL), websearch.Query{Text: "q"})
+	if err == nil || !strings.Contains(err.Error(), "not snowflakecomputing.com") {
+		t.Fatalf("err = %v, want a host rejection", err)
+	}
+}
+
 func TestSearchOmitsRoleHeaderAndTokenTypeWhenNotApplicable(t *testing.T) {
 	var hasRole, hasTokenType bool
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -181,7 +194,7 @@ func TestSearchOmitsRoleHeaderAndTokenTypeWhenNotApplicable(t *testing.T) {
 		BaseURL:  srv.URL,
 		AuthType: auth.AuthTypeBearer,
 	})
-	if _, err := cortexagents.NewClient("").Search(ctx, websearch.Query{Text: "q"}); err != nil {
+	if _, err := cortexagents.NewClient("", cortexagents.WithHostSuffix("127.0.0.1")).Search(ctx, websearch.Query{Text: "q"}); err != nil {
 		t.Fatalf("Search: %v", err)
 	}
 	if hasRole {

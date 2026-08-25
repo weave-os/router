@@ -61,10 +61,17 @@ executes the search there, on the tenant's own credential, and returns the
 base URL and token come from the request's gateway key (WIF included), so no
 extra deployment config is needed.
 
+The turn is intercepted on capability — a native `web_search_*` tool, an
+isolated one-shot search turn, and no enabled provider that runs Anthropic
+server tools natively — which also describes an Anthropic-spec gateway that is
+not Cortex. The executor therefore refuses any gateway whose host is not
+Snowflake's, and such turns stay on normal routing.
+
 | Variable | Default | Purpose |
 |---|---|---|
 | `ROUTER_CORTEX_WEB_SEARCH` | `true` | Kill switch. `false` leaves native web-search turns on normal routing (they fail upstream on gateways that reject the tool). |
 | `SNOWFLAKE_AGENT_ROLE` | *(none)* | Sent as `X-Snowflake-Role` on `agent:run`. Leave unset to use the service user's default role. |
+| `SNOWFLAKE_AGENT_HOST_SUFFIX` | `snowflakecomputing.com` | Host suffix a gateway base URL must match before `agent:run` is attempted. Only for pointing at a local stub in tests. |
 
 Snowflake-side prerequisites: an ACCOUNTADMIN must enable web search at the
 account level, and the authenticating user needs a role with agent privileges

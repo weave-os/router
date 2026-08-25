@@ -1652,11 +1652,14 @@ func cortexWebSearch(logger *slog.Logger) websearch.Executor {
 		return nil
 	}
 	role := config.GetOr("SNOWFLAKE_AGENT_ROLE", "")
-	logger.Info("Cortex Agents web-search executor enabled", "snowflake_role", role)
-	return cortexagents.NewClient(
-		config.GetOr("ANTHROPIC_GATEWAY_BASE_URL", ""),
-		cortexagents.WithRole(role),
-	)
+	hostSuffix := config.GetOr("SNOWFLAKE_AGENT_HOST_SUFFIX", "")
+	logger.Info("Cortex Agents web-search executor enabled",
+		"snowflake_role", role, "host_suffix_override", hostSuffix)
+	opts := []cortexagents.Option{cortexagents.WithRole(role)}
+	if hostSuffix != "" {
+		opts = append(opts, cortexagents.WithHostSuffix(hostSuffix))
+	}
+	return cortexagents.NewClient(config.GetOr("ANTHROPIC_GATEWAY_BASE_URL", ""), opts...)
 }
 
 // resolveDefaultBaselineModel returns the cost-comparison baseline used when

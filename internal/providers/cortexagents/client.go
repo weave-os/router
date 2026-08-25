@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -33,6 +34,11 @@ const searchToolName = "web_search_1"
 const responseInstruction = "Answer the search query directly and concisely from the web results. " +
 	"Cite the source URLs you used. Do not ask follow-up questions."
 
+// defaultHostSuffix confines agent:run to Snowflake. The executor is selected
+// on capability (a gateway that cannot run server tools), which also matches
+// non-Cortex gateways where agent:run is not a route at all.
+const defaultHostSuffix = "snowflakecomputing.com"
+
 // defaultTimeout bounds one agent run. Agent orchestration is slower than a
 // raw search API, and the caller is a blocked client turn.
 const defaultTimeout = 30 * time.Second
@@ -44,6 +50,12 @@ type Option func(*Client)
 // off, and Snowflake falls back to the service user's default role.
 func WithRole(role string) Option {
 	return func(c *Client) { c.role = strings.TrimSpace(role) }
+}
+
+// WithHostSuffix overrides the host suffix a gateway base URL must match for
+// the search to be attempted.
+func WithHostSuffix(suffix string) Option {
+	return func(c *Client) { c.hostSuffix = strings.TrimSpace(suffix) }
 }
 
 // WithTimeout overrides the per-search timeout. Zero or negative is ignored.
@@ -58,10 +70,11 @@ func WithTimeout(d time.Duration) Option {
 // Client runs Cortex Agent searches against the tenant's own account, using
 // the per-request gateway credential carried on the context.
 type Client struct {
-	baseURL string
-	role    string
-	timeout time.Duration
-	http    *http.Client
+	baseURL    string
+	role       string
+	hostSuffix string
+	timeout    time.Duration
+	http       *http.Client
 }
 
 // NewClient constructs a Cortex Agents search client. baseURL is the fallback
@@ -69,9 +82,10 @@ type Client struct {
 // credential's own base URL takes precedence per request.
 func NewClient(baseURL string, opts ...Option) *Client {
 	c := &Client{
-		baseURL: strings.TrimRight(baseURL, "/"),
-		timeout: defaultTimeout,
-		http:    &http.Client{Transport: httputil.NewTransport(10*time.Second, 10*time.Second)},
+		baseURL:    strings.TrimRight(baseURL, "/"),
+		hostSuffix: defaultHostSuffix,
+		timeout:    defaultTimeout,
+		http:       &http.Client{Transport: httputil.NewTransport(10*time.Second, 10*time.Second)},
 	}
 	for _, opt := range opts {
 		opt(c)
@@ -92,6 +106,9 @@ func (c *Client) Search(ctx context.Context, q websearch.Query) (websearch.Respo
 	baseURL := proxy.EffectiveBaseURL(ctx, c.baseURL)
 	if baseURL == "" {
 		return websearch.Response{}, fmt.Errorf("cortexagents: no base URL configured")
+	}
+	if err := c.checkHost(baseURL); err != nil {
+		return websearch.Response{}, err
 	}
 
 	body, err := json.Marshal(runRequest(query, q.MaxResults))
@@ -130,6 +147,23 @@ func (c *Client) Search(ctx context.Context, q websearch.Query) (websearch.Respo
 		return websearch.Response{}, fmt.Errorf("cortexagents: read response: %w", readErr)
 	}
 	return parseRunResponse(raw, q.MaxResults), nil
+}
+
+// checkHost rejects a gateway that is not the Snowflake endpoint agent:run
+// belongs to.
+func (c *Client) checkHost(baseURL string) error {
+	if c.hostSuffix == "" {
+		return nil
+	}
+	u, err := url.Parse(baseURL)
+	if err != nil {
+		return fmt.Errorf("cortexagents: parse base URL: %w", err)
+	}
+	host := u.Hostname()
+	if host != c.hostSuffix && !strings.HasSuffix(host, "."+c.hostSuffix) {
+		return fmt.Errorf("cortexagents: gateway host %q is not %s", host, c.hostSuffix)
+	}
+	return nil
 }
 
 // agentRunURL places agent:run under the Cortex root. The inference surfaces
