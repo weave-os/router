@@ -148,8 +148,7 @@ func plannerInputTokens(env *translate.RequestEnvelope, feats translate.RoutingF
 
 // plannerTokensFor keeps the corrected estimate behind the flag. Legacy EV
 // scales linearly with token count against a fixed dollar threshold, so feeding
-// it a bigger number would move STAY/SWITCH on deploy — breaking the
-// off-by-default rollout this change promises.
+// it a bigger number would move STAY/SWITCH on deploy.
 func (s *Service) plannerTokensFor(env *translate.RequestEnvelope, feats translate.RoutingFeatures) int {
 	if !s.planner.CorrectedEconomics {
 		return feats.Tokens

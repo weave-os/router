@@ -132,8 +132,7 @@ func TestCacheablePrefixTokens_UsesReadOrWriteEvidence(t *testing.T) {
 	t.Parallel()
 
 	// Read and write both count as prior-turn cache evidence. The prior total
-	// is 10k (compat basis: LastInputTokens already includes cached), so a 4k
-	// write is a 0.4 share and projects to 4k of a 10k prompt.
+	// is 10k (compat basis: LastInputTokens already includes cached).
 	writeOnly := sessionpin.Pin{LastInputTokens: 10_000, LastCachedWriteTokens: 4_000}
 	got, known := cacheablePrefixTokens(writeOnly, 10_000, false)
 	assert.True(t, known)
