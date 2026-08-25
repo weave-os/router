@@ -663,9 +663,11 @@ func (t *ResponsesToAnthropicWriter) finalizeBuffered() error {
 		return t.finalizeError()
 	}
 	root := gjson.ParseBytes(anthropic)
-	t.recordBufferedUsage(root.Get("usage"))
+	// Record the original OpenAI usage (cache-inclusive input). The
+	// Anthropic body below is fresh-only for the client/statusline;
+	// EffectiveInputCost subtracts cache from the sink's inclusive count.
+	t.recordOpenAIUsage(resp.Get("usage"))
 	t.emittedStopReason = root.Get("stop_reason").String()
-	t.captureBufferedUsage(root.Get("usage"))
 	root.Get("content").ForEach(func(_, block gjson.Result) bool {
 		if block.Get("type").String() == "tool_use" {
 			t.toolUseCount++
@@ -680,26 +682,18 @@ func (t *ResponsesToAnthropicWriter) finalizeBuffered() error {
 	return err
 }
 
-func (t *ResponsesToAnthropicWriter) captureBufferedUsage(usage gjson.Result) {
+func (t *ResponsesToAnthropicWriter) recordOpenAIUsage(usage gjson.Result) {
 	if !usage.Exists() {
 		return
 	}
 	t.hasUsage = true
 	t.usageInput = int(usage.Get("input_tokens").Int())
 	t.usageOutput = int(usage.Get("output_tokens").Int())
-	t.usageCacheRead = int(usage.Get("cache_read_input_tokens").Int())
-	t.usageCacheCreation = int(usage.Get("cache_creation_input_tokens").Int())
-}
-
-func (t *ResponsesToAnthropicWriter) recordBufferedUsage(usage gjson.Result) {
-	if t.usageSink == nil || !usage.Exists() {
-		return
+	t.usageCacheCreation, t.usageCacheRead = OpenAICacheTokens(usage)
+	if t.usageSink != nil {
+		t.usageSink.RecordUsage(t.usageInput, t.usageOutput)
+		t.usageSink.RecordCacheUsage(t.usageCacheCreation, t.usageCacheRead)
 	}
-	t.usageSink.RecordUsage(int(usage.Get("input_tokens").Int()), int(usage.Get("output_tokens").Int()))
-	t.usageSink.RecordCacheUsage(
-		int(usage.Get("cache_creation_input_tokens").Int()),
-		int(usage.Get("cache_read_input_tokens").Int()),
-	)
 }
 
 // finalizeError renders a one-shot Anthropic error body. Streaming errors are

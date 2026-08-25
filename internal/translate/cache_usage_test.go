@@ -285,3 +285,23 @@ func TestOpenAICacheTokens_FallsBackToCacheCreationTokens(t *testing.T) {
 func gjsonMust(raw string) gjson.Result {
 	return gjson.Parse(raw)
 }
+
+func TestResponsesToAnthropicWriter_NonStreamingSinkKeepsInclusiveInput(t *testing.T) {
+	const fixture = `event: response.completed
+data: {"type":"response.completed","response":{"id":"r","status":"completed","model":"gpt-5.6-sol","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"done"}]}],"usage":{"input_tokens":1200,"input_tokens_details":{"cached_tokens":800,"cache_write_tokens":256},"output_tokens":340}}}
+
+`
+	rec := httptest.NewRecorder()
+	sink := &fakeUsageSink{}
+	w := translate.NewResponsesToAnthropicWriter(rec, "gpt-5.6-sol", sink)
+	require.NoError(t, w.Prelude(false))
+	_, err := w.Write([]byte(fixture))
+	require.NoError(t, err)
+	require.NoError(t, w.Finalize())
+
+	assert.Equal(t, 1200, sink.input, "billing sink must keep OpenAI inclusive input_tokens")
+	assert.Equal(t, 256, sink.cacheCreation)
+	assert.Equal(t, 800, sink.cacheRead)
+	assert.Contains(t, rec.Body.String(), `"input_tokens":144`)
+	assert.Contains(t, rec.Body.String(), `"cache_creation_input_tokens":256`)
+}
