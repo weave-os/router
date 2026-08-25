@@ -59,6 +59,19 @@ set, so all six existing enforcement sites honor it with no new filter loops.
 `router.Request.AllowedModels` exists only so errors and diagnostics can name
 the allowlist instead of dumping the desugared exclusion list.
 
+**A wholly non-routable allowlist is rejected at the admin API.** Membership
+validation for `PUT /admin/v1/allowed-models` is catalog-wide on purpose —
+force-model and hard-pin reach rows the router never scores — but the
+desugaring only excludes over `routableUniverse()`. A list naming *only*
+non-routable rows (an unbound provider, or a tierless passthrough-only row)
+therefore excludes the entire pool and 400s every routed request with
+`ErrAllowlistEmptiesPool`. The handler calls `Service.RoutableModels()` and
+refuses to save such a list, deferring to the unknown-model error first so a
+typo is not reported as a routability problem. Keep that accessor and the
+desugaring reading the same universe: validating against a narrower roster
+(the cluster artifact's `DefaultDeployedModels`) is what this replaced, and it
+wrongly rejected arms a non-cluster strategy can serve.
+
 **The fail-open/fail-closed asymmetry is load-bearing.** An org allowlist is a
 compliance control (a breach is worse than an outage); a user's per-cluster
 selection is a preference (hard-failing a turn because a personal pick went

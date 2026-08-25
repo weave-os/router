@@ -7,9 +7,17 @@ import (
 
 	"workweave/router/internal/auth"
 	"workweave/router/internal/observability"
+	"workweave/router/internal/proxy"
 
 	"github.com/gin-gonic/gin"
 )
+
+// RoutableModelsSource reports the models this deployment can actually route:
+// catalog rows with a known tier and a binding to an available provider.
+// Implemented by *proxy.Service; nil skips the intersection guard.
+type RoutableModelsSource interface {
+	RoutableModels() map[string]struct{}
+}
 
 type allowedModelsResponse struct {
 	Available []deployedModelDTO `json:"available"`
@@ -41,9 +49,10 @@ func GetAllowedModelsHandler(authSvc *auth.Service, _ DeployedModelsSource) gin.
 }
 
 // UpdateAllowedModelsHandler replaces the installation's positive allowlist.
-// 400 on unknown model IDs. Unlike the exclusion list there is no env override
-// to contend with — the allowlist is purely a per-installation control.
-func UpdateAllowedModelsHandler(authSvc *auth.Service, _ DeployedModelsSource) gin.HandlerFunc {
+// 400 on unknown model IDs, and on an allowlist with no routable member.
+// Unlike the exclusion list there is no env override to contend with — the
+// allowlist is purely a per-installation control.
+func UpdateAllowedModelsHandler(authSvc *auth.Service, _ DeployedModelsSource, routable RoutableModelsSource) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		log := observability.FromGin(c)
 		installation, ok := resolveInstallation(c, authSvc)
@@ -57,9 +66,23 @@ func UpdateAllowedModelsHandler(authSvc *auth.Service, _ DeployedModelsSource) g
 			return
 		}
 
+		// Membership is catalog-wide, not roster-scoped: force-model and
+		// hard-pin reach rows the router never scores, so an admin must be able
+		// to opt those in.
 		allowed := make(map[string]struct{})
 		for _, e := range fullCatalogDTO() {
 			allowed[e.Model] = struct{}{}
+		}
+
+		// ...but the allowlist is enforced by excluding its complement over the
+		// routable set, so a list naming only non-routable catalog rows (an
+		// unbound provider, or a passthrough-only row with no tier) empties the
+		// candidate pool and 400s every routed request. Require one survivor.
+		if allowlistLosesRoutability(req.Allowed, allowed, routable) {
+			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{
+				"error": "Allowlist selects no model this deployment can route. Add at least one routable model; the rest are reachable only via force-model or passthrough.",
+			})
+			return
 		}
 
 		stored, err := authSvc.SetInstallationAllowedModels(c.Request.Context(), installation.ExternalID, installation.ID, req.Allowed, allowed)
@@ -80,3 +103,32 @@ func UpdateAllowedModelsHandler(authSvc *auth.Service, _ DeployedModelsSource) g
 		})
 	}
 }
+
+// allowlistLosesRoutability reports whether saving models would leave the
+// routed candidate pool empty.
+//
+// It returns false — no objection — in three cases. An empty allowlist clears
+// the restriction, and an org that has locked itself out must always be able to
+// do that. An unknown ID defers to SetInstallationAllowedModels, which names it
+// precisely instead of blaming routability for a typo. And an unknown routable
+// universe fails open, so a router wired without a proxy stays editable.
+func allowlistLosesRoutability(models []string, catalogIDs map[string]struct{}, routable RoutableModelsSource) bool {
+	if len(models) == 0 || routable == nil {
+		return false
+	}
+	universe := routable.RoutableModels()
+	if len(universe) == 0 {
+		return false
+	}
+	for _, m := range models {
+		if _, known := catalogIDs[m]; !known {
+			return false
+		}
+		if _, ok := universe[m]; ok {
+			return false
+		}
+	}
+	return true
+}
+
+var _ RoutableModelsSource = (*proxy.Service)(nil)
