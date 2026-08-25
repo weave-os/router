@@ -104,14 +104,9 @@ func UpdateAllowedModelsHandler(authSvc *auth.Service, _ DeployedModelsSource, r
 	}
 }
 
-// allowlistLosesRoutability reports whether saving models would leave the
-// routed candidate pool empty.
-//
-// It returns false — no objection — in three cases. An empty allowlist clears
-// the restriction, and an org that has locked itself out must always be able to
-// do that. An unknown ID defers to SetInstallationAllowedModels, which names it
-// precisely instead of blaming routability for a typo. And an unknown routable
-// universe fails open, so a router wired without a proxy stays editable.
+// allowlistLosesRoutability reports whether saving models would leave
+// the routed candidate pool empty. Returns false (no objection) when
+// the list is empty, any ID is unknown, or the routable universe is nil.
 func allowlistLosesRoutability(models []string, catalogIDs map[string]struct{}, routable RoutableModelsSource) bool {
 	if len(models) == 0 || routable == nil {
 		return false

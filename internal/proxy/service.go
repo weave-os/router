@@ -1684,10 +1684,8 @@ func (s *Service) HasExcludedModelsOverride() bool {
 }
 
 // RoutableModels returns a copy of the set of models this deployment can
-// route. Exported so the admin allowlist guard and the request-time allowlist
-// desugaring share one definition of "routable" and cannot drift: the
-// allowlist is enforced by excluding its complement over this set, so a list
-// that misses it entirely empties the candidate pool.
+// route, so the admin guard and request-time desugaring share one definition
+// and cannot drift.
 func (s *Service) RoutableModels() map[string]struct{} {
 	// A nil Service reaches here as a typed-nil interface from server.Register
 	// (self-hosted tests wire the admin routes without a proxy); report an
