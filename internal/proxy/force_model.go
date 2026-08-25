@@ -370,9 +370,8 @@ func (s *Service) applyForceModelHeader(
 }
 
 // handleForceModelCommand processes a user-issued directive and writes a
-// synthetic acknowledgment without dispatching upstream. inputTokens should
-// be the request's RoutingFeatures.Tokens so the token counter reflects actual
-// turn input, not just the synthetic response text.
+// synthetic acknowledgment without dispatching upstream. inputTokens is the
+// request's RoutingFeatures.Tokens so counts reflect actual turn input.
 func (s *Service) handleForceModelCommand(
 	ctx context.Context,
 	w http.ResponseWriter,
