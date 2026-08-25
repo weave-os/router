@@ -5158,11 +5158,10 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	// compaction below, or runTurnLoop's switch handover); see toolResultBytesPtr.
 	inboundLastUser := env.LastUserMessage()
 
-	// Proactive context-window compaction, as in ProxyMessages. Skipped for
-	// native bodies (would update the wrong copy) and portable candidates (deferred).
+	maxEligibleWindowOAI := s.maxEligibleContextWindow(baseExcludedOAI, enabledProviders, env.SignatureTokenSavings())
+	needsPreRouteCompaction := !responsesPassthrough && (len(responsesBodyCandidate) == 0 || env.ContextOverflowTokenEstimate()+outputReserveOAI > maxEligibleWindowOAI)
 	var compResOAI compactionResult
-	if !responsesPassthrough && len(responsesBodyCandidate) == 0 {
-		maxEligibleWindowOAI := s.maxEligibleContextWindow(baseExcludedOAI, enabledProviders, env.SignatureTokenSavings())
+	if needsPreRouteCompaction {
 		var compErrOAI error
 		compResOAI, compErrOAI = s.maybeCompact(ctx, env, turntype.DetectFromEnvelope(env, feats, subAgentHint), outputReserveOAI, maxEligibleWindowOAI, r.Header)
 		if compErrOAI != nil {
@@ -5171,6 +5170,12 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 			return compErrOAI
 		}
 		if compResOAI.Applied {
+			if len(responsesBodyCandidate) > 0 {
+				// The compacted chat envelope is authoritative when overflow required
+				// compaction before routing; the original Responses body is no longer
+				// safe to dispatch natively because it still contains the full history.
+				responsesBodyCandidate = nil
+			}
 			feats = env.RoutingFeatures(embedFlag)
 			log.Info("Proactive compaction applied",
 				"tool_results_cleared", compResOAI.ToolResultsCleared,
@@ -5261,7 +5266,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	// Portable Responses requests defer proactive compaction until after routing;
 	// native OpenAI reasoning keeps the original input, others get compacted chat.
 	if len(responsesBodyCandidate) > 0 && !useNativeResponses(decision) {
-		maxEligibleWindowOAI := s.maxEligibleContextWindow(baseExcludedOAI, enabledProviders, env.SignatureTokenSavings())
+		maxEligibleWindowOAI = s.maxEligibleContextWindow(baseExcludedOAI, enabledProviders, env.SignatureTokenSavings())
 		var compErrOAI error
 		compResOAI, compErrOAI = s.maybeCompact(ctx, env, tt, outputReserveOAI, maxEligibleWindowOAI, r.Header)
 		if compErrOAI != nil {
