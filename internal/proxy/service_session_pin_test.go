@@ -1050,6 +1050,41 @@ func TestService_SessionPin_AgentForceModelCommandContinuesOnForcedModel(t *test
 	assert.Equal(t, translate.ReasonUserForceModel, store.upserts[0].Reason)
 }
 
+func TestService_SessionPin_OpenAI_AgentForceModelCommandContinuesOnForcedModel(t *testing.T) {
+	const body = `{
+		"model":"gpt-4o",
+		"messages":[
+			{"role":"user","content":"analyze usage"},
+			{"role":"assistant","tool_calls":[{
+				"id":"call_skill","type":"function",
+				"function":{"name":"Skill","arguments":"{\"skill\":\"fm\"}"}
+			}]},
+			{"role":"tool","tool_call_id":"call_skill","content":"/force-model gpt-5"}
+		]
+	}`
+	store := newFakePinStore()
+	store.persistUpserts = true
+	store.hasPin = true
+	store.pin = sessionpin.Pin{
+		Provider: providers.ProviderOpenAI, Model: "gpt-4o", Reason: "cluster:v0.2",
+		PinnedUntil: time.Now().Add(time.Hour),
+	}
+	fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: "gpt-5", Reason: translate.ReasonUserForceModel}}
+	svc := newOpenAIPinSvc(fr, store)
+
+	ctx := authedCtx(uuid.New().String())
+	rec := httptest.NewRecorder()
+	httpReq := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(""))
+	require.NoError(t, svc.ProxyOpenAIChatCompletion(ctx, []byte(body), rec, httpReq))
+
+	assert.Equal(t, 0, fr.routeCalls, "the newly forced pin must bypass automatic routing")
+	assert.Equal(t, "gpt-5", rec.Header().Get(proxy.HeaderRouterModel))
+	assert.NotContains(t, rec.Body.String(), "force-model applied", "only a user-issued command gets a synthetic acknowledgment")
+	require.NotEmpty(t, store.upserts)
+	assert.Equal(t, "gpt-5", store.upserts[0].Model)
+	assert.Equal(t, translate.ReasonUserForceModel, store.upserts[0].Reason)
+}
+
 func TestService_SessionPin_OpenAI_ForceModelCommandSetsPin(t *testing.T) {
 	const forceBody = `{
 		"model":"gpt-4o",

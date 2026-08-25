@@ -32,7 +32,8 @@ type ForceModelResult struct {
 	FromToolResult bool
 }
 
-// ExtractForceModelCommand scans the trailing user message in env for a
+// ExtractForceModelCommand scans the trailing user or tool-result message in
+// env for a
 // /force-model <model> or /unforce-model directive, stripping it from
 // env.body. FromToolResult distinguishes agent-issued commands from commands
 // typed by the user. Returns (zero, false) when no command is present.
@@ -49,8 +50,8 @@ func (env *RequestEnvelope) ExtractForceModelCommand() (ForceModelResult, bool) 
 	return res, found
 }
 
-// extractLeadingCommand scans the trailing user message (Anthropic/OpenAI
-// shapes only) for a directive recognized by parse.
+// extractLeadingCommand scans the trailing user or tool-result message
+// (Anthropic/OpenAI shapes only) for a directive recognized by parse.
 func (env *RequestEnvelope) extractLeadingCommand(parse func(text string) (found bool, stripped string)) bool {
 	originalBody := env.body
 	found, fromToolResult := env.extractLeadingCommandWithSource(parse)
@@ -82,11 +83,14 @@ func (env *RequestEnvelope) extractLeadingCommandWithSource(parse func(text stri
 
 	all := msgs.Array()
 	lastIdx := -1
+	lastRole := ""
 	var lastContent gjson.Result
 	for i := len(all) - 1; i >= 0; i-- {
-		if all[i].Get("role").String() == "user" {
-			lastIdx = i
-			lastContent = all[i].Get("content")
+		switch role := all[i].Get("role").String(); role {
+		case "user", "tool":
+			lastIdx, lastRole, lastContent = i, role, all[i].Get("content")
+		}
+		if lastIdx >= 0 {
 			break
 		}
 	}
@@ -103,12 +107,23 @@ func (env *RequestEnvelope) extractLeadingCommandWithSource(parse func(text stri
 	}
 
 	idxPath := "messages." + strconv.Itoa(lastIdx) + ".content"
-	fromToolResult := followsAssistantToolUse(all, lastIdx)
+	// OpenAI carries a tool result as its own role:"tool" message instead of a
+	// content block, so provenance comes from the role. Such a message is only
+	// ever blanked, never dropped: deleting it would orphan the assistant
+	// tool_calls entry it answers.
+	isToolMessage := lastRole == "tool"
+	fromToolResult := isToolMessage || followsAssistantToolUse(all, lastIdx)
+	dropPathFor := func(path string) string {
+		if isToolMessage {
+			return ""
+		}
+		return path
+	}
 	var candidates []commandTextCandidate
 	switch {
 	case lastContent.Type == gjson.String:
 		candidates = append(candidates, commandTextCandidate{
-			path: idxPath, dropPath: "messages." + strconv.Itoa(lastIdx), text: lastContent.String(),
+			path: idxPath, dropPath: dropPathFor("messages." + strconv.Itoa(lastIdx)), text: lastContent.String(),
 		})
 	case lastContent.IsArray():
 		lastContent.ForEach(func(key, block gjson.Result) bool {
@@ -116,7 +131,7 @@ func (env *RequestEnvelope) extractLeadingCommandWithSource(parse func(text stri
 			switch block.Get("type").String() {
 			case "text":
 				candidates = append(candidates, commandTextCandidate{
-					path: blockPath + ".text", dropPath: blockPath, text: block.Get("text").String(),
+					path: blockPath + ".text", dropPath: dropPathFor(blockPath), text: block.Get("text").String(),
 				})
 			case "tool_result":
 				fromToolResult = true

@@ -381,6 +381,39 @@ func TestExtractForceModelCommand_AgentToolResultSiblingBlockSurvives(t *testing
 	assert.Equal(t, "tool_result", block["type"], "the tool_result pairing the assistant tool_use must survive")
 }
 
+func TestExtractForceModelCommand_OpenAIToolResult(t *testing.T) {
+	body := mustMarshalJSON(t, map[string]any{
+		"model": "gpt-4o",
+		"messages": []any{
+			map[string]any{"role": "user", "content": "analyze usage"},
+			map[string]any{
+				"role": "assistant",
+				"tool_calls": []any{map[string]any{
+					"id": "call_skill", "type": "function",
+					"function": map[string]any{"name": "Skill", "arguments": `{"skill":"fm"}`},
+				}},
+			},
+			map[string]any{"role": "tool", "tool_call_id": "call_skill", "content": "/force-model gpt-5"},
+		},
+	})
+	env, err := translate.ParseOpenAI(body)
+	require.NoError(t, err)
+
+	cmd, found := env.ExtractForceModelCommand()
+	require.True(t, found)
+	assert.Equal(t, "gpt-5", cmd.Model)
+	assert.True(t, cmd.FromToolResult)
+
+	prep, err := env.PrepareOpenAI(nil, translate.EmitOptions{TargetModel: "gpt-5"})
+	require.NoError(t, err)
+	var prepared map[string]any
+	require.NoError(t, json.Unmarshal(prep.Body, &prepared))
+	msgs, _ := prepared["messages"].([]any)
+	require.Len(t, msgs, 3, "the tool message must remain to answer the assistant tool call")
+	tool, _ := msgs[2].(map[string]any)
+	assert.Equal(t, "", tool["content"], "only the command text is stripped")
+}
+
 func TestExtractForceModelCommand_TrailingSystemNoticeAfterUserTurn(t *testing.T) {
 	// Claude Code appends a role:"system" deferred-tools notice after the user
 	// turn; it must not make the user's command look historical.
