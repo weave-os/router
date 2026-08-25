@@ -1,6 +1,7 @@
 package anthropic
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -89,11 +90,28 @@ func (c *Client) ListModels(ctx context.Context) ([]string, error) {
 }
 
 // listGatewayModels reads the unpaginated catalog a Messages-API gateway serves
-// at {base}/models when it hosts no /v1/models route.
+// at {base}/models when it hosts no /v1/models route. A gateway that demands an
+// entity on that GET is retried once with an empty JSON body.
 func (c *Client) listGatewayModels(ctx context.Context, baseURL string) ([]string, error) {
-	upstream, err := http.NewRequestWithContext(ctx, http.MethodGet, baseURL+"/models", nil)
+	ids, status, err := c.getGatewayModels(ctx, baseURL, false)
+	if !providers.ModelListNeedsEntity(status) {
+		return ids, err
+	}
+	ids, _, err = c.getGatewayModels(ctx, baseURL, true)
+	return ids, err
+}
+
+func (c *Client) getGatewayModels(ctx context.Context, baseURL string, withEntity bool) ([]string, int, error) {
+	var entity io.Reader
+	if withEntity {
+		entity = bytes.NewReader(providers.EmptyJSONEntity)
+	}
+	upstream, err := http.NewRequestWithContext(ctx, http.MethodGet, baseURL+"/models", entity)
 	if err != nil {
-		return nil, fmt.Errorf("build model-list request: %w", err)
+		return nil, 0, fmt.Errorf("build model-list request: %w", err)
+	}
+	if withEntity {
+		upstream.Header.Set("Content-Type", "application/json")
 	}
 	upstream.Header.Set("anthropic-version", anthropicVersion)
 	c.setAuth(ctx, upstream, upstream)
@@ -102,17 +120,18 @@ func (c *Client) listGatewayModels(ctx context.Context, baseURL string) ([]strin
 
 	resp, err := c.http.Do(upstream)
 	if err != nil {
-		return nil, fmt.Errorf("model-list call: %w", err)
+		return nil, 0, fmt.Errorf("model-list call: %w", err)
 	}
 	defer resp.Body.Close()
 	body, err := io.ReadAll(io.LimitReader(resp.Body, maxModelListBytes))
 	if resp.StatusCode >= 400 {
-		return nil, providers.ModelListStatusError(resp.StatusCode, body)
+		return nil, resp.StatusCode, providers.ModelListStatusError(resp.StatusCode, body)
 	}
 	if err != nil {
-		return nil, fmt.Errorf("read model-list response: %w", err)
+		return nil, resp.StatusCode, fmt.Errorf("read model-list response: %w", err)
 	}
-	return providers.ParseModelIDs(body)
+	ids, err := providers.ParseModelIDs(body)
+	return ids, resp.StatusCode, err
 }
 
 var _ providers.ModelLister = (*Client)(nil)

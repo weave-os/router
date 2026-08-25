@@ -1,6 +1,7 @@
 package openaicompat
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -38,11 +39,27 @@ func (c *Client) ListModels(ctx context.Context) ([]string, error) {
 }
 
 // listModelsAt reads one model-list URL, also reporting the upstream status so
-// the caller can decide whether another path is worth trying.
+// the caller can decide whether another path is worth trying. A gateway that
+// demands an entity on the catalog GET is retried once with an empty JSON body.
 func (c *Client) listModelsAt(ctx context.Context, listURL string) ([]string, int, error) {
-	upstream, err := http.NewRequestWithContext(ctx, http.MethodGet, listURL, nil)
+	ids, status, err := c.getModelList(ctx, listURL, false)
+	if !providers.ModelListNeedsEntity(status) {
+		return ids, status, err
+	}
+	return c.getModelList(ctx, listURL, true)
+}
+
+func (c *Client) getModelList(ctx context.Context, listURL string, withEntity bool) ([]string, int, error) {
+	var entity io.Reader
+	if withEntity {
+		entity = bytes.NewReader(providers.EmptyJSONEntity)
+	}
+	upstream, err := http.NewRequestWithContext(ctx, http.MethodGet, listURL, entity)
 	if err != nil {
 		return nil, 0, fmt.Errorf("build model-list request: %w", err)
+	}
+	if withEntity {
+		upstream.Header.Set("Content-Type", "application/json")
 	}
 	c.setAuth(ctx, upstream)
 	proxy.ApplyWIFTokenType(ctx, upstream)

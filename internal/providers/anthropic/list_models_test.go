@@ -2,6 +2,7 @@ package anthropic_test
 
 import (
 	"context"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -105,4 +106,29 @@ func TestListModels_FallsBackToGatewayCatalogOn404(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, []string{"claude-haiku-4-5", "claude-opus-5"}, models)
 	assert.Equal(t, []string{"/v1/models", "/models"}, gotPaths)
+}
+
+func TestListModels_RetriesGatewayCatalogWithEntity(t *testing.T) {
+	var attempts []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/models" {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		body, _ := io.ReadAll(r.Body)
+		attempts = append(attempts, string(body))
+		if len(body) == 0 {
+			http.Error(w, `{"code":"390400","message":"request entity required"}`, http.StatusBadRequest)
+			return
+		}
+		assert.Equal(t, "application/json", r.Header.Get("Content-Type"))
+		_, _ = w.Write([]byte(`{"models":["claude-4-sonnet"]}`))
+	}))
+	defer srv.Close()
+
+	c := anthropic.NewClient("gw-token", srv.URL, anthropic.WithAuthScheme(anthropic.AuthBearer))
+	models, err := c.ListModels(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, []string{"claude-4-sonnet"}, models)
+	assert.Equal(t, []string{"", "{}"}, attempts)
 }
