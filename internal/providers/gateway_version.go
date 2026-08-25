@@ -19,8 +19,7 @@ type GatewayVersionMemo struct {
 }
 
 // URLs returns the upstream URLs to try for baseURL+suffix, likeliest first.
-// A second entry appears only when the version segment is ambiguous: base URLs
-// that already agree with suffix have nothing to fall back to.
+// A second entry appears only when base and suffix disagree on the "/v1" segment.
 func (m *GatewayVersionMemo) URLs(baseURL, suffix string) []string {
 	primary := baseURL + suffix
 	alt := altVersionedURL(baseURL, suffix)
