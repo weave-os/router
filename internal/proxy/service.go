@@ -2606,8 +2606,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 
 	// Sanitize after command extraction: a skill can encode its command as a
 	// plain user string after an assistant tool_use, and sanitizing first would
-	// erase the provenance. Must also run before maybeCompact/routing so every
-	// dispatch sees a wire-valid history (dangling tool_use 400s on Together).
+	// erase the provenance and leave a dangling tool_use that 400s on Together.
 	if sanitized := env.SanitizeOrphanedToolCalls(); sanitized > 0 {
 		log.Info("Sanitized orphaned tool calls before dispatch", "sanitized", sanitized)
 		requestBodyChanged = true
@@ -5108,8 +5107,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 
 	// Sanitize after command extraction: a skill can encode its command as a
 	// plain user string after an assistant tool_use, and sanitizing first would
-	// erase the provenance. Must also run before maybeCompact/routing so every
-	// dispatch sees a wire-valid history (dangling tool_use 400s on Together).
+	// erase the provenance and leave a dangling tool_use that 400s on Together.
 	if sanitized := env.SanitizeOrphanedToolCalls(); sanitized > 0 {
 		log.Info("Sanitized orphaned tool calls before dispatch", "sanitized", sanitized)
 		requestBodyChanged = true
