@@ -12,9 +12,8 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// RoutableModelsSource reports the models this deployment can actually route:
-// catalog rows with a known tier and a binding to an available provider.
-// Implemented by *proxy.Service; nil skips the intersection guard.
+// RoutableModelsSource reports the models this deployment can route;
+// nil skips the intersection guard.
 type RoutableModelsSource interface {
 	RoutableModels() map[string]struct{}
 }
@@ -50,8 +49,7 @@ func GetAllowedModelsHandler(authSvc *auth.Service, _ DeployedModelsSource) gin.
 
 // UpdateAllowedModelsHandler replaces the installation's positive allowlist.
 // 400 on unknown model IDs, and on an allowlist with no routable member.
-// Unlike the exclusion list there is no env override to contend with — the
-// allowlist is purely a per-installation control.
+// Unlike the exclusion list there is no env override to contend with.
 func UpdateAllowedModelsHandler(authSvc *auth.Service, _ DeployedModelsSource, routable RoutableModelsSource) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		log := observability.FromGin(c)

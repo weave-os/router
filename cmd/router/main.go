@@ -1433,9 +1433,7 @@ func parseEnvInt(key string, fallback int) int {
 // parseEnvFloat reads an env var as a float64, falling back on unset/empty/
 // unparseable. Zero and negative values are valid — e.g. operators set
 // ROUTER_SWITCH_EV_THRESHOLD_USD <= 0 to force aggressive planner switching.
-// proxyRoutableModels is the allowlist desugaring universe. Generic
-// RoutingTargetSet plus HMM-only rows when an HMM sidecar is wired, so an
-// HMM-only allowlist is not rejected as emptying the pool.
+// proxyRoutableModels is RoutingTargetSet plus HMM-only rows when HMM is wired.
 func proxyRoutableModels(generic, providers map[string]struct{}, hmmWired bool) map[string]struct{} {
 	if !hmmWired {
 		return generic
