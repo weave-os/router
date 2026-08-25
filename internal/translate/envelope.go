@@ -655,11 +655,9 @@ func isUnsignedThinkingBlock(block gjson.Result) bool {
 }
 
 // stripForeignSignedThinkingBlocksBytes removes `thinking` blocks carrying a
-// router-minted cross-format signature. The Responses→Anthropic writers encode
-// an OpenAI reasoning item into the `signature` field so the reasoning can be
-// replayed to OpenAI; Anthropic validates that field and 400s on it, and the
-// switch-history guard misses the case because a client-side compaction re-keys
-// the session (the pin, and with it the prior served model, is lost).
+// router-minted cross-format signature (an OpenAI reasoning item encoded by
+// encodeOpenAIReasoningSignature). Anthropic validates the field and 400s;
+// ModelSwitched misses it when client-side compaction re-keys the session.
 func stripForeignSignedThinkingBlocksBytes(body []byte) ([]byte, error) {
 	return rewriteMessageBlocks(body, isForeignSignedThinkingBlock, dropMatchedBlock)
 }
@@ -1181,10 +1179,9 @@ func resolveAnthropicOverrides(body []byte, opts EmitOptions) EmitOverrides {
 	}
 
 	// Floor under the switch-history guard: Anthropic rejects unsigned blocks
-	// regardless of pin TTL, so strip them unconditionally (#860). Blocks signed
-	// by another provider's reasoning envelope fail the same way and are missed
-	// by ModelSwitched whenever the session key moved (client-side compaction
-	// rewrites the first user message, which the key is derived from).
+	// regardless of pin TTL, so strip them unconditionally (#860). Foreign-signed
+	// blocks fail the same way and are missed by ModelSwitched when client-side
+	// compaction re-keys the session.
 	ov.StripUnsignedThinkingBlocks = true
 	ov.StripForeignSignedThinkingBlocks = true
 

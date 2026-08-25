@@ -1132,9 +1132,8 @@ func TestAnthropicSameFormat_NonXhighEffortUntouchedByClamp(t *testing.T) {
 	assert.Equal(t, "high", outputConfig["effort"], "supported effort levels must pass through unchanged")
 }
 
-// openAIReasoningSignature mirrors what the Responses→Anthropic writers mint:
-// an OpenAI reasoning item smuggled through the Anthropic `signature` field so
-// the reasoning can be replayed to OpenAI on the next turn.
+// openAIReasoningSignature builds the cross-format envelope that
+// encodeOpenAIReasoningSignature mints, for use in test fixtures.
 func openAIReasoningSignature(t *testing.T, id, enc string) string {
 	t.Helper()
 	raw, err := json.Marshal(map[string]any{"v": 1, "provider": "openai", "id": id, "enc": enc})
@@ -1142,12 +1141,9 @@ func openAIReasoningSignature(t *testing.T, id, enc string) string {
 	return base64.StdEncoding.EncodeToString(raw)
 }
 
-// TestAnthropicSameFormat_ForeignSignedThinkingStrippedWithoutModelSwitch is
-// the prod regression: a session served by an OpenAI model replays thinking
-// blocks whose signature is our own cross-format envelope. A client-side
-// compaction rewrites the first user message, which re-keys the session and
-// loses the pin, so ModelSwitched is false on the turn that re-routes to
-// Anthropic — and Anthropic answers "Invalid signature in thinking block".
+// TestAnthropicSameFormat_ForeignSignedThinkingStrippedWithoutModelSwitch
+// covers the prod regression where client-side compaction re-keys the session,
+// losing the pin and leaving ModelSwitched false on re-route to Anthropic.
 func TestAnthropicSameFormat_ForeignSignedThinkingStrippedWithoutModelSwitch(t *testing.T) {
 	sig := openAIReasoningSignature(t, "rs_abc123", "gAAAAA")
 	body := []byte(fmt.Sprintf(
@@ -1169,9 +1165,8 @@ func TestAnthropicSameFormat_ForeignSignedThinkingStrippedWithoutModelSwitch(t *
 }
 
 // TestAnthropicSameFormat_ForeignSignedThinkingStrippedAnthropicSignedKept
-// pins the discrimination: only the cross-format envelope is dropped, an
-// Anthropic-minted signature still rides along for cache and reasoning
-// continuity.
+// verifies that only cross-format-signed blocks are dropped; Anthropic-minted
+// signatures survive for cache and reasoning continuity.
 func TestAnthropicSameFormat_ForeignSignedThinkingStrippedAnthropicSignedKept(t *testing.T) {
 	sig := openAIReasoningSignature(t, "rs_abc123", "gAAAAA")
 	body := []byte(fmt.Sprintf(
@@ -1191,9 +1186,8 @@ func TestAnthropicSameFormat_ForeignSignedThinkingStrippedAnthropicSignedKept(t 
 	assert.Equal(t, "ErUBCkYIBRgCKkA", kept["signature"], "the Anthropic-signed block must survive intact")
 }
 
-// TestAnthropicSameFormat_ForeignSignedThinkingOnlyMessageDropped: stripping
-// the only block in an assistant message must drop the message, never emit
-// content:[] (which Anthropic rejects too).
+// TestAnthropicSameFormat_ForeignSignedThinkingOnlyMessageDropped: a
+// foreign-signed-only assistant message must be dropped, not emitted as content:[].
 func TestAnthropicSameFormat_ForeignSignedThinkingOnlyMessageDropped(t *testing.T) {
 	sig := openAIReasoningSignature(t, "rs_abc123", "gAAAAA")
 	body := []byte(fmt.Sprintf(
