@@ -9,14 +9,11 @@ import (
 // surfaces are mounted under.
 const versionSegment = "/v1"
 
-// GatewayVersionMemo resolves where a BYOK gateway actually mounts its API when
-// the stored base URL disagrees with the adapter's canonical suffix — the
-// Snowflake Cortex shape, where the catalog lives at {account}/api/v2/cortex/models
-// but chat lives at {account}/api/v2/cortex/v1/chat/completions, so an admin who
-// stores the base URL the catalog (or the Anthropic SDK) wants leaves the
-// OpenAI-spec surface one "/v1" short. Base URLs are only ever probed, never
-// rewritten: the alternate is tried after a 404 and remembered so later requests
-// on the same endpoint skip the miss.
+// GatewayVersionMemo resolves gateway base URLs that disagree with an adapter's
+// canonical suffix on the "/v1" segment (Snowflake Cortex mounts its catalog at
+// /api/v2/cortex/models but chat at /api/v2/cortex/v1/chat/completions). Base
+// URLs are probed, not rewritten; a successful alternate is remembered so later
+// requests skip the miss.
 //
 // The zero value is ready to use. Entries are bounded by the number of distinct
 // gateway base URLs a deployment serves.

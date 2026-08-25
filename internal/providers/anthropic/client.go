@@ -284,10 +284,8 @@ func (c *Client) Proxy(ctx context.Context, decision router.Decision, prep provi
 	// Applied after the catalog map so a BYOK endpoint's own naming wins.
 	body = proxy.ApplyModelAlias(ctx, body, decision.Model)
 
-	// A 404 is buffered before anything reaches w, so a gateway base URL that
-	// already ends in the version segment this adapter appends (.../v1/v1/messages)
-	// can be re-tried without the duplicate. The first error is the one reported:
-	// a genuine model-not-found must not be masked by the probe's own miss.
+	// 404s are buffered before reaching w, so a duplicate "/v1" can be re-tried.
+	// firstErr is returned on double-miss so the probe's 404 doesn't mask the original.
 	urls := c.versionMemo.URLs(baseURL, "/v1/messages")
 	firstErr := c.proxyTo(ctx, cancel, urls[0], body, decision, prep, w, r)
 	if len(urls) == 1 || !providers.IsUpstreamModelNotFound(firstErr) {

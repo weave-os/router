@@ -16,9 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// cortexInference serves Cortex's documented chat surfaces —
-// /api/v2/cortex/v1/chat/completions and /api/v2/cortex/v1/messages — and 404s
-// everything else, recording every path tried.
+// cortexInference serves only served, 404s everything else, recording paths tried.
 func cortexInference(served string, paths *[]string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		*paths = append(*paths, r.URL.Path)
@@ -40,10 +38,8 @@ func chatRequest() (providers.PreparedRequest, *http.Request) {
 		httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(""))
 }
 
-// A gateway base URL stored without the version segment the OpenAI-spec surface
-// is mounted under (Snowflake Cortex: .../api/v2/cortex, chat at
-// .../api/v2/cortex/v1/chat/completions) must still reach chat, and must stop
-// re-probing the unversioned path once it has.
+// A base URL missing the version segment must still reach chat and must memoize
+// the working path so the second call skips the probe.
 func TestProxy_GatewayBaseURLMissingVersionSegment(t *testing.T) {
 	var paths []string
 	srv := httptest.NewServer(cortexInference("/api/v2/cortex/v1/chat/completions", &paths))
@@ -91,9 +87,7 @@ func TestProxy_VersionedBaseURLIsNotProbed(t *testing.T) {
 	assert.Equal(t, []string{"/api/v2/cortex/v1/chat/completions"}, paths)
 }
 
-// The Messages surface is the mirror case: Cortex serves it at
-// .../api/v2/cortex/v1/messages, so an admin who mirrors the OpenAI base URL
-// (.../api/v2/cortex/v1) would otherwise POST to .../v1/v1/messages.
+// A versioned base URL paired with a versioned suffix retries without the duplicate.
 func TestAnthropicProxy_GatewayBaseURLWithDuplicateVersionSegment(t *testing.T) {
 	var paths []string
 	srv := httptest.NewServer(cortexInference("/api/v2/cortex/v1/messages", &paths))
@@ -105,8 +99,7 @@ func TestAnthropicProxy_GatewayBaseURLWithDuplicateVersionSegment(t *testing.T) 
 	assert.Equal(t, []string{"/api/v2/cortex/v1/v1/messages", "/api/v2/cortex/v1/messages"}, paths)
 }
 
-// The base URL Cortex's own Anthropic-SDK quickstart uses reaches Messages on
-// the first try.
+// An unversioned base URL reaches Messages on the first try.
 func TestAnthropicProxy_GatewayBaseURLWithoutVersionSegment(t *testing.T) {
 	var paths []string
 	srv := httptest.NewServer(cortexInference("/api/v2/cortex/v1/messages", &paths))
