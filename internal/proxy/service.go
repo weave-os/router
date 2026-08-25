@@ -2652,10 +2652,8 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		}
 	}
 
-	// Spiral snapshot: the shadow detector reads it after routing, but the
-	// escalation gate just below needs it too when evidence arming is on, and
-	// both must see the client-sent body — this is still ahead of every env
-	// rewrite (proactive compaction, switch handover).
+	// Snapshot before env rewrites: shared by the shadow detector and the
+	// evidence-arming gate below, both of which must see the client-sent body.
 	var inboundSpiralSignals spiralSignals
 	var inboundSpiralReasons []string
 	if s.ResolveSpiralShadowEnabled(ctx) || s.ResolveStruggleEvidenceArming(ctx) {

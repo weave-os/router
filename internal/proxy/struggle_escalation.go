@@ -67,12 +67,9 @@ const (
 // re-pin buys nothing and loses the prefix cache.
 const struggleEvidenceMinTurns = 8
 
-// handleStruggleEscalation arms an up-cluster move (sideways only when no
-// higher cluster can serve) for a grinding session: either the turn/wall
-// thresholds (turns >= 30, wall >= 10m) or, when evidence arming is on, the
-// behavioral spiral signals in evidence. Must run before routing so runTurnLoop
-// picks up the sticky pin on the same turn; idempotent via durable
-// once-per-session budget.
+// handleStruggleEscalation arms an up-cluster (or sideways) move for a
+// grinding session via the turn/wall thresholds or, when enabled, behavioral
+// evidence. Must run before routing; idempotent via once-per-session budget.
 func (s *Service) handleStruggleEscalation(
 	ctx context.Context,
 	installationID uuid.UUID,

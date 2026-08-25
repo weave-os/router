@@ -167,10 +167,8 @@ func computeSpiralSignals(env *translate.RequestEnvelope, messageCount int) spir
 	return s
 }
 
-// trailingPingPongLen measures the A/B/A/B run at the tail of the call list:
-// how many trailing calls alternate between exactly two distinct signatures.
-// Zero unless a genuine alternation of at least two distinct signatures runs
-// to the end — a repeated single signature is the repetition signal's job.
+// trailingPingPongLen counts the trailing A/B alternation between exactly two
+// distinct signatures; a repeated single signature is the repetition signal's job.
 func trailingPingPongLen(sigs []translate.ToolCallSig) int {
 	if len(sigs) < 4 {
 		return 0
@@ -194,12 +192,9 @@ func trailingPingPongLen(sigs []translate.ToolCallSig) int {
 	return run
 }
 
-// stepsSinceProgress counts the tool calls made after the last edit that came
-// back without an error, and reports whether the session ever attempted an
-// edit at all. With no edit ever landing, every call counts — the session has
-// been grinding since its first action. An in-flight edit counts as progress: its outcome
-// is unknown, and charging the agent for a call it hasn't heard back from
-// would fire on the turn that is about to succeed.
+// stepsSinceProgress counts tool calls since the last non-errored edit, and
+// reports whether an edit was ever attempted. An unresolved in-flight edit
+// counts as progress so we don't fire on the turn before its result arrives.
 func stepsSinceProgress(outcomes []translate.ToolCallOutcome) (steps int, editAttempted bool) {
 	lastProgress := -1
 	for i, o := range outcomes {
