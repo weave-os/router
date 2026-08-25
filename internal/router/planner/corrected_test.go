@@ -129,10 +129,9 @@ func TestCacheableShareFallsBackToLegacyWhenUninstrumented(t *testing.T) {
 		"k=1 must collapse the corrected rate back onto price*multiplier")
 }
 
-// A MEASURED zero prefix is a real cold cache and must be priced as one. The
-// fallback that turns missing telemetry into k=1 must not swallow it, or a
-// genuinely uncached pin is priced as fully cached and charged an eviction for
-// a prefix that does not exist.
+// A measured zero prefix is a real cold cache and must be priced as one.
+// Without CachePrefixKnown the k=1 fallback swallows it, pricing the pin as
+// fully cached and charging eviction for a prefix that does not exist.
 func TestExplicitZeroPrefixIsNotTreatedAsFullyCached(t *testing.T) {
 	measuredZero := correctedInputs("claude-opus-5", "claude-haiku-4-5", 200_000, 0, 0, false)
 	measuredZero.CachePrefixKnown = true

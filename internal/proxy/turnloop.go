@@ -109,13 +109,10 @@ func clearPinEvidence(res *turnLoopResult) {
 	res.PriorTurnGapMS = nil
 }
 
-// cacheablePrefixTokens projects the pin's own previous-turn cache-hit share
-// onto this turn's prompt. The share is a ratio of two MEASURED counters, so it
-// is immune to the current turn's estimate being off; dividing measured cached
-// tokens by an estimated current total is not, and biases k toward 1.
-//
-// Reports false when the pin carries no usage telemetry, so the planner can
-// tell that apart from a measured zero.
+// cacheablePrefixTokens projects the pin's previous-turn cache-hit share
+// onto this turn's prompt. The share is a ratio of two measured counters, not
+// measured cached tokens over an estimated current total — the latter biases k
+// toward 1. Reports false when the pin carries no usage telemetry.
 func cacheablePrefixTokens(pin sessionpin.Pin, total int, prefixBroken bool) (int, bool) {
 	if prefixBroken {
 		return 0, true // a client trim really did evict the prefix

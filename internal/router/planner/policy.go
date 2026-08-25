@@ -90,10 +90,9 @@ type Inputs struct {
 	// Shadow-only until CorrectedEconomics is armed, which reads it as the
 	// numerator of the cacheable share. Meaningful only when CachePrefixKnown.
 	CacheablePrefixTokens int
-	// CachePrefixKnown distinguishes a measured zero prefix from no telemetry
-	// at all. Without it a genuinely uncached pin would fall back to k=1 and be
-	// priced as fully cached — the exact inversion CorrectedEconomics exists to
-	// remove.
+	// CachePrefixKnown distinguishes a measured zero prefix from no telemetry.
+	// Without it a genuinely uncached pin falls back to k=1 and is priced as
+	// fully cached — the inversion CorrectedEconomics exists to remove.
 	CachePrefixKnown bool
 	// PriorOutputTokens estimates this turn's completion from the last one, so
 	// CorrectedEconomics can price output — which the legacy path ignores
