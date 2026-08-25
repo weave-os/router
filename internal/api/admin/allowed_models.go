@@ -74,10 +74,8 @@ func UpdateAllowedModelsHandler(authSvc *auth.Service, _ DeployedModelsSource, r
 			allowed[e.Model] = struct{}{}
 		}
 
-		// ...but the allowlist is enforced by excluding its complement over the
-		// routable set, so a list naming only non-routable catalog rows (an
-		// unbound provider, or a passthrough-only row with no tier) empties the
-		// candidate pool and 400s every routed request. Require one survivor.
+		// A list naming only non-routable rows empties the candidate pool;
+		// require at least one routable survivor.
 		if allowlistLosesRoutability(req.Allowed, allowed, routable) {
 			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{
 				"error": "Allowlist selects no model this deployment can route. Add at least one routable model; the rest are reachable only via force-model or passthrough.",

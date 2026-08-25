@@ -21,10 +21,8 @@ type stubRoutableModels struct {
 
 func (s stubRoutableModels) RoutableModels() map[string]struct{} { return s.models }
 
-// putAllowedModels drives the handler behind a middleware that injects an
-// already-authed installation, so the request reaches the validation guards
-// without a real auth flow. authSvc is nil: every case here must be rejected
-// before the handler touches it.
+// putAllowedModels drives the handler with an already-authed installation
+// injected, bypassing the real auth flow.
 func putAllowedModels(t *testing.T, routable admin.RoutableModelsSource, allowed []string) *httptest.ResponseRecorder {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
