@@ -13,20 +13,13 @@ import (
 	"workweave/router/internal/websearch"
 )
 
-// serveNativeWebSearch answers a native web-search turn the routed upstream
-// cannot serve, by executing the search on the tenant's own provider and
-// synthesizing the server_tool_use / web_search_tool_result blocks Anthropic
-// would have produced.
-//
-// Gateway-exclusive tenants are the reason this exists: their only
-// Anthropic-capable binding is an Anthropic-spec gateway whose inference API
-// rejects server tools outright (Cortex: "tool type 'web_search_20250305' is
-// not supported for this model"), and rerouting the turn to another vendor
-// would leave the provider they are pinned to.
-//
-// Reports whether the turn was served. Anything it cannot serve — no executor,
-// a natively capable provider in the pool, a conversational turn rather than a
-// search sub-turn, a failed search — falls through to normal routing.
+// serveNativeWebSearch answers a native web-search turn when no enabled
+// provider can execute it, by running the search on the tenant's own gateway
+// and synthesizing the server_tool_use / web_search_tool_result blocks.
+// Cortex inference rejects web_search_20250305; agent:run on the same host
+// accepts it. Returns true if served; falls through when no executor, a
+// capable provider is in the pool, the turn is not a search sub-turn, or
+// the search fails.
 func (s *Service) serveNativeWebSearch(
 	ctx context.Context,
 	body []byte,
@@ -82,9 +75,8 @@ func (s *Service) serveNativeWebSearch(
 	return true
 }
 
-// anyNativeServerToolProvider reports whether the request's provider pool
-// contains an upstream that runs Anthropic server tools itself, in which case
-// routing (not this path) serves the turn.
+// anyNativeServerToolProvider reports whether any enabled provider runs
+// Anthropic server tools natively, in which case the turn stays on routing.
 func anyNativeServerToolProvider(enabled map[string]struct{}) bool {
 	for provider := range enabled {
 		if providers.SupportsAnthropicServerTools(provider) {

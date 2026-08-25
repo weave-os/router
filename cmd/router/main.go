@@ -1643,13 +1643,9 @@ const (
 	defaultHardPinModel    = "claude-haiku-4-5"
 )
 
-// cortexWebSearch builds the executor that serves Anthropic's native
-// web-search server tool on Snowflake Cortex Agents (agent:run), for gateway
-// tenants whose only Anthropic-capable upstream rejects the tool. Returns nil
-// when disabled, leaving those turns on normal routing.
-//
-// The base URL and credential come from the request's gateway key, so no
-// deployment-level Snowflake config is required to enable it.
+// cortexWebSearch builds the Cortex Agents web-search executor for gateway
+// tenants whose Anthropic path rejects the native server tool. Returns nil
+// when ROUTER_CORTEX_WEB_SEARCH != "true", leaving those turns on normal routing.
 func cortexWebSearch(logger *slog.Logger) websearch.Executor {
 	if config.GetOr("ROUTER_CORTEX_WEB_SEARCH", "true") != "true" {
 		logger.Info("Cortex Agents web-search executor disabled (ROUTER_CORTEX_WEB_SEARCH)")

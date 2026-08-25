@@ -1,10 +1,7 @@
-// Package cortexagents executes web searches on Snowflake Cortex Agents.
-//
-// Cortex's inference endpoints (Messages, Chat Completions) accept function
-// tools only and reject Anthropic's native web_search server tool, but the
-// Agents endpoint on the same host and same credential ships a native
-// web_search tool. Routing a gateway tenant's search there keeps the traffic
-// inside the provider they are contractually pinned to.
+// Package cortexagents executes web searches on Snowflake Cortex Agents
+// (agent:run). Cortex's inference endpoints reject Anthropic's native
+// web_search server tool; the Agents endpoint on the same host and credential
+// does not, keeping gateway-tenant traffic inside their contracted provider.
 package cortexagents
 
 import (
@@ -172,12 +169,10 @@ func runRequest(query string, maxResults int) map[string]any {
 	}
 }
 
-// parseRunResponse extracts the agent's answer text and the search hits.
-//
-// Snowflake documents the envelope (role/content/status) but not the web
-// search tool_result payload, and warns that clients must tolerate unknown
-// event and content types — so hits are collected structurally (any object
-// carrying a URL) rather than from a fixed path.
+// parseRunResponse extracts the agent's answer text and search hits.
+// Snowflake documents the envelope but not the web_search tool_result payload,
+// so hits are collected structurally (any URL-bearing object) rather than from
+// a fixed path.
 func parseRunResponse(raw []byte, maxResults int) websearch.Response {
 	if maxResults <= 0 {
 		maxResults = websearch.DefaultMaxResults
