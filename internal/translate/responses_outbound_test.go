@@ -377,7 +377,7 @@ func TestResponsesToAnthropicResponse(t *testing.T) {
 	input, _ := b2["input"].(map[string]any)
 	assert.Equal(t, "go test", input["command"], "arguments string parsed back to an input object")
 	usage, _ := msg["usage"].(map[string]any)
-	assert.EqualValues(t, 1200, usage["input_tokens"])
+	assert.EqualValues(t, 144, usage["input_tokens"], "Anthropic input_tokens is fresh-only")
 	assert.EqualValues(t, 340, usage["output_tokens"])
 	assert.EqualValues(t, 800, usage["cache_read_input_tokens"])
 	assert.EqualValues(t, 256, usage["cache_creation_input_tokens"])
