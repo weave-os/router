@@ -68,9 +68,9 @@ therefore excludes the entire pool and 400s every routed request with
 `ErrAllowlistEmptiesPool`. The handler calls `Service.RoutableModels()` and
 refuses to save such a list, deferring to the unknown-model error first so a
 typo is not reported as a routability problem. Keep that accessor and the
-desugaring reading the same universe: validating against a narrower roster
-(the cluster artifact's `DefaultDeployedModels`) is what this replaced, and it
-wrongly rejected arms a non-cluster strategy can serve.
+desugaring reading the same universe. `availableModels` is the generic
+`RoutingTargetSet` plus `HMMRoutingTargetSet` when an HMM sidecar is wired,
+so an HMM-only allowlist is not rejected as emptying the pool.
 
 **The fail-open/fail-closed asymmetry is load-bearing.** An org allowlist is a
 compliance control (a breach is worse than an outage); a user's per-cluster
