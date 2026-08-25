@@ -48,6 +48,14 @@ const (
 	// real user input. Set above the text-only nudge threshold to avoid
 	// double-reporting.
 	spiralMonologueThreshold = 4
+	// Trailing A/B/A/B alternation length between exactly two signatures
+	// (SageRoute's ping-pong). Three full round trips: two are a legitimate
+	// read-edit-read-edit rhythm.
+	spiralPingPongThreshold = 6
+	// Tool calls since the last non-errored edit, counted only once the
+	// session has landed or attempted an edit — a pure Explore phase makes no
+	// edits by design and must not read as stalled.
+	spiralNoProgressThreshold = 15
 )
 
 // Spiral signal-class taxonomy. One event per (session, role, reason).
@@ -56,6 +64,8 @@ const (
 	spiralReasonSameFileThrash = "same_file_thrash"
 	spiralReasonRepetition     = "repetition"
 	spiralReasonMonologue      = "monologue"
+	spiralReasonPingPong       = "ping_pong"
+	spiralReasonNoProgress     = "no_progress"
 )
 
 // SpiralShadowStore persists shadow spiral detections (router.spiral_shadow_events).
@@ -102,6 +112,11 @@ type spiralSignals struct {
 	monologueLen     int
 	toolCallCount    int
 	messageCount     int
+	pingPongLen      int
+	// stepsSinceProgress is only meaningful once editAttempted is set: a
+	// session that never tried to edit has nothing to have stalled on.
+	stepsSinceProgress int
+	editAttempted      bool
 }
 
 // computeSpiralSignals derives the spiral signal snapshot from the inbound
@@ -146,7 +161,60 @@ func computeSpiralSignals(env *translate.RequestEnvelope, messageCount int) spir
 		}
 		s.repeatFrac = float64(repeated) / float64(len(window))
 	}
+
+	s.pingPongLen = trailingPingPongLen(sigs)
+	s.stepsSinceProgress, s.editAttempted = stepsSinceProgress(env.AssistantToolCallOutcomes())
 	return s
+}
+
+// trailingPingPongLen measures the A/B/A/B run at the tail of the call list:
+// how many trailing calls alternate between exactly two distinct signatures.
+// Zero unless a genuine alternation of at least two distinct signatures runs
+// to the end — a repeated single signature is the repetition signal's job.
+func trailingPingPongLen(sigs []translate.ToolCallSig) int {
+	if len(sigs) < 4 {
+		return 0
+	}
+	key := func(i int) string { return sigs[i].Name + "\x00" + sigs[i].InputHash }
+	last, prev := key(len(sigs)-1), key(len(sigs)-2)
+	if last == prev {
+		return 0
+	}
+	run := 2
+	for i := len(sigs) - 3; i >= 0; i-- {
+		// Two back must repeat: ...A B A B with last=B, prev=A.
+		if key(i) != key(i+2) {
+			break
+		}
+		run++
+	}
+	if run < 4 {
+		return 0
+	}
+	return run
+}
+
+// stepsSinceProgress counts the tool calls made after the last edit that came
+// back without an error, and reports whether the session ever attempted an
+// edit at all. With no edit ever landing, every call counts — the session has
+// been grinding since its first action. An in-flight edit counts as progress: its outcome
+// is unknown, and charging the agent for a call it hasn't heard back from
+// would fire on the turn that is about to succeed.
+func stepsSinceProgress(outcomes []translate.ToolCallOutcome) (steps int, editAttempted bool) {
+	lastProgress := -1
+	for i, o := range outcomes {
+		if _, isEdit := editToolNames[o.Name]; !isEdit {
+			continue
+		}
+		editAttempted = true
+		if !o.Resolved || !o.Errored {
+			lastProgress = i
+		}
+	}
+	if !editAttempted {
+		return 0, false
+	}
+	return len(outcomes) - 1 - lastProgress, true
 }
 
 // spiralReasons returns the signal classes whose thresholds the snapshot
@@ -167,6 +235,12 @@ func spiralReasons(s spiralSignals) []string {
 	}
 	if s.monologueLen >= spiralMonologueThreshold {
 		reasons = append(reasons, spiralReasonMonologue)
+	}
+	if s.pingPongLen >= spiralPingPongThreshold {
+		reasons = append(reasons, spiralReasonPingPong)
+	}
+	if s.editAttempted && s.stepsSinceProgress >= spiralNoProgressThreshold {
+		reasons = append(reasons, spiralReasonNoProgress)
 	}
 	return reasons
 }
@@ -239,27 +313,31 @@ func (s *Service) handleSpiralShadow(
 			"monologue_len", sig.monologueLen,
 			"tool_call_count", sig.toolCallCount,
 			"message_count", sig.messageCount,
+			"ping_pong_len", sig.pingPongLen,
+			"steps_since_progress", sig.stepsSinceProgress,
 			"session_key_prefix", shortSessionKey(sessionKey),
 			"role", role,
 		)
 
 		if s.spiralShadowStore != nil && installationID != uuid.Nil {
 			event := SpiralShadowEvent{
-				InstallationID:   installationID.String(),
-				SessionKey:       sessionKey[:],
-				Role:             role,
-				RoutedModel:      routedModel,
-				TurnType:         turnType,
-				Reason:           reason,
-				ErrStreak:        int32(sig.errStats.TrailingErrStreak),
-				ErroredResults:   int32(sig.errStats.Errored),
-				ToolResults:      int32(sig.errStats.Total),
-				MaxSameFileEdits: int32(sig.maxSameFileEdits),
-				SameFilePathHash: sig.sameFilePathHash,
-				RepeatFrac:       sig.repeatFrac,
-				MonologueLen:     int32(sig.monologueLen),
-				ToolCallCount:    int32(sig.toolCallCount),
-				MessageCount:     int32(sig.messageCount),
+				InstallationID:     installationID.String(),
+				SessionKey:         sessionKey[:],
+				Role:               role,
+				RoutedModel:        routedModel,
+				TurnType:           turnType,
+				Reason:             reason,
+				ErrStreak:          int32(sig.errStats.TrailingErrStreak),
+				ErroredResults:     int32(sig.errStats.Errored),
+				ToolResults:        int32(sig.errStats.Total),
+				MaxSameFileEdits:   int32(sig.maxSameFileEdits),
+				SameFilePathHash:   sig.sameFilePathHash,
+				RepeatFrac:         sig.repeatFrac,
+				MonologueLen:       int32(sig.monologueLen),
+				ToolCallCount:      int32(sig.toolCallCount),
+				MessageCount:       int32(sig.messageCount),
+				PingPongLen:        int32(sig.pingPongLen),
+				StepsSinceProgress: int32(sig.stepsSinceProgress),
 			}
 			// context.Background(): the request ctx may already be canceled;
 			// losing the row would skew the shadow fire-rate corpus.
