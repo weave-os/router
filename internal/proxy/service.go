@@ -2549,14 +2549,6 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	if removed := env.StripRouterFeedbackArtifacts(); removed > 0 {
 		log.Info("Stripped router-feedback artifacts from Anthropic history", "removed_messages", removed)
 	}
-	// A dangling tool_use left by a prior mid-stream failure 400s permanently
-	// on providers that validate tool-call/response pairing (Together); other
-	// providers silently accept it, so the failure only shows up depending on
-	// which model the router picks. Must run before maybeCompact/routing so
-	// every dispatch attempt this turn sees a wire-valid history.
-	if sanitized := env.SanitizeOrphanedToolCalls(); sanitized > 0 {
-		log.Info("Sanitized orphaned tool calls before dispatch", "sanitized", sanitized)
-	}
 
 	embedFlag := s.ResolveEmbedOnlyUserMessage(ctx)
 	feats := env.RoutingFeatures(embedFlag)
@@ -2580,14 +2572,25 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	// env.body so the upstream never sees it). Session key is derived before
 	// extraction: DeriveSessionKey can fall back to prompt text, and deriving
 	// after the strip would mismatch subsequent turns with the unstripped message.
+	agentForceModel := ""
+	requestBodyChanged := false
 	if !agentShadowMode && s.pinStore != nil {
 		if cmd, hasCmd := env.ExtractForceModelCommand(); hasCmd {
 			log.Info("ProxyMessages force-model command", "force_model_cmd", cmd)
-			if err := s.handleForceModelCommand(ctx, w, env, cmd, installationID, sessionKey, feats.Tokens); err != nil {
-				return err
+			if cmd.FromToolResult {
+				var err error
+				agentForceModel, _, err = s.applyForceModelCommand(ctx, env, cmd, installationID, sessionKey)
+				if err != nil {
+					return err
+				}
+				requestBodyChanged = true
+			} else {
+				if err := s.handleForceModelCommand(ctx, w, env, cmd, installationID, sessionKey, feats.Tokens); err != nil {
+					return err
+				}
+				s.grantPostCommandContinuation(ctx, installationID, sessionKey, roleForTier(catalog.TierFor(feats.Model)))
+				return nil
 			}
-			s.grantPostCommandContinuation(ctx, installationID, sessionKey, roleForTier(catalog.TierFor(feats.Model)))
-			return nil
 		}
 	}
 	if !agentShadowMode {
@@ -2601,16 +2604,40 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		}
 	}
 
+	// Sanitize only after command extraction. A client-side skill can encode
+	// its output as a plain user string following an assistant tool_use; doing
+	// this first would erase the provenance needed to avoid executing it.
+	// A dangling tool_use left by a prior mid-stream failure 400s permanently
+	// on providers that validate tool-call/response pairing (Together); other
+	// providers silently accept it, so the failure only shows up depending on
+	// which model the router picks. It must run before maybeCompact/routing so
+	// every dispatch attempt this turn sees a wire-valid history.
+	if sanitized := env.SanitizeOrphanedToolCalls(); sanitized > 0 {
+		log.Info("Sanitized orphaned tool calls before dispatch", "sanitized", sanitized)
+		requestBodyChanged = true
+	}
+	if requestBodyChanged {
+		feats = env.RoutingFeatures(embedFlag)
+		promptText = feats.PromptText
+		embedInput = "concatenated_stream"
+		if embedFlag && feats.OnlyUserMessageText != "" {
+			promptText = feats.OnlyUserMessageText
+			embedInput = "only_user_message"
+		}
+	}
+
 	// Honor the x-weave-force-model header (headless equivalent of /force-model).
 	// Writes the user-forced pin and falls through to normal routing, which picks
 	// the pin up and serves the requested model on this same turn.
-	forceModel := ""
+	forceModel := agentForceModel
 	forceCluster := ""
 	if !agentShadowMode {
-		var forceErr error
-		forceModel, forceErr = s.applyForceModelHeader(ctx, r, env, installationID, sessionKey)
+		headerForceModel, forceErr := s.applyForceModelHeader(ctx, r, env, installationID, sessionKey)
 		if forceErr != nil {
 			return forceErr
+		}
+		if headerForceModel != "" {
+			forceModel = headerForceModel
 		}
 		forceCluster, forceErr = applyForceClusterHeader(ctx, r)
 		if forceErr != nil {
@@ -5029,14 +5056,6 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	if removed := env.StripRouterFeedbackArtifacts(); removed > 0 {
 		log.Info("Stripped router-feedback artifacts from OpenAI history", "removed_messages", removed)
 	}
-	// A dangling tool_use left by a prior mid-stream failure 400s permanently
-	// on providers that validate tool-call/response pairing (Together); other
-	// providers silently accept it, so the failure only shows up depending on
-	// which model the router picks. Must run before maybeCompact/routing so
-	// every dispatch attempt this turn sees a wire-valid history.
-	if sanitized := env.SanitizeOrphanedToolCalls(); sanitized > 0 {
-		log.Info("Sanitized orphaned tool calls before dispatch", "sanitized", sanitized)
-	}
 	embedFlag := s.ResolveEmbedOnlyUserMessage(ctx)
 	feats := env.RoutingFeatures(embedFlag)
 	promptText := feats.PromptText
@@ -5061,14 +5080,25 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	// env.body so the upstream never sees it). Session key is derived before
 	// extraction: DeriveSessionKey can fall back to prompt text, and deriving
 	// after the strip would mismatch subsequent turns with the unstripped message.
+	agentForceModel := ""
+	requestBodyChanged := false
 	if s.pinStore != nil {
 		if cmd, hasCmd := env.ExtractForceModelCommand(); hasCmd {
 			log.Info("ProxyOpenAIChatCompletion force-model command", "force_model_cmd", cmd)
-			if err := s.handleForceModelCommand(ctx, w, env, cmd, installationID, sessionKey, feats.Tokens); err != nil {
-				return err
+			if cmd.FromToolResult {
+				var err error
+				agentForceModel, _, err = s.applyForceModelCommand(ctx, env, cmd, installationID, sessionKey)
+				if err != nil {
+					return err
+				}
+				requestBodyChanged = true
+			} else {
+				if err := s.handleForceModelCommand(ctx, w, env, cmd, installationID, sessionKey, feats.Tokens); err != nil {
+					return err
+				}
+				s.grantPostCommandContinuation(ctx, installationID, sessionKey, roleForTier(catalog.TierFor(feats.Model)))
+				return nil
 			}
-			s.grantPostCommandContinuation(ctx, installationID, sessionKey, roleForTier(catalog.TierFor(feats.Model)))
-			return nil
 		}
 	}
 	if cmd, hasCmd := env.ExtractRouterFeedbackCommand(); hasCmd {
@@ -5080,12 +5110,38 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		return nil
 	}
 
+	// Sanitize only after command extraction. A client-side skill can encode
+	// its output as a plain user string following an assistant tool_use; doing
+	// this first would erase the provenance needed to avoid executing it.
+	// A dangling tool_use left by a prior mid-stream failure 400s permanently
+	// on providers that validate tool-call/response pairing (Together); other
+	// providers silently accept it, so the failure only shows up depending on
+	// which model the router picks. It must run before maybeCompact/routing so
+	// every dispatch attempt this turn sees a wire-valid history.
+	if sanitized := env.SanitizeOrphanedToolCalls(); sanitized > 0 {
+		log.Info("Sanitized orphaned tool calls before dispatch", "sanitized", sanitized)
+		requestBodyChanged = true
+	}
+	if requestBodyChanged {
+		feats = env.RoutingFeatures(embedFlag)
+		promptText = feats.PromptText
+		embedInput = "concatenated_stream"
+		if embedFlag && feats.OnlyUserMessageText != "" {
+			promptText = feats.OnlyUserMessageText
+			embedInput = "only_user_message"
+		}
+	}
+
 	// Honor the x-weave-force-model header (headless equivalent of /force-model).
 	// Writes the user-forced pin and falls through to normal routing, which picks
 	// the pin up and serves the requested model on this same turn.
-	forceModel, forceErr := s.applyForceModelHeader(ctx, r, env, installationID, sessionKey)
+	forceModel := agentForceModel
+	headerForceModel, forceErr := s.applyForceModelHeader(ctx, r, env, installationID, sessionKey)
 	if forceErr != nil {
 		return forceErr
+	}
+	if headerForceModel != "" {
+		forceModel = headerForceModel
 	}
 	forceCluster, forceErr := applyForceClusterHeader(ctx, r)
 	if forceErr != nil {

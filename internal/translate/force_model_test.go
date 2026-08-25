@@ -158,6 +158,7 @@ func TestParseForceModelCommand_ForceModel(t *testing.T) {
 			}
 			assert.Equal(t, tt.wantModel, res.Model)
 			assert.False(t, res.Clear)
+			assert.False(t, res.FromToolResult)
 
 			// Verify the command was stripped from env body.
 			stripped := lastUserMessageText(t, env)
@@ -254,6 +255,131 @@ func TestExtractForceModelCommand_ArrayContentMultipleTextBlocks(t *testing.T) {
 	require.Len(t, blocks, 2)
 	second, _ := blocks[1].(map[string]any)
 	assert.Equal(t, "", second["text"], "the directive-bearing text block must be stripped")
+}
+
+func TestExtractForceModelCommand_AgentToolResultString(t *testing.T) {
+	body := mustMarshalJSON(t, map[string]any{
+		"model": "claude-sonnet-4-6",
+		"messages": []any{
+			map[string]any{
+				"role": "assistant",
+				"content": []any{map[string]any{
+					"type": "tool_use", "id": "toolu_skill", "name": "Skill", "input": map[string]any{"skill": "fm"},
+				}},
+			},
+			map[string]any{"role": "user", "content": "/force-model opus"},
+		},
+		"max_tokens": 1024,
+	})
+	env, err := translate.ParseAnthropic(body)
+	require.NoError(t, err)
+
+	cmd, found := env.ExtractForceModelCommand()
+	require.True(t, found)
+	assert.Equal(t, "opus", cmd.Model)
+	assert.True(t, cmd.FromToolResult)
+	assert.Equal(t, "", lastUserMessageText(t, env))
+}
+
+func TestExtractForceModelCommand_AgentToolResultBlock(t *testing.T) {
+	body := mustMarshalJSON(t, map[string]any{
+		"model": "claude-sonnet-4-6",
+		"messages": []any{
+			map[string]any{
+				"role": "assistant",
+				"content": []any{map[string]any{
+					"type": "tool_use", "id": "toolu_skill", "name": "Skill", "input": map[string]any{"skill": "fm"},
+				}},
+			},
+			map[string]any{
+				"role": "user",
+				"content": []any{map[string]any{
+					"type": "tool_result", "tool_use_id": "toolu_skill", "content": "/force-model opus",
+				}},
+			},
+		},
+		"max_tokens": 1024,
+	})
+	env, err := translate.ParseAnthropic(body)
+	require.NoError(t, err)
+
+	cmd, found := env.ExtractForceModelCommand()
+	require.True(t, found)
+	assert.Equal(t, "opus", cmd.Model)
+	assert.True(t, cmd.FromToolResult)
+}
+
+func TestExtractForceModelCommand_TrailingSystemNoticeAfterUserTurn(t *testing.T) {
+	// Claude Code appends a role:"system" deferred-tools notice after the user
+	// turn; it must not make the user's command look historical.
+	body := mustMarshalJSON(t, map[string]any{
+		"model": "claude-sonnet-4-6",
+		"messages": []any{
+			map[string]any{
+				"role": "user",
+				"content": []any{
+					map[string]any{"type": "text", "text": "<system-reminder>context</system-reminder>"},
+					map[string]any{"type": "text", "text": "/force-model opus"},
+				},
+			},
+			map[string]any{"role": "system", "content": "The following deferred tools are now available."},
+		},
+		"max_tokens": 1024,
+	})
+	env, err := translate.ParseAnthropic(body)
+	require.NoError(t, err)
+
+	cmd, found := env.ExtractForceModelCommand()
+	require.True(t, found)
+	assert.Equal(t, "opus", cmd.Model)
+	assert.False(t, cmd.FromToolResult, "a typed command is not agent-issued")
+}
+
+func TestExtractForceModelCommand_AgentToolResultWithTrailingSystemNotice(t *testing.T) {
+	body := mustMarshalJSON(t, map[string]any{
+		"model": "claude-sonnet-4-6",
+		"messages": []any{
+			map[string]any{"role": "user", "content": "do the thing"},
+			map[string]any{"role": "system", "content": "deferred tools notice"},
+			map[string]any{
+				"role": "assistant",
+				"content": []any{map[string]any{
+					"type": "tool_use", "id": "toolu_skill", "name": "Skill", "input": map[string]any{"skill": "fm"},
+				}},
+			},
+			map[string]any{
+				"role": "user",
+				"content": []any{map[string]any{
+					"type": "tool_result", "tool_use_id": "toolu_skill", "content": "/force-model opus",
+				}},
+			},
+			map[string]any{"role": "system", "content": "deferred tools notice"},
+		},
+		"max_tokens": 1024,
+	})
+	env, err := translate.ParseAnthropic(body)
+	require.NoError(t, err)
+
+	cmd, found := env.ExtractForceModelCommand()
+	require.True(t, found)
+	assert.Equal(t, "opus", cmd.Model)
+	assert.True(t, cmd.FromToolResult, "an interleaved system notice must not hide tool provenance")
+}
+
+func TestExtractForceModelCommand_IgnoresHistoricalCommand(t *testing.T) {
+	body := mustMarshalJSON(t, map[string]any{
+		"model": "claude-sonnet-4-6",
+		"messages": []any{
+			map[string]any{"role": "user", "content": "/force-model opus"},
+			map[string]any{"role": "assistant", "content": "Acknowledged."},
+		},
+		"max_tokens": 1024,
+	})
+	env, err := translate.ParseAnthropic(body)
+	require.NoError(t, err)
+
+	_, found := env.ExtractForceModelCommand()
+	assert.False(t, found, "a command from an earlier turn must not be replayed")
 }
 
 func TestExtractForceModelCommand_NoUserMessage(t *testing.T) {
