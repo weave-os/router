@@ -353,10 +353,9 @@ const (
 // different reasoning budget rather than a genuinely different model.
 var effortVariantSuffixes = []string{"pro", "thinking"}
 
-// sameEngine reports whether candidate is the looping model wearing a different
-// effort level ("gpt-5.6-luna" vs "gpt-5.6-luna-pro" or "…:high"). More
-// thinking on the same weights repeats the same tool call, so a rescue that
-// only changes effort is not a rescue.
+// sameEngine reports whether candidate is the looping model at a different
+// effort level ("gpt-5.6-luna" vs "gpt-5.6-luna-pro" or "…:high") — same
+// weights repeat the same tool call, so changing only effort is not a rescue.
 func sameEngine(current, candidate string) bool {
 	current, candidate = baseModelOf(current), baseModelOf(candidate)
 	if current == candidate {
