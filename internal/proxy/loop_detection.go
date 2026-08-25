@@ -79,10 +79,8 @@ const (
 	loopDetectionMaxRepeats = 5
 )
 
-// pollToolNames read a side channel that changes underneath a byte-identical
-// request: draining a background shell's buffer returns new output every call
-// with the same arguments. Repetition is the tool's normal usage, not loop
-// evidence — prod 2026-08-25 stopped a healthy session on 5x `shell_output`.
+// pollToolNames holds tools that drain a side-channel buffer — repetition is
+// their normal usage, not loop evidence.
 var pollToolNames = map[string]struct{}{
 	"shell_output": {}, "get_output": {}, "BashOutput": {},
 }
@@ -350,14 +348,9 @@ const (
 )
 
 // handleToolCallLoopSideways rescues a tight tool-call loop by re-pinning the
-// session onto a different arm — the cheapest cluster above the pin's own, else
-// a sideways arm within it — instead of stopping the turn. It writes no
-// response, so routing picks the new pin up and dispatches this same turn.
-//
-// The result also names the model that was actually looping (the pin), which is
-// NOT the client's requested model: this runs before routing, so the caller's
-// feats.Model is the inbound baseline and misattributes the loop on any
-// re-routed session.
+// session onto a different arm instead of stopping the turn. Returns a result
+// naming the looping model (the pin, not feats.Model, which is the pre-routing
+// baseline and misattributes on any re-routed session).
 func (s *Service) handleToolCallLoopSideways(
 	ctx context.Context,
 	sig translate.ToolCallSig,
@@ -487,9 +480,8 @@ func (s *Service) handleToolCallLoopSideways(
 	return loopSidewaysResult{Moved: true, LoopingModel: pin.Model, LoopingProvider: pin.Provider}
 }
 
-// loopAttribution names the model that was actually looping. The pinned model
-// is authoritative — loop detection runs before routing, so the inbound
-// requested model is only a fallback for a session with no pin to read.
+// loopAttribution prefers the pinned model: loop detection runs before routing,
+// so the inbound requested model misattributes on re-routed sessions.
 func loopAttribution(pinnedModel, pinnedProvider, requestedModel, requestedProvider string) (model, provider string) {
 	if pinnedModel == "" {
 		return requestedModel, requestedProvider
