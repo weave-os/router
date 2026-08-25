@@ -180,8 +180,11 @@ func (e *RequestEnvelope) buildAnthropicFromOpenAI(opts EmitOptions) ([]byte, er
 	return jw.Bytes(), nil
 }
 
-// writeAnthropicSystemAndMessages extracts system-role messages into the
-// Anthropic "system" field and writes the rest as Anthropic content.
+// writeAnthropicSystemAndMessages extracts the leading run of system-role
+// messages into the Anthropic "system" field and writes the rest as Anthropic
+// content. Mid-conversation system messages become user messages in place;
+// lifting them into "system" would shift the cached prefix on every turn (see
+// hoistAnthropicSystemMessages).
 func writeAnthropicSystemAndMessages(jw *jsonWriter, body []byte) {
 	messages := gjson.GetBytes(body, "messages")
 	if !messages.Exists() {
@@ -197,6 +200,7 @@ func writeAnthropicSystemAndMessages(jw *jsonWriter, body []byte) {
 	var systemBlocks []string
 	var msgParts []string // raw JSON message objects, flushed after tool batching
 	var pending pendingToolBatch
+	leading := true // still in the run of system messages before any turn
 
 	flushToolBatch := func() {
 		if !pending.active {
@@ -223,8 +227,12 @@ func writeAnthropicSystemAndMessages(jw *jsonWriter, body []byte) {
 		role := msg.Get("role").String()
 		content := msg.Get("content")
 
-		switch role {
-		case "system":
+		switch {
+		case role == "system" && !leading:
+			flushToolBatch()
+			msgParts = append(msgParts, cacheControlOnLastBlockWithPolicy(buildAnthropicUserMessage("user", content), sourceMessageCacheControl(msg)))
+
+		case role == "system":
 			policy := sourceMessageCacheControl(msg)
 			// Collect text from system messages into the top-level system field.
 			if content.Type == gjson.String {
@@ -256,18 +264,21 @@ func writeAnthropicSystemAndMessages(jw *jsonWriter, body []byte) {
 				})
 			}
 
-		case "tool":
+		case role == "tool":
+			leading = false
 			// Merge consecutive tool messages into a single Anthropic user message.
 			toolCallID := msg.Get("tool_call_id").String()
 			blockRaw := buildToolResultBlock(toolCallID, content)
 			pending.active = true
 			pending.blocks = append(pending.blocks, blockRaw)
 
-		case "assistant":
+		case role == "assistant":
+			leading = false
 			flushToolBatch()
 			msgParts = append(msgParts, cacheControlOnLastBlockWithPolicy(buildAnthropicAssistantMessage(msg), sourceMessageCacheControl(msg)))
 
 		default: // "user" and anything unrecognized
+			leading = false
 			flushToolBatch()
 			msgParts = append(msgParts, cacheControlOnLastBlockWithPolicy(buildAnthropicUserMessage(role, content), sourceMessageCacheControl(msg)))
 		}
