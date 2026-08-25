@@ -2604,14 +2604,10 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		}
 	}
 
-	// Sanitize only after command extraction. A client-side skill can encode
-	// its output as a plain user string following an assistant tool_use; doing
-	// this first would erase the provenance needed to avoid executing it.
-	// A dangling tool_use left by a prior mid-stream failure 400s permanently
-	// on providers that validate tool-call/response pairing (Together); other
-	// providers silently accept it, so the failure only shows up depending on
-	// which model the router picks. It must run before maybeCompact/routing so
-	// every dispatch attempt this turn sees a wire-valid history.
+	// Sanitize after command extraction: a skill can encode its command as a
+	// plain user string after an assistant tool_use, and sanitizing first would
+	// erase the provenance. Must also run before maybeCompact/routing so every
+	// dispatch sees a wire-valid history (dangling tool_use 400s on Together).
 	if sanitized := env.SanitizeOrphanedToolCalls(); sanitized > 0 {
 		log.Info("Sanitized orphaned tool calls before dispatch", "sanitized", sanitized)
 		requestBodyChanged = true
@@ -5110,14 +5106,10 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		return nil
 	}
 
-	// Sanitize only after command extraction. A client-side skill can encode
-	// its output as a plain user string following an assistant tool_use; doing
-	// this first would erase the provenance needed to avoid executing it.
-	// A dangling tool_use left by a prior mid-stream failure 400s permanently
-	// on providers that validate tool-call/response pairing (Together); other
-	// providers silently accept it, so the failure only shows up depending on
-	// which model the router picks. It must run before maybeCompact/routing so
-	// every dispatch attempt this turn sees a wire-valid history.
+	// Sanitize after command extraction: a skill can encode its command as a
+	// plain user string after an assistant tool_use, and sanitizing first would
+	// erase the provenance. Must also run before maybeCompact/routing so every
+	// dispatch sees a wire-valid history (dangling tool_use 400s on Together).
 	if sanitized := env.SanitizeOrphanedToolCalls(); sanitized > 0 {
 		log.Info("Sanitized orphaned tool calls before dispatch", "sanitized", sanitized)
 		requestBodyChanged = true

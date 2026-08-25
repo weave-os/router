@@ -309,6 +309,78 @@ func TestExtractForceModelCommand_AgentToolResultBlock(t *testing.T) {
 	assert.True(t, cmd.FromToolResult)
 }
 
+func TestExtractForceModelCommand_AgentSoleTextBlockDropsWholeMessage(t *testing.T) {
+	body := mustMarshalJSON(t, map[string]any{
+		"model": "claude-sonnet-4-6",
+		"messages": []any{
+			map[string]any{"role": "user", "content": "analyze usage"},
+			map[string]any{
+				"role": "assistant",
+				"content": []any{map[string]any{
+					"type": "tool_use", "id": "toolu_skill", "name": "Skill", "input": map[string]any{"skill": "fm"},
+				}},
+			},
+			map[string]any{
+				"role":    "user",
+				"content": []any{map[string]any{"type": "text", "text": "/force-model opus"}},
+			},
+		},
+		"max_tokens": 1024,
+	})
+	env, err := translate.ParseAnthropic(body)
+	require.NoError(t, err)
+
+	cmd, found := env.ExtractForceModelCommand()
+	require.True(t, found)
+	assert.Equal(t, "opus", cmd.Model)
+	assert.True(t, cmd.FromToolResult)
+
+	msgs := anthropicMessages(t, env)
+	require.Len(t, msgs, 2, "the command-only user message must be dropped, not left with empty content")
+	for _, msg := range msgs {
+		if blocks, ok := msg["content"].([]any); ok {
+			assert.NotEmpty(t, blocks, "no message may be left with an empty content array")
+		}
+	}
+}
+
+func TestExtractForceModelCommand_AgentToolResultSiblingBlockSurvives(t *testing.T) {
+	body := mustMarshalJSON(t, map[string]any{
+		"model": "claude-sonnet-4-6",
+		"messages": []any{
+			map[string]any{
+				"role": "assistant",
+				"content": []any{map[string]any{
+					"type": "tool_use", "id": "toolu_skill", "name": "Skill", "input": map[string]any{"skill": "fm"},
+				}},
+			},
+			map[string]any{
+				"role": "user",
+				"content": []any{
+					map[string]any{"type": "tool_result", "tool_use_id": "toolu_skill", "content": "Launching skill: fm"},
+					map[string]any{"type": "text", "text": "/force-model opus"},
+				},
+			},
+		},
+		"max_tokens": 1024,
+	})
+	env, err := translate.ParseAnthropic(body)
+	require.NoError(t, err)
+
+	cmd, found := env.ExtractForceModelCommand()
+	require.True(t, found)
+	assert.Equal(t, "opus", cmd.Model)
+	assert.True(t, cmd.FromToolResult)
+
+	msgs := anthropicMessages(t, env)
+	require.Len(t, msgs, 2)
+	blocks, ok := msgs[1]["content"].([]any)
+	require.True(t, ok)
+	require.Len(t, blocks, 1, "only the command block is dropped")
+	block, _ := blocks[0].(map[string]any)
+	assert.Equal(t, "tool_result", block["type"], "the tool_result pairing the assistant tool_use must survive")
+}
+
 func TestExtractForceModelCommand_TrailingSystemNoticeAfterUserTurn(t *testing.T) {
 	// Claude Code appends a role:"system" deferred-tools notice after the user
 	// turn; it must not make the user's command look historical.
@@ -467,6 +539,20 @@ func lastUserMessageArrayText(t *testing.T, env *translate.RequestEnvelope) stri
 		}
 	}
 	return ""
+}
+
+func anthropicMessages(t *testing.T, env *translate.RequestEnvelope) []map[string]any {
+	t.Helper()
+	var body map[string]any
+	raw, _ := env.PrepareAnthropic(nil, translate.EmitOptions{TargetModel: "claude-sonnet-4-6"})
+	require.NoError(t, json.Unmarshal(raw.Body, &body))
+	raws, _ := body["messages"].([]any)
+	msgs := make([]map[string]any, 0, len(raws))
+	for _, m := range raws {
+		msg, _ := m.(map[string]any)
+		msgs = append(msgs, msg)
+	}
+	return msgs
 }
 
 func mustMarshalJSON(t *testing.T, v any) []byte {

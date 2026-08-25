@@ -93,11 +93,9 @@ func (env *RequestEnvelope) extractLeadingCommandWithSource(parse func(text stri
 	if lastIdx < 0 {
 		return false, false
 	}
-	// Commands belong only to the request's trailing turn; historical commands
-	// must not be replayed after an assistant turn. Trailing non-conversational
-	// messages don't end the turn: Claude Code appends a role:"system" notice
-	// after the user turn, and treating that as a newer turn would disable the
-	// command entirely.
+	// Commands belong only to the trailing turn; skip if a conversational turn
+	// follows. Non-conversational role:"system" notices (Claude Code deferred
+	// tools) don't count as a newer turn.
 	for i := lastIdx + 1; i < len(all); i++ {
 		if isConversationTurn(all[i].Get("role").String()) {
 			return false, false
@@ -136,15 +134,38 @@ func (env *RequestEnvelope) extractLeadingCommandWithSource(parse func(text stri
 			continue
 		}
 		if fromToolResult && stripped == "" && candidate.dropPath != "" {
-			if newBody, err := sjson.DeleteBytes(env.body, candidate.dropPath); err == nil {
+			if newBody, ok := dropCommandBlock(env.body, candidate.dropPath, lastIdx); ok {
 				env.body = newBody
+				return true, fromToolResult
 			}
-		} else if newBody, err := sjson.SetBytes(env.body, candidate.path, stripped); err == nil {
+		}
+		if newBody, err := sjson.SetBytes(env.body, candidate.path, stripped); err == nil {
 			env.body = newBody
 		}
 		return true, fromToolResult
 	}
 	return false, false
+}
+
+// dropCommandBlock deletes the command-bearing block at dropPath, cascading to
+// the whole message when that empties its content array. Reports false when the
+// drop would leave no messages: providers reject an empty content array or an
+// empty history, so the caller falls back to blanking the command text instead.
+func dropCommandBlock(body []byte, dropPath string, msgIdx int) ([]byte, bool) {
+	out, err := sjson.DeleteBytes(body, dropPath)
+	if err != nil {
+		return nil, false
+	}
+	msgPath := "messages." + strconv.Itoa(msgIdx)
+	if dropPath != msgPath && gjson.GetBytes(out, msgPath+".content").Get("#").Int() == 0 {
+		if out, err = sjson.DeleteBytes(out, msgPath); err != nil {
+			return nil, false
+		}
+	}
+	if gjson.GetBytes(out, "messages").Get("#").Int() == 0 {
+		return nil, false
+	}
+	return out, true
 }
 
 func toolResultCommandCandidates(blockPath string, content gjson.Result) []commandTextCandidate {
