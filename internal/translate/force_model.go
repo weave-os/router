@@ -32,11 +32,10 @@ type ForceModelResult struct {
 	FromToolResult bool
 }
 
-// ExtractForceModelCommand scans the trailing user or tool-result message in
-// env for a
-// /force-model <model> or /unforce-model directive, stripping it from
-// env.body. FromToolResult distinguishes agent-issued commands from commands
-// typed by the user. Returns (zero, false) when no command is present.
+// ExtractForceModelCommand scans the trailing user or tool-result message in env for a
+// /force-model <model> or /unforce-model directive, stripping it from env.body.
+// FromToolResult distinguishes agent-issued commands from user-typed ones.
+// Returns (zero, false) when no command is present.
 func (env *RequestEnvelope) ExtractForceModelCommand() (ForceModelResult, bool) {
 	var res ForceModelResult
 	found, fromToolResult := env.extractLeadingCommandWithSource(func(text string) (bool, string) {
@@ -107,10 +106,8 @@ func (env *RequestEnvelope) extractLeadingCommandWithSource(parse func(text stri
 	}
 
 	idxPath := "messages." + strconv.Itoa(lastIdx) + ".content"
-	// OpenAI carries a tool result as its own role:"tool" message instead of a
-	// content block, so provenance comes from the role. Such a message is only
-	// ever blanked, never dropped: deleting it would orphan the assistant
-	// tool_calls entry it answers.
+	// OpenAI marks tool-result provenance with role:"tool", not a content block.
+	// Preserve that message when stripping the command so tool_calls stays paired.
 	isToolMessage := lastRole == "tool"
 	fromToolResult := isToolMessage || followsAssistantToolUse(all, lastIdx)
 	dropPathFor := func(path string) string {
