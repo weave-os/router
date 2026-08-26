@@ -258,13 +258,13 @@ type RouterModelRouterRequestTelemetry struct {
 	AuthorityShadowStayModel *string
 	// Provider binding of authority_shadow_stay_model.
 	AuthorityShadowStayProvider *string
-	// Signed expected savings as USD micros (USD x 1e6) under the deployed economics config. Negative on a typical stay; not clamped.
+	// Signed expected savings as USD micros (USD x 1e6) under the deployed economics config. Negative on a typical stay; not clamped. NULL on an early exit (no_pin, no_prior_usage, same_model, pricing_missing) where the cost arithmetic never ran -- a stored 0 there would be a fabricated measurement.
 	AuthorityShadowSavingsUsdMicros *int64
-	// Signed eviction cost as USD micros (USD x 1e6) under the deployed economics config.
+	// Signed eviction cost as USD micros (USD x 1e6) under the deployed economics config. NULL on an early exit, like the savings column.
 	AuthorityShadowEvictionCostUsdMicros *int64
-	// Whether the shadow EV math priced the pin as cache-cold.
+	// Whether the shadow EV math priced the pin as cache-cold. NULL on an early exit, where the flag is meaningless rather than false.
 	AuthorityShadowPinCacheCold *bool
-	// Verdict under corrected cache-aware economics, computed unconditionally by planner.Decide as its shadow. Pre-gate: the upgrade-confidence and same-tier overrides are NOT applied to it, unlike authority_shadow_outcome.
+	// Verdict under corrected cache-aware economics, computed by planner.Decide as its own shadow on every EV turn regardless of the deployed config. Pre-gate: the upgrade-confidence and same-tier overrides are NOT applied to it, unlike authority_shadow_outcome. NULL on an early exit -- the enum zero value renders as 'stay', so an uncomputed verdict must never be stored.
 	AuthorityShadowCorrectedOutcome *string
 	// Signed expected savings under corrected economics as USD micros (USD x 1e6).
 	AuthorityShadowCorrectedSavingsUsdMicros *int64

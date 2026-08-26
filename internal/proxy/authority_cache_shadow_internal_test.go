@@ -139,9 +139,8 @@ func hmmFreshDecisionWithArmScores(
 }
 
 // TestAuthorityCacheShadowNeverChangesTheServedDecision is the load-bearing
-// guarantee: the shadow observes, it does not route. Production runs an
-// authoritative sidecar, so a shadow that could alter dispatch would be a
-// routing change shipped under the name of a measurement.
+// guarantee: the shadow observes but does not route -- a shadow that could alter
+// dispatch would be a routing change shipped under the name of a measurement.
 func TestAuthorityCacheShadowNeverChangesTheServedDecision(t *testing.T) {
 	result := runAuthorityShadowTurn(t, true, hmmFreshDecision(shadowFreshModel, nil))
 
@@ -339,9 +338,8 @@ func TestCandidateScoreFor(t *testing.T) {
 
 // TestAuthorityCacheShadowPersistsGateDivergenceVerdict locks the reason the
 // divergence flag is a persisted column rather than a SQL string compare:
-// stay_model is a serving identity while decision_model is a bare catalog ID,
-// so `stay_model <> decision_model` is not a safe stand-in for the gate's own
-// verdict.
+// stay_model carries ":effort" while decision_model is a bare catalog ID, so the
+// string compare reports false divergence on every effort-bearing pin.
 func TestAuthorityCacheShadowPersistsGateDivergenceVerdict(t *testing.T) {
 	result := runAuthorityShadowTurn(t, true, hmmFreshDecision(shadowFreshModel, nil))
 
@@ -352,4 +350,39 @@ func TestAuthorityCacheShadowPersistsGateDivergenceVerdict(t *testing.T) {
 	assert.Equal(t, result.AuthorityShadow.Sticky, *params.AuthorityShadowWouldDiverge)
 	assert.True(t, *params.AuthorityShadowWouldDiverge,
 		"a stay verdict against a different served model is a divergence")
+}
+
+// TestAuthorityCacheShadowEarlyExitLeavesEVColumnsNull is the same invariant
+// migration 0066 was built around, applied to the early-exit paths.
+//
+// planner.Decide returns before its cost arithmetic on no_pin, no_prior_usage,
+// same_model and pricing_missing. On those paths Decision's float fields are
+// still zero and ShadowOutcome is the enum zero value -- which plannerOutcome
+// renders as "stay". Persisting them would put a fabricated verdict and a
+// fabricated $0 next to a real reason, which is exactly the stored-zero-as-
+// evidence failure this instrumentation exists to prevent.
+func TestAuthorityCacheShadowEarlyExitLeavesEVColumnsNull(t *testing.T) {
+	// An effort-bearing pin is rejected by normalizeHMMStayPin, so the gate takes
+	// the no_pin early exit with no EV math.
+	result := runAuthorityShadowTurnWithPin(t, true,
+		hmmFreshDecision(shadowFreshModel, map[string]float32{shadowFreshModel: 0.71}),
+		authorityShadowPinServing(shadowPinnedModel+":high"),
+	)
+	require.True(t, result.AuthorityShadow.Computed)
+	require.False(t, result.AuthorityShadow.EVRan(), "no_pin returns before the EV block")
+
+	var params InsertTelemetryParams
+	applyAuthorityShadowTelemetry(&params, result)
+
+	// The verdict itself is real evidence and must persist.
+	assert.Equal(t, planner.ReasonNoPin, params.AuthorityShadowReason)
+	require.NotNil(t, params.AuthorityShadowWouldDiverge)
+
+	// Everything downstream of the cost arithmetic must not.
+	assert.Nil(t, params.AuthorityShadowExpectedSavingsUSD)
+	assert.Nil(t, params.AuthorityShadowEvictionCostUSD)
+	assert.Nil(t, params.AuthorityShadowPinCacheCold)
+	assert.Empty(t, params.AuthorityShadowCorrectedOutcome,
+		"the zero Outcome renders as \"stay\"; an uncomputed verdict must stay NULL")
+	assert.Nil(t, params.AuthorityShadowCorrectedSavingsUSD)
 }

@@ -256,6 +256,15 @@ func applyAuthorityShadowTelemetry(p *InsertTelemetryParams, res turnLoopResult)
 	p.AuthorityShadowReason = shadow.Decision.Reason
 	p.AuthorityShadowStayModel = shadow.StayModel
 	p.AuthorityShadowStayProvider = shadow.StayProvider
+	p.AuthorityShadowStayScore = shadow.StayScore
+	p.AuthorityShadowFreshScore = shadow.FreshScore
+	if !shadow.EVRan() {
+		// An early exit (no_pin, no_prior_usage, same_model, pricing_missing)
+		// carries no cost arithmetic: Decision's float fields are still their zero
+		// values and PinCacheCold is documented as meaningless there. Outcome and
+		// reason above are real and stay; the EV columns must be NULL, not 0.
+		return
+	}
 	savings := shadow.Decision.ExpectedSavingsUSD
 	eviction := shadow.Decision.EvictionCostUSD
 	p.AuthorityShadowExpectedSavingsUSD = &savings
@@ -264,14 +273,9 @@ func applyAuthorityShadowTelemetry(p *InsertTelemetryParams, res turnLoopResult)
 	p.AuthorityShadowPinCacheCold = &cold
 	// planner.Decide computes the corrected-economics counterfactual on every EV
 	// turn regardless of the deployed config, so the corrected verdict comes for
-	// free here. It is pre-gate: hmmCostGatedDecision overrides Outcome for a
-	// confident upgrade or a same-tier pin, and does not mirror those overrides
-	// onto ShadowOutcome.
-	if shadow.Decision.ShadowComputed {
-		p.AuthorityShadowCorrectedOutcome = plannerOutcome(shadow.Decision.ShadowOutcome)
-		corrected := shadow.Decision.ShadowExpectedSavingsUSD
-		p.AuthorityShadowCorrectedSavingsUSD = &corrected
-	}
-	p.AuthorityShadowStayScore = shadow.StayScore
-	p.AuthorityShadowFreshScore = shadow.FreshScore
+	// free. It is pre-gate: hmmCostGatedDecision overrides Outcome for a confident
+	// upgrade or a same-tier pin and does not mirror those onto ShadowOutcome.
+	p.AuthorityShadowCorrectedOutcome = plannerOutcome(shadow.Decision.ShadowOutcome)
+	corrected := shadow.Decision.ShadowExpectedSavingsUSD
+	p.AuthorityShadowCorrectedSavingsUSD = &corrected
 }

@@ -269,6 +269,16 @@ func (a authorityCacheShadow) Reason() string {
 	return a.Decision.Reason
 }
 
+// EVRan reports whether the gate reached planner.Decide's cost arithmetic.
+// planner.Decide sets ShadowComputed immediately after that block and every
+// early return (no_pin, no_prior_usage, same_model, pricing_missing) returns
+// above it, so the flag is an exact witness for "the EV terms mean something".
+// Without it the early-exit rows persist 0/0/false, which is the stored-zero-as-
+// evidence trap this instrumentation exists to avoid.
+func (a authorityCacheShadow) EVRan() bool {
+	return a.Computed && a.Decision.ShadowComputed
+}
+
 // modelSwitched reports whether the Anthropic emit path must strip historical
 // thinking blocks: true on the transition turn itself, or any turn after a
 // session has ever switched. Claude Code re-sends the full transcript every
@@ -1436,10 +1446,9 @@ func (s *Service) authorityCacheShadowFor(
 	if !s.ResolveAuthorityCacheShadow(ctx) {
 		return authorityCacheShadow{}
 	}
-	// The gate's rules are HMM-specific (hmmStayPin only accepts HMM-written
-	// pins, and the upgrade override reads a sidecar confidence). Running it
-	// against a non-HMM decision would produce a verdict no rollout could act
-	// on, so record nothing instead of recording something meaningless.
+	// The gate's rules are HMM-specific: hmmStayPin only accepts HMM-written
+	// pins and the upgrade override reads a sidecar confidence, so a verdict
+	// against a non-HMM decision describes a rollout that cannot happen.
 	if !isHMMDecision(fresh) {
 		return authorityCacheShadow{}
 	}
@@ -1497,16 +1506,28 @@ func (s *Service) logAuthorityCacheShadow(ctx context.Context, res turnLoopResul
 		return
 	}
 	shadow := res.AuthorityShadow
-	observability.FromContext(ctx).Info("authoritative turn cache-gate shadow",
+	log := observability.FromContext(ctx)
+	log.Info("authoritative turn cache-gate shadow",
 		"turn_type", string(res.TurnType),
 		"fresh_model", res.Fresh.Model,
 		"shadow_outcome", plannerOutcome(shadow.Decision.Outcome),
 		"shadow_reason", shadow.Decision.Reason,
 		"shadow_stay_model", shadow.StayModel,
 		"shadow_would_diverge", shadow.Sticky,
+		"shadow_ev_ran", shadow.EVRan(),
+	)
+	if !shadow.EVRan() {
+		// OutcomeStay is the zero value and plannerOutcome renders it "stay", so
+		// logging these on an early exit would report a verdict and a cost that
+		// were never computed -- and would disagree with the NULL columns.
+		return
+	}
+	log.Info("authoritative turn cache-gate shadow EV",
 		"shadow_expected_savings_usd", shadow.Decision.ExpectedSavingsUSD,
 		"shadow_eviction_cost_usd", shadow.Decision.EvictionCostUSD,
+		"shadow_pin_cache_cold", shadow.Decision.PinCacheCold,
 		"shadow_corrected_outcome", plannerOutcome(shadow.Decision.ShadowOutcome),
+		"shadow_corrected_savings_usd", shadow.Decision.ShadowExpectedSavingsUSD,
 	)
 }
 
