@@ -611,9 +611,8 @@ func TestResponsesWriter_PrependsRoutingMarkerBadge(t *testing.T) {
 	assert.Equal(t, 1, completedCount)
 }
 
-// The writer no longer synthesizes a badge of its own: suppression (opt-out
-// header, same-model turn, hidden terminal surfaces) is decided by the proxy,
-// which signals it by supplying no marker.
+// Suppression is decided by the proxy (opt-out header, same-model turn, hidden surfaces);
+// no marker supplied → no badge emitted.
 func TestResponsesWriter_WithoutMarkerEmitsNoBadge(t *testing.T) {
 	rec := httptest.NewRecorder()
 	w := translate.NewResponsesWriter(rec, "gpt-5.5")
