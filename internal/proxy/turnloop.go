@@ -270,11 +270,9 @@ func (a authorityCacheShadow) Reason() string {
 }
 
 // EVRan reports whether the gate reached planner.Decide's cost arithmetic.
-// planner.Decide sets ShadowComputed immediately after that block and every
-// early return (no_pin, no_prior_usage, same_model, pricing_missing) returns
-// above it, so the flag is an exact witness for "the EV terms mean something".
-// Without it the early-exit rows persist 0/0/false, which is the stored-zero-as-
-// evidence trap this instrumentation exists to avoid.
+// ShadowComputed is set immediately after that block; every early return
+// (no_pin, no_prior_usage, same_model, pricing_missing) exits above it, so
+// the flag is an exact witness for "the EV terms mean something".
 func (a authorityCacheShadow) EVRan() bool {
 	return a.Computed && a.Decision.ShadowComputed
 }
@@ -1430,10 +1428,9 @@ func (s *Service) hmmCostGatedDecision(
 }
 
 // authorityCacheShadowFor computes the HMM cache gate's verdict for an
-// authoritative-per-turn turn without changing that decision. Calls
+// authoritative-per-turn turn without changing the served decision. Calls
 // hmmCostGatedDecision unmodified -- a shadow that approximates the rule is not
-// a preview of it. That function is pure and cannot run twice: the authoritative
-// branch returns before the live gate is reached.
+// a preview of it, and that function is pure.
 func (s *Service) authorityCacheShadowFor(
 	ctx context.Context,
 	req router.Request,
@@ -1472,20 +1469,13 @@ func (s *Service) authorityCacheShadowFor(
 	return shadow
 }
 
-// candidateScoreFor reads the sidecar's pre-argmax score for servedIdentity off
-// the decision that carried it. Returns nil when the sidecar reported no score,
-// which the caller must distinguish from a low score.
+// candidateScoreFor reads the sidecar's pre-argmax score for servedIdentity.
+// Returns nil when the sidecar reported no score -- nil must not be coerced to 0.
 //
-// Resolves against CandidateScores, which is keyed by bare catalog ID, so the
-// effort suffix a serving identity may carry is stripped first.
-//
-// Deliberately does NOT consult CandidateArmScores. That map is keyed by roster
-// arm ID -- rosterIDFor prefixes first-party models ("anthropic/claude-opus-4-7"),
-// a different namespace from the catalog IDs a pin is written with -- so a
-// serving identity never matches one, and a lookup there would be dead code
-// wearing the appearance of effort precision. Recovering a per-effort score
-// would require the catalog-to-roster mapping, which is not on RoutingMetadata
-// and is not worth importing here for a shadow column.
+// CandidateScores is keyed by bare catalog ID, so the effort suffix is stripped.
+// CandidateArmScores is NOT consulted: it is keyed by roster arm ID
+// ("anthropic/claude-opus-4-7:xhigh"), a different namespace from catalog IDs,
+// so a serving identity never matches an entry there.
 func candidateScoreFor(dec router.Decision, servedIdentity string) *float64 {
 	if servedIdentity == "" || dec.Metadata == nil {
 		return nil

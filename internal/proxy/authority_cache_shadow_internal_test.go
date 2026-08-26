@@ -278,9 +278,9 @@ func TestApplyAuthorityShadowTelemetryPreservesSignedEV(t *testing.T) {
 // TestAuthorityCacheShadowEffortBearingPinIsNotAStayCandidate documents a
 // pre-existing property of hmmCostGatedDecision: effort-bearing pins land as
 // no_pin because catalog.ByID strips date suffixes but not effort suffixes, so
-// normalizeHMMStayPin rejects them. Not fixed here -- that would alter live HMM
-// routing for self-hosters, who already reach this gate. Locked by test so an
-// analyst does not misread the soak's no_pin rate as "no eligible pin existed".
+// normalizeHMMStayPin rejects them. Not fixed here to avoid altering live HMM
+// routing for self-hosters. Locked by test so analysts do not misread no_pin as
+// "no pin existed".
 func TestAuthorityCacheShadowEffortBearingPinIsNotAStayCandidate(t *testing.T) {
 	const servedIdentity = shadowPinnedModel + ":high"
 
@@ -301,15 +301,11 @@ func TestAuthorityCacheShadowEffortBearingPinIsNotAStayCandidate(t *testing.T) {
 		"no stay candidate means no stay score, regardless of what the sidecar scored")
 }
 
-// TestCandidateScoreFor covers the lookup directly. CandidateScores is keyed by
-// bare catalog ID, so an effort-bearing serving identity must be stripped before
-// the lookup -- and a model the sidecar did not score must stay nil rather than
-// become 0.0, which would read as "scored, and terrible".
-//
-// There is deliberately no arm-map case here. CandidateArmScores is keyed by
-// roster arm ID ("anthropic/claude-opus-4-7:xhigh"), a different namespace from
-// the catalog IDs a pin carries, so a test asserting a hit on a catalog-shaped
-// key would certify a branch that can never fire in production.
+// TestCandidateScoreFor covers the lookup directly. CandidateScores is keyed
+// by bare catalog ID, so an effort-bearing serving identity must be stripped.
+// A missing score must stay nil rather than 0.0 ("scored, and terrible").
+// No arm-map case: CandidateArmScores uses roster arm IDs, a different
+// namespace, so a catalog-shaped key can never hit in production.
 func TestCandidateScoreFor(t *testing.T) {
 	dec := hmmFreshDecisionWithArmScores(shadowFreshModel,
 		map[string]float32{shadowPinnedModel: 0.40, shadowFreshModel: 0.71},
@@ -352,15 +348,11 @@ func TestAuthorityCacheShadowPersistsGateDivergenceVerdict(t *testing.T) {
 		"a stay verdict against a different served model is a divergence")
 }
 
-// TestAuthorityCacheShadowEarlyExitLeavesEVColumnsNull is the same invariant
-// migration 0066 was built around, applied to the early-exit paths.
-//
-// planner.Decide returns before its cost arithmetic on no_pin, no_prior_usage,
-// same_model and pricing_missing. On those paths Decision's float fields are
-// still zero and ShadowOutcome is the enum zero value -- which plannerOutcome
-// renders as "stay". Persisting them would put a fabricated verdict and a
-// fabricated $0 next to a real reason, which is exactly the stored-zero-as-
-// evidence failure this instrumentation exists to prevent.
+// TestAuthorityCacheShadowEarlyExitLeavesEVColumnsNull applies the 0066
+// invariant to the early-exit paths: no_pin, no_prior_usage, same_model, and
+// pricing_missing return before the cost arithmetic, so the EV fields stay zero
+// and ShadowOutcome is the zero value (rendered "stay"). Persisting those as
+// evidence would repeat the stored-zero-as-evidence failure.
 func TestAuthorityCacheShadowEarlyExitLeavesEVColumnsNull(t *testing.T) {
 	// An effort-bearing pin is rejected by normalizeHMMStayPin, so the gate takes
 	// the no_pin early exit with no EV math.
