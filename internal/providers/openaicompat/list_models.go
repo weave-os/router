@@ -38,10 +38,10 @@ func (c *Client) ListModels(ctx context.Context) ([]string, error) {
 	return ids, err
 }
 
-// modelListURLs enumerates the catalog URLs worth trying for baseURL, likeliest
-// first: the sibling of the chat surface, then one path segment up for gateways
-// that mount their catalog above /v1 (Snowflake Cortex serves
-// /api/v2/cortex/models next to /api/v2/cortex/v1/chat/completions).
+// modelListURLs returns catalog URLs to try for baseURL, likeliest first.
+// For gateways that mount their catalog above /v1 (e.g. Snowflake Cortex:
+// /api/v2/cortex/models vs /api/v2/cortex/v1/chat/completions), also
+// includes one segment up.
 func modelListURLs(baseURL string) []string {
 	urls := []string{baseURL + "/models"}
 	if root, trimmed := strings.CutSuffix(baseURL, "/v1"); trimmed {

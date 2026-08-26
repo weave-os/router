@@ -9,16 +9,13 @@ import (
 // under /openai/v1: classic Azure OpenAI and Microsoft Foundry.
 var azureOpenAIHostSuffixes = []string{".openai.azure.com", ".services.ai.azure.com"}
 
-// azureOpenAIV1Path is where such a resource mounts the OpenAI v1 API. The
-// resource root serves nothing, so a base URL stored the way an OpenAI-style
-// endpoint would be answers 404 "Resource not found" on every path, inference
-// and model discovery alike.
+// azureOpenAIV1Path is the surface Azure resource hosts actually serve; root
+// and bare /v1 answer 404 "Resource not found".
 const azureOpenAIV1Path = "/openai/v1"
 
-// NormalizeAzureOpenAIBaseURL rewrites an Azure resource base URL that points at
-// the resource root or a bare /v1 onto the /openai/v1 surface. Any other path is
-// returned unchanged: it names a deployment, a project, or a gateway route this
-// adapter must not second-guess.
+// NormalizeAzureOpenAIBaseURL rewrites a bare or /v1 Azure resource URL onto
+// /openai/v1; any other path is returned unchanged to avoid clobbering a
+// deployment, project, or gateway route the caller chose explicitly.
 func NormalizeAzureOpenAIBaseURL(baseURL string) string {
 	u, err := url.Parse(strings.TrimSpace(baseURL))
 	if err != nil || u.Scheme == "" || u.Host == "" {
