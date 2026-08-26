@@ -592,6 +592,7 @@ const (
 	markerReasonUserForced        = "pinned by force-model"
 	markerReasonLoopEscalated     = "escalated due to loop"
 	markerReasonStruggleEscalated = "picked a different model to break a grind"
+	markerReasonLoopSideways      = "switched model to break a tool-call loop"
 	markerReasonSwitched          = "switched for positive EV after cache eviction"
 	markerReasonStayed            = "stayed on your last pick"
 	markerReasonTierUpgrade       = "upgraded to a stronger tier"
@@ -638,6 +639,8 @@ func routingReasonShort(res turnLoopResult) string {
 		return markerReasonLoopEscalated
 	case translate.ReasonStruggleEscalation:
 		return markerReasonStruggleEscalated
+	case translate.ReasonLoopSideways:
+		return markerReasonLoopSideways
 	}
 	return markerReasonBestPick
 }
@@ -2696,7 +2699,11 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			if loop, sig, count := detectToolCallLoop(env); loop {
 				loopRole := roleForTier(catalog.TierFor(feats.Model))
 				log.Info("ProxyMessages tool-call loop detected", "tool_sig", sig, "repeat_count", count, "role", loopRole)
-				return s.handleToolCallLoopBreak(ctx, w, env, sig, count, installationID, sessionKey, loopRole, feats.Model, providers.ProviderAnthropic, feats.Tokens)
+				rescue := s.handleToolCallLoopSideways(ctx, sig, count, installationID, sessionKey, loopRole)
+				if !rescue.Moved {
+					loopingModel, loopingProvider := loopAttribution(rescue.LoopingModel, rescue.LoopingProvider, feats.Model, providers.ProviderAnthropic)
+					return s.handleToolCallLoopBreak(ctx, w, env, sig, count, installationID, sessionKey, loopRole, loopingModel, loopingProvider, rescue.UserForced, feats.Tokens)
+				}
 			}
 		}
 	}
@@ -5205,7 +5212,11 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		if loop, sig, count := detectToolCallLoop(env); loop {
 			loopRole := roleForTier(catalog.TierFor(feats.Model))
 			log.Info("ProxyOpenAIChatCompletion tool-call loop detected", "tool_sig", sig, "repeat_count", count, "role", loopRole)
-			return s.handleToolCallLoopBreak(ctx, w, env, sig, count, installationID, sessionKey, loopRole, feats.Model, providers.ProviderOpenAI, feats.Tokens)
+			rescue := s.handleToolCallLoopSideways(ctx, sig, count, installationID, sessionKey, loopRole)
+			if !rescue.Moved {
+				loopingModel, loopingProvider := loopAttribution(rescue.LoopingModel, rescue.LoopingProvider, feats.Model, providers.ProviderOpenAI)
+				return s.handleToolCallLoopBreak(ctx, w, env, sig, count, installationID, sessionKey, loopRole, loopingModel, loopingProvider, rescue.UserForced, feats.Tokens)
+			}
 		}
 	}
 
