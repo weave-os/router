@@ -241,10 +241,8 @@ type turnLoopResult struct {
 }
 
 // authorityCacheShadow records what hmmCostGatedDecision would have returned on
-// an authoritative-per-turn turn, where the turn loop returns before that gate
-// can run. Computed is false everywhere else, which keeps every column NULL
-// rather than storing a zero that would read as "the gate ran and found
-// nothing".
+// an authoritative-per-turn turn. Computed=false keeps every column NULL rather
+// than zero, which would read as "the gate ran and found nothing".
 type authorityCacheShadow struct {
 	Computed bool
 	Decision planner.Decision
@@ -252,17 +250,13 @@ type authorityCacheShadow struct {
 	// no eligible pin existed (Decision.Reason is no_pin in that case).
 	StayModel    string
 	StayProvider string
-	// Sticky is the gate's own verdict that it would have served StayModel
-	// instead of the authoritative fresh pick -- the divergence this whole
-	// measurement exists to size. Persisted rather than re-derived in SQL:
-	// StayModel is a serving identity that may carry ":effort" while
-	// decision_model is a bare catalog ID, so comparing those two strings
-	// reports a false divergence on every effort-bearing pin.
+	// Sticky is the gate's own verdict that it would have served StayModel instead
+	// of the authoritative fresh pick. Persisted rather than re-derived in SQL:
+	// StayModel carries ":effort" while decision_model is a bare catalog ID, so a
+	// string compare reports a false divergence on every effort-bearing pin.
 	Sticky bool
-	// StayScore/FreshScore are the sidecar's candidate scores for the two
-	// models. Nil when the sidecar reported no score for that model; the nil
-	// rate is itself a result, because a quality tie-band cannot be built on an
-	// input that is frequently absent.
+	// StayScore/FreshScore are the sidecar's candidate scores. Nil when the sidecar
+	// reported no score; the nil rate is a measurement result in itself.
 	StayScore  *float64
 	FreshScore *float64
 }
@@ -1460,11 +1454,9 @@ func (s *Service) authorityCacheShadowFor(
 		StayScore:  candidateScoreFor(fresh, stayModel),
 		FreshScore: candidateScoreFor(fresh, fresh.Model),
 	}
-	// hmmCostGatedDecision returns the stay model but not its binding. Re-resolve
-	// for the provider, guarded on model equality the way the live HMM branch
-	// guards applyPinEvidence: normalizeHMMStayPin consults the clock, so a pin
-	// expiring between the two calls must leave the provider empty rather than
-	// pair a stale binding with the model the gate actually priced.
+	// Re-resolve the provider; guard on model equality because normalizeHMMStayPin
+	// consults the clock and a concurrently expiring pin must not pair a stale
+	// binding with the model the gate actually priced.
 	if stayPin, ok := s.hmmStayPin(req, activePin, hmmHistory); ok && stayPin.Model == stayModel {
 		shadow.StayProvider = stayPin.Provider
 	}
@@ -1473,22 +1465,21 @@ func (s *Service) authorityCacheShadowFor(
 
 // candidateScoreFor reads the sidecar's pre-argmax score for servedIdentity off
 // the decision that carried it. Returns nil when the sidecar reported no score,
-// which the caller must be able to distinguish from a low score.
+// which the caller must distinguish from a low score.
 //
-// The two score maps are keyed differently and both are needed. CandidateScores
-// is keyed by bare catalog ID; CandidateArmScores keeps the roster arm ID with
-// its effort suffix. A pin's identity is LastServedModel, which is
-// Decision.ServedIdentity() and so carries ":effort" whenever an effort was
-// selected -- a catalog-only lookup misses every effort-bearing pin and
-// silently inflates the NULL rate this instrumentation exists to measure.
-// Prefer the exact arm, fall back to the model.
+// Resolves against CandidateScores, which is keyed by bare catalog ID, so the
+// effort suffix a serving identity may carry is stripped first.
+//
+// Deliberately does NOT consult CandidateArmScores. That map is keyed by roster
+// arm ID -- rosterIDFor prefixes first-party models ("anthropic/claude-opus-4-7"),
+// a different namespace from the catalog IDs a pin is written with -- so a
+// serving identity never matches one, and a lookup there would be dead code
+// wearing the appearance of effort precision. Recovering a per-effort score
+// would require the catalog-to-roster mapping, which is not on RoutingMetadata
+// and is not worth importing here for a shadow column.
 func candidateScoreFor(dec router.Decision, servedIdentity string) *float64 {
 	if servedIdentity == "" || dec.Metadata == nil {
 		return nil
-	}
-	if score, ok := dec.Metadata.CandidateArmScores[servedIdentity]; ok {
-		value := float64(score)
-		return &value
 	}
 	score, ok := dec.Metadata.CandidateScores[baseModelOf(servedIdentity)]
 	if !ok {

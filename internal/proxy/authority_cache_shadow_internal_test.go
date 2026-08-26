@@ -277,20 +277,11 @@ func TestApplyAuthorityShadowTelemetryPreservesSignedEV(t *testing.T) {
 }
 
 // TestAuthorityCacheShadowEffortBearingPinIsNotAStayCandidate documents a
-// pre-existing property of hmmCostGatedDecision that materially shapes how this
-// soak must be read.
-//
-// A pin's identity is LastServedModel = Decision.ServedIdentity(), which carries
-// ":effort" whenever an effort was selected. normalizeHMMStayPin resolves that
-// identity through catalog.ResolveBindingWithCustom -> catalog.ByID, which
-// strips a date suffix but not an effort suffix -- so the lookup misses and the
-// pin is rejected outright. Every effort-bearing pin therefore lands as
-// "no_pin", not as a scored stay candidate.
-//
-// This is not introduced here and is deliberately not fixed here: changing it
-// would alter live HMM routing for self-hosters, who already reach this gate.
-// It is locked by a test because an analyst reading the soak's no_pin rate as
-// "no eligible pin existed" would be wrong about a whole class of sessions.
+// pre-existing property of hmmCostGatedDecision: effort-bearing pins land as
+// no_pin because catalog.ByID strips date suffixes but not effort suffixes, so
+// normalizeHMMStayPin rejects them. Not fixed here -- that would alter live HMM
+// routing for self-hosters, who already reach this gate. Locked by test so an
+// analyst does not misread the soak's no_pin rate as "no eligible pin existed".
 func TestAuthorityCacheShadowEffortBearingPinIsNotAStayCandidate(t *testing.T) {
 	const servedIdentity = shadowPinnedModel + ":high"
 
@@ -311,40 +302,38 @@ func TestAuthorityCacheShadowEffortBearingPinIsNotAStayCandidate(t *testing.T) {
 		"no stay candidate means no stay score, regardless of what the sidecar scored")
 }
 
-// TestCandidateScoreForPrefersTheExactArm covers candidateScoreFor directly.
-// The two score maps are keyed differently -- CandidateScores by bare catalog ID,
-// CandidateArmScores by roster arm ID with its effort suffix -- so the lookup
-// must try the exact arm before falling back to the model. Exercised at unit
-// level because the turn loop cannot currently deliver an effort-bearing
-// identity here (see the test above); this keeps the lookup correct if that
-// changes, and keeps a missing score NULL rather than 0.0 either way.
-func TestCandidateScoreForPrefersTheExactArm(t *testing.T) {
+// TestCandidateScoreFor covers the lookup directly. CandidateScores is keyed by
+// bare catalog ID, so an effort-bearing serving identity must be stripped before
+// the lookup -- and a model the sidecar did not score must stay nil rather than
+// become 0.0, which would read as "scored, and terrible".
+//
+// There is deliberately no arm-map case here. CandidateArmScores is keyed by
+// roster arm ID ("anthropic/claude-opus-4-7:xhigh"), a different namespace from
+// the catalog IDs a pin carries, so a test asserting a hit on a catalog-shaped
+// key would certify a branch that can never fire in production.
+func TestCandidateScoreFor(t *testing.T) {
 	dec := hmmFreshDecisionWithArmScores(shadowFreshModel,
 		map[string]float32{shadowPinnedModel: 0.40, shadowFreshModel: 0.71},
-		map[string]float32{shadowPinnedModel + ":high": 0.66},
+		map[string]float32{"anthropic/" + shadowPinnedModel + ":high": 0.66},
 	)
 
-	t.Run("exact arm wins over the base model", func(t *testing.T) {
-		got := candidateScoreFor(dec, shadowPinnedModel+":high")
-		require.NotNil(t, got)
-		assert.InDelta(t, 0.66, *got, 1e-6)
-	})
-
-	t.Run("falls back to the base model when no arm score exists", func(t *testing.T) {
-		got := candidateScoreFor(dec, shadowPinnedModel+":low")
-		require.NotNil(t, got)
-		assert.InDelta(t, 0.40, *got, 1e-6)
-	})
-
-	t.Run("bare model resolves through the catalog map", func(t *testing.T) {
+	t.Run("bare catalog id", func(t *testing.T) {
 		got := candidateScoreFor(dec, shadowFreshModel)
 		require.NotNil(t, got)
 		assert.InDelta(t, 0.71, *got, 1e-6)
 	})
 
-	t.Run("neither map covers the model", func(t *testing.T) {
+	t.Run("effort suffix is stripped to the catalog id", func(t *testing.T) {
+		got := candidateScoreFor(dec, shadowPinnedModel+":high")
+		require.NotNil(t, got)
+		assert.InDelta(t, 0.40, *got, 1e-6,
+			"the model's score, not the roster arm's -- the namespaces differ")
+	})
+
+	t.Run("unscored model stays nil", func(t *testing.T) {
 		assert.Nil(t, candidateScoreFor(dec, "claude-haiku-4-5"))
 		assert.Nil(t, candidateScoreFor(dec, ""))
+		assert.Nil(t, candidateScoreFor(router.Decision{}, shadowFreshModel))
 	})
 }
 
