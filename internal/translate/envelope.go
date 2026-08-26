@@ -368,7 +368,7 @@ type EmitOverrides struct {
 	StripThoughtSignature bool
 	// SanitizeAnthropicToolSchemas removes schema constraints Anthropic rejects
 	// from tools[].input_schema on same-format Anthropic requests; also omits
-	// empty allowed_domains/blocked_domains on native web_search tools (Anthropic 400s them).
+	// empty allowed_domains/blocked_domains on native web_search/web_fetch tools (Anthropic 400s them).
 	SanitizeAnthropicToolSchemas bool
 	// RewriteThinkingAdaptive replaces the inbound thinking block with
 	// {"type":"adaptive"} and sets output_config.effort. Used when the target

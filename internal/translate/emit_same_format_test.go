@@ -421,6 +421,27 @@ func TestAnthropicSameFormat_OmitsEmptyAllowedDomains(t *testing.T) {
 	assert.Equal(t, []any{"example.com"}, tool["blocked_domains"])
 }
 
+func TestAnthropicSameFormat_OmitsEmptyWebFetchDomainLists(t *testing.T) {
+	body := []byte(`{"model":"claude-opus-4-8","messages":[{"role":"user","content":"fetch"}],"max_tokens":1024,"tools":[{
+		"type":"web_fetch_20250305",
+		"name":"web_fetch",
+		"allowed_domains":["example.com"],
+		"blocked_domains":[]
+	}]}`)
+	opts := translate.EmitOptions{
+		TargetModel:  "claude-opus-4-7",
+		Capabilities: router.Lookup("claude-opus-4-7"),
+	}
+	out := parseAndEmit(t, body, "anthropic", opts)
+
+	tools, _ := out["tools"].([]any)
+	require.Len(t, tools, 1)
+	tool, _ := tools[0].(map[string]any)
+	assert.Equal(t, "web_fetch_20250305", tool["type"])
+	assert.Equal(t, []any{"example.com"}, tool["allowed_domains"])
+	assert.NotContains(t, tool, "blocked_domains")
+}
+
 func TestAnthropicSameFormat_KeepsEmptyDomainListsOnNonSearchTools(t *testing.T) {
 	body := []byte(`{"model":"claude-opus-4-8","messages":[{"role":"user","content":"hi"}],"max_tokens":1024,"tools":[{
 		"name":"custom_tool",
