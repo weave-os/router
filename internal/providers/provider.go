@@ -480,18 +480,39 @@ func IsUpstreamSchemaRejection(err error) bool {
 	return false
 }
 
+// unknownFieldPhrases are the verdicts meaning the upstream's request schema
+// has no such field at all, as opposed to disliking its contents.
+var unknownFieldPhrases = []string{
+	"extra inputs are not permitted",
+	"extra inputs not permitted",
+	"extra fields not permitted",
+	"unknown field",
+	"unrecognized field",
+	"unexpected field",
+	"additional properties are not allowed",
+}
+
 // IsUpstreamOutputConfigFormatRejection reports whether err is a buffered 400
-// whose body names output_config.format as an unaccepted field — the signal for
-// a one-shot retry without the knob (Cortex documents the field, so only
-// gateways whose relayed schema predates it reject it).
+// rejecting output_config.format as a field the upstream does not know. Cortex
+// serves the knob on claude-opus-4-5/haiku-4-5/sonnet-4-5 but not claude-sonnet-5,
+// so the retry is licensed per response, not per provider. A complaint about the
+// schema's contents (`additionalProperties must be explicitly set to false`) is
+// the caller's to fix and must not silently unstructure the turn.
 func IsUpstreamOutputConfigFormatRejection(err error) bool {
 	var buffered *UpstreamErrorResponse
 	if !errors.As(err, &buffered) || buffered.Status != http.StatusBadRequest {
 		return false
 	}
 	body := strings.ToLower(string(buffered.Body))
-	return strings.Contains(body, "output_config.format") ||
-		(strings.Contains(body, "output_config") && strings.Contains(body, "format"))
+	if !strings.Contains(body, "output_config") || !strings.Contains(body, "format") {
+		return false
+	}
+	for _, phrase := range unknownFieldPhrases {
+		if strings.Contains(body, phrase) {
+			return true
+		}
+	}
+	return false
 }
 
 // responsesUnsupportedPhrases are prose bodies meaning the gateway does not
