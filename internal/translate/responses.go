@@ -402,10 +402,9 @@ type ResponsesWriter struct {
 	flusher http.Flusher
 	bw      *bufio.Writer
 
-	model          string // routed model, set from x-router-model when known
-	requestedModel string // originally requested model (from the client's request)
-	responseID     string
-	createdAt      int64
+	model      string // routed model, set from x-router-model when known
+	responseID string
+	createdAt  int64
 
 	statusCode       int
 	streaming        bool
@@ -485,16 +484,15 @@ func toolCallItemIDPrefix(custom bool) string {
 func NewResponsesWriter(w http.ResponseWriter, model string) *ResponsesWriter {
 	flusher, _ := w.(http.Flusher)
 	return &ResponsesWriter{
-		inner:          w,
-		flusher:        flusher,
-		bw:             bufio.NewWriterSize(w, 8192),
-		model:          model,
-		requestedModel: model,
-		responseID:     newResponsesID("resp"),
-		createdAt:      time.Now().Unix(),
-		toolItems:      map[int]*responsesToolItem{},
-		lifecycle:      NewStreamLifecycle(),
-		toolLedger:     NewToolCallLedger(),
+		inner:      w,
+		flusher:    flusher,
+		bw:         bufio.NewWriterSize(w, 8192),
+		model:      model,
+		responseID: newResponsesID("resp"),
+		createdAt:  time.Now().Unix(),
+		toolItems:  map[int]*responsesToolItem{},
+		lifecycle:  NewStreamLifecycle(),
+		toolLedger: NewToolCallLedger(),
 	}
 }
 
@@ -709,7 +707,7 @@ func (t *ResponsesWriter) Finalize() error {
 		return err
 	}
 
-	translated, err := chatCompletionToResponse(body, t.responseID, t.model, t.createdAt, t.toolMappings)
+	translated, err := chatCompletionToResponse(body, t.responseID, t.model, t.createdAt, t.toolMappings, t.computeBadgeText())
 	if err != nil {
 		t.inner.Header().Set("Content-Type", "application/json")
 		t.inner.WriteHeader(http.StatusBadGateway)
@@ -1136,43 +1134,69 @@ func (t *ResponsesWriter) translateChunk(raw []byte) error {
 }
 
 func (t *ResponsesWriter) appendText(s string) error {
-	if t.textItem == nil {
-		t.textItem = &responsesTextItem{
-			itemID: newResponsesID("msg"),
-		}
-		// Must assign after t.textItem is reachable, else nextOutputIndex
-		// undercounts it (Go evaluates struct-literal RHS before assignment).
-		t.textItem.outputIndex = t.nextOutputIndex()
-		if err := t.emitMessageItemAdded(t.textItem); err != nil {
-			return err
-		}
-		if err := t.emitContentPartAdded(t.textItem); err != nil {
-			return err
-		}
-		t.textItem.openedPart = true
+	if err := t.ensureBadgeItem(); err != nil {
+		return err
+	}
+	if err := t.openTextItem(); err != nil {
+		return err
 	}
 	if err := t.lifecycle.Output(t.textItem.outputIndex); err != nil {
 		return err
-	}
-
-	// Prepend the badge to the first text delta: Codex desktop drops
-	// reasoning-summary items from custom providers, so text is the only
-	// surface guaranteed to render.
-	if !t.badgePrepended {
-		t.badgePrepended = true
-		if line := t.computeBadgeText(); line != "" {
-			t.textItem.text.WriteString(line)
-			if err := t.emitTextDelta(t.textItem, line); err != nil {
-				return err
-			}
-		}
 	}
 
 	t.textItem.text.WriteString(s)
 	return t.emitTextDelta(t.textItem, s)
 }
 
+// openTextItem lazily opens the assistant text item the badge and every text
+// delta share. Idempotent.
+func (t *ResponsesWriter) openTextItem() error {
+	if t.textItem != nil {
+		return nil
+	}
+	t.textItem = &responsesTextItem{
+		itemID: newResponsesID("msg"),
+	}
+	// Must assign after t.textItem is reachable, else nextOutputIndex
+	// undercounts it (Go evaluates struct-literal RHS before assignment).
+	t.textItem.outputIndex = t.nextOutputIndex()
+	if err := t.emitMessageItemAdded(t.textItem); err != nil {
+		return err
+	}
+	if err := t.emitContentPartAdded(t.textItem); err != nil {
+		return err
+	}
+	t.textItem.openedPart = true
+	return nil
+}
+
+// ensureBadgeItem writes the routing badge as the leading assistant text, ahead
+// of the first text delta or tool call. Codex desktop drops reasoning-summary
+// items from custom providers, so text is the only surface guaranteed to
+// render — and a tool-call-only turn would otherwise never show the badge.
+func (t *ResponsesWriter) ensureBadgeItem() error {
+	if t.badgePrepended {
+		return nil
+	}
+	t.badgePrepended = true
+	line := t.computeBadgeText()
+	if line == "" {
+		return nil
+	}
+	if err := t.openTextItem(); err != nil {
+		return err
+	}
+	if err := t.lifecycle.Output(t.textItem.outputIndex); err != nil {
+		return err
+	}
+	t.textItem.text.WriteString(line)
+	return t.emitTextDelta(t.textItem, line)
+}
+
 func (t *ResponsesWriter) appendToolCall(idx int, tc gjson.Result) error {
+	if err := t.ensureBadgeItem(); err != nil {
+		return err
+	}
 	entry := t.toolLedger.Upsert(idx, tc.Get("id").Str, tc.Get("function.name").Str)
 	item, ok := t.toolItems[idx]
 	justOpened := false
@@ -1249,23 +1273,14 @@ func (t *ResponsesWriter) nextOutputIndex() int {
 	return count - 1
 }
 
-// computeBadgeText builds the badge prepended to the assistant's first text
-// delta, e.g. "**Weave Router** — <routed> ← <requested>" (arrow only when
-// swapped). Returns "" if no routed model is known yet.
+// computeBadgeText returns the routing badge to surface for this turn, with the
+// Codex provenance sentinel applied when enabled. Empty when the proxy supplied
+// no marker — suppression is decided there, not here.
 func (t *ResponsesWriter) computeBadgeText() string {
-	var badge string
-	if t.badgeText != "" {
-		badge = t.badgeText
-	} else {
-		if t.model == "" {
-			return ""
-		}
-		badge = "**Weave Router** — " + t.model
-		if t.requestedModel != "" && t.requestedModel != t.model {
-			badge += " ← " + t.requestedModel
-		}
-		badge += "\n\n"
+	if t.badgeText == "" {
+		return ""
 	}
+	badge := t.badgeText
 	if t.codexBadgeProvenance && !strings.HasPrefix(badge, codexResponsesBadgeSentinel) {
 		badge = codexResponsesBadgeSentinel + badge
 	}
@@ -1645,8 +1660,10 @@ func (t *ResponsesWriter) assembleOutput() []any {
 
 // chatCompletionToResponse converts a buffered chat-completions JSON body into
 // a Responses-shaped JSON body. Only used when the client requested
-// stream:false; Codex always streams, but other clients may not.
-func chatCompletionToResponse(body []byte, responseID, model string, createdAt int64, mappings map[string]ResponsesToolMapping) ([]byte, error) {
+// stream:false; Codex always streams, but other clients may not. A non-empty
+// badge leads the assistant text, synthesizing the message item when the turn
+// produced only tool calls.
+func chatCompletionToResponse(body []byte, responseID, model string, createdAt int64, mappings map[string]ResponsesToolMapping, badge string) ([]byte, error) {
 	if !gjson.ValidBytes(body) {
 		return nil, fmt.Errorf("invalid JSON")
 	}
@@ -1665,7 +1682,11 @@ func chatCompletionToResponse(body []byte, responseID, model string, createdAt i
 
 	choice := root.Get("choices.0.message")
 	output := make([]any, 0, 2)
-	if content := choice.Get("content"); content.Type == gjson.String && content.Str != "" {
+	text := badge
+	if content := choice.Get("content"); content.Type == gjson.String {
+		text += content.Str
+	}
+	if text != "" {
 		output = append(output, map[string]any{
 			"id":     newResponsesID("msg"),
 			"type":   "message",
@@ -1673,7 +1694,7 @@ func chatCompletionToResponse(body []byte, responseID, model string, createdAt i
 			"role":   "assistant",
 			"content": []any{map[string]any{
 				"type":        "output_text",
-				"text":        content.Str,
+				"text":        text,
 				"annotations": []any{},
 			}},
 		})

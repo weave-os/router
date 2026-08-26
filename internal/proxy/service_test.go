@@ -310,6 +310,9 @@ func TestService_ProxyOpenAIResponses_CustomToolUsesNativeOpenAIFamily(t *testin
 	assert.JSONEq(t, `{"id":"resp_1","object":"response","output":[]}`, rec.Body.String())
 }
 
+// markerReasonBestPickForTest mirrors proxy's unexported markerReasonBestPick.
+const markerReasonBestPickForTest = "best pick for this turn"
+
 func TestService_ProxyOpenAIResponses_NativeBadgeIsCodexOnlyAndHonorsSuppression(t *testing.T) {
 	const native = "event: response.output_text.delta\n" +
 		"data: {\"type\":\"response.output_text.delta\",\"sequence_number\":0,\"item_id\":\"msg_1\",\"output_index\":0,\"content_index\":0,\"delta\":\"ok\"}\n\n" +
@@ -370,13 +373,93 @@ func TestService_ProxyOpenAIResponses_NativeBadgeIsCodexOnlyAndHonorsSuppression
 				assert.Equal(t, priorBadge, upstreamHistory)
 			}
 			if tc.wantBadge {
-				assert.Contains(t, rec.Body.String(), "**Weave Router** — gpt-5.6-terra ← gpt-5.6-sol")
+				assert.Contains(t, rec.Body.String(), "✦ **Weave Router** → gpt-5.6-terra · "+markerReasonBestPickForTest)
 				assert.NotEqual(t, native, rec.Body.String())
 			} else {
 				assert.Equal(t, native, rec.Body.String(), "suppressed and non-Codex clients retain byte identity")
 			}
 		})
 	}
+}
+
+// A Codex turn routed cross-family must surface the routing marker, including
+// when the action produces only tool calls. Both were previously invisible: the
+// marker was gated on policy debug, and the badge could only ride on a text
+// delta the turn never emitted.
+func TestService_ProxyOpenAIResponses_EmitsRoutingMarkerForCodex(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		upstream string
+		wantText string
+	}{
+		{
+			name: "text turn",
+			upstream: "data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"hello\"},\"finish_reason\":null}]}\n\n" +
+				"data: {\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n" +
+				"data: [DONE]\n\n",
+			wantText: "hello",
+		},
+		{
+			name: "tool-call-only turn",
+			upstream: "data: {\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call_1\",\"function\":{\"name\":\"shell\",\"arguments\":\"{}\"}}]},\"finish_reason\":null}]}\n\n" +
+				"data: {\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"tool_calls\"}]}\n\n" +
+				"data: [DONE]\n\n",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			provider := &fakeProvider{proxyResponse: func(w http.ResponseWriter) {
+				w.Header().Set("Content-Type", "text/event-stream")
+				w.WriteHeader(http.StatusOK)
+				_, _ = io.WriteString(w, tc.upstream)
+			}}
+			fr := &fakeRouter{decision: router.Decision{
+				Provider: providers.ProviderOpenRouter,
+				Model:    "deepseek/deepseek-v4-pro",
+				Reason:   "test",
+			}}
+			svc := proxy.NewService(fr, map[string]providers.Client{
+				providers.ProviderOpenRouter: provider,
+			}, nil, false, nil, nil, false, providers.ProviderOpenRouter, "gpt-5.6-sol", nil)
+
+			ctx := context.WithValue(context.Background(), proxy.ClientIdentityContextKey{}, proxy.ClientIdentity{ClientApp: proxy.ClientAppCodex})
+			body := []byte(`{"model":"gpt-5.6-luna","stream":true,"input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"do the thing"}]}]}`)
+			rec := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(""))
+
+			require.NoError(t, svc.ProxyOpenAIResponses(ctx, body, rec, req))
+
+			marker := "✦ **Weave Router** → deepseek/deepseek-v4-pro · " + markerReasonBestPickForTest
+			deltas := responsesTextDeltas(t, rec.Body.Bytes())
+			require.NotEmpty(t, deltas)
+			assert.Equal(t, codexBadgeSentinelForTest+marker+"\n\n", deltas[0])
+			if tc.wantText != "" {
+				assert.Equal(t, tc.wantText, strings.Join(deltas[1:], ""))
+			} else {
+				assert.Empty(t, deltas[1:], "a tool-call-only turn carries no model text")
+				assert.Contains(t, rec.Body.String(), "response.function_call_arguments.done")
+			}
+		})
+	}
+}
+
+// codexBadgeSentinelForTest mirrors translate's invisible provenance prefix.
+const codexBadgeSentinelForTest = "\u2063\u2060\u2063\u2060"
+
+// responsesTextDeltas collects response.output_text.delta payloads in order.
+func responsesTextDeltas(t *testing.T, raw []byte) []string {
+	t.Helper()
+	var deltas []string
+	for _, line := range strings.Split(string(raw), "\n") {
+		if !strings.HasPrefix(line, "data: ") {
+			continue
+		}
+		payload := strings.TrimPrefix(line, "data: ")
+		if gjson.Get(payload, "type").Str != "response.output_text.delta" {
+			continue
+		}
+		deltas = append(deltas, gjson.Get(payload, "delta").Str)
+	}
+	return deltas
 }
 
 func TestService_CodexRequestRoutesInfrastructureOpenAIModelWithoutOAuth(t *testing.T) {

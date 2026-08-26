@@ -5434,11 +5434,13 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		marker = subscriptionOnlyWarningMarkerCodex
 	}
 
-	// Inject verbose routing marker when policy debug is enabled; gated on
-	// verbatimPassthrough (verbatim OpenAI frames can't have chunks injected).
+	// Surface the routing marker on the Responses surface the same way the
+	// Anthropic/OpenAI/Gemini marker writers do — as in-band assistant text.
+	// Previously gated on policy debug, so ordinary Codex turns fell back to
+	// ResponsesWriter's own legacy "**Weave Router** — <model>" badge and never
+	// showed the routing reason.
 	verbatimPassthrough := responsesPassthrough && decision.Provider == providers.ProviderOpenAI
-	debugEnabled, _ := ctx.Value(PolicyDebugEnabledContextKey{}).(bool)
-	if rw, ok := w.(*translate.ResponsesWriter); ok && marker != "" && !verbatimPassthrough && (debugEnabled || billing.SubscriptionOnlyFromContext(ctx)) {
+	if rw, ok := w.(*translate.ResponsesWriter); ok && marker != "" && !verbatimPassthrough {
 		rw.SetBadgeText(marker)
 	}
 
@@ -5457,12 +5459,10 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		// single-binding GPT model with no cross-format fallback to retry
 		// into. If a GPT model ever gains a fallback, gate this per-attempt.
 		if verbatimPassthrough {
-			markerEnabled := suppressMarkerIfRequested(ctx, r.Header, "enabled") != "" && !routeRes.SuggestionMode
-			mandatoryWarning := billing.SubscriptionOnlyFromContext(ctx)
-			if clientID.ClientApp == ClientAppCodex && (markerEnabled || mandatoryWarning) {
-				if mandatoryWarning {
-					rw.SetBadgeText(subscriptionOnlyWarningMarkerCodex)
-				}
+			// marker already carries the depleted-credits warning in
+			// subscription-only mode, which overrides the opt-out above.
+			if clientID.ClientApp == ClientAppCodex && marker != "" {
+				rw.SetBadgeText(marker)
 				rw.SetPassthroughBadge()
 			} else {
 				rw.SetPassthrough()

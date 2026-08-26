@@ -404,6 +404,9 @@ func TestResponsesWriter_PassthroughForwardsVerbatim(t *testing.T) {
 	assert.Equal(t, native, rec.Body.String())
 }
 
+// passthroughTestMarker stands in for the routing marker the proxy supplies.
+const passthroughTestMarker = "✦ **Weave Router** → gpt-5.6-terra · best pick for this turn"
+
 func TestResponsesWriter_PassthroughBadgePreservesNativeStream(t *testing.T) {
 	for _, terminalType := range []string{"response.completed", "response.incomplete"} {
 		t.Run(terminalType, func(t *testing.T) {
@@ -431,6 +434,7 @@ func TestResponsesWriter_PassthroughBadgePreservesNativeStream(t *testing.T) {
 
 			rec := httptest.NewRecorder()
 			w := translate.NewResponsesWriter(rec, "gpt-5.6-sol")
+			w.SetBadgeText(passthroughTestMarker)
 			w.SetPassthroughBadge()
 			w.Header().Set("Content-Type", "text/event-stream")
 			w.Header().Set("x-router-model", "gpt-5.6-terra")
@@ -451,7 +455,7 @@ func TestResponsesWriter_PassthroughBadgePreservesNativeStream(t *testing.T) {
 				assert.Equal(t, gjson.Get(payloads[index], "type").Str, event["type"])
 			}
 
-			badge := codexResponsesBadgeSentinelForTest + "**Weave Router** — gpt-5.6-terra ← gpt-5.6-sol\n\n"
+			badge := codexResponsesBadgeSentinelForTest + passthroughTestMarker + "\n\n"
 			assert.Equal(t, badge+"o", events[4]["delta"], "only the first text delta gets the badge")
 			assert.Equal(t, "k", events[5]["delta"], "later deltas stay native")
 			assert.Equal(t, badge+"ok", events[6]["text"])
@@ -500,9 +504,10 @@ data: {"type":"response.output_text.delta","item_id":"msg_native","output_index"
 	assert.Equal(t, codexResponsesBadgeSentinelForTest+badge+"\n\nok", events[0]["delta"])
 }
 
-func TestResponsesWriter_PrependsBadgeOnSwap(t *testing.T) {
+func TestResponsesWriter_PrependsRoutingMarkerBadge(t *testing.T) {
 	rec := httptest.NewRecorder()
 	w := translate.NewResponsesWriter(rec, "gpt-5.5")
+	w.SetBadgeText(passthroughTestMarker)
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("x-router-model", "claude-opus-4-7")
 	w.WriteHeader(200)
@@ -527,11 +532,7 @@ func TestResponsesWriter_PrependsBadgeOnSwap(t *testing.T) {
 		}
 	}
 	require.Len(t, deltas, 3)
-	// Format: **Weave Router** — claude-opus-4-7 ← gpt-5.5\n\n
-	assert.Contains(t, deltas[0], "**Weave Router**")
-	assert.Contains(t, deltas[0], "claude-opus-4-7")
-	assert.Contains(t, deltas[0], "← gpt-5.5")
-	assert.True(t, strings.HasSuffix(deltas[0], "\n\n"))
+	assert.Equal(t, passthroughTestMarker+"\n\n", deltas[0])
 	assert.Equal(t, "Hello", deltas[1])
 	assert.Equal(t, " world", deltas[2])
 
@@ -545,9 +546,12 @@ func TestResponsesWriter_PrependsBadgeOnSwap(t *testing.T) {
 	assert.Equal(t, 1, completedCount)
 }
 
-func TestResponsesWriter_BadgeWithoutSwapShowsModelOnly(t *testing.T) {
+// The writer no longer synthesizes a badge of its own: suppression (opt-out
+// header, same-model turn, hidden terminal surfaces) is decided by the proxy,
+// which signals it by supplying no marker.
+func TestResponsesWriter_WithoutMarkerEmitsNoBadge(t *testing.T) {
 	rec := httptest.NewRecorder()
-	w := translate.NewResponsesWriter(rec, "claude-opus-4-7")
+	w := translate.NewResponsesWriter(rec, "gpt-5.5")
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("x-router-model", "claude-opus-4-7")
 	w.WriteHeader(200)
@@ -559,16 +563,62 @@ func TestResponsesWriter_BadgeWithoutSwapShowsModelOnly(t *testing.T) {
 	require.NoError(t, w.Finalize())
 
 	events := parseSSEEvents(t, rec.Body.Bytes())
-	var firstDelta string
+	var deltas []string
 	for _, e := range events {
 		if e["type"] == "response.output_text.delta" {
-			firstDelta = e["delta"].(string)
-			break
+			deltas = append(deltas, e["delta"].(string))
 		}
 	}
-	assert.Contains(t, firstDelta, "**Weave Router**")
-	assert.Contains(t, firstDelta, "claude-opus-4-7")
-	assert.NotContains(t, firstDelta, "←")
+	assert.Equal(t, []string{"hi"}, deltas)
+}
+
+// A Codex action that only calls tools produces no assistant text of its own,
+// so the badge has to open its own message item or it never renders.
+func TestResponsesWriter_EmitsBadgeOnToolCallOnlyTurn(t *testing.T) {
+	rec := httptest.NewRecorder()
+	w := translate.NewResponsesWriter(rec, "gpt-5.6-luna")
+	w.SetBadgeText(passthroughTestMarker)
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("x-router-model", "claude-opus-4-7")
+	w.WriteHeader(200)
+
+	for _, c := range []string{
+		`data: {"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_1","function":{"name":"shell","arguments":"{\"cmd\":"}}]},"finish_reason":null}]}` + "\n\n",
+		`data: {"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"\"ls\"}"}}]},"finish_reason":null}]}` + "\n\n",
+		`data: {"choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}` + "\n\n",
+		"data: [DONE]\n\n",
+	} {
+		_, err := w.Write([]byte(c))
+		require.NoError(t, err)
+	}
+	require.NoError(t, w.Finalize())
+
+	events := parseSSEEvents(t, rec.Body.Bytes())
+
+	var deltas []string
+	for _, e := range events {
+		if e["type"] == "response.output_text.delta" {
+			deltas = append(deltas, e["delta"].(string))
+		}
+	}
+	require.Equal(t, []string{passthroughTestMarker + "\n\n"}, deltas)
+
+	// The badge message must precede the tool call and carry a lower output
+	// index, else Codex renders it after the command it announces.
+	var completed map[string]any
+	for _, e := range events {
+		if e["type"] == "response.completed" {
+			completed = e["response"].(map[string]any)
+		}
+	}
+	require.NotNil(t, completed)
+	output := completed["output"].([]any)
+	require.Len(t, output, 2)
+	message := output[0].(map[string]any)
+	assert.Equal(t, "message", message["type"])
+	assert.Equal(t, passthroughTestMarker+"\n\n", message["content"].([]any)[0].(map[string]any)["text"])
+	assert.Equal(t, "function_call", output[1].(map[string]any)["type"])
+	assert.Equal(t, `{"cmd":"ls"}`, output[1].(map[string]any)["arguments"])
 }
 
 func TestResponsesWriter_UsesRoutedModelFromHeader(t *testing.T) {
