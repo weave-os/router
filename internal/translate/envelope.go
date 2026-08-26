@@ -969,11 +969,8 @@ func resolveOpenAIOverrides(body []byte, opts EmitOptions) EmitOverrides {
 
 	ov.DeleteKeys = append(ov.DeleteKeys, "thinking")
 
-	// Drop a caller's reasoning_effort the target can't take on
-	// /v1/chat/completions: either it doesn't reason at all, or it's a gpt-5.x
-	// model whose effort belongs on the Responses API. Emitting it anyway makes
-	// an OpenAI-compatible gateway reject the whole request once tools are
-	// present ("Function tools with reasoning_effort are not supported").
+	// gpt-5.x chat/completions rejects reasoning_effort when tools are present;
+	// effort belongs on the Responses API for those models.
 	if gjson.GetBytes(body, "reasoning_effort").Exists() &&
 		(!opts.Capabilities.Supports(router.CapReasoning) || !reasoningEffortAcceptedOnChatCompletions(opts)) {
 		ov.DeleteKeys = append(ov.DeleteKeys, "reasoning_effort")
