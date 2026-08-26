@@ -1191,8 +1191,10 @@ fi
 
 # Toggle verbs (off/on/status) aren't implemented for pi — its config is a
 # structural models.json/settings.json merge, reversed by the uninstaller
-# rather than a single env/key line we can park and restore.
-if [ "$mode" != "install" ] && [ "$target" = "pi" ]; then
+# rather than a single env/key line we can park and restore. `update` is not a
+# toggle: it rewrites that same structural config in place, exactly as install
+# does, so it belongs with install here.
+if [ "$mode" != "install" ] && [ "$mode" != "update" ] && [ "$target" = "pi" ]; then
   err "Toggle verbs (off/on/status) aren't supported for --pi. Use 'npx @workweave/router --uninstall --pi' to remove, or re-run the installer to refresh."
   exit 2
 fi

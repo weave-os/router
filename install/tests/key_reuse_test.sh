@@ -329,7 +329,13 @@ check_target_reuse() { # <label> <flag> <relative key file> <reader fn>
   check "$label: --rotate-key failure leaves the key intact" "$("$reader" "$f")" "rk_${label}_second"
 
   # update is no longer Claude-only, and must refresh in place off the same key.
+  # Assert the exit code, not just the key: a gate that rejects the target exits
+  # before writing anything, which leaves the key untouched and would make a
+  # key-only assertion pass on a target update never reached. The fake curl
+  # fails /validate, and update treats that as fatal, so 1 here means the run
+  # got all the way to the post-write probe.
   run_dir "$home" "$dir" -- update "$flag" --quiet
+  check "$label: update runs instead of rejecting the target" "$?" 1
   check "$label: update reuses the installed key" "$("$reader" "$f")" "rk_${label}_second"
 }
 
@@ -362,6 +368,7 @@ HOME="$ep_home" XDG_CACHE_HOME="$ep_home/.cache" PATH="$test_path" NO_COLOR=1 \
     --base-url "$custom_ep" </dev/null >/dev/null 2>&1
 HOME="$ep_home" XDG_CACHE_HOME="$ep_home/.cache" PATH="$test_path" NO_COLOR=1 \
   bash "$installer" update --codex --dir "$ep_dir" --quiet </dev/null >/dev/null 2>&1
+check "codex: update reaches the write path" "$?" 1
 check "codex: update preserves a custom base URL, not the hosted default" \
   "$(codex_base "$ep_dir/.codex/config.toml")" "$custom_ep/v1"
 
