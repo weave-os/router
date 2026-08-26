@@ -31,10 +31,8 @@ func resolveReasoningEffortFor(opts EmitOptions) string {
 // reasoningEffortAcceptedOnChatCompletions reports whether the target accepts
 // reasoning_effort on /v1/chat/completions. gpt-5.x rejects it (routed through
 // Responses API); other CapReasoning models (OpenRouter OSS) accept it freely.
-// Customer gateways (Snowflake Cortex) reject the field for any model once
-// function tools are present: "Function tools with reasoning_effort are not
-// supported". Gateways have no Responses surface to fall back to, so the
-// effort is dropped rather than 400ing the turn.
+// Gateways reject it alongside tools for any model and have no Responses
+// surface to fall back to, so the effort is dropped rather than 400ing.
 func reasoningEffortAcceptedOnChatCompletions(opts EmitOptions, hasTools bool) bool {
 	if strings.HasPrefix(opts.TargetModel, "gpt-5") {
 		return false
