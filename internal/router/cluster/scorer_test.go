@@ -952,9 +952,8 @@ func TestScorer_EnabledProvidersGatesArgmax(t *testing.T) {
 	assert.Equal(t, "anthropic", got.Provider)
 }
 
-// A gateway key's model_aliases are the whole routable set: claude-opus-4-7
-// and gpt-5 both carry an openai_gateway catalog binding, but only the aliased
-// one is deployed on the customer's endpoint.
+// gpt-5 also carries an openai_gateway catalog binding; gateway exclusivity
+// must route only the aliased model so an unaliased name never goes upstream.
 func TestScorer_GatewayExclusiveRoutesOnlyAliasedModel(t *testing.T) {
 	emb := &fakeEmbedder{vec: makeOpusVec()}
 	s := newTwoProviderScorer(t, emb)
