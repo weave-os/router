@@ -235,15 +235,17 @@ func (c *Client) Proxy(ctx context.Context, decision router.Decision, prep provi
 	baseURL := proxy.EffectiveBaseURL(ctx, c.baseURL)
 
 	// 404s are buffered before reaching w, so a missing "/v1" segment can be retried.
-	// firstErr is returned on double-miss so the probe's 404 doesn't mask the original.
+	// A non-404 on the versioned path is the real error and is memoized; only a
+	// second 404 falls back to the probe so a genuine model-not-found is preserved.
 	urls := c.versionMemo.URLs(baseURL, "/chat/completions")
 	firstErr := c.proxyTo(ctx, cancel, urls[0], baseURL, body, decision, prep, w, r)
 	if len(urls) == 1 || !providers.IsUpstreamModelNotFound(firstErr) {
 		return firstErr
 	}
-	if err := c.proxyTo(ctx, cancel, urls[1], baseURL, body, decision, prep, w, r); err == nil {
+	err := c.proxyTo(ctx, cancel, urls[1], baseURL, body, decision, prep, w, r)
+	if err == nil || !providers.IsUpstreamModelNotFound(err) {
 		c.versionMemo.Learn(baseURL)
-		return nil
+		return err
 	}
 	return firstErr
 }
