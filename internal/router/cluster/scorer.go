@@ -12,6 +12,7 @@ import (
 	"workweave/router/internal/observability"
 	"workweave/router/internal/router"
 	"workweave/router/internal/router/catalog"
+	"workweave/router/internal/router/policy"
 )
 
 // ErrClusterUnavailable is returned when the cluster scorer cannot produce
@@ -522,14 +523,23 @@ func (s *Scorer) Route(ctx context.Context, req router.Request) (router.Decision
 	eligibleModels := s.models
 	resolvedProvider := make(map[string]string, len(s.candidates))
 	if req.EnabledProviders != nil {
+		bindings := RequestBindings{Custom: req.CustomBindings, Gateways: req.GatewayProviders}
 		eligibleModels = eligibleModels[:0:0]
 		for _, c := range s.candidates {
-			r := resolveProviderWithCustom(c.Model, c.Provider, req.EnabledProviders, req.CustomBindings)
+			r := bindings.resolve(c.Model, c.Provider, req.EnabledProviders)
 			if r == "" {
 				continue
 			}
 			resolvedProvider[c.Model] = r
 			eligibleModels = append(eligibleModels, c.Model)
+		}
+		if len(eligibleModels) == 0 && len(req.GatewayProviders) > 0 {
+			log.Warn(
+				"Cluster scorer: gateway keys alias no deployed model; returning ErrGatewayServesNoDeployedModel",
+				"gateway_providers", sortedKeys(req.GatewayProviders),
+				"requested_model", req.RequestedModel,
+			)
+			return router.Decision{}, fmt.Errorf("gateway providers %v alias no deployed model: %w", sortedKeys(req.GatewayProviders), policy.ErrGatewayServesNoDeployedModel)
 		}
 		if len(eligibleModels) == 0 {
 			log.Warn(
