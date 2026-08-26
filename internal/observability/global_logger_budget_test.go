@@ -51,10 +51,6 @@ var globalLoggerBudget = map[string]int{
 }
 
 // TestGlobalLoggerBudget fails when a package gains an untagged log site.
-//
-// This is the regression guard for correlation-tagged logs: the codebase
-// previously drifted to 136 acquisition points that emitted lines with no
-// request_id, which is why a session's logs could not be read end to end.
 func TestGlobalLoggerBudget(t *testing.T) {
 	root := repoRoot(t)
 	counts := map[string]int{}
@@ -153,23 +149,26 @@ func repoRoot(t *testing.T) string {
 	}
 }
 
-// reservedLogKeys are bound by Middleware or bindRequestLogger. slog does not
-// dedupe, so a call site re-using one emits the key twice and JSON consumers
-// keep the LAST value — silently overwriting the correlation field. Searching
-// by the overwritten value then misses that line, which is the exact failure
-// correlation tags exist to prevent.
-var reservedLogKeys = []string{
-	"request_id",
-	"session_key",
-	"client_session_id",
-	"api_key_id",
-	"ingress",
-	"name",
+// alwaysBoundKeys are bound on every HTTP path: Middleware binds request_id,
+// initLogger binds name. slog does not dedupe: re-passing one emits the key
+// twice and JSON consumers keep the LAST value, overwriting the bound field.
+var alwaysBoundKeys = []string{"request_id", "name"}
+
+// bindScopedKeys are bound by bindRequestLogger, which runs inside the proxy
+// handler. Code that runs BEFORE it (route middleware) is adding the field,
+// not shadowing it — passing api_key_id there is correct and must not be
+// renamed, so these are only checked on the post-bind request path.
+var bindScopedKeys = []string{"session_key", "client_session_id", "api_key_id", "ingress"}
+
+// postBindPrefixes are packages reached only after bindRequestLogger has run.
+var postBindPrefixes = []string{
+	"internal/proxy/",
+	"internal/providers/",
+	"internal/translate/",
 }
 
-// reservedKeyAllowlist are sites that bind a reserved key onto a logger
-// deliberately (the binder itself, or an off-request-path logger that has no
-// bound value to collide with).
+// reservedKeyAllowlist are sites that bind a reserved key deliberately (the
+// binder itself, or a logger with no bound value to collide with).
 var reservedKeyAllowlist = map[string]bool{
 	"internal/observability/logger.go":   true, // Middleware binds them
 	"internal/proxy/session_key.go":      true, // bindRequestLogger binds them
@@ -179,8 +178,8 @@ var reservedKeyAllowlist = map[string]bool{
 	"internal/api/anthropic/messages.go": true, // pre-Middleware oversize-body log
 }
 
-// TestNoReservedLogKeyShadowing fails when a request-path log call passes a
-// key already bound to the logger, which would overwrite the bound value.
+// TestNoReservedLogKeyShadowing fails when a log call passes a key already
+// bound to that logger, which would overwrite the bound value.
 func TestNoReservedLogKeyShadowing(t *testing.T) {
 	root := repoRoot(t)
 
@@ -207,28 +206,36 @@ func TestNoReservedLogKeyShadowing(t *testing.T) {
 			return nil
 		}
 
-		for _, key := range findShadowedKeys(t, path) {
-			t.Errorf("%s passes reserved log key %q, which is already bound to the "+
-				"request logger. slog keeps the last value, so this overwrites the "+
-				"bound field and makes the line unfindable by it. Rename to "+
-				"upstream_%s / tool_%s, or drop it if the value is identical.",
-				rel, key, key, key)
+		check := append([]string{}, alwaysBoundKeys...)
+		for _, prefix := range postBindPrefixes {
+			if strings.HasPrefix(rel, prefix) {
+				check = append(check, bindScopedKeys...)
+				break
+			}
+		}
+
+		for _, key := range findShadowedKeys(t, path, check) {
+			t.Errorf("%s passes log key %q, which is already bound to the request "+
+				"logger here. slog keeps the last value, so this overwrites the bound "+
+				"field and makes the line unfindable by it. Rename to a distinct key "+
+				"(upstream_%s / rated_%s / tool_%s), or drop it if the value is "+
+				"identical to the bound one.", rel, key, key, key, key)
 		}
 		return nil
 	})
 	require.NoError(t, err)
 }
 
-// findShadowedKeys returns reserved keys passed as literal args to a
+// findShadowedKeys returns which of keys are passed as literal args to a
 // .Debug/.Info/.Warn/.Error call in the file.
-func findShadowedKeys(t *testing.T, path string) []string {
+func findShadowedKeys(t *testing.T, path string, keys []string) []string {
 	t.Helper()
 	fset := token.NewFileSet()
 	file, err := parser.ParseFile(fset, path, nil, 0)
 	require.NoError(t, err, "parse %s", path)
 
 	reserved := map[string]bool{}
-	for _, k := range reservedLogKeys {
+	for _, k := range keys {
 		reserved[k] = true
 	}
 
