@@ -101,6 +101,25 @@ $(weave_registry_rows)
 EOF
 }
 
+# weave_registry_skill_assets lists every directive a client ships as a skill
+# file, including local-config toggles such as Codex's disable-routing. Install
+# and uninstall use this for file management; weave_registry_skill_names is the
+# narrower prompt-only set used when generating prompt adapters.
+weave_registry_skill_assets() {
+  local target="$1" canonical aliases capability claude codex opencode pi cursor adapter
+  while IFS='|' read -r canonical aliases capability claude codex opencode pi cursor adapter; do
+    case ",$adapter," in *,skill,*) ;; *) continue ;; esac
+    case "$target" in
+      claude) [ "$claude" = yes ] || continue ;; codex) [ "$codex" = yes ] || continue ;;
+      opencode) [ "$opencode" = yes ] || continue ;; pi) [ "$pi" = yes ] || continue ;;
+      cursor) [ "$cursor" = yes ] || continue ;;
+    esac
+    printf '%s\n' "$canonical"
+  done <<EOF
+$(weave_registry_rows)
+EOF
+}
+
 # weave_registry_canonical_for resolves a name or alias to its canonical
 # directive, and fails when the name is not in the registry at all.
 weave_registry_canonical_for() {
@@ -537,42 +556,39 @@ EOF
     rmdir "$codex_prompts_dir" 2>/dev/null || true
   fi
 
-  # The installer-owned skill switches Codex back to its normal provider. It
-  # is separate from config.toml, so remove it when removing the router too.
-  # A same-named skill without our marker belongs to the user and is preserved.
-  codex_skill_dir="$codex_dir/skills/disable-routing"
-  codex_skill_file="$codex_skill_dir/SKILL.md"
-  if [ -d "$codex_skill_dir" ]; then
-    refuse_if_symlink "$codex_skill_dir"
-    if [ -f "$codex_skill_file" ]; then
-      refuse_if_symlink "$codex_skill_file"
-      if grep -Fq "$WEAVE_CODEX_SKILL_MARKER" "$codex_skill_file"; then
-        rm -f "$codex_skill_file"
-        ok "Removed $codex_skill_file"
-      else
-        warn "Leaving user-owned Codex skill at $codex_skill_file untouched."
-      fi
-    fi
-    rmdir "$codex_skill_dir" 2>/dev/null || true
-    rmdir "$codex_dir/skills" 2>/dev/null || true
-  fi
+  # disable-routing is handled by the registry-driven loop below, alongside
+  # every other installer-owned skill.
 
-  while IFS= read -r canonical; do
-    skill_file="$codex_dir/skills/$canonical/SKILL.md"
-    skill_dir="$codex_dir/skills/$canonical"
-    if [ -f "$skill_file" ]; then
-      refuse_if_symlink "$skill_file"
-      if grep -Fq "<!-- weave-router managed $canonical skill -->" "$skill_file"; then
-        rm -f "$skill_file"
-        ok "Removed $skill_file"
-      else
-        warn "Leaving user-owned Codex skill at $skill_file untouched."
+  # A symlinked skills/ or per-skill directory would let the marker check and
+  # the rm below reach a file outside the Codex tree entirely, so refuse the
+  # parents before touching anything beneath them — not just SKILL.md itself.
+  if [ -L "$codex_dir/skills" ]; then
+    warn "$codex_dir/skills is a symlink; leaving Codex skills untouched."
+  else
+    while IFS= read -r canonical; do
+      skill_dir="$codex_dir/skills/$canonical"
+      skill_file="$skill_dir/SKILL.md"
+      if [ -L "$skill_dir" ]; then
+        warn "$skill_dir is a symlink; leaving it untouched."
+        continue
       fi
-      rmdir "$skill_dir" 2>/dev/null || true
-    fi
-  done <<EOF
-$(weave_registry_skill_names codex)
+      if [ -L "$skill_file" ]; then
+        warn "$skill_file is a symlink; leaving it untouched."
+        continue
+      fi
+      if [ -f "$skill_file" ]; then
+        if grep -Fq "<!-- weave-router managed $canonical skill -->" "$skill_file"; then
+          rm -f "$skill_file"
+          ok "Removed $skill_file"
+        else
+          warn "Leaving user-owned Codex skill at $skill_file untouched."
+        fi
+        rmdir "$skill_dir" 2>/dev/null || true
+      fi
+    done <<EOF
+$(weave_registry_skill_assets codex)
 EOF
+  fi
 
   if [ -n "$install_dir" ]; then
     ok "Weave Router uninstalled from $install_dir (Codex)."

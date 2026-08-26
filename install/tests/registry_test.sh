@@ -320,5 +320,33 @@ run_uninstall "$cx_home" --codex --scope user
 check "uninstall removes every Codex skill it owns" "" \
   "$(cd "$cx_home/.codex" 2>/dev/null && ls -d skills/*/ 2>/dev/null | tr -d '/' | sed 's|skills||' | tr '\n' ' ' | sed 's/ $//')"
 
+# A symlinked skills/ or per-skill dir must not be followed: the marker check
+# and rm would otherwise reach a file outside the Codex tree entirely.
+sym_skills="$work/sym-skills"
+mkdir -p "$sym_skills/home/.codex" "$sym_skills/external/force-model"
+printf '%s\n' '<!-- weave-router managed force-model skill -->' \
+  >"$sym_skills/external/force-model/SKILL.md"
+ln -s "$sym_skills/external" "$sym_skills/home/.codex/skills"
+run_uninstall "$sym_skills/home" --codex --scope user
+if [ -f "$sym_skills/external/force-model/SKILL.md" ]; then
+  ok "uninstall does not delete through a symlinked Codex skills dir"
+else
+  no "uninstall does not delete through a symlinked Codex skills dir" \
+    "external file preserved" "deleted through the symlink"
+fi
+
+sym_one="$work/sym-one"
+mkdir -p "$sym_one/home/.codex/skills" "$sym_one/external/force-model"
+printf '%s\n' '<!-- weave-router managed force-model skill -->' \
+  >"$sym_one/external/force-model/SKILL.md"
+ln -s "$sym_one/external/force-model" "$sym_one/home/.codex/skills/force-model"
+run_uninstall "$sym_one/home" --codex --scope user
+if [ -f "$sym_one/external/force-model/SKILL.md" ]; then
+  ok "uninstall does not delete through a symlinked per-skill dir"
+else
+  no "uninstall does not delete through a symlinked per-skill dir" \
+    "external file preserved" "deleted through the symlink"
+fi
+
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]
