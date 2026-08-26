@@ -1,0 +1,39 @@
+internal/sqlc/model_router_request_telemetry.sql.go
+  s_058485d2635629::t_107d86ba644dbe 1693-1702,1769-1778,1784-1858,1883-1886,1958-1967,2034-2043,2114-2122
+internal/postgres/telemetry.go
+  s_058485d2635629::t_3fa8c03228f667 26-35,158-162
+  s_058485d2635629::t_d182eddf9d0dc9 88-157
+internal/proxy/planner_telemetry_internal_test.go
+  s_058485d2635629::t_cea4a7cee762ad 1-54,62-72
+  s_058485d2635629::t_d182eddf9d0dc9 55-61
+internal/sqlc/models.go
+  s_058485d2635629::t_107d86ba644dbe 229-246,385-461
+internal/proxy/telemetry.go
+  s_058485d2635629::t_3fa8c03228f667 132-136
+  s_058485d2635629::t_d182eddf9d0dc9 137-145
+  s_058485d2635629::t_48b6de9b96943e 207-231
+internal/proxy/service.go
+  s_058485d2635629::t_50f03f5b55ebba 3775,3858-3860,5765,5830-5832
+db/queries/model_router_request_telemetry.sql
+  s_058485d2635629::t_99d5b277d9a54c 23-26,98-107,174-183
+db/migrations/0066_telemetry-planner-decision.down.sql
+  s_058485d2635629::t_8c069e2da9bacb 1-21
+db/migrations/0066_telemetry-planner-decision.up.sql
+  s_058485d2635629::t_bda62be980299b 1-52
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "c06cea9af133869c6985ee6c0c1356b68e54c4fc",
+  "prompts": {},
+  "sessions": {
+    "s_058485d2635629": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "bc459cec-44c1-4e73-9977-ec456ecc2a56",
+        "model": "grok-4.6"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}
