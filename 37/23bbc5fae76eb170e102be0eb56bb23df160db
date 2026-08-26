@@ -1,0 +1,21 @@
+internal/proxy/service.go
+  s_ca417744b2c4cd::t_1a05e6b2a06257 382-383
+internal/proxy/feedback.go
+  s_ca417744b2c4cd::t_6e473001c35e92 166-167
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "3723bbc5fae76eb170e102be0eb56bb23df160db",
+  "prompts": {},
+  "sessions": {
+    "s_ca417744b2c4cd": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "88a49ec3-fb5d-4217-8792-c09695a9c6af",
+        "model": "moonshotai/kimi-k3"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}
