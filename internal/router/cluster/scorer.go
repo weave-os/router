@@ -377,9 +377,8 @@ func resolveProviderWithCustom(modelID, registryProvider string, available map[s
 	return catalog.CustomProviderFor(modelID, available, custom)
 }
 
-// resolveGatewayProvider is the gateway-exclusive counterpart: an installation
-// whose keys enroll a gateway routes only what those keys alias onto it, so
-// catalog bindings are not consulted at all.
+// resolveGatewayProvider routes only via the key's aliased gateway providers;
+// catalog vendor bindings are not consulted.
 func resolveGatewayProvider(modelID string, available map[string]struct{}, custom map[string][]string, gateways map[string]struct{}) string {
 	m, known := catalog.ByID(modelID)
 	if !known || m.Tier == catalog.TierUnknown {

@@ -562,9 +562,7 @@ func (s *Service) runTurnLoop(
 				GatewayProviders: req.GatewayProviders,
 			})
 			if !ok {
-				// Under a gateway-exclusive installation an empty result is the
-				// key's alias list, not a router fault — report the same
-				// actionable error the resolver gives the scored path.
+				// Gateway empty result = no aliases configured (customer fix), not a router fault.
 				hardPinErr := cluster.ErrClusterUnavailable
 				if len(req.GatewayProviders) > 0 {
 					hardPinErr = policy.ErrGatewayServesNoDeployedModel

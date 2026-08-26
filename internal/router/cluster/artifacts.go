@@ -698,12 +698,9 @@ func FastestModelInSet(meta *ArtifactMetadata, registry *ModelRegistry, availabl
 	return fastestModelFiltered(meta, registry, available, denySet, allowSet, RequestBindings{})
 }
 
-// FastestModelForRequest is FastestModelInSet honoring the request's
-// configuration-declared bindings. A gateway-only installation reaches no
-// catalog binding, so without them the hard-pin tier resolves nothing and
-// every probe/classifier/compaction turn fails with ErrClusterUnavailable.
-// Gateway providers carry no tok/s annotation, so selection there lands on the
-// cheapest aliased model rather than the fastest.
+// FastestModelForRequest is FastestModelInSet with RequestBindings so gateway-only
+// installations (which have no catalog binding) can reach their aliased models.
+// Gateway providers have no tok/s annotation, so selection falls back to cheapest.
 func FastestModelForRequest(meta *ArtifactMetadata, registry *ModelRegistry, available, denySet, allowSet map[string]struct{}, bindings RequestBindings) (provider, model string, ok bool) {
 	return fastestModelFiltered(meta, registry, available, denySet, allowSet, bindings)
 }

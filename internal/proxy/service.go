@@ -1626,10 +1626,8 @@ func (s *Service) WithAvailableModels(models map[string]struct{}) *Service {
 	return s
 }
 
-// HardPinRequest is the per-request context the hard-pin tier selects
-// against: the providers the request authenticates to, the installation's
-// excluded models, and the key's configuration-declared bindings — the only
-// routable thing under a gateway-exclusive installation.
+// HardPinRequest is the per-request context the hard-pin tier selects against;
+// gateway-exclusive installations can only reach models aliased onto the enrolled gateway.
 type HardPinRequest struct {
 	EnabledProviders map[string]struct{}
 	ExcludedModels   map[string]struct{}
