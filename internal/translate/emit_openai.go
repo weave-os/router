@@ -31,8 +31,15 @@ func resolveReasoningEffortFor(opts EmitOptions) string {
 // reasoningEffortAcceptedOnChatCompletions reports whether the target accepts
 // reasoning_effort on /v1/chat/completions. gpt-5.x rejects it (routed through
 // Responses API); other CapReasoning models (OpenRouter OSS) accept it freely.
-func reasoningEffortAcceptedOnChatCompletions(opts EmitOptions) bool {
+// Customer gateways (Snowflake Cortex) reject the field for any model once
+// function tools are present: "Function tools with reasoning_effort are not
+// supported". Gateways have no Responses surface to fall back to, so the
+// effort is dropped rather than 400ing the turn.
+func reasoningEffortAcceptedOnChatCompletions(opts EmitOptions, hasTools bool) bool {
 	if strings.HasPrefix(opts.TargetModel, "gpt-5") {
+		return false
+	}
+	if hasTools && providers.IsGateway(opts.TargetProvider) {
 		return false
 	}
 	return true
@@ -189,7 +196,7 @@ func (e *RequestEnvelope) buildOpenAIFromOpenAI(opts EmitOptions) ([]byte, error
 		return nil, err
 	}
 	// Write reasoning_effort for CapReasoning targets that accept it on chat/completions.
-	if forced := resolveReasoningEffortFor(opts); forced != "" && opts.Capabilities.Supports(router.CapReasoning) && reasoningEffortAcceptedOnChatCompletions(opts) {
+	if forced := resolveReasoningEffortFor(opts); forced != "" && opts.Capabilities.Supports(router.CapReasoning) && reasoningEffortAcceptedOnChatCompletions(opts, hasNonEmptyTools(body)) {
 		body, err = sjson.SetBytes(body, "reasoning_effort", forced)
 		if err != nil {
 			return nil, fmt.Errorf("set reasoning_effort: %w", err)
@@ -304,7 +311,7 @@ func (e *RequestEnvelope) buildOpenAIFromAnthropic(opts EmitOptions) ([]byte, pr
 	writeOpenAIMaxTokensFromAnthropic(jw, body, opts)
 
 	// Write reasoning_effort for CapReasoning targets that accept it on chat/completions.
-	if forced := resolveReasoningEffortFor(opts); forced != "" && opts.Capabilities.Supports(router.CapReasoning) && reasoningEffortAcceptedOnChatCompletions(opts) {
+	if forced := resolveReasoningEffortFor(opts); forced != "" && opts.Capabilities.Supports(router.CapReasoning) && reasoningEffortAcceptedOnChatCompletions(opts, hasNonEmptyTools(body)) {
 		jw.Key("reasoning_effort")
 		jw.Str(forced)
 	}

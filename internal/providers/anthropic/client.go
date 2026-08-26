@@ -285,15 +285,17 @@ func (c *Client) Proxy(ctx context.Context, decision router.Decision, prep provi
 	body = proxy.ApplyModelAlias(ctx, body, decision.Model)
 
 	// 404s are buffered before reaching w, so a duplicate "/v1" can be re-tried.
-	// firstErr is returned on double-miss so the probe's 404 doesn't mask the original.
+	// A non-404 on the retried path is the real error and is memoized; only a
+	// second 404 falls back to the probe so a genuine model-not-found is preserved.
 	urls := c.versionMemo.URLs(baseURL, "/v1/messages")
 	firstErr := c.proxyTo(ctx, cancel, urls[0], body, decision, prep, w, r)
 	if len(urls) == 1 || !providers.IsUpstreamModelNotFound(firstErr) {
 		return firstErr
 	}
-	if err := c.proxyTo(ctx, cancel, urls[1], body, decision, prep, w, r); err == nil {
+	err := c.proxyTo(ctx, cancel, urls[1], body, decision, prep, w, r)
+	if err == nil || !providers.IsUpstreamModelNotFound(err) {
 		c.versionMemo.Learn(baseURL)
-		return nil
+		return err
 	}
 	return firstErr
 }

@@ -972,7 +972,8 @@ func resolveOpenAIOverrides(body []byte, opts EmitOptions) EmitOverrides {
 	// gpt-5.x chat/completions rejects reasoning_effort when tools are present;
 	// effort belongs on the Responses API for those models.
 	if gjson.GetBytes(body, "reasoning_effort").Exists() &&
-		(!opts.Capabilities.Supports(router.CapReasoning) || !reasoningEffortAcceptedOnChatCompletions(opts)) {
+		(!opts.Capabilities.Supports(router.CapReasoning) ||
+			!reasoningEffortAcceptedOnChatCompletions(opts, hasNonEmptyTools(body))) {
 		ov.DeleteKeys = append(ov.DeleteKeys, "reasoning_effort")
 	}
 

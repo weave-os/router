@@ -244,6 +244,33 @@ func TestOpenAISameFormat_ReasoningEffortDeletedForGPT5OnChatCompletions(t *test
 	assert.Contains(t, out, "tools")
 }
 
+// Cortex rejects reasoning_effort alongside tools for every model it serves,
+// not just gpt-5.x, and a gateway has no Responses surface to move it to.
+func TestOpenAISameFormat_ReasoningEffortDeletedForGatewayToolsOnAnyModel(t *testing.T) {
+	body := []byte(`{
+		"model":"grok-4.6",
+		"messages":[{"role":"user","content":"hi"}],
+		"reasoning_effort":"medium",
+		"tools":[{"type":"function","function":{"name":"read_file","parameters":{"type":"object"}}}]
+	}`)
+	opts := translate.EmitOptions{
+		TargetModel:    "grok-4.6",
+		TargetProvider: providers.ProviderOpenAIGateway,
+		Capabilities:   router.Lookup("grok-4.6"),
+	}
+	out := parseAndEmit(t, body, "openai", opts)
+	assert.NotContains(t, out, "reasoning_effort")
+	assert.Contains(t, out, "tools")
+
+	toolless := []byte(`{
+		"model":"grok-4.6",
+		"messages":[{"role":"user","content":"hi"}],
+		"reasoning_effort":"medium"
+	}`)
+	assert.Equal(t, "medium", parseAndEmit(t, toolless, "openai", opts)["reasoning_effort"],
+		"a toolless gateway turn keeps the caller's effort")
+}
+
 func TestOpenAISameFormat_ReasoningStripsUnsupportedSampling(t *testing.T) {
 	body := []byte(`{
 		"model":"gpt-5.5",

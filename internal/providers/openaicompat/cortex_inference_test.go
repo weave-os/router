@@ -132,6 +132,37 @@ func TestAnthropicProxy_GatewayBaseURLWithDuplicateVersionSegment(t *testing.T) 
 	assert.Equal(t, []string{"/api/v2/cortex/v1/v1/messages", "/api/v2/cortex/v1/messages"}, paths)
 }
 
+// The Anthropic surface must surface the retried path's real error too, rather
+// than masking it with the duplicate-version probe's 404, and memoize the path.
+func TestAnthropicProxy_GatewayVersionProbeSurfacesRealError(t *testing.T) {
+	var paths []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		paths = append(paths, r.URL.Path)
+		if r.URL.Path != "/api/v2/cortex/v1/messages" {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"message":"unknown model \"claude-opus-9\""}`))
+	}))
+	defer srv.Close()
+
+	c := anthropic.NewClient("tok", srv.URL+"/api/v2/cortex/v1", anthropic.WithAuthScheme(anthropic.AuthBearer))
+	prep, clientReq := chatRequest()
+	err := c.Proxy(context.Background(), router.Decision{Model: "claude-opus-9"}, prep, httptest.NewRecorder(), clientReq)
+
+	require.Error(t, err)
+	var upstream *providers.UpstreamErrorResponse
+	require.True(t, errors.As(err, &upstream))
+	assert.Equal(t, http.StatusBadRequest, upstream.Status)
+	assert.Contains(t, string(upstream.Body), "unknown model")
+
+	paths = nil
+	_ = c.Proxy(context.Background(), router.Decision{Model: "claude-opus-9"}, prep, httptest.NewRecorder(), clientReq)
+	assert.Equal(t, []string{"/api/v2/cortex/v1/messages"}, paths)
+}
+
 // An unversioned base URL reaches Messages on the first try.
 func TestAnthropicProxy_GatewayBaseURLWithoutVersionSegment(t *testing.T) {
 	var paths []string
