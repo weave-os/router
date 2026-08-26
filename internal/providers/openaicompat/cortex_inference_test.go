@@ -174,3 +174,20 @@ func TestAnthropicProxy_GatewayBaseURLWithoutVersionSegment(t *testing.T) {
 	require.NoError(t, c.Proxy(context.Background(), router.Decision{Model: "claude-sonnet-4-5"}, prep, httptest.NewRecorder(), clientReq))
 	assert.Equal(t, []string{"/api/v2/cortex/v1/messages"}, paths)
 }
+
+// A Responses-endpoint request must go to /responses, not chat/completions,
+// while keeping the version-probe fallback.
+func TestProxy_ResponsesEndpointUsesResponsesPath(t *testing.T) {
+	var paths []string
+	srv := httptest.NewServer(cortexInference("/api/v2/cortex/v1/responses", &paths))
+	defer srv.Close()
+
+	c := openaicompat.NewGatewayClient("tok", srv.URL+"/api/v2/cortex")
+	prep, clientReq := chatRequest()
+	prep.Endpoint = providers.EndpointResponses
+
+	rec := httptest.NewRecorder()
+	require.NoError(t, c.Proxy(context.Background(), router.Decision{Model: "gpt-5.6-luna"}, prep, rec, clientReq))
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, []string{"/api/v2/cortex/responses", "/api/v2/cortex/v1/responses"}, paths)
+}

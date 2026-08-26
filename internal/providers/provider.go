@@ -480,6 +480,41 @@ func IsUpstreamSchemaRejection(err error) bool {
 	return false
 }
 
+// responsesUnsupportedPhrases are prose bodies meaning the gateway does not
+// serve /v1/responses at all (as opposed to rejecting this particular body).
+// Snowflake Cortex gates the surface per account and answers 400/403 rather
+// than 404, so status alone can't classify it.
+var responsesUnsupportedPhrases = []string{
+	"responses rest api not enabled",
+	"responses api not enabled",
+	"not allowed to access this endpoint",
+	"unknown path",
+}
+
+// IsUpstreamResponsesUnsupported reports whether err means the upstream has no
+// usable Responses API, so the caller should re-emit the turn onto
+// chat/completions. A 404 covers gateways that never mount the path; the prose
+// phrases cover gateways that mount it but leave it disabled per account.
+func IsUpstreamResponsesUnsupported(err error) bool {
+	var buffered *UpstreamErrorResponse
+	if !errors.As(err, &buffered) {
+		return false
+	}
+	if buffered.Status == http.StatusNotFound {
+		return true
+	}
+	if buffered.Status != http.StatusBadRequest && buffered.Status != http.StatusForbidden {
+		return false
+	}
+	body := strings.ToLower(string(buffered.Body))
+	for _, phrase := range responsesUnsupportedPhrases {
+		if strings.Contains(body, phrase) {
+			return true
+		}
+	}
+	return false
+}
+
 // UpstreamErrorBodyMessage extracts a provider's error message from a buffered
 // non-2xx body for diagnostics: prefers {"error":{"message":...}}, then
 // top-level "message", then truncated raw body. Returns "" for non-buffered or

@@ -456,4 +456,7 @@ func TestUseOpenAIResponsesAPI(t *testing.T) {
 	assert.False(t, translate.UseOpenAIResponsesAPI(providers.ProviderOpenAI, caps, false))
 	assert.False(t, translate.UseOpenAIResponsesAPI(providers.ProviderFireworks, caps, true))
 	assert.False(t, translate.UseOpenAIResponsesAPI(providers.ProviderOpenAI, router.Lookup("gpt-4o"), true))
+	assert.True(t, translate.UseOpenAIResponsesAPI(providers.ProviderOpenAIGateway, caps, true),
+		"BYOK gateways reject tools alongside an effort on chat/completions too")
+	assert.False(t, translate.UseOpenAIResponsesAPI(providers.ProviderOpenAIGateway, caps, false))
 }

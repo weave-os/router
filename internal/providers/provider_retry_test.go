@@ -215,3 +215,55 @@ func TestUpstreamErrorBodyMessage(t *testing.T) {
 	big := &providers.UpstreamErrorResponse{Status: 400, Body: []byte(strings.Repeat("x", 5000))}
 	assert.LessOrEqual(t, len(providers.UpstreamErrorBodyMessage(big)), 1024, "body is capped")
 }
+
+// TestIsUpstreamResponsesUnsupported pins the signals that mean "this upstream
+// has no usable Responses API", so the caller re-emits onto chat/completions
+// instead of failing the turn.
+func TestIsUpstreamResponsesUnsupported(t *testing.T) {
+	cases := []struct {
+		name   string
+		status int
+		body   string
+		want   bool
+	}{
+		{
+			name:   "404 means the path is not mounted",
+			status: http.StatusNotFound,
+			body:   `{"message":"unknown path"}`,
+			want:   true,
+		},
+		{
+			name:   "cortex reports the api is off for the account",
+			status: http.StatusBadRequest,
+			body:   `{"message":"Cortex OpenAI Responses REST API not enabled","request_id":"x"}`,
+			want:   true,
+		},
+		{
+			name:   "403 entitlement prose still means no responses surface",
+			status: http.StatusForbidden,
+			body:   `{"message":"Responses API not enabled for this account"}`,
+			want:   true,
+		},
+		{
+			name:   "a real request rejection stays the caller's error",
+			status: http.StatusBadRequest,
+			body:   `{"message":"invalid request parameters: Function tools with reasoning_effort are not supported"}`,
+			want:   false,
+		},
+		{
+			name:   "an outage is not a capability verdict",
+			status: http.StatusInternalServerError,
+			body:   `{"message":"Responses API not enabled"}`,
+			want:   false,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := &providers.UpstreamErrorResponse{Status: tc.status, Body: []byte(tc.body)}
+			assert.Equal(t, tc.want, providers.IsUpstreamResponsesUnsupported(err))
+		})
+	}
+
+	assert.False(t, providers.IsUpstreamResponsesUnsupported(nil))
+	assert.False(t, providers.IsUpstreamResponsesUnsupported(fmt.Errorf("transport blew up")))
+}

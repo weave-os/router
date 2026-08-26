@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"workweave/router/internal/auth"
@@ -113,6 +114,10 @@ type Service struct {
 	// byokOnly disables deployment-level credential fallback so customer
 	// requests never silently consume the platform's API key budget.
 	byokOnly bool
+	// noResponsesGateways memoizes gateway endpoints that answered they have no
+	// Responses API, so only the first tool turn against such an endpoint pays
+	// the probe. Keyed by gatewayResponsesKey.
+	noResponsesGateways sync.Map
 	// excludedModelsOverride, when non-nil, replaces the per-installation
 	// exclusion list on every request. Set from ROUTER_EXCLUDED_MODELS at boot.
 	excludedModelsOverride map[string]struct{}
@@ -1752,6 +1757,36 @@ func (s *Service) usageRequired() bool {
 	return s.emitter != nil || s.telemetry != nil || s.billing != nil
 }
 
+// gatewayResponsesKey identifies the endpoint whose Responses support is being
+// memoized: the BYOK base URL, or the provider name for a deployment-keyed
+// gateway (one endpoint per process). Empty for direct vendors, which are not
+// memoized.
+func gatewayResponsesKey(ctx context.Context, provider string) string {
+	if !providers.IsGateway(provider) {
+		return ""
+	}
+	return EffectiveBaseURL(ctx, provider)
+}
+
+// gatewayLacksResponses reports whether that endpoint already told us it serves
+// no Responses API.
+func (s *Service) gatewayLacksResponses(key string) bool {
+	if key == "" {
+		return false
+	}
+	_, ok := s.noResponsesGateways.Load(key)
+	return ok
+}
+
+// rememberGatewayLacksResponses records a gateway's rejection of the Responses
+// API so later tool turns go straight to chat/completions.
+func (s *Service) rememberGatewayLacksResponses(key string) {
+	if key == "" {
+		return
+	}
+	s.noResponsesGateways.Store(key, struct{}{})
+}
+
 // newTelemetryBuffer returns a request-scoped buffer, or nil when OTel is
 // disabled — guards against a nil-interface method-call panic.
 func (s *Service) newTelemetryBuffer() *otel.Buffer {
@@ -3208,15 +3243,14 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			// OpenRouter-only body fields. On failover from Fireworks to
 			// OpenRouter, the body must be re-emitted with TargetProvider =
 			// openrouter so those gates fire.
-			return func(actx context.Context, d router.Decision, p providers.Client) error {
+			// One dispatch on the chosen surface, split into the raw upstream
+			// error plus a finalize thunk so a gateway that rejects Responses can
+			// be re-emitted onto chat/completions before finalize commits the
+			// prelude buffer. Translators are stateful, so the retry calls again.
+			dispatchOpenAICompat := func(actx context.Context, d router.Decision, p providers.Client, useResponses bool) (error, func(error) error) {
 				attemptOpts := targetOpts
 				attemptOpts.TargetProvider = d.Provider
 				respSummary = translate.ResponseSummary{}
-				// Reasoning OpenAI models (gpt-5.x) reject tools/stop/reasoning_effort
-				// on /v1/chat/completions; agentic tool turns must use Responses
-				// instead. Scoped to direct OpenAI (the only one with /v1/responses).
-				useResponses := translate.UseOpenAIResponsesAPI(
-					d.Provider, attemptOpts.Capabilities, feats.HasTools)
 				var prep providers.PreparedRequest
 				var emitErr error
 				if useResponses {
@@ -3226,7 +3260,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 				}
 				if emitErr != nil {
 					log.Error("Failed to translate Anthropic request to OpenAI format", "err", emitErr, "decision_provider", d.Provider, "responses_api", useResponses)
-					return fmt.Errorf("translate anthropic request: %w", emitErr)
+					return fmt.Errorf("translate anthropic request: %w", emitErr), func(err error) error { return err }
 				}
 				reqStats = prep.Stats
 				logUpstreamBody(log, routeRes.SessionKey, d, feats, prep.Body)
@@ -3257,17 +3291,48 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 				if preludeBuf != nil {
 					preludeBuf.Seal()
 				}
-				err := p.Proxy(actx, d, prep, translator, r)
-				// Post-commit: HTTP 200 + message_start already on the wire, so
-				// render the error as an in-stream `event: error` frame instead of
-				// a corrupting trailing envelope. Pre-commit errors go through
-				// dispatchWithFallback instead.
-				if err != nil && env.Stream() && preludeBuf.Committed() {
-					err = emitAnthropicSSEErrorEvent(sink, err)
+				rawErr := p.Proxy(actx, d, prep, translator, r)
+				finalize := func(err error) error {
+					// Post-commit: HTTP 200 + message_start already on the wire, so
+					// render the error as an in-stream `event: error` frame instead of
+					// a corrupting trailing envelope. Pre-commit errors go through
+					// dispatchWithFallback instead.
+					if err != nil && env.Stream() && preludeBuf.Committed() {
+						err = emitAnthropicSSEErrorEvent(sink, err)
+					}
+					finErr := finalizeAfterProxy(err, translator.Finalize)
+					respSummary = translator.Summary()
+					return finErr
 				}
-				finErr := finalizeAfterProxy(err, translator.Finalize)
-				respSummary = translator.Summary()
-				return finErr
+				return rawErr, finalize
+			}
+			return func(actx context.Context, d router.Decision, p providers.Client) error {
+				// Reasoning models reject tools alongside an effort on
+				// chat/completions, so an agentic tool turn goes to Responses —
+				// on direct OpenAI and on gateways that mount it (Cortex 400s a
+				// 5.6 tool turn on chat/completions no matter what we send).
+				gatewayKey := gatewayResponsesKey(actx, d.Provider)
+				useResponses := translate.UseOpenAIResponsesAPI(
+					d.Provider, targetOpts.Capabilities, feats.HasTools) &&
+					!s.gatewayLacksResponses(gatewayKey)
+				rawErr, finalize := dispatchOpenAICompat(actx, d, p, useResponses)
+				// A gateway with no usable Responses surface answers 404, or 4xx
+				// prose saying the API is off for this account. Re-emit onto
+				// chat/completions once while pre-commit, and remember the answer
+				// so the next turn skips the probe.
+				if rawErr != nil && useResponses && !committed(preludeBuf) &&
+					providers.IsUpstreamResponsesUnsupported(rawErr) {
+					s.rememberGatewayLacksResponses(gatewayKey)
+					log.Warn("Gateway rejected the Responses API; retrying on chat/completions",
+						"model", d.Model,
+						"decision_provider", d.Provider,
+						"request_id", requestID)
+					if preludeBuf != nil {
+						preludeBuf.Discard()
+					}
+					rawErr, finalize = dispatchOpenAICompat(actx, d, p, false)
+				}
+				return finalize(rawErr)
 			}, nil
 		case providers.FamilyGemini:
 			prep, emitErr := env.PrepareGemini(r.Header, targetOpts)

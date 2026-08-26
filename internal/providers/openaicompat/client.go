@@ -234,10 +234,19 @@ func (c *Client) Proxy(ctx context.Context, decision router.Decision, prep provi
 	body = proxy.ApplyModelAlias(ctx, body, decision.Model)
 	baseURL := proxy.EffectiveBaseURL(ctx, c.baseURL)
 
+	// EndpointResponses is the Responses surface: reasoning models reject a tool
+	// turn on chat/completions, and gateways that mount /v1/responses (Snowflake
+	// Cortex) serve it there. The proxy re-emits onto chat/completions when the
+	// gateway answers that it has no such surface.
+	suffix := "/chat/completions"
+	if prep.Endpoint == providers.EndpointResponses {
+		suffix = "/responses"
+	}
+
 	// 404s are buffered before reaching w, so a missing "/v1" segment can be retried.
 	// A non-404 on the versioned path is the real error and is memoized; only a
 	// second 404 falls back to the probe so a genuine model-not-found is preserved.
-	urls := c.versionMemo.URLs(baseURL, "/chat/completions")
+	urls := c.versionMemo.URLs(baseURL, suffix)
 	firstErr := c.proxyTo(ctx, cancel, urls[0], baseURL, body, decision, prep, w, r)
 	if len(urls) == 1 || !providers.IsUpstreamModelNotFound(firstErr) {
 		return firstErr

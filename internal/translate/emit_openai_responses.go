@@ -53,14 +53,18 @@ func (e *RequestEnvelope) ReasoningRequested() bool {
 	return intent.Kind != "" && intent.Kind != ReasoningDisabled
 }
 
-// UseOpenAIResponsesAPI reports whether an Anthropic ingress dispatch to the
-// direct OpenAI provider should use POST /v1/responses instead of
-// /v1/chat/completions: reasoning gpt-5.x models reject tools/stop/
-// reasoning_effort on chat/completions.
+// UseOpenAIResponsesAPI reports whether an Anthropic ingress dispatch should
+// use POST /v1/responses instead of /v1/chat/completions: reasoning models
+// reject tools alongside an effort on chat/completions, both on direct OpenAI
+// and on OpenAI-compatible gateways (Snowflake Cortex 400s a tool turn to its
+// 5.6 models even with no effort in the body, since it applies its own).
+// A gateway without a usable Responses surface is downgraded by the caller,
+// which knows the endpoint; this stays a pure model/provider predicate.
 func UseOpenAIResponsesAPI(provider string, caps router.ModelSpec, hasTools bool) bool {
-	return provider == providers.ProviderOpenAI &&
-		caps.Supports(router.CapReasoning) &&
-		hasTools
+	if provider != providers.ProviderOpenAI && provider != providers.ProviderOpenAIGateway {
+		return false
+	}
+	return caps.Supports(router.CapReasoning) && hasTools
 }
 
 // reasoningEffortFromAnthropic is retained for callers that only need the
