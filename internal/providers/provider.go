@@ -493,11 +493,9 @@ var unknownFieldPhrases = []string{
 }
 
 // IsUpstreamOutputConfigFormatRejection reports whether err is a buffered 400
-// rejecting output_config.format as a field the upstream does not know. Cortex
-// serves the knob on claude-opus-4-5/haiku-4-5/sonnet-4-5 but not claude-sonnet-5,
-// so the retry is licensed per response, not per provider. A complaint about the
-// schema's contents (`additionalProperties must be explicitly set to false`) is
-// the caller's to fix and must not silently unstructure the turn.
+// rejecting output_config.format as an unknown field — licensing a one-shot retry.
+// A schema-contents complaint names the same field but is caller-fixable and must
+// not match (e.g. additionalProperties must be explicitly set to false).
 func IsUpstreamOutputConfigFormatRejection(err error) bool {
 	var buffered *UpstreamErrorResponse
 	if !errors.As(err, &buffered) || buffered.Status != http.StatusBadRequest {

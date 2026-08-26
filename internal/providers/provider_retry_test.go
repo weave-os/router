@@ -196,10 +196,9 @@ func TestIsUpstreamSchemaRejection(t *testing.T) {
 }
 
 // TestIsUpstreamOutputConfigFormatRejection pins the gateway 400 that names
-// the structured-output knob as an unknown field. Bodies are verbatim from
-// Snowflake Cortex prod: sonnet-5 has no such field, while opus-4-5/haiku-4-5
-// serve it and complain about the schema's contents — matching the latter
-// would unstructure a turn the caller could have fixed.
+// the structured-output knob as an unknown field; a schema-contents complaint
+// naming the same field must not match — it would silently unstructure a turn
+// the caller could have fixed.
 func TestIsUpstreamOutputConfigFormatRejection(t *testing.T) {
 	cases := []struct {
 		name   string
@@ -220,7 +219,7 @@ func TestIsUpstreamOutputConfigFormatRejection(t *testing.T) {
 			want:   true,
 		},
 		{
-			name:   "cortex opus-4-5 dislikes the schema but serves the knob",
+			name:   "upstream dislikes the schema but serves the knob",
 			status: http.StatusBadRequest,
 			body:   `{"message":"output_config.format.schema: For 'object' type, 'additionalProperties' must be explicitly set to false"}`,
 			want:   false,
