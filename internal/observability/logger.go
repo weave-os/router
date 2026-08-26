@@ -46,6 +46,47 @@ func RequestIDFromContext(ctx context.Context) string {
 	return ""
 }
 
+// requestLoggerHolder is the one logger a request's views share. Middleware
+// puts it on both the gin and request contexts; PromoteRequestLogger swaps its
+// contents when later-derived fields (session_key) become known, so the access
+// log and any FromGin caller pick them up without the proxy having to write a
+// new context back onto c.Request.
+type requestLoggerHolder struct {
+	mu  sync.RWMutex
+	log *slog.Logger
+}
+
+func (h *requestLoggerHolder) get() *slog.Logger {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return h.log
+}
+
+func (h *requestLoggerHolder) set(log *slog.Logger) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.log = log
+}
+
+// holderContextKey carries the shared holder.
+type holderContextKey struct{}
+
+// PromoteRequestLogger makes log the request's logger for every view of it:
+// the returned context, and the gin context's logger that AccessLog reads.
+//
+// Without this a logger enriched after Middleware (session_key,
+// client_session_id) reaches only the caller's own context, so the guaranteed
+// per-request "http request" line stays unfindable by session.
+func PromoteRequestLogger(ctx context.Context, log *slog.Logger) context.Context {
+	if log == nil {
+		return ctx
+	}
+	if h, ok := ctx.Value(holderContextKey{}).(*requestLoggerHolder); ok {
+		h.set(log)
+	}
+	return WithLogger(ctx, log)
+}
+
 // WithLogger attaches a logger to ctx for downstream FromContext calls.
 func WithLogger(ctx context.Context, log *slog.Logger) context.Context {
 	if log == nil {
@@ -186,12 +227,16 @@ func Get() *slog.Logger {
 	return slog.Default()
 }
 
-// FromGin returns the request-scoped logger bound by Middleware. Falls back to
-// the request context's logger (then the global default) so a route registered
-// without Middleware still logs rather than panicking.
+// FromGin returns the request-scoped logger bound by Middleware, including any
+// fields promoted later via PromoteRequestLogger. Falls back to the request
+// context's logger (then the global default) so a route registered without
+// Middleware still logs rather than panicking.
 func FromGin(c *gin.Context) *slog.Logger {
 	initOnce.Do(initLogger)
 	if v, ok := c.Get(ginContextKey); ok {
+		if h, ok := v.(*requestLoggerHolder); ok {
+			return h.get()
+		}
 		if logger, ok := v.(*slog.Logger); ok {
 			return logger
 		}
@@ -224,10 +269,12 @@ func Middleware() gin.HandlerFunc {
 			logger = logger.With("upstream_request_id", upstream)
 		}
 
-		c.Set(ginContextKey, logger)
+		holder := &requestLoggerHolder{log: logger}
+		c.Set(ginContextKey, holder)
 		c.Header("X-Request-Id", requestID)
 
 		ctx := WithRequestID(c.Request.Context(), requestID)
+		ctx = context.WithValue(ctx, holderContextKey{}, holder)
 		ctx = WithLogger(ctx, logger)
 		c.Request = c.Request.WithContext(ctx)
 

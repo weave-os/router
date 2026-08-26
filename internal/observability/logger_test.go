@@ -25,8 +25,8 @@ func TestMiddlewareBindsRequestIDToGinAndRequestContext(t *testing.T) {
 	engine.Use(observability.Middleware())
 	engine.GET("/x", func(c *gin.Context) {
 		fromCtx = observability.RequestIDFromContext(c.Request.Context())
-		// The gin-bound logger and the context-bound logger must be the same
-		// object, or handlers using FromGin lose the correlation fields.
+		// Both views must resolve to one logger, or a FromGin caller loses
+		// the correlation fields.
 		if observability.FromGin(c) == observability.FromContext(c.Request.Context()) {
 			fromGin = fromCtx
 		}
@@ -158,4 +158,49 @@ func findLogLine(t *testing.T, out, msg string) map[string]any {
 	}
 	t.Fatalf("no log line with msg %q in:\n%s", msg, out)
 	return nil
+}
+
+// The access log is the one record guaranteed per request, and it reads the
+// gin-bound logger. A field derived after Middleware (session_key, known only
+// once the body parses) must reach it, or a session-filtered query silently
+// misses the request's own summary line.
+func TestPromoteRequestLoggerReachesAccessLogAndFromGin(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	var buf strings.Builder
+	restore := swapDefaultLogger(t, &buf)
+	defer restore()
+
+	engine := gin.New()
+	engine.Use(observability.Middleware(), observability.AccessLog())
+	engine.GET("/x", func(c *gin.Context) {
+		// What bindRequestLogger does once the envelope has parsed.
+		enriched := observability.FromContext(c.Request.Context()).With("session_key", "abc123")
+		c.Request = c.Request.WithContext(
+			observability.PromoteRequestLogger(c.Request.Context(), enriched),
+		)
+		// A handler that grabbed its logger via FromGin must see it too.
+		observability.FromGin(c).Info("handler after promote")
+		c.Status(http.StatusOK)
+	})
+
+	rec := httptest.NewRecorder()
+	engine.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/x", nil))
+
+	access := findLogLine(t, buf.String(), "http request")
+	assert.Equal(t, "abc123", access["session_key"],
+		"access log must carry the promoted session_key")
+	assert.Equal(t, rec.Header().Get("X-Request-Id"), access["request_id"],
+		"promoting must not drop the id bound by Middleware")
+
+	handler := findLogLine(t, buf.String(), "handler after promote")
+	assert.Equal(t, "abc123", handler["session_key"], "FromGin must observe the promotion")
+}
+
+// Promotion is a no-op without Middleware rather than a panic, so a non-HTTP
+// caller (background job, test) can share the same code path.
+func TestPromoteRequestLoggerWithoutMiddleware(t *testing.T) {
+	log := slog.Default().With("session_key", "abc123")
+	ctx := observability.PromoteRequestLogger(t.Context(), log)
+	assert.Equal(t, log, observability.FromContext(ctx))
 }

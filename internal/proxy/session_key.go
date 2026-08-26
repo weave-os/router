@@ -87,7 +87,10 @@ func bindRequestLogger(
 	if cs != "" {
 		log = log.With("client_session_id", cs)
 	}
-	return observability.WithLogger(ctx, log), log, key
+	// Promote rather than merely attach: the access log and any FromGin caller
+	// read the gin-bound logger, so session_key would otherwise never reach
+	// the one line guaranteed to exist per request.
+	return observability.PromoteRequestLogger(ctx, log), log, key
 }
 
 // DeriveSessionKey produces a 16-byte session digest from apiKeyID,
