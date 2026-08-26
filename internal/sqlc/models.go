@@ -252,7 +252,7 @@ type RouterModelRouterRequestTelemetry struct {
 	AuthorityShadowOutcome *string
 	// The gate's own verdict that it would have served authority_shadow_stay_model instead of decision_model. Use this, not a string compare: stay_model is a serving identity that may carry ':effort' while decision_model is a bare catalog ID.
 	AuthorityShadowWouldDiverge *bool
-	// Snake-case reason from the shadow gate (ev_positive, ev_negative, same_model, no_pin, no_prior_usage, hmm_upgrade_confidence_low, ...).
+	// Snake-case reason from the shadow gate (ev_positive, ev_negative, same_model, no_pin, no_prior_usage, hmm_upgrade_confidence_low, ...). Read no_pin carefully: it also covers a pin that exists but whose serving identity carries ':effort', because catalog.ByID strips a date suffix and not an effort suffix, so normalizeHMMStayPin rejects it. no_pin is therefore NOT the same as 'this session had no pin'.
 	AuthorityShadowReason *string
 	// Pin the shadow gate priced against, as a serving identity -- it carries ':effort' when the pin used one, unlike the bare decision_model. Compare via authority_shadow_would_diverge rather than against decision_model directly.
 	AuthorityShadowStayModel *string
