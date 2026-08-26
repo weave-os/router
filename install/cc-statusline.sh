@@ -159,6 +159,19 @@ weave_command_tracked_by_git() {
   git -C "$(dirname "$1")" ls-files --error-unmatch -- "$1" >/dev/null 2>&1
 }
 
+# weave_installed_command_names lists the wrappers this install owns, read from
+# the marker each installed file carries. The statusline ships standalone (no
+# registry.sh beside it), so the installed set — itself written from the
+# registry — is the only source of truth available here.
+weave_installed_command_names() {
+  local dir="$1" file
+  for file in "$dir"/*.md; do
+    [ -f "$file" ] || continue
+    grep -q '^<!-- weave-router managed command: .* -->$' "$file" 2>/dev/null || continue
+    printf '%s\n' "$(basename "$file" .md)"
+  done
+}
+
 # weave_render_command prints $1 with the installer's {{SCOPE}} placeholder
 # replaced by $2, matching how install_slash_commands writes the same file.
 # Trailing newlines are stripped on both sides of every comparison below.
@@ -228,9 +241,7 @@ weave_sync_commands() {
     # Detach stdin (CC pipes JSON to us) so curl can't consume it, and silence
     # everything so no output leaks into the statusline.
     exec </dev/null
-    for name in force-model unforce-model router-feedback fm ufm rf \
-                router-off router-on router-status router-session \
-                router-models models; do
+    while IFS= read -r name; do
       installed="$cmd_dir/$name.md"
       # Only ever refresh a wrapper that is already installed: a missing one
       # was uninstalled or deliberately deleted, and resurrecting it would be
@@ -259,10 +270,10 @@ weave_sync_commands() {
       if [ -f "$prev" ]; then
         new_body="$(weave_render_command "$raw" "$scope_args")"
         prev_body="$(weave_render_command "$prev" "$scope_args")"
-        installed_body="$(cat "$installed" 2>/dev/null)" || installed_body=""
+        installed_body="$(cat "$installed" 2>/dev/null | sed '/^<!-- weave-router managed command: .* -->$/d')" || installed_body=""
         if [ "$prev_body" = "$installed_body" ] && [ "$new_body" != "$installed_body" ]; then
           tmp="$installed.tmp.$$"
-          if printf '%s\n' "$new_body" >"$tmp" 2>/dev/null; then
+          if printf '%s\n<!-- weave-router managed command: %s -->' "$new_body" "$name" >"$tmp" 2>/dev/null; then
             mv "$tmp" "$installed" 2>/dev/null || rm -f "$tmp"
           else
             rm -f "$tmp"
@@ -270,7 +281,9 @@ weave_sync_commands() {
         fi
       fi
       mv "$raw" "$prev" 2>/dev/null || rm -f "$raw"
-    done
+    done <<EOF
+$(weave_installed_command_names "$cmd_dir")
+EOF
   ) >/dev/null 2>&1 &
   disown 2>/dev/null || true
   return 0

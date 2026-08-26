@@ -177,8 +177,11 @@ sidecar is optional. HMM and forced selections in the native Codex family
 (`gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-5.6-luna`) use that OAuth credential;
 every other selected model uses its WorkWeave deployment or BYOK credential,
 matching the Claude Code plugin's model-to-credential dispatch.
-Codex does not load third-party slash-command files; send router directives
-with one leading space (for example, ` /force-model gpt-5.6-terra`). Re-install
+Codex does not load third-party slash-command files, so the installer ships the
+router directives as native Codex skills: `$force-model <model-id>`,
+`$unforce-model`, and `$router-feedback <text>`, each of which sends the
+leading-space prompt form (for example, ` /force-model gpt-5.6-terra`) that the
+router parses. You can type that form directly instead. Re-install
 and `--uninstall --codex` rewrite/remove only the managed block, leaving the
 rest of your Codex config untouched. Invoke `$disable-routing` to switch the
 next Codex session back to its normal provider, or run

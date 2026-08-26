@@ -27,6 +27,11 @@ set -euo pipefail
 scope="user"
 scope_explicit="false"
 install_dir=""
+script_dir="$(cd "$(dirname "$0")" 2>/dev/null && pwd || true)"
+registry_lib="$script_dir/registry.sh"
+# shellcheck disable=SC1090
+. "$registry_lib"
+
 target="claude"
 
 err()  { printf "\033[31merror:\033[0m %s\n" "$*" >&2; }
@@ -223,14 +228,20 @@ if [ "$target" = "opencode" ]; then
     local opencode_cmds_dir="$1" cmd cmd_file
     if [ -d "$opencode_cmds_dir" ]; then
       refuse_if_symlink "$opencode_cmds_dir"
-      for cmd in force-model unforce-model router-feedback fm ufm rf; do
+      while IFS= read -r cmd; do
         cmd_file="$opencode_cmds_dir/$cmd.md"
         if [ -f "$cmd_file" ]; then
-          refuse_if_symlink "$cmd_file"
-          rm -f "$cmd_file"
-          ok "Removed $cmd_file"
+          if grep -Fq "<!-- weave-router managed command: $cmd -->" "$cmd_file"; then
+            refuse_if_symlink "$cmd_file"
+            rm -f "$cmd_file"
+            ok "Removed $cmd_file"
+          else
+            warn "Leaving user-owned opencode command at $cmd_file untouched."
+          fi
         fi
-      done
+      done <<EOF
+$(weave_registry_names opencode)
+EOF
       rmdir "$opencode_cmds_dir" 2>/dev/null || true
     fi
   }
@@ -427,14 +438,16 @@ if [ "$target" = "codex" ]; then
   codex_prompts_dir="$codex_dir/prompts"
   if [ -d "$codex_prompts_dir" ]; then
     refuse_if_symlink "$codex_prompts_dir"
-    for cmd in force-model unforce-model router-feedback fm ufm rf; do
+    while IFS= read -r cmd; do
       cmd_file="$codex_prompts_dir/$cmd.md"
       if [ -f "$cmd_file" ]; then
         refuse_if_symlink "$cmd_file"
         rm -f "$cmd_file"
         ok "Removed $cmd_file"
       fi
-    done
+    done <<EOF
+$(weave_registry_names codex)
+EOF
     rmdir "$codex_prompts_dir" 2>/dev/null || true
   fi
 
@@ -457,6 +470,23 @@ if [ "$target" = "codex" ]; then
     rmdir "$codex_skill_dir" 2>/dev/null || true
     rmdir "$codex_dir/skills" 2>/dev/null || true
   fi
+
+  while IFS= read -r canonical; do
+    skill_file="$codex_dir/skills/$canonical/SKILL.md"
+    skill_dir="$codex_dir/skills/$canonical"
+    if [ -f "$skill_file" ]; then
+      refuse_if_symlink "$skill_file"
+      if grep -Fq "<!-- weave-router managed $canonical skill -->" "$skill_file"; then
+        rm -f "$skill_file"
+        ok "Removed $skill_file"
+      else
+        warn "Leaving user-owned Codex skill at $skill_file untouched."
+      fi
+      rmdir "$skill_dir" 2>/dev/null || true
+    fi
+  done <<EOF
+$(weave_registry_skill_names codex)
+EOF
 
   if [ -n "$install_dir" ]; then
     ok "Weave Router uninstalled from $install_dir (Codex)."
@@ -593,14 +623,20 @@ done
 commands_dir="$(dirname "$settings_file")/commands"
 if [ -d "$commands_dir" ]; then
   refuse_if_symlink "$commands_dir"
-  for cmd in force-model unforce-model router-feedback fm ufm rf router-off router-on router-status router-session router-models models; do
+  while IFS= read -r cmd; do
     cmd_file="$commands_dir/$cmd.md"
     if [ -f "$cmd_file" ]; then
       refuse_if_symlink "$cmd_file"
-      rm -f "$cmd_file"
-      ok "Removed $cmd_file"
+      if grep -Fq "<!-- weave-router managed command: $cmd -->" "$cmd_file"; then
+        rm -f "$cmd_file"
+        ok "Removed $cmd_file"
+      else
+        warn "Leaving user-owned Claude command at $cmd_file untouched."
+      fi
     fi
-  done
+  done <<EOF
+$(weave_registry_names claude)
+EOF
   # Clean up the dir only if we left nothing behind.
   rmdir "$commands_dir" 2>/dev/null || true
 fi

@@ -67,6 +67,12 @@
 # Cursor's base URL lives in its own settings UI (no file we own), so there's
 # nothing to toggle here — flip "Override OpenAI Base URL" in Cursor settings.
 #
+# Which router directives each client gets is declared once in
+# install/directives.tsv and installed from there: Claude Code and opencode get
+# Markdown slash commands, Codex gets native `$name` skills (it reserves `/…`
+# for built-ins), pi registers /fm and /ufm in its extension, and Cursor is
+# manual. See install/README.md for the full matrix.
+#
 # Inspect and edit which models this installation lets the router pick from —
 # the same lists the router dashboard's settings page renders. The endpoint and
 # router key both come from the install already on disk, so nothing is prompted
@@ -1356,6 +1362,95 @@ fi
 
 script_dir="$(cd "$(dirname "$0")" 2>/dev/null && pwd || true)"
 
+# ---------- directive registry (embedded) ----------
+#
+# install.sh is served standalone (WorkWeave serves it for `curl | sh`), so it
+# cannot source install/registry.sh or read install/directives.tsv. Both are
+# embedded here verbatim; install/tests/registry_test.sh asserts they never
+# drift from the canonical files.
+WEAVE_REGISTRY_DATA=$(cat <<'WEAVE_REGISTRY_EOF'
+# Weave Router directive registry
+# canonical|aliases|capability|claude|codex|opencode|pi|cursor|adapter
+# aliases are comma-separated; client columns are yes/no. adapter is the native asset kind.
+force-model|fm|prompt|yes|yes|yes|yes|manual|command,skill
+unforce-model|ufm|prompt|yes|yes|yes|yes|manual|command,skill
+router-feedback|rf|prompt|yes|yes|yes|no|manual|command,skill
+router-off||local-toggle|yes|no|no|no|manual|command
+router-on||local-toggle|yes|no|no|no|manual|command
+router-status||local-toggle|yes|no|no|no|manual|command
+router-session||prompt|yes|no|no|no|manual|command
+router-models|models|local-toggle|yes|no|no|no|manual|command
+disable-routing||local-toggle|no|yes|no|no|manual|skill
+WEAVE_REGISTRY_EOF
+)
+
+# >>> weave-router registry lib >>>
+weave_registry_rows() {
+  if [ -n "${WEAVE_REGISTRY_DATA:-}" ]; then
+    printf '%s\n' "$WEAVE_REGISTRY_DATA" | awk -F '|' '!/^([[:space:]]*#|[[:space:]]*$)/ { print }'
+    return 0
+  fi
+  local registry="${WEAVE_REGISTRY_FILE:-}"
+  if [ -z "$registry" ]; then
+    local dir
+    dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd -P)" || return 1
+    registry="$dir/directives.tsv"
+  fi
+  [ -f "$registry" ] || return 1
+  awk -F '|' '!/^([[:space:]]*#|[[:space:]]*$)/ { print }' "$registry"
+}
+
+# weave_registry_names lists every canonical name and alias a client installs.
+weave_registry_names() {
+  local target="$1" canonical aliases capability claude codex opencode pi cursor adapter
+  while IFS='|' read -r canonical aliases capability claude codex opencode pi cursor adapter; do
+    case "$target" in
+      claude) [ "$claude" = yes ] || continue ;; codex) [ "$codex" = yes ] || continue ;;
+      opencode) [ "$opencode" = yes ] || continue ;; pi) [ "$pi" = yes ] || continue ;;
+      cursor) [ "$cursor" = yes ] || continue ;;
+    esac
+    printf '%s\n' "$canonical"
+    [ -n "$aliases" ] && printf '%s\n' "$aliases" | tr ',' '\n'
+  done <<EOF
+$(weave_registry_rows)
+EOF
+}
+
+# weave_registry_skill_names lists the prompt directives a client exposes as a
+# native skill. Local-config toggles are excluded: they mutate config this
+# installer owns and are handled per target, not as a generic prompt.
+weave_registry_skill_names() {
+  local target="$1" canonical aliases capability claude codex opencode pi cursor adapter
+  while IFS='|' read -r canonical aliases capability claude codex opencode pi cursor adapter; do
+    [ "$capability" = prompt ] || continue
+    case "$target" in
+      claude) [ "$claude" = yes ] || continue ;; codex) [ "$codex" = yes ] || continue ;;
+      opencode) [ "$opencode" = yes ] || continue ;; pi) [ "$pi" = yes ] || continue ;;
+      cursor) [ "$cursor" = yes ] || continue ;;
+    esac
+    printf '%s\n' "$canonical"
+  done <<EOF
+$(weave_registry_rows)
+EOF
+}
+
+# weave_registry_canonical_for resolves a name or alias to its canonical
+# directive, and fails when the name is not in the registry at all.
+weave_registry_canonical_for() {
+  local wanted="$1" canonical aliases capability claude codex opencode pi cursor adapter alias
+  while IFS='|' read -r canonical aliases capability claude codex opencode pi cursor adapter; do
+    [ "$wanted" = "$canonical" ] && { printf '%s' "$canonical"; return 0; }
+    IFS=',' read -ra _aliases <<< "$aliases"
+    for alias in ${_aliases[@]+"${_aliases[@]}"}; do
+      [ "$wanted" = "$alias" ] && { printf '%s' "$canonical"; return 0; }
+    done
+  done <<EOF
+$(weave_registry_rows)
+EOF
+  return 1
+}
+# <<< weave-router registry lib <<<
+
 # Resolve the base directory. User scope always uses $HOME. Project scope uses
 # --dir if given, otherwise the CWD's git root. --dir alone (no --scope) is a
 # throwaway user-style install.
@@ -2470,11 +2565,12 @@ fi
 #   Claude:  <settings_dir>/commands/{force-model,unforce-model}.md  → /force-model
 #   opencode: <commands_dir>/{force-model,unforce-model}.md          → /force-model
 #
-# Codex intentionally is not listed: its slash menu only exposes built-in
-# commands and does not load these Markdown wrappers. A user can send a router
-# directive by starting it with one literal space (for example,
-# ` /force-model gpt-5.6-terra`); Codex submits the trimmed prompt to the
-# router without interpreting it as a local slash command.
+# Codex is intentionally not listed here: its slash menu only exposes built-in
+# commands and does not load these Markdown wrappers. Codex instead gets native
+# `$name` skills (see install_codex_prompt_skills), each of which sends the
+# leading-space prompt form (for example, ` /force-model gpt-5.6-terra`) that
+# the router parses. Which client gets which directive comes from the embedded
+# registry, not from a list here.
 #
 # Files come from install/commands/ in the repo (or the colocated commands/
 # directory the npm package ships alongside install.sh).
@@ -2504,12 +2600,19 @@ install_slash_commands() {
   # at invocation time). {{SCOPE}} is substituted accordingly. router-models
   # (alias models) is in the same boat: it shells out to read this install's
   # endpoint and key.
-  installed="force-model, unforce-model, router-feedback, fm, ufm, rf"
-  cmds="force-model unforce-model router-feedback fm ufm rf"
-  if [ "$target" = "claude" ]; then
-    cmds="$cmds router-off router-on router-status router-session router-models models"
-    installed="$installed, router-off, router-on, router-status, router-session, router-models, models"
-  fi
+  cmds=""
+  while IFS= read -r cmd; do
+    [ -f "$commands_src_dir/$cmd.md" ] || continue
+    case ",$cmd," in
+      *,router-off,*|*,router-on,*|*,router-status,*|*,router-session,*|*,router-models,*|*,models,*)
+        [ "$target" = "claude" ] || continue ;;
+    esac
+    [ -n "$cmds" ] && cmds="$cmds "
+    cmds="$cmds$cmd"
+  done <<EOF
+$(weave_registry_names "$target")
+EOF
+  installed="$(printf '%s' "$cmds" | tr ' ' ',' | sed 's/,/, /g')"
 
   # Bake the same scope selector the toggle needs to find this install: --dir
   # overrides scope (mirrors install/uninstall path resolution), so a sandbox
@@ -2529,11 +2632,15 @@ install_slash_commands() {
     if [ "$scope" = "project" ] || [ -n "$install_dir" ]; then
       refuse_if_symlink "$dst"
     fi
+    if [ -e "$dst" ] && { [ ! -f "$dst" ] || ! grep -Fq "<!-- weave-router managed command: $cmd -->" "$dst"; }; then
+      warn "A user-owned $target command already exists at $dst; leaving it untouched."
+      continue
+    fi
     # Substitute the {{SCOPE}} placeholder (only the router-* wrappers carry it;
     # cp-equivalent for the others since the token is absent).
     local body; body="$(cat "$src")"
     body="${body//\{\{SCOPE\}\}/$scope_args}"
-    printf '%s\n' "$body" >"$dst"
+    printf '%s\n<!-- weave-router managed command: %s -->' "$body" "$cmd" >"$dst"
   done
   seed_command_baseline "$commands_src_dir" "$cmds"
   ok "Slash commands written to $dst_dir ($installed)"
@@ -2594,18 +2701,18 @@ remove_obsolete_codex_prompt_wrappers() {
     refuse_if_symlink "$dst_dir"
   fi
 
-  for cmd in force-model unforce-model router-feedback fm ufm rf; do
+  while IFS= read -r cmd; do
     src="$commands_src_dir/$cmd.md"
     dst="$dst_dir/$cmd.md"
     [ -f "$src" ] && [ -f "$dst" ] || continue
-    # A symlink is user-controlled at user scope. Leave it untouched; project
-    # scope rejects it through the same guard used by normal installs.
     [ -L "$dst" ] && continue
     if [ "$scope" = "project" ] || [ -n "$install_dir" ]; then
       refuse_if_symlink "$dst"
     fi
     cmp -s "$src" "$dst" && rm -f "$dst"
-  done
+  done <<EOF
+$(weave_registry_names codex)
+EOF
   rmdir "$dst_dir" 2>/dev/null || true
 }
 
@@ -2658,13 +2765,49 @@ install_codex_disable_routing_skill() {
   ok "Codex skill installed: \$disable-routing"
 }
 
-# ---------- codex install path (dispatch + exit before the Claude-only writes) ----------
+# Install prompt directives as Codex-native skills. The skill itself emits a
+# leading-space normal prompt, which is the only portable way to reach the
+# router directive parser without claiming Codex's reserved slash namespace.
+install_codex_prompt_skills() {
+  local canonical skill_src dst_dir dst_file scope_args body
+  while IFS= read -r canonical; do
+    skill_src="$script_dir/codex-skills/$canonical/SKILL.md"
+    [ -f "$skill_src" ] || continue
+    grep -Fq "<!-- weave-router managed $canonical skill -->" "$skill_src" || continue
+    dst_dir="$codex_dir/skills/$canonical"
+    dst_file="$dst_dir/SKILL.md"
+    if [ "$scope" = "project" ] || [ -n "$install_dir" ]; then
+      refuse_if_symlink "$codex_dir/skills"
+      refuse_if_symlink "$dst_dir"
+      refuse_if_symlink "$dst_file"
+    elif [ -L "$codex_dir/skills" ] || [ -L "$dst_dir" ] || [ -L "$dst_file" ]; then
+      warn "Codex skill path contains a symlink; leaving $canonical untouched."
+      continue
+    fi
+    if [ -e "$dst_file" ] && { [ ! -f "$dst_file" ] || ! grep -Fq "<!-- weave-router managed $canonical skill -->" "$dst_file"; }; then
+      warn "A user-owned Codex $canonical skill already exists at $dst_file; leaving it untouched."
+      continue
+    fi
+    mkdir -p "$dst_dir"
+    scope_args=""
+    if [ -n "$install_dir" ]; then scope_args=" --dir $(printf '%q' "$install_dir")"
+    elif [ "$scope" = project ]; then scope_args=" --scope project"; fi
+    body="$(<"$skill_src")"
+    body="${body//\{\{SCOPE\}\}/$scope_args}"
+    printf '%s\n' "$body" >"$dst_file"
+    ok "Codex skill installed: \$$canonical"
+  done <<EOF
+$(weave_registry_skill_names codex)
+EOF
+}
+
 
 if [ "$target" = "codex" ]; then
   write_codex_config "$codex_config_file" "$base_url" "$api_key" "$user_email" "$user_name"
   ok "Codex config written to $codex_config_file"
   remove_obsolete_codex_prompt_wrappers "$codex_dir/prompts"
   install_codex_disable_routing_skill
+  install_codex_prompt_skills
   info "Codex router directives: begin the message with one space, e.g. ' /force-model gpt-5.6-terra'."
 
   # Project scope: ensure the per-teammate config (which holds the router key)
@@ -3034,6 +3177,19 @@ weave_command_tracked_by_git() {
   git -C "$(dirname "$1")" ls-files --error-unmatch -- "$1" >/dev/null 2>&1
 }
 
+# weave_installed_command_names lists the wrappers this install owns, read from
+# the marker each installed file carries. The statusline ships standalone (no
+# registry.sh beside it), so the installed set — itself written from the
+# registry — is the only source of truth available here.
+weave_installed_command_names() {
+  local dir="$1" file
+  for file in "$dir"/*.md; do
+    [ -f "$file" ] || continue
+    grep -q '^<!-- weave-router managed command: .* -->$' "$file" 2>/dev/null || continue
+    printf '%s\n' "$(basename "$file" .md)"
+  done
+}
+
 # weave_render_command prints $1 with the installer's {{SCOPE}} placeholder
 # replaced by $2, matching how install_slash_commands writes the same file.
 # Trailing newlines are stripped on both sides of every comparison below.
@@ -3103,9 +3259,7 @@ weave_sync_commands() {
     # Detach stdin (CC pipes JSON to us) so curl can't consume it, and silence
     # everything so no output leaks into the statusline.
     exec </dev/null
-    for name in force-model unforce-model router-feedback fm ufm rf \
-                router-off router-on router-status router-session \
-                router-models models; do
+    while IFS= read -r name; do
       installed="$cmd_dir/$name.md"
       # Only ever refresh a wrapper that is already installed: a missing one
       # was uninstalled or deliberately deleted, and resurrecting it would be
@@ -3134,10 +3288,10 @@ weave_sync_commands() {
       if [ -f "$prev" ]; then
         new_body="$(weave_render_command "$raw" "$scope_args")"
         prev_body="$(weave_render_command "$prev" "$scope_args")"
-        installed_body="$(cat "$installed" 2>/dev/null)" || installed_body=""
+        installed_body="$(cat "$installed" 2>/dev/null | sed '/^<!-- weave-router managed command: .* -->$/d')" || installed_body=""
         if [ "$prev_body" = "$installed_body" ] && [ "$new_body" != "$installed_body" ]; then
           tmp="$installed.tmp.$$"
-          if printf '%s\n' "$new_body" >"$tmp" 2>/dev/null; then
+          if printf '%s\n<!-- weave-router managed command: %s -->' "$new_body" "$name" >"$tmp" 2>/dev/null; then
             mv "$tmp" "$installed" 2>/dev/null || rm -f "$tmp"
           else
             rm -f "$tmp"
@@ -3145,7 +3299,9 @@ weave_sync_commands() {
         fi
       fi
       mv "$raw" "$prev" 2>/dev/null || rm -f "$raw"
-    done
+    done <<EOF
+$(weave_installed_command_names "$cmd_dir")
+EOF
   ) >/dev/null 2>&1 &
   disown 2>/dev/null || true
   return 0

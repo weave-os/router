@@ -11,7 +11,7 @@ const root = path.resolve(__dirname, "..");
 const installDir = path.resolve(root, "..");
 const repoRoot = path.resolve(installDir, "..");
 
-const files = ["install.sh", "uninstall.sh", "cc-statusline.sh"];
+const files = ["install.sh", "uninstall.sh", "cc-statusline.sh", "registry.sh", "directives.tsv"];
 for (const f of files) {
   const src = path.join(installDir, f);
   const dst = path.join(root, f);
@@ -20,7 +20,9 @@ for (const f of files) {
   console.log(`Copied ${f}.`);
 }
 
-// Mirror install/commands/ into the package root. install.sh resolves the
+const registry = path.join(installDir, "directives.tsv");
+const registryText = require("node:fs").readFileSync(registry, "utf8");
+
 // commands dir relative to its own location, so colocating it alongside the
 // script makes the bundle self-contained for `npx @workweave/router`.
 const commandsSrc = path.join(installDir, "commands");
@@ -54,7 +56,33 @@ mkdirSync(path.dirname(codexSkillDst), { recursive: true });
 copyFileSync(codexSkillSrc, codexSkillDst);
 console.log("Copied codex-skills/disable-routing/SKILL.md.");
 
-// Bundle the pi extension so the single @workweave/router package is BOTH the
+const registryNames = new Set();
+for (const line of registryText.split(/\r?\n/)) {
+  if (!line || line.startsWith("#")) continue;
+  const fields = line.split("|");
+  registryNames.add(fields[0]);
+  for (const alias of (fields[1] || "").split(",")) if (alias) registryNames.add(alias);
+}
+for (const file of readdirSync(commandsSrc)) {
+  if (file.endsWith(".md") && !registryNames.has(file.slice(0, -3))) {
+    throw new Error(`Command ${file} is not declared in directives.tsv`);
+  }
+}
+
+// registry prevents a newly supported directive from being omitted at publish time.
+for (const line of registryText.split(/\r?\n/)) {
+  if (!line || line.startsWith("#")) continue;
+  const fields = line.split("|");
+  if (fields[2] !== "prompt" || fields[4] !== "yes") continue;
+  const name = fields[0];
+  const src = path.join(installDir, "codex-skills", name, "SKILL.md");
+  const dst = path.join(root, "codex-skills", name, "SKILL.md");
+  if (!lstatSync(src) || lstatSync(src).isSymbolicLink()) throw new Error(`Invalid Codex skill: ${src}`);
+  mkdirSync(path.dirname(dst), { recursive: true });
+  copyFileSync(src, dst);
+  console.log(`Copied codex-skills/${name}/SKILL.md.`);
+}
+
 // installer and the pi-router extension: pi loads it via the "pi.extensions"
 // field in package.json, and install.sh adds `npm:@workweave/router` to pi's
 // settings. Source of truth lives at install/pi-router/src.

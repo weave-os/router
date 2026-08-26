@@ -141,9 +141,19 @@ ChatGPT OAuth plan. Other OpenAI, Anthropic, Gemini, and OpenAI-compatible
 models use their matching WorkWeave deployment or BYOK credentials, just as
 they do when routed from Claude Code.
 
-Codex does not load third-party Markdown slash commands. To send a router
-directive, start the message with one literal space so Codex submits it as a
-normal prompt rather than consuming it as an unknown local command:
+Codex does not load third-party Markdown slash commands, and reserves `/…` for
+its own built-ins. The installer therefore ships each router directive as a
+native Codex skill, invoked with `$`:
+
+| Skill | Sends |
+| --- | --- |
+| `$force-model <model-id>` | ` /force-model <model-id>` |
+| `$unforce-model` | ` /unforce-model` |
+| `$router-feedback <text>` | ` /router-feedback <text>` |
+
+Each skill submits a normal prompt whose first character is one literal space,
+which is what reaches the router's directive parser. You can always type that
+form yourself instead:
 
 ```text
  /force-model gpt-5.6-terra
@@ -268,6 +278,34 @@ Codex, opencode, and pi have no equivalent per-turn hook, so they don't
 auto-refresh. Re-run the installer for those (`npx @workweave/router --codex`
 and friends) — thanks to key reuse, that no longer means re-pasting a key.
 
+## Adding or changing a directive
+
+`install/directives.tsv` is the single registry. Every install path, the
+uninstaller, the statusline refresh, and the npm packaging step read it, so a
+directive is declared once and reaches every client that supports it.
+
+```
+canonical|aliases|capability|claude|codex|opencode|pi|cursor|adapter
+```
+
+- `capability` is `prompt` (the directive is text the router parses) or
+  `local-toggle` (it shells out to this installer to change local config).
+  Only declare a `local-toggle` for a client whose config this installer owns —
+  do not invent one where the client has no equivalent.
+- The client columns are `yes`/`no`; `cursor` is always `manual`, because no
+  Cursor command file is ours to write.
+- `adapter` names the native asset: `command` (a `commands/<name>.md` wrapper),
+  `skill` (a `codex-skills/<name>/SKILL.md`), or both.
+
+To add one: add the row, add the matching adapter file(s), run
+`make embed-registry` (install.sh is served standalone for `curl | sh`, so it
+carries an embedded copy of the registry), then run
+`install/tests/registry_test.sh`. A registry entry with no adapter — or an
+adapter with no entry, or an embedded copy that drifted — fails both that suite
+and `npm pack`, so they cannot drift. pi's `/fm` and `/ufm` live in the
+extension rather than in files; the registry test asserts its registered names
+match the registry.
+
 ## Switching on and off
 
 Once installed, flip a client between the Weave Router and talking to its
@@ -287,6 +325,32 @@ Inside Claude Code you can also run the slash commands `/router-off`,
 session id used for telemetry correlation and transcript lookup) — installed
 alongside `/force-model` (alias `/fm`), `/unforce-model` (alias `/ufm`),
 `/router-feedback` (alias `/rf`), and `/router-models` (alias `/models`).
+
+### Which directives each client gets
+
+The installer derives this table from `install/directives.tsv`, the single
+registry every client's install reads. Prompt directives reach the router
+itself; local-config toggles flip config on disk, so they exist only where this
+installer owns the config file.
+
+| Directive | Claude Code | Codex | opencode | pi | Cursor |
+| --- | --- | --- | --- | --- | --- |
+| force-model (`fm`) | `/force-model` | `$force-model` | `/force-model` | `/fm` (native) | manual |
+| unforce-model (`ufm`) | `/unforce-model` | `$unforce-model` | `/unforce-model` | `/ufm` (native) | manual |
+| router-feedback (`rf`) | `/router-feedback` | `$router-feedback` | `/router-feedback` | — | manual |
+| router-session | `/router-session` | — | — | — | — |
+| router-off / on / status | `/router-off` … | `$disable-routing` (off only) | — | — | — |
+| router-models (`models`) | `/router-models` | — | — | — | — |
+
+- **Codex** uses `$name` skills because Codex reserves `/…` for built-ins; each
+  skill sends the leading-space prompt form.
+- **pi** implements `/fm` and `/ufm` in the `@workweave/router` extension rather
+  than through installed files; the registry asserts its names match.
+- **Cursor** exposes no command or skill file this installer owns, so its
+  directives are manual: type the leading-space form ( `/force-model …`)
+  yourself. The base-URL toggle lives in Cursor's own settings UI.
+- The local toggles are Claude Code-only (plus Codex's `$disable-routing`)
+  because no other client has a config file this installer writes.
 
 What each `off` does (and `on` reverses byte-for-byte):
 

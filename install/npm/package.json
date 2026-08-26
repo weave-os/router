@@ -19,6 +19,8 @@
     "install.sh",
     "uninstall.sh",
     "cc-statusline.sh",
+    "registry.sh",
+    "directives.tsv",
     "commands/",
     "codex-skills/",
     "pi-router/",

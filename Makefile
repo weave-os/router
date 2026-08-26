@@ -42,6 +42,11 @@ test-install: ## Run offline installer regression tests
 	@bash install/tests/codex_install_test.sh
 	@bash install/tests/key_reuse_test.sh
 	@bash install/tests/models_test.sh
+	@bash install/tests/registry_test.sh
+	@bash install/tests/packaging_test.sh
+
+embed-registry: ## Re-embed install/directives.tsv + registry.sh into install.sh
+	@bash install/scripts/embed-registry.sh
 
 smoke: ## Pre-merge smoke suite: real router stack + real Anthropic (needs ANTHROPIC_API_KEY)
 	./scripts/smoke/run.sh
