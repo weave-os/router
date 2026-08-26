@@ -250,9 +250,11 @@ type RouterModelRouterRequestTelemetry struct {
 	PlannerShadowSavingsUsdMicros *int64
 	// Shadow verdict of the HMM cache gate on an authoritative turn: stay or switch. NEVER what was served -- authoritative turns always serve decision_model. NULL when the shadow did not run.
 	AuthorityShadowOutcome *string
+	// The gate's own verdict that it would have served authority_shadow_stay_model instead of decision_model. Use this, not a string compare: stay_model is a serving identity that may carry ':effort' while decision_model is a bare catalog ID.
+	AuthorityShadowWouldDiverge *bool
 	// Snake-case reason from the shadow gate (ev_positive, ev_negative, same_model, no_pin, no_prior_usage, hmm_upgrade_confidence_low, ...).
 	AuthorityShadowReason *string
-	// Pin the shadow gate priced against. On authority_shadow_outcome = stay this is the model the gate would have kept instead of decision_model.
+	// Pin the shadow gate priced against, as a serving identity -- it carries ':effort' when the pin used one, unlike the bare decision_model. Compare via authority_shadow_would_diverge rather than against decision_model directly.
 	AuthorityShadowStayModel *string
 	// Provider binding of authority_shadow_stay_model.
 	AuthorityShadowStayProvider *string

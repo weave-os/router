@@ -145,6 +145,7 @@ type InsertTelemetryParams struct {
 	// authoritative-per-turn turns, where the gate itself never runs. nil/empty
 	// when the shadow did not run. Never a served decision.
 	AuthorityShadowOutcome             string
+	AuthorityShadowWouldDiverge        *bool
 	AuthorityShadowReason              string
 	AuthorityShadowStayModel           string
 	AuthorityShadowStayProvider        string
@@ -240,19 +241,18 @@ func applyPlannerTelemetry(p *InsertTelemetryParams, res turnLoopResult) {
 	}
 }
 
-// applyAuthorityShadowTelemetry copies the authoritative-turn cache-gate shadow
-// onto p. No-ops unless the shadow actually ran, so all AuthorityShadow* columns
-// stay NULL rather than storing a zero that would read as a computed verdict.
-//
-// These never describe what was served. On an authoritative turn the served
-// model is always decision_model; a stay verdict here means the gate would have
-// kept authority_shadow_stay_model instead.
+// applyAuthorityShadowTelemetry copies the authority-turn cache-gate shadow onto
+// p. No-ops unless the shadow ran, keeping all AuthorityShadow* columns NULL
+// rather than zero (zero would read as a computed verdict). These never describe
+// what was served: an authoritative turn always serves decision_model.
 func applyAuthorityShadowTelemetry(p *InsertTelemetryParams, res turnLoopResult) {
 	if p == nil || !res.AuthorityShadow.Computed {
 		return
 	}
 	shadow := res.AuthorityShadow
 	p.AuthorityShadowOutcome = plannerOutcome(shadow.Decision.Outcome)
+	diverge := shadow.Sticky
+	p.AuthorityShadowWouldDiverge = &diverge
 	p.AuthorityShadowReason = shadow.Decision.Reason
 	p.AuthorityShadowStayModel = shadow.StayModel
 	p.AuthorityShadowStayProvider = shadow.StayProvider

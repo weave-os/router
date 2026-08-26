@@ -1376,10 +1376,8 @@ func (s *Service) WithAuthoritativeUpgradeGate(enabled bool) *Service {
 	return s
 }
 
-// WithAuthorityCacheShadow is the kill switch (ROUTER_AUTHORITY_CACHE_SHADOW)
-// for recording the cache gate's counterfactual verdict on authoritative-per-turn
-// turns. On by default: the computation is pure Go over already-loaded pin and
-// catalog state, makes no network call, and cannot change what is served.
+// WithAuthorityCacheShadow sets the kill switch (ROUTER_AUTHORITY_CACHE_SHADOW)
+// for recording the cache gate's counterfactual verdict on authoritative turns.
 func (s *Service) WithAuthorityCacheShadow(enabled bool) *Service {
 	s.authorityCacheShadow = enabled
 	return s

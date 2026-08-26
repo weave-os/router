@@ -252,9 +252,12 @@ type authorityCacheShadow struct {
 	// no eligible pin existed (Decision.Reason is no_pin in that case).
 	StayModel    string
 	StayProvider string
-	// Sticky is true when the gate would have served StayModel instead of the
-	// authoritative fresh pick -- the divergence this whole measurement exists
-	// to size.
+	// Sticky is the gate's own verdict that it would have served StayModel
+	// instead of the authoritative fresh pick -- the divergence this whole
+	// measurement exists to size. Persisted rather than re-derived in SQL:
+	// StayModel is a serving identity that may carry ":effort" while
+	// decision_model is a bare catalog ID, so comparing those two strings
+	// reports a false divergence on every effort-bearing pin.
 	Sticky bool
 	// StayScore/FreshScore are the sidecar's candidate scores for the two
 	// models. Nil when the sidecar reported no score for that model; the nil
@@ -262,6 +265,14 @@ type authorityCacheShadow struct {
 	// input that is frequently absent.
 	StayScore  *float64
 	FreshScore *float64
+}
+
+// Reason returns the gate's reason string, or "" when the shadow did not run.
+func (a authorityCacheShadow) Reason() string {
+	if !a.Computed {
+		return ""
+	}
+	return a.Decision.Reason
 }
 
 // modelSwitched reports whether the Anthropic emit path must strip historical
@@ -1088,12 +1099,9 @@ func (s *Service) runTurnLoop(
 	)
 	res.Fresh = fresh
 	if res.AuthoritativePerTurn {
-		// Shadow first, before any of the pin-preserving gates below, so the
-		// measurement covers every authoritative exit. PinTier tells the
-		// analysis which exit was taken: "authoritative_per_turn" means fresh
-		// was served and a stay verdict here is a real divergence, while the
-		// sticky/confidence tiers mean the pin was already kept and the shadow
-		// is redundant with a gate that already ships.
+		// Shadow before the pin-preserving gates so it covers every authoritative
+		// exit. PinTier partitions the result: authoritative_per_turn = fresh was
+		// served, sticky/confidence = pin was already kept.
 		activePin := sessionpin.Pin{}
 		if pinFound {
 			activePin = pin
@@ -1417,17 +1425,11 @@ func (s *Service) hmmCostGatedDecision(
 	return fresh, base, false, stayPin.Model
 }
 
-// authorityCacheShadowFor computes the HMM cache gate's verdict for a turn the
-// turn loop is about to decide authoritatively, without changing that decision.
-//
-// It calls hmmCostGatedDecision unmodified rather than reimplementing the rule.
-// A shadow that approximates the treatment is not a preview of the treatment,
-// and the entire point of this measurement is to decide whether to make that
-// exact function reachable on authoritative turns.
-//
-// hmmCostGatedDecision is pure: it reads pins, prices, and catalog state and
-// writes nothing. Running it twice on a turn that reaches both call sites would
-// be harmless, but it cannot happen -- the authoritative branch returns first.
+// authorityCacheShadowFor computes the HMM cache gate's verdict for an
+// authoritative-per-turn turn without changing that decision. Calls
+// hmmCostGatedDecision unmodified -- a shadow that approximates the rule is not
+// a preview of it. That function is pure and cannot run twice: the authoritative
+// branch returns before the live gate is reached.
 func (s *Service) authorityCacheShadowFor(
 	ctx context.Context,
 	req router.Request,
@@ -1469,16 +1471,26 @@ func (s *Service) authorityCacheShadowFor(
 	return shadow
 }
 
-// candidateScoreFor reads the sidecar's pre-argmax score for model off the
-// decision that carried it. Returns nil when the sidecar reported no score for
-// that model, which is the case the caller must be able to see: the scores come
-// from the HMM bandit's Bradley-Terry strengths over this turn's eligible arms,
-// so a pin that is not an eligible arm this turn has no score at all.
-func candidateScoreFor(dec router.Decision, model string) *float64 {
-	if model == "" || dec.Metadata == nil || dec.Metadata.CandidateScores == nil {
+// candidateScoreFor reads the sidecar's pre-argmax score for servedIdentity off
+// the decision that carried it. Returns nil when the sidecar reported no score,
+// which the caller must be able to distinguish from a low score.
+//
+// The two score maps are keyed differently and both are needed. CandidateScores
+// is keyed by bare catalog ID; CandidateArmScores keeps the roster arm ID with
+// its effort suffix. A pin's identity is LastServedModel, which is
+// Decision.ServedIdentity() and so carries ":effort" whenever an effort was
+// selected -- a catalog-only lookup misses every effort-bearing pin and
+// silently inflates the NULL rate this instrumentation exists to measure.
+// Prefer the exact arm, fall back to the model.
+func candidateScoreFor(dec router.Decision, servedIdentity string) *float64 {
+	if servedIdentity == "" || dec.Metadata == nil {
 		return nil
 	}
-	score, ok := dec.Metadata.CandidateScores[model]
+	if score, ok := dec.Metadata.CandidateArmScores[servedIdentity]; ok {
+		value := float64(score)
+		return &value
+	}
+	score, ok := dec.Metadata.CandidateScores[baseModelOf(servedIdentity)]
 	if !ok {
 		return nil
 	}

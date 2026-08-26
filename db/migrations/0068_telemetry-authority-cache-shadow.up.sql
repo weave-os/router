@@ -27,6 +27,7 @@ BEGIN;
 -- clamping it to zero destroys the measurement.
 ALTER TABLE router.model_router_request_telemetry
     ADD COLUMN authority_shadow_outcome                   VARCHAR,
+    ADD COLUMN authority_shadow_would_diverge              BOOLEAN,
     ADD COLUMN authority_shadow_reason                    VARCHAR,
     ADD COLUMN authority_shadow_stay_model                VARCHAR,
     ADD COLUMN authority_shadow_stay_provider             VARCHAR,
@@ -40,10 +41,12 @@ ALTER TABLE router.model_router_request_telemetry
 
 COMMENT ON COLUMN router.model_router_request_telemetry.authority_shadow_outcome IS
     'Shadow verdict of the HMM cache gate on an authoritative turn: stay or switch. NEVER what was served -- authoritative turns always serve decision_model. NULL when the shadow did not run.';
+COMMENT ON COLUMN router.model_router_request_telemetry.authority_shadow_would_diverge IS
+    'The gate''s own verdict that it would have served authority_shadow_stay_model instead of decision_model. Use this, not a string compare: stay_model is a serving identity that may carry '':effort'' while decision_model is a bare catalog ID.';
 COMMENT ON COLUMN router.model_router_request_telemetry.authority_shadow_reason IS
-    'Snake-case reason from the shadow gate (ev_positive, ev_negative, same_model, no_pin, no_prior_usage, hmm_upgrade_confidence_low, ...).';
+    'Snake-case reason from the shadow gate (ev_positive, ev_negative, same_model, no_pin, no_prior_usage, hmm_upgrade_confidence_low, ...). Read no_pin carefully: it also covers a pin that exists but whose serving identity carries '':effort'', because catalog.ByID strips a date suffix and not an effort suffix, so normalizeHMMStayPin rejects it. no_pin is therefore NOT the same as ''this session had no pin''.';
 COMMENT ON COLUMN router.model_router_request_telemetry.authority_shadow_stay_model IS
-    'Pin the shadow gate priced against. On authority_shadow_outcome = stay this is the model the gate would have kept instead of decision_model.';
+    'Pin the shadow gate priced against, as a serving identity -- it carries '':effort'' when the pin used one, unlike the bare decision_model. Compare via authority_shadow_would_diverge rather than against decision_model directly.';
 COMMENT ON COLUMN router.model_router_request_telemetry.authority_shadow_stay_provider IS
     'Provider binding of authority_shadow_stay_model.';
 COMMENT ON COLUMN router.model_router_request_telemetry.authority_shadow_savings_usd_micros IS

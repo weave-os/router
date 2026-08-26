@@ -11,6 +11,7 @@ ALTER TABLE router.model_router_request_telemetry
     DROP COLUMN authority_shadow_stay_provider,
     DROP COLUMN authority_shadow_stay_model,
     DROP COLUMN authority_shadow_reason,
+    DROP COLUMN authority_shadow_would_diverge,
     DROP COLUMN authority_shadow_outcome;
 
 COMMIT;

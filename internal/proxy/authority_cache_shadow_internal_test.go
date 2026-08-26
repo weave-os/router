@@ -33,6 +33,19 @@ func (r *authorityShadowTestRouter) Route(_ context.Context, _ router.Request) (
 }
 
 func authorityShadowPin() sessionpin.Pin {
+	return authorityShadowPinServing(shadowPinnedModel)
+}
+
+// authorityShadowPinServing builds the pin with an explicit LastServedModel, so
+// a test can exercise the effort-bearing serving identity ("model:effort") that
+// Decision.ServedIdentity() persists.
+func authorityShadowPinServing(servedIdentity string) sessionpin.Pin {
+	pin := authorityShadowBasePin()
+	pin.LastServedModel = servedIdentity
+	return pin
+}
+
+func authorityShadowBasePin() sessionpin.Pin {
 	return sessionpin.Pin{
 		Provider:              providers.ProviderAnthropic,
 		Model:                 shadowPinnedModel,
@@ -40,7 +53,6 @@ func authorityShadowPin() sessionpin.Pin {
 		PolicyGroup:           "high",
 		PinnedUntil:           time.Now().Add(time.Hour),
 		LastTurnEndedAt:       time.Now().Add(-time.Minute),
-		LastServedModel:       shadowPinnedModel,
 		LastInputTokens:       4_000,
 		LastCachedReadTokens:  12_000,
 		LastCachedWriteTokens: 1_000,
@@ -52,10 +64,20 @@ func authorityShadowPin() sessionpin.Pin {
 // returns the turn loop's result.
 func runAuthorityShadowTurn(t *testing.T, enabled bool, fresh router.Decision) turnLoopResult {
 	t.Helper()
+	return runAuthorityShadowTurnWithPin(t, enabled, fresh, authorityShadowPin())
+}
+
+func runAuthorityShadowTurnWithPin(
+	t *testing.T,
+	enabled bool,
+	fresh router.Decision,
+	pin sessionpin.Pin,
+) turnLoopResult {
+	t.Helper()
 	strategy := router.Strategy("authority-cache-shadow-test")
 	store := newStubPinStore()
 	store.getFound = true
-	store.getPin = authorityShadowPin()
+	store.getPin = pin
 	svc := NewService(
 		nil, nil, nil, false, nil, store, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil,
@@ -95,14 +117,23 @@ func runAuthorityShadowTurn(t *testing.T, enabled bool, fresh router.Decision) t
 }
 
 func hmmFreshDecision(model string, scores map[string]float32) router.Decision {
+	return hmmFreshDecisionWithArmScores(model, scores, nil)
+}
+
+func hmmFreshDecisionWithArmScores(
+	model string,
+	scores map[string]float32,
+	armScores map[string]float32,
+) router.Decision {
 	return router.Decision{
 		Provider: providers.ProviderAnthropic,
 		Model:    model,
 		Reason:   "hmm_policy(classifier 'high' (p=0.41))",
 		Metadata: &router.RoutingMetadata{
-			Strategy:        "hmm",
-			PolicyGroup:     "high",
-			CandidateScores: scores,
+			Strategy:           "hmm",
+			PolicyGroup:        "high",
+			CandidateScores:    scores,
+			CandidateArmScores: armScores,
 		},
 	}
 }
@@ -243,4 +274,93 @@ func TestApplyAuthorityShadowTelemetryPreservesSignedEV(t *testing.T) {
 	require.NotNil(t, params.AuthorityShadowStayScore)
 	assert.InDelta(t, 0.71, *params.AuthorityShadowStayScore, 1e-6)
 	assert.Nil(t, params.AuthorityShadowFreshScore)
+}
+
+// TestAuthorityCacheShadowEffortBearingPinIsNotAStayCandidate documents a
+// pre-existing property of hmmCostGatedDecision that materially shapes how this
+// soak must be read.
+//
+// A pin's identity is LastServedModel = Decision.ServedIdentity(), which carries
+// ":effort" whenever an effort was selected. normalizeHMMStayPin resolves that
+// identity through catalog.ResolveBindingWithCustom -> catalog.ByID, which
+// strips a date suffix but not an effort suffix -- so the lookup misses and the
+// pin is rejected outright. Every effort-bearing pin therefore lands as
+// "no_pin", not as a scored stay candidate.
+//
+// This is not introduced here and is deliberately not fixed here: changing it
+// would alter live HMM routing for self-hosters, who already reach this gate.
+// It is locked by a test because an analyst reading the soak's no_pin rate as
+// "no eligible pin existed" would be wrong about a whole class of sessions.
+func TestAuthorityCacheShadowEffortBearingPinIsNotAStayCandidate(t *testing.T) {
+	const servedIdentity = shadowPinnedModel + ":high"
+
+	result := runAuthorityShadowTurnWithPin(t, true,
+		hmmFreshDecisionWithArmScores(shadowFreshModel,
+			map[string]float32{shadowPinnedModel: 0.40, shadowFreshModel: 0.71},
+			map[string]float32{servedIdentity: 0.66},
+		),
+		authorityShadowPinServing(servedIdentity),
+	)
+
+	require.True(t, result.AuthorityShadow.Computed)
+	assert.Equal(t, planner.ReasonNoPin, result.AuthorityShadow.Reason(),
+		"an effort-bearing pin does not resolve in the catalog, so the gate sees no pin")
+	assert.Empty(t, result.AuthorityShadow.StayModel)
+	assert.False(t, result.AuthorityShadow.Sticky)
+	assert.Nil(t, result.AuthorityShadow.StayScore,
+		"no stay candidate means no stay score, regardless of what the sidecar scored")
+}
+
+// TestCandidateScoreForPrefersTheExactArm covers candidateScoreFor directly.
+// The two score maps are keyed differently -- CandidateScores by bare catalog ID,
+// CandidateArmScores by roster arm ID with its effort suffix -- so the lookup
+// must try the exact arm before falling back to the model. Exercised at unit
+// level because the turn loop cannot currently deliver an effort-bearing
+// identity here (see the test above); this keeps the lookup correct if that
+// changes, and keeps a missing score NULL rather than 0.0 either way.
+func TestCandidateScoreForPrefersTheExactArm(t *testing.T) {
+	dec := hmmFreshDecisionWithArmScores(shadowFreshModel,
+		map[string]float32{shadowPinnedModel: 0.40, shadowFreshModel: 0.71},
+		map[string]float32{shadowPinnedModel + ":high": 0.66},
+	)
+
+	t.Run("exact arm wins over the base model", func(t *testing.T) {
+		got := candidateScoreFor(dec, shadowPinnedModel+":high")
+		require.NotNil(t, got)
+		assert.InDelta(t, 0.66, *got, 1e-6)
+	})
+
+	t.Run("falls back to the base model when no arm score exists", func(t *testing.T) {
+		got := candidateScoreFor(dec, shadowPinnedModel+":low")
+		require.NotNil(t, got)
+		assert.InDelta(t, 0.40, *got, 1e-6)
+	})
+
+	t.Run("bare model resolves through the catalog map", func(t *testing.T) {
+		got := candidateScoreFor(dec, shadowFreshModel)
+		require.NotNil(t, got)
+		assert.InDelta(t, 0.71, *got, 1e-6)
+	})
+
+	t.Run("neither map covers the model", func(t *testing.T) {
+		assert.Nil(t, candidateScoreFor(dec, "claude-haiku-4-5"))
+		assert.Nil(t, candidateScoreFor(dec, ""))
+	})
+}
+
+// TestAuthorityCacheShadowPersistsGateDivergenceVerdict locks the reason the
+// divergence flag is a persisted column rather than a SQL string compare:
+// stay_model is a serving identity while decision_model is a bare catalog ID,
+// so `stay_model <> decision_model` is not a safe stand-in for the gate's own
+// verdict.
+func TestAuthorityCacheShadowPersistsGateDivergenceVerdict(t *testing.T) {
+	result := runAuthorityShadowTurn(t, true, hmmFreshDecision(shadowFreshModel, nil))
+
+	var params InsertTelemetryParams
+	applyAuthorityShadowTelemetry(&params, result)
+
+	require.NotNil(t, params.AuthorityShadowWouldDiverge)
+	assert.Equal(t, result.AuthorityShadow.Sticky, *params.AuthorityShadowWouldDiverge)
+	assert.True(t, *params.AuthorityShadowWouldDiverge,
+		"a stay verdict against a different served model is a divergence")
 }

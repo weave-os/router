@@ -1701,6 +1701,7 @@ INSERT INTO router.model_router_request_telemetry (
     planner_shadow_outcome,
     planner_shadow_savings_usd_micros,
     authority_shadow_outcome,
+    authority_shadow_would_diverge,
     authority_shadow_reason,
     authority_shadow_stay_model,
     authority_shadow_stay_provider,
@@ -1788,16 +1789,17 @@ INSERT INTO router.model_router_request_telemetry (
     $74::varchar,
     $75::bigint,
     $76::varchar,
-    $77::varchar,
+    $77::boolean,
     $78::varchar,
     $79::varchar,
-    $80::bigint,
+    $80::varchar,
     $81::bigint,
-    $82::boolean,
-    $83::varchar,
-    $84::bigint,
-    $85::double precision,
-    $86::double precision
+    $82::bigint,
+    $83::boolean,
+    $84::varchar,
+    $85::bigint,
+    $86::double precision,
+    $87::double precision
 )
 ON CONFLICT (installation_id, request_id, span_type) DO NOTHING
 `
@@ -1879,6 +1881,7 @@ type InsertRequestTelemetryParams struct {
 	PlannerShadowOutcome                     *string
 	PlannerShadowSavingsUsdMicros            *int64
 	AuthorityShadowOutcome                   *string
+	AuthorityShadowWouldDiverge              *bool
 	AuthorityShadowReason                    *string
 	AuthorityShadowStayModel                 *string
 	AuthorityShadowStayProvider              *string
@@ -1999,6 +2002,7 @@ type InsertRequestTelemetryParams struct {
 //	    planner_shadow_outcome,
 //	    planner_shadow_savings_usd_micros,
 //	    authority_shadow_outcome,
+//	    authority_shadow_would_diverge,
 //	    authority_shadow_reason,
 //	    authority_shadow_stay_model,
 //	    authority_shadow_stay_provider,
@@ -2086,16 +2090,17 @@ type InsertRequestTelemetryParams struct {
 //	    $74::varchar,
 //	    $75::bigint,
 //	    $76::varchar,
-//	    $77::varchar,
+//	    $77::boolean,
 //	    $78::varchar,
 //	    $79::varchar,
-//	    $80::bigint,
+//	    $80::varchar,
 //	    $81::bigint,
-//	    $82::boolean,
-//	    $83::varchar,
-//	    $84::bigint,
-//	    $85::double precision,
-//	    $86::double precision
+//	    $82::bigint,
+//	    $83::boolean,
+//	    $84::varchar,
+//	    $85::bigint,
+//	    $86::double precision,
+//	    $87::double precision
 //	)
 //	ON CONFLICT (installation_id, request_id, span_type) DO NOTHING
 func (q *Queries) InsertRequestTelemetry(ctx context.Context, arg InsertRequestTelemetryParams) error {
@@ -2176,6 +2181,7 @@ func (q *Queries) InsertRequestTelemetry(ctx context.Context, arg InsertRequestT
 		arg.PlannerShadowOutcome,
 		arg.PlannerShadowSavingsUsdMicros,
 		arg.AuthorityShadowOutcome,
+		arg.AuthorityShadowWouldDiverge,
 		arg.AuthorityShadowReason,
 		arg.AuthorityShadowStayModel,
 		arg.AuthorityShadowStayProvider,

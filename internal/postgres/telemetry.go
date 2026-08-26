@@ -161,6 +161,7 @@ func (r *TelemetryRepo) InsertRequestTelemetry(ctx context.Context, p proxy.Inse
 		PlannerShadowOutcome:                     stringPtrOrNil(p.PlannerShadowOutcome),
 		PlannerShadowSavingsUsdMicros:            int64PtrFromUSD(p.PlannerShadowExpectedSavingsUSD),
 		AuthorityShadowOutcome:                   stringPtrOrNil(p.AuthorityShadowOutcome),
+		AuthorityShadowWouldDiverge:              p.AuthorityShadowWouldDiverge,
 		AuthorityShadowReason:                    stringPtrOrNil(p.AuthorityShadowReason),
 		AuthorityShadowStayModel:                 stringPtrOrNil(p.AuthorityShadowStayModel),
 		AuthorityShadowStayProvider:              stringPtrOrNil(p.AuthorityShadowStayProvider),
