@@ -678,6 +678,10 @@ func main() {
 	// authoritativeUpgradeGate keeps the 0.85 escalation floor active for authoritative-per-turn
 	// policies; kill switch for a return to verbatim policy selection.
 	authoritativeUpgradeGate := config.GetOr("ROUTER_AUTHORITATIVE_UPGRADE_GATE", "true") == "true"
+	// authorityCacheShadow records the HMM cache gate's counterfactual verdict on
+	// authoritative-per-turn turns, which return before that gate can run. Pure
+	// observation; kill switch for the added per-turn computation and log line.
+	authorityCacheShadow := config.GetOr("ROUTER_AUTHORITY_CACHE_SHADOW", "true") == "true"
 	// policyDeadlineFallback degrades a policy sidecar deadline/transport failure to
 	// the session pin (or tier-3 default below) instead of a 503. Kill switch; off by default.
 	policyDeadlineFallback := config.GetOr("ROUTER_POLICY_DEADLINE_FALLBACK", "false") == "true"
@@ -884,6 +888,7 @@ func main() {
 		flags.KeyScoreToolResultTurns:      boolDefault(scoreToolResultTurns),
 		flags.KeyPrefixTrimFreeSwitch:      boolDefault(prefixTrimFreeSwitch),
 		flags.KeyAuthoritativeUpgradeGate:  boolDefault(authoritativeUpgradeGate),
+		flags.KeyAuthorityCacheShadow:      boolDefault(authorityCacheShadow),
 		flags.KeySiblingFailover:           boolDefault(siblingFailover),
 		flags.KeyEffortEscalation:          boolDefault(effortEscalation),
 		flags.KeyCyberRefusalRepin:         boolDefault(cyberRefusalRepin),
@@ -923,6 +928,7 @@ func main() {
 		WithHMMSameTierPin(hmmSameTierPin).
 		WithHMPinStickyOnArmSelectorUnavail(hmPinStickyOnArmSelectorUnavail).
 		WithAuthoritativeUpgradeGate(authoritativeUpgradeGate).
+		WithAuthorityCacheShadow(authorityCacheShadow).
 		WithPolicyDeadlineFallback(policyDeadlineFallback).
 		WithPolicyDeadlineDefaultModel(policyDeadlineDefaultModel).
 		WithEscapeNormalize(escapeNormalize).

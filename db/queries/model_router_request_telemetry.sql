@@ -104,7 +104,18 @@ INSERT INTO router.model_router_request_telemetry (
     planner_eviction_cost_usd_micros,
     planner_pin_cache_cold,
     planner_shadow_outcome,
-    planner_shadow_savings_usd_micros
+    planner_shadow_savings_usd_micros,
+    authority_shadow_outcome,
+    authority_shadow_reason,
+    authority_shadow_stay_model,
+    authority_shadow_stay_provider,
+    authority_shadow_savings_usd_micros,
+    authority_shadow_eviction_cost_usd_micros,
+    authority_shadow_pin_cache_cold,
+    authority_shadow_corrected_outcome,
+    authority_shadow_corrected_savings_usd_micros,
+    authority_shadow_stay_score,
+    authority_shadow_fresh_score
 ) VALUES (
     @installation_id::uuid,
     sqlc.narg('api_key_id')::uuid,
@@ -180,7 +191,18 @@ INSERT INTO router.model_router_request_telemetry (
     sqlc.narg('planner_eviction_cost_usd_micros')::bigint,
     sqlc.narg('planner_pin_cache_cold')::boolean,
     sqlc.narg('planner_shadow_outcome')::varchar,
-    sqlc.narg('planner_shadow_savings_usd_micros')::bigint
+    sqlc.narg('planner_shadow_savings_usd_micros')::bigint,
+    sqlc.narg('authority_shadow_outcome')::varchar,
+    sqlc.narg('authority_shadow_reason')::varchar,
+    sqlc.narg('authority_shadow_stay_model')::varchar,
+    sqlc.narg('authority_shadow_stay_provider')::varchar,
+    sqlc.narg('authority_shadow_savings_usd_micros')::bigint,
+    sqlc.narg('authority_shadow_eviction_cost_usd_micros')::bigint,
+    sqlc.narg('authority_shadow_pin_cache_cold')::boolean,
+    sqlc.narg('authority_shadow_corrected_outcome')::varchar,
+    sqlc.narg('authority_shadow_corrected_savings_usd_micros')::bigint,
+    sqlc.narg('authority_shadow_stay_score')::double precision,
+    sqlc.narg('authority_shadow_fresh_score')::double precision
 )
 ON CONFLICT (installation_id, request_id, span_type) DO NOTHING;
 

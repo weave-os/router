@@ -82,6 +82,12 @@ func (s *Service) ResolveAuthoritativeUpgradeGate(ctx context.Context) bool {
 	return flags.BoolOr(ctx, flags.KeyAuthoritativeUpgradeGate, s.authoritativeUpgradeGate)
 }
 
+// ResolveAuthorityCacheShadow reports whether authoritative-per-turn turns
+// record the cache gate's counterfactual verdict. Observation only.
+func (s *Service) ResolveAuthorityCacheShadow(ctx context.Context) bool {
+	return flags.BoolOr(ctx, flags.KeyAuthorityCacheShadow, s.authorityCacheShadow)
+}
+
 // ResolveSiblingFailover reports whether an exhausted model may degrade to a
 // same-cluster candidate.
 func (s *Service) ResolveSiblingFailover(ctx context.Context) bool {

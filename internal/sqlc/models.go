@@ -248,6 +248,28 @@ type RouterModelRouterRequestTelemetry struct {
 	PlannerShadowOutcome *string
 	// Shadow expected_savings as USD micros (USD × 1e6). NULL when the shadow was not computed.
 	PlannerShadowSavingsUsdMicros *int64
+	// Shadow verdict of the HMM cache gate on an authoritative turn: stay or switch. NEVER what was served -- authoritative turns always serve decision_model. NULL when the shadow did not run.
+	AuthorityShadowOutcome *string
+	// Snake-case reason from the shadow gate (ev_positive, ev_negative, same_model, no_pin, no_prior_usage, hmm_upgrade_confidence_low, ...).
+	AuthorityShadowReason *string
+	// Pin the shadow gate priced against. On authority_shadow_outcome = stay this is the model the gate would have kept instead of decision_model.
+	AuthorityShadowStayModel *string
+	// Provider binding of authority_shadow_stay_model.
+	AuthorityShadowStayProvider *string
+	// Signed expected savings as USD micros (USD x 1e6) under the deployed economics config. Negative on a typical stay; not clamped.
+	AuthorityShadowSavingsUsdMicros *int64
+	// Signed eviction cost as USD micros (USD x 1e6) under the deployed economics config.
+	AuthorityShadowEvictionCostUsdMicros *int64
+	// Whether the shadow EV math priced the pin as cache-cold.
+	AuthorityShadowPinCacheCold *bool
+	// Verdict under corrected cache-aware economics, computed unconditionally by planner.Decide as its shadow. Pre-gate: the upgrade-confidence and same-tier overrides are NOT applied to it, unlike authority_shadow_outcome.
+	AuthorityShadowCorrectedOutcome *string
+	// Signed expected savings under corrected economics as USD micros (USD x 1e6).
+	AuthorityShadowCorrectedSavingsUsdMicros *int64
+	// Sidecar candidate score for authority_shadow_stay_model this turn. NULL when the sidecar reported no score for the pin -- that NULL rate is the measurement that decides whether a quality tie-band is implementable at all.
+	AuthorityShadowStayScore *float64
+	// Sidecar candidate score for the served model this turn, paired with authority_shadow_stay_score.
+	AuthorityShadowFreshScore *float64
 }
 
 // End-user identities seen on inbound requests, scoped to an installation. Replaces the per-user API key pattern.

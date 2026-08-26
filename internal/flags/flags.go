@@ -56,6 +56,7 @@ const (
 	KeyScoreToolResultTurns      Key = "score_tool_result_turns"
 	KeyPrefixTrimFreeSwitch      Key = "prefix_trim_free_switch"
 	KeyAuthoritativeUpgradeGate  Key = "authoritative_upgrade_gate"
+	KeyAuthorityCacheShadow      Key = "authority_cache_shadow"
 	KeySiblingFailover           Key = "sibling_failover"
 	KeyEffortEscalation          Key = "effort_escalation"
 	KeyCyberRefusalRepin         Key = "cyber_refusal_repin"
@@ -171,6 +172,13 @@ var Registry = []Definition{
 		EnvVar:         "ROUTER_AUTHORITATIVE_UPGRADE_GATE",
 		Kind:           KindBool,
 		Description:    "Keep the confidence floor active for authoritative-per-turn policies.",
+		OrgOverridable: true,
+	},
+	{
+		Key:            KeyAuthorityCacheShadow,
+		EnvVar:         "ROUTER_AUTHORITY_CACHE_SHADOW",
+		Kind:           KindBool,
+		Description:    "Record the HMM cache gate's counterfactual verdict on authoritative-per-turn turns. Observation only; never changes what is served.",
 		OrgOverridable: true,
 	},
 	{

@@ -151,6 +151,11 @@ type Service struct {
 	// pricier than the session pin only escalates at confidence >=
 	// hmmUpgradeConfidenceThreshold. Env ROUTER_AUTHORITATIVE_UPGRADE_GATE, on by default.
 	authoritativeUpgradeGate bool
+	// authorityCacheShadow records what the HMM cache gate would have decided on
+	// an authoritative-per-turn turn, which returns before that gate can run.
+	// Observation only -- it never changes the served decision. Env
+	// ROUTER_AUTHORITY_CACHE_SHADOW, on by default.
+	authorityCacheShadow bool
 	// policyDeadlineFallback degrades a policy sidecar deadline/transport failure to
 	// the session pin instead of a 503. Kill switch: env ROUTER_POLICY_DEADLINE_FALLBACK, off by default.
 	policyDeadlineFallback bool
@@ -1251,6 +1256,7 @@ func NewService(r router.Router, providerMap map[string]providers.Client, emitte
 		},
 		hmmUpgradeConfidenceThreshold: defaultHMMUpgradeConfidenceThreshold,
 		authoritativeUpgradeGate:      true,
+		authorityCacheShadow:          true,
 		plannerEnabled:                true,
 		scoreToolResultTurns:          true,
 		loopEscalationEnabled:         true,
@@ -1367,6 +1373,15 @@ func (s *Service) WithHMPinStickyOnArmSelectorUnavail(enabled bool) *Service {
 // decisions. On by default; disabling restores verbatim policy selection.
 func (s *Service) WithAuthoritativeUpgradeGate(enabled bool) *Service {
 	s.authoritativeUpgradeGate = enabled
+	return s
+}
+
+// WithAuthorityCacheShadow is the kill switch (ROUTER_AUTHORITY_CACHE_SHADOW)
+// for recording the cache gate's counterfactual verdict on authoritative-per-turn
+// turns. On by default: the computation is pure Go over already-loaded pin and
+// catalog state, makes no network call, and cannot change what is served.
+func (s *Service) WithAuthorityCacheShadow(enabled bool) *Service {
+	s.authorityCacheShadow = enabled
 	return s
 }
 
@@ -3961,6 +3976,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			UnifiedLimitHeaders: unifiedLimitHeadersJSON(ctx),
 		}
 		applyPlannerTelemetry(&tel, routeRes)
+		applyAuthorityShadowTelemetry(&tel, routeRes)
 		s.fireTelemetry(tel)
 	}
 
@@ -5954,6 +5970,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 			CredentialSource:    credSource,
 		}
 		applyPlannerTelemetry(&telOAI, routeRes)
+		applyAuthorityShadowTelemetry(&telOAI, routeRes)
 		s.fireTelemetry(telOAI)
 	}
 
