@@ -16,26 +16,38 @@ import (
 // maxModelListBytes caps the buffered model-list response body.
 const maxModelListBytes = 1 << 20
 
-// ListModels fetches GET {base}/models and returns the model IDs the endpoint
-// publishes, sorted and deduplicated. Gateways that mount their chat surface
-// under /v1 but their catalog above it (Snowflake Cortex serves
-// /api/v2/cortex/models next to /api/v2/cortex/v1/chat/completions) are retried
-// one path segment up on a 404.
+// ListModels returns the model IDs the endpoint publishes, sorted and
+// deduplicated, walking modelListURLs until one answers something other than a
+// 404.
 func (c *Client) ListModels(ctx context.Context) ([]string, error) {
-	baseURL := proxy.EffectiveBaseURL(ctx, c.baseURL)
+	baseURL := c.effectiveBaseURL(ctx)
 	if baseURL == "" {
 		return nil, errors.New("no base URL configured for model listing")
 	}
-	ids, status, err := c.listModelsAt(ctx, baseURL+"/models")
-	if status != http.StatusNotFound {
-		return ids, err
+	var (
+		ids []string
+		err error
+	)
+	for _, listURL := range modelListURLs(baseURL) {
+		var status int
+		ids, status, err = c.listModelsAt(ctx, listURL)
+		if status != http.StatusNotFound {
+			return ids, err
+		}
 	}
-	root, trimmed := strings.CutSuffix(baseURL, "/v1")
-	if !trimmed {
-		return ids, err
-	}
-	ids, _, err = c.listModelsAt(ctx, root+"/models")
 	return ids, err
+}
+
+// modelListURLs enumerates the catalog URLs worth trying for baseURL, likeliest
+// first: the sibling of the chat surface, then one path segment up for gateways
+// that mount their catalog above /v1 (Snowflake Cortex serves
+// /api/v2/cortex/models next to /api/v2/cortex/v1/chat/completions).
+func modelListURLs(baseURL string) []string {
+	urls := []string{baseURL + "/models"}
+	if root, trimmed := strings.CutSuffix(baseURL, "/v1"); trimmed {
+		urls = append(urls, root+"/models")
+	}
+	return urls
 }
 
 // listModelsAt reads one model-list URL, also reporting the upstream status so

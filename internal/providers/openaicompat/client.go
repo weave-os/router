@@ -214,6 +214,12 @@ func rewriteModelField(body []byte, modelIDMap map[string]string) []byte {
 	return out
 }
 
+// effectiveBaseURL resolves this request's base URL, folding an Azure resource
+// endpoint onto the /openai/v1 surface it actually serves.
+func (c *Client) effectiveBaseURL(ctx context.Context) string {
+	return providers.NormalizeAzureOpenAIBaseURL(proxy.EffectiveBaseURL(ctx, c.baseURL))
+}
+
 // setAuth sets the Authorization header, preferring BYOK credentials over the deployment-level key.
 func (c *Client) setAuth(ctx context.Context, upstream *http.Request) {
 	if creds := proxy.CredentialsFromContext(ctx); creds != nil {
@@ -232,7 +238,7 @@ func (c *Client) Proxy(ctx context.Context, decision router.Decision, prep provi
 	body := rewriteModelField(prep.Body, c.modelIDMap)
 	// Applied after the catalog map so a BYOK endpoint's own naming wins.
 	body = proxy.ApplyModelAlias(ctx, body, decision.Model)
-	baseURL := proxy.EffectiveBaseURL(ctx, c.baseURL)
+	baseURL := c.effectiveBaseURL(ctx)
 
 	// EndpointResponses is the Responses surface: reasoning models reject a tool
 	// turn on chat/completions, and gateways that mount /v1/responses (Snowflake
@@ -374,7 +380,7 @@ func logStreamStall(ctx context.Context, model, baseURL string, cause error) {
 // Passthrough strips the inbound /v1 prefix to avoid double-prefixing with the configured baseURL.
 func (c *Client) Passthrough(ctx context.Context, prep providers.PreparedRequest, w http.ResponseWriter, r *http.Request) error {
 	suffix := strings.TrimPrefix(r.URL.Path, "/v1")
-	baseURL := proxy.EffectiveBaseURL(ctx, c.baseURL)
+	baseURL := c.effectiveBaseURL(ctx)
 	url := baseURL + suffix
 	if r.URL.RawQuery != "" {
 		url += "?" + r.URL.RawQuery
