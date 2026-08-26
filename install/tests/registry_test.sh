@@ -133,14 +133,20 @@ fi
 
 printf '\ninstalls\n'
 
+# XDG_CONFIG_HOME is forwarded when set so opencode's destination resolves the
+# same way the installer resolves it; `env -u` keeps it genuinely unset
+# otherwise, matching a plain developer machine.
 run_install() { # run_install <home> <target-flag> [extra args...]
   local home="$1"; shift
-  HOME="$home" PATH="$test_path" WEAVE_ROUTER_KEY="rk_test_key" NO_COLOR=1 \
+  env ${XDG_CONFIG_HOME:+XDG_CONFIG_HOME="$XDG_CONFIG_HOME"} \
+    HOME="$home" PATH="$test_path" WEAVE_ROUTER_KEY="rk_test_key" NO_COLOR=1 \
     bash "$installer" "$@" --quiet --base-url http://127.0.0.1:9 >/dev/null 2>&1
 }
 run_uninstall() {
   local home="$1"; shift
-  HOME="$home" PATH="$test_path" NO_COLOR=1 bash "$uninstaller" "$@" >/dev/null 2>&1
+  env ${XDG_CONFIG_HOME:+XDG_CONFIG_HOME="$XDG_CONFIG_HOME"} \
+    HOME="$home" PATH="$test_path" NO_COLOR=1 \
+    bash "$uninstaller" "$@" >/dev/null 2>&1
 }
 
 installed_names() { # installed_names <dir>
@@ -159,17 +165,21 @@ check "claude user install writes exactly the registry's commands" \
   "$(installed_names "$cc_home/.claude/commands")"
 
 # opencode, user scope: the smaller registry subset, in the XDG commands dir.
+# The installer honours XDG_CONFIG_HOME, so resolve the destination the same
+# way rather than assuming $HOME/.config — CI runners set it.
 oc_home="$work/opencode-user"; mkdir -p "$oc_home"
-run_install "$oc_home" --opencode --scope user
+oc_xdg="$work/opencode-xdg"; mkdir -p "$oc_xdg"
+XDG_CONFIG_HOME="$oc_xdg" run_install "$oc_home" --opencode --scope user
+oc_cmds="$oc_xdg/opencode/commands"
 check "opencode user install writes exactly the registry's commands" \
   "$(weave_registry_names opencode | sort | tr '\n' ' ' | sed 's/ $//')" \
-  "$(installed_names "$oc_home/.config/opencode/commands")"
+  "$(installed_names "$oc_cmds")"
 
 # opencode must not receive the local-config toggles: it has no equivalent of
 # the Claude settings.json the toggles flip.
 absent=""
 for name in router-off router-on router-status router-models models; do
-  [ -e "$oc_home/.config/opencode/commands/$name.md" ] && absent="$absent $name"
+  [ -e "$oc_cmds/$name.md" ] && absent="$absent $name"
 done
 check "opencode gets no Claude-only local toggle" "" "$absent"
 
@@ -239,10 +249,10 @@ run_install "$cc_home" --claude --scope user
 check "install preserves a user-owned Claude command" "my own wrapper" \
   "$(cat "$cc_home/.claude/commands/rf.md")"
 
-printf '%s\n' 'my own opencode wrapper' >"$oc_home/.config/opencode/commands/fm.md"
-run_install "$oc_home" --opencode --scope user
+printf '%s\n' 'my own opencode wrapper' >"$oc_cmds/fm.md"
+XDG_CONFIG_HOME="$oc_xdg" run_install "$oc_home" --opencode --scope user
 check "install preserves a user-owned opencode command" "my own opencode wrapper" \
-  "$(cat "$oc_home/.config/opencode/commands/fm.md")"
+  "$(cat "$oc_cmds/fm.md")"
 
 # A symlinked destination in a project-scope install is refused outright: the
 # repo is attacker-controlled and the write would follow the link out of it.
@@ -263,9 +273,9 @@ check "uninstall removes every command it owns" "rf" "$(installed_names "$cc_hom
 check "uninstall preserves the user-owned command's contents" "my own wrapper" \
   "$(cat "$cc_home/.claude/commands/rf.md")"
 
-run_uninstall "$oc_home" --opencode --scope user
+XDG_CONFIG_HOME="$oc_xdg" run_uninstall "$oc_home" --opencode --scope user
 check "uninstall removes every opencode command it owns" "fm" \
-  "$(installed_names "$oc_home/.config/opencode/commands")"
+  "$(installed_names "$oc_cmds")"
 
 run_uninstall "$cx_home" --codex --scope user
 check "uninstall removes every Codex skill it owns" "" \
