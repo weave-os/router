@@ -49,10 +49,11 @@
 #   npx @workweave/router --uninstall                      # remove a previous install (delegates to uninstall.sh)
 #
 # Re-running the installer reuses the key already on disk, so you only paste it
-# once. `update` is the scriptable form of that: it never prompts, refreshes the
-# managed config + assets in place, and errors (rather than asking) when no key
-# can be found:
+# once — for every client, not just Claude Code. `update` is the scriptable form
+# of that: it never prompts, refreshes the managed config + assets in place, and
+# errors (rather than asking) when no key can be found:
 #   npx @workweave/router update --claude                  # refresh the Claude Code install in place
+#   npx @workweave/router update --codex                   # same for Codex / opencode / pi
 #
 # Toggle an existing install on/off without losing the router config (so
 # switching back is instant). These never prompt for a key and require an
@@ -1157,12 +1158,13 @@ if [ "$mode" != "install" ] && [ "$mode" != "update" ]; then
   fi
 fi
 
-# Only Claude Code's settings are read back for a key today (read_installed_key),
-# so `models` can't authenticate as any other client. Fail fast here rather than
-# falling through to the toggle dispatch, which would flip config nobody asked
-# to change.
+# `models` resolves the endpoint and the trust decision out of Claude Code's
+# settings files specifically (resolve_installed_base_url +
+# models_endpoint_is_trusted), so it can't yet address another client's install.
+# Fail fast here rather than falling through to the toggle dispatch, which would
+# flip config nobody asked to change.
 if [ "$mode" = "models" ] && [ "$target" != "claude" ]; then
-  err "'models' currently supports --claude only (it reads the router key from Claude Code's settings)."
+  err "'models' currently supports --claude only (it resolves the router endpoint from Claude Code's settings)."
   exit 2
 fi
 
@@ -1183,10 +1185,6 @@ if [ "$mode" = "update" ]; then
   non_interactive="true"
   if [ "$rotate_key" = "true" ]; then
     err "--rotate-key needs a prompt, which 'update' never issues. Re-run the installer without 'update'."
-    exit 2
-  fi
-  if [ "$target" != "claude" ]; then
-    err "'update' currently supports --claude only. Re-run the installer for $target (it reuses your installed key)."
     exit 2
   fi
 fi
@@ -1664,14 +1662,81 @@ claude_key_present() {
   [ -n "$(read_claude_key "$1")" ]
 }
 
-# read_installed_key prints the router key this install already has on disk, or
-# nothing. Only Claude Code is supported today; the other targets still prompt.
-# Defined up here rather than with the rest of token handling because `models`
-# dispatches (and needs a key) before that section runs.
+# key_source_is_own returns 0 when a config file is safe to read a router key
+# back out of. Codex, opencode, and pi all embed the key in a file that lives
+# INSIDE the project in project scope, and the installer gitignores each one —
+# so a file git tracks is by definition not this user's own install. A hostile
+# checkout could commit one carrying an attacker's rk_ key, and adopting it
+# would bill the developer's traffic to whoever wrote the repo. Same tracked-file
+# test models_endpoint_is_trusted applies to a planted endpoint.
 #
-# models_key_file_order echoes the precedence this uses, so a caller that needs
-# to know *which* file the key came from can walk the same list (a command
-# substitution around this function would discard any global it set).
+# Claude Code deliberately does NOT go through this: read_installed_key is
+# documented to pick up a committed header from an older install, which is a
+# supported case there.
+key_source_is_own() {
+  local f="$1"
+  [ -f "$f" ] || return 1
+  [ -L "$f" ] && return 1
+  # Only project-scoped installs put the file somewhere a repo can reach.
+  [ "$scope" = "project" ] && [ -z "$install_dir" ] || return 0
+  command -v git >/dev/null 2>&1 || return 1
+  git -C "$(dirname "$f")" ls-files --error-unmatch -- "$f" >/dev/null 2>&1 && return 1
+  return 0
+}
+
+# read_codex_key prints the router key out of Codex's config.toml, or nothing.
+# Scoped to the managed block so a key-shaped string the user wrote elsewhere in
+# the file is never adopted. awk rather than jq on purpose: the Codex path is the
+# one target that doesn't require jq (see the require_cmd block above).
+read_codex_key() {
+  local f="$1"
+  key_source_is_own "$f" || return 0
+  awk -v begin="$WEAVE_CODEX_BEGIN_MARKER" -v end="$WEAVE_CODEX_END_MARKER" '
+    $0 == begin { inblk = 1; next }
+    $0 == end   { inblk = 0; next }
+    inblk && match($0, /"X-Weave-Router-Key"[[:space:]]*=[[:space:]]*"[^"]*"/) {
+      hdr = substr($0, RSTART, RLENGTH)
+      sub(/^.*=[[:space:]]*"/, "", hdr)
+      sub(/"$/, "", hdr)
+      print hdr
+      exit
+    }
+  ' "$f" 2>/dev/null || true
+}
+
+# read_opencode_key prints the router key out of opencode.json's managed
+# provider, or nothing. The header is the authoritative copy — options.apiKey is
+# only a parse-time placeholder for the @ai-sdk/openai provider.
+read_opencode_key() {
+  local f="$1"
+  key_source_is_own "$f" || return 0
+  json_get "$f" '.provider.weave.options.headers["X-Weave-Router-Key"]'
+}
+
+# read_pi_key prints the router key this pi install already has. The dedicated
+# key file comes first — it is what the @workweave/router extension itself reads
+# at runtime — and models.json is the fallback for an install whose key file was
+# removed by hand.
+read_pi_key() {
+  local key=""
+  if key_source_is_own "$pi_key_file"; then
+    key="$(tr -d '[:space:]' <"$pi_key_file" 2>/dev/null || true)"
+  fi
+  if [ -z "$key" ] && key_source_is_own "$pi_models_file"; then
+    key="$(json_get "$pi_models_file" '.providers.weave.headers["X-Weave-Router-Key"]')"
+  fi
+  printf '%s' "$key"
+}
+
+# read_installed_key prints the router key this install already has on disk, or
+# nothing, for whichever client is being installed. Reading it back is what makes
+# a re-run painless — see the token-handling section below. Defined up here
+# rather than with the rest of token handling because `models` dispatches (and
+# needs a key) before that section runs.
+#
+# models_key_file_order echoes the precedence the Claude reader uses, so a caller
+# that needs to know *which* file the key came from can walk the same list (a
+# command substitution around this function would discard any global it set).
 models_key_file_order() {
   if [ "$scope" = "project" ] && [ -z "$install_dir" ]; then
     printf '%s\n%s\n%s\n' "$local_settings_file" "$settings_file" "$settings_dir/.weave-parked.json"
@@ -1680,8 +1745,7 @@ models_key_file_order() {
   fi
 }
 
-read_installed_key() {
-  [ "$target" = "claude" ] || return 0
+read_claude_installed_key() {
   local key="" candidate
   # Mirror where the install path writes the key: project scope (no --dir) puts
   # it in the gitignored settings.local.json, everything else inlines it into
@@ -1697,6 +1761,15 @@ read_installed_key() {
     [ -n "$key" ] && break
   done <<<"$(models_key_file_order)"
   printf '%s' "$key"
+}
+
+read_installed_key() {
+  case "$target" in
+    claude)   read_claude_installed_key ;;
+    codex)    read_codex_key "$codex_config_file" ;;
+    opencode) read_opencode_key "$opencode_config_file" ;;
+    pi)       read_pi_key ;;
+  esac
 }
 
 # resolve_installed_base_url prints the router endpoint this Claude Code install
@@ -1722,6 +1795,54 @@ resolve_installed_base_url() {
     fi
   done <<<"$(models_base_file_order)"
   printf ''
+}
+
+# resolve_installed_endpoint prints the router endpoint this install already
+# points at, for whichever client is being installed, or nothing. `update` uses
+# it so a refresh never silently retargets a self-hosted install at the hosted
+# default.
+#
+# The stored shapes differ by client and are normalized back to the root the
+# installer takes on the command line: Codex and opencode hold an OpenAI-style
+# base ending in /v1, while pi holds the bare root (its Anthropic SDK appends
+# /v1/messages itself). Same tracked-file gate as the key readers — a config the
+# repo supplied is not this user's install, whichever field is being read.
+resolve_installed_endpoint() {
+  local found=""
+  case "$target" in
+    claude)
+      resolve_installed_base_url
+      return 0
+      ;;
+    codex)
+      if key_source_is_own "$codex_config_file"; then
+        found="$(awk -v begin="$WEAVE_CODEX_BEGIN_MARKER" -v end="$WEAVE_CODEX_END_MARKER" '
+          $0 == begin { inblk = 1; next }
+          $0 == end   { inblk = 0; next }
+          inblk && match($0, /^[[:space:]]*base_url[[:space:]]*=[[:space:]]*"[^"]*"/) {
+            line = substr($0, RSTART, RLENGTH)
+            sub(/^.*=[[:space:]]*"/, "", line)
+            sub(/"$/, "", line)
+            print line
+            exit
+          }
+        ' "$codex_config_file" 2>/dev/null || true)"
+      fi
+      found="${found%/v1}"
+      ;;
+    opencode)
+      if key_source_is_own "$opencode_config_file"; then
+        found="$(json_get "$opencode_config_file" '.provider.weave.options.baseURL')"
+      fi
+      found="${found%/v1}"
+      ;;
+    pi)
+      if key_source_is_own "$pi_models_file"; then
+        found="$(json_get "$pi_models_file" '.providers.weave.baseUrl')"
+      fi
+      ;;
+  esac
+  printf '%s' "${found%/}"
 }
 
 # models_endpoint_is_trusted returns 0 when it is safe to send the router key
@@ -2472,8 +2593,8 @@ fi
 # `off` parks the router URL and points Claude Code at Anthropic, so the parked
 # sidecar is the authority while toggled off — reading the live file there would
 # pin the install to api.anthropic.com.
-if [ "$mode" = "update" ] && [ "$base_url_explicit" != "true" ] && [ "$target" = "claude" ]; then
-  installed_base="$(resolve_installed_base_url)"
+if [ "$mode" = "update" ] && [ "$base_url_explicit" != "true" ]; then
+  installed_base="$(resolve_installed_endpoint)"
   if [ -n "$installed_base" ]; then
     base_url="${installed_base%/}"
   fi
@@ -2830,6 +2951,98 @@ $(weave_registry_skill_names codex)
 EOF
 }
 
+# ---------- post-install verification (shared by every target) ----------
+#
+# Every client gets the same two probes — reach the router, then prove the key
+# it was just handed actually authenticates — so a working install produces the
+# same green checks regardless of which one was installed.
+
+# validate_key asks the router whether $api_key is live. The key goes over stdin
+# (`@-`) rather than a -H argument so it never appears in the process arg list,
+# where `ps` / /proc would expose it to other local users on a shared machine.
+# Wrapped in a function so the spinner's exec form sees a single command argv.
+validate_key() {
+  printf '%s: %s\n' "$router_key_header" "$api_key" \
+    | curl -fsS --max-time 5 --header @- "$base_url/validate"
+}
+
+# rewrite_installed_key rewrites this target's managed config with the key in $1.
+# Used by the rejected-key fallback below to swap in a replacement without
+# re-running the whole install.
+rewrite_installed_key() {
+  local key="$1"
+  case "$target" in
+    claude)   write_claude_settings "$key" ;;
+    codex)    write_codex_config "$codex_config_file" "$base_url" "$key" "$user_email" "$user_name" ;;
+    opencode) write_opencode_config "$opencode_config_file" "$base_url" "$key" "$user_email" "$user_name" ;;
+    pi)
+      write_pi_models_config "$pi_models_file" "$base_url" "$key" "$user_email" "$user_name"
+      printf '%s\n' "$key" >"$pi_key_file"
+      chmod 600 "$pi_key_file"
+      ;;
+  esac
+}
+
+verify_install() {
+  if [ "$quiet" != "true" ]; then
+    if ! spin "Pinging $base_url/health" curl -fsS --max-time 5 "$base_url/health"; then
+      warn "Could not reach $base_url/health within 5s. Settings are written; verify the router is running."
+    fi
+  fi
+
+  [ -n "$api_key" ] || return 0
+
+  spin "Validating API key" validate_key && return 0
+
+  # A key we read back off disk can have been revoked or rotated since it was
+  # installed, and reusing it silently would leave a broken install behind
+  # exactly where the old behavior (always prompt) would have fixed it. Ask
+  # once, then rewrite the config with whatever the user pastes. Anywhere a
+  # prompt isn't available — non-interactive, update, --quiet, no tty, or a
+  # key that didn't come from disk — keep the historical warn-and-continue.
+  if [ "$api_key_source" = "disk" ] && [ "$non_interactive" != "true" ] \
+     && [ "$quiet" != "true" ] && [ -r /dev/tty ]; then
+    warn "The router key already installed was rejected (revoked or rotated)."
+    prompt_for_key
+    rewrite_installed_key "$api_key"
+    if ! spin "Validating API key" validate_key; then
+      warn "Router rejected the API key (check it matches the dashboard at $base_url)."
+    fi
+    return 0
+  fi
+
+  if [ "$mode" = "update" ]; then
+    # update is meant for cron/scripting: a rejected key is a real failure,
+    # not a note in the log. --quiet callers opted out of the noise, not out
+    # of the nonzero exit — a scheduled run that reports success here would
+    # hide a revoked key indefinitely.
+    if [ "$quiet" = "true" ]; then
+      warn "Router rejected the installed API key. Re-run the installer to set a new one."
+    else
+      err "Router rejected the installed API key. Re-run the installer to set a new one."
+    fi
+    exit 1
+  fi
+
+  warn "Router rejected the API key (check it matches the dashboard at $base_url)."
+}
+
+# announce_done prints the closing line for the client named in $1. `update`
+# refreshed an existing install rather than creating one, so it says so and
+# skips the uninstall hint — that run was never the user's first contact with
+# the installer.
+announce_done() {
+  printf "\n"
+  if [ "$mode" = "update" ]; then
+    printf "%s✓%s %s%sWeave Router config refreshed for %s.%s\n" \
+      "$C_GREEN" "$C_RESET" "$C_BOLD" "$C_BRAND" "$1" "$C_RESET"
+    return 0
+  fi
+  printf "%s✓%s %s%sWeave Router installed for %s.%s\n" \
+    "$C_GREEN" "$C_RESET" "$C_BOLD" "$C_BRAND" "$1" "$C_RESET"
+}
+
+# ---------- codex install path (dispatch + exit before the Claude-only writes) ----------
 
 if [ "$target" = "codex" ]; then
   write_codex_config "$codex_config_file" "$base_url" "$api_key" "$user_email" "$user_name"
@@ -2856,35 +3069,15 @@ if [ "$target" = "codex" ]; then
     ok "Updated $gitignore (ignored .codex/config.toml)"
   fi
 
-  # Post-install verification: same probes the Claude path runs so a working
-  # install gives the same green checks regardless of target.
-  if [ "$quiet" != "true" ]; then
-    if ! spin "Pinging $base_url/health" curl -fsS --max-time 5 "$base_url/health"; then
-      warn "Could not reach $base_url/health within 5s. Settings are written; verify the router is running."
-    fi
-  fi
+  verify_install
 
-  if [ -n "$api_key" ]; then
-    # Pass the router key via stdin (`@-`) instead of -H so it never lands in
-    # the process arg list. Mirrors the Claude-path validate logic.
-    validate_codex_key() {
-      printf '%s: %s\n' "$router_key_header" "$api_key" \
-        | curl -fsS --max-time 5 --header @- "$base_url/validate"
-    }
-    if ! spin "Validating API key" validate_codex_key; then
-      warn "Router rejected the API key (check it matches the dashboard at $base_url/ui/)."
-    fi
-  fi
-
-  printf "\n"
-  printf "%s✓%s %s%sWeave Router installed for Codex.%s\n" \
-    "$C_GREEN" "$C_RESET" "$C_BOLD" "$C_BRAND" "$C_RESET"
+  announce_done "Codex"
   if [ "$scope" = "project" ] || [ -n "$install_dir" ]; then
     # Codex auto-discovers ~/.codex; for non-user installs the caller has to
     # point CODEX_HOME at the directory we wrote so Codex finds our config.
     info "Run Codex with CODEX_HOME=$codex_dir codex so it picks up this config."
   fi
-  print_uninstall_hint
+  [ "$mode" = "update" ] || print_uninstall_hint
   exit 0
 fi
 
@@ -2932,26 +3125,9 @@ if [ "$target" = "opencode" ]; then
     info "opencode restart required for commands to take effect."
   fi
 
-  # Post-install verification: same probes the Claude/Codex paths run.
-  if [ "$quiet" != "true" ]; then
-    if ! spin "Pinging $base_url/health" curl -fsS --max-time 5 "$base_url/health"; then
-      warn "Could not reach $base_url/health within 5s. Settings are written; verify the router is running."
-    fi
-  fi
+  verify_install
 
-  if [ -n "$api_key" ]; then
-    validate_opencode_key() {
-      printf '%s: %s\n' "$router_key_header" "$api_key" \
-        | curl -fsS --max-time 5 --header @- "$base_url/validate"
-    }
-    if ! spin "Validating API key" validate_opencode_key; then
-      warn "Router rejected the API key (check it matches the dashboard at $base_url/ui/)."
-    fi
-  fi
-
-  printf "\n"
-  printf "%s✓%s %s%sWeave Router installed for opencode.%s\n" \
-    "$C_GREEN" "$C_RESET" "$C_BOLD" "$C_BRAND" "$C_RESET"
+  announce_done "opencode"
   # Surface the optional subscription-routing path only when this run actually
   # registered the weave-claude login provider (which is written together with
   # the plugin). Gate on its presence in the written config (authoritative)
@@ -2966,7 +3142,7 @@ if [ "$target" = "opencode" ]; then
     # has to point opencode at the file explicitly.
     info "Run opencode with OPENCODE_CONFIG=$opencode_config_file opencode."
   fi
-  print_uninstall_hint
+  [ "$mode" = "update" ] || print_uninstall_hint
   exit 0
 fi
 
@@ -3007,30 +3183,13 @@ if [ "$target" = "pi" ]; then
     ok "Updated $gitignore (ignored repo-local .pi router config)"
   fi
 
-  # Post-install verification: same probes the Claude/Codex/opencode paths run.
-  if [ "$quiet" != "true" ]; then
-    if ! spin "Pinging $base_url/health" curl -fsS --max-time 5 "$base_url/health"; then
-      warn "Could not reach $base_url/health within 5s. Settings are written; verify the router is running."
-    fi
-  fi
-
-  if [ -n "$api_key" ]; then
-    validate_pi_key() {
-      printf '%s: %s\n' "$router_key_header" "$api_key" \
-        | curl -fsS --max-time 5 --header @- "$base_url/validate"
-    }
-    if ! spin "Validating API key" validate_pi_key; then
-      warn "Router rejected the API key (check it matches the dashboard at $base_url/ui/)."
-    fi
-  fi
+  verify_install
 
   if [ -n "$lsp_langs" ]; then
     install_lsp_servers "$lsp_langs"
   fi
 
-  printf "\n"
-  printf "%s✓%s %s%sWeave Router installed for pi.%s\n" \
-    "$C_GREEN" "$C_RESET" "$C_BOLD" "$C_BRAND" "$C_RESET"
+  announce_done "pi"
   # Billing note: pi normally draws on a Claude subscription (OAuth); routing
   # through the router switches to per-token billing on the router deployment
   # key (or BYOK). Surface it at install so the change isn't a surprise.
@@ -3038,7 +3197,7 @@ if [ "$target" = "pi" ]; then
   if [ "$scope" = "project" ] || [ -n "$install_dir" ]; then
     info "Run pi with PI_CODING_AGENT_DIR=$pi_dir pi so it picks up this config."
   fi
-  print_uninstall_hint
+  [ "$mode" = "update" ] || print_uninstall_hint
   exit 0
 fi
 
@@ -4053,61 +4212,9 @@ fi
 
 # ---------- post-install verification ----------
 
-if [ "$quiet" != "true" ]; then
-  if ! spin "Pinging $base_url/health" curl -fsS --max-time 5 "$base_url/health"; then
-    warn "Could not reach $base_url/health within 5s. Settings are written; verify the router is running."
-  fi
-fi
-
-if [ -n "$api_key" ]; then
-  # Pass the router key via stdin (`@-`) instead of a -H argument so the key
-  # never appears in the process arg list (visible via `ps` / /proc to other
-  # local users on shared machines). We feed stdin via a small wrapper so the
-  # spinner's exec form sees a single command argv.
-  validate_key() {
-    printf '%s: %s\n' "$router_key_header" "$api_key" \
-      | curl -fsS --max-time 5 --header @- "$base_url/validate"
-  }
-  if ! spin "Validating API key" validate_key; then
-    # A key we read back off disk can have been revoked or rotated since it was
-    # installed, and reusing it silently would leave a broken install behind
-    # exactly where the old behavior (always prompt) would have fixed it. Ask
-    # once, then rewrite the settings with whatever the user pastes. Anywhere a
-    # prompt isn't available — non-interactive, update, --quiet, no tty, or a
-    # key that didn't come from disk — keep the historical warn-and-continue.
-    if [ "$api_key_source" = "disk" ] && [ "$non_interactive" != "true" ] \
-       && [ "$quiet" != "true" ] && [ -r /dev/tty ]; then
-      warn "The router key already installed was rejected (revoked or rotated)."
-      prompt_for_key
-      write_claude_settings "$api_key"
-      if ! spin "Validating API key" validate_key; then
-        warn "Router rejected the API key (check it matches the dashboard at $base_url)."
-      fi
-    elif [ "$mode" = "update" ]; then
-      # update is meant for cron/scripting: a rejected key is a real failure,
-      # not a note in the log. --quiet callers opted out of the noise, not out
-      # of the nonzero exit — a scheduled run that reports success here would
-      # hide a revoked key indefinitely.
-      if [ "$quiet" = "true" ]; then
-        warn "Router rejected the installed API key. Re-run the installer to set a new one."
-      else
-        err "Router rejected the installed API key. Re-run the installer to set a new one."
-      fi
-      exit 1
-    else
-      warn "Router rejected the API key (check it matches the dashboard at $base_url)."
-    fi
-  fi
-fi
+verify_install
 
 # ---------- done ----------
 
-printf "\n"
-if [ "$mode" = "update" ]; then
-  printf "%s✓%s %s%sWeave Router config refreshed for Claude Code.%s\n" \
-    "$C_GREEN" "$C_RESET" "$C_BOLD" "$C_BRAND" "$C_RESET"
-  exit 0
-fi
-printf "%s✓%s %s%sWeave Router installed for Claude Code.%s\n" \
-  "$C_GREEN" "$C_RESET" "$C_BOLD" "$C_BRAND" "$C_RESET"
-print_uninstall_hint
+announce_done "Claude Code"
+[ "$mode" = "update" ] || print_uninstall_hint

@@ -15,11 +15,13 @@ npx @workweave/router --non-interactive     # reads $WEAVE_ROUTER_KEY, no prompt
 ```
 
 Re-running the installer to pick up changes reuses the key already on disk, so
-you paste it once and never again. `update` is the never-prompting form of that
-(safe for cron; errors instead of asking when no key can be found):
+you paste it once and never again — for every client, not just Claude Code.
+`update` is the never-prompting form of that (safe for cron; errors instead of
+asking when no key can be found):
 
 ```bash
 npx @workweave/router --claude                # reuses the installed key
+npx @workweave/router --codex                 # same for Codex, opencode, and pi
 npx @workweave/router --claude --rotate-key   # ignore it and prompt for a new one
 npx @workweave/router update --claude         # non-interactive refresh in place
 ```
@@ -28,7 +30,7 @@ For Claude Code the installed statusline and `/force-model`, `/router-*` slash
 commands also refresh themselves in the background about once a week (never
 overwriting a wrapper you edited). Opt out with `WEAVE_STATUSLINE_UPDATE=0`, or
 just the commands with `WEAVE_COMMANDS_UPDATE=0`. Codex, opencode, and pi have
-no per-turn hook to refresh from — re-run the installer for those.
+no per-turn hook to refresh from — re-run the installer (or `update`) for those.
 
 Version-pin for reproducible setups:
 
