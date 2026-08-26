@@ -227,6 +227,12 @@ func responsesInputItemToMessages(item gjson.Result) ([]map[string]any, error) {
 			role = "user"
 		}
 		text, toolCalls := responsesContentToChatContent(item.Get("content"), role)
+		// A badge-only assistant message strips to nothing; keeping the shell
+		// puts a blank assistant turn ahead of the real function_call, which
+		// some providers reject.
+		if role == "assistant" && text == "" && len(toolCalls) == 0 {
+			return nil, nil
+		}
 		msg := map[string]any{"role": role}
 		if text != "" || len(toolCalls) == 0 {
 			msg["content"] = text
@@ -296,6 +302,7 @@ func StripRoutingBadgeFromResponsesInput(body []byte) ([]byte, error) {
 
 	out := body
 	changed := false
+	var emptied []int
 	for itemIndex, item := range input.Array() {
 		itemType := item.Get("type").Str
 		if itemType != "message" && !(itemType == "" && item.Get("role").Str != "") {
@@ -309,6 +316,11 @@ func StripRoutingBadgeFromResponsesInput(body []byte) ([]byte, error) {
 		if content.Type == gjson.String {
 			stripped := codexResponsesBadgePattern.ReplaceAllString(content.Str, "")
 			if stripped == content.Str {
+				continue
+			}
+			if stripped == "" {
+				emptied = append(emptied, itemIndex)
+				changed = true
 				continue
 			}
 			var err error
@@ -337,6 +349,10 @@ func StripRoutingBadgeFromResponsesInput(body []byte) ([]byte, error) {
 					}
 					changed = true
 				}
+				if stripped == "" && !responsesContentHasBody(content, partIndex) {
+					emptied = append(emptied, itemIndex)
+					changed = true
+				}
 				// The egress marker is only ever prepended to the first text part.
 				// Do not strip a marker-like string from later assistant content.
 				break contentParts
@@ -346,7 +362,34 @@ func StripRoutingBadgeFromResponsesInput(body []byte) ([]byte, error) {
 	if !changed {
 		return body, nil
 	}
+	// Descending: an earlier delete would shift the indices still pending.
+	for i := len(emptied) - 1; i >= 0; i-- {
+		var err error
+		out, err = sjson.DeleteBytes(out, "input."+strconv.Itoa(emptied[i]))
+		if err != nil {
+			return nil, fmt.Errorf("drop badge-only Responses input item: %w", err)
+		}
+	}
 	return out, nil
+}
+
+// responsesContentHasBody reports whether a content array carries anything
+// beyond the (now stripped) part at skipIndex. Non-text parts always count.
+func responsesContentHasBody(content gjson.Result, skipIndex int) bool {
+	for i, part := range content.Array() {
+		if i == skipIndex {
+			continue
+		}
+		switch part.Get("type").Str {
+		case "input_text", "output_text", "text":
+			if part.Get("text").Str != "" {
+				return true
+			}
+		default:
+			return true
+		}
+	}
+	return false
 }
 
 // responsesContentToChatContent flattens a content array. For assistant
@@ -1119,6 +1162,11 @@ func (t *ResponsesWriter) translateChunk(raw []byte) error {
 
 	if fr := choice.Get("finish_reason"); fr.Type == gjson.String && fr.Str != "" {
 		t.finishReason = fr.Str
+		// Reasoning-only turns emit no delta this writer translates, so the
+		// badge would never be reached through appendText/appendToolCall.
+		if err := t.ensureBadgeItem(); err != nil {
+			return err
+		}
 		if err := t.closeOpenItems(); err != nil {
 			return err
 		}
@@ -1170,10 +1218,9 @@ func (t *ResponsesWriter) openTextItem() error {
 	return nil
 }
 
-// ensureBadgeItem writes the routing badge as the leading assistant text, ahead
-// of the first text delta or tool call. Codex desktop drops reasoning-summary
-// items from custom providers, so text is the only surface guaranteed to
-// render — and a tool-call-only turn would otherwise never show the badge.
+// ensureBadgeItem prepends the routing badge before the first text delta, tool call, or finish.
+// Codex drops reasoning-summary items from custom providers (text is the only guaranteed surface),
+// and tool-call-only turns produce no text of their own without this.
 func (t *ResponsesWriter) ensureBadgeItem() error {
 	if t.badgePrepended {
 		return nil

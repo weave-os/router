@@ -5436,9 +5436,8 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 
 	// Surface the routing marker on the Responses surface the same way the
 	// Anthropic/OpenAI/Gemini marker writers do — as in-band assistant text.
-	// Previously gated on policy debug, so ordinary Codex turns fell back to
-	// ResponsesWriter's own legacy "**Weave Router** — <model>" badge and never
-	// showed the routing reason.
+	// Previously gated on policy debug; ordinary Codex turns fell through to
+	// ResponsesWriter's legacy badge that ignored suppression and never showed the routing reason.
 	verbatimPassthrough := responsesPassthrough && decision.Provider == providers.ProviderOpenAI
 	if rw, ok := w.(*translate.ResponsesWriter); ok && marker != "" && !verbatimPassthrough {
 		rw.SetBadgeText(marker)

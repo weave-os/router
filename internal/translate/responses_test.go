@@ -240,6 +240,71 @@ func TestStripRoutingBadgeFromResponsesInput_PreservesNativeFields(t *testing.T)
 	assert.True(t, root.Get("metadata.keep").Bool())
 }
 
+// A tool-call-only or reasoning-only turn ships a badge-only assistant message.
+// Stripping it in place would leave a blank assistant shell ahead of the real
+// function_call, which providers reject.
+func TestStripRoutingBadgeFromResponsesInput_DropsBadgeOnlyAssistantItem(t *testing.T) {
+	badge := `\u2063\u2060\u2063\u2060**Weave Router** — gpt-5.6-terra ← gpt-5.6-sol\n\n`
+	body := []byte(`{
+		"model":"gpt-5.6-sol",
+		"input":[
+			{"type":"message","role":"user","content":"go"},
+			{"type":"message","role":"assistant","content":"` + badge + `"},
+			{"type":"message","role":"assistant","content":[{"type":"output_text","text":"` + badge + `"}]},
+			{"type":"function_call","call_id":"call_1","name":"shell","arguments":"{}"}
+		]
+	}`)
+
+	out, err := translate.StripRoutingBadgeFromResponsesInput(body)
+	require.NoError(t, err)
+
+	input := gjson.GetBytes(out, "input").Array()
+	require.Len(t, input, 2)
+	assert.Equal(t, "user", input[0].Get("role").Str)
+	assert.Equal(t, "call_1", input[1].Get("call_id").Str)
+}
+
+// Only the badge part is empty here — the item still carries content, so it stays.
+func TestStripRoutingBadgeFromResponsesInput_KeepsItemWithRemainingContent(t *testing.T) {
+	body := []byte(`{
+		"model":"gpt-5.6-sol",
+		"input":[
+			{"type":"message","role":"assistant","content":[
+				{"type":"output_text","text":"\u2063\u2060\u2063\u2060**Weave Router** — gpt-5.6-terra\n\n"},
+				{"type":"output_text","text":"the answer"}
+			]}
+		]
+	}`)
+
+	out, err := translate.StripRoutingBadgeFromResponsesInput(body)
+	require.NoError(t, err)
+
+	input := gjson.GetBytes(out, "input").Array()
+	require.Len(t, input, 1)
+	assert.Equal(t, "", input[0].Get("content.0.text").Str)
+	assert.Equal(t, "the answer", input[0].Get("content.1.text").Str)
+}
+
+// Defense in depth for clients that echo an already-emptied assistant message.
+func TestResponsesToChatCompletions_DropsEmptyAssistantShell(t *testing.T) {
+	body := []byte(`{
+		"model":"gpt-5.6-sol",
+		"input":[
+			{"type":"message","role":"user","content":"go"},
+			{"type":"message","role":"assistant","content":""},
+			{"type":"function_call","call_id":"call_1","name":"shell","arguments":"{}"}
+		]
+	}`)
+
+	out, _, _, err := translate.ResponsesToChatCompletions(body)
+	require.NoError(t, err)
+
+	messages := gjson.GetBytes(out, "messages").Array()
+	require.Len(t, messages, 2)
+	assert.Equal(t, "user", messages[0].Get("role").Str)
+	assert.Equal(t, "call_1", messages[1].Get("tool_calls.0.id").Str)
+}
+
 func TestStripRoutingBadgeFromResponsesInput_NoMatchPreservesBytes(t *testing.T) {
 	body := []byte("{ \"model\" : \"gpt-5.6-sol\", \"input\" : [{\"type\":\"message\",\"role\":\"assistant\",\"content\":\"plain answer\"}] }\n")
 
@@ -619,6 +684,49 @@ func TestResponsesWriter_EmitsBadgeOnToolCallOnlyTurn(t *testing.T) {
 	assert.Equal(t, passthroughTestMarker+"\n\n", message["content"].([]any)[0].(map[string]any)["text"])
 	assert.Equal(t, "function_call", output[1].(map[string]any)["type"])
 	assert.Equal(t, `{"cmd":"ls"}`, output[1].(map[string]any)["arguments"])
+}
+
+// Reasoning deltas are not translated into output items, so a reasoning-only
+// turn reaches finish with nothing that would otherwise pull in the badge.
+func TestResponsesWriter_EmitsBadgeOnReasoningOnlyTurn(t *testing.T) {
+	for _, field := range []string{"reasoning", "reasoning_content"} {
+		t.Run(field, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			w := translate.NewResponsesWriter(rec, "gpt-5.6-luna")
+			w.SetBadgeText(passthroughTestMarker)
+			w.Header().Set("Content-Type", "text/event-stream")
+			w.WriteHeader(200)
+
+			for _, c := range []string{
+				`data: {"choices":[{"index":0,"delta":{"` + field + `":"thinking"},"finish_reason":null}]}` + "\n\n",
+				`data: {"choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}` + "\n\n",
+				"data: [DONE]\n\n",
+			} {
+				_, err := w.Write([]byte(c))
+				require.NoError(t, err)
+			}
+			require.NoError(t, w.Finalize())
+
+			events := parseSSEEvents(t, rec.Body.Bytes())
+
+			var deltas []string
+			var completed map[string]any
+			for _, e := range events {
+				switch e["type"] {
+				case "response.output_text.delta":
+					deltas = append(deltas, e["delta"].(string))
+				case "response.completed":
+					completed = e["response"].(map[string]any)
+				}
+			}
+			require.Equal(t, []string{passthroughTestMarker + "\n\n"}, deltas)
+			require.NotNil(t, completed)
+			output := completed["output"].([]any)
+			require.Len(t, output, 1)
+			assert.Equal(t, passthroughTestMarker+"\n\n",
+				output[0].(map[string]any)["content"].([]any)[0].(map[string]any)["text"])
+		})
+	}
 }
 
 func TestResponsesWriter_UsesRoutedModelFromHeader(t *testing.T) {

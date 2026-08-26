@@ -382,10 +382,8 @@ func TestService_ProxyOpenAIResponses_NativeBadgeIsCodexOnlyAndHonorsSuppression
 	}
 }
 
-// A Codex turn routed cross-family must surface the routing marker, including
-// when the action produces only tool calls. Both were previously invisible: the
-// marker was gated on policy debug, and the badge could only ride on a text
-// delta the turn never emitted.
+// A Codex turn must show the marker even when the action is tool-call-only; both
+// cases were previously invisible (debug-gated marker; badge could only ride text deltas).
 func TestService_ProxyOpenAIResponses_EmitsRoutingMarkerForCodex(t *testing.T) {
 	for _, tc := range []struct {
 		name     string
