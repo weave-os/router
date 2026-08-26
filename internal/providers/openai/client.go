@@ -294,7 +294,7 @@ func (c *Client) Proxy(ctx context.Context, decision router.Decision, prep provi
 		"content_type", resp.Header.Get("Content-Type"),
 		"transfer_encoding", resp.Header.Get("Transfer-Encoding"),
 		"content_encoding", resp.Header.Get("Content-Encoding"),
-		"request_id", resp.Header.Get("X-Request-Id"),
+		"upstream_request_id", resp.Header.Get("X-Request-Id"),
 	)
 
 	// Buffer non-2xx as UpstreamErrorResponse so the dispatch loop can fail
@@ -422,7 +422,7 @@ func logStreamStall(ctx context.Context, model, path string, budget time.Duratio
 	observability.FromContext(ctx).Error("OpenAI upstream stream stalled mid-response; aborting for retry",
 		"model", model,
 		"provider", providers.ProviderOpenAI,
-		"path", path,
+		"upstream_path", path,
 		"stall_kind", stallKind,
 		"budget_ms", budget.Milliseconds(),
 		"bytes_received", bytesReceived,

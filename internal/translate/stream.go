@@ -1494,7 +1494,7 @@ func (t *AnthropicSSETranslator) emitContentBlockStartText(index int) error {
 // upstreams reject with a 400 when the history routes back to them.
 // embedSignatureInID is idempotent.
 func (t *AnthropicSSETranslator) emitContentBlockStartTool(index int, id, name, sig string) error {
-	t.log().Debug("AnthropicSSE emit", "event", "content_block_start", "type", "tool_use", "name", name)
+	t.log().Debug("AnthropicSSE emit", "event", "content_block_start", "type", "tool_use", "tool_name", name)
 	t.bw.WriteString("event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":")
 	sse.WriteJSONInt(t.bw, int64(index))
 	t.bw.WriteString(",\"content_block\":{\"type\":\"tool_use\",\"id\":")

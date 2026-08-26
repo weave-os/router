@@ -73,23 +73,33 @@ func FromContext(ctx context.Context) *slog.Logger {
 var initOnce sync.Once
 
 func initLogger() {
-	level := slog.LevelInfo
-	switch strings.ToLower(strings.TrimSpace(os.Getenv("LOG_LEVEL"))) {
-	case "debug":
-		level = slog.LevelDebug
-	case "warn", "warning":
-		level = slog.LevelWarn
-	case "error":
-		level = slog.LevelError
-	}
-	logger := slog.New(newHandler(level))
+	slog.SetDefault(buildLogger(newHandler(resolveLevel())))
+}
+
+// buildLogger attaches the process-wide attributes every line must carry.
+// Split from initLogger so tests exercise this instead of restating it.
+func buildLogger(h slog.Handler) *slog.Logger {
+	logger := slog.New(h)
 	// Every line carries the emitting service so a multi-service log sink can
 	// be filtered down to this process. NAME is what the deployment already
 	// sets per service; OTEL_SERVICE_NAME is the self-hosted fallback.
 	if name := serviceName(); name != "" {
 		logger = logger.With("name", name)
 	}
-	slog.SetDefault(logger)
+	return logger
+}
+
+// resolveLevel reads the handler level from LOG_LEVEL.
+func resolveLevel() slog.Level {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("LOG_LEVEL"))) {
+	case "debug":
+		return slog.LevelDebug
+	case "warn", "warning":
+		return slog.LevelWarn
+	case "error":
+		return slog.LevelError
+	}
+	return slog.LevelInfo
 }
 
 // serviceName resolves the service tag attached to every log line.
@@ -201,10 +211,8 @@ func Middleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		initOnce.Do(initLogger)
 
-		// Always the router's own id. An inbound one is recorded separately
-		// rather than adopted: a client could otherwise send one value on
-		// every request, or collide with another tenant's, and searching by
-		// request_id would stop identifying a single request.
+		// Always mint a fresh id; adopting an inbound one lets a client reuse
+		// a value across requests and breaks request_id as a unique key.
 		requestID := uuid.New().String()
 
 		logger := slog.Default().With(

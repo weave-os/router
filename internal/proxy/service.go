@@ -2272,7 +2272,7 @@ func (s *Service) PassthroughToNamedProvider(ctx context.Context, providerName s
 	proxyStart := time.Now()
 	proxyErr := p.Passthrough(ctx, prep, w, r)
 	proxyMs := time.Since(proxyStart).Milliseconds()
-	log.Info("PassthroughToProvider complete", "provider", providerName, "path", r.URL.Path, "method", r.Method, "proxy_ms", proxyMs, "proxy_err", proxyErr)
+	log.Info("PassthroughToProvider complete", "provider", providerName, "proxy_ms", proxyMs, "proxy_err", proxyErr)
 	return proxyErr
 }
 

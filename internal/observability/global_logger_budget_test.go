@@ -15,17 +15,10 @@ import (
 
 // globalLoggerBudget caps observability.Get() call sites per package.
 //
-// Get() returns the global logger, which carries the service tag but NO
-// request correlation (request_id / session_key / client_session_id). A line
-// emitted through it on the request path cannot be found when filtering a
-// session's logs — the defect this budget exists to stop from spreading.
+// Get() returns the global logger: no request_id/session_key. A line emitted
+// through it on the request path cannot be found when filtering by session.
 //
-// Every entry below is an off-request-path site (process startup, background
-// listeners, fire-and-forget writebacks, pure helpers with no ctx or receiver
-// to thread one through) where the global logger is the correct choice.
-//
-// Adding a request-path Get() call fails this test. The fix is to use
-// observability.FromContext(ctx) — not to raise the number. Only lower these.
+// Use observability.FromContext(ctx) for request-path sites. Only lower these.
 var globalLoggerBudget = map[string]int{
 	// Composition root: no request exists yet.
 	"cmd/router": 11,
@@ -158,4 +151,115 @@ func repoRoot(t *testing.T) string {
 		require.NotEqual(t, dir, parent, "go.mod not found walking up from test dir")
 		dir = parent
 	}
+}
+
+// reservedLogKeys are bound by Middleware or bindRequestLogger. slog does not
+// dedupe, so a call site re-using one emits the key twice and JSON consumers
+// keep the LAST value — silently overwriting the correlation field. Searching
+// by the overwritten value then misses that line, which is the exact failure
+// correlation tags exist to prevent.
+var reservedLogKeys = []string{
+	"request_id",
+	"session_key",
+	"client_session_id",
+	"api_key_id",
+	"ingress",
+	"name",
+}
+
+// reservedKeyAllowlist are sites that bind a reserved key onto a logger
+// deliberately (the binder itself, or an off-request-path logger that has no
+// bound value to collide with).
+var reservedKeyAllowlist = map[string]bool{
+	"internal/observability/logger.go":   true, // Middleware binds them
+	"internal/proxy/session_key.go":      true, // bindRequestLogger binds them
+	"internal/auth/service.go":           true, // SafeGo loggers, off request path
+	"internal/proxy/service.go":          true, // OTel span attrs + telemetry rows
+	"internal/proxy/usage_bypass.go":     true, // OTel span attrs + telemetry rows
+	"internal/api/anthropic/messages.go": true, // pre-Middleware oversize-body log
+}
+
+// TestNoReservedLogKeyShadowing fails when a request-path log call passes a
+// key already bound to the logger, which would overwrite the bound value.
+func TestNoReservedLogKeyShadowing(t *testing.T) {
+	root := repoRoot(t)
+
+	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			switch d.Name() {
+			case "vendor", ".git", "node_modules", "smoke", "scripts":
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+			return nil
+		}
+		rel, relErr := filepath.Rel(root, path)
+		if relErr != nil {
+			return relErr
+		}
+		rel = filepath.ToSlash(rel)
+		if reservedKeyAllowlist[rel] || strings.HasPrefix(rel, "cmd/") {
+			return nil
+		}
+
+		for _, key := range findShadowedKeys(t, path) {
+			t.Errorf("%s passes reserved log key %q, which is already bound to the "+
+				"request logger. slog keeps the last value, so this overwrites the "+
+				"bound field and makes the line unfindable by it. Rename to "+
+				"upstream_%s / tool_%s, or drop it if the value is identical.",
+				rel, key, key, key)
+		}
+		return nil
+	})
+	require.NoError(t, err)
+}
+
+// findShadowedKeys returns reserved keys passed as literal args to a
+// .Debug/.Info/.Warn/.Error call in the file.
+func findShadowedKeys(t *testing.T, path string) []string {
+	t.Helper()
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, path, nil, 0)
+	require.NoError(t, err, "parse %s", path)
+
+	reserved := map[string]bool{}
+	for _, k := range reservedLogKeys {
+		reserved[k] = true
+	}
+
+	var found []string
+	seen := map[string]bool{}
+	ast.Inspect(file, func(n ast.Node) bool {
+		call, ok := n.(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+		sel, ok := call.Fun.(*ast.SelectorExpr)
+		if !ok {
+			return true
+		}
+		switch sel.Sel.Name {
+		case "Debug", "Info", "Warn", "Error", "DebugContext", "InfoContext", "WarnContext", "ErrorContext":
+		default:
+			return true
+		}
+		for _, arg := range call.Args {
+			lit, ok := arg.(*ast.BasicLit)
+			if !ok || lit.Kind != token.STRING {
+				continue
+			}
+			val := strings.Trim(lit.Value, `"`)
+			if reserved[val] && !seen[val] {
+				seen[val] = true
+				found = append(found, val)
+			}
+		}
+		return true
+	})
+	return found
 }

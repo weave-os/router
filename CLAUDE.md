@@ -215,6 +215,8 @@ If new helper doesn't fit, justify new package in code comment before creating.
 
 A helper that logs on the request path takes `ctx` and calls `observability.FromContext(ctx)`. Do not add a `msg`-only log helper that reaches for `observability.Get()` internally — that silently drops every tag (this is what made upstream 4xx/5xx error bodies unfindable by session; see `httputil.LogUpstreamStatus`, which now takes `ctx` for that reason).
 
+**Never pass a bound key as a call-site attribute.** `slog` does not dedupe: re-passing `request_id`, `session_key`, `client_session_id`, `api_key_id`, `ingress`, or `name` emits the key twice and JSON consumers keep the **last** value, overwriting the bound one — so the line goes missing from exactly the search that should find it. A different-meaning value gets a distinct key (`upstream_request_id`, `rated_request_id`, `tool_name`); an identical value is simply dropped. Enforced by `TestNoReservedLogKeyShadowing`.
+
 ## Things to NEVER do
 
 - **Never put customer/company/org names or private identifiers in anything committed here.** This repo is public — commit messages, branch names, PR titles/descriptions, code comments, tests, and fixtures are world-readable. This holds even when a change is motivated by one customer's investigation (e.g. a loop-break or spiral fix found from a specific org's agentic session): describe the trigger generically ("a customer", "a large agentic session", "an org's monorepo"). No org names, org IDs, account emails, internal ticket/Linear links, or verbatim private Slack/support excerpts — those stay in the private WorkWeave repo + Linear.

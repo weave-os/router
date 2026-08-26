@@ -34,15 +34,31 @@ func TestServiceNamePrefersNAMEThenOTELThenDefault(t *testing.T) {
 	}
 }
 
-// initLogger must attach the service tag, or a shared log sink cannot be
-// filtered down to this process.
-func TestInitLoggerAttachesServiceTag(t *testing.T) {
+// buildLogger is what initLogger installs, so this fails if the service tag
+// is ever dropped from it. Asserting on a hand-built logger instead would
+// restate the logic and stay green through that regression.
+func TestBuildLoggerAttachesServiceTag(t *testing.T) {
 	t.Setenv("NAME", "router-test-svc")
-	t.Setenv("LOG_FORMAT", "json")
 
 	var buf strings.Builder
-	logger := slog.New(slog.NewJSONHandler(&buf, nil)).With("name", serviceName())
-	logger.Info("hello")
+	buildLogger(slog.NewJSONHandler(&buf, nil)).Info("hello")
 
 	assert.Contains(t, buf.String(), `"name":"router-test-svc"`)
+}
+
+// resolveLevel gates whether Debug lines survive at all.
+func TestResolveLevelFromEnv(t *testing.T) {
+	for env, want := range map[string]slog.Level{
+		"debug":   slog.LevelDebug,
+		"warn":    slog.LevelWarn,
+		"warning": slog.LevelWarn,
+		"error":   slog.LevelError,
+		"":        slog.LevelInfo,
+		"bogus":   slog.LevelInfo,
+	} {
+		t.Run(env, func(t *testing.T) {
+			t.Setenv("LOG_LEVEL", env)
+			assert.Equal(t, want, resolveLevel())
+		})
+	}
 }

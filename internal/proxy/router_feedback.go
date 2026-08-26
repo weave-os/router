@@ -118,7 +118,7 @@ func (s *Service) handleRouterFeedbackCommand(
 			telemetryStrategy = turn.Strategy
 			log.Info("/router-feedback: resolved sequence to telemetry turn",
 				"sequence", cmd.Sequence,
-				"request_id", telemetryRequestID,
+				"rated_request_id", telemetryRequestID,
 				"served_model", servedModel,
 			)
 		}
@@ -175,7 +175,7 @@ func (s *Service) handleRouterFeedbackCommand(
 			RouterUserID:   routerUserID,
 		}
 		if err := s.feedbackRepo.Upsert(context.Background(), upsertParams); err != nil {
-			log.Error("/router-feedback: request_feedback upsert failed", "request_id", telemetryRequestID, "err", err)
+			log.Error("/router-feedback: request_feedback upsert failed", "rated_request_id", telemetryRequestID, "err", err)
 		}
 	}
 
@@ -232,7 +232,7 @@ func (s *Service) handleRouterFeedbackCommand(
 		"requested_model", env.Model(),
 		"role", role,
 		"sequence", cmd.Sequence,
-		"request_id", telemetryRequestID,
+		"rated_request_id", telemetryRequestID,
 		"route_id", telemetryRouteID,
 	)
 

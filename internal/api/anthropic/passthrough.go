@@ -36,14 +36,14 @@ func PassthroughHandler(svc *proxy.Service) gin.HandlerFunc {
 				return
 			}
 			if c.Writer.Written() {
-				log.Error("Passthrough failed mid-stream", "err", err, "path", c.Request.URL.Path)
+				log.Error("Passthrough failed mid-stream", "err", err)
 				return
 			}
 			if ok && cls.Kind == proxy.DispatchErrorNotImplemented {
 				writeAnthropicError(c, cls.Status, anthropicErrorType(cls.Kind), cls.Message)
 				return
 			}
-			log.Error("Passthrough failed", "err", err, "path", c.Request.URL.Path)
+			log.Error("Passthrough failed", "err", err)
 			writeAnthropicError(c, http.StatusBadGateway, "api_error", "Upstream call failed.")
 			return
 		}
