@@ -1538,9 +1538,8 @@ func TestService_ForceModelHeader_UnknownModelRejected(t *testing.T) {
 	assert.Empty(t, store.upserts, "a refused force must not write any pin")
 }
 
-// Prod 2026-08-26: a gateway-only installation 503'd "cluster scorer failed"
-// on every classifier turn — the hard-pin tier never saw the key's aliases,
-// the only bindings such a request can route to.
+// Prod 2026-08-26: a gateway-only installation 503'd on classifier turns —
+// the hard-pin tier never forwarded the key's gateway aliases.
 func TestService_HardPin_Classifier_GatewayExclusive_ResolvesAlias(t *testing.T) {
 	const aliasedModel = "claude-haiku-4-5"
 	store := newFakePinStore()

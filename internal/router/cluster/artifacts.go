@@ -640,9 +640,8 @@ func CheapestModelInSet(meta *ArtifactMetadata, registry *ModelRegistry, availab
 	return cheapestModelFiltered(meta, registry, available, denySet, allowSet, RequestBindings{})
 }
 
-// RequestBindings carries a request's configuration-declared bindings: the
-// catalog models a key's model_aliases name, plus the gateway providers those
-// keys enroll. A non-empty Gateways set means gateway-exclusive routing.
+// RequestBindings carries a key's model_aliases (Custom) and enrolled gateway
+// providers (Gateways); a non-empty Gateways set means gateway-exclusive routing.
 type RequestBindings struct {
 	Custom   map[string][]string
 	Gateways map[string]struct{}

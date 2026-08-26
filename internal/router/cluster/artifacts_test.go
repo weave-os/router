@@ -524,9 +524,8 @@ func TestFastestModel_RealLatestBundle_LowTierPrefersFastFlash(t *testing.T) {
 	assert.NotEqual(t, cheapM, fastM, "fastest must diverge from cheapest on the low-tier clamp")
 }
 
-// Prod 2026-08-26: a gateway-only installation 503'd on every probe/classifier
-// turn because hard-pin selection only walked catalog bindings, which such a
-// key can never reach.
+// Prod 2026-08-26: gateway-only keys 503'd because hard-pin walked only
+// catalog bindings, which such a key can never reach.
 func TestFastestModelForRequest_GatewayExclusive(t *testing.T) {
 	const aliased = "claude-haiku-4-5"
 	const unaliased = "claude-sonnet-5"
