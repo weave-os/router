@@ -655,12 +655,9 @@ func TestProxyMessages_GeminiNon400NotRetried(t *testing.T) {
 	assert.Len(t, client.bodies, 1, "a 503 is not a VALIDATED-schema 400 — no AUTO retry")
 }
 
-// TestProxyMessages_OutputConfigFormat400RetriesWithoutIt reproduces the prod
-// 400 (2026-08-26, Snowflake org): a structured-output turn against
-// claude-sonnet-5 on an Anthropic-spec gateway whose relayed schema predates
-// `output_config.format`. Cortex's Messages API documents the knob, so it goes
-// out as the client wrote it and only the rejection licenses one re-emit
-// without it — the turn then serves unstructured instead of dying.
+// TestProxyMessages_OutputConfigFormat400RetriesWithoutIt reproduces a gateway
+// 400 on output_config.format (Cortex documents the knob, so it goes out as
+// written; only a rejection licenses one re-emit without it).
 func TestProxyMessages_OutputConfigFormat400RetriesWithoutIt(t *testing.T) {
 	anthropicSSE := "event: message_start\n" +
 		`data: {"type":"message_start","message":{"id":"msg_1","type":"message","role":"assistant","model":"claude-sonnet-5","content":[],"stop_reason":null,"usage":{"input_tokens":5,"output_tokens":0}}}` + "\n\n" +

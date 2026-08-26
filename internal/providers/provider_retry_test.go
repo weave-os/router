@@ -196,9 +196,8 @@ func TestIsUpstreamSchemaRejection(t *testing.T) {
 }
 
 // TestIsUpstreamOutputConfigFormatRejection pins the gateway 400 that names
-// Anthropic's structured-output knob (prod 2026-08-26, Snowflake) and keeps the
-// match off ordinary validation failures — the signal only licenses one retry
-// that drops the knob, so a loose match silently unstructures a good request.
+// the structured-output knob as an unaccepted field; a loose match would
+// silently unstructure a good request on retry.
 func TestIsUpstreamOutputConfigFormatRejection(t *testing.T) {
 	cases := []struct {
 		name   string

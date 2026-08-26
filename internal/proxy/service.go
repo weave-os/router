@@ -3252,11 +3252,10 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			native := s.anthropicNativeAttempt(env, r, prep, sink, preludeBuf, targetMarker, setExtractor)
 			return func(actx context.Context, d router.Decision, p providers.Client) error {
 				err := native(actx, d, p)
-				// Structured output is part of the Messages spec an Anthropic-spec
-				// gateway serves (Snowflake Cortex documents output_config.format),
-				// so the knob always goes out as written and only a gateway whose
-				// relayed schema predates it degrades: re-emit once without it
-				// rather than sending every gateway turn unstructured.
+				// Cortex documents output_config.format, so the knob goes out as
+				// written; only a gateway whose relayed schema predates it rejects
+				// it — re-emit once without it rather than sending every gateway
+				// turn unstructured.
 				if err == nil || committed(preludeBuf) || !providers.IsUpstreamOutputConfigFormatRejection(err) {
 					return err
 				}

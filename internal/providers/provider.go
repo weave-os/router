@@ -481,11 +481,9 @@ func IsUpstreamSchemaRejection(err error) bool {
 }
 
 // IsUpstreamOutputConfigFormatRejection reports whether err is a buffered 400
-// naming Anthropic's structured-output knob as an unaccepted field. Snowflake
-// Cortex documents `output_config.format` on its Messages API, so the field is
-// sent as the client wrote it and only a gateway whose relayed schema predates
-// it answers `output_config.format: Extra inputs are not permitted` — the
-// signal for a one-shot retry without the knob.
+// whose body names output_config.format as an unaccepted field — the signal for
+// a one-shot retry without the knob (Cortex documents the field, so only
+// gateways whose relayed schema predates it reject it).
 func IsUpstreamOutputConfigFormatRejection(err error) bool {
 	var buffered *UpstreamErrorResponse
 	if !errors.As(err, &buffered) || buffered.Status != http.StatusBadRequest {
