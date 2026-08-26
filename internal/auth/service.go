@@ -657,7 +657,7 @@ func (s *Service) VerifyAPIKey(ctx context.Context, rawToken string) (*Installat
 		externalKeys, err = s.externalKeys.GetForInstallation(ctx, apiKey.InstallationID)
 		if err != nil {
 			// Non-fatal: proceed without external keys.
-			observability.Get().Warn("Failed to fetch external API keys", "installation_id", apiKey.InstallationID, "err", err)
+			observability.FromContext(ctx).Warn("Failed to fetch external API keys", "installation_id", apiKey.InstallationID, "err", err)
 		}
 	}
 
@@ -669,7 +669,7 @@ func (s *Service) VerifyAPIKey(ctx context.Context, rawToken string) (*Installat
 			// Non-fatal: serve this request with artifact-default routing, but
 			// don't cache the empty result — a transient DB error would otherwise
 			// disable per-key cluster restrictions for the full positive TTL.
-			observability.Get().Warn("Failed to fetch cluster model lists", "api_key_id", apiKey.ID, "err", err)
+			observability.FromContext(ctx).Warn("Failed to fetch cluster model lists", "api_key_id", apiKey.ID, "err", err)
 			clusterModelLists = nil
 			clusterModelListsFetchOK = false
 		}
@@ -689,7 +689,7 @@ func (s *Service) VerifyAPIKey(ctx context.Context, rawToken string) (*Installat
 // leaves the existing value). Never fails an authenticated request — returns
 // ctx unchanged on error.
 func (s *Service) ResolveAndStashUser(ctx context.Context, installationID, email, claudeAccountUUID, displayName string) context.Context {
-	log := observability.Get()
+	log := observability.FromContext(ctx)
 	if s.users == nil || installationID == "" {
 		log.Info("ResolveAndStashUser bailout", "reason", "nil_users_or_empty_inst", "users_nil", s.users == nil, "inst_empty", installationID == "")
 		return ctx
@@ -732,7 +732,7 @@ func (s *Service) ResolveAndStashUser(ctx context.Context, installationID, email
 		})
 	}
 	if err != nil {
-		observability.Get().Warn(
+		observability.FromContext(ctx).Warn(
 			"Failed to resolve router user",
 			"installation_id", installationID,
 			"err", err,
@@ -758,7 +758,7 @@ func (s *Service) withUserClusterLists(ctx context.Context, installationID, rout
 	if !ok {
 		fetched, err := s.userClusterModelLists.GetForUser(ctx, routerUserID)
 		if err != nil {
-			observability.Get().Warn("Failed to fetch user cluster model lists", "router_user_id", routerUserID, "err", err)
+			observability.FromContext(ctx).Warn("Failed to fetch user cluster model lists", "router_user_id", routerUserID, "err", err)
 			return ctx
 		}
 		lists = fetched

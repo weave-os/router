@@ -28,7 +28,7 @@ func TestDetectToolCallLoop_TripsAtMaxRepeats(t *testing.T) {
 	env, err := translate.ParseAnthropic(body)
 	require.NoError(t, err)
 
-	loop, sig, count := detectToolCallLoop(env)
+	loop, sig, count := detectToolCallLoop(context.Background(), env)
 	assert.True(t, loop)
 	assert.Equal(t, "ls", sig.Name)
 	assert.GreaterOrEqual(t, count, loopDetectionMaxRepeats)
@@ -44,7 +44,7 @@ func TestDetectToolCallLoop_NoLoopBelowThreshold(t *testing.T) {
 	env, err := translate.ParseAnthropic(body)
 	require.NoError(t, err)
 
-	loop, _, _ := detectToolCallLoop(env)
+	loop, _, _ := detectToolCallLoop(context.Background(), env)
 	assert.False(t, loop, "4 identical calls must not trip the detector (threshold is 5)")
 }
 
@@ -59,7 +59,7 @@ func TestDetectToolCallLoop_DifferentArgsDoNotTrip(t *testing.T) {
 	env, err := translate.ParseAnthropic(body)
 	require.NoError(t, err)
 
-	loop, _, _ := detectToolCallLoop(env)
+	loop, _, _ := detectToolCallLoop(context.Background(), env)
 	assert.False(t, loop, "same tool name but distinct args must not trip the detector")
 }
 
@@ -78,7 +78,7 @@ func TestDetectToolCallLoop_WindowedOldEntriesDropOut(t *testing.T) {
 	env, err := translate.ParseAnthropic(body)
 	require.NoError(t, err)
 
-	loop, _, _ := detectToolCallLoop(env)
+	loop, _, _ := detectToolCallLoop(context.Background(), env)
 	assert.False(t, loop, "stale repeats outside the window must not trip the detector")
 }
 
@@ -100,7 +100,7 @@ func TestDetectToolCallLoop_AlternatingPairStillTripsOnRepeats(t *testing.T) {
 	env, err := translate.ParseAnthropic(body)
 	require.NoError(t, err)
 
-	loop, sig, count := detectToolCallLoop(env)
+	loop, sig, count := detectToolCallLoop(context.Background(), env)
 	assert.True(t, loop)
 	assert.Equal(t, "ls", sig.Name)
 	assert.GreaterOrEqual(t, count, loopDetectionMaxRepeats)

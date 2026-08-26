@@ -1,6 +1,7 @@
 package httputil
 
 import (
+	"context"
 	"io"
 	"net/http"
 
@@ -49,20 +50,24 @@ func (c HeaderCapture) WriteHeader(int) {}
 // LogUpstreamStatus logs non-2xx upstream responses with a body preview, at
 // ERROR except 429 (routine rate-limit signal handled via failover), which
 // logs at WARN.
-func LogUpstreamStatus(msg string, status int, attrs ...any) {
+//
+// ctx is load-bearing: on the global logger the body was written but not
+// joinable to the request, so filtering by session never surfaced it.
+func LogUpstreamStatus(ctx context.Context, msg string, status int, attrs ...any) {
+	log := observability.FromContext(ctx)
 	merged := append([]any{"status", status}, attrs...)
 	if status >= 500 || (status >= 400 && status != http.StatusTooManyRequests) {
-		observability.Get().Error(msg, merged...)
+		log.Error(msg, merged...)
 		return
 	}
-	observability.Get().Warn(msg, merged...)
+	log.Warn(msg, merged...)
 }
 
 // WritePassthroughError streams up to 1KB of resp.Body to w, logs via
 // LogUpstreamStatus (body_preview/body_total_bytes appended automatically),
 // and returns UpstreamStatusError. onFirstByte/onEOF are nil-safe OTel
 // timing hooks; pass nil, nil on paths that don't stamp upstream timing.
-func WritePassthroughError(w http.ResponseWriter, resp *http.Response, onFirstByte, onEOF func(), msg string, attrs ...any) error {
+func WritePassthroughError(ctx context.Context, w http.ResponseWriter, resp *http.Response, onFirstByte, onEOF func(), msg string, attrs ...any) error {
 	var snip [1024]byte
 	n, _ := io.ReadFull(resp.Body, snip[:])
 	if n > 0 && onFirstByte != nil {
@@ -74,7 +79,7 @@ func WritePassthroughError(w http.ResponseWriter, resp *http.Response, onFirstBy
 		onEOF()
 	}
 	merged := append(append([]any{}, attrs...), "body_preview", string(snip[:n]), "body_total_bytes", int64(n)+rest)
-	LogUpstreamStatus(msg, resp.StatusCode, merged...)
+	LogUpstreamStatus(ctx, msg, resp.StatusCode, merged...)
 	if snipWriteErr != nil {
 		return snipWriteErr
 	}

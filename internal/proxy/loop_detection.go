@@ -81,7 +81,7 @@ const (
 // detectToolCallLoop reports whether the same (tool_name, args) signature
 // repeats loopDetectionMaxRepeats+ times within the last loopDetectionWindowSize
 // tool calls, returning the signature and count for logs/the stop message.
-func detectToolCallLoop(env *translate.RequestEnvelope) (looped bool, sig translate.ToolCallSig, count int) {
+func detectToolCallLoop(ctx context.Context, env *translate.RequestEnvelope) (looped bool, sig translate.ToolCallSig, count int) {
 	sigs := env.AssistantToolCallSignatures()
 	if len(sigs) < loopDetectionMaxRepeats {
 		return false, translate.ToolCallSig{}, 0
@@ -100,7 +100,7 @@ func detectToolCallLoop(env *translate.RequestEnvelope) (looped bool, sig transl
 		if counts[key] >= loopDetectionMaxRepeats {
 			// Dump the ordered window to distinguish a real loop (identical
 			// args) from a false positive (distinct args that canonicalize-collide).
-			log := observability.Get()
+			log := observability.FromContext(ctx)
 			args := env.AssistantToolCallArgsPreview(start, 200)
 			log.Info("loop detector window dump",
 				"tool_name", s.Name,

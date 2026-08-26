@@ -288,7 +288,7 @@ func (c *Client) Proxy(ctx context.Context, decision router.Decision, prep provi
 	providers.ObserveUpstreamHeaders(ctx, resp.Header)
 
 	idleTimeout := c.idleTimeoutFor(prep.Endpoint)
-	log := observability.Get()
+	log := observability.FromContext(ctx)
 	log.Debug("OpenAI upstream response",
 		"status", resp.StatusCode,
 		"content_type", resp.Header.Get("Content-Type"),
@@ -310,7 +310,7 @@ func (c *Client) Proxy(ctx context.Context, decision router.Decision, prep provi
 		bufBody, totalRead, drainErr := httputil.ReadCapped(body, providers.MaxBufferedErrorBytes)
 		stop()
 		if errors.Is(context.Cause(ctx), httputil.ErrUpstreamIdleTimeout) {
-			logStreamStall(decision.Model, path, idleTimeout, totalRead, httputil.ErrUpstreamIdleTimeout)
+			logStreamStall(ctx, decision.Model, path, idleTimeout, totalRead, httputil.ErrUpstreamIdleTimeout)
 		}
 		if len(bufBody) > 0 {
 			t.StampUpstreamFirstByte()
@@ -319,6 +319,7 @@ func (c *Client) Proxy(ctx context.Context, decision router.Decision, prep provi
 			t.StampUpstreamEOF()
 		}
 		httputil.LogUpstreamStatus(
+			ctx,
 			"Upstream OpenAI returned error status",
 			resp.StatusCode,
 			"base_url", c.baseURL,
@@ -377,7 +378,7 @@ func (c *Client) Proxy(ctx context.Context, decision router.Decision, prep provi
 	streamErr := httputil.StreamBody(ctx, cancel, idleTimeout, body, status, w, t, opts...)
 	switch {
 	case errors.Is(streamErr, httputil.ErrUpstreamIdleTimeout), errors.Is(streamErr, httputil.ErrUpstreamOutputStall):
-		logStreamStall(decision.Model, path, c.stallBudgetFor(prep.Endpoint, streamErr), body.n, streamErr)
+		logStreamStall(ctx, decision.Model, path, c.stallBudgetFor(prep.Endpoint, streamErr), body.n, streamErr)
 	case streamErr != nil:
 		if debug {
 			log.Debug("OpenAI upstream stream ended with error", "err", streamErr, "bytes_read", body.n)
@@ -413,12 +414,12 @@ func (p *progressReader) Read(buf []byte) (n int, err error) {
 // incident) vs output_idle (ErrUpstreamOutputStall, bytes flowing but zero
 // output — 2026-06-16 incident). Both are retryable; this is the per-model
 // paper trail for how often each happens.
-func logStreamStall(model, path string, budget time.Duration, bytesReceived int64, cause error) {
+func logStreamStall(ctx context.Context, model, path string, budget time.Duration, bytesReceived int64, cause error) {
 	stallKind := "byte_idle"
 	if errors.Is(cause, httputil.ErrUpstreamOutputStall) {
 		stallKind = "output_idle"
 	}
-	observability.Get().Error("OpenAI upstream stream stalled mid-response; aborting for retry",
+	observability.FromContext(ctx).Error("OpenAI upstream stream stalled mid-response; aborting for retry",
 		"model", model,
 		"provider", providers.ProviderOpenAI,
 		"path", path,
@@ -461,7 +462,7 @@ func (c *Client) Passthrough(ctx context.Context, prep providers.PreparedRequest
 	providers.CopyUpstreamHeaders(w, resp)
 	w.WriteHeader(resp.StatusCode)
 	if resp.StatusCode >= 400 {
-		return httputil.WritePassthroughError(w, resp, nil, nil, "Upstream OpenAI returned error status (passthrough)", "base_url", c.baseURL, "path", r.URL.Path)
+		return httputil.WritePassthroughError(r.Context(), w, resp, nil, nil, "Upstream OpenAI returned error status (passthrough)", "base_url", c.baseURL, "path", r.URL.Path)
 	}
 	_, err = io.Copy(w, resp.Body)
 	return err

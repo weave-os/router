@@ -442,7 +442,7 @@ func sortedKeys(m map[string]struct{}) []string {
 // Route embeds the prompt, scores clusters, returns the argmax decision.
 func (s *Scorer) Route(ctx context.Context, req router.Request) (router.Decision, error) {
 	start := time.Now()
-	log := observability.Get()
+	log := observability.FromContext(ctx)
 
 	text := TailTruncate(req.PromptText, s.cfg.MaxPromptChars)
 	truncated := len(req.PromptText) > s.cfg.MaxPromptChars

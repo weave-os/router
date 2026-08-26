@@ -9,6 +9,8 @@ import (
 	"workweave/router/internal/observability"
 	"workweave/router/internal/router/sessionpin"
 	"workweave/router/internal/translate"
+
+	"github.com/google/uuid"
 )
 
 // shortKey returns the first 16 hex chars of a session key for log
@@ -37,10 +39,24 @@ func sessionAffinityHint(key [sessionpin.SessionKeyLen]byte) string {
 	return sessionKeyHex(key)
 }
 
+// requestIDFor returns the correlation id already stamped by
+// observability.Middleware, minting one only for callers that bypassed HTTP
+// (background paths, tests). Reusing the middleware's id is what lets a
+// telemetry row join to the log lines for the same request.
+func requestIDFor(ctx context.Context) string {
+	if id := observability.RequestIDFromContext(ctx); id != "" {
+		return id
+	}
+	return uuid.New().String()
+}
+
 // bindRequestLogger derives the session key and returns a context carrying a
 // logger pre-bound with session_key, request_id, api_key_id, and ingress, so
 // a session's path can be filtered in Cloud Logging by session_key alone. It
 // also returns the key so callers don't have to re-derive it.
+//
+// request_id is already bound by observability.Middleware at first touch, so
+// only the fields that need the parsed envelope are added here.
 func bindRequestLogger(
 	ctx context.Context,
 	env *translate.RequestEnvelope,
@@ -49,10 +65,14 @@ func bindRequestLogger(
 	key := DeriveSessionKey(env, apiKeyID)
 	log := observability.FromContext(ctx).With(
 		"session_key", shortKey(key),
-		"request_id", requestID,
 		"api_key_id", apiKeyID,
 		"ingress", ingress,
 	)
+	// Re-bind request_id only when the caller reached this without passing
+	// through the HTTP middleware (background paths, tests).
+	if observability.RequestIDFromContext(ctx) == "" {
+		log = log.With("request_id", requestID)
+	}
 	// The client's own session id, bound when present so operators can grep
 	// by the id the user actually sees. Envelope first (Claude Code packs it
 	// in metadata.user_id); header identity covers Codex, which sends

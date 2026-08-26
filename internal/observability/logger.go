@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"github.com/lmittmann/tint"
 	"github.com/mattn/go-isatty"
 	"github.com/vlad-tokarev/sloggcp"
@@ -19,6 +20,31 @@ const ginContextKey = "router_logger"
 // loggerContextKey is a private type so context values don't collide with
 // other packages'.
 type loggerContextKey struct{}
+
+// requestIDContextKey carries the per-request correlation id independently of
+// the logger, so code that needs the raw value (telemetry rows, billing
+// ledger) reads the same id the logs are tagged with.
+type requestIDContextKey struct{}
+
+// WithRequestID attaches a request correlation id to ctx.
+func WithRequestID(ctx context.Context, requestID string) context.Context {
+	if requestID == "" {
+		return ctx
+	}
+	return context.WithValue(ctx, requestIDContextKey{}, requestID)
+}
+
+// RequestIDFromContext returns the correlation id stamped by Middleware, or ""
+// when the caller bypassed HTTP (tests, background jobs).
+func RequestIDFromContext(ctx context.Context) string {
+	if ctx == nil {
+		return ""
+	}
+	if v, ok := ctx.Value(requestIDContextKey{}).(string); ok {
+		return v
+	}
+	return ""
+}
 
 // WithLogger attaches a logger to ctx for downstream FromContext calls.
 func WithLogger(ctx context.Context, log *slog.Logger) context.Context {
@@ -56,8 +82,29 @@ func initLogger() {
 	case "error":
 		level = slog.LevelError
 	}
-	slog.SetDefault(slog.New(newHandler(level)))
+	logger := slog.New(newHandler(level))
+	// Every line carries the emitting service so a multi-service log sink can
+	// be filtered down to this process. NAME is what the deployment already
+	// sets per service; OTEL_SERVICE_NAME is the self-hosted fallback.
+	if name := serviceName(); name != "" {
+		logger = logger.With("name", name)
+	}
+	slog.SetDefault(logger)
 }
+
+// serviceName resolves the service tag attached to every log line.
+func serviceName() string {
+	for _, key := range []string{"NAME", "OTEL_SERVICE_NAME"} {
+		if v := strings.TrimSpace(os.Getenv(key)); v != "" {
+			return v
+		}
+	}
+	return defaultServiceName
+}
+
+// defaultServiceName tags lines when the deployment sets no service name, so
+// output is never untagged.
+const defaultServiceName = "router"
 
 // newHandler builds the slog handler for the resolved format. JSON uses
 // sloggcp.ReplaceAttr so lines render correctly in GCP Cloud Logging; tint
@@ -129,6 +176,9 @@ func Get() *slog.Logger {
 	return slog.Default()
 }
 
+// FromGin returns the request-scoped logger bound by Middleware. Falls back to
+// the request context's logger (then the global default) so a route registered
+// without Middleware still logs rather than panicking.
 func FromGin(c *gin.Context) *slog.Logger {
 	initOnce.Do(initLogger)
 	if v, ok := c.Get(ginContextKey); ok {
@@ -136,18 +186,68 @@ func FromGin(c *gin.Context) *slog.Logger {
 			return logger
 		}
 	}
+	if c.Request != nil {
+		return FromContext(c.Request.Context())
+	}
 	return slog.Default()
 }
 
+// Middleware binds a request correlation id to both the gin and request
+// contexts, so every line served under it filters by request_id alone.
+//
+// Bound here rather than deeper because the body is still unparsed: first
+// touch is what makes pre-parse failures findable at all.
 func Middleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
+		initOnce.Do(initLogger)
+
+		// Always the router's own id. An inbound one is recorded separately
+		// rather than adopted: a client could otherwise send one value on
+		// every request, or collide with another tenant's, and searching by
+		// request_id would stop identifying a single request.
+		requestID := uuid.New().String()
+
 		logger := slog.Default().With(
+			"request_id", requestID,
 			"method", c.Request.Method,
 			"path", c.Request.URL.Path,
 		)
+		if upstream := sanitizeLogValue(c.Request.Header.Get("X-Request-Id")); upstream != "" {
+			logger = logger.With("upstream_request_id", upstream)
+		}
+
 		c.Set(ginContextKey, logger)
+		c.Header("X-Request-Id", requestID)
+
+		ctx := WithRequestID(c.Request.Context(), requestID)
+		ctx = WithLogger(ctx, logger)
+		c.Request = c.Request.WithContext(ctx)
+
 		c.Next()
 	}
+}
+
+// maxLoggedHeaderLen bounds a client-supplied header before it reaches a log
+// field, so a pathological value can't bloat every line of a request.
+const maxLoggedHeaderLen = 200
+
+// sanitizeLogValue trims a caller-controlled header to a bounded, single-line
+// value fit for a log field.
+func sanitizeLogValue(v string) string {
+	v = strings.TrimSpace(v)
+	if v == "" {
+		return ""
+	}
+	v = strings.Map(func(r rune) rune {
+		if r == '\n' || r == '\r' || r == '\t' {
+			return ' '
+		}
+		return r
+	}, v)
+	if len(v) > maxLoggedHeaderLen {
+		return v[:maxLoggedHeaderLen]
+	}
+	return v
 }
 
 // AccessLog logs one INFO line per request after handlers run — without it, a

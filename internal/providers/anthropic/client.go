@@ -340,6 +340,7 @@ func (c *Client) proxyTo(ctx context.Context, cancel context.CancelCauseFunc, ur
 			t.StampUpstreamEOF()
 		}
 		httputil.LogUpstreamStatus(
+			ctx,
 			"Upstream Anthropic returned error status",
 			resp.StatusCode,
 			"routed_model", decision.Model,
@@ -365,6 +366,7 @@ func (c *Client) proxyTo(ctx context.Context, cancel context.CancelCauseFunc, ur
 				providers.CopyUpstreamHeaders(httputil.HeaderCapture{H: errHeaders}, resp)
 				buffered.Headers = errHeaders
 				httputil.LogUpstreamStatus(
+					ctx,
 					"Upstream Anthropic returned SSE error event",
 					buffered.Status,
 					"routed_model", decision.Model,
@@ -436,7 +438,7 @@ func (c *Client) Passthrough(ctx context.Context, prep providers.PreparedRequest
 	providers.CopyUpstreamHeaders(w, resp)
 	w.WriteHeader(resp.StatusCode)
 	if resp.StatusCode >= 400 {
-		return httputil.WritePassthroughError(w, resp, nil, nil, "Upstream Anthropic returned error status (passthrough)", "path", r.URL.Path)
+		return httputil.WritePassthroughError(r.Context(), w, resp, nil, nil, "Upstream Anthropic returned error status (passthrough)", "path", r.URL.Path)
 	}
 	_, err = io.Copy(w, resp.Body)
 	return err
