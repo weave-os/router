@@ -234,10 +234,8 @@ func (c *Client) Proxy(ctx context.Context, decision router.Decision, prep provi
 	body = proxy.ApplyModelAlias(ctx, body, decision.Model)
 	baseURL := proxy.EffectiveBaseURL(ctx, c.baseURL)
 
-	// EndpointResponses is the Responses surface: reasoning models reject a tool
-	// turn on chat/completions, and gateways that mount /v1/responses (Snowflake
-	// Cortex) serve it there. The proxy re-emits onto chat/completions when the
-	// gateway answers that it has no such surface.
+	// Re-emitting onto chat/completions when a gateway has no Responses surface
+	// is the caller's job; here the prepared endpoint just picks the path.
 	suffix := "/chat/completions"
 	if prep.Endpoint == providers.EndpointResponses {
 		suffix = "/responses"

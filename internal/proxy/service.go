@@ -3243,10 +3243,9 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			// OpenRouter-only body fields. On failover from Fireworks to
 			// OpenRouter, the body must be re-emitted with TargetProvider =
 			// openrouter so those gates fire.
-			// One dispatch on the chosen surface, split into the raw upstream
-			// error plus a finalize thunk so a gateway that rejects Responses can
-			// be re-emitted onto chat/completions before finalize commits the
-			// prelude buffer. Translators are stateful, so the retry calls again.
+			// Split into rawErr + finalize so a Responses rejection can be retried
+			// on chat/completions before finalize commits the prelude buffer.
+			// Translators are stateful, so the retry re-emits from scratch.
 			dispatchOpenAICompat := func(actx context.Context, d router.Decision, p providers.Client, useResponses bool) (error, func(error) error) {
 				attemptOpts := targetOpts
 				attemptOpts.TargetProvider = d.Provider
@@ -3307,19 +3306,15 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 				return rawErr, finalize
 			}
 			return func(actx context.Context, d router.Decision, p providers.Client) error {
-				// Reasoning models reject tools alongside an effort on
-				// chat/completions, so an agentic tool turn goes to Responses —
-				// on direct OpenAI and on gateways that mount it (Cortex 400s a
-				// 5.6 tool turn on chat/completions no matter what we send).
+				// Reasoning tool turns go to Responses; gateways without it are
+				// downgraded below.
 				gatewayKey := gatewayResponsesKey(actx, d.Provider)
 				useResponses := translate.UseOpenAIResponsesAPI(
 					d.Provider, targetOpts.Capabilities, feats.HasTools) &&
 					!s.gatewayLacksResponses(gatewayKey)
 				rawErr, finalize := dispatchOpenAICompat(actx, d, p, useResponses)
-				// A gateway with no usable Responses surface answers 404, or 4xx
-				// prose saying the API is off for this account. Re-emit onto
-				// chat/completions once while pre-commit, and remember the answer
-				// so the next turn skips the probe.
+				// Gateway has no usable Responses surface (404, or account-gated
+				// 4xx prose); re-emit on chat/completions and memoize the verdict.
 				if rawErr != nil && useResponses && !committed(preludeBuf) &&
 					providers.IsUpstreamResponsesUnsupported(rawErr) {
 					s.rememberGatewayLacksResponses(gatewayKey)
