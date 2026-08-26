@@ -19,6 +19,7 @@ import (
 	"workweave/router/internal/proxy"
 	"workweave/router/internal/router"
 	"workweave/router/internal/router/cluster"
+	"workweave/router/internal/router/policy"
 	"workweave/router/internal/router/sessionpin"
 	"workweave/router/internal/translate"
 
@@ -423,11 +424,11 @@ func TestService_HardPin_Compaction_ByokOnly_UsesRequestResolver(t *testing.T) {
 	store := newFakePinStore()
 	fr := &fakeRouter{decision: router.Decision{Provider: "anthropic", Model: "claude-opus-4-7", Reason: "cluster"}}
 
-	resolver := func(enabled, _ map[string]struct{}) (string, string, bool) {
-		if _, ok := enabled[providers.ProviderAnthropic]; ok {
+	resolver := func(req proxy.HardPinRequest) (string, string, bool) {
+		if _, ok := req.EnabledProviders[providers.ProviderAnthropic]; ok {
 			return providers.ProviderAnthropic, "claude-haiku-anthropic-byok", true
 		}
-		if _, ok := enabled[providers.ProviderOpenRouter]; ok {
+		if _, ok := req.EnabledProviders[providers.ProviderOpenRouter]; ok {
 			return providers.ProviderOpenRouter, "deepseek/cheap", true
 		}
 		return "", "", false
@@ -461,8 +462,8 @@ func TestService_HardPin_Compaction_ByokOnly_NoEligibleProviderErrors(t *testing
 	store := newFakePinStore()
 	fr := &fakeRouter{decision: router.Decision{Provider: "anthropic", Model: "claude-opus-4-7", Reason: "cluster"}}
 
-	resolver := func(enabled, _ map[string]struct{}) (string, string, bool) {
-		if _, ok := enabled[providers.ProviderAnthropic]; ok {
+	resolver := func(req proxy.HardPinRequest) (string, string, bool) {
+		if _, ok := req.EnabledProviders[providers.ProviderAnthropic]; ok {
 			return providers.ProviderAnthropic, "claude-haiku", true
 		}
 		return "", "", false
@@ -500,8 +501,8 @@ func TestService_HardPin_Classifier_AppliesExcludedModels(t *testing.T) {
 
 	// Mimics cluster.FastestModelInSet: fastest candidate is excluded, so
 	// resolver must fall through to the next allowed candidate.
-	resolver := func(enabled, denySet map[string]struct{}) (string, string, bool) {
-		if _, denied := denySet[excludedModel]; !denied {
+	resolver := func(req proxy.HardPinRequest) (string, string, bool) {
+		if _, denied := req.ExcludedModels[excludedModel]; !denied {
 			return providers.ProviderGoogle, excludedModel, true
 		}
 		return providers.ProviderAnthropic, allowedFallback, true
@@ -1535,4 +1536,89 @@ func TestService_ForceModelHeader_UnknownModelRejected(t *testing.T) {
 	store.mu.Lock()
 	defer store.mu.Unlock()
 	assert.Empty(t, store.upserts, "a refused force must not write any pin")
+}
+
+// Prod 2026-08-26: a gateway-only installation 503'd "cluster scorer failed"
+// on every classifier turn — the hard-pin tier never saw the key's aliases,
+// the only bindings such a request can route to.
+func TestService_HardPin_Classifier_GatewayExclusive_ResolvesAlias(t *testing.T) {
+	const aliasedModel = "claude-haiku-4-5"
+	store := newFakePinStore()
+	fr := &fakeRouter{decision: router.Decision{Provider: "anthropic", Model: "claude-opus-4-7", Reason: "cluster"}}
+
+	var seen proxy.HardPinRequest
+	resolver := func(req proxy.HardPinRequest) (string, string, bool) {
+		seen = req
+		for model, provs := range req.CustomBindings {
+			for _, provider := range provs {
+				if _, isGateway := req.GatewayProviders[provider]; isGateway {
+					return provider, model, true
+				}
+			}
+		}
+		return "", "", false
+	}
+
+	providerMap := map[string]providers.Client{
+		providers.ProviderOpenAIGateway: &fakeProvider{proxyResponse: func(w http.ResponseWriter) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			_, _ = io.WriteString(w, `{"id":"msg_1","type":"message","role":"assistant","content":[{"type":"text","text":"ok"}],"stop_reason":"end_turn"}`)
+		}},
+	}
+	svc := proxy.NewService(
+		fr, providerMap, nil, false, nil, store, false,
+		providers.ProviderAnthropic, "claude-haiku-4-5",
+		nil,
+	).WithByokOnly(true).WithHardPinResolver(resolver)
+
+	ctx := authedCtxWithGatewayKey(uuid.New().String(), aliasedModel)
+	rec := httptest.NewRecorder()
+	httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	require.NoError(t, svc.ProxyMessages(ctx, []byte(classifierBody), rec, httpReq))
+
+	assert.Equal(t, []string{providers.ProviderOpenAIGateway}, seen.CustomBindings[aliasedModel],
+		"hard-pin resolver must receive the key's configuration-declared bindings")
+	assert.Contains(t, seen.GatewayProviders, providers.ProviderOpenAIGateway)
+	assert.Equal(t, aliasedModel, rec.Header().Get(proxy.HeaderRouterModel))
+}
+
+// A gateway key that aliases nothing is a configuration problem the customer
+// can fix, so it must report that rather than "router unavailable".
+func TestService_HardPin_Classifier_GatewayExclusive_NoAliasReportsConfigError(t *testing.T) {
+	store := newFakePinStore()
+	fr := &fakeRouter{decision: router.Decision{Provider: "anthropic", Model: "claude-opus-4-7", Reason: "cluster"}}
+
+	resolver := func(proxy.HardPinRequest) (string, string, bool) { return "", "", false }
+
+	providerMap := map[string]providers.Client{providers.ProviderOpenAIGateway: &fakeProvider{}}
+	svc := proxy.NewService(
+		fr, providerMap, nil, false, nil, store, false,
+		providers.ProviderAnthropic, "claude-haiku-4-5",
+		nil,
+	).WithByokOnly(true).WithHardPinResolver(resolver)
+
+	ctx := authedCtxWithGatewayKey(uuid.New().String(), "")
+	rec := httptest.NewRecorder()
+	httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	err := svc.ProxyMessages(ctx, []byte(classifierBody), rec, httpReq)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, policy.ErrGatewayServesNoDeployedModel,
+		"gateway-exclusive hard-pin must name the alias list, not report the router unavailable")
+	assert.NotErrorIs(t, err, cluster.ErrClusterUnavailable)
+}
+
+// authedCtxWithGatewayKey attaches an openai_gateway BYOK key, optionally
+// aliasing one catalog model onto it.
+func authedCtxWithGatewayKey(installationID, aliasedModel string) context.Context {
+	key := &auth.ExternalAPIKey{
+		InstallationID: installationID,
+		Provider:       providers.ProviderOpenAIGateway,
+		Plaintext:      []byte("gw-token"),
+		BaseURL:        "https://gateway.example.com/v1",
+	}
+	if aliasedModel != "" {
+		key.ModelAliases = map[string]string{aliasedModel: aliasedModel}
+	}
+	return context.WithValue(authedCtx(installationID), proxy.ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{key})
 }

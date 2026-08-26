@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"workweave/router/internal/providers"
 	"workweave/router/internal/router/catalog"
 )
 
@@ -521,4 +522,52 @@ func TestFastestModel_RealLatestBundle_LowTierPrefersFastFlash(t *testing.T) {
 	assert.Equal(t, "google", fastP)
 	assert.Equal(t, "deepseek/deepseek-v4-flash", cheapM, "cheapest low-tier model (the slow incumbent)")
 	assert.NotEqual(t, cheapM, fastM, "fastest must diverge from cheapest on the low-tier clamp")
+}
+
+// Prod 2026-08-26: a gateway-only installation 503'd on every probe/classifier
+// turn because hard-pin selection only walked catalog bindings, which such a
+// key can never reach.
+func TestFastestModelForRequest_GatewayExclusive(t *testing.T) {
+	const aliased = "claude-haiku-4-5"
+	const unaliased = "claude-sonnet-5"
+	meta := &ArtifactMetadata{
+		CostPer1KInputUSD: map[string]float64{aliased: 0.80, unaliased: 3.00},
+		TokPerS: map[string]map[string]float64{
+			providers.ProviderAnthropic: {aliased: 120.0, unaliased: 60.0},
+		},
+	}
+	registry := &ModelRegistry{
+		DeployedModels: []DeployedEntry{
+			{Model: aliased, Provider: providers.ProviderAnthropic},
+			{Model: unaliased, Provider: providers.ProviderAnthropic},
+		},
+	}
+	available := map[string]struct{}{providers.ProviderOpenAIGateway: {}}
+	gateways := map[string]struct{}{providers.ProviderOpenAIGateway: {}}
+
+	t.Run("resolves the model the gateway key aliases", func(t *testing.T) {
+		p, m, ok := FastestModelForRequest(meta, registry, available, nil, nil, RequestBindings{
+			Custom:   map[string][]string{aliased: {providers.ProviderOpenAIGateway}},
+			Gateways: gateways,
+		})
+		require.True(t, ok, "an aliased deployed model must be hard-pinnable")
+		assert.Equal(t, providers.ProviderOpenAIGateway, p)
+		assert.Equal(t, aliased, m)
+	})
+
+	t.Run("catalog bindings stay unreachable without an alias", func(t *testing.T) {
+		_, _, ok := FastestModelForRequest(meta, registry, available, nil, nil, RequestBindings{
+			Gateways: gateways,
+		})
+		assert.False(t, ok, "gateway-exclusive routing must not fall back to vendor bindings")
+	})
+
+	t.Run("excluded_models still applies", func(t *testing.T) {
+		_, _, ok := FastestModelForRequest(meta, registry, available,
+			map[string]struct{}{aliased: {}}, nil, RequestBindings{
+				Custom:   map[string][]string{aliased: {providers.ProviderOpenAIGateway}},
+				Gateways: gateways,
+			})
+		assert.False(t, ok, "the only aliased model is excluded")
+	})
 }

@@ -94,7 +94,7 @@ type Service struct {
 	// per-request: keeps byokOnly deployments on a provider they can
 	// authenticate to, and honors excluded_models on the hard-pin tier via
 	// denySet. ok=false signals no eligible provider.
-	hardPinResolver func(enabled, denySet map[string]struct{}) (provider, model string, ok bool)
+	hardPinResolver HardPinResolver
 	// subAgentProvider/subAgentModel override hardPinProvider/hardPinModel
 	// for SubAgentDispatch turns only; unset leaves compaction/probe/title-gen/
 	// classifier on the shared hard pin.
@@ -1626,10 +1626,25 @@ func (s *Service) WithAvailableModels(models map[string]struct{}) *Service {
 	return s
 }
 
+// HardPinRequest is the per-request context the hard-pin tier selects
+// against: the providers the request authenticates to, the installation's
+// excluded models, and the key's configuration-declared bindings — the only
+// routable thing under a gateway-exclusive installation.
+type HardPinRequest struct {
+	EnabledProviders map[string]struct{}
+	ExcludedModels   map[string]struct{}
+	CustomBindings   map[string][]string
+	GatewayProviders map[string]struct{}
+}
+
+// HardPinResolver picks the hard-pin tier's provider/model for one request.
+// ok=false signals no eligible provider.
+type HardPinResolver func(HardPinRequest) (provider, model string, ok bool)
+
 // WithHardPinResolver installs a per-request hard-pin resolver. nil
 // preserves the boot-time hardPin{Provider,Model} for every request.
 // ok=false signals no eligible provider, surfacing ErrClusterUnavailable.
-func (s *Service) WithHardPinResolver(resolver func(enabled, denySet map[string]struct{}) (provider, model string, ok bool)) *Service {
+func (s *Service) WithHardPinResolver(resolver HardPinResolver) *Service {
 	s.hardPinResolver = resolver
 	return s
 }

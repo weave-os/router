@@ -552,14 +552,17 @@ func main() {
 	// nil if the bundle fails to load, falling back to boot-time hardPin{Provider,Model}.
 	// Not wired when ROUTER_HARD_PIN_MODEL is set — an operator override is
 	// absolute and must never be silently rewritten by excluded_models.
-	var hardPinResolver func(enabled, denySet map[string]struct{}) (string, string, bool)
+	var hardPinResolver proxy.HardPinResolver
 	if config.GetOr("ROUTER_HARD_PIN_MODEL", "") == "" {
 		reqVersion := config.GetOr("ROUTER_CLUSTER_VERSION", cluster.LatestVersion)
 		if version, vErr := cluster.ResolveVersion(reqVersion); vErr == nil {
 			if bundle, bErr := cluster.LoadBundle(version); bErr == nil {
 				meta, registry := bundle.Metadata, bundle.Registry
-				hardPinResolver = func(enabled, denySet map[string]struct{}) (string, string, bool) {
-					return cluster.FastestModelInSet(meta, registry, enabled, denySet, nil)
+				hardPinResolver = func(req proxy.HardPinRequest) (string, string, bool) {
+					return cluster.FastestModelForRequest(meta, registry, req.EnabledProviders, req.ExcludedModels, nil, cluster.RequestBindings{
+						Custom:   req.CustomBindings,
+						Gateways: req.GatewayProviders,
+					})
 				}
 				logger.Info("Hard-pin resolver wired (per-request fastest model from cluster bundle, applies excluded_models)", "version", version, "byok_only", byokOnly)
 			} else {

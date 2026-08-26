@@ -108,6 +108,15 @@ aliases") instead of reporting the router as unavailable. Deployment-keyed
 gateways are excluded from this: a self-hosted deployment keyed for a gateway
 still serves the catalog's own gateway bindings.
 
+**The hard-pin tier resolves against the same bindings.** Probe/title-gen/
+classifier/compaction turns bypass the scorer, so `hardPinResolver` gets its
+own `HardPinRequest` carrying `CustomBindings` + `GatewayProviders` and selects
+via `cluster.FastestModelForRequest`. Without them a gateway-only installation
+resolved nothing and every such turn 503'd `ErrClusterUnavailable` ("cluster
+scorer failed") while its scored turns routed fine — prod 2026-08-26. An empty
+result under a gateway now reports `ErrGatewayServesNoDeployedModel` for the
+same reason the resolver does: the alias list is the thing to fix.
+
 ## Translation
 
 `proxy.Service` is the **only caller of [`../translate`](../translate)**. Keep providers ignorant of cross-format concerns. See [translate/CLAUDE.md](../translate/CLAUDE.md) for the recipe.
