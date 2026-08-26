@@ -227,6 +227,23 @@ func TestOpenAISameFormat_ReasoningEffortKeptForReasoning(t *testing.T) {
 	assert.Equal(t, "high", out["reasoning_effort"])
 }
 
+func TestOpenAISameFormat_ReasoningEffortDeletedForGPT5OnChatCompletions(t *testing.T) {
+	body := []byte(`{
+		"model":"gpt-5.6-luna",
+		"messages":[{"role":"user","content":"hi"}],
+		"reasoning_effort":"medium",
+		"tools":[{"type":"function","function":{"name":"read_file","parameters":{"type":"object"}}}]
+	}`)
+	opts := translate.EmitOptions{
+		TargetModel:    "gpt-5.6-luna",
+		TargetProvider: providers.ProviderOpenAIGateway,
+		Capabilities:   router.Lookup("gpt-5.6-luna"),
+	}
+	out := parseAndEmit(t, body, "openai", opts)
+	assert.NotContains(t, out, "reasoning_effort")
+	assert.Contains(t, out, "tools")
+}
+
 func TestOpenAISameFormat_ReasoningStripsUnsupportedSampling(t *testing.T) {
 	body := []byte(`{
 		"model":"gpt-5.5",
