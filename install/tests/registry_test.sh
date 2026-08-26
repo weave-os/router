@@ -320,6 +320,21 @@ run_uninstall "$cx_home" --codex --scope user
 check "uninstall removes every Codex skill it owns" "" \
   "$(cd "$cx_home/.codex" 2>/dev/null && ls -d skills/*/ 2>/dev/null | tr -d '/' | sed 's|skills||' | tr '\n' ' ' | sed 's/ $//')"
 
+if [ -d "$cx_home/.codex/skills" ]; then
+  no "uninstall drops the skills dir once it is empty" "removed" "left behind"
+else
+  ok "uninstall drops the skills dir once it is empty"
+fi
+
+# An unrelated skill must keep the directory alive.
+keep_home="$work/codex-keep"; mkdir -p "$keep_home"
+run_install "$keep_home" --codex --scope user
+mkdir -p "$keep_home/.codex/skills/my-own-skill"
+printf '%s\n' 'user skill' >"$keep_home/.codex/skills/my-own-skill/SKILL.md"
+run_uninstall "$keep_home" --codex --scope user
+check "uninstall keeps a skills dir that still holds a user skill" "user skill" \
+  "$(cat "$keep_home/.codex/skills/my-own-skill/SKILL.md" 2>/dev/null)"
+
 # A symlinked skills/ or per-skill dir must not be followed: the marker check
 # and rm would otherwise reach a file outside the Codex tree entirely.
 sym_skills="$work/sym-skills"

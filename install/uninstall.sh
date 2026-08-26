@@ -588,6 +588,10 @@ EOF
     done <<EOF
 $(weave_registry_skill_assets codex)
 EOF
+    # Drop skills/ when nothing is left in it, matching how the prompts and
+    # Claude command paths clean up their now-empty directories. rmdir refuses
+    # a non-empty dir, so an unrelated user skill keeps it.
+    rmdir "$codex_dir/skills" 2>/dev/null || true
   fi
 
   if [ -n "$install_dir" ]; then
