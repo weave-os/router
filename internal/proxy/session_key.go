@@ -53,12 +53,19 @@ func bindRequestLogger(
 		"api_key_id", apiKeyID,
 		"ingress", ingress,
 	)
-	// The client's own session id (e.g. Claude Code's /status UUID), bound
-	// when present so operators can grep by the id the user actually sees.
+	// The client's own session id, bound when present so operators can grep
+	// by the id the user actually sees. Envelope first (Claude Code packs it
+	// in metadata.user_id); header identity covers Codex, which sends
+	// Session-Id and never a Chat Completions `user` field.
+	cs := ""
 	if env != nil {
-		if cs := env.ClientSessionID(); cs != "" {
-			log = log.With("client_session_id", cs)
-		}
+		cs = env.ClientSessionID()
+	}
+	if cs == "" {
+		cs = ClientIdentityFrom(ctx).SessionID
+	}
+	if cs != "" {
+		log = log.With("client_session_id", cs)
 	}
 	return observability.WithLogger(ctx, log), log, key
 }

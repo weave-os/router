@@ -41,13 +41,30 @@ func ClientIdentityFrom(ctx context.Context) ClientIdentity {
 // anthropic.stashClientIdentity) overlay those after calling this.
 func ClientIdentityFromHeaders(h http.Header) ClientIdentity {
 	return ClientIdentity{
-		SessionID:   NormalizeClientIdentifier(h.Get("X-Claude-Code-Session-Id")),
+		SessionID:   sessionIDFromHeaders(h),
 		Email:       NormalizeEmail(h.Get("X-Weave-User-Email")),
 		DisplayName: NormalizeDisplayName(h.Get("X-Weave-User-Name")),
 		UserAgent:   h.Get("User-Agent"),
 		ClientApp:   NormalizeClientApp(h.Get("X-App"), h.Get("User-Agent")),
 		RolloutID:   NormalizeRolloutID(h.Get(RolloutIDHeader)),
 	}
+}
+
+// sessionIDFromHeaders picks the first usable client session id. Claude Code
+// sends X-Claude-Code-Session-Id; Codex 0.149+ sends Session-Id (and Thread-Id
+// with the same value on the main thread). First match wins so a mixed
+// client cannot have Claude Code's header overwritten by Codex leftovers.
+func sessionIDFromHeaders(h http.Header) string {
+	for _, key := range [...]string{
+		"X-Claude-Code-Session-Id",
+		"Session-Id",
+		"Thread-Id",
+	} {
+		if id := NormalizeClientIdentifier(h.Get(key)); id != "" {
+			return id
+		}
+	}
+	return ""
 }
 
 // ResolveUserFromContext dispatches identity signals from ctx to
