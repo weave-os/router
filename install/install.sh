@@ -2632,14 +2632,24 @@ EOF
     if [ "$scope" = "project" ] || [ -n "$install_dir" ]; then
       refuse_if_symlink "$dst"
     fi
-    if [ -e "$dst" ] && { [ ! -f "$dst" ] || ! grep -Fq "<!-- weave-router managed command: $cmd -->" "$dst"; }; then
-      warn "A user-owned $target command already exists at $dst; leaving it untouched."
-      continue
-    fi
     # Substitute the {{SCOPE}} placeholder (only the router-* wrappers carry it;
     # cp-equivalent for the others since the token is absent).
     local body; body="$(cat "$src")"
     body="${body//\{\{SCOPE\}\}/$scope_args}"
+    # Wrappers installed before ownership markers existed carry no marker. A
+    # file whose body still matches what this installer would write is one of
+    # ours from an older version, so adopt it rather than treating it as
+    # user-owned — otherwise every pre-marker install is stranded: never
+    # refreshed, never uninstalled, and skipped by the statusline refresh.
+    # Anything that does not match byte-for-byte is left alone.
+    if [ -e "$dst" ] && { [ ! -f "$dst" ] || ! grep -Fq "<!-- weave-router managed command: $cmd -->" "$dst"; }; then
+      if [ -f "$dst" ] && [ "$(cat "$dst")" = "$body" ]; then
+        : # an unmarked copy of our own wrapper; fall through and adopt it
+      else
+        warn "A user-owned $target command already exists at $dst; leaving it untouched."
+        continue
+      fi
+    fi
     printf '%s\n<!-- weave-router managed command: %s -->' "$body" "$cmd" >"$dst"
   done
   seed_command_baseline "$commands_src_dir" "$cmds"
@@ -3177,15 +3187,19 @@ weave_command_tracked_by_git() {
   git -C "$(dirname "$1")" ls-files --error-unmatch -- "$1" >/dev/null 2>&1
 }
 
-# weave_installed_command_names lists the wrappers this install owns, read from
-# the marker each installed file carries. The statusline ships standalone (no
-# registry.sh beside it), so the installed set — itself written from the
-# registry — is the only source of truth available here.
+# weave_installed_command_names lists the wrappers this install may refresh.
+# The statusline ships standalone (no registry.sh beside it), so the installed
+# set — itself written from the registry — is the only source of truth here.
+#
+# Files written before ownership markers existed carry none, so matching on the
+# marker alone would freeze every pre-marker install out of refreshes forever.
+# List every wrapper instead and let the baseline comparison below decide: a
+# file is replaced only when its bytes still match the last canonical copy, so
+# a user-authored command is never touched whether or not it carries a marker.
 weave_installed_command_names() {
   local dir="$1" file
   for file in "$dir"/*.md; do
     [ -f "$file" ] || continue
-    grep -q '^<!-- weave-router managed command: .* -->$' "$file" 2>/dev/null || continue
     printf '%s\n' "$(basename "$file" .md)"
   done
 }

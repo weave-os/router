@@ -159,15 +159,19 @@ weave_command_tracked_by_git() {
   git -C "$(dirname "$1")" ls-files --error-unmatch -- "$1" >/dev/null 2>&1
 }
 
-# weave_installed_command_names lists the wrappers this install owns, read from
-# the marker each installed file carries. The statusline ships standalone (no
-# registry.sh beside it), so the installed set — itself written from the
-# registry — is the only source of truth available here.
+# weave_installed_command_names lists the wrappers this install may refresh.
+# The statusline ships standalone (no registry.sh beside it), so the installed
+# set — itself written from the registry — is the only source of truth here.
+#
+# Files written before ownership markers existed carry none, so matching on the
+# marker alone would freeze every pre-marker install out of refreshes forever.
+# List every wrapper instead and let the baseline comparison below decide: a
+# file is replaced only when its bytes still match the last canonical copy, so
+# a user-authored command is never touched whether or not it carries a marker.
 weave_installed_command_names() {
   local dir="$1" file
   for file in "$dir"/*.md; do
     [ -f "$file" ] || continue
-    grep -q '^<!-- weave-router managed command: .* -->$' "$file" 2>/dev/null || continue
     printf '%s\n' "$(basename "$file" .md)"
   done
 }

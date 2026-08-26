@@ -28,9 +28,95 @@ scope="user"
 scope_explicit="false"
 install_dir=""
 script_dir="$(cd "$(dirname "$0")" 2>/dev/null && pwd || true)"
-registry_lib="$script_dir/registry.sh"
-# shellcheck disable=SC1090
-. "$registry_lib"
+
+# ---------- directive registry (embedded) ----------
+#
+# uninstall.sh is served standalone too (the npm bin runs it directly, and it
+# can be piped), so it cannot rely on a sibling registry.sh. The data and
+# helpers are embedded verbatim; install/tests/registry_test.sh asserts they
+# never drift from the canonical files. Regenerate with `make embed-registry`.
+WEAVE_REGISTRY_DATA=$(cat <<'WEAVE_REGISTRY_EOF'
+# Weave Router directive registry
+# canonical|aliases|capability|claude|codex|opencode|pi|cursor|adapter
+# aliases are comma-separated; client columns are yes/no. adapter is the native asset kind.
+force-model|fm|prompt|yes|yes|yes|yes|manual|command,skill
+unforce-model|ufm|prompt|yes|yes|yes|yes|manual|command,skill
+router-feedback|rf|prompt|yes|yes|yes|no|manual|command,skill
+router-off||local-toggle|yes|no|no|no|manual|command
+router-on||local-toggle|yes|no|no|no|manual|command
+router-status||local-toggle|yes|no|no|no|manual|command
+router-session||prompt|yes|no|no|no|manual|command
+router-models|models|local-toggle|yes|no|no|no|manual|command
+disable-routing||local-toggle|no|yes|no|no|manual|skill
+WEAVE_REGISTRY_EOF
+)
+
+# >>> weave-router registry lib >>>
+weave_registry_rows() {
+  if [ -n "${WEAVE_REGISTRY_DATA:-}" ]; then
+    printf '%s\n' "$WEAVE_REGISTRY_DATA" | awk -F '|' '!/^([[:space:]]*#|[[:space:]]*$)/ { print }'
+    return 0
+  fi
+  local registry="${WEAVE_REGISTRY_FILE:-}"
+  if [ -z "$registry" ]; then
+    local dir
+    dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd -P)" || return 1
+    registry="$dir/directives.tsv"
+  fi
+  [ -f "$registry" ] || return 1
+  awk -F '|' '!/^([[:space:]]*#|[[:space:]]*$)/ { print }' "$registry"
+}
+
+# weave_registry_names lists every canonical name and alias a client installs.
+weave_registry_names() {
+  local target="$1" canonical aliases capability claude codex opencode pi cursor adapter
+  while IFS='|' read -r canonical aliases capability claude codex opencode pi cursor adapter; do
+    case "$target" in
+      claude) [ "$claude" = yes ] || continue ;; codex) [ "$codex" = yes ] || continue ;;
+      opencode) [ "$opencode" = yes ] || continue ;; pi) [ "$pi" = yes ] || continue ;;
+      cursor) [ "$cursor" = yes ] || continue ;;
+    esac
+    printf '%s\n' "$canonical"
+    [ -n "$aliases" ] && printf '%s\n' "$aliases" | tr ',' '\n'
+  done <<EOF
+$(weave_registry_rows)
+EOF
+}
+
+# weave_registry_skill_names lists the prompt directives a client exposes as a
+# native skill. Local-config toggles are excluded: they mutate config this
+# installer owns and are handled per target, not as a generic prompt.
+weave_registry_skill_names() {
+  local target="$1" canonical aliases capability claude codex opencode pi cursor adapter
+  while IFS='|' read -r canonical aliases capability claude codex opencode pi cursor adapter; do
+    [ "$capability" = prompt ] || continue
+    case "$target" in
+      claude) [ "$claude" = yes ] || continue ;; codex) [ "$codex" = yes ] || continue ;;
+      opencode) [ "$opencode" = yes ] || continue ;; pi) [ "$pi" = yes ] || continue ;;
+      cursor) [ "$cursor" = yes ] || continue ;;
+    esac
+    printf '%s\n' "$canonical"
+  done <<EOF
+$(weave_registry_rows)
+EOF
+}
+
+# weave_registry_canonical_for resolves a name or alias to its canonical
+# directive, and fails when the name is not in the registry at all.
+weave_registry_canonical_for() {
+  local wanted="$1" canonical aliases capability claude codex opencode pi cursor adapter alias
+  while IFS='|' read -r canonical aliases capability claude codex opencode pi cursor adapter; do
+    [ "$wanted" = "$canonical" ] && { printf '%s' "$canonical"; return 0; }
+    IFS=',' read -ra _aliases <<< "$aliases"
+    for alias in ${_aliases[@]+"${_aliases[@]}"}; do
+      [ "$wanted" = "$alias" ] && { printf '%s' "$canonical"; return 0; }
+    done
+  done <<EOF
+$(weave_registry_rows)
+EOF
+  return 1
+}
+# <<< weave-router registry lib <<<
 
 target="claude"
 

@@ -129,6 +129,24 @@ else
   ok "the standalone installer runs without its sibling files"
 fi
 
+# uninstall.sh is served standalone too (the npm bin runs it directly, and it
+# can be piped). Sourcing a sibling registry.sh would abort it under `set -e`
+# before it removed anything.
+cp "$install_dir/uninstall.sh" "$standalone/uninstall.sh"
+( cd "$standalone" && cat uninstall.sh | HOME="$standalone/home" bash -s -- --claude --scope user ) \
+  >"$work/standalone-uninstall.log" 2>&1 || true
+if grep -qi 'registry.sh: No such file\|unbound variable\|command not found' "$work/standalone-uninstall.log"; then
+  no "the standalone uninstaller runs without its sibling files" "no resolution errors" \
+    "$(grep -im1 'registry.sh: No such file\|unbound variable\|command not found' "$work/standalone-uninstall.log")"
+else
+  ok "the standalone uninstaller runs without its sibling files"
+fi
+
+check "uninstall.sh embeds the canonical registry data" "$(cat "$install_dir/directives.tsv")" \
+  "$(awk '/^WEAVE_REGISTRY_DATA=\$\(cat <<.WEAVE_REGISTRY_EOF.$/{f=1;next} /^WEAVE_REGISTRY_EOF$/{f=0} f' "$install_dir/uninstall.sh")"
+check "uninstall.sh embeds the canonical registry helpers" \
+  "$(lib_region "$install_dir/registry.sh")" "$(lib_region "$install_dir/uninstall.sh")"
+
 # ---------- installs ----------
 
 printf '\ninstalls\n'
@@ -248,6 +266,27 @@ printf '%s\n' 'my own wrapper' >"$cc_home/.claude/commands/rf.md"
 run_install "$cc_home" --claude --scope user
 check "install preserves a user-owned Claude command" "my own wrapper" \
   "$(cat "$cc_home/.claude/commands/rf.md")"
+
+# Wrappers written before ownership markers existed carry none. One whose body
+# still matches what this installer writes is ours from an older version, so an
+# upgrade must adopt it — otherwise it is never refreshed and never uninstalled.
+legacy_home="$work/claude-legacy"; mkdir -p "$legacy_home/.claude/commands"
+legacy_body="$(sed 's/{{SCOPE}}//g' "$install_dir/commands/fm.md")"
+printf '%s\n' "$legacy_body" >"$legacy_home/.claude/commands/fm.md"
+printf '%s\n' 'MY OWN CUSTOM WRAPPER' >"$legacy_home/.claude/commands/rf.md"
+run_install "$legacy_home" --claude --scope user
+if grep -Fq '<!-- weave-router managed command: fm -->' "$legacy_home/.claude/commands/fm.md"; then
+  ok "an upgrade adopts an unmarked wrapper it previously wrote"
+else
+  no "an upgrade adopts an unmarked wrapper it previously wrote" "marker added" "still unmarked"
+fi
+check "an upgrade still leaves a genuinely user-authored command alone" "MY OWN CUSTOM WRAPPER" \
+  "$(cat "$legacy_home/.claude/commands/rf.md")"
+
+# Having adopted it, uninstall must now clean it up rather than strand it.
+run_uninstall "$legacy_home" --claude --scope user
+check "uninstall removes a wrapper adopted from a pre-marker install" "rf" \
+  "$(installed_names "$legacy_home/.claude/commands")"
 
 printf '%s\n' 'my own opencode wrapper' >"$oc_cmds/fm.md"
 XDG_CONFIG_HOME="$oc_xdg" run_install "$oc_home" --opencode --scope user

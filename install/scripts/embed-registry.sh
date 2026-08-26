@@ -12,10 +12,11 @@ set -euo pipefail
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 install_dir="$script_dir/.."
 installer="$install_dir/install.sh"
+uninstaller="$install_dir/uninstall.sh"
 registry="$install_dir/registry.sh"
 data="$install_dir/directives.tsv"
 
-for f in "$installer" "$registry" "$data"; do
+for f in "$installer" "$uninstaller" "$registry" "$data"; do
   [ -f "$f" ] || { echo "missing $f" >&2; exit 1; }
 done
 
@@ -26,33 +27,39 @@ tmp="$(mktemp -t weave-embed.XXXXXX)"
 trap 'rm -f "$tmp"' EXIT
 
 # Replace the data heredoc and the lib region in place, leaving everything else
-# in install.sh untouched.
-LIB="$lib" DATA_FILE="$data" awk '
-  /^WEAVE_REGISTRY_DATA=\$\(cat <<.WEAVE_REGISTRY_EOF.$/ {
-    print
-    while ((getline line < ENVIRON["DATA_FILE"]) > 0) print line
-    close(ENVIRON["DATA_FILE"])
-    skip_data = 1
-    next
-  }
-  skip_data && /^WEAVE_REGISTRY_EOF$/ { skip_data = 0; print; next }
-  skip_data { next }
-  /^# >>> weave-router registry lib >>>$/ {
-    print
-    print ENVIRON["LIB"]
-    skip_lib = 1
-    next
-  }
-  skip_lib && /^# <<< weave-router registry lib <<<$/ { skip_lib = 0; print; next }
-  skip_lib { next }
-  { print }
-' "$installer" >"$tmp"
+# in the target script untouched.
+embed_into() {
+  local target="$1"
+  LIB="$lib" DATA_FILE="$data" awk '
+    /^WEAVE_REGISTRY_DATA=\$\(cat <<.WEAVE_REGISTRY_EOF.$/ {
+      print
+      while ((getline line < ENVIRON["DATA_FILE"]) > 0) print line
+      close(ENVIRON["DATA_FILE"])
+      skip_data = 1
+      next
+    }
+    skip_data && /^WEAVE_REGISTRY_EOF$/ { skip_data = 0; print; next }
+    skip_data { next }
+    /^# >>> weave-router registry lib >>>$/ {
+      print
+      print ENVIRON["LIB"]
+      skip_lib = 1
+      next
+    }
+    skip_lib && /^# <<< weave-router registry lib <<<$/ { skip_lib = 0; print; next }
+    skip_lib { next }
+    { print }
+  ' "$target" >"$tmp"
 
-bash -n "$tmp" || { echo "re-embedded install.sh does not parse; leaving the original alone" >&2; exit 1; }
+  bash -n "$tmp" || { echo "re-embedded $target does not parse; leaving the original alone" >&2; exit 1; }
 
-if cmp -s "$tmp" "$installer"; then
-  echo "install.sh already up to date."
-else
-  cat "$tmp" >"$installer"
-  echo "Re-embedded the registry into install.sh."
-fi
+  if cmp -s "$tmp" "$target"; then
+    echo "$(basename "$target") already up to date."
+  else
+    cat "$tmp" >"$target"
+    echo "Re-embedded the registry into $(basename "$target")."
+  fi
+}
+
+embed_into "$installer"
+embed_into "$uninstaller"
