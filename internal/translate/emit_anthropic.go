@@ -804,10 +804,8 @@ func sanitizeAnthropicTools(v any) any {
 				copied[k] = sanitizeAnthropicSchema(child)
 				continue
 			}
-			// Anthropic 400s empty allowed_domains/blocked_domains on native
-			// web_search_* tools ("Empty list of domains is ambiguous").
-			// Claude Code/SDK often sends blocked_domains: [] alongside an
-			// allowlist; omit the empty array so the field is absent.
+			// Anthropic 400s empty allowed_domains/blocked_domains ("Empty list of
+			// domains is ambiguous"); omit so the field is absent rather than [].
 			if (k == "allowed_domains" || k == "blocked_domains") && isEmptyDomainList(child) {
 				continue
 			}
