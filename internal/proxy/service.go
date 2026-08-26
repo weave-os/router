@@ -3249,7 +3249,34 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			}
 			crossFormat = false
 			logUpstreamBody(log, routeRes.SessionKey, target, feats, prep.Body)
-			return s.anthropicNativeAttempt(env, r, prep, sink, preludeBuf, targetMarker, setExtractor), nil
+			native := s.anthropicNativeAttempt(env, r, prep, sink, preludeBuf, targetMarker, setExtractor)
+			return func(actx context.Context, d router.Decision, p providers.Client) error {
+				err := native(actx, d, p)
+				// Structured output is part of the Messages spec an Anthropic-spec
+				// gateway serves (Snowflake Cortex documents output_config.format),
+				// so the knob always goes out as written and only a gateway whose
+				// relayed schema predates it degrades: re-emit once without it
+				// rather than sending every gateway turn unstructured.
+				if err == nil || committed(preludeBuf) || !providers.IsUpstreamOutputConfigFormatRejection(err) {
+					return err
+				}
+				unstructuredOpts := targetOpts
+				unstructuredOpts.StripOutputConfigFormat = true
+				unstructuredPrep, emitErr := env.PrepareAnthropic(r.Header, unstructuredOpts)
+				if emitErr != nil {
+					log.Error("Failed to re-emit Anthropic body without output_config.format", "err", emitErr)
+					return err
+				}
+				log.Warn("Retrying Anthropic request without output_config.format after upstream rejected it",
+					"model", d.Model,
+					"provider", d.Provider,
+					"request_id", requestID)
+				if preludeBuf != nil {
+					preludeBuf.Discard()
+				}
+				logUpstreamBody(log, routeRes.SessionKey, target, feats, unstructuredPrep.Body)
+				return s.anthropicNativeAttempt(env, r, unstructuredPrep, sink, preludeBuf, targetMarker, setExtractor)(actx, d, p)
+			}, nil
 		case providers.FamilyOpenAICompat:
 			crossFormat = true
 			// Prep rebuilt per attempt: targetIsOpenRouter(opts) gates four

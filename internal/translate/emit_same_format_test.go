@@ -1261,28 +1261,29 @@ func TestAnthropicSameFormat_NonXhighEffortUntouchedByClamp(t *testing.T) {
 	assert.Equal(t, "high", outputConfig["effort"], "supported effort levels must pass through unchanged")
 }
 
-// Prod repro (2026-08-26, Snowflake): Claude Code's structured-output turn
-// against claude-sonnet-5 on an Anthropic-spec gateway 400'd with
-// `output_config.format: Extra inputs are not permitted`.
-func TestAnthropicSameFormat_OutputConfigFormatDroppedForGateway(t *testing.T) {
+// Prod repro: a gateway answered `output_config.format: Extra inputs are not
+// permitted`, so the retry emit drops the knob and prunes an emptied container.
+func TestAnthropicSameFormat_OutputConfigFormatStrippedOnRequest(t *testing.T) {
 	body := []byte(`{"model":"claude-sonnet-5","messages":[{"role":"user","content":"hi"}],"max_tokens":1024,` +
 		`"output_config":{"format":{"type":"json_schema","schema":{"type":"object","properties":{"title":{"type":"string"}}}}}}`)
 	out := parseAndEmit(t, body, "anthropic", translate.EmitOptions{
-		TargetModel:    "claude-sonnet-5",
-		TargetProvider: providers.ProviderAnthropicGateway,
-		Capabilities:   router.Lookup("claude-sonnet-5"),
+		TargetModel:             "claude-sonnet-5",
+		TargetProvider:          providers.ProviderAnthropicGateway,
+		Capabilities:            router.Lookup("claude-sonnet-5"),
+		StripOutputConfigFormat: true,
 	})
 	assert.NotContains(t, out, "output_config", "an emptied output_config must be pruned, not sent as {}")
 }
 
-// Only the rejected knob goes: a gateway turn keeps its adaptive effort.
-func TestAnthropicSameFormat_OutputConfigEffortKeptForGateway(t *testing.T) {
+// Only the rejected knob goes: the retry keeps its adaptive effort.
+func TestAnthropicSameFormat_OutputConfigEffortSurvivesFormatStrip(t *testing.T) {
 	body := []byte(`{"model":"claude-sonnet-5","messages":[{"role":"user","content":"hi"}],"max_tokens":1024,` +
 		`"thinking":{"type":"adaptive"},"output_config":{"effort":"high","format":{"type":"json_schema"}}}`)
 	out := parseAndEmit(t, body, "anthropic", translate.EmitOptions{
-		TargetModel:    "claude-sonnet-5",
-		TargetProvider: providers.ProviderAnthropicGateway,
-		Capabilities:   router.Lookup("claude-sonnet-5"),
+		TargetModel:             "claude-sonnet-5",
+		TargetProvider:          providers.ProviderAnthropicGateway,
+		Capabilities:            router.Lookup("claude-sonnet-5"),
+		StripOutputConfigFormat: true,
 	})
 	outputConfig, _ := out["output_config"].(map[string]any)
 	require.NotNil(t, outputConfig)
@@ -1290,18 +1291,23 @@ func TestAnthropicSameFormat_OutputConfigEffortKeptForGateway(t *testing.T) {
 	assert.NotContains(t, outputConfig, "format")
 }
 
-// First-party Anthropic serves structured output natively — don't strip there.
-func TestAnthropicSameFormat_OutputConfigFormatKeptForFirstParty(t *testing.T) {
+// Gateways serve structured output (Cortex documents it), so the first attempt
+// carries the knob to a gateway exactly as it does to first-party Anthropic.
+func TestAnthropicSameFormat_OutputConfigFormatKeptByDefault(t *testing.T) {
 	body := []byte(`{"model":"claude-sonnet-5","messages":[{"role":"user","content":"hi"}],"max_tokens":1024,` +
 		`"output_config":{"format":{"type":"json_schema"}}}`)
-	out := parseAndEmit(t, body, "anthropic", translate.EmitOptions{
-		TargetModel:    "claude-sonnet-5",
-		TargetProvider: providers.ProviderAnthropic,
-		Capabilities:   router.Lookup("claude-sonnet-5"),
-	})
-	outputConfig, _ := out["output_config"].(map[string]any)
-	require.NotNil(t, outputConfig)
-	assert.Contains(t, outputConfig, "format")
+	for _, provider := range []string{providers.ProviderAnthropic, providers.ProviderAnthropicGateway} {
+		t.Run(provider, func(t *testing.T) {
+			out := parseAndEmit(t, body, "anthropic", translate.EmitOptions{
+				TargetModel:    "claude-sonnet-5",
+				TargetProvider: provider,
+				Capabilities:   router.Lookup("claude-sonnet-5"),
+			})
+			outputConfig, _ := out["output_config"].(map[string]any)
+			require.NotNil(t, outputConfig)
+			assert.Contains(t, outputConfig, "format")
+		})
+	}
 }
 
 // openAIReasoningSignature builds the cross-format envelope that

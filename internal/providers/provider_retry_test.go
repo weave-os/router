@@ -195,6 +195,56 @@ func TestIsUpstreamSchemaRejection(t *testing.T) {
 	assert.False(t, providers.IsUpstreamSchemaRejection(fmt.Errorf("transport blew up")))
 }
 
+// TestIsUpstreamOutputConfigFormatRejection pins the gateway 400 that names
+// Anthropic's structured-output knob (prod 2026-08-26, Snowflake) and keeps the
+// match off ordinary validation failures — the signal only licenses one retry
+// that drops the knob, so a loose match silently unstructures a good request.
+func TestIsUpstreamOutputConfigFormatRejection(t *testing.T) {
+	cases := []struct {
+		name   string
+		status int
+		body   string
+		want   bool
+	}{
+		{
+			name:   "gateway rejects the structured-output knob",
+			status: http.StatusBadRequest,
+			body:   `{"message":"output_config.format: Extra inputs are not permitted"}`,
+			want:   true,
+		},
+		{
+			name:   "pydantic loc list phrasing",
+			status: http.StatusBadRequest,
+			body:   `{"detail":[{"loc":["body","output_config","format"],"msg":"extra fields not permitted"}]}`,
+			want:   true,
+		},
+		{
+			name:   "unrelated validation 400",
+			status: http.StatusBadRequest,
+			body:   `{"error":{"message":"messages: at least one message is required"}}`,
+			want:   false,
+		},
+		{
+			name:   "500 mentioning the field is not a rejection",
+			status: http.StatusInternalServerError,
+			body:   `{"message":"output_config.format: Extra inputs are not permitted"}`,
+			want:   false,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := &providers.UpstreamErrorResponse{Status: tc.status, Body: []byte(tc.body)}
+			assert.Equal(t, tc.want, providers.IsUpstreamOutputConfigFormatRejection(err))
+			if tc.want {
+				assert.False(t, providers.IsRetryable(err),
+					"an identical re-POST 400s; only the knob-stripped re-emit may retry")
+			}
+		})
+	}
+	assert.False(t, providers.IsUpstreamOutputConfigFormatRejection(nil))
+	assert.False(t, providers.IsUpstreamOutputConfigFormatRejection(fmt.Errorf("transport blew up")))
+}
+
 // TestUpstreamErrorBodyMessage pins the buffered-body extraction used by the
 // ProxyMessages complete log: nested error.message wins, top-level message is
 // the fallback, and a non-JSON body is returned truncated rather than dropped.

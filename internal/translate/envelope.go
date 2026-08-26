@@ -7,7 +7,6 @@ import (
 	"regexp"
 	"strings"
 
-	"workweave/router/internal/providers"
 	"workweave/router/internal/router"
 	"workweave/router/internal/translate/toolcheck"
 
@@ -71,6 +70,10 @@ type EmitOptions struct {
 	// tools are always stripped. Set from ROUTER_CC_ORCH_TOOLS_CROSSVENDOR;
 	// zero value false preserves historical strip-all behavior.
 	KeepCrossVendorOrchestrationTools bool
+	// StripOutputConfigFormat drops output_config.format. Anthropic-spec
+	// gateways are documented to serve the knob (Cortex does), so the proxy sets
+	// this only on a one-shot retry after one 400s on it.
+	StripOutputConfigFormat bool
 	// DowngradeGeminiValidatedToAuto emits functionCallingConfig.mode=AUTO
 	// instead of VALIDATED for Gemini 3.x. VALIDATED compiles tool schemas into
 	// a decode-time grammar and 400s INVALID_ARGUMENT if one won't compile; the
@@ -380,9 +383,8 @@ type EmitOverrides struct {
 	// and the heuristic OutputConfigEffort — user knob beats request-derived default.
 	// Value is already cap-applied (xhigh→max) by resolveForceEffort upstream.
 	ForceOutputConfigEffort string
-	// StripOutputConfigFormat removes Anthropic's structured-output knob
-	// (`output_config.format`), pruning `output_config` when nothing else is
-	// left. Set for gateway targets, whose relayed schema rejects the field.
+	// StripOutputConfigFormat drops output_config.format, pruning output_config
+	// when nothing else remains. Mirrors EmitOptions.StripOutputConfigFormat.
 	StripOutputConfigFormat bool
 	// ClampEffortXhighTo downgrades a caller-supplied "xhigh" effort (`effort`
 	// and `output_config.effort`) to this value. Set when the target lacks
@@ -1204,10 +1206,7 @@ func resolveAnthropicOverrides(body []byte, opts EmitOptions) EmitOverrides {
 		}
 	}
 
-	// A gateway relays to a backend that predates Anthropic's structured-output
-	// knob and answers `output_config.format: Extra inputs are not permitted`;
-	// serving the turn unstructured beats failing it.
-	ov.StripOutputConfigFormat = providers.IsGateway(opts.TargetProvider)
+	ov.StripOutputConfigFormat = opts.StripOutputConfigFormat
 
 	// "xhigh" is opus-4-7+ only; clamp to the max every adaptive model accepts
 	// so a re-route can't turn a valid request into an invalid one.
