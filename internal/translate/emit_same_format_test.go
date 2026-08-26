@@ -378,6 +378,49 @@ func TestAnthropicSameFormat_StripsUnsupportedToolSchemaPattern(t *testing.T) {
 	assert.Equal(t, "decimal", amount["description"])
 }
 
+func TestAnthropicSameFormat_OmitsEmptyWebSearchDomainLists(t *testing.T) {
+	body := []byte(`{"model":"claude-opus-4-8","messages":[{"role":"user","content":"search"}],"max_tokens":1024,"tools":[{
+		"type":"web_search_20250305",
+		"name":"web_search",
+		"allowed_domains":["openrouter.ai","docs.anthropic.com"],
+		"blocked_domains":[],
+		"max_uses":8
+	}]}`)
+	opts := translate.EmitOptions{
+		TargetModel:  "claude-opus-4-7",
+		Capabilities: router.Lookup("claude-opus-4-7"),
+	}
+	out := parseAndEmit(t, body, "anthropic", opts)
+
+	tools, _ := out["tools"].([]any)
+	require.Len(t, tools, 1)
+	tool, _ := tools[0].(map[string]any)
+	assert.Equal(t, "web_search_20250305", tool["type"])
+	assert.Equal(t, []any{"openrouter.ai", "docs.anthropic.com"}, tool["allowed_domains"])
+	assert.NotContains(t, tool, "blocked_domains", "Anthropic 400s empty domain lists; omit them")
+	assert.Equal(t, float64(8), tool["max_uses"])
+}
+
+func TestAnthropicSameFormat_OmitsEmptyAllowedDomains(t *testing.T) {
+	body := []byte(`{"model":"claude-opus-4-8","messages":[{"role":"user","content":"search"}],"max_tokens":1024,"tools":[{
+		"type":"web_search_20250305",
+		"name":"web_search",
+		"allowed_domains":[],
+		"blocked_domains":["example.com"]
+	}]}`)
+	opts := translate.EmitOptions{
+		TargetModel:  "claude-opus-4-7",
+		Capabilities: router.Lookup("claude-opus-4-7"),
+	}
+	out := parseAndEmit(t, body, "anthropic", opts)
+
+	tools, _ := out["tools"].([]any)
+	require.Len(t, tools, 1)
+	tool, _ := tools[0].(map[string]any)
+	assert.NotContains(t, tool, "allowed_domains")
+	assert.Equal(t, []any{"example.com"}, tool["blocked_domains"])
+}
+
 func TestOpenAIToAnthropic_StripsUnsupportedToolSchemaPattern(t *testing.T) {
 	body := []byte(`{"model":"gpt-4o","messages":[{"role":"user","content":"hello"}],"tools":[{
 		"type":"function",
