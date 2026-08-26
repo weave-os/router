@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"strings"
 
+	"workweave/router/internal/providers"
 	"workweave/router/internal/router"
 	"workweave/router/internal/translate/toolcheck"
 
@@ -379,6 +380,10 @@ type EmitOverrides struct {
 	// and the heuristic OutputConfigEffort — user knob beats request-derived default.
 	// Value is already cap-applied (xhigh→max) by resolveForceEffort upstream.
 	ForceOutputConfigEffort string
+	// StripOutputConfigFormat removes Anthropic's structured-output knob
+	// (`output_config.format`), pruning `output_config` when nothing else is
+	// left. Set for gateway targets, whose relayed schema rejects the field.
+	StripOutputConfigFormat bool
 	// ClampEffortXhighTo downgrades a caller-supplied "xhigh" effort (`effort`
 	// and `output_config.effort`) to this value. Set when the target lacks
 	// xhigh (router.CapXhighEffort) so a mid-session re-route doesn't forward
@@ -522,6 +527,33 @@ func applyOverrides(body []byte, ov EmitOverrides) ([]byte, error) {
 		}
 	}
 
+	if ov.StripOutputConfigFormat {
+		out, err = stripOutputConfigFormatBytes(out)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return out, nil
+}
+
+// stripOutputConfigFormatBytes drops output_config.format and, when that
+// leaves output_config empty, the container too.
+func stripOutputConfigFormatBytes(body []byte) ([]byte, error) {
+	if !gjson.GetBytes(body, "output_config.format").Exists() {
+		return body, nil
+	}
+	out, err := sjson.DeleteBytes(body, "output_config.format")
+	if err != nil {
+		return nil, fmt.Errorf("delete output_config.format: %w", err)
+	}
+	if len(gjson.GetBytes(out, "output_config").Map()) > 0 {
+		return out, nil
+	}
+	out, err = sjson.DeleteBytes(out, "output_config")
+	if err != nil {
+		return nil, fmt.Errorf("delete empty output_config: %w", err)
+	}
 	return out, nil
 }
 
@@ -1171,6 +1203,11 @@ func resolveAnthropicOverrides(body []byte, opts EmitOptions) EmitOverrides {
 			}
 		}
 	}
+
+	// A gateway relays to a backend that predates Anthropic's structured-output
+	// knob and answers `output_config.format: Extra inputs are not permitted`;
+	// serving the turn unstructured beats failing it.
+	ov.StripOutputConfigFormat = providers.IsGateway(opts.TargetProvider)
 
 	// "xhigh" is opus-4-7+ only; clamp to the max every adaptive model accepts
 	// so a re-route can't turn a valid request into an invalid one.

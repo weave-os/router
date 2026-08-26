@@ -1261,6 +1261,49 @@ func TestAnthropicSameFormat_NonXhighEffortUntouchedByClamp(t *testing.T) {
 	assert.Equal(t, "high", outputConfig["effort"], "supported effort levels must pass through unchanged")
 }
 
+// Prod repro (2026-08-26, Snowflake): Claude Code's structured-output turn
+// against claude-sonnet-5 on an Anthropic-spec gateway 400'd with
+// `output_config.format: Extra inputs are not permitted`.
+func TestAnthropicSameFormat_OutputConfigFormatDroppedForGateway(t *testing.T) {
+	body := []byte(`{"model":"claude-sonnet-5","messages":[{"role":"user","content":"hi"}],"max_tokens":1024,` +
+		`"output_config":{"format":{"type":"json_schema","schema":{"type":"object","properties":{"title":{"type":"string"}}}}}}`)
+	out := parseAndEmit(t, body, "anthropic", translate.EmitOptions{
+		TargetModel:    "claude-sonnet-5",
+		TargetProvider: providers.ProviderAnthropicGateway,
+		Capabilities:   router.Lookup("claude-sonnet-5"),
+	})
+	assert.NotContains(t, out, "output_config", "an emptied output_config must be pruned, not sent as {}")
+}
+
+// Only the rejected knob goes: a gateway turn keeps its adaptive effort.
+func TestAnthropicSameFormat_OutputConfigEffortKeptForGateway(t *testing.T) {
+	body := []byte(`{"model":"claude-sonnet-5","messages":[{"role":"user","content":"hi"}],"max_tokens":1024,` +
+		`"thinking":{"type":"adaptive"},"output_config":{"effort":"high","format":{"type":"json_schema"}}}`)
+	out := parseAndEmit(t, body, "anthropic", translate.EmitOptions{
+		TargetModel:    "claude-sonnet-5",
+		TargetProvider: providers.ProviderAnthropicGateway,
+		Capabilities:   router.Lookup("claude-sonnet-5"),
+	})
+	outputConfig, _ := out["output_config"].(map[string]any)
+	require.NotNil(t, outputConfig)
+	assert.Equal(t, "high", outputConfig["effort"])
+	assert.NotContains(t, outputConfig, "format")
+}
+
+// First-party Anthropic serves structured output natively — don't strip there.
+func TestAnthropicSameFormat_OutputConfigFormatKeptForFirstParty(t *testing.T) {
+	body := []byte(`{"model":"claude-sonnet-5","messages":[{"role":"user","content":"hi"}],"max_tokens":1024,` +
+		`"output_config":{"format":{"type":"json_schema"}}}`)
+	out := parseAndEmit(t, body, "anthropic", translate.EmitOptions{
+		TargetModel:    "claude-sonnet-5",
+		TargetProvider: providers.ProviderAnthropic,
+		Capabilities:   router.Lookup("claude-sonnet-5"),
+	})
+	outputConfig, _ := out["output_config"].(map[string]any)
+	require.NotNil(t, outputConfig)
+	assert.Contains(t, outputConfig, "format")
+}
+
 // openAIReasoningSignature builds the cross-format envelope that
 // encodeOpenAIReasoningSignature mints, for use in test fixtures.
 func openAIReasoningSignature(t *testing.T, id, enc string) string {
