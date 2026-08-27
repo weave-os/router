@@ -529,7 +529,8 @@ prices='{
     "xiaomi/mimo-v2.5-pro":             0.001,
     "z-ai/glm-5":                       0.001,
     "z-ai/glm-5.1":                     0.0014,
-    "z-ai/glm-5.2":                     0.0014
+    "z-ai/glm-5.2":                     0.0014,
+    "z-ai/glm-5.3-flash":               0.00015
   },
   "output": {
     "claude-fable-5":                   0.05,
@@ -604,7 +605,8 @@ prices='{
     "xiaomi/mimo-v2.5-pro":             0.003,
     "z-ai/glm-5":                       0.0032,
     "z-ai/glm-5.1":                     0.0044,
-    "z-ai/glm-5.2":                     0.0044
+    "z-ai/glm-5.2":                     0.0044,
+    "z-ai/glm-5.3-flash":               0.0005
   }
 }'
 # END_GENERATED_PRICES

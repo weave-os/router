@@ -139,16 +139,17 @@ var forceModelAliases = map[string]string{
 	"kimi-k2.6": "moonshotai/kimi-k2.6",
 	// Generic glm/zai aliases stay on 5.1 (Together/Fireworks/OpenRouter);
 	// 5.2 is Fireworks-only day-0, so it requires an explicit pin.
-	"glm":          "z-ai/glm-5.1",
-	"zai":          "z-ai/glm-5.1",
-	"z-ai":         "z-ai/glm-5.1",
-	"glm-5.2":      "z-ai/glm-5.2",
-	"glm-5.1":      "z-ai/glm-5.1",
-	"glm-5":        "z-ai/glm-5",
-	"minimax":      "minimax/minimax-m3",
-	"minimax-m3":   "minimax/minimax-m3",
-	"minimax-m2.7": "minimax/minimax-m2.7",
-	"mistral":      "mistralai/mistral-small-2603",
+	"glm":           "z-ai/glm-5.1",
+	"zai":           "z-ai/glm-5.1",
+	"z-ai":          "z-ai/glm-5.1",
+	"glm-5.3-flash": "z-ai/glm-5.3-flash",
+	"glm-5.2":       "z-ai/glm-5.2",
+	"glm-5.1":       "z-ai/glm-5.1",
+	"glm-5":         "z-ai/glm-5",
+	"minimax":       "minimax/minimax-m3",
+	"minimax-m3":    "minimax/minimax-m3",
+	"minimax-m2.7":  "minimax/minimax-m2.7",
+	"mistral":       "mistralai/mistral-small-2603",
 }
 
 // resolveForceModel is the legacy two-return surface. New pin-and-effort

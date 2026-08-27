@@ -581,6 +581,21 @@ var Models = []Model{
 		{Provider: providers.ProviderWaferAnthropic, UpstreamID: "GLM-5.2",
 			Price: Pricing{InputUSDPer1M: 1.260, OutputUSDPer1M: 3.960, CacheReadMultiplier: 0.23 / 1.260}},
 	}},
+	// GLM-5.3-Flash: first native-multimodal (image+video) model in the GLM-5
+	// line, so ImageInput stays default (unlike 5/5.1/5.2, which 4xx on image
+	// parts). Thinking cannot be disabled (docs.z.ai/guides/vlm/glm-5.3-flash:
+	// "thinking.type only supports enabled") — do not add it to
+	// openRouterReasoningHint. OpenRouter-only for now: Together and Fireworks
+	// both list it "coming soon" with no live serverless price as of
+	// 2026-08-27. Priced at the standard post-promo rate ($0.15/$0.50, cache
+	// $0.03 — matching Z.ai's own list price) rather than the $0.075/$0.25
+	// introductory rate shared across Z.ai/NovitaAI/GMICloud (through
+	// 2026-09-09 16:00 UTC) — avoids a compile-time price going stale (cf.
+	// gemini-3.7-flash).
+	{ID: "z-ai/glm-5.3-flash", Tier: TierLow, ContextWindow: 1_310_720, Providers: []ProviderBinding{
+		{Provider: providers.ProviderOpenRouter,
+			Price: Pricing{InputUSDPer1M: 0.150, OutputUSDPer1M: 0.500, CacheReadMultiplier: 0.03 / 0.150}},
+	}},
 	// Fireworks-dedicated rows below carry an OpenRouter trailing binding so
 	// managed-prod deploys without a Fireworks key can still resolve them.
 	{ID: "mistralai/mistral-small-2603", Tier: TierMid, ContextWindow: 262_144, Providers: []ProviderBinding{

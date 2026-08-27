@@ -243,6 +243,10 @@ func (e *RequestEnvelope) buildOpenAIFromOpenAI(opts EmitOptions) ([]byte, error
 	if err != nil {
 		return nil, err
 	}
+	body, err = applyGLM53FlashFlagsIfNeeded(body, opts)
+	if err != nil {
+		return nil, err
+	}
 	return body, nil
 }
 
@@ -356,6 +360,10 @@ func (e *RequestEnvelope) buildOpenAIFromAnthropic(opts EmitOptions) ([]byte, pr
 	if err != nil {
 		return nil, stats, err
 	}
+	body, err = applyGLM53FlashFlagsIfNeeded(body, opts)
+	if err != nil {
+		return nil, stats, err
+	}
 	return body, stats, nil
 }
 
@@ -386,6 +394,23 @@ func applyGLM51FlagsIfNeeded(body []byte, opts EmitOptions) ([]byte, error) {
 		body = out
 	}
 	return body, nil
+}
+
+// applyGLM53FlashFlagsIfNeeded sets tool_stream=true for GLM-5.3-Flash
+// (docs.z.ai/guides/vlm/glm-5.3-flash requires it for streaming tool calls).
+// Unlike GLM-5.1, thinking is not force-disabled — it can't be turned off.
+func applyGLM53FlashFlagsIfNeeded(body []byte, opts EmitOptions) ([]byte, error) {
+	if !isGLM53Flash(opts.TargetModel) {
+		return body, nil
+	}
+	if gjson.GetBytes(body, "tool_stream").Exists() {
+		return body, nil
+	}
+	out, err := sjson.SetBytes(body, "tool_stream", true)
+	if err != nil {
+		return nil, fmt.Errorf("set glm-5.3-flash tool_stream: %w", err)
+	}
+	return out, nil
 }
 
 // applyQwen3SamplersIfNeeded layers the Qwen3 model-card sampling defaults
