@@ -5610,16 +5610,12 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		marker = subscriptionOnlyWarningMarkerCodex
 	}
 
-	// A reasoning gpt-5.x tool turn is refused on chat/completions whatever
-	// effort we send, because OpenAI applies its own: "Function tools with
-	// reasoning_effort are not supported for gpt-5.6-luna in
-	// /v1/chat/completions" (prod 2026-08-27, every opencode tool turn routed
-	// to a 5.6 model). A /v1/responses caller's own bytes serve that turn
-	// natively, which also keeps the reasoning the chat projection drops.
-	// Skipped once compaction or a handover rewrote the envelope — the
-	// original bytes no longer describe the history being sent. Mutating
-	// responsesPassthrough here is safe: its pre-routing readers (compaction,
-	// cache eligibility) already ran.
+	// gpt-5.6 refuses a tool turn on chat/completions whatever effort we send
+	// (OpenAI applies its own), so a /v1/responses caller's own bytes serve it
+	// natively — which also keeps the reasoning the chat projection drops.
+	// Skipped once compaction or a handover rewrote the envelope: the original
+	// bytes no longer describe the history being sent. Mutating
+	// responsesPassthrough here is safe; its pre-routing readers already ran.
 	if !responsesPassthrough && !compResOAI.Applied && !routeRes.Handover.Invoked &&
 		decision.Provider == providers.ProviderOpenAI &&
 		translate.UseOpenAIResponsesAPI(decision.Provider, opts.Capabilities, feats.HasTools) {

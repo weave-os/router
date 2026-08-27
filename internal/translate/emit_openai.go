@@ -44,14 +44,11 @@ func reasoningEffortAcceptedOnChatCompletions(opts EmitOptions, hasTools bool) b
 }
 
 // toolTurnNeedsExplicitEffortNone reports whether the target refuses a
-// function-tool turn on /v1/chat/completions unless reasoning_effort is
-// explicitly "none". gpt-5.6 applies its own default effort, so omitting the
-// field is not enough: "Function tools with reasoning_effort are not supported
-// for gpt-5.6-luna in /v1/chat/completions. To use function tools, use
-// /v1/responses or set reasoning_effort to 'none'" (prod 2026-08-27). Only the
-// direct vendor is claimed here — a gateway is downgraded from Responses by
-// the proxy and applies its own effort policy. Reasoning is off for such a
-// turn; the /v1/responses dispatch is what preserves it.
+// function-tool turn on chat/completions unless reasoning_effort is "none".
+// gpt-5.6 applies its own default effort when the field is absent, so dropping
+// it is not enough. Reasoning is off for such a turn; the /v1/responses
+// dispatch is what preserves it. Gateways are excluded — the proxy downgrades
+// them and they apply their own effort policy.
 func toolTurnNeedsExplicitEffortNone(opts EmitOptions, hasTools bool) bool {
 	return hasTools && opts.TargetProvider == providers.ProviderOpenAI &&
 		strings.HasPrefix(opts.TargetModel, "gpt-5.6")
