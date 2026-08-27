@@ -82,9 +82,8 @@ func TestNativeClient_StreamingHintFlipsToStreamGenerateContent(t *testing.T) {
 	assert.Equal(t, "alt=sse", gotQuery)
 }
 
-// A unary :generateContent response arrives only after the whole generation,
-// so it must ride the generation-scale header guard — with the streaming guard
-// shorter than the upstream's delay, success proves the unary client was selected.
+// Unary :generateContent headers arrive only after the full generation; success
+// with the streaming guard shorter than the server delay proves the unary client was selected.
 func TestNativeClient_UnaryUsesGenerationScaleHeaderGuard(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		time.Sleep(200 * time.Millisecond)
@@ -104,9 +103,8 @@ func TestNativeClient_UnaryUsesGenerationScaleHeaderGuard(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 }
 
-// The converse: a streaming call must stay on the liveness guard rather than
-// inherit the generation-scale one — a stream that produces no headers has to
-// fail fast even while the unary guard is far larger.
+// Converse: streaming must keep the liveness guard even when the unary guard is far larger —
+// a stream that stalls before headers must still fail fast.
 func TestNativeClient_StreamingKeepsLivenessHeaderGuard(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		time.Sleep(200 * time.Millisecond)

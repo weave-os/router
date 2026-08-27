@@ -142,10 +142,9 @@ func idleTimeoutFromEnv(envVar string, fallback time.Duration) time.Duration {
 // for them; it only bites a non-streaming upstream that buffers a slow response.
 const DefaultResponseHeaderTimeout = 30 * time.Second
 
-// DefaultUnaryResponseHeaderTimeout is the header guard for unary generation
-// calls (Gemini :generateContent), where headers arrive only after the whole
-// generation — the guard bounds generation time there, not liveness, so it
-// gets the output-stall-scale budget instead of the 30s liveness check.
+// DefaultUnaryResponseHeaderTimeout is the response-header guard for unary
+// Gemini :generateContent calls — headers arrive only after the full generation,
+// so the budget matches output-stall scale, not the 30s liveness guard.
 // Tunable via ROUTER_UNARY_RESPONSE_HEADER_TIMEOUT_SECONDS.
 var DefaultUnaryResponseHeaderTimeout = idleTimeoutFromEnv("ROUTER_UNARY_RESPONSE_HEADER_TIMEOUT_SECONDS", 240*time.Second)
 
