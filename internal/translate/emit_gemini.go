@@ -1349,6 +1349,10 @@ func sanitizeGeminiSchemaNode(v any, path string) (any, error) {
 		return nil, fmt.Errorf("%w at %s.oneOf: Gemini does not support oneOf", ErrGeminiSchemaIncompatible, path)
 	}
 
+	// anyOf null branches are represented by Gemini's nullable flag. Keep this
+	// outside the loop because map iteration order is undefined and a raw
+	// nullable sibling must not overwrite the normalized value.
+	nullableFromAnyOf := false
 	out := make(map[string]any, len(node))
 	for key, child := range node {
 		if key == "$defs" || key == "definitions" || key == "$ref" {
@@ -1398,13 +1402,43 @@ func sanitizeGeminiSchemaNode(v any, path string) (any, error) {
 			if !ok || len(branches) == 0 {
 				return nil, fmt.Errorf("%w at %s.anyOf: expected non-empty array", ErrGeminiSchemaIncompatible, path)
 			}
-			clean := make([]any, len(branches))
+			clean := make([]any, 0, len(branches))
 			for i, branch := range branches {
-				var err error
-				clean[i], err = sanitizeGeminiSchemaNode(branch, fmt.Sprintf("%s.anyOf[%d]", path, i))
+				if isGeminiNullSchema(branch) {
+					nullableFromAnyOf = true
+					continue
+				}
+				sanitized, err := sanitizeGeminiSchemaNode(branch, fmt.Sprintf("%s.anyOf[%d]", path, i))
 				if err != nil {
 					return nil, err
 				}
+				if object, ok := sanitized.(map[string]any); ok && isGeminiVacuousSchema(object) {
+					nullableFromAnyOf = true
+					continue
+				}
+				clean = append(clean, sanitized)
+			}
+			if len(clean) == 0 {
+				return nil, fmt.Errorf("%w at %s.anyOf: expected a non-null branch", ErrGeminiSchemaIncompatible, path)
+			}
+			if len(clean) == 1 {
+				object, ok := clean[0].(map[string]any)
+				if !ok {
+					return nil, fmt.Errorf("%w at %s.anyOf: branch is not an object schema", ErrGeminiSchemaIncompatible, path)
+				}
+				for nestedKey, nestedValue := range object {
+					if nestedKey == "nullable" {
+						continue
+					}
+					if _, exists := out[nestedKey]; exists {
+						continue
+					}
+					out[nestedKey] = nestedValue
+				}
+				if object["nullable"] == true {
+					nullableFromAnyOf = true
+				}
+				continue
 			}
 			out[key] = clean
 		case "format":
@@ -1438,6 +1472,9 @@ func sanitizeGeminiSchemaNode(v any, path string) (any, error) {
 	}
 	if err := normalizeGeminiNullableType(out, path); err != nil {
 		return nil, err
+	}
+	if nullableFromAnyOf {
+		out["nullable"] = true
 	}
 	if err := validateGeminiRequired(out, path); err != nil {
 		return nil, err
@@ -1940,10 +1977,20 @@ func resolveGeminiEnum(schema map[string]any) {
 	if !exists {
 		return
 	}
-	if enum, ok := values.([]any); ok && len(enum) > 0 && allStringEnum(enum) {
-		return
+	enum, ok := values.([]any)
+	if ok && len(enum) > 0 && allStringEnum(enum) {
+		filtered := filterEmptyStringEnum(enum)
+		if len(filtered) == 0 {
+			delete(schema, "enum")
+		} else {
+			schema["enum"] = filtered
+		}
+		if _, exists := schema["enum"]; exists {
+			return
+		}
+	} else {
+		delete(schema, "enum")
 	}
-	delete(schema, "enum")
 	// format:"enum" without an enum is itself unrepresentable.
 	if format, _ := schema["format"].(string); format == "enum" {
 		delete(schema, "format")
@@ -1953,6 +2000,58 @@ func resolveGeminiEnum(schema map[string]any) {
 func allStringEnum(enum []any) bool {
 	for _, value := range enum {
 		if _, ok := value.(string); !ok {
+			return false
+		}
+	}
+	return true
+}
+
+func filterEmptyStringEnum(enum []any) []any {
+	out := make([]any, 0, len(enum))
+	for _, value := range enum {
+		s, ok := value.(string)
+		if !ok || s == "" {
+			continue
+		}
+		out = append(out, s)
+	}
+	return out
+}
+
+func isGeminiNullSchema(v any) bool {
+	node, ok := v.(map[string]any)
+	if !ok {
+		return false
+	}
+	if typeName, ok := node["type"].(string); ok {
+		return typeName == "null"
+	}
+	types, ok := node["type"].([]any)
+	if !ok || len(types) == 0 {
+		return false
+	}
+	for _, candidate := range types {
+		name, ok := candidate.(string)
+		if !ok || name != "null" {
+			return false
+		}
+	}
+	return true
+}
+
+func isGeminiVacuousSchema(v any) bool {
+	if isGeminiNullSchema(v) {
+		return true
+	}
+	node, ok := v.(map[string]any)
+	if !ok {
+		return false
+	}
+	for key := range node {
+		switch key {
+		case "description", "title", "nullable", "default", "example":
+			continue
+		default:
 			return false
 		}
 	}
