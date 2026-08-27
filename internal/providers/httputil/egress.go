@@ -47,12 +47,9 @@ func restrictDestination(_, address string, _ syscall.RawConn) error {
 	return nil
 }
 
-// specialPurposePrefixes are the IANA special-purpose ranges that carry no
-// stdlib predicate. Each is non-global by registry definition, and several
-// route somewhere locally in practice: 0.0.0.0/8 reaches a local service on
-// Linux, and fec0::/10 was site-local before deprecation and is still honored
-// by some stacks. Listing the registry beats hand-picking the ranges an
-// attacker might think of.
+// specialPurposePrefixes are IANA special-purpose ranges with no stdlib
+// predicate. Each is non-global by registry definition; listing the registry
+// beats hand-picking the ranges an attacker might think of.
 var specialPurposePrefixes = []netip.Prefix{
 	netip.MustParsePrefix("0.0.0.0/8"),       // this host on this network (RFC 1122)
 	netip.MustParsePrefix("100.64.0.0/10"),   // carrier-grade NAT (RFC 6598)
