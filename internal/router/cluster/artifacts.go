@@ -13,6 +13,8 @@ import (
 	"strings"
 
 	"gopkg.in/yaml.v3"
+
+	"workweave/router/internal/router/catalog"
 )
 
 // centroids.bin file format (little-endian):
@@ -654,9 +656,55 @@ func (b RequestBindings) resolve(modelID, registryProvider string, available map
 	return resolveProviderWithCustom(modelID, registryProvider, available, b.Custom)
 }
 
+// candidates returns the models these selectors may pick from: the bundle's
+// roster, plus — for a gateway-exclusive key — the catalog models it aliases
+// that this bundle never trained on. A gateway serves whatever its aliases
+// name, so confining utility turns to the roster leaves an installation whose
+// aliases are all off-roster with nothing routable at all.
+func (b RequestBindings) candidates(registry *ModelRegistry) []DeployedEntry {
+	if len(b.Gateways) == 0 {
+		return registry.DeployedModels
+	}
+	onRoster := make(map[string]struct{}, len(registry.DeployedModels))
+	for _, e := range registry.DeployedModels {
+		onRoster[e.Model] = struct{}{}
+	}
+	offRoster := make([]DeployedEntry, 0, len(b.Custom))
+	for model := range b.Custom {
+		if _, known := onRoster[model]; known {
+			continue
+		}
+		m, inCatalog := catalog.ByID(model)
+		if !inCatalog || m.Tier == catalog.TierUnknown {
+			continue
+		}
+		offRoster = append(offRoster, DeployedEntry{Model: m.ID, Provider: m.PrimaryProvider()})
+	}
+	if len(offRoster) == 0 {
+		return registry.DeployedModels
+	}
+	// Alias maps iterate randomly; two equal-cost aliases must not pick
+	// differently per request.
+	sort.Slice(offRoster, func(i, j int) bool { return offRoster[i].Model < offRoster[j].Model })
+	return append(append(make([]DeployedEntry, 0, len(registry.DeployedModels)+len(offRoster)), registry.DeployedModels...), offRoster...)
+}
+
+// inputCostPer1K prefers the bundle's trained cost, falling back to catalog
+// pricing for off-roster gateway candidates the bundle has no entry for.
+func inputCostPer1K(meta *ArtifactMetadata, model string) (float64, bool) {
+	if cost, ok := meta.CostPer1KInputUSD[model]; ok {
+		return cost, true
+	}
+	price, ok := catalog.PrimaryPriceFor(model)
+	if !ok {
+		return 0, false
+	}
+	return price.InputUSDPer1M / 1000, true
+}
+
 func cheapestModelFiltered(meta *ArtifactMetadata, registry *ModelRegistry, available, denySet, allowSet map[string]struct{}, bindings RequestBindings) (provider, model string, ok bool) {
 	var bestCost float64 = -1
-	for _, e := range registry.DeployedModels {
+	for _, e := range bindings.candidates(registry) {
 		resolved := bindings.resolve(e.Model, e.Provider, available)
 		if resolved == "" {
 			continue
@@ -669,7 +717,7 @@ func cheapestModelFiltered(meta *ArtifactMetadata, registry *ModelRegistry, avai
 		if _, denied := denySet[e.Model]; denied {
 			continue
 		}
-		cost, hasCost := meta.CostPer1KInputUSD[e.Model]
+		cost, hasCost := inputCostPer1K(meta, e.Model)
 		if !hasCost {
 			continue
 		}
@@ -706,7 +754,7 @@ func FastestModelForRequest(meta *ArtifactMetadata, registry *ModelRegistry, ava
 
 func fastestModelFiltered(meta *ArtifactMetadata, registry *ModelRegistry, available, denySet, allowSet map[string]struct{}, bindings RequestBindings) (provider, model string, ok bool) {
 	var bestSpeed float64 = -1
-	for _, e := range registry.DeployedModels {
+	for _, e := range bindings.candidates(registry) {
 		resolved := bindings.resolve(e.Model, e.Provider, available)
 		if resolved == "" {
 			continue

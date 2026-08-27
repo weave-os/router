@@ -561,6 +561,36 @@ func TestFastestModelForRequest_GatewayExclusive(t *testing.T) {
 		assert.False(t, ok, "gateway-exclusive routing must not fall back to vendor bindings")
 	})
 
+	// Prod 2026-08-26: an Azure key aliasing only gpt-5.6-* 400'd because none
+	// of those models are on the bundle's roster, though the gateway serves them.
+	t.Run("aliased catalog model off the bundle roster is routable", func(t *testing.T) {
+		const offRoster = "gpt-5.6-luna"
+		p, m, ok := FastestModelForRequest(meta, registry, available, nil, nil, RequestBindings{
+			Custom:   map[string][]string{offRoster: {providers.ProviderOpenAIGateway}},
+			Gateways: gateways,
+		})
+		require.True(t, ok, "a gateway serves whatever its aliases name, roster or not")
+		assert.Equal(t, providers.ProviderOpenAIGateway, p)
+		assert.Equal(t, offRoster, m)
+	})
+
+	t.Run("alias naming no catalog model stays unroutable", func(t *testing.T) {
+		_, _, ok := FastestModelForRequest(meta, registry, available, nil, nil, RequestBindings{
+			Custom:   map[string][]string{"zllama-dev-deployment": {providers.ProviderOpenAIGateway}},
+			Gateways: gateways,
+		})
+		assert.False(t, ok, "an alias key we cannot price or dispatch is not a candidate")
+	})
+
+	t.Run("non-gateway requests keep the bundle roster", func(t *testing.T) {
+		_, m, ok := FastestModelForRequest(meta, registry,
+			map[string]struct{}{providers.ProviderAnthropic: {}}, nil, nil, RequestBindings{
+				Custom: map[string][]string{"gpt-5.6-luna": {providers.ProviderOpenAI}},
+			})
+		require.True(t, ok)
+		assert.Equal(t, aliased, m, "custom bindings must not widen the roster for direct-vendor keys")
+	})
+
 	t.Run("excluded_models still applies", func(t *testing.T) {
 		_, _, ok := FastestModelForRequest(meta, registry, available,
 			map[string]struct{}{aliased: {}}, nil, RequestBindings{
