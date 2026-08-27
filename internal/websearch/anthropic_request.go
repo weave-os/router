@@ -48,7 +48,7 @@ func FindServerTool(body []byte) (ServerTool, bool) {
 
 // nativeServerToolPrefixes lists Anthropic server tools the provider executes,
 // not the model. Broader than serverToolPrefix: FindServerTool/DetectSearchTurn
-// cover the one tool we can emulate; this covers every tool non-Anthropic
+// cover the one tool we can emulate; this covers all tools non-Anthropic
 // upstreams cannot run.
 var nativeServerToolPrefixes = []string{serverToolPrefix, "web_fetch_"}
 
