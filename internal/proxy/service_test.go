@@ -310,6 +310,68 @@ func TestService_ProxyOpenAIResponses_CustomToolUsesNativeOpenAIFamily(t *testin
 	assert.JSONEq(t, `{"id":"resp_1","object":"response","output":[]}`, rec.Body.String())
 }
 
+// OpenAI refuses a gpt-5.6 function-tool turn on /v1/chat/completions ("use
+// /v1/responses"), so a Responses caller's turn must dispatch on its own bytes
+// rather than the chat projection.
+func TestService_ProxyOpenAIResponses_ToolTurnStaysOnResponsesForDirectOpenAI(t *testing.T) {
+	for _, tc := range []struct {
+		name         string
+		model        string
+		tools        string
+		wantEndpoint providers.Endpoint
+	}{
+		{
+			name:         "reasoning tool turn",
+			model:        "gpt-5.6-luna",
+			tools:        `,"tools":[{"type":"function","name":"read_file","parameters":{"type":"object"}}]`,
+			wantEndpoint: providers.EndpointResponses,
+		},
+		{
+			name:  "toolless turn keeps the chat projection",
+			model: "gpt-5.6-luna",
+		},
+		{
+			name:  "non-reasoning tool turn keeps the chat projection",
+			model: "gpt-4.1",
+			tools: `,"tools":[{"type":"function","name":"read_file","parameters":{"type":"object"}}]`,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			provider := &fakeProvider{proxyResponse: func(w http.ResponseWriter) {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusOK)
+				_, _ = io.WriteString(w, `{"id":"chatcmpl_1","object":"chat.completion","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}]}`)
+			}}
+			fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: tc.model, Reason: "test"}}
+			svc := proxy.NewService(fr, map[string]providers.Client{
+				providers.ProviderOpenAI: provider,
+			}, nil, false, nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil)
+
+			ctx := context.WithValue(context.Background(), proxy.ClientIdentityContextKey{}, proxy.ClientIdentity{ClientApp: proxy.ClientAppOpencode})
+			body := []byte(`{"model":"auto","input":"remove the router","reasoning":{"effort":"medium"}` + tc.tools + `}`)
+			rec := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(""))
+
+			require.NoError(t, svc.ProxyOpenAIResponses(ctx, body, rec, req))
+			require.Len(t, provider.proxyBodies, 1)
+			assert.Equal(t, tc.wantEndpoint, provider.proxyEndpoints[0])
+			assert.Equal(t, tc.model, gjson.GetBytes(provider.proxyBodies[0], "model").Str)
+			if tc.wantEndpoint == providers.EndpointResponses {
+				assert.Equal(t, "medium", gjson.GetBytes(provider.proxyBodies[0], "reasoning.effort").Str,
+					"native dispatch keeps the caller's reasoning")
+				assert.Equal(t, "remove the router", gjson.GetBytes(provider.proxyBodies[0], "input").Str)
+				return
+			}
+			// The chat projection cannot carry reasoning, and a gpt-5.6 tool turn
+			// there has to opt out of effort explicitly for OpenAI to accept it.
+			assert.False(t, gjson.GetBytes(provider.proxyBodies[0], "input").Exists())
+			if tc.tools != "" && strings.HasPrefix(tc.model, "gpt-5.6") {
+				assert.Equal(t, "none", gjson.GetBytes(provider.proxyBodies[0], "reasoning_effort").Str)
+			}
+		})
+	}
+}
+
 // markerReasonBestPickForTest mirrors proxy's unexported markerReasonBestPick.
 const markerReasonBestPickForTest = "best pick for this turn"
 

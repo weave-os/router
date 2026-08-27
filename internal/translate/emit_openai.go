@@ -43,6 +43,20 @@ func reasoningEffortAcceptedOnChatCompletions(opts EmitOptions, hasTools bool) b
 	return true
 }
 
+// toolTurnNeedsExplicitEffortNone reports whether the target refuses a
+// function-tool turn on /v1/chat/completions unless reasoning_effort is
+// explicitly "none". gpt-5.6 applies its own default effort, so omitting the
+// field is not enough: "Function tools with reasoning_effort are not supported
+// for gpt-5.6-luna in /v1/chat/completions. To use function tools, use
+// /v1/responses or set reasoning_effort to 'none'" (prod 2026-08-27). Only the
+// direct vendor is claimed here — a gateway is downgraded from Responses by
+// the proxy and applies its own effort policy. Reasoning is off for such a
+// turn; the /v1/responses dispatch is what preserves it.
+func toolTurnNeedsExplicitEffortNone(opts EmitOptions, hasTools bool) bool {
+	return hasTools && opts.TargetProvider == providers.ProviderOpenAI &&
+		strings.HasPrefix(opts.TargetModel, "gpt-5.6")
+}
+
 // samplersAcceptedOnChatCompletions reports whether the target accepts
 // temperature / top_p on /v1/chat/completions. Reasoning gpt-5.x models 400 on
 // non-default values; OSS CapReasoning targets (OpenRouter, xAI) sample normally.
@@ -205,6 +219,12 @@ func (e *RequestEnvelope) buildOpenAIFromOpenAI(opts EmitOptions) ([]byte, error
 		body, err = sjson.SetBytes(body, "reasoning_effort", forced)
 		if err != nil {
 			return nil, fmt.Errorf("set reasoning_effort: %w", err)
+		}
+	}
+	if toolTurnNeedsExplicitEffortNone(opts, hasNonEmptyTools(body)) {
+		body, err = sjson.SetBytes(body, "reasoning_effort", "none")
+		if err != nil {
+			return nil, fmt.Errorf("set reasoning_effort none: %w", err)
 		}
 	}
 	if targetIsOpenRouter(opts) {

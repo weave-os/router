@@ -391,6 +391,12 @@ type OpenAIAccountIDContextKey struct{}
 // Responses body to the Codex backend (its presence marks the passthrough).
 type codexResponsesBodyContextKey struct{}
 
+// nativeResponsesBodyContextKey carries the caller's ORIGINAL /v1/responses
+// body on every Responses turn (badge-stripped for Codex). Dispatch reads it
+// when the routed model can only serve the turn on /v1/responses, which is
+// known after routing.
+type nativeResponsesBodyContextKey struct{}
+
 // nativeResponsesReasoningHashContextKey preserves reasoning that only native
 // Responses dispatch can represent.
 type nativeResponsesReasoningHashContextKey struct{}
@@ -5604,6 +5610,25 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		marker = subscriptionOnlyWarningMarkerCodex
 	}
 
+	// A reasoning gpt-5.x tool turn is refused on chat/completions whatever
+	// effort we send, because OpenAI applies its own: "Function tools with
+	// reasoning_effort are not supported for gpt-5.6-luna in
+	// /v1/chat/completions" (prod 2026-08-27, every opencode tool turn routed
+	// to a 5.6 model). A /v1/responses caller's own bytes serve that turn
+	// natively, which also keeps the reasoning the chat projection drops.
+	// Skipped once compaction or a handover rewrote the envelope — the
+	// original bytes no longer describe the history being sent. Mutating
+	// responsesPassthrough here is safe: its pre-routing readers (compaction,
+	// cache eligibility) already ran.
+	if !responsesPassthrough && !compResOAI.Applied && !routeRes.Handover.Invoked &&
+		decision.Provider == providers.ProviderOpenAI &&
+		translate.UseOpenAIResponsesAPI(decision.Provider, opts.Capabilities, feats.HasTools) {
+		if native, ok := ctx.Value(nativeResponsesBodyContextKey{}).([]byte); ok && len(native) > 0 {
+			responsesBody = native
+			responsesPassthrough = true
+		}
+	}
+
 	// Previously gated on policy debug; ordinary Codex turns fell through to
 	// ResponsesWriter's legacy badge that ignored suppression and never showed the routing reason.
 	verbatimPassthrough := responsesPassthrough && decision.Provider == providers.ProviderOpenAI
@@ -6046,21 +6071,24 @@ func (s *Service) ProxyOpenAIResponses(ctx context.Context, body []byte, w http.
 	}
 	chatBody, model := conversion.Body, conversion.Model
 	codexNativeRequest := codexResponsesRequest(ctx, r.Header)
-	// Keep original bytes only when the request is unrepresentable as Chat
-	// Completions (NativeOnly) or a Codex subscription is using its direct endpoint.
-	if conversion.Requirements.NativeOnly || codexNativeRequest {
-		nativeBody := conversion.OriginalBody
-		if clientAppCodex {
-			// Codex records response.output_item.done as conversation history and
-			// sends it back in the next native request. Remove only the badge this
-			// client opted into so router text never reaches the selected model.
-			nativeBody, err = translate.StripRoutingBadgeFromResponsesInput(nativeBody)
-			if err != nil {
-				return fmt.Errorf("strip native Responses routing badge: %w", err)
-			}
+	nativeBody := conversion.OriginalBody
+	if clientAppCodex {
+		// Codex records response.output_item.done as conversation history and
+		// sends it back in the next native request. Remove only the badge this
+		// client opted into so router text never reaches the selected model.
+		nativeBody, err = translate.StripRoutingBadgeFromResponsesInput(nativeBody)
+		if err != nil {
+			return fmt.Errorf("strip native Responses routing badge: %w", err)
 		}
+	}
+	// Dispatch verbatim only when the request is unrepresentable as Chat
+	// Completions (NativeOnly) or a Codex subscription is using its direct
+	// endpoint. Every Responses turn still carries its original bytes: whether
+	// the routed model needs them is a post-routing question.
+	if conversion.Requirements.NativeOnly || codexNativeRequest {
 		ctx = context.WithValue(ctx, codexResponsesBodyContextKey{}, nativeBody)
 	}
+	ctx = context.WithValue(ctx, nativeResponsesBodyContextKey{}, nativeBody)
 	// Routing and sticky-state hashes must describe the exact native payload
 	// that an OpenAI/Codex decision will receive, even when the portable Codex
 	// projection lets HMM consider other deployed providers.
