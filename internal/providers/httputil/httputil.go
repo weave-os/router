@@ -17,6 +17,7 @@ import (
 	"golang.org/x/net/http2"
 
 	"workweave/router/internal/auth"
+	"workweave/router/internal/observability"
 	"workweave/router/internal/providers"
 	"workweave/router/internal/timing"
 )
@@ -141,22 +142,51 @@ func idleTimeoutFromEnv(envVar string, fallback time.Duration) time.Duration {
 // for them; it only bites a non-streaming upstream that buffers a slow response.
 const DefaultResponseHeaderTimeout = 30 * time.Second
 
-// DefaultH2ReadIdleTimeout is how long a pooled HTTP/2 connection may go
-// without an inbound frame before the client sends a keepalive PING. Go sends
-// none unless this is set, so it cannot tell a healthy idle connection from one
-// an upstream LB/NAT silently reaped; because h2 multiplexes over few
-// connections, a request dispatched onto a half-open one is written into a
-// black hole and fails only at ResponseHeaderTimeout, while siblings on live
-// connections in the same pool succeed normally. Tunable via
-// ROUTER_H2_READ_IDLE_TIMEOUT_SECONDS.
+// DefaultH2ReadIdleTimeout is how long a pooled HTTP/2 connection may sit
+// idle before the client sends a keepalive PING. Without it, Go can't
+// distinguish a healthy idle connection from one an upstream LB/NAT reaped;
+// a request onto a half-open h2 connection fails silently at ResponseHeaderTimeout.
+// Tunable via ROUTER_H2_READ_IDLE_TIMEOUT_SECONDS.
 var DefaultH2ReadIdleTimeout = idleTimeoutFromEnv("ROUTER_H2_READ_IDLE_TIMEOUT_SECONDS", 15*time.Second)
 
 // DefaultH2PingTimeout is how long the client waits for a PING ACK before
-// declaring the connection dead and closing it. ACKs are answered in the h2
-// framing layer, not by the upstream application, so a busy-but-alive upstream
-// still ACKs promptly and a slow first token can't be mistaken for a dead
-// connection. Tunable via ROUTER_H2_PING_TIMEOUT_SECONDS.
+// closing the connection. ACKs come from the h2 framing layer, not the
+// application, so a slow first token can't be mistaken for a dead connection.
+// Tunable via ROUTER_H2_PING_TIMEOUT_SECONDS.
 var DefaultH2PingTimeout = idleTimeoutFromEnv("ROUTER_H2_PING_TIMEOUT_SECONDS", 5*time.Second)
+
+// h2KeepaliveHeadroom is the fraction of the response-header guard the
+// keepalive budget may occupy. The defaults (15s+5s) sit exactly at 2/3 of
+// DefaultResponseHeaderTimeout, so the common path is untouched.
+const h2KeepaliveNumerator, h2KeepaliveDenominator = 2, 3
+
+// h2KeepaliveFor sizes the PING budget for a transport whose time-to-first-byte
+// guard is responseHeaderTimeout. Detection MUST land strictly inside that
+// guard: if it doesn't, the header deadline fires first and the stall this
+// config exists to prevent survives untouched. Neither half can be trusted to
+// fit on its own — callers pick their own guard and operators override both via
+// env — so an over-budget pair is scaled down proportionally rather than
+// silently exceeding it.
+func h2KeepaliveFor(responseHeaderTimeout time.Duration) (readIdle, ping time.Duration) {
+	readIdle, ping = DefaultH2ReadIdleTimeout, DefaultH2PingTimeout
+	if responseHeaderTimeout <= 0 {
+		return readIdle, ping
+	}
+	budget := responseHeaderTimeout * h2KeepaliveNumerator / h2KeepaliveDenominator
+	if readIdle+ping <= budget {
+		return readIdle, ping
+	}
+	scale := float64(budget) / float64(readIdle+ping)
+	scaledIdle, scaledPing := time.Duration(float64(readIdle)*scale), time.Duration(float64(ping)*scale)
+	// An override that silently doesn't apply is worse than one that's refused.
+	observability.Get().Warn("HTTP/2 keepalive budget exceeds the response-header guard, scaling to fit",
+		"response_header_timeout_ms", responseHeaderTimeout.Milliseconds(),
+		"configured_read_idle_ms", readIdle.Milliseconds(),
+		"configured_ping_ms", ping.Milliseconds(),
+		"effective_read_idle_ms", scaledIdle.Milliseconds(),
+		"effective_ping_ms", scaledPing.Milliseconds())
+	return scaledIdle, scaledPing
+}
 
 // SanitizeInboundAuthHeader returns v unchanged unless it carries a
 // router-issued key as a Bearer token, in which case it returns "" so the
@@ -202,13 +232,10 @@ func NewTransportWithResponseHeaderTimeout(dialTimeout, tlsTimeout, responseHead
 		ResponseHeaderTimeout: responseHeaderTimeout,
 		ForceAttemptHTTP2:     true,
 	}
-	// ConfigureTransports is the only route to the h2 keepalive knobs; http.Transport
-	// exposes no fields for them. It hands h2 to x/net (net/http skips its bundled
-	// setup once TLSNextProto is populated) and errors only if t were already
-	// configured — impossible here, and ForceAttemptHTTP2 still yields h2 if it were.
+	// ConfigureTransports is the only way to reach the h2 keepalive knobs;
+	// http.Transport exposes no fields for them. ForceAttemptHTTP2 still ensures h2 on error.
 	if h2, err := http2.ConfigureTransports(t); err == nil {
-		h2.ReadIdleTimeout = DefaultH2ReadIdleTimeout
-		h2.PingTimeout = DefaultH2PingTimeout
+		h2.ReadIdleTimeout, h2.PingTimeout = h2KeepaliveFor(responseHeaderTimeout)
 	}
 	return t
 }
