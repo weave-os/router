@@ -286,20 +286,50 @@ func (e *RequestEnvelope) HasTools() bool {
 	return r.Int() > 0
 }
 
-// ToolValidator compiles inbound Anthropic tool definitions into a
+// ToolValidator compiles the inbound request's tool definitions into a
 // toolcheck.Validator for validating/repairing model-emitted tool calls.
-// Returns nil for non-Anthropic formats or no tools (translators treat nil as
-// syntax-check-only). Compilation is cached via toolcheck's LRU since agent
-// sessions resend a byte-identical tools block every turn.
+// Returns nil when the format carries no compilable tool schemas or the
+// request has none (translators treat nil as syntax-check-only). Compilation
+// is cached via toolcheck's LRU since agent sessions resend a byte-identical
+// tools block every turn.
 func (e *RequestEnvelope) ToolValidator() *toolcheck.Validator {
-	if e.format != FormatAnthropic {
-		return nil
-	}
 	tools := gjson.GetBytes(e.body, "tools")
 	if !tools.IsArray() {
 		return nil
 	}
-	return toolcheck.CompileCached([]byte(tools.Raw))
+	switch e.format {
+	case FormatAnthropic:
+		return toolcheck.CompileCached([]byte(tools.Raw))
+	case FormatOpenAI:
+		return toolcheck.CompileCached(anthropicToolShapeFromOpenAI(tools))
+	default:
+		return nil
+	}
+}
+
+// anthropicToolShapeFromOpenAI projects chat function tools into the
+// {name, input_schema} shape toolcheck compiles, so a chat-ingress turn gets
+// the same tool-call validation an Anthropic one does.
+func anthropicToolShapeFromOpenAI(tools gjson.Result) []byte {
+	jw := newJSONWriter()
+	jw.Arr()
+	tools.ForEach(func(_, tool gjson.Result) bool {
+		fn := tool.Get("function")
+		if !fn.Exists() {
+			return true
+		}
+		jw.Obj()
+		jw.Key("name")
+		jw.Str(fn.Get("name").String())
+		if schema := fn.Get("parameters"); schema.Exists() {
+			jw.Key("input_schema")
+			jw.Raw(schema.Raw)
+		}
+		jw.EndObj()
+		return true
+	})
+	jw.EndArr()
+	return jw.Bytes()
 }
 
 // HasImages reports whether any message carries image content. Used to keep

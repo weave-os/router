@@ -150,12 +150,23 @@ overridable via `flags.KeyOpenAIResponsesBroad`). Turning it off restores the
 narrow rule for direct OpenAI too — the reasoning tool turn chat/completions
 rejects is still promoted, since that one is a correctness fix, not a rollout.
 
-Anthropic ingress re-emits the request through `PrepareOpenAIResponses` per
-attempt. A Responses-ingress caller dispatches its ORIGINAL bytes natively
-instead, which is why that promotion is skipped when compaction or a handover
-rewrote the envelope — those bytes are stale, and the chat projection is the
-only faithful representation until item-level emit from a rewritten envelope
-lands.
+Anthropic and chat/completions ingress re-emit the request through
+`PrepareOpenAIResponses` per attempt, so a compaction or handover rewrite is
+carried faithfully. A Responses-ingress caller dispatches its ORIGINAL bytes
+natively instead, which is why that promotion is skipped when compaction or a
+handover rewrote the envelope — those bytes are stale, and the chat projection
+is the only faithful representation until item-level emit from a rewritten
+envelope lands.
+
+**A chat caller is served chat, whatever the upstream surface.** The three
+combinations differ in both request emit and response handling, so the decision
+is the typed `openAISurface` (`surfaceChat` / `surfaceResponsesNative` /
+`surfaceResponsesTranslated`), not a URL swap: a translated attempt wraps the
+client writer in `translate.ResponsesToOpenAIChatWriter`, which renders the
+Responses stream as chat.completion.chunk frames (or one chat.completion body
+for a non-streaming client). It returns a pre-output upstream failure as
+`providers.UpstreamErrorResponse` so the unsupported-endpoint fallback still
+works, and switches to an in-stream error frame once output is committed.
 
 ## Runtime provider fallback
 

@@ -20,10 +20,17 @@ import (
 // exceeds the header timeout ("http2: timeout awaiting response headers").
 
 func (e *RequestEnvelope) PrepareOpenAIResponses(in http.Header, opts EmitOptions) (providers.PreparedRequest, error) {
-	if e.format != FormatAnthropic {
-		return providers.PreparedRequest{}, fmt.Errorf("PrepareOpenAIResponses: only Anthropic ingress is supported, got format %d", e.format)
+	var body []byte
+	var stats providers.RequestMutationStats
+	var err error
+	switch e.format {
+	case FormatAnthropic:
+		body, stats, err = e.buildResponsesFromAnthropic(opts)
+	case FormatOpenAI:
+		body, err = e.buildResponsesFromOpenAI(opts)
+	default:
+		return providers.PreparedRequest{}, fmt.Errorf("PrepareOpenAIResponses: unsupported source format: %d", e.format)
 	}
-	body, stats, err := e.buildResponsesFromAnthropic(opts)
 	if err != nil {
 		return providers.PreparedRequest{}, err
 	}
@@ -43,6 +50,7 @@ type ResponseTranslator interface {
 var (
 	_ ResponseTranslator = (*AnthropicSSETranslator)(nil)
 	_ ResponseTranslator = (*ResponsesToAnthropicWriter)(nil)
+	_ ResponseTranslator = (*ResponsesToOpenAIChatWriter)(nil)
 )
 
 // ReasoningRequested reports whether the inbound Anthropic request asks the
@@ -90,11 +98,16 @@ func UseOpenAIResponsesAPI(rt ResponsesRoute) bool {
 	}
 }
 
-// RequiresChatCompletionsParams reports whether the request uses a parameter
-// /v1/responses cannot express (stop sequences have no Responses equivalent),
-// keeping the turn on chat/completions rather than silently dropping it.
-// Reasoning targets are exempt: they reject `stop` on chat/completions too.
+// RequiresChatCompletionsParams reports whether the request asks for something
+// /v1/responses cannot express (stop sequences, chat-only sampling knobs,
+// inline audio content), keeping the turn on chat/completions rather than
+// silently dropping it. Reasoning targets are exempt from the parameter
+// checks: they reject those same parameters on chat/completions too, so
+// staying there would preserve nothing.
 func (e *RequestEnvelope) RequiresChatCompletionsParams(caps router.ModelSpec) bool {
+	if e.format == FormatOpenAI && (openAIContentNeedsChatCompletions(e.body) || openAIParamsNeedChatCompletions(e.body)) {
+		return true
+	}
 	if caps.Supports(router.CapReasoning) {
 		return false
 	}
@@ -103,10 +116,60 @@ func (e *RequestEnvelope) RequiresChatCompletionsParams(caps router.ModelSpec) b
 		key = "stop_sequences"
 	}
 	stop := gjson.GetBytes(e.body, key)
-	if stop.Type == gjson.String {
-		return stop.String() != ""
+	switch {
+	case stop.Type == gjson.String:
+		if stop.String() != "" {
+			return true
+		}
+	case stop.IsArray() && stop.Get("#").Int() > 0:
+		return true
 	}
-	return stop.IsArray() && stop.Get("#").Int() > 0
+	return e.format == FormatOpenAI && openAIParamsNeedChatCompletions(e.body)
+}
+
+// openAIParamsNeedChatCompletions reports whether a chat/completions body sets
+// a knob the Responses API has no field for. Zero/false values are ignored:
+// SDKs send those as defaults, and treating them as blockers would keep nearly
+// every chat turn off Responses.
+func openAIParamsNeedChatCompletions(body []byte) bool {
+	if n := gjson.GetBytes(body, "n"); n.Type == gjson.Number && n.Int() > 1 {
+		return true
+	}
+	for _, key := range []string{"frequency_penalty", "presence_penalty"} {
+		if p := gjson.GetBytes(body, key); p.Type == gjson.Number && p.Float() != 0 {
+			return true
+		}
+	}
+	if gjson.GetBytes(body, "logprobs").Type == gjson.True {
+		return true
+	}
+	if bias := gjson.GetBytes(body, "logit_bias"); bias.IsObject() && len(bias.Map()) > 0 {
+		return true
+	}
+	return gjson.GetBytes(body, "seed").Type == gjson.Number
+}
+
+// openAIContentNeedsChatCompletions reports whether a message carries a content
+// part the Responses input has no equivalent for (chat's inline `input_audio`).
+// Dropping it would silently change what the model is asked.
+func openAIContentNeedsChatCompletions(body []byte) bool {
+	unsupported := false
+	gjson.GetBytes(body, "messages").ForEach(func(_, msg gjson.Result) bool {
+		content := msg.Get("content")
+		if content.IsArray() {
+			content.ForEach(func(_, part gjson.Result) bool {
+				switch part.Get("type").String() {
+				case "text", "image_url", "file", "":
+					return true
+				default:
+					unsupported = true
+					return false
+				}
+			})
+		}
+		return !unsupported
+	})
+	return unsupported
 }
 
 // reasoningEffortFromAnthropic is retained for callers that only need the
@@ -349,15 +412,15 @@ func writeResponsesTextMessage(jw *jsonWriter, role, text string) {
 }
 
 // writeResponsesContentMessage emits one Responses message with a text part
-// followed by image parts; images on assistant-role messages are dropped
-// (no input_image there).
-func writeResponsesContentMessage(jw *jsonWriter, role, text string, imagePartRaws []string) {
+// followed by typed non-text parts (input_image / input_file); those are
+// dropped on assistant-role messages, which take output_text only.
+func writeResponsesContentMessage(jw *jsonWriter, role, text string, extraPartRaws []string) {
 	partType := "input_text"
 	if role == "assistant" {
 		partType = "output_text"
-		imagePartRaws = nil
+		extraPartRaws = nil
 	}
-	if text == "" && len(imagePartRaws) == 0 {
+	if text == "" && len(extraPartRaws) == 0 {
 		return
 	}
 	jw.Obj()
@@ -373,7 +436,7 @@ func writeResponsesContentMessage(jw *jsonWriter, role, text string, imagePartRa
 		jw.Str(text)
 		jw.EndObj()
 	}
-	for _, raw := range imagePartRaws {
+	for _, raw := range extraPartRaws {
 		jw.Raw(raw)
 	}
 	jw.EndArr()
@@ -452,22 +515,40 @@ func flattenAnthropicToolResultContent(content gjson.Result) string {
 // ORIGINAL schema downstream — strict mode's nullable optionals produce
 // explicit nulls that toolcheck's normalize pass strips before the client sees them.
 func writeResponsesToolsFromAnthropic(jw *jsonWriter, body []byte) {
-	tools := gjson.GetBytes(body, "tools")
-	if !tools.Exists() || !tools.IsArray() || tools.Get("#").Int() == 0 {
+	var collected []responsesFunctionTool
+	gjson.GetBytes(body, "tools").ForEach(func(_, tool gjson.Result) bool {
+		collected = append(collected, responsesFunctionTool{
+			name:        tool.Get("name").String(),
+			description: tool.Get("description"),
+			schema:      tool.Get("input_schema"),
+		})
+		return true
+	})
+	writeResponsesFunctionTools(jw, collected)
+}
+
+// responsesFunctionTool is one source-format-neutral function tool.
+type responsesFunctionTool struct {
+	name        string
+	description gjson.Result
+	schema      gjson.Result
+}
+
+// writeResponsesFunctionTools emits the `tools` key in the flat Responses shape.
+func writeResponsesFunctionTools(jw *jsonWriter, tools []responsesFunctionTool) {
+	if len(tools) == 0 {
 		return
 	}
 	jw.Key("tools")
 	jw.Arr()
-	count := 0
-	tools.ForEach(func(_, tool gjson.Result) bool {
-		if count >= openAIMaxTools {
-			return false
+	for i, tool := range tools {
+		if i >= openAIMaxTools {
+			break
 		}
-		count++
 		var params any
 		strict := false
-		if schema := tool.Get("input_schema"); schema.Exists() {
-			_ = json.Unmarshal([]byte(schema.Raw), &params)
+		if tool.schema.Exists() {
+			_ = json.Unmarshal([]byte(tool.schema.Raw), &params)
 			params = inlineSchemaDefs(params)
 			sanitizeOpenAIToolSchema(params)
 			if strictParams, ok := strictifyOpenAISchema(params); ok {
@@ -475,17 +556,17 @@ func writeResponsesToolsFromAnthropic(jw *jsonWriter, body []byte) {
 				strict = true
 			} else {
 				observability.Get().Info("Responses strictify fallback — emitting non-strict tool",
-					"tool_name", tool.Get("name").String())
+					"tool_name", tool.name)
 			}
 		}
 		jw.Obj()
 		jw.Key("type")
 		jw.Str("function")
 		jw.Key("name")
-		jw.Str(tool.Get("name").String())
-		if desc := tool.Get("description"); desc.Exists() {
+		jw.Str(tool.name)
+		if tool.description.Exists() {
 			jw.Key("description")
-			jw.Raw(desc.Raw)
+			jw.Raw(tool.description.Raw)
 		}
 		if params != nil {
 			if paramBytes, err := json.Marshal(params); err == nil {
@@ -496,8 +577,7 @@ func writeResponsesToolsFromAnthropic(jw *jsonWriter, body []byte) {
 			}
 		}
 		jw.EndObj()
-		return true
-	})
+	}
 	jw.EndArr()
 }
 
