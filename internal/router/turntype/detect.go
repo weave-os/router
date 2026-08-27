@@ -30,6 +30,16 @@ const (
 
 const probeMaxTokensThreshold = 4
 
+// compactionMarkerPhrase is Claude Code's canonical context-compaction
+// instruction. Unambiguous enough to hard-pin on by itself.
+const compactionMarkerPhrase = "your task is to create a detailed summary"
+
+// compactionSniffLen bounds the trailing-user-message scan for
+// compactionMarkerPhrase. Claude Code prefixes the instruction with a fixed
+// "respond with TEXT ONLY" preamble, so the phrase lands within the first few
+// hundred bytes; the bound keeps a long pasted message off the hot path.
+const compactionSniffLen = 4096
+
 // Bounds for short-form classifier calls (e.g. Claude Code's security monitor:
 // max_tokens=64, message_count=2). Headroom for similar calls without catching main-loop turns.
 const (
@@ -57,7 +67,7 @@ func DetectFromEnvelope(env *translate.RequestEnvelope, feats translate.RoutingF
 	// Compaction is Claude-Code-only, and Claude Code always talks Anthropic
 	// format. Gating on format keeps Codex/OpenAI clients — whose prompts can
 	// incidentally mention "compact" — out of the hard pin.
-	if env.SourceFormat() == translate.FormatAnthropic && isCompaction(systemText) {
+	if env.SourceFormat() == translate.FormatAnthropic && isCompaction(systemText, env.LastUserMessage().Text) {
 		return Compaction
 	}
 	if isSubAgentDispatch(env.MetadataUserID(), env.FirstUserMessageText(), subAgentHint) {
@@ -102,11 +112,25 @@ func isTitleGen(env *translate.RequestEnvelope, hasTools bool) bool {
 	return env.RequestsTitleSchema()
 }
 
-// isCompaction reports whether the system prompt contains Claude Code's
-// context-compaction instruction markers.
-func isCompaction(systemText string) bool {
-	lower := strings.ToLower(systemText)
-	return strings.Contains(lower, "your task is to create a detailed summary")
+// isCompaction reports whether the request carries Claude Code's
+// context-compaction instruction, in the system prompt or in the last user
+// message. Claude Code 2.x appends the instruction to the trailing turn (which
+// also carries the last tool_result) instead of putting it in the system
+// prompt, so a system-only check classifies it as ToolResult and routes a
+// summarization turn through the scorer — prod: compaction served by
+// claude-opus-5 at 145-225s per turn instead of the hard-pinned cheap model.
+func isCompaction(systemText, lastUserText string) bool {
+	if hasCompactionMarker(systemText) {
+		return true
+	}
+	if len(lastUserText) > compactionSniffLen {
+		lastUserText = lastUserText[:compactionSniffLen]
+	}
+	return hasCompactionMarker(lastUserText)
+}
+
+func hasCompactionMarker(text string) bool {
+	return strings.Contains(strings.ToLower(text), compactionMarkerPhrase)
 }
 
 // isSubAgentDispatch reports whether the request originates from a sub-agent:
