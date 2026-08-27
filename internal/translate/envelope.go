@@ -262,14 +262,22 @@ func (e *RequestEnvelope) FirstUserMessageText() string {
 	if e.format == FormatGemini {
 		return geminiFirstUserMessageText(e.body)
 	}
-	first := gjson.GetBytes(e.body, "messages.0")
-	if !first.Exists() {
+	messages := gjson.GetBytes(e.body, "messages")
+	if !messages.IsArray() {
 		return ""
 	}
-	if first.Get("role").String() != "user" {
+	var firstUser gjson.Result
+	messages.ForEach(func(_, msg gjson.Result) bool {
+		if msg.Get("role").String() == "user" {
+			firstUser = msg
+			return false
+		}
+		return true
+	})
+	if !firstUser.Exists() {
 		return ""
 	}
-	content := first.Get("content")
+	content := firstUser.Get("content")
 	switch e.format {
 	case FormatAnthropic:
 		return userPromptTextGJSON(content)

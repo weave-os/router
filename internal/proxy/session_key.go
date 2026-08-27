@@ -106,8 +106,7 @@ func bindRequestLogger(
 //
 // System text is excluded on the common Anthropic path because Claude Code
 // mutates it every turn, which would re-key (and evict the prompt cache) on
-// every request. It's used only as a fallback for OpenAI-format bodies,
-// where system lives in messages[] and the first user message is empty.
+// every request. It's only a fallback for bodies with no user text at all.
 func DeriveSessionKey(env *translate.RequestEnvelope, apiKeyID string) [sessionpin.SessionKeyLen]byte {
 	h := sha256.New()
 	h.Write([]byte(apiKeyID))
@@ -120,7 +119,7 @@ func DeriveSessionKey(env *translate.RequestEnvelope, apiKeyID string) [sessionp
 			h.Write([]byte(uid))
 			h.Write([]byte{0x00})
 		}
-		// Fallback for OpenAI-format bodies (see doc comment above): without
+		// Fallback for bodies with no user text (see doc comment above): without
 		// this, unrelated conversations sharing an API key would collapse.
 		disc := env.FirstUserMessageText()
 		if disc == "" {

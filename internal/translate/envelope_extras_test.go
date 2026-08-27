@@ -235,3 +235,50 @@ func TestRequestEnvelope_RoutingFeatures_OpenAI_LastKind(t *testing.T) {
 		})
 	}
 }
+
+func TestRequestEnvelope_FirstUserMessageText(t *testing.T) {
+	t.Run("OpenAI with leading system message", func(t *testing.T) {
+		env, err := translate.ParseOpenAI([]byte(`{
+			"messages": [
+				{"role": "system", "content": "You are a helpful assistant."},
+				{"role": "user", "content": "First actual user question"},
+				{"role": "assistant", "content": "An answer"},
+				{"role": "user", "content": "Second user question"}
+			]
+		}`))
+		require.NoError(t, err)
+		assert.Equal(t, "First actual user question", env.FirstUserMessageText())
+	})
+
+	t.Run("OpenAI with leading developer message", func(t *testing.T) {
+		env, err := translate.ParseOpenAI([]byte(`{
+			"messages": [
+				{"role": "developer", "content": "Developer instruction"},
+				{"role": "user", "content": "Hello user"}
+			]
+		}`))
+		require.NoError(t, err)
+		assert.Equal(t, "Hello user", env.FirstUserMessageText())
+	})
+
+	t.Run("Anthropic with user message", func(t *testing.T) {
+		env, err := translate.ParseAnthropic([]byte(`{
+			"system": "System prompt",
+			"messages": [
+				{"role": "user", "content": "Anthropic user prompt"}
+			]
+		}`))
+		require.NoError(t, err)
+		assert.Equal(t, "Anthropic user prompt", env.FirstUserMessageText())
+	})
+
+	t.Run("OpenAI with no user message", func(t *testing.T) {
+		env, err := translate.ParseOpenAI([]byte(`{
+			"messages": [
+				{"role": "system", "content": "Only system"}
+			]
+		}`))
+		require.NoError(t, err)
+		assert.Equal(t, "", env.FirstUserMessageText())
+	})
+}

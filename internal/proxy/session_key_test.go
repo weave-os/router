@@ -191,3 +191,25 @@ func TestDeriveSessionKey_OpenAILeadingSystemDoesNotCollapse(t *testing.T) {
 
 	assert.NotEqual(t, kA, kB, "distinct OpenAI conversations must not share a pin when the first user message is empty")
 }
+
+func TestDeriveSessionKey_OpenAISharedSystemDifferentUserPromptDoesNotCollide(t *testing.T) {
+	// When multiple OpenAI conversations share the same system prompt under the
+	// same API key, the first user message must differentiate them.
+	convoA := openAIEnv(t, `{
+		"messages": [
+			{"role": "system", "content": "You are a helpful coding assistant."},
+			{"role": "user", "content": "Fix bug in module A"}
+		]
+	}`)
+	convoB := openAIEnv(t, `{
+		"messages": [
+			{"role": "system", "content": "You are a helpful coding assistant."},
+			{"role": "user", "content": "Write unit tests for module B"}
+		]
+	}`)
+
+	kA := proxy.DeriveSessionKey(convoA, "api-key")
+	kB := proxy.DeriveSessionKey(convoB, "api-key")
+
+	assert.NotEqual(t, kA, kB, "distinct OpenAI conversations sharing a system prompt must not collide")
+}
