@@ -18,9 +18,7 @@ import (
 )
 
 // TestProxy_RefusedRedirectFailsRetryablyWithoutTouchingWriter: routed-path
-// counterpart of TestPassthrough_RelaysNothingFromARefusedRedirect — the
-// call fails with the sentinel before any bytes reach the client, so the
-// failover loop may still retry another binding.
+// counterpart of TestPassthrough_RelaysNothingFromARefusedRedirect.
 func TestProxy_RefusedRedirectFailsRetryablyWithoutTouchingWriter(t *testing.T) {
 	var targetHit atomic.Bool
 	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {

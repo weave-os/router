@@ -12,9 +12,7 @@ import (
 )
 
 func TestNewClientFailsTheCallOnARedirect(t *testing.T) {
-	// atomic: written on the httptest handler goroutine, read here — and the
-	// write only ever happens when the policy regresses, exactly when the
-	// assertion must be race-clean.
+	// atomic: written on the httptest handler goroutine, read here.
 	var redirectTargetHit atomic.Bool
 	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		redirectTargetHit.Store(true)

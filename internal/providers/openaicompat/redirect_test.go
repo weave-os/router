@@ -36,11 +36,8 @@ func redirectFixture(t *testing.T) (upstream *httptest.Server, targetHit *atomic
 	return upstream, &hit
 }
 
-// TestProxy_RefusedRedirectFailsRetryablyWithoutTouchingWriter pins the
-// dispatch contract on a redirecting upstream: the call fails with
-// ErrRefusedRedirect before any bytes reach the client, so the failover
-// loop may retry another binding, and the Location never reaches the
-// client (which would follow it carrying its own key and the prompt).
+// TestProxy_RefusedRedirectFailsRetryablyWithoutTouchingWriter: refused
+// redirect fails retryably; Location never reaches the client.
 func TestProxy_RefusedRedirectFailsRetryablyWithoutTouchingWriter(t *testing.T) {
 	upstream, targetHit := redirectFixture(t)
 
