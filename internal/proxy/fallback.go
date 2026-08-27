@@ -265,10 +265,8 @@ func (s *Service) dispatchWithFallback(ctx context.Context, in failoverInputs) (
 			if !providers.IsRetryable(attemptErr) || sb >= maxSameBindingRetries || len(in.bindings) > 1 {
 				break
 			}
-			// Attempts are also bounded by wall-clock, not just count. An
-			// upstream that accepts the stream and never answers burns a full
-			// ResponseHeaderTimeout per attempt; without this, three of them
-			// cost ~3x that on a request that was never going to be served.
+			// Attempts are also bounded by wall-clock, not just count: a hung
+			// upstream burns a full ResponseHeaderTimeout per attempt.
 			if spent := s.clockNow().Sub(retryStart); spent >= sameBindingRetryBudget {
 				log.Warn("dispatchWithFallback: same-binding retry budget spent, not retrying",
 					"model", decision.Model,
