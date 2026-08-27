@@ -391,10 +391,8 @@ type OpenAIAccountIDContextKey struct{}
 // Responses body to the Codex backend (its presence marks the passthrough).
 type codexResponsesBodyContextKey struct{}
 
-// nativeResponsesBodyContextKey carries the caller's ORIGINAL /v1/responses
-// body on every Responses turn (badge-stripped for Codex). Dispatch reads it
-// when the routed model can only serve the turn on /v1/responses, which is
-// known after routing.
+// nativeResponsesBodyContextKey carries the caller's original /v1/responses
+// body (badge-stripped for Codex); which model needs it is only known post-routing.
 type nativeResponsesBodyContextKey struct{}
 
 // nativeResponsesReasoningHashContextKey preserves reasoning that only native
@@ -5612,9 +5610,8 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 
 	// gpt-5.6 applies its own effort on chat/completions, so a /v1/responses
 	// caller's original bytes serve it natively — preserving reasoning the chat
-	// projection drops.
-	// Skip when compaction or a handover rewrote the envelope (stale bytes);
-	// pre-routing readers of responsesPassthrough already ran.
+	// projection drops. Skip when compaction or a handover rewrote the envelope
+	// (stale bytes); pre-routing readers of responsesPassthrough already ran.
 	if !responsesPassthrough && !compResOAI.Applied && !routeRes.Handover.Invoked &&
 		decision.Provider == providers.ProviderOpenAI &&
 		translate.UseOpenAIResponsesAPI(decision.Provider, opts.Capabilities, feats.HasTools) {
