@@ -1340,9 +1340,8 @@ func (s *Service) WithSiblingFailover(enabled bool) *Service {
 	return s
 }
 
-// WithOpenAIResponsesBroad is the rollout switch for serving every
-// direct-OpenAI turn on /v1/responses (ROUTER_OPENAI_RESPONSES_BROAD); see
-// openAIResponsesBroad.
+// WithOpenAIResponsesBroad sets the rollout flag for direct-OpenAI Responses
+// routing (ROUTER_OPENAI_RESPONSES_BROAD).
 func (s *Service) WithOpenAIResponsesBroad(enabled bool) *Service {
 	s.openAIResponsesBroad = enabled
 	return s

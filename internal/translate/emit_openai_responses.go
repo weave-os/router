@@ -71,21 +71,11 @@ type ResponsesRoute struct {
 }
 
 // UseOpenAIResponsesAPI reports whether a dispatch should use POST
-// /v1/responses instead of /v1/chat/completions.
-//
-// Direct OpenAI takes every turn it can express: OpenAI documents Responses as
-// the API new integrations should build on, it is the only endpoint that serves
-// a reasoning model a function tool (chat/completions 400s that combination
-// from gpt-5.4 on), and it is the only one that carries encrypted reasoning
-// across turns.
-//
-// OpenAI-compatible gateways stay on the narrow rule — reasoning tool turns
-// only — because most mount no Responses surface at all; there the endpoint
-// buys nothing beyond the tool turn a gateway would otherwise reject
-// (Snowflake Cortex 400s a tool turn to its 5.6 models even with no effort in
-// the body, since it applies its own). A gateway without a usable Responses
-// surface is downgraded by the caller, which knows the endpoint; this stays a
-// pure request/model/provider predicate.
+// /v1/responses instead of /v1/chat/completions. Direct OpenAI uses Responses
+// for every turn it can express (chat/completions 400s reasoning + tools from
+// gpt-5.4 on; only Responses carries encrypted reasoning across turns).
+// Gateways keep the narrow rule — reasoning tool turns only — because most
+// mount no Responses surface; one without it is downgraded by the caller.
 func UseOpenAIResponsesAPI(rt ResponsesRoute) bool {
 	narrow := rt.Capabilities.Supports(router.CapReasoning) && rt.HasTools
 	switch rt.Provider {
@@ -101,12 +91,10 @@ func UseOpenAIResponsesAPI(rt ResponsesRoute) bool {
 	}
 }
 
-// RequiresChatCompletionsParams reports whether the request carries a
-// parameter only /v1/chat/completions can express, which keeps the turn off
-// /v1/responses rather than silently dropping it. Stop sequences are the whole
-// set: the Responses API has no equivalent field. Reasoning targets are exempt
-// because they reject `stop` on chat/completions too, so it is already dropped
-// for them (resolveOpenAIOverrides).
+// RequiresChatCompletionsParams reports whether the request uses a parameter
+// /v1/responses cannot express (stop sequences have no Responses equivalent),
+// keeping the turn on chat/completions rather than silently dropping it.
+// Reasoning targets are exempt: they reject `stop` on chat/completions too.
 func (e *RequestEnvelope) RequiresChatCompletionsParams(caps router.ModelSpec) bool {
 	if caps.Supports(router.CapReasoning) {
 		return false
