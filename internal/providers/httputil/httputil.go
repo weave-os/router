@@ -142,6 +142,13 @@ func idleTimeoutFromEnv(envVar string, fallback time.Duration) time.Duration {
 // for them; it only bites a non-streaming upstream that buffers a slow response.
 const DefaultResponseHeaderTimeout = 30 * time.Second
 
+// DefaultUnaryResponseHeaderTimeout is the header guard for unary generation
+// calls (Gemini :generateContent), where headers arrive only after the whole
+// generation — the guard bounds generation time there, not liveness, so it
+// gets the output-stall-scale budget instead of the 30s liveness check.
+// Tunable via ROUTER_UNARY_RESPONSE_HEADER_TIMEOUT_SECONDS.
+var DefaultUnaryResponseHeaderTimeout = idleTimeoutFromEnv("ROUTER_UNARY_RESPONSE_HEADER_TIMEOUT_SECONDS", 240*time.Second)
+
 // DefaultH2ReadIdleTimeout is how long a pooled HTTP/2 connection may sit
 // idle before the client sends a keepalive PING. Without it, Go can't
 // distinguish a healthy idle connection from one an upstream LB/NAT reaped;

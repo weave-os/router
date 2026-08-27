@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"workweave/router/internal/providers"
 	"workweave/router/internal/providers/google"
@@ -79,6 +80,49 @@ func TestNativeClient_StreamingHintFlipsToStreamGenerateContent(t *testing.T) {
 
 	assert.Equal(t, "/v1beta/models/gemini-x:streamGenerateContent", gotPath)
 	assert.Equal(t, "alt=sse", gotQuery)
+}
+
+// A unary :generateContent response arrives only after the whole generation,
+// so it must ride the generation-scale header guard — with the streaming guard
+// shorter than the upstream's delay, success proves the unary client was selected.
+func TestNativeClient_UnaryUsesGenerationScaleHeaderGuard(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		time.Sleep(200 * time.Millisecond)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"candidates":[{"content":{"parts":[{"text":"ok"}]}}]}`))
+	}))
+	defer upstream.Close()
+
+	c := google.NewNativeClientWithHeaderTimeouts("k", upstream.URL, 50*time.Millisecond, 2*time.Second)
+	rec := httptest.NewRecorder()
+	prep := providers.PreparedRequest{Body: []byte(`{"contents":[]}`), Headers: make(http.Header)}
+	err := c.Proxy(context.Background(), router.Decision{Model: "gemini-x"}, prep, rec,
+		httptest.NewRequest(http.MethodPost, "/v1/x", strings.NewReader("")))
+
+	require.NoError(t, err, "unary call slower than the streaming guard must still succeed")
+	assert.Equal(t, http.StatusOK, rec.Code)
+}
+
+// The converse: a streaming call must stay on the liveness guard rather than
+// inherit the generation-scale one — a stream that produces no headers has to
+// fail fast even while the unary guard is far larger.
+func TestNativeClient_StreamingKeepsLivenessHeaderGuard(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		time.Sleep(200 * time.Millisecond)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer upstream.Close()
+
+	c := google.NewNativeClientWithHeaderTimeouts("k", upstream.URL, 50*time.Millisecond, 2*time.Second)
+	rec := httptest.NewRecorder()
+	prep := providers.PreparedRequest{Body: []byte(`{"contents":[]}`), Headers: make(http.Header)}
+	prep.Headers.Set(translate.GeminiStreamHintHeader, "true")
+	err := c.Proxy(context.Background(), router.Decision{Model: "gemini-x"}, prep, rec,
+		httptest.NewRequest(http.MethodPost, "/v1/x", strings.NewReader("")))
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "timeout awaiting response headers")
 }
 
 func TestNativeClient_StreamHintHeaderStrippedFromUpstream(t *testing.T) {

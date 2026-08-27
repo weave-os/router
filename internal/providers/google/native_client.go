@@ -26,6 +26,9 @@ type NativeClient struct {
 	apiKey  string
 	baseURL string
 	http    *http.Client
+	// unaryHTTP serves :generateContent, where headers arrive only after the
+	// whole generation — the stock 30s guard would cap generation time there.
+	unaryHTTP *http.Client
 	// sseIdleTimeout, when > 0, overrides httputil.DefaultSSEIdleTimeout for the
 	// byte-idle watchdog. Production uses the default; tests inject a small value
 	// so the output-stall watchdog can be exercised without the byte-idle one
@@ -46,7 +49,29 @@ func NewNativeClient(apiKey, baseURL string) *NativeClient {
 		apiKey:  apiKey,
 		baseURL: baseURL,
 		http:    httputil.NewClient(httputil.NewTransport(5*time.Second, 5*time.Second)),
+		unaryHTTP: httputil.NewClient(httputil.NewTransportWithResponseHeaderTimeout(
+			5*time.Second, 5*time.Second, httputil.DefaultUnaryResponseHeaderTimeout)),
 	}
+}
+
+// NewNativeClientWithHeaderTimeouts is NewNativeClient with injected
+// streaming/unary response-header guards, so tests can prove per-call client
+// selection with sub-second budgets.
+func NewNativeClientWithHeaderTimeouts(apiKey, baseURL string, streamGuard, unaryGuard time.Duration) *NativeClient {
+	c := NewNativeClient(apiKey, baseURL)
+	c.http = httputil.NewClient(httputil.NewTransportWithResponseHeaderTimeout(5*time.Second, 5*time.Second, streamGuard))
+	c.unaryHTTP = httputil.NewClient(httputil.NewTransportWithResponseHeaderTimeout(5*time.Second, 5*time.Second, unaryGuard))
+	return c
+}
+
+// httpClientFor picks the transport for one upstream call: unary
+// :generateContent buffers the whole generation before headers, so it gets
+// the generation-scale guard rather than the streaming liveness guard.
+func (c *NativeClient) httpClientFor(stream bool) *http.Client {
+	if stream {
+		return c.http
+	}
+	return c.unaryHTTP
 }
 
 // NewNativeClientWithStallTimeouts is NewNativeClient with injected byte-idle
@@ -111,7 +136,7 @@ func (c *NativeClient) Proxy(ctx context.Context, decision router.Decision, prep
 
 	t := timing.TimingFrom(ctx)
 	t.StampUpstreamRequest()
-	resp, err := c.http.Do(upstream)
+	resp, err := c.httpClientFor(stream).Do(upstream)
 	if err != nil {
 		return fmt.Errorf("upstream call: %w", err)
 	}
@@ -191,7 +216,7 @@ func (c *NativeClient) Passthrough(ctx context.Context, prep providers.PreparedR
 		upstream.Header.Set("Accept", v)
 	}
 
-	resp, err := c.http.Do(upstream)
+	resp, err := c.httpClientFor(!strings.HasSuffix(suffix, ":generateContent")).Do(upstream)
 	if err != nil {
 		return fmt.Errorf("upstream passthrough call: %w", err)
 	}

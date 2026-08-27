@@ -234,6 +234,11 @@ func TestResponsesSSEIdleTimeoutFromEnv_OverrideRespected(t *testing.T) {
 	assert.Equal(t, 120*time.Second, idleTimeoutFromEnv("ROUTER_RESPONSES_SSE_IDLE_TIMEOUT_SECONDS", 90*time.Second))
 }
 
+func TestUnaryResponseHeaderTimeoutFromEnv_OverrideRespected(t *testing.T) {
+	t.Setenv("ROUTER_UNARY_RESPONSE_HEADER_TIMEOUT_SECONDS", "120")
+	assert.Equal(t, 120*time.Second, idleTimeoutFromEnv("ROUTER_UNARY_RESPONSE_HEADER_TIMEOUT_SECONDS", 240*time.Second))
+}
+
 // TLSNextProto["h2"] is populated only by ConfigureTransports (ForceAttemptHTTP2
 // alone defers h2 setup to first use, leaving the map nil), so its presence
 // proves PING health checking was wired.
