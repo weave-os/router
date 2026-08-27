@@ -54,11 +54,10 @@ func maxEffortToXhigh(body []byte) []byte {
 	return out
 }
 
-// codexUnsupportedParams are Responses fields the ChatGPT backend rejects with
-// 400 "Unsupported parameter" — it serves only the subset the Codex CLI sends.
-// A translated turn carries some of them legitimately (Anthropic ingress always
-// has max_tokens, so max_output_tokens is always emitted), so they're dropped
-// here rather than at emit time, which doesn't know the credential.
+// codexUnsupportedParams are Responses fields the ChatGPT backend rejects
+// with 400 "Unsupported parameter". Dropped here rather than at emit time
+// because emit doesn't know the credential; a translated Anthropic turn
+// legitimately carries max_output_tokens from its max_tokens.
 var codexUnsupportedParams = []string{
 	"max_output_tokens", "temperature", "top_p", "metadata", "service_tier", "truncation",
 }
