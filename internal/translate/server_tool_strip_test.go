@@ -11,14 +11,9 @@ import (
 	"workweave/router/internal/translate"
 )
 
-// Anthropic executes web_search_*/web_fetch_* server-side; the model only sees
-// the result blocks. Emitted to a non-Anthropic upstream those declarations
-// were converted like any other tool — into a `function` entry with a name and
-// no parameters — so the model could "call" a tool the client never
-// registered and the harness has no way to answer. That is the same phantom
-// tool_use failure claudecode_tool_filter.go exists to prevent, and it is why
-// the HMM policy has had to force every web_search-advertising turn onto an
-// Anthropic arm. These tests pin the strip that removes the need for that.
+// Anthropic executes web_search_*/web_fetch_* server-side. Emitted to a
+// non-Anthropic upstream they become phantom function tools (same failure
+// claudecode_tool_filter.go prevents). These tests pin the strip.
 const anthropicServerToolBody = `{
 	"model":"claude-opus-5",
 	"messages":[{"role":"user","content":"what changed upstream?"}],
