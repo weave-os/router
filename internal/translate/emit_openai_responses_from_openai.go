@@ -99,11 +99,9 @@ func isJSONBool(r gjson.Result) bool {
 	return r.Type == gjson.True || r.Type == gjson.False
 }
 
-// hoistOpenAIInstructions flattens the leading run of system/developer messages
-// into the Responses `instructions` field and reports how many messages it
-// consumed. Only the leading run is hoisted: moving a mid-conversation system
-// reminder to the front would shift the cacheable prefix every turn (same
-// reasoning as hoistAnthropicSystemMessages).
+// hoistOpenAIInstructions flattens the leading run of system/developer
+// messages into `instructions`; only the leading run, so a mid-conversation
+// system message doesn't shift the cached prefix each turn.
 func hoistOpenAIInstructions(messages gjson.Result) (int, string) {
 	var parts []string
 	hoisted := 0

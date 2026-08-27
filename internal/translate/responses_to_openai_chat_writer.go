@@ -273,9 +273,8 @@ func (t *ResponsesToOpenAIChatWriter) translateEvent(raw []byte) error {
 	if len(data) == 0 {
 		return nil
 	}
-	// Match on the in-payload `type`, not `event:` — intermediaries sometimes
-	// drop the latter. Reasoning-only frames deliberately skip
-	// markOutputProgress so a reasoning-only stream can still trip the watchdog.
+	// Match on in-payload `type`, not `event:` — intermediaries drop the latter.
+	// Reasoning-only frames skip markOutputProgress to keep the watchdog honest.
 	switch gjson.GetBytes(data, "type").String() {
 	case "response.output_item.added":
 		if gjson.GetBytes(data, "item.type").String() != "reasoning" {
@@ -609,10 +608,9 @@ func (t *ResponsesToOpenAIChatWriter) emitReasoningDelta(oi int, text string) er
 	return t.flushEvent()
 }
 
-// emitToolCall emits one tool_calls delta carrying the complete arguments after
-// toolcheck validation. Arguments are not streamed fragment-by-fragment because
-// a partial fragment can't be validated; a single chunk with full arguments is
-// valid chat/completions either way.
+// emitToolCall emits one tool_calls delta after toolcheck validation.
+// Arguments are buffered to item close before emission — a partial fragment
+// can't be schema-checked.
 func (t *ResponsesToOpenAIChatWriter) emitToolCall(oi int, fallback string) error {
 	slot := t.toolSlots[oi]
 	name := t.toolName[oi]
