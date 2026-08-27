@@ -377,9 +377,8 @@ func TestService_ProxyOpenAIResponses_ToolTurnStaysOnResponsesForDirectOpenAI(t 
 	}
 }
 
-// An endpoint standing in for OpenAI can serve chat/completions and no
-// Responses API; the promoted turn must land there instead of 404ing, and the
-// next turn must not re-probe.
+// An OpenAI-compatible endpoint can serve chat/completions but no Responses
+// API; the promoted turn falls back there, and the result is memoized.
 func TestService_ProxyOpenAIResponses_ToolTurnFallsBackWhenEndpointLacksResponses(t *testing.T) {
 	provider := &fakeProvider{
 		proxyErrByEndpoint: map[providers.Endpoint]error{
