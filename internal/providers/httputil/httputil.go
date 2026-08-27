@@ -14,6 +14,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"golang.org/x/net/http2"
+
 	"workweave/router/internal/auth"
 	"workweave/router/internal/providers"
 	"workweave/router/internal/timing"
@@ -139,6 +141,23 @@ func idleTimeoutFromEnv(envVar string, fallback time.Duration) time.Duration {
 // for them; it only bites a non-streaming upstream that buffers a slow response.
 const DefaultResponseHeaderTimeout = 30 * time.Second
 
+// DefaultH2ReadIdleTimeout is how long a pooled HTTP/2 connection may go
+// without an inbound frame before the client sends a keepalive PING. Go sends
+// none unless this is set, so it cannot tell a healthy idle connection from one
+// an upstream LB/NAT silently reaped; because h2 multiplexes over few
+// connections, a request dispatched onto a half-open one is written into a
+// black hole and fails only at ResponseHeaderTimeout, while siblings on live
+// connections in the same pool succeed normally. Tunable via
+// ROUTER_H2_READ_IDLE_TIMEOUT_SECONDS.
+var DefaultH2ReadIdleTimeout = idleTimeoutFromEnv("ROUTER_H2_READ_IDLE_TIMEOUT_SECONDS", 15*time.Second)
+
+// DefaultH2PingTimeout is how long the client waits for a PING ACK before
+// declaring the connection dead and closing it. ACKs are answered in the h2
+// framing layer, not by the upstream application, so a busy-but-alive upstream
+// still ACKs promptly and a slow first token can't be mistaken for a dead
+// connection. Tunable via ROUTER_H2_PING_TIMEOUT_SECONDS.
+var DefaultH2PingTimeout = idleTimeoutFromEnv("ROUTER_H2_PING_TIMEOUT_SECONDS", 5*time.Second)
+
 // SanitizeInboundAuthHeader returns v unchanged unless it carries a
 // router-issued key as a Bearer token, in which case it returns "" so the
 // caller skips forwarding it upstream. Prefix match is case-insensitive to
@@ -169,7 +188,7 @@ func NewTransport(dialTimeout, tlsTimeout time.Duration) *http.Transport {
 // via Responses API). Streaming inactivity is still bounded separately by
 // StreamBody's idle watchdog, so this can't reintroduce an unbounded hang.
 func NewTransportWithResponseHeaderTimeout(dialTimeout, tlsTimeout, responseHeaderTimeout time.Duration) *http.Transport {
-	return &http.Transport{
+	t := &http.Transport{
 		Proxy: http.ProxyFromEnvironment,
 		DialContext: (&net.Dialer{
 			Timeout:   dialTimeout,
@@ -183,6 +202,15 @@ func NewTransportWithResponseHeaderTimeout(dialTimeout, tlsTimeout, responseHead
 		ResponseHeaderTimeout: responseHeaderTimeout,
 		ForceAttemptHTTP2:     true,
 	}
+	// ConfigureTransports is the only route to the h2 keepalive knobs; http.Transport
+	// exposes no fields for them. It hands h2 to x/net (net/http skips its bundled
+	// setup once TLSNextProto is populated) and errors only if t were already
+	// configured — impossible here, and ForceAttemptHTTP2 still yields h2 if it were.
+	if h2, err := http2.ConfigureTransports(t); err == nil {
+		h2.ReadIdleTimeout = DefaultH2ReadIdleTimeout
+		h2.PingTimeout = DefaultH2PingTimeout
+	}
+	return t
 }
 
 // StartIdleWatchdog cancels ctx with ErrUpstreamIdleTimeout once idleTimeout

@@ -234,6 +234,26 @@ func TestResponsesSSEIdleTimeoutFromEnv_OverrideRespected(t *testing.T) {
 	assert.Equal(t, 120*time.Second, idleTimeoutFromEnv("ROUTER_RESPONSES_SSE_IDLE_TIMEOUT_SECONDS", 90*time.Second))
 }
 
+// The keepalive knobs live on x/net's http2.Transport, which is only reachable
+// via ConfigureTransports — and ConfigureTransports is also the only thing that
+// populates TLSNextProto at construction time (ForceAttemptHTTP2 alone defers
+// its h2 setup to first use, leaving the map nil). So an "h2" entry here is the
+// observable proof that PING health checking was wired, not just h2 support.
+func TestNewTransport_ConfiguresHTTP2Keepalives(t *testing.T) {
+	tr := NewTransport(10*time.Second, 10*time.Second)
+
+	require.NotNil(t, tr.TLSNextProto, "ConfigureTransports did not run: h2 keepalives are unset")
+	assert.Contains(t, tr.TLSNextProto, "h2")
+	assert.True(t, tr.ForceAttemptHTTP2, "h2 fallback must survive a ConfigureTransports failure")
+}
+
+// A dead pooled connection must be detected well before the time-to-first-byte
+// guard, otherwise the request it black-holes still costs the caller the full
+// ResponseHeaderTimeout — the failure this keepalive config exists to prevent.
+func TestH2KeepaliveBudget_DetectsDeathBeforeResponseHeaderTimeout(t *testing.T) {
+	assert.Less(t, DefaultH2ReadIdleTimeout+DefaultH2PingTimeout, DefaultResponseHeaderTimeout)
+}
+
 // IsRetryable must see idle-timeout stalls as retryable through the alias —
 // this is what lets dispatchWithFallback rescue a mid-stream stall on the
 // next binding (prod incident 2026-06-09).
