@@ -1,0 +1,24 @@
+internal/providers/httputil/client_test.go
+  s_be83665a9c67ee::t_6475f08c3ea052 13,35,37
+  s_be83665a9c67ee::t_df45e038bd8544 32-34,38-44
+internal/providers/anthropic/client_test.go
+  s_be83665a9c67ee::t_1c02aaa089f16a 580-606
+internal/providers/httputil/httputil.go
+  s_be83665a9c67ee::t_5d6f4f06719406 240-246,248-250,256
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "8f591f6f4d4d0b002465d570c26e3958b8f0d812",
+  "prompts": {},
+  "sessions": {
+    "s_be83665a9c67ee": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a54788da-e07e-4620-9dae-099cf1589dcc",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}

@@ -1,0 +1,25 @@
+cmd/router/main.go
+  s_d09ca25c54ac46::t_02d26ddfeb5777 1656,1658-1660
+docs/CONFIGURATION.md
+  s_d09ca25c54ac46::t_44e415b403968c 75
+internal/providers/cortexagents/client.go
+  s_d09ca25c54ac46::t_e29138e48a5d24 43-45,93-97
+internal/providers/cortexagents/client_test.go
+  s_d09ca25c54ac46::t_9945961d6ae55e 11,197-234
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "75710cedaafeb29230150ada2c9deed8a32022eb",
+  "prompts": {},
+  "sessions": {
+    "s_d09ca25c54ac46": {
+      "agent_id": {
+        "tool": "devin",
+        "id": "s_d09ca25c54ac46",
+        "model": "unknown"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}
