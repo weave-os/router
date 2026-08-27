@@ -17,6 +17,7 @@ import (
 	"workweave/router/internal/proxy/usage"
 	"workweave/router/internal/router"
 	"workweave/router/internal/router/catalog"
+	"workweave/router/internal/router/policy"
 	"workweave/router/internal/router/sessionpin"
 	"workweave/router/internal/router/turntype"
 	"workweave/router/internal/translate"
@@ -204,6 +205,60 @@ func TestUsageBypass_PreservesSwitchHistory(t *testing.T) {
 	require.True(t, ok)
 	_, tracked := svc.compaction.cache.Get(bucketKey)
 	assert.True(t, tracked, "bypass must retain compaction-trim tracking")
+}
+
+// TestUsageBypass_EngagesUnderAuthoritativePolicy pins the precedence between
+// sidecar authority and the pass-through gate: an authoritative policy decides
+// which model serves a routed turn, not whether the turn is routed at all, so a
+// main-loop turn with subscription headroom must still pass through and must not
+// reach the policy router. Gating the bypass on !AuthoritativePerTurn made
+// pass-through unreachable on every main-loop and tool-result turn in prod.
+func TestUsageBypass_EngagesUnderAuthoritativePolicy(t *testing.T) {
+	const token = "sk-ant-oat01-test-subscription-token"
+	strategy := router.Strategy("authoritative-bypass-test")
+	threshold := 0.80
+	obs := usage.NewObserver([]byte("salt"), 10*time.Minute, time.Now)
+	obs.Record(obs.Key([]byte(token)), usage.Snapshot{
+		Primary: usage.Window{UsedPercent: 0.20, WindowMinutes: 300},
+	})
+	policyRouter := &authoritativeTestRouter{decision: router.Decision{
+		Provider: providers.ProviderOpenAI,
+		Model:    "gpt-5.6-luna",
+		Reason:   "authoritative-bypass-test_policy",
+	}}
+	svc := NewService(nil, nil, nil, false, nil, newStubPinStore(), false, providers.ProviderAnthropic, "claude-haiku-4-5", nil).
+		WithUsageObserver(obs).
+		WithPolicyStrategy(policy.StrategySpec{
+			Strategy: strategy,
+			Router:   policyRouter,
+			Capabilities: policy.Capabilities{
+				SchemaVersion:                 policy.SchemaVersionV1,
+				AuthoritativePerTurnSelection: true,
+			},
+		})
+	ctx := context.WithValue(context.Background(), AnthropicSubscriptionContextKey{}, token)
+	ctx = context.WithValue(ctx, InstallationUsageBypassContextKey{}, UsageBypassConfig{
+		Enabled:   true,
+		Threshold: &threshold,
+	})
+	ctx = router.WithStrategy(ctx, strategy)
+	env := bypassAnthropicEnvelope(t)
+	feats := env.RoutingFeatures(false)
+
+	res, err := svc.runTurnLoop(ctx, env, feats, "api-key", uuid.New(), "", http.Header{}, router.Request{
+		RequestedModel: feats.Model,
+		EnabledProviders: map[string]struct{}{
+			providers.ProviderAnthropic: {},
+			providers.ProviderOpenAI:    {},
+		},
+	})
+
+	require.NoError(t, err)
+	require.True(t, res.AuthoritativePerTurn, "the sidecar declares authoritative per-turn selection")
+	assert.True(t, res.UsageBypass, "subscription headroom must pass through even under an authoritative policy")
+	assert.Equal(t, feats.Model, res.Decision.Model, "pass-through never substitutes the requested model")
+	assert.Equal(t, "usage_bypass", res.Decision.Reason)
+	assert.Empty(t, policyRouter.requests, "a passed-through turn must never be routed")
 }
 
 // TestBypass_429_ReturnsErrBypassRetryable_NoBytesWritten: when the Anthropic

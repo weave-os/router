@@ -71,6 +71,11 @@ router-generated summarizer calls for those turns. Post-selection synthetic
 loop breakers are also bypassed so one accepted policy action maps to one
 selected model dispatch attempt.
 
+The subscription usage-bypass gate is deliberately outside that list: it
+decides whether a turn is routed and billed at all, so a caller's own prepaid
+Claude/Codex quota still passes straight through and the `/route` call is never
+made for that turn.
+
 ## Route contract
 
 The router sends a stable `route_id`, strategy, execution mode, organization

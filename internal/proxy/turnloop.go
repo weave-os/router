@@ -666,12 +666,10 @@ func (s *Service) runTurnLoop(
 	// bypass intercepts the fresh scorer decision here too (no pins to honor).
 	if s.pinStore == nil {
 		req.PolicyTurnContext = buildPolicyTurnContext(req, res, sessionpin.Pin{}, sessionpin.Pin{})
-		if !res.AuthoritativePerTurn {
-			if dec, ok := s.usageBypassDecision(ctx, reqHeaders, req); ok {
-				res.Decision = dec
-				res.UsageBypass = true
-				return res, nil
-			}
+		if dec, ok := s.usageBypassDecision(ctx, reqHeaders, req); ok {
+			res.Decision = dec
+			res.UsageBypass = true
+			return res, nil
 		}
 		decision, err := s.routeFor(ctx, req)
 		if err != nil {
@@ -998,12 +996,17 @@ func (s *Service) runTurnLoop(
 	// stale pin from a prior routed stretch can't make a tool_result
 	// continuation diverge from the bypassed tool_use turn. The pin itself is
 	// untouched and resumes once utilization crosses the threshold.
-	if !res.AuthoritativePerTurn {
-		if dec, ok := s.usageBypassDecision(ctx, reqHeaders, req); ok {
-			res.Decision = dec
-			res.UsageBypass = true
-			return res, nil
-		}
+	//
+	// Deliberately not gated on AuthoritativePerTurn: sidecar authority settles
+	// which model best serves a turn we are going to route and bill, while the
+	// bypass settles whether the turn is routed at all — the caller's own
+	// prepaid quota is an entitlement, not a routing-quality opinion. Gating it
+	// makes pass-through unreachable on main-loop and tool-result turns, i.e.
+	// on effectively all traffic, whenever the sidecar claims authority.
+	if dec, ok := s.usageBypassDecision(ctx, reqHeaders, req); ok {
+		res.Decision = dec
+		res.UsageBypass = true
+		return res, nil
 	}
 
 	// Tool-result turns: by default, fall through to the scorer + planner for
