@@ -310,9 +310,8 @@ func TestService_ProxyOpenAIResponses_CustomToolUsesNativeOpenAIFamily(t *testin
 	assert.JSONEq(t, `{"id":"resp_1","object":"response","output":[]}`, rec.Body.String())
 }
 
-// OpenAI refuses a gpt-5.6 function-tool turn on /v1/chat/completions ("use
-// /v1/responses"), so a Responses caller's turn must dispatch on its own bytes
-// rather than the chat projection.
+// OpenAI refuses a gpt-5.6 function-tool turn on chat/completions, so a
+// Responses caller must dispatch on its original bytes, not the chat projection.
 func TestService_ProxyOpenAIResponses_ToolTurnStaysOnResponsesForDirectOpenAI(t *testing.T) {
 	for _, tc := range []struct {
 		name         string

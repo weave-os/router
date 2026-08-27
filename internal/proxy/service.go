@@ -5610,12 +5610,11 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		marker = subscriptionOnlyWarningMarkerCodex
 	}
 
-	// gpt-5.6 refuses a tool turn on chat/completions whatever effort we send
-	// (OpenAI applies its own), so a /v1/responses caller's own bytes serve it
-	// natively — which also keeps the reasoning the chat projection drops.
-	// Skipped once compaction or a handover rewrote the envelope: the original
-	// bytes no longer describe the history being sent. Mutating
-	// responsesPassthrough here is safe; its pre-routing readers already ran.
+	// gpt-5.6 applies its own effort on chat/completions, so a /v1/responses
+	// caller's original bytes serve it natively — preserving reasoning the chat
+	// projection drops.
+	// Skip when compaction or a handover rewrote the envelope (stale bytes);
+	// pre-routing readers of responsesPassthrough already ran.
 	if !responsesPassthrough && !compResOAI.Applied && !routeRes.Handover.Invoked &&
 		decision.Provider == providers.ProviderOpenAI &&
 		translate.UseOpenAIResponsesAPI(decision.Provider, opts.Capabilities, feats.HasTools) {

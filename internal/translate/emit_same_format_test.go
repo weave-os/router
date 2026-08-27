@@ -271,9 +271,8 @@ func TestOpenAISameFormat_ReasoningEffortDeletedForGatewayToolsOnAnyModel(t *tes
 		"a toolless gateway turn keeps the caller's effort")
 }
 
-// Direct OpenAI refuses a gpt-5.6 tool turn on chat/completions while it
-// applies its own default effort, so dropping the field is not enough: the
-// turn has to opt out of reasoning explicitly.
+// Direct OpenAI applies its own effort on gpt-5.6 tool turns even when the
+// field is absent; dropping it is not enough — the turn must opt out explicitly.
 func TestOpenAISameFormat_ToolTurnOptsOutOfReasoningForDirectGPT56(t *testing.T) {
 	tools := `"tools":[{"type":"function","function":{"name":"read_file","parameters":{"type":"object"}}}]`
 	for _, tc := range []struct {
