@@ -5194,9 +5194,8 @@ func finalizeAfterProxy(proxyErr error, fn func() error) error {
 	return finErr
 }
 
-// openAISurface names which OpenAI endpoint an attempt POSTs to, and in what
-// representation. The three cases need different request emit AND different
-// response handling, so a single boolean can't carry the decision.
+// openAISurface names which OpenAI endpoint an attempt POSTs to and in what
+// representation; the three cases differ in both emit and response handling.
 type openAISurface int
 
 const (

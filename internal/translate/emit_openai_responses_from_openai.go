@@ -247,8 +247,7 @@ func buildResponsesImagePartFromOpenAI(part gjson.Result) string {
 }
 
 // buildResponsesFilePartFromOpenAI converts a chat file part into a Responses
-// input_file content part. Returns "" if the part carries neither a file id
-// nor inline data.
+// input_file content part. Returns "" if the part has no file_id or file_data.
 func buildResponsesFilePartFromOpenAI(part gjson.Result) string {
 	file := part.Get("file")
 	fileID := file.Get("file_id").String()
