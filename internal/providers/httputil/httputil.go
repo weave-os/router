@@ -237,10 +237,9 @@ func NewTransportWithResponseHeaderTimeout(dialTimeout, tlsTimeout, responseHead
 	return t
 }
 
-// NewClient returns an http.Client on transport that does not follow redirects.
-// A provider base URL is configuration, not discovery: following a 3xx would
-// send the upstream credential and the forwarded client headers to a host
-// nobody configured, so the 3xx is handed back to the caller as-is.
+// NewClient returns an http.Client on transport that refuses redirects.
+// A provider base URL is configuration, not discovery — a 3xx would forward
+// credentials to an unconfigured host.
 func NewClient(transport http.RoundTripper) *http.Client {
 	return &http.Client{Transport: transport, CheckRedirect: refuseRedirect}
 }
