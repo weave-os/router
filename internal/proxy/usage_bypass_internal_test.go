@@ -207,12 +207,9 @@ func TestUsageBypass_PreservesSwitchHistory(t *testing.T) {
 	assert.True(t, tracked, "bypass must retain compaction-trim tracking")
 }
 
-// TestUsageBypass_EngagesUnderAuthoritativePolicy pins the precedence between
-// sidecar authority and the pass-through gate: an authoritative policy decides
-// which model serves a routed turn, not whether the turn is routed at all, so a
-// main-loop turn with subscription headroom must still pass through and must not
-// reach the policy router. Gating the bypass on !AuthoritativePerTurn made
-// pass-through unreachable on every main-loop and tool-result turn in prod.
+// TestUsageBypass_EngagesUnderAuthoritativePolicy verifies that an authoritative
+// sidecar policy (which settles which model serves a routed turn) does not gate
+// the bypass check (which settles whether the turn is routed at all).
 func TestUsageBypass_EngagesUnderAuthoritativePolicy(t *testing.T) {
 	const token = "sk-ant-oat01-test-subscription-token"
 	strategy := router.Strategy("authoritative-bypass-test")

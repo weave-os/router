@@ -997,12 +997,9 @@ func (s *Service) runTurnLoop(
 	// continuation diverge from the bypassed tool_use turn. The pin itself is
 	// untouched and resumes once utilization crosses the threshold.
 	//
-	// Deliberately not gated on AuthoritativePerTurn: sidecar authority settles
-	// which model best serves a turn we are going to route and bill, while the
-	// bypass settles whether the turn is routed at all — the caller's own
-	// prepaid quota is an entitlement, not a routing-quality opinion. Gating it
-	// makes pass-through unreachable on main-loop and tool-result turns, i.e.
-	// on effectively all traffic, whenever the sidecar claims authority.
+	// Bypass settles whether the turn is routed at all (caller's prepaid quota,
+	// not a routing-quality opinion) — AuthoritativePerTurn controls which model
+	// is chosen for a routed turn, so the gate must not apply here.
 	if dec, ok := s.usageBypassDecision(ctx, reqHeaders, req); ok {
 		res.Decision = dec
 		res.UsageBypass = true
