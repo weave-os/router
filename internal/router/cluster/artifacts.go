@@ -658,9 +658,7 @@ func (b RequestBindings) resolve(modelID, registryProvider string, available map
 
 // candidates returns the models these selectors may pick from: the bundle's
 // roster, plus — for a gateway-exclusive key — the catalog models it aliases
-// that this bundle never trained on. A gateway serves whatever its aliases
-// name, so confining utility turns to the roster leaves an installation whose
-// aliases are all off-roster with nothing routable at all.
+// that this bundle never trained on (a gateway serves whatever its aliases name).
 func (b RequestBindings) candidates(registry *ModelRegistry) []DeployedEntry {
 	if len(b.Gateways) == 0 {
 		return registry.DeployedModels
