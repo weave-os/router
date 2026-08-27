@@ -64,9 +64,8 @@ type ResponsesRoute struct {
 	// ChatOnlyParams reports whether the request uses a parameter only
 	// chat/completions can express; see RequiresChatCompletionsParams.
 	ChatOnlyParams bool
-	// Broad is the direct-OpenAI rollout flag (ROUTER_OPENAI_RESPONSES_BROAD,
-	// per-org overridable). Off, only the reasoning tool turn that
-	// chat/completions outright rejects is promoted.
+	// Broad is the rollout flag (ROUTER_OPENAI_RESPONSES_BROAD). Off, only
+	// the reasoning tool turn chat/completions outright rejects is promoted.
 	Broad bool
 }
 
@@ -350,10 +349,9 @@ func writeResponsesTextMessage(jw *jsonWriter, role, text string) {
 	writeResponsesContentMessage(jw, role, text, nil)
 }
 
-// writeResponsesContentMessage emits one Responses input message carrying a
-// typed text part followed by image parts. Assistant items can only hold
-// output_text, so images on an assistant message are dropped rather than
-// emitted as an input_image the API would reject.
+// writeResponsesContentMessage emits one Responses message with a text part
+// followed by image parts; images on assistant-role messages are dropped
+// (no input_image there).
 func writeResponsesContentMessage(jw *jsonWriter, role, text string, imagePartRaws []string) {
 	partType := "input_text"
 	if role == "assistant" {
