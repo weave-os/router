@@ -136,8 +136,7 @@ func (t *ResponsesToOpenAIChatWriter) WithToolValidator(v *toolcheck.Validator) 
 
 // ArmOutputProgress installs mark, called on output-bearing events only, so the
 // watchdog tracks time-since-last-output. Returns false for non-streaming
-// clients, whose buffered path only parses events at Finalize. Call after
-// Prelude, which sets the streaming flag.
+// clients; call after Prelude, which sets the streaming flag.
 func (t *ResponsesToOpenAIChatWriter) ArmOutputProgress(mark func()) (armed bool) {
 	if !t.streaming {
 		return false

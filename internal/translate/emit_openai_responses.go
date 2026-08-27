@@ -101,9 +101,8 @@ func UseOpenAIResponsesAPI(rt ResponsesRoute) bool {
 // RequiresChatCompletionsParams reports whether the request asks for something
 // /v1/responses cannot express (stop sequences, chat-only sampling knobs,
 // inline audio content), keeping the turn on chat/completions rather than
-// silently dropping it. Reasoning targets are exempt from the parameter
-// checks: they reject those same parameters on chat/completions too, so
-// staying there would preserve nothing.
+// silently dropping it. Reasoning targets are exempt: they reject those same
+// knobs on chat/completions too, so staying there would preserve nothing.
 func (e *RequestEnvelope) RequiresChatCompletionsParams(caps router.ModelSpec) bool {
 	if e.format == FormatOpenAI && (openAIContentNeedsChatCompletions(e.body) || openAIParamsNeedChatCompletions(e.body)) {
 		return true

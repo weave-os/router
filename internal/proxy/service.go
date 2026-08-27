@@ -5736,9 +5736,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		return mw
 	}
 
-	// A chat/completions caller whose turn belongs on Responses is emitted onto
-	// that endpoint and translated back to chat on the way out. Skipped for a
-	// Responses-ingress caller, which dispatches its own bytes natively above.
+	// Chat caller: emit onto Responses and translate back; skipped for Responses-ingress (handled above).
 	translateToResponses := !isResponses && !responsesPassthrough &&
 		decision.Provider == providers.ProviderOpenAI &&
 		translate.UseOpenAIResponsesAPI(translate.ResponsesRoute{
