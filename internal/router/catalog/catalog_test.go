@@ -441,3 +441,21 @@ func TestWaferPricing(t *testing.T) {
 		})
 	}
 }
+
+func TestAnthropicGatewayPricesCacheReadsLikeDirectAnthropic(t *testing.T) {
+	for _, model := range []string{"claude-opus-5", "claude-sonnet-5", "claude-opus-4-8"} {
+		t.Run(model, func(t *testing.T) {
+			gateway, ok := PriceFor(providers.ProviderAnthropicGateway, model)
+			require.True(t, ok)
+			direct, ok := PriceFor(providers.ProviderAnthropic, model)
+			require.True(t, ok)
+
+			assert.InDelta(t, 0.10, gateway.CacheReadMultiplier, 1e-9)
+			assert.InDelta(t,
+				EffectiveInputCost(0, 0, 1_000_000, direct.InputUSDPer1M, direct, providers.ProviderAnthropic),
+				EffectiveInputCost(0, 0, 1_000_000, gateway.InputUSDPer1M, gateway, providers.ProviderAnthropicGateway),
+				1e-9,
+			)
+		})
+	}
+}
