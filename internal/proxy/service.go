@@ -5108,6 +5108,7 @@ func (s *Service) fireBilling(ctx context.Context, p billing.DebitInferenceParam
 	}
 	dbCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
+	dbCtx = observability.WithLogger(dbCtx, observability.FromContext(ctx))
 	balance, err := s.billing.DebitForInference(dbCtx, p)
 	if err == nil {
 		observability.FromContext(ctx).Debug("Billing debit complete",
