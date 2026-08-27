@@ -254,12 +254,20 @@ func newTransport(dialTimeout, tlsTimeout, responseHeaderTimeout time.Duration, 
 
 // NewClient returns an http.Client on transport that refuses redirects.
 // A provider base URL is configuration, not discovery — a 3xx would forward
-// credentials to an unconfigured host.
+// credentials to an unconfigured host. Adapters must then treat the returned
+// 3xx as an upstream error (IsRedirect + RefusedRedirectError /
+// WriteRefusedRedirect) rather than relaying it: a relayed Location sends the
+// client, carrying its own key and prompt, to the very host the router
+// refused to contact.
 func NewClient(transport http.RoundTripper) *http.Client {
-	return &http.Client{Transport: transport, CheckRedirect: refuseRedirect}
+	return &http.Client{Transport: transport, CheckRedirect: RefuseRedirects}
 }
 
-func refuseRedirect(*http.Request, []*http.Request) error {
+// RefuseRedirects is the CheckRedirect policy NewClient installs: the 3xx is
+// handed back to the caller unfollowed (http.ErrUseLastResponse). Exported
+// for callers that assemble their own http.Client (composition root, sidecar
+// clients) and need the same policy.
+func RefuseRedirects(*http.Request, []*http.Request) error {
 	return http.ErrUseLastResponse
 }
 

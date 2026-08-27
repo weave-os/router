@@ -35,6 +35,7 @@ import (
 	"workweave/router/internal/providers/anthropic"
 	"workweave/router/internal/providers/cortexagents"
 	googleProvider "workweave/router/internal/providers/google"
+	"workweave/router/internal/providers/httputil"
 	openaiProvider "workweave/router/internal/providers/openai"
 	openaiCompatProvider "workweave/router/internal/providers/openaicompat"
 	"workweave/router/internal/proxy"
@@ -1340,7 +1341,10 @@ func buildClusterScorer(availableProviders map[string]struct{}) (router.Router, 
 // a deployment without Azure keys never contacts Microsoft Entra.
 func buildEntraTokenSource(logger *slog.Logger) auth.EntraTokenSource {
 	logger.Debug("Microsoft Entra client credentials token source initialized")
-	return entra.NewClientCredentialsSource(&http.Client{Timeout: 10 * time.Second}, time.Now)
+	// This client posts the decrypted BYOK client_secret; never follow a
+	// redirect with it. The refused 3xx fails mint()'s 2xx status check.
+	entraClient := &http.Client{Timeout: 10 * time.Second, CheckRedirect: httputil.RefuseRedirects}
+	return entra.NewClientCredentialsSource(entraClient, time.Now)
 }
 
 // buildWIFTokenSource constructs the workload attestation source backing BYOK

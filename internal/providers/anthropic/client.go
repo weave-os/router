@@ -333,6 +333,10 @@ func (c *Client) proxyTo(ctx context.Context, cancel context.CancelCauseFunc, ur
 	// the headroom signal matters most.
 	providers.ObserveUpstreamHeaders(ctx, resp.Header)
 
+	if httputil.IsRedirect(resp.StatusCode) {
+		return httputil.RefusedRedirectError(ctx, resp, "Upstream Anthropic returned a redirect; refused", "routed_model", decision.Model)
+	}
+
 	if resp.StatusCode >= 400 {
 		bufBody, totalRead, drainErr := httputil.ReadCapped(resp.Body, providers.MaxBufferedErrorBytes)
 		if len(bufBody) > 0 {
@@ -436,6 +440,10 @@ func (c *Client) Passthrough(ctx context.Context, prep providers.PreparedRequest
 		return fmt.Errorf("upstream passthrough call: %w", err)
 	}
 	defer resp.Body.Close()
+
+	if httputil.IsRedirect(resp.StatusCode) {
+		return httputil.WriteRefusedRedirect(r.Context(), w, resp, "Upstream Anthropic returned a redirect (passthrough); refused", "path", r.URL.Path)
+	}
 
 	providers.CopyUpstreamHeaders(w, resp)
 	w.WriteHeader(resp.StatusCode)

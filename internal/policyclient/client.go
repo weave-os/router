@@ -94,7 +94,14 @@ func New(baseURL string, client *http.Client, timeout time.Duration, opts ...Opt
 		timeout = DefaultTimeout
 	}
 	if client == nil {
-		client = &http.Client{Timeout: timeout}
+		// Same no-redirect policy as newGoogleIDTokenHTTPClient (auth.go):
+		// a 3xx fails the != 200 status checks instead of being followed.
+		client = &http.Client{
+			Timeout: timeout,
+			CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
+				return http.ErrUseLastResponse
+			},
+		}
 	}
 	sidecar := &Client{
 		baseURL:        strings.TrimRight(baseURL, "/"),

@@ -143,6 +143,9 @@ func (c *Client) Search(ctx context.Context, q websearch.Query) (websearch.Respo
 	defer resp.Body.Close()
 
 	raw, _, readErr := httputil.ReadCapped(resp.Body, maxResponseBytes)
+	if httputil.IsRedirect(resp.StatusCode) {
+		return websearch.Response{}, fmt.Errorf("cortexagents: agent:run returned a redirect (status %d); refused", resp.StatusCode)
+	}
 	if resp.StatusCode >= 400 {
 		return websearch.Response{}, fmt.Errorf("cortexagents: agent:run status %d: %s", resp.StatusCode, httputil.PreviewBytes(raw))
 	}

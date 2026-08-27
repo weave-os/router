@@ -3,6 +3,7 @@ package httputil
 import (
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -11,9 +12,9 @@ import (
 )
 
 func TestNewClientDoesNotFollowRedirects(t *testing.T) {
-	var redirectTargetHit bool
+	var redirectTargetHit atomic.Bool
 	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		redirectTargetHit = true
+		redirectTargetHit.Store(true)
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer target.Close()
@@ -33,5 +34,14 @@ func TestNewClientDoesNotFollowRedirects(t *testing.T) {
 
 	assert.Equal(t, http.StatusFound, resp.StatusCode, "the 3xx is returned to the caller rather than followed")
 	assert.Equal(t, target.URL, resp.Header.Get("Location"))
-	assert.False(t, redirectTargetHit, "the redirect target must never be contacted")
+	assert.False(t, redirectTargetHit.Load(), "the redirect target must never be contacted")
+}
+
+func TestIsRedirect(t *testing.T) {
+	for _, status := range []int{http.StatusMovedPermanently, http.StatusFound, http.StatusTemporaryRedirect, http.StatusPermanentRedirect} {
+		assert.True(t, IsRedirect(status), "status %d", status)
+	}
+	for _, status := range []int{http.StatusOK, http.StatusNoContent, http.StatusBadRequest, http.StatusBadGateway} {
+		assert.False(t, IsRedirect(status), "status %d", status)
+	}
 }

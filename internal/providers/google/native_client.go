@@ -119,6 +119,10 @@ func (c *NativeClient) Proxy(ctx context.Context, decision router.Decision, prep
 	t.StampUpstreamHeaders()
 	providers.ObserveUpstreamHeaders(ctx, resp.Header)
 
+	if httputil.IsRedirect(resp.StatusCode) {
+		return httputil.RefusedRedirectError(ctx, resp, "Upstream Google returned a redirect; refused", "routed_model", decision.Model)
+	}
+
 	if resp.StatusCode >= 400 {
 		// Caller decides retry vs render; do not commit the downstream writer.
 		body, _, readErr := httputil.ReadCapped(resp.Body, providers.MaxBufferedErrorBytes)
@@ -196,6 +200,10 @@ func (c *NativeClient) Passthrough(ctx context.Context, prep providers.PreparedR
 		return fmt.Errorf("upstream passthrough call: %w", err)
 	}
 	defer resp.Body.Close()
+
+	if httputil.IsRedirect(resp.StatusCode) {
+		return httputil.WriteRefusedRedirect(r.Context(), w, resp, "Upstream Google returned a redirect (passthrough); refused", "path", r.URL.Path)
+	}
 
 	providers.CopyUpstreamHeaders(w, resp)
 	w.WriteHeader(resp.StatusCode)

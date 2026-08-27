@@ -293,6 +293,10 @@ func (c *Client) proxyTo(ctx context.Context, cancel context.CancelCauseFunc, ur
 	defer resp.Body.Close()
 	t.StampUpstreamHeaders()
 
+	if httputil.IsRedirect(resp.StatusCode) {
+		return httputil.RefusedRedirectError(ctx, resp, "Upstream OpenAI-compatible provider returned a redirect; refused", "base_url", baseURL, "routed_model", decision.Model)
+	}
+
 	if resp.StatusCode >= 400 {
 		// Buffer the error — do NOT touch w; the failover loop decides whether
 		// to retry or flush this buffer to the client.
@@ -410,6 +414,10 @@ func (c *Client) Passthrough(ctx context.Context, prep providers.PreparedRequest
 		return fmt.Errorf("upstream passthrough call: %w", err)
 	}
 	defer resp.Body.Close()
+
+	if httputil.IsRedirect(resp.StatusCode) {
+		return httputil.WriteRefusedRedirect(r.Context(), w, resp, "Upstream OpenAI-compatible provider returned a redirect (passthrough); refused", "base_url", baseURL, "path", r.URL.Path)
+	}
 
 	providers.CopyUpstreamHeaders(w, resp)
 	w.WriteHeader(resp.StatusCode)

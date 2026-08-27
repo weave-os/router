@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"workweave/router/internal/providers"
+	"workweave/router/internal/providers/httputil"
 	"workweave/router/internal/proxy"
 )
 
@@ -84,6 +85,9 @@ func (c *Client) getModelList(ctx context.Context, listURL string, withEntity bo
 	}
 	defer resp.Body.Close()
 	body, err := io.ReadAll(io.LimitReader(resp.Body, maxModelListBytes))
+	if httputil.IsRedirect(resp.StatusCode) {
+		return nil, resp.StatusCode, fmt.Errorf("model listing returned a redirect (status %d); refused", resp.StatusCode)
+	}
 	if resp.StatusCode >= 400 {
 		return nil, resp.StatusCode, providers.ModelListStatusError(resp.StatusCode, body)
 	}

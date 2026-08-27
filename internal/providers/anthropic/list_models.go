@@ -12,6 +12,7 @@ import (
 
 	"github.com/tidwall/gjson"
 	"workweave/router/internal/providers"
+	"workweave/router/internal/providers/httputil"
 	"workweave/router/internal/proxy"
 )
 
@@ -59,6 +60,9 @@ func (c *Client) ListModels(ctx context.Context) ([]string, error) {
 		}
 		body, err := io.ReadAll(io.LimitReader(resp.Body, maxModelListBytes))
 		resp.Body.Close()
+		if httputil.IsRedirect(resp.StatusCode) {
+			return nil, fmt.Errorf("model listing returned a redirect (status %d); refused", resp.StatusCode)
+		}
 		if resp.StatusCode == http.StatusNotFound && page == 0 {
 			return c.listGatewayModels(ctx, baseURL)
 		}
@@ -125,6 +129,9 @@ func (c *Client) getGatewayModels(ctx context.Context, baseURL string, withEntit
 	}
 	defer resp.Body.Close()
 	body, err := io.ReadAll(io.LimitReader(resp.Body, maxModelListBytes))
+	if httputil.IsRedirect(resp.StatusCode) {
+		return nil, resp.StatusCode, fmt.Errorf("model listing returned a redirect (status %d); refused", resp.StatusCode)
+	}
 	if resp.StatusCode >= 400 {
 		return nil, resp.StatusCode, providers.ModelListStatusError(resp.StatusCode, body)
 	}

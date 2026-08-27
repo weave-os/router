@@ -297,6 +297,10 @@ func (c *Client) Proxy(ctx context.Context, decision router.Decision, prep provi
 		"upstream_request_id", resp.Header.Get("X-Request-Id"),
 	)
 
+	if httputil.IsRedirect(resp.StatusCode) {
+		return httputil.RefusedRedirectError(ctx, resp, "Upstream OpenAI returned a redirect; refused", "base_url", c.baseURL, "routed_model", decision.Model)
+	}
+
 	// Buffer non-2xx as UpstreamErrorResponse so the dispatch loop can fail
 	// over or render the error in the inbound format. Writing the status
 	// straight through would corrupt the SSE stream if a translator's Prelude
@@ -458,6 +462,10 @@ func (c *Client) Passthrough(ctx context.Context, prep providers.PreparedRequest
 		return fmt.Errorf("upstream passthrough call: %w", err)
 	}
 	defer resp.Body.Close()
+
+	if httputil.IsRedirect(resp.StatusCode) {
+		return httputil.WriteRefusedRedirect(r.Context(), w, resp, "Upstream OpenAI returned a redirect (passthrough); refused", "base_url", c.baseURL, "path", r.URL.Path)
+	}
 
 	providers.CopyUpstreamHeaders(w, resp)
 	w.WriteHeader(resp.StatusCode)
