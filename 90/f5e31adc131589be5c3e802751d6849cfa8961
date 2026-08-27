@@ -1,0 +1,44 @@
+internal/observability/global_logger_budget_test.go
+  s_eb7d5586a843a9::t_6156bf80b44c48 155-265
+  s_eb7d5586a843a9::t_d5c499323f5299 18-19,21
+internal/providers/openai/client.go
+  s_eb7d5586a843a9::t_c99768b129c718 297,425
+internal/translate/stream.go
+  s_eb7d5586a843a9::t_c99768b129c718 1497
+internal/proxy/service.go
+  s_eb7d5586a843a9::t_27ba6de17c8ef4 2275
+internal/api/feedback/feedback.go
+  s_eb7d5586a843a9::t_acfd692617463e 70,114,160
+internal/observability/logger.go
+  s_eb7d5586a843a9::t_c2ae038253922a 76-82,89-102
+  s_eb7d5586a843a9::t_d5c499323f5299 214-215
+internal/observability/service_name_internal_test.go
+  s_eb7d5586a843a9::t_6f50d09682cf25 37-40,44,48-63
+  s_eb7d5586a843a9::t_63f90b3c0b2943 64
+CLAUDE.md
+  s_eb7d5586a843a9::t_83a1fe2147e910 218-219
+internal/api/anthropic/passthrough.go
+  s_eb7d5586a843a9::t_27ba6de17c8ef4 39,46
+internal/server/middleware/api_key_spend_cap.go
+  s_eb7d5586a843a9::t_acfd692617463e 52,71,80
+AGENTS.md
+  s_eb7d5586a843a9::t_83a1fe2147e910 218-219
+internal/proxy/router_feedback.go
+  s_eb7d5586a843a9::t_acfd692617463e 121,178,235
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "90f5e31adc131589be5c3e802751d6849cfa8961",
+  "prompts": {},
+  "sessions": {
+    "s_eb7d5586a843a9": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "4eefe1e2-e358-4c67-97fc-e634928a5ad4",
+        "model": "claude-opus-5"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}
