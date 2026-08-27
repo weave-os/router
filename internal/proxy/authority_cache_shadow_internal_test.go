@@ -330,10 +330,8 @@ func TestAuthorityCacheShadowEffortBearingPinIsNotAStayCandidate(t *testing.T) {
 }
 
 // TestCandidateScoreFor covers the lookup directly. CandidateScores is keyed
-// by bare catalog ID, so an effort-bearing serving identity must be stripped.
-// AA sidecars expose WMI values in ArmScores keyed by roster arm ID, so the
-// fallback must match the provider/model[:effort] form without changing the
-// nil-vs-value contract.
+// by bare catalog ID; ArmScores uses roster arm IDs (provider/model[:effort]),
+// so both namespaces are exercised with the nil-vs-value contract intact.
 func TestCandidateScoreFor(t *testing.T) {
 	dec := hmmFreshDecisionWithArmScores(shadowFreshModel,
 		map[string]float32{shadowPinnedModel: 0.40, shadowFreshModel: 0.71},

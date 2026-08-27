@@ -1489,8 +1489,7 @@ func candidateScoreFor(dec router.Decision, servedIdentity string) *float64 {
 
 // candidateScoreForWithProvider falls back to the sidecar's per-arm WMI score
 // when the catalog-level score vector is absent. AA roster policies expose WMI
-// scores as arm_scores (provider/model[:effort]) rather than candidate_scores;
-// those scores are already carried in RoutingMetadata for effort hysteresis.
+// scores as arm_scores (provider/model[:effort]) rather than candidate_scores.
 func candidateScoreForWithProvider(dec router.Decision, servedIdentity, provider string) *float64 {
 	if servedIdentity == "" || dec.Metadata == nil {
 		return nil
