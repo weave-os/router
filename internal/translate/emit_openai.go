@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"workweave/router/internal/providers"
+	"workweave/router/internal/websearch"
 	"workweave/router/internal/router"
 
 	"github.com/tidwall/gjson"
@@ -283,6 +284,11 @@ func (e *RequestEnvelope) buildOpenAIFromAnthropic(opts EmitOptions) ([]byte, pr
 		return nil, stats, fmt.Errorf("strip claude-code-only tools: %w", err)
 	}
 	stats.CCOnlyToolsStripped = removed
+	// Anthropic executes web_search_*/web_fetch_* itself. A non-Anthropic
+	// upstream cannot, and writeOpenAIToolsFromAnthropic would otherwise
+	// convert them into parameterless function tools the caller never
+	// registered. Drop them instead.
+	body, stats.ServerToolsStripped = websearch.StripServerTools(body)
 	jw := newJSONWriter()
 	jw.Obj()
 	jw.Key("model")

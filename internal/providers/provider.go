@@ -604,6 +604,13 @@ type RequestMutationStats struct {
 	// CCOnlyToolsStripped counts Claude-Code-only tools removed before
 	// dispatching to a non-Anthropic upstream. See claudecode_tool_filter.go.
 	CCOnlyToolsStripped int
+	// ServerToolsStripped counts Anthropic native server tools (web_search_*,
+	// web_fetch_*) removed before dispatching to a non-Anthropic upstream.
+	// Those tools are executed by Anthropic, not by the model: converted as
+	// ordinary function tools they would become phantom client tools the
+	// caller never registered, so the model can emit a tool_use block the
+	// harness cannot answer. See websearch.StripServerTools.
+	ServerToolsStripped int
 	// GeminiReminderInjected is true when the Gemini 3.x tool-use reminder was
 	// appended to systemInstruction. See translate/system_reminder.go.
 	GeminiReminderInjected bool

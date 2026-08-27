@@ -46,15 +46,34 @@ func FindServerTool(body []byte) (ServerTool, bool) {
 	return found, found.Type != ""
 }
 
-// StripServerTools removes native web-search tools from an Anthropic Messages
-// body and reports how many it removed. Used to keep a turn alive on an
-// upstream that rejects the tool outright instead of failing the whole turn.
+// nativeServerToolPrefixes are the dated Anthropic server tools the *provider*
+// executes rather than the model. Broader than serverToolPrefix on purpose:
+// FindServerTool/DetectSearchTurn are about the one tool we know how to
+// emulate, while this list is about every tool a non-Anthropic upstream cannot
+// run at all.
+var nativeServerToolPrefixes = []string{serverToolPrefix, "web_fetch_"}
+
+func isNativeServerTool(toolType string) bool {
+	for _, prefix := range nativeServerToolPrefixes {
+		if strings.HasPrefix(toolType, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+// StripServerTools removes Anthropic native server tools (web_search_*,
+// web_fetch_*) from an Anthropic Messages body and reports how many it
+// removed. Used to keep a turn alive on an upstream that cannot execute them --
+// either one that rejects the declaration outright, or one that would silently
+// accept it as an ordinary function tool and then emit a tool_use block the
+// client never registered a handler for.
 func StripServerTools(body []byte) ([]byte, int) {
 	removed := 0
 	// Reverse order: deleting by index shifts every later element.
 	tools := gjson.GetBytes(body, "tools").Array()
 	for i := len(tools) - 1; i >= 0; i-- {
-		if !strings.HasPrefix(tools[i].Get("type").String(), serverToolPrefix) {
+		if !isNativeServerTool(tools[i].Get("type").String()) {
 			continue
 		}
 		out, err := sjson.DeleteBytes(body, "tools."+strconv.Itoa(i))
