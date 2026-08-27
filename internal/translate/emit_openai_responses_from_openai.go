@@ -7,16 +7,11 @@ import (
 )
 
 // buildResponsesFromOpenAI converts a Chat Completions request into a Responses
-// request. Everything chat can express and Responses can represent is carried
-// over; a request using a chat-only knob never reaches here (the proxy checks
-// RequiresChatCompletionsParams first) so nothing is silently dropped.
+// request. Chat-only knobs are screened out by RequiresChatCompletionsParams
+// before reaching here, so nothing is silently dropped.
 //
-// One fidelity limit is inherent: reasoning items can't be replayed across
-// turns, because a chat/completions client has no field to echo an encrypted
-// reasoning item back on. So `include:["reasoning.encrypted_content"]` is not
-// requested here (unlike the Anthropic path, which round-trips it through
-// signed thinking blocks) — the turn still gets reasoning + tools, just no
-// cross-turn reasoning replay.
+// Fidelity limit: chat clients have no field to echo an encrypted reasoning
+// item, so cross-turn reasoning replay is omitted (unlike the Anthropic path).
 func (e *RequestEnvelope) buildResponsesFromOpenAI(opts EmitOptions) ([]byte, error) {
 	body := e.body
 	jw := newJSONWriter()

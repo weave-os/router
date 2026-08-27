@@ -18,15 +18,13 @@ import (
 
 var _ providers.OutputProgressArmer = (*ResponsesToOpenAIChatWriter)(nil)
 
-// ResponsesToOpenAIChatWriter adapts a streaming OpenAI Responses upstream
-// (`POST /v1/responses` with `stream:true`) back into the Chat Completions wire
-// format its client speaks: output text → delta.content, reasoning summaries →
-// delta.reasoning_content, function_call items → delta.tool_calls. Streaming
-// clients get chat.completion.chunk frames plus `[DONE]`; non-streaming clients
-// get one chat.completion JSON built at Finalize from the terminal event.
+// ResponsesToOpenAIChatWriter translates a streaming Responses upstream back
+// into Chat Completions: text → delta.content, reasoning summaries →
+// delta.reasoning_content, function_call → delta.tool_calls. Non-streaming
+// clients receive one chat.completion body assembled at Finalize.
 //
-// Reasoning is one-way here: an encrypted reasoning item has no field to live
-// on in a chat message, so only the human-readable summary reaches the client.
+// Reasoning is one-way: only the summary reaches the client; encrypted
+// items have no chat field to live on.
 type ResponsesToOpenAIChatWriter struct {
 	inner        http.ResponseWriter
 	flusher      http.Flusher

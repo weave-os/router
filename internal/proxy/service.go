@@ -5856,11 +5856,8 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 				}
 			}
 			err := dispatchOpenAI(actx, d, p, surface)
-			// An endpoint with no usable Responses surface is retried once on
-			// chat/completions while pre-commit, and the answer is memoized so
-			// later turns skip the probe. A native attempt additionally needs a
-			// chat projection to fall back to (promotedToResponses) — a genuine
-			// Codex passthrough has none.
+			// Retried once pre-commit on chat/completions; memoized for later turns.
+			// A native attempt also needs promotedToResponses — a Codex passthrough has none.
 			if err == nil || surface == surfaceChat ||
 				committed(preludeBuf) || !providers.IsUpstreamResponsesUnsupported(err) {
 				return err
