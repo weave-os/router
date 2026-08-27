@@ -80,3 +80,9 @@ func TestFeedbackFooterSinceLastHumanTurn_EmptyAndMissing(t *testing.T) {
 		assert.False(t, translate.FeedbackFooterSinceLastHumanTurn(body))
 	}
 }
+
+func TestFeedbackFooterSinceLastHumanTurnInResponses(t *testing.T) {
+	body := []byte("{\"input\":[{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"done\\n\\n_Weave Router feedback:_ `$rf +` x\"}]}]}")
+	assert.True(t, translate.FeedbackFooterSinceLastHumanTurnInResponses(body))
+	assert.True(t, translate.FeedbackFooterSinceLastHumanTurn(body))
+}

@@ -405,6 +405,10 @@ type nativeResponsesReasoningHashContextKey struct{}
 // nativeResponsesToolHashContextKey preserves native Responses tool identity.
 type nativeResponsesToolHashContextKey struct{}
 
+// responsesFooterEchoedContextKey is set when the original Responses input
+// already carries a rating hint after the last human turn.
+type responsesFooterEchoedContextKey struct{}
+
 // InstallationExcludedModelsContextKey is the context key for the authed
 // installation's model exclusion list. Carried as []string.
 type InstallationExcludedModelsContextKey struct{}
@@ -2638,6 +2642,9 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	// cleanup, matching the OpenAI chat path. The echo check must read the body
 	// before the strip erases its evidence.
 	footerEchoedSinceHumanTurn := translate.FeedbackFooterSinceLastHumanTurn(body)
+	if echoed, _ := ctx.Value(responsesFooterEchoedContextKey{}).(bool); echoed {
+		footerEchoedSinceHumanTurn = true
+	}
 	if strippedBody, ferr := translate.StripFeedbackFooterFromMessages(body); ferr != nil {
 		log.Error("Failed to strip feedback footer from inbound messages", "err", ferr)
 	} else {
@@ -5250,6 +5257,9 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	// cleanup, matching the Anthropic Messages path. The echo check must read
 	// the body before the strip erases its evidence.
 	footerEchoedSinceHumanTurn := translate.FeedbackFooterSinceLastHumanTurn(body)
+	if echoed, _ := ctx.Value(responsesFooterEchoedContextKey{}).(bool); echoed {
+		footerEchoedSinceHumanTurn = true
+	}
 	strippedBody, stripErr = translate.StripFeedbackFooterFromMessages(body)
 	if stripErr != nil {
 		log.Error("Failed to strip feedback footer from OpenAI messages", "err", stripErr)
@@ -6210,6 +6220,9 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 func (s *Service) ProxyOpenAIResponses(ctx context.Context, body []byte, w http.ResponseWriter, r *http.Request) error {
 	ctx = s.withUsageObserver(ctx, r.Header)
 	clientAppCodex := ClientIdentityFrom(ctx).ClientApp == ClientAppCodex
+	if translate.FeedbackFooterSinceLastHumanTurnInResponses(body) {
+		ctx = context.WithValue(ctx, responsesFooterEchoedContextKey{}, true)
+	}
 	conversion, err := translate.ConvertResponsesToChatCompletionsWithOptions(body, translate.ResponsesConversionOptions{
 		PortableCodex: clientAppCodex,
 	})

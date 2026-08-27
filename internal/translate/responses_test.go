@@ -942,10 +942,11 @@ func TestResponsesWriter_PassthroughAppendsFeedbackFooter(t *testing.T) {
 	require.NoError(t, w.Finalize())
 
 	events := parseSSEEvents(t, rec.Body.Bytes())
-	require.Len(t, events, 3)
-	assert.Equal(t, "ok"+footer, events[0]["delta"])
-	assert.Equal(t, "ok"+footer, events[1]["text"])
-	output := events[2]["response"].(map[string]any)["output"].([]any)
+	require.Len(t, events, 4)
+	assert.Equal(t, "ok", events[0]["delta"])
+	assert.Equal(t, "ok", events[1]["text"])
+	assert.Equal(t, footer, events[2]["delta"])
+	output := events[3]["response"].(map[string]any)["output"].([]any)
 	assert.Equal(t, "ok"+footer, output[0].(map[string]any)["content"].([]any)[0].(map[string]any)["text"])
 }
 
