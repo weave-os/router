@@ -55,9 +55,8 @@ func concatDelta(chunks []gjson.Result, field string) string {
 	return sb.String()
 }
 
-// A streaming chat client must see the Responses stream as chat chunks:
-// reasoning summary on reasoning_content, text on content, the function call on
-// tool_calls, then a terminal chunk with finish_reason + usage and [DONE].
+// A streaming chat client must see text, reasoning, tool calls, usage, and
+// [DONE] — the full translated Responses stream as chat chunks.
 func TestResponsesToOpenAIChatWriter_StreamingClient(t *testing.T) {
 	rec := httptest.NewRecorder()
 	w := translate.NewResponsesToOpenAIChatWriter(rec, "gpt-5.6-luna", nil)

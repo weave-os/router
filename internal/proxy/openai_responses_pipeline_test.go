@@ -84,9 +84,8 @@ func TestService_ProxyOpenAIChatCompletion_ResponsesTurnCachesTranslatedBody(t *
 	assert.Equal(t, rec1.Body.String(), rec2.Body.String())
 }
 
-// Streaming bypasses the semantic cache. A Responses-served stream must not be
-// stored either — its translated bytes are SSE frames, replaying them as a
-// cached body would hand the next caller frames instead of a chat.completion.
+// Streaming bypasses the semantic cache — its translated bytes are SSE frames
+// that would be unreadable as a chat.completion body on the next hit.
 func TestService_ProxyOpenAIChatCompletion_ResponsesStreamBypassesCache(t *testing.T) {
 	streamingBody := strings.Replace(chatCacheableTurnBody, `"stream":false`, `"stream":true`, 1)
 	provider := &fakeProvider{proxyResponse: responsesTextUpstream}

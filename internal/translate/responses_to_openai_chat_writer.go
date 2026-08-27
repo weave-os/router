@@ -645,9 +645,8 @@ func (t *ResponsesToOpenAIChatWriter) emitToolCall(oi int, fallback string) erro
 	return t.flushEvent()
 }
 
-// validatedToolArgs resolves a call's arguments from the buffered deltas,
-// falling back to the terminal item's authoritative value when the buffer is
-// empty or unparseable, then validates/repairs against the request's schema.
+// validatedToolArgs picks the best available argument string (buffered
+// deltas or terminal fallback) and validates/repairs it against the schema.
 func (t *ResponsesToOpenAIChatWriter) validatedToolArgs(oi int, fallback string) string {
 	buffered := ""
 	if buf, ok := t.toolArgs[oi]; ok {
