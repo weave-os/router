@@ -76,9 +76,7 @@ func TestDetectFromEnvelope_Anthropic(t *testing.T) {
 		},
 		{
 			// Claude Code 2.x appends the compaction instruction to the trailing
-			// turn alongside the last tool_result instead of using the system
-			// prompt; classifying it as ToolResult sent summarization through the
-			// scorer and onto Opus for minutes per turn.
+			// turn alongside the last tool_result; a system-only check misclassifies it.
 			name: "compaction instruction in last user message alongside tool_result",
 			body: `{"model":"claude-sonnet-4-5","system":"You are Claude Code.","messages":[
 				{"role":"user","content":[

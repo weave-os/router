@@ -34,10 +34,9 @@ const probeMaxTokensThreshold = 4
 // instruction. Unambiguous enough to hard-pin on by itself.
 const compactionMarkerPhrase = "your task is to create a detailed summary"
 
-// compactionSniffLen bounds the trailing-user-message scan for
-// compactionMarkerPhrase. Claude Code prefixes the instruction with a fixed
-// "respond with TEXT ONLY" preamble, so the phrase lands within the first few
-// hundred bytes; the bound keeps a long pasted message off the hot path.
+// compactionSniffLen bounds the trailing-user-message scan. Claude Code's
+// fixed-length preamble puts the phrase within ~200 bytes; this excludes long
+// pasted messages from the scan path without false-negatives.
 const compactionSniffLen = 4096
 
 // Bounds for short-form classifier calls (e.g. Claude Code's security monitor:
@@ -114,11 +113,8 @@ func isTitleGen(env *translate.RequestEnvelope, hasTools bool) bool {
 
 // isCompaction reports whether the request carries Claude Code's
 // context-compaction instruction, in the system prompt or in the last user
-// message. Claude Code 2.x appends the instruction to the trailing turn (which
-// also carries the last tool_result) instead of putting it in the system
-// prompt, so a system-only check classifies it as ToolResult and routes a
-// summarization turn through the scorer — prod: compaction served by
-// claude-opus-5 at 145-225s per turn instead of the hard-pinned cheap model.
+// message (Claude Code 2.x appends it to the trailing turn alongside the
+// last tool_result instead of the system prompt).
 func isCompaction(systemText, lastUserText string) bool {
 	if hasCompactionMarker(systemText) {
 		return true
