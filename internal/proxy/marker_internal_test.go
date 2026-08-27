@@ -397,3 +397,15 @@ func TestHumanReasonFromPlanner_UnknownCodeIsSilenced(t *testing.T) {
 	got := humanReasonFromPlanner("brand_new_reason_v9")
 	assert.Empty(t, got)
 }
+
+func TestRoutingMarkerForOpts_AlwaysShowsStickyCodexTurn(t *testing.T) {
+	res := turnLoopResult{
+		Decision:         router.Decision{Model: "gpt-5.6-terra", Provider: "openai"},
+		StickyHit:        true,
+		PriorServedModel: "gpt-5.6-terra",
+	}
+	assert.Empty(t, routingMarkerFor(res), "Claude Code keeps same-model suppression")
+	got := routingMarkerForOpts(res, true)
+	assert.Contains(t, got, "✦ **Weave Router** → gpt-5.6-terra")
+	assert.True(t, strings.HasSuffix(got, "\n\n"))
+}

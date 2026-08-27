@@ -917,3 +917,96 @@ func eventTypes(events []map[string]any) []string {
 	}
 	return out
 }
+
+func TestResponsesWriter_PassthroughAppendsFeedbackFooter(t *testing.T) {
+	const footer = "\n\n_Weave Router feedback:_ `$rf +` good experience · `$rf -` poor experience"
+	payloads := []string{
+		`{"type":"response.output_text.delta","item_id":"msg_native","output_index":0,"content_index":0,"delta":"ok"}`,
+		`{"type":"response.output_text.done","item_id":"msg_native","output_index":0,"content_index":0,"text":"ok"}`,
+		`{"type":"response.completed","response":{"id":"resp_native","status":"completed","output":[{"id":"msg_native","type":"message","role":"assistant","content":[{"type":"output_text","text":"ok"}]}]}}`,
+	}
+	var native strings.Builder
+	for _, payload := range payloads {
+		native.WriteString("event: " + gjson.Get(payload, "type").Str + "\n")
+		native.WriteString("data: " + payload + "\n\n")
+	}
+
+	rec := httptest.NewRecorder()
+	w := translate.NewResponsesWriter(rec, "gpt-5.6-sol")
+	w.SetFooterText(footer)
+	w.SetPassthroughBadge()
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.WriteHeader(200)
+	_, err := w.Write([]byte(native.String()))
+	require.NoError(t, err)
+	require.NoError(t, w.Finalize())
+
+	events := parseSSEEvents(t, rec.Body.Bytes())
+	require.Len(t, events, 3)
+	assert.Equal(t, "ok"+footer, events[0]["delta"])
+	assert.Equal(t, "ok"+footer, events[1]["text"])
+	output := events[2]["response"].(map[string]any)["output"].([]any)
+	assert.Equal(t, "ok"+footer, output[0].(map[string]any)["content"].([]any)[0].(map[string]any)["text"])
+}
+
+func TestResponsesWriter_PassthroughFooterSkippedOnToolCall(t *testing.T) {
+	const footer = "\n\n_Weave Router feedback:_ `$rf +` good"
+	payloads := []string{
+		`{"type":"response.output_text.delta","item_id":"msg_native","output_index":0,"content_index":0,"delta":"ok"}`,
+		`{"type":"response.output_item.added","output_index":1,"item":{"id":"fc_native","type":"function_call","name":"lookup"}}`,
+		`{"type":"response.output_text.done","item_id":"msg_native","output_index":0,"content_index":0,"text":"ok"}`,
+	}
+	var native strings.Builder
+	for _, payload := range payloads {
+		native.WriteString("event: " + gjson.Get(payload, "type").Str + "\n")
+		native.WriteString("data: " + payload + "\n\n")
+	}
+	rec := httptest.NewRecorder()
+	w := translate.NewResponsesWriter(rec, "gpt-5.6-sol")
+	w.SetFooterText(footer)
+	w.SetPassthroughBadge()
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.WriteHeader(200)
+	_, err := w.Write([]byte(native.String()))
+	require.NoError(t, err)
+	require.NoError(t, w.Finalize())
+	events := parseSSEEvents(t, rec.Body.Bytes())
+	require.Len(t, events, 3)
+	assert.Equal(t, "ok", events[0]["delta"])
+	assert.Equal(t, "ok", events[2]["text"])
+}
+
+func TestResponsesWriter_TranslatedStreamAppendsFeedbackFooter(t *testing.T) {
+	const footer = "\n\n_Weave Router feedback:_ `$rf +` good"
+	rec := httptest.NewRecorder()
+	w := translate.NewResponsesWriter(rec, "gpt-5.5")
+	w.SetFooterText(footer)
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.WriteHeader(200)
+	for _, c := range []string{
+		`data: {"choices":[{"index":0,"delta":{"content":"Hello"},"finish_reason":null}]}` + "\n\n",
+		`data: {"choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}` + "\n\n",
+		"data: [DONE]\n\n",
+	} {
+		_, err := w.Write([]byte(c))
+		require.NoError(t, err)
+	}
+	require.NoError(t, w.Finalize())
+	events := parseSSEEvents(t, rec.Body.Bytes())
+	var deltas []string
+	for _, e := range events {
+		if e["type"] == "response.output_text.delta" {
+			deltas = append(deltas, e["delta"].(string))
+		}
+	}
+	require.GreaterOrEqual(t, len(deltas), 2)
+	assert.Equal(t, "Hello", deltas[0])
+	assert.Equal(t, footer, deltas[len(deltas)-1])
+}
+
+func TestStripFeedbackFooterFromResponsesInput(t *testing.T) {
+	body := []byte("{\"input\":[{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"answer\\n\\n_Weave Router feedback:_ `$rf +` good experience · `$rf -` poor experience\"}]}]}")
+	out, err := translate.StripFeedbackFooterFromResponsesInput(body)
+	require.NoError(t, err)
+	assert.Equal(t, "answer", gjson.GetBytes(out, "input.0.content.0.text").Str)
+}

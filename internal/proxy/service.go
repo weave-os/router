@@ -533,6 +533,13 @@ func suppressMarkerIfRequested(ctx context.Context, h http.Header, marker string
 // routingMarkerFor builds the "brand → model · note" snippet emitted at the
 // start of every cross-format streamed response.
 func routingMarkerFor(res turnLoopResult) string {
+	return routingMarkerForOpts(res, false)
+}
+
+// routingMarkerForOpts is routingMarkerFor with an always-on switch used by
+// Codex: that client has no statusline, so a sticky same-model turn would
+// otherwise look like stock Codex.
+func routingMarkerForOpts(res turnLoopResult, always bool) string {
 	decision := res.Decision
 	if decision.Model == "" {
 		return ""
@@ -554,7 +561,9 @@ func routingMarkerFor(res turnLoopResult) string {
 	// for this turn" / "best pick for this turn" repeating each turn would
 	// otherwise be visible even when nothing switched. Hard-pin carve-outs and
 	// first-turn (empty prior) cases still flow to the sidecar marker below.
-	if res.PriorServedModel == res.Decision.ServedIdentity() {
+	// Codex has no persistent statusline, so always-on keeps the badge even when
+	// the served model did not change.
+	if !always && res.PriorServedModel == res.Decision.ServedIdentity() {
 		return ""
 	}
 	// A sidecar-supplied marker is a genuine per-turn status line (e.g.
@@ -5630,7 +5639,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	preludeBuf := newPreludeBuffer(contentSink)
 	var rootSink http.ResponseWriter = preludeBuf
 
-	marker := suppressMarkerIfRequested(ctx, r.Header, routingMarkerFor(routeRes))
+	marker := suppressMarkerIfRequested(ctx, r.Header, routingMarkerForOpts(routeRes, clientID.ClientApp == ClientAppCodex))
 	if billing.SubscriptionOnlyFromContext(ctx) {
 		// Always surface the depleted-credits warning (not gated by the
 		// routing-marker opt-out): a billing state change the caller must see.
@@ -5663,8 +5672,13 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	// Previously gated on policy debug; ordinary Codex turns fell through to
 	// ResponsesWriter's legacy badge that ignored suppression and never showed the routing reason.
 	verbatimPassthrough := responsesPassthrough && decision.Provider == providers.ProviderOpenAI
-	if rw, ok := w.(*translate.ResponsesWriter); ok && marker != "" && !verbatimPassthrough {
-		rw.SetBadgeText(marker)
+	if rw, ok := w.(*translate.ResponsesWriter); ok {
+		if marker != "" && !verbatimPassthrough {
+			rw.SetBadgeText(marker)
+		}
+		if footer := s.feedbackFooter(ctx, clientID.ClientApp, routeRes.TurnType, footerEchoedSinceHumanTurn); footer != "" {
+			rw.SetFooterText(footer)
+		}
 	}
 	// Outlives the passthrough teardown of marker below, so a chat/completions
 	// re-dispatch can still badge the translated stream.
@@ -5687,8 +5701,11 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		if verbatimPassthrough {
 			// marker already carries the depleted-credits warning in
 			// subscription-only mode, which overrides the opt-out above.
-			if clientID.ClientApp == ClientAppCodex && marker != "" {
-				rw.SetBadgeText(marker)
+			// Parse native SSE when Codex needs a badge and/or footer.
+			if clientID.ClientApp == ClientAppCodex && (marker != "" || s.feedbackFooter(ctx, clientID.ClientApp, routeRes.TurnType, footerEchoedSinceHumanTurn) != "") {
+				if marker != "" {
+					rw.SetBadgeText(marker)
+				}
 				rw.SetPassthroughBadge()
 			} else {
 				rw.SetPassthrough()
@@ -6202,16 +6219,20 @@ func (s *Service) ProxyOpenAIResponses(ctx context.Context, body []byte, w http.
 	}
 	chatBody, model := conversion.Body, conversion.Model
 	codexNativeRequest := codexResponsesRequest(ctx, r.Header)
-	nativeBody := conversion.OriginalBody
-	if clientAppCodex {
-		// Codex records response.output_item.done as conversation history and
-		// sends it back in the next native request. Remove only the badge this
-		// client opted into so router text never reaches the selected model.
-		nativeBody, err = translate.StripRoutingBadgeFromResponsesInput(nativeBody)
-		if err != nil {
-			return fmt.Errorf("strip native Responses routing badge: %w", err)
+		nativeBody := conversion.OriginalBody
+		if clientAppCodex {
+			// Codex records response.output_item.done as conversation history and
+			// sends it back in the next native request. Remove only the badge this
+			// client opted into so router text never reaches the selected model.
+			nativeBody, err = translate.StripRoutingBadgeFromResponsesInput(nativeBody)
+			if err != nil {
+				return fmt.Errorf("strip native Responses routing badge: %w", err)
+			}
+			nativeBody, err = translate.StripFeedbackFooterFromResponsesInput(nativeBody)
+			if err != nil {
+				return fmt.Errorf("strip native Responses feedback footer: %w", err)
+			}
 		}
-	}
 	// Every Responses turn stashes its original bytes for post-routing native
 	// dispatch; NativeOnly and Codex-subscription turns also dispatch verbatim now.
 	if conversion.Requirements.NativeOnly || codexNativeRequest {
