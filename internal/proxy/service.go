@@ -291,6 +291,10 @@ type Service struct {
 	// dispatchWithFallback. Tests inject a no-op to avoid real delays; prod
 	// leaves it nil and falls back to sleepWithContext.
 	retrySleep func(context.Context, time.Duration) error
+	// now, when non-nil, overrides the clock dispatchWithFallback uses to
+	// price the same-binding retry budget. Tests inject a fake to simulate a
+	// slow attempt without burning real time; prod leaves it nil (time.Now).
+	now func() time.Time
 	// feedbackRepo persists per-request human feedback (router.request_feedback)
 	// and reads it back for the no-login feedback page. Nil leaves the feedback
 	// endpoints' DB access disabled (Get/Submit return ErrFeedbackUnavailable).

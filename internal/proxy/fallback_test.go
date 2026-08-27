@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"testing"
 	"time"
 
@@ -641,6 +642,68 @@ func TestDispatchWithFallback_SingleBindingExhaustsRetries(t *testing.T) {
 	assert.Equal(t, 0, winnerIdx)
 	assert.Equal(t, 1+maxSameBindingRetries, only.calls, "initial attempt + maxSameBindingRetries")
 	assert.Equal(t, http.StatusServiceUnavailable, rec.Code, "final upstream envelope still flushes on exhaustion")
+}
+
+// hungUpstreamErr is the error an upstream produces when it accepts the HTTP/2
+// stream and never returns response headers — the transport gives up after a
+// full ResponseHeaderTimeout. providers.IsRetryable says yes, which is what
+// makes the count-based bound spend three of them.
+func hungUpstreamErr() error {
+	return &url.Error{
+		Op:  "Post",
+		URL: "https://upstream.example/v1/messages",
+		Err: errors.New("http2: timeout awaiting response headers"),
+	}
+}
+
+func TestDispatchWithFallback_SlowAttemptsStopBeforeRetryCount(t *testing.T) {
+	// A hung upstream costs a full ResponseHeaderTimeout per attempt, so the
+	// count bound alone spends ~3x that on a request that was never going to be
+	// served. The wall-clock budget has to cut it off after the first attempt,
+	// even though the error is retryable and the retry count is not yet spent.
+	hung := &fakeClient{
+		name: "anthropic",
+		outcomes: []fakeOutcome{
+			{err: hungUpstreamErr()},
+			{err: hungUpstreamErr()},
+			{err: hungUpstreamErr()},
+		},
+	}
+
+	s := newServiceWithProviders(t, map[string]providers.Client{"anthropic": hung})
+	s.retrySleep = noopSleep
+	// Absolute, NOT a multiple of sameBindingRetryBudget: expressing it in terms
+	// of the constant makes the test scale with it, so it would keep passing even
+	// if the budget were raised to infinity and could never fail.
+	const slowAttempt = 30 * time.Second
+	base := time.Now()
+	reads := 0
+	s.now = func() time.Time {
+		now := base.Add(time.Duration(reads) * slowAttempt)
+		reads++
+		return now
+	}
+	require.Greater(t, slowAttempt, sameBindingRetryBudget, "attempt must outrun the budget for this test to mean anything")
+
+	rec := httptest.NewRecorder()
+	buf := newPreludeBuffer(rec)
+	r := httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+
+	_, err := s.dispatchWithFallback(context.Background(), failoverInputs{
+		w:               rec,
+		buf:             buf,
+		initialDecision: router.Decision{Model: "claude-opus-4-7"},
+		bindings:        []catalog.ProviderBinding{{Provider: "anthropic"}},
+		attempt: func(ctx context.Context, d router.Decision, p providers.Client) error {
+			buf.Seal()
+			return p.Proxy(ctx, d, providers.PreparedRequest{}, buf, r)
+		},
+		flushErr: flushBufferedIfPresent,
+	})
+
+	require.Error(t, err)
+	assert.Equal(t, 1, hung.calls, "budget stops the retry after one over-budget attempt")
+	assert.Less(t, hung.calls, 1+maxSameBindingRetries, "count bound alone would have allowed more")
 }
 
 func TestDispatchWithFallback_SingleBindingRetrySucceeds(t *testing.T) {

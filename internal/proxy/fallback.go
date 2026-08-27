@@ -225,6 +225,7 @@ func (s *Service) dispatchWithFallback(ctx context.Context, in failoverInputs) (
 		// Only used for single-binding models; multi-binding models fail
 		// straight over to the next binding after one attempt (len>1 guard).
 		var attemptErr error
+		retryStart := s.clockNow()
 		for sb := 0; ; sb++ {
 			// Safe to rewrite until the buffer commits; on retry the previous
 			// value is overwritten via Discard's header restore + this Set.
@@ -258,10 +259,24 @@ func (s *Service) dispatchWithFallback(ctx context.Context, in failoverInputs) (
 				return i, attemptErr
 			}
 
-			// Stop same-binding retry: error non-retryable, budget spent, or
-			// a different binding exists (cross-binding failover beats
-			// re-hitting the same flaky provider).
+			// Stop same-binding retry: error non-retryable, attempt budget
+			// spent, or a different binding exists (cross-binding failover
+			// beats re-hitting the same flaky provider).
 			if !providers.IsRetryable(attemptErr) || sb >= maxSameBindingRetries || len(in.bindings) > 1 {
+				break
+			}
+			// Attempts are also bounded by wall-clock, not just count. An
+			// upstream that accepts the stream and never answers burns a full
+			// ResponseHeaderTimeout per attempt; without this, three of them
+			// cost ~3x that on a request that was never going to be served.
+			if spent := s.clockNow().Sub(retryStart); spent >= sameBindingRetryBudget {
+				log.Warn("dispatchWithFallback: same-binding retry budget spent, not retrying",
+					"model", decision.Model,
+					"provider", b.Provider,
+					"spent_ms", spent.Milliseconds(),
+					"budget_ms", sameBindingRetryBudget.Milliseconds(),
+					"same_binding_retry", sb,
+					"err", attemptErr)
 				break
 			}
 			// Reset before retrying so it begins with a pristine writer.
@@ -326,7 +341,25 @@ const (
 	maxSameBindingRetries = 2
 	// sameBindingBackoffBase is the first retry delay, doubling per attempt.
 	sameBindingBackoffBase = 250 * time.Millisecond
+	// sameBindingRetryBudget caps the wall-clock a single binding may spend
+	// across its retries. maxSameBindingRetries alone bounds the count, not
+	// the cost: an upstream that accepts the stream and never answers burns a
+	// full ResponseHeaderTimeout per attempt, so three attempts cost ~90s of
+	// dead time on a request that was never going to be served. A blip clears
+	// on a quick retry by definition — if the attempts so far already outran
+	// this budget, the fault is not the transient kind retrying was built for.
+	// Cheap failures (5xx in millis) still get the full attempt count.
+	sameBindingRetryBudget = 10 * time.Second
 )
+
+// clockNow reads the current time through the injectable clock, falling back
+// to time.Now when no fake is wired.
+func (s *Service) clockNow() time.Time {
+	if s.now != nil {
+		return s.now()
+	}
+	return time.Now()
+}
 
 // sameBindingBackoff is the delay before same-binding retry attempt+1
 // (0-indexed): exponential off sameBindingBackoffBase.
