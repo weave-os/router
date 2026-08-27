@@ -66,6 +66,9 @@ type fakeProvider struct {
 	proxyCreds []*proxy.Credentials
 	// passthroughCreds records the resolved credential per Passthrough call.
 	passthroughCreds []*proxy.Credentials
+	// proxyErrByEndpoint overrides proxyErr for one upstream endpoint, modelling
+	// an endpoint that serves chat/completions but no Responses API.
+	proxyErrByEndpoint map[providers.Endpoint]error
 }
 
 func (f *fakeProvider) Proxy(ctx context.Context, decision router.Decision, prep providers.PreparedRequest, w http.ResponseWriter, r *http.Request) error {
@@ -74,6 +77,9 @@ func (f *fakeProvider) Proxy(ctx context.Context, decision router.Decision, prep
 	f.proxyBodies = append(f.proxyBodies, saved)
 	f.proxyEndpoints = append(f.proxyEndpoints, prep.Endpoint)
 	f.proxyCreds = append(f.proxyCreds, proxy.CredentialsFromContext(ctx))
+	if err, ok := f.proxyErrByEndpoint[prep.Endpoint]; ok {
+		return err
+	}
 	if f.proxyResponse != nil {
 		f.proxyResponse(w)
 	}
@@ -368,6 +374,57 @@ func TestService_ProxyOpenAIResponses_ToolTurnStaysOnResponsesForDirectOpenAI(t 
 				assert.Equal(t, "none", gjson.GetBytes(provider.proxyBodies[0], "reasoning_effort").Str)
 			}
 		})
+	}
+}
+
+// An endpoint standing in for OpenAI can serve chat/completions and no
+// Responses API; the promoted turn must land there instead of 404ing, and the
+// next turn must not re-probe.
+func TestService_ProxyOpenAIResponses_ToolTurnFallsBackWhenEndpointLacksResponses(t *testing.T) {
+	provider := &fakeProvider{
+		proxyErrByEndpoint: map[providers.Endpoint]error{
+			providers.EndpointResponses: &providers.UpstreamErrorResponse{
+				Status: http.StatusNotFound,
+				Body:   []byte(`{"error":{"message":"Unknown path /v1/responses"}}`),
+			},
+		},
+		proxyResponse: func(w http.ResponseWriter) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			_, _ = io.WriteString(w, `{"id":"chatcmpl_1","object":"chat.completion","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}]}`)
+		},
+	}
+	fr := &fakeRouter{decision: router.Decision{
+		Provider: providers.ProviderOpenAI,
+		Model:    "gpt-5.6-luna",
+		Reason:   "test",
+	}}
+	svc := proxy.NewService(fr, map[string]providers.Client{
+		providers.ProviderOpenAI: provider,
+	}, nil, false, nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil)
+
+	ctx := context.WithValue(
+		context.Background(),
+		proxy.ClientIdentityContextKey{},
+		proxy.ClientIdentity{ClientApp: proxy.ClientAppOpencode},
+	)
+	body := []byte(`{"model":"auto","input":"remove the router","reasoning":{"effort":"medium"},"tools":[{"type":"function","name":"read_file","parameters":{"type":"object"}}]}`)
+
+	for _, want := range [][]providers.Endpoint{
+		{providers.EndpointResponses, providers.EndpointChatCompletions},
+		{providers.EndpointChatCompletions},
+	} {
+		provider.proxyEndpoints = nil
+		provider.proxyBodies = nil
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(""))
+
+		require.NoError(t, svc.ProxyOpenAIResponses(ctx, body, rec, req))
+		assert.Equal(t, want, provider.proxyEndpoints)
+		last := provider.proxyBodies[len(provider.proxyBodies)-1]
+		assert.False(t, gjson.GetBytes(last, "input").Exists())
+		assert.Equal(t, "none", gjson.GetBytes(last, "reasoning_effort").Str)
+		assert.Equal(t, http.StatusOK, rec.Code)
 	}
 }
 

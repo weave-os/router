@@ -5612,12 +5612,16 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	// caller's original bytes serve it natively — preserving reasoning the chat
 	// projection drops. Skip when compaction or a handover rewrote the envelope
 	// (stale bytes); pre-routing readers of responsesPassthrough already ran.
+	responsesEndpointKey := EffectiveBaseURL(ctx, decision.Provider)
+	promotedToResponses := false
 	if !responsesPassthrough && !compResOAI.Applied && !routeRes.Handover.Invoked &&
 		decision.Provider == providers.ProviderOpenAI &&
-		translate.UseOpenAIResponsesAPI(decision.Provider, opts.Capabilities, feats.HasTools) {
+		translate.UseOpenAIResponsesAPI(decision.Provider, opts.Capabilities, feats.HasTools) &&
+		!s.gatewayLacksResponses(responsesEndpointKey) {
 		if native, ok := ctx.Value(nativeResponsesBodyContextKey{}).([]byte); ok && len(native) > 0 {
 			responsesBody = native
 			responsesPassthrough = true
+			promotedToResponses = true
 		}
 	}
 
@@ -5627,6 +5631,9 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	if rw, ok := w.(*translate.ResponsesWriter); ok && marker != "" && !verbatimPassthrough {
 		rw.SetBadgeText(marker)
 	}
+	// Outlives the passthrough teardown of marker below, so a chat/completions
+	// re-dispatch can still badge the translated stream.
+	translatedMarker := marker
 
 	// Responses entry point delegates the eager response.created emit to
 	// this layer because it has the post-routing binding count. Fire only
@@ -5708,9 +5715,11 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		// Prep rebuilt per attempt: targetIsOpenRouter(opts) gates four
 		// OpenRouter-only body fields that Fireworks/Bedrock/Makora/Together
 		// should not see. On failover to OpenRouter the body must be re-emitted.
-		attempt = func(actx context.Context, d router.Decision, p providers.Client) error {
+		// Split from attempt so a native dispatch that finds no Responses surface
+		// can re-emit onto chat/completions while still pre-commit.
+		dispatchOpenAI := func(actx context.Context, d router.Decision, p providers.Client, native bool) error {
 			var prep providers.PreparedRequest
-			if responsesPassthrough && d.Provider == providers.ProviderOpenAI {
+			if native {
 				// Dispatch the caller's ORIGINAL Responses body (untranslated) to
 				// the OpenAI Responses endpoint, rewriting only the model. This keeps
 				// native Responses extensions lossless.
@@ -5749,16 +5758,44 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 			err := p.Proxy(actx, d, prep, proxyWriter, r)
 			// Post-commit: bytes already on the wire, render as an in-stream
 			// frame instead of a corrupting envelope (pre-commit goes through
-			// dispatchWithFallback). Gate on THIS attempt being the verbatim
-			// Codex backend, not responsesPassthrough alone: a native request can
-			// still route to Claude/OSS through the translating ResponsesWriter,
-			// which needs its own error frame — only the verbatim Codex attempt
-			// already delivered the upstream's own Responses error event.
-			verbatimCodex := responsesPassthrough && d.Provider == providers.ProviderOpenAI
-			if err != nil && !verbatimCodex && env.Stream() && preludeBuf.Committed() {
+			// dispatchWithFallback). Gate on THIS attempt being native, not
+			// responsesPassthrough alone: a native request can still route to
+			// Claude/OSS through the translating ResponsesWriter, which needs its
+			// own error frame — only a verbatim attempt already delivered the
+			// upstream's own Responses error event.
+			if err != nil && !native && env.Stream() && preludeBuf.Committed() {
 				err = emitOpenAISSEErrorEvent(sink, err)
 			}
 			return err
+		}
+		attempt = func(actx context.Context, d router.Decision, p providers.Client) error {
+			native := responsesPassthrough && d.Provider == providers.ProviderOpenAI
+			err := dispatchOpenAI(actx, d, p, native)
+			// An endpoint standing in for OpenAI without a Responses surface answers
+			// 404, or 4xx prose saying the API is off. Only a promoted turn can
+			// retry — a native-only or Codex request has no chat projection to fall
+			// back to — and the answer is remembered so later turns skip the probe.
+			if err == nil || !native || !promotedToResponses ||
+				committed(preludeBuf) || !providers.IsUpstreamResponsesUnsupported(err) {
+				return err
+			}
+			rw, ok := w.(*translate.ResponsesWriter)
+			if !ok || !rw.ClearPassthrough() {
+				return err
+			}
+			s.rememberGatewayLacksResponses(responsesEndpointKey)
+			log.Warn("OpenAI endpoint rejected the Responses API; retrying on chat/completions",
+				"model", d.Model,
+				"decision_provider", d.Provider,
+				"request_id", requestID)
+			responsesPassthrough = false
+			if translatedMarker != "" {
+				rw.SetBadgeText(translatedMarker)
+			}
+			if preludeBuf != nil {
+				preludeBuf.Discard()
+			}
+			return dispatchOpenAI(actx, d, p, false)
 		}
 	case providers.FamilyGemini:
 		crossFormat = true
