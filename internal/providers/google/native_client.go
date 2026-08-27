@@ -54,9 +54,7 @@ func NewNativeClient(apiKey, baseURL string) *NativeClient {
 	}
 }
 
-// NewNativeClientWithHeaderTimeouts is NewNativeClient with injected
-// streaming/unary response-header guards, so tests can prove per-call client
-// selection with sub-second budgets.
+// NewNativeClientWithHeaderTimeouts is NewNativeClient with injected streaming/unary header guards for test use.
 func NewNativeClientWithHeaderTimeouts(apiKey, baseURL string, streamGuard, unaryGuard time.Duration) *NativeClient {
 	c := NewNativeClient(apiKey, baseURL)
 	c.http = httputil.NewClient(httputil.NewTransportWithResponseHeaderTimeout(5*time.Second, 5*time.Second, streamGuard))
@@ -64,9 +62,8 @@ func NewNativeClientWithHeaderTimeouts(apiKey, baseURL string, streamGuard, unar
 	return c
 }
 
-// httpClientFor picks the transport for one upstream call: unary
-// :generateContent buffers the whole generation before headers, so it gets
-// the generation-scale guard rather than the streaming liveness guard.
+// httpClientFor picks the transport for one upstream call: unary :generateContent
+// buffers the whole generation before headers, so it needs the longer guard.
 func (c *NativeClient) httpClientFor(stream bool) *http.Client {
 	if stream {
 		return c.http
