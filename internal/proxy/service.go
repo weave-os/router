@@ -6231,20 +6231,20 @@ func (s *Service) ProxyOpenAIResponses(ctx context.Context, body []byte, w http.
 	}
 	chatBody, model := conversion.Body, conversion.Model
 	codexNativeRequest := codexResponsesRequest(ctx, r.Header)
-		nativeBody := conversion.OriginalBody
-		if clientAppCodex {
-			// Codex records response.output_item.done as conversation history and
-			// sends it back in the next native request. Remove only the badge this
-			// client opted into so router text never reaches the selected model.
-			nativeBody, err = translate.StripRoutingBadgeFromResponsesInput(nativeBody)
-			if err != nil {
-				return fmt.Errorf("strip native Responses routing badge: %w", err)
-			}
-			nativeBody, err = translate.StripFeedbackFooterFromResponsesInput(nativeBody)
-			if err != nil {
-				return fmt.Errorf("strip native Responses feedback footer: %w", err)
-			}
+	nativeBody := conversion.OriginalBody
+	if clientAppCodex {
+		// Codex records response.output_item.done as conversation history and
+		// sends it back in the next native request. Remove only the badge this
+		// client opted into so router text never reaches the selected model.
+		nativeBody, err = translate.StripRoutingBadgeFromResponsesInput(nativeBody)
+		if err != nil {
+			return fmt.Errorf("strip native Responses routing badge: %w", err)
 		}
+		nativeBody, err = translate.StripFeedbackFooterFromResponsesInput(nativeBody)
+		if err != nil {
+			return fmt.Errorf("strip native Responses feedback footer: %w", err)
+		}
+	}
 	// Every Responses turn stashes its original bytes for post-routing native
 	// dispatch; NativeOnly and Codex-subscription turns also dispatch verbatim now.
 	if conversion.Requirements.NativeOnly || codexNativeRequest {

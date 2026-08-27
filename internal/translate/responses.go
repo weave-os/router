@@ -533,7 +533,8 @@ type ResponsesWriter struct {
 	footerText                 string
 	footerEmitted              bool
 	sawToolCall                bool
-	nativeHeldDelta            []byte
+	nativeHeldEvents           [][]byte
+	nativeFooterCommit         bool
 	textItem                   *responsesTextItem
 	toolItems                  map[int]*responsesToolItem
 	finishReason               string
@@ -1041,7 +1042,16 @@ func (t *ResponsesWriter) rewriteNativeResponsesPayload(data []byte) ([]byte, bo
 	case "response.output_text.done":
 		ref := nativeResponsesEventRef(root, "item_id")
 		if !t.observeNativeBadgeTarget(ref) || !t.nativeBadgeTargetMatches(ref, true) {
+			if t.nativeFooterCommit {
+				return t.suffixNativeFooter(data, "text")
+			}
 			return data, false
+		}
+		if t.nativeFooterCommit {
+			return applyNativeRewrites(data,
+				func(d []byte) ([]byte, bool) { return t.prefixNativeBadge(d, "text") },
+				func(d []byte) ([]byte, bool) { return t.suffixNativeFooter(d, "text") },
+			)
 		}
 		return t.prefixNativeBadge(data, "text")
 
@@ -1051,7 +1061,16 @@ func (t *ResponsesWriter) rewriteNativeResponsesPayload(data []byte) ([]byte, bo
 		}
 		ref := nativeResponsesEventRef(root, "item_id")
 		if !t.observeNativeBadgeTarget(ref) || !t.nativeBadgeTargetMatches(ref, true) {
+			if t.nativeFooterCommit {
+				return t.suffixNativeFooter(data, "part.text")
+			}
 			return data, false
+		}
+		if t.nativeFooterCommit {
+			return applyNativeRewrites(data,
+				func(d []byte) ([]byte, bool) { return t.prefixNativeBadge(d, "part.text") },
+				func(d []byte) ([]byte, bool) { return t.suffixNativeFooter(d, "part.text") },
+			)
 		}
 		return t.prefixNativeBadge(data, "part.text")
 
@@ -1071,9 +1090,19 @@ func (t *ResponsesWriter) rewriteNativeResponsesPayload(data []byte) ([]byte, bo
 		ref.contentIndex = int64(partIndex)
 		ref.hasContentIndex = true
 		if !t.observeNativeBadgeTarget(ref) || !t.nativeBadgeTargetMatches(ref, true) {
+			if t.nativeFooterCommit {
+				return t.suffixNativeFooter(data, "item.content."+strconv.Itoa(partIndex)+".text")
+			}
 			return data, false
 		}
-		return t.prefixNativeBadge(data, "item.content."+strconv.Itoa(partIndex)+".text")
+		path := "item.content." + strconv.Itoa(partIndex) + ".text"
+		if t.nativeFooterCommit {
+			return applyNativeRewrites(data,
+				func(d []byte) ([]byte, bool) { return t.prefixNativeBadge(d, path) },
+				func(d []byte) ([]byte, bool) { return t.suffixNativeFooter(d, path) },
+			)
+		}
+		return t.prefixNativeBadge(data, path)
 
 	case "response.completed", "response.incomplete":
 		output := root.Get("response.output")
@@ -1140,12 +1169,23 @@ func (t *ResponsesWriter) writeNativeResponsesEvent(event, delimiter []byte) err
 		eventType = gjson.GetBytes(data, "type").Str
 		itemType = gjson.GetBytes(data, "item.type").Str
 	}
-	if eventType == "response.function_call_arguments.delta" || eventType == "response.custom_tool_call_input.delta" || (eventType == "response.output_item.added" && (itemType == "function_call" || itemType == "custom_tool_call")) {
+	if eventType == "response.function_call_arguments.delta" || eventType == "response.custom_tool_call_input.delta" || (eventType == "response.output_item.added" && (itemType == "function_call" || itemType == "custom_tool_call")) || (eventType == "response.output_item.done" && (itemType == "function_call" || itemType == "custom_tool_call")) {
 		t.sawToolCall = true
+		if err := t.flushNativeHeldEvents(false); err != nil {
+			return err
+		}
 	}
 	rewritten := t.rewriteNativeResponsesEvent(event)
+	if t.shouldHoldNativeEvent(eventType, itemType) {
+		held := append([]byte(nil), rewritten...)
+		if len(delimiter) > 0 {
+			held = append(held, delimiter...)
+		}
+		t.nativeHeldEvents = append(t.nativeHeldEvents, held)
+		return nil
+	}
 	if eventType == "response.completed" || eventType == "response.incomplete" {
-		if err := t.emitNativeFooterDelta(); err != nil {
+		if err := t.flushNativeHeldEvents(true); err != nil {
 			return err
 		}
 	}
@@ -1159,59 +1199,35 @@ func (t *ResponsesWriter) writeNativeResponsesEvent(event, delimiter []byte) err
 	return nil
 }
 
-func (t *ResponsesWriter) emitNativeFooterDelta() error {
-	if t.footerText == "" || t.sawToolCall || t.footerEmitted {
-		return nil
+func (t *ResponsesWriter) shouldHoldNativeEvent(eventType, itemType string) bool {
+	if t.footerText == "" || t.sawToolCall {
+		return false
 	}
-	payload := map[string]any{
-		"type":  "response.output_text.delta",
-		"delta": t.footerText,
+	switch eventType {
+	case "response.output_text.done", "response.content_part.done":
+		return true
+	case "response.output_item.done":
+		return itemType == "message" || itemType == ""
 	}
-	if t.nativeBadgeItemID != "" {
-		payload["item_id"] = t.nativeBadgeItemID
-	}
-	if t.nativeBadgeHasOutputIndex {
-		payload["output_index"] = t.nativeBadgeOutputIndex
-	}
-	if t.nativeBadgeHasContentIndex {
-		payload["content_index"] = t.nativeBadgeContentIndex
-	}
-	body, err := json.Marshal(payload)
-	if err != nil {
-		return nil
-	}
-	t.footerEmitted = true
-	if _, err := t.bw.WriteString("event: response.output_text.delta\ndata: "); err != nil {
-		return err
-	}
-	if _, err := t.bw.Write(body); err != nil {
-		return err
-	}
-	_, err = t.bw.WriteString("\n\n")
-	return err
+	return false
 }
 
-func (t *ResponsesWriter) flushNativeHeldDelta(appendFooter bool) error {
-	if len(t.nativeHeldDelta) == 0 {
+func (t *ResponsesWriter) flushNativeHeldEvents(commitFooter bool) error {
+	if len(t.nativeHeldEvents) == 0 {
 		return nil
 	}
-	held := t.nativeHeldDelta
-	t.nativeHeldDelta = nil
-	_, data := sse.ParseEvent(held)
-	if appendFooter && t.footerText != "" && !t.sawToolCall && gjson.ValidBytes(data) {
-		if suffixed, ok := t.suffixNativeFooter(data, "delta"); ok {
-			offset := bytes.Index(held, data)
-			if offset >= 0 {
-				rewritten := make([]byte, 0, len(held))
-				rewritten = append(rewritten, held[:offset]...)
-				rewritten = append(rewritten, suffixed...)
-				rewritten = append(rewritten, held[offset+len(data):]...)
-				held = rewritten
-			}
+	if commitFooter {
+		t.nativeFooterCommit = true
+	}
+	held := t.nativeHeldEvents
+	t.nativeHeldEvents = nil
+	for _, event := range held {
+		rewritten := t.rewriteNativeResponsesEvent(event)
+		if _, err := t.bw.Write(rewritten); err != nil {
+			return err
 		}
 	}
-	_, err := t.bw.Write(held)
-	return err
+	return nil
 }
 
 func (t *ResponsesWriter) processPassthroughSSEBuffer() error {
@@ -1237,7 +1253,7 @@ func (t *ResponsesWriter) processFinalPassthroughSSETail() error {
 			return err
 		}
 	}
-	return t.flushNativeHeldDelta(false)
+	return t.flushNativeHeldEvents(t.footerText != "" && !t.sawToolCall)
 }
 
 // FinalizeError emits a response.failed terminal event when upstream fails
