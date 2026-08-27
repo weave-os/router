@@ -44,9 +44,8 @@ type ResponsesToOpenAIChatWriter struct {
 	// closed guards against emitting after [DONE] or an error frame.
 	closed bool
 
-	// onOutputProgress, set via ArmOutputProgress, fires on output-bearing
-	// events only (never reasoning deltas/keepalives) to feed the watchdog that
-	// aborts a stream staying byte-alive with zero output.
+	// onOutputProgress fires on output-bearing events only (never reasoning or
+	// keepalives) to feed the watchdog aborting a byte-alive stream with no output.
 	onOutputProgress func()
 
 	// toolSlots maps a Responses output_index to its chat tool_calls index.
@@ -67,9 +66,8 @@ type ResponsesToOpenAIChatWriter struct {
 	toolValidator  *toolcheck.Validator
 	toolCallIssues []toolcheck.Issue
 
-	// logger is the request-scoped logger, so a dropped tool call or a failed
-	// stream is attributable; nil until WithLogger, and log() falls back to the
-	// global default for direct construction in tests.
+	// logger is the request-scoped logger (nil until WithLogger); log() falls
+	// back to the global default so direct test construction works without one.
 	logger *slog.Logger
 
 	// Captured from the terminal response.completed/.incomplete event.
