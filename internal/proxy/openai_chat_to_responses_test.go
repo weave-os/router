@@ -1,14 +1,17 @@
 package proxy_test
 
 import (
+	"bytes"
 	"context"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
 	"workweave/router/internal/flags"
+	"workweave/router/internal/observability"
 	"workweave/router/internal/providers"
 	"workweave/router/internal/proxy"
 	"workweave/router/internal/router"
@@ -228,6 +231,62 @@ func TestService_ProxyOpenAIChatCompletion_NoResponsesFallbackAfterCommit(t *tes
 	assert.Equal(t, []providers.Endpoint{providers.EndpointResponses}, provider.proxyEndpoints,
 		"a committed response must not be re-dispatched")
 	assert.Contains(t, rec.Body.String(), `"content":"committed"`)
+}
+
+// A corrupt upstream frame means the turn lost content, so the client must be
+// told rather than handed a completion that looks clean.
+func TestService_ProxyOpenAIChatCompletion_MalformedUpstreamFrameReported(t *testing.T) {
+	provider := &fakeProvider{proxyResponse: func(w http.ResponseWriter) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		_, _ = io.WriteString(w, "data: {\"type\":\"response.output_text.delta\",\"output_index\":0,\"delta\":\"half\"}\n\n")
+		_, _ = io.WriteString(w, "data: {\"type\":\"response.outp\n\n")
+		_, _ = io.WriteString(w, "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_1\",\"status\":\"completed\",\"usage\":{\"input_tokens\":1,\"output_tokens\":1}}}\n\n")
+	}}
+	svc := openAIChatService(provider, "gpt-5.6-luna")
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(chatToolTurnBody))
+	require.NoError(t, svc.ProxyOpenAIChatCompletion(context.Background(), []byte(chatToolTurnBody), rec, req))
+
+	body := rec.Body.String()
+	assert.Contains(t, body, `"content":"half"`)
+	assert.Contains(t, body, "malformed")
+	assert.NotContains(t, body, `"finish_reason":"stop"`,
+		"a turn that dropped a frame must not report a clean stop")
+}
+
+// Tool arguments the model got wrong are a per-model quality signal, so the
+// translated chat path must emit the same log line the Anthropic path does.
+func TestService_ProxyOpenAIChatCompletion_LogsToolCallIssues(t *testing.T) {
+	// Prime observability's sync.Once before overriding slog.Default.
+	observability.Get()
+	var logBuf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logBuf, nil)))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+
+	// `path` is declared as a string but emitted as an object, which toolcheck
+	// can neither validate nor losslessly coerce.
+	provider := &fakeProvider{proxyResponse: func(w http.ResponseWriter) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		for _, frame := range []string{
+			`{"type":"response.output_item.added","output_index":0,"item":{"type":"function_call","call_id":"call_1","name":"read_file"}}`,
+			`{"type":"response.output_item.done","output_index":0,"item":{"type":"function_call","call_id":"call_1","name":"read_file","arguments":"{\"path\":{\"nested\":1}}"}}`,
+			`{"type":"response.completed","response":{"id":"resp_1","status":"completed","usage":{"input_tokens":1,"output_tokens":1}}}`,
+		} {
+			_, _ = io.WriteString(w, "data: "+frame+"\n\n")
+		}
+	}}
+	svc := openAIChatService(provider, "gpt-5.6-luna")
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(chatToolTurnBody))
+	require.NoError(t, svc.ProxyOpenAIChatCompletion(context.Background(), []byte(chatToolTurnBody), rec, req))
+
+	assert.Contains(t, logBuf.String(), "router.tool_call_invalid")
+	assert.Contains(t, logBuf.String(), "read_file")
 }
 
 // A gateway provider keeps its own narrow rule: a plain chat turn must not be

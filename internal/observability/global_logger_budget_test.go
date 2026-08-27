@@ -26,7 +26,7 @@ var globalLoggerBudget = map[string]int{
 	// Pure schema-emit / validation helpers with no ctx in scope. Threading a
 	// ctx through these is a wider refactor; they are diagnostics about a
 	// tool schema, not about a request's fate.
-	"internal/translate":           14,
+	"internal/translate":           10,
 	"internal/translate/toolcheck": 5,
 
 	// The exporter itself: logging its own transport failures. A ctx here

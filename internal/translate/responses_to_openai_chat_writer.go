@@ -270,6 +270,12 @@ func (t *ResponsesToOpenAIChatWriter) translateEvent(raw []byte) error {
 	if len(data) == 0 {
 		return nil
 	}
+	if malformedResponsesFrame(data) {
+		t.log().Error("ResponsesToOpenAIChat upstream sent an unparseable event",
+			"request_model", t.requestModel,
+			"frame_bytes", len(data))
+		return t.emitStreamError("api_error", malformedResponsesFrameMessage)
+	}
 	// Match on in-payload `type`, not `event:` — intermediaries drop the latter.
 	// Reasoning-only frames skip markOutputProgress to keep the watchdog honest.
 	switch gjson.GetBytes(data, "type").String() {

@@ -278,6 +278,68 @@ func TestResponsesToOpenAIChatWriter_TruncatedStream(t *testing.T) {
 	assert.Contains(t, rec.Body.String(), "before a terminal event")
 }
 
+// A frame the translator can't parse means content was lost, so it must never
+// be skipped into an apparently clean completion. Pre-output it stays
+// retryable, exactly like an upstream failure event.
+func TestResponsesToOpenAIChatWriter_MalformedFrameIsRetryablePreOutput(t *testing.T) {
+	rec := httptest.NewRecorder()
+	w := translate.NewResponsesToOpenAIChatWriter(rec, "gpt-5.6-luna", nil)
+	require.NoError(t, w.Prelude(true))
+	_, err := w.Write([]byte("data: {\"type\":\"response.output_text.del\n\n"))
+
+	var upstream *providers.UpstreamErrorResponse
+	require.ErrorAs(t, err, &upstream, "a corrupt frame before output must stay retryable")
+	assert.Contains(t, string(upstream.Body), "malformed")
+	assert.NotContains(t, rec.Body.String(), "data: [DONE]")
+}
+
+// Post-output the same corruption can't be retried, so the client must see an
+// error frame instead of a finish_reason that claims the turn completed.
+func TestResponsesToOpenAIChatWriter_MalformedFrameIsReportedPostOutput(t *testing.T) {
+	rec := httptest.NewRecorder()
+	w := translate.NewResponsesToOpenAIChatWriter(rec, "gpt-5.6-luna", nil)
+	require.NoError(t, w.Prelude(true))
+	_, err := w.Write([]byte(`data: {"type":"response.output_text.delta","output_index":0,"delta":"partial"}
+
+data: {"type":"response.outp
+
+data: {"type":"response.completed","response":{"id":"resp_1","status":"completed","usage":{"input_tokens":1,"output_tokens":1}}}
+
+`))
+	require.NoError(t, err)
+	require.NoError(t, w.Finalize())
+
+	chunks := chatChunks(t, rec.Body.String())
+	assert.Equal(t, "partial", concatDelta(chunks, "content"))
+	assert.Contains(t, chunks[len(chunks)-1].Get("error.message").String(), "malformed")
+	for _, c := range chunks {
+		assert.NotEqual(t, "stop", c.Get("choices.0.finish_reason").String(),
+			"a turn that lost a frame must not report a clean stop")
+	}
+	assert.Contains(t, rec.Body.String(), "data: [DONE]")
+}
+
+// A `[DONE]` sentinel is not JSON but is emitted by some gateways, so it must
+// not be mistaken for corruption.
+func TestResponsesToOpenAIChatWriter_DoneSentinelIsNotMalformed(t *testing.T) {
+	rec := httptest.NewRecorder()
+	w := translate.NewResponsesToOpenAIChatWriter(rec, "gpt-5.6-luna", nil)
+	require.NoError(t, w.Prelude(true))
+	_, err := w.Write([]byte(`data: {"type":"response.output_text.delta","output_index":0,"delta":"hi"}
+
+data: {"type":"response.completed","response":{"id":"resp_1","status":"completed","usage":{"input_tokens":1,"output_tokens":1}}}
+
+data: [DONE]
+
+`))
+	require.NoError(t, err)
+	require.NoError(t, w.Finalize())
+
+	chunks := chatChunks(t, rec.Body.String())
+	assert.Equal(t, "hi", concatDelta(chunks, "content"))
+	assert.Equal(t, "stop", chunks[len(chunks)-1].Get("choices.0.finish_reason").String())
+}
+
 // A non-streaming client whose upstream failed gets a chat-shape error body
 // rather than a 200 with an empty completion.
 func TestResponsesToOpenAIChatWriter_NonStreamingFailure(t *testing.T) {

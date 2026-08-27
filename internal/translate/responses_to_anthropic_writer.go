@@ -3,6 +3,7 @@ package translate
 import (
 	"bufio"
 	"bytes"
+	"log/slog"
 	"net/http"
 	"strings"
 
@@ -276,6 +277,12 @@ func (t *ResponsesToAnthropicWriter) processFinalResponsesSSETail() error {
 	return t.translateResponsesEvent(event)
 }
 
+// log routes this translator's diagnostics through one observability.Get()
+// call site (see internal/observability's global-logger budget).
+func (t *ResponsesToAnthropicWriter) log() *slog.Logger {
+	return observability.Get()
+}
+
 func (t *ResponsesToAnthropicWriter) translateResponsesEvent(raw []byte) error {
 	if t.closed {
 		return nil
@@ -283,6 +290,12 @@ func (t *ResponsesToAnthropicWriter) translateResponsesEvent(raw []byte) error {
 	_, data := sse.ParseEvent(raw)
 	if len(data) == 0 {
 		return nil
+	}
+	if malformedResponsesFrame(data) {
+		t.log().Error("ResponsesToAnthropic upstream sent an unparseable event",
+			"request_model", t.requestModel,
+			"frame_bytes", len(data))
+		return t.emitStreamErrorEvent("api_error", malformedResponsesFrameMessage)
 	}
 	// Match on the in-payload `type`, not `event:` — intermediaries sometimes
 	// drop the latter. markOutputProgress is deliberately skipped for reasoning
@@ -358,7 +371,7 @@ func (t *ResponsesToAnthropicWriter) handleOutputItemAdded(data []byte) error {
 		// reconciledStopReason demotes a terminal tool_use claim with no
 		// surviving block to end_turn.
 		t.suppressed[oi] = struct{}{}
-		observability.Get().Warn(
+		t.log().Warn(
 			"ResponsesToAnthropic dropping nameless function_call",
 			"request_model", t.requestModel,
 			"call_id", item.Get("call_id").String(),
@@ -641,14 +654,14 @@ func (t *ResponsesToAnthropicWriter) finalizeBuffered() error {
 	}
 	finalResp := extractFinalResponseObject(t.buf.Bytes())
 	if finalResp == nil {
-		observability.Get().Error("ResponsesToAnthropic: no terminal response event in stream")
+		t.log().Error("ResponsesToAnthropic: no terminal response event in stream")
 		return t.finalizeError()
 	}
 	// Only max_output_tokens is a valid incomplete terminal response.
 	resp := gjson.ParseBytes(finalResp)
 	if responsesTerminalIsFailure(resp) {
 		errType, errMsg := responsesFailureFromResponse(resp)
-		observability.Get().Error("ResponsesToAnthropic: upstream response failed",
+		t.log().Error("ResponsesToAnthropic: upstream response failed",
 			"request_model", t.requestModel,
 			"upstream_status", resp.Get("status").String(),
 			"upstream_error_type", errType,
@@ -659,7 +672,7 @@ func (t *ResponsesToAnthropicWriter) finalizeBuffered() error {
 	anthropic, issues, err := responsesToAnthropicResponse(finalResp, t.requestModel, t.toolValidator)
 	t.toolCallIssues = append(t.toolCallIssues, issues...)
 	if err != nil {
-		observability.Get().Error("ResponsesToAnthropic: translate failed", "err", err)
+		t.log().Error("ResponsesToAnthropic: translate failed", "err", err)
 		return t.finalizeError()
 	}
 	root := gjson.ParseBytes(anthropic)
@@ -773,6 +786,20 @@ func responsesFailureFromResponse(resp gjson.Result) (errType, msg string) {
 		return errType, "upstream Responses request failed (status: failed)"
 	}
 	return errType, ""
+}
+
+const malformedResponsesFrameMessage = "upstream sent a malformed Responses event"
+
+// malformedResponsesFrame reports whether an SSE payload is not parseable JSON.
+// Skipping such a frame silently would present a turn that lost content as a
+// clean completion, so both Responses translators surface it as an error.
+// A `[DONE]` sentinel is tolerated: gateways emit it even though Responses
+// terminates on response.completed.
+func malformedResponsesFrame(data []byte) bool {
+	if bytes.Equal(bytes.TrimSpace(data), []byte("[DONE]")) {
+		return false
+	}
+	return !gjson.ValidBytes(data)
 }
 
 func responsesTerminalIsFailure(resp gjson.Result) bool {
@@ -966,7 +993,7 @@ func (t *ResponsesToAnthropicWriter) emitValidatedToolArgsDelta(oi, index int, f
 	if verdict.Issue != nil {
 		t.toolCallIssues = append(t.toolCallIssues, *verdict.Issue)
 		if verdict.Issue.Bucket == toolcheck.BucketInvalidJSON && !verdict.Issue.Repaired {
-			observability.Get().Warn(
+			t.log().Warn(
 				"ResponsesToAnthropic tool_use args failed JSON validation — substituting empty args",
 				"block_index", index,
 				"request_model", t.requestModel,
