@@ -12,8 +12,8 @@ import (
 
 	"workweave/router/internal/observability"
 	"workweave/router/internal/providers"
-	"workweave/router/internal/websearch"
 	"workweave/router/internal/router"
+	"workweave/router/internal/websearch"
 
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
@@ -86,9 +86,7 @@ func (e *RequestEnvelope) PrepareGemini(_ http.Header, opts EmitOptions) (provid
 			return providers.PreparedRequest{}, fmt.Errorf("strip claude-code-only tools: %w", err)
 		}
 		stats.CCOnlyToolsStripped = removed
-		// See buildOpenAIFromAnthropic: native server tools cannot cross to a
-		// non-Anthropic upstream without becoming phantom client tools. Strip
-		// before the reminder gate so Stats reflects what reached upstream.
+		// See buildOpenAIFromAnthropic: strip native server tools before the reminder gate so Stats reflects what actually reached upstream.
 		filtered, stats.ServerToolsStripped = websearch.StripServerTools(filtered)
 		// Mirror writeGeminiFromAnthropic's reminder gate so Stats reflects
 		// whether the reminder actually reached upstream.
