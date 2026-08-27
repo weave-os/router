@@ -17,9 +17,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// redirectFixture stands up a redirecting upstream plus the host it points
-// at, so tests can assert neither the router nor (via a relayed Location)
-// the client is steered to the unconfigured target.
+// redirectFixture stands up a redirecting upstream and an isolated target,
+// so tests can assert the router never contacts the unconfigured host.
 func redirectFixture(t *testing.T) (upstream *httptest.Server, targetHit *atomic.Bool) {
 	t.Helper()
 	var hit atomic.Bool
@@ -75,9 +74,8 @@ func TestPassthrough_RefusedRedirectRelaysNothing(t *testing.T) {
 	assert.False(t, targetHit.Load(), "the redirect target must never be contacted")
 }
 
-// TestListModels_RedirectRefused: the catalog GET is the likeliest place a
-// gateway redirects; the roster fetch must fail loud, not parse redirect
-// boilerplate into an empty roster.
+// TestListModels_RedirectRefused: roster fetch must fail loud instead of
+// parsing redirect boilerplate into an empty model list.
 func TestListModels_RedirectRefused(t *testing.T) {
 	upstream, targetHit := redirectFixture(t)
 
