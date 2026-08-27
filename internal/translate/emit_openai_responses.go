@@ -128,11 +128,10 @@ func responsesReasoningEffort(eff, model string) string {
 	return eff
 }
 
-// minResponsesOutputTokens floors max_output_tokens on the Responses API for a
-// reasoning target: hidden reasoning exhausts a tiny budget (Claude Code sends 1
-// for a quota probe, 64 for title generation) before a visible token is emitted,
-// and the turn 400s. Safe because max_output_tokens is a ceiling, not an
-// allocation — a turn that finishes early still bills only what it generated.
+// minResponsesOutputTokens floors max_output_tokens for reasoning targets:
+// hidden reasoning exhausts a tiny budget (1 for a quota probe, 64 for title
+// generation) before a visible token is emitted. max_output_tokens is a
+// ceiling, not an allocation.
 const minResponsesOutputTokens = 16000
 
 func (e *RequestEnvelope) buildResponsesFromAnthropic(opts EmitOptions) ([]byte, providers.RequestMutationStats, error) {

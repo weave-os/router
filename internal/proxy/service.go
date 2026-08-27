@@ -185,9 +185,8 @@ type Service struct {
 	// for degrading to a same-cluster candidate when every binding of the
 	// routed model fails with a transient upstream fault.
 	siblingFailover bool
-	// openAIResponsesBroad is the rollout switch (ROUTER_OPENAI_RESPONSES_BROAD,
-	// default on) for serving every direct-OpenAI turn on /v1/responses. Off,
-	// only the reasoning tool turn chat/completions rejects is promoted.
+	// openAIResponsesBroad is the deployment default for
+	// ROUTER_OPENAI_RESPONSES_BROAD; see ResolveOpenAIResponsesBroad.
 	openAIResponsesBroad bool
 	// sseKeepalive is the client-silence budget before a ping is injected
 	// (ROUTER_SSE_KEEPALIVE_INTERVAL_SECONDS; 0 disables). See sse.KeepaliveWriter.

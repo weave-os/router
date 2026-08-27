@@ -479,9 +479,9 @@ func TestUseOpenAIResponsesAPI(t *testing.T) {
 		"gateways stay narrow even under the broad rollout: most mount no Responses surface")
 }
 
-// An Anthropic image block has to survive the Responses emit as a typed
-// input_image part — a non-reasoning model now routes here too, and dropping
-// the image silently answers a question about a picture the model never saw.
+// An Anthropic image block must survive the Responses emit as a typed
+// input_image part — a non-reasoning model now routes here too, so images can
+// no longer be skipped.
 func TestPrepareOpenAIResponses_ImageBlocks(t *testing.T) {
 	body := []byte(`{
 		"model":"claude-opus-4-8","max_tokens":1024,
