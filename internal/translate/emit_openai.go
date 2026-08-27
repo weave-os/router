@@ -53,9 +53,8 @@ func toolTurnNeedsExplicitEffortNone(opts EmitOptions, hasTools bool) bool {
 }
 
 // samplersAccepted reports whether the target accepts temperature / top_p.
-// Reasoning gpt-5.x models 400 on non-default values on both
-// /v1/chat/completions and /v1/responses; OSS CapReasoning targets
-// (OpenRouter, xAI) sample normally.
+// Reasoning gpt-5.x models 400 on non-default values on both endpoints;
+// other CapReasoning targets (OpenRouter, xAI) sample normally.
 func samplersAccepted(opts EmitOptions) bool {
 	return !opts.Capabilities.Supports(router.CapReasoning) || !strings.HasPrefix(opts.TargetModel, "gpt-5")
 }

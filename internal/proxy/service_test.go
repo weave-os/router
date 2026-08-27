@@ -317,10 +317,8 @@ func TestService_ProxyOpenAIResponses_CustomToolUsesNativeOpenAIFamily(t *testin
 	assert.JSONEq(t, `{"id":"resp_1","object":"response","output":[]}`, rec.Body.String())
 }
 
-// A direct-OpenAI turn from a Responses caller dispatches on its original
-// bytes rather than the chat projection, whatever the model or tool shape:
-// chat/completions refuses a reasoning tool turn outright, and even where it
-// would work the projection drops reasoning the caller sent.
+// A direct-OpenAI Responses caller dispatches on its original bytes rather
+// than the chat projection, whatever the model or tool shape.
 func TestService_ProxyOpenAIResponses_StaysNativeForDirectOpenAI(t *testing.T) {
 	for _, tc := range []struct {
 		name         string

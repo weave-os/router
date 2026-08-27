@@ -130,16 +130,10 @@ func responsesReasoningEffort(eff, model string) string {
 }
 
 // minResponsesOutputTokens floors max_output_tokens on the Responses API for a
-// reasoning target, which spends its output budget on hidden reasoning before it
-// can emit a single visible token. Claude Code sends a tiny max_tokens for its auxiliary
-// turns (1 for a quota/auth probe, 64 for topic/title generation); mapped straight
-// to max_output_tokens the reasoning phase exhausts it and the turn 400s with
-// "Could not finish the message because max_tokens or model output limit was
-// reached." max_output_tokens is a CEILING, not an allocation — the model still
-// bills only what it generates — so flooring a small request costs nothing on turns
-// that finish quickly; it only prevents the premature truncation. Real agentic
-// turns request far more than this (Claude Code caps main-loop turns at ~32k), so
-// the floor only ever lifts the small auxiliary turns.
+// reasoning target: hidden reasoning exhausts a tiny budget (Claude Code sends 1
+// for a quota probe, 64 for title generation) before a visible token is emitted,
+// and the turn 400s. Safe because max_output_tokens is a ceiling, not an
+// allocation — a turn that finishes early still bills only what it generated.
 const minResponsesOutputTokens = 16000
 
 func (e *RequestEnvelope) buildResponsesFromAnthropic(opts EmitOptions) ([]byte, providers.RequestMutationStats, error) {
@@ -204,10 +198,8 @@ func (e *RequestEnvelope) buildResponsesFromAnthropic(opts EmitOptions) ([]byte,
 
 	if mt := gjson.GetBytes(body, "max_tokens"); mt.Exists() && mt.Type == gjson.Number {
 		want := mt.Int()
-		// Gated on the target, not on the client's intent: OpenAI applies its
-		// own default effort when we send none, so a reasoning model burns the
-		// budget on hidden reasoning either way. A non-reasoning target gets
-		// the client's ceiling verbatim.
+		// Gated on the target: OpenAI applies its own default effort when we send
+		// none, so a reasoning model burns the budget on hidden reasoning either way.
 		if opts.Capabilities.Supports(router.CapReasoning) {
 			want = max(want, minResponsesOutputTokens)
 		}
