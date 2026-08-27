@@ -48,6 +48,12 @@ var globalLoggerBudget = map[string]int{
 	"internal/router/banditexplore": 1,
 	"internal/postgres":             1,
 	"internal/billing":              1,
+
+	// Transport construction: every provider client is built in cmd/router's
+	// composition root, so there is no request and no ctx. Reports an h2
+	// keepalive budget that had to be scaled to fit the response-header guard —
+	// a config warning about the process, not about a request's fate.
+	"internal/providers/httputil": 1,
 }
 
 // TestGlobalLoggerBudget fails when a package gains an untagged log site.

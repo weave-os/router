@@ -275,10 +275,8 @@ func TestH2KeepaliveFor_BudgetFitsInsideCallerGuard(t *testing.T) {
 	}
 }
 
-// The env knobs are parsed independently, so nothing stops an operator setting a
-// pair that sums to the header guard — 20s idle + 10s ping against the stock 30s
-// guard leaves the deadline to fire first, silently preserving the exact stall
-// the keepalives were added to kill.
+// Env knobs are validated independently, so an operator can set a pair that
+// sums to the header guard; h2KeepaliveFor must clamp before that happens.
 func TestH2KeepaliveFor_EnvOverridesCannotReachTheHeaderGuard(t *testing.T) {
 	origIdle, origPing := DefaultH2ReadIdleTimeout, DefaultH2PingTimeout
 	t.Cleanup(func() { DefaultH2ReadIdleTimeout, DefaultH2PingTimeout = origIdle, origPing })

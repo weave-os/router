@@ -161,12 +161,9 @@ var DefaultH2PingTimeout = idleTimeoutFromEnv("ROUTER_H2_PING_TIMEOUT_SECONDS", 
 const h2KeepaliveNumerator, h2KeepaliveDenominator = 2, 3
 
 // h2KeepaliveFor sizes the PING budget for a transport whose time-to-first-byte
-// guard is responseHeaderTimeout. Detection MUST land strictly inside that
-// guard: if it doesn't, the header deadline fires first and the stall this
-// config exists to prevent survives untouched. Neither half can be trusted to
-// fit on its own — callers pick their own guard and operators override both via
-// env — so an over-budget pair is scaled down proportionally rather than
-// silently exceeding it.
+// guard is responseHeaderTimeout. Detection must land strictly inside that guard;
+// callers pick their own guard and operators override both via env, so an
+// over-budget pair is scaled down proportionally rather than silently accepted.
 func h2KeepaliveFor(responseHeaderTimeout time.Duration) (readIdle, ping time.Duration) {
 	readIdle, ping = DefaultH2ReadIdleTimeout, DefaultH2PingTimeout
 	if responseHeaderTimeout <= 0 {
