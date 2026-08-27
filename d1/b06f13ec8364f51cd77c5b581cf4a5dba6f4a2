@@ -1,0 +1,19 @@
+internal/translate/responses_to_anthropic_writer.go
+  s_00fc0f6bc93aab::t_60de0113292433 666-667
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "d1b06f13ec8364f51cd77c5b581cf4a5dba6f4a2",
+  "prompts": {},
+  "sessions": {
+    "s_00fc0f6bc93aab": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "58323feb-e361-4f8d-af85-d7bedfa2cf15",
+        "model": "grok-4.6"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}
