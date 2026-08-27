@@ -127,9 +127,9 @@ func (e *RequestEnvelope) RequiresChatCompletionsParams(caps router.ModelSpec) b
 }
 
 // openAIParamsNeedChatCompletions reports whether a chat/completions body sets
-// a knob the Responses API has no field for. Zero/false values are ignored:
-// SDKs send those as defaults, and treating them as blockers would keep nearly
-// every chat turn off Responses.
+// a knob the Responses API has no field for; zero/false values are not blockers
+// — SDKs send them as defaults, and blocking would keep most turns off
+// Responses.
 func openAIParamsNeedChatCompletions(body []byte) bool {
 	if n := gjson.GetBytes(body, "n"); n.Type == gjson.Number && n.Int() > 1 {
 		return true

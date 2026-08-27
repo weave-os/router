@@ -10,18 +10,15 @@ import (
 )
 
 // ResponsesToOpenAIChatResponse converts a non-streaming OpenAI Responses
-// `response` object into a Chat Completions response. The Responses `output`
-// array carries reasoning / message / function_call items, which map to a
-// single chat choice's reasoning_content / content / tool_calls.
+// response object into a chat.completion body.
 func ResponsesToOpenAIChatResponse(body []byte, requestModel string) ([]byte, error) {
 	out, _, err := responsesToOpenAIChatResponse(body, requestModel, nil)
 	return out, err
 }
 
-// responsesToOpenAIChatResponse is the validator-aware variant: tool-call
-// arguments are checked (and safely repaired) against the request's tool
-// schemas, with one toolcheck.Issue returned per offending call. A nil
-// validator degrades to syntax-check-only.
+// responsesToOpenAIChatResponse is the validator-aware variant: checks/repairs
+// tool-call arguments against the caller's schemas, returning one
+// toolcheck.Issue per violation; nil → syntax-check-only.
 func responsesToOpenAIChatResponse(body []byte, requestModel string, toolValidator *toolcheck.Validator) ([]byte, []toolcheck.Issue, error) {
 	if !gjson.ValidBytes(body) {
 		return nil, nil, fmt.Errorf("unmarshal responses response: invalid JSON")
