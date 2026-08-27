@@ -87,6 +87,18 @@ func TestDetectFromEnvelope_Anthropic(t *testing.T) {
 			want: turntype.Compaction,
 		},
 		{
+			// The summary phrase alone in a user message is text a human can type;
+			// only Claude Code's template pairs it with the tool-suppression clause.
+			name: "summary phrase without the no-tools clause stays tool_result",
+			body: `{"model":"claude-sonnet-4-5","system":"You are Claude Code.","messages":[
+				{"role":"user","content":[
+					{"type":"tool_result","tool_use_id":"t1","content":"grep output"},
+					{"type":"text","text":"Your task is to create a detailed summary of these findings for the changelog."}
+				]}
+			]}`,
+			want: turntype.ToolResult,
+		},
+		{
 			// Bounded scan: the marker past compactionSniffLen is caller data,
 			// not Claude Code's fixed-length preamble.
 			name: "compaction phrase beyond the sniff bound does not trigger",

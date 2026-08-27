@@ -31,8 +31,13 @@ const (
 const probeMaxTokensThreshold = 4
 
 // compactionMarkerPhrase is Claude Code's canonical context-compaction
-// instruction. Unambiguous enough to hard-pin on by itself.
+// instruction. Unambiguous enough to hard-pin on by itself in a system prompt.
 const compactionMarkerPhrase = "your task is to create a detailed summary"
+
+// compactionNoToolsPhrase is the tool-suppression clause Claude Code wraps the
+// instruction in. Required alongside compactionMarkerPhrase in a user message,
+// where the summary phrase on its own is text a human could plausibly type.
+const compactionNoToolsPhrase = "do not call any tools"
 
 // compactionSniffLen bounds the trailing-user-message scan; Claude Code's
 // preamble places the phrase within ~200 bytes, so long pasted messages are excluded.
@@ -110,9 +115,8 @@ func isTitleGen(env *translate.RequestEnvelope, hasTools bool) bool {
 	return env.RequestsTitleSchema()
 }
 
-// isCompaction reports whether the request carries Claude Code's context-compaction
-// instruction (system prompt or last user message; Claude Code 2.x appends it
-// to the trailing turn alongside the last tool_result instead of the system prompt).
+// isCompaction reports whether the request carries Claude Code's compaction instruction
+// (system prompt, or last user message: 2.x appends it to the trailing turn alongside tool_result).
 func isCompaction(systemText, lastUserText string) bool {
 	if hasCompactionMarker(systemText) {
 		return true
@@ -120,7 +124,9 @@ func isCompaction(systemText, lastUserText string) bool {
 	if len(lastUserText) > compactionSniffLen {
 		lastUserText = lastUserText[:compactionSniffLen]
 	}
-	return hasCompactionMarker(lastUserText)
+	lower := strings.ToLower(lastUserText)
+	return strings.Contains(lower, compactionMarkerPhrase) &&
+		strings.Contains(lower, compactionNoToolsPhrase)
 }
 
 func hasCompactionMarker(text string) bool {
