@@ -204,7 +204,8 @@ func SanitizeInboundAuthHeader(v string) string {
 // KeepAlive=30s guards against AWS NAT-GW/NLB/VPC-endpoint reapers (350s fixed
 // idle) by keeping the TCP connection live at the network layer.
 // ResponseHeaderTimeout only guards time-to-first-byte; per-read inactivity is
-// enforced separately by StreamBody's watchdog.
+// enforced separately by StreamBody's watchdog. On a managed deployment the
+// dialer also refuses non-public destinations (see publicDestinationsOnly).
 func NewTransport(dialTimeout, tlsTimeout time.Duration) *http.Transport {
 	return NewTransportWithResponseHeaderTimeout(dialTimeout, tlsTimeout, DefaultResponseHeaderTimeout)
 }
@@ -215,12 +216,26 @@ func NewTransport(dialTimeout, tlsTimeout time.Duration) *http.Transport {
 // via Responses API). Streaming inactivity is still bounded separately by
 // StreamBody's idle watchdog, so this can't reintroduce an unbounded hang.
 func NewTransportWithResponseHeaderTimeout(dialTimeout, tlsTimeout, responseHeaderTimeout time.Duration) *http.Transport {
+	return newTransport(dialTimeout, tlsTimeout, responseHeaderTimeout, publicDestinationsOnly)
+}
+
+// newTransport is NewTransportWithResponseHeaderTimeout with the dial policy
+// passed explicitly rather than read from the environment.
+func newTransport(dialTimeout, tlsTimeout, responseHeaderTimeout time.Duration, publicOnly bool) *http.Transport {
+	dialer := &net.Dialer{
+		Timeout:   dialTimeout,
+		KeepAlive: 30 * time.Second,
+	}
+	// Through a proxy the dialer connects to the proxy, not the upstream —
+	// honoring one makes the policy appear enforced when it is not.
+	proxy := http.ProxyFromEnvironment
+	if publicOnly {
+		dialer.Control = restrictDestination
+		proxy = nil
+	}
 	t := &http.Transport{
-		Proxy: http.ProxyFromEnvironment,
-		DialContext: (&net.Dialer{
-			Timeout:   dialTimeout,
-			KeepAlive: 30 * time.Second,
-		}).DialContext,
+		Proxy:                 proxy,
+		DialContext:           dialer.DialContext,
 		MaxIdleConnsPerHost:   64,
 		MaxIdleConns:          256,
 		IdleConnTimeout:       90 * time.Second,
