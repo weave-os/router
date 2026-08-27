@@ -1340,7 +1340,15 @@ func buildClusterScorer(availableProviders map[string]struct{}) (router.Router, 
 // a deployment without Azure keys never contacts Microsoft Entra.
 func buildEntraTokenSource(logger *slog.Logger) auth.EntraTokenSource {
 	logger.Debug("Microsoft Entra client credentials token source initialized")
-	return entra.NewClientCredentialsSource(&http.Client{Timeout: 10 * time.Second}, time.Now)
+	// This client posts the decrypted BYOK client_secret; never follow a
+	// redirect with it. The refused 3xx fails mint()'s 2xx status check.
+	entraClient := &http.Client{
+		Timeout: 10 * time.Second,
+		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+	return entra.NewClientCredentialsSource(entraClient, time.Now)
 }
 
 // buildWIFTokenSource constructs the workload attestation source backing BYOK

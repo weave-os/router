@@ -3,6 +3,7 @@ package httputil
 import (
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -11,9 +12,12 @@ import (
 )
 
 func TestNewClientFailsTheCallOnARedirect(t *testing.T) {
-	var redirectTargetHit bool
+	// atomic: written on the httptest handler goroutine, read here — and the
+	// write only ever happens when the policy regresses, exactly when the
+	// assertion must be race-clean.
+	var redirectTargetHit atomic.Bool
 	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		redirectTargetHit = true
+		redirectTargetHit.Store(true)
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer target.Close()
@@ -33,7 +37,7 @@ func TestNewClientFailsTheCallOnARedirect(t *testing.T) {
 	// http.Client wraps CheckRedirect's error in *url.Error; the sentinel has to
 	// survive that for dispatch classification to recognize it.
 	assert.ErrorIs(t, err, ErrRefusedRedirect)
-	assert.False(t, redirectTargetHit, "the redirect target must never be contacted")
+	assert.False(t, redirectTargetHit.Load(), "the redirect target must never be contacted")
 
 	// Do returns the pre-redirect response alongside the error with its body already
 	// closed; pin that it is unusable even if an adapter ever skipped the err check.
