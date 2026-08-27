@@ -1,0 +1,21 @@
+db/migrations/0069_telemetry-pin-tier.down.sql
+  s_da6bf205ed0c0d::t_a3e063d0593e75 1-6
+db/migrations/0069_telemetry-pin-tier.up.sql
+  s_da6bf205ed0c0d::t_a3e063d0593e75 1-9
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "b243bd98140492640e1bdadf074955c225d18c48",
+  "prompts": {},
+  "sessions": {
+    "s_da6bf205ed0c0d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "5fcc3819-f498-4fb6-a92d-ba3ad8fa4d91",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}
