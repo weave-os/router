@@ -288,10 +288,9 @@ func (e *RequestEnvelope) HasTools() bool {
 
 // ToolValidator compiles the inbound request's tool definitions into a
 // toolcheck.Validator for validating/repairing model-emitted tool calls.
-// Returns nil when the format carries no compilable tool schemas or the
-// request has none (translators treat nil as syntax-check-only). Compilation
-// is cached via toolcheck's LRU since agent sessions resend a byte-identical
-// tools block every turn.
+// Returns nil when no compilable tool schemas exist for the format or the
+// request has no tools (translators treat nil as syntax-check-only); cached
+// via toolcheck's LRU since sessions resend a byte-identical block every turn.
 func (e *RequestEnvelope) ToolValidator() *toolcheck.Validator {
 	tools := gjson.GetBytes(e.body, "tools")
 	if !tools.IsArray() {

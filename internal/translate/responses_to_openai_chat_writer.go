@@ -52,9 +52,8 @@ type ResponsesToOpenAIChatWriter struct {
 	// toolSlots maps a Responses output_index to its chat tool_calls index.
 	toolSlots    map[int]int
 	nextToolSlot int
-	// toolArgs accumulates function_call arguments per output_index; emitted as
-	// one validated tool_calls delta at item close, since a partial fragment
-	// can't be schema-checked.
+	// toolArgs accumulates function_call arguments per output_index; emitted at
+	// item close so the complete value can be schema-checked.
 	toolArgs   map[int]*strings.Builder
 	toolName   map[int]string
 	toolCallID map[int]string

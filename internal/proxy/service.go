@@ -5747,9 +5747,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 			Broad:          s.ResolveOpenAIResponsesBroad(ctx),
 		}) &&
 		!s.gatewayLacksResponses(responsesEndpointKey)
-	// toolValidator compiles the request's tool schemas once (LRU-cached) so the
-	// Responses→chat translator can validate/repair model tool calls. Nil if the
-	// request has no tools.
+	// nil when the request has no tools; the translator treats nil as syntax-check-only.
 	toolValidator := env.ToolValidator()
 
 	proxyStart := time.Now()
