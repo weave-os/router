@@ -116,7 +116,7 @@ func newClientWithModelIDMap(apiKey, baseURL string, headerTimeout time.Duration
 		baseURL:      baseURL,
 		modelIDMap:   modelIDMap,
 		codexBaseURL: chatGPTCodexBaseURL,
-		http:         &http.Client{Transport: httputil.NewTransportWithResponseHeaderTimeout(5*time.Second, 5*time.Second, headerTimeout)},
+		http:         httputil.NewClient(httputil.NewTransportWithResponseHeaderTimeout(5*time.Second, 5*time.Second, headerTimeout)),
 	}
 }
 

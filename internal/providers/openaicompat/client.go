@@ -109,7 +109,7 @@ func newClient(apiKey, baseURL string, modelIDMap map[string]string) *Client {
 	return &Client{
 		apiKey:     apiKey,
 		baseURL:    strings.TrimRight(baseURL, "/"),
-		http:       &http.Client{Transport: httputil.NewTransport(5*time.Second, 5*time.Second)},
+		http:       httputil.NewClient(httputil.NewTransport(5*time.Second, 5*time.Second)),
 		modelIDMap: modelIDMap,
 	}
 }

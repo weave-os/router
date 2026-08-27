@@ -92,9 +92,7 @@ func NewClient(baseURL string, opts ...Option) *Client {
 	}
 	// agent:run buffers the whole response before the first byte; ResponseHeaderTimeout
 	// must equal the run budget rather than the streaming-upstream constant.
-	c.http = &http.Client{
-		Transport: httputil.NewTransportWithResponseHeaderTimeout(10*time.Second, 10*time.Second, c.timeout),
-	}
+	c.http = httputil.NewClient(httputil.NewTransportWithResponseHeaderTimeout(10*time.Second, 10*time.Second, c.timeout))
 	return c
 }
 

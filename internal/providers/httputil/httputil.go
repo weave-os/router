@@ -237,6 +237,18 @@ func NewTransportWithResponseHeaderTimeout(dialTimeout, tlsTimeout, responseHead
 	return t
 }
 
+// NewClient returns an http.Client on transport that does not follow redirects.
+// A provider base URL is configuration, not discovery: following a 3xx would
+// send the upstream credential and the forwarded client headers to a host
+// nobody configured, so the 3xx is handed back to the caller as-is.
+func NewClient(transport http.RoundTripper) *http.Client {
+	return &http.Client{Transport: transport, CheckRedirect: refuseRedirect}
+}
+
+func refuseRedirect(*http.Request, []*http.Request) error {
+	return http.ErrUseLastResponse
+}
+
 // StartIdleWatchdog cancels ctx with ErrUpstreamIdleTimeout once idleTimeout
 // elapses without a mark() call. Call stop() via defer to terminate the
 // goroutine. idleTimeout <= 0 or cancel == nil disables the watchdog (no-op).

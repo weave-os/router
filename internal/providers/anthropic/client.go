@@ -120,7 +120,7 @@ func NewClient(apiKey, baseURL string, opts ...Option) *Client {
 	c := &Client{
 		apiKey:  apiKey,
 		baseURL: baseURL,
-		http:    &http.Client{Transport: httputil.NewTransport(10*time.Second, 10*time.Second)},
+		http:    httputil.NewClient(httputil.NewTransport(10*time.Second, 10*time.Second)),
 	}
 	for _, opt := range opts {
 		opt(c)

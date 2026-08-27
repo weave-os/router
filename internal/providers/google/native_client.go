@@ -45,7 +45,7 @@ func NewNativeClient(apiKey, baseURL string) *NativeClient {
 	return &NativeClient{
 		apiKey:  apiKey,
 		baseURL: baseURL,
-		http:    &http.Client{Transport: httputil.NewTransport(5*time.Second, 5*time.Second)},
+		http:    httputil.NewClient(httputil.NewTransport(5*time.Second, 5*time.Second)),
 	}
 }
 
