@@ -121,6 +121,42 @@ same reason the resolver does: the alias list is the thing to fix.
 
 `proxy.Service` is the **only caller of [`../translate`](../translate)**. Keep providers ignorant of cross-format concerns. See [translate/CLAUDE.md](../translate/CLAUDE.md) for the recipe.
 
+## OpenAI endpoint selection (chat/completions vs Responses)
+
+`translate.UseOpenAIResponsesAPI` decides which OpenAI surface an attempt
+POSTs to, and the two OpenAI providers get deliberately different rules.
+
+**Direct OpenAI takes every turn it can express.** OpenAI documents Responses
+as the API new integrations build on, it is the only endpoint that will serve a
+reasoning model a function tool (chat/completions 400s that combination from
+gpt-5.4 on — the prod incident that started this), and it is the only one that
+round-trips encrypted reasoning across turns, which is also where the
+prompt-cache win comes from. The exception is a turn whose parameters have no
+Responses equivalent (`env.RequiresChatCompletionsParams`): stop sequences are
+the whole set today, and such a turn stays on chat/completions rather than
+silently dropping them. Reasoning targets are exempt from that check because
+they reject `stop` on chat/completions too, so it is already dropped for them.
+
+**OpenAI-compatible gateways stay narrow** — reasoning tool turns only. Most
+mount no Responses surface at all, so the endpoint buys nothing there beyond
+the one turn the gateway would otherwise reject (Snowflake Cortex 400s a 5.6
+tool turn on chat/completions no matter what we send). A gateway that answers
+404/"API disabled" is retried once on chat/completions while pre-commit and
+memoized per effective base URL (`gatewayLacksResponses`), so the next turn
+skips the probe.
+
+Both rules sit behind `ROUTER_OPENAI_RESPONSES_BROAD` (default on, per-org
+overridable via `flags.KeyOpenAIResponsesBroad`). Turning it off restores the
+narrow rule for direct OpenAI too — the reasoning tool turn chat/completions
+rejects is still promoted, since that one is a correctness fix, not a rollout.
+
+Anthropic ingress re-emits the request through `PrepareOpenAIResponses` per
+attempt. A Responses-ingress caller dispatches its ORIGINAL bytes natively
+instead, which is why that promotion is skipped when compaction or a handover
+rewrote the envelope — those bytes are stale, and the chat projection is the
+only faithful representation until item-level emit from a rewritten envelope
+lands.
+
 ## Runtime provider fallback
 
 Multi-binding models (deepseek/qwen/moonshot with Fireworks/Makora/Bedrock primary + OpenRouter fallback in [`catalog.Model.Providers`](../router/catalog/catalog.go)) dispatch through [`dispatchWithFallback`](fallback.go). The helper walks the ordered binding list, retries on `providers.IsRetryable` errors (5xx/408/429 buffered responses, transport errors, `httputil.ErrUpstreamIdleTimeout`), and on exhaustion writes the final upstream error envelope via a format-specific renderer (`flushUpstreamErrorAsAnthropic` for ProxyMessages, `flushBufferedIfPresent` for ProxyOpenAIChatCompletion).

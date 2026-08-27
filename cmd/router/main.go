@@ -623,6 +623,7 @@ func main() {
 	// Kill switch for degrading to a same-cluster candidate when the routed
 	// model's bindings are all exhausted by a transient upstream fault.
 	siblingFailover := config.GetOr("ROUTER_SIBLING_FAILOVER", "true") == "true"
+	openAIResponsesBroad := config.GetOr("ROUTER_OPENAI_RESPONSES_BROAD", "true") == "true"
 	sseKeepalive := sseKeepaliveInterval()
 	ccOrchToolsCrossVendor := config.GetOr("ROUTER_CC_ORCH_TOOLS_CROSSVENDOR", "true") == "true"
 	// Per-turn large-vs-small action-classifier swap. Off by default until the
@@ -893,6 +894,7 @@ func main() {
 		flags.KeyAuthoritativeUpgradeGate:  boolDefault(authoritativeUpgradeGate),
 		flags.KeyAuthorityCacheShadow:      boolDefault(authorityCacheShadow),
 		flags.KeySiblingFailover:           boolDefault(siblingFailover),
+		flags.KeyOpenAIResponsesBroad:      boolDefault(openAIResponsesBroad),
 		flags.KeyEffortEscalation:          boolDefault(effortEscalation),
 		flags.KeyCyberRefusalRepin:         boolDefault(cyberRefusalRepin),
 		flags.KeyCyberRefusalFallback:      cyberRefusalFallbackModel,
@@ -925,6 +927,7 @@ func main() {
 		WithCyberRefusalFallbackModel(cyberRefusalFallbackModel).
 		WithAnthropicServerSideFallback(anthropicServerSideFallback).
 		WithSiblingFailover(siblingFailover).
+		WithOpenAIResponsesBroad(openAIResponsesBroad).
 		WithSSEKeepalive(sseKeepalive).
 		WithPrefixTrimFreeSwitch(prefixTrimFreeSwitch).
 		WithHMMUpgradeConfidenceThreshold(hmmUpgradeConfidence).

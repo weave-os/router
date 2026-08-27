@@ -1022,7 +1022,7 @@ func resolveOpenAIOverrides(body []byte, opts EmitOptions) EmitOverrides {
 		}
 	}
 
-	if !samplersAcceptedOnChatCompletions(opts) {
+	if !samplersAccepted(opts) {
 		for _, key := range []string{"temperature", "top_p"} {
 			if gjson.GetBytes(body, key).Exists() {
 				ov.DeleteKeys = append(ov.DeleteKeys, key)

@@ -52,10 +52,11 @@ func toolTurnNeedsExplicitEffortNone(opts EmitOptions, hasTools bool) bool {
 		strings.HasPrefix(opts.TargetModel, "gpt-5.6")
 }
 
-// samplersAcceptedOnChatCompletions reports whether the target accepts
-// temperature / top_p on /v1/chat/completions. Reasoning gpt-5.x models 400 on
-// non-default values; OSS CapReasoning targets (OpenRouter, xAI) sample normally.
-func samplersAcceptedOnChatCompletions(opts EmitOptions) bool {
+// samplersAccepted reports whether the target accepts temperature / top_p.
+// Reasoning gpt-5.x models 400 on non-default values on both
+// /v1/chat/completions and /v1/responses; OSS CapReasoning targets
+// (OpenRouter, xAI) sample normally.
+func samplersAccepted(opts EmitOptions) bool {
 	return !opts.Capabilities.Supports(router.CapReasoning) || !strings.HasPrefix(opts.TargetModel, "gpt-5")
 }
 
@@ -313,13 +314,13 @@ func (e *RequestEnvelope) buildOpenAIFromAnthropic(opts EmitOptions) ([]byte, pr
 
 	// Temperature, top_p
 	clientSetTemp := false
-	samplersAccepted := samplersAcceptedOnChatCompletions(opts)
-	if r := gjson.GetBytes(body, "temperature"); r.Exists() && samplersAccepted {
+	sampleOK := samplersAccepted(opts)
+	if r := gjson.GetBytes(body, "temperature"); r.Exists() && sampleOK {
 		jw.Key("temperature")
 		jw.Raw(r.Raw)
 		clientSetTemp = true
 	}
-	if r := gjson.GetBytes(body, "top_p"); r.Exists() && samplersAccepted {
+	if r := gjson.GetBytes(body, "top_p"); r.Exists() && sampleOK {
 		jw.Key("top_p")
 		jw.Raw(r.Raw)
 	}
