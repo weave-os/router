@@ -237,15 +237,23 @@ func NewTransportWithResponseHeaderTimeout(dialTimeout, tlsTimeout, responseHead
 	return t
 }
 
+// ErrRefusedRedirect is the cause when an upstream answered with a redirect.
+// A provider base URL is configuration, not discovery, so the redirect is
+// neither followed nor relayed: its Location names a host the deployment never
+// configured, and adapters treat only 4xx and 5xx as a response worth passing
+// to the caller.
+var ErrRefusedRedirect = errors.New("upstream returned a redirect, which is not followed")
+
 // NewClient returns an http.Client on transport that refuses redirects.
-// A provider base URL is configuration, not discovery — a 3xx would forward
-// credentials to an unconfigured host.
+// Failing the call is what keeps a 3xx off every relay path at once — returning
+// the response instead would hand each adapter a status it classifies as
+// success, committing the redirect's headers and body to the caller.
 func NewClient(transport http.RoundTripper) *http.Client {
 	return &http.Client{Transport: transport, CheckRedirect: refuseRedirect}
 }
 
 func refuseRedirect(*http.Request, []*http.Request) error {
-	return http.ErrUseLastResponse
+	return ErrRefusedRedirect
 }
 
 // StartIdleWatchdog cancels ctx with ErrUpstreamIdleTimeout once idleTimeout

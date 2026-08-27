@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestNewClientDoesNotFollowRedirects(t *testing.T) {
+func TestNewClientFailsTheCallOnARedirect(t *testing.T) {
 	var redirectTargetHit bool
 	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		redirectTargetHit = true
@@ -28,10 +28,18 @@ func TestNewClientDoesNotFollowRedirects(t *testing.T) {
 	require.NoError(t, err)
 
 	resp, err := client.Do(req)
-	require.NoError(t, err)
-	defer resp.Body.Close()
 
-	assert.Equal(t, http.StatusFound, resp.StatusCode, "the 3xx is returned to the caller rather than followed")
-	assert.Equal(t, target.URL, resp.Header.Get("Location"))
+	require.Error(t, err, "a refused redirect fails the call rather than yielding a relayable response")
+	// http.Client wraps CheckRedirect's error in *url.Error; the sentinel has to
+	// survive that for dispatch classification to recognize it.
+	assert.ErrorIs(t, err, ErrRefusedRedirect)
 	assert.False(t, redirectTargetHit, "the redirect target must never be contacted")
+
+	// Do returns the pre-redirect response alongside the error with its body
+	// already closed. Adapters check err first, so it never reaches a relay
+	// path -- this pins that it is unusable even if one ever did not.
+	require.NotNil(t, resp)
+	n, readErr := resp.Body.Read(make([]byte, 1))
+	assert.Zero(t, n)
+	assert.Error(t, readErr, "the returned response body is closed")
 }
