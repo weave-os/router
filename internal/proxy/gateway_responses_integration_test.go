@@ -188,9 +188,8 @@ func directOpenAIService(t *testing.T, baseURL string, broad bool) *proxy.Servic
 		WithOpenAIResponsesBroad(broad)
 }
 
-// Claude Code ingress against direct OpenAI: under the broad rollout every
-// expressible turn is re-emitted onto Responses, tools or not; with the rollout
-// off a toolless turn keeps the chat projection.
+// Under the broad rollout, direct-OpenAI serves every expressible turn on
+// Responses; with it off a toolless turn keeps the chat projection.
 func TestProxyMessages_DirectOpenAIToollessTurnFollowsRollout(t *testing.T) {
 	for _, tc := range []struct {
 		name      string

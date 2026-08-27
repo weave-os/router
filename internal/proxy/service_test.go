@@ -371,9 +371,8 @@ func TestService_ProxyOpenAIResponses_StaysNativeForDirectOpenAI(t *testing.T) {
 	}
 }
 
-// The broad rollout is killable per org, and turning it off must not take the
-// incident fix with it: a reasoning tool turn is promoted either way, while a
-// toolless turn falls back to the chat projection.
+// Killing the broad rollout per org must not take the incident fix: the
+// reasoning+tools turn stays promoted either way.
 func TestService_ProxyOpenAIResponses_BroadRolloutOffKeepsNarrowPromotion(t *testing.T) {
 	for _, tc := range []struct {
 		name         string

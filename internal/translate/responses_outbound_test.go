@@ -523,9 +523,8 @@ func TestPrepareOpenAIResponses_ImageBlocks(t *testing.T) {
 	assert.Equal(t, "https://example.com/a.png", out.Input[0].Content[2].ImageURL)
 }
 
-// function_call_output carries text only, so a screenshot returned by a tool
-// (Playwright/Puppeteer MCP servers do this constantly) has to be hoisted into
-// a following message instead of vanishing with the rest of the block.
+// function_call_output is text-only; a nested image must be hoisted into a
+// following message instead of vanishing.
 func TestPrepareOpenAIResponses_ToolResultImageHoisted(t *testing.T) {
 	body := []byte(`{
 		"model":"claude-opus-4-8","max_tokens":1024,
