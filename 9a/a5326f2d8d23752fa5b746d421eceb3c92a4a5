@@ -1,0 +1,23 @@
+internal/providers/openaicompat/client.go
+  s_d2acd59f4968a7::t_275645b43fd301 238-239
+  s_d2acd59f4968a7::t_889126f3e3cd30 245-246,248
+internal/providers/openaicompat/cortex_inference_test.go
+  s_d2acd59f4968a7::t_494280e5b0ed07 62-93
+  s_d2acd59f4968a7::t_889126f3e3cd30 5
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "9aa5326f2d8d23752fa5b746d421eceb3c92a4a5",
+  "prompts": {},
+  "sessions": {
+    "s_d2acd59f4968a7": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "770a512d-7b14-4711-b075-d184fbb735d1",
+        "model": "grok-4.6"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}
