@@ -62,7 +62,8 @@ func isNativeServerTool(toolType string) bool {
 
 // StripServerTools removes Anthropic native server tools (web_search_*,
 // web_fetch_*) from an Anthropic Messages body. Non-Anthropic upstreams cannot
-// execute them; passed through they become phantom function tools emitting unhandleable tool_use blocks.
+// execute them; passed through they become phantom function tools emitting
+// unhandleable tool_use blocks.
 func StripServerTools(body []byte) ([]byte, int) {
 	removed := 0
 	strippedNames := make(map[string]struct{})
