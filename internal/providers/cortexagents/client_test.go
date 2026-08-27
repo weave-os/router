@@ -256,3 +256,37 @@ func TestSearchOmitsRoleHeaderAndTokenTypeWhenNotApplicable(t *testing.T) {
 		t.Fatalf("%s must only be sent for WIF credentials", auth.WIFTokenTypeHeader)
 	}
 }
+
+func TestSearchForwardsClientCorrelationHeaders(t *testing.T) {
+	var gotApp, gotBaggage string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotApp = r.Header.Get("X-SNOWFLAKE-APPLICATION")
+		gotBaggage = r.Header.Get("X-SNOWFLAKE-BAGGAGE")
+		io.WriteString(w, `{"content":[]}`)
+	}))
+	defer srv.Close()
+
+	ctx := context.WithValue(context.Background(), proxy.CredentialsContextKey{}, &proxy.Credentials{
+		APIKey:                 []byte("static-pat"),
+		BaseURL:                srv.URL,
+		AuthType:               auth.AuthTypeBearer,
+		ForwardedClientHeaders: []string{"X-SNOWFLAKE-APPLICATION"},
+		BaggageHeader:          "X-SNOWFLAKE-BAGGAGE",
+	})
+	ctx = context.WithValue(ctx, proxy.ClientIdentityContextKey{}, proxy.ClientIdentity{Email: "engineer@example.com"})
+	inbound := http.Header{}
+	inbound.Set("X-SNOWFLAKE-APPLICATION", "cortex-cli/1.2.3")
+	ctx = proxy.WithForwardedHeaderSnapshot(ctx, []*auth.ExternalAPIKey{{
+		ForwardedClientHeaders: []string{"X-SNOWFLAKE-APPLICATION"},
+	}}, inbound)
+
+	if _, err := cortexagents.NewClient("", cortexagents.WithHostSuffix("127.0.0.1")).Search(ctx, websearch.Query{Text: "q"}); err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if gotApp != "cortex-cli/1.2.3" {
+		t.Fatalf("agent:run runs on the tenant's endpoint and must carry the caller's application: %q", gotApp)
+	}
+	if gotBaggage != `{"on-behalf-of":"engineer@example.com"}` {
+		t.Fatalf("unexpected baggage: %q", gotBaggage)
+	}
+}

@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"workweave/router/internal/auth"
 	"workweave/router/internal/proxy"
 
 	"github.com/stretchr/testify/assert"
@@ -115,6 +116,46 @@ func TestApplyForwardedClientHeaders(t *testing.T) {
 			}))
 		})
 		assert.Equal(t, "null", upstream.Header.Get("X-SNOWFLAKE-BAGGAGE"))
+	})
+
+	t.Run("falls back to the ingress snapshot on router-built requests", func(t *testing.T) {
+		upstream := httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+		ctx := proxy.WithForwardedHeaderSnapshot(
+			identityCtx(snowflakeCreds, identity),
+			[]*auth.ExternalAPIKey{{
+				ForwardedClientHeaders: []string{"X-SNOWFLAKE-APPLICATION"},
+				BaggageHeader:          "X-SNOWFLAKE-BAGGAGE",
+			}},
+			inbound(map[string]string{
+				"X-SNOWFLAKE-APPLICATION": "cortex-cli/1.2.3",
+				"X-SNOWFLAKE-BAGGAGE":     `{"deployment":"prod"}`,
+				"X-Unrelated":             "nope",
+			}),
+		)
+		// Compaction/handover summaries and Cortex web search synthesize their
+		// own request, so nothing but the snapshot carries the caller's ids.
+		proxy.ApplyForwardedClientHeaders(ctx, upstream, nil)
+		assert.Equal(t, "cortex-cli/1.2.3", upstream.Header.Get("X-SNOWFLAKE-APPLICATION"))
+		assert.JSONEq(t, `{"deployment":"prod","on-behalf-of":"engineer@example.com"}`,
+			upstream.Header.Get("X-SNOWFLAKE-BAGGAGE"))
+		assert.Empty(t, upstream.Header.Get("X-Unrelated"),
+			"the snapshot must only capture headers a key actually forwards")
+	})
+
+	t.Run("falls back to the resolved session id when the client sent no header", func(t *testing.T) {
+		upstream := httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+		// Claude Code builds before 2.0.x, and every non-Anthropic surface,
+		// carry the session id in the body rather than the header.
+		ctx := identityCtx(snowflakeCreds, identity)
+		proxy.ApplyForwardedClientHeaders(ctx, upstream, http.Header{})
+		assert.Equal(t, "session-1", upstream.Header.Get("X-Claude-Code-Session-Id"))
+	})
+
+	t.Run("does not invent a session id for other configured headers", func(t *testing.T) {
+		upstream := httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+		ctx := identityCtx(snowflakeCreds, identity)
+		proxy.ApplyForwardedClientHeaders(ctx, upstream, http.Header{})
+		assert.Empty(t, upstream.Header.Get("X-SNOWFLAKE-APPLICATION"))
 	})
 
 	t.Run("does not overwrite auth with a blank inbound value", func(t *testing.T) {

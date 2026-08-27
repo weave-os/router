@@ -167,6 +167,7 @@ func withAPIKey(svc *auth.Service, byokRequiresOptIn bool) gin.HandlerFunc {
 		byokAllowed := !byokRequiresOptIn || (installation != nil && installation.ByokEnabled)
 		if externalKeys != nil && byokAllowed {
 			ctx = context.WithValue(ctx, proxy.ExternalAPIKeysContextKey{}, externalKeys)
+			ctx = proxy.WithForwardedHeaderSnapshot(ctx, externalKeys, c.Request.Header)
 		}
 		if len(clusterModelLists) > 0 {
 			overrides := make(map[string][]string, len(clusterModelLists))

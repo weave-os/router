@@ -56,7 +56,7 @@ func ClientIdentityFromHeaders(h http.Header) ClientIdentity {
 // client cannot have Claude Code's header overwritten by Codex leftovers.
 func sessionIDFromHeaders(h http.Header) string {
 	for _, key := range [...]string{
-		"X-Claude-Code-Session-Id",
+		ClaudeCodeSessionHeader,
 		"Session-Id",
 		"Thread-Id",
 	} {
