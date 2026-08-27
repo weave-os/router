@@ -1098,7 +1098,8 @@ func TestPrepareGemini_CollapsesNullableAnyOfDates(t *testing.T) {
 				"properties":{
 					"due_date":{"anyOf":[{"type":"string","format":"date-time"},{"type":"null"}]},
 					"start_date":{"anyOf":[{"type":"string"},{"enum":[""]}]},
-					"end_date":{"anyOf":[{"type":"string","format":"date-time"},{}]}
+					"priority":{"anyOf":[{"enum":["low","high"]},{"type":"null"}]},
+					"title":{"minLength":5,"anyOf":[{"type":"string","minLength":10}]}
 				}
 			}
 		}]
@@ -1125,11 +1126,16 @@ func TestPrepareGemini_CollapsesNullableAnyOfDates(t *testing.T) {
 	assert.NotContains(t, start, "anyOf")
 	assert.NotContains(t, start, "enum")
 
-	end := props["end_date"].(map[string]any)
-	assert.Equal(t, "string", end["type"])
-	assert.Equal(t, "date-time", end["format"])
-	assert.Equal(t, true, end["nullable"])
-	assert.NotContains(t, end, "anyOf")
+	priority := props["priority"].(map[string]any)
+	assert.Equal(t, "string", priority["type"])
+	assert.Equal(t, true, priority["nullable"])
+	assert.Equal(t, []any{"low", "high"}, priority["enum"])
+	assert.NotContains(t, priority, "anyOf")
+
+	title := props["title"].(map[string]any)
+	assert.Equal(t, "string", title["type"])
+	assert.Equal(t, float64(10), title["minLength"])
+	assert.NotContains(t, title, "anyOf")
 }
 
 func TestPrepareGemini_DropsNonStringEnums(t *testing.T) {

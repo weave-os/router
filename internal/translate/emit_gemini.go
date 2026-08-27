@@ -1349,9 +1349,7 @@ func sanitizeGeminiSchemaNode(v any, path string) (any, error) {
 		return nil, fmt.Errorf("%w at %s.oneOf: Gemini does not support oneOf", ErrGeminiSchemaIncompatible, path)
 	}
 
-	// anyOf null branches are represented by Gemini's nullable flag. Keep this
-	// outside the loop because map iteration order is undefined and a raw
-	// nullable sibling must not overwrite the normalized value.
+	// Declared before the loop: map iteration is unordered, so a raw nullable sibling must not overwrite this once set.
 	nullableFromAnyOf := false
 	out := make(map[string]any, len(node))
 	for key, child := range node {
@@ -1404,7 +1402,7 @@ func sanitizeGeminiSchemaNode(v any, path string) (any, error) {
 			}
 			clean := make([]any, 0, len(branches))
 			for i, branch := range branches {
-				if isGeminiNullSchema(branch) {
+				if isGeminiNullLikeSchema(branch) {
 					nullableFromAnyOf = true
 					continue
 				}
@@ -1412,7 +1410,7 @@ func sanitizeGeminiSchemaNode(v any, path string) (any, error) {
 				if err != nil {
 					return nil, err
 				}
-				if object, ok := sanitized.(map[string]any); ok && isGeminiVacuousSchema(object) {
+				if isGeminiNullLikeSchema(sanitized) {
 					nullableFromAnyOf = true
 					continue
 				}
@@ -1420,25 +1418,6 @@ func sanitizeGeminiSchemaNode(v any, path string) (any, error) {
 			}
 			if len(clean) == 0 {
 				return nil, fmt.Errorf("%w at %s.anyOf: expected a non-null branch", ErrGeminiSchemaIncompatible, path)
-			}
-			if len(clean) == 1 {
-				object, ok := clean[0].(map[string]any)
-				if !ok {
-					return nil, fmt.Errorf("%w at %s.anyOf: branch is not an object schema", ErrGeminiSchemaIncompatible, path)
-				}
-				for nestedKey, nestedValue := range object {
-					if nestedKey == "nullable" {
-						continue
-					}
-					if _, exists := out[nestedKey]; exists {
-						continue
-					}
-					out[nestedKey] = nestedValue
-				}
-				if object["nullable"] == true {
-					nullableFromAnyOf = true
-				}
-				continue
 			}
 			out[key] = clean
 		case "format":
@@ -1473,8 +1452,18 @@ func sanitizeGeminiSchemaNode(v any, path string) (any, error) {
 	if err := normalizeGeminiNullableType(out, path); err != nil {
 		return nil, err
 	}
+	flattened, err := flattenGeminiAnyOf(out, path)
+	if err != nil {
+		return nil, err
+	}
+	out = flattened
 	if nullableFromAnyOf {
 		out["nullable"] = true
+	}
+	if _, hasType := out["type"]; !hasType {
+		if _, hasEnum := out["enum"]; hasEnum {
+			out["type"] = "string"
+		}
 	}
 	if err := validateGeminiRequired(out, path); err != nil {
 		return nil, err
@@ -2039,7 +2028,7 @@ func isGeminiNullSchema(v any) bool {
 	return true
 }
 
-func isGeminiVacuousSchema(v any) bool {
+func isGeminiNullLikeSchema(v any) bool {
 	if isGeminiNullSchema(v) {
 		return true
 	}
@@ -2047,15 +2036,39 @@ func isGeminiVacuousSchema(v any) bool {
 	if !ok {
 		return false
 	}
+	enum, hasEnum := node["enum"].([]any)
+	if !hasEnum || len(filterEmptyStringEnum(enum)) > 0 {
+		return false
+	}
+	if typeName, ok := node["type"].(string); ok && typeName != "" && typeName != "null" {
+		return false
+	}
 	for key := range node {
 		switch key {
-		case "description", "title", "nullable", "default", "example":
+		case "enum", "type", "description", "title", "nullable", "default", "example", "format":
 			continue
 		default:
 			return false
 		}
 	}
 	return true
+}
+
+func flattenGeminiAnyOf(schema map[string]any, path string) (map[string]any, error) {
+	branches, ok := schema["anyOf"].([]any)
+	if !ok || len(branches) != 1 {
+		return schema, nil
+	}
+	object, ok := branches[0].(map[string]any)
+	if !ok {
+		return nil, fmt.Errorf("%w at %s.anyOf: branch is not an object schema", ErrGeminiSchemaIncompatible, path)
+	}
+	delete(schema, "anyOf")
+	merged, ok := intersectGeminiSchemas(schema, object)
+	if !ok {
+		return nil, fmt.Errorf("%w at %s.anyOf: flattened branch conflicts with sibling constraints", ErrGeminiSchemaIncompatible, path)
+	}
+	return merged, nil
 }
 
 func valueInEnum(value, enum any) bool {
