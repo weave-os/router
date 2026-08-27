@@ -791,9 +791,8 @@ func responsesFailureFromResponse(resp gjson.Result) (errType, msg string) {
 const malformedResponsesFrameMessage = "upstream sent a malformed Responses event"
 
 // malformedResponsesFrame reports whether an SSE payload is not parseable JSON.
-// Skipping such a frame silently would present a turn that lost content as a
-// clean completion, so both Responses translators surface it as an error.
-// A `[DONE]` sentinel is tolerated: gateways emit it even though Responses
+// Skipping silently would present a dropped-content turn as a clean completion;
+// a `[DONE]` sentinel is tolerated since gateways emit it even though Responses
 // terminates on response.completed.
 func malformedResponsesFrame(data []byte) bool {
 	if bytes.Equal(bytes.TrimSpace(data), []byte("[DONE]")) {

@@ -54,6 +54,31 @@ func maxEffortToXhigh(body []byte) []byte {
 	return out
 }
 
+// codexUnsupportedParams are Responses fields the ChatGPT backend rejects with
+// 400 "Unsupported parameter" — it serves only the subset the Codex CLI sends.
+// A translated turn carries some of them legitimately (Anthropic ingress always
+// has max_tokens, so max_output_tokens is always emitted), so they're dropped
+// here rather than at emit time, which doesn't know the credential.
+var codexUnsupportedParams = []string{
+	"max_output_tokens", "temperature", "top_p", "metadata", "service_tier", "truncation",
+}
+
+// stripCodexUnsupportedParams removes codexUnsupportedParams from a Responses
+// body. Dropping the output ceiling is lossy, but the alternative is a 400.
+func stripCodexUnsupportedParams(body []byte) []byte {
+	for _, key := range codexUnsupportedParams {
+		if !gjson.GetBytes(body, key).Exists() {
+			continue
+		}
+		out, err := sjson.DeleteBytes(body, key)
+		if err != nil {
+			continue
+		}
+		body = out
+	}
+	return body
+}
+
 // codexSubscriptionCreds returns the resolved credential when it's a Codex
 // (ChatGPT) subscription bearer (OAuth token with a paired account id), else
 // nil. Such a turn must dispatch to the Codex backend, not api.openai.com.
@@ -247,6 +272,7 @@ func (c *Client) Proxy(ctx context.Context, decision router.Decision, prep provi
 	if useCodex {
 		baseURL = c.codexBaseURL
 		path = codexResponsesPath
+		reqBody = stripCodexUnsupportedParams(reqBody)
 	} else if prep.Endpoint == providers.EndpointResponses {
 		// Only the direct api.openai.com Responses path needs the clamp; the
 		// Codex backend branch above understands "max" natively.

@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"workweave/router/internal/billing"
 	"workweave/router/internal/providers"
@@ -15,8 +16,10 @@ import (
 	"workweave/router/internal/router/cache"
 	"workweave/router/internal/router/catalog"
 	"workweave/router/internal/router/handover"
+	"workweave/router/internal/router/sessionpin"
 	"workweave/router/internal/translate"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
@@ -81,6 +84,34 @@ func TestService_ProxyOpenAIChatCompletion_ResponsesTurnCachesTranslatedBody(t *
 	assert.Equal(t, rec1.Body.String(), rec2.Body.String())
 }
 
+// Streaming bypasses the semantic cache. A Responses-served stream must not be
+// stored either — its translated bytes are SSE frames, replaying them as a
+// cached body would hand the next caller frames instead of a chat.completion.
+func TestService_ProxyOpenAIChatCompletion_ResponsesStreamBypassesCache(t *testing.T) {
+	streamingBody := strings.Replace(chatCacheableTurnBody, `"stream":false`, `"stream":true`, 1)
+	provider := &fakeProvider{proxyResponse: responsesTextUpstream}
+	decision := router.Decision{
+		Provider: providers.ProviderOpenAI,
+		Model:    "gpt-5.6-luna",
+		Reason:   "test",
+		Metadata: &router.RoutingMetadata{Embedding: embeddingFixture(11), ClusterIDs: []int{0, 1}},
+	}
+	svc := openAIChatServiceWithDecision(provider, decision, cache.New(cache.DefaultConfig()))
+	ctx := proxyContextWithExternalID(t, "tenant-responses-stream")
+
+	for range 2 {
+		rec := httptest.NewRecorder()
+		require.NoError(t, svc.ProxyOpenAIChatCompletion(ctx, []byte(streamingBody), rec,
+			httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(streamingBody))))
+		assert.NotEqual(t, proxy.RouterCacheHit, rec.Header().Get(proxy.HeaderRouterCache))
+		assert.Contains(t, rec.Body.String(), "chat.completion.chunk")
+	}
+	assert.Equal(t,
+		[]providers.Endpoint{providers.EndpointResponses, providers.EndpointResponses},
+		provider.proxyEndpoints,
+		"both streaming turns must reach the provider on Responses")
+}
+
 // Usage lives in the Responses payload, not in a chat.completion, so the ledger
 // debit is only correct if the translated usage — including the cached prefix —
 // feeds billing.
@@ -108,6 +139,48 @@ func TestService_ProxyOpenAIChatCompletion_ResponsesUsageDebitsBilling(t *testin
 	assert.Equal(t, want, debits[0].NotionalCostMicros,
 		"the debit must price the Responses usage block, cached prefix included")
 	assert.Positive(t, want)
+}
+
+// A handover rewrites the envelope before emit, so the switch turn's Responses
+// request must carry the summary rather than the original history — the same
+// hazard as compaction, on the path that actually switches provider families.
+func TestService_ProxyMessages_HandoverSwitchToOpenAIEmitsResponses(t *testing.T) {
+	store := newFakePinStore()
+	store.hasPin = true
+	store.pin = sessionpin.Pin{
+		Provider:        providers.ProviderAnthropic,
+		Model:           "claude-opus-4-7",
+		Reason:          "cluster:v0.2",
+		PinnedUntil:     time.Now().Add(time.Hour),
+		LastInputTokens: 5000,
+		LastTurnEndedAt: time.Now().Add(-30 * time.Second),
+	}
+	openAI := &fakeProvider{proxyResponse: responsesTextUpstream}
+	fr := &fakeRouter{decision: router.Decision{
+		Provider: providers.ProviderOpenAI, Model: "gpt-5.6-luna", Reason: "cluster:v0.2",
+	}}
+	summarizer := &fakeSummarizer{summary: "HANDOVER SUMMARY MARKER"}
+	svc := proxy.NewService(
+		fr,
+		map[string]providers.Client{
+			providers.ProviderAnthropic: &fakeProvider{},
+			providers.ProviderOpenAI:    openAI,
+		},
+		nil, false, nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil,
+	).WithSummarizer(summarizer)
+
+	rec := httptest.NewRecorder()
+	require.NoError(t, svc.ProxyMessages(authedCtx(uuid.New().String()), largeBody(t), rec,
+		httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))))
+
+	require.Equal(t, int32(1), summarizer.calls.Load(), "the switch must invoke the summarizer")
+	require.Len(t, openAI.proxyEndpoints, 1)
+	assert.Equal(t, providers.EndpointResponses, openAI.proxyEndpoints[0],
+		"a handover-rewritten turn to direct OpenAI must still dispatch on Responses")
+	sent := string(openAI.proxyBodies[0])
+	assert.Contains(t, sent, "HANDOVER SUMMARY MARKER", "the rewritten envelope must reach the upstream")
+	assert.Equal(t, "cached answer", gjson.GetBytes(rec.Body.Bytes(), "content.0.text").String(),
+		"the client must still get an Anthropic message")
 }
 
 type fakeChatCompactionSummarizer struct {
