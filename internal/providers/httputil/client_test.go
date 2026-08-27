@@ -35,9 +35,8 @@ func TestNewClientFailsTheCallOnARedirect(t *testing.T) {
 	assert.ErrorIs(t, err, ErrRefusedRedirect)
 	assert.False(t, redirectTargetHit, "the redirect target must never be contacted")
 
-	// Do returns the pre-redirect response alongside the error with its body
-	// already closed. Adapters check err first, so it never reaches a relay
-	// path -- this pins that it is unusable even if one ever did not.
+	// Do returns the pre-redirect response alongside the error with its body already
+	// closed; pin that it is unusable even if an adapter ever skipped the err check.
 	require.NotNil(t, resp)
 	n, readErr := resp.Body.Read(make([]byte, 1))
 	assert.Zero(t, n)
