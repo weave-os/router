@@ -5758,11 +5758,9 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 			err := p.Proxy(actx, d, prep, proxyWriter, r)
 			// Post-commit: bytes already on the wire, render as an in-stream
 			// frame instead of a corrupting envelope (pre-commit goes through
-			// dispatchWithFallback). Gate on THIS attempt being native, not
-			// responsesPassthrough alone: a native request can still route to
-			// Claude/OSS through the translating ResponsesWriter, which needs its
-			// own error frame — only a verbatim attempt already delivered the
-			// upstream's own Responses error event.
+			// dispatchWithFallback). Gate on THIS attempt being native: a non-native
+			// request through the translating ResponsesWriter still needs its own
+			// error frame; a native attempt already delivered the upstream's.
 			if err != nil && !native && env.Stream() && preludeBuf.Committed() {
 				err = emitOpenAISSEErrorEvent(sink, err)
 			}
@@ -5771,10 +5769,8 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		attempt = func(actx context.Context, d router.Decision, p providers.Client) error {
 			native := responsesPassthrough && d.Provider == providers.ProviderOpenAI
 			err := dispatchOpenAI(actx, d, p, native)
-			// An endpoint standing in for OpenAI without a Responses surface answers
-			// 404, or 4xx prose saying the API is off. Only a promoted turn can
-			// retry — a native-only or Codex request has no chat projection to fall
-			// back to — and the answer is remembered so later turns skip the probe.
+			// Only a promoted turn (with a chat projection to fall back to) retries;
+			// the result is memoized so later turns skip the probe.
 			if err == nil || !native || !promotedToResponses ||
 				committed(preludeBuf) || !providers.IsUpstreamResponsesUnsupported(err) {
 				return err
