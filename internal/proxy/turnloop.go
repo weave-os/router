@@ -1464,18 +1464,27 @@ func (s *Service) authorityCacheShadowFor(
 	_, plannerDecision, sticky, stayModel := s.hmmCostGatedDecision(
 		req, activePin, hmmHistory, fresh, estimatedInputTokens, prefixBroken,
 	)
+	// Re-resolve the provider; guard on model equality because normalizeHMMStayPin
+	// consults the clock and a concurrently expiring pin must not pair a stale
+	// binding with the model the gate actually priced.
+	stayProvider := activePin.Provider
+	stayPin, stayPinOK := s.hmmStayPin(req, activePin, hmmHistory)
+	if stayPinOK && stayPin.Model == stayModel {
+		stayProvider = stayPin.Provider
+	}
+	freshRosterArmID := ""
+	if fresh.Metadata != nil {
+		freshRosterArmID = fresh.Metadata.SelectedRosterArmID
+	}
 	shadow := authorityCacheShadow{
 		Computed:   true,
 		Decision:   plannerDecision,
 		StayModel:  stayModel,
 		Sticky:     sticky,
-		StayScore:  candidateScoreForWithProvider(fresh, stayModel, activePin.Provider),
-		FreshScore: candidateScoreForWithProvider(fresh, fresh.ServedIdentity(), fresh.Provider),
+		StayScore:  candidateScoreForWithProvider(fresh, stayModel, stayProvider),
+		FreshScore: candidateScoreForWithArm(fresh, fresh.ServedIdentity(), fresh.Provider, freshRosterArmID),
 	}
-	// Re-resolve the provider; guard on model equality because normalizeHMMStayPin
-	// consults the clock and a concurrently expiring pin must not pair a stale
-	// binding with the model the gate actually priced.
-	if stayPin, ok := s.hmmStayPin(req, activePin, hmmHistory); ok && stayPin.Model == stayModel {
+	if stayPinOK && stayPin.Model == stayModel {
 		shadow.StayProvider = stayPin.Provider
 	}
 	return shadow
@@ -1491,12 +1500,23 @@ func candidateScoreFor(dec router.Decision, servedIdentity string) *float64 {
 // when the catalog-level score vector is absent. AA roster policies expose WMI
 // scores as arm_scores (provider/model[:effort]) rather than candidate_scores.
 func candidateScoreForWithProvider(dec router.Decision, servedIdentity, provider string) *float64 {
+	return candidateScoreForWithArm(dec, servedIdentity, provider, "")
+}
+
+func candidateScoreForWithArm(dec router.Decision, servedIdentity, provider, rosterArmID string) *float64 {
 	if servedIdentity == "" || dec.Metadata == nil {
 		return nil
 	}
 	if score, ok := dec.Metadata.CandidateScores[baseModelOf(servedIdentity)]; ok {
 		value := float64(score)
 		return &value
+	}
+
+	if rosterArmID != "" {
+		if score, ok := dec.Metadata.ArmScores[rosterArmID]; ok {
+			value := float64(score)
+			return &value
+		}
 	}
 
 	effort, model := stripEffortSuffix(servedIdentity)

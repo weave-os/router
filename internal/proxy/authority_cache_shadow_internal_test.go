@@ -353,6 +353,30 @@ func TestCandidateScoreFor(t *testing.T) {
 		assert.InDelta(t, 0.71, *got, 1e-6)
 	})
 
+	t.Run("selected roster arm is authoritative for fresh score", func(t *testing.T) {
+		const rosterArmID = "vendor/roster-alias-for-fresh"
+		dec := hmmFreshDecisionWithArmScores(shadowFreshModel, nil, map[string]float32{
+			rosterArmID: 0.71,
+		})
+		got := candidateScoreForWithArm(dec, shadowFreshModel, providers.ProviderAnthropic, rosterArmID)
+		require.NotNil(t, got)
+		assert.InDelta(t, 0.71, *got, 1e-6)
+	})
+
+	t.Run("stay score uses re-resolved provider", func(t *testing.T) {
+		dec := hmmFreshDecisionWithArmScores(shadowFreshModel, nil, map[string]float32{
+			"anthropic/" + shadowPinnedModel: 0.62,
+			"openai/" + shadowPinnedModel:    0.91,
+		})
+		dec.Metadata.CandidateArmProviders = map[string]string{
+			"anthropic/" + shadowPinnedModel: providers.ProviderAnthropic,
+			"openai/" + shadowPinnedModel:    providers.ProviderOpenAI,
+		}
+		got := candidateScoreForWithProvider(dec, shadowPinnedModel, providers.ProviderAnthropic)
+		require.NotNil(t, got)
+		assert.InDelta(t, 0.62, *got, 1e-6)
+	})
+
 	t.Run("gateway provider falls back to roster namespace", func(t *testing.T) {
 		dec := hmmFreshDecisionWithArmScores(shadowFreshModel, nil, map[string]float32{
 			"anthropic/" + shadowFreshModel: 0.71,
