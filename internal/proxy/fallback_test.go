@@ -644,10 +644,9 @@ func TestDispatchWithFallback_SingleBindingExhaustsRetries(t *testing.T) {
 	assert.Equal(t, http.StatusServiceUnavailable, rec.Code, "final upstream envelope still flushes on exhaustion")
 }
 
-// hungUpstreamErr is the error an upstream produces when it accepts the HTTP/2
-// stream and never returns response headers — the transport gives up after a
-// full ResponseHeaderTimeout. providers.IsRetryable says yes, which is what
-// makes the count-based bound spend three of them.
+// hungUpstreamErr simulates a half-open HTTP/2 stream that times out at the
+// response-header deadline — IsRetryable accepts it, so without a wall-clock
+// guard the count bound alone would allow all three attempts.
 func hungUpstreamErr() error {
 	return &url.Error{
 		Op:  "Post",
@@ -657,10 +656,8 @@ func hungUpstreamErr() error {
 }
 
 func TestDispatchWithFallback_SlowAttemptsStopBeforeRetryCount(t *testing.T) {
-	// A hung upstream costs a full ResponseHeaderTimeout per attempt, so the
-	// count bound alone spends ~3x that on a request that was never going to be
-	// served. The wall-clock budget has to cut it off after the first attempt,
-	// even though the error is retryable and the retry count is not yet spent.
+	// Each hung attempt costs a full ResponseHeaderTimeout; the wall-clock
+	// budget must cut off retries even when the count is not yet spent.
 	hung := &fakeClient{
 		name: "anthropic",
 		outcomes: []fakeOutcome{
@@ -672,9 +669,8 @@ func TestDispatchWithFallback_SlowAttemptsStopBeforeRetryCount(t *testing.T) {
 
 	s := newServiceWithProviders(t, map[string]providers.Client{"anthropic": hung})
 	s.retrySleep = noopSleep
-	// Absolute, NOT a multiple of sameBindingRetryBudget: expressing it in terms
-	// of the constant makes the test scale with it, so it would keep passing even
-	// if the budget were raised to infinity and could never fail.
+	// Absolute, not a multiple of sameBindingRetryBudget — a multiple would
+	// trivially pass even if the budget check were removed.
 	const slowAttempt = 30 * time.Second
 	base := time.Now()
 	reads := 0

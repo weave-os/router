@@ -341,14 +341,9 @@ const (
 	maxSameBindingRetries = 2
 	// sameBindingBackoffBase is the first retry delay, doubling per attempt.
 	sameBindingBackoffBase = 250 * time.Millisecond
-	// sameBindingRetryBudget caps the wall-clock a single binding may spend
-	// across its retries. maxSameBindingRetries alone bounds the count, not
-	// the cost: an upstream that accepts the stream and never answers burns a
-	// full ResponseHeaderTimeout per attempt, so three attempts cost ~90s of
-	// dead time on a request that was never going to be served. A blip clears
-	// on a quick retry by definition — if the attempts so far already outran
-	// this budget, the fault is not the transient kind retrying was built for.
-	// Cheap failures (5xx in millis) still get the full attempt count.
+	// sameBindingRetryBudget caps wall-clock across retries for a single
+	// binding. Count alone doesn't bound cost: a hung upstream burns a full
+	// ResponseHeaderTimeout per attempt; cheap failures still get all retries.
 	sameBindingRetryBudget = 10 * time.Second
 )
 
