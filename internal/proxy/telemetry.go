@@ -29,17 +29,17 @@ type InsertTelemetryParams struct {
 	InstallationID string
 	// APIKeyID attributes the row to the authenticating api key (per-key spend
 	// audit). Empty leaves the column NULL.
-	APIKeyID               string
-	RequestID              string
-	SpanType               string
-	TraceID                string
-	Timestamp              time.Time
-	RequestedModel         string
-	DecisionModel          string
-	DecisionProvider       string
-	DecisionReason         string
-	EstimatedInputTokens   int32
-	StickyHit              bool
+	APIKeyID             string
+	RequestID            string
+	SpanType             string
+	TraceID              string
+	Timestamp            time.Time
+	RequestedModel       string
+	DecisionModel        string
+	DecisionProvider     string
+	DecisionReason       string
+	EstimatedInputTokens int32
+	StickyHit            bool
 	// PinTier is the actual served-path turn-loop tier. Empty leaves the column NULL.
 	PinTier                string
 	EmbedInput             string
