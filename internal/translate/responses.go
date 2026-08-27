@@ -1192,7 +1192,7 @@ func (t *ResponsesWriter) flushNativeHeldDelta() error {
 		if suffixed, ok := t.suffixNativeFooter(data, "delta"); ok {
 			offset := bytes.Index(held, data)
 			if offset >= 0 {
-				rewritten := make([]byte, 0, len(held)+len(t.footerText))
+				rewritten := make([]byte, 0, len(held))
 				rewritten = append(rewritten, held[:offset]...)
 				rewritten = append(rewritten, suffixed...)
 				rewritten = append(rewritten, held[offset+len(data):]...)

@@ -195,10 +195,7 @@ var terminalFeedbackClients = map[string]struct{}{
 // out of upstream context on ingress.
 const feedbackFooterText = "\n\n_Weave Router feedback:_ `/rf +` good experience · `/rf -` poor experience · note optional, e.g. `/rf - too slow`"
 
-// Codex reserves `/…` for built-ins, so the same hint has to name the `$rf`
-// skill (or the leading-space prompt form) or the TUI reports an unrecognized
-// command. Keep the `_Weave Router feedback:_` sentinel identical so ingress
-// stripping matches both.
+// Codex reserves `/…` for built-ins, so `$rf` is used instead; the sentinel prefix is kept identical so ingress stripping matches both.
 const feedbackFooterTextCodex = "\n\n_Weave Router feedback:_ `$rf +` good experience · `$rf -` poor experience · note optional, e.g. `$rf - too slow`"
 
 // feedbackFooter returns the in-terminal rating hint for a streamed response,

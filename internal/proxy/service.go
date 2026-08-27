@@ -536,9 +536,8 @@ func routingMarkerFor(res turnLoopResult) string {
 	return routingMarkerForOpts(res, false)
 }
 
-// routingMarkerForOpts is routingMarkerFor with an always-on switch used by
-// Codex: that client has no statusline, so a sticky same-model turn would
-// otherwise look like stock Codex.
+// routingMarkerForOpts is routingMarkerFor with an always-on switch for
+// clients (e.g. Codex) that have no persistent statusline.
 func routingMarkerForOpts(res turnLoopResult, always bool) string {
 	decision := res.Decision
 	if decision.Model == "" {
