@@ -12,19 +12,17 @@ import (
 // Wire shape agreed with Snowflake Cortex: raw JSON, no percent-encoding.
 const baggageOnBehalfOf = "on-behalf-of"
 
-// ClaudeCodeSessionHeader carries Claude Code's own session id. Only recent
-// CLI builds send it; older ones ship the same id inside metadata.user_id,
-// which ClientIdentity already resolves.
+// ClaudeCodeSessionHeader carries Claude Code's session id. Older CLI builds
+// omit it and embed the id in metadata.user_id; ClientIdentity resolves both.
 const ClaudeCodeSessionHeader = "X-Claude-Code-Session-Id"
 
 // ForwardedHeaderSnapshotContextKey is the request-context key for the inbound
 // correlation headers captured at ingress.
 type ForwardedHeaderSnapshotContextKey struct{}
 
-// WithForwardedHeaderSnapshot stashes the inbound values of every header the
-// installation's external keys forward. Router-originated upstream calls
-// (compaction and handover summaries, Cortex web search) build their own
-// request and would otherwise reach the tenant's endpoint uncorrelated.
+// WithForwardedHeaderSnapshot captures inbound values of every header the
+// installation's external keys forward, so router-built requests (compaction
+// summaries, Cortex web search) reach the tenant's endpoint correlated.
 func WithForwardedHeaderSnapshot(ctx context.Context, keys []*auth.ExternalAPIKey, inbound http.Header) context.Context {
 	var snapshot http.Header
 	capture := func(name string) {
@@ -82,10 +80,9 @@ func ApplyForwardedClientHeaders(ctx context.Context, upstream *http.Request, in
 	}
 }
 
-// forwardedValue resolves a header from the request being proxied, then from
-// the ingress snapshot, and finally — for the Claude Code session id — from the
-// resolved identity, which also covers clients that only carry the id in the
-// request body.
+// forwardedValue returns the first non-empty value from: inbound header,
+// ingress snapshot, or (for X-Claude-Code-Session-Id only) the resolved
+// identity — covering clients that embed the id in the body, not a header.
 func forwardedValue(ctx context.Context, inbound http.Header, name string) string {
 	if v := inbound.Get(name); v != "" {
 		return v

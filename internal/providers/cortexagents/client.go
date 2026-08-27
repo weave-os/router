@@ -137,9 +137,7 @@ func (c *Client) Search(ctx context.Context, q websearch.Query) (websearch.Respo
 	if c.role != "" {
 		req.Header.Set("X-Snowflake-Role", c.role)
 	}
-	// Web search runs on the tenant's own endpoint, so it needs the same
-	// correlation headers the inference calls carry. The originating client
-	// request isn't reachable here; the ingress snapshot on ctx is.
+	// Correlation headers aren't on req; pull them from the ingress snapshot on ctx.
 	proxy.ApplyForwardedClientHeaders(ctx, req, nil)
 
 	resp, err := c.http.Do(req)
