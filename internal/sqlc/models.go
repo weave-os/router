@@ -272,6 +272,8 @@ type RouterModelRouterRequestTelemetry struct {
 	AuthorityShadowStayScore *float64
 	// Sidecar candidate score for the served model this turn, paired with authority_shadow_stay_score.
 	AuthorityShadowFreshScore *float64
+	// The actual served-path pin tier for this turn (for example, authoritative_per_turn or hmm_ev_stay_ev_negative). NULL on rows written before this column existed or when no turn-loop tier was available.
+	PinTier *string
 }
 
 // End-user identities seen on inbound requests, scoped to an installation. Replaces the per-user API key pattern.

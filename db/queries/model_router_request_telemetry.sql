@@ -24,6 +24,9 @@
 -- (outcome, reason, pin identity, EV terms in USD micros, shadow). NULL when
 -- the planner did not run. Named `_usd_micros` so they cannot be confused
 -- with the existing `*_cost_usd` bigint-micros columns.
+-- pin_tier is the actual served-path turn-loop tier, used to partition authority-shadow
+-- results by the gate that already handled the turn. NULL on pre-column rows or when
+-- telemetry was created without a turn-loop tier.
 -- unified_limit_headers is the verbatim anthropic-ratelimit-unified-* header
 -- set observed on this turn (Claude Code cost-observing-proxy Phase 0
 -- instrumentation). NULL on non-subscription turns and on rows written before
@@ -42,6 +45,7 @@ INSERT INTO router.model_router_request_telemetry (
     decision_reason,
     estimated_input_tokens,
     sticky_hit,
+    pin_tier,
     embed_input,
     input_tokens,
     output_tokens,
@@ -130,6 +134,7 @@ INSERT INTO router.model_router_request_telemetry (
     @decision_reason::varchar,
     @estimated_input_tokens::int,
     @sticky_hit::boolean,
+    sqlc.narg('pin_tier')::varchar,
     @embed_input::varchar,
     @input_tokens::int,
     @output_tokens::int,

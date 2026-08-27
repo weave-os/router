@@ -1469,8 +1469,8 @@ func (s *Service) authorityCacheShadowFor(
 		Decision:   plannerDecision,
 		StayModel:  stayModel,
 		Sticky:     sticky,
-		StayScore:  candidateScoreFor(fresh, stayModel),
-		FreshScore: candidateScoreFor(fresh, fresh.Model),
+		StayScore:  candidateScoreForWithProvider(fresh, stayModel, activePin.Provider),
+		FreshScore: candidateScoreForWithProvider(fresh, fresh.ServedIdentity(), fresh.Provider),
 	}
 	// Re-resolve the provider; guard on model equality because normalizeHMMStayPin
 	// consults the clock and a concurrently expiring pin must not pair a stale
@@ -1481,23 +1481,66 @@ func (s *Service) authorityCacheShadowFor(
 	return shadow
 }
 
-// candidateScoreFor reads the sidecar's pre-argmax score for servedIdentity.
+// candidateScoreFor reads the sidecar's catalog-level score for servedIdentity.
 // Returns nil when the sidecar reported no score -- nil must not be coerced to 0.
-//
-// CandidateScores is keyed by bare catalog ID, so the effort suffix is stripped.
-// CandidateArmScores is NOT consulted: it is keyed by roster arm ID
-// ("anthropic/claude-opus-4-7:xhigh"), a different namespace from catalog IDs,
-// so a serving identity never matches an entry there.
 func candidateScoreFor(dec router.Decision, servedIdentity string) *float64 {
+	return candidateScoreForWithProvider(dec, servedIdentity, dec.Provider)
+}
+
+// candidateScoreForWithProvider falls back to the sidecar's per-arm WMI score
+// when the catalog-level score vector is absent. AA roster policies expose WMI
+// scores as arm_scores (provider/model[:effort]) rather than candidate_scores;
+// those scores are already carried in RoutingMetadata for effort hysteresis.
+func candidateScoreForWithProvider(dec router.Decision, servedIdentity, provider string) *float64 {
 	if servedIdentity == "" || dec.Metadata == nil {
 		return nil
 	}
-	score, ok := dec.Metadata.CandidateScores[baseModelOf(servedIdentity)]
-	if !ok {
+	if score, ok := dec.Metadata.CandidateScores[baseModelOf(servedIdentity)]; ok {
+		value := float64(score)
+		return &value
+	}
+
+	effort, model := stripEffortSuffix(servedIdentity)
+	if model == "" || len(dec.Metadata.ArmScores) == 0 {
 		return nil
 	}
-	value := float64(score)
-	return &value
+	armSuffix := ""
+	if effort != "" {
+		armSuffix = ":" + effort
+	}
+	keys := make([]string, 0, 2)
+	if provider != "" {
+		keys = append(keys, provider+"/"+model+armSuffix)
+	}
+	keys = append(keys, model+armSuffix)
+	for _, key := range keys {
+		if score, ok := dec.Metadata.ArmScores[key]; ok {
+			value := float64(score)
+			return &value
+		}
+	}
+
+	// Gateway providers may use a different namespace from the roster arm
+	// (for example, anthropic_gateway serves an anthropic/... arm). Fall back
+	// only when the model/effort match is unique; an ambiguous provider match
+	// must remain NULL rather than silently assigning another arm's score.
+	var fallback *float64
+	for armID, score := range dec.Metadata.ArmScores {
+		armEffort, armModel := stripEffortSuffix(armID)
+		if armEffort != effort || (armModel != model && !strings.HasSuffix(armModel, "/"+model)) {
+			continue
+		}
+		if armProvider, ok := dec.Metadata.CandidateArmProviders[armID]; ok && provider != "" && armProvider == provider {
+			value := float64(score)
+			return &value
+		}
+		if fallback != nil {
+			return nil
+		}
+		value := float64(score)
+		fallback = &value
+	}
+	return fallback
 }
 
 // logAuthorityCacheShadow emits the shadow verdict as a structured line. The

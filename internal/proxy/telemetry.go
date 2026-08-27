@@ -40,6 +40,8 @@ type InsertTelemetryParams struct {
 	DecisionReason         string
 	EstimatedInputTokens   int32
 	StickyHit              bool
+	// PinTier is the actual served-path turn-loop tier. Empty leaves the column NULL.
+	PinTier                string
 	EmbedInput             string
 	InputTokens            int32
 	OutputTokens           int32
