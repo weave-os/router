@@ -42,11 +42,11 @@ WEAVE_REGISTRY_DATA=$(cat <<'WEAVE_REGISTRY_EOF'
 force-model|fm|prompt|yes|yes|yes|yes|manual|command,skill
 unforce-model|ufm|prompt|yes|yes|yes|yes|manual|command,skill
 router-feedback|rf|prompt|yes|yes|yes|no|manual|command,skill
-router-off||local-toggle|yes|no|no|no|manual|command
-router-on||local-toggle|yes|no|no|no|manual|command
-router-status||local-toggle|yes|no|no|no|manual|command
+router-off||local-toggle|yes|yes|no|no|manual|command,skill
+router-on||local-toggle|yes|yes|no|no|manual|command,skill
+router-status||local-toggle|yes|yes|no|no|manual|command,skill
 router-session||prompt|yes|no|no|no|manual|command
-router-models|models|local-toggle|yes|no|no|no|manual|command
+router-models|models|local-toggle|yes|yes|no|no|manual|command,skill
 disable-routing||local-toggle|no|yes|no|no|manual|skill
 WEAVE_REGISTRY_EOF
 )
@@ -202,7 +202,6 @@ fi
 # Markers must stay in sync with install.sh. Keep verbatim.
 WEAVE_CODEX_BEGIN_MARKER="# >>> weave-router managed (do not edit between markers) >>>"
 WEAVE_CODEX_END_MARKER="# <<< weave-router managed <<<"
-WEAVE_CODEX_SKILL_MARKER="<!-- weave-router managed disable-routing skill -->"
 
 # strip_codex_block rewrites config.toml without the managed block and any
 # top-level `model_provider = "weave"` that lived outside the markers (which

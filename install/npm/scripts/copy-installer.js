@@ -44,18 +44,7 @@ for (const f of readdirSync(commandsSrc)) {
   console.log(`Copied commands/${f}.`);
 }
 
-// Codex discovers local skills under $CODEX_HOME/skills. Bundle the one
-// installer-owned template explicitly, refusing a source symlink just as the
-// command-file packaging path above does.
-const codexSkillSrc = path.join(installDir, "codex-skills", "disable-routing", "SKILL.md");
-const codexSkillDst = path.join(root, "codex-skills", "disable-routing", "SKILL.md");
-if (lstatSync(codexSkillSrc).isSymbolicLink()) {
-  throw new Error(`Refusing to package symlinked Codex skill: ${codexSkillSrc}`);
-}
-mkdirSync(path.dirname(codexSkillDst), { recursive: true });
-copyFileSync(codexSkillSrc, codexSkillDst);
-console.log("Copied codex-skills/disable-routing/SKILL.md.");
-
+// Codex discovers local skills under $CODEX_HOME/skills.
 const registryNames = new Set();
 for (const line of registryText.split(/\r?\n/)) {
   if (!line || line.startsWith("#")) continue;
@@ -70,10 +59,13 @@ for (const file of readdirSync(commandsSrc)) {
 }
 
 // registry prevents a newly supported directive from being omitted at publish time.
+// Keyed on the skill adapter, not capability: Codex ships local-config toggles
+// ($router-off/$router-on/$router-status/$disable-routing) as skills too.
 for (const line of registryText.split(/\r?\n/)) {
   if (!line || line.startsWith("#")) continue;
   const fields = line.split("|");
-  if (fields[2] !== "prompt" || fields[4] !== "yes") continue;
+  if (fields[4] !== "yes") continue;
+  if (!(fields[8] || "").split(",").includes("skill")) continue;
   const name = fields[0];
   const src = path.join(installDir, "codex-skills", name, "SKILL.md");
   const dst = path.join(root, "codex-skills", name, "SKILL.md");

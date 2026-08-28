@@ -183,7 +183,9 @@ router directives as native Codex skills: `$force-model <model-id>`,
 leading-space prompt form (for example, ` /force-model gpt-5.6-terra`) that the
 router parses. You can type that form directly instead. Re-install
 and `--uninstall --codex` rewrite/remove only the managed block, leaving the
-rest of your Codex config untouched. Invoke `$disable-routing` to switch the
+rest of your Codex config untouched. Codex also gets `$router-status`,
+`$router-off`, `$router-on`, and `$router-models` as skills that call this
+installer's own verbs. Invoke `$disable-routing` (or `$router-off`) to switch the
 next Codex session back to its normal provider, or run
 `npx @workweave/router disable-routing` in a shell; a literal
 `/disable-routing` is not a third-party extension point in Codex.

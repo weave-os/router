@@ -53,12 +53,14 @@ while IFS='|' read -r canonical aliases capability claude codex opencode pi curs
 done < <(weave_registry_rows)
 check "every row declares a known capability and client support" "" "$bad_rows"
 
-# Aliases must be unique across the whole registry, otherwise two directives
-# would fight over one filename.
+# Names repeated across clients are the same directive installed for each of
+# them (Codex ships most of Claude Code's set as skills). Pinning the exact
+# overlap catches a genuine collision — two *different* directives claiming one
+# filename — which would otherwise hide in this list.
 dupes="$(weave_registry_names claude; weave_registry_names codex; weave_registry_names opencode)"
 dupes="$(printf '%s\n' "$dupes" | sort | uniq -d | tr '\n' ' ' | sed 's/ $//')"
-check "no name collides across clients' installed sets" \
-  "fm force-model rf router-feedback ufm unforce-model" "$dupes"
+check "names shared across clients are the expected shared directives" \
+  "fm force-model models rf router-feedback router-models router-off router-on router-status ufm unforce-model" "$dupes"
 
 check "an alias resolves to its canonical directive" "force-model" "$(weave_registry_canonical_for fm)"
 check "a canonical name resolves to itself" "router-feedback" "$(weave_registry_canonical_for router-feedback)"
@@ -206,7 +208,7 @@ cx_home="$work/codex-user"; mkdir -p "$cx_home"
 run_install "$cx_home" --codex --scope user
 codex_skills="$(cd "$cx_home/.codex/skills" && ls -d */ 2>/dev/null | tr -d '/' | sort | tr '\n' ' ' | sed 's/ $//')"
 check "codex user install writes a skill per supported directive" \
-  "disable-routing force-model router-feedback unforce-model" "$codex_skills"
+  "disable-routing force-model router-feedback router-models router-off router-on router-status unforce-model" "$codex_skills"
 check "codex install writes no prompt wrappers" "" \
   "$(ls "$cx_home/.codex/prompts" 2>/dev/null | tr '\n' ' ' | sed 's/ $//')"
 
@@ -218,6 +220,20 @@ for name in force-model unforce-model router-feedback; do
     ok "codex \$$name expands to a leading-space directive"
   else
     no "codex \$$name expands to a leading-space directive" "a literal leading space" "$(grep -m1 "/$name" "$skill")"
+  fi
+done
+
+# Local-config toggles reach the installer's own verbs. A skill that names the
+# wrong verb (or the wrong client) silently edits the wrong install, so pin the
+# command each one shells out to.
+for name in router-off:off router-on:on router-status:status router-models:models; do
+  skill_name="${name%%:*}"; verb="${name##*:}"
+  skill="$cx_home/.codex/skills/$skill_name/SKILL.md"
+  if grep -Fq "weave-router $verb --codex" "$skill"; then
+    ok "codex \$$skill_name shells out to '$verb --codex'"
+  else
+    no "codex \$$skill_name shells out to '$verb --codex'" \
+      "weave-router $verb --codex" "$(grep -m1 'weave-router' "$skill" || echo 'no weave-router call')"
   fi
 done
 
