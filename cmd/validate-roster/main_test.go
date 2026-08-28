@@ -38,6 +38,24 @@ func TestRosterArms_FlatArray(t *testing.T) {
 	assert.Equal(t, []string{"a/b", "c/d"}, arms)
 }
 
+func TestRosterArms_SidecarRosterResponse(t *testing.T) {
+	arms, err := rosterArms([]byte(`{"roster_ids": ["a/b", "c/d"], "clusters": {"balanced": ["a/b"], "max": ["c/d"]}}`))
+	require.NoError(t, err)
+	assert.Equal(t, []string{"a/b", "c/d"}, arms)
+}
+
+func TestRosterArms_StringListClusters(t *testing.T) {
+	arms, err := rosterArms([]byte(`{"clusters": {"balanced": ["a/b", "c/d"], "max": ["c/d"]}}`))
+	require.NoError(t, err)
+	assert.ElementsMatch(t, []string{"a/b", "c/d"}, arms)
+}
+
+func TestRosterArms_ObjectClusters(t *testing.T) {
+	arms, err := rosterArms([]byte(`{"clusters": {"balanced": {"arms": ["a/b"]}}}`))
+	require.NoError(t, err)
+	assert.Equal(t, []string{"a/b"}, arms)
+}
+
 func TestRosterArms_NoArmsErrors(t *testing.T) {
 	_, err := rosterArms([]byte(`{"clusters": {}}`))
 	require.Error(t, err)
