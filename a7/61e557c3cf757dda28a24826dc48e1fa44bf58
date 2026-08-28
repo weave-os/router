@@ -1,0 +1,44 @@
+internal/sqlc/model_router_request_telemetry.sql.go
+  s_da6bf205ed0c0d::t_09af95f87d7fed 1640,1730,1732,1739-1747,1755-1756,1758-1759,1761,1763-1765,1767,1769,1771,1773-1774,1776-1779,1782-1783,1787,1789-1794,1797,1799-1804,1822,1926-1928,1947,2037,2039,2046-2054,2062-2063,2065-2066,2068,2070-2072,2074,2076,2078,2080-2081,2083-2086,2089-2090,2094,2096-2101,2104,2106-2111,2128
+internal/sqlc/models.go
+  s_da6bf205ed0c0d::t_09af95f87d7fed 275-276
+db/migrations/20260827213518_telemetry-pin-tier.down.sql
+  s_da6bf205ed0c0d::t_689ccb3392d38d 1-6
+db/migrations/20260827213518_telemetry-pin-tier.up.sql
+  s_da6bf205ed0c0d::t_689ccb3392d38d 1-9
+internal/postgres/telemetry.go
+  s_da6bf205ed0c0d::t_72edf6e6168658 100
+internal/proxy/turnloop.go
+  s_da6bf205ed0c0d::t_a46c20e4c87b61 1521-1543
+  s_da6bf205ed0c0d::t_6ca2d312e9e18b 1472-1473,1484,1487-1494,1498-1504,1507-1520
+internal/proxy/authority_cache_shadow_internal_test.go
+  s_da6bf205ed0c0d::t_12af66e1b278ac 240-249
+  s_da6bf205ed0c0d::t_41a94751ed8a6c 133-136
+  s_da6bf205ed0c0d::t_6e262d33d498a1 354-356,358-366
+  s_da6bf205ed0c0d::t_0e44008eca963b 224-239,250-251,334-336,349-352
+  s_da6bf205ed0c0d::t_141927fa48405b 353
+  s_da6bf205ed0c0d::t_bddbdfe7f6c62c 357
+internal/proxy/service.go
+  s_da6bf205ed0c0d::t_a3e063d0593e75 3950,5963
+internal/proxy/telemetry.go
+  s_da6bf205ed0c0d::t_a3e063d0593e75 43-44
+db/queries/model_router_request_telemetry.sql
+  s_da6bf205ed0c0d::t_7305c797b357a5 27-29
+  s_da6bf205ed0c0d::t_a3e063d0593e75 48,137
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "a761e557c3cf757dda28a24826dc48e1fa44bf58",
+  "prompts": {},
+  "sessions": {
+    "s_da6bf205ed0c0d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "5fcc3819-f498-4fb6-a92d-ba3ad8fa4d91",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}
