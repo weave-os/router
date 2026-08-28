@@ -73,10 +73,8 @@ func (r *SidecarRouter) WithSelectionShadow(shadow SelectionShadow) *SidecarRout
 	return r
 }
 
-// WithSelectionOverride installs a boot-time authoritative re-selector: the
-// sidecar's label/confidence still drive the decision, but the served arm is
-// the override's pick. Explicit force-cluster and per-key cluster overrides
-// still take precedence.
+// WithSelectionOverride installs a boot-time arm re-selector. Explicit
+// force-cluster and per-key cluster overrides still take precedence.
 func (r *SidecarRouter) WithSelectionOverride(override SelectionOverride) *SidecarRouter {
 	r.selectionOverride = override
 	return r
@@ -340,9 +338,8 @@ func (r *SidecarRouter) Route(ctx context.Context, req router.Request) (router.D
 	// sidecar's, which is the only case where res.Provider legitimately names a
 	// different provider than the resolved binding.
 	reselected := false
-	// constrained records that an explicit force-cluster or per-key cluster
-	// override bound the pick, which takes precedence over the boot-time
-	// selection override.
+	// constrained is set when a force-cluster or per-key override applies;
+	// the boot-time selection override must not supersede it.
 	constrained := false
 	switch {
 	case req.ForceCluster != "":
