@@ -76,6 +76,7 @@ for (const line of registryText.split(/\r?\n/)) {
     mkdirSync(path.dirname(dst), { recursive: true });
     copyFileSync(src, dst);
     console.log(`Copied codex-skills/${name}/SKILL.md.`);
+<<<<<<< HEAD
     // Prompt skills emit their directive through a script; toggles shell out to
     // the installer's own verbs and ship no script.
     const emitSrc = path.join(installDir, "codex-skills", name, "scripts", "emit.sh");
@@ -86,6 +87,22 @@ for (const line of registryText.split(/\r?\n/)) {
     copyFileSync(emitSrc, emitDst);
     chmodSync(emitDst, 0o755);
     console.log(`Copied codex-skills/${name}/scripts/emit.sh.`);
+=======
+    const emitSrc = path.join(installDir, "codex-skills", name, "scripts", "emit.sh");
+    const emitDst = path.join(root, "codex-skills", name, "scripts", "emit.sh");
+    try {
+      if (lstatSync(emitSrc).isSymbolicLink()) throw new Error(`Invalid Codex skill script: ${emitSrc}`);
+      mkdirSync(path.dirname(emitDst), { recursive: true });
+      copyFileSync(emitSrc, emitDst);
+      chmodSync(emitDst, 0o755);
+      console.log(`Copied codex-skills/${name}/scripts/emit.sh.`);
+    } catch (err) {
+      if (err && err.code === "ENOENT") {
+        throw new Error(`Codex skill ${name} is missing scripts/emit.sh`);
+      }
+      throw err;
+    }
+>>>>>>> a8113add (Emit Codex router directives from a skill script)
   }
 }
 
