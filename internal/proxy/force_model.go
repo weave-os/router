@@ -143,6 +143,7 @@ var forceModelAliases = map[string]string{
 	"zai":           "z-ai/glm-5.1",
 	"z-ai":          "z-ai/glm-5.1",
 	"glm-5.3-flash": "z-ai/glm-5.3-flash",
+	"glm-5.3":       "z-ai/glm-5.3",
 	"glm-5.2":       "z-ai/glm-5.2",
 	"glm-5.1":       "z-ai/glm-5.1",
 	"glm-5":         "z-ai/glm-5",
