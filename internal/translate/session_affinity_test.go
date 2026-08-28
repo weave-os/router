@@ -349,9 +349,7 @@ func TestSessionAffinity_OpenAIEmptyToolsArrayStaysUnhinted(t *testing.T) {
 	assert.False(t, ok, "an empty tools array must not count as a cacheable prefix")
 }
 
-// A gateway that rejected prompt_cache_key as an unknown field gets its turns
-// re-emitted with StripPromptCacheKey: no hint is injected even with a session
-// key present.
+// StripPromptCacheKey must suppress the affinity hint even when a session key is present.
 func TestSessionAffinity_StripPromptCacheKeySkipsInjection(t *testing.T) {
 	env, err := translate.ParseAnthropic(anthropicSrc())
 	require.NoError(t, err)

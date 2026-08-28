@@ -16,9 +16,8 @@ import (
 	"workweave/router/internal/router"
 )
 
-// pckStrictGatewayProvider models a gateway whose relayed Chat Completions
-// schema trails prompt_cache_key: any body carrying the field is rejected as
-// an unknown-field 400, everything else succeeds.
+// pckStrictGatewayProvider rejects any body carrying prompt_cache_key
+// with an unknown-field 400; everything else succeeds.
 type pckStrictGatewayProvider struct {
 	fakeProvider
 }
