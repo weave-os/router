@@ -409,9 +409,7 @@ func (r *SidecarRouter) Route(ctx context.Context, req router.Request) (router.D
 				"override_arm", pick.Arm,
 			)
 			res.PolicyGroup = pick.Group
-			// A Go-selected arm is deterministic, not a fallback draw:
-			// neutralize the sidecar's pin-sticky signal so a session pin
-			// cannot veto the pick.
+			// Go-selected arm is deterministic: neutralize pin-sticky so a session pin cannot veto it.
 			notEligible := false
 			res.PinStickyOverrideEligible = &notEligible
 			res.Reason = strings.ReplaceAll(res.Reason, pinStickyOverrideSentinel, "")
