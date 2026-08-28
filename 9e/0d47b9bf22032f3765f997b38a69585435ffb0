@@ -43,6 +43,7 @@ install/README.md
   s_99a26d7f7deb6c::t_e70d0738a17397 132
   s_99a26d7f7deb6c::t_c08db8204f15f2 443-446
   s_99a26d7f7deb6c::t_4ee590fe4c9467 124-125
+  s_99a26d7f7deb6c::t_6dbc0a5d4e9885 123
 install/tests/codex_install_test.sh
   s_99a26d7f7deb6c::t_4c6cc5639e3907 78
   s_99a26d7f7deb6c::t_14dfb01041ac0a 71-77,80-82,139
@@ -51,6 +52,7 @@ install/npm/README.md
   s_99a26d7f7deb6c::t_2d4e85e866d87d 113-115
   s_99a26d7f7deb6c::t_dcd0c824d1daf2 137
   s_99a26d7f7deb6c::t_e40287c4261e5e 32-33
+  s_99a26d7f7deb6c::t_f0a76b6540888c 34-36
 install/uninstall.sh
   s_99a26d7f7deb6c::t_97a8609a42b92f 524-528,531,557-560,562-566
   s_99a26d7f7deb6c::t_5bc5ce71fa20b1 549-556,567
