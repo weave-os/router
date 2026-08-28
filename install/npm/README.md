@@ -110,9 +110,14 @@ Four install targets:
   The block lives between begin/end markers
   so re-running the installer rewrites it cleanly and `--uninstall --codex`
   removes it without touching the rest of your config. Codex does not load
-  third-party slash-command files; to send a router directive, type it with
-  one leading space (for example, ` /force-model gpt-5.6-terra`). Its
-  `$disable-routing` skill returns the next Codex session to the default
+  third-party slash-command files; the installer provides native skills
+  `$force-model` (`$fm`), `$unforce-model` (`$ufm`), and `$router-feedback`
+  (`$rf`), each of which execs a local `scripts/emit.sh` that prints the same
+  leading-space directive Claude Code uses (for example,
+  ` /force-model gpt-5.6-terra`) — you can also type that form directly. It
+  also installs `$router-status`, `$router-off`, `$router-on`, and
+  `$router-models`, which call this installer's own verbs, plus a
+  `$disable-routing` skill that returns the next Codex session to the default
   provider without logging out or deleting the router configuration. The
   managed lifecycle hooks also keep the latest routed model in the terminal
   title and emit a compact status message when the router reports a new route.

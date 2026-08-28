@@ -4,7 +4,7 @@
 // published tarball is self-contained. Keeps a single source of truth for
 // the shell installer.
 
-const { copyFileSync, cpSync, chmodSync, mkdirSync, readdirSync, lstatSync, realpathSync } = require("node:fs");
+const { copyFileSync, cpSync, chmodSync, existsSync, mkdirSync, readdirSync, lstatSync, realpathSync } = require("node:fs");
 const path = require("node:path");
 
 const root = path.resolve(__dirname, "..");
@@ -66,13 +66,27 @@ for (const line of registryText.split(/\r?\n/)) {
   const fields = line.split("|");
   if (fields[4] !== "yes") continue;
   if (!(fields[8] || "").split(",").includes("skill")) continue;
-  const name = fields[0];
-  const src = path.join(installDir, "codex-skills", name, "SKILL.md");
-  const dst = path.join(root, "codex-skills", name, "SKILL.md");
-  if (!lstatSync(src) || lstatSync(src).isSymbolicLink()) throw new Error(`Invalid Codex skill: ${src}`);
-  mkdirSync(path.dirname(dst), { recursive: true });
-  copyFileSync(src, dst);
-  console.log(`Copied codex-skills/${name}/SKILL.md.`);
+  // Canonical name plus every alias: Codex discovers skills by directory name,
+  // so an advertised $fm needs its own installed skill.
+  const names = [fields[0], ...(fields[1] || "").split(",").filter(Boolean)];
+  for (const name of names) {
+    const src = path.join(installDir, "codex-skills", name, "SKILL.md");
+    const dst = path.join(root, "codex-skills", name, "SKILL.md");
+    if (lstatSync(src).isSymbolicLink()) throw new Error(`Invalid Codex skill: ${src}`);
+    mkdirSync(path.dirname(dst), { recursive: true });
+    copyFileSync(src, dst);
+    console.log(`Copied codex-skills/${name}/SKILL.md.`);
+    // Prompt skills emit their directive through a script; toggles shell out to
+    // the installer's own verbs and ship no script.
+    const emitSrc = path.join(installDir, "codex-skills", name, "scripts", "emit.sh");
+    if (!existsSync(emitSrc)) continue;
+    const emitDst = path.join(root, "codex-skills", name, "scripts", "emit.sh");
+    if (lstatSync(emitSrc).isSymbolicLink()) throw new Error(`Invalid Codex skill script: ${emitSrc}`);
+    mkdirSync(path.dirname(emitDst), { recursive: true });
+    copyFileSync(emitSrc, emitDst);
+    chmodSync(emitDst, 0o755);
+    console.log(`Copied codex-skills/${name}/scripts/emit.sh.`);
+  }
 }
 
 // installer and the pi-router extension: pi loads it via the "pi.extensions"

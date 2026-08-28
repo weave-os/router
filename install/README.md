@@ -152,9 +152,9 @@ native Codex skill, invoked with `$`:
 
 | Skill | Sends |
 | --- | --- |
-| `$force-model <model-id>` | ` /force-model <model-id>` |
-| `$unforce-model` | ` /unforce-model` |
-| `$router-feedback <text>` | ` /router-feedback <text>` |
+| `$force-model <model-id>` / `$fm <model-id>` | ` /force-model <model-id>` |
+| `$unforce-model` / `$ufm` | ` /unforce-model` |
+| `$router-feedback <text>` / `$rf <text>` | ` /router-feedback <text>` |
 
 Each skill submits a normal prompt whose first character is one literal space,
 which is what reaches the router's directive parser. You can always type that

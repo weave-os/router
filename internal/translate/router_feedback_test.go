@@ -346,6 +346,60 @@ func TestExtractRouterFeedbackCommand_OpenAIFormat(t *testing.T) {
 	assert.Equal(t, "", lastOpenAIUserMessageText(t, env))
 }
 
+func TestExtractRouterFeedbackCommand_ToolResultContinuesAgentTurn(t *testing.T) {
+	body := mustMarshalJSON(t, map[string]any{
+		"model": "gpt-5.6-sol",
+		"messages": []any{
+			map[string]any{"role": "assistant", "tool_calls": []any{map[string]any{
+				"id": "call_skill", "type": "function", "function": map[string]any{"name": "exec", "arguments": "{}"},
+			}}},
+			map[string]any{"role": "tool", "tool_call_id": "call_skill", "content": " /router-feedback too slow"},
+		},
+	})
+	env, err := translate.ParseOpenAI(body)
+	require.NoError(t, err)
+
+	res, found := env.ExtractRouterFeedbackCommand()
+	require.True(t, found)
+	assert.True(t, res.FromToolResult)
+	assert.Equal(t, "too slow", res.Feedback)
+	assert.Equal(t, "", lastOpenAIUserMessageText(t, env))
+}
+
+func TestExtractRouterFeedbackCommand_CodexExecPreamble(t *testing.T) {
+	body := mustMarshalJSON(t, map[string]any{
+		"model": "gpt-5.6-sol",
+		"messages": []any{
+			map[string]any{"role": "assistant", "tool_calls": []any{map[string]any{
+				"id": "call_skill", "type": "function", "function": map[string]any{"name": "exec", "arguments": "{}"},
+			}}},
+			map[string]any{"role": "tool", "tool_call_id": "call_skill", "content": "Script completed\nWall time: 0.0 seconds\nOutput:\n /router-feedback too slow"},
+		},
+	})
+	env, err := translate.ParseOpenAI(body)
+	require.NoError(t, err)
+	res, found := env.ExtractRouterFeedbackCommand()
+	require.True(t, found)
+	assert.True(t, res.FromToolResult)
+	assert.Equal(t, "too slow", res.Feedback)
+}
+
+func TestExtractRouterFeedbackCommand_CodexExecDocumentationIsNotCommand(t *testing.T) {
+	body := mustMarshalJSON(t, map[string]any{
+		"model": "gpt-5.6-sol",
+		"messages": []any{
+			map[string]any{"role": "assistant", "tool_calls": []any{map[string]any{
+				"id": "call_skill", "type": "function", "function": map[string]any{"name": "exec", "arguments": "{}"},
+			}}},
+			map[string]any{"role": "tool", "tool_call_id": "call_skill", "content": "Script completed\nOutput:\n---\nname: router-feedback\n```text\n /router-feedback too slow\n```"},
+		},
+	})
+	env, err := translate.ParseOpenAI(body)
+	require.NoError(t, err)
+	_, found := env.ExtractRouterFeedbackCommand()
+	assert.False(t, found, "a command example in exec output must not record feedback")
+}
+
 func TestExtractRouterFeedbackCommand_ArrayContentMultipleTextBlocks(t *testing.T) {
 	// Claude Code splits slash-command turns into an injected-tags block plus
 	// the typed directive; the parser must scan every text block.

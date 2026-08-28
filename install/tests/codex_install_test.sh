@@ -117,6 +117,13 @@ grep -Fq '<!-- weave-router managed disable-routing skill -->' "$skill" \
   || fail "Codex disable-routing skill has no ownership marker"
 grep -Fq 'weave-router off --codex' "$skill" \
   || fail "Codex disable-routing skill does not use the safe off toggle"
+
+for alias in fm ufm rf; do
+  alias_skill="$home/.codex/skills/$alias/SKILL.md"
+  [ -f "$alias_skill" ] || fail "Codex \$$alias skill was not installed"
+  grep -Fq "<!-- weave-router managed $alias skill -->" "$alias_skill" \
+    || fail "Codex \$$alias skill has no ownership marker"
+done
 if HOME="$home" PATH="$test_path" NO_COLOR=1 bash "$installer" disable-routing --claude --scope user --quiet >/dev/null 2>&1; then
   fail "disable-routing accepted a non-Codex target"
 fi

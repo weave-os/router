@@ -240,6 +240,21 @@ func TestStripRoutingBadgeFromResponsesInput_PreservesNativeFields(t *testing.T)
 	assert.True(t, root.Get("metadata.keep").Bool())
 }
 
+func TestStripRouterCommandsFromResponsesInput_RemovesAgentToolCommand(t *testing.T) {
+	body := []byte(`{"model":"gpt-5.6-sol","input":[{"type":"custom_tool_call_output","call_id":"call_skill","output":" /router-feedback too slow"},{"type":"function_call_output","call_id":"call_fm","output":[{"type":"input_text","text":" /force-model gpt-5"}]}]}`)
+	out, err := translate.StripRouterCommandsFromResponsesInput(body)
+	require.NoError(t, err)
+	assert.Equal(t, "", gjson.GetBytes(out, "input.0.output").String())
+	assert.Equal(t, "", gjson.GetBytes(out, "input.1.output.0.text").String())
+}
+
+func TestStripRouterCommandsFromResponsesInput_RemovesCollapsedExecCommand(t *testing.T) {
+	body := []byte(`{"input":[{"type":"function_call_output","call_id":"call_skill","output":"Script completed\nOutput:\n /force-model gpt-5"}]}`)
+	out, err := translate.StripRouterCommandsFromResponsesInput(body)
+	require.NoError(t, err)
+	assert.Equal(t, "Script completed\nOutput:", gjson.GetBytes(out, "input.0.output").String())
+}
+
 // A tool-call-only or reasoning-only turn ships a badge-only assistant message.
 // Stripping it in place would leave a blank assistant shell ahead of the real
 // function_call, which providers reject.

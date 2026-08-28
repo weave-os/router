@@ -1488,6 +1488,7 @@ weave_registry_skill_names() {
       cursor) [ "$cursor" = yes ] || continue ;;
     esac
     printf '%s\n' "$canonical"
+    [ -n "$aliases" ] && printf '%s\n' "$aliases" | tr ',' '\n'
   done <<EOF
 $(weave_registry_rows)
 EOF
@@ -1507,6 +1508,7 @@ weave_registry_skill_assets() {
       cursor) [ "$cursor" = yes ] || continue ;;
     esac
     printf '%s\n' "$canonical"
+    [ -n "$aliases" ] && printf '%s\n' "$aliases" | tr ',' '\n'
   done <<EOF
 $(weave_registry_rows)
 EOF
@@ -2969,12 +2971,16 @@ EOF
 
 
 # Install every Codex-native skill the registry declares for this client:
-# prompt directives (which emit the leading-space form the router parses — the
-# only portable way to reach it without claiming Codex's reserved slash
-# namespace) and local-config toggles like $router-off, which shell out to this
-# installer's own verbs. weave_registry_skill_assets is the union of both.
+# prompt directives, their aliases, and local-config toggles like $router-off
+# that shell out to this installer's own verbs. weave_registry_skill_assets is
+# the union, canonical names plus aliases — Codex discovers skills by directory
+# name, so an advertised $fm needs its own installed skill rather than a
+# pointer to $force-model.
+#
+# A name with no SKILL.md is skipped: an alias may exist for the Claude command
+# surface without a Codex skill behind it (registry_test.sh pins which ones do).
 install_codex_prompt_skills() {
-  local canonical candidate skill_src dst_dir dst_file scope_args body
+  local canonical candidate skill_src dst_dir dst_file emit_src emit_dst scope_args body
   while IFS= read -r canonical; do
     skill_src=""
     for candidate in \
@@ -3008,6 +3014,22 @@ install_codex_prompt_skills() {
     body="$(<"$skill_src")"
     body="${body//\{\{SCOPE\}\}/$scope_args}"
     printf '%s\n' "$body" >"$dst_file"
+    # Prompt skills emit their directive through a script Codex execs; toggles
+    # shell out to the installer's own verbs and ship none.
+    emit_src="${skill_src%/SKILL.md}/scripts/emit.sh"
+    if [ -f "$emit_src" ]; then
+      mkdir -p "$dst_dir/scripts"
+      emit_dst="$dst_dir/scripts/emit.sh"
+      if [ "$scope" = "project" ] || [ -n "$install_dir" ]; then
+        refuse_if_symlink "$dst_dir/scripts"
+        refuse_if_symlink "$emit_dst"
+      elif [ -L "$dst_dir/scripts" ] || [ -L "$emit_dst" ]; then
+        warn "Codex skill script path contains a symlink; leaving $canonical emit.sh untouched."
+      else
+        cp "$emit_src" "$emit_dst"
+        chmod +x "$emit_dst"
+      fi
+    fi
     ok "Codex skill installed: \$$canonical"
   done <<EOF
 $(weave_registry_skill_assets codex)

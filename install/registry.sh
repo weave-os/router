@@ -58,6 +58,7 @@ weave_registry_skill_names() {
       cursor) [ "$cursor" = yes ] || continue ;;
     esac
     printf '%s\n' "$canonical"
+    [ -n "$aliases" ] && printf '%s\n' "$aliases" | tr ',' '\n'
   done <<EOF
 $(weave_registry_rows)
 EOF
@@ -77,6 +78,7 @@ weave_registry_skill_assets() {
       cursor) [ "$cursor" = yes ] || continue ;;
     esac
     printf '%s\n' "$canonical"
+    [ -n "$aliases" ] && printf '%s\n' "$aliases" | tr ',' '\n'
   done <<EOF
 $(weave_registry_rows)
 EOF
