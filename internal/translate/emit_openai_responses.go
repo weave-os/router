@@ -1,6 +1,8 @@
 package translate
 
 import (
+	"crypto/sha1"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -11,6 +13,7 @@ import (
 	"workweave/router/internal/websearch"
 
 	"github.com/tidwall/gjson"
+	"github.com/tidwall/sjson"
 )
 
 // PrepareOpenAIResponses builds an OpenAI Responses API (`POST /v1/responses`)
@@ -35,7 +38,67 @@ func (e *RequestEnvelope) PrepareOpenAIResponses(in http.Header, opts EmitOption
 	if err != nil {
 		return providers.PreparedRequest{}, err
 	}
+	body, err = applyResponsesSessionAffinity(body, opts)
+	if err != nil {
+		return providers.PreparedRequest{}, err
+	}
 	return providers.PreparedRequest{Body: body, Endpoint: providers.EndpointResponses, Stats: stats}, nil
+}
+
+// applyResponsesSessionAffinity mirrors applySessionAffinity for the Responses
+// surface: prompt_cache_key is a spec Responses field too, so OpenAI and
+// openai_gateway dispatches carry the same per-session hint here as on
+// chat/completions — otherwise reasoning-tool turns (which promote to
+// /v1/responses) would fan across gateway replicas unhinted.
+func applyResponsesSessionAffinity(body []byte, opts EmitOptions) ([]byte, error) {
+	switch opts.TargetProvider {
+	case providers.ProviderOpenAI, providers.ProviderOpenAIGateway:
+	default:
+		return body, nil
+	}
+	if opts.StripPromptCacheKey {
+		out, err := sjson.DeleteBytes(body, "prompt_cache_key")
+		if err != nil {
+			return nil, fmt.Errorf("delete prompt_cache_key: %w", err)
+		}
+		return out, nil
+	}
+	cacheKey := opts.SessionAffinity
+	if cacheKey == "" {
+		if gjson.GetBytes(body, "prompt_cache_key").Exists() {
+			return body, nil
+		}
+		cacheKey = stableResponsesPromptCacheKey(body)
+		if cacheKey == "" {
+			return body, nil
+		}
+	}
+	out, err := sjson.SetBytes(body, "prompt_cache_key", cacheKey)
+	if err != nil {
+		return nil, fmt.Errorf("set prompt_cache_key: %w", err)
+	}
+	return out, nil
+}
+
+// stableResponsesPromptCacheKey is the Responses-shaped counterpart of
+// stablePromptCacheKey: it hashes the cacheable prefix (instructions + tool
+// definitions) and returns "" when there is none.
+func stableResponsesPromptCacheKey(body []byte) string {
+	h := sha1.New()
+	var hasPrefix bool
+	if instructions := gjson.GetBytes(body, "instructions"); instructions.Raw != "" && instructions.Type != gjson.Null {
+		h.Write([]byte(instructions.Raw))
+		hasPrefix = true
+	}
+	h.Write([]byte{0x00})
+	if tools := gjson.GetBytes(body, "tools"); tools.IsArray() && len(tools.Array()) > 0 {
+		h.Write([]byte(tools.Raw))
+		hasPrefix = true
+	}
+	if !hasPrefix {
+		return ""
+	}
+	return "wv_" + hex.EncodeToString(h.Sum(nil))
 }
 
 // ResponseTranslator is the common surface the proxy's cross-format OpenAI

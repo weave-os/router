@@ -383,3 +383,61 @@ func TestSessionAffinity_StripPromptCacheKeyDropsCallerKey(t *testing.T) {
 	_, ok := promptCacheKey(t, out.Body)
 	assert.False(t, ok, "a caller-supplied prompt_cache_key must be dropped for a rejecting endpoint")
 }
+
+// The Responses surface must carry the same affinity hint as chat/completions:
+// gateway reasoning-tool turns promote to /v1/responses and would otherwise go
+// out unhinted.
+func TestSessionAffinity_ResponsesCarriesPromptCacheKey(t *testing.T) {
+	for _, provider := range []string{providers.ProviderOpenAI, providers.ProviderOpenAIGateway} {
+		env, err := translate.ParseAnthropic(anthropicSrc())
+		require.NoError(t, err)
+
+		out, err := env.PrepareOpenAIResponses(nil, translate.EmitOptions{
+			TargetModel:     "gpt-5.5",
+			TargetProvider:  provider,
+			SessionAffinity: affinityKey,
+		})
+		require.NoError(t, err)
+
+		v, ok := promptCacheKey(t, out.Body)
+		require.True(t, ok, "%s Responses body must carry prompt_cache_key", provider)
+		assert.Equal(t, affinityKey, v)
+	}
+}
+
+// StripPromptCacheKey must suppress the Responses-surface hint too.
+func TestSessionAffinity_ResponsesStripPromptCacheKey(t *testing.T) {
+	env, err := translate.ParseAnthropic(anthropicSrc())
+	require.NoError(t, err)
+
+	out, err := env.PrepareOpenAIResponses(nil, translate.EmitOptions{
+		TargetModel:         "grok-4.6",
+		TargetProvider:      providers.ProviderOpenAIGateway,
+		SessionAffinity:     affinityKey,
+		StripPromptCacheKey: true,
+	})
+	require.NoError(t, err)
+
+	_, ok := promptCacheKey(t, out.Body)
+	assert.False(t, ok, "a rejecting endpoint must not receive prompt_cache_key on Responses")
+}
+
+// Keyless Responses requests fall back to the stable prefix hash (instructions
+// + tools), matching the chat/completions fallback semantics.
+func TestSessionAffinity_ResponsesFallbackPrefixHashStable(t *testing.T) {
+	src := []byte(`{"model":"claude-opus-4-7","system":"you are helpful","messages":[{"role":"user","content":"hi"}],"max_tokens":256}`)
+	keys := make([]string, 0, 2)
+	for i := 0; i < 2; i++ {
+		env, err := translate.ParseAnthropic(src)
+		require.NoError(t, err)
+		out, err := env.PrepareOpenAIResponses(nil, translate.EmitOptions{
+			TargetModel:    "gpt-5.5",
+			TargetProvider: providers.ProviderOpenAI,
+		})
+		require.NoError(t, err)
+		v, ok := promptCacheKey(t, out.Body)
+		require.True(t, ok, "a prefixed keyless Responses request must carry a fallback key")
+		keys = append(keys, v)
+	}
+	assert.Equal(t, keys[0], keys[1], "fallback Responses prompt_cache_key must be stable")
+}
