@@ -236,6 +236,7 @@ dashboard, where selection is an organization-wide setting. See
 | `POST /v1/route`               | Returns the decision, no upstream call   |
 | `GET /v1/models` &nbsp;·&nbsp; `POST /v1/messages/count_tokens` | Anthropic passthrough |
 | `GET /health` &nbsp;·&nbsp; `GET /readyz` &nbsp;·&nbsp; `GET /validate` | liveness + dependency readiness + key check |
+| `GET /v1/sessions/:session_id/cost` | One session's committed cost + savings, scoped to your key |
 | `GET /v1/analytics/routing-decisions` | Raw routing decisions as cursor-paginated NDJSON ([docs](docs/ANALYTICS_EXPORT.md)) |
 | `GET /v1/analytics/schema` &nbsp;·&nbsp; `GET /v1/analytics/models` | Export field dictionary + price book |
 

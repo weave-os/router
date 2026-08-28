@@ -316,6 +316,86 @@ func (q *Queries) GetRoutingDecisionsForExport(ctx context.Context, arg GetRouti
 	return items, nil
 }
 
+const getSessionCost = `-- name: GetSessionCost :one
+SELECT
+    t.session_id,
+    COUNT(*)::bigint AS request_count,
+    COALESCE(SUM(t.actual_input_cost_usd), 0)::bigint AS actual_input_cost_usd,
+    COALESCE(SUM(t.actual_output_cost_usd), 0)::bigint AS actual_output_cost_usd,
+    COALESCE(SUM(t.requested_input_cost_usd), 0)::bigint AS requested_input_cost_usd,
+    COALESCE(SUM(t.requested_output_cost_usd), 0)::bigint AS requested_output_cost_usd,
+    COALESCE(SUM(t.input_tokens), 0)::bigint AS input_tokens,
+    COALESCE(SUM(t.output_tokens), 0)::bigint AS output_tokens,
+    COALESCE(SUM(t.cache_creation_tokens), 0)::bigint AS cache_creation_tokens,
+    COALESCE(SUM(t.cache_read_tokens), 0)::bigint AS cache_read_tokens,
+    MAX(t.created_at)::timestamptz AS last_recorded_at
+FROM router.model_router_request_telemetry t
+WHERE t.installation_id = $1::uuid
+  AND t.session_id = $2::varchar
+  AND t.span_type IN ('router.upstream', 'router.auxiliary_inference')
+GROUP BY t.session_id
+`
+
+type GetSessionCostParams struct {
+	InstallationID uuid.UUID
+	SessionID      string
+}
+
+type GetSessionCostRow struct {
+	SessionID              *string
+	RequestCount           int64
+	ActualInputCostUsd     int64
+	ActualOutputCostUsd    int64
+	RequestedInputCostUsd  int64
+	RequestedOutputCostUsd int64
+	InputTokens            int64
+	OutputTokens           int64
+	CacheCreationTokens    int64
+	CacheReadTokens        int64
+	LastRecordedAt         pgtype.Timestamptz
+}
+
+// Committed cost of one client session for this installation. Includes
+// served turns and billed auxiliary inference so the total matches the
+// Weave public session-cost contract. No-rows when the session has no
+// committed telemetry yet.
+//
+//	SELECT
+//	    t.session_id,
+//	    COUNT(*)::bigint AS request_count,
+//	    COALESCE(SUM(t.actual_input_cost_usd), 0)::bigint AS actual_input_cost_usd,
+//	    COALESCE(SUM(t.actual_output_cost_usd), 0)::bigint AS actual_output_cost_usd,
+//	    COALESCE(SUM(t.requested_input_cost_usd), 0)::bigint AS requested_input_cost_usd,
+//	    COALESCE(SUM(t.requested_output_cost_usd), 0)::bigint AS requested_output_cost_usd,
+//	    COALESCE(SUM(t.input_tokens), 0)::bigint AS input_tokens,
+//	    COALESCE(SUM(t.output_tokens), 0)::bigint AS output_tokens,
+//	    COALESCE(SUM(t.cache_creation_tokens), 0)::bigint AS cache_creation_tokens,
+//	    COALESCE(SUM(t.cache_read_tokens), 0)::bigint AS cache_read_tokens,
+//	    MAX(t.created_at)::timestamptz AS last_recorded_at
+//	FROM router.model_router_request_telemetry t
+//	WHERE t.installation_id = $1::uuid
+//	  AND t.session_id = $2::varchar
+//	  AND t.span_type IN ('router.upstream', 'router.auxiliary_inference')
+//	GROUP BY t.session_id
+func (q *Queries) GetSessionCost(ctx context.Context, arg GetSessionCostParams) (GetSessionCostRow, error) {
+	row := q.db.QueryRow(ctx, getSessionCost, arg.InstallationID, arg.SessionID)
+	var i GetSessionCostRow
+	err := row.Scan(
+		&i.SessionID,
+		&i.RequestCount,
+		&i.ActualInputCostUsd,
+		&i.ActualOutputCostUsd,
+		&i.RequestedInputCostUsd,
+		&i.RequestedOutputCostUsd,
+		&i.InputTokens,
+		&i.OutputTokens,
+		&i.CacheCreationTokens,
+		&i.CacheReadTokens,
+		&i.LastRecordedAt,
+	)
+	return i, err
+}
+
 const getTelemetryBySessionAsc = `-- name: GetTelemetryBySessionAsc :one
 SELECT
     request_id,

@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"workweave/router/internal/proxy"
@@ -9,6 +10,7 @@ import (
 	"workweave/router/internal/sqlc"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
@@ -675,6 +677,45 @@ func (r *TelemetryRepo) GetTelemetryRowsAll(ctx context.Context, from, to time.T
 	}
 	out := mapRows(rows, telemetryRowFromRowsAllRow)
 	return out, nil
+}
+
+// GetSessionCost aggregates one session's committed cost rows. The
+// installation_id predicate is the authorization boundary: a session id from
+// another installation matches nothing and comes back as not-found rather than
+// as another tenant's cost.
+func (r *TelemetryRepo) GetSessionCost(ctx context.Context, installationID, sessionID string) (proxy.SessionCost, error) {
+	id, err := uuid.Parse(installationID)
+	if err != nil {
+		return proxy.SessionCost{}, err
+	}
+	q := sqlc.New(r.tx)
+	row, err := q.GetSessionCost(ctx, sqlc.GetSessionCostParams{
+		InstallationID: id,
+		SessionID:      sessionID,
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return proxy.SessionCost{}, proxy.ErrSessionCostNotFound
+	}
+	if err != nil {
+		return proxy.SessionCost{}, err
+	}
+	// GROUP BY t.session_id with a non-null session_id predicate means the
+	// column is never NULL here; SQLC types it as a pointer because the
+	// underlying column is nullable.
+	if row.SessionID == nil {
+		return proxy.SessionCost{}, proxy.ErrSessionCostNotFound
+	}
+	return proxy.SessionCost{
+		SessionID:              *row.SessionID,
+		RequestCount:           row.RequestCount,
+		ActualCostUSDMicros:    row.ActualInputCostUsd + row.ActualOutputCostUsd,
+		RequestedCostUSDMicros: row.RequestedInputCostUsd + row.RequestedOutputCostUsd,
+		InputTokens:            row.InputTokens,
+		OutputTokens:           row.OutputTokens,
+		CacheCreationTokens:    row.CacheCreationTokens,
+		CacheReadTokens:        row.CacheReadTokens,
+		LastRecordedAt:         row.LastRecordedAt.Time,
+	}, nil
 }
 
 // telemetryRowFromRow centralizes SQLC -> domain conversion. The {all, per-installation}

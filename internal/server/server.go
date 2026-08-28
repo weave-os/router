@@ -243,6 +243,11 @@ func Register(engine *gin.Engine, authSvc *auth.Service, proxySvc *proxy.Service
 	passthroughGroup.GET("/v1/models/:model", anthropicapi.PassthroughHandler(proxySvc))
 	// Rides the passthrough group (cheap, no billing middleware) — read-only, no routing side-effects.
 	passthroughGroup.GET("/v1/display-settings", admin.DisplaySettingsHandler)
+	// Same rationale: one indexed aggregate, scoped to the caller's
+	// installation. Product surface, not admin — the Codex status hook holds an
+	// rk_ key and needs the router's own savings number rather than a client
+	// price table it cannot keep in sync.
+	passthroughGroup.GET("/v1/sessions/:session_id/cost", admin.SessionCostHandler(proxySvc))
 
 	routeMiddleware := []gin.HandlerFunc{
 		middleware.WithTimeout(routeTimeout),
