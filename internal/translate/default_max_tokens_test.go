@@ -191,6 +191,21 @@ func TestOpenAISameFormat_ExplicitMaxTokensNotClampedTo8192ForQwen38Max(t *testi
 	assert.Equal(t, float64(32000), out["max_tokens"])
 }
 
+// Regression: neither GLM-5.3 arm was in modelMaxOutputTokens, so an explicit
+// max_tokens was clamped to the 8192 fallback instead of the 128K both models
+// document. Always-on reasoning would have spent that budget before answering.
+func TestOpenAISameFormat_ExplicitMaxTokensNotClampedTo8192ForGLM53(t *testing.T) {
+	for _, model := range []string{"z-ai/glm-5.3", "z-ai/glm-5.3-flash"} {
+		body := []byte(`{"model":"gpt-4o","messages":[{"role":"user","content":"hi"}],"max_tokens":64000}`)
+		opts := translate.EmitOptions{
+			TargetModel:  model,
+			Capabilities: router.Lookup(model),
+		}
+		out := parseAndEmit(t, body, "openai", opts)
+		assert.Equal(t, float64(64000), out["max_tokens"], model)
+	}
+}
+
 // Regression: the Bedrock-primary Qwen arms must stay clamped at Bedrock's
 // 16K output ceiling; a pass-through of Claude Code's 64000 would hard-400.
 func TestOpenAISameFormat_BedrockQwenClampedAt16384Ceiling(t *testing.T) {

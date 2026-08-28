@@ -581,11 +581,13 @@ var Models = []Model{
 		{Provider: providers.ProviderWaferAnthropic, UpstreamID: "GLM-5.2",
 			Price: Pricing{InputUSDPer1M: 1.260, OutputUSDPer1M: 3.960, CacheReadMultiplier: 0.23 / 1.260}},
 	}},
-	// GLM-5.3: same 753B/40B-active MoE as 5.2 with extended post-training.
-	// Text-only (AA inputModalityImage=false). Fireworks is the managed
-	// binding (OpenRouter lists it live at $1.40/$4.40/$0.26 cache). Together
-	// still lists the full 5.3 endpoint as coming soon.
-	{ID: "z-ai/glm-5.3", Tier: TierHigh, ContextWindow: 1_310_720, ImageInput: ImageInputUnsupported, Providers: []ProviderBinding{
+	// GLM-5.3: text-only (AA inputModalityImage=false); Fireworks is the only
+	// managed binding (Together lists the full-model endpoint as coming soon).
+	// ContextWindow is Fireworks' served 1,048,576 (confirmed on OpenRouter's
+	// endpoint listing and matching Z.ai's documented 1M), NOT the 1,310,720
+	// that only Cloudflare serves — overstating the primary window turns an
+	// overflow into an upstream 400 with no failover.
+	{ID: "z-ai/glm-5.3", Tier: TierHigh, ContextWindow: 1_048_576, ImageInput: ImageInputUnsupported, Providers: []ProviderBinding{
 		{Provider: providers.ProviderFireworks, UpstreamID: "accounts/fireworks/models/glm-5p3",
 			Price: Pricing{InputUSDPer1M: 1.400, OutputUSDPer1M: 4.400, CacheReadMultiplier: 0.26 / 1.400}},
 	}},
@@ -593,12 +595,12 @@ var Models = []Model{
 	// line, so ImageInput stays default (unlike 5/5.1/5.2/5.3, which 4xx on image
 	// parts). Thinking cannot be disabled (docs.z.ai/guides/vlm/glm-5.3-flash:
 	// "thinking.type only supports enabled") — do not add it to
-	// openRouterReasoningHint. Together leads, Wafer trails (OpenRouter lists
-	// both live at Z.ai's post-promo $0.15/$0.50, cache $0.03 as of 2026-08-28).
-	// Priced at the standard post-promo rate rather than the $0.075/$0.25
-	// introductory rate (through 2026-09-09 16:00 UTC) — avoids a compile-time
-	// price going stale (cf. gemini-3.7-flash).
-	{ID: "z-ai/glm-5.3-flash", Tier: TierLow, ContextWindow: 1_310_720, Providers: []ProviderBinding{
+	// openRouterReasoningHint. Together leads, Wafer trails. Priced at the
+	// standard post-promo rate ($0.15/$0.50, cache $0.03) rather than the
+	// $0.075/$0.25 introductory rate — avoids a compile-time price going stale
+	// (cf. gemini-3.7-flash). ContextWindow is Together's served 1,048,576, not
+	// Cloudflare-only 1,310,720: the window must describe the binding we route.
+	{ID: "z-ai/glm-5.3-flash", Tier: TierLow, ContextWindow: 1_048_576, Providers: []ProviderBinding{
 		{Provider: providers.ProviderTogether, UpstreamID: "zai-org/GLM-5.3-Flash",
 			Price: Pricing{InputUSDPer1M: 0.150, OutputUSDPer1M: 0.500, CacheReadMultiplier: 0.03 / 0.150}},
 		{Provider: providers.ProviderWafer, UpstreamID: "GLM-5.3-Flash",
