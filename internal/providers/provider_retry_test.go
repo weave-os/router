@@ -263,9 +263,8 @@ func TestIsUpstreamOutputConfigFormatRejection(t *testing.T) {
 	assert.False(t, providers.IsUpstreamOutputConfigFormatRejection(fmt.Errorf("transport blew up")))
 }
 
-// TestIsUpstreamPromptCacheKeyRejection pins the gateway 400 that names
-// prompt_cache_key as an unknown field — licensing the hint-stripped re-emit.
-// A 400 merely mentioning the field for another reason must not match.
+// TestIsUpstreamPromptCacheKeyRejection pins the gateway 400 that names prompt_cache_key
+// as an unknown field; a 400 merely mentioning it for another reason must not match.
 func TestIsUpstreamPromptCacheKeyRejection(t *testing.T) {
 	cases := []struct {
 		name   string

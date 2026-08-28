@@ -514,9 +514,8 @@ func IsUpstreamOutputConfigFormatRejection(err error) bool {
 }
 
 // IsUpstreamPromptCacheKeyRejection reports whether err is a buffered 400
-// rejecting prompt_cache_key as an unknown field — licensing a one-shot retry
-// without it. Spec Chat Completions carries the field, but some gateway
-// schemas trail the spec and refuse bodies naming it.
+// that rejects prompt_cache_key as an unknown field — some gateways trail the
+// spec and 400 bodies naming it — licensing a one-shot hint-stripped retry.
 func IsUpstreamPromptCacheKeyRejection(err error) bool {
 	var buffered *UpstreamErrorResponse
 	if !errors.As(err, &buffered) || buffered.Status != http.StatusBadRequest {

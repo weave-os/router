@@ -3439,10 +3439,9 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 					useResponses = false
 					rawErr, finalize = dispatchOpenAICompat(actx, d, p, false, stripPCK)
 				}
-				// prompt_cache_key is spec Chat Completions, but a gateway whose
-				// relayed schema trails the spec 400s it as an unknown field.
-				// Re-emit once without the hint while pre-commit, and remember the
-				// answer so later turns skip both the hint and the probe.
+				// prompt_cache_key is a spec Chat Completions field, but gateway schemas
+				// that trail the spec 400 it as unknown. Re-emit once without the hint
+				// while pre-commit; memoize the endpoint so later turns skip it.
 				if rawErr != nil && !stripPCK && gatewayKey != "" && !committed(preludeBuf) &&
 					providers.IsUpstreamPromptCacheKeyRejection(rawErr) {
 					s.rememberGatewayRejectsPromptCacheKey(gatewayKey)
