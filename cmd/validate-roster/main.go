@@ -47,17 +47,16 @@ func run(path string, out io.Writer) (bool, error) {
 
 // rosterArms extracts arm IDs from the supported roster shapes: a flat JSON
 // array, {"roster_ids": [...]} (the sidecar /roster response), or
-// {"clusters": {label: {"arms": [...]}}} (the pinned roster artifact).
+// {"clusters": {label: ...}} where each cluster is either a string list (the
+// sidecar /roster response) or {"arms": [...]} (the pinned roster artifact).
 func rosterArms(data []byte) ([]string, error) {
 	var flat []string
 	if err := json.Unmarshal(data, &flat); err == nil {
 		return flat, nil
 	}
 	var doc struct {
-		RosterIDs []string `json:"roster_ids"`
-		Clusters  map[string]struct {
-			Arms []string `json:"arms"`
-		} `json:"clusters"`
+		RosterIDs []string                   `json:"roster_ids"`
+		Clusters  map[string]clusterArmsList `json:"clusters"`
 	}
 	if err := json.Unmarshal(data, &doc); err != nil {
 		return nil, err
@@ -68,7 +67,7 @@ func rosterArms(data []byte) ([]string, error) {
 	seen := make(map[string]struct{})
 	var arms []string
 	for _, cluster := range doc.Clusters {
-		for _, arm := range cluster.Arms {
+		for _, arm := range cluster {
 			if _, dup := seen[arm]; dup {
 				continue
 			}
@@ -80,4 +79,25 @@ func rosterArms(data []byte) ([]string, error) {
 		return nil, fmt.Errorf("no roster arms found (expected a JSON array, \"roster_ids\", or \"clusters\")")
 	}
 	return arms, nil
+}
+
+// clusterArmsList accepts a cluster as either a string list or an
+// {"arms": [...]} object.
+type clusterArmsList []string
+
+// UnmarshalJSON implements json.Unmarshaler for both cluster shapes.
+func (c *clusterArmsList) UnmarshalJSON(data []byte) error {
+	var list []string
+	if err := json.Unmarshal(data, &list); err == nil {
+		*c = list
+		return nil
+	}
+	var obj struct {
+		Arms []string `json:"arms"`
+	}
+	if err := json.Unmarshal(data, &obj); err != nil {
+		return err
+	}
+	*c = obj.Arms
+	return nil
 }
