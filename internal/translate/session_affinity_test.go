@@ -384,9 +384,8 @@ func TestSessionAffinity_StripPromptCacheKeyDropsCallerKey(t *testing.T) {
 	assert.False(t, ok, "a caller-supplied prompt_cache_key must be dropped for a rejecting endpoint")
 }
 
-// The Responses surface must carry the same affinity hint as chat/completions:
-// gateway reasoning-tool turns promote to /v1/responses and would otherwise go
-// out unhinted.
+// Responses turns that promote to /v1/responses must carry the same prompt_cache_key hint;
+// otherwise gateway reasoning-tool turns fan across replicas unhinted.
 func TestSessionAffinity_ResponsesCarriesPromptCacheKey(t *testing.T) {
 	for _, provider := range []string{providers.ProviderOpenAI, providers.ProviderOpenAIGateway} {
 		env, err := translate.ParseAnthropic(anthropicSrc())

@@ -46,10 +46,8 @@ func (e *RequestEnvelope) PrepareOpenAIResponses(in http.Header, opts EmitOption
 }
 
 // applyResponsesSessionAffinity mirrors applySessionAffinity for the Responses
-// surface: prompt_cache_key is a spec Responses field too, so OpenAI and
-// openai_gateway dispatches carry the same per-session hint here as on
-// chat/completions — otherwise reasoning-tool turns (which promote to
-// /v1/responses) would fan across gateway replicas unhinted.
+// surface: prompt_cache_key is a spec Responses field (forwarded with the body),
+// so reasoning-tool turns promoted to /v1/responses stay pinned to a warm replica.
 func applyResponsesSessionAffinity(body []byte, opts EmitOptions) ([]byte, error) {
 	switch opts.TargetProvider {
 	case providers.ProviderOpenAI, providers.ProviderOpenAIGateway:
