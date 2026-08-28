@@ -124,9 +124,7 @@ func NewClientWithModelIDMap(apiKey, baseURL string, modelIDMap map[string]strin
 	return newClientWithModelIDMap(apiKey, baseURL, responseHeaderTimeout, modelIDMap)
 }
 
-// SetCodexBaseURL overrides the ChatGPT Codex subscription endpoint. It is
-// intended for local deterministic testing; managed deployments always use
-// the built-in chatgpt.com endpoint.
+// SetCodexBaseURL overrides the Codex subscription endpoint for local testing.
 func (c *Client) SetCodexBaseURL(baseURL string) {
 	if baseURL != "" {
 		c.codexBaseURL = baseURL

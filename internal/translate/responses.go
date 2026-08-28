@@ -1184,10 +1184,8 @@ func (t *ResponsesWriter) rewriteNativeResponsesPayload(data []byte) ([]byte, bo
 	return data, false
 }
 
-// rewriteNativePassthroughFields adjusts native coordinates after a synthetic
-// badge item has been inserted ahead of the upstream output. Sequence numbers
-// are shifted so the SSE stream remains strictly monotonic; output indices are
-// shifted so tool/reasoning items retain their identity relative to the badge.
+// rewriteNativePassthroughFields shifts sequence numbers (monotonicity) and
+// output indices (item identity) after a synthetic badge item is prepended.
 func (t *ResponsesWriter) rewriteNativePassthroughFields(data []byte) ([]byte, bool) {
 	if !gjson.ValidBytes(data) {
 		return data, false
@@ -1220,9 +1218,15 @@ func (t *ResponsesWriter) rewriteNativePassthroughFields(data []byte) ([]byte, b
 			return data, changed
 		}
 	}
-	badgeItem := `{"id":"` + t.nativeBadgeItemID + `","type":"message","status":"completed","role":"assistant","content":[{"type":"output_text","text":` + strconv.Quote(t.computeBadgeText()) + `,"annotations":[]}]}`
+	badgeItem, err := json.Marshal(map[string]any{
+		"id": t.nativeBadgeItemID, "type": "message", "status": "completed", "role": "assistant",
+		"content": []any{map[string]any{"type": "output_text", "text": t.computeBadgeText(), "annotations": []any{}}},
+	})
+	if err != nil {
+		return data, changed
+	}
 	items := make([]string, 0, len(output.Array())+1)
-	items = append(items, badgeItem)
+	items = append(items, string(badgeItem))
 	for _, item := range output.Array() {
 		items = append(items, item.Raw)
 	}
@@ -1258,8 +1262,14 @@ func (t *ResponsesWriter) rewriteNativeNonStreamingBody(data []byte) ([]byte, bo
 		}
 	}
 	itemID := newResponsesID("msg")
-	badgeItem := `{"id":"` + itemID + `","type":"message","status":"completed","role":"assistant","content":[{"type":"output_text","text":` + strconv.Quote(t.computeBadgeText()) + `,"annotations":[]}]}`
-	items := []string{badgeItem}
+	badgeItem, err := json.Marshal(map[string]any{
+		"id": itemID, "type": "message", "status": "completed", "role": "assistant",
+		"content": []any{map[string]any{"type": "output_text", "text": t.computeBadgeText(), "annotations": []any{}}},
+	})
+	if err != nil {
+		return data, false
+	}
+	items := []string{string(badgeItem)}
 	for _, item := range output.Array() {
 		items = append(items, item.Raw)
 	}
@@ -1312,10 +1322,9 @@ func (t *ResponsesWriter) writeNativeEvent(eventType string, sequence int64, pay
 	return err
 }
 
-// emitNativeBadgeBeforeOutput opens a real Responses message item before the
-// first native tool/reasoning item. Native Responses streams cannot display a badge
-// without an output item, so all subsequent tool coordinates are shifted by
-// one and upstream sequence numbers by the six events emitted here.
+// emitNativeBadgeBeforeOutput prepends a badge message item to the stream.
+// Native Responses requires an output item for badge display; six events are
+// emitted and upstream coordinates shifted accordingly.
 func (t *ResponsesWriter) emitNativeBadgeBeforeOutput(event []byte) error {
 	if t.nativeSyntheticBadgeEmitted || t.nativeBadgeTargetSelected || t.computeBadgeText() == "" {
 		return nil
@@ -1385,7 +1394,8 @@ func (t *ResponsesWriter) writeNativeResponsesEvent(event, delimiter []byte) err
 		eventType = gjson.GetBytes(data, "type").Str
 		itemType = gjson.GetBytes(data, "item.type").Str
 	}
-	if eventType == "response.function_call_arguments.delta" || eventType == "response.custom_tool_call_input.delta" || (eventType == "response.output_item.added" && (itemType == "function_call" || itemType == "custom_tool_call" || itemType == "reasoning")) || (eventType == "response.output_item.done" && (itemType == "function_call" || itemType == "custom_tool_call")) {
+	toolCall := eventType == "response.function_call_arguments.delta" || eventType == "response.custom_tool_call_input.delta" || (eventType == "response.output_item.added" && (itemType == "function_call" || itemType == "custom_tool_call")) || (eventType == "response.output_item.done" && (itemType == "function_call" || itemType == "custom_tool_call"))
+	if toolCall {
 		t.sawToolCall = true
 		if err := t.emitNativeBadgeBeforeOutput(event); err != nil {
 			return err
