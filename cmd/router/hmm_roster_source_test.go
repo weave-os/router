@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -11,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"workweave/router/internal/observability"
 	"workweave/router/internal/router/cluster"
 )
 
@@ -52,6 +54,62 @@ func TestHMMRosterSource_MapsAndCaches(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, first, second)
 	assert.Equal(t, int64(1), fetch.calls.Load())
+}
+
+// countingHandler counts records at or above WARN; slog.Handler for tests.
+type countingHandler struct {
+	warns atomic.Int64
+}
+
+func (h *countingHandler) Enabled(context.Context, slog.Level) bool { return true }
+func (h *countingHandler) Handle(_ context.Context, r slog.Record) error {
+	if r.Level >= slog.LevelWarn {
+		h.warns.Add(1)
+	}
+	return nil
+}
+func (h *countingHandler) WithAttrs([]slog.Attr) slog.Handler { return h }
+func (h *countingHandler) WithGroup(string) slog.Handler      { return h }
+
+func TestHMMRosterSource_WarnsOncePerRosterOnInvalidArms(t *testing.T) {
+	fetch := &stubRosterFetcher{ids: []string{"openai/gpt-5.6-sol", "newvendor/model-x"}}
+	src := newHMMRosterSource(fetch, 0)
+	handler := &countingHandler{}
+	ctx := observability.WithLogger(context.Background(), slog.New(handler))
+
+	entries, err := src.HMMDeployedModels(ctx)
+	require.NoError(t, err)
+	// Serving behavior is unchanged: the unknown arm is still silently dropped.
+	require.Len(t, entries, 1)
+	assert.Equal(t, "gpt-5.6-sol", entries[0].Model)
+	assert.Equal(t, int64(1), handler.warns.Load())
+
+	// A repeated refresh of the same roster must not warn again.
+	src.mu.Lock()
+	src.fetchedAt = src.fetchedAt.Add(-2 * hmmRosterTTL)
+	src.mu.Unlock()
+	_, err = src.HMMDeployedModels(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), handler.warns.Load())
+
+	// A different roster with invalid arms warns anew.
+	fetch.ids = []string{"openai/gpt-5.6-sol", "othervendor/model-y"}
+	src.mu.Lock()
+	src.fetchedAt = src.fetchedAt.Add(-2 * hmmRosterTTL)
+	src.mu.Unlock()
+	_, err = src.HMMDeployedModels(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, int64(2), handler.warns.Load())
+}
+
+func TestHMMRosterSource_ValidRosterEmitsNoWarn(t *testing.T) {
+	fetch := &stubRosterFetcher{ids: []string{"openai/gpt-5.6-sol"}}
+	src := newHMMRosterSource(fetch, 0)
+	handler := &countingHandler{}
+
+	_, err := src.HMMDeployedModels(observability.WithLogger(context.Background(), slog.New(handler)))
+	require.NoError(t, err)
+	assert.Equal(t, int64(0), handler.warns.Load())
 }
 
 func TestHMMRosterSource_UsesConfiguredFetchTimeout(t *testing.T) {
