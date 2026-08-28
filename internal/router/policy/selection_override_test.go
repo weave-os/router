@@ -77,8 +77,33 @@ func TestSelectionOverrideIdenticalDecisionWhenPickMatchesSidecar(t *testing.T) 
 	decision, err := adapter.Route(context.Background(), router.Request{})
 
 	require.NoError(t, err)
+	require.NotNil(t, decision.Metadata)
+	require.NotNil(t, decision.Metadata.PinStickyOverrideEligible)
+	assert.False(t, *decision.Metadata.PinStickyOverrideEligible,
+		"a matching Go pick is still deterministic and must not be pin-sticky eligible")
+	decision.Metadata.PinStickyOverrideEligible = nil
 	assert.Equal(t, baseline, decision,
-		"an override agreeing with the sidecar must leave the decision untouched")
+		"apart from pin-sticky neutralization, an override agreeing with the sidecar must leave the decision untouched")
+}
+
+func TestSelectionOverrideNeutralizesPinStickyWhenPickMatchesSidecar(t *testing.T) {
+	eligible := true
+	result := overrideTestResult()
+	result.PinStickyOverrideEligible = &eligible
+	result.Reason = "arm selector unavailable [pin_sticky_override_eligible]"
+
+	adapter := newOverrideAdapter(result)
+	adapter.WithSelectionOverride(func(_ context.Context, _ policy.SelectionObservation) (policy.SelectionPick, bool) {
+		return policy.SelectionPick{Group: "maximum", Arm: "anthropic/claude-opus-4-8"}, true
+	})
+	decision, err := adapter.Route(context.Background(), router.Request{})
+
+	require.NoError(t, err)
+	assert.Equal(t, "claude-opus-4-8", decision.Model)
+	require.NotNil(t, decision.Metadata)
+	require.NotNil(t, decision.Metadata.PinStickyOverrideEligible)
+	assert.False(t, *decision.Metadata.PinStickyOverrideEligible)
+	assert.NotContains(t, decision.Reason, "[pin_sticky_override_eligible]")
 }
 
 func TestSelectionOverrideFailsOpenWhenNoPick(t *testing.T) {
@@ -114,6 +139,25 @@ func TestSelectionOverrideYieldsToClusterOverride(t *testing.T) {
 		"an applied per-key cluster override must take precedence over the selection override")
 	assert.Equal(t, "claude-sonnet-5", decision.Model)
 	assert.Contains(t, decision.Reason, ":cluster_override")
+}
+
+func TestSelectionOverrideFiresWhenOverridesOmitWinningGroup(t *testing.T) {
+	adapter := newOverrideAdapter(overrideTestResult())
+	adapter.WithSelectionOverride(func(_ context.Context, _ policy.SelectionObservation) (policy.SelectionPick, bool) {
+		return policy.SelectionPick{Group: "maximum", Arm: "anthropic/claude-sonnet-5"}, true
+	})
+
+	// A partial per-key map that configures only an unrelated cluster must not
+	// suppress Go selection for the served group.
+	decision, err := adapter.Route(context.Background(), router.Request{
+		ClusterArmOverrides: map[string][]string{
+			"minimal": {"claude-sonnet-5"},
+		},
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, "claude-sonnet-5", decision.Model)
+	assert.Contains(t, decision.Reason, ":go_selection")
 }
 
 func TestSelectionOverrideNeutralizesPinStickySignal(t *testing.T) {

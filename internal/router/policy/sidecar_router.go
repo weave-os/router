@@ -343,8 +343,10 @@ func (r *SidecarRouter) Route(ctx context.Context, req router.Request) (router.D
 	// sidecar's, which is the only case where res.Provider legitimately names a
 	// different provider than the resolved binding.
 	reselected := false
-	// constrained is set when a force-cluster or per-key override applies;
-	// the boot-time selection override must not supersede it.
+	// constrained is set when a force-cluster or a configured per-key list
+	// actually constrains the pick; the boot-time selection override must
+	// not supersede it. A ranked-group pass-through (no list for the winning
+	// group) does not constrain.
 	constrained := false
 	switch {
 	case req.ForceCluster != "":
@@ -375,7 +377,7 @@ func (r *SidecarRouter) Route(ctx context.Context, req router.Request) (router.D
 			// be ambiguous (shared across providers) and absent from ByRosterID.
 			overrideArmID = outcome.ArmID
 			overrideRosterID = outcome.RosterID
-			constrained = true
+			constrained = outcome.Constrained
 			if outcome.Changed {
 				overrideReasonSuffix = ":cluster_override"
 				reselected = true
@@ -396,23 +398,26 @@ func (r *SidecarRouter) Route(ctx context.Context, req router.Request) (router.D
 		observation = selectionObservationFor(strategy, executionMode, req, res, resolved)
 	}
 	if r.selectionOverride != nil && !constrained {
-		if pick, ok := r.selectionOverride(ctx, observation); ok && pick.Arm != overrideRosterID {
-			index := indexCandidates(resolved)
-			overrideArmID = index.rosterToArm[pick.Arm]
-			overrideRosterID = pick.Arm
-			overrideReasonSuffix = ":go_selection"
-			reselected = true
-			observability.FromContext(ctx).Info("Go selection override applied",
-				"strategy", strategy,
-				"group", pick.Group,
-				"sidecar_arm", res.Model,
-				"override_arm", pick.Arm,
-			)
-			res.PolicyGroup = pick.Group
-			// Go-selected arm is deterministic: neutralize pin-sticky so a session pin cannot veto it.
+		if pick, ok := r.selectionOverride(ctx, observation); ok {
+			// Go-selected arm is deterministic even when it matches the sidecar's:
+			// neutralize pin-sticky so a session pin cannot veto it.
 			notEligible := false
 			res.PinStickyOverrideEligible = &notEligible
 			res.Reason = strings.ReplaceAll(res.Reason, pinStickyOverrideSentinel, "")
+			if pick.Arm != overrideRosterID {
+				index := indexCandidates(resolved)
+				overrideArmID = index.rosterToArm[pick.Arm]
+				overrideRosterID = pick.Arm
+				overrideReasonSuffix = ":go_selection"
+				reselected = true
+				observability.FromContext(ctx).Info("Go selection override applied",
+					"strategy", strategy,
+					"group", pick.Group,
+					"sidecar_arm", res.Model,
+					"override_arm", pick.Arm,
+				)
+				res.PolicyGroup = pick.Group
+			}
 		}
 	}
 
