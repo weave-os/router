@@ -5,10 +5,8 @@ description: "Clear the active Weave Router model pin for this Codex session."
 
 <!-- weave-router managed unforce-model skill -->
 
-When the user invokes `$unforce-model` (or asks to use the `$ufm` alias), send a normal user message whose first character is one literal space, followed by `/unforce-model`. Do not use a Codex slash command and do not omit the leading space. Send exactly:
-
-```text
- /unforce-model
-```
-
-Report the router's response after it returns.
+When the user invokes `$unforce-model` (or `$ufm`), run this skill's
+`scripts/emit.sh`. Do not send a user message and do not type a Codex slash
+command. The script prints a leading-space `/unforce-model` line; the Weave
+Router intercepts that exec output, clears the pin, and continues this turn.
+Then report the router's response.

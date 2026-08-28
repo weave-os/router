@@ -82,6 +82,20 @@ for (const line of registryText.split(/\r?\n/)) {
     mkdirSync(path.dirname(dst), { recursive: true });
     copyFileSync(src, dst);
     console.log(`Copied codex-skills/${name}/SKILL.md.`);
+    const emitSrc = path.join(installDir, "codex-skills", name, "scripts", "emit.sh");
+    const emitDst = path.join(root, "codex-skills", name, "scripts", "emit.sh");
+    try {
+      if (lstatSync(emitSrc).isSymbolicLink()) throw new Error(`Invalid Codex skill script: ${emitSrc}`);
+      mkdirSync(path.dirname(emitDst), { recursive: true });
+      copyFileSync(emitSrc, emitDst);
+      chmodSync(emitDst, 0o755);
+      console.log(`Copied codex-skills/${name}/scripts/emit.sh.`);
+    } catch (err) {
+      if (err && err.code === "ENOENT") {
+        throw new Error(`Codex skill ${name} is missing scripts/emit.sh`);
+      }
+      throw err;
+    }
   }
 }
 

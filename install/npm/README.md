@@ -104,9 +104,10 @@ Four install targets:
   removes it without touching the rest of your config. Codex does not load
   third-party slash-command files; the installer provides native skills
   `$force-model` (`$fm`), `$unforce-model` (`$ufm`), and
-  `$router-feedback` (`$rf`). They send the same leading-space directives as
-  Claude Code (for example, ` /force-model gpt-5.6-terra`), and you can type
-  that form directly. Its `$disable-routing` skill returns the next Codex
+  `$router-feedback` (`$rf`). Each skill execs a local `scripts/emit.sh` that
+  prints the same leading-space directive Claude Code uses (for example,
+  ` /force-model gpt-5.6-terra`); the router intercepts that tool output.
+  You can type that form directly. Its `$disable-routing` skill returns the next Codex
   session to the default provider without logging out or deleting the router
   configuration.
 - **opencode** (`--opencode`) — merges a `provider.weave` entry (backed by

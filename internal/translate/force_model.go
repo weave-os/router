@@ -281,11 +281,9 @@ func parseForceModelCommand(text string) (res ForceModelResult, found bool, stri
 		break
 	}
 	if !found {
-		// Codex's local exec tool returns a two-part result whose first part is
-		// an execution preamble ("Script completed … Output:") and whose second
-		// part is the skill's leading-space directive. The Responses projection
-		// joins those parts, so inspect only the first non-empty output line;
-		// skill documentation printed by exec can contain command examples.
+		// Codex's exec tool joins a "Script completed … Output:" preamble with
+		// the skill directive; check only the first non-empty output line so
+		// command examples in skill docs don't trigger parsing.
 		if strings.HasPrefix(strings.TrimSpace(text), "Script completed") {
 			lines := strings.Split(text, "\n")
 			for i, line := range lines {

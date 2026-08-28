@@ -112,6 +112,10 @@ for alias in fm ufm rf; do
   grep -Fq "<!-- weave-router managed $alias skill -->" "$alias_skill" \
     || fail "Codex \$$alias skill has no ownership marker"
 done
+for name in force-model fm unforce-model ufm router-feedback rf; do
+  emit="$home/.codex/skills/$name/scripts/emit.sh"
+  [ -x "$emit" ] || fail "Codex \$$name skill is missing an executable emit.sh"
+done
 if HOME="$home" PATH="$test_path" NO_COLOR=1 bash "$installer" disable-routing --claude --scope user --quiet >/dev/null 2>&1; then
   fail "disable-routing accepted a non-Codex target"
 fi
@@ -131,6 +135,10 @@ run_hosted_install
 
 run_uninstall
 [ ! -e "$skill" ] || fail "uninstall did not remove the Codex disable-routing skill"
+for name in force-model fm unforce-model ufm router-feedback rf; do
+  [ ! -e "$home/.codex/skills/$name" ] \
+    || fail "uninstall left the Codex \$$name skill directory behind"
+done
 
 # A same-named user skill is not ours to overwrite or remove. This also
 # covers an upgrade on a machine where the name was already taken.

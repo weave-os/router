@@ -210,17 +210,20 @@ check "codex user install writes a skill per supported directive" \
 check "codex install writes no prompt wrappers" "" \
   "$(ls "$cx_home/.codex/prompts" 2>/dev/null | tr '\n' ' ' | sed 's/ $//')"
 
-# The Codex skills must instruct the leading-space normal prompt: Codex
+# A Codex skill cannot author a user message, so each one execs emit.sh, whose
+# output carries the leading-space directive the router intercepts. Codex
 # reserves `/…` for its own built-ins, so a bare slash never reaches the router.
 for name in force-model unforce-model router-feedback fm ufm rf; do
-  skill="$cx_home/.codex/skills/$name/SKILL.md"
+  emit="$cx_home/.codex/skills/$name/scripts/emit.sh"
   case "$name" in
     fm) command=force-model ;; ufm) command=unforce-model ;; rf) command=router-feedback ;; *) command="$name" ;;
   esac
-  if grep -qF " /$command" "$skill"; then
-    ok "codex \$$name expands to a leading-space directive"
+  if [ -x "$emit" ] && [ "$(bash "$emit" probe-arg)" = " /$command probe-arg" ] 2>/dev/null; then
+    ok "codex \$$name emits a leading-space directive"
+  elif [ -x "$emit" ] && [ "$(bash "$emit")" = " /$command" ] 2>/dev/null; then
+    ok "codex \$$name emits a leading-space directive"
   else
-    no "codex \$$name expands to a leading-space directive" "a literal leading space" "$(grep -m1 "/$name" "$skill")"
+    no "codex \$$name emits a leading-space directive" " /$command" "$( [ -x "$emit" ] && bash "$emit" probe-arg 2>&1 || echo 'no executable emit.sh')"
   fi
 done
 

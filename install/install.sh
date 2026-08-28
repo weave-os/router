@@ -2796,11 +2796,12 @@ install_codex_disable_routing_skill() {
   ok "Codex skill installed: \$disable-routing"
 }
 
-# Install prompt directives as Codex-native skills. The skill itself emits a
-# leading-space normal prompt, which is the only portable way to reach the
-# router directive parser without claiming Codex's reserved slash namespace.
+# Install prompt directives as Codex-native skills. Codex cannot append a
+# user message from a skill, so each skill ships scripts/emit.sh. Codex
+# execs that script; the router intercepts the leading-space directive in
+# the tool output without claiming Codex's reserved slash namespace.
 install_codex_prompt_skills() {
-  local canonical skill_src dst_dir dst_file scope_args body
+  local canonical skill_src dst_dir dst_file emit_src emit_dst scope_args body
   while IFS= read -r canonical; do
     skill_src="$script_dir/codex-skills/$canonical/SKILL.md"
     [ -f "$skill_src" ] || continue
@@ -2826,6 +2827,20 @@ install_codex_prompt_skills() {
     body="$(<"$skill_src")"
     body="${body//\{\{SCOPE\}\}/$scope_args}"
     printf '%s\n' "$body" >"$dst_file"
+    emit_src="$script_dir/codex-skills/$canonical/scripts/emit.sh"
+    if [ -f "$emit_src" ]; then
+      mkdir -p "$dst_dir/scripts"
+      emit_dst="$dst_dir/scripts/emit.sh"
+      if [ "$scope" = "project" ] || [ -n "$install_dir" ]; then
+        refuse_if_symlink "$dst_dir/scripts"
+        refuse_if_symlink "$emit_dst"
+      elif [ -L "$dst_dir/scripts" ] || [ -L "$emit_dst" ]; then
+        warn "Codex skill script path contains a symlink; leaving $canonical emit.sh untouched."
+      else
+        cp "$emit_src" "$emit_dst"
+        chmod +x "$emit_dst"
+      fi
+    fi
     ok "Codex skill installed: \$$canonical"
   done <<EOF
 $(weave_registry_skill_names codex)

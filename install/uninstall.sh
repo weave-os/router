@@ -582,6 +582,13 @@ EOF
         if grep -Fq "<!-- weave-router managed $canonical skill -->" "$skill_file"; then
           rm -f "$skill_file"
           ok "Removed $skill_file"
+          # The prompt skills also ship scripts/emit.sh; leaving it behind
+          # strands a directory Codex still advertises as a skill.
+          emit_file="$skill_dir/scripts/emit.sh"
+          if [ ! -L "$skill_dir/scripts" ] && [ ! -L "$emit_file" ] && [ -f "$emit_file" ]; then
+            rm -f "$emit_file"
+            rmdir "$skill_dir/scripts" 2>/dev/null || true
+          fi
         else
           warn "Leaving user-owned Codex skill at $skill_file untouched."
         fi

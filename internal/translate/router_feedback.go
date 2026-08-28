@@ -126,10 +126,8 @@ func parseRouterFeedbackCommand(text string) (res RouterFeedbackResult, found bo
 
 	rating, inline, ok := matchRouterFeedbackCommand(first)
 	if !ok {
-		// Codex's exec tool prefixes a second output part with execution
-		// metadata ("Script completed … Output:"). Responses conversion joins
-		// those parts, so inspect only the first non-empty output line; skill
-		// documentation printed by exec can contain command examples.
+		// Codex's exec tool joins a "Script completed … Output:" preamble with
+		// the skill directive; check only the first non-empty output line.
 		if strings.HasPrefix(strings.TrimSpace(text), "Script completed") {
 			lines := strings.Split(text, "\n")
 			for i, line := range lines {

@@ -432,10 +432,8 @@ func StripFeedbackFooterFromResponsesInput(body []byte) ([]byte, error) {
 	return out, nil
 }
 
-// StripRouterCommandsFromResponsesInput removes router directives emitted by a
-// local agent tool from function-call output items. Codex executes its skills
-// through a tool and returns the resulting leading-space command as the tool
-// output; forwarding that text verbatim makes the upstream repeat the command
+// StripRouterCommandsFromResponsesInput removes router directives from
+// function-call output items so the upstream doesn't repeat them verbatim
 // instead of continuing the agent turn.
 func StripRouterCommandsFromResponsesInput(body []byte) ([]byte, error) {
 	input := gjson.GetBytes(body, "input")
