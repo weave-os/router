@@ -13,9 +13,8 @@ import (
 // usdMicrosPerUSD converts micros to USD for display only; applied at encoding so float rounding never accumulates.
 const usdMicrosPerUSD = 1_000_000.0
 
-// sessionCostResponse is the committed router cost of one client session.
-// The *_usd_micros integers are authoritative; the decimal fields are derived
-// for display. savings = requested - actual.
+// sessionCostResponse is the JSON envelope for GET /v1/sessions/:id/cost.
+// The *_usd_micros integers are authoritative; decimal fields are derived for display only.
 type sessionCostResponse struct {
 	SessionID              string  `json:"session_id"`
 	RequestCount           int64   `json:"request_count"`

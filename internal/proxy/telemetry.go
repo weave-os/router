@@ -26,9 +26,8 @@ type TelemetryRepository interface {
 }
 
 // SessionCost is the committed router cost of one client session.
-// Costs are USD micros ($1.00 = 1,000,000): persisted and summed as integers
-// so no float rounding accumulates. Actual = router's chosen binding;
-// Requested = client's originally-requested model; savings = Requested - Actual.
+// Costs are USD micros ($1.00 = 1,000,000) summed as integers so no float rounding accumulates.
+// Actual = router's chosen binding; Requested = client's originally-requested model.
 type SessionCost struct {
 	SessionID              string
 	RequestCount           int64
