@@ -1164,6 +1164,32 @@ func TestPrepareGemini_PreservesNumericAnyOfEnum(t *testing.T) {
 	assert.NotContains(t, priority, "type", "dropping a numeric enum must not invent type:string")
 }
 
+func TestPrepareGemini_KeepsTypeArrayAnyOfBranch(t *testing.T) {
+	body := []byte(`{
+		"messages": [{"role":"user","content":"hi"}],
+		"tools": [{
+			"name":"update_issue",
+			"input_schema":{
+				"type":"object",
+				"properties":{
+					"due_date":{"anyOf":[{"type":["string","null"],"format":"date-time"}]}
+				}
+			}
+		}]
+	}`)
+	env, err := translate.ParseAnthropic(body)
+	require.NoError(t, err)
+	prep, err := env.PrepareGemini(http.Header{}, translate.EmitOptions{})
+	require.NoError(t, err)
+
+	out := mustUnmarshal(t, prep.Body)
+	params := out["tools"].([]any)[0].(map[string]any)["functionDeclarations"].([]any)[0].(map[string]any)["parameters"].(map[string]any)
+	due := params["properties"].(map[string]any)["due_date"].(map[string]any)
+	assert.Equal(t, "string", due["type"])
+	assert.Equal(t, "date-time", due["format"])
+	assert.Equal(t, true, due["nullable"])
+}
+
 func TestPrepareGemini_DropsNonStringEnums(t *testing.T) {
 	// Gemini types every enum member as TYPE_STRING and 400s on anything else.
 	// Dropping is lossless: toolcheck enforces against the original schema.

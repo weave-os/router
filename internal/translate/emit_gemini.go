@@ -2045,10 +2045,23 @@ func isGeminiNullLikeSchema(v any) bool {
 			return false
 		}
 	}
-	if typeName, ok := node["type"].(string); ok && typeName != "" && typeName != "null" {
-		return false
-	}
-	if !hasEnum && node["type"] == nil {
+	switch typeValue := node["type"].(type) {
+	case string:
+		if typeValue != "" && typeValue != "null" {
+			return false
+		}
+	case []any:
+		if _, ok := lowerNullableTypeArray(typeValue); ok {
+			return false
+		}
+		if !isGeminiNullSchema(node) {
+			return false
+		}
+	case nil:
+		if !hasEnum {
+			return false
+		}
+	default:
 		return false
 	}
 	for key := range node {
