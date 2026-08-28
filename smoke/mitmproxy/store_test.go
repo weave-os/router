@@ -2,9 +2,8 @@ package main
 
 import "testing"
 
-// TestRequestKeyIgnoresPromptCacheKey pins the property that makes replay-only
-// CI work: the router stamps a per-run session-affinity hint into OpenAI
-// bodies, so two runs of the same scenario must still hash to one cassette.
+// TestRequestKeyIgnoresPromptCacheKey pins that per-run session-affinity hints
+// don't change the cassette key, so replay-only CI stays green.
 func TestRequestKeyIgnoresPromptCacheKey(t *testing.T) {
 	base := `{"model":"gpt-5.1","input":"hi"}`
 	runA := `{"model":"gpt-5.1","input":"hi","prompt_cache_key":"aaaa"}`

@@ -74,14 +74,11 @@ func requestKey(method, path string, body []byte) string {
 }
 
 // volatileBodyFields are request fields whose value varies between runs of the
-// same scenario, so hashing them would make every cassette a guaranteed miss.
-// prompt_cache_key carries the router's session-affinity hint, derived from the
-// API key id that scripts/smoke/run.sh mints fresh on every run.
+// same scenario; hashing them makes every cassette a guaranteed miss.
 var volatileBodyFields = []string{"prompt_cache_key"}
 
-// normalizeRequestBody removes volatile fields from a JSON request body.
-// Bodies without them are returned untouched, so cassettes recorded before a
-// field became volatile keep replaying.
+// normalizeRequestBody strips volatile fields so cassettes recorded before a field
+// was added keep replaying.
 func normalizeRequestBody(body []byte) []byte {
 	for _, field := range volatileBodyFields {
 		if !gjson.GetBytes(body, field).Exists() {
