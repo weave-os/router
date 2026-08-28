@@ -1621,3 +1621,58 @@ func authedCtxWithGatewayKey(installationID, aliasedModel string) context.Contex
 	}
 	return context.WithValue(authedCtx(installationID), proxy.ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{key})
 }
+
+// A user's /force-model pin that names a provider this request cannot serve
+// used to be dropped silently: the turn fell through to the scorer, served
+// another model, and emitted nothing — so the user kept trusting the
+// "force-model applied: claude-opus-5" acknowledgment from the prior turn.
+// The pin must still be dropped (serving it would 401), but the turn has to
+// say so.
+func TestService_SessionPin_ForcedPinDropped_SurfacesInMarker(t *testing.T) {
+	const body = `{"model":"gpt-4o","stream":true,"messages":[{"role":"user","content":"analyze usage"}]}`
+
+	store := newFakePinStore()
+	store.hasPin = true
+	store.pin = sessionpin.Pin{
+		Provider:    providers.ProviderAnthropic,
+		Model:       "claude-opus-5",
+		Reason:      translate.ReasonUserForceModel,
+		PinnedUntil: time.Now().Add(time.Hour),
+	}
+	// The scorer's fallback pick once the forced pin is dropped.
+	fr := &fakeRouter{decision: router.Decision{
+		Provider: providers.ProviderOpenAI, Model: "gpt-5.5", Reason: "cluster:v0.2",
+	}}
+	// Only OpenAI is wired, so the Anthropic-bound forced pin cannot be served.
+	openAI := &fakeProvider{proxyResponse: func(w http.ResponseWriter) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		for _, frame := range []string{
+			`{"type":"response.output_text.delta","output_index":0,"delta":"ok"}`,
+			`{"type":"response.completed","response":{"id":"resp_1","status":"completed","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"ok"}]}],"usage":{"input_tokens":3,"output_tokens":1}}}`,
+		} {
+			_, _ = io.WriteString(w, "data: "+frame+"\n\n")
+		}
+	}}
+	svc := proxy.NewService(
+		fr,
+		map[string]providers.Client{providers.ProviderOpenAI: openAI},
+		nil, false, nil,
+		store,
+		false, providers.ProviderOpenAI, "gpt-4o-mini",
+		nil,
+	)
+
+	ctx := authedCtx(uuid.New().String())
+	rec := httptest.NewRecorder()
+	httpReq := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(""))
+	require.NoError(t, svc.ProxyOpenAIChatCompletion(ctx, []byte(body), rec, httpReq))
+
+	assert.Equal(t, 1, fr.routeCalls, "an unservable forced pin must fall through to routing")
+	assert.Equal(t, "gpt-5.5", rec.Header().Get(proxy.HeaderRouterModel),
+		"the scorer's pick serves the turn")
+	assert.Contains(t, rec.Body.String(), "force-model pin could not be served",
+		"the dropped pin must be surfaced, not silently swallowed")
+	assert.Contains(t, rec.Body.String(), "claude-opus-5",
+		"the marker names the pin that was dropped")
+}

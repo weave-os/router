@@ -550,6 +550,20 @@ func routingMarkerFor(res turnLoopResult) string {
 	if res.HardPinned {
 		return ""
 	}
+	// A dropped force-model pin contradicts an acknowledgment the user already
+	// saw, so it prints even when the served model didn't change from the prior
+	// turn — the same-model gate below would otherwise hide exactly the turns
+	// where the pin quietly stopped applying.
+	if res.ForcedPinDropped {
+		parts := []string{"✦ **Weave Router** → " + decision.Model, markerReasonForcedPinDropped}
+		if res.ForcedPinModel != "" {
+			parts = []string{
+				"✦ **Weave Router** → " + decision.Model,
+				fmt.Sprintf("%s (%s)", markerReasonForcedPinDropped, res.ForcedPinModel),
+			}
+		}
+		return strings.Join(parts, " · ") + "\n\n"
+	}
 	// Same model as last turn: the user already knows. Empty prior model means
 	// the first turn of this session (or role), which still shows. Applies to
 	// both the planner-style marker and the sidecar-supplied display marker —
@@ -623,6 +637,7 @@ const (
 	markerReasonBestPick          = "best pick for this turn"
 	markerReasonBaseline          = "fell back to baseline after provider outage"
 	markerReasonSibling           = "switched after the picked model was overloaded"
+	markerReasonForcedPinDropped  = "your force-model pin could not be served this turn"
 )
 
 // baselineRoutingMarkerFor renders the routing badge for an in-turn baseline
