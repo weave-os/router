@@ -174,10 +174,9 @@ type turnLoopResult struct {
 	UsageBypass bool
 	PinTier     string
 	PinAgeSec   int64
-	// ForcedPinDropped records that a user's /force-model pin existed but could
-	// not be served this turn (provider not enabled, model excluded, or not
-	// image-capable). The marker surfaces it so the turn doesn't silently
-	// contradict the "force-model applied" acknowledgment.
+	// ForcedPinDropped records that a /force-model pin existed but could not be
+	// served (provider not enabled, excluded, or not image-capable); surfaced so
+	// the turn does not silently contradict the "force-model applied" ack.
 	ForcedPinDropped    bool
 	ForcedPinDropReason string
 	ForcedPinModel      string
@@ -805,10 +804,8 @@ func (s *Service) runTurnLoop(
 			s.refreshPin(ctx, installationID, res.SessionKey, pin, res.PinRole, pinDecision(pin))
 			return res, nil
 		}
-		// A forced pin is an explicit user instruction, so dropping it is a
-		// user-visible event, not routine routing. Without this the turn
-		// silently reverts to the scorer and the user keeps believing the
-		// ack ("force-model applied: …") still holds.
+		// A forced pin is an explicit user instruction; dropping it silently reverts
+		// to the scorer while the user still trusts the "force-model applied" ack.
 		dropReason := "excluded"
 		switch {
 		case !providerEligible:

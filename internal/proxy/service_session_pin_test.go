@@ -1622,12 +1622,9 @@ func authedCtxWithGatewayKey(installationID, aliasedModel string) context.Contex
 	return context.WithValue(authedCtx(installationID), proxy.ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{key})
 }
 
-// A user's /force-model pin that names a provider this request cannot serve
-// used to be dropped silently: the turn fell through to the scorer, served
-// another model, and emitted nothing — so the user kept trusting the
-// "force-model applied: claude-opus-5" acknowledgment from the prior turn.
-// The pin must still be dropped (serving it would 401), but the turn has to
-// say so.
+// A /force-model pin that names an unavailable provider was silently dropped:
+// the turn fell through to the scorer while the user trusted the prior ack.
+// The pin must still be dropped (serving it would 401), but now it surfaces.
 func TestService_SessionPin_ForcedPinDropped_SurfacesInMarker(t *testing.T) {
 	const body = `{"model":"gpt-4o","stream":true,"messages":[{"role":"user","content":"analyze usage"}]}`
 

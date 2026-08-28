@@ -550,10 +550,9 @@ func routingMarkerFor(res turnLoopResult) string {
 	if res.HardPinned {
 		return ""
 	}
-	// A dropped force-model pin contradicts an acknowledgment the user already
-	// saw, so it prints even when the served model didn't change from the prior
-	// turn — the same-model gate below would otherwise hide exactly the turns
-	// where the pin quietly stopped applying.
+	// A dropped force-model pin contradicts an ack the user already saw, so it
+	// prints even when the model did not change — the same-model gate below would
+	// otherwise hide exactly the turns where the pin stopped applying.
 	if res.ForcedPinDropped {
 		parts := []string{"✦ **Weave Router** → " + decision.Model, markerReasonForcedPinDropped}
 		if res.ForcedPinModel != "" {
