@@ -1973,6 +1973,25 @@ func (s *Service) MetricsSummary(ctx context.Context, installationID string, fro
 	return s.telemetry.GetTelemetrySummary(ctx, installationID, from, to)
 }
 
+// ErrSessionCostNotFound means this installation has no committed cost-bearing
+// telemetry for the session id — an unknown id, another installation's session,
+// or a session whose asynchronous telemetry has not landed yet. The three are
+// deliberately indistinguishable so a caller cannot probe for the existence of
+// a session it does not own.
+var ErrSessionCostNotFound = errors.New("no committed router telemetry for session")
+
+// SessionCost returns the committed router cost of one client session, scoped
+// to the calling installation.
+func (s *Service) SessionCost(ctx context.Context, installationID, sessionID string) (SessionCost, error) {
+	if s.telemetry == nil {
+		return SessionCost{}, ErrSessionCostNotFound
+	}
+	if sessionID == "" || len(sessionID) > MaxClientIdentifierLen {
+		return SessionCost{}, ErrSessionCostNotFound
+	}
+	return s.telemetry.GetSessionCost(ctx, installationID, sessionID)
+}
+
 // MetricsTimeseries returns per-bucket cost rows for the cost savings chart.
 func (s *Service) MetricsTimeseries(ctx context.Context, installationID string, from, to time.Time, granularity string) ([]TelemetryBucket, error) {
 	if s.telemetry == nil {

@@ -22,6 +22,27 @@ type TelemetryRepository interface {
 	GetTelemetryModelBreakdown(ctx context.Context, installationID string, from, to time.Time, granularity string) ([]TelemetryModelBucket, error)
 	GetTelemetryModelBreakdownAll(ctx context.Context, from, to time.Time, granularity string) ([]TelemetryModelBucket, error)
 	GetTelemetryBySessionSequence(ctx context.Context, installationID uuid.UUID, sessionKey []byte, role string, seq int) (TelemetryTurnResult, error)
+	GetSessionCost(ctx context.Context, installationID, sessionID string) (SessionCost, error)
+}
+
+// SessionCost is the committed router cost of one client session, aggregated
+// across every cost-bearing telemetry row that carries the session id.
+//
+// Money is USD micros ($1.00 = 1,000,000) end to end: costs are persisted in
+// micros and summed in micros, so no float rounding accumulates across a
+// session. Actual is what the session really cost on the binding the router
+// chose; Requested is what the client's originally-requested model would have
+// cost, so (Requested - Actual) is the router's savings.
+type SessionCost struct {
+	SessionID              string
+	RequestCount           int64
+	ActualCostUSDMicros    int64
+	RequestedCostUSDMicros int64
+	InputTokens            int64
+	OutputTokens           int64
+	CacheCreationTokens    int64
+	CacheReadTokens        int64
+	LastRecordedAt         time.Time
 }
 
 // InsertTelemetryParams mirrors one router.upstream span row.

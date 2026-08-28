@@ -84,6 +84,10 @@ func (r *auxTelemetryRepo) GetTelemetryModelBreakdownAll(context.Context, time.T
 	return nil, nil
 }
 
+func (r *auxTelemetryRepo) GetSessionCost(context.Context, string, string) (SessionCost, error) {
+	return SessionCost{}, ErrSessionCostNotFound
+}
+
 func (r *auxTelemetryRepo) GetTelemetryBySessionSequence(context.Context, uuid.UUID, []byte, string, int) (TelemetryTurnResult, error) {
 	return TelemetryTurnResult{}, nil
 }

@@ -73,4 +73,111 @@ XDG_CACHE_HOME="$cache" WEAVE_CODEX_STATUS_TITLE_FILE="$title_file" "$helper" --
   exit 1
 }
 
+# ---------- server-sourced savings ----------
+#
+# Savings come from the router's own (requested - actual), never from local
+# pricing: Codex records only its requested model, so client-side arithmetic
+# would price both sides identically and report zero.
+
+savings_home="$work/home"
+mkdir -p "$savings_home/.codex"
+cost_body="$work/cost.json"
+printf '%s\n' '{"session_id":"session-2","savings_usd":0.32}' >"$cost_body"
+cat >"$savings_home/.codex/config.toml" <<TOML
+# >>> weave-router managed (do not edit between markers) >>>
+model_provider = "weave"
+
+[model_providers.weave]
+base_url = "file://$cost_body"
+http_headers = { "X-Weave-Router-Key" = "rk_test", "X-App" = "codex" }
+# <<< weave-router managed <<<
+TOML
+
+savings_cache="$work/cache-savings"
+run_savings_turn() {
+  printf '%s\n' '{"session_id":"session-2","model":"gpt-5.6-terra","last_assistant_message":"✦ **Weave Router** → claude-sonnet-5 · best pick for this turn"}' \
+    | HOME="$savings_home" XDG_CACHE_HOME="$savings_cache" \
+      WEAVE_CODEX_STATUS_TITLE_FILE="$title_file" "$helper" >/dev/null
+}
+
+# The first turn has no cache yet, so it renders model-only and kicks off the
+# fetch that serves the next turn — the hook must never block on the network.
+run_savings_turn
+[ "$(cat "$title_file")" = "Weave Router · claude-sonnet-5 ← gpt-5.6-terra" ] || {
+  echo "first turn rendered savings before any fetch had completed" >&2
+  exit 1
+}
+
+cost_cache="$savings_cache/weave-router/codex/session-2.cost"
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+  [ -f "$cost_cache" ] && break
+  sleep 0.2
+done
+[ -f "$cost_cache" ] || {
+  echo "background fetch never wrote the session cost cache" >&2
+  exit 1
+}
+
+run_savings_turn
+[ "$(cat "$title_file")" = "Weave Router · claude-sonnet-5 ← gpt-5.6-terra · saved \$0.32" ] || {
+  echo "server-sourced savings did not reach the title: $(cat "$title_file")" >&2
+  exit 1
+}
+
+# The remaining rendering cases run with no reachable config ($HOME has no
+# config.toml), so the fetch is a no-op and the seeded cache is what the turn
+# renders. That also proves an unreachable router leaves the last good value in
+# place rather than wiping it.
+render_cached_savings() {
+  printf '%s' "$1" >"$cost_cache"
+  printf '%s\n' '{"session_id":"session-2","model":"gpt-5.6-terra","last_assistant_message":"✦ **Weave Router** → claude-sonnet-5 · best pick"}' \
+    | HOME="$work/empty-home" XDG_CACHE_HOME="$savings_cache" \
+      WEAVE_CODEX_STATUS_TITLE_FILE="$title_file" "$helper" >/dev/null
+}
+
+render_cached_savings '0.32'
+[ "$(cat "$title_file")" = "Weave Router · claude-sonnet-5 ← gpt-5.6-terra · saved \$0.32" ] || {
+  echo "an unreachable router discarded the cached savings: $(cat "$title_file")" >&2
+  exit 1
+}
+
+# A router that spent more than the requested model would have is reported by
+# staying silent, never as a negative saving.
+render_cached_savings '-0.5'
+[ "$(cat "$title_file")" = "Weave Router · claude-sonnet-5 ← gpt-5.6-terra" ] || {
+  echo "negative savings leaked into the title: $(cat "$title_file")" >&2
+  exit 1
+}
+
+# Sub-cent totals must not read as "$0.00", which is indistinguishable from
+# "the router ran and did not beat your selection".
+render_cached_savings '0.004'
+[ "$(cat "$title_file")" = "Weave Router · claude-sonnet-5 ← gpt-5.6-terra" ] || {
+  echo "a total below half a cent should render no savings clause" >&2
+  exit 1
+}
+render_cached_savings '0.006'
+[ "$(cat "$title_file")" = "Weave Router · claude-sonnet-5 ← gpt-5.6-terra · saved <\$0.01" ] || {
+  echo "sub-cent savings did not render as <\$0.01: $(cat "$title_file")" >&2
+  exit 1
+}
+
+# A garbage cache must degrade to model-only rather than rendering junk.
+render_cached_savings 'not-a-number'
+[ "$(cat "$title_file")" = "Weave Router · claude-sonnet-5 ← gpt-5.6-terra" ] || {
+  echo "a malformed cost cache leaked into the title: $(cat "$title_file")" >&2
+  exit 1
+}
+
+# Opting out must suppress the fetch entirely, not just the rendering.
+optout_cache="$work/cache-optout"
+printf '%s\n' '{"session_id":"session-3","model":"gpt-5.6-terra","last_assistant_message":"✦ **Weave Router** → claude-sonnet-5 · best pick"}' \
+  | HOME="$savings_home" XDG_CACHE_HOME="$optout_cache" WEAVE_CODEX_STATUS_SAVINGS=0 \
+    WEAVE_CODEX_STATUS_TITLE_FILE="$title_file" "$helper" >/dev/null
+sleep 0.5
+[ ! -f "$optout_cache/weave-router/codex/session-3.cost" ] || {
+  echo "WEAVE_CODEX_STATUS_SAVINGS=0 still fetched the session cost" >&2
+  exit 1
+}
+
 echo "Codex status helper regression tests passed"
