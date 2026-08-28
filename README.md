@@ -257,15 +257,6 @@ Keep liveness probes on `/health`. Point startup or readiness probes at
 - 🏗️ [**Architecture**](AGENTS.md): package layout, import contracts,
   recipes for adding endpoints / providers / strategies.
 
-## Star history
-
-<a href="https://www.star-history.com/?repos=workweave%2Frouter&type=date&legend=top-left">
- <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=workweave/router&type=date&theme=dark&legend=top-left&sealed_token=-pf-ayHRi6Qj8LlqpCOzptRiSx_99RWMohl1DfkevTWk2EFDCHcm78OaYPNCZiaiPJXCrxGQ13R04m0gZuofkh2NTmOyr4pRRgaBxdpWE92EmcfrfhX-4w" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=workweave/router&type=date&legend=top-left&sealed_token=-pf-ayHRi6Qj8LlqpCOzptRiSx_99RWMohl1DfkevTWk2EFDCHcm78OaYPNCZiaiPJXCrxGQ13R04m0gZuofkh2NTmOyr4pRRgaBxdpWE92EmcfrfhX-4w" />
-   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=workweave/router&type=date&legend=top-left&sealed_token=-pf-ayHRi6Qj8LlqpCOzptRiSx_99RWMohl1DfkevTWk2EFDCHcm78OaYPNCZiaiPJXCrxGQ13R04m0gZuofkh2NTmOyr4pRRgaBxdpWE92EmcfrfhX-4w" />
- </picture>
-</a>
 
 ---
 
