@@ -4,6 +4,7 @@ smoke/mitmproxy/cassettes/README.md
   s_e6524cf447461a::t_564ab44138085f 27-31
 smoke/mitmproxy/store_test.go
   s_e6524cf447461a::t_d48a7fb0ece428 1-8,15,18,20,25-27,35,38-40,47,50-52,57-72,74-75
+  s_e6524cf447461a::t_840e9f7e74bd7c 53-56,73
 smoke/mitmproxy/store.go
   s_e6524cf447461a::t_02f4b67e56b6df 13,15,137-142,145
   s_e6524cf447461a::t_f786eb406c1ff6 143-144
