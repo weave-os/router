@@ -134,6 +134,15 @@ func (s *store) save(key string, c *cassette) error {
 		os.Remove(tmpPath)
 		return err
 	}
+	// CreateTemp makes the file 0600, owned by the container's root. The
+	// cassette dir is bind-mounted from the repo, so the nightly refresh job's
+	// git (running as the unprivileged runner user) then can't read what it
+	// just recorded — `git add` dies with "Permission denied" and no refresh PR
+	// is ever opened. Widen to 0644 before publishing.
+	if err := os.Chmod(tmpPath, 0o644); err != nil {
+		os.Remove(tmpPath)
+		return err
+	}
 	return os.Rename(tmpPath, s.path(key))
 }
 

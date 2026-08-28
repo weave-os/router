@@ -1,6 +1,10 @@
 package main
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
 
 // TestRequestKeyIgnoresPromptCacheKey pins that per-run session-affinity hints
 // don't change the cassette key, so replay-only CI stays green.
@@ -43,5 +47,29 @@ func TestNormalizeRequestBodyLeavesOtherBodiesUntouched(t *testing.T) {
 	}
 	if got := string(normalizeRequestBody([]byte("not json"))); got != "not json" {
 		t.Errorf("non-JSON body rewritten: %s", got)
+	}
+}
+
+// TestSaveWritesGroupReadableCassette guards the bug that kept the nightly
+// refresh red for a month: CreateTemp's 0600, owned by the container's root,
+// left recorded cassettes unreadable by the CI runner's git, so `git add`
+// failed with "Permission denied" and no refresh PR was ever opened.
+func TestSaveWritesGroupReadableCassette(t *testing.T) {
+	dir := t.TempDir()
+	s, err := newStore(dir)
+	if err != nil {
+		t.Fatalf("newStore: %v", err)
+	}
+	const key = "abc123"
+	if err := s.save(key, &cassette{Method: "POST", Path: "/v1/responses", StatusCode: 200, Body: []byte("{}")}); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+
+	info, err := os.Stat(filepath.Join(dir, key+".json"))
+	if err != nil {
+		t.Fatalf("stat cassette: %v", err)
+	}
+	if perm := info.Mode().Perm(); perm != 0o644 {
+		t.Errorf("cassette must be readable by the CI runner's git; got %o want 644", perm)
 	}
 }
