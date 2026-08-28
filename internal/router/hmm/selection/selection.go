@@ -19,11 +19,9 @@ type Pick struct {
 	HarnessOrder bool
 }
 
-// ArmOrder returns the cluster's arm order for a harness: the harness-specific
-// list when the roster declares a non-empty one, else the pooled cluster order.
-// The public sidecar orders by cluster arms only; per-harness ordering is a
-// roster-data extension the private sidecar consumes, mirrored here from the
-// generated arms_by_harness field.
+// ArmOrder returns the cluster arm order for harness: harness-specific when
+// the roster declares a non-empty one, else pooled. Per-harness ordering is
+// a private-sidecar extension mirrored from the generated arms_by_harness field.
 func ArmOrder(cluster rosterdata.Cluster, harness string) (order []string, harnessSpecific bool) {
 	if arms := cluster.ArmsByHarness[harness]; len(arms) > 0 {
 		return arms, true
@@ -31,18 +29,11 @@ func ArmOrder(cluster rosterdata.Cluster, harness string) (order []string, harne
 	return cluster.Arms, false
 }
 
-// Select walks rankedGroups in order and returns the first group with a roster
-// arm present in candidates, picking that group's rank-1 eligible arm. This
-// mirrors the sidecar's select_roster_group: the ranked order there is class
-// labels sorted by (-probability, class index), which is exactly the order the
-// sidecar reports in ranked_fallback, so callers pass that order through.
-//
-// Ties are impossible by construction: the order is a list, and the first
-// candidate-set member wins deterministically.
-//
-// The private sidecar may additionally clamp the selected group by mode /
-// turn type and filter membership per harness (membership_by_harness); the
-// public sidecar (sidecars/hmm/) does neither, so neither is applied here.
+// Select walks rankedGroups and returns the first group whose roster arm is in
+// candidates (rank-1 pick). rankedGroups must be pre-sorted by the sidecar's
+// ranked_fallback order (desc probability). The private sidecar additionally
+// clamps by mode/turn-type and filters via membership_by_harness; the public
+// sidecar does neither, so neither is applied here.
 func Select(roster *rosterdata.Roster, rankedGroups []string, harness string, candidates map[string]struct{}) (Pick, bool) {
 	depth := 0
 	for _, group := range rankedGroups {
