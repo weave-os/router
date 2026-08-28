@@ -1,9 +1,6 @@
-// Package rosterdata loads the generated HMM roster JSON
-// (hmm_router_cluster_roster_v6) as declarative data: schema, parsing, and
-// fail-loud validation against the model catalog. Nothing serves from a
-// loaded roster yet. This format is intended to become the canonical roster
-// location, replacing the roster embedded in the immutable sidecar artifact
-// package.
+// Package rosterdata decodes and validates the generated HMM roster JSON as
+// declarative data. Nothing serves from a loaded roster yet; this is intended
+// to replace the roster embedded in the immutable sidecar artifact package.
 package rosterdata
 
 import (
@@ -81,9 +78,8 @@ func Parse(data []byte) (*Roster, error) {
 	return &roster, nil
 }
 
-// Load reads, parses, and fully validates the roster file at path: schema
-// checks plus fail-loud catalog validation of every referenced arm via
-// hmm.ValidateRosterIDs. Any arm that cannot be dispatched is a load error.
+// Load reads and fully validates the roster at path, including catalog
+// validation of every arm via hmm.ValidateRosterIDs.
 func Load(path string) (*Roster, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
