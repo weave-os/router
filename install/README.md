@@ -333,22 +333,19 @@ registry every client's install reads. Prompt directives reach the router
 itself; local-config toggles flip config on disk, so they exist only where this
 installer owns the config file.
 
-| Directive | Claude Code | Codex | opencode | pi | Cursor |
-| --- | --- | --- | --- | --- | --- |
-| force-model (`fm`) | `/force-model` | `$force-model` | `/force-model` | `/fm` (native) | manual |
-| unforce-model (`ufm`) | `/unforce-model` | `$unforce-model` | `/unforce-model` | `/ufm` (native) | manual |
-| router-feedback (`rf`) | `/router-feedback` | `$router-feedback` | `/router-feedback` | — | manual |
-| router-session | `/router-session` | — | — | — | — |
-| router-off / on / status | `/router-off` … | `$disable-routing` (off only) | — | — | — |
-| router-models (`models`) | `/router-models` | — | — | — | — |
+| Directive | Claude Code | Codex | opencode | pi |
+| --- | --- | --- | --- | --- |
+| force-model (`fm`) | `/force-model` | `$force-model` | `/force-model` | `/fm` (native) |
+| unforce-model (`ufm`) | `/unforce-model` | `$unforce-model` | `/unforce-model` | `/ufm` (native) |
+| router-feedback (`rf`) | `/router-feedback` | `$router-feedback` | `/router-feedback` | — |
+| router-session | `/router-session` | — | — | — |
+| router-off / on / status | `/router-off` … | `$disable-routing` (off only) | — | — |
+| router-models (`models`) | `/router-models` | — | — | — |
 
 - **Codex** uses `$name` skills because Codex reserves `/…` for built-ins; each
   skill sends the leading-space prompt form.
 - **pi** implements `/fm` and `/ufm` in the `@workweave/router` extension rather
   than through installed files; the registry asserts its names match.
-- **Cursor** exposes no command or skill file this installer owns, so its
-  directives are manual: type the leading-space form ( `/force-model …`)
-  yourself. The base-URL toggle lives in Cursor's own settings UI.
 - The local toggles are Claude Code-only (plus Codex's `$disable-routing`)
   because no other client has a config file this installer writes.
 
@@ -363,10 +360,6 @@ What each `off` does (and `on` reverses byte-for-byte):
   `[model_providers.weave]` block stays. Takes effect on the next `codex` run.
 - **opencode** — parks and removes the top-level `weave/...` model so opencode
   reverts to its own default; `provider.weave` stays. Next `opencode` run.
-
-**Cursor** has no config file we own — its base URL lives in Cursor's own
-settings UI. To toggle it, open **Settings → Models → Override OpenAI Base
-URL** and turn the override (`<base-url>/v1`) on or off there.
 
 ## Choosing which models the router may pick
 

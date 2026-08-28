@@ -51,8 +51,6 @@ slash commands `/router-off`, `/router-on`, and `/router-status` do the same.
 Codex installs a `$disable-routing` skill that switches its next session back
 to the normal provider; Codex does not support third-party `/disable-routing`
 slash commands. The shell equivalent is `npx @workweave/router disable-routing`.
-Cursor has no config file we own — toggle its base URL override in **Settings →
-Models** instead.
 
 Pick which models the router is allowed to route to:
 
