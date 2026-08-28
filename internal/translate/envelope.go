@@ -1326,10 +1326,7 @@ var modelMaxOutputTokens = map[string]int{
 	"minimax/minimax-m2.7":             65536,
 	"z-ai/glm-5":                       65536,
 	"z-ai/glm-5.1":                     65536,
-	// Both 5.3 arms document a 128K max output (docs.z.ai/guides/llm/glm-5.3).
-	// Without an entry the clamp falls back to 8192 and truncates Claude Code's
-	// 64K request 8x, which always-on reasoning would spend first.
-	"z-ai/glm-5.3":                     131072,
+	"z-ai/glm-5.3":                     131072, // Both 5.3 arms document a 128K max output (docs.z.ai/guides/llm/glm-5.3)
 	"z-ai/glm-5.3-flash":               131072,
 	"google/gemini-3.7-flash":          65536,
 }
