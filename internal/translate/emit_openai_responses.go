@@ -78,9 +78,8 @@ func applyResponsesSessionAffinity(body []byte, opts EmitOptions) ([]byte, error
 	return out, nil
 }
 
-// stableResponsesPromptCacheKey is the Responses-shaped counterpart of
-// stablePromptCacheKey: it hashes the cacheable prefix (instructions + tool
-// definitions) and returns "" when there is none.
+// stableResponsesPromptCacheKey hashes the cacheable prefix (instructions + tools)
+// for Responses bodies and returns "" when there is none.
 func stableResponsesPromptCacheKey(body []byte) string {
 	h := sha1.New()
 	var hasPrefix bool

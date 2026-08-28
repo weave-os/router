@@ -39,8 +39,7 @@ func (p *pckStrictGatewayProvider) Proxy(ctx context.Context, decision router.De
 }
 
 // TestService_ProxyOpenAIChatCompletion_GatewayPromptCacheKeyRejectionRetriesAndMemoizes
-// verifies the OpenAI Chat Completions ingress gives strict gateways a
-// one-shot strip-and-retry, and memoizes the endpoint so later turns skip it.
+// verifies the strip-and-retry fires once on the first strict-gateway 400, then memoizes.
 func TestService_ProxyOpenAIChatCompletion_GatewayPromptCacheKeyRejectionRetriesAndMemoizes(t *testing.T) {
 	gw := &pckStrictGatewayProvider{}
 	fr := &fakeRouter{decision: router.Decision{
