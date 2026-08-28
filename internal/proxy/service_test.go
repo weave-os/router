@@ -534,8 +534,9 @@ func TestService_ProxyOpenAIResponses_NativeBadgeIsCodexOnlyAndHonorsSuppression
 	}
 }
 
-// A Codex turn must show the marker even when the action is tool-call-only; both
-// cases were previously invisible (debug-gated marker; badge could only ride text deltas).
+// A first Codex turn must show the marker even when the action is tool-call-only;
+// both cases were previously invisible (debug-gated marker; badge could only
+// ride text deltas).
 func TestService_ProxyOpenAIResponses_EmitsRoutingMarkerForCodex(t *testing.T) {
 	for _, tc := range []struct {
 		name     string

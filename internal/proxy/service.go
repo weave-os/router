@@ -534,15 +534,9 @@ func suppressMarkerIfRequested(ctx context.Context, h http.Header, marker string
 	return marker
 }
 
-// routingMarkerFor builds the "brand → model · note" snippet emitted at the
-// start of every cross-format streamed response.
+// routingMarkerFor builds the "brand → model · note" snippet emitted when the
+// selected serving model changes (and on the first routed turn).
 func routingMarkerFor(res turnLoopResult) string {
-	return routingMarkerForOpts(res, false)
-}
-
-// routingMarkerForOpts is routingMarkerFor with an always-on switch for
-// clients (e.g. Codex) that have no persistent statusline.
-func routingMarkerForOpts(res turnLoopResult, always bool) string {
 	decision := res.Decision
 	if decision.Model == "" {
 		return ""
@@ -564,9 +558,7 @@ func routingMarkerForOpts(res turnLoopResult, always bool) string {
 	// for this turn" / "best pick for this turn" repeating each turn would
 	// otherwise be visible even when nothing switched. Hard-pin carve-outs and
 	// first-turn (empty prior) cases still flow to the sidecar marker below.
-	// Codex has no persistent statusline, so always-on keeps the badge even when
-	// the served model did not change.
-	if !always && res.PriorServedModel == res.Decision.ServedIdentity() {
+	if res.PriorServedModel == res.Decision.ServedIdentity() {
 		return ""
 	}
 	// A sidecar-supplied marker is a genuine per-turn status line (e.g.
@@ -5648,7 +5640,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	preludeBuf := newPreludeBuffer(contentSink)
 	var rootSink http.ResponseWriter = preludeBuf
 
-	marker := suppressMarkerIfRequested(ctx, r.Header, routingMarkerForOpts(routeRes, clientID.ClientApp == ClientAppCodex))
+	marker := suppressMarkerIfRequested(ctx, r.Header, routingMarkerFor(routeRes))
 	if billing.SubscriptionOnlyFromContext(ctx) {
 		// Always surface the depleted-credits warning (not gated by the
 		// routing-marker opt-out): a billing state change the caller must see.
