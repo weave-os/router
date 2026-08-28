@@ -130,8 +130,7 @@ type Result struct {
 	// nil on sidecars that do not report it.
 	ClassProbabilities map[string]float64
 	// PinStickyOverrideEligible is the typed successor of the
-	// "[pin_sticky_override_eligible]" reason sentinel. Nil on sidecars that
-	// do not report it, in which case the sentinel substring match applies.
+	// "[pin_sticky_override_eligible]" sentinel; nil when the sidecar does not report it.
 	PinStickyOverrideEligible *bool
 }
 
