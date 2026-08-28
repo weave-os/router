@@ -116,7 +116,9 @@ func (e *RequestEnvelope) PrepareOpenAI(in http.Header, opts EmitOptions) (provi
 // OpenRouter gets x-session-id, OpenAI and customer openai_gateway endpoints
 // get the prompt_cache_key body field (a spec Chat Completions field, so a
 // gateway that forwards the body forwards the hint — no unknown-header risk),
-// xAI Chat Completions gets x-grok-conv-id. Bedrock's explicit cachePoint
+// xAI Chat Completions gets x-grok-conv-id — including grok served through an
+// openai_gateway, since xAI only honors prompt_cache_key on the Responses API
+// and keys Chat Completions cache routing on the header alone. Bedrock's explicit cachePoint
 // caching is centrally routed, so it gets nothing.
 //
 // The header-based hints are gated on a real session key — collapsing keyless
@@ -135,6 +137,10 @@ func applySessionAffinity(body []byte, headers http.Header, opts EmitOptions) ([
 		}
 		return body, nil
 	case providers.ProviderOpenAI, providers.ProviderOpenAIGateway:
+		if opts.TargetProvider == providers.ProviderOpenAIGateway &&
+			strings.HasPrefix(opts.TargetModel, "grok") && opts.SessionAffinity != "" {
+			headers.Set("x-grok-conv-id", opts.SessionAffinity)
+		}
 		if opts.StripPromptCacheKey {
 			// The endpoint rejects the field as unknown; a caller-supplied key
 			// would 400 identically, so it is dropped too.
