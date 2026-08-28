@@ -8,11 +8,9 @@ import (
 // Diagnostic re-exports policy.Diagnostic for roster-validation callers.
 type Diagnostic = policy.Diagnostic
 
-// ValidateRosterIDs reports every roster arm ID that cannot resolve to a
-// dispatchable catalog model: IDs no catalog model maps to, IDs claimed by
-// multiple catalog models, and IDs whose model has no policy-allowed
-// provider under ManagedProviderPolicy. Observation only — resolution
-// behavior (including DeployedModelsForRosterIDs's silent drop) is unchanged.
+// ValidateRosterIDs reports roster arms that cannot be dispatched — unknown,
+// ambiguous, or provider-policy-blocked. Observation only: DeployedModelsForRosterIDs's
+// silent drop is unchanged.
 func ValidateRosterIDs(rosterIDs []string) []Diagnostic {
 	return validateRosterIDs(rosterIDs, catalog.Models, policy.ManagedProviderPolicy())
 }
