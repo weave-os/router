@@ -1452,23 +1452,26 @@ func sanitizeGeminiSchemaNode(v any, path string) (any, error) {
 	if err := normalizeGeminiNullableType(out, path); err != nil {
 		return nil, err
 	}
+	if nullable, ok := out["nullable"].(bool); ok && nullable {
+		nullableFromAnyOf = true
+	}
 	flattened, err := flattenGeminiAnyOf(out, path)
 	if err != nil {
 		return nil, err
 	}
 	out = flattened
-	if nullableFromAnyOf {
-		out["nullable"] = true
+	if err := validateGeminiRequired(out, path); err != nil {
+		return nil, err
 	}
+	resolveGeminiEnum(out)
 	if _, hasType := out["type"]; !hasType {
 		if _, hasEnum := out["enum"]; hasEnum {
 			out["type"] = "string"
 		}
 	}
-	if err := validateGeminiRequired(out, path); err != nil {
-		return nil, err
+	if nullableFromAnyOf {
+		out["nullable"] = true
 	}
-	resolveGeminiEnum(out)
 	return stripEmptyNullable(out), nil
 }
 
@@ -2037,10 +2040,15 @@ func isGeminiNullLikeSchema(v any) bool {
 		return false
 	}
 	enum, hasEnum := node["enum"].([]any)
-	if !hasEnum || len(filterEmptyStringEnum(enum)) > 0 {
-		return false
+	if hasEnum {
+		if !allStringEnum(enum) || len(filterEmptyStringEnum(enum)) > 0 {
+			return false
+		}
 	}
 	if typeName, ok := node["type"].(string); ok && typeName != "" && typeName != "null" {
+		return false
+	}
+	if !hasEnum && node["type"] == nil {
 		return false
 	}
 	for key := range node {

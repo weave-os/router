@@ -1138,6 +1138,32 @@ func TestPrepareGemini_CollapsesNullableAnyOfDates(t *testing.T) {
 	assert.NotContains(t, title, "anyOf")
 }
 
+func TestPrepareGemini_PreservesNumericAnyOfEnum(t *testing.T) {
+	body := []byte(`{
+		"messages": [{"role":"user","content":"hi"}],
+		"tools": [{
+			"name":"set_priority",
+			"input_schema":{
+				"type":"object",
+				"properties":{
+					"priority":{"anyOf":[{"enum":[0,1,2]},{"type":"null"}]}
+				}
+			}
+		}]
+	}`)
+	env, err := translate.ParseAnthropic(body)
+	require.NoError(t, err)
+	prep, err := env.PrepareGemini(http.Header{}, translate.EmitOptions{})
+	require.NoError(t, err)
+
+	out := mustUnmarshal(t, prep.Body)
+	params := out["tools"].([]any)[0].(map[string]any)["functionDeclarations"].([]any)[0].(map[string]any)["parameters"].(map[string]any)
+	priority := params["properties"].(map[string]any)["priority"].(map[string]any)
+	assert.Equal(t, true, priority["nullable"])
+	assert.NotContains(t, priority, "enum", "non-string enums still drop, but the branch itself must survive")
+	assert.NotContains(t, priority, "type", "dropping a numeric enum must not invent type:string")
+}
+
 func TestPrepareGemini_DropsNonStringEnums(t *testing.T) {
 	// Gemini types every enum member as TYPE_STRING and 400s on anything else.
 	// Dropping is lossless: toolcheck enforces against the original schema.
