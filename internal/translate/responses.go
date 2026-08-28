@@ -670,9 +670,8 @@ func (t *ResponsesWriter) ClearPassthrough() bool {
 }
 
 // SetPassthroughBadge switches to native Responses passthrough while opting
-// into a Codex-visible routed-model badge. Existing assistant text is
-// rewritten in place; text-free turns receive a synthetic assistant message
-// before native output so Codex has a visible surface for the badge.
+// into a Codex-visible badge; text-free turns get a synthetic assistant item
+// so Codex has a visible surface for the badge.
 func (t *ResponsesWriter) SetPassthroughBadge() {
 	t.EnableCodexBadgeProvenance()
 	t.passthrough = true
@@ -1292,9 +1291,8 @@ func (t *ResponsesWriter) rewriteNativeResponsesEvent(raw []byte) []byte {
 	return t.rewriteNativeEventWith(raw, true)
 }
 
-// rewriteNativeHeldEvent re-applies badge/footer text to an event that was held
-// back for the footer decision. Coordinates were already shifted when the event
-// was first seen, and the shift is not idempotent.
+// rewriteNativeHeldEvent re-applies badge/footer to a held event without
+// re-shifting coordinates; the shift is applied once on first sight and is not idempotent.
 func (t *ResponsesWriter) rewriteNativeHeldEvent(raw []byte) []byte {
 	return t.rewriteNativeEventWith(raw, false)
 }
