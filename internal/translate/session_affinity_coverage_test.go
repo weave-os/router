@@ -37,9 +37,8 @@ var expectedSessionAffinityMechanism = map[string]sessionAffinityMechanism{
 	providers.ProviderOpenAI:     mechanismPromptCacheKeyBody,
 	providers.ProviderXAI:        mechanismGrokConvIDHeader,
 	providers.ProviderBedrock:    mechanismNone,
-	// A customer endpoint publishes no affinity contract and may reject an
-	// unknown header, so the hint rides the spec prompt_cache_key body field
-	// instead — a gateway that forwards the body forwards the hint.
+	// A customer endpoint may reject unknown headers, so the hint rides the spec
+	// prompt_cache_key body field — a gateway that forwards the body forwards the hint.
 	providers.ProviderOpenAIGateway: mechanismPromptCacheKeyBody,
 }
 

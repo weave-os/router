@@ -5915,9 +5915,8 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 			gatewayKey := gatewayResponsesKey(actx, d.Provider)
 			stripPCK := s.gatewayRejectsPromptCacheKey(gatewayKey)
 			err := dispatchOpenAI(actx, d, p, surface, stripPCK)
-			// Same prompt_cache_key unknown-field class as ProxyMessages'
-			// OpenAI-compat dispatch: re-emit once without the hint while
-			// pre-commit, and remember the endpoint so later turns skip it.
+			// Same prompt_cache_key unknown-field class as ProxyMessages' OpenAI-compat
+			// path: re-emit once without the hint while pre-commit; memoize the endpoint.
 			if err != nil && !stripPCK && gatewayKey != "" && !committed(preludeBuf) &&
 				providers.IsUpstreamPromptCacheKeyRejection(err) {
 				s.rememberGatewayRejectsPromptCacheKey(gatewayKey)
