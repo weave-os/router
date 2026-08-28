@@ -215,9 +215,11 @@ func rewriteModelField(body []byte, modelIDMap map[string]string) []byte {
 }
 
 // effectiveBaseURL resolves this request's base URL, folding an Azure resource
-// endpoint onto the /openai/v1 surface it actually serves.
+// endpoint onto /openai/v1 and a Snowflake Cortex REST root onto
+// /api/v2/cortex/v1 — the OpenAI-spec surfaces they actually serve.
 func (c *Client) effectiveBaseURL(ctx context.Context) string {
-	return providers.NormalizeAzureOpenAIBaseURL(proxy.EffectiveBaseURL(ctx, c.baseURL))
+	base := providers.NormalizeAzureOpenAIBaseURL(proxy.EffectiveBaseURL(ctx, c.baseURL))
+	return providers.NormalizeSnowflakeCortexOpenAIBaseURL(base)
 }
 
 // setAuth sets the Authorization header, preferring BYOK credentials over the deployment-level key.
