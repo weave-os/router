@@ -118,6 +118,10 @@ type Service struct {
 	// Responses API, so only the first tool turn against such an endpoint pays
 	// the probe. Keyed by gatewayResponsesKey.
 	noResponsesGateways sync.Map
+	// noPromptCacheKeyGateways memoizes gateway endpoints that rejected
+	// prompt_cache_key as an unknown field, so only the first turn against
+	// such an endpoint pays the 400. Keyed by gatewayResponsesKey.
+	noPromptCacheKeyGateways sync.Map
 	// excludedModelsOverride, when non-nil, replaces the per-installation
 	// exclusion list on every request. Set from ROUTER_EXCLUDED_MODELS at boot.
 	excludedModelsOverride map[string]struct{}
@@ -1817,6 +1821,25 @@ func (s *Service) rememberGatewayLacksResponses(key string) {
 	s.noResponsesGateways.Store(key, struct{}{})
 }
 
+// gatewayRejectsPromptCacheKey reports whether that endpoint already told us
+// it refuses bodies carrying prompt_cache_key.
+func (s *Service) gatewayRejectsPromptCacheKey(key string) bool {
+	if key == "" {
+		return false
+	}
+	_, ok := s.noPromptCacheKeyGateways.Load(key)
+	return ok
+}
+
+// rememberGatewayRejectsPromptCacheKey records a gateway's unknown-field
+// rejection of prompt_cache_key so later turns go out without the hint.
+func (s *Service) rememberGatewayRejectsPromptCacheKey(key string) {
+	if key == "" {
+		return
+	}
+	s.noPromptCacheKeyGateways.Store(key, struct{}{})
+}
+
 // newTelemetryBuffer returns a request-scoped buffer, or nil when OTel is
 // disabled — guards against a nil-interface method-call panic.
 func (s *Service) newTelemetryBuffer() *otel.Buffer {
@@ -3303,9 +3326,10 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			// error plus a finalize thunk so a gateway that rejects Responses can
 			// be re-emitted onto chat/completions before finalize commits the
 			// prelude buffer. Translators are stateful, so the retry calls again.
-			dispatchOpenAICompat := func(actx context.Context, d router.Decision, p providers.Client, useResponses bool) (error, func(error) error) {
+			dispatchOpenAICompat := func(actx context.Context, d router.Decision, p providers.Client, useResponses, stripPromptCacheKey bool) (error, func(error) error) {
 				attemptOpts := targetOpts
 				attemptOpts.TargetProvider = d.Provider
+				attemptOpts.StripPromptCacheKey = stripPromptCacheKey
 				respSummary = translate.ResponseSummary{}
 				var prep providers.PreparedRequest
 				var emitErr error
@@ -3372,7 +3396,8 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 				useResponses := translate.UseOpenAIResponsesAPI(
 					d.Provider, targetOpts.Capabilities, feats.HasTools) &&
 					!s.gatewayLacksResponses(gatewayKey)
-				rawErr, finalize := dispatchOpenAICompat(actx, d, p, useResponses)
+				stripPCK := s.gatewayRejectsPromptCacheKey(gatewayKey)
+				rawErr, finalize := dispatchOpenAICompat(actx, d, p, useResponses, stripPCK)
 				// A gateway with no usable Responses surface answers 404, or 4xx
 				// prose saying the API is off for this account. Re-emit onto
 				// chat/completions once while pre-commit, and remember the answer
@@ -3387,7 +3412,24 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 					if preludeBuf != nil {
 						preludeBuf.Discard()
 					}
-					rawErr, finalize = dispatchOpenAICompat(actx, d, p, false)
+					useResponses = false
+					rawErr, finalize = dispatchOpenAICompat(actx, d, p, false, stripPCK)
+				}
+				// prompt_cache_key is spec Chat Completions, but a gateway whose
+				// relayed schema trails the spec 400s it as an unknown field.
+				// Re-emit once without the hint while pre-commit, and remember the
+				// answer so later turns skip both the hint and the probe.
+				if rawErr != nil && !stripPCK && gatewayKey != "" && !committed(preludeBuf) &&
+					providers.IsUpstreamPromptCacheKeyRejection(rawErr) {
+					s.rememberGatewayRejectsPromptCacheKey(gatewayKey)
+					log.Warn("Gateway rejected prompt_cache_key; retrying without the affinity hint",
+						"model", d.Model,
+						"decision_provider", d.Provider,
+						"request_id", requestID)
+					if preludeBuf != nil {
+						preludeBuf.Discard()
+					}
+					rawErr, finalize = dispatchOpenAICompat(actx, d, p, useResponses, true)
 				}
 				return finalize(rawErr)
 			}, nil

@@ -348,3 +348,40 @@ func TestSessionAffinity_OpenAIEmptyToolsArrayStaysUnhinted(t *testing.T) {
 	_, ok := promptCacheKey(t, out.Body)
 	assert.False(t, ok, "an empty tools array must not count as a cacheable prefix")
 }
+
+// A gateway that rejected prompt_cache_key as an unknown field gets its turns
+// re-emitted with StripPromptCacheKey: no hint is injected even with a session
+// key present.
+func TestSessionAffinity_StripPromptCacheKeySkipsInjection(t *testing.T) {
+	env, err := translate.ParseAnthropic(anthropicSrc())
+	require.NoError(t, err)
+
+	out, err := env.PrepareOpenAI(nil, translate.EmitOptions{
+		TargetModel:         "grok-4.6",
+		TargetProvider:      providers.ProviderOpenAIGateway,
+		SessionAffinity:     affinityKey,
+		StripPromptCacheKey: true,
+	})
+	require.NoError(t, err)
+
+	_, ok := promptCacheKey(t, out.Body)
+	assert.False(t, ok, "StripPromptCacheKey must suppress the affinity hint")
+}
+
+// The rejecting endpoint 400s any body naming the field, so a caller-supplied
+// prompt_cache_key is dropped too when StripPromptCacheKey is set.
+func TestSessionAffinity_StripPromptCacheKeyDropsCallerKey(t *testing.T) {
+	src := []byte(`{"model":"gpt-5.5","prompt_cache_key":"caller-key","messages":[{"role":"system","content":"sys"},{"role":"user","content":"hi"}]}`)
+	env, err := translate.ParseOpenAI(src)
+	require.NoError(t, err)
+
+	out, err := env.PrepareOpenAI(nil, translate.EmitOptions{
+		TargetModel:         "gpt-5.5",
+		TargetProvider:      providers.ProviderOpenAIGateway,
+		StripPromptCacheKey: true,
+	})
+	require.NoError(t, err)
+
+	_, ok := promptCacheKey(t, out.Body)
+	assert.False(t, ok, "a caller-supplied prompt_cache_key must be dropped for a rejecting endpoint")
+}

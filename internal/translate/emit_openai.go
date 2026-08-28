@@ -125,6 +125,15 @@ func applySessionAffinity(body []byte, headers http.Header, opts EmitOptions) ([
 		}
 		return body, nil
 	case providers.ProviderOpenAI, providers.ProviderOpenAIGateway:
+		if opts.StripPromptCacheKey {
+			// The endpoint rejects the field as unknown; a caller-supplied key
+			// would 400 identically, so it is dropped too.
+			out, err := sjson.DeleteBytes(body, "prompt_cache_key")
+			if err != nil {
+				return nil, fmt.Errorf("delete prompt_cache_key: %w", err)
+			}
+			return out, nil
+		}
 		cacheKey := opts.SessionAffinity
 		if cacheKey == "" {
 			// A same-format OpenAI caller may partition caching with its own

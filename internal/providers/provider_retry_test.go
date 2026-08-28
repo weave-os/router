@@ -263,6 +263,63 @@ func TestIsUpstreamOutputConfigFormatRejection(t *testing.T) {
 	assert.False(t, providers.IsUpstreamOutputConfigFormatRejection(fmt.Errorf("transport blew up")))
 }
 
+// TestIsUpstreamPromptCacheKeyRejection pins the gateway 400 that names
+// prompt_cache_key as an unknown field — licensing the hint-stripped re-emit.
+// A 400 merely mentioning the field for another reason must not match.
+func TestIsUpstreamPromptCacheKeyRejection(t *testing.T) {
+	cases := []struct {
+		name   string
+		status int
+		body   string
+		want   bool
+	}{
+		{
+			name:   "gateway rejects the affinity hint",
+			status: http.StatusBadRequest,
+			body:   `{"message":"prompt_cache_key: Extra inputs are not permitted"}`,
+			want:   true,
+		},
+		{
+			name:   "pydantic loc list phrasing",
+			status: http.StatusBadRequest,
+			body:   `{"detail":[{"loc":["body","prompt_cache_key"],"msg":"extra fields not permitted"}]}`,
+			want:   true,
+		},
+		{
+			name:   "serde unknown field phrasing",
+			status: http.StatusBadRequest,
+			body:   `{"message":"unknown field ` + "`prompt_cache_key`" + ` at line 1 column 42"}`,
+			want:   true,
+		},
+		{
+			name:   "400 disliking the key's contents is not this class",
+			status: http.StatusBadRequest,
+			body:   `{"message":"prompt_cache_key: string too long"}`,
+			want:   false,
+		},
+		{
+			name:   "unrelated unknown field is not this class",
+			status: http.StatusBadRequest,
+			body:   `{"message":"reasoning_effort: Extra inputs are not permitted"}`,
+			want:   false,
+		},
+		{
+			name:   "500 mentioning the field is not a rejection",
+			status: http.StatusInternalServerError,
+			body:   `{"message":"prompt_cache_key: unknown field"}`,
+			want:   false,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := &providers.UpstreamErrorResponse{Status: tc.status, Body: []byte(tc.body)}
+			assert.Equal(t, tc.want, providers.IsUpstreamPromptCacheKeyRejection(err))
+		})
+	}
+	assert.False(t, providers.IsUpstreamPromptCacheKeyRejection(nil))
+	assert.False(t, providers.IsUpstreamPromptCacheKeyRejection(fmt.Errorf("transport blew up")))
+}
+
 // TestUpstreamErrorBodyMessage pins the buffered-body extraction used by the
 // ProxyMessages complete log: nested error.message wins, top-level message is
 // the fallback, and a non-JSON body is returned truncated rather than dropped.
