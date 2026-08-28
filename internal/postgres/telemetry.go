@@ -679,10 +679,8 @@ func (r *TelemetryRepo) GetTelemetryRowsAll(ctx context.Context, from, to time.T
 	return out, nil
 }
 
-// GetSessionCost aggregates one session's committed cost rows. The
-// installation_id predicate is the authorization boundary: a session id from
-// another installation matches nothing and comes back as not-found rather than
-// as another tenant's cost.
+// GetSessionCost aggregates committed cost for one session. installation_id is the authorization
+// boundary — a foreign session id matches nothing and returns not-found, not another tenant's cost.
 func (r *TelemetryRepo) GetSessionCost(ctx context.Context, installationID, sessionID string) (proxy.SessionCost, error) {
 	id, err := uuid.Parse(installationID)
 	if err != nil {
@@ -699,9 +697,7 @@ func (r *TelemetryRepo) GetSessionCost(ctx context.Context, installationID, sess
 	if err != nil {
 		return proxy.SessionCost{}, err
 	}
-	// GROUP BY t.session_id with a non-null session_id predicate means the
-	// column is never NULL here; SQLC types it as a pointer because the
-	// underlying column is nullable.
+	// Non-null WHERE predicate means session_id is never NULL here; SQLC types it as *string because the column is nullable.
 	if row.SessionID == nil {
 		return proxy.SessionCost{}, proxy.ErrSessionCostNotFound
 	}

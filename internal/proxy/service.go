@@ -1897,11 +1897,8 @@ func (s *Service) MetricsSummary(ctx context.Context, installationID string, fro
 	return s.telemetry.GetTelemetrySummary(ctx, installationID, from, to)
 }
 
-// ErrSessionCostNotFound means this installation has no committed cost-bearing
-// telemetry for the session id — an unknown id, another installation's session,
-// or a session whose asynchronous telemetry has not landed yet. The three are
-// deliberately indistinguishable so a caller cannot probe for the existence of
-// a session it does not own.
+// ErrSessionCostNotFound is returned for unknown, foreign, or not-yet-committed
+// sessions — deliberately indistinguishable so callers cannot probe foreign sessions.
 var ErrSessionCostNotFound = errors.New("no committed router telemetry for session")
 
 // SessionCost returns the committed router cost of one client session, scoped
