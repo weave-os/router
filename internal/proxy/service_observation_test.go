@@ -97,6 +97,10 @@ func (c *captureTelemetry) GetTelemetryModelBreakdownAll(context.Context, time.T
 	return nil, nil
 }
 
+func (c *captureTelemetry) GetSessionCost(context.Context, string, string) (proxy.SessionCost, error) {
+	return proxy.SessionCost{}, proxy.ErrSessionCostNotFound
+}
+
 func (c *captureTelemetry) GetTelemetryBySessionSequence(_ context.Context, _ uuid.UUID, _ []byte, _ string, seq int) (proxy.TelemetryTurnResult, error) {
 	c.mu.Lock()
 	c.seqCalls = append(c.seqCalls, seq)

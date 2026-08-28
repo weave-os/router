@@ -1897,6 +1897,22 @@ func (s *Service) MetricsSummary(ctx context.Context, installationID string, fro
 	return s.telemetry.GetTelemetrySummary(ctx, installationID, from, to)
 }
 
+// ErrSessionCostNotFound is returned for unknown, foreign, or not-yet-committed
+// sessions — deliberately indistinguishable so callers cannot probe foreign sessions.
+var ErrSessionCostNotFound = errors.New("no committed router telemetry for session")
+
+// SessionCost returns the committed router cost of one client session, scoped
+// to the calling installation.
+func (s *Service) SessionCost(ctx context.Context, installationID, sessionID string) (SessionCost, error) {
+	if s.telemetry == nil {
+		return SessionCost{}, ErrSessionCostNotFound
+	}
+	if sessionID == "" || len(sessionID) > MaxClientIdentifierLen {
+		return SessionCost{}, ErrSessionCostNotFound
+	}
+	return s.telemetry.GetSessionCost(ctx, installationID, sessionID)
+}
+
 // MetricsTimeseries returns per-bucket cost rows for the cost savings chart.
 func (s *Service) MetricsTimeseries(ctx context.Context, installationID string, from, to time.Time, granularity string) ([]TelemetryBucket, error) {
 	if s.telemetry == nil {

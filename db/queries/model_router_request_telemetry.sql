@@ -626,3 +626,26 @@ WHERE t.installation_id = @installation_id::uuid
   )
 ORDER BY t.created_at ASC, t.id ASC
 LIMIT @row_limit::int;
+
+-- Committed cost of one client session for this installation. Includes
+-- served turns and billed auxiliary inference so the total matches the
+-- Weave public session-cost contract. No-rows when the session has no
+-- committed telemetry yet.
+-- name: GetSessionCost :one
+SELECT
+    t.session_id,
+    COUNT(*)::bigint AS request_count,
+    COALESCE(SUM(t.actual_input_cost_usd), 0)::bigint AS actual_input_cost_usd,
+    COALESCE(SUM(t.actual_output_cost_usd), 0)::bigint AS actual_output_cost_usd,
+    COALESCE(SUM(t.requested_input_cost_usd), 0)::bigint AS requested_input_cost_usd,
+    COALESCE(SUM(t.requested_output_cost_usd), 0)::bigint AS requested_output_cost_usd,
+    COALESCE(SUM(t.input_tokens), 0)::bigint AS input_tokens,
+    COALESCE(SUM(t.output_tokens), 0)::bigint AS output_tokens,
+    COALESCE(SUM(t.cache_creation_tokens), 0)::bigint AS cache_creation_tokens,
+    COALESCE(SUM(t.cache_read_tokens), 0)::bigint AS cache_read_tokens,
+    MAX(t.created_at)::timestamptz AS last_recorded_at
+FROM router.model_router_request_telemetry t
+WHERE t.installation_id = @installation_id::uuid
+  AND t.session_id = @session_id::varchar
+  AND t.span_type IN ('router.upstream', 'router.auxiliary_inference')
+GROUP BY t.session_id;

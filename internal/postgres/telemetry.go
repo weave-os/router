@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"workweave/router/internal/proxy"
@@ -9,6 +10,7 @@ import (
 	"workweave/router/internal/sqlc"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
@@ -675,6 +677,41 @@ func (r *TelemetryRepo) GetTelemetryRowsAll(ctx context.Context, from, to time.T
 	}
 	out := mapRows(rows, telemetryRowFromRowsAllRow)
 	return out, nil
+}
+
+// GetSessionCost aggregates committed cost for one session. installation_id is the authorization
+// boundary — a foreign session id matches nothing and returns not-found, not another tenant's cost.
+func (r *TelemetryRepo) GetSessionCost(ctx context.Context, installationID, sessionID string) (proxy.SessionCost, error) {
+	id, err := uuid.Parse(installationID)
+	if err != nil {
+		return proxy.SessionCost{}, err
+	}
+	q := sqlc.New(r.tx)
+	row, err := q.GetSessionCost(ctx, sqlc.GetSessionCostParams{
+		InstallationID: id,
+		SessionID:      sessionID,
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return proxy.SessionCost{}, proxy.ErrSessionCostNotFound
+	}
+	if err != nil {
+		return proxy.SessionCost{}, err
+	}
+	// Non-null WHERE predicate means session_id is never NULL here; SQLC types it as *string because the column is nullable.
+	if row.SessionID == nil {
+		return proxy.SessionCost{}, proxy.ErrSessionCostNotFound
+	}
+	return proxy.SessionCost{
+		SessionID:              *row.SessionID,
+		RequestCount:           row.RequestCount,
+		ActualCostUSDMicros:    row.ActualInputCostUsd + row.ActualOutputCostUsd,
+		RequestedCostUSDMicros: row.RequestedInputCostUsd + row.RequestedOutputCostUsd,
+		InputTokens:            row.InputTokens,
+		OutputTokens:           row.OutputTokens,
+		CacheCreationTokens:    row.CacheCreationTokens,
+		CacheReadTokens:        row.CacheReadTokens,
+		LastRecordedAt:         row.LastRecordedAt.Time,
+	}, nil
 }
 
 // telemetryRowFromRow centralizes SQLC -> domain conversion. The {all, per-installation}

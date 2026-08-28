@@ -1078,6 +1078,10 @@ func (recordingTelemetry) GetTelemetryModelBreakdownAll(ctx context.Context, fro
 	return nil, nil
 }
 
+func (recordingTelemetry) GetSessionCost(ctx context.Context, installationID, sessionID string) (proxy.SessionCost, error) {
+	return proxy.SessionCost{}, proxy.ErrSessionCostNotFound
+}
+
 func (recordingTelemetry) GetTelemetryBySessionSequence(ctx context.Context, installationID uuid.UUID, sessionKey []byte, role string, seq int) (proxy.TelemetryTurnResult, error) {
 	return proxy.TelemetryTurnResult{}, nil
 }
