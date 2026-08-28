@@ -10,9 +10,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// usdMicrosPerUSD converts the authoritative integer micros into the decimal
-// display fields. Applied ONLY at response encoding, so no float rounding
-// accumulates across a session's rows.
+// usdMicrosPerUSD converts micros to USD for display only; applied at encoding so float rounding never accumulates.
 const usdMicrosPerUSD = 1_000_000.0
 
 // sessionCostResponse is the committed router cost of one client session.
@@ -34,10 +32,8 @@ type sessionCostResponse struct {
 	LastRecordedAt         string  `json:"last_recorded_at"`
 }
 
-// SessionCostHandler returns the committed router cost of one client session,
-// scoped to the installation behind the rk_ key. It lets a client that already
-// holds a router key (the Codex status hook) render real savings instead of
-// recomputing them from a local price table it cannot keep in sync.
+// SessionCostHandler returns committed router cost for a session, scoped to the rk_ key's installation.
+// Exists so the Codex status hook gets real savings without a local price table it cannot keep in sync.
 func SessionCostHandler(proxySvc *proxy.Service) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		installation := middleware.InstallationFrom(c)
