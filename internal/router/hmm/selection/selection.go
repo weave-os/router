@@ -19,9 +19,7 @@ type Pick struct {
 	HarnessOrder bool
 }
 
-// ArmOrder returns the cluster arm order for harness: harness-specific when
-// the roster declares a non-empty one, else pooled. Per-harness ordering is
-// a private-sidecar extension mirrored from the generated arms_by_harness field.
+// ArmOrder returns the harness-specific arm order when the roster declares a non-empty one, else the pooled order (private-sidecar arms_by_harness extension).
 func ArmOrder(cluster rosterdata.Cluster, harness string) (order []string, harnessSpecific bool) {
 	if arms := cluster.ArmsByHarness[harness]; len(arms) > 0 {
 		return arms, true
