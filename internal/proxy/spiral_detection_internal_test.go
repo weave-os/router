@@ -177,8 +177,7 @@ func TestSpiralSignals_ErrorMarkerWithoutFlag(t *testing.T) {
 func TestSpiralSignals_SameFileThrash(t *testing.T) {
 	turns := readGrind(8, 0)
 	for i := 0; i < spiralSameFileEditThreshold; i++ {
-		// Same file, different args each time — invisible to the exact-sig
-		// tight-loop detector, exactly the rhyming-spiral shape.
+		// Same file, different args each time — exactly the rhyming-spiral shape.
 		turns = append(turns,
 			fmt.Sprintf(`call:Edit:{"file_path":"/src/core.py","old_string":"a%d","new_string":"b%d"}`, i, i),
 			"result:ok",
@@ -221,8 +220,7 @@ func TestSpiralSignals_HealthyRefactorManyFilesNoThrash(t *testing.T) {
 
 func TestSpiralSignals_Repetition(t *testing.T) {
 	// 12 distinct calls to clear the min-calls floor, then a tail where the
-	// same 3 calls cycle — high recent repeat fraction without ever putting
-	// 5 identical calls in a 10-window (the tight-loop bar).
+	// same 3 calls cycle — high recent repeat fraction.
 	turns := readGrind(12, 0)
 	for i := 0; i < 4; i++ {
 		for j := 0; j < 3; j++ {
@@ -283,7 +281,7 @@ func TestSpiralSignals_MonologueResetByUserTurn(t *testing.T) {
 
 func TestSpiralSignals_PingPong(t *testing.T) {
 	// Strict A/B/A/B tail: the agent flips between the same two actions,
-	// each individually below the tight-loop bar and the repeat-window floor.
+	// each individually below the repetition window floor.
 	turns := readGrind(12, 0)
 	for i := 0; i < spiralPingPongThreshold/2; i++ {
 		turns = append(turns,
