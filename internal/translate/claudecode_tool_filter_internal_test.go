@@ -13,6 +13,14 @@ func TestOrchestrationToolsAreSubsetOfCCOnly(t *testing.T) {
 	}
 }
 
+func TestAlwaysKeptToolsAreSubsetOfCCOnly(t *testing.T) {
+	for name := range claudeCodeAlwaysKeptToolNames {
+		if !isClaudeCodeOnlyTool(name) {
+			t.Errorf("always-kept tool %q is not in claudeCodeOnlyToolNames; the subset invariant is broken", name)
+		}
+	}
+}
+
 func TestShouldStripCCTool(t *testing.T) {
 	cases := []struct {
 		name              string
@@ -24,6 +32,8 @@ func TestShouldStripCCTool(t *testing.T) {
 		{"NotebookEdit", false, false},   // coding tool: never stripped
 		{"ScheduleWakeup", false, false}, // scheduling: never stripped
 		{"CronCreate", false, false},     // scheduling: never stripped
+		{"CronDelete", false, false},     // scheduling: never stripped
+		{"CronList", false, false},       // scheduling: never stripped
 		{"Monitor", true, false},         // scheduling: never stripped
 		{"BashOutput", false, false},     // shell session: never stripped
 		{"KillShell", true, false},       // shell session: never stripped
@@ -34,7 +44,8 @@ func TestShouldStripCCTool(t *testing.T) {
 		{"ExitPlanMode", true, false},    // orchestration: kept when flag on
 		{"UpdatePlan", true, false},      // orchestration: kept when flag on
 		{"AskUserQuestion", true, true},  // CC-only non-orchestration: stripped even when flag on
-		{"ToolSearch", true, true},       // CC-only non-orchestration: stripped even when flag on
+		{"ToolSearch", false, false},     // deferred MCP loader: always kept
+		{"ToolSearch", true, false},      // independent of the orchestration flag
 		{"TodoWrite", false, true},       // CC-only non-orchestration: stripped
 		{"SendMessage", true, true},      // CC-only subagent messaging: stripped even when flag on
 	}

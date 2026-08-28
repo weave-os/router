@@ -1,0 +1,49 @@
+{
+  "model": "claude-opus-4-7",
+  "system": "The following deferred tools are now available via ToolSearch: mcp__postgres-prod__query",
+  "messages": [
+    {
+      "role": "user",
+      "content": "How many accounts do we have in prod?"
+    }
+  ],
+  "tools": [
+    {
+      "name": "Read",
+      "description": "Read a file",
+      "input_schema": {
+        "type": "object"
+      }
+    },
+    {
+      "name": "Bash",
+      "description": "Run a command",
+      "input_schema": {
+        "type": "object"
+      }
+    },
+    {
+      "name": "Skill",
+      "description": "Run a skill",
+      "input_schema": {
+        "type": "object"
+      }
+    },
+    {
+      "name": "ToolSearch",
+      "description": "Load a deferred tool schema by name",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "query"
+        ]
+      }
+    }
+  ],
+  "max_tokens": 256
+}
