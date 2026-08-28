@@ -32,6 +32,7 @@ type SidecarRouter struct {
 	reporter         OutcomeReporter
 	feedbackReporter FeedbackReporter
 	resolver         *Resolver
+	selectionShadow  SelectionShadow
 	capabilitiesMu   sync.RWMutex
 	capabilities     Capabilities
 	capabilitiesSet  bool
@@ -61,6 +62,13 @@ func (r *SidecarRouter) WithCapabilities(capabilities Capabilities) *SidecarRout
 
 	r.capabilities = capabilities
 	r.capabilitiesSet = true
+	return r
+}
+
+// WithSelectionShadow installs a boot-time, log-only observer of completed
+// sidecar decisions. It never alters the returned decision.
+func (r *SidecarRouter) WithSelectionShadow(shadow SelectionShadow) *SidecarRouter {
+	r.selectionShadow = shadow
 	return r
 }
 
@@ -403,6 +411,23 @@ func (r *SidecarRouter) Route(ctx context.Context, req router.Request) (router.D
 	displayMarker := res.DisplayMarker
 	if reselected {
 		displayMarker = ""
+	}
+
+	if r.selectionShadow != nil {
+		candidateRosterIDs := make([]string, 0, len(resolved.Candidates))
+		for _, candidate := range resolved.Candidates {
+			candidateRosterIDs = append(candidateRosterIDs, candidate.RosterID)
+		}
+		r.selectionShadow(ctx, SelectionObservation{
+			Strategy:           strategy,
+			ExecutionMode:      executionMode,
+			RouteID:            routeID,
+			Harness:            req.ClientApp,
+			SidecarGroup:       res.PolicyGroup,
+			SidecarPick:        res.Model,
+			RankedFallback:     res.RankedFallback,
+			CandidateRosterIDs: candidateRosterIDs,
+		})
 	}
 
 	observability.FromContext(ctx).Info("Policy router decided",
