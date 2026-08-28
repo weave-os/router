@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"slices"
+	"strings"
 	"sync"
 
 	"github.com/google/uuid"
@@ -12,6 +13,10 @@ import (
 	"workweave/router/internal/observability"
 	"workweave/router/internal/router"
 )
+
+// pinStickyOverrideSentinel is the legacy reason marker for a fallback draw a
+// session pin may override; mirrors the proxy's sentinel match.
+const pinStickyOverrideSentinel = "[pin_sticky_override_eligible]"
 
 // ReasonRenderer converts policy metadata into the compact internal reason
 // consumed by the existing pin/planner layer.
@@ -404,6 +409,12 @@ func (r *SidecarRouter) Route(ctx context.Context, req router.Request) (router.D
 				"override_arm", pick.Arm,
 			)
 			res.PolicyGroup = pick.Group
+			// A Go-selected arm is deterministic, not a fallback draw:
+			// neutralize the sidecar's pin-sticky signal so a session pin
+			// cannot veto the pick.
+			notEligible := false
+			res.PinStickyOverrideEligible = &notEligible
+			res.Reason = strings.ReplaceAll(res.Reason, pinStickyOverrideSentinel, "")
 		}
 	}
 
