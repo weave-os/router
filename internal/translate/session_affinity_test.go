@@ -100,6 +100,25 @@ func TestSessionAffinity_OpenAIUsesPromptCacheKeyBody(t *testing.T) {
 	assert.Empty(t, out.Headers.Get("x-session-id"))
 }
 
+func TestSessionAffinity_OpenAIGatewayUsesPromptCacheKeyBody(t *testing.T) {
+	env, err := translate.ParseAnthropic(anthropicSrc())
+	require.NoError(t, err)
+
+	out, err := env.PrepareOpenAI(nil, translate.EmitOptions{
+		TargetModel:     "grok-4.6",
+		TargetProvider:  providers.ProviderOpenAIGateway,
+		SessionAffinity: affinityKey,
+	})
+	require.NoError(t, err)
+
+	v, ok := promptCacheKey(t, out.Body)
+	require.True(t, ok, "openai_gateway must carry prompt_cache_key in the body")
+	assert.Equal(t, affinityKey, v)
+	assert.Empty(t, out.Headers.Get("x-session-affinity"))
+	assert.Empty(t, out.Headers.Get("x-session-id"))
+	assert.Empty(t, out.Headers.Get("x-grok-conv-id"))
+}
+
 func TestSessionAffinity_XAIUsesGrokConvIDHeader(t *testing.T) {
 	env, err := translate.ParseAnthropic(anthropicSrc())
 	require.NoError(t, err)
