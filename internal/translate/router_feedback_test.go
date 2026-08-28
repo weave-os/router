@@ -447,9 +447,7 @@ func TestExtractRouterFeedbackCommand_GeminiFormatIgnored(t *testing.T) {
 	assert.False(t, found, "Gemini format should not be scanned for router-feedback commands")
 }
 
-// emit.sh forwards "$*", so a multi-line note arrives as several output lines
-// under one "Output:" preamble. Parsing only the first would record a
-// truncated note and forward the remainder upstream as prompt text.
+// emit.sh forwards "$*", so a multi-line note arrives under one "Output:" preamble; parsing only the first line would truncate the note and leak the rest upstream.
 func TestExtractRouterFeedbackCommand_CodexExecMultiLineNote(t *testing.T) {
 	body := mustMarshalJSON(t, map[string]any{
 		"model": "gpt-5.6-terra",

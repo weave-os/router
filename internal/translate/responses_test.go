@@ -1143,10 +1143,7 @@ func TestStripFeedbackFooterFromResponsesInput(t *testing.T) {
 	assert.Equal(t, "answer", gjson.GetBytes(out, "input.0.content.0.text").Str)
 }
 
-// Sanitizing the native Codex body must not disarm command extraction: the
-// strip applies to the passthrough bytes, while pin/feedback extraction runs
-// on the chat projection built from the original body. Ordered exactly as
-// ProxyOpenAIResponses does it, so any aliasing between the two would show up.
+// Strip operates on passthrough bytes; extraction runs on the chat projection (conv.OriginalBody vs conv.Body). Ordered as ProxyOpenAIResponses does, so aliasing surfaces here.
 func TestStripRouterCommandsFromResponsesInput_LeavesChatProjectionIntact(t *testing.T) {
 	const body = `{"model":"gpt-5.6-terra","input":[
 {"type":"message","role":"user","content":[{"type":"input_text","text":"invoke fm"}]},

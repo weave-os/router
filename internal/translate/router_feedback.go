@@ -137,10 +137,7 @@ func parseRouterFeedbackCommand(text string) (res RouterFeedbackResult, found bo
 					if strings.TrimSpace(lines[i]) == "" {
 						continue
 					}
-					// Feed the whole remaining block, not just this line: a
-					// /router-feedback note runs to the end of the message, so
-					// parsing one line would record a truncated note and leak
-					// the rest of it upstream as prompt text.
+					// Feed the whole block: /router-feedback consumes everything to EOF; one line truncates the note and leaks the rest upstream.
 					candidate, found, _ := parseRouterFeedbackCommand(strings.Join(lines[i:], "\n"))
 					if !found {
 						break
