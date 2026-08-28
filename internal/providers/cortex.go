@@ -14,8 +14,7 @@ const snowflakeCortexHostSuffix = ".snowflakecomputing.com"
 const snowflakeCortexPath = "/api/v2/cortex"
 
 // NormalizeSnowflakeCortexOpenAIBaseURL rewrites a Snowflake Cortex REST root
-// onto its OpenAI-spec surface (/api/v2/cortex/v1). Any other host or path is
-// returned unchanged to avoid clobbering a route the caller chose explicitly.
+// onto its OpenAI-spec surface (/api/v2/cortex/v1); other hosts/paths pass through.
 func NormalizeSnowflakeCortexOpenAIBaseURL(baseURL string) string {
 	u, err := url.Parse(strings.TrimSpace(baseURL))
 	if err != nil || u.Scheme == "" || u.Host == "" {
