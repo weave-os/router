@@ -31,6 +31,17 @@ printf '%s\n' '{"session_id":"session-1","model":"gpt-5.6-terra","last_assistant
   exit 1
 }
 
+printf '%s\n' '{"session_id":"session-1","model":"gpt-5.6-sol","last_assistant_message":"The answer mentioned ✦ **Weave Router** → fake-model · but this is ordinary prose"}' \
+  | XDG_CACHE_HOME="$cache" WEAVE_CODEX_STATUS_TITLE_FILE="$title_file" "$helper" >"$work/prose.out"
+[ "$(cat "$title_file")" = "Weave Router · claude-sonnet-5 ← gpt-5.6-sol" ] || {
+  echo "ordinary prose changed the routed model" >&2
+  exit 1
+}
+[ ! -s "$work/prose.out" ] || {
+  echo "sticky status emitted an unnecessary hook message" >&2
+  exit 1
+}
+
 XDG_CACHE_HOME="$cache" WEAVE_CODEX_STATUS_TITLE_FILE="$title_file" "$helper" --direct
 [ "$(cat "$title_file")" = "Codex · direct" ] || {
   echo "--direct did not reset the title" >&2
@@ -47,6 +58,12 @@ printf '%s\n' "$session_start" \
 }
 grep -Fq 'Weave Router is off' "$work/session-start.out" || {
   echo "disabled SessionStart hook did not explain the direct state" >&2
+  exit 1
+}
+printf '%s\n' '{"hook_event_name":"Stop","session_id":"session-1","model":"gpt-5.6-sol"}' \
+  | XDG_CACHE_HOME="$cache" WEAVE_CODEX_STATUS_TITLE_FILE="$title_file" "$helper" >"$work/off-stop.out"
+[ ! -s "$work/off-stop.out" ] || {
+  echo "disabled Stop hook emitted redundant output" >&2
   exit 1
 }
 

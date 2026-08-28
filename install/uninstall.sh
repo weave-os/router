@@ -556,7 +556,6 @@ if [ "$target" = "codex" ]; then
 
   if [ -f "$codex_status_file" ]; then
     if grep -Fq '<!-- weave-router managed codex status -->' "$codex_status_file"; then
-      "$codex_status_file" --direct >/dev/null 2>&1 || true
       rm -f "$codex_status_file"
       rm -f "$codex_status_disabled_marker"
       ok "Removed $codex_status_file"

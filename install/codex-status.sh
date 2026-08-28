@@ -13,6 +13,7 @@ set -euo pipefail
 state_root="${XDG_CACHE_HOME:-$HOME/.cache}/weave-router/codex"
 helper_dir="$(cd "$(dirname "$0")" 2>/dev/null && pwd -P)"
 disabled_marker="$helper_dir/.weave-router-disabled"
+router_badge_sentinel=$'⁣⁠⁣⁠'
 
 emit_title() {
   local title="$1"
@@ -47,7 +48,6 @@ read_state() {
   [ -f "$file" ] || return 0
   while IFS='=' read -r key value; do
     case "$key" in
-      requested_model) requested_model="$value" ;;
       routed_model) routed_model="$value" ;;
     esac
   done <"$file"
@@ -102,8 +102,6 @@ if [ "$hook_event_name" = "SessionStart" ]; then
 fi
 
 if [ -f "$disabled_marker" ]; then
-  emit_title "Codex · direct"
-  jq -cn '{systemMessage:"Codex direct · Weave Router is off"}'
   exit 0
 fi
 
@@ -117,10 +115,27 @@ if file="$(state_file_for "$session_id" 2>/dev/null)"; then
   read_state "$file"
 fi
 
-# The marker is intentionally matched only in the router-owned heading. Do
-# not treat arbitrary assistant prose mentioning Weave Router as metadata.
-marker_model="$(printf '%s' "$last_assistant_message" | sed -n 's/.*✦ \*\*Weave Router\*\* → \([^[:space:]·]*\).*/\1/p' | head -n 1)"
-force_model="$(printf '%s' "$last_assistant_message" | sed -n 's/.*Weave Router: force-model applied: \([^[:space:]\|(]*\).*/\1/p' | head -n 1)"
+# The marker is intentionally matched only at the beginning of the assistant
+# message. Do not treat ordinary prose that mentions the heading as metadata.
+first_line="${last_assistant_message%%$'\n'*}"
+marker_model=""
+force_model=""
+case "$first_line" in
+  "${router_badge_sentinel}✦ **Weave Router** → "*)
+    marker_model="${first_line#"${router_badge_sentinel}✦ **Weave Router** → "}"
+    marker_model="${marker_model%% ·*}"
+    ;;
+  "✦ **Weave Router** → "*)
+    marker_model="${first_line#"✦ **Weave Router** → "}"
+    marker_model="${marker_model%% ·*}"
+    ;;
+esac
+case "$first_line" in
+  "Weave Router: force-model applied: "*" ("*)
+    force_model="${first_line#"Weave Router: force-model applied: "}"
+    force_model="${force_model%% (*}"
+    ;;
+esac
 if [ -n "$marker_model" ]; then
   routed_model="$(safe_display_value "$marker_model")"
 elif [ -n "$force_model" ]; then

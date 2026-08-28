@@ -3112,15 +3112,15 @@ install_codex_status_script() {
   else
     refuse_if_symlink "$codex_status_file"
   fi
+  if [ -e "$codex_status_file" ] && { [ ! -f "$codex_status_file" ] || ! grep -Fq '<!-- weave-router managed codex status -->' "$codex_status_file"; }; then
+    warn "A user-owned Codex status helper already exists at $codex_status_file; leaving it untouched."
+    return 1
+  fi
   if [ -n "$status_src" ]; then
     grep -Fq '<!-- weave-router managed codex status -->' "$status_src" || {
       warn "Codex status helper has no ownership marker; leaving it unchanged."
-      return 0
+      return 1
     }
-    if [ -e "$codex_status_file" ] && { [ ! -f "$codex_status_file" ] || ! grep -Fq '<!-- weave-router managed codex status -->' "$codex_status_file"; }; then
-      warn "A user-owned Codex status helper already exists at $codex_status_file; leaving it untouched."
-      return 0
-    fi
     cp "$status_src" "$codex_status_file"
   else
     cat >"$codex_status_file" <<'CODEX_STATUS_EOF'
@@ -3139,6 +3139,7 @@ set -euo pipefail
 state_root="${XDG_CACHE_HOME:-$HOME/.cache}/weave-router/codex"
 helper_dir="$(cd "$(dirname "$0")" 2>/dev/null && pwd -P)"
 disabled_marker="$helper_dir/.weave-router-disabled"
+router_badge_sentinel=$'⁣⁠⁣⁠'
 
 emit_title() {
   local title="$1"
@@ -3173,7 +3174,6 @@ read_state() {
   [ -f "$file" ] || return 0
   while IFS='=' read -r key value; do
     case "$key" in
-      requested_model) requested_model="$value" ;;
       routed_model) routed_model="$value" ;;
     esac
   done <"$file"
@@ -3228,8 +3228,6 @@ if [ "$hook_event_name" = "SessionStart" ]; then
 fi
 
 if [ -f "$disabled_marker" ]; then
-  emit_title "Codex · direct"
-  jq -cn '{systemMessage:"Codex direct · Weave Router is off"}'
   exit 0
 fi
 
@@ -3243,10 +3241,27 @@ if file="$(state_file_for "$session_id" 2>/dev/null)"; then
   read_state "$file"
 fi
 
-# The marker is intentionally matched only in the router-owned heading. Do
-# not treat arbitrary assistant prose mentioning Weave Router as metadata.
-marker_model="$(printf '%s' "$last_assistant_message" | sed -n 's/.*✦ \*\*Weave Router\*\* → \([^[:space:]·]*\).*/\1/p' | head -n 1)"
-force_model="$(printf '%s' "$last_assistant_message" | sed -n 's/.*Weave Router: force-model applied: \([^[:space:]\|(]*\).*/\1/p' | head -n 1)"
+# The marker is intentionally matched only at the beginning of the assistant
+# message. Do not treat ordinary prose that mentions the heading as metadata.
+first_line="${last_assistant_message%%$'\n'*}"
+marker_model=""
+force_model=""
+case "$first_line" in
+  "${router_badge_sentinel}✦ **Weave Router** → "*)
+    marker_model="${first_line#"${router_badge_sentinel}✦ **Weave Router** → "}"
+    marker_model="${marker_model%% ·*}"
+    ;;
+  "✦ **Weave Router** → "*)
+    marker_model="${first_line#"✦ **Weave Router** → "}"
+    marker_model="${marker_model%% ·*}"
+    ;;
+esac
+case "$first_line" in
+  "Weave Router: force-model applied: "*" ("*)
+    force_model="${first_line#"Weave Router: force-model applied: "}"
+    force_model="${force_model%% (*}"
+    ;;
+esac
 if [ -n "$marker_model" ]; then
   routed_model="$(safe_display_value "$marker_model")"
 elif [ -n "$force_model" ]; then
@@ -3280,9 +3295,12 @@ CODEX_STATUS_EOF
 }
 
 if [ "$target" = "codex" ]; then
+  if ! install_codex_status_script; then
+    err "Cannot install the Codex status helper safely; refusing to write hooks that could execute unowned code."
+    exit 1
+  fi
   write_codex_config "$codex_config_file" "$base_url" "$api_key" "$user_email" "$user_name"
   ok "Codex config written to $codex_config_file"
-  install_codex_status_script
   remove_obsolete_codex_prompt_wrappers "$codex_dir/prompts"
   install_codex_disable_routing_skill
   install_codex_prompt_skills
