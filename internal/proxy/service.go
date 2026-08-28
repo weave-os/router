@@ -3556,13 +3556,16 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 
 	// Same-cluster model failover: when the routed model's only binding is dark,
 	// degrade to a peer the policy already scored. Gated out for subscription-only
-	// turns (a different model incurs the paid spend that mode forbids).
+	// turns (a different model incurs the paid spend that mode forbids). BYOK
+	// normally disables failover (a foreign provider would 401), but a sibling
+	// behind one of the request's own gateway keys authenticates with the same
+	// credentials, so it stays eligible.
 	siblingDecision, siblingFound := s.siblingFailoverDecision(ctx, decision, overflowEstimate, env.SignatureTokenSavings(), outputReserve)
 	siblingViable := s.ResolveSiblingFailover(ctx) &&
 		siblingFound &&
 		!agentShadowMode &&
 		decision.Reason != translate.ReasonUserForceModel &&
-		s.shouldFailover(ctx) &&
+		(s.shouldFailover(ctx) || s.gatewaySiblingAllowed(ctx, siblingDecision)) &&
 		!billing.SubscriptionOnlyFromContext(ctx)
 
 	primaryProvider := decision.Provider

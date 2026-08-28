@@ -18,7 +18,13 @@ const ReasonSiblingFailover = "sibling_failover"
 // dual-estimator as the pre-route overflow filter to reject under-sized peers.
 func (s *Service) siblingFailoverDecision(ctx context.Context, failed router.Decision, est, sigSavings, outputReserve int) (router.Decision, bool) {
 	md := failed.Metadata
-	if md == nil || s.deploymentKeyedProviders == nil {
+	if md == nil {
+		return router.Decision{}, false
+	}
+	if gw := s.gatewayProvidersForRequest(ctx); len(gw) > 0 {
+		return s.gatewaySiblingDecision(ctx, failed, gw, est, sigSavings, outputReserve)
+	}
+	if s.deploymentKeyedProviders == nil {
 		return router.Decision{}, false
 	}
 	available := s.keyedProvidersExcluding(s.excludedProvidersForRequest(ctx))
@@ -50,6 +56,65 @@ func (s *Service) siblingFailoverDecision(ctx context.Context, failed router.Dec
 		return sameProvider[0], true
 	}
 	return router.Decision{}, false
+}
+
+// gatewaySiblingDecision rescues a BYOK-gateway turn on a sibling served by a
+// gateway key the request already holds. Cross-provider failover stays off for
+// BYOK (a foreign provider would 401), but a candidate reachable through the
+// installation's own gateway credentials re-authenticates with the same keys,
+// so a dark upstream behind the gateway doesn't have to kill the session.
+// Candidates are limited to models the gateway keys alias; a candidate behind
+// a different gateway binding (e.g. anthropic_gateway when openai_gateway
+// failed) ranks first, mirroring the off-failed-provider preference above.
+func (s *Service) gatewaySiblingDecision(ctx context.Context, failed router.Decision, gw map[string]struct{}, est, sigSavings, outputReserve int) (router.Decision, bool) {
+	custom := s.customBindingsForRequest(ctx)
+	excludedModels := s.excludedModelsForRequest(ctx)
+
+	var sameProvider []router.Decision
+	for _, id := range siblingCandidateOrder(failed.Metadata) {
+		if id == "" || id == failed.Model {
+			continue
+		}
+		if _, drop := excludedModels[id]; drop {
+			continue
+		}
+		provider, ok := gatewayProviderFor(id, custom, gw)
+		if !ok {
+			continue
+		}
+		if !siblingFitsContext(id, provider, est, sigSavings, outputReserve) {
+			continue
+		}
+		candidate := siblingDecisionFor(failed, id, provider)
+		if provider == failed.Provider {
+			sameProvider = append(sameProvider, candidate)
+			continue
+		}
+		return candidate, true
+	}
+	if len(sameProvider) > 0 {
+		return sameProvider[0], true
+	}
+	return router.Decision{}, false
+}
+
+// gatewaySiblingAllowed reports whether a sibling rescue may run despite BYOK
+// disabling generic failover: only when the sibling dispatches through a
+// gateway key the request itself holds.
+func (s *Service) gatewaySiblingAllowed(ctx context.Context, sibling router.Decision) bool {
+	_, held := s.gatewayProvidersForRequest(ctx)[sibling.Provider]
+	return held
+}
+
+// gatewayProviderFor resolves the gateway binding serving a candidate: the
+// first alias-declared provider whose key the request holds.
+func gatewayProviderFor(model string, custom map[string][]string, gw map[string]struct{}) (string, bool) {
+	for _, p := range custom[model] {
+		if _, held := gw[p]; held {
+			return p, true
+		}
+	}
+	return "", false
 }
 
 // siblingFitsContext mirrors excludeContextOverflowModels for one candidate.
