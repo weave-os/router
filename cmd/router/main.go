@@ -48,6 +48,7 @@ import (
 	"workweave/router/internal/router/cluster"
 	"workweave/router/internal/router/handover"
 	"workweave/router/internal/router/hmm"
+	"workweave/router/internal/router/hmm/rosterdata"
 	"workweave/router/internal/router/planner"
 	"workweave/router/internal/router/policy"
 	"workweave/router/internal/router/rl"
@@ -845,6 +846,23 @@ func main() {
 		)
 	} else {
 		logger.Info("HMM policy routers disabled (ROUTER_HMM_SIDECAR_URL unset); HMM strategies will return 503")
+	}
+
+	// Loaded only when ROUTER_HMM_ROSTER_PATH is set; declarative-roster data
+	// is load-and-validate only today — nothing serves from it.
+	if rosterPath := strings.TrimSpace(config.GetOr("ROUTER_HMM_ROSTER_PATH", "")); rosterPath != "" {
+		declarativeRoster, rosterErr := rosterdata.Load(rosterPath)
+		if rosterErr != nil {
+			logger.Error("HMM declarative roster failed to load; refusing to boot", "path", rosterPath, "err", rosterErr)
+			panic(rosterErr)
+		}
+		logger.Info(
+			"HMM declarative roster loaded",
+			"path", rosterPath,
+			"schema_version", declarativeRoster.SchemaVersion,
+			"clusters", len(declarativeRoster.Clusters),
+			"arms", len(declarativeRoster.AllArms()),
+		)
 	}
 
 	// Wired only when ROUTER_BANDIT_POSTERIOR_FILE points at a ts_posterior.json;
