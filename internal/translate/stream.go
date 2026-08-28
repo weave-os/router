@@ -816,10 +816,22 @@ func (t *AnthropicSSETranslator) Finalize() error {
 			return t.finishStream()
 		}
 		if err := t.lifecycle.EOF(); err != nil {
-			if t.lifecycle.State() == StreamStarted {
+			// An `error` frame is only the right terminal once upstream output
+			// is on the wire. Before that the eager Prelude is still buffered
+			// downstream, so writing here would commit the response and
+			// foreclose the failover the pre-output drop is eligible for —
+			// return the error uncommitted instead.
+			if t.lifecycle.OutputStarted() {
 				if emitErr := t.emitIncompleteErrorEvent(); emitErr != nil {
 					return emitErr
 				}
+				return err
+			}
+			if t.lifecycle.State() == StreamStarted {
+				if failErr := t.lifecycle.Fail(); failErr != nil {
+					return failErr
+				}
+				t.closed = true
 			}
 			return err
 		}
