@@ -58,14 +58,11 @@ func (s *Service) siblingFailoverDecision(ctx context.Context, failed router.Dec
 	return router.Decision{}, false
 }
 
-// gatewaySiblingDecision rescues a BYOK-gateway turn on a sibling served by a
-// gateway key the request already holds. Cross-provider failover stays off for
-// BYOK (a foreign provider would 401), but a candidate reachable through the
-// installation's own gateway credentials re-authenticates with the same keys,
-// so a dark upstream behind the gateway doesn't have to kill the session.
-// Candidates are limited to models the gateway keys alias; a candidate behind
-// a different gateway binding (e.g. anthropic_gateway when openai_gateway
-// failed) ranks first, mirroring the off-failed-provider preference above.
+// gatewaySiblingDecision rescues a BYOK-gateway turn onto a sibling reachable
+// through a gateway key the request already holds. BYOK disables cross-provider
+// failover (foreign provider would 401); gateway siblings re-use the same
+// credentials so the restriction doesn't apply. A candidate behind a different
+// gateway binding ranks first over one on the same gateway.
 func (s *Service) gatewaySiblingDecision(ctx context.Context, failed router.Decision, gw map[string]struct{}, est, sigSavings, outputReserve int) (router.Decision, bool) {
 	custom := s.customBindingsForRequest(ctx)
 	excludedModels := s.excludedModelsForRequest(ctx)
@@ -98,9 +95,8 @@ func (s *Service) gatewaySiblingDecision(ctx context.Context, failed router.Deci
 	return router.Decision{}, false
 }
 
-// gatewaySiblingAllowed reports whether a sibling rescue may run despite BYOK
-// disabling generic failover: only when the sibling dispatches through a
-// gateway key the request itself holds.
+// gatewaySiblingAllowed reports whether sibling rescue is permitted despite
+// BYOK disabling generic failover: the sibling must be served by a held gateway key.
 func (s *Service) gatewaySiblingAllowed(ctx context.Context, sibling router.Decision) bool {
 	_, held := s.gatewayProvidersForRequest(ctx)[sibling.Provider]
 	return held
