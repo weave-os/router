@@ -863,6 +863,16 @@ func main() {
 				logger.Info("HMM selection shadow enabled (log-only)", "strategies", []router.Strategy{router.StrategyHMM, router.StrategyHMMEmbedding})
 			}
 		}
+		if config.GetOr("ROUTER_HMM_GO_SELECTION", "false") == "true" {
+			if declarativeRoster == nil {
+				logger.Warn("HMM Go selection requested but ROUTER_HMM_ROSTER_PATH is unset; selection stays sidecar-authoritative")
+			} else {
+				selectionOverride := selection.Override(declarativeRoster)
+				hmmPolicyRouter.WithSelectionOverride(selectionOverride)
+				hmmEmbeddingPolicyRouter.WithSelectionOverride(selectionOverride)
+				logger.Info("HMM Go selection enabled (authoritative)", "strategies", []router.Strategy{router.StrategyHMM, router.StrategyHMMEmbedding})
+			}
+		}
 		hmmRouter = hmmPolicyRouter
 		hmmEmbeddingRouter = hmmEmbeddingPolicyRouter
 		logger.Info(

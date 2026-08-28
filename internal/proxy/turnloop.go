@@ -329,6 +329,15 @@ func decisionPolicyGroup(dec router.Decision) string {
 	return dec.Metadata.PolicyGroup
 }
 
+// typedPinStickyOverrideEligible returns the sidecar's typed pin-sticky
+// eligibility report, or nil when the sidecar does not report it.
+func typedPinStickyOverrideEligible(dec router.Decision) *bool {
+	if dec.Metadata == nil {
+		return nil
+	}
+	return dec.Metadata.PinStickyOverrideEligible
+}
+
 // stickPinOnArmSelectorUnavailable reports whether the active pin should override a fresh
 // authoritative-per-turn decision when hmmArmSelectorUnavailableSentinel is present —
 // the arm-selector fell back to per-turn epsilon-greedy draws (ArmSelectorUnavailableError),
@@ -341,7 +350,13 @@ func stickPinOnArmSelectorUnavailable(fresh router.Decision, pin sessionpin.Pin,
 	if !isHMMPinReason(pin.Reason) {
 		return false
 	}
-	if !strings.Contains(fresh.Reason, hmmArmSelectorUnavailableSentinel) {
+	// The typed field, when reported, is authoritative; the reason-string
+	// sentinel match only applies on sidecars that do not report it.
+	if eligible := typedPinStickyOverrideEligible(fresh); eligible != nil {
+		if !*eligible {
+			return false
+		}
+	} else if !strings.Contains(fresh.Reason, hmmArmSelectorUnavailableSentinel) {
 		return false
 	}
 	// Unknown group on either side means we cannot prove the reroute stayed in

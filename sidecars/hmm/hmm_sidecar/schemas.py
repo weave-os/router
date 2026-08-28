@@ -98,6 +98,9 @@ class RouteResult(FrozenModel):
     policy_artifact_sha256: str
     roster_version: str
     ranked_fallback: tuple[RankedFallback, ...] = ()
+    predicted_label: str = ""
+    class_probabilities: dict[str, float] = Field(default_factory=dict)
+    pin_sticky_override_eligible: bool = False
     debug: dict[str, Any]
 
 
