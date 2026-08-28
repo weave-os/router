@@ -122,10 +122,8 @@ type Service struct {
 	// prompt_cache_key as an unknown field, so only the first turn against
 	// such an endpoint pays the 400. Keyed by gatewayResponsesKey.
 	noPromptCacheKeyGateways sync.Map
-	// unservedGatewayModels memoizes (endpoint, model) pairs a gateway
-	// answered model-not-found for, so a gateway-exclusive installation stops
-	// reselecting an alias its endpoint does not serve. Keyed by
-	// gatewayModelKey.
+	// unservedGatewayModels memos (endpoint, model) pairs a gateway answered
+	// model-not-found for. Keyed by gatewayModelKey.
 	unservedGatewayModels sync.Map
 	// excludedModelsOverride, when non-nil, replaces the per-installation
 	// exclusion list on every request. Set from ROUTER_EXCLUDED_MODELS at boot.
@@ -1848,10 +1846,8 @@ func (s *Service) rememberGatewayLacksResponses(key string) {
 	s.noResponsesGateways.Store(key, struct{}{})
 }
 
-// gatewayModelKey identifies the (endpoint, model) pair whose availability is
-// being memoized. endpoint is the BYOK base URL, falling back to the provider
-// name for a deployment-keyed gateway (one endpoint per process). Empty for
-// direct vendors, whose catalog bindings are the source of truth.
+// gatewayModelKey returns "endpoint|model" for gateway providers (BYOK base
+// URL, or provider name when deployment-keyed); empty for direct vendors.
 func gatewayModelKey(endpoint, provider, model string) string {
 	if !providers.IsGateway(provider) || model == "" {
 		return ""

@@ -296,11 +296,8 @@ func (s *Service) dispatchWithFallback(ctx context.Context, in failoverInputs) (
 			}
 		}
 
-		// A gateway that answers model-not-found does not publish this alias;
-		// remember the (endpoint, model) pair so later turns resolve around it
-		// instead of re-paying the 404 and the rescue hop behind it. A 404 from
-		// a missing Responses surface never reaches here: the attempt closure
-		// re-emits that one onto chat/completions pre-commit first.
+		// Memo the refusal so later turns skip this alias; the Responses-surface
+		// variant never reaches here (re-emitted onto chat/completions pre-commit).
 		if providers.IsUpstreamModelNotFound(attemptErr) {
 			s.rememberGatewayLacksModel(attemptCtx, b.Provider, decision.Model)
 		}

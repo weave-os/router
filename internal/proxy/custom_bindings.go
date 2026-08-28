@@ -22,13 +22,9 @@ func (s *Service) gatewayProvidersForRequest(ctx context.Context) map[string]str
 	return gatewayProvidersFromKeys(externalKeysFromContext(ctx))
 }
 
-// gatewayUnservedModelsForRequest returns aliased models every gateway key
-// declaring them has already answered model-not-found for. A gateway-exclusive
-// installation has no vendor binding left to walk, so reselecting such a model
-// spends a full upstream 404 plus a sibling-failover hop on every turn — the
-// alias itself is the customer-side fix, and the memo only stops the router
-// from paying for it once per turn until then. Empty unless the request is
-// gateway-exclusive, where the alias list is the whole routable set.
+// gatewayUnservedModelsForRequest returns aliased catalog models every
+// gateway key for this request has answered model-not-found for. Only
+// non-nil when at least one gateway provider is active.
 func (s *Service) gatewayUnservedModelsForRequest(ctx context.Context) map[string]struct{} {
 	keys := externalKeysFromContext(ctx)
 	if len(gatewayProvidersFromKeys(keys)) == 0 {
