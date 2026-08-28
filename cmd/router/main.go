@@ -49,6 +49,7 @@ import (
 	"workweave/router/internal/router/handover"
 	"workweave/router/internal/router/hmm"
 	"workweave/router/internal/router/hmm/rosterdata"
+	"workweave/router/internal/router/hmm/selection"
 	"workweave/router/internal/router/planner"
 	"workweave/router/internal/router/policy"
 	"workweave/router/internal/router/rl"
@@ -770,6 +771,25 @@ func main() {
 		logger.Info("RL policy router disabled (ROUTER_RL_SIDECAR_URL unset); x-weave-router-strategy: rl will return 503")
 	}
 
+	// Loaded only when ROUTER_HMM_ROSTER_PATH is set; declarative-roster data
+	// never serves — its only consumer is the log-only selection shadow below.
+	var declarativeRoster *rosterdata.Roster
+	if rosterPath := strings.TrimSpace(config.GetOr("ROUTER_HMM_ROSTER_PATH", "")); rosterPath != "" {
+		loadedRoster, rosterErr := rosterdata.Load(rosterPath)
+		if rosterErr != nil {
+			logger.Error("HMM declarative roster failed to load; refusing to boot", "path", rosterPath, "err", rosterErr)
+			panic(rosterErr)
+		}
+		declarativeRoster = loadedRoster
+		logger.Info(
+			"HMM declarative roster loaded",
+			"path", rosterPath,
+			"schema_version", declarativeRoster.SchemaVersion,
+			"clusters", len(declarativeRoster.Clusters),
+			"arms", len(declarativeRoster.AllArms()),
+		)
+	}
+
 	// Wired only when ROUTER_HMM_SIDECAR_URL is set; x-weave-router-strategy:
 	// hmm then routes through it. Unset fails closed with 503.
 	var hmmRouter router.Router
@@ -833,6 +853,16 @@ func main() {
 				logger.Info("HMM policy sidecar capabilities discovered after boot", "sidecar_url", hmmSidecarURL)
 			}()
 		}
+		if config.GetOr("ROUTER_HMM_SELECTION_SHADOW", "false") == "true" {
+			if declarativeRoster == nil {
+				logger.Warn("HMM selection shadow requested but ROUTER_HMM_ROSTER_PATH is unset; shadow stays disabled")
+			} else {
+				selectionShadow := selection.Shadow(declarativeRoster)
+				hmmPolicyRouter.WithSelectionShadow(selectionShadow)
+				hmmEmbeddingPolicyRouter.WithSelectionShadow(selectionShadow)
+				logger.Info("HMM selection shadow enabled (log-only)", "strategies", []router.Strategy{router.StrategyHMM, router.StrategyHMMEmbedding})
+			}
+		}
 		hmmRouter = hmmPolicyRouter
 		hmmEmbeddingRouter = hmmEmbeddingPolicyRouter
 		logger.Info(
@@ -846,23 +876,6 @@ func main() {
 		)
 	} else {
 		logger.Info("HMM policy routers disabled (ROUTER_HMM_SIDECAR_URL unset); HMM strategies will return 503")
-	}
-
-	// Loaded only when ROUTER_HMM_ROSTER_PATH is set; declarative-roster data
-	// is load-and-validate only today — nothing serves from it.
-	if rosterPath := strings.TrimSpace(config.GetOr("ROUTER_HMM_ROSTER_PATH", "")); rosterPath != "" {
-		declarativeRoster, rosterErr := rosterdata.Load(rosterPath)
-		if rosterErr != nil {
-			logger.Error("HMM declarative roster failed to load; refusing to boot", "path", rosterPath, "err", rosterErr)
-			panic(rosterErr)
-		}
-		logger.Info(
-			"HMM declarative roster loaded",
-			"path", rosterPath,
-			"schema_version", declarativeRoster.SchemaVersion,
-			"clusters", len(declarativeRoster.Clusters),
-			"arms", len(declarativeRoster.AllArms()),
-		)
 	}
 
 	// Wired only when ROUTER_BANDIT_POSTERIOR_FILE points at a ts_posterior.json;
