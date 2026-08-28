@@ -739,9 +739,7 @@ func (t *ResponsesWriter) Write(data []byte) (int, error) {
 		}
 		if t.passthroughBadge {
 			t.buf.Write(data)
-			// Some native Codex upstream responses omit Content-Type when the
-			// proxy has already committed headers. Detect SSE from the buffered
-			// event itself so the native badge path is not mistaken for JSON.
+			// Some upstreams omit Content-Type; detect SSE from the first buffered event.
 			if nativeResponsesSSEBuffer(t.buf.Bytes()) {
 				t.streaming = true
 				if err := t.processPassthroughSSEBuffer(); err != nil {
@@ -1163,18 +1161,28 @@ func (t *ResponsesWriter) rewriteNativeResponsesPayload(data []byte) ([]byte, bo
 				hasOutputIndex: true,
 			}
 			if t.nativeBadgeTargetSelected && !t.nativeBadgeTargetMatches(ref, false) {
+				// The badge rides its own synthetic item, so this message only
+				// needs the footer.
+				textPart, ok := firstNativeOutputTextPart(item)
+				if !ok {
+					continue
+				}
+				footerPath := "response.output." + strconv.Itoa(outputIndex) + ".content." + strconv.Itoa(textPart) + ".text"
+				if rewritten, changed := t.suffixNativeFooter(data, footerPath); changed {
+					return rewritten, true
+				}
 				continue
 			}
 			partIndex, ok := t.nativeOutputTextPart(item)
 			if !ok {
 				continue
 			}
+			path := "response.output." + strconv.Itoa(outputIndex) + ".content." + strconv.Itoa(partIndex) + ".text"
 			ref.contentIndex = int64(partIndex)
 			ref.hasContentIndex = true
 			if !t.observeNativeBadgeTarget(ref) || !t.nativeBadgeTargetMatches(ref, true) {
 				continue
 			}
-			path := "response.output." + strconv.Itoa(outputIndex) + ".content." + strconv.Itoa(partIndex) + ".text"
 			return applyNativeRewrites(data,
 				func(d []byte) ([]byte, bool) { return t.prefixNativeBadge(d, path) },
 				func(d []byte) ([]byte, bool) { return t.suffixNativeFooter(d, path) },
@@ -1281,14 +1289,27 @@ func (t *ResponsesWriter) rewriteNativeNonStreamingBody(data []byte) ([]byte, bo
 }
 
 func (t *ResponsesWriter) rewriteNativeResponsesEvent(raw []byte) []byte {
+	return t.rewriteNativeEventWith(raw, true)
+}
+
+// rewriteNativeHeldEvent re-applies badge/footer text to an event that was held
+// back for the footer decision. Coordinates were already shifted when the event
+// was first seen, and the shift is not idempotent.
+func (t *ResponsesWriter) rewriteNativeHeldEvent(raw []byte) []byte {
+	return t.rewriteNativeEventWith(raw, false)
+}
+
+func (t *ResponsesWriter) rewriteNativeEventWith(raw []byte, shiftFields bool) []byte {
 	_, data := sse.ParseEvent(raw)
 	if len(data) == 0 {
 		return raw
 	}
 	rewrittenData, changed := t.rewriteNativeResponsesPayload(data)
-	if fields, fieldsChanged := t.rewriteNativePassthroughFields(rewrittenData); fieldsChanged {
-		rewrittenData = fields
-		changed = true
+	if shiftFields {
+		if fields, fieldsChanged := t.rewriteNativePassthroughFields(rewrittenData); fieldsChanged {
+			rewrittenData = fields
+			changed = true
+		}
 	}
 	if !changed {
 		return raw
@@ -1322,9 +1343,8 @@ func (t *ResponsesWriter) writeNativeEvent(eventType string, sequence int64, pay
 	return err
 }
 
-// emitNativeBadgeBeforeOutput prepends a badge message item to the stream.
-// Native Responses requires an output item for badge display; six events are
-// emitted and upstream coordinates shifted accordingly.
+// emitNativeBadgeBeforeOutput prepends a synthetic badge message item, emitting
+// six native events and shifting sequence numbers and output indices accordingly.
 func (t *ResponsesWriter) emitNativeBadgeBeforeOutput(event []byte) error {
 	if t.nativeSyntheticBadgeEmitted || t.nativeBadgeTargetSelected || t.computeBadgeText() == "" {
 		return nil
@@ -1395,13 +1415,18 @@ func (t *ResponsesWriter) writeNativeResponsesEvent(event, delimiter []byte) err
 		itemType = gjson.GetBytes(data, "item.type").Str
 	}
 	toolCall := eventType == "response.function_call_arguments.delta" || eventType == "response.custom_tool_call_input.delta" || (eventType == "response.output_item.added" && (itemType == "function_call" || itemType == "custom_tool_call")) || (eventType == "response.output_item.done" && (itemType == "function_call" || itemType == "custom_tool_call"))
-	if toolCall {
-		t.sawToolCall = true
+	reasoningItem := eventType == "response.output_item.added" && itemType == "reasoning"
+	if toolCall || reasoningItem {
+		if toolCall {
+			t.sawToolCall = true
+		}
 		if err := t.emitNativeBadgeBeforeOutput(event); err != nil {
 			return err
 		}
-		if err := t.flushNativeHeldEvents(false); err != nil {
-			return err
+		if toolCall {
+			if err := t.flushNativeHeldEvents(false); err != nil {
+				return err
+			}
 		}
 	}
 	if (eventType == "response.completed" || eventType == "response.incomplete") && !t.nativeBadgeTargetSelected && !t.nativeSyntheticBadgeEmitted {
@@ -1456,7 +1481,7 @@ func (t *ResponsesWriter) flushNativeHeldEvents(commitFooter bool) error {
 	held := t.nativeHeldEvents
 	t.nativeHeldEvents = nil
 	for _, event := range held {
-		rewritten := t.rewriteNativeResponsesEvent(event)
+		rewritten := t.rewriteNativeHeldEvent(event)
 		if _, err := t.bw.Write(rewritten); err != nil {
 			return err
 		}

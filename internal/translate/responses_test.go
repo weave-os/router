@@ -1041,16 +1041,29 @@ func TestResponsesWriter_PassthroughReasoningThenTextKeepsBadgeAndFooter(t *test
 	require.NoError(t, w.Finalize())
 
 	events := parseSSEEvents(t, rec.Body.Bytes())
-	require.Len(t, events, len(payloads))
-	assert.Equal(t, "reasoning", events[1]["item"].(map[string]any)["type"])
+	require.Len(t, events, len(payloads)+6)
+	for i, event := range events {
+		if i == 0 {
+			assert.EqualValues(t, 0, event["sequence_number"])
+			continue
+		}
+		assert.EqualValues(t, i, event["sequence_number"], "sequence at %d", i)
+	}
+	assert.Equal(t, "message", events[1]["item"].(map[string]any)["type"])
 	assert.EqualValues(t, 0, events[1]["output_index"])
 	badge := codexResponsesBadgeSentinelForTest + passthroughTestMarker + "\n\n"
-	assert.Equal(t, badge+"ok", events[5]["delta"])
-	assert.Equal(t, badge+"ok"+footer, events[6]["text"])
+	assert.Equal(t, badge, events[3]["delta"])
+	assert.Equal(t, "reasoning", events[7]["item"].(map[string]any)["type"])
+	assert.EqualValues(t, 1, events[7]["output_index"])
+	assert.EqualValues(t, 2, events[9]["output_index"])
+	assert.Equal(t, "ok", events[11]["delta"])
+	assert.Equal(t, "ok"+footer, events[12]["text"])
 	output := events[len(events)-1]["response"].(map[string]any)["output"].([]any)
-	require.Len(t, output, 2)
-	assert.Equal(t, "reasoning", output[0].(map[string]any)["type"])
-	assert.Equal(t, badge+"ok"+footer, output[1].(map[string]any)["content"].([]any)[0].(map[string]any)["text"])
+	require.Len(t, output, 3)
+	assert.Equal(t, "message", output[0].(map[string]any)["type"])
+	assert.Equal(t, badge, output[0].(map[string]any)["content"].([]any)[0].(map[string]any)["text"])
+	assert.Equal(t, "reasoning", output[1].(map[string]any)["type"])
+	assert.Equal(t, "ok"+footer, output[2].(map[string]any)["content"].([]any)[0].(map[string]any)["text"])
 }
 
 func TestResponsesWriter_PassthroughFooterSkippedOnToolCall(t *testing.T) {
