@@ -46,16 +46,10 @@ func (e *RequestEnvelope) PrepareAnthropic(in http.Header, opts EmitOptions) (pr
 	return providers.PreparedRequest{Body: body, Headers: deriveAnthropicHeaders(in, opts, body)}, nil
 }
 
-// applyAnthropicSessionAffinity attaches a prompt-cache stickiness hint for
-// Anthropic-spec gateway targets, mirroring applySessionAffinity on the
-// OpenAI emit path. A gateway fronting several replicas can land a turn on a
-// cold one and re-prefill the whole prefix; the hint rides metadata.user_id —
-// a spec Messages field, so a gateway that forwards the body forwards the
-// hint with no unknown-field 400 risk (gateways like Snowflake Cortex reject
-// non-spec top-level keys). A caller-supplied user_id (Claude Code sends its
-// own stable session bundle) is already a usable affinity key, so it is never
-// clobbered. First-party Anthropic routes caching centrally and keeps
-// whatever the caller sent.
+// applyAnthropicSessionAffinity sets metadata.user_id to the session-affinity
+// key for anthropic_gateway targets. Uses a spec Messages field so body-forwarding
+// gateways pass it without unknown-field 400s. Skips if the caller already set
+// user_id, or if the target is first-party Anthropic.
 func applyAnthropicSessionAffinity(body []byte, opts EmitOptions) ([]byte, error) {
 	if opts.TargetProvider != providers.ProviderAnthropicGateway || opts.SessionAffinity == "" {
 		return body, nil
