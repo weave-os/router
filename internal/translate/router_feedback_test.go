@@ -446,3 +446,29 @@ func TestExtractRouterFeedbackCommand_GeminiFormatIgnored(t *testing.T) {
 	_, found := env.ExtractRouterFeedbackCommand()
 	assert.False(t, found, "Gemini format should not be scanned for router-feedback commands")
 }
+
+// emit.sh forwards "$*", so a multi-line note arrives as several output lines
+// under one "Output:" preamble. Parsing only the first would record a
+// truncated note and forward the remainder upstream as prompt text.
+func TestExtractRouterFeedbackCommand_CodexExecMultiLineNote(t *testing.T) {
+	body := mustMarshalJSON(t, map[string]any{
+		"model": "gpt-5.6-terra",
+		"messages": []any{
+			map[string]any{"role": "assistant", "tool_calls": []any{map[string]any{
+				"id": "call_skill", "type": "function",
+				"function": map[string]any{"name": "exec", "arguments": "{}"},
+			}}},
+			map[string]any{
+				"role": "tool", "tool_call_id": "call_skill",
+				"content": "Script completed\nWall time 0.1 seconds\nOutput:\n /router-feedback it broke\nsecond line of the note\n",
+			},
+		},
+	})
+	env, err := translate.ParseOpenAI(body)
+	require.NoError(t, err)
+
+	res, found := env.ExtractRouterFeedbackCommand()
+	require.True(t, found)
+	assert.Equal(t, "it broke\nsecond line of the note", res.Feedback)
+	assert.True(t, res.FromToolResult)
+}

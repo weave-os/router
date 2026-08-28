@@ -1142,3 +1142,32 @@ func TestStripFeedbackFooterFromResponsesInput(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "answer", gjson.GetBytes(out, "input.0.content.0.text").Str)
 }
+
+// Sanitizing the native Codex body must not disarm command extraction: the
+// strip applies to the passthrough bytes, while pin/feedback extraction runs
+// on the chat projection built from the original body. Ordered exactly as
+// ProxyOpenAIResponses does it, so any aliasing between the two would show up.
+func TestStripRouterCommandsFromResponsesInput_LeavesChatProjectionIntact(t *testing.T) {
+	const body = `{"model":"gpt-5.6-terra","input":[
+{"type":"message","role":"user","content":[{"type":"input_text","text":"invoke fm"}]},
+{"type":"custom_tool_call","call_id":"call_a","name":"exec","input":"x"},
+{"type":"custom_tool_call_output","call_id":"call_a","output":[
+{"type":"input_text","text":"Script completed\nWall time 0.3 seconds\nOutput:\n"},
+{"type":"input_text","text":" /force-model gpt-5.6-terra\n"}]}]}`
+
+	conv, err := translate.ConvertResponsesToChatCompletionsWithOptions(
+		[]byte(body), translate.ResponsesConversionOptions{PortableCodex: true})
+	require.NoError(t, err)
+
+	native, err := translate.StripRouterCommandsFromResponsesInput(conv.OriginalBody)
+	require.NoError(t, err)
+	assert.NotContains(t, string(native), "/force-model gpt-5.6-terra",
+		"the directive must not reach the upstream verbatim")
+
+	env, err := translate.ParseOpenAI(conv.Body)
+	require.NoError(t, err)
+	res, found := env.ExtractForceModelCommand()
+	require.True(t, found, "the chat projection must still carry the directive")
+	assert.Equal(t, "gpt-5.6-terra", res.Model)
+	assert.True(t, res.FromToolResult, "agent-issued, so the turn continues")
+}

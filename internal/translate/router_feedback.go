@@ -20,9 +20,8 @@ type RouterFeedbackResult struct {
 	// Sequence is an optional leading turn-selector: 0 = last turn (default),
 	// positive = absolute 1-based index, negative = relative offset from last (e.g. -3).
 	Sequence int
-	// FromToolResult is true when an agent emitted the directive through a tool
-	// result. Those commands should continue the agent turn after recording
-	// feedback instead of ending it with a synthetic response.
+	// FromToolResult is true for directives arriving via a tool result; they
+	// continue routing rather than end with a synthetic response.
 	FromToolResult bool
 }
 
@@ -138,14 +137,16 @@ func parseRouterFeedbackCommand(text string) (res RouterFeedbackResult, found bo
 					if strings.TrimSpace(lines[i]) == "" {
 						continue
 					}
-					candidate, found, _ := parseRouterFeedbackCommand(lines[i])
+					// Feed the whole remaining block, not just this line: a
+					// /router-feedback note runs to the end of the message, so
+					// parsing one line would record a truncated note and leak
+					// the rest of it upstream as prompt text.
+					candidate, found, _ := parseRouterFeedbackCommand(strings.Join(lines[i:], "\n"))
 					if !found {
 						break
 					}
-					remaining := append([]string{}, lines[:i]...)
-					remaining = append(remaining, lines[i+1:]...)
 					candidate.FromToolResult = false
-					return candidate, true, strings.TrimSpace(strings.Join(remaining, "\n"))
+					return candidate, true, strings.TrimSpace(strings.Join(lines[:i], "\n"))
 				}
 				break
 			}
