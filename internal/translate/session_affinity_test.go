@@ -119,6 +119,82 @@ func TestSessionAffinity_OpenAIGatewayUsesPromptCacheKeyBody(t *testing.T) {
 	assert.Empty(t, out.Headers.Get("x-grok-conv-id"))
 }
 
+func metadataUserID(t *testing.T, body []byte) (string, bool) {
+	t.Helper()
+	var doc struct {
+		Metadata struct {
+			UserID *string `json:"user_id"`
+		} `json:"metadata"`
+	}
+	require.NoError(t, json.Unmarshal(body, &doc))
+	if doc.Metadata.UserID == nil {
+		return "", false
+	}
+	return *doc.Metadata.UserID, true
+}
+
+func TestSessionAffinity_AnthropicGatewayUsesMetadataUserID(t *testing.T) {
+	env, err := translate.ParseAnthropic(anthropicSrc())
+	require.NoError(t, err)
+
+	out, err := env.PrepareAnthropic(nil, translate.EmitOptions{
+		TargetModel:     "claude-opus-4-7",
+		TargetProvider:  providers.ProviderAnthropicGateway,
+		SessionAffinity: affinityKey,
+	})
+	require.NoError(t, err)
+
+	v, ok := metadataUserID(t, out.Body)
+	require.True(t, ok, "anthropic_gateway must carry metadata.user_id")
+	assert.Equal(t, affinityKey, v)
+}
+
+func TestSessionAffinity_AnthropicGatewayPreservesCallerUserID(t *testing.T) {
+	src := []byte(`{"model":"claude-opus-4-7","messages":[{"role":"user","content":"hi"}],"max_tokens":256,"metadata":{"user_id":"caller-session-1"}}`)
+	env, err := translate.ParseAnthropic(src)
+	require.NoError(t, err)
+
+	out, err := env.PrepareAnthropic(nil, translate.EmitOptions{
+		TargetModel:     "claude-opus-4-7",
+		TargetProvider:  providers.ProviderAnthropicGateway,
+		SessionAffinity: affinityKey,
+	})
+	require.NoError(t, err)
+
+	v, ok := metadataUserID(t, out.Body)
+	require.True(t, ok)
+	assert.Equal(t, "caller-session-1", v)
+}
+
+func TestSessionAffinity_DirectAnthropicStaysUnhinted(t *testing.T) {
+	env, err := translate.ParseAnthropic(anthropicSrc())
+	require.NoError(t, err)
+
+	out, err := env.PrepareAnthropic(nil, translate.EmitOptions{
+		TargetModel:     "claude-opus-4-7",
+		TargetProvider:  providers.ProviderAnthropic,
+		SessionAffinity: affinityKey,
+	})
+	require.NoError(t, err)
+
+	_, ok := metadataUserID(t, out.Body)
+	assert.False(t, ok, "first-party Anthropic must not get a synthetic metadata.user_id")
+}
+
+func TestSessionAffinity_AnthropicGatewayEmptyIsNoOp(t *testing.T) {
+	env, err := translate.ParseAnthropic(anthropicSrc())
+	require.NoError(t, err)
+
+	out, err := env.PrepareAnthropic(nil, translate.EmitOptions{
+		TargetModel:    "claude-opus-4-7",
+		TargetProvider: providers.ProviderAnthropicGateway,
+	})
+	require.NoError(t, err)
+
+	_, ok := metadataUserID(t, out.Body)
+	assert.False(t, ok)
+}
+
 func TestSessionAffinity_XAIUsesGrokConvIDHeader(t *testing.T) {
 	env, err := translate.ParseAnthropic(anthropicSrc())
 	require.NoError(t, err)
