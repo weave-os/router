@@ -339,9 +339,7 @@ func TestContextWindowFor_KnownModels(t *testing.T) {
 	// GLM-5 serves ~200K (max_position_embeddings 202752); GLM-5.2 confirmed at 1M.
 	assert.Equal(t, 202_752, ContextWindowFor("z-ai/glm-5"))
 	assert.Equal(t, 1_048_576, ContextWindowFor("z-ai/glm-5.2"))
-	// Both 5.3 arms serve the 1,048,576 window their leading binding reports
-	// (Fireworks / Together). The larger 1,310,720 is Cloudflare-only and would
-	// overstate the window we actually route to.
+	// 1,310,720 is Cloudflare-only; Fireworks/Together serve 1,048,576.
 	assert.Equal(t, 1_048_576, ContextWindowFor("z-ai/glm-5.3"))
 	assert.Equal(t, 1_048_576, ContextWindowFor("z-ai/glm-5.3-flash"))
 	// Fireworks-only; served window is ~131K, not the 1M in model docs.

@@ -588,15 +588,11 @@ var Models = []Model{
 		{Provider: providers.ProviderFireworks, UpstreamID: "accounts/fireworks/models/glm-5p3",
 			Price: Pricing{InputUSDPer1M: 1.400, OutputUSDPer1M: 4.400, CacheReadMultiplier: 0.26 / 1.400}},
 	}},
-	// GLM-5.3-Flash: first native-multimodal (image+video) model in the GLM-5
-	// line, so ImageInput stays default (unlike 5/5.1/5.2/5.3, which 4xx on image
-	// parts). Thinking cannot be disabled (docs.z.ai/guides/vlm/glm-5.3-flash:
-	// "thinking.type only supports enabled") — do not add it to
-	// openRouterReasoningHint. Together leads, Wafer trails. Priced at the
-	// post-promo rate, not the $0.075/$0.25 introductory one — a compile-time
-	// price that goes stale is the worse failure (cf. gemini-3.7-flash).
-	// ContextWindow is Together's served 1,048,576, not Cloudflare-only
-	// 1,310,720 — see glm-5.3 above.
+	// GLM-5.3-Flash: first native-multimodal (image+video) in the GLM-5 line —
+	// ImageInput stays default. Thinking cannot be disabled — do not add it to
+	// openRouterReasoningHint. Together leads, Wafer trails. Priced at post-promo
+	// rate, not $0.075/$0.25 introductory (cf. gemini-3.7-flash). ContextWindow
+	// 1,048,576 (Together served max); 1,310,720 is Cloudflare-only.
 	{ID: "z-ai/glm-5.3-flash", Tier: TierLow, ContextWindow: 1_048_576, Providers: []ProviderBinding{
 		{Provider: providers.ProviderTogether, UpstreamID: "zai-org/GLM-5.3-Flash",
 			Price: Pricing{InputUSDPer1M: 0.150, OutputUSDPer1M: 0.500, CacheReadMultiplier: 0.03 / 0.150}},
