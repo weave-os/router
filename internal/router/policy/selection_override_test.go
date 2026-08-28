@@ -116,6 +116,47 @@ func TestSelectionOverrideYieldsToClusterOverride(t *testing.T) {
 	assert.Contains(t, decision.Reason, ":cluster_override")
 }
 
+func TestSelectionOverrideNeutralizesPinStickySignal(t *testing.T) {
+	eligible := true
+	result := overrideTestResult()
+	result.PinStickyOverrideEligible = &eligible
+	result.Reason = "arm selector unavailable [pin_sticky_override_eligible]"
+
+	adapter := newOverrideAdapter(result)
+	adapter.WithSelectionOverride(func(_ context.Context, _ policy.SelectionObservation) (policy.SelectionPick, bool) {
+		return policy.SelectionPick{Group: "maximum", Arm: "anthropic/claude-sonnet-5"}, true
+	})
+	decision, err := adapter.Route(context.Background(), router.Request{})
+
+	require.NoError(t, err)
+	assert.Equal(t, "claude-sonnet-5", decision.Model)
+	require.NotNil(t, decision.Metadata)
+	require.NotNil(t, decision.Metadata.PinStickyOverrideEligible)
+	assert.False(t, *decision.Metadata.PinStickyOverrideEligible,
+		"a Go-selected arm is deterministic and must not be pin-sticky eligible")
+	assert.NotContains(t, decision.Reason, "[pin_sticky_override_eligible]",
+		"the legacy sentinel must not survive a Go reselection")
+}
+
+func TestSelectionOverrideNotFiringLeavesPinStickySignalIntact(t *testing.T) {
+	eligible := true
+	result := overrideTestResult()
+	result.PinStickyOverrideEligible = &eligible
+	result.Reason = "arm selector unavailable [pin_sticky_override_eligible]"
+
+	adapter := newOverrideAdapter(result)
+	adapter.WithSelectionOverride(func(_ context.Context, _ policy.SelectionObservation) (policy.SelectionPick, bool) {
+		return policy.SelectionPick{}, false
+	})
+	decision, err := adapter.Route(context.Background(), router.Request{})
+
+	require.NoError(t, err)
+	require.NotNil(t, decision.Metadata)
+	require.NotNil(t, decision.Metadata.PinStickyOverrideEligible)
+	assert.True(t, *decision.Metadata.PinStickyOverrideEligible)
+	assert.Contains(t, decision.Reason, "[pin_sticky_override_eligible]")
+}
+
 func TestSidecarRouterPropagatesTypedPinStickyField(t *testing.T) {
 	eligible := true
 	result := overrideTestResult()
