@@ -45,10 +45,9 @@ func run(path string, out io.Writer) (bool, error) {
 	return len(diagnostics) == 0, nil
 }
 
-// rosterArms extracts arm IDs from the supported roster shapes: a flat JSON
-// array, {"roster_ids": [...]} (the sidecar /roster response), or
-// {"clusters": {label: ...}} where each cluster is either a string list (the
-// sidecar /roster response) or {"arms": [...]} (the pinned roster artifact).
+// rosterArms extracts arm IDs from a flat JSON array, {"roster_ids": [...]}, or
+// {"clusters": {label: [...]|{"arms": [...]}}} — string-list clusters are the
+// sidecar /roster shape; arms-object clusters are the pinned artifact shape.
 func rosterArms(data []byte) ([]string, error) {
 	var flat []string
 	if err := json.Unmarshal(data, &flat); err == nil {
