@@ -8,10 +8,8 @@ import (
 	"workweave/router/internal/router/policy"
 )
 
-// Override returns an authoritative re-selector that recomputes the
-// deterministic pick from roster. It fails open (ok=false, sidecar pick
-// serves) when the sidecar reports no ranked fallback or no ranked group
-// holds an eligible arm.
+// Override returns a SelectionOverride that recomputes the deterministic pick
+// from roster, failing open (ok=false) when no ranked group holds an eligible arm.
 func Override(roster *rosterdata.Roster) policy.SelectionOverride {
 	return func(ctx context.Context, observation policy.SelectionObservation) (policy.SelectionPick, bool) {
 		log := observability.FromContext(ctx)

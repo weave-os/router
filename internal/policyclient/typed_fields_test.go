@@ -38,10 +38,8 @@ func TestClientDecideParsesTypedContractFields(t *testing.T) {
 	assert.True(t, *result.PinStickyOverrideEligible)
 }
 
-// TestClientDecideLeavesTypedFieldsUnsetOnV1OnlyResponse feeds a raw v1 wire
-// payload with none of the typed fields and proves the parsed result is
-// indistinguishable from today's: typed fields nil/empty, everything else
-// unchanged.
+// TestClientDecideLeavesTypedFieldsUnsetOnV1OnlyResponse verifies that a v1
+// response without typed fields leaves PredictedLabel/ClassProbabilities/PinStickyOverrideEligible nil/empty.
 func TestClientDecideLeavesTypedFieldsUnsetOnV1OnlyResponse(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(`{
