@@ -10,9 +10,8 @@ import (
 	"workweave/router/internal/router/sessionpin"
 )
 
-// TestStickPinTypedFieldPrecedence proves the typed pin-sticky field, when
-// reported, takes precedence over the legacy reason-string sentinel, and that
-// its absence leaves the sentinel path exactly as before.
+// TestStickPinTypedFieldPrecedence proves the typed field overrides the legacy
+// reason-string sentinel when present, and the sentinel path is unchanged when absent.
 func TestStickPinTypedFieldPrecedence(t *testing.T) {
 	const pinnedModel = "claude-opus-4-7"
 	const sameTierFresh = "claude-opus-4-6"
