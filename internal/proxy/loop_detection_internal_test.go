@@ -109,6 +109,22 @@ func TestDetectCyclicToolCallLoop_BelowMinCallsDoesNotTrip(t *testing.T) {
 	assert.False(t, looped, "below the min-calls floor must not trip")
 }
 
+func TestDetectCyclicToolCallLoop_LaunchPlusPollingDoesNotTrip(t *testing.T) {
+	// Codex launches a long-running command once, then repeats empty
+	// write_stdin polls. The launch makes the window mixed, but the polls are
+	// still legitimate and must not count as a re-read cycle.
+	calls := []toolCall{{name: "exec", input: map[string]any{"input": "sleep 60"}}}
+	poll := `const r = await tools.write_stdin({"session_id":72385,"chars":"","yield_time_ms":1000,"max_output_tokens":12000});`
+	for len(calls) < cyclicLoopWindowSize {
+		calls = append(calls, toolCall{name: "exec", input: map[string]any{"input": poll}})
+	}
+	env, err := translate.ParseAnthropic(buildBodyWithToolCalls(t, calls))
+	require.NoError(t, err)
+	looped, _, _, _, total := detectCyclicToolCallLoop(env)
+	assert.False(t, looped, "a command followed by empty write_stdin polls must not trip")
+	assert.Equal(t, cyclicLoopWindowSize, total)
+}
+
 // --- handleLoopEscalation observability: kill switch, holdout, budget, events ---
 
 // recordingLoopStore is an in-memory LoopEscalationStore that captures inserts
