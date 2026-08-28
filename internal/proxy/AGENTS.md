@@ -108,6 +108,18 @@ aliases") instead of reporting the router as unavailable. Deployment-keyed
 gateways are excluded from this: a self-hosted deployment keyed for a gateway
 still serves the catalog's own gateway bindings.
 
+**A gateway's `model_not_found` is remembered per (endpoint, model).** An
+alias can name a model the endpoint does not actually publish — a Snowflake
+Cortex key aliasing `grok-4.6` made every title-gen turn resolve to it, eat an
+upstream 404, and recover only through a sibling-failover hop (3.7s-43.2s added
+latency per turn, prod 2026-08-28). `rememberGatewayLacksModel` records the pair
+on that 404 and `gatewayUnservedModelsForRequest` folds it into
+`excludedModelsForRequest`, so later turns resolve around the alias instead of
+re-buying it. Scoped tightly on purpose: gateway providers only (a vendor still
+has catalog bindings to walk), and a model stays routable unless **every**
+gateway key aliasing it has refused, since a second endpoint may serve it. The
+alias itself is still the customer-side fix — this only caps the bill at one 404.
+
 **The hard-pin tier resolves against the same bindings.** Probe/title-gen/
 classifier/compaction turns bypass the scorer, so `hardPinResolver` gets its
 own `HardPinRequest` carrying `CustomBindings` + `GatewayProviders` and selects

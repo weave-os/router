@@ -122,6 +122,11 @@ type Service struct {
 	// prompt_cache_key as an unknown field, so only the first turn against
 	// such an endpoint pays the 400. Keyed by gatewayResponsesKey.
 	noPromptCacheKeyGateways sync.Map
+	// unservedGatewayModels memoizes (endpoint, model) pairs a gateway
+	// answered model-not-found for, so a gateway-exclusive installation stops
+	// reselecting an alias its endpoint does not serve. Keyed by
+	// gatewayModelKey.
+	unservedGatewayModels sync.Map
 	// excludedModelsOverride, when non-nil, replaces the per-installation
 	// exclusion list on every request. Set from ROUTER_EXCLUDED_MODELS at boot.
 	excludedModelsOverride map[string]struct{}
@@ -822,6 +827,9 @@ func (s *Service) excludedModelsForRequest(ctx context.Context) map[string]struc
 				out[model] = struct{}{}
 			}
 		}
+	}
+	for model := range s.gatewayUnservedModelsForRequest(ctx) {
+		out[model] = struct{}{}
 	}
 	if len(out) == 0 {
 		return nil
@@ -1838,6 +1846,41 @@ func (s *Service) rememberGatewayLacksResponses(key string) {
 		return
 	}
 	s.noResponsesGateways.Store(key, struct{}{})
+}
+
+// gatewayModelKey identifies the (endpoint, model) pair whose availability is
+// being memoized. endpoint is the BYOK base URL, falling back to the provider
+// name for a deployment-keyed gateway (one endpoint per process). Empty for
+// direct vendors, whose catalog bindings are the source of truth.
+func gatewayModelKey(endpoint, provider, model string) string {
+	if !providers.IsGateway(provider) || model == "" {
+		return ""
+	}
+	endpoint = strings.TrimRight(endpoint, "/")
+	if endpoint == "" {
+		endpoint = provider
+	}
+	return endpoint + "|" + model
+}
+
+// gatewayLacksModel reports whether that endpoint already answered
+// model-not-found for the model.
+func (s *Service) gatewayLacksModel(key string) bool {
+	if key == "" {
+		return false
+	}
+	_, ok := s.unservedGatewayModels.Load(key)
+	return ok
+}
+
+// rememberGatewayLacksModel records a gateway's model-not-found answer so
+// later turns resolve around the alias instead of paying the 404 again.
+func (s *Service) rememberGatewayLacksModel(ctx context.Context, provider, model string) {
+	key := gatewayModelKey(EffectiveBaseURL(ctx, ""), provider, model)
+	if key == "" {
+		return
+	}
+	s.unservedGatewayModels.Store(key, struct{}{})
 }
 
 // gatewayRejectsPromptCacheKey reports whether that endpoint already told us
