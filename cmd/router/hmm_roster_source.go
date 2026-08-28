@@ -2,11 +2,13 @@ package main
 
 import (
 	"context"
+	"strings"
 	"sync"
 	"time"
 
 	"golang.org/x/sync/singleflight"
 
+	"workweave/router/internal/observability"
 	"workweave/router/internal/policyclient"
 	"workweave/router/internal/router/cluster"
 	"workweave/router/internal/router/hmm"
@@ -36,10 +38,11 @@ type hmmRosterSource struct {
 	// writer per refresh, no clobber risk from a slow fetch racing a newer one.
 	group singleflight.Group
 
-	mu        sync.Mutex
-	cached    []cluster.DeployedEntry
-	fetchedAt time.Time
-	haveCache bool
+	mu              sync.Mutex
+	cached          []cluster.DeployedEntry
+	fetchedAt       time.Time
+	haveCache       bool
+	warnedRosterKey string
 }
 
 // newHMMRosterSource initializes the cached HMM roster source.
@@ -106,6 +109,7 @@ func (s *hmmRosterSource) refresh(ctx context.Context) ([]cluster.DeployedEntry,
 		return nil, fetchErr
 	}
 
+	s.warnRosterDiagnostics(ctx, rosterIDs)
 	mapped := hmm.DeployedModelsForRosterIDs(rosterIDs)
 	s.mu.Lock()
 	s.cached = mapped
@@ -113,6 +117,29 @@ func (s *hmmRosterSource) refresh(ctx context.Context) ([]cluster.DeployedEntry,
 	s.haveCache = true
 	s.mu.Unlock()
 	return mapped, nil
+}
+
+// warnRosterDiagnostics logs roster arms that fail catalog validation, once
+// per distinct roster snapshot to avoid repeating on every refresh. Log-only:
+// the mapped roster is unaffected.
+func (s *hmmRosterSource) warnRosterDiagnostics(ctx context.Context, rosterIDs []string) {
+	diagnostics := hmm.ValidateRosterIDs(rosterIDs)
+	if len(diagnostics) == 0 {
+		return
+	}
+	key := strings.Join(rosterIDs, ",")
+	s.mu.Lock()
+	repeat := key == s.warnedRosterKey
+	s.warnedRosterKey = key
+	s.mu.Unlock()
+	if repeat {
+		return
+	}
+	invalid := make([]string, 0, len(diagnostics))
+	for _, d := range diagnostics {
+		invalid = append(invalid, d.RosterID+" ("+string(d.Reason)+")")
+	}
+	observability.FromContext(ctx).Warn("hmm roster arms failed catalog validation and cannot be routed", "invalid_arms", invalid, "invalid_count", len(invalid), "roster_size", len(rosterIDs))
 }
 
 func cloneDeployedEntries(in []cluster.DeployedEntry) []cluster.DeployedEntry {
