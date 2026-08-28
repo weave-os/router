@@ -5734,54 +5734,76 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		// OpenRouter-only body fields that Fireworks/Bedrock/Makora/Together
 		// should not see. On failover to OpenRouter the body must be re-emitted.
 		attempt = func(actx context.Context, d router.Decision, p providers.Client) error {
-			var prep providers.PreparedRequest
-			if responsesPassthrough && d.Provider == providers.ProviderOpenAI {
-				// Dispatch the caller's ORIGINAL Responses body (untranslated) to
-				// the OpenAI Responses endpoint, rewriting only the model. This keeps
-				// native Responses extensions lossless.
-				outBody, setErr := sjson.SetBytes(responsesBody, "model", d.Model)
-				if setErr != nil {
-					log.Error("Failed to set routed model on Codex Responses body", "err", setErr, "decision_model", d.Model)
-					return fmt.Errorf("set codex model: %w", setErr)
+			dispatchOnce := func(stripPromptCacheKey bool) error {
+				var prep providers.PreparedRequest
+				if responsesPassthrough && d.Provider == providers.ProviderOpenAI {
+					// Dispatch the caller's ORIGINAL Responses body (untranslated) to
+					// the OpenAI Responses endpoint, rewriting only the model. This keeps
+					// native Responses extensions lossless.
+					outBody, setErr := sjson.SetBytes(responsesBody, "model", d.Model)
+					if setErr != nil {
+						log.Error("Failed to set routed model on Codex Responses body", "err", setErr, "decision_model", d.Model)
+						return fmt.Errorf("set codex model: %w", setErr)
+					}
+					prep = providers.PreparedRequest{
+						Body:     outBody,
+						Endpoint: providers.EndpointResponses,
+						Headers:  make(http.Header),
+						Stats: providers.RequestMutationStats{
+							Transformations: responseTransformationsFromContext(actx),
+						},
+					}
+				} else {
+					attemptOpts := opts
+					attemptOpts.TargetProvider = d.Provider
+					attemptOpts.StripPromptCacheKey = stripPromptCacheKey
+					var emitErr error
+					prep, emitErr = env.PrepareOpenAI(r.Header, attemptOpts)
+					if emitErr != nil {
+						log.Error("Failed to emit OpenAI body", "err", emitErr, "decision_provider", d.Provider)
+						return fmt.Errorf("emit body: %w", emitErr)
+					}
 				}
-				prep = providers.PreparedRequest{
-					Body:     outBody,
-					Endpoint: providers.EndpointResponses,
-					Headers:  make(http.Header),
-					Stats: providers.RequestMutationStats{
-						Transformations: responseTransformationsFromContext(actx),
-					},
+				attemptSink := makeMarkerSink()
+				proxyWriter := attemptSink
+				if s.usageRequired() {
+					extractor = otel.NewUsageExtractor(attemptSink, d.Provider)
+					proxyWriter = extractor
 				}
-			} else {
-				attemptOpts := opts
-				attemptOpts.TargetProvider = d.Provider
-				var emitErr error
-				prep, emitErr = env.PrepareOpenAI(r.Header, attemptOpts)
-				if emitErr != nil {
-					log.Error("Failed to emit OpenAI body", "err", emitErr, "decision_provider", d.Provider)
-					return fmt.Errorf("emit body: %w", emitErr)
+				if preludeBuf != nil {
+					preludeBuf.Seal()
 				}
+				err := p.Proxy(actx, d, prep, proxyWriter, r)
+				// Post-commit: bytes already on the wire, render as an in-stream
+				// frame instead of a corrupting envelope (pre-commit goes through
+				// dispatchWithFallback). Gate on THIS attempt being the verbatim
+				// Codex backend, not responsesPassthrough alone: a native request can
+				// still route to Claude/OSS through the translating ResponsesWriter,
+				// which needs its own error frame — only the verbatim Codex attempt
+				// already delivered the upstream's own Responses error event.
+				verbatimCodex := responsesPassthrough && d.Provider == providers.ProviderOpenAI
+				if err != nil && !verbatimCodex && env.Stream() && preludeBuf.Committed() {
+					err = emitOpenAISSEErrorEvent(sink, err)
+				}
+				return err
 			}
-			attemptSink := makeMarkerSink()
-			proxyWriter := attemptSink
-			if s.usageRequired() {
-				extractor = otel.NewUsageExtractor(attemptSink, d.Provider)
-				proxyWriter = extractor
-			}
-			if preludeBuf != nil {
-				preludeBuf.Seal()
-			}
-			err := p.Proxy(actx, d, prep, proxyWriter, r)
-			// Post-commit: bytes already on the wire, render as an in-stream
-			// frame instead of a corrupting envelope (pre-commit goes through
-			// dispatchWithFallback). Gate on THIS attempt being the verbatim
-			// Codex backend, not responsesPassthrough alone: a native request can
-			// still route to Claude/OSS through the translating ResponsesWriter,
-			// which needs its own error frame — only the verbatim Codex attempt
-			// already delivered the upstream's own Responses error event.
-			verbatimCodex := responsesPassthrough && d.Provider == providers.ProviderOpenAI
-			if err != nil && !verbatimCodex && env.Stream() && preludeBuf.Committed() {
-				err = emitOpenAISSEErrorEvent(sink, err)
+			gatewayKey := gatewayResponsesKey(actx, d.Provider)
+			stripPCK := s.gatewayRejectsPromptCacheKey(gatewayKey)
+			err := dispatchOnce(stripPCK)
+			// Same prompt_cache_key unknown-field class as ProxyMessages'
+			// OpenAI-compat dispatch: re-emit once without the hint while
+			// pre-commit, and remember the endpoint so later turns skip it.
+			if err != nil && !stripPCK && gatewayKey != "" && !committed(preludeBuf) &&
+				providers.IsUpstreamPromptCacheKeyRejection(err) {
+				s.rememberGatewayRejectsPromptCacheKey(gatewayKey)
+				log.Warn("Gateway rejected prompt_cache_key; retrying without the affinity hint",
+					"model", d.Model,
+					"decision_provider", d.Provider,
+					"request_id", requestID)
+				if preludeBuf != nil {
+					preludeBuf.Discard()
+				}
+				err = dispatchOnce(true)
 			}
 			return err
 		}
