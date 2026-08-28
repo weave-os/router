@@ -29,8 +29,11 @@ npx @workweave/router update --claude         # non-interactive refresh in place
 For Claude Code the installed statusline and `/force-model`, `/router-*` slash
 commands also refresh themselves in the background about once a week (never
 overwriting a wrapper you edited). Opt out with `WEAVE_STATUSLINE_UPDATE=0`, or
-just the commands with `WEAVE_COMMANDS_UPDATE=0`. Codex, opencode, and pi have
-no per-turn hook to refresh from — re-run the installer (or `update`) for those.
+just the commands with `WEAVE_COMMANDS_UPDATE=0`. Codex installs native `$` skills
+plus managed `SessionStart`/`Stop` hooks: the latest routed model is reflected in
+the terminal title and a compact `Weave Router · …` status message is shown when
+the router reports a new route. Existing Codex hooks are preserved. OpenCode and pi
+have their own target-specific integrations.
 
 Version-pin for reproducible setups:
 
@@ -107,7 +110,9 @@ Four install targets:
   third-party slash-command files; to send a router directive, type it with
   one leading space (for example, ` /force-model gpt-5.6-terra`). Its
   `$disable-routing` skill returns the next Codex session to the default
-  provider without logging out or deleting the router configuration.
+  provider without logging out or deleting the router configuration. The
+  managed lifecycle hooks also keep the latest routed model in the terminal
+  title and emit a compact status message after completed turns.
 - **opencode** (`--opencode`) — merges a `provider.weave` entry (backed by
   opencode's built-in `@ai-sdk/anthropic` provider) into
   `~/.config/opencode/opencode.json` (or `<repo>/opencode.json` with
@@ -129,8 +134,7 @@ for the full reference.
 
 - Node ≥ 18 (ships with `npx`)
 - `bash` on PATH (macOS / Linux native; Windows needs Git Bash or WSL)
-- `jq` on PATH — used by the Claude Code status line and the opencode/pi JSON
-  merges. Not required for the Codex path.
+- `jq` on PATH — used by the Claude Code status line, the Codex lifecycle helper, and the opencode/pi JSON merges.
 
 ## Why npx
 

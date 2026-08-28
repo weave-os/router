@@ -120,13 +120,18 @@ logged-in user's Team/Pro/Max/individual plan.
 | Path                       | Purpose                                                       |
 | -------------------------- | ------------------------------------------------------------- |
 | `~/.codex/config.toml`     | Adds a managed `[model_providers.weave]` block + sets top-level `model_provider = "weave"`, both between `# >>> weave-router managed` markers. The provider preserves the existing ChatGPT OAuth login and keeps the target router's default routing strategy. Anything outside the markers is preserved. |
+| `~/.weave/codex-status.sh` | Codex `SessionStart`/`Stop` hook helper. Keeps the latest routed model in the terminal title and emits a compact `Weave Router · …` status message when the router reports a new routed model. |
+
+The status helper is installed with mode `0700`, stores only the session's requested and routed model IDs under `${XDG_CACHE_HOME:-~/.cache}/weave-router/codex/`, and never stores prompts, credentials, or response bodies. Existing Codex hooks are preserved and the managed hooks are safe to reinstall or remove.
 
 **Project scope (`--scope project`):**
 
 | Path                             | Committed? | Purpose                                                       |
 | -------------------------------- | ---------- | ------------------------------------------------------------- |
 | `<repo>/.codex/config.toml`      | ❌ ignored | Per-teammate config (holds the router key). Each teammate runs the installer for their own key. |
-| `<repo>/.gitignore`              | ✅ commit  | Adds `.codex/config.toml` to the ignore list.                  |
+| `<repo>/.codex/weave-status.sh`  | ❌ ignored | Per-teammate Codex lifecycle helper used by the managed status hooks. |
+| `<repo>/.codex/.weave-router-disabled` | ❌ ignored | Local off-state marker used by the helper. |
+| `<repo>/.gitignore`              | ✅ commit  | Adds the Codex config, status helper, and off-state marker to the ignore list. |
 
 Run Codex from the repo with `CODEX_HOME=<repo>/.codex codex` so it picks
 up the project-local config instead of `~/.codex/`.
@@ -274,9 +279,9 @@ nothing lands in a repo working tree.
 | `WEAVE_STATUSLINE_URL`                      | GitHub raw | Source for the statusline (self-hosters who fork).          |
 | `WEAVE_COMMANDS_URL_BASE`                   | GitHub raw | Source directory for the slash-command wrappers.            |
 
-Codex, opencode, and pi have no equivalent per-turn hook, so they don't
-auto-refresh. Re-run the installer for those (`npx @workweave/router --codex`
-and friends) — thanks to key reuse, that no longer means re-pasting a key.
+**Codex status integration.** Codex 0.150+ supports lifecycle hooks. The installer enables hooks and adds managed `SessionStart` and `Stop` handlers. They maintain a small local state file and set the terminal title to `Weave Router · <routed-model> ← <requested-model>` when the router provides a routed-model marker. On ordinary turns where the model is unchanged, the title remains the last known routed model; before the first routed response it shows `Weave Router · active`. The hook also emits a compact status message after a completed turn. It is not a replacement for Codex's requested-model line: that line continues to show the model selected in Codex configuration, while the Weave status identifies the model that actually served. Existing user and project hooks remain outside the managed block and are preserved on reinstall/uninstall.
+
+The helper requires `jq` for per-turn updates. If `jq` is unavailable, the install still succeeds and the initial active terminal title remains available; no model metadata is updated by the hook. Disable or remove the integration with the normal Codex off/uninstall commands.
 
 ## Adding or changing a directive
 
@@ -435,7 +440,10 @@ errors invoking `cc-statusline.sh`. The script needs `jq` on PATH.
    scope) and confirm the `# >>> weave-router managed >>>` block exists with
    your `X-Weave-Router-Key`. No install writes an `X-Weave-Router-Strategy`
    header; the router's own default applies.
-2. Run `codex` and issue a turn. Provider should be `Weave Router`.
+2. Run `codex` and issue a turn. The terminal title should begin with
+   `Weave Router · active`; after a routed-model marker it shows the latest
+   actual model. The hook also emits `Weave Router · …` after the turn.
+   Provider should be `Weave Router`.
 3. Check the router's dashboard at `<base-url>/ui/dashboard` to see the HMM
    routed decision; Codex's `/status` shows its request model, not the
    upstream model selected by the router.

@@ -11,7 +11,7 @@ const root = path.resolve(__dirname, "..");
 const installDir = path.resolve(root, "..");
 const repoRoot = path.resolve(installDir, "..");
 
-const files = ["install.sh", "uninstall.sh", "cc-statusline.sh", "registry.sh", "directives.tsv"];
+const files = ["install.sh", "uninstall.sh", "cc-statusline.sh", "codex-status.sh", "registry.sh", "directives.tsv"];
 for (const f of files) {
   const src = path.join(installDir, f);
   const dst = path.join(root, f);

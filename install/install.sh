@@ -503,11 +503,12 @@ write_codex_config() {
     printf '%s' "${s//\"/\\\"}"
   }
 
-  local esc_key esc_email esc_name esc_url
+  local esc_key esc_email esc_name esc_url esc_status
   esc_key="$(toml_escape "$block_key")"
   esc_email="$(toml_escape "$block_email")"
   esc_name="$(toml_escape "$block_name")"
   esc_url="$(toml_escape "$block_url")"
+  esc_status="$(toml_escape "$codex_status_file")"
 
   # Plant whichever identity values we have alongside the router key so the
   # router can attribute Codex traffic to a person on shared keys. Build the
@@ -529,12 +530,17 @@ write_codex_config() {
   # reaches them. Every endpoint, hosted or self-hosted, uses its own default.
   local headers_line="http_headers = { ${headers_parts} }"
 
+  local hook_feature_line="features.hooks = true"
+  if [ -f "$config_file" ] && grep -q '^\[features\]$' "$config_file"; then
+    hook_feature_line=""
+  fi
   local block
   block="$(cat <<TOML
 ${WEAVE_CODEX_BEGIN_MARKER}
 # Managed by the Weave Router installer. Re-running the installer rewrites
 # this block; \`./uninstall.sh --codex\` removes it. To opt out without
 # uninstalling, change the model_provider value below.
+${hook_feature_line}
 model_provider = "weave"
 
 [model_providers.weave]
@@ -543,6 +549,16 @@ base_url = "${esc_url}/v1"
 wire_api = "responses"
 requires_openai_auth = true
 ${headers_line}
+
+[[hooks.SessionStart]]
+[[hooks.SessionStart.hooks]]
+type = "command"
+command = "${esc_status}"
+
+[[hooks.Stop]]
+[[hooks.Stop.hooks]]
+type = "command"
+command = "${esc_status}"
 ${WEAVE_CODEX_END_MARKER}
 TOML
 )"
@@ -596,6 +612,22 @@ TOML
     rm -f "$tmp"
   else
     printf "%s\n" "$block" >"$config_file"
+  fi
+
+  # If the user already has a [features] table, place our managed hook
+  # setting in that table instead of using a duplicate dotted key. Preserve an
+  # explicit user setting and mark only the line this installer owns.
+  if grep -q '^\[features\]$' "$config_file"; then
+    if ! awk '
+      /^\[features\]$/ { in_features=1; next }
+      /^\[/ { in_features=0 }
+      in_features && /^[[:space:]]*hooks[[:space:]]*=/ { found=1 }
+      END { exit(found ? 0 : 1) }
+    ' "$config_file"; then
+      tmp="$(mktemp -t weave-codex-features.XXXXXX)"
+      awk '/^\[features\]$/ && !inserted { print; print "hooks = true # weave-router managed codex hooks"; inserted=1; next } { print }' "$config_file" >"$tmp"
+      mv "$tmp" "$config_file"
+    fi
   fi
   # 0600: the file holds a router key. Even at user scope, mode 644 would
   # leak the key to any local user on a shared box.
@@ -1544,10 +1576,18 @@ elif [ "$target" = "codex" ]; then
   # teammate — .codex/config.toml goes in .gitignore in project scope.
   codex_dir="$settings_base/.codex"
   codex_config_file="$codex_dir/config.toml"
+  if [ "$scope" = "user" ] && [ -z "$install_dir" ]; then
+    codex_status_file="$settings_base/.weave/codex-status.sh"
+  else
+    codex_status_file="$codex_dir/weave-status.sh"
+  fi
+  codex_status_disabled_marker="$(dirname "$codex_status_file")/.weave-router-disabled"
 
   if [ "$scope" = "project" ] || [ -n "$install_dir" ]; then
     refuse_if_symlink "$codex_dir"
     refuse_if_symlink "$codex_config_file"
+    refuse_if_symlink "$codex_status_file"
+    refuse_if_symlink "$codex_status_disabled_marker"
   fi
 
   mkdir -p "$codex_dir"
@@ -2085,6 +2125,9 @@ toggle_codex() {
         {print}
       ' "$f" >"$tmp" && mv "$tmp" "$f"
       chmod 600 "$f"
+      if [ -f "$codex_status_file" ] && grep -Fq '<!-- weave-router managed codex status -->' "$codex_status_file"; then
+        "$codex_status_file" --off >/dev/null 2>&1 || true
+      fi
       ok "Codex is ${C_BOLD}off${C_RESET} (default provider). Takes effect on your next 'codex' run."
       ;;
     on)
@@ -2100,6 +2143,9 @@ toggle_codex() {
         {print}
       ' "$f" >"$tmp" && mv "$tmp" "$f"
       chmod 600 "$f"
+      if [ -f "$codex_status_file" ] && grep -Fq '<!-- weave-router managed codex status -->' "$codex_status_file"; then
+        "$codex_status_file" --on >/dev/null 2>&1 || true
+      fi
       ok "Codex is ${C_BOLD}on${C_RESET} (routing through the Weave Router). Takes effect on your next 'codex' run."
       ;;
   esac
@@ -3046,9 +3092,195 @@ announce_done() {
 
 # ---------- codex install path (dispatch + exit before the Claude-only writes) ----------
 
+# Install the Codex lifecycle helper that reflects the active router and the
+# latest known routed model in the terminal title. The embedded copy keeps the
+# standalone curl installer feature-complete; packaged installs use the
+# canonical sibling asset.
+install_codex_status_script() {
+  local candidate status_src=""
+  for candidate in \
+    "$script_dir/codex-status.sh" \
+    "$script_dir/../codex-status.sh"
+  do
+    if [ -f "$candidate" ]; then
+      status_src="$candidate"
+      break
+    fi
+  done
+  if [ "$scope" = "user" ] && [ -z "$install_dir" ]; then
+    mkdir -p "$(dirname "$codex_status_file")"
+  else
+    refuse_if_symlink "$codex_status_file"
+  fi
+  if [ -n "$status_src" ]; then
+    grep -Fq '<!-- weave-router managed codex status -->' "$status_src" || {
+      warn "Codex status helper has no ownership marker; leaving it unchanged."
+      return 0
+    }
+    if [ -e "$codex_status_file" ] && { [ ! -f "$codex_status_file" ] || ! grep -Fq '<!-- weave-router managed codex status -->' "$codex_status_file"; }; then
+      warn "A user-owned Codex status helper already exists at $codex_status_file; leaving it untouched."
+      return 0
+    fi
+    cp "$status_src" "$codex_status_file"
+  else
+    cat >"$codex_status_file" <<'CODEX_STATUS_EOF'
+#!/usr/bin/env bash
+# <!-- weave-router managed codex status -->
+#
+# Codex lifecycle hook for the Weave Router. Codex passes a JSON object on
+# stdin; the Stop hook includes the last assistant message, which carries the
+# router's routed-model marker when the selected model changes. The helper
+# keeps the last known routed model per session and reflects it in the terminal
+# title, so the active router remains visible between turns without injecting
+# another message into the conversation.
+
+set -euo pipefail
+
+state_root="${XDG_CACHE_HOME:-$HOME/.cache}/weave-router/codex"
+helper_dir="$(cd "$(dirname "$0")" 2>/dev/null && pwd -P)"
+disabled_marker="$helper_dir/.weave-router-disabled"
+
+emit_title() {
+  local title="$1"
+  if [ -n "${WEAVE_CODEX_STATUS_TITLE_FILE:-}" ]; then
+    printf '%s\n' "$title" >"$WEAVE_CODEX_STATUS_TITLE_FILE"
+  elif [ -w /dev/tty ]; then
+    printf '\033]0;%s\007' "$title" >/dev/tty
+  fi
+}
+
+safe_session_id() {
+  local id="$1"
+  case "$id" in
+    ''|*[!A-Za-z0-9._-]*) return 1 ;;
+  esac
+  [ "${#id}" -le 128 ] || return 1
+  printf '%s' "$id"
+}
+
+safe_display_value() {
+  printf '%s' "$1" | sed 's/[^A-Za-z0-9._:\/-]//g' | cut -c1-128
+}
+
+state_file_for() {
+  local id
+  id="$(safe_session_id "$1")" || return 1
+  printf '%s/%s.state' "$state_root" "$id"
+}
+
+read_state() {
+  local file="$1" key value
+  [ -f "$file" ] || return 0
+  while IFS='=' read -r key value; do
+    case "$key" in
+      requested_model) requested_model="$value" ;;
+      routed_model) routed_model="$value" ;;
+    esac
+  done <"$file"
+}
+
+write_state() {
+  local file="$1" tmp
+  mkdir -p "$state_root"
+  chmod 700 "$state_root"
+  tmp="$(mktemp "$state_root/.state.XXXXXX")"
+  printf 'requested_model=%s\nrouted_model=%s\n' "$requested_model" "$routed_model" >"$tmp"
+  chmod 600 "$tmp"
+  mv "$tmp" "$file"
+}
+
+set -e
+
+case "${1:-hook}" in
+  --direct)
+    emit_title "Codex · direct"
+    exit 0
+    ;;
+  --on)
+    rm -f "$disabled_marker"
+    emit_title "Weave Router · active"
+    exit 0
+    ;;
+  --off)
+    [ ! -L "$disabled_marker" ] || exit 0
+    : >"$disabled_marker"
+    chmod 600 "$disabled_marker"
+    emit_title "Codex · direct"
+    exit 0
+    ;;
+esac
+
+payload="$(cat)"
+[ -n "$payload" ] || exit 0
+command -v jq >/dev/null 2>&1 || exit 0
+jq -e . >/dev/null 2>&1 <<<"$payload" || exit 0
+
+hook_event_name="$(jq -r '.hook_event_name // ""' <<<"$payload")"
+if [ "$hook_event_name" = "SessionStart" ]; then
+  if [ -f "$disabled_marker" ]; then
+    emit_title "Codex · direct"
+    jq -cn '{systemMessage:"Codex direct · Weave Router is off"}'
+  else
+    emit_title "Weave Router · active"
+    jq -cn '{systemMessage:"Weave Router active · routed model appears in the terminal title"}'
+  fi
+  exit 0
+fi
+
+if [ -f "$disabled_marker" ]; then
+  emit_title "Codex · direct"
+  jq -cn '{systemMessage:"Codex direct · Weave Router is off"}'
+  exit 0
+fi
+
+requested_model="$(safe_display_value "$(jq -r '.model // ""' <<<"$payload")")"
+routed_model=""
+session_id="$(jq -r '.session_id // ""' <<<"$payload")"
+last_assistant_message="$(jq -r '.last_assistant_message // ""' <<<"$payload")"
+
+file=""
+if file="$(state_file_for "$session_id" 2>/dev/null)"; then
+  read_state "$file"
+fi
+
+# The marker is intentionally matched only in the router-owned heading. Do
+# not treat arbitrary assistant prose mentioning Weave Router as metadata.
+marker_model="$(printf '%s' "$last_assistant_message" | sed -n 's/.*✦ \*\*Weave Router\*\* → \([^[:space:]·]*\).*/\1/p' | head -n 1)"
+force_model="$(printf '%s' "$last_assistant_message" | sed -n 's/.*Weave Router: force-model applied: \([^[:space:]\|(]*\).*/\1/p' | head -n 1)"
+if [ -n "$marker_model" ]; then
+  routed_model="$(safe_display_value "$marker_model")"
+elif [ -n "$force_model" ]; then
+  routed_model="$(safe_display_value "$force_model")"
+else
+  routed_model="$(safe_display_value "$routed_model")"
+fi
+
+if [ -n "$file" ]; then
+  write_state "$file"
+fi
+
+if [ -n "$routed_model" ] && [ -n "$requested_model" ] && [ "$routed_model" != "$requested_model" ]; then
+  title="Weave Router · $routed_model ← $requested_model"
+elif [ -n "$routed_model" ]; then
+  title="Weave Router · $routed_model"
+elif [ -n "$requested_model" ]; then
+  title="Weave Router · active ← $requested_model"
+else
+  title="Weave Router · active"
+fi
+emit_title "$title"
+printf '%s' "$title" | jq -Rc '{systemMessage: .}'
+CODEX_STATUS_EOF
+  fi
+  chmod 700 "$codex_status_file"
+  "$codex_status_file" --on >/dev/null 2>&1 || true
+  ok "Codex status integration installed at $codex_status_file"
+}
+
 if [ "$target" = "codex" ]; then
   write_codex_config "$codex_config_file" "$base_url" "$api_key" "$user_email" "$user_name"
   ok "Codex config written to $codex_config_file"
+  install_codex_status_script
   remove_obsolete_codex_prompt_wrappers "$codex_dir/prompts"
   install_codex_disable_routing_skill
   install_codex_prompt_skills
@@ -3062,13 +3294,15 @@ if [ "$target" = "codex" ]; then
     gitignore="$git_root/.gitignore"
     refuse_if_symlink "$gitignore"
     for entry in \
-      ".codex/config.toml"
+      ".codex/config.toml" \
+      ".codex/weave-status.sh" \
+      ".codex/.weave-router-disabled"
     do
       if [ ! -f "$gitignore" ] || ! grep -qxF "$entry" "$gitignore"; then
         printf '%s\n' "$entry" >>"$gitignore"
       fi
     done
-    ok "Updated $gitignore (ignored .codex/config.toml)"
+    ok "Updated $gitignore (ignored Codex router config and status helper)"
   fi
 
   verify_install

@@ -68,6 +68,18 @@ grep -qx 'model_provider = "weave"' "$config" \
   || fail "Weave was not selected as the default provider"
 grep -qx 'requires_openai_auth = true' "$config" \
   || fail "Weave provider does not require ChatGPT OAuth"
+grep -qx 'features.hooks = true' "$config" \
+  || fail "Codex hooks were not enabled"
+grep -Fq '[[hooks.SessionStart]]' "$config" \
+  || fail "Codex SessionStart hook was not installed"
+grep -Fq '[[hooks.Stop]]' "$config" \
+  || fail "Codex Stop hook was not installed"
+status_helper="$home/.weave/codex-status.sh"
+  [ "$(grep -Fc "command = \"$status_helper\"" "$config")" -eq 2 ] \
+  || fail "Codex hooks do not point at the installed status helper"
+[ -f "$status_helper" ] || fail "Codex status helper was not installed"
+grep -Fq '<!-- weave-router managed codex status -->' "$status_helper" \
+  || fail "Codex status helper has no ownership marker"
 if grep -Fq 'X-Weave-Router-Strategy' "$config"; then
   fail "Codex provider pinned a routing strategy instead of the router default"
 fi
@@ -124,6 +136,7 @@ run_hosted_install
 
 run_uninstall
 [ ! -e "$skill" ] || fail "uninstall did not remove the Codex disable-routing skill"
+[ ! -e "$status_helper" ] || fail "uninstall did not remove the Codex status helper"
 
 # A same-named user skill is not ours to overwrite or remove. This also
 # covers an upgrade on a machine where the name was already taken.

@@ -521,7 +521,15 @@ if [ "$target" = "codex" ]; then
     refuse_if_symlink "$codex_dir"
   fi
   codex_config_file="$codex_dir/config.toml"
+  if [ "$scope" = "user" ] && [ -z "$install_dir" ]; then
+    codex_status_file="$HOME/.weave/codex-status.sh"
+  else
+    codex_status_file="$codex_dir/weave-status.sh"
+  fi
+  codex_status_disabled_marker="$(dirname "$codex_status_file")/.weave-router-disabled"
   refuse_if_symlink "$codex_config_file"
+  refuse_if_symlink "$codex_status_file"
+  refuse_if_symlink "$codex_status_disabled_marker"
 
   if [ -f "$codex_config_file" ]; then
     strip_codex_block "$codex_config_file"
@@ -536,6 +544,26 @@ if [ "$target" = "codex" ]; then
     fi
   else
     info "No Codex config at $codex_config_file (already uninstalled?)"
+  fi
+
+  # A user config with an existing [features] table receives the installer
+  # hook setting outside the managed block; remove only our tagged line.
+  if [ -f "$codex_config_file" ]; then
+    tmp="$(mktemp -t weave-codex-features-uninstall.XXXXXX)"
+    awk '$0 != "hooks = true # weave-router managed codex hooks" { print }' "$codex_config_file" >"$tmp"
+    mv "$tmp" "$codex_config_file"
+  fi
+
+  if [ -f "$codex_status_file" ]; then
+    if grep -Fq '<!-- weave-router managed codex status -->' "$codex_status_file"; then
+      "$codex_status_file" --direct >/dev/null 2>&1 || true
+      rm -f "$codex_status_file"
+      rm -f "$codex_status_disabled_marker"
+      ok "Removed $codex_status_file"
+      rmdir "$(dirname "$codex_status_file")" 2>/dev/null || true
+    else
+      warn "Leaving user-owned Codex status helper at $codex_status_file untouched."
+    fi
   fi
 
   # Remove only the prompt files this installer owns; leave any user-authored
