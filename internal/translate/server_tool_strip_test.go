@@ -11,9 +11,8 @@ import (
 	"workweave/router/internal/translate"
 )
 
-// Anthropic executes web_search_*/web_fetch_* server-side; emitted to a
-// non-Anthropic upstream they become phantom function tools (same failure
-// claudecode_tool_filter.go prevents).
+// Anthropic executes web_search_*/web_fetch_* server-side; emitted to a non-Anthropic
+// upstream they become phantom function tools (same failure claudecode_tool_filter.go prevents).
 const anthropicServerToolBody = `{
 	"model":"claude-opus-5",
 	"messages":[{"role":"user","content":"what changed upstream?"}],

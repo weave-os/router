@@ -7,8 +7,8 @@ import (
 
 	"workweave/router/internal/observability"
 	"workweave/router/internal/providers"
-	"workweave/router/internal/websearch"
 	"workweave/router/internal/router"
+	"workweave/router/internal/websearch"
 
 	"github.com/tidwall/gjson"
 )

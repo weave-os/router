@@ -46,9 +46,8 @@ func FindServerTool(body []byte) (ServerTool, bool) {
 	return found, found.Type != ""
 }
 
-// nativeServerToolPrefixes lists Anthropic server tools the provider executes,
-// not the model. Broader than serverToolPrefix: FindServerTool/DetectSearchTurn
-// cover only the tool we can emulate; this covers all non-Anthropic-runnable tools.
+// nativeServerToolPrefixes lists Anthropic server tools the provider executes, not the model.
+// Broader than serverToolPrefix: FindServerTool/DetectSearchTurn cover only the tool we can emulate.
 var nativeServerToolPrefixes = []string{serverToolPrefix, "web_fetch_"}
 
 func isNativeServerTool(toolType string) bool {
@@ -60,10 +59,9 @@ func isNativeServerTool(toolType string) bool {
 	return false
 }
 
-// StripServerTools removes Anthropic native server tools (web_search_*,
-// web_fetch_*) from an Anthropic Messages body. Non-Anthropic upstreams cannot
-// execute them; passed through they become phantom function tools emitting
-// unhandleable tool_use blocks.
+// StripServerTools removes Anthropic native server tools (web_search_*, web_fetch_*) from an
+// Anthropic Messages body. Non-Anthropic upstreams cannot execute them; passed through they
+// become phantom function tools emitting unhandleable tool_use blocks.
 func StripServerTools(body []byte) ([]byte, int) {
 	removed := 0
 	strippedNames := make(map[string]struct{})
