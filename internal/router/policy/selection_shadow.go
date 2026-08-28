@@ -6,9 +6,7 @@ import (
 	"workweave/router/internal/router"
 )
 
-// SelectionObservation is the content-free record of one completed sidecar
-// decision offered to a shadow selection comparer. It carries identifiers and
-// ranked structure only — no prompt or conversation content.
+// SelectionObservation is the content-free record of one completed sidecar decision.
 type SelectionObservation struct {
 	Strategy           router.Strategy
 	ExecutionMode      string
