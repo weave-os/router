@@ -42,10 +42,21 @@ Three modes (`SMOKE_PROXY_MODE`):
 | `record` | Always calls the real API and (re)writes cassettes | Yes |
 | `replay-or-record` (local default) | Serves from cache, falls back to live + record on a miss | Only for the first run of a new scenario |
 
-Cassettes are keyed by `sha256(method + path + body)`. The fixtures are
-byte-deterministic (`smoke/fixtures/system_prompt.txt` never changes), so a
-given scenario hashes identically run to run — this is what makes `replay-only`
-CI runs deterministic and free. Response headers are sanitized before a
+Cassettes are keyed by `sha256(method + path + canonicalized body)`. The
+fixtures are byte-deterministic (`smoke/fixtures/system_prompt.txt` never
+changes), so a given scenario hashes identically run to run — this is what makes
+`replay-only` CI runs deterministic and free.
+
+**Canonicalization is load-bearing.** Some request-body fields are derived by
+the router per run rather than from the fixture — `prompt_cache_key` carries the
+session-affinity hint, derived from the API key id, and `run.sh` seeds a fresh
+router key every run. Hashing those verbatim mints a new cassette key on every
+run, so every replay-only run cache-misses and the job goes red on a PR that
+changed nothing. `volatileBodyFields` in `smoke/mitmproxy/store.go` strips them
+before hashing; `store_test.go` guards both halves of the contract (same
+scenario → same key, genuinely different requests → different keys). **If you
+add a router-derived, per-run field to an upstream request body, add it to
+`volatileBodyFields` in the same PR.** Response headers are sanitized before a
 cassette is written (`Authorization` / `x-api-key` / org identifiers / rate-limit
 and request-id noise never get persisted), so it's safe for these files to be
 committed and reviewed in a normal PR diff.

@@ -24,5 +24,10 @@ git status smoke/mitmproxy/cassettes/   # review the diff, then commit
 See `docs/SMOKE.md` for when refreshing is expected (a fixture/scenario change,
 or a suspected upstream API shape change).
 
+Cassettes are written `0644`. The recording process runs as root inside the
+mitmproxy container while the directory is bind-mounted from the repo, so a
+narrower mode leaves files the nightly refresh job's `git add` cannot read
+(that kept the refresh red for a month). `store_test.go` guards the mode.
+
 Do not hand-edit these files — regenerate them so the recorded shape matches
 something the real API actually returned.

@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+
+	"github.com/tidwall/sjson"
 )
 
 // cassette is a recorded HTTP interaction: enough to replay the response
@@ -57,16 +59,47 @@ func newStore(dir string) (*store, error) {
 	return &store{dir: dir}, nil
 }
 
-// requestKey hashes method + path + body. The smoke fixtures are
-// byte-deterministic (stable system prompt, fixed user text per scenario), so
-// identical scenarios hash identically across runs and across machines.
+// volatileBodyFields are request-body fields the router derives per run rather
+// than from the fixture, so they differ on every CI run even though the
+// scenario is unchanged. They are stripped before hashing: including them would
+// mint a fresh cassette key each run and turn every replay-only run into a
+// guaranteed cache miss.
+//
+// prompt_cache_key carries the session-affinity hint, derived from the API key
+// id — and run.sh seeds a brand-new router key for every run.
+var volatileBodyFields = []string{"prompt_cache_key"}
+
+// canonicalizeBody strips volatileBodyFields so a scenario hashes identically
+// across runs. Non-JSON bodies (and bodies carrying none of the fields) are
+// returned unchanged, so this is safe to apply unconditionally.
+func canonicalizeBody(body []byte) []byte {
+	if len(body) == 0 || !json.Valid(body) {
+		return body
+	}
+	out := body
+	for _, field := range volatileBodyFields {
+		stripped, err := sjson.DeleteBytes(out, field)
+		if err != nil {
+			// A body we can't rewrite still has to hash to something; the raw
+			// bytes are the honest fallback.
+			return body
+		}
+		out = stripped
+	}
+	return out
+}
+
+// requestKey hashes method + path + canonicalized body. The smoke fixtures are
+// byte-deterministic (stable system prompt, fixed user text per scenario) and
+// per-run router-derived fields are canonicalized out, so identical scenarios
+// hash identically across runs and across machines.
 func requestKey(method, path string, body []byte) string {
 	h := sha256.New()
 	h.Write([]byte(method))
 	h.Write([]byte{0})
 	h.Write([]byte(path))
 	h.Write([]byte{0})
-	h.Write(body)
+	h.Write(canonicalizeBody(body))
 	return hex.EncodeToString(h.Sum(nil))
 }
 
@@ -108,6 +141,15 @@ func (s *store) save(key string, c *cassette) error {
 		return err
 	}
 	if err := tmp.Close(); err != nil {
+		os.Remove(tmpPath)
+		return err
+	}
+	// CreateTemp makes the file 0600, owned by the container's root. The
+	// cassette dir is bind-mounted from the repo, so the nightly refresh job's
+	// git (running as the unprivileged runner user) then can't read what it
+	// just recorded — `git add` dies with "Permission denied" and no refresh PR
+	// is ever opened. Widen to 0644 before publishing.
+	if err := os.Chmod(tmpPath, 0o644); err != nil {
 		os.Remove(tmpPath)
 		return err
 	}
