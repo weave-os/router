@@ -511,7 +511,10 @@ and any list configured for that cluster still orders the arm that serves.
 Out-of-process policy routers use the versioned contract in
 [Policy router harness](POLICY_ROUTER_HARNESS.md). The router remains the
 authority for candidate eligibility, provider binding, dispatch, retries,
-privacy context, and telemetry.
+privacy context, and telemetry. The `ROUTER_HMM_ROSTER_PATH` /
+`ROUTER_HMM_SELECTION_SHADOW` / `ROUTER_HMM_GO_SELECTION` flag ladder and its
+rollback story are documented in
+[HMM deterministic selection in Go](HMM_GO_SELECTION.md).
 
 | Variable                           | Default | Purpose |
 | ---------------------------------- | ------- | ------- |

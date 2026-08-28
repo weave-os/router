@@ -151,6 +151,13 @@ holds any policy-internal arm, bucket, cluster, or mode. During migration,
 }
 ```
 
+A sidecar may additionally emit optional typed fields: `predicted_label`
+(the classifier's predicted complexity label), `class_probabilities` (its
+per-class probability map), and `pin_sticky_override_eligible` (a boolean,
+the typed successor of the legacy `[pin_sticky_override_eligible]`
+reason-string sentinel — when present it is authoritative and the sentinel is
+ignored). Sidecars that omit them keep the legacy behavior unchanged.
+
 The router rejects empty selections, unknown roster IDs, provider mismatches,
 and unsupported schema versions. Rich `debug` data is internal to the sidecar;
 only an opaque `debug_ref` is projected when authorized debug mode is enabled.

@@ -1,6 +1,8 @@
 // Package rosterdata decodes and validates the generated HMM roster JSON as
-// declarative data. Nothing serves from a loaded roster yet; this is intended
-// to replace the roster embedded in the immutable sidecar artifact package.
+// declarative data, replacing the roster embedded in the immutable sidecar
+// artifact package. A loaded roster feeds the selection shadow
+// (ROUTER_HMM_SELECTION_SHADOW) and Go selection (ROUTER_HMM_GO_SELECTION,
+// default off); see docs/HMM_GO_SELECTION.md.
 package rosterdata
 
 import (

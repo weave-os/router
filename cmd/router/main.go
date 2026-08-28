@@ -772,7 +772,8 @@ func main() {
 	}
 
 	// Loaded only when ROUTER_HMM_ROSTER_PATH is set; declarative-roster data
-	// never serves — its only consumer is the log-only selection shadow below.
+	// feeds the log-only selection shadow and, when ROUTER_HMM_GO_SELECTION is
+	// enabled, Go selection below.
 	var declarativeRoster *rosterdata.Roster
 	if rosterPath := strings.TrimSpace(config.GetOr("ROUTER_HMM_ROSTER_PATH", "")); rosterPath != "" {
 		loadedRoster, rosterErr := rosterdata.Load(rosterPath)

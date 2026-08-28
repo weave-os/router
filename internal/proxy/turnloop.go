@@ -318,6 +318,12 @@ const hmmPinStickyArmSelectorUnavailReason = "hmm_pin_sticky_arm_selector_unavai
 // hmmArmSelectorUnavailableSentinel mirrors ml_dev.hmm_router.route_selector.PIN_STICKY_OVERRIDE_ELIGIBLE_SENTINEL.
 // Substring-matched against the sidecar's opaque Reason string to detect a legacy pairwise-bandit fallback
 // draw without a schema bump. Keep in sync across the Python/Go boundary.
+//
+// Deprecated: superseded by the typed pin_sticky_override_eligible contract
+// field (RoutingMetadata.PinStickyOverrideEligible). Once every deployed
+// sidecar emits the typed field — and Go selection is fully rolled out via
+// ROUTER_HMM_GO_SELECTION — this sentinel and its substring match are removed.
+// See docs/HMM_GO_SELECTION.md.
 const hmmArmSelectorUnavailableSentinel = "[pin_sticky_override_eligible]"
 
 // decisionPolicyGroup returns the policy cluster/group a decision was drawn
