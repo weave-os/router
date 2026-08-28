@@ -582,11 +582,8 @@ var Models = []Model{
 			Price: Pricing{InputUSDPer1M: 1.260, OutputUSDPer1M: 3.960, CacheReadMultiplier: 0.23 / 1.260}},
 	}},
 	// GLM-5.3: text-only (AA inputModalityImage=false); Fireworks is the only
-	// managed binding (Together lists the full-model endpoint as coming soon).
-	// ContextWindow is Fireworks' served 1,048,576 (confirmed on OpenRouter's
-	// endpoint listing and matching Z.ai's documented 1M), NOT the 1,310,720
-	// that only Cloudflare serves — overstating the primary window turns an
-	// overflow into an upstream 400 with no failover.
+	// managed binding. ContextWindow is 1,048,576 (Fireworks served max), not
+	// 1,310,720 (Cloudflare-only) — overstating causes upstream 400 on overflow.
 	{ID: "z-ai/glm-5.3", Tier: TierHigh, ContextWindow: 1_048_576, ImageInput: ImageInputUnsupported, Providers: []ProviderBinding{
 		{Provider: providers.ProviderFireworks, UpstreamID: "accounts/fireworks/models/glm-5p3",
 			Price: Pricing{InputUSDPer1M: 1.400, OutputUSDPer1M: 4.400, CacheReadMultiplier: 0.26 / 1.400}},
@@ -596,10 +593,10 @@ var Models = []Model{
 	// parts). Thinking cannot be disabled (docs.z.ai/guides/vlm/glm-5.3-flash:
 	// "thinking.type only supports enabled") — do not add it to
 	// openRouterReasoningHint. Together leads, Wafer trails. Priced at the
-	// standard post-promo rate ($0.15/$0.50, cache $0.03) rather than the
-	// $0.075/$0.25 introductory rate — avoids a compile-time price going stale
-	// (cf. gemini-3.7-flash). ContextWindow is Together's served 1,048,576, not
-	// Cloudflare-only 1,310,720: the window must describe the binding we route.
+	// post-promo rate, not the $0.075/$0.25 introductory one — a compile-time
+	// price that goes stale is the worse failure (cf. gemini-3.7-flash).
+	// ContextWindow is Together's served 1,048,576, not Cloudflare-only
+	// 1,310,720 — see glm-5.3 above.
 	{ID: "z-ai/glm-5.3-flash", Tier: TierLow, ContextWindow: 1_048_576, Providers: []ProviderBinding{
 		{Provider: providers.ProviderTogether, UpstreamID: "zai-org/GLM-5.3-Flash",
 			Price: Pricing{InputUSDPer1M: 0.150, OutputUSDPer1M: 0.500, CacheReadMultiplier: 0.03 / 0.150}},
