@@ -327,6 +327,9 @@ class FrozenPolicy:
             policy_artifact_sha256=self.artifacts.package_sha256,
             roster_version=self.roster_version,
             ranked_fallback=ranked_fallback,
+            predicted_label=classification.label,
+            class_probabilities=classification.probabilities,
+            pin_sticky_override_eligible=False,
             debug={
                 "hmm_state_id": readout.state,
                 "hmm_state_path": list(readout.state_path),
