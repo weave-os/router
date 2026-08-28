@@ -180,4 +180,25 @@ sleep 0.5
   exit 1
 }
 
+# install.sh embeds this helper as a heredoc so the standalone `curl | sh`
+# install has no sibling asset to copy. Nothing keeps the two copies in sync,
+# so an edit to one silently ships the other stale — which is exactly how the
+# savings lookup missed every curl installer once already.
+installer="$script_dir/../install.sh"
+if [ -f "$installer" ]; then
+  start="$(grep -n 'CODEX_STATUS_EOF' "$installer" | head -1 | cut -d: -f1)"
+  end="$(grep -n 'CODEX_STATUS_EOF' "$installer" | tail -1 | cut -d: -f1)"
+  if [ -n "$start" ] && [ -n "$end" ] && [ "$end" -gt "$start" ]; then
+    awk -v s="$start" -v e="$end" 'NR>s && NR<e' "$installer" >"$work/codex-heredoc.sh"
+    diff -q "$work/codex-heredoc.sh" "$helper" >/dev/null 2>&1 || {
+      echo "install.sh heredoc has drifted from codex-status.sh:" >&2
+      diff "$work/codex-heredoc.sh" "$helper" | head -10 >&2
+      exit 1
+    }
+  else
+    echo "could not locate the CODEX_STATUS_EOF markers in install.sh" >&2
+    exit 1
+  fi
+fi
+
 echo "Codex status helper regression tests passed"
