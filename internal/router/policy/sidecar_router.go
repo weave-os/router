@@ -343,10 +343,8 @@ func (r *SidecarRouter) Route(ctx context.Context, req router.Request) (router.D
 	// sidecar's, which is the only case where res.Provider legitimately names a
 	// different provider than the resolved binding.
 	reselected := false
-	// constrained is set when a force-cluster or a configured per-key list
-	// actually constrains the pick; the boot-time selection override must
-	// not supersede it. A ranked-group pass-through (no list for the winning
-	// group) does not constrain.
+	// constrained is set when a force-cluster or a configured per-key list applies;
+	// the boot-time selection override must not supersede it.
 	constrained := false
 	switch {
 	case req.ForceCluster != "":

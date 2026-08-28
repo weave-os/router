@@ -41,9 +41,8 @@ type ClusterOverrideResult struct {
 	// Changed is true when the override selected a different arm than the
 	// sidecar's own pick (for reason annotation and telemetry).
 	Changed bool
-	// Constrained is true when the selected group had a configured per-key
-	// list (or a forced label) applied, as opposed to passing through the
-	// group's own eligible arms.
+	// Constrained is true when a configured per-key list (or a forced label)
+	// applies; false when the group's own eligible arms pass through unfiltered.
 	Constrained bool
 }
 
