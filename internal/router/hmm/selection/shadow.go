@@ -9,8 +9,7 @@ import (
 )
 
 // Shadow returns a log-only observer that recomputes the deterministic pick
-// from roster and logs agreement with the sidecar's served pick. Inputs and
-// picks are logged; request content never is.
+// from roster and logs agreement with the sidecar's served pick.
 func Shadow(roster *rosterdata.Roster) policy.SelectionShadow {
 	return func(ctx context.Context, observation policy.SelectionObservation) {
 		log := observability.FromContext(ctx)
