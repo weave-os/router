@@ -4,6 +4,9 @@
 package selection
 
 import (
+	"strings"
+
+	"workweave/router/internal/router/hmm"
 	"workweave/router/internal/router/hmm/rosterdata"
 )
 
@@ -20,8 +23,12 @@ type Pick struct {
 }
 
 // ArmOrder returns the harness-specific arm order when the roster declares a non-empty one, else the pooled order (private-sidecar arms_by_harness extension).
+// Roster harness keys use underscores (claude_code) while router.Request.ClientApp is hyphenated (claude-code), so both spellings are tried.
 func ArmOrder(cluster rosterdata.Cluster, harness string) (order []string, harnessSpecific bool) {
 	if arms := cluster.ArmsByHarness[harness]; len(arms) > 0 {
+		return arms, true
+	}
+	if arms := cluster.ArmsByHarness[strings.ReplaceAll(harness, "-", "_")]; len(arms) > 0 {
 		return arms, true
 	}
 	return cluster.Arms, false
@@ -44,7 +51,10 @@ func Select(roster *rosterdata.Roster, rankedGroups []string, harness string, ca
 		}
 		order, harnessSpecific := ArmOrder(cluster, harness)
 		for _, arm := range order {
-			if _, eligible := candidates[arm]; eligible {
+			// Candidates carry base roster IDs, so effort-suffixed arms
+			// (model:high) match on their base ID.
+			baseID, _ := hmm.SplitEffort(arm)
+			if _, eligible := candidates[baseID]; eligible {
 				return Pick{Group: group, Arm: arm, FallbackDepth: depth, HarnessOrder: harnessSpecific}, true
 			}
 		}

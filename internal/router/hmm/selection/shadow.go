@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"workweave/router/internal/observability"
+	"workweave/router/internal/router/hmm"
 	"workweave/router/internal/router/hmm/rosterdata"
 	"workweave/router/internal/router/policy"
 )
@@ -43,11 +44,15 @@ func Shadow(roster *rosterdata.Roster) policy.SelectionShadow {
 			)
 			return
 		}
+		// Effort-insensitive: the served pick is a base model ID while roster
+		// arms may carry an effort suffix (model:high).
+		shadowArmBase, _ := hmm.SplitEffort(pick.Arm)
+		sidecarArmBase, _ := hmm.SplitEffort(observation.SidecarPick)
 		log.Info("HMM selection shadow compared",
 			"strategy", observation.Strategy,
 			"execution_mode", observation.ExecutionMode,
 			"route_id", observation.RouteID,
-			"agree", pick.Arm == observation.SidecarPick && pick.Group == observation.SidecarGroup,
+			"agree", shadowArmBase == sidecarArmBase && pick.Group == observation.SidecarGroup,
 			"shadow_group", pick.Group,
 			"shadow_arm", pick.Arm,
 			"sidecar_group", observation.SidecarGroup,

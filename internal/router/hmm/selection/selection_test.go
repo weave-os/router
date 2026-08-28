@@ -28,6 +28,7 @@ func testRoster() *rosterdata.Roster {
 				Arms: []string{"vendor-a/cheap", "vendor-b/cheap"},
 				ArmsByHarness: map[string][]string{
 					"claude-code": {"vendor-b/cheap", "vendor-a/cheap"},
+					"codex_cli":   {"vendor-b/cheap"},
 				},
 			},
 			"balanced": {
@@ -35,6 +36,9 @@ func testRoster() *rosterdata.Roster {
 			},
 			"high": {
 				Arms: []string{"vendor-a/top", "vendor-b/top"},
+			},
+			"effort": {
+				Arms: []string{"vendor-a/deep:high", "vendor-a/deep"},
 			},
 		},
 	}
@@ -50,6 +54,11 @@ func TestArmOrder(t *testing.T) {
 	order, harnessSpecific = selection.ArmOrder(roster.Clusters["low"], "codex")
 	assert.False(t, harnessSpecific)
 	assert.Equal(t, []string{"vendor-a/cheap", "vendor-b/cheap"}, order)
+
+	// Roster harness keys use underscores while ClientApp is hyphenated.
+	order, harnessSpecific = selection.ArmOrder(roster.Clusters["low"], "codex-cli")
+	assert.True(t, harnessSpecific)
+	assert.Equal(t, []string{"vendor-b/cheap"}, order)
 
 	order, harnessSpecific = selection.ArmOrder(roster.Clusters["balanced"], "claude-code")
 	assert.False(t, harnessSpecific)
@@ -110,6 +119,21 @@ func TestSelect(t *testing.T) {
 			candidates:   candidateSet("vendor-a/cheap", "vendor-b/cheap"),
 			wantOK:       true,
 			want:         selection.Pick{Group: "low", Arm: "vendor-a/cheap"},
+		},
+		{
+			name:         "hyphenated harness matches an underscore roster key",
+			rankedGroups: []string{"low"},
+			harness:      "codex-cli",
+			candidates:   candidateSet("vendor-a/cheap", "vendor-b/cheap"),
+			wantOK:       true,
+			want:         selection.Pick{Group: "low", Arm: "vendor-b/cheap", HarnessOrder: true},
+		},
+		{
+			name:         "effort-suffixed arm matches its base candidate roster ID",
+			rankedGroups: []string{"effort"},
+			candidates:   candidateSet("vendor-a/deep"),
+			wantOK:       true,
+			want:         selection.Pick{Group: "effort", Arm: "vendor-a/deep:high"},
 		},
 		{
 			name:         "ranked label missing from the roster is walked past",
