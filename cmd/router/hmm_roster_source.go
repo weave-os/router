@@ -119,9 +119,8 @@ func (s *hmmRosterSource) refresh(ctx context.Context) ([]cluster.DeployedEntry,
 	return mapped, nil
 }
 
-// warnRosterDiagnostics logs roster arms that fail catalog validation, once
-// per distinct roster snapshot to avoid repeating on every refresh. Log-only:
-// the mapped roster is unaffected.
+// warnRosterDiagnostics logs, once per distinct roster snapshot, arms that
+// fail catalog validation. Log-only: the mapped roster is unaffected.
 func (s *hmmRosterSource) warnRosterDiagnostics(ctx context.Context, rosterIDs []string) {
 	diagnostics := hmm.ValidateRosterIDs(rosterIDs)
 	if len(diagnostics) == 0 {

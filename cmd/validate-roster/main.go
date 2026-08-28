@@ -1,6 +1,5 @@
 // Command validate-roster checks a roster JSON file's arms against the model
-// catalog and exits non-zero when any arm fails to resolve. Intended for CI in
-// repos that pin a roster artifact; it never runs as part of the router.
+// catalog and exits non-zero on any invalid arm; never runs as part of the router.
 package main
 
 import (
