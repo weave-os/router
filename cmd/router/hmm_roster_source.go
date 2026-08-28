@@ -123,15 +123,15 @@ func (s *hmmRosterSource) refresh(ctx context.Context) ([]cluster.DeployedEntry,
 // fail catalog validation. Log-only: the mapped roster is unaffected.
 func (s *hmmRosterSource) warnRosterDiagnostics(ctx context.Context, rosterIDs []string) {
 	diagnostics := hmm.ValidateRosterIDs(rosterIDs)
-	if len(diagnostics) == 0 {
-		return
+	key := ""
+	if len(diagnostics) > 0 {
+		key = strings.Join(rosterIDs, ",")
 	}
-	key := strings.Join(rosterIDs, ",")
 	s.mu.Lock()
 	repeat := key == s.warnedRosterKey
 	s.warnedRosterKey = key
 	s.mu.Unlock()
-	if repeat {
+	if len(diagnostics) == 0 || repeat {
 		return
 	}
 	invalid := make([]string, 0, len(diagnostics))

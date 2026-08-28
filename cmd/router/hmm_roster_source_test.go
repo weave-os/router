@@ -100,6 +100,24 @@ func TestHMMRosterSource_WarnsOncePerRosterOnInvalidArms(t *testing.T) {
 	_, err = src.HMMDeployedModels(ctx)
 	require.NoError(t, err)
 	assert.Equal(t, int64(2), handler.warns.Load())
+
+	// A clean roster resets the dedup key...
+	fetch.ids = []string{"openai/gpt-5.6-sol"}
+	src.mu.Lock()
+	src.fetchedAt = src.fetchedAt.Add(-2 * hmmRosterTTL)
+	src.mu.Unlock()
+	_, err = src.HMMDeployedModels(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, int64(2), handler.warns.Load())
+
+	// ...so the same invalid roster reappearing warns again.
+	fetch.ids = []string{"openai/gpt-5.6-sol", "othervendor/model-y"}
+	src.mu.Lock()
+	src.fetchedAt = src.fetchedAt.Add(-2 * hmmRosterTTL)
+	src.mu.Unlock()
+	_, err = src.HMMDeployedModels(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, int64(3), handler.warns.Load())
 }
 
 func TestHMMRosterSource_ValidRosterEmitsNoWarn(t *testing.T) {
