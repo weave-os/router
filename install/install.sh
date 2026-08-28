@@ -1371,7 +1371,13 @@ fi
 # Claude Code's settings.json and opencode's opencode.json patching both use
 # jq to deep-merge / structurally rewrite JSON. Toggling those clients reads
 # and rewrites the same JSON, so jq is required there too.
-if [ "$target" = "claude" ] || [ "$target" = "opencode" ] || [ "$target" = "pi" ]; then
+#
+# `models` is the exception for Codex: it renders and edits the router's JSON
+# payloads with jq regardless of which client's config supplied the endpoint,
+# so require it there too rather than dying mid-render on `jq: command not
+# found`. Installing Codex itself still needs no jq.
+if [ "$target" = "claude" ] || [ "$target" = "opencode" ] || [ "$target" = "pi" ] \
+   || { [ "$mode" = "models" ] && [ "$target" = "codex" ]; }; then
   require_cmd jq    "macOS: 'brew install jq' · Debian/Ubuntu: 'sudo apt install jq'"
 fi
 # curl is used by the install/update paths' health/validate probes and by every
@@ -2336,7 +2342,7 @@ models_fail() {
       if [ -n "$detail" ]; then
         err "$detail"
       else
-        err "The router rejected this installation's key. Re-run 'npx @workweave/router --claude --rotate-key' to install a current one."
+        err "The router rejected this installation's key. Re-run 'npx @workweave/router --$target --rotate-key' to install a current one."
       fi
       ;;
     404)
@@ -2448,8 +2454,8 @@ models_list() {
   fi
   models_render_list "$models_http_body"
   models_print_preferred
-  printf "\n%sEnable a model:%s  npx @workweave/router models enable <id> --claude\n" "$C_DIM" "$C_RESET"
-  printf "%sDisable a model:%s npx @workweave/router models disable <id> --claude\n" "$C_DIM" "$C_RESET"
+  printf "\n%sEnable a model:%s  npx @workweave/router models enable <id> --%s\n" "$C_DIM" "$C_RESET" "$target"
+  printf "%sDisable a model:%s npx @workweave/router models disable <id> --%s\n" "$C_DIM" "$C_RESET" "$target"
 }
 
 models_providers_list() {
@@ -2533,14 +2539,17 @@ models_prefer() {
 }
 
 models_usage() {
+  # Echo back the client the caller actually named, so a Codex user is never
+  # told to run a command that would target (or create) a Claude Code install.
+  local c="--${target}"
   err "$1"
   printf '%s\n' \
-    "  npx @workweave/router models --claude                          # list models" \
-    "  npx @workweave/router models enable  <id> [<id>…] --claude" \
-    "  npx @workweave/router models disable <id> [<id>…] --claude" \
-    "  npx @workweave/router models providers --claude                # list providers" \
-    "  npx @workweave/router models providers disable <name> --claude" \
-    "  npx @workweave/router models prefer <id> [<id>…] --claude      # ranking ('clear' to drop)" >&2
+    "  npx @workweave/router models $c                          # list models" \
+    "  npx @workweave/router models enable  <id> [<id>…] $c" \
+    "  npx @workweave/router models disable <id> [<id>…] $c" \
+    "  npx @workweave/router models providers $c                # list providers" \
+    "  npx @workweave/router models providers disable <name> $c" \
+    "  npx @workweave/router models prefer <id> [<id>…] $c      # ranking ('clear' to drop)" >&2
   exit 2
 }
 
