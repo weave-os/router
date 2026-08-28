@@ -42,7 +42,13 @@ while [ $# -gt 0 ]; do
     *) shift ;;
   esac
 done
-cat >/dev/null 2>&1 || true   # drain the key header on stdin
+# The key rides in on stdin (curl --header @-). Normally just drained; when
+# KEY_LOG is set, record it so a test can assert which install's key was sent.
+if [ -n "${KEY_LOG:-}" ]; then
+  cat >>"$KEY_LOG" 2>/dev/null || true
+else
+  cat >/dev/null 2>&1 || true
+fi
 path="${url#http://}"; path="${path#https://}"; path="/${path#*/}"
 [ -n "${REQUEST_LOG:-}" ] && printf '%s %s %s\n' "$method" "$path" "$body" >>"$REQUEST_LOG"
 
@@ -114,6 +120,25 @@ seed_install() { # seed_install <home> <base-url> <key>
 EOF
 }
 
+# seed_codex_install writes the managed config.toml block a Codex install
+# leaves behind. Codex keeps the endpoint and the key in one file, which is why
+# `models --codex` needs no endpoint-trust split (see models_endpoint_is_trusted).
+seed_codex_install() { # seed_codex_install <home> <base-url> <key>
+  mkdir -p "$1/.codex"
+  cat >"$1/.codex/config.toml" <<EOF
+# >>> weave-router managed (do not edit between markers) >>>
+model_provider = "weave"
+
+[model_providers.weave]
+name = "Weave Router"
+base_url = "$2/v1"
+wire_api = "responses"
+requires_openai_auth = true
+http_headers = { "X-Weave-Router-Key" = "$3", "X-App" = "codex" }
+# <<< weave-router managed <<<
+EOF
+}
+
 # run_models <home> -- <installer args...>. Sets $out (stdout+stderr) and $rc.
 # Deliberately not a command substitution at the call site: that would run the
 # function in a subshell and throw the exit status away.
@@ -124,6 +149,7 @@ run_models() {
   [ "${1:-}" = "--" ] && shift
   HOME="$home" XDG_CACHE_HOME="$home/.cache" PATH="$test_path" NO_COLOR=1 \
     ROUTER_MODE="${ROUTER_MODE:-full}" REQUEST_LOG="${REQUEST_LOG:-}" \
+    KEY_LOG="${KEY_LOG:-}" \
     bash "$installer" models "$@" </dev/null >"$work/out" 2>&1
   rc=$?
   out="$(cat "$work/out")"
@@ -418,13 +444,29 @@ check "the explicit endpoint is the one called" \
 
 # ---------- argument handling ----------
 
-run_models "$home" -- --codex
-check "models rejects a non-Claude client" "$rc" "2"
-contains "models says which client it supports" "$out" "supports --claude only"
+# Codex is a supported client: it resolves the endpoint and key out of its own
+# managed config.toml, so the command reaches the router instead of refusing.
+codex_home="$work/codex-home"
+mkdir -p "$codex_home"
+seed_codex_install "$codex_home" "http://127.0.0.1:8080" "rk_codex"
+export REQUEST_LOG="$work/codex.log"
+export KEY_LOG="$work/codex.key"
+: >"$REQUEST_LOG"; : >"$KEY_LOG"
+run_models "$codex_home" -- --codex
+check "models accepts a Codex install" "$rc" "0"
+check "the Codex install's endpoint is the one called" \
+  "$(grep -c '^GET /admin/v1/models ' "$REQUEST_LOG")" "1"
+contains "the Codex install's key is the one sent" "$(cat "$KEY_LOG")" "rk_codex"
+unset REQUEST_LOG KEY_LOG
+
+# opencode and pi have no endpoint-trust story yet, so they stay refused.
+run_models "$home" -- --opencode
+check "models rejects an unsupported client" "$rc" "2"
+contains "models says which clients it supports" "$out" "supports --claude and --codex only"
 
 HOME="$home" PATH="$test_path" NO_COLOR=1 bash "$installer" models </dev/null >"$work/out" 2>&1
 check "models without a client flag is refused" "$?" "2"
-contains "models without a client flag names --claude" "$(cat "$work/out")" "requires an explicit client"
+contains "models without a client flag names its clients" "$(cat "$work/out")" "requires an explicit client"
 
 run_models "$home" -- enable --claude
 check "enable with no model id is refused" "$rc" "2"
