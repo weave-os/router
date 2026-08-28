@@ -121,6 +121,53 @@ same reason the resolver does: the alias list is the thing to fix.
 
 `proxy.Service` is the **only caller of [`../translate`](../translate)**. Keep providers ignorant of cross-format concerns. See [translate/CLAUDE.md](../translate/CLAUDE.md) for the recipe.
 
+## OpenAI endpoint selection (chat/completions vs Responses)
+
+`translate.UseOpenAIResponsesAPI` decides which OpenAI surface an attempt
+POSTs to, and the two OpenAI providers get deliberately different rules.
+
+**Direct OpenAI takes every turn it can express.** OpenAI documents Responses
+as the API new integrations build on, it is the only endpoint that will serve a
+reasoning model a function tool (chat/completions 400s that combination from
+gpt-5.4 on — the prod incident that started this), and it is the only one that
+round-trips encrypted reasoning across turns, which is also where the
+prompt-cache win comes from. The exception is a turn whose parameters have no
+Responses equivalent (`env.RequiresChatCompletionsParams`): stop sequences are
+the whole set today, and such a turn stays on chat/completions rather than
+silently dropping them. Reasoning targets are exempt from that check because
+they reject `stop` on chat/completions too, so it is already dropped for them.
+
+**OpenAI-compatible gateways stay narrow** — reasoning tool turns only. Most
+mount no Responses surface at all, so the endpoint buys nothing there beyond
+the one turn the gateway would otherwise reject (Snowflake Cortex 400s a 5.6
+tool turn on chat/completions no matter what we send). A gateway that answers
+404/"API disabled" is retried once on chat/completions while pre-commit and
+memoized per effective base URL (`gatewayLacksResponses`), so the next turn
+skips the probe.
+
+Both rules sit behind `ROUTER_OPENAI_RESPONSES_BROAD` (default on, per-org
+overridable via `flags.KeyOpenAIResponsesBroad`). Turning it off restores the
+narrow rule for direct OpenAI too — the reasoning tool turn chat/completions
+rejects is still promoted, since that one is a correctness fix, not a rollout.
+
+Anthropic and chat/completions ingress re-emit the request through
+`PrepareOpenAIResponses` per attempt, so a compaction or handover rewrite is
+carried faithfully. A Responses-ingress caller dispatches its ORIGINAL bytes
+natively instead, which is why that promotion is skipped when compaction or a
+handover rewrote the envelope — those bytes are stale, and the chat projection
+is the only faithful representation until item-level emit from a rewritten
+envelope lands.
+
+**A chat caller is served chat, whatever the upstream surface.** The three
+combinations differ in both request emit and response handling, so the decision
+is the typed `openAISurface` (`surfaceChat` / `surfaceResponsesNative` /
+`surfaceResponsesTranslated`), not a URL swap: a translated attempt wraps the
+client writer in `translate.ResponsesToOpenAIChatWriter`, which renders the
+Responses stream as chat.completion.chunk frames (or one chat.completion body
+for a non-streaming client). It returns a pre-output upstream failure as
+`providers.UpstreamErrorResponse` so the unsupported-endpoint fallback still
+works, and switches to an in-stream error frame once output is committed.
+
 ## Runtime provider fallback
 
 Multi-binding models (deepseek/qwen/moonshot with Fireworks/Makora/Bedrock primary + OpenRouter fallback in [`catalog.Model.Providers`](../router/catalog/catalog.go)) dispatch through [`dispatchWithFallback`](fallback.go). The helper walks the ordered binding list, retries on `providers.IsRetryable` errors (5xx/408/429 buffered responses, transport errors, `httputil.ErrUpstreamIdleTimeout`), and on exhaustion writes the final upstream error envelope via a format-specific renderer (`flushUpstreamErrorAsAnthropic` for ProxyMessages, `flushBufferedIfPresent` for ProxyOpenAIChatCompletion).
@@ -129,7 +176,7 @@ Multi-binding models (deepseek/qwen/moonshot with Fireworks/Makora/Bedrock prima
 
 **Billing-blocked 402 → cross-binding failover (only).** Same shape as the 404 (`providers.IsUpstreamProviderBillingBlocked`): the provider refuses this account — credits exhausted, or the endpoint moved behind a billing plan we're not on, which is how Makora EOL'd DeepSeek-V4-Pro (402 `insufficient_credits` on every turn while Together/Fireworks kept serving it). Same-binding retry would just re-bill the same rejection, so it walks to the next binding and flushes on the last one.
 
-**Same-cluster model failover ([`sibling_failover.go`](sibling_failover.go)).** Provider-level failover assumes the model has somewhere else to run; a single-binding model on an overloaded provider does not (prod's `claude-opus-5` 529 storm: three attempts, one dark Anthropic endpoint, client eats the 529). When every binding is exhausted pre-commit on a retryable/404/402 fault, `ProxyMessages` re-dispatches a *different* model drawn from `Decision.Metadata.CandidateModels` — the pool the policy already scored for this turn, so the rescue stays inside the accepted quality band — preferring a candidate on a provider other than the one that just failed. It runs last in the rescue chain (after baseline and subscription failover), rebuilds the request through `buildAttempt` for the candidate's translation family, re-resolves credentials and bindings, and attributes pricing/telemetry/pin usage to the model that actually served. Gated by `ROUTER_SIBLING_FAILOVER` (default on) and skipped for `/force-model`, shadow mode, BYOK (`shouldFailover`), and subscription-only balances.
+**Same-cluster model failover ([`sibling_failover.go`](sibling_failover.go)).** Provider-level failover assumes the model has somewhere else to run; a single-binding model on an overloaded provider does not (prod's `claude-opus-5` 529 storm: three attempts, one dark Anthropic endpoint, client eats the 529). When every binding is exhausted pre-commit on a retryable/404/402 fault, `ProxyMessages` re-dispatches a *different* model drawn from `Decision.Metadata.CandidateModels` — the pool the policy already scored for this turn, so the rescue stays inside the accepted quality band — preferring a candidate on a provider other than the one that just failed. It runs last in the rescue chain (after baseline and subscription failover), rebuilds the request through `buildAttempt` for the candidate's translation family, re-resolves credentials and bindings, and attributes pricing/telemetry/pin usage to the model that actually served. Gated by `ROUTER_SIBLING_FAILOVER` (default on) and skipped for `/force-model`, shadow mode, and subscription-only balances. BYOK (`shouldFailover`) normally disables it too, with one carve-out: a BYOK-gateway turn may rescue onto a candidate that one of the request's own gateway keys aliases (`gatewaySiblingDecision`) — same credentials, so no cross-provider 401 risk.
 
 **Single-binding same-binding retry.** Most catalog models carry one binding (Anthropic/OpenAI/Google), so cross-binding failover has nowhere to walk — a sole-provider 5xx/timeout would kill the request. For these, `dispatchWithFallback` retries the *same* binding in place up to `maxSameBindingRetries` (2) with exponential backoff (`sameBindingBackoff`: 250ms, 500ms), pre-commit only, abortable on ctx cancel (`sleepWithContext`). Multi-binding models skip in-place retry (`len(bindings) > 1` breaks the inner loop) and fail straight over to the next provider — a different upstream beats re-hitting the flaky one. Tests inject `Service.retrySleep` to keep the backoff instant.
 

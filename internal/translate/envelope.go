@@ -291,20 +291,49 @@ func (e *RequestEnvelope) HasTools() bool {
 	return r.Int() > 0
 }
 
-// ToolValidator compiles inbound Anthropic tool definitions into a
+// ToolValidator compiles the inbound request's tool definitions into a
 // toolcheck.Validator for validating/repairing model-emitted tool calls.
-// Returns nil for non-Anthropic formats or no tools (translators treat nil as
-// syntax-check-only). Compilation is cached via toolcheck's LRU since agent
-// sessions resend a byte-identical tools block every turn.
+// Returns nil when no compilable tool schemas exist for the format or the
+// request has no tools (translators treat nil as syntax-check-only); cached
+// via toolcheck's LRU since sessions resend a byte-identical block every turn.
 func (e *RequestEnvelope) ToolValidator() *toolcheck.Validator {
-	if e.format != FormatAnthropic {
-		return nil
-	}
 	tools := gjson.GetBytes(e.body, "tools")
 	if !tools.IsArray() {
 		return nil
 	}
-	return toolcheck.CompileCached([]byte(tools.Raw))
+	switch e.format {
+	case FormatAnthropic:
+		return toolcheck.CompileCached([]byte(tools.Raw))
+	case FormatOpenAI:
+		return toolcheck.CompileCached(anthropicToolShapeFromOpenAI(tools))
+	default:
+		return nil
+	}
+}
+
+// anthropicToolShapeFromOpenAI projects chat function tools into the
+// {name, input_schema} shape toolcheck compiles, so a chat-ingress turn gets
+// the same tool-call validation an Anthropic one does.
+func anthropicToolShapeFromOpenAI(tools gjson.Result) []byte {
+	jw := newJSONWriter()
+	jw.Arr()
+	tools.ForEach(func(_, tool gjson.Result) bool {
+		fn := tool.Get("function")
+		if !fn.Exists() {
+			return true
+		}
+		jw.Obj()
+		jw.Key("name")
+		jw.Str(fn.Get("name").String())
+		if schema := fn.Get("parameters"); schema.Exists() {
+			jw.Key("input_schema")
+			jw.Raw(schema.Raw)
+		}
+		jw.EndObj()
+		return true
+	})
+	jw.EndArr()
+	return jw.Bytes()
 }
 
 // HasImages reports whether any message carries image content. Used to keep
@@ -1027,7 +1056,7 @@ func resolveOpenAIOverrides(body []byte, opts EmitOptions) EmitOverrides {
 		}
 	}
 
-	if !samplersAcceptedOnChatCompletions(opts) {
+	if !samplersAccepted(opts) {
 		for _, key := range []string{"temperature", "top_p"} {
 			if gjson.GetBytes(body, key).Exists() {
 				ov.DeleteKeys = append(ov.DeleteKeys, key)
@@ -1302,7 +1331,8 @@ var modelMaxOutputTokens = map[string]int{
 	"minimax/minimax-m2.7":             65536,
 	"z-ai/glm-5":                       65536,
 	"z-ai/glm-5.1":                     65536,
-	"z-ai/glm-5.3-flash":               131072, // OpenRouter reports a 131,072 completion token ceiling
+	"z-ai/glm-5.3":                     131072, // Both 5.3 arms document a 128K max output (docs.z.ai/guides/llm/glm-5.3)
+	"z-ai/glm-5.3-flash":               131072,
 	"google/gemini-3.7-flash":          65536,
 }
 

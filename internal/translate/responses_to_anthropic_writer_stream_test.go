@@ -536,6 +536,47 @@ data: {"type":"response.failed","response":{"id":"r","status":"failed","error":{
 	assert.NotContains(t, body, "event: message_stop", "no success trailer after an error close")
 }
 
+// A corrupt frame means content was lost, so the turn must be reported rather
+// than skipped into a success close.
+func TestResponsesToAnthropicWriter_MalformedFrameReported(t *testing.T) {
+	const fixture = `event: response.output_item.added
+data: {"type":"response.output_item.added","output_index":0,"item":{"id":"msg_1","type":"message","role":"assistant","status":"in_progress","content":[]}}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","item_id":"msg_1","output_index":0,"content_index":0,"delta":"partial"}
+
+event: response.output_text.delta
+data: {"type":"response.output_te
+
+event: response.completed
+data: {"type":"response.completed","response":{"id":"r","status":"completed","output":[],"usage":{"input_tokens":1,"output_tokens":1}}}
+
+`
+	rec := httptest.NewRecorder()
+	w := translate.NewResponsesToAnthropicWriter(rec, "gpt-5.5", nil)
+	require.NoError(t, w.Prelude(true))
+	_, err := w.Write([]byte(fixture))
+	require.NoError(t, err)
+	require.NoError(t, w.Finalize())
+
+	body := rec.Body.String()
+	assert.Contains(t, body, "event: error")
+	assert.Contains(t, body, "malformed")
+	assert.NotContains(t, body, "event: message_stop")
+}
+
+// Pre-output the same corruption stays retryable so the proxy can fail over.
+func TestResponsesToAnthropicWriter_MalformedFrameRetryablePreOutput(t *testing.T) {
+	rec := httptest.NewRecorder()
+	w := translate.NewResponsesToAnthropicWriter(rec, "gpt-5.5", nil)
+	require.NoError(t, w.Prelude(true))
+	_, err := w.Write([]byte("data: {\"type\":\"response.output_te\n\n"))
+
+	var upstream *providers.UpstreamErrorResponse
+	require.ErrorAs(t, err, &upstream, "a corrupt frame before output must stay retryable")
+	assert.Contains(t, string(upstream.Body), "malformed")
+}
+
 // response.failed with no error object is still surfaced as an error (status
 // detail in the message), not a normal success close.
 func TestResponsesToAnthropicWriter_StreamingFailedNoErrorObject(t *testing.T) {

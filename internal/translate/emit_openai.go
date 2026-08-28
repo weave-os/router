@@ -10,6 +10,7 @@ import (
 
 	"workweave/router/internal/providers"
 	"workweave/router/internal/router"
+	"workweave/router/internal/websearch"
 
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
@@ -43,10 +44,19 @@ func reasoningEffortAcceptedOnChatCompletions(opts EmitOptions, hasTools bool) b
 	return true
 }
 
-// samplersAcceptedOnChatCompletions reports whether the target accepts
-// temperature / top_p on /v1/chat/completions. Reasoning gpt-5.x models 400 on
-// non-default values; OSS CapReasoning targets (OpenRouter, xAI) sample normally.
-func samplersAcceptedOnChatCompletions(opts EmitOptions) bool {
+// toolTurnNeedsExplicitEffortNone reports whether the target refuses a
+// function-tool turn on chat/completions unless reasoning_effort is "none".
+// gpt-5.6 applies its own effort when the field is absent; /v1/responses
+// dispatch is what preserves reasoning. Gateways excluded: proxy downgrades them.
+func toolTurnNeedsExplicitEffortNone(opts EmitOptions, hasTools bool) bool {
+	return hasTools && opts.TargetProvider == providers.ProviderOpenAI &&
+		strings.HasPrefix(opts.TargetModel, "gpt-5.6")
+}
+
+// samplersAccepted reports whether the target accepts temperature / top_p.
+// Reasoning gpt-5.x models 400 on non-default values on both endpoints;
+// other CapReasoning targets (OpenRouter, xAI) sample normally.
+func samplersAccepted(opts EmitOptions) bool {
 	return !opts.Capabilities.Supports(router.CapReasoning) || !strings.HasPrefix(opts.TargetModel, "gpt-5")
 }
 
@@ -215,6 +225,12 @@ func (e *RequestEnvelope) buildOpenAIFromOpenAI(opts EmitOptions) ([]byte, error
 			return nil, fmt.Errorf("set reasoning_effort: %w", err)
 		}
 	}
+	if toolTurnNeedsExplicitEffortNone(opts, hasNonEmptyTools(body)) {
+		body, err = sjson.SetBytes(body, "reasoning_effort", "none")
+		if err != nil {
+			return nil, fmt.Errorf("set reasoning_effort none: %w", err)
+		}
+	}
 	if targetIsOpenRouter(opts) {
 		if hint := openRouterProviderHint(opts.TargetModel); hint != nil {
 			body, err = sjson.SetBytes(body, "provider", hint)
@@ -276,6 +292,9 @@ func (e *RequestEnvelope) buildOpenAIFromAnthropic(opts EmitOptions) ([]byte, pr
 		return nil, stats, fmt.Errorf("strip claude-code-only tools: %w", err)
 	}
 	stats.CCOnlyToolsStripped = removed
+	// Anthropic executes web_search_*/web_fetch_* itself; passing them through
+	// writeOpenAIToolsFromAnthropic creates phantom function tools. Drop them.
+	body, stats.ServerToolsStripped = websearch.StripServerTools(body)
 	jw := newJSONWriter()
 	jw.Obj()
 	jw.Key("model")
@@ -306,13 +325,13 @@ func (e *RequestEnvelope) buildOpenAIFromAnthropic(opts EmitOptions) ([]byte, pr
 
 	// Temperature, top_p
 	clientSetTemp := false
-	samplersAccepted := samplersAcceptedOnChatCompletions(opts)
-	if r := gjson.GetBytes(body, "temperature"); r.Exists() && samplersAccepted {
+	sampleOK := samplersAccepted(opts)
+	if r := gjson.GetBytes(body, "temperature"); r.Exists() && sampleOK {
 		jw.Key("temperature")
 		jw.Raw(r.Raw)
 		clientSetTemp = true
 	}
-	if r := gjson.GetBytes(body, "top_p"); r.Exists() && samplersAccepted {
+	if r := gjson.GetBytes(body, "top_p"); r.Exists() && sampleOK {
 		jw.Key("top_p")
 		jw.Raw(r.Raw)
 	}

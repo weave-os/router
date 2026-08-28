@@ -452,11 +452,182 @@ func TestPrepareGemini_ThinkingBudget_Legacy25(t *testing.T) {
 
 func TestUseOpenAIResponsesAPI(t *testing.T) {
 	caps := router.Lookup("gpt-5.4-mini")
-	assert.True(t, translate.UseOpenAIResponsesAPI(providers.ProviderOpenAI, caps, true))
-	assert.False(t, translate.UseOpenAIResponsesAPI(providers.ProviderOpenAI, caps, false))
-	assert.False(t, translate.UseOpenAIResponsesAPI(providers.ProviderFireworks, caps, true))
-	assert.False(t, translate.UseOpenAIResponsesAPI(providers.ProviderOpenAI, router.Lookup("gpt-4o"), true))
-	assert.True(t, translate.UseOpenAIResponsesAPI(providers.ProviderOpenAIGateway, caps, true),
+	route := func(provider string, caps router.ModelSpec, hasTools, chatOnly, broad bool) translate.ResponsesRoute {
+		return translate.ResponsesRoute{
+			Provider:       provider,
+			Capabilities:   caps,
+			HasTools:       hasTools,
+			ChatOnlyParams: chatOnly,
+			Broad:          broad,
+		}
+	}
+	assert.True(t, translate.UseOpenAIResponsesAPI(route(providers.ProviderOpenAI, caps, true, false, true)))
+	assert.True(t, translate.UseOpenAIResponsesAPI(route(providers.ProviderOpenAI, caps, false, false, true)),
+		"broad rollout serves every expressible direct-OpenAI turn, tools or not")
+	assert.True(t, translate.UseOpenAIResponsesAPI(route(providers.ProviderOpenAI, router.Lookup("gpt-4o"), true, false, true)),
+		"non-reasoning direct-OpenAI models go to Responses too")
+	assert.False(t, translate.UseOpenAIResponsesAPI(route(providers.ProviderOpenAI, caps, true, true, true)),
+		"a turn using a chat-only parameter stays on chat/completions")
+	assert.True(t, translate.UseOpenAIResponsesAPI(route(providers.ProviderOpenAI, caps, true, false, false)),
+		"with the rollout off, the reasoning tool turn chat/completions rejects is still promoted")
+	assert.False(t, translate.UseOpenAIResponsesAPI(route(providers.ProviderOpenAI, caps, false, false, false)),
+		"with the rollout off, a toolless turn keeps the chat projection")
+	assert.False(t, translate.UseOpenAIResponsesAPI(route(providers.ProviderFireworks, caps, true, false, true)))
+	assert.True(t, translate.UseOpenAIResponsesAPI(route(providers.ProviderOpenAIGateway, caps, true, false, true)),
 		"BYOK gateways reject tools alongside an effort on chat/completions too")
-	assert.False(t, translate.UseOpenAIResponsesAPI(providers.ProviderOpenAIGateway, caps, false))
+	assert.False(t, translate.UseOpenAIResponsesAPI(route(providers.ProviderOpenAIGateway, caps, false, false, true)),
+		"gateways stay narrow even under the broad rollout: most mount no Responses surface")
+}
+
+// An Anthropic image block must survive the Responses emit as a typed
+// input_image part — a non-reasoning model now routes here too, so images can
+// no longer be skipped.
+func TestPrepareOpenAIResponses_ImageBlocks(t *testing.T) {
+	body := []byte(`{
+		"model":"claude-opus-4-8","max_tokens":1024,
+		"messages":[
+			{"role":"user","content":[
+				{"type":"text","text":"what is this"},
+				{"type":"image","source":{"type":"base64","media_type":"image/png","data":"AAAB"}},
+				{"type":"image","source":{"type":"url","url":"https://example.com/a.png"}}
+			]}
+		]
+	}`)
+	env, err := translate.ParseAnthropic(body)
+	require.NoError(t, err)
+	prep, err := env.PrepareOpenAIResponses(http.Header{}, translate.EmitOptions{
+		TargetModel:  "gpt-4.1",
+		Capabilities: router.Lookup("gpt-4.1"),
+	})
+	require.NoError(t, err)
+
+	var out struct {
+		Input []struct {
+			Role    string `json:"role"`
+			Content []struct {
+				Type     string `json:"type"`
+				Text     string `json:"text"`
+				ImageURL string `json:"image_url"`
+			} `json:"content"`
+		} `json:"input"`
+	}
+	require.NoError(t, json.Unmarshal(prep.Body, &out))
+	require.Len(t, out.Input, 1)
+	require.Len(t, out.Input[0].Content, 3)
+	assert.Equal(t, "input_text", out.Input[0].Content[0].Type)
+	assert.Equal(t, "what is this", out.Input[0].Content[0].Text)
+	assert.Equal(t, "input_image", out.Input[0].Content[1].Type)
+	assert.Equal(t, "data:image/png;base64,AAAB", out.Input[0].Content[1].ImageURL,
+		"a base64 source becomes a data URL")
+	assert.Equal(t, "input_image", out.Input[0].Content[2].Type)
+	assert.Equal(t, "https://example.com/a.png", out.Input[0].Content[2].ImageURL)
+}
+
+// function_call_output is text-only; a nested image must be hoisted into a
+// following message instead of vanishing.
+func TestPrepareOpenAIResponses_ToolResultImageHoisted(t *testing.T) {
+	body := []byte(`{
+		"model":"claude-opus-4-8","max_tokens":1024,
+		"messages":[
+			{"role":"assistant","content":[{"type":"tool_use","id":"call_1","name":"shot","input":{}}]},
+			{"role":"user","content":[{"type":"tool_result","tool_use_id":"call_1","content":[
+				{"type":"text","text":"captured"},
+				{"type":"image","source":{"type":"base64","media_type":"image/png","data":"BBBC"}}
+			]}]}
+		]
+	}`)
+	env, err := translate.ParseAnthropic(body)
+	require.NoError(t, err)
+	prep, err := env.PrepareOpenAIResponses(http.Header{}, translate.EmitOptions{
+		TargetModel:  "gpt-4.1",
+		Capabilities: router.Lookup("gpt-4.1"),
+	})
+	require.NoError(t, err)
+
+	var out struct {
+		Input []struct {
+			Type    string `json:"type"`
+			Role    string `json:"role"`
+			CallID  string `json:"call_id"`
+			Output  string `json:"output"`
+			Content []struct {
+				Type     string `json:"type"`
+				ImageURL string `json:"image_url"`
+			} `json:"content"`
+		} `json:"input"`
+	}
+	require.NoError(t, json.Unmarshal(prep.Body, &out))
+	require.Len(t, out.Input, 3)
+	assert.Equal(t, "function_call", out.Input[0].Type)
+	assert.Equal(t, "function_call_output", out.Input[1].Type)
+	assert.Equal(t, "call_1", out.Input[1].CallID)
+	assert.Contains(t, out.Input[1].Output, "captured")
+	assert.Equal(t, "user", out.Input[2].Role, "the hoisted image rides a user message")
+	require.Len(t, out.Input[2].Content, 1)
+	assert.Equal(t, "input_image", out.Input[2].Content[0].Type)
+	assert.Equal(t, "data:image/png;base64,BBBC", out.Input[2].Content[0].ImageURL)
+}
+
+// Reasoning gpt-5.x models 400 on a supplied temperature; everything else on
+// Responses samples normally, so the client's knobs must reach a gpt-4.1.
+func TestPrepareOpenAIResponses_Samplers(t *testing.T) {
+	body := []byte(`{
+		"model":"claude-opus-4-8","max_tokens":1024,"temperature":0.2,"top_p":0.9,
+		"messages":[{"role":"user","content":"hi"}]
+	}`)
+	env, err := translate.ParseAnthropic(body)
+	require.NoError(t, err)
+
+	for _, tc := range []struct {
+		model    string
+		wantTemp bool
+	}{
+		{model: "gpt-4.1", wantTemp: true},
+		{model: "gpt-5.4-mini", wantTemp: false},
+	} {
+		t.Run(tc.model, func(t *testing.T) {
+			prep, err := env.PrepareOpenAIResponses(http.Header{}, translate.EmitOptions{
+				TargetModel:  tc.model,
+				Capabilities: router.Lookup(tc.model),
+			})
+			require.NoError(t, err)
+			var out map[string]any
+			require.NoError(t, json.Unmarshal(prep.Body, &out))
+			_, hasTemp := out["temperature"]
+			_, hasTopP := out["top_p"]
+			assert.Equal(t, tc.wantTemp, hasTemp)
+			assert.Equal(t, tc.wantTemp, hasTopP)
+			if !tc.wantTemp {
+				return
+			}
+			// The reasoning-output floor is a reasoning-model allowance; a
+			// non-reasoning target keeps the ceiling the client asked for.
+			assert.EqualValues(t, 1024, out["max_output_tokens"])
+		})
+	}
+}
+
+// Stop sequences have no Responses equivalent, so a turn using them keeps the
+// chat/completions projection rather than losing them.
+func TestRequiresChatCompletionsParams(t *testing.T) {
+	nonReasoning := router.Lookup("gpt-4.1")
+	reasoning := router.Lookup("gpt-5.4-mini")
+
+	withStops, err := translate.ParseAnthropic([]byte(
+		`{"model":"claude-opus-4-8","max_tokens":16,"stop_sequences":["\n\n"],"messages":[{"role":"user","content":"hi"}]}`))
+	require.NoError(t, err)
+	assert.True(t, withStops.RequiresChatCompletionsParams(nonReasoning))
+	assert.False(t, withStops.RequiresChatCompletionsParams(reasoning),
+		"a reasoning target rejects stop on chat/completions too, so it is already dropped")
+
+	empty, err := translate.ParseAnthropic([]byte(
+		`{"model":"claude-opus-4-8","max_tokens":16,"stop_sequences":[],"messages":[{"role":"user","content":"hi"}]}`))
+	require.NoError(t, err)
+	assert.False(t, empty.RequiresChatCompletionsParams(nonReasoning))
+
+	chatIngress, err := translate.ParseOpenAI([]byte(
+		`{"model":"gpt-4.1","stop":["END"],"messages":[{"role":"user","content":"hi"}]}`))
+	require.NoError(t, err)
+	assert.True(t, chatIngress.RequiresChatCompletionsParams(nonReasoning),
+		"chat ingress carries the same constraint under its own key")
 }

@@ -17,11 +17,16 @@ func TestFeedbackFooter_ClientGating(t *testing.T) {
 	withStore := (&Service{}).WithRouterFeedbackStore(footerFakeStore{})
 
 	t.Run("terminal agents get the link-free rating hint", func(t *testing.T) {
-		for _, app := range []string{ClientAppClaudeCode, ClientAppCodex, ClientAppOpencode} {
+		for _, app := range []string{ClientAppClaudeCode, ClientAppOpencode} {
 			footer := withStore.feedbackFooter(context.Background(), app, turntype.MainLoop, false)
 			assert.Equal(t, feedbackFooterText, footer, "expected hint for %q", app)
 			assert.NotContains(t, footer, "http", "footer must never embed a raw link")
 		}
+		codex := withStore.feedbackFooter(context.Background(), ClientAppCodex, turntype.MainLoop, false)
+		assert.Equal(t, feedbackFooterTextCodex, codex)
+		assert.Contains(t, codex, "$rf +")
+		assert.NotContains(t, codex, "`/rf")
+		assert.NotContains(t, codex, "http")
 	})
 
 	t.Run("ide and unknown clients are suppressed", func(t *testing.T) {

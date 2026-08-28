@@ -18,6 +18,29 @@ When a new inbound format needs to talk to an existing upstream provider with a 
 2. **If response streaming, adapt [`stream.go`](stream.go) / [`gemini_stream.go`](gemini_stream.go)** or add a sibling decorator. Decorators wrap `http.ResponseWriter` and translate on the fly so we never buffer entire responses. Use [`../sse`](../sse) for zero-alloc SSE framing. A decorator that only prepends synthetic content to a stream (like the `*RoutingMarkerWriter` types) should embed `sse.ChunkedWriter` for the shared `Header`/`WriteHeader`/`Flush`/`FlushEvent` + streaming-detection bookkeeping, and add only its format-specific `Write`/`emit*` methods. A full response translator (buffers to translate one wire format into another, e.g. `AnthropicSSETranslator`) has enough divergent `WriteHeader`/streaming logic that it should NOT embed `ChunkedWriter` — reuse only `sse.FlushWriter(bw, flusher)` for its `flushEvent` helper.
 3. **Compose the new translation in `proxy.Service.Proxy*`.** Proxy is the only caller of `translate`.
 
+## OpenAI chat/completions ⇄ Responses (same vendor, two wire formats)
+
+Direct OpenAI is served on `/v1/responses` even for a chat/completions caller,
+so the pair exists in both directions: `buildResponsesFromOpenAI`
+([`emit_openai_responses_from_openai.go`](emit_openai_responses_from_openai.go))
+projects `messages` onto Responses `input` items — assistant `tool_calls`
+become `function_call`, `role:"tool"` turns become `function_call_output` keyed
+by the same `call_id`, `response_format` becomes `text.format` — and
+[`responses_to_openai_chat_writer.go`](responses_to_openai_chat_writer.go)
+renders the Responses stream back as chat.completion.chunk frames
+(`output_text.delta`→`delta.content`, reasoning summary deltas→
+`delta.reasoning_content`, `function_call_arguments`→`delta.tool_calls`), with
+[`responses_to_openai_chat_response.go`](responses_to_openai_chat_response.go)
+serving a non-streaming client one chat.completion body.
+
+Only the **leading** system/developer run is hoisted into `instructions`, for
+the prefix-stability reason below; a mid-conversation system message stays in
+place as a `developer` input item. A parameter Responses cannot express keeps
+the turn on chat/completions instead (`RequiresChatCompletionsParams`) — `n>1`,
+penalties, `logprobs`, `logit_bias`, `seed`, stop sequences. Reasoning is
+degraded, not smuggled: a chat client cannot round-trip an encrypted reasoning
+item, so it sees summary text and loses cross-turn reasoning replay.
+
 ## Anthropic-specific stripping (load-bearing)
 
 Anthropic-only fields (`thinking`, `cache_control`, `metadata`, Anthropic beta headers) are stripped at translation time **and again defensively in the OpenAI / openaicompat adapters**. Keep both checks — belt-and-suspenders is intentional because the field set drifts as Anthropic adds beta features.

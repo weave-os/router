@@ -85,6 +85,16 @@ func (s *hmmRosterSource) HMMDeployedModels(ctx context.Context) (entries []clus
 // refresh fetches the roster from the sidecar and updates the cache;
 // on failure with a prior snapshot backs off rather than erroring.
 func (s *hmmRosterSource) refresh(ctx context.Context) ([]cluster.DeployedEntry, error) {
+	// TTL check in HMMDeployedModels isn't atomic with the singleflight join;
+	// re-check under lock so a stampede costs one sidecar fetch, not one per straggler.
+	s.mu.Lock()
+	if s.haveCache && time.Since(s.fetchedAt) < hmmRosterTTL {
+		cached := cloneDeployedEntries(s.cached)
+		s.mu.Unlock()
+		return cached, nil
+	}
+	s.mu.Unlock()
+
 	rosterIDs, fetchErr := s.fetch.Roster(ctx)
 	if fetchErr != nil {
 		s.mu.Lock()

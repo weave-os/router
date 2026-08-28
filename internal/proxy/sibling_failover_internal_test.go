@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"workweave/router/internal/auth"
 	"workweave/router/internal/providers"
 	"workweave/router/internal/router"
 
@@ -109,6 +110,80 @@ func TestSiblingFailoverDecision(t *testing.T) {
 			CandidateModels: []string{"claude-opus-5", "claude-sonnet-5"},
 		}), 1_000, 0, 0)
 		assert.False(t, ok)
+	})
+
+	t.Run("gateway BYOK rescues via a sibling behind a held gateway key", func(t *testing.T) {
+		s := &Service{}
+		gwCtx := context.WithValue(ctx, ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
+			{
+				Provider:     providers.ProviderOpenAIGateway,
+				Plaintext:    []byte("pat"),
+				ModelAliases: map[string]string{"grok-4.6": "grok-4.6"},
+			},
+			{
+				Provider:     providers.ProviderAnthropicGateway,
+				Plaintext:    []byte("pat"),
+				ModelAliases: map[string]string{"claude-opus-5": "claude-opus-5"},
+			},
+		})
+		failed := router.Decision{
+			Provider: providers.ProviderOpenAIGateway,
+			Model:    "grok-4.6",
+			Metadata: &router.RoutingMetadata{
+				CandidateModels: []string{"grok-4.6", "claude-opus-5"},
+			},
+		}
+		got, ok := s.siblingFailoverDecision(gwCtx, failed, 1_000, 0, 0)
+		require.True(t, ok)
+		assert.Equal(t, "claude-opus-5", got.Model)
+		assert.Equal(t, providers.ProviderAnthropicGateway, got.Provider)
+		assert.Equal(t, ReasonSiblingFailover, got.Reason)
+		assert.True(t, s.gatewaySiblingAllowed(gwCtx, got))
+	})
+
+	t.Run("gateway BYOK never rescues onto a provider without a held gateway key", func(t *testing.T) {
+		s := &Service{deploymentKeyedProviders: map[string]struct{}{providers.ProviderAnthropic: {}}}
+		gwCtx := context.WithValue(ctx, ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
+			{
+				Provider:     providers.ProviderOpenAIGateway,
+				Plaintext:    []byte("pat"),
+				ModelAliases: map[string]string{"grok-4.6": "grok-4.6"},
+			},
+		})
+		failed := router.Decision{
+			Provider: providers.ProviderOpenAIGateway,
+			Model:    "grok-4.6",
+			Metadata: &router.RoutingMetadata{
+				// opus is deployment-keyed on the vendor binding, but the tenant
+				// mandated its gateway: no alias, no rescue.
+				CandidateModels: []string{"claude-opus-5"},
+			},
+		}
+		_, ok := s.siblingFailoverDecision(gwCtx, failed, 1_000, 0, 0)
+		assert.False(t, ok)
+		assert.False(t, s.gatewaySiblingAllowed(gwCtx, router.Decision{Provider: providers.ProviderAnthropic}))
+	})
+
+	t.Run("gateway BYOK rescues on the same gateway when it aliases a sibling", func(t *testing.T) {
+		s := &Service{}
+		gwCtx := context.WithValue(ctx, ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
+			{
+				Provider:     providers.ProviderOpenAIGateway,
+				Plaintext:    []byte("pat"),
+				ModelAliases: map[string]string{"grok-4.6": "grok-4.6", "gpt-5": "gpt-5"},
+			},
+		})
+		failed := router.Decision{
+			Provider: providers.ProviderOpenAIGateway,
+			Model:    "grok-4.6",
+			Metadata: &router.RoutingMetadata{
+				CandidateModels: []string{"gpt-5"},
+			},
+		}
+		got, ok := s.siblingFailoverDecision(gwCtx, failed, 1_000, 0, 0)
+		require.True(t, ok)
+		assert.Equal(t, "gpt-5", got.Model)
+		assert.Equal(t, providers.ProviderOpenAIGateway, got.Provider)
 	})
 
 	t.Run("no metadata and legacy unkeyed deploys have no candidate", func(t *testing.T) {

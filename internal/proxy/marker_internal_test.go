@@ -397,3 +397,12 @@ func TestHumanReasonFromPlanner_UnknownCodeIsSilenced(t *testing.T) {
 	got := humanReasonFromPlanner("brand_new_reason_v9")
 	assert.Empty(t, got)
 }
+
+func TestRoutingMarkerFor_SuppressesStickyTurnForAllClients(t *testing.T) {
+	res := turnLoopResult{
+		Decision:         router.Decision{Model: "gpt-5.6-terra", Provider: "openai"},
+		StickyHit:        true,
+		PriorServedModel: "gpt-5.6-terra",
+	}
+	assert.Empty(t, routingMarkerFor(res), "same-model suppression applies to Codex as well as Claude Code")
+}

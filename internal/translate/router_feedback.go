@@ -223,14 +223,18 @@ func isRouterFeedbackAckText(text string) bool {
 
 // matchRouterFeedbackCommand recognizes the command token at the start of the
 // first line. It returns the rating encoded directly in the token (for the
-// /rf+ and /rf- shortcuts), the inline text following the token, and whether a
-// command matched at all.
+// /rf+ and /rf- shortcuts, plus the Codex $rf forms), the inline text
+// following the token, and whether a command matched at all.
 func matchRouterFeedbackCommand(first string) (rating, inline string, ok bool) {
 	for _, c := range []struct{ tok, rating string }{
 		{"/rf+", RouterFeedbackRatingUp},
+		{"$rf+", RouterFeedbackRatingUp},
 		{"/rf👍", RouterFeedbackRatingUp},
+		{"$rf👍", RouterFeedbackRatingUp},
 		{"/rf-", RouterFeedbackRatingDown},
+		{"$rf-", RouterFeedbackRatingDown},
 		{"/rf👎", RouterFeedbackRatingDown},
+		{"$rf👎", RouterFeedbackRatingDown},
 	} {
 		if first == c.tok {
 			return c.rating, "", true
@@ -239,10 +243,10 @@ func matchRouterFeedbackCommand(first string) (rating, inline string, ok bool) {
 			return c.rating, after, true
 		}
 	}
-	if first == "/router-feedback" || first == "/rf" {
+	if first == "/router-feedback" || first == "/rf" || first == "$router-feedback" || first == "$rf" {
 		return "", "", true
 	}
-	if after, found := cutAnyPrefix(first, "/router-feedback ", "/rf "); found {
+	if after, found := cutAnyPrefix(first, "/router-feedback ", "/rf ", "$router-feedback ", "$rf "); found {
 		return "", after, true
 	}
 	return "", "", false

@@ -1050,9 +1050,9 @@ func TestPrepareGemini_PreservesArrayMissingItems(t *testing.T) {
 	assert.NotContains(t, nestedItems, "items")
 }
 
-func TestPrepareGemini_PreservesEnumValueTypes(t *testing.T) {
-	// Empty-string enum members are meaningful accepted values. Sanitization
-	// must preserve them rather than silently broadening the schema.
+func TestPrepareGemini_DropsEmptyStringEnumEntries(t *testing.T) {
+	// Google 400s on empty-string enum members ("enum[i]: cannot be empty").
+	// Drop them; drop the enum entirely when nothing remains.
 	body := []byte(`{
 		"messages": [{"role":"user","content":"hi"}],
 		"tools": [{
@@ -1077,13 +1077,117 @@ func TestPrepareGemini_PreservesEnumValueTypes(t *testing.T) {
 	props := params["properties"].(map[string]any)
 
 	operator := props["operator"].(map[string]any)
-	assert.Equal(t, []any{"", "eq", "neq", "gt"}, operator["enum"])
+	assert.Equal(t, []any{"eq", "neq", "gt"}, operator["enum"], "empty string must be filtered out")
 
 	allEmpty := props["all_empty"].(map[string]any)
-	assert.Equal(t, []any{"", ""}, allEmpty["enum"])
+	assert.NotContains(t, allEmpty, "enum", "enum with only empty strings must be dropped entirely")
 
 	normal := props["normal"].(map[string]any)
 	assert.Equal(t, []any{"a", "b"}, normal["enum"], "well-formed enums must pass through unchanged")
+}
+
+func TestPrepareGemini_CollapsesNullableAnyOfDates(t *testing.T) {
+	// MCP date fields commonly encode optionality as anyOf[string, null]. Gemini
+	// then 400s on the null branch as any_of[1].enum[0]: cannot be empty.
+	body := []byte(`{
+		"messages": [{"role":"user","content":"hi"}],
+		"tools": [{
+			"name":"update_issue",
+			"input_schema":{
+				"type":"object",
+				"properties":{
+					"due_date":{"anyOf":[{"type":"string","format":"date-time"},{"type":"null"}]},
+					"start_date":{"anyOf":[{"type":"string"},{"enum":[""]}]},
+					"priority":{"anyOf":[{"enum":["low","high"]},{"type":"null"}]},
+					"title":{"minLength":5,"anyOf":[{"type":"string","minLength":10}]}
+				}
+			}
+		}]
+	}`)
+	env, err := translate.ParseAnthropic(body)
+	require.NoError(t, err)
+	prep, err := env.PrepareGemini(http.Header{}, translate.EmitOptions{})
+	require.NoError(t, err)
+
+	out := mustUnmarshal(t, prep.Body)
+	params := out["tools"].([]any)[0].(map[string]any)["functionDeclarations"].([]any)[0].(map[string]any)["parameters"].(map[string]any)
+	props := params["properties"].(map[string]any)
+
+	due := props["due_date"].(map[string]any)
+	assert.Equal(t, "string", due["type"])
+	assert.Equal(t, "date-time", due["format"])
+	assert.Equal(t, true, due["nullable"])
+	assert.NotContains(t, due, "anyOf")
+	assert.NotContains(t, due, "enum")
+
+	start := props["start_date"].(map[string]any)
+	assert.Equal(t, "string", start["type"])
+	assert.Equal(t, true, start["nullable"])
+	assert.NotContains(t, start, "anyOf")
+	assert.NotContains(t, start, "enum")
+
+	priority := props["priority"].(map[string]any)
+	assert.Equal(t, "string", priority["type"])
+	assert.Equal(t, true, priority["nullable"])
+	assert.Equal(t, []any{"low", "high"}, priority["enum"])
+	assert.NotContains(t, priority, "anyOf")
+
+	title := props["title"].(map[string]any)
+	assert.Equal(t, "string", title["type"])
+	assert.Equal(t, float64(10), title["minLength"])
+	assert.NotContains(t, title, "anyOf")
+}
+
+func TestPrepareGemini_PreservesNumericAnyOfEnum(t *testing.T) {
+	body := []byte(`{
+		"messages": [{"role":"user","content":"hi"}],
+		"tools": [{
+			"name":"set_priority",
+			"input_schema":{
+				"type":"object",
+				"properties":{
+					"priority":{"anyOf":[{"enum":[0,1,2]},{"type":"null"}]}
+				}
+			}
+		}]
+	}`)
+	env, err := translate.ParseAnthropic(body)
+	require.NoError(t, err)
+	prep, err := env.PrepareGemini(http.Header{}, translate.EmitOptions{})
+	require.NoError(t, err)
+
+	out := mustUnmarshal(t, prep.Body)
+	params := out["tools"].([]any)[0].(map[string]any)["functionDeclarations"].([]any)[0].(map[string]any)["parameters"].(map[string]any)
+	priority := params["properties"].(map[string]any)["priority"].(map[string]any)
+	assert.Equal(t, true, priority["nullable"])
+	assert.NotContains(t, priority, "enum", "non-string enums still drop, but the branch itself must survive")
+	assert.NotContains(t, priority, "type", "dropping a numeric enum must not invent type:string")
+}
+
+func TestPrepareGemini_KeepsTypeArrayAnyOfBranch(t *testing.T) {
+	body := []byte(`{
+		"messages": [{"role":"user","content":"hi"}],
+		"tools": [{
+			"name":"update_issue",
+			"input_schema":{
+				"type":"object",
+				"properties":{
+					"due_date":{"anyOf":[{"type":["string","null"],"format":"date-time"}]}
+				}
+			}
+		}]
+	}`)
+	env, err := translate.ParseAnthropic(body)
+	require.NoError(t, err)
+	prep, err := env.PrepareGemini(http.Header{}, translate.EmitOptions{})
+	require.NoError(t, err)
+
+	out := mustUnmarshal(t, prep.Body)
+	params := out["tools"].([]any)[0].(map[string]any)["functionDeclarations"].([]any)[0].(map[string]any)["parameters"].(map[string]any)
+	due := params["properties"].(map[string]any)["due_date"].(map[string]any)
+	assert.Equal(t, "string", due["type"])
+	assert.Equal(t, "date-time", due["format"])
+	assert.Equal(t, true, due["nullable"])
 }
 
 func TestPrepareGemini_DropsNonStringEnums(t *testing.T) {

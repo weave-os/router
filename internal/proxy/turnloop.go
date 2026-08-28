@@ -666,12 +666,10 @@ func (s *Service) runTurnLoop(
 	// bypass intercepts the fresh scorer decision here too (no pins to honor).
 	if s.pinStore == nil {
 		req.PolicyTurnContext = buildPolicyTurnContext(req, res, sessionpin.Pin{}, sessionpin.Pin{})
-		if !res.AuthoritativePerTurn {
-			if dec, ok := s.usageBypassDecision(ctx, reqHeaders, req); ok {
-				res.Decision = dec
-				res.UsageBypass = true
-				return res, nil
-			}
+		if dec, ok := s.usageBypassDecision(ctx, reqHeaders, req); ok {
+			res.Decision = dec
+			res.UsageBypass = true
+			return res, nil
 		}
 		decision, err := s.routeFor(ctx, req)
 		if err != nil {
@@ -998,12 +996,14 @@ func (s *Service) runTurnLoop(
 	// stale pin from a prior routed stretch can't make a tool_result
 	// continuation diverge from the bypassed tool_use turn. The pin itself is
 	// untouched and resumes once utilization crosses the threshold.
-	if !res.AuthoritativePerTurn {
-		if dec, ok := s.usageBypassDecision(ctx, reqHeaders, req); ok {
-			res.Decision = dec
-			res.UsageBypass = true
-			return res, nil
-		}
+	//
+	// Bypass settles whether the turn is routed at all (caller's prepaid quota,
+	// not a routing-quality opinion) — AuthoritativePerTurn controls which model
+	// is chosen for a routed turn, so the gate must not apply here.
+	if dec, ok := s.usageBypassDecision(ctx, reqHeaders, req); ok {
+		res.Decision = dec
+		res.UsageBypass = true
+		return res, nil
 	}
 
 	// Tool-result turns: by default, fall through to the scorer + planner for
@@ -1464,40 +1464,102 @@ func (s *Service) authorityCacheShadowFor(
 	_, plannerDecision, sticky, stayModel := s.hmmCostGatedDecision(
 		req, activePin, hmmHistory, fresh, estimatedInputTokens, prefixBroken,
 	)
+	// Re-resolve the provider; guard on model equality because normalizeHMMStayPin
+	// consults the clock and a concurrently expiring pin must not pair a stale
+	// binding with the model the gate actually priced.
+	stayProvider := activePin.Provider
+	stayPin, stayPinOK := s.hmmStayPin(req, activePin, hmmHistory)
+	if stayPinOK && stayPin.Model == stayModel {
+		stayProvider = stayPin.Provider
+	}
+	freshRosterArmID := ""
+	if fresh.Metadata != nil {
+		freshRosterArmID = fresh.Metadata.SelectedRosterArmID
+	}
 	shadow := authorityCacheShadow{
 		Computed:   true,
 		Decision:   plannerDecision,
 		StayModel:  stayModel,
 		Sticky:     sticky,
-		StayScore:  candidateScoreFor(fresh, stayModel),
-		FreshScore: candidateScoreFor(fresh, fresh.Model),
+		StayScore:  candidateScoreForWithProvider(fresh, stayModel, stayProvider),
+		FreshScore: candidateScoreForWithArm(fresh, fresh.ServedIdentity(), fresh.Provider, freshRosterArmID),
 	}
-	// Re-resolve the provider; guard on model equality because normalizeHMMStayPin
-	// consults the clock and a concurrently expiring pin must not pair a stale
-	// binding with the model the gate actually priced.
-	if stayPin, ok := s.hmmStayPin(req, activePin, hmmHistory); ok && stayPin.Model == stayModel {
+	if stayPinOK && stayPin.Model == stayModel {
 		shadow.StayProvider = stayPin.Provider
 	}
 	return shadow
 }
 
-// candidateScoreFor reads the sidecar's pre-argmax score for servedIdentity.
+// candidateScoreFor reads the sidecar's catalog-level score for servedIdentity.
 // Returns nil when the sidecar reported no score -- nil must not be coerced to 0.
-//
-// CandidateScores is keyed by bare catalog ID, so the effort suffix is stripped.
-// CandidateArmScores is NOT consulted: it is keyed by roster arm ID
-// ("anthropic/claude-opus-4-7:xhigh"), a different namespace from catalog IDs,
-// so a serving identity never matches an entry there.
 func candidateScoreFor(dec router.Decision, servedIdentity string) *float64 {
+	return candidateScoreForWithProvider(dec, servedIdentity, dec.Provider)
+}
+
+// candidateScoreForWithProvider falls back to the sidecar's per-arm WMI score
+// when the catalog-level score vector is absent. AA roster policies expose WMI
+// scores as arm_scores (provider/model[:effort]) rather than candidate_scores.
+func candidateScoreForWithProvider(dec router.Decision, servedIdentity, provider string) *float64 {
+	return candidateScoreForWithArm(dec, servedIdentity, provider, "")
+}
+
+func candidateScoreForWithArm(dec router.Decision, servedIdentity, provider, rosterArmID string) *float64 {
 	if servedIdentity == "" || dec.Metadata == nil {
 		return nil
 	}
-	score, ok := dec.Metadata.CandidateScores[baseModelOf(servedIdentity)]
-	if !ok {
+	if score, ok := dec.Metadata.CandidateScores[baseModelOf(servedIdentity)]; ok {
+		value := float64(score)
+		return &value
+	}
+
+	if rosterArmID != "" {
+		if score, ok := dec.Metadata.ArmScores[rosterArmID]; ok {
+			value := float64(score)
+			return &value
+		}
+	}
+
+	effort, model := stripEffortSuffix(servedIdentity)
+	if model == "" || len(dec.Metadata.ArmScores) == 0 {
 		return nil
 	}
-	value := float64(score)
-	return &value
+	armSuffix := ""
+	if effort != "" {
+		armSuffix = ":" + effort
+	}
+	keys := make([]string, 0, 2)
+	if provider != "" {
+		keys = append(keys, provider+"/"+model+armSuffix)
+	}
+	keys = append(keys, model+armSuffix)
+	for _, key := range keys {
+		if score, ok := dec.Metadata.ArmScores[key]; ok {
+			value := float64(score)
+			return &value
+		}
+	}
+
+	// Gateway providers may use a different namespace from the roster arm
+	// (for example, anthropic_gateway serves an anthropic/... arm). Fall back
+	// only when the model/effort match is unique; an ambiguous provider match
+	// must remain NULL rather than silently assigning another arm's score.
+	var fallback *float64
+	for armID, score := range dec.Metadata.ArmScores {
+		armEffort, armModel := stripEffortSuffix(armID)
+		if armEffort != effort || (armModel != model && !strings.HasSuffix(armModel, "/"+model)) {
+			continue
+		}
+		if armProvider, ok := dec.Metadata.CandidateArmProviders[armID]; ok && provider != "" && armProvider == provider {
+			value := float64(score)
+			return &value
+		}
+		if fallback != nil {
+			return nil
+		}
+		value := float64(score)
+		fallback = &value
+	}
+	return fallback
 }
 
 // logAuthorityCacheShadow emits the shadow verdict as a structured line. The

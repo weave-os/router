@@ -94,6 +94,12 @@ func (s *Service) ResolveSiblingFailover(ctx context.Context) bool {
 	return flags.BoolOr(ctx, flags.KeySiblingFailover, s.siblingFailover)
 }
 
+// ResolveOpenAIResponsesBroad reports the ROUTER_OPENAI_RESPONSES_BROAD flag:
+// off, only the reasoning+tools turn chat/completions rejects is promoted.
+func (s *Service) ResolveOpenAIResponsesBroad(ctx context.Context) bool {
+	return flags.BoolOr(ctx, flags.KeyOpenAIResponsesBroad, s.openAIResponsesBroad)
+}
+
 // ResolveEffortEscalation reports whether policy-requested reasoning-effort
 // escalation is applied.
 func (s *Service) ResolveEffortEscalation(ctx context.Context) bool {

@@ -97,6 +97,7 @@ func (r *TelemetryRepo) InsertRequestTelemetry(ctx context.Context, p proxy.Inse
 		DecisionReason:                           p.DecisionReason,
 		EstimatedInputTokens:                     p.EstimatedInputTokens,
 		StickyHit:                                p.StickyHit,
+		PinTier:                                  stringPtrOrNil(p.PinTier),
 		EmbedInput:                               p.EmbedInput,
 		InputTokens:                              p.InputTokens,
 		OutputTokens:                             p.OutputTokens,

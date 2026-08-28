@@ -130,10 +130,10 @@ func hmmFreshDecisionWithArmScores(
 		Model:    model,
 		Reason:   "hmm_policy(classifier 'high' (p=0.41))",
 		Metadata: &router.RoutingMetadata{
-			Strategy:           "hmm",
-			PolicyGroup:        "high",
-			CandidateScores:    scores,
-			CandidateArmScores: armScores,
+			Strategy:        "hmm",
+			PolicyGroup:     "high",
+			CandidateScores: scores,
+			ArmScores:       armScores,
 		},
 	}
 }
@@ -221,6 +221,34 @@ func TestAuthorityCacheShadowCandidateScoreCoverage(t *testing.T) {
 		require.NotNil(t, shadow.FreshScore)
 	})
 
+	t.Run("AA sidecar arm scores", func(t *testing.T) {
+		result := runAuthorityShadowTurn(t, true, hmmFreshDecisionWithArmScores(
+			shadowFreshModel, nil, map[string]float32{
+				"anthropic/" + shadowPinnedModel: 0.62,
+				"anthropic/" + shadowFreshModel:  0.71,
+			},
+		))
+		shadow := result.AuthorityShadow
+		require.NotNil(t, shadow.StayScore)
+		require.NotNil(t, shadow.FreshScore)
+		assert.InDelta(t, 0.62, *shadow.StayScore, 1e-6)
+		assert.InDelta(t, 0.71, *shadow.FreshScore, 1e-6)
+	})
+
+	t.Run("effort-qualified AA sidecar arm scores", func(t *testing.T) {
+		const effort = "high"
+		dec := hmmFreshDecisionWithArmScores(shadowFreshModel, nil, map[string]float32{
+			"anthropic/" + shadowPinnedModel + ":" + effort: 0.62,
+			"anthropic/" + shadowFreshModel + ":" + effort:  0.71,
+		})
+		stay := candidateScoreForWithProvider(dec, shadowPinnedModel+":"+effort, providers.ProviderAnthropic)
+		fresh := candidateScoreForWithProvider(dec, shadowFreshModel+":"+effort, providers.ProviderAnthropic)
+		require.NotNil(t, stay)
+		require.NotNil(t, fresh)
+		assert.InDelta(t, 0.62, *stay, 1e-6)
+		assert.InDelta(t, 0.71, *fresh, 1e-6)
+	})
+
 	t.Run("sidecar reported no scores at all", func(t *testing.T) {
 		result := runAuthorityShadowTurn(t, true, hmmFreshDecision(shadowFreshModel, nil))
 		shadow := result.AuthorityShadow
@@ -302,10 +330,8 @@ func TestAuthorityCacheShadowEffortBearingPinIsNotAStayCandidate(t *testing.T) {
 }
 
 // TestCandidateScoreFor covers the lookup directly. CandidateScores is keyed
-// by bare catalog ID, so an effort-bearing serving identity must be stripped.
-// A missing score must stay nil rather than 0.0 ("scored, and terrible").
-// No arm-map case: CandidateArmScores uses roster arm IDs, a different
-// namespace, so a catalog-shaped key can never hit in production.
+// by bare catalog ID; ArmScores uses roster arm IDs (provider/model[:effort]),
+// so both namespaces are exercised with the nil-vs-value contract intact.
 func TestCandidateScoreFor(t *testing.T) {
 	dec := hmmFreshDecisionWithArmScores(shadowFreshModel,
 		map[string]float32{shadowPinnedModel: 0.40, shadowFreshModel: 0.71},
@@ -314,6 +340,48 @@ func TestCandidateScoreFor(t *testing.T) {
 
 	t.Run("bare catalog id", func(t *testing.T) {
 		got := candidateScoreFor(dec, shadowFreshModel)
+		require.NotNil(t, got)
+		assert.InDelta(t, 0.71, *got, 1e-6)
+	})
+
+	t.Run("AA arm score fallback", func(t *testing.T) {
+		dec := hmmFreshDecisionWithArmScores(shadowFreshModel, nil, map[string]float32{
+			"anthropic/" + shadowFreshModel: 0.71,
+		})
+		got := candidateScoreFor(dec, shadowFreshModel)
+		require.NotNil(t, got)
+		assert.InDelta(t, 0.71, *got, 1e-6)
+	})
+
+	t.Run("selected roster arm is authoritative for fresh score", func(t *testing.T) {
+		const rosterArmID = "vendor/roster-alias-for-fresh"
+		dec := hmmFreshDecisionWithArmScores(shadowFreshModel, nil, map[string]float32{
+			rosterArmID: 0.71,
+		})
+		got := candidateScoreForWithArm(dec, shadowFreshModel, providers.ProviderAnthropic, rosterArmID)
+		require.NotNil(t, got)
+		assert.InDelta(t, 0.71, *got, 1e-6)
+	})
+
+	t.Run("stay score uses re-resolved provider", func(t *testing.T) {
+		dec := hmmFreshDecisionWithArmScores(shadowFreshModel, nil, map[string]float32{
+			"anthropic/" + shadowPinnedModel: 0.62,
+			"openai/" + shadowPinnedModel:    0.91,
+		})
+		dec.Metadata.CandidateArmProviders = map[string]string{
+			"anthropic/" + shadowPinnedModel: providers.ProviderAnthropic,
+			"openai/" + shadowPinnedModel:    providers.ProviderOpenAI,
+		}
+		got := candidateScoreForWithProvider(dec, shadowPinnedModel, providers.ProviderAnthropic)
+		require.NotNil(t, got)
+		assert.InDelta(t, 0.62, *got, 1e-6)
+	})
+
+	t.Run("gateway provider falls back to roster namespace", func(t *testing.T) {
+		dec := hmmFreshDecisionWithArmScores(shadowFreshModel, nil, map[string]float32{
+			"anthropic/" + shadowFreshModel: 0.71,
+		})
+		got := candidateScoreForWithProvider(dec, shadowFreshModel, "anthropic_gateway")
 		require.NotNil(t, got)
 		assert.InDelta(t, 0.71, *got, 1e-6)
 	})

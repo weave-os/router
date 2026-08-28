@@ -40,6 +40,8 @@ func TestFamilyAndVersion(t *testing.T) {
 		{"z-ai/glm-5", "z-ai/glm", [2]int{5, 0}, true},
 		{"z-ai/glm-5.1", "z-ai/glm", [2]int{5, 1}, true},
 		{"z-ai/glm-5.2", "z-ai/glm", [2]int{5, 2}, true},
+		{"z-ai/glm-5.3", "z-ai/glm", [2]int{5, 3}, true},
+		{"z-ai/glm-5.3-flash", "z-ai/glm-flash", [2]int{5, 3}, true},
 		{"moonshotai/kimi-k2.5", "moonshotai/kimi-k", [2]int{2, 5}, true},
 		{"moonshotai/kimi-k2.6", "moonshotai/kimi-k", [2]int{2, 6}, true},
 		{"moonshotai/kimi-k2.7", "moonshotai/kimi-k", [2]int{2, 7}, true},

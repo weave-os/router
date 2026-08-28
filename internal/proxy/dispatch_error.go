@@ -84,6 +84,7 @@ type DispatchErrorClass struct {
 // themselves before falling through here.
 func ClassifyDispatchError(err error) (DispatchErrorClass, bool) {
 	var statusErr *providers.UpstreamStatusError
+	var bufferedErr *providers.UpstreamErrorResponse
 	var forcedExcluded *ForcedModelExcludedError
 	var forcedUnknown *ForcedModelUnknownError
 	var forcedClusterStrategy *ForcedClusterUnsupportedStrategyError
@@ -127,6 +128,15 @@ func ClassifyDispatchError(err error) (DispatchErrorClass, bool) {
 		return DispatchErrorClass{
 			Kind:    DispatchErrorUpstreamStatus,
 			Status:  statusErr.Status,
+			Message: "Upstream call failed.",
+		}, true
+	case errors.As(err, &bufferedErr):
+		// Same as UpstreamStatusError: preserve the upstream status so a
+		// buffered 429/5xx is not rewritten as a generic 502 by handlers
+		// that fall through when ClassifyDispatchError does not match.
+		return DispatchErrorClass{
+			Kind:    DispatchErrorUpstreamStatus,
+			Status:  bufferedErr.Status,
 			Message: "Upstream call failed.",
 		}, true
 	case errors.Is(err, providers.ErrNotImplemented):

@@ -123,6 +123,30 @@ func TestParseRouterFeedbackCommand(t *testing.T) {
 			wantFound: false,
 		},
 		{
+			name:       "codex dollar rf plus shortcut",
+			input:      "$rf+",
+			wantRating: "up",
+			wantFound:  true,
+		},
+		{
+			name:         "codex dollar rf space minus with note",
+			input:        "$rf - too slow",
+			wantRating:   "down",
+			wantFeedback: "too slow",
+			wantFound:    true,
+		},
+		{
+			name:         "codex dollar rf alias with feedback text",
+			input:        "$rf kept thrashing between models",
+			wantFeedback: "kept thrashing between models",
+			wantFound:    true,
+		},
+		{
+			name:      "dollar rfoo without space boundary is ignored",
+			input:     "$rfoo bar",
+			wantFound: false,
+		},
+		{
 			// Security guard shared with /force-model: pasted content containing
 			// the command mid-message must not be intercepted.
 			name:      "command after leading text is ignored",

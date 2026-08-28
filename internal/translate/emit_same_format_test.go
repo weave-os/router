@@ -271,6 +271,53 @@ func TestOpenAISameFormat_ReasoningEffortDeletedForGatewayToolsOnAnyModel(t *tes
 		"a toolless gateway turn keeps the caller's effort")
 }
 
+// Direct OpenAI applies its own effort on gpt-5.6 tool turns even when the
+// field is absent; dropping it is not enough — the turn must opt out explicitly.
+func TestOpenAISameFormat_ToolTurnOptsOutOfReasoningForDirectGPT56(t *testing.T) {
+	tools := `"tools":[{"type":"function","function":{"name":"read_file","parameters":{"type":"object"}}}]`
+	for _, tc := range []struct {
+		name  string
+		model string
+		body  []byte
+		want  any
+	}{
+		{
+			name:  "tool turn",
+			model: "gpt-5.6-luna",
+			body:  []byte(`{"model":"gpt-5.6-luna","messages":[{"role":"user","content":"hi"}],"reasoning_effort":"medium",` + tools + `}`),
+			want:  "none",
+		},
+		{
+			// A gpt-5.x chat/completions turn never carries effort at all, so a
+			// toolless one needs no explicit opt-out.
+			name:  "toolless turn",
+			model: "gpt-5.6-luna",
+			body:  []byte(`{"model":"gpt-5.6-luna","messages":[{"role":"user","content":"hi"}],"reasoning_effort":"medium"}`),
+			want:  nil,
+		},
+		{
+			name:  "older reasoning model serves tool turns as-is",
+			model: "gpt-5.5",
+			body:  []byte(`{"model":"gpt-5.5","messages":[{"role":"user","content":"hi"}],` + tools + `}`),
+			want:  nil,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			opts := translate.EmitOptions{
+				TargetModel:    tc.model,
+				TargetProvider: providers.ProviderOpenAI,
+				Capabilities:   router.Lookup(tc.model),
+			}
+			out := parseAndEmit(t, tc.body, "openai", opts)
+			if tc.want == nil {
+				assert.NotContains(t, out, "reasoning_effort")
+				return
+			}
+			assert.Equal(t, tc.want, out["reasoning_effort"])
+		})
+	}
+}
+
 func TestOpenAISameFormat_ReasoningStripsUnsupportedSampling(t *testing.T) {
 	body := []byte(`{
 		"model":"gpt-5.5",

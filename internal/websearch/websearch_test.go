@@ -45,6 +45,20 @@ func TestStripServerToolsKeepsClientTools(t *testing.T) {
 	}
 }
 
+func TestStripServerToolsDropsForcedChoiceForRemovedTool(t *testing.T) {
+	body := []byte(`{"tools":[{"type":"web_search_20250305","name":"web_search"},{"name":"Read"}],"tool_choice":{"type":"tool","name":"web_search"}}`)
+	out, removed := websearch.StripServerTools(body)
+	if removed != 1 {
+		t.Fatalf("removed = %d, want 1", removed)
+	}
+	if names := gjson.GetBytes(out, "tools.#.name").Array(); len(names) != 1 || names[0].String() != "Read" {
+		t.Fatalf("remaining tools = %v", names)
+	}
+	if gjson.GetBytes(out, "tool_choice").Exists() {
+		t.Fatal("tool_choice naming the stripped tool was not dropped")
+	}
+}
+
 func TestStripServerToolsDropsToolChoiceWhenNothingIsLeft(t *testing.T) {
 	body := []byte(`{"tools":[{"type":"web_search_20250305","name":"web_search"}],"tool_choice":{"type":"tool","name":"web_search"}}`)
 	out, removed := websearch.StripServerTools(body)

@@ -54,6 +54,30 @@ func maxEffortToXhigh(body []byte) []byte {
 	return out
 }
 
+// codexUnsupportedParams are Responses fields the ChatGPT backend rejects
+// with 400 "Unsupported parameter". Dropped here rather than at emit time
+// because emit doesn't know the credential; a translated Anthropic turn
+// legitimately carries max_output_tokens from its max_tokens.
+var codexUnsupportedParams = []string{
+	"max_output_tokens", "temperature", "top_p", "metadata", "service_tier", "truncation",
+}
+
+// stripCodexUnsupportedParams removes codexUnsupportedParams from a Responses
+// body. Dropping the output ceiling is lossy, but the alternative is a 400.
+func stripCodexUnsupportedParams(body []byte) []byte {
+	for _, key := range codexUnsupportedParams {
+		if !gjson.GetBytes(body, key).Exists() {
+			continue
+		}
+		out, err := sjson.DeleteBytes(body, key)
+		if err != nil {
+			continue
+		}
+		body = out
+	}
+	return body
+}
+
 // codexSubscriptionCreds returns the resolved credential when it's a Codex
 // (ChatGPT) subscription bearer (OAuth token with a paired account id), else
 // nil. Such a turn must dispatch to the Codex backend, not api.openai.com.
@@ -98,6 +122,13 @@ func NewClient(apiKey, baseURL string) *Client {
 // Pass nil to skip rewriting.
 func NewClientWithModelIDMap(apiKey, baseURL string, modelIDMap map[string]string) *Client {
 	return newClientWithModelIDMap(apiKey, baseURL, responseHeaderTimeout, modelIDMap)
+}
+
+// SetCodexBaseURL overrides the Codex subscription endpoint for local testing.
+func (c *Client) SetCodexBaseURL(baseURL string) {
+	if baseURL != "" {
+		c.codexBaseURL = baseURL
+	}
 }
 
 // NewClientWithResponseHeaderTimeout is NewClient with a caller-chosen
@@ -247,6 +278,7 @@ func (c *Client) Proxy(ctx context.Context, decision router.Decision, prep provi
 	if useCodex {
 		baseURL = c.codexBaseURL
 		path = codexResponsesPath
+		reqBody = stripCodexUnsupportedParams(reqBody)
 	} else if prep.Endpoint == providers.EndpointResponses {
 		// Only the direct api.openai.com Responses path needs the clamp; the
 		// Codex backend branch above understands "max" natively.

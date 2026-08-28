@@ -14,6 +14,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/tidwall/gjson"
 )
 
 func codexCtx(token, accountID string) context.Context {
@@ -64,6 +65,47 @@ func TestProxy_CodexSubscriptionDispatch(t *testing.T) {
 	assert.Equal(t, "codex_cli_rs", gotOriginator)
 	assert.Empty(t, rec.Header().Get("x-api-key"))
 	assert.Equal(t, body, gotBody, "the prepared Responses body must reach the Codex backend unchanged")
+}
+
+// TestProxy_CodexSubscriptionStripsUnsupportedParams verifies the params the
+// ChatGPT backend 400s on ("Unsupported parameter: max_output_tokens") are
+// dropped before dispatch, since a translated turn — Anthropic ingress always
+// carries max_tokens — legitimately emits them.
+func TestProxy_CodexSubscriptionStripsUnsupportedParams(t *testing.T) {
+	var gotBody []byte
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotBody, _ = io.ReadAll(r.Body)
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, "event: response.completed\ndata: {\"type\":\"response.completed\"}\n\n")
+	}))
+	defer upstream.Close()
+
+	c := NewClient("deployment-key", upstream.URL)
+	c.codexBaseURL = upstream.URL
+
+	prep := providers.PreparedRequest{
+		Body: []byte(`{"model":"gpt-5.6-sol","input":"hi","stream":true,"max_output_tokens":16000,` +
+			`"temperature":1,"top_p":1,"metadata":{"a":"b"},"service_tier":"auto","truncation":"auto",` +
+			`"parallel_tool_calls":true}`),
+		Endpoint: providers.EndpointResponses,
+		Headers:  make(http.Header),
+	}
+	err := c.Proxy(
+		codexCtx("eyJhbGciOiJ-codex-jwt", "acct-12345"),
+		router.Decision{Model: "gpt-5.6-sol", Provider: providers.ProviderOpenAI},
+		prep,
+		httptest.NewRecorder(),
+		httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader("")),
+	)
+	require.NoError(t, err)
+
+	for _, key := range codexUnsupportedParams {
+		assert.False(t, gjson.GetBytes(gotBody, key).Exists(),
+			"%s must be stripped: the Codex backend 400s on it", key)
+	}
+	assert.True(t, gjson.GetBytes(gotBody, "parallel_tool_calls").Bool(),
+		"supported params must survive")
+	assert.Equal(t, "hi", gjson.GetBytes(gotBody, "input").String(), "the turn itself must be untouched")
 }
 
 func TestProxy_CodexSubscriptionCredentialRejectsInfrastructureModel(t *testing.T) {

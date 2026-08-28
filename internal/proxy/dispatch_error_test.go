@@ -49,6 +49,16 @@ func TestClassifyDispatchError_UpstreamStatusErrorPreservesStatus(t *testing.T) 
 	assert.Equal(t, http.StatusTooManyRequests, cls.Status)
 }
 
+func TestClassifyDispatchError_UpstreamErrorResponsePreservesStatus(t *testing.T) {
+	err := &providers.UpstreamErrorResponse{Status: http.StatusTooManyRequests, Body: []byte(`{"error":{"message":"rate limited"}}`)}
+
+	cls, ok := proxy.ClassifyDispatchError(err)
+
+	require.True(t, ok)
+	assert.Equal(t, proxy.DispatchErrorUpstreamStatus, cls.Kind)
+	assert.Equal(t, http.StatusTooManyRequests, cls.Status)
+}
+
 func TestClassifyDispatchError_ClusterUnavailableRetriesAndLogsError(t *testing.T) {
 	cls, ok := proxy.ClassifyDispatchError(cluster.ErrClusterUnavailable)
 

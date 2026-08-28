@@ -50,6 +50,25 @@ installed_key() { # installed_key <settings_file>
     | sed -n 's/^X-Weave-Router-Key: //p'
 }
 
+# Per-target readers for the same key, each pulling from where that client's
+# install actually stores it. Deliberately independent of install.sh's own
+# parsers: a test that reused them would pass even if both sides were wrong.
+codex_key() { # codex_key <config.toml>
+  sed -n 's/.*"X-Weave-Router-Key"[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' "$1" 2>/dev/null | head -n 1
+}
+
+opencode_key() { # opencode_key <opencode.json>
+  jq -r '.provider.weave.options.headers["X-Weave-Router-Key"] // ""' "$1" 2>/dev/null
+}
+
+pi_key() { # pi_key <models.json>
+  jq -r '.providers.weave.headers["X-Weave-Router-Key"] // ""' "$1" 2>/dev/null
+}
+
+codex_base() { # codex_base <config.toml>
+  sed -n 's/^[[:space:]]*base_url[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' "$1" 2>/dev/null | head -n 1
+}
+
 echo "install.sh key reuse"
 
 # ---------- user scope ----------
@@ -150,10 +169,10 @@ check "quiet update still exits nonzero on rejection" "$?" 1
 run "$upd_home" -- update --claude --rotate-key
 check "update rejects --rotate-key" "$?" 2
 
-# Only Claude Code is wired up; the other targets must say so rather than
-# half-running an install path that still expects a prompt.
+# update reaches every target now, so an unconfigured one must fail on the
+# missing key (1) rather than on the target itself (2, the old gate).
 run "$upd_home" -- update --codex
-check "update rejects an unsupported target" "$?" 2
+check "update on an uninstalled target errors on the key" "$?" 1
 
 # ---------- command baseline seeding ----------
 #
@@ -253,6 +272,158 @@ check "update while off (project scope) drops the direct-to-Anthropic override" 
   "$(jq -r '.env.ANTHROPIC_BASE_URL // ""' "$proj_off_local")" ""
 check "update while off (project scope) leaves the router URL live in settings.json" \
   "$(jq -r '.env.ANTHROPIC_BASE_URL // ""' "$proj_off_settings")" "https://router.workweave.ai"
+
+# ---------- codex / opencode / pi: the same read-back Claude Code has ----------
+#
+# These three used to demand the key on every re-run — the installer only ever
+# read a key back out of Claude Code's settings. Each stores it somewhere
+# different (TOML header block, opencode.json provider, pi's key file), so each
+# needs its own case rather than one loop over the target flag.
+#
+# Every run here uses --dir: a self-contained sandbox, so no case can reach the
+# fixture $HOME's Claude install and pass on the wrong client's key.
+
+echo
+echo "install.sh key reuse — codex / opencode / pi"
+
+# run_dir <home> <dir> [env-key] -- <installer args...>
+# Same shape as `run`, plus the --dir sandbox each of these targets installs into.
+run_dir() {
+  local home="$1" dir="$2"; shift 2
+  local key=""
+  if [ "${1:-}" != "--" ]; then key="$1"; shift; fi
+  [ "${1:-}" = "--" ] && shift
+  HOME="$home" XDG_CACHE_HOME="$home/.cache" PATH="$test_path" NO_COLOR=1 \
+    WEAVE_ROUTER_KEY="$key" \
+    bash "$installer" "$@" --dir "$dir" --base-url http://127.0.0.1:9 </dev/null >/dev/null 2>&1
+}
+
+# check_target_reuse <label> <flag> <key-file-path-suffix> <reader>
+# Runs the four cases every target shares. The key file is resolved under the
+# sandbox dir, and <reader> is the extractor for that client's config format.
+check_target_reuse() { # <label> <flag> <relative key file> <reader fn>
+  local label="$1" flag="$2" rel="$3" reader="$4"
+  local home dir f
+  home="$work/$label-home"; dir="$work/$label-dir"
+  mkdir -p "$home" "$dir"
+  f="$dir/$rel"
+
+  run_dir "$home" "$dir" rk_${label}_first -- "$flag" --quiet --non-interactive
+  check "$label: first install stores the env key" "$("$reader" "$f")" "rk_${label}_first"
+
+  # The whole point: a re-run with nothing in the environment must not demand
+  # the key again. Without read-back this is a hard exit 1.
+  run_dir "$home" "$dir" -- "$flag" --quiet --non-interactive
+  check "$label: re-run with no env var succeeds" "$?" 0
+  check "$label: re-run keeps the installed key" "$("$reader" "$f")" "rk_${label}_first"
+
+  # Env stays highest precedence — a key the user just rotated cannot lose to
+  # the stale one on disk.
+  run_dir "$home" "$dir" rk_${label}_second -- "$flag" --quiet --non-interactive
+  check "$label: env key overwrites the installed key" "$("$reader" "$f")" "rk_${label}_second"
+
+  # --rotate-key skips read-back deliberately, so with no env and no tty there
+  # is nothing to rotate to: fail rather than silently reuse.
+  run_dir "$home" "$dir" -- "$flag" --quiet --non-interactive --rotate-key
+  check "$label: --rotate-key with no key source fails" "$?" 1
+  check "$label: --rotate-key failure leaves the key intact" "$("$reader" "$f")" "rk_${label}_second"
+
+  # update is no longer Claude-only, and must refresh in place off the same key.
+  # Assert the exit code, not just the key: a gate that rejects the target exits
+  # before writing anything, which leaves the key untouched and would make a
+  # key-only assertion pass on a target update never reached. The fake curl
+  # fails /validate, and update treats that as fatal, so 1 here means the run
+  # got all the way to the post-write probe.
+  run_dir "$home" "$dir" -- update "$flag" --quiet
+  check "$label: update runs instead of rejecting the target" "$?" 1
+  check "$label: update reuses the installed key" "$("$reader" "$f")" "rk_${label}_second"
+}
+
+check_target_reuse codex    --codex    ".codex/config.toml" codex_key
+check_target_reuse opencode --opencode "opencode.json"      opencode_key
+check_target_reuse pi       --pi       ".pi/models.json"    pi_key
+
+# pi keeps a second copy in a dedicated key file, which is what its runtime
+# extension actually reads. Read-back has to keep both in step.
+check "pi: key file matches the config copy" \
+  "$(tr -d '[:space:]' <"$work/pi-dir/.pi/.weave_router_key" 2>/dev/null)" "rk_pi_second"
+
+# ---------- update must not retarget a custom endpoint ----------
+#
+# Claude Code already carried its endpoint across an update; the other three
+# were excluded along with everything else. A refresh that silently moved a
+# self-hosted install to the hosted default would be a much worse bug than the
+# re-prompt this change removes. Note the stored shapes differ — codex and
+# opencode append /v1, pi keeps the bare root — so each must round-trip.
+
+ep_home="$work/endpoint-home"; ep_dir="$work/endpoint-dir"
+mkdir -p "$ep_home" "$ep_dir"
+custom_ep="http://custom-router.internal:9999"
+
+# Direct invocation, not run_dir — that helper always appends its own
+# --base-url, which would set base_url_explicit and defeat the carry-over.
+HOME="$ep_home" XDG_CACHE_HOME="$ep_home/.cache" PATH="$test_path" NO_COLOR=1 \
+  WEAVE_ROUTER_KEY="rk_endpoint" \
+  bash "$installer" --codex --dir "$ep_dir" --quiet --non-interactive \
+    --base-url "$custom_ep" </dev/null >/dev/null 2>&1
+HOME="$ep_home" XDG_CACHE_HOME="$ep_home/.cache" PATH="$test_path" NO_COLOR=1 \
+  bash "$installer" update --codex --dir "$ep_dir" --quiet </dev/null >/dev/null 2>&1
+check "codex: update reaches the write path" "$?" 1
+check "codex: update preserves a custom base URL, not the hosted default" \
+  "$(codex_base "$ep_dir/.codex/config.toml")" "$custom_ep/v1"
+
+# ---------- a repo-supplied key is never adopted ----------
+#
+# In project scope these configs live INSIDE the repo, and the installer
+# gitignores each one. A file git tracks therefore isn't this user's install —
+# it is what a hostile checkout would commit to have the installer adopt an
+# attacker's key and bill the developer's traffic to them. Reading it back must
+# refuse and fall through to the prompt (exit 1 here, with no tty).
+
+hostile_home="$work/hostile-home"; hostile="$work/hostile-repo"
+mkdir -p "$hostile_home" "$hostile/.codex"
+git -C "$hostile" init -q .
+git -C "$hostile" config user.email test@example.com
+git -C "$hostile" config user.name test
+cat >"$hostile/.codex/config.toml" <<'HOSTILE'
+# >>> weave-router managed (do not edit between markers) >>>
+model_provider = "weave"
+
+[model_providers.weave]
+name = "Weave Router"
+base_url = "http://127.0.0.1:9/v1"
+wire_api = "responses"
+requires_openai_auth = true
+http_headers = { "X-Weave-Router-Key" = "rk_attacker_planted", "X-App" = "codex" }
+# <<< weave-router managed <<<
+HOSTILE
+git -C "$hostile" add -f .codex/config.toml
+git -C "$hostile" commit -qm "planted router config"
+
+( cd "$hostile" && HOME="$hostile_home" XDG_CACHE_HOME="$hostile_home/.cache" \
+    PATH="$test_path" NO_COLOR=1 WEAVE_ROUTER_KEY="" \
+    bash "$installer" --codex --scope project --quiet --non-interactive \
+      --base-url http://127.0.0.1:9 </dev/null >/dev/null 2>&1 )
+check "codex: a git-tracked config's key is not adopted" "$?" 1
+
+# ---------- uninstall must not leave a key to resurrect ----------
+#
+# Read-back turns a leftover key into a silently-reused one, so uninstall has to
+# clear every copy. pi is the case that matters: it writes two.
+
+gone_home="$work/gone-home"; gone_dir="$work/gone-dir"
+mkdir -p "$gone_home" "$gone_dir"
+run_dir "$gone_home" "$gone_dir" rk_gone -- --pi --quiet --non-interactive
+HOME="$gone_home" PATH="$test_path" NO_COLOR=1 \
+  bash "$uninstaller" --pi --dir "$gone_dir" </dev/null >/dev/null 2>&1
+check "pi: uninstall removes the models.json key" \
+  "$(pi_key "$gone_dir/.pi/models.json")" ""
+[ ! -f "$gone_dir/.pi/.weave_router_key" ] && ok "pi: uninstall removes the key file" \
+  || no "pi: uninstall removes the key file" "file removed" "file still present"
+# With both copies gone there is nothing to read back, so a prompt-less re-run
+# has to fail rather than quietly resurrect the old key.
+run_dir "$gone_home" "$gone_dir" -- --pi --quiet --non-interactive
+check "pi: re-run after uninstall finds no key to reuse" "$?" 1
 
 echo
 echo "$pass passed, $fail failed"

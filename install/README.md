@@ -249,12 +249,12 @@ env or disk only, refreshes the managed config and assets in place, and errors
 ```bash
 npx @workweave/router update --claude                    # user scope
 npx @workweave/router update --claude --scope project    # in the repo
+npx @workweave/router update --codex                     # Codex / opencode / pi too
 ```
 
 A rejected key is an error for `update` (exit 1), not a warning, so a scheduled
-run surfaces a revoked key instead of logging past it. `update` currently
-supports `--claude`; for the other targets re-run the installer normally — it
-reuses your installed key the same way.
+run surfaces a revoked key instead of logging past it. `update` works for every
+target; a plain re-run of the installer reuses your installed key the same way.
 
 **Claude Code also refreshes itself.** `cc-statusline.sh` checks
 `raw.githubusercontent.com` for a newer copy of itself at most once every

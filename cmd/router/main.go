@@ -211,11 +211,19 @@ func main() {
 		}
 		// Codex (ChatGPT) subscription reroute to the Codex backend lives in
 		// the OpenAI client itself, keyed off the resolved credential.
-		providerMap[providers.ProviderOpenAI] = openaiProvider.NewClientWithModelIDMap(
+		openaiClient := openaiProvider.NewClientWithModelIDMap(
 			openaiKey,
 			openaiBaseURL,
 			upstreamIDsForProvider(providers.ProviderOpenAI),
 		)
+		// Local tests can point the subscription branch at a deterministic native
+		// Responses mock without changing the production ChatGPT endpoint.
+		if deploymentMode == server.DeploymentModeSelfHosted {
+			if codexBaseURL := config.GetOr("ROUTER_CODEX_BASE_URL", ""); codexBaseURL != "" {
+				openaiClient.SetCodexBaseURL(codexBaseURL)
+			}
+		}
+		providerMap[providers.ProviderOpenAI] = openaiClient
 		switch {
 		case byokOnly:
 			logger.Info("OpenAI provider enabled (BYOK only)", "base_url", openaiBaseURL)
@@ -623,6 +631,7 @@ func main() {
 	// Kill switch for degrading to a same-cluster candidate when the routed
 	// model's bindings are all exhausted by a transient upstream fault.
 	siblingFailover := config.GetOr("ROUTER_SIBLING_FAILOVER", "true") == "true"
+	openAIResponsesBroad := config.GetOr("ROUTER_OPENAI_RESPONSES_BROAD", "true") == "true"
 	sseKeepalive := sseKeepaliveInterval()
 	ccOrchToolsCrossVendor := config.GetOr("ROUTER_CC_ORCH_TOOLS_CROSSVENDOR", "true") == "true"
 	// Per-turn large-vs-small action-classifier swap. Off by default until the
@@ -893,6 +902,7 @@ func main() {
 		flags.KeyAuthoritativeUpgradeGate:  boolDefault(authoritativeUpgradeGate),
 		flags.KeyAuthorityCacheShadow:      boolDefault(authorityCacheShadow),
 		flags.KeySiblingFailover:           boolDefault(siblingFailover),
+		flags.KeyOpenAIResponsesBroad:      boolDefault(openAIResponsesBroad),
 		flags.KeyEffortEscalation:          boolDefault(effortEscalation),
 		flags.KeyCyberRefusalRepin:         boolDefault(cyberRefusalRepin),
 		flags.KeyCyberRefusalFallback:      cyberRefusalFallbackModel,
@@ -925,6 +935,7 @@ func main() {
 		WithCyberRefusalFallbackModel(cyberRefusalFallbackModel).
 		WithAnthropicServerSideFallback(anthropicServerSideFallback).
 		WithSiblingFailover(siblingFailover).
+		WithOpenAIResponsesBroad(openAIResponsesBroad).
 		WithSSEKeepalive(sseKeepalive).
 		WithPrefixTrimFreeSwitch(prefixTrimFreeSwitch).
 		WithHMMUpgradeConfidenceThreshold(hmmUpgradeConfidence).
@@ -1340,7 +1351,15 @@ func buildClusterScorer(availableProviders map[string]struct{}) (router.Router, 
 // a deployment without Azure keys never contacts Microsoft Entra.
 func buildEntraTokenSource(logger *slog.Logger) auth.EntraTokenSource {
 	logger.Debug("Microsoft Entra client credentials token source initialized")
-	return entra.NewClientCredentialsSource(&http.Client{Timeout: 10 * time.Second}, time.Now)
+	// This client posts the decrypted BYOK client_secret; never follow a
+	// redirect with it. The refused 3xx fails mint()'s 2xx status check.
+	entraClient := &http.Client{
+		Timeout: 10 * time.Second,
+		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+	return entra.NewClientCredentialsSource(entraClient, time.Now)
 }
 
 // buildWIFTokenSource constructs the workload attestation source backing BYOK

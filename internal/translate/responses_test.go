@@ -569,6 +569,66 @@ data: {"type":"response.output_text.delta","item_id":"msg_native","output_index"
 	assert.Equal(t, codexResponsesBadgeSentinelForTest+badge+"\n\nok", events[0]["delta"])
 }
 
+func TestResponsesWriter_PassthroughBadgeEmitsNativeItemForToolOnlyTurn(t *testing.T) {
+	rec := httptest.NewRecorder()
+	w := translate.NewResponsesWriter(rec, "gpt-5.6-sol")
+	w.SetBadgeText(passthroughTestMarker)
+	w.SetPassthroughBadge()
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.WriteHeader(200)
+
+	native := []string{
+		`{"type":"response.created","sequence_number":0,"response":{"id":"resp_native","status":"in_progress","output":[]}}`,
+		`{"type":"response.output_item.added","sequence_number":1,"output_index":0,"item":{"id":"fc_native","type":"function_call","call_id":"call_native","name":"lookup","arguments":"","status":"in_progress"}}`,
+		`{"type":"response.function_call_arguments.delta","sequence_number":2,"item_id":"fc_native","output_index":0,"delta":"{\"x\":1}"}`,
+		`{"type":"response.output_item.done","sequence_number":3,"output_index":0,"item":{"id":"fc_native","type":"function_call","call_id":"call_native","name":"lookup","arguments":"{\"x\":1}","status":"completed"}}`,
+		`{"type":"response.completed","sequence_number":4,"response":{"id":"resp_native","status":"completed","output":[{"id":"fc_native","type":"function_call","call_id":"call_native","name":"lookup","arguments":"{\"x\":1}","status":"completed"}]}}`,
+	}
+	var stream strings.Builder
+	for _, payload := range native {
+		stream.WriteString("event: " + gjson.Get(payload, "type").Str + "\ndata: " + payload + "\n\n")
+	}
+	_, err := w.Write([]byte(stream.String()))
+	require.NoError(t, err)
+	require.NoError(t, w.Finalize())
+
+	events := parseSSEEvents(t, rec.Body.Bytes())
+	require.Len(t, events, len(native)+6)
+	for i, event := range events {
+		if i == 0 {
+			assert.EqualValues(t, 0, event["sequence_number"])
+			continue
+		}
+		assert.EqualValues(t, i, event["sequence_number"])
+	}
+	assert.Equal(t, "message", events[1]["item"].(map[string]any)["type"])
+	assert.Equal(t, codexResponsesBadgeSentinelForTest+passthroughTestMarker+"\n\n", events[3]["delta"])
+	assert.EqualValues(t, 0, events[1]["output_index"])
+	assert.EqualValues(t, 1, events[7]["output_index"])
+	completed := events[len(events)-1]["response"].(map[string]any)
+	output := completed["output"].([]any)
+	require.Len(t, output, 2)
+	assert.Equal(t, "message", output[0].(map[string]any)["type"])
+	assert.Equal(t, "function_call", output[1].(map[string]any)["type"])
+}
+
+func TestResponsesWriter_PassthroughBadgeRewritesNonStreamingBody(t *testing.T) {
+	rec := httptest.NewRecorder()
+	w := translate.NewResponsesWriter(rec, "gpt-5.6-sol")
+	w.SetBadgeText(passthroughTestMarker)
+	w.SetPassthroughBadge()
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := w.Write([]byte(`{"id":"resp_native","output":[{"id":"msg_native","type":"message","role":"assistant","content":[{"type":"output_text","text":"ok"}]}]}`))
+	require.NoError(t, err)
+	require.NoError(t, w.Finalize())
+	var body map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+	output := body["output"].([]any)
+	text := output[0].(map[string]any)["content"].([]any)[0].(map[string]any)["text"]
+	assert.Equal(t, codexResponsesBadgeSentinelForTest+passthroughTestMarker+"\n\nok", text)
+}
+
 func TestResponsesWriter_PrependsRoutingMarkerBadge(t *testing.T) {
 	rec := httptest.NewRecorder()
 	w := translate.NewResponsesWriter(rec, "gpt-5.5")
@@ -916,4 +976,154 @@ func eventTypes(events []map[string]any) []string {
 		}
 	}
 	return out
+}
+
+func TestResponsesWriter_PassthroughAppendsFeedbackFooter(t *testing.T) {
+	const footer = "\n\n_Weave Router feedback:_ `$rf +` good experience · `$rf -` poor experience"
+	payloads := []string{
+		`{"type":"response.output_text.delta","item_id":"msg_native","output_index":0,"content_index":0,"delta":"ok"}`,
+		`{"type":"response.output_text.done","item_id":"msg_native","output_index":0,"content_index":0,"text":"ok"}`,
+		`{"type":"response.completed","response":{"id":"resp_native","status":"completed","output":[{"id":"msg_native","type":"message","role":"assistant","content":[{"type":"output_text","text":"ok"}]}]}}`,
+	}
+	var native strings.Builder
+	for _, payload := range payloads {
+		native.WriteString("event: " + gjson.Get(payload, "type").Str + "\n")
+		native.WriteString("data: " + payload + "\n\n")
+	}
+
+	rec := httptest.NewRecorder()
+	w := translate.NewResponsesWriter(rec, "gpt-5.6-sol")
+	w.SetFooterText(footer)
+	w.SetPassthroughBadge()
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.WriteHeader(200)
+	_, err := w.Write([]byte(native.String()))
+	require.NoError(t, err)
+	require.NoError(t, w.Finalize())
+
+	events := parseSSEEvents(t, rec.Body.Bytes())
+	require.Len(t, events, 3)
+	assert.Equal(t, "ok", events[0]["delta"])
+	assert.Equal(t, "ok"+footer, events[1]["text"])
+	output := events[2]["response"].(map[string]any)["output"].([]any)
+	assert.Equal(t, "ok"+footer, output[0].(map[string]any)["content"].([]any)[0].(map[string]any)["text"])
+}
+
+func TestResponsesWriter_PassthroughReasoningThenTextKeepsBadgeAndFooter(t *testing.T) {
+	const footer = "\n\n_Weave Router feedback:_ `$rf +` good"
+	payloads := []string{
+		`{"type":"response.created","sequence_number":0,"response":{"id":"resp_native","status":"in_progress","output":[]}}`,
+		`{"type":"response.output_item.added","sequence_number":1,"output_index":0,"item":{"id":"rs_native","type":"reasoning","status":"in_progress","summary":[]}}`,
+		`{"type":"response.output_item.done","sequence_number":2,"output_index":0,"item":{"id":"rs_native","type":"reasoning","status":"completed","summary":[]}}`,
+		`{"type":"response.output_item.added","sequence_number":3,"output_index":1,"item":{"id":"msg_native","type":"message","role":"assistant","status":"in_progress","content":[]}}`,
+		`{"type":"response.content_part.added","sequence_number":4,"item_id":"msg_native","output_index":1,"content_index":0,"part":{"type":"output_text","text":"","annotations":[]}}`,
+		`{"type":"response.output_text.delta","sequence_number":5,"item_id":"msg_native","output_index":1,"content_index":0,"delta":"ok"}`,
+		`{"type":"response.output_text.done","sequence_number":6,"item_id":"msg_native","output_index":1,"content_index":0,"text":"ok"}`,
+		`{"type":"response.content_part.done","sequence_number":7,"item_id":"msg_native","output_index":1,"content_index":0,"part":{"type":"output_text","text":"ok","annotations":[]}}`,
+		`{"type":"response.output_item.done","sequence_number":8,"output_index":1,"item":{"id":"msg_native","type":"message","role":"assistant","status":"completed","content":[{"type":"output_text","text":"ok","annotations":[]}]}}`,
+		`{"type":"response.completed","sequence_number":9,"response":{"id":"resp_native","status":"completed","output":[{"id":"rs_native","type":"reasoning","status":"completed","summary":[]},{"id":"msg_native","type":"message","role":"assistant","status":"completed","content":[{"type":"output_text","text":"ok","annotations":[]}]}]}}`,
+	}
+	var native strings.Builder
+	for _, payload := range payloads {
+		native.WriteString("event: " + gjson.Get(payload, "type").Str + "\n")
+		native.WriteString("data: " + payload + "\n\n")
+	}
+
+	rec := httptest.NewRecorder()
+	w := translate.NewResponsesWriter(rec, "gpt-5.6-sol")
+	w.SetBadgeText(passthroughTestMarker)
+	w.SetFooterText(footer)
+	w.SetPassthroughBadge()
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.WriteHeader(200)
+	_, err := w.Write([]byte(native.String()))
+	require.NoError(t, err)
+	require.NoError(t, w.Finalize())
+
+	events := parseSSEEvents(t, rec.Body.Bytes())
+	require.Len(t, events, len(payloads)+6)
+	for i, event := range events {
+		if i == 0 {
+			assert.EqualValues(t, 0, event["sequence_number"])
+			continue
+		}
+		assert.EqualValues(t, i, event["sequence_number"], "sequence at %d", i)
+	}
+	assert.Equal(t, "message", events[1]["item"].(map[string]any)["type"])
+	assert.EqualValues(t, 0, events[1]["output_index"])
+	badge := codexResponsesBadgeSentinelForTest + passthroughTestMarker + "\n\n"
+	assert.Equal(t, badge, events[3]["delta"])
+	assert.Equal(t, "reasoning", events[7]["item"].(map[string]any)["type"])
+	assert.EqualValues(t, 1, events[7]["output_index"])
+	assert.EqualValues(t, 2, events[9]["output_index"])
+	assert.Equal(t, "ok", events[11]["delta"])
+	assert.Equal(t, "ok"+footer, events[12]["text"])
+	output := events[len(events)-1]["response"].(map[string]any)["output"].([]any)
+	require.Len(t, output, 3)
+	assert.Equal(t, "message", output[0].(map[string]any)["type"])
+	assert.Equal(t, badge, output[0].(map[string]any)["content"].([]any)[0].(map[string]any)["text"])
+	assert.Equal(t, "reasoning", output[1].(map[string]any)["type"])
+	assert.Equal(t, "ok"+footer, output[2].(map[string]any)["content"].([]any)[0].(map[string]any)["text"])
+}
+
+func TestResponsesWriter_PassthroughFooterSkippedOnToolCall(t *testing.T) {
+	const footer = "\n\n_Weave Router feedback:_ `$rf +` good"
+	payloads := []string{
+		`{"type":"response.output_text.delta","item_id":"msg_native","output_index":0,"content_index":0,"delta":"ok"}`,
+		`{"type":"response.output_item.added","output_index":1,"item":{"id":"fc_native","type":"function_call","name":"lookup"}}`,
+		`{"type":"response.output_text.done","item_id":"msg_native","output_index":0,"content_index":0,"text":"ok"}`,
+	}
+	var native strings.Builder
+	for _, payload := range payloads {
+		native.WriteString("event: " + gjson.Get(payload, "type").Str + "\n")
+		native.WriteString("data: " + payload + "\n\n")
+	}
+	rec := httptest.NewRecorder()
+	w := translate.NewResponsesWriter(rec, "gpt-5.6-sol")
+	w.SetFooterText(footer)
+	w.SetPassthroughBadge()
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.WriteHeader(200)
+	_, err := w.Write([]byte(native.String()))
+	require.NoError(t, err)
+	require.NoError(t, w.Finalize())
+	events := parseSSEEvents(t, rec.Body.Bytes())
+	require.Len(t, events, 3)
+	assert.Equal(t, "ok", events[0]["delta"])
+	assert.Equal(t, "ok", events[2]["text"])
+}
+
+func TestResponsesWriter_TranslatedStreamAppendsFeedbackFooter(t *testing.T) {
+	const footer = "\n\n_Weave Router feedback:_ `$rf +` good"
+	rec := httptest.NewRecorder()
+	w := translate.NewResponsesWriter(rec, "gpt-5.5")
+	w.SetFooterText(footer)
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.WriteHeader(200)
+	for _, c := range []string{
+		`data: {"choices":[{"index":0,"delta":{"content":"Hello"},"finish_reason":null}]}` + "\n\n",
+		`data: {"choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}` + "\n\n",
+		"data: [DONE]\n\n",
+	} {
+		_, err := w.Write([]byte(c))
+		require.NoError(t, err)
+	}
+	require.NoError(t, w.Finalize())
+	events := parseSSEEvents(t, rec.Body.Bytes())
+	var deltas []string
+	for _, e := range events {
+		if e["type"] == "response.output_text.delta" {
+			deltas = append(deltas, e["delta"].(string))
+		}
+	}
+	require.GreaterOrEqual(t, len(deltas), 2)
+	assert.Equal(t, "Hello", deltas[0])
+	assert.Equal(t, footer, deltas[len(deltas)-1])
+}
+
+func TestStripFeedbackFooterFromResponsesInput(t *testing.T) {
+	body := []byte("{\"input\":[{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"answer\\n\\n_Weave Router feedback:_ `$rf +` good experience · `$rf -` poor experience\"}]}]}")
+	out, err := translate.StripFeedbackFooterFromResponsesInput(body)
+	require.NoError(t, err)
+	assert.Equal(t, "answer", gjson.GetBytes(out, "input.0.content.0.text").Str)
 }
