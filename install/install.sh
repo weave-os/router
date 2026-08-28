@@ -2990,54 +2990,8 @@ install_codex_prompt_skills() {
       [ -f "$candidate" ] || continue
       skill_src="$candidate"
       break
-<<<<<<< HEAD
     done
     [ -n "$skill_src" ] || continue
-=======
-    fi
-  done
-  [ -n "$skill_src" ] || { warn "Codex disable-routing skill template is missing; router configuration is still installed."; return 0; }
-  grep -Fq "$WEAVE_CODEX_SKILL_MARKER" "$skill_src" \
-    || { warn "Codex disable-routing skill template has no ownership marker; leaving skills unchanged."; return 0; }
-
-  dst_dir="$codex_dir/skills/disable-routing"
-  dst_file="$dst_dir/SKILL.md"
-  if [ "$scope" = "project" ] || [ -n "$install_dir" ]; then
-    refuse_if_symlink "$codex_dir/skills"
-    refuse_if_symlink "$dst_dir"
-    refuse_if_symlink "$dst_file"
-  elif [ -L "$codex_dir/skills" ] || [ -L "$dst_dir" ] || [ -L "$dst_file" ]; then
-    warn "Codex disable-routing skill path contains a symlink; leaving it untouched."
-    return 0
-  fi
-  if [ -e "$dst_file" ] && { [ ! -f "$dst_file" ] || ! grep -Fq "$WEAVE_CODEX_SKILL_MARKER" "$dst_file"; }; then
-    warn "A user-owned Codex disable-routing skill already exists at $dst_file; leaving it untouched."
-    return 0
-  fi
-  mkdir -p "$dst_dir"
-
-  scope_args=""
-  if [ -n "$install_dir" ]; then
-    scope_args=" --dir $(printf '%q' "$install_dir")"
-  elif [ "$scope" = "project" ]; then
-    scope_args=" --scope project"
-  fi
-  body="$(<"$skill_src")"
-  body="${body//\{\{SCOPE\}\}/$scope_args}"
-  printf '%s\n' "$body" >"$dst_file"
-  ok "Codex skill installed: \$disable-routing"
-}
-
-# Install prompt directives as Codex-native skills. Codex cannot append a
-# user message from a skill, so each skill ships scripts/emit.sh. Codex
-# execs that script; the router intercepts the leading-space directive in
-# the tool output without claiming Codex's reserved slash namespace.
-install_codex_prompt_skills() {
-  local canonical skill_src dst_dir dst_file emit_src emit_dst scope_args body
-  while IFS= read -r canonical; do
-    skill_src="$script_dir/codex-skills/$canonical/SKILL.md"
-    [ -f "$skill_src" ] || continue
->>>>>>> a8113add (Emit Codex router directives from a skill script)
     grep -Fq "<!-- weave-router managed $canonical skill -->" "$skill_src" || continue
     dst_dir="$codex_dir/skills/$canonical"
     dst_file="$dst_dir/SKILL.md"
@@ -3060,13 +3014,9 @@ install_codex_prompt_skills() {
     body="$(<"$skill_src")"
     body="${body//\{\{SCOPE\}\}/$scope_args}"
     printf '%s\n' "$body" >"$dst_file"
-<<<<<<< HEAD
     # Prompt skills emit their directive through a script Codex execs; toggles
     # shell out to the installer's own verbs and ship none.
     emit_src="${skill_src%/SKILL.md}/scripts/emit.sh"
-=======
-    emit_src="$script_dir/codex-skills/$canonical/scripts/emit.sh"
->>>>>>> a8113add (Emit Codex router directives from a skill script)
     if [ -f "$emit_src" ]; then
       mkdir -p "$dst_dir/scripts"
       emit_dst="$dst_dir/scripts/emit.sh"

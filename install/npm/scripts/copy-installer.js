@@ -72,11 +72,17 @@ for (const line of registryText.split(/\r?\n/)) {
   for (const name of names) {
     const src = path.join(installDir, "codex-skills", name, "SKILL.md");
     const dst = path.join(root, "codex-skills", name, "SKILL.md");
+    // An alias may exist for the Claude command surface without a Codex skill
+    // behind it (e.g. `models`), so a missing alias asset is not an error — but
+    // a missing canonical one means the registry declared a skill we don't ship.
+    if (!existsSync(src)) {
+      if (name === fields[0]) throw new Error(`Codex skill ${name} is declared in directives.tsv but missing`);
+      continue;
+    }
     if (lstatSync(src).isSymbolicLink()) throw new Error(`Invalid Codex skill: ${src}`);
     mkdirSync(path.dirname(dst), { recursive: true });
     copyFileSync(src, dst);
     console.log(`Copied codex-skills/${name}/SKILL.md.`);
-<<<<<<< HEAD
     // Prompt skills emit their directive through a script; toggles shell out to
     // the installer's own verbs and ship no script.
     const emitSrc = path.join(installDir, "codex-skills", name, "scripts", "emit.sh");
@@ -87,22 +93,6 @@ for (const line of registryText.split(/\r?\n/)) {
     copyFileSync(emitSrc, emitDst);
     chmodSync(emitDst, 0o755);
     console.log(`Copied codex-skills/${name}/scripts/emit.sh.`);
-=======
-    const emitSrc = path.join(installDir, "codex-skills", name, "scripts", "emit.sh");
-    const emitDst = path.join(root, "codex-skills", name, "scripts", "emit.sh");
-    try {
-      if (lstatSync(emitSrc).isSymbolicLink()) throw new Error(`Invalid Codex skill script: ${emitSrc}`);
-      mkdirSync(path.dirname(emitDst), { recursive: true });
-      copyFileSync(emitSrc, emitDst);
-      chmodSync(emitDst, 0o755);
-      console.log(`Copied codex-skills/${name}/scripts/emit.sh.`);
-    } catch (err) {
-      if (err && err.code === "ENOENT") {
-        throw new Error(`Codex skill ${name} is missing scripts/emit.sh`);
-      }
-      throw err;
-    }
->>>>>>> a8113add (Emit Codex router directives from a skill script)
   }
 }
 

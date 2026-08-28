@@ -243,6 +243,21 @@ for name in router-off:off router-on:on router-status:status router-models:model
   fi
 done
 
+# A skill may only advertise a $name the installer actually creates. Codex
+# discovers skills by directory name, so telling the user to invoke an alias
+# that was never installed advertises a command that cannot run.
+bad_alias=""
+for dir in "$cx_home"/.codex/skills/*/; do
+  skill="$dir/SKILL.md"
+  [ -f "$skill" ] || continue
+  while IFS= read -r advertised; do
+    [ -n "$advertised" ] || continue
+    [ -d "$cx_home/.codex/skills/$advertised" ] \
+      || bad_alias="$bad_alias $(basename "$dir"):\$$advertised"
+  done < <(grep -oE '\$[a-z][a-z-]+' "$skill" | tr -d '$' | sort -u)
+done
+check "every \$name a Codex skill advertises is installed" "" "$bad_alias"
+
 # jq is a hard requirement for the Claude/opencode/pi JSON merges, but Codex
 # writes TOML and plain files — installing skills must not start needing it.
 nojq_bin="$work/nojq"; mkdir -p "$nojq_bin"

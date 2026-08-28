@@ -111,7 +111,6 @@ Four install targets:
   so re-running the installer rewrites it cleanly and `--uninstall --codex`
   removes it without touching the rest of your config. Codex does not load
   third-party slash-command files; the installer provides native skills
-<<<<<<< HEAD
   `$force-model` (`$fm`), `$unforce-model` (`$ufm`), and `$router-feedback`
   (`$rf`), each of which execs a local `scripts/emit.sh` that prints the same
   leading-space directive Claude Code uses (for example,
@@ -122,15 +121,6 @@ Four install targets:
   provider without logging out or deleting the router configuration. The
   managed lifecycle hooks also keep the latest routed model in the terminal
   title and emit a compact status message when the router reports a new route.
-=======
-  `$force-model` (`$fm`), `$unforce-model` (`$ufm`), and
-  `$router-feedback` (`$rf`). Each skill execs a local `scripts/emit.sh` that
-  prints the same leading-space directive Claude Code uses (for example,
-  ` /force-model gpt-5.6-terra`); the router intercepts that tool output.
-  You can type that form directly. Its `$disable-routing` skill returns the next Codex
-  session to the default provider without logging out or deleting the router
-  configuration.
->>>>>>> a8113add (Emit Codex router directives from a skill script)
 - **opencode** (`--opencode`) — merges a `provider.weave` entry (backed by
   opencode's built-in `@ai-sdk/anthropic` provider) into
   `~/.config/opencode/opencode.json` (or `<repo>/opencode.json` with
