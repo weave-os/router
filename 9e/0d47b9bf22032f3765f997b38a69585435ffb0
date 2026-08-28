@@ -1,0 +1,80 @@
+install/npm/package.json
+  s_99a26d7f7deb6c::t_73d60601fcec39 22
+install/npm/.gitignore
+  s_99a26d7f7deb6c::t_2b976c09b1e33c 3
+  s_99a26d7f7deb6c::t_d12f9aad44f351 8
+install/tests/codex-status_test.sh
+  s_99a26d7f7deb6c::t_e843ef5d4eaf4e 40-58
+  s_99a26d7f7deb6c::t_14dfb01041ac0a 1-39,59
+Makefile
+  s_99a26d7f7deb6c::t_14dfb01041ac0a 43
+install/codex-status.sh
+  s_99a26d7f7deb6c::t_bc8c6f8bf76b79 89
+  s_99a26d7f7deb6c::t_57e126e856b89a 124-130
+  s_99a26d7f7deb6c::t_e1da5c88ead946 14-15
+  s_99a26d7f7deb6c::t_b48a956962ee1d 131-132
+  s_99a26d7f7deb6c::t_8095a7762abd74 104-109
+  s_99a26d7f7deb6c::t_c05ce68373e98d 137,139,141,143,145
+  s_99a26d7f7deb6c::t_c87b6e2b429e7e 94-100
+  s_99a26d7f7deb6c::t_81d8e0e07a48c5 2
+  s_99a26d7f7deb6c::t_7c648285ffc71e 74,80-81
+  s_99a26d7f7deb6c::t_d85de148cc765f 1,3-13,16-34,39-73,75-78,82-88,90-91,111-123,133-136,138,140,142,144
+  s_99a26d7f7deb6c::t_6b496781f61bad 79
+  s_99a26d7f7deb6c::t_de05cb3e4bc832 110
+  s_99a26d7f7deb6c::t_ca8705697459d3 146
+  s_99a26d7f7deb6c::t_46cbbcf0390fe9 92-93,101-103
+  s_99a26d7f7deb6c::t_84a7bd8602353e 35-38
+install/install.sh
+  s_99a26d7f7deb6c::t_6b496781f61bad 1584,1590,3205
+  s_99a26d7f7deb6c::t_1500e36e692ac6 631,3095-3139,3142-3160,3165-3199,3201-3204,3208-3214,3216-3217,3237-3250,3252,3256-3262,3264,3266,3268,3270,3273-3279,3283
+  s_99a26d7f7deb6c::t_8495ec0bc39969 533-536,543,617-619,628
+  s_99a26d7f7deb6c::t_a95c0a680c991f 3215
+  s_99a26d7f7deb6c::t_aff1c6acc36b85 3218-3219,3233-3235,3263,3265,3267,3269,3271-3272
+  s_99a26d7f7deb6c::t_0a06142c70f6cc 2128-2130,2146-2148
+  s_99a26d7f7deb6c::t_3746b3d614e607 1579-1583,1589
+  s_99a26d7f7deb6c::t_2af18a226cd927 506,511,552-561,616,620-627,629-630
+  s_99a26d7f7deb6c::t_4f91b20e3e02c3 3297,3305
+  s_99a26d7f7deb6c::t_e79d6f952d542b 3298-3299
+  s_99a26d7f7deb6c::t_d08cf8a05494e2 3161-3164,3236,3251,3253-3255
+  s_99a26d7f7deb6c::t_4fc7e99de36312 3140-3141,3200,3206-3207,3220-3232
+install/README.md
+  s_99a26d7f7deb6c::t_6048f423057ddf 282-284
+  s_99a26d7f7deb6c::t_c56444086deef0 133-134
+  s_99a26d7f7deb6c::t_e70d0738a17397 132
+  s_99a26d7f7deb6c::t_c08db8204f15f2 443-446
+  s_99a26d7f7deb6c::t_4ee590fe4c9467 124-125
+install/tests/codex_install_test.sh
+  s_99a26d7f7deb6c::t_4c6cc5639e3907 78
+  s_99a26d7f7deb6c::t_14dfb01041ac0a 71-77,80-82,139
+  s_99a26d7f7deb6c::t_9a908279b42618 79
+install/npm/README.md
+  s_99a26d7f7deb6c::t_2d4e85e866d87d 113-115
+  s_99a26d7f7deb6c::t_dcd0c824d1daf2 137
+  s_99a26d7f7deb6c::t_e40287c4261e5e 32-33
+install/uninstall.sh
+  s_99a26d7f7deb6c::t_97a8609a42b92f 524-528,531,557-560,562-566
+  s_99a26d7f7deb6c::t_5bc5ce71fa20b1 549-556,567
+  s_99a26d7f7deb6c::t_4bd5c6e720f0df 561
+  s_99a26d7f7deb6c::t_3632e3ffc4ad9c 529,532
+  s_99a26d7f7deb6c::t_a4375b2ff1b56c 568
+install/npm/scripts/copy-installer.js
+  s_99a26d7f7deb6c::t_d1df9802481146 14
+install/tests/packaging_test.sh
+  s_99a26d7f7deb6c::t_caa9101fa4f896 40
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "9e0d47b9bf22032f3765f997b38a69585435ffb0",
+  "prompts": {},
+  "sessions": {
+    "s_99a26d7f7deb6c": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6a458e13-f54a-43f2-8dcb-023370249ea7",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "munir-weave <munir@workweave.ai>"
+    }
+  }
+}
