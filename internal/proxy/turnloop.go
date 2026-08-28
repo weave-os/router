@@ -549,7 +549,7 @@ func (s *Service) runTurnLoop(
 
 	// Explicit user-forced pins outrank every automatic fast path, including
 	// the turn-type hard pin; only check here so ordinary turns use the normal flow.
-	threadSessionKey := DeriveSessionKey(env, apiKeyID)
+	threadSessionKey := deriveSessionKeyForRequest(ctx, env, apiKeyID)
 	hardPinnedTurn := s.isHardPinnedTurn(ctx, res.TurnType)
 	if s.pinStore != nil && hardPinnedTurn {
 		forcedPin, found := s.loadPin(ctx, threadSessionKey, res.PinRole)

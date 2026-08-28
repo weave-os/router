@@ -80,7 +80,7 @@ func (s *Service) anthropicRoutingRequest(ctx context.Context, body []byte, head
 		AvailableTools:               availableToolsForRouting(env),
 		OrganizationID:               organizationID,
 		InstallationID:               installationID,
-		ClientSessionID:              env.ClientSessionID(),
+		ClientSessionID:              clientSessionIDForRequest(ctx, env),
 		EnabledProviders:             enabledProviders,
 		CustomBindings:               s.customBindingsForRequest(ctx),
 		GatewayProviders:             s.gatewayProvidersForRequest(ctx),

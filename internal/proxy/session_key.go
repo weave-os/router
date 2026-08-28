@@ -62,7 +62,8 @@ func bindRequestLogger(
 	env *translate.RequestEnvelope,
 	apiKeyID, requestID, ingress string,
 ) (context.Context, *slog.Logger, [sessionpin.SessionKeyLen]byte) {
-	key := DeriveSessionKey(env, apiKeyID)
+	clientSessionID := clientSessionIDForRequest(ctx, env)
+	key := deriveSessionKey(env, apiKeyID, clientSessionID)
 	log := observability.FromContext(ctx).With(
 		"session_key", shortKey(key),
 		"api_key_id", apiKeyID,
@@ -93,35 +94,63 @@ func bindRequestLogger(
 	return observability.PromoteRequestLogger(ctx, log), log, key
 }
 
-// DeriveSessionKey produces a 16-byte session digest from apiKeyID,
-// metadata.user_id (when present), and the first user message.
+// DeriveSessionKey produces a 16-byte session digest from apiKeyID, the
+// client's session identifier when present, and the first user message.
 //
-// The first user message is load-bearing: Claude Code's metadata.user_id
-// identifies only device+account+session, not the sub-agent, so a main loop
-// and all its Task/Explore sub-agents share one user_id. Keying on user_id
-// alone collapsed them onto a single pin slot that concurrent threads then
-// thrashed (writes/overwrites racing across models). Each thread's first
-// user message is stable across turns but distinct per sub-agent, so it
-// separates them while keeping each pin (and prompt cache) stable.
+// HTTP request paths should use deriveSessionKeyForRequest so header-only
+// identifiers (Codex Session-Id, Claude Code X-Claude-Code-Session-Id) are
+// included. Envelope-only callers still pick up metadata.user_id /
+// ClientSessionID from the body.
 //
-// System text is excluded on the common Anthropic path because Claude Code
-// mutates it every turn, which would re-key (and evict the prompt cache) on
-// every request. It's used only as a fallback for OpenAI-format bodies,
-// where system lives in messages[] and the first user message is empty.
+// The first user message remains load-bearing: Claude Code's session id
+// identifies the parent conversation, not a Task/Explore sub-agent. Keying on
+// session id alone would collapse concurrent threads onto one pin. Each
+// thread's first user message is stable across turns but distinct per
+// sub-agent, so it separates them while keeping each pin stable.
 func DeriveSessionKey(env *translate.RequestEnvelope, apiKeyID string) [sessionpin.SessionKeyLen]byte {
+	var clientSessionID string
+	if env != nil {
+		clientSessionID = env.ClientSessionID()
+	}
+	return deriveSessionKey(env, apiKeyID, clientSessionID)
+}
+
+func deriveSessionKeyForRequest(ctx context.Context, env *translate.RequestEnvelope, apiKeyID string) [sessionpin.SessionKeyLen]byte {
+	return deriveSessionKey(env, apiKeyID, clientSessionIDForRequest(ctx, env))
+}
+
+func clientSessionIDForRequest(ctx context.Context, env *translate.RequestEnvelope) string {
+	if id := ClientIdentityFrom(ctx).SessionID; id != "" {
+		return id
+	}
+	if env != nil {
+		return env.ClientSessionID()
+	}
+	return ""
+}
+
+func deriveSessionKey(env *translate.RequestEnvelope, apiKeyID, clientSessionID string) [sessionpin.SessionKeyLen]byte {
 	h := sha256.New()
 	h.Write([]byte(apiKeyID))
 	// Domain separator prevents cross-tier collisions from caller-controlled strings.
 	h.Write([]byte{0x00})
 
-	if env != nil {
+	if clientSessionID != "" {
+		h.Write([]byte("client_session_id:"))
+		h.Write([]byte(clientSessionID))
+		h.Write([]byte{0x00})
+	} else if env != nil {
 		if uid := env.MetadataUserID(); uid != "" {
 			h.Write([]byte("user_id:"))
 			h.Write([]byte(uid))
 			h.Write([]byte{0x00})
 		}
-		// Fallback for OpenAI-format bodies (see doc comment above): without
-		// this, unrelated conversations sharing an API key would collapse.
+	}
+	if env != nil {
+		// First user message still splits Claude Code sub-agents that share one
+		// parent session id. OpenAI-format bodies fall back to system text when
+		// that first user message is empty so unrelated conversations do not
+		// collapse onto one pin.
 		disc := env.FirstUserMessageText()
 		if disc == "" {
 			disc = env.SystemText()
