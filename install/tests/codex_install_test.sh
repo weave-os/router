@@ -138,6 +138,42 @@ run_uninstall
 [ ! -e "$skill" ] || fail "uninstall did not remove the Codex disable-routing skill"
 [ ! -e "$status_helper" ] || fail "uninstall did not remove the Codex status helper"
 
+# A pre-existing hooks scalar or table is incompatible with inline lifecycle
+# arrays. Preserve either user shape and install routing without managed hooks.
+for hooks_shape in scalar table; do
+  if [ "$hooks_shape" = scalar ]; then
+    printf '%s\n' 'hooks = "${HOME}/.codex/hooks.json"' >"$config"
+  else
+    printf '%s\n' '[hooks]' 'enabled = true' >"$config"
+  fi
+  run_hosted_install
+  grep -Fq 'model_provider = "weave"' "$config" \
+    || fail "hooks conflict prevented Codex routing setup ($hooks_shape)"
+  if grep -Fq '[[hooks.SessionStart]]' "$config" || grep -Fq '[[hooks.Stop]]' "$config"; then
+    fail "installer added inline hooks to conflicting hooks $hooks_shape config"
+  fi
+  if [ "$hooks_shape" = scalar ]; then
+    grep -Fq 'hooks = "${HOME}/.codex/hooks.json"' "$config" \
+      || fail "installer did not preserve hooks path"
+  else
+    grep -Fq 'enabled = true' "$config" \
+      || fail "installer did not preserve hooks table"
+  fi
+  run_uninstall
+  [ ! -e "$status_helper" ] || fail "uninstall left the status helper after hooks conflict test"
+done
+
+# A user-owned status helper must not be overwritten or made executable by the
+# managed hooks. The installer refuses the install rather than wiring around it.
+mkdir -p "$(dirname "$status_helper")"
+printf '%s\n' 'user-authored status helper' >"$status_helper"
+if run_hosted_install; then
+  fail "installer accepted an unowned Codex status helper"
+fi
+grep -qx 'user-authored status helper' "$status_helper" \
+  || fail "installer modified an unowned Codex status helper"
+rm -f "$status_helper"
+
 # A same-named user skill is not ours to overwrite or remove. This also
 # covers an upgrade on a machine where the name was already taken.
 mkdir -p "$(dirname "$skill")"

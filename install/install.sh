@@ -531,8 +531,36 @@ write_codex_config() {
   local headers_line="http_headers = { ${headers_parts} }"
 
   local hook_feature_line="features.hooks = true"
+  local hook_block=""
+  local codex_hooks_enabled="true"
+  if [ -f "$config_file" ]; then
+    if awk '
+      !in_section && /^[[:space:]]*hooks[[:space:]]*=/ { conflict=1 }
+      $0 == "[hooks]" { conflict=1 }
+      /^[[:space:]]*\[/ { in_section=1 }
+      END { exit(conflict ? 0 : 1) }
+    ' "$config_file"; then
+      codex_hooks_enabled="false"
+      hook_feature_line=""
+    fi
+  fi
   if [ -f "$config_file" ] && grep -q '^\[features\]$' "$config_file"; then
     hook_feature_line=""
+  fi
+  if [ "$codex_hooks_enabled" = "true" ]; then
+    hook_block="$(cat <<TOML
+
+[[hooks.SessionStart]]
+[[hooks.SessionStart.hooks]]
+type = "command"
+command = "${esc_status}"
+
+[[hooks.Stop]]
+[[hooks.Stop.hooks]]
+type = "command"
+command = "${esc_status}"
+TOML
+)"
   fi
   local block
   block="$(cat <<TOML
@@ -549,16 +577,7 @@ base_url = "${esc_url}/v1"
 wire_api = "responses"
 requires_openai_auth = true
 ${headers_line}
-
-[[hooks.SessionStart]]
-[[hooks.SessionStart.hooks]]
-type = "command"
-command = "${esc_status}"
-
-[[hooks.Stop]]
-[[hooks.Stop.hooks]]
-type = "command"
-command = "${esc_status}"
+${hook_block}
 ${WEAVE_CODEX_END_MARKER}
 TOML
 )"
@@ -628,6 +647,9 @@ TOML
       awk '/^\[features\]$/ && !inserted { print; print "hooks = true # weave-router managed codex hooks"; inserted=1; next } { print }' "$config_file" >"$tmp"
       mv "$tmp" "$config_file"
     fi
+  fi
+  if [ "$codex_hooks_enabled" != "true" ]; then
+    warn "Existing Codex hooks configuration is not an inline array; preserving it and skipping the Weave status hooks. Routing is still enabled."
   fi
   # 0600: the file holds a router key. Even at user scope, mode 644 would
   # leak the key to any local user on a shared box.
