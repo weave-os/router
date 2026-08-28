@@ -614,6 +614,31 @@ func TestService_RouterFeedbackCommand_OpenAIIngress(t *testing.T) {
 	assert.Contains(t, content, "Feedback recorded")
 }
 
+func TestService_RouterFeedbackCommand_AgentToolResultContinuesRouting(t *testing.T) {
+	const body = `{
+		"model":"claude-sonnet-4-6",
+		"max_tokens":1024,
+		"messages":[
+			{"role":"assistant","content":[{"type":"tool_use","id":"toolu_skill","name":"exec","input":{}}]},
+			{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_skill","content":" /router-feedback too slow"}]}
+		]
+	}`
+	store := newFakePinStore()
+	feedback := &fakeFeedbackStore{}
+	fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-sonnet-4-6", Reason: "cluster"}}
+	svc := newPinSvc(fr, store).WithRouterFeedbackStore(feedback)
+
+	ctx := authedCtx(uuid.NewString())
+	rec := httptest.NewRecorder()
+	httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	require.NoError(t, svc.ProxyMessages(ctx, []byte(body), rec, httpReq))
+
+	assert.Equal(t, 1, fr.routeCalls, "agent-issued feedback must continue into an agent turn")
+	require.Len(t, feedback.events, 1)
+	assert.Equal(t, "too slow", feedback.events[0].Feedback)
+	assert.NotContains(t, rec.Body.String(), "Feedback recorded", "agent-issued feedback must not terminate with a synthetic ack")
+}
+
 func TestService_RouterFeedbackCommand_EmptyFeedbackAsksForText(t *testing.T) {
 	const body = `{
 		"model":"claude-sonnet-4-6",

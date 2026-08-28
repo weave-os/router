@@ -206,15 +206,18 @@ cx_home="$work/codex-user"; mkdir -p "$cx_home"
 run_install "$cx_home" --codex --scope user
 codex_skills="$(cd "$cx_home/.codex/skills" && ls -d */ 2>/dev/null | tr -d '/' | sort | tr '\n' ' ' | sed 's/ $//')"
 check "codex user install writes a skill per supported directive" \
-  "disable-routing force-model router-feedback unforce-model" "$codex_skills"
+  "disable-routing fm force-model rf router-feedback ufm unforce-model" "$codex_skills"
 check "codex install writes no prompt wrappers" "" \
   "$(ls "$cx_home/.codex/prompts" 2>/dev/null | tr '\n' ' ' | sed 's/ $//')"
 
 # The Codex skills must instruct the leading-space normal prompt: Codex
 # reserves `/…` for its own built-ins, so a bare slash never reaches the router.
-for name in force-model unforce-model router-feedback; do
+for name in force-model unforce-model router-feedback fm ufm rf; do
   skill="$cx_home/.codex/skills/$name/SKILL.md"
-  if grep -qF " /$name" "$skill"; then
+  case "$name" in
+    fm) command=force-model ;; ufm) command=unforce-model ;; rf) command=router-feedback ;; *) command="$name" ;;
+  esac
+  if grep -qF " /$command" "$skill"; then
     ok "codex \$$name expands to a leading-space directive"
   else
     no "codex \$$name expands to a leading-space directive" "a literal leading space" "$(grep -m1 "/$name" "$skill")"

@@ -44,9 +44,9 @@ for (const f of readdirSync(commandsSrc)) {
   console.log(`Copied commands/${f}.`);
 }
 
-// Codex discovers local skills under $CODEX_HOME/skills. Bundle the one
-// installer-owned template explicitly, refusing a source symlink just as the
-// command-file packaging path above does.
+// Codex discovers local skills under $CODEX_HOME/skills. Bundle the
+// installer-owned local-toggle template explicitly, refusing a source symlink
+// just as the command-file packaging path above does.
 const codexSkillSrc = path.join(installDir, "codex-skills", "disable-routing", "SKILL.md");
 const codexSkillDst = path.join(root, "codex-skills", "disable-routing", "SKILL.md");
 if (lstatSync(codexSkillSrc).isSymbolicLink()) {
@@ -74,13 +74,15 @@ for (const line of registryText.split(/\r?\n/)) {
   if (!line || line.startsWith("#")) continue;
   const fields = line.split("|");
   if (fields[2] !== "prompt" || fields[4] !== "yes") continue;
-  const name = fields[0];
-  const src = path.join(installDir, "codex-skills", name, "SKILL.md");
-  const dst = path.join(root, "codex-skills", name, "SKILL.md");
-  if (!lstatSync(src) || lstatSync(src).isSymbolicLink()) throw new Error(`Invalid Codex skill: ${src}`);
-  mkdirSync(path.dirname(dst), { recursive: true });
-  copyFileSync(src, dst);
-  console.log(`Copied codex-skills/${name}/SKILL.md.`);
+  const names = [fields[0], ...(fields[1] || "").split(",").filter(Boolean)];
+  for (const name of names) {
+    const src = path.join(installDir, "codex-skills", name, "SKILL.md");
+    const dst = path.join(root, "codex-skills", name, "SKILL.md");
+    if (lstatSync(src).isSymbolicLink()) throw new Error(`Invalid Codex skill: ${src}`);
+    mkdirSync(path.dirname(dst), { recursive: true });
+    copyFileSync(src, dst);
+    console.log(`Copied codex-skills/${name}/SKILL.md.`);
+  }
 }
 
 // installer and the pi-router extension: pi loads it via the "pi.extensions"

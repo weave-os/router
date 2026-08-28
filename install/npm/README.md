@@ -102,10 +102,13 @@ Four install targets:
   The block lives between begin/end markers
   so re-running the installer rewrites it cleanly and `--uninstall --codex`
   removes it without touching the rest of your config. Codex does not load
-  third-party slash-command files; to send a router directive, type it with
-  one leading space (for example, ` /force-model gpt-5.6-terra`). Its
-  `$disable-routing` skill returns the next Codex session to the default
-  provider without logging out or deleting the router configuration.
+  third-party slash-command files; the installer provides native skills
+  `$force-model` (`$fm`), `$unforce-model` (`$ufm`), and
+  `$router-feedback` (`$rf`). They send the same leading-space directives as
+  Claude Code (for example, ` /force-model gpt-5.6-terra`), and you can type
+  that form directly. Its `$disable-routing` skill returns the next Codex
+  session to the default provider without logging out or deleting the router
+  configuration.
 - **opencode** (`--opencode`) — merges a `provider.weave` entry (backed by
   opencode's built-in `@ai-sdk/anthropic` provider) into
   `~/.config/opencode/opencode.json` (or `<repo>/opencode.json` with

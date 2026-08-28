@@ -2730,11 +2730,14 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	if !agentShadowMode {
 		if cmd, hasCmd := env.ExtractRouterFeedbackCommand(); hasCmd {
 			log.Info("ProxyMessages router-feedback command")
-			if err := s.handleRouterFeedbackCommand(ctx, w, env, cmd, installationID, sessionKey, feats.Tokens); err != nil {
+			if err := s.handleRouterFeedbackCommand(ctx, w, env, cmd, installationID, sessionKey, feats.Tokens, !cmd.FromToolResult); err != nil {
 				return err
 			}
-			s.grantPostCommandContinuation(ctx, installationID, sessionKey, roleForTier(catalog.TierFor(feats.Model)))
-			return nil
+			if !cmd.FromToolResult {
+				s.grantPostCommandContinuation(ctx, installationID, sessionKey, roleForTier(catalog.TierFor(feats.Model)))
+				return nil
+			}
+			requestBodyChanged = true
 		}
 	}
 
@@ -5326,11 +5329,14 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	}
 	if cmd, hasCmd := env.ExtractRouterFeedbackCommand(); hasCmd {
 		log.Info("ProxyOpenAIChatCompletion router-feedback command")
-		if err := s.handleRouterFeedbackCommand(ctx, w, env, cmd, installationID, sessionKey, feats.Tokens); err != nil {
+		if err := s.handleRouterFeedbackCommand(ctx, w, env, cmd, installationID, sessionKey, feats.Tokens, !cmd.FromToolResult); err != nil {
 			return err
 		}
-		s.grantPostCommandContinuation(ctx, installationID, sessionKey, roleForTier(catalog.TierFor(feats.Model)))
-		return nil
+		if !cmd.FromToolResult {
+			s.grantPostCommandContinuation(ctx, installationID, sessionKey, roleForTier(catalog.TierFor(feats.Model)))
+			return nil
+		}
+		requestBodyChanged = true
 	}
 
 	// Sanitize after command extraction: a skill can encode its command as a
@@ -6228,6 +6234,10 @@ func (s *Service) ProxyOpenAIResponses(ctx context.Context, body []byte, w http.
 	codexNativeRequest := codexResponsesRequest(ctx, r.Header)
 	nativeBody := conversion.OriginalBody
 	if clientAppCodex {
+		nativeBody, err = translate.StripRouterCommandsFromResponsesInput(nativeBody)
+		if err != nil {
+			return fmt.Errorf("strip Responses router command: %w", err)
+		}
 		// Codex records response.output_item.done as conversation history and
 		// sends it back in the next native request. Remove only the badge this
 		// client opted into so router text never reaches the selected model.

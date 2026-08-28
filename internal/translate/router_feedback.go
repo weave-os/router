@@ -20,6 +20,10 @@ type RouterFeedbackResult struct {
 	// Sequence is an optional leading turn-selector: 0 = last turn (default),
 	// positive = absolute 1-based index, negative = relative offset from last (e.g. -3).
 	Sequence int
+	// FromToolResult is true when an agent emitted the directive through a tool
+	// result. Those commands should continue the agent turn after recording
+	// feedback instead of ending it with a synthetic response.
+	FromToolResult bool
 }
 
 // RouterFeedbackRatingUp and RouterFeedbackRatingDown are the canonical
@@ -39,21 +43,21 @@ var RouterFeedbackLabels = map[string]struct{}{
 	"maximum":  {},
 }
 
-// ExtractRouterFeedbackCommand scans the last user-role message in env for a
-// /router-feedback <text> directive. When found, it strips the command line
-// from env.body and returns the feedback text. A bare /router-feedback with
-// no text still matches (found=true, empty Feedback) so the handler can ack
-// with usage guidance instead of forwarding the command to an upstream model.
-// Returns (zero, false) when no command is present.
+// ExtractRouterFeedbackCommand scans the trailing user/tool-result message in
+// env for a /router-feedback <text> directive. When found, it strips the
+// command from env.body and returns the feedback text. A bare command still
+// matches (found=true, empty Feedback) so user-issued commands can receive
+// usage guidance. Returns (zero, false) when no command is present.
 func (env *RequestEnvelope) ExtractRouterFeedbackCommand() (RouterFeedbackResult, bool) {
 	var res RouterFeedbackResult
-	found := env.extractLeadingCommand(func(text string) (bool, string) {
+	found, fromToolResult := env.extractLeadingCommandWithSource(func(text string) (bool, string) {
 		r, ok, stripped := parseRouterFeedbackCommand(text)
 		if ok {
 			res = r
 		}
 		return ok, stripped
 	})
+	res.FromToolResult = found && fromToolResult
 	return res, found
 }
 
@@ -106,9 +110,11 @@ func (env *RequestEnvelope) StripRouterFeedbackArtifacts() int {
 // directive on the first non-empty line, applying the same leading-line +
 // injected-prefix guards as parseForceModelCommand (see that function for the
 // rationale; the router-side alias serves clients without local slash-command
-// expansion). Unlike /force-model, everything after the command — same line
-// AND following lines — is the feedback payload, so the whole body is
-// consumed and the stripped output keeps only the injected prefix.
+// expansion). Codex exec results get a narrow exception for their known
+// "Script completed" preamble. Unlike /force-model, everything after the
+// command — same line AND following lines — is the feedback payload, so the
+// whole body is consumed and the stripped output keeps only the injected
+// prefix.
 func parseRouterFeedbackCommand(text string) (res RouterFeedbackResult, found bool, stripped string) {
 	prefixEnd := leadingInjectedPrefixEnd(text)
 	prefix := text[:prefixEnd]
@@ -120,6 +126,32 @@ func parseRouterFeedbackCommand(text string) (res RouterFeedbackResult, found bo
 
 	rating, inline, ok := matchRouterFeedbackCommand(first)
 	if !ok {
+		// Codex's exec tool prefixes a second output part with execution
+		// metadata ("Script completed … Output:"). Responses conversion joins
+		// those parts, so inspect only the first non-empty output line; skill
+		// documentation printed by exec can contain command examples.
+		if strings.HasPrefix(strings.TrimSpace(text), "Script completed") {
+			lines := strings.Split(text, "\n")
+			for i, line := range lines {
+				if strings.TrimSpace(line) != "Output:" {
+					continue
+				}
+				for i++; i < len(lines); i++ {
+					if strings.TrimSpace(lines[i]) == "" {
+						continue
+					}
+					candidate, found, _ := parseRouterFeedbackCommand(lines[i])
+					if !found {
+						break
+					}
+					remaining := append([]string{}, lines[:i]...)
+					remaining = append(remaining, lines[i+1:]...)
+					candidate.FromToolResult = false
+					return candidate, true, strings.TrimSpace(strings.Join(remaining, "\n"))
+				}
+				break
+			}
+		}
 		return RouterFeedbackResult{}, false, text
 	}
 

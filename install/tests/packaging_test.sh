@@ -97,7 +97,7 @@ HOME="$home" PATH="$home/bin:$PATH" WEAVE_ROUTER_KEY="rk_test_key" NO_COLOR=1 \
 
 installed="$(cd "$home/.codex/skills" 2>/dev/null && ls -d */ 2>/dev/null | tr -d '/' | sort | tr '\n' ' ' | sed 's/ $//')"
 check "the packed entrypoint installs every Codex skill" \
-  "disable-routing force-model router-feedback unforce-model" "$installed"
+  "disable-routing fm force-model rf router-feedback ufm unforce-model" "$installed"
 
 HOME="$home" PATH="$home/bin:$PATH" WEAVE_ROUTER_KEY="rk_test_key" NO_COLOR=1 \
   node "$root/bin.js" --claude --scope user --quiet --base-url http://127.0.0.1:9 >/dev/null 2>&1 || true

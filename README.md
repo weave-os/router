@@ -178,8 +178,9 @@ sidecar is optional. HMM and forced selections in the native Codex family
 every other selected model uses its WorkWeave deployment or BYOK credential,
 matching the Claude Code plugin's model-to-credential dispatch.
 Codex does not load third-party slash-command files, so the installer ships the
-router directives as native Codex skills: `$force-model <model-id>`,
-`$unforce-model`, and `$router-feedback <text>`, each of which sends the
+router directives as native Codex skills: `$force-model <model-id>` (alias
+`$fm <model-id>`), `$unforce-model` (alias `$ufm`), and
+`$router-feedback <text>` (alias `$rf <text>`), each of which sends the
 leading-space prompt form (for example, ` /force-model gpt-5.6-terra`) that the
 router parses. You can type that form directly instead. Re-install
 and `--uninstall --codex` rewrite/remove only the managed block, leaving the
