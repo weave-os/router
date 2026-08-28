@@ -68,10 +68,8 @@ func ctxWithGatewayAliases(installationID string, models ...string) context.Cont
 	return context.WithValue(authedCtx(installationID), proxy.ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{key})
 }
 
-// Prod 2026-08-28: a Snowflake Cortex key aliased grok-4.6, which Cortex does
-// not publish, so every title-gen turn resolved to it, ate an upstream 404, and
-// only recovered via a failover hop (3.7s–43.2s added latency, per turn). The
-// 404 must teach the router to resolve around that alias on later turns.
+// Prod 2026-08-28: a gateway key aliased a model the endpoint does not serve;
+// the 404 must teach the router to skip it on later turns.
 func TestService_HardPin_TitleGen_GatewayModelNotFound_ExcludedOnLaterTurns(t *testing.T) {
 	store := newFakePinStore()
 	fr := &fakeRouter{decision: router.Decision{Provider: "anthropic", Model: "claude-opus-4-7", Reason: "cluster"}}
