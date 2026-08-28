@@ -1,6 +1,5 @@
 // Package selection ports the HMM sidecar's deterministic within-cluster arm
-// selection (sidecars/hmm/hmm_sidecar/policy.py select_roster_group /
-// select_roster_arm) to Go, for shadow comparison only. Nothing here serves.
+// selection (policy.py select_roster_group/select_roster_arm) to Go, for shadow comparison only. Nothing here serves.
 package selection
 
 import (
@@ -34,11 +33,9 @@ func ArmOrder(cluster rosterdata.Cluster, harness string) (order []string, harne
 	return cluster.Arms, false
 }
 
-// Select walks rankedGroups and returns the first group whose roster arm is in
-// candidates (rank-1 pick). rankedGroups must be pre-sorted by the sidecar's
-// ranked_fallback order (desc probability). The private sidecar additionally
-// clamps by mode/turn-type and filters via membership_by_harness; the public
-// sidecar does neither, so neither is applied here.
+// Select returns the first arm across rankedGroups (pre-sorted desc probability)
+// whose roster base ID is in candidates. The private sidecar additionally clamps
+// by mode/turn-type and filters via membership_by_harness; neither is applied here.
 func Select(roster *rosterdata.Roster, rankedGroups []string, harness string, candidates map[string]struct{}) (Pick, bool) {
 	depth := 0
 	for _, group := range rankedGroups {
