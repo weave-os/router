@@ -38,7 +38,7 @@ loved by Robinhood, PostHog, Reducto, and hundreds of others.*
 
 ## What it does
 
-Point Claude Code, Codex, Cursor, or your own app at `localhost:8080`. The router:
+Point Claude Code, Codex, opencode, pi, or your own app at `localhost:8080`. The router:
 
 - 🎯 **Routes per action.** A cluster scorer derived from
   [Avengers-Pro](https://arxiv.org/abs/2508.12631) [^1] picks the right
@@ -121,7 +121,7 @@ provider you configured, never to Weave.
 
 ```mermaid
 flowchart LR
-    client["Claude Code, Codex, opencode,<br/>pi, Cursor, your own app"]
+    client["Claude Code, Codex, opencode,<br/>pi, your own app"]
     router["Router :8080<br/>/v1/messages · /v1/chat/completions<br/>/v1beta/models · /v1/route"]
     scorer["Cluster scorer<br/>in-process ONNX embedder"]
     hmm["HMM policy sidecar :8093<br/>optional, make up-hmm"]
@@ -202,16 +202,11 @@ mascot, a persistent `WEAVE ROUTER` route/savings line, `/fm` + `/ufm`
 model-pin commands with a `[forced]` status, and context-isolated subagents
 without shipping or maintaining a forked pi binary.
 
-**Cursor** *(early beta, performance may not be the best).* Settings →
-Models → *Override OpenAI Base URL* → `http://localhost:8080/v1`, paste
-`rk_...` as the API key.
-
 **Switching on/off.** After installing, `npx @workweave/router off --claude`
 (or `--codex` / `--opencode`) routes that client straight to its provider
 again without discarding the router config; `on` flips it back, and `status`
 reports which way it's pointing. Claude Code also gets `/router-off`,
-`/router-on`, and `/router-status` slash commands. Cursor toggles via the same
-Settings → Models override above. See [install/README.md](install/README.md#switching-on-and-off).
+`/router-on`, and `/router-status` slash commands. See [install/README.md](install/README.md#switching-on-and-off).
 
 **Choosing which models the router may pick.** `npx @workweave/router models
 --claude` lists every deployed model with its on/off state, and `models enable`

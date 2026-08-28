@@ -160,9 +160,4 @@ func main() {
 	fmt.Printf("    export OPENAI_BASE_URL=%s/v1\n", baseURL)
 	fmt.Printf("    export OPENAI_EXTRA_HEADERS='X-Weave-Router-Key: %s'\n", rawToken)
 	fmt.Printf("    codex\n\n")
-
-	fmt.Printf("=== Cursor ===\n")
-	fmt.Printf("  1. Open Cursor Settings > Models > Override OpenAI Base URL\n")
-	fmt.Printf("     Set to: %s/v1\n", baseURL)
-	fmt.Printf("  2. Paste the Weave Router key as the API key: %s\n", rawToken)
 }
