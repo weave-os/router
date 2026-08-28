@@ -191,9 +191,8 @@ func TestOpenAISameFormat_ExplicitMaxTokensNotClampedTo8192ForQwen38Max(t *testi
 	assert.Equal(t, float64(32000), out["max_tokens"])
 }
 
-// Regression: neither GLM-5.3 arm was in modelMaxOutputTokens, so an explicit
-// max_tokens was clamped to the 8192 fallback instead of the 128K both models
-// document. Always-on reasoning would have spent that budget before answering.
+// Regression: both GLM-5.3 arms missing from modelMaxOutputTokens; max_tokens was
+// clamped to 8192 — always-on reasoning exhausts that budget before answering.
 func TestOpenAISameFormat_ExplicitMaxTokensNotClampedTo8192ForGLM53(t *testing.T) {
 	for _, model := range []string{"z-ai/glm-5.3", "z-ai/glm-5.3-flash"} {
 		body := []byte(`{"model":"gpt-4o","messages":[{"role":"user","content":"hi"}],"max_tokens":64000}`)
