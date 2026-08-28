@@ -3269,7 +3269,9 @@ else
   title="Weave Router · active"
 fi
 emit_title "$title"
-printf '%s' "$title" | jq -Rc '{systemMessage: .}'
+if [ -n "$marker_model" ] || [ -n "$force_model" ]; then
+  printf '%s' "$title" | jq -Rc '{systemMessage: .}'
+fi
 CODEX_STATUS_EOF
   fi
   chmod 700 "$codex_status_file"

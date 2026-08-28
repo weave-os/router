@@ -112,7 +112,7 @@ Four install targets:
   `$disable-routing` skill returns the next Codex session to the default
   provider without logging out or deleting the router configuration. The
   managed lifecycle hooks also keep the latest routed model in the terminal
-  title and emit a compact status message after completed turns.
+  title and emit a compact status message when the router reports a new route.
 - **opencode** (`--opencode`) — merges a `provider.weave` entry (backed by
   opencode's built-in `@ai-sdk/anthropic` provider) into
   `~/.config/opencode/opencode.json` (or `<repo>/opencode.json` with
