@@ -518,30 +518,33 @@ type ResponsesWriter struct {
 	seq int64
 
 	// Streaming state.
-	headersEmitted             bool
-	completedEmitted           bool
-	badgePrepended             bool
-	badgeText                  string
-	codexBadgeProvenance       bool
-	nativeBadgeTargetSelected  bool
-	nativeBadgeDeltaPrepended  bool
-	nativeBadgeItemID          string
-	nativeBadgeOutputIndex     int64
-	nativeBadgeHasOutputIndex  bool
-	nativeBadgeContentIndex    int64
-	nativeBadgeHasContentIndex bool
-	footerText                 string
-	footerEmitted              bool
-	sawToolCall                bool
-	nativeHeldEvents           [][]byte
-	nativeFooterCommit         bool
-	textItem                   *responsesTextItem
-	toolItems                  map[int]*responsesToolItem
-	finishReason               string
-	usage                      *responsesUsage
-	lifecycle                  *StreamLifecycle
-	toolLedger                 *ToolCallLedger
-	toolMappings               map[string]ResponsesToolMapping
+	headersEmitted              bool
+	completedEmitted            bool
+	badgePrepended              bool
+	badgeText                   string
+	codexBadgeProvenance        bool
+	nativeBadgeTargetSelected   bool
+	nativeBadgeDeltaPrepended   bool
+	nativeBadgeItemID           string
+	nativeBadgeOutputIndex      int64
+	nativeBadgeHasOutputIndex   bool
+	nativeBadgeContentIndex     int64
+	nativeBadgeHasContentIndex  bool
+	nativeSyntheticBadgeEmitted bool
+	nativeOutputIndexShift      int64
+	nativeSequenceShift         int64
+	footerText                  string
+	footerEmitted               bool
+	sawToolCall                 bool
+	nativeHeldEvents            [][]byte
+	nativeFooterCommit          bool
+	textItem                    *responsesTextItem
+	toolItems                   map[int]*responsesToolItem
+	finishReason                string
+	usage                       *responsesUsage
+	lifecycle                   *StreamLifecycle
+	toolLedger                  *ToolCallLedger
+	toolMappings                map[string]ResponsesToolMapping
 }
 
 type responsesTextItem struct {
@@ -667,9 +670,9 @@ func (t *ResponsesWriter) ClearPassthrough() bool {
 }
 
 // SetPassthroughBadge switches to native Responses passthrough while opting
-// into a Codex-visible routed-model badge. It rewrites only existing text
-// fields in the first assistant message; event order, sequence numbers,
-// response/item ids, output indices, reasoning, and tool calls remain native.
+// into a Codex-visible routed-model badge. Existing assistant text is
+// rewritten in place; text-free turns receive a synthetic assistant message
+// before native output so Codex has a visible surface for the badge.
 func (t *ResponsesWriter) SetPassthroughBadge() {
 	t.EnableCodexBadgeProvenance()
 	t.passthrough = true
@@ -713,16 +716,17 @@ func (t *ResponsesWriter) WriteHeader(code int) {
 }
 
 func (t *ResponsesWriter) Write(data []byte) (int, error) {
+	n := len(data)
 	if t.passthrough {
 		if !t.httpHeadersSent {
 			t.streaming = strings.Contains(t.inner.Header().Get("Content-Type"), "text/event-stream")
+			t.statusCode = http.StatusOK
 			t.inner.WriteHeader(http.StatusOK)
 			t.httpHeadersSent = true
 		}
 		// Generic native Responses callers remain byte-for-byte passthrough. Only
 		// the explicitly enabled Codex display path parses native SSE.
 		if t.passthroughBadge && t.streaming {
-			n := len(data)
 			t.buf.Write(data)
 			err := t.processPassthroughSSEBuffer()
 			if err == nil {
@@ -732,6 +736,25 @@ func (t *ResponsesWriter) Write(data []byte) (int, error) {
 				}
 			}
 			return n, err
+		}
+		if t.passthroughBadge {
+			t.buf.Write(data)
+			// Some native Codex upstream responses omit Content-Type when the
+			// proxy has already committed headers. Detect SSE from the buffered
+			// event itself so the native badge path is not mistaken for JSON.
+			if nativeResponsesSSEBuffer(t.buf.Bytes()) {
+				t.streaming = true
+				if err := t.processPassthroughSSEBuffer(); err != nil {
+					return n, err
+				}
+				if err := t.bw.Flush(); err != nil {
+					return n, err
+				}
+				if t.flusher != nil {
+					t.flusher.Flush()
+				}
+			}
+			return n, nil
 		}
 		// Forward verbatim. The upstream emits Responses natively, so there is
 		// nothing to translate for clients that did not opt into the display badge.
@@ -744,7 +767,6 @@ func (t *ResponsesWriter) Write(data []byte) (int, error) {
 		}
 		return written, err
 	}
-	n := len(data)
 	t.buf.Write(data)
 	if !t.streaming {
 		return n, nil
@@ -759,6 +781,15 @@ func (t *ResponsesWriter) Write(data []byte) (int, error) {
 		t.headersEmitted = true
 	}
 	return n, t.processSSEBuffer()
+}
+
+func nativeResponsesSSEBuffer(data []byte) bool {
+	event, n := sse.SplitNext(data)
+	if n == 0 {
+		return false
+	}
+	_, payload := sse.ParseEvent(event)
+	return gjson.ValidBytes(payload) && gjson.GetBytes(payload, "type").Str != ""
 }
 
 // Prelude commits headers and emits response.created immediately so Codex
@@ -804,6 +835,19 @@ func (t *ResponsesWriter) Finalize() error {
 			if err := t.processFinalPassthroughSSETail(); err != nil {
 				return err
 			}
+		}
+		if t.passthroughBadge && !t.streaming {
+			body := t.buf.Bytes()
+			if rewritten, changed := t.rewriteNativeNonStreamingBody(body); changed {
+				body = rewritten
+			}
+			if !t.httpHeadersSent {
+				t.inner.Header().Set("Content-Type", "application/json")
+				t.inner.WriteHeader(t.statusCode)
+				t.httpHeadersSent = true
+			}
+			_, err := t.inner.Write(body)
+			return err
 		}
 		// Nothing is synthesized; the upstream remains the event authority.
 		return t.bw.Flush()
@@ -1140,12 +1184,102 @@ func (t *ResponsesWriter) rewriteNativeResponsesPayload(data []byte) ([]byte, bo
 	return data, false
 }
 
+// rewriteNativePassthroughFields adjusts native coordinates after a synthetic
+// badge item has been inserted ahead of the upstream output. Sequence numbers
+// are shifted so the SSE stream remains strictly monotonic; output indices are
+// shifted so tool/reasoning items retain their identity relative to the badge.
+func (t *ResponsesWriter) rewriteNativePassthroughFields(data []byte) ([]byte, bool) {
+	if !gjson.ValidBytes(data) {
+		return data, false
+	}
+	root := gjson.ParseBytes(data)
+	changed := false
+	if t.nativeSequenceShift != 0 && root.Get("sequence_number").Type == gjson.Number {
+		if rewritten, err := sjson.SetBytes(data, "sequence_number", root.Get("sequence_number").Int()+t.nativeSequenceShift); err == nil {
+			data = rewritten
+			root = gjson.ParseBytes(data)
+			changed = true
+		}
+	}
+	if t.nativeOutputIndexShift != 0 && root.Get("output_index").Type == gjson.Number {
+		if rewritten, err := sjson.SetBytes(data, "output_index", root.Get("output_index").Int()+t.nativeOutputIndexShift); err == nil {
+			data = rewritten
+			root = gjson.ParseBytes(data)
+			changed = true
+		}
+	}
+	if !t.nativeSyntheticBadgeEmitted || (root.Get("type").Str != "response.completed" && root.Get("type").Str != "response.incomplete") {
+		return data, changed
+	}
+	output := root.Get("response.output")
+	if !output.IsArray() {
+		return data, changed
+	}
+	for _, item := range output.Array() {
+		if item.Get("id").Str == t.nativeBadgeItemID {
+			return data, changed
+		}
+	}
+	badgeItem := `{"id":"` + t.nativeBadgeItemID + `","type":"message","status":"completed","role":"assistant","content":[{"type":"output_text","text":` + strconv.Quote(t.computeBadgeText()) + `,"annotations":[]}]}`
+	items := make([]string, 0, len(output.Array())+1)
+	items = append(items, badgeItem)
+	for _, item := range output.Array() {
+		items = append(items, item.Raw)
+	}
+	if rewritten, err := sjson.SetRawBytes(data, "response.output", []byte("["+strings.Join(items, ",")+"]")); err == nil {
+		return rewritten, true
+	}
+	return data, changed
+}
+
+func (t *ResponsesWriter) rewriteNativeNonStreamingBody(data []byte) ([]byte, bool) {
+	if !gjson.ValidBytes(data) {
+		return data, false
+	}
+	root := gjson.ParseBytes(data)
+	output := root.Get("output")
+	if !output.IsArray() || t.computeBadgeText() == "" {
+		return data, false
+	}
+	for index, item := range output.Array() {
+		if !nativeResponsesAssistantMessage(item) {
+			continue
+		}
+		partIndex, ok := firstNativeOutputTextPart(item)
+		if !ok {
+			continue
+		}
+		path := "output." + strconv.Itoa(index) + ".content." + strconv.Itoa(partIndex) + ".text"
+		return t.prefixNativeBadge(data, path)
+	}
+	for _, item := range output.Array() {
+		if item.Get("id").Str != "" && codexResponsesBadgePattern.MatchString(item.Get("content.0.text").Str) {
+			return data, false
+		}
+	}
+	itemID := newResponsesID("msg")
+	badgeItem := `{"id":"` + itemID + `","type":"message","status":"completed","role":"assistant","content":[{"type":"output_text","text":` + strconv.Quote(t.computeBadgeText()) + `,"annotations":[]}]}`
+	items := []string{badgeItem}
+	for _, item := range output.Array() {
+		items = append(items, item.Raw)
+	}
+	rewritten, err := sjson.SetRawBytes(data, "output", []byte("["+strings.Join(items, ",")+"]"))
+	if err != nil {
+		return data, false
+	}
+	return rewritten, true
+}
+
 func (t *ResponsesWriter) rewriteNativeResponsesEvent(raw []byte) []byte {
 	_, data := sse.ParseEvent(raw)
 	if len(data) == 0 {
 		return raw
 	}
 	rewrittenData, changed := t.rewriteNativeResponsesPayload(data)
+	if fields, fieldsChanged := t.rewriteNativePassthroughFields(rewrittenData); fieldsChanged {
+		rewrittenData = fields
+		changed = true
+	}
 	if !changed {
 		return raw
 	}
@@ -1161,6 +1295,88 @@ func (t *ResponsesWriter) rewriteNativeResponsesEvent(raw []byte) []byte {
 	return rewritten
 }
 
+func (t *ResponsesWriter) writeNativeEvent(eventType string, sequence int64, payload map[string]any) error {
+	payload["type"] = eventType
+	payload["sequence_number"] = sequence
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+	if _, err := t.bw.WriteString("event: " + eventType + "\ndata: "); err != nil {
+		return err
+	}
+	if _, err := t.bw.Write(body); err != nil {
+		return err
+	}
+	_, err = t.bw.WriteString("\n\n")
+	return err
+}
+
+// emitNativeBadgeBeforeOutput opens a real Responses message item before the
+// first native tool/reasoning item. Native Responses streams cannot display a badge
+// without an output item, so all subsequent tool coordinates are shifted by
+// one and upstream sequence numbers by the six events emitted here.
+func (t *ResponsesWriter) emitNativeBadgeBeforeOutput(event []byte) error {
+	if t.nativeSyntheticBadgeEmitted || t.nativeBadgeTargetSelected || t.computeBadgeText() == "" {
+		return nil
+	}
+	_, data := sse.ParseEvent(event)
+	root := gjson.ParseBytes(data)
+	sequence := root.Get("sequence_number")
+	base := int64(0)
+	if sequence.Type == gjson.Number {
+		base = sequence.Int() + t.nativeSequenceShift
+	}
+	itemID := newResponsesID("msg")
+	text := t.computeBadgeText()
+	item := map[string]any{
+		"id": itemID, "type": "message", "status": "in_progress", "role": "assistant", "content": []any{},
+	}
+	if err := t.writeNativeEvent("response.output_item.added", base, map[string]any{"output_index": 0, "item": item}); err != nil {
+		return err
+	}
+	if err := t.writeNativeEvent("response.content_part.added", base+1, map[string]any{
+		"item_id": itemID, "output_index": 0, "content_index": 0,
+		"part": map[string]any{"type": "output_text", "text": "", "annotations": []any{}},
+	}); err != nil {
+		return err
+	}
+	if err := t.writeNativeEvent("response.output_text.delta", base+2, map[string]any{
+		"item_id": itemID, "output_index": 0, "content_index": 0, "delta": text,
+	}); err != nil {
+		return err
+	}
+	if err := t.writeNativeEvent("response.output_text.done", base+3, map[string]any{
+		"item_id": itemID, "output_index": 0, "content_index": 0, "text": text,
+	}); err != nil {
+		return err
+	}
+	if err := t.writeNativeEvent("response.content_part.done", base+4, map[string]any{
+		"item_id": itemID, "output_index": 0, "content_index": 0,
+		"part": map[string]any{"type": "output_text", "text": text, "annotations": []any{}},
+	}); err != nil {
+		return err
+	}
+	if err := t.writeNativeEvent("response.output_item.done", base+5, map[string]any{
+		"output_index": 0,
+		"item": map[string]any{"id": itemID, "type": "message", "status": "completed", "role": "assistant", "content": []any{
+			map[string]any{"type": "output_text", "text": text, "annotations": []any{}},
+		}},
+	}); err != nil {
+		return err
+	}
+	t.nativeSyntheticBadgeEmitted = true
+	t.nativeBadgeTargetSelected = true
+	t.nativeBadgeItemID = itemID
+	t.nativeBadgeOutputIndex = 0
+	t.nativeBadgeHasOutputIndex = true
+	t.nativeBadgeContentIndex = 0
+	t.nativeBadgeHasContentIndex = true
+	t.nativeOutputIndexShift++
+	t.nativeSequenceShift += 6
+	return nil
+}
+
 func (t *ResponsesWriter) writeNativeResponsesEvent(event, delimiter []byte) error {
 	_, data := sse.ParseEvent(event)
 	eventType := ""
@@ -1169,9 +1385,17 @@ func (t *ResponsesWriter) writeNativeResponsesEvent(event, delimiter []byte) err
 		eventType = gjson.GetBytes(data, "type").Str
 		itemType = gjson.GetBytes(data, "item.type").Str
 	}
-	if eventType == "response.function_call_arguments.delta" || eventType == "response.custom_tool_call_input.delta" || (eventType == "response.output_item.added" && (itemType == "function_call" || itemType == "custom_tool_call")) || (eventType == "response.output_item.done" && (itemType == "function_call" || itemType == "custom_tool_call")) {
+	if eventType == "response.function_call_arguments.delta" || eventType == "response.custom_tool_call_input.delta" || (eventType == "response.output_item.added" && (itemType == "function_call" || itemType == "custom_tool_call" || itemType == "reasoning")) || (eventType == "response.output_item.done" && (itemType == "function_call" || itemType == "custom_tool_call")) {
 		t.sawToolCall = true
+		if err := t.emitNativeBadgeBeforeOutput(event); err != nil {
+			return err
+		}
 		if err := t.flushNativeHeldEvents(false); err != nil {
+			return err
+		}
+	}
+	if (eventType == "response.completed" || eventType == "response.incomplete") && !t.nativeBadgeTargetSelected && !t.nativeSyntheticBadgeEmitted {
+		if err := t.emitNativeBadgeBeforeOutput(event); err != nil {
 			return err
 		}
 	}

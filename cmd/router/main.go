@@ -211,11 +211,19 @@ func main() {
 		}
 		// Codex (ChatGPT) subscription reroute to the Codex backend lives in
 		// the OpenAI client itself, keyed off the resolved credential.
-		providerMap[providers.ProviderOpenAI] = openaiProvider.NewClientWithModelIDMap(
+		openaiClient := openaiProvider.NewClientWithModelIDMap(
 			openaiKey,
 			openaiBaseURL,
 			upstreamIDsForProvider(providers.ProviderOpenAI),
 		)
+		// Local tests can point the subscription branch at a deterministic native
+		// Responses mock without changing the production ChatGPT endpoint.
+		if deploymentMode == server.DeploymentModeSelfHosted {
+			if codexBaseURL := config.GetOr("ROUTER_CODEX_BASE_URL", ""); codexBaseURL != "" {
+				openaiClient.SetCodexBaseURL(codexBaseURL)
+			}
+		}
+		providerMap[providers.ProviderOpenAI] = openaiClient
 		switch {
 		case byokOnly:
 			logger.Info("OpenAI provider enabled (BYOK only)", "base_url", openaiBaseURL)

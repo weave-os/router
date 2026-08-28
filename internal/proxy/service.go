@@ -5689,8 +5689,8 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 			rw.SetFooterText(footer)
 		}
 	}
-	// Outlives the passthrough teardown of marker below, so a chat/completions
-	// re-dispatch can still badge the translated stream.
+	// Keep a stable copy for a possible chat/completions fallback after a native
+	// Responses endpoint rejects the request.
 	translatedMarker := marker
 
 	// Responses entry point delegates the eager response.created emit to
@@ -5734,11 +5734,6 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		sink = captureW
 	}
 
-	if verbatimPassthrough {
-		// The client receives raw Responses SSE from the Codex backend; a
-		// chat-completions routing-marker chunk would corrupt that stream.
-		marker = ""
-	}
 	_, isResponses := w.(*translate.ResponsesWriter)
 	// makeMarkerSink wraps sink with an OpenAIRoutingMarkerWriter emitting the
 	// marker chunk + HTTP 200 eagerly (skipped for /v1/responses). Called per

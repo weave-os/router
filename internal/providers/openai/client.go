@@ -124,6 +124,15 @@ func NewClientWithModelIDMap(apiKey, baseURL string, modelIDMap map[string]strin
 	return newClientWithModelIDMap(apiKey, baseURL, responseHeaderTimeout, modelIDMap)
 }
 
+// SetCodexBaseURL overrides the ChatGPT Codex subscription endpoint. It is
+// intended for local deterministic testing; managed deployments always use
+// the built-in chatgpt.com endpoint.
+func (c *Client) SetCodexBaseURL(baseURL string) {
+	if baseURL != "" {
+		c.codexBaseURL = baseURL
+	}
+}
+
 // NewClientWithResponseHeaderTimeout is NewClient with a caller-chosen
 // time-to-first-byte guard, so tests can exercise bounded-stall behavior
 // (#331) without waiting out the 120s default.

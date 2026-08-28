@@ -23,7 +23,7 @@ The sibling skill [test-claude-locally](../test-claude-locally/SKILL.md) is the 
 - **Docker may not be running.** `docker compose` fails with a `unix://…/.docker/run/docker.sock` connect error if Desktop is stopped. `open -a Docker` and wait for `docker info` before step 1.
 - **Other agents in the same workspace can `docker compose down` and delete `/tmp` scratch.** If health suddenly 404s or `CODEX_HOME` vanishes mid-run, re-up the stack and reseed — do not reuse a key you can no longer `/validate`.
 - **Session key is `apiKeyID` + first user message.** Reusing the same curl/prompt body on the same key reuses the pin slot. `routingMarkerFor` then returns empty when `PriorServedModel == ServedIdentity()` (sticky same-model). For first-turn marker tests, seed a **new** key or change the first user text. Isolated `/validate` first: `curl -sS -o /dev/null -w '%{http_code}\n' -H "X-Weave-Router-Key: $KEY" http://localhost:8080/validate` must be `200`.
-- **Native GPT passthrough + tool-only still has no badge.** `SetPassthroughBadge` can only rewrite `response.output_text.*` events. A ChatGPT-subscription turn that opens with reasoning and goes straight to a tool call never emits those, and the rewriter will not invent an `output_item` (would renumber a stream Codex expects to be byte-faithful). The translated path (`ensureBadgeItem`) *does* synthesize a leading message item ahead of a tool call. Don't treat a silent OAuth/tool-only GPT turn as a regression of the translated-path fix.
+- **Native GPT passthrough + tool-only emits a synthetic badge item.** `SetPassthroughBadge` rewrites existing `response.output_text.*` events and, when a ChatGPT-subscription turn has no assistant text, inserts a leading assistant message item before native tool/reasoning output. Verify the badge in the Responses SSE/JSON; the Codex TUI can bury the first-turn line under tool chatter.
 - **`GET /v1/models` 501 from a mock is fine.** Codex probes `<base_url>/models` first, logs an HTML 501, then continues to `POST /v1/responses`. The real local router implements `GET /v1/models` as Anthropic passthrough, so this only shows up against a Python mock.
 - **Port 8085 conflict.** The monorepo's pubsub emulator may already own host port 8085. Drop the router's host binding with a `docker-compose.override.yml` (see workflow). The server still reaches the emulator over the compose network.
 - **No credits / no key = no reproduction.** If the real upstream returns an error (e.g. OpenRouter "Insufficient credits"), use the mock-upstream path instead.
@@ -76,6 +76,22 @@ A 401 mid-session usually means the stack was torn down and reseeded (new instal
 
 **Real provider** — set the provider key in `.env.local` (e.g. `OPENAI_API_KEY=...`, `FIREWORKS_API_KEY=...`) and restart `docker compose up -d server`. Confirm the boot log shows `<Provider> provider enabled` with the real base_url. Use this to confirm a model genuinely produces the behavior.
 
+For an actual Codex subscription response, do not set `ROUTER_CODEX_BASE_URL`
+and do not run either mock. Remove that environment entry from
+`docker-compose.override.yml`, then rebuild the server:
+
+```bash
+unset ROUTER_CODEX_BASE_URL  # also remove it from docker-compose.override.yml
+docker compose up -d --build server
+```
+
+Use a throwaway `CODEX_HOME` containing a copy of the real
+`~/.codex/auth.json`, with `requires_openai_auth = true` and `X-App = "codex"`.
+The router detects the OAuth bearer plus `ChatGPT-Account-ID` and calls the
+real `https://chatgpt.com/backend-api/codex/responses` endpoint. This consumes
+the user's ChatGPT quota and requires a valid login; the mock is only for
+repeatable tests when that endpoint is unavailable or too expensive.
+
 **Mock upstream** — for a deterministic, credit-free repro of a precise SSE shape. Point the provider's base URL at a local mock and restart. Codex talks to the *router* (`POST /v1/responses`); the mock sits behind the router as the upstream the router dispatches to:
 
 ```bash
@@ -88,13 +104,34 @@ python3 .claude/skills/test-claude-locally/scripts/mock_openai_upstream.py >/tmp
 docker compose up -d server
 ```
 
-Edit the mock's emitted chunks to match the upstream shape you're reproducing. Provider→env-var names live in `internal/providers/provider.go`; base-URL overrides are read in `cmd/router/main.go` (`<PROVIDER>_BASE_URL`). There is **no** `ANTHROPIC_BASE_URL` / `CODEX_BASE_URL` override for the ChatGPT subscription backend (`chatgpt.com/backend-api/codex`) — native GPT subscription traffic always hits the real Codex backend unless you temporarily edit `internal/providers/openai/client.go` (`chatGPTCodexBaseURL`) and revert after.
+To exercise the production-equivalent native Codex subscription path, use a
+native Responses mock instead of the Chat Completions mock:
+
+```bash
+python3 .claude/skills/test-codex-locally/scripts/mock_codex_upstream.py >/tmp/mock-codex.log 2>&1 &
+```
+
+Add this to the `server` service in `docker-compose.override.yml`:
+
+```yaml
+environment:
+  ROUTER_CODEX_BASE_URL: http://host.docker.internal:8099/v1
+extra_hosts: ["host.docker.internal:host-gateway"]
+```
+
+This preserves real Codex subscription detection (OAuth bearer plus
+`ChatGPT-Account-ID`) and native Responses passthrough, while replacing only
+the outbound ChatGPT backend with a deterministic tool-only stream. The mock
+emits a function call, so the expected result is a synthetic marker message at
+`output_index: 0`, followed by the native tool at `output_index: 1`.
+
+Edit the mock's emitted chunks to match the upstream shape you're reproducing. Provider→env-var names live in `internal/providers/provider.go`; base-URL overrides are read in `cmd/router/main.go` (`<PROVIDER>_BASE_URL`). For local testing, `ROUTER_CODEX_BASE_URL` overrides only the subscription backend; the default remains `https://chatgpt.com/backend-api/codex`.
 
 **Subscription vs prepaid (important for marker / passthrough tests):**
 
 Codex will attach a ChatGPT JWT. The local router then treats the turn as a Codex subscription:
 
-- OpenAI-family decision → verbatim Responses passthrough (`SetPassthrough` / `SetPassthroughBadge`) to `chatgpt.com/backend-api/codex`. This is the path the routing-marker-on-Codex work exercises.
+- OpenAI-family decision → verbatim Responses passthrough (`SetPassthrough` / `SetPassthroughBadge`) to the Codex backend (or `ROUTER_CODEX_BASE_URL` in the native mock setup). This is the path the routing-marker-on-Codex work exercises.
 - Non-OpenAI decision → Chat Completions translation + `ResponsesWriter.SetBadgeText`.
 
 To force the prepaid/BYOK translation path (no ChatGPT backend, uses `OPENAI_API_KEY` / other provider keys):
@@ -188,11 +225,11 @@ If you only see other models, the pin didn't take. Recheck: (1) `x-weave-force-m
 **Routing-marker specific checks (the usual reason to use this skill):**
 
 - Cross-format (non-OpenAI decision, or prepaid OpenAI): first assistant text is `✦ **Weave Router** → <model> · <reason>`. Log field `routing_marker` is non-empty.
-- Verbatim GPT passthrough (Codex subscription + OpenAI decision): same marker injected as a synthetic `response.output_text.delta` before upstream deltas (`SetPassthroughBadge`). Log still has `routing_marker`.
+- Verbatim GPT passthrough (Codex subscription + OpenAI decision): same marker is injected into the first native assistant text, or as a synthetic assistant message item before tool/reasoning-only output (`SetPassthroughBadge`). Log still has `routing_marker`.
 - `X-Weave-Routing-Marker: off` (and not subscription-only warning): no badge. Subscription-only depleted-credits warning still wins over the opt-out.
 - Same model, second action (`prior_served_model` equals `decision_model`): `routing_marker=""`. Expected. Seed a new key (or change the first user text) to re-see a first-turn badge.
 - Tool-call-only on the **translated** path: marker is a leading `output_item` (`output_index` 0) ahead of the function call — including `stream:false` JSON. Confirm in the SSE / JSON, not only in `codex exec` stdout (the TUI can bury the first-turn line under tool chatter).
-- Tool-call-only on **verbatim GPT passthrough**: still no badge (see gotchas). Don't fail the check.
+- Tool-call-only on **verbatim GPT passthrough**: a leading synthetic message item carries the badge, followed by the native tool call. Sequence/output indices are shifted to remain valid.
 - Non-Codex client (`X-App` unset) on a translated decision still gets the `✦ **Weave Router** → …` text badge today; native OpenAI passthrough without `X-App: codex` stays byte-identical (`SetPassthrough` with no badge rewrite).
 - For curl-level checks (no Codex CLI), `POST /v1/responses` with `X-Weave-Router-Key` + `X-App: codex` is enough. Isolate first-turn cases with a freshly seeded key.
 
@@ -200,6 +237,7 @@ If you only see other models, the pin didn't take. Recheck: (1) `x-weave-force-m
 
 ```bash
 pkill -f mock_openai_upstream.py 2>/dev/null
+pkill -f mock_codex_upstream.py 2>/dev/null
 rm -rf /tmp/weave-codex-local
 rm -f docker-compose.override.yml
 # `docker compose down` if you want to stop the stack
