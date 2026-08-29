@@ -1,8 +1,7 @@
 // Package selection ports the HMM sidecar's deterministic within-cluster arm
-// selection (sidecars/hmm/hmm_sidecar/policy.py select_roster_group /
-// select_roster_arm) to Go. It serves via ROUTER_HMM_GO_SELECTION (default
-// off) and is compared log-only via ROUTER_HMM_SELECTION_SHADOW; see
-// docs/HMM_GO_SELECTION.md.
+// selection (policy.py select_roster_group / select_roster_arm) to Go. Serves via
+// ROUTER_HMM_GO_SELECTION (default off); compared log-only via ROUTER_HMM_SELECTION_SHADOW;
+// see docs/HMM_GO_SELECTION.md.
 package selection
 
 import (
