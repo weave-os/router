@@ -28,9 +28,8 @@ func (env *RequestEnvelope) ExtractBetaCommand() (BetaCommandResult, bool) {
 }
 
 // StripBetaArtifacts removes prior command-only /beta turns and the router's
-// synthetic beta acknowledgements from model-visible history. The current
-// trailing user command is preserved so ExtractBetaCommand can still toggle
-// the session before any request reaches an upstream or routing classifier.
+// synthetic acknowledgements from model-visible history. The trailing user
+// command is preserved so ExtractBetaCommand can still toggle the session.
 func (env *RequestEnvelope) StripBetaArtifacts() int {
 	switch env.format {
 	case FormatAnthropic, FormatOpenAI:

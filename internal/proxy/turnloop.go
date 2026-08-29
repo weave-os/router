@@ -162,9 +162,8 @@ type turnLoopResult struct {
 	Decision       router.Decision
 	SessionKey     [sessionpin.SessionKeyLen]byte
 	InstallationID uuid.UUID
-	// Strategy is the effective request strategy. It is carried through the
-	// response path so async pin usage/history writes remain strategy-bound
-	// after the request context is no longer available.
+	// Strategy is the effective request strategy, carried through the response
+	// path so async pin writes stay strategy-bound after ctx is cancelled.
 	Strategy   router.Strategy
 	TurnType   turntype.TurnType
 	StickyHit  bool
