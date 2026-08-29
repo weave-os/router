@@ -179,9 +179,8 @@ func TestSelectIsDeterministic(t *testing.T) {
 	}
 }
 
-// TestSelectParityFixture encodes the expected picks for a fixture roster the
-// way the sidecar's select_roster_arm would produce them, so a semantics drift
-// in either the loader or the walk shows up as a concrete pick change.
+// TestSelectParityFixture pins expected picks against a fixture roster so
+// loader/walk semantics drift shows up as a concrete pick change.
 func TestSelectParityFixture(t *testing.T) {
 	data, err := os.ReadFile(filepath.Join("testdata", "parity_roster.json"))
 	require.NoError(t, err)
