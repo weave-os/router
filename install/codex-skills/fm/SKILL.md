@@ -1,11 +1,11 @@
 ---
-name: force-model
-description: "Pin this Codex session to a specific model through the Weave Router."
+name: fm
+description: "Alias for force-model — pin this Codex session to a specific model through the Weave Router."
 ---
 
-<!-- weave-router managed force-model skill -->
+<!-- weave-router managed fm skill -->
 
-When the user invokes `$force-model <model-id>` (or `$fm`), run this skill's `scripts/emit.sh` using the
+When the user invokes `$fm <model-id>`, run this skill's `scripts/emit.sh` using the
 absolute path shown in this skill's `<path>` (its directory + `/scripts/emit.sh`).
 Pass the model id as arguments, quoted as a single argument list.
 Do not send a user message and do not type a Codex slash command.

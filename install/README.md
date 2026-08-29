@@ -152,9 +152,9 @@ native Codex skill, invoked with `$`:
 
 | Skill | Sends |
 | --- | --- |
-| `$force-model <model-id>` | ` /force-model <model-id>` |
-| `$unforce-model` | ` /unforce-model` |
-| `$router-feedback <text>` | ` /router-feedback <text>` |
+| `$force-model <model-id>` / `$fm <model-id>` | ` /force-model <model-id>` |
+| `$unforce-model` / `$ufm` | ` /unforce-model` |
+| `$router-feedback <text>` / `$rf <text>` | ` /router-feedback <text>` |
 
 Each skill submits a normal prompt whose first character is one literal space,
 which is what reaches the router's directive parser. You can always type that
@@ -344,8 +344,8 @@ installer owns the config file.
 | unforce-model (`ufm`) | `/unforce-model` | `$unforce-model` | `/unforce-model` | `/ufm` (native) | manual |
 | router-feedback (`rf`) | `/router-feedback` | `$router-feedback` | `/router-feedback` | — | manual |
 | router-session | `/router-session` | — | — | — | — |
-| router-off / on / status | `/router-off` … | `$disable-routing` (off only) | — | — | — |
-| router-models (`models`) | `/router-models` | — | — | — | — |
+| router-off / on / status | `/router-off` … | `$router-off` … (plus `$disable-routing`) | — | — | — |
+| router-models (`models`) | `/router-models` | `$router-models` | — | — | — |
 
 - **Codex** uses `$name` skills because Codex reserves `/…` for built-ins; each
   skill sends the leading-space prompt form.
@@ -354,8 +354,12 @@ installer owns the config file.
 - **Cursor** exposes no command or skill file this installer owns, so its
   directives are manual: type the leading-space form ( `/force-model …`)
   yourself. The base-URL toggle lives in Cursor's own settings UI.
-- The local toggles are Claude Code-only (plus Codex's `$disable-routing`)
-  because no other client has a config file this installer writes.
+- The local toggles reach Claude Code and Codex, the two clients with a config
+  file this installer writes. Codex's skills shell out to the same
+  `weave-router off|on|status|models --codex` verbs the CLI exposes;
+  `$disable-routing` predates `$router-off` and remains as an alias for it.
+- `models` resolves one install's endpoint and key, so it needs a client that
+  stores both: `--claude` or `--codex` (opencode and pi are not wired yet).
 
 What each `off` does (and `on` reverses byte-for-byte):
 
@@ -384,6 +388,7 @@ as a command-line argument.
 
 ```bash
 npx @workweave/router models --claude                          # every model, with its on/off state
+npx @workweave/router models --codex                           # same, for a Codex install
 npx @workweave/router models disable gpt-5.6 --claude          # take a model out of rotation
 npx @workweave/router models enable gpt-5.6 --claude           # put it back
 npx @workweave/router models providers --claude                # same, one row per provider

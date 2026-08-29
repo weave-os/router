@@ -4,7 +4,7 @@
 // published tarball is self-contained. Keeps a single source of truth for
 // the shell installer.
 
-const { copyFileSync, cpSync, chmodSync, mkdirSync, readdirSync, lstatSync, realpathSync } = require("node:fs");
+const { copyFileSync, cpSync, chmodSync, existsSync, mkdirSync, readdirSync, lstatSync, realpathSync } = require("node:fs");
 const path = require("node:path");
 
 const root = path.resolve(__dirname, "..");
@@ -44,18 +44,7 @@ for (const f of readdirSync(commandsSrc)) {
   console.log(`Copied commands/${f}.`);
 }
 
-// Codex discovers local skills under $CODEX_HOME/skills. Bundle the one
-// installer-owned template explicitly, refusing a source symlink just as the
-// command-file packaging path above does.
-const codexSkillSrc = path.join(installDir, "codex-skills", "disable-routing", "SKILL.md");
-const codexSkillDst = path.join(root, "codex-skills", "disable-routing", "SKILL.md");
-if (lstatSync(codexSkillSrc).isSymbolicLink()) {
-  throw new Error(`Refusing to package symlinked Codex skill: ${codexSkillSrc}`);
-}
-mkdirSync(path.dirname(codexSkillDst), { recursive: true });
-copyFileSync(codexSkillSrc, codexSkillDst);
-console.log("Copied codex-skills/disable-routing/SKILL.md.");
-
+// Codex discovers local skills under $CODEX_HOME/skills.
 const registryNames = new Set();
 for (const line of registryText.split(/\r?\n/)) {
   if (!line || line.startsWith("#")) continue;
@@ -70,17 +59,41 @@ for (const file of readdirSync(commandsSrc)) {
 }
 
 // registry prevents a newly supported directive from being omitted at publish time.
+// Keyed on the skill adapter, not capability: Codex ships local-config toggles
+// ($router-off/$router-on/$router-status/$disable-routing) as skills too.
 for (const line of registryText.split(/\r?\n/)) {
   if (!line || line.startsWith("#")) continue;
   const fields = line.split("|");
-  if (fields[2] !== "prompt" || fields[4] !== "yes") continue;
-  const name = fields[0];
-  const src = path.join(installDir, "codex-skills", name, "SKILL.md");
-  const dst = path.join(root, "codex-skills", name, "SKILL.md");
-  if (!lstatSync(src) || lstatSync(src).isSymbolicLink()) throw new Error(`Invalid Codex skill: ${src}`);
-  mkdirSync(path.dirname(dst), { recursive: true });
-  copyFileSync(src, dst);
-  console.log(`Copied codex-skills/${name}/SKILL.md.`);
+  if (fields[4] !== "yes") continue;
+  if (!(fields[8] || "").split(",").includes("skill")) continue;
+  // Canonical name plus every alias: Codex discovers skills by directory name,
+  // so an advertised $fm needs its own installed skill.
+  const names = [fields[0], ...(fields[1] || "").split(",").filter(Boolean)];
+  for (const name of names) {
+    const src = path.join(installDir, "codex-skills", name, "SKILL.md");
+    const dst = path.join(root, "codex-skills", name, "SKILL.md");
+    // An alias may exist for the Claude command surface without a Codex skill
+    // behind it (e.g. `models`), so a missing alias asset is not an error — but
+    // a missing canonical one means the registry declared a skill we don't ship.
+    if (!existsSync(src)) {
+      if (name === fields[0]) throw new Error(`Codex skill ${name} is declared in directives.tsv but missing`);
+      continue;
+    }
+    if (lstatSync(src).isSymbolicLink()) throw new Error(`Invalid Codex skill: ${src}`);
+    mkdirSync(path.dirname(dst), { recursive: true });
+    copyFileSync(src, dst);
+    console.log(`Copied codex-skills/${name}/SKILL.md.`);
+    // Prompt skills emit their directive through a script; toggles shell out to
+    // the installer's own verbs and ship no script.
+    const emitSrc = path.join(installDir, "codex-skills", name, "scripts", "emit.sh");
+    if (!existsSync(emitSrc)) continue;
+    const emitDst = path.join(root, "codex-skills", name, "scripts", "emit.sh");
+    if (lstatSync(emitSrc).isSymbolicLink()) throw new Error(`Invalid Codex skill script: ${emitSrc}`);
+    mkdirSync(path.dirname(emitDst), { recursive: true });
+    copyFileSync(emitSrc, emitDst);
+    chmodSync(emitDst, 0o755);
+    console.log(`Copied codex-skills/${name}/scripts/emit.sh.`);
+  }
 }
 
 // installer and the pi-router extension: pi loads it via the "pi.extensions"

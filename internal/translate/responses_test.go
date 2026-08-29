@@ -240,6 +240,21 @@ func TestStripRoutingBadgeFromResponsesInput_PreservesNativeFields(t *testing.T)
 	assert.True(t, root.Get("metadata.keep").Bool())
 }
 
+func TestStripRouterCommandsFromResponsesInput_RemovesAgentToolCommand(t *testing.T) {
+	body := []byte(`{"model":"gpt-5.6-sol","input":[{"type":"custom_tool_call_output","call_id":"call_skill","output":" /router-feedback too slow"},{"type":"function_call_output","call_id":"call_fm","output":[{"type":"input_text","text":" /force-model gpt-5"}]}]}`)
+	out, err := translate.StripRouterCommandsFromResponsesInput(body)
+	require.NoError(t, err)
+	assert.Equal(t, "", gjson.GetBytes(out, "input.0.output").String())
+	assert.Equal(t, "", gjson.GetBytes(out, "input.1.output.0.text").String())
+}
+
+func TestStripRouterCommandsFromResponsesInput_RemovesCollapsedExecCommand(t *testing.T) {
+	body := []byte(`{"input":[{"type":"function_call_output","call_id":"call_skill","output":"Script completed\nOutput:\n /force-model gpt-5"}]}`)
+	out, err := translate.StripRouterCommandsFromResponsesInput(body)
+	require.NoError(t, err)
+	assert.Equal(t, "Script completed\nOutput:", gjson.GetBytes(out, "input.0.output").String())
+}
+
 // A tool-call-only or reasoning-only turn ships a badge-only assistant message.
 // Stripping it in place would leave a blank assistant shell ahead of the real
 // function_call, which providers reject.
@@ -1126,4 +1141,30 @@ func TestStripFeedbackFooterFromResponsesInput(t *testing.T) {
 	out, err := translate.StripFeedbackFooterFromResponsesInput(body)
 	require.NoError(t, err)
 	assert.Equal(t, "answer", gjson.GetBytes(out, "input.0.content.0.text").Str)
+}
+
+// Strip operates on passthrough bytes; extraction runs on the chat projection (conv.OriginalBody vs conv.Body). Ordered as ProxyOpenAIResponses does, so aliasing surfaces here.
+func TestStripRouterCommandsFromResponsesInput_LeavesChatProjectionIntact(t *testing.T) {
+	const body = `{"model":"gpt-5.6-terra","input":[
+{"type":"message","role":"user","content":[{"type":"input_text","text":"invoke fm"}]},
+{"type":"custom_tool_call","call_id":"call_a","name":"exec","input":"x"},
+{"type":"custom_tool_call_output","call_id":"call_a","output":[
+{"type":"input_text","text":"Script completed\nWall time 0.3 seconds\nOutput:\n"},
+{"type":"input_text","text":" /force-model gpt-5.6-terra\n"}]}]}`
+
+	conv, err := translate.ConvertResponsesToChatCompletionsWithOptions(
+		[]byte(body), translate.ResponsesConversionOptions{PortableCodex: true})
+	require.NoError(t, err)
+
+	native, err := translate.StripRouterCommandsFromResponsesInput(conv.OriginalBody)
+	require.NoError(t, err)
+	assert.NotContains(t, string(native), "/force-model gpt-5.6-terra",
+		"the directive must not reach the upstream verbatim")
+
+	env, err := translate.ParseOpenAI(conv.Body)
+	require.NoError(t, err)
+	res, found := env.ExtractForceModelCommand()
+	require.True(t, found, "the chat projection must still carry the directive")
+	assert.Equal(t, "gpt-5.6-terra", res.Model)
+	assert.True(t, res.FromToolResult, "agent-issued, so the turn continues")
 }

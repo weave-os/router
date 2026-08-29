@@ -432,6 +432,70 @@ func StripFeedbackFooterFromResponsesInput(body []byte) ([]byte, error) {
 	return out, nil
 }
 
+// StripRouterCommandsFromResponsesInput removes router directives from
+// function-call output items so the upstream doesn't repeat them verbatim
+// instead of continuing the agent turn.
+func StripRouterCommandsFromResponsesInput(body []byte) ([]byte, error) {
+	input := gjson.GetBytes(body, "input")
+	if !input.IsArray() {
+		return body, nil
+	}
+	out := body
+	changed := false
+	for itemIndex, item := range input.Array() {
+		typ := item.Get("type").Str
+		if typ != "function_call_output" && typ != "custom_tool_call_output" {
+			continue
+		}
+		output := item.Get("output")
+		if output.Type == gjson.String {
+			stripped, found := stripRouterCommandText(output.Str)
+			if !found {
+				continue
+			}
+			var err error
+			out, err = sjson.SetBytes(out, "input."+strconv.Itoa(itemIndex)+".output", stripped)
+			if err != nil {
+				return nil, fmt.Errorf("strip router command from Responses tool output: %w", err)
+			}
+			changed = true
+			continue
+		}
+		if !output.IsArray() {
+			continue
+		}
+		for partIndex, part := range output.Array() {
+			if part.Get("type").Str != "input_text" {
+				continue
+			}
+			stripped, found := stripRouterCommandText(part.Get("text").Str)
+			if !found {
+				continue
+			}
+			var err error
+			out, err = sjson.SetBytes(out, "input."+strconv.Itoa(itemIndex)+".output."+strconv.Itoa(partIndex)+".text", stripped)
+			if err != nil {
+				return nil, fmt.Errorf("strip router command from Responses tool output part: %w", err)
+			}
+			changed = true
+		}
+	}
+	if !changed {
+		return body, nil
+	}
+	return out, nil
+}
+
+func stripRouterCommandText(text string) (string, bool) {
+	if _, found, stripped := parseForceModelCommand(text); found {
+		return stripped, true
+	}
+	if _, found, stripped := parseRouterFeedbackCommand(text); found {
+		return stripped, true
+	}
+	return text, false
+}
+
 // responsesContentHasBody reports whether a content array carries anything
 // beyond the (now stripped) part at skipIndex. Non-text parts always count.
 func responsesContentHasBody(content gjson.Result, skipIndex int) bool {

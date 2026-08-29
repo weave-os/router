@@ -354,7 +354,6 @@ refuse_if_symlink() {
 # --codex) can find and replace the block instead of duplicating it.
 WEAVE_CODEX_BEGIN_MARKER="# >>> weave-router managed (do not edit between markers) >>>"
 WEAVE_CODEX_END_MARKER="# <<< weave-router managed <<<"
-WEAVE_CODEX_SKILL_MARKER="<!-- weave-router managed disable-routing skill -->"
 
 # ---------- identity helpers ----------
 #
@@ -1204,7 +1203,7 @@ if [ "$mode" != "install" ] && [ "$mode" != "update" ]; then
   non_interactive="true"
   if [ "$target_explicit" != "true" ]; then
     if [ "$mode" = "models" ]; then
-      err "'models' requires an explicit client: --claude."
+      err "'models' requires an explicit client: --claude or --codex."
     else
       err "'$mode' requires an explicit client: --claude, --codex, or --opencode."
     fi
@@ -1212,13 +1211,13 @@ if [ "$mode" != "install" ] && [ "$mode" != "update" ]; then
   fi
 fi
 
-# `models` resolves the endpoint and the trust decision out of Claude Code's
-# settings files specifically (resolve_installed_base_url +
-# models_endpoint_is_trusted), so it can't yet address another client's install.
-# Fail fast here rather than falling through to the toggle dispatch, which would
-# flip config nobody asked to change.
-if [ "$mode" = "models" ] && [ "$target" != "claude" ]; then
-  err "'models' currently supports --claude only (it resolves the router endpoint from Claude Code's settings)."
+# `models` needs to resolve one install's endpoint + key. Claude Code and Codex
+# both expose readers for that (resolve_installed_endpoint / read_installed_key);
+# opencode and pi do not have the endpoint-trust story worked out yet, so they
+# still fail fast here rather than falling through to the toggle dispatch, which
+# would flip config nobody asked to change.
+if [ "$mode" = "models" ] && [ "$target" != "claude" ] && [ "$target" != "codex" ]; then
+  err "'models' supports --claude and --codex only (it resolves the router endpoint from that client's config)."
   exit 2
 fi
 
@@ -1372,7 +1371,13 @@ fi
 # Claude Code's settings.json and opencode's opencode.json patching both use
 # jq to deep-merge / structurally rewrite JSON. Toggling those clients reads
 # and rewrites the same JSON, so jq is required there too.
-if [ "$target" = "claude" ] || [ "$target" = "opencode" ] || [ "$target" = "pi" ]; then
+#
+# `models` is the exception for Codex: it renders and edits the router's JSON
+# payloads with jq regardless of which client's config supplied the endpoint,
+# so require it there too rather than dying mid-render on `jq: command not
+# found`. Installing Codex itself still needs no jq.
+if [ "$target" = "claude" ] || [ "$target" = "opencode" ] || [ "$target" = "pi" ] \
+   || { [ "$mode" = "models" ] && [ "$target" = "codex" ]; }; then
   require_cmd jq    "macOS: 'brew install jq' · Debian/Ubuntu: 'sudo apt install jq'"
 fi
 # curl is used by the install/update paths' health/validate probes and by every
@@ -1429,11 +1434,11 @@ WEAVE_REGISTRY_DATA=$(cat <<'WEAVE_REGISTRY_EOF'
 force-model|fm|prompt|yes|yes|yes|yes|manual|command,skill
 unforce-model|ufm|prompt|yes|yes|yes|yes|manual|command,skill
 router-feedback|rf|prompt|yes|yes|yes|no|manual|command,skill
-router-off||local-toggle|yes|no|no|no|manual|command
-router-on||local-toggle|yes|no|no|no|manual|command
-router-status||local-toggle|yes|no|no|no|manual|command
+router-off||local-toggle|yes|yes|no|no|manual|command,skill
+router-on||local-toggle|yes|yes|no|no|manual|command,skill
+router-status||local-toggle|yes|yes|no|no|manual|command,skill
 router-session||prompt|yes|no|no|no|manual|command
-router-models|models|local-toggle|yes|no|no|no|manual|command
+router-models|models|local-toggle|yes|yes|no|no|manual|command,skill
 disable-routing||local-toggle|no|yes|no|no|manual|skill
 WEAVE_REGISTRY_EOF
 )
@@ -1483,6 +1488,7 @@ weave_registry_skill_names() {
       cursor) [ "$cursor" = yes ] || continue ;;
     esac
     printf '%s\n' "$canonical"
+    [ -n "$aliases" ] && printf '%s\n' "$aliases" | tr ',' '\n'
   done <<EOF
 $(weave_registry_rows)
 EOF
@@ -1502,6 +1508,7 @@ weave_registry_skill_assets() {
       cursor) [ "$cursor" = yes ] || continue ;;
     esac
     printf '%s\n' "$canonical"
+    [ -n "$aliases" ] && printf '%s\n' "$aliases" | tr ',' '\n'
   done <<EOF
 $(weave_registry_rows)
 EOF
@@ -1801,6 +1808,18 @@ read_pi_key() {
 # models_key_file_order echoes the precedence the Claude reader uses, so a caller
 # that needs to know *which* file the key came from can walk the same list (a
 # command substitution around this function would discard any global it set).
+# models_config_file_for_target names the single managed config that holds both
+# the endpoint and the key for a non-Claude client. Endpoint and credential from
+# the same file are self-consistent, which is exactly the case
+# models_endpoint_is_trusted already treats as always-safe.
+models_config_file_for_target() {
+  case "$target" in
+    codex)    printf '%s' "$codex_config_file" ;;
+    opencode) printf '%s' "$opencode_config_file" ;;
+    pi)       printf '%s' "$pi_models_file" ;;
+  esac
+}
+
 models_key_file_order() {
   if [ "$scope" = "project" ] && [ -z "$install_dir" ]; then
     printf '%s\n%s\n%s\n' "$local_settings_file" "$settings_file" "$settings_dir/.weave-parked.json"
@@ -2325,7 +2344,7 @@ models_fail() {
       if [ -n "$detail" ]; then
         err "$detail"
       else
-        err "The router rejected this installation's key. Re-run 'npx @workweave/router --claude --rotate-key' to install a current one."
+        err "The router rejected this installation's key. Re-run 'npx @workweave/router --$target --rotate-key' to install a current one."
       fi
       ;;
     404)
@@ -2437,8 +2456,8 @@ models_list() {
   fi
   models_render_list "$models_http_body"
   models_print_preferred
-  printf "\n%sEnable a model:%s  npx @workweave/router models enable <id> --claude\n" "$C_DIM" "$C_RESET"
-  printf "%sDisable a model:%s npx @workweave/router models disable <id> --claude\n" "$C_DIM" "$C_RESET"
+  printf "\n%sEnable a model:%s  npx @workweave/router models enable <id> --%s\n" "$C_DIM" "$C_RESET" "$target"
+  printf "%sDisable a model:%s npx @workweave/router models disable <id> --%s\n" "$C_DIM" "$C_RESET" "$target"
 }
 
 models_providers_list() {
@@ -2522,14 +2541,17 @@ models_prefer() {
 }
 
 models_usage() {
+  # Echo back the client the caller actually named, so a Codex user is never
+  # told to run a command that would target (or create) a Claude Code install.
+  local c="--${target}"
   err "$1"
   printf '%s\n' \
-    "  npx @workweave/router models --claude                          # list models" \
-    "  npx @workweave/router models enable  <id> [<id>…] --claude" \
-    "  npx @workweave/router models disable <id> [<id>…] --claude" \
-    "  npx @workweave/router models providers --claude                # list providers" \
-    "  npx @workweave/router models providers disable <name> --claude" \
-    "  npx @workweave/router models prefer <id> [<id>…] --claude      # ranking ('clear' to drop)" >&2
+    "  npx @workweave/router models $c                          # list models" \
+    "  npx @workweave/router models enable  <id> [<id>…] $c" \
+    "  npx @workweave/router models disable <id> [<id>…] $c" \
+    "  npx @workweave/router models providers $c                # list providers" \
+    "  npx @workweave/router models providers disable <name> $c" \
+    "  npx @workweave/router models prefer <id> [<id>…] $c      # ranking ('clear' to drop)" >&2
   exit 2
 }
 
@@ -2585,23 +2607,30 @@ if [ "$mode" = "models" ]; then
   # never the hosted defaults: a self-hosted user pointing at their own router
   # would otherwise silently edit the hosted one's installation.
   if [ "$base_url_explicit" != "true" ]; then
-    models_base="$(resolve_installed_base_url)"
+    models_base="$(resolve_installed_endpoint)"
     if [ -z "$models_base" ]; then
-      err "No Weave Router install found for Claude Code in this scope. Run 'npx @workweave/router --claude' first, or pass --base-url."
+      err "No Weave Router install found for $target in this scope. Run 'npx @workweave/router --$target' first, or pass --base-url."
       exit 1
     fi
     base_url="$models_base"
-    # resolve_installed_base_url ran in a command substitution, so any global it
+    # resolve_installed_endpoint ran in a command substitution, so any global it
     # set died with that subshell. Recover the source by walking the same
-    # precedence to find which file holds the endpoint we just adopted.
-    while IFS= read -r models_src_candidate; do
-      [ -n "$models_src_candidate" ] || continue
-      models_src_url="$(json_get "$models_src_candidate" '.env.ANTHROPIC_BASE_URL')"
-      if [ "${models_src_url%/}" = "$models_base" ]; then
-        models_base_source="$models_src_candidate"
-        break
-      fi
-    done <<<"$(models_base_file_order)"
+    # precedence to find which file holds the endpoint we just adopted. Only
+    # Claude Code spreads its endpoint across several files; every other client
+    # keeps endpoint and key in one managed config, which is self-consistent by
+    # construction (see models_endpoint_is_trusted's same-file rule).
+    if [ "$target" = "claude" ]; then
+      while IFS= read -r models_src_candidate; do
+        [ -n "$models_src_candidate" ] || continue
+        models_src_url="$(json_get "$models_src_candidate" '.env.ANTHROPIC_BASE_URL')"
+        if [ "${models_src_url%/}" = "$models_base" ]; then
+          models_base_source="$models_src_candidate"
+          break
+        fi
+      done <<<"$(models_base_file_order)"
+    else
+      models_base_source="$(models_config_file_for_target)"
+    fi
   fi
   # WEAVE_ROUTER_KEY is the user's own choice, so it pairs with any endpoint.
   if [ -n "${WEAVE_ROUTER_KEY:-}" ]; then
@@ -2612,16 +2641,20 @@ if [ "$mode" = "models" ]; then
     # Same subshell caveat as the endpoint above: recover which file the key
     # came from by re-reading them in read_installed_key's own precedence.
     models_key_source=""
-    while IFS= read -r models_src_candidate; do
-      [ -n "$models_src_candidate" ] || continue
-      if [ -n "$(read_claude_key "$models_src_candidate")" ]; then
-        models_key_source="$models_src_candidate"
-        break
-      fi
-    done <<<"$(models_key_file_order)"
+    if [ "$target" = "claude" ]; then
+      while IFS= read -r models_src_candidate; do
+        [ -n "$models_src_candidate" ] || continue
+        if [ -n "$(read_claude_key "$models_src_candidate")" ]; then
+          models_key_source="$models_src_candidate"
+          break
+        fi
+      done <<<"$(models_key_file_order)"
+    else
+      models_key_source="$(models_config_file_for_target)"
+    fi
   fi
   if [ -z "$api_key" ]; then
-    err "No router key found for Claude Code in this scope. Re-run 'npx @workweave/router --claude', or export WEAVE_ROUTER_KEY."
+    err "No router key found for $target in this scope. Re-run 'npx @workweave/router --$target', or export WEAVE_ROUTER_KEY."
     exit 1
   fi
   # Never send a key to an endpoint the checkout supplied. See
@@ -2936,63 +2969,29 @@ EOF
   rmdir "$dst_dir" 2>/dev/null || true
 }
 
-# Codex skills are the supported local extension surface for an action that
-# must edit Codex's configuration. A literal third-party slash command cannot
-# do this because Codex reserves `/…` for built-ins. The skill is invoked as
-# `$disable-routing`, asks Codex to run the existing safe toggle, and leaves
-# the managed router block in place for a later re-enable.
-install_codex_disable_routing_skill() {
-  local skill_src=""
-  local candidate dst_dir dst_file scope_args body
-  for candidate in \
-    "$script_dir/codex-skills/disable-routing/SKILL.md" \
-    "$script_dir/../codex-skills/disable-routing/SKILL.md"
-  do
-    if [ -f "$candidate" ]; then
+
+# Install every Codex-native skill the registry declares for this client:
+# prompt directives, their aliases, and local-config toggles like $router-off
+# that shell out to this installer's own verbs. weave_registry_skill_assets is
+# the union, canonical names plus aliases — Codex discovers skills by directory
+# name, so an advertised $fm needs its own installed skill rather than a
+# pointer to $force-model.
+#
+# A name with no SKILL.md is skipped: an alias may exist for the Claude command
+# surface without a Codex skill behind it (registry_test.sh pins which ones do).
+install_codex_prompt_skills() {
+  local canonical candidate skill_src dst_dir dst_file emit_src emit_dst scope_args body
+  while IFS= read -r canonical; do
+    skill_src=""
+    for candidate in \
+      "$script_dir/codex-skills/$canonical/SKILL.md" \
+      "$script_dir/../codex-skills/$canonical/SKILL.md"
+    do
+      [ -f "$candidate" ] || continue
       skill_src="$candidate"
       break
-    fi
-  done
-  [ -n "$skill_src" ] || { warn "Codex disable-routing skill template is missing; router configuration is still installed."; return 0; }
-  grep -Fq "$WEAVE_CODEX_SKILL_MARKER" "$skill_src" \
-    || { warn "Codex disable-routing skill template has no ownership marker; leaving skills unchanged."; return 0; }
-
-  dst_dir="$codex_dir/skills/disable-routing"
-  dst_file="$dst_dir/SKILL.md"
-  if [ "$scope" = "project" ] || [ -n "$install_dir" ]; then
-    refuse_if_symlink "$codex_dir/skills"
-    refuse_if_symlink "$dst_dir"
-    refuse_if_symlink "$dst_file"
-  elif [ -L "$codex_dir/skills" ] || [ -L "$dst_dir" ] || [ -L "$dst_file" ]; then
-    warn "Codex disable-routing skill path contains a symlink; leaving it untouched."
-    return 0
-  fi
-  if [ -e "$dst_file" ] && { [ ! -f "$dst_file" ] || ! grep -Fq "$WEAVE_CODEX_SKILL_MARKER" "$dst_file"; }; then
-    warn "A user-owned Codex disable-routing skill already exists at $dst_file; leaving it untouched."
-    return 0
-  fi
-  mkdir -p "$dst_dir"
-
-  scope_args=""
-  if [ -n "$install_dir" ]; then
-    scope_args=" --dir $(printf '%q' "$install_dir")"
-  elif [ "$scope" = "project" ]; then
-    scope_args=" --scope project"
-  fi
-  body="$(<"$skill_src")"
-  body="${body//\{\{SCOPE\}\}/$scope_args}"
-  printf '%s\n' "$body" >"$dst_file"
-  ok "Codex skill installed: \$disable-routing"
-}
-
-# Install prompt directives as Codex-native skills. The skill itself emits a
-# leading-space normal prompt, which is the only portable way to reach the
-# router directive parser without claiming Codex's reserved slash namespace.
-install_codex_prompt_skills() {
-  local canonical skill_src dst_dir dst_file scope_args body
-  while IFS= read -r canonical; do
-    skill_src="$script_dir/codex-skills/$canonical/SKILL.md"
-    [ -f "$skill_src" ] || continue
+    done
+    [ -n "$skill_src" ] || continue
     grep -Fq "<!-- weave-router managed $canonical skill -->" "$skill_src" || continue
     dst_dir="$codex_dir/skills/$canonical"
     dst_file="$dst_dir/SKILL.md"
@@ -3015,9 +3014,25 @@ install_codex_prompt_skills() {
     body="$(<"$skill_src")"
     body="${body//\{\{SCOPE\}\}/$scope_args}"
     printf '%s\n' "$body" >"$dst_file"
+    # Prompt skills emit their directive through a script Codex execs; toggles
+    # shell out to the installer's own verbs and ship none.
+    emit_src="${skill_src%/SKILL.md}/scripts/emit.sh"
+    if [ -f "$emit_src" ]; then
+      mkdir -p "$dst_dir/scripts"
+      emit_dst="$dst_dir/scripts/emit.sh"
+      if [ "$scope" = "project" ] || [ -n "$install_dir" ]; then
+        refuse_if_symlink "$dst_dir/scripts"
+        refuse_if_symlink "$emit_dst"
+      elif [ -L "$dst_dir/scripts" ] || [ -L "$emit_dst" ]; then
+        warn "Codex skill script path contains a symlink; leaving $canonical emit.sh untouched."
+      else
+        cp "$emit_src" "$emit_dst"
+        chmod +x "$emit_dst"
+      fi
+    fi
     ok "Codex skill installed: \$$canonical"
   done <<EOF
-$(weave_registry_skill_names codex)
+$(weave_registry_skill_assets codex)
 EOF
 }
 
@@ -3324,7 +3339,6 @@ if [ "$target" = "codex" ]; then
   write_codex_config "$codex_config_file" "$base_url" "$api_key" "$user_email" "$user_name"
   ok "Codex config written to $codex_config_file"
   remove_obsolete_codex_prompt_wrappers "$codex_dir/prompts"
-  install_codex_disable_routing_skill
   install_codex_prompt_skills
   info "Codex router directives: begin the message with one space, e.g. ' /force-model gpt-5.6-terra'."
 

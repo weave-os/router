@@ -116,6 +116,58 @@ func TestSessionAffinity_OpenAIGatewayUsesPromptCacheKeyBody(t *testing.T) {
 	assert.Equal(t, affinityKey, v)
 	assert.Empty(t, out.Headers.Get("x-session-affinity"))
 	assert.Empty(t, out.Headers.Get("x-session-id"))
+	// grok via a gateway also needs the xAI Chat Completions affinity header:
+	// xAI honors prompt_cache_key only on the Responses API.
+	assert.Equal(t, affinityKey, out.Headers.Get("x-grok-conv-id"))
+}
+
+func TestSessionAffinity_OpenAIGatewayNonGrokOmitsGrokConvID(t *testing.T) {
+	env, err := translate.ParseAnthropic(anthropicSrc())
+	require.NoError(t, err)
+
+	out, err := env.PrepareOpenAI(nil, translate.EmitOptions{
+		TargetModel:     "gpt-5.5",
+		TargetProvider:  providers.ProviderOpenAIGateway,
+		SessionAffinity: affinityKey,
+	})
+	require.NoError(t, err)
+
+	assert.Empty(t, out.Headers.Get("x-grok-conv-id"))
+	v, ok := promptCacheKey(t, out.Body)
+	require.True(t, ok)
+	assert.Equal(t, affinityKey, v)
+}
+
+func TestSessionAffinity_OpenAIGatewayGrokKeepsConvIDWhenKeyStripped(t *testing.T) {
+	env, err := translate.ParseAnthropic(anthropicSrc())
+	require.NoError(t, err)
+
+	out, err := env.PrepareOpenAI(nil, translate.EmitOptions{
+		TargetModel:         "grok-4.6",
+		TargetProvider:      providers.ProviderOpenAIGateway,
+		SessionAffinity:     affinityKey,
+		StripPromptCacheKey: true,
+	})
+	require.NoError(t, err)
+
+	// A gateway rejecting the prompt_cache_key body field says nothing about
+	// headers; the xAI affinity header must survive the strip-and-retry path.
+	assert.Equal(t, affinityKey, out.Headers.Get("x-grok-conv-id"))
+	_, hasBody := promptCacheKey(t, out.Body)
+	assert.False(t, hasBody)
+}
+
+func TestSessionAffinity_DirectOpenAIOmitsGrokConvID(t *testing.T) {
+	env, err := translate.ParseAnthropic(anthropicSrc())
+	require.NoError(t, err)
+
+	out, err := env.PrepareOpenAI(nil, translate.EmitOptions{
+		TargetModel:     "grok-4.6",
+		TargetProvider:  providers.ProviderOpenAI,
+		SessionAffinity: affinityKey,
+	})
+	require.NoError(t, err)
+
 	assert.Empty(t, out.Headers.Get("x-grok-conv-id"))
 }
 

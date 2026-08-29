@@ -1,11 +1,11 @@
 ---
-name: unforce-model
-description: "Clear the active Weave Router model pin for this Codex session."
+name: ufm
+description: "Alias for unforce-model — clear the active Weave Router model pin."
 ---
 
-<!-- weave-router managed unforce-model skill -->
+<!-- weave-router managed ufm skill -->
 
-When the user invokes `$unforce-model` (or `$ufm`), run this skill's `scripts/emit.sh` using the
+When the user invokes `$ufm`, run this skill's `scripts/emit.sh` using the
 absolute path shown in this skill's `<path>` (its directory + `/scripts/emit.sh`).
 Do not send a user message and do not type a Codex slash command.
 

@@ -236,7 +236,9 @@ func followsAssistantToolUse(messages []gjson.Result, userIdx int) bool {
 }
 
 // parseForceModelCommand scans text for a /force-model (alias /fm) or
-// /unforce-model (alias /ufm) directive on the first non-empty line.
+// /unforce-model (alias /ufm) directive on the first non-empty line. The
+// dollar-prefixed forms are accepted for clients whose native skill namespace
+// is `$` (notably Codex) when they forward the token verbatim.
 // Restricted to the leading line so pasted content (snippets, transcripts)
 // starting with "/" can't silently rewrite session routing. The short
 // aliases are a fallback for clients without local slash-command expansion
@@ -263,7 +265,7 @@ func parseForceModelCommand(text string) (res ForceModelResult, found bool, stri
 		if trimmed == "" {
 			continue
 		}
-		if after, ok := cutAnyPrefix(trimmed, "/force-model ", "/fm "); ok {
+		if after, ok := cutAnyPrefix(trimmed, "/force-model ", "/fm ", "$force-model ", "$fm "); ok {
 			// Fields+Join collapses runs of whitespace so "/fm  qwen   3.8"
 			// and "/fm qwen 3.8" are the same string to the resolver.
 			if name := strings.Join(strings.Fields(after), " "); name != "" {
@@ -271,7 +273,7 @@ func parseForceModelCommand(text string) (res ForceModelResult, found bool, stri
 				found = true
 				cmdIdx = i
 			}
-		} else if trimmed == "/unforce-model" || trimmed == "/ufm" {
+		} else if trimmed == "/unforce-model" || trimmed == "/ufm" || trimmed == "$unforce-model" || trimmed == "$ufm" {
 			res = ForceModelResult{Clear: true}
 			found = true
 			cmdIdx = i
@@ -279,6 +281,30 @@ func parseForceModelCommand(text string) (res ForceModelResult, found bool, stri
 		break
 	}
 	if !found {
+		// Codex's exec tool joins a "Script completed … Output:" preamble with
+		// the skill directive; check only the first non-empty output line so
+		// command examples in skill docs don't trigger parsing.
+		if strings.HasPrefix(strings.TrimSpace(text), "Script completed") {
+			lines := strings.Split(text, "\n")
+			for i, line := range lines {
+				if strings.TrimSpace(line) != "Output:" {
+					continue
+				}
+				for i++; i < len(lines); i++ {
+					if strings.TrimSpace(lines[i]) == "" {
+						continue
+					}
+					candidate, ok, _ := parseForceModelCommand(lines[i])
+					if !ok {
+						break
+					}
+					remaining := append([]string{}, lines[:i]...)
+					remaining = append(remaining, lines[i+1:]...)
+					return candidate, true, strings.TrimSpace(strings.Join(remaining, "\n"))
+				}
+				break
+			}
+		}
 		return ForceModelResult{}, false, text
 	}
 	remaining := make([]string, 0, len(lines))

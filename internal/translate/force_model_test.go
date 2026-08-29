@@ -168,7 +168,7 @@ func TestParseForceModelCommand_ForceModel(t *testing.T) {
 }
 
 func TestParseForceModelCommand_UnforceModel(t *testing.T) {
-	for _, input := range []string{"/unforce-model", "/ufm"} {
+	for _, input := range []string{"/unforce-model", "/ufm", "$unforce-model", "$ufm"} {
 		t.Run(input, func(t *testing.T) {
 			env, err := translate.ParseAnthropic(buildAnthropicBody(t, input))
 			require.NoError(t, err)
@@ -179,6 +179,52 @@ func TestParseForceModelCommand_UnforceModel(t *testing.T) {
 			assert.Empty(t, res.Model)
 		})
 	}
+}
+
+func TestExtractForceModelCommand_DollarAliases(t *testing.T) {
+	for _, input := range []string{"$force-model gpt-5", "$fm gpt-5"} {
+		t.Run(input, func(t *testing.T) {
+			env, err := translate.ParseAnthropic(buildAnthropicBody(t, input))
+			require.NoError(t, err)
+			res, found := env.ExtractForceModelCommand()
+			require.True(t, found)
+			assert.Equal(t, "gpt-5", res.Model)
+		})
+	}
+}
+
+func TestExtractForceModelCommand_CodexExecPreamble(t *testing.T) {
+	body := mustMarshalJSON(t, map[string]any{
+		"model": "gpt-5.6-sol",
+		"messages": []any{
+			map[string]any{"role": "assistant", "tool_calls": []any{map[string]any{
+				"id": "call_skill", "type": "function", "function": map[string]any{"name": "exec", "arguments": "{}"},
+			}}},
+			map[string]any{"role": "tool", "tool_call_id": "call_skill", "content": "Script completed\nWall time: 0.0 seconds\nOutput:\n /force-model gpt-5"},
+		},
+	})
+	env, err := translate.ParseOpenAI(body)
+	require.NoError(t, err)
+	res, found := env.ExtractForceModelCommand()
+	require.True(t, found)
+	assert.True(t, res.FromToolResult)
+	assert.Equal(t, "gpt-5", res.Model)
+}
+
+func TestExtractForceModelCommand_CodexExecDocumentationIsNotCommand(t *testing.T) {
+	body := mustMarshalJSON(t, map[string]any{
+		"model": "gpt-5.6-sol",
+		"messages": []any{
+			map[string]any{"role": "assistant", "tool_calls": []any{map[string]any{
+				"id": "call_skill", "type": "function", "function": map[string]any{"name": "exec", "arguments": "{}"},
+			}}},
+			map[string]any{"role": "tool", "tool_call_id": "call_skill", "content": "Script completed\nOutput:\n---\nname: force-model\n```text\n /force-model gpt-5\n```"},
+		},
+	})
+	env, err := translate.ParseOpenAI(body)
+	require.NoError(t, err)
+	_, found := env.ExtractForceModelCommand()
+	assert.False(t, found, "a command example in exec output must not pin the session")
 }
 
 func TestExtractForceModelCommand_OpenAIFormat(t *testing.T) {

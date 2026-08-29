@@ -53,7 +53,9 @@ npx @workweave/router status --codex    # is Codex on the router or direct?
 Claude Code reads its router setting at launch, so quit and reopen it after an
 on/off. Codex and opencode pick it up on their next run. Inside Claude Code the
 slash commands `/router-off`, `/router-on`, and `/router-status` do the same.
-Codex installs a `$disable-routing` skill that switches its next session back
+Codex installs `$router-status`, `$router-off`, `$router-on`, and
+`$router-models` skills that call the same CLI verbs, plus a
+`$disable-routing` skill that switches its next session back
 to the normal provider; Codex does not support third-party `/disable-routing`
 slash commands. The shell equivalent is `npx @workweave/router disable-routing`.
 Cursor has no config file we own — toggle its base URL override in **Settings →
@@ -63,6 +65,7 @@ Pick which models the router is allowed to route to:
 
 ```bash
 npx @workweave/router models --claude                  # list every model, with its on/off state
+npx @workweave/router models --codex                   # same, for a Codex install
 npx @workweave/router models disable gpt-5.6 --claude  # take one out of rotation
 npx @workweave/router models enable gpt-5.6 --claude   # put it back
 ```
@@ -107,9 +110,14 @@ Four install targets:
   The block lives between begin/end markers
   so re-running the installer rewrites it cleanly and `--uninstall --codex`
   removes it without touching the rest of your config. Codex does not load
-  third-party slash-command files; to send a router directive, type it with
-  one leading space (for example, ` /force-model gpt-5.6-terra`). Its
-  `$disable-routing` skill returns the next Codex session to the default
+  third-party slash-command files; the installer provides native skills
+  `$force-model` (`$fm`), `$unforce-model` (`$ufm`), and `$router-feedback`
+  (`$rf`), each of which execs a local `scripts/emit.sh` that prints the same
+  leading-space directive Claude Code uses (for example,
+  ` /force-model gpt-5.6-terra`) — you can also type that form directly. It
+  also installs `$router-status`, `$router-off`, `$router-on`, and
+  `$router-models`, which call this installer's own verbs, plus a
+  `$disable-routing` skill that returns the next Codex session to the default
   provider without logging out or deleting the router configuration. The
   managed lifecycle hooks also keep the latest routed model in the terminal
   title and emit a compact status message when the router reports a new route.

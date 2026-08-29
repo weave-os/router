@@ -53,12 +53,14 @@ while IFS='|' read -r canonical aliases capability claude codex opencode pi curs
 done < <(weave_registry_rows)
 check "every row declares a known capability and client support" "" "$bad_rows"
 
-# Aliases must be unique across the whole registry, otherwise two directives
-# would fight over one filename.
+# Names repeated across clients are the same directive installed for each of
+# them (Codex ships most of Claude Code's set as skills). Pinning the exact
+# overlap catches a genuine collision — two *different* directives claiming one
+# filename — which would otherwise hide in this list.
 dupes="$(weave_registry_names claude; weave_registry_names codex; weave_registry_names opencode)"
 dupes="$(printf '%s\n' "$dupes" | sort | uniq -d | tr '\n' ' ' | sed 's/ $//')"
-check "no name collides across clients' installed sets" \
-  "fm force-model rf router-feedback ufm unforce-model" "$dupes"
+check "names shared across clients are the expected shared directives" \
+  "fm force-model models rf router-feedback router-models router-off router-on router-status ufm unforce-model" "$dupes"
 
 check "an alias resolves to its canonical directive" "force-model" "$(weave_registry_canonical_for fm)"
 check "a canonical name resolves to itself" "router-feedback" "$(weave_registry_canonical_for router-feedback)"
@@ -206,20 +208,55 @@ cx_home="$work/codex-user"; mkdir -p "$cx_home"
 run_install "$cx_home" --codex --scope user
 codex_skills="$(cd "$cx_home/.codex/skills" && ls -d */ 2>/dev/null | tr -d '/' | sort | tr '\n' ' ' | sed 's/ $//')"
 check "codex user install writes a skill per supported directive" \
-  "disable-routing force-model router-feedback unforce-model" "$codex_skills"
+  "disable-routing fm force-model rf router-feedback router-models router-off router-on router-status ufm unforce-model" "$codex_skills"
 check "codex install writes no prompt wrappers" "" \
   "$(ls "$cx_home/.codex/prompts" 2>/dev/null | tr '\n' ' ' | sed 's/ $//')"
 
-# The Codex skills must instruct the leading-space normal prompt: Codex
+# A Codex skill cannot author a user message, so each one execs emit.sh, whose
+# output carries the leading-space directive the router intercepts. Codex
 # reserves `/…` for its own built-ins, so a bare slash never reaches the router.
-for name in force-model unforce-model router-feedback; do
-  skill="$cx_home/.codex/skills/$name/SKILL.md"
-  if grep -qF " /$name" "$skill"; then
-    ok "codex \$$name expands to a leading-space directive"
+for name in force-model unforce-model router-feedback fm ufm rf; do
+  emit="$cx_home/.codex/skills/$name/scripts/emit.sh"
+  case "$name" in
+    fm) command=force-model ;; ufm) command=unforce-model ;; rf) command=router-feedback ;; *) command="$name" ;;
+  esac
+  if [ -x "$emit" ] && [ "$(bash "$emit" probe-arg)" = " /$command probe-arg" ] 2>/dev/null; then
+    ok "codex \$$name emits a leading-space directive"
+  elif [ -x "$emit" ] && [ "$(bash "$emit")" = " /$command" ] 2>/dev/null; then
+    ok "codex \$$name emits a leading-space directive"
   else
-    no "codex \$$name expands to a leading-space directive" "a literal leading space" "$(grep -m1 "/$name" "$skill")"
+    no "codex \$$name emits a leading-space directive" " /$command" "$( [ -x "$emit" ] && bash "$emit" probe-arg 2>&1 || echo 'no executable emit.sh')"
   fi
 done
+
+# Local-config toggles reach the installer's own verbs. A skill that names the
+# wrong verb (or the wrong client) silently edits the wrong install, so pin the
+# command each one shells out to.
+for name in router-off:off router-on:on router-status:status router-models:models; do
+  skill_name="${name%%:*}"; verb="${name##*:}"
+  skill="$cx_home/.codex/skills/$skill_name/SKILL.md"
+  if grep -Fq "weave-router $verb --codex" "$skill"; then
+    ok "codex \$$skill_name shells out to '$verb --codex'"
+  else
+    no "codex \$$skill_name shells out to '$verb --codex'" \
+      "weave-router $verb --codex" "$(grep -m1 'weave-router' "$skill" || echo 'no weave-router call')"
+  fi
+done
+
+# A skill may only advertise a $name the installer actually creates. Codex
+# discovers skills by directory name, so telling the user to invoke an alias
+# that was never installed advertises a command that cannot run.
+bad_alias=""
+for dir in "$cx_home"/.codex/skills/*/; do
+  skill="$dir/SKILL.md"
+  [ -f "$skill" ] || continue
+  while IFS= read -r advertised; do
+    [ -n "$advertised" ] || continue
+    [ -d "$cx_home/.codex/skills/$advertised" ] \
+      || bad_alias="$bad_alias $(basename "$dir"):\$$advertised"
+  done < <(grep -oE '\$[a-z][a-z-]+' "$skill" | tr -d '$' | sort -u)
+done
+check "every \$name a Codex skill advertises is installed" "" "$bad_alias"
 
 # jq is a hard requirement for the Claude/opencode/pi JSON merges, but Codex
 # writes TOML and plain files — installing skills must not start needing it.

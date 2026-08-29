@@ -171,10 +171,11 @@ func TestMaybeCompact_AuthoritativePolicyNeverCallsSummarizer(t *testing.T) {
 	require.NoError(t, err)
 	ctx := router.WithStrategy(context.Background(), strategy)
 
-	result, _ := s.maybeCompact(ctx, env, turntype.MainLoop, 100, 1_000, http.Header{})
+	result, _ := s.maybeCompact(ctx, env, turntype.MainLoop, 100, 700, http.Header{})
 
 	assert.Equal(t, 0, fake.calls)
 	assert.False(t, result.Summarized)
+	assert.Positive(t, result.TrimmedToRecent, "authoritative routing must still rescue-trim when cleanup does not fit")
 }
 
 func TestWithCompaction_ZeroPctDisables(t *testing.T) {

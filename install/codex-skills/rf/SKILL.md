@@ -1,11 +1,11 @@
 ---
-name: router-feedback
-description: "Submit feedback about a Weave Router decision or model performance."
+name: rf
+description: "Alias for router-feedback — submit feedback about a Weave Router decision or model performance."
 ---
 
-<!-- weave-router managed router-feedback skill -->
+<!-- weave-router managed rf skill -->
 
-When the user invokes `$router-feedback <feedback>` (or `$rf`), run this skill's `scripts/emit.sh` using the
+When the user invokes `$rf <feedback>`, run this skill's `scripts/emit.sh` using the
 absolute path shown in this skill's `<path>` (its directory + `/scripts/emit.sh`).
 Pass the feedback text as arguments, quoted as a single argument list.
 Do not send a user message and do not type a Codex slash command.
