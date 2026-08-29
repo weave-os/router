@@ -37,9 +37,9 @@ var expectedSessionAffinityMechanism = map[string]sessionAffinityMechanism{
 	providers.ProviderOpenAI:     mechanismPromptCacheKeyBody,
 	providers.ProviderXAI:        mechanismGrokConvIDHeader,
 	providers.ProviderBedrock:    mechanismNone,
-	// A customer endpoint publishes no affinity contract and may reject an
-	// unknown header outright.
-	providers.ProviderOpenAIGateway: mechanismNone,
+	// A customer endpoint may reject unknown headers, so the hint rides the spec
+	// prompt_cache_key body field — a gateway that forwards the body forwards the hint.
+	providers.ProviderOpenAIGateway: mechanismPromptCacheKeyBody,
 }
 
 // defaultMechanismProviders are OpenAI-compat providers intentionally left
@@ -49,6 +49,7 @@ var defaultMechanismProviders = map[string]struct{}{
 	providers.ProviderFireworks: {},
 	providers.ProviderMakora:    {},
 	providers.ProviderTogether:  {},
+	providers.ProviderWafer:     {},
 }
 
 // TestSessionAffinityCoversEveryOpenAICompatProvider guards against a new

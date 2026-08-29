@@ -27,14 +27,19 @@ var expectedRosterPrefix = map[string]string{
 // defaultRosterPrefixProviders are providers intentionally left off
 // expectedRosterPrefix because rosterIDFor's bare-model-ID fallback (no
 // prefix) is correct for them — either the model ID is already slash-form
-// (OpenAI-compat upstreams dispatched via catalog models with slash IDs) or
-// the RL policy roster doesn't need to distinguish them.
+// (OpenAI-compat upstreams dispatched via catalog models with slash IDs),
+// like wafer_anthropic's sibling wafer, or the RL policy roster doesn't need
+// to distinguish them.
 var defaultRosterPrefixProviders = map[string]struct{}{
 	providers.ProviderOpenRouter: {},
 	providers.ProviderFireworks:  {},
 	providers.ProviderBedrock:    {},
 	providers.ProviderMakora:     {},
 	providers.ProviderTogether:   {},
+	// Anthropic-spec surfaces serving non-Claude models (Wafer's Messages API)
+	// stay bare — the roster keys vendor-prefixed Anthropic slots by Claude ID.
+	providers.ProviderWaferAnthropic: {},
+	providers.ProviderWafer:          {},
 	// An OpenAI-spec gateway serves several vendors' models, so no single
 	// vendor prefix is right; the bare ID lets the sidecar match what it can.
 	providers.ProviderOpenAIGateway: {},

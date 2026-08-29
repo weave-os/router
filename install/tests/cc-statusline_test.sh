@@ -300,7 +300,10 @@ make_command_install() { # make_command_install <root> <cache_home> [scope_args]
   mkdir -p "$baseline"
   for name in "$script_dir/../commands"/*.md; do
     body="$(cat "$name")"
-    printf '%s\n' "${body//\{\{SCOPE\}\}/$scope_args}" >"$root/.claude/commands/$(basename "$name")"
+    # Mirror install_slash_commands: rendered body plus the ownership marker.
+    printf '%s\n<!-- weave-router managed command: %s -->' \
+      "${body//\{\{SCOPE\}\}/$scope_args}" "$(basename "$name" .md)" \
+      >"$root/.claude/commands/$(basename "$name")"
     cp "$name" "$baseline/$(basename "$name")"
   done
 }

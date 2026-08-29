@@ -44,15 +44,17 @@ func TestValidateDispatchableRejectsUnknown(t *testing.T) {
 // mis-assignment (e.g. flipping an OpenAI-compat provider to Anthropic) fails.
 func TestFamilyForKnownProviders(t *testing.T) {
 	cases := map[string]providers.TranslationFamily{
-		providers.ProviderAnthropic:  providers.FamilyAnthropic,
-		providers.ProviderOpenAI:     providers.FamilyOpenAICompat,
-		providers.ProviderGoogle:     providers.FamilyGemini,
-		providers.ProviderOpenRouter: providers.FamilyOpenAICompat,
-		providers.ProviderFireworks:  providers.FamilyOpenAICompat,
-		providers.ProviderBedrock:    providers.FamilyOpenAICompat,
-		providers.ProviderMakora:     providers.FamilyOpenAICompat,
-		providers.ProviderTogether:   providers.FamilyOpenAICompat,
-		providers.ProviderXAI:        providers.FamilyOpenAICompat,
+		providers.ProviderAnthropic:      providers.FamilyAnthropic,
+		providers.ProviderOpenAI:         providers.FamilyOpenAICompat,
+		providers.ProviderGoogle:         providers.FamilyGemini,
+		providers.ProviderOpenRouter:     providers.FamilyOpenAICompat,
+		providers.ProviderFireworks:      providers.FamilyOpenAICompat,
+		providers.ProviderBedrock:        providers.FamilyOpenAICompat,
+		providers.ProviderMakora:         providers.FamilyOpenAICompat,
+		providers.ProviderTogether:       providers.FamilyOpenAICompat,
+		providers.ProviderXAI:            providers.FamilyOpenAICompat,
+		providers.ProviderWafer:          providers.FamilyOpenAICompat,
+		providers.ProviderWaferAnthropic: providers.FamilyAnthropic,
 	}
 	for p, want := range cases {
 		assert.Equalf(t, want, providers.FamilyFor(p), "family for %q", p)

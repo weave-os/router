@@ -46,8 +46,8 @@ func TestAssistantToolCallSignatures_Anthropic(t *testing.T) {
 func TestAssistantToolCallSignatures_SkipsEmptyNameEntries(t *testing.T) {
 	// Some upstreams emit tool_use blocks without a `name` field (mid-stream
 	// snapshots, cross-format translation artifacts). Counting them collapses
-	// every nameless entry to the same map key and false-positive trips the
-	// loop detector after 5 distinct real tool calls. They must be ignored.
+	// every nameless entry to the same map key and false-positive loop signals.
+	// They must be ignored.
 	body := mustMarshalJSON(t, map[string]any{
 		"model": "claude-sonnet-4-6",
 		"messages": []any{
@@ -74,8 +74,8 @@ func TestAssistantToolCallSignatures_SkipsEmptyInputEntries(t *testing.T) {
 	// openaicompat upstream → Anthropic inbound) emits `input:{}` to satisfy
 	// the schema. Claude Code echoes those back in the assistant history.
 	// Without filtering, 5 of them all hash to the same empty-canonical key
-	// and false-positive trip the loop detector even when the surrounding
-	// real Read calls each have distinct file paths. This is the bug
+	// and false-positive loop signals even when the surrounding real Read calls
+	// each have distinct file paths. This is the bug
 	// observed against xiaomi/mimo-v2.5 on deepinfra in dev.
 	body := mustMarshalJSON(t, map[string]any{
 		"model": "claude-sonnet-4-6",
@@ -200,9 +200,9 @@ func TestAssistantToolCallSignatures_EmptyAndNonAssistant(t *testing.T) {
 }
 
 func TestAssistantToolCallSignatures_IncludesRouterNudgeEntries(t *testing.T) {
-	// Router-synthesized recovery nudges are now included in loop detection.
-	// When a model repeatedly calls the same nudge (same name + args), it will
-	// trip the loop detector after 5+ consecutive calls, breaking the stuck loop.
+	// Router-synthesized recovery nudges are included in loop signals. Repeated
+	// nudges retain the same signature for observability and cross-envelope
+	// progress tracking.
 	body := mustMarshalJSON(t, map[string]any{
 		"model": "claude-sonnet-4-6",
 		"messages": []any{
@@ -241,20 +241,14 @@ func TestAssistantToolCallSignatures_IncludesRouterNudgeEntries(t *testing.T) {
 	assert.Equal(t, sigs[0].InputHash, sigs[1].InputHash, "identical nudge args produce identical hash")
 }
 
-// TestAssistantToolCallArgsPreview_AlignsWithSignatures_Anthropic reproduces
-// proxy.detectToolCallLoop's exact usage: window the trailing N entries of
-// AssistantToolCallSignatures(), find the offending index within that window,
-// then fetch AssistantToolCallArgsPreview(start, ...) — start expressed as an
-// index into the SAME sequence AssistantToolCallSignatures walked — and check
-// the preview entries line up name-for-name with sigs[start:]. The body
-// interleaves empty-input tool_use blocks (filtered out of the signature
-// sequence) among the real ones. Before the fix, ArgsPreview only skipped
-// nameless blocks (not empty-input ones), so it walked a longer, differently
-// filtered sequence: an offset valid against sigs pointed at the wrong
-// entries in the preview.
+// TestAssistantToolCallArgsPreview_AlignsWithSignatures_Anthropic ensures a
+// diagnostic preview uses the same filtered tool-call sequence as signatures.
+// The body interleaves empty-input tool_use blocks (filtered out of the
+// signature sequence) among the real ones. Before the fix, ArgsPreview only
+// skipped nameless blocks (not empty-input ones), so it walked a longer,
+// differently filtered sequence and an offset pointed at the wrong entries.
 func TestAssistantToolCallArgsPreview_AlignsWithSignatures_Anthropic(t *testing.T) {
 	const windowSize = 10
-	const maxRepeats = 5
 
 	var content []any
 	id := 0
@@ -288,28 +282,14 @@ func TestAssistantToolCallArgsPreview_AlignsWithSignatures_Anthropic(t *testing.
 	sigs := env.AssistantToolCallSignatures()
 	require.Len(t, sigs, 8, "the 8 empty-input Read blocks must be filtered out of the signature sequence")
 
-	// Mirror proxy.detectToolCallLoop's windowing exactly.
+	// Mirror the trailing diagnostic window used by the proxy.
 	start := 0
 	if len(sigs) > windowSize {
 		start = len(sigs) - windowSize
 	}
-	require.Equal(t, 0, start, "8 sigs fits within the 10-wide window, so detectToolCallLoop windows from the start")
-	window := sigs[start:]
-	counts := make(map[string]int, len(window))
-	offendingIdx := -1
-	for i, s := range window {
-		key := s.Name + "\x00" + s.InputHash
-		counts[key]++
-		if counts[key] >= maxRepeats {
-			offendingIdx = i
-			break
-		}
-	}
-	require.NotEqual(t, -1, offendingIdx, "the 5 identical Loop calls must trip the repeat threshold")
-	require.Equal(t, "Loop", window[offendingIdx].Name)
+	require.Equal(t, 0, start, "8 sigs fits within the 10-wide window, so the diagnostic window starts at the beginning")
 
-	// detectToolCallLoop passes `start` (not offendingIdx) as the offset — it
-	// wants the whole window dumped, not just the tail from the trip point.
+	// The preview covers the whole window, not just a particular tool call.
 	preview := env.AssistantToolCallArgsPreview(start, 200)
 	require.Len(t, preview, len(sigs)-start,
 		"preview window must contain exactly as many entries as the aligned signature window")
@@ -317,10 +297,10 @@ func TestAssistantToolCallArgsPreview_AlignsWithSignatures_Anthropic(t *testing.
 		require.True(t, strings.HasPrefix(preview[i], s.Name+":"),
 			"preview[%d] = %q must describe the same tool call as sigs[%d] = %q (index alignment)", i, preview[i], start+i, s.Name)
 	}
-	// Pin down the exact entries the loop-detector log line cares about: 3
-	// distinct Setup previews followed by 5 identical Loop previews, in
-	// order — proving the empty-input Read blocks did not shift ArgsPreview's
-	// output relative to Signatures'.
+	// Pin down the exact entries the diagnostic log cares about: 3 distinct
+	// Setup previews followed by 5 identical Loop previews, in order — proving
+	// the empty-input Read blocks did not shift ArgsPreview relative to
+	// Signatures.
 	require.Equal(t, []string{
 		`Setup:{"step":0}`,
 		`Setup:{"step":1}`,
@@ -338,8 +318,8 @@ func TestAssistantToolCallArgsPreview_AlignsWithSignatures_Anthropic(t *testing.
 var _ = json.Marshal
 
 func TestAssistantToolCallSignatures_UserTextResetsLoop(t *testing.T) {
-	// If the user explicitly sends a text message, it breaks the loop detector
-	// by resetting the tool call history.
+	// If the user explicitly sends a text message, it breaks loop-signal
+	// tracking by resetting the tool call history.
 	body := mustMarshalJSON(t, map[string]any{
 		"model": "claude-sonnet-4-6",
 		"messages": []any{
@@ -368,9 +348,9 @@ func TestAssistantToolCallSignatures_UserTextResetsLoop(t *testing.T) {
 func TestAssistantToolCallSignatures_InjectedTextDoesNotResetLoop(t *testing.T) {
 	// A normal tool round carries Claude Code's injected <system-reminder>
 	// text block alongside the tool_result. That is NOT a user intervention and
-	// must NOT reset the window — otherwise the loop detector could never reach
-	// its repeat threshold. Build a 6-deep identical-call loop with an injected
-	// reminder on every tool_result turn and assert all 6 sigs survive.
+	// must NOT reset the window — otherwise loop-signal tracking would lose
+	// history. Build a 6-deep identical-call sequence with an injected reminder
+	// on every tool_result turn and assert all 6 sigs survive.
 	msgs := []any{
 		map[string]any{"role": "user", "content": "do stuff"},
 	}

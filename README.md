@@ -177,10 +177,17 @@ sidecar is optional. HMM and forced selections in the native Codex family
 (`gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-5.6-luna`) use that OAuth credential;
 every other selected model uses its WorkWeave deployment or BYOK credential,
 matching the Claude Code plugin's model-to-credential dispatch.
-Codex does not load third-party slash-command files; send router directives
-with one leading space (for example, ` /force-model gpt-5.6-terra`). Re-install
+Codex does not load third-party slash-command files, so the installer ships the
+router directives as native Codex skills: `$force-model <model-id>` (alias
+`$fm <model-id>`), `$unforce-model` (alias `$ufm`), and
+`$router-feedback <text>` (alias `$rf <text>`). Each skill runs a local
+`scripts/emit.sh` that prints the leading-space directive (for example,
+` /force-model gpt-5.6-terra`); the router intercepts that exec output.
+You can type that form directly instead. Re-install
 and `--uninstall --codex` rewrite/remove only the managed block, leaving the
-rest of your Codex config untouched. Invoke `$disable-routing` to switch the
+rest of your Codex config untouched. Codex also gets `$router-status`,
+`$router-off`, `$router-on`, and `$router-models` as skills that call this
+installer's own verbs. Invoke `$disable-routing` (or `$router-off`) to switch the
 next Codex session back to its normal provider, or run
 `npx @workweave/router disable-routing` in a shell; a literal
 `/disable-routing` is not a third-party extension point in Codex.
@@ -254,15 +261,6 @@ Keep liveness probes on `/health`. Point startup or readiness probes at
 - 🏗️ [**Architecture**](AGENTS.md): package layout, import contracts,
   recipes for adding endpoints / providers / strategies.
 
-## Star history
-
-<a href="https://star-history.dera.page/#workweave/router&Date">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://star-history.dera.page/svg?repos=workweave/router&type=Date&theme=dark" />
-    <source media="(prefers-color-scheme: light)" srcset="https://star-history.dera.page/svg?repos=workweave/router&type=Date" />
-    <img alt="Star History Chart" src="https://star-history.dera.page/svg?repos=workweave/router&type=Date" />
-  </picture>
-</a>
 
 ---
 

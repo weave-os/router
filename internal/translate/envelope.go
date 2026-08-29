@@ -43,6 +43,10 @@ type EmitOptions struct {
 	// stickiness hint so a session lands on the same warm replica instead of
 	// a cold one. Knob differs per upstream — see applySessionAffinity.
 	SessionAffinity string
+	// StripPromptCacheKey drops prompt_cache_key instead of injecting the
+	// affinity hint. Set when a gateway's schema trails the spec and rejected
+	// the field as unknown, so the retry and later turns go out without it.
+	StripPromptCacheKey bool
 	// ModelSwitched reports the serving model changed since the last turn.
 	// Thinking-block signatures are only valid for the model that produced
 	// them, so carried-over blocks make Anthropic 400 with "Invalid signature
@@ -61,11 +65,19 @@ type EmitOptions struct {
 	// instead of 200K, avoiding a 400 "prompt is too long" on large requests.
 	// No-op below 200K input. deriveAnthropicHeaders gates on CapExtendedContext.
 	EnableExtendedContext bool
+	// EnableServerSideFallback opts an Anthropic-targeted request into
+	// Anthropic re-serving a safety-refused turn on a fallback model. Ignored
+	// for non-first-party Anthropic targets; see applyServerSideFallback.
+	EnableServerSideFallback bool
 	// KeepCrossVendorOrchestrationTools preserves CC orchestration tools
 	// (Task*, Workflow, Skill, plan-mode) on cross-vendor emit; other CC-only
 	// tools are always stripped. Set from ROUTER_CC_ORCH_TOOLS_CROSSVENDOR;
 	// zero value false preserves historical strip-all behavior.
 	KeepCrossVendorOrchestrationTools bool
+	// StripOutputConfigFormat drops output_config.format. Anthropic-spec
+	// gateways are documented to serve the knob (Cortex does), so the proxy sets
+	// this only on a one-shot retry after one 400s on it.
+	StripOutputConfigFormat bool
 	// DowngradeGeminiValidatedToAuto emits functionCallingConfig.mode=AUTO
 	// instead of VALIDATED for Gemini 3.x. VALIDATED compiles tool schemas into
 	// a decode-time grammar and 400s INVALID_ARGUMENT if one won't compile; the
@@ -278,20 +290,49 @@ func (e *RequestEnvelope) HasTools() bool {
 	return r.Int() > 0
 }
 
-// ToolValidator compiles inbound Anthropic tool definitions into a
+// ToolValidator compiles the inbound request's tool definitions into a
 // toolcheck.Validator for validating/repairing model-emitted tool calls.
-// Returns nil for non-Anthropic formats or no tools (translators treat nil as
-// syntax-check-only). Compilation is cached via toolcheck's LRU since agent
-// sessions resend a byte-identical tools block every turn.
+// Returns nil when no compilable tool schemas exist for the format or the
+// request has no tools (translators treat nil as syntax-check-only); cached
+// via toolcheck's LRU since sessions resend a byte-identical block every turn.
 func (e *RequestEnvelope) ToolValidator() *toolcheck.Validator {
-	if e.format != FormatAnthropic {
-		return nil
-	}
 	tools := gjson.GetBytes(e.body, "tools")
 	if !tools.IsArray() {
 		return nil
 	}
-	return toolcheck.CompileCached([]byte(tools.Raw))
+	switch e.format {
+	case FormatAnthropic:
+		return toolcheck.CompileCached([]byte(tools.Raw))
+	case FormatOpenAI:
+		return toolcheck.CompileCached(anthropicToolShapeFromOpenAI(tools))
+	default:
+		return nil
+	}
+}
+
+// anthropicToolShapeFromOpenAI projects chat function tools into the
+// {name, input_schema} shape toolcheck compiles, so a chat-ingress turn gets
+// the same tool-call validation an Anthropic one does.
+func anthropicToolShapeFromOpenAI(tools gjson.Result) []byte {
+	jw := newJSONWriter()
+	jw.Arr()
+	tools.ForEach(func(_, tool gjson.Result) bool {
+		fn := tool.Get("function")
+		if !fn.Exists() {
+			return true
+		}
+		jw.Obj()
+		jw.Key("name")
+		jw.Str(fn.Get("name").String())
+		if schema := fn.Get("parameters"); schema.Exists() {
+			jw.Key("input_schema")
+			jw.Raw(schema.Raw)
+		}
+		jw.EndObj()
+		return true
+	})
+	jw.EndArr()
+	return jw.Bytes()
 }
 
 // HasImages reports whether any message carries image content. Used to keep
@@ -350,6 +391,10 @@ type EmitOverrides struct {
 	// `signature`. Set unconditionally for Anthropic targets: unsigned blocks are
 	// cross-format artifacts; Anthropic 400s on them regardless of switch state.
 	StripUnsignedThinkingBlocks bool
+	// StripForeignSignedThinkingBlocks removes `thinking` blocks whose signature
+	// is a router-minted cross-format envelope (`encodeOpenAIReasoningSignature`),
+	// not a real Anthropic signature. Set unconditionally for Anthropic targets.
+	StripForeignSignedThinkingBlocks bool
 	// SanitizeToolUseIDs rewrites tool_use.id / tool_use_id values outside
 	// ^[a-zA-Z0-9_-]+$. Always set for Anthropic targets: upstreams like
 	// Kimi-k2.6 emit IDs (e.g. "functions.Read:0") Anthropic rejects on replay.
@@ -359,7 +404,8 @@ type EmitOverrides struct {
 	// on unknown block fields.
 	StripThoughtSignature bool
 	// SanitizeAnthropicToolSchemas removes schema constraints Anthropic rejects
-	// from tools[].input_schema on same-format Anthropic requests.
+	// from tools[].input_schema on same-format Anthropic requests; also omits
+	// empty allowed_domains/blocked_domains on native web_search/web_fetch tools (Anthropic 400s them).
 	SanitizeAnthropicToolSchemas bool
 	// RewriteThinkingAdaptive replaces the inbound thinking block with
 	// {"type":"adaptive"} and sets output_config.effort. Used when the target
@@ -370,6 +416,9 @@ type EmitOverrides struct {
 	// and the heuristic OutputConfigEffort — user knob beats request-derived default.
 	// Value is already cap-applied (xhigh→max) by resolveForceEffort upstream.
 	ForceOutputConfigEffort string
+	// StripOutputConfigFormat drops output_config.format, pruning output_config
+	// when nothing else remains. Mirrors EmitOptions.StripOutputConfigFormat.
+	StripOutputConfigFormat bool
 	// ClampEffortXhighTo downgrades a caller-supplied "xhigh" effort (`effort`
 	// and `output_config.effort`) to this value. Set when the target lacks
 	// xhigh (router.CapXhighEffort) so a mid-session re-route doesn't forward
@@ -391,10 +440,18 @@ func applyOverrides(body []byte, ov EmitOverrides) ([]byte, error) {
 		if err != nil {
 			return nil, fmt.Errorf("strip thinking blocks: %w", err)
 		}
-	} else if ov.StripUnsignedThinkingBlocks {
-		out, err = stripUnsignedThinkingBlocksBytes(out)
-		if err != nil {
-			return nil, fmt.Errorf("strip unsigned thinking blocks: %w", err)
+	} else {
+		if ov.StripUnsignedThinkingBlocks {
+			out, err = stripUnsignedThinkingBlocksBytes(out)
+			if err != nil {
+				return nil, fmt.Errorf("strip unsigned thinking blocks: %w", err)
+			}
+		}
+		if ov.StripForeignSignedThinkingBlocks {
+			out, err = stripForeignSignedThinkingBlocksBytes(out)
+			if err != nil {
+				return nil, fmt.Errorf("strip foreign-signed thinking blocks: %w", err)
+			}
 		}
 	}
 
@@ -505,6 +562,33 @@ func applyOverrides(body []byte, ov EmitOverrides) ([]byte, error) {
 		}
 	}
 
+	if ov.StripOutputConfigFormat {
+		out, err = stripOutputConfigFormatBytes(out)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return out, nil
+}
+
+// stripOutputConfigFormatBytes drops output_config.format and, when that
+// leaves output_config empty, the container too.
+func stripOutputConfigFormatBytes(body []byte) ([]byte, error) {
+	if !gjson.GetBytes(body, "output_config.format").Exists() {
+		return body, nil
+	}
+	out, err := sjson.DeleteBytes(body, "output_config.format")
+	if err != nil {
+		return nil, fmt.Errorf("delete output_config.format: %w", err)
+	}
+	if len(gjson.GetBytes(out, "output_config").Map()) > 0 {
+		return out, nil
+	}
+	out, err = sjson.DeleteBytes(out, "output_config")
+	if err != nil {
+		return nil, fmt.Errorf("delete empty output_config: %w", err)
+	}
 	return out, nil
 }
 
@@ -634,6 +718,21 @@ func stripUnsignedThinkingBlocksBytes(body []byte) ([]byte, error) {
 
 func isUnsignedThinkingBlock(block gjson.Result) bool {
 	return block.Get("type").String() == "thinking" && block.Get("signature").String() == ""
+}
+
+// stripForeignSignedThinkingBlocksBytes removes `thinking` blocks carrying a
+// router-minted cross-format signature (`encodeOpenAIReasoningSignature`);
+// ModelSwitched misses these when client-side compaction re-keys the session.
+func stripForeignSignedThinkingBlocksBytes(body []byte) ([]byte, error) {
+	return rewriteMessageBlocks(body, isForeignSignedThinkingBlock, dropMatchedBlock)
+}
+
+func isForeignSignedThinkingBlock(block gjson.Result) bool {
+	if block.Get("type").String() != "thinking" {
+		return false
+	}
+	_, _, ok := decodeOpenAIReasoningSignature(block.Get("signature").String())
+	return ok
 }
 
 // dropMatchedBlock drops any block that matched needsRewrite by returning "".
@@ -938,7 +1037,11 @@ func resolveOpenAIOverrides(body []byte, opts EmitOptions) EmitOverrides {
 
 	ov.DeleteKeys = append(ov.DeleteKeys, "thinking")
 
-	if gjson.GetBytes(body, "reasoning_effort").Exists() && !opts.Capabilities.Supports(router.CapReasoning) {
+	// gpt-5.x chat/completions rejects reasoning_effort when tools are present;
+	// effort belongs on the Responses API for those models.
+	if gjson.GetBytes(body, "reasoning_effort").Exists() &&
+		(!opts.Capabilities.Supports(router.CapReasoning) ||
+			!reasoningEffortAcceptedOnChatCompletions(opts, hasNonEmptyTools(body))) {
 		ov.DeleteKeys = append(ov.DeleteKeys, "reasoning_effort")
 	}
 
@@ -946,6 +1049,14 @@ func resolveOpenAIOverrides(body []byte, opts EmitOptions) EmitOverrides {
 	// CapReasoning models reject stop / presence_penalty / frequency_penalty.
 	if supportsReasoning {
 		for _, key := range []string{"stop", "presence_penalty", "frequency_penalty"} {
+			if gjson.GetBytes(body, key).Exists() {
+				ov.DeleteKeys = append(ov.DeleteKeys, key)
+			}
+		}
+	}
+
+	if !samplersAccepted(opts) {
+		for _, key := range []string{"temperature", "top_p"} {
 			if gjson.GetBytes(body, key).Exists() {
 				ov.DeleteKeys = append(ov.DeleteKeys, key)
 			}
@@ -1128,6 +1239,8 @@ func resolveAnthropicOverrides(body []byte, opts EmitOptions) EmitOverrides {
 		}
 	}
 
+	ov.StripOutputConfigFormat = opts.StripOutputConfigFormat
+
 	// "xhigh" is opus-4-7+ only; clamp to the max every adaptive model accepts
 	// so a re-route can't turn a valid request into an invalid one.
 	if opts.Capabilities.Supports(router.CapAdaptiveThinking) && !opts.Capabilities.Supports(router.CapXhighEffort) {
@@ -1145,8 +1258,11 @@ func resolveAnthropicOverrides(body []byte, opts EmitOptions) EmitOverrides {
 	}
 
 	// Floor under the switch-history guard: Anthropic rejects unsigned blocks
-	// regardless of pin TTL, so strip them unconditionally (#860).
+	// regardless of pin TTL, so strip them unconditionally (#860). Foreign-signed
+	// blocks fail the same way and are missed by ModelSwitched when client-side
+	// compaction re-keys the session.
 	ov.StripUnsignedThinkingBlocks = true
+	ov.StripForeignSignedThinkingBlocks = true
 
 	if !gjson.GetBytes(body, "max_tokens").Exists() {
 		ov.DefaultMaxTokensKey = "max_tokens"
@@ -1214,6 +1330,8 @@ var modelMaxOutputTokens = map[string]int{
 	"minimax/minimax-m2.7":             65536,
 	"z-ai/glm-5":                       65536,
 	"z-ai/glm-5.1":                     65536,
+	"z-ai/glm-5.3":                     131072, // Both 5.3 arms document a 128K max output (docs.z.ai/guides/llm/glm-5.3)
+	"z-ai/glm-5.3-flash":               131072,
 	"google/gemini-3.7-flash":          65536,
 }
 

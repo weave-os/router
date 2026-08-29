@@ -123,6 +123,30 @@ func TestParseRouterFeedbackCommand(t *testing.T) {
 			wantFound: false,
 		},
 		{
+			name:       "codex dollar rf plus shortcut",
+			input:      "$rf+",
+			wantRating: "up",
+			wantFound:  true,
+		},
+		{
+			name:         "codex dollar rf space minus with note",
+			input:        "$rf - too slow",
+			wantRating:   "down",
+			wantFeedback: "too slow",
+			wantFound:    true,
+		},
+		{
+			name:         "codex dollar rf alias with feedback text",
+			input:        "$rf kept thrashing between models",
+			wantFeedback: "kept thrashing between models",
+			wantFound:    true,
+		},
+		{
+			name:      "dollar rfoo without space boundary is ignored",
+			input:     "$rfoo bar",
+			wantFound: false,
+		},
+		{
 			// Security guard shared with /force-model: pasted content containing
 			// the command mid-message must not be intercepted.
 			name:      "command after leading text is ignored",
@@ -322,6 +346,60 @@ func TestExtractRouterFeedbackCommand_OpenAIFormat(t *testing.T) {
 	assert.Equal(t, "", lastOpenAIUserMessageText(t, env))
 }
 
+func TestExtractRouterFeedbackCommand_ToolResultContinuesAgentTurn(t *testing.T) {
+	body := mustMarshalJSON(t, map[string]any{
+		"model": "gpt-5.6-sol",
+		"messages": []any{
+			map[string]any{"role": "assistant", "tool_calls": []any{map[string]any{
+				"id": "call_skill", "type": "function", "function": map[string]any{"name": "exec", "arguments": "{}"},
+			}}},
+			map[string]any{"role": "tool", "tool_call_id": "call_skill", "content": " /router-feedback too slow"},
+		},
+	})
+	env, err := translate.ParseOpenAI(body)
+	require.NoError(t, err)
+
+	res, found := env.ExtractRouterFeedbackCommand()
+	require.True(t, found)
+	assert.True(t, res.FromToolResult)
+	assert.Equal(t, "too slow", res.Feedback)
+	assert.Equal(t, "", lastOpenAIUserMessageText(t, env))
+}
+
+func TestExtractRouterFeedbackCommand_CodexExecPreamble(t *testing.T) {
+	body := mustMarshalJSON(t, map[string]any{
+		"model": "gpt-5.6-sol",
+		"messages": []any{
+			map[string]any{"role": "assistant", "tool_calls": []any{map[string]any{
+				"id": "call_skill", "type": "function", "function": map[string]any{"name": "exec", "arguments": "{}"},
+			}}},
+			map[string]any{"role": "tool", "tool_call_id": "call_skill", "content": "Script completed\nWall time: 0.0 seconds\nOutput:\n /router-feedback too slow"},
+		},
+	})
+	env, err := translate.ParseOpenAI(body)
+	require.NoError(t, err)
+	res, found := env.ExtractRouterFeedbackCommand()
+	require.True(t, found)
+	assert.True(t, res.FromToolResult)
+	assert.Equal(t, "too slow", res.Feedback)
+}
+
+func TestExtractRouterFeedbackCommand_CodexExecDocumentationIsNotCommand(t *testing.T) {
+	body := mustMarshalJSON(t, map[string]any{
+		"model": "gpt-5.6-sol",
+		"messages": []any{
+			map[string]any{"role": "assistant", "tool_calls": []any{map[string]any{
+				"id": "call_skill", "type": "function", "function": map[string]any{"name": "exec", "arguments": "{}"},
+			}}},
+			map[string]any{"role": "tool", "tool_call_id": "call_skill", "content": "Script completed\nOutput:\n---\nname: router-feedback\n```text\n /router-feedback too slow\n```"},
+		},
+	})
+	env, err := translate.ParseOpenAI(body)
+	require.NoError(t, err)
+	_, found := env.ExtractRouterFeedbackCommand()
+	assert.False(t, found, "a command example in exec output must not record feedback")
+}
+
 func TestExtractRouterFeedbackCommand_ArrayContentMultipleTextBlocks(t *testing.T) {
 	// Claude Code splits slash-command turns into an injected-tags block plus
 	// the typed directive; the parser must scan every text block.
@@ -367,4 +445,28 @@ func TestExtractRouterFeedbackCommand_GeminiFormatIgnored(t *testing.T) {
 
 	_, found := env.ExtractRouterFeedbackCommand()
 	assert.False(t, found, "Gemini format should not be scanned for router-feedback commands")
+}
+
+// emit.sh forwards "$*", so a multi-line note arrives under one "Output:" preamble; parsing only the first line would truncate the note and leak the rest upstream.
+func TestExtractRouterFeedbackCommand_CodexExecMultiLineNote(t *testing.T) {
+	body := mustMarshalJSON(t, map[string]any{
+		"model": "gpt-5.6-terra",
+		"messages": []any{
+			map[string]any{"role": "assistant", "tool_calls": []any{map[string]any{
+				"id": "call_skill", "type": "function",
+				"function": map[string]any{"name": "exec", "arguments": "{}"},
+			}}},
+			map[string]any{
+				"role": "tool", "tool_call_id": "call_skill",
+				"content": "Script completed\nWall time 0.1 seconds\nOutput:\n /router-feedback it broke\nsecond line of the note\n",
+			},
+		},
+	})
+	env, err := translate.ParseOpenAI(body)
+	require.NoError(t, err)
+
+	res, found := env.ExtractRouterFeedbackCommand()
+	require.True(t, found)
+	assert.Equal(t, "it broke\nsecond line of the note", res.Feedback)
+	assert.True(t, res.FromToolResult)
 }

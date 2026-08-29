@@ -6,7 +6,7 @@ export interface ModelPricing {
 	outputUsdPerMillion: number;
 }
 
-export const PRICING_VERSION = "catalog-sha256:e2a1d3ea39f7118f";
+export const PRICING_VERSION = "catalog-sha256:e5c83206af1f9d99";
 
 export const MODEL_PRICING: Readonly<Record<string, ModelPricing>> = Object.freeze({
 	"claude-fable-5": { inputUsdPerMillion: 10, outputUsdPerMillion: 50 },
@@ -56,9 +56,9 @@ export const MODEL_PRICING: Readonly<Record<string, ModelPricing>> = Object.free
 	"gpt-5.5-nano": { inputUsdPerMillion: 0.15, outputUsdPerMillion: 0.6 },
 	"gpt-5.5-pro": { inputUsdPerMillion: 30, outputUsdPerMillion: 180 },
 	"gpt-5.6-luna": { inputUsdPerMillion: 1, outputUsdPerMillion: 6 },
-	"gpt-5.6-luna-pro": { inputUsdPerMillion: 0.2, outputUsdPerMillion: 1.2 },
+	"gpt-5.6-luna-pro": { inputUsdPerMillion: 1, outputUsdPerMillion: 6 },
 	"gpt-5.6-sol": { inputUsdPerMillion: 5, outputUsdPerMillion: 30 },
-	"gpt-5.6-sol-pro": { inputUsdPerMillion: 2.5, outputUsdPerMillion: 15 },
+	"gpt-5.6-sol-pro": { inputUsdPerMillion: 5, outputUsdPerMillion: 30 },
 	"gpt-5.6-terra": { inputUsdPerMillion: 2.5, outputUsdPerMillion: 15 },
 	"grok-4.5": { inputUsdPerMillion: 2, outputUsdPerMillion: 6 },
 	"grok-4.6": { inputUsdPerMillion: 2, outputUsdPerMillion: 6 },
@@ -82,4 +82,6 @@ export const MODEL_PRICING: Readonly<Record<string, ModelPricing>> = Object.free
 	"z-ai/glm-5": { inputUsdPerMillion: 1, outputUsdPerMillion: 3.2 },
 	"z-ai/glm-5.1": { inputUsdPerMillion: 1.4, outputUsdPerMillion: 4.4 },
 	"z-ai/glm-5.2": { inputUsdPerMillion: 1.4, outputUsdPerMillion: 4.4 },
+	"z-ai/glm-5.3": { inputUsdPerMillion: 1.4, outputUsdPerMillion: 4.4 },
+	"z-ai/glm-5.3-flash": { inputUsdPerMillion: 0.15, outputUsdPerMillion: 0.5 },
 });

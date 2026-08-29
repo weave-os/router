@@ -35,7 +35,33 @@ func (e *RequestEnvelope) PrepareAnthropic(in http.Header, opts EmitOptions) (pr
 	if err != nil {
 		return providers.PreparedRequest{}, err
 	}
+	body, err = applyServerSideFallback(body, opts)
+	if err != nil {
+		return providers.PreparedRequest{}, err
+	}
+	body, err = applyAnthropicSessionAffinity(body, opts)
+	if err != nil {
+		return providers.PreparedRequest{}, err
+	}
 	return providers.PreparedRequest{Body: body, Headers: deriveAnthropicHeaders(in, opts, body)}, nil
+}
+
+// applyAnthropicSessionAffinity sets metadata.user_id to the session-affinity
+// key for anthropic_gateway targets. Uses a spec Messages field so body-forwarding
+// gateways pass it without unknown-field 400s. Skips if the caller already set
+// user_id, or if the target is first-party Anthropic.
+func applyAnthropicSessionAffinity(body []byte, opts EmitOptions) ([]byte, error) {
+	if opts.TargetProvider != providers.ProviderAnthropicGateway || opts.SessionAffinity == "" {
+		return body, nil
+	}
+	if gjson.GetBytes(body, "metadata.user_id").String() != "" {
+		return body, nil
+	}
+	out, err := sjson.SetBytes(body, "metadata.user_id", opts.SessionAffinity)
+	if err != nil {
+		return nil, fmt.Errorf("set metadata.user_id: %w", err)
+	}
+	return out, nil
 }
 
 func deriveAnthropicHeaders(in http.Header, opts EmitOptions, body []byte) http.Header {
@@ -52,6 +78,9 @@ func deriveAnthropicHeaders(in http.Header, opts EmitOptions, body []byte) http.
 	if gjson.GetBytes(body, "context_management").Exists() {
 		beta = ensureBetaToken(beta, contextManagementBeta)
 	}
+	if gjson.GetBytes(body, "fallbacks").Exists() {
+		beta = ensureBetaToken(beta, serverSideFallbackBeta)
+	}
 	if beta != "" {
 		h.Set("anthropic-beta", beta)
 	}
@@ -63,6 +92,28 @@ func deriveAnthropicHeaders(in http.Header, opts EmitOptions, body []byte) http.
 const context1MBeta = "context-1m-2025-08-07"
 
 const contextManagementBeta = "context-management-2025-06-27"
+
+// serverSideFallbackBeta is the first-party Anthropic beta for server-side
+// fallback; gateways reject the unknown top-level key with a 400.
+const serverSideFallbackBeta = "server-side-fallback-2026-07-01"
+
+// applyServerSideFallback injects fallbacks:"default" so Anthropic re-serves
+// a safety-refused turn instead of returning stop_reason:"refusal" (HTTP 200).
+// A client-supplied "fallbacks" is left untouched; on non-CapServerSideFallback
+// targets (re-pin destination, gateway) the field is dropped — forwarding it 400s.
+func applyServerSideFallback(body []byte, opts EmitOptions) ([]byte, error) {
+	if opts.TargetProvider != providers.ProviderAnthropic ||
+		!opts.Capabilities.Supports(router.CapServerSideFallback) {
+		if !gjson.GetBytes(body, "fallbacks").Exists() {
+			return body, nil
+		}
+		return sjson.DeleteBytes(body, "fallbacks")
+	}
+	if !opts.EnableServerSideFallback || gjson.GetBytes(body, "fallbacks").Exists() {
+		return body, nil
+	}
+	return sjson.SetBytes(body, "fallbacks", "default")
+}
 
 // ensureBetaToken appends token to a comma-separated anthropic-beta list when
 // absent, preserving any tokens the client already sent.
@@ -89,6 +140,9 @@ func filterBetaHeader(beta, targetModel string) string {
 }
 
 func betaCompatible(token string, spec router.ModelSpec) bool {
+	if strings.Contains(token, "server-side-fallback") {
+		return spec.Supports(router.CapServerSideFallback)
+	}
 	if strings.Contains(token, "context-1m") {
 		return spec.Supports(router.CapExtendedContext)
 	}
@@ -148,8 +202,9 @@ func (e *RequestEnvelope) buildAnthropicFromOpenAI(opts EmitOptions) ([]byte, er
 	return jw.Bytes(), nil
 }
 
-// writeAnthropicSystemAndMessages extracts system-role messages into the
-// Anthropic "system" field and writes the rest as Anthropic content.
+// writeAnthropicSystemAndMessages extracts the leading run of system-role
+// messages into the Anthropic "system" field; mid-conversation system messages
+// become user messages in place so they don't shift the cached prefix.
 func writeAnthropicSystemAndMessages(jw *jsonWriter, body []byte) {
 	messages := gjson.GetBytes(body, "messages")
 	if !messages.Exists() {
@@ -165,6 +220,7 @@ func writeAnthropicSystemAndMessages(jw *jsonWriter, body []byte) {
 	var systemBlocks []string
 	var msgParts []string // raw JSON message objects, flushed after tool batching
 	var pending pendingToolBatch
+	leading := true // still in the run of system messages before any turn
 
 	flushToolBatch := func() {
 		if !pending.active {
@@ -191,8 +247,12 @@ func writeAnthropicSystemAndMessages(jw *jsonWriter, body []byte) {
 		role := msg.Get("role").String()
 		content := msg.Get("content")
 
-		switch role {
-		case "system":
+		switch {
+		case role == "system" && !leading:
+			flushToolBatch()
+			msgParts = append(msgParts, cacheControlOnLastBlockWithPolicy(buildAnthropicUserMessage("user", content), sourceMessageCacheControl(msg)))
+
+		case role == "system":
 			policy := sourceMessageCacheControl(msg)
 			// Collect text from system messages into the top-level system field.
 			if content.Type == gjson.String {
@@ -224,18 +284,21 @@ func writeAnthropicSystemAndMessages(jw *jsonWriter, body []byte) {
 				})
 			}
 
-		case "tool":
+		case role == "tool":
+			leading = false
 			// Merge consecutive tool messages into a single Anthropic user message.
 			toolCallID := msg.Get("tool_call_id").String()
 			blockRaw := buildToolResultBlock(toolCallID, content)
 			pending.active = true
 			pending.blocks = append(pending.blocks, blockRaw)
 
-		case "assistant":
+		case role == "assistant":
+			leading = false
 			flushToolBatch()
 			msgParts = append(msgParts, cacheControlOnLastBlockWithPolicy(buildAnthropicAssistantMessage(msg), sourceMessageCacheControl(msg)))
 
 		default: // "user" and anything unrecognized
+			leading = false
 			flushToolBatch()
 			msgParts = append(msgParts, cacheControlOnLastBlockWithPolicy(buildAnthropicUserMessage(role, content), sourceMessageCacheControl(msg)))
 		}
@@ -653,28 +716,46 @@ func (e *RequestEnvelope) buildAnthropicFromAnthropic(opts EmitOptions) ([]byte,
 	return applyOverrides(body, ov)
 }
 
-// hoistAnthropicSystemMessages moves role:"system" entries out of "messages"
-// into the top-level "system" field. Anthropic's Messages API 400s on a system
-// role inside messages, which can happen on a mid-session switch back to an
-// Anthropic model; this mirrors the hoisting writeAnthropicSystemAndMessages
-// already does on the OpenAI->Anthropic path. No-op if none present.
+// hoistAnthropicSystemMessages clears role:"system" entries from "messages"
+// (Anthropic's API 400s on them after a mid-session model switch). Only the
+// leading run is hoisted; mid-conversation ones are rewritten as user messages
+// in place to keep the cached prefix stable. No-op if none present.
 func hoistAnthropicSystemMessages(body []byte) ([]byte, error) {
 	msgs := gjson.GetBytes(body, "messages")
 	if !msgs.IsArray() {
 		return body, nil
 	}
 
-	var hoisted []string // text extracted from in-array system messages, in order
-	var kept []string    // raw non-system message objects
+	var hoisted []string // text from the leading system run, in order
+	var kept []string    // raw message objects, system entries demoted to user
+	leading := true
+	rewritten := false
 	for _, msg := range msgs.Array() {
-		if msg.Get("role").String() == "system" {
+		isSystem := msg.Get("role").String() == "system"
+		switch {
+		case isSystem && leading:
 			hoisted = append(hoisted, anthropicSystemTexts(msg.Get("content"))...)
-			continue
+		case isSystem:
+			demoted, err := sjson.Set(msg.Raw, "role", "user")
+			if err != nil {
+				return nil, fmt.Errorf("demote system message: %w", err)
+			}
+			kept = append(kept, demoted)
+			rewritten = true
+		default:
+			leading = false
+			kept = append(kept, msg.Raw)
 		}
-		kept = append(kept, msg.Raw)
+	}
+	if len(hoisted) == 0 && !rewritten {
+		return body, nil
 	}
 	if len(hoisted) == 0 {
-		return body, nil
+		out, err := sjson.SetRawBytes(body, "messages", []byte("["+strings.Join(kept, ",")+"]"))
+		if err != nil {
+			return nil, fmt.Errorf("rebuild messages: %w", err)
+		}
+		return out, nil
 	}
 
 	// Merge: existing top-level system blocks first, then the hoisted text.
@@ -740,9 +821,15 @@ func sanitizeAnthropicTools(v any) any {
 			continue
 		}
 		copied := make(map[string]any, len(tool))
+		nativeDomainFilter := isAnthropicNativeDomainFilterTool(tool)
 		for k, child := range tool {
 			if k == "input_schema" {
 				copied[k] = sanitizeAnthropicSchema(child)
+				continue
+			}
+			// Anthropic 400s empty allowed_domains/blocked_domains ("Empty list of
+			// domains is ambiguous"); omit so the field is absent rather than [].
+			if nativeDomainFilter && (k == "allowed_domains" || k == "blocked_domains") && isEmptyDomainList(child) {
 				continue
 			}
 			copied[k] = child
@@ -750,6 +837,22 @@ func sanitizeAnthropicTools(v any) any {
 		out = append(out, copied)
 	}
 	return out
+}
+
+func isAnthropicNativeDomainFilterTool(tool map[string]any) bool {
+	typ, _ := tool["type"].(string)
+	return strings.HasPrefix(typ, "web_search_") || strings.HasPrefix(typ, "web_fetch_")
+}
+
+func isEmptyDomainList(v any) bool {
+	switch arr := v.(type) {
+	case []any:
+		return len(arr) == 0
+	case []string:
+		return len(arr) == 0
+	default:
+		return false
+	}
 }
 
 func sanitizeAnthropicSchema(v any) any {

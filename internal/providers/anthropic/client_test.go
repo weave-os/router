@@ -577,3 +577,30 @@ func TestProxy_ForwardsConfiguredIdentityHeader(t *testing.T) {
 	assert.Equal(t, "engineer@example.com", gotIdentity,
 		"an endpoint authenticating the service, not the person, can only attribute spend from this header")
 }
+
+func TestPassthrough_RelaysNothingFromARefusedRedirect(t *testing.T) {
+	var redirectTargetCalls int
+	redirectTarget := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		redirectTargetCalls++
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"access_token":"internal"}`))
+	}))
+	defer redirectTarget.Close()
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, redirectTarget.URL, http.StatusFound)
+	}))
+	defer upstream.Close()
+
+	c := anthropic.NewClient("deployment-key", upstream.URL)
+	rec := httptest.NewRecorder()
+	clientReq := httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+	prep := providers.PreparedRequest{Headers: make(http.Header)}
+
+	err := c.Passthrough(context.Background(), prep, rec, clientReq)
+
+	require.Error(t, err, "a refused redirect is a dispatch failure, not a response to relay")
+	assert.Equal(t, 0, redirectTargetCalls, "the redirect target must never be contacted")
+	assert.Empty(t, rec.Header().Get("Location"), "the unconfigured host must not reach the caller")
+	assert.Empty(t, rec.Body.String(), "no redirect body reaches the caller")
+}

@@ -30,6 +30,12 @@ func (s *Service) ResolveStruggleEscalationHoldoutPct(ctx context.Context) int {
 	return flags.IntOr(ctx, flags.KeyStruggleEscalationHoldout, s.struggleEscalationHoldoutPct)
 }
 
+// ResolveStruggleEvidenceArming reports whether behavioral spiral evidence may
+// arm an escalation for this request, ahead of the turn/wall thresholds.
+func (s *Service) ResolveStruggleEvidenceArming(ctx context.Context) bool {
+	return flags.BoolOr(ctx, flags.KeyStruggleEvidenceArming, s.struggleEvidenceArming)
+}
+
 func (s *Service) ResolveSpiralShadowEnabled(ctx context.Context) bool {
 	return flags.BoolOr(ctx, flags.KeySpiralShadowEnabled, s.spiralShadowEnabled)
 }
@@ -76,10 +82,22 @@ func (s *Service) ResolveAuthoritativeUpgradeGate(ctx context.Context) bool {
 	return flags.BoolOr(ctx, flags.KeyAuthoritativeUpgradeGate, s.authoritativeUpgradeGate)
 }
 
+// ResolveAuthorityCacheShadow reports whether authoritative-per-turn turns
+// record the cache gate's counterfactual verdict. Observation only.
+func (s *Service) ResolveAuthorityCacheShadow(ctx context.Context) bool {
+	return flags.BoolOr(ctx, flags.KeyAuthorityCacheShadow, s.authorityCacheShadow)
+}
+
 // ResolveSiblingFailover reports whether an exhausted model may degrade to a
 // same-cluster candidate.
 func (s *Service) ResolveSiblingFailover(ctx context.Context) bool {
 	return flags.BoolOr(ctx, flags.KeySiblingFailover, s.siblingFailover)
+}
+
+// ResolveOpenAIResponsesBroad reports the ROUTER_OPENAI_RESPONSES_BROAD flag:
+// off, only the reasoning+tools turn chat/completions rejects is promoted.
+func (s *Service) ResolveOpenAIResponsesBroad(ctx context.Context) bool {
+	return flags.BoolOr(ctx, flags.KeyOpenAIResponsesBroad, s.openAIResponsesBroad)
 }
 
 // ResolveEffortEscalation reports whether policy-requested reasoning-effort
@@ -88,14 +106,20 @@ func (s *Service) ResolveEffortEscalation(ctx context.Context) bool {
 	return flags.BoolOr(ctx, flags.KeyEffortEscalation, s.effortEscalation)
 }
 
-// ResolveCyberRefusalRepin reports whether a cyber safety refusal re-pins the
+// ResolveCyberRefusalRepin reports whether a safety refusal re-pins the
 // session off the refusing model.
 func (s *Service) ResolveCyberRefusalRepin(ctx context.Context) bool {
 	return flags.BoolOr(ctx, flags.KeyCyberRefusalRepin, s.cyberRefusalRepin)
 }
 
-// ResolveCyberRefusalFallbackModel returns the model to re-pin to on a cyber
+// ResolveCyberRefusalFallbackModel returns the model to re-pin to on a safety
 // refusal with no runner-up.
 func (s *Service) ResolveCyberRefusalFallbackModel(ctx context.Context) string {
 	return flags.StringOr(ctx, flags.KeyCyberRefusalFallback, s.cyberRefusalFallbackModel)
+}
+
+// ResolveAnthropicServerSideFallback reports whether Anthropic-targeted
+// requests ask Anthropic to re-serve a safety-refused turn on a fallback model.
+func (s *Service) ResolveAnthropicServerSideFallback(ctx context.Context) bool {
+	return flags.BoolOr(ctx, flags.KeyAnthropicServerFallback, s.anthropicServerSideFallback)
 }

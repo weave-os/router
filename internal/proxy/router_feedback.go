@@ -66,9 +66,9 @@ const (
 	RouterFeedbackSourceAuto = "auto"
 )
 
-// handleRouterFeedbackCommand persists a /router-feedback submission, emits a
-// router.feedback.command span on the standard OTel pipeline, and returns a
-// synthetic acknowledgment without dispatching to any upstream.
+// handleRouterFeedbackCommand persists a /router-feedback submission and emits
+// a router.feedback.command span. User-issued commands receive a synthetic
+// acknowledgment; agent-issued tool-result commands continue through routing.
 func (s *Service) handleRouterFeedbackCommand(
 	ctx context.Context,
 	w http.ResponseWriter,
@@ -77,6 +77,7 @@ func (s *Service) handleRouterFeedbackCommand(
 	installationID uuid.UUID,
 	sessionKey [sessionpin.SessionKeyLen]byte,
 	inputTokens int,
+	synthetic bool,
 ) error {
 	log := observability.FromContext(ctx)
 	role := roleForTier(catalog.TierFor(env.Model()))
@@ -90,7 +91,10 @@ func (s *Service) handleRouterFeedbackCommand(
 		if env.SourceFormat() == translate.FormatOpenAI {
 			msg = "Weave Router: router-feedback needs a verdict or a note, e.g. /rf+ or /rf- too slow."
 		}
-		return writeSyntheticCommandResponse(w, env, msg, inputTokens)
+		if synthetic {
+			return writeSyntheticCommandResponse(w, env, msg, inputTokens)
+		}
+		return nil
 	}
 
 	// The model to attribute: pin's last served (or target), overridden by the resolved telemetry turn when a sequence was specified.
@@ -107,7 +111,10 @@ func (s *Service) handleRouterFeedbackCommand(
 				if env.SourceFormat() == translate.FormatOpenAI {
 					msg = "Weave Router: No turn found at that sequence number. Try `/rf` without a number for the last turn."
 				}
-				return writeSyntheticCommandResponse(w, env, msg, inputTokens)
+				if synthetic {
+					return writeSyntheticCommandResponse(w, env, msg, inputTokens)
+				}
+				return nil
 			}
 			// Infrastructure error: log it, fall through to the pin path so the
 			// rating is persisted with the pin's servedModel rather than dropped.
@@ -118,7 +125,7 @@ func (s *Service) handleRouterFeedbackCommand(
 			telemetryStrategy = turn.Strategy
 			log.Info("/router-feedback: resolved sequence to telemetry turn",
 				"sequence", cmd.Sequence,
-				"request_id", telemetryRequestID,
+				"rated_request_id", telemetryRequestID,
 				"served_model", servedModel,
 			)
 		}
@@ -175,7 +182,7 @@ func (s *Service) handleRouterFeedbackCommand(
 			RouterUserID:   routerUserID,
 		}
 		if err := s.feedbackRepo.Upsert(context.Background(), upsertParams); err != nil {
-			log.Error("/router-feedback: request_feedback upsert failed", "request_id", telemetryRequestID, "err", err)
+			log.Error("/router-feedback: request_feedback upsert failed", "rated_request_id", telemetryRequestID, "err", err)
 		}
 	}
 
@@ -232,11 +239,14 @@ func (s *Service) handleRouterFeedbackCommand(
 		"requested_model", env.Model(),
 		"role", role,
 		"sequence", cmd.Sequence,
-		"request_id", telemetryRequestID,
+		"rated_request_id", telemetryRequestID,
 		"route_id", telemetryRouteID,
 	)
 
-	return writeSyntheticCommandResponse(w, env, routerFeedbackAck(env.SourceFormat(), rating), inputTokens)
+	if synthetic {
+		return writeSyntheticCommandResponse(w, env, routerFeedbackAck(env.SourceFormat(), rating), inputTokens)
+	}
+	return nil
 }
 
 func (s *Service) reportRouterFeedback(

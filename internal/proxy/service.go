@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"workweave/router/internal/auth"
@@ -38,6 +39,7 @@ import (
 	"workweave/router/internal/sse"
 	"workweave/router/internal/timing"
 	"workweave/router/internal/translate"
+	"workweave/router/internal/websearch"
 
 	"github.com/google/uuid"
 	"github.com/tidwall/sjson"
@@ -96,7 +98,7 @@ type Service struct {
 	// per-request: keeps byokOnly deployments on a provider they can
 	// authenticate to, and honors excluded_models on the hard-pin tier via
 	// denySet. ok=false signals no eligible provider.
-	hardPinResolver func(enabled, denySet map[string]struct{}) (provider, model string, ok bool)
+	hardPinResolver HardPinResolver
 	// subAgentProvider/subAgentModel override hardPinProvider/hardPinModel
 	// for SubAgentDispatch turns only; unset leaves compaction/probe/title-gen/
 	// classifier on the shared hard pin.
@@ -116,6 +118,17 @@ type Service struct {
 	// byokOnly disables deployment-level credential fallback so customer
 	// requests never silently consume the platform's API key budget.
 	byokOnly bool
+	// noResponsesGateways memoizes gateway endpoints that answered they have no
+	// Responses API, so only the first tool turn against such an endpoint pays
+	// the probe. Keyed by gatewayResponsesKey.
+	noResponsesGateways sync.Map
+	// noPromptCacheKeyGateways memoizes gateway endpoints that rejected
+	// prompt_cache_key as an unknown field, so only the first turn against
+	// such an endpoint pays the 400. Keyed by gatewayResponsesKey.
+	noPromptCacheKeyGateways sync.Map
+	// unservedGatewayModels memos (endpoint, model) pairs a gateway answered
+	// model-not-found for. Keyed by gatewayModelKey.
+	unservedGatewayModels sync.Map
 	// excludedModelsOverride, when non-nil, replaces the per-installation
 	// exclusion list on every request. Set from ROUTER_EXCLUDED_MODELS at boot.
 	excludedModelsOverride map[string]struct{}
@@ -149,6 +162,11 @@ type Service struct {
 	// pricier than the session pin only escalates at confidence >=
 	// hmmUpgradeConfidenceThreshold. Env ROUTER_AUTHORITATIVE_UPGRADE_GATE, on by default.
 	authoritativeUpgradeGate bool
+	// authorityCacheShadow records what the HMM cache gate would have decided on
+	// an authoritative-per-turn turn, which returns before that gate can run.
+	// Observation only -- it never changes the served decision. Env
+	// ROUTER_AUTHORITY_CACHE_SHADOW, on by default.
+	authorityCacheShadow bool
 	// policyDeadlineFallback degrades a policy sidecar deadline/transport failure to
 	// the session pin instead of a 503. Kill switch: env ROUTER_POLICY_DEADLINE_FALLBACK, off by default.
 	policyDeadlineFallback bool
@@ -164,14 +182,23 @@ type Service struct {
 	// Runs the embedder on ToolResult traffic (majority of turns).
 	scoreToolResultTurns bool
 	// cyberRefusalRepin is the kill switch (ROUTER_CYBER_REFUSAL_REPIN, default
-	// false). When true, a safety refusal on the anthropic-native path re-pins
+	// on). When true, a safety refusal on the anthropic-native path re-pins
 	// the session off the refusing model (opus ~45% refusal rate; sonnet 0%).
+	// Refusal detection itself is unconditional — the flag gates only the action.
 	cyberRefusalRepin bool
+	// anthropicServerSideFallback (ROUTER_ANTHROPIC_SERVER_SIDE_FALLBACK, default on)
+	// opts Anthropic-targeted requests into server-side fallback: Anthropic re-serves
+	// a refused turn on a fallback model (rescues the current turn; cyberRefusalRepin
+	// only re-pins future turns).
+	anthropicServerSideFallback bool
 
 	// siblingFailover is the kill switch (ROUTER_SIBLING_FAILOVER, default on)
 	// for degrading to a same-cluster candidate when every binding of the
 	// routed model fails with a transient upstream fault.
 	siblingFailover bool
+	// openAIResponsesBroad is the deployment default for
+	// ROUTER_OPENAI_RESPONSES_BROAD; see ResolveOpenAIResponsesBroad.
+	openAIResponsesBroad bool
 	// sseKeepalive is the client-silence budget before a ping is injected
 	// (ROUTER_SSE_KEEPALIVE_INTERVAL_SECONDS; 0 disables). See sse.KeepaliveWriter.
 	sseKeepalive time.Duration
@@ -233,6 +260,9 @@ type Service struct {
 	// struggleEscalationHoldoutPct is the percentage of struggling sessions
 	// withheld for measurement. Only applies when a store is wired.
 	struggleEscalationHoldoutPct int
+	// struggleEvidenceArming lets behavioral spiral evidence arm an escalation
+	// before the turn/wall thresholds. Default off (ROUTER_STRUGGLE_EVIDENCE_ARMING).
+	struggleEvidenceArming bool
 	// struggleEscalationStore persists struggle escalation events durably
 	// (router.struggle_escalation_events). Set by WithStruggleEscalationStore.
 	struggleEscalationStore StruggleEscalationStore
@@ -249,6 +279,9 @@ type Service struct {
 	// summarizer produces a bounded-cost handover summary on switch turns.
 	// nil passes the full prior history through unchanged.
 	summarizer handover.Summarizer
+	// webSearch executes Anthropic's native web-search server tool for
+	// upstreams that reject it. nil leaves such turns on normal routing.
+	webSearch websearch.Executor
 	// compactionSummarizer produces the structured summary for the proactive
 	// context-window compaction cascade (maybeCompact). nil disables Tier-3
 	// summarization (the cascade still runs Tier-1 cleanup + trim rescue).
@@ -272,6 +305,10 @@ type Service struct {
 	// dispatchWithFallback. Tests inject a no-op to avoid real delays; prod
 	// leaves it nil and falls back to sleepWithContext.
 	retrySleep func(context.Context, time.Duration) error
+	// now, when non-nil, overrides the clock dispatchWithFallback uses to
+	// price the same-binding retry budget. Tests inject a fake to simulate a
+	// slow attempt without burning real time; prod leaves it nil (time.Now).
+	now func() time.Time
 	// feedbackRepo persists per-request human feedback (router.request_feedback)
 	// and reads it back for the no-login feedback page. Nil leaves the feedback
 	// endpoints' DB access disabled (Get/Submit return ErrFeedbackUnavailable).
@@ -368,12 +405,20 @@ type OpenAIAccountIDContextKey struct{}
 // Responses body to the Codex backend (its presence marks the passthrough).
 type codexResponsesBodyContextKey struct{}
 
+// nativeResponsesBodyContextKey carries the caller's original /v1/responses
+// body (badge-stripped for Codex); which model needs it is only known post-routing.
+type nativeResponsesBodyContextKey struct{}
+
 // nativeResponsesReasoningHashContextKey preserves reasoning that only native
 // Responses dispatch can represent.
 type nativeResponsesReasoningHashContextKey struct{}
 
 // nativeResponsesToolHashContextKey preserves native Responses tool identity.
 type nativeResponsesToolHashContextKey struct{}
+
+// responsesFooterEchoedContextKey is set when the original Responses input
+// already carries a rating hint after the last human turn.
+type responsesFooterEchoedContextKey struct{}
 
 // InstallationExcludedModelsContextKey is the context key for the authed
 // installation's model exclusion list. Carried as []string.
@@ -500,8 +545,8 @@ func suppressMarkerIfRequested(ctx context.Context, h http.Header, marker string
 	return marker
 }
 
-// routingMarkerFor builds the "brand → model · note" snippet emitted at the
-// start of every cross-format streamed response.
+// routingMarkerFor builds the "brand → model · note" snippet emitted when the
+// selected serving model changes (and on the first routed turn).
 func routingMarkerFor(res turnLoopResult) string {
 	decision := res.Decision
 	if decision.Model == "" {
@@ -515,6 +560,19 @@ func routingMarkerFor(res turnLoopResult) string {
 	// letting it read as a first turn.
 	if res.HardPinned {
 		return ""
+	}
+	// A dropped force-model pin contradicts an ack the user already saw, so it
+	// prints even when the model did not change — the same-model gate below would
+	// otherwise hide exactly the turns where the pin stopped applying.
+	if res.ForcedPinDropped {
+		parts := []string{"✦ **Weave Router** → " + decision.Model, markerReasonForcedPinDropped}
+		if res.ForcedPinModel != "" {
+			parts = []string{
+				"✦ **Weave Router** → " + decision.Model,
+				fmt.Sprintf("%s (%s)", markerReasonForcedPinDropped, res.ForcedPinModel),
+			}
+		}
+		return strings.Join(parts, " · ") + "\n\n"
 	}
 	// Same model as last turn: the user already knows. Empty prior model means
 	// the first turn of this session (or role), which still shows. Applies to
@@ -589,6 +647,7 @@ const (
 	markerReasonBestPick          = "best pick for this turn"
 	markerReasonBaseline          = "fell back to baseline after provider outage"
 	markerReasonSibling           = "switched after the picked model was overloaded"
+	markerReasonForcedPinDropped  = "your force-model pin could not be served this turn"
 )
 
 // baselineRoutingMarkerFor renders the routing badge for an in-turn baseline
@@ -784,6 +843,9 @@ func (s *Service) excludedModelsForRequest(ctx context.Context) map[string]struc
 				out[model] = struct{}{}
 			}
 		}
+	}
+	for model := range s.gatewayUnservedModelsForRequest(ctx) {
+		out[model] = struct{}{}
 	}
 	if len(out) == 0 {
 		return nil
@@ -1203,6 +1265,11 @@ const DefaultPlannerTierUpgradeEnabled = true
 // shadow telemetry before arming.
 const DefaultPlannerColdPinFollowFresh = false
 
+// DefaultPlannerCorrectedEconomics ships OFF. The corrected cost model changes
+// routing, so it is armed per environment (staging first) rather than by
+// merging. See docs/CONFIGURATION.md for the measured effect.
+const DefaultPlannerCorrectedEconomics = false
+
 func NewService(r router.Router, providerMap map[string]providers.Client, emitter TelemetryEmitter, embedOnlyUserMessage bool, semanticCache *cache.Cache, pinStore sessionpin.Store, hardPinExplore bool, hardPinProvider, hardPinModel string, telemetry TelemetryRepository) *Service {
 	return &Service{
 		router:                       r,
@@ -1232,11 +1299,14 @@ func NewService(r router.Router, providerMap map[string]providers.Client, emitte
 		},
 		hmmUpgradeConfidenceThreshold: defaultHMMUpgradeConfidenceThreshold,
 		authoritativeUpgradeGate:      true,
+		authorityCacheShadow:          true,
 		plannerEnabled:                true,
 		scoreToolResultTurns:          true,
 		loopEscalationEnabled:         true,
-		cyberRefusalRepin:             false,
+		cyberRefusalRepin:             true,
+		anthropicServerSideFallback:   true,
 		siblingFailover:               true,
+		openAIResponsesBroad:          true,
 		cyberRefusalFallbackModel:     "claude-sonnet-5",
 	}
 }
@@ -1262,6 +1332,7 @@ func (s *Service) WithPlanner(cfg planner.EVConfig) *Service {
 	}
 	s.planner.TierUpgradeEnabled = cfg.TierUpgradeEnabled
 	s.planner.ColdPinFollowFresh = cfg.ColdPinFollowFresh
+	s.planner.CorrectedEconomics = cfg.CorrectedEconomics
 	return s
 }
 
@@ -1278,10 +1349,18 @@ func (s *Service) WithScoreToolResultTurns(enabled bool) *Service {
 	return s
 }
 
-// WithCyberRefusalRepin is the kill switch for the cyber-refusal re-pin backstop
+// WithCyberRefusalRepin is the kill switch for the safety-refusal re-pin backstop
 // (ROUTER_CYBER_REFUSAL_REPIN); see cyberRefusalRepin.
 func (s *Service) WithCyberRefusalRepin(enabled bool) *Service {
 	s.cyberRefusalRepin = enabled
+	return s
+}
+
+// WithAnthropicServerSideFallback is the kill switch for Anthropic's
+// server-side fallback beta (ROUTER_ANTHROPIC_SERVER_SIDE_FALLBACK); see
+// anthropicServerSideFallback.
+func (s *Service) WithAnthropicServerSideFallback(enabled bool) *Service {
+	s.anthropicServerSideFallback = enabled
 	return s
 }
 
@@ -1289,6 +1368,13 @@ func (s *Service) WithCyberRefusalRepin(enabled bool) *Service {
 // (ROUTER_SIBLING_FAILOVER); see siblingFailover.
 func (s *Service) WithSiblingFailover(enabled bool) *Service {
 	s.siblingFailover = enabled
+	return s
+}
+
+// WithOpenAIResponsesBroad sets the rollout flag for direct-OpenAI Responses
+// routing (ROUTER_OPENAI_RESPONSES_BROAD).
+func (s *Service) WithOpenAIResponsesBroad(enabled bool) *Service {
+	s.openAIResponsesBroad = enabled
 	return s
 }
 
@@ -1338,6 +1424,13 @@ func (s *Service) WithHMPinStickyOnArmSelectorUnavail(enabled bool) *Service {
 // decisions. On by default; disabling restores verbatim policy selection.
 func (s *Service) WithAuthoritativeUpgradeGate(enabled bool) *Service {
 	s.authoritativeUpgradeGate = enabled
+	return s
+}
+
+// WithAuthorityCacheShadow sets the kill switch (ROUTER_AUTHORITY_CACHE_SHADOW)
+// for recording the cache gate's counterfactual verdict on authoritative turns.
+func (s *Service) WithAuthorityCacheShadow(enabled bool) *Service {
+	s.authorityCacheShadow = enabled
 	return s
 }
 
@@ -1480,6 +1573,13 @@ func (s *Service) WithStruggleEscalationConfig(enabled bool, holdoutPct int) *Se
 	return s
 }
 
+// WithStruggleEvidenceArming sets whether behavioral spiral evidence may arm a
+// struggle escalation before the turn/wall thresholds (default off).
+func (s *Service) WithStruggleEvidenceArming(enabled bool) *Service {
+	s.struggleEvidenceArming = enabled
+	return s
+}
+
 // WithStruggleEscalationStore wires the durable sink for struggle escalation events
 // (router.struggle_escalation_events); nil disables persistence, holdout, and budget.
 func (s *Service) WithStruggleEscalationStore(store StruggleEscalationStore) *Service {
@@ -1551,6 +1651,14 @@ func (s *Service) WithSummarizer(sz handover.Summarizer) *Service {
 	return s
 }
 
+// WithWebSearchExecutor installs the backend that runs Anthropic's native
+// web-search server tool when the routed upstream rejects it. nil leaves
+// those turns on normal routing.
+func (s *Service) WithWebSearchExecutor(ex websearch.Executor) *Service {
+	s.webSearch = ex
+	return s
+}
+
 // WithCompaction installs the summarizer and trigger threshold for the
 // proactive context-window compaction cascade (maybeCompact). pct == 0
 // disables compaction (operators set ROUTER_COMPACTION_PCT=0 to turn the
@@ -1582,10 +1690,23 @@ func (s *Service) WithAvailableModels(models map[string]struct{}) *Service {
 	return s
 }
 
+// HardPinRequest is the per-request context the hard-pin tier selects against;
+// gateway-exclusive installations can only reach models aliased onto the enrolled gateway.
+type HardPinRequest struct {
+	EnabledProviders map[string]struct{}
+	ExcludedModels   map[string]struct{}
+	CustomBindings   map[string][]string
+	GatewayProviders map[string]struct{}
+}
+
+// HardPinResolver picks the hard-pin tier's provider/model for one request.
+// ok=false signals no eligible provider.
+type HardPinResolver func(HardPinRequest) (provider, model string, ok bool)
+
 // WithHardPinResolver installs a per-request hard-pin resolver. nil
 // preserves the boot-time hardPin{Provider,Model} for every request.
 // ok=false signals no eligible provider, surfacing ErrClusterUnavailable.
-func (s *Service) WithHardPinResolver(resolver func(enabled, denySet map[string]struct{}) (provider, model string, ok bool)) *Service {
+func (s *Service) WithHardPinResolver(resolver HardPinResolver) *Service {
 	s.hardPinResolver = resolver
 	return s
 }
@@ -1644,6 +1765,23 @@ func (s *Service) HasExcludedModelsOverride() bool {
 	return s.excludedModelsOverride != nil
 }
 
+// RoutableModels returns a copy of the set of models this deployment can
+// route, so the admin guard and request-time desugaring share one definition
+// and cannot drift.
+func (s *Service) RoutableModels() map[string]struct{} {
+	// A nil Service arrives as a typed-nil interface from server.Register;
+	// return nil rather than panicking.
+	if s == nil {
+		return nil
+	}
+	universe := s.routableUniverse()
+	out := make(map[string]struct{}, len(universe))
+	for m := range universe {
+		out[m] = struct{}{}
+	}
+	return out
+}
+
 // ExcludedModelsOverride returns a sorted copy of the override list.
 func (s *Service) ExcludedModelsOverride() []string {
 	if s.excludedModelsOverride == nil {
@@ -1694,6 +1832,88 @@ func (s *Service) ExcludedProvidersOverride() []string {
 // OTel export, DB telemetry persistence, and credit billing all need it.
 func (s *Service) usageRequired() bool {
 	return s.emitter != nil || s.telemetry != nil || s.billing != nil
+}
+
+// gatewayResponsesKey identifies the endpoint whose Responses support is being
+// memoized: the BYOK base URL, or the provider name for a deployment-keyed
+// gateway (one endpoint per process). Empty for direct vendors, which are not
+// memoized.
+func gatewayResponsesKey(ctx context.Context, provider string) string {
+	if !providers.IsGateway(provider) {
+		return ""
+	}
+	return EffectiveBaseURL(ctx, provider)
+}
+
+// gatewayLacksResponses reports whether that endpoint already told us it serves
+// no Responses API.
+func (s *Service) gatewayLacksResponses(key string) bool {
+	if key == "" {
+		return false
+	}
+	_, ok := s.noResponsesGateways.Load(key)
+	return ok
+}
+
+// rememberGatewayLacksResponses records a gateway's rejection of the Responses
+// API so later tool turns go straight to chat/completions.
+func (s *Service) rememberGatewayLacksResponses(key string) {
+	if key == "" {
+		return
+	}
+	s.noResponsesGateways.Store(key, struct{}{})
+}
+
+// gatewayModelKey returns "endpoint|model" for gateway providers (BYOK base
+// URL, or provider name when deployment-keyed); empty for direct vendors.
+func gatewayModelKey(endpoint, provider, model string) string {
+	if !providers.IsGateway(provider) || model == "" {
+		return ""
+	}
+	endpoint = strings.TrimRight(endpoint, "/")
+	if endpoint == "" {
+		endpoint = provider
+	}
+	return endpoint + "|" + model
+}
+
+// gatewayLacksModel reports whether that endpoint already answered
+// model-not-found for the model.
+func (s *Service) gatewayLacksModel(key string) bool {
+	if key == "" {
+		return false
+	}
+	_, ok := s.unservedGatewayModels.Load(key)
+	return ok
+}
+
+// rememberGatewayLacksModel records a gateway's model-not-found answer so
+// later turns resolve around the alias instead of paying the 404 again.
+func (s *Service) rememberGatewayLacksModel(ctx context.Context, provider, model string) {
+	key := gatewayModelKey(EffectiveBaseURL(ctx, ""), provider, model)
+	if key == "" {
+		return
+	}
+	s.unservedGatewayModels.Store(key, struct{}{})
+}
+
+// gatewayRejectsPromptCacheKey reports whether that endpoint already told us
+// it refuses bodies carrying prompt_cache_key.
+func (s *Service) gatewayRejectsPromptCacheKey(key string) bool {
+	if key == "" {
+		return false
+	}
+	_, ok := s.noPromptCacheKeyGateways.Load(key)
+	return ok
+}
+
+// rememberGatewayRejectsPromptCacheKey records a gateway's unknown-field
+// rejection of prompt_cache_key so later turns go out without the hint.
+func (s *Service) rememberGatewayRejectsPromptCacheKey(key string) {
+	if key == "" {
+		return
+	}
+	s.noPromptCacheKeyGateways.Store(key, struct{}{})
 }
 
 // newTelemetryBuffer returns a request-scoped buffer, or nil when OTel is
@@ -2171,7 +2391,7 @@ func writeLocalCountTokens(w http.ResponseWriter, body []byte) error {
 // provider. No model rewriting, no routing decision. Anthropic targets get
 // the body scrubbed via envelope parsing; others receive it verbatim.
 func (s *Service) PassthroughToNamedProvider(ctx context.Context, providerName string, body []byte, w http.ResponseWriter, r *http.Request) error {
-	log := observability.Get()
+	log := observability.FromContext(ctx)
 	p, err := s.provider(providerName)
 	if err != nil {
 		return err
@@ -2216,7 +2436,7 @@ func (s *Service) PassthroughToNamedProvider(ctx context.Context, providerName s
 	proxyStart := time.Now()
 	proxyErr := p.Passthrough(ctx, prep, w, r)
 	proxyMs := time.Since(proxyStart).Milliseconds()
-	log.Info("PassthroughToProvider complete", "provider", providerName, "path", r.URL.Path, "method", r.Method, "proxy_ms", proxyMs, "proxy_err", proxyErr)
+	log.Info("PassthroughToProvider complete", "provider", providerName, "proxy_ms", proxyMs, "proxy_err", proxyErr)
 	return proxyErr
 }
 
@@ -2274,6 +2494,10 @@ func (s *Service) anthropicNativeAttempt(
 	}
 }
 
+// anthropicRefusalStopReason is Anthropic's stop_reason for a turn its safety
+// classifiers decline (HTTP 200).
+const anthropicRefusalStopReason = "refusal"
+
 // refusalScanCap bounds how many response bytes a refusalObserver accumulates
 // while scanning for a safety-refusal signal. A refusal surfaces in the opening
 // events, so a small window catches it without buffering a whole response.
@@ -2290,9 +2514,13 @@ const refusalScanOverlap = 32
 // because the native path has no translator Summary to read from.
 // See detectRefusalSignal.
 type refusalObserver struct {
-	inner   http.ResponseWriter
-	buf     []byte
-	refused bool
+	inner http.ResponseWriter
+	buf   []byte
+	// refused reports a safety refusal in the observed prefix; category is
+	// Anthropic's refusal category (cyber, reasoning_extraction, ...) when the
+	// response carried one, else empty.
+	refused  bool
+	category string
 }
 
 func newRefusalObserver(inner http.ResponseWriter) *refusalObserver {
@@ -2321,6 +2549,9 @@ func (o *refusalObserver) Write(p []byte) (int, error) {
 		}
 		if detectRefusalSignal(o.buf[scanFrom:]) {
 			o.refused = true
+			// Scan the whole prefix for the category: it may sit before the
+			// signal that tripped detection.
+			o.category = refusalCategory(o.buf)
 		}
 	}
 	return o.inner.Write(p)
@@ -2343,10 +2574,58 @@ func detectRefusalSignal(b []byte) bool {
 	return bytes.Contains(bytes.ToLower(b), []byte("safeguards flagged"))
 }
 
+// refusalCategoryMaxLen bounds a plausible category token, so a malformed or
+// adversarial response can't turn an unterminated field into a log-field blob.
+const refusalCategoryMaxLen = 64
+
+// refusalCategoryKeys are the JSON fields Anthropic carries the refusal
+// category in; the rendered client-facing text carries it as `[category]`
+// after "Details: " instead.
+var refusalCategoryKeys = [][]byte{
+	[]byte(`"api_refusal_category":"`),
+	[]byte(`"refusal_category":"`),
+	[]byte(`"category":"`),
+}
+
+// refusalCategory extracts Anthropic's refusal category (cyber,
+// reasoning_extraction, ...) from an observed response prefix. Empty when the
+// response carries none — the category is telemetry, never a control signal.
+func refusalCategory(b []byte) string {
+	for _, key := range refusalCategoryKeys {
+		if v, ok := delimitedValue(b, key, '"'); ok {
+			return v
+		}
+	}
+	if v, ok := delimitedValue(b, []byte("Details: ["), ']'); ok {
+		return v
+	}
+	return ""
+}
+
+// delimitedValue returns the bytes between the first occurrence of prefix and
+// the next end byte, when non-empty and within refusalCategoryMaxLen.
+func delimitedValue(b, prefix []byte, end byte) (string, bool) {
+	i := bytes.Index(b, prefix)
+	if i < 0 {
+		return "", false
+	}
+	rest := b[i+len(prefix):]
+	j := bytes.IndexByte(rest, end)
+	if j <= 0 || j > refusalCategoryMaxLen {
+		return "", false
+	}
+	return string(rest[:j]), true
+}
+
 // maybeRepinOnRefusal re-pins the session off the refusing model post-turn
 // so subsequent turns route to a non-refusing model.
 func (s *Service) maybeRepinOnRefusal(ctx context.Context, obs *refusalObserver, sessionKey [sessionpin.SessionKeyLen]byte, role string, served router.Decision) {
 	if obs == nil || !obs.refused || s.pinStore == nil {
+		return
+	}
+	// Detection is unconditional so refusals stay measurable; the flag gates
+	// only the re-pin action.
+	if !s.ResolveCyberRefusalRepin(ctx) {
 		return
 	}
 	installationID := installationIDFromContext(ctx)
@@ -2376,8 +2655,8 @@ func (s *Service) maybeRepinOnRefusal(ctx context.Context, obs *refusalObserver,
 		}
 	}
 	if fbModel == "" || fbProvider == "" || fbModel == served.Model {
-		log.Warn("cyber refusal observed but no distinct fallback model available; not re-pinning",
-			"from_model", served.Model, "fallback_model", fbModel)
+		log.Warn("safety refusal observed but no distinct fallback model available; not re-pinning",
+			"from_model", served.Model, "fallback_model", fbModel, "refusal_category", obs.category)
 		return
 	}
 	pin := sessionpin.Pin{
@@ -2397,8 +2676,9 @@ func (s *Service) maybeRepinOnRefusal(ctx context.Context, obs *refusalObserver,
 		log.Error("cyber-refusal re-pin: pin upsert failed", "err", err, "from_model", served.Model, "to_model", fbModel)
 		return
 	}
-	log.Info("cyber refusal — re-pinned session off refusing model",
+	log.Info("safety refusal — re-pinned session off refusing model",
 		"session_key", shortSessionKey(sessionKey),
+		"refusal_category", obs.category,
 		"from_model", served.Model,
 		"to_model", fbModel,
 		"to_provider", fbProvider)
@@ -2416,7 +2696,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	ctx = s.withUsageObserver(ctx, r.Header)
 	log := observability.FromContext(ctx)
 	requestStart := time.Now()
-	requestID := uuid.New().String()
+	requestID := requestIDFor(ctx)
 	buf := s.newTelemetryBuffer()
 	ctx = buf.WithContext(ctx)
 
@@ -2432,7 +2712,12 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	// Same for the one-click thumbs footer (and its signed rate URLs), which
 	// would otherwise shift assistant prefixes off the prompt cache.
 	// Best-effort: log-and-continue on failure rather than abort over cosmetic
-	// cleanup, matching the OpenAI chat path.
+	// cleanup, matching the OpenAI chat path. The echo check must read the body
+	// before the strip erases its evidence.
+	footerEchoedSinceHumanTurn := translate.FeedbackFooterSinceLastHumanTurn(body)
+	if echoed, _ := ctx.Value(responsesFooterEchoedContextKey{}).(bool); echoed {
+		footerEchoedSinceHumanTurn = true
+	}
 	if strippedBody, ferr := translate.StripFeedbackFooterFromMessages(body); ferr != nil {
 		log.Error("Failed to strip feedback footer from inbound messages", "err", ferr)
 	} else {
@@ -2475,14 +2760,6 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		ctx = withBetaArtifactHistory(ctx)
 		log.Info("Stripped beta artifacts from Anthropic history", "removed_messages", removed)
 	}
-	// A dangling tool_use left by a prior mid-stream failure 400s permanently
-	// on providers that validate tool-call/response pairing (Together); other
-	// providers silently accept it, so the failure only shows up depending on
-	// which model the router picks. Must run before maybeCompact/routing so
-	// every dispatch attempt this turn sees a wire-valid history.
-	if sanitized := env.SanitizeOrphanedToolCalls(); sanitized > 0 {
-		log.Info("Sanitized orphaned tool calls before dispatch", "sanitized", sanitized)
-	}
 
 	embedFlag := s.ResolveEmbedOnlyUserMessage(ctx)
 	feats := env.RoutingFeatures(embedFlag)
@@ -2519,37 +2796,70 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	// env.body so the upstream never sees it). Session key is derived before
 	// extraction: DeriveSessionKey can fall back to prompt text, and deriving
 	// after the strip would mismatch subsequent turns with the unstripped message.
+	agentForceModel := ""
+	requestBodyChanged := false
 	if !agentShadowMode && s.pinStore != nil {
 		if cmd, hasCmd := env.ExtractForceModelCommand(); hasCmd {
 			log.Info("ProxyMessages force-model command", "force_model_cmd", cmd)
-			if err := s.handleForceModelCommand(ctx, w, env, cmd, installationID, sessionKey, feats.Tokens); err != nil {
-				return err
+			if cmd.FromToolResult {
+				var err error
+				agentForceModel, _, err = s.applyForceModelCommand(ctx, env, cmd, installationID, sessionKey)
+				if err != nil {
+					return err
+				}
+				requestBodyChanged = true
+			} else {
+				if err := s.handleForceModelCommand(ctx, w, env, cmd, installationID, sessionKey, feats.Tokens); err != nil {
+					return err
+				}
+				s.grantPostCommandContinuation(ctx, installationID, sessionKey, roleForTier(catalog.TierFor(feats.Model)))
+				return nil
 			}
-			s.grantPostCommandContinuation(ctx, installationID, sessionKey, roleForTier(catalog.TierFor(feats.Model)))
-			return nil
 		}
 	}
 	if !agentShadowMode {
 		if cmd, hasCmd := env.ExtractRouterFeedbackCommand(); hasCmd {
 			log.Info("ProxyMessages router-feedback command")
-			if err := s.handleRouterFeedbackCommand(ctx, w, env, cmd, installationID, sessionKey, feats.Tokens); err != nil {
+			if err := s.handleRouterFeedbackCommand(ctx, w, env, cmd, installationID, sessionKey, feats.Tokens, !cmd.FromToolResult); err != nil {
 				return err
 			}
-			s.grantPostCommandContinuation(ctx, installationID, sessionKey, roleForTier(catalog.TierFor(feats.Model)))
-			return nil
+			if !cmd.FromToolResult {
+				s.grantPostCommandContinuation(ctx, installationID, sessionKey, roleForTier(catalog.TierFor(feats.Model)))
+				return nil
+			}
+			requestBodyChanged = true
+		}
+	}
+
+	// Sanitize after command extraction: a skill can encode its command as a
+	// plain user string after an assistant tool_use, and sanitizing first would
+	// erase the provenance and leave a dangling tool_use that 400s on Together.
+	if sanitized := env.SanitizeOrphanedToolCalls(); sanitized > 0 {
+		log.Info("Sanitized orphaned tool calls before dispatch", "sanitized", sanitized)
+		requestBodyChanged = true
+	}
+	if requestBodyChanged {
+		feats = env.RoutingFeatures(embedFlag)
+		promptText = feats.PromptText
+		embedInput = "concatenated_stream"
+		if embedFlag && feats.OnlyUserMessageText != "" {
+			promptText = feats.OnlyUserMessageText
+			embedInput = "only_user_message"
 		}
 	}
 
 	// Honor the x-weave-force-model header (headless equivalent of /force-model).
 	// Writes the user-forced pin and falls through to normal routing, which picks
 	// the pin up and serves the requested model on this same turn.
-	forceModel := ""
+	forceModel := agentForceModel
 	forceCluster := ""
 	if !agentShadowMode {
-		var forceErr error
-		forceModel, forceErr = s.applyForceModelHeader(ctx, r, env, installationID, sessionKey)
+		headerForceModel, forceErr := s.applyForceModelHeader(ctx, r, env, installationID, sessionKey)
 		if forceErr != nil {
 			return forceErr
+		}
+		if headerForceModel != "" {
+			forceModel = headerForceModel
 		}
 		forceCluster, forceErr = applyForceClusterHeader(ctx, r)
 		if forceErr != nil {
@@ -2557,33 +2867,29 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		}
 	}
 
-	// Tool-call loop break: catches runaway OSS-model tool-call cycles (qwen3
-	// in particular) that the previous-turn-maxed-out guard misses because
-	// each call returns quickly and under the output cap.
 	// Wide cyclic re-read loop (same few files, no edits, dozens of turns) on a
-	// cheap/mid model escalates the session to opus instead, taking precedence
-	// over the tight-loop break below — rescuing beats stopping.
-	escalatedLoop := false
+	// cheap/mid model escalates the session to opus.
 	if !agentShadowMode {
 		if cyc, csig, ccount, cratio, cwin := detectCyclicToolCallLoop(env); cyc {
 			loopRole := roleForTier(catalog.TierFor(feats.Model))
 			s.handleLoopEscalation(ctx, csig, ccount, cratio, cwin, installationID, sessionKey, loopRole, feats.Model)
-			escalatedLoop = true
 		}
-		if !escalatedLoop {
-			if loop, sig, count := detectToolCallLoop(env); loop {
-				loopRole := roleForTier(catalog.TierFor(feats.Model))
-				log.Info("ProxyMessages tool-call loop detected", "tool_sig", sig, "repeat_count", count, "role", loopRole)
-				return s.handleToolCallLoopBreak(ctx, w, env, sig, count, installationID, sessionKey, loopRole, feats.Model, providers.ProviderAnthropic, feats.Tokens)
-			}
-		}
+	}
+
+	// Snapshot before env rewrites: shared by the shadow detector and the
+	// evidence-arming gate below, both of which must see the client-sent body.
+	var inboundSpiralSignals spiralSignals
+	var inboundSpiralReasons []string
+	if s.ResolveSpiralShadowEnabled(ctx) || s.ResolveStruggleEvidenceArming(ctx) {
+		inboundSpiralSignals = computeSpiralSignals(env, feats.MessageCount)
+		inboundSpiralReasons = spiralReasons(inboundSpiralSignals)
 	}
 
 	// Struggle escalation: writes a sticky pin before routing so runTurnLoop
 	// dispatches the sideways target on the same turn.
 	if !agentShadowMode && s.ResolveStruggleEscalationEnabled(ctx) && (turntype.DetectFromEnvelope(env, feats, "") == turntype.MainLoop || turntype.DetectFromEnvelope(env, feats, "") == turntype.ToolResult) {
 		struggleRole := roleForTier(catalog.TierFor(feats.Model))
-		s.handleStruggleEscalation(ctx, installationID, sessionKey, struggleRole)
+		s.handleStruggleEscalation(ctx, installationID, sessionKey, struggleRole, inboundSpiralReasons)
 	}
 	// Surface inbound tool_use / tool_result blocks the model is about to see.
 	// Lets us audit whether a misbehaving turn was provoked by a malformed prior
@@ -2602,6 +2908,13 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		enabledProviders = restrictToSubscriptionProviders(ctx, r.Header, enabledProviders)
 	}
 
+	// Anthropic's native web-search server tool, when no enabled provider runs
+	// it. Served before routing: the scorer's only lever is picking a model,
+	// and for a gateway-exclusive tenant every candidate rejects the tool.
+	if s.serveNativeWebSearch(ctx, body, feats.Model, env.Stream(), feats.Tokens, enabledProviders, r.Header, w) {
+		return nil
+	}
+
 	// Pre-filter models whose context window cannot fit this request.
 	// FullTokenEstimate uses raw body bytes (÷5) to capture tool definitions,
 	// tool calls, and tool results that feats.Tokens (text-only) misses.
@@ -2616,10 +2929,6 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	// what the client actually sent, not a router-shortened body — either the
 	// proactive compaction just below or runTurnLoop's switch-handover rewrite.
 	inboundToolCallCount := len(env.AssistantToolCallSignatures())
-	var inboundSpiralSignals spiralSignals
-	if s.ResolveSpiralShadowEnabled(ctx) {
-		inboundSpiralSignals = computeSpiralSignals(env, feats.MessageCount)
-	}
 	inboundLastUser := env.LastUserMessage()
 
 	// Proactive context-window compaction: shrink an over-long conversation to
@@ -2685,9 +2994,10 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		// can correlate with the route even if local compaction rewrites env.
 		FeedbackKey:          hex.EncodeToString(sessionKey[:]),
 		FeedbackRole:         roleForTier(catalog.TierFor(feats.Model)),
-		ClientSessionID:      env.ClientSessionID(),
+		ClientSessionID:      clientSessionIDForRequest(ctx, env),
 		EnabledProviders:     enabledProviders,
 		CustomBindings:       s.customBindingsForRequest(ctx),
+		GatewayProviders:     s.gatewayProvidersForRequest(ctx),
 		ExcludedModels:       excluded,
 		AllowedModels:        allowedModelsForRequest(ctx),
 		SafetyExcludedModels: s.safetyExcludedModels(env, outputReserve, enabledProviders),
@@ -2744,7 +3054,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		// but modelSwitched() below needs them. Load the same switch history
 		// the turn loop would have produced.
 		if s.pinStore != nil {
-			sessionKey := DeriveSessionKey(env, apiKeyID)
+			sessionKey := deriveSessionKeyForRequest(ctx, env, apiKeyID)
 			role := roleForTier(catalog.TierFor(feats.Model))
 			pin, _ := s.loadPin(ctx, sessionKey, role)
 			hmmHistory := s.loadHMMHistory(ctx, sessionKey, role)
@@ -2802,12 +3112,12 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	// is armed. Main-loop / tool-result turns only — hard-pinned turn types
 	// carry history shapes that mimic the signals.
 	if !agentShadowMode && s.ResolveSpiralShadowEnabled(ctx) && (turntype.DetectFromEnvelope(env, feats, "") == turntype.MainLoop || turntype.DetectFromEnvelope(env, feats, "") == turntype.ToolResult) {
-		if reasons := spiralReasons(inboundSpiralSignals); len(reasons) > 0 {
+		if len(inboundSpiralReasons) > 0 {
 			role := roleForTier(catalog.TierFor(feats.Model))
 			// Use the bindRequestLogger digest, not routeRes.SessionKey (zero
 			// with no pin store), so the spiral event's session_key matches the
 			// telemetry row's in every mode for the offline join.
-			s.handleSpiralShadow(ctx, inboundSpiralSignals, reasons, installationID, sessionKey, role, decision.Model, string(tt))
+			s.handleSpiralShadow(ctx, inboundSpiralSignals, inboundSpiralReasons, installationID, sessionKey, role, decision.Model, string(tt))
 		}
 	}
 
@@ -2944,6 +3254,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		SessionAffinity:                   sessionAffinityHint(routeRes.SessionKey),
 		ModelSwitched:                     routeRes.modelSwitched(),
 		EnableExtendedContext:             shouldEnableExtendedContext(env.FullTokenEstimate(), outputReserve),
+		EnableServerSideFallback:          s.ResolveAnthropicServerSideFallback(ctx),
 		KeepCrossVendorOrchestrationTools: s.ccOrchToolsCrossVendor,
 	}
 	// User-forced effort wins over effortEscalation; also pre-populate
@@ -3004,7 +3315,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			defer keepalive.Close()
 			clientSink = keepalive
 		}
-		if footer := s.feedbackFooter(ctx, ClientIdentityFrom(ctx).ClientApp, routeRes.TurnType); footer != "" {
+		if footer := s.feedbackFooter(ctx, ClientIdentityFrom(ctx).ClientApp, routeRes.TurnType, footerEchoedSinceHumanTurn); footer != "" {
 			clientSink = translate.NewAnthropicRoutingFooterWriter(clientSink, footer)
 		}
 	}
@@ -3021,12 +3332,11 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		captureW = newCaptureWriter(rootSink, semanticCacheMaxBodyBytes)
 		sink = captureW
 	}
-	// Wrap sink to observe refusals on the native path (no translator Summary here).
-	var refusalObs *refusalObserver
-	if s.ResolveCyberRefusalRepin(ctx) {
-		refusalObs = newRefusalObserver(sink)
-		sink = refusalObs
-	}
+	// Wrap sink to observe refusals on the native path (no translator Summary
+	// here). Detection is unconditional: refusals must be measurable independently
+	// of the re-pin kill switch.
+	refusalObs := newRefusalObserver(sink)
+	sink = refusalObs
 
 	proxyStart := time.Now()
 	var proxyErr error
@@ -3066,22 +3376,48 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			}
 			crossFormat = false
 			logUpstreamBody(log, routeRes.SessionKey, target, feats, prep.Body)
-			return s.anthropicNativeAttempt(env, r, prep, sink, preludeBuf, targetMarker, setExtractor), nil
+			native := s.anthropicNativeAttempt(env, r, prep, sink, preludeBuf, targetMarker, setExtractor)
+			return func(actx context.Context, d router.Decision, p providers.Client) error {
+				err := native(actx, d, p)
+				// Cortex documents output_config.format, so the knob goes out as
+				// written; only a gateway whose relayed schema predates it rejects
+				// it — re-emit once without it rather than sending every gateway
+				// turn unstructured.
+				if err == nil || committed(preludeBuf) || !providers.IsUpstreamOutputConfigFormatRejection(err) {
+					return err
+				}
+				unstructuredOpts := targetOpts
+				unstructuredOpts.StripOutputConfigFormat = true
+				unstructuredPrep, emitErr := env.PrepareAnthropic(r.Header, unstructuredOpts)
+				if emitErr != nil {
+					log.Error("Failed to re-emit Anthropic body without output_config.format", "err", emitErr)
+					return err
+				}
+				log.Warn("Retrying Anthropic request without output_config.format after upstream rejected it",
+					"model", d.Model,
+					"provider", d.Provider,
+					"request_id", requestID)
+				if preludeBuf != nil {
+					preludeBuf.Discard()
+				}
+				logUpstreamBody(log, routeRes.SessionKey, target, feats, unstructuredPrep.Body)
+				return s.anthropicNativeAttempt(env, r, unstructuredPrep, sink, preludeBuf, targetMarker, setExtractor)(actx, d, p)
+			}, nil
 		case providers.FamilyOpenAICompat:
 			crossFormat = true
 			// Prep rebuilt per attempt: targetIsOpenRouter(opts) gates four
 			// OpenRouter-only body fields. On failover from Fireworks to
 			// OpenRouter, the body must be re-emitted with TargetProvider =
 			// openrouter so those gates fire.
-			return func(actx context.Context, d router.Decision, p providers.Client) error {
+			// One dispatch on the chosen surface, split into the raw upstream
+			// error plus a finalize thunk so a gateway that rejects Responses can
+			// be re-emitted onto chat/completions before finalize commits the
+			// prelude buffer. Translators are stateful, so the retry calls again.
+			dispatchOpenAICompat := func(actx context.Context, d router.Decision, p providers.Client, useResponses, stripPromptCacheKey bool) (error, func(error) error) {
 				attemptOpts := targetOpts
 				attemptOpts.TargetProvider = d.Provider
+				attemptOpts.StripPromptCacheKey = stripPromptCacheKey
 				respSummary = translate.ResponseSummary{}
-				// Reasoning OpenAI models (gpt-5.x) reject tools/stop/reasoning_effort
-				// on /v1/chat/completions; agentic tool turns must use Responses
-				// instead. Scoped to direct OpenAI (the only one with /v1/responses).
-				useResponses := translate.UseOpenAIResponsesAPI(
-					d.Provider, attemptOpts.Capabilities, feats.HasTools)
 				var prep providers.PreparedRequest
 				var emitErr error
 				if useResponses {
@@ -3091,7 +3427,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 				}
 				if emitErr != nil {
 					log.Error("Failed to translate Anthropic request to OpenAI format", "err", emitErr, "decision_provider", d.Provider, "responses_api", useResponses)
-					return fmt.Errorf("translate anthropic request: %w", emitErr)
+					return fmt.Errorf("translate anthropic request: %w", emitErr), func(err error) error { return err }
 				}
 				reqStats = prep.Stats
 				logUpstreamBody(log, routeRes.SessionKey, d, feats, prep.Body)
@@ -3109,6 +3445,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 						WithToolValidator(toolValidator)
 				} else {
 					translator = translate.NewAnthropicSSETranslator(sink, d.Model, usage).
+						WithLogger(log).
 						WithRoutingMarker(targetMarker).
 						WithEstimatedInputTokens(feats.Tokens).
 						WithRequestHadTools(feats.HasTools).
@@ -3122,17 +3459,67 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 				if preludeBuf != nil {
 					preludeBuf.Seal()
 				}
-				err := p.Proxy(actx, d, prep, translator, r)
-				// Post-commit: HTTP 200 + message_start already on the wire, so
-				// render the error as an in-stream `event: error` frame instead of
-				// a corrupting trailing envelope. Pre-commit errors go through
-				// dispatchWithFallback instead.
-				if err != nil && env.Stream() && preludeBuf.Committed() {
-					err = emitAnthropicSSEErrorEvent(sink, err)
+				rawErr := p.Proxy(actx, d, prep, translator, r)
+				finalize := func(err error) error {
+					// Post-commit: HTTP 200 + message_start already on the wire, so
+					// render the error as an in-stream `event: error` frame instead of
+					// a corrupting trailing envelope. Pre-commit errors go through
+					// dispatchWithFallback instead.
+					if err != nil && env.Stream() && preludeBuf.Committed() {
+						err = emitAnthropicSSEErrorEvent(sink, err)
+					}
+					finErr := finalizeAfterProxy(err, translator.Finalize)
+					respSummary = translator.Summary()
+					return finErr
 				}
-				finErr := finalizeAfterProxy(err, translator.Finalize)
-				respSummary = translator.Summary()
-				return finErr
+				return rawErr, finalize
+			}
+			return func(actx context.Context, d router.Decision, p providers.Client) error {
+				// Direct OpenAI serves every expressible turn on Responses;
+				// gateways only the reasoning tool turn chat/completions rejects.
+				gatewayKey := gatewayResponsesKey(actx, d.Provider)
+				useResponses := translate.UseOpenAIResponsesAPI(translate.ResponsesRoute{
+					Provider:       d.Provider,
+					Capabilities:   targetOpts.Capabilities,
+					HasTools:       feats.HasTools,
+					ChatOnlyParams: env.RequiresChatCompletionsParams(targetOpts.Capabilities),
+					Broad:          s.ResolveOpenAIResponsesBroad(actx),
+				}) && !s.gatewayLacksResponses(gatewayKey)
+				stripPCK := s.gatewayRejectsPromptCacheKey(gatewayKey)
+				rawErr, finalize := dispatchOpenAICompat(actx, d, p, useResponses, stripPCK)
+				// A gateway with no usable Responses surface answers 404, or 4xx
+				// prose saying the API is off for this account. Re-emit onto
+				// chat/completions once while pre-commit, and remember the answer
+				// so the next turn skips the probe.
+				if rawErr != nil && useResponses && !committed(preludeBuf) &&
+					providers.IsUpstreamResponsesUnsupported(rawErr) {
+					s.rememberGatewayLacksResponses(gatewayKey)
+					log.Warn("Gateway rejected the Responses API; retrying on chat/completions",
+						"model", d.Model,
+						"decision_provider", d.Provider,
+						"request_id", requestID)
+					if preludeBuf != nil {
+						preludeBuf.Discard()
+					}
+					useResponses = false
+					rawErr, finalize = dispatchOpenAICompat(actx, d, p, false, stripPCK)
+				}
+				// prompt_cache_key is a spec Chat Completions field, but gateway schemas
+				// that trail the spec 400 it as unknown. Re-emit once without the hint
+				// while pre-commit; memoize the endpoint so later turns skip it.
+				if rawErr != nil && !stripPCK && gatewayKey != "" && !committed(preludeBuf) &&
+					providers.IsUpstreamPromptCacheKeyRejection(rawErr) {
+					s.rememberGatewayRejectsPromptCacheKey(gatewayKey)
+					log.Warn("Gateway rejected prompt_cache_key; retrying without the affinity hint",
+						"model", d.Model,
+						"decision_provider", d.Provider,
+						"request_id", requestID)
+					if preludeBuf != nil {
+						preludeBuf.Discard()
+					}
+					rawErr, finalize = dispatchOpenAICompat(actx, d, p, useResponses, true)
+				}
+				return finalize(rawErr)
 			}, nil
 		case providers.FamilyGemini:
 			prep, emitErr := env.PrepareGemini(r.Header, targetOpts)
@@ -3162,6 +3549,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 				}
 				// SSE chain: Gemini → OpenAI → Anthropic.
 				anthropicTr := translate.NewAnthropicSSETranslator(sink, d.Model, usage).
+					WithLogger(log).
 					WithRoutingMarker(targetMarker).
 					WithEstimatedInputTokens(feats.Tokens).
 					WithRequestHadTools(feats.HasTools).
@@ -3274,13 +3662,15 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 
 	// Same-cluster model failover: when the routed model's only binding is dark,
 	// degrade to a peer the policy already scored. Gated out for subscription-only
-	// turns (a different model incurs the paid spend that mode forbids).
+	// turns (a different model incurs the paid spend that mode forbids). BYOK
+	// normally disables failover, but a gateway-aliased sibling uses the same
+	// held credentials, so it stays eligible.
 	siblingDecision, siblingFound := s.siblingFailoverDecision(ctx, decision, overflowEstimate, env.SignatureTokenSavings(), outputReserve)
 	siblingViable := s.ResolveSiblingFailover(ctx) &&
 		siblingFound &&
 		!agentShadowMode &&
 		decision.Reason != translate.ReasonUserForceModel &&
-		s.shouldFailover(ctx) &&
+		(s.shouldFailover(ctx) || s.gatewaySiblingAllowed(ctx, siblingDecision)) &&
 		!billing.SubscriptionOnlyFromContext(ctx)
 
 	primaryProvider := decision.Provider
@@ -3584,6 +3974,12 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 
 	proxyMs := time.Since(proxyStart).Milliseconds()
 
+	// On the native path there is no translator Summary, so a refusal would
+	// otherwise never reach the completion log or the routing_decisions row.
+	if refusalObs.refused && respSummary.StopReason == "" {
+		respSummary.StopReason = anthropicRefusalStopReason
+	}
+
 	in, out := extractor.Tokens()
 	cacheCreation, cacheRead := extractor.CacheTokens()
 	upstreamBuilder := otel.NewAttrBuilder(40).
@@ -3602,6 +3998,8 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		String("routing.turn_type", string(routeRes.TurnType)).
 		String("upstream.finish_reason", respSummary.UpstreamFinishReason).
 		String("upstream.stop_reason", respSummary.StopReason).
+		Bool("upstream.refusal", refusalObs.refused).
+		String("upstream.refusal_category", refusalObs.category).
 		Int64("usage.input_tokens", int64(in)).
 		Int64("usage.output_tokens", int64(out)).
 		Int64("usage.cache_creation_input_tokens", int64(cacheCreation)).
@@ -3668,7 +4066,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			// same misbehaving model — this turn already streamed and can't retry.
 			s.evictPinAfterDegenerateResponse(ctx, stickyHit, decision.Reason, installationID, routeRes.SessionKey, stickyStateRole(routeRes))
 		}
-		s.fireTelemetry(InsertTelemetryParams{
+		tel := InsertTelemetryParams{
 			InstallationID:         installationID.String(),
 			APIKeyID:               apiKeyIDFromContext(ctx),
 			RequestID:              requestID,
@@ -3681,6 +4079,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			DecisionReason:         decision.Reason,
 			EstimatedInputTokens:   int32(feats.Tokens),
 			StickyHit:              stickyHit,
+			PinTier:                routeRes.PinTier,
 			EmbedInput:             embedInput,
 			InputTokens:            int32(in),
 			OutputTokens:           int32(out),
@@ -3751,7 +4150,10 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			CredentialSource:    credSource,
 			// Phase 0 instrumentation — Anthropic only; see unified_limit_capture.go.
 			UnifiedLimitHeaders: unifiedLimitHeadersJSON(ctx),
-		})
+		}
+		applyPlannerTelemetry(&tel, routeRes)
+		applyAuthorityShadowTelemetry(&tel, routeRes)
+		s.fireTelemetry(tel)
 	}
 
 	// No-op when billing is unwired (selfhosted); only reached on a real
@@ -3785,7 +4187,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			s.maybeDisableProviderAfterOverload(ctx, stickyHit, proxyErr, finalProvider, decision.Reason, installationID, routeRes.SessionKey, stickyStateRole(routeRes), routeRes.PinRole)
 		}
 
-		// Re-pin the session off the refusing model if a cyber refusal was observed.
+		// Re-pin the session off the refusing model if a safety refusal was observed.
 		s.maybeRepinOnRefusal(ctx, refusalObs, routeRes.SessionKey, stickyStateRole(routeRes), decision)
 	}
 
@@ -3804,7 +4206,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		)
 	}
 
-	log.Info("ProxyMessages complete", append([]any{"requested_model", feats.Model, "baseline_model", s.baselineFor(feats.Model), "decision_model", decision.Model, "decision_provider", decision.Provider, "primary_provider", primaryProvider, "fallback_attempts", winnerIdx, "failover_used", finalProvider != primaryProvider || subscriptionFailoverUsed || siblingFailoverUsed, "subscription_failover", subscriptionFailoverUsed, "decision_reason", decision.Reason, "requested_tier", routeRes.RequestedTier.String(), "decision_tier", catalog.TierFor(decision.Model).String(), "embedded_tokens", len(promptText) / 4, "total_input_tokens", feats.Tokens, "has_tools", feats.HasTools, "message_count", feats.MessageCount, "last_kind", feats.LastKind, "last_preview", feats.LastPreview, "embed_input", embedInput, "cross_format", crossFormat, "sticky_hit", stickyHit, "route_ms", routeMs, "proxy_ms", proxyMs, "proxy_err", proxyErr, "upstream_err_body", providers.UpstreamErrorBodyMessage(proxyErr), "upstream_status", upstreamStatus(proxyErr), "upstream_finish_reason", respSummary.UpstreamFinishReason, "resp_stop_reason", respSummary.StopReason, "stop_reason_promoted", respSummary.StopReasonPromoted, "tool_use_blocks", respSummary.ToolUseBlocks, "invalid_tool_args_blocks", respSummary.InvalidToolArgsBlocks, "text_only_turn_nudged", respSummary.TextOnlyTurnNudged, "stop_reason_demoted", respSummary.StopReasonDemoted, "suppressed_tool_calls", respSummary.SuppressedToolCalls, "tool_call_invalid_blocks", len(respSummary.ToolCallIssues), "cc_only_tools_stripped", reqStats.CCOnlyToolsStripped, "gemini_reminder_injected", reqStats.GeminiReminderInjected, "gemini_validated_tool_mode", reqStats.GeminiValidatedToolMode, "resp_output_tokens", respSummary.OutputTokens, "prelude_committed", preludeBuf.Committed(), "routing_marker", marker, "prior_served_model", routeRes.PriorServedModel, "hard_pinned", routeRes.HardPinned}, plannerLogFields(routeRes)...)...)
+	log.Info("ProxyMessages complete", append([]any{"requested_model", feats.Model, "baseline_model", s.baselineFor(feats.Model), "decision_model", decision.Model, "decision_provider", decision.Provider, "primary_provider", primaryProvider, "fallback_attempts", winnerIdx, "failover_used", finalProvider != primaryProvider || subscriptionFailoverUsed || siblingFailoverUsed, "subscription_failover", subscriptionFailoverUsed, "decision_reason", decision.Reason, "requested_tier", routeRes.RequestedTier.String(), "decision_tier", catalog.TierFor(decision.Model).String(), "embedded_tokens", len(promptText) / 4, "total_input_tokens", feats.Tokens, "has_tools", feats.HasTools, "message_count", feats.MessageCount, "last_kind", feats.LastKind, "last_preview", feats.LastPreview, "embed_input", embedInput, "cross_format", crossFormat, "sticky_hit", stickyHit, "route_ms", routeMs, "proxy_ms", proxyMs, "proxy_err", proxyErr, "upstream_err_body", providers.UpstreamErrorBodyMessage(proxyErr), "upstream_status", upstreamStatus(proxyErr), "upstream_finish_reason", respSummary.UpstreamFinishReason, "resp_stop_reason", respSummary.StopReason, "resp_refusal", refusalObs.refused, "resp_refusal_category", refusalObs.category, "stop_reason_promoted", respSummary.StopReasonPromoted, "tool_use_blocks", respSummary.ToolUseBlocks, "invalid_tool_args_blocks", respSummary.InvalidToolArgsBlocks, "text_only_turn_nudged", respSummary.TextOnlyTurnNudged, "stop_reason_demoted", respSummary.StopReasonDemoted, "suppressed_tool_calls", respSummary.SuppressedToolCalls, "tool_call_invalid_blocks", len(respSummary.ToolCallIssues), "cc_only_tools_stripped", reqStats.CCOnlyToolsStripped, "gemini_reminder_injected", reqStats.GeminiReminderInjected, "gemini_validated_tool_mode", reqStats.GeminiValidatedToolMode, "resp_output_tokens", respSummary.OutputTokens, "prelude_committed", preludeBuf.Committed(), "routing_marker", marker, "prior_served_model", routeRes.PriorServedModel, "hard_pinned", routeRes.HardPinned}, plannerLogFields(routeRes)...)...)
 	policyRespBody, policyRespTrunc := capturedResponse(policyOutcomeCap)
 	var policyResp *policyOutcomeResponse
 	if policyOutcomeCap != nil {
@@ -4503,6 +4905,13 @@ func (s *Service) enabledProvidersForRequest(ctx context.Context, surfaceProvide
 	for p := range s.excludedProvidersForRequest(ctx) {
 		delete(out, p)
 	}
+	// A BYOK gateway is the tenant's own endpoint and displaces every other
+	// upstream: routing through a vendor would send their traffic outside the
+	// gateway they mandated. Applied last so no enrollment path above can
+	// re-admit a vendor, and their provider exclusions become moot.
+	if gateways := s.gatewayProvidersForRequest(ctx); len(gateways) > 0 {
+		return gateways
+	}
 	return out
 }
 
@@ -4831,14 +5240,14 @@ func (s *Service) fireBilling(ctx context.Context, p billing.DebitInferenceParam
 	if p.OrganizationID == "" {
 		// Shouldn't happen on managed-mode authed requests. Debug level so a
 		// synthetic test exercising the hook doesn't page on-call.
-		observability.Get().Debug("Billing debit skipped: no organization_id on request")
+		observability.FromContext(ctx).Debug("Billing debit skipped: no organization_id on request")
 		return
 	}
 	dbCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	balance, err := s.billing.DebitForInference(dbCtx, p)
 	if err == nil {
-		observability.Get().Debug("Billing debit complete",
+		observability.FromContext(ctx).Debug("Billing debit complete",
 			"organization_id", p.OrganizationID,
 			"router_request_id", p.RouterRequestID,
 			"model", p.Model,
@@ -4855,7 +5264,7 @@ func (s *Service) fireBilling(ctx context.Context, p billing.DebitInferenceParam
 // logBillingDebitFailure emits a structured Error log so on-call alerting can
 // fire on the resulting log rate without a new prometheus dependency.
 func logBillingDebitFailure(ctx context.Context, p billing.DebitInferenceParams, err error) {
-	observability.Get().Error("router_billing_debit_failed",
+	observability.FromContext(ctx).Error("router_billing_debit_failed",
 		"err", err,
 		"organization_id", p.OrganizationID,
 		"router_request_id", p.RouterRequestID,
@@ -4905,6 +5314,21 @@ func finalizeAfterProxy(proxyErr error, fn func() error) error {
 	return finErr
 }
 
+// openAISurface names which OpenAI endpoint an attempt POSTs to and in what
+// representation; the three cases differ in both emit and response handling.
+type openAISurface int
+
+const (
+	// surfaceChat is /v1/chat/completions with the client's own format.
+	surfaceChat openAISurface = iota
+	// surfaceResponsesNative is /v1/responses with a Responses caller's
+	// original bytes, streamed back verbatim.
+	surfaceResponsesNative
+	// surfaceResponsesTranslated is /v1/responses emitted from a
+	// chat/completions request, with the response translated back to chat.
+	surfaceResponsesTranslated
+)
+
 // ProxyOpenAIChatCompletion routes an OpenAI Chat Completion request,
 // translating cross-format when the decision picks a non-OpenAI provider.
 func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w http.ResponseWriter, r *http.Request) error {
@@ -4915,7 +5339,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	ctx = s.withUsageObserver(ctx, r.Header)
 	log := observability.FromContext(ctx)
 	requestStart := time.Now()
-	requestID := uuid.New().String()
+	requestID := requestIDFor(ctx)
 	buf := s.newTelemetryBuffer()
 	ctx = buf.WithContext(ctx)
 
@@ -4934,7 +5358,12 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	// Same for the one-click thumbs footer (and its signed rate URLs), which
 	// would otherwise shift assistant prefixes off the prompt cache.
 	// Best-effort: log-and-continue on failure rather than abort over cosmetic
-	// cleanup, matching the Anthropic Messages path.
+	// cleanup, matching the Anthropic Messages path. The echo check must read
+	// the body before the strip erases its evidence.
+	footerEchoedSinceHumanTurn := translate.FeedbackFooterSinceLastHumanTurn(body)
+	if echoed, _ := ctx.Value(responsesFooterEchoedContextKey{}).(bool); echoed {
+		footerEchoedSinceHumanTurn = true
+	}
 	strippedBody, stripErr = translate.StripFeedbackFooterFromMessages(body)
 	if stripErr != nil {
 		log.Error("Failed to strip feedback footer from OpenAI messages", "err", stripErr)
@@ -4957,14 +5386,6 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	if removed := env.StripBetaArtifacts(); removed > 0 {
 		ctx = withBetaArtifactHistory(ctx)
 		log.Info("Stripped beta artifacts from OpenAI history", "removed_messages", removed)
-	}
-	// A dangling tool_use left by a prior mid-stream failure 400s permanently
-	// on providers that validate tool-call/response pairing (Together); other
-	// providers silently accept it, so the failure only shows up depending on
-	// which model the router picks. Must run before maybeCompact/routing so
-	// every dispatch attempt this turn sees a wire-valid history.
-	if sanitized := env.SanitizeOrphanedToolCalls(); sanitized > 0 {
-		log.Info("Sanitized orphaned tool calls before dispatch", "sanitized", sanitized)
 	}
 	embedFlag := s.ResolveEmbedOnlyUserMessage(ctx)
 	feats := env.RoutingFeatures(embedFlag)
@@ -5001,31 +5422,66 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	// env.body so the upstream never sees it). Session key is derived before
 	// extraction: DeriveSessionKey can fall back to prompt text, and deriving
 	// after the strip would mismatch subsequent turns with the unstripped message.
+	agentForceModel := ""
+	requestBodyChanged := false
 	if s.pinStore != nil {
 		if cmd, hasCmd := env.ExtractForceModelCommand(); hasCmd {
 			log.Info("ProxyOpenAIChatCompletion force-model command", "force_model_cmd", cmd)
-			if err := s.handleForceModelCommand(ctx, w, env, cmd, installationID, sessionKey, feats.Tokens); err != nil {
-				return err
+			if cmd.FromToolResult {
+				var err error
+				agentForceModel, _, err = s.applyForceModelCommand(ctx, env, cmd, installationID, sessionKey)
+				if err != nil {
+					return err
+				}
+				requestBodyChanged = true
+			} else {
+				if err := s.handleForceModelCommand(ctx, w, env, cmd, installationID, sessionKey, feats.Tokens); err != nil {
+					return err
+				}
+				s.grantPostCommandContinuation(ctx, installationID, sessionKey, roleForTier(catalog.TierFor(feats.Model)))
+				return nil
 			}
-			s.grantPostCommandContinuation(ctx, installationID, sessionKey, roleForTier(catalog.TierFor(feats.Model)))
-			return nil
 		}
 	}
 	if cmd, hasCmd := env.ExtractRouterFeedbackCommand(); hasCmd {
 		log.Info("ProxyOpenAIChatCompletion router-feedback command")
-		if err := s.handleRouterFeedbackCommand(ctx, w, env, cmd, installationID, sessionKey, feats.Tokens); err != nil {
+		if err := s.handleRouterFeedbackCommand(ctx, w, env, cmd, installationID, sessionKey, feats.Tokens, !cmd.FromToolResult); err != nil {
 			return err
 		}
-		s.grantPostCommandContinuation(ctx, installationID, sessionKey, roleForTier(catalog.TierFor(feats.Model)))
-		return nil
+		if !cmd.FromToolResult {
+			s.grantPostCommandContinuation(ctx, installationID, sessionKey, roleForTier(catalog.TierFor(feats.Model)))
+			return nil
+		}
+		requestBodyChanged = true
+	}
+
+	// Sanitize after command extraction: a skill can encode its command as a
+	// plain user string after an assistant tool_use, and sanitizing first would
+	// erase the provenance and leave a dangling tool_use that 400s on Together.
+	if sanitized := env.SanitizeOrphanedToolCalls(); sanitized > 0 {
+		log.Info("Sanitized orphaned tool calls before dispatch", "sanitized", sanitized)
+		requestBodyChanged = true
+	}
+	if requestBodyChanged {
+		feats = env.RoutingFeatures(embedFlag)
+		promptText = feats.PromptText
+		embedInput = "concatenated_stream"
+		if embedFlag && feats.OnlyUserMessageText != "" {
+			promptText = feats.OnlyUserMessageText
+			embedInput = "only_user_message"
+		}
 	}
 
 	// Honor the x-weave-force-model header (headless equivalent of /force-model).
 	// Writes the user-forced pin and falls through to normal routing, which picks
 	// the pin up and serves the requested model on this same turn.
-	forceModel, forceErr := s.applyForceModelHeader(ctx, r, env, installationID, sessionKey)
+	forceModel := agentForceModel
+	headerForceModel, forceErr := s.applyForceModelHeader(ctx, r, env, installationID, sessionKey)
 	if forceErr != nil {
 		return forceErr
+	}
+	if headerForceModel != "" {
+		forceModel = headerForceModel
 	}
 	forceCluster, forceErr := applyForceClusterHeader(ctx, r)
 	if forceErr != nil {
@@ -5034,20 +5490,9 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 
 	// Wide cyclic re-read loop → escalate to opus (same path as the Anthropic
 	// ingress). See detectCyclicToolCallLoop / handleLoopEscalation.
-	escalatedLoop := false
 	if cyc, csig, ccount, cratio, cwin := detectCyclicToolCallLoop(env); cyc {
 		loopRole := roleForTier(catalog.TierFor(feats.Model))
 		s.handleLoopEscalation(ctx, csig, ccount, cratio, cwin, installationID, sessionKey, loopRole, feats.Model)
-		escalatedLoop = true
-	}
-	// Tool-call loop break: same path as the Anthropic ingress. See the
-	// detectToolCallLoop / handleToolCallLoopBreak doc comments for rationale.
-	if !escalatedLoop {
-		if loop, sig, count := detectToolCallLoop(env); loop {
-			loopRole := roleForTier(catalog.TierFor(feats.Model))
-			log.Info("ProxyOpenAIChatCompletion tool-call loop detected", "tool_sig", sig, "repeat_count", count, "role", loopRole)
-			return s.handleToolCallLoopBreak(ctx, w, env, sig, count, installationID, sessionKey, loopRole, feats.Model, providers.ProviderOpenAI, feats.Tokens)
-		}
 	}
 
 	logInboundRequestDiagnostics(log, env)
@@ -5157,9 +5602,10 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		// can correlate with the route even if local compaction rewrites env.
 		FeedbackKey:          hex.EncodeToString(sessionKey[:]),
 		FeedbackRole:         roleForTier(catalog.TierFor(feats.Model)),
-		ClientSessionID:      env.ClientSessionID(),
+		ClientSessionID:      clientSessionIDForRequest(ctx, env),
 		EnabledProviders:     enabledProviders,
 		CustomBindings:       s.customBindingsForRequest(ctx),
+		GatewayProviders:     s.gatewayProvidersForRequest(ctx),
 		ExcludedModels:       excludedOAI,
 		AllowedModels:        allowedModelsForRequest(ctx),
 		SafetyExcludedModels: s.safetyExcludedModels(env, outputReserveOAI, enabledProviders),
@@ -5263,13 +5709,14 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	otel.Flush(ctx)
 
 	opts := translate.EmitOptions{
-		TargetModel:           decision.Model,
-		TargetProvider:        decision.Provider,
-		Capabilities:          router.Lookup(decision.Model),
-		IncludeStreamUsage:    s.usageRequired(),
-		SessionAffinity:       sessionAffinityHint(routeRes.SessionKey),
-		ModelSwitched:         routeRes.modelSwitched(),
-		EnableExtendedContext: shouldEnableExtendedContext(env.FullTokenEstimate(), outputReserveOAI),
+		TargetModel:              decision.Model,
+		TargetProvider:           decision.Provider,
+		Capabilities:             router.Lookup(decision.Model),
+		IncludeStreamUsage:       s.usageRequired(),
+		SessionAffinity:          sessionAffinityHint(routeRes.SessionKey),
+		EnableServerSideFallback: s.ResolveAnthropicServerSideFallback(ctx),
+		ModelSwitched:            routeRes.modelSwitched(),
+		EnableExtendedContext:    shouldEnableExtendedContext(env.FullTokenEstimate(), outputReserveOAI),
 	}
 	if knobs := routingKnobsForRequest(ctx); knobs != nil && knobs.ForceEffort != "" {
 		opts.ForceEffort = knobs.ForceEffort
@@ -5304,7 +5751,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	// special-casing — /v1/responses footers are a follow-up.
 	clientSink := w
 	if _, isResponses := w.(*translate.ResponsesWriter); env.Stream() && !isResponses {
-		if footer := s.feedbackFooter(ctx, ClientIdentityFrom(ctx).ClientApp, routeRes.TurnType); footer != "" {
+		if footer := s.feedbackFooter(ctx, ClientIdentityFrom(ctx).ClientApp, routeRes.TurnType, footerEchoedSinceHumanTurn); footer != "" {
 			clientSink = translate.NewOpenAIRoutingFooterWriter(w, footer)
 		}
 	}
@@ -5319,13 +5766,43 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		marker = subscriptionOnlyWarningMarkerCodex
 	}
 
-	// Inject verbose routing marker when policy debug is enabled; gated on
-	// verbatimPassthrough (verbatim OpenAI frames can't have chunks injected).
-	verbatimPassthrough := responsesPassthrough && decision.Provider == providers.ProviderOpenAI
-	debugEnabled, _ := ctx.Value(PolicyDebugEnabledContextKey{}).(bool)
-	if rw, ok := w.(*translate.ResponsesWriter); ok && marker != "" && !verbatimPassthrough && (debugEnabled || billing.SubscriptionOnlyFromContext(ctx)) {
-		rw.SetBadgeText(marker)
+	// gpt-5.6 applies its own effort on chat/completions, so a /v1/responses
+	// caller's original bytes serve it natively — preserving reasoning the chat
+	// projection drops. Skip when compaction or a handover rewrote the envelope
+	// (stale bytes); pre-routing readers of responsesPassthrough already ran.
+	responsesEndpointKey := EffectiveBaseURL(ctx, decision.Provider)
+	promotedToResponses := false
+	if !responsesPassthrough && !compResOAI.Applied && !routeRes.Handover.Invoked &&
+		decision.Provider == providers.ProviderOpenAI &&
+		translate.UseOpenAIResponsesAPI(translate.ResponsesRoute{
+			Provider:       decision.Provider,
+			Capabilities:   opts.Capabilities,
+			HasTools:       feats.HasTools,
+			ChatOnlyParams: env.RequiresChatCompletionsParams(opts.Capabilities),
+			Broad:          s.ResolveOpenAIResponsesBroad(ctx),
+		}) &&
+		!s.gatewayLacksResponses(responsesEndpointKey) {
+		if native, ok := ctx.Value(nativeResponsesBodyContextKey{}).([]byte); ok && len(native) > 0 {
+			responsesBody = native
+			responsesPassthrough = true
+			promotedToResponses = true
+		}
 	}
+
+	// Previously gated on policy debug; ordinary Codex turns fell through to
+	// ResponsesWriter's legacy badge that ignored suppression and never showed the routing reason.
+	verbatimPassthrough := responsesPassthrough && decision.Provider == providers.ProviderOpenAI
+	if rw, ok := w.(*translate.ResponsesWriter); ok {
+		if marker != "" && !verbatimPassthrough {
+			rw.SetBadgeText(marker)
+		}
+		if footer := s.feedbackFooter(ctx, clientID.ClientApp, routeRes.TurnType, footerEchoedSinceHumanTurn); footer != "" {
+			rw.SetFooterText(footer)
+		}
+	}
+	// Keep a stable copy for a possible chat/completions fallback after a native
+	// Responses endpoint rejects the request.
+	translatedMarker := marker
 
 	// Responses entry point delegates the eager response.created emit to
 	// this layer because it has the post-routing binding count. Fire only
@@ -5342,11 +5819,12 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		// single-binding GPT model with no cross-format fallback to retry
 		// into. If a GPT model ever gains a fallback, gate this per-attempt.
 		if verbatimPassthrough {
-			markerEnabled := suppressMarkerIfRequested(ctx, r.Header, "enabled") != "" && !routeRes.SuggestionMode
-			mandatoryWarning := billing.SubscriptionOnlyFromContext(ctx)
-			if clientID.ClientApp == ClientAppCodex && (markerEnabled || mandatoryWarning) {
-				if mandatoryWarning {
-					rw.SetBadgeText(subscriptionOnlyWarningMarkerCodex)
+			// marker already carries the depleted-credits warning in
+			// subscription-only mode, which overrides the opt-out above.
+			// Parse native SSE when Codex needs a badge and/or footer.
+			if clientID.ClientApp == ClientAppCodex && (marker != "" || s.feedbackFooter(ctx, clientID.ClientApp, routeRes.TurnType, footerEchoedSinceHumanTurn) != "") {
+				if marker != "" {
+					rw.SetBadgeText(marker)
 				}
 				rw.SetPassthroughBadge()
 			} else {
@@ -5367,11 +5845,6 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		sink = captureW
 	}
 
-	if verbatimPassthrough {
-		// The client receives raw Responses SSE from the Codex backend; a
-		// chat-completions routing-marker chunk would corrupt that stream.
-		marker = ""
-	}
 	_, isResponses := w.(*translate.ResponsesWriter)
 	// makeMarkerSink wraps sink with an OpenAIRoutingMarkerWriter emitting the
 	// marker chunk + HTTP 200 eagerly (skipped for /v1/responses). Called per
@@ -5395,12 +5868,28 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		return mw
 	}
 
+	// Chat caller: emit onto Responses and translate back; skipped for Responses-ingress (handled above).
+	translateToResponses := !isResponses && !responsesPassthrough &&
+		decision.Provider == providers.ProviderOpenAI &&
+		translate.UseOpenAIResponsesAPI(translate.ResponsesRoute{
+			Provider:       decision.Provider,
+			Capabilities:   opts.Capabilities,
+			HasTools:       feats.HasTools,
+			ChatOnlyParams: env.RequiresChatCompletionsParams(opts.Capabilities),
+			Broad:          s.ResolveOpenAIResponsesBroad(ctx),
+		}) &&
+		!s.gatewayLacksResponses(responsesEndpointKey)
+	// nil when the request has no tools; the translator treats nil as syntax-check-only.
+	toolValidator := env.ToolValidator()
+
 	proxyStart := time.Now()
 	var proxyErr error
 	crossFormat := false
 	var extractor *otel.UsageExtractor
 
 	var attempt dispatchAttempt
+	// Overwritten per attempt, so it holds the winning attempt's signals.
+	var respSummary translate.ResponseSummary
 	// Dispatch keys off the provider's translation family, not a hardcoded name
 	// list, so a new OpenAI-compat provider routes here as soon as it has a
 	// ProviderFamilies entry (see internal/providers/provider.go).
@@ -5409,9 +5898,12 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		// Prep rebuilt per attempt: targetIsOpenRouter(opts) gates four
 		// OpenRouter-only body fields that Fireworks/Bedrock/Makora/Together
 		// should not see. On failover to OpenRouter the body must be re-emitted.
-		attempt = func(actx context.Context, d router.Decision, p providers.Client) error {
+		// Split from attempt so a native dispatch that finds no Responses surface
+		// can re-emit onto chat/completions while still pre-commit.
+		dispatchOpenAI := func(actx context.Context, d router.Decision, p providers.Client, surface openAISurface, stripPromptCacheKey bool) error {
 			var prep providers.PreparedRequest
-			if responsesPassthrough && d.Provider == providers.ProviderOpenAI {
+			switch surface {
+			case surfaceResponsesNative:
 				// Dispatch the caller's ORIGINAL Responses body (untranslated) to
 				// the OpenAI Responses endpoint, rewriting only the model. This keeps
 				// native Responses extensions lossless.
@@ -5428,19 +5920,42 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 						Transformations: responseTransformationsFromContext(actx),
 					},
 				}
-			} else {
+			default:
 				attemptOpts := opts
 				attemptOpts.TargetProvider = d.Provider
+				attemptOpts.StripPromptCacheKey = stripPromptCacheKey
 				var emitErr error
-				prep, emitErr = env.PrepareOpenAI(r.Header, attemptOpts)
+				if surface == surfaceResponsesTranslated {
+					prep, emitErr = env.PrepareOpenAIResponses(r.Header, attemptOpts)
+				} else {
+					prep, emitErr = env.PrepareOpenAI(r.Header, attemptOpts)
+				}
 				if emitErr != nil {
-					log.Error("Failed to emit OpenAI body", "err", emitErr, "decision_provider", d.Provider)
+					log.Error("Failed to emit OpenAI body", "err", emitErr,
+						"decision_provider", d.Provider, "endpoint", prep.Endpoint)
 					return fmt.Errorf("emit body: %w", emitErr)
 				}
 			}
 			attemptSink := makeMarkerSink()
 			proxyWriter := attemptSink
-			if s.usageRequired() {
+			// A translated attempt reads Responses SSE, which the chat-shaped
+			// usage extractor can't parse — the translator records usage instead.
+			var translator *translate.ResponsesToOpenAIChatWriter
+			switch {
+			case surface == surfaceResponsesTranslated:
+				var usage otel.UsageSink
+				if s.usageRequired() {
+					extractor = otel.NewUsageExtractor(nil, d.Provider)
+					usage = extractor
+				}
+				translator = translate.NewResponsesToOpenAIChatWriter(attemptSink, d.Model, usage).
+					WithLogger(log).
+					WithToolValidator(toolValidator)
+				if err := translator.Prelude(env.Stream()); err != nil {
+					log.Error("chat/completions prelude failed (Responses upstream)", "err", err)
+				}
+				proxyWriter = translator
+			case s.usageRequired():
 				extractor = otel.NewUsageExtractor(attemptSink, d.Provider)
 				proxyWriter = extractor
 			}
@@ -5450,16 +5965,73 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 			err := p.Proxy(actx, d, prep, proxyWriter, r)
 			// Post-commit: bytes already on the wire, render as an in-stream
 			// frame instead of a corrupting envelope (pre-commit goes through
-			// dispatchWithFallback). Gate on THIS attempt being the verbatim
-			// Codex backend, not responsesPassthrough alone: a native request can
-			// still route to Claude/OSS through the translating ResponsesWriter,
-			// which needs its own error frame — only the verbatim Codex attempt
-			// already delivered the upstream's own Responses error event.
-			verbatimCodex := responsesPassthrough && d.Provider == providers.ProviderOpenAI
-			if err != nil && !verbatimCodex && env.Stream() && preludeBuf.Committed() {
+			// dispatchWithFallback). Gate on THIS attempt being native: a non-native
+			// request through the translating ResponsesWriter still needs its own
+			// error frame; a native attempt already delivered the upstream's.
+			if err != nil && surface != surfaceResponsesNative && env.Stream() && preludeBuf.Committed() {
 				err = emitOpenAISSEErrorEvent(sink, err)
 			}
+			if translator != nil {
+				finalErr := finalizeAfterProxy(err, translator.Finalize)
+				respSummary = translator.Summary()
+				return finalErr
+			}
 			return err
+		}
+		attempt = func(actx context.Context, d router.Decision, p providers.Client) error {
+			surface := surfaceChat
+			if d.Provider == providers.ProviderOpenAI {
+				switch {
+				case responsesPassthrough:
+					surface = surfaceResponsesNative
+				case translateToResponses:
+					surface = surfaceResponsesTranslated
+				}
+			}
+			gatewayKey := gatewayResponsesKey(actx, d.Provider)
+			stripPCK := s.gatewayRejectsPromptCacheKey(gatewayKey)
+			err := dispatchOpenAI(actx, d, p, surface, stripPCK)
+			// Same prompt_cache_key unknown-field class as ProxyMessages' OpenAI-compat
+			// path: re-emit once without the hint while pre-commit; memoize the endpoint.
+			if err != nil && !stripPCK && gatewayKey != "" && !committed(preludeBuf) &&
+				providers.IsUpstreamPromptCacheKeyRejection(err) {
+				s.rememberGatewayRejectsPromptCacheKey(gatewayKey)
+				stripPCK = true
+				log.Warn("Gateway rejected prompt_cache_key; retrying without the affinity hint",
+					"model", d.Model,
+					"decision_provider", d.Provider,
+					"request_id", requestID)
+				if preludeBuf != nil {
+					preludeBuf.Discard()
+				}
+				err = dispatchOpenAI(actx, d, p, surface, true)
+			}
+			// Retried once pre-commit on chat/completions; memoized for later turns.
+			// A native attempt also needs promotedToResponses — a Codex passthrough has none.
+			if err == nil || surface == surfaceChat ||
+				committed(preludeBuf) || !providers.IsUpstreamResponsesUnsupported(err) {
+				return err
+			}
+			if surface == surfaceResponsesNative {
+				rw, ok := w.(*translate.ResponsesWriter)
+				if !promotedToResponses || !ok || !rw.ClearPassthrough() {
+					return err
+				}
+				responsesPassthrough = false
+				if translatedMarker != "" {
+					rw.SetBadgeText(translatedMarker)
+				}
+			}
+			translateToResponses = false
+			s.rememberGatewayLacksResponses(responsesEndpointKey)
+			log.Warn("OpenAI endpoint rejected the Responses API; retrying on chat/completions",
+				"model", d.Model,
+				"decision_provider", d.Provider,
+				"request_id", requestID)
+			if preludeBuf != nil {
+				preludeBuf.Discard()
+			}
+			return dispatchOpenAI(actx, d, p, surfaceChat, stripPCK)
 		}
 	case providers.FamilyGemini:
 		crossFormat = true
@@ -5664,7 +6236,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	installationIDOAI, _ := ctx.Value(InstallationIDContextKey{}).(string)
 	if installationIDOAI != "" {
 		credentialKeyPrefix, credentialKeySuffix, credSource := s.credentialKeyParts(ctx)
-		s.fireTelemetry(InsertTelemetryParams{
+		telOAI := InsertTelemetryParams{
 			InstallationID:         installationIDOAI,
 			APIKeyID:               apiKeyIDFromContext(ctx),
 			RequestID:              requestID,
@@ -5677,6 +6249,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 			DecisionReason:         decision.Reason,
 			EstimatedInputTokens:   int32(feats.Tokens),
 			StickyHit:              stickyHit,
+			PinTier:                routeRes.PinTier,
 			EmbedInput:             embedInput,
 			InputTokens:            int32(in),
 			OutputTokens:           int32(out),
@@ -5729,7 +6302,25 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 			CredentialKeyPrefix: credentialKeyPrefix,
 			CredentialKeySuffix: credentialKeySuffix,
 			CredentialSource:    credSource,
-		})
+		}
+		applyPlannerTelemetry(&telOAI, routeRes)
+		applyAuthorityShadowTelemetry(&telOAI, routeRes)
+		s.fireTelemetry(telOAI)
+	}
+
+	// One event per tool call that failed toolcheck validation, mirroring the
+	// Anthropic path's per-model tool-calling-quality signal.
+	for _, iss := range respSummary.ToolCallIssues {
+		log.Info("router.tool_call_invalid",
+			"tool_name", iss.ToolName,
+			"failure_bucket", string(iss.Bucket),
+			"detail", iss.Detail,
+			"repaired", iss.Repaired,
+			"repair_actions", iss.Actions,
+			"model", decision.Model,
+			"provider", finalProvider,
+			"session_key_prefix", shortSessionKey(routeRes.SessionKey),
+		)
 	}
 
 	log.Info("ProxyOpenAIChatCompletion complete", append([]any{"requested_model", feats.Model, "baseline_model", s.baselineFor(feats.Model), "decision_model", decision.Model, "decision_provider", decision.Provider, "primary_provider", primaryProvider, "fallback_attempts", winnerIdx, "failover_used", finalProvider != primaryProvider, "decision_reason", decision.Reason, "requested_tier", routeRes.RequestedTier.String(), "decision_tier", catalog.TierFor(decision.Model).String(), "embedded_tokens", len(promptText) / 4, "total_input_tokens", feats.Tokens, "has_tools", feats.HasTools, "embed_input", embedInput, "cross_format", crossFormat, "sticky_hit", stickyHit, "pin_tier", pinTier, "turn_type", string(tt), "route_ms", routeMs, "proxy_ms", proxyMs, "proxy_err", proxyErr, "upstream_err_body", providers.UpstreamErrorBodyMessage(proxyErr), "upstream_status", upstreamStatus(proxyErr), "routing_marker", marker, "prior_served_model", routeRes.PriorServedModel, "hard_pinned", routeRes.HardPinned}, plannerLogFields(routeRes)...)...)
@@ -5753,6 +6344,9 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 func (s *Service) ProxyOpenAIResponses(ctx context.Context, body []byte, w http.ResponseWriter, r *http.Request) error {
 	ctx = s.withUsageObserver(ctx, r.Header)
 	clientAppCodex := ClientIdentityFrom(ctx).ClientApp == ClientAppCodex
+	if translate.FeedbackFooterSinceLastHumanTurnInResponses(body) {
+		ctx = context.WithValue(ctx, responsesFooterEchoedContextKey{}, true)
+	}
 	conversion, err := translate.ConvertResponsesToChatCompletionsWithOptions(body, translate.ResponsesConversionOptions{
 		PortableCodex: clientAppCodex,
 	})
@@ -5761,21 +6355,30 @@ func (s *Service) ProxyOpenAIResponses(ctx context.Context, body []byte, w http.
 	}
 	chatBody, model := conversion.Body, conversion.Model
 	codexNativeRequest := codexResponsesRequest(ctx, r.Header)
-	// Keep original bytes only when the request is unrepresentable as Chat
-	// Completions (NativeOnly) or a Codex subscription is using its direct endpoint.
-	if conversion.Requirements.NativeOnly || codexNativeRequest {
-		nativeBody := conversion.OriginalBody
-		if clientAppCodex {
-			// Codex records response.output_item.done as conversation history and
-			// sends it back in the next native request. Remove only the badge this
-			// client opted into so router text never reaches the selected model.
-			nativeBody, err = translate.StripRoutingBadgeFromResponsesInput(nativeBody)
-			if err != nil {
-				return fmt.Errorf("strip native Responses routing badge: %w", err)
-			}
+	nativeBody := conversion.OriginalBody
+	if clientAppCodex {
+		nativeBody, err = translate.StripRouterCommandsFromResponsesInput(nativeBody)
+		if err != nil {
+			return fmt.Errorf("strip Responses router command: %w", err)
 		}
+		// Codex records response.output_item.done as conversation history and
+		// sends it back in the next native request. Remove only the badge this
+		// client opted into so router text never reaches the selected model.
+		nativeBody, err = translate.StripRoutingBadgeFromResponsesInput(nativeBody)
+		if err != nil {
+			return fmt.Errorf("strip native Responses routing badge: %w", err)
+		}
+		nativeBody, err = translate.StripFeedbackFooterFromResponsesInput(nativeBody)
+		if err != nil {
+			return fmt.Errorf("strip native Responses feedback footer: %w", err)
+		}
+	}
+	// Every Responses turn stashes its original bytes for post-routing native
+	// dispatch; NativeOnly and Codex-subscription turns also dispatch verbatim now.
+	if conversion.Requirements.NativeOnly || codexNativeRequest {
 		ctx = context.WithValue(ctx, codexResponsesBodyContextKey{}, nativeBody)
 	}
+	ctx = context.WithValue(ctx, nativeResponsesBodyContextKey{}, nativeBody)
 	// Routing and sticky-state hashes must describe the exact native payload
 	// that an OpenAI/Codex decision will receive, even when the portable Codex
 	// projection lets HMM consider other deployed providers.

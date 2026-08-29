@@ -48,12 +48,15 @@ func (r *ExternalAPIKeyRepo) Create(ctx context.Context, params auth.CreateExter
 		BaseURL:        params.BaseURL,
 		ModelAliases:   aliases,
 
-		IdentityHeaderName:   params.IdentityHeader,
-		IdentityHeaderFormat: params.IdentityHeaderFormat,
-		AuthType:             params.AuthType,
-		AuthAccount:          params.AuthAccount,
-		AuthUser:             params.AuthUser,
-		CreatedBy:            params.CreatedBy,
+		IdentityHeaderName:     params.IdentityHeader,
+		IdentityHeaderFormat:   params.IdentityHeaderFormat,
+		ForwardedClientHeaders: params.ForwardedClientHeaders,
+		BaggageHeader:          params.BaggageHeader,
+
+		AuthType:    params.AuthType,
+		AuthAccount: params.AuthAccount,
+		AuthUser:    params.AuthUser,
+		CreatedBy:   params.CreatedBy,
 	})
 	if err != nil {
 		return nil, err
@@ -80,11 +83,15 @@ func (r *ExternalAPIKeyRepo) GetForInstallation(ctx context.Context, installatio
 		if err != nil {
 			return nil, err
 		}
-		plaintext, err := r.encryptor.Decrypt(row.KeyCiphertext, row.ExternalID, row.Provider)
-		if err != nil {
-			return nil, err
+		// Workload-identity rows store no secret at all — the credential is
+		// minted per request — so there is nothing to decrypt.
+		if len(row.KeyCiphertext) > 0 {
+			plaintext, err := r.encryptor.Decrypt(row.KeyCiphertext, row.ExternalID, row.Provider)
+			if err != nil {
+				return nil, err
+			}
+			key.Plaintext = plaintext
 		}
-		key.Plaintext = plaintext
 		keys = append(keys, key)
 	}
 	return keys, nil
@@ -178,12 +185,15 @@ func toExternalAPIKey(row sqlc.RouterModelRouterExternalAPIKey) (*auth.ExternalA
 		KeyFingerprint: row.KeyFingerprint,
 		BaseURL:        derefString(row.BaseURL),
 
-		IdentityHeader:       derefString(row.IdentityHeaderName),
-		IdentityHeaderFormat: derefString(row.IdentityHeaderFormat),
-		AuthType:             row.AuthType,
-		AuthAccount:          derefString(row.AuthAccount),
-		AuthUser:             derefString(row.AuthUser),
-		CreatedAt:            timestampOrZero(row.CreatedAt),
+		IdentityHeader:         derefString(row.IdentityHeaderName),
+		IdentityHeaderFormat:   derefString(row.IdentityHeaderFormat),
+		ForwardedClientHeaders: row.ForwardedClientHeaders,
+		BaggageHeader:          derefString(row.BaggageHeader),
+
+		AuthType:    row.AuthType,
+		AuthAccount: derefString(row.AuthAccount),
+		AuthUser:    derefString(row.AuthUser),
+		CreatedAt:   timestampOrZero(row.CreatedAt),
 	}
 	key.Name = row.Name
 	key.LastUsedAt = timestampPtr(row.LastUsedAt)

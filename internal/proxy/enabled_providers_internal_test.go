@@ -300,3 +300,49 @@ func TestEnabledProvidersForRequest_DeploymentKeyedStillCrossSurface(t *testing.
 	assert.Contains(t, got, providers.ProviderOpenAI,
 		"env-keyed providers must remain eligible cross-surface; only passthrough is surface-scoped")
 }
+
+// TestEnabledProvidersForRequest_GatewayKeyDisplacesVendors: a tenant's own
+// gateway is the exclusive upstream; no vendor may stay eligible.
+func TestEnabledProvidersForRequest_GatewayKeyDisplacesVendors(t *testing.T) {
+	s := &Service{
+		providers: map[string]providers.Client{
+			providers.ProviderAnthropic:        nil,
+			providers.ProviderOpenAI:           nil,
+			providers.ProviderAnthropicGateway: nil,
+		},
+		deploymentKeyedProviders: map[string]struct{}{
+			providers.ProviderAnthropic: {},
+			providers.ProviderOpenAI:    {},
+		},
+		passthroughEligibleProviders: map[string]struct{}{},
+	}
+	ctx := context.WithValue(context.Background(), ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
+		{Provider: providers.ProviderAnthropicGateway, Plaintext: []byte("pat")},
+	})
+
+	got := s.enabledProvidersForRequest(ctx, providers.ProviderAnthropic, http.Header{})
+
+	assert.Equal(t, map[string]struct{}{providers.ProviderAnthropicGateway: {}}, got)
+}
+
+func TestEnabledProvidersForRequest_VendorByokKeyDoesNotDisplaceVendors(t *testing.T) {
+	s := &Service{
+		providers: map[string]providers.Client{
+			providers.ProviderAnthropic: nil,
+			providers.ProviderOpenAI:    nil,
+		},
+		deploymentKeyedProviders: map[string]struct{}{
+			providers.ProviderAnthropic: {},
+			providers.ProviderOpenAI:    {},
+		},
+		passthroughEligibleProviders: map[string]struct{}{},
+	}
+	ctx := context.WithValue(context.Background(), ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
+		{Provider: providers.ProviderAnthropic, Plaintext: []byte("pat")},
+	})
+
+	got := s.enabledProvidersForRequest(ctx, providers.ProviderAnthropic, http.Header{})
+
+	assert.Contains(t, got, providers.ProviderOpenAI,
+		"a vendor BYOK key is not a gateway and must not narrow the eligible set")
+}

@@ -56,7 +56,7 @@ const compactionInstruction = "The conversation is being compacted to fit the mo
 	"2. Key Technical Concepts — technologies, frameworks, and patterns in play.\n" +
 	"3. Files and Code Sections — files examined/modified, with key snippets and why they matter.\n" +
 	"4. Errors and Fixes — problems hit, fixes applied, and user feedback received.\n" +
-	"5. Problem Solving — approaches tried and reasoning, not just outcomes.\n" +
+	"5. Problem Solving — approaches tried and why each was chosen, not just outcomes.\n" +
 	"6. All User Messages (verbatim) — quote every non-tool user message exactly, especially any stated constraints or policies; do not paraphrase.\n" +
 	"7. Pending Tasks — requested work not yet completed.\n" +
 	"8. Current Work — precisely what was being done just before this summary, with filenames and state.\n" +

@@ -12,8 +12,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"workweave/router/internal/providers"
 	"workweave/router/internal/router"
 	"workweave/router/internal/router/catalog"
+	"workweave/router/internal/router/policy"
 )
 
 // fakeEmbedder returns a fixed vector or error; captures last text for
@@ -948,6 +950,40 @@ func TestScorer_EnabledProvidersGatesArgmax(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "claude-opus-4-7", got.Model)
 	assert.Equal(t, "anthropic", got.Provider)
+}
+
+// gpt-5 also carries an openai_gateway catalog binding; gateway exclusivity
+// must route only the aliased model so an unaliased name never goes upstream.
+func TestScorer_GatewayExclusiveRoutesOnlyAliasedModel(t *testing.T) {
+	emb := &fakeEmbedder{vec: makeOpusVec()}
+	s := newTwoProviderScorer(t, emb)
+
+	got, err := s.Route(context.Background(), router.Request{
+		PromptText:       strings.Repeat("x", 100),
+		EnabledProviders: map[string]struct{}{providers.ProviderOpenAIGateway: {}},
+		GatewayProviders: map[string]struct{}{providers.ProviderOpenAIGateway: {}},
+		CustomBindings:   map[string][]string{"claude-opus-4-7": {providers.ProviderOpenAIGateway}},
+	})
+	require.NoError(t, err)
+	// Ungated, gpt-5 wins cluster 0 and would ship an unaliased name upstream.
+	assert.Equal(t, "claude-opus-4-7", got.Model)
+	assert.Equal(t, providers.ProviderOpenAIGateway, got.Provider)
+}
+
+// A gateway key aliasing nothing is a customer configuration to fix, so the
+// scorer must not report the router as unavailable.
+func TestScorer_GatewayWithoutAliasesReturnsErrGatewayServesNoDeployedModel(t *testing.T) {
+	emb := &fakeEmbedder{vec: makeOpusVec()}
+	s := newTwoProviderScorer(t, emb)
+
+	_, err := s.Route(context.Background(), router.Request{
+		PromptText:       strings.Repeat("x", 100),
+		EnabledProviders: map[string]struct{}{providers.ProviderOpenAIGateway: {}},
+		GatewayProviders: map[string]struct{}{providers.ProviderOpenAIGateway: {}},
+	})
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, policy.ErrGatewayServesNoDeployedModel))
+	assert.False(t, errors.Is(err, ErrClusterUnavailable))
 }
 
 // Installation with no resolvable provider keys must surface a

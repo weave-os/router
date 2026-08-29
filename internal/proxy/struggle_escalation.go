@@ -31,17 +31,23 @@ type StruggleEscalationEvent struct {
 	TurnCount           int32
 	WallSeconds         int64
 	SessionEverSwitched bool
+	// ArmingMode is what crossed first: the turn/wall thresholds
+	// (struggleArmingTurnWall) or the behavioral signals (struggleArmingEvidence).
+	ArmingMode string
+	// EvidenceReasons are the spiral signal classes present at arming time.
+	EvidenceReasons []string
 }
 
-// StruggleEscalationRoster picks the next untried arm in the same cluster.
-// SidewaysTarget returns the next-ranked arm skipping currentModel. check(model)
-// should validate the candidate is dispatchable (available, binding exists).
+// StruggleEscalationRoster picks the arm a struggling session moves to.
+// EscalationTarget prefers the cheapest cluster above policyGroup, falling back
+// to a sideways arm in policyGroup. check(model) validates dispatchability.
 type StruggleEscalationRoster interface {
-	SidewaysTarget(ctx context.Context, policyGroup, currentModel string, exclude map[string]struct{}, check func(model string) bool) (string, error)
+	EscalationTarget(ctx context.Context, policyGroup, currentModel string, exclude map[string]struct{}, check func(model string) bool) (target, cluster string, err error)
 }
 
 // Struggle escalation action taxonomy.
 const (
+	struggleActionUpCluster      = "up_cluster"
 	struggleActionSideways       = "sideways"
 	struggleActionHoldout        = "holdout"
 	struggleActionDisabled       = "disabled"
@@ -50,14 +56,25 @@ const (
 	struggleActionNoEligibleArms = "no_eligible_arms"
 )
 
-// handleStruggleEscalation arms a sideways move for a grinding session
-// (turns >= 30, wall >= 10m). Must run before routing so runTurnLoop picks
-// up the sticky pin on the same turn; idempotent via durable once-per-session budget.
+// Struggle arming modes: which detector crossed for this escalation.
+const (
+	struggleArmingTurnWall = "turn_wall"
+	struggleArmingEvidence = "evidence"
+)
+
+// struggleEvidenceMinTurns guards against imported-history replay: a client
+// can present 15+ stalled tool calls on turn one, where a re-pin buys nothing.
+const struggleEvidenceMinTurns = 8
+
+// handleStruggleEscalation arms an up-cluster (or sideways) move for a
+// grinding session via the turn/wall thresholds or, when enabled, behavioral
+// evidence. Must run before routing; idempotent via once-per-session budget.
 func (s *Service) handleStruggleEscalation(
 	ctx context.Context,
 	installationID uuid.UUID,
 	sessionKey [sessionpin.SessionKeyLen]byte,
 	role string,
+	evidence []string,
 ) {
 	log := observability.FromContext(ctx)
 
@@ -90,9 +107,24 @@ func (s *Service) handleStruggleEscalation(
 	}
 
 	// +1: the stored count is completed turns; this in-flight turn is the next.
-	reasons := struggleReasons(pin.TurnCount+1, wall)
-	if len(reasons) == 0 || reasons[0] != struggleReasonEarlyStr {
+	turnCount := pin.TurnCount + 1
+	reasons := struggleReasons(turnCount, wall)
+	timerArmed := len(reasons) > 0 && reasons[0] == struggleReasonEarlyStr
+
+	// Evidence arming fires ahead of the timer, so it must not also fire
+	// behind it: any timer reason at all (including the unarmed "late") means
+	// the session is the timer's case, whatever signals are present.
+	evidenceArmed := len(reasons) == 0 &&
+		len(evidence) > 0 &&
+		turnCount >= struggleEvidenceMinTurns &&
+		s.ResolveStruggleEvidenceArming(ctx)
+
+	if !timerArmed && !evidenceArmed {
 		return // not yet struggling, or only "late" (not armed)
+	}
+	armingMode := struggleArmingTurnWall
+	if evidenceArmed {
+		armingMode = struggleArmingEvidence
 	}
 
 	// Once-per-session budget.
@@ -109,7 +141,7 @@ func (s *Service) handleStruggleEscalation(
 		DeterministicHoldout(sessionKey, s.ResolveStruggleEscalationHoldoutPct(ctx))
 
 	action := struggleActionSideways
-	var escalationTarget string
+	var escalationTarget, escalationCluster string
 	switch {
 	case !s.ResolveStruggleEscalationEnabled(ctx):
 		action = struggleActionDisabled
@@ -122,7 +154,7 @@ func (s *Service) handleStruggleEscalation(
 	case s.struggleEscalationRoster == nil:
 		action = struggleActionNoTarget
 	default:
-		target, err := s.struggleEscalationRoster.SidewaysTarget(
+		target, targetCluster, err := s.struggleEscalationRoster.EscalationTarget(
 			ctx, pin.PolicyGroup, pin.Model,
 			nil,
 			func(model string) bool {
@@ -147,6 +179,10 @@ func (s *Service) handleStruggleEscalation(
 				action = struggleActionNoEligibleArms
 			} else {
 				escalationTarget = target
+				escalationCluster = targetCluster
+				if targetCluster != pin.PolicyGroup {
+					action = struggleActionUpCluster
+				}
 				upsertErr := s.pinStore.Upsert(context.Background(), sessionpin.Pin{
 					SessionKey:      sessionKey,
 					Role:            role,
@@ -157,7 +193,7 @@ func (s *Service) handleStruggleEscalation(
 					Strategy:        router.StrategyFromContext(ctx),
 					TurnCount:       1,
 					PinnedUntil:     time.Now().Add(pinSessionTTL),
-					PolicyGroup:     pin.PolicyGroup,
+					PolicyGroup:     targetCluster,
 					LastServedModel: pin.LastServedModel,
 				})
 				if upsertErr != nil {
@@ -171,7 +207,10 @@ func (s *Service) handleStruggleEscalation(
 	log.Info("router.struggle_escalation",
 		"struggling_model", strugglingModel,
 		"action", action,
+		"arming_mode", armingMode,
+		"evidence_reasons", evidence,
 		"escalation_target", escalationTarget,
+		"escalation_cluster", escalationCluster,
 		"user_forced", userForced,
 		"turn_count", pin.TurnCount,
 		"wall_seconds", int64(wall.Seconds()),
@@ -189,9 +228,11 @@ func (s *Service) handleStruggleEscalation(
 			StrugglingModel:     strugglingModel,
 			Action:              action,
 			EscalationTarget:    escalationTarget,
-			TurnCount:           int32(pin.TurnCount + 1), // +1: stored is completed turns; event records the in-flight count
+			TurnCount:           int32(turnCount),
 			WallSeconds:         int64(wall.Seconds()),
 			SessionEverSwitched: pin.HasEverSwitched,
+			ArmingMode:          armingMode,
+			EvidenceReasons:     evidence,
 		}
 		if err := s.struggleEscalationStore.InsertStruggleEscalationEvent(context.Background(), event); err != nil {
 			log.Error("struggle-escalation: event insert failed", "err", err)

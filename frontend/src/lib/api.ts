@@ -111,7 +111,8 @@ export interface IssueAPIKeyResponse {
 
 // ProviderAuthType is how a BYOK key authenticates upstream. "wif" keys hold no
 // secret at all: the router presents its own workload attestation per request.
-export type ProviderAuthType = "bearer" | "keypair_jwt" | "wif";
+// "azure_entra" stores an Entra client secret and mints a short-lived token.
+export type ProviderAuthType = "bearer" | "keypair_jwt" | "wif" | "azure_entra";
 
 export interface ExternalKey {
   id: string;
@@ -125,10 +126,13 @@ export interface ExternalKey {
   // uses catalog names directly.
   model_aliases?: Record<string, string>;
   // "bearer" (send the stored secret), "keypair_jwt" (the secret is an RSA
-  // private key the router signs short-lived tokens with), or "wif" (no stored
-  // secret; the router attests its own workload identity); absent means bearer.
+  // private key the router signs short-lived tokens with), "wif" (no stored
+  // secret; the router attests its own workload identity), or "azure_entra"
+  // (the secret is an Entra client secret used to mint a short-lived token);
+  // absent means bearer.
   auth_type?: ProviderAuthType;
-  // Principal a minted token is issued for; present only with keypair_jwt.
+  // Principal a minted token is issued for; present only with keypair_jwt or
+  // azure_entra. For azure_entra these are the tenant ID and client ID.
   auth_account?: string;
   auth_user?: string;
   last_used_at: string | null;

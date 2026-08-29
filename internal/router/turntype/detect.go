@@ -30,6 +30,19 @@ const (
 
 const probeMaxTokensThreshold = 4
 
+// compactionMarkerPhrase is Claude Code's canonical context-compaction
+// instruction. Unambiguous enough to hard-pin on by itself in a system prompt.
+const compactionMarkerPhrase = "your task is to create a detailed summary"
+
+// compactionNoToolsPhrase is the tool-suppression clause Claude Code wraps the
+// instruction in. Required alongside compactionMarkerPhrase in a user message,
+// where the summary phrase on its own is text a human could plausibly type.
+const compactionNoToolsPhrase = "do not call any tools"
+
+// compactionSniffLen bounds the trailing-user-message scan; Claude Code's
+// preamble places the phrase within ~200 bytes, so long pasted messages are excluded.
+const compactionSniffLen = 4096
+
 // Bounds for short-form classifier calls (e.g. Claude Code's security monitor:
 // max_tokens=64, message_count=2). Headroom for similar calls without catching main-loop turns.
 const (
@@ -57,7 +70,7 @@ func DetectFromEnvelope(env *translate.RequestEnvelope, feats translate.RoutingF
 	// Compaction is Claude-Code-only, and Claude Code always talks Anthropic
 	// format. Gating on format keeps Codex/OpenAI clients — whose prompts can
 	// incidentally mention "compact" — out of the hard pin.
-	if env.SourceFormat() == translate.FormatAnthropic && isCompaction(systemText) {
+	if env.SourceFormat() == translate.FormatAnthropic && isCompaction(systemText, env.LastUserMessage().Text) {
 		return Compaction
 	}
 	if isSubAgentDispatch(env.MetadataUserID(), env.FirstUserMessageText(), subAgentHint) {
@@ -102,11 +115,22 @@ func isTitleGen(env *translate.RequestEnvelope, hasTools bool) bool {
 	return env.RequestsTitleSchema()
 }
 
-// isCompaction reports whether the system prompt contains Claude Code's
-// context-compaction instruction markers.
-func isCompaction(systemText string) bool {
-	lower := strings.ToLower(systemText)
-	return strings.Contains(lower, "your task is to create a detailed summary")
+// isCompaction reports whether the request carries Claude Code's compaction instruction
+// (system prompt, or last user message: 2.x appends it to the trailing turn alongside tool_result).
+func isCompaction(systemText, lastUserText string) bool {
+	if hasCompactionMarker(systemText) {
+		return true
+	}
+	if len(lastUserText) > compactionSniffLen {
+		lastUserText = lastUserText[:compactionSniffLen]
+	}
+	lower := strings.ToLower(lastUserText)
+	return strings.Contains(lower, compactionMarkerPhrase) &&
+		strings.Contains(lower, compactionNoToolsPhrase)
+}
+
+func hasCompactionMarker(text string) bool {
+	return strings.Contains(strings.ToLower(text), compactionMarkerPhrase)
 }
 
 // isSubAgentDispatch reports whether the request originates from a sub-agent:

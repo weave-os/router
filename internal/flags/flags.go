@@ -47,6 +47,7 @@ const (
 	KeyStruggleShadowEnabled     Key = "struggle_shadow_enabled"
 	KeyStruggleEscalationEnabled Key = "struggle_escalation_enabled"
 	KeyStruggleEscalationHoldout Key = "struggle_escalation_holdout_pct"
+	KeyStruggleEvidenceArming    Key = "struggle_evidence_arming"
 	KeySpiralShadowEnabled       Key = "spiral_shadow_enabled"
 	KeyLoopEscalationEnabled     Key = "loop_escalation_enabled"
 	KeyLoopEscalationHoldoutPct  Key = "loop_escalation_holdout_pct"
@@ -55,11 +56,14 @@ const (
 	KeyScoreToolResultTurns      Key = "score_tool_result_turns"
 	KeyPrefixTrimFreeSwitch      Key = "prefix_trim_free_switch"
 	KeyAuthoritativeUpgradeGate  Key = "authoritative_upgrade_gate"
+	KeyAuthorityCacheShadow      Key = "authority_cache_shadow"
 	KeySiblingFailover           Key = "sibling_failover"
 	KeyEffortEscalation          Key = "effort_escalation"
 	KeyCyberRefusalRepin         Key = "cyber_refusal_repin"
 	KeyCyberRefusalFallback      Key = "cyber_refusal_fallback_model"
+	KeyAnthropicServerFallback   Key = "anthropic_server_side_fallback"
 	KeyEmbedOnlyUserMessage      Key = "embed_only_user_message"
+	KeyOpenAIResponsesBroad      Key = "openai_responses_broad"
 )
 
 // Definition describes one overridable flag. DeploymentDefault is not stored
@@ -79,7 +83,7 @@ type Definition struct {
 // RegistryVersion changes whenever Registry's membership changes. Publish uses
 // it to make pruning safe during rolling deploys: a revision with an older
 // registry version may not delete definitions published by a newer revision.
-const RegistryVersion = 1
+const RegistryVersion = 4
 
 // Registry is the curated allowlist of flags that may carry a per-organization
 // override. It is deliberately explicit rather than derived from the env var
@@ -106,6 +110,13 @@ var Registry = []Definition{
 		EnvVar:         "ROUTER_STRUGGLE_ESCALATION_HOLDOUT_PCT",
 		Kind:           KindInt,
 		Description:    "Percent of struggle detections recorded without escalating, as a self-recovery baseline. 0-100.",
+		OrgOverridable: true,
+	},
+	{
+		Key:            KeyStruggleEvidenceArming,
+		EnvVar:         "ROUTER_STRUGGLE_EVIDENCE_ARMING",
+		Kind:           KindBool,
+		Description:    "Let behavioral spiral evidence arm a struggle escalation before the 30-turn/10-minute thresholds.",
 		OrgOverridable: true,
 	},
 	{
@@ -165,6 +176,13 @@ var Registry = []Definition{
 		OrgOverridable: true,
 	},
 	{
+		Key:            KeyAuthorityCacheShadow,
+		EnvVar:         "ROUTER_AUTHORITY_CACHE_SHADOW",
+		Kind:           KindBool,
+		Description:    "Record the HMM cache gate's counterfactual verdict on authoritative-per-turn turns. Observation only; never changes what is served.",
+		OrgOverridable: true,
+	},
+	{
 		Key:            KeySiblingFailover,
 		EnvVar:         "ROUTER_SIBLING_FAILOVER",
 		Kind:           KindBool,
@@ -182,14 +200,21 @@ var Registry = []Definition{
 		Key:            KeyCyberRefusalRepin,
 		EnvVar:         "ROUTER_CYBER_REFUSAL_REPIN",
 		Kind:           KindBool,
-		Description:    "Re-pin a session off a model that returned a cyber safety refusal.",
+		Description:    "Re-pin a session off a model that returned a safety refusal (cyber, reasoning_extraction, ...).",
 		OrgOverridable: true,
 	},
 	{
 		Key:            KeyCyberRefusalFallback,
 		EnvVar:         "ROUTER_CYBER_REFUSAL_FALLBACK_MODEL",
 		Kind:           KindString,
-		Description:    "Fallback model for a cyber-refusal re-pin with no runner-up.",
+		Description:    "Fallback model for a safety-refusal re-pin with no runner-up.",
+		OrgOverridable: true,
+	},
+	{
+		Key:            KeyAnthropicServerFallback,
+		EnvVar:         "ROUTER_ANTHROPIC_SERVER_SIDE_FALLBACK",
+		Kind:           KindBool,
+		Description:    "Ask Anthropic to re-serve a safety-refused turn on a fallback model instead of returning the refusal.",
 		OrgOverridable: true,
 	},
 	{
@@ -197,6 +222,13 @@ var Registry = []Definition{
 		EnvVar:         "ROUTER_EMBED_ONLY_USER_MESSAGE",
 		Kind:           KindBool,
 		Description:    "Embed user-role text only, instead of the concatenated stream.",
+		OrgOverridable: true,
+	},
+	{
+		Key:            KeyOpenAIResponsesBroad,
+		EnvVar:         "ROUTER_OPENAI_RESPONSES_BROAD",
+		Kind:           KindBool,
+		Description:    "Serve every direct-OpenAI turn on /v1/responses. Off, only the reasoning tool turn chat/completions rejects is promoted.",
 		OrgOverridable: true,
 	},
 }

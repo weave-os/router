@@ -41,7 +41,7 @@ func ClientIdentityFrom(ctx context.Context) ClientIdentity {
 // anthropic.stashClientIdentity) overlay those after calling this.
 func ClientIdentityFromHeaders(h http.Header) ClientIdentity {
 	return ClientIdentity{
-		SessionID:   NormalizeClientIdentifier(h.Get("X-Claude-Code-Session-Id")),
+		SessionID:   sessionIDFromHeaders(h),
 		Email:       NormalizeEmail(h.Get("X-Weave-User-Email")),
 		DisplayName: NormalizeDisplayName(h.Get("X-Weave-User-Name")),
 		UserAgent:   h.Get("User-Agent"),
@@ -50,12 +50,29 @@ func ClientIdentityFromHeaders(h http.Header) ClientIdentity {
 	}
 }
 
+// sessionIDFromHeaders picks the first usable client session id. Claude Code
+// sends X-Claude-Code-Session-Id; Codex 0.149+ sends Session-Id (and Thread-Id
+// with the same value on the main thread). First match wins so a mixed
+// client cannot have Claude Code's header overwritten by Codex leftovers.
+func sessionIDFromHeaders(h http.Header) string {
+	for _, key := range [...]string{
+		ClaudeCodeSessionHeader,
+		"Session-Id",
+		"Thread-Id",
+	} {
+		if id := NormalizeClientIdentifier(h.Get(key)); id != "" {
+			return id
+		}
+	}
+	return ""
+}
+
 // ResolveUserFromContext dispatches identity signals from ctx to
 // auth.Service.ResolveAndStashUser. No-op if deps are missing or both email
 // and account_uuid are empty — Claude CLI v2.1.x sends account_uuid only, so
 // gating on email alone would break that path.
 func ResolveUserFromContext(ctx context.Context, authSvc *auth.Service, installation *auth.Installation) context.Context {
-	log := observability.Get()
+	log := observability.FromContext(ctx)
 	if authSvc == nil || installation == nil {
 		log.Info("ResolveUserFromContext bailout",
 			"reason", "nil_dep",

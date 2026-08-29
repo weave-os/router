@@ -54,6 +54,30 @@ func maxEffortToXhigh(body []byte) []byte {
 	return out
 }
 
+// codexUnsupportedParams are Responses fields the ChatGPT backend rejects
+// with 400 "Unsupported parameter". Dropped here rather than at emit time
+// because emit doesn't know the credential; a translated Anthropic turn
+// legitimately carries max_output_tokens from its max_tokens.
+var codexUnsupportedParams = []string{
+	"max_output_tokens", "temperature", "top_p", "metadata", "service_tier", "truncation",
+}
+
+// stripCodexUnsupportedParams removes codexUnsupportedParams from a Responses
+// body. Dropping the output ceiling is lossy, but the alternative is a 400.
+func stripCodexUnsupportedParams(body []byte) []byte {
+	for _, key := range codexUnsupportedParams {
+		if !gjson.GetBytes(body, key).Exists() {
+			continue
+		}
+		out, err := sjson.DeleteBytes(body, key)
+		if err != nil {
+			continue
+		}
+		body = out
+	}
+	return body
+}
+
 // codexSubscriptionCreds returns the resolved credential when it's a Codex
 // (ChatGPT) subscription bearer (OAuth token with a paired account id), else
 // nil. Such a turn must dispatch to the Codex backend, not api.openai.com.
@@ -76,6 +100,8 @@ type Client struct {
 	apiKey  string
 	baseURL string
 	http    *http.Client
+	// modelIDMap rewrites routed catalog IDs to the upstream model IDs.
+	modelIDMap map[string]string
 	// sseIdleTimeout, when > 0, overrides the per-endpoint idle-progress
 	// threshold. Tests inject a small value to exercise the stall watchdog
 	// without waiting out the real threshold.
@@ -89,21 +115,39 @@ type Client struct {
 }
 
 func NewClient(apiKey, baseURL string) *Client {
-	return NewClientWithResponseHeaderTimeout(apiKey, baseURL, responseHeaderTimeout)
+	return NewClientWithModelIDMap(apiKey, baseURL, nil)
+}
+
+// NewClientWithModelIDMap builds a client that rewrites the "model" field before forwarding.
+// Pass nil to skip rewriting.
+func NewClientWithModelIDMap(apiKey, baseURL string, modelIDMap map[string]string) *Client {
+	return newClientWithModelIDMap(apiKey, baseURL, responseHeaderTimeout, modelIDMap)
+}
+
+// SetCodexBaseURL overrides the Codex subscription endpoint for local testing.
+func (c *Client) SetCodexBaseURL(baseURL string) {
+	if baseURL != "" {
+		c.codexBaseURL = baseURL
+	}
 }
 
 // NewClientWithResponseHeaderTimeout is NewClient with a caller-chosen
 // time-to-first-byte guard, so tests can exercise bounded-stall behavior
 // (#331) without waiting out the 120s default.
 func NewClientWithResponseHeaderTimeout(apiKey, baseURL string, headerTimeout time.Duration) *Client {
+	return newClientWithModelIDMap(apiKey, baseURL, headerTimeout, nil)
+}
+
+func newClientWithModelIDMap(apiKey, baseURL string, headerTimeout time.Duration, modelIDMap map[string]string) *Client {
 	if baseURL == "" {
 		baseURL = DefaultBaseURL
 	}
 	return &Client{
 		apiKey:       apiKey,
 		baseURL:      baseURL,
+		modelIDMap:   modelIDMap,
 		codexBaseURL: chatGPTCodexBaseURL,
-		http:         &http.Client{Transport: httputil.NewTransportWithResponseHeaderTimeout(5*time.Second, 5*time.Second, headerTimeout)},
+		http:         httputil.NewClient(httputil.NewTransportWithResponseHeaderTimeout(5*time.Second, 5*time.Second, headerTimeout)),
 	}
 }
 
@@ -142,6 +186,24 @@ func (c *Client) outputStallTimeout() time.Duration {
 		return c.outputStall
 	}
 	return httputil.DefaultResponsesOutputStallTimeout
+}
+
+// rewriteModelField rewrites the body's top-level "model" field via modelIDMap.
+// Returns body unchanged when the map is empty or the model isn't present.
+func rewriteModelField(body []byte, modelIDMap map[string]string) []byte {
+	if len(modelIDMap) == 0 || len(body) == 0 {
+		return body
+	}
+	model := gjson.GetBytes(body, "model").String()
+	upstream, ok := modelIDMap[model]
+	if !ok {
+		return body
+	}
+	out, err := sjson.SetBytes(body, "model", upstream)
+	if err != nil {
+		return body
+	}
+	return out
 }
 
 // stallBudgetFor returns the budget the watchdog identified by cause used, so
@@ -212,15 +274,17 @@ func (c *Client) Proxy(ctx context.Context, decision router.Decision, prep provi
 	if prep.Endpoint == providers.EndpointResponses {
 		path = "/v1/responses"
 	}
-	reqBody := prep.Body
+	reqBody := rewriteModelField(prep.Body, c.modelIDMap)
 	if useCodex {
 		baseURL = c.codexBaseURL
 		path = codexResponsesPath
+		reqBody = stripCodexUnsupportedParams(reqBody)
 	} else if prep.Endpoint == providers.EndpointResponses {
 		// Only the direct api.openai.com Responses path needs the clamp; the
 		// Codex backend branch above understands "max" natively.
 		reqBody = maxEffortToXhigh(reqBody)
 	}
+	// Applied after the catalog map so a BYOK endpoint's own naming wins.
 	reqBody = proxy.ApplyModelAlias(ctx, reqBody, decision.Model)
 	upstream, err := http.NewRequestWithContext(ctx, http.MethodPost, baseURL+path, bytes.NewReader(reqBody))
 	if err != nil {
@@ -232,6 +296,7 @@ func (c *Client) Proxy(ctx context.Context, decision router.Decision, prep provi
 		upstream.Header[http.CanonicalHeaderKey(k)] = vs
 	}
 	proxy.ApplyIdentityHeader(ctx, upstream)
+	proxy.ApplyForwardedClientHeaders(ctx, upstream, r.Header)
 	if v := r.Header.Get("Accept"); v != "" {
 		upstream.Header.Set("Accept", v)
 	}
@@ -255,13 +320,13 @@ func (c *Client) Proxy(ctx context.Context, decision router.Decision, prep provi
 	providers.ObserveUpstreamHeaders(ctx, resp.Header)
 
 	idleTimeout := c.idleTimeoutFor(prep.Endpoint)
-	log := observability.Get()
+	log := observability.FromContext(ctx)
 	log.Debug("OpenAI upstream response",
 		"status", resp.StatusCode,
 		"content_type", resp.Header.Get("Content-Type"),
 		"transfer_encoding", resp.Header.Get("Transfer-Encoding"),
 		"content_encoding", resp.Header.Get("Content-Encoding"),
-		"request_id", resp.Header.Get("X-Request-Id"),
+		"upstream_request_id", resp.Header.Get("X-Request-Id"),
 	)
 
 	// Buffer non-2xx as UpstreamErrorResponse so the dispatch loop can fail
@@ -277,7 +342,7 @@ func (c *Client) Proxy(ctx context.Context, decision router.Decision, prep provi
 		bufBody, totalRead, drainErr := httputil.ReadCapped(body, providers.MaxBufferedErrorBytes)
 		stop()
 		if errors.Is(context.Cause(ctx), httputil.ErrUpstreamIdleTimeout) {
-			logStreamStall(decision.Model, path, idleTimeout, totalRead, httputil.ErrUpstreamIdleTimeout)
+			logStreamStall(ctx, decision.Model, path, idleTimeout, totalRead, httputil.ErrUpstreamIdleTimeout)
 		}
 		if len(bufBody) > 0 {
 			t.StampUpstreamFirstByte()
@@ -286,6 +351,7 @@ func (c *Client) Proxy(ctx context.Context, decision router.Decision, prep provi
 			t.StampUpstreamEOF()
 		}
 		httputil.LogUpstreamStatus(
+			ctx,
 			"Upstream OpenAI returned error status",
 			resp.StatusCode,
 			"base_url", c.baseURL,
@@ -344,7 +410,7 @@ func (c *Client) Proxy(ctx context.Context, decision router.Decision, prep provi
 	streamErr := httputil.StreamBody(ctx, cancel, idleTimeout, body, status, w, t, opts...)
 	switch {
 	case errors.Is(streamErr, httputil.ErrUpstreamIdleTimeout), errors.Is(streamErr, httputil.ErrUpstreamOutputStall):
-		logStreamStall(decision.Model, path, c.stallBudgetFor(prep.Endpoint, streamErr), body.n, streamErr)
+		logStreamStall(ctx, decision.Model, path, c.stallBudgetFor(prep.Endpoint, streamErr), body.n, streamErr)
 	case streamErr != nil:
 		if debug {
 			log.Debug("OpenAI upstream stream ended with error", "err", streamErr, "bytes_read", body.n)
@@ -380,15 +446,15 @@ func (p *progressReader) Read(buf []byte) (n int, err error) {
 // incident) vs output_idle (ErrUpstreamOutputStall, bytes flowing but zero
 // output — 2026-06-16 incident). Both are retryable; this is the per-model
 // paper trail for how often each happens.
-func logStreamStall(model, path string, budget time.Duration, bytesReceived int64, cause error) {
+func logStreamStall(ctx context.Context, model, path string, budget time.Duration, bytesReceived int64, cause error) {
 	stallKind := "byte_idle"
 	if errors.Is(cause, httputil.ErrUpstreamOutputStall) {
 		stallKind = "output_idle"
 	}
-	observability.Get().Error("OpenAI upstream stream stalled mid-response; aborting for retry",
+	observability.FromContext(ctx).Error("OpenAI upstream stream stalled mid-response; aborting for retry",
 		"model", model,
 		"provider", providers.ProviderOpenAI,
-		"path", path,
+		"upstream_path", path,
 		"stall_kind", stallKind,
 		"budget_ms", budget.Milliseconds(),
 		"bytes_received", bytesReceived,
@@ -414,6 +480,7 @@ func (c *Client) Passthrough(ctx context.Context, prep providers.PreparedRequest
 	for k, vs := range prep.Headers {
 		upstream.Header[http.CanonicalHeaderKey(k)] = vs
 	}
+	proxy.ApplyForwardedClientHeaders(ctx, upstream, r.Header)
 	if v := r.Header.Get("Accept"); v != "" {
 		upstream.Header.Set("Accept", v)
 	}
@@ -427,7 +494,7 @@ func (c *Client) Passthrough(ctx context.Context, prep providers.PreparedRequest
 	providers.CopyUpstreamHeaders(w, resp)
 	w.WriteHeader(resp.StatusCode)
 	if resp.StatusCode >= 400 {
-		return httputil.WritePassthroughError(w, resp, nil, nil, "Upstream OpenAI returned error status (passthrough)", "base_url", c.baseURL, "path", r.URL.Path)
+		return httputil.WritePassthroughError(r.Context(), w, resp, nil, nil, "Upstream OpenAI returned error status (passthrough)", "base_url", c.baseURL, "path", r.URL.Path)
 	}
 	_, err = io.Copy(w, resp.Body)
 	return err

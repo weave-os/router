@@ -23,6 +23,7 @@ import (
 	"workweave/router/internal/auth"
 	"workweave/router/internal/billing"
 	"workweave/router/internal/config"
+	"workweave/router/internal/entra"
 	"workweave/router/internal/feedback"
 	"workweave/router/internal/flags"
 	"workweave/router/internal/observability"
@@ -32,6 +33,7 @@ import (
 	"workweave/router/internal/postgres"
 	"workweave/router/internal/providers"
 	"workweave/router/internal/providers/anthropic"
+	"workweave/router/internal/providers/cortexagents"
 	googleProvider "workweave/router/internal/providers/google"
 	openaiProvider "workweave/router/internal/providers/openai"
 	openaiCompatProvider "workweave/router/internal/providers/openaicompat"
@@ -46,12 +48,15 @@ import (
 	"workweave/router/internal/router/cluster"
 	"workweave/router/internal/router/handover"
 	"workweave/router/internal/router/hmm"
+	"workweave/router/internal/router/hmm/rosterdata"
+	"workweave/router/internal/router/hmm/selection"
 	"workweave/router/internal/router/planner"
 	"workweave/router/internal/router/policy"
 	"workweave/router/internal/router/rl"
 	"workweave/router/internal/router/sessionpin"
 	"workweave/router/internal/router/sessionstrategy"
 	"workweave/router/internal/server"
+	"workweave/router/internal/websearch"
 	"workweave/router/internal/wif"
 
 	_ "time/tzdata"
@@ -209,7 +214,19 @@ func main() {
 		}
 		// Codex (ChatGPT) subscription reroute to the Codex backend lives in
 		// the OpenAI client itself, keyed off the resolved credential.
-		providerMap[providers.ProviderOpenAI] = openaiProvider.NewClient(openaiKey, openaiBaseURL)
+		openaiClient := openaiProvider.NewClientWithModelIDMap(
+			openaiKey,
+			openaiBaseURL,
+			upstreamIDsForProvider(providers.ProviderOpenAI),
+		)
+		// Local tests can point the subscription branch at a deterministic native
+		// Responses mock without changing the production ChatGPT endpoint.
+		if deploymentMode == server.DeploymentModeSelfHosted {
+			if codexBaseURL := config.GetOr("ROUTER_CODEX_BASE_URL", ""); codexBaseURL != "" {
+				openaiClient.SetCodexBaseURL(codexBaseURL)
+			}
+		}
+		providerMap[providers.ProviderOpenAI] = openaiClient
 		switch {
 		case byokOnly:
 			logger.Info("OpenAI provider enabled (BYOK only)", "base_url", openaiBaseURL)
@@ -289,6 +306,39 @@ func main() {
 			func(key, baseURL string) providers.Client {
 				return openaiCompatProvider.NewClient(key, baseURL)
 			})
+	}
+
+	{
+		// Wafer-ZDR: required — Wafer rejects requests whose model doesn't
+		// support ZDR rather than serve them without retention.
+		waferBaseURL := config.GetOr("WAFER_BASE_URL", openaiCompatProvider.WaferBaseURL)
+		registerDeploymentKeyedProvider(providerMap, envKeyedProviders, logger,
+			providers.ProviderWafer, "Wafer", "WAFER_API_KEY", waferBaseURL, byokOnly,
+			func(key, baseURL string) providers.Client {
+				return openaiCompatProvider.NewClientWithModelIDMap(key, baseURL, upstreamIDsForProvider(providers.ProviderWafer)).
+					WithProtectedHeaders(http.Header{"Wafer-ZDR": []string{"required"}})
+			})
+	}
+
+	{
+		// Wafer's Anthropic-compatible Messages surface; same WAFER_API_KEY,
+		// bearer auth, fixed endpoint.
+		waferAnthropicKey := ""
+		if !byokOnly {
+			waferAnthropicKey = config.GetOr(providers.APIKeyEnvVar(providers.ProviderWaferAnthropic), "")
+		}
+		waferMessagesBaseURL := anthropic.WaferMessagesBaseURL
+		providerMap[providers.ProviderWaferAnthropic] = anthropic.NewClient(
+			waferAnthropicKey, waferMessagesBaseURL,
+			anthropic.WithAuthScheme(anthropic.AuthBearer)).
+			WithProtectedHeaders(http.Header{"Wafer-ZDR": []string{"required"}}).
+			WithModelIDMap(upstreamIDsForProvider(providers.ProviderWaferAnthropic))
+		if waferAnthropicKey != "" {
+			envKeyedProviders[providers.ProviderWaferAnthropic] = struct{}{}
+			logger.Info("Wafer Anthropic provider enabled", "base_url", waferMessagesBaseURL)
+		} else {
+			logger.Info("Wafer Anthropic provider registered (BYOK only — set WAFER_API_KEY for deployment-level use)", "base_url", waferMessagesBaseURL)
+		}
 	}
 
 	{
@@ -424,6 +474,7 @@ func main() {
 		WithClusterModelLists(repo.ClusterModelLists).
 		WithUserClusterModelLists(repo.UserClusterModelLists, userClusterCache).
 		WithWIFTokenSource(buildWIFTokenSource(logger)).
+		WithEntraTokenSource(buildEntraTokenSource(logger)).
 		WithFlagOverridesDisabled(flagOverridesDisabled)
 
 	// Fans out Pub/Sub invalidations to this replica's cache; the 5-min TTL
@@ -512,14 +563,17 @@ func main() {
 	// nil if the bundle fails to load, falling back to boot-time hardPin{Provider,Model}.
 	// Not wired when ROUTER_HARD_PIN_MODEL is set — an operator override is
 	// absolute and must never be silently rewritten by excluded_models.
-	var hardPinResolver func(enabled, denySet map[string]struct{}) (string, string, bool)
+	var hardPinResolver proxy.HardPinResolver
 	if config.GetOr("ROUTER_HARD_PIN_MODEL", "") == "" {
 		reqVersion := config.GetOr("ROUTER_CLUSTER_VERSION", cluster.LatestVersion)
 		if version, vErr := cluster.ResolveVersion(reqVersion); vErr == nil {
 			if bundle, bErr := cluster.LoadBundle(version); bErr == nil {
 				meta, registry := bundle.Metadata, bundle.Registry
-				hardPinResolver = func(enabled, denySet map[string]struct{}) (string, string, bool) {
-					return cluster.FastestModelInSet(meta, registry, enabled, denySet, nil)
+				hardPinResolver = func(req proxy.HardPinRequest) (string, string, bool) {
+					return cluster.FastestModelForRequest(meta, registry, req.EnabledProviders, req.ExcludedModels, nil, cluster.RequestBindings{
+						Custom:   req.CustomBindings,
+						Gateways: req.GatewayProviders,
+					})
 				}
 				logger.Info("Hard-pin resolver wired (per-request fastest model from cluster bundle, applies excluded_models)", "version", version, "byok_only", byokOnly)
 			} else {
@@ -571,15 +625,16 @@ func main() {
 	// below can be overridden per deployment.
 	plannerEnabled := config.GetOr("ROUTER_PLANNER_ENABLED", "true") == "true"
 	scoreToolResultTurns := config.GetOr("ROUTER_SCORE_TOOL_RESULT_TURNS", "true") == "true"
-	// Defensive backstop for Anthropic's cyber safety classifier: re-pin a
-	// session off a model that returned a safety refusal. Default off; enabled
-	// on the defensive deploy. Fallback target when the pin has no runner-up.
-	cyberRefusalRepin := config.GetOr("ROUTER_CYBER_REFUSAL_REPIN", "false") == "true"
+	// Safety-refusal backstop: re-pin session off the refusing model and ask
+	// Anthropic to re-serve the refused turn on a fallback model.
+	cyberRefusalRepin := config.GetOr("ROUTER_CYBER_REFUSAL_REPIN", "true") == "true"
 	cyberRefusalFallbackModel := config.GetOr("ROUTER_CYBER_REFUSAL_FALLBACK_MODEL", "claude-sonnet-5")
+	anthropicServerSideFallback := config.GetOr("ROUTER_ANTHROPIC_SERVER_SIDE_FALLBACK", "true") == "true"
 	effortEscalation := config.GetOr("ROUTER_EFFORT_ESCALATION", "false") == "true"
 	// Kill switch for degrading to a same-cluster candidate when the routed
 	// model's bindings are all exhausted by a transient upstream fault.
 	siblingFailover := config.GetOr("ROUTER_SIBLING_FAILOVER", "true") == "true"
+	openAIResponsesBroad := config.GetOr("ROUTER_OPENAI_RESPONSES_BROAD", "true") == "true"
 	sseKeepalive := sseKeepaliveInterval()
 	ccOrchToolsCrossVendor := config.GetOr("ROUTER_CC_ORCH_TOOLS_CROSSVENDOR", "true") == "true"
 	// Per-turn large-vs-small action-classifier swap. Off by default until the
@@ -617,6 +672,9 @@ func main() {
 			struggleEscalationHoldoutPct = n
 		}
 	}
+	// Behavioral evidence arming ships off: the spiral signals' operating points
+	// are still being read off the shadow corpus.
+	struggleEvidenceArming := config.GetOr("ROUTER_STRUGGLE_EVIDENCE_ARMING", "false") == "true"
 	var struggleRoster proxy.StruggleEscalationRoster
 	// Enforcing text-repetition break ships enabled; the switch is the kill
 	// switch if it ever false-positives on legit repeated narration.
@@ -626,6 +684,7 @@ func main() {
 		ExpectedRemainingTurns: parseEnvInt("ROUTER_SWITCH_EXPECTED_REMAINING_TURNS", proxy.DefaultPlannerExpectedRemainingTurns),
 		TierUpgradeEnabled:     config.GetOr("ROUTER_SWITCH_TIER_UPGRADE_ENABLED", boolDefault(proxy.DefaultPlannerTierUpgradeEnabled)) == "true",
 		ColdPinFollowFresh:     config.GetOr("ROUTER_SWITCH_COLD_PIN_FOLLOW_FRESH", boolDefault(proxy.DefaultPlannerColdPinFollowFresh)) == "true",
+		CorrectedEconomics:     config.GetOr("ROUTER_SWITCH_CORRECTED_ECONOMICS", boolDefault(proxy.DefaultPlannerCorrectedEconomics)) == "true",
 	}
 	prefixTrimFreeSwitch := config.GetOr("ROUTER_PREFIX_TRIM_FREE_SWITCH", "true") == "true"
 	hmmUpgradeConfidence := parseEnvFloat("ROUTER_HMM_UPGRADE_CONFIDENCE_THRESHOLD", 0.85)
@@ -634,6 +693,10 @@ func main() {
 	// authoritativeUpgradeGate keeps the 0.85 escalation floor active for authoritative-per-turn
 	// policies; kill switch for a return to verbatim policy selection.
 	authoritativeUpgradeGate := config.GetOr("ROUTER_AUTHORITATIVE_UPGRADE_GATE", "true") == "true"
+	// authorityCacheShadow records the HMM cache gate's counterfactual verdict on
+	// authoritative-per-turn turns, which return before that gate can run. Pure
+	// observation; kill switch for the added per-turn computation and log line.
+	authorityCacheShadow := config.GetOr("ROUTER_AUTHORITY_CACHE_SHADOW", "true") == "true"
 	// policyDeadlineFallback degrades a policy sidecar deadline/transport failure to
 	// the session pin (or tier-3 default below) instead of a 503. Kill switch; off by default.
 	policyDeadlineFallback := config.GetOr("ROUTER_POLICY_DEADLINE_FALLBACK", "false") == "true"
@@ -709,6 +772,26 @@ func main() {
 		logger.Info("RL policy router disabled (ROUTER_RL_SIDECAR_URL unset); x-weave-router-strategy: rl will return 503")
 	}
 
+	// Loaded only when ROUTER_HMM_ROSTER_PATH is set; declarative-roster data
+	// feeds the log-only selection shadow and, when ROUTER_HMM_GO_SELECTION is
+	// enabled, Go selection below.
+	var declarativeRoster *rosterdata.Roster
+	if rosterPath := strings.TrimSpace(config.GetOr("ROUTER_HMM_ROSTER_PATH", "")); rosterPath != "" {
+		loadedRoster, rosterErr := rosterdata.Load(rosterPath)
+		if rosterErr != nil {
+			logger.Error("HMM declarative roster failed to load; refusing to boot", "path", rosterPath, "err", rosterErr)
+			panic(rosterErr)
+		}
+		declarativeRoster = loadedRoster
+		logger.Info(
+			"HMM declarative roster loaded",
+			"path", rosterPath,
+			"schema_version", declarativeRoster.SchemaVersion,
+			"clusters", len(declarativeRoster.Clusters),
+			"arms", len(declarativeRoster.AllArms()),
+		)
+	}
+
 	// Wired only when ROUTER_HMM_SIDECAR_URL is set; x-weave-router-strategy:
 	// hmm then routes through it. Unset fails closed with 503.
 	var hmmRouter router.Router
@@ -772,6 +855,26 @@ func main() {
 				}
 				logger.Info("HMM policy sidecar capabilities discovered after boot", "sidecar_url", hmmSidecarURL)
 			}()
+		}
+		if config.GetOr("ROUTER_HMM_SELECTION_SHADOW", "false") == "true" {
+			if declarativeRoster == nil {
+				logger.Warn("HMM selection shadow requested but ROUTER_HMM_ROSTER_PATH is unset; shadow stays disabled")
+			} else {
+				selectionShadow := selection.Shadow(declarativeRoster)
+				hmmPolicyRouter.WithSelectionShadow(selectionShadow)
+				hmmEmbeddingPolicyRouter.WithSelectionShadow(selectionShadow)
+				logger.Info("HMM selection shadow enabled (log-only)", "strategies", []router.Strategy{router.StrategyHMM, router.StrategyHMMEmbedding})
+			}
+		}
+		if config.GetOr("ROUTER_HMM_GO_SELECTION", "false") == "true" {
+			if declarativeRoster == nil {
+				logger.Warn("HMM Go selection requested but ROUTER_HMM_ROSTER_PATH is unset; selection stays sidecar-authoritative")
+			} else {
+				selectionOverride := selection.Override(declarativeRoster)
+				hmmPolicyRouter.WithSelectionOverride(selectionOverride)
+				hmmEmbeddingPolicyRouter.WithSelectionOverride(selectionOverride)
+				logger.Info("HMM Go selection enabled (authoritative)", "strategies", []router.Strategy{router.StrategyHMM, router.StrategyHMMEmbedding})
+			}
 		}
 		hmmRouter = hmmPolicyRouter
 		hmmEmbeddingRouter = hmmEmbeddingPolicyRouter
@@ -899,6 +1002,7 @@ func main() {
 		flags.KeyStruggleShadowEnabled:     boolDefault(struggleShadowEnabled),
 		flags.KeyStruggleEscalationEnabled: boolDefault(struggleEscalationEnabled),
 		flags.KeyStruggleEscalationHoldout: strconv.Itoa(struggleEscalationHoldoutPct),
+		flags.KeyStruggleEvidenceArming:    boolDefault(struggleEvidenceArming),
 		flags.KeySpiralShadowEnabled:       boolDefault(spiralShadowEnabled),
 		flags.KeyLoopEscalationEnabled:     boolDefault(loopEscalationEnabled),
 		flags.KeyLoopEscalationHoldoutPct:  strconv.Itoa(loopEscalationHoldoutPct),
@@ -907,10 +1011,13 @@ func main() {
 		flags.KeyScoreToolResultTurns:      boolDefault(scoreToolResultTurns),
 		flags.KeyPrefixTrimFreeSwitch:      boolDefault(prefixTrimFreeSwitch),
 		flags.KeyAuthoritativeUpgradeGate:  boolDefault(authoritativeUpgradeGate),
+		flags.KeyAuthorityCacheShadow:      boolDefault(authorityCacheShadow),
 		flags.KeySiblingFailover:           boolDefault(siblingFailover),
+		flags.KeyOpenAIResponsesBroad:      boolDefault(openAIResponsesBroad),
 		flags.KeyEffortEscalation:          boolDefault(effortEscalation),
 		flags.KeyCyberRefusalRepin:         boolDefault(cyberRefusalRepin),
 		flags.KeyCyberRefusalFallback:      cyberRefusalFallbackModel,
+		flags.KeyAnthropicServerFallback:   boolDefault(anthropicServerSideFallback),
 		flags.KeyEmbedOnlyUserMessage:      boolDefault(embedOnlyUser),
 	})
 
@@ -946,13 +1053,16 @@ func main() {
 		WithScoreToolResultTurns(scoreToolResultTurns).
 		WithCyberRefusalRepin(cyberRefusalRepin).
 		WithCyberRefusalFallbackModel(cyberRefusalFallbackModel).
+		WithAnthropicServerSideFallback(anthropicServerSideFallback).
 		WithSiblingFailover(siblingFailover).
+		WithOpenAIResponsesBroad(openAIResponsesBroad).
 		WithSSEKeepalive(sseKeepalive).
 		WithPrefixTrimFreeSwitch(prefixTrimFreeSwitch).
 		WithHMMUpgradeConfidenceThreshold(hmmUpgradeConfidence).
 		WithHMMSameTierPin(hmmSameTierPin).
 		WithHMPinStickyOnArmSelectorUnavail(hmPinStickyOnArmSelectorUnavail).
 		WithAuthoritativeUpgradeGate(authoritativeUpgradeGate).
+		WithAuthorityCacheShadow(authorityCacheShadow).
 		WithPolicyDeadlineFallback(policyDeadlineFallback).
 		WithPolicyDeadlineDefaultModel(policyDeadlineDefaultModel).
 		WithEscapeNormalize(escapeNormalize).
@@ -966,14 +1076,16 @@ func main() {
 		WithStruggleShadowConfig(struggleShadowEnabled).
 		WithStruggleShadowStore(repo.Telemetry).
 		WithStruggleEscalationConfig(struggleEscalationEnabled, struggleEscalationHoldoutPct).
+		WithStruggleEvidenceArming(struggleEvidenceArming).
 		WithStruggleEscalationStore(repo.Telemetry).
 		WithStruggleEscalationRoster(struggleRoster).
 		WithTextRepetitionBreak(textRepetitionBreakEnabled).
 		WithRouterFeedbackStore(repo.Telemetry).
 		WithPlanner(plannerCfg).
 		WithSummarizer(summarizer).
+		WithWebSearchExecutor(cortexWebSearch(logger)).
 		WithCompaction(compactionSz, compactionPct).
-		WithAvailableModels(routingTargets).
+		WithAvailableModels(proxyRoutableModels(routingTargets, availableProviders, hmmRouter != nil)).
 		WithDefaultBaselineModel(resolveDefaultBaselineModel()).
 		WithBillingService(billingSvc)
 	for _, spec := range configuredPolicySpecs {
@@ -985,7 +1097,7 @@ func main() {
 	logger.Info("Loop escalation configured", "enabled", loopEscalationEnabled, "holdout_pct", loopEscalationHoldoutPct)
 	logger.Info("Spiral shadow detector configured", "enabled", spiralShadowEnabled)
 	logger.Info("Text-repetition break configured", "enabled", textRepetitionBreakEnabled)
-	logger.Info("Planner configured", "enabled", plannerEnabled, "threshold_usd", plannerCfg.ThresholdUSD, "expected_remaining_turns", plannerCfg.ExpectedRemainingTurns, "tier_upgrade_enabled", plannerCfg.TierUpgradeEnabled, "cold_pin_follow_fresh", plannerCfg.ColdPinFollowFresh, "prefix_trim_free_switch", prefixTrimFreeSwitch, "routing_targets_count", len(routingTargets))
+	logger.Info("Planner configured", "enabled", plannerEnabled, "threshold_usd", plannerCfg.ThresholdUSD, "expected_remaining_turns", plannerCfg.ExpectedRemainingTurns, "tier_upgrade_enabled", plannerCfg.TierUpgradeEnabled, "cold_pin_follow_fresh", plannerCfg.ColdPinFollowFresh, "corrected_economics", plannerCfg.CorrectedEconomics, "prefix_trim_free_switch", prefixTrimFreeSwitch, "routing_targets_count", len(routingTargets))
 	logger.Info("Tool-result scoring configured", "enabled", scoreToolResultTurns)
 
 	// Fail loud if a deployed model is missing from the tier table;
@@ -1355,6 +1467,21 @@ func buildClusterScorer(availableProviders map[string]struct{}) (router.Router, 
 	return multi, defaultEmbedderID, nil
 }
 
+// buildEntraTokenSource returns the lazy Microsoft Entra client-credentials token source;
+// a deployment without Azure keys never contacts Microsoft Entra.
+func buildEntraTokenSource(logger *slog.Logger) auth.EntraTokenSource {
+	logger.Debug("Microsoft Entra client credentials token source initialized")
+	// This client posts the decrypted BYOK client_secret; never follow a
+	// redirect with it. The refused 3xx fails mint()'s 2xx status check.
+	entraClient := &http.Client{
+		Timeout: 10 * time.Second,
+		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+	return entra.NewClientCredentialsSource(entraClient, time.Now)
+}
+
 // buildWIFTokenSource constructs the workload attestation source backing BYOK
 // keys with auth_type=wif. Returns nil when ROUTER_WIF_PROVIDER is unset — the
 // identity is the deployment's own, so only the operator can configure it.
@@ -1454,6 +1581,21 @@ func parseEnvInt(key string, fallback int) int {
 // parseEnvFloat reads an env var as a float64, falling back on unset/empty/
 // unparseable. Zero and negative values are valid — e.g. operators set
 // ROUTER_SWITCH_EV_THRESHOLD_USD <= 0 to force aggressive planner switching.
+// proxyRoutableModels is RoutingTargetSet plus HMM-only rows when HMM is wired.
+func proxyRoutableModels(generic, providers map[string]struct{}, hmmWired bool) map[string]struct{} {
+	if !hmmWired {
+		return generic
+	}
+	out := catalog.HMMRoutingTargetSet(providers)
+	if len(generic) == 0 {
+		return out
+	}
+	for m := range generic {
+		out[m] = struct{}{}
+	}
+	return out
+}
+
 func parseEnvFloat(key string, fallback float64) float64 {
 	raw := config.GetOr(key, "")
 	if raw == "" {
@@ -1499,29 +1641,6 @@ func sseKeepaliveInterval() time.Duration {
 		return defaultSec * time.Second
 	}
 	return time.Duration(sec) * time.Second
-}
-
-// publishFlagRegistry writes internal/flags.Registry to router.flag_definitions,
-// pairing each entry with the deployment default resolved above. defaults is
-// passed in (not derived) because the resolved values are ordinary locals
-// scattered through main(); a missing key is logged and published as empty.
-func publishFlagRegistry(logger *slog.Logger, repo *postgres.FlagDefinitionRepo, defaults map[flags.Key]string) {
-	published := make([]flags.PublishedDefinition, 0, len(flags.Registry))
-	for _, def := range flags.Registry {
-		value, ok := defaults[def.Key]
-		if !ok {
-			logger.Warn("Flag registered without a published deployment default", "flag", def.Key, "env_var", def.EnvVar)
-		}
-		published = append(published, flags.PublishedDefinition{Definition: def, DeploymentDefault: value})
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), flagRegistryPublishTimeout)
-	defer cancel()
-	err := repo.Publish(ctx, published)
-	if err != nil {
-		logger.Error("Failed to publish flag registry; per-org flag override UI may be stale", "err", err)
-		return
-	}
-	logger.Info("Published flag registry", "count", len(published))
 }
 
 // boolDefault renders a bool default for config.GetOr on bool envs.
@@ -1685,10 +1804,28 @@ func runSessionPinSweep(ctx context.Context, store sessionpin.Store) {
 const (
 	defaultHardPinProvider = providers.ProviderAnthropic
 	defaultHardPinModel    = "claude-haiku-4-5"
-	// flagRegistryPublishTimeout bounds the boot-time registry publish so a slow
-	// or unreachable database delays startup by seconds, not indefinitely.
-	flagRegistryPublishTimeout = 10 * time.Second
 )
+
+// cortexWebSearch builds the Cortex Agents web-search executor for gateway
+// tenants whose Anthropic path rejects the native server tool. Returns nil
+// when ROUTER_CORTEX_WEB_SEARCH != "true", leaving those turns on normal routing.
+func cortexWebSearch(logger *slog.Logger) websearch.Executor {
+	if config.GetOr("ROUTER_CORTEX_WEB_SEARCH", "true") != "true" {
+		logger.Info("Cortex Agents web-search executor disabled (ROUTER_CORTEX_WEB_SEARCH)")
+		return nil
+	}
+	role := config.GetOr("SNOWFLAKE_AGENT_ROLE", "")
+	hostSuffix := config.GetOr("SNOWFLAKE_AGENT_HOST_SUFFIX", "")
+	timeout := parseEnvDurationMs("SNOWFLAKE_AGENT_TIMEOUT_MS", 0)
+	logger.Info("Cortex Agents web-search executor enabled",
+		"snowflake_role", role, "host_suffix_override", hostSuffix,
+		"timeout_ms", timeout.Milliseconds())
+	opts := []cortexagents.Option{cortexagents.WithRole(role), cortexagents.WithTimeout(timeout)}
+	if hostSuffix != "" {
+		opts = append(opts, cortexagents.WithHostSuffix(hostSuffix))
+	}
+	return cortexagents.NewClient(config.GetOr("ANTHROPIC_GATEWAY_BASE_URL", ""), opts...)
+}
 
 // resolveDefaultBaselineModel returns the cost-comparison baseline used when
 // RequestedModel has no pricing entry. Uses os.LookupEnv directly (not

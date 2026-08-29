@@ -121,7 +121,7 @@ func (s *Service) handleBetaCommand(
 	log.Info(
 		"session beta routing toggled",
 		"enabled", !enabled,
-		"session_key", shortSessionKey(sessionKey),
+		"session_key_prefix", shortSessionKey(sessionKey),
 	)
 	return writeBetaCommandResponse(w, env, message, inputTokens)
 }

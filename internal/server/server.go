@@ -126,6 +126,15 @@ func Register(engine *gin.Engine, authSvc *auth.Service, proxySvc *proxy.Service
 		engine.GET("/v1/router/hmm-roster", middleware.WithTimeout(readinessTimeout), admin.HMMRosterHandler(hmmRosterSource))
 	}
 
+	// /internal/v1/*: control-plane-to-router calls, authed by a shared secret
+	// and mounted only when one is configured. This is not a second admin API —
+	// it carries only work the control plane cannot do itself because the
+	// credential is minted here per request (key-pair, workload identity).
+	if internalToken := strings.TrimSpace(os.Getenv("ROUTER_INTERNAL_SERVICE_TOKEN")); internalToken != "" {
+		internalGroup := engine.Group("/internal/v1", middleware.WithTimeout(adminTimeout), middleware.WithInternalServiceAuth(internalToken))
+		internalGroup.POST("/provider-keys/models", admin.InternalListUpstreamModelsHandler(authSvc, proxySvc))
+	}
+
 	// /validate is a token-validity probe used by clients (not the dashboard), so it stays mounted in both modes.
 	adminAuthed := engine.Group("", middleware.WithTimeout(validateTimeout), middleware.WithAuth(authSvc, byokRequiresOptIn))
 	adminAuthed.GET("/validate", admin.ValidateHandler)
@@ -172,7 +181,7 @@ func Register(engine *gin.Engine, authSvc *auth.Service, proxySvc *proxy.Service
 			mgmt.GET("/excluded-models", admin.GetExcludedModelsHandler(authSvc, deployedModels, proxySvc))
 			mgmt.PUT("/excluded-models", admin.UpdateExcludedModelsHandler(authSvc, deployedModels, proxySvc))
 			mgmt.GET("/allowed-models", admin.GetAllowedModelsHandler(authSvc, deployedModels))
-			mgmt.PUT("/allowed-models", admin.UpdateAllowedModelsHandler(authSvc, deployedModels))
+			mgmt.PUT("/allowed-models", admin.UpdateAllowedModelsHandler(authSvc, deployedModels, proxySvc))
 			mgmt.GET("/excluded-providers", admin.GetExcludedProvidersHandler(authSvc, deployedModels, proxySvc))
 			mgmt.PUT("/excluded-providers", admin.UpdateExcludedProvidersHandler(authSvc, deployedModels, proxySvc))
 		}

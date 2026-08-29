@@ -36,10 +36,23 @@ func TestSSETranslator_IncompleteEOFEmitsFailureNotDone(t *testing.T) {
 	assert.NotContains(t, rec.Body.String(), "[DONE]")
 }
 
-func TestSSETranslator_PreludeOnlyEOFEmitsFailure(t *testing.T) {
+func TestAnthropicSSETranslator_PreludeOnlyEOFDefersToFailover(t *testing.T) {
 	rec := httptest.NewRecorder()
 	w := translate.NewAnthropicSSETranslator(rec, "gpt-x", nil)
 	require.NoError(t, w.Prelude(true))
+	require.ErrorIs(t, w.Finalize(), translate.ErrStreamIncomplete)
+	// No upstream output arrived, so the prelude is still retryable: emitting a
+	// terminal here would commit the response and foreclose failover.
+	assert.NotContains(t, rec.Body.String(), "event: error")
+	assert.NotContains(t, rec.Body.String(), "event: message_stop")
+}
+
+func TestAnthropicSSETranslator_MidOutputEOFEmitsFailure(t *testing.T) {
+	rec := httptest.NewRecorder()
+	w := translate.NewAnthropicSSETranslator(rec, "gpt-x", nil)
+	require.NoError(t, w.Prelude(true))
+	_, err := w.Write([]byte("data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"partial\"},\"finish_reason\":null}]}\n\n"))
+	require.NoError(t, err)
 	require.ErrorIs(t, w.Finalize(), translate.ErrStreamIncomplete)
 	assert.Contains(t, rec.Body.String(), "event: error")
 	assert.NotContains(t, rec.Body.String(), "event: message_stop")

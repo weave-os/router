@@ -27,6 +27,119 @@ set -euo pipefail
 scope="user"
 scope_explicit="false"
 install_dir=""
+script_dir="$(cd "$(dirname "$0")" 2>/dev/null && pwd || true)"
+
+# ---------- directive registry (embedded) ----------
+#
+# uninstall.sh is served standalone too (the npm bin runs it directly, and it
+# can be piped), so it cannot rely on a sibling registry.sh. The data and
+# helpers are embedded verbatim; install/tests/registry_test.sh asserts they
+# never drift from the canonical files. Regenerate with `make embed-registry`.
+WEAVE_REGISTRY_DATA=$(cat <<'WEAVE_REGISTRY_EOF'
+# Weave Router directive registry
+# canonical|aliases|capability|claude|codex|opencode|pi|cursor|adapter
+# aliases are comma-separated; client columns are yes/no. adapter is the native asset kind.
+force-model|fm|prompt|yes|yes|yes|yes|manual|command,skill
+unforce-model|ufm|prompt|yes|yes|yes|yes|manual|command,skill
+router-feedback|rf|prompt|yes|yes|yes|no|manual|command,skill
+router-off||local-toggle|yes|yes|no|no|manual|command,skill
+router-on||local-toggle|yes|yes|no|no|manual|command,skill
+router-status||local-toggle|yes|yes|no|no|manual|command,skill
+router-session||prompt|yes|no|no|no|manual|command
+router-models|models|local-toggle|yes|yes|no|no|manual|command,skill
+disable-routing||local-toggle|no|yes|no|no|manual|skill
+beta||prompt|yes|no|no|yes|manual|command
+WEAVE_REGISTRY_EOF
+)
+
+# >>> weave-router registry lib >>>
+weave_registry_rows() {
+  if [ -n "${WEAVE_REGISTRY_DATA:-}" ]; then
+    printf '%s\n' "$WEAVE_REGISTRY_DATA" | awk -F '|' '!/^([[:space:]]*#|[[:space:]]*$)/ { print }'
+    return 0
+  fi
+  local registry="${WEAVE_REGISTRY_FILE:-}"
+  if [ -z "$registry" ]; then
+    local dir
+    dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd -P)" || return 1
+    registry="$dir/directives.tsv"
+  fi
+  [ -f "$registry" ] || return 1
+  awk -F '|' '!/^([[:space:]]*#|[[:space:]]*$)/ { print }' "$registry"
+}
+
+# weave_registry_names lists every canonical name and alias a client installs.
+weave_registry_names() {
+  local target="$1" canonical aliases capability claude codex opencode pi cursor adapter
+  while IFS='|' read -r canonical aliases capability claude codex opencode pi cursor adapter; do
+    case "$target" in
+      claude) [ "$claude" = yes ] || continue ;; codex) [ "$codex" = yes ] || continue ;;
+      opencode) [ "$opencode" = yes ] || continue ;; pi) [ "$pi" = yes ] || continue ;;
+      cursor) [ "$cursor" = yes ] || continue ;;
+    esac
+    printf '%s\n' "$canonical"
+    [ -n "$aliases" ] && printf '%s\n' "$aliases" | tr ',' '\n'
+  done <<EOF
+$(weave_registry_rows)
+EOF
+}
+
+# weave_registry_skill_names lists the prompt directives a client exposes as a
+# native skill. Local-config toggles are excluded: they mutate config this
+# installer owns and are handled per target, not as a generic prompt.
+weave_registry_skill_names() {
+  local target="$1" canonical aliases capability claude codex opencode pi cursor adapter
+  while IFS='|' read -r canonical aliases capability claude codex opencode pi cursor adapter; do
+    [ "$capability" = prompt ] || continue
+    case "$target" in
+      claude) [ "$claude" = yes ] || continue ;; codex) [ "$codex" = yes ] || continue ;;
+      opencode) [ "$opencode" = yes ] || continue ;; pi) [ "$pi" = yes ] || continue ;;
+      cursor) [ "$cursor" = yes ] || continue ;;
+    esac
+    printf '%s\n' "$canonical"
+    [ -n "$aliases" ] && printf '%s\n' "$aliases" | tr ',' '\n'
+  done <<EOF
+$(weave_registry_rows)
+EOF
+}
+
+# weave_registry_skill_assets lists every directive a client ships as a skill
+# file, including local-config toggles such as Codex's disable-routing. Install
+# and uninstall use this for file management; weave_registry_skill_names is the
+# narrower prompt-only set used when generating prompt adapters.
+weave_registry_skill_assets() {
+  local target="$1" canonical aliases capability claude codex opencode pi cursor adapter
+  while IFS='|' read -r canonical aliases capability claude codex opencode pi cursor adapter; do
+    case ",$adapter," in *,skill,*) ;; *) continue ;; esac
+    case "$target" in
+      claude) [ "$claude" = yes ] || continue ;; codex) [ "$codex" = yes ] || continue ;;
+      opencode) [ "$opencode" = yes ] || continue ;; pi) [ "$pi" = yes ] || continue ;;
+      cursor) [ "$cursor" = yes ] || continue ;;
+    esac
+    printf '%s\n' "$canonical"
+    [ -n "$aliases" ] && printf '%s\n' "$aliases" | tr ',' '\n'
+  done <<EOF
+$(weave_registry_rows)
+EOF
+}
+
+# weave_registry_canonical_for resolves a name or alias to its canonical
+# directive, and fails when the name is not in the registry at all.
+weave_registry_canonical_for() {
+  local wanted="$1" canonical aliases capability claude codex opencode pi cursor adapter alias
+  while IFS='|' read -r canonical aliases capability claude codex opencode pi cursor adapter; do
+    [ "$wanted" = "$canonical" ] && { printf '%s' "$canonical"; return 0; }
+    IFS=',' read -ra _aliases <<< "$aliases"
+    for alias in ${_aliases[@]+"${_aliases[@]}"}; do
+      [ "$wanted" = "$alias" ] && { printf '%s' "$canonical"; return 0; }
+    done
+  done <<EOF
+$(weave_registry_rows)
+EOF
+  return 1
+}
+# <<< weave-router registry lib <<<
+
 target="claude"
 
 err()  { printf "\033[31merror:\033[0m %s\n" "$*" >&2; }
@@ -92,7 +205,6 @@ fi
 # Markers must stay in sync with install.sh. Keep verbatim.
 WEAVE_CODEX_BEGIN_MARKER="# >>> weave-router managed (do not edit between markers) >>>"
 WEAVE_CODEX_END_MARKER="# <<< weave-router managed <<<"
-WEAVE_CODEX_SKILL_MARKER="<!-- weave-router managed disable-routing skill -->"
 
 # strip_codex_block rewrites config.toml without the managed block and any
 # top-level `model_provider = "weave"` that lived outside the markers (which
@@ -223,14 +335,20 @@ if [ "$target" = "opencode" ]; then
     local opencode_cmds_dir="$1" cmd cmd_file
     if [ -d "$opencode_cmds_dir" ]; then
       refuse_if_symlink "$opencode_cmds_dir"
-      for cmd in force-model unforce-model router-feedback fm ufm rf; do
+      while IFS= read -r cmd; do
         cmd_file="$opencode_cmds_dir/$cmd.md"
         if [ -f "$cmd_file" ]; then
-          refuse_if_symlink "$cmd_file"
-          rm -f "$cmd_file"
-          ok "Removed $cmd_file"
+          if grep -Fq "<!-- weave-router managed command: $cmd -->" "$cmd_file"; then
+            refuse_if_symlink "$cmd_file"
+            rm -f "$cmd_file"
+            ok "Removed $cmd_file"
+          else
+            warn "Leaving user-owned opencode command at $cmd_file untouched."
+          fi
         fi
-      done
+      done <<EOF
+$(weave_registry_names opencode)
+EOF
       rmdir "$opencode_cmds_dir" 2>/dev/null || true
     fi
   }
@@ -405,7 +523,15 @@ if [ "$target" = "codex" ]; then
     refuse_if_symlink "$codex_dir"
   fi
   codex_config_file="$codex_dir/config.toml"
+  if [ "$scope" = "user" ] && [ -z "$install_dir" ]; then
+    codex_status_file="$HOME/.weave/codex-status.sh"
+  else
+    codex_status_file="$codex_dir/weave-status.sh"
+  fi
+  codex_status_disabled_marker="$(dirname "$codex_status_file")/.weave-router-disabled"
   refuse_if_symlink "$codex_config_file"
+  refuse_if_symlink "$codex_status_file"
+  refuse_if_symlink "$codex_status_disabled_marker"
 
   if [ -f "$codex_config_file" ]; then
     strip_codex_block "$codex_config_file"
@@ -422,39 +548,85 @@ if [ "$target" = "codex" ]; then
     info "No Codex config at $codex_config_file (already uninstalled?)"
   fi
 
+  # A user config with an existing [features] table receives the installer
+  # hook setting outside the managed block; remove only our tagged line.
+  if [ -f "$codex_config_file" ]; then
+    tmp="$(mktemp -t weave-codex-features-uninstall.XXXXXX)"
+    awk '$0 != "hooks = true # weave-router managed codex hooks" { print }' "$codex_config_file" >"$tmp"
+    mv "$tmp" "$codex_config_file"
+  fi
+
+  if [ -f "$codex_status_file" ]; then
+    if grep -Fq '<!-- weave-router managed codex status -->' "$codex_status_file"; then
+      rm -f "$codex_status_file"
+      rm -f "$codex_status_disabled_marker"
+      ok "Removed $codex_status_file"
+      rmdir "$(dirname "$codex_status_file")" 2>/dev/null || true
+    else
+      warn "Leaving user-owned Codex status helper at $codex_status_file untouched."
+    fi
+  fi
+
   # Remove only the prompt files this installer owns; leave any user-authored
   # entries in prompts/ alone. The dir itself is dropped only if empty after.
   codex_prompts_dir="$codex_dir/prompts"
   if [ -d "$codex_prompts_dir" ]; then
     refuse_if_symlink "$codex_prompts_dir"
-    for cmd in force-model unforce-model router-feedback fm ufm rf; do
+    while IFS= read -r cmd; do
       cmd_file="$codex_prompts_dir/$cmd.md"
       if [ -f "$cmd_file" ]; then
         refuse_if_symlink "$cmd_file"
         rm -f "$cmd_file"
         ok "Removed $cmd_file"
       fi
-    done
+    done <<EOF
+$(weave_registry_names codex)
+EOF
     rmdir "$codex_prompts_dir" 2>/dev/null || true
   fi
 
-  # The installer-owned skill switches Codex back to its normal provider. It
-  # is separate from config.toml, so remove it when removing the router too.
-  # A same-named skill without our marker belongs to the user and is preserved.
-  codex_skill_dir="$codex_dir/skills/disable-routing"
-  codex_skill_file="$codex_skill_dir/SKILL.md"
-  if [ -d "$codex_skill_dir" ]; then
-    refuse_if_symlink "$codex_skill_dir"
-    if [ -f "$codex_skill_file" ]; then
-      refuse_if_symlink "$codex_skill_file"
-      if grep -Fq "$WEAVE_CODEX_SKILL_MARKER" "$codex_skill_file"; then
-        rm -f "$codex_skill_file"
-        ok "Removed $codex_skill_file"
-      else
-        warn "Leaving user-owned Codex skill at $codex_skill_file untouched."
+  # disable-routing is handled by the registry-driven loop below, alongside
+  # every other installer-owned skill.
+
+  # A symlinked skills/ or per-skill directory would let the marker check and
+  # the rm below reach a file outside the Codex tree entirely, so refuse the
+  # parents before touching anything beneath them — not just SKILL.md itself.
+  if [ -L "$codex_dir/skills" ]; then
+    warn "$codex_dir/skills is a symlink; leaving Codex skills untouched."
+  else
+    while IFS= read -r canonical; do
+      skill_dir="$codex_dir/skills/$canonical"
+      skill_file="$skill_dir/SKILL.md"
+      if [ -L "$skill_dir" ]; then
+        warn "$skill_dir is a symlink; leaving it untouched."
+        continue
       fi
-    fi
-    rmdir "$codex_skill_dir" 2>/dev/null || true
+      if [ -L "$skill_file" ]; then
+        warn "$skill_file is a symlink; leaving it untouched."
+        continue
+      fi
+      if [ -f "$skill_file" ]; then
+        if grep -Fq "<!-- weave-router managed $canonical skill -->" "$skill_file"; then
+          rm -f "$skill_file"
+          ok "Removed $skill_file"
+          # The prompt skills also ship scripts/emit.sh; leaving it behind
+          # strands a directory Codex still advertises as a skill.
+          emit_file="$skill_dir/scripts/emit.sh"
+          if [ ! -L "$skill_dir/scripts" ] && [ ! -L "$emit_file" ] && [ -f "$emit_file" ]; then
+            rm -f "$emit_file"
+            rmdir "$skill_dir/scripts" 2>/dev/null || true
+          fi
+        else
+          warn "Leaving user-owned Codex skill at $skill_file untouched."
+        fi
+        rmdir "$skill_dir" 2>/dev/null || true
+      fi
+    done <<EOF
+$(weave_registry_skill_assets codex)
+EOF
+    # Drop skills/ when nothing is left in it, matching how the prompts and
+    # Claude command paths clean up their now-empty directories. rmdir refuses
+    # a non-empty dir, so an unrelated user skill keeps it.
     rmdir "$codex_dir/skills" 2>/dev/null || true
   fi
 
@@ -558,11 +730,12 @@ fi
 
 if [ -n "$local_settings_file" ] && [ -f "$local_settings_file" ]; then
   # ANTHROPIC_BASE_URL only lives here when a project install was toggled off
-  # (the off path overrides it to Anthropic in the local file); scrub it too so
-  # uninstall fully reverts a toggled-off install.
+  # (the off path overrides it to Anthropic in the local file). Project installs
+  # also keep WEAVE_ROUTER_BASE_URL here as a private endpoint marker beside the
+  # router key; scrub both so uninstall fully reverts the local config.
   cleaned="$(jq '
     if .env then
-      .env |= (del(.ANTHROPIC_BASE_URL, .ANTHROPIC_AUTH_TOKEN, .ANTHROPIC_CUSTOM_HEADERS, .ENABLE_TOOL_SEARCH))
+      .env |= (del(.ANTHROPIC_BASE_URL, .ANTHROPIC_AUTH_TOKEN, .ANTHROPIC_CUSTOM_HEADERS, .ENABLE_TOOL_SEARCH, .WEAVE_ROUTER_BASE_URL))
       | (if (.env | length) == 0 then del(.env) else . end)
     else . end
     | del(.apiKeyHelper)
@@ -592,14 +765,20 @@ done
 commands_dir="$(dirname "$settings_file")/commands"
 if [ -d "$commands_dir" ]; then
   refuse_if_symlink "$commands_dir"
-  for cmd in force-model unforce-model router-feedback fm ufm rf beta router-off router-on router-status router-session router-models models; do
+  while IFS= read -r cmd; do
     cmd_file="$commands_dir/$cmd.md"
     if [ -f "$cmd_file" ]; then
       refuse_if_symlink "$cmd_file"
-      rm -f "$cmd_file"
-      ok "Removed $cmd_file"
+      if grep -Fq "<!-- weave-router managed command: $cmd -->" "$cmd_file"; then
+        rm -f "$cmd_file"
+        ok "Removed $cmd_file"
+      else
+        warn "Leaving user-owned Claude command at $cmd_file untouched."
+      fi
     fi
-  done
+  done <<EOF
+$(weave_registry_names claude)
+EOF
   # Clean up the dir only if we left nothing behind.
   rmdir "$commands_dir" 2>/dev/null || true
 fi

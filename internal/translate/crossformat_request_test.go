@@ -468,6 +468,29 @@ func TestCrossFormat_OpenAIToAnthropic_MultipleSystemMessages(t *testing.T) {
 	assert.Equal(t, "user", msgAt(t, msgs, 0)["role"])
 }
 
+func TestCrossFormat_OpenAIToAnthropic_MidConversationSystemMessageDemotedInPlace(t *testing.T) {
+	// Mid-conversation system messages are demoted in place; hoisting would shift the cached prefix.
+	body := []byte(`{"model":"gpt-4","messages":[{"role":"system","content":"rules"},{"role":"user","content":"hi"},{"role":"assistant","content":"ok"},{"role":"system","content":"be terse"}]}`)
+	env, err := translate.ParseOpenAI(body)
+	require.NoError(t, err)
+
+	prep, err := env.PrepareAnthropic(http.Header{}, translate.EmitOptions{TargetModel: "claude-sonnet-4-20250514"})
+	require.NoError(t, err)
+
+	doc := unmarshalBody(t, prep.Body)
+	sys := getArray(t, doc, "system")
+	require.Len(t, sys, 1, "only the leading system message is hoisted")
+	assert.Equal(t, "rules", sys[0].(map[string]any)["text"])
+
+	msgs := getArray(t, doc, "messages")
+	require.Len(t, msgs, 3)
+	last := msgAt(t, msgs, 2)
+	assert.Equal(t, "user", last["role"])
+	blocks, _ := last["content"].([]any)
+	require.Len(t, blocks, 1)
+	assert.Equal(t, "be terse", blocks[0].(map[string]any)["text"])
+}
+
 func TestCrossFormat_OpenAIToAnthropic_AssistantTextAndToolCalls(t *testing.T) {
 	env, err := translate.ParseOpenAI(openAIAssistantTextAndToolCalls)
 	require.NoError(t, err)

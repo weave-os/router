@@ -123,6 +123,15 @@ type Result struct {
 	// with its full and eligible roster arms. Populated when ReportsRankedFallback;
 	// empty on older sidecars (arm override fails open).
 	RankedFallback []PreviewGroup
+	// PredictedLabel is the classifier's typed predicted complexity label;
+	// empty on sidecars that do not report it.
+	PredictedLabel string
+	// ClassProbabilities is the classifier's typed per-class probability map;
+	// nil on sidecars that do not report it.
+	ClassProbabilities map[string]float64
+	// PinStickyOverrideEligible is the typed successor of the
+	// "[pin_sticky_override_eligible]" sentinel; nil when the sidecar does not report it.
+	PinStickyOverrideEligible *bool
 }
 
 // PreviewGroup records one classifier group in serving fallback order.

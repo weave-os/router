@@ -33,12 +33,15 @@ Claude Code keep using the user's logged-in plan.
 | `ANTHROPIC_API_KEY`   | *(none — passthrough)*                                    | Router's own Anthropic key. When unset, client `Authorization` headers pass through. |
 | `OPENAI_API_KEY`      | *(none)*                                                  | Enables the OpenAI provider (Chat Completions API). |
 | `OPENAI_BASE_URL`     | `https://api.openai.com`                                  | Override for OpenAI (e.g. Azure OpenAI). |
+| `ROUTER_CODEX_BASE_URL` | `https://chatgpt.com/backend-api/codex`                  | Local-testing override for the ChatGPT subscription Responses backend; leave unset in production. |
 | `GOOGLE_API_KEY`      | *(none)*                                                  | Enables Gemini via its OpenAI-compatible endpoint. |
 | `GOOGLE_BASE_URL`     | `https://generativelanguage.googleapis.com/v1beta/openai` | Override for Gemini. |
 | `ANTHROPIC_GATEWAY_BASE_URL` | *(none)*                                           | Base URL of an Anthropic-compatible gateway; `/v1/messages` is appended to it. |
 | `ANTHROPIC_GATEWAY_TOKEN`    | *(none)*                                           | Token for that gateway, sent as `Authorization: Bearer`. Only used when `ANTHROPIC_GATEWAY_BASE_URL` is also set. |
 | `OPENAI_GATEWAY_BASE_URL`    | *(none)*                                           | Base URL of an OpenAI-compatible gateway; `/chat/completions` is appended to it. |
 | `OPENAI_GATEWAY_TOKEN`       | *(none)*                                           | Token for that gateway, sent as `Authorization: Bearer`. Only used when `OPENAI_GATEWAY_BASE_URL` is also set. |
+| `WAFER_API_KEY`   | *(none)*                                                  | Enables Wafer Serverless (both its OpenAI-compatible `wafer` and Anthropic-compatible `wafer_anthropic` surfaces; one key covers both). |
+| `WAFER_BASE_URL`  | `https://pass.wafer.ai/v1`                                | Override for the Wafer OpenAI-compatible endpoint (`wafer_anthropic` uses the fixed `/v1/messages` endpoint). |
 
 **Anthropic-compatible gateway.** Some enterprises front Claude with their own
 gateway that speaks the Anthropic Messages spec but authenticates with a bearer
@@ -48,6 +51,35 @@ unconfigured gateway does *not* fall back to `api.anthropic.com`. The provider
 is always registered so BYOK installations can point at their own gateway
 without deployment-level credentials; the env vars above are only for a
 deployment that has a gateway of its own.
+
+**Native web search on a gateway.** An Anthropic-spec gateway relays to a
+backend that implements function tools only, so Claude Code's WebSearch turn
+comes back as `tool type 'web_search_20250305' is not supported for this
+model`. For Snowflake Cortex the capability exists on a different endpoint —
+`POST /api/v2/cortex/agent:run` with a `web_search` tool spec — so the router
+executes the search there, on the tenant's own credential, and returns the
+`server_tool_use` / `web_search_tool_result` blocks the client expects. The
+base URL and token come from the request's gateway key (WIF included), so no
+extra deployment config is needed.
+
+The turn is intercepted on capability — a native `web_search_*` tool, an
+isolated one-shot search turn, and no enabled provider that runs Anthropic
+server tools natively — which also describes an Anthropic-spec gateway that is
+not Cortex. The executor therefore refuses any gateway whose host is not
+Snowflake's, and such turns stay on normal routing.
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `ROUTER_CORTEX_WEB_SEARCH` | `true` | Kill switch. `false` leaves native web-search turns on normal routing (they fail upstream on gateways that reject the tool). |
+| `SNOWFLAKE_AGENT_ROLE` | *(none)* | Sent as `X-Snowflake-Role` on `agent:run`. Leave unset to use the service user's default role. |
+| `SNOWFLAKE_AGENT_HOST_SUFFIX` | `snowflakecomputing.com` | Host suffix a gateway base URL must match before `agent:run` is attempted. Only for pointing at a local stub in tests. |
+| `SNOWFLAKE_AGENT_TIMEOUT_MS` | `90000` | Budget for one agent run, applied both as the request deadline and as the time-to-first-byte guard (`agent:run` buffers the whole run). Observed runs are 15–30s; expiring early costs the turn the upstream 400 this path exists to avoid. |
+
+Snowflake-side prerequisites: an ACCOUNTADMIN must enable web search at the
+account level, and the authenticating user needs a role with agent privileges
+plus a default warehouse it can USAGE (or an explicit `SNOWFLAKE_AGENT_ROLE`
+that has one). Cortex's web search is served from Brave's index, so queries
+and results leave Snowflake's perimeter under Snowflake's vendor agreement.
 
 **OpenAI-compatible gateway.** `openai_gateway` is the same arrangement one
 wire family over: a customer endpoint speaking OpenAI Chat Completions, bearer
@@ -246,6 +278,82 @@ request depends on (`Authorization`, `x-api-key`, `Host`, `Content-Type`,
 `Content-Length`, `Accept`) is rejected with `400`. Omit both fields to forward
 nothing — identity only ever reaches the endpoint configured to receive it.
 
+An endpoint that runs its own observability (Snowflake Cortex) can also have the
+caller's own correlation headers survive the hop, and its baggage header
+re-emitted with the router-resolved user:
+
+```bash
+curl -sS -b jar -X POST https://<router>/admin/v1/provider-keys \
+  -H 'content-type: application/json' \
+  -d '{"provider":"anthropic_gateway","key":"<token>",
+       "forwarded_client_headers":["X-SNOWFLAKE-APPLICATION","X-Claude-Code-Session-Id"],
+       "baggage_header":"X-SNOWFLAKE-BAGGAGE"}'
+```
+
+`forwarded_client_headers` are copied verbatim from the inbound request (up to
+16, blanks and duplicates dropped). `baggage_header` is read as a raw JSON
+object and re-sent with `"on-behalf-of": "<X-Weave-User-Email>"` added — other
+keys are preserved, and a client-supplied `on-behalf-of` is replaced so
+attribution stays the router's. A request with no resolved email forwards the
+caller's bag unchanged; a bag that isn't a JSON object travels unchanged. Both
+fields reject the same request-critical header names as `identity_header`, and
+both are applied after the client's headers so nothing upstream-critical can be
+overwritten. Omit both to forward nothing.
+
+
+### Microsoft Entra client credentials
+
+A tenant that uses Microsoft Foundry or Azure OpenAI can give the router an
+Entra application instead of a long-lived inference token. The stored secret is
+the application's client secret; the router exchanges it for a short-lived
+bearer token at the tenant's Microsoft identity endpoint and refreshes it before
+expiry. The secret is never sent to the inference endpoint.
+
+Use `azure_entra` only with `anthropic_gateway` (Foundry Claude) or
+`openai_gateway` (Azure OpenAI v1). The `auth_account` is the Entra tenant ID
+and `auth_user` is the application/client ID. The endpoint URL must be the
+provider's base URL; the router appends `/v1/messages` or `/chat/completions`.
+Azure deployment names belong in `model_aliases`:
+
+```bash
+# Foundry Claude: https://<resource>.services.ai.azure.com/anthropic/v1/messages
+curl -sS -b jar -X POST https://<router>/admin/v1/provider-keys \
+  -H 'content-type: application/json' \
+  -d '{"provider":"anthropic_gateway","auth_type":"azure_entra",
+       "key":"<entra-client-secret>",
+       "auth_account":"<tenant-id>",
+       "auth_user":"<client-id>",
+       "base_url":"https://<resource>.services.ai.azure.com/anthropic",
+       "model_aliases":{"claude-opus-5":"<deployment-name>"}}'
+
+# Azure OpenAI v1: https://<resource>.openai.azure.com/openai/v1/chat/completions
+curl -sS -b jar -X POST https://<router>/admin/v1/provider-keys \
+  -H 'content-type: application/json' \
+  -d '{"provider":"openai_gateway","auth_type":"azure_entra",
+       "key":"<entra-client-secret>",
+       "auth_account":"<tenant-id>",
+       "auth_user":"<client-id>",
+       "base_url":"https://<resource>.openai.azure.com/openai/v1",
+       "model_aliases":{"gpt-5":"<deployment-name>"}}'
+```
+
+The application must have permission to call the Azure resource (for example,
+**Foundry User** for Foundry Claude or **Cognitive Services OpenAI User** for
+Azure OpenAI). The token scope follows the endpoint: `https://ai.azure.com/.default`
+for Foundry, and `https://cognitiveservices.azure.com/.default` for
+`*.openai.azure.com` resources.
+
+The router runs on GCP Cloud Run, so Azure managed identity is not available to
+it. Use a service principal for this mode. Workload identity federation from a
+GCP service account is a separate deployment-wide mode and is not the same as a
+per-tenant Entra application credential.
+
+Azure OpenAI's older dated `/openai/deployments/...` route is not supported by
+this gateway configuration; use the v1 endpoint shape above. Azure-hosted
+Foundry Claude deployments have a narrower feature set than Anthropic-hosted
+deployments, including restrictions on server-side tools, MCP, structured
+outputs, Agent Skills, programmatic tool calling, and the Files API.
+
 In `selfhosted` mode BYOK is always active (it's the only credentialing path).
 In `managed` mode it is opt-in per installation: the control plane sets
 `byok_enabled` on the installation row, and until it does, the auth middleware
@@ -278,6 +386,7 @@ Set `DATABASE_URL` directly, or compose it from the individual vars:
 | `PORT`                   | `8080`       | HTTP listen port. |
 | `ROUTER_DEPLOYMENT_MODE` | `selfhosted` | `selfhosted` mounts `/ui/*` and `/admin/v1/*`. `managed` skips both (for SaaS deployments with a separate admin UI). |
 | `ROUTER_ADMIN_PASSWORD`  | `admin`      | Dashboard password. Defaults to `admin` with a startup warning when unset — **set this for any internet-facing deployment**. |
+| `ROUTER_RESTRICT_UPSTREAM_EGRESS` | follows `ROUTER_DEPLOYMENT_MODE` | When true, provider adapters refuse to dial an upstream that resolves outside the public internet (loopback, private, link-local, CGNAT). Defaults to true in `managed` mode and false in `selfhosted`, where pointing a provider at an in-cluster or loopback gateway is normal. While on, provider adapters also ignore `HTTP_PROXY`/`HTTPS_PROXY`, since a proxied connection makes the destination unverifiable. |
 
 ## Routing
 
@@ -402,7 +511,10 @@ and any list configured for that cluster still orders the arm that serves.
 Out-of-process policy routers use the versioned contract in
 [Policy router harness](POLICY_ROUTER_HARNESS.md). The router remains the
 authority for candidate eligibility, provider binding, dispatch, retries,
-privacy context, and telemetry.
+privacy context, and telemetry. The `ROUTER_HMM_ROSTER_PATH` /
+`ROUTER_HMM_SELECTION_SHADOW` / `ROUTER_HMM_GO_SELECTION` flag ladder and its
+rollback story are documented in
+[HMM deterministic selection in Go](HMM_GO_SELECTION.md).
 
 | Variable                           | Default | Purpose |
 | ---------------------------------- | ------- | ------- |
@@ -413,6 +525,9 @@ privacy context, and telemetry.
 | `ROUTER_HMM_SIDECAR_TIMEOUT_MS`    | `3000`  | Total HMM decision timeout. |
 | `ROUTER_HMM_SIDECAR_ATTEMPT_TIMEOUT_MS` | 60% of the decision timeout | Bounds a single HMM attempt so one stalled sidecar instance cannot spend the whole decision budget before the retries run. Set it equal to `ROUTER_HMM_SIDECAR_TIMEOUT_MS`, or to `0`, to let one attempt use the full budget. |
 | `ROUTER_HMM_SIDECAR_AUTH`          | `none`  | Authentication for the HMM sidecar. Use `google-id-token` for managed Cloud Run; the exact sidecar origin is used as the token audience. |
+| `ROUTER_HMM_ROSTER_PATH`           | *(none)* | Path to a generated declarative roster JSON (`hmm_router_cluster_roster_v6`). When set, the roster is loaded and validated against the model catalog at startup (boot fails on any invalid arm) and a summary is logged. Its consumers are the log-only selection shadow and, when `ROUTER_HMM_GO_SELECTION` is enabled, the authoritative Go selection. |
+| `ROUTER_HMM_SELECTION_SHADOW`      | `false` | When `true` and a declarative roster is loaded via `ROUTER_HMM_ROSTER_PATH`, recomputes the deterministic within-cluster arm selection in Go after each HMM sidecar decision and logs agree/diverge with both picks. Log-only: never influences the served decision, retries, pins, or telemetry. |
+| `ROUTER_HMM_GO_SELECTION`          | `false` | When `true` and a declarative roster is loaded via `ROUTER_HMM_ROSTER_PATH`, the router keeps the sidecar's classifier label/confidence but performs the deterministic within-cluster arm selection in Go authoritatively instead of serving the sidecar's chosen arm. Explicit force-cluster and per-key cluster overrides still take precedence when they actually constrain the pick; fails open to the sidecar's pick when no ranked group holds an eligible arm. Pin-sticky eligibility is neutralized on any Go pick so a session pin cannot veto it. |
 | `ROUTER_RL_SIDECAR_URL`            | *(none)* | Legacy built-in RL registration. Prefer the generic map for new strategies. |
 | `ROUTER_RL_SIDECAR_TIMEOUT_MS`     | `3000`  | Total RL decision timeout. |
 | `ROUTER_RL_SIDECAR_MODAL_KEY`      | *(none)* | Optional Modal proxy token id (`Modal-Key`) when the RL sidecar is a Modal ASGI app with `requires_proxy_auth`. |

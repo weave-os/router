@@ -52,6 +52,9 @@ type Credentials struct {
 	// endpoint wants the caller's identity in; empty forwards nothing.
 	IdentityHeader       string
 	IdentityHeaderFormat string
+	// ForwardedClientHeaders and BaggageHeader configure client-header passthrough; empty forwards nothing.
+	ForwardedClientHeaders []string
+	BaggageHeader          string
 	// AuthType is the BYOK key's auth mode (see auth.AuthType*). APIKey already holds
 	// the derived credential; this tells the adapter how the upstream must read it.
 	AuthType string
@@ -125,9 +128,11 @@ func BuildCredentialsMap(keys []*auth.ExternalAPIKey) map[string]*Credentials {
 			BaseURL:      key.BaseURL,
 			ModelAliases: key.ModelAliases,
 
-			IdentityHeader:       key.IdentityHeader,
-			IdentityHeaderFormat: key.IdentityHeaderFormat,
-			AuthType:             key.AuthType,
+			IdentityHeader:         key.IdentityHeader,
+			IdentityHeaderFormat:   key.IdentityHeaderFormat,
+			ForwardedClientHeaders: key.ForwardedClientHeaders,
+			BaggageHeader:          key.BaggageHeader,
+			AuthType:               key.AuthType,
 		}
 	}
 	if len(m) == 0 {

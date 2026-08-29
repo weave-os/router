@@ -37,6 +37,8 @@
 #   npx @workweave/router --codex                          # skip the picker, target Codex
 #   npx @workweave/router --opencode                       # skip the picker, target opencode
 #   npx @workweave/router --pi                              # skip the picker, target pi
+#   npx @workweave/router --pi --lsp go,typescript          # also install language servers for pi's lsp tool
+#                                                             (go/typescript/python/rust; needs that language's toolchain)
 #   npx @workweave/router --scope project                  # commit-with-team install
 #   npx @workweave/router --dir /tmp/my-sandbox            # isolated throwaway install
 #   npx @workweave/router --local                          # local router on localhost:8080
@@ -47,10 +49,11 @@
 #   npx @workweave/router --uninstall                      # remove a previous install (delegates to uninstall.sh)
 #
 # Re-running the installer reuses the key already on disk, so you only paste it
-# once. `update` is the scriptable form of that: it never prompts, refreshes the
-# managed config + assets in place, and errors (rather than asking) when no key
-# can be found:
+# once — for every client, not just Claude Code. `update` is the scriptable form
+# of that: it never prompts, refreshes the managed config + assets in place, and
+# errors (rather than asking) when no key can be found:
 #   npx @workweave/router update --claude                  # refresh the Claude Code install in place
+#   npx @workweave/router update --codex                   # same for Codex / opencode / pi
 #
 # Toggle an existing install on/off without losing the router config (so
 # switching back is instant). These never prompt for a key and require an
@@ -64,6 +67,12 @@
 # `claude` start; Codex and opencode re-read config every invocation.
 # Cursor's base URL lives in its own settings UI (no file we own), so there's
 # nothing to toggle here — flip "Override OpenAI Base URL" in Cursor settings.
+#
+# Which router directives each client gets is declared once in
+# install/directives.tsv and installed from there: Claude Code and opencode get
+# Markdown slash commands, Codex gets native `$name` skills (it reserves `/…`
+# for built-ins), pi registers /fm and /ufm in its extension, and Cursor is
+# manual. See install/README.md for the full matrix.
 #
 # Inspect and edit which models this installation lets the router pick from —
 # the same lists the router dashboard's settings page renders. The endpoint and
@@ -125,6 +134,10 @@ disable_routing_alias="false"
 # `set -u` would not. --json switches the output to the raw API payload.
 models_args=""
 models_json="false"
+
+# --lsp <langs>: comma-separated languages whose language servers to install
+# for the pi extension's `lsp` tool (pi target only). Empty = don't install any.
+lsp_langs=""
 
 # --rotate-key forces the interactive key prompt even when a usable key is
 # already installed, so a rotated key can replace it.
@@ -341,7 +354,6 @@ refuse_if_symlink() {
 # --codex) can find and replace the block instead of duplicating it.
 WEAVE_CODEX_BEGIN_MARKER="# >>> weave-router managed (do not edit between markers) >>>"
 WEAVE_CODEX_END_MARKER="# <<< weave-router managed <<<"
-WEAVE_CODEX_SKILL_MARKER="<!-- weave-router managed disable-routing skill -->"
 
 # ---------- identity helpers ----------
 #
@@ -490,11 +502,12 @@ write_codex_config() {
     printf '%s' "${s//\"/\\\"}"
   }
 
-  local esc_key esc_email esc_name esc_url
+  local esc_key esc_email esc_name esc_url esc_status
   esc_key="$(toml_escape "$block_key")"
   esc_email="$(toml_escape "$block_email")"
   esc_name="$(toml_escape "$block_name")"
   esc_url="$(toml_escape "$block_url")"
+  esc_status="$(toml_escape "$codex_status_file")"
 
   # Plant whichever identity values we have alongside the router key so the
   # router can attribute Codex traffic to a person on shared keys. Build the
@@ -511,22 +524,50 @@ write_codex_config() {
   # that share the same router key. The router otherwise has to guess from
   # User-Agent.
   headers_parts="${headers_parts}, \"X-App\" = \"codex\""
-  # Match the public hosted Claude Code installation: Codex needs this
-  # explicit policy selection because that endpoint otherwise uses its
-  # cluster default. Self-hosted endpoints may not run the optional HMM
-  # sidecar, so every custom URL deliberately keeps the router's own default.
-  # Keep this inside the managed block so a re-install can change it safely.
-  if [ "$block_url" = "$HOSTED_BASE_URL" ]; then
-    headers_parts="${headers_parts}, \"X-Weave-Router-Strategy\" = \"hmm\""
-  fi
+  # No strategy header: pinning one here freezes installed clients on whatever
+  # policy was current at install time, so a deployment-default change never
+  # reaches them. Every endpoint, hosted or self-hosted, uses its own default.
   local headers_line="http_headers = { ${headers_parts} }"
 
+  local hook_feature_line="features.hooks = true"
+  local hook_block=""
+  local codex_hooks_enabled="true"
+  if [ -f "$config_file" ]; then
+    if awk '
+      !in_section && /^[[:space:]]*hooks[[:space:]]*=/ { conflict=1 }
+      $0 == "[hooks]" { conflict=1 }
+      /^[[:space:]]*\[/ { in_section=1 }
+      END { exit(conflict ? 0 : 1) }
+    ' "$config_file"; then
+      codex_hooks_enabled="false"
+      hook_feature_line=""
+    fi
+  fi
+  if [ -f "$config_file" ] && grep -q '^\[features\]$' "$config_file"; then
+    hook_feature_line=""
+  fi
+  if [ "$codex_hooks_enabled" = "true" ]; then
+    hook_block="$(cat <<TOML
+
+[[hooks.SessionStart]]
+[[hooks.SessionStart.hooks]]
+type = "command"
+command = "${esc_status}"
+
+[[hooks.Stop]]
+[[hooks.Stop.hooks]]
+type = "command"
+command = "${esc_status}"
+TOML
+)"
+  fi
   local block
   block="$(cat <<TOML
 ${WEAVE_CODEX_BEGIN_MARKER}
 # Managed by the Weave Router installer. Re-running the installer rewrites
 # this block; \`./uninstall.sh --codex\` removes it. To opt out without
 # uninstalling, change the model_provider value below.
+${hook_feature_line}
 model_provider = "weave"
 
 [model_providers.weave]
@@ -535,6 +576,7 @@ base_url = "${esc_url}/v1"
 wire_api = "responses"
 requires_openai_auth = true
 ${headers_line}
+${hook_block}
 ${WEAVE_CODEX_END_MARKER}
 TOML
 )"
@@ -588,6 +630,25 @@ TOML
     rm -f "$tmp"
   else
     printf "%s\n" "$block" >"$config_file"
+  fi
+
+  # If the user already has a [features] table, place our managed hook
+  # setting in that table instead of using a duplicate dotted key. Preserve an
+  # explicit user setting and mark only the line this installer owns.
+  if grep -q '^\[features\]$' "$config_file"; then
+    if ! awk '
+      /^\[features\]$/ { in_features=1; next }
+      /^\[/ { in_features=0 }
+      in_features && /^[[:space:]]*hooks[[:space:]]*=/ { found=1 }
+      END { exit(found ? 0 : 1) }
+    ' "$config_file"; then
+      tmp="$(mktemp -t weave-codex-features.XXXXXX)"
+      awk '/^\[features\]$/ && !inserted { print; print "hooks = true # weave-router managed codex hooks"; inserted=1; next } { print }' "$config_file" >"$tmp"
+      mv "$tmp" "$config_file"
+    fi
+  fi
+  if [ "$codex_hooks_enabled" != "true" ]; then
+    warn "Existing Codex hooks configuration is not an inline array; preserving it and skipping the Weave status hooks. Routing is still enabled."
   fi
   # 0600: the file holds a router key. Even at user scope, mode 644 would
   # leak the key to any local user on a shared box.
@@ -884,6 +945,69 @@ write_pi_settings_config() {
   printf '%s\n' "$merged" >"$settings_file"
 }
 
+# Language-server installs for the pi extension's `lsp` tool (--lsp go,ts,...).
+# The alias -> server -> toolchain matrix mirrors LSP_SERVERS in
+# install/pi-router/src/lsp-servers.ts — keep the two in lockstep. Every
+# failure is a warn-and-continue: a missing toolchain must not fail the router
+# install, and the extension re-offers conversationally at session start.
+install_lsp_servers() {
+  local langs="$1" lang
+  local seen=" "
+  for lang in $(printf '%s' "$langs" | tr ',' ' '); do
+    local id="" bin="" alt_bin="" toolchain="" fallback_dir="" gopath=""
+    local cmd=""
+    case "$(printf '%s' "$lang" | tr '[:upper:]' '[:lower:]')" in
+      go|golang)
+        id="go"; bin="gopls"; toolchain="go"
+        # go install honors $GOBIN, else <first GOPATH element>/bin (default ~/go/bin).
+        gopath="${GOPATH:-$HOME/go}"
+        fallback_dir="${GOBIN:-${gopath%%:*}/bin}"
+        cmd="go install golang.org/x/tools/gopls@latest"
+        ;;
+      ts|typescript|js|javascript)
+        id="typescript"; bin="typescript-language-server"; toolchain="npm"
+        cmd="npm i -g typescript-language-server typescript"
+        ;;
+      py|python)
+        id="python"; bin="pyright-langserver"; alt_bin="basedpyright-langserver"; toolchain="npm"
+        cmd="npm i -g pyright"
+        ;;
+      rs|rust)
+        id="rust"; bin="rust-analyzer"; toolchain="rustup"
+        # rustup honors $CARGO_HOME (default ~/.cargo).
+        fallback_dir="${CARGO_HOME:-$HOME/.cargo}/bin"
+        cmd="rustup component add rust-analyzer"
+        ;;
+      *)
+        warn "--lsp: unknown language '$lang' (valid: go, typescript, python, rust). Skipping."
+        continue
+        ;;
+    esac
+    case "$seen" in *" $id "*) continue ;; esac
+    seen="$seen$id "
+
+    if command -v "$bin" >/dev/null 2>&1 \
+      || { [ -n "$alt_bin" ] && command -v "$alt_bin" >/dev/null 2>&1; } \
+      || { [ -n "$fallback_dir" ] && [ -x "$fallback_dir/$bin" ]; }; then
+      ok "$id language server already installed ($bin)"
+      continue
+    fi
+    if ! command -v "$toolchain" >/dev/null 2>&1; then
+      warn "--lsp $id: needs '$toolchain' on PATH (install command: $cmd). Skipping — re-run after installing the $toolchain toolchain."
+      continue
+    fi
+    # shellcheck disable=SC2086 — $cmd is a fixed argv from the case above, never user input.
+    if spin "Installing $id language server" $cmd; then
+      ok "$id language server installed ($cmd)"
+      if [ -n "$fallback_dir" ] && ! command -v "$bin" >/dev/null 2>&1; then
+        info "$bin landed in $fallback_dir (not on PATH). The pi lsp tool finds it there; other tools may need a PATH entry."
+      fi
+    else
+      warn "--lsp $id: '$cmd' failed. Run it manually, or ask pi to enable $id LSP support later."
+    fi
+  done
+}
+
 # resolve_user_name mirrors resolve_user_email but for display name. Priority:
 # WEAVE_USER_NAME env override → git config user.name → empty. We don't
 # prompt for name independently: if email prompting yielded nothing, name
@@ -997,6 +1121,10 @@ while [ $# -gt 0 ]; do
     --pi)
       target="pi"; target_explicit="true"; shift
       ;;
+    --lsp)
+      lsp_langs="${2:-}"; shift 2
+      [ -n "$lsp_langs" ] || { err "--lsp requires a comma-separated language list (go,typescript,python,rust)."; exit 2; }
+      ;;
     --claude)
       # No-op selector for symmetry with --codex / --opencode. Useful in
       # pipelines that want to skip the interactive picker without depending
@@ -1047,6 +1175,16 @@ while [ $# -gt 0 ]; do
   esac
 done
 
+# --lsp is a pi-extension feature, so it implies the pi target; combining it
+# with another explicit target is a contradiction, not a preference.
+if [ -n "$lsp_langs" ]; then
+  if [ "$target_explicit" = "true" ] && [ "$target" != "pi" ]; then
+    err "--lsp only applies to the pi target (the lsp tool ships in the pi extension). Drop --lsp or use --pi."
+    exit 2
+  fi
+  target="pi"; target_explicit="true"
+fi
+
 if [ "$disable_routing_alias" = "true" ]; then
   if [ "$target_explicit" = "true" ] && [ "$target" != "codex" ]; then
     err "disable-routing only applies to Codex; omit the client flag or use --codex."
@@ -1065,7 +1203,7 @@ if [ "$mode" != "install" ] && [ "$mode" != "update" ]; then
   non_interactive="true"
   if [ "$target_explicit" != "true" ]; then
     if [ "$mode" = "models" ]; then
-      err "'models' requires an explicit client: --claude."
+      err "'models' requires an explicit client: --claude or --codex."
     else
       err "'$mode' requires an explicit client: --claude, --codex, or --opencode."
     fi
@@ -1073,12 +1211,13 @@ if [ "$mode" != "install" ] && [ "$mode" != "update" ]; then
   fi
 fi
 
-# Only Claude Code's settings are read back for a key today (read_installed_key),
-# so `models` can't authenticate as any other client. Fail fast here rather than
-# falling through to the toggle dispatch, which would flip config nobody asked
-# to change.
-if [ "$mode" = "models" ] && [ "$target" != "claude" ]; then
-  err "'models' currently supports --claude only (it reads the router key from Claude Code's settings)."
+# `models` needs to resolve one install's endpoint + key. Claude Code and Codex
+# both expose readers for that (resolve_installed_endpoint / read_installed_key);
+# opencode and pi do not have the endpoint-trust story worked out yet, so they
+# still fail fast here rather than falling through to the toggle dispatch, which
+# would flip config nobody asked to change.
+if [ "$mode" = "models" ] && [ "$target" != "claude" ] && [ "$target" != "codex" ]; then
+  err "'models' supports --claude and --codex only (it resolves the router endpoint from that client's config)."
   exit 2
 fi
 
@@ -1101,16 +1240,14 @@ if [ "$mode" = "update" ]; then
     err "--rotate-key needs a prompt, which 'update' never issues. Re-run the installer without 'update'."
     exit 2
   fi
-  if [ "$target" != "claude" ]; then
-    err "'update' currently supports --claude only. Re-run the installer for $target (it reuses your installed key)."
-    exit 2
-  fi
 fi
 
 # Toggle verbs (off/on/status) aren't implemented for pi — its config is a
 # structural models.json/settings.json merge, reversed by the uninstaller
-# rather than a single env/key line we can park and restore.
-if [ "$mode" != "install" ] && [ "$target" = "pi" ]; then
+# rather than a single env/key line we can park and restore. `update` is not a
+# toggle: it rewrites that same structural config in place, exactly as install
+# does, so it belongs with install here.
+if [ "$mode" != "install" ] && [ "$mode" != "update" ] && [ "$target" = "pi" ]; then
   err "Toggle verbs (off/on/status) aren't supported for --pi. Use 'npx @workweave/router --uninstall --pi' to remove, or re-run the installer to refresh."
   exit 2
 fi
@@ -1234,7 +1371,13 @@ fi
 # Claude Code's settings.json and opencode's opencode.json patching both use
 # jq to deep-merge / structurally rewrite JSON. Toggling those clients reads
 # and rewrites the same JSON, so jq is required there too.
-if [ "$target" = "claude" ] || [ "$target" = "opencode" ] || [ "$target" = "pi" ]; then
+#
+# `models` is the exception for Codex: it renders and edits the router's JSON
+# payloads with jq regardless of which client's config supplied the endpoint,
+# so require it there too rather than dying mid-render on `jq: command not
+# found`. Installing Codex itself still needs no jq.
+if [ "$target" = "claude" ] || [ "$target" = "opencode" ] || [ "$target" = "pi" ] \
+   || { [ "$mode" = "models" ] && [ "$target" = "codex" ]; }; then
   require_cmd jq    "macOS: 'brew install jq' · Debian/Ubuntu: 'sudo apt install jq'"
 fi
 # curl is used by the install/update paths' health/validate probes and by every
@@ -1277,6 +1420,117 @@ esac
 fi
 
 script_dir="$(cd "$(dirname "$0")" 2>/dev/null && pwd || true)"
+
+# ---------- directive registry (embedded) ----------
+#
+# install.sh is served standalone (WorkWeave serves it for `curl | sh`), so it
+# cannot source install/registry.sh or read install/directives.tsv. Both are
+# embedded here verbatim; install/tests/registry_test.sh asserts they never
+# drift from the canonical files.
+WEAVE_REGISTRY_DATA=$(cat <<'WEAVE_REGISTRY_EOF'
+# Weave Router directive registry
+# canonical|aliases|capability|claude|codex|opencode|pi|cursor|adapter
+# aliases are comma-separated; client columns are yes/no. adapter is the native asset kind.
+force-model|fm|prompt|yes|yes|yes|yes|manual|command,skill
+unforce-model|ufm|prompt|yes|yes|yes|yes|manual|command,skill
+router-feedback|rf|prompt|yes|yes|yes|no|manual|command,skill
+router-off||local-toggle|yes|yes|no|no|manual|command,skill
+router-on||local-toggle|yes|yes|no|no|manual|command,skill
+router-status||local-toggle|yes|yes|no|no|manual|command,skill
+router-session||prompt|yes|no|no|no|manual|command
+router-models|models|local-toggle|yes|yes|no|no|manual|command,skill
+disable-routing||local-toggle|no|yes|no|no|manual|skill
+beta||prompt|yes|no|no|yes|manual|command
+WEAVE_REGISTRY_EOF
+)
+
+# >>> weave-router registry lib >>>
+weave_registry_rows() {
+  if [ -n "${WEAVE_REGISTRY_DATA:-}" ]; then
+    printf '%s\n' "$WEAVE_REGISTRY_DATA" | awk -F '|' '!/^([[:space:]]*#|[[:space:]]*$)/ { print }'
+    return 0
+  fi
+  local registry="${WEAVE_REGISTRY_FILE:-}"
+  if [ -z "$registry" ]; then
+    local dir
+    dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd -P)" || return 1
+    registry="$dir/directives.tsv"
+  fi
+  [ -f "$registry" ] || return 1
+  awk -F '|' '!/^([[:space:]]*#|[[:space:]]*$)/ { print }' "$registry"
+}
+
+# weave_registry_names lists every canonical name and alias a client installs.
+weave_registry_names() {
+  local target="$1" canonical aliases capability claude codex opencode pi cursor adapter
+  while IFS='|' read -r canonical aliases capability claude codex opencode pi cursor adapter; do
+    case "$target" in
+      claude) [ "$claude" = yes ] || continue ;; codex) [ "$codex" = yes ] || continue ;;
+      opencode) [ "$opencode" = yes ] || continue ;; pi) [ "$pi" = yes ] || continue ;;
+      cursor) [ "$cursor" = yes ] || continue ;;
+    esac
+    printf '%s\n' "$canonical"
+    [ -n "$aliases" ] && printf '%s\n' "$aliases" | tr ',' '\n'
+  done <<EOF
+$(weave_registry_rows)
+EOF
+}
+
+# weave_registry_skill_names lists the prompt directives a client exposes as a
+# native skill. Local-config toggles are excluded: they mutate config this
+# installer owns and are handled per target, not as a generic prompt.
+weave_registry_skill_names() {
+  local target="$1" canonical aliases capability claude codex opencode pi cursor adapter
+  while IFS='|' read -r canonical aliases capability claude codex opencode pi cursor adapter; do
+    [ "$capability" = prompt ] || continue
+    case "$target" in
+      claude) [ "$claude" = yes ] || continue ;; codex) [ "$codex" = yes ] || continue ;;
+      opencode) [ "$opencode" = yes ] || continue ;; pi) [ "$pi" = yes ] || continue ;;
+      cursor) [ "$cursor" = yes ] || continue ;;
+    esac
+    printf '%s\n' "$canonical"
+    [ -n "$aliases" ] && printf '%s\n' "$aliases" | tr ',' '\n'
+  done <<EOF
+$(weave_registry_rows)
+EOF
+}
+
+# weave_registry_skill_assets lists every directive a client ships as a skill
+# file, including local-config toggles such as Codex's disable-routing. Install
+# and uninstall use this for file management; weave_registry_skill_names is the
+# narrower prompt-only set used when generating prompt adapters.
+weave_registry_skill_assets() {
+  local target="$1" canonical aliases capability claude codex opencode pi cursor adapter
+  while IFS='|' read -r canonical aliases capability claude codex opencode pi cursor adapter; do
+    case ",$adapter," in *,skill,*) ;; *) continue ;; esac
+    case "$target" in
+      claude) [ "$claude" = yes ] || continue ;; codex) [ "$codex" = yes ] || continue ;;
+      opencode) [ "$opencode" = yes ] || continue ;; pi) [ "$pi" = yes ] || continue ;;
+      cursor) [ "$cursor" = yes ] || continue ;;
+    esac
+    printf '%s\n' "$canonical"
+    [ -n "$aliases" ] && printf '%s\n' "$aliases" | tr ',' '\n'
+  done <<EOF
+$(weave_registry_rows)
+EOF
+}
+
+# weave_registry_canonical_for resolves a name or alias to its canonical
+# directive, and fails when the name is not in the registry at all.
+weave_registry_canonical_for() {
+  local wanted="$1" canonical aliases capability claude codex opencode pi cursor adapter alias
+  while IFS='|' read -r canonical aliases capability claude codex opencode pi cursor adapter; do
+    [ "$wanted" = "$canonical" ] && { printf '%s' "$canonical"; return 0; }
+    IFS=',' read -ra _aliases <<< "$aliases"
+    for alias in ${_aliases[@]+"${_aliases[@]}"}; do
+      [ "$wanted" = "$alias" ] && { printf '%s' "$canonical"; return 0; }
+    done
+  done <<EOF
+$(weave_registry_rows)
+EOF
+  return 1
+}
+# <<< weave-router registry lib <<<
 
 # Resolve the base directory. User scope always uses $HOME. Project scope uses
 # --dir if given, otherwise the CWD's git root. --dir alone (no --scope) is a
@@ -1352,10 +1606,18 @@ elif [ "$target" = "codex" ]; then
   # teammate — .codex/config.toml goes in .gitignore in project scope.
   codex_dir="$settings_base/.codex"
   codex_config_file="$codex_dir/config.toml"
+  if [ "$scope" = "user" ] && [ -z "$install_dir" ]; then
+    codex_status_file="$settings_base/.weave/codex-status.sh"
+  else
+    codex_status_file="$codex_dir/weave-status.sh"
+  fi
+  codex_status_disabled_marker="$(dirname "$codex_status_file")/.weave-router-disabled"
 
   if [ "$scope" = "project" ] || [ -n "$install_dir" ]; then
     refuse_if_symlink "$codex_dir"
     refuse_if_symlink "$codex_config_file"
+    refuse_if_symlink "$codex_status_file"
+    refuse_if_symlink "$codex_status_disabled_marker"
   fi
 
   mkdir -p "$codex_dir"
@@ -1472,14 +1734,93 @@ claude_key_present() {
   [ -n "$(read_claude_key "$1")" ]
 }
 
-# read_installed_key prints the router key this install already has on disk, or
-# nothing. Only Claude Code is supported today; the other targets still prompt.
-# Defined up here rather than with the rest of token handling because `models`
-# dispatches (and needs a key) before that section runs.
+# key_source_is_own returns 0 when a config file is safe to read a router key
+# back out of. Codex, opencode, and pi all embed the key in a file that lives
+# INSIDE the project in project scope, and the installer gitignores each one —
+# so a file git tracks is by definition not this user's own install. A hostile
+# checkout could commit one carrying an attacker's rk_ key, and adopting it
+# would bill the developer's traffic to whoever wrote the repo. Same tracked-file
+# test models_endpoint_is_trusted applies to a planted endpoint.
 #
-# models_key_file_order echoes the precedence this uses, so a caller that needs
-# to know *which* file the key came from can walk the same list (a command
-# substitution around this function would discard any global it set).
+# Claude Code deliberately does NOT go through this: read_installed_key is
+# documented to pick up a committed header from an older install, which is a
+# supported case there.
+key_source_is_own() {
+  local f="$1"
+  [ -f "$f" ] || return 1
+  [ -L "$f" ] && return 1
+  # Only project-scoped installs put the file somewhere a repo can reach.
+  [ "$scope" = "project" ] && [ -z "$install_dir" ] || return 0
+  command -v git >/dev/null 2>&1 || return 1
+  git -C "$(dirname "$f")" ls-files --error-unmatch -- "$f" >/dev/null 2>&1 && return 1
+  return 0
+}
+
+# read_codex_key prints the router key out of Codex's config.toml, or nothing.
+# Scoped to the managed block so a key-shaped string the user wrote elsewhere in
+# the file is never adopted. awk rather than jq on purpose: the Codex path is the
+# one target that doesn't require jq (see the require_cmd block above).
+read_codex_key() {
+  local f="$1"
+  key_source_is_own "$f" || return 0
+  awk -v begin="$WEAVE_CODEX_BEGIN_MARKER" -v end="$WEAVE_CODEX_END_MARKER" '
+    $0 == begin { inblk = 1; next }
+    $0 == end   { inblk = 0; next }
+    inblk && match($0, /"X-Weave-Router-Key"[[:space:]]*=[[:space:]]*"[^"]*"/) {
+      hdr = substr($0, RSTART, RLENGTH)
+      sub(/^.*=[[:space:]]*"/, "", hdr)
+      sub(/"$/, "", hdr)
+      print hdr
+      exit
+    }
+  ' "$f" 2>/dev/null || true
+}
+
+# read_opencode_key prints the router key out of opencode.json's managed
+# provider, or nothing. The header is the authoritative copy — options.apiKey is
+# only a parse-time placeholder for the @ai-sdk/openai provider.
+read_opencode_key() {
+  local f="$1"
+  key_source_is_own "$f" || return 0
+  json_get "$f" '.provider.weave.options.headers["X-Weave-Router-Key"]'
+}
+
+# read_pi_key prints the router key this pi install already has. The dedicated
+# key file comes first — it is what the @workweave/router extension itself reads
+# at runtime — and models.json is the fallback for an install whose key file was
+# removed by hand.
+read_pi_key() {
+  local key=""
+  if key_source_is_own "$pi_key_file"; then
+    key="$(tr -d '[:space:]' <"$pi_key_file" 2>/dev/null || true)"
+  fi
+  if [ -z "$key" ] && key_source_is_own "$pi_models_file"; then
+    key="$(json_get "$pi_models_file" '.providers.weave.headers["X-Weave-Router-Key"]')"
+  fi
+  printf '%s' "$key"
+}
+
+# read_installed_key prints the router key this install already has on disk, or
+# nothing, for whichever client is being installed. Reading it back is what makes
+# a re-run painless — see the token-handling section below. Defined up here
+# rather than with the rest of token handling because `models` dispatches (and
+# needs a key) before that section runs.
+#
+# models_key_file_order echoes the precedence the Claude reader uses, so a caller
+# that needs to know *which* file the key came from can walk the same list (a
+# command substitution around this function would discard any global it set).
+# models_config_file_for_target names the single managed config that holds both
+# the endpoint and the key for a non-Claude client. Endpoint and credential from
+# the same file are self-consistent, which is exactly the case
+# models_endpoint_is_trusted already treats as always-safe.
+models_config_file_for_target() {
+  case "$target" in
+    codex)    printf '%s' "$codex_config_file" ;;
+    opencode) printf '%s' "$opencode_config_file" ;;
+    pi)       printf '%s' "$pi_models_file" ;;
+  esac
+}
+
 models_key_file_order() {
   if [ "$scope" = "project" ] && [ -z "$install_dir" ]; then
     printf '%s\n%s\n%s\n' "$local_settings_file" "$settings_file" "$settings_dir/.weave-parked.json"
@@ -1488,8 +1829,7 @@ models_key_file_order() {
   fi
 }
 
-read_installed_key() {
-  [ "$target" = "claude" ] || return 0
+read_claude_installed_key() {
   local key="" candidate
   # Mirror where the install path writes the key: project scope (no --dir) puts
   # it in the gitignored settings.local.json, everything else inlines it into
@@ -1505,6 +1845,15 @@ read_installed_key() {
     [ -n "$key" ] && break
   done <<<"$(models_key_file_order)"
   printf '%s' "$key"
+}
+
+read_installed_key() {
+  case "$target" in
+    claude)   read_claude_installed_key ;;
+    codex)    read_codex_key "$codex_config_file" ;;
+    opencode) read_opencode_key "$opencode_config_file" ;;
+    pi)       read_pi_key ;;
+  esac
 }
 
 # resolve_installed_base_url prints the router endpoint this Claude Code install
@@ -1530,6 +1879,54 @@ resolve_installed_base_url() {
     fi
   done <<<"$(models_base_file_order)"
   printf ''
+}
+
+# resolve_installed_endpoint prints the router endpoint this install already
+# points at, for whichever client is being installed, or nothing. `update` uses
+# it so a refresh never silently retargets a self-hosted install at the hosted
+# default.
+#
+# The stored shapes differ by client and are normalized back to the root the
+# installer takes on the command line: Codex and opencode hold an OpenAI-style
+# base ending in /v1, while pi holds the bare root (its Anthropic SDK appends
+# /v1/messages itself). Same tracked-file gate as the key readers — a config the
+# repo supplied is not this user's install, whichever field is being read.
+resolve_installed_endpoint() {
+  local found=""
+  case "$target" in
+    claude)
+      resolve_installed_base_url
+      return 0
+      ;;
+    codex)
+      if key_source_is_own "$codex_config_file"; then
+        found="$(awk -v begin="$WEAVE_CODEX_BEGIN_MARKER" -v end="$WEAVE_CODEX_END_MARKER" '
+          $0 == begin { inblk = 1; next }
+          $0 == end   { inblk = 0; next }
+          inblk && match($0, /^[[:space:]]*base_url[[:space:]]*=[[:space:]]*"[^"]*"/) {
+            line = substr($0, RSTART, RLENGTH)
+            sub(/^.*=[[:space:]]*"/, "", line)
+            sub(/"$/, "", line)
+            print line
+            exit
+          }
+        ' "$codex_config_file" 2>/dev/null || true)"
+      fi
+      found="${found%/v1}"
+      ;;
+    opencode)
+      if key_source_is_own "$opencode_config_file"; then
+        found="$(json_get "$opencode_config_file" '.provider.weave.options.baseURL')"
+      fi
+      found="${found%/v1}"
+      ;;
+    pi)
+      if key_source_is_own "$pi_models_file"; then
+        found="$(json_get "$pi_models_file" '.providers.weave.baseUrl')"
+      fi
+      ;;
+  esac
+  printf '%s' "${found%/}"
 }
 
 # models_endpoint_is_trusted returns 0 when it is safe to send the router key
@@ -1770,6 +2167,9 @@ toggle_codex() {
         {print}
       ' "$f" >"$tmp" && mv "$tmp" "$f"
       chmod 600 "$f"
+      if [ -f "$codex_status_file" ] && grep -Fq '<!-- weave-router managed codex status -->' "$codex_status_file"; then
+        "$codex_status_file" --off >/dev/null 2>&1 || true
+      fi
       ok "Codex is ${C_BOLD}off${C_RESET} (default provider). Takes effect on your next 'codex' run."
       ;;
     on)
@@ -1785,6 +2185,9 @@ toggle_codex() {
         {print}
       ' "$f" >"$tmp" && mv "$tmp" "$f"
       chmod 600 "$f"
+      if [ -f "$codex_status_file" ] && grep -Fq '<!-- weave-router managed codex status -->' "$codex_status_file"; then
+        "$codex_status_file" --on >/dev/null 2>&1 || true
+      fi
       ok "Codex is ${C_BOLD}on${C_RESET} (routing through the Weave Router). Takes effect on your next 'codex' run."
       ;;
   esac
@@ -1942,7 +2345,7 @@ models_fail() {
       if [ -n "$detail" ]; then
         err "$detail"
       else
-        err "The router rejected this installation's key. Re-run 'npx @workweave/router --claude --rotate-key' to install a current one."
+        err "The router rejected this installation's key. Re-run 'npx @workweave/router --$target --rotate-key' to install a current one."
       fi
       ;;
     404)
@@ -2054,8 +2457,8 @@ models_list() {
   fi
   models_render_list "$models_http_body"
   models_print_preferred
-  printf "\n%sEnable a model:%s  npx @workweave/router models enable <id> --claude\n" "$C_DIM" "$C_RESET"
-  printf "%sDisable a model:%s npx @workweave/router models disable <id> --claude\n" "$C_DIM" "$C_RESET"
+  printf "\n%sEnable a model:%s  npx @workweave/router models enable <id> --%s\n" "$C_DIM" "$C_RESET" "$target"
+  printf "%sDisable a model:%s npx @workweave/router models disable <id> --%s\n" "$C_DIM" "$C_RESET" "$target"
 }
 
 models_providers_list() {
@@ -2139,14 +2542,17 @@ models_prefer() {
 }
 
 models_usage() {
+  # Echo back the client the caller actually named, so a Codex user is never
+  # told to run a command that would target (or create) a Claude Code install.
+  local c="--${target}"
   err "$1"
   printf '%s\n' \
-    "  npx @workweave/router models --claude                          # list models" \
-    "  npx @workweave/router models enable  <id> [<id>…] --claude" \
-    "  npx @workweave/router models disable <id> [<id>…] --claude" \
-    "  npx @workweave/router models providers --claude                # list providers" \
-    "  npx @workweave/router models providers disable <name> --claude" \
-    "  npx @workweave/router models prefer <id> [<id>…] --claude      # ranking ('clear' to drop)" >&2
+    "  npx @workweave/router models $c                          # list models" \
+    "  npx @workweave/router models enable  <id> [<id>…] $c" \
+    "  npx @workweave/router models disable <id> [<id>…] $c" \
+    "  npx @workweave/router models providers $c                # list providers" \
+    "  npx @workweave/router models providers disable <name> $c" \
+    "  npx @workweave/router models prefer <id> [<id>…] $c      # ranking ('clear' to drop)" >&2
   exit 2
 }
 
@@ -2202,23 +2608,30 @@ if [ "$mode" = "models" ]; then
   # never the hosted defaults: a self-hosted user pointing at their own router
   # would otherwise silently edit the hosted one's installation.
   if [ "$base_url_explicit" != "true" ]; then
-    models_base="$(resolve_installed_base_url)"
+    models_base="$(resolve_installed_endpoint)"
     if [ -z "$models_base" ]; then
-      err "No Weave Router install found for Claude Code in this scope. Run 'npx @workweave/router --claude' first, or pass --base-url."
+      err "No Weave Router install found for $target in this scope. Run 'npx @workweave/router --$target' first, or pass --base-url."
       exit 1
     fi
     base_url="$models_base"
-    # resolve_installed_base_url ran in a command substitution, so any global it
+    # resolve_installed_endpoint ran in a command substitution, so any global it
     # set died with that subshell. Recover the source by walking the same
-    # precedence to find which file holds the endpoint we just adopted.
-    while IFS= read -r models_src_candidate; do
-      [ -n "$models_src_candidate" ] || continue
-      models_src_url="$(json_get "$models_src_candidate" '.env.ANTHROPIC_BASE_URL')"
-      if [ "${models_src_url%/}" = "$models_base" ]; then
-        models_base_source="$models_src_candidate"
-        break
-      fi
-    done <<<"$(models_base_file_order)"
+    # precedence to find which file holds the endpoint we just adopted. Only
+    # Claude Code spreads its endpoint across several files; every other client
+    # keeps endpoint and key in one managed config, which is self-consistent by
+    # construction (see models_endpoint_is_trusted's same-file rule).
+    if [ "$target" = "claude" ]; then
+      while IFS= read -r models_src_candidate; do
+        [ -n "$models_src_candidate" ] || continue
+        models_src_url="$(json_get "$models_src_candidate" '.env.ANTHROPIC_BASE_URL')"
+        if [ "${models_src_url%/}" = "$models_base" ]; then
+          models_base_source="$models_src_candidate"
+          break
+        fi
+      done <<<"$(models_base_file_order)"
+    else
+      models_base_source="$(models_config_file_for_target)"
+    fi
   fi
   # WEAVE_ROUTER_KEY is the user's own choice, so it pairs with any endpoint.
   if [ -n "${WEAVE_ROUTER_KEY:-}" ]; then
@@ -2229,16 +2642,20 @@ if [ "$mode" = "models" ]; then
     # Same subshell caveat as the endpoint above: recover which file the key
     # came from by re-reading them in read_installed_key's own precedence.
     models_key_source=""
-    while IFS= read -r models_src_candidate; do
-      [ -n "$models_src_candidate" ] || continue
-      if [ -n "$(read_claude_key "$models_src_candidate")" ]; then
-        models_key_source="$models_src_candidate"
-        break
-      fi
-    done <<<"$(models_key_file_order)"
+    if [ "$target" = "claude" ]; then
+      while IFS= read -r models_src_candidate; do
+        [ -n "$models_src_candidate" ] || continue
+        if [ -n "$(read_claude_key "$models_src_candidate")" ]; then
+          models_key_source="$models_src_candidate"
+          break
+        fi
+      done <<<"$(models_key_file_order)"
+    else
+      models_key_source="$(models_config_file_for_target)"
+    fi
   fi
   if [ -z "$api_key" ]; then
-    err "No router key found for Claude Code in this scope. Re-run 'npx @workweave/router --claude', or export WEAVE_ROUTER_KEY."
+    err "No router key found for $target in this scope. Re-run 'npx @workweave/router --$target', or export WEAVE_ROUTER_KEY."
     exit 1
   fi
   # Never send a key to an endpoint the checkout supplied. See
@@ -2280,8 +2697,8 @@ fi
 # `off` parks the router URL and points Claude Code at Anthropic, so the parked
 # sidecar is the authority while toggled off — reading the live file there would
 # pin the install to api.anthropic.com.
-if [ "$mode" = "update" ] && [ "$base_url_explicit" != "true" ] && [ "$target" = "claude" ]; then
-  installed_base="$(resolve_installed_base_url)"
+if [ "$mode" = "update" ] && [ "$base_url_explicit" != "true" ]; then
+  installed_base="$(resolve_installed_endpoint)"
   if [ -n "$installed_base" ]; then
     base_url="${installed_base%/}"
   fi
@@ -2392,11 +2809,12 @@ fi
 #   Claude:  <settings_dir>/commands/{force-model,unforce-model}.md  → /force-model
 #   opencode: <commands_dir>/{force-model,unforce-model}.md          → /force-model
 #
-# Codex intentionally is not listed: its slash menu only exposes built-in
-# commands and does not load these Markdown wrappers. A user can send a router
-# directive by starting it with one literal space (for example,
-# ` /force-model gpt-5.6-terra`); Codex submits the trimmed prompt to the
-# router without interpreting it as a local slash command.
+# Codex is intentionally not listed here: its slash menu only exposes built-in
+# commands and does not load these Markdown wrappers. Codex instead gets native
+# `$name` skills (see install_codex_prompt_skills), each of which sends the
+# leading-space prompt form (for example, ` /force-model gpt-5.6-terra`) that
+# the router parses. Which client gets which directive comes from the embedded
+# registry, not from a list here.
 #
 # Files come from install/commands/ in the repo (or the colocated commands/
 # directory the npm package ships alongside install.sh).
@@ -2426,12 +2844,19 @@ install_slash_commands() {
   # at invocation time). {{SCOPE}} is substituted accordingly. router-models
   # (alias models) is in the same boat: it shells out to read this install's
   # endpoint and key.
-  installed="force-model, unforce-model, router-feedback, fm, ufm, rf"
-  cmds="force-model unforce-model router-feedback fm ufm rf"
-  if [ "$target" = "claude" ]; then
-    cmds="$cmds beta router-off router-on router-status router-session router-models models"
-    installed="$installed, beta, router-off, router-on, router-status, router-session, router-models, models"
-  fi
+  cmds=""
+  while IFS= read -r cmd; do
+    [ -f "$commands_src_dir/$cmd.md" ] || continue
+    case ",$cmd," in
+      *,router-off,*|*,router-on,*|*,router-status,*|*,router-session,*|*,router-models,*|*,models,*)
+        [ "$target" = "claude" ] || continue ;;
+    esac
+    [ -n "$cmds" ] && cmds="$cmds "
+    cmds="$cmds$cmd"
+  done <<EOF
+$(weave_registry_names "$target")
+EOF
+  installed="$(printf '%s' "$cmds" | tr ' ' ',' | sed 's/,/, /g')"
 
   # Bake the same scope selector the toggle needs to find this install: --dir
   # overrides scope (mirrors install/uninstall path resolution), so a sandbox
@@ -2455,7 +2880,21 @@ install_slash_commands() {
     # cp-equivalent for the others since the token is absent).
     local body; body="$(cat "$src")"
     body="${body//\{\{SCOPE\}\}/$scope_args}"
-    printf '%s\n' "$body" >"$dst"
+    # Wrappers installed before ownership markers existed carry no marker. A
+    # file whose body still matches what this installer would write is one of
+    # ours from an older version, so adopt it rather than treating it as
+    # user-owned — otherwise every pre-marker install is stranded: never
+    # refreshed, never uninstalled, and skipped by the statusline refresh.
+    # Anything that does not match byte-for-byte is left alone.
+    if [ -e "$dst" ] && { [ ! -f "$dst" ] || ! grep -Fq "<!-- weave-router managed command: $cmd -->" "$dst"; }; then
+      if [ -f "$dst" ] && [ "$(cat "$dst")" = "$body" ]; then
+        : # an unmarked copy of our own wrapper; fall through and adopt it
+      else
+        warn "A user-owned $target command already exists at $dst; leaving it untouched."
+        continue
+      fi
+    fi
+    printf '%s\n<!-- weave-router managed command: %s -->' "$body" "$cmd" >"$dst"
   done
   seed_command_baseline "$commands_src_dir" "$cmds"
   ok "Slash commands written to $dst_dir ($installed)"
@@ -2516,77 +2955,392 @@ remove_obsolete_codex_prompt_wrappers() {
     refuse_if_symlink "$dst_dir"
   fi
 
-  for cmd in force-model unforce-model router-feedback fm ufm rf; do
+  while IFS= read -r cmd; do
     src="$commands_src_dir/$cmd.md"
     dst="$dst_dir/$cmd.md"
     [ -f "$src" ] && [ -f "$dst" ] || continue
-    # A symlink is user-controlled at user scope. Leave it untouched; project
-    # scope rejects it through the same guard used by normal installs.
     [ -L "$dst" ] && continue
     if [ "$scope" = "project" ] || [ -n "$install_dir" ]; then
       refuse_if_symlink "$dst"
     fi
     cmp -s "$src" "$dst" && rm -f "$dst"
-  done
+  done <<EOF
+$(weave_registry_names codex)
+EOF
   rmdir "$dst_dir" 2>/dev/null || true
 }
 
-# Codex skills are the supported local extension surface for an action that
-# must edit Codex's configuration. A literal third-party slash command cannot
-# do this because Codex reserves `/…` for built-ins. The skill is invoked as
-# `$disable-routing`, asks Codex to run the existing safe toggle, and leaves
-# the managed router block in place for a later re-enable.
-install_codex_disable_routing_skill() {
-  local skill_src=""
-  local candidate dst_dir dst_file scope_args body
-  for candidate in \
-    "$script_dir/codex-skills/disable-routing/SKILL.md" \
-    "$script_dir/../codex-skills/disable-routing/SKILL.md"
-  do
-    if [ -f "$candidate" ]; then
+
+# Install every Codex-native skill the registry declares for this client:
+# prompt directives, their aliases, and local-config toggles like $router-off
+# that shell out to this installer's own verbs. weave_registry_skill_assets is
+# the union, canonical names plus aliases — Codex discovers skills by directory
+# name, so an advertised $fm needs its own installed skill rather than a
+# pointer to $force-model.
+#
+# A name with no SKILL.md is skipped: an alias may exist for the Claude command
+# surface without a Codex skill behind it (registry_test.sh pins which ones do).
+install_codex_prompt_skills() {
+  local canonical candidate skill_src dst_dir dst_file emit_src emit_dst scope_args body
+  while IFS= read -r canonical; do
+    skill_src=""
+    for candidate in \
+      "$script_dir/codex-skills/$canonical/SKILL.md" \
+      "$script_dir/../codex-skills/$canonical/SKILL.md"
+    do
+      [ -f "$candidate" ] || continue
       skill_src="$candidate"
       break
+    done
+    [ -n "$skill_src" ] || continue
+    grep -Fq "<!-- weave-router managed $canonical skill -->" "$skill_src" || continue
+    dst_dir="$codex_dir/skills/$canonical"
+    dst_file="$dst_dir/SKILL.md"
+    if [ "$scope" = "project" ] || [ -n "$install_dir" ]; then
+      refuse_if_symlink "$codex_dir/skills"
+      refuse_if_symlink "$dst_dir"
+      refuse_if_symlink "$dst_file"
+    elif [ -L "$codex_dir/skills" ] || [ -L "$dst_dir" ] || [ -L "$dst_file" ]; then
+      warn "Codex skill path contains a symlink; leaving $canonical untouched."
+      continue
     fi
-  done
-  [ -n "$skill_src" ] || { warn "Codex disable-routing skill template is missing; router configuration is still installed."; return 0; }
-  grep -Fq "$WEAVE_CODEX_SKILL_MARKER" "$skill_src" \
-    || { warn "Codex disable-routing skill template has no ownership marker; leaving skills unchanged."; return 0; }
+    if [ -e "$dst_file" ] && { [ ! -f "$dst_file" ] || ! grep -Fq "<!-- weave-router managed $canonical skill -->" "$dst_file"; }; then
+      warn "A user-owned Codex $canonical skill already exists at $dst_file; leaving it untouched."
+      continue
+    fi
+    mkdir -p "$dst_dir"
+    scope_args=""
+    if [ -n "$install_dir" ]; then scope_args=" --dir $(printf '%q' "$install_dir")"
+    elif [ "$scope" = project ]; then scope_args=" --scope project"; fi
+    body="$(<"$skill_src")"
+    body="${body//\{\{SCOPE\}\}/$scope_args}"
+    printf '%s\n' "$body" >"$dst_file"
+    # Prompt skills emit their directive through a script Codex execs; toggles
+    # shell out to the installer's own verbs and ship none.
+    emit_src="${skill_src%/SKILL.md}/scripts/emit.sh"
+    if [ -f "$emit_src" ]; then
+      mkdir -p "$dst_dir/scripts"
+      emit_dst="$dst_dir/scripts/emit.sh"
+      if [ "$scope" = "project" ] || [ -n "$install_dir" ]; then
+        refuse_if_symlink "$dst_dir/scripts"
+        refuse_if_symlink "$emit_dst"
+      elif [ -L "$dst_dir/scripts" ] || [ -L "$emit_dst" ]; then
+        warn "Codex skill script path contains a symlink; leaving $canonical emit.sh untouched."
+      else
+        cp "$emit_src" "$emit_dst"
+        chmod +x "$emit_dst"
+      fi
+    fi
+    ok "Codex skill installed: \$$canonical"
+  done <<EOF
+$(weave_registry_skill_assets codex)
+EOF
+}
 
-  dst_dir="$codex_dir/skills/disable-routing"
-  dst_file="$dst_dir/SKILL.md"
-  if [ "$scope" = "project" ] || [ -n "$install_dir" ]; then
-    refuse_if_symlink "$codex_dir/skills"
-    refuse_if_symlink "$dst_dir"
-    refuse_if_symlink "$dst_file"
-  elif [ -L "$codex_dir/skills" ] || [ -L "$dst_dir" ] || [ -L "$dst_file" ]; then
-    warn "Codex disable-routing skill path contains a symlink; leaving it untouched."
+# ---------- post-install verification (shared by every target) ----------
+#
+# Every client gets the same two probes — reach the router, then prove the key
+# it was just handed actually authenticates — so a working install produces the
+# same green checks regardless of which one was installed.
+
+# validate_key asks the router whether $api_key is live. The key goes over stdin
+# (`@-`) rather than a -H argument so it never appears in the process arg list,
+# where `ps` / /proc would expose it to other local users on a shared machine.
+# Wrapped in a function so the spinner's exec form sees a single command argv.
+validate_key() {
+  printf '%s: %s\n' "$router_key_header" "$api_key" \
+    | curl -fsS --max-time 5 --header @- "$base_url/validate"
+}
+
+# rewrite_installed_key rewrites this target's managed config with the key in $1.
+# Used by the rejected-key fallback below to swap in a replacement without
+# re-running the whole install.
+rewrite_installed_key() {
+  local key="$1"
+  case "$target" in
+    claude)   write_claude_settings "$key" ;;
+    codex)    write_codex_config "$codex_config_file" "$base_url" "$key" "$user_email" "$user_name" ;;
+    opencode) write_opencode_config "$opencode_config_file" "$base_url" "$key" "$user_email" "$user_name" ;;
+    pi)
+      write_pi_models_config "$pi_models_file" "$base_url" "$key" "$user_email" "$user_name"
+      printf '%s\n' "$key" >"$pi_key_file"
+      chmod 600 "$pi_key_file"
+      ;;
+  esac
+}
+
+verify_install() {
+  if [ "$quiet" != "true" ]; then
+    if ! spin "Pinging $base_url/health" curl -fsS --max-time 5 "$base_url/health"; then
+      warn "Could not reach $base_url/health within 5s. Settings are written; verify the router is running."
+    fi
+  fi
+
+  [ -n "$api_key" ] || return 0
+
+  spin "Validating API key" validate_key && return 0
+
+  # A key we read back off disk can have been revoked or rotated since it was
+  # installed, and reusing it silently would leave a broken install behind
+  # exactly where the old behavior (always prompt) would have fixed it. Ask
+  # once, then rewrite the config with whatever the user pastes. Anywhere a
+  # prompt isn't available — non-interactive, update, --quiet, no tty, or a
+  # key that didn't come from disk — keep the historical warn-and-continue.
+  if [ "$api_key_source" = "disk" ] && [ "$non_interactive" != "true" ] \
+     && [ "$quiet" != "true" ] && [ -r /dev/tty ]; then
+    warn "The router key already installed was rejected (revoked or rotated)."
+    prompt_for_key
+    rewrite_installed_key "$api_key"
+    if ! spin "Validating API key" validate_key; then
+      warn "Router rejected the API key (check it matches the dashboard at $base_url)."
+    fi
     return 0
   fi
-  if [ -e "$dst_file" ] && { [ ! -f "$dst_file" ] || ! grep -Fq "$WEAVE_CODEX_SKILL_MARKER" "$dst_file"; }; then
-    warn "A user-owned Codex disable-routing skill already exists at $dst_file; leaving it untouched."
+
+  if [ "$mode" = "update" ]; then
+    # update is meant for cron/scripting: a rejected key is a real failure,
+    # not a note in the log. --quiet callers opted out of the noise, not out
+    # of the nonzero exit — a scheduled run that reports success here would
+    # hide a revoked key indefinitely.
+    if [ "$quiet" = "true" ]; then
+      warn "Router rejected the installed API key. Re-run the installer to set a new one."
+    else
+      err "Router rejected the installed API key. Re-run the installer to set a new one."
+    fi
+    exit 1
+  fi
+
+  warn "Router rejected the API key (check it matches the dashboard at $base_url)."
+}
+
+# announce_done prints the closing line for the client named in $1. `update`
+# refreshed an existing install rather than creating one, so it says so and
+# skips the uninstall hint — that run was never the user's first contact with
+# the installer.
+announce_done() {
+  printf "\n"
+  if [ "$mode" = "update" ]; then
+    printf "%s✓%s %s%sWeave Router config refreshed for %s.%s\n" \
+      "$C_GREEN" "$C_RESET" "$C_BOLD" "$C_BRAND" "$1" "$C_RESET"
     return 0
   fi
-  mkdir -p "$dst_dir"
-
-  scope_args=""
-  if [ -n "$install_dir" ]; then
-    scope_args=" --dir $(printf '%q' "$install_dir")"
-  elif [ "$scope" = "project" ]; then
-    scope_args=" --scope project"
-  fi
-  body="$(<"$skill_src")"
-  body="${body//\{\{SCOPE\}\}/$scope_args}"
-  printf '%s\n' "$body" >"$dst_file"
-  ok "Codex skill installed: \$disable-routing"
+  printf "%s✓%s %s%sWeave Router installed for %s.%s\n" \
+    "$C_GREEN" "$C_RESET" "$C_BOLD" "$C_BRAND" "$1" "$C_RESET"
 }
 
 # ---------- codex install path (dispatch + exit before the Claude-only writes) ----------
 
+# Install the Codex lifecycle helper that reflects the active router and the
+# latest known routed model in the terminal title. The embedded copy keeps the
+# standalone curl installer feature-complete; packaged installs use the
+# canonical sibling asset.
+install_codex_status_script() {
+  local candidate status_src=""
+  for candidate in \
+    "$script_dir/codex-status.sh" \
+    "$script_dir/../codex-status.sh"
+  do
+    if [ -f "$candidate" ]; then
+      status_src="$candidate"
+      break
+    fi
+  done
+  if [ "$scope" = "user" ] && [ -z "$install_dir" ]; then
+    mkdir -p "$(dirname "$codex_status_file")"
+  else
+    refuse_if_symlink "$codex_status_file"
+  fi
+  if [ -e "$codex_status_file" ] && { [ ! -f "$codex_status_file" ] || ! grep -Fq '<!-- weave-router managed codex status -->' "$codex_status_file"; }; then
+    warn "A user-owned Codex status helper already exists at $codex_status_file; leaving it untouched."
+    return 1
+  fi
+  if [ -n "$status_src" ]; then
+    grep -Fq '<!-- weave-router managed codex status -->' "$status_src" || {
+      warn "Codex status helper has no ownership marker; leaving it unchanged."
+      return 1
+    }
+    cp "$status_src" "$codex_status_file"
+  else
+    cat >"$codex_status_file" <<'CODEX_STATUS_EOF'
+#!/usr/bin/env bash
+# <!-- weave-router managed codex status -->
+#
+# Codex lifecycle hook for the Weave Router. Codex passes a JSON object on
+# stdin; the Stop hook includes the last assistant message, which carries the
+# router's routed-model marker when the selected model changes. The helper
+# keeps the last known routed model per session and reflects it in the terminal
+# title, so the active router remains visible between turns without injecting
+# another message into the conversation.
+
+set -euo pipefail
+
+state_root="${XDG_CACHE_HOME:-$HOME/.cache}/weave-router/codex"
+helper_dir="$(cd "$(dirname "$0")" 2>/dev/null && pwd -P)"
+disabled_marker="$helper_dir/.weave-router-disabled"
+router_badge_sentinel=$'⁣⁠⁣⁠'
+
+emit_title() {
+  local title="$1"
+  if [ -n "${WEAVE_CODEX_STATUS_TITLE_FILE:-}" ]; then
+    printf '%s\n' "$title" >"$WEAVE_CODEX_STATUS_TITLE_FILE"
+  elif [ -w /dev/tty ]; then
+    printf '\033]0;%s\007' "$title" >/dev/tty
+  fi
+}
+
+safe_session_id() {
+  local id="$1"
+  case "$id" in
+    ''|*[!A-Za-z0-9._-]*) return 1 ;;
+  esac
+  [ "${#id}" -le 128 ] || return 1
+  printf '%s' "$id"
+}
+
+safe_display_value() {
+  printf '%s' "$1" | sed 's/[^A-Za-z0-9._:\/-]//g' | cut -c1-128
+}
+
+state_file_for() {
+  local id
+  id="$(safe_session_id "$1")" || return 1
+  printf '%s/%s.state' "$state_root" "$id"
+}
+
+read_state() {
+  local file="$1" key value
+  [ -f "$file" ] || return 0
+  while IFS='=' read -r key value; do
+    case "$key" in
+      routed_model) routed_model="$value" ;;
+    esac
+  done <"$file"
+}
+
+write_state() {
+  local file="$1" tmp
+  mkdir -p "$state_root"
+  chmod 700 "$state_root"
+  tmp="$(mktemp "$state_root/.state.XXXXXX")"
+  printf 'requested_model=%s\nrouted_model=%s\n' "$requested_model" "$routed_model" >"$tmp"
+  chmod 600 "$tmp"
+  mv "$tmp" "$file"
+}
+
+set -e
+
+case "${1:-hook}" in
+  --direct)
+    emit_title "Codex · direct"
+    exit 0
+    ;;
+  --on)
+    rm -f "$disabled_marker"
+    emit_title "Weave Router · active"
+    exit 0
+    ;;
+  --off)
+    [ ! -L "$disabled_marker" ] || exit 0
+    : >"$disabled_marker"
+    chmod 600 "$disabled_marker"
+    emit_title "Codex · direct"
+    exit 0
+    ;;
+esac
+
+payload="$(cat)"
+[ -n "$payload" ] || exit 0
+command -v jq >/dev/null 2>&1 || exit 0
+jq -e . >/dev/null 2>&1 <<<"$payload" || exit 0
+
+hook_event_name="$(jq -r '.hook_event_name // ""' <<<"$payload")"
+if [ "$hook_event_name" = "SessionStart" ]; then
+  if [ -f "$disabled_marker" ]; then
+    emit_title "Codex · direct"
+    jq -cn '{systemMessage:"Codex direct · Weave Router is off"}'
+  else
+    emit_title "Weave Router · active"
+    jq -cn '{systemMessage:"Weave Router active · routed model appears in the terminal title"}'
+  fi
+  exit 0
+fi
+
+if [ -f "$disabled_marker" ]; then
+  exit 0
+fi
+
+requested_model="$(safe_display_value "$(jq -r '.model // ""' <<<"$payload")")"
+routed_model=""
+session_id="$(jq -r '.session_id // ""' <<<"$payload")"
+last_assistant_message="$(jq -r '.last_assistant_message // ""' <<<"$payload")"
+
+file=""
+if file="$(state_file_for "$session_id" 2>/dev/null)"; then
+  read_state "$file"
+fi
+
+# The marker is intentionally matched only at the beginning of the assistant
+# message. Do not treat ordinary prose that mentions the heading as metadata.
+first_line="${last_assistant_message%%$'\n'*}"
+marker_model=""
+force_model=""
+case "$first_line" in
+  "${router_badge_sentinel}✦ **Weave Router** → "*)
+    marker_model="${first_line#"${router_badge_sentinel}✦ **Weave Router** → "}"
+    marker_model="${marker_model%% ·*}"
+    ;;
+  "✦ **Weave Router** → "*)
+    marker_model="${first_line#"✦ **Weave Router** → "}"
+    marker_model="${marker_model%% ·*}"
+    ;;
+esac
+case "$first_line" in
+  "Weave Router: force-model applied: "*" ("*)
+    force_model="${first_line#"Weave Router: force-model applied: "}"
+    force_model="${force_model%% (*}"
+    ;;
+esac
+if [ -n "$marker_model" ]; then
+  routed_model="$(safe_display_value "$marker_model")"
+elif [ -n "$force_model" ]; then
+  routed_model="$(safe_display_value "$force_model")"
+else
+  routed_model="$(safe_display_value "$routed_model")"
+fi
+
+if [ -n "$file" ]; then
+  write_state "$file"
+fi
+
+if [ -n "$routed_model" ] && [ -n "$requested_model" ] && [ "$routed_model" != "$requested_model" ]; then
+  title="Weave Router · $routed_model ← $requested_model"
+elif [ -n "$routed_model" ]; then
+  title="Weave Router · $routed_model"
+elif [ -n "$requested_model" ]; then
+  title="Weave Router · active ← $requested_model"
+else
+  title="Weave Router · active"
+fi
+emit_title "$title"
+if [ -n "$marker_model" ] || [ -n "$force_model" ]; then
+  printf '%s' "$title" | jq -Rc '{systemMessage: .}'
+fi
+CODEX_STATUS_EOF
+  fi
+  chmod 700 "$codex_status_file"
+  "$codex_status_file" --on >/dev/null 2>&1 || true
+  ok "Codex status integration installed at $codex_status_file"
+}
+
 if [ "$target" = "codex" ]; then
+  if ! install_codex_status_script; then
+    err "Cannot install the Codex status helper safely; refusing to write hooks that could execute unowned code."
+    exit 1
+  fi
   write_codex_config "$codex_config_file" "$base_url" "$api_key" "$user_email" "$user_name"
   ok "Codex config written to $codex_config_file"
   remove_obsolete_codex_prompt_wrappers "$codex_dir/prompts"
-  install_codex_disable_routing_skill
+  install_codex_prompt_skills
   info "Codex router directives: begin the message with one space, e.g. ' /force-model gpt-5.6-terra'."
 
   # Project scope: ensure the per-teammate config (which holds the router key)
@@ -2597,44 +3351,26 @@ if [ "$target" = "codex" ]; then
     gitignore="$git_root/.gitignore"
     refuse_if_symlink "$gitignore"
     for entry in \
-      ".codex/config.toml"
+      ".codex/config.toml" \
+      ".codex/weave-status.sh" \
+      ".codex/.weave-router-disabled"
     do
       if [ ! -f "$gitignore" ] || ! grep -qxF "$entry" "$gitignore"; then
         printf '%s\n' "$entry" >>"$gitignore"
       fi
     done
-    ok "Updated $gitignore (ignored .codex/config.toml)"
+    ok "Updated $gitignore (ignored Codex router config and status helper)"
   fi
 
-  # Post-install verification: same probes the Claude path runs so a working
-  # install gives the same green checks regardless of target.
-  if [ "$quiet" != "true" ]; then
-    if ! spin "Pinging $base_url/health" curl -fsS --max-time 5 "$base_url/health"; then
-      warn "Could not reach $base_url/health within 5s. Settings are written; verify the router is running."
-    fi
-  fi
+  verify_install
 
-  if [ -n "$api_key" ]; then
-    # Pass the router key via stdin (`@-`) instead of -H so it never lands in
-    # the process arg list. Mirrors the Claude-path validate logic.
-    validate_codex_key() {
-      printf '%s: %s\n' "$router_key_header" "$api_key" \
-        | curl -fsS --max-time 5 --header @- "$base_url/validate"
-    }
-    if ! spin "Validating API key" validate_codex_key; then
-      warn "Router rejected the API key (check it matches the dashboard at $base_url/ui/)."
-    fi
-  fi
-
-  printf "\n"
-  printf "%s✓%s %s%sWeave Router installed for Codex.%s\n" \
-    "$C_GREEN" "$C_RESET" "$C_BOLD" "$C_BRAND" "$C_RESET"
+  announce_done "Codex"
   if [ "$scope" = "project" ] || [ -n "$install_dir" ]; then
     # Codex auto-discovers ~/.codex; for non-user installs the caller has to
     # point CODEX_HOME at the directory we wrote so Codex finds our config.
     info "Run Codex with CODEX_HOME=$codex_dir codex so it picks up this config."
   fi
-  print_uninstall_hint
+  [ "$mode" = "update" ] || print_uninstall_hint
   exit 0
 fi
 
@@ -2682,26 +3418,9 @@ if [ "$target" = "opencode" ]; then
     info "opencode restart required for commands to take effect."
   fi
 
-  # Post-install verification: same probes the Claude/Codex paths run.
-  if [ "$quiet" != "true" ]; then
-    if ! spin "Pinging $base_url/health" curl -fsS --max-time 5 "$base_url/health"; then
-      warn "Could not reach $base_url/health within 5s. Settings are written; verify the router is running."
-    fi
-  fi
+  verify_install
 
-  if [ -n "$api_key" ]; then
-    validate_opencode_key() {
-      printf '%s: %s\n' "$router_key_header" "$api_key" \
-        | curl -fsS --max-time 5 --header @- "$base_url/validate"
-    }
-    if ! spin "Validating API key" validate_opencode_key; then
-      warn "Router rejected the API key (check it matches the dashboard at $base_url/ui/)."
-    fi
-  fi
-
-  printf "\n"
-  printf "%s✓%s %s%sWeave Router installed for opencode.%s\n" \
-    "$C_GREEN" "$C_RESET" "$C_BOLD" "$C_BRAND" "$C_RESET"
+  announce_done "opencode"
   # Surface the optional subscription-routing path only when this run actually
   # registered the weave-claude login provider (which is written together with
   # the plugin). Gate on its presence in the written config (authoritative)
@@ -2716,7 +3435,7 @@ if [ "$target" = "opencode" ]; then
     # has to point opencode at the file explicitly.
     info "Run opencode with OPENCODE_CONFIG=$opencode_config_file opencode."
   fi
-  print_uninstall_hint
+  [ "$mode" = "update" ] || print_uninstall_hint
   exit 0
 fi
 
@@ -2757,26 +3476,13 @@ if [ "$target" = "pi" ]; then
     ok "Updated $gitignore (ignored repo-local .pi router config)"
   fi
 
-  # Post-install verification: same probes the Claude/Codex/opencode paths run.
-  if [ "$quiet" != "true" ]; then
-    if ! spin "Pinging $base_url/health" curl -fsS --max-time 5 "$base_url/health"; then
-      warn "Could not reach $base_url/health within 5s. Settings are written; verify the router is running."
-    fi
+  verify_install
+
+  if [ -n "$lsp_langs" ]; then
+    install_lsp_servers "$lsp_langs"
   fi
 
-  if [ -n "$api_key" ]; then
-    validate_pi_key() {
-      printf '%s: %s\n' "$router_key_header" "$api_key" \
-        | curl -fsS --max-time 5 --header @- "$base_url/validate"
-    }
-    if ! spin "Validating API key" validate_pi_key; then
-      warn "Router rejected the API key (check it matches the dashboard at $base_url/ui/)."
-    fi
-  fi
-
-  printf "\n"
-  printf "%s✓%s %s%sWeave Router installed for pi.%s\n" \
-    "$C_GREEN" "$C_RESET" "$C_BOLD" "$C_BRAND" "$C_RESET"
+  announce_done "pi"
   # Billing note: pi normally draws on a Claude subscription (OAuth); routing
   # through the router switches to per-token billing on the router deployment
   # key (or BYOK). Surface it at install so the change isn't a surprise.
@@ -2784,7 +3490,7 @@ if [ "$target" = "pi" ]; then
   if [ "$scope" = "project" ] || [ -n "$install_dir" ]; then
     info "Run pi with PI_CODING_AGENT_DIR=$pi_dir pi so it picks up this config."
   fi
-  print_uninstall_hint
+  [ "$mode" = "update" ] || print_uninstall_hint
   exit 0
 fi
 
@@ -2952,6 +3658,23 @@ weave_command_tracked_by_git() {
   git -C "$(dirname "$1")" ls-files --error-unmatch -- "$1" >/dev/null 2>&1
 }
 
+# weave_installed_command_names lists the wrappers this install may refresh.
+# The statusline ships standalone (no registry.sh beside it), so the installed
+# set — itself written from the registry — is the only source of truth here.
+#
+# Files written before ownership markers existed carry none, so matching on the
+# marker alone would freeze every pre-marker install out of refreshes forever.
+# List every wrapper instead and let the baseline comparison below decide: a
+# file is replaced only when its bytes still match the last canonical copy, so
+# a user-authored command is never touched whether or not it carries a marker.
+weave_installed_command_names() {
+  local dir="$1" file
+  for file in "$dir"/*.md; do
+    [ -f "$file" ] || continue
+    printf '%s\n' "$(basename "$file" .md)"
+  done
+}
+
 # weave_render_command prints $1 with the installer's {{SCOPE}} placeholder
 # replaced by $2, matching how install_slash_commands writes the same file.
 # Trailing newlines are stripped on both sides of every comparison below.
@@ -3021,9 +3744,7 @@ weave_sync_commands() {
     # Detach stdin (CC pipes JSON to us) so curl can't consume it, and silence
     # everything so no output leaks into the statusline.
     exec </dev/null
-    for name in force-model unforce-model router-feedback fm ufm rf \
-                router-off router-on router-status router-session \
-                router-models models; do
+    while IFS= read -r name; do
       installed="$cmd_dir/$name.md"
       # Only ever refresh a wrapper that is already installed: a missing one
       # was uninstalled or deliberately deleted, and resurrecting it would be
@@ -3052,10 +3773,10 @@ weave_sync_commands() {
       if [ -f "$prev" ]; then
         new_body="$(weave_render_command "$raw" "$scope_args")"
         prev_body="$(weave_render_command "$prev" "$scope_args")"
-        installed_body="$(cat "$installed" 2>/dev/null)" || installed_body=""
+        installed_body="$(cat "$installed" 2>/dev/null | sed '/^<!-- weave-router managed command: .* -->$/d')" || installed_body=""
         if [ "$prev_body" = "$installed_body" ] && [ "$new_body" != "$installed_body" ]; then
           tmp="$installed.tmp.$$"
-          if printf '%s\n' "$new_body" >"$tmp" 2>/dev/null; then
+          if printf '%s\n<!-- weave-router managed command: %s -->' "$new_body" "$name" >"$tmp" 2>/dev/null; then
             mv "$tmp" "$installed" 2>/dev/null || rm -f "$tmp"
           else
             rm -f "$tmp"
@@ -3063,7 +3784,9 @@ weave_sync_commands() {
         fi
       fi
       mv "$raw" "$prev" 2>/dev/null || rm -f "$raw"
-    done
+    done <<EOF
+$(weave_installed_command_names "$cmd_dir")
+EOF
   ) >/dev/null 2>&1 &
   disown 2>/dev/null || true
   return 0
@@ -3280,9 +4003,9 @@ prices='{
     "gpt-5.5-nano":                     0.00015,
     "gpt-5.5-pro":                      0.03,
     "gpt-5.6-luna":                     0.001,
-    "gpt-5.6-luna-pro":                 0.0002,
+    "gpt-5.6-luna-pro":                 0.001,
     "gpt-5.6-sol":                      0.005,
-    "gpt-5.6-sol-pro":                  0.0025,
+    "gpt-5.6-sol-pro":                  0.005,
     "gpt-5.6-terra":                    0.0025,
     "grok-4.5":                         0.002,
     "grok-4.6":                         0.002,
@@ -3305,7 +4028,9 @@ prices='{
     "xiaomi/mimo-v2.5-pro":             0.001,
     "z-ai/glm-5":                       0.001,
     "z-ai/glm-5.1":                     0.0014,
-    "z-ai/glm-5.2":                     0.0014
+    "z-ai/glm-5.2":                     0.0014,
+    "z-ai/glm-5.3":                     0.0014,
+    "z-ai/glm-5.3-flash":               0.00015
   },
   "output": {
     "claude-fable-5":                   0.05,
@@ -3355,9 +4080,9 @@ prices='{
     "gpt-5.5-nano":                     0.0006,
     "gpt-5.5-pro":                      0.18,
     "gpt-5.6-luna":                     0.006,
-    "gpt-5.6-luna-pro":                 0.0012,
+    "gpt-5.6-luna-pro":                 0.006,
     "gpt-5.6-sol":                      0.03,
-    "gpt-5.6-sol-pro":                  0.015,
+    "gpt-5.6-sol-pro":                  0.03,
     "gpt-5.6-terra":                    0.015,
     "grok-4.5":                         0.006,
     "grok-4.6":                         0.006,
@@ -3380,7 +4105,9 @@ prices='{
     "xiaomi/mimo-v2.5-pro":             0.003,
     "z-ai/glm-5":                       0.0032,
     "z-ai/glm-5.1":                     0.0044,
-    "z-ai/glm-5.2":                     0.0044
+    "z-ai/glm-5.2":                     0.0044,
+    "z-ai/glm-5.3":                     0.0044,
+    "z-ai/glm-5.3-flash":               0.0005
   }
 }'
 # END_GENERATED_PRICES
@@ -3782,61 +4509,9 @@ fi
 
 # ---------- post-install verification ----------
 
-if [ "$quiet" != "true" ]; then
-  if ! spin "Pinging $base_url/health" curl -fsS --max-time 5 "$base_url/health"; then
-    warn "Could not reach $base_url/health within 5s. Settings are written; verify the router is running."
-  fi
-fi
-
-if [ -n "$api_key" ]; then
-  # Pass the router key via stdin (`@-`) instead of a -H argument so the key
-  # never appears in the process arg list (visible via `ps` / /proc to other
-  # local users on shared machines). We feed stdin via a small wrapper so the
-  # spinner's exec form sees a single command argv.
-  validate_key() {
-    printf '%s: %s\n' "$router_key_header" "$api_key" \
-      | curl -fsS --max-time 5 --header @- "$base_url/validate"
-  }
-  if ! spin "Validating API key" validate_key; then
-    # A key we read back off disk can have been revoked or rotated since it was
-    # installed, and reusing it silently would leave a broken install behind
-    # exactly where the old behavior (always prompt) would have fixed it. Ask
-    # once, then rewrite the settings with whatever the user pastes. Anywhere a
-    # prompt isn't available — non-interactive, update, --quiet, no tty, or a
-    # key that didn't come from disk — keep the historical warn-and-continue.
-    if [ "$api_key_source" = "disk" ] && [ "$non_interactive" != "true" ] \
-       && [ "$quiet" != "true" ] && [ -r /dev/tty ]; then
-      warn "The router key already installed was rejected (revoked or rotated)."
-      prompt_for_key
-      write_claude_settings "$api_key"
-      if ! spin "Validating API key" validate_key; then
-        warn "Router rejected the API key (check it matches the dashboard at $base_url)."
-      fi
-    elif [ "$mode" = "update" ]; then
-      # update is meant for cron/scripting: a rejected key is a real failure,
-      # not a note in the log. --quiet callers opted out of the noise, not out
-      # of the nonzero exit — a scheduled run that reports success here would
-      # hide a revoked key indefinitely.
-      if [ "$quiet" = "true" ]; then
-        warn "Router rejected the installed API key. Re-run the installer to set a new one."
-      else
-        err "Router rejected the installed API key. Re-run the installer to set a new one."
-      fi
-      exit 1
-    else
-      warn "Router rejected the API key (check it matches the dashboard at $base_url)."
-    fi
-  fi
-fi
+verify_install
 
 # ---------- done ----------
 
-printf "\n"
-if [ "$mode" = "update" ]; then
-  printf "%s✓%s %s%sWeave Router config refreshed for Claude Code.%s\n" \
-    "$C_GREEN" "$C_RESET" "$C_BOLD" "$C_BRAND" "$C_RESET"
-  exit 0
-fi
-printf "%s✓%s %s%sWeave Router installed for Claude Code.%s\n" \
-  "$C_GREEN" "$C_RESET" "$C_BOLD" "$C_BRAND" "$C_RESET"
-print_uninstall_hint
+announce_done "Claude Code"
+[ "$mode" = "update" ] || print_uninstall_hint

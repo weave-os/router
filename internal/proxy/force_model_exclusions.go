@@ -43,6 +43,12 @@ func (s *Service) forcedModelBinding(ctx context.Context, model, provider string
 	if _, drop := s.excludedModelsForRequest(ctx)[model]; drop {
 		return "", fmt.Sprintf("%s is excluded on this installation", model)
 	}
+	// Gateway-exclusive routing drops every vendor from the eligible set, so
+	// resolving to the catalog primary would produce a pin the turn loop then
+	// rejects — the force would read as applied and route automatically.
+	if gateways := s.gatewayProvidersForRequest(ctx); len(gateways) > 0 {
+		return gatewayForcedBinding(model, gateways, s.customBindingsForRequest(ctx))
+	}
 	excluded := s.policyExcludedProviders(ctx)
 	if len(excluded) == 0 {
 		return provider, ""
@@ -72,6 +78,21 @@ func (s *Service) forcedModelBinding(ctx context.Context, model, provider string
 		}
 	}
 	return permitted[0], ""
+}
+
+// gatewayForcedBinding pins a forced model to a gateway that aliases it. Only
+// a key's model_aliases say what the tenant's endpoint serves, so a model no
+// gateway names is refused rather than pinned to an unroutable provider.
+func gatewayForcedBinding(
+	model string, gateways map[string]struct{}, custom map[string][]string,
+) (binding, reason string) {
+	for _, provider := range custom[model] {
+		if _, ok := gateways[provider]; ok {
+			return provider, ""
+		}
+	}
+	return "", fmt.Sprintf(
+		"%s isn't aliased by any of this installation's gateway keys", model)
 }
 
 // servableBindings returns the catalog bindings for model that hold a

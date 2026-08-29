@@ -41,6 +41,9 @@ type ClusterOverrideResult struct {
 	// Changed is true when the override selected a different arm than the
 	// sidecar's own pick (for reason annotation and telemetry).
 	Changed bool
+	// Constrained is true when a configured per-key list (or a forced label)
+	// applies; false when the group's own eligible arms pass through unfiltered.
+	Constrained bool
 }
 
 // ApplyClusterArmOverrides re-selects the served arm under per-key cluster
@@ -67,11 +70,12 @@ func ApplyClusterArmOverrides(
 		}
 		selected := effective[0]
 		return ClusterOverrideResult{
-			RosterID: selected,
-			ArmID:    index.rosterToArm[selected],
-			Group:    group.Group,
-			Applied:  true,
-			Changed:  selected != sidecarRosterID,
+			RosterID:    selected,
+			ArmID:       index.rosterToArm[selected],
+			Group:       group.Group,
+			Applied:     true,
+			Changed:     selected != sidecarRosterID,
+			Constrained: hasOverride,
 		}
 	}
 
@@ -132,11 +136,12 @@ func ApplyClusterArmOverridesRequireMatch(
 
 	selected := effective[0]
 	return ClusterOverrideResult{
-		RosterID: selected,
-		ArmID:    index.rosterToArm[selected],
-		Group:    requiredLabel,
-		Applied:  true,
-		Changed:  selected != sidecarRosterID,
+		RosterID:    selected,
+		ArmID:       index.rosterToArm[selected],
+		Group:       requiredLabel,
+		Applied:     true,
+		Changed:     selected != sidecarRosterID,
+		Constrained: true,
 	}, nil
 }
 

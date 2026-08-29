@@ -358,8 +358,9 @@ func openAIFinishToAnthropicStopReason(s string) string {
 func writeAnthropicUsageFromOpenAI(jw *jsonWriter, usage gjson.Result) {
 	prompt := usage.Get("prompt_tokens").Int()
 	completion := usage.Get("completion_tokens").Int()
-	cacheRead := usage.Get("prompt_tokens_details.cached_tokens").Int()
-	cacheCreation := usage.Get("prompt_tokens_details.cache_creation_tokens").Int()
+	cacheWrite, cacheReadN := OpenAICacheTokens(usage)
+	cacheCreation := int64(cacheWrite)
+	cacheRead := int64(cacheReadN)
 
 	freshInput := prompt - cacheCreation - cacheRead
 	if freshInput < 0 {

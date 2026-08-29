@@ -225,6 +225,7 @@ func (s *Service) dispatchWithFallback(ctx context.Context, in failoverInputs) (
 		// Only used for single-binding models; multi-binding models fail
 		// straight over to the next binding after one attempt (len>1 guard).
 		var attemptErr error
+		retryStart := s.clockNow()
 		for sb := 0; ; sb++ {
 			// Safe to rewrite until the buffer commits; on retry the previous
 			// value is overwritten via Discard's header restore + this Set.
@@ -258,10 +259,22 @@ func (s *Service) dispatchWithFallback(ctx context.Context, in failoverInputs) (
 				return i, attemptErr
 			}
 
-			// Stop same-binding retry: error non-retryable, budget spent, or
-			// a different binding exists (cross-binding failover beats
-			// re-hitting the same flaky provider).
+			// Stop same-binding retry: error non-retryable, attempt budget
+			// spent, or a different binding exists (cross-binding failover
+			// beats re-hitting the same flaky provider).
 			if !providers.IsRetryable(attemptErr) || sb >= maxSameBindingRetries || len(in.bindings) > 1 {
+				break
+			}
+			// Attempts are also bounded by wall-clock, not just count: a hung
+			// upstream burns a full ResponseHeaderTimeout per attempt.
+			if spent := s.clockNow().Sub(retryStart); spent >= sameBindingRetryBudget {
+				log.Warn("dispatchWithFallback: same-binding retry budget spent, not retrying",
+					"model", decision.Model,
+					"provider", b.Provider,
+					"spent_ms", spent.Milliseconds(),
+					"budget_ms", sameBindingRetryBudget.Milliseconds(),
+					"same_binding_retry", sb,
+					"err", attemptErr)
 				break
 			}
 			// Reset before retrying so it begins with a pristine writer.
@@ -281,6 +294,12 @@ func (s *Service) dispatchWithFallback(ctx context.Context, in failoverInputs) (
 			if err := sleep(attemptCtx, sameBindingBackoff(sb)); err != nil {
 				return i, attemptErr
 			}
+		}
+
+		// Memo the refusal so later turns skip this alias; the Responses-surface
+		// variant never reaches here (re-emitted onto chat/completions pre-commit).
+		if providers.IsUpstreamModelNotFound(attemptErr) {
+			s.rememberGatewayLacksModel(attemptCtx, b.Provider, decision.Model)
 		}
 
 		// 404 and 402 aren't in IsRetryable (retrying the same binding is futile),
@@ -326,7 +345,20 @@ const (
 	maxSameBindingRetries = 2
 	// sameBindingBackoffBase is the first retry delay, doubling per attempt.
 	sameBindingBackoffBase = 250 * time.Millisecond
+	// sameBindingRetryBudget caps wall-clock across retries for a single
+	// binding. Count alone doesn't bound cost: a hung upstream burns a full
+	// ResponseHeaderTimeout per attempt; cheap failures still get all retries.
+	sameBindingRetryBudget = 10 * time.Second
 )
+
+// clockNow reads the current time through the injectable clock, falling back
+// to time.Now when no fake is wired.
+func (s *Service) clockNow() time.Time {
+	if s.now != nil {
+		return s.now()
+	}
+	return time.Now()
+}
 
 // sameBindingBackoff is the delay before same-binding retry attempt+1
 // (0-indexed): exponential off sameBindingBackoffBase.

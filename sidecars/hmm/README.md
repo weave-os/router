@@ -44,6 +44,36 @@ It must expose the same underlying Google embedding model and pass the probe.
 Ollama, vLLM, or another local embedder requires an HMM/classifier package
 trained in that model's own vector space.
 
+## Typed contract fields
+
+In addition to the required `policy_router_v1` response fields, `/route`
+responses emit optional typed fields:
+
+- `predicted_label` — the classifier's predicted complexity label;
+- `class_probabilities` — the classifier's per-class probability map;
+- `pin_sticky_override_eligible` — typed successor of the legacy
+  `[pin_sticky_override_eligible]` reason-string sentinel. This sidecar always
+  reports `false`; when present the router treats it as authoritative and
+  ignores the sentinel.
+
+The fields are additive: routers and sidecars that predate them interoperate
+unchanged via the legacy reason-string path.
+
+## Planned deprecation: sidecar-side deterministic selection
+
+This sidecar currently performs the deterministic within-cluster arm selection
+(harness-specific roster ordering, rank-1 eligible-arm pick, ranked
+cluster-fallback walk) after classification. The router now carries an
+equivalent Go implementation (`internal/router/hmm/selection`) driven by a
+declarative roster file (`ROUTER_HMM_ROSTER_PATH`), first as a log-only shadow
+(`ROUTER_HMM_SELECTION_SHADOW`) and then authoritatively
+(`ROUTER_HMM_GO_SELECTION`, default off). Once Go selection is fully rolled
+out, the sidecar's deterministic layer is reduced to ML inference only:
+classification label and probabilities via the typed fields above. Nothing is
+removed from this sidecar yet; current behavior is unchanged. See
+[docs/HMM_GO_SELECTION.md](../../docs/HMM_GO_SELECTION.md) for the rollout and
+rollback plan.
+
 ## Artifact safety
 
 The runtime accepts only `hmm_router_frozen_package_v1` archives. It verifies:

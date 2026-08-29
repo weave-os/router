@@ -71,6 +71,11 @@ router-generated summarizer calls for those turns. Post-selection synthetic
 loop breakers are also bypassed so one accepted policy action maps to one
 selected model dispatch attempt.
 
+The subscription usage-bypass gate is deliberately outside that list: it
+decides whether a turn is routed and billed at all, so a caller's own prepaid
+Claude/Codex quota still passes straight through and the `/route` call is never
+made for that turn.
+
 ## Route contract
 
 The router sends a stable `route_id`, strategy, execution mode, organization
@@ -145,6 +150,13 @@ holds any policy-internal arm, bucket, cluster, or mode. During migration,
   "roster_version": "roster-2026-07-09"
 }
 ```
+
+A sidecar may additionally emit optional typed fields: `predicted_label`
+(the classifier's predicted complexity label), `class_probabilities` (its
+per-class probability map), and `pin_sticky_override_eligible` (a boolean,
+the typed successor of the legacy `[pin_sticky_override_eligible]`
+reason-string sentinel — when present it is authoritative and the sentinel is
+ignored). Sidecars that omit them keep the legacy behavior unchanged.
 
 The router rejects empty selections, unknown roster IDs, provider mismatches,
 and unsupported schema versions. Rich `debug` data is internal to the sidecar;

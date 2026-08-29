@@ -159,6 +159,23 @@ weave_command_tracked_by_git() {
   git -C "$(dirname "$1")" ls-files --error-unmatch -- "$1" >/dev/null 2>&1
 }
 
+# weave_installed_command_names lists the wrappers this install may refresh.
+# The statusline ships standalone (no registry.sh beside it), so the installed
+# set — itself written from the registry — is the only source of truth here.
+#
+# Files written before ownership markers existed carry none, so matching on the
+# marker alone would freeze every pre-marker install out of refreshes forever.
+# List every wrapper instead and let the baseline comparison below decide: a
+# file is replaced only when its bytes still match the last canonical copy, so
+# a user-authored command is never touched whether or not it carries a marker.
+weave_installed_command_names() {
+  local dir="$1" file
+  for file in "$dir"/*.md; do
+    [ -f "$file" ] || continue
+    printf '%s\n' "$(basename "$file" .md)"
+  done
+}
+
 # weave_render_command prints $1 with the installer's {{SCOPE}} placeholder
 # replaced by $2, matching how install_slash_commands writes the same file.
 # Trailing newlines are stripped on both sides of every comparison below.
@@ -228,9 +245,7 @@ weave_sync_commands() {
     # Detach stdin (CC pipes JSON to us) so curl can't consume it, and silence
     # everything so no output leaks into the statusline.
     exec </dev/null
-    for name in force-model unforce-model router-feedback fm ufm rf \
-                router-off router-on router-status router-session \
-                router-models models; do
+    while IFS= read -r name; do
       installed="$cmd_dir/$name.md"
       # Only ever refresh a wrapper that is already installed: a missing one
       # was uninstalled or deliberately deleted, and resurrecting it would be
@@ -259,10 +274,10 @@ weave_sync_commands() {
       if [ -f "$prev" ]; then
         new_body="$(weave_render_command "$raw" "$scope_args")"
         prev_body="$(weave_render_command "$prev" "$scope_args")"
-        installed_body="$(cat "$installed" 2>/dev/null)" || installed_body=""
+        installed_body="$(cat "$installed" 2>/dev/null | sed '/^<!-- weave-router managed command: .* -->$/d')" || installed_body=""
         if [ "$prev_body" = "$installed_body" ] && [ "$new_body" != "$installed_body" ]; then
           tmp="$installed.tmp.$$"
-          if printf '%s\n' "$new_body" >"$tmp" 2>/dev/null; then
+          if printf '%s\n<!-- weave-router managed command: %s -->' "$new_body" "$name" >"$tmp" 2>/dev/null; then
             mv "$tmp" "$installed" 2>/dev/null || rm -f "$tmp"
           else
             rm -f "$tmp"
@@ -270,7 +285,9 @@ weave_sync_commands() {
         fi
       fi
       mv "$raw" "$prev" 2>/dev/null || rm -f "$raw"
-    done
+    done <<EOF
+$(weave_installed_command_names "$cmd_dir")
+EOF
   ) >/dev/null 2>&1 &
   disown 2>/dev/null || true
   return 0
@@ -487,9 +504,9 @@ prices='{
     "gpt-5.5-nano":                     0.00015,
     "gpt-5.5-pro":                      0.03,
     "gpt-5.6-luna":                     0.001,
-    "gpt-5.6-luna-pro":                 0.0002,
+    "gpt-5.6-luna-pro":                 0.001,
     "gpt-5.6-sol":                      0.005,
-    "gpt-5.6-sol-pro":                  0.0025,
+    "gpt-5.6-sol-pro":                  0.005,
     "gpt-5.6-terra":                    0.0025,
     "grok-4.5":                         0.002,
     "grok-4.6":                         0.002,
@@ -512,7 +529,9 @@ prices='{
     "xiaomi/mimo-v2.5-pro":             0.001,
     "z-ai/glm-5":                       0.001,
     "z-ai/glm-5.1":                     0.0014,
-    "z-ai/glm-5.2":                     0.0014
+    "z-ai/glm-5.2":                     0.0014,
+    "z-ai/glm-5.3":                     0.0014,
+    "z-ai/glm-5.3-flash":               0.00015
   },
   "output": {
     "claude-fable-5":                   0.05,
@@ -562,9 +581,9 @@ prices='{
     "gpt-5.5-nano":                     0.0006,
     "gpt-5.5-pro":                      0.18,
     "gpt-5.6-luna":                     0.006,
-    "gpt-5.6-luna-pro":                 0.0012,
+    "gpt-5.6-luna-pro":                 0.006,
     "gpt-5.6-sol":                      0.03,
-    "gpt-5.6-sol-pro":                  0.015,
+    "gpt-5.6-sol-pro":                  0.03,
     "gpt-5.6-terra":                    0.015,
     "grok-4.5":                         0.006,
     "grok-4.6":                         0.006,
@@ -587,7 +606,9 @@ prices='{
     "xiaomi/mimo-v2.5-pro":             0.003,
     "z-ai/glm-5":                       0.0032,
     "z-ai/glm-5.1":                     0.0044,
-    "z-ai/glm-5.2":                     0.0044
+    "z-ai/glm-5.2":                     0.0044,
+    "z-ai/glm-5.3":                     0.0044,
+    "z-ai/glm-5.3-flash":               0.0005
   }
 }'
 # END_GENERATED_PRICES

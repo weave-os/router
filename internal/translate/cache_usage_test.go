@@ -8,6 +8,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/tidwall/gjson"
 
 	"workweave/router/internal/translate"
 )
@@ -218,4 +219,89 @@ func TestSSETranslator_SinkAccumulatesInputAndOutputAcrossStream(t *testing.T) {
 	}
 
 	assert.Equal(t, 17, sink.output, "sink must record output tokens from message_delta")
+}
+
+func TestAnthropicSSETranslator_ForwardsOpenAICacheWriteTokens(t *testing.T) {
+	rec := httptest.NewRecorder()
+	sink := &fakeUsageSink{}
+	translator := translate.NewAnthropicSSETranslator(rec, "gpt-5.6-sol", sink)
+
+	translator.Header().Set("Content-Type", "text/event-stream")
+	translator.WriteHeader(http.StatusOK)
+
+	events := []string{
+		"data: {\"id\":\"chatcmpl-1\",\"object\":\"chat.completion.chunk\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"hi\"},\"finish_reason\":null}]}\n\n",
+		"data: {\"id\":\"chatcmpl-1\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":80,\"completion_tokens\":12,\"prompt_tokens_details\":{\"cached_tokens\":64,\"cache_write_tokens\":16}}}\n\n",
+		"data: [DONE]\n\n",
+	}
+	for _, e := range events {
+		_, err := translator.Write([]byte(e))
+		require.NoError(t, err)
+	}
+
+	assert.Equal(t, 16, sink.cacheCreation)
+	assert.Equal(t, 64, sink.cacheRead)
+	assert.Contains(t, rec.Body.String(), `"cache_creation_input_tokens":16`)
+	assert.Contains(t, rec.Body.String(), `"cache_read_input_tokens":64`)
+}
+
+func TestResponsesToAnthropicWriter_ForwardsCacheWriteTokens(t *testing.T) {
+	const fixture = `event: response.completed
+data: {"type":"response.completed","response":{"id":"r","status":"completed","model":"gpt-5.6-sol","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"done"}]}],"usage":{"input_tokens":1200,"input_tokens_details":{"cached_tokens":800,"cache_write_tokens":256},"output_tokens":340}}}
+
+`
+	rec := httptest.NewRecorder()
+	sink := &fakeUsageSink{}
+	w := translate.NewResponsesToAnthropicWriter(rec, "gpt-5.6-sol", sink)
+	require.NoError(t, w.Prelude(true))
+	_, err := w.Write([]byte(fixture))
+	require.NoError(t, err)
+	require.NoError(t, w.Finalize())
+
+	assert.Equal(t, 256, sink.cacheCreation)
+	assert.Equal(t, 800, sink.cacheRead)
+	got := w.Summary()
+	assert.Equal(t, 256, got.CacheCreationTokens)
+	assert.Equal(t, 800, got.CacheReadTokens)
+	body := rec.Body.String()
+	assert.Contains(t, body, `"cache_creation_input_tokens":256`)
+	assert.Contains(t, body, `"cache_read_input_tokens":800`)
+}
+
+func TestOpenAICacheTokens_PrefersCacheWriteTokens(t *testing.T) {
+	usage := gjsonMust(`{"input_tokens_details":{"cached_tokens":10,"cache_write_tokens":4,"cache_creation_tokens":99}}`)
+	w, r := translate.OpenAICacheTokens(usage)
+	assert.Equal(t, 4, w)
+	assert.Equal(t, 10, r)
+}
+
+func TestOpenAICacheTokens_FallsBackToCacheCreationTokens(t *testing.T) {
+	usage := gjsonMust(`{"prompt_tokens_details":{"cached_tokens":7,"cache_creation_tokens":3}}`)
+	w, r := translate.OpenAICacheTokens(usage)
+	assert.Equal(t, 3, w)
+	assert.Equal(t, 7, r)
+}
+
+func gjsonMust(raw string) gjson.Result {
+	return gjson.Parse(raw)
+}
+
+func TestResponsesToAnthropicWriter_NonStreamingSinkKeepsInclusiveInput(t *testing.T) {
+	const fixture = `event: response.completed
+data: {"type":"response.completed","response":{"id":"r","status":"completed","model":"gpt-5.6-sol","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"done"}]}],"usage":{"input_tokens":1200,"input_tokens_details":{"cached_tokens":800,"cache_write_tokens":256},"output_tokens":340}}}
+
+`
+	rec := httptest.NewRecorder()
+	sink := &fakeUsageSink{}
+	w := translate.NewResponsesToAnthropicWriter(rec, "gpt-5.6-sol", sink)
+	require.NoError(t, w.Prelude(false))
+	_, err := w.Write([]byte(fixture))
+	require.NoError(t, err)
+	require.NoError(t, w.Finalize())
+
+	assert.Equal(t, 1200, sink.input, "billing sink must keep OpenAI inclusive input_tokens")
+	assert.Equal(t, 256, sink.cacheCreation)
+	assert.Equal(t, 800, sink.cacheRead)
+	assert.Contains(t, rec.Body.String(), `"input_tokens":144`)
+	assert.Contains(t, rec.Body.String(), `"cache_creation_input_tokens":256`)
 }

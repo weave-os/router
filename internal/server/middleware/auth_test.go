@@ -345,6 +345,47 @@ func TestWithAuthSelfHostedKeepsBYOKInContext(t *testing.T) {
 	require.Equal(t, http.StatusOK, rr.Code)
 }
 
+func TestWithAuthSnapshotsForwardedClientHeaders(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	const routerToken = "rk_snapshot"
+	hash, prefix, suffix := auth.APITokenFingerprint(routerToken)
+	apiKey := &auth.APIKey{ID: "key-snap", InstallationID: "inst-snap", KeyHash: hash, KeyPrefix: prefix, KeySuffix: suffix}
+	installation := &auth.Installation{ID: "inst-snap", ExternalID: "ext-snap", ByokEnabled: true}
+	repo := &fakeAPIKeyRepository{byHash: map[string]fakeKeyRow{
+		hash: {apiKey: apiKey, installation: installation},
+	}}
+	externalRepo := &fakeExternalAPIKeyRepository{byInstallationID: map[string][]*auth.ExternalAPIKey{
+		installation.ID: {{
+			ID: "ext-gateway", InstallationID: installation.ID, Provider: "anthropic_gateway",
+			ForwardedClientHeaders: []string{"X-SNOWFLAKE-APPLICATION"},
+			BaggageHeader:          "X-SNOWFLAKE-BAGGAGE",
+		}},
+	}}
+	svc := auth.NewService(fakeInstallationRepository{}, repo, externalRepo, nil, auth.NoOpAPIKeyCache{}, nil, func() time.Time { return time.Now() })
+
+	engine := gin.New()
+	engine.Use(middleware.WithAuth(svc, true))
+	engine.GET("/probe", func(c *gin.Context) {
+		// Router-built upstream calls (compaction summaries, Cortex web
+		// search) have no inbound request to read these off later.
+		snapshot := proxy.ForwardedHeaderSnapshotFrom(c.Request.Context())
+		assert.Equal(t, "cortex-cli/1.2.3", snapshot.Get("X-SNOWFLAKE-APPLICATION"))
+		assert.Equal(t, `{"deployment":"prod"}`, snapshot.Get("X-SNOWFLAKE-BAGGAGE"))
+		assert.Empty(t, snapshot.Get("Authorization"),
+			"only headers a key forwards belong in the snapshot")
+		c.Status(http.StatusOK)
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/probe", nil)
+	req.Header.Set(middleware.RouterKeyHeader, routerToken)
+	req.Header.Set("X-SNOWFLAKE-APPLICATION", "cortex-cli/1.2.3")
+	req.Header.Set("X-SNOWFLAKE-BAGGAGE", `{"deployment":"prod"}`)
+	rr := httptest.NewRecorder()
+	engine.ServeHTTP(rr, req)
+
+	require.Equal(t, http.StatusOK, rr.Code)
+}
+
 func TestWithAuthKeepsLegacyBearerFallback(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	const routerToken = "rk_router"

@@ -309,3 +309,33 @@ func TestTrailingAssistantMonologue_NonAnthropicFormatReturnsZero(t *testing.T) 
 	require.NoError(t, err)
 	assert.Equal(t, 0, env.TrailingAssistantMonologue())
 }
+
+func TestAssistantToolCallOutcomes_PairsResultsByToolUseID(t *testing.T) {
+	// Results arrive out of order relative to the calls (parallel tool use),
+	// so pairing must key off tool_use_id, not position.
+	body := mustMarshalJSON(t, map[string]any{
+		"model": "claude-sonnet-4-6",
+		"messages": []any{
+			map[string]any{"role": "assistant", "content": []any{
+				map[string]any{"type": "tool_use", "id": "a", "name": "Edit", "input": map[string]any{"file_path": "/x.go"}},
+				map[string]any{"type": "tool_use", "id": "b", "name": "Bash", "input": map[string]any{"command": "make"}},
+			}},
+			map[string]any{"role": "user", "content": []any{
+				map[string]any{"type": "tool_result", "tool_use_id": "b", "content": "boom", "is_error": true},
+				map[string]any{"type": "tool_result", "tool_use_id": "a", "content": "ok"},
+			}},
+			map[string]any{"role": "assistant", "content": []any{
+				map[string]any{"type": "tool_use", "id": "c", "name": "Read", "input": map[string]any{"file_path": "/y.go"}},
+			}},
+		},
+		"max_tokens": 256,
+	})
+	env, err := translate.ParseAnthropic(body)
+	require.NoError(t, err)
+
+	outcomes := env.AssistantToolCallOutcomes()
+	require.Len(t, outcomes, 3)
+	assert.Equal(t, translate.ToolCallOutcome{Name: "Edit", Resolved: true, Errored: false}, outcomes[0])
+	assert.Equal(t, translate.ToolCallOutcome{Name: "Bash", Resolved: true, Errored: true}, outcomes[1])
+	assert.Equal(t, translate.ToolCallOutcome{Name: "Read"}, outcomes[2], "an unanswered call stays unresolved")
+}

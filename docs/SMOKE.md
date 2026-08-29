@@ -42,11 +42,17 @@ Three modes (`SMOKE_PROXY_MODE`):
 | `record` | Always calls the real API and (re)writes cassettes | Yes |
 | `replay-or-record` (local default) | Serves from cache, falls back to live + record on a miss | Only for the first run of a new scenario |
 
-Cassettes are keyed by `sha256(method + path + body)`. The fixtures are
-byte-deterministic (`smoke/fixtures/system_prompt.txt` never changes), so a
-given scenario hashes identically run to run — this is what makes `replay-only`
-CI runs deterministic and free. Response headers are sanitized before a
-cassette is written (`Authorization` / `x-api-key` / org identifiers / rate-limit
+Cassettes are keyed by `sha256(method + path + body)`, with volatile fields
+removed from the body first (`normalizeRequestBody` in
+`smoke/mitmproxy/store.go` — today only `prompt_cache_key`, the router's
+session-affinity hint, which is derived from the API key id the smoke script
+mints fresh on every run). The fixtures are otherwise byte-deterministic
+(`smoke/fixtures/system_prompt.txt` never changes), so a given scenario hashes
+identically run to run — this is what makes `replay-only` CI runs deterministic
+and free. A request field that varies per run has to be added to
+`volatileBodyFields` or every cassette for that path becomes a permanent miss.
+
+Response headers are sanitized before a cassette is written (`Authorization` / `x-api-key` / org identifiers / rate-limit
 and request-id noise never get persisted), so it's safe for these files to be
 committed and reviewed in a normal PR diff.
 

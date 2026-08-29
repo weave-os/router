@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"slices"
+	"strings"
 	"sync"
 
 	"github.com/google/uuid"
@@ -12,6 +13,10 @@ import (
 	"workweave/router/internal/observability"
 	"workweave/router/internal/router"
 )
+
+// pinStickyOverrideSentinel is the legacy reason marker for a fallback draw a
+// session pin may override; mirrors the proxy's sentinel match.
+const pinStickyOverrideSentinel = "[pin_sticky_override_eligible]"
 
 // ReasonRenderer converts policy metadata into the compact internal reason
 // consumed by the existing pin/planner layer.
@@ -27,14 +32,16 @@ type SidecarRouterConfig struct {
 
 // SidecarRouter is a shared adapter for out-of-process policy routers.
 type SidecarRouter struct {
-	config           SidecarRouterConfig
-	decider          Decider
-	reporter         OutcomeReporter
-	feedbackReporter FeedbackReporter
-	resolver         *Resolver
-	capabilitiesMu   sync.RWMutex
-	capabilities     Capabilities
-	capabilitiesSet  bool
+	config            SidecarRouterConfig
+	decider           Decider
+	reporter          OutcomeReporter
+	feedbackReporter  FeedbackReporter
+	resolver          *Resolver
+	selectionShadow   SelectionShadow
+	selectionOverride SelectionOverride
+	capabilitiesMu    sync.RWMutex
+	capabilities      Capabilities
+	capabilitiesSet   bool
 }
 
 // NewSidecarRouter constructs a reusable policy adapter. Strategy packages
@@ -61,6 +68,20 @@ func (r *SidecarRouter) WithCapabilities(capabilities Capabilities) *SidecarRout
 
 	r.capabilities = capabilities
 	r.capabilitiesSet = true
+	return r
+}
+
+// WithSelectionShadow installs a boot-time, log-only observer of completed
+// sidecar decisions. It never alters the returned decision.
+func (r *SidecarRouter) WithSelectionShadow(shadow SelectionShadow) *SidecarRouter {
+	r.selectionShadow = shadow
+	return r
+}
+
+// WithSelectionOverride installs a boot-time arm re-selector. Explicit
+// force-cluster and per-key cluster overrides still take precedence.
+func (r *SidecarRouter) WithSelectionOverride(override SelectionOverride) *SidecarRouter {
+	r.selectionOverride = override
 	return r
 }
 
@@ -275,7 +296,8 @@ func (r *SidecarRouter) Route(ctx context.Context, req router.Request) (router.D
 	}
 	resolved := r.resolver.Resolve(req)
 	if len(resolved.Candidates) == 0 {
-		return router.Decision{}, fmt.Errorf("%s: no eligible candidate: %w", strategy, r.config.Unavailable)
+		return router.Decision{}, fmt.Errorf("%s: no eligible candidate: %w: %w",
+			strategy, emptyCandidateError(resolved.Diagnostics), r.config.Unavailable)
 	}
 	requestRouteID := uuid.NewString()
 	res, err := r.decider.Decide(ctx, Query{
@@ -321,6 +343,9 @@ func (r *SidecarRouter) Route(ctx context.Context, req router.Request) (router.D
 	// sidecar's, which is the only case where res.Provider legitimately names a
 	// different provider than the resolved binding.
 	reselected := false
+	// constrained is set when a force-cluster or a configured per-key list applies;
+	// the boot-time selection override must not supersede it.
+	constrained := false
 	switch {
 	case req.ForceCluster != "":
 		// Returned unwrapped: the caller's dispatch classifier matches the typed
@@ -336,6 +361,7 @@ func (r *SidecarRouter) Route(ctx context.Context, req router.Request) (router.D
 		// anyway, so telemetry can tell a constrained turn from a free one.
 		overrideReasonSuffix = ":force_cluster"
 		reselected = outcome.Changed
+		constrained = true
 		observability.FromContext(ctx).Info("Forced cluster applied",
 			"strategy", strategy,
 			"group", outcome.Group,
@@ -349,6 +375,7 @@ func (r *SidecarRouter) Route(ctx context.Context, req router.Request) (router.D
 			// be ambiguous (shared across providers) and absent from ByRosterID.
 			overrideArmID = outcome.ArmID
 			overrideRosterID = outcome.RosterID
+			constrained = outcome.Constrained
 			if outcome.Changed {
 				overrideReasonSuffix = ":cluster_override"
 				reselected = true
@@ -358,6 +385,36 @@ func (r *SidecarRouter) Route(ctx context.Context, req router.Request) (router.D
 					"sidecar_arm", res.Model,
 					"override_arm", outcome.RosterID,
 				)
+			}
+		}
+	}
+
+	// Snapshotted before the override so the shadow always compares against
+	// the sidecar's own pick.
+	var observation SelectionObservation
+	if r.selectionShadow != nil || r.selectionOverride != nil {
+		observation = selectionObservationFor(strategy, executionMode, req, res, resolved)
+	}
+	if r.selectionOverride != nil && !constrained {
+		if pick, ok := r.selectionOverride(ctx, observation); ok {
+			// Go-selected arm is deterministic even when it matches the sidecar's:
+			// neutralize pin-sticky so a session pin cannot veto it.
+			notEligible := false
+			res.PinStickyOverrideEligible = &notEligible
+			res.Reason = strings.ReplaceAll(res.Reason, pinStickyOverrideSentinel, "")
+			if pick.Arm != overrideRosterID {
+				index := indexCandidates(resolved)
+				overrideArmID = index.rosterToArm[pick.Arm]
+				overrideRosterID = pick.Arm
+				overrideReasonSuffix = ":go_selection"
+				reselected = true
+				observability.FromContext(ctx).Info("Go selection override applied",
+					"strategy", strategy,
+					"group", pick.Group,
+					"sidecar_arm", res.Model,
+					"override_arm", pick.Arm,
+				)
+				res.PolicyGroup = pick.Group
 			}
 		}
 	}
@@ -404,6 +461,11 @@ func (r *SidecarRouter) Route(ctx context.Context, req router.Request) (router.D
 		displayMarker = ""
 	}
 
+	if r.selectionShadow != nil {
+		observation.RouteID = routeID
+		r.selectionShadow(ctx, observation)
+	}
+
 	observability.FromContext(ctx).Info("Policy router decided",
 		"strategy", strategy,
 		"execution_mode", executionMode,
@@ -442,6 +504,7 @@ func (r *SidecarRouter) Route(ctx context.Context, req router.Request) (router.D
 			SidecarSchemaVersion:          res.SchemaVersion,
 			DebugRef:                      debugRef,
 			AuthoritativePerTurnSelection: capabilities.AuthoritativePerTurnSelection,
+			PinStickyOverrideEligible:     res.PinStickyOverrideEligible,
 			SelectedUpstreamID:            binding.UpstreamID,
 			BindingIndex:                  binding.BindingIndex,
 			CandidateArmIDs:               resolved.CandidateArmIDs(),

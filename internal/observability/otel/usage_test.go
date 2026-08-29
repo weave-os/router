@@ -97,8 +97,26 @@ func TestUsageExtractor_OpenAIResponsesStreaming(t *testing.T) {
 	in, out := ext.Tokens()
 	assert.Equal(t, 120, in)
 	assert.Equal(t, 34, out)
-	_, cacheRead := ext.CacheTokens()
+	cacheCreation, cacheRead := ext.CacheTokens()
+	assert.Equal(t, 0, cacheCreation)
 	assert.Equal(t, 40, cacheRead, "Responses cached_tokens must map to cache-read for accurate subscription billing")
+}
+
+func TestUsageExtractor_OpenAIResponsesCacheWriteTokens(t *testing.T) {
+	rec := httptest.NewRecorder()
+	ext := otel.NewUsageExtractor(rec, "openai")
+
+	events := []string{
+		"event: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_1\",\"usage\":{\"input_tokens\":1200,\"output_tokens\":34,\"input_tokens_details\":{\"cached_tokens\":800,\"cache_write_tokens\":256}}}}\n\n",
+	}
+	for _, e := range events {
+		_, err := ext.Write([]byte(e))
+		require.NoError(t, err)
+	}
+
+	cacheCreation, cacheRead := ext.CacheTokens()
+	assert.Equal(t, 256, cacheCreation, "GPT-5.6 cache_write_tokens must map to cache-creation for 1.25x billing")
+	assert.Equal(t, 800, cacheRead)
 }
 
 func TestUsageExtractor_OpenAIResponsesNonStreaming(t *testing.T) {
@@ -199,7 +217,7 @@ func TestUsageExtractor_OpenAICacheTokens_NonStreaming(t *testing.T) {
 	ext := otel.NewUsageExtractor(rec, "openai")
 
 	// OpenAI exposes cached prompt tokens via prompt_tokens_details.cached_tokens.
-	// There is no creation analogue, so cache_creation stays at 0.
+	// GPT-5.4 and earlier have no write field, so cache_creation stays at 0.
 	body := `{"id":"chatcmpl-2","object":"chat.completion","choices":[{"message":{"role":"assistant","content":"Hi"},"finish_reason":"stop"}],"usage":{"prompt_tokens":15,"completion_tokens":8,"total_tokens":23,"prompt_tokens_details":{"cached_tokens":42}}}`
 	_, err := ext.Write([]byte(body))
 	require.NoError(t, err)
@@ -210,6 +228,19 @@ func TestUsageExtractor_OpenAICacheTokens_NonStreaming(t *testing.T) {
 
 	cacheCreation, cacheRead := ext.CacheTokens()
 	assert.Equal(t, 0, cacheCreation)
+	assert.Equal(t, 42, cacheRead)
+}
+
+func TestUsageExtractor_OpenAIChatCompletionsCacheWriteTokens(t *testing.T) {
+	rec := httptest.NewRecorder()
+	ext := otel.NewUsageExtractor(rec, "openai")
+
+	body := `{"id":"chatcmpl-2","object":"chat.completion","choices":[{"message":{"role":"assistant","content":"Hi"},"finish_reason":"stop"}],"usage":{"prompt_tokens":80,"completion_tokens":8,"prompt_tokens_details":{"cached_tokens":42,"cache_write_tokens":16}}}`
+	_, err := ext.Write([]byte(body))
+	require.NoError(t, err)
+
+	cacheCreation, cacheRead := ext.CacheTokens()
+	assert.Equal(t, 16, cacheCreation)
 	assert.Equal(t, 42, cacheRead)
 }
 
@@ -255,6 +286,68 @@ func TestUsageExtractor_GoogleNativeCacheTokens_NonStreaming(t *testing.T) {
 	cacheCreation, cacheRead := ext.CacheTokens()
 	assert.Equal(t, 0, cacheCreation)
 	assert.Equal(t, 1024, cacheRead)
+}
+
+func TestUsageExtractor_AnthropicGatewayStreaming(t *testing.T) {
+	// Gateway providers use the native path (no translator RecordUsage call),
+	// so the extractor's sniffing is the only usage source.
+	rec := httptest.NewRecorder()
+	ext := otel.NewUsageExtractor(rec, "anthropic_gateway")
+
+	events := []string{
+		"event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_1\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"claude-opus-5\",\"usage\":{\"input_tokens\":100,\"output_tokens\":0,\"cache_read_input_tokens\":900}}}\n\n",
+		"event: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":25}}\n\n",
+	}
+	for _, e := range events {
+		_, err := ext.Write([]byte(e))
+		require.NoError(t, err)
+	}
+
+	in, out := ext.Tokens()
+	assert.Equal(t, 100, in)
+	assert.Equal(t, 25, out)
+
+	_, cacheRead := ext.CacheTokens()
+	assert.Equal(t, 900, cacheRead)
+}
+
+func TestUsageExtractor_OpenAIGatewayStreaming(t *testing.T) {
+	rec := httptest.NewRecorder()
+	ext := otel.NewUsageExtractor(rec, "openai_gateway")
+
+	events := []string{
+		"data: {\"id\":\"chatcmpl-1\",\"object\":\"chat.completion.chunk\",\"choices\":[{\"delta\":{\"content\":\"Hi\"}}]}\n\n",
+		"data: {\"id\":\"chatcmpl-1\",\"object\":\"chat.completion.chunk\",\"choices\":[],\"usage\":{\"prompt_tokens\":20,\"completion_tokens\":12}}\n\n",
+		"data: [DONE]\n\n",
+	}
+	for _, e := range events {
+		_, err := ext.Write([]byte(e))
+		require.NoError(t, err)
+	}
+
+	in, out := ext.Tokens()
+	assert.Equal(t, 20, in)
+	assert.Equal(t, 12, out)
+}
+
+func TestUsageExtractor_RecordedUsageSurvivesUsagelessChunk(t *testing.T) {
+	// Some OpenAI-compat upstreams keep emitting a null/empty usage object
+	// after the terminal chunk; that must not wipe the counts already seen.
+	rec := httptest.NewRecorder()
+	ext := otel.NewUsageExtractor(rec, "openai_gateway")
+
+	events := []string{
+		"data: {\"id\":\"chatcmpl-1\",\"object\":\"chat.completion.chunk\",\"choices\":[],\"usage\":{\"prompt_tokens\":20,\"completion_tokens\":12}}\n\n",
+		"data: {\"id\":\"chatcmpl-1\",\"object\":\"chat.completion.chunk\",\"choices\":[],\"usage\":{}}\n\n",
+	}
+	for _, e := range events {
+		_, err := ext.Write([]byte(e))
+		require.NoError(t, err)
+	}
+
+	in, out := ext.Tokens()
+	assert.Equal(t, 20, in)
+	assert.Equal(t, 12, out)
 }
 
 func TestUsageExtractor_RecordCacheUsage_NilReceiver(t *testing.T) {

@@ -83,10 +83,7 @@ type ProviderBinding struct {
 	// Provider is one of the providers.Provider* constants.
 	Provider string
 	// UpstreamID is the model ID the upstream API expects. Empty means
-	// "same as Model.ID" (no rewrite). Non-empty is fed to the
-	// openaicompat client's modelIDMap so the body's "model" field is
-	// rewritten at proxy time (e.g. Bedrock's dot-form, Makora's
-	// HuggingFace form).
+	// "same as Model.ID" (no rewrite); non-empty is rewritten at proxy time.
 	UpstreamID string
 	// Price is the per-provider pricing for this binding.
 	Price Pricing
@@ -210,7 +207,7 @@ var Models = []Model{
 	// rate (through 2026-08-31) — avoids a compile-time price going stale.
 	{ID: "claude-sonnet-5", Tier: TierMid, ContextWindow: 200_000, Providers: []ProviderBinding{
 		{Provider: providers.ProviderAnthropic, Price: Pricing{InputUSDPer1M: 3.00, OutputUSDPer1M: 15.00, CacheReadMultiplier: 0.10}},
-		{Provider: providers.ProviderAnthropicGateway, Price: Pricing{InputUSDPer1M: 3.00, OutputUSDPer1M: 15.00}},
+		{Provider: providers.ProviderAnthropicGateway, Price: Pricing{InputUSDPer1M: 3.00, OutputUSDPer1M: 15.00, CacheReadMultiplier: 0.10}},
 	}},
 	// Legacy Opus IDs kept passthrough-priced (no Tier — not a routing
 	// target; see gpt-4o below for the same pattern) so BYOK/direct-model
@@ -245,12 +242,12 @@ var Models = []Model{
 	// Opus 4.8 retired from routing; kept as priced passthrough so lingering BYOK/direct pins bill at real cost.
 	{ID: "claude-opus-4-8", ContextWindow: 200_000, Providers: []ProviderBinding{
 		{Provider: providers.ProviderAnthropic, Price: Pricing{InputUSDPer1M: 5.00, OutputUSDPer1M: 25.00, CacheReadMultiplier: 0.10}},
-		{Provider: providers.ProviderAnthropicGateway, Price: Pricing{InputUSDPer1M: 5.00, OutputUSDPer1M: 25.00}},
+		{Provider: providers.ProviderAnthropicGateway, Price: Pricing{InputUSDPer1M: 5.00, OutputUSDPer1M: 25.00, CacheReadMultiplier: 0.10}},
 	}},
 	// 1M context natively (no context-1m beta header), same $5/$25 as opus-4-8.
 	{ID: "claude-opus-5", Tier: TierHigh, ContextWindow: 1_000_000, Providers: []ProviderBinding{
 		{Provider: providers.ProviderAnthropic, Price: Pricing{InputUSDPer1M: 5.00, OutputUSDPer1M: 25.00, CacheReadMultiplier: 0.10}},
-		{Provider: providers.ProviderAnthropicGateway, Price: Pricing{InputUSDPer1M: 5.00, OutputUSDPer1M: 25.00}},
+		{Provider: providers.ProviderAnthropicGateway, Price: Pricing{InputUSDPer1M: 5.00, OutputUSDPer1M: 25.00, CacheReadMultiplier: 0.10}},
 		{Provider: providers.ProviderOpenAIGateway, Price: Pricing{InputUSDPer1M: 5.00, OutputUSDPer1M: 25.00}},
 	}},
 	// Fable 5 retired from routing; kept as priced passthrough so lingering
@@ -338,8 +335,9 @@ var Models = []Model{
 	{ID: "gpt-5.6-luna", Tier: TierMid, ContextWindow: 1_050_000, Providers: []ProviderBinding{
 		{Provider: providers.ProviderOpenAI, Price: Pricing{InputUSDPer1M: 1.00, OutputUSDPer1M: 6.00, CacheReadMultiplier: 0.10}},
 	}},
+	// Pi roster aliases dispatch to their native OpenAI model IDs.
 	{ID: "gpt-5.6-luna-pro", HMMTarget: true, ContextWindow: 1_050_000, Providers: []ProviderBinding{
-		{Provider: providers.ProviderOpenAI, Price: Pricing{InputUSDPer1M: 0.20, OutputUSDPer1M: 1.20, CacheReadMultiplier: 0.10}},
+		{Provider: providers.ProviderOpenAI, UpstreamID: "gpt-5.6-luna", Price: Pricing{InputUSDPer1M: 1.00, OutputUSDPer1M: 6.00, CacheReadMultiplier: 0.10}},
 	}},
 	{ID: "gpt-5.6-terra", Tier: TierHigh, ContextWindow: 1_050_000, Providers: []ProviderBinding{
 		{Provider: providers.ProviderOpenAI, Price: Pricing{InputUSDPer1M: 2.50, OutputUSDPer1M: 15.00, CacheReadMultiplier: 0.10}},
@@ -348,7 +346,7 @@ var Models = []Model{
 		{Provider: providers.ProviderOpenAI, Price: Pricing{InputUSDPer1M: 5.00, OutputUSDPer1M: 30.00, CacheReadMultiplier: 0.10}},
 	}},
 	{ID: "gpt-5.6-sol-pro", HMMTarget: true, ContextWindow: 1_050_000, Providers: []ProviderBinding{
-		{Provider: providers.ProviderOpenAI, Price: Pricing{InputUSDPer1M: 2.50, OutputUSDPer1M: 15.00, CacheReadMultiplier: 0.10}},
+		{Provider: providers.ProviderOpenAI, UpstreamID: "gpt-5.6-sol", Price: Pricing{InputUSDPer1M: 5.00, OutputUSDPer1M: 30.00, CacheReadMultiplier: 0.10}},
 	}},
 
 	// --- xAI Grok --- native only; OpenRouter unused in prod.
@@ -445,6 +443,12 @@ var Models = []Model{
 		{Provider: providers.ProviderMakora, UpstreamID: "deepseek-ai/DeepSeek-V4-Flash",
 			Price: Pricing{InputUSDPer1M: 0.1134, OutputUSDPer1M: 0.2791, CacheReadMultiplier: 0.20}},
 		{Provider: providers.ProviderOpenRouter, Price: Pricing{InputUSDPer1M: 0.140, OutputUSDPer1M: 0.280, CacheReadMultiplier: 0.10}},
+		// Trailing Wafer bindings ($0.28/$0.56 fast tier): resolve only when
+		// Makora and OpenRouter are unwired; wafer_anthropic trails wafer.
+		{Provider: providers.ProviderWafer, UpstreamID: "DeepSeek-V4-Flash-0731-Fast",
+			Price: Pricing{InputUSDPer1M: 0.280, OutputUSDPer1M: 0.560, CacheReadMultiplier: 0.07 / 0.280}},
+		{Provider: providers.ProviderWaferAnthropic, UpstreamID: "DeepSeek-V4-Flash-0731-Fast",
+			Price: Pricing{InputUSDPer1M: 0.280, OutputUSDPer1M: 0.560, CacheReadMultiplier: 0.07 / 0.280}},
 	}},
 	// Untiered: Makora EOL'd V4-Pro and recommends V4-Flash, which takes the
 	// tier. Priced and bound so session pins and /force-model still dispatch.
@@ -500,6 +504,13 @@ var Models = []Model{
 		{Provider: providers.ProviderFireworks, UpstreamID: "accounts/fireworks/models/kimi-k3",
 			Price: Pricing{InputUSDPer1M: 3.000, OutputUSDPer1M: 15.000, CacheReadMultiplier: 0.10}},
 		{Provider: providers.ProviderOpenRouter, Price: Pricing{InputUSDPer1M: 3.000, OutputUSDPer1M: 15.000, CacheReadMultiplier: 0.10}},
+		// Trailing Wafer bindings (see glm-5.2): resolve only when Fireworks
+		// and OpenRouter are both unwired or excluded. wafer_anthropic carries
+		// the Anthropic-spec Messages surface, trailing the OpenAI-compat wafer.
+		{Provider: providers.ProviderWafer, UpstreamID: "Kimi-K3",
+			Price: Pricing{InputUSDPer1M: 3.000, OutputUSDPer1M: 15.000, CacheReadMultiplier: 0.10}},
+		{Provider: providers.ProviderWaferAnthropic, UpstreamID: "Kimi-K3",
+			Price: Pricing{InputUSDPer1M: 3.000, OutputUSDPer1M: 15.000, CacheReadMultiplier: 0.10}},
 	}},
 	// AA top-performer additions (2026-05-18): ranked by composite of quality
 	// (Intelligence Index v4.0), cost (blended 3:1), and effective time per
@@ -563,6 +574,32 @@ var Models = []Model{
 			Price: Pricing{InputUSDPer1M: 1.400, OutputUSDPer1M: 4.400, CacheReadMultiplier: 0.26 / 1.400}},
 		{Provider: providers.ProviderFireworks, UpstreamID: "accounts/fireworks/models/glm-5p2",
 			Price: Pricing{InputUSDPer1M: 1.400, OutputUSDPer1M: 4.400, CacheReadMultiplier: 0.20}},
+		// Trailing Wafer bindings: resolve only when earlier providers are unwired.
+		// wafer_anthropic trails the OpenAI-compat wafer (same pattern as kimi-k3).
+		{Provider: providers.ProviderWafer, UpstreamID: "GLM-5.2",
+			Price: Pricing{InputUSDPer1M: 1.260, OutputUSDPer1M: 3.960, CacheReadMultiplier: 0.23 / 1.260}},
+		{Provider: providers.ProviderWaferAnthropic, UpstreamID: "GLM-5.2",
+			Price: Pricing{InputUSDPer1M: 1.260, OutputUSDPer1M: 3.960, CacheReadMultiplier: 0.23 / 1.260}},
+	}},
+	// GLM-5.3: text-only (AA inputModalityImage=false); Fireworks is the only
+	// managed binding. ContextWindow is 1,048,576 (Fireworks served max), not
+	// 1,310,720 (Cloudflare-only) — overstating causes upstream 400 on overflow.
+	{ID: "z-ai/glm-5.3", Tier: TierHigh, ContextWindow: 1_048_576, ImageInput: ImageInputUnsupported, Providers: []ProviderBinding{
+		{Provider: providers.ProviderFireworks, UpstreamID: "accounts/fireworks/models/glm-5p3",
+			Price: Pricing{InputUSDPer1M: 1.400, OutputUSDPer1M: 4.400, CacheReadMultiplier: 0.26 / 1.400}},
+	}},
+	// GLM-5.3-Flash: first native-multimodal (image+video) in the GLM-5 line —
+	// ImageInput stays default. Thinking cannot be disabled — do not add it to
+	// openRouterReasoningHint. Together leads, Wafer trails. Priced at post-promo
+	// rate, not $0.075/$0.25 introductory (cf. gemini-3.7-flash). ContextWindow
+	// 1,048,576 (Together served max); 1,310,720 is Cloudflare-only.
+	{ID: "z-ai/glm-5.3-flash", Tier: TierLow, ContextWindow: 1_048_576, Providers: []ProviderBinding{
+		{Provider: providers.ProviderTogether, UpstreamID: "zai-org/GLM-5.3-Flash",
+			Price: Pricing{InputUSDPer1M: 0.150, OutputUSDPer1M: 0.500, CacheReadMultiplier: 0.03 / 0.150}},
+		{Provider: providers.ProviderWafer, UpstreamID: "GLM-5.3-Flash",
+			Price: Pricing{InputUSDPer1M: 0.150, OutputUSDPer1M: 0.500, CacheReadMultiplier: 0.03 / 0.150}},
+		{Provider: providers.ProviderWaferAnthropic, UpstreamID: "GLM-5.3-Flash",
+			Price: Pricing{InputUSDPer1M: 0.150, OutputUSDPer1M: 0.500, CacheReadMultiplier: 0.03 / 0.150}},
 	}},
 	// Fireworks-dedicated rows below carry an OpenRouter trailing binding so
 	// managed-prod deploys without a Fireworks key can still resolve them.

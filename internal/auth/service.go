@@ -34,9 +34,17 @@ var ErrInvalidModelAlias = errors.New("auth: invalid model alias")
 // unnamed, reserved, or in an unknown format.
 var ErrInvalidIdentityHeader = errors.New("auth: invalid identity header")
 
+// ErrInvalidForwardedHeader is returned for a client-header passthrough entry
+// that is malformed or names a reserved header.
+var ErrInvalidForwardedHeader = errors.New("auth: invalid forwarded header")
+
 // ErrInvalidKeypairAuth is returned for a key-pair credential whose auth type,
 // principal, or private key is unusable.
 var ErrInvalidKeypairAuth = errors.New("auth: invalid keypair auth")
+
+// ErrInvalidEntraAuth is returned for an Azure Entra credential whose
+// principal or client secret is unusable.
+var ErrInvalidEntraAuth = errors.New("auth: invalid Microsoft Entra auth")
 
 type Clock func() time.Time
 
@@ -70,6 +78,10 @@ type Service struct {
 	// wifTokens is nil unless the deployment runs with a workload identity;
 	// WIF keys are then dropped rather than sent without a credential.
 	wifTokens WIFTokenSource
+
+	// entraTokens is nil unless the deployment has an Entra token source;
+	// Azure Entra keys are then dropped rather than sent as client secrets.
+	entraTokens EntraTokenSource
 
 	// flagOverridesDisabled is the deployment-wide escape hatch
 	// (ROUTER_FLAG_OVERRIDES_DISABLED). When set, per-organization flag
@@ -121,6 +133,12 @@ func (s *Service) WithEncryptor(e Encryptor) *Service {
 // WithWIFTokenSource wires the attestation source backing AuthTypeWIF keys.
 func (s *Service) WithWIFTokenSource(src WIFTokenSource) *Service {
 	s.wifTokens = src
+	return s
+}
+
+// WithEntraTokenSource wires the source backing AuthTypeAzureEntra keys.
+func (s *Service) WithEntraTokenSource(src EntraTokenSource) *Service {
+	s.entraTokens = src
 	return s
 }
 
@@ -284,8 +302,12 @@ type UpsertExternalAPIKeyParams struct {
 	// in, rendered per IdentityHeaderFormat; both nil forwards nothing.
 	IdentityHeader       *string
 	IdentityHeaderFormat *string
+	// ForwardedClientHeaders and BaggageHeader configure client-header passthrough; nil forwards nothing.
+	ForwardedClientHeaders []string
+	BaggageHeader          *string
 	// AuthType selects how RawKey authenticates upstream; empty means AuthTypeBearer.
 	// AuthTypeKeypairJWT makes RawKey an RSA private key issued for AuthAccount/AuthUser.
+	// AuthTypeAzureEntra makes RawKey an Entra client secret for AuthAccount/AuthUser.
 	AuthType    string
 	AuthAccount *string
 	AuthUser    *string
@@ -307,6 +329,14 @@ func (s *Service) UpsertExternalAPIKey(ctx context.Context, installationID strin
 	if err != nil {
 		return nil, err
 	}
+	forwardedHeaders, err := NormalizeForwardedClientHeaders(params.ForwardedClientHeaders)
+	if err != nil {
+		return nil, err
+	}
+	baggageHeader, err := NormalizeBaggageHeader(params.BaggageHeader)
+	if err != nil {
+		return nil, err
+	}
 	authType, authAccount, authUser, err := NormalizeAuthType(params.AuthType, params.AuthAccount, params.AuthUser)
 	if err != nil {
 		return nil, err
@@ -319,6 +349,14 @@ func (s *Service) UpsertExternalAPIKey(ctx context.Context, installationID strin
 		// pasted secret here would be stored and never used.
 		if rawKey != "" {
 			return nil, fmt.Errorf("%w: %s takes no key material", ErrInvalidKeypairAuth, AuthTypeWIF)
+		}
+	}
+	if authType == AuthTypeAzureEntra {
+		if !providers.RequiresBaseURL(provider) {
+			return nil, fmt.Errorf("%w: %s does not accept Microsoft Entra credentials", ErrInvalidEntraAuth, provider)
+		}
+		if rawKey == "" {
+			return nil, fmt.Errorf("%w: %s needs a client secret", ErrInvalidEntraAuth, AuthTypeAzureEntra)
 		}
 	}
 	if authType == AuthTypeKeypairJWT {
@@ -357,12 +395,15 @@ func (s *Service) UpsertExternalAPIKey(ctx context.Context, installationID strin
 		BaseURL:        normalizedBaseURL,
 		ModelAliases:   normalizedAliases,
 
-		IdentityHeader:       identityHeader,
-		IdentityHeaderFormat: identityFormat,
-		AuthType:             authType,
-		AuthAccount:          authAccount,
-		AuthUser:             authUser,
-		CreatedBy:            params.CreatedBy,
+		IdentityHeader:         identityHeader,
+		IdentityHeaderFormat:   identityFormat,
+		ForwardedClientHeaders: forwardedHeaders,
+		BaggageHeader:          baggageHeader,
+
+		AuthType:    authType,
+		AuthAccount: authAccount,
+		AuthUser:    authUser,
+		CreatedBy:   params.CreatedBy,
 	})
 	if err != nil {
 		return nil, err
@@ -616,7 +657,7 @@ func (s *Service) VerifyAPIKey(ctx context.Context, rawToken string) (*Installat
 		externalKeys, err = s.externalKeys.GetForInstallation(ctx, apiKey.InstallationID)
 		if err != nil {
 			// Non-fatal: proceed without external keys.
-			observability.Get().Warn("Failed to fetch external API keys", "installation_id", apiKey.InstallationID, "err", err)
+			observability.FromContext(ctx).Warn("Failed to fetch external API keys", "installation_id", apiKey.InstallationID, "err", err)
 		}
 	}
 
@@ -628,7 +669,7 @@ func (s *Service) VerifyAPIKey(ctx context.Context, rawToken string) (*Installat
 			// Non-fatal: serve this request with artifact-default routing, but
 			// don't cache the empty result — a transient DB error would otherwise
 			// disable per-key cluster restrictions for the full positive TTL.
-			observability.Get().Warn("Failed to fetch cluster model lists", "api_key_id", apiKey.ID, "err", err)
+			observability.FromContext(ctx).Warn("Failed to fetch cluster model lists", "api_key_id", apiKey.ID, "err", err)
 			clusterModelLists = nil
 			clusterModelListsFetchOK = false
 		}
@@ -648,7 +689,7 @@ func (s *Service) VerifyAPIKey(ctx context.Context, rawToken string) (*Installat
 // leaves the existing value). Never fails an authenticated request — returns
 // ctx unchanged on error.
 func (s *Service) ResolveAndStashUser(ctx context.Context, installationID, email, claudeAccountUUID, displayName string) context.Context {
-	log := observability.Get()
+	log := observability.FromContext(ctx)
 	if s.users == nil || installationID == "" {
 		log.Info("ResolveAndStashUser bailout", "reason", "nil_users_or_empty_inst", "users_nil", s.users == nil, "inst_empty", installationID == "")
 		return ctx
@@ -691,7 +732,7 @@ func (s *Service) ResolveAndStashUser(ctx context.Context, installationID, email
 		})
 	}
 	if err != nil {
-		observability.Get().Warn(
+		observability.FromContext(ctx).Warn(
 			"Failed to resolve router user",
 			"installation_id", installationID,
 			"err", err,
@@ -717,7 +758,7 @@ func (s *Service) withUserClusterLists(ctx context.Context, installationID, rout
 	if !ok {
 		fetched, err := s.userClusterModelLists.GetForUser(ctx, routerUserID)
 		if err != nil {
-			observability.Get().Warn("Failed to fetch user cluster model lists", "router_user_id", routerUserID, "err", err)
+			observability.FromContext(ctx).Warn("Failed to fetch user cluster model lists", "router_user_id", routerUserID, "err", err)
 			return ctx
 		}
 		lists = fetched

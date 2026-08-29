@@ -59,6 +59,19 @@ set, so all six existing enforcement sites honor it with no new filter loops.
 `router.Request.AllowedModels` exists only so errors and diagnostics can name
 the allowlist instead of dumping the desugared exclusion list.
 
+**A wholly non-routable allowlist is rejected at the admin API.** Membership
+validation for `PUT /admin/v1/allowed-models` is catalog-wide on purpose —
+force-model and hard-pin reach rows the router never scores — but the
+desugaring only excludes over `routableUniverse()`. A list naming *only*
+non-routable rows (an unbound provider, or a tierless passthrough-only row)
+therefore excludes the entire pool and 400s every routed request with
+`ErrAllowlistEmptiesPool`. The handler calls `Service.RoutableModels()` and
+refuses to save such a list, deferring to the unknown-model error first so a
+typo is not reported as a routability problem. Keep that accessor and the
+desugaring reading the same universe. `availableModels` is the generic
+`RoutingTargetSet` plus `HMMRoutingTargetSet` when an HMM sidecar is wired,
+so an HMM-only allowlist is not rejected as emptying the pool.
+
 **The fail-open/fail-closed asymmetry is load-bearing.** An org allowlist is a
 compliance control (a breach is worse than an outage); a user's per-cluster
 selection is a preference (hard-failing a turn because a personal pick went
@@ -80,9 +93,92 @@ and `ROUTER_EXCLUDED_MODELS` (an operator escape hatch that short-circuits
 `excludedModelsForRequest` entirely; intentional, so an operator debugging a
 deployment is not constrained by one org's config).
 
+**A BYOK gateway overrides all of it.** When the installation has its own
+gateway key (`anthropic_gateway` / `openai_gateway`),
+`enabledProvidersForRequest` returns only those gateways and
+`router.Request.GatewayProviders` puts the resolver in gateway-exclusive mode:
+vendor bindings are dropped, `excluded_providers` becomes a no-op, and the only
+routable models are the ones a gateway key's `model_aliases` names. A tenant
+that wired its own endpoint mandated it — routing around it is a compliance
+break, and excluding every vendor by hand (the old lever) is what silently
+emptied one org's candidate set. A key with no aliases therefore serves
+nothing: resolution comes back empty with `ExclusionGatewayNotServed` and
+dispatch answers `policy.ErrGatewayServesNoDeployedModel` (HTTP 400, "add
+aliases") instead of reporting the router as unavailable. Deployment-keyed
+gateways are excluded from this: a self-hosted deployment keyed for a gateway
+still serves the catalog's own gateway bindings.
+
+**A gateway's `model_not_found` is remembered per (endpoint, model).** An
+alias can name a model the endpoint does not actually publish — a Snowflake
+Cortex key aliasing `grok-4.6` made every title-gen turn resolve to it, eat an
+upstream 404, and recover only through a sibling-failover hop (3.7s-43.2s added
+latency per turn, prod 2026-08-28). `rememberGatewayLacksModel` records the pair
+on that 404 and `gatewayUnservedModelsForRequest` folds it into
+`excludedModelsForRequest`, so later turns resolve around the alias instead of
+re-buying it. Scoped tightly on purpose: gateway providers only (a vendor still
+has catalog bindings to walk), and a model stays routable unless **every**
+gateway key aliasing it has refused, since a second endpoint may serve it. The
+alias itself is still the customer-side fix — this only caps the bill at one 404.
+
+**The hard-pin tier resolves against the same bindings.** Probe/title-gen/
+classifier/compaction turns bypass the scorer, so `hardPinResolver` gets its
+own `HardPinRequest` carrying `CustomBindings` + `GatewayProviders` and selects
+via `cluster.FastestModelForRequest`. Without them a gateway-only installation
+resolved nothing and every such turn 503'd `ErrClusterUnavailable` ("cluster
+scorer failed") while its scored turns routed fine — prod 2026-08-26. An empty
+result under a gateway now reports `ErrGatewayServesNoDeployedModel` for the
+same reason the resolver does: the alias list is the thing to fix.
+
 ## Translation
 
 `proxy.Service` is the **only caller of [`../translate`](../translate)**. Keep providers ignorant of cross-format concerns. See [translate/CLAUDE.md](../translate/CLAUDE.md) for the recipe.
+
+## OpenAI endpoint selection (chat/completions vs Responses)
+
+`translate.UseOpenAIResponsesAPI` decides which OpenAI surface an attempt
+POSTs to, and the two OpenAI providers get deliberately different rules.
+
+**Direct OpenAI takes every turn it can express.** OpenAI documents Responses
+as the API new integrations build on, it is the only endpoint that will serve a
+reasoning model a function tool (chat/completions 400s that combination from
+gpt-5.4 on — the prod incident that started this), and it is the only one that
+round-trips encrypted reasoning across turns, which is also where the
+prompt-cache win comes from. The exception is a turn whose parameters have no
+Responses equivalent (`env.RequiresChatCompletionsParams`): stop sequences are
+the whole set today, and such a turn stays on chat/completions rather than
+silently dropping them. Reasoning targets are exempt from that check because
+they reject `stop` on chat/completions too, so it is already dropped for them.
+
+**OpenAI-compatible gateways stay narrow** — reasoning tool turns only. Most
+mount no Responses surface at all, so the endpoint buys nothing there beyond
+the one turn the gateway would otherwise reject (Snowflake Cortex 400s a 5.6
+tool turn on chat/completions no matter what we send). A gateway that answers
+404/"API disabled" is retried once on chat/completions while pre-commit and
+memoized per effective base URL (`gatewayLacksResponses`), so the next turn
+skips the probe.
+
+Both rules sit behind `ROUTER_OPENAI_RESPONSES_BROAD` (default on, per-org
+overridable via `flags.KeyOpenAIResponsesBroad`). Turning it off restores the
+narrow rule for direct OpenAI too — the reasoning tool turn chat/completions
+rejects is still promoted, since that one is a correctness fix, not a rollout.
+
+Anthropic and chat/completions ingress re-emit the request through
+`PrepareOpenAIResponses` per attempt, so a compaction or handover rewrite is
+carried faithfully. A Responses-ingress caller dispatches its ORIGINAL bytes
+natively instead, which is why that promotion is skipped when compaction or a
+handover rewrote the envelope — those bytes are stale, and the chat projection
+is the only faithful representation until item-level emit from a rewritten
+envelope lands.
+
+**A chat caller is served chat, whatever the upstream surface.** The three
+combinations differ in both request emit and response handling, so the decision
+is the typed `openAISurface` (`surfaceChat` / `surfaceResponsesNative` /
+`surfaceResponsesTranslated`), not a URL swap: a translated attempt wraps the
+client writer in `translate.ResponsesToOpenAIChatWriter`, which renders the
+Responses stream as chat.completion.chunk frames (or one chat.completion body
+for a non-streaming client). It returns a pre-output upstream failure as
+`providers.UpstreamErrorResponse` so the unsupported-endpoint fallback still
+works, and switches to an in-stream error frame once output is committed.
 
 ## Runtime provider fallback
 
@@ -92,9 +188,11 @@ Multi-binding models (deepseek/qwen/moonshot with Fireworks/Makora/Bedrock prima
 
 **Billing-blocked 402 → cross-binding failover (only).** Same shape as the 404 (`providers.IsUpstreamProviderBillingBlocked`): the provider refuses this account — credits exhausted, or the endpoint moved behind a billing plan we're not on, which is how Makora EOL'd DeepSeek-V4-Pro (402 `insufficient_credits` on every turn while Together/Fireworks kept serving it). Same-binding retry would just re-bill the same rejection, so it walks to the next binding and flushes on the last one.
 
-**Same-cluster model failover ([`sibling_failover.go`](sibling_failover.go)).** Provider-level failover assumes the model has somewhere else to run; a single-binding model on an overloaded provider does not (prod's `claude-opus-5` 529 storm: three attempts, one dark Anthropic endpoint, client eats the 529). When every binding is exhausted pre-commit on a retryable/404/402 fault, `ProxyMessages` re-dispatches a *different* model drawn from `Decision.Metadata.CandidateModels` — the pool the policy already scored for this turn, so the rescue stays inside the accepted quality band — preferring a candidate on a provider other than the one that just failed. It runs last in the rescue chain (after baseline and subscription failover), rebuilds the request through `buildAttempt` for the candidate's translation family, re-resolves credentials and bindings, and attributes pricing/telemetry/pin usage to the model that actually served. Gated by `ROUTER_SIBLING_FAILOVER` (default on) and skipped for `/force-model`, shadow mode, BYOK (`shouldFailover`), and subscription-only balances.
+**Same-cluster model failover ([`sibling_failover.go`](sibling_failover.go)).** Provider-level failover assumes the model has somewhere else to run; a single-binding model on an overloaded provider does not (prod's `claude-opus-5` 529 storm: three attempts, one dark Anthropic endpoint, client eats the 529). When every binding is exhausted pre-commit on a retryable/404/402 fault, `ProxyMessages` re-dispatches a *different* model drawn from `Decision.Metadata.CandidateModels` — the pool the policy already scored for this turn, so the rescue stays inside the accepted quality band — preferring a candidate on a provider other than the one that just failed. It runs last in the rescue chain (after baseline and subscription failover), rebuilds the request through `buildAttempt` for the candidate's translation family, re-resolves credentials and bindings, and attributes pricing/telemetry/pin usage to the model that actually served. Gated by `ROUTER_SIBLING_FAILOVER` (default on) and skipped for `/force-model`, shadow mode, and subscription-only balances. BYOK (`shouldFailover`) normally disables it too, with one carve-out: a BYOK-gateway turn may rescue onto a candidate that one of the request's own gateway keys aliases (`gatewaySiblingDecision`) — same credentials, so no cross-provider 401 risk.
 
 **Single-binding same-binding retry.** Most catalog models carry one binding (Anthropic/OpenAI/Google), so cross-binding failover has nowhere to walk — a sole-provider 5xx/timeout would kill the request. For these, `dispatchWithFallback` retries the *same* binding in place up to `maxSameBindingRetries` (2) with exponential backoff (`sameBindingBackoff`: 250ms, 500ms), pre-commit only, abortable on ctx cancel (`sleepWithContext`). Multi-binding models skip in-place retry (`len(bindings) > 1` breaks the inner loop) and fail straight over to the next provider — a different upstream beats re-hitting the flaky one. Tests inject `Service.retrySleep` to keep the backoff instant.
+
+**Retries are bounded twice: count AND wall-clock.** `maxSameBindingRetries` caps how many attempts; `sameBindingRetryBudget` (10s) caps how much time they may consume in total. The count alone bounds attempts but not cost — an upstream that accepts the stream and never answers burns a full `ResponseHeaderTimeout` (30s) per attempt, so three of them spend ~90s on a request that was never going to be served (prod 2026-08-26: a gateway hanging deterministically on tool-result turns, where every retry re-sent the identical payload). A transient blip clears on a *quick* retry by definition, so an attempt series that already outran the budget is not the fault class in-place retry was built for; cheap failures (5xx in milliseconds) still get the full attempt count. The budget stopping a retry logs at WARN with `spent_ms`/`budget_ms` — without it, a hang and a blip are indistinguishable in the logs. Tests inject `Service.now` to simulate a slow attempt without burning real time; express the simulated duration as an absolute value, never as a multiple of `sameBindingRetryBudget`, or the test scales with the constant and can never fail.
 
 `preludeBuffer` wraps the client writer on every request so the eager SSE Prelude doesn't commit the response to the client before the upstream produces its first byte. The buffer absorbs pre-Seal writes (Prelude's status + `message_start`), commits on the first post-Seal write (= first upstream chunk), and `Discard()`s pre-commit state between attempts so a retry begins with a pristine writer. `Committed()` is the retry gate: once it flips, the response is on the wire and no further retry is allowed.
 

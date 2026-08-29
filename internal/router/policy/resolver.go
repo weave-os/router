@@ -58,6 +58,9 @@ const (
 	ExclusionAmbiguousRoster ExclusionReason = "ambiguous_roster_id"
 	// ExclusionContextWindow means the estimated input cannot fit the model.
 	ExclusionContextWindow ExclusionReason = "context_window"
+	// ExclusionGatewayNotServed means the installation routes exclusively through
+	// its own gateway and no gateway key aliases this model.
+	ExclusionGatewayNotServed ExclusionReason = "gateway_not_served"
 )
 
 // Diagnostic describes one candidate exclusion for conformance checks and
@@ -255,6 +258,12 @@ func (r *Resolver) Resolve(req router.Request) ResolvedCandidates {
 	preferenceRanks := preferenceRanks(req.PreferredModels)
 	armContext := DeriveArmContext(req)
 
+	providerSet := req.EnabledProviders
+	if providerSet == nil {
+		providerSet = r.available
+	}
+	gateways := req.GatewayProviders
+
 	deployedIDs := make([]string, 0, len(r.deployed))
 	for id := range r.deployed {
 		deployedIDs = append(deployedIDs, id)
@@ -288,10 +297,24 @@ func (r *Resolver) Resolve(req router.Request) ResolvedCandidates {
 			continue
 		}
 
-		providerSet := req.EnabledProviders
-		if providerSet == nil {
-			providerSet = r.available
+		if len(gateways) > 0 {
+			allowedBindings := gatewayBindings(id, gateways, req.CustomBindings)
+			if len(allowedBindings) == 0 {
+				diagnostics = append(diagnostics, Diagnostic{CatalogID: id, RosterID: rosterID, Reason: ExclusionGatewayNotServed})
+				continue
+			}
+			base = r.appendCandidates(base, candidateContext{
+				req:             req,
+				catalogID:       id,
+				rosterID:        rosterID,
+				model:           model,
+				contextWindow:   contextWindow,
+				armContext:      armContext,
+				preferenceRanks: preferenceRanks,
+			}, allowedBindings)
+			continue
 		}
+
 		allowedBindings := catalog.EnumerateBindingsWithCustom(
 			id,
 			r.allowedProviders(providerSet),
@@ -306,56 +329,15 @@ func (r *Resolver) Resolve(req router.Request) ResolvedCandidates {
 			continue
 		}
 
-		if !r.enumerateBindings {
-			allowedBindings = allowedBindings[:1]
-		}
-		for _, binding := range allowedBindings {
-			upstreamID := catalog.UpstreamIDFor(id, binding.UpstreamID)
-			modelRevision := upstreamID
-			armID := rosterID
-			if r.enumerateBindings {
-				armID = MakeArmID(ArmIdentity{
-					CanonicalModel:               id,
-					Provider:                     binding.Provider,
-					UpstreamID:                   upstreamID,
-					Endpoint:                     armContext.Endpoint,
-					ModelRevision:                modelRevision,
-					ReasoningConfigurationSHA256: armContext.ReasoningConfigurationSHA256,
-					ToolConfigurationSHA256:      armContext.ToolConfigurationSHA256,
-				})
-			}
-			marginalCostFactor := 1.0
-			if factor, found := req.SubsidizedModelCostFactor[id]; found && factor > 0 {
-				marginalCostFactor = factor
-			}
-			base = append(base, eligibleCandidate{Candidate: Candidate{
-				ArmID:                        armID,
-				RosterID:                     rosterID,
-				CatalogID:                    id,
-				Provider:                     binding.Provider,
-				UpstreamID:                   upstreamID,
-				BindingIndex:                 binding.Index,
-				Endpoint:                     armContext.Endpoint,
-				ModelRevision:                modelRevision,
-				ReasoningConfigurationSHA256: armContext.ReasoningConfigurationSHA256,
-				ToolConfigurationSHA256:      armContext.ToolConfigurationSHA256,
-				PreferenceRank:               preferenceRanks[id],
-				InputUSDPer1M:                binding.Price.InputUSDPer1M,
-				OutputUSDPer1M:               binding.Price.OutputUSDPer1M,
-				EstimatedCostUSD:             estimatedCostUSD(req, binding.Price),
-				CacheReadMultiplier:          binding.Price.EffectiveCacheReadMultiplier(),
-				MarginalCostFactor:           marginalCostFactor,
-				EffectiveInputUSDPer1M:       binding.Price.InputUSDPer1M * marginalCostFactor,
-				EffectiveOutputUSDPer1M:      binding.Price.OutputUSDPer1M * marginalCostFactor,
-				EffectiveEstimatedCostUSD:    estimatedCostUSD(req, binding.Price) * marginalCostFactor,
-				Capabilities: CandidateCapabilities{
-					ContextWindow:  contextWindow,
-					Tier:           model.Tier.String(),
-					SupportsTools:  model.ToolUseQuality != catalog.ToolUseLow && model.AgenticUse != catalog.AgenticLow,
-					SupportsImages: model.ImageInput != catalog.ImageInputUnsupported,
-				},
-			}})
-		}
+		base = r.appendCandidates(base, candidateContext{
+			req:             req,
+			catalogID:       id,
+			rosterID:        rosterID,
+			model:           model,
+			contextWindow:   contextWindow,
+			armContext:      armContext,
+			preferenceRanks: preferenceRanks,
+		}, allowedBindings)
 	}
 
 	base, diagnostics = softFilter(base, req.HasImages, r.imageLow, ExclusionImageCapability, diagnostics)
@@ -456,6 +438,88 @@ func expectedOutputTokens(req router.Request) int {
 		return 0
 	}
 	return max(*req.RoutingKnobs.ExpectedOutputTokens, 0)
+}
+
+// candidateContext carries the per-model facts shared by every binding of that
+// model, so binding expansion stays a single call regardless of routing mode.
+type candidateContext struct {
+	req             router.Request
+	catalogID       string
+	rosterID        string
+	model           catalog.Model
+	contextWindow   int
+	armContext      ArmContext
+	preferenceRanks map[string]*int
+}
+
+func (r *Resolver) appendCandidates(base []eligibleCandidate, ctx candidateContext, bindings []catalog.IndexedBinding) []eligibleCandidate {
+	if !r.enumerateBindings {
+		bindings = bindings[:1]
+	}
+	for _, binding := range bindings {
+		upstreamID := catalog.UpstreamIDFor(ctx.catalogID, binding.UpstreamID)
+		modelRevision := upstreamID
+		armID := ctx.rosterID
+		if r.enumerateBindings {
+			armID = MakeArmID(ArmIdentity{
+				CanonicalModel:               ctx.catalogID,
+				Provider:                     binding.Provider,
+				UpstreamID:                   upstreamID,
+				Endpoint:                     ctx.armContext.Endpoint,
+				ModelRevision:                modelRevision,
+				ReasoningConfigurationSHA256: ctx.armContext.ReasoningConfigurationSHA256,
+				ToolConfigurationSHA256:      ctx.armContext.ToolConfigurationSHA256,
+			})
+		}
+		marginalCostFactor := 1.0
+		if factor, found := ctx.req.SubsidizedModelCostFactor[ctx.catalogID]; found && factor > 0 {
+			marginalCostFactor = factor
+		}
+		base = append(base, eligibleCandidate{Candidate: Candidate{
+			ArmID:                        armID,
+			RosterID:                     ctx.rosterID,
+			CatalogID:                    ctx.catalogID,
+			Provider:                     binding.Provider,
+			UpstreamID:                   upstreamID,
+			BindingIndex:                 binding.Index,
+			Endpoint:                     ctx.armContext.Endpoint,
+			ModelRevision:                modelRevision,
+			ReasoningConfigurationSHA256: ctx.armContext.ReasoningConfigurationSHA256,
+			ToolConfigurationSHA256:      ctx.armContext.ToolConfigurationSHA256,
+			PreferenceRank:               ctx.preferenceRanks[ctx.catalogID],
+			InputUSDPer1M:                binding.Price.InputUSDPer1M,
+			OutputUSDPer1M:               binding.Price.OutputUSDPer1M,
+			EstimatedCostUSD:             estimatedCostUSD(ctx.req, binding.Price),
+			CacheReadMultiplier:          binding.Price.EffectiveCacheReadMultiplier(),
+			MarginalCostFactor:           marginalCostFactor,
+			EffectiveInputUSDPer1M:       binding.Price.InputUSDPer1M * marginalCostFactor,
+			EffectiveOutputUSDPer1M:      binding.Price.OutputUSDPer1M * marginalCostFactor,
+			EffectiveEstimatedCostUSD:    estimatedCostUSD(ctx.req, binding.Price) * marginalCostFactor,
+			Capabilities: CandidateCapabilities{
+				ContextWindow:  ctx.contextWindow,
+				Tier:           ctx.model.Tier.String(),
+				SupportsTools:  ctx.model.ToolUseQuality != catalog.ToolUseLow && ctx.model.AgenticUse != catalog.AgenticLow,
+				SupportsImages: ctx.model.ImageInput != catalog.ImageInputUnsupported,
+			},
+		}})
+	}
+	return base
+}
+
+// gatewayBindings limits a model to the gateways whose key aliases it. A
+// catalog-declared gateway binding is not enough: only the key's aliases say
+// which models that tenant's endpoint actually serves.
+func gatewayBindings(id string, gateways map[string]struct{}, custom map[string][]string) []catalog.IndexedBinding {
+	aliased := make(map[string]struct{}, len(custom[id]))
+	for _, provider := range custom[id] {
+		if _, ok := gateways[provider]; ok {
+			aliased[provider] = struct{}{}
+		}
+	}
+	if len(aliased) == 0 {
+		return nil
+	}
+	return catalog.EnumerateBindingsWithCustom(id, aliased, custom)
 }
 
 func (r *Resolver) allowedProviders(in map[string]struct{}) map[string]struct{} {

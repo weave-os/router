@@ -62,3 +62,26 @@ func TestCustomBindingsFromKeys_ProvidersAreOrdered(t *testing.T) {
 		[]string{providers.ProviderAnthropicGateway, providers.ProviderOpenAIGateway},
 		customBindingsFromKeys(keys)["claude-sonnet-4-5"])
 }
+
+// TestGatewayProvidersFromKeys_OnlyUsableGateways: the gateway set switches the
+// whole request to gateway-exclusive routing, so a vendor key or a key with no
+// usable secret must never put it there.
+func TestGatewayProvidersFromKeys_OnlyUsableGateways(t *testing.T) {
+	got := gatewayProvidersFromKeys([]*auth.ExternalAPIKey{
+		{Provider: providers.ProviderAnthropicGateway, Plaintext: []byte("pat")},
+		{Provider: providers.ProviderOpenAIGateway},
+		{Provider: providers.ProviderAnthropic, Plaintext: []byte("pat")},
+	})
+
+	assert.Equal(t,
+		map[string]struct{}{providers.ProviderAnthropicGateway: {}},
+		got)
+}
+
+func TestGatewayProvidersFromKeys_NoGatewayKeys(t *testing.T) {
+	got := gatewayProvidersFromKeys([]*auth.ExternalAPIKey{
+		{Provider: providers.ProviderOpenAI, Plaintext: []byte("pat")},
+	})
+
+	assert.Empty(t, got)
+}

@@ -139,16 +139,18 @@ var forceModelAliases = map[string]string{
 	"kimi-k2.6": "moonshotai/kimi-k2.6",
 	// Generic glm/zai aliases stay on 5.1 (Together/Fireworks/OpenRouter);
 	// 5.2 is Fireworks-only day-0, so it requires an explicit pin.
-	"glm":          "z-ai/glm-5.1",
-	"zai":          "z-ai/glm-5.1",
-	"z-ai":         "z-ai/glm-5.1",
-	"glm-5.2":      "z-ai/glm-5.2",
-	"glm-5.1":      "z-ai/glm-5.1",
-	"glm-5":        "z-ai/glm-5",
-	"minimax":      "minimax/minimax-m3",
-	"minimax-m3":   "minimax/minimax-m3",
-	"minimax-m2.7": "minimax/minimax-m2.7",
-	"mistral":      "mistralai/mistral-small-2603",
+	"glm":           "z-ai/glm-5.1",
+	"zai":           "z-ai/glm-5.1",
+	"z-ai":          "z-ai/glm-5.1",
+	"glm-5.3-flash": "z-ai/glm-5.3-flash",
+	"glm-5.3":       "z-ai/glm-5.3",
+	"glm-5.2":       "z-ai/glm-5.2",
+	"glm-5.1":       "z-ai/glm-5.1",
+	"glm-5":         "z-ai/glm-5",
+	"minimax":       "minimax/minimax-m3",
+	"minimax-m3":    "minimax/minimax-m3",
+	"minimax-m2.7":  "minimax/minimax-m2.7",
+	"mistral":       "mistralai/mistral-small-2603",
 }
 
 // resolveForceModel is the legacy two-return surface. New pin-and-effort
@@ -370,11 +372,9 @@ func (s *Service) applyForceModelHeader(
 	return canonicalModel, nil
 }
 
-// handleForceModelCommand processes a /force-model or /unforce-model directive:
-// writes (or expires) the session pin and returns a synthetic acknowledgment
-// response without dispatching upstream. inputTokens should be the request's
-// RoutingFeatures.Tokens so the token counter reflects actual turn input, not
-// just the synthetic response text.
+// handleForceModelCommand processes a user-issued directive and writes a
+// synthetic acknowledgment without dispatching upstream. inputTokens is the
+// request's RoutingFeatures.Tokens so counts reflect actual turn input.
 func (s *Service) handleForceModelCommand(
 	ctx context.Context,
 	w http.ResponseWriter,
@@ -384,6 +384,28 @@ func (s *Service) handleForceModelCommand(
 	sessionKey [sessionpin.SessionKeyLen]byte,
 	inputTokens int,
 ) error {
+	_, msg, err := s.applyForceModelCommand(ctx, env, cmd, installationID, sessionKey)
+	if err != nil {
+		return err
+	}
+	switch env.SourceFormat() {
+	case translate.FormatOpenAI:
+		return writeSyntheticOpenAIResponse(w, env, msg, inputTokens)
+	default:
+		return writeSyntheticAnthropicResponse(w, env, msg, inputTokens)
+	}
+}
+
+// applyForceModelCommand updates the session pin without deciding whether the
+// caller should receive a synthetic response. It returns the canonical model
+// when a force was applied.
+func (s *Service) applyForceModelCommand(
+	ctx context.Context,
+	env *translate.RequestEnvelope,
+	cmd translate.ForceModelResult,
+	installationID uuid.UUID,
+	sessionKey [sessionpin.SessionKeyLen]byte,
+) (string, string, error) {
 	log := observability.FromContext(ctx)
 	role := roleForTier(catalog.TierFor(env.Model()))
 
@@ -395,21 +417,22 @@ func (s *Service) handleForceModelCommand(
 		if s.pinStore != nil && installationID != uuid.Nil {
 			if err := s.expireSessionPin(ctx, installationID, sessionKey, role, "user_unforced"); err != nil {
 				log.Error("/unforce-model: pin store upsert failed", "err", err)
-				return err
+				return "", "", err
 			}
 		}
 		msg = "✦ **Weave Router** → force-model cleared · resuming automatic model selection\n\n"
 		if env.SourceFormat() == translate.FormatOpenAI {
 			msg = "Weave Router: force-model cleared; resuming automatic model selection"
 		}
-		// Debug not Info: fires on every command use, not a major business event.
 		log.Debug("/unforce-model: session pin cleared",
 			"session_key_hex", fmt.Sprintf("%x", sessionKey),
 			"role", role,
 		)
-	} else if canonicalModel, provider, known := resolveForceModel(cmd.Model); !known {
-		// Not in the catalog (e.g. truncated "/force-model gpt-") — reject
-		// rather than pin something we can't honor; prior pin left untouched.
+		return "", msg, nil
+	}
+
+	canonicalModel, provider, known := resolveForceModel(cmd.Model)
+	if !known {
 		log.Info("/force-model: rejected unknown model",
 			"input_model", cmd.Model,
 			"session_key_hex", fmt.Sprintf("%x", sessionKey),
@@ -419,9 +442,11 @@ func (s *Service) handleForceModelCommand(
 		if env.SourceFormat() == translate.FormatOpenAI {
 			msg = fmt.Sprintf("Weave Router: force-model: %q isn't a recognized model; keeping automatic routing. Use a full model ID, e.g. claude-opus-5, gpt-5.5, or gemini-3-pro-preview.", cmd.Model)
 		}
-	} else if binding, reason := s.forcedModelBinding(ctx, canonicalModel, provider); reason != "" {
-		// Exclusions outrank the force. Pinning anyway would look accepted and
-		// then serve something else every turn; the prior pin is left untouched.
+		return "", msg, nil
+	}
+
+	binding, reason := s.forcedModelBinding(ctx, canonicalModel, provider)
+	if reason != "" {
 		log.Warn("/force-model: rejected excluded model",
 			"input_model", cmd.Model,
 			"canonical_model", canonicalModel,
@@ -434,30 +459,25 @@ func (s *Service) handleForceModelCommand(
 		if env.SourceFormat() == translate.FormatOpenAI {
 			msg = fmt.Sprintf("Weave Router: force-model rejected: %s; keeping automatic routing. Ask an admin to allow the provider, or force a model from one that is permitted.", reason)
 		}
-	} else {
-		if err := s.setForceModelPin(ctx, sessionKey, role, installationID, canonicalModel, binding); err != nil {
-			log.Error("/force-model: pin store upsert failed", "err", err)
-			return err
-		}
-		msg = fmt.Sprintf("✦ **Weave Router** → force-model applied: %s (%s) · Use /unforce-model to clear\n\n", canonicalModel, binding)
-		if env.SourceFormat() == translate.FormatOpenAI {
-			msg = fmt.Sprintf("Weave Router: force-model applied: %s (%s). Use /unforce-model to clear.", canonicalModel, binding)
-		}
-		log.Debug("/force-model: session pin set",
-			"input_model", cmd.Model,
-			"canonical_model", canonicalModel,
-			"provider", binding,
-			"session_key_hex", fmt.Sprintf("%x", sessionKey),
-			"role", role,
-		)
+		return "", msg, nil
 	}
 
-	switch env.SourceFormat() {
-	case translate.FormatOpenAI:
-		return writeSyntheticOpenAIResponse(w, env, msg, inputTokens)
-	default:
-		return writeSyntheticAnthropicResponse(w, env, msg, inputTokens)
+	if err := s.setForceModelPin(ctx, sessionKey, role, installationID, canonicalModel, binding); err != nil {
+		log.Error("/force-model: pin store upsert failed", "err", err)
+		return "", "", err
 	}
+	msg = fmt.Sprintf("✦ **Weave Router** → force-model applied: %s (%s) · Use /unforce-model to clear\n\n", canonicalModel, binding)
+	if env.SourceFormat() == translate.FormatOpenAI {
+		msg = fmt.Sprintf("Weave Router: force-model applied: %s (%s). Use /unforce-model to clear.", canonicalModel, binding)
+	}
+	log.Debug("/force-model: session pin set",
+		"input_model", cmd.Model,
+		"canonical_model", canonicalModel,
+		"provider", binding,
+		"session_key_hex", fmt.Sprintf("%x", sessionKey),
+		"role", role,
+	)
+	return canonicalModel, msg, nil
 }
 
 // writeSyntheticAnthropicResponse writes a minimal Anthropic Messages API

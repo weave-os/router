@@ -225,6 +225,38 @@ func TestRoutingMarkerFor_PlannerPaths(t *testing.T) {
 			},
 			wantEmpty: true,
 		},
+		{
+			// The bug this guards: a /force-model pin that can't be served
+			// silently reverted to the scorer, so the user kept trusting the
+			// "force-model applied" ack while another model served the turn.
+			name: "dropped forced pin: surfaced even when the model didn't change",
+			res: turnLoopResult{
+				Decision:            router.Decision{Model: "gpt-5.5", Provider: "openai"},
+				PriorServedModel:    "gpt-5.5",
+				ForcedPinDropped:    true,
+				ForcedPinDropReason: "provider_not_enabled",
+				ForcedPinModel:      "claude-opus-5",
+			},
+			wantContains: []string{
+				"✦ **Weave Router** → gpt-5.5",
+				markerReasonForcedPinDropped,
+				"claude-opus-5",
+			},
+			wantNotContain: []string{
+				markerReasonUserForced,
+				"provider_not_enabled",
+			},
+		},
+		{
+			name: "dropped forced pin: suppressed in suggestion mode",
+			res: turnLoopResult{
+				Decision:         router.Decision{Model: "gpt-5.5", Provider: "openai"},
+				SuggestionMode:   true,
+				ForcedPinDropped: true,
+				ForcedPinModel:   "claude-opus-5",
+			},
+			wantEmpty: true,
+		},
 	}
 
 	for _, tc := range cases {
@@ -396,4 +428,13 @@ func TestHumanReasonFromPlanner_UnknownCodeIsSilenced(t *testing.T) {
 	// snake_case label into the user-facing marker.
 	got := humanReasonFromPlanner("brand_new_reason_v9")
 	assert.Empty(t, got)
+}
+
+func TestRoutingMarkerFor_SuppressesStickyTurnForAllClients(t *testing.T) {
+	res := turnLoopResult{
+		Decision:         router.Decision{Model: "gpt-5.6-terra", Provider: "openai"},
+		StickyHit:        true,
+		PriorServedModel: "gpt-5.6-terra",
+	}
+	assert.Empty(t, routingMarkerFor(res), "same-model suppression applies to Codex as well as Claude Code")
 }

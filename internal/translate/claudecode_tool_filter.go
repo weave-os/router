@@ -7,19 +7,17 @@ import (
 
 // claudeCodeOnlyToolNames is the set of tools Claude Code (the client)
 // implements internally — Task subagent dispatch, plan-mode toggles, Skill
-// invocation, etc. They have no corresponding server-side behavior in any
-// upstream provider, so emitting their schemas to non-Anthropic models is
-// pure noise; worse, non-Anthropic models routinely hallucinate calls to
-// them. On the v0.57 SWE-bench Verified eval, 224 phantom tool_use blocks
-// for these names were observed across 150 router shards routed to
-// non-Anthropic upstreams — 96% of them in the Task* family — with 27%
-// clustering on the empty-patch failure subset.
+// invocation, deferred tool loading, etc. Most have no useful behavior for a
+// non-Anthropic model unless explicitly allowed by one of the subsets below.
+// Emitting the rest is noise; worse, non-Anthropic models routinely
+// hallucinate calls to them. On the v0.57 SWE-bench Verified eval, 224 phantom
+// tool_use blocks for these names were observed across 150 router shards
+// routed to non-Anthropic upstreams — 96% of them in the Task* family — with
+// 27% clustering on the empty-patch failure subset.
 //
-// Anthropic models recognize these as native sub-tools and dispatch them
-// correctly via the client; non-Anthropic models cannot. The filter applies
-// only on Anthropic→non-Anthropic emit paths (buildOpenAIFromAnthropic and
-// the Anthropic case of PrepareGemini). The Anthropic→Anthropic passthrough
-// preserves them.
+// The filter applies only on Anthropic→non-Anthropic emit paths
+// (buildOpenAIFromAnthropic and the Anthropic case of PrepareGemini). The
+// Anthropic→Anthropic passthrough preserves them.
 //
 // Scheduling / wake-up tools (ScheduleWakeup, CronCreate/Delete/List, Monitor)
 // and shell-session tools (BashOutput, KillShell) are client-executed like
@@ -44,8 +42,8 @@ var claudeCodeOnlyToolNames = map[string]struct{}{
 	"Skill":           {},
 	"Workflow":        {},
 	"AskUserQuestion": {},
-	// Tool registry / deferred-loading discovery (Anthropic-native protocol;
-	// non-Anthropic emit drops defer_loading anyway, so ToolSearch is noise).
+	// Client-side deferred MCP schema loader. Claude Code sends deferred tool
+	// names in the prompt and exposes ToolSearch as the only way to load one.
 	"ToolSearch": {},
 	// Todo bookkeeping that non-Anthropic models invent.
 	"TodoWrite": {},
@@ -64,9 +62,9 @@ var claudeCodeOnlyToolNames = map[string]struct{}{
 }
 
 // isClaudeCodeOnlyTool reports whether name is one of the tools Claude Code
-// dispatches internally and that should not be forwarded to non-Anthropic
-// upstreams. Names are compared case-sensitively because Claude Code emits
-// them in PascalCase verbatim.
+// dispatches internally and that requires an explicit cross-vendor policy.
+// Names are compared case-sensitively because Claude Code emits them in
+// PascalCase verbatim.
 func isClaudeCodeOnlyTool(name string) bool {
 	_, ok := claudeCodeOnlyToolNames[name]
 	return ok
@@ -98,11 +96,27 @@ func isCrossVendorOrchestrationTool(name string) bool {
 	return ok
 }
 
+// claudeCodeAlwaysKeptToolNames is the subset of claudeCodeOnlyToolNames that
+// must survive every cross-vendor emit. These tools are executed by the client
+// and are required for capabilities advertised in the request itself.
+var claudeCodeAlwaysKeptToolNames = map[string]struct{}{
+	"ToolSearch": {},
+}
+
+func isAlwaysKeptCrossVendorTool(name string) bool {
+	_, ok := claudeCodeAlwaysKeptToolNames[name]
+	return ok
+}
+
 // shouldStripCCTool reports whether a tool must be dropped from a cross-vendor
-// emit. Non-CC-only tools are always kept. CC-only tools are dropped, except
-// that orchestration tools are retained when keepOrchestration is set.
+// emit. Non-CC-only tools and the always-kept client tools are retained.
+// Other CC-only tools are dropped, except that orchestration tools are
+// retained when keepOrchestration is set.
 func shouldStripCCTool(name string, keepOrchestration bool) bool {
 	if !isClaudeCodeOnlyTool(name) {
+		return false
+	}
+	if isAlwaysKeptCrossVendorTool(name) {
 		return false
 	}
 	if keepOrchestration && isCrossVendorOrchestrationTool(name) {
@@ -116,8 +130,10 @@ func shouldStripCCTool(name string, keepOrchestration bool) bool {
 // body unchanged when none match, so callers can apply this unconditionally
 // without paying a re-serialize cost on the common case.
 //
-// When keepOrchestration is set, the orchestration subset (Task*, Workflow,
-// Skill, plan-mode) is retained; other CC-only tools are still dropped.
+// ToolSearch is always retained because it is Claude Code's client-side
+// loader for deferred MCP schemas. When keepOrchestration is set, the
+// orchestration subset (Task*, Workflow, Skill, plan-mode) is also retained;
+// other CC-only tools are still dropped.
 //
 // Only the tools array is rewritten; tool_choice and message content are
 // left alone. tool_choice is rare and Anthropic only honors "any"/"auto"/

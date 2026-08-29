@@ -11,6 +11,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/tidwall/gjson"
+	"github.com/tidwall/sjson"
 	"workweave/router/internal/providers"
 	"workweave/router/internal/providers/httputil"
 	"workweave/router/internal/proxy"
@@ -19,6 +21,10 @@ import (
 )
 
 const DefaultBaseURL = "https://api.anthropic.com"
+
+// WaferMessagesBaseURL is Wafer Serverless' Anthropic-compatible Messages
+// endpoint; pair with WithAuthScheme(AuthBearer) and a Wafer-ZDR default header.
+const WaferMessagesBaseURL = "https://pass.wafer.ai"
 
 // AuthScheme selects which credential header an Anthropic-spec upstream expects.
 type AuthScheme int
@@ -39,6 +45,45 @@ func WithAuthScheme(scheme AuthScheme) Option {
 	return func(c *Client) { c.authScheme = scheme }
 }
 
+// WithDefaultHeaders returns c with headers set on every upstream request.
+// Prepared and inbound per-request headers can override these values.
+func (c *Client) WithDefaultHeaders(h http.Header) *Client {
+	c.defaultHeaders = h.Clone()
+	return c
+}
+
+// WithProtectedHeaders returns c with headers that cannot be overridden by
+// prepared or inbound per-request headers.
+func (c *Client) WithProtectedHeaders(h http.Header) *Client {
+	c.protectedHeaders = h.Clone()
+	return c
+}
+
+// WithModelIDMap returns c with a rewrite map for the request body's
+// top-level "model" field (see rewriteModelField). Pass nil to disable.
+func (c *Client) WithModelIDMap(modelIDMap map[string]string) *Client {
+	c.modelIDMap = modelIDMap
+	return c
+}
+
+// rewriteModelField rewrites the body's top-level "model" via modelIDMap
+// (mirrors openaicompat's rewriteModelField). Nil map or missing key = no-op.
+func rewriteModelField(body []byte, modelIDMap map[string]string) []byte {
+	if len(modelIDMap) == 0 || len(body) == 0 {
+		return body
+	}
+	model := gjson.GetBytes(body, "model").String()
+	upstream, ok := modelIDMap[model]
+	if !ok {
+		return body
+	}
+	out, err := sjson.SetBytes(body, "model", upstream)
+	if err != nil {
+		return body
+	}
+	return out
+}
+
 type Client struct {
 	apiKey  string
 	baseURL string
@@ -46,6 +91,15 @@ type Client struct {
 	// authScheme is the credential header this upstream expects; zero value
 	// (AuthAPIKeyHeader) preserves Anthropic's own behavior.
 	authScheme AuthScheme
+	// modelIDMap rewrites the body's "model" field when the router slug differs
+	// from the upstream ID (e.g. "z-ai/glm-5.2" -> "GLM-5.2"). Nil = no rewrite.
+	modelIDMap map[string]string
+	// defaultHeaders are set on every upstream request (Proxy + Passthrough)
+	// before prep.Headers / inbound headers apply.
+	defaultHeaders http.Header
+	// protectedHeaders are set after prep.Headers / inbound headers apply, so
+	// provider-mandated values cannot be overridden.
+	protectedHeaders http.Header
 	// sseIdleTimeout overrides httputil.DefaultSSEIdleTimeout when > 0; tests set
 	// it small so the output-stall watchdog fires before this one.
 	sseIdleTimeout time.Duration
@@ -57,13 +111,16 @@ type Client struct {
 	throughputMinElapsed time.Duration
 	throughputMinDeltas  int
 	throughputOverride   bool
+	// versionMemo resolves gateway base URLs that already carry the "/v1"
+	// segment this adapter appends.
+	versionMemo providers.GatewayVersionMemo
 }
 
 func NewClient(apiKey, baseURL string, opts ...Option) *Client {
 	c := &Client{
 		apiKey:  apiKey,
 		baseURL: baseURL,
-		http:    &http.Client{Transport: httputil.NewTransport(10*time.Second, 10*time.Second)},
+		http:    httputil.NewClient(httputil.NewTransport(10*time.Second, 10*time.Second)),
 	}
 	for _, opt := range opts {
 		opt(c)
@@ -109,6 +166,22 @@ func (c *Client) throughputParams() (window, minElapsed time.Duration, minDeltas
 		return c.throughputWindow, c.throughputMinElapsed, c.throughputMinDeltas
 	}
 	return httputil.DefaultThroughputWindow, httputil.DefaultThroughputMinElapsed, httputil.DefaultMinThroughputDeltasPerWindow
+}
+
+// applyDefaultHeaders sets c.defaultHeaders on req before callers layer their
+// own headers on top.
+func (c *Client) applyDefaultHeaders(req *http.Request) {
+	for k, vs := range c.defaultHeaders {
+		req.Header[http.CanonicalHeaderKey(k)] = append([]string(nil), vs...)
+	}
+}
+
+// applyProtectedHeaders restores c.protectedHeaders after callers layer their
+// own headers.
+func (c *Client) applyProtectedHeaders(req *http.Request) {
+	for k, vs := range c.protectedHeaders {
+		req.Header[http.CanonicalHeaderKey(k)] = append([]string(nil), vs...)
+	}
 }
 
 // oauthBetaToken is the anthropic-beta flag Anthropic requires for Claude
@@ -207,19 +280,42 @@ func (c *Client) Proxy(ctx context.Context, decision router.Decision, prep provi
 	defer cancel(nil)
 
 	baseURL := proxy.EffectiveBaseURL(ctx, c.baseURL)
-	body := proxy.ApplyModelAlias(ctx, prep.Body, decision.Model)
-	upstream, err := http.NewRequestWithContext(ctx, http.MethodPost, baseURL+"/v1/messages", bytes.NewReader(body))
+	body := rewriteModelField(prep.Body, c.modelIDMap)
+	// Applied after the catalog map so a BYOK endpoint's own naming wins.
+	body = proxy.ApplyModelAlias(ctx, body, decision.Model)
+
+	// 404s are buffered before reaching w, so a duplicate "/v1" can be re-tried.
+	// A non-404 on the retried path is the real error and is memoized; only a
+	// second 404 falls back to the probe so a genuine model-not-found is preserved.
+	urls := c.versionMemo.URLs(baseURL, "/v1/messages")
+	firstErr := c.proxyTo(ctx, cancel, urls[0], body, decision, prep, w, r)
+	if len(urls) == 1 || !providers.IsUpstreamModelNotFound(firstErr) {
+		return firstErr
+	}
+	err := c.proxyTo(ctx, cancel, urls[1], body, decision, prep, w, r)
+	if err == nil || !providers.IsUpstreamModelNotFound(err) {
+		c.versionMemo.Learn(baseURL)
+		return err
+	}
+	return firstErr
+}
+
+func (c *Client) proxyTo(ctx context.Context, cancel context.CancelCauseFunc, url string, body []byte, decision router.Decision, prep providers.PreparedRequest, w http.ResponseWriter, r *http.Request) error {
+	upstream, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
 		return fmt.Errorf("build upstream request: %w", err)
 	}
 	upstream.Header.Set("content-type", "application/json")
+	c.applyDefaultHeaders(upstream)
 	c.setAuth(ctx, upstream, r)
 	for k, vs := range prep.Headers {
 		upstream.Header[http.CanonicalHeaderKey(k)] = vs
 	}
+	c.applyProtectedHeaders(upstream)
 	c.applyOAuthBeta(ctx, upstream, r)
 	proxy.ApplyWIFTokenType(ctx, upstream)
 	proxy.ApplyIdentityHeader(ctx, upstream)
+	proxy.ApplyForwardedClientHeaders(ctx, upstream, r.Header)
 	if v := r.Header.Get("accept"); v != "" {
 		upstream.Header.Set("accept", v)
 	}
@@ -246,6 +342,7 @@ func (c *Client) Proxy(ctx context.Context, decision router.Decision, prep provi
 			t.StampUpstreamEOF()
 		}
 		httputil.LogUpstreamStatus(
+			ctx,
 			"Upstream Anthropic returned error status",
 			resp.StatusCode,
 			"routed_model", decision.Model,
@@ -271,6 +368,7 @@ func (c *Client) Proxy(ctx context.Context, decision router.Decision, prep provi
 				providers.CopyUpstreamHeaders(httputil.HeaderCapture{H: errHeaders}, resp)
 				buffered.Headers = errHeaders
 				httputil.LogUpstreamStatus(
+					ctx,
 					"Upstream Anthropic returned SSE error event",
 					buffered.Status,
 					"routed_model", decision.Model,
@@ -317,6 +415,7 @@ func (c *Client) Passthrough(ctx context.Context, prep providers.PreparedRequest
 	if err != nil {
 		return fmt.Errorf("build upstream passthrough request: %w", err)
 	}
+	c.applyDefaultHeaders(upstream)
 	if ct := r.Header.Get("content-type"); ct != "" {
 		upstream.Header.Set("content-type", ct)
 	}
@@ -324,8 +423,10 @@ func (c *Client) Passthrough(ctx context.Context, prep providers.PreparedRequest
 	for k, vs := range prep.Headers {
 		upstream.Header[http.CanonicalHeaderKey(k)] = vs
 	}
+	c.applyProtectedHeaders(upstream)
 	c.applyOAuthBeta(ctx, upstream, r)
 	proxy.ApplyWIFTokenType(ctx, upstream)
+	proxy.ApplyForwardedClientHeaders(ctx, upstream, r.Header)
 	if v := r.Header.Get("accept"); v != "" {
 		upstream.Header.Set("accept", v)
 	}
@@ -339,7 +440,7 @@ func (c *Client) Passthrough(ctx context.Context, prep providers.PreparedRequest
 	providers.CopyUpstreamHeaders(w, resp)
 	w.WriteHeader(resp.StatusCode)
 	if resp.StatusCode >= 400 {
-		return httputil.WritePassthroughError(w, resp, nil, nil, "Upstream Anthropic returned error status (passthrough)", "path", r.URL.Path)
+		return httputil.WritePassthroughError(r.Context(), w, resp, nil, nil, "Upstream Anthropic returned error status (passthrough)", "path", r.URL.Path)
 	}
 	_, err = io.Copy(w, resp.Body)
 	return err

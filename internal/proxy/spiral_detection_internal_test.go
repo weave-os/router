@@ -177,8 +177,7 @@ func TestSpiralSignals_ErrorMarkerWithoutFlag(t *testing.T) {
 func TestSpiralSignals_SameFileThrash(t *testing.T) {
 	turns := readGrind(8, 0)
 	for i := 0; i < spiralSameFileEditThreshold; i++ {
-		// Same file, different args each time — invisible to the exact-sig
-		// tight-loop detector, exactly the rhyming-spiral shape.
+		// Same file, different args each time — exactly the rhyming-spiral shape.
 		turns = append(turns,
 			fmt.Sprintf(`call:Edit:{"file_path":"/src/core.py","old_string":"a%d","new_string":"b%d"}`, i, i),
 			"result:ok",
@@ -221,8 +220,7 @@ func TestSpiralSignals_HealthyRefactorManyFilesNoThrash(t *testing.T) {
 
 func TestSpiralSignals_Repetition(t *testing.T) {
 	// 12 distinct calls to clear the min-calls floor, then a tail where the
-	// same 3 calls cycle — high recent repeat fraction without ever putting
-	// 5 identical calls in a 10-window (the tight-loop bar).
+	// same 3 calls cycle — high recent repeat fraction.
 	turns := readGrind(12, 0)
 	for i := 0; i < 4; i++ {
 		for j := 0; j < 3; j++ {
@@ -278,5 +276,121 @@ func TestSpiralSignals_MonologueResetByUserTurn(t *testing.T) {
 	sig := computeSpiralSignals(env, 40)
 	if sig.monologueLen != 1 {
 		t.Fatalf("monologueLen = %d, want 1 (user turn resets)", sig.monologueLen)
+	}
+}
+
+func TestSpiralSignals_PingPong(t *testing.T) {
+	// Strict A/B/A/B tail: the agent flips between the same two actions,
+	// each individually below the repetition window floor.
+	turns := readGrind(12, 0)
+	for i := 0; i < spiralPingPongThreshold/2; i++ {
+		turns = append(turns,
+			`call:Read:{"file_path":"/src/a.go"}`, "result:ok",
+			`call:Edit:{"file_path":"/src/a.go","old_string":"x","new_string":"y"}`, "result:ok",
+		)
+	}
+	env := parseSpiralEnv(t, turns)
+	sig := computeSpiralSignals(env, 60)
+	if sig.pingPongLen != spiralPingPongThreshold {
+		t.Fatalf("pingPongLen = %d, want %d", sig.pingPongLen, spiralPingPongThreshold)
+	}
+	found := false
+	for _, r := range spiralReasons(sig) {
+		if r == spiralReasonPingPong {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("ping_pong missing from %v", spiralReasons(sig))
+	}
+}
+
+func TestSpiralSignals_PingPongNeedsTwoDistinctActions(t *testing.T) {
+	// One signature repeated is repetition, not ping-pong: alternation must
+	// mean the agent is oscillating between two things.
+	turns := readGrind(12, 0)
+	for i := 0; i < 8; i++ {
+		turns = append(turns, `call:Bash:{"command":"make test"}`, "result:ok")
+	}
+	env := parseSpiralEnv(t, turns)
+	sig := computeSpiralSignals(env, 60)
+	if sig.pingPongLen != 0 {
+		t.Fatalf("pingPongLen = %d, want 0 for a single repeated signature", sig.pingPongLen)
+	}
+}
+
+func TestSpiralSignals_PingPongBrokenByThirdAction(t *testing.T) {
+	turns := readGrind(12, 0)
+	for i := 0; i < 3; i++ {
+		turns = append(turns,
+			`call:Read:{"file_path":"/src/a.go"}`, "result:ok",
+			`call:Read:{"file_path":"/src/b.go"}`, "result:ok",
+		)
+	}
+	turns = append(turns, `call:Bash:{"command":"make build"}`, "result:ok")
+	env := parseSpiralEnv(t, turns)
+	sig := computeSpiralSignals(env, 60)
+	if sig.pingPongLen != 0 {
+		t.Fatalf("pingPongLen = %d, want 0 once a third action lands at the tail", sig.pingPongLen)
+	}
+}
+
+func TestSpiralSignals_NoProgressAfterFailedEdits(t *testing.T) {
+	turns := []string{
+		`call:Edit:{"file_path":"/src/a.go","old_string":"x","new_string":"y"}`, "result:err",
+	}
+	turns = append(turns, readGrind(spiralNoProgressThreshold-1, 1)...)
+	env := parseSpiralEnv(t, turns)
+	sig := computeSpiralSignals(env, 60)
+	if !sig.editAttempted {
+		t.Fatal("editAttempted = false after an Edit call")
+	}
+	if sig.stepsSinceProgress != spiralNoProgressThreshold {
+		t.Fatalf("stepsSinceProgress = %d, want %d", sig.stepsSinceProgress, spiralNoProgressThreshold)
+	}
+	found := false
+	for _, r := range spiralReasons(sig) {
+		if r == spiralReasonNoProgress {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("no_progress missing from %v", spiralReasons(sig))
+	}
+}
+
+func TestSpiralSignals_NoProgressResetBySuccessfulEdit(t *testing.T) {
+	turns := []string{
+		`call:Edit:{"file_path":"/src/a.go","old_string":"x","new_string":"y"}`, "result:err",
+	}
+	turns = append(turns, readGrind(spiralNoProgressThreshold, 1)...)
+	turns = append(turns,
+		`call:Edit:{"file_path":"/src/a.go","old_string":"x","new_string":"z"}`, "result:ok",
+	)
+	turns = append(turns, readGrind(2, 2)...)
+	env := parseSpiralEnv(t, turns)
+	sig := computeSpiralSignals(env, 60)
+	if sig.stepsSinceProgress != 2 {
+		t.Fatalf("stepsSinceProgress = %d, want 2 (counted from the landed edit)", sig.stepsSinceProgress)
+	}
+	for _, r := range spiralReasons(sig) {
+		if r == spiralReasonNoProgress {
+			t.Fatalf("no_progress fired after a successful edit (signals %+v)", sig)
+		}
+	}
+}
+
+func TestSpiralSignals_LongExploreIsNotNoProgress(t *testing.T) {
+	// An Explore phase makes no edits at all; steps-since-progress has no
+	// baseline to measure against and must stay silent.
+	env := parseSpiralEnv(t, readGrind(spiralNoProgressThreshold*2, 3))
+	sig := computeSpiralSignals(env, 80)
+	if sig.editAttempted {
+		t.Fatal("editAttempted = true without any edit call")
+	}
+	for _, r := range spiralReasons(sig) {
+		if r == spiralReasonNoProgress {
+			t.Fatalf("no_progress fired on an edit-free session (signals %+v)", sig)
+		}
 	}
 }

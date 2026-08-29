@@ -56,6 +56,12 @@ const (
 	ProviderMakora     = "makora"
 	ProviderTogether   = "together"
 	ProviderXAI        = "xai"
+	// ProviderWafer is Wafer Serverless' OpenAI-compatible surface; see
+	// ProviderWaferAnthropic for the Anthropic-spec surface (shared WAFER_API_KEY).
+	ProviderWafer = "wafer"
+	// ProviderWaferAnthropic is Wafer Serverless' Anthropic-spec Messages surface
+	// (pass.wafer.ai/v1/messages, bearer auth); shares WAFER_API_KEY with ProviderWafer.
+	ProviderWaferAnthropic = "wafer_anthropic"
 	// ProviderAnthropicGateway is an Anthropic-spec enterprise gateway using
 	// Bearer auth; its endpoint is per-tenant with no deployment default.
 	ProviderAnthropicGateway = "anthropic_gateway"
@@ -75,11 +81,12 @@ const (
 	// FamilyUnknown is the zero value (no ProviderFamilies entry).
 	// ValidateDispatchable panics at boot if a registered provider maps to it.
 	FamilyUnknown TranslationFamily = iota
-	// FamilyAnthropic speaks the Anthropic Messages wire format natively.
+	// FamilyAnthropic speaks the Anthropic Messages wire format natively
+	// (Anthropic itself plus Anthropic-compatible gateways such as Wafer's).
 	FamilyAnthropic
 	// FamilyOpenAICompat speaks the OpenAI Chat Completions wire format
 	// (OpenAI itself plus every OpenAI-compatible upstream: OpenRouter,
-	// Fireworks, Bedrock's OpenAI-compat surface, Makora, Together, XAI).
+	// Fireworks, Bedrock's OpenAI-compat surface, Makora, Together, XAI, Wafer).
 	FamilyOpenAICompat
 	// FamilyGemini speaks the Google Generative Language (Gemini) wire format.
 	FamilyGemini
@@ -97,7 +104,9 @@ var ProviderFamilies = map[string]TranslationFamily{
 	ProviderMakora:     FamilyOpenAICompat,
 	ProviderTogether:   FamilyOpenAICompat,
 	ProviderXAI:        FamilyOpenAICompat,
+	ProviderWafer:      FamilyOpenAICompat,
 
+	ProviderWaferAnthropic:   FamilyAnthropic,
 	ProviderAnthropicGateway: FamilyAnthropic,
 	ProviderOpenAIGateway:    FamilyOpenAICompat,
 }
@@ -112,6 +121,26 @@ func FamilyFor(provider string) TranslationFamily {
 // Completions wire format.
 func IsOpenAICompat(provider string) bool {
 	return FamilyFor(provider) == FamilyOpenAICompat
+}
+
+// IsGateway reports whether the provider is a customer-hosted gateway rather
+// than a vendor API. A gateway serves only the models its key's aliases name,
+// so routing treats it as the installation's exclusive upstream.
+func IsGateway(provider string) bool {
+	switch provider {
+	case ProviderAnthropicGateway, ProviderOpenAIGateway:
+		return true
+	default:
+		return false
+	}
+}
+
+// SupportsAnthropicServerTools reports whether the provider natively executes
+// Anthropic's server-side tools (web_search_*, web_fetch_*). Speaking the
+// Anthropic wire format is not the same: gateways relay to function-tool-only
+// backends and reject a server tool with a 400.
+func SupportsAnthropicServerTools(provider string) bool {
+	return FamilyFor(provider) == FamilyAnthropic && !IsGateway(provider)
 }
 
 // AllProviders returns every known Provider* constant (every ProviderFamilies
@@ -154,6 +183,9 @@ var APIKeyEnvVars = map[string]string{
 	ProviderMakora:     "MAKORA_API_KEY",
 	ProviderTogether:   "TOGETHER_API_KEY",
 	ProviderXAI:        "XAI_API_KEY",
+	// Wafer's two surfaces share a single account key.
+	ProviderWafer:          "WAFER_API_KEY",
+	ProviderWaferAnthropic: "WAFER_API_KEY",
 	// Pairs with ANTHROPIC_GATEWAY_BASE_URL, the endpoint the token is scoped to.
 	ProviderAnthropicGateway: "ANTHROPIC_GATEWAY_TOKEN",
 	// Pairs with OPENAI_GATEWAY_BASE_URL, likewise.
@@ -186,13 +218,15 @@ func RequiresBaseURL(provider string) bool {
 // so a pin can outlive the cache — the planner uses this to stop crediting a
 // stale pin a cache-read discount it no longer earns.
 var CacheTTL = map[string]time.Duration{
-	ProviderAnthropic:  time.Hour,
-	ProviderOpenAI:     5 * time.Minute,
-	ProviderGoogle:     5 * time.Minute,
-	ProviderOpenRouter: 5 * time.Minute,
-	ProviderFireworks:  5 * time.Minute,
-	ProviderBedrock:    5 * time.Minute,
-	ProviderXAI:        5 * time.Minute,
+	ProviderAnthropic:      time.Hour,
+	ProviderOpenAI:         5 * time.Minute,
+	ProviderGoogle:         5 * time.Minute,
+	ProviderOpenRouter:     5 * time.Minute,
+	ProviderFireworks:      5 * time.Minute,
+	ProviderBedrock:        5 * time.Minute,
+	ProviderXAI:            5 * time.Minute,
+	ProviderWafer:          5 * time.Minute,
+	ProviderWaferAnthropic: 5 * time.Minute,
 	// A gateway publishes no prompt-cache lifetime of its own, so it keeps the
 	// conservative window rather than inheriting Anthropic's 1h extended cache.
 	ProviderAnthropicGateway: 5 * time.Minute,
@@ -446,6 +480,94 @@ func IsUpstreamSchemaRejection(err error) bool {
 	return false
 }
 
+// unknownFieldPhrases are the verdicts meaning the upstream's request schema
+// has no such field at all, as opposed to disliking its contents.
+var unknownFieldPhrases = []string{
+	"extra inputs are not permitted",
+	"extra inputs not permitted",
+	"extra fields not permitted",
+	"unknown field",
+	"unrecognized field",
+	"unexpected field",
+	"additional properties are not allowed",
+}
+
+// IsUpstreamOutputConfigFormatRejection reports whether err is a buffered 400
+// rejecting output_config.format as an unknown field — licensing a one-shot retry.
+// A schema-contents complaint names the same field but is caller-fixable and must
+// not match (e.g. additionalProperties must be explicitly set to false).
+func IsUpstreamOutputConfigFormatRejection(err error) bool {
+	var buffered *UpstreamErrorResponse
+	if !errors.As(err, &buffered) || buffered.Status != http.StatusBadRequest {
+		return false
+	}
+	body := strings.ToLower(string(buffered.Body))
+	if !strings.Contains(body, "output_config") || !strings.Contains(body, "format") {
+		return false
+	}
+	for _, phrase := range unknownFieldPhrases {
+		if strings.Contains(body, phrase) {
+			return true
+		}
+	}
+	return false
+}
+
+// IsUpstreamPromptCacheKeyRejection reports whether err is a buffered 400
+// that rejects prompt_cache_key as an unknown field — some gateways trail the
+// spec and 400 bodies naming it — licensing a one-shot hint-stripped retry.
+func IsUpstreamPromptCacheKeyRejection(err error) bool {
+	var buffered *UpstreamErrorResponse
+	if !errors.As(err, &buffered) || buffered.Status != http.StatusBadRequest {
+		return false
+	}
+	body := strings.ToLower(string(buffered.Body))
+	if !strings.Contains(body, "prompt_cache_key") {
+		return false
+	}
+	for _, phrase := range unknownFieldPhrases {
+		if strings.Contains(body, phrase) {
+			return true
+		}
+	}
+	return false
+}
+
+// responsesUnsupportedPhrases are prose bodies meaning the gateway does not
+// serve /v1/responses at all (as opposed to rejecting this particular body).
+// Snowflake Cortex gates the surface per account and answers 400/403 rather
+// than 404, so status alone can't classify it.
+var responsesUnsupportedPhrases = []string{
+	"responses rest api not enabled",
+	"responses api not enabled",
+	"not allowed to access this endpoint",
+	"unknown path",
+}
+
+// IsUpstreamResponsesUnsupported reports whether err means the upstream has no
+// usable Responses API, so the caller should re-emit the turn onto
+// chat/completions. A 404 covers gateways that never mount the path; the prose
+// phrases cover gateways that mount it but leave it disabled per account.
+func IsUpstreamResponsesUnsupported(err error) bool {
+	var buffered *UpstreamErrorResponse
+	if !errors.As(err, &buffered) {
+		return false
+	}
+	if buffered.Status == http.StatusNotFound {
+		return true
+	}
+	if buffered.Status != http.StatusBadRequest && buffered.Status != http.StatusForbidden {
+		return false
+	}
+	body := strings.ToLower(string(buffered.Body))
+	for _, phrase := range responsesUnsupportedPhrases {
+		if strings.Contains(body, phrase) {
+			return true
+		}
+	}
+	return false
+}
+
 // UpstreamErrorBodyMessage extracts a provider's error message from a buffered
 // non-2xx body for diagnostics: prefers {"error":{"message":...}}, then
 // top-level "message", then truncated raw body. Returns "" for non-buffered or
@@ -502,6 +624,9 @@ type RequestMutationStats struct {
 	// CCOnlyToolsStripped counts Claude-Code-only tools removed before
 	// dispatching to a non-Anthropic upstream. See claudecode_tool_filter.go.
 	CCOnlyToolsStripped int
+	// ServerToolsStripped counts native server tools (web_search_*, web_fetch_*)
+	// removed before emitting to a non-Anthropic upstream. See websearch.StripServerTools.
+	ServerToolsStripped int
 	// GeminiReminderInjected is true when the Gemini 3.x tool-use reminder was
 	// appended to systemInstruction. See translate/system_reminder.go.
 	GeminiReminderInjected bool

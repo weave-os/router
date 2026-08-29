@@ -14,6 +14,7 @@ import (
 	"workweave/router/internal/observability"
 	"workweave/router/internal/providers"
 	"workweave/router/internal/providers/openai"
+	"workweave/router/internal/proxy"
 	"workweave/router/internal/router"
 	"workweave/router/internal/timing"
 
@@ -54,6 +55,108 @@ func TestProxy_RewritesModelAndForwardsAuth(t *testing.T) {
 		"Proxy must send body verbatim — model rewriting is the envelope's job")
 	assert.Equal(t, http.StatusOK, rec.Code)
 	assert.Contains(t, rec.Body.String(), `"id":"chatcmpl-1"`)
+}
+
+func TestProxy_RewritesMappedModelForChatAndResponses(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		endpoint providers.Endpoint
+		path     string
+	}{
+		{name: "chat_completions", endpoint: providers.EndpointChatCompletions, path: "/v1/chat/completions"},
+		{name: "responses", endpoint: providers.EndpointResponses, path: "/v1/responses"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var gotBody map[string]any
+			var gotPath string
+			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				gotPath = r.URL.Path
+				body, _ := io.ReadAll(r.Body)
+				require.NoError(t, json.Unmarshal(body, &gotBody))
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusOK)
+				_, _ = w.Write([]byte(`{"id":"mapped-model","object":"response"}`))
+			}))
+			defer upstream.Close()
+
+			c := openai.NewClientWithModelIDMap("test-key", upstream.URL, map[string]string{
+				"gpt-5.6-luna-pro": "gpt-5.6-luna",
+			})
+			rec := httptest.NewRecorder()
+			clientReq := httptest.NewRequest(http.MethodPost, tc.path, strings.NewReader(""))
+			prep := providers.PreparedRequest{
+				Body:     []byte(`{"model":"gpt-5.6-luna-pro","messages":[]}`),
+				Headers:  make(http.Header),
+				Endpoint: tc.endpoint,
+			}
+
+			err := c.Proxy(context.Background(), router.Decision{Model: "gpt-5.6-luna-pro"}, prep, rec, clientReq)
+
+			require.NoError(t, err)
+			assert.Equal(t, tc.path, gotPath)
+			assert.Equal(t, "gpt-5.6-luna", gotBody["model"])
+		})
+	}
+}
+
+func TestProxy_BYOKModelAliasOverridesCatalogModelIDMap(t *testing.T) {
+	var gotBody map[string]any
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		require.NoError(t, json.Unmarshal(body, &gotBody))
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"id":"byok-alias","object":"chat.completion"}`))
+	}))
+	defer upstream.Close()
+
+	c := openai.NewClientWithModelIDMap("deployment-key", upstream.URL, map[string]string{
+		"gpt-5.6-luna-pro": "gpt-5.6-luna",
+	})
+	ctx := context.WithValue(context.Background(), proxy.CredentialsContextKey{}, &proxy.Credentials{
+		APIKey:       []byte("byok-key"),
+		Source:       "byok",
+		ModelAliases: map[string]string{"gpt-5.6-luna-pro": "customer-luna"},
+	})
+	rec := httptest.NewRecorder()
+	clientReq := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(""))
+	prep := providers.PreparedRequest{
+		Body:    []byte(`{"model":"gpt-5.6-luna-pro","messages":[]}`),
+		Headers: make(http.Header),
+	}
+
+	err := c.Proxy(ctx, router.Decision{Model: "gpt-5.6-luna-pro"}, prep, rec, clientReq)
+
+	require.NoError(t, err)
+	assert.Equal(t, "customer-luna", gotBody["model"],
+		"the BYOK endpoint alias must override the deployment catalog mapping")
+}
+
+func TestProxy_ForwardsUnmappedModelUnchanged(t *testing.T) {
+	var gotBody map[string]any
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		require.NoError(t, json.Unmarshal(body, &gotBody))
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"id":"unmapped-model","object":"chat.completion"}`))
+	}))
+	defer upstream.Close()
+
+	c := openai.NewClientWithModelIDMap("test-key", upstream.URL, map[string]string{
+		"gpt-5.6-luna-pro": "gpt-5.6-luna",
+	})
+	rec := httptest.NewRecorder()
+	clientReq := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(""))
+	prep := providers.PreparedRequest{
+		Body:    []byte(`{"model":"gpt-5.6-sol-pro","messages":[]}`),
+		Headers: make(http.Header),
+	}
+
+	err := c.Proxy(context.Background(), router.Decision{Model: "gpt-5.6-sol-pro"}, prep, rec, clientReq)
+
+	require.NoError(t, err)
+	assert.Equal(t, "gpt-5.6-sol-pro", gotBody["model"])
 }
 
 func TestProxy_StripsDynamicHopByHopHeaders(t *testing.T) {

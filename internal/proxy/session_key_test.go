@@ -191,3 +191,40 @@ func TestDeriveSessionKey_OpenAILeadingSystemDoesNotCollapse(t *testing.T) {
 
 	assert.NotEqual(t, kA, kB, "distinct OpenAI conversations must not share a pin when the first user message is empty")
 }
+
+func TestDeriveSessionKey_DistinctClientSessionIDsDoNotCollide(t *testing.T) {
+	// Same first user message used to collapse unrelated Codex/Claude sessions
+	// onto one pin. The extracted session UUID must split them.
+	envA := anthropicEnv(t, `{
+		"metadata": {"user_id": "{\"session_id\":\"01a049b4-5372-71a0-8eba-f0836a5c68ee\"}"},
+		"messages": [{"role": "user", "content": "<system_instruction>\nYou are working inside Conductor"}]
+	}`)
+	envB := anthropicEnv(t, `{
+		"metadata": {"user_id": "{\"session_id\":\"01a04922-b33f-7582-b63b-faa672eb414c\"}"},
+		"messages": [{"role": "user", "content": "<system_instruction>\nYou are working inside Conductor"}]
+	}`)
+
+	kA := proxy.DeriveSessionKey(envA, "api-key")
+	kB := proxy.DeriveSessionKey(envB, "api-key")
+
+	assert.NotEqual(t, kA, kB, "same first message in two client sessions must not share a pin")
+}
+
+func TestDeriveSessionKey_ClaudeCodeJSONSessionIDIsStableAcrossTurns(t *testing.T) {
+	turn1 := anthropicEnv(t, `{
+		"metadata": {"user_id": "{\"device_id\":\"dev\",\"account_id\":\"acct\",\"session_id\":\"7937b7f5-465f-4419-99f3-2d1666ba13db\"}"},
+		"system": "system v1",
+		"messages": [{"role": "user", "content": "first turn"}]
+	}`)
+	turn2 := anthropicEnv(t, `{
+		"metadata": {"user_id": "{\"device_id\":\"dev\",\"account_id\":\"acct\",\"session_id\":\"7937b7f5-465f-4419-99f3-2d1666ba13db\"}"},
+		"system": "system v2 — mutated",
+		"messages": [
+			{"role": "user", "content": "first turn"},
+			{"role": "assistant", "content": "ok"},
+			{"role": "user", "content": "keep going"}
+		]
+	}`)
+
+	assert.Equal(t, proxy.DeriveSessionKey(turn1, "api-key"), proxy.DeriveSessionKey(turn2, "api-key"))
+}

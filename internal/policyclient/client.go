@@ -94,7 +94,14 @@ func New(baseURL string, client *http.Client, timeout time.Duration, opts ...Opt
 		timeout = DefaultTimeout
 	}
 	if client == nil {
-		client = &http.Client{Timeout: timeout}
+		// Same no-redirect policy as newGoogleIDTokenHTTPClient (auth.go):
+		// a 3xx fails the != 200 status checks instead of being followed.
+		client = &http.Client{
+			Timeout: timeout,
+			CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
+				return http.ErrUseLastResponse
+			},
+		}
 	}
 	sidecar := &Client{
 		baseURL:        strings.TrimRight(baseURL, "/"),
@@ -384,6 +391,9 @@ type routeResponse struct {
 	Debug                map[string]interface{} `json:"debug"`
 	RankedFallback       []policy.PreviewGroup  `json:"ranked_fallback"`
 	ArmScores            map[string]float32     `json:"arm_scores"`
+	PredictedLabel       string                 `json:"predicted_label"`
+	ClassProbabilities   map[string]float64     `json:"class_probabilities"`
+	PinStickyOverride    *bool                  `json:"pin_sticky_override_eligible"`
 	Timings              *routeTimings          `json:"timings"`
 	Error                string                 `json:"error"`
 }
@@ -503,32 +513,35 @@ func (c *Client) Decide(ctx context.Context, query policy.Query) (policy.Result,
 		score = *parsed.ChosenScore
 	}
 	return policy.Result{
-		SchemaVersion:        parsed.SchemaVersion,
-		RouteID:              parsed.RouteID,
-		ArmID:                parsed.SelectedArmID,
-		Model:                selectedModel,
-		Provider:             parsed.SelectedProvider,
-		Score:                score,
-		CandidateScores:      parsed.CandidateScores,
-		ScoreKind:            firstNonEmpty(parsed.ScoreKind, parsed.ScoreLabel),
-		Reason:               parsed.Reason,
-		PolicyState:          firstNonEmpty(parsed.PolicyState, parsed.StateLabel),
-		PolicyGroup:          firstNonEmpty(parsed.PolicyGroup, parsed.Cluster),
-		PolicyLabel:          firstNonEmpty(parsed.PolicyLabel, parsed.ComplexityLabel),
-		PolicyRouteKey:       firstNonEmpty(parsed.PolicyRouteKey, parsed.RoutingBucket),
-		Confidence:           firstFloat(parsed.Confidence, parsed.ClassifierConfidence),
-		Margin:               firstFloat(parsed.Margin, parsed.ClassifierMargin),
-		Propensity:           parsed.Propensity,
-		DisplayMarker:        parsed.DisplayMarker,
-		PolicyArtifactID:     firstNonEmpty(parsed.PolicyArtifactID, parsed.PolicyModelID),
-		PolicyArtifactSHA256: firstNonEmpty(parsed.PolicyArtifactSHA256, parsed.PolicySHA256),
-		RosterVersion:        parsed.RosterVersion,
-		DebugRef:             parsed.DebugRef,
-		Debug:                parsed.Debug,
-		RankedFallback:       parsed.RankedFallback,
-		ArmScores:            parsed.ArmScores,
-		Timings:              decomposeTimings(parsed.Timings),
-		ServingStats:         extractServingStats(parsed.Timings),
+		SchemaVersion:             parsed.SchemaVersion,
+		RouteID:                   parsed.RouteID,
+		ArmID:                     parsed.SelectedArmID,
+		Model:                     selectedModel,
+		Provider:                  parsed.SelectedProvider,
+		Score:                     score,
+		CandidateScores:           parsed.CandidateScores,
+		ScoreKind:                 firstNonEmpty(parsed.ScoreKind, parsed.ScoreLabel),
+		Reason:                    parsed.Reason,
+		PolicyState:               firstNonEmpty(parsed.PolicyState, parsed.StateLabel),
+		PolicyGroup:               firstNonEmpty(parsed.PolicyGroup, parsed.Cluster),
+		PolicyLabel:               firstNonEmpty(parsed.PolicyLabel, parsed.ComplexityLabel),
+		PolicyRouteKey:            firstNonEmpty(parsed.PolicyRouteKey, parsed.RoutingBucket),
+		Confidence:                firstFloat(parsed.Confidence, parsed.ClassifierConfidence),
+		Margin:                    firstFloat(parsed.Margin, parsed.ClassifierMargin),
+		Propensity:                parsed.Propensity,
+		DisplayMarker:             parsed.DisplayMarker,
+		PolicyArtifactID:          firstNonEmpty(parsed.PolicyArtifactID, parsed.PolicyModelID),
+		PolicyArtifactSHA256:      firstNonEmpty(parsed.PolicyArtifactSHA256, parsed.PolicySHA256),
+		RosterVersion:             parsed.RosterVersion,
+		DebugRef:                  parsed.DebugRef,
+		Debug:                     parsed.Debug,
+		RankedFallback:            parsed.RankedFallback,
+		ArmScores:                 parsed.ArmScores,
+		PredictedLabel:            parsed.PredictedLabel,
+		ClassProbabilities:        parsed.ClassProbabilities,
+		PinStickyOverrideEligible: parsed.PinStickyOverride,
+		Timings:                   decomposeTimings(parsed.Timings),
+		ServingStats:              extractServingStats(parsed.Timings),
 	}, nil
 }
 

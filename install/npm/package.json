@@ -9,6 +9,9 @@
   "pi": {
     "extensions": [
       "./pi-router/src/index.ts"
+    ],
+    "skills": [
+      "./pi-router/skills"
     ]
   },
   "files": [
@@ -16,6 +19,9 @@
     "install.sh",
     "uninstall.sh",
     "cc-statusline.sh",
+    "codex-status.sh",
+    "registry.sh",
+    "directives.tsv",
     "commands/",
     "codex-skills/",
     "pi-router/",
