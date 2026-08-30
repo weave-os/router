@@ -466,6 +466,8 @@ func (s *Service) runTurnLoop(
 	} else if req.TranslationRequirements.IsZero() {
 		req.TranslationRequirements = env.TranslationRequirements(translationEndpointFor(env))
 	}
+	threadSessionKey := deriveSessionKeyForRequest(ctx, env, apiKeyID)
+	req.TranslationRequirements = s.scopeSearchRequirement(threadSessionKey, env, req.TranslationRequirements)
 	var compatibilityErr error
 	req, compatibilityErr = s.applyTranslationPlan(ctx, req)
 	if compatibilityErr != nil {
@@ -522,7 +524,6 @@ func (s *Service) runTurnLoop(
 
 	// Explicit user-forced pins outrank every automatic fast path, including
 	// the turn-type hard pin; only check here so ordinary turns use the normal flow.
-	threadSessionKey := deriveSessionKeyForRequest(ctx, env, apiKeyID)
 	hardPinnedTurn := s.isHardPinnedTurn(ctx, res.TurnType)
 	if s.pinStore != nil && hardPinnedTurn {
 		forcedPin, found := s.loadPin(ctx, threadSessionKey, res.PinRole)
