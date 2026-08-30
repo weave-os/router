@@ -61,9 +61,8 @@ type Service struct {
 	strategies                   map[router.Strategy]registeredStrategy
 	providers                    map[string]providers.Client
 	translationCompatibilityMode TranslationCompatibilityMode
-	// scopedSearchRequirement gates CitationsOrSearch on actual (current or
-	// recent) search-tool use instead of mere advertisement. Off by default;
-	// env ROUTER_SCOPED_SEARCH_REQUIREMENT.
+	// scopedSearchRequirement gates CitationsOrSearch on actual (current or recent)
+	// search-tool use, not mere advertisement; env ROUTER_SCOPED_SEARCH_REQUIREMENT.
 	scopedSearchRequirement bool
 	// searchRequirementDecayTurns bounds how many routed turns after the last
 	// actual use keep the requirement. Env ROUTER_SEARCH_REQUIREMENT_DECAY_TURNS.
