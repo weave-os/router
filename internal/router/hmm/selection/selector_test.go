@@ -11,10 +11,10 @@ import (
 	"workweave/router/internal/router/policy"
 )
 
-func TestOverrideReturnsDeterministicPick(t *testing.T) {
-	override := selection.Override(testRoster())
+func TestSelectorReturnsDeterministicPick(t *testing.T) {
+	selector := selection.Selector(testRoster())
 
-	pick, ok := override(context.Background(), policy.SelectionObservation{
+	pick, err := selector(context.Background(), policy.SelectionInput{
 		Harness: "claude-code",
 		RankedFallback: []policy.PreviewGroup{
 			{Group: "low", Probability: 0.7},
@@ -23,23 +23,23 @@ func TestOverrideReturnsDeterministicPick(t *testing.T) {
 		CandidateRosterIDs: []string{"vendor-a/cheap", "vendor-b/cheap"},
 	})
 
-	require.True(t, ok)
+	require.NoError(t, err)
 	assert.Equal(t, "low", pick.Group)
 	assert.Equal(t, "vendor-b/cheap", pick.Arm, "harness-specific order must decide the pick")
 }
 
-func TestOverrideFailsOpenWithoutRankedFallback(t *testing.T) {
-	override := selection.Override(testRoster())
+func TestSelectorFailsClosedWithoutRankedFallback(t *testing.T) {
+	selector := selection.Selector(testRoster())
 
-	_, ok := override(context.Background(), policy.SelectionObservation{Harness: "claude-code"})
+	_, err := selector(context.Background(), policy.SelectionInput{Harness: "claude-code"})
 
-	assert.False(t, ok)
+	assert.ErrorIs(t, err, selection.ErrNoEligibleArm)
 }
 
-func TestOverrideFailsOpenWhenNoRankedGroupHoldsAnEligibleArm(t *testing.T) {
-	override := selection.Override(testRoster())
+func TestSelectorFailsClosedWhenNoRankedGroupHoldsAnEligibleArm(t *testing.T) {
+	selector := selection.Selector(testRoster())
 
-	_, ok := override(context.Background(), policy.SelectionObservation{
+	_, err := selector(context.Background(), policy.SelectionInput{
 		Harness: "codex",
 		RankedFallback: []policy.PreviewGroup{
 			{Group: "high", Probability: 1.0},
@@ -47,5 +47,5 @@ func TestOverrideFailsOpenWhenNoRankedGroupHoldsAnEligibleArm(t *testing.T) {
 		CandidateRosterIDs: []string{"vendor-a/cheap"},
 	})
 
-	assert.False(t, ok)
+	assert.ErrorIs(t, err, selection.ErrNoEligibleArm)
 }

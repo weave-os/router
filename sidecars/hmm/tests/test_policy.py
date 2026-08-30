@@ -8,7 +8,6 @@ import pytest
 from hmm_sidecar.artifacts import resolve_artifacts, sha256_file
 from hmm_sidecar.policy import (
     FrozenPolicy,
-    select_roster_arm,
     select_roster_group,
     selected_margin,
 )
@@ -37,22 +36,11 @@ def test_roster_ids_dedupes_arms_across_clusters_in_first_seen_order() -> None:
     ]
 
 
-def test_roster_fallback_reports_the_selected_classifier_group() -> None:
+def test_selected_margin_is_signed_against_the_best_alternative() -> None:
     probabilities = {"fast": 0.2, "maximum": 0.8}
 
-    label, roster_id = select_roster_arm(
-        probabilities=probabilities,
-        classes=("fast", "maximum"),
-        clusters={
-            "fast": {"arms": ["provider/fast"]},
-            "maximum": {"arms": ["provider/maximum"]},
-        },
-        available_roster_ids={"provider/fast"},
-    )
-
-    assert label == "fast"
-    assert roster_id == "provider/fast"
-    assert selected_margin(probabilities, label) == pytest.approx(-0.6)
+    assert selected_margin(probabilities, "fast") == pytest.approx(-0.6)
+    assert selected_margin(probabilities, "maximum") == pytest.approx(0.6)
 
 
 def test_group_selection_uses_class_order_ties_and_returns_every_arm() -> None:
@@ -109,12 +97,11 @@ async def test_published_package_routes_an_offered_candidate(
     monkeypatch.setenv("HMM_PACKAGE_SHA256", sha256_file(package))
     artifacts = resolve_artifacts()
     policy = FrozenPolicy(artifacts, FixedEmbedder(artifacts.probe_vector.tolist()))
-    selected_label = "maximum"
-    roster_id = policy.clusters[selected_label]["arms"][0]
+    roster_id = policy.clusters["maximum"]["arms"][0]
 
     result = await policy.route(
         {
-            "schema_version": "policy_router_v1",
+            "schema_version": "policy_router_v3",
             "route_id": "release-smoke-route",
             "prompt_text": "Implement the requested change.",
             "conversation_messages": [
@@ -132,13 +119,14 @@ async def test_published_package_routes_an_offered_candidate(
     )
 
     assert result.route_id == "release-smoke-route"
-    assert result.selected_roster_id == roster_id
-    assert result.policy_label == selected_label
+    assert result.selected_roster_id is None
+    assert result.model is None
     assert result.policy_artifact_sha256 == sha256_file(package)
-    # ranked_fallback must be populated so the Go side can apply per-key
-    # cluster allowlist overrides.
+    # ranked_fallback carries the whole ranking: it is the only input the Go
+    # router selects an arm from, and what per-key cluster overrides apply to.
     assert result.ranked_fallback
-    assert any(group.group == selected_label for group in result.ranked_fallback)
+    assert result.policy_label == result.ranked_fallback[0].group
+    assert any(group.group == "maximum" for group in result.ranked_fallback)
 
 
 async def test_stage_timings_attribute_slow_work_to_the_stage_that_did_it() -> None:

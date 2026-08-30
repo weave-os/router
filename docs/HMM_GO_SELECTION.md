@@ -5,7 +5,9 @@ within-cluster arm selection — which lives in the Go router. The sidecar keeps
 ML inference (complexity classification) only.
 
 The staged rollout (`ROUTER_HMM_SELECTION_SHADOW` → `ROUTER_HMM_GO_SELECTION`)
-is complete and both flags are gone: Go selection is the only path.
+is complete and both flags are gone: Go selection is the only path. The sidecar
+contract followed: `policy_router_v3` carries a classification and no selected
+arm at all.
 
 ## Why
 
@@ -24,8 +26,8 @@ class and shrinks the sidecar's authority to what only it can do: ML inference.
 | Roster contents (`hmm_router_cluster_roster_v6` JSON) | Declarative data, loaded and fail-loud validated by Go at boot (`internal/router/hmm/rosterdata`) |
 | Roster↔catalog validation | Go: `hmm.ValidateRosterIDs` (`internal/router/hmm/validate.go`) plus the `validate-roster` CLI for CI |
 | Within-cluster deterministic arm selection (harness-specific order, rank-1 pick, ranked cluster-fallback walk) | Go: `internal/router/hmm/selection` |
-| Complexity classification (ML) | Python sidecar (`policy_router_v1` contract) |
-| Pin-sticky eligibility signal | Typed contract field `pin_sticky_override_eligible` (successor of the `[pin_sticky_override_eligible]` reason-string sentinel) |
+| Complexity classification (ML) | Python sidecar (`policy_router_v3` contract) |
+| Ranked cluster fallback (per-group probability, roster arms, eligible arms) | Python sidecar — the only selection input the router accepts |
 
 ## Configuration
 
@@ -40,31 +42,27 @@ Per decision: Go's deterministic pick serves (reason suffixed `:go_selection`)
 and the sidecar's classifier label/confidence is kept. Explicit force-cluster
 and per-key cluster overrides take precedence when they actually constrain the
 pick (a ranked-group pass-through with no configured list for the winning group
-does not); selection fails open to the sidecar's pick when no ranked group holds
-an eligible arm. Because the Go pick is deterministic, pin-sticky eligibility is
-neutralized on any Go pick (typed field forced `false`, legacy sentinel
-stripped) so a session pin cannot veto it.
+does not).
+
+Selection is **fail-closed**. A `/route` response with no ranked fallback, a
+ranked fallback holding no eligible arm, or a `policy_router_v1`/`v2` schema is
+rejected as a sidecar outage and the turn returns HTTP 503. There is no
+sidecar-picked arm to fall back to: `selected_roster_id`, `selected_provider`
+and `model` are null on the wire.
 
 See [CONFIGURATION.md](CONFIGURATION.md) for the full variable reference.
 
-## Rollback
+## Deployment and rollback
 
-There is no runtime flag to flip. Rolling selection back to the sidecar means
-reverting the router image pin (in WorkWeave) to a build that still carries
-`ROUTER_HMM_GO_SELECTION`, and setting that flag to `false`.
+`policy_router_v3` is a hard break with no compatibility window: a v3 router
+rejects a v1/v2 sidecar and a v3 sidecar names no arm for a v1/v2 router. Router
+and sidecar deploy together, and roll back together — revert both image pins.
+There is no runtime flag to flip.
 
 Roster content is still rolled back on its own: republish the previous roster
 artifact and redeploy — an invalid roster fails boot rather than serving.
 
-No change here touches the sidecar contract: sidecars that do not emit the
-optional typed fields (`predicted_label`, `class_probabilities`,
-`pin_sticky_override_eligible`) keep working via the legacy reason-string
-sentinel path.
-
 ## Still to remove
 
-- The reason-string sentinel match in `internal/proxy`
-  (`hmmArmSelectorUnavailableSentinel`), once every sidecar emits the typed
-  `pin_sticky_override_eligible` field.
 - The silent-drop mapping contract of `hmm.DeployedModelsForRosterIDs`, once the
   admin roster view reads the declarative roster instead.

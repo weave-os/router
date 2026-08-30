@@ -49,7 +49,7 @@ func TestTurnLoopHoldsPinnedEffortOnLowGapEscalation(t *testing.T) {
 				LastTurnEndedAt: time.Now().Add(-time.Minute),
 				LastServedModel: pinnedModel + ":low",
 			}
-			policyRouter := &hmmPinStickyTestRouter{decision: router.Decision{
+			policyRouter := &authoritativeTestRouter{decision: router.Decision{
 				Provider: providers.ProviderAnthropic,
 				Model:    pinnedModel,
 				Effort:   "high",

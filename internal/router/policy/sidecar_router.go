@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"math"
 	"slices"
-	"strings"
 	"sync"
 
 	"github.com/google/uuid"
@@ -13,10 +12,6 @@ import (
 	"workweave/router/internal/observability"
 	"workweave/router/internal/router"
 )
-
-// pinStickyOverrideSentinel is the legacy reason marker for a fallback draw a
-// session pin may override; mirrors the proxy's sentinel match.
-const pinStickyOverrideSentinel = "[pin_sticky_override_eligible]"
 
 // ReasonRenderer converts policy metadata into the compact internal reason
 // consumed by the existing pin/planner layer.
@@ -32,15 +27,15 @@ type SidecarRouterConfig struct {
 
 // SidecarRouter is a shared adapter for out-of-process policy routers.
 type SidecarRouter struct {
-	config            SidecarRouterConfig
-	decider           Decider
-	reporter          OutcomeReporter
-	feedbackReporter  FeedbackReporter
-	resolver          *Resolver
-	selectionOverride SelectionOverride
-	capabilitiesMu    sync.RWMutex
-	capabilities      Capabilities
-	capabilitiesSet   bool
+	config           SidecarRouterConfig
+	decider          Decider
+	reporter         OutcomeReporter
+	feedbackReporter FeedbackReporter
+	resolver         *Resolver
+	armSelector      ArmSelector
+	capabilitiesMu   sync.RWMutex
+	capabilities     Capabilities
+	capabilitiesSet  bool
 }
 
 // NewSidecarRouter constructs a reusable policy adapter. Strategy packages
@@ -70,10 +65,12 @@ func (r *SidecarRouter) WithCapabilities(capabilities Capabilities) *SidecarRout
 	return r
 }
 
-// WithSelectionOverride installs a boot-time arm re-selector. Explicit
-// force-cluster and per-key cluster overrides still take precedence.
-func (r *SidecarRouter) WithSelectionOverride(override SelectionOverride) *SidecarRouter {
-	r.selectionOverride = override
+// WithArmSelector makes this router the arm selector and negotiates the
+// classifier-only sidecar contract. Explicit force-cluster and per-key cluster
+// overrides still take precedence over its pick.
+func (r *SidecarRouter) WithArmSelector(selector ArmSelector) *SidecarRouter {
+	r.armSelector = selector
+	r.resolver.RouterSelectsArm()
 	return r
 }
 
@@ -325,9 +322,6 @@ func (r *SidecarRouter) Route(ctx context.Context, req router.Request) (router.D
 		return router.Decision{}, fmt.Errorf("%s: sidecar decide: %w: %w", strategy, err, r.config.Unavailable)
 	}
 
-	// Per-key cluster allowlist enforcement. ranked_fallback presence in the /route
-	// response is proof the sidecar supports it — boot-time capabilities can be
-	// stale after an upgrade. Missing ranked_fallback → fail open.
 	overrideArmID := res.ArmID
 	overrideRosterID := res.Model
 	overrideReasonSuffix := ""
@@ -335,77 +329,65 @@ func (r *SidecarRouter) Route(ctx context.Context, req router.Request) (router.D
 	// sidecar's, which is the only case where res.Provider legitimately names a
 	// different provider than the resolved binding.
 	reselected := false
-	// constrained is set when a force-cluster or a configured per-key list applies;
-	// the boot-time selection override must not supersede it.
-	constrained := false
+	if r.armSelector != nil {
+		if res.SchemaVersion != SchemaVersionV3 {
+			return router.Decision{}, fmt.Errorf("%s: sidecar reported schema %q, expected %s: %w", strategy, res.SchemaVersion, SchemaVersionV3, r.config.Unavailable)
+		}
+		pick, selectErr := r.armSelector(ctx, selectionInputFor(strategy, executionMode, req, res, resolved))
+		if selectErr != nil {
+			return router.Decision{}, fmt.Errorf("%s: arm selection: %w: %w", strategy, selectErr, r.config.Unavailable)
+		}
+		overrideArmID = indexCandidates(resolved).rosterToArm[pick.Arm]
+		overrideRosterID = pick.Arm
+		overrideReasonSuffix = ":go_selection"
+		reselected = true
+		res.PolicyGroup = pick.Group
+	}
+
+	// Per-key cluster allowlist enforcement. ranked_fallback presence in the /route
+	// response is proof the sidecar supports it — boot-time capabilities can be
+	// stale after an upgrade. Missing ranked_fallback → fail open.
 	switch {
 	case req.ForceCluster != "":
 		// Returned unwrapped: the caller's dispatch classifier matches the typed
 		// error to a 400, and burying it under the strategy's unavailable sentinel
 		// would report a bad header as a sidecar outage.
-		outcome, err := ApplyClusterArmOverridesRequireMatch(req.ClusterArmOverrides, res.RankedFallback, resolved, res.Model, req.ForceCluster)
+		outcome, err := ApplyClusterArmOverridesRequireMatch(req.ClusterArmOverrides, res.RankedFallback, resolved, overrideRosterID, req.ForceCluster)
 		if err != nil {
 			return router.Decision{}, err
 		}
+		previousRosterID := overrideRosterID
 		overrideArmID = outcome.ArmID
 		overrideRosterID = outcome.RosterID
-		// Annotated even when the forced cluster is the one the sidecar picked
-		// anyway, so telemetry can tell a constrained turn from a free one.
+		// Annotated even when the forced cluster is the one already selected,
+		// so telemetry can tell a constrained turn from a free one.
 		overrideReasonSuffix = ":force_cluster"
-		reselected = outcome.Changed
-		constrained = true
+		reselected = reselected || outcome.Changed
 		observability.FromContext(ctx).Info("Forced cluster applied",
 			"strategy", strategy,
 			"group", outcome.Group,
-			"sidecar_arm", res.Model,
+			"previous_arm", previousRosterID,
 			"forced_arm", outcome.RosterID,
 		)
 	case len(req.ClusterArmOverrides) > 0 && len(res.RankedFallback) > 0:
-		outcome := ApplyClusterArmOverrides(req.ClusterArmOverrides, res.RankedFallback, resolved, res.Model)
-		if outcome.Applied && outcome.RosterID != "" {
+		outcome := ApplyClusterArmOverrides(req.ClusterArmOverrides, res.RankedFallback, resolved, overrideRosterID)
+		// Only a configured allowlist supersedes the router's own selection; an
+		// unconstrained group walk would just re-derive the same ranked order.
+		if outcome.Applied && outcome.RosterID != "" && (outcome.Constrained || r.armSelector == nil) {
+			previousRosterID := overrideRosterID
 			// Use the resolved arm ID: on arm-enumerating resolvers a roster ID can
 			// be ambiguous (shared across providers) and absent from ByRosterID.
 			overrideArmID = outcome.ArmID
 			overrideRosterID = outcome.RosterID
-			constrained = outcome.Constrained
 			if outcome.Changed {
 				overrideReasonSuffix = ":cluster_override"
 				reselected = true
 				observability.FromContext(ctx).Info("Cluster allowlist override applied",
 					"strategy", strategy,
 					"group", outcome.Group,
-					"sidecar_arm", res.Model,
+					"previous_arm", previousRosterID,
 					"override_arm", outcome.RosterID,
 				)
-			}
-		}
-	}
-
-	// Snapshotted before the override so it always sees the sidecar's own pick.
-	var observation SelectionObservation
-	if r.selectionOverride != nil {
-		observation = selectionObservationFor(strategy, executionMode, req, res, resolved)
-	}
-	if r.selectionOverride != nil && !constrained {
-		if pick, ok := r.selectionOverride(ctx, observation); ok {
-			// Go-selected arm is deterministic even when it matches the sidecar's:
-			// neutralize pin-sticky so a session pin cannot veto it.
-			notEligible := false
-			res.PinStickyOverrideEligible = &notEligible
-			res.Reason = strings.ReplaceAll(res.Reason, pinStickyOverrideSentinel, "")
-			if pick.Arm != overrideRosterID {
-				index := indexCandidates(resolved)
-				overrideArmID = index.rosterToArm[pick.Arm]
-				overrideRosterID = pick.Arm
-				overrideReasonSuffix = ":go_selection"
-				reselected = true
-				observability.FromContext(ctx).Info("Go selection override applied",
-					"strategy", strategy,
-					"group", pick.Group,
-					"sidecar_arm", res.Model,
-					"override_arm", pick.Arm,
-				)
-				res.PolicyGroup = pick.Group
 			}
 		}
 	}
@@ -490,7 +472,6 @@ func (r *SidecarRouter) Route(ctx context.Context, req router.Request) (router.D
 			SidecarSchemaVersion:          res.SchemaVersion,
 			DebugRef:                      debugRef,
 			AuthoritativePerTurnSelection: capabilities.AuthoritativePerTurnSelection,
-			PinStickyOverrideEligible:     res.PinStickyOverrideEligible,
 			SelectedUpstreamID:            binding.UpstreamID,
 			BindingIndex:                  binding.BindingIndex,
 			CandidateArmIDs:               resolved.CandidateArmIDs(),

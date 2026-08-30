@@ -2,7 +2,7 @@
 
 This companion Python service makes the router's opt-in `hmm` strategy
 self-hostable. It serves immutable PCA/HMM/XGBoost artifacts through the
-router's existing `policy_router_v1` HTTP contract. Training, online learning,
+router's `policy_router_v3` HTTP contract. Training, online learning,
 WorkWeave registries, GCS, and managed-service credentials are intentionally
 outside this package.
 
@@ -44,33 +44,23 @@ It must expose the same underlying Google embedding model and pass the probe.
 Ollama, vLLM, or another local embedder requires an HMM/classifier package
 trained in that model's own vector space.
 
-## Typed contract fields
+## Response contract: classification, not selection
 
-In addition to the required `policy_router_v1` response fields, `/route`
-responses emit optional typed fields:
+`/route` answers with a classification. The arm is chosen by the router, from
+the declarative roster file (`ROUTER_HMM_ROSTER_PATH`, required alongside
+`ROUTER_HMM_SIDECAR_URL`) using `internal/router/hmm/selection`:
 
 - `predicted_label` — the classifier's predicted complexity label;
 - `class_probabilities` — the classifier's per-class probability map;
-- `pin_sticky_override_eligible` — typed successor of the legacy
-  `[pin_sticky_override_eligible]` reason-string sentinel. This sidecar always
-  reports `false`; when present the router treats it as authoritative and
-  ignores the sentinel.
+- `ranked_fallback` — the cluster ranking (probability, roster arms, eligible
+  arms per group) the router walks;
+- `selected_roster_id`, `selected_provider`, `model` — always `null`.
 
-The fields are additive: routers and sidecars that predate them interoperate
-unchanged via the legacy reason-string path.
-
-## Deprecated: sidecar-side deterministic selection
-
-This sidecar still performs the deterministic within-cluster arm selection
-(harness-specific roster ordering, rank-1 eligible-arm pick, ranked
-cluster-fallback walk) after classification, but the router no longer serves
-that pick: it reselects the arm itself from the declarative roster file
-(`ROUTER_HMM_ROSTER_PATH`, required alongside `ROUTER_HMM_SIDECAR_URL`) using
-`internal/router/hmm/selection`. What the router still consumes from this
-sidecar is ML inference — the classification label and probabilities via the
-typed fields above — plus the ranked cluster fallback that orders the walk. The
-sidecar's own arm pick is only a fail-open fallback when no ranked group holds
-an eligible arm. See
+`policy_router_v3` is a hard break from `v1`/`v2` with no compatibility window:
+this sidecar rejects a v1/v2 `/route` request, and a v3 router rejects a
+response that names an arm or omits `ranked_fallback` — the turn fails with
+HTTP 503 rather than serving a sidecar pick. Run the sidecar and the router
+from matching releases. See
 [docs/HMM_GO_SELECTION.md](../../docs/HMM_GO_SELECTION.md).
 
 ## Artifact safety

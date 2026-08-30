@@ -13,6 +13,12 @@ const SchemaVersionV1 = "policy_router_v1"
 // arm identities and require arm-aware selection when a roster is ambiguous.
 const SchemaVersionV2 = "policy_router_v2"
 
+// SchemaVersionV3 identifies the classifier-only contract: the sidecar reports
+// the classification and its ranked cluster fallback, the router selects the
+// arm. A v3 /route response carries no selected arm, and a router that owns
+// selection rejects a v1/v2 response outright.
+const SchemaVersionV3 = "policy_router_v3"
+
 const (
 	ExecutionModeServing = "serving"
 	ExecutionModeShadow  = "shadow"
@@ -129,9 +135,6 @@ type Result struct {
 	// ClassProbabilities is the classifier's typed per-class probability map;
 	// nil on sidecars that do not report it.
 	ClassProbabilities map[string]float64
-	// PinStickyOverrideEligible is the typed successor of the
-	// "[pin_sticky_override_eligible]" sentinel; nil when the sidecar does not report it.
-	PinStickyOverrideEligible *bool
 }
 
 // PreviewGroup records one classifier group in serving fallback order.

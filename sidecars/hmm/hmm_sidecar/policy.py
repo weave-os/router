@@ -121,24 +121,6 @@ def select_roster_group(
     return selected_group, selected_arms, tuple(fallback)
 
 
-def select_roster_arm(
-    *,
-    probabilities: dict[str, float],
-    classes: tuple[str, ...],
-    clusters: dict[str, Any],
-    available_roster_ids: set[str],
-) -> tuple[str, str]:
-    label, arms, _ = select_roster_group(
-        probabilities=probabilities,
-        classes=classes,
-        clusters=clusters,
-        available_roster_ids=available_roster_ids,
-    )
-    if label is None or not arms:
-        raise ValueError("no candidate is present in the frozen HMM roster")
-    return label, arms[0]
-
-
 def selected_margin(probabilities: dict[str, float], selected_label: str) -> float:
     selected = float(probabilities[selected_label])
     alternatives = [
@@ -273,20 +255,16 @@ class FrozenPolicy:
             payload, allow_empty_candidates=False
         )
         by_roster = {candidate.roster_id: candidate for candidate in candidates}
-        selected_label, selected_roster, ranked_fallback = select_roster_group(
+        _, _, ranked_fallback = select_roster_group(
             probabilities=classification.probabilities,
             classes=tuple(self.classifier.classes),
             clusters=self.clusters,
             available_roster_ids=set(by_roster),
         )
-        if selected_label is None or not selected_roster:
-            raise ValueError("no candidate is present in the frozen HMM roster")
-        selected_roster_id = (
-            selected_roster[0]
-            if isinstance(selected_roster, tuple)
-            else selected_roster
-        )
-        selected = by_roster[selected_roster_id]
+        # The reported group is the classifier's own top class, not the first
+        # group that happens to hold an eligible arm: eligibility is the
+        # router's business now, and ranked_fallback already carries it.
+        classified_label = ranked_fallback[0].group
         card = self.state_cards.get(readout.state, {})
         state_label = str(card.get("name") or f"state_{readout.state}")
         candidate_scores = {
@@ -301,25 +279,22 @@ class FrozenPolicy:
             for candidate in candidates
         }
         route_id = str(payload.get("route_id") or "")
-        score = float(classification.probabilities[selected_label])
-        margin = selected_margin(classification.probabilities, selected_label)
+        score = float(classification.probabilities[classified_label])
+        margin = selected_margin(classification.probabilities, classified_label)
         reason = (
-            f"classifier group {selected_label!r} "
+            f"classifier group {classified_label!r} "
             f"(p={score:.3f}, margin={margin:.3f}, "
-            f"raw_top={classification.label!r}); "
-            f"frozen roster arm {selected_roster_id!r}"
+            f"raw_top={classification.label!r})"
         )
         result = RouteResult(
             route_id=route_id,
-            selected_roster_id=selected.roster_id,
-            selected_provider=selected.provider,
             score=score,
             candidate_scores=candidate_scores,
             reason=reason,
             state_label=state_label,
-            policy_group=selected_label,
-            policy_label=selected_label,
-            policy_route_key=f"hmm:{readout.state}:{selected_label}",
+            policy_group=classified_label,
+            policy_label=classified_label,
+            policy_route_key=f"hmm:{readout.state}:{classified_label}",
             confidence=score,
             margin=margin,
             propensity=1.0,
@@ -329,7 +304,6 @@ class FrozenPolicy:
             ranked_fallback=ranked_fallback,
             predicted_label=classification.label,
             class_probabilities=classification.probabilities,
-            pin_sticky_override_eligible=False,
             debug={
                 "hmm_state_id": readout.state,
                 "hmm_state_path": list(readout.state_path),

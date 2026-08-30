@@ -15,14 +15,12 @@ import (
 )
 
 func TestClientDecideParsesTypedContractFields(t *testing.T) {
-	eligible := true
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_ = json.NewEncoder(w).Encode(routeResponse{
 			SchemaVersion:      policy.SchemaVersionV1,
 			SelectedRosterID:   "anthropic/claude-opus-4-8",
 			PredictedLabel:     "high",
 			ClassProbabilities: map[string]float64{"high": 0.7, "balanced": 0.3},
-			PinStickyOverride:  &eligible,
 		})
 	}))
 	defer server.Close()
@@ -34,12 +32,10 @@ func TestClientDecideParsesTypedContractFields(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "high", result.PredictedLabel)
 	assert.Equal(t, map[string]float64{"high": 0.7, "balanced": 0.3}, result.ClassProbabilities)
-	require.NotNil(t, result.PinStickyOverrideEligible)
-	assert.True(t, *result.PinStickyOverrideEligible)
 }
 
 // TestClientDecideLeavesTypedFieldsUnsetOnV1OnlyResponse verifies that a v1
-// response without typed fields leaves PredictedLabel/ClassProbabilities/PinStickyOverrideEligible nil/empty.
+// response without typed fields leaves PredictedLabel/ClassProbabilities nil/empty.
 func TestClientDecideLeavesTypedFieldsUnsetOnV1OnlyResponse(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(`{
@@ -48,7 +44,7 @@ func TestClientDecideLeavesTypedFieldsUnsetOnV1OnlyResponse(t *testing.T) {
 			"selected_roster_id": "anthropic/claude-opus-4-8",
 			"selected_provider": "anthropic",
 			"score": 0.42,
-			"reason": "classifier group 'high' [pin_sticky_override_eligible]",
+			"reason": "classifier group 'high'",
 			"policy_group": "high",
 			"confidence": 0.42,
 			"propensity": 1.0
@@ -63,10 +59,9 @@ func TestClientDecideLeavesTypedFieldsUnsetOnV1OnlyResponse(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "route-v1", result.RouteID)
 	assert.Equal(t, "anthropic/claude-opus-4-8", result.Model)
-	assert.Equal(t, "classifier group 'high' [pin_sticky_override_eligible]", result.Reason)
+	assert.Equal(t, "classifier group 'high'", result.Reason)
 	assert.Equal(t, "high", result.PolicyGroup)
 	assert.Equal(t, 0.42, result.Score)
 	assert.Empty(t, result.PredictedLabel)
 	assert.Nil(t, result.ClassProbabilities)
-	assert.Nil(t, result.PinStickyOverrideEligible)
 }
