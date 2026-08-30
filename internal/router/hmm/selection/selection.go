@@ -23,12 +23,9 @@ type Pick struct {
 }
 
 // Group is one ranked classifier group plus the sidecar's arm allowlist for it.
-// AllowedArms is the group's “eligible_arms“: the sidecar has already dropped
-// the arms a capability constraint forbids (e.g. native web search restricting
-// the turn to Anthropic arms), so honoring it is the only way those constraints
-// survive router-owned selection. An empty AllowedArms imposes no restriction --
-// a sidecar that reports no arms for a group must not narrow the candidate set
-// the router resolved for itself.
+// AllowedArms mirrors eligible_arms: the sidecar has already dropped arms a
+// capability constraint forbids, so honoring it is the only way those constraints
+// survive router-owned selection. Empty means no restriction — not no arms.
 type Group struct {
 	Label       string
 	AllowedArms []string
