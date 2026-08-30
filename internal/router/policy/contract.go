@@ -13,10 +13,8 @@ const SchemaVersionV1 = "policy_router_v1"
 // arm identities and require arm-aware selection when a roster is ambiguous.
 const SchemaVersionV2 = "policy_router_v2"
 
-// SchemaVersionV3 identifies the classifier-only contract: the sidecar reports
-// the classification and its ranked cluster fallback, the router selects the
-// arm. A v3 /route response carries no selected arm, and a router that owns
-// selection rejects a v1/v2 response outright.
+// SchemaVersionV3 identifies the classifier-only contract: the sidecar classifies
+// and returns a ranked fallback; the router selects the arm.
 const SchemaVersionV3 = "policy_router_v3"
 
 const (
