@@ -1331,11 +1331,9 @@ func (s *Service) WithTranslationCompatibilityMode(mode TranslationCompatibility
 	return s
 }
 
-// WithScopedSearchRequirement gates the citations/search native requirement
-// on actual (current or recent) web-search tool use instead of mere tool
-// advertisement (ROUTER_SCOPED_SEARCH_REQUIREMENT). decayTurns bounds how many
-// routed turns after the last actual use keep the requirement; non-positive
-// values keep the default.
+// WithScopedSearchRequirement gates the citations/search native requirement on actual (current
+// or recent) web-search tool use, not mere tool advertisement (ROUTER_SCOPED_SEARCH_REQUIREMENT).
+// Non-positive decayTurns keeps the default.
 func (s *Service) WithScopedSearchRequirement(enabled bool, decayTurns int) *Service {
 	s.scopedSearchRequirement = enabled
 	if decayTurns > 0 {

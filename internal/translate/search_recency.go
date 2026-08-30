@@ -8,11 +8,9 @@ import (
 	"github.com/tidwall/gjson"
 )
 
-// SearchToolUseRecency reports how recently the conversation actually invoked
-// a web-search/fetch tool, as opposed to merely advertising one: 0 means the
-// current turn (a dedicated search sub-turn, or use at/after the latest
-// assistant turn), N means the last use was N assistant turns ago, and -1
-// means the history carries no search-tool use at all.
+// SearchToolUseRecency reports how many assistant turns have elapsed since the last actual
+// web-search/fetch tool invocation (not mere advertisement): 0 = current turn,
+// N = N turns ago, -1 = no search use in history.
 func (e *RequestEnvelope) SearchToolUseRecency() int {
 	switch e.format {
 	case FormatAnthropic:
