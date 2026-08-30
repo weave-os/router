@@ -59,20 +59,19 @@ responses emit optional typed fields:
 The fields are additive: routers and sidecars that predate them interoperate
 unchanged via the legacy reason-string path.
 
-## Planned deprecation: sidecar-side deterministic selection
+## Deprecated: sidecar-side deterministic selection
 
-This sidecar currently performs the deterministic within-cluster arm selection
+This sidecar still performs the deterministic within-cluster arm selection
 (harness-specific roster ordering, rank-1 eligible-arm pick, ranked
-cluster-fallback walk) after classification. The router now carries an
-equivalent Go implementation (`internal/router/hmm/selection`) driven by a
-declarative roster file (`ROUTER_HMM_ROSTER_PATH`), first as a log-only shadow
-(`ROUTER_HMM_SELECTION_SHADOW`) and then authoritatively
-(`ROUTER_HMM_GO_SELECTION`, default off). Once Go selection is fully rolled
-out, the sidecar's deterministic layer is reduced to ML inference only:
-classification label and probabilities via the typed fields above. Nothing is
-removed from this sidecar yet; current behavior is unchanged. See
-[docs/HMM_GO_SELECTION.md](../../docs/HMM_GO_SELECTION.md) for the rollout and
-rollback plan.
+cluster-fallback walk) after classification, but the router no longer serves
+that pick: it reselects the arm itself from the declarative roster file
+(`ROUTER_HMM_ROSTER_PATH`, required alongside `ROUTER_HMM_SIDECAR_URL`) using
+`internal/router/hmm/selection`. What the router still consumes from this
+sidecar is ML inference — the classification label and probabilities via the
+typed fields above — plus the ranked cluster fallback that orders the walk. The
+sidecar's own arm pick is only a fail-open fallback when no ranked group holds
+an eligible arm. See
+[docs/HMM_GO_SELECTION.md](../../docs/HMM_GO_SELECTION.md).
 
 ## Artifact safety
 

@@ -511,9 +511,8 @@ and any list configured for that cluster still orders the arm that serves.
 Out-of-process policy routers use the versioned contract in
 [Policy router harness](POLICY_ROUTER_HARNESS.md). The router remains the
 authority for candidate eligibility, provider binding, dispatch, retries,
-privacy context, and telemetry. The `ROUTER_HMM_ROSTER_PATH` /
-`ROUTER_HMM_SELECTION_SHADOW` / `ROUTER_HMM_GO_SELECTION` flag ladder and its
-rollback story are documented in
+privacy context, and telemetry. `ROUTER_HMM_ROSTER_PATH` and the rollback story
+for Go-owned deterministic selection are documented in
 [HMM deterministic selection in Go](HMM_GO_SELECTION.md).
 
 | Variable                           | Default | Purpose |
@@ -525,9 +524,7 @@ rollback story are documented in
 | `ROUTER_HMM_SIDECAR_TIMEOUT_MS`    | `3000`  | Total HMM decision timeout. |
 | `ROUTER_HMM_SIDECAR_ATTEMPT_TIMEOUT_MS` | 60% of the decision timeout | Bounds a single HMM attempt so one stalled sidecar instance cannot spend the whole decision budget before the retries run. Set it equal to `ROUTER_HMM_SIDECAR_TIMEOUT_MS`, or to `0`, to let one attempt use the full budget. |
 | `ROUTER_HMM_SIDECAR_AUTH`          | `none`  | Authentication for the HMM sidecar. Use `google-id-token` for managed Cloud Run; the exact sidecar origin is used as the token audience. |
-| `ROUTER_HMM_ROSTER_PATH`           | *(none)* | Path to a generated declarative roster JSON (`hmm_router_cluster_roster_v6`). When set, the roster is loaded and validated against the model catalog at startup (boot fails on any invalid arm) and a summary is logged. Its consumers are the log-only selection shadow and, when `ROUTER_HMM_GO_SELECTION` is enabled, the authoritative Go selection. |
-| `ROUTER_HMM_SELECTION_SHADOW`      | `false` | When `true` and a declarative roster is loaded via `ROUTER_HMM_ROSTER_PATH`, recomputes the deterministic within-cluster arm selection in Go after each HMM sidecar decision and logs agree/diverge with both picks. Log-only: never influences the served decision, retries, pins, or telemetry. |
-| `ROUTER_HMM_GO_SELECTION`          | `false` | When `true` and a declarative roster is loaded via `ROUTER_HMM_ROSTER_PATH`, the router keeps the sidecar's classifier label/confidence but performs the deterministic within-cluster arm selection in Go authoritatively instead of serving the sidecar's chosen arm. Explicit force-cluster and per-key cluster overrides still take precedence when they actually constrain the pick; fails open to the sidecar's pick when no ranked group holds an eligible arm. Pin-sticky eligibility is neutralized on any Go pick so a session pin cannot veto it. |
+| `ROUTER_HMM_ROSTER_PATH`           | *(none; required with `ROUTER_HMM_SIDECAR_URL`)* | Path to a generated declarative roster JSON (`hmm_router_cluster_roster_v6`). The roster is loaded and validated against the model catalog at startup (boot fails on any invalid arm) and drives the router's authoritative deterministic within-cluster arm selection: the sidecar's classifier label/confidence is kept, its arm is not. Explicit force-cluster and per-key cluster overrides still take precedence when they actually constrain the pick; selection fails open to the sidecar's pick when no ranked group holds an eligible arm. Pin-sticky eligibility is neutralized on any Go pick so a session pin cannot veto it. Leaving it unset while an HMM sidecar is configured fails boot. |
 | `ROUTER_RL_SIDECAR_URL`            | *(none)* | Legacy built-in RL registration. Prefer the generic map for new strategies. |
 | `ROUTER_RL_SIDECAR_TIMEOUT_MS`     | `3000`  | Total RL decision timeout. |
 | `ROUTER_RL_SIDECAR_MODAL_KEY`      | *(none)* | Optional Modal proxy token id (`Modal-Key`) when the RL sidecar is a Modal ASGI app with `requires_proxy_auth`. |

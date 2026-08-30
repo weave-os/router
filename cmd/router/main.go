@@ -772,9 +772,8 @@ func main() {
 		logger.Info("RL policy router disabled (ROUTER_RL_SIDECAR_URL unset); x-weave-router-strategy: rl will return 503")
 	}
 
-	// Loaded only when ROUTER_HMM_ROSTER_PATH is set; declarative-roster data
-	// feeds the log-only selection shadow and, when ROUTER_HMM_GO_SELECTION is
-	// enabled, Go selection below.
+	// Loaded only when ROUTER_HMM_ROSTER_PATH is set; the declarative roster is
+	// the source of the HMM strategies' deterministic arm selection below.
 	var declarativeRoster *rosterdata.Roster
 	if rosterPath := strings.TrimSpace(config.GetOr("ROUTER_HMM_ROSTER_PATH", "")); rosterPath != "" {
 		loadedRoster, rosterErr := rosterdata.Load(rosterPath)
@@ -856,26 +855,16 @@ func main() {
 				logger.Info("HMM policy sidecar capabilities discovered after boot", "sidecar_url", hmmSidecarURL)
 			}()
 		}
-		if config.GetOr("ROUTER_HMM_SELECTION_SHADOW", "false") == "true" {
-			if declarativeRoster == nil {
-				logger.Warn("HMM selection shadow requested but ROUTER_HMM_ROSTER_PATH is unset; shadow stays disabled")
-			} else {
-				selectionShadow := selection.Shadow(declarativeRoster)
-				hmmPolicyRouter.WithSelectionShadow(selectionShadow)
-				hmmEmbeddingPolicyRouter.WithSelectionShadow(selectionShadow)
-				logger.Info("HMM selection shadow enabled (log-only)", "strategies", []router.Strategy{router.StrategyHMM, router.StrategyHMMEmbedding})
-			}
+		// Deterministic selection lives in Go; a sidecar without a roster has no
+		// selection authority to fall back to, so refuse to boot rather than
+		// silently serving the sidecar's arm.
+		if declarativeRoster == nil {
+			logger.Error("HMM sidecar configured without ROUTER_HMM_ROSTER_PATH; refusing to boot", "sidecar_url", hmmSidecarURL)
+			panic("ROUTER_HMM_ROSTER_PATH is required when ROUTER_HMM_SIDECAR_URL is set")
 		}
-		if config.GetOr("ROUTER_HMM_GO_SELECTION", "false") == "true" {
-			if declarativeRoster == nil {
-				logger.Warn("HMM Go selection requested but ROUTER_HMM_ROSTER_PATH is unset; selection stays sidecar-authoritative")
-			} else {
-				selectionOverride := selection.Override(declarativeRoster)
-				hmmPolicyRouter.WithSelectionOverride(selectionOverride)
-				hmmEmbeddingPolicyRouter.WithSelectionOverride(selectionOverride)
-				logger.Info("HMM Go selection enabled (authoritative)", "strategies", []router.Strategy{router.StrategyHMM, router.StrategyHMMEmbedding})
-			}
-		}
+		selectionOverride := selection.Override(declarativeRoster)
+		hmmPolicyRouter.WithSelectionOverride(selectionOverride)
+		hmmEmbeddingPolicyRouter.WithSelectionOverride(selectionOverride)
 		hmmRouter = hmmPolicyRouter
 		hmmEmbeddingRouter = hmmEmbeddingPolicyRouter
 		logger.Info(

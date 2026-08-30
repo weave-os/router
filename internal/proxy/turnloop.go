@@ -323,8 +323,7 @@ const hmmPinStickyArmSelectorUnavailReason = "hmm_pin_sticky_arm_selector_unavai
 // draw without a schema bump. Keep in sync across the Python/Go boundary.
 //
 // Deprecated: replaced by RoutingMetadata.PinStickyOverrideEligible typed field;
-// removed once all sidecars emit it and ROUTER_HMM_GO_SELECTION is fully rolled out.
-// See docs/HMM_GO_SELECTION.md.
+// removed once all sidecars emit it. See docs/HMM_GO_SELECTION.md.
 const hmmArmSelectorUnavailableSentinel = "[pin_sticky_override_eligible]"
 
 // decisionPolicyGroup returns the policy cluster/group a decision was drawn

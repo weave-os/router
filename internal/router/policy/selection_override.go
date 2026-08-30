@@ -18,10 +18,6 @@ type SelectionObservation struct {
 	CandidateRosterIDs []string
 }
 
-// SelectionShadow observes a completed sidecar decision. Observation only: it
-// returns nothing and must never influence the served decision.
-type SelectionShadow func(ctx context.Context, observation SelectionObservation)
-
 // SelectionPick is an authoritative re-selection of the served arm.
 type SelectionPick struct {
 	Group string
@@ -33,7 +29,7 @@ type SelectionPick struct {
 type SelectionOverride func(ctx context.Context, observation SelectionObservation) (SelectionPick, bool)
 
 // selectionObservationFor snapshots the sidecar's pre-override decision for
-// selection shadows and overrides.
+// the selection override.
 func selectionObservationFor(strategy router.Strategy, executionMode string, req router.Request, res Result, resolved ResolvedCandidates) SelectionObservation {
 	candidateRosterIDs := make([]string, 0, len(resolved.Candidates))
 	for _, candidate := range resolved.Candidates {

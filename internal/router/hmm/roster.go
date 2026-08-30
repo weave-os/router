@@ -11,8 +11,9 @@ import (
 // their base catalog model.
 //
 // Deprecated: silent-drop let inert roster arms skew production routing; replaced
-// by fail-loud validation (rosterdata.Load / ValidateRosterIDs). Removed once
-// ROUTER_HMM_GO_SELECTION is fully rolled out. See docs/HMM_GO_SELECTION.md.
+// by fail-loud validation (rosterdata.Load / ValidateRosterIDs). Still used by the
+// admin roster view; removed once that reads the declarative roster.
+// See docs/HMM_GO_SELECTION.md.
 func DeployedModelsForRosterIDs(rosterIDs []string) []cluster.DeployedEntry {
 	inverse := make(map[string]catalog.Model, len(catalog.Models))
 	for _, m := range catalog.Models {
