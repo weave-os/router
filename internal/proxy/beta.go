@@ -90,22 +90,22 @@ func (s *Service) handleBetaCommand(
 		return writeBetaCommandResponse(w, env, betaUnavailable, inputTokens)
 	}
 
+	// Acknowledge the state the store persisted, not the state read above:
+	// overlapping /beta commands for one session each observe their own flip.
+	nowEnabled, err := s.sessionStrategyStore.Toggle(context.Background(), sessionstrategy.Preference{
+		InstallationID: installationID,
+		SessionKey:     sessionKey,
+		Strategy:       router.StrategyHMMBeta,
+	})
+	if err != nil {
+		return fmt.Errorf("toggle beta routing: %w", err)
+	}
+
 	message := betaEnabledMessage
 	previousStrategy := router.StrategyFromContext(ctx)
-	if enabled {
-		if err := s.sessionStrategyStore.Clear(context.Background(), installationID, sessionKey); err != nil {
-			return fmt.Errorf("disable beta routing: %w", err)
-		}
+	if !nowEnabled {
 		previousStrategy = router.StrategyHMMBeta
 		message = betaDisabledMessage
-	} else {
-		if err := s.sessionStrategyStore.Set(context.Background(), sessionstrategy.Preference{
-			InstallationID: installationID,
-			SessionKey:     sessionKey,
-			Strategy:       router.StrategyHMMBeta,
-		}); err != nil {
-			return fmt.Errorf("enable beta routing: %w", err)
-		}
 	}
 
 	log := observability.FromContext(ctx)
@@ -120,7 +120,7 @@ func (s *Service) handleBetaCommand(
 
 	log.Info(
 		"session beta routing toggled",
-		"enabled", !enabled,
+		"enabled", nowEnabled,
 		"session_key_prefix", shortSessionKey(sessionKey),
 	)
 	return writeBetaCommandResponse(w, env, message, inputTokens)

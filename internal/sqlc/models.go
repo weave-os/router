@@ -545,6 +545,7 @@ type RouterSessionStrategyPreference struct {
 	InstallationID uuid.UUID
 	SessionKey     []byte
 	Strategy       string
+	Enabled        bool
 }
 
 // Shadow-mode spiral (death-march) detections: log-only fire-rate corpus measured on live traffic before escalation is armed

@@ -43,22 +43,15 @@ func (r *SessionStrategyRepo) Get(ctx context.Context, installationID uuid.UUID,
 	}, true, nil
 }
 
-// Set records the explicit beta preference.
-func (r *SessionStrategyRepo) Set(ctx context.Context, preference sessionstrategy.Preference) error {
+// Toggle flips the explicit beta preference in one statement and returns the
+// state now persisted. Disabled sessions keep a row and use stable routing.
+func (r *SessionStrategyRepo) Toggle(ctx context.Context, preference sessionstrategy.Preference) (bool, error) {
 	if err := preference.Validate(); err != nil {
-		return err
+		return false, err
 	}
-	return sqlc.New(r.tx).UpsertSessionStrategyPreference(ctx, sqlc.UpsertSessionStrategyPreferenceParams{
+	return sqlc.New(r.tx).UpsertToggledSessionStrategyPreference(ctx, sqlc.UpsertToggledSessionStrategyPreferenceParams{
 		InstallationID: preference.InstallationID,
 		SessionKey:     preference.SessionKey[:],
 		Strategy:       string(preference.Strategy),
-	})
-}
-
-// Clear removes the explicit preference so the session uses stable routing.
-func (r *SessionStrategyRepo) Clear(ctx context.Context, installationID uuid.UUID, sessionKey [sessionstrategy.SessionKeyLen]byte) error {
-	return sqlc.New(r.tx).DeleteSessionStrategyPreference(ctx, sqlc.DeleteSessionStrategyPreferenceParams{
-		InstallationID: installationID,
-		SessionKey:     sessionKey[:],
 	})
 }

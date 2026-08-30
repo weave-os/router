@@ -11,32 +11,12 @@ import (
 	"github.com/google/uuid"
 )
 
-const deleteSessionStrategyPreference = `-- name: DeleteSessionStrategyPreference :exec
-DELETE FROM router.session_strategy_preferences
-WHERE installation_id = $1::uuid
-  AND session_key = $2::bytea
-`
-
-type DeleteSessionStrategyPreferenceParams struct {
-	InstallationID uuid.UUID
-	SessionKey     []byte
-}
-
-// Clears the explicit override so the session resumes stable routing.
-//
-//	DELETE FROM router.session_strategy_preferences
-//	WHERE installation_id = $1::uuid
-//	  AND session_key = $2::bytea
-func (q *Queries) DeleteSessionStrategyPreference(ctx context.Context, arg DeleteSessionStrategyPreferenceParams) error {
-	_, err := q.db.Exec(ctx, deleteSessionStrategyPreference, arg.InstallationID, arg.SessionKey)
-	return err
-}
-
 const getSessionStrategyPreference = `-- name: GetSessionStrategyPreference :one
 SELECT strategy
 FROM router.session_strategy_preferences
 WHERE installation_id = $1::uuid
   AND session_key = $2::bytea
+  AND enabled
 `
 
 type GetSessionStrategyPreferenceParams struct {
@@ -45,12 +25,13 @@ type GetSessionStrategyPreferenceParams struct {
 }
 
 // Reads an explicit beta strategy for one installation-scoped session. A
-// missing row means the session uses stable routing.
+// missing or disabled row means the session uses stable routing.
 //
 //	SELECT strategy
 //	FROM router.session_strategy_preferences
 //	WHERE installation_id = $1::uuid
 //	  AND session_key = $2::bytea
+//	  AND enabled
 func (q *Queries) GetSessionStrategyPreference(ctx context.Context, arg GetSessionStrategyPreferenceParams) (string, error) {
 	row := q.db.QueryRow(ctx, getSessionStrategyPreference, arg.InstallationID, arg.SessionKey)
 	var strategy string
@@ -58,33 +39,43 @@ func (q *Queries) GetSessionStrategyPreference(ctx context.Context, arg GetSessi
 	return strategy, err
 }
 
-const upsertSessionStrategyPreference = `-- name: UpsertSessionStrategyPreference :exec
+const upsertToggledSessionStrategyPreference = `-- name: UpsertToggledSessionStrategyPreference :one
 INSERT INTO router.session_strategy_preferences (
-  installation_id, session_key, strategy
+  installation_id, session_key, strategy, enabled
 ) VALUES (
-  $1::uuid, $2::bytea, $3::varchar
+  $1::uuid, $2::bytea, $3::varchar, TRUE
 )
 ON CONFLICT (installation_id, session_key)
-DO UPDATE SET strategy = EXCLUDED.strategy
+DO UPDATE SET
+  strategy = EXCLUDED.strategy,
+  enabled = NOT router.session_strategy_preferences.enabled
+RETURNING enabled
 `
 
-type UpsertSessionStrategyPreferenceParams struct {
+type UpsertToggledSessionStrategyPreferenceParams struct {
 	InstallationID uuid.UUID
 	SessionKey     []byte
 	Strategy       string
 }
 
-// Records the only explicit per-session strategy override. The database
-// constraint rejects any strategy other than hmm_beta.
+// Flips the session's explicit override and returns the state now persisted.
+// The row lock taken on conflict serializes overlapping toggles across router
+// instances, so each caller observes its own flip instead of a stale read.
+// The database constraint rejects any strategy other than hmm_beta.
 //
 //	INSERT INTO router.session_strategy_preferences (
-//	  installation_id, session_key, strategy
+//	  installation_id, session_key, strategy, enabled
 //	) VALUES (
-//	  $1::uuid, $2::bytea, $3::varchar
+//	  $1::uuid, $2::bytea, $3::varchar, TRUE
 //	)
 //	ON CONFLICT (installation_id, session_key)
-//	DO UPDATE SET strategy = EXCLUDED.strategy
-func (q *Queries) UpsertSessionStrategyPreference(ctx context.Context, arg UpsertSessionStrategyPreferenceParams) error {
-	_, err := q.db.Exec(ctx, upsertSessionStrategyPreference, arg.InstallationID, arg.SessionKey, arg.Strategy)
-	return err
+//	DO UPDATE SET
+//	  strategy = EXCLUDED.strategy,
+//	  enabled = NOT router.session_strategy_preferences.enabled
+//	RETURNING enabled
+func (q *Queries) UpsertToggledSessionStrategyPreference(ctx context.Context, arg UpsertToggledSessionStrategyPreferenceParams) (bool, error) {
+	row := q.db.QueryRow(ctx, upsertToggledSessionStrategyPreference, arg.InstallationID, arg.SessionKey, arg.Strategy)
+	var enabled bool
+	err := row.Scan(&enabled)
+	return enabled, err
 }

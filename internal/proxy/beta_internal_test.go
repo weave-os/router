@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"testing"
 
 	"workweave/router/internal/providers"
@@ -59,13 +60,13 @@ func (r *betaTestRouter) Route(_ context.Context, req router.Request) (router.De
 }
 
 type betaTestPreferenceStore struct {
+	mu         sync.Mutex
 	preference sessionstrategy.Preference
 	found      bool
-	sets       int
-	clears     int
+	toggles    int
 	getErr     error
-	setErr     error
-	clearErr   error
+	toggleErr  error
+	afterGet   func()
 }
 
 func (s *betaTestPreferenceStore) Get(
@@ -73,39 +74,39 @@ func (s *betaTestPreferenceStore) Get(
 	installationID uuid.UUID,
 	sessionKey [sessionstrategy.SessionKeyLen]byte,
 ) (sessionstrategy.Preference, bool, error) {
-	if s.getErr != nil {
-		return sessionstrategy.Preference{}, false, s.getErr
+	s.mu.Lock()
+	preference, found, err := s.preference, s.found, s.getErr
+	s.mu.Unlock()
+	if s.afterGet != nil {
+		s.afterGet()
 	}
-	if !s.found || s.preference.InstallationID != installationID || s.preference.SessionKey != sessionKey {
+	if err != nil {
+		return sessionstrategy.Preference{}, false, err
+	}
+	if !found || preference.InstallationID != installationID || preference.SessionKey != sessionKey {
 		return sessionstrategy.Preference{}, false, nil
 	}
-	return s.preference, true, nil
+	return preference, true, nil
 }
 
-func (s *betaTestPreferenceStore) Set(_ context.Context, preference sessionstrategy.Preference) error {
-	if s.setErr != nil {
-		return s.setErr
+func (s *betaTestPreferenceStore) Toggle(_ context.Context, preference sessionstrategy.Preference) (bool, error) {
+	if err := preference.Validate(); err != nil {
+		return false, err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.toggleErr != nil {
+		return false, s.toggleErr
+	}
+	s.toggles++
+	if s.found {
+		s.preference = sessionstrategy.Preference{}
+		s.found = false
+		return false, nil
 	}
 	s.preference = preference
 	s.found = true
-	s.sets++
-	return nil
-}
-
-func (s *betaTestPreferenceStore) Clear(
-	_ context.Context,
-	installationID uuid.UUID,
-	sessionKey [sessionstrategy.SessionKeyLen]byte,
-) error {
-	if s.clearErr != nil {
-		return s.clearErr
-	}
-	if s.found && s.preference.InstallationID == installationID && s.preference.SessionKey == sessionKey {
-		s.preference = sessionstrategy.Preference{}
-		s.found = false
-	}
-	s.clears++
-	return nil
+	return true, nil
 }
 
 type betaCleanupPinStore struct {
@@ -190,12 +191,57 @@ func TestHandleBetaCommandTogglesAndAcknowledges(t *testing.T) {
 		assert.Equal(t, "✦ **Weave Router** → "+want+"\n\n", gjson.Get(response.Body.String(), "content.0.text").String())
 	}
 
-	assert.Equal(t, 1, store.sets)
-	assert.Equal(t, 1, store.clears)
+	assert.Equal(t, 2, store.toggles)
 	assert.False(t, store.found)
 	require.NotEmpty(t, pins.consumedStrategy)
 	assert.Equal(t, router.StrategyCluster, pins.consumedStrategy[0])
 	assert.Equal(t, router.StrategyHMMBeta, pins.consumedStrategy[len(pins.consumedStrategy)-1])
+}
+
+func TestHandleBetaCommandOverlappingTogglesAcknowledgeDistinctStates(t *testing.T) {
+	store := &betaTestPreferenceStore{}
+	var readers sync.WaitGroup
+	readers.Add(2)
+	store.afterGet = func() {
+		readers.Done()
+		readers.Wait()
+	}
+	svc := (&Service{}).
+		WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyHMMBeta, Router: &betaTestRouter{}}).
+		WithSessionStrategyStore(store)
+	installationID := uuid.New()
+	var sessionKey [sessionstrategy.SessionKeyLen]byte
+	sessionKey[0] = 1
+
+	acknowledgements := make(chan string, 2)
+	var toggles sync.WaitGroup
+	for range 2 {
+		toggles.Add(1)
+		go func() {
+			defer toggles.Done()
+			env := betaTestEnvelope(t, "/beta", true)
+			cmd, found := env.ExtractBetaCommand()
+			assert.True(t, found)
+			response := httptest.NewRecorder()
+			assert.NoError(t, svc.handleBetaCommand(
+				context.Background(), response, env, cmd, installationID, sessionKey, 1,
+			))
+			acknowledgements <- gjson.Get(response.Body.String(), "content.0.text").String()
+		}()
+	}
+	toggles.Wait()
+	close(acknowledgements)
+
+	var acked []string
+	for text := range acknowledgements {
+		acked = append(acked, text)
+	}
+	assert.ElementsMatch(t, []string{
+		"✦ **Weave Router** → " + betaEnabledMessage + "\n\n",
+		"✦ **Weave Router** → " + betaDisabledMessage + "\n\n",
+	}, acked)
+	assert.Equal(t, 2, store.toggles)
+	assert.False(t, store.found, "two overlapping toggles from stable must land back on stable")
 }
 
 func TestHandleBetaCommandRejectsArgumentsWithoutStateChange(t *testing.T) {
@@ -214,8 +260,7 @@ func TestHandleBetaCommandRejectsArgumentsWithoutStateChange(t *testing.T) {
 		context.Background(), response, env, cmd, uuid.New(), sessionKey, 1,
 	))
 	assert.Contains(t, gjson.Get(response.Body.String(), "content.0.text").String(), betaUsageMessage)
-	assert.Zero(t, store.sets)
-	assert.Zero(t, store.clears)
+	assert.Zero(t, store.toggles)
 }
 
 func TestHandleBetaCommandRequiresClientSessionAndAvailablePolicy(t *testing.T) {
@@ -244,13 +289,13 @@ func TestHandleBetaCommandRequiresClientSessionAndAvailablePolicy(t *testing.T) 
 				context.Background(), response, env, cmd, uuid.New(), sessionKey, 1,
 			))
 			assert.Contains(t, gjson.Get(response.Body.String(), "content.0.text").String(), betaUnavailable)
-			assert.Zero(t, store.sets)
+			assert.Zero(t, store.toggles)
 		})
 	}
 }
 
 func TestHandleBetaCommandWriteFailureLeavesStablePinsUntouched(t *testing.T) {
-	store := &betaTestPreferenceStore{setErr: errors.New("write failed")}
+	store := &betaTestPreferenceStore{toggleErr: errors.New("write failed")}
 	pins := &betaCleanupPinStore{}
 	svc := (&Service{pinStore: pins}).
 		WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyHMMBeta, Router: &betaTestRouter{}}).
@@ -292,7 +337,7 @@ func TestHandleBetaCommandCanDisablePersistedBetaWhilePolicyUnavailable(t *testi
 		context.Background(), response, env, cmd, installationID, sessionKey, 1,
 	))
 	assert.False(t, store.found)
-	assert.Equal(t, 1, store.clears)
+	assert.Equal(t, 1, store.toggles)
 	assert.Contains(t, gjson.Get(response.Body.String(), "content.0.text").String(), betaDisabledMessage)
 }
 

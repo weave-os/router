@@ -35,9 +35,10 @@ func (p Preference) Validate() error {
 }
 
 // Store persists explicit session strategy preferences. Get returns
-// (zero, false, nil) when the session uses stable routing.
+// (zero, false, nil) when the session uses stable routing. Toggle flips the
+// preference atomically and reports the state it persisted, so overlapping
+// commands for one session cannot both act on the same prior state.
 type Store interface {
 	Get(ctx context.Context, installationID uuid.UUID, sessionKey [SessionKeyLen]byte) (Preference, bool, error)
-	Set(ctx context.Context, preference Preference) error
-	Clear(ctx context.Context, installationID uuid.UUID, sessionKey [SessionKeyLen]byte) error
+	Toggle(ctx context.Context, preference Preference) (bool, error)
 }

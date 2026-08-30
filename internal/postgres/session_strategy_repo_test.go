@@ -53,6 +53,19 @@ type sessionStrategyRow struct {
 	err      error
 }
 
+type sessionStrategyEnabledRow struct {
+	enabled bool
+	err     error
+}
+
+func (row sessionStrategyEnabledRow) Scan(dest ...any) error {
+	if row.err != nil {
+		return row.err
+	}
+	*dest[0].(*bool) = row.enabled
+	return nil
+}
+
 func (row sessionStrategyRow) Scan(dest ...any) error {
 	if row.err != nil {
 		return row.err
@@ -98,45 +111,46 @@ func TestSessionStrategyRepoGetMissingMeansStable(t *testing.T) {
 	assert.Empty(t, preference)
 }
 
-func TestSessionStrategyRepoSetAcceptsOnlyHMMBeta(t *testing.T) {
+func TestSessionStrategyRepoToggleAcceptsOnlyHMMBeta(t *testing.T) {
 	t.Parallel()
 
 	installationID := uuid.New()
 	key := [sessionstrategy.SessionKeyLen]byte{4, 5, 6}
-	db := &sessionStrategyDB{}
+	db := &sessionStrategyDB{row: sessionStrategyEnabledRow{enabled: true}}
 	repo := NewSessionStrategyRepo(db)
 
-	err := repo.Set(context.Background(), sessionstrategy.Preference{
+	_, err := repo.Toggle(context.Background(), sessionstrategy.Preference{
 		InstallationID: installationID,
 		SessionKey:     key,
 		Strategy:       "stable",
 	})
 	require.ErrorIs(t, err, sessionstrategy.ErrInvalidStrategy)
-	assert.Empty(t, db.execCalls)
+	assert.Empty(t, db.rowQuery)
 
-	require.NoError(t, repo.Set(context.Background(), sessionstrategy.Preference{
+	enabled, err := repo.Toggle(context.Background(), sessionstrategy.Preference{
 		InstallationID: installationID,
 		SessionKey:     key,
 		Strategy:       router.StrategyHMMBeta,
-	}))
-	require.Len(t, db.execCalls, 1)
-	call := db.execCalls[0]
-	assert.True(t, strings.Contains(call.query, "ON CONFLICT (installation_id, session_key)"))
-	assert.Equal(t, []any{installationID, key[:], string(router.StrategyHMMBeta)}, call.args)
+	})
+	require.NoError(t, err)
+	assert.True(t, enabled)
+	assert.True(t, strings.Contains(db.rowQuery, "ON CONFLICT (installation_id, session_key)"))
+	assert.Contains(t, db.rowQuery, "enabled = NOT router.session_strategy_preferences.enabled")
+	assert.Contains(t, db.rowQuery, "RETURNING enabled")
+	assert.Equal(t, []any{installationID, key[:], string(router.StrategyHMMBeta)}, db.rowArgs)
 }
 
-func TestSessionStrategyRepoClearUsesInstallationAndSessionKey(t *testing.T) {
+func TestSessionStrategyRepoGetIgnoresDisabledRows(t *testing.T) {
 	t.Parallel()
 
-	installationID := uuid.New()
-	key := [sessionstrategy.SessionKeyLen]byte{7, 8, 9}
-	db := &sessionStrategyDB{}
+	db := &sessionStrategyDB{row: sessionStrategyRow{err: sql.ErrNoRows}}
 	repo := NewSessionStrategyRepo(db)
 
-	require.NoError(t, repo.Clear(context.Background(), installationID, key))
-	require.Len(t, db.execCalls, 1)
-	assert.Contains(t, db.execCalls[0].query, "DELETE FROM router.session_strategy_preferences")
-	assert.Equal(t, []any{installationID, key[:]}, db.execCalls[0].args)
+	_, ok, err := repo.Get(context.Background(), uuid.New(), [sessionstrategy.SessionKeyLen]byte{7, 8, 9})
+
+	require.NoError(t, err)
+	assert.False(t, ok)
+	assert.Contains(t, db.rowQuery, "AND enabled")
 }
 
 func TestSessionPinConversionPreservesRoutingStrategy(t *testing.T) {
