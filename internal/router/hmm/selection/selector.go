@@ -10,9 +10,8 @@ import (
 	"workweave/router/internal/router/policy"
 )
 
-// ErrNoEligibleArm is returned when no ranked group holds an arm this request
-// can be served from. The sidecar no longer picks an arm, so there is nothing
-// to fall back to and the turn fails.
+// ErrNoEligibleArm is returned when no ranked group holds a servable arm. The
+// sidecar picks none either, so the turn fails.
 var ErrNoEligibleArm = errors.New("no eligible arm in any ranked group")
 
 // Selector returns the deterministic arm selector backed by roster.
