@@ -22,6 +22,18 @@ type Pick struct {
 	HarnessOrder bool
 }
 
+// Group is one ranked classifier group plus the sidecar's arm allowlist for it.
+// AllowedArms is the group's “eligible_arms“: the sidecar has already dropped
+// the arms a capability constraint forbids (e.g. native web search restricting
+// the turn to Anthropic arms), so honoring it is the only way those constraints
+// survive router-owned selection. An empty AllowedArms imposes no restriction --
+// a sidecar that reports no arms for a group must not narrow the candidate set
+// the router resolved for itself.
+type Group struct {
+	Label       string
+	AllowedArms []string
+}
+
 // ArmOrder returns the harness-specific arm order when the roster declares a non-empty one, else the pooled order (private-sidecar arms_by_harness extension).
 // Roster harness keys use underscores (claude_code) while router.Request.ClientApp is hyphenated (claude-code), so both spellings are tried.
 func ArmOrder(cluster rosterdata.Cluster, harness string) (order []string, harnessSpecific bool) {
@@ -38,23 +50,44 @@ func ArmOrder(cluster rosterdata.Cluster, harness string) (order []string, harne
 // ranked_fallback order) whose base ID is in candidates. The private sidecar additionally
 // clamps by mode/turn-type and filters via membership_by_harness; neither is applied here.
 func Select(roster *rosterdata.Roster, rankedGroups []string, harness string, candidates map[string]struct{}) (Pick, bool) {
+	groups := make([]Group, 0, len(rankedGroups))
+	for _, label := range rankedGroups {
+		groups = append(groups, Group{Label: label})
+	}
+	return SelectGroups(roster, groups, harness, candidates)
+}
+
+// SelectGroups is Select with each group's sidecar arm allowlist applied on top
+// of the router's candidate set.
+func SelectGroups(roster *rosterdata.Roster, groups []Group, harness string, candidates map[string]struct{}) (Pick, bool) {
 	depth := 0
-	for _, group := range rankedGroups {
-		cluster, ok := roster.Clusters[group]
+	for _, group := range groups {
+		cluster, ok := roster.Clusters[group.Label]
 		if !ok {
 			// A ranked label absent from the roster contributes no arms; the
 			// sidecar walks it the same way (clusters.get(label) or {}).
 			depth++
 			continue
 		}
+		allowed := make(map[string]struct{}, len(group.AllowedArms))
+		for _, arm := range group.AllowedArms {
+			baseID, _ := hmm.SplitEffort(arm)
+			allowed[baseID] = struct{}{}
+		}
 		order, harnessSpecific := ArmOrder(cluster, harness)
 		for _, arm := range order {
 			// Candidates carry base roster IDs, so effort-suffixed arms
 			// (model:high) match on their base ID.
 			baseID, _ := hmm.SplitEffort(arm)
-			if _, eligible := candidates[baseID]; eligible {
-				return Pick{Group: group, Arm: arm, FallbackDepth: depth, HarnessOrder: harnessSpecific}, true
+			if _, eligible := candidates[baseID]; !eligible {
+				continue
 			}
+			if len(allowed) > 0 {
+				if _, permitted := allowed[baseID]; !permitted {
+					continue
+				}
+			}
+			return Pick{Group: group.Label, Arm: arm, FallbackDepth: depth, HarnessOrder: harnessSpecific}, true
 		}
 		depth++
 	}

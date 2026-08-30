@@ -20,15 +20,17 @@ func Selector(roster *rosterdata.Roster) policy.ArmSelector {
 		if len(input.RankedFallback) == 0 {
 			return policy.SelectionPick{}, fmt.Errorf("sidecar reported no ranked fallback: %w", ErrNoEligibleArm)
 		}
+		groups := make([]Group, 0, len(input.RankedFallback))
 		rankedGroups := make([]string, 0, len(input.RankedFallback))
 		for _, group := range input.RankedFallback {
+			groups = append(groups, Group{Label: group.Group, AllowedArms: group.EligibleArms})
 			rankedGroups = append(rankedGroups, group.Group)
 		}
 		candidates := make(map[string]struct{}, len(input.CandidateRosterIDs))
 		for _, rosterID := range input.CandidateRosterIDs {
 			candidates[rosterID] = struct{}{}
 		}
-		pick, ok := Select(roster, rankedGroups, input.Harness, candidates)
+		pick, ok := SelectGroups(roster, groups, input.Harness, candidates)
 		if !ok {
 			log.Warn("HMM selection found no eligible arm in any ranked group",
 				"strategy", input.Strategy,

@@ -167,6 +167,56 @@ func TestSelect(t *testing.T) {
 	}
 }
 
+func TestSelectGroupsHonorsTheSidecarArmAllowlist(t *testing.T) {
+	roster := testRoster()
+	candidates := candidateSet("vendor-a/mid", "vendor-b/mid", "vendor-a/cheap")
+
+	// Rank one of the group is a candidate but the sidecar excluded it (e.g. a
+	// capability constraint), so the next allowed arm of the same group serves.
+	pick, ok := selection.SelectGroups(
+		roster,
+		[]selection.Group{{Label: "balanced", AllowedArms: []string{"vendor-b/mid"}}},
+		"",
+		candidates,
+	)
+	require.True(t, ok)
+	assert.Equal(t, selection.Pick{Group: "balanced", Arm: "vendor-b/mid"}, pick)
+
+	// A group whose allowlist excludes every candidate falls through.
+	pick, ok = selection.SelectGroups(
+		roster,
+		[]selection.Group{
+			{Label: "balanced", AllowedArms: []string{"vendor-c/other"}},
+			{Label: "low", AllowedArms: []string{"vendor-a/cheap"}},
+		},
+		"",
+		candidates,
+	)
+	require.True(t, ok)
+	assert.Equal(t, selection.Pick{Group: "low", Arm: "vendor-a/cheap", FallbackDepth: 1}, pick)
+
+	// An empty allowlist is "no restriction", not "no arms": a sidecar roster
+	// that disagrees with the router's must not shrink the candidate set.
+	pick, ok = selection.SelectGroups(
+		roster,
+		[]selection.Group{{Label: "balanced"}},
+		"",
+		candidates,
+	)
+	require.True(t, ok)
+	assert.Equal(t, selection.Pick{Group: "balanced", Arm: "vendor-a/mid"}, pick)
+
+	// Allowlist entries match effort-suffixed roster arms on their base ID.
+	pick, ok = selection.SelectGroups(
+		roster,
+		[]selection.Group{{Label: "effort", AllowedArms: []string{"vendor-a/deep"}}},
+		"",
+		candidateSet("vendor-a/deep"),
+	)
+	require.True(t, ok)
+	assert.Equal(t, selection.Pick{Group: "effort", Arm: "vendor-a/deep:high"}, pick)
+}
+
 func TestSelectIsDeterministic(t *testing.T) {
 	roster := testRoster()
 	candidates := candidateSet("vendor-a/mid", "vendor-b/mid", "vendor-a/cheap", "vendor-b/cheap")
