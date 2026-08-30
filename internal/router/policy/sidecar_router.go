@@ -65,9 +65,8 @@ func (r *SidecarRouter) WithCapabilities(capabilities Capabilities) *SidecarRout
 	return r
 }
 
-// WithArmSelector makes this router the arm selector and negotiates the
-// classifier-only sidecar contract. Explicit force-cluster and per-key cluster
-// overrides still take precedence over its pick.
+// WithArmSelector installs a boot-time arm selector and negotiates the
+// classifier-only sidecar contract; cluster overrides still take precedence.
 func (r *SidecarRouter) WithArmSelector(selector ArmSelector) *SidecarRouter {
 	r.armSelector = selector
 	r.resolver.RouterSelectsArm()
