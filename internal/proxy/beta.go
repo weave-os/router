@@ -79,26 +79,28 @@ func (s *Service) handleBetaCommand(
 		return writeBetaCommandResponse(w, env, betaUnavailable, inputTokens)
 	}
 
-	preference, enabled, err := s.sessionStrategyStore.Get(ctx, installationID, sessionKey)
-	if err != nil {
-		return fmt.Errorf("read beta routing preference: %w", err)
-	}
-	if enabled && preference.Strategy != router.StrategyHMMBeta {
-		return fmt.Errorf("unsupported persisted session routing strategy %q", preference.Strategy)
-	}
-	if !enabled && !s.PolicyStrategyAvailable(router.StrategyHMMBeta) {
-		return writeBetaCommandResponse(w, env, betaUnavailable, inputTokens)
-	}
-
-	// Acknowledge the state the store persisted, not the state read above:
-	// overlapping /beta commands for one session each observe their own flip.
-	nowEnabled, err := s.sessionStrategyStore.Toggle(context.Background(), sessionstrategy.Preference{
-		InstallationID: installationID,
-		SessionKey:     sessionKey,
-		Strategy:       router.StrategyHMMBeta,
-	})
-	if err != nil {
-		return fmt.Errorf("toggle beta routing: %w", err)
+	// Both branches decide from what the store persisted rather than a prior
+	// read, so overlapping /beta commands for one session cannot act on the
+	// same stale state: an unavailable beta policy can only ever be left.
+	nowEnabled := false
+	if s.PolicyStrategyAvailable(router.StrategyHMMBeta) {
+		enabled, err := s.sessionStrategyStore.Toggle(context.Background(), sessionstrategy.Preference{
+			InstallationID: installationID,
+			SessionKey:     sessionKey,
+			Strategy:       router.StrategyHMMBeta,
+		})
+		if err != nil {
+			return fmt.Errorf("toggle beta routing: %w", err)
+		}
+		nowEnabled = enabled
+	} else {
+		wasEnabled, err := s.sessionStrategyStore.Disable(context.Background(), installationID, sessionKey)
+		if err != nil {
+			return fmt.Errorf("disable beta routing: %w", err)
+		}
+		if !wasEnabled {
+			return writeBetaCommandResponse(w, env, betaUnavailable, inputTokens)
+		}
 	}
 
 	message := betaEnabledMessage

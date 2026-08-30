@@ -27,6 +27,7 @@ type sessionStrategyExec struct {
 
 type sessionStrategyDB struct {
 	row       pgx.Row
+	execTag   pgconn.CommandTag
 	execErr   error
 	execCalls []sessionStrategyExec
 	rowQuery  string
@@ -35,7 +36,7 @@ type sessionStrategyDB struct {
 
 func (db *sessionStrategyDB) Exec(_ context.Context, query string, args ...any) (pgconn.CommandTag, error) {
 	db.execCalls = append(db.execCalls, sessionStrategyExec{query: query, args: args})
-	return pgconn.CommandTag{}, db.execErr
+	return db.execTag, db.execErr
 }
 
 func (*sessionStrategyDB) Query(context.Context, string, ...any) (pgx.Rows, error) {
@@ -138,6 +139,28 @@ func TestSessionStrategyRepoToggleAcceptsOnlyHMMBeta(t *testing.T) {
 	assert.Contains(t, db.rowQuery, "enabled = NOT router.session_strategy_preferences.enabled")
 	assert.Contains(t, db.rowQuery, "RETURNING enabled")
 	assert.Equal(t, []any{installationID, key[:], string(router.StrategyHMMBeta)}, db.rowArgs)
+}
+
+func TestSessionStrategyRepoDisableReportsWhetherBetaWasOn(t *testing.T) {
+	t.Parallel()
+
+	installationID := uuid.New()
+	key := [sessionstrategy.SessionKeyLen]byte{4, 5, 6}
+	db := &sessionStrategyDB{execTag: pgconn.NewCommandTag("UPDATE 1")}
+	repo := NewSessionStrategyRepo(db)
+
+	wasEnabled, err := repo.Disable(context.Background(), installationID, key)
+	require.NoError(t, err)
+	assert.True(t, wasEnabled)
+	require.Len(t, db.execCalls, 1)
+	assert.Contains(t, db.execCalls[0].query, "SET enabled = FALSE")
+	assert.Contains(t, db.execCalls[0].query, "AND enabled")
+	assert.Equal(t, []any{installationID, key[:]}, db.execCalls[0].args)
+
+	db.execTag = pgconn.NewCommandTag("UPDATE 0")
+	wasEnabled, err = repo.Disable(context.Background(), installationID, key)
+	require.NoError(t, err)
+	assert.False(t, wasEnabled, "a session already on stable routing was not enabled")
 }
 
 func TestSessionStrategyRepoGetIgnoresDisabledRows(t *testing.T) {

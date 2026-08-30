@@ -39,6 +39,36 @@ func (q *Queries) GetSessionStrategyPreference(ctx context.Context, arg GetSessi
 	return strategy, err
 }
 
+const updateSessionStrategyPreferenceDisabled = `-- name: UpdateSessionStrategyPreferenceDisabled :execrows
+UPDATE router.session_strategy_preferences
+SET enabled = FALSE
+WHERE installation_id = $1::uuid
+  AND session_key = $2::bytea
+  AND enabled
+`
+
+type UpdateSessionStrategyPreferenceDisabledParams struct {
+	InstallationID uuid.UUID
+	SessionKey     []byte
+}
+
+// Turns the session's explicit override off and reports one affected row when
+// beta had been enabled. Callers use this instead of the toggle when the beta
+// policy is unavailable, so a concurrent command can never re-enable it.
+//
+//	UPDATE router.session_strategy_preferences
+//	SET enabled = FALSE
+//	WHERE installation_id = $1::uuid
+//	  AND session_key = $2::bytea
+//	  AND enabled
+func (q *Queries) UpdateSessionStrategyPreferenceDisabled(ctx context.Context, arg UpdateSessionStrategyPreferenceDisabledParams) (int64, error) {
+	result, err := q.db.Exec(ctx, updateSessionStrategyPreferenceDisabled, arg.InstallationID, arg.SessionKey)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const upsertToggledSessionStrategyPreference = `-- name: UpsertToggledSessionStrategyPreference :one
 INSERT INTO router.session_strategy_preferences (
   installation_id, session_key, strategy, enabled

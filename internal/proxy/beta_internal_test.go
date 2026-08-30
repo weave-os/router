@@ -60,13 +60,14 @@ func (r *betaTestRouter) Route(_ context.Context, req router.Request) (router.De
 }
 
 type betaTestPreferenceStore struct {
-	mu         sync.Mutex
-	preference sessionstrategy.Preference
-	found      bool
-	toggles    int
-	getErr     error
-	toggleErr  error
-	afterGet   func()
+	mu          sync.Mutex
+	preference  sessionstrategy.Preference
+	found       bool
+	toggles     int
+	disables    int
+	getErr      error
+	toggleErr   error
+	beforeWrite func()
 }
 
 func (s *betaTestPreferenceStore) Get(
@@ -77,9 +78,6 @@ func (s *betaTestPreferenceStore) Get(
 	s.mu.Lock()
 	preference, found, err := s.preference, s.found, s.getErr
 	s.mu.Unlock()
-	if s.afterGet != nil {
-		s.afterGet()
-	}
 	if err != nil {
 		return sessionstrategy.Preference{}, false, err
 	}
@@ -92,6 +90,9 @@ func (s *betaTestPreferenceStore) Get(
 func (s *betaTestPreferenceStore) Toggle(_ context.Context, preference sessionstrategy.Preference) (bool, error) {
 	if err := preference.Validate(); err != nil {
 		return false, err
+	}
+	if s.beforeWrite != nil {
+		s.beforeWrite()
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -106,6 +107,28 @@ func (s *betaTestPreferenceStore) Toggle(_ context.Context, preference sessionst
 	}
 	s.preference = preference
 	s.found = true
+	return true, nil
+}
+
+func (s *betaTestPreferenceStore) Disable(
+	_ context.Context,
+	installationID uuid.UUID,
+	sessionKey [sessionstrategy.SessionKeyLen]byte,
+) (bool, error) {
+	if s.beforeWrite != nil {
+		s.beforeWrite()
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.toggleErr != nil {
+		return false, s.toggleErr
+	}
+	s.disables++
+	if !s.found || s.preference.InstallationID != installationID || s.preference.SessionKey != sessionKey {
+		return false, nil
+	}
+	s.preference = sessionstrategy.Preference{}
+	s.found = false
 	return true, nil
 }
 
@@ -202,7 +225,7 @@ func TestHandleBetaCommandOverlappingTogglesAcknowledgeDistinctStates(t *testing
 	store := &betaTestPreferenceStore{}
 	var readers sync.WaitGroup
 	readers.Add(2)
-	store.afterGet = func() {
+	store.beforeWrite = func() {
 		readers.Done()
 		readers.Wait()
 	}
@@ -337,8 +360,59 @@ func TestHandleBetaCommandCanDisablePersistedBetaWhilePolicyUnavailable(t *testi
 		context.Background(), response, env, cmd, installationID, sessionKey, 1,
 	))
 	assert.False(t, store.found)
-	assert.Equal(t, 1, store.toggles)
+	assert.Equal(t, 1, store.disables)
+	assert.Zero(t, store.toggles, "an unavailable policy must never flip the preference")
 	assert.Contains(t, gjson.Get(response.Body.String(), "content.0.text").String(), betaDisabledMessage)
+}
+
+func TestHandleBetaCommandOverlappingTogglesCannotReenableUnavailableBeta(t *testing.T) {
+	installationID := uuid.New()
+	var sessionKey [sessionstrategy.SessionKeyLen]byte
+	sessionKey[0] = 1
+	store := &betaTestPreferenceStore{
+		preference: sessionstrategy.Preference{
+			InstallationID: installationID,
+			SessionKey:     sessionKey,
+			Strategy:       router.StrategyHMMBeta,
+		},
+		found: true,
+	}
+	var arrivals sync.WaitGroup
+	arrivals.Add(2)
+	store.beforeWrite = func() {
+		arrivals.Done()
+		arrivals.Wait()
+	}
+	svc := (&Service{}).WithSessionStrategyStore(store)
+
+	acknowledgements := make(chan string, 2)
+	var commands sync.WaitGroup
+	for range 2 {
+		commands.Add(1)
+		go func() {
+			defer commands.Done()
+			env := betaTestEnvelope(t, "/beta", true)
+			cmd, found := env.ExtractBetaCommand()
+			assert.True(t, found)
+			response := httptest.NewRecorder()
+			assert.NoError(t, svc.handleBetaCommand(
+				context.Background(), response, env, cmd, installationID, sessionKey, 1,
+			))
+			acknowledgements <- gjson.Get(response.Body.String(), "content.0.text").String()
+		}()
+	}
+	commands.Wait()
+	close(acknowledgements)
+
+	var acked []string
+	for text := range acknowledgements {
+		acked = append(acked, text)
+	}
+	assert.ElementsMatch(t, []string{
+		"✦ **Weave Router** → " + betaDisabledMessage + "\n\n",
+		"✦ **Weave Router** → " + betaUnavailable + "\n\n",
+	}, acked)
+	assert.False(t, store.found, "beta must stay off while its policy is unavailable")
 }
 
 func TestApplySessionStrategyOnlyUsesPersistedPreference(t *testing.T) {

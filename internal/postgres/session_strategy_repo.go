@@ -55,3 +55,13 @@ func (r *SessionStrategyRepo) Toggle(ctx context.Context, preference sessionstra
 		Strategy:       string(preference.Strategy),
 	})
 }
+
+// Disable turns the explicit beta preference off in one statement and reports
+// whether it had been enabled.
+func (r *SessionStrategyRepo) Disable(ctx context.Context, installationID uuid.UUID, sessionKey [sessionstrategy.SessionKeyLen]byte) (bool, error) {
+	disabled, err := sqlc.New(r.tx).UpdateSessionStrategyPreferenceDisabled(ctx, sqlc.UpdateSessionStrategyPreferenceDisabledParams{
+		InstallationID: installationID,
+		SessionKey:     sessionKey[:],
+	})
+	return disabled > 0, err
+}

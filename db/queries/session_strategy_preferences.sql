@@ -22,3 +22,13 @@ DO UPDATE SET
   strategy = EXCLUDED.strategy,
   enabled = NOT router.session_strategy_preferences.enabled
 RETURNING enabled;
+
+-- Turns the session's explicit override off and reports one affected row when
+-- beta had been enabled. Callers use this instead of the toggle when the beta
+-- policy is unavailable, so a concurrent command can never re-enable it.
+-- name: UpdateSessionStrategyPreferenceDisabled :execrows
+UPDATE router.session_strategy_preferences
+SET enabled = FALSE
+WHERE installation_id = @installation_id::uuid
+  AND session_key = @session_key::bytea
+  AND enabled;
