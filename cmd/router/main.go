@@ -855,9 +855,7 @@ func main() {
 				logger.Info("HMM policy sidecar capabilities discovered after boot", "sidecar_url", hmmSidecarURL)
 			}()
 		}
-		// Deterministic selection lives in Go; a sidecar without a roster has no
-		// selection authority to fall back to, so refuse to boot rather than
-		// silently serving the sidecar's arm.
+		// No roster means no Go-side selection authority; refuse to boot rather than silently serving the sidecar's arm.
 		if declarativeRoster == nil {
 			logger.Error("HMM sidecar configured without ROUTER_HMM_ROSTER_PATH; refusing to boot", "sidecar_url", hmmSidecarURL)
 			panic("ROUTER_HMM_ROSTER_PATH is required when ROUTER_HMM_SIDECAR_URL is set")
