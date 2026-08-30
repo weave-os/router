@@ -16,6 +16,8 @@ Stand up the router in docker compose, point a one-off `claude -p` session at it
 - **The router ignores the request's `model` field** and routes via the cluster scorer. The ONLY way to pin a specific model is `/force-model` through a Claude Code session (raw curl cannot).
 - **Port 8085 conflict.** The monorepo's pubsub emulator may already own host port 8085. Drop the router's host binding with a `docker-compose.override.yml` (see workflow). The server still reaches the emulator over the compose network.
 - **No credits / no key = no reproduction.** If the real upstream returns an error (e.g. OpenRouter "Insufficient credits"), use the mock-upstream path instead.
+- **Recording a demo in a browser terminal (ttyd/xterm.js): long typed commands can be dropped.** Automated browser typing into a ttyd terminal reliably delivers only short lines; long one-liners (quotes/braces) may result in empty prompts. Wrap the whole scenario in a `/tmp/demo_*.sh` script (curl turns + `docker compose logs … | grep` evidence with echo section headers) and type only `bash /tmp/demo_x.sh` in the recorded terminal.
+- **Flipping a router env flag between scenarios:** set it in `docker-compose.override.yml` under `server: environment:` and run `docker compose up -d server` (recreates only the server, ~seconds), then poll `curl -sf localhost:8080/health`. Verify the live value with `docker inspect router-server-1 --format '{{range .Config.Env}}{{println .}}{{end}}' | grep <FLAG>`.
 
 ## Workflow
 
