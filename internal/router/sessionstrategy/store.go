@@ -36,10 +36,8 @@ func (p Preference) Validate() error {
 
 // Store persists explicit session strategy preferences. Get returns
 // (zero, false, nil) when the session uses stable routing. Toggle and Disable
-// are single atomic writes reporting what they persisted, so overlapping
-// commands for one session cannot both act on the same prior state: Toggle
-// flips the preference and returns whether beta is now enabled, and Disable
-// turns it off and returns whether it had been enabled.
+// are atomic writes so overlapping /beta commands cannot both act on the same
+// prior state; each caller sees its own persisted result.
 type Store interface {
 	Get(ctx context.Context, installationID uuid.UUID, sessionKey [SessionKeyLen]byte) (Preference, bool, error)
 	Toggle(ctx context.Context, preference Preference) (bool, error)
