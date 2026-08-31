@@ -1223,7 +1223,6 @@ const leadingContentCap = 64
 // Matching stays anchored: quoted completed markup (`</tool_call>`,
 // `<arg_value>…</arg_value>`) is indistinguishable from a real leak by containment.
 //
-//
 // Reasoning markup (<think>) is deliberately excluded: models like Mimo-v2.5
 // stream visible chain-of-thought as <think>…</think> then a real answer with
 // finish_reason="stop" — a valid turn, not a parse failure. Nudging on it
