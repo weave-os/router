@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -10,6 +11,8 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+
+	"github.com/tidwall/sjson"
 )
 
 // cassette is a recorded HTTP interaction: enough to replay the response
@@ -59,8 +62,17 @@ func newStore(dir string) (*store, error) {
 
 // requestKey hashes method + path + body. The smoke fixtures are
 // byte-deterministic (stable system prompt, fixed user text per scenario), so
-// identical scenarios hash identically across runs and across machines.
+// identical scenarios hash identically across runs and across machines —
+// except for the router's own session-affinity hint: prompt_cache_key embeds
+// the seeded API key's session digest, which is regenerated on every stack
+// boot. It is a soft cache-routing hint with no bearing on the response, so
+// it is masked before hashing; the scenario identity lives in the rest of
+// the body (system prompt, tools, user text). Without masking, every
+// cross-format OpenAI cassette would miss in replay-only mode each run.
 func requestKey(method, path string, body []byte) string {
+	if trimmed := maskPromptCacheKey(body); trimmed != nil {
+		body = trimmed
+	}
 	h := sha256.New()
 	h.Write([]byte(method))
 	h.Write([]byte{0})
@@ -68,6 +80,19 @@ func requestKey(method, path string, body []byte) string {
 	h.Write([]byte{0})
 	h.Write(body)
 	return hex.EncodeToString(h.Sum(nil))
+}
+
+// maskPromptCacheKey returns a copy of body with any top-level
+// "prompt_cache_key" removed, or nil when the field is absent.
+func maskPromptCacheKey(body []byte) []byte {
+	if !bytes.Contains(body, []byte("prompt_cache_key")) {
+		return nil
+	}
+	out, err := sjson.DeleteBytes(body, "prompt_cache_key")
+	if err != nil {
+		return nil
+	}
+	return out
 }
 
 func (s *store) path(key string) string {
