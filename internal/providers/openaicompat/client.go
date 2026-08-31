@@ -38,12 +38,10 @@ const (
 	WaferBaseURL = "https://pass.wafer.ai/v1"
 )
 
-// grokResponseHeaderTimeout is the time-to-first-byte guard for Grok models.
-// Grok's first byte under load can legitimately arrive well past the default
-// 30s guard (Snowflake Cortex serves it with multi-tens-of-seconds prefill),
-// so Grok requests get a wider budget. Streaming inactivity is still bounded
-// by StreamBody's idle watchdog, so this cannot reintroduce an unbounded hang.
-// Tunable via ROUTER_GROK_HEADER_TIMEOUT_SECONDS.
+// grokResponseHeaderTimeout is the time-to-first-byte guard for Grok models;
+// Snowflake Cortex prefill can push first-byte past the default 30s. Streaming
+// inactivity stays bounded by StreamBody's idle watchdog. Tunable via
+// ROUTER_GROK_HEADER_TIMEOUT_SECONDS.
 var grokResponseHeaderTimeout = httputil.TimeoutFromEnv("ROUTER_GROK_HEADER_TIMEOUT_SECONDS", 90*time.Second)
 
 // BedrockMantleBaseURLTemplate is the OpenAI-compatible bedrock-mantle endpoint
@@ -165,9 +163,8 @@ func (c *Client) applyProtectedHeaders(req *http.Request) {
 	}
 }
 
-// NewClientWithHeaderTimeouts is NewClient with injected default and Grok
-// time-to-first-byte guards, so tests can exercise the model-conditional
-// transport selection without waiting out the real budgets.
+// NewClientWithHeaderTimeouts is NewClient with injected header-timeout
+// values so tests can exercise transport selection without real-latency waits.
 func NewClientWithHeaderTimeouts(apiKey, baseURL string, defaultTimeout, grokTimeout time.Duration) *Client {
 	c := NewClient(apiKey, baseURL)
 	c.http = httputil.NewClient(httputil.NewTransportWithResponseHeaderTimeout(5*time.Second, 5*time.Second, defaultTimeout))

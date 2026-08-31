@@ -1,9 +1,7 @@
 package openaicompat_test
 
-// Grok models get a wider time-to-first-byte guard than the default transport:
-// their first byte under load can legitimately arrive past the default 30s
-// ResponseHeaderTimeout. These tests inject a small default guard and a larger
-// Grok guard and verify the client picks the transport by routed model.
+// Verify that Grok models use the wider ResponseHeaderTimeout transport
+// and non-Grok models keep the default.
 
 import (
 	"context"
