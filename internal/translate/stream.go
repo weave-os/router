@@ -1205,21 +1205,37 @@ func (t *AnthropicSSETranslator) emitValidatedToolArgsDelta(blockIdx int) error 
 // dispatchable; the echo surfaces as a tool_result nudging the model to act.
 const routerNudgeCommand = "echo '[router] previous turn produced no tool_use; use Edit/Write/Read/Bash/Grep — do not respond with prose or thinking tags only.'"
 
-// leadingContentCap bounds retained opening text for leadsWithToolishMarkup —
-// enough for any marker plus leading whitespace.
-const leadingContentCap = 64
+// leadingContentCap bounds retained opening text for leadsWithToolishMarkup
+// and containsToolishMarkup. Sized past any single marker because the
+// containment scan needs the *closing* tag in the buffer too: GLM-5.3 emits
+// `</arg_key><arg_value>…</arg_value></tool_call>` where the payload between
+// the tags is a tool name plus arguments, so the closing tags land well past
+// a marker-width window (the production session's leak was 125 bytes).
+const leadingContentCap = 512
 
-// toolishMarkupMarkers are opening tokens of a tool call leaked into the
-// content channel as XML instead of a structured tool_use block; Claude
-// Code's strict parser rejects these and dead-ends the turn, which the nudge
-// rescues. Matched only at the turn's start (see leadsWithToolishMarkup) so a
+// toolishMarkupMarkers are tokens of a tool call leaked into the content
+// channel as XML instead of a structured tool_use block; Claude Code's strict
+// parser rejects these and dead-ends the turn, which the nudge rescues.
+// Matched only at the turn's start (see leadsWithToolishMarkup) so a
 // legitimate answer that discusses these tags mid-prose isn't misflagged.
+//
+// Closing and child tags are included because a leak does not reliably start
+// at the call's opening tag: GLM-5.3 streams the tool name as reasoning and
+// the arguments as content, so the visible turn opens mid-call on `</arg_key>`
+// or `<arg_value>` (session b56057cf — three consecutive dead-ended turns,
+// each 31 output tokens, no tool_use block).
 //
 // Reasoning markup (<think>) is deliberately excluded: models like Mimo-v2.5
 // stream visible chain-of-thought as <think>…</think> then a real answer with
 // finish_reason="stop" — a valid turn, not a parse failure. Nudging on it
 // looped the session (echo -> re-pin -> another <think>+answer -> repeat).
-var toolishMarkupMarkers = []string{"<tool_call", "<function", "<invoke"}
+var toolishMarkupMarkers = []string{
+	"<tool_call", "</tool_call",
+	"<function", "</function",
+	"<invoke", "</invoke",
+	"<arg_key", "</arg_key",
+	"<arg_value", "</arg_value",
+}
 
 // leadsWithToolishMarkup reports whether content opens (ignoring leading
 // whitespace) with tool-call markup — anchored to the start so a substring
@@ -1232,6 +1248,29 @@ func leadsWithToolishMarkup(content string) bool {
 		}
 	}
 	return false
+}
+
+// containsToolishMarkup reports whether content carries leaked tool-call
+// markup anywhere in the retained window, for leaks that begin with prose
+// ("Let me load those schemas.\n<tool_call>…") and so escape the anchored
+// prefix check.
+//
+// Only two shapes count, both chosen because prose that *discusses* tool
+// syntax does not produce them: a closing `</tool_call>`, and a balanced
+// `<arg_value>…</arg_value>` pair. Documentation and explanations name the
+// opening tags (`<tool_call>`, `<function>`) — matching on those here would
+// misfire on the very prose leadsWithToolishMarkup was anchored to protect
+// (see TestAnthropicSSETranslator_TextOnlyTurnNudge_SkippedWhenProseMentionsMarkup).
+// The pair is checked in order so a stray closing tag alone doesn't qualify.
+func containsToolishMarkup(content string) bool {
+	if strings.Contains(content, "</tool_call>") {
+		return true
+	}
+	open := strings.Index(content, "<arg_value>")
+	if open < 0 {
+		return false
+	}
+	return strings.Contains(content[open:], "</arg_value>")
 }
 
 // synthesizeTextOnlyTurnNudge fabricates a Bash tool_use block when the
@@ -1272,8 +1311,11 @@ func (t *AnthropicSSETranslator) synthesizeTextOnlyTurnNudge() error {
 		return nil
 	case "stop", "":
 		// Ambiguous: a genuine finished answer and a leaked-tool-call-as-XML
-		// turn both land here. Only nudge the latter.
-		if t.sawText && !leadsWithToolishMarkup(t.leadingContent.String()) {
+		// turn both land here. Only nudge the latter — either the turn opens
+		// with tool-call markup, or the retained window carries an
+		// unmistakable leaked-call shape (closing tag / balanced arg pair).
+		lead := t.leadingContent.String()
+		if t.sawText && !leadsWithToolishMarkup(lead) && !containsToolishMarkup(lead) {
 			return nil
 		}
 	}
