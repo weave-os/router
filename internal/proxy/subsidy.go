@@ -225,12 +225,8 @@ func (s *Service) withUsageObserver(ctx context.Context, headers http.Header, ro
 	return providers.WithUpstreamHeaderObserver(ctx, obs)
 }
 
-// withSubscriptionConditionalModels selects the installation's conditional
-// model allowlist for this request. A subscription is active when at least one
-// presented subscription credential is not exhausted; an unobserved
-// credential is treated as active so the first request can prime the observer.
-// The conditional lists are an additional restriction: an empty selected list
-// preserves the existing unrestricted behavior.
+// withSubscriptionConditionalModels selects the per-request conditional model allowlist based on subscription state.
+// An unobserved credential is treated as active (cold-start priming); an empty selected list preserves unrestricted behavior.
 func (s *Service) withSubscriptionConditionalModels(ctx context.Context, headers http.Header, routePaths ...string) context.Context {
 	activeModels := installationSubscriptionModelsWhenActiveFromContext(ctx)
 	inactiveModels := installationSubscriptionModelsWhenInactiveFromContext(ctx)
@@ -242,10 +238,8 @@ func (s *Service) withSubscriptionConditionalModels(ctx context.Context, headers
 	if len(routePaths) > 0 {
 		routePath = routePaths[0]
 	}
-	// Dual-subscription clients can send both credentials on every request.
-	// Only the family that covers this endpoint determines its conditional state;
-	// an unrelated credential must not keep an exhausted covering subscription in
-	// the active branch.
+	// Only the credential family covering this endpoint determines state; an
+	// unrelated active credential must not mask an exhausted covering one.
 	switch routePath {
 	case routePathMessages:
 		codexTok = ""

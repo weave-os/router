@@ -438,14 +438,10 @@ type InstallationAllowedModelsContextKey struct{}
 // InstallationSubscriptionModelsWhenActiveContextKey is the context key for the active-subscription conditional model allowlist.
 type InstallationSubscriptionModelsWhenActiveContextKey struct{}
 
-// InstallationSubscriptionModelsWhenInactiveContextKey is the context key for
-// the installation's conditional allowlist selected after subscription
-// exhaustion.
+// InstallationSubscriptionModelsWhenInactiveContextKey is the context key for the exhausted-subscription conditional model allowlist.
 type InstallationSubscriptionModelsWhenInactiveContextKey struct{}
 
-// InstallationSubscriptionConditionalModelsContextKey carries the one
-// conditional allowlist selected for the current request after the usage
-// observer determines subscription state.
+// InstallationSubscriptionConditionalModelsContextKey is the context key for the request-selected conditional model allowlist.
 type InstallationSubscriptionConditionalModelsContextKey struct{}
 
 // InstallationExcludedProvidersContextKey is the context key for the authed
