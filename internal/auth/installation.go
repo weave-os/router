@@ -25,6 +25,12 @@ type Installation struct {
 	// routing is confined to these models minus ExcludedModels.
 	// Empty = no restriction; fail-closed when no eligible overlap remains.
 	AllowedModels []string
+	// ModelsWhenSubscriptionActive optionally confines routing while the caller's
+	// subscription has headroom. Empty means no conditional restriction.
+	ModelsWhenSubscriptionActive []string
+	// ModelsWhenSubscriptionInactive optionally confines routing after the
+	// caller's subscription is exhausted. Empty means no conditional restriction.
+	ModelsWhenSubscriptionInactive []string
 	// ExcludedProviders is the per-installation provider exclusion list.
 	// Empty means no exclusion.
 	ExcludedProviders []string

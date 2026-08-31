@@ -22,6 +22,7 @@ func (s *Service) anthropicRoutingRequest(
 	headers http.Header,
 	ingress string,
 ) (context.Context, router.Request, error) {
+	ctx = s.withUsageObserver(ctx, headers, routePathMessages)
 	log := observability.FromContext(ctx)
 	cleanBody, err := stripRoutingMarkerFromMessages(body)
 	if err != nil {

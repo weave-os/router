@@ -175,8 +175,13 @@ func RequestPresentsCoveringSubscription(ctx context.Context, headers http.Heade
 // Phase 0 telemetry. Both concerns share one observer slot
 // (providers.WithUpstreamHeaderObserver holds only one per ctx); the capture is
 // wrapped in recover so a Phase 0 bug can never take down the subsidy observer.
-// No-op when usageObserver is nil AND no Anthropic subscription token is present.
-func (s *Service) withUsageObserver(ctx context.Context, headers http.Header) context.Context {
+// No-op when usageObserver is nil AND no subscription token is present.
+func (s *Service) withUsageObserver(ctx context.Context, headers http.Header, routePaths ...string) context.Context {
+	routePath := ""
+	if len(routePaths) > 0 {
+		routePath = routePaths[0]
+	}
+	ctx = s.withSubscriptionConditionalModels(ctx, headers, routePath)
 	codexTok, anthroTok := presentSubscriptionTokens(ctx, headers)
 	if s.usageObserver == nil && anthroTok == "" {
 		return ctx
@@ -218,6 +223,65 @@ func (s *Service) withUsageObserver(ctx context.Context, headers http.Header) co
 		}
 	}
 	return providers.WithUpstreamHeaderObserver(ctx, obs)
+}
+
+// withSubscriptionConditionalModels selects the installation's conditional
+// model allowlist for this request. A subscription is active when at least one
+// presented subscription credential is not exhausted; an unobserved
+// credential is treated as active so the first request can prime the observer.
+// The conditional lists are an additional restriction: an empty selected list
+// preserves the existing unrestricted behavior.
+func (s *Service) withSubscriptionConditionalModels(ctx context.Context, headers http.Header, routePaths ...string) context.Context {
+	activeModels := installationSubscriptionModelsWhenActiveFromContext(ctx)
+	inactiveModels := installationSubscriptionModelsWhenInactiveFromContext(ctx)
+	if s.usageObserver == nil || (len(activeModels) == 0 && len(inactiveModels) == 0) {
+		return ctx
+	}
+	codexTok, anthroTok := presentSubscriptionTokens(ctx, headers)
+	routePath := ""
+	if len(routePaths) > 0 {
+		routePath = routePaths[0]
+	}
+	// Dual-subscription clients can send both credentials on every request.
+	// Only the family that covers this endpoint determines its conditional state;
+	// an unrelated credential must not keep an exhausted covering subscription in
+	// the active branch.
+	switch routePath {
+	case routePathMessages:
+		codexTok = ""
+	case routePathChatCompletions, routePathResponses:
+		anthroTok = ""
+	}
+	if codexTok == "" && anthroTok == "" {
+		return ctx
+	}
+
+	active := false
+	observed := false
+	for _, token := range []string{codexTok, anthroTok} {
+		if token == "" {
+			continue
+		}
+		snapshot, ok := s.usageObserver.Snapshot(s.usageObserver.Key([]byte(token)))
+		if !ok {
+			active = true
+			continue
+		}
+		observed = true
+		if !snapshot.Exhausted() {
+			active = true
+		}
+	}
+	if !active && observed {
+		if len(inactiveModels) > 0 {
+			return context.WithValue(ctx, InstallationSubscriptionConditionalModelsContextKey{}, inactiveModels)
+		}
+		return ctx
+	}
+	if len(activeModels) > 0 {
+		return context.WithValue(ctx, InstallationSubscriptionConditionalModelsContextKey{}, activeModels)
+	}
+	return ctx
 }
 
 // subsidyFactors computes the per-covered-model cost multiplier for this

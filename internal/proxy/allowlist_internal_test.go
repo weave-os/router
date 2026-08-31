@@ -35,6 +35,21 @@ func TestAllowedModelsForRequest_BuildsSet(t *testing.T) {
 	assert.Equal(t, map[string]struct{}{"a": {}, "b": {}}, got)
 }
 
+func TestAllowedModelsForRequest_IntersectsSubscriptionConditionalList(t *testing.T) {
+	ctx := ctxWithAllowedModels("a", "b")
+	ctx = context.WithValue(ctx, InstallationSubscriptionConditionalModelsContextKey{}, []string{"b", "c"})
+
+	assert.Equal(t, map[string]struct{}{"b": {}}, allowedModelsForRequest(ctx))
+}
+
+func TestAllowedModelsForRequest_EmptyConditionalIntersectionFailsClosed(t *testing.T) {
+	ctx := ctxWithAllowedModels("a")
+	ctx = context.WithValue(ctx, InstallationSubscriptionConditionalModelsContextKey{}, []string{"b"})
+
+	assert.NotNil(t, allowedModelsForRequest(ctx))
+	assert.Empty(t, allowedModelsForRequest(ctx))
+}
+
 // The allowlist is enforced by desugaring into the exclusion set: every
 // routable model absent from a non-empty allowlist must come back excluded.
 func TestExcludedModelsForRequest_AllowlistExcludesTheComplement(t *testing.T) {

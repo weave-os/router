@@ -150,6 +150,10 @@ type RouterModelRouterInstallation struct {
 	FirstRequestServedAt pgtype.Timestamptz
 	// Sparse per-org behavioral flag overrides, keyed by internal/flags registry key. Empty object = inherit every deployment default. Precedence: header override > this > env default, unless ROUTER_FLAG_OVERRIDES_DISABLED is set.
 	FlagOverrides []byte
+	// Optional model allowlist while the caller subscription is active; empty means no conditional restriction.
+	ModelsWhenSubscriptionActive []string
+	// Optional model allowlist while the caller subscription is exhausted; empty means no conditional restriction.
+	ModelsWhenSubscriptionInactive []string
 }
 
 type RouterModelRouterRequestTelemetry struct {
