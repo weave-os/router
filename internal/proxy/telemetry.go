@@ -25,7 +25,6 @@ type TelemetryRepository interface {
 	GetSessionCost(ctx context.Context, installationID, sessionID string) (SessionCost, error)
 }
 
-// SessionCost is the committed router cost of one client session.
 // Costs are USD micros ($1.00 = 1,000,000) summed as integers so no float rounding accumulates.
 // Actual = router's chosen binding; Requested = client's originally-requested model.
 type SessionCost struct {

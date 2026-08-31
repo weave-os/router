@@ -92,13 +92,16 @@ cost_file_for() {
 # parser, because the Codex target deliberately does not require jq for config
 # reads.
 read_codex_endpoint() {
-  local config="" candidate
-  for candidate in "$helper_dir/config.toml" "$HOME/.codex/config.toml"; do
-    if [ -f "$candidate" ]; then
-      config="$candidate"
-      break
-    fi
-  done
+  local config=""
+  # Project/custom installs name the helper weave-status.sh and keep it next
+  # to their config.toml. Falling through to ~/.codex would fetch another
+  # installation's session cost with that key. The user-scope helper
+  # (codex-status.sh in ~/.weave) has no adjacent config and owns HOME.
+  if [ -f "$helper_dir/config.toml" ]; then
+    config="$helper_dir/config.toml"
+  elif [ "$(basename "$0")" != "weave-status.sh" ] && [ -f "$HOME/.codex/config.toml" ]; then
+    config="$HOME/.codex/config.toml"
+  fi
   [ -n "$config" ] || return 0
   awk -v begin="$codex_begin_marker" -v end="$codex_end_marker" '
     $0 == begin { inblk = 1; next }

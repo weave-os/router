@@ -169,6 +169,32 @@ render_cached_savings 'not-a-number'
   exit 1
 }
 
+# A project-scoped helper (weave-status.sh) whose adjacent config.toml is
+# gone must not fall through to ~/.codex — that would send the user-scope
+# key for a project session.
+project_helper="$work/project/.codex/weave-status.sh"
+mkdir -p "$(dirname "$project_helper")" "$work/project-home/.codex"
+cp "$helper" "$project_helper"
+chmod +x "$project_helper"
+cat >"$work/project-home/.codex/config.toml" <<TOML
+# >>> weave-router managed (do not edit between markers) >>>
+model_provider = "weave"
+
+[model_providers.weave]
+base_url = "file://$cost_body"
+http_headers = { "X-Weave-Router-Key" = "rk_user_scope", "X-App" = "codex" }
+# <<< weave-router managed <<<
+TOML
+project_cache="$work/cache-project-scope"
+printf '%s\n' '{"session_id":"session-project","model":"gpt-5.6-terra","last_assistant_message":"✦ **Weave Router** → claude-sonnet-5 · best pick"}' \
+  | HOME="$work/project-home" XDG_CACHE_HOME="$project_cache" \
+    WEAVE_CODEX_STATUS_TITLE_FILE="$title_file" "$project_helper" >/dev/null
+sleep 0.5
+[ ! -f "$project_cache/weave-router/codex/session-project.cost" ] || {
+  echo "project helper without adjacent config used the user-scope endpoint" >&2
+  exit 1
+}
+
 # Opting out must suppress the fetch entirely, not just the rendering.
 optout_cache="$work/cache-optout"
 printf '%s\n' '{"session_id":"session-3","model":"gpt-5.6-terra","last_assistant_message":"✦ **Weave Router** → claude-sonnet-5 · best pick"}' \
