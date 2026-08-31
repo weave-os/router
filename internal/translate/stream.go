@@ -1206,11 +1206,9 @@ func (t *AnthropicSSETranslator) emitValidatedToolArgsDelta(blockIdx int) error 
 const routerNudgeCommand = "echo '[router] previous turn produced no tool_use; use Edit/Write/Read/Bash/Grep — do not respond with prose or thinking tags only.'"
 
 // leadingContentCap bounds retained opening text for leadsWithToolishMarkup
-// and containsToolishMarkup. Sized past any single marker because the
-// containment scan needs the *closing* tag in the buffer too: GLM-5.3 emits
-// `</arg_key><arg_value>…</arg_value></tool_call>` where the payload between
-// the tags is a tool name plus arguments, so the closing tags land well past
-// a marker-width window (the production session's leak was 125 bytes).
+// and containsToolishMarkup. Must hold a whole leaked payload, since the
+// containment scan needs its closing tag: the observed GLM-5.3 leak was 125
+// bytes, past the previous 64-byte cap.
 const leadingContentCap = 512
 
 // toolishMarkupMarkers are tokens of a tool call leaked into the content
@@ -1251,17 +1249,13 @@ func leadsWithToolishMarkup(content string) bool {
 }
 
 // containsToolishMarkup reports whether content carries leaked tool-call
-// markup anywhere in the retained window, for leaks that begin with prose
-// ("Let me load those schemas.\n<tool_call>…") and so escape the anchored
-// prefix check.
+// markup anywhere in the retained window, catching leaks that begin with prose
+// and so escape the anchored prefix check.
 //
-// Only two shapes count, both chosen because prose that *discusses* tool
-// syntax does not produce them: a closing `</tool_call>`, and a balanced
-// `<arg_value>…</arg_value>` pair. Documentation and explanations name the
-// opening tags (`<tool_call>`, `<function>`) — matching on those here would
-// misfire on the very prose leadsWithToolishMarkup was anchored to protect
-// (see TestAnthropicSSETranslator_TextOnlyTurnNudge_SkippedWhenProseMentionsMarkup).
-// The pair is checked in order so a stray closing tag alone doesn't qualify.
+// Matched shapes: a closing </tool_call>, or a balanced <arg_value>…</arg_value>
+// pair. Opening tags are excluded because prose naming tool syntax uses them —
+// matching those unanchored would misfire on the answers leadsWithToolishMarkup
+// was built to protect. Pair is ordered so a lone closing tag in prose doesn't qualify.
 func containsToolishMarkup(content string) bool {
 	if strings.Contains(content, "</tool_call>") {
 		return true

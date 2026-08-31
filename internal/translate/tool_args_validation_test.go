@@ -266,13 +266,11 @@ func TestAnthropicSSETranslator_TextOnlyTurnNudge_FiresWhenLeadingWithToolishMar
 }
 
 func TestAnthropicSSETranslator_TextOnlyTurnNudge_FiresOnLeakedCallOpeningMidCall(t *testing.T) {
-	// Regression (session b56057cf): GLM-5.3-flash tried to call ToolSearch to
-	// load deferred MCP schemas, streamed the call's opening tags as reasoning,
-	// and emitted only the tail — `</arg_key><arg_value>…</arg_value></tool_call>`
-	// — as content with finish_reason=stop. The visible turn therefore opens on
-	// a *closing* child tag, which the original opening-tag-only marker list
-	// missed: three consecutive turns dead-ended at 31 output tokens with no
-	// tool_use block, and user nudges could not recover the session.
+	// Regression (session b56057cf): GLM-5.3-flash streamed the opening call
+	// tags as reasoning and emitted only the tail
+	// (</arg_key><arg_value>…</arg_value></tool_call>) as content, so the
+	// visible turn opens mid-call on a closing child tag — missed by the
+	// original opening-tag-only marker list.
 	body, summary := driveAnthropicSSEWithTools(t, "z-ai/glm-5.3-flash", true, []string{
 		`data: {"id":"c1","choices":[{"index":0,"delta":{"content":"</arg_key><arg_value>select:mcp__log_search__list_entries,mcp__metrics__list_series</arg_value></tool_call>"},"finish_reason":null}]}` + "\n\n",
 		`data: {"id":"c1","choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":93924,"completion_tokens":31}}` + "\n\n",
@@ -305,12 +303,10 @@ func TestAnthropicSSETranslator_TextOnlyTurnNudge_FiresOnLeakedCallAfterProse(t 
 }
 
 func TestAnthropicSSETranslator_TextOnlyTurnNudge_SkippedWhenProseDiscussesOpeningTagsOnly(t *testing.T) {
-	// False-positive guard for widening the marker list: prose that explains
-	// tool-call syntax names the *opening* tags. Because those are matched only
-	// at the turn's start, and the containment scan requires a closing
-	// `</tool_call>` or a balanced `<arg_value>…</arg_value>` pair, an
-	// explanation like this one must not be mistaken for a leak. This is the
-	// exact shape a router engineer asking about the nudge would receive.
+	// False-positive guard: prose naming opening tags (<tool_call>, <function>)
+	// mid-sentence must not trigger the nudge. The containment scan requires a
+	// closing </tool_call> or a balanced <arg_value>…</arg_value> pair, which
+	// explanatory prose does not produce.
 	body, summary := driveAnthropicSSEWithTools(t, "deepseek-v3.2", true, []string{
 		`data: {"id":"c1","choices":[{"index":0,"delta":{"content":"The nudge fires when a turn opens with <tool_call> or <function>, "},"finish_reason":null}]}` + "\n\n",
 		`data: {"id":"c1","choices":[{"index":0,"delta":{"content":"and GLM leaks show up as <arg_key> and <arg_value> fragments."},"finish_reason":null}]}` + "\n\n",
