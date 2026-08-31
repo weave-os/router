@@ -1,0 +1,23 @@
+internal/proxy/fallback_test.go
+  s_5e8e39d3453282::t_5fcda1c3ddae89 659-660
+  s_5e8e39d3453282::t_eb507d803df6c1 672-673
+  s_5e8e39d3453282::t_bcde545b868f4c 647-649
+internal/proxy/fallback.go
+  s_5e8e39d3453282::t_4de43e88e08309 344-346
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "d43a12e3801dd1faee7bcfeb081afce9db335077",
+  "prompts": {},
+  "sessions": {
+    "s_5e8e39d3453282": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "2c6d70fa-3ec5-4c6d-ac32-11ce75ef01ab",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Drew Bailey <drew@workweave.ai>"
+    }
+  }
+}
