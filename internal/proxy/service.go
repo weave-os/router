@@ -774,10 +774,9 @@ func subscriptionConditionalModelsForRequest(ctx context.Context) []string {
 	return out
 }
 
-// allowedModelsForRequest returns the effective positive model allowlist as a
-// set, intersecting the installation allowlist with the selected subscription
-// state list. Nil means neither policy is configured; a non-nil empty map is
-// an intentionally empty intersection and therefore fails closed.
+// allowedModelsForRequest returns the effective positive model allowlist as a set,
+// intersecting the installation list with the selected subscription-state list.
+// Nil = no policy; non-nil empty = fails closed (intentional empty intersection).
 func allowedModelsForRequest(ctx context.Context) map[string]struct{} {
 	base := installationAllowedModelsFromContext(ctx)
 	conditional := subscriptionConditionalModelsForRequest(ctx)
@@ -5703,9 +5702,8 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	pinAgeSec := routeRes.PinAgeSec
 	s.logPlannerOutcome(ctx, routeRes)
 
-	// See the ProxyMessages cache-eligibility note: subsidized and
-	// subscription-state-conditional requests bypass the semantic cache (the key
-	// doesn't capture headroom-dependent model choice).
+	// See the ProxyMessages cache-eligibility note: subsidized and subscription-state-conditional
+	// requests bypass the semantic cache (key doesn't capture headroom-dependent model choice).
 	cacheEligible := s.semanticCacheAllowed(ctx) && s.semanticCache != nil && !env.Stream() && decision.Metadata != nil && externalID != "" && !bypassEval && !responsesPassthrough && !billing.SubscriptionOnlyFromContext(ctx) && len(s.subsidyFactors(ctx, r.Header)) == 0 && len(subscriptionConditionalModelsForRequest(ctx)) == 0
 	if cacheEligible {
 		if resp, hit := s.semanticCache.Lookup(externalID, cache.FormatOpenAI, decision.Metadata.Embedding, decision.Metadata.ClusterIDs, decision.Metadata.ClusterRouterVersion, decision.Metadata.EffectiveKnobsHash); hit {
