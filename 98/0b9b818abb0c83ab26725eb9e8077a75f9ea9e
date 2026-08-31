@@ -1,0 +1,21 @@
+internal/proxy/sse_keepalive_integration_test.go
+  s_58629a25e850e2::t_cee8e2e2f0e062 20-21
+internal/sse/keepalive.go
+  s_58629a25e850e2::t_cee8e2e2f0e062 14-16,55,107-108
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.23",
+  "base_commit_sha": "980b9b818abb0c83ab26725eb9e8077a75f9ea9e",
+  "prompts": {},
+  "sessions": {
+    "s_58629a25e850e2": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9c7c5ebb-d977-41dd-bbd9-5f8c3fecf2fe",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}

@@ -1,0 +1,23 @@
+internal/proxy/turnloop.go
+  s_5fd0522fa1ca82::t_3dd01d6ee7ef72 244-245,253-256,258-259,1457-1459
+  s_5fd0522fa1ca82::t_eec14e1b65108f 1468,1470-1479
+internal/proxy/authority_cache_shadow_internal_test.go
+  s_5fd0522fa1ca82::t_3dd01d6ee7ef72 280-284
+  s_5fd0522fa1ca82::t_be3273e1ff2fba 305-314,317,320-321,323,326-327,329-330,333,336
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "17e4b3e1f9c7d4e708204aac2d43e35f18f63ece",
+  "prompts": {},
+  "sessions": {
+    "s_5fd0522fa1ca82": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "037ed040-a119-4d82-b49a-d8cb21fe393d",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}
