@@ -285,11 +285,9 @@ func TestAnthropicSSETranslator_TextOnlyTurnNudge_FiresOnLeakedCallOpeningMidCal
 }
 
 func TestAnthropicSSETranslator_TextOnlyTurnNudge_SkippedWhenProseQuotesClosingToolCall(t *testing.T) {
-	// A finished answer that quotes a completed `</tool_call>` — describing this
-	// very failure mode — must keep end_turn. Detection is anchored rather than
-	// scanning the window precisely because quoted completed markup is
-	// indistinguishable from a leak by containment, and a fabricated tool call
-	// appended to a complete turn makes the client dispatch router-authored work.
+	// Quoted completed markup is indistinguishable from a real leak by
+	// containment, so detection stays anchored — nudging here would append
+	// a fabricated tool call to an already-complete turn.
 	body, summary := driveAnthropicSSEWithTools(t, "deepseek-v3.2", true, []string{
 		`data: {"id":"c1","choices":[{"index":0,"delta":{"content":"The bug is that the model emits a bare </tool_call> fragment at the end of its turn, "},"finish_reason":null}]}` + "\n\n",
 		`data: {"id":"c1","choices":[{"index":0,"delta":{"content":"which the strict parser then rejects."},"finish_reason":null}]}` + "\n\n",
@@ -323,10 +321,8 @@ func TestAnthropicSSETranslator_TextOnlyTurnNudge_SkippedWhenProseQuotesBalanced
 }
 
 func TestAnthropicSSETranslator_TextOnlyTurnNudge_SkippedWhenProseDiscussesOpeningTagsOnly(t *testing.T) {
-	// False-positive guard: prose naming opening tags (<tool_call>, <function>)
-	// mid-sentence must not trigger the nudge. The containment scan requires a
-	// closing </tool_call> or a balanced <arg_value>…</arg_value> pair, which
-	// explanatory prose does not produce.
+	// False-positive guard: prose naming opening tags mid-sentence must
+	// not trigger the nudge — leaks open at the turn's start, not mid-prose.
 	body, summary := driveAnthropicSSEWithTools(t, "deepseek-v3.2", true, []string{
 		`data: {"id":"c1","choices":[{"index":0,"delta":{"content":"The nudge fires when a turn opens with <tool_call> or <function>, "},"finish_reason":null}]}` + "\n\n",
 		`data: {"id":"c1","choices":[{"index":0,"delta":{"content":"and GLM leaks show up as <arg_key> and <arg_value> fragments."},"finish_reason":null}]}` + "\n\n",

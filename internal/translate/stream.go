@@ -1220,11 +1220,9 @@ const leadingContentCap = 64
 // the arguments as content, so the visible turn opens mid-call on a closing
 // child tag.
 //
-// Matching stays anchored rather than scanning the whole window: a finished
-// answer that quotes completed markup (`</tool_call>`, a balanced
-// `<arg_value>…</arg_value>`) is indistinguishable from a leak by containment
-// alone, and nudging it appends a fabricated tool call to an already-complete
-// turn. The anchored form catches the observed leaks on its own.
+// Matching stays anchored: quoted completed markup (`</tool_call>`,
+// `<arg_value>…</arg_value>`) is indistinguishable from a leak by
+// containment alone — anchored matching catches both observed leaks.
 //
 // Reasoning markup (<think>) is deliberately excluded: models like Mimo-v2.5
 // stream visible chain-of-thought as <think>…</think> then a real answer with
