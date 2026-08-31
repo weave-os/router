@@ -58,6 +58,35 @@ func TestWithSubscriptionConditionalModels_SelectsInactiveListWhenExhausted(t *t
 	assert.Equal(t, []string{"inactive-model"}, subscriptionConditionalModelsForRequest(ctx))
 }
 
+func TestWithSubscriptionConditionalModels_SelectsEmptyInactiveListWhenExhausted(t *testing.T) {
+	svc := &Service{usageObserver: conditionalModelsObserver(usage.Snapshot{
+		Secondary: usage.Window{UsedPercent: 1.0, WindowMinutes: 10080},
+	})}
+
+	ctx := svc.withSubscriptionConditionalModels(
+		conditionalModelsContext([]string{"active-model"}, []string{}),
+		http.Header{},
+	)
+
+	assert.Empty(t, subscriptionConditionalModelsForRequest(ctx))
+	assert.True(t, subscriptionConditionalModelsConfigured(ctx))
+	excluded := (&Service{availableModels: map[string]struct{}{"active-model": {}}}).excludedModelsForRequest(ctx)
+	assert.Contains(t, excluded, "active-model")
+}
+
+func TestWithSubscriptionConditionalModels_BothEmptyLeavesFeatureOff(t *testing.T) {
+	svc := &Service{usageObserver: conditionalModelsObserver(usage.Snapshot{
+		Secondary: usage.Window{UsedPercent: 1.0, WindowMinutes: 10080},
+	})}
+
+	ctx := svc.withSubscriptionConditionalModels(
+		conditionalModelsContext([]string{}, []string{}),
+		http.Header{},
+	)
+
+	assert.False(t, subscriptionConditionalModelsConfigured(ctx))
+}
+
 func TestWithSubscriptionConditionalModels_ColdStartUsesActiveList(t *testing.T) {
 	observer := usage.NewObserver([]byte("conditional-models-salt"), time.Minute, time.Now)
 	svc := &Service{usageObserver: observer}

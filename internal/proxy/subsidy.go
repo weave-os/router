@@ -226,7 +226,8 @@ func (s *Service) withUsageObserver(ctx context.Context, headers http.Header, ro
 }
 
 // withSubscriptionConditionalModels selects the per-request conditional model allowlist based on subscription state.
-// An unobserved credential is treated as active (cold-start priming); an empty selected list preserves unrestricted behavior.
+// An unobserved credential is treated as active (cold-start priming); an empty
+// selected list is kept in context so configured empty state lists fail closed.
 func (s *Service) withSubscriptionConditionalModels(ctx context.Context, headers http.Header, routePaths ...string) context.Context {
 	activeModels := installationSubscriptionModelsWhenActiveFromContext(ctx)
 	inactiveModels := installationSubscriptionModelsWhenInactiveFromContext(ctx)
@@ -267,15 +268,9 @@ func (s *Service) withSubscriptionConditionalModels(ctx context.Context, headers
 		}
 	}
 	if !active && observed {
-		if len(inactiveModels) > 0 {
-			return context.WithValue(ctx, InstallationSubscriptionConditionalModelsContextKey{}, inactiveModels)
-		}
-		return ctx
+		return context.WithValue(ctx, InstallationSubscriptionConditionalModelsContextKey{}, inactiveModels)
 	}
-	if len(activeModels) > 0 {
-		return context.WithValue(ctx, InstallationSubscriptionConditionalModelsContextKey{}, activeModels)
-	}
-	return ctx
+	return context.WithValue(ctx, InstallationSubscriptionConditionalModelsContextKey{}, activeModels)
 }
 
 // subsidyFactors computes the per-covered-model cost multiplier for this
