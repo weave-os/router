@@ -435,9 +435,7 @@ type InstallationExcludedModelsContextKey struct{}
 // means no restriction.
 type InstallationAllowedModelsContextKey struct{}
 
-// InstallationSubscriptionModelsWhenActiveContextKey is the context key for
-// the installation's conditional allowlist selected when the caller
-// subscription has headroom.
+// InstallationSubscriptionModelsWhenActiveContextKey is the context key for the active-subscription conditional model allowlist.
 type InstallationSubscriptionModelsWhenActiveContextKey struct{}
 
 // InstallationSubscriptionModelsWhenInactiveContextKey is the context key for
