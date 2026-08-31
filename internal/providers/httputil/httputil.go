@@ -123,6 +123,12 @@ func intFromEnv(envVar string, fallback int) int {
 	return n
 }
 
+// TimeoutFromEnv reads a whole-seconds override from envVar, falling back
+// to fallback when unset, unparsable, or non-positive.
+func TimeoutFromEnv(envVar string, fallback time.Duration) time.Duration {
+	return idleTimeoutFromEnv(envVar, fallback)
+}
+
 // idleTimeoutFromEnv reads a whole-seconds override from envVar, falling back
 // to fallback when unset, unparsable, or non-positive.
 func idleTimeoutFromEnv(envVar string, fallback time.Duration) time.Duration {
