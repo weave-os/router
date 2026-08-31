@@ -340,8 +340,7 @@ func TestAnthropicSSETranslator_TextOnlyTurnNudge_SkippedWhenProseDiscussesOpeni
 
 func TestAnthropicSSETranslator_TextOnlyTurnNudge_SkippedWhenProseQuotesUnpairedClosingArgTag(t *testing.T) {
 	// The `<arg_value>` branch requires the closing tag to follow the opening
-	// one, so prose that quotes a lone `</arg_value>` — as a bug report about
-	// this very failure mode would — is not treated as a leaked call.
+	// one, so a lone `</arg_value>` quoted in prose is not treated as a leaked call.
 	_, summary := driveAnthropicSSEWithTools(t, "deepseek-v3.2", true, []string{
 		`data: {"id":"c1","choices":[{"index":0,"delta":{"content":"The dead-ended turns each ended in a stray </arg_value> fragment, "},"finish_reason":null}]}` + "\n\n",
 		`data: {"id":"c1","choices":[{"index":0,"delta":{"content":"which is why the closing tag alone cannot be the signal."},"finish_reason":null}]}` + "\n\n",

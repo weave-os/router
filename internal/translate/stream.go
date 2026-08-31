@@ -1221,8 +1221,8 @@ const leadingContentCap = 64
 // child tag.
 //
 // Matching stays anchored: quoted completed markup (`</tool_call>`,
-// `<arg_value>…</arg_value>`) is indistinguishable from a leak by
-// containment alone — anchored matching catches both observed leaks.
+// `<arg_value>…</arg_value>`) is indistinguishable from a real leak by containment.
+//
 //
 // Reasoning markup (<think>) is deliberately excluded: models like Mimo-v2.5
 // stream visible chain-of-thought as <think>…</think> then a real answer with
