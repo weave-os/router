@@ -1205,11 +1205,9 @@ func (t *AnthropicSSETranslator) emitValidatedToolArgsDelta(blockIdx int) error 
 // dispatchable; the echo surfaces as a tool_result nudging the model to act.
 const routerNudgeCommand = "echo '[router] previous turn produced no tool_use; use Edit/Write/Read/Bash/Grep — do not respond with prose or thinking tags only.'"
 
-// leadingContentCap bounds retained opening text for leadsWithToolishMarkup
-// and containsToolishMarkup. Must hold a whole leaked payload, since the
-// containment scan needs its closing tag: the observed GLM-5.3 leak was 125
-// bytes, past the previous 64-byte cap.
-const leadingContentCap = 512
+// leadingContentCap bounds retained opening text for leadsWithToolishMarkup —
+// enough for any marker plus leading whitespace.
+const leadingContentCap = 64
 
 // toolishMarkupMarkers are tokens of a tool call leaked into the content
 // channel as XML instead of a structured tool_use block; Claude Code's strict
@@ -1219,9 +1217,14 @@ const leadingContentCap = 512
 //
 // Closing and child tags are included because a leak does not reliably start
 // at the call's opening tag: GLM-5.3 streams the tool name as reasoning and
-// the arguments as content, so the visible turn opens mid-call on `</arg_key>`
-// or `<arg_value>` (session b56057cf — three consecutive dead-ended turns,
-// each 31 output tokens, no tool_use block).
+// the arguments as content, so the visible turn opens mid-call on a closing
+// child tag.
+//
+// Matching stays anchored rather than scanning the whole window: a finished
+// answer that quotes completed markup (`</tool_call>`, a balanced
+// `<arg_value>…</arg_value>`) is indistinguishable from a leak by containment
+// alone, and nudging it appends a fabricated tool call to an already-complete
+// turn. The anchored form catches the observed leaks on its own.
 //
 // Reasoning markup (<think>) is deliberately excluded: models like Mimo-v2.5
 // stream visible chain-of-thought as <think>…</think> then a real answer with
@@ -1246,25 +1249,6 @@ func leadsWithToolishMarkup(content string) bool {
 		}
 	}
 	return false
-}
-
-// containsToolishMarkup reports whether content carries leaked tool-call
-// markup anywhere in the retained window, catching leaks that begin with prose
-// and so escape the anchored prefix check.
-//
-// Matched shapes: a closing </tool_call>, or a balanced <arg_value>…</arg_value>
-// pair. Opening tags are excluded because prose naming tool syntax uses them —
-// matching those unanchored would misfire on the answers leadsWithToolishMarkup
-// was built to protect. Pair is ordered so a lone closing tag in prose doesn't qualify.
-func containsToolishMarkup(content string) bool {
-	if strings.Contains(content, "</tool_call>") {
-		return true
-	}
-	open := strings.Index(content, "<arg_value>")
-	if open < 0 {
-		return false
-	}
-	return strings.Contains(content[open:], "</arg_value>")
 }
 
 // synthesizeTextOnlyTurnNudge fabricates a Bash tool_use block when the
@@ -1305,11 +1289,8 @@ func (t *AnthropicSSETranslator) synthesizeTextOnlyTurnNudge() error {
 		return nil
 	case "stop", "":
 		// Ambiguous: a genuine finished answer and a leaked-tool-call-as-XML
-		// turn both land here. Only nudge the latter — either the turn opens
-		// with tool-call markup, or the retained window carries an
-		// unmistakable leaked-call shape (closing tag / balanced arg pair).
-		lead := t.leadingContent.String()
-		if t.sawText && !leadsWithToolishMarkup(lead) && !containsToolishMarkup(lead) {
+		// turn both land here. Only nudge the latter.
+		if t.sawText && !leadsWithToolishMarkup(t.leadingContent.String()) {
 			return nil
 		}
 	}

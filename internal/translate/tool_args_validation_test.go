@@ -266,9 +266,8 @@ func TestAnthropicSSETranslator_TextOnlyTurnNudge_FiresWhenLeadingWithToolishMar
 }
 
 func TestAnthropicSSETranslator_TextOnlyTurnNudge_FiresOnLeakedCallOpeningMidCall(t *testing.T) {
-	// Regression (session b56057cf): GLM-5.3-flash streamed the opening call
-	// tags as reasoning and emitted only the tail
-	// (</arg_key><arg_value>…</arg_value></tool_call>) as content, so the
+	// Regression: GLM-5.3-flash streamed the opening call tags as reasoning
+	// and emitted only the tail (</arg_key>…</tool_call>) as content, so the
 	// visible turn opens mid-call on a closing child tag — missed by the
 	// original opening-tag-only marker list.
 	body, summary := driveAnthropicSSEWithTools(t, "z-ai/glm-5.3-flash", true, []string{
@@ -285,21 +284,42 @@ func TestAnthropicSSETranslator_TextOnlyTurnNudge_FiresOnLeakedCallOpeningMidCal
 	assert.Contains(t, body, `"id":"toolu_router_nudge_`)
 }
 
-func TestAnthropicSSETranslator_TextOnlyTurnNudge_FiresOnLeakedCallAfterProse(t *testing.T) {
-	// The anchored prefix check only sees the turn's opening. When a model
-	// narrates first and leaks the call afterwards, the closing `</tool_call>`
-	// inside the retained window is what identifies it.
-	body, summary := driveAnthropicSSEWithTools(t, "z-ai/glm-5.3-flash", true, []string{
-		`data: {"id":"c1","choices":[{"index":0,"delta":{"content":"Let me load the deferred MCP schemas first.\n"},"finish_reason":null}]}` + "\n\n",
-		`data: {"id":"c1","choices":[{"index":0,"delta":{"content":"<tool_call><arg_key>query</arg_key><arg_value>select:Read</arg_value></tool_call>"},"finish_reason":null}]}` + "\n\n",
-		`data: {"id":"c1","choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":400,"completion_tokens":40}}` + "\n\n",
+func TestAnthropicSSETranslator_TextOnlyTurnNudge_SkippedWhenProseQuotesClosingToolCall(t *testing.T) {
+	// A finished answer that quotes a completed `</tool_call>` — describing this
+	// very failure mode — must keep end_turn. Detection is anchored rather than
+	// scanning the window precisely because quoted completed markup is
+	// indistinguishable from a leak by containment, and a fabricated tool call
+	// appended to a complete turn makes the client dispatch router-authored work.
+	body, summary := driveAnthropicSSEWithTools(t, "deepseek-v3.2", true, []string{
+		`data: {"id":"c1","choices":[{"index":0,"delta":{"content":"The bug is that the model emits a bare </tool_call> fragment at the end of its turn, "},"finish_reason":null}]}` + "\n\n",
+		`data: {"id":"c1","choices":[{"index":0,"delta":{"content":"which the strict parser then rejects."},"finish_reason":null}]}` + "\n\n",
+		`data: {"id":"c1","choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":40,"completion_tokens":30}}` + "\n\n",
 		"data: [DONE]\n\n",
 	})
 
-	assert.True(t, summary.TextOnlyTurnNudged,
-		"a leaked call after leading prose must still nudge — the closing tag is the tell")
-	assert.Equal(t, 1, summary.ToolUseBlocks)
-	assert.Contains(t, body, `"id":"toolu_router_nudge_`)
+	assert.False(t, summary.TextOnlyTurnNudged,
+		"prose quoting a completed closing tag is a real answer — nudge must not fire")
+	assert.Equal(t, 0, summary.ToolUseBlocks, "no fabricated tool_use on a completed answer")
+	assert.Equal(t, "end_turn", summary.StopReason, "terminal result must stay end_turn")
+	assert.NotContains(t, body, "toolu_router_nudge_")
+	assert.Contains(t, body, "The bug is that", "the model's real answer survives")
+}
+
+func TestAnthropicSSETranslator_TextOnlyTurnNudge_SkippedWhenProseQuotesBalancedArgPair(t *testing.T) {
+	// Same guard for a quoted balanced `<arg_value>…</arg_value>` pair, e.g. an
+	// answer citing the payload it found in a trace.
+	body, summary := driveAnthropicSSEWithTools(t, "deepseek-v3.2", true, []string{
+		`data: {"id":"c1","choices":[{"index":0,"delta":{"content":"In the trace the payload was <arg_value>config.yaml</arg_value>, "},"finish_reason":null}]}` + "\n\n",
+		`data: {"id":"c1","choices":[{"index":0,"delta":{"content":"which is what identified the leak."},"finish_reason":null}]}` + "\n\n",
+		`data: {"id":"c1","choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":40,"completion_tokens":30}}` + "\n\n",
+		"data: [DONE]\n\n",
+	})
+
+	assert.False(t, summary.TextOnlyTurnNudged,
+		"prose quoting a balanced arg pair is a real answer — nudge must not fire")
+	assert.Equal(t, 0, summary.ToolUseBlocks)
+	assert.Equal(t, "end_turn", summary.StopReason, "terminal result must stay end_turn")
+	assert.NotContains(t, body, "toolu_router_nudge_")
 }
 
 func TestAnthropicSSETranslator_TextOnlyTurnNudge_SkippedWhenProseDiscussesOpeningTagsOnly(t *testing.T) {
@@ -338,19 +358,18 @@ func TestAnthropicSSETranslator_TextOnlyTurnNudge_SkippedWhenProseQuotesUnpaired
 	assert.Equal(t, 0, summary.ToolUseBlocks)
 }
 
-func TestAnthropicSSETranslator_TextOnlyTurnNudge_LeakBeyondOldWindowStillFires(t *testing.T) {
-	// The retained window must be wide enough to hold a real leak's closing
-	// tags. The production payload was 125 bytes, so the previous 64-byte cap
-	// truncated `</arg_value></tool_call>` out of the buffer entirely and no
-	// containment check could have seen it.
+func TestAnthropicSSETranslator_TextOnlyTurnNudge_FiresOnLeakSplitAcrossDeltas(t *testing.T) {
+	// The opening marker can arrive split across SSE deltas. leadingContent
+	// accumulates, so the anchored check still sees a whole marker at the start.
 	_, summary := driveAnthropicSSEWithTools(t, "z-ai/glm-5.3-flash", true, []string{
-		`data: {"id":"c1","choices":[{"index":0,"delta":{"content":"Loading schemas now, this may take a moment while the deferred tool list resolves.\n<tool_call><arg_key>query</arg_key><arg_value>select:Grep</arg_value></tool_call>"},"finish_reason":null}]}` + "\n\n",
+		`data: {"id":"c1","choices":[{"index":0,"delta":{"content":"</arg_"},"finish_reason":null}]}` + "\n\n",
+		`data: {"id":"c1","choices":[{"index":0,"delta":{"content":"key><arg_value>select:Grep</arg_value></tool_call>"},"finish_reason":null}]}` + "\n\n",
 		`data: {"id":"c1","choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":400,"completion_tokens":45}}` + "\n\n",
 		"data: [DONE]\n\n",
 	})
 
 	assert.True(t, summary.TextOnlyTurnNudged,
-		"a leak whose closing tags sit past the old 64-byte cap must still be detected")
+		"a marker split across deltas must still be detected once leadingContent accumulates")
 	assert.Equal(t, 1, summary.ToolUseBlocks)
 }
 
