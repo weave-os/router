@@ -46,7 +46,7 @@ type portableCodexResponsesConverter struct {
 }
 
 func convertPortableCodexResponses(body []byte) (ResponsesConversion, error) {
-	if err := validateJSONObject(body); err != nil {
+	if err := validateResponsesRequest(body); err != nil {
 		return ResponsesConversion{}, err
 	}
 

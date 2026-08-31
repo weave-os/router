@@ -1168,3 +1168,33 @@ func TestStripRouterCommandsFromResponsesInput_LeavesChatProjectionIntact(t *tes
 	assert.Equal(t, "gpt-5.6-terra", res.Model)
 	assert.True(t, res.FromToolResult, "agent-issued, so the turn continues")
 }
+
+func TestConvertResponsesToChatCompletions_RejectsChatCompletionsBody(t *testing.T) {
+	// A chat-completions body posted to /v1/responses: without this rejection it
+	// projects to an empty turn and the original bytes reach the upstream
+	// Responses endpoint verbatim (prod 2026-08-31, upstream 400).
+	body := []byte(`{"model":"claude-haiku-4-5","messages":[{"role":"user","content":"hi"}]}`)
+
+	_, err := translate.ConvertResponsesToChatCompletions(body)
+
+	require.Error(t, err)
+	assert.ErrorIs(t, err, translate.ErrResponsesChatCompletionsBody)
+}
+
+func TestConvertResponsesToChatCompletionsWithOptions_PortableCodexRejectsChatCompletionsBody(t *testing.T) {
+	body := []byte(`{"model":"gpt-5.6-luna","messages":[{"role":"user","content":"hi"}]}`)
+
+	_, err := translate.ConvertResponsesToChatCompletionsWithOptions(body, translate.ResponsesConversionOptions{PortableCodex: true})
+
+	require.Error(t, err)
+	assert.ErrorIs(t, err, translate.ErrResponsesChatCompletionsBody)
+}
+
+func TestConvertResponsesToChatCompletions_AcceptsInputOnlyBody(t *testing.T) {
+	body := []byte(`{"model":"gpt-5.6-luna","input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"hi"}]}]}`)
+
+	conv, err := translate.ConvertResponsesToChatCompletions(body)
+
+	require.NoError(t, err)
+	assert.Equal(t, "hi", gjson.GetBytes(conv.Body, "messages.0.content").String())
+}

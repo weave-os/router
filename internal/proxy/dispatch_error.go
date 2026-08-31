@@ -31,6 +31,7 @@ const (
 	DispatchErrorNotImplemented
 	DispatchErrorProviderNotConfigured
 	DispatchErrorRequestNotJSONObject
+	DispatchErrorResponsesChatCompletionsBody
 	DispatchErrorNoEligibleProvider
 	DispatchErrorAllowlistEmptiesPool
 	DispatchErrorContextWindowExceeded
@@ -156,6 +157,14 @@ func ClassifyDispatchError(err error) (DispatchErrorClass, bool) {
 			Kind:    DispatchErrorRequestNotJSONObject,
 			Status:  http.StatusBadRequest,
 			Message: "Request body must be a JSON object.",
+		}, true
+	case errors.Is(err, translate.ErrResponsesChatCompletionsBody):
+		return DispatchErrorClass{
+			Kind:       DispatchErrorResponsesChatCompletionsBody,
+			Status:     http.StatusBadRequest,
+			Message:    "Unsupported parameter: 'messages'. In the Responses API, this parameter has moved to 'input'. Try again with the new parameter, or POST this body to /v1/chat/completions.",
+			LogLevel:   "warn",
+			LogMessage: "Rejected request: Chat Completions body posted to /v1/responses",
 		}, true
 	case errors.Is(err, translate.ErrAnthropicCacheControlOverflow), errors.Is(err, translate.ErrAnthropicCacheControlInvalid):
 		// Client's explicit cache_control is invalid (overflow or bad TTL order);
@@ -339,7 +348,7 @@ func unwrapToSentinelMessage(err error) string {
 // rather than "api_error".
 func (k DispatchErrorKind) IsClientError() bool {
 	switch k {
-	case DispatchErrorRequestNotJSONObject, DispatchErrorNoEligibleProvider, DispatchErrorAllowlistEmptiesPool, DispatchErrorContextWindowExceeded, DispatchErrorInvalidRoutingKnobs, DispatchErrorTranslationIntrinsicallyIncompatible, DispatchErrorAnthropicCacheControlInvalid, DispatchErrorForcedModelExcluded, DispatchErrorForcedModelUnknown, DispatchErrorForcedClusterUnsupportedStrategy, DispatchErrorForcedClusterUnservable, DispatchErrorGatewayServesNoModel, DispatchErrorNoRoutableModels:
+	case DispatchErrorRequestNotJSONObject, DispatchErrorResponsesChatCompletionsBody, DispatchErrorNoEligibleProvider, DispatchErrorAllowlistEmptiesPool, DispatchErrorContextWindowExceeded, DispatchErrorInvalidRoutingKnobs, DispatchErrorTranslationIntrinsicallyIncompatible, DispatchErrorAnthropicCacheControlInvalid, DispatchErrorForcedModelExcluded, DispatchErrorForcedModelUnknown, DispatchErrorForcedClusterUnsupportedStrategy, DispatchErrorForcedClusterUnservable, DispatchErrorGatewayServesNoModel, DispatchErrorNoRoutableModels:
 		return true
 	default:
 		return false
