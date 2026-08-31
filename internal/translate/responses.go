@@ -64,11 +64,9 @@ func ResponsesToChatCompletions(body []byte) ([]byte, bool, string, error) {
 	return result.Body, result.Stream, result.Model, nil
 }
 
-// ErrResponsesChatCompletionsBody rejects a Chat Completions body posted to the
-// Responses surface. The Responses schema has no top-level "messages", so such a
-// body projects to an empty turn (routing on no content) and — because every
-// Responses turn keeps its original bytes for native dispatch — reaches the
-// upstream Responses endpoint verbatim, surfacing as an upstream 400.
+// ErrResponsesChatCompletionsBody is returned when a Chat Completions body
+// (top-level "messages") is posted to /v1/responses; such a body routes on
+// zero content and reaches the upstream Responses endpoint verbatim as a 400.
 var ErrResponsesChatCompletionsBody = errors.New("unsupported parameter: 'messages'. In the Responses API, this parameter has moved to 'input'")
 
 // validateResponsesRequest rejects bodies the Responses surface cannot project.

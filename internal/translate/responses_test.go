@@ -1170,9 +1170,7 @@ func TestStripRouterCommandsFromResponsesInput_LeavesChatProjectionIntact(t *tes
 }
 
 func TestConvertResponsesToChatCompletions_RejectsChatCompletionsBody(t *testing.T) {
-	// A chat-completions body posted to /v1/responses: without this rejection it
-	// projects to an empty turn and the original bytes reach the upstream
-	// Responses endpoint verbatim (prod 2026-08-31, upstream 400).
+	// Without this rejection the body reaches the upstream Responses endpoint verbatim as a 400.
 	body := []byte(`{"model":"claude-haiku-4-5","messages":[{"role":"user","content":"hi"}]}`)
 
 	_, err := translate.ConvertResponsesToChatCompletions(body)
