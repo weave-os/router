@@ -71,11 +71,9 @@ func SelectGroups(roster *rosterdata.Roster, groups []Group, harness string, can
 		allowedArms := make(map[string]struct{}, len(group.AllowedArms))
 		allowedBases := make(map[string]struct{}, len(group.AllowedArms))
 		for _, arm := range group.AllowedArms {
-			// An effort-qualified entry permits that operating point only:
-			// model:low and model:xhigh are separately measured arms with
-			// their own dispatch parameter, so collapsing them to the base
-			// would serve an arm the capability constraint excluded. A bare
-			// entry names the base and permits any of its efforts.
+			// Effort-qualified entries (model:low) match verbatim so a
+			// capability constraint cannot be bypassed; bare entries permit
+			// any effort of that base to avoid emptying the group.
 			if baseID, effort := hmm.SplitEffort(arm); effort == "" {
 				allowedBases[baseID] = struct{}{}
 			} else {

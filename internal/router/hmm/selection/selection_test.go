@@ -225,9 +225,8 @@ func TestSelectGroupsAllowlistDistinguishesEffortVariants(t *testing.T) {
 	roster := testRoster()
 	candidates := candidateSet("vendor-a/deep")
 
-	// Effort variants are separate operating points with their own dispatch
-	// parameter, so allowlisting one must not admit a higher-effort arm that
-	// outranks it in the roster.
+	// Each effort variant is a distinct arm; allowlisting one must not
+	// admit a higher-effort arm that ranks above it.
 	pick, ok := selection.SelectGroups(
 		roster,
 		[]selection.Group{{Label: "efforts", AllowedArms: []string{"vendor-a/deep:low"}}},
