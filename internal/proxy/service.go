@@ -5896,7 +5896,12 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 
 	// Previously gated on policy debug; ordinary Codex turns fell through to
 	// ResponsesWriter's legacy badge that ignored suppression and never showed the routing reason.
+	receiptPricing := &codexReceiptPricing{
+		actualPricing: actPricing,
+		provider:      decision.Provider,
+	}
 	verbatimPassthrough := responsesPassthrough && decision.Provider == providers.ProviderOpenAI
+	receiptEnabled := codexReceiptTurn(clientID.ClientApp, routeRes.TurnType)
 	if rw, ok := w.(*translate.ResponsesWriter); ok {
 		if marker != "" && !verbatimPassthrough {
 			rw.SetBadgeText(marker)
@@ -5904,11 +5909,8 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		if footer := s.feedbackFooter(ctx, clientID.ClientApp, routeRes.TurnType, footerEchoedSinceHumanTurn); footer != "" {
 			rw.SetFooterText(footer)
 		}
-		// Codex prices a turn from the model it asked for, so a routed turn's
-		// real tokens and savings never reach the client. Skipped for a
-		// verbatim passthrough, which must stay byte-faithful.
-		if !verbatimPassthrough {
-			rw.SetReceiptFunc(codexReceiptRenderer(reqPricing, actPricing, decision.Provider))
+		if receiptEnabled {
+			rw.SetReceiptFunc(codexReceiptRenderer(reqPricing, receiptPricing))
 		}
 	}
 	// Keep a stable copy for a possible chat/completions fallback after a native
@@ -5933,7 +5935,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 			// marker already carries the depleted-credits warning in
 			// subscription-only mode, which overrides the opt-out above.
 			// Parse native SSE when Codex needs a badge and/or footer.
-			if clientID.ClientApp == ClientAppCodex && (marker != "" || s.feedbackFooter(ctx, clientID.ClientApp, routeRes.TurnType, footerEchoedSinceHumanTurn) != "") {
+			if clientID.ClientApp == ClientAppCodex && (marker != "" || receiptEnabled || s.feedbackFooter(ctx, clientID.ClientApp, routeRes.TurnType, footerEchoedSinceHumanTurn) != "") {
 				if marker != "" {
 					rw.SetBadgeText(marker)
 				}
@@ -6012,6 +6014,12 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		// Split from attempt so a native dispatch that finds no Responses surface
 		// can re-emit onto chat/completions while still pre-commit.
 		dispatchOpenAI := func(actx context.Context, d router.Decision, p providers.Client, surface openAISurface, stripPromptCacheKey bool) error {
+			if pricing, ok := catalog.PriceFor(d.Provider, d.Model); ok {
+				receiptPricing.actualPricing = pricing
+				receiptPricing.hasActualPricing = true
+			}
+			receiptPricing.provider = d.Provider
+
 			var prep providers.PreparedRequest
 			switch surface {
 			case surfaceResponsesNative:
