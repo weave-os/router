@@ -34,6 +34,10 @@ var ErrInvalidModelAlias = errors.New("auth: invalid model alias")
 // unnamed, reserved, or in an unknown format.
 var ErrInvalidIdentityHeader = errors.New("auth: invalid identity header")
 
+// ErrInvalidForwardedHeader is returned for a client-header passthrough entry
+// that is malformed or names a reserved header.
+var ErrInvalidForwardedHeader = errors.New("auth: invalid forwarded header")
+
 // ErrInvalidKeypairAuth is returned for a key-pair credential whose auth type,
 // principal, or private key is unusable.
 var ErrInvalidKeypairAuth = errors.New("auth: invalid keypair auth")
@@ -298,6 +302,9 @@ type UpsertExternalAPIKeyParams struct {
 	// in, rendered per IdentityHeaderFormat; both nil forwards nothing.
 	IdentityHeader       *string
 	IdentityHeaderFormat *string
+	// ForwardedClientHeaders and BaggageHeader configure client-header passthrough; nil forwards nothing.
+	ForwardedClientHeaders []string
+	BaggageHeader          *string
 	// AuthType selects how RawKey authenticates upstream; empty means AuthTypeBearer.
 	// AuthTypeKeypairJWT makes RawKey an RSA private key issued for AuthAccount/AuthUser.
 	// AuthTypeAzureEntra makes RawKey an Entra client secret for AuthAccount/AuthUser.
@@ -319,6 +326,14 @@ func (s *Service) UpsertExternalAPIKey(ctx context.Context, installationID strin
 		return nil, err
 	}
 	identityHeader, identityFormat, err := NormalizeIdentityHeader(params.IdentityHeader, params.IdentityHeaderFormat)
+	if err != nil {
+		return nil, err
+	}
+	forwardedHeaders, err := NormalizeForwardedClientHeaders(params.ForwardedClientHeaders)
+	if err != nil {
+		return nil, err
+	}
+	baggageHeader, err := NormalizeBaggageHeader(params.BaggageHeader)
 	if err != nil {
 		return nil, err
 	}
@@ -380,12 +395,15 @@ func (s *Service) UpsertExternalAPIKey(ctx context.Context, installationID strin
 		BaseURL:        normalizedBaseURL,
 		ModelAliases:   normalizedAliases,
 
-		IdentityHeader:       identityHeader,
-		IdentityHeaderFormat: identityFormat,
-		AuthType:             authType,
-		AuthAccount:          authAccount,
-		AuthUser:             authUser,
-		CreatedBy:            params.CreatedBy,
+		IdentityHeader:         identityHeader,
+		IdentityHeaderFormat:   identityFormat,
+		ForwardedClientHeaders: forwardedHeaders,
+		BaggageHeader:          baggageHeader,
+
+		AuthType:    authType,
+		AuthAccount: authAccount,
+		AuthUser:    authUser,
+		CreatedBy:   params.CreatedBy,
 	})
 	if err != nil {
 		return nil, err
@@ -639,7 +657,7 @@ func (s *Service) VerifyAPIKey(ctx context.Context, rawToken string) (*Installat
 		externalKeys, err = s.externalKeys.GetForInstallation(ctx, apiKey.InstallationID)
 		if err != nil {
 			// Non-fatal: proceed without external keys.
-			observability.Get().Warn("Failed to fetch external API keys", "installation_id", apiKey.InstallationID, "err", err)
+			observability.FromContext(ctx).Warn("Failed to fetch external API keys", "installation_id", apiKey.InstallationID, "err", err)
 		}
 	}
 
@@ -651,7 +669,7 @@ func (s *Service) VerifyAPIKey(ctx context.Context, rawToken string) (*Installat
 			// Non-fatal: serve this request with artifact-default routing, but
 			// don't cache the empty result — a transient DB error would otherwise
 			// disable per-key cluster restrictions for the full positive TTL.
-			observability.Get().Warn("Failed to fetch cluster model lists", "api_key_id", apiKey.ID, "err", err)
+			observability.FromContext(ctx).Warn("Failed to fetch cluster model lists", "api_key_id", apiKey.ID, "err", err)
 			clusterModelLists = nil
 			clusterModelListsFetchOK = false
 		}
@@ -671,7 +689,7 @@ func (s *Service) VerifyAPIKey(ctx context.Context, rawToken string) (*Installat
 // leaves the existing value). Never fails an authenticated request — returns
 // ctx unchanged on error.
 func (s *Service) ResolveAndStashUser(ctx context.Context, installationID, email, claudeAccountUUID, displayName string) context.Context {
-	log := observability.Get()
+	log := observability.FromContext(ctx)
 	if s.users == nil || installationID == "" {
 		log.Info("ResolveAndStashUser bailout", "reason", "nil_users_or_empty_inst", "users_nil", s.users == nil, "inst_empty", installationID == "")
 		return ctx
@@ -714,7 +732,7 @@ func (s *Service) ResolveAndStashUser(ctx context.Context, installationID, email
 		})
 	}
 	if err != nil {
-		observability.Get().Warn(
+		observability.FromContext(ctx).Warn(
 			"Failed to resolve router user",
 			"installation_id", installationID,
 			"err", err,
@@ -740,7 +758,7 @@ func (s *Service) withUserClusterLists(ctx context.Context, installationID, rout
 	if !ok {
 		fetched, err := s.userClusterModelLists.GetForUser(ctx, routerUserID)
 		if err != nil {
-			observability.Get().Warn("Failed to fetch user cluster model lists", "router_user_id", routerUserID, "err", err)
+			observability.FromContext(ctx).Warn("Failed to fetch user cluster model lists", "router_user_id", routerUserID, "err", err)
 			return ctx
 		}
 		lists = fetched

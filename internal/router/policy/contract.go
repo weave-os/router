@@ -13,6 +13,10 @@ const SchemaVersionV1 = "policy_router_v1"
 // arm identities and require arm-aware selection when a roster is ambiguous.
 const SchemaVersionV2 = "policy_router_v2"
 
+// SchemaVersionV3 identifies the classifier-only contract: the sidecar classifies
+// and returns a ranked fallback; the router selects the arm.
+const SchemaVersionV3 = "policy_router_v3"
+
 const (
 	ExecutionModeServing = "serving"
 	ExecutionModeShadow  = "shadow"
@@ -124,6 +128,12 @@ type Result struct {
 	// with its full and eligible roster arms. Populated when ReportsRankedFallback;
 	// empty on older sidecars (arm override fails open).
 	RankedFallback []PreviewGroup
+	// PredictedLabel is the classifier's typed predicted complexity label;
+	// empty on sidecars that do not report it.
+	PredictedLabel string
+	// ClassProbabilities is the classifier's typed per-class probability map;
+	// nil on sidecars that do not report it.
+	ClassProbabilities map[string]float64
 }
 
 // PreviewGroup records one classifier group in serving fallback order.

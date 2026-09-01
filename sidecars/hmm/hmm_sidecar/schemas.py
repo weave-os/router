@@ -81,9 +81,17 @@ class Candidate(FrozenModel):
 
 
 class RouteResult(FrozenModel):
+    """``policy_router_v3`` /route body: a classification, not a decision.
+
+    The selected-arm fields are typed ``None`` rather than dropped: a router
+    still reading them gets an explicit null instead of a plausible-looking
+    arm, and the sidecar cannot regrow a selection path without a schema bump.
+    """
+
     route_id: str
-    selected_roster_id: str
-    selected_provider: str
+    selected_roster_id: None = None
+    selected_provider: None = None
+    model: None = None
     score: float
     candidate_scores: dict[str, float]
     reason: str
@@ -97,7 +105,9 @@ class RouteResult(FrozenModel):
     policy_artifact_id: str
     policy_artifact_sha256: str
     roster_version: str
-    ranked_fallback: tuple[RankedFallback, ...] = ()
+    ranked_fallback: tuple[RankedFallback, ...] = Field(min_length=1)
+    predicted_label: str = ""
+    class_probabilities: dict[str, float] = Field(default_factory=dict)
     debug: dict[str, Any]
 
 

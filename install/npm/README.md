@@ -15,11 +15,13 @@ npx @workweave/router --non-interactive     # reads $WEAVE_ROUTER_KEY, no prompt
 ```
 
 Re-running the installer to pick up changes reuses the key already on disk, so
-you paste it once and never again. `update` is the never-prompting form of that
-(safe for cron; errors instead of asking when no key can be found):
+you paste it once and never again — for every client, not just Claude Code.
+`update` is the never-prompting form of that (safe for cron; errors instead of
+asking when no key can be found):
 
 ```bash
 npx @workweave/router --claude                # reuses the installed key
+npx @workweave/router --codex                 # same for Codex, opencode, and pi
 npx @workweave/router --claude --rotate-key   # ignore it and prompt for a new one
 npx @workweave/router update --claude         # non-interactive refresh in place
 ```
@@ -27,8 +29,11 @@ npx @workweave/router update --claude         # non-interactive refresh in place
 For Claude Code the installed statusline and `/force-model`, `/router-*` slash
 commands also refresh themselves in the background about once a week (never
 overwriting a wrapper you edited). Opt out with `WEAVE_STATUSLINE_UPDATE=0`, or
-just the commands with `WEAVE_COMMANDS_UPDATE=0`. Codex, opencode, and pi have
-no per-turn hook to refresh from — re-run the installer for those.
+just the commands with `WEAVE_COMMANDS_UPDATE=0`. Codex installs native `$` skills
+plus managed `SessionStart`/`Stop` hooks: the latest routed model is reflected in
+the terminal title and a compact `Weave Router · …` status message is shown when
+the router reports a new route. Existing Codex hooks are preserved. OpenCode and pi
+have their own target-specific integrations.
 
 Version-pin for reproducible setups:
 
@@ -48,7 +53,9 @@ npx @workweave/router status --codex    # is Codex on the router or direct?
 Claude Code reads its router setting at launch, so quit and reopen it after an
 on/off. Codex and opencode pick it up on their next run. Inside Claude Code the
 slash commands `/router-off`, `/router-on`, and `/router-status` do the same.
-Codex installs a `$disable-routing` skill that switches its next session back
+Codex installs `$router-status`, `$router-off`, `$router-on`, and
+`$router-models` skills that call the same CLI verbs, plus a
+`$disable-routing` skill that switches its next session back
 to the normal provider; Codex does not support third-party `/disable-routing`
 slash commands. The shell equivalent is `npx @workweave/router disable-routing`.
 Cursor has no config file we own — toggle its base URL override in **Settings →
@@ -58,6 +65,7 @@ Pick which models the router is allowed to route to:
 
 ```bash
 npx @workweave/router models --claude                  # list every model, with its on/off state
+npx @workweave/router models --codex                   # same, for a Codex install
 npx @workweave/router models disable gpt-5.6 --claude  # take one out of rotation
 npx @workweave/router models enable gpt-5.6 --claude   # put it back
 ```
@@ -102,10 +110,17 @@ Four install targets:
   The block lives between begin/end markers
   so re-running the installer rewrites it cleanly and `--uninstall --codex`
   removes it without touching the rest of your config. Codex does not load
-  third-party slash-command files; to send a router directive, type it with
-  one leading space (for example, ` /force-model gpt-5.6-terra`). Its
-  `$disable-routing` skill returns the next Codex session to the default
-  provider without logging out or deleting the router configuration.
+  third-party slash-command files; the installer provides native skills
+  `$force-model` (`$fm`), `$unforce-model` (`$ufm`), and `$router-feedback`
+  (`$rf`), each of which execs a local `scripts/emit.sh` that prints the same
+  leading-space directive Claude Code uses (for example,
+  ` /force-model gpt-5.6-terra`) — you can also type that form directly. It
+  also installs `$router-status`, `$router-off`, `$router-on`, and
+  `$router-models`, which call this installer's own verbs, plus a
+  `$disable-routing` skill that returns the next Codex session to the default
+  provider without logging out or deleting the router configuration. The
+  managed lifecycle hooks also keep the latest routed model in the terminal
+  title and emit a compact status message when the router reports a new route.
 - **opencode** (`--opencode`) — merges a `provider.weave` entry (backed by
   opencode's built-in `@ai-sdk/anthropic` provider) into
   `~/.config/opencode/opencode.json` (or `<repo>/opencode.json` with
@@ -127,8 +142,7 @@ for the full reference.
 
 - Node ≥ 18 (ships with `npx`)
 - `bash` on PATH (macOS / Linux native; Windows needs Git Bash or WSL)
-- `jq` on PATH — used by the Claude Code status line and the opencode/pi JSON
-  merges. Not required for the Codex path.
+- `jq` on PATH — used by the Claude Code status line, the Codex lifecycle helper, and the opencode/pi JSON merges.
 
 ## Why npx
 

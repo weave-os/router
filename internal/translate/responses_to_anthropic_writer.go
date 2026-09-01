@@ -3,6 +3,7 @@ package translate
 import (
 	"bufio"
 	"bytes"
+	"log/slog"
 	"net/http"
 	"strings"
 
@@ -82,11 +83,12 @@ type ResponsesToAnthropicWriter struct {
 	toolCallIssues []toolcheck.Issue
 
 	// Captured from the terminal response.completed/.failed/.incomplete event.
-	finalStopReason string
-	hasUsage        bool
-	usageInput      int
-	usageOutput     int
-	usageCacheRead  int
+	finalStopReason    string
+	hasUsage           bool
+	usageInput         int
+	usageOutput        int
+	usageCacheRead     int
+	usageCacheCreation int
 
 	// Summary fields.
 	toolUseCount      int
@@ -238,12 +240,13 @@ func (t *ResponsesToAnthropicWriter) Finalize() error {
 
 func (t *ResponsesToAnthropicWriter) Summary() ResponseSummary {
 	return ResponseSummary{
-		StopReason:      t.emittedStopReason,
-		ToolUseBlocks:   t.toolUseCount,
-		ToolCallIssues:  t.toolCallIssues,
-		OutputTokens:    t.usageOutput,
-		InputTokens:     t.usageInput,
-		CacheReadTokens: t.usageCacheRead,
+		StopReason:          t.emittedStopReason,
+		ToolUseBlocks:       t.toolUseCount,
+		ToolCallIssues:      t.toolCallIssues,
+		OutputTokens:        t.usageOutput,
+		InputTokens:         t.usageInput,
+		CacheReadTokens:     t.usageCacheRead,
+		CacheCreationTokens: t.usageCacheCreation,
 	}
 }
 
@@ -274,6 +277,12 @@ func (t *ResponsesToAnthropicWriter) processFinalResponsesSSETail() error {
 	return t.translateResponsesEvent(event)
 }
 
+// log routes this translator's diagnostics through one observability.Get()
+// call site (see internal/observability's global-logger budget).
+func (t *ResponsesToAnthropicWriter) log() *slog.Logger {
+	return observability.Get()
+}
+
 func (t *ResponsesToAnthropicWriter) translateResponsesEvent(raw []byte) error {
 	if t.closed {
 		return nil
@@ -281,6 +290,12 @@ func (t *ResponsesToAnthropicWriter) translateResponsesEvent(raw []byte) error {
 	_, data := sse.ParseEvent(raw)
 	if len(data) == 0 {
 		return nil
+	}
+	if malformedResponsesFrame(data) {
+		t.log().Error("ResponsesToAnthropic upstream sent an unparseable event",
+			"request_model", t.requestModel,
+			"frame_bytes", len(data))
+		return t.emitStreamErrorEvent("api_error", malformedResponsesFrameMessage)
 	}
 	// Match on the in-payload `type`, not `event:` — intermediaries sometimes
 	// drop the latter. markOutputProgress is deliberately skipped for reasoning
@@ -356,7 +371,7 @@ func (t *ResponsesToAnthropicWriter) handleOutputItemAdded(data []byte) error {
 		// reconciledStopReason demotes a terminal tool_use claim with no
 		// surviving block to end_turn.
 		t.suppressed[oi] = struct{}{}
-		observability.Get().Warn(
+		t.log().Warn(
 			"ResponsesToAnthropic dropping nameless function_call",
 			"request_model", t.requestModel,
 			"call_id", item.Get("call_id").String(),
@@ -574,10 +589,10 @@ func (t *ResponsesToAnthropicWriter) captureFinalResponse(data []byte) {
 		t.hasUsage = true
 		t.usageInput = int(usage.Get("input_tokens").Int())
 		t.usageOutput = int(usage.Get("output_tokens").Int())
-		t.usageCacheRead = int(usage.Get("input_tokens_details.cached_tokens").Int())
+		t.usageCacheCreation, t.usageCacheRead = OpenAICacheTokens(usage)
 		if t.usageSink != nil {
 			t.usageSink.RecordUsage(t.usageInput, t.usageOutput)
-			t.usageSink.RecordCacheUsage(0, t.usageCacheRead)
+			t.usageSink.RecordCacheUsage(t.usageCacheCreation, t.usageCacheRead)
 		}
 	}
 }
@@ -639,14 +654,14 @@ func (t *ResponsesToAnthropicWriter) finalizeBuffered() error {
 	}
 	finalResp := extractFinalResponseObject(t.buf.Bytes())
 	if finalResp == nil {
-		observability.Get().Error("ResponsesToAnthropic: no terminal response event in stream")
+		t.log().Error("ResponsesToAnthropic: no terminal response event in stream")
 		return t.finalizeError()
 	}
 	// Only max_output_tokens is a valid incomplete terminal response.
 	resp := gjson.ParseBytes(finalResp)
 	if responsesTerminalIsFailure(resp) {
 		errType, errMsg := responsesFailureFromResponse(resp)
-		observability.Get().Error("ResponsesToAnthropic: upstream response failed",
+		t.log().Error("ResponsesToAnthropic: upstream response failed",
 			"request_model", t.requestModel,
 			"upstream_status", resp.Get("status").String(),
 			"upstream_error_type", errType,
@@ -657,13 +672,14 @@ func (t *ResponsesToAnthropicWriter) finalizeBuffered() error {
 	anthropic, issues, err := responsesToAnthropicResponse(finalResp, t.requestModel, t.toolValidator)
 	t.toolCallIssues = append(t.toolCallIssues, issues...)
 	if err != nil {
-		observability.Get().Error("ResponsesToAnthropic: translate failed", "err", err)
+		t.log().Error("ResponsesToAnthropic: translate failed", "err", err)
 		return t.finalizeError()
 	}
 	root := gjson.ParseBytes(anthropic)
-	t.recordBufferedUsage(root.Get("usage"))
+	// Anthropic body is fresh-only for the client; sink keeps OpenAI's cache-inclusive
+	// count so EffectiveInputCost can apply the correct multipliers.
+	t.recordOpenAIUsage(resp.Get("usage"))
 	t.emittedStopReason = root.Get("stop_reason").String()
-	t.captureBufferedUsage(root.Get("usage"))
 	root.Get("content").ForEach(func(_, block gjson.Result) bool {
 		if block.Get("type").String() == "tool_use" {
 			t.toolUseCount++
@@ -678,22 +694,18 @@ func (t *ResponsesToAnthropicWriter) finalizeBuffered() error {
 	return err
 }
 
-func (t *ResponsesToAnthropicWriter) captureBufferedUsage(usage gjson.Result) {
+func (t *ResponsesToAnthropicWriter) recordOpenAIUsage(usage gjson.Result) {
 	if !usage.Exists() {
 		return
 	}
 	t.hasUsage = true
 	t.usageInput = int(usage.Get("input_tokens").Int())
 	t.usageOutput = int(usage.Get("output_tokens").Int())
-	t.usageCacheRead = int(usage.Get("cache_read_input_tokens").Int())
-}
-
-func (t *ResponsesToAnthropicWriter) recordBufferedUsage(usage gjson.Result) {
-	if t.usageSink == nil || !usage.Exists() {
-		return
+	t.usageCacheCreation, t.usageCacheRead = OpenAICacheTokens(usage)
+	if t.usageSink != nil {
+		t.usageSink.RecordUsage(t.usageInput, t.usageOutput)
+		t.usageSink.RecordCacheUsage(t.usageCacheCreation, t.usageCacheRead)
 	}
-	t.usageSink.RecordUsage(int(usage.Get("input_tokens").Int()), int(usage.Get("output_tokens").Int()))
-	t.usageSink.RecordCacheUsage(0, int(usage.Get("cache_read_input_tokens").Int()))
 }
 
 // finalizeError renders a one-shot Anthropic error body. Streaming errors are
@@ -774,6 +786,19 @@ func responsesFailureFromResponse(resp gjson.Result) (errType, msg string) {
 		return errType, "upstream Responses request failed (status: failed)"
 	}
 	return errType, ""
+}
+
+const malformedResponsesFrameMessage = "upstream sent a malformed Responses event"
+
+// malformedResponsesFrame reports whether an SSE payload is not parseable JSON.
+// Skipping silently would present a dropped-content turn as a clean completion;
+// a `[DONE]` sentinel is tolerated since gateways emit it even though Responses
+// terminates on response.completed.
+func malformedResponsesFrame(data []byte) bool {
+	if bytes.Equal(bytes.TrimSpace(data), []byte("[DONE]")) {
+		return false
+	}
+	return !gjson.ValidBytes(data)
 }
 
 func responsesTerminalIsFailure(resp gjson.Result) bool {
@@ -967,7 +992,7 @@ func (t *ResponsesToAnthropicWriter) emitValidatedToolArgsDelta(oi, index int, f
 	if verdict.Issue != nil {
 		t.toolCallIssues = append(t.toolCallIssues, *verdict.Issue)
 		if verdict.Issue.Bucket == toolcheck.BucketInvalidJSON && !verdict.Issue.Repaired {
-			observability.Get().Warn(
+			t.log().Warn(
 				"ResponsesToAnthropic tool_use args failed JSON validation — substituting empty args",
 				"block_index", index,
 				"request_model", t.requestModel,
@@ -998,13 +1023,17 @@ func (t *ResponsesToAnthropicWriter) emitMessageDelta(stopReason string) error {
 	sse.WriteJSONString(t.bw, stopReason)
 	t.bw.WriteString(",\"stop_sequence\":null},\"usage\":{")
 	if t.hasUsage {
-		// Anthropic's input_tokens is fresh-only; subtract cached reads so the
+		// Anthropic's input_tokens is fresh-only; subtract cache so the
 		// statusline formula doesn't double-count.
-		freshInput := max(0, t.usageInput-t.usageCacheRead)
+		freshInput := max(0, t.usageInput-t.usageCacheCreation-t.usageCacheRead)
 		t.bw.WriteString("\"input_tokens\":")
 		sse.WriteJSONInt(t.bw, int64(freshInput))
 		t.bw.WriteString(",\"output_tokens\":")
 		sse.WriteJSONInt(t.bw, int64(t.usageOutput))
+		if t.usageCacheCreation > 0 {
+			t.bw.WriteString(",\"cache_creation_input_tokens\":")
+			sse.WriteJSONInt(t.bw, int64(t.usageCacheCreation))
+		}
 		if t.usageCacheRead > 0 {
 			t.bw.WriteString(",\"cache_read_input_tokens\":")
 			sse.WriteJSONInt(t.bw, int64(t.usageCacheRead))

@@ -91,7 +91,7 @@ func buildObservationContext(ctx context.Context, decision, fresh router.Decisio
 		if b, err := json.Marshal(md.CandidateScores); err == nil {
 			obs.FreshCandidateScores = b
 		} else {
-			observability.Get().Debug("Failed to marshal fresh_candidate_scores for telemetry", "err", err)
+			observability.FromContext(ctx).Debug("Failed to marshal fresh_candidate_scores for telemetry", "err", err)
 		}
 	}
 	if md := decision.Metadata; md != nil {
@@ -132,7 +132,7 @@ func buildObservationContext(ctx context.Context, decision, fresh router.Decisio
 			} else {
 				// Telemetry loss is acceptable; a marshal failure must never
 				// fail the request, so log and leave the column NULL.
-				observability.Get().Debug("Failed to marshal candidate_scores for telemetry", "err", err)
+				observability.FromContext(ctx).Debug("Failed to marshal candidate_scores for telemetry", "err", err)
 			}
 		}
 	}

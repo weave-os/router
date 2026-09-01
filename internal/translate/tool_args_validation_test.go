@@ -265,6 +265,109 @@ func TestAnthropicSSETranslator_TextOnlyTurnNudge_FiresWhenLeadingWithToolishMar
 	assert.Contains(t, body, `"id":"toolu_router_nudge_`)
 }
 
+func TestAnthropicSSETranslator_TextOnlyTurnNudge_FiresOnLeakedCallOpeningMidCall(t *testing.T) {
+	// Regression: GLM-5.3-flash streamed the opening call tags as reasoning
+	// and emitted only the tail (</arg_key>…</tool_call>) as content, so the
+	// visible turn opens mid-call on a closing child tag — missed by the
+	// original opening-tag-only marker list.
+	body, summary := driveAnthropicSSEWithTools(t, "z-ai/glm-5.3-flash", true, []string{
+		`data: {"id":"c1","choices":[{"index":0,"delta":{"content":"</arg_key><arg_value>select:mcp__log_search__list_entries,mcp__metrics__list_series</arg_value></tool_call>"},"finish_reason":null}]}` + "\n\n",
+		`data: {"id":"c1","choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":93924,"completion_tokens":31}}` + "\n\n",
+		"data: [DONE]\n\n",
+	})
+
+	assert.True(t, summary.TextOnlyTurnNudged,
+		"a turn opening on a leaked call's closing child tag is the failure mode — nudge must fire")
+	assert.Equal(t, 1, summary.ToolUseBlocks,
+		"the synthetic tool_use converts the dead-end into a dispatchable turn")
+	assert.Equal(t, "tool_use", summary.StopReason)
+	assert.Contains(t, body, `"id":"toolu_router_nudge_`)
+}
+
+func TestAnthropicSSETranslator_TextOnlyTurnNudge_SkippedWhenProseQuotesClosingToolCall(t *testing.T) {
+	// Quoted completed markup is indistinguishable from a real leak by
+	// containment, so detection stays anchored — nudging here would append
+	// a fabricated tool call to an already-complete turn.
+	body, summary := driveAnthropicSSEWithTools(t, "deepseek-v3.2", true, []string{
+		`data: {"id":"c1","choices":[{"index":0,"delta":{"content":"The bug is that the model emits a bare </tool_call> fragment at the end of its turn, "},"finish_reason":null}]}` + "\n\n",
+		`data: {"id":"c1","choices":[{"index":0,"delta":{"content":"which the strict parser then rejects."},"finish_reason":null}]}` + "\n\n",
+		`data: {"id":"c1","choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":40,"completion_tokens":30}}` + "\n\n",
+		"data: [DONE]\n\n",
+	})
+
+	assert.False(t, summary.TextOnlyTurnNudged,
+		"prose quoting a completed closing tag is a real answer — nudge must not fire")
+	assert.Equal(t, 0, summary.ToolUseBlocks, "no fabricated tool_use on a completed answer")
+	assert.Equal(t, "end_turn", summary.StopReason, "terminal result must stay end_turn")
+	assert.NotContains(t, body, "toolu_router_nudge_")
+	assert.Contains(t, body, "The bug is that", "the model's real answer survives")
+}
+
+func TestAnthropicSSETranslator_TextOnlyTurnNudge_SkippedWhenProseQuotesBalancedArgPair(t *testing.T) {
+	// Same guard for a quoted balanced `<arg_value>…</arg_value>` pair, e.g. an
+	// answer citing the payload it found in a trace.
+	body, summary := driveAnthropicSSEWithTools(t, "deepseek-v3.2", true, []string{
+		`data: {"id":"c1","choices":[{"index":0,"delta":{"content":"In the trace the payload was <arg_value>config.yaml</arg_value>, "},"finish_reason":null}]}` + "\n\n",
+		`data: {"id":"c1","choices":[{"index":0,"delta":{"content":"which is what identified the leak."},"finish_reason":null}]}` + "\n\n",
+		`data: {"id":"c1","choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":40,"completion_tokens":30}}` + "\n\n",
+		"data: [DONE]\n\n",
+	})
+
+	assert.False(t, summary.TextOnlyTurnNudged,
+		"prose quoting a balanced arg pair is a real answer — nudge must not fire")
+	assert.Equal(t, 0, summary.ToolUseBlocks)
+	assert.Equal(t, "end_turn", summary.StopReason, "terminal result must stay end_turn")
+	assert.NotContains(t, body, "toolu_router_nudge_")
+}
+
+func TestAnthropicSSETranslator_TextOnlyTurnNudge_SkippedWhenProseDiscussesOpeningTagsOnly(t *testing.T) {
+	// False-positive guard: prose naming opening tags mid-sentence must
+	// not trigger the nudge — leaks open at the turn's start, not mid-prose.
+	body, summary := driveAnthropicSSEWithTools(t, "deepseek-v3.2", true, []string{
+		`data: {"id":"c1","choices":[{"index":0,"delta":{"content":"The nudge fires when a turn opens with <tool_call> or <function>, "},"finish_reason":null}]}` + "\n\n",
+		`data: {"id":"c1","choices":[{"index":0,"delta":{"content":"and GLM leaks show up as <arg_key> and <arg_value> fragments."},"finish_reason":null}]}` + "\n\n",
+		`data: {"id":"c1","choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":40,"completion_tokens":25}}` + "\n\n",
+		"data: [DONE]\n\n",
+	})
+
+	assert.False(t, summary.TextOnlyTurnNudged,
+		"prose naming opening tags mid-sentence is a real answer — nudge must not fire")
+	assert.Equal(t, 0, summary.ToolUseBlocks)
+	assert.Equal(t, "end_turn", summary.StopReason)
+	assert.NotContains(t, body, "toolu_router_nudge_")
+	assert.Contains(t, body, "The nudge fires when", "the model's real answer survives")
+}
+
+func TestAnthropicSSETranslator_TextOnlyTurnNudge_SkippedWhenProseQuotesUnpairedClosingArgTag(t *testing.T) {
+	// A lone `</arg_value>` quoted mid-prose is not a leaked call: markers are
+	// matched only at the turn's start.
+	_, summary := driveAnthropicSSEWithTools(t, "deepseek-v3.2", true, []string{
+		`data: {"id":"c1","choices":[{"index":0,"delta":{"content":"The dead-ended turns each ended in a stray </arg_value> fragment, "},"finish_reason":null}]}` + "\n\n",
+		`data: {"id":"c1","choices":[{"index":0,"delta":{"content":"which is why the closing tag alone cannot be the signal."},"finish_reason":null}]}` + "\n\n",
+		`data: {"id":"c1","choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":40,"completion_tokens":22}}` + "\n\n",
+		"data: [DONE]\n\n",
+	})
+
+	assert.False(t, summary.TextOnlyTurnNudged,
+		"an unpaired closing arg tag quoted in prose must not nudge")
+	assert.Equal(t, 0, summary.ToolUseBlocks)
+}
+
+func TestAnthropicSSETranslator_TextOnlyTurnNudge_FiresOnLeakSplitAcrossDeltas(t *testing.T) {
+	// The opening marker can arrive split across SSE deltas. leadingContent
+	// accumulates, so the anchored check still sees a whole marker at the start.
+	_, summary := driveAnthropicSSEWithTools(t, "z-ai/glm-5.3-flash", true, []string{
+		`data: {"id":"c1","choices":[{"index":0,"delta":{"content":"</arg_"},"finish_reason":null}]}` + "\n\n",
+		`data: {"id":"c1","choices":[{"index":0,"delta":{"content":"key><arg_value>select:Grep</arg_value></tool_call>"},"finish_reason":null}]}` + "\n\n",
+		`data: {"id":"c1","choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":400,"completion_tokens":45}}` + "\n\n",
+		"data: [DONE]\n\n",
+	})
+
+	assert.True(t, summary.TextOnlyTurnNudged,
+		"a marker split across deltas must still be detected once leadingContent accumulates")
+	assert.Equal(t, 1, summary.ToolUseBlocks)
+}
+
 func TestAnthropicSSETranslator_TextOnlyTurnNudge_SkippedWhenLeadingWithRedactedThinking(t *testing.T) {
 	// <redacted_thinking>, like <think>, is reasoning text, not a leaked tool
 	// call. Nudging it manufactured the production loop (session 1f2ce8be).

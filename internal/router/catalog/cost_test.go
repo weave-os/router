@@ -78,3 +78,12 @@ func TestEffectiveInputCost_UsesBindingCacheWritePrice(t *testing.T) {
 	legacy := catalog.EffectiveInputCost(100, 10, 20, price.InputUSDPer1M, price, "openai")
 	assert.InDelta(t, 0.000185, legacy, 1e-12, "unspecified values preserve legacy 1.25x behavior")
 }
+
+func TestSignedUSDToMicrosPreservesNegatives(t *testing.T) {
+	if got := catalog.SignedUSDToMicros(-0.012345); got != -12345 {
+		t.Fatalf("got %d", got)
+	}
+	if got := catalog.SignedUSDToMicros(math.NaN()); got != 0 {
+		t.Fatalf("NaN got %d", got)
+	}
+}

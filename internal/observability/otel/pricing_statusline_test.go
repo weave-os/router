@@ -32,6 +32,7 @@ func TestStatuslinePricingMatchesTable(t *testing.T) {
 	block := body[start:end]
 	inputPrices := parseStatuslineSection(t, block, "input")
 	outputPrices := parseStatuslineSection(t, block, "output")
+	cacheReadMultipliers := parseStatuslineSection(t, block, "cache_read")
 
 	table := otel.AllPricing()
 	for model, want := range table {
@@ -42,6 +43,10 @@ func TestStatuslinePricingMatchesTable(t *testing.T) {
 		gotOut, ok := outputPrices[model]
 		require.True(t, ok, "cc-statusline.sh missing output price for %q", model)
 		requireUSDPer1MEqual(t, want.OutputUSDPer1M, gotOut, model+" output")
+
+		gotCacheRead, ok := cacheReadMultipliers[model]
+		require.True(t, ok, "cc-statusline.sh missing cache-read multiplier for %q", model)
+		require.InDelta(t, want.EffectiveCacheReadMultiplier(), gotCacheRead, 1e-12, model+" cache read")
 	}
 
 	for model := range inputPrices {
@@ -52,10 +57,13 @@ func TestStatuslinePricingMatchesTable(t *testing.T) {
 		_, ok := table[model]
 		require.True(t, ok, "cc-statusline.sh has output price for unknown model %q", model)
 	}
+	for model := range cacheReadMultipliers {
+		_, ok := table[model]
+		require.True(t, ok, "cc-statusline.sh has cache-read multiplier for unknown model %q", model)
+	}
 }
 
-// parseStatuslineSection pulls one of the "input"/"output" jq sub-objects out
-// of the prices block.
+// parseStatuslineSection pulls a jq sub-object out of the prices block.
 func parseStatuslineSection(t *testing.T, block, name string) map[string]float64 {
 	t.Helper()
 	sectionRe := regexp.MustCompile(`(?s)"` + name + `"\s*:\s*\{(.*?)\}`)

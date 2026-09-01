@@ -279,7 +279,7 @@ func (s *Service) maybeSignalRecharge(ctx context.Context, orgID string, delta, 
 	}
 	enabled, threshold, err := s.repo.GetAutopayConfig(ctx, orgID)
 	if err != nil {
-		observability.Get().Warn("Autopay crossing check skipped: config read failed",
+		observability.FromContext(ctx).Warn("Autopay crossing check skipped: config read failed",
 			"organization_id", orgID, "err", err)
 		return
 	}

@@ -27,6 +27,14 @@ func TestBuildHMMPolicyClientRejectsUnknownAuthMode(t *testing.T) {
 	assert.Contains(t, err.Error(), "unsupported ROUTER_HMM_SIDECAR_AUTH")
 }
 
+func TestBuildHMMBetaPolicyClientNamesBetaAuthSetting(t *testing.T) {
+	client, err := buildHMMBetaPolicyClient("https://sidecar.internal", "api-key", time.Second)
+
+	require.Error(t, err)
+	assert.Nil(t, client)
+	assert.Contains(t, err.Error(), "unsupported ROUTER_HMM_BETA_SIDECAR_AUTH")
+}
+
 func TestBuildHMMPolicyClientFailsClosedWhenGoogleCredentialsCannotBuild(t *testing.T) {
 	wantErr := errors.New("ADC unavailable")
 	client, err := buildHMMPolicyClientWithGoogleIDTokenFactory(

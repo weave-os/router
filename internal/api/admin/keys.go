@@ -170,20 +170,23 @@ func DeleteAPIKeyHandler(authSvc *auth.Service) gin.HandlerFunc {
 }
 
 type externalKeyResponse struct {
-	ID                   string            `json:"id"`
-	Provider             string            `json:"provider"`
-	Name                 *string           `json:"name"`
-	KeyPrefix            string            `json:"key_prefix"`
-	KeySuffix            string            `json:"key_suffix"`
-	BaseURL              string            `json:"base_url,omitempty"`
-	ModelAliases         map[string]string `json:"model_aliases,omitempty"`
-	IdentityHeader       string            `json:"identity_header,omitempty"`
-	IdentityHeaderFormat string            `json:"identity_header_format,omitempty"`
-	AuthType             string            `json:"auth_type,omitempty"`
-	AuthAccount          string            `json:"auth_account,omitempty"`
-	AuthUser             string            `json:"auth_user,omitempty"`
-	LastUsedAt           *time.Time        `json:"last_used_at"`
-	CreatedAt            time.Time         `json:"created_at"`
+	ID                     string            `json:"id"`
+	Provider               string            `json:"provider"`
+	Name                   *string           `json:"name"`
+	KeyPrefix              string            `json:"key_prefix"`
+	KeySuffix              string            `json:"key_suffix"`
+	BaseURL                string            `json:"base_url,omitempty"`
+	ModelAliases           map[string]string `json:"model_aliases,omitempty"`
+	IdentityHeader         string            `json:"identity_header,omitempty"`
+	IdentityHeaderFormat   string            `json:"identity_header_format,omitempty"`
+	ForwardedClientHeaders []string          `json:"forwarded_client_headers,omitempty"`
+	BaggageHeader          string            `json:"baggage_header,omitempty"`
+
+	AuthType    string     `json:"auth_type,omitempty"`
+	AuthAccount string     `json:"auth_account,omitempty"`
+	AuthUser    string     `json:"auth_user,omitempty"`
+	LastUsedAt  *time.Time `json:"last_used_at"`
+	CreatedAt   time.Time  `json:"created_at"`
 }
 
 type upsertExternalKeyRequest struct {
@@ -202,6 +205,9 @@ type upsertExternalKeyRequest struct {
 	// for service-authenticated endpoints that attribute spend per user. Format: "email" or "json".
 	IdentityHeader       *string `json:"identity_header"`
 	IdentityHeaderFormat *string `json:"identity_header_format"`
+	// ForwardedClientHeaders and BaggageHeader configure client-header passthrough to this endpoint.
+	ForwardedClientHeaders []string `json:"forwarded_client_headers"`
+	BaggageHeader          *string  `json:"baggage_header"`
 	// AuthType is "bearer" (default), "keypair_jwt" (Key is RSA; router signs a short-lived JWT
 	// for AuthAccount/AuthUser), or "wif" (no secret; router attests its own workload identity).
 	AuthType    string  `json:"auth_type"`
@@ -211,20 +217,23 @@ type upsertExternalKeyRequest struct {
 
 func toExternalKeyResponse(k *auth.ExternalAPIKey) externalKeyResponse {
 	return externalKeyResponse{
-		ID:                   k.ID,
-		Provider:             k.Provider,
-		Name:                 k.Name,
-		KeyPrefix:            k.KeyPrefix,
-		KeySuffix:            k.KeySuffix,
-		BaseURL:              k.BaseURL,
-		ModelAliases:         k.ModelAliases,
-		IdentityHeader:       k.IdentityHeader,
-		IdentityHeaderFormat: k.IdentityHeaderFormat,
-		AuthType:             k.AuthType,
-		AuthAccount:          k.AuthAccount,
-		AuthUser:             k.AuthUser,
-		LastUsedAt:           k.LastUsedAt,
-		CreatedAt:            k.CreatedAt,
+		ID:                     k.ID,
+		Provider:               k.Provider,
+		Name:                   k.Name,
+		KeyPrefix:              k.KeyPrefix,
+		KeySuffix:              k.KeySuffix,
+		BaseURL:                k.BaseURL,
+		ModelAliases:           k.ModelAliases,
+		IdentityHeader:         k.IdentityHeader,
+		IdentityHeaderFormat:   k.IdentityHeaderFormat,
+		ForwardedClientHeaders: k.ForwardedClientHeaders,
+		BaggageHeader:          k.BaggageHeader,
+
+		AuthType:    k.AuthType,
+		AuthAccount: k.AuthAccount,
+		AuthUser:    k.AuthUser,
+		LastUsedAt:  k.LastUsedAt,
+		CreatedAt:   k.CreatedAt,
 	}
 }
 
@@ -283,15 +292,19 @@ func UpsertExternalKeyHandler(authSvc *auth.Service, models DeployedModelsSource
 			ModelAliases:  req.ModelAliases,
 			AllowedModels: allowed,
 
-			IdentityHeader:       req.IdentityHeader,
-			IdentityHeaderFormat: req.IdentityHeaderFormat,
-			AuthType:             req.AuthType,
-			AuthAccount:          req.AuthAccount,
-			AuthUser:             req.AuthUser,
+			IdentityHeader:         req.IdentityHeader,
+			IdentityHeaderFormat:   req.IdentityHeaderFormat,
+			ForwardedClientHeaders: req.ForwardedClientHeaders,
+			BaggageHeader:          req.BaggageHeader,
+
+			AuthType:    req.AuthType,
+			AuthAccount: req.AuthAccount,
+			AuthUser:    req.AuthUser,
 		})
 		if err != nil {
 			if errors.Is(err, auth.ErrUnknownModel) || errors.Is(err, auth.ErrInvalidModelAlias) ||
-				errors.Is(err, auth.ErrInvalidIdentityHeader) || errors.Is(err, auth.ErrInvalidKeypairAuth) ||
+				errors.Is(err, auth.ErrInvalidIdentityHeader) || errors.Is(err, auth.ErrInvalidForwardedHeader) ||
+				errors.Is(err, auth.ErrInvalidKeypairAuth) ||
 				errors.Is(err, auth.ErrInvalidEntraAuth) {
 				c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 				return

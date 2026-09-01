@@ -480,6 +480,94 @@ func IsUpstreamSchemaRejection(err error) bool {
 	return false
 }
 
+// unknownFieldPhrases are the verdicts meaning the upstream's request schema
+// has no such field at all, as opposed to disliking its contents.
+var unknownFieldPhrases = []string{
+	"extra inputs are not permitted",
+	"extra inputs not permitted",
+	"extra fields not permitted",
+	"unknown field",
+	"unrecognized field",
+	"unexpected field",
+	"additional properties are not allowed",
+}
+
+// IsUpstreamOutputConfigFormatRejection reports whether err is a buffered 400
+// rejecting output_config.format as an unknown field — licensing a one-shot retry.
+// A schema-contents complaint names the same field but is caller-fixable and must
+// not match (e.g. additionalProperties must be explicitly set to false).
+func IsUpstreamOutputConfigFormatRejection(err error) bool {
+	var buffered *UpstreamErrorResponse
+	if !errors.As(err, &buffered) || buffered.Status != http.StatusBadRequest {
+		return false
+	}
+	body := strings.ToLower(string(buffered.Body))
+	if !strings.Contains(body, "output_config") || !strings.Contains(body, "format") {
+		return false
+	}
+	for _, phrase := range unknownFieldPhrases {
+		if strings.Contains(body, phrase) {
+			return true
+		}
+	}
+	return false
+}
+
+// IsUpstreamPromptCacheKeyRejection reports whether err is a buffered 400
+// that rejects prompt_cache_key as an unknown field — some gateways trail the
+// spec and 400 bodies naming it — licensing a one-shot hint-stripped retry.
+func IsUpstreamPromptCacheKeyRejection(err error) bool {
+	var buffered *UpstreamErrorResponse
+	if !errors.As(err, &buffered) || buffered.Status != http.StatusBadRequest {
+		return false
+	}
+	body := strings.ToLower(string(buffered.Body))
+	if !strings.Contains(body, "prompt_cache_key") {
+		return false
+	}
+	for _, phrase := range unknownFieldPhrases {
+		if strings.Contains(body, phrase) {
+			return true
+		}
+	}
+	return false
+}
+
+// responsesUnsupportedPhrases are prose bodies meaning the gateway does not
+// serve /v1/responses at all (as opposed to rejecting this particular body).
+// Snowflake Cortex gates the surface per account and answers 400/403 rather
+// than 404, so status alone can't classify it.
+var responsesUnsupportedPhrases = []string{
+	"responses rest api not enabled",
+	"responses api not enabled",
+	"not allowed to access this endpoint",
+	"unknown path",
+}
+
+// IsUpstreamResponsesUnsupported reports whether err means the upstream has no
+// usable Responses API, so the caller should re-emit the turn onto
+// chat/completions. A 404 covers gateways that never mount the path; the prose
+// phrases cover gateways that mount it but leave it disabled per account.
+func IsUpstreamResponsesUnsupported(err error) bool {
+	var buffered *UpstreamErrorResponse
+	if !errors.As(err, &buffered) {
+		return false
+	}
+	if buffered.Status == http.StatusNotFound {
+		return true
+	}
+	if buffered.Status != http.StatusBadRequest && buffered.Status != http.StatusForbidden {
+		return false
+	}
+	body := strings.ToLower(string(buffered.Body))
+	for _, phrase := range responsesUnsupportedPhrases {
+		if strings.Contains(body, phrase) {
+			return true
+		}
+	}
+	return false
+}
+
 // UpstreamErrorBodyMessage extracts a provider's error message from a buffered
 // non-2xx body for diagnostics: prefers {"error":{"message":...}}, then
 // top-level "message", then truncated raw body. Returns "" for non-buffered or
@@ -536,6 +624,9 @@ type RequestMutationStats struct {
 	// CCOnlyToolsStripped counts Claude-Code-only tools removed before
 	// dispatching to a non-Anthropic upstream. See claudecode_tool_filter.go.
 	CCOnlyToolsStripped int
+	// ServerToolsStripped counts native server tools (web_search_*, web_fetch_*)
+	// removed before emitting to a non-Anthropic upstream. See websearch.StripServerTools.
+	ServerToolsStripped int
 	// GeminiReminderInjected is true when the Gemini 3.x tool-use reminder was
 	// appended to systemInstruction. See translate/system_reminder.go.
 	GeminiReminderInjected bool

@@ -45,7 +45,7 @@ func NewNativeClient(apiKey, baseURL string) *NativeClient {
 	return &NativeClient{
 		apiKey:  apiKey,
 		baseURL: baseURL,
-		http:    &http.Client{Transport: httputil.NewTransport(5*time.Second, 5*time.Second)},
+		http:    httputil.NewClient(httputil.NewTransport(5*time.Second, 5*time.Second)),
 	}
 }
 
@@ -104,6 +104,7 @@ func (c *NativeClient) Proxy(ctx context.Context, decision router.Decision, prep
 		upstream.Header[http.CanonicalHeaderKey(k)] = vs
 	}
 	proxy.ApplyIdentityHeader(ctx, upstream)
+	proxy.ApplyForwardedClientHeaders(ctx, upstream, r.Header)
 	if stream {
 		upstream.Header.Set("Accept", "text/event-stream")
 	}
@@ -185,6 +186,7 @@ func (c *NativeClient) Passthrough(ctx context.Context, prep providers.PreparedR
 	for k, vs := range prep.Headers {
 		upstream.Header[http.CanonicalHeaderKey(k)] = vs
 	}
+	proxy.ApplyForwardedClientHeaders(ctx, upstream, r.Header)
 	if v := r.Header.Get("Accept"); v != "" {
 		upstream.Header.Set("Accept", v)
 	}
@@ -198,7 +200,7 @@ func (c *NativeClient) Passthrough(ctx context.Context, prep providers.PreparedR
 	providers.CopyUpstreamHeaders(w, resp)
 	w.WriteHeader(resp.StatusCode)
 	if resp.StatusCode >= 400 {
-		return httputil.WritePassthroughError(w, resp, nil, nil, "Upstream Google returned error status (passthrough)", "path", r.URL.Path)
+		return httputil.WritePassthroughError(r.Context(), w, resp, nil, nil, "Upstream Google returned error status (passthrough)", "path", r.URL.Path)
 	}
 	_, err = io.Copy(w, resp.Body)
 	return err

@@ -12,10 +12,13 @@ import (
 )
 
 // hmmClusterDTO is one classifier cluster with its ordered default catalog
-// model IDs (index 0 = highest serving priority).
+// roster arms and catalog model IDs (index 0 = highest serving priority).
 type hmmClusterDTO struct {
-	Cluster string   `json:"cluster"`
-	Models  []string `json:"models"`
+	Cluster string `json:"cluster"`
+	// Arms are the roster-native IDs, including provider prefixes and effort
+	// suffixes. Models is the catalog-facing projection used by settings.
+	Arms   []string `json:"arms"`
+	Models []string `json:"models"`
 }
 
 type hmmRosterResponse struct {
@@ -39,7 +42,11 @@ func HMMRosterHandler(source policy.RosterSource) gin.HandlerFunc {
 			for _, arm := range arms {
 				models = append(models, hmm.CatalogIDForRoster(arm))
 			}
-			clusters = append(clusters, hmmClusterDTO{Cluster: cluster, Models: models})
+			clusters = append(clusters, hmmClusterDTO{
+				Arms:    append([]string(nil), arms...),
+				Cluster: cluster,
+				Models:  models,
+			})
 		}
 		sort.SliceStable(clusters, func(i, j int) bool {
 			return clusters[i].Cluster < clusters[j].Cluster

@@ -35,6 +35,9 @@ func TestPolicyCatalogHandlerReportsDefaultAndCapabilities(t *testing.T) {
 			HonorsPreferredModels:  true,
 			HonorsQualityPriceBias: true,
 		},
+	}).WithPolicyStrategy(policy.StrategySpec{
+		Strategy: router.StrategyHMMBeta,
+		Router:   policyCatalogRouter{},
 	})
 	engine := gin.New()
 	engine.GET(
@@ -67,4 +70,5 @@ func TestPolicyCatalogHandlerReportsDefaultAndCapabilities(t *testing.T) {
 	assert.True(t, payload.Strategies[0].Capabilities.SupportsShadow)
 	assert.Equal(t, "hmm", payload.Strategies[1].Strategy)
 	assert.True(t, payload.Strategies[1].Available)
+	assert.NotContains(t, recorder.Body.String(), string(router.StrategyHMMBeta))
 }

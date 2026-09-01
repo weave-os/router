@@ -1,6 +1,7 @@
 package translate_test
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -226,6 +227,97 @@ func TestOpenAISameFormat_ReasoningEffortKeptForReasoning(t *testing.T) {
 	assert.Equal(t, "high", out["reasoning_effort"])
 }
 
+func TestOpenAISameFormat_ReasoningEffortDeletedForGPT5OnChatCompletions(t *testing.T) {
+	body := []byte(`{
+		"model":"gpt-5.6-luna",
+		"messages":[{"role":"user","content":"hi"}],
+		"reasoning_effort":"medium",
+		"tools":[{"type":"function","function":{"name":"read_file","parameters":{"type":"object"}}}]
+	}`)
+	opts := translate.EmitOptions{
+		TargetModel:    "gpt-5.6-luna",
+		TargetProvider: providers.ProviderOpenAIGateway,
+		Capabilities:   router.Lookup("gpt-5.6-luna"),
+	}
+	out := parseAndEmit(t, body, "openai", opts)
+	assert.NotContains(t, out, "reasoning_effort")
+	assert.Contains(t, out, "tools")
+}
+
+// Cortex rejects reasoning_effort alongside tools for every model it serves,
+// not just gpt-5.x, and a gateway has no Responses surface to move it to.
+func TestOpenAISameFormat_ReasoningEffortDeletedForGatewayToolsOnAnyModel(t *testing.T) {
+	body := []byte(`{
+		"model":"grok-4.6",
+		"messages":[{"role":"user","content":"hi"}],
+		"reasoning_effort":"medium",
+		"tools":[{"type":"function","function":{"name":"read_file","parameters":{"type":"object"}}}]
+	}`)
+	opts := translate.EmitOptions{
+		TargetModel:    "grok-4.6",
+		TargetProvider: providers.ProviderOpenAIGateway,
+		Capabilities:   router.Lookup("grok-4.6"),
+	}
+	out := parseAndEmit(t, body, "openai", opts)
+	assert.NotContains(t, out, "reasoning_effort")
+	assert.Contains(t, out, "tools")
+
+	toolless := []byte(`{
+		"model":"grok-4.6",
+		"messages":[{"role":"user","content":"hi"}],
+		"reasoning_effort":"medium"
+	}`)
+	assert.Equal(t, "medium", parseAndEmit(t, toolless, "openai", opts)["reasoning_effort"],
+		"a toolless gateway turn keeps the caller's effort")
+}
+
+// Direct OpenAI applies its own effort on gpt-5.6 tool turns even when the
+// field is absent; dropping it is not enough — the turn must opt out explicitly.
+func TestOpenAISameFormat_ToolTurnOptsOutOfReasoningForDirectGPT56(t *testing.T) {
+	tools := `"tools":[{"type":"function","function":{"name":"read_file","parameters":{"type":"object"}}}]`
+	for _, tc := range []struct {
+		name  string
+		model string
+		body  []byte
+		want  any
+	}{
+		{
+			name:  "tool turn",
+			model: "gpt-5.6-luna",
+			body:  []byte(`{"model":"gpt-5.6-luna","messages":[{"role":"user","content":"hi"}],"reasoning_effort":"medium",` + tools + `}`),
+			want:  "none",
+		},
+		{
+			// A gpt-5.x chat/completions turn never carries effort at all, so a
+			// toolless one needs no explicit opt-out.
+			name:  "toolless turn",
+			model: "gpt-5.6-luna",
+			body:  []byte(`{"model":"gpt-5.6-luna","messages":[{"role":"user","content":"hi"}],"reasoning_effort":"medium"}`),
+			want:  nil,
+		},
+		{
+			name:  "older reasoning model serves tool turns as-is",
+			model: "gpt-5.5",
+			body:  []byte(`{"model":"gpt-5.5","messages":[{"role":"user","content":"hi"}],` + tools + `}`),
+			want:  nil,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			opts := translate.EmitOptions{
+				TargetModel:    tc.model,
+				TargetProvider: providers.ProviderOpenAI,
+				Capabilities:   router.Lookup(tc.model),
+			}
+			out := parseAndEmit(t, tc.body, "openai", opts)
+			if tc.want == nil {
+				assert.NotContains(t, out, "reasoning_effort")
+				return
+			}
+			assert.Equal(t, tc.want, out["reasoning_effort"])
+		})
+	}
+}
+
 func TestOpenAISameFormat_ReasoningStripsUnsupportedSampling(t *testing.T) {
 	body := []byte(`{
 		"model":"gpt-5.5",
@@ -331,6 +423,91 @@ func TestAnthropicSameFormat_StripsUnsupportedToolSchemaPattern(t *testing.T) {
 	assert.NotContains(t, amount, "pattern", "Anthropic rejects regex lookahead in JSON Schema patterns")
 	assert.Equal(t, "string", amount["type"])
 	assert.Equal(t, "decimal", amount["description"])
+}
+
+func TestAnthropicSameFormat_OmitsEmptyWebSearchDomainLists(t *testing.T) {
+	body := []byte(`{"model":"claude-opus-4-8","messages":[{"role":"user","content":"search"}],"max_tokens":1024,"tools":[{
+		"type":"web_search_20250305",
+		"name":"web_search",
+		"allowed_domains":["openrouter.ai","docs.anthropic.com"],
+		"blocked_domains":[],
+		"max_uses":8
+	}]}`)
+	opts := translate.EmitOptions{
+		TargetModel:  "claude-opus-4-7",
+		Capabilities: router.Lookup("claude-opus-4-7"),
+	}
+	out := parseAndEmit(t, body, "anthropic", opts)
+
+	tools, _ := out["tools"].([]any)
+	require.Len(t, tools, 1)
+	tool, _ := tools[0].(map[string]any)
+	assert.Equal(t, "web_search_20250305", tool["type"])
+	assert.Equal(t, []any{"openrouter.ai", "docs.anthropic.com"}, tool["allowed_domains"])
+	assert.NotContains(t, tool, "blocked_domains", "Anthropic 400s empty domain lists; omit them")
+	assert.Equal(t, float64(8), tool["max_uses"])
+}
+
+func TestAnthropicSameFormat_OmitsEmptyAllowedDomains(t *testing.T) {
+	body := []byte(`{"model":"claude-opus-4-8","messages":[{"role":"user","content":"search"}],"max_tokens":1024,"tools":[{
+		"type":"web_search_20250305",
+		"name":"web_search",
+		"allowed_domains":[],
+		"blocked_domains":["example.com"]
+	}]}`)
+	opts := translate.EmitOptions{
+		TargetModel:  "claude-opus-4-7",
+		Capabilities: router.Lookup("claude-opus-4-7"),
+	}
+	out := parseAndEmit(t, body, "anthropic", opts)
+
+	tools, _ := out["tools"].([]any)
+	require.Len(t, tools, 1)
+	tool, _ := tools[0].(map[string]any)
+	assert.NotContains(t, tool, "allowed_domains")
+	assert.Equal(t, []any{"example.com"}, tool["blocked_domains"])
+}
+
+func TestAnthropicSameFormat_OmitsEmptyWebFetchDomainLists(t *testing.T) {
+	body := []byte(`{"model":"claude-opus-4-8","messages":[{"role":"user","content":"fetch"}],"max_tokens":1024,"tools":[{
+		"type":"web_fetch_20250305",
+		"name":"web_fetch",
+		"allowed_domains":["example.com"],
+		"blocked_domains":[]
+	}]}`)
+	opts := translate.EmitOptions{
+		TargetModel:  "claude-opus-4-7",
+		Capabilities: router.Lookup("claude-opus-4-7"),
+	}
+	out := parseAndEmit(t, body, "anthropic", opts)
+
+	tools, _ := out["tools"].([]any)
+	require.Len(t, tools, 1)
+	tool, _ := tools[0].(map[string]any)
+	assert.Equal(t, "web_fetch_20250305", tool["type"])
+	assert.Equal(t, []any{"example.com"}, tool["allowed_domains"])
+	assert.NotContains(t, tool, "blocked_domains")
+}
+
+func TestAnthropicSameFormat_KeepsEmptyDomainListsOnNonSearchTools(t *testing.T) {
+	body := []byte(`{"model":"claude-opus-4-8","messages":[{"role":"user","content":"hi"}],"max_tokens":1024,"tools":[{
+		"name":"custom_tool",
+		"description":"not native web search",
+		"input_schema":{"type":"object"},
+		"allowed_domains":[],
+		"blocked_domains":[]
+	}]}`)
+	opts := translate.EmitOptions{
+		TargetModel:  "claude-opus-4-7",
+		Capabilities: router.Lookup("claude-opus-4-7"),
+	}
+	out := parseAndEmit(t, body, "anthropic", opts)
+
+	tools, _ := out["tools"].([]any)
+	require.Len(t, tools, 1)
+	tool, _ := tools[0].(map[string]any)
+	assert.Equal(t, []any{}, tool["allowed_domains"])
+	assert.Equal(t, []any{}, tool["blocked_domains"])
 }
 
 func TestOpenAIToAnthropic_StripsUnsupportedToolSchemaPattern(t *testing.T) {
@@ -1129,4 +1306,123 @@ func TestAnthropicSameFormat_NonXhighEffortUntouchedByClamp(t *testing.T) {
 	outputConfig, _ := out["output_config"].(map[string]any)
 	require.NotNil(t, outputConfig)
 	assert.Equal(t, "high", outputConfig["effort"], "supported effort levels must pass through unchanged")
+}
+
+// Prod repro: a gateway answered `output_config.format: Extra inputs are not
+// permitted`, so the retry emit drops the knob and prunes an emptied container.
+func TestAnthropicSameFormat_OutputConfigFormatStrippedOnRequest(t *testing.T) {
+	body := []byte(`{"model":"claude-sonnet-5","messages":[{"role":"user","content":"hi"}],"max_tokens":1024,` +
+		`"output_config":{"format":{"type":"json_schema","schema":{"type":"object","properties":{"title":{"type":"string"}}}}}}`)
+	out := parseAndEmit(t, body, "anthropic", translate.EmitOptions{
+		TargetModel:             "claude-sonnet-5",
+		TargetProvider:          providers.ProviderAnthropicGateway,
+		Capabilities:            router.Lookup("claude-sonnet-5"),
+		StripOutputConfigFormat: true,
+	})
+	assert.NotContains(t, out, "output_config", "an emptied output_config must be pruned, not sent as {}")
+}
+
+// Only the rejected knob goes: the retry keeps its adaptive effort.
+func TestAnthropicSameFormat_OutputConfigEffortSurvivesFormatStrip(t *testing.T) {
+	body := []byte(`{"model":"claude-sonnet-5","messages":[{"role":"user","content":"hi"}],"max_tokens":1024,` +
+		`"thinking":{"type":"adaptive"},"output_config":{"effort":"high","format":{"type":"json_schema"}}}`)
+	out := parseAndEmit(t, body, "anthropic", translate.EmitOptions{
+		TargetModel:             "claude-sonnet-5",
+		TargetProvider:          providers.ProviderAnthropicGateway,
+		Capabilities:            router.Lookup("claude-sonnet-5"),
+		StripOutputConfigFormat: true,
+	})
+	outputConfig, _ := out["output_config"].(map[string]any)
+	require.NotNil(t, outputConfig)
+	assert.Equal(t, "high", outputConfig["effort"])
+	assert.NotContains(t, outputConfig, "format")
+}
+
+// Gateways serve structured output (Cortex documents it), so the first attempt
+// carries the knob to a gateway exactly as it does to first-party Anthropic.
+func TestAnthropicSameFormat_OutputConfigFormatKeptByDefault(t *testing.T) {
+	body := []byte(`{"model":"claude-sonnet-5","messages":[{"role":"user","content":"hi"}],"max_tokens":1024,` +
+		`"output_config":{"format":{"type":"json_schema"}}}`)
+	for _, provider := range []string{providers.ProviderAnthropic, providers.ProviderAnthropicGateway} {
+		t.Run(provider, func(t *testing.T) {
+			out := parseAndEmit(t, body, "anthropic", translate.EmitOptions{
+				TargetModel:    "claude-sonnet-5",
+				TargetProvider: provider,
+				Capabilities:   router.Lookup("claude-sonnet-5"),
+			})
+			outputConfig, _ := out["output_config"].(map[string]any)
+			require.NotNil(t, outputConfig)
+			assert.Contains(t, outputConfig, "format")
+		})
+	}
+}
+
+// openAIReasoningSignature builds the cross-format envelope that
+// encodeOpenAIReasoningSignature mints, for use in test fixtures.
+func openAIReasoningSignature(t *testing.T, id, enc string) string {
+	t.Helper()
+	raw, err := json.Marshal(map[string]any{"v": 1, "provider": "openai", "id": id, "enc": enc})
+	require.NoError(t, err)
+	return base64.StdEncoding.EncodeToString(raw)
+}
+
+// TestAnthropicSameFormat_ForeignSignedThinkingStrippedWithoutModelSwitch
+// covers the prod regression where client-side compaction re-keys the session,
+// losing the pin and leaving ModelSwitched false on re-route to Anthropic.
+func TestAnthropicSameFormat_ForeignSignedThinkingStrippedWithoutModelSwitch(t *testing.T) {
+	sig := openAIReasoningSignature(t, "rs_abc123", "gAAAAA")
+	body := []byte(fmt.Sprintf(
+		`{"model":"claude-opus-4-7","messages":[{"role":"user","content":"hi"},{"role":"assistant","content":[{"type":"thinking","thinking":"openai reasoning","signature":%q},{"type":"text","text":"reply"}]}],"max_tokens":1024,"thinking":{"type":"adaptive"}}`,
+		sig))
+	opts := translate.EmitOptions{
+		TargetModel:   "claude-opus-4-7",
+		Capabilities:  router.Lookup("claude-opus-4-7"),
+		ModelSwitched: false,
+	}
+	out := parseAndEmit(t, body, "anthropic", opts)
+	msgs, _ := out["messages"].([]any)
+	require.Len(t, msgs, 2)
+	assistantMsg, _ := msgs[1].(map[string]any)
+	content, _ := assistantMsg["content"].([]any)
+	require.Len(t, content, 1, "a foreign-signed thinking block must be stripped even when the pin reports no switch")
+	block, _ := content[0].(map[string]any)
+	assert.Equal(t, "text", block["type"], "only the text block should survive the strip")
+}
+
+// TestAnthropicSameFormat_ForeignSignedThinkingStrippedAnthropicSignedKept
+// verifies that only cross-format-signed blocks are dropped; Anthropic-minted
+// signatures survive for cache and reasoning continuity.
+func TestAnthropicSameFormat_ForeignSignedThinkingStrippedAnthropicSignedKept(t *testing.T) {
+	sig := openAIReasoningSignature(t, "rs_abc123", "gAAAAA")
+	body := []byte(fmt.Sprintf(
+		`{"model":"claude-opus-4-7","messages":[{"role":"assistant","content":[{"type":"thinking","thinking":"anthropic","signature":"ErUBCkYIBRgCKkA"},{"type":"thinking","thinking":"openai","signature":%q},{"type":"text","text":"reply"}]}],"max_tokens":1024,"thinking":{"type":"adaptive"}}`,
+		sig))
+	opts := translate.EmitOptions{
+		TargetModel:  "claude-opus-4-7",
+		Capabilities: router.Lookup("claude-opus-4-7"),
+	}
+	out := parseAndEmit(t, body, "anthropic", opts)
+	msgs, _ := out["messages"].([]any)
+	require.Len(t, msgs, 1)
+	assistantMsg, _ := msgs[0].(map[string]any)
+	content, _ := assistantMsg["content"].([]any)
+	require.Len(t, content, 2, "only the foreign-signed thinking block should be dropped")
+	kept, _ := content[0].(map[string]any)
+	assert.Equal(t, "ErUBCkYIBRgCKkA", kept["signature"], "the Anthropic-signed block must survive intact")
+}
+
+// TestAnthropicSameFormat_ForeignSignedThinkingOnlyMessageDropped: a
+// foreign-signed-only assistant message must be dropped, not emitted as content:[].
+func TestAnthropicSameFormat_ForeignSignedThinkingOnlyMessageDropped(t *testing.T) {
+	sig := openAIReasoningSignature(t, "rs_abc123", "gAAAAA")
+	body := []byte(fmt.Sprintf(
+		`{"model":"claude-opus-4-7","messages":[{"role":"user","content":"hi"},{"role":"assistant","content":[{"type":"thinking","thinking":"openai","signature":%q}]},{"role":"user","content":"continue"}],"max_tokens":1024,"thinking":{"type":"adaptive"}}`,
+		sig))
+	opts := translate.EmitOptions{
+		TargetModel:  "claude-opus-4-7",
+		Capabilities: router.Lookup("claude-opus-4-7"),
+	}
+	out := parseAndEmit(t, body, "anthropic", opts)
+	msgs, _ := out["messages"].([]any)
+	require.Len(t, msgs, 2, "the foreign-signed-thinking-only assistant message must be dropped entirely")
 }

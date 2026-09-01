@@ -14,7 +14,10 @@ import (
 	"sync/atomic"
 	"time"
 
+	"golang.org/x/net/http2"
+
 	"workweave/router/internal/auth"
+	"workweave/router/internal/observability"
 	"workweave/router/internal/providers"
 	"workweave/router/internal/timing"
 )
@@ -120,6 +123,12 @@ func intFromEnv(envVar string, fallback int) int {
 	return n
 }
 
+// TimeoutFromEnv reads a whole-seconds override from envVar, falling back
+// to fallback when unset, unparsable, or non-positive.
+func TimeoutFromEnv(envVar string, fallback time.Duration) time.Duration {
+	return idleTimeoutFromEnv(envVar, fallback)
+}
+
 // idleTimeoutFromEnv reads a whole-seconds override from envVar, falling back
 // to fallback when unset, unparsable, or non-positive.
 func idleTimeoutFromEnv(envVar string, fallback time.Duration) time.Duration {
@@ -138,6 +147,49 @@ func idleTimeoutFromEnv(envVar string, fallback time.Duration) time.Duration {
 // NewTransport. Streaming upstreams return headers immediately, so 30s is ample
 // for them; it only bites a non-streaming upstream that buffers a slow response.
 const DefaultResponseHeaderTimeout = 30 * time.Second
+
+// DefaultH2ReadIdleTimeout is how long a pooled HTTP/2 connection may sit
+// idle before the client sends a keepalive PING. Without it, Go can't
+// distinguish a healthy idle connection from one an upstream LB/NAT reaped;
+// a request onto a half-open h2 connection fails silently at ResponseHeaderTimeout.
+// Tunable via ROUTER_H2_READ_IDLE_TIMEOUT_SECONDS.
+var DefaultH2ReadIdleTimeout = idleTimeoutFromEnv("ROUTER_H2_READ_IDLE_TIMEOUT_SECONDS", 15*time.Second)
+
+// DefaultH2PingTimeout is how long the client waits for a PING ACK before
+// closing the connection. ACKs come from the h2 framing layer, not the
+// application, so a slow first token can't be mistaken for a dead connection.
+// Tunable via ROUTER_H2_PING_TIMEOUT_SECONDS.
+var DefaultH2PingTimeout = idleTimeoutFromEnv("ROUTER_H2_PING_TIMEOUT_SECONDS", 5*time.Second)
+
+// h2KeepaliveHeadroom is the fraction of the response-header guard the
+// keepalive budget may occupy. The defaults (15s+5s) sit exactly at 2/3 of
+// DefaultResponseHeaderTimeout, so the common path is untouched.
+const h2KeepaliveNumerator, h2KeepaliveDenominator = 2, 3
+
+// h2KeepaliveFor sizes the PING budget for a transport whose time-to-first-byte
+// guard is responseHeaderTimeout. Detection must land strictly inside that guard;
+// callers pick their own guard and operators override both via env, so an
+// over-budget pair is scaled down proportionally rather than silently accepted.
+func h2KeepaliveFor(responseHeaderTimeout time.Duration) (readIdle, ping time.Duration) {
+	readIdle, ping = DefaultH2ReadIdleTimeout, DefaultH2PingTimeout
+	if responseHeaderTimeout <= 0 {
+		return readIdle, ping
+	}
+	budget := responseHeaderTimeout * h2KeepaliveNumerator / h2KeepaliveDenominator
+	if readIdle+ping <= budget {
+		return readIdle, ping
+	}
+	scale := float64(budget) / float64(readIdle+ping)
+	scaledIdle, scaledPing := time.Duration(float64(readIdle)*scale), time.Duration(float64(ping)*scale)
+	// An override that silently doesn't apply is worse than one that's refused.
+	observability.Get().Warn("HTTP/2 keepalive budget exceeds the response-header guard, scaling to fit",
+		"response_header_timeout_ms", responseHeaderTimeout.Milliseconds(),
+		"configured_read_idle_ms", readIdle.Milliseconds(),
+		"configured_ping_ms", ping.Milliseconds(),
+		"effective_read_idle_ms", scaledIdle.Milliseconds(),
+		"effective_ping_ms", scaledPing.Milliseconds())
+	return scaledIdle, scaledPing
+}
 
 // SanitizeInboundAuthHeader returns v unchanged unless it carries a
 // router-issued key as a Bearer token, in which case it returns "" so the
@@ -158,7 +210,8 @@ func SanitizeInboundAuthHeader(v string) string {
 // KeepAlive=30s guards against AWS NAT-GW/NLB/VPC-endpoint reapers (350s fixed
 // idle) by keeping the TCP connection live at the network layer.
 // ResponseHeaderTimeout only guards time-to-first-byte; per-read inactivity is
-// enforced separately by StreamBody's watchdog.
+// enforced separately by StreamBody's watchdog. On a managed deployment the
+// dialer also refuses non-public destinations (see publicDestinationsOnly).
 func NewTransport(dialTimeout, tlsTimeout time.Duration) *http.Transport {
 	return NewTransportWithResponseHeaderTimeout(dialTimeout, tlsTimeout, DefaultResponseHeaderTimeout)
 }
@@ -169,12 +222,26 @@ func NewTransport(dialTimeout, tlsTimeout time.Duration) *http.Transport {
 // via Responses API). Streaming inactivity is still bounded separately by
 // StreamBody's idle watchdog, so this can't reintroduce an unbounded hang.
 func NewTransportWithResponseHeaderTimeout(dialTimeout, tlsTimeout, responseHeaderTimeout time.Duration) *http.Transport {
-	return &http.Transport{
-		Proxy: http.ProxyFromEnvironment,
-		DialContext: (&net.Dialer{
-			Timeout:   dialTimeout,
-			KeepAlive: 30 * time.Second,
-		}).DialContext,
+	return newTransport(dialTimeout, tlsTimeout, responseHeaderTimeout, publicDestinationsOnly)
+}
+
+// newTransport is NewTransportWithResponseHeaderTimeout with the dial policy
+// passed explicitly rather than read from the environment.
+func newTransport(dialTimeout, tlsTimeout, responseHeaderTimeout time.Duration, publicOnly bool) *http.Transport {
+	dialer := &net.Dialer{
+		Timeout:   dialTimeout,
+		KeepAlive: 30 * time.Second,
+	}
+	// Through a proxy the dialer connects to the proxy, not the upstream —
+	// honoring one makes the policy appear enforced when it is not.
+	proxy := http.ProxyFromEnvironment
+	if publicOnly {
+		dialer.Control = restrictDestination
+		proxy = nil
+	}
+	t := &http.Transport{
+		Proxy:                 proxy,
+		DialContext:           dialer.DialContext,
 		MaxIdleConnsPerHost:   64,
 		MaxIdleConns:          256,
 		IdleConnTimeout:       90 * time.Second,
@@ -183,6 +250,28 @@ func NewTransportWithResponseHeaderTimeout(dialTimeout, tlsTimeout, responseHead
 		ResponseHeaderTimeout: responseHeaderTimeout,
 		ForceAttemptHTTP2:     true,
 	}
+	// ConfigureTransports is the only way to reach the h2 keepalive knobs;
+	// http.Transport exposes no fields for them. ForceAttemptHTTP2 still ensures h2 on error.
+	if h2, err := http2.ConfigureTransports(t); err == nil {
+		h2.ReadIdleTimeout, h2.PingTimeout = h2KeepaliveFor(responseHeaderTimeout)
+	}
+	return t
+}
+
+// ErrRefusedRedirect is returned when an upstream answers with a redirect.
+// A provider base URL is configuration, not discovery — the Location names a
+// host the deployment never configured, so the call is failed rather than relayed.
+var ErrRefusedRedirect = errors.New("upstream returned a redirect, which is not followed")
+
+// NewClient returns an http.Client on transport that refuses redirects.
+// Failing the call keeps a 3xx off every relay path — returning it would let
+// each adapter treat the redirect status as success.
+func NewClient(transport http.RoundTripper) *http.Client {
+	return &http.Client{Transport: transport, CheckRedirect: refuseRedirect}
+}
+
+func refuseRedirect(*http.Request, []*http.Request) error {
+	return ErrRefusedRedirect
 }
 
 // StartIdleWatchdog cancels ctx with ErrUpstreamIdleTimeout once idleTimeout

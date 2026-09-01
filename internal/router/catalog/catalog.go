@@ -207,7 +207,7 @@ var Models = []Model{
 	// rate (through 2026-08-31) — avoids a compile-time price going stale.
 	{ID: "claude-sonnet-5", Tier: TierMid, ContextWindow: 200_000, Providers: []ProviderBinding{
 		{Provider: providers.ProviderAnthropic, Price: Pricing{InputUSDPer1M: 3.00, OutputUSDPer1M: 15.00, CacheReadMultiplier: 0.10}},
-		{Provider: providers.ProviderAnthropicGateway, Price: Pricing{InputUSDPer1M: 3.00, OutputUSDPer1M: 15.00}},
+		{Provider: providers.ProviderAnthropicGateway, Price: Pricing{InputUSDPer1M: 3.00, OutputUSDPer1M: 15.00, CacheReadMultiplier: 0.10}},
 	}},
 	// Legacy Opus IDs kept passthrough-priced (no Tier — not a routing
 	// target; see gpt-4o below for the same pattern) so BYOK/direct-model
@@ -242,12 +242,12 @@ var Models = []Model{
 	// Opus 4.8 retired from routing; kept as priced passthrough so lingering BYOK/direct pins bill at real cost.
 	{ID: "claude-opus-4-8", ContextWindow: 200_000, Providers: []ProviderBinding{
 		{Provider: providers.ProviderAnthropic, Price: Pricing{InputUSDPer1M: 5.00, OutputUSDPer1M: 25.00, CacheReadMultiplier: 0.10}},
-		{Provider: providers.ProviderAnthropicGateway, Price: Pricing{InputUSDPer1M: 5.00, OutputUSDPer1M: 25.00}},
+		{Provider: providers.ProviderAnthropicGateway, Price: Pricing{InputUSDPer1M: 5.00, OutputUSDPer1M: 25.00, CacheReadMultiplier: 0.10}},
 	}},
 	// 1M context natively (no context-1m beta header), same $5/$25 as opus-4-8.
 	{ID: "claude-opus-5", Tier: TierHigh, ContextWindow: 1_000_000, Providers: []ProviderBinding{
 		{Provider: providers.ProviderAnthropic, Price: Pricing{InputUSDPer1M: 5.00, OutputUSDPer1M: 25.00, CacheReadMultiplier: 0.10}},
-		{Provider: providers.ProviderAnthropicGateway, Price: Pricing{InputUSDPer1M: 5.00, OutputUSDPer1M: 25.00}},
+		{Provider: providers.ProviderAnthropicGateway, Price: Pricing{InputUSDPer1M: 5.00, OutputUSDPer1M: 25.00, CacheReadMultiplier: 0.10}},
 		{Provider: providers.ProviderOpenAIGateway, Price: Pricing{InputUSDPer1M: 5.00, OutputUSDPer1M: 25.00}},
 	}},
 	// Fable 5 retired from routing; kept as priced passthrough so lingering
@@ -580,6 +580,26 @@ var Models = []Model{
 			Price: Pricing{InputUSDPer1M: 1.260, OutputUSDPer1M: 3.960, CacheReadMultiplier: 0.23 / 1.260}},
 		{Provider: providers.ProviderWaferAnthropic, UpstreamID: "GLM-5.2",
 			Price: Pricing{InputUSDPer1M: 1.260, OutputUSDPer1M: 3.960, CacheReadMultiplier: 0.23 / 1.260}},
+	}},
+	// GLM-5.3: text-only (AA inputModalityImage=false); Fireworks is the only
+	// managed binding. ContextWindow is 1,048,576 (Fireworks served max), not
+	// 1,310,720 (Cloudflare-only) — overstating causes upstream 400 on overflow.
+	{ID: "z-ai/glm-5.3", Tier: TierHigh, ContextWindow: 1_048_576, ImageInput: ImageInputUnsupported, Providers: []ProviderBinding{
+		{Provider: providers.ProviderFireworks, UpstreamID: "accounts/fireworks/models/glm-5p3",
+			Price: Pricing{InputUSDPer1M: 1.400, OutputUSDPer1M: 4.400, CacheReadMultiplier: 0.26 / 1.400}},
+	}},
+	// GLM-5.3-Flash: first native-multimodal (image+video) in the GLM-5 line —
+	// ImageInput stays default. Thinking cannot be disabled — do not add it to
+	// openRouterReasoningHint. Together leads, Wafer trails. Priced at post-promo
+	// rate, not $0.075/$0.25 introductory (cf. gemini-3.7-flash). ContextWindow
+	// 1,048,576 (Together served max); 1,310,720 is Cloudflare-only.
+	{ID: "z-ai/glm-5.3-flash", Tier: TierLow, ContextWindow: 1_048_576, Providers: []ProviderBinding{
+		{Provider: providers.ProviderTogether, UpstreamID: "zai-org/GLM-5.3-Flash",
+			Price: Pricing{InputUSDPer1M: 0.150, OutputUSDPer1M: 0.500, CacheReadMultiplier: 0.03 / 0.150}},
+		{Provider: providers.ProviderWafer, UpstreamID: "GLM-5.3-Flash",
+			Price: Pricing{InputUSDPer1M: 0.150, OutputUSDPer1M: 0.500, CacheReadMultiplier: 0.03 / 0.150}},
+		{Provider: providers.ProviderWaferAnthropic, UpstreamID: "GLM-5.3-Flash",
+			Price: Pricing{InputUSDPer1M: 0.150, OutputUSDPer1M: 0.500, CacheReadMultiplier: 0.03 / 0.150}},
 	}},
 	// Fireworks-dedicated rows below carry an OpenRouter trailing binding so
 	// managed-prod deploys without a Fireworks key can still resolve them.

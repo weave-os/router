@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"workweave/router/internal/providers"
+	"workweave/router/internal/router"
 	"workweave/router/internal/router/sessionpin"
 	"workweave/router/internal/translate"
 
@@ -44,15 +45,15 @@ func (s *overloadStubPinStore) UpdateUsage(context.Context, [sessionpin.SessionK
 	return nil
 }
 
-func (s *overloadStubPinStore) IncrementUpstreamErrors(context.Context, [sessionpin.SessionKeyLen]byte, string) (int, error) {
+func (s *overloadStubPinStore) IncrementUpstreamErrors(context.Context, [sessionpin.SessionKeyLen]byte, string, router.Strategy) (int, error) {
 	return 0, nil
 }
 
-func (s *overloadStubPinStore) ResetUpstreamErrors(context.Context, [sessionpin.SessionKeyLen]byte, string) error {
+func (s *overloadStubPinStore) ResetUpstreamErrors(context.Context, [sessionpin.SessionKeyLen]byte, string, router.Strategy) error {
 	return nil
 }
 
-func (s *overloadStubPinStore) IncrementOverloadErrors(context.Context, [sessionpin.SessionKeyLen]byte, string) (int, error) {
+func (s *overloadStubPinStore) IncrementOverloadErrors(context.Context, [sessionpin.SessionKeyLen]byte, string, router.Strategy) (int, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.incrementCalls++
@@ -64,21 +65,21 @@ func (s *overloadStubPinStore) IncrementOverloadErrors(context.Context, [session
 	return v, nil
 }
 
-func (s *overloadStubPinStore) ResetOverloadErrors(context.Context, [sessionpin.SessionKeyLen]byte, string) error {
+func (s *overloadStubPinStore) ResetOverloadErrors(context.Context, [sessionpin.SessionKeyLen]byte, string, router.Strategy) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.resetCalls++
 	return nil
 }
 
-func (s *overloadStubPinStore) DisableProvider(_ context.Context, _ [sessionpin.SessionKeyLen]byte, _, provider string) error {
+func (s *overloadStubPinStore) DisableProvider(_ context.Context, _ [sessionpin.SessionKeyLen]byte, _, provider string, _ router.Strategy) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.disabledProviders = append(s.disabledProviders, provider)
 	return nil
 }
 
-func (s *overloadStubPinStore) Consume(context.Context, [sessionpin.SessionKeyLen]byte, string) (sessionpin.Pin, bool, error) {
+func (s *overloadStubPinStore) Consume(context.Context, [sessionpin.SessionKeyLen]byte, string, router.Strategy) (sessionpin.Pin, bool, error) {
 	return sessionpin.Pin{}, false, nil
 }
 

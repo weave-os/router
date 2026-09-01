@@ -1,0 +1,74 @@
+{
+  "schema_version": "hmm_router_cluster_roster_v6",
+  "comment": "Test fixture built from catalog models; not production data.",
+  "ranking": {
+    "metric": "weave_model_index_v3",
+    "alpha": {
+      "low": 0.4,
+      "maximum": 0.95
+    }
+  },
+  "harness_vendor_priority": {
+    "claude_code": {
+      "vendors": ["anthropic"],
+      "clusters": ["maximum"]
+    }
+  },
+  "manual_pins": {
+    "pi": {
+      "low": ["openai/gpt-5.6-luna"]
+    }
+  },
+  "clusters": {
+    "low": {
+      "complexity_label": "low",
+      "arms": [
+        "openai/gpt-5.6-luna",
+        "anthropic/claude-haiku-4.5"
+      ],
+      "arms_by_harness": {
+        "claude_code": [
+          "openai/gpt-5.6-luna",
+          "anthropic/claude-haiku-4.5"
+        ],
+        "pi": [
+          "openai/gpt-5.6-luna"
+        ]
+      },
+      "cost_ref_usd": 0.02,
+      "latency_ref_ms": 8000,
+      "arm_scores": {
+        "openai/gpt-5.6-luna": 20.11744,
+        "anthropic/claude-haiku-4.5": 12.5
+      }
+    },
+    "maximum": {
+      "complexity_label": "maximum",
+      "arms": [
+        "anthropic/claude-opus-4.8",
+        "openai/gpt-5.6-sol:high",
+        "x-ai/grok-4.5"
+      ],
+      "arms_by_harness": {
+        "claude_code": [
+          "anthropic/claude-opus-4.8",
+          "openai/gpt-5.6-sol:high"
+        ]
+      },
+      "membership_by_harness": {
+        "claude_code": [
+          "anthropic/claude-opus-4.8",
+          "openai/gpt-5.6-sol:high",
+          "x-ai/grok-4.5"
+        ]
+      },
+      "cost_ref_usd": 1.5,
+      "latency_ref_ms": 30000,
+      "arm_scores": {
+        "anthropic/claude-opus-4.8": 88.1,
+        "openai/gpt-5.6-sol:high": 85.4,
+        "x-ai/grok-4.5": 80.2
+      }
+    }
+  }
+}

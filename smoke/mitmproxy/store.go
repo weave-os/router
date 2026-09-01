@@ -10,6 +10,9 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+
+	"github.com/tidwall/gjson"
+	"github.com/tidwall/sjson"
 )
 
 // cassette is a recorded HTTP interaction: enough to replay the response
@@ -57,7 +60,7 @@ func newStore(dir string) (*store, error) {
 	return &store{dir: dir}, nil
 }
 
-// requestKey hashes method + path + body. The smoke fixtures are
+// requestKey hashes method + path + a normalized body. The smoke fixtures are
 // byte-deterministic (stable system prompt, fixed user text per scenario), so
 // identical scenarios hash identically across runs and across machines.
 func requestKey(method, path string, body []byte) string {
@@ -66,8 +69,28 @@ func requestKey(method, path string, body []byte) string {
 	h.Write([]byte{0})
 	h.Write([]byte(path))
 	h.Write([]byte{0})
-	h.Write(body)
+	h.Write(normalizeRequestBody(body))
 	return hex.EncodeToString(h.Sum(nil))
+}
+
+// volatileBodyFields are request fields whose value varies between runs of the
+// same scenario; hashing them makes every cassette a guaranteed miss.
+var volatileBodyFields = []string{"prompt_cache_key"}
+
+// normalizeRequestBody strips volatile fields so cassettes recorded before a field
+// was added keep replaying.
+func normalizeRequestBody(body []byte) []byte {
+	for _, field := range volatileBodyFields {
+		if !gjson.GetBytes(body, field).Exists() {
+			continue
+		}
+		out, err := sjson.DeleteBytes(body, field)
+		if err != nil {
+			continue
+		}
+		body = out
+	}
+	return body
 }
 
 func (s *store) path(key string) string {

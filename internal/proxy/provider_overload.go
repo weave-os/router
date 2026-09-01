@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"workweave/router/internal/observability"
+	"workweave/router/internal/router"
 	"workweave/router/internal/router/sessionpin"
 	"workweave/router/internal/translate"
 
@@ -52,7 +53,7 @@ func (s *Service) maybeDisableProviderAfterOverload(
 	if proxyErr == nil {
 		// context.Background(): the request ctx is already canceled by the
 		// time streaming finishes, but this reset must still go through.
-		if err := s.pinStore.ResetOverloadErrors(context.Background(), sessionKey, role); err != nil {
+		if err := s.pinStore.ResetOverloadErrors(context.Background(), sessionKey, role, router.StrategyFromContext(ctx)); err != nil {
 			log.Error("pin overload-counter reset failed", "err", err, "role", role)
 		}
 		return
@@ -62,7 +63,7 @@ func (s *Service) maybeDisableProviderAfterOverload(
 		return
 	}
 
-	count, err := s.pinStore.IncrementOverloadErrors(context.Background(), sessionKey, role)
+	count, err := s.pinStore.IncrementOverloadErrors(context.Background(), sessionKey, role, router.StrategyFromContext(ctx))
 	if err != nil {
 		log.Error("pin overload-counter increment failed", "err", err, "role", role, "provider", finalProvider)
 		return
@@ -77,7 +78,7 @@ func (s *Service) maybeDisableProviderAfterOverload(
 		return
 	}
 
-	if err := s.pinStore.DisableProvider(context.Background(), sessionKey, role, finalProvider); err != nil {
+	if err := s.pinStore.DisableProvider(context.Background(), sessionKey, role, finalProvider, router.StrategyFromContext(ctx)); err != nil {
 		log.Error("pin provider-disable upsert failed", "err", err, "role", role, "provider", finalProvider)
 		return
 	}

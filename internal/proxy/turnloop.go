@@ -19,6 +19,7 @@ import (
 	"workweave/router/internal/router/handover"
 	"workweave/router/internal/router/hmm"
 	"workweave/router/internal/router/planner"
+	"workweave/router/internal/router/policy"
 	"workweave/router/internal/router/sessionpin"
 	"workweave/router/internal/router/turntype"
 	"workweave/router/internal/translate"
@@ -161,9 +162,12 @@ type turnLoopResult struct {
 	Decision       router.Decision
 	SessionKey     [sessionpin.SessionKeyLen]byte
 	InstallationID uuid.UUID
-	TurnType       turntype.TurnType
-	StickyHit      bool
-	HardPinned     bool
+	// Strategy is the effective request strategy, carried through the response
+	// path so async pin writes stay strategy-bound after ctx is cancelled.
+	Strategy   router.Strategy
+	TurnType   turntype.TurnType
+	StickyHit  bool
+	HardPinned bool
 	// AuthoritativePerTurn is true only for eligible main/tool-result turns
 	// whose active policy declared model-authoritative dispatch.
 	AuthoritativePerTurn bool
@@ -173,6 +177,12 @@ type turnLoopResult struct {
 	UsageBypass bool
 	PinTier     string
 	PinAgeSec   int64
+	// ForcedPinDropped records that a /force-model pin existed but could not be
+	// served (provider not enabled, excluded, or not image-capable); surfaced so
+	// the turn does not silently contradict the "force-model applied" ack.
+	ForcedPinDropped    bool
+	ForcedPinDropReason string
+	ForcedPinModel      string
 	// PinProvider, PrefixBroken, and PriorTurnGapMS preserve the cache-state
 	// evidence used by the planner for span-level shadow analysis.
 	PinProvider    string
@@ -235,6 +245,46 @@ type turnLoopResult struct {
 	// exhaustion. Stashed on ctx so resolveBindingsForDispatch's failover
 	// walk also honors the exclusion, not just this turn's scorer.
 	SessionDisabledProviders []string
+	// AuthorityShadow is the counterfactual HMM cache-gate verdict on an
+	// authoritative-per-turn turn. Observation only: it never touches Decision.
+	AuthorityShadow authorityCacheShadow
+}
+
+// authorityCacheShadow records what hmmCostGatedDecision would have returned on
+// an authoritative-per-turn turn. Computed=false keeps every column NULL rather
+// than zero, which would read as "the gate ran and found nothing".
+type authorityCacheShadow struct {
+	Computed bool
+	Decision planner.Decision
+	// StayModel/StayProvider are the pin the shadow priced against, empty when
+	// no eligible pin existed (Decision.Reason is no_pin in that case).
+	StayModel    string
+	StayProvider string
+	// Sticky is the gate's own verdict that it would have served StayModel instead
+	// of the authoritative fresh pick. Persisted rather than re-derived in SQL:
+	// StayModel carries ":effort" while decision_model is a bare catalog ID, so a
+	// string compare reports a false divergence on every effort-bearing pin.
+	Sticky bool
+	// StayScore/FreshScore are the sidecar's candidate scores. Nil when the sidecar
+	// reported no score; the nil rate is a measurement result in itself.
+	StayScore  *float64
+	FreshScore *float64
+}
+
+// Reason returns the gate's reason string, or "" when the shadow did not run.
+func (a authorityCacheShadow) Reason() string {
+	if !a.Computed {
+		return ""
+	}
+	return a.Decision.Reason
+}
+
+// EVRan reports whether the gate reached planner.Decide's cost arithmetic.
+// ShadowComputed is set immediately after that block; every early return
+// (no_pin, no_prior_usage, same_model, pricing_missing) exits above it, so
+// the flag is an exact witness for "the EV terms mean something".
+func (a authorityCacheShadow) EVRan() bool {
+	return a.Computed && a.Decision.ShadowComputed
 }
 
 // modelSwitched reports whether the Anthropic emit path must strip historical
@@ -265,14 +315,6 @@ const (
 	hmmReasonPhaseChange          = "hmm_phase_change"
 )
 
-// hmmPinStickyArmSelectorUnavailReason is the PinTier value when a reroute is suppressed by the arm-selector unavailable fallback.
-const hmmPinStickyArmSelectorUnavailReason = "hmm_pin_sticky_arm_selector_unavailable"
-
-// hmmArmSelectorUnavailableSentinel mirrors ml_dev.hmm_router.route_selector.PIN_STICKY_OVERRIDE_ELIGIBLE_SENTINEL.
-// Substring-matched against the sidecar's opaque Reason string to detect a legacy pairwise-bandit fallback
-// draw without a schema bump. Keep in sync across the Python/Go boundary.
-const hmmArmSelectorUnavailableSentinel = "[pin_sticky_override_eligible]"
-
 // decisionPolicyGroup returns the policy cluster/group a decision was drawn
 // from, or "" for reconstructed pins and routers that report no group.
 func decisionPolicyGroup(dec router.Decision) string {
@@ -280,36 +322,6 @@ func decisionPolicyGroup(dec router.Decision) string {
 		return ""
 	}
 	return dec.Metadata.PolicyGroup
-}
-
-// stickPinOnArmSelectorUnavailable reports whether the active pin should override a fresh
-// authoritative-per-turn decision when hmmArmSelectorUnavailableSentinel is present —
-// the arm-selector fell back to per-turn epsilon-greedy draws (ArmSelectorUnavailableError),
-// causing turn-to-turn churn. No tier check: the bandit draws within one cluster, not one
-// catalog tier; both groups must match so a genuine cluster escalation still switches through.
-func stickPinOnArmSelectorUnavailable(fresh router.Decision, pin sessionpin.Pin, pinFound, prefixBroken bool) bool {
-	if !pinFound || pin.Model == "" {
-		return false
-	}
-	if !isHMMPinReason(pin.Reason) {
-		return false
-	}
-	if !strings.Contains(fresh.Reason, hmmArmSelectorUnavailableSentinel) {
-		return false
-	}
-	// Unknown group on either side means we cannot prove the reroute stayed in
-	// the pin's cluster, so fail open and let the fresh decision serve.
-	freshGroup := decisionPolicyGroup(fresh)
-	if freshGroup == "" || pin.PolicyGroup == "" || freshGroup != pin.PolicyGroup {
-		return false
-	}
-	if pin.Model == fresh.Model {
-		return false
-	}
-	if prefixBroken {
-		return false
-	}
-	return true
 }
 
 // policyDeadlineFallbackReason is set as PinTier when a policy sidecar deadline degrades to a pin or tier-3 default.
@@ -454,6 +466,8 @@ func (s *Service) runTurnLoop(
 	} else if req.TranslationRequirements.IsZero() {
 		req.TranslationRequirements = env.TranslationRequirements(translationEndpointFor(env))
 	}
+	threadSessionKey := deriveSessionKeyForRequest(ctx, env, apiKeyID)
+	req.TranslationRequirements = s.scopeSearchRequirement(threadSessionKey, env, req.TranslationRequirements)
 	var compatibilityErr error
 	req, compatibilityErr = s.applyTranslationPlan(ctx, req)
 	if compatibilityErr != nil {
@@ -487,10 +501,12 @@ func (s *Service) runTurnLoop(
 		req.InstallationID = installationID.String()
 	}
 	res := turnLoopResult{
-		InstallationID: installationID,
-		TurnType:       turntype.DetectFromEnvelope(env, feats, subAgentHint),
-		PinTier:        "miss",
-		RequestedTier:  catalog.TierFor(feats.Model),
+		InstallationID:      installationID,
+		Strategy:            router.StrategyFromContext(ctx),
+		TurnType:            turntype.DetectFromEnvelope(env, feats, subAgentHint),
+		PinTier:             "miss",
+		RequestedTier:       catalog.TierFor(feats.Model),
+		StripThinkingBlocks: betaArtifactHistoryFromContext(ctx),
 	}
 	res.AuthoritativePerTurn = authoritativePolicyTurn(res.TurnType) &&
 		s.authoritativePerTurnSelection(ctx)
@@ -508,7 +524,6 @@ func (s *Service) runTurnLoop(
 
 	// Explicit user-forced pins outrank every automatic fast path, including
 	// the turn-type hard pin; only check here so ordinary turns use the normal flow.
-	threadSessionKey := DeriveSessionKey(env, apiKeyID)
 	hardPinnedTurn := s.isHardPinnedTurn(ctx, res.TurnType)
 	if s.pinStore != nil && hardPinnedTurn {
 		forcedPin, found := s.loadPin(ctx, threadSessionKey, res.PinRole)
@@ -554,14 +569,25 @@ func (s *Service) runTurnLoop(
 		// here too — this path bypasses the scorer, the only other place
 		// exclusions are honored.
 		if s.hardPinResolver != nil && !useSubAgentOverride {
-			p, m, ok := s.hardPinResolver(req.EnabledProviders, req.ExcludedModels)
+			p, m, ok := s.hardPinResolver(HardPinRequest{
+				EnabledProviders: req.EnabledProviders,
+				ExcludedModels:   req.ExcludedModels,
+				CustomBindings:   req.CustomBindings,
+				GatewayProviders: req.GatewayProviders,
+			})
 			if !ok {
+				// Gateway empty result = no aliases configured (customer fix), not a router fault.
+				hardPinErr := cluster.ErrClusterUnavailable
+				if len(req.GatewayProviders) > 0 {
+					hardPinErr = policy.ErrGatewayServesNoDeployedModel
+				}
 				log.Warn(
-					"Hard-pin: no eligible provider for request; returning ErrClusterUnavailable",
+					"Hard-pin: no eligible provider for request",
 					"turn_type", string(res.TurnType),
 					"enabled_providers", sortedEnabledKeys(req.EnabledProviders),
+					"err", hardPinErr,
 				)
-				return res, fmt.Errorf("hard-pin: no eligible provider for %s: %w", res.TurnType, cluster.ErrClusterUnavailable)
+				return res, fmt.Errorf("hard-pin: no eligible provider for %s: %w", res.TurnType, hardPinErr)
 			}
 			provider, model = p, m
 		} else {
@@ -614,12 +640,10 @@ func (s *Service) runTurnLoop(
 	// bypass intercepts the fresh scorer decision here too (no pins to honor).
 	if s.pinStore == nil {
 		req.PolicyTurnContext = buildPolicyTurnContext(req, res, sessionpin.Pin{}, sessionpin.Pin{})
-		if !res.AuthoritativePerTurn {
-			if dec, ok := s.usageBypassDecision(ctx, reqHeaders, req); ok {
-				res.Decision = dec
-				res.UsageBypass = true
-				return res, nil
-			}
+		if dec, ok := s.usageBypassDecision(ctx, reqHeaders, req); ok {
+			res.Decision = dec
+			res.UsageBypass = true
+			return res, nil
 		}
 		decision, err := s.routeFor(ctx, req)
 		if err != nil {
@@ -747,6 +771,27 @@ func (s *Service) runTurnLoop(
 			res.StickyHit = true
 			s.refreshPin(ctx, installationID, res.SessionKey, pin, res.PinRole, pinDecision(pin))
 			return res, nil
+		}
+		// A forced pin is an explicit user instruction; dropping it silently reverts
+		// to the scorer while the user still trusts the "force-model applied" ack.
+		dropReason := "excluded"
+		switch {
+		case !providerEligible:
+			dropReason = "provider_not_enabled"
+		case !imageCapable:
+			dropReason = "not_image_capable"
+		}
+		log.Info("Forced session pin dropped for this turn",
+			"pin_model", pin.Model,
+			"pin_provider", pin.Provider,
+			"pin_reason", pin.Reason,
+			"drop_reason", dropReason,
+			"role", res.PinRole,
+		)
+		if isUserForcedReason(pin.Reason) {
+			res.ForcedPinDropped = true
+			res.ForcedPinDropReason = dropReason
+			res.ForcedPinModel = pin.Model
 		}
 		if excluded || !imageCapable {
 			// User still asked for this tier; constrain the fresh decision
@@ -946,12 +991,14 @@ func (s *Service) runTurnLoop(
 	// stale pin from a prior routed stretch can't make a tool_result
 	// continuation diverge from the bypassed tool_use turn. The pin itself is
 	// untouched and resumes once utilization crosses the threshold.
-	if !res.AuthoritativePerTurn {
-		if dec, ok := s.usageBypassDecision(ctx, reqHeaders, req); ok {
-			res.Decision = dec
-			res.UsageBypass = true
-			return res, nil
-		}
+	//
+	// Bypass settles whether the turn is routed at all (caller's prepaid quota,
+	// not a routing-quality opinion) — AuthoritativePerTurn controls which model
+	// is chosen for a routed turn, so the gate must not apply here.
+	if dec, ok := s.usageBypassDecision(ctx, reqHeaders, req); ok {
+		res.Decision = dec
+		res.UsageBypass = true
+		return res, nil
 	}
 
 	// Tool-result turns: by default, fall through to the scorer + planner for
@@ -1061,20 +1108,17 @@ func (s *Service) runTurnLoop(
 	)
 	res.Fresh = fresh
 	if res.AuthoritativePerTurn {
-		if s.hmPinStickyOnArmSelectorUnavail && stickPinOnArmSelectorUnavailable(fresh, pin, pinFound, prefixBroken) {
-			decision := pinDecision(pin)
-			res.Decision = decision
-			res.StickyHit = true
-			res.PinTier = hmmPinStickyArmSelectorUnavailReason
-			log.Info("turnloop suppressed arm-selector-unavailable reroute; keeping session pin",
-				"pin_model", pin.Model,
-				"pin_provider", pin.Provider,
-				"fresh_model", fresh.Model,
-				"fresh_provider", fresh.Provider,
-			)
-			s.refreshPin(ctx, installationID, res.SessionKey, pin, res.PinRole, decision)
-			return res, nil
+		// Shadow before the pin-preserving gates so it covers every authoritative
+		// exit. PinTier partitions the result: authoritative_per_turn = fresh was
+		// served, sticky/confidence = pin was already kept.
+		activePin := sessionpin.Pin{}
+		if pinFound {
+			activePin = pin
 		}
+		res.AuthorityShadow = s.authorityCacheShadowFor(
+			ctx, req, activePin, hmmHistory, fresh, s.plannerTokensFor(env, feats), prefixBroken,
+		)
+		s.logAuthorityCacheShadow(ctx, res)
 		// Upgrade-confidence guard: authoritative selection bypasses the HMM
 		// cost gate, but the escalation floor still applies. A scored fresh
 		// decision that costs more than the pinned model only wins at
@@ -1376,6 +1420,162 @@ func (s *Service) hmmCostGatedDecision(
 	return fresh, base, false, stayPin.Model
 }
 
+// authorityCacheShadowFor computes the HMM cache gate's verdict for an
+// authoritative-per-turn turn without changing the served decision. Calls
+// hmmCostGatedDecision unmodified -- a shadow that approximates the rule is not
+// a preview of it, and that function is pure.
+func (s *Service) authorityCacheShadowFor(
+	ctx context.Context,
+	req router.Request,
+	activePin sessionpin.Pin,
+	hmmHistory sessionpin.Pin,
+	fresh router.Decision,
+	estimatedInputTokens int,
+	prefixBroken bool,
+) authorityCacheShadow {
+	if !s.ResolveAuthorityCacheShadow(ctx) {
+		return authorityCacheShadow{}
+	}
+	// The gate's rules are HMM-specific: hmmStayPin only accepts HMM-written
+	// pins and the upgrade override reads a sidecar confidence, so a verdict
+	// against a non-HMM decision describes a rollout that cannot happen.
+	if !isHMMDecision(fresh) {
+		return authorityCacheShadow{}
+	}
+	_, plannerDecision, sticky, stayModel := s.hmmCostGatedDecision(
+		req, activePin, hmmHistory, fresh, estimatedInputTokens, prefixBroken,
+	)
+	// Re-resolve the provider; guard on model equality because normalizeHMMStayPin
+	// consults the clock and a concurrently expiring pin must not pair a stale
+	// binding with the model the gate actually priced.
+	stayProvider := activePin.Provider
+	stayPin, stayPinOK := s.hmmStayPin(req, activePin, hmmHistory)
+	if stayPinOK && stayPin.Model == stayModel {
+		stayProvider = stayPin.Provider
+	}
+	freshRosterArmID := ""
+	if fresh.Metadata != nil {
+		freshRosterArmID = fresh.Metadata.SelectedRosterArmID
+	}
+	shadow := authorityCacheShadow{
+		Computed:   true,
+		Decision:   plannerDecision,
+		StayModel:  stayModel,
+		Sticky:     sticky,
+		StayScore:  candidateScoreForWithProvider(fresh, stayModel, stayProvider),
+		FreshScore: candidateScoreForWithArm(fresh, fresh.ServedIdentity(), fresh.Provider, freshRosterArmID),
+	}
+	if stayPinOK && stayPin.Model == stayModel {
+		shadow.StayProvider = stayPin.Provider
+	}
+	return shadow
+}
+
+// candidateScoreFor reads the sidecar's catalog-level score for servedIdentity.
+// Returns nil when the sidecar reported no score -- nil must not be coerced to 0.
+func candidateScoreFor(dec router.Decision, servedIdentity string) *float64 {
+	return candidateScoreForWithProvider(dec, servedIdentity, dec.Provider)
+}
+
+// candidateScoreForWithProvider falls back to the sidecar's per-arm WMI score
+// when the catalog-level score vector is absent. AA roster policies expose WMI
+// scores as arm_scores (provider/model[:effort]) rather than candidate_scores.
+func candidateScoreForWithProvider(dec router.Decision, servedIdentity, provider string) *float64 {
+	return candidateScoreForWithArm(dec, servedIdentity, provider, "")
+}
+
+func candidateScoreForWithArm(dec router.Decision, servedIdentity, provider, rosterArmID string) *float64 {
+	if servedIdentity == "" || dec.Metadata == nil {
+		return nil
+	}
+	if score, ok := dec.Metadata.CandidateScores[baseModelOf(servedIdentity)]; ok {
+		value := float64(score)
+		return &value
+	}
+
+	if rosterArmID != "" {
+		if score, ok := dec.Metadata.ArmScores[rosterArmID]; ok {
+			value := float64(score)
+			return &value
+		}
+	}
+
+	effort, model := stripEffortSuffix(servedIdentity)
+	if model == "" || len(dec.Metadata.ArmScores) == 0 {
+		return nil
+	}
+	armSuffix := ""
+	if effort != "" {
+		armSuffix = ":" + effort
+	}
+	keys := make([]string, 0, 2)
+	if provider != "" {
+		keys = append(keys, provider+"/"+model+armSuffix)
+	}
+	keys = append(keys, model+armSuffix)
+	for _, key := range keys {
+		if score, ok := dec.Metadata.ArmScores[key]; ok {
+			value := float64(score)
+			return &value
+		}
+	}
+
+	// Gateway providers may use a different namespace from the roster arm
+	// (for example, anthropic_gateway serves an anthropic/... arm). Fall back
+	// only when the model/effort match is unique; an ambiguous provider match
+	// must remain NULL rather than silently assigning another arm's score.
+	var fallback *float64
+	for armID, score := range dec.Metadata.ArmScores {
+		armEffort, armModel := stripEffortSuffix(armID)
+		if armEffort != effort || (armModel != model && !strings.HasSuffix(armModel, "/"+model)) {
+			continue
+		}
+		if armProvider, ok := dec.Metadata.CandidateArmProviders[armID]; ok && provider != "" && armProvider == provider {
+			value := float64(score)
+			return &value
+		}
+		if fallback != nil {
+			return nil
+		}
+		value := float64(score)
+		fallback = &value
+	}
+	return fallback
+}
+
+// logAuthorityCacheShadow emits the shadow verdict as a structured line. The
+// Postgres columns are the analysis surface; this exists so a single session can
+// be traced in logs without a query, matching logPlannerOutcome.
+func (s *Service) logAuthorityCacheShadow(ctx context.Context, res turnLoopResult) {
+	if !res.AuthorityShadow.Computed {
+		return
+	}
+	shadow := res.AuthorityShadow
+	log := observability.FromContext(ctx)
+	log.Info("authoritative turn cache-gate shadow",
+		"turn_type", string(res.TurnType),
+		"fresh_model", res.Fresh.Model,
+		"shadow_outcome", plannerOutcome(shadow.Decision.Outcome),
+		"shadow_reason", shadow.Decision.Reason,
+		"shadow_stay_model", shadow.StayModel,
+		"shadow_would_diverge", shadow.Sticky,
+		"shadow_ev_ran", shadow.EVRan(),
+	)
+	if !shadow.EVRan() {
+		// OutcomeStay is the zero value and plannerOutcome renders it "stay", so
+		// logging these on an early exit would report a verdict and a cost that
+		// were never computed -- and would disagree with the NULL columns.
+		return
+	}
+	log.Info("authoritative turn cache-gate shadow EV",
+		"shadow_expected_savings_usd", shadow.Decision.ExpectedSavingsUSD,
+		"shadow_eviction_cost_usd", shadow.Decision.EvictionCostUSD,
+		"shadow_pin_cache_cold", shadow.Decision.PinCacheCold,
+		"shadow_corrected_outcome", plannerOutcome(shadow.Decision.ShadowOutcome),
+		"shadow_corrected_savings_usd", shadow.Decision.ShadowExpectedSavingsUSD,
+	)
+}
+
 func (s *Service) hmmStayPin(req router.Request, activePin sessionpin.Pin, hmmHistory sessionpin.Pin) (sessionpin.Pin, bool) {
 	var (
 		best sessionpin.Pin
@@ -1552,6 +1752,9 @@ func (s *Service) loadPin(ctx context.Context, sessionKey [sessionpin.SessionKey
 	if !found {
 		return sessionpin.Pin{}, false
 	}
+	if !pinMatchesEffectiveStrategy(ctx, pin) {
+		return sessionpin.Pin{}, false
+	}
 	if !pin.PinnedUntil.After(time.Now()) {
 		return pin, false
 	}
@@ -1566,6 +1769,9 @@ func (s *Service) loadHMMHistory(ctx context.Context, sessionKey [sessionpin.Ses
 		return sessionpin.Pin{}
 	}
 	if !found {
+		return sessionpin.Pin{}
+	}
+	if !pinMatchesEffectiveStrategy(ctx, pin) {
 		return sessionpin.Pin{}
 	}
 	return pin
@@ -1651,6 +1857,7 @@ func (s *Service) refreshPin(ctx context.Context, installationID uuid.UUID, sess
 		PairedProvider: existing.PairedProvider,
 		PairedModel:    existing.PairedModel,
 		Reason:         chosen.Reason,
+		Strategy:       router.StrategyFromContext(ctx),
 		// Same rationale as the pair above: a refresh runs no policy, so the
 		// reconstructed decision carries no group. Carry the stored one forward.
 		PolicyGroup:           existing.PolicyGroup,
@@ -1692,6 +1899,7 @@ func (s *Service) writeNewPin(ctx context.Context, installationID uuid.UUID, ses
 		PairedProvider: pairedProvider,
 		PairedModel:    pairedModel,
 		Reason:         chosen.Reason,
+		Strategy:       router.StrategyFromContext(ctx),
 		PolicyGroup:    decisionPolicyGroup(chosen),
 		TurnCount:      1,
 		PinnedUntil:    pinExpiry(chosen.Reason),
@@ -1704,6 +1912,9 @@ func (s *Service) writeNewPin(ctx context.Context, installationID uuid.UUID, ses
 // finished streaming.
 func (s *Service) upsertPin(ctx context.Context, p sessionpin.Pin) {
 	log := observability.FromContext(ctx)
+	if p.Strategy == "" {
+		p.Strategy = router.StrategyFromContext(ctx)
+	}
 	if err := s.pinStore.Upsert(context.Background(), p); err != nil {
 		log.Error("session pin upsert failed", "err", err)
 		return

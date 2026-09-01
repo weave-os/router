@@ -180,7 +180,7 @@ If new helper doesn't fit, justify new package in code comment before creating.
 - All exported symbols carry godoc starting with symbol name (`Foo does X` or `// Foo is …`).
 - Errors flow up. Don't swallow; don't log-and-continue on request path. The one documented exception is a **best-effort, off-request-path fire-and-forget** — always wrapped in [`observability.SafeGo`](internal/observability/safego.go) (bounded timeout, panic-recovering, logs its own failure), never a raw `go func(){}()`. Current call sites: `fireMarkUsed` ([auth/service.go](internal/auth/service.go)), `fireTelemetry` + `reportHMMOutcome` ([proxy/service.go](internal/proxy/service.go)), `NotifyInstallationChanged` + `NotifyRechargeNeeded` ([pubsub](internal/pubsub)).
 - Use `errors.Is` / `errors.As`, never `==` or `!=` on errors. For no-rows checks: `errors.Is(err, sql.ErrNoRows)`.
-- Use `slog` (via `observability.Get` / `observability.FromGin`), not `fmt.Println` or `log.Print*`.
+- Use `slog`, not `fmt.Println` or `log.Print*`. **On the request path, acquire the logger from the context** — `observability.FromContext(ctx)`, or `observability.FromGin(c)` in a handler. Both inherit the correlation fields `observability.Middleware` binds at first touch (`request_id`, plus `session_key` / `client_session_id` once `bindRequestLogger` runs), which is what makes one session's logs filterable end to end. `observability.Get()` returns the global logger with **no** request correlation, so a request-path line emitted through it cannot be found when filtering by session — reserve it for genuinely off-request-path code (startup, background listeners, `SafeGo` fire-and-forget). Enforced by `TestGlobalLoggerBudget`; fix a failure by threading ctx, not by raising the budget.
 - Sentinel errors typed (`var ErrFoo = errors.New(...)`) + live in same package as function that returns them. HTTP layer maps to status codes; do not export HTTP semantics from inner-ring packages.
 - Constructor injection over package-level singletons. Inject clock (`auth.Clock = func() time.Time`), logger, HTTP client, etc.
 
@@ -201,6 +201,21 @@ If new helper doesn't fit, justify new package in code comment before creating.
 - snake_case for log attribute keys (`api_key_id`, not `apiKeyID`).
 - Log `Debug` for routine ops (auth checks, repo calls); `Info` for major business events (server start, key issuance). Reserve `Error` for genuine failures needing on-call attention; auth-401 is `Debug`, not `Error`.
 - Never log raw bearer tokens or hashes. 8-char prefix + 4-char suffix (`KeyPrefix`/`KeySuffix` columns on `auth.APIKey`) are safe; full token is not.
+
+**Every line must be findable.** Correlation tags are what let an operator pull one session's full log trail; a line without them is effectively lost even though it was written. The tags are attached in two layers, and both are automatic — inherit them, never re-add by hand:
+
+| Field | Bound by | Present from |
+|---|---|---|
+| `name` | `initLogger` (from `NAME`, else `OTEL_SERVICE_NAME`, else `router`) | process start — every line |
+| `request_id` | `observability.Middleware` | first touch, before the body is read |
+| `session_key`, `api_key_id`, `ingress` | `bindRequestLogger` | after the envelope parses |
+| `client_session_id` | `bindRequestLogger` | after the envelope parses, when the client sent one |
+
+`request_id` is bound before parsing on purpose: pre-parse failures ("Failed to parse Anthropic request") used to be untagged, which made exactly the errors you go hunting for the ones you could not find. It is echoed as the `X-Request-Id` response header. An inbound `X-Request-Id` is **not** adopted — it lands in `upstream_request_id` (sanitized, length-bounded) instead, so one client reusing a value can't make `request_id` stop identifying a single request.
+
+A helper that logs on the request path takes `ctx` and calls `observability.FromContext(ctx)`. Do not add a `msg`-only log helper that reaches for `observability.Get()` internally — that silently drops every tag (this is what made upstream 4xx/5xx error bodies unfindable by session; see `httputil.LogUpstreamStatus`, which now takes `ctx` for that reason).
+
+**Never pass a bound key as a call-site attribute.** `slog` does not dedupe: re-passing `request_id`, `session_key`, `client_session_id`, `api_key_id`, `ingress`, or `name` emits the key twice and JSON consumers keep the **last** value, overwriting the bound one — so the line goes missing from exactly the search that should find it. A different-meaning value gets a distinct key (`upstream_request_id`, `rated_request_id`, `tool_name`); an identical value is simply dropped. Enforced by `TestNoReservedLogKeyShadowing`.
 
 ## Things to NEVER do
 

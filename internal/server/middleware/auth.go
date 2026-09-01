@@ -112,6 +112,12 @@ func withAPIKey(svc *auth.Service, byokRequiresOptIn bool) gin.HandlerFunc {
 			if len(installation.AllowedModels) > 0 {
 				ctx = context.WithValue(ctx, proxy.InstallationAllowedModelsContextKey{}, installation.AllowedModels)
 			}
+			if len(installation.ModelsWhenSubscriptionActive) > 0 {
+				ctx = context.WithValue(ctx, proxy.InstallationSubscriptionModelsWhenActiveContextKey{}, installation.ModelsWhenSubscriptionActive)
+			}
+			if len(installation.ModelsWhenSubscriptionInactive) > 0 {
+				ctx = context.WithValue(ctx, proxy.InstallationSubscriptionModelsWhenInactiveContextKey{}, installation.ModelsWhenSubscriptionInactive)
+			}
 			if len(installation.ExcludedProviders) > 0 {
 				ctx = context.WithValue(ctx, proxy.InstallationExcludedProvidersContextKey{}, installation.ExcludedProviders)
 			}
@@ -167,6 +173,7 @@ func withAPIKey(svc *auth.Service, byokRequiresOptIn bool) gin.HandlerFunc {
 		byokAllowed := !byokRequiresOptIn || (installation != nil && installation.ByokEnabled)
 		if externalKeys != nil && byokAllowed {
 			ctx = context.WithValue(ctx, proxy.ExternalAPIKeysContextKey{}, externalKeys)
+			ctx = proxy.WithForwardedHeaderSnapshot(ctx, externalKeys, c.Request.Header)
 		}
 		if len(clusterModelLists) > 0 {
 			overrides := make(map[string][]string, len(clusterModelLists))

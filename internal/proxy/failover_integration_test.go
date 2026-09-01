@@ -550,16 +550,16 @@ func TestProxyMessages_ResponsesFailureBeforeOutputFallsBackToBaseline(t *testin
 	assert.NotContains(t, rec.Body.String(), "event: error")
 }
 
-// sequencedGeminiClient is a providers.Client that returns a scripted result
+// sequencedClient is a providers.Client that returns a scripted result
 // per call (and captures the prepared body each time) so a test can assert the
 // router re-emitted a different body on retry.
-type sequencedGeminiClient struct {
+type sequencedClient struct {
 	mu        sync.Mutex
 	bodies    [][]byte
 	responses []func(w http.ResponseWriter) error
 }
 
-func (c *sequencedGeminiClient) Proxy(_ context.Context, _ router.Decision, prep providers.PreparedRequest, w http.ResponseWriter, _ *http.Request) error {
+func (c *sequencedClient) Proxy(_ context.Context, _ router.Decision, prep providers.PreparedRequest, w http.ResponseWriter, _ *http.Request) error {
 	c.mu.Lock()
 	i := len(c.bodies)
 	c.bodies = append(c.bodies, append([]byte(nil), prep.Body...))
@@ -570,7 +570,7 @@ func (c *sequencedGeminiClient) Proxy(_ context.Context, _ router.Decision, prep
 	return nil
 }
 
-func (c *sequencedGeminiClient) Passthrough(_ context.Context, _ providers.PreparedRequest, _ http.ResponseWriter, _ *http.Request) error {
+func (c *sequencedClient) Passthrough(_ context.Context, _ providers.PreparedRequest, _ http.ResponseWriter, _ *http.Request) error {
 	return nil
 }
 
@@ -585,7 +585,7 @@ func TestProxyMessages_GeminiValidated400RetriesWithAuto(t *testing.T) {
 	geminiSSE := `data: {"candidates":[{"content":{"parts":[{"text":"I am an AI assistant."}],"role":"model"},"index":0}]}` + "\n\n" +
 		`data: {"candidates":[{"content":{"parts":[]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":5,"candidatesTokenCount":4,"totalTokenCount":9}}` + "\n\n"
 
-	client := &sequencedGeminiClient{
+	client := &sequencedClient{
 		responses: []func(w http.ResponseWriter) error{
 			// Call 1: VALIDATED-mode INVALID_ARGUMENT, pre-commit (no write).
 			func(http.ResponseWriter) error {
@@ -630,7 +630,7 @@ func TestProxyMessages_GeminiValidated400RetriesWithAuto(t *testing.T) {
 // for VALIDATED-mode schema-grammar rejections, and re-emitting would waste an
 // upstream call.
 func TestProxyMessages_GeminiNon400NotRetried(t *testing.T) {
-	client := &sequencedGeminiClient{
+	client := &sequencedClient{
 		responses: []func(w http.ResponseWriter) error{
 			func(http.ResponseWriter) error {
 				return &providers.UpstreamStatusError{Status: http.StatusServiceUnavailable}
@@ -653,4 +653,80 @@ func TestProxyMessages_GeminiNon400NotRetried(t *testing.T) {
 	_ = svc.ProxyMessages(context.Background(), body, rec, req)
 
 	assert.Len(t, client.bodies, 1, "a 503 is not a VALIDATED-schema 400 — no AUTO retry")
+}
+
+// TestProxyMessages_OutputConfigFormat400RetriesWithoutIt reproduces a gateway
+// 400 on output_config.format (Cortex documents the knob, so it goes out as
+// written; only a rejection licenses one re-emit without it).
+func TestProxyMessages_OutputConfigFormat400RetriesWithoutIt(t *testing.T) {
+	anthropicSSE := "event: message_start\n" +
+		`data: {"type":"message_start","message":{"id":"msg_1","type":"message","role":"assistant","model":"claude-sonnet-5","content":[],"stop_reason":null,"usage":{"input_tokens":5,"output_tokens":0}}}` + "\n\n" +
+		"event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"
+
+	client := &sequencedClient{
+		responses: []func(w http.ResponseWriter) error{
+			func(http.ResponseWriter) error {
+				return &providers.UpstreamErrorResponse{
+					Status: http.StatusBadRequest,
+					Body:   []byte(`{"message":"output_config.format: Extra inputs are not permitted"}`),
+				}
+			},
+			func(w http.ResponseWriter) error {
+				w.Header().Set("Content-Type", "text/event-stream")
+				w.WriteHeader(http.StatusOK)
+				_, _ = io.WriteString(w, anthropicSSE)
+				return nil
+			},
+		},
+	}
+
+	svc := proxy.NewService(
+		&fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropicGateway, Model: "claude-sonnet-5"}},
+		map[string]providers.Client{providers.ProviderAnthropicGateway: client},
+		nil, false, nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil,
+	).WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropicGateway: {}})
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	body := []byte(`{"model":"claude-sonnet-5","stream":true,"max_tokens":1024,` +
+		`"output_config":{"format":{"type":"json_schema","schema":{"type":"object","properties":{"title":{"type":"string"}}}}},` +
+		`"tools":[{"name":"Read","input_schema":{"type":"object","properties":{"file_path":{"type":"string"}},"required":["file_path"]}}],` +
+		`"messages":[{"role":"user","content":"who are you"}]}`)
+
+	require.NoError(t, svc.ProxyMessages(context.Background(), body, rec, req))
+
+	require.Len(t, client.bodies, 2, "the rejected attempt is re-emitted once without the knob")
+	assert.Contains(t, string(client.bodies[0]), `"output_config"`, "the knob goes out as the client wrote it")
+	assert.NotContains(t, string(client.bodies[1]), "output_config", "the retry drops it, pruning the emptied container")
+	assert.Contains(t, rec.Body.String(), "event: message_stop", "client sees the rescued stream, not the 400")
+}
+
+// A 400 that doesn't name the structured-output knob must not burn a second
+// upstream call — an identical re-emit would just 400 again.
+func TestProxyMessages_UnrelatedAnthropic400NotRetried(t *testing.T) {
+	client := &sequencedClient{
+		responses: []func(w http.ResponseWriter) error{
+			func(http.ResponseWriter) error {
+				return &providers.UpstreamErrorResponse{
+					Status: http.StatusBadRequest,
+					Body:   []byte(`{"message":"messages: at least one message is required"}`),
+				}
+			},
+		},
+	}
+
+	svc := proxy.NewService(
+		&fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropicGateway, Model: "claude-sonnet-5"}},
+		map[string]providers.Client{providers.ProviderAnthropicGateway: client},
+		nil, false, nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil,
+	).WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropicGateway: {}})
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	body := []byte(`{"model":"claude-sonnet-5","stream":true,"max_tokens":1024,` +
+		`"output_config":{"format":{"type":"json_schema"}},"messages":[{"role":"user","content":"hi"}]}`)
+
+	_ = svc.ProxyMessages(context.Background(), body, rec, req)
+
+	assert.Len(t, client.bodies, 1, "only a knob rejection licenses the unstructured retry")
 }

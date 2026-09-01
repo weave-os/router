@@ -132,3 +132,62 @@ func TestNormalizeIdentityHeader(t *testing.T) {
 		}
 	})
 }
+
+func TestNormalizeForwardedClientHeaders(t *testing.T) {
+	t.Run("empty forwards nothing", func(t *testing.T) {
+		got, err := auth.NormalizeForwardedClientHeaders(nil)
+		require.NoError(t, err)
+		assert.Nil(t, got)
+	})
+
+	t.Run("trims, drops blanks, and de-duplicates case-insensitively", func(t *testing.T) {
+		got, err := auth.NormalizeForwardedClientHeaders([]string{" X-SNOWFLAKE-APPLICATION ", "", "x-snowflake-application"})
+		require.NoError(t, err)
+		assert.Equal(t, []string{"X-SNOWFLAKE-APPLICATION"}, got)
+	})
+
+	t.Run("rejects a name that is not a field token", func(t *testing.T) {
+		for _, bad := range []string{"X Snowflake App", "X-Snowflake:App", "X-Snowflake\nApp"} {
+			_, err := auth.NormalizeForwardedClientHeaders([]string{bad})
+			require.ErrorIsf(t, err, auth.ErrInvalidForwardedHeader,
+				"%q would let a config value inject or split a header", bad)
+		}
+	})
+
+	t.Run("rejects a reserved header", func(t *testing.T) {
+		for _, reserved := range []string{"Authorization", "x-api-key", "Host"} {
+			_, err := auth.NormalizeForwardedClientHeaders([]string{reserved})
+			require.ErrorIsf(t, err, auth.ErrInvalidForwardedHeader,
+				"forwarding %q would let a caller redirect its own credentials upstream", reserved)
+		}
+	})
+
+	t.Run("rejects more headers than the limit", func(t *testing.T) {
+		many := make([]string, 0, 17)
+		for i := range 17 {
+			many = append(many, fmt.Sprintf("X-Custom-%d", i))
+		}
+		_, err := auth.NormalizeForwardedClientHeaders(many)
+		require.ErrorIs(t, err, auth.ErrInvalidForwardedHeader)
+	})
+}
+
+func TestNormalizeBaggageHeader(t *testing.T) {
+	t.Run("blank forwards nothing", func(t *testing.T) {
+		got, err := auth.NormalizeBaggageHeader(ptr("  "))
+		require.NoError(t, err)
+		assert.Nil(t, got)
+	})
+
+	t.Run("trims a valid name", func(t *testing.T) {
+		got, err := auth.NormalizeBaggageHeader(ptr(" X-SNOWFLAKE-BAGGAGE "))
+		require.NoError(t, err)
+		require.NotNil(t, got)
+		assert.Equal(t, "X-SNOWFLAKE-BAGGAGE", *got)
+	})
+
+	t.Run("rejects a reserved header", func(t *testing.T) {
+		_, err := auth.NormalizeBaggageHeader(ptr("Authorization"))
+		require.ErrorIs(t, err, auth.ErrInvalidForwardedHeader)
+	})
+}

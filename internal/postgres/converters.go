@@ -30,6 +30,14 @@ func toAuthInstallation(row sqlc.RouterModelRouterInstallation) *auth.Installati
 	if allowed == nil {
 		allowed = []string{}
 	}
+	modelsWhenSubscriptionActive := row.ModelsWhenSubscriptionActive
+	if modelsWhenSubscriptionActive == nil {
+		modelsWhenSubscriptionActive = []string{}
+	}
+	modelsWhenSubscriptionInactive := row.ModelsWhenSubscriptionInactive
+	if modelsWhenSubscriptionInactive == nil {
+		modelsWhenSubscriptionInactive = []string{}
+	}
 	// Parsed once per API-key cache fill, not per request. A malformed or
 	// retired-key payload degrades to "no overrides" rather than failing the
 	// request — a stored row must not be able to take an org's traffic down.
@@ -44,33 +52,35 @@ func toAuthInstallation(row sqlc.RouterModelRouterInstallation) *auth.Installati
 		overrides = flags.Overrides{}
 	}
 	return &auth.Installation{
-		ID:                           row.ID.String(),
-		ExternalID:                   row.ExternalID,
-		Name:                         row.Name,
-		CreatedAt:                    timestampOrZero(row.CreatedAt),
-		UpdatedAt:                    timestampOrZero(row.UpdatedAt),
-		DeletedAt:                    timestampPtr(row.DeletedAt),
-		CreatedBy:                    row.CreatedBy,
-		ExcludedModels:               excluded,
-		AllowedModels:                allowed,
-		ExcludedProviders:            excludedProviders,
-		PreferredModels:              preferred,
-		RoutingQualityWeight:         row.RoutingQualityWeight,
-		UsageBypassEnabled:           row.UsageBypassEnabled,
-		UsageBypassThreshold:         row.UsageBypassThreshold,
-		SubscriptionRoutingDisabled:  row.SubscriptionRoutingDisabled,
-		RoutingStrategy:              router.Strategy(derefString(row.RoutingStrategy)),
-		RoutingRolloutID:             derefString(row.RoutingRolloutID),
-		PolicyShadowStrategy:         router.Strategy(derefString(row.PolicyShadowStrategy)),
-		PolicyDebugEnabled:           row.PolicyDebugEnabled,
-		PolicyHeaderOverridesEnabled: row.PolicyHeaderOverridesEnabled,
-		PolicyRoutingIntent:          derefString(row.PolicyRoutingIntent),
-		AITrainingAllowed:            row.AiTrainingAllowed,
-		ByokEnabled:                  row.ByokEnabled,
-		ContentCaptureMode:           row.ContentCaptureMode,
-		HideTerminalSurfaces:         row.HideTerminalSurfaces,
-		FirstRequestServedAt:         timestamptzPtr(row.FirstRequestServedAt),
-		FlagOverrides:                overrides,
+		ID:                             row.ID.String(),
+		ExternalID:                     row.ExternalID,
+		Name:                           row.Name,
+		CreatedAt:                      timestampOrZero(row.CreatedAt),
+		UpdatedAt:                      timestampOrZero(row.UpdatedAt),
+		DeletedAt:                      timestampPtr(row.DeletedAt),
+		CreatedBy:                      row.CreatedBy,
+		ExcludedModels:                 excluded,
+		AllowedModels:                  allowed,
+		ModelsWhenSubscriptionActive:   modelsWhenSubscriptionActive,
+		ModelsWhenSubscriptionInactive: modelsWhenSubscriptionInactive,
+		ExcludedProviders:              excludedProviders,
+		PreferredModels:                preferred,
+		RoutingQualityWeight:           row.RoutingQualityWeight,
+		UsageBypassEnabled:             row.UsageBypassEnabled,
+		UsageBypassThreshold:           row.UsageBypassThreshold,
+		SubscriptionRoutingDisabled:    row.SubscriptionRoutingDisabled,
+		RoutingStrategy:                router.Strategy(derefString(row.RoutingStrategy)),
+		RoutingRolloutID:               derefString(row.RoutingRolloutID),
+		PolicyShadowStrategy:           router.Strategy(derefString(row.PolicyShadowStrategy)),
+		PolicyDebugEnabled:             row.PolicyDebugEnabled,
+		PolicyHeaderOverridesEnabled:   row.PolicyHeaderOverridesEnabled,
+		PolicyRoutingIntent:            derefString(row.PolicyRoutingIntent),
+		AITrainingAllowed:              row.AiTrainingAllowed,
+		ByokEnabled:                    row.ByokEnabled,
+		ContentCaptureMode:             row.ContentCaptureMode,
+		HideTerminalSurfaces:           row.HideTerminalSurfaces,
+		FirstRequestServedAt:           timestamptzPtr(row.FirstRequestServedAt),
+		FlagOverrides:                  overrides,
 	}
 }
 

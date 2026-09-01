@@ -110,6 +110,11 @@ cat > "$transcript" <<'JSONL'
 {"type":"assistant","message":{"id":"msg_test_1","model":"deepseek/deepseek-v4-pro","usage":{"input_tokens":10000,"output_tokens":2000,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}
 JSONL
 
+cache_transcript="$work/cache-transcript.jsonl"
+cat > "$cache_transcript" <<'JSONL'
+{"type":"assistant","message":{"id":"msg_cache_1","model":"gpt-5.4","usage":{"input_tokens":0,"output_tokens":0,"cache_creation_input_tokens":0,"cache_read_input_tokens":1000000}}}
+JSONL
+
 # "upstream" is the real script; "installed" copies are mutated per-case to
 # simulate an older on-disk copy.
 upstream="$work/upstream.sh"
@@ -160,6 +165,11 @@ out="$(render "$c/cc.sh" "$c/cache" "file://$upstream" "$STALE_MODEL")"
 check_not_contains "priced selection reports nonzero savings" "$out" 'saved $0.00'
 check_contains "priced selection still names the routed model" "$out" "deepseek/deepseek-v4-pro"
 check "priced selection writes no miss stamp" "$(count_stamps "$c/cache" .miss.)" 0
+
+# Cache-heavy routes must price each side with its own catalog multiplier.
+c="$work/c-cache"; mkdir -p "$c/cache"; make_installed "$c/cc.sh"
+out="$(render "$c/cc.sh" "$c/cache" "file://$upstream" "gpt-5.4-pro" "$cache_transcript")"
+check_contains "cache reads use per-model multipliers" "$out" 'saved $29.75'
 
 # The bug this path exists for: an unpriced selection renders $0.00, and the
 # script heals itself for the next turn instead of waiting out the interval.
@@ -300,7 +310,10 @@ make_command_install() { # make_command_install <root> <cache_home> [scope_args]
   mkdir -p "$baseline"
   for name in "$script_dir/../commands"/*.md; do
     body="$(cat "$name")"
-    printf '%s\n' "${body//\{\{SCOPE\}\}/$scope_args}" >"$root/.claude/commands/$(basename "$name")"
+    # Mirror install_slash_commands: rendered body plus the ownership marker.
+    printf '%s\n<!-- weave-router managed command: %s -->' \
+      "${body//\{\{SCOPE\}\}/$scope_args}" "$(basename "$name" .md)" \
+      >"$root/.claude/commands/$(basename "$name")"
     cp "$name" "$baseline/$(basename "$name")"
   done
 }

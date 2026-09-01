@@ -25,6 +25,11 @@ type ExternalAPIKey struct {
 	// IdentityHeader and IdentityHeaderFormat name and shape the header sent to this key's endpoint; empty forwards nothing.
 	IdentityHeader       string
 	IdentityHeaderFormat string
+	// ForwardedClientHeaders are inbound client header names copied verbatim to this key's endpoint.
+	ForwardedClientHeaders []string
+	// BaggageHeader is this endpoint's JSON baggage header, re-emitted with the
+	// caller's email under on-behalf-of; empty forwards nothing.
+	BaggageHeader string
 	// AuthType is how Plaintext authenticates upstream; see AuthType* constants.
 	AuthType string
 	// AuthAccount and AuthUser identify the upstream principal; empty unless
@@ -51,7 +56,10 @@ type CreateExternalAPIKeyParams struct {
 	// IdentityHeader and IdentityHeaderFormat are set or cleared together.
 	IdentityHeader       *string
 	IdentityHeaderFormat *string
-	AuthType             string
+	// ForwardedClientHeaders and BaggageHeader configure client-header passthrough; nil forwards nothing.
+	ForwardedClientHeaders []string
+	BaggageHeader          *string
+	AuthType               string
 	// AuthAccount and AuthUser identify the upstream principal; empty unless
 	// AuthType is AuthTypeKeypairJWT or AuthTypeAzureEntra.
 	AuthAccount *string
@@ -118,6 +126,67 @@ func NormalizeIdentityHeader(name, format *string) (*string, *string, error) {
 		return nil, nil, fmt.Errorf("%w: unknown format %q", ErrInvalidIdentityHeader, trimmedFormat)
 	}
 	return &trimmedName, &trimmedFormat, nil
+}
+
+// maxForwardedClientHeaders bounds one key's passthrough list: enough for a
+// vendor's correlation header set, small enough to keep the auth cache tidy.
+const maxForwardedClientHeaders = 16
+
+// NormalizeForwardedClientHeaders validates and de-duplicates header names; returns nil when none
+// survive so "forwards nothing" has one canonical representation.
+func NormalizeForwardedClientHeaders(raw []string) ([]string, error) {
+	if len(raw) > maxForwardedClientHeaders {
+		return nil, fmt.Errorf("%w: %d headers exceeds the limit of %d", ErrInvalidForwardedHeader, len(raw), maxForwardedClientHeaders)
+	}
+	out := make([]string, 0, len(raw))
+	seen := make(map[string]struct{}, len(raw))
+	for _, name := range raw {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
+		}
+		if err := validateForwardableHeader(name); err != nil {
+			return nil, err
+		}
+		lower := strings.ToLower(name)
+		if _, dup := seen[lower]; dup {
+			continue
+		}
+		seen[lower] = struct{}{}
+		out = append(out, name)
+	}
+	if len(out) == 0 {
+		return nil, nil
+	}
+	return out, nil
+}
+
+// NormalizeBaggageHeader validates the JSON baggage header name this endpoint
+// reads; nil or blank forwards nothing.
+func NormalizeBaggageHeader(raw *string) (*string, error) {
+	if raw == nil {
+		return nil, nil
+	}
+	trimmed := strings.TrimSpace(*raw)
+	if trimmed == "" {
+		return nil, nil
+	}
+	if err := validateForwardableHeader(trimmed); err != nil {
+		return nil, err
+	}
+	return &trimmed, nil
+}
+
+// validateForwardableHeader rejects malformed names and the request-critical
+// ones a caller could otherwise use to redirect its own credentials upstream.
+func validateForwardableHeader(name string) error {
+	if !validHeaderName(name) {
+		return fmt.Errorf("%w: %q is not a valid header name", ErrInvalidForwardedHeader, name)
+	}
+	if _, rejected := headersRejectedForIdentity[strings.ToLower(name)]; rejected {
+		return fmt.Errorf("%w: %q is reserved", ErrInvalidForwardedHeader, name)
+	}
+	return nil
 }
 
 // headerNameChars are the RFC 9110 token characters a field name may contain.

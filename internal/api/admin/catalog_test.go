@@ -151,3 +151,39 @@ func TestCatalogModelsHandler_HMMRosterErrorReturns503(t *testing.T) {
 
 	require.Equal(t, http.StatusServiceUnavailable, rec.Code)
 }
+
+func TestCatalogModelsHandler_ScopeCatalogReturnsFullCatalog(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	clusterSrc := fakeDeployedModels{entries: []cluster.DeployedEntry{
+		{Model: "gpt-5.5", Provider: providers.ProviderOpenAI},
+	}}
+	hmmSrc := &fakeHMMRoster{entries: []cluster.DeployedEntry{
+		{Model: "gpt-5.6-sol", Provider: providers.ProviderOpenAI},
+	}}
+
+	engine := gin.New()
+	engine.GET("/v1/router/models", admin.CatalogModelsHandler(clusterSrc, hmmSrc))
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/router/models?scope=catalog&strategy=hmm", nil)
+	rec := httptest.NewRecorder()
+	engine.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Equal(t, 0, hmmSrc.calls, "scope=catalog must not consult the HMM roster")
+
+	var got admin.CatalogModelsResponse
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+	require.Greater(t, len(got.Models), 1, "full catalog is larger than the 1-entry cluster fixture")
+
+	seen := map[string]struct{}{}
+	for _, m := range got.Models {
+		require.NotEmpty(t, m.Model)
+		require.NotEmpty(t, m.Provider)
+		_, dup := seen[m.Model]
+		require.False(t, dup, "duplicate catalog id %s", m.Model)
+		seen[m.Model] = struct{}{}
+	}
+	_, hasOpus := seen["claude-opus-5"]
+	require.True(t, hasOpus, "catalog must include a known Models row")
+}

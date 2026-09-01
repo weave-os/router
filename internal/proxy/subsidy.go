@@ -175,8 +175,13 @@ func RequestPresentsCoveringSubscription(ctx context.Context, headers http.Heade
 // Phase 0 telemetry. Both concerns share one observer slot
 // (providers.WithUpstreamHeaderObserver holds only one per ctx); the capture is
 // wrapped in recover so a Phase 0 bug can never take down the subsidy observer.
-// No-op when usageObserver is nil AND no Anthropic subscription token is present.
-func (s *Service) withUsageObserver(ctx context.Context, headers http.Header) context.Context {
+// No-op when usageObserver is nil AND no subscription token is present.
+func (s *Service) withUsageObserver(ctx context.Context, headers http.Header, routePaths ...string) context.Context {
+	routePath := ""
+	if len(routePaths) > 0 {
+		routePath = routePaths[0]
+	}
+	ctx = s.withSubscriptionConditionalModels(ctx, headers, routePath)
 	codexTok, anthroTok := presentSubscriptionTokens(ctx, headers)
 	if s.usageObserver == nil && anthroTok == "" {
 		return ctx
@@ -218,6 +223,54 @@ func (s *Service) withUsageObserver(ctx context.Context, headers http.Header) co
 		}
 	}
 	return providers.WithUpstreamHeaderObserver(ctx, obs)
+}
+
+// withSubscriptionConditionalModels selects the per-request conditional model allowlist based on subscription state.
+// An unobserved credential is treated as active (cold-start priming); an empty
+// selected list is kept in context so configured empty state lists fail closed.
+func (s *Service) withSubscriptionConditionalModels(ctx context.Context, headers http.Header, routePaths ...string) context.Context {
+	activeModels := installationSubscriptionModelsWhenActiveFromContext(ctx)
+	inactiveModels := installationSubscriptionModelsWhenInactiveFromContext(ctx)
+	if s.usageObserver == nil || (len(activeModels) == 0 && len(inactiveModels) == 0) {
+		return ctx
+	}
+	codexTok, anthroTok := presentSubscriptionTokens(ctx, headers)
+	routePath := ""
+	if len(routePaths) > 0 {
+		routePath = routePaths[0]
+	}
+	// Only the credential family covering this endpoint determines state; an
+	// unrelated active credential must not mask an exhausted covering one.
+	switch routePath {
+	case routePathMessages:
+		codexTok = ""
+	case routePathChatCompletions, routePathResponses:
+		anthroTok = ""
+	}
+	if codexTok == "" && anthroTok == "" {
+		return ctx
+	}
+
+	active := false
+	observed := false
+	for _, token := range []string{codexTok, anthroTok} {
+		if token == "" {
+			continue
+		}
+		snapshot, ok := s.usageObserver.Snapshot(s.usageObserver.Key([]byte(token)))
+		if !ok {
+			active = true
+			continue
+		}
+		observed = true
+		if !snapshot.Exhausted() {
+			active = true
+		}
+	}
+	if !active && observed {
+		return context.WithValue(ctx, InstallationSubscriptionConditionalModelsContextKey{}, inactiveModels)
+	}
+	return context.WithValue(ctx, InstallationSubscriptionConditionalModelsContextKey{}, activeModels)
 }
 
 // subsidyFactors computes the per-covered-model cost multiplier for this

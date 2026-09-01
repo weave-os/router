@@ -20,7 +20,7 @@ func (s *Service) resolveUpstreamSecrets(ctx context.Context, keys []*ExternalAP
 		}
 		credential, err := s.upstreamCredential(ctx, key)
 		if err != nil {
-			observability.Get().Warn("Failed to resolve upstream credential for external API key",
+			observability.FromContext(ctx).Warn("Failed to resolve upstream credential for external API key",
 				"external_api_key_id", key.ID, "provider", key.Provider, "auth_type", key.AuthType, "err", err)
 			continue
 		}

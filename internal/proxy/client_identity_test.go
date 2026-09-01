@@ -3,6 +3,7 @@ package proxy_test
 import (
 	"context"
 	"errors"
+	"net/http"
 	"strings"
 	"testing"
 
@@ -201,4 +202,38 @@ func TestResolveUserFromContext_BothMissingIsNoOp(t *testing.T) {
 	assert.Empty(t, repo.emailUpserts)
 	assert.Empty(t, repo.accountUpserts)
 	assert.Equal(t, "", auth.UserIDFrom(ctx))
+}
+
+func TestClientIdentityFromHeaders_SessionIDSources(t *testing.T) {
+	claude := "4dbee464-ebf7-437f-9f20-db5a6f7fe3b4"
+	codex := "01a03b54-9459-7373-a349-88a59b825211"
+
+	t.Run("claude code header", func(t *testing.T) {
+		h := http.Header{}
+		h.Set("X-Claude-Code-Session-Id", claude)
+		assert.Equal(t, claude, proxy.ClientIdentityFromHeaders(h).SessionID)
+	})
+	t.Run("codex Session-Id", func(t *testing.T) {
+		h := http.Header{}
+		h.Set("Session-Id", codex)
+		h.Set("Thread-Id", codex)
+		h.Set("X-App", "codex")
+		got := proxy.ClientIdentityFromHeaders(h)
+		assert.Equal(t, codex, got.SessionID)
+		assert.Equal(t, proxy.ClientAppCodex, got.ClientApp)
+	})
+	t.Run("codex Thread-Id fallback", func(t *testing.T) {
+		h := http.Header{}
+		h.Set("Thread-Id", codex)
+		assert.Equal(t, codex, proxy.ClientIdentityFromHeaders(h).SessionID)
+	})
+	t.Run("claude header wins over Session-Id", func(t *testing.T) {
+		h := http.Header{}
+		h.Set("X-Claude-Code-Session-Id", claude)
+		h.Set("Session-Id", codex)
+		assert.Equal(t, claude, proxy.ClientIdentityFromHeaders(h).SessionID)
+	})
+	t.Run("no session headers", func(t *testing.T) {
+		assert.Equal(t, "", proxy.ClientIdentityFromHeaders(http.Header{}).SessionID)
+	})
 }

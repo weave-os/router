@@ -65,14 +65,14 @@ func entriesToDTO(entries []cluster.DeployedEntry) []deployedModelDTO {
 
 // GetExcludedModelsHandler returns deployed models and the installation's
 // exclusion list. `env_override_active` tells the UI to render read-only.
-func GetExcludedModelsHandler(authSvc *auth.Service, models DeployedModelsSource, override ExclusionOverrideSource) gin.HandlerFunc {
+func GetExcludedModelsHandler(authSvc *auth.Service, _ DeployedModelsSource, override ExclusionOverrideSource) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		installation, ok := resolveInstallation(c, authSvc)
 		if !ok {
 			return
 		}
 
-		out := deployedModelsDTO(models)
+		out := fullCatalogDTO()
 
 		envActive := override != nil && override.HasExcludedModelsOverride()
 		var excluded []string
@@ -96,7 +96,7 @@ func GetExcludedModelsHandler(authSvc *auth.Service, models DeployedModelsSource
 
 // UpdateExcludedModelsHandler replaces the installation's exclusion list.
 // 400 on unknown model IDs; 403 if the env override is active.
-func UpdateExcludedModelsHandler(authSvc *auth.Service, models DeployedModelsSource, override ExclusionOverrideSource) gin.HandlerFunc {
+func UpdateExcludedModelsHandler(authSvc *auth.Service, _ DeployedModelsSource, override ExclusionOverrideSource) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		log := observability.FromGin(c)
 		installation, ok := resolveInstallation(c, authSvc)
@@ -116,8 +116,8 @@ func UpdateExcludedModelsHandler(authSvc *auth.Service, models DeployedModelsSou
 			return
 		}
 
-		allowed := make(map[string]struct{}, len(models.DefaultDeployedModels()))
-		for _, e := range models.DefaultDeployedModels() {
+		allowed := make(map[string]struct{})
+		for _, e := range fullCatalogDTO() {
 			allowed[e.Model] = struct{}{}
 		}
 
@@ -134,7 +134,7 @@ func UpdateExcludedModelsHandler(authSvc *auth.Service, models DeployedModelsSou
 
 		sort.Strings(stored)
 		c.JSON(http.StatusOK, excludedModelsResponse{
-			Available: deployedModelsDTO(models),
+			Available: fullCatalogDTO(),
 			Excluded:  stored,
 		})
 	}

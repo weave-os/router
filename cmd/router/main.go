@@ -48,10 +48,13 @@ import (
 	"workweave/router/internal/router/cluster"
 	"workweave/router/internal/router/handover"
 	"workweave/router/internal/router/hmm"
+	"workweave/router/internal/router/hmm/rosterdata"
+	"workweave/router/internal/router/hmm/selection"
 	"workweave/router/internal/router/planner"
 	"workweave/router/internal/router/policy"
 	"workweave/router/internal/router/rl"
 	"workweave/router/internal/router/sessionpin"
+	"workweave/router/internal/router/sessionstrategy"
 	"workweave/router/internal/server"
 	"workweave/router/internal/websearch"
 	"workweave/router/internal/wif"
@@ -211,11 +214,19 @@ func main() {
 		}
 		// Codex (ChatGPT) subscription reroute to the Codex backend lives in
 		// the OpenAI client itself, keyed off the resolved credential.
-		providerMap[providers.ProviderOpenAI] = openaiProvider.NewClientWithModelIDMap(
+		openaiClient := openaiProvider.NewClientWithModelIDMap(
 			openaiKey,
 			openaiBaseURL,
 			upstreamIDsForProvider(providers.ProviderOpenAI),
 		)
+		// Local tests can point the subscription branch at a deterministic native
+		// Responses mock without changing the production ChatGPT endpoint.
+		if deploymentMode == server.DeploymentModeSelfHosted {
+			if codexBaseURL := config.GetOr("ROUTER_CODEX_BASE_URL", ""); codexBaseURL != "" {
+				openaiClient.SetCodexBaseURL(codexBaseURL)
+			}
+		}
+		providerMap[providers.ProviderOpenAI] = openaiClient
 		switch {
 		case byokOnly:
 			logger.Info("OpenAI provider enabled (BYOK only)", "base_url", openaiBaseURL)
@@ -552,14 +563,17 @@ func main() {
 	// nil if the bundle fails to load, falling back to boot-time hardPin{Provider,Model}.
 	// Not wired when ROUTER_HARD_PIN_MODEL is set — an operator override is
 	// absolute and must never be silently rewritten by excluded_models.
-	var hardPinResolver func(enabled, denySet map[string]struct{}) (string, string, bool)
+	var hardPinResolver proxy.HardPinResolver
 	if config.GetOr("ROUTER_HARD_PIN_MODEL", "") == "" {
 		reqVersion := config.GetOr("ROUTER_CLUSTER_VERSION", cluster.LatestVersion)
 		if version, vErr := cluster.ResolveVersion(reqVersion); vErr == nil {
 			if bundle, bErr := cluster.LoadBundle(version); bErr == nil {
 				meta, registry := bundle.Metadata, bundle.Registry
-				hardPinResolver = func(enabled, denySet map[string]struct{}) (string, string, bool) {
-					return cluster.FastestModelInSet(meta, registry, enabled, denySet, nil)
+				hardPinResolver = func(req proxy.HardPinRequest) (string, string, bool) {
+					return cluster.FastestModelForRequest(meta, registry, req.EnabledProviders, req.ExcludedModels, nil, cluster.RequestBindings{
+						Custom:   req.CustomBindings,
+						Gateways: req.GatewayProviders,
+					})
 				}
 				logger.Info("Hard-pin resolver wired (per-request fastest model from cluster bundle, applies excluded_models)", "version", version, "byok_only", byokOnly)
 			} else {
@@ -616,10 +630,13 @@ func main() {
 	cyberRefusalRepin := config.GetOr("ROUTER_CYBER_REFUSAL_REPIN", "true") == "true"
 	cyberRefusalFallbackModel := config.GetOr("ROUTER_CYBER_REFUSAL_FALLBACK_MODEL", "claude-sonnet-5")
 	anthropicServerSideFallback := config.GetOr("ROUTER_ANTHROPIC_SERVER_SIDE_FALLBACK", "true") == "true"
+	scopedSearchRequirement := config.GetOr("ROUTER_SCOPED_SEARCH_REQUIREMENT", "true") == "true"
+	searchRequirementDecayTurns := parseEnvInt("ROUTER_SEARCH_REQUIREMENT_DECAY_TURNS", proxy.DefaultSearchRequirementDecayTurns)
 	effortEscalation := config.GetOr("ROUTER_EFFORT_ESCALATION", "false") == "true"
 	// Kill switch for degrading to a same-cluster candidate when the routed
 	// model's bindings are all exhausted by a transient upstream fault.
 	siblingFailover := config.GetOr("ROUTER_SIBLING_FAILOVER", "true") == "true"
+	openAIResponsesBroad := config.GetOr("ROUTER_OPENAI_RESPONSES_BROAD", "true") == "true"
 	sseKeepalive := sseKeepaliveInterval()
 	ccOrchToolsCrossVendor := config.GetOr("ROUTER_CC_ORCH_TOOLS_CROSSVENDOR", "true") == "true"
 	// Per-turn large-vs-small action-classifier swap. Off by default until the
@@ -674,10 +691,13 @@ func main() {
 	prefixTrimFreeSwitch := config.GetOr("ROUTER_PREFIX_TRIM_FREE_SWITCH", "true") == "true"
 	hmmUpgradeConfidence := parseEnvFloat("ROUTER_HMM_UPGRADE_CONFIDENCE_THRESHOLD", 0.85)
 	hmmSameTierPin := config.GetOr("ROUTER_HMM_SAME_TIER_PIN", "false") == "true"
-	hmPinStickyOnArmSelectorUnavail := config.GetOr("ROUTER_HMM_PIN_STICKY_ON_ARM_SELECTOR_UNAVAIL", "false") == "true"
 	// authoritativeUpgradeGate keeps the 0.85 escalation floor active for authoritative-per-turn
 	// policies; kill switch for a return to verbatim policy selection.
 	authoritativeUpgradeGate := config.GetOr("ROUTER_AUTHORITATIVE_UPGRADE_GATE", "true") == "true"
+	// authorityCacheShadow records the HMM cache gate's counterfactual verdict on
+	// authoritative-per-turn turns, which return before that gate can run. Pure
+	// observation; kill switch for the added per-turn computation and log line.
+	authorityCacheShadow := config.GetOr("ROUTER_AUTHORITY_CACHE_SHADOW", "true") == "true"
 	// policyDeadlineFallback degrades a policy sidecar deadline/transport failure to
 	// the session pin (or tier-3 default below) instead of a 503. Kill switch; off by default.
 	policyDeadlineFallback := config.GetOr("ROUTER_POLICY_DEADLINE_FALLBACK", "false") == "true"
@@ -753,10 +773,30 @@ func main() {
 		logger.Info("RL policy router disabled (ROUTER_RL_SIDECAR_URL unset); x-weave-router-strategy: rl will return 503")
 	}
 
+	// Loaded only when ROUTER_HMM_ROSTER_PATH is set; the declarative roster is
+	// the source of the HMM strategies' deterministic arm selection below.
+	var declarativeRoster *rosterdata.Roster
+	if rosterPath := strings.TrimSpace(config.GetOr("ROUTER_HMM_ROSTER_PATH", "")); rosterPath != "" {
+		loadedRoster, rosterErr := rosterdata.Load(rosterPath)
+		if rosterErr != nil {
+			logger.Error("HMM declarative roster failed to load; refusing to boot", "path", rosterPath, "err", rosterErr)
+			panic(rosterErr)
+		}
+		declarativeRoster = loadedRoster
+		logger.Info(
+			"HMM declarative roster loaded",
+			"path", rosterPath,
+			"schema_version", declarativeRoster.SchemaVersion,
+			"clusters", len(declarativeRoster.Clusters),
+			"arms", len(declarativeRoster.AllArms()),
+		)
+	}
+
 	// Wired only when ROUTER_HMM_SIDECAR_URL is set; x-weave-router-strategy:
 	// hmm then routes through it. Unset fails closed with 503.
 	var hmmRouter router.Router
 	var hmmEmbeddingRouter router.Router
+	var hmmBetaRouter router.Router
 	var hmmCapabilities policy.Capabilities
 	var hmmReadinessChecker admin.HealthChecker
 	var hmmRosterSource policy.RosterSource
@@ -816,6 +856,14 @@ func main() {
 				logger.Info("HMM policy sidecar capabilities discovered after boot", "sidecar_url", hmmSidecarURL)
 			}()
 		}
+		// No roster means no Go-side selection authority; refuse to boot rather than silently serving the sidecar's arm.
+		if declarativeRoster == nil {
+			logger.Error("HMM sidecar configured without ROUTER_HMM_ROSTER_PATH; refusing to boot", "sidecar_url", hmmSidecarURL)
+			panic("ROUTER_HMM_ROSTER_PATH is required when ROUTER_HMM_SIDECAR_URL is set")
+		}
+		armSelector := selection.Selector(declarativeRoster)
+		hmmPolicyRouter.WithArmSelector(armSelector)
+		hmmEmbeddingPolicyRouter.WithArmSelector(armSelector)
 		hmmRouter = hmmPolicyRouter
 		hmmEmbeddingRouter = hmmEmbeddingPolicyRouter
 		logger.Info(
@@ -829,6 +877,73 @@ func main() {
 		)
 	} else {
 		logger.Info("HMM policy routers disabled (ROUTER_HMM_SIDECAR_URL unset); HMM strategies will return 503")
+	}
+
+	// Separate sidecar: /beta opts into an independently deployed beta policy;
+	// absent or unhealthy beta fails closed without affecting stable routing.
+	var hmmBetaCapabilities policy.Capabilities
+	if hmmBetaSidecarURL := config.GetOr("ROUTER_HMM_BETA_SIDECAR_URL", ""); hmmBetaSidecarURL != "" {
+		hmmBetaTimeout := parseEnvDurationMs("ROUTER_HMM_BETA_SIDECAR_TIMEOUT_MS", policyclient.DefaultTimeout)
+		hmmBetaAuthMode := config.GetOr("ROUTER_HMM_BETA_SIDECAR_AUTH", policySidecarAuthNone)
+		hmmBetaAttemptTimeout := parseEnvAttemptTimeoutMs(
+			"ROUTER_HMM_BETA_SIDECAR_ATTEMPT_TIMEOUT_MS",
+			policyclient.DeriveAttemptTimeout(hmmBetaTimeout),
+		)
+		hmmBetaClient, clientErr := buildHMMBetaPolicyClient(
+			hmmBetaSidecarURL,
+			hmmBetaAuthMode,
+			hmmBetaTimeout,
+			policyclient.WithAttemptTimeout(hmmBetaAttemptTimeout),
+		)
+		if clientErr != nil {
+			// Beta is an optional isolation ring. A malformed beta-only auth
+			// setting must not take the stable router down with it.
+			logger.Error("beta HMM policy sidecar client failed to build; beta disabled", "auth_mode", hmmBetaAuthMode, "err", clientErr)
+		} else {
+			capabilityCtx, cancelCapabilityDiscovery := context.WithTimeout(context.Background(), hmmBetaTimeout)
+			var capabilityErr error
+			hmmBetaCapabilities, capabilityErr = hmmBetaClient.Capabilities(capabilityCtx)
+			cancelCapabilityDiscovery()
+			if capabilityErr != nil {
+				logger.Warn("beta HMM policy sidecar capabilities unavailable at boot; optional behavior remains disabled", "sidecar_url", hmmBetaSidecarURL, "err", capabilityErr)
+			}
+			hmmBetaPolicyRouter := hmm.NewForStrategy(
+				router.StrategyHMMBeta,
+				hmmBetaClient,
+				availableProviders,
+			)
+			hmmBetaPolicyRouter.WithCapabilities(hmmBetaCapabilities)
+			if capabilityErr != nil {
+				go func() {
+					retryErr := retryPolicyCapabilitiesUntilAvailable(
+						context.Background(),
+						hmmBetaClient,
+						hmmBetaTimeout,
+						hmmCapabilityRetryInterval,
+						func(capabilities policy.Capabilities) {
+							hmmBetaPolicyRouter.WithCapabilities(capabilities)
+						},
+					)
+					if retryErr != nil {
+						logger.Warn("beta HMM policy sidecar capability refresh stopped", "sidecar_url", hmmBetaSidecarURL, "err", retryErr)
+						return
+					}
+					logger.Info("beta HMM policy sidecar capabilities discovered after boot", "sidecar_url", hmmBetaSidecarURL)
+				}()
+			}
+			hmmBetaRouter = hmmBetaPolicyRouter
+			logger.Info(
+				"beta HMM policy router wired",
+				"sidecar_url", hmmBetaSidecarURL,
+				"auth_mode", hmmBetaAuthMode,
+				"timeout_ms", hmmBetaTimeout.Milliseconds(),
+				"attempt_timeout_ms", hmmBetaAttemptTimeout.Milliseconds(),
+				"candidate_models", len(routingTargets),
+				"strategy", router.StrategyHMMBeta,
+			)
+		}
+	} else {
+		logger.Info("beta HMM policy router disabled (ROUTER_HMM_BETA_SIDECAR_URL unset); /beta will be unavailable")
 	}
 
 	// Wired only when ROUTER_BANDIT_POSTERIOR_FILE points at a ts_posterior.json;
@@ -884,7 +999,9 @@ func main() {
 		flags.KeyScoreToolResultTurns:      boolDefault(scoreToolResultTurns),
 		flags.KeyPrefixTrimFreeSwitch:      boolDefault(prefixTrimFreeSwitch),
 		flags.KeyAuthoritativeUpgradeGate:  boolDefault(authoritativeUpgradeGate),
+		flags.KeyAuthorityCacheShadow:      boolDefault(authorityCacheShadow),
 		flags.KeySiblingFailover:           boolDefault(siblingFailover),
+		flags.KeyOpenAIResponsesBroad:      boolDefault(openAIResponsesBroad),
 		flags.KeyEffortEscalation:          boolDefault(effortEscalation),
 		flags.KeyCyberRefusalRepin:         boolDefault(cyberRefusalRepin),
 		flags.KeyCyberRefusalFallback:      cyberRefusalFallbackModel,
@@ -892,8 +1009,14 @@ func main() {
 		flags.KeyEmbedOnlyUserMessage:      boolDefault(embedOnlyUser),
 	})
 
+	// Always wire even when beta is unavailable: existing beta sessions fail
+	// closed via nil policy registration rather than silently falling to stable.
+	var sessionStrategyStore sessionstrategy.Store = postgres.NewSessionStrategyRepo(pool)
+
 	proxySvc := proxy.NewService(routeEntry, providerMap, telemetryEmitter, embedOnlyUser, semanticCache, pinStore, hardPinExplore, hardPinProvider, hardPinModel, repo.Telemetry).
+		WithSessionStrategyStore(sessionStrategyStore).
 		WithTranslationCompatibilityMode(proxy.TranslationCompatibilityMode(translationCompatibilityMode)).
+		WithScopedSearchRequirement(scopedSearchRequirement, searchRequirementDecayTurns).
 		WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyRL, Router: rlRouter, Unavailable: rl.ErrPolicyUnavailable}).
 		WithPolicyStrategy(policy.StrategySpec{
 			Strategy: router.StrategyHMM, Router: hmmRouter, Unavailable: hmm.ErrHMMUnavailable,
@@ -902,6 +1025,10 @@ func main() {
 		WithPolicyStrategy(policy.StrategySpec{
 			Strategy: router.StrategyHMMEmbedding, Router: hmmEmbeddingRouter, Unavailable: hmm.ErrHMMUnavailable,
 			Capabilities: hmmCapabilities,
+		}).
+		WithPolicyStrategy(policy.StrategySpec{
+			Strategy: router.StrategyHMMBeta, Router: hmmBetaRouter, Unavailable: hmm.ErrHMMUnavailable,
+			Capabilities: hmmBetaCapabilities,
 		}).
 		WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyBandit, Router: banditRouter, Unavailable: bandit.ErrBanditUnavailable}).
 		WithContentCapture(captureMode, captureMaxBytes, nil).
@@ -917,12 +1044,13 @@ func main() {
 		WithCyberRefusalFallbackModel(cyberRefusalFallbackModel).
 		WithAnthropicServerSideFallback(anthropicServerSideFallback).
 		WithSiblingFailover(siblingFailover).
+		WithOpenAIResponsesBroad(openAIResponsesBroad).
 		WithSSEKeepalive(sseKeepalive).
 		WithPrefixTrimFreeSwitch(prefixTrimFreeSwitch).
 		WithHMMUpgradeConfidenceThreshold(hmmUpgradeConfidence).
 		WithHMMSameTierPin(hmmSameTierPin).
-		WithHMPinStickyOnArmSelectorUnavail(hmPinStickyOnArmSelectorUnavail).
 		WithAuthoritativeUpgradeGate(authoritativeUpgradeGate).
+		WithAuthorityCacheShadow(authorityCacheShadow).
 		WithPolicyDeadlineFallback(policyDeadlineFallback).
 		WithPolicyDeadlineDefaultModel(policyDeadlineDefaultModel).
 		WithEscapeNormalize(escapeNormalize).
@@ -945,7 +1073,7 @@ func main() {
 		WithSummarizer(summarizer).
 		WithWebSearchExecutor(cortexWebSearch(logger)).
 		WithCompaction(compactionSz, compactionPct).
-		WithAvailableModels(routingTargets).
+		WithAvailableModels(proxyRoutableModels(routingTargets, availableProviders, hmmRouter != nil)).
 		WithDefaultBaselineModel(resolveDefaultBaselineModel()).
 		WithBillingService(billingSvc)
 	for _, spec := range configuredPolicySpecs {
@@ -1331,7 +1459,15 @@ func buildClusterScorer(availableProviders map[string]struct{}) (router.Router, 
 // a deployment without Azure keys never contacts Microsoft Entra.
 func buildEntraTokenSource(logger *slog.Logger) auth.EntraTokenSource {
 	logger.Debug("Microsoft Entra client credentials token source initialized")
-	return entra.NewClientCredentialsSource(&http.Client{Timeout: 10 * time.Second}, time.Now)
+	// This client posts the decrypted BYOK client_secret; never follow a
+	// redirect with it. The refused 3xx fails mint()'s 2xx status check.
+	entraClient := &http.Client{
+		Timeout: 10 * time.Second,
+		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+	return entra.NewClientCredentialsSource(entraClient, time.Now)
 }
 
 // buildWIFTokenSource constructs the workload attestation source backing BYOK
@@ -1433,6 +1569,21 @@ func parseEnvInt(key string, fallback int) int {
 // parseEnvFloat reads an env var as a float64, falling back on unset/empty/
 // unparseable. Zero and negative values are valid — e.g. operators set
 // ROUTER_SWITCH_EV_THRESHOLD_USD <= 0 to force aggressive planner switching.
+// proxyRoutableModels is RoutingTargetSet plus HMM-only rows when HMM is wired.
+func proxyRoutableModels(generic, providers map[string]struct{}, hmmWired bool) map[string]struct{} {
+	if !hmmWired {
+		return generic
+	}
+	out := catalog.HMMRoutingTargetSet(providers)
+	if len(generic) == 0 {
+		return out
+	}
+	for m := range generic {
+		out[m] = struct{}{}
+	}
+	return out
+}
+
 func parseEnvFloat(key string, fallback float64) float64 {
 	raw := config.GetOr(key, "")
 	if raw == "" {
@@ -1653,9 +1804,11 @@ func cortexWebSearch(logger *slog.Logger) websearch.Executor {
 	}
 	role := config.GetOr("SNOWFLAKE_AGENT_ROLE", "")
 	hostSuffix := config.GetOr("SNOWFLAKE_AGENT_HOST_SUFFIX", "")
+	timeout := parseEnvDurationMs("SNOWFLAKE_AGENT_TIMEOUT_MS", 0)
 	logger.Info("Cortex Agents web-search executor enabled",
-		"snowflake_role", role, "host_suffix_override", hostSuffix)
-	opts := []cortexagents.Option{cortexagents.WithRole(role)}
+		"snowflake_role", role, "host_suffix_override", hostSuffix,
+		"timeout_ms", timeout.Milliseconds())
+	opts := []cortexagents.Option{cortexagents.WithRole(role), cortexagents.WithTimeout(timeout)}
 	if hostSuffix != "" {
 		opts = append(opts, cortexagents.WithHostSuffix(hostSuffix))
 	}

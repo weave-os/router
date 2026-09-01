@@ -26,6 +26,9 @@ type stubPinStore struct {
 	usageRoles []string
 	getPin     sessionpin.Pin
 	getFound   bool
+	consumePin sessionpin.Pin
+	consumeHit bool
+	consumeFor router.Strategy
 	upserts    []sessionpin.Pin
 	upsertErr  error
 }
@@ -59,28 +62,31 @@ func (s *stubPinStore) UpdateUsage(_ context.Context, _ [sessionpin.SessionKeyLe
 	return nil
 }
 
-func (s *stubPinStore) IncrementUpstreamErrors(context.Context, [sessionpin.SessionKeyLen]byte, string) (int, error) {
+func (s *stubPinStore) IncrementUpstreamErrors(context.Context, [sessionpin.SessionKeyLen]byte, string, router.Strategy) (int, error) {
 	return 0, nil
 }
 
-func (s *stubPinStore) ResetUpstreamErrors(context.Context, [sessionpin.SessionKeyLen]byte, string) error {
+func (s *stubPinStore) ResetUpstreamErrors(context.Context, [sessionpin.SessionKeyLen]byte, string, router.Strategy) error {
 	return nil
 }
 
-func (s *stubPinStore) IncrementOverloadErrors(context.Context, [sessionpin.SessionKeyLen]byte, string) (int, error) {
+func (s *stubPinStore) IncrementOverloadErrors(context.Context, [sessionpin.SessionKeyLen]byte, string, router.Strategy) (int, error) {
 	return 0, nil
 }
 
-func (s *stubPinStore) ResetOverloadErrors(context.Context, [sessionpin.SessionKeyLen]byte, string) error {
+func (s *stubPinStore) ResetOverloadErrors(context.Context, [sessionpin.SessionKeyLen]byte, string, router.Strategy) error {
 	return nil
 }
 
-func (s *stubPinStore) DisableProvider(context.Context, [sessionpin.SessionKeyLen]byte, string, string) error {
+func (s *stubPinStore) DisableProvider(context.Context, [sessionpin.SessionKeyLen]byte, string, string, router.Strategy) error {
 	return nil
 }
 
-func (s *stubPinStore) Consume(context.Context, [sessionpin.SessionKeyLen]byte, string) (sessionpin.Pin, bool, error) {
-	return sessionpin.Pin{}, false, nil
+func (s *stubPinStore) Consume(_ context.Context, _ [sessionpin.SessionKeyLen]byte, _ string, expected router.Strategy) (sessionpin.Pin, bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.consumeFor = expected
+	return s.consumePin, s.consumeHit, nil
 }
 
 func (s *stubPinStore) SweepExpired(context.Context) error { return nil }
@@ -98,6 +104,23 @@ func TestPinCacheCold_OrdinaryAndHMMShareTheSameRule(t *testing.T) {
 	assert.False(t, pinCacheCold(warm, false), "a warm unmodified prefix remains cache-eligible")
 	assert.True(t, pinCacheCold(warm, true), "a prefix break makes a warm pin cold")
 	assert.True(t, pinCacheCold(cold, false), "an expired pin is cold without a prefix break")
+}
+
+func TestConsumePostCommandContinuation_RequiresEffectiveStrategy(t *testing.T) {
+	store := newStubPinStore()
+	store.consumeHit = true
+	store.consumePin = sessionpin.Pin{Strategy: router.StrategyCluster}
+	svc := NewService(nil, nil, nil, false, nil, store, false,
+		providers.ProviderAnthropic, "claude-haiku-4-5", nil)
+	ctx := router.WithStrategy(context.Background(), router.StrategyHMMBeta)
+
+	_, found := svc.consumePostCommandContinuation(ctx, [sessionpin.SessionKeyLen]byte{1}, sessionpin.DefaultRole)
+	assert.False(t, found, "a non-beta continuation must not cross into a beta session")
+
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	assert.Equal(t, router.StrategyHMMBeta, store.consumeFor,
+		"the atomic consume must be filtered by the effective strategy in storage too")
 }
 
 func TestApplyPinEvidence_UsesAvailablePriorTurnData(t *testing.T) {
@@ -250,12 +273,13 @@ func TestRecordTurnUsage_HMMDecisionWritesHistoryOnly(t *testing.T) {
 
 	res := turnLoopResult{
 		InstallationID: uuid.New(),
+		Strategy:       router.StrategyHMMBeta,
 		Decision: router.Decision{
 			Provider: "anthropic",
 			Model:    "claude-sonnet-5",
 			Reason:   "hmm_policy(label=high)",
 			Metadata: &router.RoutingMetadata{
-				Strategy: string(router.StrategyHMM),
+				Strategy: string(router.StrategyHMMBeta),
 				RouteID:  "route-1",
 			},
 		},
@@ -275,6 +299,7 @@ func TestRecordTurnUsage_HMMDecisionWritesHistoryOnly(t *testing.T) {
 	assert.Equal(t, "hmm_policy(label=high)", store.upserts[0].Reason)
 	assert.Equal(t, providers.ProviderAnthropic, store.upserts[0].Provider)
 	assert.Empty(t, store.upserts[0].Model, "HMM history rows must not be routable pins")
+	assert.Equal(t, router.StrategyHMMBeta, store.upserts[0].Strategy)
 	assert.Equal(t, []string{hmmHistoryRole(sessionpin.DefaultRole)}, store.usageRoles)
 	assert.NotContains(t, store.usageRoles, sessionpin.DefaultRole, "HMM turns must not mutate the active routing pin role")
 	assert.Equal(t, 1200, store.lastUsage.InputTokens)
@@ -283,6 +308,7 @@ func TestRecordTurnUsage_HMMDecisionWritesHistoryOnly(t *testing.T) {
 	assert.Equal(t, 80, store.lastUsage.OutputTokens)
 	assert.Equal(t, "claude-sonnet-5", store.lastUsage.ServedModel)
 	assert.Equal(t, "claude-haiku-4-5", store.lastUsage.PriorServedModel)
+	assert.Equal(t, router.StrategyHMMBeta, store.lastUsage.Strategy)
 }
 
 func TestRecordTurnUsage_HMMModelChangeWritesCurrentUsageOnly(t *testing.T) {
@@ -1332,6 +1358,44 @@ func TestLoadPin_ServesFreshPostgresPin(t *testing.T) {
 	require.True(t, found, "non-expired Postgres row must be returned")
 	assert.Equal(t, "claude-opus-4-7", pin.Model)
 	assert.Equal(t, "anthropic", pin.Provider)
+}
+
+func TestLoadPin_RequiresBetaStrategyMatch(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		request router.Strategy
+		stored  router.Strategy
+		found   bool
+	}{
+		{name: "beta exact", request: router.StrategyHMMBeta, stored: router.StrategyHMMBeta, found: true},
+		{name: "beta rejects stable", request: router.StrategyHMMBeta, stored: router.StrategyCluster, found: false},
+		{name: "beta rejects legacy", request: router.StrategyHMMBeta, stored: "", found: false},
+		{name: "stable rejects beta", request: router.StrategyCluster, stored: router.StrategyHMMBeta, found: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store := newStubPinStore()
+			store.getFound = true
+			store.getPin = sessionpin.Pin{
+				Provider:    providers.ProviderAnthropic,
+				Model:       "claude-opus-4-7",
+				Strategy:    tt.stored,
+				PinnedUntil: time.Now().Add(time.Hour),
+			}
+			svc := NewService(nil, nil, nil, false, nil, store, false,
+				providers.ProviderAnthropic, "claude-haiku-4-5", nil)
+			ctx := router.WithStrategy(context.Background(), tt.request)
+
+			pin, found := svc.loadPin(ctx, [sessionpin.SessionKeyLen]byte{1}, sessionpin.DefaultRole)
+			assert.Equal(t, tt.found, found)
+			if !tt.found {
+				assert.Equal(t, sessionpin.Pin{}, pin, "a mismatched pin must not leak reuse or history evidence")
+			}
+		})
+	}
 }
 
 func TestSwitchHistoryFromPins_UsesHMMHistory(t *testing.T) {

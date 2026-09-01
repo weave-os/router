@@ -13,6 +13,7 @@ import (
 	"workweave/router/internal/observability"
 	"workweave/router/internal/providers"
 	"workweave/router/internal/router"
+	"workweave/router/internal/websearch"
 
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
@@ -85,6 +86,8 @@ func (e *RequestEnvelope) PrepareGemini(_ http.Header, opts EmitOptions) (provid
 			return providers.PreparedRequest{}, fmt.Errorf("strip claude-code-only tools: %w", err)
 		}
 		stats.CCOnlyToolsStripped = removed
+		// See buildOpenAIFromAnthropic: strip native server tools before the reminder gate so Stats reflects what actually reached upstream.
+		filtered, stats.ServerToolsStripped = websearch.StripServerTools(filtered)
 		// Mirror writeGeminiFromAnthropic's reminder gate so Stats reflects
 		// whether the reminder actually reached upstream.
 		if reminder := geminiSystemReminder(opts.TargetModel); reminder != "" && hasNonEmptyTools(filtered) {
@@ -1349,6 +1352,8 @@ func sanitizeGeminiSchemaNode(v any, path string) (any, error) {
 		return nil, fmt.Errorf("%w at %s.oneOf: Gemini does not support oneOf", ErrGeminiSchemaIncompatible, path)
 	}
 
+	// Declared before the loop: map iteration is unordered, so a raw nullable sibling must not overwrite this once set.
+	nullableFromAnyOf := false
 	out := make(map[string]any, len(node))
 	for key, child := range node {
 		if key == "$defs" || key == "definitions" || key == "$ref" {
@@ -1398,13 +1403,24 @@ func sanitizeGeminiSchemaNode(v any, path string) (any, error) {
 			if !ok || len(branches) == 0 {
 				return nil, fmt.Errorf("%w at %s.anyOf: expected non-empty array", ErrGeminiSchemaIncompatible, path)
 			}
-			clean := make([]any, len(branches))
+			clean := make([]any, 0, len(branches))
 			for i, branch := range branches {
-				var err error
-				clean[i], err = sanitizeGeminiSchemaNode(branch, fmt.Sprintf("%s.anyOf[%d]", path, i))
+				if isGeminiNullLikeSchema(branch) {
+					nullableFromAnyOf = true
+					continue
+				}
+				sanitized, err := sanitizeGeminiSchemaNode(branch, fmt.Sprintf("%s.anyOf[%d]", path, i))
 				if err != nil {
 					return nil, err
 				}
+				if isGeminiNullLikeSchema(sanitized) {
+					nullableFromAnyOf = true
+					continue
+				}
+				clean = append(clean, sanitized)
+			}
+			if len(clean) == 0 {
+				return nil, fmt.Errorf("%w at %s.anyOf: expected a non-null branch", ErrGeminiSchemaIncompatible, path)
 			}
 			out[key] = clean
 		case "format":
@@ -1439,10 +1455,26 @@ func sanitizeGeminiSchemaNode(v any, path string) (any, error) {
 	if err := normalizeGeminiNullableType(out, path); err != nil {
 		return nil, err
 	}
+	if nullable, ok := out["nullable"].(bool); ok && nullable {
+		nullableFromAnyOf = true
+	}
+	flattened, err := flattenGeminiAnyOf(out, path)
+	if err != nil {
+		return nil, err
+	}
+	out = flattened
 	if err := validateGeminiRequired(out, path); err != nil {
 		return nil, err
 	}
 	resolveGeminiEnum(out)
+	if _, hasType := out["type"]; !hasType {
+		if _, hasEnum := out["enum"]; hasEnum {
+			out["type"] = "string"
+		}
+	}
+	if nullableFromAnyOf {
+		out["nullable"] = true
+	}
 	return stripEmptyNullable(out), nil
 }
 
@@ -1940,10 +1972,20 @@ func resolveGeminiEnum(schema map[string]any) {
 	if !exists {
 		return
 	}
-	if enum, ok := values.([]any); ok && len(enum) > 0 && allStringEnum(enum) {
-		return
+	enum, ok := values.([]any)
+	if ok && len(enum) > 0 && allStringEnum(enum) {
+		filtered := filterEmptyStringEnum(enum)
+		if len(filtered) == 0 {
+			delete(schema, "enum")
+		} else {
+			schema["enum"] = filtered
+		}
+		if _, exists := schema["enum"]; exists {
+			return
+		}
+	} else {
+		delete(schema, "enum")
 	}
-	delete(schema, "enum")
 	// format:"enum" without an enum is itself unrepresentable.
 	if format, _ := schema["format"].(string); format == "enum" {
 		delete(schema, "format")
@@ -1957,6 +1999,100 @@ func allStringEnum(enum []any) bool {
 		}
 	}
 	return true
+}
+
+func filterEmptyStringEnum(enum []any) []any {
+	out := make([]any, 0, len(enum))
+	for _, value := range enum {
+		s, ok := value.(string)
+		if !ok || s == "" {
+			continue
+		}
+		out = append(out, s)
+	}
+	return out
+}
+
+func isGeminiNullSchema(v any) bool {
+	node, ok := v.(map[string]any)
+	if !ok {
+		return false
+	}
+	if typeName, ok := node["type"].(string); ok {
+		return typeName == "null"
+	}
+	types, ok := node["type"].([]any)
+	if !ok || len(types) == 0 {
+		return false
+	}
+	for _, candidate := range types {
+		name, ok := candidate.(string)
+		if !ok || name != "null" {
+			return false
+		}
+	}
+	return true
+}
+
+func isGeminiNullLikeSchema(v any) bool {
+	if isGeminiNullSchema(v) {
+		return true
+	}
+	node, ok := v.(map[string]any)
+	if !ok {
+		return false
+	}
+	enum, hasEnum := node["enum"].([]any)
+	if hasEnum {
+		if !allStringEnum(enum) || len(filterEmptyStringEnum(enum)) > 0 {
+			return false
+		}
+	}
+	switch typeValue := node["type"].(type) {
+	case string:
+		if typeValue != "" && typeValue != "null" {
+			return false
+		}
+	case []any:
+		if _, ok := lowerNullableTypeArray(typeValue); ok {
+			return false
+		}
+		if !isGeminiNullSchema(node) {
+			return false
+		}
+	case nil:
+		if !hasEnum {
+			return false
+		}
+	default:
+		return false
+	}
+	for key := range node {
+		switch key {
+		case "enum", "type", "description", "title", "nullable", "default", "example", "format":
+			continue
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+func flattenGeminiAnyOf(schema map[string]any, path string) (map[string]any, error) {
+	branches, ok := schema["anyOf"].([]any)
+	if !ok || len(branches) != 1 {
+		return schema, nil
+	}
+	object, ok := branches[0].(map[string]any)
+	if !ok {
+		return nil, fmt.Errorf("%w at %s.anyOf: branch is not an object schema", ErrGeminiSchemaIncompatible, path)
+	}
+	delete(schema, "anyOf")
+	merged, ok := intersectGeminiSchemas(schema, object)
+	if !ok {
+		return nil, fmt.Errorf("%w at %s.anyOf: flattened branch conflicts with sibling constraints", ErrGeminiSchemaIncompatible, path)
+	}
+	return merged, nil
 }
 
 func valueInEnum(value, enum any) bool {

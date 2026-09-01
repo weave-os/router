@@ -31,6 +31,9 @@ from npm on next start and loads this extension via its `pi.extensions` field.
   current router session; `/ufm` and `/unforce-model` resume automatic routing.
   The persistent status changes to `WEAVE ROUTER — <model> [forced]` after the
   router validates and canonicalizes the requested model.
+- **Beta routing toggle.** `/beta` toggles the router's beta HMM strategy for
+  the current session. The router confirms whether beta routing is enabled or
+  disabled; run `/beta` again to switch back.
 - **Per-process routing bias.** Static `x-weave-routing-*` knob headers bias the
   router: quality on the main loop and speed + cheap on subagents.
 - **Long tool-loop compaction.** Pi can cross its context threshold inside an

@@ -143,8 +143,7 @@ func computeSpiralSignals(env *translate.RequestEnvelope, messageCount int) spir
 		}
 	}
 
-	// Catches rhyming re-grind that the exact tight-loop detector's
-	// 5-identical bar misses.
+	// Catches rhyming re-grind that simple exact-repeat checks miss.
 	if len(sigs) >= spiralRepeatWindow {
 		window := sigs[len(sigs)-spiralRepeatWindow:]
 		counts := make(map[string]int, len(window))

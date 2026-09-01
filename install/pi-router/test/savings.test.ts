@@ -31,12 +31,13 @@ test("calculates savings against identical usage", () => {
 
 test("applies cache write and cache read multipliers", () => {
 	const entry = createSavingsEntry(
-		{ requestedModel: "claude-sonnet-4-6", routedModel: "claude-haiku-4-5" },
+		{ requestedModel: "grok-4.5", routedModel: "claude-haiku-4-5" },
 		{ input: 100, output: 50, cacheRead: 100, cacheWrite: 100 },
 	);
-	const effectiveInput = 100 + 1.25 * 100 + 0.1 * 100;
-	const expectedRequested = (effectiveInput * 3 + 50 * 15) / 1_000_000;
-	const expectedRouted = (effectiveInput * 1 + 50 * 5) / 1_000_000;
+	const requestedInput = 100 + 1.25 * 100 + 0.25 * 100;
+	const routedInput = 100 + 1.25 * 100 + 0.1 * 100;
+	const expectedRequested = (requestedInput * 2 + 50 * 6) / 1_000_000;
+	const expectedRouted = (routedInput * 1 + 50 * 5) / 1_000_000;
 	assert.equal(entry.requestedCostUsd, expectedRequested);
 	assert.equal(entry.routedCostUsd, expectedRouted);
 });

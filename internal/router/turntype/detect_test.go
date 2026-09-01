@@ -1,6 +1,7 @@
 package turntype_test
 
 import (
+	"strings"
 	"testing"
 
 	"workweave/router/internal/router/turntype"
@@ -72,6 +73,39 @@ func TestDetectFromEnvelope_Anthropic(t *testing.T) {
 			name: "compaction with array system prompt",
 			body: `{"model":"claude-sonnet-4-5","system":[{"type":"text","text":"Your task is to create a detailed summary of the conversation above."}],"messages":[{"role":"user","content":"go"}]}`,
 			want: turntype.Compaction,
+		},
+		{
+			// Claude Code 2.x appends the compaction instruction to the trailing
+			// turn alongside the last tool_result; a system-only check misclassifies it.
+			name: "compaction instruction in last user message alongside tool_result",
+			body: `{"model":"claude-sonnet-4-5","system":"You are Claude Code.","messages":[
+				{"role":"user","content":[
+					{"type":"tool_result","tool_use_id":"t1","content":"grep output"},
+					{"type":"text","text":"CRITICAL: Respond with TEXT ONLY. Do NOT call any tools.\nYour task is to create a detailed summary of the conversation so far."}
+				]}
+			]}`,
+			want: turntype.Compaction,
+		},
+		{
+			// The summary phrase alone in a user message is text a human can type;
+			// only Claude Code's template pairs it with the tool-suppression clause.
+			name: "summary phrase without the no-tools clause stays tool_result",
+			body: `{"model":"claude-sonnet-4-5","system":"You are Claude Code.","messages":[
+				{"role":"user","content":[
+					{"type":"tool_result","tool_use_id":"t1","content":"grep output"},
+					{"type":"text","text":"Your task is to create a detailed summary of these findings for the changelog."}
+				]}
+			]}`,
+			want: turntype.ToolResult,
+		},
+		{
+			// Bounded scan: the marker past compactionSniffLen is caller data,
+			// not Claude Code's fixed-length preamble.
+			name: "compaction phrase beyond the sniff bound does not trigger",
+			body: `{"model":"claude-sonnet-4-5","messages":[
+				{"role":"user","content":[{"type":"text","text":"` + strings.Repeat("padding ", 600) + `Your task is to create a detailed summary of the conversation so far."}]}
+			]}`,
+			want: turntype.MainLoop,
 		},
 		{
 			name: "sub-agent via metadata user_id prefix",

@@ -68,6 +68,18 @@ grep -qx 'model_provider = "weave"' "$config" \
   || fail "Weave was not selected as the default provider"
 grep -qx 'requires_openai_auth = true' "$config" \
   || fail "Weave provider does not require ChatGPT OAuth"
+grep -qx 'features.hooks = true' "$config" \
+  || fail "Codex hooks were not enabled"
+grep -Fq '[[hooks.SessionStart]]' "$config" \
+  || fail "Codex SessionStart hook was not installed"
+grep -Fq '[[hooks.Stop]]' "$config" \
+  || fail "Codex Stop hook was not installed"
+status_helper="$home/.weave/codex-status.sh"
+  [ "$(grep -Fc "command = \"$status_helper\"" "$config")" -eq 2 ] \
+  || fail "Codex hooks do not point at the installed status helper"
+[ -f "$status_helper" ] || fail "Codex status helper was not installed"
+grep -Fq '<!-- weave-router managed codex status -->' "$status_helper" \
+  || fail "Codex status helper has no ownership marker"
 if grep -Fq 'X-Weave-Router-Strategy' "$config"; then
   fail "Codex provider pinned a routing strategy instead of the router default"
 fi
@@ -105,6 +117,17 @@ grep -Fq '<!-- weave-router managed disable-routing skill -->' "$skill" \
   || fail "Codex disable-routing skill has no ownership marker"
 grep -Fq 'weave-router off --codex' "$skill" \
   || fail "Codex disable-routing skill does not use the safe off toggle"
+
+for alias in fm ufm rf; do
+  alias_skill="$home/.codex/skills/$alias/SKILL.md"
+  [ -f "$alias_skill" ] || fail "Codex \$$alias skill was not installed"
+  grep -Fq "<!-- weave-router managed $alias skill -->" "$alias_skill" \
+    || fail "Codex \$$alias skill has no ownership marker"
+done
+for name in force-model fm unforce-model ufm router-feedback rf; do
+  emit="$home/.codex/skills/$name/scripts/emit.sh"
+  [ -x "$emit" ] || fail "Codex \$$name skill is missing an executable emit.sh"
+done
 if HOME="$home" PATH="$test_path" NO_COLOR=1 bash "$installer" disable-routing --claude --scope user --quiet >/dev/null 2>&1; then
   fail "disable-routing accepted a non-Codex target"
 fi
@@ -124,6 +147,49 @@ run_hosted_install
 
 run_uninstall
 [ ! -e "$skill" ] || fail "uninstall did not remove the Codex disable-routing skill"
+[ ! -e "$status_helper" ] || fail "uninstall did not remove the Codex status helper"
+
+for name in force-model fm unforce-model ufm router-feedback rf \
+            router-off router-on router-status router-models; do
+  [ ! -e "$home/.codex/skills/$name" ] \
+    || fail "uninstall left the Codex \$$name skill directory behind"
+done
+
+# A pre-existing hooks scalar or table is incompatible with inline lifecycle
+# arrays. Preserve either user shape and install routing without managed hooks.
+for hooks_shape in scalar table; do
+  if [ "$hooks_shape" = scalar ]; then
+    printf '%s\n' 'hooks = "${HOME}/.codex/hooks.json"' >"$config"
+  else
+    printf '%s\n' '[hooks]' 'enabled = true' >"$config"
+  fi
+  run_hosted_install
+  grep -Fq 'model_provider = "weave"' "$config" \
+    || fail "hooks conflict prevented Codex routing setup ($hooks_shape)"
+  if grep -Fq '[[hooks.SessionStart]]' "$config" || grep -Fq '[[hooks.Stop]]' "$config"; then
+    fail "installer added inline hooks to conflicting hooks $hooks_shape config"
+  fi
+  if [ "$hooks_shape" = scalar ]; then
+    grep -Fq 'hooks = "${HOME}/.codex/hooks.json"' "$config" \
+      || fail "installer did not preserve hooks path"
+  else
+    grep -Fq 'enabled = true' "$config" \
+      || fail "installer did not preserve hooks table"
+  fi
+  run_uninstall
+  [ ! -e "$status_helper" ] || fail "uninstall left the status helper after hooks conflict test"
+done
+
+# A user-owned status helper must not be overwritten or made executable by the
+# managed hooks. The installer refuses the install rather than wiring around it.
+mkdir -p "$(dirname "$status_helper")"
+printf '%s\n' 'user-authored status helper' >"$status_helper"
+if run_hosted_install; then
+  fail "installer accepted an unowned Codex status helper"
+fi
+grep -qx 'user-authored status helper' "$status_helper" \
+  || fail "installer modified an unowned Codex status helper"
+rm -f "$status_helper"
 
 # A same-named user skill is not ours to overwrite or remove. This also
 # covers an upgrade on a machine where the name was already taken.

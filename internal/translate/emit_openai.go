@@ -10,6 +10,7 @@ import (
 
 	"workweave/router/internal/providers"
 	"workweave/router/internal/router"
+	"workweave/router/internal/websearch"
 
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
@@ -31,11 +32,32 @@ func resolveReasoningEffortFor(opts EmitOptions) string {
 // reasoningEffortAcceptedOnChatCompletions reports whether the target accepts
 // reasoning_effort on /v1/chat/completions. gpt-5.x rejects it (routed through
 // Responses API); other CapReasoning models (OpenRouter OSS) accept it freely.
-func reasoningEffortAcceptedOnChatCompletions(opts EmitOptions) bool {
+// Gateways reject it alongside tools for any model and have no Responses
+// surface to fall back to, so the effort is dropped rather than 400ing.
+func reasoningEffortAcceptedOnChatCompletions(opts EmitOptions, hasTools bool) bool {
 	if strings.HasPrefix(opts.TargetModel, "gpt-5") {
 		return false
 	}
+	if hasTools && providers.IsGateway(opts.TargetProvider) {
+		return false
+	}
 	return true
+}
+
+// toolTurnNeedsExplicitEffortNone reports whether the target refuses a
+// function-tool turn on chat/completions unless reasoning_effort is "none".
+// gpt-5.6 applies its own effort when the field is absent; /v1/responses
+// dispatch is what preserves reasoning. Gateways excluded: proxy downgrades them.
+func toolTurnNeedsExplicitEffortNone(opts EmitOptions, hasTools bool) bool {
+	return hasTools && opts.TargetProvider == providers.ProviderOpenAI &&
+		strings.HasPrefix(opts.TargetModel, "gpt-5.6")
+}
+
+// samplersAccepted reports whether the target accepts temperature / top_p.
+// Reasoning gpt-5.x models 400 on non-default values on both endpoints;
+// other CapReasoning targets (OpenRouter, xAI) sample normally.
+func samplersAccepted(opts EmitOptions) bool {
+	return !opts.Capabilities.Supports(router.CapReasoning) || !strings.HasPrefix(opts.TargetModel, "gpt-5")
 }
 
 // clampOpenAIToolCallID makes a tool-call id safe for the OpenAI wire format:
@@ -91,8 +113,12 @@ func (e *RequestEnvelope) PrepareOpenAI(in http.Header, opts EmitOptions) (provi
 // TTFT). Each upstream takes a different knob: OpenAI-compat serverless
 // (Fireworks/Makora/Together/…) gets x-session-affinity (the
 // default for any OpenAI-compat target, so new upstreams need no edit here),
-// OpenRouter gets x-session-id, OpenAI gets the prompt_cache_key body field,
-// xAI Chat Completions gets x-grok-conv-id. Bedrock's explicit cachePoint
+// OpenRouter gets x-session-id, OpenAI and customer openai_gateway endpoints
+// get the prompt_cache_key body field (a spec Chat Completions field, so a
+// gateway that forwards the body forwards the hint — no unknown-header risk),
+// xAI Chat Completions gets x-grok-conv-id — including grok served through an
+// openai_gateway, since xAI only honors prompt_cache_key on the Responses API
+// and keys Chat Completions cache routing on the header alone. Bedrock's explicit cachePoint
 // caching is centrally routed, so it gets nothing.
 //
 // The header-based hints are gated on a real session key — collapsing keyless
@@ -110,7 +136,20 @@ func applySessionAffinity(body []byte, headers http.Header, opts EmitOptions) ([
 			headers.Set("x-session-id", opts.SessionAffinity)
 		}
 		return body, nil
-	case providers.ProviderOpenAI:
+	case providers.ProviderOpenAI, providers.ProviderOpenAIGateway:
+		if opts.TargetProvider == providers.ProviderOpenAIGateway &&
+			strings.HasPrefix(opts.TargetModel, "grok") && opts.SessionAffinity != "" {
+			headers.Set("x-grok-conv-id", opts.SessionAffinity)
+		}
+		if opts.StripPromptCacheKey {
+			// The endpoint rejects the field as unknown; a caller-supplied key
+			// would 400 identically, so it is dropped too.
+			out, err := sjson.DeleteBytes(body, "prompt_cache_key")
+			if err != nil {
+				return nil, fmt.Errorf("delete prompt_cache_key: %w", err)
+			}
+			return out, nil
+		}
 		cacheKey := opts.SessionAffinity
 		if cacheKey == "" {
 			// A same-format OpenAI caller may partition caching with its own
@@ -132,9 +171,6 @@ func applySessionAffinity(body []byte, headers http.Header, opts EmitOptions) ([
 		return out, nil
 	case providers.ProviderBedrock:
 		// Explicit cachePoint caching, centrally routed — no replica roulette.
-		return body, nil
-	case providers.ProviderOpenAIGateway:
-		// Customer endpoint: no affinity contract; may reject unknown headers.
 		return body, nil
 	case providers.ProviderXAI:
 		// Chat Completions affinity header; Responses API uses prompt_cache_key
@@ -189,10 +225,16 @@ func (e *RequestEnvelope) buildOpenAIFromOpenAI(opts EmitOptions) ([]byte, error
 		return nil, err
 	}
 	// Write reasoning_effort for CapReasoning targets that accept it on chat/completions.
-	if forced := resolveReasoningEffortFor(opts); forced != "" && opts.Capabilities.Supports(router.CapReasoning) && reasoningEffortAcceptedOnChatCompletions(opts) {
+	if forced := resolveReasoningEffortFor(opts); forced != "" && opts.Capabilities.Supports(router.CapReasoning) && reasoningEffortAcceptedOnChatCompletions(opts, hasNonEmptyTools(body)) {
 		body, err = sjson.SetBytes(body, "reasoning_effort", forced)
 		if err != nil {
 			return nil, fmt.Errorf("set reasoning_effort: %w", err)
+		}
+	}
+	if toolTurnNeedsExplicitEffortNone(opts, hasNonEmptyTools(body)) {
+		body, err = sjson.SetBytes(body, "reasoning_effort", "none")
+		if err != nil {
+			return nil, fmt.Errorf("set reasoning_effort none: %w", err)
 		}
 	}
 	if targetIsOpenRouter(opts) {
@@ -231,6 +273,10 @@ func (e *RequestEnvelope) buildOpenAIFromOpenAI(opts EmitOptions) ([]byte, error
 	if err != nil {
 		return nil, err
 	}
+	body, err = applyGLM53FlashFlagsIfNeeded(body, opts)
+	if err != nil {
+		return nil, err
+	}
 	return body, nil
 }
 
@@ -252,6 +298,9 @@ func (e *RequestEnvelope) buildOpenAIFromAnthropic(opts EmitOptions) ([]byte, pr
 		return nil, stats, fmt.Errorf("strip claude-code-only tools: %w", err)
 	}
 	stats.CCOnlyToolsStripped = removed
+	// Anthropic executes web_search_*/web_fetch_* itself; passing them through
+	// writeOpenAIToolsFromAnthropic creates phantom function tools. Drop them.
+	body, stats.ServerToolsStripped = websearch.StripServerTools(body)
 	jw := newJSONWriter()
 	jw.Obj()
 	jw.Key("model")
@@ -282,12 +331,13 @@ func (e *RequestEnvelope) buildOpenAIFromAnthropic(opts EmitOptions) ([]byte, pr
 
 	// Temperature, top_p
 	clientSetTemp := false
-	if r := gjson.GetBytes(body, "temperature"); r.Exists() {
+	sampleOK := samplersAccepted(opts)
+	if r := gjson.GetBytes(body, "temperature"); r.Exists() && sampleOK {
 		jw.Key("temperature")
 		jw.Raw(r.Raw)
 		clientSetTemp = true
 	}
-	if r := gjson.GetBytes(body, "top_p"); r.Exists() {
+	if r := gjson.GetBytes(body, "top_p"); r.Exists() && sampleOK {
 		jw.Key("top_p")
 		jw.Raw(r.Raw)
 	}
@@ -304,7 +354,7 @@ func (e *RequestEnvelope) buildOpenAIFromAnthropic(opts EmitOptions) ([]byte, pr
 	writeOpenAIMaxTokensFromAnthropic(jw, body, opts)
 
 	// Write reasoning_effort for CapReasoning targets that accept it on chat/completions.
-	if forced := resolveReasoningEffortFor(opts); forced != "" && opts.Capabilities.Supports(router.CapReasoning) && reasoningEffortAcceptedOnChatCompletions(opts) {
+	if forced := resolveReasoningEffortFor(opts); forced != "" && opts.Capabilities.Supports(router.CapReasoning) && reasoningEffortAcceptedOnChatCompletions(opts, hasNonEmptyTools(body)) {
 		jw.Key("reasoning_effort")
 		jw.Str(forced)
 	}
@@ -343,6 +393,10 @@ func (e *RequestEnvelope) buildOpenAIFromAnthropic(opts EmitOptions) ([]byte, pr
 	if err != nil {
 		return nil, stats, err
 	}
+	body, err = applyGLM53FlashFlagsIfNeeded(body, opts)
+	if err != nil {
+		return nil, stats, err
+	}
 	return body, stats, nil
 }
 
@@ -373,6 +427,23 @@ func applyGLM51FlagsIfNeeded(body []byte, opts EmitOptions) ([]byte, error) {
 		body = out
 	}
 	return body, nil
+}
+
+// applyGLM53FlashFlagsIfNeeded sets tool_stream=true for GLM-5.3-Flash
+// (docs.z.ai/guides/vlm/glm-5.3-flash requires it for streaming tool calls).
+// Unlike GLM-5.1, thinking is not force-disabled — it can't be turned off.
+func applyGLM53FlashFlagsIfNeeded(body []byte, opts EmitOptions) ([]byte, error) {
+	if !isGLM53Flash(opts.TargetModel) {
+		return body, nil
+	}
+	if gjson.GetBytes(body, "tool_stream").Exists() {
+		return body, nil
+	}
+	out, err := sjson.SetBytes(body, "tool_stream", true)
+	if err != nil {
+		return nil, fmt.Errorf("set glm-5.3-flash tool_stream: %w", err)
+	}
+	return out, nil
 }
 
 // applyQwen3SamplersIfNeeded layers the Qwen3 model-card sampling defaults

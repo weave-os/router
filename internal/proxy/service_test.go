@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"workweave/router/internal/auth"
+	"workweave/router/internal/flags"
 	"workweave/router/internal/providers"
 	"workweave/router/internal/proxy"
 	"workweave/router/internal/router"
@@ -66,6 +67,9 @@ type fakeProvider struct {
 	proxyCreds []*proxy.Credentials
 	// passthroughCreds records the resolved credential per Passthrough call.
 	passthroughCreds []*proxy.Credentials
+	// proxyErrByEndpoint overrides proxyErr for one upstream endpoint, modelling
+	// an endpoint that serves chat/completions but no Responses API.
+	proxyErrByEndpoint map[providers.Endpoint]error
 }
 
 func (f *fakeProvider) Proxy(ctx context.Context, decision router.Decision, prep providers.PreparedRequest, w http.ResponseWriter, r *http.Request) error {
@@ -74,6 +78,9 @@ func (f *fakeProvider) Proxy(ctx context.Context, decision router.Decision, prep
 	f.proxyBodies = append(f.proxyBodies, saved)
 	f.proxyEndpoints = append(f.proxyEndpoints, prep.Endpoint)
 	f.proxyCreds = append(f.proxyCreds, proxy.CredentialsFromContext(ctx))
+	if err, ok := f.proxyErrByEndpoint[prep.Endpoint]; ok {
+		return err
+	}
 	if f.proxyResponse != nil {
 		f.proxyResponse(w)
 	}
@@ -310,6 +317,154 @@ func TestService_ProxyOpenAIResponses_CustomToolUsesNativeOpenAIFamily(t *testin
 	assert.JSONEq(t, `{"id":"resp_1","object":"response","output":[]}`, rec.Body.String())
 }
 
+// A direct-OpenAI Responses caller dispatches on its original bytes rather
+// than the chat projection, whatever the model or tool shape.
+func TestService_ProxyOpenAIResponses_StaysNativeForDirectOpenAI(t *testing.T) {
+	for _, tc := range []struct {
+		name         string
+		model        string
+		tools        string
+		wantEndpoint providers.Endpoint
+	}{
+		{
+			name:         "reasoning tool turn",
+			model:        "gpt-5.6-luna",
+			tools:        `,"tools":[{"type":"function","name":"read_file","parameters":{"type":"object"}}]`,
+			wantEndpoint: providers.EndpointResponses,
+		},
+		{
+			name:         "toolless turn stays native too",
+			model:        "gpt-5.6-luna",
+			wantEndpoint: providers.EndpointResponses,
+		},
+		{
+			name:         "non-reasoning tool turn stays native too",
+			model:        "gpt-4.1",
+			tools:        `,"tools":[{"type":"function","name":"read_file","parameters":{"type":"object"}}]`,
+			wantEndpoint: providers.EndpointResponses,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			provider := &fakeProvider{proxyResponse: func(w http.ResponseWriter) {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusOK)
+				_, _ = io.WriteString(w, `{"id":"chatcmpl_1","object":"chat.completion","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}]}`)
+			}}
+			fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: tc.model, Reason: "test"}}
+			svc := proxy.NewService(fr, map[string]providers.Client{
+				providers.ProviderOpenAI: provider,
+			}, nil, false, nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil)
+
+			ctx := context.WithValue(context.Background(), proxy.ClientIdentityContextKey{}, proxy.ClientIdentity{ClientApp: proxy.ClientAppOpencode})
+			body := []byte(`{"model":"auto","input":"remove the router","reasoning":{"effort":"medium"}` + tc.tools + `}`)
+			rec := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(""))
+
+			require.NoError(t, svc.ProxyOpenAIResponses(ctx, body, rec, req))
+			require.Len(t, provider.proxyBodies, 1)
+			assert.Equal(t, tc.wantEndpoint, provider.proxyEndpoints[0])
+			assert.Equal(t, tc.model, gjson.GetBytes(provider.proxyBodies[0], "model").Str)
+			assert.Equal(t, "medium", gjson.GetBytes(provider.proxyBodies[0], "reasoning.effort").Str,
+				"native dispatch keeps the caller's reasoning")
+			assert.Equal(t, "remove the router", gjson.GetBytes(provider.proxyBodies[0], "input").Str)
+		})
+	}
+}
+
+// Killing the broad rollout per org must not take the incident fix: the
+// reasoning+tools turn stays promoted either way.
+func TestService_ProxyOpenAIResponses_BroadRolloutOffKeepsNarrowPromotion(t *testing.T) {
+	for _, tc := range []struct {
+		name         string
+		tools        string
+		wantEndpoint providers.Endpoint
+	}{
+		{
+			name:         "reasoning tool turn is still promoted",
+			tools:        `,"tools":[{"type":"function","name":"read_file","parameters":{"type":"object"}}]`,
+			wantEndpoint: providers.EndpointResponses,
+		},
+		{name: "toolless turn keeps the chat projection"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			provider := &fakeProvider{proxyResponse: func(w http.ResponseWriter) {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusOK)
+				_, _ = io.WriteString(w, `{"id":"chatcmpl_1","object":"chat.completion","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}]}`)
+			}}
+			fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: "gpt-5.6-luna", Reason: "test"}}
+			svc := proxy.NewService(fr, map[string]providers.Client{
+				providers.ProviderOpenAI: provider,
+			}, nil, false, nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil)
+
+			ctx := context.WithValue(context.Background(), proxy.ClientIdentityContextKey{}, proxy.ClientIdentity{ClientApp: proxy.ClientAppOpencode})
+			ctx = flags.WithOverrides(ctx, flags.Overrides{
+				Bools: map[flags.Key]bool{flags.KeyOpenAIResponsesBroad: false},
+			})
+			body := []byte(`{"model":"auto","input":"remove the router","reasoning":{"effort":"medium"}` + tc.tools + `}`)
+			rec := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(""))
+
+			require.NoError(t, svc.ProxyOpenAIResponses(ctx, body, rec, req))
+			require.Len(t, provider.proxyBodies, 1)
+			assert.Equal(t, tc.wantEndpoint, provider.proxyEndpoints[0])
+		})
+	}
+}
+
+// An OpenAI-compatible endpoint can serve chat/completions but no Responses
+// API; the promoted turn falls back there, and the result is memoized.
+func TestService_ProxyOpenAIResponses_ToolTurnFallsBackWhenEndpointLacksResponses(t *testing.T) {
+	provider := &fakeProvider{
+		proxyErrByEndpoint: map[providers.Endpoint]error{
+			providers.EndpointResponses: &providers.UpstreamErrorResponse{
+				Status: http.StatusNotFound,
+				Body:   []byte(`{"error":{"message":"Unknown path /v1/responses"}}`),
+			},
+		},
+		proxyResponse: func(w http.ResponseWriter) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			_, _ = io.WriteString(w, `{"id":"chatcmpl_1","object":"chat.completion","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}]}`)
+		},
+	}
+	fr := &fakeRouter{decision: router.Decision{
+		Provider: providers.ProviderOpenAI,
+		Model:    "gpt-5.6-luna",
+		Reason:   "test",
+	}}
+	svc := proxy.NewService(fr, map[string]providers.Client{
+		providers.ProviderOpenAI: provider,
+	}, nil, false, nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil)
+
+	ctx := context.WithValue(
+		context.Background(),
+		proxy.ClientIdentityContextKey{},
+		proxy.ClientIdentity{ClientApp: proxy.ClientAppOpencode},
+	)
+	body := []byte(`{"model":"auto","input":"remove the router","reasoning":{"effort":"medium"},"tools":[{"type":"function","name":"read_file","parameters":{"type":"object"}}]}`)
+
+	for _, want := range [][]providers.Endpoint{
+		{providers.EndpointResponses, providers.EndpointChatCompletions},
+		{providers.EndpointChatCompletions},
+	} {
+		provider.proxyEndpoints = nil
+		provider.proxyBodies = nil
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(""))
+
+		require.NoError(t, svc.ProxyOpenAIResponses(ctx, body, rec, req))
+		assert.Equal(t, want, provider.proxyEndpoints)
+		last := provider.proxyBodies[len(provider.proxyBodies)-1]
+		assert.False(t, gjson.GetBytes(last, "input").Exists())
+		assert.Equal(t, "none", gjson.GetBytes(last, "reasoning_effort").Str)
+		assert.Equal(t, http.StatusOK, rec.Code)
+	}
+}
+
+// markerReasonBestPickForTest mirrors proxy's unexported markerReasonBestPick.
+const markerReasonBestPickForTest = "best pick for this turn"
+
 func TestService_ProxyOpenAIResponses_NativeBadgeIsCodexOnlyAndHonorsSuppression(t *testing.T) {
 	const native = "event: response.output_text.delta\n" +
 		"data: {\"type\":\"response.output_text.delta\",\"sequence_number\":0,\"item_id\":\"msg_1\",\"output_index\":0,\"content_index\":0,\"delta\":\"ok\"}\n\n" +
@@ -370,13 +525,92 @@ func TestService_ProxyOpenAIResponses_NativeBadgeIsCodexOnlyAndHonorsSuppression
 				assert.Equal(t, priorBadge, upstreamHistory)
 			}
 			if tc.wantBadge {
-				assert.Contains(t, rec.Body.String(), "**Weave Router** — gpt-5.6-terra ← gpt-5.6-sol")
+				assert.Contains(t, rec.Body.String(), "✦ **Weave Router** → gpt-5.6-terra · "+markerReasonBestPickForTest)
 				assert.NotEqual(t, native, rec.Body.String())
 			} else {
 				assert.Equal(t, native, rec.Body.String(), "suppressed and non-Codex clients retain byte identity")
 			}
 		})
 	}
+}
+
+// A first Codex turn must show the marker even when the action is tool-call-only;
+// both cases were previously invisible (debug-gated marker; badge could only
+// ride text deltas).
+func TestService_ProxyOpenAIResponses_EmitsRoutingMarkerForCodex(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		upstream string
+		wantText string
+	}{
+		{
+			name: "text turn",
+			upstream: "data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"hello\"},\"finish_reason\":null}]}\n\n" +
+				"data: {\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n" +
+				"data: [DONE]\n\n",
+			wantText: "hello",
+		},
+		{
+			name: "tool-call-only turn",
+			upstream: "data: {\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call_1\",\"function\":{\"name\":\"shell\",\"arguments\":\"{}\"}}]},\"finish_reason\":null}]}\n\n" +
+				"data: {\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"tool_calls\"}]}\n\n" +
+				"data: [DONE]\n\n",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			provider := &fakeProvider{proxyResponse: func(w http.ResponseWriter) {
+				w.Header().Set("Content-Type", "text/event-stream")
+				w.WriteHeader(http.StatusOK)
+				_, _ = io.WriteString(w, tc.upstream)
+			}}
+			fr := &fakeRouter{decision: router.Decision{
+				Provider: providers.ProviderOpenRouter,
+				Model:    "deepseek/deepseek-v4-pro",
+				Reason:   "test",
+			}}
+			svc := proxy.NewService(fr, map[string]providers.Client{
+				providers.ProviderOpenRouter: provider,
+			}, nil, false, nil, nil, false, providers.ProviderOpenRouter, "gpt-5.6-sol", nil)
+
+			ctx := context.WithValue(context.Background(), proxy.ClientIdentityContextKey{}, proxy.ClientIdentity{ClientApp: proxy.ClientAppCodex})
+			body := []byte(`{"model":"gpt-5.6-luna","stream":true,"input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"do the thing"}]}]}`)
+			rec := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(""))
+
+			require.NoError(t, svc.ProxyOpenAIResponses(ctx, body, rec, req))
+
+			marker := "✦ **Weave Router** → deepseek/deepseek-v4-pro · " + markerReasonBestPickForTest
+			deltas := responsesTextDeltas(t, rec.Body.Bytes())
+			require.NotEmpty(t, deltas)
+			assert.Equal(t, codexBadgeSentinelForTest+marker+"\n\n", deltas[0])
+			if tc.wantText != "" {
+				assert.Equal(t, tc.wantText, strings.Join(deltas[1:], ""))
+			} else {
+				assert.Empty(t, deltas[1:], "a tool-call-only turn carries no model text")
+				assert.Contains(t, rec.Body.String(), "response.function_call_arguments.done")
+			}
+		})
+	}
+}
+
+// codexBadgeSentinelForTest mirrors translate's invisible provenance prefix.
+const codexBadgeSentinelForTest = "\u2063\u2060\u2063\u2060"
+
+// responsesTextDeltas collects response.output_text.delta payloads in order.
+func responsesTextDeltas(t *testing.T, raw []byte) []string {
+	t.Helper()
+	var deltas []string
+	for _, line := range strings.Split(string(raw), "\n") {
+		if !strings.HasPrefix(line, "data: ") {
+			continue
+		}
+		payload := strings.TrimPrefix(line, "data: ")
+		if gjson.Get(payload, "type").Str != "response.output_text.delta" {
+			continue
+		}
+		deltas = append(deltas, gjson.Get(payload, "delta").Str)
+	}
+	return deltas
 }
 
 func TestService_CodexRequestRoutesInfrastructureOpenAIModelWithoutOAuth(t *testing.T) {
@@ -990,10 +1224,16 @@ func TestService_ProxyOpenAIChatCompletion_NativeOpenAI(t *testing.T) {
 	rec := httptest.NewRecorder()
 	httpReq := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
 
-	err := svc.ProxyOpenAIChatCompletion(context.Background(), []byte(body), rec, httpReq)
+	// Broad rollout off: this asserts the untranslated same-format path, which
+	// stays reachable as the kill switch's target.
+	ctx := flags.WithOverrides(context.Background(), flags.Overrides{
+		Bools: map[flags.Key]bool{flags.KeyOpenAIResponsesBroad: false},
+	})
+	err := svc.ProxyOpenAIChatCompletion(ctx, []byte(body), rec, httpReq)
 	require.NoError(t, err)
 
 	require.Len(t, provider.proxyBodies, 1)
+	assert.Equal(t, providers.EndpointChatCompletions, provider.proxyEndpoints[0])
 	var got map[string]any
 	require.NoError(t, json.Unmarshal(provider.proxyBodies[0], &got))
 	assert.Equal(t, "gpt-4o", got["model"], "envelope rewrites model to decision.Model")

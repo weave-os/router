@@ -46,23 +46,42 @@ func FindServerTool(body []byte) (ServerTool, bool) {
 	return found, found.Type != ""
 }
 
-// StripServerTools removes native web-search tools from an Anthropic Messages
-// body and reports how many it removed. Used to keep a turn alive on an
-// upstream that rejects the tool outright instead of failing the whole turn.
+// nativeServerToolPrefixes lists Anthropic server tools the provider executes, not the model.
+// Broader than serverToolPrefix: FindServerTool/DetectSearchTurn cover only the tool we can emulate.
+var nativeServerToolPrefixes = []string{serverToolPrefix, "web_fetch_"}
+
+func isNativeServerTool(toolType string) bool {
+	for _, prefix := range nativeServerToolPrefixes {
+		if strings.HasPrefix(toolType, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+// StripServerTools removes Anthropic native server tools (web_search_*, web_fetch_*)
+// from an Anthropic Messages body; non-Anthropic upstreams cannot execute them and
+// they become phantom function tools emitting unhandleable tool_use blocks.
 func StripServerTools(body []byte) ([]byte, int) {
 	removed := 0
+	strippedNames := make(map[string]struct{})
 	// Reverse order: deleting by index shifts every later element.
 	tools := gjson.GetBytes(body, "tools").Array()
 	for i := len(tools) - 1; i >= 0; i-- {
-		if !strings.HasPrefix(tools[i].Get("type").String(), serverToolPrefix) {
+		tool := tools[i]
+		if !isNativeServerTool(tool.Get("type").String()) {
 			continue
 		}
+		name := tool.Get("name").String()
 		out, err := sjson.DeleteBytes(body, "tools."+strconv.Itoa(i))
 		if err != nil {
 			continue
 		}
 		body = out
 		removed++
+		if name != "" {
+			strippedNames[name] = struct{}{}
+		}
 	}
 	if removed == 0 {
 		return body, 0
@@ -73,6 +92,13 @@ func StripServerTools(body []byte) ([]byte, int) {
 		}
 		if out, err := sjson.DeleteBytes(body, "tool_choice"); err == nil {
 			body = out
+		}
+	} else if gjson.GetBytes(body, "tool_choice.type").String() == "tool" {
+		choiceName := gjson.GetBytes(body, "tool_choice.name").String()
+		if _, ok := strippedNames[choiceName]; ok {
+			if out, err := sjson.DeleteBytes(body, "tool_choice"); err == nil {
+				body = out
+			}
 		}
 	}
 	return body, removed

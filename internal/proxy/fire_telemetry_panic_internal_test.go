@@ -54,6 +54,10 @@ func (panicTelemetryRepo) GetTelemetryModelBreakdownAll(ctx context.Context, fro
 	return nil, nil
 }
 
+func (panicTelemetryRepo) GetSessionCost(ctx context.Context, installationID, sessionID string) (SessionCost, error) {
+	return SessionCost{}, ErrSessionCostNotFound
+}
+
 func (panicTelemetryRepo) GetTelemetryBySessionSequence(ctx context.Context, installationID uuid.UUID, sessionKey []byte, role string, seq int) (TelemetryTurnResult, error) {
 	return TelemetryTurnResult{}, nil
 }

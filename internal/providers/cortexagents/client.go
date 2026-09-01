@@ -40,8 +40,9 @@ const responseInstruction = "Answer the search query directly and concisely from
 const defaultHostSuffix = "snowflakecomputing.com"
 
 // defaultTimeout bounds one agent run. Agent orchestration is slower than a
-// raw search API, and the caller is a blocked client turn.
-const defaultTimeout = 30 * time.Second
+// raw search API, and the caller is a blocked client turn; the budget is set
+// well clear of the observed tail so expiry doesn't cost the turn a 400.
+const defaultTimeout = 90 * time.Second
 
 // Option configures a Client at construction.
 type Option func(*Client)
@@ -85,11 +86,13 @@ func NewClient(baseURL string, opts ...Option) *Client {
 		baseURL:    strings.TrimRight(baseURL, "/"),
 		hostSuffix: defaultHostSuffix,
 		timeout:    defaultTimeout,
-		http:       &http.Client{Transport: httputil.NewTransport(10*time.Second, 10*time.Second)},
 	}
 	for _, opt := range opts {
 		opt(c)
 	}
+	// agent:run buffers the whole response before the first byte; ResponseHeaderTimeout
+	// must equal the run budget rather than the streaming-upstream constant.
+	c.http = httputil.NewClient(httputil.NewTransportWithResponseHeaderTimeout(10*time.Second, 10*time.Second, c.timeout))
 	return c
 }
 
@@ -132,6 +135,8 @@ func (c *Client) Search(ctx context.Context, q websearch.Query) (websearch.Respo
 	if c.role != "" {
 		req.Header.Set("X-Snowflake-Role", c.role)
 	}
+	// Correlation headers aren't on req; pull them from the ingress snapshot on ctx.
+	proxy.ApplyForwardedClientHeaders(ctx, req, nil)
 
 	resp, err := c.http.Do(req)
 	if err != nil {

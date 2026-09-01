@@ -234,6 +234,63 @@ func TestResponsesSSEIdleTimeoutFromEnv_OverrideRespected(t *testing.T) {
 	assert.Equal(t, 120*time.Second, idleTimeoutFromEnv("ROUTER_RESPONSES_SSE_IDLE_TIMEOUT_SECONDS", 90*time.Second))
 }
 
+// TLSNextProto["h2"] is populated only by ConfigureTransports (ForceAttemptHTTP2
+// alone defers h2 setup to first use, leaving the map nil), so its presence
+// proves PING health checking was wired.
+func TestNewTransport_ConfiguresHTTP2Keepalives(t *testing.T) {
+	tr := NewTransport(10*time.Second, 10*time.Second)
+
+	require.NotNil(t, tr.TLSNextProto, "ConfigureTransports did not run: h2 keepalives are unset")
+	assert.Contains(t, tr.TLSNextProto, "h2")
+	assert.True(t, tr.ForceAttemptHTTP2, "h2 fallback must survive a ConfigureTransports failure")
+}
+
+// Guards that ReadIdleTimeout + PingTimeout < ResponseHeaderTimeout so a dead
+// connection is evicted before the caller pays the full time-to-first-byte guard.
+func TestH2KeepaliveFor_BudgetFitsInsideCallerGuard(t *testing.T) {
+	cases := []struct {
+		name       string
+		guard      time.Duration
+		wantScaled bool
+	}{
+		{"stock guard leaves the configured budget untouched", DefaultResponseHeaderTimeout, false},
+		{"generous guard leaves the configured budget untouched", 4 * DefaultResponseHeaderTimeout, false},
+		{"guard too short for the budget scales both halves", DefaultResponseHeaderTimeout / 3, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			readIdle, ping := h2KeepaliveFor(tc.guard)
+
+			assert.Less(t, readIdle+ping, tc.guard, "detection must finish before the header guard fires")
+			assert.Positive(t, readIdle, "a zero read-idle disables keepalives entirely")
+			assert.Positive(t, ping)
+			if tc.wantScaled {
+				assert.Less(t, readIdle, DefaultH2ReadIdleTimeout)
+				assert.Less(t, ping, DefaultH2PingTimeout)
+				return
+			}
+			assert.Equal(t, DefaultH2ReadIdleTimeout, readIdle)
+			assert.Equal(t, DefaultH2PingTimeout, ping)
+		})
+	}
+}
+
+// Env knobs are validated independently, so an operator can set a pair that
+// sums to the header guard; h2KeepaliveFor must clamp before that happens.
+func TestH2KeepaliveFor_EnvOverridesCannotReachTheHeaderGuard(t *testing.T) {
+	origIdle, origPing := DefaultH2ReadIdleTimeout, DefaultH2PingTimeout
+	t.Cleanup(func() { DefaultH2ReadIdleTimeout, DefaultH2PingTimeout = origIdle, origPing })
+	DefaultH2ReadIdleTimeout, DefaultH2PingTimeout = 20*time.Second, 10*time.Second
+
+	readIdle, ping := h2KeepaliveFor(DefaultResponseHeaderTimeout)
+
+	assert.Less(t, readIdle+ping, DefaultResponseHeaderTimeout)
+	// Each half is scaled independently in float, so they land within a
+	// nanosecond of the ratio rather than exactly on it.
+	assert.InDelta(t, float64(2*ping), float64(readIdle), float64(time.Millisecond),
+		"scaling must preserve the configured idle:ping ratio")
+}
+
 // IsRetryable must see idle-timeout stalls as retryable through the alias —
 // this is what lets dispatchWithFallback rescue a mid-stream stall on the
 // next binding (prod incident 2026-06-09).

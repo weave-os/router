@@ -22,6 +22,46 @@ func (s *Service) gatewayProvidersForRequest(ctx context.Context) map[string]str
 	return gatewayProvidersFromKeys(externalKeysFromContext(ctx))
 }
 
+// gatewayUnservedModelsForRequest returns aliased catalog models every
+// gateway key for this request has answered model-not-found for. Only
+// non-nil when at least one gateway provider is active.
+func (s *Service) gatewayUnservedModelsForRequest(ctx context.Context) map[string]struct{} {
+	keys := externalKeysFromContext(ctx)
+	if len(gatewayProvidersFromKeys(keys)) == 0 {
+		return nil
+	}
+	declared := make(map[string]int)
+	unserved := make(map[string]int)
+	for _, key := range keys {
+		if len(key.Plaintext) == 0 || !providers.IsGateway(key.Provider) {
+			continue
+		}
+		for model := range key.ModelAliases {
+			m, known := catalog.ByID(model)
+			if !known || m.Tier == catalog.TierUnknown {
+				continue
+			}
+			declared[m.ID]++
+			if s.gatewayLacksModel(gatewayModelKey(key.BaseURL, key.Provider, m.ID)) {
+				unserved[m.ID]++
+			}
+		}
+	}
+	var out map[string]struct{}
+	for model, count := range unserved {
+		// A second gateway may still serve it; only drop the model when every
+		// endpoint aliasing it has refused.
+		if count < declared[model] {
+			continue
+		}
+		if out == nil {
+			out = make(map[string]struct{}, len(unserved))
+		}
+		out[model] = struct{}{}
+	}
+	return out
+}
+
 func gatewayProvidersFromKeys(keys []*auth.ExternalAPIKey) map[string]struct{} {
 	var out map[string]struct{}
 	for _, key := range keys {

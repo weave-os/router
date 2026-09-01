@@ -137,15 +137,24 @@ func responsesToAnthropicResponse(body []byte, requestModel string, toolValidato
 	jw.Null()
 
 	usage := root.Get("usage")
+	cacheWrite, cacheRead := OpenAICacheTokens(usage)
+	freshInput := usage.Get("input_tokens").Int() - int64(cacheWrite) - int64(cacheRead)
+	if freshInput < 0 {
+		freshInput = 0
+	}
 	jw.Key("usage")
 	jw.Obj()
 	jw.Key("input_tokens")
-	jw.Int(usage.Get("input_tokens").Int())
+	jw.Int(freshInput)
 	jw.Key("output_tokens")
 	jw.Int(usage.Get("output_tokens").Int())
-	if cached := usage.Get("input_tokens_details.cached_tokens"); cached.Exists() {
+	if cacheWrite > 0 {
+		jw.Key("cache_creation_input_tokens")
+		jw.Int(int64(cacheWrite))
+	}
+	if cacheRead > 0 {
 		jw.Key("cache_read_input_tokens")
-		jw.Int(cached.Int())
+		jw.Int(int64(cacheRead))
 	}
 	jw.EndObj()
 

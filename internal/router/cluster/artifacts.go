@@ -13,6 +13,8 @@ import (
 	"strings"
 
 	"gopkg.in/yaml.v3"
+
+	"workweave/router/internal/router/catalog"
 )
 
 // centroids.bin file format (little-endian):
@@ -632,18 +634,76 @@ func loadModelFeatures(raw []byte, k int) (Rankings, map[string]ModelAxis, error
 // registry entries whose provider is in available. Returns ok=false if
 // nothing matches.
 func CheapestModel(meta *ArtifactMetadata, registry *ModelRegistry, available map[string]struct{}) (provider, model string, ok bool) {
-	return cheapestModelFiltered(meta, registry, available, nil, nil)
+	return cheapestModelFiltered(meta, registry, available, nil, nil, RequestBindings{})
 }
 
 // CheapestModelInSet is CheapestModel restricted to an allowlist and denylist.
 func CheapestModelInSet(meta *ArtifactMetadata, registry *ModelRegistry, available, denySet, allowSet map[string]struct{}) (provider, model string, ok bool) {
-	return cheapestModelFiltered(meta, registry, available, denySet, allowSet)
+	return cheapestModelFiltered(meta, registry, available, denySet, allowSet, RequestBindings{})
 }
 
-func cheapestModelFiltered(meta *ArtifactMetadata, registry *ModelRegistry, available, denySet, allowSet map[string]struct{}) (provider, model string, ok bool) {
-	var bestCost float64 = -1
+// RequestBindings carries a key's model_aliases (Custom) and enrolled gateway
+// providers (Gateways); a non-empty Gateways set means gateway-exclusive routing.
+type RequestBindings struct {
+	Custom   map[string][]string
+	Gateways map[string]struct{}
+}
+
+func (b RequestBindings) resolve(modelID, registryProvider string, available map[string]struct{}) string {
+	if len(b.Gateways) > 0 {
+		return resolveGatewayProvider(modelID, available, b.Custom, b.Gateways)
+	}
+	return resolveProviderWithCustom(modelID, registryProvider, available, b.Custom)
+}
+
+// candidates returns the models these selectors may pick from: the bundle's
+// roster, plus — for a gateway-exclusive key — the catalog models it aliases
+// that this bundle never trained on (a gateway serves whatever its aliases name).
+func (b RequestBindings) candidates(registry *ModelRegistry) []DeployedEntry {
+	if len(b.Gateways) == 0 {
+		return registry.DeployedModels
+	}
+	onRoster := make(map[string]struct{}, len(registry.DeployedModels))
 	for _, e := range registry.DeployedModels {
-		resolved := resolveProviderFor(e.Model, e.Provider, available)
+		onRoster[e.Model] = struct{}{}
+	}
+	offRoster := make([]DeployedEntry, 0, len(b.Custom))
+	for model := range b.Custom {
+		if _, known := onRoster[model]; known {
+			continue
+		}
+		m, inCatalog := catalog.ByID(model)
+		if !inCatalog || m.Tier == catalog.TierUnknown {
+			continue
+		}
+		offRoster = append(offRoster, DeployedEntry{Model: m.ID, Provider: m.PrimaryProvider()})
+	}
+	if len(offRoster) == 0 {
+		return registry.DeployedModels
+	}
+	// Alias maps iterate randomly; two equal-cost aliases must not pick
+	// differently per request.
+	sort.Slice(offRoster, func(i, j int) bool { return offRoster[i].Model < offRoster[j].Model })
+	return append(append(make([]DeployedEntry, 0, len(registry.DeployedModels)+len(offRoster)), registry.DeployedModels...), offRoster...)
+}
+
+// inputCostPer1K prefers the bundle's trained cost, falling back to catalog
+// pricing for off-roster gateway candidates the bundle has no entry for.
+func inputCostPer1K(meta *ArtifactMetadata, model string) (float64, bool) {
+	if cost, ok := meta.CostPer1KInputUSD[model]; ok {
+		return cost, true
+	}
+	price, ok := catalog.PrimaryPriceFor(model)
+	if !ok {
+		return 0, false
+	}
+	return price.InputUSDPer1M / 1000, true
+}
+
+func cheapestModelFiltered(meta *ArtifactMetadata, registry *ModelRegistry, available, denySet, allowSet map[string]struct{}, bindings RequestBindings) (provider, model string, ok bool) {
+	var bestCost float64 = -1
+	for _, e := range bindings.candidates(registry) {
+		resolved := bindings.resolve(e.Model, e.Provider, available)
 		if resolved == "" {
 			continue
 		}
@@ -655,7 +715,7 @@ func cheapestModelFiltered(meta *ArtifactMetadata, registry *ModelRegistry, avai
 		if _, denied := denySet[e.Model]; denied {
 			continue
 		}
-		cost, hasCost := meta.CostPer1KInputUSD[e.Model]
+		cost, hasCost := inputCostPer1K(meta, e.Model)
 		if !hasCost {
 			continue
 		}
@@ -673,20 +733,27 @@ func cheapestModelFiltered(meta *ArtifactMetadata, registry *ModelRegistry, avai
 // available (keyed by resolved provider, so the same model can rank
 // differently by provider). Falls back to CheapestModel if unannotated.
 func FastestModel(meta *ArtifactMetadata, registry *ModelRegistry, available map[string]struct{}) (provider, model string, ok bool) {
-	return fastestModelFiltered(meta, registry, available, nil, nil)
+	return fastestModelFiltered(meta, registry, available, nil, nil, RequestBindings{})
 }
 
 // FastestModelInSet is FastestModel restricted to an allowlist and denylist.
 // Used by the tier-clamp resolver, where allowSet is the at-or-below-ceiling
 // model set.
 func FastestModelInSet(meta *ArtifactMetadata, registry *ModelRegistry, available, denySet, allowSet map[string]struct{}) (provider, model string, ok bool) {
-	return fastestModelFiltered(meta, registry, available, denySet, allowSet)
+	return fastestModelFiltered(meta, registry, available, denySet, allowSet, RequestBindings{})
 }
 
-func fastestModelFiltered(meta *ArtifactMetadata, registry *ModelRegistry, available, denySet, allowSet map[string]struct{}) (provider, model string, ok bool) {
+// FastestModelForRequest is FastestModelInSet with RequestBindings so gateway-only
+// installations (which have no catalog binding) can reach their aliased models.
+// Gateway providers have no tok/s annotation, so selection falls back to cheapest.
+func FastestModelForRequest(meta *ArtifactMetadata, registry *ModelRegistry, available, denySet, allowSet map[string]struct{}, bindings RequestBindings) (provider, model string, ok bool) {
+	return fastestModelFiltered(meta, registry, available, denySet, allowSet, bindings)
+}
+
+func fastestModelFiltered(meta *ArtifactMetadata, registry *ModelRegistry, available, denySet, allowSet map[string]struct{}, bindings RequestBindings) (provider, model string, ok bool) {
 	var bestSpeed float64 = -1
-	for _, e := range registry.DeployedModels {
-		resolved := resolveProviderFor(e.Model, e.Provider, available)
+	for _, e := range bindings.candidates(registry) {
+		resolved := bindings.resolve(e.Model, e.Provider, available)
 		if resolved == "" {
 			continue
 		}
@@ -716,7 +783,7 @@ func fastestModelFiltered(meta *ArtifactMetadata, registry *ModelRegistry, avail
 	if !ok {
 		// No speed-annotated candidate (un-annotated bundle, or every
 		// in-ceiling model lacks a tok/s entry) — fall back to cost-only.
-		return cheapestModelFiltered(meta, registry, available, denySet, allowSet)
+		return cheapestModelFiltered(meta, registry, available, denySet, allowSet, bindings)
 	}
 	return
 }

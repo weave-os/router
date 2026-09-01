@@ -67,7 +67,7 @@ func GetContextHandler(svc *proxy.Service) gin.HandlerFunc {
 			return
 		}
 		if err != nil {
-			log.Error("Failed to load feedback context", "err", err, "request_id", claims.RequestID)
+			log.Error("Failed to load feedback context", "err", err, "rated_request_id", claims.RequestID)
 			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "failed to load context"})
 			return
 		}
@@ -111,7 +111,7 @@ func SubmitHandler(svc *proxy.Service) gin.HandlerFunc {
 			Comment:        normalizeComment(req.Comment),
 		})
 		if err != nil {
-			log.Error("Failed to submit feedback", "err", err, "request_id", claims.RequestID)
+			log.Error("Failed to submit feedback", "err", err, "rated_request_id", claims.RequestID)
 			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "failed to submit feedback"})
 			return
 		}
@@ -157,7 +157,7 @@ func RateHandler(svc *proxy.Service) gin.HandlerFunc {
 			Rating:         rating,
 		})
 		if err != nil {
-			log.Error("Failed to record one-click feedback", "err", err, "request_id", claims.RequestID, "rating", rating)
+			log.Error("Failed to record one-click feedback", "err", err, "rated_request_id", claims.RequestID, "rating", rating)
 			c.Data(http.StatusInternalServerError, "text/html; charset=utf-8", ratePageError("Sorry — we couldn't record that. Please try again."))
 			return
 		}

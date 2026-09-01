@@ -1,6 +1,7 @@
 package httputil
 
 import (
+	"context"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -50,7 +51,7 @@ func TestWritePassthroughError_WritesBodyLogsAndReturnsStatusError(t *testing.T)
 
 	rec := httptest.NewRecorder()
 	var firstByteCalls, eofCalls int
-	err := WritePassthroughError(rec, resp, func() { firstByteCalls++ }, func() { eofCalls++ }, "upstream failed", "path", "/v1/messages")
+	err := WritePassthroughError(context.Background(), rec, resp, func() { firstByteCalls++ }, func() { eofCalls++ }, "upstream failed", "path", "/v1/messages")
 
 	var statusErr *providers.UpstreamStatusError
 	require.ErrorAs(t, err, &statusErr)
@@ -66,7 +67,7 @@ func TestWritePassthroughError_NilHooksAreSafe(t *testing.T) {
 		Body:       io.NopCloser(strings.NewReader("boom")),
 	}
 	rec := httptest.NewRecorder()
-	err := WritePassthroughError(rec, resp, nil, nil, "upstream failed")
+	err := WritePassthroughError(context.Background(), rec, resp, nil, nil, "upstream failed")
 	require.Error(t, err)
 	assert.Equal(t, "boom", rec.Body.String())
 }

@@ -46,7 +46,7 @@ type portableCodexResponsesConverter struct {
 }
 
 func convertPortableCodexResponses(body []byte) (ResponsesConversion, error) {
-	if err := validateJSONObject(body); err != nil {
+	if err := validateResponsesRequest(body); err != nil {
 		return ResponsesConversion{}, err
 	}
 
@@ -355,6 +355,7 @@ func (c *portableCodexResponsesConverter) convertMessageContent(content gjson.Re
 		text := content.Str
 		if role == "assistant" {
 			text = codexResponsesBadgePattern.ReplaceAllString(text, "")
+			text = feedbackFooterPattern.ReplaceAllString(text, "")
 		}
 		return text, true
 	}
@@ -373,6 +374,9 @@ func (c *portableCodexResponsesConverter) convertMessageContent(content gjson.Re
 			if role == "assistant" && firstAssistantText {
 				text = codexResponsesBadgePattern.ReplaceAllString(text, "")
 				firstAssistantText = false
+			}
+			if role == "assistant" {
+				text = feedbackFooterPattern.ReplaceAllString(text, "")
 			}
 			parts = append(parts, map[string]any{"type": "text", "text": text})
 		case "refusal":

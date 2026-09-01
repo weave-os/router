@@ -39,7 +39,29 @@ func (e *RequestEnvelope) PrepareAnthropic(in http.Header, opts EmitOptions) (pr
 	if err != nil {
 		return providers.PreparedRequest{}, err
 	}
+	body, err = applyAnthropicSessionAffinity(body, opts)
+	if err != nil {
+		return providers.PreparedRequest{}, err
+	}
 	return providers.PreparedRequest{Body: body, Headers: deriveAnthropicHeaders(in, opts, body)}, nil
+}
+
+// applyAnthropicSessionAffinity sets metadata.user_id to the session-affinity
+// key for anthropic_gateway targets. Uses a spec Messages field so body-forwarding
+// gateways pass it without unknown-field 400s. Skips if the caller already set
+// user_id, or if the target is first-party Anthropic.
+func applyAnthropicSessionAffinity(body []byte, opts EmitOptions) ([]byte, error) {
+	if opts.TargetProvider != providers.ProviderAnthropicGateway || opts.SessionAffinity == "" {
+		return body, nil
+	}
+	if gjson.GetBytes(body, "metadata.user_id").String() != "" {
+		return body, nil
+	}
+	out, err := sjson.SetBytes(body, "metadata.user_id", opts.SessionAffinity)
+	if err != nil {
+		return nil, fmt.Errorf("set metadata.user_id: %w", err)
+	}
+	return out, nil
 }
 
 func deriveAnthropicHeaders(in http.Header, opts EmitOptions, body []byte) http.Header {
@@ -799,9 +821,15 @@ func sanitizeAnthropicTools(v any) any {
 			continue
 		}
 		copied := make(map[string]any, len(tool))
+		nativeDomainFilter := isAnthropicNativeDomainFilterTool(tool)
 		for k, child := range tool {
 			if k == "input_schema" {
 				copied[k] = sanitizeAnthropicSchema(child)
+				continue
+			}
+			// Anthropic 400s empty allowed_domains/blocked_domains ("Empty list of
+			// domains is ambiguous"); omit so the field is absent rather than [].
+			if nativeDomainFilter && (k == "allowed_domains" || k == "blocked_domains") && isEmptyDomainList(child) {
 				continue
 			}
 			copied[k] = child
@@ -809,6 +837,22 @@ func sanitizeAnthropicTools(v any) any {
 		out = append(out, copied)
 	}
 	return out
+}
+
+func isAnthropicNativeDomainFilterTool(tool map[string]any) bool {
+	typ, _ := tool["type"].(string)
+	return strings.HasPrefix(typ, "web_search_") || strings.HasPrefix(typ, "web_fetch_")
+}
+
+func isEmptyDomainList(v any) bool {
+	switch arr := v.(type) {
+	case []any:
+		return len(arr) == 0
+	case []string:
+		return len(arr) == 0
+	default:
+		return false
+	}
 }
 
 func sanitizeAnthropicSchema(v any) any {

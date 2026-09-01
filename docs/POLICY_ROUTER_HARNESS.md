@@ -71,6 +71,11 @@ router-generated summarizer calls for those turns. Post-selection synthetic
 loop breakers are also bypassed so one accepted policy action maps to one
 selected model dispatch attempt.
 
+The subscription usage-bypass gate is deliberately outside that list: it
+decides whether a turn is routed and billed at all, so a caller's own prepaid
+Claude/Codex quota still passes straight through and the `/route` call is never
+made for that turn.
+
 ## Route contract
 
 The router sends a stable `route_id`, strategy, execution mode, organization
@@ -146,9 +151,30 @@ holds any policy-internal arm, bucket, cluster, or mode. During migration,
 }
 ```
 
+A sidecar may additionally emit optional typed fields: `predicted_label`
+(the classifier's predicted complexity label) and `class_probabilities` (its
+per-class probability map). Sidecars that omit them keep the legacy behavior
+unchanged.
+
 The router rejects empty selections, unknown roster IDs, provider mismatches,
 and unsupported schema versions. Rich `debug` data is internal to the sidecar;
 only an opaque `debug_ref` is projected when authorized debug mode is enabled.
+
+### `policy_router_v3`: classifier-only
+
+A strategy whose router owns arm selection (today: the HMM strategies, see
+[HMM_GO_SELECTION.md](HMM_GO_SELECTION.md)) speaks `policy_router_v3` instead.
+A v3 `/route` response classifies and ranks; it does not decide:
+
+- `selected_roster_id`, `selected_provider` and `model` are `null` — naming an
+  arm is a contract violation, not an extra;
+- `ranked_fallback` is required, and is the only selection input the router
+  reads;
+- `predicted_label` and `class_probabilities` carry the classification.
+
+There is no dual-support window: such a router rejects a `policy_router_v1` or
+`v2` response, and a missing or arm-less `ranked_fallback` fails the turn with
+HTTP 503 rather than serving a sidecar pick.
 
 `POST /outcome` reports `selected_model`, `selected_provider`, `served_model`,
 `served_provider`, `selected_served_model_match`, and

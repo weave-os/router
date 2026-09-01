@@ -32,6 +32,7 @@ type SidecarRouter struct {
 	reporter         OutcomeReporter
 	feedbackReporter FeedbackReporter
 	resolver         *Resolver
+	armSelector      ArmSelector
 	capabilitiesMu   sync.RWMutex
 	capabilities     Capabilities
 	capabilitiesSet  bool
@@ -61,6 +62,14 @@ func (r *SidecarRouter) WithCapabilities(capabilities Capabilities) *SidecarRout
 
 	r.capabilities = capabilities
 	r.capabilitiesSet = true
+	return r
+}
+
+// WithArmSelector installs a boot-time arm selector and negotiates the
+// classifier-only sidecar contract; cluster overrides still take precedence.
+func (r *SidecarRouter) WithArmSelector(selector ArmSelector) *SidecarRouter {
+	r.armSelector = selector
+	r.resolver.RouterSelectsArm()
 	return r
 }
 
@@ -314,9 +323,6 @@ func (r *SidecarRouter) Route(ctx context.Context, req router.Request) (router.D
 		return router.Decision{}, fmt.Errorf("%s: sidecar decide: %w: %w", strategy, err, r.config.Unavailable)
 	}
 
-	// Per-key cluster allowlist enforcement. ranked_fallback presence in the /route
-	// response is proof the sidecar supports it — boot-time capabilities can be
-	// stale after an upgrade. Missing ranked_fallback → fail open.
 	overrideArmID := res.ArmID
 	overrideRosterID := res.Model
 	overrideReasonSuffix := ""
@@ -324,30 +330,52 @@ func (r *SidecarRouter) Route(ctx context.Context, req router.Request) (router.D
 	// sidecar's, which is the only case where res.Provider legitimately names a
 	// different provider than the resolved binding.
 	reselected := false
+	if r.armSelector != nil {
+		if res.SchemaVersion != SchemaVersionV3 {
+			return router.Decision{}, fmt.Errorf("%s: sidecar reported schema %q, expected %s: %w", strategy, res.SchemaVersion, SchemaVersionV3, r.config.Unavailable)
+		}
+		pick, selectErr := r.armSelector(ctx, selectionInputFor(strategy, executionMode, req, res, resolved))
+		if selectErr != nil {
+			return router.Decision{}, fmt.Errorf("%s: arm selection: %w: %w", strategy, selectErr, r.config.Unavailable)
+		}
+		overrideArmID = indexCandidates(resolved).rosterToArm[pick.Arm]
+		overrideRosterID = pick.Arm
+		overrideReasonSuffix = ":go_selection"
+		reselected = true
+		res.PolicyGroup = pick.Group
+	}
+
+	// Per-key cluster allowlist enforcement. ranked_fallback presence in the /route
+	// response is proof the sidecar supports it — boot-time capabilities can be
+	// stale after an upgrade. Missing ranked_fallback → fail open.
 	switch {
 	case req.ForceCluster != "":
 		// Returned unwrapped: the caller's dispatch classifier matches the typed
 		// error to a 400, and burying it under the strategy's unavailable sentinel
 		// would report a bad header as a sidecar outage.
-		outcome, err := ApplyClusterArmOverridesRequireMatch(req.ClusterArmOverrides, res.RankedFallback, resolved, res.Model, req.ForceCluster)
+		outcome, err := ApplyClusterArmOverridesRequireMatch(req.ClusterArmOverrides, res.RankedFallback, resolved, overrideRosterID, req.ForceCluster)
 		if err != nil {
 			return router.Decision{}, err
 		}
+		previousRosterID := overrideRosterID
 		overrideArmID = outcome.ArmID
 		overrideRosterID = outcome.RosterID
-		// Annotated even when the forced cluster is the one the sidecar picked
-		// anyway, so telemetry can tell a constrained turn from a free one.
+		// Annotated even when the forced cluster is the one already selected,
+		// so telemetry can tell a constrained turn from a free one.
 		overrideReasonSuffix = ":force_cluster"
-		reselected = outcome.Changed
+		reselected = reselected || outcome.Changed
 		observability.FromContext(ctx).Info("Forced cluster applied",
 			"strategy", strategy,
 			"group", outcome.Group,
-			"sidecar_arm", res.Model,
+			"previous_arm", previousRosterID,
 			"forced_arm", outcome.RosterID,
 		)
 	case len(req.ClusterArmOverrides) > 0 && len(res.RankedFallback) > 0:
-		outcome := ApplyClusterArmOverrides(req.ClusterArmOverrides, res.RankedFallback, resolved, res.Model)
-		if outcome.Applied && outcome.RosterID != "" {
+		outcome := ApplyClusterArmOverrides(req.ClusterArmOverrides, res.RankedFallback, resolved, overrideRosterID)
+		// Only a configured allowlist supersedes the router's own selection; an
+		// unconstrained group walk would just re-derive the same ranked order.
+		if outcome.Applied && outcome.RosterID != "" && (outcome.Constrained || r.armSelector == nil) {
+			previousRosterID := overrideRosterID
 			// Use the resolved arm ID: on arm-enumerating resolvers a roster ID can
 			// be ambiguous (shared across providers) and absent from ByRosterID.
 			overrideArmID = outcome.ArmID
@@ -358,7 +386,7 @@ func (r *SidecarRouter) Route(ctx context.Context, req router.Request) (router.D
 				observability.FromContext(ctx).Info("Cluster allowlist override applied",
 					"strategy", strategy,
 					"group", outcome.Group,
-					"sidecar_arm", res.Model,
+					"previous_arm", previousRosterID,
 					"override_arm", outcome.RosterID,
 				)
 			}

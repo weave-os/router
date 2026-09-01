@@ -36,7 +36,14 @@ func NewHTTPDeciderWithHeaders(baseURL string, client *http.Client, timeout time
 		if timeout <= 0 {
 			timeout = DefaultTimeout
 		}
-		client = &http.Client{Timeout: timeout}
+		// Sidecar URL is configuration, not discovery: hand a 3xx back (it
+		// fails the != 200 status check) instead of following it elsewhere.
+		client = &http.Client{
+			Timeout: timeout,
+			CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
+				return http.ErrUseLastResponse
+			},
+		}
 	}
 	copied := map[string]string{}
 	for k, v := range headers {

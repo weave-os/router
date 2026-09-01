@@ -87,6 +87,16 @@ func buildBlock(table map[string]otel.Pricing) string {
 		}
 		fmt.Fprintf(&b, "    %-*s %s%s\n", pad, entry, fmtPrice(table[m].OutputUSDPer1M/1000), comma)
 	}
+	b.WriteString("  },\n")
+	b.WriteString("  \"cache_read\": {\n")
+	for i, m := range models {
+		entry := fmt.Sprintf("%q:", m)
+		comma := ","
+		if i == len(models)-1 {
+			comma = ""
+		}
+		fmt.Fprintf(&b, "    %-*s %s%s\n", pad, entry, fmtCatalogPrice(table[m].EffectiveCacheReadMultiplier()), comma)
+	}
 	b.WriteString("  }\n")
 	b.WriteString("}'")
 	return b.String()
@@ -105,6 +115,7 @@ func buildTypeScript(table map[string]otel.Pricing) string {
 	b.WriteString("export interface ModelPricing {\n")
 	b.WriteString("\tinputUsdPerMillion: number;\n")
 	b.WriteString("\toutputUsdPerMillion: number;\n")
+	b.WriteString("\tcacheReadMultiplier: number;\n")
 	b.WriteString("}\n\n")
 	fmt.Fprintf(&b, "export const PRICING_VERSION = %q;\n\n", version)
 	b.WriteString("export const MODEL_PRICING: Readonly<Record<string, ModelPricing>> = Object.freeze({\n")
@@ -112,10 +123,11 @@ func buildTypeScript(table map[string]otel.Pricing) string {
 		price := table[model]
 		fmt.Fprintf(
 			&b,
-			"\t%q: { inputUsdPerMillion: %s, outputUsdPerMillion: %s },\n",
+			"\t%q: { inputUsdPerMillion: %s, outputUsdPerMillion: %s, cacheReadMultiplier: %s },\n",
 			model,
 			fmtCatalogPrice(price.InputUSDPer1M),
 			fmtCatalogPrice(price.OutputUSDPer1M),
+			fmtCatalogPrice(price.EffectiveCacheReadMultiplier()),
 		)
 	}
 	b.WriteString("});\n")
@@ -137,10 +149,11 @@ func pricingVersion(table map[string]otel.Pricing, models []string) string {
 		price := table[model]
 		fmt.Fprintf(
 			&canonical,
-			"%s\x00%s\x00%s\n",
+			"%s\x00%s\x00%s\x00%s\n",
 			model,
 			fmtCatalogPrice(price.InputUSDPer1M),
 			fmtCatalogPrice(price.OutputUSDPer1M),
+			fmtCatalogPrice(price.EffectiveCacheReadMultiplier()),
 		)
 	}
 	sum := sha256.Sum256([]byte(canonical.String()))

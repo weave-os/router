@@ -72,7 +72,7 @@ def test_capabilities_are_frozen_and_do_not_request_content_callbacks() -> None:
 
     assert response.status_code == 200
     payload = response.json()
-    assert payload["schema_version"] == "policy_router_v1"
+    assert payload["schema_version"] == "policy_router_v3"
     assert payload["reports_outcomes"] is False
     assert payload["reports_feedback"] is False
     assert payload["supports_shadow"] is True
@@ -121,7 +121,7 @@ def test_readiness_fails_closed_without_an_artifact() -> None:
 def test_route_rejections_do_not_expose_internal_exception_text() -> None:
     with TestClient(app) as client:
         app.state.policy = RejectingPolicy()
-        response = client.post("/route", json={"schema_version": "policy_router_v1"})
+        response = client.post("/route", json={"schema_version": "policy_router_v3"})
 
     assert response.status_code == 422
     assert response.json() == {"error": "route request rejected"}
@@ -131,11 +131,11 @@ def test_route_rejections_do_not_expose_internal_exception_text() -> None:
 def test_preview_requires_explicit_mode_and_returns_all_selected_arms() -> None:
     with TestClient(app) as client:
         app.state.policy = PreviewingPolicy()
-        rejected = client.post("/preview", json={"schema_version": "policy_router_v1"})
+        rejected = client.post("/preview", json={"schema_version": "policy_router_v3"})
         response = client.post(
             "/preview",
             json={
-                "schema_version": "policy_router_v1",
+                "schema_version": "policy_router_v3",
                 "execution_mode": "preview",
             },
         )
@@ -152,7 +152,7 @@ def test_roster_returns_arm_union() -> None:
 
     assert response.status_code == 200
     payload = response.json()
-    assert payload["schema_version"] == "policy_router_v1"
+    assert payload["schema_version"] == "policy_router_v3"
     assert payload["roster_ids"] == [
         "openai/gpt-5.6-sol",
         "anthropic/claude-opus-4.8",
@@ -179,8 +179,6 @@ class TimedPolicy:
         return (
             RouteResult(
                 route_id="route",
-                selected_roster_id="provider/a",
-                selected_provider="provider",
                 score=0.9,
                 candidate_scores={"provider/a": 0.9},
                 reason="test",
@@ -194,6 +192,14 @@ class TimedPolicy:
                 policy_artifact_id="artifact",
                 policy_artifact_sha256="a" * 64,
                 roster_version="b" * 64,
+                ranked_fallback=(
+                    {
+                        "group": "fast",
+                        "probability": 0.9,
+                        "roster_arms": ("provider/a",),
+                        "eligible_arms": ("provider/a",),
+                    },
+                ),
                 debug={"frozen_policy": True},
             ),
             RouteTimings(
@@ -221,7 +227,7 @@ def test_route_logs_one_stage_timing_line(caplog) -> None:
         with TestClient(app) as client:
             app.state.policy = policy
             response = client.post(
-                "/route", json={"schema_version": "policy_router_v1"}
+                "/route", json={"schema_version": "policy_router_v3"}
             )
 
     assert response.status_code == 200
@@ -244,6 +250,30 @@ def test_route_logs_one_stage_timing_line(caplog) -> None:
         "embed_fetched=2",
     ):
         assert field in line, f"{field!r} missing from {line!r}"
+
+
+def test_route_response_names_no_arm() -> None:
+    """v3 is classifier-only: a router reading a served arm out of the body is
+    reading a null, not a stale pick."""
+    with TestClient(app) as client:
+        app.state.policy = TimedPolicy()
+        response = client.post("/route", json={"schema_version": "policy_router_v3"})
+
+    payload = response.json()
+    assert payload["schema_version"] == "policy_router_v3"
+    assert payload["selected_roster_id"] is None
+    assert payload["selected_provider"] is None
+    assert payload["model"] is None
+    assert payload["ranked_fallback"][0]["eligible_arms"] == ["provider/a"]
+
+
+def test_route_rejects_the_superseded_selection_schema() -> None:
+    with TestClient(app) as client:
+        app.state.policy = TimedPolicy()
+        response = client.post("/route", json={"schema_version": "policy_router_v1"})
+
+    assert response.status_code == 400
+    assert response.json() == {"error": "unsupported policy schema"}
 
 
 def test_route_timing_log_carries_no_request_content() -> None:
@@ -282,7 +312,7 @@ def test_route_failures_do_not_log_a_timing_line(caplog) -> None:
         with TestClient(app) as client:
             app.state.policy = RejectingPolicy()
             response = client.post(
-                "/route", json={"schema_version": "policy_router_v1"}
+                "/route", json={"schema_version": "policy_router_v3"}
             )
 
     assert response.status_code == 422

@@ -215,6 +215,7 @@ type Resolver struct {
 	mapper            RosterMapper
 	providerPolicy    ProviderPolicy
 	enumerateBindings bool
+	routerSelectsArm  bool
 	toolLow           map[string]struct{}
 	imageLow          map[string]struct{}
 }
@@ -238,8 +239,17 @@ func NewArmResolver(deployed, available map[string]struct{}, mapper RosterMapper
 	return resolver
 }
 
+// RouterSelectsArm negotiates the classifier-only contract: the sidecar
+// classifies, this router selects. Set when an ArmSelector is installed.
+func (r *Resolver) RouterSelectsArm() {
+	r.routerSelectsArm = true
+}
+
 // SchemaVersion returns the sidecar contract required by this resolver.
 func (r *Resolver) SchemaVersion() string {
+	if r.routerSelectsArm {
+		return SchemaVersionV3
+	}
 	if r.enumerateBindings {
 		return SchemaVersionV2
 	}

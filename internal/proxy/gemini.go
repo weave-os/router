@@ -15,8 +15,6 @@ import (
 	"workweave/router/internal/router/catalog"
 	"workweave/router/internal/router/sessionpin"
 	"workweave/router/internal/translate"
-
-	"github.com/google/uuid"
 )
 
 // ErrGeminiCrossFormatUnsupported is returned when a Gemini-source request
@@ -38,7 +36,7 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 	}
 	log := observability.FromContext(ctx)
 	requestStart := time.Now()
-	requestID := uuid.New().String()
+	requestID := requestIDFor(ctx)
 	buf := s.newTelemetryBuffer()
 	ctx = buf.WithContext(ctx)
 
@@ -106,7 +104,7 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 		ConversationMessages:         conversationMessagesForRouting(env),
 		AvailableTools:               availableToolsForRouting(env),
 		Tools:                        toolsForRouting(env),
-		ClientSessionID:              env.ClientSessionID(),
+		ClientSessionID:              clientSessionIDForRequest(ctx, env),
 		EnabledProviders:             s.enabledProvidersForRequest(ctx, providers.ProviderGoogle, r.Header),
 		CustomBindings:               s.customBindingsForRequest(ctx),
 		GatewayProviders:             s.gatewayProvidersForRequest(ctx),

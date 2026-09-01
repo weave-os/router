@@ -263,8 +263,7 @@ func shortSessionKey(sessionKey [sessionpin.SessionKeyLen]byte) string {
 // handleNoProgressBreak writes a synthetic end_turn response, expires an
 // automatic session pin, and returns a non-nil error so callers treat it as a
 // failed dispatch (skips billing/telemetry). Explicit force-model pins remain
-// intact. Mirrors handleToolCallLoopBreak's mechanics but with a message that
-// names the cross-envelope loop mode.
+// intact. Its message names the cross-envelope loop mode.
 func (s *Service) handleNoProgressBreak(
 	ctx context.Context,
 	w http.ResponseWriter,

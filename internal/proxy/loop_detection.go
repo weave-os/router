@@ -3,12 +3,11 @@ package proxy
 import (
 	"context"
 	"encoding/binary"
-	"fmt"
-	"net/http"
 	"time"
 
 	"workweave/router/internal/observability"
 	"workweave/router/internal/providers"
+	"workweave/router/internal/router"
 	"workweave/router/internal/router/sessionpin"
 	"workweave/router/internal/translate"
 
@@ -70,52 +69,9 @@ func DeterministicHoldout(sessionKey [sessionpin.SessionKeyLen]byte, pct int) bo
 	return int(binary.BigEndian.Uint32(sessionKey[0:4])%100) < pct
 }
 
-// Loop-detection knobs: MaxRepeats identical (name+args) calls within the
-// last Window calls trips the break. Mirrors charmbracelet/crush's detector —
-// tolerates legit retries but catches qwen3's repeat-call failure mode fast.
-const (
-	loopDetectionWindowSize = 10
-	loopDetectionMaxRepeats = 5
-)
-
-// detectToolCallLoop reports whether the same (tool_name, args) signature
-// repeats loopDetectionMaxRepeats+ times within the last loopDetectionWindowSize
-// tool calls, returning the signature and count for logs/the stop message.
-func detectToolCallLoop(env *translate.RequestEnvelope) (looped bool, sig translate.ToolCallSig, count int) {
-	sigs := env.AssistantToolCallSignatures()
-	if len(sigs) < loopDetectionMaxRepeats {
-		return false, translate.ToolCallSig{}, 0
-	}
-	start := 0
-	if len(sigs) > loopDetectionWindowSize {
-		start = len(sigs) - loopDetectionWindowSize
-	}
-	window := sigs[start:]
-	counts := make(map[string]int, len(window))
-	keys := make(map[string]translate.ToolCallSig, len(window))
-	for _, s := range window {
-		key := s.Name + "\x00" + s.InputHash
-		counts[key]++
-		keys[key] = s
-		if counts[key] >= loopDetectionMaxRepeats {
-			// Dump the ordered window to distinguish a real loop (identical
-			// args) from a false positive (distinct args that canonicalize-collide).
-			log := observability.Get()
-			args := env.AssistantToolCallArgsPreview(start, 200)
-			log.Info("loop detector window dump",
-				"tool_name", s.Name,
-				"input_hash", s.InputHash,
-				"window_args", args,
-			)
-			return true, s, counts[key]
-		}
-	}
-	return false, translate.ToolCallSig{}, 0
-}
-
-// Cyclic-loop-detection knobs. detectToolCallLoop catches a TIGHT loop (one
-// call >=5x in 10); this catches a WIDER cycle — re-reading a few files for
-// dozens of turns (seen post-#332: gpt-5.5/haiku re-read x45+ over 400 turns).
+// Cyclic-loop-detection knobs. This catches a WIDER cycle — re-reading a few
+// files for dozens of turns (seen post-#332: gpt-5.5/haiku re-read x45+ over
+// 400 turns).
 const (
 	cyclicLoopWindowSize       = 30
 	cyclicLoopMinCalls         = 24
@@ -191,7 +147,7 @@ func (s *Service) handleLoopEscalation(
 		existing, found, err := s.pinStore.Get(ctx, sessionKey, role)
 		if err != nil {
 			log.Error("loop-escalation: prior pin lookup failed", "err", err)
-		} else if found {
+		} else if found && pinMatchesEffectiveStrategy(ctx, existing) {
 			if existing.Reason == translate.ReasonLoopEscalation {
 				return // already rescued this session; don't re-pin or double-log
 			}
@@ -263,7 +219,7 @@ func (s *Service) handleLoopEscalation(
 			return
 		}
 		var lastServed string
-		if existing, found, err := s.pinStore.Get(ctx, sessionKey, role); err == nil && found {
+		if existing, found, err := s.pinStore.Get(ctx, sessionKey, role); err == nil && found && pinMatchesEffectiveStrategy(ctx, existing) {
 			lastServed = existing.LastServedModel
 		}
 		pin := sessionpin.Pin{
@@ -273,6 +229,7 @@ func (s *Service) handleLoopEscalation(
 			Provider:        providers.ProviderAnthropic,
 			Model:           escalateModel,
 			Reason:          translate.ReasonLoopEscalation,
+			Strategy:        router.StrategyFromContext(ctx),
 			TurnCount:       1,
 			PinnedUntil:     time.Now().Add(pinSessionTTL),
 			LastServedModel: lastServed,
@@ -305,62 +262,5 @@ func (s *Service) handleLoopEscalation(
 		if err := s.loopEscalationStore.InsertLoopEscalationEvent(context.Background(), event); err != nil {
 			log.Error("loop-escalation: event insert failed", "err", err)
 		}
-	}
-}
-
-// handleToolCallLoopBreak short-circuits a runaway tool-call loop: writes a
-// synthetic end_turn response and expires the session pin so the next turn
-// re-routes instead of re-anchoring on the looping model. Pin expiry is
-// best-effort — a write failure logs but doesn't block the response.
-func (s *Service) handleToolCallLoopBreak(
-	ctx context.Context,
-	w http.ResponseWriter,
-	env *translate.RequestEnvelope,
-	sig translate.ToolCallSig,
-	count int,
-	installationID uuid.UUID,
-	sessionKey [sessionpin.SessionKeyLen]byte,
-	role string,
-	loopingModel string,
-	loopingProvider string,
-	inputTokens int,
-) error {
-	log := observability.FromContext(ctx)
-
-	msg := fmt.Sprintf(
-		"✦ **Weave Router** → Tool-call loop detected: `%s` was called %d times in the last %d turns with identical arguments. Stopping this turn and clearing the session pin so the next message re-routes to a fresh model.\n\nIf the task is genuinely incomplete, send a follow-up message describing what's still needed; the router will pick a different model.\n\n",
-		sig.Name, count, loopDetectionWindowSize,
-	)
-	if env.SourceFormat() == translate.FormatOpenAI {
-		msg = fmt.Sprintf(
-			"Weave Router: tool-call loop detected (%s called %d times with identical args). Stopping and clearing the session pin. Send a follow-up message to resume; the router will pick a different model.",
-			sig.Name, count,
-		)
-	}
-
-	log.Info("Tool-call loop detected; breaking turn",
-		"tool_name", sig.Name,
-		"repeat_count", count,
-		"window_size", loopDetectionWindowSize,
-		"decision_source", "synthetic_tool_call_loop_break",
-		"looping_model", loopingModel,
-		"looping_provider", loopingProvider,
-		"session_key_prefix", shortSessionKey(sessionKey),
-		"role", role,
-	)
-
-	// Expire the pin in Postgres (not just the in-proc cache) so a racing
-	// reader on another pod can't repopulate the LRU from the stale row.
-	if s.pinStore != nil && installationID != uuid.Nil {
-		if err := s.expireSessionPinAndHMMHistory(ctx, installationID, sessionKey, role, "tool_call_loop_break"); err != nil {
-			log.Error("loop-break: pin store upsert failed", "err", err)
-		}
-	}
-
-	switch env.SourceFormat() {
-	case translate.FormatOpenAI:
-		return writeSyntheticOpenAIResponse(w, env, msg, inputTokens)
-	default:
-		return writeSyntheticAnthropicResponse(w, env, msg, inputTokens)
 	}
 }

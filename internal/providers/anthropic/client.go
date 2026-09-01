@@ -120,7 +120,7 @@ func NewClient(apiKey, baseURL string, opts ...Option) *Client {
 	c := &Client{
 		apiKey:  apiKey,
 		baseURL: baseURL,
-		http:    &http.Client{Transport: httputil.NewTransport(10*time.Second, 10*time.Second)},
+		http:    httputil.NewClient(httputil.NewTransport(10*time.Second, 10*time.Second)),
 	}
 	for _, opt := range opts {
 		opt(c)
@@ -285,15 +285,17 @@ func (c *Client) Proxy(ctx context.Context, decision router.Decision, prep provi
 	body = proxy.ApplyModelAlias(ctx, body, decision.Model)
 
 	// 404s are buffered before reaching w, so a duplicate "/v1" can be re-tried.
-	// firstErr is returned on double-miss so the probe's 404 doesn't mask the original.
+	// A non-404 on the retried path is the real error and is memoized; only a
+	// second 404 falls back to the probe so a genuine model-not-found is preserved.
 	urls := c.versionMemo.URLs(baseURL, "/v1/messages")
 	firstErr := c.proxyTo(ctx, cancel, urls[0], body, decision, prep, w, r)
 	if len(urls) == 1 || !providers.IsUpstreamModelNotFound(firstErr) {
 		return firstErr
 	}
-	if err := c.proxyTo(ctx, cancel, urls[1], body, decision, prep, w, r); err == nil {
+	err := c.proxyTo(ctx, cancel, urls[1], body, decision, prep, w, r)
+	if err == nil || !providers.IsUpstreamModelNotFound(err) {
 		c.versionMemo.Learn(baseURL)
-		return nil
+		return err
 	}
 	return firstErr
 }
@@ -313,6 +315,7 @@ func (c *Client) proxyTo(ctx context.Context, cancel context.CancelCauseFunc, ur
 	c.applyOAuthBeta(ctx, upstream, r)
 	proxy.ApplyWIFTokenType(ctx, upstream)
 	proxy.ApplyIdentityHeader(ctx, upstream)
+	proxy.ApplyForwardedClientHeaders(ctx, upstream, r.Header)
 	if v := r.Header.Get("accept"); v != "" {
 		upstream.Header.Set("accept", v)
 	}
@@ -339,6 +342,7 @@ func (c *Client) proxyTo(ctx context.Context, cancel context.CancelCauseFunc, ur
 			t.StampUpstreamEOF()
 		}
 		httputil.LogUpstreamStatus(
+			ctx,
 			"Upstream Anthropic returned error status",
 			resp.StatusCode,
 			"routed_model", decision.Model,
@@ -364,6 +368,7 @@ func (c *Client) proxyTo(ctx context.Context, cancel context.CancelCauseFunc, ur
 				providers.CopyUpstreamHeaders(httputil.HeaderCapture{H: errHeaders}, resp)
 				buffered.Headers = errHeaders
 				httputil.LogUpstreamStatus(
+					ctx,
 					"Upstream Anthropic returned SSE error event",
 					buffered.Status,
 					"routed_model", decision.Model,
@@ -421,6 +426,7 @@ func (c *Client) Passthrough(ctx context.Context, prep providers.PreparedRequest
 	c.applyProtectedHeaders(upstream)
 	c.applyOAuthBeta(ctx, upstream, r)
 	proxy.ApplyWIFTokenType(ctx, upstream)
+	proxy.ApplyForwardedClientHeaders(ctx, upstream, r.Header)
 	if v := r.Header.Get("accept"); v != "" {
 		upstream.Header.Set("accept", v)
 	}
@@ -434,7 +440,7 @@ func (c *Client) Passthrough(ctx context.Context, prep providers.PreparedRequest
 	providers.CopyUpstreamHeaders(w, resp)
 	w.WriteHeader(resp.StatusCode)
 	if resp.StatusCode >= 400 {
-		return httputil.WritePassthroughError(w, resp, nil, nil, "Upstream Anthropic returned error status (passthrough)", "path", r.URL.Path)
+		return httputil.WritePassthroughError(r.Context(), w, resp, nil, nil, "Upstream Anthropic returned error status (passthrough)", "path", r.URL.Path)
 	}
 	_, err = io.Copy(w, resp.Body)
 	return err

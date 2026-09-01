@@ -20,6 +20,9 @@ type RouterFeedbackResult struct {
 	// Sequence is an optional leading turn-selector: 0 = last turn (default),
 	// positive = absolute 1-based index, negative = relative offset from last (e.g. -3).
 	Sequence int
+	// FromToolResult is true for directives arriving via a tool result; they
+	// continue routing rather than end with a synthetic response.
+	FromToolResult bool
 }
 
 // RouterFeedbackRatingUp and RouterFeedbackRatingDown are the canonical
@@ -39,21 +42,21 @@ var RouterFeedbackLabels = map[string]struct{}{
 	"maximum":  {},
 }
 
-// ExtractRouterFeedbackCommand scans the last user-role message in env for a
-// /router-feedback <text> directive. When found, it strips the command line
-// from env.body and returns the feedback text. A bare /router-feedback with
-// no text still matches (found=true, empty Feedback) so the handler can ack
-// with usage guidance instead of forwarding the command to an upstream model.
-// Returns (zero, false) when no command is present.
+// ExtractRouterFeedbackCommand scans the trailing user/tool-result message in
+// env for a /router-feedback <text> directive. When found, it strips the
+// command from env.body and returns the feedback text. A bare command still
+// matches (found=true, empty Feedback) so user-issued commands can receive
+// usage guidance. Returns (zero, false) when no command is present.
 func (env *RequestEnvelope) ExtractRouterFeedbackCommand() (RouterFeedbackResult, bool) {
 	var res RouterFeedbackResult
-	found := env.extractLeadingCommand(func(text string) (bool, string) {
+	found, fromToolResult := env.extractLeadingCommandWithSource(func(text string) (bool, string) {
 		r, ok, stripped := parseRouterFeedbackCommand(text)
 		if ok {
 			res = r
 		}
 		return ok, stripped
 	})
+	res.FromToolResult = found && fromToolResult
 	return res, found
 }
 
@@ -106,9 +109,11 @@ func (env *RequestEnvelope) StripRouterFeedbackArtifacts() int {
 // directive on the first non-empty line, applying the same leading-line +
 // injected-prefix guards as parseForceModelCommand (see that function for the
 // rationale; the router-side alias serves clients without local slash-command
-// expansion). Unlike /force-model, everything after the command — same line
-// AND following lines — is the feedback payload, so the whole body is
-// consumed and the stripped output keeps only the injected prefix.
+// expansion). Codex exec results get a narrow exception for their known
+// "Script completed" preamble. Unlike /force-model, everything after the
+// command — same line AND following lines — is the feedback payload, so the
+// whole body is consumed and the stripped output keeps only the injected
+// prefix.
 func parseRouterFeedbackCommand(text string) (res RouterFeedbackResult, found bool, stripped string) {
 	prefixEnd := leadingInjectedPrefixEnd(text)
 	prefix := text[:prefixEnd]
@@ -120,6 +125,29 @@ func parseRouterFeedbackCommand(text string) (res RouterFeedbackResult, found bo
 
 	rating, inline, ok := matchRouterFeedbackCommand(first)
 	if !ok {
+		// Codex's exec tool joins a "Script completed … Output:" preamble with
+		// the skill directive; check only the first non-empty output line.
+		if strings.HasPrefix(strings.TrimSpace(text), "Script completed") {
+			lines := strings.Split(text, "\n")
+			for i, line := range lines {
+				if strings.TrimSpace(line) != "Output:" {
+					continue
+				}
+				for i++; i < len(lines); i++ {
+					if strings.TrimSpace(lines[i]) == "" {
+						continue
+					}
+					// Feed the whole block: /router-feedback consumes everything to EOF; one line truncates the note and leaks the rest upstream.
+					candidate, found, _ := parseRouterFeedbackCommand(strings.Join(lines[i:], "\n"))
+					if !found {
+						break
+					}
+					candidate.FromToolResult = false
+					return candidate, true, strings.TrimSpace(strings.Join(lines[:i], "\n"))
+				}
+				break
+			}
+		}
 		return RouterFeedbackResult{}, false, text
 	}
 
@@ -223,14 +251,18 @@ func isRouterFeedbackAckText(text string) bool {
 
 // matchRouterFeedbackCommand recognizes the command token at the start of the
 // first line. It returns the rating encoded directly in the token (for the
-// /rf+ and /rf- shortcuts), the inline text following the token, and whether a
-// command matched at all.
+// /rf+ and /rf- shortcuts, plus the Codex $rf forms), the inline text
+// following the token, and whether a command matched at all.
 func matchRouterFeedbackCommand(first string) (rating, inline string, ok bool) {
 	for _, c := range []struct{ tok, rating string }{
 		{"/rf+", RouterFeedbackRatingUp},
+		{"$rf+", RouterFeedbackRatingUp},
 		{"/rf👍", RouterFeedbackRatingUp},
+		{"$rf👍", RouterFeedbackRatingUp},
 		{"/rf-", RouterFeedbackRatingDown},
+		{"$rf-", RouterFeedbackRatingDown},
 		{"/rf👎", RouterFeedbackRatingDown},
+		{"$rf👎", RouterFeedbackRatingDown},
 	} {
 		if first == c.tok {
 			return c.rating, "", true
@@ -239,10 +271,10 @@ func matchRouterFeedbackCommand(first string) (rating, inline string, ok bool) {
 			return c.rating, after, true
 		}
 	}
-	if first == "/router-feedback" || first == "/rf" {
+	if first == "/router-feedback" || first == "/rf" || first == "$router-feedback" || first == "$rf" {
 		return "", "", true
 	}
-	if after, found := cutAnyPrefix(first, "/router-feedback ", "/rf "); found {
+	if after, found := cutAnyPrefix(first, "/router-feedback ", "/rf ", "$router-feedback ", "$rf "); found {
 		return "", after, true
 	}
 	return "", "", false

@@ -57,3 +57,15 @@ func TestToAuthInstallationPolicyRouting(t *testing.T) {
 	assert.Equal(t, "high", inst.PolicyRoutingIntent)
 	assert.True(t, inst.AITrainingAllowed)
 }
+
+func TestToAuthInstallationSubscriptionConditionalModels(t *testing.T) {
+	inst := toAuthInstallation(sqlc.RouterModelRouterInstallation{
+		ID:                             uuid.New(),
+		ExternalID:                     "org-conditional",
+		ModelsWhenSubscriptionActive:   []string{"claude-sonnet-5"},
+		ModelsWhenSubscriptionInactive: []string{"gpt-5.6-terra"},
+	})
+
+	assert.Equal(t, []string{"claude-sonnet-5"}, inst.ModelsWhenSubscriptionActive)
+	assert.Equal(t, []string{"gpt-5.6-terra"}, inst.ModelsWhenSubscriptionInactive)
+}

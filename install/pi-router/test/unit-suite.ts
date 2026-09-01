@@ -1,8 +1,9 @@
 // Pi 0.74 intentionally ignores files named *.test.ts when loading extensions.
 // Use a non-test wrapper so the E2E harness exercises these modules through
 // Pi's own TypeScript loader on both the legacy and current runtimes.
-import "./savings.test.js";
+import "./beta.test.js";
 import "./force-model.test.js";
+import "./savings.test.js";
 import "./ui.test.js";
 import "./compaction.test.js";
 import "./routed-model.test.js";

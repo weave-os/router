@@ -100,6 +100,153 @@ func TestSessionAffinity_OpenAIUsesPromptCacheKeyBody(t *testing.T) {
 	assert.Empty(t, out.Headers.Get("x-session-id"))
 }
 
+func TestSessionAffinity_OpenAIGatewayUsesPromptCacheKeyBody(t *testing.T) {
+	env, err := translate.ParseAnthropic(anthropicSrc())
+	require.NoError(t, err)
+
+	out, err := env.PrepareOpenAI(nil, translate.EmitOptions{
+		TargetModel:     "grok-4.6",
+		TargetProvider:  providers.ProviderOpenAIGateway,
+		SessionAffinity: affinityKey,
+	})
+	require.NoError(t, err)
+
+	v, ok := promptCacheKey(t, out.Body)
+	require.True(t, ok, "openai_gateway must carry prompt_cache_key in the body")
+	assert.Equal(t, affinityKey, v)
+	assert.Empty(t, out.Headers.Get("x-session-affinity"))
+	assert.Empty(t, out.Headers.Get("x-session-id"))
+	// grok via a gateway also needs the xAI Chat Completions affinity header:
+	// xAI honors prompt_cache_key only on the Responses API.
+	assert.Equal(t, affinityKey, out.Headers.Get("x-grok-conv-id"))
+}
+
+func TestSessionAffinity_OpenAIGatewayNonGrokOmitsGrokConvID(t *testing.T) {
+	env, err := translate.ParseAnthropic(anthropicSrc())
+	require.NoError(t, err)
+
+	out, err := env.PrepareOpenAI(nil, translate.EmitOptions{
+		TargetModel:     "gpt-5.5",
+		TargetProvider:  providers.ProviderOpenAIGateway,
+		SessionAffinity: affinityKey,
+	})
+	require.NoError(t, err)
+
+	assert.Empty(t, out.Headers.Get("x-grok-conv-id"))
+	v, ok := promptCacheKey(t, out.Body)
+	require.True(t, ok)
+	assert.Equal(t, affinityKey, v)
+}
+
+func TestSessionAffinity_OpenAIGatewayGrokKeepsConvIDWhenKeyStripped(t *testing.T) {
+	env, err := translate.ParseAnthropic(anthropicSrc())
+	require.NoError(t, err)
+
+	out, err := env.PrepareOpenAI(nil, translate.EmitOptions{
+		TargetModel:         "grok-4.6",
+		TargetProvider:      providers.ProviderOpenAIGateway,
+		SessionAffinity:     affinityKey,
+		StripPromptCacheKey: true,
+	})
+	require.NoError(t, err)
+
+	// A gateway rejecting the prompt_cache_key body field says nothing about
+	// headers; the xAI affinity header must survive the strip-and-retry path.
+	assert.Equal(t, affinityKey, out.Headers.Get("x-grok-conv-id"))
+	_, hasBody := promptCacheKey(t, out.Body)
+	assert.False(t, hasBody)
+}
+
+func TestSessionAffinity_DirectOpenAIOmitsGrokConvID(t *testing.T) {
+	env, err := translate.ParseAnthropic(anthropicSrc())
+	require.NoError(t, err)
+
+	out, err := env.PrepareOpenAI(nil, translate.EmitOptions{
+		TargetModel:     "grok-4.6",
+		TargetProvider:  providers.ProviderOpenAI,
+		SessionAffinity: affinityKey,
+	})
+	require.NoError(t, err)
+
+	assert.Empty(t, out.Headers.Get("x-grok-conv-id"))
+}
+
+func metadataUserID(t *testing.T, body []byte) (string, bool) {
+	t.Helper()
+	var doc struct {
+		Metadata struct {
+			UserID *string `json:"user_id"`
+		} `json:"metadata"`
+	}
+	require.NoError(t, json.Unmarshal(body, &doc))
+	if doc.Metadata.UserID == nil {
+		return "", false
+	}
+	return *doc.Metadata.UserID, true
+}
+
+func TestSessionAffinity_AnthropicGatewayUsesMetadataUserID(t *testing.T) {
+	env, err := translate.ParseAnthropic(anthropicSrc())
+	require.NoError(t, err)
+
+	out, err := env.PrepareAnthropic(nil, translate.EmitOptions{
+		TargetModel:     "claude-opus-4-7",
+		TargetProvider:  providers.ProviderAnthropicGateway,
+		SessionAffinity: affinityKey,
+	})
+	require.NoError(t, err)
+
+	v, ok := metadataUserID(t, out.Body)
+	require.True(t, ok, "anthropic_gateway must carry metadata.user_id")
+	assert.Equal(t, affinityKey, v)
+}
+
+func TestSessionAffinity_AnthropicGatewayPreservesCallerUserID(t *testing.T) {
+	src := []byte(`{"model":"claude-opus-4-7","messages":[{"role":"user","content":"hi"}],"max_tokens":256,"metadata":{"user_id":"caller-session-1"}}`)
+	env, err := translate.ParseAnthropic(src)
+	require.NoError(t, err)
+
+	out, err := env.PrepareAnthropic(nil, translate.EmitOptions{
+		TargetModel:     "claude-opus-4-7",
+		TargetProvider:  providers.ProviderAnthropicGateway,
+		SessionAffinity: affinityKey,
+	})
+	require.NoError(t, err)
+
+	v, ok := metadataUserID(t, out.Body)
+	require.True(t, ok)
+	assert.Equal(t, "caller-session-1", v)
+}
+
+func TestSessionAffinity_DirectAnthropicStaysUnhinted(t *testing.T) {
+	env, err := translate.ParseAnthropic(anthropicSrc())
+	require.NoError(t, err)
+
+	out, err := env.PrepareAnthropic(nil, translate.EmitOptions{
+		TargetModel:     "claude-opus-4-7",
+		TargetProvider:  providers.ProviderAnthropic,
+		SessionAffinity: affinityKey,
+	})
+	require.NoError(t, err)
+
+	_, ok := metadataUserID(t, out.Body)
+	assert.False(t, ok, "first-party Anthropic must not get a synthetic metadata.user_id")
+}
+
+func TestSessionAffinity_AnthropicGatewayEmptyIsNoOp(t *testing.T) {
+	env, err := translate.ParseAnthropic(anthropicSrc())
+	require.NoError(t, err)
+
+	out, err := env.PrepareAnthropic(nil, translate.EmitOptions{
+		TargetModel:    "claude-opus-4-7",
+		TargetProvider: providers.ProviderAnthropicGateway,
+	})
+	require.NoError(t, err)
+
+	_, ok := metadataUserID(t, out.Body)
+	assert.False(t, ok)
+}
+
 func TestSessionAffinity_XAIUsesGrokConvIDHeader(t *testing.T) {
 	env, err := translate.ParseAnthropic(anthropicSrc())
 	require.NoError(t, err)
@@ -252,4 +399,96 @@ func TestSessionAffinity_OpenAIEmptyToolsArrayStaysUnhinted(t *testing.T) {
 
 	_, ok := promptCacheKey(t, out.Body)
 	assert.False(t, ok, "an empty tools array must not count as a cacheable prefix")
+}
+
+// StripPromptCacheKey must suppress the affinity hint even when a session key is present.
+func TestSessionAffinity_StripPromptCacheKeySkipsInjection(t *testing.T) {
+	env, err := translate.ParseAnthropic(anthropicSrc())
+	require.NoError(t, err)
+
+	out, err := env.PrepareOpenAI(nil, translate.EmitOptions{
+		TargetModel:         "grok-4.6",
+		TargetProvider:      providers.ProviderOpenAIGateway,
+		SessionAffinity:     affinityKey,
+		StripPromptCacheKey: true,
+	})
+	require.NoError(t, err)
+
+	_, ok := promptCacheKey(t, out.Body)
+	assert.False(t, ok, "StripPromptCacheKey must suppress the affinity hint")
+}
+
+// The rejecting endpoint 400s any body naming the field, so a caller-supplied
+// prompt_cache_key is dropped too when StripPromptCacheKey is set.
+func TestSessionAffinity_StripPromptCacheKeyDropsCallerKey(t *testing.T) {
+	src := []byte(`{"model":"gpt-5.5","prompt_cache_key":"caller-key","messages":[{"role":"system","content":"sys"},{"role":"user","content":"hi"}]}`)
+	env, err := translate.ParseOpenAI(src)
+	require.NoError(t, err)
+
+	out, err := env.PrepareOpenAI(nil, translate.EmitOptions{
+		TargetModel:         "gpt-5.5",
+		TargetProvider:      providers.ProviderOpenAIGateway,
+		StripPromptCacheKey: true,
+	})
+	require.NoError(t, err)
+
+	_, ok := promptCacheKey(t, out.Body)
+	assert.False(t, ok, "a caller-supplied prompt_cache_key must be dropped for a rejecting endpoint")
+}
+
+// Responses turns that promote to /v1/responses must carry the same prompt_cache_key hint;
+// otherwise gateway reasoning-tool turns fan across replicas unhinted.
+func TestSessionAffinity_ResponsesCarriesPromptCacheKey(t *testing.T) {
+	for _, provider := range []string{providers.ProviderOpenAI, providers.ProviderOpenAIGateway} {
+		env, err := translate.ParseAnthropic(anthropicSrc())
+		require.NoError(t, err)
+
+		out, err := env.PrepareOpenAIResponses(nil, translate.EmitOptions{
+			TargetModel:     "gpt-5.5",
+			TargetProvider:  provider,
+			SessionAffinity: affinityKey,
+		})
+		require.NoError(t, err)
+
+		v, ok := promptCacheKey(t, out.Body)
+		require.True(t, ok, "%s Responses body must carry prompt_cache_key", provider)
+		assert.Equal(t, affinityKey, v)
+	}
+}
+
+// StripPromptCacheKey must suppress the Responses-surface hint too.
+func TestSessionAffinity_ResponsesStripPromptCacheKey(t *testing.T) {
+	env, err := translate.ParseAnthropic(anthropicSrc())
+	require.NoError(t, err)
+
+	out, err := env.PrepareOpenAIResponses(nil, translate.EmitOptions{
+		TargetModel:         "grok-4.6",
+		TargetProvider:      providers.ProviderOpenAIGateway,
+		SessionAffinity:     affinityKey,
+		StripPromptCacheKey: true,
+	})
+	require.NoError(t, err)
+
+	_, ok := promptCacheKey(t, out.Body)
+	assert.False(t, ok, "a rejecting endpoint must not receive prompt_cache_key on Responses")
+}
+
+// Keyless Responses requests fall back to the stable prefix hash (instructions
+// + tools), matching the chat/completions fallback semantics.
+func TestSessionAffinity_ResponsesFallbackPrefixHashStable(t *testing.T) {
+	src := []byte(`{"model":"claude-opus-4-7","system":"you are helpful","messages":[{"role":"user","content":"hi"}],"max_tokens":256}`)
+	keys := make([]string, 0, 2)
+	for i := 0; i < 2; i++ {
+		env, err := translate.ParseAnthropic(src)
+		require.NoError(t, err)
+		out, err := env.PrepareOpenAIResponses(nil, translate.EmitOptions{
+			TargetModel:    "gpt-5.5",
+			TargetProvider: providers.ProviderOpenAI,
+		})
+		require.NoError(t, err)
+		v, ok := promptCacheKey(t, out.Body)
+		require.True(t, ok, "a prefixed keyless Responses request must carry a fallback key")
+		keys = append(keys, v)
+	}
+	assert.Equal(t, keys[0], keys[1], "fallback Responses prompt_cache_key must be stable")
 }

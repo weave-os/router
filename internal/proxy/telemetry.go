@@ -22,6 +22,21 @@ type TelemetryRepository interface {
 	GetTelemetryModelBreakdown(ctx context.Context, installationID string, from, to time.Time, granularity string) ([]TelemetryModelBucket, error)
 	GetTelemetryModelBreakdownAll(ctx context.Context, from, to time.Time, granularity string) ([]TelemetryModelBucket, error)
 	GetTelemetryBySessionSequence(ctx context.Context, installationID uuid.UUID, sessionKey []byte, role string, seq int) (TelemetryTurnResult, error)
+	GetSessionCost(ctx context.Context, installationID, sessionID string) (SessionCost, error)
+}
+
+// Costs are USD micros ($1.00 = 1,000,000) summed as integers so no float rounding accumulates.
+// Actual = router's chosen binding; Requested = client's originally-requested model.
+type SessionCost struct {
+	SessionID              string
+	RequestCount           int64
+	ActualCostUSDMicros    int64
+	RequestedCostUSDMicros int64
+	InputTokens            int64
+	OutputTokens           int64
+	CacheCreationTokens    int64
+	CacheReadTokens        int64
+	LastRecordedAt         time.Time
 }
 
 // InsertTelemetryParams mirrors one router.upstream span row.
@@ -29,17 +44,19 @@ type InsertTelemetryParams struct {
 	InstallationID string
 	// APIKeyID attributes the row to the authenticating api key (per-key spend
 	// audit). Empty leaves the column NULL.
-	APIKeyID               string
-	RequestID              string
-	SpanType               string
-	TraceID                string
-	Timestamp              time.Time
-	RequestedModel         string
-	DecisionModel          string
-	DecisionProvider       string
-	DecisionReason         string
-	EstimatedInputTokens   int32
-	StickyHit              bool
+	APIKeyID             string
+	RequestID            string
+	SpanType             string
+	TraceID              string
+	Timestamp            time.Time
+	RequestedModel       string
+	DecisionModel        string
+	DecisionProvider     string
+	DecisionReason       string
+	EstimatedInputTokens int32
+	StickyHit            bool
+	// PinTier is the actual served-path turn-loop tier. Empty leaves the column NULL.
+	PinTier                string
 	EmbedInput             string
 	InputTokens            int32
 	OutputTokens           int32
@@ -129,6 +146,33 @@ type InsertTelemetryParams struct {
 	// set, pre-marshaled JSON. Phase 0 instrumentation — nil on non-subscription
 	// turns. Nothing reads this yet.
 	UnifiedLimitHeaders []byte
+
+	// Planner* columns persist the per-turn verdict. nil/empty when planner did not run;
+	// a stored zero must not read as evidence. Cost fields are float64 USD; postgres adapter converts to micros.
+	PlannerOutcome                  string
+	PlannerReason                   string
+	PlannerPinModel                 string
+	PlannerPinProvider              string
+	PlannerExpectedSavingsUSD       *float64
+	PlannerEvictionCostUSD          *float64
+	PlannerPinCacheCold             *bool
+	PlannerShadowOutcome            string
+	PlannerShadowExpectedSavingsUSD *float64
+	// AuthorityShadow* columns persist the counterfactual cache-gate verdict on
+	// authoritative-per-turn turns, where the gate itself never runs. nil/empty
+	// when the shadow did not run. Never a served decision.
+	AuthorityShadowOutcome             string
+	AuthorityShadowWouldDiverge        *bool
+	AuthorityShadowReason              string
+	AuthorityShadowStayModel           string
+	AuthorityShadowStayProvider        string
+	AuthorityShadowExpectedSavingsUSD  *float64
+	AuthorityShadowEvictionCostUSD     *float64
+	AuthorityShadowPinCacheCold        *bool
+	AuthorityShadowCorrectedOutcome    string
+	AuthorityShadowCorrectedSavingsUSD *float64
+	AuthorityShadowStayScore           *float64
+	AuthorityShadowFreshScore          *float64
 }
 
 // TelemetrySummary holds aggregated totals for the dashboard cards.
@@ -189,4 +233,66 @@ type TelemetryTurnResult struct {
 	RouteID          string
 	Strategy         string
 	Timestamp        time.Time
+}
+
+// applyPlannerTelemetry copies the planner verdict onto p. No-ops when Reason == ""
+// so all Planner* columns stay NULL; a stored 0.0 would falsely imply the planner ran.
+func applyPlannerTelemetry(p *InsertTelemetryParams, res turnLoopResult) {
+	if p == nil || res.PlannerDecision.Reason == "" {
+		return
+	}
+	p.PlannerOutcome = plannerOutcomeAttr(res)
+	p.PlannerReason = res.PlannerDecision.Reason
+	p.PlannerPinModel = res.PinModel
+	p.PlannerPinProvider = res.PinProvider
+	savings := res.PlannerDecision.ExpectedSavingsUSD
+	eviction := res.PlannerDecision.EvictionCostUSD
+	p.PlannerExpectedSavingsUSD = &savings
+	p.PlannerEvictionCostUSD = &eviction
+	cold := res.PlannerDecision.PinCacheCold
+	p.PlannerPinCacheCold = &cold
+	if res.PlannerDecision.ShadowComputed {
+		p.PlannerShadowOutcome = plannerOutcome(res.PlannerDecision.ShadowOutcome)
+		shadow := res.PlannerDecision.ShadowExpectedSavingsUSD
+		p.PlannerShadowExpectedSavingsUSD = &shadow
+	}
+}
+
+// applyAuthorityShadowTelemetry copies the authority-turn cache-gate shadow onto
+// p. No-ops unless the shadow ran, keeping all AuthorityShadow* columns NULL
+// rather than zero (zero would read as a computed verdict). These never describe
+// what was served: an authoritative turn always serves decision_model.
+func applyAuthorityShadowTelemetry(p *InsertTelemetryParams, res turnLoopResult) {
+	if p == nil || !res.AuthorityShadow.Computed {
+		return
+	}
+	shadow := res.AuthorityShadow
+	p.AuthorityShadowOutcome = plannerOutcome(shadow.Decision.Outcome)
+	diverge := shadow.Sticky
+	p.AuthorityShadowWouldDiverge = &diverge
+	p.AuthorityShadowReason = shadow.Decision.Reason
+	p.AuthorityShadowStayModel = shadow.StayModel
+	p.AuthorityShadowStayProvider = shadow.StayProvider
+	p.AuthorityShadowStayScore = shadow.StayScore
+	p.AuthorityShadowFreshScore = shadow.FreshScore
+	if !shadow.EVRan() {
+		// An early exit (no_pin, no_prior_usage, same_model, pricing_missing)
+		// carries no cost arithmetic: Decision's float fields are still their zero
+		// values and PinCacheCold is documented as meaningless there. Outcome and
+		// reason above are real and stay; the EV columns must be NULL, not 0.
+		return
+	}
+	savings := shadow.Decision.ExpectedSavingsUSD
+	eviction := shadow.Decision.EvictionCostUSD
+	p.AuthorityShadowExpectedSavingsUSD = &savings
+	p.AuthorityShadowEvictionCostUSD = &eviction
+	cold := shadow.Decision.PinCacheCold
+	p.AuthorityShadowPinCacheCold = &cold
+	// planner.Decide computes the corrected-economics counterfactual on every EV
+	// turn regardless of the deployed config, so the corrected verdict comes for
+	// free. It is pre-gate: hmmCostGatedDecision overrides Outcome for a confident
+	// upgrade or a same-tier pin and does not mirror those onto ShadowOutcome.
+	p.AuthorityShadowCorrectedOutcome = plannerOutcome(shadow.Decision.ShadowOutcome)
+	corrected := shadow.Decision.ShadowExpectedSavingsUSD
+	p.AuthorityShadowCorrectedSavingsUSD = &corrected
 }

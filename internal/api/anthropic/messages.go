@@ -95,7 +95,7 @@ func stashClientIdentity(ctx context.Context, h http.Header, body []byte) contex
 	if metaEmail := proxy.NormalizeEmail(meta.Email); metaEmail != "" {
 		id.Email = metaEmail
 	}
-	observability.Get().Debug("anthropic stashClientIdentity",
+	observability.FromContext(ctx).Debug("anthropic stashClientIdentity",
 		"meta_raw_len", len(metaRaw),
 		"meta_raw_preview", observability.Preview(metaRaw, 200),
 		"parsed_email_present", meta.Email != "",

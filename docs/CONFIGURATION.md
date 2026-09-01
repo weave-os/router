@@ -33,6 +33,7 @@ Claude Code keep using the user's logged-in plan.
 | `ANTHROPIC_API_KEY`   | *(none — passthrough)*                                    | Router's own Anthropic key. When unset, client `Authorization` headers pass through. |
 | `OPENAI_API_KEY`      | *(none)*                                                  | Enables the OpenAI provider (Chat Completions API). |
 | `OPENAI_BASE_URL`     | `https://api.openai.com`                                  | Override for OpenAI (e.g. Azure OpenAI). |
+| `ROUTER_CODEX_BASE_URL` | `https://chatgpt.com/backend-api/codex`                  | Local-testing override for the ChatGPT subscription Responses backend; leave unset in production. |
 | `GOOGLE_API_KEY`      | *(none)*                                                  | Enables Gemini via its OpenAI-compatible endpoint. |
 | `GOOGLE_BASE_URL`     | `https://generativelanguage.googleapis.com/v1beta/openai` | Override for Gemini. |
 | `ANTHROPIC_GATEWAY_BASE_URL` | *(none)*                                           | Base URL of an Anthropic-compatible gateway; `/v1/messages` is appended to it. |
@@ -72,6 +73,7 @@ Snowflake's, and such turns stay on normal routing.
 | `ROUTER_CORTEX_WEB_SEARCH` | `true` | Kill switch. `false` leaves native web-search turns on normal routing (they fail upstream on gateways that reject the tool). |
 | `SNOWFLAKE_AGENT_ROLE` | *(none)* | Sent as `X-Snowflake-Role` on `agent:run`. Leave unset to use the service user's default role. |
 | `SNOWFLAKE_AGENT_HOST_SUFFIX` | `snowflakecomputing.com` | Host suffix a gateway base URL must match before `agent:run` is attempted. Only for pointing at a local stub in tests. |
+| `SNOWFLAKE_AGENT_TIMEOUT_MS` | `90000` | Budget for one agent run, applied both as the request deadline and as the time-to-first-byte guard (`agent:run` buffers the whole run). Observed runs are 15–30s; expiring early costs the turn the upstream 400 this path exists to avoid. |
 
 Snowflake-side prerequisites: an ACCOUNTADMIN must enable web search at the
 account level, and the authenticating user needs a role with agent privileges
@@ -276,6 +278,28 @@ request depends on (`Authorization`, `x-api-key`, `Host`, `Content-Type`,
 `Content-Length`, `Accept`) is rejected with `400`. Omit both fields to forward
 nothing — identity only ever reaches the endpoint configured to receive it.
 
+An endpoint that runs its own observability (Snowflake Cortex) can also have the
+caller's own correlation headers survive the hop, and its baggage header
+re-emitted with the router-resolved user:
+
+```bash
+curl -sS -b jar -X POST https://<router>/admin/v1/provider-keys \
+  -H 'content-type: application/json' \
+  -d '{"provider":"anthropic_gateway","key":"<token>",
+       "forwarded_client_headers":["X-SNOWFLAKE-APPLICATION","X-Claude-Code-Session-Id"],
+       "baggage_header":"X-SNOWFLAKE-BAGGAGE"}'
+```
+
+`forwarded_client_headers` are copied verbatim from the inbound request (up to
+16, blanks and duplicates dropped). `baggage_header` is read as a raw JSON
+object and re-sent with `"on-behalf-of": "<X-Weave-User-Email>"` added — other
+keys are preserved, and a client-supplied `on-behalf-of` is replaced so
+attribution stays the router's. A request with no resolved email forwards the
+caller's bag unchanged; a bag that isn't a JSON object travels unchanged. Both
+fields reject the same request-critical header names as `identity_header`, and
+both are applied after the client's headers so nothing upstream-critical can be
+overwritten. Omit both to forward nothing.
+
 
 ### Microsoft Entra client credentials
 
@@ -362,6 +386,7 @@ Set `DATABASE_URL` directly, or compose it from the individual vars:
 | `PORT`                   | `8080`       | HTTP listen port. |
 | `ROUTER_DEPLOYMENT_MODE` | `selfhosted` | `selfhosted` mounts `/ui/*` and `/admin/v1/*`. `managed` skips both (for SaaS deployments with a separate admin UI). |
 | `ROUTER_ADMIN_PASSWORD`  | `admin`      | Dashboard password. Defaults to `admin` with a startup warning when unset — **set this for any internet-facing deployment**. |
+| `ROUTER_RESTRICT_UPSTREAM_EGRESS` | follows `ROUTER_DEPLOYMENT_MODE` | When true, provider adapters refuse to dial an upstream that resolves outside the public internet (loopback, private, link-local, CGNAT). Defaults to true in `managed` mode and false in `selfhosted`, where pointing a provider at an in-cluster or loopback gateway is normal. While on, provider adapters also ignore `HTTP_PROXY`/`HTTPS_PROXY`, since a proxied connection makes the destination unverifiable. |
 
 ## Routing
 
@@ -379,6 +404,8 @@ Set `DATABASE_URL` directly, or compose it from the individual vars:
 | `ROUTER_SUBAGENT_MODEL`           | *(none)*                     | Route Claude Code Task-tool sub-agent turns to a distinct model, independent of `ROUTER_HARD_PIN_MODEL` — e.g. a local/self-hosted OpenAI-compatible model (point `OPENROUTER_BASE_URL` at your local server) while the main loop keeps using Anthropic/whatever the scorer picks. Requires `ROUTER_SUBAGENT_PROVIDER`; either alone is ignored. Takes effect regardless of `ROUTER_HARD_PIN_EXPLORE`, but the HMM strategy keeps its own sub-agent handling and isn't affected. |
 | `ROUTER_SUBAGENT_PROVIDER`        | *(none)*                     | Pair with `ROUTER_SUBAGENT_MODEL`. |
 | `ROUTER_TRANSLATION_COMPATIBILITY_MODE` | `shadow` | Translation representability rollout: `off` disables broad filtering, `shadow` records candidate exclusions without changing routes, and `enforce` makes declared semantic requirements hard routing constraints. Native-only safety paths (such as unsupported Responses tool unions and native Gemini ingress) remain protected unless mode is `off`. |
+| `ROUTER_SCOPED_SEARCH_REQUIREMENT` | `true` | Scopes the citations/search native-capability requirement to sessions that actually used a web-search tool this turn or recently, instead of every turn that merely advertises one. Advertised-only turns return to normal policy routing. |
+| `ROUTER_SEARCH_REQUIREMENT_DECAY_TURNS` | `3` | With `ROUTER_SCOPED_SEARCH_REQUIREMENT`, how many routed turns after the last actual search-tool use keep the requirement before it decays. |
 | `ROUTER_COMPACTION_PCT`           | `0.85`                       | Fraction of the largest eligible model's context window at which the proactive compaction cascade engages (clear old tool results → structured summary → trim). Range `(0,1]`; `0` disables compaction (over-window requests then 413). Mirrors Claude Code's ~0.85 auto-compact trigger. |
 | `ROUTER_ONNX_ASSETS_DIR`          | `/opt/router/assets`         | Directory containing `model.onnx` + `tokenizer.json`. |
 | `ROUTER_ONNX_LIBRARY_DIR`         | *(system default)*           | Path to `libonnxruntime` (e.g. `/opt/homebrew/lib` on Apple Silicon). |
@@ -486,7 +513,9 @@ and any list configured for that cluster still orders the arm that serves.
 Out-of-process policy routers use the versioned contract in
 [Policy router harness](POLICY_ROUTER_HARNESS.md). The router remains the
 authority for candidate eligibility, provider binding, dispatch, retries,
-privacy context, and telemetry.
+privacy context, and telemetry. `ROUTER_HMM_ROSTER_PATH` and the rollback story
+for Go-owned deterministic selection are documented in
+[HMM deterministic selection in Go](HMM_GO_SELECTION.md).
 
 | Variable                           | Default | Purpose |
 | ---------------------------------- | ------- | ------- |
@@ -497,6 +526,7 @@ privacy context, and telemetry.
 | `ROUTER_HMM_SIDECAR_TIMEOUT_MS`    | `3000`  | Total HMM decision timeout. |
 | `ROUTER_HMM_SIDECAR_ATTEMPT_TIMEOUT_MS` | 60% of the decision timeout | Bounds a single HMM attempt so one stalled sidecar instance cannot spend the whole decision budget before the retries run. Set it equal to `ROUTER_HMM_SIDECAR_TIMEOUT_MS`, or to `0`, to let one attempt use the full budget. |
 | `ROUTER_HMM_SIDECAR_AUTH`          | `none`  | Authentication for the HMM sidecar. Use `google-id-token` for managed Cloud Run; the exact sidecar origin is used as the token audience. |
+| `ROUTER_HMM_ROSTER_PATH`           | *(none; required with `ROUTER_HMM_SIDECAR_URL`)* | Path to a generated declarative roster JSON (`hmm_router_cluster_roster_v6`). The roster is loaded and validated against the model catalog at startup (boot fails on any invalid arm) and drives the router's authoritative deterministic within-cluster arm selection: the sidecar's classifier label/confidence is kept, its arm is not. Explicit force-cluster and per-key cluster overrides still take precedence when they actually constrain the pick; selection fails open to the sidecar's pick when no ranked group holds an eligible arm. Pin-sticky eligibility is neutralized on any Go pick so a session pin cannot veto it. Leaving it unset while an HMM sidecar is configured fails boot. |
 | `ROUTER_RL_SIDECAR_URL`            | *(none)* | Legacy built-in RL registration. Prefer the generic map for new strategies. |
 | `ROUTER_RL_SIDECAR_TIMEOUT_MS`     | `3000`  | Total RL decision timeout. |
 | `ROUTER_RL_SIDECAR_MODAL_KEY`      | *(none)* | Optional Modal proxy token id (`Modal-Key`) when the RL sidecar is a Modal ASGI app with `requires_proxy_auth`. |

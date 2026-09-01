@@ -73,7 +73,7 @@ func TestBuildTypeScriptIsSortedAndVersioned(t *testing.T) {
 	if strings.Index(got, `"a-model"`) > strings.Index(got, `"z-model"`) {
 		t.Fatalf("generated TypeScript models are not sorted:\n%s", got)
 	}
-	if !strings.Contains(got, `"a-model": { inputUsdPerMillion: 0.071, outputUsdPerMillion: 0.463 }`) {
+	if !strings.Contains(got, `"a-model": { inputUsdPerMillion: 0.071, outputUsdPerMillion: 0.463, cacheReadMultiplier: 0.5 }`) {
 		t.Fatalf("generated TypeScript changed catalog units or decimal formatting:\n%s", got)
 	}
 

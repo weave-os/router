@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"workweave/router/internal/observability"
+	"workweave/router/internal/router"
 	"workweave/router/internal/router/sessionpin"
 
 	"github.com/google/uuid"
@@ -48,6 +49,7 @@ func (s *Service) grantPostCommandContinuation(
 	}
 	pin.Role = commandContinuationRole(role)
 	pin.InstallationID = installationID
+	pin.Strategy = router.StrategyFromContext(ctx)
 	pin.TurnCount = 1
 	// A slash command can arrive just before the active pin expires. Renew the
 	// one-shot independently so its immediate follow-up remains eligible.
@@ -66,9 +68,12 @@ func (s *Service) consumePostCommandContinuation(
 	if s.pinStore == nil {
 		return sessionpin.Pin{}, false
 	}
-	pin, found, err := s.pinStore.Consume(ctx, sessionKey, commandContinuationRole(role))
+	pin, found, err := s.pinStore.Consume(ctx, sessionKey, commandContinuationRole(role), router.StrategyFromContext(ctx))
 	if err != nil {
 		observability.FromContext(ctx).Error("post-command continuation consume failed", "err", err)
+		return sessionpin.Pin{}, false
+	}
+	if found && !pinMatchesEffectiveStrategy(ctx, pin) {
 		return sessionpin.Pin{}, false
 	}
 	return pin, found
@@ -85,7 +90,7 @@ func (s *Service) invalidatePostCommandContinuation(
 	if s.pinStore == nil {
 		return nil
 	}
-	_, _, err := s.pinStore.Consume(context.Background(), sessionKey, commandContinuationRole(role))
+	_, _, err := s.pinStore.Consume(context.Background(), sessionKey, commandContinuationRole(role), router.StrategyFromContext(ctx))
 	if err != nil {
 		observability.FromContext(ctx).Error(
 			"post-command continuation invalidation failed",

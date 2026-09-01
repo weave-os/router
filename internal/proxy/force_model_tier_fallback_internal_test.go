@@ -59,22 +59,22 @@ func (s *forcedPinStore) Upsert(context.Context, sessionpin.Pin) error { return 
 func (s *forcedPinStore) UpdateUsage(context.Context, [sessionpin.SessionKeyLen]byte, string, sessionpin.Usage) error {
 	return nil
 }
-func (s *forcedPinStore) IncrementUpstreamErrors(context.Context, [sessionpin.SessionKeyLen]byte, string) (int, error) {
+func (s *forcedPinStore) IncrementUpstreamErrors(context.Context, [sessionpin.SessionKeyLen]byte, string, router.Strategy) (int, error) {
 	return 0, nil
 }
-func (s *forcedPinStore) ResetUpstreamErrors(context.Context, [sessionpin.SessionKeyLen]byte, string) error {
+func (s *forcedPinStore) ResetUpstreamErrors(context.Context, [sessionpin.SessionKeyLen]byte, string, router.Strategy) error {
 	return nil
 }
-func (s *forcedPinStore) IncrementOverloadErrors(context.Context, [sessionpin.SessionKeyLen]byte, string) (int, error) {
+func (s *forcedPinStore) IncrementOverloadErrors(context.Context, [sessionpin.SessionKeyLen]byte, string, router.Strategy) (int, error) {
 	return 0, nil
 }
-func (s *forcedPinStore) ResetOverloadErrors(context.Context, [sessionpin.SessionKeyLen]byte, string) error {
+func (s *forcedPinStore) ResetOverloadErrors(context.Context, [sessionpin.SessionKeyLen]byte, string, router.Strategy) error {
 	return nil
 }
-func (s *forcedPinStore) DisableProvider(context.Context, [sessionpin.SessionKeyLen]byte, string, string) error {
+func (s *forcedPinStore) DisableProvider(context.Context, [sessionpin.SessionKeyLen]byte, string, string, router.Strategy) error {
 	return nil
 }
-func (s *forcedPinStore) Consume(context.Context, [sessionpin.SessionKeyLen]byte, string) (sessionpin.Pin, bool, error) {
+func (s *forcedPinStore) Consume(context.Context, [sessionpin.SessionKeyLen]byte, string, router.Strategy) (sessionpin.Pin, bool, error) {
 	return sessionpin.Pin{}, false, nil
 }
 func (s *forcedPinStore) SweepExpired(context.Context) error { return nil }
@@ -102,22 +102,22 @@ func (s *overwritingPinStore) Upsert(_ context.Context, p sessionpin.Pin) error 
 func (s *overwritingPinStore) UpdateUsage(context.Context, [sessionpin.SessionKeyLen]byte, string, sessionpin.Usage) error {
 	return nil
 }
-func (s *overwritingPinStore) IncrementUpstreamErrors(context.Context, [sessionpin.SessionKeyLen]byte, string) (int, error) {
+func (s *overwritingPinStore) IncrementUpstreamErrors(context.Context, [sessionpin.SessionKeyLen]byte, string, router.Strategy) (int, error) {
 	return 0, nil
 }
-func (s *overwritingPinStore) ResetUpstreamErrors(context.Context, [sessionpin.SessionKeyLen]byte, string) error {
+func (s *overwritingPinStore) ResetUpstreamErrors(context.Context, [sessionpin.SessionKeyLen]byte, string, router.Strategy) error {
 	return nil
 }
-func (s *overwritingPinStore) IncrementOverloadErrors(context.Context, [sessionpin.SessionKeyLen]byte, string) (int, error) {
+func (s *overwritingPinStore) IncrementOverloadErrors(context.Context, [sessionpin.SessionKeyLen]byte, string, router.Strategy) (int, error) {
 	return 0, nil
 }
-func (s *overwritingPinStore) ResetOverloadErrors(context.Context, [sessionpin.SessionKeyLen]byte, string) error {
+func (s *overwritingPinStore) ResetOverloadErrors(context.Context, [sessionpin.SessionKeyLen]byte, string, router.Strategy) error {
 	return nil
 }
-func (s *overwritingPinStore) DisableProvider(context.Context, [sessionpin.SessionKeyLen]byte, string, string) error {
+func (s *overwritingPinStore) DisableProvider(context.Context, [sessionpin.SessionKeyLen]byte, string, string, router.Strategy) error {
 	return nil
 }
-func (s *overwritingPinStore) Consume(context.Context, [sessionpin.SessionKeyLen]byte, string) (sessionpin.Pin, bool, error) {
+func (s *overwritingPinStore) Consume(context.Context, [sessionpin.SessionKeyLen]byte, string, router.Strategy) (sessionpin.Pin, bool, error) {
 	return sessionpin.Pin{}, false, nil
 }
 func (s *overwritingPinStore) SweepExpired(context.Context) error { return nil }

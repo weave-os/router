@@ -6,6 +6,7 @@ import (
 	"errors"
 	"time"
 
+	"workweave/router/internal/router"
 	"workweave/router/internal/router/sessionpin"
 	"workweave/router/internal/sqlc"
 
@@ -40,11 +41,12 @@ func (r *SessionPinRepo) Get(ctx context.Context, sessionKey [sessionpin.Session
 }
 
 // Consume atomically removes and returns an unexpired one-shot pin.
-func (r *SessionPinRepo) Consume(ctx context.Context, sessionKey [sessionpin.SessionKeyLen]byte, role string) (sessionpin.Pin, bool, error) {
+func (r *SessionPinRepo) Consume(ctx context.Context, sessionKey [sessionpin.SessionKeyLen]byte, role string, expectedStrategy router.Strategy) (sessionpin.Pin, bool, error) {
 	q := sqlc.New(r.tx)
 	row, err := q.DeleteSessionPin(ctx, sqlc.DeleteSessionPinParams{
-		SessionKey: sessionKey[:],
-		Role:       role,
+		SessionKey:              sessionKey[:],
+		Role:                    role,
+		ExpectedRoutingStrategy: string(expectedStrategy),
 	})
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -58,17 +60,18 @@ func (r *SessionPinRepo) Consume(ctx context.Context, sessionKey [sessionpin.Ses
 func (r *SessionPinRepo) Upsert(ctx context.Context, p sessionpin.Pin) error {
 	q := sqlc.New(r.tx)
 	return q.UpsertSessionPin(ctx, sqlc.UpsertSessionPinParams{
-		SessionKey:     p.SessionKey[:],
-		Role:           p.Role,
-		InstallationID: p.InstallationID,
-		PinnedProvider: p.Provider,
-		PinnedModel:    p.Model,
-		PairedProvider: p.PairedProvider,
-		PairedModel:    p.PairedModel,
-		DecisionReason: p.Reason,
-		PolicyGroup:    p.PolicyGroup,
-		TurnCount:      int32(p.TurnCount),
-		PinnedUntil:    pgtype.Timestamp{Time: p.PinnedUntil.UTC(), Valid: true},
+		SessionKey:      p.SessionKey[:],
+		Role:            p.Role,
+		InstallationID:  p.InstallationID,
+		PinnedProvider:  p.Provider,
+		PinnedModel:     p.Model,
+		PairedProvider:  p.PairedProvider,
+		PairedModel:     p.PairedModel,
+		DecisionReason:  p.Reason,
+		RoutingStrategy: string(p.Strategy),
+		PolicyGroup:     p.PolicyGroup,
+		TurnCount:       int32(p.TurnCount),
+		PinnedUntil:     pgtype.Timestamp{Time: p.PinnedUntil.UTC(), Valid: true},
 	})
 }
 
@@ -82,28 +85,30 @@ func (r *SessionPinRepo) UpdateUsage(ctx context.Context, sessionKey [sessionpin
 	}
 	q := sqlc.New(r.tx)
 	return q.UpdateSessionPinUsage(ctx, sqlc.UpdateSessionPinUsageParams{
-		SessionKey:            sessionKey[:],
-		Role:                  role,
-		LastInputTokens:       int32(usage.InputTokens),
-		LastCachedReadTokens:  int32(usage.CachedReadTokens),
-		LastCachedWriteTokens: int32(usage.CachedWriteTokens),
-		LastOutputTokens:      int32(usage.OutputTokens),
-		LastTurnEndedAt:       pgtype.Timestamptz{Time: endedAt.UTC(), Valid: true},
-		LastServedModel:       usage.ServedModel,
-		LastServedProvider:    usage.ServedProvider,
-		PriorServedModel:      usage.PriorServedModel,
-		SessionEverSwitched:   usage.SessionEverSwitched,
+		SessionKey:              sessionKey[:],
+		Role:                    role,
+		LastInputTokens:         int32(usage.InputTokens),
+		LastCachedReadTokens:    int32(usage.CachedReadTokens),
+		LastCachedWriteTokens:   int32(usage.CachedWriteTokens),
+		LastOutputTokens:        int32(usage.OutputTokens),
+		LastTurnEndedAt:         pgtype.Timestamptz{Time: endedAt.UTC(), Valid: true},
+		LastServedModel:         usage.ServedModel,
+		LastServedProvider:      usage.ServedProvider,
+		PriorServedModel:        usage.PriorServedModel,
+		SessionEverSwitched:     usage.SessionEverSwitched,
+		ExpectedRoutingStrategy: string(usage.Strategy),
 	})
 }
 
 // IncrementUpstreamErrors atomically bumps the consecutive-error counter.
 // A missing pin (already evicted or never created) returns (0, nil): the
 // two-strike check treats it as a no-op since there's no row left to evict.
-func (r *SessionPinRepo) IncrementUpstreamErrors(ctx context.Context, sessionKey [sessionpin.SessionKeyLen]byte, role string) (int, error) {
+func (r *SessionPinRepo) IncrementUpstreamErrors(ctx context.Context, sessionKey [sessionpin.SessionKeyLen]byte, role string, expectedStrategy router.Strategy) (int, error) {
 	q := sqlc.New(r.tx)
 	count, err := q.IncrementSessionPinUpstreamErrors(ctx, sqlc.IncrementSessionPinUpstreamErrorsParams{
-		SessionKey: sessionKey[:],
-		Role:       role,
+		SessionKey:              sessionKey[:],
+		Role:                    role,
+		ExpectedRoutingStrategy: string(expectedStrategy),
 	})
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -116,21 +121,23 @@ func (r *SessionPinRepo) IncrementUpstreamErrors(ctx context.Context, sessionKey
 
 // ResetUpstreamErrors clears the consecutive-error counter after a
 // successful turn. Missing pin is a no-op, same as UpdateUsage.
-func (r *SessionPinRepo) ResetUpstreamErrors(ctx context.Context, sessionKey [sessionpin.SessionKeyLen]byte, role string) error {
+func (r *SessionPinRepo) ResetUpstreamErrors(ctx context.Context, sessionKey [sessionpin.SessionKeyLen]byte, role string, expectedStrategy router.Strategy) error {
 	q := sqlc.New(r.tx)
 	return q.ResetSessionPinUpstreamErrors(ctx, sqlc.ResetSessionPinUpstreamErrorsParams{
-		SessionKey: sessionKey[:],
-		Role:       role,
+		SessionKey:              sessionKey[:],
+		Role:                    role,
+		ExpectedRoutingStrategy: string(expectedStrategy),
 	})
 }
 
 // IncrementOverloadErrors atomically bumps the consecutive-529-exhaustion
 // counter. A missing pin returns (0, nil), mirroring IncrementUpstreamErrors.
-func (r *SessionPinRepo) IncrementOverloadErrors(ctx context.Context, sessionKey [sessionpin.SessionKeyLen]byte, role string) (int, error) {
+func (r *SessionPinRepo) IncrementOverloadErrors(ctx context.Context, sessionKey [sessionpin.SessionKeyLen]byte, role string, expectedStrategy router.Strategy) (int, error) {
 	q := sqlc.New(r.tx)
 	count, err := q.IncrementSessionPinOverloadErrors(ctx, sqlc.IncrementSessionPinOverloadErrorsParams{
-		SessionKey: sessionKey[:],
-		Role:       role,
+		SessionKey:              sessionKey[:],
+		Role:                    role,
+		ExpectedRoutingStrategy: string(expectedStrategy),
 	})
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -143,23 +150,25 @@ func (r *SessionPinRepo) IncrementOverloadErrors(ctx context.Context, sessionKey
 
 // ResetOverloadErrors clears the consecutive-529-exhaustion counter after a
 // successful turn. Missing pin is a no-op, same as ResetUpstreamErrors.
-func (r *SessionPinRepo) ResetOverloadErrors(ctx context.Context, sessionKey [sessionpin.SessionKeyLen]byte, role string) error {
+func (r *SessionPinRepo) ResetOverloadErrors(ctx context.Context, sessionKey [sessionpin.SessionKeyLen]byte, role string, expectedStrategy router.Strategy) error {
 	q := sqlc.New(r.tx)
 	return q.ResetSessionPinOverloadErrors(ctx, sqlc.ResetSessionPinOverloadErrorsParams{
-		SessionKey: sessionKey[:],
-		Role:       role,
+		SessionKey:              sessionKey[:],
+		Role:                    role,
+		ExpectedRoutingStrategy: string(expectedStrategy),
 	})
 }
 
 // DisableProvider appends provider to disabled_providers (deduped) and
 // resets the overload strike counter in the same write. Missing pin is a
 // no-op: the eviction that accompanies this call has nothing left to guard.
-func (r *SessionPinRepo) DisableProvider(ctx context.Context, sessionKey [sessionpin.SessionKeyLen]byte, role, provider string) error {
+func (r *SessionPinRepo) DisableProvider(ctx context.Context, sessionKey [sessionpin.SessionKeyLen]byte, role, provider string, expectedStrategy router.Strategy) error {
 	q := sqlc.New(r.tx)
 	return q.DisableSessionPinProvider(ctx, sqlc.DisableSessionPinProviderParams{
-		SessionKey: sessionKey[:],
-		Role:       role,
-		Provider:   provider,
+		SessionKey:              sessionKey[:],
+		Role:                    role,
+		Provider:                provider,
+		ExpectedRoutingStrategy: string(expectedStrategy),
 	})
 }
 
@@ -177,6 +186,7 @@ func toSessionPin(row sqlc.RouterSessionPin) sessionpin.Pin {
 		PairedProvider:            row.PairedProvider,
 		PairedModel:               row.PairedModel,
 		Reason:                    row.DecisionReason,
+		Strategy:                  router.Strategy(row.RoutingStrategy),
 		PolicyGroup:               row.PolicyGroup,
 		TurnCount:                 int(row.TurnCount),
 		PinnedUntil:               timestampOrZero(row.PinnedUntil),

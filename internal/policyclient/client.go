@@ -95,7 +95,14 @@ func New(baseURL string, client *http.Client, timeout time.Duration, opts ...Opt
 		timeout = DefaultTimeout
 	}
 	if client == nil {
-		client = &http.Client{Timeout: timeout}
+		// Same no-redirect policy as newGoogleIDTokenHTTPClient (auth.go):
+		// a 3xx fails the != 200 status checks instead of being followed.
+		client = &http.Client{
+			Timeout: timeout,
+			CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
+				return http.ErrUseLastResponse
+			},
+		}
 	}
 	sidecar := &Client{
 		baseURL:        strings.TrimRight(baseURL, "/"),
@@ -159,7 +166,7 @@ func (c *Client) Capabilities(ctx context.Context) (policy.Capabilities, error) 
 	if err := json.Unmarshal(payload, &capabilities); err != nil {
 		return policy.Capabilities{}, fmt.Errorf("decode policy capabilities response: %w", err)
 	}
-	if capabilities.SchemaVersion != policy.SchemaVersionV1 && capabilities.SchemaVersion != policy.SchemaVersionV2 {
+	if !supportedSchema(capabilities.SchemaVersion) {
 		return policy.Capabilities{}, fmt.Errorf("unsupported policy capabilities schema %q", capabilities.SchemaVersion)
 	}
 	return capabilities, nil
@@ -213,7 +220,7 @@ func (c *Client) fetchRoster(ctx context.Context) (rosterResponse, error) {
 	if err := json.Unmarshal(payload, &roster); err != nil {
 		return rosterResponse{}, fmt.Errorf("decode policy roster response: %w", err)
 	}
-	if roster.SchemaVersion != policy.SchemaVersionV1 && roster.SchemaVersion != policy.SchemaVersionV2 {
+	if !supportedSchema(roster.SchemaVersion) {
 		return rosterResponse{}, fmt.Errorf("unsupported policy roster schema %q", roster.SchemaVersion)
 	}
 	return roster, nil
@@ -393,6 +400,8 @@ type routeResponse struct {
 	Debug                map[string]interface{} `json:"debug"`
 	RankedFallback       []policy.PreviewGroup  `json:"ranked_fallback"`
 	ArmScores            map[string]float32     `json:"arm_scores"`
+	PredictedLabel       string                 `json:"predicted_label"`
+	ClassProbabilities   map[string]float64     `json:"class_probabilities"`
 	Timings              *routeTimings          `json:"timings"`
 	Error                string                 `json:"error"`
 }
@@ -500,12 +509,23 @@ func (c *Client) Decide(ctx context.Context, query policy.Query) (policy.Result,
 		}
 		return policy.Result{}, fmt.Errorf("policy sidecar status %d", resp.StatusCode)
 	}
-	if parsed.SchemaVersion != "" && parsed.SchemaVersion != policy.SchemaVersionV1 && parsed.SchemaVersion != policy.SchemaVersionV2 {
-		return policy.Result{}, fmt.Errorf("unsupported policy route schema %q", parsed.SchemaVersion)
-	}
 	selectedModel := firstNonEmpty(parsed.SelectedRosterID, parsed.Model)
-	if parsed.SelectedArmID == "" && selectedModel == "" {
-		return policy.Result{}, fmt.Errorf("policy sidecar returned empty arm and model")
+	switch parsed.SchemaVersion {
+	case policy.SchemaVersionV3:
+		// Classifier-only contract: the caller selects the arm, so a response
+		// naming one is a contract violation rather than a harmless extra.
+		if parsed.SelectedArmID != "" || selectedModel != "" {
+			return policy.Result{}, fmt.Errorf("policy sidecar returned a selected arm on schema %s", policy.SchemaVersionV3)
+		}
+		if len(parsed.RankedFallback) == 0 {
+			return policy.Result{}, fmt.Errorf("policy sidecar returned no ranked fallback on schema %s", policy.SchemaVersionV3)
+		}
+	case "", policy.SchemaVersionV1, policy.SchemaVersionV2:
+		if parsed.SelectedArmID == "" && selectedModel == "" {
+			return policy.Result{}, fmt.Errorf("policy sidecar returned empty arm and model")
+		}
+	default:
+		return policy.Result{}, fmt.Errorf("unsupported policy route schema %q", parsed.SchemaVersion)
 	}
 	score := parsed.Score
 	if parsed.ChosenScore != nil {
@@ -536,6 +556,8 @@ func (c *Client) Decide(ctx context.Context, query policy.Query) (policy.Result,
 		Debug:                parsed.Debug,
 		RankedFallback:       parsed.RankedFallback,
 		ArmScores:            parsed.ArmScores,
+		PredictedLabel:       parsed.PredictedLabel,
+		ClassProbabilities:   parsed.ClassProbabilities,
 		Timings:              decomposeTimings(parsed.Timings),
 		ServingStats:         extractServingStats(parsed.Timings),
 	}, nil
@@ -566,7 +588,7 @@ func (c *Client) Preview(ctx context.Context, query policy.Query) (policy.Previe
 		}
 		return policy.PreviewResult{}, fmt.Errorf("policy preview status %d", resp.StatusCode)
 	}
-	if parsed.SchemaVersion != policy.SchemaVersionV1 && parsed.SchemaVersion != policy.SchemaVersionV2 {
+	if !supportedSchema(parsed.SchemaVersion) {
 		return policy.PreviewResult{}, fmt.Errorf("unsupported policy preview schema %q", parsed.SchemaVersion)
 	}
 	return policy.PreviewResult{
@@ -584,6 +606,17 @@ func (c *Client) Preview(ctx context.Context, query policy.Query) (policy.Previe
 		SelectedGroup:         parsed.SelectedGroup,
 		EligibleRosterIDs:     parsed.EligibleRosterIDs,
 	}, nil
+}
+
+// supportedSchema reports whether a sidecar declares a wire contract this
+// client speaks.
+func supportedSchema(version string) bool {
+	switch version {
+	case policy.SchemaVersionV1, policy.SchemaVersionV2, policy.SchemaVersionV3:
+		return true
+	default:
+		return false
+	}
 }
 
 func marshalRouteRequest(query policy.Query) ([]byte, error) {

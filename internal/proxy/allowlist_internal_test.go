@@ -35,6 +35,29 @@ func TestAllowedModelsForRequest_BuildsSet(t *testing.T) {
 	assert.Equal(t, map[string]struct{}{"a": {}, "b": {}}, got)
 }
 
+func TestAllowedModelsForRequest_IntersectsSubscriptionConditionalList(t *testing.T) {
+	ctx := ctxWithAllowedModels("a", "b")
+	ctx = context.WithValue(ctx, InstallationSubscriptionConditionalModelsContextKey{}, []string{"b", "c"})
+
+	assert.Equal(t, map[string]struct{}{"b": {}}, allowedModelsForRequest(ctx))
+}
+
+func TestAllowedModelsForRequest_EmptyConditionalIntersectionFailsClosed(t *testing.T) {
+	ctx := ctxWithAllowedModels("a")
+	ctx = context.WithValue(ctx, InstallationSubscriptionConditionalModelsContextKey{}, []string{"b"})
+
+	assert.NotNil(t, allowedModelsForRequest(ctx))
+	assert.Empty(t, allowedModelsForRequest(ctx))
+}
+
+func TestAllowedModelsForRequest_EmptyConfiguredConditionalListFailsClosed(t *testing.T) {
+	ctx := context.WithValue(context.Background(), InstallationSubscriptionConditionalModelsContextKey{}, []string{})
+
+	assert.True(t, subscriptionConditionalModelsConfigured(ctx))
+	assert.NotNil(t, allowedModelsForRequest(ctx))
+	assert.Empty(t, allowedModelsForRequest(ctx))
+}
+
 // The allowlist is enforced by desugaring into the exclusion set: every
 // routable model absent from a non-empty allowlist must come back excluded.
 func TestExcludedModelsForRequest_AllowlistExcludesTheComplement(t *testing.T) {
@@ -83,6 +106,40 @@ func TestExcludedModelsForRequest_UndeployedAllowlistEntryIgnored(t *testing.T) 
 	assert.NotContains(t, got, "a")
 	assert.Contains(t, got, "b")
 	assert.NotContains(t, got, "retired-model")
+}
+
+// WhollyUnroutableAllowlistEmptiesThePool: no routable entry means the
+// desugaring excludes the entire pool, so every routed request 400s.
+func TestExcludedModelsForRequest_WhollyUnroutableAllowlistEmptiesThePool(t *testing.T) {
+	s := &Service{availableModels: map[string]struct{}{"a": {}, "b": {}}}
+
+	got := s.excludedModelsForRequest(ctxWithAllowedModels("not-routable-1", "not-routable-2"))
+
+	assert.Equal(t, s.availableModels, got, "every routable model must be excluded")
+}
+
+// RoutableModels must match the desugaring universe exactly.
+func TestRoutableModels_MatchesDesugaringUniverse(t *testing.T) {
+	s := &Service{availableModels: map[string]struct{}{"a": {}, "b": {}}}
+
+	assert.Equal(t, s.routableUniverse(), s.RoutableModels())
+}
+
+// The accessor must return a copy so callers cannot mutate routing state.
+func TestRoutableModels_ReturnsACopy(t *testing.T) {
+	s := &Service{availableModels: map[string]struct{}{"a": {}}}
+
+	got := s.RoutableModels()
+	got["injected"] = struct{}{}
+
+	assert.NotContains(t, s.availableModels, "injected")
+}
+
+// A typed-nil *Service from server.Register must not panic.
+func TestRoutableModels_NilServiceReportsUnknownUniverse(t *testing.T) {
+	var s *Service
+
+	assert.Nil(t, s.RoutableModels())
 }
 
 // The env override is a deliberate operator escape hatch: an operator debugging

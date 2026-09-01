@@ -22,6 +22,7 @@
 
 import { fileURLToPath } from "node:url";
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import { registerBetaCommand } from "./beta.js";
 import { isSubagent } from "./config.js";
 import { registerCompaction } from "./compaction.js";
 import { registerDispatch } from "./dispatch.js";
@@ -42,6 +43,7 @@ export default function (pi: ExtensionAPI): void {
 	pi.on("session_start", () => registerWeave(pi));
 
 	registerMetadata(pi);
+	registerBetaCommand(pi);
 	registerForceModelCommands(pi);
 	registerRoutedModel(pi);
 	registerCompaction(pi);
