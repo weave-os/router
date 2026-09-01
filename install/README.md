@@ -278,6 +278,17 @@ nothing lands in a repo working tree.
 | `WEAVE_STATUSLINE_UPDATE_INTERVAL_DAYS`     | `7`     | How often either check may run.                                |
 | `WEAVE_STATUSLINE_URL`                      | GitHub raw | Source for the statusline (self-hosters who fork).          |
 | `WEAVE_COMMANDS_URL_BASE`                   | GitHub raw | Source directory for the slash-command wrappers.            |
+| `WEAVE_CODEX_STATUS_UPDATE=0`               | on      | Disable the Codex status helper's self-refresh.                |
+| `WEAVE_CODEX_STATUS_UPDATE_INTERVAL_DAYS`   | `7`     | How often the Codex helper may check for a new copy.           |
+| `WEAVE_CODEX_STATUS_URL`                    | GitHub raw | Source for the Codex status helper (self-hosters who fork). |
+
+**Codex refreshes itself too.** The status helper checks for a newer copy of
+itself on the same schedule and swaps it in atomically, so an install picks up
+router fixes without waiting for someone to remember to re-run the installer.
+The check runs only on a real lifecycle hook — never on the `off`/`on`/`status`
+toggles — in a detached fork, so no Codex turn blocks on it, and it skips the
+replacement when the bytes are unchanged. The `WEAVE_STATUSLINE_*` variables
+above are accepted as fallbacks for users who configure both clients together.
 
 **Codex status integration.** Codex 0.150+ supports lifecycle hooks. The installer enables hooks and adds managed `SessionStart` and `Stop` handlers. They maintain a small local state file and set the terminal title to `Weave Router · <routed-model> ← <requested-model>` when the router provides a routed-model marker. On ordinary turns where the model is unchanged, the title remains the last known routed model; before the first routed response it shows `Weave Router · active`. The hooks intentionally emit no status messages: Codex renders hook output in the conversation, which makes a persistent router indicator noisy and easy to confuse with model output. It is not a replacement for Codex's requested-model line: that line continues to show the model selected in Codex configuration, while the Weave status identifies the model that actually served. Existing user and project hooks remain outside the managed block and are preserved on reinstall/uninstall.
 

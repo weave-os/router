@@ -8,6 +8,12 @@ helper="$script_dir/../codex-status.sh"
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 
+# The hook self-updates from GitHub. Left on, every case below would race a
+# download that replaces the helper under test with the published copy, so the
+# suite would be testing main rather than the working tree. Cases that exercise
+# the updater re-enable it with an explicit file:// source.
+export WEAVE_CODEX_STATUS_UPDATE=0
+
 title_file="$work/title"
 cache="$work/cache"
 XDG_CACHE_HOME="$cache" WEAVE_CODEX_STATUS_TITLE_FILE="$title_file" \
@@ -207,6 +213,74 @@ printf '%s\n' '{"session_id":"session-3","model":"gpt-5.6-terra","last_assistant
 sleep 0.5
 [ ! -f "$optout_cache/weave-router/codex/session-3.cost" ] || {
   echo "WEAVE_CODEX_STATUS_SAVINGS=0 still fetched the session cost" >&2
+  exit 1
+}
+
+# ---------- background self-refresh ----------
+#
+# Codex only reruns the installer when a user remembers to, so the lifecycle
+# hook doubles as the update check. A `file://` source keeps this offline.
+
+refresh_home="$work/refresh-home"
+mkdir -p "$refresh_home"
+refresh_helper="$work/refresh/weave-status.sh"
+mkdir -p "$(dirname "$refresh_helper")"
+cp "$helper" "$refresh_helper"
+chmod 700 "$refresh_helper"
+
+newer_helper="$work/newer-codex-status.sh"
+{
+  printf '%s\n' '#!/usr/bin/env bash'
+  printf '%s\n' '# <!-- weave-router managed codex status -->'
+  printf '%s\n' '# newer upstream copy'
+  # The updater rejects anything under 1 KiB, so pad past that floor.
+  awk 'BEGIN { while (i++ < 40) print "# padding padding padding padding padding padding" }'
+  printf '%s\n' 'exit 0'
+} >"$newer_helper"
+
+run_refresh_turn() {
+  printf '%s\n' '{"session_id":"session-refresh","model":"gpt-5.6-terra","last_assistant_message":"✦ **Weave Router** → claude-sonnet-5 · best pick"}' \
+    | HOME="$refresh_home" XDG_CACHE_HOME="$work/cache-refresh" \
+      WEAVE_CODEX_STATUS_UPDATE=1 WEAVE_CODEX_STATUS_URL="file://$newer_helper" \
+      WEAVE_CODEX_STATUS_TITLE_FILE="$title_file" "$@" "$refresh_helper" >/dev/null
+}
+
+run_refresh_turn
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+  cmp -s "$refresh_helper" "$newer_helper" && break
+  sleep 0.2
+done
+cmp -s "$refresh_helper" "$newer_helper" || {
+  echo "the hook did not pick up a newer helper" >&2
+  exit 1
+}
+
+# A second turn must not re-download inside the interval, so a helper edited
+# after the stamp was written stays put.
+printf '%s\n' '#!/usr/bin/env bash' >"$refresh_helper"
+printf '%s\n' 'exit 0' >>"$refresh_helper"
+chmod 700 "$refresh_helper"
+before_rate_limit="$(cat "$refresh_helper")"
+run_refresh_turn
+sleep 0.5
+[ "$(cat "$refresh_helper")" = "$before_rate_limit" ] || {
+  echo "self-refresh ignored its own rate limit" >&2
+  exit 1
+}
+
+# Opting out must suppress the download even when the interval has elapsed.
+optout_helper="$work/refresh-optout/weave-status.sh"
+mkdir -p "$(dirname "$optout_helper")"
+cp "$helper" "$optout_helper"
+chmod 700 "$optout_helper"
+optout_before="$(cat "$optout_helper")"
+printf '%s\n' '{"session_id":"session-refresh-off","model":"gpt-5.6-terra","last_assistant_message":"✦ **Weave Router** → claude-sonnet-5 · best pick"}' \
+  | HOME="$refresh_home" XDG_CACHE_HOME="$work/cache-refresh-optout" \
+    WEAVE_CODEX_STATUS_URL="file://$newer_helper" WEAVE_CODEX_STATUS_UPDATE=0 \
+    WEAVE_CODEX_STATUS_TITLE_FILE="$title_file" "$optout_helper" >/dev/null
+sleep 0.5
+[ "$(cat "$optout_helper")" = "$optout_before" ] || {
+  echo "WEAVE_CODEX_STATUS_UPDATE=0 still replaced the helper" >&2
   exit 1
 }
 
