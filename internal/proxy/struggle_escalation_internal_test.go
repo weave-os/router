@@ -269,3 +269,25 @@ func TestHandleStruggleEscalation_TimerArmingKeepsItsAttribution(t *testing.T) {
 	assert.Equal(t, struggleArmingTurnWall, events.events[0].ArmingMode,
 		"past the thresholds the timer owns the fire, evidence or not")
 }
+
+// Regression: the escalation target used to be chosen without consulting the
+// installation's excluded models, pinning an arm that every later turn dropped
+// as excluded.
+func TestHandleStruggleEscalation_SkipsInstallationExcludedTargets(t *testing.T) {
+	pins := newStubPinStore()
+	pins.getFound = true
+	pins.getPin = strugglingPin("claude-haiku-4-5", "balanced")
+	events := &recordingStruggleStore{}
+	svc := newStruggleEscalationSvc(pins, events, map[string][]string{
+		"balanced": {"anthropic/claude-haiku-4.5", "anthropic/claude-sonnet-4-5"},
+		"high":     {"z-ai/glm-5.3-flash", "anthropic/claude-opus-5"},
+	})
+	ctx := context.WithValue(context.Background(), InstallationExcludedModelsContextKey{}, []string{"z-ai/glm-5.3-flash"})
+
+	svc.handleStruggleEscalation(ctx, uuid.New(), struggleTestKey(1), "default", nil)
+
+	require.Len(t, pins.upserts, 1)
+	assert.Equal(t, "claude-opus-5", pins.upserts[0].Model,
+		"an installation-excluded arm must never become the escalation target")
+	assert.Equal(t, "high", pins.upserts[0].PolicyGroup)
+}

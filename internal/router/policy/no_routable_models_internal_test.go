@@ -31,3 +31,21 @@ func TestEmptyCandidateError_MixedReasonsStayGeneric(t *testing.T) {
 func TestEmptyCandidateError_NoDiagnostics(t *testing.T) {
 	assert.ErrorIs(t, emptyCandidateError(nil), ErrNoRoutableModels)
 }
+
+func TestCandidateLogFields_GroupsExclusionsByReason(t *testing.T) {
+	fields := candidateLogFields(ResolvedCandidates{
+		Candidates: []Candidate{{CatalogID: "gpt-4.1-mini"}, {CatalogID: "gemini-2.5-flash"}},
+		Diagnostics: []Diagnostic{
+			{CatalogID: "claude-opus-5", Reason: ExclusionRequested},
+			{CatalogID: "z-ai/glm-5", Reason: ExclusionContextWindow},
+			{CatalogID: "gpt-5.6-terra", Reason: ExclusionRequested},
+		},
+	})
+
+	assert.Equal(t, []any{
+		"candidate_count", 2,
+		"candidates", "gpt-4.1-mini,gemini-2.5-flash",
+		"excluded_" + string(ExclusionContextWindow), "z-ai/glm-5",
+		"excluded_" + string(ExclusionRequested), "claude-opus-5,gpt-5.6-terra",
+	}, fields)
+}

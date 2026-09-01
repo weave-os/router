@@ -156,7 +156,7 @@ func (s *Service) handleStruggleEscalation(
 	default:
 		target, targetCluster, err := s.struggleEscalationRoster.EscalationTarget(
 			ctx, pin.PolicyGroup, pin.Model,
-			nil,
+			s.excludedModelsForRequest(ctx),
 			func(model string) bool {
 				if s.availableModels != nil {
 					if _, ok := s.availableModels[model]; !ok {

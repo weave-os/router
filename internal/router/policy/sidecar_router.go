@@ -285,6 +285,8 @@ func (r *SidecarRouter) Route(ctx context.Context, req router.Request) (router.D
 	}
 	resolved := r.resolver.Resolve(req)
 	if len(resolved.Candidates) == 0 {
+		observability.FromContext(ctx).Error("Policy router resolved no eligible candidate",
+			append([]any{"strategy", strategy}, candidateLogFields(resolved)...)...)
 		return router.Decision{}, fmt.Errorf("%s: no eligible candidate: %w: %w",
 			strategy, emptyCandidateError(resolved.Diagnostics), r.config.Unavailable)
 	}
@@ -319,7 +321,8 @@ func (r *SidecarRouter) Route(ctx context.Context, req router.Request) (router.D
 		Candidates:           resolved.Candidates,
 	})
 	if err != nil {
-		observability.FromContext(ctx).Error("Policy router sidecar decision failed", "strategy", strategy, "err", err)
+		observability.FromContext(ctx).Error("Policy router sidecar decision failed",
+			append([]any{"strategy", strategy, "err", err}, candidateLogFields(resolved)...)...)
 		return router.Decision{}, fmt.Errorf("%s: sidecar decide: %w: %w", strategy, err, r.config.Unavailable)
 	}
 

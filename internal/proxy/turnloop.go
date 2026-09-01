@@ -792,11 +792,18 @@ func (s *Service) runTurnLoop(
 			res.ForcedPinDropped = true
 			res.ForcedPinDropReason = dropReason
 			res.ForcedPinModel = pin.Model
-		}
-		if excluded || !imageCapable {
-			// User still asked for this tier; constrain the fresh decision
-			// to it below rather than losing the intent entirely.
-			forcedTierFloor = catalog.TierFor(pin.Model)
+			if excluded || !imageCapable {
+				// User still asked for this tier; constrain the fresh decision
+				// to it below rather than losing the intent entirely.
+				forcedTierFloor = catalog.TierFor(pin.Model)
+			}
+		} else if excluded {
+			// Auto-escalation carries no user tier intent. An excluded escalation
+			// pin can never serve, so expire it instead of re-dropping it every
+			// turn until TTL.
+			if err := s.expireSessionPin(ctx, installationID, res.SessionKey, res.PinRole, "escalation_pin_excluded"); err != nil {
+				log.Error("excluded escalation pin eviction failed", "err", err, "pin_model", pin.Model, "role", res.PinRole)
+			}
 		}
 		if !imageCapable {
 			// The scorer's own image filter fails open when no image-capable

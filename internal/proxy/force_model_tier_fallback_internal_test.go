@@ -340,3 +340,49 @@ func TestRestrictToTier_ExcludesOtherTiers(t *testing.T) {
 	assert.True(t, sonnetExcluded, "mid-tier excluded")
 	assert.False(t, opusExcluded, "high-tier stays eligible")
 }
+
+// Regression: an excluded struggle-escalation pin used to impose its tier as a
+// floor on the fresh route (collapsing a high-tier session to low-tier-only
+// candidates) and survive in storage, so every turn until TTL failed the same way.
+func TestRunTurnLoop_ExcludedEscalationPin_NoTierFloorAndEvicted(t *testing.T) {
+	const escalated = "z-ai/glm-5.3-flash"
+	require.Equal(t, catalog.TierLow, catalog.TierFor(escalated), "test premise: escalation pin is low-tier")
+
+	fr := &tierProbeRouter{available: map[string]struct{}{
+		escalated:          {},
+		"claude-opus-5":    {},
+		"claude-haiku-4-5": {},
+	}}
+	store := newStubPinStore()
+	store.getFound = true
+	store.getPin = sessionpin.Pin{
+		Provider:    providers.ProviderOpenRouter,
+		Model:       escalated,
+		Reason:      translate.ReasonStruggleEscalation,
+		PinnedUntil: time.Now().Add(time.Hour),
+	}
+	svc := NewService(fr, nil, nil, false, nil, store, false,
+		providers.ProviderAnthropic, "claude-haiku-4-5", nil).
+		WithAvailableModels(fr.available).
+		WithPlannerEnabled(false)
+
+	env, err := translate.ParseAnthropic([]byte(`{"model":"claude-opus-5","messages":[{"role":"user","content":"hello"}]}`))
+	require.NoError(t, err)
+	feats := env.RoutingFeatures(false)
+
+	res, err := svc.runTurnLoop(context.Background(), env, feats, "key-1", uuid.New(), "", nil, router.Request{
+		RequestedModel: feats.Model,
+		ExcludedModels: map[string]struct{}{escalated: {}, "claude-haiku-4-5": {}},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "claude-opus-5", res.Decision.Model)
+
+	require.Len(t, fr.captured, 1)
+	_, opusExcluded := fr.captured[0].ExcludedModels["claude-opus-5"]
+	assert.False(t, opusExcluded, "an auto-escalation pin must not constrain the fresh route to its tier")
+
+	require.NotEmpty(t, store.upserts, "the unservable escalation pin must be written over")
+	expired := store.upserts[0]
+	assert.Equal(t, "escalation_pin_excluded", expired.Reason)
+	assert.True(t, expired.PinnedUntil.Before(time.Now()), "the unservable escalation pin must be expired")
+}
