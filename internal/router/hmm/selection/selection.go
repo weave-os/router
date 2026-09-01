@@ -26,6 +26,8 @@ type Pick struct {
 // AllowedArms mirrors eligible_arms: the sidecar has already dropped arms a
 // capability constraint forbids, so honoring it is the only way those constraints
 // survive router-owned selection. Empty means no restriction — not no arms.
+// Entries are matched against roster arms verbatim, except that a bare entry
+// also permits every effort-qualified arm of that base.
 type Group struct {
 	Label       string
 	AllowedArms []string
@@ -66,11 +68,21 @@ func SelectGroups(roster *rosterdata.Roster, groups []Group, harness string, can
 			depth++
 			continue
 		}
-		allowed := make(map[string]struct{}, len(group.AllowedArms))
+		allowedArms := make(map[string]struct{}, len(group.AllowedArms))
+		allowedBases := make(map[string]struct{}, len(group.AllowedArms))
 		for _, arm := range group.AllowedArms {
-			baseID, _ := hmm.SplitEffort(arm)
-			allowed[baseID] = struct{}{}
+			// An effort-qualified entry permits that operating point only:
+			// model:low and model:xhigh are separately measured arms with
+			// their own dispatch parameter, so collapsing them to the base
+			// would serve an arm the capability constraint excluded. A bare
+			// entry names the base and permits any of its efforts.
+			if baseID, effort := hmm.SplitEffort(arm); effort == "" {
+				allowedBases[baseID] = struct{}{}
+			} else {
+				allowedArms[arm] = struct{}{}
+			}
 		}
+		restricted := len(allowedArms)+len(allowedBases) > 0
 		order, harnessSpecific := ArmOrder(cluster, harness)
 		for _, arm := range order {
 			// Candidates carry base roster IDs, so effort-suffixed arms
@@ -79,8 +91,10 @@ func SelectGroups(roster *rosterdata.Roster, groups []Group, harness string, can
 			if _, eligible := candidates[baseID]; !eligible {
 				continue
 			}
-			if len(allowed) > 0 {
-				if _, permitted := allowed[baseID]; !permitted {
+			if restricted {
+				_, armPermitted := allowedArms[arm]
+				_, basePermitted := allowedBases[baseID]
+				if !armPermitted && !basePermitted {
 					continue
 				}
 			}

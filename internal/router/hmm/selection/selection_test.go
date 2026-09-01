@@ -40,6 +40,9 @@ func testRoster() *rosterdata.Roster {
 			"effort": {
 				Arms: []string{"vendor-a/deep:high", "vendor-a/deep"},
 			},
+			"efforts": {
+				Arms: []string{"vendor-a/deep:xhigh", "vendor-a/deep:low", "vendor-a/deep"},
+			},
 		},
 	}
 }
@@ -206,7 +209,8 @@ func TestSelectGroupsHonorsTheSidecarArmAllowlist(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, selection.Pick{Group: "balanced", Arm: "vendor-a/mid"}, pick)
 
-	// Allowlist entries match effort-suffixed roster arms on their base ID.
+	// A bare allowlist entry names the base model and permits any of its
+	// effort-qualified roster arms.
 	pick, ok = selection.SelectGroups(
 		roster,
 		[]selection.Group{{Label: "effort", AllowedArms: []string{"vendor-a/deep"}}},
@@ -215,6 +219,37 @@ func TestSelectGroupsHonorsTheSidecarArmAllowlist(t *testing.T) {
 	)
 	require.True(t, ok)
 	assert.Equal(t, selection.Pick{Group: "effort", Arm: "vendor-a/deep:high"}, pick)
+}
+
+func TestSelectGroupsAllowlistDistinguishesEffortVariants(t *testing.T) {
+	roster := testRoster()
+	candidates := candidateSet("vendor-a/deep")
+
+	// Effort variants are separate operating points with their own dispatch
+	// parameter, so allowlisting one must not admit a higher-effort arm that
+	// outranks it in the roster.
+	pick, ok := selection.SelectGroups(
+		roster,
+		[]selection.Group{{Label: "efforts", AllowedArms: []string{"vendor-a/deep:low"}}},
+		"",
+		candidates,
+	)
+	require.True(t, ok)
+	assert.Equal(t, selection.Pick{Group: "efforts", Arm: "vendor-a/deep:low"}, pick)
+
+	// An effort-qualified allowlist entry does not admit the unsuffixed arm,
+	// which dispatches at the provider's default effort.
+	pick, ok = selection.SelectGroups(
+		roster,
+		[]selection.Group{
+			{Label: "efforts", AllowedArms: []string{"vendor-a/deep:medium"}},
+			{Label: "low", AllowedArms: []string{"vendor-a/cheap"}},
+		},
+		"",
+		candidateSet("vendor-a/deep", "vendor-a/cheap"),
+	)
+	require.True(t, ok)
+	assert.Equal(t, selection.Pick{Group: "low", Arm: "vendor-a/cheap", FallbackDepth: 1}, pick)
 }
 
 func TestSelectIsDeterministic(t *testing.T) {
