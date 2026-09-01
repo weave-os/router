@@ -660,10 +660,9 @@ func main() {
 	// Shadow mode is log-only, so it ships enabled; the switch just sheds the
 	// per-turn signal-scan cost if it misbehaves.
 	spiralShadowEnabled := config.GetOr("ROUTER_SPIRAL_SHADOW_ENABLED", "true") == "true"
-	// Per-turn signal snapshot on telemetry rows. Ships enabled: it is the
-	// escalation dataset's only source of negative examples, and it writes
-	// nothing for installations that opted out of AI training or set content
-	// capture to off. The switch sheds the extra columns if write volume bites.
+	// Per-turn signal snapshot on telemetry rows. Ships enabled; only source
+	// of negative examples. Skipped regardless for opted-out installations.
+	// Kill switch: ROUTER_TURN_SIGNAL_CAPTURE_ENABLED.
 	turnSignalCaptureEnabled := config.GetOr("ROUTER_TURN_SIGNAL_CAPTURE_ENABLED", "true") == "true"
 	// Session-level struggle detector, also log-only and shipped enabled.
 	// Switch sheds the per-turn check if it misbehaves; exists for symmetry with the spiral detector.

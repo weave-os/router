@@ -174,9 +174,8 @@ type InsertTelemetryParams struct {
 	AuthorityShadowStayScore           *float64
 	AuthorityShadowFreshScore          *float64
 
-	// Spiral* is written as a nullable group: nil means not recorded, while zero
-	// is measured. The group supplies both classes for escalation training;
-	// spiral_shadow_events retains threshold crossings only.
+	// Spiral* fields are a nullable group: nil = not recorded, zero = measured;
+	// spiral_shadow_events holds threshold crossings only.
 	SpiralErrStreak          *int32
 	SpiralErroredResults     *int32
 	SpiralToolResults        *int32
@@ -315,16 +314,14 @@ func applyAuthorityShadowTelemetry(p *InsertTelemetryParams, res turnLoopResult)
 	p.AuthorityShadowCorrectedSavingsUSD = &corrected
 }
 
-// turnSignalCaptureAllowed requires both independent privacy settings. AI
-// training defaults false, and CaptureOff is both the zero-retention posture
-// and the fallback for an invalid capture mode, so both fail closed.
+// turnSignalCaptureAllowed requires both privacy gates. CaptureOff is the
+// fallback for an unknown mode, so both gates fail closed by default.
 func turnSignalCaptureAllowed(trainingAllowed bool, capture ContentCaptureMode) bool {
 	return trainingAllowed && (capture == CaptureHashed || capture == CaptureFull)
 }
 
-// applyTurnSignalTelemetry writes every value together after checking the
-// feature flag and both privacy settings. This preserves the difference between
-// a measured zero and an absent snapshot.
+// applyTurnSignalTelemetry fills p only when all gates pass, preserving
+// the distinction between a measured zero and an absent snapshot.
 func applyTurnSignalTelemetry(
 	p *InsertTelemetryParams,
 	sig spiralSignals,
