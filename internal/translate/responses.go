@@ -393,6 +393,20 @@ func StripRoutingBadgeFromResponsesInput(body []byte) ([]byte, error) {
 // StripFeedbackFooterFromResponsesInput removes the rating hint from assistant
 // text items so a subsequent native Codex turn does not echo it upstream.
 func StripFeedbackFooterFromResponsesInput(body []byte) ([]byte, error) {
+	return stripPatternFromResponsesInput(body, feedbackFooterPattern, "feedback footer")
+}
+
+// StripRouterReceiptFromResponsesInput removes the per-turn receipt from
+// assistant text items so a subsequent native Codex turn does not echo it
+// upstream.
+func StripRouterReceiptFromResponsesInput(body []byte) ([]byte, error) {
+	return stripPatternFromResponsesInput(body, routerReceiptPattern, "router receipt")
+}
+
+// stripPatternFromResponsesInput removes every match of pattern from assistant
+// text in input[*], handling both the plain-string and typed-part content
+// shapes. what names the pattern in error messages.
+func stripPatternFromResponsesInput(body []byte, pattern *regexp.Regexp, what string) ([]byte, error) {
 	input := gjson.GetBytes(body, "input")
 	if !input.IsArray() {
 		return body, nil
@@ -409,14 +423,14 @@ func StripFeedbackFooterFromResponsesInput(body []byte) ([]byte, error) {
 		}
 		content := item.Get("content")
 		if content.Type == gjson.String {
-			stripped := feedbackFooterPattern.ReplaceAllString(content.Str, "")
+			stripped := pattern.ReplaceAllString(content.Str, "")
 			if stripped == content.Str {
 				continue
 			}
 			var err error
 			out, err = sjson.SetBytes(out, "input."+strconv.Itoa(itemIndex)+".content", stripped)
 			if err != nil {
-				return nil, fmt.Errorf("strip Responses feedback footer from string content: %w", err)
+				return nil, fmt.Errorf("strip Responses %s from string content: %w", what, err)
 			}
 			changed = true
 			continue
@@ -429,7 +443,7 @@ func StripFeedbackFooterFromResponsesInput(body []byte) ([]byte, error) {
 			switch part.Get("type").Str {
 			case "input_text", "output_text", "text":
 				text := part.Get("text").Str
-				stripped := feedbackFooterPattern.ReplaceAllString(text, "")
+				stripped := pattern.ReplaceAllString(text, "")
 				if stripped == text {
 					continue
 				}
@@ -437,7 +451,7 @@ func StripFeedbackFooterFromResponsesInput(body []byte) ([]byte, error) {
 				var err error
 				out, err = sjson.SetBytes(out, path, stripped)
 				if err != nil {
-					return nil, fmt.Errorf("strip Responses feedback footer from content part: %w", err)
+					return nil, fmt.Errorf("strip Responses %s from content part: %w", what, err)
 				}
 				changed = true
 			}
@@ -615,6 +629,7 @@ type ResponsesWriter struct {
 	nativeOutputIndexShift      int64
 	nativeSequenceShift         int64
 	footerText                  string
+	receiptFn                   func(ResponsesReceiptUsage) string
 	footerEmitted               bool
 	sawToolCall                 bool
 	nativeHeldEvents            [][]byte
@@ -651,6 +666,9 @@ type responsesUsage struct {
 	prompt     int64
 	completion int64
 	total      int64
+	// cachedPrompt is the subset of prompt billed at the cache-read rate.
+	// Tracked so cost reporting does not price a cached turn at full rate.
+	cachedPrompt int64
 }
 
 var responsesIDCounter atomic.Uint64
@@ -728,6 +746,43 @@ func (t *ResponsesWriter) EnableCodexBadgeProvenance() {
 // naturally finished, tool-free turn. Empty text is a no-op.
 func (t *ResponsesWriter) SetFooterText(text string) {
 	t.footerText = text
+}
+
+// ResponsesReceiptUsage is the served turn's token accounting, as reported by
+// the upstream. HasUsage distinguishes "the upstream reported zero" from "the
+// upstream reported nothing", which the receipt must not present as free.
+type ResponsesReceiptUsage struct {
+	InputTokens  int64
+	OutputTokens int64
+	// CacheReadTokens is the subset of InputTokens the upstream billed at its
+	// cache-read rate, so a cached turn is not priced at full rate.
+	CacheReadTokens int64
+	HasUsage        bool
+}
+
+// SetReceiptFunc supplies a renderer for the per-turn receipt appended after
+// the footer. It is called once at stream end, not at wire-up time: the token
+// counts it formats only exist after the upstream has finished, whereas the
+// badge and footer are fixed before dispatch. Returning "" emits nothing,
+// which is the right answer for an upstream that reported no usage.
+func (t *ResponsesWriter) SetReceiptFunc(fn func(ResponsesReceiptUsage) string) {
+	t.receiptFn = fn
+}
+
+// receiptText renders the receipt for a completed turn, or "" when there is
+// nothing trustworthy to show.
+func (t *ResponsesWriter) receiptText() string {
+	if t.receiptFn == nil {
+		return ""
+	}
+	usage := ResponsesReceiptUsage{}
+	if t.usage != nil {
+		usage.HasUsage = true
+		usage.InputTokens = t.usage.prompt
+		usage.OutputTokens = t.usage.completion
+		usage.CacheReadTokens = t.usage.cachedPrompt
+	}
+	return t.receiptFn(usage)
 }
 
 func (t *ResponsesWriter) Header() http.Header { return t.inner.Header() }
@@ -1673,9 +1728,10 @@ func (t *ResponsesWriter) translateChunk(raw []byte) error {
 	}
 	if usage := root.Get("usage"); usage.Exists() {
 		t.usage = &responsesUsage{
-			prompt:     usage.Get("prompt_tokens").Int(),
-			completion: usage.Get("completion_tokens").Int(),
-			total:      usage.Get("total_tokens").Int(),
+			prompt:       usage.Get("prompt_tokens").Int(),
+			completion:   usage.Get("completion_tokens").Int(),
+			total:        usage.Get("total_tokens").Int(),
+			cachedPrompt: usage.Get("prompt_tokens_details.cached_tokens").Int(),
 		}
 	}
 
@@ -1883,6 +1939,18 @@ func (t *ResponsesWriter) closeOpenItems() error {
 			t.textItem.text.WriteString(t.footerText)
 			if err := t.emitTextDelta(t.textItem, t.footerText); err != nil {
 				return err
+			}
+		}
+		// The receipt trails the footer on the same terms: a tool turn is not
+		// the end of the answer, and a truncated one has no total worth
+		// reporting. Unlike the badge and footer it is resolved here, because
+		// the token counts it renders arrive with the upstream's final frame.
+		if !t.sawToolCall && t.finishReason == "stop" {
+			if receipt := t.receiptText(); receipt != "" {
+				t.textItem.text.WriteString(receipt)
+				if err := t.emitTextDelta(t.textItem, receipt); err != nil {
+					return err
+				}
 			}
 		}
 		if err := t.emitTextDone(t.textItem); err != nil && len(t.toolMappings) > 0 {

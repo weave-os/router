@@ -5468,6 +5468,12 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	} else {
 		body = strippedBody
 	}
+	strippedBody, stripErr = translate.StripRouterReceiptFromMessages(body)
+	if stripErr != nil {
+		log.Error("Failed to strip router receipt from OpenAI messages", "err", stripErr)
+	} else {
+		body = strippedBody
+	}
 	env, parseErr := translate.ParseOpenAI(body)
 	if parseErr != nil {
 		log.Error("Failed to parse OpenAI request", "err", parseErr)
@@ -5897,6 +5903,12 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		}
 		if footer := s.feedbackFooter(ctx, clientID.ClientApp, routeRes.TurnType, footerEchoedSinceHumanTurn); footer != "" {
 			rw.SetFooterText(footer)
+		}
+		// Codex prices a turn from the model it asked for, so a routed turn's
+		// real tokens and savings never reach the client. Skipped for a
+		// verbatim passthrough, which must stay byte-faithful.
+		if !verbatimPassthrough {
+			rw.SetReceiptFunc(codexReceiptRenderer(reqPricing, actPricing, decision.Provider))
 		}
 	}
 	// Keep a stable copy for a possible chat/completions fallback after a native
@@ -6472,6 +6484,10 @@ func (s *Service) ProxyOpenAIResponses(ctx context.Context, body []byte, w http.
 		nativeBody, err = translate.StripFeedbackFooterFromResponsesInput(nativeBody)
 		if err != nil {
 			return fmt.Errorf("strip native Responses feedback footer: %w", err)
+		}
+		nativeBody, err = translate.StripRouterReceiptFromResponsesInput(nativeBody)
+		if err != nil {
+			return fmt.Errorf("strip native Responses router receipt: %w", err)
 		}
 	}
 	// Every Responses turn stashes its original bytes for post-routing native
