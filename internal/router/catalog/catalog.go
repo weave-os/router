@@ -574,12 +574,6 @@ var Models = []Model{
 			Price: Pricing{InputUSDPer1M: 1.400, OutputUSDPer1M: 4.400, CacheReadMultiplier: 0.26 / 1.400}},
 		{Provider: providers.ProviderFireworks, UpstreamID: "accounts/fireworks/models/glm-5p2",
 			Price: Pricing{InputUSDPer1M: 1.400, OutputUSDPer1M: 4.400, CacheReadMultiplier: 0.20}},
-		// Trailing Wafer bindings: resolve only when earlier providers are unwired.
-		// wafer_anthropic trails the OpenAI-compat wafer (same pattern as kimi-k3).
-		{Provider: providers.ProviderWafer, UpstreamID: "GLM-5.2",
-			Price: Pricing{InputUSDPer1M: 1.260, OutputUSDPer1M: 3.960, CacheReadMultiplier: 0.23 / 1.260}},
-		{Provider: providers.ProviderWaferAnthropic, UpstreamID: "GLM-5.2",
-			Price: Pricing{InputUSDPer1M: 1.260, OutputUSDPer1M: 3.960, CacheReadMultiplier: 0.23 / 1.260}},
 	}},
 	// GLM-5.3: text-only (AA inputModalityImage=false); Fireworks is the only
 	// managed binding. ContextWindow is 1,048,576 (Fireworks served max), not

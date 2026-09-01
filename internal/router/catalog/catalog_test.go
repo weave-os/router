@@ -388,26 +388,19 @@ func TestResolveBinding_WaferTrailingBindings(t *testing.T) {
 	assert.Equal(t, providers.ProviderFireworks, b.Provider)
 	assert.Equal(t, "accounts/fireworks/models/glm-5p3", b.UpstreamID)
 
-	// glm-5.2: Together leads; Wafer only when nothing ahead of it is available.
+	// glm-5.2: Together leads; Wafer is retired and no longer resolves.
 	b, ok = ResolveBinding("z-ai/glm-5.2", map[string]struct{}{providers.ProviderTogether: {}, providers.ProviderWafer: {}})
 	require.True(t, ok)
 	assert.Equal(t, providers.ProviderTogether, b.Provider)
 
 	b, ok = ResolveBinding("z-ai/glm-5.2", map[string]struct{}{providers.ProviderWafer: {}})
-	require.True(t, ok)
-	assert.Equal(t, providers.ProviderWafer, b.Provider)
-	assert.Equal(t, "GLM-5.2", b.UpstreamID)
+	assert.False(t, ok)
 
-	// wafer_anthropic (Anthropic-spec Messages) trails the OpenAI-compat wafer,
-	// so it resolves only when the OpenAI-compat surface is also absent.
 	b, ok = ResolveBinding("z-ai/glm-5.2", map[string]struct{}{providers.ProviderWaferAnthropic: {}})
-	require.True(t, ok)
-	assert.Equal(t, providers.ProviderWaferAnthropic, b.Provider)
-	assert.Equal(t, "GLM-5.2", b.UpstreamID)
+	assert.False(t, ok)
 
 	b, ok = ResolveBinding("z-ai/glm-5.2", map[string]struct{}{providers.ProviderWafer: {}, providers.ProviderWaferAnthropic: {}})
-	require.True(t, ok)
-	assert.Equal(t, providers.ProviderWafer, b.Provider, "OpenAI-compat wafer must win over wafer_anthropic")
+	assert.False(t, ok)
 
 	// kimi-k3: Fireworks leads, OpenRouter second, Wafer last.
 	b, ok = ResolveBinding("moonshotai/kimi-k3", map[string]struct{}{providers.ProviderOpenRouter: {}, providers.ProviderWafer: {}})
@@ -449,7 +442,6 @@ func TestWaferPricing(t *testing.T) {
 		outputUSD float64
 		cacheRead float64
 	}{
-		{"z-ai/glm-5.2", 1.260, 3.960, 0.23 / 1.260},
 		{"z-ai/glm-5.3-flash", 0.150, 0.500, 0.03 / 0.150},
 		{"moonshotai/kimi-k3", 3.000, 15.000, 0.10},
 		{"deepseek/deepseek-v4-flash", 0.280, 0.560, 0.07 / 0.280},
