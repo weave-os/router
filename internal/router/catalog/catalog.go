@@ -584,15 +584,21 @@ var Models = []Model{
 	}},
 	// GLM-5.3-Flash: first native-multimodal (image+video) in the GLM-5 line —
 	// ImageInput stays default. Thinking cannot be disabled — do not add it to
-	// openRouterReasoningHint. Together leads, Wafer trails. Priced at post-promo
-	// rate, not $0.075/$0.25 introductory (cf. gemini-3.7-flash). ContextWindow
-	// 1,048,576 (Together served max); 1,310,720 is Cloudflare-only.
+	// openRouterReasoningHint. Makora leads, followed by Together and the two
+	// Wafer surfaces; Fireworks is the final fallback. Priced at post-promo rate,
+	// not $0.075/$0.25 introductory (cf. gemini-3.7-flash). ContextWindow
+	// 1,048,576 (Makora/Together/Fireworks served max); 1,310,720 is
+	// Cloudflare-only.
 	{ID: "z-ai/glm-5.3-flash", Tier: TierLow, ContextWindow: 1_048_576, Providers: []ProviderBinding{
+		{Provider: providers.ProviderMakora, UpstreamID: "zai-org/GLM-5.3-Flash",
+			Price: Pricing{InputUSDPer1M: 0.150, OutputUSDPer1M: 0.500, CacheReadMultiplier: 0.03 / 0.150}},
 		{Provider: providers.ProviderTogether, UpstreamID: "zai-org/GLM-5.3-Flash",
 			Price: Pricing{InputUSDPer1M: 0.150, OutputUSDPer1M: 0.500, CacheReadMultiplier: 0.03 / 0.150}},
 		{Provider: providers.ProviderWafer, UpstreamID: "GLM-5.3-Flash",
 			Price: Pricing{InputUSDPer1M: 0.150, OutputUSDPer1M: 0.500, CacheReadMultiplier: 0.03 / 0.150}},
 		{Provider: providers.ProviderWaferAnthropic, UpstreamID: "GLM-5.3-Flash",
+			Price: Pricing{InputUSDPer1M: 0.150, OutputUSDPer1M: 0.500, CacheReadMultiplier: 0.03 / 0.150}},
+		{Provider: providers.ProviderFireworks, UpstreamID: "accounts/fireworks/models/glm-5p3-flash",
 			Price: Pricing{InputUSDPer1M: 0.150, OutputUSDPer1M: 0.500, CacheReadMultiplier: 0.03 / 0.150}},
 	}},
 	// Fireworks-dedicated rows below carry an OpenRouter trailing binding so

@@ -365,10 +365,26 @@ func TestValidateDeployed_FlagsMissingAndUntiered(t *testing.T) {
 
 // TestResolveBinding_WaferTrailingBindings pin the trailing-binding order:
 // Wafer only resolves when the earlier providers are absent, so a deploy with
-// Together/Fireworks/OpenRouter wired never displaces them onto Wafer.
+// Makora/Together/Fireworks wired never displaces them onto Wafer.
 func TestResolveBinding_WaferTrailingBindings(t *testing.T) {
-	// glm-5.3-flash: Together leads; Wafer trails it, wafer_anthropic last.
-	b, ok := ResolveBinding("z-ai/glm-5.3-flash", map[string]struct{}{providers.ProviderTogether: {}, providers.ProviderWafer: {}})
+	// glm-5.3-flash: Makora leads; Together and Wafer trail it, Fireworks last.
+	b, ok := ResolveBinding("z-ai/glm-5.3-flash", map[string]struct{}{
+		providers.ProviderMakora: {}, providers.ProviderTogether: {}, providers.ProviderFireworks: {},
+	})
+	require.True(t, ok)
+	assert.Equal(t, providers.ProviderMakora, b.Provider)
+	assert.Equal(t, "zai-org/GLM-5.3-Flash", b.UpstreamID)
+
+	b, ok = ResolveBinding("z-ai/glm-5.3-flash", map[string]struct{}{providers.ProviderFireworks: {}})
+	require.True(t, ok)
+	assert.Equal(t, providers.ProviderFireworks, b.Provider)
+	assert.Equal(t, "accounts/fireworks/models/glm-5p3-flash", b.UpstreamID)
+
+	b, ok = ResolveBinding("z-ai/glm-5.3-flash", map[string]struct{}{providers.ProviderWafer: {}, providers.ProviderFireworks: {}})
+	require.True(t, ok)
+	assert.Equal(t, providers.ProviderWafer, b.Provider)
+
+	b, ok = ResolveBinding("z-ai/glm-5.3-flash", map[string]struct{}{providers.ProviderTogether: {}, providers.ProviderWafer: {}})
 	require.True(t, ok)
 	assert.Equal(t, providers.ProviderTogether, b.Provider)
 	assert.Equal(t, "zai-org/GLM-5.3-Flash", b.UpstreamID)
@@ -431,6 +447,18 @@ func TestResolveBinding_WaferTrailingBindings(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, providers.ProviderWaferAnthropic, b.Provider)
 	assert.Equal(t, "DeepSeek-V4-Flash-0731-Fast", b.UpstreamID)
+}
+
+func TestGLM53FlashProviderPricing(t *testing.T) {
+	for _, provider := range []string{providers.ProviderMakora, providers.ProviderFireworks} {
+		t.Run(provider, func(t *testing.T) {
+			p, ok := PriceFor(provider, "z-ai/glm-5.3-flash")
+			require.True(t, ok)
+			assert.InDelta(t, 0.150, p.InputUSDPer1M, 1e-9)
+			assert.InDelta(t, 0.500, p.OutputUSDPer1M, 1e-9)
+			assert.InDelta(t, 0.03/0.150, p.CacheReadMultiplier, 1e-9)
+		})
+	}
 }
 
 // TestWaferPricing pins the per-1M rates and cache multipliers as published on

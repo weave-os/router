@@ -276,7 +276,7 @@ func main() {
 	}
 
 	{
-		// Makora uses DeepSeek-canonical model IDs vs. the router's slash-form
+		// Makora uses provider-canonical model IDs vs. the router's slash-form
 		// slugs; modelIDMap comes from the catalog's per-binding UpstreamID.
 		makoraBaseURL := config.GetOr("MAKORA_BASE_URL", openaiCompatProvider.MakoraBaseURL)
 		registerDeploymentKeyedProvider(providerMap, envKeyedProviders, logger,
@@ -288,9 +288,9 @@ func main() {
 
 	{
 		// Primary binding for DeepSeek V4 Pro / GLM-5.1 / MiniMax M2.7 (top of
-		// artificialanalysis.ai throughput tables); prior providers stay as
-		// ordered fallbacks. Uses "Org/Model" IDs vs. the router's slash-form
-		// slugs; modelIDMap comes from the catalog's per-binding UpstreamID.
+		// artificialanalysis.ai throughput tables); also an ordered fallback for
+		// models led by another provider. Uses "Org/Model" IDs vs. the router's
+		// slash-form slugs; modelIDMap comes from each binding's UpstreamID.
 		togetherBaseURL := config.GetOr("TOGETHER_BASE_URL", openaiCompatProvider.TogetherBaseURL)
 		registerDeploymentKeyedProvider(providerMap, envKeyedProviders, logger,
 			providers.ProviderTogether, "Together", "TOGETHER_API_KEY", togetherBaseURL, byokOnly,
