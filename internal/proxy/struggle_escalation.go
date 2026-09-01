@@ -75,6 +75,7 @@ func (s *Service) handleStruggleEscalation(
 	sessionKey [sessionpin.SessionKeyLen]byte,
 	role string,
 	evidence []spiralReason,
+	forceModelSessionKeys ...[sessionpin.SessionKeyLen]byte,
 ) {
 	log := observability.FromContext(ctx)
 
@@ -121,6 +122,10 @@ func (s *Service) handleStruggleEscalation(
 
 	if !timerArmed && !evidenceArmed {
 		return // not yet struggling, or only "late" (not armed)
+	}
+	if len(forceModelSessionKeys) > 0 {
+		_, active, _ := s.loadForceModelSessionPin(ctx, forceModelSessionKeys[0])
+		userForced = userForced || active
 	}
 	armingMode := struggleArmingTurnWall
 	if evidenceArmed {

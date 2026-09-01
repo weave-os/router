@@ -275,10 +275,11 @@ func (s *Service) handleNoProgressBreak(
 	decisionModel string,
 	decisionProvider string,
 	inputTokens int,
+	decisionReason ...string,
 ) error {
 	log := observability.FromContext(ctx)
-	preserveForcedPin := false
-	if s.pinStore != nil && installationID != uuid.Nil && sessionKey != ([sessionpin.SessionKeyLen]byte{}) {
+	preserveForcedPin := len(decisionReason) > 0 && isUserForcedReason(decisionReason[0])
+	if !preserveForcedPin && s.pinStore != nil && installationID != uuid.Nil && sessionKey != ([sessionpin.SessionKeyLen]byte{}) {
 		pin, found := s.loadPin(ctx, sessionKey, role)
 		preserveForcedPin = found && isUserForcedReason(pin.Reason)
 	}

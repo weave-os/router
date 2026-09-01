@@ -6,6 +6,7 @@ import (
 
 	"workweave/router/internal/router"
 	"workweave/router/internal/router/sessionpin"
+	"workweave/router/internal/translate"
 
 	"github.com/stretchr/testify/assert"
 )
@@ -35,4 +36,10 @@ func TestPinMatchesEffectiveStrategy(t *testing.T) {
 			assert.Equal(t, tt.expected, pinMatchesEffectiveStrategy(ctx, sessionpin.Pin{Strategy: tt.stored}))
 		})
 	}
+
+	betaContext := router.WithStrategy(context.Background(), router.StrategyHMMBeta)
+	assert.True(t, pinMatchesEffectiveStrategy(betaContext, sessionpin.Pin{
+		Reason:   translate.ReasonUserForceModel,
+		Strategy: router.StrategyCluster,
+	}), "an explicit force must survive routing-strategy changes")
 }

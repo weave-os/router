@@ -456,12 +456,15 @@ with nowhere to go (HTTP 503 from the scorer), so exclude deliberately.
 
 ## Forcing a model or a routing cluster
 
-`/force-model <model>` (alias `/fm`) pins the session to one model. The name is
-matched **exactly** — it must be a canonical catalog ID (`qwen/qwen3.8-max`),
-that model's bare name without the vendor prefix (`qwen3.8-max`), or an alias
-(`opus`, `qwen-max`), optionally with a `:level` effort suffix (`opus:high`).
-There is no prefix, substring, or nearest-match fallback: a name the router
-doesn't recognize is refused, never approximated.
+`/force-model <model>` (alias `/fm`) pins the client session to one model. The
+pin applies to parent and child agent threads that share the same client-session
+identity, regardless of their first prompt or active routing strategy. Clients
+that send no session identity can only be pinned at the current thread scope.
+The name is matched **exactly** — it must be a canonical catalog ID
+(`qwen/qwen3.8-max`), that model's bare name without the vendor prefix
+(`qwen3.8-max`), or an alias (`opus`, `qwen-max`), optionally with a `:level`
+effort suffix (`opus:high`). There is no prefix, substring, or nearest-match
+fallback: a name the router doesn't recognize is refused, never approximated.
 
 That strictness is the point. Approximate matching served a model the caller
 never named — `/fm qwen 3.8` resolved through the bare `qwen` alias to

@@ -131,13 +131,16 @@ func (s *Service) handleRouterFeedbackCommand(
 		}
 	}
 	if servedModel == "" && s.pinStore != nil {
-		if pin, found, err := s.pinStore.Get(ctx, sessionKey, role); err != nil {
+		pin := sessionpin.Pin{}
+		if storedPin, found, err := s.pinStore.Get(ctx, sessionKey, role); err != nil {
 			log.Error("/router-feedback: pin lookup failed", "err", err)
-		} else if found && pinMatchesEffectiveStrategy(ctx, pin) {
-			servedModel = pin.LastServedModel
-			if servedModel == "" {
-				servedModel = pin.Model
-			}
+		} else if found && pinMatchesEffectiveStrategy(ctx, storedPin) {
+			pin = storedPin
+		}
+		forceHistory := s.loadForceModelHistory(ctx, sessionKey, role)
+		servedModel, _ = switchHistoryFromPins(pin, forceHistory)
+		if servedModel == "" {
+			servedModel = pin.Model
 		}
 	}
 
