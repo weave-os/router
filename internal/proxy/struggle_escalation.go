@@ -74,7 +74,7 @@ func (s *Service) handleStruggleEscalation(
 	installationID uuid.UUID,
 	sessionKey [sessionpin.SessionKeyLen]byte,
 	role string,
-	evidence []string,
+	evidence []spiralReason,
 ) {
 	log := observability.FromContext(ctx)
 
@@ -204,11 +204,12 @@ func (s *Service) handleStruggleEscalation(
 		}
 	}
 
+	evidenceReasons := spiralReasonStrings(evidence)
 	log.Info("router.struggle_escalation",
 		"struggling_model", strugglingModel,
 		"action", action,
 		"arming_mode", armingMode,
-		"evidence_reasons", evidence,
+		"evidence_reasons", evidenceReasons,
 		"escalation_target", escalationTarget,
 		"escalation_cluster", escalationCluster,
 		"user_forced", userForced,
@@ -232,7 +233,7 @@ func (s *Service) handleStruggleEscalation(
 			WallSeconds:         int64(wall.Seconds()),
 			SessionEverSwitched: pin.HasEverSwitched,
 			ArmingMode:          armingMode,
-			EvidenceReasons:     evidence,
+			EvidenceReasons:     evidenceReasons,
 		}
 		if err := s.struggleEscalationStore.InsertStruggleEscalationEvent(context.Background(), event); err != nil {
 			log.Error("struggle-escalation: event insert failed", "err", err)

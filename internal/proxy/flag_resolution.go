@@ -40,6 +40,12 @@ func (s *Service) ResolveSpiralShadowEnabled(ctx context.Context) bool {
 	return flags.BoolOr(ctx, flags.KeySpiralShadowEnabled, s.spiralShadowEnabled)
 }
 
+// ResolveTurnSignalCaptureEnabled reports whether per-turn behavioral
+// snapshots may be persisted. Installation privacy gates still take precedence.
+func (s *Service) ResolveTurnSignalCaptureEnabled(ctx context.Context) bool {
+	return flags.BoolOr(ctx, flags.KeyTurnSignalCapture, s.turnSignalCaptureEnabled)
+}
+
 // ResolveLoopEscalationEnabled reports whether a detected cyclic loop may
 // escalate the routed model. Detection telemetry is recorded either way.
 func (s *Service) ResolveLoopEscalationEnabled(ctx context.Context) bool {

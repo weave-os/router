@@ -56,15 +56,28 @@ const (
 	spiralNoProgressThreshold = 15
 )
 
+type spiralReason string
+
 // Spiral signal-class taxonomy. One event per (session, role, reason).
 const (
-	spiralReasonErrStreak      = "err_streak"
-	spiralReasonSameFileThrash = "same_file_thrash"
-	spiralReasonRepetition     = "repetition"
-	spiralReasonMonologue      = "monologue"
-	spiralReasonPingPong       = "ping_pong"
-	spiralReasonNoProgress     = "no_progress"
+	spiralReasonErrStreak      spiralReason = "err_streak"
+	spiralReasonSameFileThrash              = "same_file_thrash"
+	spiralReasonRepetition                  = "repetition"
+	spiralReasonMonologue                   = "monologue"
+	spiralReasonPingPong                    = "ping_pong"
+	spiralReasonNoProgress                  = "no_progress"
 )
+
+func spiralReasonStrings(reasons []spiralReason) []string {
+	if reasons == nil {
+		return nil
+	}
+	values := make([]string, len(reasons))
+	for i, reason := range reasons {
+		values[i] = string(reason)
+	}
+	return values
+}
 
 // SpiralShadowStore persists shadow spiral detections (router.spiral_shadow_events).
 // CountSpiralShadowEvents enforces the once-per-(session, reason) budget across replicas.
@@ -211,11 +224,11 @@ func stepsSinceProgress(outcomes []translate.ToolCallOutcome) (steps int, editAt
 
 // spiralReasons returns the signal classes whose thresholds the snapshot
 // crosses. Empty below the arming floor.
-func spiralReasons(s spiralSignals) []string {
+func spiralReasons(s spiralSignals) []spiralReason {
 	if s.toolCallCount < spiralMinToolCalls {
 		return nil
 	}
-	var reasons []string
+	var reasons []spiralReason
 	if s.errStats.TrailingErrStreak >= spiralErrStreakThreshold {
 		reasons = append(reasons, spiralReasonErrStreak)
 	}
@@ -266,16 +279,22 @@ func spiralFiredKey(sessionKey [sessionpin.SessionKeyLen]byte, role, reason stri
 func (s *Service) handleSpiralShadow(
 	ctx context.Context,
 	sig spiralSignals,
-	reasons []string,
+	reasons []spiralReason,
 	installationID uuid.UUID,
 	sessionKey [sessionpin.SessionKeyLen]byte,
 	role string,
 	routedModel string,
 	turnType string,
+	trainingAllowed bool,
+	capture ContentCaptureMode,
 ) {
+	if !turnSignalCaptureAllowed(trainingAllowed, capture) {
+		return
+	}
 	log := observability.FromContext(ctx)
 	for _, reason := range reasons {
-		key := spiralFiredKey(sessionKey, role, reason)
+		reasonText := string(reason)
+		key := spiralFiredKey(sessionKey, role, reasonText)
 		if _, seen := s.spiralTracker.fired.Get(key); seen {
 			continue
 		}
@@ -283,7 +302,7 @@ func (s *Service) handleSpiralShadow(
 		// Best-effort: a lookup failure proceeds — an extra row beats a
 		// lost one in shadow mode.
 		if s.spiralShadowStore != nil && installationID != uuid.Nil {
-			count, err := s.spiralShadowStore.CountSpiralShadowEvents(ctx, sessionKey[:], role, reason)
+			count, err := s.spiralShadowStore.CountSpiralShadowEvents(ctx, sessionKey[:], role, reasonText)
 			if err != nil {
 				log.Error("spiral-shadow: budget lookup failed", "err", err)
 			} else if count > 0 {
@@ -318,7 +337,7 @@ func (s *Service) handleSpiralShadow(
 				Role:               role,
 				RoutedModel:        routedModel,
 				TurnType:           turnType,
-				Reason:             reason,
+				Reason:             reasonText,
 				ErrStreak:          int32(sig.errStats.TrailingErrStreak),
 				ErroredResults:     int32(sig.errStats.Errored),
 				ToolResults:        int32(sig.errStats.Total),

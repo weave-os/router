@@ -175,6 +175,19 @@ func (r *TelemetryRepo) InsertRequestTelemetry(ctx context.Context, p proxy.Inse
 		AuthorityShadowCorrectedSavingsUsdMicros: int64PtrFromUSD(p.AuthorityShadowCorrectedSavingsUSD),
 		AuthorityShadowStayScore:                 p.AuthorityShadowStayScore,
 		AuthorityShadowFreshScore:                p.AuthorityShadowFreshScore,
+		SpiralErrStreak:                          p.SpiralErrStreak,
+		SpiralErroredResults:                     p.SpiralErroredResults,
+		SpiralToolResults:                        p.SpiralToolResults,
+		SpiralMaxSameFileEdits:                   p.SpiralMaxSameFileEdits,
+		SpiralSameFilePathHash:                   stringPtrOrNil(p.SpiralSameFilePathHash),
+		SpiralRepeatFrac:                         p.SpiralRepeatFrac,
+		SpiralMonologueLen:                       p.SpiralMonologueLen,
+		SpiralToolCallCount:                      p.SpiralToolCallCount,
+		SpiralMessageCount:                       p.SpiralMessageCount,
+		SpiralPingPongLen:                        p.SpiralPingPongLen,
+		SpiralStepsSinceProgress:                 p.SpiralStepsSinceProgress,
+		SpiralEditAttempted:                      p.SpiralEditAttempted,
+		SpiralReasons:                            p.SpiralReasons,
 	})
 }
 

@@ -173,6 +173,24 @@ type InsertTelemetryParams struct {
 	AuthorityShadowCorrectedSavingsUSD *float64
 	AuthorityShadowStayScore           *float64
 	AuthorityShadowFreshScore          *float64
+
+	// Spiral* is written as a nullable group: nil means not recorded, while zero
+	// is measured. The group supplies both classes for escalation training;
+	// spiral_shadow_events retains threshold crossings only.
+	SpiralErrStreak          *int32
+	SpiralErroredResults     *int32
+	SpiralToolResults        *int32
+	SpiralMaxSameFileEdits   *int32
+	SpiralSameFilePathHash   string
+	SpiralRepeatFrac         *float64
+	SpiralMonologueLen       *int32
+	SpiralToolCallCount      *int32
+	SpiralMessageCount       *int32
+	SpiralPingPongLen        *int32
+	SpiralStepsSinceProgress *int32
+	SpiralEditAttempted      *bool
+	// SpiralReasons is non-nil and empty for a recorded turn with no crossings.
+	SpiralReasons []string
 }
 
 // TelemetrySummary holds aggregated totals for the dashboard cards.
@@ -295,4 +313,50 @@ func applyAuthorityShadowTelemetry(p *InsertTelemetryParams, res turnLoopResult)
 	p.AuthorityShadowCorrectedOutcome = plannerOutcome(shadow.Decision.ShadowOutcome)
 	corrected := shadow.Decision.ShadowExpectedSavingsUSD
 	p.AuthorityShadowCorrectedSavingsUSD = &corrected
+}
+
+// turnSignalCaptureAllowed requires both independent privacy settings. AI
+// training defaults false, and CaptureOff is both the zero-retention posture
+// and the fallback for an invalid capture mode, so both fail closed.
+func turnSignalCaptureAllowed(trainingAllowed bool, capture ContentCaptureMode) bool {
+	return trainingAllowed && (capture == CaptureHashed || capture == CaptureFull)
+}
+
+// applyTurnSignalTelemetry writes every value together after checking the
+// feature flag and both privacy settings. This preserves the difference between
+// a measured zero and an absent snapshot.
+func applyTurnSignalTelemetry(
+	p *InsertTelemetryParams,
+	sig spiralSignals,
+	reasons []spiralReason,
+	computed bool,
+	enabled bool,
+	trainingAllowed bool,
+	capture ContentCaptureMode,
+) {
+	if p == nil || !computed || !enabled || !turnSignalCaptureAllowed(trainingAllowed, capture) {
+		return
+	}
+	p.SpiralErrStreak = int32Ptr(int32(sig.errStats.TrailingErrStreak))
+	p.SpiralErroredResults = int32Ptr(int32(sig.errStats.Errored))
+	p.SpiralToolResults = int32Ptr(int32(sig.errStats.Total))
+	p.SpiralMaxSameFileEdits = int32Ptr(int32(sig.maxSameFileEdits))
+	p.SpiralSameFilePathHash = sig.sameFilePathHash
+	repeatFrac := sig.repeatFrac
+	p.SpiralRepeatFrac = &repeatFrac
+	p.SpiralMonologueLen = int32Ptr(int32(sig.monologueLen))
+	p.SpiralToolCallCount = int32Ptr(int32(sig.toolCallCount))
+	p.SpiralMessageCount = int32Ptr(int32(sig.messageCount))
+	p.SpiralPingPongLen = int32Ptr(int32(sig.pingPongLen))
+	p.SpiralStepsSinceProgress = int32Ptr(int32(sig.stepsSinceProgress))
+	editAttempted := sig.editAttempted
+	p.SpiralEditAttempted = &editAttempted
+	if reasons == nil {
+		reasons = []spiralReason{}
+	}
+	p.SpiralReasons = spiralReasonStrings(reasons)
+}
+
+func int32Ptr(v int32) *int32 {
+	return &v
 }

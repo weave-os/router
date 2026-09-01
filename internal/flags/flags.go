@@ -49,6 +49,7 @@ const (
 	KeyStruggleEscalationHoldout Key = "struggle_escalation_holdout_pct"
 	KeyStruggleEvidenceArming    Key = "struggle_evidence_arming"
 	KeySpiralShadowEnabled       Key = "spiral_shadow_enabled"
+	KeyTurnSignalCapture         Key = "turn_signal_capture_enabled"
 	KeyLoopEscalationEnabled     Key = "loop_escalation_enabled"
 	KeyLoopEscalationHoldoutPct  Key = "loop_escalation_holdout_pct"
 	KeyTextRepetitionBreak       Key = "text_repetition_break_enabled"
@@ -83,7 +84,7 @@ type Definition struct {
 // RegistryVersion changes whenever Registry's membership changes. Publish uses
 // it to make pruning safe during rolling deploys: a revision with an older
 // registry version may not delete definitions published by a newer revision.
-const RegistryVersion = 4
+const RegistryVersion = 5
 
 // Registry is the curated allowlist of flags that may carry a per-organization
 // override. It is deliberately explicit rather than derived from the env var
@@ -124,6 +125,13 @@ var Registry = []Definition{
 		EnvVar:         "ROUTER_SPIRAL_SHADOW_ENABLED",
 		Kind:           KindBool,
 		Description:    "Per-turn spiral detector (log-only).",
+		OrgOverridable: true,
+	},
+	{
+		Key:            KeyTurnSignalCapture,
+		EnvVar:         "ROUTER_TURN_SIGNAL_CAPTURE_ENABLED",
+		Kind:           KindBool,
+		Description:    "Persist the per-turn behavioral signal snapshot onto telemetry rows. Skipped regardless for installations that opted out of AI training or set content capture to off.",
 		OrgOverridable: true,
 	},
 	{

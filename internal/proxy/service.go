@@ -242,6 +242,10 @@ type Service struct {
 	// death-march signals; see spiral_detection.go). Defaults true — shadow mode
 	// changes no routing behavior.
 	spiralShadowEnabled bool
+
+	// turnSignalCaptureEnabled gates per-turn snapshots independently of the
+	// threshold-only shadow detector. Privacy gates always take precedence.
+	turnSignalCaptureEnabled bool
 	// textRepetitionBreakEnabled gates the enforcing assistant-text repetition
 	// detector (see text_repetition.go). Defaults true; kill switch is
 	// ROUTER_TEXT_REPETITION_BREAK_ENABLED.
@@ -1356,6 +1360,7 @@ func NewService(r router.Router, providerMap map[string]providers.Client, emitte
 		prefixTrimFreeSwitch:         true,
 		spiralTracker:                newSpiralTracker(),
 		spiralShadowEnabled:          true,
+		turnSignalCaptureEnabled:     true,
 		struggleTracker:              newStruggleTracker(),
 		struggleShadowEnabled:        true,
 		textRepetitionBreakEnabled:   true,
@@ -1600,6 +1605,13 @@ func (s *Service) WithLoopEscalationStore(store LoopEscalationStore) *Service {
 // cost if it ever misbehaves.
 func (s *Service) WithSpiralShadowConfig(enabled bool) *Service {
 	s.spiralShadowEnabled = enabled
+	return s
+}
+
+// WithTurnSignalCapture sets the per-turn signal persistence kill switch.
+// It cannot override installation privacy settings.
+func (s *Service) WithTurnSignalCapture(enabled bool) *Service {
+	s.turnSignalCaptureEnabled = enabled
 	return s
 }
 
@@ -2968,11 +2980,14 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		}
 	}
 
-	// Snapshot before env rewrites: shared by the shadow detector and the
-	// evidence-arming gate below, both of which must see the client-sent body.
+	// All consumers need the original client history. Track computation
+	// separately because no threshold crossing is still a measured result.
 	var inboundSpiralSignals spiralSignals
-	var inboundSpiralReasons []string
-	if s.ResolveSpiralShadowEnabled(ctx) || s.ResolveStruggleEvidenceArming(ctx) {
+	var inboundSpiralReasons []spiralReason
+	inboundSpiralComputed := s.ResolveSpiralShadowEnabled(ctx) ||
+		s.ResolveStruggleEvidenceArming(ctx) ||
+		s.ResolveTurnSignalCaptureEnabled(ctx)
+	if inboundSpiralComputed {
 		inboundSpiralSignals = computeSpiralSignals(env, feats.MessageCount)
 		inboundSpiralReasons = spiralReasons(inboundSpiralSignals)
 	}
@@ -3210,7 +3225,10 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			// Use the bindRequestLogger digest, not routeRes.SessionKey (zero
 			// with no pin store), so the spiral event's session_key matches the
 			// telemetry row's in every mode for the offline join.
-			s.handleSpiralShadow(ctx, inboundSpiralSignals, inboundSpiralReasons, installationID, sessionKey, role, decision.Model, string(tt))
+			trainingAllowed, _ := ctx.Value(PolicyTrainingAllowedContextKey{}).(bool)
+			s.handleSpiralShadow(ctx, inboundSpiralSignals, inboundSpiralReasons,
+				installationID, sessionKey, role, decision.Model, string(tt),
+				trainingAllowed, s.effectiveCaptureMode(ctx))
 		}
 	}
 
@@ -4252,6 +4270,14 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		}
 		applyPlannerTelemetry(&tel, routeRes)
 		applyAuthorityShadowTelemetry(&tel, routeRes)
+		// Hard-pinned turn types carry history shapes that mimic failure signals,
+		// so only the detector's trusted turn types enter the training corpus.
+		signalTurn := tt == turntype.MainLoop || tt == turntype.ToolResult
+		applyTurnSignalTelemetry(&tel, inboundSpiralSignals, inboundSpiralReasons,
+			inboundSpiralComputed && signalTurn,
+			s.ResolveTurnSignalCaptureEnabled(ctx),
+			obs.TrainingAllowed,
+			s.effectiveCaptureMode(ctx))
 		s.fireTelemetry(tel)
 	}
 

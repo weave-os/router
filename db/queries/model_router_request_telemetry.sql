@@ -120,7 +120,20 @@ INSERT INTO router.model_router_request_telemetry (
     authority_shadow_corrected_outcome,
     authority_shadow_corrected_savings_usd_micros,
     authority_shadow_stay_score,
-    authority_shadow_fresh_score
+    authority_shadow_fresh_score,
+    spiral_err_streak,
+    spiral_errored_results,
+    spiral_tool_results,
+    spiral_max_same_file_edits,
+    spiral_same_file_path_hash,
+    spiral_repeat_frac,
+    spiral_monologue_len,
+    spiral_tool_call_count,
+    spiral_message_count,
+    spiral_ping_pong_len,
+    spiral_steps_since_progress,
+    spiral_edit_attempted,
+    spiral_reasons
 ) VALUES (
     @installation_id::uuid,
     sqlc.narg('api_key_id')::uuid,
@@ -209,7 +222,20 @@ INSERT INTO router.model_router_request_telemetry (
     sqlc.narg('authority_shadow_corrected_outcome')::varchar,
     sqlc.narg('authority_shadow_corrected_savings_usd_micros')::bigint,
     sqlc.narg('authority_shadow_stay_score')::double precision,
-    sqlc.narg('authority_shadow_fresh_score')::double precision
+    sqlc.narg('authority_shadow_fresh_score')::double precision,
+    sqlc.narg('spiral_err_streak')::int,
+    sqlc.narg('spiral_errored_results')::int,
+    sqlc.narg('spiral_tool_results')::int,
+    sqlc.narg('spiral_max_same_file_edits')::int,
+    sqlc.narg('spiral_same_file_path_hash')::varchar,
+    sqlc.narg('spiral_repeat_frac')::double precision,
+    sqlc.narg('spiral_monologue_len')::int,
+    sqlc.narg('spiral_tool_call_count')::int,
+    sqlc.narg('spiral_message_count')::int,
+    sqlc.narg('spiral_ping_pong_len')::int,
+    sqlc.narg('spiral_steps_since_progress')::int,
+    sqlc.narg('spiral_edit_attempted')::boolean,
+    sqlc.narg('spiral_reasons')::varchar[]
 )
 ON CONFLICT (installation_id, request_id, span_type) DO NOTHING;
 

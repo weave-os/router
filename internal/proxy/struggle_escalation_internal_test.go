@@ -186,7 +186,7 @@ func TestHandleStruggleEscalation_EvidenceIsInertWhileTheFlagIsOff(t *testing.T)
 	})
 
 	svc.handleStruggleEscalation(context.Background(), uuid.New(), struggleTestKey(3), "default",
-		[]string{spiralReasonPingPong})
+		[]spiralReason{spiralReasonPingPong})
 
 	assert.Empty(t, pins.upserts, "evidence must not repin until the arming flag is on")
 	assert.Empty(t, events.events)
@@ -203,14 +203,14 @@ func TestHandleStruggleEscalation_EvidenceArmsBeforeTheThresholds(t *testing.T) 
 	}).WithStruggleEvidenceArming(true)
 
 	svc.handleStruggleEscalation(context.Background(), uuid.New(), struggleTestKey(4), "default",
-		[]string{spiralReasonPingPong, spiralReasonNoProgress})
+		[]spiralReason{spiralReasonPingPong, spiralReasonNoProgress})
 
 	require.Len(t, pins.upserts, 1)
 	assert.Equal(t, "claude-opus-5", pins.upserts[0].Model)
 
 	require.Len(t, events.events, 1)
 	assert.Equal(t, struggleArmingEvidence, events.events[0].ArmingMode)
-	assert.Equal(t, []string{spiralReasonPingPong, spiralReasonNoProgress}, events.events[0].EvidenceReasons)
+	assert.Equal(t, []string{string(spiralReasonPingPong), string(spiralReasonNoProgress)}, events.events[0].EvidenceReasons)
 }
 
 func TestHandleStruggleEscalation_EvidenceStaysOffTheOpeningTurns(t *testing.T) {
@@ -226,7 +226,7 @@ func TestHandleStruggleEscalation_EvidenceStaysOffTheOpeningTurns(t *testing.T) 
 	}).WithStruggleEvidenceArming(true)
 
 	svc.handleStruggleEscalation(context.Background(), uuid.New(), struggleTestKey(5), "default",
-		[]string{spiralReasonPingPong})
+		[]spiralReason{spiralReasonPingPong})
 
 	assert.Empty(t, pins.upserts, "an imported history must not repin on turn one")
 	assert.Empty(t, events.events)
@@ -246,7 +246,7 @@ func TestHandleStruggleEscalation_EvidenceCannotArmALateSession(t *testing.T) {
 	}).WithStruggleEvidenceArming(true)
 
 	svc.handleStruggleEscalation(context.Background(), uuid.New(), struggleTestKey(7), "default",
-		[]string{spiralReasonPingPong})
+		[]spiralReason{spiralReasonPingPong})
 
 	assert.Empty(t, pins.upserts, "late is deliberately unarmed; evidence must not smuggle it in")
 	assert.Empty(t, events.events)
@@ -263,7 +263,7 @@ func TestHandleStruggleEscalation_TimerArmingKeepsItsAttribution(t *testing.T) {
 	}).WithStruggleEvidenceArming(true)
 
 	svc.handleStruggleEscalation(context.Background(), uuid.New(), struggleTestKey(6), "default",
-		[]string{spiralReasonErrStreak})
+		[]spiralReason{spiralReasonErrStreak})
 
 	require.Len(t, events.events, 1)
 	assert.Equal(t, struggleArmingTurnWall, events.events[0].ArmingMode,

@@ -1792,7 +1792,20 @@ INSERT INTO router.model_router_request_telemetry (
     authority_shadow_corrected_outcome,
     authority_shadow_corrected_savings_usd_micros,
     authority_shadow_stay_score,
-    authority_shadow_fresh_score
+    authority_shadow_fresh_score,
+    spiral_err_streak,
+    spiral_errored_results,
+    spiral_tool_results,
+    spiral_max_same_file_edits,
+    spiral_same_file_path_hash,
+    spiral_repeat_frac,
+    spiral_monologue_len,
+    spiral_tool_call_count,
+    spiral_message_count,
+    spiral_ping_pong_len,
+    spiral_steps_since_progress,
+    spiral_edit_attempted,
+    spiral_reasons
 ) VALUES (
     $1::uuid,
     $2::uuid,
@@ -1881,7 +1894,20 @@ INSERT INTO router.model_router_request_telemetry (
     $85::varchar,
     $86::bigint,
     $87::double precision,
-    $88::double precision
+    $88::double precision,
+    $89::int,
+    $90::int,
+    $91::int,
+    $92::int,
+    $93::varchar,
+    $94::double precision,
+    $95::int,
+    $96::int,
+    $97::int,
+    $98::int,
+    $99::int,
+    $100::boolean,
+    $101::varchar[]
 )
 ON CONFLICT (installation_id, request_id, span_type) DO NOTHING
 `
@@ -1975,6 +2001,19 @@ type InsertRequestTelemetryParams struct {
 	AuthorityShadowCorrectedSavingsUsdMicros *int64
 	AuthorityShadowStayScore                 *float64
 	AuthorityShadowFreshScore                *float64
+	SpiralErrStreak                          *int32
+	SpiralErroredResults                     *int32
+	SpiralToolResults                        *int32
+	SpiralMaxSameFileEdits                   *int32
+	SpiralSameFilePathHash                   *string
+	SpiralRepeatFrac                         *float64
+	SpiralMonologueLen                       *int32
+	SpiralToolCallCount                      *int32
+	SpiralMessageCount                       *int32
+	SpiralPingPongLen                        *int32
+	SpiralStepsSinceProgress                 *int32
+	SpiralEditAttempted                      *bool
+	SpiralReasons                            []string
 }
 
 // Records a completed proxied request for the dashboard UI and routing
@@ -2099,7 +2138,20 @@ type InsertRequestTelemetryParams struct {
 //	    authority_shadow_corrected_outcome,
 //	    authority_shadow_corrected_savings_usd_micros,
 //	    authority_shadow_stay_score,
-//	    authority_shadow_fresh_score
+//	    authority_shadow_fresh_score,
+//	    spiral_err_streak,
+//	    spiral_errored_results,
+//	    spiral_tool_results,
+//	    spiral_max_same_file_edits,
+//	    spiral_same_file_path_hash,
+//	    spiral_repeat_frac,
+//	    spiral_monologue_len,
+//	    spiral_tool_call_count,
+//	    spiral_message_count,
+//	    spiral_ping_pong_len,
+//	    spiral_steps_since_progress,
+//	    spiral_edit_attempted,
+//	    spiral_reasons
 //	) VALUES (
 //	    $1::uuid,
 //	    $2::uuid,
@@ -2188,7 +2240,20 @@ type InsertRequestTelemetryParams struct {
 //	    $85::varchar,
 //	    $86::bigint,
 //	    $87::double precision,
-//	    $88::double precision
+//	    $88::double precision,
+//	    $89::int,
+//	    $90::int,
+//	    $91::int,
+//	    $92::int,
+//	    $93::varchar,
+//	    $94::double precision,
+//	    $95::int,
+//	    $96::int,
+//	    $97::int,
+//	    $98::int,
+//	    $99::int,
+//	    $100::boolean,
+//	    $101::varchar[]
 //	)
 //	ON CONFLICT (installation_id, request_id, span_type) DO NOTHING
 func (q *Queries) InsertRequestTelemetry(ctx context.Context, arg InsertRequestTelemetryParams) error {
@@ -2281,6 +2346,19 @@ func (q *Queries) InsertRequestTelemetry(ctx context.Context, arg InsertRequestT
 		arg.AuthorityShadowCorrectedSavingsUsdMicros,
 		arg.AuthorityShadowStayScore,
 		arg.AuthorityShadowFreshScore,
+		arg.SpiralErrStreak,
+		arg.SpiralErroredResults,
+		arg.SpiralToolResults,
+		arg.SpiralMaxSameFileEdits,
+		arg.SpiralSameFilePathHash,
+		arg.SpiralRepeatFrac,
+		arg.SpiralMonologueLen,
+		arg.SpiralToolCallCount,
+		arg.SpiralMessageCount,
+		arg.SpiralPingPongLen,
+		arg.SpiralStepsSinceProgress,
+		arg.SpiralEditAttempted,
+		arg.SpiralReasons,
 	)
 	return err
 }
