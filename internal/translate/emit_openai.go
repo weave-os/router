@@ -113,12 +113,13 @@ func (e *RequestEnvelope) PrepareOpenAI(in http.Header, opts EmitOptions) (provi
 // TTFT). Each upstream takes a different knob: OpenAI-compat serverless
 // (Fireworks/Makora/Together/…) gets x-session-affinity (the
 // default for any OpenAI-compat target, so new upstreams need no edit here),
-// OpenRouter gets x-session-id, OpenAI and customer openai_gateway endpoints
-// get the prompt_cache_key body field (a spec Chat Completions field, so a
-// gateway that forwards the body forwards the hint — no unknown-header risk),
-// xAI Chat Completions gets x-grok-conv-id — including grok served through an
-// openai_gateway, since xAI only honors prompt_cache_key on the Responses API
-// and keys Chat Completions cache routing on the header alone. Bedrock's explicit cachePoint
+// OpenRouter and TrustedRouter get x-session-id, OpenAI and customer
+// openai_gateway endpoints get the prompt_cache_key body field (a spec Chat
+// Completions field, so a gateway that forwards the body forwards the hint —
+// no unknown-header risk), xAI Chat Completions gets x-grok-conv-id —
+// including grok served through an openai_gateway, since xAI only honors
+// prompt_cache_key on the Responses API and keys Chat Completions cache
+// routing on the header alone. Bedrock's explicit cachePoint
 // caching is centrally routed, so it gets nothing.
 //
 // The header-based hints are gated on a real session key — collapsing keyless
@@ -131,7 +132,7 @@ func (e *RequestEnvelope) PrepareOpenAI(in http.Header, opts EmitOptions) (provi
 // route re-bills the full prefix every turn (NULL cache_read in prod).
 func applySessionAffinity(body []byte, headers http.Header, opts EmitOptions) ([]byte, error) {
 	switch opts.TargetProvider {
-	case providers.ProviderOpenRouter:
+	case providers.ProviderOpenRouter, providers.ProviderTrustedRouter:
 		if opts.SessionAffinity != "" {
 			headers.Set("x-session-id", opts.SessionAffinity)
 		}
@@ -280,13 +281,17 @@ func (e *RequestEnvelope) buildOpenAIFromOpenAI(opts EmitOptions) ([]byte, error
 	return body, nil
 }
 
-// targetIsOpenRouter reports whether the emit target is OpenRouter — direct
-// upstreams (Fireworks/Bedrock/Makora/Together) reject OpenRouter-only fields like
-// `provider`/`reasoning`. Empty TargetProvider falls back to the model-slug
-// match for callers not yet plumbed through (the handover summarizer).
+// targetIsOpenRouter reports whether the emit target is an OpenRouter-compatible
+// aggregate upstream (OpenRouter or TrustedRouter). Router-specific body fields
+// (`provider`, `reasoning`), system reminders, and tool-turn temperature
+// overrides only belong on aggregate router wires; direct upstreams
+// (Fireworks/Bedrock/Makora/Together) reject them. Empty TargetProvider falls
+// back to the model-slug match for callers not yet plumbed through (the
+// handover summarizer).
 func targetIsOpenRouter(opts EmitOptions) bool {
 	if opts.TargetProvider != "" {
-		return opts.TargetProvider == providers.ProviderOpenRouter
+		return opts.TargetProvider == providers.ProviderOpenRouter ||
+			opts.TargetProvider == providers.ProviderTrustedRouter
 	}
 	return true
 }

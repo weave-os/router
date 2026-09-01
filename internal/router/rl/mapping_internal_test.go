@@ -31,11 +31,12 @@ var expectedRosterPrefix = map[string]string{
 // like wafer_anthropic's sibling wafer, or the RL policy roster doesn't need
 // to distinguish them.
 var defaultRosterPrefixProviders = map[string]struct{}{
-	providers.ProviderOpenRouter: {},
-	providers.ProviderFireworks:  {},
-	providers.ProviderBedrock:    {},
-	providers.ProviderMakora:     {},
-	providers.ProviderTogether:   {},
+	providers.ProviderOpenRouter:    {},
+	providers.ProviderTrustedRouter: {},
+	providers.ProviderFireworks:     {},
+	providers.ProviderBedrock:       {},
+	providers.ProviderMakora:        {},
+	providers.ProviderTogether:      {},
 	// Anthropic-spec surfaces serving non-Claude models (Wafer's Messages API)
 	// stay bare — the roster keys vendor-prefixed Anthropic slots by Claude ID.
 	providers.ProviderWaferAnthropic: {},
