@@ -18,8 +18,12 @@ var (
 	receiptActualPricing    = catalog.Pricing{InputUSDPer1M: 3, OutputUSDPer1M: 15}
 )
 
+func testReceiptPricing(actual catalog.Pricing, provider string) *codexReceiptPricing {
+	return &codexReceiptPricing{actualPricing: actual, provider: provider, hasActualPricing: true}
+}
+
 func TestCodexReceiptReportsTokensAndSavings(t *testing.T) {
-	render := codexReceiptRenderer(receiptRequestedPricing, receiptActualPricing, providers.ProviderAnthropic)
+	render := codexReceiptRenderer(receiptRequestedPricing, testReceiptPricing(receiptActualPricing, providers.ProviderAnthropic))
 
 	got := render(translate.ResponsesReceiptUsage{
 		InputTokens:  1800,
@@ -32,7 +36,7 @@ func TestCodexReceiptReportsTokensAndSavings(t *testing.T) {
 }
 
 func TestCodexReceiptOmittedWhenUpstreamReportedNoUsage(t *testing.T) {
-	render := codexReceiptRenderer(receiptRequestedPricing, receiptActualPricing, providers.ProviderAnthropic)
+	render := codexReceiptRenderer(receiptRequestedPricing, testReceiptPricing(receiptActualPricing, providers.ProviderAnthropic))
 
 	assert.Empty(t, render(translate.ResponsesReceiptUsage{HasUsage: false}),
 		"a turn with no upstream usage must not render a receipt")
@@ -42,7 +46,7 @@ func TestCodexReceiptOmittedWhenUpstreamReportedNoUsage(t *testing.T) {
 
 func TestCodexReceiptDropsSavingsWhenRoutedModelCostsMore(t *testing.T) {
 	// Routing up-tiered the turn for quality. "saved -$0.02" reads as a bug.
-	render := codexReceiptRenderer(receiptActualPricing, receiptRequestedPricing, providers.ProviderAnthropic)
+	render := codexReceiptRenderer(receiptActualPricing, testReceiptPricing(receiptRequestedPricing, providers.ProviderAnthropic))
 
 	got := render(translate.ResponsesReceiptUsage{
 		InputTokens:  1800,
@@ -56,7 +60,7 @@ func TestCodexReceiptDropsSavingsWhenRoutedModelCostsMore(t *testing.T) {
 func TestCodexReceiptDropsSubCentSavings(t *testing.T) {
 	// A tiny turn's win rounds to $0.00, which reads as "routing bought
 	// nothing" rather than "the win was small".
-	render := codexReceiptRenderer(receiptRequestedPricing, receiptActualPricing, providers.ProviderAnthropic)
+	render := codexReceiptRenderer(receiptRequestedPricing, testReceiptPricing(receiptActualPricing, providers.ProviderAnthropic))
 
 	got := render(translate.ResponsesReceiptUsage{
 		InputTokens:  10,
@@ -69,7 +73,7 @@ func TestCodexReceiptDropsSubCentSavings(t *testing.T) {
 
 func TestCodexReceiptNoSavingsClauseWhenServedRequestedModel(t *testing.T) {
 	// The router stayed on the client's model, so there is no counterfactual.
-	render := codexReceiptRenderer(receiptRequestedPricing, receiptRequestedPricing, providers.ProviderAnthropic)
+	render := codexReceiptRenderer(receiptRequestedPricing, testReceiptPricing(receiptRequestedPricing, providers.ProviderAnthropic))
 
 	got := render(translate.ResponsesReceiptUsage{
 		InputTokens:  50_000,
@@ -85,7 +89,7 @@ func TestCodexReceiptCacheReadsDoNotInflateSavings(t *testing.T) {
 	// turn must not be credited with the full-price delta. OpenAI is the
 	// provider the Responses path actually serves, and the one whose usage
 	// reports cached tokens as a subset of the prompt.
-	render := codexReceiptRenderer(receiptRequestedPricing, receiptActualPricing, providers.ProviderOpenAI)
+	render := codexReceiptRenderer(receiptRequestedPricing, testReceiptPricing(receiptActualPricing, providers.ProviderOpenAI))
 
 	uncached := render(translate.ResponsesReceiptUsage{
 		InputTokens: 40_000, OutputTokens: 500, HasUsage: true,

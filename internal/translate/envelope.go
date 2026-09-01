@@ -824,12 +824,7 @@ var routingMarkerPattern = regexp.MustCompile(`(?s)✦ \*\*Weave Router\*\* → 
 // sentinel in sync with proxy.feedbackFooterText.
 var feedbackFooterPattern = regexp.MustCompile(`\n*_Weave Router feedback:_ [^\n]*`)
 
-// routerReceiptPattern matches the per-turn token/savings receipt appended to
-// Codex responses (see proxy.codexReceiptRenderer). Stripped on ingress for the
-// same reason as the marker and footer: the client echoes assistant text back
-// verbatim, so an unstripped receipt would accumulate one line per turn inside
-// the very prompt it is reporting on. Keep the prefix in sync with
-// proxy.codexReceiptPrefix.
+// routerReceiptPattern matches a receipt from a prior Codex turn.
 var routerReceiptPattern = regexp.MustCompile(`\n*↳ Weave Router · [^\n]*`)
 
 // StripRoutingMarkerFromMessages removes the routing-marker snippet from every

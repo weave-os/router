@@ -748,23 +748,16 @@ func (t *ResponsesWriter) SetFooterText(text string) {
 	t.footerText = text
 }
 
-// ResponsesReceiptUsage is the served turn's token accounting, as reported by
-// the upstream. HasUsage distinguishes "the upstream reported zero" from "the
-// upstream reported nothing", which the receipt must not present as free.
+// ResponsesReceiptUsage contains the served turn's upstream token counts.
 type ResponsesReceiptUsage struct {
 	InputTokens  int64
 	OutputTokens int64
-	// CacheReadTokens is the subset of InputTokens the upstream billed at its
-	// cache-read rate, so a cached turn is not priced at full rate.
+	// CacheReadTokens is the cached subset of InputTokens.
 	CacheReadTokens int64
 	HasUsage        bool
 }
 
-// SetReceiptFunc supplies a renderer for the per-turn receipt appended after
-// the footer. It is called once at stream end, not at wire-up time: the token
-// counts it formats only exist after the upstream has finished, whereas the
-// badge and footer are fixed before dispatch. Returning "" emits nothing,
-// which is the right answer for an upstream that reported no usage.
+// SetReceiptFunc sets the renderer for the receipt appended after the footer.
 func (t *ResponsesWriter) SetReceiptFunc(fn func(ResponsesReceiptUsage) string) {
 	t.receiptFn = fn
 }
