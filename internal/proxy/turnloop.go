@@ -530,9 +530,7 @@ func (s *Service) runTurnLoop(
 		"sub_agent_hint", subAgentHint,
 	)
 
-	// Explicit force state is scoped to the client session rather than one
-	// first-message-derived thread. A force carried by this request wins over a
-	// concurrently persisted value; future requests observe the last write.
+	// Force state is session-scoped so sub-agents inherit the parent choice.
 	forceModelSessionKey := deriveForceModelSessionKeyForRequest(ctx, env, apiKeyID, threadSessionKey)
 	forceModelPin := sessionpin.Pin{}
 	forceModelFound := false
@@ -585,13 +583,16 @@ func (s *Service) runTurnLoop(
 	}
 	if forceModelFound && hardPinnedTurn {
 		if forcedPinEligible(forceModelPin, req) {
-			threadPin, _ := s.loadPin(ctx, threadSessionKey, res.PinRole)
-			hmmHistory := s.loadHMMHistory(ctx, threadSessionKey, res.PinRole)
-			forceHistory := s.loadForceModelHistory(ctx, threadSessionKey, res.PinRole)
+			threadPin, hmmHistory, forceHistory := sessionpin.Pin{}, sessionpin.Pin{}, sessionpin.Pin{}
+			if s.pinStore != nil {
+				threadPin, _ = s.loadPin(ctx, threadSessionKey, res.PinRole)
+				hmmHistory = s.loadHMMHistory(ctx, threadSessionKey, res.PinRole)
+				forceHistory = s.loadForceModelHistory(ctx, threadSessionKey, res.PinRole)
+			}
 			res.SessionKey = threadSessionKey
 			res.PinModel = forceModelPin.Model
 			res.PinAgeSec = pinAge(forceModelPin)
-			res.PriorServedModel, res.SessionEverSwitched = switchHistoryFromPins(threadPin, hmmHistory, forceHistory)
+			res.PriorServedModel, res.SessionEverSwitched = switchHistoryFromPins(threadPin, hmmHistory, forceHistory, forceModelPin)
 			res.EscalateEffort = !forceHistory.LastTurnEndedAt.IsZero() &&
 				(forceHistory.LastOutputTokens == 0 || forceHistory.ConsecutiveUpstreamErrors > 0)
 			res.Decision = pinDecision(forceModelPin)
@@ -809,7 +810,7 @@ func (s *Service) runTurnLoop(
 			req.EnabledProviders = filtered
 		}
 	}
-	res.PriorServedModel, res.SessionEverSwitched = switchHistoryFromPins(pin, hmmHistory, forceHistory)
+	res.PriorServedModel, res.SessionEverSwitched = switchHistoryFromPins(pin, hmmHistory, forceHistory, forceModelPin)
 	req.PolicyTurnContext = buildPolicyTurnContext(req, res, pin, hmmHistory)
 	// Computed before any same-turn pin-drop guards below so it reflects the
 	// prior turn's outcome; Service.effortEscalation gates whether it's acted on.
@@ -1102,7 +1103,7 @@ func (s *Service) runTurnLoop(
 		res.PinTier = "post_command_continuation"
 		res.PinModel = commandContinuation.Model
 		res.PinAgeSec = pinAge(commandContinuation)
-		res.PriorServedModel, res.SessionEverSwitched = switchHistoryFromPins(commandContinuation, hmmHistory, forceHistory)
+		res.PriorServedModel, res.SessionEverSwitched = switchHistoryFromPins(commandContinuation, hmmHistory, forceHistory, forceModelPin)
 		res.EscalateEffort = !commandContinuation.LastTurnEndedAt.IsZero() &&
 			(commandContinuation.LastOutputTokens == 0 || commandContinuation.ConsecutiveUpstreamErrors > 0)
 		log.Info("turnloop used one-shot post-command continuation",

@@ -55,7 +55,16 @@ func (s *forceModelMapStore) Consume(_ context.Context, sessionKey [sessionpin.S
 func (s *forceModelMapStore) Upsert(_ context.Context, pin sessionpin.Pin) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.pins[forceModelMapKey(pin.SessionKey, pin.Role)] = pin
+	key := forceModelMapKey(pin.SessionKey, pin.Role)
+	existing, found := s.pins[key]
+	if found && existing.Strategy == pin.Strategy {
+		pin.LastServedModel = existing.LastServedModel
+		pin.LastTurnEndedAt = existing.LastTurnEndedAt
+		pin.LastInputTokens = existing.LastInputTokens
+		pin.LastOutputTokens = existing.LastOutputTokens
+		pin.HasEverSwitched = existing.HasEverSwitched
+	}
+	s.pins[key] = pin
 	return nil
 }
 
@@ -73,6 +82,8 @@ func (s *forceModelMapStore) UpdateUsage(_ context.Context, sessionKey [sessionp
 	pin.LastTurnEndedAt = usage.EndedAt
 	pin.LastInputTokens = usage.InputTokens
 	pin.LastOutputTokens = usage.OutputTokens
+	pin.HasEverSwitched = usage.SessionEverSwitched ||
+		(usage.PriorServedModel != "" && usage.PriorServedModel != usage.ServedModel)
 	s.pins[key] = pin
 	return nil
 }
@@ -322,6 +333,14 @@ func TestApplyForceModelCommand_WritesAndClearsSessionControl(t *testing.T) {
 		assert.False(t, threadForceFound, "new force state must have only one authoritative row")
 	}
 
+	nextModel, _, err := svc.applyForceModelCommand(ctx, env, translate.ForceModelResult{Model: "sonnet"}, installationID, threadKey, forceKey)
+	require.NoError(t, err)
+	assert.Equal(t, "claude-sonnet-5", nextModel)
+	switched, found, err := store.Get(ctx, forceKey, forceModelSessionRole)
+	require.NoError(t, err)
+	require.True(t, found)
+	assert.Equal(t, "claude-opus-5", switched.LastServedModel)
+
 	_, _, err = svc.applyForceModelCommand(ctx, env, translate.ForceModelResult{Clear: true}, installationID, threadKey, forceKey)
 	require.NoError(t, err)
 	cleared, found, err := store.Get(ctx, forceKey, forceModelSessionRole)
@@ -329,6 +348,8 @@ func TestApplyForceModelCommand_WritesAndClearsSessionControl(t *testing.T) {
 	require.True(t, found)
 	assert.Equal(t, pinNeverExpires, cleared.PinnedUntil, "the clear tombstone prevents legacy child pins from reviving")
 	assert.Empty(t, cleared.Model)
+	assert.Equal(t, "claude-sonnet-5", cleared.LastServedModel)
+	assert.True(t, cleared.HasEverSwitched)
 	assert.Equal(t, userUnforcedReason, cleared.Reason)
 }
 

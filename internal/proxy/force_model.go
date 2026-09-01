@@ -274,6 +274,28 @@ func forceModelHistoryRole(role string) string {
 	return role + forceModelHistoryRoleSuffix
 }
 
+func (s *Service) preserveForceModelControlHistory(
+	ctx context.Context,
+	sessionKey [sessionpin.SessionKeyLen]byte,
+	nextModel string,
+) error {
+	existing, found, err := s.pinStore.Get(ctx, sessionKey, forceModelSessionRole)
+	if err != nil {
+		return err
+	}
+	if !found || !isUserForcedReason(existing.Reason) || existing.Model == "" || existing.Model == nextModel {
+		return nil
+	}
+	return s.pinStore.UpdateUsage(context.Background(), sessionKey, forceModelSessionRole, sessionpin.Usage{
+		Strategy:            existing.Strategy,
+		EndedAt:             time.Now(),
+		ServedModel:         existing.Model,
+		ServedProvider:      existing.Provider,
+		PriorServedModel:    existing.LastServedModel,
+		SessionEverSwitched: existing.HasEverSwitched,
+	})
+}
+
 // setForceModelSessionPin writes the session-wide control row. Ordinary turns
 // never refresh this row; only another force or an explicit clear changes it.
 func (s *Service) setForceModelSessionPin(
@@ -284,6 +306,9 @@ func (s *Service) setForceModelSessionPin(
 ) error {
 	if s.pinStore == nil || installationID == uuid.Nil {
 		return nil
+	}
+	if err := s.preserveForceModelControlHistory(ctx, sessionKey, canonicalModel); err != nil {
+		return fmt.Errorf("preserve force-model control history: %w", err)
 	}
 	forced := sessionpin.Pin{
 		SessionKey:     sessionKey,
@@ -311,7 +336,7 @@ func (s *Service) loadForceModelSessionPin(
 		return sessionpin.Pin{}, false, false
 	}
 	if found && pin.Reason == userUnforcedReason {
-		return sessionpin.Pin{}, false, true
+		return pin, false, true
 	}
 	if !found || !pin.PinnedUntil.After(time.Now()) || !isUserForcedReason(pin.Reason) || pin.Model == "" || pin.Provider == "" {
 		return sessionpin.Pin{}, false, false
@@ -394,12 +419,15 @@ func (s *Service) clearLegacyForceModelPins(
 }
 
 func (s *Service) clearForceModelSessionPin(
-	_ context.Context,
+	ctx context.Context,
 	installationID uuid.UUID,
 	sessionKey [sessionpin.SessionKeyLen]byte,
 ) error {
 	if s.pinStore == nil || installationID == uuid.Nil {
 		return nil
+	}
+	if err := s.preserveForceModelControlHistory(ctx, sessionKey, ""); err != nil {
+		return fmt.Errorf("preserve force-model control history before clear: %w", err)
 	}
 	// Keep a durable tombstone so a pre-session-scope user_forced row on any
 	// child thread cannot revive after /unforce-model.
