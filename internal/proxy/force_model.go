@@ -382,7 +382,7 @@ func (s *Service) anchorForceModelHistory(
 		Reason:         forceModelHistoryReason,
 		Strategy:       router.StrategyFromContext(ctx),
 		TurnCount:      1,
-		PinnedUntil:    time.Now().Add(pinSessionTTL),
+		PinnedUntil:    pinNeverExpires,
 	})
 }
 

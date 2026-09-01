@@ -592,7 +592,7 @@ func (s *Service) runTurnLoop(
 			res.SessionKey = threadSessionKey
 			res.PinModel = forceModelPin.Model
 			res.PinAgeSec = pinAge(forceModelPin)
-			res.PriorServedModel, res.SessionEverSwitched = switchHistoryFromPins(threadPin, hmmHistory, forceHistory, forceModelPin)
+			res.PriorServedModel, res.SessionEverSwitched = switchHistoryFromPins(threadPin, hmmHistory, forceHistory)
 			res.EscalateEffort = !forceHistory.LastTurnEndedAt.IsZero() &&
 				(forceHistory.LastOutputTokens == 0 || forceHistory.ConsecutiveUpstreamErrors > 0)
 			res.Decision = pinDecision(forceModelPin)
@@ -738,7 +738,7 @@ func (s *Service) runTurnLoop(
 	}
 	hmmHistory := s.loadHMMHistory(ctx, res.SessionKey, res.PinRole)
 	forceHistory := sessionpin.Pin{}
-	if forceModelFound || forceModelCleared {
+	if forceModelFound {
 		forceHistory = s.loadForceModelHistory(ctx, res.SessionKey, res.PinRole)
 	}
 	if !forceModelFound && !forceModelCleared && pinFound && isUserForcedReason(pin.Reason) {
@@ -810,7 +810,7 @@ func (s *Service) runTurnLoop(
 			req.EnabledProviders = filtered
 		}
 	}
-	res.PriorServedModel, res.SessionEverSwitched = switchHistoryFromPins(pin, hmmHistory, forceHistory, forceModelPin)
+	res.PriorServedModel, res.SessionEverSwitched = switchHistoryFromPins(pin, hmmHistory, forceHistory)
 	req.PolicyTurnContext = buildPolicyTurnContext(req, res, pin, hmmHistory)
 	// Computed before any same-turn pin-drop guards below so it reflects the
 	// prior turn's outcome; Service.effortEscalation gates whether it's acted on.
@@ -1103,7 +1103,11 @@ func (s *Service) runTurnLoop(
 		res.PinTier = "post_command_continuation"
 		res.PinModel = commandContinuation.Model
 		res.PinAgeSec = pinAge(commandContinuation)
-		res.PriorServedModel, res.SessionEverSwitched = switchHistoryFromPins(commandContinuation, hmmHistory, forceHistory, forceModelPin)
+		if forceModelCleared {
+			res.PriorServedModel, res.SessionEverSwitched = switchHistoryFromPins(commandContinuation, hmmHistory, forceHistory, forceModelPin)
+		} else {
+			res.PriorServedModel, res.SessionEverSwitched = switchHistoryFromPins(commandContinuation, hmmHistory, forceHistory)
+		}
 		res.EscalateEffort = !commandContinuation.LastTurnEndedAt.IsZero() &&
 			(commandContinuation.LastOutputTokens == 0 || commandContinuation.ConsecutiveUpstreamErrors > 0)
 		log.Info("turnloop used one-shot post-command continuation",

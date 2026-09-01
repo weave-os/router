@@ -166,6 +166,7 @@ func TestRunTurnLoop_ForceModelSessionPinAppliesAcrossChildThreads(t *testing.T)
 	_, historyPresent := store.pins[forceModelMapKey(childThreadKey, forceModelHistoryRole(result.PinRole))]
 	assert.True(t, controlStillPresent)
 	assert.True(t, historyPresent)
+	assert.Equal(t, pinNeverExpires, store.pins[forceModelMapKey(childThreadKey, forceModelHistoryRole(result.PinRole))].PinnedUntil)
 }
 
 func TestRunTurnLoop_DroppedSessionForcePreservesThreadPin(t *testing.T) {
