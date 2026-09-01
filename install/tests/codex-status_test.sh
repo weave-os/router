@@ -18,7 +18,11 @@ XDG_CACHE_HOME="$cache" WEAVE_CODEX_STATUS_TITLE_FILE="$title_file" \
 }
 
 printf '%s\n' '{"session_id":"session-1","model":"gpt-5.6-terra","last_assistant_message":"✦ **Weave Router** → claude-sonnet-5 · best pick for this turn"}' \
-  | XDG_CACHE_HOME="$cache" WEAVE_CODEX_STATUS_TITLE_FILE="$title_file" "$helper"
+  | XDG_CACHE_HOME="$cache" WEAVE_CODEX_STATUS_TITLE_FILE="$title_file" "$helper" >"$work/marker.out"
+[ ! -s "$work/marker.out" ] || {
+  echo "Stop hook emitted a duplicate status message" >&2
+  exit 1
+}
 [ "$(cat "$title_file")" = "Weave Router · claude-sonnet-5 ← gpt-5.6-terra" ] || {
   echo "Stop hook did not publish the routed model" >&2
   exit 1
@@ -56,8 +60,8 @@ printf '%s\n' "$session_start" \
   echo "disabled SessionStart hook did not keep the direct title" >&2
   exit 1
 }
-grep -Fq 'Weave Router is off' "$work/session-start.out" || {
-  echo "disabled SessionStart hook did not explain the direct state" >&2
+[ ! -s "$work/session-start.out" ] || {
+  echo "disabled SessionStart hook emitted a status message" >&2
   exit 1
 }
 printf '%s\n' '{"hook_event_name":"Stop","session_id":"session-1","model":"gpt-5.6-sol"}' \

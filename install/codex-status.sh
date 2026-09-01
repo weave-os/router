@@ -231,10 +231,8 @@ hook_event_name="$(jq -r '.hook_event_name // ""' <<<"$payload")"
 if [ "$hook_event_name" = "SessionStart" ]; then
   if [ -f "$disabled_marker" ]; then
     emit_title "Codex · direct"
-    jq -cn '{systemMessage:"Codex direct · Weave Router is off"}'
   else
     emit_title "Weave Router · active"
-    jq -cn '{systemMessage:"Weave Router active · routed model appears in the terminal title"}'
   fi
   exit 0
 fi
@@ -307,6 +305,3 @@ else
   title="Weave Router · active$savings"
 fi
 emit_title "$title"
-if [ -n "$marker_model" ] || [ -n "$force_model" ]; then
-  printf '%s' "$title" | jq -Rc '{systemMessage: .}'
-fi
