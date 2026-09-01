@@ -242,15 +242,12 @@ func TestRunTurnLoop_ClearTombstoneBlocksLegacyForce(t *testing.T) {
 		Reason:         userUnforcedReason,
 		PinnedUntil:    pinNeverExpires,
 	}
-	store.pins[forceModelMapKey(threadKey, role)] = sessionpin.Pin{
-		SessionKey:     threadKey,
-		Role:           role,
-		InstallationID: installationID,
-		Provider:       providers.ProviderAnthropic,
-		Model:          "claude-opus-5",
-		Reason:         translate.ReasonUserForceModel,
-		Strategy:       router.StrategyCluster,
-		PinnedUntil:    pinNeverExpires,
+	store.pins[forceModelMapKey(threadKey, forceModelHistoryRole(role))] = sessionpin.Pin{
+		SessionKey:      threadKey,
+		Role:            forceModelHistoryRole(role),
+		LastServedModel: "claude-opus-5",
+		LastTurnEndedAt: time.Now(),
+		PinnedUntil:     pinNeverExpires,
 	}
 	freshRouter := &tierProbeRouter{
 		available: map[string]struct{}{"claude-haiku-4-5": {}},
@@ -264,6 +261,7 @@ func TestRunTurnLoop_ClearTombstoneBlocksLegacyForce(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "claude-haiku-4-5", result.Decision.Model)
 	assert.NotEqual(t, translate.ReasonUserForceModel, result.Decision.Reason)
+	assert.Equal(t, "claude-opus-5", result.PriorServedModel)
 	assert.NotEmpty(t, freshRouter.captured)
 }
 

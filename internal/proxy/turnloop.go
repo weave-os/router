@@ -738,7 +738,7 @@ func (s *Service) runTurnLoop(
 	}
 	hmmHistory := s.loadHMMHistory(ctx, res.SessionKey, res.PinRole)
 	forceHistory := sessionpin.Pin{}
-	if forceModelFound {
+	if forceModelFound || forceModelCleared {
 		forceHistory = s.loadForceModelHistory(ctx, res.SessionKey, res.PinRole)
 	}
 	if !forceModelFound && !forceModelCleared && pinFound && isUserForcedReason(pin.Reason) {
