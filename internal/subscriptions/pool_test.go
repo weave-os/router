@@ -77,6 +77,20 @@ func TestPoolCooldownRotatesStickyAccount(t *testing.T) {
 	require.Equal(t, "b", rotated.ID)
 }
 
+func TestManagerDoesNotCrossOwnerOrProviderPools(t *testing.T) {
+	m := subscriptions.NewManager(nil)
+	require.NoError(t, m.Upsert(subscriptions.Account{ID: "claude-a", OwnerID: "user-a", Provider: subscriptions.ProviderClaude, Enabled: true, AccessToken: "a"}))
+	require.NoError(t, m.Upsert(subscriptions.Account{ID: "codex-a", OwnerID: "user-a", Provider: subscriptions.ProviderCodex, Enabled: true, AccessToken: "c"}))
+
+	_, release, err := m.Lease(context.Background(), "user-b", subscriptions.ProviderClaude, "", nil)
+	require.ErrorIs(t, err, subscriptions.ErrNoAvailableAccount)
+	require.Nil(t, release)
+	_, release, err = m.Lease(context.Background(), "user-a", subscriptions.ProviderCodex, "", nil)
+	require.NoError(t, err)
+	require.NotNil(t, release)
+	release()
+}
+
 func mustLeaseError(p *subscriptions.Pool, provider subscriptions.Provider) error {
 	_, _, err := p.Lease(context.Background(), provider, "", nil)
 	return err
