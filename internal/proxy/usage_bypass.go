@@ -299,6 +299,16 @@ func (s *Service) bypassToAnthropic(
 		log.Error("Failed to emit Anthropic body on usage-bypass path", "err", emitErr)
 		return fmt.Errorf("emit bypass body: %w", emitErr)
 	}
+	var responseBuffer *responseCostBuffer
+	if !env.Stream() {
+		responseBuffer = newResponseCostBuffer(w)
+		w = responseBuffer
+		defer func() {
+			if flushErr := responseBuffer.FlushToClient(); flushErr != nil {
+				log.Error("Failed to flush buffered response", "err", flushErr)
+			}
+		}()
+	}
 
 	// Subscription-only mode: prepend a warning
 	// text block so the customer sees they're on their own subscription with
