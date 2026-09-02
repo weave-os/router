@@ -100,6 +100,13 @@ func (s *Service) ResolveSiblingFailover(ctx context.Context) bool {
 	return flags.BoolOr(ctx, flags.KeySiblingFailover, s.siblingFailover)
 }
 
+// ResolveAllowedModelsHeader reports the ROUTER_ALLOWED_MODELS_HEADER flag:
+// whether x-weave-allowed-models is honored for an installation that is not
+// authorized for policy headers.
+func (s *Service) ResolveAllowedModelsHeader(ctx context.Context) bool {
+	return flags.BoolOr(ctx, flags.KeyAllowedModelsHeader, s.allowedModelsHeader)
+}
+
 // ResolveOpenAIResponsesBroad reports the ROUTER_OPENAI_RESPONSES_BROAD flag:
 // off, only the reasoning+tools turn chat/completions rejects is promoted.
 func (s *Service) ResolveOpenAIResponsesBroad(ctx context.Context) bool {

@@ -205,6 +205,9 @@ type Service struct {
 	// openAIResponsesBroad is the deployment default for
 	// ROUTER_OPENAI_RESPONSES_BROAD; see ResolveOpenAIResponsesBroad.
 	openAIResponsesBroad bool
+	// allowedModelsHeader is the deployment default for
+	// ROUTER_ALLOWED_MODELS_HEADER; see ResolveAllowedModelsHeader.
+	allowedModelsHeader bool
 	// sseKeepalive is the client-silence budget before a ping is injected
 	// (ROUTER_SSE_KEEPALIVE_INTERVAL_SECONDS; 0 disables). See sse.KeepaliveWriter.
 	sseKeepalive time.Duration
@@ -1494,6 +1497,13 @@ func (s *Service) WithSiblingFailover(enabled bool) *Service {
 // routing (ROUTER_OPENAI_RESPONSES_BROAD).
 func (s *Service) WithOpenAIResponsesBroad(enabled bool) *Service {
 	s.openAIResponsesBroad = enabled
+	return s
+}
+
+// WithAllowedModelsHeader sets the deployment default for honoring the
+// x-weave-allowed-models header (ROUTER_ALLOWED_MODELS_HEADER).
+func (s *Service) WithAllowedModelsHeader(enabled bool) *Service {
+	s.allowedModelsHeader = enabled
 	return s
 }
 

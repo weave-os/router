@@ -1052,6 +1052,7 @@ func main() {
 		WithAnthropicServerSideFallback(anthropicServerSideFallback).
 		WithSiblingFailover(siblingFailover).
 		WithOpenAIResponsesBroad(openAIResponsesBroad).
+		WithAllowedModelsHeader(allowedModelsHeader).
 		WithSSEKeepalive(sseKeepalive).
 		WithPrefixTrimFreeSwitch(prefixTrimFreeSwitch).
 		WithHMMUpgradeConfidenceThreshold(hmmUpgradeConfidence).
