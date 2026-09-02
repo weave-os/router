@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -320,6 +321,38 @@ func TestBypass_NilError_ReturnsNil(t *testing.T) {
 
 	err := svc.bypassToAnthropic(context.Background(), env, feats, false, time.Now(), "req-1", "ext-1", turntype.MainLoop, req, rec)
 	require.NoError(t, err)
+}
+
+// TestBypass_NonStreamResponseIncludesCostHeaders verifies that usage-bypass
+// buffers non-stream responses until usage has been extracted and cost headers
+// have been populated. Without the buffer, the upstream body commits the
+// response before setRouterCostHeaders runs, so clients never see the headers.
+func TestBypass_NonStreamResponseIncludesCostHeaders(t *testing.T) {
+	const (
+		inputTokens  = 1200
+		outputTokens = 340
+	)
+	upstream := &bypassFakeProvider{respBody: `{"usage":{"input_tokens":1200,"output_tokens":340}}`}
+	svc := newBypassService(upstream)
+	svc.telemetry = newBypassCaptureTelemetry() // enables usage extraction
+
+	env := bypassAnthropicEnvelope(t)
+	feats := env.RoutingFeatures(false)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+
+	err := svc.bypassToAnthropic(context.Background(), env, feats, false, time.Now(), "req-cost", "ext-1", turntype.MainLoop, req, rec)
+	require.NoError(t, err)
+	require.Equal(t, upstream.respBody, rec.Body.String())
+
+	pricing, ok := catalog.PriceFor(providers.ProviderAnthropic, feats.Model)
+	require.True(t, ok, "test model must have catalog pricing")
+	want := routerResponseCostFromPricing(pricing, providers.ProviderAnthropic, inputTokens, outputTokens, 0, 0)
+	assert.Equal(t, strconv.FormatFloat(want.TotalUSD, 'f', -1, 64), rec.Header().Get(HeaderRouterCostUSD))
+	assert.Equal(t, strconv.FormatFloat(want.InputUSD, 'f', -1, 64), rec.Header().Get(HeaderRouterCostInputUSD))
+	assert.Equal(t, strconv.FormatFloat(want.OutputUSD, 'f', -1, 64), rec.Header().Get(HeaderRouterCostOutputUSD))
+	assert.Equal(t, "0", rec.Header().Get(HeaderRouterCacheReadTokens))
+	assert.Equal(t, "0", rec.Header().Get(HeaderRouterCacheCreationTokens))
 }
 
 // TestBypass_TransportError_ReroutesViaScorer: a raw transport error (connection

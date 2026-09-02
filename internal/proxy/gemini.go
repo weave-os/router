@@ -63,6 +63,16 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 		log.Error("Failed to parse Gemini request", "err", parseErr)
 		return fmt.Errorf("parse request: %w", parseErr)
 	}
+	var responseBuffer *responseCostBuffer
+	if !env.Stream() {
+		responseBuffer = newResponseCostBuffer(w)
+		w = responseBuffer
+		defer func() {
+			if flushErr := responseBuffer.FlushToClient(); flushErr != nil {
+				log.Error("Failed to flush buffered response", "err", flushErr)
+			}
+		}()
+	}
 	embedFlag := s.ResolveEmbedOnlyUserMessage(ctx)
 	feats := env.RoutingFeatures(embedFlag)
 	promptText := feats.PromptText
@@ -256,6 +266,9 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 
 	in, out := extractor.Tokens()
 	cacheCreation, cacheRead := extractor.CacheTokens()
+	if responseBuffer != nil && proxyErr == nil {
+		setRouterCostHeaders(w.Header(), routerResponseCostFromPricing(actPricing, decision.Provider, in, out, cacheCreation, cacheRead))
+	}
 	geminiUpstreamBuilder := otel.NewAttrBuilder(40).
 		String("request_id", requestID).
 		String("external_id", externalID).

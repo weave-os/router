@@ -247,6 +247,13 @@ dashboard, where selection is an organization-wide setting. See
 Keep liveness probes on `/health`. Point startup or readiness probes at
 `/readyz` when configured policy sidecars must be ready before traffic arrives.
 
+Routed non-stream responses include `x-router-cost-usd`,
+`x-router-cost-input-usd`, `x-router-cost-output-usd`,
+`x-router-cache-read-tokens`, and `x-router-cache-creation-tokens`. Streaming
+responses cannot carry the final cost in HTTP headers because headers flush
+before usage is known; stream clients should read the `weave_cost` object on
+the final Anthropic `message_delta` usage event.
+
 ## Deeper docs
 
 - 📐 [**Configuration reference**](docs/CONFIGURATION.md): every env var,
