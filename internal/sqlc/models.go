@@ -303,7 +303,8 @@ type RouterModelRouterRequestTelemetry struct {
 	// Whether the session has attempted any edit yet; qualifies spiral_steps_since_progress
 	SpiralEditAttempted *bool
 	// Signal classes whose thresholds this turn crossed (err_streak, same_file_thrash, repetition, monologue, ping_pong, no_progress); empty array when the snapshot was recorded and nothing fired
-	SpiralReasons []string
+	SpiralReasons          []string
+	RequestedAllowedModels []string
 }
 
 // End-user identities seen on inbound requests, scoped to an installation. Replaces the per-user API key pattern.

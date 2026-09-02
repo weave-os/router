@@ -190,6 +190,10 @@ type InsertTelemetryParams struct {
 	SpiralEditAttempted      *bool
 	// SpiralReasons is non-nil and empty for a recorded turn with no crossings.
 	SpiralReasons []string
+	// RequestedAllowedModels is the canonical x-weave-allowed-models subset the
+	// caller sent, before intersection with the installation allowlist. Nil
+	// (NULL) when the header was absent.
+	RequestedAllowedModels []string
 }
 
 // TelemetrySummary holds aggregated totals for the dashboard cards.

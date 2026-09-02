@@ -133,7 +133,8 @@ INSERT INTO router.model_router_request_telemetry (
     spiral_ping_pong_len,
     spiral_steps_since_progress,
     spiral_edit_attempted,
-    spiral_reasons
+    spiral_reasons,
+    requested_allowed_models
 ) VALUES (
     @installation_id::uuid,
     sqlc.narg('api_key_id')::uuid,
@@ -235,7 +236,8 @@ INSERT INTO router.model_router_request_telemetry (
     sqlc.narg('spiral_ping_pong_len')::int,
     sqlc.narg('spiral_steps_since_progress')::int,
     sqlc.narg('spiral_edit_attempted')::boolean,
-    sqlc.narg('spiral_reasons')::varchar[]
+    sqlc.narg('spiral_reasons')::varchar[],
+    sqlc.narg('requested_allowed_models')::varchar[]
 )
 ON CONFLICT (installation_id, request_id, span_type) DO NOTHING;
 

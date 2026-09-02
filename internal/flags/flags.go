@@ -65,6 +65,7 @@ const (
 	KeyAnthropicServerFallback   Key = "anthropic_server_side_fallback"
 	KeyEmbedOnlyUserMessage      Key = "embed_only_user_message"
 	KeyOpenAIResponsesBroad      Key = "openai_responses_broad"
+	KeyAllowedModelsHeader       Key = "allowed_models_header"
 )
 
 // Definition describes one overridable flag. DeploymentDefault is not stored
@@ -84,7 +85,7 @@ type Definition struct {
 // RegistryVersion changes whenever Registry's membership changes. Publish uses
 // it to make pruning safe during rolling deploys: a revision with an older
 // registry version may not delete definitions published by a newer revision.
-const RegistryVersion = 5
+const RegistryVersion = 6
 
 // Registry is the curated allowlist of flags that may carry a per-organization
 // override. It is deliberately explicit rather than derived from the env var
@@ -237,6 +238,13 @@ var Registry = []Definition{
 		EnvVar:         "ROUTER_OPENAI_RESPONSES_BROAD",
 		Kind:           KindBool,
 		Description:    "Serve every direct-OpenAI turn on /v1/responses. Off, only the reasoning tool turn chat/completions rejects is promoted.",
+		OrgOverridable: true,
+	},
+	{
+		Key:            KeyAllowedModelsHeader,
+		EnvVar:         "ROUTER_ALLOWED_MODELS_HEADER",
+		Kind:           KindBool,
+		Description:    "Honor the x-weave-allowed-models request header (per-request routing subset) for this organization even when the installation is not authorized for policy headers.",
 		OrgOverridable: true,
 	},
 }

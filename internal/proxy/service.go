@@ -781,10 +781,31 @@ func subscriptionConditionalModelsConfigured(ctx context.Context) bool {
 	return ctx.Value(InstallationSubscriptionConditionalModelsContextKey{}) != nil
 }
 
-// allowedModelsForRequest returns the effective positive model allowlist as a set,
+// allowedModelsForRequest returns the effective positive model allowlist as a
+// set: the installation policy allowlist further narrowed by a request-level
+// AllowedModelsHeader subset when one is present. Nil = no policy.
+func allowedModelsForRequest(ctx context.Context) map[string]struct{} {
+	policy := installationAllowedModelSet(ctx)
+	subset := requestAllowedModelSet(ctx)
+	if subset == nil {
+		return policy
+	}
+	if policy == nil {
+		return subset
+	}
+	out := make(map[string]struct{}, len(subset))
+	for m := range subset {
+		if _, ok := policy[m]; ok {
+			out[m] = struct{}{}
+		}
+	}
+	return out
+}
+
+// installationAllowedModelSet returns the installation's positive model allowlist as a set,
 // intersecting the installation list with the selected subscription-state list.
 // Nil = no policy; non-nil empty = fails closed (intentional empty intersection).
-func allowedModelsForRequest(ctx context.Context) map[string]struct{} {
+func installationAllowedModelSet(ctx context.Context) map[string]struct{} {
 	base := installationAllowedModelsFromContext(ctx)
 	conditional := subscriptionConditionalModelsForRequest(ctx)
 	conditionalConfigured := subscriptionConditionalModelsConfigured(ctx)
@@ -824,7 +845,7 @@ func allowedModelsForRequest(ctx context.Context) map[string]struct{} {
 // A nil allowlist means no restriction; an empty effective intersection fails
 // closed.
 func modelPermittedByAllowlist(ctx context.Context, model string) bool {
-	allowed := allowedModelsForRequest(ctx)
+	allowed := installationAllowedModelSet(ctx)
 	if allowed == nil {
 		return true
 	}
@@ -902,6 +923,17 @@ func (s *Service) safetyExcludedModels(env *translate.RequestEnvelope, outputRes
 // Otherwise desugars the positive allowlists into the exclusion set: every
 // routable model absent from the effective allowlist is excluded.
 func (s *Service) excludedModelsForRequest(ctx context.Context) map[string]struct{} {
+	return s.excludedModelsFor(ctx, allowedModelsForRequest(ctx))
+}
+
+// policyExcludedModels is excludedModelsForRequest without the request-level
+// AllowedModelsHeader subset: installation policy only. A user force is
+// validated against this set because the strict pin outranks the header.
+func (s *Service) policyExcludedModels(ctx context.Context) map[string]struct{} {
+	return s.excludedModelsFor(ctx, installationAllowedModelSet(ctx))
+}
+
+func (s *Service) excludedModelsFor(ctx context.Context, allowed map[string]struct{}) map[string]struct{} {
 	if s.excludedModelsOverride != nil {
 		return s.excludedModelsOverride
 	}
@@ -910,7 +942,7 @@ func (s *Service) excludedModelsForRequest(ctx context.Context) map[string]struc
 	for _, m := range excluded {
 		out[m] = struct{}{}
 	}
-	if allowed := allowedModelsForRequest(ctx); allowed != nil {
+	if allowed != nil {
 		for model := range s.routableUniverse() {
 			if _, ok := allowed[model]; !ok {
 				out[model] = struct{}{}
@@ -4194,7 +4226,8 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			RequestedModel:         feats.Model,
 			DecisionModel:          decision.Model,
 			DecisionProvider:       decision.Provider,
-			DecisionReason:         decision.Reason,
+			DecisionReason:         telemetryDecisionReason(ctx, decision.Reason),
+			RequestedAllowedModels: requestedAllowedModelsForTelemetry(ctx),
 			EstimatedInputTokens:   int32(feats.Tokens),
 			StickyHit:              stickyHit,
 			PinTier:                routeRes.PinTier,
@@ -6378,7 +6411,8 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 			RequestedModel:         feats.Model,
 			DecisionModel:          decision.Model,
 			DecisionProvider:       decision.Provider,
-			DecisionReason:         decision.Reason,
+			DecisionReason:         telemetryDecisionReason(ctx, decision.Reason),
+			RequestedAllowedModels: requestedAllowedModelsForTelemetry(ctx),
 			EstimatedInputTokens:   int32(feats.Tokens),
 			StickyHit:              stickyHit,
 			PinTier:                routeRes.PinTier,

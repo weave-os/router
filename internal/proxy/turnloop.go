@@ -560,6 +560,7 @@ func (s *Service) runTurnLoop(
 			return res, &ForcedModelExcludedError{Model: forceModelPin.Model, Reason: reason}
 		}
 		forceModelPin.Provider = binding
+		req.ExcludedModels = s.readmitForcedModel(ctx, req, env, feats, forceModelPin)
 	}
 	sessionForceControlFound := forceModelFound
 
@@ -579,6 +580,7 @@ func (s *Service) runTurnLoop(
 			}
 			legacyPin.Provider = binding
 			forceModelPin, forceModelFound = legacyPin, true
+			req.ExcludedModels = s.readmitForcedModel(ctx, req, env, feats, forceModelPin)
 		}
 	}
 	if forceModelFound && hardPinnedTurn {
@@ -748,6 +750,7 @@ func (s *Service) runTurnLoop(
 		}
 		pin.Provider = binding
 		forceModelPin, forceModelFound = pin, true
+		req.ExcludedModels = s.readmitForcedModel(ctx, req, env, feats, forceModelPin)
 	}
 	if forceModelCleared && pinFound && isUserForcedReason(pin.Reason) {
 		pinFound = false

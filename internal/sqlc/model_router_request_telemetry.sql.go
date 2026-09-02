@@ -1805,7 +1805,8 @@ INSERT INTO router.model_router_request_telemetry (
     spiral_ping_pong_len,
     spiral_steps_since_progress,
     spiral_edit_attempted,
-    spiral_reasons
+    spiral_reasons,
+    requested_allowed_models
 ) VALUES (
     $1::uuid,
     $2::uuid,
@@ -1907,7 +1908,8 @@ INSERT INTO router.model_router_request_telemetry (
     $98::int,
     $99::int,
     $100::boolean,
-    $101::varchar[]
+    $101::varchar[],
+    $102::varchar[]
 )
 ON CONFLICT (installation_id, request_id, span_type) DO NOTHING
 `
@@ -2014,6 +2016,7 @@ type InsertRequestTelemetryParams struct {
 	SpiralStepsSinceProgress                 *int32
 	SpiralEditAttempted                      *bool
 	SpiralReasons                            []string
+	RequestedAllowedModels                   []string
 }
 
 // Records a completed proxied request for the dashboard UI and routing
@@ -2151,7 +2154,8 @@ type InsertRequestTelemetryParams struct {
 //	    spiral_ping_pong_len,
 //	    spiral_steps_since_progress,
 //	    spiral_edit_attempted,
-//	    spiral_reasons
+//	    spiral_reasons,
+//	    requested_allowed_models
 //	) VALUES (
 //	    $1::uuid,
 //	    $2::uuid,
@@ -2253,7 +2257,8 @@ type InsertRequestTelemetryParams struct {
 //	    $98::int,
 //	    $99::int,
 //	    $100::boolean,
-//	    $101::varchar[]
+//	    $101::varchar[],
+//	    $102::varchar[]
 //	)
 //	ON CONFLICT (installation_id, request_id, span_type) DO NOTHING
 func (q *Queries) InsertRequestTelemetry(ctx context.Context, arg InsertRequestTelemetryParams) error {
@@ -2359,6 +2364,7 @@ func (q *Queries) InsertRequestTelemetry(ctx context.Context, arg InsertRequestT
 		arg.SpiralStepsSinceProgress,
 		arg.SpiralEditAttempted,
 		arg.SpiralReasons,
+		arg.RequestedAllowedModels,
 	)
 	return err
 }

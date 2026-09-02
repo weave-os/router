@@ -188,6 +188,7 @@ func (r *TelemetryRepo) InsertRequestTelemetry(ctx context.Context, p proxy.Inse
 		SpiralStepsSinceProgress:                 p.SpiralStepsSinceProgress,
 		SpiralEditAttempted:                      p.SpiralEditAttempted,
 		SpiralReasons:                            p.SpiralReasons,
+		RequestedAllowedModels:                   p.RequestedAllowedModels,
 	})
 }
 
