@@ -711,6 +711,7 @@ func main() {
 	handoverProviderName := config.GetOr("ROUTER_HANDOVER_PROVIDER", providers.ProviderAnthropic)
 	handoverModel := config.GetOr("ROUTER_HANDOVER_MODEL", proxy.DefaultHandoverModel)
 	handoverTimeout := parseEnvDurationMs("ROUTER_HANDOVER_TIMEOUT_MS", proxy.DefaultHandoverTimeout)
+	compactionTimeout := parseEnvDurationMs("ROUTER_COMPACTION_TIMEOUT_MS", proxy.DefaultCompactionTimeout)
 	// Kept as the interface type: a typed-nil *ProviderSummarizer would defeat
 	// the orchestrator's `!= nil` check.
 	var summarizer handover.Summarizer
@@ -719,14 +720,15 @@ func main() {
 	// typed-nil concrete pointer would defeat it).
 	var compactionSz proxy.CompactionSummarizer
 	if client, ok := providerMap[handoverProviderName]; ok {
-		ps := proxy.NewProviderSummarizer(client, handoverModel, handoverTimeout)
+		ps := proxy.NewProviderSummarizer(client, handoverModel, handoverTimeout).WithCompactionTimeout(compactionTimeout)
 		summarizer = ps
 		compactionSz = ps
-		logger.Info("Handover summarizer wired", "provider", handoverProviderName, "model", handoverModel, "timeout_ms", handoverTimeout.Milliseconds())
+		logger.Info("Handover summarizer wired", "provider", handoverProviderName, "model", handoverModel, "timeout_ms", handoverTimeout.Milliseconds(), "compaction_timeout_ms", compactionTimeout.Milliseconds())
 	} else {
 		logger.Info("Handover summarizer disabled (provider not registered); switch turns will preserve full history instead", "requested_provider", handoverProviderName)
 	}
 	compactionPct := parseEnvFloat("ROUTER_COMPACTION_PCT", proxy.DefaultCompactionTriggerPct)
+	compactionModel := resolveCompactionModel(logger)
 
 	// Strategy-specific artifacts own selection membership; the legacy cluster bundle must not constrain HMM candidates.
 	routingTargets := catalog.RoutingTargetSet(availableProviders)
@@ -1083,6 +1085,8 @@ func main() {
 		WithSummarizer(summarizer).
 		WithWebSearchExecutor(cortexWebSearch(logger)).
 		WithCompaction(compactionSz, compactionPct).
+		WithCompactionModel(compactionModel).
+		WithCompactionHardPin(config.GetOr("ROUTER_HARD_PIN_MODEL", "") == "").
 		WithAvailableModels(proxyRoutableModels(routingTargets, availableProviders, hmmRouter != nil)).
 		WithDefaultBaselineModel(resolveDefaultBaselineModel()).
 		WithBillingService(billingSvc)
@@ -1838,9 +1842,26 @@ func resolveDefaultBaselineModel() string {
 	return strings.TrimSpace(v)
 }
 
-// resolveHardPinModel returns the (provider, model) for compaction and
-// Explore hard-pins: operator override wins, else the fastest available
-// model in the default bundle, else (defaultHardPinProvider, defaultHardPinModel).
+// resolveCompactionModel returns the Sonnet-class Anthropic model the
+// compaction cascade summarizes with (ROUTER_COMPACTION_MODEL). An override
+// with no direct Anthropic binding is rejected in favor of the default: the
+// summarizer dispatches on the Anthropic client only.
+func resolveCompactionModel(logger *slog.Logger) string {
+	m := strings.TrimSpace(config.GetOr("ROUTER_COMPACTION_MODEL", proxy.DefaultCompactionModel))
+	if m == "" {
+		return proxy.DefaultCompactionModel
+	}
+	if _, ok := catalog.ResolveBinding(m, map[string]struct{}{providers.ProviderAnthropic: {}}); !ok {
+		logger.Warn("ROUTER_COMPACTION_MODEL has no Anthropic binding; using default", "model", m, "default_model", proxy.DefaultCompactionModel)
+		return proxy.DefaultCompactionModel
+	}
+	return m
+}
+
+// resolveHardPinModel returns the (provider, model) for Explore and utility
+// hard-pins (Claude Code's compaction turn prefers the compaction model):
+// operator override wins, else the fastest available model in the default
+// bundle, else (defaultHardPinProvider, defaultHardPinModel).
 func resolveHardPinModel(available map[string]struct{}, logger *slog.Logger) (provider, model string) {
 	if m := config.GetOr("ROUTER_HARD_PIN_MODEL", ""); m != "" {
 		p := config.GetOr("ROUTER_HARD_PIN_PROVIDER", defaultHardPinProvider)

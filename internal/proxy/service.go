@@ -307,6 +307,15 @@ type Service struct {
 	// context window at which the compaction cascade engages. Zero disables
 	// compaction entirely.
 	compactionTriggerPct float64
+	// compactionModel is the Anthropic-family model the cascade summarizes
+	// with (and Claude Code's own compaction turn is pinned to) when the
+	// session has no warm Anthropic pin. Empty means DefaultCompactionModel.
+	compactionModel string
+	// compactionHardPinEnabled routes Claude Code's own compaction turn through
+	// compactionHardPin instead of the generic utility hard-pin. Off unless
+	// the composition root enables it (an operator ROUTER_HARD_PIN_MODEL
+	// keeps winning for every hard-pinned turn).
+	compactionHardPinEnabled bool
 	// availableModels is the boot-time set of model names whose providers are
 	// registered. Read by the planner to decide whether a pin's model is still
 	// routable.
@@ -1807,6 +1816,24 @@ func (s *Service) WithCompaction(cs CompactionSummarizer, pct float64) *Service 
 	return s
 }
 
+// WithCompactionModel overrides the Sonnet-class default summarizer for the
+// compaction cascade and Claude Code's native compaction turn
+// (ROUTER_COMPACTION_MODEL). A model with no Anthropic binding is rejected
+// at boot by the caller; empty keeps DefaultCompactionModel.
+func (s *Service) WithCompactionModel(model string) *Service {
+	s.compactionModel = model
+	return s
+}
+
+// WithCompactionHardPin enables pinning Claude Code's native compaction turn
+// to the session's Anthropic model (or the compaction model) instead of the
+// generic utility hard-pin. The composition root leaves it off when the
+// operator set an explicit ROUTER_HARD_PIN_MODEL.
+func (s *Service) WithCompactionHardPin(enabled bool) *Service {
+	s.compactionHardPinEnabled = enabled
+	return s
+}
+
 // WithAvailableModels installs the boot-time set of routable model names.
 // The planner consults this set so a pin whose model is no longer
 // available forces a switch. nil treats every model as available.
@@ -3125,7 +3152,17 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	var compRes compactionResult
 	if !agentShadowMode {
 		var compErr error
-		compRes, compErr = s.maybeCompact(ctx, env, turntype.DetectFromEnvelope(env, feats, ""), outputReserve, maxEligibleWindow, r.Header)
+		compRes, compErr = s.maybeCompact(ctx, env, compactionInput{
+			TurnType:       turntype.DetectFromEnvelope(env, feats, ""),
+			OutputReserve:  outputReserve,
+			MaxWindow:      maxEligibleWindow,
+			RequestedModel: feats.Model,
+			ClientApp:      ClientIdentityFrom(ctx).ClientApp,
+			PreferredSummarizer: func() string {
+				return s.compactionPreferredSummarizer(ctx, sessionKey, roleForTier(catalog.TierFor(feats.Model)))
+			},
+			Headers: r.Header,
+		})
 		if compErr != nil {
 			log.Warn("Compaction could not fit request to any eligible model",
 				"err", compErr, "final_estimate", compRes.FinalEstimate, "max_window", maxEligibleWindow, "requested_model", feats.Model)
@@ -5792,7 +5829,17 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	if !responsesPassthrough {
 		maxEligibleWindowOAI := s.maxEligibleContextWindow(baseExcludedOAI, enabledProviders, env.SignatureTokenSavings())
 		var compErrOAI error
-		compResOAI, compErrOAI = s.maybeCompact(ctx, env, turntype.DetectFromEnvelope(env, feats, subAgentHint), outputReserveOAI, maxEligibleWindowOAI, r.Header)
+		compResOAI, compErrOAI = s.maybeCompact(ctx, env, compactionInput{
+			TurnType:       turntype.DetectFromEnvelope(env, feats, subAgentHint),
+			OutputReserve:  outputReserveOAI,
+			MaxWindow:      maxEligibleWindowOAI,
+			RequestedModel: feats.Model,
+			ClientApp:      ClientIdentityFrom(ctx).ClientApp,
+			PreferredSummarizer: func() string {
+				return s.compactionPreferredSummarizer(ctx, sessionKey, roleForTier(catalog.TierFor(feats.Model)))
+			},
+			Headers: r.Header,
+		})
 		if compErrOAI != nil {
 			log.Warn("Compaction could not fit request to any eligible model",
 				"err", compErrOAI, "final_estimate", compResOAI.FinalEstimate, "max_window", maxEligibleWindowOAI, "requested_model", feats.Model)

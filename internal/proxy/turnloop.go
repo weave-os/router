@@ -661,7 +661,18 @@ func (s *Service) runTurnLoop(
 		// per-request against enabled-providers, and apply ExcludedModels
 		// here too — this path bypasses the scorer, the only other place
 		// exclusions are honored.
-		if s.hardPinResolver != nil && !useSubAgentOverride {
+		// Claude Code's own compaction turn summarizes the whole session, so
+		// it goes to the session's Anthropic model (warm cache) or the
+		// Sonnet-class compaction model rather than the cheapest utility pin.
+		compactionProvider, compactionModel, compactionPin := "", "", false
+		if s.compactionHardPinEnabled && res.TurnType == turntype.Compaction && !useSubAgentOverride {
+			compactionProvider, compactionModel, compactionPin = s.compactionHardPin(ctx, threadSessionKey, res.PinRole, req)
+		}
+		switch {
+		case compactionPin:
+			provider, model = compactionProvider, compactionModel
+			log.Info("Hard-pin: compaction turn on compaction model", "hard_pin_model", model, "hard_pin_provider", provider)
+		case s.hardPinResolver != nil && !useSubAgentOverride:
 			hardPinReq := HardPinRequest{
 				EnabledProviders: req.EnabledProviders,
 				ExcludedModels:   req.ExcludedModels,
@@ -697,7 +708,7 @@ func (s *Service) runTurnLoop(
 				return res, fmt.Errorf("hard-pin: no eligible provider for %s: %w", res.TurnType, hardPinErr)
 			}
 			provider, model = p, m
-		} else {
+		default:
 			if req.EnabledProviders != nil {
 				if _, enabled := req.EnabledProviders[provider]; !enabled {
 					return res, fmt.Errorf("hard-pin provider %q is ineligible for %s: %w", provider, res.TurnType, cluster.ErrNoEligibleProvider)
