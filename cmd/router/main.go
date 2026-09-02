@@ -52,6 +52,7 @@ import (
 	"workweave/router/internal/router/hmm"
 	"workweave/router/internal/router/hmm/rosterdata"
 	"workweave/router/internal/router/hmm/selection"
+	"workweave/router/internal/router/modelstatus"
 	"workweave/router/internal/router/planner"
 	"workweave/router/internal/router/policy"
 	"workweave/router/internal/router/rl"
@@ -438,7 +439,19 @@ func runServer() {
 		panic(err)
 	}
 
-	rtr, defaultEmbedderID, err := buildClusterScorer(routingProviders)
+	var modelStatusStore *modelstatus.Store
+	if !strings.EqualFold(config.GetOr("MODEL_STATUS_DISABLED", "false"), "true") {
+		modelStatusStore = modelstatus.New(time.Now, parseEnvDuration(logger, "MODEL_STATUS_RATELIMIT_COOLDOWN", time.Minute), parseEnvDuration(logger, "MODEL_STATUS_ERROR_COOLDOWN", 5*time.Minute), func(ctx context.Context, entry modelstatus.Entry, previous modelstatus.Status) {
+			if entry.Source == modelstatus.SourceBoot {
+				return
+			}
+			observability.FromContext(ctx).Info("model status change", "model_id", entry.ModelID, "provider", entry.Provider, "status", entry.Status.String(), "from", previous.String(), "source", entry.Source, "reason", entry.Reason)
+		})
+		online, offline := initializeModelStatuses(context.Background(), modelStatusStore, envKeyedProviders)
+		logger.Info("model status initialized", "bindings", online+offline, "online", online, "offline", offline)
+	}
+
+	rtr, defaultEmbedderID, err := buildClusterScorer(routingProviders, modelStatusStore)
 	if err != nil {
 		// Ops alerts on Cloud Run boot failures; silent degradation would mask quality regressions.
 		logger.Error("Cluster scorer failed to build; refusing to boot", "err", err)
@@ -1064,6 +1077,7 @@ func runServer() {
 		WithFeedback(repo.Feedback, feedbackSigner, feedbackBaseURL).
 		WithByokOnly(byokOnly).
 		WithDeploymentKeyedProviders(deploymentEligible).
+		WithModelStatus(modelStatusStore).
 		WithPassthroughEligibleProviders(passthroughEligible).
 		WithHardPinResolver(hardPinResolver).
 		WithSubAgentOverride(subAgentProvider, subAgentModel).
@@ -1228,7 +1242,7 @@ func runServer() {
 	deployedModels, _ := rtr.(*cluster.Multiversion)
 	analyticsSvc := analytics.NewService(repo.Analytics, time.Now)
 	codexOAuth := codexProvider.NewOAuthManager()
-	server.Register(engine, authSvc, proxySvc, deployedModels, hmmRosterModels, deploymentMode, billingSvc, hmmReadinessChecker, hmmRosterSource, analyticsSvc, codexOAuth)
+	server.Register(engine, authSvc, proxySvc, deployedModels, hmmRosterModels, deploymentMode, billingSvc, hmmReadinessChecker, hmmRosterSource, analyticsSvc, codexOAuth, modelStatusStore)
 
 	srv := &http.Server{
 		Addr:    ":" + config.GetOr("PORT", "8080"),
@@ -1349,7 +1363,7 @@ func parseOtelHeaders(raw string) map[string]string {
 // than silently degrade to a default model. Also returns the default
 // version's embedder ID so the caller can log the resolved value rather than
 // a hardcoded literal.
-func buildClusterScorer(availableProviders map[string]struct{}) (router.Router, string, error) {
+func buildClusterScorer(availableProviders map[string]struct{}, statusReader cluster.StatusReader) (router.Router, string, error) {
 	logger := observability.Get()
 
 	requestedVersion := config.GetOr("ROUTER_CLUSTER_VERSION", cluster.LatestVersion)
@@ -1378,6 +1392,7 @@ func buildClusterScorer(availableProviders map[string]struct{}) (router.Router, 
 	}
 
 	cfg := cluster.DefaultConfig()
+	cfg.StatusReader = statusReader
 	if v := config.GetOr("ROUTER_CLUSTER_EMBED_TIMEOUT_MS", ""); v != "" {
 		ms, parseErr := time.ParseDuration(v + "ms")
 		if parseErr != nil || ms <= 0 {
@@ -1726,6 +1741,35 @@ func parseEnvDurationMs(key string, fallback time.Duration) time.Duration {
 		return fallback
 	}
 	return time.Duration(ms) * time.Millisecond
+}
+
+func parseEnvDuration(logger *slog.Logger, key string, fallback time.Duration) time.Duration {
+	raw := strings.TrimSpace(config.GetOr(key, ""))
+	if raw == "" {
+		return fallback
+	}
+	value, err := time.ParseDuration(raw)
+	if err != nil || value <= 0 {
+		logger.Warn("Invalid duration env var; using default", "key", key, "value", raw, "default", fallback.String())
+		return fallback
+	}
+	return value
+}
+
+func initializeModelStatuses(ctx context.Context, store *modelstatus.Store, wiredProviders map[string]struct{}) (online, offline int) {
+	for _, model := range catalog.Models {
+		for _, binding := range model.Providers {
+			_, wired := wiredProviders[binding.Provider]
+			wired = wired && !providers.IsCredentialOnly(binding.Provider)
+			store.Initialize(ctx, modelstatus.Key{ModelID: model.ID, Provider: binding.Provider}, wired)
+			if wired {
+				online++
+			} else {
+				offline++
+			}
+		}
+	}
+	return online, offline
 }
 
 // parseEnvAttemptTimeoutMs is parseEnvDurationMs with 0 kept as a real value:

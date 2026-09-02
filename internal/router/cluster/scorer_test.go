@@ -15,8 +15,30 @@ import (
 	"workweave/router/internal/providers"
 	"workweave/router/internal/router"
 	"workweave/router/internal/router/catalog"
+	"workweave/router/internal/router/modelstatus"
 	"workweave/router/internal/router/policy"
 )
+
+func TestResolveHealthyPrefersOnlineFallbackAndDegradesRateLimited(t *testing.T) {
+	store := modelstatus.New(time.Now, time.Minute, 5*time.Minute, nil)
+	modelID := "deepseek/deepseek-v4-pro-0813"
+	for _, provider := range []string{providers.ProviderTogether, providers.ProviderFireworks, providers.ProviderOpenRouter} {
+		store.Initialize(context.Background(), modelstatus.Key{ModelID: modelID, Provider: provider}, true)
+	}
+	store.SetStatus(context.Background(), modelstatus.Key{ModelID: modelID, Provider: providers.ProviderTogether}, modelstatus.StatusError, "down", modelstatus.SourceRequest, false, time.Minute)
+	store.SetStatus(context.Background(), modelstatus.Key{ModelID: modelID, Provider: providers.ProviderFireworks}, modelstatus.StatusRateLimited, "busy", modelstatus.SourceRequest, false, time.Minute)
+	scorer := &Scorer{cfg: Config{StatusReader: store}}
+	available := map[string]struct{}{providers.ProviderTogether: {}, providers.ProviderFireworks: {}, providers.ProviderOpenRouter: {}}
+
+	provider, degraded := scorer.resolveHealthy(context.Background(), RequestBindings{}, DeployedEntry{Model: modelID, Provider: providers.ProviderTogether}, available)
+	assert.Equal(t, providers.ProviderOpenRouter, provider)
+	assert.False(t, degraded)
+
+	store.SetStatus(context.Background(), modelstatus.Key{ModelID: modelID, Provider: providers.ProviderOpenRouter}, modelstatus.StatusMaintenance, "window", modelstatus.SourceAdmin, true, 0)
+	provider, degraded = scorer.resolveHealthy(context.Background(), RequestBindings{}, DeployedEntry{Model: modelID, Provider: providers.ProviderTogether}, available)
+	assert.Equal(t, providers.ProviderFireworks, provider)
+	assert.True(t, degraded)
+}
 
 // fakeEmbedder returns a fixed vector or error; captures last text for
 // tail-truncation assertions. Zero-value id/dim default to Jina.

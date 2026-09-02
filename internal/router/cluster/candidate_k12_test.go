@@ -89,7 +89,7 @@ func TestCandidateK12Loads(t *testing.T) {
 
 	wins := map[string]int{}
 	for c := 0; c < bundle.Centroids.K; c++ {
-		scores := s.blendScoresV2([]int{c}, knobs, s.models, nil, nil)
+		scores := s.blendScoresV2([]int{c}, knobs, s.models, nil, nil, nil)
 		winner, _ := argmax(scores, s.models)
 		require.NotEmptyf(t, winner, "cluster %d must have a non-empty argmax winner", c)
 		wins[winner]++

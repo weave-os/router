@@ -96,6 +96,20 @@ const (
 	FamilyGemini
 )
 
+// String returns the translation-family wire label.
+func (f TranslationFamily) String() string {
+	switch f {
+	case FamilyAnthropic:
+		return "anthropic"
+	case FamilyOpenAICompat:
+		return "openai_compat"
+	case FamilyGemini:
+		return "gemini"
+	default:
+		return "unknown"
+	}
+}
+
 // ProviderFamilies is the single source of truth for cross-format dispatch;
 // keep it covering EVERY Provider* constant (see the three-map note above).
 var ProviderFamilies = map[string]TranslationFamily{

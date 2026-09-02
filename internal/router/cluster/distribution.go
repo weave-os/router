@@ -101,7 +101,7 @@ func (s *Scorer) RoutingDistribution(gridN int, excludedModels, excludedProvider
 
 		counts := make(map[string]int, len(eligible))
 		for c := 0; c < k; c++ {
-			scores := s.blendScoresV2(centroidTopClusters[c], knobs, eligible, nil, nil)
+			scores := s.blendScoresV2(centroidTopClusters[c], knobs, eligible, nil, nil, nil)
 			winner, _ := argmax(scores, eligible)
 			if winner != "" {
 				counts[winner]++

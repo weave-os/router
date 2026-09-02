@@ -12,6 +12,7 @@ import (
 	"workweave/router/internal/observability"
 	"workweave/router/internal/router"
 	"workweave/router/internal/router/catalog"
+	"workweave/router/internal/router/modelstatus"
 	"workweave/router/internal/router/policy"
 )
 
@@ -30,11 +31,19 @@ var ErrAllowlistEmptiesPool = fmt.Errorf("cluster: model allowlist leaves no eli
 // ErrInvalidRoutingKnobs is returned when effective routing knobs fail validation.
 var ErrInvalidRoutingKnobs = errors.New("cluster: invalid routing knobs")
 
+const rateLimitedPenalty float32 = 0.25
+
 // Config carries the scorer's runtime knobs.
 type Config struct {
 	TopP           int
 	MaxPromptChars int
 	EmbedTimeout   time.Duration
+	StatusReader   StatusReader
+}
+
+// StatusReader supplies the current health of a provider binding.
+type StatusReader interface {
+	Lookup(context.Context, modelstatus.Key) modelstatus.Status
 }
 
 // DefaultConfig returns production defaults.
@@ -265,7 +274,7 @@ func (s *Scorer) computeDialCalibration() []float64 {
 		}
 		counts := make(map[string]int, len(s.models))
 		for c := 0; c < k; c++ {
-			scores := s.blendScoresV2(centroidTopClusters[c], knobs, s.models, nil, nil)
+			scores := s.blendScoresV2(centroidTopClusters[c], knobs, s.models, nil, nil, nil)
 			winner, _ := argmax(scores, s.models)
 			// Skip empty winners (matches RoutingDistribution) so a cluster
 			// flipping between "" and a real model can't fake a breakpoint.
@@ -414,6 +423,50 @@ func filterByProviders(entries []DeployedEntry, available map[string]struct{}) [
 	return out
 }
 
+func (s *Scorer) resolveHealthy(ctx context.Context, bindings RequestBindings, candidate DeployedEntry, available map[string]struct{}) (string, bool) {
+	if s.cfg.StatusReader == nil {
+		return bindings.resolve(candidate.Model, candidate.Provider, available), false
+	}
+	providersForModel := make([]string, 0)
+	if model, ok := catalog.ByID(candidate.Model); ok {
+		for _, binding := range model.Providers {
+			providersForModel = append(providersForModel, binding.Provider)
+		}
+	}
+	providersForModel = append(providersForModel, bindings.Custom[candidate.Model]...)
+	seen := make(map[string]struct{}, len(providersForModel))
+	degraded := ""
+	for _, provider := range providersForModel {
+		if _, duplicate := seen[provider]; duplicate {
+			continue
+		}
+		seen[provider] = struct{}{}
+		if _, ok := available[provider]; !ok {
+			continue
+		}
+		single := map[string]struct{}{provider: {}}
+		resolved := bindings.resolve(candidate.Model, candidate.Provider, single)
+		if resolved == "" {
+			continue
+		}
+		source := router.CredentialSourceFor(resolved, candidate.Model, bindings.Endpoint, bindings.CredentialBindings)
+		if source != router.CredentialSourceUnknown && source != router.CredentialSourceDeploymentKey {
+			return resolved, false
+		}
+		switch s.cfg.StatusReader.Lookup(ctx, modelstatus.Key{ModelID: candidate.Model, Provider: resolved}) {
+		case modelstatus.StatusOffline, modelstatus.StatusMaintenance, modelstatus.StatusError:
+			continue
+		case modelstatus.StatusRateLimited:
+			if degraded == "" {
+				degraded = resolved
+			}
+		default:
+			return resolved, false
+		}
+	}
+	return degraded, degraded != ""
+}
+
 // eligibleForDistribution returns deployed model ids surviving the caller's
 // exclusions, mirroring Route's eligibility: dropped if named in
 // excludedModels, or if no binding resolves against wired providers minus
@@ -522,21 +575,41 @@ func (s *Scorer) Route(ctx context.Context, req router.Request) (router.Decision
 	// Track the resolved binding per model so Decision.Provider reflects it.
 	eligibleModels := s.models
 	resolvedProvider := make(map[string]string, len(s.candidates))
-	if req.EnabledProviders != nil {
-		bindings := RequestBindings{
-			Custom:             req.CustomBindings,
-			Gateways:           req.GatewayProviders,
-			Endpoint:           req.TranslationRequirements.Endpoint,
-			CredentialBindings: req.CredentialBindings,
+	var penalties map[string]float32
+	if req.EnabledProviders != nil || s.cfg.StatusReader != nil {
+		bindings := RequestBindings{Custom: req.CustomBindings, Gateways: req.GatewayProviders, Endpoint: req.TranslationRequirements.Endpoint, CredentialBindings: req.CredentialBindings}
+		effective := req.EnabledProviders
+		if effective == nil {
+			effective = s.availableProviders
 		}
-		eligibleModels = eligibleModels[:0:0]
+		eligibleModels = make([]string, 0, len(s.candidates))
+		baseModels := make([]string, 0, len(s.candidates))
+		baseProviders := make(map[string]string, len(s.candidates))
 		for _, c := range s.candidates {
-			r := bindings.resolve(c.Model, c.Provider, req.EnabledProviders)
-			if r == "" {
+			base := bindings.resolve(c.Model, c.Provider, effective)
+			if base == "" {
 				continue
 			}
-			resolvedProvider[c.Model] = r
+			baseModels = append(baseModels, c.Model)
+			baseProviders[c.Model] = base
+			provider, degraded := s.resolveHealthy(ctx, bindings, c, effective)
+			if provider == "" {
+				continue
+			}
+			resolvedProvider[c.Model] = provider
 			eligibleModels = append(eligibleModels, c.Model)
+			if degraded {
+				if penalties == nil {
+					penalties = make(map[string]float32)
+				}
+				penalties[c.Model] = rateLimitedPenalty
+			}
+		}
+		if len(eligibleModels) == 0 && len(baseModels) > 0 {
+			log.Warn("Cluster scorer: model status emptied eligible pool; keeping boot pool", "requested_model", req.RequestedModel)
+			eligibleModels = baseModels
+			resolvedProvider = baseProviders
+			penalties = nil
 		}
 		if len(eligibleModels) == 0 && len(req.GatewayProviders) > 0 {
 			log.Warn(
@@ -844,7 +917,7 @@ func (s *Scorer) Route(ctx context.Context, req router.Request) (router.Decision
 			activeKnobs.PerModelVerbosity,
 		)
 
-		scores = s.blendScoresV2(topClusters, activeKnobs, eligibleModels, req.SubsidizedModelCostFactor, priorityBonus)
+		scores = s.blendScoresV2(topClusters, activeKnobs, eligibleModels, req.SubsidizedModelCostFactor, priorityBonus, penalties)
 	} else {
 		// Legacy v1: static cluster rankings, no cost axis, so
 		// SubsidizedModelCostFactor doesn't apply. All deployed bundles run V2;
@@ -859,6 +932,9 @@ func (s *Scorer) Route(ctx context.Context, req router.Request) (router.Decision
 		for _, m := range eligibleModels {
 			if b, ok := priorityBonus[m]; ok {
 				scores[m] += b
+			}
+			if penalty := penalties[m]; penalty > 0 {
+				scores[m] -= penalty * float32(len(topClusters))
 			}
 		}
 	}
@@ -1150,7 +1226,7 @@ func addIntentPreferenceBonuses(priorityBonus map[string]float32, eligibleModels
 // under the effective knobs. Extracted from Route so the distribution preview
 // scores identically to live routing — single source of truth for the
 // cost/quality/speed blend. Caller owns knob validation and QualityBias->Alpha.
-func (s *Scorer) blendScoresV2(topClusters []int, activeKnobs DefaultRoutingKnobs, eligibleModels []string, subsidyFactors map[string]float64, priorityBonus map[string]float32) map[string]float32 {
+func (s *Scorer) blendScoresV2(topClusters []int, activeKnobs DefaultRoutingKnobs, eligibleModels []string, subsidyFactors map[string]float64, priorityBonus, penalties map[string]float32) map[string]float32 {
 	// 2. Effective per-model cost. Kept at FULL catalog scale even for
 	// subscription-covered models: the catalog ratio tracks plan-quota burn
 	// (Anthropic's unified rate limit weights Opus far above Haiku), which is
@@ -1306,6 +1382,9 @@ func (s *Scorer) blendScoresV2(topClusters []int, activeKnobs DefaultRoutingKnob
 				} else {
 					scores[m] += qNorm
 				}
+			}
+			if penalty := penalties[m]; penalty > 0 {
+				scores[m] -= penalty
 			}
 
 			// Subscription preference: lift a covered model by

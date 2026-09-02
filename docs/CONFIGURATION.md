@@ -412,6 +412,9 @@ Set `DATABASE_URL` directly, or compose it from the individual vars:
 | `ROUTER_COMPACTION_PCT`           | `0.85`                       | Fraction of the largest eligible model's context window at which the proactive compaction cascade engages (clear old tool results → structured summary → trim). Range `(0,1]`; `0` disables compaction (over-window requests then 413). Mirrors Claude Code's ~0.85 auto-compact trigger. |
 | `ROUTER_ONNX_ASSETS_DIR`          | `/opt/router/assets`         | Directory containing `model.onnx` + `tokenizer.json`. |
 | `ROUTER_ONNX_LIBRARY_DIR`         | *(system default)*           | Path to `libonnxruntime` (e.g. `/opt/homebrew/lib` on Apple Silicon). |
+| `MODEL_STATUS_DISABLED`           | `false`                      | Disable runtime provider-binding health tracking and its self-hosted admin endpoints. |
+| `MODEL_STATUS_RATELIMIT_COOLDOWN` | `60s`                        | How long a deployment-key binding remains rate-limited after an upstream 429, 529, or 530 unless a successful request recovers it first. |
+| `MODEL_STATUS_ERROR_COOLDOWN`     | `5m`                         | How long a deployment-key binding remains in error after a qualifying 5xx or transport failure unless a successful request recovers it first. |
 
 If the cluster scorer can't run (missing model, embed timeout, etc.), the
 router returns HTTP 503 — it does *not* silently fall back to a default

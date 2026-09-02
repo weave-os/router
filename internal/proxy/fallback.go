@@ -13,6 +13,7 @@ import (
 	"workweave/router/internal/providers"
 	"workweave/router/internal/router"
 	"workweave/router/internal/router/catalog"
+	"workweave/router/internal/router/modelstatus"
 	"workweave/router/internal/translate"
 )
 
@@ -244,6 +245,10 @@ func (s *Service) dispatchWithFallback(ctx context.Context, in failoverInputs) (
 			}
 
 			attemptErr = in.attempt(attemptCtx, decision, p)
+			if s.modelStatus != nil {
+				customerCredential := decision.CredentialSource != router.CredentialSourceUnknown && decision.CredentialSource != router.CredentialSourceDeploymentKey
+				s.modelStatus.RecordOutcome(attemptCtx, modelstatus.Key{ModelID: decision.Model, Provider: b.Provider}, attemptErr, customerCredential || byokServedForProvider(attemptCtx, b.Provider))
+			}
 			if attemptErr == nil {
 				if i > 0 {
 					log.Info("dispatchWithFallback: succeeded on fallback",

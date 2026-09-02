@@ -6,9 +6,11 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"workweave/router/internal/analytics"
 	"workweave/router/internal/router/cluster"
+	"workweave/router/internal/router/modelstatus"
 	"workweave/router/internal/server"
 
 	"github.com/gin-gonic/gin"
@@ -81,12 +83,16 @@ func TestRegister_DeploymentMode(t *testing.T) {
 		"GET /admin/v1/config",
 		"GET /admin/v1/excluded-models",
 		"PUT /admin/v1/excluded-models",
+		"GET /admin/v1/model-status",
+		"PUT /admin/v1/model-status",
+		"GET /admin/v1/provider-inventory",
 	}
 
 	t.Run("selfhosted mounts dashboard and product routes", func(t *testing.T) {
 		engine := gin.New()
 		// Nil services are fine: engine.Routes() inspection never invokes the closure-captured handlers.
-		server.Register(engine, nil, nil, fakeDeployedModelsSource{}, nil, server.DeploymentModeSelfHosted, nil, nil, nil, nil, nil)
+		statusStore := modelstatus.New(time.Now, time.Minute, 5*time.Minute, nil)
+		server.Register(engine, nil, nil, fakeDeployedModelsSource{}, nil, server.DeploymentModeSelfHosted, nil, nil, nil, nil, nil, statusStore)
 		got := routeSet(engine)
 		for _, want := range productRoutes {
 			assert.Contains(t, got, want, "product route missing in selfhosted mode")
@@ -101,7 +107,7 @@ func TestRegister_DeploymentMode(t *testing.T) {
 		// Pass a non-nil DeployedModelsSource: managed prod always boots a
 		// *cluster.Multiversion router, so the catalog endpoint must mount
 		// even though the dashboard does not.
-		server.Register(engine, nil, nil, fakeDeployedModelsSource{}, nil, server.DeploymentModeManaged, nil, nil, nil, nil, nil)
+		server.Register(engine, nil, nil, fakeDeployedModelsSource{}, nil, server.DeploymentModeManaged, nil, nil, nil, nil, nil, nil)
 		got := routeSet(engine)
 		for _, want := range productRoutes {
 			assert.Contains(t, got, want, "product route missing in managed mode")
@@ -113,7 +119,7 @@ func TestRegister_DeploymentMode(t *testing.T) {
 
 	t.Run("nil deployed-models source skips catalog endpoint", func(t *testing.T) {
 		engine := gin.New()
-		server.Register(engine, nil, nil, nil, nil, server.DeploymentModeManaged, nil, nil, nil, nil, nil)
+		server.Register(engine, nil, nil, nil, nil, server.DeploymentModeManaged, nil, nil, nil, nil, nil, nil)
 		got := routeSet(engine)
 		assert.NotContains(t, got, "GET /v1/router/models", "catalog endpoint must not mount without a deployed-models source")
 	})
@@ -132,7 +138,7 @@ func TestRegisterMountsAnalyticsExportInBothModes(t *testing.T) {
 	for _, mode := range []server.DeploymentMode{server.DeploymentModeSelfHosted, server.DeploymentModeManaged} {
 		t.Run(string(mode), func(t *testing.T) {
 			engine := gin.New()
-			server.Register(engine, nil, nil, nil, nil, mode, nil, nil, nil, analytics.NewService(nil, nil), nil)
+			server.Register(engine, nil, nil, nil, nil, mode, nil, nil, nil, analytics.NewService(nil, nil), nil, nil)
 			got := routeSet(engine)
 			for _, want := range analyticsRoutes {
 				assert.Contains(t, got, want)
@@ -142,7 +148,7 @@ func TestRegisterMountsAnalyticsExportInBothModes(t *testing.T) {
 
 	t.Run("nil service leaves the surface unmounted", func(t *testing.T) {
 		engine := gin.New()
-		server.Register(engine, nil, nil, nil, nil, server.DeploymentModeSelfHosted, nil, nil, nil, nil, nil)
+		server.Register(engine, nil, nil, nil, nil, server.DeploymentModeSelfHosted, nil, nil, nil, nil, nil, nil)
 		got := routeSet(engine)
 		for _, unwanted := range analyticsRoutes {
 			assert.NotContains(t, got, unwanted)
@@ -156,7 +162,7 @@ func TestRegisterSeparatesLivenessFromReadiness(t *testing.T) {
 	checker := healthCheckerFunc(func(context.Context) error {
 		return errors.New("dependency unavailable")
 	})
-	server.Register(engine, nil, nil, nil, nil, server.DeploymentModeManaged, nil, checker, nil, nil, nil)
+	server.Register(engine, nil, nil, nil, nil, server.DeploymentModeManaged, nil, checker, nil, nil, nil, nil)
 
 	for _, test := range []struct {
 		path       string

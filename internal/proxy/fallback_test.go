@@ -17,6 +17,7 @@ import (
 	"workweave/router/internal/providers"
 	"workweave/router/internal/router"
 	"workweave/router/internal/router/catalog"
+	"workweave/router/internal/router/modelstatus"
 )
 
 // fakeClient is a per-attempt scripted providers.Client; Proxy replays the
@@ -113,6 +114,35 @@ func TestDispatchWithFallback_PrimarySucceedsNoRetry(t *testing.T) {
 	assert.Equal(t, 1, primary.calls, "primary called exactly once")
 	assert.Equal(t, 0, fallback.calls, "fallback must not be called when primary succeeds")
 	assert.Equal(t, "ok", rec.Body.String())
+}
+
+func TestDispatchWithFallbackRecordsDeploymentBindingOutcome(t *testing.T) {
+	primary := &fakeClient{name: providers.ProviderFireworks, outcomes: []fakeOutcome{{err: &providers.UpstreamErrorResponse{Status: http.StatusTooManyRequests}}}}
+	fallback := &fakeClient{name: providers.ProviderOpenRouter, outcomes: []fakeOutcome{{writeBytes: []byte("rescued")}}}
+	store := modelstatus.New(time.Now, time.Minute, 5*time.Minute, nil)
+	modelID := "deepseek/deepseek-v4-pro"
+	primaryKey := modelstatus.Key{ModelID: modelID, Provider: providers.ProviderFireworks}
+	fallbackKey := modelstatus.Key{ModelID: modelID, Provider: providers.ProviderOpenRouter}
+	store.Initialize(context.Background(), primaryKey, true)
+	store.Initialize(context.Background(), fallbackKey, true)
+	s := newServiceWithProviders(t, map[string]providers.Client{providers.ProviderFireworks: primary, providers.ProviderOpenRouter: fallback}).WithModelStatus(store)
+	recorder := httptest.NewRecorder()
+	buf := newPreludeBuffer(recorder)
+	request := httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+
+	_, err := s.dispatchWithFallback(context.Background(), failoverInputs{
+		w: recorder, buf: buf,
+		initialDecision: router.Decision{Model: modelID, CredentialSource: router.CredentialSourceDeploymentKey},
+		bindings:        []catalog.ProviderBinding{{Provider: providers.ProviderFireworks}, {Provider: providers.ProviderOpenRouter}},
+		attempt: func(ctx context.Context, decision router.Decision, client providers.Client) error {
+			buf.Seal()
+			return client.Proxy(ctx, decision, providers.PreparedRequest{}, buf, request)
+		},
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, modelstatus.StatusRateLimited, store.Lookup(context.Background(), primaryKey))
+	assert.Equal(t, modelstatus.StatusOnline, store.Lookup(context.Background(), fallbackKey))
 }
 
 func TestDispatchWithFallback_RetriesOnRetryableBufferedError(t *testing.T) {

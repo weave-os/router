@@ -31,6 +31,7 @@ import (
 	"workweave/router/internal/router/handover"
 	"workweave/router/internal/router/hmm"
 	"workweave/router/internal/router/intent"
+	"workweave/router/internal/router/modelstatus"
 	"workweave/router/internal/router/planner"
 	"workweave/router/internal/router/policy"
 	"workweave/router/internal/router/rl"
@@ -61,7 +62,8 @@ type CodexSubscriptionLoader func(context.Context) (token, accountID string)
 
 // Service orchestrates routing decisions and provider dispatch.
 type Service struct {
-	router router.Router
+	router      router.Router
+	modelStatus *modelstatus.Store
 	// strategies contains every non-default router and its optional lifecycle
 	// reporters. Adding a strategy does not require another Service field.
 	strategies map[router.Strategy]registeredStrategy
@@ -2068,6 +2070,12 @@ func (s *Service) WithDeploymentKeyedProviders(set map[string]struct{}) *Service
 		copied[p] = struct{}{}
 	}
 	s.deploymentKeyedProviders = copied
+	return s
+}
+
+// WithModelStatus installs request-outcome feedback for provider bindings.
+func (s *Service) WithModelStatus(store *modelstatus.Store) *Service {
+	s.modelStatus = store
 	return s
 }
 
