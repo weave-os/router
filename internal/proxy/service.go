@@ -2532,24 +2532,15 @@ func (s *Service) RouteAnthropicRequest(ctx context.Context, body []byte, header
 }
 
 // PassthroughToProvider forwards a non-routing request to the default
-// (Anthropic) provider for metadata endpoints (count_tokens, models). If no
-// Anthropic credential is reachable (gateway-only deployment), count_tokens is
-// answered locally with an estimate instead of hard-failing.
+// (Anthropic) provider for metadata endpoints (count_tokens, models).
+// count_tokens is answered locally with an estimate when no Anthropic
+// credential is reachable (gateway-only deployment) or when the upstream
+// attempt fails transiently; see countTokens.
 func (s *Service) PassthroughToProvider(ctx context.Context, body []byte, w http.ResponseWriter, r *http.Request) error {
-	if isCountTokensRequest(r) && !s.anthropicCredentialReachable(ctx, r.Header) {
-		if err := writeLocalCountTokens(w, body); err == nil {
-			return nil
-		}
-		// Unparseable body: fall through so the client sees the same error it
-		// would get from a credential-less passthrough today.
+	if isCountTokensRequest(r) {
+		return s.countTokens(ctx, body, w, r)
 	}
 	return s.PassthroughToNamedProvider(ctx, providers.ProviderAnthropic, body, w, r)
-}
-
-// isCountTokensRequest reports whether r is the Anthropic count_tokens
-// pre-flight (POST /v1/messages/count_tokens).
-func isCountTokensRequest(r *http.Request) bool {
-	return r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/count_tokens")
 }
 
 // anthropicCredentialReachable reports whether any Anthropic credential
@@ -2569,19 +2560,6 @@ func (s *Service) anthropicCredentialReachable(ctx context.Context, headers http
 		return true
 	}
 	return ExtractClientCredentials(providers.ProviderAnthropic, headers) != nil
-}
-
-// writeLocalCountTokens answers a count_tokens request from the request body's
-// byte-length token estimate, mirroring the Anthropic response shape.
-func writeLocalCountTokens(w http.ResponseWriter, body []byte) error {
-	env, err := translate.ParseAnthropic(body)
-	if err != nil {
-		return err
-	}
-	w.Header().Set("content-type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	_, err = fmt.Fprintf(w, `{"input_tokens":%d}`, env.ContextOverflowTokenEstimate())
-	return err
 }
 
 // PassthroughToNamedProvider forwards a non-routing request to a specific

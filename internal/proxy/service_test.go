@@ -67,6 +67,8 @@ type fakeProvider struct {
 	proxyCreds []*proxy.Credentials
 	// passthroughCreds records the resolved credential per Passthrough call.
 	passthroughCreds []*proxy.Credentials
+	// passthroughResponse, when set, drives Passthrough's response and error.
+	passthroughResponse func(ctx context.Context, w http.ResponseWriter) error
 	// proxyErrByEndpoint overrides proxyErr for one upstream endpoint, modelling
 	// an endpoint that serves chat/completions but no Responses API.
 	proxyErrByEndpoint map[providers.Endpoint]error
@@ -803,6 +805,9 @@ func TestService_ProxyOpenAIResponses_CodexPortableBridgeKeepsHMMProvidersAndRes
 
 func (f *fakeProvider) Passthrough(ctx context.Context, prep providers.PreparedRequest, w http.ResponseWriter, r *http.Request) error {
 	f.passthroughCreds = append(f.passthroughCreds, proxy.CredentialsFromContext(ctx))
+	if f.passthroughResponse != nil {
+		return f.passthroughResponse(ctx, w)
+	}
 	return nil
 }
 
