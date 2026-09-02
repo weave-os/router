@@ -304,9 +304,15 @@ func (s *Service) bypassToAnthropic(
 	// text block so the customer sees they're on their own subscription with
 	// paid failover disabled, and how to restore full routing. The marker writer
 	// injects only on a streaming response and is transparent otherwise.
-	respW := w
+	respW := http.ResponseWriter(w)
+	var streamCost *streamCostWriter
+	if env.Stream() {
+		streamCost = newStreamCostWriter(respW)
+		streamCost.SetCostCalculator(routerCostCalculatorFor(decision.Model, decision.Provider), false)
+		respW = streamCost
+	}
 	if billing.SubscriptionOnlyFromContext(ctx) {
-		respW = translate.NewAnthropicRoutingMarkerWriter(w, decision.Model, subscriptionOnlyWarningMarker)
+		respW = translate.NewAnthropicRoutingMarkerWriter(respW, decision.Model, subscriptionOnlyWarningMarker)
 	}
 
 	// Tap the response stream so the bypass span carries token usage for
@@ -341,6 +347,9 @@ func (s *Service) bypassToAnthropic(
 	in, out := extractor.Tokens()
 	cacheCreation, cacheRead := extractor.CacheTokens()
 	pricing, _ := catalog.PriceFor(decision.Provider, decision.Model)
+	if !env.Stream() && proxyErr == nil {
+		setRouterCostHeaders(w.Header(), routerResponseCostFromPricing(pricing, decision.Provider, in, out, cacheCreation, cacheRead))
+	}
 	inputCost := catalog.EffectiveInputCost(in, cacheCreation, cacheRead, pricing.InputUSDPer1M, pricing, decision.Provider)
 	outputCost := catalog.EffectiveOutputCost(out, pricing.OutputUSDPer1M)
 

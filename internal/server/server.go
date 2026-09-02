@@ -81,6 +81,25 @@ const (
 // analyticsSvc, when non-nil, mounts the /v1/analytics/* export surface;
 // nil leaves it unmounted (tests, deployments without telemetry storage).
 func Register(engine *gin.Engine, authSvc *auth.Service, proxySvc *proxy.Service, deployedModels admin.DeployedModelsSource, hmmModels admin.HMMRosterSource, mode DeploymentMode, billingSvc *billing.Service, readinessChecker admin.HealthChecker, hmmRosterSource policy.RosterSource, analyticsSvc *analytics.Service) {
+	// Browser clients need an explicit expose list before fetch can read the
+	// router's routing and cost metadata from a cross-origin response.
+	engine.Use(func(c *gin.Context) {
+		c.Header("Access-Control-Expose-Headers", strings.Join([]string{
+			proxy.HeaderRouterDecision,
+			proxy.HeaderRouterProvider,
+			proxy.HeaderRouterModel,
+			proxy.HeaderRouterContextWindow,
+			proxy.HeaderRouterCache,
+			proxy.HeaderRouterFallbackFrom,
+			proxy.HeaderRouterFallbackAttempt,
+			proxy.HeaderRouterCostUSD,
+			proxy.HeaderRouterCostInputUSD,
+			proxy.HeaderRouterCostOutputUSD,
+			proxy.HeaderRouterCacheReadTokens,
+			proxy.HeaderRouterCacheCreationTokens,
+		}, ", "))
+		c.Next()
+	})
 	// Managed mode: BYOK is opt-in per installation (see WithAuth).
 	byokRequiresOptIn := mode == DeploymentModeManaged
 

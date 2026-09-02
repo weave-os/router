@@ -2169,6 +2169,11 @@ var headersToSkipOnHit = map[string]struct{}{
 	"X-Router-Context-Window": {},
 	"X-Router-Cache":          {},
 	"X-Router-Feedback-Url":   {},
+	http.CanonicalHeaderKey(HeaderRouterCostUSD):             {},
+	http.CanonicalHeaderKey(HeaderRouterCostInputUSD):        {},
+	http.CanonicalHeaderKey(HeaderRouterCostOutputUSD):       {},
+	http.CanonicalHeaderKey(HeaderRouterCacheReadTokens):     {},
+	http.CanonicalHeaderKey(HeaderRouterCacheCreationTokens): {},
 }
 
 // cloneCacheHeaders snapshots a header set for storage, dropping transient
@@ -2571,8 +2576,10 @@ func (s *Service) anthropicNativeAttempt(
 	preludeBuf *preludeBuffer,
 	marker string,
 	setExtractor func(*otel.UsageExtractor),
+	setStreamCost func(router.Decision, bool),
 ) dispatchAttempt {
 	return func(actx context.Context, d router.Decision, p providers.Client) error {
+		setStreamCost(d, false)
 		attemptSink := sink
 		if marker != "" {
 			attemptSink = translate.NewAnthropicRoutingMarkerWriter(sink, d.Model, marker)
@@ -2842,6 +2849,16 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	if parseErr != nil {
 		log.Error("Failed to parse Anthropic request", "err", parseErr)
 		return fmt.Errorf("parse request: %w", parseErr)
+	}
+	var responseBuffer *responseCostBuffer
+	if !env.Stream() {
+		responseBuffer = newResponseCostBuffer(w)
+		w = responseBuffer
+		defer func() {
+			if flushErr := responseBuffer.FlushToClient(); flushErr != nil {
+				log.Error("Failed to flush buffered response", "err", flushErr)
+			}
+		}()
 	}
 
 	apiKeyID, _ := ctx.Value(APIKeyIDContextKey{}).(string)
@@ -3421,7 +3438,10 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	// wrapped below the capture layer so the footer never lands in
 	// cached/logged bodies. Transparent when streaming/feedback is off.
 	clientSink := w
+	var streamCost *streamCostWriter
 	if env.Stream() && !agentShadowMode {
+		streamCost = newStreamCostWriter(clientSink)
+		clientSink = streamCost
 		// Innermost wrap: arms only once preludeBuffer commits, so a keepalive
 		// can never strand a response the router still wants to retry.
 		if s.sseKeepalive > 0 {
@@ -3477,6 +3497,11 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	// translators validate/repair model tool calls against it. Nil if no tools.
 	toolValidator := env.ToolValidator()
 	setExtractor := func(e *otel.UsageExtractor) { extractor = e }
+	setStreamCost := func(d router.Decision, inputIncludesCache bool) {
+		if streamCost != nil {
+			streamCost.SetCostCalculator(routerCostCalculatorFor(d.Model, d.Provider), inputIncludesCache)
+		}
+	}
 	// buildAttempt dispatches by translation family so new OpenAI-compat
 	// providers route automatically; a closure so in-turn model failover can
 	// re-emit for a candidate in a different family.
@@ -3490,7 +3515,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			}
 			crossFormat = false
 			logUpstreamBody(log, routeRes.SessionKey, target, feats, prep.Body)
-			native := s.anthropicNativeAttempt(env, r, prep, sink, preludeBuf, targetMarker, setExtractor)
+			native := s.anthropicNativeAttempt(env, r, prep, sink, preludeBuf, targetMarker, setExtractor, setStreamCost)
 			return func(actx context.Context, d router.Decision, p providers.Client) error {
 				err := native(actx, d, p)
 				// Cortex documents output_config.format, so the knob goes out as
@@ -3515,7 +3540,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 					preludeBuf.Discard()
 				}
 				logUpstreamBody(log, routeRes.SessionKey, target, feats, unstructuredPrep.Body)
-				return s.anthropicNativeAttempt(env, r, unstructuredPrep, sink, preludeBuf, targetMarker, setExtractor)(actx, d, p)
+				return s.anthropicNativeAttempt(env, r, unstructuredPrep, sink, preludeBuf, targetMarker, setExtractor, setStreamCost)(actx, d, p)
 			}, nil
 		case providers.FamilyOpenAICompat:
 			crossFormat = true
@@ -3528,6 +3553,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			// be re-emitted onto chat/completions before finalize commits the
 			// prelude buffer. Translators are stateful, so the retry calls again.
 			dispatchOpenAICompat := func(actx context.Context, d router.Decision, p providers.Client, useResponses, stripPromptCacheKey bool) (error, func(error) error) {
+				setStreamCost(d, true)
 				attemptOpts := targetOpts
 				attemptOpts.TargetProvider = d.Provider
 				attemptOpts.StripPromptCacheKey = stripPromptCacheKey
@@ -3655,6 +3681,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			// before finalize commits the prelude buffer and forecloses the retry.
 			// Translators are stateful, so a retry rebuilds the chain via a fresh call.
 			dispatchGemini := func(actx context.Context, d router.Decision, p providers.Client, pr providers.PreparedRequest) (error, func(error) error) {
+				setStreamCost(d, true)
 				respSummary = translate.ResponseSummary{}
 				var usage otel.UsageSink
 				if s.usageRequired() {
@@ -3885,7 +3912,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			baselineCtx = resolveAndInjectCredentials(baselineCtx, providers.ProviderAnthropic, baselineModel, r.Header)
 			baselineBindings := s.resolveBindingsForDispatch(baselineCtx, baselineDecision)
 			baselineMarker := suppressMarkerIfRequested(ctx, r.Header, baselineRoutingMarkerFor(routeRes, baselineModel))
-			baselineAttempt := s.anthropicNativeAttempt(env, r, baselinePrep, sink, preludeBuf, baselineMarker, setExtractor)
+			baselineAttempt := s.anthropicNativeAttempt(env, r, baselinePrep, sink, preludeBuf, baselineMarker, setExtractor, setStreamCost)
 			crossFormat = false
 			respSummary = translate.ResponseSummary{}
 			reqStats = providers.RequestMutationStats{}
@@ -3950,7 +3977,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 				"model", decision.Model,
 				"err", proxyErr,
 				"upstream_status", upstreamStatus(proxyErr))
-			subAttempt := s.anthropicNativeAttempt(env, r, subPrep, sink, preludeBuf, marker, setExtractor)
+			subAttempt := s.anthropicNativeAttempt(env, r, subPrep, sink, preludeBuf, marker, setExtractor, setStreamCost)
 			crossFormat = false
 			respSummary = translate.ResponseSummary{}
 			reqStats = providers.RequestMutationStats{}
@@ -4099,6 +4126,9 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 
 	in, out := extractor.Tokens()
 	cacheCreation, cacheRead := extractor.CacheTokens()
+	if responseBuffer != nil && proxyErr == nil {
+		setRouterCostHeaders(w.Header(), routerResponseCostFromPricing(actPricing, decision.Provider, in, out, cacheCreation, cacheRead))
+	}
 	upstreamBuilder := otel.NewAttrBuilder(40).
 		String("request_id", requestID).
 		String("external_id", externalID).
@@ -5503,6 +5533,16 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		log.Error("Failed to parse OpenAI request", "err", parseErr)
 		return fmt.Errorf("parse request: %w", parseErr)
 	}
+	var responseBuffer *responseCostBuffer
+	if !env.Stream() {
+		responseBuffer = newResponseCostBuffer(w)
+		w = responseBuffer
+		defer func() {
+			if flushErr := responseBuffer.FlushToClient(); flushErr != nil {
+				log.Error("Failed to flush buffered response", "err", flushErr)
+			}
+		}()
+	}
 
 	// Bind session-scoped logger before stripping router-only history; see the
 	// matching Anthropic block for why the raw client session shape owns pins.
@@ -6286,6 +6326,9 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 
 	in, out := extractor.Tokens()
 	cacheCreation, cacheRead := extractor.CacheTokens()
+	if responseBuffer != nil && proxyErr == nil {
+		setRouterCostHeaders(w.Header(), routerResponseCostFromPricing(actPricing, decision.Provider, in, out, cacheCreation, cacheRead))
+	}
 	openaiUpstreamBuilder := otel.NewAttrBuilder(40).
 		String("request_id", requestID).
 		String("external_id", externalID).
