@@ -1176,6 +1176,33 @@ func TestResponsesWriter_AppendsReceiptWithUpstreamUsage(t *testing.T) {
 	assert.Equal(t, "\n\n↳ Weave Router · 1.2k in / 34 out", deltas[len(deltas)-1])
 }
 
+func TestResponsesWriter_ReasoningOnlyStreamCompletesWithReceipt(t *testing.T) {
+	const receipt = "\n\n↳ Weave Router · 1.2k in / 34 out"
+	rec := httptest.NewRecorder()
+	w := translate.NewResponsesWriter(rec, "gpt-5.5")
+	w.SetFooterText("\n\n_Weave Router feedback:_ `$rf +` good")
+	w.SetReceiptFunc(func(translate.ResponsesReceiptUsage) string { return receipt })
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.WriteHeader(200)
+	for _, chunk := range []string{
+		`data: {"choices":[{"index":0,"delta":{"reasoning_content":"thinking"},"finish_reason":null}]}` + "\n\n",
+		`data: {"choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}` + "\n\n",
+		`data: {"choices":[],"usage":{"prompt_tokens":1234,"completion_tokens":34}}` + "\n\n",
+		"data: [DONE]\n\n",
+	} {
+		_, err := w.Write([]byte(chunk))
+		require.NoError(t, err)
+	}
+	assert.NoError(t, w.Finalize())
+
+	events := parseSSEEvents(t, rec.Body.Bytes())
+	assert.Contains(t, eventTypes(events), "response.output_item.added")
+	assert.Contains(t, eventTypes(events), "response.output_text.delta")
+	assert.Equal(t, "response.completed", events[len(events)-1]["type"])
+	assert.Contains(t, rec.Body.String(), "Weave Router feedback")
+	assert.Contains(t, rec.Body.String(), "↳ Weave Router")
+}
+
 func TestResponsesWriter_BufferedResponseAppendsReceipt(t *testing.T) {
 	rec := httptest.NewRecorder()
 	w := translate.NewResponsesWriter(rec, "gpt-5.5")

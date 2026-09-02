@@ -1822,8 +1822,20 @@ func (t *ResponsesWriter) translateChunk(raw []byte) error {
 	if fr := choice.Get("finish_reason"); fr.Type == gjson.String && fr.Str != "" {
 		t.finishReason = fr.Str
 		// Usage may arrive in a later include_usage chunk with no choices.
-		// Keep the item open until [DONE] so the receipt sees it.
+		// Keep the item open until [DONE] so the receipt sees it, but open a
+		// text item now so a reasoning-only stream still has output to close.
 		if fr.Str == "stop" && t.receiptFn != nil && !t.sawToolCall {
+			if err := t.ensureBadgeItem(); err != nil {
+				return err
+			}
+			if t.textItem == nil {
+				if err := t.openTextItem(); err != nil {
+					return err
+				}
+				if err := t.lifecycle.Output(t.textItem.outputIndex); err != nil {
+					return err
+				}
+			}
 			return nil
 		}
 		// Reasoning-only turns emit no delta this writer translates, so the
