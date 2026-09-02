@@ -35,12 +35,12 @@ type Repository struct {
 // NewRepository constructs a Repository. Pass auth.NoOpEncryptor{} for local dev without a keyset.
 func NewRepository(tx sqlc.DBTX, encryptor auth.Encryptor) *Repository {
 	return &Repository{
-		Installations:         &installationRepo{tx: tx},
-		APIKeys:               &apiKeyRepo{tx: tx},
-		ExternalAPIKeys:       NewExternalAPIKeyRepo(tx, encryptor),
-		Users:                 NewUserRepository(tx),
-		ClusterModelLists:     NewClusterModelListRepo(tx),
-		UserClusterModelLists: NewUserClusterModelListRepo(tx),
+		Installations:             &installationRepo{tx: tx},
+		APIKeys:                   &apiKeyRepo{tx: tx},
+		ExternalAPIKeys:           NewExternalAPIKeyRepo(tx, encryptor),
+		Users:                     NewUserRepository(tx),
+		ClusterModelLists:         NewClusterModelListRepo(tx),
+		UserClusterModelLists:     NewUserClusterModelListRepo(tx),
 		Telemetry:                 NewTelemetryRepo(tx),
 		Feedback:                  NewFeedbackRepo(tx),
 		Analytics:                 NewAnalyticsRepo(tx),
