@@ -256,10 +256,12 @@ cmp -s "$refresh_helper" "$newer_helper" || {
 }
 
 # A second turn must not re-download inside the interval, so a helper edited
-# after the stamp was written stays put.
-printf '%s\n' '#!/usr/bin/env bash' >"$refresh_helper"
-printf '%s\n' 'exit 0' >>"$refresh_helper"
+# after the stamp was written stays put. Recopy the real helper first — the
+# first turn replaced it with the stub from $newer_helper, which never
+# enters weave_self_refresh.
+cp "$helper" "$refresh_helper"
 chmod 700 "$refresh_helper"
+printf '\n# mutated after stamp\n' >>"$refresh_helper"
 before_rate_limit="$(cat "$refresh_helper")"
 run_refresh_turn
 sleep 0.5

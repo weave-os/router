@@ -3210,9 +3210,10 @@ weave_self_refresh() {
 
   local cache_dir="${XDG_CACHE_HOME:-$HOME/.cache}/weave-router"
   mkdir -p "$cache_dir" 2>/dev/null || return 0
-  local script_slug
+  local script_slug path_digest
   script_slug="$(printf '%s' "$self" | tr -c 'A-Za-z0-9._-' '_')"
-  local stamp="$cache_dir/checked-at${script_slug}-codex"
+  path_digest="$(printf '%s' "$self" | cksum | awk '{print $1}')"
+  local stamp="$cache_dir/checked-at${script_slug}-${path_digest}-codex"
 
   local now stamp_mtime
   now="$(date +%s 2>/dev/null)" || return 0
