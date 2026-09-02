@@ -4770,8 +4770,7 @@ func pinDecision(p sessionpin.Pin) router.Decision {
 
 // policyDeadlineDefaultDecision resolves ROUTER_POLICY_DEADLINE_DEFAULT_MODEL to a
 // dispatchable Decision, honouring this turn's eligibility (enabled providers and
-// excluded models). Reports false when unset, excluded, or without a live binding —
-// callers must fail closed (503), not serve an ineligible decision.
+// excluded models). Reports false when unset, hard-excluded, or without a live binding.
 func (s *Service) policyDeadlineDefaultDecision(req router.Request) (router.Decision, bool) {
 	if s.policyDeadlineDefaultModel == "" {
 		return router.Decision{}, false
@@ -4782,11 +4781,14 @@ func (s *Service) policyDeadlineDefaultDecision(req router.Request) (router.Deci
 	if _, excluded := req.SafetyExcludedModels[s.policyDeadlineDefaultModel]; excluded {
 		return router.Decision{}, false
 	}
-	// The static deadline fallback is an automatic choice, and refusing it only
-	// costs a 503 on a turn the policy already failed to route.
-	if _, disabled := req.AutomaticExcludedModels[s.policyDeadlineDefaultModel]; disabled {
+
+	// The static deadline fallback is an automatic choice. Honor its soft
+	// exclusion while another dispatchable model remains, but do not turn an
+	// already-degraded request into a 503 when this is the only fallback left.
+	if _, disabled := req.AutomaticExcludedModels[s.policyDeadlineDefaultModel]; disabled && s.hasAutomaticFallbackAlternative(req) {
 		return router.Decision{}, false
 	}
+
 	// nil EnabledProviders means unrestricted, so fall back to everything this
 	// deployment registered; otherwise only providers this turn can authenticate.
 	providerSet := make(map[string]struct{}, len(s.providers))
@@ -4807,6 +4809,42 @@ func (s *Service) policyDeadlineDefaultDecision(req router.Request) (router.Deci
 		Model:    s.policyDeadlineDefaultModel,
 		Reason:   policyDeadlineDefaultReason,
 	}, true
+}
+
+func (s *Service) hasAutomaticFallbackAlternative(req router.Request) bool {
+	for _, candidate := range catalog.Models {
+		if candidate.ID == s.policyDeadlineDefaultModel {
+			continue
+		}
+		if s.availableModels != nil {
+			if _, available := s.availableModels[candidate.ID]; !available {
+				continue
+			}
+		}
+		if _, excluded := req.ExcludedModels[candidate.ID]; excluded {
+			continue
+		}
+		if _, excluded := req.SafetyExcludedModels[candidate.ID]; excluded {
+			continue
+		}
+		if _, disabled := req.AutomaticExcludedModels[candidate.ID]; disabled {
+			continue
+		}
+
+		providerSet := make(map[string]struct{}, len(s.providers))
+		for provider := range s.providers {
+			if req.EnabledProviders != nil {
+				if _, enabled := req.EnabledProviders[provider]; !enabled {
+					continue
+				}
+			}
+			providerSet[provider] = struct{}{}
+		}
+		if _, ok := catalog.ResolveBinding(candidate.ID, providerSet); ok {
+			return true
+		}
+	}
+	return false
 }
 
 // bandSwapServed picks which half of a pinned band pair serves this sticky

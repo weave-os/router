@@ -460,17 +460,7 @@ func automaticPinEligible(pin sessionpin.Pin, req router.Request) bool {
 // withAutomaticExclusions folds the deployment-wide soft set into the hard-pin
 // resolver's own exclusions, which is the only denylist that selector reads.
 func withAutomaticExclusions(req HardPinRequest, automaticExcluded map[string]struct{}) HardPinRequest {
-	if len(automaticExcluded) == 0 {
-		return req
-	}
-	merged := make(map[string]struct{}, len(req.ExcludedModels)+len(automaticExcluded))
-	for model := range req.ExcludedModels {
-		merged[model] = struct{}{}
-	}
-	for model := range automaticExcluded {
-		merged[model] = struct{}{}
-	}
-	req.ExcludedModels = merged
+	req.ExcludedModels = mergeExcludedModels(req.ExcludedModels, automaticExcluded)
 	return req
 }
 
@@ -508,6 +498,9 @@ func (s *Service) runTurnLoop(
 		return turnLoopResult{}, compatibilityErr
 	}
 	ctx = context.WithValue(ctx, translationPlanAppliedContextKey{}, true)
+	// The turn-loop has to load this before any automatic pin or utility hard-pin
+	// branch; routeFor receives a copy and cannot populate the caller's request.
+	req.AutomaticExcludedModels = s.globalAutomaticExcludedModels(ctx)
 	if transforms, ok := ctx.Value(responsesTransformsContextKey{}).([]translate.ResponseTransform); ok {
 		for _, transform := range transforms {
 			apm.RecordTranslationTransform(

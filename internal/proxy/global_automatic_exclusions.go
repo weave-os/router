@@ -30,6 +30,7 @@ type globalAutomaticExclusionCache struct {
 	byModel     map[string]string
 	refreshedAt time.Time
 	loaded      bool
+	refreshing  bool
 }
 
 func newGlobalAutomaticExclusionCache(store GlobalAutomaticExclusionStore) *globalAutomaticExclusionCache {
@@ -41,25 +42,52 @@ func newGlobalAutomaticExclusionCache(store GlobalAutomaticExclusionStore) *glob
 // nil (fail open) rather than disabling routing on a control-plane outage.
 func (c *globalAutomaticExclusionCache) snapshot(ctx context.Context) map[string]string {
 	c.mu.Lock()
-	defer c.mu.Unlock()
 	if c.loaded && time.Since(c.refreshedAt) < globalAutomaticExclusionTTL {
-		return c.byModel
+		byModel := c.byModel
+		c.mu.Unlock()
+		return byModel
 	}
+	if c.refreshing {
+		byModel := c.byModel
+		c.mu.Unlock()
+		return byModel
+	}
+	c.refreshing = true
+	stale := c.byModel
+	c.mu.Unlock()
+
 	byModel, err := c.store.ListGlobalAutomaticRoutingExclusions(ctx)
+	c.mu.Lock()
+	c.refreshing = false
 	if err != nil {
+		c.mu.Unlock()
 		observability.FromContext(ctx).Error("Failed to refresh global automatic-routing exclusions",
 			"err", err,
 			"serving_stale_snapshot", c.loaded,
-			"cached_model_count", len(c.byModel),
+			"cached_model_count", len(stale),
 		)
-		// Hold the stale timestamp so a persistent failure retries every turn
-		// rather than pinning an empty set for a full TTL.
-		return c.byModel
+		return stale
 	}
 	c.byModel = byModel
 	c.refreshedAt = time.Now()
 	c.loaded = true
+	c.mu.Unlock()
 	return byModel
+}
+
+// mergeExcludedModels returns the union of hard and automatic exclusions.
+func mergeExcludedModels(hard, automatic map[string]struct{}) map[string]struct{} {
+	if len(automatic) == 0 {
+		return hard
+	}
+	merged := make(map[string]struct{}, len(hard)+len(automatic))
+	for model := range hard {
+		merged[model] = struct{}{}
+	}
+	for model := range automatic {
+		merged[model] = struct{}{}
+	}
+	return merged
 }
 
 // globalAutomaticExcludedModels returns the deployment-wide soft exclusion set
