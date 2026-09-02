@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -8,8 +9,24 @@ import (
 
 	"workweave/router/internal/providers"
 	"workweave/router/internal/router/catalog"
+	"workweave/router/internal/router/turntype"
 	"workweave/router/internal/translate"
 )
+
+func TestCodexReceiptTurn_Gating(t *testing.T) {
+	ctx := context.Background()
+
+	for _, tt := range []turntype.TurnType{turntype.MainLoop, turntype.ToolResult} {
+		assert.True(t, codexReceiptTurn(ctx, ClientAppCodex, tt), "expected receipt for %q", tt)
+	}
+	for _, tt := range []turntype.TurnType{turntype.SubAgentDispatch, turntype.Compaction, turntype.Probe} {
+		assert.False(t, codexReceiptTurn(ctx, ClientAppCodex, tt), "expected no receipt for %q", tt)
+	}
+	assert.False(t, codexReceiptTurn(ctx, ClientAppClaudeCode, turntype.MainLoop), "the receipt is a Codex surface")
+
+	hiddenCtx := context.WithValue(ctx, InstallationHideTerminalSurfacesContextKey{}, true)
+	assert.False(t, codexReceiptTurn(hiddenCtx, ClientAppCodex, turntype.MainLoop), "hidden terminal surfaces suppress the receipt like the badge and footer")
+}
 
 // A mid-tier requested model against a cheap served one: the shape a routed
 // Codex turn actually takes.

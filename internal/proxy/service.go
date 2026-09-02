@@ -5901,7 +5901,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		provider:      decision.Provider,
 	}
 	verbatimPassthrough := responsesPassthrough && decision.Provider == providers.ProviderOpenAI
-	receiptEnabled := codexReceiptTurn(clientID.ClientApp, routeRes.TurnType)
+	receiptEnabled := codexReceiptTurn(ctx, clientID.ClientApp, routeRes.TurnType)
 	if rw, ok := w.(*translate.ResponsesWriter); ok {
 		if marker != "" && !verbatimPassthrough {
 			rw.SetBadgeText(marker)
