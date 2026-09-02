@@ -476,6 +476,12 @@ func main() {
 		WithWIFTokenSource(buildWIFTokenSource(logger)).
 		WithEntraTokenSource(buildEntraTokenSource(logger)).
 		WithFlagOverridesDisabled(flagOverridesDisabled)
+	if config.GetOr("ROUTER_SUBSCRIPTION_POOLS_ENABLED", "false") == "true" {
+		authSvc.WithSubscriptionAccounts(repo.SubscriptionAccounts)
+		logger.Info("Server-side subscription account pools enabled")
+	} else {
+		logger.Info("Server-side subscription account pools disabled")
+	}
 
 	// Fans out Pub/Sub invalidations to this replica's cache; the 5-min TTL
 	// is the safety net if the listener falls behind.

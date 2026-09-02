@@ -319,6 +319,18 @@ type RouterModelRouterRequestTelemetry struct {
 	RequestedAllowedModels []string
 }
 
+type RouterModelRouterSubscriptionAccount struct {
+	ID                     uuid.UUID
+	APIKeyID               uuid.UUID
+	Provider               string
+	ExternalAccountID      string
+	RefreshTokenCiphertext []byte
+	Enabled                bool
+	CooldownUntil          pgtype.Timestamp
+	CreatedAt              pgtype.Timestamp
+	UpdatedAt              pgtype.Timestamp
+}
+
 // End-user identities seen on inbound requests, scoped to an installation. Replaces the per-user API key pattern.
 type RouterModelRouterUser struct {
 	ID             uuid.UUID

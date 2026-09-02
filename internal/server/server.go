@@ -15,6 +15,7 @@ import (
 	feedbackapi "workweave/router/internal/api/feedback"
 	geminiapi "workweave/router/internal/api/gemini"
 	openaiapi "workweave/router/internal/api/openai"
+	subscriptionsapi "workweave/router/internal/api/subscriptions"
 	"workweave/router/internal/auth"
 	"workweave/router/internal/billing"
 	"workweave/router/internal/policyclient"
@@ -157,6 +158,10 @@ func Register(engine *gin.Engine, authSvc *auth.Service, proxySvc *proxy.Service
 	// /validate is a token-validity probe used by clients (not the dashboard), so it stays mounted in both modes.
 	adminAuthed := engine.Group("", middleware.WithTimeout(validateTimeout), middleware.WithAuth(authSvc, byokRequiresOptIn))
 	adminAuthed.GET("/validate", admin.ValidateHandler)
+	if authSvc != nil {
+		subscriptionGroup := engine.Group("", middleware.WithTimeout(adminTimeout), middleware.WithAuth(authSvc, byokRequiresOptIn))
+		subscriptionsapi.Register(subscriptionGroup, authSvc)
+	}
 
 	if mode == DeploymentModeSelfHosted {
 		engine.GET("/", func(c *gin.Context) { c.Redirect(http.StatusFound, "/ui") })

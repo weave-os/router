@@ -74,6 +74,7 @@ type Service struct {
 	cache                 APIKeyCache
 	userCache             UserCache
 	userClusterCache      UserClusterListCache
+	subscriptionAccounts  SubscriptionAccountRepository
 	notifier              InstallationChangeNotifier
 	now                   Clock
 	encryptor             Encryptor
@@ -99,6 +100,12 @@ type Service struct {
 	// adminLoginFailures throttles per-IP brute-force login attempts.
 	adminLoginFailures *expirable.LRU[string, int]
 	adminLoginMu       sync.Mutex
+}
+
+// WithSubscriptionAccounts wires encrypted server-side subscription storage.
+func (s *Service) WithSubscriptionAccounts(repo SubscriptionAccountRepository) *Service {
+	s.subscriptionAccounts = repo
+	return s
 }
 
 func NewService(

@@ -35,6 +35,7 @@
 #   npx @workweave/router                                  # interactive picker (Claude Code, Codex, opencode)
 #   npx @workweave/router --claude                         # skip the picker, target Claude Code
 #   npx @workweave/router --codex                          # skip the picker, target Codex
+#   npx @workweave/router setup --claude --codex            # configure both native clients
 #   npx @workweave/router --opencode                       # skip the picker, target opencode
 #   npx @workweave/router --pi                              # skip the picker, target pi
 #   npx @workweave/router --pi --lsp go,typescript          # also install language servers for pi's lsp tool
@@ -1115,6 +1116,7 @@ while [ $# -gt 0 ]; do
       ;;
     --codex)
       target="codex"; target_explicit="true"; shift
+      [ "${mode:-install}" = "setup" ] && setup_codex="true"
       ;;
     --opencode)
       target="opencode"; target_explicit="true"; shift
@@ -1131,6 +1133,7 @@ while [ $# -gt 0 ]; do
       # pipelines that want to skip the interactive picker without depending
       # on the default.
       target="claude"; target_explicit="true"; shift
+      [ "${mode:-install}" = "setup" ] && setup_claude="true"
       ;;
     off|--off|on|--on|status|--status)
       # Toggle/report verbs. Bare (off) or dashed (--off) both accepted; the
@@ -1141,6 +1144,9 @@ while [ $# -gt 0 ]; do
       # Non-interactive refresh of an existing install. Takes the same target
       # and scope flags as install; resolves the key from env or disk only.
       mode="update"; shift
+      ;;
+    setup|--setup)
+      mode="setup"; shift
       ;;
     disable-routing|--disable-routing)
       # Convenience alias for the Codex-specific off toggle. Unlike generic
@@ -1175,6 +1181,22 @@ while [ $# -gt 0 ]; do
       ;;
   esac
 done
+
+if [ "$mode" = "setup" ]; then
+  if [ "${setup_claude:-false}" != "true" ] && [ "${setup_codex:-false}" != "true" ]; then
+    setup_claude="true"
+    setup_codex="true"
+  fi
+  setup_args=(--non-interactive)
+  [ "$scope_explicit" = "true" ] && setup_args+=(--scope "$scope")
+  [ "$base_url_explicit" = "true" ] && setup_args+=(--base-url "$base_url")
+  [ -n "$install_dir" ] && setup_args+=(--dir "$install_dir")
+  [ "$quiet" = "true" ] && setup_args+=(--quiet)
+  [ "$rotate_key" = "true" ] && setup_args+=(--rotate-key)
+  [ "${setup_claude:-false}" = "true" ] && bash "$0" "${setup_args[@]}" --claude
+  [ "${setup_codex:-false}" = "true" ] && bash "$0" "${setup_args[@]}" --codex
+  exit 0
+fi
 
 # --lsp is a pi-extension feature, so it implies the pi target; combining it
 # with another explicit target is a contradiction, not a preference.

@@ -6,6 +6,7 @@ One command, anywhere, to point Claude Code, Codex, opencode, or pi at the Weave
 npx @workweave/router                       # interactive: pick Claude Code / Codex / opencode / pi, then scope
 npx @workweave/router --claude              # skip the picker, target Claude Code
 npx @workweave/router --codex               # skip the picker, target the OpenAI Codex CLI
+npx @workweave/router setup --claude --codex # configure both native clients
 npx @workweave/router --opencode            # skip the picker, target opencode
 npx @workweave/router --pi                  # skip the picker, target pi + Loom UI
 npx @workweave/router --scope project       # per-repo install, commit settings.json (or .codex/ / opencode.json)
