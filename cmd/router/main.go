@@ -900,11 +900,27 @@ func main() {
 			hmmBetaTimeout,
 			policyclient.WithAttemptTimeout(hmmBetaAttemptTimeout),
 		)
-		if clientErr != nil {
+		// The beta package embeds its own roster (a different taxonomy from
+		// stable's is the point of a candidate), so Go-side selection for beta
+		// decisions reads the matching declarative roster rather than stable's.
+		// Without it the beta router would negotiate the pre-v3 contract the
+		// sidecar no longer serves, so every beta turn would fail closed.
+		var betaRoster *rosterdata.Roster
+		betaRosterPath := strings.TrimSpace(config.GetOr("ROUTER_HMM_BETA_ROSTER_PATH", ""))
+		if betaRosterPath == "" {
+			logger.Error("beta HMM sidecar configured without ROUTER_HMM_BETA_ROSTER_PATH; beta disabled", "sidecar_url", hmmBetaSidecarURL)
+		} else if loadedRoster, rosterErr := rosterdata.Load(betaRosterPath); rosterErr != nil {
+			logger.Error("beta HMM declarative roster failed to load; beta disabled", "path", betaRosterPath, "err", rosterErr)
+		} else {
+			betaRoster = loadedRoster
+		}
+		switch {
+		case clientErr != nil:
 			// Beta is an optional isolation ring. A malformed beta-only auth
 			// setting must not take the stable router down with it.
 			logger.Error("beta HMM policy sidecar client failed to build; beta disabled", "auth_mode", hmmBetaAuthMode, "err", clientErr)
-		} else {
+		case betaRoster == nil:
+		default:
 			capabilityCtx, cancelCapabilityDiscovery := context.WithTimeout(context.Background(), hmmBetaTimeout)
 			var capabilityErr error
 			hmmBetaCapabilities, capabilityErr = hmmBetaClient.Capabilities(capabilityCtx)
@@ -918,6 +934,7 @@ func main() {
 				availableProviders,
 			)
 			hmmBetaPolicyRouter.WithCapabilities(hmmBetaCapabilities)
+			hmmBetaPolicyRouter.WithArmSelector(selection.Selector(betaRoster))
 			if capabilityErr != nil {
 				go func() {
 					retryErr := retryPolicyCapabilitiesUntilAvailable(
@@ -945,6 +962,10 @@ func main() {
 				"attempt_timeout_ms", hmmBetaAttemptTimeout.Milliseconds(),
 				"candidate_models", len(routingTargets),
 				"strategy", router.StrategyHMMBeta,
+				"roster_path", betaRosterPath,
+				"roster_schema_version", betaRoster.SchemaVersion,
+				"roster_clusters", len(betaRoster.Clusters),
+				"roster_arms", len(betaRoster.AllArms()),
 			)
 		}
 	} else {
