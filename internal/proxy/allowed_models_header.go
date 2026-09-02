@@ -182,3 +182,12 @@ func (s *Service) readmitForcedModel(
 	delete(out, pin.Model)
 	return out
 }
+
+// requestAllowedModelsPresent reports whether the request carries an
+// x-weave-allowed-models subset. Such requests bypass the semantic cache: the
+// subset is not part of the cache key, so a hit could serve a body produced by
+// a model outside it.
+func requestAllowedModelsPresent(ctx context.Context) bool {
+	_, ok := requestAllowedModelsFromContext(ctx)
+	return ok
+}

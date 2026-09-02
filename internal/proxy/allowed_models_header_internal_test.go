@@ -195,3 +195,9 @@ func TestTurnLoop_StickyPinOutsideRequestSubsetReroutes(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, testOpus, res.Decision.Model)
 }
+
+func TestRequestAllowedModelsPresent(t *testing.T) {
+	assert.False(t, requestAllowedModelsPresent(context.Background()))
+	assert.True(t, requestAllowedModelsPresent(
+		ctxWithRequestSubset(context.Background(), testSol)))
+}
