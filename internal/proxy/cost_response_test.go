@@ -1,9 +1,12 @@
 package proxy
 
 import (
+	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"workweave/router/internal/providers"
 
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
@@ -34,6 +37,20 @@ func TestStreamCostWriterAnnotatesFinalMessageDelta(t *testing.T) {
 	require.True(t, annotated.Exists())
 	require.Equal(t, float64(1.25), annotated.Get("usd").Float())
 	require.Equal(t, int64(3), annotated.Get("cache_read_tokens").Int())
+}
+
+func TestStreamCostWriterPassesThroughJSONErrorEnvelope(t *testing.T) {
+	rec := httptest.NewRecorder()
+	writer := newStreamCostWriter(rec)
+	err := &providers.UpstreamErrorResponse{
+		Status: http.StatusServiceUnavailable,
+		Body:   []byte(`{"type":"error","error":{"type":"api_error","message":"upstream unavailable"}}`),
+	}
+
+	flushUpstreamErrorAsAnthropic(writer, err)
+
+	require.Equal(t, http.StatusServiceUnavailable, rec.Code)
+	require.Contains(t, rec.Body.String(), "upstream unavailable")
 }
 
 func TestResponseCostBufferFlushesAfterHeaders(t *testing.T) {

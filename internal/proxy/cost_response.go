@@ -140,6 +140,15 @@ func (w *streamCostWriter) SetCostCalculator(calculator routerCostCalculator, in
 }
 
 func (w *streamCostWriter) Write(p []byte) (int, error) {
+	// Error fallback rendering writes a plain JSON envelope rather than an SSE
+	// event. Pass it through immediately instead of retaining it indefinitely
+	// while waiting for an SSE boundary that will never arrive.
+	if w.pending.Len() == 0 {
+		trimmed := bytes.TrimSpace(p)
+		if len(trimmed) > 0 && (trimmed[0] == '{' || trimmed[0] == '[') {
+			return w.inner.Write(p)
+		}
+	}
 	w.pending.Write(p)
 	for {
 		event, consumed := sse.SplitNext(w.pending.Bytes())

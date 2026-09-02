@@ -5534,7 +5534,8 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		return fmt.Errorf("parse request: %w", parseErr)
 	}
 	var responseBuffer *responseCostBuffer
-	if !env.Stream() {
+	_, isResponsesWriter := w.(*translate.ResponsesWriter)
+	if !env.Stream() && !isResponsesWriter {
 		responseBuffer = newResponseCostBuffer(w)
 		w = responseBuffer
 		defer func() {
@@ -6326,7 +6327,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 
 	in, out := extractor.Tokens()
 	cacheCreation, cacheRead := extractor.CacheTokens()
-	if responseBuffer != nil && proxyErr == nil {
+	if !env.Stream() && proxyErr == nil {
 		setRouterCostHeaders(w.Header(), routerResponseCostFromPricing(actPricing, decision.Provider, in, out, cacheCreation, cacheRead))
 	}
 	openaiUpstreamBuilder := otel.NewAttrBuilder(40).
