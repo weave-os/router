@@ -5468,6 +5468,12 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	} else {
 		body = strippedBody
 	}
+	strippedBody, stripErr = translate.StripRouterReceiptFromMessages(body)
+	if stripErr != nil {
+		log.Error("Failed to strip router receipt from OpenAI messages", "err", stripErr)
+	} else {
+		body = strippedBody
+	}
 	env, parseErr := translate.ParseOpenAI(body)
 	if parseErr != nil {
 		log.Error("Failed to parse OpenAI request", "err", parseErr)
@@ -5890,13 +5896,18 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 
 	// Previously gated on policy debug; ordinary Codex turns fell through to
 	// ResponsesWriter's legacy badge that ignored suppression and never showed the routing reason.
+	receiptPricing := &codexReceiptPricing{}
 	verbatimPassthrough := responsesPassthrough && decision.Provider == providers.ProviderOpenAI
+	receiptEnabled := codexReceiptTurn(ctx, clientID.ClientApp, routeRes.TurnType)
 	if rw, ok := w.(*translate.ResponsesWriter); ok {
 		if marker != "" && !verbatimPassthrough {
 			rw.SetBadgeText(marker)
 		}
 		if footer := s.feedbackFooter(ctx, clientID.ClientApp, routeRes.TurnType, footerEchoedSinceHumanTurn); footer != "" {
 			rw.SetFooterText(footer)
+		}
+		if receiptEnabled {
+			rw.SetReceiptFunc(codexReceiptRenderer(reqPricing, receiptPricing))
 		}
 	}
 	// Keep a stable copy for a possible chat/completions fallback after a native
@@ -5921,7 +5932,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 			// marker already carries the depleted-credits warning in
 			// subscription-only mode, which overrides the opt-out above.
 			// Parse native SSE when Codex needs a badge and/or footer.
-			if clientID.ClientApp == ClientAppCodex && (marker != "" || s.feedbackFooter(ctx, clientID.ClientApp, routeRes.TurnType, footerEchoedSinceHumanTurn) != "") {
+			if clientID.ClientApp == ClientAppCodex && (marker != "" || receiptEnabled || s.feedbackFooter(ctx, clientID.ClientApp, routeRes.TurnType, footerEchoedSinceHumanTurn) != "") {
 				if marker != "" {
 					rw.SetBadgeText(marker)
 				}
@@ -6213,6 +6224,12 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		return fmt.Errorf("%w: %s (no translation path defined)", ErrProviderNotConfigured, decision.Provider)
 	}
 
+	providerAttempt := attempt
+	attempt = func(actx context.Context, d router.Decision, p providers.Client) error {
+		receiptPricing.setActual(d.Provider, d.Model)
+		return providerAttempt(actx, d, p)
+	}
+
 	primaryProvider := decision.Provider
 	primaryModel := decision.Model
 	var winnerIdx int
@@ -6472,6 +6489,10 @@ func (s *Service) ProxyOpenAIResponses(ctx context.Context, body []byte, w http.
 		nativeBody, err = translate.StripFeedbackFooterFromResponsesInput(nativeBody)
 		if err != nil {
 			return fmt.Errorf("strip native Responses feedback footer: %w", err)
+		}
+		nativeBody, err = translate.StripRouterReceiptFromResponsesInput(nativeBody)
+		if err != nil {
+			return fmt.Errorf("strip native Responses router receipt: %w", err)
 		}
 	}
 	// Every Responses turn stashes its original bytes for post-routing native

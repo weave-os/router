@@ -822,7 +822,10 @@ var routingMarkerPattern = regexp.MustCompile(`(?s)✦ \*\*Weave Router\*\* → 
 // responses (see proxy.Service.feedbackFooter), absorbing leading newlines
 // and everything to end of line since there's no fixed end-anchor. Keep the
 // sentinel in sync with proxy.feedbackFooterText.
-var feedbackFooterPattern = regexp.MustCompile("\\n*_Weave Router feedback:_ [^\\n]*")
+var feedbackFooterPattern = regexp.MustCompile(`\n*_Weave Router feedback:_ [^\n]*`)
+
+// routerReceiptPattern matches a receipt from a prior Codex turn.
+var routerReceiptPattern = regexp.MustCompile(`\n*↳ Weave Router · [^\n]*`)
 
 // StripRoutingMarkerFromMessages removes the routing-marker snippet from every
 // text block in messages[*].content[*]. Stripping on ingress keeps it out of
@@ -837,6 +840,13 @@ func StripRoutingMarkerFromMessages(body []byte) ([]byte, error) {
 // next turn; stripping it on ingress keeps it out of upstream context.
 func StripFeedbackFooterFromMessages(body []byte) ([]byte, error) {
 	return stripPatternFromMessages(body, feedbackFooterPattern)
+}
+
+// StripRouterReceiptFromMessages removes the per-turn receipt from every text
+// block in messages[*].content[*], for the same ingress reason as the marker
+// and footer.
+func StripRouterReceiptFromMessages(body []byte) ([]byte, error) {
+	return stripPatternFromMessages(body, routerReceiptPattern)
 }
 
 // stripPatternFromMessages removes every match of pattern from each text block
