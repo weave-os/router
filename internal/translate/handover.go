@@ -302,18 +302,14 @@ func (e *RequestEnvelope) trimGeminiLastN(n int) int {
 	if len(all) <= n {
 		return 0
 	}
-	keep := all[len(all)-n:]
-	rebuilt := make([]string, 0, len(keep))
-	for _, m := range keep {
-		rebuilt = append(rebuilt, m.Raw)
-	}
+	rebuilt := stripLeadingGeminiOrphanFunctionResponses(all[len(all)-n:])
 	newContents := "[" + strings.Join(rebuilt, ",") + "]"
 	out, err := sjson.SetRawBytes(e.body, "contents", []byte(newContents))
 	if err != nil {
 		return 0
 	}
 	e.body = out
-	return len(all) - len(keep)
+	return len(all) - len(rebuilt)
 }
 
 // stripOrphanedAnthropicToolResults drops tool_result blocks whose tool_use_id

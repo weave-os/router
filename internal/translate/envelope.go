@@ -93,6 +93,15 @@ type RequestEnvelope struct {
 	format Format
 }
 
+// Clone returns an independent copy of the envelope; mutations to either
+// envelope's body do not affect the other.
+func (e *RequestEnvelope) Clone() *RequestEnvelope {
+	if e == nil {
+		return nil
+	}
+	return &RequestEnvelope{body: append([]byte(nil), e.body...), format: e.format}
+}
+
 // ParseOpenAI validates body as a JSON object and wraps it in a RequestEnvelope.
 func ParseOpenAI(body []byte) (*RequestEnvelope, error) {
 	if err := validateJSONObject(body); err != nil {

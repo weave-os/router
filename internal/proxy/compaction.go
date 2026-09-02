@@ -311,12 +311,21 @@ func (s *Service) maybeCompact(ctx context.Context, env *translate.RequestEnvelo
 			preferred = in.PreferredSummarizer()
 		}
 		if summary, usage, model, ok := s.runCompactionSummary(ctx, env, preferred, in.Headers); ok {
+			// The summary is billed regardless; a rewrite that leaves a
+			// fitting request no longer fitting is discarded rather than
+			// letting rescue trimming drop context that was already servable.
+			fitBefore, before := fits(), env.Clone()
 			env.RewriteForCompaction(summary, pol.RecentTurns)
 			res.Applied = true
-			res.Summarized = true
 			res.SummaryModel = model
 			res.SummaryUsage = usage
-			log.Info("Compaction Tier-3: history summarized", "summary_model", model, "needed_after", needed())
+			if fitBefore && !fits() {
+				*env = *before
+				log.Warn("Compaction Tier-3: summary rewrite would overflow; reverted", "summary_model", model, "needed_after", needed())
+			} else {
+				res.Summarized = true
+				log.Info("Compaction Tier-3: history summarized", "summary_model", model, "needed_after", needed())
+			}
 		}
 	}
 	if fits() {

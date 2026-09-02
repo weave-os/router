@@ -344,3 +344,24 @@ func TestMaybeCompact_Tier3RunsAboveTriggerEvenWhenFitting(t *testing.T) {
 	assert.Equal(t, 1, fake.calls)
 	assert.Zero(t, res.TrimmedToRecent, "fitting request must not be rescue-trimmed")
 }
+
+func TestMaybeCompact_Tier3RevertsWhenSummaryRewriteOverflows(t *testing.T) {
+	// A fitting request whose tail is nearly the whole window: prepending a
+	// summary would push it over, so the rewrite is discarded instead of
+	// falling through to rescue trimming.
+	fake := &fakeCompactionSummarizer{summary: strings.Repeat("SUMMARY ", 2_000)}
+	s := &Service{compactionTriggerPct: DefaultCompactionTriggerPct, compactionSummarizer: fake}
+	env, err := translate.ParseAnthropic(alternatingAnthropicBody(4, 400))
+	require.NoError(t, err)
+	before := env.ContextOverflowTokenEstimate()
+
+	res, err := s.maybeCompact(context.Background(), env, compactionInput{
+		TurnType: turntype.MainLoop, MaxWindow: before + 10, ClientApp: ClientAppCodex, Headers: http.Header{},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, 1, fake.calls)
+	assert.False(t, res.Summarized)
+	assert.Zero(t, res.TrimmedToRecent)
+	assert.Equal(t, DefaultCompactionModel, res.SummaryModel, "summary call is still billed")
+	assert.Equal(t, before, env.ContextOverflowTokenEstimate(), "history restored")
+}

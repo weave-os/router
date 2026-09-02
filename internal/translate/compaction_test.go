@@ -162,3 +162,48 @@ func TestRewriteForCompaction_Gemini_KeepsSummaryModelTurn(t *testing.T) {
 	assert.Equal(t, "user", contents[1].Get("role").String())
 	assert.Contains(t, string(e.body), "u2 latest")
 }
+
+func TestRewriteForCompaction_Gemini_StripsOrphanedFunctionResponse(t *testing.T) {
+	body := `{"contents":[` +
+		`{"role":"user","parts":[{"text":"u1 old"}]},` +
+		`{"role":"model","parts":[{"functionCall":{"name":"read","args":{}}}]},` +
+		`{"role":"user","parts":[{"functionResponse":{"name":"read","response":{"r":1}}},{"text":"also text"}]},` +
+		`{"role":"model","parts":[{"functionCall":{"name":"ls","args":{}}}]},` +
+		`{"role":"user","parts":[{"functionResponse":{"name":"ls","response":{"r":2}}}]},` +
+		`{"role":"model","parts":[{"text":"m3"}]},` +
+		`{"role":"user","parts":[{"text":"u4 latest"}]}` +
+		`]}`
+	e, err := ParseGemini([]byte(body))
+	require.NoError(t, err)
+
+	// Window starts at the user turn carrying the "read" response; its
+	// functionCall is elided, so that part must go while "ls" stays paired.
+	e.RewriteForCompaction("GSUM", 5)
+	contents := gjson.GetBytes(e.body, "contents").Array()
+	require.Len(t, contents, 6)
+	assert.Equal(t, "model", contents[0].Get("role").String())
+	head := contents[1]
+	assert.Equal(t, "user", head.Get("role").String())
+	assert.False(t, head.Get(`parts.#(functionResponse)`).Exists(), "orphaned functionResponse must be stripped")
+	assert.Equal(t, "also text", head.Get("parts.0.text").String())
+	assert.True(t, contents[3].Get(`parts.#(functionResponse)`).Exists(), "paired functionResponse kept")
+}
+
+func TestTrimLastNMessages_Gemini_DropsHeadLeftWithOnlyOrphanResponse(t *testing.T) {
+	body := `{"contents":[` +
+		`{"role":"user","parts":[{"text":"u1"}]},` +
+		`{"role":"model","parts":[{"functionCall":{"name":"ls","args":{}}}]},` +
+		`{"role":"user","parts":[{"functionResponse":{"name":"ls","response":{"r":2}}}]},` +
+		`{"role":"model","parts":[{"text":"m2"}]},` +
+		`{"role":"user","parts":[{"text":"u3 latest"}]}` +
+		`]}`
+	e, err := ParseGemini([]byte(body))
+	require.NoError(t, err)
+
+	elided := e.TrimLastNMessages(3)
+	assert.Equal(t, 3, elided)
+	contents := gjson.GetBytes(e.body, "contents").Array()
+	require.Len(t, contents, 2)
+	assert.Equal(t, "m2", contents[0].Get("parts.0.text").String())
+	assert.NotContains(t, string(e.body), "functionResponse")
+}
