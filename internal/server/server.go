@@ -158,8 +158,8 @@ func Register(engine *gin.Engine, authSvc *auth.Service, proxySvc *proxy.Service
 	// /validate is a token-validity probe used by clients (not the dashboard), so it stays mounted in both modes.
 	adminAuthed := engine.Group("", middleware.WithTimeout(validateTimeout), middleware.WithAuth(authSvc, byokRequiresOptIn))
 	adminAuthed.GET("/validate", admin.ValidateHandler)
-	if authSvc != nil {
-		subscriptionGroup := engine.Group("", middleware.WithTimeout(adminTimeout), middleware.WithAuth(authSvc, byokRequiresOptIn))
+	if authSvc.SubscriptionAccountsEnabled() {
+		subscriptionGroup := engine.Group("/v1", middleware.WithTimeout(adminTimeout), middleware.WithAuth(authSvc, byokRequiresOptIn))
 		subscriptionsapi.Register(subscriptionGroup, authSvc)
 	}
 

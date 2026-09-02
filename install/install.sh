@@ -128,6 +128,8 @@ target_explicit="false"
 # admin API; it touches no local config at all.
 mode="install"
 disable_routing_alias="false"
+setup_claude="false"
+setup_codex="false"
 
 # `models` sub-verb plus its operands (model / provider ids), newline-delimited
 # in argument order. Catalog ids and provider names never contain whitespace,
@@ -1116,7 +1118,7 @@ while [ $# -gt 0 ]; do
       ;;
     --codex)
       target="codex"; target_explicit="true"; shift
-      [ "${mode:-install}" = "setup" ] && setup_codex="true"
+      setup_codex="true"
       ;;
     --opencode)
       target="opencode"; target_explicit="true"; shift
@@ -1133,7 +1135,7 @@ while [ $# -gt 0 ]; do
       # pipelines that want to skip the interactive picker without depending
       # on the default.
       target="claude"; target_explicit="true"; shift
-      [ "${mode:-install}" = "setup" ] && setup_claude="true"
+      setup_claude="true"
       ;;
     off|--off|on|--on|status|--status)
       # Toggle/report verbs. Bare (off) or dashed (--off) both accepted; the
@@ -1186,18 +1188,21 @@ while [ $# -gt 0 ]; do
 done
 
 if [ "$mode" = "setup" ]; then
-  if [ "${setup_claude:-false}" != "true" ] && [ "${setup_codex:-false}" != "true" ]; then
+  if [ "$setup_claude" != "true" ] && [ "$setup_codex" != "true" ]; then
     setup_claude="true"
     setup_codex="true"
   fi
-  setup_args=(--non-interactive)
-  [ "$scope_explicit" = "true" ] && setup_args+=(--scope "$scope")
+  # Keep the array non-empty for Bash 3.2 under set -u. Passing the default
+  # scope explicitly is behaviorally equivalent and lets first-time setup
+  # remain interactive unless the caller requested otherwise.
+  setup_args=(--scope "$scope")
+  [ "$non_interactive" = "true" ] && setup_args+=(--non-interactive)
   [ "$base_url_explicit" = "true" ] && setup_args+=(--base-url "$base_url")
   [ -n "$install_dir" ] && setup_args+=(--dir "$install_dir")
   [ "$quiet" = "true" ] && setup_args+=(--quiet)
   [ "$rotate_key" = "true" ] && setup_args+=(--rotate-key)
-  [ "${setup_claude:-false}" = "true" ] && bash "$0" "${setup_args[@]}" --claude
-  [ "${setup_codex:-false}" = "true" ] && bash "$0" "${setup_args[@]}" --codex
+  [ "$setup_claude" = "true" ] && bash "$0" "${setup_args[@]}" --claude
+  [ "$setup_codex" = "true" ] && bash "$0" "${setup_args[@]}" --codex
   exit 0
 fi
 

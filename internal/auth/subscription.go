@@ -50,6 +50,13 @@ type SubscriptionAccountRepository interface {
 // authenticated key owner.
 var ErrSubscriptionAccountNotFound = errors.New("subscription account not found")
 
+// SubscriptionAccountsEnabled reports whether this deployment wired the
+// optional account repository. Callers use it to leave management routes
+// unmounted while the rollout flag is disabled.
+func (s *Service) SubscriptionAccountsEnabled() bool {
+	return s != nil && s.subscriptionAccounts != nil
+}
+
 // AddSubscriptionAccount encrypts and persists a refresh token. The raw token
 // is never returned by this method.
 func (s *Service) AddSubscriptionAccount(ctx context.Context, params CreateSubscriptionAccountParams) (*SubscriptionAccount, error) {

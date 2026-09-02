@@ -1,3 +1,5 @@
+BEGIN;
+
 CREATE TABLE router.model_router_subscription_accounts (
   id                    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   api_key_id             UUID NOT NULL REFERENCES router.model_router_api_keys(id) ON DELETE CASCADE,
@@ -14,3 +16,5 @@ CREATE TABLE router.model_router_subscription_accounts (
 
 CREATE INDEX model_router_subscription_accounts_api_key_idx
   ON router.model_router_subscription_accounts(api_key_id, provider);
+
+COMMIT;

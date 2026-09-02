@@ -92,8 +92,12 @@ func (p *Pool) Upsert(account Account) error {
 	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if existing, ok := p.accounts[account.ID]; ok && (existing.account.Provider != account.Provider || existing.account.OwnerID != account.OwnerID) {
-		return ErrProviderMismatch
+	if existing, ok := p.accounts[account.ID]; ok {
+		if existing.account.Provider != account.Provider || existing.account.OwnerID != account.OwnerID {
+			return ErrProviderMismatch
+		}
+		existing.account = account
+		return nil
 	}
 	p.accounts[account.ID] = &accountState{account: account}
 	return nil
@@ -160,6 +164,9 @@ func (p *Pool) Lease(ctx context.Context, provider Provider, sessionID string, r
 			return refreshed, release, nil
 		}
 		release()
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return Account{}, nil, err
+		}
 		p.Cooldown(account.ID, p.clock().Add(time.Minute))
 	}
 	return Account{}, nil, ErrNoAvailableAccount

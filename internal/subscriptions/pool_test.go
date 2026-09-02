@@ -50,6 +50,60 @@ func TestPoolRefreshesOnceForConcurrentLeases(t *testing.T) {
 	require.Equal(t, int32(1), refreshes.Load())
 }
 
+func TestPoolUpsertPreservesInflightLeaseCount(t *testing.T) {
+	p := subscriptions.NewPool("user-a", subscriptions.ProviderClaude, nil)
+	account := subscriptions.Account{ID: "a", OwnerID: "user-a", Provider: subscriptions.ProviderClaude, AccessToken: "old", Enabled: true}
+	require.NoError(t, p.Upsert(account))
+	require.NoError(t, p.Upsert(subscriptions.Account{ID: "b", OwnerID: "user-a", Provider: subscriptions.ProviderClaude, AccessToken: "backup", Enabled: true}))
+
+	_, releaseFirst, err := p.Lease(context.Background(), subscriptions.ProviderClaude, "", nil)
+	require.NoError(t, err)
+	account.AccessToken = "new"
+	require.NoError(t, p.Upsert(account))
+
+	second, releaseSecond, err := p.Lease(context.Background(), subscriptions.ProviderClaude, "", nil)
+	require.NoError(t, err)
+	require.Equal(t, "b", second.ID)
+	releaseFirst()
+	releaseSecond()
+}
+
+func TestPoolCanceledRefreshWaiterDoesNotCooldownAccount(t *testing.T) {
+	now := time.Date(2026, 9, 2, 12, 0, 0, 0, time.UTC)
+	p := subscriptions.NewPool("user-a", subscriptions.ProviderClaude, func() time.Time { return now })
+	require.NoError(t, p.Upsert(subscriptions.Account{ID: "claude", OwnerID: "user-a", Provider: subscriptions.ProviderClaude, Enabled: true}))
+	refreshStarted := make(chan struct{})
+	allowRefresh := make(chan struct{})
+	refresh := func(_ context.Context, account subscriptions.Account) (subscriptions.Account, error) {
+		close(refreshStarted)
+		<-allowRefresh
+		account.AccessToken = "fresh"
+		return account, nil
+	}
+
+	firstDone := make(chan error, 1)
+	go func() {
+		_, release, err := p.Lease(context.Background(), subscriptions.ProviderClaude, "", refresh)
+		if release != nil {
+			release()
+		}
+		firstDone <- err
+	}()
+	<-refreshStarted
+
+	waiterCtx, cancelWaiter := context.WithCancel(context.Background())
+	cancelWaiter()
+	_, _, err := p.Lease(waiterCtx, subscriptions.ProviderClaude, "", refresh)
+	require.ErrorIs(t, err, context.Canceled)
+	close(allowRefresh)
+	require.NoError(t, <-firstDone)
+
+	account, release, err := p.Lease(context.Background(), subscriptions.ProviderClaude, "", nil)
+	require.NoError(t, err)
+	require.Equal(t, "fresh", account.AccessToken)
+	release()
+}
+
 func TestPoolDisableAndRemove(t *testing.T) {
 	p := subscriptions.NewPool("user-a", subscriptions.ProviderClaude, nil)
 	require.NoError(t, p.Upsert(subscriptions.Account{ID: "claude", OwnerID: "user-a", Provider: subscriptions.ProviderClaude, Enabled: true, AccessToken: "secret"}))
