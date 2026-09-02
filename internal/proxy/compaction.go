@@ -294,7 +294,11 @@ func (s *Service) maybeCompact(ctx context.Context, env *translate.RequestEnvelo
 		res.ToolResultsCleared = n
 		log.Info("Compaction Tier-1: cleared old tool results", "cleared", n, "needed_after", needed())
 	}
-	if fits() {
+	// Tier-1 alone is enough only if it brought the request back under the
+	// trigger; merely fitting the window is not — the point of triggering
+	// below the window is to summarize while a summarizer can still ingest
+	// the history.
+	if needed() < trigger {
 		res.FinalEstimate = needed()
 		return res, nil
 	}

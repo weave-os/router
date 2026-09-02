@@ -325,3 +325,22 @@ func TestClassifyDispatchError_ContextWindowExceeded(t *testing.T) {
 	assert.Equal(t, DispatchErrorContextWindowExceeded, cls.Kind)
 	assert.True(t, cls.Kind.IsClientError())
 }
+
+func TestMaybeCompact_Tier3RunsAboveTriggerEvenWhenFitting(t *testing.T) {
+	// A history over the trigger but still under the window must be
+	// summarized now — waiting until it overflows means no summarizer can
+	// ingest it any more (Tier-3 was unreachable against a 1M pool).
+	fake := &fakeCompactionSummarizer{summary: "SUMMARY"}
+	s := &Service{compactionTriggerPct: DefaultCompactionTriggerPct, compactionSummarizer: fake}
+	env, err := translate.ParseAnthropic(alternatingAnthropicBody(20, 200))
+	require.NoError(t, err)
+	before := env.ContextOverflowTokenEstimate()
+
+	res, err := s.maybeCompact(context.Background(), env, compactionInput{
+		TurnType: turntype.MainLoop, MaxWindow: before + before/10, ClientApp: ClientAppCodex, Headers: http.Header{},
+	})
+	require.NoError(t, err)
+	assert.True(t, res.Summarized, "over trigger, under window → summarize")
+	assert.Equal(t, 1, fake.calls)
+	assert.Zero(t, res.TrimmedToRecent, "fitting request must not be rescue-trimmed")
+}
