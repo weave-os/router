@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -8,6 +9,7 @@ import (
 
 	"workweave/router/internal/providers"
 	"workweave/router/internal/router/catalog"
+	"workweave/router/internal/router/turntype"
 	"workweave/router/internal/translate"
 )
 
@@ -20,6 +22,33 @@ var (
 
 func testReceiptPricing(actual catalog.Pricing, provider string) *codexReceiptPricing {
 	return &codexReceiptPricing{actualPricing: actual, provider: provider, hasActualPricing: true}
+}
+
+func TestCodexReceiptPricingTracksActualBinding(t *testing.T) {
+	require.NotEmpty(t, catalog.Models)
+	model := catalog.Models[0]
+	require.NotEmpty(t, model.Providers)
+	binding := model.Providers[0]
+
+	pricing := &codexReceiptPricing{}
+	pricing.setActual(binding.Provider, model.ID)
+	assert.True(t, pricing.hasActualPricing)
+	assert.Equal(t, binding.Provider, pricing.provider)
+	assert.Equal(t, binding.Price, pricing.actualPricing)
+
+	pricing.setActual(binding.Provider, model.ID+"-missing")
+	assert.False(t, pricing.hasActualPricing)
+}
+
+func TestCodexReceiptTurnGating(t *testing.T) {
+	ctx := context.Background()
+	assert.True(t, codexReceiptTurn(ctx, ClientAppCodex, turntype.MainLoop))
+	assert.True(t, codexReceiptTurn(ctx, ClientAppCodex, turntype.ToolResult))
+	assert.False(t, codexReceiptTurn(ctx, ClientAppCodex, turntype.SubAgentDispatch))
+	assert.False(t, codexReceiptTurn(ctx, ClientAppClaudeCode, turntype.MainLoop))
+
+	hiddenCtx := context.WithValue(ctx, InstallationHideTerminalSurfacesContextKey{}, true)
+	assert.False(t, codexReceiptTurn(hiddenCtx, ClientAppCodex, turntype.MainLoop))
 }
 
 func TestCodexReceiptReportsTokensAndSavings(t *testing.T) {

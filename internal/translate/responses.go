@@ -630,10 +630,12 @@ type ResponsesWriter struct {
 	nativeSequenceShift         int64
 	footerText                  string
 	receiptFn                   func(ResponsesReceiptUsage) string
+	receiptValue                string
+	receiptResolved             bool
 	footerEmitted               bool
 	sawToolCall                 bool
 	nativeHeldEvents            [][]byte
-	nativeFooterCommit          bool
+	nativeTerminalTextCommit    bool
 	textItem                    *responsesTextItem
 	toolItems                   map[int]*responsesToolItem
 	finishReason                string
@@ -765,6 +767,10 @@ func (t *ResponsesWriter) SetReceiptFunc(fn func(ResponsesReceiptUsage) string) 
 // receiptText renders the receipt for a completed turn, or "" when there is
 // nothing trustworthy to show.
 func (t *ResponsesWriter) receiptText() string {
+	if t.receiptResolved {
+		return t.receiptValue
+	}
+	t.receiptResolved = true
 	if t.receiptFn == nil {
 		return ""
 	}
@@ -775,7 +781,8 @@ func (t *ResponsesWriter) receiptText() string {
 		usage.OutputTokens = t.usage.completion
 		usage.CacheReadTokens = t.usage.cachedPrompt
 	}
-	return t.receiptFn(usage)
+	t.receiptValue = t.receiptFn(usage)
+	return t.receiptValue
 }
 
 func (t *ResponsesWriter) Header() http.Header { return t.inner.Header() }
@@ -1001,7 +1008,21 @@ func (t *ResponsesWriter) Finalize() error {
 		return err
 	}
 
-	translated, err := chatCompletionToResponse(body, t.responseID, t.model, t.createdAt, t.toolMappings, t.computeBadgeText(), t.footerText)
+	root := gjson.ParseBytes(body)
+	if usage := root.Get("usage"); usage.Exists() {
+		t.usage = &responsesUsage{
+			prompt:       usage.Get("prompt_tokens").Int(),
+			completion:   usage.Get("completion_tokens").Int(),
+			total:        usage.Get("total_tokens").Int(),
+			cachedPrompt: usage.Get("prompt_tokens_details.cached_tokens").Int(),
+		}
+	}
+	t.finishReason = root.Get("choices.0.finish_reason").Str
+	receipt := ""
+	if t.finishReason == "stop" {
+		receipt = t.receiptText()
+	}
+	translated, err := chatCompletionToResponse(body, t.responseID, t.model, t.createdAt, t.toolMappings, t.computeBadgeText(), t.footerText, receipt)
 	if err != nil {
 		t.inner.Header().Set("Content-Type", "application/json")
 		t.inner.WriteHeader(http.StatusBadGateway)
@@ -1151,18 +1172,25 @@ func (t *ResponsesWriter) prefixNativeBadge(data []byte, path string) ([]byte, b
 	return rewritten, true
 }
 
-func (t *ResponsesWriter) suffixNativeFooter(data []byte, path string) ([]byte, bool) {
-	if t.footerText == "" || t.sawToolCall {
+func (t *ResponsesWriter) suffixNativeTerminalText(data []byte, path string) ([]byte, bool) {
+	if t.sawToolCall || t.finishReason != "stop" {
 		return data, false
 	}
 	text := gjson.GetBytes(data, path)
 	if text.Type != gjson.String {
 		return data, false
 	}
-	if feedbackFooterPattern.MatchString(text.Str) {
+	suffix := ""
+	if t.footerText != "" && !feedbackFooterPattern.MatchString(text.Str) {
+		suffix += t.footerText
+	}
+	if receipt := t.receiptText(); receipt != "" && !routerReceiptPattern.MatchString(text.Str) {
+		suffix += receipt
+	}
+	if suffix == "" {
 		return data, false
 	}
-	rewritten, err := sjson.SetBytes(append([]byte(nil), data...), path, text.Str+t.footerText)
+	rewritten, err := sjson.SetBytes(append([]byte(nil), data...), path, text.Str+suffix)
 	if err != nil {
 		return data, false
 	}
@@ -1186,7 +1214,21 @@ func (t *ResponsesWriter) rewriteNativeResponsesPayload(data []byte) ([]byte, bo
 		return data, false
 	}
 	root := gjson.ParseBytes(data)
-	switch root.Get("type").Str {
+	eventType := root.Get("type").Str
+	if eventType == "response.completed" {
+		t.finishReason = "stop"
+		if usage := root.Get("response.usage"); usage.Exists() {
+			t.usage = &responsesUsage{
+				prompt:       usage.Get("input_tokens").Int(),
+				completion:   usage.Get("output_tokens").Int(),
+				total:        usage.Get("total_tokens").Int(),
+				cachedPrompt: usage.Get("input_tokens_details.cached_tokens").Int(),
+			}
+		}
+	} else if eventType == "response.incomplete" {
+		t.finishReason = "incomplete"
+	}
+	switch eventType {
 	case "response.content_part.added":
 		if root.Get("part.type").Str != "output_text" {
 			return data, false
@@ -1212,15 +1254,15 @@ func (t *ResponsesWriter) rewriteNativeResponsesPayload(data []byte) ([]byte, bo
 	case "response.output_text.done":
 		ref := nativeResponsesEventRef(root, "item_id")
 		if !t.observeNativeBadgeTarget(ref) || !t.nativeBadgeTargetMatches(ref, true) {
-			if t.nativeFooterCommit {
-				return t.suffixNativeFooter(data, "text")
+			if t.nativeTerminalTextCommit {
+				return t.suffixNativeTerminalText(data, "text")
 			}
 			return data, false
 		}
-		if t.nativeFooterCommit {
+		if t.nativeTerminalTextCommit {
 			return applyNativeRewrites(data,
 				func(d []byte) ([]byte, bool) { return t.prefixNativeBadge(d, "text") },
-				func(d []byte) ([]byte, bool) { return t.suffixNativeFooter(d, "text") },
+				func(d []byte) ([]byte, bool) { return t.suffixNativeTerminalText(d, "text") },
 			)
 		}
 		return t.prefixNativeBadge(data, "text")
@@ -1231,15 +1273,15 @@ func (t *ResponsesWriter) rewriteNativeResponsesPayload(data []byte) ([]byte, bo
 		}
 		ref := nativeResponsesEventRef(root, "item_id")
 		if !t.observeNativeBadgeTarget(ref) || !t.nativeBadgeTargetMatches(ref, true) {
-			if t.nativeFooterCommit {
-				return t.suffixNativeFooter(data, "part.text")
+			if t.nativeTerminalTextCommit {
+				return t.suffixNativeTerminalText(data, "part.text")
 			}
 			return data, false
 		}
-		if t.nativeFooterCommit {
+		if t.nativeTerminalTextCommit {
 			return applyNativeRewrites(data,
 				func(d []byte) ([]byte, bool) { return t.prefixNativeBadge(d, "part.text") },
-				func(d []byte) ([]byte, bool) { return t.suffixNativeFooter(d, "part.text") },
+				func(d []byte) ([]byte, bool) { return t.suffixNativeTerminalText(d, "part.text") },
 			)
 		}
 		return t.prefixNativeBadge(data, "part.text")
@@ -1260,16 +1302,16 @@ func (t *ResponsesWriter) rewriteNativeResponsesPayload(data []byte) ([]byte, bo
 		ref.contentIndex = int64(partIndex)
 		ref.hasContentIndex = true
 		if !t.observeNativeBadgeTarget(ref) || !t.nativeBadgeTargetMatches(ref, true) {
-			if t.nativeFooterCommit {
-				return t.suffixNativeFooter(data, "item.content."+strconv.Itoa(partIndex)+".text")
+			if t.nativeTerminalTextCommit {
+				return t.suffixNativeTerminalText(data, "item.content."+strconv.Itoa(partIndex)+".text")
 			}
 			return data, false
 		}
 		path := "item.content." + strconv.Itoa(partIndex) + ".text"
-		if t.nativeFooterCommit {
+		if t.nativeTerminalTextCommit {
 			return applyNativeRewrites(data,
 				func(d []byte) ([]byte, bool) { return t.prefixNativeBadge(d, path) },
-				func(d []byte) ([]byte, bool) { return t.suffixNativeFooter(d, path) },
+				func(d []byte) ([]byte, bool) { return t.suffixNativeTerminalText(d, path) },
 			)
 		}
 		return t.prefixNativeBadge(data, path)
@@ -1296,7 +1338,7 @@ func (t *ResponsesWriter) rewriteNativeResponsesPayload(data []byte) ([]byte, bo
 					continue
 				}
 				footerPath := "response.output." + strconv.Itoa(outputIndex) + ".content." + strconv.Itoa(textPart) + ".text"
-				if rewritten, changed := t.suffixNativeFooter(data, footerPath); changed {
+				if rewritten, changed := t.suffixNativeTerminalText(data, footerPath); changed {
 					return rewritten, true
 				}
 				continue
@@ -1313,7 +1355,7 @@ func (t *ResponsesWriter) rewriteNativeResponsesPayload(data []byte) ([]byte, bo
 			}
 			return applyNativeRewrites(data,
 				func(d []byte) ([]byte, bool) { return t.prefixNativeBadge(d, path) },
-				func(d []byte) ([]byte, bool) { return t.suffixNativeFooter(d, path) },
+				func(d []byte) ([]byte, bool) { return t.suffixNativeTerminalText(d, path) },
 			)
 		}
 	}
@@ -1377,9 +1419,27 @@ func (t *ResponsesWriter) rewriteNativeNonStreamingBody(data []byte) ([]byte, bo
 		return data, false
 	}
 	root := gjson.ParseBytes(data)
+	if root.Get("status").Str == "completed" {
+		t.finishReason = "stop"
+	} else {
+		t.finishReason = root.Get("status").Str
+	}
+	if usage := root.Get("usage"); usage.Exists() {
+		t.usage = &responsesUsage{
+			prompt:       usage.Get("input_tokens").Int(),
+			completion:   usage.Get("output_tokens").Int(),
+			total:        usage.Get("total_tokens").Int(),
+			cachedPrompt: usage.Get("input_tokens_details.cached_tokens").Int(),
+		}
+	}
 	output := root.Get("output")
-	if !output.IsArray() || t.computeBadgeText() == "" {
+	if !output.IsArray() {
 		return data, false
+	}
+	for _, item := range output.Array() {
+		if itemType := item.Get("type").Str; itemType == "function_call" || itemType == "custom_tool_call" {
+			t.sawToolCall = true
+		}
 	}
 	for index, item := range output.Array() {
 		if !nativeResponsesAssistantMessage(item) {
@@ -1390,7 +1450,13 @@ func (t *ResponsesWriter) rewriteNativeNonStreamingBody(data []byte) ([]byte, bo
 			continue
 		}
 		path := "output." + strconv.Itoa(index) + ".content." + strconv.Itoa(partIndex) + ".text"
-		return t.prefixNativeBadge(data, path)
+		return applyNativeRewrites(data,
+			func(d []byte) ([]byte, bool) { return t.prefixNativeBadge(d, path) },
+			func(d []byte) ([]byte, bool) { return t.suffixNativeTerminalText(d, path) },
+		)
+	}
+	if t.computeBadgeText() == "" {
+		return data, false
 	}
 	for _, item := range output.Array() {
 		if item.Get("id").Str != "" && codexResponsesBadgePattern.MatchString(item.Get("content.0.text").Str) {
@@ -1571,7 +1637,7 @@ func (t *ResponsesWriter) writeNativeResponsesEvent(event, delimiter []byte) err
 		return nil
 	}
 	if eventType == "response.completed" || eventType == "response.incomplete" {
-		if err := t.flushNativeHeldEvents(true); err != nil {
+		if err := t.flushNativeHeldEvents(eventType == "response.completed"); err != nil {
 			return err
 		}
 	}
@@ -1586,7 +1652,7 @@ func (t *ResponsesWriter) writeNativeResponsesEvent(event, delimiter []byte) err
 }
 
 func (t *ResponsesWriter) shouldHoldNativeEvent(eventType, itemType string) bool {
-	if t.footerText == "" || t.sawToolCall {
+	if (t.footerText == "" && t.receiptFn == nil) || t.sawToolCall {
 		return false
 	}
 	switch eventType {
@@ -1598,12 +1664,12 @@ func (t *ResponsesWriter) shouldHoldNativeEvent(eventType, itemType string) bool
 	return false
 }
 
-func (t *ResponsesWriter) flushNativeHeldEvents(commitFooter bool) error {
+func (t *ResponsesWriter) flushNativeHeldEvents(commitTerminalText bool) error {
 	if len(t.nativeHeldEvents) == 0 {
 		return nil
 	}
-	if commitFooter {
-		t.nativeFooterCommit = true
+	if commitTerminalText {
+		t.nativeTerminalTextCommit = true
 	}
 	held := t.nativeHeldEvents
 	t.nativeHeldEvents = nil
@@ -1639,7 +1705,8 @@ func (t *ResponsesWriter) processFinalPassthroughSSETail() error {
 			return err
 		}
 	}
-	return t.flushNativeHeldEvents(t.footerText != "" && !t.sawToolCall)
+	commitTerminalText := t.finishReason == "stop" && (t.footerText != "" || t.receiptFn != nil) && !t.sawToolCall
+	return t.flushNativeHeldEvents(commitTerminalText)
 }
 
 // FinalizeError emits a response.failed terminal event when upstream fails
@@ -1754,6 +1821,11 @@ func (t *ResponsesWriter) translateChunk(raw []byte) error {
 
 	if fr := choice.Get("finish_reason"); fr.Type == gjson.String && fr.Str != "" {
 		t.finishReason = fr.Str
+		// Usage may arrive in a later include_usage chunk with no choices.
+		// Keep the item open until [DONE] so the receipt sees it.
+		if fr.Str == "stop" && t.receiptFn != nil && !t.sawToolCall {
+			return nil
+		}
 		// Reasoning-only turns emit no delta this writer translates, so the
 		// badge would never be reached through appendText/appendToolCall.
 		if err := t.ensureBadgeItem(); err != nil {
@@ -2320,7 +2392,7 @@ func (t *ResponsesWriter) assembleOutput() []any {
 // stream:false; Codex always streams, but other clients may not. A non-empty
 // badge leads the assistant text, synthesizing the message item when the turn
 // produced only tool calls.
-func chatCompletionToResponse(body []byte, responseID, model string, createdAt int64, mappings map[string]ResponsesToolMapping, badge, footer string) ([]byte, error) {
+func chatCompletionToResponse(body []byte, responseID, model string, createdAt int64, mappings map[string]ResponsesToolMapping, badge, footer, receipt string) ([]byte, error) {
 	if !gjson.ValidBytes(body) {
 		return nil, fmt.Errorf("invalid JSON")
 	}
@@ -2343,8 +2415,13 @@ func chatCompletionToResponse(body []byte, responseID, model string, createdAt i
 	if content := choice.Get("content"); content.Type == gjson.String {
 		text += content.Str
 	}
-	if footer != "" && choice.Get("tool_calls.#").Int() == 0 && !feedbackFooterPattern.MatchString(text) {
-		text += footer
+	if choice.Get("tool_calls.#").Int() == 0 {
+		if footer != "" && !feedbackFooterPattern.MatchString(text) {
+			text += footer
+		}
+		if receipt != "" && !routerReceiptPattern.MatchString(text) {
+			text += receipt
+		}
 	}
 	if text != "" {
 		output = append(output, map[string]any{

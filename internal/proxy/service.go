@@ -5896,12 +5896,9 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 
 	// Previously gated on policy debug; ordinary Codex turns fell through to
 	// ResponsesWriter's legacy badge that ignored suppression and never showed the routing reason.
-	receiptPricing := &codexReceiptPricing{
-		actualPricing: actPricing,
-		provider:      decision.Provider,
-	}
+	receiptPricing := &codexReceiptPricing{}
 	verbatimPassthrough := responsesPassthrough && decision.Provider == providers.ProviderOpenAI
-	receiptEnabled := codexReceiptTurn(clientID.ClientApp, routeRes.TurnType)
+	receiptEnabled := codexReceiptTurn(ctx, clientID.ClientApp, routeRes.TurnType)
 	if rw, ok := w.(*translate.ResponsesWriter); ok {
 		if marker != "" && !verbatimPassthrough {
 			rw.SetBadgeText(marker)
@@ -6014,12 +6011,6 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		// Split from attempt so a native dispatch that finds no Responses surface
 		// can re-emit onto chat/completions while still pre-commit.
 		dispatchOpenAI := func(actx context.Context, d router.Decision, p providers.Client, surface openAISurface, stripPromptCacheKey bool) error {
-			if pricing, ok := catalog.PriceFor(d.Provider, d.Model); ok {
-				receiptPricing.actualPricing = pricing
-				receiptPricing.hasActualPricing = true
-			}
-			receiptPricing.provider = d.Provider
-
 			var prep providers.PreparedRequest
 			switch surface {
 			case surfaceResponsesNative:
@@ -6231,6 +6222,12 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		}
 	default:
 		return fmt.Errorf("%w: %s (no translation path defined)", ErrProviderNotConfigured, decision.Provider)
+	}
+
+	providerAttempt := attempt
+	attempt = func(actx context.Context, d router.Decision, p providers.Client) error {
+		receiptPricing.setActual(d.Provider, d.Model)
+		return providerAttempt(actx, d, p)
 	}
 
 	primaryProvider := decision.Provider

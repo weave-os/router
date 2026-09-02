@@ -1148,7 +1148,8 @@ func TestResponsesWriter_AppendsReceiptWithUpstreamUsage(t *testing.T) {
 	w.WriteHeader(200)
 	for _, c := range []string{
 		`data: {"choices":[{"index":0,"delta":{"content":"Hello"},"finish_reason":null}]}` + "\n\n",
-		`data: {"choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":1234,"completion_tokens":34}}` + "\n\n",
+		`data: {"choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}` + "\n\n",
+		`data: {"choices":[],"usage":{"prompt_tokens":1234,"completion_tokens":34}}` + "\n\n",
 		"data: [DONE]\n\n",
 	} {
 		_, err := w.Write([]byte(c))
@@ -1173,6 +1174,82 @@ func TestResponsesWriter_AppendsReceiptWithUpstreamUsage(t *testing.T) {
 	}
 	require.GreaterOrEqual(t, len(deltas), 2)
 	assert.Equal(t, "\n\n↳ Weave Router · 1.2k in / 34 out", deltas[len(deltas)-1])
+}
+
+func TestResponsesWriter_BufferedResponseAppendsReceipt(t *testing.T) {
+	rec := httptest.NewRecorder()
+	w := translate.NewResponsesWriter(rec, "gpt-5.5")
+	w.SetReceiptFunc(func(usage translate.ResponsesReceiptUsage) string {
+		assert.Equal(t, int64(1234), usage.InputTokens)
+		assert.Equal(t, int64(34), usage.OutputTokens)
+		return "\n\n↳ Weave Router · 1.2k in / 34 out"
+	})
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"Hello"},"finish_reason":"stop"}],"usage":{"prompt_tokens":1234,"completion_tokens":34,"total_tokens":1268}}`))
+	require.NoError(t, err)
+	require.NoError(t, w.Finalize())
+
+	assert.Equal(t, "Hello\n\n↳ Weave Router · 1.2k in / 34 out", gjson.GetBytes(rec.Body.Bytes(), "output.0.content.0.text").Str)
+}
+
+func TestResponsesWriter_NativeStreamAppendsReceipt(t *testing.T) {
+	const receipt = "\n\n↳ Weave Router · 1.2k in / 34 out"
+	payloads := []string{
+		`{"type":"response.output_text.delta","item_id":"msg_native","output_index":0,"content_index":0,"delta":"ok"}`,
+		`{"type":"response.output_text.done","item_id":"msg_native","output_index":0,"content_index":0,"text":"ok"}`,
+		`{"type":"response.completed","response":{"id":"resp_native","status":"completed","output":[{"id":"msg_native","type":"message","role":"assistant","content":[{"type":"output_text","text":"ok"}]}],"usage":{"input_tokens":1234,"output_tokens":34,"total_tokens":1268,"input_tokens_details":{"cached_tokens":1000}}}}`,
+	}
+	var native strings.Builder
+	for _, payload := range payloads {
+		native.WriteString("event: " + gjson.Get(payload, "type").Str + "\n")
+		native.WriteString("data: " + payload + "\n\n")
+	}
+
+	rec := httptest.NewRecorder()
+	w := translate.NewResponsesWriter(rec, "gpt-5.6-sol")
+	var got translate.ResponsesReceiptUsage
+	rendererCalls := 0
+	w.SetReceiptFunc(func(usage translate.ResponsesReceiptUsage) string {
+		rendererCalls++
+		got = usage
+		return receipt
+	})
+	w.SetPassthroughBadge()
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.WriteHeader(200)
+	_, err := w.Write([]byte(native.String()))
+	require.NoError(t, err)
+	require.NoError(t, w.Finalize())
+
+	assert.Equal(t, translate.ResponsesReceiptUsage{
+		InputTokens: 1234, OutputTokens: 34, CacheReadTokens: 1000, HasUsage: true,
+	}, got)
+	assert.Equal(t, 1, rendererCalls)
+	events := parseSSEEvents(t, rec.Body.Bytes())
+	require.Len(t, events, 3)
+	assert.Equal(t, "ok"+receipt, events[1]["text"])
+	output := events[2]["response"].(map[string]any)["output"].([]any)
+	assert.Equal(t, "ok"+receipt, output[0].(map[string]any)["content"].([]any)[0].(map[string]any)["text"])
+}
+
+func TestResponsesWriter_NativeBufferedResponseAppendsReceipt(t *testing.T) {
+	const receipt = "\n\n↳ Weave Router · 1.2k in / 34 out"
+	rec := httptest.NewRecorder()
+	w := translate.NewResponsesWriter(rec, "gpt-5.6-sol")
+	w.SetReceiptFunc(func(usage translate.ResponsesReceiptUsage) string {
+		assert.Equal(t, int64(1234), usage.InputTokens)
+		assert.Equal(t, int64(34), usage.OutputTokens)
+		return receipt
+	})
+	w.SetPassthroughBadge()
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := w.Write([]byte(`{"id":"resp_native","status":"completed","output":[{"id":"msg_native","type":"message","role":"assistant","content":[{"type":"output_text","text":"ok"}]}],"usage":{"input_tokens":1234,"output_tokens":34,"total_tokens":1268}}`))
+	require.NoError(t, err)
+	require.NoError(t, w.Finalize())
+
+	assert.Equal(t, "ok"+receipt, gjson.GetBytes(rec.Body.Bytes(), "output.0.content.0.text").Str)
 }
 
 func TestResponsesWriter_ReceiptSkippedOnToolCall(t *testing.T) {

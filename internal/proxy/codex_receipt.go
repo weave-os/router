@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
@@ -20,7 +21,15 @@ type codexReceiptPricing struct {
 	hasActualPricing bool
 }
 
-func codexReceiptTurn(clientApp string, tt turntype.TurnType) bool {
+func (p *codexReceiptPricing) setActual(provider, model string) {
+	p.provider = provider
+	p.actualPricing, p.hasActualPricing = catalog.PriceFor(provider, model)
+}
+
+func codexReceiptTurn(ctx context.Context, clientApp string, tt turntype.TurnType) bool {
+	if hideTerminalSurfacesForRequest(ctx) {
+		return false
+	}
 	return clientApp == ClientAppCodex && (tt == turntype.MainLoop || tt == turntype.ToolResult)
 }
 
