@@ -1161,6 +1161,9 @@ while [ $# -gt 0 ]; do
       # instead of only after every operand has been consumed.
       mode="models"; shift
       ;;
+    accounts|--accounts)
+      mode="accounts"; shift
+      ;;
     --json)
       models_json="true"; shift
       ;;
@@ -1173,7 +1176,7 @@ while [ $# -gt 0 ]; do
       # between them (`models --claude enable x` and `models enable x --claude`
       # both work). A dashed token nothing above matched is still an error,
       # models mode or not.
-      if [ "$mode" = "models" ] && [ "${1#-}" = "$1" ]; then
+      if { [ "$mode" = "models" ] || [ "$mode" = "accounts" ]; } && [ "${1#-}" = "$1" ]; then
         models_args="${models_args}${models_args:+$'\n'}$1"; shift
       else
         err "Unknown flag: $1."; usage 2
@@ -2621,7 +2624,40 @@ run_models() {
   esac
 }
 
-if [ "$mode" = "models" ]; then
+run_accounts() {
+  local verb operands id
+  verb="$(printf '%s' "$models_args" | head -n 1)"
+  operands="$(printf '%s' "$models_args" | tail -n +2)"
+  case "$verb" in
+    ""|list)
+      [ -z "$operands" ] || { err "'accounts list' takes no arguments."; exit 2; }
+      models_api GET "/v1/subscriptions/accounts" || models_fail "listing subscription accounts"
+      if [ "$models_json" = "true" ]; then
+        printf '%s\n' "$models_http_body"
+      else
+        printf '%s\n' "$models_http_body" | jq -r '.[] | "\(.id)\t\(.provider)\t\(.external_account_id)\t\(if .enabled then "enabled" else "disabled" end)"'
+      fi
+      ;;
+    disable|remove)
+      [ -n "$operands" ] || { err "'accounts $verb' needs at least one account id."; exit 2; }
+      while IFS= read -r id; do
+        [ -n "$id" ] || continue
+        if [ "$verb" = "disable" ]; then
+          models_api PATCH "/v1/subscriptions/accounts/$id" '{"enabled":false}' || models_fail "disabling account '$id'"
+        else
+          models_api DELETE "/v1/subscriptions/accounts/$id" || models_fail "removing account '$id'"
+        fi
+        printf '%s\n' "Account $id $verb'd."
+      done <<<"$operands"
+      ;;
+    *)
+      err "Unknown accounts sub-command: '$verb'."
+      exit 2
+      ;;
+  esac
+}
+
+if [ "$mode" = "models" ] || [ "$mode" = "accounts" ]; then
   # Which file supplied the endpoint / the key. Empty means "not from a settings
   # file" — an explicit --base-url, or WEAVE_ROUTER_KEY. Initialized before the
   # branches below so `set -u` holds on every path.
@@ -2696,7 +2732,11 @@ if [ "$mode" = "models" ]; then
       "$C_DIM" "$C_RESET" >&2
     exit 1
   fi
-  run_models
+  if [ "$mode" = "accounts" ]; then
+    run_accounts
+  else
+    run_models
+  fi
   exit 0
 fi
 
