@@ -58,14 +58,20 @@ var forceModelAliases = map[string]string{
 	"claude-5":    "claude-opus-5",
 	// Opus 4.8 is retired from routing but still servable as passthrough;
 	// keep its own-name aliases so direct pins resolve.
-	"opus-4-8":      "claude-opus-4-8",
-	"opus-4.8":      "claude-opus-4-8",
-	"claude-4-8":    "claude-opus-4-8",
-	"claude-4.8":    "claude-opus-4-8",
-	"fable":         "claude-fable-5",
+	"opus-4-8":   "claude-opus-4-8",
+	"opus-4.8":   "claude-opus-4-8",
+	"claude-4-8": "claude-opus-4-8",
+	"claude-4.8": "claude-opus-4-8",
+	// Fable family aliases follow 5.1; Fable 5's own-name aliases keep
+	// resolving so existing direct pins still serve.
+	"fable":         "claude-fable-5-1",
+	"claude-fable":  "claude-fable-5-1",
+	"fable-5.1":     "claude-fable-5-1",
+	"fable-5-1":     "claude-fable-5-1",
+	"fable5.1":      "claude-fable-5-1",
+	"fable51":       "claude-fable-5-1",
 	"fable-5":       "claude-fable-5",
 	"fable5":        "claude-fable-5",
-	"claude-fable":  "claude-fable-5",
 	"sonnet":        "claude-sonnet-5",
 	"claude-sonnet": "claude-sonnet-5",
 	"sonnet-5":      "claude-sonnet-5",

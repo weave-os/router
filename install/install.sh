@@ -887,6 +887,7 @@ write_pi_models_config() {
       authHeader: false,
       headers: $headers,
       models: [
+        { id: "claude-fable-5-1",  name: "Claude Fable 5.1 (via Weave Router)",  reasoning: true, input: ["text","image"], contextWindow: 1000000, maxTokens: 128000 },
         { id: "claude-fable-5",    name: "Claude Fable 5 (via Weave Router)",    reasoning: true, input: ["text","image"], contextWindow: 1000000, maxTokens: 128000 },
         { id: "claude-opus-5",     name: "Claude Opus 5 (via Weave Router)",     reasoning: true, input: ["text","image"], contextWindow: 1000000, maxTokens: 128000 },
         { id: "claude-opus-4-7",   name: "Claude Opus 4.7 (via Weave Router)",   reasoning: true, input: ["text","image"], contextWindow: 1000000, maxTokens: 64000 },
@@ -4101,6 +4102,7 @@ normalize_model() {
 prices='{
   "input": {
     "claude-fable-5":                   0.01,
+    "claude-fable-5-1":                 0.01,
     "claude-haiku-4-5":                 0.001,
     "claude-opus-4-0":                  0.015,
     "claude-opus-4-1":                  0.015,
@@ -4178,6 +4180,7 @@ prices='{
   },
   "output": {
     "claude-fable-5":                   0.05,
+    "claude-fable-5-1":                 0.05,
     "claude-haiku-4-5":                 0.005,
     "claude-opus-4-0":                  0.075,
     "claude-opus-4-1":                  0.075,
@@ -4255,6 +4258,7 @@ prices='{
   },
   "cache_read": {
     "claude-fable-5":                   0.1,
+    "claude-fable-5-1":                 0.025,
     "claude-haiku-4-5":                 0.1,
     "claude-opus-4-0":                  0.1,
     "claude-opus-4-1":                  0.1,

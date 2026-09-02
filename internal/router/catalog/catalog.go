@@ -257,6 +257,12 @@ var Models = []Model{
 	{ID: "claude-fable-5", ContextWindow: 1_000_000, Providers: []ProviderBinding{
 		{Provider: providers.ProviderAnthropic, Price: Pricing{InputUSDPer1M: 10.00, OutputUSDPer1M: 50.00, CacheReadMultiplier: 0.10}},
 	}},
+	// Fable 5.1: same $10/$50 as Fable 5, cache reads at $0.25/MTok (0.025x).
+	// Native 1M context, adaptive thinking always on, stop_reason "refusal"
+	// like Fable 5. Not a cluster roster member until it has quality labels.
+	{ID: "claude-fable-5-1", Tier: TierHigh, ContextWindow: 1_000_000, Providers: []ProviderBinding{
+		{Provider: providers.ProviderAnthropic, Price: Pricing{InputUSDPer1M: 10.00, OutputUSDPer1M: 50.00, CacheReadMultiplier: 0.025}},
+	}},
 
 	// --- OpenAI GPT-4.x (legacy) ---
 	{ID: "gpt-4.1-nano", Tier: TierLow, ContextWindow: 1_047_576, Providers: []ProviderBinding{
