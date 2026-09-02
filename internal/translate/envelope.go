@@ -1311,8 +1311,8 @@ var modelMaxOutputTokens = map[string]int{
 	"gemini-3-flash-preview": 65536, "gemini-3.1-flash-lite-preview": 65536,
 	"gemini-3.1-flash-live-preview": 65536,
 	"gemini-3.5-flash-lite":         65536, "gemini-3.6-flash": 65536,
-	"gemini-3.7-flash": 65536,
-	"gemini-2.5-pro":   65536, "gemini-2.5-flash": 65536,
+	"gemini-3.7-flash": 65536, "gemini-3.8-flash": 65536,
+	"gemini-2.5-pro": 65536, "gemini-2.5-flash": 65536,
 	"gemini-2.5-flash-lite": 65536,
 	"gemini-2.0-flash":      8192, "gemini-2.0-flash-lite": 8192,
 	// Keyed by full catalog ID, since decision.Model keeps the vendor prefix.
@@ -1333,6 +1333,7 @@ var modelMaxOutputTokens = map[string]int{
 	"z-ai/glm-5.3":                     131072, // Both 5.3 arms document a 128K max output (docs.z.ai/guides/llm/glm-5.3)
 	"z-ai/glm-5.3-flash":               131072,
 	"google/gemini-3.7-flash":          65536,
+	"google/gemini-3.8-flash":          65536,
 }
 
 const defaultMaxOutputTokenCap = 8192
