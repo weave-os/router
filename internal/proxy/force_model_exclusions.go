@@ -40,7 +40,7 @@ func (s *Service) forcedModelBinding(ctx context.Context, model, provider string
 	if !modelPermittedByAllowlist(ctx, model) {
 		return "", fmt.Sprintf("%s is not on this organization's allowed-model list", model)
 	}
-	if _, drop := s.excludedModelsForRequest(ctx)[model]; drop {
+	if _, drop := s.policyExcludedModels(ctx)[model]; drop {
 		return "", fmt.Sprintf("%s is excluded on this installation", model)
 	}
 	// Gateway-exclusive routing drops every vendor from the eligible set, so

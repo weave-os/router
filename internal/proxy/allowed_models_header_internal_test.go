@@ -3,12 +3,14 @@ package proxy
 import (
 	"context"
 	"testing"
+	"time"
 
 	"workweave/router/internal/providers"
 	"workweave/router/internal/router"
 	"workweave/router/internal/router/sessionpin"
 	"workweave/router/internal/translate"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -138,4 +140,58 @@ func TestReadmitForcedModel_NoSubsetIsNoOp(t *testing.T) {
 	req := router.Request{ExcludedModels: map[string]struct{}{testTerra: {}}}
 	got := s.readmitForcedModel(context.Background(), req, nil, translate.RoutingFeatures{}, sessionpin.Pin{Model: testTerra})
 	assert.Contains(t, got, testTerra)
+}
+
+func TestModelInRequestSubset(t *testing.T) {
+	assert.True(t, modelInRequestSubset(context.Background(), testOpus))
+	ctx := ctxWithRequestSubset(context.Background(), testSol)
+	assert.True(t, modelInRequestSubset(ctx, testSol))
+	assert.False(t, modelInRequestSubset(ctx, testOpus))
+}
+
+func TestForcedModelBinding_IgnoresRequestSubset(t *testing.T) {
+	s := &Service{availableModels: map[string]struct{}{testSol: {}, testTerra: {}, testOpus: {}}}
+	ctx := ctxWithRequestSubset(ctxWithAllowedModels(testSol, testTerra), testSol)
+
+	binding, reason := s.forcedModelBinding(ctx, testTerra, providers.ProviderOpenAI)
+	assert.Empty(t, reason)
+	assert.Equal(t, providers.ProviderOpenAI, binding)
+
+	_, reason = s.forcedModelBinding(ctx, testOpus, providers.ProviderAnthropic)
+	assert.NotEmpty(t, reason, "installation allowlist still binds a forced model")
+}
+
+// A sticky pin outside the request subset must reroute inside it; a pin
+// inside the subset still sticks.
+func TestTurnLoop_StickyPinOutsideRequestSubsetReroutes(t *testing.T) {
+	newSvc := func(fr *tierProbeRouter) *Service {
+		store := &overwritingPinStore{pin: sessionpin.Pin{
+			Provider:    providers.ProviderAnthropic,
+			Model:       testOpus,
+			Reason:      "cluster:v0.2",
+			PinnedUntil: time.Now().Add(time.Hour),
+		}, found: true}
+		return NewService(fr, nil, nil, false, nil, store, false,
+			providers.ProviderAnthropic, "claude-haiku-4-5", nil).
+			WithDeploymentKeyedProviders(keyed(providers.ProviderAnthropic, providers.ProviderOpenAI))
+	}
+	env := forceCommandEnv(t)
+	feats := env.RoutingFeatures(false)
+
+	fr := &tierProbeRouter{available: map[string]struct{}{testOpus: {}, "gpt-5.4-mini": {}}}
+	svc := newSvc(fr)
+	ctx := ctxWithRequestSubset(context.Background(), "gpt-5.4-mini")
+	res, err := svc.runTurnLoop(ctx, env, feats, "key-1", uuid.New(), "", nil,
+		router.Request{RequestedModel: feats.Model, ExcludedModels: svc.excludedModelsForRequest(ctx)})
+	require.NoError(t, err)
+	assert.Equal(t, "gpt-5.4-mini", res.Decision.Model)
+	assert.False(t, res.StickyHit)
+
+	fr = &tierProbeRouter{available: map[string]struct{}{testOpus: {}, "gpt-5.4-mini": {}}}
+	svc = newSvc(fr)
+	ctx = ctxWithRequestSubset(context.Background(), testOpus, "gpt-5.4-mini")
+	res, err = svc.runTurnLoop(ctx, env, feats, "key-1", uuid.New(), "", nil,
+		router.Request{RequestedModel: feats.Model, ExcludedModels: svc.excludedModelsForRequest(ctx)})
+	require.NoError(t, err)
+	assert.Equal(t, testOpus, res.Decision.Model)
 }

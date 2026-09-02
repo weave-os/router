@@ -1062,6 +1062,16 @@ func (s *Service) runTurnLoop(
 		}
 	}
 
+	// A request-level allowlist narrows the pool for this turn only; a pin
+	// outside it reroutes inside the subset instead of serving through.
+	if pinFound && !modelInRequestSubset(ctx, pin.Model) {
+		log.Info("Session pin outside request allowed-models subset; falling through to scorer",
+			"pin_model", pin.Model,
+			"pin_provider", pin.Provider,
+		)
+		pinFound = false
+	}
+
 	// If the pinned provider is no longer in this request's enabled set
 	// (installation/env exclusion, or BYOK without that provider's creds),
 	// treat the pin as missing so sticky branches below can't keep serving

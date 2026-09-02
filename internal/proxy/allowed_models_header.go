@@ -106,6 +106,17 @@ func requestAllowedModelSet(ctx context.Context) map[string]struct{} {
 	return out
 }
 
+// modelInRequestSubset reports whether model may be served under the
+// request-level allowlist; true when no subset was sent.
+func modelInRequestSubset(ctx context.Context, model string) bool {
+	subset := requestAllowedModelSet(ctx)
+	if subset == nil {
+		return true
+	}
+	_, ok := subset[model]
+	return ok
+}
+
 // requestedAllowedModelsForTelemetry returns the caller's canonical request
 // allowlist, sorted, or nil when the header was absent.
 func requestedAllowedModelsForTelemetry(ctx context.Context) []string {

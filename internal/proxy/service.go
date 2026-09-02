@@ -3779,7 +3779,8 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	baselineModel := s.baselineFor(feats.Model)
 	baselineCatalog, baselineKnown := catalog.ByID(baselineModel)
 	_, anthropicExcluded := s.excludedProvidersForRequest(ctx)[providers.ProviderAnthropic]
-	baselineAllowed := modelPermittedByAllowlist(ctx, baselineModel)
+	baselineAllowed := modelPermittedByAllowlist(ctx, baselineModel) &&
+		modelInRequestSubset(ctx, baselineModel)
 	// baselineViable omits authoritative-per-turn: that contract governs which
 	// model the policy picks, not whether a provably-unservable request can be rescued.
 	baselineViable := !agentShadowMode &&
