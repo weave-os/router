@@ -131,6 +131,14 @@ backend using that OAuth credential. Host-mode routing still needs the native
 ONNX Runtime/libtokenizers prerequisites described in
 [`CONTRIBUTING.md`](CONTRIBUTING.md).
 
+Self-hosted installations can also start this login from the dashboard:
+open `Settings → Providers → Codex OAuth`, then complete the browser flow.
+The dashboard delegates the flow to the local `codex app-server`; it only
+receives a short-lived login status and authorization URL. OAuth tokens remain
+in Codex's own credential store and are never stored in Router keys, Postgres,
+or dashboard responses. The `codex` executable must be available on the
+Router service's `PATH`; set `ROUTER_CODEX_BIN` when it lives elsewhere.
+
 With only Codex OAuth configured, models outside the native Codex subscription
 family still need a corresponding provider key or BYOK entry; OAuth is not a
 general replacement for Anthropic/OpenAI API keys.

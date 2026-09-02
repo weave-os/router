@@ -6,9 +6,10 @@ import { Input } from "@/components/Input";
 import { InstallCommandPicker } from "@/components/InstallCommandPicker";
 import { Button } from "@/components/molecules/Button";
 import { Card } from "@/components/molecules/Card";
+import { Modal } from "@/components/molecules/Modal";
 import { Appearance, Intent } from "@/components/types";
 import { api, type APIKey, type APIKeyScope, type IssueAPIKeyResponse } from "@/lib/api";
-import { Copy, RotateCw, Search, Trash2 } from "lucide-react";
+import { Copy, Plus, RotateCw, Search, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 
 // Show the search box only once the list is long enough that scanning it by eye
@@ -68,6 +69,7 @@ export function RouterKeysPanel() {
   // rotated key's scope rather than whatever the create form currently shows.
   const [issued, setIssued] = useState<IssueAPIKeyResponse | null>(null);
   const [copied, setCopied] = useState(false);
+  const [createOpen, setCreateOpen] = useState(false);
 
   const hasKey = keys.length > 0;
   const showSearch = keys.length >= KEY_SEARCH_THRESHOLD;
@@ -103,6 +105,7 @@ export function RouterKeysPanel() {
       const res = await api.keys.issue(name.trim() || undefined, scope);
       setIssued(res);
       setName("");
+      setCreateOpen(false);
       load();
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Failed to create key.");
@@ -195,11 +198,22 @@ export function RouterKeysPanel() {
       )}
 
       {loaded && (
-        <Card>
-          <Card.Header>
-            <Card.Title variant="h4">Issue a new key</Card.Title>
-          </Card.Header>
-          <Card.Content>
+        <Modal open={createOpen} onOpenChange={setCreateOpen}>
+          <Modal.Trigger asChild>
+            <Button
+              appearance={Appearance.Filled}
+              intent={Intent.Primary}
+              className="!border-brand !bg-brand !text-white hover:!bg-brand/90"
+            >
+              <Plus className="size-3.5" />
+              Issue a new key
+            </Button>
+          </Modal.Trigger>
+          <Modal.Content className="max-w-xl">
+            <Modal.Header>
+              <Modal.Title>Issue a new key</Modal.Title>
+              <Modal.Description>Choose the smallest scope this client needs.</Modal.Description>
+            </Modal.Header>
             <form onSubmit={handleCreate} className="flex flex-col gap-3" autoComplete="off">
               {/* Ahead of the submit button in DOM order: picking the wrong scope
                   mints a credential with the wrong authority, so the choice has to
@@ -253,8 +267,8 @@ export function RouterKeysPanel() {
                 </Button>
               </div>
             </form>
-          </Card.Content>
-        </Card>
+          </Modal.Content>
+        </Modal>
       )}
 
       {hasKey ? (

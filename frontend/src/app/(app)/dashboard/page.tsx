@@ -25,6 +25,18 @@ import {
 } from "@/lib/api";
 import { cn } from "@/lib/cn";
 import { LoadState } from "@/tools/LoadState";
+import {
+  ArrowRight,
+  CheckCircle2,
+  CircleDot,
+  KeyRound,
+  Network,
+  Radar,
+  Route,
+  Server,
+} from "lucide-react";
+import Link from "next/link";
+import * as React from "react";
 import { useEffect, useState } from "react";
 
 function formatUSD(v: number): string {
@@ -42,6 +54,13 @@ function formatNumber(v: number): string {
 // "checking" suppresses a flash of either surface until the onboarding probe
 // lands.
 type OnboardingState = "checking" | "needed" | "done";
+
+interface ControlPlaneSnapshot {
+  providerKeys: number;
+  routableModels: number;
+  providerCount: number;
+  clusterVersion: string;
+}
 
 // Set when the user chooses "Skip to dashboard". Persisted rather than held in
 // memory so a refresh doesn't drop them back into a flow they opted out of;
@@ -76,6 +95,7 @@ export default function DashboardPage() {
   const [modelBuckets, setModelBuckets] = useState<ModelBreakdownBucket[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [onboarding, setOnboarding] = useState<OnboardingState>("checking");
+  const [controlPlane, setControlPlane] = useState<ControlPlaneSnapshot | null>(null);
 
   // A router that has never served a request has nothing to chart, so a fresh
   // install lands in onboarding instead of on six empty charts. The gate is the
@@ -100,6 +120,32 @@ export default function DashboardPage() {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    if (onboarding !== "done") return;
+    let cancelled = false;
+    Promise.all([
+      api.providerKeys.list(),
+      api.excludedModels.get(),
+      api.excludedProviders.get(),
+      api.config.get(),
+    ])
+      .then(([keys, models, providers, config]) => {
+        if (cancelled) return;
+        setControlPlane({
+          providerKeys: keys.keys?.length ?? 0,
+          routableModels: Math.max(0, (models.available?.length ?? 0) - (models.excluded?.length ?? 0)),
+          providerCount: Math.max(0, (providers.available?.length ?? 0) - (providers.excluded?.length ?? 0)),
+          clusterVersion: config.cluster_version || "default",
+        });
+      })
+      .catch(() => {
+        // The metrics surface remains useful if optional inventory probes fail.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [onboarding]);
 
   useEffect(() => {
     if (onboarding !== "done") return;
@@ -192,6 +238,7 @@ export default function DashboardPage() {
       }
     >
       <Page.Section>
+        <RouterOverview snapshot={controlPlane} />
         <DashboardPageFilters result={dashboardFilters} />
         <ResponsiveGrid>
           <MetricCard
@@ -324,6 +371,125 @@ export default function DashboardPage() {
         </ResponsiveGrid>
       </Page.Section>
     </Page>
+  );
+}
+
+function RouterOverview({ snapshot }: { snapshot: ControlPlaneSnapshot | null }) {
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="router-hairline flex flex-col gap-6 rounded-md bg-background p-5 md:flex-row md:items-end md:justify-between md:p-7">
+        <div className="max-w-2xl">
+          <p className="router-eyebrow">Router control plane / live</p>
+          <h1 className="mt-3 font-display text-3xl font-medium tracking-[-0.04em] text-foreground md:text-4xl">
+            Prompt in. Best model out.
+          </h1>
+          <p className="mt-3 max-w-xl text-sm leading-6 text-muted-foreground">
+            One gateway for every client. Router reads the request intent, selects an eligible model,
+            and dispatches through the right provider endpoint and credential.
+          </p>
+        </div>
+        <div className="flex shrink-0 items-center gap-3 border-t border-border pt-4 md:border-l md:border-t-0 md:pl-6 md:pt-0">
+          <span className="relative flex size-2.5">
+            <span className="absolute inline-flex size-full animate-ping rounded-full bg-brand opacity-40" />
+            <span className="relative inline-flex size-2.5 rounded-full bg-brand" />
+          </span>
+          <div>
+            <p className="text-sm font-medium text-foreground">Gateway online</p>
+            <p className="router-mono mt-1 text-[11px] text-muted-foreground">
+              {snapshot?.clusterVersion ?? "checking catalog…"}
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div className="grid gap-3 md:grid-cols-[1.15fr_1fr_1fr]">
+        <div className="router-hairline rounded-md bg-muted p-4">
+          <div className="flex items-center justify-between">
+            <p className="router-eyebrow">Dispatch pipeline</p>
+            <Route className="size-4 text-brand" />
+          </div>
+          <div className="mt-5 flex flex-col gap-3">
+            <PipelineStep icon={<Radar />} label="Intent signal" detail="prompt-derived tags" />
+            <PipelineStep icon={<Network />} label="Model catalog" detail="eligible candidates" />
+            <PipelineStep icon={<Server />} label="Provider endpoint" detail="credential-bound dispatch" last />
+          </div>
+        </div>
+
+        <InventoryCard
+          icon={<KeyRound />}
+          label="Provider credentials"
+          value={snapshot == null ? "—" : String(snapshot.providerKeys)}
+          detail="managed bindings"
+          href="/settings/providers"
+        />
+        <InventoryCard
+          icon={<CheckCircle2 />}
+          label="Routable models"
+          value={snapshot == null ? "—" : String(snapshot.routableModels)}
+          detail={snapshot == null ? "loading catalog" : `${snapshot.providerCount} active providers`}
+          href="/settings/models"
+        />
+      </div>
+    </div>
+  );
+}
+
+function PipelineStep({
+  detail,
+  icon,
+  label,
+  last = false,
+}: {
+  detail: string;
+  icon: React.ReactElement<{ className?: string }>;
+  label: string;
+  last?: boolean;
+}) {
+  return (
+    <div className="flex items-center gap-3">
+      <div className="flex size-8 shrink-0 items-center justify-center rounded-md border border-brand/30 bg-brand/10 text-brand">
+        {React.cloneElement(icon, { className: "size-4" })}
+      </div>
+      <div className="min-w-0">
+        <p className="text-sm font-medium text-foreground">{label}</p>
+        <p className="router-mono text-[11px] text-muted-foreground">{detail}</p>
+      </div>
+      {!last && <ArrowRight className="ml-auto size-4 text-muted-foreground/60" />}
+      {last && <CircleDot className="ml-auto size-4 text-brand" />}
+    </div>
+  );
+}
+
+function InventoryCard({
+  detail,
+  href,
+  icon,
+  label,
+  value,
+}: {
+  detail: string;
+  href: string;
+  icon: React.ReactNode;
+  label: string;
+  value: string;
+}) {
+  return (
+    <Link
+      href={href}
+      className="router-hairline group flex min-h-[150px] flex-col justify-between rounded-md bg-background p-4 transition-colors hover:border-brand/60 hover:bg-muted"
+    >
+      <div className="flex items-center justify-between">
+        <p className="router-eyebrow text-muted-foreground">{label}</p>
+        <span className="text-brand">{icon}</span>
+      </div>
+      <div className="flex items-end justify-between gap-3">
+        <div>
+          <p className="router-mono text-3xl font-medium tracking-tight text-foreground">{value}</p>
+          <p className="mt-1 text-xs text-muted-foreground">{detail}</p>
+        </div>
+        <ArrowRight className="size-4 text-muted-foreground transition-transform group-hover:translate-x-1 group-hover:text-brand" />
+      </div>
+    </Link>
   );
 }
 

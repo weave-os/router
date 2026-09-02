@@ -4,37 +4,37 @@
 
 @layer base {
   :root {
-    --accent-foreground: 0 0% 9%;
-    --accent: 0 0% 96.1%;
-    --background: 0 0% 100%;
-    --border: 0 0% 94.8%;
-    --border-darker: 0 0% 90%;
+    --accent-foreground: 0 0% 95%;
+    --accent: 0 0% 10.2%;
+    --background: 0 0% 6.3%;
+    --border: 20 3.4% 23.5%;
+    --border-darker: 20 3.4% 23.5%;
 
-    --brand: 12 82% 59%;
-    --card-foreground: 222.2 47.4% 11.2%;
-    --card: 0 0% 100%;
+    --brand: 160 100% 42.9%;
+    --card-foreground: 0 0% 94.9%;
+    --card: 0 0% 6.3%;
     --danger-foreground: 0 0% 98%;
-    --danger: 0 84.2% 60.2%;
-    --foreground: 0 0% 3.9%;
-    --info: 48 96% 53%;
+    --danger: 0 72% 58%;
+    --foreground: 0 0% 94.9%;
+    --info: 160 100% 42.9%;
     --info-foreground: 0 0% 10%;
-    --input: 0 0% 89.8%;
-    --muted-foreground: 0 0% 45.1%;
-    --muted: 0 0% 96.1%;
-    --popover-foreground: 222.2 47.4% 11.2%;
-    --popover: 0 0% 100%;
-    --primary-foreground: 0 0% 98%;
-    --primary: 221 63% 55%;
-    --ring: 0 0% 3.9%;
-    --shortcuts: 0 0% 90%;
-    --shortcuts-foreground: 0 0% 75%;
+    --input: 20 3.4% 23.5%;
+    --muted-foreground: 213 10% 58%;
+    --muted: 0 0% 10.2%;
+    --popover-foreground: 0 0% 94.9%;
+    --popover: 0 0% 10.2%;
+    --primary-foreground: 0 0% 6.3%;
+    --primary: 160 100% 42.9%;
+    --ring: 160 100% 42.9%;
+    --shortcuts: 0 0% 10.2%;
+    --shortcuts-foreground: 213 10% 58%;
     --success-foreground: 0 0% 98%;
-    --success: 142 72% 29%;
-    --tooltip-foreground: 222.2 5% 27%;
-    --tooltip: 0 0% 100%;
+    --success: 160 84% 39%;
+    --tooltip-foreground: 0 0% 94.9%;
+    --tooltip: 0 0% 10.2%;
     --text-width: 78ch;
     --warning-foreground: 0 0% 98%;
-    --warning: 25 95% 53%;
+    --warning: 38 92% 55%;
   }
 
   .dark {
@@ -75,7 +75,7 @@
   }
 
   body {
-    @apply bg-muted font-sans text-foreground;
+    @apply bg-background font-sans text-foreground;
   }
 
   :focus-visible {
@@ -98,6 +98,18 @@
 
   .button {
     @apply inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium ring-foreground ring-offset-2 ring-offset-background transition-colors hover:bg-foreground/5 focus-visible:outline-none focus-visible:ring-2 active:bg-foreground/10 disabled:pointer-events-none disabled:opacity-50;
+  }
+
+  .router-eyebrow {
+    @apply font-mono text-[0.68rem] font-semibold uppercase tracking-[0.18em] text-brand;
+  }
+
+  .router-mono {
+    @apply font-mono tabular-nums;
+  }
+
+  .router-hairline {
+    @apply border border-border;
   }
 }
 

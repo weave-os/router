@@ -19,6 +19,7 @@ import (
 	"workweave/router/internal/billing"
 	"workweave/router/internal/config"
 	"workweave/router/internal/policyclient"
+	"workweave/router/internal/providers"
 	"workweave/router/internal/proxy"
 	"workweave/router/internal/router"
 	"workweave/router/internal/router/policy"
@@ -81,7 +82,7 @@ const (
 //
 // analyticsSvc, when non-nil, mounts the /v1/analytics/* export surface;
 // nil leaves it unmounted (tests, deployments without telemetry storage).
-func Register(engine *gin.Engine, authSvc *auth.Service, proxySvc *proxy.Service, deployedModels admin.DeployedModelsSource, hmmModels admin.HMMRosterSource, mode DeploymentMode, billingSvc *billing.Service, readinessChecker admin.HealthChecker, hmmRosterSource policy.RosterSource, analyticsSvc *analytics.Service) {
+func Register(engine *gin.Engine, authSvc *auth.Service, proxySvc *proxy.Service, deployedModels admin.DeployedModelsSource, hmmModels admin.HMMRosterSource, mode DeploymentMode, billingSvc *billing.Service, readinessChecker admin.HealthChecker, hmmRosterSource policy.RosterSource, analyticsSvc *analytics.Service, codexOAuth providers.CodexOAuthLogin) {
 	// Managed mode: BYOK is opt-in per installation (see WithAuth).
 	byokRequiresOptIn := mode == DeploymentModeManaged
 
@@ -172,6 +173,14 @@ func Register(engine *gin.Engine, authSvc *auth.Service, proxySvc *proxy.Service
 		mgmt.GET("/provider-keys/:id/models", admin.ListUpstreamModelsHandler(authSvc, proxySvc))
 		mgmt.POST("/provider-keys/discover-models", admin.DiscoverModelsHandler(proxySvc))
 		mgmt.DELETE("/provider-keys/:id", admin.DeleteExternalKeyHandler(authSvc))
+		mgmt.POST("/validate/provider", admin.ValidateProviderHandler(authSvc, proxySvc))
+		mgmt.POST("/validate/model", admin.ValidateModelHandler(authSvc, proxySvc))
+		mgmt.POST("/validate/route", admin.RouteTestHandler(proxySvc))
+		if codexOAuth != nil {
+			mgmt.GET("/codex-oauth", admin.CodexOAuthStatusHandler(codexOAuth))
+			mgmt.POST("/codex-oauth/start", admin.CodexOAuthStartHandler(codexOAuth))
+			mgmt.POST("/codex-oauth/cancel", admin.CodexOAuthCancelHandler(codexOAuth))
+		}
 		mgmt.GET("/config", admin.ConfigHandler)
 		mgmt.GET("/onboarding", admin.OnboardingHandler(authSvc))
 		mgmt.GET("/routing-preferences", admin.GetRoutingPreferencesHandler(authSvc))

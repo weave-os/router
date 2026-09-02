@@ -6,7 +6,7 @@ import { Tooltip } from "@/components/molecules/Tooltip";
 import { Appearance } from "@/components/types";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/cn";
-import { BarChart2, LogOut, Settings } from "lucide-react";
+import { Activity, BarChart2, FlaskConical, LogOut, Settings, Waypoints } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { type ReactNode } from "react";
@@ -19,7 +19,10 @@ interface NavItem {
 }
 
 const PRIMARY_NAV: NavItem[] = [
-  { href: "/dashboard", label: "Dashboard", icon: <BarChart2 size={16} /> },
+  { href: "/dashboard", label: "Overview", icon: <BarChart2 size={16} /> },
+  { href: "/settings/providers", label: "Providers", icon: <Waypoints size={16} /> },
+  { href: "/settings/models", label: "Models & routing", icon: <Activity size={16} /> },
+  { href: "/route-lab", label: "Route Lab", icon: <FlaskConical size={16} /> },
 ];
 
 function NavLink({ item }: { item: NavItem }) {
@@ -35,9 +38,9 @@ function NavLink({ item }: { item: NavItem }) {
       aria-selected={active}
       title={item.label}
       className={cn(
-        "relative flex h-8 w-full items-center gap-2 rounded-md px-3 text-xs font-medium text-muted-foreground transition-colors",
+        "relative flex h-9 w-full items-center gap-2 rounded-md border border-transparent px-3 text-xs font-medium text-muted-foreground transition-colors",
         "hover:bg-foreground/5 hover:text-foreground",
-        "aria-selected:bg-foreground/5 aria-selected:text-foreground",
+        "aria-selected:border-border aria-selected:bg-foreground/[0.04] aria-selected:text-foreground",
       )}
     >
       <span className="shrink-0">{item.icon}</span>
@@ -61,8 +64,12 @@ export function Sidebar() {
 
   return (
     <div className="group/sidebar relative flex h-full w-12 shrink-0 grow-0 flex-col items-start gap-1 overflow-hidden transition-all duration-200 ease-out md:w-[244px] md:overflow-visible">
-      <header className="relative z-10 flex w-full flex-col items-center gap-4 py-2 transition-all duration-200 md:flex-row md:pl-2 md:pr-3 md:pt-2">
+      <header className="relative z-10 flex w-full flex-col items-center gap-3 border-b border-border/70 py-2 pb-3 transition-all duration-200 md:flex-row md:pl-2 md:pr-3 md:pt-2">
         <Logo href="/dashboard" />
+        <div className="hidden min-w-0 md:block">
+          <p className="truncate text-sm font-semibold tracking-tight text-foreground">Router</p>
+          <p className="router-mono text-[10px] uppercase tracking-wider text-muted-foreground">control plane</p>
+        </div>
       </header>
 
       <nav className="relative z-10 flex w-full flex-1 flex-col gap-1 overflow-y-auto md:p-2 md:pt-0">
@@ -71,7 +78,7 @@ export function Sidebar() {
         ))}
       </nav>
 
-      <div className="relative z-10 flex w-full items-center justify-between gap-2 p-2">
+      <div className="relative z-10 flex w-full items-center justify-between gap-2 border-t border-border/70 p-2 pt-3">
         <Tooltip content="Settings" side="right" interactiveChild>
           <Button
             href="/settings"

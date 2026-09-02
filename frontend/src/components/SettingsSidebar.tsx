@@ -24,9 +24,9 @@ function NavLink({ item }: { item: SettingsNavItem }) {
       aria-selected={active}
       title={item.label}
       className={cn(
-        "relative flex h-8 w-full items-center gap-2 rounded-md px-3 text-xs font-medium text-muted-foreground transition-colors",
+        "relative flex h-9 w-full items-center gap-2 rounded-md border border-transparent px-3 text-xs font-medium text-muted-foreground transition-colors",
         "hover:bg-foreground/5 hover:text-foreground",
-        "aria-selected:bg-foreground/5 aria-selected:text-foreground",
+        "aria-selected:border-border aria-selected:bg-foreground/[0.04] aria-selected:text-foreground",
       )}
     >
       <span className="shrink-0">{item.icon}</span>
@@ -42,8 +42,12 @@ function NavLink({ item }: { item: SettingsNavItem }) {
 export function SettingsSidebar() {
   return (
     <div className="group/sidebar relative flex h-full w-12 shrink-0 grow-0 flex-col items-start gap-1 overflow-hidden transition-all duration-200 ease-out md:w-[244px] md:overflow-visible">
-      <header className="relative z-10 flex w-full flex-col items-center gap-4 py-2 transition-all duration-200 md:flex-row md:pl-2 md:pr-3 md:pt-2">
+      <header className="relative z-10 flex w-full flex-col items-center gap-3 border-b border-border/70 py-2 pb-3 transition-all duration-200 md:flex-row md:pl-2 md:pr-3 md:pt-2">
         <Logo href="/dashboard" />
+        <div className="hidden min-w-0 md:block">
+          <p className="truncate text-sm font-semibold tracking-tight text-foreground">Router</p>
+          <p className="router-mono text-[10px] uppercase tracking-wider text-muted-foreground">settings</p>
+        </div>
       </header>
 
       <nav className="relative z-10 flex w-full flex-1 flex-col gap-2 overflow-y-auto md:p-2 md:pt-0">

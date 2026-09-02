@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -1226,7 +1227,8 @@ func runServer() {
 	// fallback keeps non-cluster routers bootable.
 	deployedModels, _ := rtr.(*cluster.Multiversion)
 	analyticsSvc := analytics.NewService(repo.Analytics, time.Now)
-	server.Register(engine, authSvc, proxySvc, deployedModels, hmmRosterModels, deploymentMode, billingSvc, hmmReadinessChecker, hmmRosterSource, analyticsSvc)
+	codexOAuth := codexProvider.NewOAuthManager()
+	server.Register(engine, authSvc, proxySvc, deployedModels, hmmRosterModels, deploymentMode, billingSvc, hmmReadinessChecker, hmmRosterSource, analyticsSvc, codexOAuth)
 
 	srv := &http.Server{
 		Addr:    ":" + config.GetOr("PORT", "8080"),
@@ -1246,7 +1248,12 @@ func runServer() {
 
 	serverErr := make(chan error, 1)
 	go func() {
-		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		listener, err := net.Listen("tcp4", srv.Addr)
+		if err != nil {
+			serverErr <- err
+			return
+		}
+		if err := srv.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			serverErr <- err
 		}
 	}()

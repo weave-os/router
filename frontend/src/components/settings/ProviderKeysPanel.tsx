@@ -6,6 +6,7 @@ import { Input } from "@/components/Input";
 import { Button } from "@/components/molecules/Button";
 import { Card } from "@/components/molecules/Card";
 import { Command } from "@/components/molecules/Command";
+import { Modal } from "@/components/molecules/Modal";
 import { Popover } from "@/components/molecules/Popover";
 import { Appearance, Intent } from "@/components/types";
 import {
@@ -14,7 +15,7 @@ import {
   type ExternalKey,
   type ProviderAuthType,
 } from "@/lib/api";
-import { ChevronDown, Trash2 } from "lucide-react";
+import { ChevronDown, Plus, Trash2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 const PROVIDERS = ["anthropic", "openai", "google", "openrouter", "anthropic_gateway", "openai_gateway"] as const;
@@ -247,6 +248,7 @@ export function ProviderKeysPanel() {
   const [fetchingNewModels, setFetchingNewModels] = useState(false);
   const [editEndpointModels, setEditEndpointModels] = useState<string[] | null>(null);
   const [fetchingEditModels, setFetchingEditModels] = useState(false);
+  const [addOpen, setAddOpen] = useState(false);
   // Signature of the last auto-fetched (provider, key, URL) tuple, so typing
   // pauses trigger one discovery call rather than one per keystroke burst.
   const autoFetchedRef = useRef<string | null>(null);
@@ -411,6 +413,7 @@ export function ProviderKeysPanel() {
       setAuthUser("");
       setAliasRows([]);
       setNewEndpointModels(null);
+      setAddOpen(false);
       load();
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Failed to save key");
@@ -451,11 +454,18 @@ export function ProviderKeysPanel() {
       {error && <ErrorBanner>{error}</ErrorBanner>}
 
       {available.length > 0 && provider != null ? (
-        <Card>
-          <Card.Header>
-            <Card.Title variant="h4">Add a key</Card.Title>
-          </Card.Header>
-          <Card.Content>
+        <Modal open={addOpen} onOpenChange={setAddOpen}>
+          <Modal.Trigger asChild>
+            <Button appearance={Appearance.Filled} intent={Intent.Primary} className="!border-brand !bg-brand !text-white hover:!bg-brand/90">
+              <Plus className="size-3.5" />
+              Add provider key
+            </Button>
+          </Modal.Trigger>
+          <Modal.Content className="max-w-2xl">
+            <Modal.Header>
+              <Modal.Title>Add a provider key</Modal.Title>
+              <Modal.Description>Connect an upstream credential to the router catalog.</Modal.Description>
+            </Modal.Header>
             <form onSubmit={handleSave} className="space-y-3" autoComplete="off">
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-[200px_1fr]">
                 <ProviderPicker value={provider} onChange={setPickedProvider} options={available} />
@@ -602,8 +612,8 @@ export function ProviderKeysPanel() {
                 </Button>
               </div>
             </form>
-          </Card.Content>
-        </Card>
+          </Modal.Content>
+        </Modal>
       ) : null}
 
       {hasAnyKey ? (
@@ -706,7 +716,23 @@ export function ProviderKeysPanel() {
                     </div>
                   </div>
                   {editingAliases === k.id && (
-                    <div className="mt-3 flex flex-col gap-2 border-t border-border pt-3">
+                    <Modal
+                      open
+                      onOpenChange={open => {
+                        if (!open) {
+                          setEditingAliases(null);
+                          editFetchIDRef.current = null;
+                          setFetchingEditModels(false);
+                        }
+                      }}
+                    >
+                      <Modal.Content className="max-w-2xl">
+                        <Modal.Header>
+                          <Modal.Title>Edit model aliases</Modal.Title>
+                          <Modal.Description>
+                            Map this endpoint&apos;s model IDs to the router catalog.
+                          </Modal.Description>
+                        </Modal.Header>
                       <ModelAliasEditor
                         rows={editAliasRows}
                         onChange={setEditAliasRows}
@@ -716,18 +742,22 @@ export function ProviderKeysPanel() {
                         onFetchModels={() => handleFetchEditModels(k.id)}
                         fetching={fetchingEditModels}
                       />
-                      <div>
-                        <Button
-                          appearance={Appearance.Filled}
-                          intent={Intent.Primary}
-                          className="!border-brand !bg-brand !text-white hover:!bg-brand/90"
-                          onClick={() => handleSaveAliases(k.id)}
-                          disabled={savingAliases}
-                        >
-                          {savingAliases ? "Saving…" : "Save aliases"}
-                        </Button>
-                      </div>
-                    </div>
+                        <Modal.Footer>
+                          <Button
+                            appearance={Appearance.Filled}
+                            intent={Intent.Primary}
+                            className="!border-brand !bg-brand !text-white hover:!bg-brand/90"
+                            onClick={() => handleSaveAliases(k.id)}
+                            disabled={savingAliases}
+                          >
+                            {savingAliases ? "Saving…" : "Save aliases"}
+                          </Button>
+                          <Modal.Close asChild>
+                            <Button appearance={Appearance.Outlined}>Cancel</Button>
+                          </Modal.Close>
+                        </Modal.Footer>
+                      </Modal.Content>
+                    </Modal>
                   )}
                 </li>
               ))}

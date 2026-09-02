@@ -710,3 +710,27 @@ type Client interface {
 	// Passthrough forwards an inbound request to the same path on the upstream with no model rewriting.
 	Passthrough(ctx context.Context, prep PreparedRequest, w http.ResponseWriter, r *http.Request) error
 }
+
+// CodexOAuthLogin describes the small control-plane surface needed to let a
+// self-hosted dashboard start and observe the official local Codex OAuth flow.
+// Implementations must keep OAuth credentials inside Codex's credential store;
+// these values contain only browser URLs, status, and the one-time login ID.
+type CodexOAuthLogin interface {
+	Start(context.Context) (CodexOAuthStart, error)
+	Status(context.Context) CodexOAuthStatus
+	Cancel(context.Context) error
+}
+
+// CodexOAuthStart is the browser handoff returned when a Codex login begins.
+type CodexOAuthStart struct {
+	LoginID string
+	AuthURL string
+}
+
+// CodexOAuthStatus is the dashboard-safe state of the local Codex OAuth flow.
+type CodexOAuthStatus struct {
+	State   string
+	LoginID string
+	AuthURL string
+	Error   string
+}

@@ -42,6 +42,36 @@ export interface MetricsSummary {
   total_savings_usd: number;
 }
 
+export interface CodexOAuthStatus {
+  state: "idle" | "pending" | "authenticated" | "failed";
+  login_id?: string;
+  auth_url?: string;
+  error?: string;
+}
+
+export interface ProviderValidationResult {
+  provider: string;
+  status: "valid" | "invalid" | "unknown";
+  message: string;
+  model_count?: number;
+}
+
+export interface ModelValidationResult {
+  provider: string;
+  model: string;
+  upstream_model?: string;
+  status: "valid" | "invalid" | "unknown";
+  message: string;
+}
+
+export interface RouteTestResult {
+  model: string;
+  provider: string;
+  reason?: string;
+  credential_source?: string;
+  candidates?: string[];
+}
+
 export interface TimeseriesBucket {
   bucket: string;
   requested_cost_usd: number;
@@ -273,6 +303,28 @@ export const api = {
       request<{ models: string[] }>("/provider-keys/discover-models", {
         method: "POST",
         body: JSON.stringify({ provider, key, base_url: baseURL }),
+      }),
+  },
+  codexOAuth: {
+    status: () => request<CodexOAuthStatus>("/codex-oauth"),
+    start: () => request<CodexOAuthStatus>("/codex-oauth/start", { method: "POST" }),
+    cancel: () => request<void>("/codex-oauth/cancel", { method: "POST" }),
+  },
+  validation: {
+    provider: (provider: string, keyID?: string) =>
+      request<ProviderValidationResult>("/validate/provider", {
+        method: "POST",
+        body: JSON.stringify({ provider, key_id: keyID }),
+      }),
+    model: (provider: string, model: string, keyID?: string) =>
+      request<ModelValidationResult>("/validate/model", {
+        method: "POST",
+        body: JSON.stringify({ provider, model, key_id: keyID }),
+      }),
+    route: (prompt: string) =>
+      request<RouteTestResult>("/validate/route", {
+        method: "POST",
+        body: JSON.stringify({ prompt }),
       }),
   },
   config: {

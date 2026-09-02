@@ -12,7 +12,7 @@ const inter = Inter({
 
 export const metadata: Metadata = {
   title: "Weave Router",
-  description: "Router dashboard and settings",
+  description: "A central model gateway for intent-aware provider routing.",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
