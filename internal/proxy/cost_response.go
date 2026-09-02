@@ -3,6 +3,7 @@ package proxy
 import (
 	"bytes"
 	"encoding/json"
+	"math"
 	"net/http"
 	"strconv"
 
@@ -90,12 +91,18 @@ func routerResponseCostFromPricing(pricing catalog.Pricing, provider string, inp
 	inputUSD := catalog.EffectiveInputCost(inputTokens, cacheCreationTokens, cacheReadTokens, pricing.InputUSDPer1M, pricing, provider)
 	outputUSD := catalog.EffectiveOutputCost(outputTokens, pricing.OutputUSDPer1M)
 	return routerResponseCost{
-		TotalUSD:            inputUSD + outputUSD,
-		InputUSD:            inputUSD,
-		OutputUSD:           outputUSD,
+		TotalUSD:            roundUSD(inputUSD + outputUSD),
+		InputUSD:            roundUSD(inputUSD),
+		OutputUSD:           roundUSD(outputUSD),
 		CacheReadTokens:     cacheReadTokens,
 		CacheCreationTokens: cacheCreationTokens,
 	}
+}
+
+// roundUSD trims binary float noise so "0.0000495" is not rendered as
+// "0.000049500000000000004"; ten decimals keeps sub-micro-dollar precision.
+func roundUSD(v float64) float64 {
+	return math.Round(v*1e10) / 1e10
 }
 
 func setRouterCostHeaders(h http.Header, cost routerResponseCost) {

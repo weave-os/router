@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"workweave/router/internal/providers"
+	"workweave/router/internal/router/catalog"
 
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
@@ -80,4 +81,17 @@ func TestResponseCostBufferDoesNotCommitEmptyResponse(t *testing.T) {
 	require.NoError(t, buffer.FlushToClient())
 	require.Empty(t, rec.Body.String())
 	require.False(t, rec.Flushed)
+}
+
+func TestRouterResponseCostFromPricingRoundsFloatNoise(t *testing.T) {
+	// gpt-5.4-mini pricing: 12 input + 9 output tokens yielded
+	// 0.000049500000000000004 before rounding.
+	pricing := catalog.Pricing{InputUSDPer1M: 0.75, OutputUSDPer1M: 4.5}
+	cost := routerResponseCostFromPricing(pricing, providers.ProviderOpenAI, 12, 9, 0, 0)
+
+	rec := httptest.NewRecorder()
+	setRouterCostHeaders(rec.Header(), cost)
+	require.Equal(t, "0.0000495", rec.Header().Get(HeaderRouterCostUSD))
+	require.Equal(t, "0.000009", rec.Header().Get(HeaderRouterCostInputUSD))
+	require.Equal(t, "0.0000405", rec.Header().Get(HeaderRouterCostOutputUSD))
 }
