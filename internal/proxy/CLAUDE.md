@@ -50,6 +50,7 @@ collapse them.
 |---|---|---|---|
 | `allowed_models` | org (installation) | fail-closed | desugared into `ExcludedModels` by `excludedModelsForRequest` |
 | `excluded_models` | org (installation) | fail-closed | scorer + policy resolver |
+| `global_automatic_routing_exclusions` | deployment | fail-open (soft) | `AutomaticExcludedModels`: scorer, policy resolver, and every automatic-pin gate |
 | `cluster_model_lists` | API key (org default) | fail-open | `policy.ApplyClusterArmOverrides` |
 | `model_router_user_cluster_model_lists` | router user | fail-open | same, after `mergeClusterOverrides` |
 
@@ -58,6 +59,26 @@ adds every routable model absent from a non-empty allowlist to the exclusion
 set, so all six existing enforcement sites honor it with no new filter loops.
 `router.Request.AllowedModels` exists only so errors and diagnostics can name
 the allowlist instead of dumping the desugared exclusion list.
+
+**The deployment-wide automatic exclusion is soft, and is a separate request
+field for that reason.** `global_automatic_routing_exclusions` is the Weave
+control plane's list of models the router may not *choose*; the same models
+still serve an explicit `/force-model` pin, which is what makes it safe to
+disable a model without stranding a debugging or eval session. Folding it into
+`ExcludedModels` would have made it hard — that set also rejects a forced pin
+(`forcedModelBinding`) — so it travels as `router.Request.AutomaticExcludedModels`
+and every enforcement site treats an emptied pool as "ignore me this turn"
+rather than an error. It reaches the request path through a ~1min TTL cache
+(`globalAutomaticExclusionCache`) that serves its last good snapshot on a
+refresh failure and fails open on a cold one; there is no invalidation topic
+because the existing one is keyed per installation.
+
+**Automatic reuse of a model is not just fresh selection.** A disable has to
+reach sessions already pinned, so `automaticPinEligible` and the pin-drop guard
+in `runTurnLoop` cover tool-result stickies, planner STAY, HMM EV stays, expiry
+re-anchors, post-command continuations, band swap, sibling failover, the policy
+deadline default, and loop/struggle escalation — every path where the router
+picked the model. `forcedPinEligible` deliberately does not.
 
 **A wholly non-routable allowlist is rejected at the admin API.** Membership
 validation for `PUT /admin/v1/allowed-models` is catalog-wide on purpose —

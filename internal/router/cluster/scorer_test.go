@@ -1019,6 +1019,36 @@ func TestScorer_ExcludedModelsRemovesFromArgmax(t *testing.T) {
 	assert.Equal(t, "anthropic", got.Provider)
 }
 
+func TestScorer_AutomaticExcludedModelsRemovesFromArgmax(t *testing.T) {
+	emb := &fakeEmbedder{vec: makeOpusVec()}
+	s := newTwoProviderScorer(t, emb)
+
+	got, err := s.Route(context.Background(), router.Request{
+		PromptText:              strings.Repeat("x", 100),
+		AutomaticExcludedModels: map[string]struct{}{"gpt-5": {}},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "claude-opus-4-7", got.Model)
+	assert.Equal(t, "anthropic", got.Provider)
+}
+
+// The deployment-wide set is soft: unlike ExcludedModels it must never fail a
+// turn, because the same models stay reachable through an explicit user pin.
+func TestScorer_AutomaticExcludedModelsEmptyingPoolStillRoutes(t *testing.T) {
+	emb := &fakeEmbedder{vec: makeOpusVec()}
+	s := newTwoProviderScorer(t, emb)
+
+	got, err := s.Route(context.Background(), router.Request{
+		PromptText: strings.Repeat("x", 100),
+		AutomaticExcludedModels: map[string]struct{}{
+			"gpt-5":           {},
+			"claude-opus-4-7": {},
+		},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "gpt-5", got.Model)
+}
+
 // Excluding every deployed model must surface ErrNoEligibleProvider (no
 // silent fallback to a default).
 func TestScorer_ExcludedModelsEmptyingPoolReturnsErrNoEligibleProvider(t *testing.T) {

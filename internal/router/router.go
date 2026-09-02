@@ -166,6 +166,13 @@ type Request struct {
 	// consults this so policy exclusions don't block pass-through, but physical
 	// constraints still do.
 	SafetyExcludedModels map[string]struct{}
+	// AutomaticExcludedModels is the deployment-wide set Weave has withdrawn
+	// from AUTOMATIC selection. Deliberately not folded into ExcludedModels:
+	// that set is hard (it also rejects an explicit /force-model pin), whereas
+	// this one must leave a user's explicit pin serving. Routers apply it as a
+	// soft filter — if honoring it would empty the pool, it is ignored for that
+	// turn rather than failing the request.
+	AutomaticExcludedModels map[string]struct{}
 	// PreferredModels is the per-installation priority ranking (index 0 =
 	// first). The scorer adds a small rank-decaying bonus to each preferred
 	// model's score — enough to win close calls, not to override a clearly

@@ -301,6 +301,43 @@ func TestResolverKeepsRequestedExclusionWhenNoAllowlist(t *testing.T) {
 	})
 }
 
+func TestResolverDropsAutomaticallyDisabledModels(t *testing.T) {
+	resolver := policy.NewResolver(
+		set("claude-opus-4-8", "claude-haiku-4-5"),
+		set(providers.ProviderAnthropic),
+		catalogRosterID,
+		policy.ManagedProviderPolicy(),
+	)
+
+	resolved := resolver.Resolve(router.Request{
+		AutomaticExcludedModels: map[string]struct{}{"claude-opus-4-8": {}},
+	})
+
+	assert.Equal(t, []string{"claude-haiku-4-5"}, resolved.CandidateModels())
+	assert.Contains(t, resolved.Diagnostics, policy.Diagnostic{
+		CatalogID: "claude-opus-4-8",
+		RosterID:  "claude-opus-4-8",
+		Reason:    policy.ExclusionAutomaticDisabled,
+	})
+}
+
+// Soft filter: disabling every candidate leaves the pool intact rather than
+// failing the turn, because the models remain reachable through a user pin.
+func TestResolverKeepsPoolWhenAutomaticDisablesWouldEmptyIt(t *testing.T) {
+	resolver := policy.NewResolver(
+		set("claude-opus-4-8"),
+		set(providers.ProviderAnthropic),
+		catalogRosterID,
+		policy.ManagedProviderPolicy(),
+	)
+
+	resolved := resolver.Resolve(router.Request{
+		AutomaticExcludedModels: map[string]struct{}{"claude-opus-4-8": {}},
+	})
+
+	assert.Equal(t, []string{"claude-opus-4-8"}, resolved.CandidateModels())
+}
+
 func TestResolverDirectlyEnforcesAllowlistForStrategySpecificCandidates(t *testing.T) {
 	resolver := policy.NewResolver(
 		set("gpt-5.6-luna-pro"),

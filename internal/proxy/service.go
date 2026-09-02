@@ -145,6 +145,10 @@ type Service struct {
 	// provider exclusion list on every request. Set from
 	// ROUTER_EXCLUDED_PROVIDERS at boot.
 	excludedProvidersOverride map[string]struct{}
+	// globalAutomaticExclusions caches the deployment-wide models the control
+	// plane withdrew from automatic routing. Nil leaves every model automatically
+	// selectable.
+	globalAutomaticExclusions *globalAutomaticExclusionCache
 	// deploymentKeyedProviders is the subset of registered providers whose
 	// upstream API key is configured at the deployment level. When nil, all
 	// registered providers are treated as deployment-keyed (legacy behavior).
@@ -1853,6 +1857,18 @@ func (s *Service) HasExcludedModelsOverride() bool {
 	return s.excludedModelsOverride != nil
 }
 
+// WithGlobalAutomaticExclusions wires the deployment-wide soft exclusion list
+// the Weave control plane maintains. A nil store leaves automatic routing
+// unrestricted.
+func (s *Service) WithGlobalAutomaticExclusions(store GlobalAutomaticExclusionStore) *Service {
+	if store == nil {
+		s.globalAutomaticExclusions = nil
+		return s
+	}
+	s.globalAutomaticExclusions = newGlobalAutomaticExclusionCache(store)
+	return s
+}
+
 // RoutableModels returns a copy of the set of models this deployment can
 // route, so the admin guard and request-time desugaring share one definition
 // and cannot drift.
@@ -2384,6 +2400,10 @@ func (s *Service) routeWithStrategy(ctx context.Context, strategy router.Strateg
 }
 
 func (s *Service) withPolicyRequestContext(ctx context.Context, req router.Request) router.Request {
+	// Set here rather than at each ingress so every routed and previewed turn
+	// sees the same deployment-wide soft exclusions, including callers that
+	// bypass the turn loop.
+	req.AutomaticExcludedModels = s.globalAutomaticExcludedModels(ctx)
 	req.OrganizationID, _ = ctx.Value(ExternalIDContextKey{}).(string)
 	req.InstallationID = ""
 	if installationID := installationIDFromContext(ctx); installationID != uuid.Nil {
@@ -4762,6 +4782,11 @@ func (s *Service) policyDeadlineDefaultDecision(req router.Request) (router.Deci
 	if _, excluded := req.SafetyExcludedModels[s.policyDeadlineDefaultModel]; excluded {
 		return router.Decision{}, false
 	}
+	// The static deadline fallback is an automatic choice, and refusing it only
+	// costs a 503 on a turn the policy already failed to route.
+	if _, disabled := req.AutomaticExcludedModels[s.policyDeadlineDefaultModel]; disabled {
+		return router.Decision{}, false
+	}
 	// nil EnabledProviders means unrestricted, so fall back to everything this
 	// deployment registered; otherwise only providers this turn can authenticate.
 	providerSet := make(map[string]struct{}, len(s.providers))
@@ -4826,6 +4851,11 @@ func (s *Service) bandSwapServed(ctx context.Context, turnType turntype.TurnType
 		// The paired model may no longer fit this turn even when the anchor
 		// does — serving it would trade a safe anchor for a context error.
 		if _, excluded := excludedModels[served.Model]; excluded {
+			return anchor
+		}
+		// Swapping to the paired member is an automatic choice, so a
+		// deployment-wide disable rules it out even though the anchor stands.
+		if _, disabled := s.globalAutomaticExcludedModels(ctx)[served.Model]; disabled {
 			return anchor
 		}
 		// nil enabledProviders means "no restriction" (boot behavior), matching

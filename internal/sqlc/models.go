@@ -35,6 +35,17 @@ type RouterFlagDefinition struct {
 	UpdatedAt       pgtype.Timestamptz
 }
 
+// Deployment-wide models removed from automatic routing (scorer/policy selection, utility hard pins, and automatic session stickies). Soft: an explicit user /force-model pin may still serve these models. Read on the request path through a short-TTL in-process cache.
+type RouterGlobalAutomaticRoutingExclusion struct {
+	// Catalog model ID, validated against the deployed catalog by the writer.
+	Model string
+	// Operator note shown in the internal admin UI and in force-model diagnostics; NULL when none was given.
+	Reason    *string
+	CreatedAt pgtype.Timestamp
+	// Opaque external identifier of the Weave account that disabled the model.
+	CreatedBy *string
+}
+
 // Cyclic tool-call loop detections: ops signal and (session, looping_model) -> looped training labels
 type RouterLoopEscalationEvent struct {
 	ID             uuid.UUID

@@ -29,6 +29,9 @@ func (s *Service) siblingFailoverDecision(ctx context.Context, failed router.Dec
 	}
 	available := s.keyedProvidersExcluding(s.excludedProvidersForRequest(ctx))
 	excludedModels := s.excludedModelsForRequest(ctx)
+	// The rescue picks a stand-in on the router's own initiative, so a disabled
+	// model must not be resurrected here after the pool already excluded it.
+	automaticExcluded := s.globalAutomaticExcludedModels(ctx)
 
 	var sameProvider []router.Decision
 	for _, id := range siblingCandidateOrder(md) {
@@ -36,6 +39,9 @@ func (s *Service) siblingFailoverDecision(ctx context.Context, failed router.Dec
 			continue
 		}
 		if _, drop := excludedModels[id]; drop {
+			continue
+		}
+		if _, disabled := automaticExcluded[id]; disabled {
 			continue
 		}
 		provider, ok := siblingProvider(id, md.CandidateProviders, available)
@@ -66,6 +72,7 @@ func (s *Service) siblingFailoverDecision(ctx context.Context, failed router.Dec
 func (s *Service) gatewaySiblingDecision(ctx context.Context, failed router.Decision, gw map[string]struct{}, est, sigSavings, outputReserve int) (router.Decision, bool) {
 	custom := s.customBindingsForRequest(ctx)
 	excludedModels := s.excludedModelsForRequest(ctx)
+	automaticExcluded := s.globalAutomaticExcludedModels(ctx)
 
 	var sameProvider []router.Decision
 	for _, id := range siblingCandidateOrder(failed.Metadata) {
@@ -73,6 +80,9 @@ func (s *Service) gatewaySiblingDecision(ctx context.Context, failed router.Deci
 			continue
 		}
 		if _, drop := excludedModels[id]; drop {
+			continue
+		}
+		if _, disabled := automaticExcluded[id]; disabled {
 			continue
 		}
 		provider, ok := gatewayProviderFor(id, custom, gw)

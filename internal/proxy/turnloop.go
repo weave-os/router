@@ -440,6 +440,40 @@ func pinEligible(pin sessionpin.Pin, req router.Request) bool {
 	return ok
 }
 
+// automaticallyDisabled reports whether a deployment-wide disable withdrew this
+// model from automatic selection. Every reuse of an automatically-chosen model
+// consults it, so a disable takes effect on sessions already pinned to that
+// model instead of only on sessions that route fresh.
+func automaticallyDisabled(req router.Request, model string) bool {
+	_, disabled := req.AutomaticExcludedModels[model]
+	return disabled
+}
+
+// automaticPinEligible gates reuse of a pin the router chose on the session's
+// behalf. forcedPinEligible deliberately omits the deployment-wide check: an
+// explicit /force-model is the escape hatch that keeps a disabled model
+// reachable for debugging and evaluation.
+func automaticPinEligible(pin sessionpin.Pin, req router.Request) bool {
+	return pinEligible(pin, req) && !automaticallyDisabled(req, pin.Model)
+}
+
+// withAutomaticExclusions folds the deployment-wide soft set into the hard-pin
+// resolver's own exclusions, which is the only denylist that selector reads.
+func withAutomaticExclusions(req HardPinRequest, automaticExcluded map[string]struct{}) HardPinRequest {
+	if len(automaticExcluded) == 0 {
+		return req
+	}
+	merged := make(map[string]struct{}, len(req.ExcludedModels)+len(automaticExcluded))
+	for model := range req.ExcludedModels {
+		merged[model] = struct{}{}
+	}
+	for model := range automaticExcluded {
+		merged[model] = struct{}{}
+	}
+	req.ExcludedModels = merged
+	return req
+}
+
 func forcedPinEligible(pin sessionpin.Pin, req router.Request) bool {
 	return pinEligible(pin, req)
 }
@@ -569,12 +603,26 @@ func (s *Service) runTurnLoop(
 		// here too — this path bypasses the scorer, the only other place
 		// exclusions are honored.
 		if s.hardPinResolver != nil && !useSubAgentOverride {
-			p, m, ok := s.hardPinResolver(HardPinRequest{
+			hardPinReq := HardPinRequest{
 				EnabledProviders: req.EnabledProviders,
 				ExcludedModels:   req.ExcludedModels,
 				CustomBindings:   req.CustomBindings,
 				GatewayProviders: req.GatewayProviders,
-			})
+			}
+			p, m, ok := s.hardPinResolver(withAutomaticExclusions(hardPinReq, req.AutomaticExcludedModels))
+			if !ok {
+				// Utility turns are automatic, so they honor the deployment-wide
+				// disable — but softly: retry unrestricted rather than 503 a
+				// probe or title-gen turn the operator never meant to break.
+				p, m, ok = s.hardPinResolver(hardPinReq)
+				if ok {
+					log.Warn("Hard-pin: automatic-routing exclusions left no candidate; ignoring them for this turn",
+						"turn_type", string(res.TurnType),
+						"hard_pin_model", m,
+						"hard_pin_provider", p,
+					)
+				}
+			}
 			if !ok {
 				// Gateway empty result = no aliases configured (customer fix), not a router fault.
 				hardPinErr := cluster.ErrClusterUnavailable
@@ -598,6 +646,15 @@ func (s *Service) runTurnLoop(
 			}
 			if _, excluded := req.ExcludedModels[model]; excluded {
 				return res, fmt.Errorf("hard-pin model %q is ineligible for %s: %w", model, res.TurnType, cluster.ErrNoEligibleProvider)
+			}
+			if automaticallyDisabled(req, model) {
+				// A statically configured hard pin has no alternative to fall
+				// back to, and a soft exclusion must not fail a turn.
+				log.Warn("Hard-pin model is disabled for automatic routing; serving it anyway",
+					"turn_type", string(res.TurnType),
+					"hard_pin_model", model,
+					"hard_pin_provider", provider,
+				)
 			}
 		}
 		// Operator hard-pins (ROUTER_HARD_PIN_MODEL) bypass the tier ceiling
@@ -763,7 +820,11 @@ func (s *Service) runTurnLoop(
 		_, providerEnabled := req.EnabledProviders[pin.Provider]
 		providerEligible := req.EnabledProviders == nil || providerEnabled
 		imageCapable := pinServesImages(pin, req)
-		if !excluded && providerEligible && imageCapable {
+		// Loop and struggle escalation are router-chosen rescues, so a
+		// deployment-wide disable applies to them; only the user's own
+		// /force-model outranks it.
+		autoDisabled := !isUserForcedReason(pin.Reason) && automaticallyDisabled(req, pin.Model)
+		if !excluded && !autoDisabled && providerEligible && imageCapable {
 			decision := pinDecision(pin)
 			decision.Reason = pin.Reason
 			res.PinTier = pin.Reason
@@ -776,6 +837,8 @@ func (s *Service) runTurnLoop(
 		// to the scorer while the user still trusts the "force-model applied" ack.
 		dropReason := "excluded"
 		switch {
+		case autoDisabled:
+			dropReason = "automatic_routing_disabled"
 		case !providerEligible:
 			dropReason = "provider_not_enabled"
 		case !imageCapable:
@@ -797,12 +860,16 @@ func (s *Service) runTurnLoop(
 				// to it below rather than losing the intent entirely.
 				forcedTierFloor = catalog.TierFor(pin.Model)
 			}
-		} else if excluded {
+		} else if excluded || autoDisabled {
 			// Auto-escalation carries no user tier intent. An excluded escalation
 			// pin can never serve, so expire it instead of re-dropping it every
 			// turn until TTL.
-			if err := s.expireSessionPin(ctx, installationID, res.SessionKey, res.PinRole, "escalation_pin_excluded"); err != nil {
-				log.Error("excluded escalation pin eviction failed", "err", err, "pin_model", pin.Model, "role", res.PinRole)
+			evictReason := "escalation_pin_excluded"
+			if autoDisabled {
+				evictReason = "escalation_pin_automatic_routing_disabled"
+			}
+			if err := s.expireSessionPin(ctx, installationID, res.SessionKey, res.PinRole, evictReason); err != nil {
+				log.Error("ineligible escalation pin eviction failed", "err", err, "pin_model", pin.Model, "role", res.PinRole, "evict_reason", evictReason)
 			}
 		}
 		if !imageCapable {
@@ -814,6 +881,25 @@ func (s *Service) runTurnLoop(
 		// Treat as missing so downstream sticky branches don't dispatch to an
 		// unauthorized provider. The row stays in storage — a later request
 		// with the forced provider enabled resumes serving it.
+		pinFound = false
+		pin = sessionpin.Pin{}
+	}
+
+	// A pin the router chose itself stops being reusable the moment Weave
+	// disables its model deployment-wide. Dropping it here — before the
+	// tool-result, planner-disabled, EV-stay, and re-anchor branches — is what
+	// makes the setting reach sessions that are already pinned, instead of only
+	// sessions that route fresh. The row is left in storage: the next turn
+	// re-pins whatever the scorer picks, and re-enabling the model restores it.
+	if pinFound && !isUserForcedReason(pin.Reason) && automaticallyDisabled(req, pin.Model) {
+		reason, _ := s.globalAutomaticExclusionReason(ctx, pin.Model)
+		log.Info("Session pin model is disabled for automatic routing; falling through to scorer",
+			"pin_model", pin.Model,
+			"pin_provider", pin.Provider,
+			"pin_reason", pin.Reason,
+			"disable_reason", reason,
+			"role", res.PinRole,
+		)
 		pinFound = false
 		pin = sessionpin.Pin{}
 	}
@@ -974,7 +1060,7 @@ func (s *Service) runTurnLoop(
 		)
 		commandContinuationFound = false
 	}
-	if commandContinuationFound && pinEligible(commandContinuation, req) {
+	if commandContinuationFound && automaticPinEligible(commandContinuation, req) {
 		decision := pinDecision(commandContinuation)
 		res.Decision = decision
 		res.StickyHit = true
@@ -1216,7 +1302,7 @@ func (s *Service) runTurnLoop(
 		pinTier := catalog.TierFor(pin.Model)
 		freshTier := catalog.TierFor(fresh.Model)
 		if pinTier != catalog.TierUnknown && freshTier != catalog.TierUnknown && freshTier <= pinTier {
-			if _, excluded := req.ExcludedModels[pin.Model]; !excluded {
+			if _, excluded := req.ExcludedModels[pin.Model]; !excluded && !automaticallyDisabled(req, pin.Model) {
 				if _, available := s.availableModels[pin.Model]; available {
 					_, providerOK := req.EnabledProviders[pin.Provider]
 					if req.EnabledProviders == nil || providerOK {
@@ -1642,6 +1728,11 @@ func (s *Service) normalizeHMMStayPin(req router.Request, p sessionpin.Pin) (ses
 		if _, excluded := req.ExcludedModels[model]; excluded {
 			return sessionpin.Pin{}, false
 		}
+	}
+	// An HMM stay is the policy re-choosing the incumbent, so a deployment-wide
+	// disable applies to it exactly as it does to a fresh selection.
+	if automaticallyDisabled(req, model) {
+		return sessionpin.Pin{}, false
 	}
 	if s.availableModels != nil {
 		if _, available := s.availableModels[model]; !available {

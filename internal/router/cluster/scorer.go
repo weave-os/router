@@ -580,6 +580,37 @@ func (s *Scorer) Route(ctx context.Context, req router.Request) (router.Decision
 		eligibleModels = filtered
 	}
 
+	// Deployment-wide automatic exclusions are soft: unlike ExcludedModels they
+	// must never fail a turn, because a user can still reach these models by
+	// pinning them explicitly. Emptying the pool means the operator disabled
+	// everything this request could reach, so serve the unfiltered pool instead.
+	if len(req.AutomaticExcludedModels) > 0 {
+		filtered := eligibleModels[:0:0]
+		var dropped []string
+		for _, m := range eligibleModels {
+			if _, drop := req.AutomaticExcludedModels[m]; drop {
+				dropped = append(dropped, m)
+				continue
+			}
+			filtered = append(filtered, m)
+		}
+		if len(filtered) == 0 {
+			log.Warn(
+				"Cluster scorer: automatic-routing exclusions would empty eligible pool; ignoring them for this turn",
+				"automatic_excluded_models", sortedKeys(req.AutomaticExcludedModels),
+				"requested_model", req.RequestedModel,
+			)
+		} else {
+			if len(dropped) > 0 {
+				log.Debug("Cluster scorer: dropped globally disabled models",
+					"dropped_models", dropped,
+					"requested_model", req.RequestedModel,
+				)
+			}
+			eligibleModels = filtered
+		}
+	}
+
 	// Drop ToolUseLow models (e.g. instruct-only variants that hallucinate
 	// tool calls) when the request carries tools. Soft filter: falls back to
 	// the unfiltered set if it would empty the pool — a preference, not a gate.

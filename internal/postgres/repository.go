@@ -26,6 +26,10 @@ type Repository struct {
 	Feedback              *FeedbackRepo
 	Analytics             *AnalyticsRepo
 	FlagDefinitions       *FlagDefinitionRepo
+	// GlobalAutomaticExclusions is deployment-scoped rather than
+	// installation-scoped: it is the control plane's list of models withdrawn
+	// from automatic routing for every tenant.
+	GlobalAutomaticExclusions *GlobalAutomaticExclusionRepo
 }
 
 // NewRepository constructs a Repository. Pass auth.NoOpEncryptor{} for local dev without a keyset.
@@ -37,10 +41,11 @@ func NewRepository(tx sqlc.DBTX, encryptor auth.Encryptor) *Repository {
 		Users:                 NewUserRepository(tx),
 		ClusterModelLists:     NewClusterModelListRepo(tx),
 		UserClusterModelLists: NewUserClusterModelListRepo(tx),
-		Telemetry:             NewTelemetryRepo(tx),
-		Feedback:              NewFeedbackRepo(tx),
-		Analytics:             NewAnalyticsRepo(tx),
-		FlagDefinitions:       NewFlagDefinitionRepo(tx),
+		Telemetry:                 NewTelemetryRepo(tx),
+		Feedback:                  NewFeedbackRepo(tx),
+		Analytics:                 NewAnalyticsRepo(tx),
+		FlagDefinitions:           NewFlagDefinitionRepo(tx),
+		GlobalAutomaticExclusions: NewGlobalAutomaticExclusionRepo(tx),
 	}
 }
 
