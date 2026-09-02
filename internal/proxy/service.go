@@ -4782,12 +4782,9 @@ func (s *Service) policyDeadlineDefaultDecision(req router.Request) (router.Deci
 		return router.Decision{}, false
 	}
 
-	// The static deadline fallback is an automatic choice. Honor its soft
-	// exclusion while another dispatchable model remains, but do not turn an
-	// already-degraded request into a 503 when this is the only fallback left.
-	if _, disabled := req.AutomaticExcludedModels[s.policyDeadlineDefaultModel]; disabled && s.hasAutomaticFallbackAlternative(req) {
-		return router.Decision{}, false
-	}
+	// The static deadline fallback is an automatic choice, but it is also the
+	// last-resort response after policy has already failed. A soft exclusion may
+	// not turn this degraded path into a 503; hard exclusions above still win.
 
 	// nil EnabledProviders means unrestricted, so fall back to everything this
 	// deployment registered; otherwise only providers this turn can authenticate.
@@ -4809,42 +4806,6 @@ func (s *Service) policyDeadlineDefaultDecision(req router.Request) (router.Deci
 		Model:    s.policyDeadlineDefaultModel,
 		Reason:   policyDeadlineDefaultReason,
 	}, true
-}
-
-func (s *Service) hasAutomaticFallbackAlternative(req router.Request) bool {
-	for _, candidate := range catalog.Models {
-		if candidate.ID == s.policyDeadlineDefaultModel {
-			continue
-		}
-		if s.availableModels != nil {
-			if _, available := s.availableModels[candidate.ID]; !available {
-				continue
-			}
-		}
-		if _, excluded := req.ExcludedModels[candidate.ID]; excluded {
-			continue
-		}
-		if _, excluded := req.SafetyExcludedModels[candidate.ID]; excluded {
-			continue
-		}
-		if _, disabled := req.AutomaticExcludedModels[candidate.ID]; disabled {
-			continue
-		}
-
-		providerSet := make(map[string]struct{}, len(s.providers))
-		for provider := range s.providers {
-			if req.EnabledProviders != nil {
-				if _, enabled := req.EnabledProviders[provider]; !enabled {
-					continue
-				}
-			}
-			providerSet[provider] = struct{}{}
-		}
-		if _, ok := catalog.ResolveBinding(candidate.ID, providerSet); ok {
-			return true
-		}
-	}
-	return false
 }
 
 // bandSwapServed picks which half of a pinned band pair serves this sticky
