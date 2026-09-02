@@ -61,14 +61,23 @@ const (
 	// ExclusionGatewayNotServed means the installation routes exclusively through
 	// its own gateway and no gateway key aliases this model.
 	ExclusionGatewayNotServed ExclusionReason = "gateway_not_served"
+	// ExclusionCredentialMissing means no request-scoped credential can serve
+	// any binding for the model.
+	ExclusionCredentialMissing ExclusionReason = ExclusionReason(router.CandidateExclusionCredentialMissing)
+	// ExclusionCredentialScope means a credential exists but does not cover the
+	// model or endpoint requested by the caller.
+	ExclusionCredentialScope ExclusionReason = ExclusionReason(router.CandidateExclusionCredentialScope)
 )
 
 // Diagnostic describes one candidate exclusion for conformance checks and
 // debug-mode inspection. It contains no request content.
 type Diagnostic struct {
-	CatalogID string          `json:"catalog_id"`
-	RosterID  string          `json:"roster_id,omitempty"`
-	Reason    ExclusionReason `json:"reason"`
+	CatalogID        string                     `json:"catalog_id"`
+	RosterID         string                     `json:"roster_id,omitempty"`
+	Provider         string                     `json:"provider,omitempty"`
+	Endpoint         router.TranslationEndpoint `json:"endpoint,omitempty"`
+	CredentialSource router.CredentialSource    `json:"credential_source,omitempty"`
+	Reason           ExclusionReason            `json:"reason"`
 }
 
 // Candidate is one catalog-backed model offered to a policy sidecar.
@@ -308,7 +317,13 @@ func (r *Resolver) Resolve(req router.Request) ResolvedCandidates {
 		}
 
 		if len(gateways) > 0 {
-			allowedBindings := gatewayBindings(id, gateways, req.CustomBindings)
+			credentialGateways := router.CredentialProvidersForModel(
+				gateways,
+				id,
+				req.TranslationRequirements.Endpoint,
+				req.CredentialBindings,
+			)
+			allowedBindings := gatewayBindings(id, credentialGateways, req.CustomBindings)
 			if len(allowedBindings) == 0 {
 				diagnostics = append(diagnostics, Diagnostic{CatalogID: id, RosterID: rosterID, Reason: ExclusionGatewayNotServed})
 				continue
@@ -325,17 +340,53 @@ func (r *Resolver) Resolve(req router.Request) ResolvedCandidates {
 			continue
 		}
 
+		credentialProviders := router.CredentialProvidersForModel(
+			providerSet,
+			id,
+			req.TranslationRequirements.Endpoint,
+			req.CredentialBindings,
+		)
 		allowedBindings := catalog.EnumerateBindingsWithCustom(
 			id,
-			r.allowedProviders(providerSet),
+			r.allowedProviders(credentialProviders),
 			req.CustomBindings,
 		)
 		if len(allowedBindings) == 0 {
 			reason := ExclusionNoProvider
-			if unrestrictedBindings := catalog.EnumerateBindingsWithCustom(id, providerSet, req.CustomBindings); len(unrestrictedBindings) > 0 {
+			availableBindings := catalog.EnumerateBindingsWithCustom(id, providerSet, req.CustomBindings)
+			policyBindings := catalog.EnumerateBindingsWithCustom(id, r.allowedProviders(providerSet), req.CustomBindings)
+			if len(availableBindings) > 0 {
 				reason = ExclusionProviderPolicy
+				if len(policyBindings) > 0 {
+					reason = ExclusionNoProvider
+					for _, binding := range policyBindings {
+						if _, available := credentialProviders[binding.Provider]; !available {
+							reason = ExclusionCredentialScope
+							break
+						}
+					}
+				}
 			}
-			diagnostics = append(diagnostics, Diagnostic{CatalogID: id, RosterID: rosterID, Reason: reason})
+			diagnostic := Diagnostic{
+				CatalogID: id,
+				RosterID:  rosterID,
+				Endpoint:  req.TranslationRequirements.Endpoint,
+				Reason:    reason,
+			}
+			bindingsForDiagnostic := policyBindings
+			if len(bindingsForDiagnostic) == 0 {
+				bindingsForDiagnostic = availableBindings
+			}
+			if len(bindingsForDiagnostic) > 0 {
+				diagnostic.Provider = bindingsForDiagnostic[0].Provider
+				for _, credential := range req.CredentialBindings {
+					if credential.Provider == diagnostic.Provider {
+						diagnostic.CredentialSource = credential.Source
+						break
+					}
+				}
+			}
+			diagnostics = append(diagnostics, diagnostic)
 			continue
 		}
 

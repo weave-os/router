@@ -17,6 +17,7 @@ import (
 	openaiapi "workweave/router/internal/api/openai"
 	"workweave/router/internal/auth"
 	"workweave/router/internal/billing"
+	"workweave/router/internal/config"
 	"workweave/router/internal/policyclient"
 	"workweave/router/internal/proxy"
 	"workweave/router/internal/router"
@@ -141,7 +142,7 @@ func Register(engine *gin.Engine, authSvc *auth.Service, proxySvc *proxy.Service
 
 	if mode == DeploymentModeSelfHosted {
 		engine.GET("/", func(c *gin.Context) { c.Redirect(http.StatusFound, "/ui") })
-		registerUIStatic(engine, "./assets/ui")
+		registerUIStatic(engine, config.GetOr("ROUTER_UI_ASSETS_DIR", "./assets/ui"))
 
 		// Public — mounting inside WithAuth would be a chicken-and-egg
 		// deadlock for users who don't yet have a cookie.

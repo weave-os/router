@@ -98,7 +98,7 @@ func presentSubscriptionTokens(ctx context.Context, headers http.Header) (codex,
 	}
 	if codexSubscriptionFromContext(ctx) != nil {
 		codex = openaiSubscriptionFromContext(ctx)
-	} else if c := ExtractClientCredentials(providers.ProviderOpenAI, headers); c != nil && c.OAuth {
+	} else if c := ExtractClientCredentials(providers.ProviderCodex, headers); c != nil && c.OAuth {
 		codex = string(c.APIKey)
 	}
 	// Validate the dedicated Anthropic header via subscriptionCredsFromHeaderValue
@@ -122,6 +122,7 @@ func subscriptionServableProviders(ctx context.Context, headers http.Header) map
 	out := make(map[string]struct{}, 2)
 	if codex != "" {
 		out[providers.ProviderOpenAI] = struct{}{}
+		out[providers.ProviderCodex] = struct{}{}
 	}
 	if anthropic != "" {
 		out[providers.ProviderAnthropic] = struct{}{}

@@ -41,8 +41,8 @@
 #                                                             (go/typescript/python/rust; needs that language's toolchain)
 #   npx @workweave/router --scope project                  # commit-with-team install
 #   npx @workweave/router --dir /tmp/my-sandbox            # isolated throwaway install
-#   npx @workweave/router --local                          # local router on localhost:8080
-#   npx @workweave/router --base-url http://localhost:8080 # self-hosted, custom port
+#   npx @workweave/router --local                          # local router on localhost:8088
+#   npx @workweave/router --base-url http://localhost:8088 # self-hosted, custom port
 #   npx @workweave/router --non-interactive                # require WEAVE_ROUTER_KEY env var (defaults target to claude)
 #   npx @workweave/router --quiet                          # suppress banner, ping check, and trailing tips
 #   npx @workweave/router --rotate-key                     # ignore the installed key and prompt for a new one
@@ -1094,8 +1094,8 @@ while [ $# -gt 0 ]; do
       base_url_explicit="true"
       ;;
     --local)
-      # Shorthand for local dev: localhost:8080 (matches `wv mr` / `make dev` default PORT).
-      base_url="http://localhost:8080"
+      # Shorthand for local dev: localhost:8088 (matches `router web start`).
+      base_url="http://localhost:8088"
       base_url_explicit="true"
       shift
       ;;

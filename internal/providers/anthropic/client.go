@@ -282,7 +282,7 @@ func (c *Client) Proxy(ctx context.Context, decision router.Decision, prep provi
 	baseURL := proxy.EffectiveBaseURL(ctx, c.baseURL)
 	body := rewriteModelField(prep.Body, c.modelIDMap)
 	// Applied after the catalog map so a BYOK endpoint's own naming wins.
-	body = proxy.ApplyModelAlias(ctx, body, decision.Model)
+	body = proxy.ApplyDispatchPlanModel(ctx, body, decision)
 
 	// 404s are buffered before reaching w, so a duplicate "/v1" can be re-tried.
 	// A non-404 on the retried path is the real error and is memoized; only a

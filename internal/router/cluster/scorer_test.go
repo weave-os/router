@@ -292,6 +292,17 @@ func TestScorer_PreferredModelSoftNudge(t *testing.T) {
 	assert.Equal(t, base.Model, stale.Model, "an unknown preferred model is a no-op")
 }
 
+func TestIntentPreferenceBonus_OnlyEligibleTaggedModelsReceiveIt(t *testing.T) {
+	base := map[string]float32{"qwen/qwen3-coder": 0.10}
+	got := addIntentPreferenceBonuses(base, []string{"qwen/qwen3-coder", "claude-opus-4-7"}, []string{"coding"})
+
+	assert.InDelta(t, 0.10+float64(intentPreferenceBonus), float64(got["qwen/qwen3-coder"]), 1e-6)
+	assert.NotContains(t, got, "claude-opus-4-7")
+
+	got = addIntentPreferenceBonuses(nil, []string{"qwen/qwen3-coder"}, []string{"summarization"})
+	assert.Empty(t, got, "an unmatched intent must not create a routing preference")
+}
+
 // Removing any populated metadata field breaks routing telemetry rows.
 func TestScorer_PopulatesRoutingMetadata(t *testing.T) {
 	emb := &fakeEmbedder{vec: makeOpusVec()}
@@ -1001,6 +1012,59 @@ func TestScorer_EmptyEnabledProvidersReturnsErrNoEligibleProvider(t *testing.T) 
 	// Must not also surface as ErrClusterUnavailable; API maps these
 	// sentinels to different status codes (400 vs 503).
 	assert.False(t, errors.Is(err, ErrClusterUnavailable))
+}
+
+func TestScorer_NoEligibleProviderIncludesSafeCandidateDiagnostics(t *testing.T) {
+	// The typed error must explain the provider gate without carrying a bearer
+	// token or any request content.
+	s := newTwoProviderScorer(t, &fakeEmbedder{vec: makeOpusVec()})
+
+	_, err := s.Route(context.Background(), router.Request{
+		PromptText:       strings.Repeat("x", 100),
+		EnabledProviders: map[string]struct{}{providers.ProviderGoogle: {}},
+	})
+
+	var eligibilityErr *NoEligibleProviderError
+	require.ErrorAs(t, err, &eligibilityErr)
+	require.NotEmpty(t, eligibilityErr.Diagnostics)
+	assert.True(t, errors.Is(eligibilityErr, ErrNoEligibleProvider))
+	for _, diagnostic := range eligibilityErr.Diagnostics {
+		assert.NotEmpty(t, diagnostic.Model)
+		assert.NotEmpty(t, diagnostic.Provider)
+		assert.Equal(t, router.CandidateExclusionCredentialMissing, diagnostic.Reason)
+		assert.NotContains(t, diagnostic.Model, "x")
+	}
+}
+
+func TestScorer_CredentialScopeDiagnosticNamesSource(t *testing.T) {
+	s := newTwoProviderScorer(t, &fakeEmbedder{vec: makeOpusVec()})
+
+	_, err := s.Route(context.Background(), router.Request{
+		PromptText:       strings.Repeat("x", 100),
+		EnabledProviders: map[string]struct{}{providers.ProviderOpenAI: {}},
+		TranslationRequirements: router.TranslationRequirements{
+			Endpoint: router.EndpointOpenAIResponses,
+		},
+		CredentialBindings: []router.CredentialBinding{{
+			Provider: providers.ProviderOpenAI,
+			Source:   router.CredentialSourceCodexOAuth,
+			Models:   map[string]struct{}{"model-not-covered-by-codex": {}},
+			Endpoints: map[router.TranslationEndpoint]struct{}{
+				router.EndpointOpenAIResponses: {},
+			},
+		}},
+	})
+
+	var eligibilityErr *NoEligibleProviderError
+	require.ErrorAs(t, err, &eligibilityErr)
+	require.NotEmpty(t, eligibilityErr.Diagnostics)
+	assert.Contains(t, eligibilityErr.Diagnostics, router.CandidateDiagnostic{
+		Model:            "gpt-5",
+		Provider:         providers.ProviderOpenAI,
+		Endpoint:         router.EndpointOpenAIResponses,
+		CredentialSource: router.CredentialSourceCodexOAuth,
+		Reason:           router.CandidateExclusionModelUnsupported,
+	})
 }
 
 // Per-installation model exclusion drops the named model from argmax even

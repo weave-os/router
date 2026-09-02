@@ -86,6 +86,7 @@ type DispatchErrorClass struct {
 func ClassifyDispatchError(err error) (DispatchErrorClass, bool) {
 	var statusErr *providers.UpstreamStatusError
 	var bufferedErr *providers.UpstreamErrorResponse
+	var noEligible *cluster.NoEligibleProviderError
 	var forcedExcluded *ForcedModelExcludedError
 	var forcedUnknown *ForcedModelUnknownError
 	var forcedClusterStrategy *ForcedClusterUnsupportedStrategyError
@@ -124,6 +125,14 @@ func ClassifyDispatchError(err error) (DispatchErrorClass, bool) {
 			Message:    forcedClusterUnservable.Reason + ". Clear " + ForceClusterHeader + " or update the cluster's model list.",
 			LogLevel:   "warn",
 			LogMessage: "Rejected request: forced cluster has no eligible model",
+		}, true
+	case errors.As(err, &noEligible):
+		return DispatchErrorClass{
+			Kind:       DispatchErrorNoEligibleProvider,
+			Status:     http.StatusBadRequest,
+			Message:    noEligibleProviderMessage(noEligible),
+			LogLevel:   "warn",
+			LogMessage: "No eligible provider for request",
 		}, true
 	case errors.As(err, &statusErr):
 		return DispatchErrorClass{
@@ -330,6 +339,20 @@ func ClassifyDispatchError(err error) (DispatchErrorClass, bool) {
 	}
 }
 
+func noEligibleProviderMessage(err *cluster.NoEligibleProviderError) string {
+	for _, diagnostic := range err.Diagnostics {
+		if diagnostic.CredentialSource != router.CredentialSourceCodexOAuth {
+			continue
+		}
+		if diagnostic.Reason == router.CandidateExclusionModelUnsupported ||
+			diagnostic.Reason == router.CandidateExclusionEndpointUnsupported ||
+			diagnostic.Reason == router.CandidateExclusionCredentialScope {
+			return "The connected Codex OAuth credential cannot serve this model or endpoint. Use a Codex-supported Responses model, or configure a provider API key for this request."
+		}
+	}
+	return "No provider keys available for any deployed model: register a BYOK key or supply a provider Authorization header."
+}
+
 // unwrapToSentinelMessage returns the message of the wrap layer whose direct
 // child is one of the cache_control sentinels, stripping outer prefixes like
 // "emit body: ". Falls back to err.Error().
@@ -359,10 +382,27 @@ func (k DispatchErrorKind) IsClientError() bool {
 // LogLevel is empty, e.g. a well-understood client-input problem that
 // doesn't warrant a log line).
 func LogDispatchErrorClass(log *slog.Logger, cls DispatchErrorClass, err error) {
+	attrs := []any{"err", err}
+	var noEligible *cluster.NoEligibleProviderError
+	if errors.As(err, &noEligible) {
+		attrs = append(attrs,
+			"requested_model", noEligible.RequestedModel,
+			"enabled_provider_count", len(noEligible.EnabledProviders),
+			"candidate_diagnostic_count", len(noEligible.Diagnostics),
+			"candidate_diagnostics", noEligible.Diagnostics,
+		)
+	}
+	var noRoutable *policy.NoRoutableModelsError
+	if errors.As(err, &noRoutable) {
+		attrs = append(attrs,
+			"candidate_diagnostic_count", len(noRoutable.Diagnostics),
+			"candidate_diagnostics", noRoutable.Diagnostics,
+		)
+	}
 	switch cls.LogLevel {
 	case "warn":
-		log.Warn(cls.LogMessage, "err", err)
+		log.Warn(cls.LogMessage, attrs...)
 	case "error":
-		log.Error(cls.LogMessage, "err", err)
+		log.Error(cls.LogMessage, attrs...)
 	}
 }

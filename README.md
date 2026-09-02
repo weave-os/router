@@ -96,6 +96,84 @@ The router is up at <http://localhost:8080>, the dashboard at
 <http://localhost:8080/ui/> (password: `admin`), and your `rk_...` key
 prints in the logs.
 
+### Local PostgreSQL, without Docker
+
+If PostgreSQL is already installed on the host, use the host-mode targets:
+
+```bash
+# Uses the current OS user, PostgreSQL localhost:5432, database `router`,
+# and Router localhost:8088 by default.
+make local-setup
+make local-assets       # once; downloads the pinned Jina embedder files
+brew install onnxruntime # once; required by host-mode ONNX routing
+make local-run           # also builds the dashboard on the first run
+```
+
+`local-setup` creates the database and schema, applies migrations, seeds a
+router key, and installs the managed Codex provider in `~/.codex/config.toml`.
+It enables single-process mode, so no Docker or Pub/Sub emulator is needed.
+The first `local-run`/`local-dev` also builds the Next.js dashboard and copies
+it to `assets/ui`; run `make local-ui LOCAL_UI_REBUILD=true` after changing
+frontend code.
+For a different PostgreSQL role or port, pass an explicit URL:
+
+```bash
+make local-setup LOCAL_DATABASE_URL='postgresql://postgres:password@127.0.0.1:5432/router?sslmode=disable' LOCAL_PG_USER=postgres
+make local-run LOCAL_DATABASE_URL='postgresql://postgres:password@127.0.0.1:5432/router?sslmode=disable'
+```
+
+The Codex CLI keeps its existing ChatGPT OAuth login. On a local self-hosted
+Router, the service reads the current Codex session from `~/.codex/auth.json`
+when Codex's custom provider request does not carry OAuth headers. The router
+key only authenticates to the local router; `OPENAI_API_KEY` is intentionally
+not needed. The native Codex subscription models are sent to the ChatGPT Codex
+backend using that OAuth credential. Host-mode routing still needs the native
+ONNX Runtime/libtokenizers prerequisites described in
+[`CONTRIBUTING.md`](CONTRIBUTING.md).
+
+With only Codex OAuth configured, models outside the native Codex subscription
+family still need a corresponding provider key or BYOK entry; OAuth is not a
+general replacement for Anthropic/OpenAI API keys.
+
+### Installable local CLI
+
+After the local database, native dependencies, ONNX assets, and dashboard are
+ready, install the Router binary and manage the service without keeping a
+terminal attached:
+
+```bash
+make install
+router web start
+router web status
+router web stop
+router integrations              # inspect tool installation and Router status
+router integrations --json       # machine-readable version
+```
+
+`router web start` reads `.env.development` and `.env.local`, starts the same
+HTTP service as `cmd/router`, waits for `/health`, and writes logs and state
+under `~/.local/state/weave-router`. Use `router web start --foreground` when
+debugging startup; `router web restart` recreates the process from the
+installed binary.
+
+The installed binary also exposes the client installer, so the npm commands
+have direct Router equivalents: `router install`, `router --claude`,
+`router --codex`, `router --opencode`, `router --pi`, `router --scope project`,
+`router --local`, and `router --base-url <url>`. Installer resources are copied
+under `~/.local/share/weave-router/installer` by `make install`.
+
+`router integrations` checks the user configuration and the current project's
+configuration for Claude Code, Codex, opencode, and pi. It reports whether
+Router is active or parked for each scope; Router keys are never printed.
+
+If the model download is interrupted, run `make local-assets` again; it
+resumes the partial file automatically. If your network cannot reach Hugging
+Face, provide an accessible mirror or proxy base URL:
+
+```bash
+make local-assets LOCAL_HF_BASE_URL='https://your-huggingface-mirror.example'
+```
+
 ```bash
 # Call it like Anthropic
 curl -sS http://localhost:8080/v1/messages \
@@ -177,6 +255,9 @@ sidecar is optional. HMM and forced selections in the native Codex family
 (`gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-5.6-luna`) use that OAuth credential;
 every other selected model uses its WorkWeave deployment or BYOK credential,
 matching the Claude Code plugin's model-to-credential dispatch.
+If a native Codex model is missing from the automatic cluster candidate roster,
+the local router falls back to an OpenAI Responses passthrough using that OAuth
+credential; ordinary models still require a provider key or BYOK entry.
 Codex does not load third-party slash-command files, so the installer ships the
 router directives as native Codex skills: `$force-model <model-id>` (alias
 `$fm <model-id>`), `$unforce-model` (alias `$ufm`), and

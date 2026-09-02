@@ -267,7 +267,7 @@ func (c *Client) Proxy(ctx context.Context, decision router.Decision, prep provi
 
 	body := rewriteModelField(prep.Body, c.modelIDMap)
 	// Applied after the catalog map so a BYOK endpoint's own naming wins.
-	body = proxy.ApplyModelAlias(ctx, body, decision.Model)
+	body = proxy.ApplyDispatchPlanModel(ctx, body, decision)
 	baseURL := c.effectiveBaseURL(ctx)
 
 	// EndpointResponses is the Responses surface: reasoning models reject a tool

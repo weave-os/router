@@ -34,6 +34,7 @@ Claude Code keep using the user's logged-in plan.
 | `OPENAI_API_KEY`      | *(none)*                                                  | Enables the OpenAI provider (Chat Completions API). |
 | `OPENAI_BASE_URL`     | `https://api.openai.com`                                  | Override for OpenAI (e.g. Azure OpenAI). |
 | `ROUTER_CODEX_BASE_URL` | `https://chatgpt.com/backend-api/codex`                  | Local-testing override for the ChatGPT subscription Responses backend; leave unset in production. |
+| `ROUTER_CODEX_AUTH_FILE` | `~/.codex/auth.json` | Optional local self-hosted Codex OAuth file override. The file is read per request and its token is never logged. |
 | `GOOGLE_API_KEY`      | *(none)*                                                  | Enables Gemini via its OpenAI-compatible endpoint. |
 | `GOOGLE_BASE_URL`     | `https://generativelanguage.googleapis.com/v1beta/openai` | Override for Gemini. |
 | `ANTHROPIC_GATEWAY_BASE_URL` | *(none)*                                           | Base URL of an Anthropic-compatible gateway; `/v1/messages` is appended to it. |
@@ -387,6 +388,7 @@ Set `DATABASE_URL` directly, or compose it from the individual vars:
 | `ROUTER_DEPLOYMENT_MODE` | `selfhosted` | `selfhosted` mounts `/ui/*` and `/admin/v1/*`. `managed` skips both (for SaaS deployments with a separate admin UI). |
 | `ROUTER_ADMIN_PASSWORD`  | `admin`      | Dashboard password. Defaults to `admin` with a startup warning when unset — **set this for any internet-facing deployment**. |
 | `ROUTER_RESTRICT_UPSTREAM_EGRESS` | follows `ROUTER_DEPLOYMENT_MODE` | When true, provider adapters refuse to dial an upstream that resolves outside the public internet (loopback, private, link-local, CGNAT). Defaults to true in `managed` mode and false in `selfhosted`, where pointing a provider at an in-cluster or loopback gateway is normal. While on, provider adapters also ignore `HTTP_PROXY`/`HTTPS_PROXY`, since a proxied connection makes the destination unverifiable. |
+| `ROUTER_PUBSUB_DISABLED` | `false` | Single-process local-development mode. When `true`, disables cross-replica cache invalidation and removes the requirement for Pub/Sub settings or an emulator. |
 
 ## Routing
 

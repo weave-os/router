@@ -7,6 +7,7 @@ import (
 
 	"workweave/router/internal/auth"
 	"workweave/router/internal/providers"
+	"workweave/router/internal/router"
 
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
@@ -83,6 +84,26 @@ func EffectiveUpstreamModel(ctx context.Context, model string) string {
 	return model
 }
 
+// EffectiveDispatchModel returns the upstream model selected by the dispatch
+// plan, then applies the request credential's endpoint alias. Routing and
+// telemetry continue to use decision.Model; only the outbound model name is
+// changed here.
+func EffectiveDispatchModel(ctx context.Context, decision router.Decision) string {
+	model := decision.Model
+	if plan := decision.DispatchPlan; plan != nil && plan.IsValid() &&
+		plan.Candidate.Model == decision.Model && plan.Candidate.Provider == decision.Provider {
+		model = plan.Candidate.UpstreamID
+	}
+	creds := CredentialsFromContext(ctx)
+	if creds == nil {
+		return model
+	}
+	if alias, ok := creds.ModelAliases[decision.Model]; ok {
+		return alias
+	}
+	return model
+}
+
 // ApplyModelAlias rewrites the body's top-level "model" field via the BYOK credential alias.
 // Unaliased bodies are returned untouched; the envelope stays the authority on every other request.
 func ApplyModelAlias(ctx context.Context, body []byte, model string) []byte {
@@ -104,6 +125,26 @@ func ApplyModelAlias(ctx context.Context, body []byte, model string) []byte {
 		return body
 	}
 	return out
+}
+
+// ApplyDispatchPlanModel writes the planned upstream model and then applies a
+// credential-scoped alias, if one exists. It is safe for legacy decisions that
+// do not carry a DispatchPlan.
+func ApplyDispatchPlanModel(ctx context.Context, body []byte, decision router.Decision) []byte {
+	if len(body) == 0 || !gjson.GetBytes(body, "model").Exists() {
+		return body
+	}
+	model := decision.Model
+	if plan := decision.DispatchPlan; plan != nil && plan.IsValid() &&
+		plan.Candidate.Model == decision.Model && plan.Candidate.Provider == decision.Provider {
+		model = plan.Candidate.UpstreamID
+	}
+	if model != decision.Model {
+		if out, err := sjson.SetBytes(body, "model", model); err == nil {
+			body = out
+		}
+	}
+	return ApplyModelAlias(ctx, body, decision.Model)
 }
 
 // ExternalAPIKeysContextKey is the request-context key for external API keys
@@ -188,7 +229,7 @@ func ExtractClientCredentials(provider string, headers http.Header) *Credentials
 		// A Codex ChatGPT subscription bearer pairs with a ChatGPT-Account-ID
 		// header; resolve it before the client-key branch. OpenAI-only, so a
 		// stray header on another route can't reclassify its bearer.
-		if provider == providers.ProviderOpenAI {
+		if isCodexProvider(provider) {
 			if sub := codexSubscriptionCreds(key, headers.Get(chatGPTAccountIDHeader)); sub != nil {
 				return sub
 			}

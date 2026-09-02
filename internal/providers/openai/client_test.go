@@ -99,6 +99,44 @@ func TestProxy_RewritesMappedModelForChatAndResponses(t *testing.T) {
 	}
 }
 
+func TestProxy_UsesDispatchPlanUpstreamModel(t *testing.T) {
+	var gotBody map[string]any
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		require.NoError(t, json.Unmarshal(body, &gotBody))
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"id":"planned-model","object":"chat.completion"}`))
+	}))
+	defer upstream.Close()
+
+	c := openai.NewClient("test-key", upstream.URL)
+	decision := router.Decision{
+		Model:    "gpt-5.6-luna-pro",
+		Provider: providers.ProviderOpenAI,
+		DispatchPlan: &router.DispatchPlan{
+			Candidate: router.RoutingCandidate{
+				Model:      "gpt-5.6-luna-pro",
+				Provider:   providers.ProviderOpenAI,
+				UpstreamID: "gpt-5.6-luna",
+				Mode:       router.DispatchModeNative,
+			},
+		},
+	}
+	rec := httptest.NewRecorder()
+	prep := providers.PreparedRequest{
+		Body:     []byte(`{"model":"gpt-5.6-luna-pro","messages":[]}`),
+		Headers:  make(http.Header),
+		Endpoint: providers.EndpointChatCompletions,
+	}
+
+	err := c.Proxy(context.Background(), decision, prep, rec,
+		httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader("")))
+
+	require.NoError(t, err)
+	assert.Equal(t, "gpt-5.6-luna", gotBody["model"])
+}
+
 func TestProxy_BYOKModelAliasOverridesCatalogModelIDMap(t *testing.T) {
 	var gotBody map[string]any
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

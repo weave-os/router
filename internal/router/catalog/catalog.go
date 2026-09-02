@@ -8,6 +8,7 @@ package catalog
 
 import (
 	"workweave/router/internal/providers"
+	"workweave/router/internal/router/intent"
 )
 
 // Tier is the coarse capability bucket. Higher is stronger; integer
@@ -153,6 +154,9 @@ type Model struct {
 	// ImageInput: default ImageInputUnknown; set ImageInputUnsupported on
 	// text-only models so the scorer keeps image-bearing turns off them.
 	ImageInput ImageInput
+	// IntentTags are conservative preference hints for automatic routing. They
+	// never make a model eligible and an empty set means no preference is known.
+	IntentTags []string
 	// ThinkTagReasoning marks a model that streams inline <think>...</think>
 	// instead of reasoning_content; the Anthropic translator reroutes a
 	// leading <think> block into Anthropic thinking. Default false.
@@ -334,6 +338,7 @@ var Models = []Model{
 	// --- OpenAI GPT-5.6 --- Sol/Terra/Luna family, GA 2026-07-09.
 	{ID: "gpt-5.6-luna", Tier: TierMid, ContextWindow: 1_050_000, Providers: []ProviderBinding{
 		{Provider: providers.ProviderOpenAI, Price: Pricing{InputUSDPer1M: 1.00, OutputUSDPer1M: 6.00, CacheReadMultiplier: 0.10}},
+		{Provider: providers.ProviderCodex, Price: Pricing{InputUSDPer1M: 1.00, OutputUSDPer1M: 6.00, CacheReadMultiplier: 0.10}},
 	}},
 	// Pi roster aliases dispatch to their native OpenAI model IDs.
 	{ID: "gpt-5.6-luna-pro", HMMTarget: true, ContextWindow: 1_050_000, Providers: []ProviderBinding{
@@ -341,9 +346,11 @@ var Models = []Model{
 	}},
 	{ID: "gpt-5.6-terra", Tier: TierHigh, ContextWindow: 1_050_000, Providers: []ProviderBinding{
 		{Provider: providers.ProviderOpenAI, Price: Pricing{InputUSDPer1M: 2.50, OutputUSDPer1M: 15.00, CacheReadMultiplier: 0.10}},
+		{Provider: providers.ProviderCodex, Price: Pricing{InputUSDPer1M: 2.50, OutputUSDPer1M: 15.00, CacheReadMultiplier: 0.10}},
 	}},
 	{ID: "gpt-5.6-sol", Tier: TierHigh, ContextWindow: 1_050_000, Providers: []ProviderBinding{
 		{Provider: providers.ProviderOpenAI, Price: Pricing{InputUSDPer1M: 5.00, OutputUSDPer1M: 30.00, CacheReadMultiplier: 0.10}},
+		{Provider: providers.ProviderCodex, Price: Pricing{InputUSDPer1M: 5.00, OutputUSDPer1M: 30.00, CacheReadMultiplier: 0.10}},
 	}},
 	{ID: "gpt-5.6-sol-pro", HMMTarget: true, ContextWindow: 1_050_000, Providers: []ProviderBinding{
 		{Provider: providers.ProviderOpenAI, UpstreamID: "gpt-5.6-sol", Price: Pricing{InputUSDPer1M: 5.00, OutputUSDPer1M: 30.00, CacheReadMultiplier: 0.10}},
@@ -426,7 +433,7 @@ var Models = []Model{
 			Price: Pricing{InputUSDPer1M: 0.2266, OutputUSDPer1M: 0.9064}},
 		{Provider: providers.ProviderOpenRouter, Price: Pricing{InputUSDPer1M: 0.071, OutputUSDPer1M: 0.463}},
 	}},
-	{ID: "qwen/qwen3-coder-next", Tier: TierMid, ContextWindow: 262_144, ImageInput: ImageInputUnsupported, Providers: []ProviderBinding{
+	{ID: "qwen/qwen3-coder-next", Tier: TierMid, ContextWindow: 262_144, ImageInput: ImageInputUnsupported, IntentTags: []string{intent.TagCoding}, Providers: []ProviderBinding{
 		{Provider: providers.ProviderBedrock, UpstreamID: "qwen.qwen3-coder-next",
 			Price: Pricing{InputUSDPer1M: 0.500, OutputUSDPer1M: 1.200}},
 		{Provider: providers.ProviderOpenRouter, Price: Pricing{InputUSDPer1M: 0.070, OutputUSDPer1M: 0.300}},
@@ -605,7 +612,7 @@ var Models = []Model{
 			Price: Pricing{InputUSDPer1M: 0.150, OutputUSDPer1M: 0.600, CacheReadMultiplier: 0.1684}},
 		{Provider: providers.ProviderOpenRouter, Price: Pricing{InputUSDPer1M: 0.100, OutputUSDPer1M: 0.300, CacheReadMultiplier: 0.10}},
 	}},
-	{ID: "qwen/qwen3-coder", Tier: TierHigh, ContextWindow: 262_144, ImageInput: ImageInputUnsupported, Providers: []ProviderBinding{
+	{ID: "qwen/qwen3-coder", Tier: TierHigh, ContextWindow: 262_144, ImageInput: ImageInputUnsupported, IntentTags: []string{intent.TagCoding}, Providers: []ProviderBinding{
 		{Provider: providers.ProviderFireworks, UpstreamID: "accounts/fireworks/models/qwen3-coder-480b-a35b-instruct",
 			Price: Pricing{InputUSDPer1M: 0.900, OutputUSDPer1M: 2.700, CacheReadMultiplier: 0.1684}},
 		{Provider: providers.ProviderOpenRouter, Price: Pricing{InputUSDPer1M: 1.000, OutputUSDPer1M: 5.000, CacheReadMultiplier: 0.10}},

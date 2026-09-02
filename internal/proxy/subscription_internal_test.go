@@ -7,6 +7,7 @@ import (
 
 	"workweave/router/internal/auth"
 	"workweave/router/internal/providers"
+	"workweave/router/internal/router"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -191,6 +192,201 @@ func TestCodexSubscriptionCoversModel(t *testing.T) {
 	for _, model := range []string{"gpt-5.4-nano", "gpt-5.5", "gpt-4o", "gpt-5.6", ""} {
 		assert.Falsef(t, codexSubscriptionCoversModel(model), "%s must use infrastructure credentials", model)
 	}
+}
+
+func TestCodexOAuthPassthroughDecisionUsesCatalogBinding(t *testing.T) {
+	ctx := context.WithValue(context.Background(), codexOAuthPassthroughModelContextKey{}, "gpt-5.6-terra")
+	svc := &Service{providers: map[string]providers.Client{providers.ProviderOpenAI: nil}}
+
+	decision, ok := svc.codexOAuthPassthroughDecision(ctx, router.Request{
+		RequestedModel:   "gpt-5.6-terra",
+		EnabledProviders: map[string]struct{}{providers.ProviderOpenAI: {}},
+	})
+
+	require.True(t, ok, "a covered Codex model must not depend on the cluster artifact roster")
+	assert.Equal(t, providers.ProviderOpenAI, decision.Provider)
+	assert.Equal(t, "gpt-5.6-terra", decision.Model)
+	assert.Equal(t, codexOAuthPassthroughReason, decision.Reason)
+	assert.Equal(t, router.CredentialSourceCodexOAuth, decision.CredentialSource)
+}
+
+func TestCodexOAuthPassthroughDecisionPrefersDedicatedProvider(t *testing.T) {
+	ctx := context.WithValue(context.Background(), codexOAuthPassthroughModelContextKey{}, "gpt-5.6-terra")
+	svc := &Service{providers: map[string]providers.Client{
+		providers.ProviderOpenAI: nil,
+		providers.ProviderCodex:  nil,
+	}}
+
+	decision, ok := svc.codexOAuthPassthroughDecision(ctx, router.Request{
+		RequestedModel: "gpt-5.6-terra",
+		EnabledProviders: map[string]struct{}{
+			providers.ProviderOpenAI: {},
+			providers.ProviderCodex:  {},
+		},
+	})
+
+	require.True(t, ok)
+	assert.Equal(t, providers.ProviderCodex, decision.Provider)
+	assert.Equal(t, router.CredentialSourceCodexOAuth, decision.CredentialSource)
+}
+
+func TestCredentialBindingsScopeDedicatedCodexToNativeResponses(t *testing.T) {
+	svc := &Service{
+		providers: map[string]providers.Client{
+			providers.ProviderCodex: nil,
+		},
+		byokOnly:                 true,
+		deploymentKeyedProviders: map[string]struct{}{},
+	}
+	ctx := context.WithValue(context.Background(), OpenAISubscriptionContextKey{}, "eyJhbGciOiJSUzI1NiJ9.codex.sig")
+	ctx = context.WithValue(ctx, OpenAIAccountIDContextKey{}, "acct-123")
+	enabled := map[string]struct{}{providers.ProviderCodex: {}}
+	bindings := svc.credentialBindingsForRequest(ctx, http.Header{}, enabled)
+
+	assert.Equal(t, enabled, router.CredentialProvidersForModel(
+		enabled, "gpt-5.6-terra", router.EndpointOpenAIResponses, bindings))
+	assert.Empty(t, router.CredentialProvidersForModel(
+		enabled, "gpt-5.4-nano", router.EndpointOpenAIResponses, bindings))
+	assert.Empty(t, router.CredentialProvidersForModel(
+		enabled, "gpt-5.6-terra", router.EndpointOpenAIChat, bindings))
+}
+
+func TestCredentialBindingsDropSuppressedCodexOAuth(t *testing.T) {
+	svc := &Service{
+		providers: map[string]providers.Client{providers.ProviderCodex: nil},
+		byokOnly:  true,
+	}
+	ctx := context.WithValue(subscriptionDisabledCtx(), OpenAISubscriptionContextKey{}, "eyJhbGciOiJSUzI1NiJ9.codex.sig")
+	ctx = context.WithValue(ctx, OpenAIAccountIDContextKey{}, "acct-123")
+
+	assert.Empty(t, svc.credentialBindingsForRequest(
+		ctx,
+		http.Header{},
+		map[string]struct{}{providers.ProviderCodex: {}},
+	), "a suppressed subscription must not create an eligible Codex candidate")
+}
+
+func TestAnnotateDecisionCredentialSource(t *testing.T) {
+	service := &Service{
+		providers: map[string]providers.Client{
+			providers.ProviderOpenAI: nil,
+		},
+		deploymentKeyedProviders: map[string]struct{}{
+			providers.ProviderOpenAI: {},
+		},
+	}
+
+	tests := []struct {
+		name     string
+		ctx      context.Context
+		headers  http.Header
+		want     router.CredentialSource
+		provider string
+	}{
+		{
+			name:     "deployment key",
+			ctx:      context.Background(),
+			want:     router.CredentialSourceDeploymentKey,
+			provider: providers.ProviderOpenAI,
+		},
+		{
+			name: "byok",
+			ctx: context.WithValue(context.Background(), ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
+				{Provider: providers.ProviderOpenAI, Plaintext: []byte("provider-key")},
+			}),
+			want:     router.CredentialSourceBYOK,
+			provider: providers.ProviderOpenAI,
+		},
+		{
+			name: "codex oauth",
+			ctx: context.WithValue(
+				context.WithValue(context.Background(), OpenAISubscriptionContextKey{}, "oauth-token"),
+				OpenAIAccountIDContextKey{}, "account-id",
+			),
+			want:     router.CredentialSourceCodexOAuth,
+			provider: providers.ProviderOpenAI,
+		},
+		{
+			name:     "client api key",
+			ctx:      context.Background(),
+			headers:  http.Header{"Authorization": []string{"Bearer client-key"}},
+			want:     router.CredentialSourceClientAPIKey,
+			provider: providers.ProviderOpenAI,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			ctx := resolveAndInjectCredentials(test.ctx, test.provider, "gpt-5.6-terra", test.headers)
+			got := service.annotateDecisionCredentialSource(ctx, test.headers, router.Decision{
+				Provider: test.provider,
+				Model:    "gpt-5.6-terra",
+			})
+			assert.Equal(t, test.want, got.CredentialSource)
+		})
+	}
+}
+
+func TestCodexOAuthPassthroughDecisionRespectsRoutingBoundaries(t *testing.T) {
+	ctx := context.WithValue(context.Background(), codexOAuthPassthroughModelContextKey{}, "gpt-5.6-terra")
+	svc := &Service{providers: map[string]providers.Client{providers.ProviderOpenAI: nil}}
+
+	tests := []struct {
+		name string
+		req  router.Request
+	}{
+		{
+			name: "different requested model",
+			req:  router.Request{RequestedModel: "gpt-5.5"},
+		},
+		{
+			name: "explicit force model",
+			req:  router.Request{RequestedModel: "gpt-5.6-terra", ForceModel: "gpt-5.5"},
+		},
+		{
+			name: "excluded model",
+			req: router.Request{
+				RequestedModel: "gpt-5.6-terra",
+				ExcludedModels: map[string]struct{}{"gpt-5.6-terra": {}},
+			},
+		},
+		{
+			name: "allowlist excludes model",
+			req: router.Request{
+				RequestedModel: "gpt-5.6-terra",
+				AllowedModels:  map[string]struct{}{"gpt-5.5": {}},
+			},
+		},
+		{
+			name: "safety exclusion",
+			req: router.Request{
+				RequestedModel:       "gpt-5.6-terra",
+				SafetyExcludedModels: map[string]struct{}{"gpt-5.6-terra": {}},
+			},
+		},
+		{
+			name: "OpenAI provider disabled",
+			req: router.Request{
+				RequestedModel:   "gpt-5.6-terra",
+				EnabledProviders: map[string]struct{}{},
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			_, ok := svc.codexOAuthPassthroughDecision(ctx, test.req)
+			assert.False(t, ok)
+		})
+	}
+}
+
+func TestCodexOAuthPassthroughDecisionRejectsNonCodexModel(t *testing.T) {
+	ctx := context.WithValue(context.Background(), codexOAuthPassthroughModelContextKey{}, "gpt-5.5")
+	svc := &Service{providers: map[string]providers.Client{providers.ProviderOpenAI: nil}}
+
+	_, ok := svc.codexOAuthPassthroughDecision(ctx, router.Request{RequestedModel: "gpt-5.5"})
+	assert.False(t, ok, "OAuth passthrough must remain limited to the native Codex model family")
 }
 
 func TestResolveAndInjectCredentials_CodexCoverageIsModelScoped(t *testing.T) {

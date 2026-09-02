@@ -7,7 +7,7 @@ Provider `Client` interface + canonical `Provider*` name constants + concrete ad
 ## Layout
 
 - `provider.go` — `Client` interface, `Provider*` constants, `APIKeyEnvVars` map (single source of truth for provider→env-var mapping).
-- `anthropic/`, `openai/`, `google/`, `openaicompat/` — concrete adapters.
+- `anthropic/`, `openai/`, `codex/`, `google/`, `openaicompat/` — concrete adapters.
 - `cortexagents/` — Snowflake Cortex Agents (`agent:run`). Not a `providers.Client`: it implements `websearch.Executor` only, serving the native web-search server tool that Cortex's inference endpoints reject.
 - `httputil/` — shared transport + streaming helpers.
 

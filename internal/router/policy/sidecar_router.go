@@ -139,6 +139,7 @@ func (r *SidecarRouter) PreviewRoute(ctx context.Context, req router.Request) (P
 		HasTools:             req.HasTools,
 		HasImages:            req.HasImages,
 		RoutingIntent:        req.RoutingIntent,
+		IntentTags:           req.IntentTags,
 		PreferredModels:      req.PreferredModels,
 		RoutingKnobs:         req.RoutingKnobs,
 		TrainingAllowed:      false,
@@ -311,6 +312,7 @@ func (r *SidecarRouter) Route(ctx context.Context, req router.Request) (router.D
 		HasTools:             req.HasTools,
 		HasImages:            req.HasImages,
 		RoutingIntent:        req.RoutingIntent,
+		IntentTags:           req.IntentTags,
 		PreferredModels:      req.PreferredModels,
 		RoutingKnobs:         req.RoutingKnobs,
 		TrainingAllowed:      req.TrainingAllowed,
@@ -451,6 +453,7 @@ func (r *SidecarRouter) Route(ctx context.Context, req router.Request) (router.D
 		Effort:   binding.Effort,
 		Reason:   reason,
 		Metadata: &router.RoutingMetadata{
+			IntentTags:                    append([]string(nil), req.IntentTags...),
 			CandidateModels:               resolved.CandidateModels(),
 			CandidateProviders:            resolved.CandidateProviders(),
 			CandidateScores:               resolved.CatalogCandidateScores(res.CandidateScores),

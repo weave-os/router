@@ -25,6 +25,167 @@ const (
 	EndpointGeminiGenerate    TranslationEndpoint = "generate_content"
 )
 
+// CredentialSource identifies the trust domain used to authenticate an
+// upstream request. It is metadata only; raw credentials never cross the
+// router package boundary.
+type CredentialSource string
+
+const (
+	// CredentialSourceUnknown means the source has not been resolved yet.
+	CredentialSourceUnknown CredentialSource = ""
+	// CredentialSourceDeploymentKey is a Router-owned deployment credential.
+	CredentialSourceDeploymentKey CredentialSource = "deployment_key"
+	// CredentialSourceBYOK is an installation-provided upstream credential.
+	CredentialSourceBYOK CredentialSource = "byok"
+	// CredentialSourceClientAPIKey is a client-supplied non-OAuth credential.
+	CredentialSourceClientAPIKey CredentialSource = "client_api_key"
+	// CredentialSourceClaudeOAuth is a Claude subscription OAuth credential.
+	CredentialSourceClaudeOAuth CredentialSource = "claude_oauth"
+	// CredentialSourceCodexOAuth is a ChatGPT/Codex subscription OAuth credential.
+	CredentialSourceCodexOAuth CredentialSource = "codex_oauth"
+)
+
+// CandidateExclusionReason identifies why a provider/model candidate was not
+// eligible for a request. Values are safe to expose in diagnostics because
+// they contain no credential material.
+type CandidateExclusionReason string
+
+const (
+	// CandidateExclusionCredentialMissing means no usable credential was
+	// available for the provider.
+	CandidateExclusionCredentialMissing CandidateExclusionReason = "credential_missing"
+	// CandidateExclusionCredentialScope means a credential exists, but it is
+	// not authorized for this model or endpoint.
+	CandidateExclusionCredentialScope CandidateExclusionReason = "credential_scope"
+	// CandidateExclusionEndpointUnsupported means the provider binding cannot
+	// serve the request's endpoint contract.
+	CandidateExclusionEndpointUnsupported CandidateExclusionReason = "endpoint_unsupported"
+	// CandidateExclusionModelUnsupported means the credential/provider binding
+	// does not cover the requested model.
+	CandidateExclusionModelUnsupported CandidateExclusionReason = "model_unsupported"
+	// CandidateExclusionPolicy means an installation or routing policy removed
+	// the otherwise available candidate.
+	CandidateExclusionPolicy CandidateExclusionReason = "policy_excluded"
+)
+
+// CandidateDiagnostic describes one safe, request-scoped candidate exclusion.
+// It deliberately carries identifiers and credential provenance only; raw
+// tokens, keys, account identifiers, and request content never belong here.
+type CandidateDiagnostic struct {
+	Model            string                   `json:"model"`
+	Provider         string                   `json:"provider,omitempty"`
+	Endpoint         TranslationEndpoint      `json:"endpoint,omitempty"`
+	CredentialSource CredentialSource         `json:"credential_source,omitempty"`
+	Reason           CandidateExclusionReason `json:"reason"`
+}
+
+// CredentialBinding describes a request-scoped, non-secret authorization
+// boundary for one Provider. Models is an optional allowlist; nil means the
+// credential may serve every model bound to the Provider. Endpoints is an
+// optional endpoint allowlist; nil means every endpoint is permitted.
+type CredentialBinding struct {
+	Provider  string
+	Source    CredentialSource
+	Models    map[string]struct{}
+	Endpoints map[TranslationEndpoint]struct{}
+}
+
+// DispatchMode identifies whether the selected provider receives the source
+// wire contract unchanged or through a translation path.
+type DispatchMode string
+
+const (
+	// DispatchModeNative means the provider receives the source wire contract.
+	DispatchModeNative DispatchMode = "native"
+	// DispatchModeTranslated means the request crosses a wire-format adapter.
+	DispatchModeTranslated DispatchMode = "translated"
+)
+
+// RoutingCandidate is the resolved, non-secret identity of one dispatch
+// target. It is the smallest unit that a scorer, pin, and dispatcher must
+// agree on; credentials themselves remain outside this value type.
+type RoutingCandidate struct {
+	Model            string
+	Provider         string
+	UpstreamID       string
+	CredentialSource CredentialSource
+	SourceFormat     WireFormat
+	Endpoint         TranslationEndpoint
+	Mode             DispatchMode
+	NativeOnly       bool
+}
+
+// DispatchPlan freezes the selected candidate and whether provider failover
+// is authorized for this request. It is attached to Decision for consumers
+// that need the complete dispatch contract while legacy fields remain intact.
+type DispatchPlan struct {
+	Candidate       RoutingCandidate
+	FallbackAllowed bool
+}
+
+// IsValid reports whether the plan contains the minimum dispatch identity.
+func (p DispatchPlan) IsValid() bool {
+	return p.Candidate.Model != "" && p.Candidate.Provider != "" &&
+		p.Candidate.UpstreamID != "" && p.Candidate.Mode != ""
+}
+
+// AllowsModel reports whether the binding may serve model.
+func (b CredentialBinding) AllowsModel(model string) bool {
+	if len(b.Models) == 0 {
+		return true
+	}
+	_, ok := b.Models[model]
+	return ok
+}
+
+// AllowsEndpoint reports whether the binding may serve endpoint.
+func (b CredentialBinding) AllowsEndpoint(endpoint TranslationEndpoint) bool {
+	if len(b.Endpoints) == 0 || endpoint == "" {
+		return true
+	}
+	_, ok := b.Endpoints[endpoint]
+	return ok
+}
+
+// CredentialProvidersForModel filters providers using request-scoped
+// credential bindings. Providers without an explicit binding retain the
+// legacy provider-level eligibility behavior.
+func CredentialProvidersForModel(providers map[string]struct{}, model string, endpoint TranslationEndpoint, bindings []CredentialBinding) map[string]struct{} {
+	if len(bindings) == 0 {
+		return providers
+	}
+	result := make(map[string]struct{}, len(providers))
+	for provider := range providers {
+		matched := false
+		allowed := false
+		for _, binding := range bindings {
+			if binding.Provider != provider {
+				continue
+			}
+			matched = true
+			if binding.AllowsModel(model) && binding.AllowsEndpoint(endpoint) {
+				allowed = true
+				break
+			}
+		}
+		if !matched || allowed {
+			result[provider] = struct{}{}
+		}
+	}
+	return result
+}
+
+// CredentialSourceFor returns the first matching non-secret credential source
+// for provider/model/endpoint. Unknown is returned when no binding exists.
+func CredentialSourceFor(provider, model string, endpoint TranslationEndpoint, bindings []CredentialBinding) CredentialSource {
+	for _, binding := range bindings {
+		if binding.Provider == provider && binding.AllowsModel(model) && binding.AllowsEndpoint(endpoint) {
+			return binding.Source
+		}
+	}
+	return CredentialSourceUnknown
+}
+
 // TranslationRequirements records semantics which must survive a route. It is
 // deliberately additive to the existing scoring hints: HasTools and HasImages
 // remain quality signals while these fields are compatibility constraints.
@@ -143,6 +304,9 @@ type Request struct {
 	ClientSessionID string
 	// Per-request provider gating — nil means unrestricted.
 	EnabledProviders map[string]struct{}
+	// CredentialBindings carries only non-secret, model/endpoint-scoped
+	// credential availability into candidate resolution.
+	CredentialBindings []CredentialBinding
 	// CustomBindings maps catalog model ID to configuration-declared providers
 	// (from a key's model_aliases). They rank after catalog bindings, so a
 	// wired direct vendor still wins — except under GatewayProviders, where the
@@ -174,7 +338,10 @@ type Request struct {
 	// RoutingIntent is a strategy-neutral preset for future low/medium/high
 	// routing modes. Empty means use the installation's normal policy.
 	RoutingIntent string
-	RoutingKnobs  *Overrides // NEW: parsed dynamic knobs
+	// IntentTags are deterministic, explainable preferences derived at ingress.
+	// They never replace hard capability or credential filtering.
+	IntentTags   []string
+	RoutingKnobs *Overrides // NEW: parsed dynamic knobs
 	// TrainingAllowed is false unless the organization is explicitly eligible
 	// for policy learning. Serving must continue when it is false.
 	TrainingAllowed bool
@@ -253,6 +420,10 @@ const (
 type Decision struct {
 	Provider string
 	Model    string
+	// CredentialSource records which trust domain will authenticate the
+	// selected Provider. It is filled after request-scoped credential
+	// resolution; Unknown is valid for policy-only decisions.
+	CredentialSource CredentialSource
 	// Effort is the canonical reasoning-effort level selected for this turn
 	// ("low".."xhigh"), empty when the policy expressed no preference. Model
 	// stays a bare catalog ID so catalog.ByID lookups keep working; effort is
@@ -263,6 +434,9 @@ type Decision struct {
 	Reason string
 	// Nil for non-content-aware routers; nil-check before dereferencing.
 	Metadata *RoutingMetadata
+	// DispatchPlan is the resolved provider/model/credential/wire contract.
+	// It is nil for policy-only decisions and older Router implementations.
+	DispatchPlan *DispatchPlan
 }
 
 // ServedIdentity returns the model identity to persist and compare across
@@ -328,6 +502,9 @@ type RoutingMetadata struct {
 	// CandidateScores: full pre-argmax blended score per eligible model, for
 	// off-policy analysis (contextual bandit substrate). Doesn't affect routing.
 	CandidateScores map[string]float32
+	// IntentTags records the bounded, deterministic preference signals used for
+	// this decision. It contains no prompt text.
+	IntentTags []string
 	// CandidateArmScores preserves scores for configuration-level actions.
 	CandidateArmScores map[string]float32
 	// CandidateProviders: per-request resolved provider per eligible model, so

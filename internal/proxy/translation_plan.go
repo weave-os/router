@@ -213,7 +213,10 @@ func sourceNativeConstraint(req router.TranslationRequirements, code string) (tr
 	case router.WireFormatOpenAI:
 		constraint := translationConstraint{Code: code, TargetFamily: providers.FamilyOpenAICompat}
 		if req.Endpoint == router.EndpointOpenAIResponses {
-			constraint.ExactProviders = singletonProviderSet(providers.ProviderOpenAI)
+			constraint.ExactProviders = map[string]struct{}{
+				providers.ProviderOpenAI: {},
+				providers.ProviderCodex:  {},
+			}
 		}
 		return constraint, true
 	case router.WireFormatGemini:

@@ -35,6 +35,7 @@ const (
 var expectedSessionAffinityMechanism = map[string]sessionAffinityMechanism{
 	providers.ProviderOpenRouter: mechanismSessionIDHeader,
 	providers.ProviderOpenAI:     mechanismPromptCacheKeyBody,
+	providers.ProviderCodex:      mechanismPromptCacheKeyBody,
 	providers.ProviderXAI:        mechanismGrokConvIDHeader,
 	providers.ProviderBedrock:    mechanismNone,
 	// A customer endpoint may reject unknown headers, so the hint rides the spec

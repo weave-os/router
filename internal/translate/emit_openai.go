@@ -49,7 +49,7 @@ func reasoningEffortAcceptedOnChatCompletions(opts EmitOptions, hasTools bool) b
 // gpt-5.6 applies its own effort when the field is absent; /v1/responses
 // dispatch is what preserves reasoning. Gateways excluded: proxy downgrades them.
 func toolTurnNeedsExplicitEffortNone(opts EmitOptions, hasTools bool) bool {
-	return hasTools && opts.TargetProvider == providers.ProviderOpenAI &&
+	return hasTools && (opts.TargetProvider == providers.ProviderOpenAI || opts.TargetProvider == providers.ProviderCodex) &&
 		strings.HasPrefix(opts.TargetModel, "gpt-5.6")
 }
 
@@ -136,7 +136,7 @@ func applySessionAffinity(body []byte, headers http.Header, opts EmitOptions) ([
 			headers.Set("x-session-id", opts.SessionAffinity)
 		}
 		return body, nil
-	case providers.ProviderOpenAI, providers.ProviderOpenAIGateway:
+	case providers.ProviderOpenAI, providers.ProviderCodex, providers.ProviderOpenAIGateway:
 		if opts.TargetProvider == providers.ProviderOpenAIGateway &&
 			strings.HasPrefix(opts.TargetModel, "grok") && opts.SessionAffinity != "" {
 			headers.Set("x-grok-conv-id", opts.SessionAffinity)

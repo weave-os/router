@@ -28,7 +28,9 @@ check() { if [ "$2" = "$3" ]; then ok "$1"; else no "$1" "$2" "$3"; fi; }
 
 printf 'packaging\n'
 
-tarball="$(cd "$npm_dir" && npm pack --pack-destination "$work" 2>/dev/null | tail -1)"
+# Use an isolated cache so packaging tests are reproducible even when a
+# user's global npm cache was created by another UID (common after sudo npm).
+tarball="$(cd "$npm_dir" && NPM_CONFIG_CACHE="$work/npm-cache" npm pack --pack-destination "$work" 2>/dev/null | tail -1)"
 [ -f "$work/$tarball" ] || { echo "npm pack produced no tarball" >&2; exit 1; }
 pkg="$work/extracted"
 mkdir -p "$pkg"

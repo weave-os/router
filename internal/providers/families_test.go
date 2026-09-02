@@ -46,6 +46,7 @@ func TestFamilyForKnownProviders(t *testing.T) {
 	cases := map[string]providers.TranslationFamily{
 		providers.ProviderAnthropic:      providers.FamilyAnthropic,
 		providers.ProviderOpenAI:         providers.FamilyOpenAICompat,
+		providers.ProviderCodex:          providers.FamilyOpenAICompat,
 		providers.ProviderGoogle:         providers.FamilyGemini,
 		providers.ProviderOpenRouter:     providers.FamilyOpenAICompat,
 		providers.ProviderFireworks:      providers.FamilyOpenAICompat,

@@ -81,6 +81,7 @@ func TestSidecarRouterOnboardsFutureStrategyWithoutProxyChanges(t *testing.T) {
 		InstallationID:       "installation-1",
 		ClientApp:            "cursor",
 		RoutingIntent:        "high",
+		IntentTags:           []string{"coding", "deep_reasoning"},
 		TrainingAllowed:      true,
 		CaptureMode:          "hashed",
 		EstimatedInputTokens: 1000,
@@ -110,6 +111,7 @@ func TestSidecarRouterOnboardsFutureStrategyWithoutProxyChanges(t *testing.T) {
 	assert.Equal(t, policy.ExecutionModeServing, decider.query.ExecutionMode)
 	assert.Equal(t, "org-1", decider.query.OrganizationID)
 	assert.Equal(t, "cursor", decider.query.ClientApp)
+	assert.Equal(t, []string{"coding", "deep_reasoning"}, decider.query.IntentTags)
 	assert.True(t, decider.query.TrainingAllowed)
 	assert.Equal(t, "hashed", decider.query.CaptureMode)
 	require.NotNil(t, decider.query.TurnContext)

@@ -33,6 +33,7 @@ import (
 	"workweave/router/internal/postgres"
 	"workweave/router/internal/providers"
 	"workweave/router/internal/providers/anthropic"
+	codexProvider "workweave/router/internal/providers/codex"
 	"workweave/router/internal/providers/cortexagents"
 	googleProvider "workweave/router/internal/providers/google"
 	openaiProvider "workweave/router/internal/providers/openai"
@@ -67,7 +68,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-func main() {
+func runServer() {
 	logger := observability.Get()
 	if err := router.ValidateCatalogReasoningCapabilities(); err != nil {
 		logger.Error("Refusing to boot with invalid model reasoning capabilities", "err", err)
@@ -242,6 +243,18 @@ func main() {
 	}
 
 	{
+		// Codex is a separate credential-only provider. It shares the OpenAI
+		// Responses wire implementation, but never participates in the normal
+		// deployment-key scorer pool.
+		codexBaseURL := ""
+		if deploymentMode == server.DeploymentModeSelfHosted {
+			codexBaseURL = config.GetOr("ROUTER_CODEX_BASE_URL", "")
+		}
+		providerMap[providers.ProviderCodex] = codexProvider.NewClient(codexBaseURL)
+		logger.Info("Codex provider registered (local OAuth only)", "base_url_configured", codexBaseURL != "")
+	}
+
+	{
 		openRouterBaseURL := config.GetOr("OPENROUTER_BASE_URL", openaiCompatProvider.DefaultBaseURL)
 		// Managed deploys don't use OpenRouter as a platform source by default
 		// (opt in via ROUTER_OPENROUTER_PLATFORM_ENABLED=true); selfhosted reads
@@ -406,6 +419,12 @@ func main() {
 	for name := range providerMap {
 		availableProviders[name] = struct{}{}
 	}
+	routingProviders := make(map[string]struct{}, len(availableProviders))
+	for name := range availableProviders {
+		if !providers.IsCredentialOnly(name) {
+			routingProviders[name] = struct{}{}
+		}
+	}
 
 	// A provider missing a ProviderFamilies entry would silently 502 every
 	// request despite looking "enabled" — panic at boot instead.
@@ -418,7 +437,7 @@ func main() {
 		panic(err)
 	}
 
-	rtr, defaultEmbedderID, err := buildClusterScorer(availableProviders)
+	rtr, defaultEmbedderID, err := buildClusterScorer(routingProviders)
 	if err != nil {
 		// Ops alerts on Cloud Run boot failures; silent degradation would mask quality regressions.
 		logger.Error("Cluster scorer failed to build; refusing to boot", "err", err)
@@ -431,33 +450,64 @@ func main() {
 	// 5-min TTL matches the API-key cache so both halves share one staleness bound under a Pub/Sub outage.
 	userClusterCache := auth.NewLRUUserClusterListCache(50000, 5*time.Minute)
 
-	pubsubProjectID := config.MustGet("PUBSUB_PROJECT_ID")
-	pubsubTopicID := config.MustGet("PUBSUB_TOPIC_ROUTER_INVALIDATION")
-	// Treated as a prefix: each replica derives its own subscription
-	// "<prefix>-<uuid>" so every replica receives every invalidation. A shared
-	// subscription would load-balance, defeating cross-fleet cache broadcast.
-	pubsubSubscriptionPrefix := config.MustGet("PUBSUB_SUBSCRIPTION_ROUTER_INVALIDATION")
-	pubsubClient, err := gcppubsub.NewClient(context.Background(), pubsubProjectID)
-	if err != nil {
-		logger.Error("Failed to create Pub/Sub client", "err", err)
-		panic(err)
-	}
-	defer pubsubClient.Close()
-
-	publisher := pubsubClient.Publisher(pubsubTopicID)
-	notifier := routerpubsub.NewInvalidationNotifier(publisher)
-	defer notifier.Stop()
-
-	// When configured, the billing debit hook publishes a signal once an org's
-	// balance crosses its recharge threshold; the Weave control plane charges
-	// the saved card. Unset topic just leaves autopay disabled.
-	if billingSvc != nil {
-		if autopayTopicID := config.GetOr("PUBSUB_TOPIC_ROUTER_AUTOPAY", ""); autopayTopicID != "" {
-			autopayNotifier := routerpubsub.NewAutopayNotifier(pubsubClient.Publisher(autopayTopicID))
-			defer autopayNotifier.Stop()
-			billingSvc = billingSvc.WithAutopayNotifier(autopayNotifier)
-			logger.Info("Autopay recharge signalling enabled", "topic", autopayTopicID)
+	// A single self-hosted process does not need cross-replica invalidation.
+	// Keeping a null notifier here also lets local development use only a host
+	// PostgreSQL installation, without requiring the Pub/Sub emulator.
+	var notifier auth.InstallationChangeNotifier = auth.NoOpInstallationChangeNotifier{}
+	if config.GetOr("ROUTER_PUBSUB_DISABLED", "false") == "true" {
+		logger.Warn("Pub/Sub disabled; cache invalidation is local to this process")
+	} else {
+		pubsubProjectID := config.MustGet("PUBSUB_PROJECT_ID")
+		pubsubTopicID := config.MustGet("PUBSUB_TOPIC_ROUTER_INVALIDATION")
+		// Treated as a prefix: each replica derives its own subscription
+		// "<prefix>-<uuid>" so every replica receives every invalidation. A shared
+		// subscription would load-balance, defeating cross-fleet cache broadcast.
+		pubsubSubscriptionPrefix := config.MustGet("PUBSUB_SUBSCRIPTION_ROUTER_INVALIDATION")
+		pubsubClient, err := gcppubsub.NewClient(context.Background(), pubsubProjectID)
+		if err != nil {
+			logger.Error("Failed to create Pub/Sub client", "err", err)
+			panic(err)
 		}
+		defer pubsubClient.Close()
+
+		publisher := pubsubClient.Publisher(pubsubTopicID)
+		invalidationNotifier := routerpubsub.NewInvalidationNotifier(publisher)
+		notifier = invalidationNotifier
+		defer invalidationNotifier.Stop()
+
+		// When configured, the billing debit hook publishes a signal once an org's
+		// balance crosses its recharge threshold; the Weave control plane charges
+		// the saved card. Unset topic just leaves autopay disabled.
+		if billingSvc != nil {
+			if autopayTopicID := config.GetOr("PUBSUB_TOPIC_ROUTER_AUTOPAY", ""); autopayTopicID != "" {
+				autopayNotifier := routerpubsub.NewAutopayNotifier(pubsubClient.Publisher(autopayTopicID))
+				defer autopayNotifier.Stop()
+				billingSvc = billingSvc.WithAutopayNotifier(autopayNotifier)
+				logger.Info("Autopay recharge signalling enabled", "topic", autopayTopicID)
+			}
+		}
+
+		// Fans out Pub/Sub invalidations to this replica; the 5-min TTL
+		// is the safety net if the listener falls behind.
+		subCtx, subCancel := context.WithTimeout(context.Background(), 30*time.Second)
+		subscriptionName, deleteSubscription, err := routerpubsub.CreateReplicaSubscription(
+			subCtx, pubsubClient, pubsubProjectID, pubsubTopicID, pubsubSubscriptionPrefix,
+		)
+		subCancel()
+		if err != nil {
+			logger.Error("Failed to create per-replica invalidation subscription", "err", err)
+			panic(err)
+		}
+		defer deleteSubscription()
+		logger.Info("Created per-replica invalidation subscription", "subscription", subscriptionName)
+
+		listener := routerpubsub.NewInvalidationListener(pubsubClient.Subscriber(subscriptionName), cache, userClusterCache)
+		listenerCtx, listenerCancel := context.WithCancel(context.Background())
+		defer func() {
+			listenerCancel()
+			listener.Wait()
+		}()
+		safeGo(logger, "invalidation-listener", func() { listener.Run(listenerCtx) })
 	}
 
 	// Deployment-wide escape hatch: suppresses every per-organization flag
@@ -476,28 +526,6 @@ func main() {
 		WithWIFTokenSource(buildWIFTokenSource(logger)).
 		WithEntraTokenSource(buildEntraTokenSource(logger)).
 		WithFlagOverridesDisabled(flagOverridesDisabled)
-
-	// Fans out Pub/Sub invalidations to this replica's cache; the 5-min TTL
-	// is the safety net if the listener falls behind.
-	subCtx, subCancel := context.WithTimeout(context.Background(), 30*time.Second)
-	subscriptionName, deleteSubscription, err := routerpubsub.CreateReplicaSubscription(
-		subCtx, pubsubClient, pubsubProjectID, pubsubTopicID, pubsubSubscriptionPrefix,
-	)
-	subCancel()
-	if err != nil {
-		logger.Error("Failed to create per-replica invalidation subscription", "err", err)
-		panic(err)
-	}
-	defer deleteSubscription()
-	logger.Info("Created per-replica invalidation subscription", "subscription", subscriptionName)
-
-	listener := routerpubsub.NewInvalidationListener(pubsubClient.Subscriber(subscriptionName), cache, userClusterCache)
-	listenerCtx, listenerCancel := context.WithCancel(context.Background())
-	defer func() {
-		listenerCancel()
-		listener.Wait()
-	}()
-	safeGo(logger, "invalidation-listener", func() { listener.Run(listenerCtx) })
 
 	// Managed mode doesn't mount the dashboard, so this only matters selfhosted.
 	if deploymentMode == server.DeploymentModeSelfHosted {
@@ -724,7 +752,7 @@ func main() {
 	compactionPct := parseEnvFloat("ROUTER_COMPACTION_PCT", proxy.DefaultCompactionTriggerPct)
 
 	// Strategy-specific artifacts own selection membership; the legacy cluster bundle must not constrain HMM candidates.
-	routingTargets := catalog.RoutingTargetSet(availableProviders)
+	routingTargets := catalog.RoutingTargetSet(routingProviders)
 	logger.Info("Catalog routing targets resolved", "catalog_routing_targets", len(routingTargets))
 
 	// OFF by default: wraps only the proxy's routing entrypoint, so rtr stays
@@ -760,7 +788,7 @@ func main() {
 		rlRouter = rl.New(
 			rl.NewHTTPDeciderWithHeaders(rlSidecarURL, nil, rlTimeout, rlHeaders),
 			routingTargets,
-			availableProviders,
+			routingProviders,
 		)
 		logger.Info(
 			"RL policy router wired",
@@ -829,12 +857,12 @@ func main() {
 		if capabilityErr != nil {
 			logger.Warn("HMM policy sidecar capabilities unavailable at boot; optional behavior remains disabled", "sidecar_url", hmmSidecarURL, "err", capabilityErr)
 		}
-		hmmPolicyRouter := hmm.New(hmmClient, availableProviders)
+		hmmPolicyRouter := hmm.New(hmmClient, routingProviders)
 		hmmPolicyRouter.WithCapabilities(hmmCapabilities)
 		hmmEmbeddingPolicyRouter := hmm.NewForStrategy(
 			router.StrategyHMMEmbedding,
 			hmmClient,
-			availableProviders,
+			routingProviders,
 		)
 		hmmEmbeddingPolicyRouter.WithCapabilities(hmmCapabilities)
 		if capabilityErr != nil {
@@ -910,7 +938,7 @@ func main() {
 			hmmBetaPolicyRouter := hmm.NewForStrategy(
 				router.StrategyHMMBeta,
 				hmmBetaClient,
-				availableProviders,
+				routingProviders,
 			)
 			hmmBetaPolicyRouter.WithCapabilities(hmmBetaCapabilities)
 			if capabilityErr != nil {
@@ -972,7 +1000,7 @@ func main() {
 		config.GetOr("ROUTER_POLICY_SIDECAR_AUTH", ""),
 		parseEnvDurationMs("ROUTER_POLICY_SIDECAR_TIMEOUT_MS", policyclient.DefaultTimeout),
 		routingTargets,
-		availableProviders,
+		routingProviders,
 		nil,
 		logger,
 	)
@@ -1073,9 +1101,17 @@ func main() {
 		WithSummarizer(summarizer).
 		WithWebSearchExecutor(cortexWebSearch(logger)).
 		WithCompaction(compactionSz, compactionPct).
-		WithAvailableModels(proxyRoutableModels(routingTargets, availableProviders, hmmRouter != nil)).
+		WithAvailableModels(proxyRoutableModels(routingTargets, routingProviders, hmmRouter != nil)).
 		WithDefaultBaselineModel(resolveDefaultBaselineModel()).
 		WithBillingService(billingSvc)
+	if deploymentMode == server.DeploymentModeSelfHosted {
+		proxySvc.WithCodexSubscriptionLoader(loadLocalCodexSubscription)
+		codexToken, codexAccountID := loadLocalCodexSubscription(context.Background())
+		logger.Info("Local Codex OAuth bridge enabled",
+			"token_present", codexToken != "",
+			"account_id_present", codexAccountID != "",
+		)
+	}
 	for _, spec := range configuredPolicySpecs {
 		proxySvc = proxySvc.WithPolicyStrategy(spec)
 		logger.Info("Generic policy sidecar wired", "strategy", spec.Strategy, "candidate_models", len(routingTargets))

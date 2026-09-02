@@ -71,7 +71,7 @@ func (s *Service) usageBypassEngaged(ctx context.Context, headers http.Header, r
 	switch provider {
 	case providers.ProviderAnthropic:
 		token = anthroTok
-	case providers.ProviderOpenAI:
+	case providers.ProviderOpenAI, providers.ProviderCodex:
 		if !codexSubscriptionCoversModel(model) {
 			return "", false
 		}
@@ -81,7 +81,15 @@ func (s *Service) usageBypassEngaged(ctx context.Context, headers http.Header, r
 	}
 	if req.EnabledProviders != nil {
 		if _, enabled := req.EnabledProviders[provider]; !enabled {
-			return "", false
+			if provider == providers.ProviderOpenAI {
+				if _, codexEnabled := req.EnabledProviders[providers.ProviderCodex]; codexEnabled {
+					provider = providers.ProviderCodex
+				} else {
+					return "", false
+				}
+			} else {
+				return "", false
+			}
 		}
 	}
 	// Use SafetyExcludedModels (hard constraints: context-overflow, gemini-unsigned),

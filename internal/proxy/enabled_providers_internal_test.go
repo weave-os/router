@@ -232,6 +232,48 @@ func TestEnabledProvidersForRequest_CodexSubscriptionEnrollsOpenAI(t *testing.T)
 	})
 }
 
+func TestEnabledProvidersForRequest_DedicatedCodexDoesNotEnrollLegacyOpenAI(t *testing.T) {
+	s := &Service{
+		byokOnly: true,
+		providers: map[string]providers.Client{
+			providers.ProviderOpenAI: nil,
+			providers.ProviderCodex:  nil,
+		},
+		deploymentKeyedProviders:     map[string]struct{}{},
+		passthroughEligibleProviders: map[string]struct{}{},
+	}
+	ctx := context.WithValue(context.Background(), OpenAISubscriptionContextKey{}, "eyJhbGciOiJSUzI1NiJ9.codex.sig")
+	ctx = context.WithValue(ctx, OpenAIAccountIDContextKey{}, "acct-123")
+
+	got := s.enabledProvidersForRequest(ctx, providers.ProviderOpenAI, http.Header{})
+	assert.Contains(t, got, providers.ProviderCodex)
+	assert.NotContains(t, got, providers.ProviderOpenAI,
+		"a dedicated Codex adapter must own OAuth-only eligibility")
+}
+
+func TestEnabledProvidersForRequest_NativeCodexOAuthDoesNotYieldToGateway(t *testing.T) {
+	const codexJWT = "eyJhbGciOiJSUzI1NiJ9.codex.sig"
+	ctx := context.WithValue(context.Background(), OpenAISubscriptionContextKey{}, codexJWT)
+	ctx = context.WithValue(ctx, OpenAIAccountIDContextKey{}, "acct-123")
+	ctx = context.WithValue(ctx, codexOAuthPassthroughModelContextKey{}, "gpt-5.6-sol")
+	ctx = context.WithValue(ctx, ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
+		{Provider: providers.ProviderOpenAIGateway, Plaintext: []byte("gateway-token")},
+	})
+	s := &Service{
+		providers: map[string]providers.Client{
+			providers.ProviderOpenAI:        nil,
+			providers.ProviderOpenAIGateway: nil,
+		},
+		deploymentKeyedProviders: map[string]struct{}{
+			providers.ProviderOpenAIGateway: {},
+		},
+	}
+
+	got := s.enabledProvidersForRequest(ctx, providers.ProviderOpenAI, http.Header{})
+	assert.Contains(t, got, providers.ProviderOpenAI,
+		"native Codex OAuth must remain eligible even when an OpenAI gateway key is present")
+}
+
 func TestExcludeCodexOAuthOnlyModels(t *testing.T) {
 	const codexJWT = "eyJhbGciOiJSUzI1NiJ9.codex.sig"
 	ctx := context.WithValue(routerKeyedCtx(), OpenAISubscriptionContextKey{}, codexJWT)

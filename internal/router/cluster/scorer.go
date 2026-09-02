@@ -523,7 +523,12 @@ func (s *Scorer) Route(ctx context.Context, req router.Request) (router.Decision
 	eligibleModels := s.models
 	resolvedProvider := make(map[string]string, len(s.candidates))
 	if req.EnabledProviders != nil {
-		bindings := RequestBindings{Custom: req.CustomBindings, Gateways: req.GatewayProviders}
+		bindings := RequestBindings{
+			Custom:             req.CustomBindings,
+			Gateways:           req.GatewayProviders,
+			Endpoint:           req.TranslationRequirements.Endpoint,
+			CredentialBindings: req.CredentialBindings,
+		}
 		eligibleModels = eligibleModels[:0:0]
 		for _, c := range s.candidates {
 			r := bindings.resolve(c.Model, c.Provider, req.EnabledProviders)
@@ -546,8 +551,15 @@ func (s *Scorer) Route(ctx context.Context, req router.Request) (router.Decision
 				"Cluster scorer: no eligible provider for request; returning ErrNoEligibleProvider",
 				"enabled_providers", sortedKeys(req.EnabledProviders),
 				"requested_model", req.RequestedModel,
+				"credential_diagnostic_count", len(providerEligibilityDiagnostics(req, s.candidates)),
 			)
-			return router.Decision{}, fmt.Errorf("enabled providers %v have no overlap with deployed candidates: %w", sortedKeys(req.EnabledProviders), ErrNoEligibleProvider)
+			return router.Decision{}, &NoEligibleProviderError{
+				RequestedModel:   req.RequestedModel,
+				EnabledProviders: sortedKeys(req.EnabledProviders),
+				Diagnostics:      providerEligibilityDiagnostics(req, s.candidates),
+				Message:          fmt.Sprintf("enabled providers %v have no overlap with deployed candidates", sortedKeys(req.EnabledProviders)),
+				Cause:            ErrNoEligibleProvider,
+			}
 		}
 	}
 
@@ -575,7 +587,21 @@ func (s *Scorer) Route(ctx context.Context, req router.Request) (router.Decision
 				"excluded_models", sortedKeys(req.ExcludedModels),
 				"requested_model", req.RequestedModel,
 			)
-			return router.Decision{}, fmt.Errorf("excluded models %v leave no eligible candidates: %w", sortedKeys(req.ExcludedModels), ErrNoEligibleProvider)
+			diagnostics := make([]router.CandidateDiagnostic, 0, len(eligibleModels))
+			for _, model := range eligibleModels {
+				diagnostics = append(diagnostics, router.CandidateDiagnostic{
+					Model:    model,
+					Provider: resolvedProvider[model],
+					Endpoint: req.TranslationRequirements.Endpoint,
+					Reason:   router.CandidateExclusionPolicy,
+				})
+			}
+			return router.Decision{}, &NoEligibleProviderError{
+				RequestedModel: req.RequestedModel,
+				Diagnostics:    diagnostics,
+				Message:        fmt.Sprintf("excluded models %v leave no eligible candidates", sortedKeys(req.ExcludedModels)),
+				Cause:          ErrNoEligibleProvider,
+			}
 		}
 		eligibleModels = filtered
 	}
@@ -689,6 +715,10 @@ func (s *Scorer) Route(ctx context.Context, req router.Request) (router.Decision
 			rank++
 		}
 	}
+	// Catalog intent tags are a second, deliberately weaker preference layer.
+	// They are evaluated only after capability, policy, and credential filters
+	// have produced eligibleModels. An unknown tag or model is a no-op.
+	priorityBonus = addIntentPreferenceBonuses(priorityBonus, eligibleModels, req.IntentTags)
 
 	scoreStart := time.Now()
 	topClusters := topPNearest(vec, s.centroids, s.cfg.TopP)
@@ -826,6 +856,11 @@ func (s *Scorer) Route(ctx context.Context, req router.Request) (router.Decision
 				scores[m] += row[m]
 			}
 		}
+		for _, m := range eligibleModels {
+			if b, ok := priorityBonus[m]; ok {
+				scores[m] += b
+			}
+		}
 	}
 
 	chosenModel, chosenScore := argmax(scores, eligibleModels)
@@ -914,6 +949,7 @@ func (s *Scorer) Route(ctx context.Context, req router.Request) (router.Decision
 			ClusterRouterVersion: s.version,
 			EffectiveKnobsHash:   effectiveKnobsHash,
 			CandidateScores:      scoresCopy,
+			IntentTags:           append([]string(nil), req.IntentTags...),
 			CandidateProviders:   providersCopy,
 			// Deterministic argmax; an exploration policy wrapping this scorer
 			// overwrites Propensity with its sampling probability.
@@ -944,6 +980,7 @@ func (s *Scorer) Route(ctx context.Context, req router.Request) (router.Decision
 		"total_input_tokens", req.EstimatedInputTokens,
 		"has_tools", req.HasTools,
 		"has_images", req.HasImages,
+		"intent_tags", req.IntentTags,
 	)
 	return decision, nil
 }
@@ -1080,6 +1117,12 @@ const preferredBonusBase float32 = 0.15
 // 0.55 yields rank 0 ≈ 0.15, rank 1 ≈ 0.08, rank 2 ≈ 0.045.
 const preferredBonusDecay float64 = 0.55
 
+// intentPreferenceBonus is intentionally below the strongest explicit model
+// preference. Intent is inferred from request content and should nudge a close
+// decision, never override an operator's ranked preference or a clear quality
+// win.
+const intentPreferenceBonus float32 = 0.06
+
 // priorityBonusFor returns the additive per-cluster score bonus for a model at
 // the given zero-based preference rank (0 = first preference). Later ranks decay
 // toward zero; a negative rank yields no bonus.
@@ -1088,6 +1131,19 @@ func priorityBonusFor(rank int) float32 {
 		return 0
 	}
 	return preferredBonusBase * float32(math.Pow(preferredBonusDecay, float64(rank)))
+}
+
+func addIntentPreferenceBonuses(priorityBonus map[string]float32, eligibleModels, tags []string) map[string]float32 {
+	for _, m := range eligibleModels {
+		if !catalog.MatchesAnyIntent(m, tags) {
+			continue
+		}
+		if priorityBonus == nil {
+			priorityBonus = make(map[string]float32)
+		}
+		priorityBonus[m] += intentPreferenceBonus
+	}
+	return priorityBonus
 }
 
 // blendScoresV2 computes v2 per-model blended scores for the top-P clusters

@@ -28,6 +28,7 @@ func TestCatalog_BindingsReferenceCanonicalProviders(t *testing.T) {
 	known := map[string]struct{}{
 		providers.ProviderAnthropic:        {},
 		providers.ProviderOpenAI:           {},
+		providers.ProviderCodex:            {},
 		providers.ProviderGoogle:           {},
 		providers.ProviderOpenRouter:       {},
 		providers.ProviderFireworks:        {},
@@ -273,6 +274,14 @@ func TestModel_AgenticUseDefaultsToUnknown(t *testing.T) {
 	// iota reorder can't silently flip every row to AgenticLow.
 	var m Model
 	assert.Equal(t, AgenticUnknown, m.AgenticUse)
+}
+
+func TestMatchesIntent_OnlyExplicitCatalogPreferencesMatch(t *testing.T) {
+	assert.True(t, MatchesIntent("qwen/qwen3-coder", "coding"))
+	assert.True(t, MatchesAnyIntent("qwen/qwen3-coder-next", []string{"summarization", "coding"}))
+	assert.False(t, MatchesIntent("claude-opus-4-7", "coding"))
+	assert.False(t, MatchesIntent("not-a-real-model", "coding"))
+	assert.False(t, MatchesIntent("qwen/qwen3-coder", "unknown"))
 }
 
 func TestImageUnsupportedSet_IncludesTextOnlyModels(t *testing.T) {

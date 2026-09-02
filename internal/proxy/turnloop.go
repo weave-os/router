@@ -550,6 +550,18 @@ func (s *Service) runTurnLoop(
 		}
 	}
 
+	// A native Codex Responses request is already an explicit provider choice:
+	// preserve its exact model and OAuth credential before ordinary pins,
+	// planner policy, or cluster scoring can replace it with an OpenAI API-key
+	// binding or a gateway.
+	if decision, ok := s.codexOAuthPassthroughDecision(ctx, req); ok {
+		res.Decision = decision
+		res.Fresh = decision
+		res.UsageBypass = true
+		res.PinTier = codexOAuthPassthroughReason
+		return res, nil
+	}
+
 	// Automatic hard pins bypass pin lookup/write, planner, and scorer entirely.
 	// Probes and title-gen must never create a session pin: the Anthropic SDK fires
 	// probes before the first real turn, and Claude Code fires title-gen
@@ -647,6 +659,13 @@ func (s *Service) runTurnLoop(
 		}
 		decision, err := s.routeFor(ctx, req)
 		if err != nil {
+			if errors.Is(err, cluster.ErrNoEligibleProvider) && s.applyCodexOAuthPassthrough(ctx, req, &res) {
+				log.Info("turnloop using native Codex OAuth passthrough",
+					"model", res.Decision.Model,
+					"provider", res.Decision.Provider,
+				)
+				return res, nil
+			}
 			return res, err
 		}
 		res.Decision = decision
@@ -1046,6 +1065,13 @@ func (s *Service) runTurnLoop(
 					"fresh_provider", dec.Provider,
 				)
 			} else if res.AuthoritativePerTurn {
+				if errors.Is(derr, cluster.ErrNoEligibleProvider) && s.applyCodexOAuthPassthrough(ctx, req, &res) {
+					log.Info("turnloop using native Codex OAuth passthrough",
+						"model", res.Decision.Model,
+						"provider", res.Decision.Provider,
+					)
+					return res, nil
+				}
 				return res, derr
 			} else {
 				log.Info("tier-constrained reroute found no candidate; using unconstrained scorer",
@@ -1056,6 +1082,13 @@ func (s *Service) runTurnLoop(
 	if !routed {
 		dec, err := s.routeFor(ctx, req)
 		if err != nil {
+			if errors.Is(err, cluster.ErrNoEligibleProvider) && s.applyCodexOAuthPassthrough(ctx, req, &res) {
+				log.Info("turnloop using native Codex OAuth passthrough",
+					"model", res.Decision.Model,
+					"provider", res.Decision.Provider,
+				)
+				return res, nil
+			}
 			// Deadline != correctness failure: all candidates were dispatchable; only
 			// ranking is lost. Contract violations still fail closed via isPolicyDeadlineErr.
 			if s.policyDeadlineFallback && isPolicyDeadlineErr(err) {

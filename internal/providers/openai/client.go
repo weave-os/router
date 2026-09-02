@@ -285,7 +285,7 @@ func (c *Client) Proxy(ctx context.Context, decision router.Decision, prep provi
 		reqBody = maxEffortToXhigh(reqBody)
 	}
 	// Applied after the catalog map so a BYOK endpoint's own naming wins.
-	reqBody = proxy.ApplyModelAlias(ctx, reqBody, decision.Model)
+	reqBody = proxy.ApplyDispatchPlanModel(ctx, reqBody, decision)
 	upstream, err := http.NewRequestWithContext(ctx, http.MethodPost, baseURL+path, bytes.NewReader(reqBody))
 	if err != nil {
 		return fmt.Errorf("build upstream request: %w", err)

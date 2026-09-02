@@ -84,6 +84,7 @@ type Query struct {
 	HasTools             bool
 	HasImages            bool
 	RoutingIntent        string
+	IntentTags           []string
 	PreferredModels      []string
 	RoutingKnobs         *router.Overrides
 	TrainingAllowed      bool

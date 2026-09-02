@@ -31,6 +31,7 @@ func TestManagedResolverUsesCurrentProvidersAndNeverOpenRouter(t *testing.T) {
 	assert.Contains(t, resolved.Diagnostics, policy.Diagnostic{
 		CatalogID: "xiaomi/mimo-v2.5-pro",
 		RosterID:  "xiaomi/mimo-v2.5-pro",
+		Provider:  providers.ProviderOpenRouter,
 		Reason:    policy.ExclusionProviderPolicy,
 	})
 }
@@ -132,6 +133,40 @@ func TestResolverAppliesHardFiltersAndPreferenceRanks(t *testing.T) {
 		CatalogID: "gpt-5.5",
 		RosterID:  "gpt-5.5",
 		Reason:    policy.ExclusionNoProvider,
+	})
+}
+
+func TestResolverReportsCredentialScopedExclusion(t *testing.T) {
+	resolver := policy.NewResolver(
+		set("gpt-5.5"),
+		set(providers.ProviderOpenAI),
+		catalogRosterID,
+		policy.ManagedProviderPolicy(),
+	)
+
+	resolved := resolver.Resolve(router.Request{
+		EnabledProviders: set(providers.ProviderOpenAI),
+		TranslationRequirements: router.TranslationRequirements{
+			Endpoint: router.EndpointOpenAIResponses,
+		},
+		CredentialBindings: []router.CredentialBinding{{
+			Provider: providers.ProviderOpenAI,
+			Source:   router.CredentialSourceCodexOAuth,
+			Models:   set("gpt-5.6-luna"),
+			Endpoints: map[router.TranslationEndpoint]struct{}{
+				router.EndpointOpenAIResponses: {},
+			},
+		}},
+	})
+
+	assert.Empty(t, resolved.Candidates)
+	assert.Contains(t, resolved.Diagnostics, policy.Diagnostic{
+		CatalogID:        "gpt-5.5",
+		RosterID:         "gpt-5.5",
+		Provider:         providers.ProviderOpenAI,
+		Endpoint:         router.EndpointOpenAIResponses,
+		CredentialSource: router.CredentialSourceCodexOAuth,
+		Reason:           policy.ExclusionCredentialScope,
 	})
 }
 

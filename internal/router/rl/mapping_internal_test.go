@@ -19,6 +19,7 @@ import (
 var expectedRosterPrefix = map[string]string{
 	providers.ProviderAnthropic:        "anthropic/",
 	providers.ProviderOpenAI:           "openai/",
+	providers.ProviderCodex:            "openai/",
 	providers.ProviderGoogle:           "google/",
 	providers.ProviderXAI:              "x-ai/",
 	providers.ProviderAnthropicGateway: "anthropic/",

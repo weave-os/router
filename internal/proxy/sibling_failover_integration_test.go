@@ -111,8 +111,8 @@ func TestProxyMessages_OverloadedModelDegradesToSameClusterCandidate(t *testing.
 	defer mu.Unlock()
 	assert.Greater(t, anthropicCount, 1, "the overloaded model exhausts its same-binding retries first")
 	assert.Equal(t, 1, fireworksCount, "the same-cluster candidate is dispatched once")
-	assert.Equal(t, "deepseek/deepseek-v4-pro", fireworksModel,
-		"the candidate request must be re-emitted for the candidate, not the overloaded model")
+	assert.Equal(t, "accounts/fireworks/models/deepseek-v4-pro", fireworksModel,
+		"the candidate request must use the plan's provider-specific upstream model")
 
 	respBody := rec.Body.String()
 	assert.Contains(t, respBody, "event: message_start", "client sees the candidate's stream")

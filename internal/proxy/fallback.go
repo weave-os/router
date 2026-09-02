@@ -176,6 +176,9 @@ type failoverInputs struct {
 // instead of a generic 502.
 func (s *Service) dispatchWithFallback(ctx context.Context, in failoverInputs) (winnerIdx int, err error) {
 	log := observability.FromContext(ctx)
+	if err := validateDispatchPlan(in.initialDecision); err != nil {
+		return -1, err
+	}
 	if len(in.bindings) == 0 {
 		if in.initialDecision.Reason == translate.ReasonUserForceModel {
 			err := &providers.UpstreamErrorResponse{
@@ -204,8 +207,7 @@ func (s *Service) dispatchWithFallback(ctx context.Context, in failoverInputs) (
 				in.buf.Discard()
 			}
 		}
-		decision := in.initialDecision
-		decision.Provider = b.Provider
+		decision := dispatchDecisionForBinding(in.initialDecision, b)
 
 		p, provErr := s.provider(b.Provider)
 		if provErr != nil {
@@ -403,6 +405,13 @@ func (s *Service) shouldFailover(ctx context.Context) bool {
 // slice carrying the already-resolved decision provider.
 func (s *Service) resolveBindingsForDispatch(ctx context.Context, decision router.Decision) []catalog.ProviderBinding {
 	primary := catalog.ProviderBinding{Provider: decision.Provider}
+	if plan := decision.DispatchPlan; plan != nil && plan.IsValid() &&
+		plan.Candidate.Model == decision.Model && plan.Candidate.Provider == decision.Provider {
+		primary.UpstreamID = plan.Candidate.UpstreamID
+	}
+	if plan := decision.DispatchPlan; plan != nil && plan.IsValid() && !plan.FallbackAllowed {
+		return []catalog.ProviderBinding{primary}
+	}
 	if !s.shouldFailover(ctx) {
 		return []catalog.ProviderBinding{primary}
 	}
@@ -475,6 +484,49 @@ func (s *Service) resolveBindingsForDispatch(ctx context.Context, decision route
 		return out
 	}
 	return bindings
+}
+
+func validateDispatchPlan(decision router.Decision) error {
+	plan := decision.DispatchPlan
+	if plan == nil {
+		return nil
+	}
+	if !plan.IsValid() {
+		return fmt.Errorf("invalid dispatch plan: candidate is incomplete")
+	}
+	if plan.Candidate.Model != decision.Model || plan.Candidate.Provider != decision.Provider {
+		return fmt.Errorf("invalid dispatch plan: candidate does not match decision")
+	}
+	if plan.Candidate.Mode != router.DispatchModeNative && plan.Candidate.Mode != router.DispatchModeTranslated {
+		return fmt.Errorf("invalid dispatch plan: unknown dispatch mode %q", plan.Candidate.Mode)
+	}
+	if plan.Candidate.NativeOnly && plan.Candidate.Mode != router.DispatchModeNative {
+		return fmt.Errorf("invalid dispatch plan: native-only request requires native dispatch")
+	}
+	return nil
+}
+
+func dispatchDecisionForBinding(decision router.Decision, binding catalog.ProviderBinding) router.Decision {
+	decision.Provider = binding.Provider
+	if plan := decision.DispatchPlan; plan != nil {
+		candidate := plan.Candidate
+		candidate.Provider = binding.Provider
+		candidate.UpstreamID = catalog.UpstreamIDFor(decision.Model, binding.UpstreamID)
+		candidate.Mode = dispatchModeFor(candidate.SourceFormat, binding.Provider)
+		planCopy := *plan
+		planCopy.Candidate = candidate
+		decision.DispatchPlan = &planCopy
+	}
+	return decision
+}
+
+func dispatchModeFor(source router.WireFormat, provider string) router.DispatchMode {
+	var requirements router.TranslationRequirements
+	requirements.SourceFormat = source
+	if nativeDispatchFor(requirements, provider) {
+		return router.DispatchModeNative
+	}
+	return router.DispatchModeTranslated
 }
 
 func prioritizeSelectedArmBinding(

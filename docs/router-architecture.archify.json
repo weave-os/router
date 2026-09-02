@@ -1,0 +1,187 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "Router：多 Provider 路由架构",
+    "subtitle": "当前实现边界与 Codex OAuth 扩展点",
+    "output": "router-architecture.html",
+    "animation": "trace",
+    "visual_preset": "signal-flow",
+    "quality_profile": "showcase",
+    "repository": {
+      "url": "https://github.com/workweave/router.git",
+      "revision": "09912e87b13b21a8df48bd90049507e4f16bcffe"
+    },
+    "viewBox": [1400, 760],
+    "views": [
+      {
+        "id": "request-path",
+        "label": "请求主链路",
+        "focus": ["clients", "server", "proxy", "router", "providers", "upstreams"],
+        "note": "从 Codex 或其他客户端进入，经鉴权、路由、协议转换后到达上游模型。"
+      },
+      {
+        "id": "credential-path",
+        "label": "凭证与权限",
+        "focus": ["clients", "server", "auth", "credentials", "providers", "upstreams"],
+        "note": "区分 Router key、BYOK key 与 Codex OAuth 会话，凭证只绑定到允许的 Provider。"
+      },
+      {
+        "id": "future-routing",
+        "label": "目标多 Provider",
+        "focus": ["clients", "server", "proxy", "router", "catalog", "providers", "credentials", "upstreams"],
+        "note": "目标是让同一个入口依据模型能力、凭证可用性和策略选择合适的 Provider。"
+      }
+    ],
+    "legend": {
+      "mode": "all",
+      "entries": {
+        "frontend": { "label": "客户端 / CLI" },
+        "backend": { "label": "Router 服务" },
+        "database": { "label": "持久化" },
+        "security": { "label": "鉴权与凭证" },
+        "external": { "label": "外部 Provider" }
+      }
+    }
+  },
+  "components": [
+    {
+      "id": "clients",
+      "type": "frontend",
+      "label": "AI 客户端",
+      "sublabel": "Codex / Claude / OpenAI-compatible",
+      "tag": "OpenAI / Anthropic / Gemini",
+      "pos": [40, 360],
+      "size": [190, 76],
+      "sources": [{ "path": "README.md", "label": "entrypoints" }]
+    },
+    {
+      "id": "server",
+      "type": "backend",
+      "label": "HTTP API + Middleware",
+      "sublabel": "Gin routes · auth · request context",
+      "tag": "internal/server + internal/api",
+      "pos": [290, 360],
+      "size": [205, 76],
+      "sources": [
+        { "path": "internal/server/server.go", "label": "route registration" },
+        { "path": "internal/api/openai/responses.go", "label": "HTTP handler" }
+      ]
+    },
+    {
+      "id": "auth",
+      "type": "security",
+      "label": "Auth Service",
+      "sublabel": "Router key · BYOK · installation",
+      "tag": "internal/auth",
+      "pos": [290, 170],
+      "size": [205, 76],
+      "sources": [{ "path": "internal/auth/api_key.go", "label": "identity domain" }]
+    },
+    {
+      "id": "proxy",
+      "type": "backend",
+      "label": "Proxy Orchestrator",
+      "sublabel": "route · translate · dispatch · usage",
+      "tag": "internal/proxy",
+      "pos": [555, 360],
+      "size": [215, 76],
+      "sources": [{ "path": "internal/proxy/service.go", "label": "dispatch service" }]
+    },
+    {
+      "id": "router",
+      "type": "backend",
+      "label": "Routing Policy",
+      "sublabel": "cluster scorer · session pin · exploration",
+      "tag": "internal/router",
+      "pos": [830, 360],
+      "size": [215, 76],
+      "sources": [
+        { "path": "internal/router/router.go", "label": "Router interface" },
+        { "path": "internal/router/cluster/scorer.go", "label": "candidate scoring" }
+      ]
+    },
+    {
+      "id": "catalog",
+      "type": "backend",
+      "label": "Model Catalog",
+      "sublabel": "capability · tier · binding · price",
+      "tag": "internal/router/catalog",
+      "pos": [830, 170],
+      "size": [215, 76],
+      "sources": [{ "path": "internal/router/catalog/catalog.go", "label": "model registry" }]
+    },
+    {
+      "id": "credentials",
+      "type": "database",
+      "label": "Credential Store",
+      "sublabel": "PostgreSQL · encrypted BYOK · OAuth metadata",
+      "tag": "internal/postgres",
+      "pos": [555, 170],
+      "size": [215, 76],
+      "sources": [
+        { "path": "internal/postgres/repository.go", "label": "SQLC adapter" },
+        { "path": "db/queries/session_pins.sql", "label": "queries" }
+      ]
+    },
+    {
+      "id": "providers",
+      "type": "backend",
+      "label": "Provider Adapters",
+      "sublabel": "OpenAI · Anthropic · Google · compatible",
+      "tag": "internal/providers/*",
+      "pos": [1095, 360],
+      "size": [225, 76],
+      "sources": [{ "path": "internal/providers/provider.go", "label": "client interface" }]
+    },
+    {
+      "id": "codex-oauth",
+      "type": "security",
+      "label": "Codex OAuth Session",
+      "sublabel": "native subscription credential",
+      "tag": "current extension point",
+      "pos": [1095, 170],
+      "size": [225, 76],
+      "sources": [{ "path": "internal/providers/openai/codex_internal_test.go", "label": "Codex protocol" }]
+    },
+    {
+      "id": "upstreams",
+      "type": "external",
+      "label": "Model Upstreams",
+      "sublabel": "OpenAI / Anthropic / Gemini / gateways",
+      "tag": "external network",
+      "pos": [1095, 590],
+      "size": [225, 76]
+    },
+    {
+      "id": "observability",
+      "type": "backend",
+      "label": "Observability",
+      "sublabel": "request logs · OTel · analytics",
+      "tag": "cross-cutting adapter",
+      "pos": [555, 590],
+      "size": [215, 76],
+      "sources": [
+        { "path": "internal/observability/logger.go", "label": "correlated logs" },
+        { "path": "internal/analytics/analytics.go", "label": "routing decisions" }
+      ]
+    }
+  ],
+  "boundaries": [
+    { "kind": "region", "label": "Router 服务进程", "wraps": ["server", "auth", "proxy", "router", "catalog", "credentials", "providers", "codex-oauth", "observability"], "pad": 30 },
+    { "kind": "security-group", "label": "凭证边界：按 Provider 授权", "wraps": ["auth", "credentials", "codex-oauth", "providers"], "pad": 18 }
+  ],
+  "connections": [
+    { "id": "client-http", "from": "clients", "to": "server", "label": "HTTP / SSE", "variant": "emphasis", "route": "straight" },
+    { "id": "auth-context", "from": "auth", "to": "server", "variant": "security" },
+    { "id": "server-proxy", "from": "server", "to": "proxy", "variant": "emphasis" },
+    { "id": "proxy-router", "from": "proxy", "to": "router", "variant": "emphasis" },
+    { "id": "catalog-router", "from": "catalog", "to": "router", "variant": "default" },
+    { "id": "credentials-proxy", "from": "credentials", "to": "proxy" },
+    { "id": "router-providers", "from": "router", "to": "providers", "variant": "emphasis" },
+    { "id": "codex-provider", "from": "codex-oauth", "to": "providers", "variant": "security" },
+    { "id": "provider-upstream", "from": "providers", "to": "upstreams", "variant": "emphasis" },
+    { "id": "proxy-observability", "from": "proxy", "to": "observability", "variant": "dashed" },
+    { "id": "auth-credentials", "from": "auth", "to": "credentials", "variant": "security" }
+  ]
+}

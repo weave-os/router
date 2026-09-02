@@ -32,6 +32,36 @@ func ByID(id string) (Model, bool) {
 	return Model{}, false
 }
 
+// MatchesIntent reports whether the catalog has an explicit preference for
+// the requested intent tag. Unknown models and unknown tags never match.
+func MatchesIntent(id, tag string) bool {
+	if tag == "" {
+		return false
+	}
+	m, ok := ByID(id)
+	if !ok {
+		return false
+	}
+	for _, candidate := range m.IntentTags {
+		if candidate == tag {
+			return true
+		}
+	}
+	return false
+}
+
+// MatchesAnyIntent reports whether a model has an explicit preference for at
+// least one requested tag. Matching is exact so a new tag cannot silently
+// change routing until a catalog row opts into it.
+func MatchesAnyIntent(id string, tags []string) bool {
+	for _, tag := range tags {
+		if MatchesIntent(id, tag) {
+			return true
+		}
+	}
+	return false
+}
+
 // ResolveBinding returns the first ProviderBinding whose Provider is in
 // `available`. Used at boot to pick each routable model's upstream.
 func ResolveBinding(id string, available map[string]struct{}) (ProviderBinding, bool) {

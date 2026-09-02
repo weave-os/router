@@ -52,8 +52,8 @@ so you only ever paste it once — see [Staying up to date](#staying-up-to-date)
 
 ### Self-hosted via `docker compose` (zero-config)
 
-If you're running the router locally with the bundled `docker-compose.yml`
-(`localhost:8080`), use the shortcut:
+If you're running the host-mode router with `router web start`
+(`localhost:8088`), use the shortcut:
 
 ```bash
 cd router
@@ -63,7 +63,7 @@ claude                          # routes through your local router
 ```
 
 `make install-cc` is a wrapper around `./install/install.sh --claude --local`,
-which is shorthand for `--base-url http://localhost:8080`. For Codex, swap
+which is shorthand for `--base-url http://localhost:8088`. For Codex, swap
 the target flag:
 
 ```bash

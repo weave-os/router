@@ -9,6 +9,7 @@ import (
 	"workweave/router/internal/billing"
 	"workweave/router/internal/providers"
 	"workweave/router/internal/proxy"
+	"workweave/router/internal/router"
 	"workweave/router/internal/router/bandit"
 	"workweave/router/internal/router/cluster"
 	"workweave/router/internal/router/hmm"
@@ -76,6 +77,26 @@ func TestClassifyDispatchError_NoEligibleProviderIsClientErrorAndWarns(t *testin
 	assert.True(t, cls.Kind.IsClientError())
 	assert.Equal(t, "warn", cls.LogLevel)
 	assert.False(t, cls.RetryAfter)
+}
+
+func TestClassifyDispatchError_CodexCredentialScopeExplainsRecovery(t *testing.T) {
+	err := &cluster.NoEligibleProviderError{
+		Diagnostics: []router.CandidateDiagnostic{{
+			Model:            "gpt-5.5",
+			Provider:         providers.ProviderCodex,
+			Endpoint:         router.EndpointOpenAIResponses,
+			CredentialSource: router.CredentialSourceCodexOAuth,
+			Reason:           router.CandidateExclusionModelUnsupported,
+		}},
+		Cause: cluster.ErrNoEligibleProvider,
+	}
+
+	cls, ok := proxy.ClassifyDispatchError(err)
+
+	require.True(t, ok)
+	assert.Equal(t, proxy.DispatchErrorNoEligibleProvider, cls.Kind)
+	assert.Contains(t, cls.Message, "Codex OAuth")
+	assert.Contains(t, cls.Message, "provider API key")
 }
 
 // ErrAllowlistEmptiesPool wraps ErrNoEligibleProvider, so switch ordering is

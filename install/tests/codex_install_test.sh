@@ -87,7 +87,7 @@ fi
 # No install target pins a strategy: every endpoint, hosted or self-hosted,
 # uses the router's own deployment default.
 run_local_install
-grep -Fq 'base_url = "http://localhost:8080/v1"' "$config" \
+grep -Fq 'base_url = "http://localhost:8088/v1"' "$config" \
   || fail "Codex --local did not select the local router"
 if grep -Fq 'X-Weave-Router-Strategy' "$config"; then
   fail "Codex --local forced the optional HMM strategy"

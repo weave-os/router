@@ -95,6 +95,31 @@ make setup                             # init schema + migrate + seed an rk_ key
 make dev                               # run the server with hot reload
 ```
 
+For a local PostgreSQL installation without Docker or the Pub/Sub emulator,
+use the host-mode flow instead:
+
+```bash
+make local-setup
+make local-assets                       # once, downloads the pinned embedder
+make local-dev                          # hot reload, or `make local-run`
+```
+
+The first `local-dev`/`local-run` builds the Next.js dashboard automatically
+and installs it under `assets/ui`. After frontend changes, use
+`make local-ui LOCAL_UI_REBUILD=true` to rebuild it.
+
+On Apple Silicon, install ONNX Runtime once with `brew install onnxruntime`.
+The `local-run` and `local-dev` targets download and link the matching
+`libtokenizers` archive automatically under `.local/libtokenizers`. Override
+`LOCAL_TOKENIZERS_URL` if GitHub is unavailable from your network.
+
+The default connection is the current OS user on `127.0.0.1:5432`, database
+`router`. Override `LOCAL_DATABASE_URL` (and `LOCAL_PG_HOST`/
+`LOCAL_PG_PORT` for the readiness check) when your PostgreSQL setup differs.
+Host mode disables cross-replica Pub/Sub invalidation because it runs one
+router process. It also clears deployment-level OpenAI and Anthropic API keys,
+so Codex/Claude subscription credentials are passed through from the client.
+
 Prerequisites: Go 1.25+, [golang-migrate](https://github.com/golang-migrate/migrate),
 [CompileDaemon](https://github.com/githubnemo/CompileDaemon).
 

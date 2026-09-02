@@ -34,7 +34,7 @@ func rosterIDFor(m catalog.Model) string {
 		// A gateway serves the Claude family unchanged, so a gateway-primary
 		// binding maps onto the same roster slug as the direct Anthropic one.
 		return "anthropic/" + m.ID
-	case providers.ProviderOpenAI:
+	case providers.ProviderOpenAI, providers.ProviderCodex:
 		return "openai/" + m.ID
 	case providers.ProviderGoogle:
 		return "google/" + m.ID

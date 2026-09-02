@@ -14,6 +14,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
+	"workweave/router/internal/router"
 	"workweave/router/internal/router/catalog"
 )
 
@@ -645,11 +646,19 @@ func CheapestModelInSet(meta *ArtifactMetadata, registry *ModelRegistry, availab
 // RequestBindings carries a key's model_aliases (Custom) and enrolled gateway
 // providers (Gateways); a non-empty Gateways set means gateway-exclusive routing.
 type RequestBindings struct {
-	Custom   map[string][]string
-	Gateways map[string]struct{}
+	Custom             map[string][]string
+	Gateways           map[string]struct{}
+	Endpoint           router.TranslationEndpoint
+	CredentialBindings []router.CredentialBinding
 }
 
 func (b RequestBindings) resolve(modelID, registryProvider string, available map[string]struct{}) string {
+	available = router.CredentialProvidersForModel(
+		available,
+		modelID,
+		b.Endpoint,
+		b.CredentialBindings,
+	)
 	if len(b.Gateways) > 0 {
 		return resolveGatewayProvider(modelID, available, b.Custom, b.Gateways)
 	}

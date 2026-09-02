@@ -47,8 +47,12 @@ func ObserveUpstreamHeaders(ctx context.Context, h http.Header) {
 // even though the provider looked "enabled" at boot. ValidateDispatchable and
 // the table test catch this at boot instead of in production.
 const (
-	ProviderAnthropic  = "anthropic"
-	ProviderOpenAI     = "openai"
+	ProviderAnthropic = "anthropic"
+	ProviderOpenAI    = "openai"
+	// ProviderCodex is the ChatGPT subscription backend. It is credential-only:
+	// it must be enabled per request by a valid Codex OAuth credential and is
+	// never a deployment-key routing source.
+	ProviderCodex      = "codex"
 	ProviderGoogle     = "google"
 	ProviderOpenRouter = "openrouter"
 	ProviderFireworks  = "fireworks"
@@ -97,6 +101,7 @@ const (
 var ProviderFamilies = map[string]TranslationFamily{
 	ProviderAnthropic:  FamilyAnthropic,
 	ProviderOpenAI:     FamilyOpenAICompat,
+	ProviderCodex:      FamilyOpenAICompat,
 	ProviderGoogle:     FamilyGemini,
 	ProviderOpenRouter: FamilyOpenAICompat,
 	ProviderFireworks:  FamilyOpenAICompat,
@@ -174,8 +179,11 @@ func ValidateDispatchable(registered []string) error {
 // APIKeyEnvVars maps provider name to the env var providing its deployment-level upstream API key.
 // Bedrock uses AWS-issued long-term Bedrock API keys (static bearer tokens), not SigV4 access keys.
 var APIKeyEnvVars = map[string]string{
-	ProviderAnthropic:  "ANTHROPIC_API_KEY",
-	ProviderOpenAI:     "OPENAI_API_KEY",
+	ProviderAnthropic: "ANTHROPIC_API_KEY",
+	ProviderOpenAI:    "OPENAI_API_KEY",
+	// Codex has no deployment API key; this marker keeps provider metadata
+	// complete while the actual credential comes from the local OAuth session.
+	ProviderCodex:      "CODEX_OAUTH",
 	ProviderGoogle:     "GOOGLE_API_KEY",
 	ProviderOpenRouter: "OPENROUTER_API_KEY",
 	ProviderFireworks:  "FIREWORKS_API_KEY",
@@ -205,6 +213,17 @@ var baseURLRequiredProviders = map[string]struct{}{
 	ProviderOpenAIGateway:    {},
 }
 
+var credentialOnlyProviders = map[string]struct{}{
+	ProviderCodex: {},
+}
+
+// IsCredentialOnly reports whether a provider can be enabled only by a
+// request-scoped credential and must stay out of the boot-time scorer pool.
+func IsCredentialOnly(provider string) bool {
+	_, ok := credentialOnlyProviders[provider]
+	return ok
+}
+
 // RequiresBaseURL reports whether a BYOK credential for this provider must
 // carry its own endpoint.
 func RequiresBaseURL(provider string) bool {
@@ -220,6 +239,7 @@ func RequiresBaseURL(provider string) bool {
 var CacheTTL = map[string]time.Duration{
 	ProviderAnthropic:      time.Hour,
 	ProviderOpenAI:         5 * time.Minute,
+	ProviderCodex:          5 * time.Minute,
 	ProviderGoogle:         5 * time.Minute,
 	ProviderOpenRouter:     5 * time.Minute,
 	ProviderFireworks:      5 * time.Minute,

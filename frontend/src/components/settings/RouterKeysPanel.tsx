@@ -275,6 +275,11 @@ export function RouterKeysPanel() {
               </div>
             )}
           </Card.Header>
+          <div className="border-b border-border px-5 py-3">
+            <Text className="text-2xs text-muted-foreground">
+              Existing tokens are not shown again. Rotate a key to reveal a new token and copyable setup commands.
+            </Text>
+          </div>
           <Card.Content>
             {visibleKeys.length === 0 ? (
               <div className="px-5 py-8 text-center text-2xs text-muted-foreground">
@@ -307,9 +312,10 @@ export function RouterKeysPanel() {
                       size="sm"
                       onClick={() => handleRotate(k.id)}
                       disabled={rotating != null || deleting != null}
+                      title="Rotate this key and show setup commands."
                     >
                       <RotateCw className="size-3.5" />
-                      {rotating === k.id ? "Rotating…" : "Rotate"}
+                      {rotating === k.id ? "Rotating…" : "Rotate & commands"}
                     </Button>
                     <Button
                       appearance={Appearance.Hollow}
