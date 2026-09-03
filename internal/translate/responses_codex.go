@@ -45,6 +45,91 @@ type portableCodexResponsesConverter struct {
 	tools           []map[string]any
 }
 
+func codexFeedbackSkillInvocation(input gjson.Result) bool {
+	if !input.IsArray() {
+		return false
+	}
+	userInvoked := false
+	for _, item := range input.Array() {
+		if item.Get("type").Str == "message" && item.Get("role").Str == "user" {
+			content := item.Get("content")
+			if codexFeedbackCommandContent(content) {
+				userInvoked = true
+			} else if !codexFeedbackSkillInstructions(content) {
+				userInvoked = false
+			}
+			continue
+		}
+		if !userInvoked {
+			continue
+		}
+		itemType := item.Get("type").Str
+		if itemType != "function_call_output" && itemType != "custom_tool_call_output" {
+			continue
+		}
+		output := item.Get("output")
+		if output.Type == gjson.String && routerFeedbackCommandFound(output.Str) {
+			return true
+		}
+		if !output.IsArray() {
+			continue
+		}
+		var text strings.Builder
+		for _, part := range output.Array() {
+			if part.Get("type").Str == "input_text" {
+				text.WriteString(part.Get("text").Str)
+			}
+		}
+		if routerFeedbackCommandFound(text.String()) {
+			return true
+		}
+	}
+	return false
+}
+
+func codexFeedbackSkillInstructions(content gjson.Result) bool {
+	if content.Type == gjson.String {
+		return strings.Contains(content.Str, "<skill>") && strings.Contains(content.Str, "</skill>")
+	}
+	if !content.IsArray() {
+		return false
+	}
+	for _, part := range content.Array() {
+		if part.Get("type").Str == "input_text" && codexFeedbackSkillInstructions(part.Get("text")) {
+			return true
+		}
+	}
+	return false
+}
+
+func codexFeedbackCommandContent(content gjson.Result) bool {
+	if content.Type == gjson.String {
+		return codexFeedbackCommandText(content.Str)
+	}
+	if !content.IsArray() {
+		return false
+	}
+	for _, part := range content.Array() {
+		if part.Get("type").Str == "input_text" && codexFeedbackCommandText(part.Get("text").Str) {
+			return true
+		}
+	}
+	return false
+}
+
+func codexFeedbackCommandText(text string) bool {
+	first, _, _ := strings.Cut(strings.TrimSpace(text), "\n")
+	if !strings.HasPrefix(first, "$") {
+		return false
+	}
+	_, _, found := matchRouterFeedbackCommand(first)
+	return found
+}
+
+func routerFeedbackCommandFound(text string) bool {
+	_, found, _ := parseRouterFeedbackCommand(text)
+	return found
+}
 func convertPortableCodexResponses(body []byte) (ResponsesConversion, error) {
 	if err := validateResponsesRequest(body); err != nil {
 		return ResponsesConversion{}, err
@@ -81,6 +166,7 @@ func convertPortableCodexResponses(body []byte) (ResponsesConversion, error) {
 	}
 
 	converter.collectDeclaredTools(root)
+	converter.result.CodexFeedbackSkill = codexFeedbackSkillInvocation(root.Get("input"))
 	messages := converter.convertInput(root.Get("input"))
 	var systemMessages []map[string]any
 	if instructions := root.Get("instructions").Str; instructions != "" {

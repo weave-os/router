@@ -438,3 +438,11 @@ func TestRoutingMarkerFor_SuppressesStickyTurnForAllClients(t *testing.T) {
 	}
 	assert.Empty(t, routingMarkerFor(res), "same-model suppression applies to Codex as well as Claude Code")
 }
+
+func TestRoutingMarkerFor_SuppressesEffortOnlyChange(t *testing.T) {
+	res := turnLoopResult{
+		Decision:         router.Decision{Model: "gpt-5.6-luna", Provider: "openai", Effort: "xhigh"},
+		PriorServedModel: "gpt-5.6-luna:xhigh",
+	}
+	assert.Empty(t, routingMarkerFor(res), "changing effort must not repeat the model-choice marker")
+}

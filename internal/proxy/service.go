@@ -446,6 +446,10 @@ type nativeResponsesReasoningHashContextKey struct{}
 // nativeResponsesToolHashContextKey preserves native Responses tool identity.
 type nativeResponsesToolHashContextKey struct{}
 
+// codexFeedbackSkillContextKey marks a Responses request where Codex is
+// returning output from a user-invoked $rf skill.
+type codexFeedbackSkillContextKey struct{}
+
 // responsesFooterEchoedContextKey is set when the original Responses input
 // already carries a rating hint after the last human turn.
 type responsesFooterEchoedContextKey struct{}
@@ -620,14 +624,9 @@ func routingMarkerFor(res turnLoopResult) string {
 		return ""
 	}
 	// Same model as last turn: the user already knows. Empty prior model means
-	// the first turn of this session (or role), which still shows. Applies to
-	// both the planner-style marker and the sidecar-supplied display marker —
-	// the HMM sidecar renders `<model> · <cluster reason>` on every /route call
-	// regardless of whether the model actually changed, so a literal "fast route
-	// for this turn" / "best pick for this turn" repeating each turn would
-	// otherwise be visible even when nothing switched. Hard-pin carve-outs and
-	// first-turn (empty prior) cases still flow to the sidecar marker below.
-	if res.PriorServedModel == res.Decision.ServedIdentity() {
+	// the first turn of this session (or role), which still shows. Effort changes
+	// do not constitute a new model choice for this display surface.
+	if baseModelOf(res.PriorServedModel) == res.Decision.Model {
 		return ""
 	}
 	// A sidecar-supplied marker is a genuine per-turn status line (e.g.
@@ -5791,10 +5790,12 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	}
 	if cmd, hasCmd := env.ExtractRouterFeedbackCommand(); hasCmd {
 		log.Info("ProxyOpenAIChatCompletion router-feedback command")
-		if err := s.handleRouterFeedbackCommand(ctx, w, env, cmd, installationID, sessionKey, feats.Tokens, !cmd.FromToolResult); err != nil {
+		skillFeedback, _ := ctx.Value(codexFeedbackSkillContextKey{}).(bool)
+		synthetic := !cmd.FromToolResult || skillFeedback
+		if err := s.handleRouterFeedbackCommand(ctx, w, env, cmd, installationID, sessionKey, feats.Tokens, synthetic); err != nil {
 			return err
 		}
-		if !cmd.FromToolResult {
+		if synthetic {
 			s.grantPostCommandContinuation(ctx, installationID, sessionKey, roleForTier(catalog.TierFor(feats.Model)))
 			return nil
 		}
@@ -6765,6 +6766,9 @@ func (s *Service) ProxyOpenAIResponses(ctx context.Context, body []byte, w http.
 		return fmt.Errorf("translate responses request: %w", err)
 	}
 	chatBody, model := conversion.Body, conversion.Model
+	if conversion.CodexFeedbackSkill {
+		ctx = context.WithValue(ctx, codexFeedbackSkillContextKey{}, true)
+	}
 	codexNativeRequest := codexResponsesRequest(ctx, r.Header)
 	nativeBody := conversion.OriginalBody
 	if clientAppCodex {
