@@ -348,6 +348,35 @@ func TestDetectFromEnvelope_OpenAI(t *testing.T) {
 			want: turntype.MainLoop,
 		},
 		{
+			// Codex issues its checkpoint compaction as the trailing user turn
+			// (observed on a mid-thread model switch, ~18K tokens in).
+			name: "codex checkpoint compaction prompt is compaction",
+			body: `{"model":"gpt-5.5","messages":[
+				{"role":"system","content":"You are Codex, a coding agent based on GPT-5."},
+				{"role":"user","content":"make me a complex ml algo"},
+				{"role":"assistant","content":"What should it predict?"},
+				{"role":"user","content":"You are performing a CONTEXT CHECKPOINT COMPACTION. Create a handoff summary for another LLM that will resume the task.\n\nInclude:\n- Current progress and key decisions made"}
+			]}`,
+			want: turntype.Compaction,
+		},
+		{
+			// The marker must be in the trailing turn: the post-compaction
+			// resume request quotes the compaction summary but is a real turn.
+			name: "codex post-compaction resume turn stays main_loop",
+			body: `{"model":"gpt-5.6-sol","messages":[
+				{"role":"user","content":"Another language model started to solve this problem and produced a summary of its thinking process. You are performing a CONTEXT CHECKPOINT COMPACTION was the instruction it received."},
+				{"role":"user","content":"yo"}
+			]}`,
+			want: turntype.MainLoop,
+		},
+		{
+			name: "codex compaction phrase beyond the sniff bound does not trigger",
+			body: `{"model":"gpt-5.5","messages":[
+				{"role":"user","content":"` + strings.Repeat("x", 4100) + ` You are performing a CONTEXT CHECKPOINT COMPACTION."}
+			]}`,
+			want: turntype.MainLoop,
+		},
+		{
 			name: "sub-agent via header hint",
 			body: `{"model":"gpt-4o","messages":[{"role":"user","content":"grep"}]}`,
 			hint: "Explore",

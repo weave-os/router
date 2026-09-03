@@ -15,7 +15,8 @@ const (
 	MainLoop         TurnType = "main_loop"
 	ToolResult       TurnType = "tool_result"
 	SubAgentDispatch TurnType = "sub_agent_dispatch"
-	// Compaction: Claude Code context-compaction turn. Always Haiku.
+	// Compaction: harness-issued context-compaction turn (Claude Code's
+	// summary instruction or Codex's checkpoint compaction). Hard-pinned.
 	Compaction TurnType = "compaction"
 	// Probe: quota/liveness check (max_tokens=1..4). Hard-pinned to cheap
 	// model AND skips session-pin creation.
@@ -39,8 +40,13 @@ const compactionMarkerPhrase = "your task is to create a detailed summary"
 // where the summary phrase on its own is text a human could plausibly type.
 const compactionNoToolsPhrase = "do not call any tools"
 
-// compactionSniffLen bounds the trailing-user-message scan; Claude Code's
-// preamble places the phrase within ~200 bytes, so long pasted messages are excluded.
+// codexCompactionMarkerPhrase opens Codex's checkpoint-compaction prompt,
+// which Codex issues as the trailing user message when it hands a thread over
+// (e.g. on a mid-thread model switch). Distinctive enough to match alone.
+const codexCompactionMarkerPhrase = "you are performing a context checkpoint compaction"
+
+// compactionSniffLen bounds the trailing-user-message scan; both harnesses'
+// preambles place the phrase within ~200 bytes, so long pasted messages are excluded.
 const compactionSniffLen = 4096
 
 // Bounds for short-form classifier calls (e.g. Claude Code's security monitor:
@@ -67,10 +73,15 @@ func DetectFromEnvelope(env *translate.RequestEnvelope, feats translate.RoutingF
 		return TitleGen
 	}
 	systemText := env.SystemText()
-	// Compaction is Claude-Code-only, and Claude Code always talks Anthropic
-	// format. Gating on format keeps Codex/OpenAI clients — whose prompts can
-	// incidentally mention "compact" — out of the hard pin.
-	if env.SourceFormat() == translate.FormatAnthropic && isCompaction(systemText, env.LastUserMessage().Text) {
+	lastUserText := env.LastUserMessage().Text
+	// Claude Code's compaction fingerprint is only trusted on Anthropic
+	// format, which Claude Code always speaks. Gating on format keeps
+	// Codex/OpenAI clients — whose prompts can incidentally mention
+	// "compact" — out of the hard pin.
+	if env.SourceFormat() == translate.FormatAnthropic && isCompaction(systemText, lastUserText) {
+		return Compaction
+	}
+	if isCodexCompaction(lastUserText) {
 		return Compaction
 	}
 	if isSubAgentDispatch(env.MetadataUserID(), env.FirstUserMessageText(), subAgentHint) {
@@ -131,6 +142,15 @@ func isCompaction(systemText, lastUserText string) bool {
 
 func hasCompactionMarker(text string) bool {
 	return strings.Contains(strings.ToLower(text), compactionMarkerPhrase)
+}
+
+// isCodexCompaction reports whether the trailing user message is Codex's
+// checkpoint-compaction prompt.
+func isCodexCompaction(lastUserText string) bool {
+	if len(lastUserText) > compactionSniffLen {
+		lastUserText = lastUserText[:compactionSniffLen]
+	}
+	return strings.Contains(strings.ToLower(lastUserText), codexCompactionMarkerPhrase)
 }
 
 // isSubAgentDispatch reports whether the request originates from a sub-agent:
