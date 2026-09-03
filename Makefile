@@ -34,6 +34,7 @@ check-agent-guides: ## Check that generated AGENTS.md mirrors are current
 
 check-docs: ## Check repository-local documentation links, symbols, and index
 	@python3 scripts/check_docs.py
+	@python3 -m unittest scripts/test_check_docs.py
 
 build: ## Typecheck the entire module
 	go build -o /dev/null ./...

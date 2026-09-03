@@ -39,7 +39,11 @@ def tracked(root: Path, pattern: str) -> list[Path]:
 
 
 def without_fences(text: str) -> str:
-    return FENCE_RE.sub(lambda match: "\n" * match.group(0).count("\n"), text)
+    """Mask fenced blocks while preserving every source character offset."""
+    return FENCE_RE.sub(
+        lambda match: "".join("\n" if char == "\n" else " " for char in match.group(0)),
+        text,
+    )
 
 
 def line_number(text: str, offset: int) -> int:
