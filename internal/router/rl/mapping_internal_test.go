@@ -35,6 +35,7 @@ var defaultRosterPrefixProviders = map[string]struct{}{
 	providers.ProviderFireworks:  {},
 	providers.ProviderBedrock:    {},
 	providers.ProviderMakora:     {},
+	providers.ProviderMiniMax:    {},
 	providers.ProviderTogether:   {},
 	// Anthropic-spec surfaces serving non-Claude models (Wafer's Messages API)
 	// stay bare — the roster keys vendor-prefixed Anthropic slots by Claude ID.
