@@ -30,8 +30,8 @@ VALUES (
     @key_prefix::varchar,
     @key_suffix::varchar,
     @key_fingerprint::varchar,
-    @name,
-    @base_url,
+    sqlc.narg('name')::varchar,
+    sqlc.narg('base_url')::text,
     sqlc.narg('model_aliases')::jsonb,
     sqlc.narg('identity_header_name')::text,
     sqlc.narg('identity_header_format')::text,
@@ -40,7 +40,7 @@ VALUES (
     @auth_type::text,
     sqlc.narg('auth_account')::text,
     sqlc.narg('auth_user')::text,
-    @created_by
+    sqlc.narg('created_by')::varchar
 )
 RETURNING *;
 

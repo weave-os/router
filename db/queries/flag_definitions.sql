@@ -43,6 +43,7 @@ DELETE FROM router.flag_definitions
 WHERE registry_version <= @registry_version::integer
   AND key <> ALL(@keys::text[]);
 
+-- Lists the published flag registry in stable key order.
 -- name: ListFlagDefinitions :many
 SELECT *
 FROM router.flag_definitions

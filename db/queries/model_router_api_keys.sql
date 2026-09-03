@@ -14,11 +14,11 @@ INSERT INTO router.model_router_api_keys (
 VALUES (
     @installation_id::uuid,
     @external_id::varchar,
-    @name,
+    sqlc.narg('name')::varchar,
     @key_prefix::varchar,
     @key_hash::varchar,
     @key_suffix::varchar,
-    @created_by,
+    sqlc.narg('created_by')::varchar,
     @scope::varchar
 )
 RETURNING *;

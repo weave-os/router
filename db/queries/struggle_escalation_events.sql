@@ -1,3 +1,4 @@
+-- Records one routing escalation triggered by sustained struggle evidence.
 -- name: InsertStruggleEscalationEvent :exec
 INSERT INTO router.struggle_escalation_events (
     installation_id, session_key, role, struggling_model,
@@ -10,6 +11,7 @@ INSERT INTO router.struggle_escalation_events (
     @arming_mode::varchar, @evidence_reasons::varchar[]
 );
 
+-- Counts matching escalation events for a session role.
 -- name: CountStruggleEscalationEvents :one
 SELECT COUNT(*)
 FROM router.struggle_escalation_events

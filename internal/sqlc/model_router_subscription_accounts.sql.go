@@ -22,7 +22,7 @@ type DeleteModelRouterSubscriptionAccountParams struct {
 	APIKeyID uuid.UUID
 }
 
-// DeleteModelRouterSubscriptionAccount
+// Deletes a subscription account owned by the router key.
 //
 //	DELETE FROM router.model_router_subscription_accounts
 //	WHERE id = $1::uuid AND api_key_id = $2::uuid
@@ -125,7 +125,7 @@ type UpdateModelRouterSubscriptionAccountStateParams struct {
 	APIKeyID      uuid.UUID
 }
 
-// UpdateModelRouterSubscriptionAccountState
+// Updates enabled state and cooldown for an account owned by the router key.
 //
 //	UPDATE router.model_router_subscription_accounts
 //	SET enabled = $1::boolean,
@@ -158,7 +158,7 @@ type UpdateModelRouterSubscriptionRefreshTokenParams struct {
 	APIKeyID               uuid.UUID
 }
 
-// UpdateModelRouterSubscriptionRefreshToken
+// Replaces the encrypted refresh token for an account owned by the router key.
 //
 //	UPDATE router.model_router_subscription_accounts
 //	SET refresh_token_ciphertext = $1::bytea,
@@ -193,7 +193,7 @@ type UpsertModelRouterSubscriptionAccountParams struct {
 	RefreshTokenCiphertext []byte
 }
 
-// UpsertModelRouterSubscriptionAccount
+// Creates or re-enables one subscription account and refreshes its credential.
 //
 //	INSERT INTO router.model_router_subscription_accounts (
 //	  api_key_id, provider, external_account_id, refresh_token_ciphertext

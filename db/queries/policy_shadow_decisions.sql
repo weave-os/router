@@ -1,3 +1,4 @@
+-- Records the serving and shadow policy decisions for offline comparison.
 -- name: InsertPolicyShadowDecision :exec
 INSERT INTO router.policy_shadow_decisions (
     installation_id,

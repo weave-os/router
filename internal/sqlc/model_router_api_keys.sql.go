@@ -25,11 +25,11 @@ INSERT INTO router.model_router_api_keys (
 VALUES (
     $1::uuid,
     $2::varchar,
-    $3,
+    $3::varchar,
     $4::varchar,
     $5::varchar,
     $6::varchar,
-    $7,
+    $7::varchar,
     $8::varchar
 )
 RETURNING id, installation_id, external_id, name, key_prefix, key_hash, key_suffix, last_used_at, created_at, deleted_at, created_by, spend_cap_usd_micros, spent_usd_micros, scope
@@ -62,11 +62,11 @@ type CreateModelRouterAPIKeyParams struct {
 //	VALUES (
 //	    $1::uuid,
 //	    $2::varchar,
-//	    $3,
+//	    $3::varchar,
 //	    $4::varchar,
 //	    $5::varchar,
 //	    $6::varchar,
-//	    $7,
+//	    $7::varchar,
 //	    $8::varchar
 //	)
 //	RETURNING id, installation_id, external_id, name, key_prefix, key_hash, key_suffix, last_used_at, created_at, deleted_at, created_by, spend_cap_usd_micros, spent_usd_micros, scope

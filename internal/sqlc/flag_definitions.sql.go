@@ -39,7 +39,7 @@ FROM router.flag_definitions
 ORDER BY key
 `
 
-// ListFlagDefinitions
+// Lists the published flag registry in stable key order.
 //
 //	SELECT key, kind, env_var, deployment_default, org_overridable, description, registry_version, updated_at
 //	FROM router.flag_definitions

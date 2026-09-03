@@ -7,7 +7,7 @@
 ## Surface
 
 - `Pin` value type.
-- `Store` interface (inner-ring contract) — implemented by `postgres.SessionPinRepository` in [`../../postgres`](../../postgres).
+- `Store` interface (inner-ring contract) — implemented by `postgres.SessionPinRepo` in [`../../postgres`](../../postgres).
 - Keyed by `(api_key_id, session_key, role)` where `session_key` = 16-byte sha256 truncation derived from the inbound request (see [`../../proxy/session_key.go`](../../proxy/session_key.go)).
 
 ## Roles

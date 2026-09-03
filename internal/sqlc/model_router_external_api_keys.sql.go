@@ -40,8 +40,8 @@ VALUES (
     $5::varchar,
     $6::varchar,
     $7::varchar,
-    $8,
-    $9,
+    $8::varchar,
+    $9::text,
     $10::jsonb,
     $11::text,
     $12::text,
@@ -50,7 +50,7 @@ VALUES (
     $15::text,
     $16::text,
     $17::text,
-    $18
+    $18::varchar
 )
 RETURNING id, installation_id, external_id, provider, key_ciphertext, key_prefix, key_suffix, key_fingerprint, name, last_used_at, created_at, updated_at, deleted_at, created_by, base_url, model_aliases, identity_header_name, identity_header_format, auth_type, auth_account, auth_user, deleted_by, forwarded_client_headers, baggage_header
 `
@@ -108,8 +108,8 @@ type CreateExternalAPIKeyParams struct {
 //	    $5::varchar,
 //	    $6::varchar,
 //	    $7::varchar,
-//	    $8,
-//	    $9,
+//	    $8::varchar,
+//	    $9::text,
 //	    $10::jsonb,
 //	    $11::text,
 //	    $12::text,
@@ -118,7 +118,7 @@ type CreateExternalAPIKeyParams struct {
 //	    $15::text,
 //	    $16::text,
 //	    $17::text,
-//	    $18
+//	    $18::varchar
 //	)
 //	RETURNING id, installation_id, external_id, provider, key_ciphertext, key_prefix, key_suffix, key_fingerprint, name, last_used_at, created_at, updated_at, deleted_at, created_by, base_url, model_aliases, identity_header_name, identity_header_format, auth_type, auth_account, auth_user, deleted_by, forwarded_client_headers, baggage_header
 func (q *Queries) CreateExternalAPIKey(ctx context.Context, arg CreateExternalAPIKeyParams) (RouterModelRouterExternalAPIKey, error) {

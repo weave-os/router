@@ -34,8 +34,7 @@ artifacts/
   per-model raw axes (input/output cost per 1k, TTFT, TPS, verbosity
   tokens). Five routing knobs (α, speed_weight, output_cost_ratio,
   expected_output_tokens, per_model_verbosity) are reconstructable at
-  request time and overridable via `x-weave-routing-*` headers. See
-  [`docs/plans/ROUTER_RUNTIME_TUNABLE_KNOBS.md`](../../../../docs/plans/ROUTER_RUNTIME_TUNABLE_KNOBS.md).
+  request time and overridable via `x-weave-routing-*` headers.
 
 The loader probes for `quality_means.json` to detect v2; falls back to
 `rankings.json` for v1. A v2 directory may co-host both files during

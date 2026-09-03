@@ -1,3 +1,4 @@
+-- Creates an installation owned by the external tenant identifier.
 -- name: CreateModelRouterInstallation :one
 INSERT INTO router.model_router_installations (
     external_id,
@@ -7,7 +8,7 @@ INSERT INTO router.model_router_installations (
 VALUES (
     @external_id::varchar,
     @name::varchar,
-    @created_by
+    sqlc.narg('created_by')::varchar
 )
 RETURNING *;
 
@@ -19,6 +20,7 @@ WHERE id = @id::uuid
   AND external_id = @external_id::varchar
   AND deleted_at IS NULL;
 
+-- Lists active installations owned by one external tenant identifier.
 -- name: ListModelRouterInstallationsForExternalID :many
 SELECT *
 FROM router.model_router_installations
@@ -73,7 +75,7 @@ WHERE id = @id::uuid
 -- preference so the scorer reverts to its tuned defaults.
 -- name: UpdateModelRouterInstallationRoutingPreference :execrows
 UPDATE router.model_router_installations
-SET routing_quality_weight = sqlc.narg('routing_quality_weight'),
+SET routing_quality_weight = sqlc.narg('routing_quality_weight')::double precision,
     updated_at = NOW()
 WHERE id = @id::uuid
   AND external_id = @external_id::varchar
@@ -86,7 +88,7 @@ WHERE id = @id::uuid
 -- name: UpdateModelRouterInstallationUsageBypass :execrows
 UPDATE router.model_router_installations
 SET usage_bypass_enabled = @usage_bypass_enabled::boolean,
-    usage_bypass_threshold = sqlc.narg('usage_bypass_threshold'),
+    usage_bypass_threshold = sqlc.narg('usage_bypass_threshold')::double precision,
     updated_at = NOW()
 WHERE id = @id::uuid
   AND external_id = @external_id::varchar
@@ -96,7 +98,7 @@ WHERE id = @id::uuid
 -- to an external_id to prevent cross-tenant updates. NULL clears the override.
 -- name: UpdateModelRouterInstallationContentCaptureMode :execrows
 UPDATE router.model_router_installations
-SET content_capture_mode = sqlc.narg('content_capture_mode'),
+SET content_capture_mode = sqlc.narg('content_capture_mode')::text,
     updated_at = NOW()
 WHERE id = @id::uuid
   AND external_id = @external_id::varchar

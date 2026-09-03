@@ -1,0 +1,13 @@
+# kind    Markdown file                                  relative target or qualified symbol
+# Governance documents are being added by a separate active change. Exceptions fail
+# once they no longer match a broken reference, so they cannot silently outlive it.
+link      CONTRIBUTING.md                                CODE_OF_CONDUCT.md
+link      CONTRIBUTING.md                                SECURITY.md
+
+# npm prepack creates this file beside the published README; it is absent in source.
+link      install/npm/README.md                          ./install.sh
+
+# Root/provider guide corrections overlap active guide changes. Remove after they land.
+symbol    CLAUDE.md                                      OnUpstreamMeta
+symbol    internal/providers/CLAUDE.md                   proxy.OnUpstreamMeta
+symbol    internal/providers/CLAUDE.md                   anthropic.MessageRequest

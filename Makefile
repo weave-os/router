@@ -9,7 +9,7 @@
 #   (and .env.local if present). Start Postgres via `make db` or point
 #   DATABASE_URL at any Postgres you already have running.
 
-.PHONY: generate generate-statusline build test test-verbose test-statusline test-install smoke initdb migrate-up migrate-down migrate-create seed setup full-setup db dev check fmt vet precommit install-hooks help install-cc uninstall-cc up up-hmm down down-hmm logs
+.PHONY: generate generate-agents generate-statusline check-repository-conventions check-docs check-sql build test test-verbose test-statusline test-install smoke initdb migrate-up migrate-down migrate-create seed setup full-setup db dev check fmt vet precommit install-hooks help install-cc uninstall-cc up up-hmm down down-hmm logs
 
 # Load DATABASE_URL from .env files (matches docker-compose defaults).
 -include .env.development
@@ -22,6 +22,19 @@ help: ## Show available targets
 
 generate: generate-statusline ## Regenerate all generated files (SQLC + statusline prices)
 	cd db && sqlc generate
+	./scripts/generate_agents.sh
+
+generate-agents: ## Regenerate AGENTS.md mirrors from canonical CLAUDE.md guides
+	./scripts/generate_agents.sh
+
+check-repository-conventions: check-docs check-sql ## Check generated guides, documentation, and SQL queries
+
+check-docs: ## Check guide mirrors, relative Markdown links, and Go symbol references
+	./scripts/generate_agents.sh --check
+	go run ./scripts/check_docs
+
+check-sql: ## Check SQLC query parameter and comment conventions
+	./scripts/check_sql_queries.sh
 
 generate-statusline: ## Sync cc-statusline.sh prices block from pricing.go
 	go run ./cmd/genprices
@@ -199,7 +212,7 @@ install-hooks: ## Install git pre-commit hook
 	chmod +x "$$HOOK_DIR/pre-commit"; \
 	echo "Pre-commit hook installed at $$HOOK_DIR/pre-commit"
 
-check: generate fmt vet build test test-statusline test-install ## Full CI-equivalent check
+check: generate check-repository-conventions fmt vet build test test-statusline test-install ## Full CI-equivalent check
 	@if ! git diff --quiet internal/sqlc/; then \
 		echo "error: sqlc generation produced uncommitted changes"; \
 		git diff internal/sqlc/; \

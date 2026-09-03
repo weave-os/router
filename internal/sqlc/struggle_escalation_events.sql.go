@@ -23,7 +23,7 @@ type CountStruggleEscalationEventsParams struct {
 	Role       string
 }
 
-// CountStruggleEscalationEvents
+// Counts matching escalation events for a session role.
 //
 //	SELECT COUNT(*)
 //	FROM router.struggle_escalation_events
@@ -63,7 +63,7 @@ type InsertStruggleEscalationEventParams struct {
 	EvidenceReasons     []string
 }
 
-// InsertStruggleEscalationEvent
+// Records one routing escalation triggered by sustained struggle evidence.
 //
 //	INSERT INTO router.struggle_escalation_events (
 //	    installation_id, session_key, role, struggling_model,

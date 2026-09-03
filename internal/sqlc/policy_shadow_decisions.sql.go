@@ -86,7 +86,7 @@ type InsertPolicyShadowDecisionParams struct {
 	ModelsAgree                 bool
 }
 
-// InsertPolicyShadowDecision
+// Records the serving and shadow policy decisions for offline comparison.
 //
 //	INSERT INTO router.policy_shadow_decisions (
 //	    installation_id,

@@ -2,7 +2,7 @@
 
 > **Mirror notice.** Verbatim sync with [AGENTS.md](AGENTS.md). **Update both together** — divergence = bug.
 
-AvengersPro-derived primary router (arXiv 2508.12631, DAI 2025). **P0.** Full design in [`../../../docs/plans/archive/CLUSTER_ROUTING_PLAN.md`](../../../docs/plans/archive/CLUSTER_ROUTING_PLAN.md); this file is the rules-for-AI subset. Read [root CLAUDE.md](../../../CLAUDE.md) and [internal/router/CLAUDE.md](../CLAUDE.md) first.
+AvengersPro-derived primary router (arXiv 2508.12631, DAI 2025). **P0.** This file is the focused guide for its load-bearing contracts. Read [root CLAUDE.md](../../../CLAUDE.md) and [internal/router/CLAUDE.md](../CLAUDE.md) first.
 
 ## What's load-bearing
 
