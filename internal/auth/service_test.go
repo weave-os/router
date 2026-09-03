@@ -896,7 +896,7 @@ func TestService_SetInstallationFastModeModels(t *testing.T) {
 
 	t.Run("rejects model without a fast tier", func(t *testing.T) {
 		_, err := svc.SetInstallationFastModeModels(context.Background(), "ext-1", "inst-1", []string{"claude-sonnet-4-6"}, fastCapable)
-		require.ErrorIs(t, err, auth.ErrUnknownModel)
+		require.ErrorIs(t, err, auth.ErrModelNotFastCapable)
 	})
 
 	t.Run("nil models persists empty slice", func(t *testing.T) {

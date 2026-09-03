@@ -74,8 +74,8 @@ func UpdateFastModeModelsHandler(authSvc *auth.Service) gin.HandlerFunc {
 
 		stored, err := authSvc.SetInstallationFastModeModels(c.Request.Context(), installation.ExternalID, installation.ID, req.FastMode, fastCapable)
 		if err != nil {
-			if errors.Is(err, auth.ErrUnknownModel) {
-				c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "Model has no fast tier: " + err.Error()})
+			if errors.Is(err, auth.ErrModelNotFastCapable) {
+				c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 				return
 			}
 			log.Error("Failed to update fast-mode models", "err", err, "installation_id", installation.ID)

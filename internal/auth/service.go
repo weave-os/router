@@ -18,6 +18,9 @@ import (
 // ErrUnknownModel is returned when a requested model ID is not in the caller-supplied allowed set.
 var ErrUnknownModel = errors.New("auth: unknown model id")
 
+// ErrModelNotFastCapable is returned when a fast-mode opt-in names a model without a fast tier.
+var ErrModelNotFastCapable = errors.New("auth: model has no fast tier")
+
 // ErrUnknownProvider is returned when a requested provider name is not in the caller-supplied allowed set.
 var ErrUnknownProvider = errors.New("auth: unknown provider")
 
@@ -475,7 +478,7 @@ func (s *Service) SetInstallationFastModeModels(ctx context.Context, externalID,
 	if fastCapable != nil {
 		for _, m := range models {
 			if _, ok := fastCapable[m]; !ok {
-				return nil, fmt.Errorf("%w: %q", ErrUnknownModel, m)
+				return nil, fmt.Errorf("%w: %q", ErrModelNotFastCapable, m)
 			}
 		}
 	}
