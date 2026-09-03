@@ -465,6 +465,36 @@ func (s *Service) SetInstallationExcludedModels(ctx context.Context, externalID,
 	return out, nil
 }
 
+// SetInstallationFastModeModels replaces the per-installation fast-mode opt-in
+// list. fastCapable is the set of model IDs with a fast tier; passing nil skips
+// validation. Empty list means no model runs fast.
+func (s *Service) SetInstallationFastModeModels(ctx context.Context, externalID, installationID string, models []string, fastCapable map[string]struct{}) ([]string, error) {
+	if models == nil {
+		models = []string{}
+	}
+	if fastCapable != nil {
+		for _, m := range models {
+			if _, ok := fastCapable[m]; !ok {
+				return nil, fmt.Errorf("%w: %q", ErrUnknownModel, m)
+			}
+		}
+	}
+	seen := make(map[string]struct{}, len(models))
+	out := make([]string, 0, len(models))
+	for _, m := range models {
+		if _, dup := seen[m]; dup {
+			continue
+		}
+		seen[m] = struct{}{}
+		out = append(out, m)
+	}
+	if err := s.installations.UpdateFastModeModels(ctx, externalID, installationID, out); err != nil {
+		return nil, err
+	}
+	s.invalidateInstallation(installationID)
+	return out, nil
+}
+
 // SetInstallationAllowedModels replaces the per-installation positive model
 // allowlist. Empty list clears the restriction (all models routable — NOT "no
 // models"). Validation skipped when models is empty so a catalog outage can't

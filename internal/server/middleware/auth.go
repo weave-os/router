@@ -124,6 +124,9 @@ func withAPIKey(svc *auth.Service, byokRequiresOptIn bool) gin.HandlerFunc {
 			if len(installation.PreferredModels) > 0 {
 				ctx = context.WithValue(ctx, proxy.InstallationPreferredModelsContextKey{}, installation.PreferredModels)
 			}
+			if len(installation.FastModeModels) > 0 {
+				ctx = context.WithValue(ctx, proxy.InstallationFastModeModelsContextKey{}, installation.FastModeModels)
+			}
 			if installation.RoutingQualityWeight != nil {
 				// User-facing dial position flows in as QualityBias (per-cluster,
 				// dispersion-aware), not the uniform Alpha. See router.Overrides.

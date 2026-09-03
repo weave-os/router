@@ -116,6 +116,29 @@ func (r *installationRepo) MarkFirstRequestServed(ctx context.Context, id string
 	return q.MarkModelRouterInstallationFirstRequestServed(ctx, parsed)
 }
 
+func (r *installationRepo) UpdateFastModeModels(ctx context.Context, externalID, id string, models []string) error {
+	parsed, err := uuid.Parse(id)
+	if err != nil {
+		return err
+	}
+	if models == nil {
+		models = []string{}
+	}
+	q := sqlc.New(r.tx)
+	rows, err := q.UpdateModelRouterInstallationFastModeModels(ctx, sqlc.UpdateModelRouterInstallationFastModeModelsParams{
+		ID:             parsed,
+		ExternalID:     externalID,
+		FastModeModels: models,
+	})
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return auth.ErrInstallationNotFound
+	}
+	return nil
+}
+
 func (r *installationRepo) UpdateExcludedModels(ctx context.Context, externalID, id string, models []string) error {
 	parsed, err := uuid.Parse(id)
 	if err != nil {

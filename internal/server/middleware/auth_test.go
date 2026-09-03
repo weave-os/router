@@ -119,6 +119,10 @@ func (fakeInstallationRepository) UpdateExcludedModels(ctx context.Context, exte
 	return errors.New("not used")
 }
 
+func (fakeInstallationRepository) UpdateFastModeModels(ctx context.Context, externalID, id string, models []string) error {
+	return errors.New("not used")
+}
+
 func (fakeInstallationRepository) UpdateAllowedModels(ctx context.Context, externalID, id string, models []string) error {
 	return errors.New("not used")
 }

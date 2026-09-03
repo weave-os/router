@@ -148,6 +148,7 @@ type fakeInstallationRepository struct {
 	contentCaptureModeByID          map[string]*string
 	hideTerminalSurfacesByID        map[string]bool
 	flagOverridesByID               map[string]flags.Overrides
+	fastModeModelsByID              map[string][]string
 	// firstRequestServedIDs counts MarkFirstRequestServed calls per installation.
 	firstRequestServedIDs map[string]int
 	mu                    sync.Mutex
@@ -197,6 +198,16 @@ func (f *fakeInstallationRepository) UpdateExcludedModels(ctx context.Context, e
 	}
 	f.excludedModelsByID[id] = append([]string{}, models...)
 	f.excludedModelsExternalByID[id] = externalID
+	return nil
+}
+func (f *fakeInstallationRepository) UpdateFastModeModels(ctx context.Context, externalID, id string, models []string) error {
+	if f.updateErr != nil {
+		return f.updateErr
+	}
+	if f.fastModeModelsByID == nil {
+		f.fastModeModelsByID = map[string][]string{}
+	}
+	f.fastModeModelsByID[id] = append([]string{}, models...)
 	return nil
 }
 func (f *fakeInstallationRepository) UpdateAllowedModels(ctx context.Context, externalID, id string, models []string) error {
@@ -868,6 +879,39 @@ func TestService_VerifyAPIKey_ExternalKeysAreCached(t *testing.T) {
 		"external keys must be returned on a cache hit")
 	assert.Equal(t, 1, counter.getCallCount(),
 		"the repo must only be called once; the second call must be served from cache")
+}
+
+func TestService_SetInstallationFastModeModels(t *testing.T) {
+	installRepo := &fakeInstallationRepository{}
+	svc := auth.NewService(installRepo, &fakeAPIKeyRepository{byHash: map[string]fakeKeyRow{}}, nil, nil, auth.NoOpAPIKeyCache{}, nil, frozenClock())
+
+	fastCapable := map[string]struct{}{"gpt-5.6-luna": {}, "claude-opus-4-7": {}}
+
+	t.Run("persists deduped list", func(t *testing.T) {
+		out, err := svc.SetInstallationFastModeModels(context.Background(), "ext-1", "inst-1", []string{"gpt-5.6-luna", "gpt-5.6-luna", "claude-opus-4-7"}, fastCapable)
+		require.NoError(t, err)
+		assert.Equal(t, []string{"gpt-5.6-luna", "claude-opus-4-7"}, out)
+		assert.Equal(t, []string{"gpt-5.6-luna", "claude-opus-4-7"}, installRepo.fastModeModelsByID["inst-1"])
+	})
+
+	t.Run("rejects model without a fast tier", func(t *testing.T) {
+		_, err := svc.SetInstallationFastModeModels(context.Background(), "ext-1", "inst-1", []string{"claude-sonnet-4-6"}, fastCapable)
+		require.ErrorIs(t, err, auth.ErrUnknownModel)
+	})
+
+	t.Run("nil models persists empty slice", func(t *testing.T) {
+		out, err := svc.SetInstallationFastModeModels(context.Background(), "ext-3", "inst-3", nil, fastCapable)
+		require.NoError(t, err)
+		assert.Equal(t, []string{}, out)
+		assert.Equal(t, []string{}, installRepo.fastModeModelsByID["inst-3"])
+	})
+
+	t.Run("zero-row update surfaces repo error", func(t *testing.T) {
+		failing := &fakeInstallationRepository{updateErr: auth.ErrInstallationNotFound}
+		failingSvc := auth.NewService(failing, &fakeAPIKeyRepository{byHash: map[string]fakeKeyRow{}}, nil, nil, auth.NoOpAPIKeyCache{}, nil, frozenClock())
+		_, err := failingSvc.SetInstallationFastModeModels(context.Background(), "ext-1", "inst-1", []string{"gpt-5.6-luna"}, fastCapable)
+		require.ErrorIs(t, err, auth.ErrInstallationNotFound)
+	})
 }
 
 func TestService_SetInstallationExcludedModels(t *testing.T) {

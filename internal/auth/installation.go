@@ -40,6 +40,10 @@ type Installation struct {
 	// preferred model wins close calls without overriding a clearly-better
 	// model. Empty means no preference.
 	PreferredModels []string
+	// FastModeModels lists catalog models every dispatch of which is sent on
+	// the provider's fast tier and billed at the fast rate. Routing still scores
+	// on list price. Empty means no model runs fast.
+	FastModeModels []string
 	// RoutingQualityWeight is the per-installation routing preference (the
 	// "quality vs price" dial), stored as the scorer's quality weight (Alpha)
 	// -- a normalized fraction in [0, 1] where 1.0 biases routing fully toward
@@ -114,6 +118,9 @@ type InstallationRepository interface {
 	SoftDelete(ctx context.Context, externalID, id string) error
 	// MarkFirstRequestServed stamps FirstRequestServedAt once; a no-op thereafter, so key rotation can't reset it.
 	MarkFirstRequestServed(ctx context.Context, id string) error
+	// UpdateFastModeModels replaces the per-installation fast-mode opt-in list.
+	// An empty (or nil) slice clears the list.
+	UpdateFastModeModels(ctx context.Context, externalID, id string, models []string) error
 	// UpdateExcludedModels replaces the per-installation exclusion list.
 	// An empty (or nil) slice clears the list.
 	UpdateExcludedModels(ctx context.Context, externalID, id string, models []string) error

@@ -149,3 +149,15 @@ SET flag_overrides = @flag_overrides::jsonb,
 WHERE id = @id::uuid
   AND external_id = @external_id::varchar
   AND deleted_at IS NULL;
+
+-- Replaces the per-installation fast-mode opt-in list, scoped to an
+-- external_id to prevent cross-tenant updates. Listed models dispatch on the
+-- provider's fast tier; empty array means no model runs fast. Bumps updated_at
+-- so dashboards see the change.
+-- name: UpdateModelRouterInstallationFastModeModels :execrows
+UPDATE router.model_router_installations
+SET fast_mode_models = @fast_mode_models::text[],
+    updated_at = NOW()
+WHERE id = @id::uuid
+  AND external_id = @external_id::varchar
+  AND deleted_at IS NULL;

@@ -165,6 +165,7 @@ type RouterModelRouterInstallation struct {
 	ModelsWhenSubscriptionActive []string
 	// Optional model allowlist while the caller subscription is exhausted; empty means no conditional restriction.
 	ModelsWhenSubscriptionInactive []string
+	FastModeModels                 []string
 }
 
 type RouterModelRouterRequestTelemetry struct {

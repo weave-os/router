@@ -8,6 +8,7 @@ import (
 	"workweave/router/internal/auth"
 	"workweave/router/internal/observability"
 	"workweave/router/internal/proxy"
+	"workweave/router/internal/router/catalog"
 	"workweave/router/internal/router/cluster"
 
 	"github.com/gin-gonic/gin"
@@ -29,6 +30,9 @@ type ExclusionOverrideSource interface {
 type deployedModelDTO struct {
 	Model    string `json:"model"`
 	Provider string `json:"provider"`
+	// FastMode is true when the catalog has a fast tier for the model, so the
+	// dashboard only offers the fast-mode toggle where it can take effect.
+	FastMode bool `json:"fast_mode"`
 }
 
 type excludedModelsResponse struct {
@@ -52,7 +56,7 @@ func deployedModelsDTO(models DeployedModelsSource) []deployedModelDTO {
 func entriesToDTO(entries []cluster.DeployedEntry) []deployedModelDTO {
 	out := make([]deployedModelDTO, 0, len(entries))
 	for _, e := range entries {
-		out = append(out, deployedModelDTO{Model: e.Model, Provider: e.Provider})
+		out = append(out, deployedModelDTO{Model: e.Model, Provider: e.Provider, FastMode: catalog.SupportsFastMode(e.Model)})
 	}
 	sort.SliceStable(out, func(i, j int) bool {
 		if out[i].Provider != out[j].Provider {

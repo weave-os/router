@@ -478,6 +478,13 @@ type SessionDisabledProvidersContextKey struct{}
 // preference (index 0 = first preference). See preferredModelsForRequest.
 type InstallationPreferredModelsContextKey struct{}
 
+// InstallationFastModeModelsContextKey is the context key for the authed
+// installation's fast-mode opt-in list, carried as []string of catalog model
+// IDs. Every dispatch of a listed model goes out on the provider's fast tier
+// (OpenAI service_tier=priority, Anthropic speed=fast) and is billed at that
+// tier's rate; routing still scores on list price. See fastModeForAttempt.
+type InstallationFastModeModelsContextKey struct{}
+
 // InstallationRoutingKnobsContextKey is the context key for the authed
 // installation's persisted routing preference (the "quality vs price" dial).
 // Carried as *router.Overrides with only Alpha (quality weight) set; the
@@ -1035,6 +1042,17 @@ func (s *Service) excludedProvidersForRequest(ctx context.Context) map[string]st
 // present.
 func installationPreferredModelsFromContext(ctx context.Context) []string {
 	v := ctx.Value(InstallationPreferredModelsContextKey{})
+	if v == nil {
+		return nil
+	}
+	out, _ := v.([]string)
+	return out
+}
+
+// installationFastModeModelsFromContext returns the per-installation fast-mode
+// opt-in list stashed on ctx by the auth middleware, or nil when none is present.
+func installationFastModeModelsFromContext(ctx context.Context) []string {
+	v := ctx.Value(InstallationFastModeModelsContextKey{})
 	if v == nil {
 		return nil
 	}
