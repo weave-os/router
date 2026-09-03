@@ -49,42 +49,46 @@ func codexFeedbackSkillInvocation(input gjson.Result) bool {
 	if !input.IsArray() {
 		return false
 	}
-	userInvoked := false
-	for _, item := range input.Array() {
-		if item.Get("type").Str == "message" && item.Get("role").Str == "user" {
-			content := item.Get("content")
-			if codexFeedbackCommandContent(content) {
-				userInvoked = true
-			} else if !codexFeedbackSkillInstructions(content) {
-				userInvoked = false
-			}
+	items := input.Array()
+	lastUserIndex := -1
+	for index, item := range items {
+		if item.Get("type").Str != "message" || item.Get("role").Str != "user" {
 			continue
 		}
-		if !userInvoked {
+		if codexFeedbackSkillInstructions(item.Get("content")) {
 			continue
 		}
+		lastUserIndex = index
+	}
+	if lastUserIndex < 0 || !codexFeedbackCommandContent(items[lastUserIndex].Get("content")) {
+		return false
+	}
+	for _, item := range items[lastUserIndex+1:] {
 		itemType := item.Get("type").Str
 		if itemType != "function_call_output" && itemType != "custom_tool_call_output" {
 			continue
 		}
-		output := item.Get("output")
-		if output.Type == gjson.String && routerFeedbackCommandFound(output.Str) {
-			return true
-		}
-		if !output.IsArray() {
-			continue
-		}
-		var text strings.Builder
-		for _, part := range output.Array() {
-			if part.Get("type").Str == "input_text" {
-				text.WriteString(part.Get("text").Str)
-			}
-		}
-		if routerFeedbackCommandFound(text.String()) {
+		if codexFeedbackToolOutput(item.Get("output")) {
 			return true
 		}
 	}
 	return false
+}
+
+func codexFeedbackToolOutput(output gjson.Result) bool {
+	if output.Type == gjson.String {
+		return routerFeedbackCommandFound(output.Str)
+	}
+	if !output.IsArray() {
+		return false
+	}
+	var text strings.Builder
+	for _, part := range output.Array() {
+		if part.Get("type").Str == "input_text" {
+			text.WriteString(part.Get("text").Str)
+		}
+	}
+	return routerFeedbackCommandFound(text.String())
 }
 
 func codexFeedbackSkillInstructions(content gjson.Result) bool {
@@ -130,6 +134,7 @@ func routerFeedbackCommandFound(text string) bool {
 	_, found, _ := parseRouterFeedbackCommand(text)
 	return found
 }
+
 func convertPortableCodexResponses(body []byte) (ResponsesConversion, error) {
 	if err := validateResponsesRequest(body); err != nil {
 		return ResponsesConversion{}, err
