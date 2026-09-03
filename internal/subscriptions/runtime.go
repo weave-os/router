@@ -172,11 +172,11 @@ func (r *Runtime) refresh(ownerID string) Refresher {
 		}
 		refreshed, err := r.refresher.Refresh(ctx, account.Provider, string(refreshToken))
 		if err != nil {
-			return Account{}, r.recordRefreshFailure(ctx, ownerID, account.ID, err)
+			return Account{}, r.recordRefreshFailure(ctx, ownerID, account.ID, account.Provider, err)
 		}
 		if account.Provider == ProviderCodex && refreshed.AccountID != "" && refreshed.AccountID != account.AccountID {
 			mismatch := &providerAccountMismatchError{}
-			return Account{}, r.recordRefreshFailure(ctx, ownerID, account.ID, mismatch)
+			return Account{}, r.recordRefreshFailure(ctx, ownerID, account.ID, account.Provider, mismatch)
 		}
 		if refreshed.RefreshToken != string(refreshToken) {
 			if err := r.store.UpdateSubscriptionRefreshToken(ctx, ownerID, account.ID, []byte(refreshed.RefreshToken)); err != nil {
@@ -193,7 +193,7 @@ func (r *Runtime) refresh(ownerID string) Refresher {
 	}
 }
 
-func (r *Runtime) recordRefreshFailure(ctx context.Context, ownerID, accountID string, refreshErr error) error {
+func (r *Runtime) recordRefreshFailure(ctx context.Context, ownerID, accountID string, provider Provider, refreshErr error) error {
 	if errors.Is(refreshErr, context.Canceled) || errors.Is(refreshErr, context.DeadlineExceeded) {
 		return refreshErr
 	}
@@ -201,7 +201,7 @@ func (r *Runtime) recordRefreshFailure(ctx context.Context, ownerID, accountID s
 	if errors.As(refreshErr, &terminal) && terminal.Terminal() {
 		if err := r.store.UpdateSubscriptionAccountState(ctx, ownerID, accountID, false, nil); err != nil {
 			observability.FromContext(ctx).Error("Failed to persist disabled subscription account after token rejection",
-				"owner_id", ownerID, "account_id", accountID, "err", err)
+				"provider", provider, "account_id", accountID, "err", err)
 			return errors.Join(refreshErr, fmt.Errorf("persist disabled subscription account state: %w", err))
 		}
 		return refreshErr
@@ -209,7 +209,7 @@ func (r *Runtime) recordRefreshFailure(ctx context.Context, ownerID, accountID s
 	cooldownUntil := r.clock().Add(time.Minute)
 	if err := r.store.UpdateSubscriptionAccountState(ctx, ownerID, accountID, true, &cooldownUntil); err != nil {
 		observability.FromContext(ctx).Error("Failed to persist subscription account cooldown after token refresh failure",
-			"owner_id", ownerID, "account_id", accountID, "err", err)
+			"provider", provider, "account_id", accountID, "err", err)
 		return errors.Join(refreshErr, fmt.Errorf("persist subscription account cooldown: %w", err))
 	}
 	return refreshErr
