@@ -391,13 +391,11 @@ func TestExtractRouterFeedbackCommand_CodexSkillResponsesToolResult(t *testing.T
 			map[string]any{"type": "message", "role": "user", "content": "$rf +"},
 			map[string]any{"type": "message", "role": "user", "content": "<skill>\n<name>rf</name>\nrun the feedback skill\n</skill>"},
 			map[string]any{"type": "custom_tool_call", "call_id": "call_skill", "name": "exec", "input": "..."},
-			map[string]any{
-				"type": "custom_tool_call_output", "call_id": "call_skill",
-				"output": []any{
-					map[string]any{"type": "input_text", "text": "Script completed\nOutput:\n"},
-					map[string]any{"type": "input_text", "text": " /router-feedback +\n"},
-				},
-			},
+			map[string]any{"type": "custom_tool_call_output", "call_id": "call_skill", "output": "Script completed\n"},
+			map[string]any{"type": "custom_tool_call_output", "call_id": "call_skill", "output": []any{
+				map[string]any{"type": "input_text", "text": "Script completed\nOutput:\n"},
+				map[string]any{"type": "input_text", "text": " /router-feedback +\n"},
+			}},
 		},
 	})
 	converted, err := translate.ConvertResponsesToChatCompletionsWithOptions(body, translate.ResponsesConversionOptions{PortableCodex: true})

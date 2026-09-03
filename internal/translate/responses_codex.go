@@ -67,8 +67,10 @@ func codexFeedbackSkillInvocation(input gjson.Result) bool {
 		if itemType != "function_call_output" && itemType != "custom_tool_call_output" {
 			continue
 		}
-		matched = awaitingToolOutput && codexFeedbackToolOutput(item.Get("output"))
-		awaitingToolOutput = false
+		if awaitingToolOutput && codexFeedbackToolOutput(item.Get("output")) {
+			matched = true
+			awaitingToolOutput = false
+		}
 	}
 	return matched
 }
