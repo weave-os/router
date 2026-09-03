@@ -3602,6 +3602,26 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			streamCost.SetCostCalculator(routerCostCalculatorFor(d.Model, d.Provider, fastServed), inputIncludesCache)
 		}
 	}
+	anthropicTierAttemptFor := func(targetOpts translate.EmitOptions, prep providers.PreparedRequest, targetMarker string) *anthropicTierAttempt {
+		return &anthropicTierAttempt{
+			s:             s,
+			log:           log,
+			env:           env,
+			r:             r,
+			opts:          targetOpts,
+			native:        s.anthropicNativeAttempt(env, r, prep, sink, preludeBuf, targetMarker, setExtractor, setStreamCost),
+			sink:          sink,
+			preludeBuf:    preludeBuf,
+			marker:        targetMarker,
+			setExtractor:  setExtractor,
+			setStreamCost: setStreamCost,
+			logBody: func(d router.Decision, body []byte) {
+				logUpstreamBody(log, routeRes.SessionKey, d, feats, body)
+			},
+		}
+	}
+	recordFastServed := func(fast bool) { fastServed = fast }
+
 	// buildAttempt dispatches by translation family so new OpenAI-compat
 	// providers route automatically; a closure so in-turn model failover can
 	// re-emit for a candidate in a different family.
@@ -3615,24 +3635,12 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			}
 			crossFormat = false
 			logUpstreamBody(log, routeRes.SessionKey, target, feats, prep.Body)
-			native := s.anthropicNativeAttempt(env, r, prep, sink, preludeBuf, targetMarker, setExtractor, setStreamCost)
+			tiered := anthropicTierAttemptFor(targetOpts, prep, targetMarker)
 			return func(actx context.Context, d router.Decision, p providers.Client) error {
-				fastServed = fastModeForAttempt(actx, d.Model, d.Provider)
-				attemptOpts := targetOpts
-				attemptNative := native
-				// A binding failover that crosses the fast-tier boundary (first-party
-				// ↔ gateway, or onto a subscription) must not reuse a body carrying
-				// the other tier's speed field.
-				if fastServed != targetOpts.FastMode {
-					attemptOpts.TargetProvider = d.Provider
-					attemptOpts.FastMode = fastServed
-					attemptPrep, emitErr := env.PrepareAnthropic(r.Header, attemptOpts)
-					if emitErr != nil {
-						log.Error("Failed to re-emit Anthropic body for fast-tier change", "err", emitErr)
-						return fmt.Errorf("emit body: %w", emitErr)
-					}
-					logUpstreamBody(log, routeRes.SessionKey, d, feats, attemptPrep.Body)
-					attemptNative = s.anthropicNativeAttempt(env, r, attemptPrep, sink, preludeBuf, targetMarker, setExtractor, setStreamCost)
+				attemptOpts, attemptNative, fast, emitErr := tiered.forBinding(actx, d)
+				fastServed = fast
+				if emitErr != nil {
+					return emitErr
 				}
 				err := attemptNative(actx, d, p)
 				// Cortex documents output_config.format, so the knob goes out as
@@ -4037,7 +4045,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			}
 			baselineBindings := s.resolveBindingsForDispatch(baselineCtx, baselineDecision)
 			baselineMarker := suppressMarkerIfRequested(ctx, r.Header, baselineRoutingMarkerFor(routeRes, baselineModel))
-			baselineAttempt := s.anthropicNativeAttempt(env, r, baselinePrep, sink, preludeBuf, baselineMarker, setExtractor, setStreamCost)
+			baselineAttempt := anthropicTierAttemptFor(baselineOpts, baselinePrep, baselineMarker).attempt(recordFastServed)
 			fastServed = baselineOpts.FastMode
 			crossFormat = false
 			respSummary = translate.ResponseSummary{}
@@ -4106,7 +4114,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 				"model", decision.Model,
 				"err", proxyErr,
 				"upstream_status", upstreamStatus(proxyErr))
-			subAttempt := s.anthropicNativeAttempt(env, r, subPrep, sink, preludeBuf, marker, setExtractor, setStreamCost)
+			subAttempt := anthropicTierAttemptFor(subOpts, subPrep, marker).attempt(recordFastServed)
 			fastServed = subOpts.FastMode
 			crossFormat = false
 			respSummary = translate.ResponseSummary{}

@@ -2,15 +2,18 @@ package proxy
 
 import (
 	"context"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
 	"strings"
 	"testing"
 
+	"workweave/router/internal/observability/otel"
 	"workweave/router/internal/providers"
 	"workweave/router/internal/router"
 	"workweave/router/internal/router/catalog"
+	"workweave/router/internal/translate"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -148,6 +151,53 @@ func TestProxyOpenAIChatCompletion_FastModeSetsPriorityTier(t *testing.T) {
 
 	require.Equal(t, 1, upstream.dispatches)
 	assert.Equal(t, "priority", gjson.GetBytes(upstream.capturedBody, "service_tier").Str)
+}
+
+// A baseline/subscription failover builds one Anthropic body up front and then
+// walks the binding list; a hop from first-party Anthropic onto a gateway must
+// re-emit without the fast tier and report the attempt as not fast.
+func TestAnthropicTierAttempt_ReemitsWhenBindingLosesFastTier(t *testing.T) {
+	env, err := translate.ParseAnthropic([]byte(`{"model":"claude-opus-5","max_tokens":64,"messages":[{"role":"user","content":"hi"}]}`))
+	require.NoError(t, err)
+	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	opts := translate.EmitOptions{
+		TargetModel:    fastOpusModel,
+		TargetProvider: providers.ProviderAnthropic,
+		Capabilities:   router.Lookup(fastOpusModel),
+		FastMode:       true,
+	}
+	prep, err := env.PrepareAnthropic(req.Header, opts)
+	require.NoError(t, err)
+	require.Equal(t, "fast", gjson.GetBytes(prep.Body, "speed").Str)
+
+	upstream := &bypassFakeProvider{respBody: `{"id":"msg_1","type":"message","role":"assistant","content":[],"model":"claude-opus-5","stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":1}}`}
+	svc, _ := newFastModeService(router.Decision{Provider: providers.ProviderAnthropic, Model: fastOpusModel}, upstream)
+	var loggedBodies [][]byte
+	tiered := &anthropicTierAttempt{
+		s:             svc,
+		log:           slog.Default(),
+		env:           env,
+		r:             req,
+		opts:          opts,
+		native:        svc.anthropicNativeAttempt(env, req, prep, httptest.NewRecorder(), nil, "", func(*otel.UsageExtractor) {}, func(router.Decision, bool) {}),
+		sink:          httptest.NewRecorder(),
+		setExtractor:  func(*otel.UsageExtractor) {},
+		setStreamCost: func(router.Decision, bool) {},
+		logBody:       func(_ router.Decision, body []byte) { loggedBodies = append(loggedBodies, body) },
+	}
+	var served []bool
+	attempt := tiered.attempt(func(fast bool) { served = append(served, fast) })
+	ctx := fastModeCtx(fastOpusModel)
+
+	require.NoError(t, attempt(ctx, router.Decision{Provider: providers.ProviderAnthropic, Model: fastOpusModel}, upstream))
+	assert.Equal(t, "fast", gjson.GetBytes(upstream.capturedBody, "speed").Str)
+	assert.Empty(t, loggedBodies, "same tier reuses the prepared body")
+
+	require.NoError(t, attempt(ctx, router.Decision{Provider: providers.ProviderAnthropicGateway, Model: fastOpusModel}, upstream))
+	assert.False(t, gjson.GetBytes(upstream.capturedBody, "speed").Exists(), "gateway hop must not carry the fast-tier speed field")
+	assert.Len(t, loggedBodies, 1, "tier change re-emits the body once")
+
+	assert.Equal(t, []bool{true, false}, served)
 }
 
 func TestProxyMessages_FastModeGatewayNeverGetsFastFields(t *testing.T) {
