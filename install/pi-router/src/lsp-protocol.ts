@@ -40,7 +40,7 @@ export interface FrameParser {
  * the owner can tear the peer down.
  */
 export function createFrameParser(onMessage: (message: JsonRpcMessage) => void, onOverflow?: (error: Error) => void): FrameParser {
-	let buffer = Buffer.alloc(0);
+	let buffer: Buffer = Buffer.alloc(0);
 	let overflowed = false;
 
 	return {

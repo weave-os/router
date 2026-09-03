@@ -500,7 +500,7 @@ function registerLspEnable(pi: ExtensionAPI, deps: LspToolDeps): void {
 							text: `Noted — the ${spec.language} language server will not be offered again. The user can re-enable it any time by asking to enable ${spec.language} LSP support.`,
 						},
 					],
-					details: { language: spec.language, action: "dismiss" },
+					details: { language: spec.language, action: "dismiss", ok: true },
 				};
 			}
 

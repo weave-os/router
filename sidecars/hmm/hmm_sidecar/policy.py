@@ -4,10 +4,7 @@ import hashlib
 import json
 import time
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any
-
-import numpy as np
 
 from .artifacts import FrozenArtifacts
 from .classifier import FrozenClassifier

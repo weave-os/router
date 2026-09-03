@@ -6,7 +6,9 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "typegen": "next typegen",
+    "typecheck": "tsc --project tsconfig.json"
   },
   "dependencies": {
     "@radix-ui/react-dialog": "^1.1.15",
