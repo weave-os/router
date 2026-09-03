@@ -360,6 +360,10 @@ type Service struct {
 	// factor near epsilon until the window nears its cap.
 	subsidyEpsilon float64
 	subsidyGamma   float64
+	// planAwareSubscriptionRouting removes models whose only linked
+	// subscription plan is exhausted. It is request-scoped and never mutates
+	// the deployment roster.
+	planAwareSubscriptionRouting bool
 	// managedSubscriptions leases encrypted, owner-scoped Claude/Codex
 	// subscription credentials. Nil leaves the legacy credential path unchanged.
 	managedSubscriptions subscriptions.Leaser
@@ -967,6 +971,9 @@ func (s *Service) excludedModelsFor(ctx context.Context, allowed map[string]stru
 	out := make(map[string]struct{}, len(excluded))
 	for _, m := range excluded {
 		out[m] = struct{}{}
+	}
+	for model := range subscriptionPlanAwareExcludedModelsFromContext(ctx) {
+		out[model] = struct{}{}
 	}
 	if allowed != nil {
 		for model := range s.routableUniverse() {
@@ -2130,6 +2137,13 @@ func (s *Service) WithBillingService(b *billing.Service) *Service {
 // WithManagedSubscriptions enables server-side owner/provider account pools.
 func (s *Service) WithManagedSubscriptions(pool subscriptions.Leaser) *Service {
 	s.managedSubscriptions = pool
+	return s
+}
+
+// WithPlanAwareSubscriptionRouting enables per-user model eligibility based on
+// the aggregate state of linked Claude and Codex subscription plans.
+func (s *Service) WithPlanAwareSubscriptionRouting(enabled bool) *Service {
+	s.planAwareSubscriptionRouting = enabled
 	return s
 }
 

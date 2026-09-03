@@ -101,6 +101,9 @@ func (s *Service) leaseManagedSubscription(ctx context.Context, provider, model 
 	if !managedSubscriptionEnrolled(ctx, poolProvider) || (currentCredentials != nil && currentCredentials.OAuth) {
 		return ctx, subscriptions.Lease{}, false, nil
 	}
+	if s.planAwareSubscriptionRouting && managedSubscriptionPlansAllExhausted(ctx) {
+		return ctx, subscriptions.Lease{}, false, nil
+	}
 	lease, present, err := s.managedSubscriptions.Lease(ctx, apiKeyIDFromContext(ctx), poolProvider, ClientIdentityFrom(ctx).SessionID)
 	if err != nil {
 		if errors.Is(err, subscriptions.ErrNoAvailableAccount) {

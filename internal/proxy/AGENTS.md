@@ -53,6 +53,7 @@ collapse them.
 | `global_automatic_routing_exclusions` | deployment | fail-open (soft) | `AutomaticExcludedModels`: scorer, policy resolver, and every automatic-pin gate |
 | `cluster_model_lists` | API key (org default) | fail-open | `policy.ApplyClusterArmOverrides` |
 | `model_router_user_cluster_model_lists` | router user | fail-open | same, after `mergeClusterOverrides` |
+| subscription plan-aware routing | router user | fail-open on unknown/all-exhausted state | request-scoped exclusions from `withPlanAwareSubscriptionModels` |
 
 **The allowlist is desugared, not separately filtered.** `excludedModelsForRequest`
 adds every routable model absent from a non-empty allowlist to the exclusion
@@ -106,6 +107,14 @@ fail-open would silently defeat it.
 intersects a user's selection with the API-key-scoped list. A plain override
 would let an individual re-admit a model the org deliberately removed —
 privilege escalation through an admin control.
+
+**Subscription plan-aware routing is an overlay, not a roster mutation.** When
+enabled, the request observes the user's Claude and Codex plan families. If at
+least one plan has headroom, models covered only by exhausted plans are added
+to the request's hard exclusions. If every linked plan is exhausted, the
+overlay contributes no exclusions and normal paid/BYOK routing resumes. Unknown
+state also contributes no exclusions; only reliable quota exhaustion changes
+eligibility. The global HMM roster remains unchanged.
 
 **Two paths deliberately bypass `excluded_models` and need explicit allowlist
 handling:** `usageBypassEngaged` (consults `SafetyExcludedModels`, since

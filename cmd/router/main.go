@@ -1142,7 +1142,8 @@ func main() {
 		WithCompactionHardPin(config.GetOr("ROUTER_HARD_PIN_MODEL", "") == "").
 		WithAvailableModels(proxyRoutableModels(routingTargets, availableProviders, hmmRouter != nil)).
 		WithDefaultBaselineModel(resolveDefaultBaselineModel()).
-		WithBillingService(billingSvc)
+		WithBillingService(billingSvc).
+		WithPlanAwareSubscriptionRouting(config.GetOr("ROUTER_SUBSCRIPTION_PLAN_AWARE_ROUTING", "false") == "true")
 	if subscriptionRuntime != nil {
 		proxySvc.WithManagedSubscriptions(subscriptionRuntime)
 	}
@@ -1242,6 +1243,8 @@ func main() {
 	} else {
 		logger.Info("Usage observer wired; subscription-aware cost discount disabled", "observation_ttl", subscriptionTTL)
 	}
+	logger.Info("Subscription plan-aware routing configured",
+		"enabled", config.GetOr("ROUTER_SUBSCRIPTION_PLAN_AWARE_ROUTING", "false") == "true")
 
 	// No-op when WV_APM_OTLP_ENDPOINT is unset. Flushed explicitly in the
 	// shutdown path below since a defer would run after SIGKILL.

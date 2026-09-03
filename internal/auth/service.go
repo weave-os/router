@@ -108,6 +108,11 @@ func (s *Service) WithSubscriptionAccounts(repo SubscriptionAccountRepository) *
 	return s
 }
 
+// CurrentTime returns the service clock's current time.
+func (s *Service) CurrentTime() time.Time {
+	return s.now()
+}
+
 func NewService(
 	installations InstallationRepository,
 	apiKeys APIKeyRepository,

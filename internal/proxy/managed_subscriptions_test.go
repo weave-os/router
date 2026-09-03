@@ -128,6 +128,28 @@ func TestManagedSubscriptionEnrollmentFailureFailsClosedAtLease(t *testing.T) {
 	require.Empty(t, leaser.providers)
 }
 
+func TestManagedSubscriptionAllPlansExhaustedFallsThroughToNormalRouting(t *testing.T) {
+	leaser := &scriptedSubscriptionLeaser{}
+	svc := newServiceWithProviders(t, nil).
+		WithManagedSubscriptions(leaser).
+		WithPlanAwareSubscriptionRouting(true)
+	ctx := managedSubscriptionTestContext()
+	ctx = context.WithValue(ctx, ManagedSubscriptionPlanStatesContextKey{}, map[subscriptions.Provider]SubscriptionPlanState{
+		subscriptions.ProviderClaude: SubscriptionPlanStateExhausted,
+	})
+
+	out, _, managed, err := svc.leaseManagedSubscription(
+		ctx,
+		providers.ProviderAnthropic,
+		"claude-opus-4-8",
+	)
+
+	require.NoError(t, err)
+	require.False(t, managed)
+	require.Same(t, ctx, out)
+	require.Empty(t, leaser.providers)
+}
+
 func TestInferenceFailsClosedWhenSubscriptionEnrollmentIsUnknown(t *testing.T) {
 	svc := &Service{}
 	ctx := context.WithValue(context.Background(), ManagedSubscriptionEnrollmentUnavailableContextKey{}, true)

@@ -38,6 +38,7 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 	if err != nil {
 		return err
 	}
+	ctx = s.withPlanAwareSubscriptionModels(ctx, r.Header)
 	log := observability.FromContext(ctx)
 	requestStart := time.Now()
 	requestID := requestIDFor(ctx)

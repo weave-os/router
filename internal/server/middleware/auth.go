@@ -112,6 +112,10 @@ func withAPIKey(svc *auth.Service, byokRequiresOptIn bool) gin.HandlerFunc {
 					if len(enrolled) > 0 {
 						ctx = context.WithValue(ctx, proxy.ManagedSubscriptionProvidersContextKey{}, enrolled)
 					}
+					planStates := proxy.ManagedSubscriptionPlanStates(accounts, svc.CurrentTime())
+					if len(planStates) > 0 {
+						ctx = context.WithValue(ctx, proxy.ManagedSubscriptionPlanStatesContextKey{}, planStates)
+					}
 				}
 			}
 		}

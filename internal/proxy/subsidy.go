@@ -182,6 +182,7 @@ func (s *Service) withUsageObserver(ctx context.Context, headers http.Header, ro
 	if len(routePaths) > 0 {
 		routePath = routePaths[0]
 	}
+	ctx = s.withPlanAwareSubscriptionModels(ctx, headers)
 	ctx = s.withSubscriptionConditionalModels(ctx, headers, routePath)
 	codexTok, anthroTok := presentSubscriptionTokens(ctx, headers)
 	if s.usageObserver == nil && anthroTok == "" {
