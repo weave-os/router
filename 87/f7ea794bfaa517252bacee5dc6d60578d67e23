@@ -1,0 +1,19 @@
+internal/proxy/loop_detection.go
+  s_423866d49d3b95::t_a396fd01514564 6
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "87f7ea794bfaa517252bacee5dc6d60578d67e23",
+  "prompts": {},
+  "sessions": {
+    "s_423866d49d3b95": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a049df-4990-75b0-8da7-31588b46f1d3",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}
