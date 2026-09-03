@@ -462,17 +462,19 @@ func (s *Service) clearForceModelSessionPin(
 // catalog entry, or one the exclusion policy forbids, fails the request —
 // silently routing elsewhere would serve a model the caller never asked for.
 //
-// A `:level` suffix is stashed on context as router.Overrides.ForceEffort
-// so pin + effort land in one header.
+// A `:level` suffix is stashed on the returned context (and on *r) as
+// router.Overrides.ForceEffort so pin + effort land in one header; callers
+// must continue with the returned context for routingKnobsForRequest to
+// see it.
 func (s *Service) applyForceModelHeader(
 	ctx context.Context,
 	r *http.Request,
 	installationID uuid.UUID,
 	forceModelSessionKey [sessionpin.SessionKeyLen]byte,
-) (string, error) {
+) (context.Context, string, error) {
 	raw := strings.TrimSpace(r.Header.Get(ForceModelHeader))
 	if raw == "" {
-		return "", nil
+		return ctx, "", nil
 	}
 	log := observability.FromContext(ctx)
 	canonicalModel, provider, known, effortLevel := resolveForceModelWithEffort(raw)
@@ -487,8 +489,7 @@ func (s *Service) applyForceModelHeader(
 			merged.ExpectedOutputTokens = existing.ExpectedOutputTokens
 			merged.PerModelVerbosity = existing.PerModelVerbosity
 		}
-		// Mutate *r so the caller's downstream routingKnobsForRequest
-		// (which reads ctx from r.Context()) discovers the knob.
+		ctx = router.WithRoutingKnobs(ctx, &merged)
 		*r = *r.WithContext(router.WithRoutingKnobs(r.Context(), &merged))
 	}
 	if !known {
@@ -496,7 +497,7 @@ func (s *Service) applyForceModelHeader(
 			"input_model", raw,
 			"force_model_session_key_hex", fmt.Sprintf("%x", forceModelSessionKey),
 		)
-		return "", &ForcedModelUnknownError{Model: raw}
+		return ctx, "", &ForcedModelUnknownError{Model: raw}
 	}
 	binding, reason := s.forcedModelBinding(ctx, canonicalModel, provider)
 	if reason != "" {
@@ -506,12 +507,12 @@ func (s *Service) applyForceModelHeader(
 			"provider", provider,
 			"reason", reason,
 		)
-		return "", &ForcedModelExcludedError{Model: canonicalModel, Reason: reason}
+		return ctx, "", &ForcedModelExcludedError{Model: canonicalModel, Reason: reason}
 	}
 	provider = binding
 	if err := s.setForceModelSessionPin(ctx, forceModelSessionKey, installationID, canonicalModel, provider); err != nil {
 		log.Error("x-weave-force-model: session pin upsert failed", "err", err)
-		return canonicalModel, nil
+		return ctx, canonicalModel, nil
 	}
 	log.Info("x-weave-force-model applied",
 		"input_model", raw,
@@ -521,7 +522,7 @@ func (s *Service) applyForceModelHeader(
 		"force_model_session_key_hex", fmt.Sprintf("%x", forceModelSessionKey),
 		"role", forceModelSessionRole,
 	)
-	return canonicalModel, nil
+	return ctx, canonicalModel, nil
 }
 
 // handleForceModelCommand processes a user-issued directive and writes a

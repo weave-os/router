@@ -3060,7 +3060,9 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	forceModel := agentForceModel
 	forceCluster := ""
 	if !agentShadowMode {
-		headerForceModel, forceErr := s.applyForceModelHeader(ctx, r, installationID, forceModelSessionKey)
+		var headerForceModel string
+		var forceErr error
+		ctx, headerForceModel, forceErr = s.applyForceModelHeader(ctx, r, installationID, forceModelSessionKey)
 		if forceErr != nil {
 			return forceErr
 		}
@@ -5787,7 +5789,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	// Writes the user-forced pin and falls through to normal routing, which picks
 	// the pin up and serves the requested model on this same turn.
 	forceModel := agentForceModel
-	headerForceModel, forceErr := s.applyForceModelHeader(ctx, r, installationID, forceModelSessionKey)
+	ctx, headerForceModel, forceErr := s.applyForceModelHeader(ctx, r, installationID, forceModelSessionKey)
 	if forceErr != nil {
 		return forceErr
 	}
