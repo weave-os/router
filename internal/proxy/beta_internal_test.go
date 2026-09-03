@@ -221,6 +221,24 @@ func TestHandleBetaCommandTogglesAndAcknowledges(t *testing.T) {
 	assert.Equal(t, router.StrategyHMMBeta, pins.consumedStrategy[len(pins.consumedStrategy)-1])
 }
 
+func TestHandleBetaCommandAcceptsHeaderOnlyClientSession(t *testing.T) {
+	store := &betaTestPreferenceStore{}
+	svc := (&Service{pinStore: &betaCleanupPinStore{}}).
+		WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyHMMBeta, Router: &betaTestRouter{}}).
+		WithSessionStrategyStore(store)
+	env := betaTestEnvelope(t, "/beta", false)
+	cmd, found := env.ExtractBetaCommand()
+	require.True(t, found)
+	var sessionKey [sessionstrategy.SessionKeyLen]byte
+	sessionKey[0] = 1
+	ctx := context.WithValue(context.Background(), ClientIdentityContextKey{}, ClientIdentity{SessionID: "codex-session"})
+
+	response := httptest.NewRecorder()
+	require.NoError(t, svc.handleBetaCommand(ctx, response, env, cmd, uuid.New(), sessionKey, 1))
+	assert.Equal(t, "✦ **Weave Router** → "+betaEnabledMessage+"\n\n", gjson.Get(response.Body.String(), "content.0.text").String())
+	assert.Equal(t, 1, store.toggles)
+}
+
 func TestHandleBetaCommandOverlappingTogglesAcknowledgeDistinctStates(t *testing.T) {
 	store := &betaTestPreferenceStore{}
 	var readers sync.WaitGroup

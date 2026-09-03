@@ -75,7 +75,7 @@ func (s *Service) handleBetaCommand(
 	if cmd.Invalid {
 		return writeBetaCommandResponse(w, env, betaUsageMessage, inputTokens)
 	}
-	if s.sessionStrategyStore == nil || installationID == uuid.Nil || sessionKey == ([sessionpin.SessionKeyLen]byte{}) || env.ClientSessionID() == "" {
+	if s.sessionStrategyStore == nil || installationID == uuid.Nil || sessionKey == ([sessionpin.SessionKeyLen]byte{}) || clientSessionIDForRequest(ctx, env) == "" {
 		return writeBetaCommandResponse(w, env, betaUnavailable, inputTokens)
 	}
 
