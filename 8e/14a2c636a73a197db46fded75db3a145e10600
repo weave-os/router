@@ -1,0 +1,33 @@
+db/migrations/0072_subscription-accounts.down.sql
+  s_1329d82a6b5096::t_fa12888dc5fbd1 1-2,4-5
+install/install.sh
+  s_1329d82a6b5096::t_2c8a9339243c8a 1120,1137,1190,1194-1198,1203-1204
+  s_1329d82a6b5096::t_fa12888dc5fbd1 131-132
+internal/auth/subscription.go
+  s_1329d82a6b5096::t_fa12888dc5fbd1 53-59
+internal/subscriptions/pool.go
+  s_1329d82a6b5096::t_fa12888dc5fbd1 95-100,167-169
+internal/server/server.go
+  s_1329d82a6b5096::t_fa12888dc5fbd1 142-143
+internal/subscriptions/pool_test.go
+  s_1329d82a6b5096::t_9f21d65e4413a7 55,57,66
+  s_1329d82a6b5096::t_fa12888dc5fbd1 53-54,56,58-65,67-106
+db/migrations/0072_subscription-accounts.up.sql
+  s_1329d82a6b5096::t_fa12888dc5fbd1 1-2,19-20
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "8e14a2c636a73a197db46fded75db3a145e10600",
+  "prompts": {},
+  "sessions": {
+    "s_1329d82a6b5096": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06411-d06e-7bf2-a146-148e786307ea",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}
