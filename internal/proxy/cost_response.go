@@ -74,11 +74,8 @@ type routerResponseCost struct {
 
 type routerCostCalculator func(inputTokens, outputTokens, cacheCreationTokens, cacheReadTokens int) routerResponseCost
 
-func routerCostCalculatorFor(model, provider string) routerCostCalculator {
-	pricing, ok := catalog.PriceFor(provider, model)
-	if !ok {
-		pricing, ok = catalog.PrimaryPriceFor(model)
-	}
+func routerCostCalculatorFor(model, provider string, fast bool) routerCostCalculator {
+	pricing, ok := servedPricing(provider, model, fast)
 	if !ok {
 		return nil
 	}

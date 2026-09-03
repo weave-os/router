@@ -43,6 +43,10 @@ func (e *RequestEnvelope) PrepareAnthropic(in http.Header, opts EmitOptions) (pr
 	if err != nil {
 		return providers.PreparedRequest{}, err
 	}
+	body, err = applyAnthropicFastMode(body, opts)
+	if err != nil {
+		return providers.PreparedRequest{}, err
+	}
 	return providers.PreparedRequest{Body: body, Headers: deriveAnthropicHeaders(in, opts, body)}, nil
 }
 
@@ -80,6 +84,9 @@ func deriveAnthropicHeaders(in http.Header, opts EmitOptions, body []byte) http.
 	}
 	if gjson.GetBytes(body, "fallbacks").Exists() {
 		beta = ensureBetaToken(beta, serverSideFallbackBeta)
+	}
+	if gjson.GetBytes(body, "speed").Exists() {
+		beta = ensureBetaToken(beta, fastModeBeta)
 	}
 	if beta != "" {
 		h.Set("anthropic-beta", beta)

@@ -61,7 +61,7 @@ func TestReportPolicyOutcome_UsesFreshMetadataForStickyServedDecision(t *testing
 		inputTokens  = 90
 		outputTokens = 10
 	)
-	s.reportPolicyOutcome(ctx, routeRes, served, providers.ProviderAnthropic, 100, inputTokens, outputTokens, 0, 0, 12, 34, nil, &policyOutcomeResponse{
+	s.reportPolicyOutcome(ctx, routeRes, served, providers.ProviderAnthropic, false, 100, inputTokens, outputTokens, 0, 0, 12, 34, nil, &policyOutcomeResponse{
 		Body: []byte(`{"content":[{"type":"text","text":"done"}]}`),
 	})
 
@@ -107,7 +107,7 @@ func TestReportPolicyOutcome_OmitsResponseBodyWhenTrainingIsNotAllowed(t *testin
 		Metadata: &router.RoutingMetadata{RouteID: "route-1", Strategy: string(router.StrategyHMM)},
 	}}
 
-	s.reportPolicyOutcome(context.Background(), routeRes, routeRes.Fresh, providers.ProviderFireworks, 1, 1, 1, 0, 0, 1, 1, nil, &policyOutcomeResponse{Body: []byte("private response")})
+	s.reportPolicyOutcome(context.Background(), routeRes, routeRes.Fresh, providers.ProviderFireworks, false, 1, 1, 1, 0, 0, 1, 1, nil, &policyOutcomeResponse{Body: []byte("private response")})
 
 	select {
 	case payload := <-reporter.ch:
@@ -146,6 +146,7 @@ func TestReportPolicyOutcome_AuthoritativeMismatchFailsClosedForTraining(t *test
 		turnLoopResult{Fresh: selected, AuthoritativePerTurn: true},
 		served,
 		providers.ProviderAnthropic,
+		false,
 		100,
 		90,
 		10,

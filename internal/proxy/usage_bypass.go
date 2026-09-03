@@ -293,6 +293,7 @@ func (s *Service) bypassToAnthropic(
 		// blocks whose signatures the requested model would reject (else
 		// Anthropic 400s on the stale signature).
 		ModelSwitched: modelSwitched,
+		FastMode:      fastModeForAttempt(ctx, decision.Model, decision.Provider),
 	}
 	prep, emitErr := env.PrepareAnthropic(r.Header, opts)
 	if emitErr != nil {
@@ -318,7 +319,7 @@ func (s *Service) bypassToAnthropic(
 	var streamCost *streamCostWriter
 	if env.Stream() {
 		streamCost = newStreamCostWriter(respW)
-		streamCost.SetCostCalculator(routerCostCalculatorFor(decision.Model, decision.Provider), false)
+		streamCost.SetCostCalculator(routerCostCalculatorFor(decision.Model, decision.Provider, opts.FastMode), false)
 		respW = streamCost
 	}
 	if billing.SubscriptionOnlyFromContext(ctx) {
@@ -356,7 +357,7 @@ func (s *Service) bypassToAnthropic(
 	// actual to $0 downstream when cost.subscription_served is set.
 	in, out := extractor.Tokens()
 	cacheCreation, cacheRead := extractor.CacheTokens()
-	pricing, _ := catalog.PriceFor(decision.Provider, decision.Model)
+	pricing, _ := servedPricing(decision.Provider, decision.Model, opts.FastMode)
 	if !env.Stream() && proxyErr == nil {
 		setRouterCostHeaders(w.Header(), routerResponseCostFromPricing(pricing, decision.Provider, in, out, cacheCreation, cacheRead))
 	}

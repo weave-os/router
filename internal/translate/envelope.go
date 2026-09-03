@@ -84,6 +84,10 @@ type EmitOptions struct {
 	// proxy sets this on a one-shot retry after such a 400 since AUTO skips
 	// compilation. No-op when VALIDATED wouldn't have been used.
 	DowngradeGeminiValidatedToAuto bool
+	// FastMode dispatches on the provider's paid fast tier: OpenAI
+	// service_tier:"priority", Anthropic speed:"fast" (+ beta). Honored only
+	// for first-party OpenAI/Anthropic targets; gateways relay their own tier.
+	FastMode bool
 }
 
 // RequestEnvelope wraps a parsed request body regardless of wire format.
