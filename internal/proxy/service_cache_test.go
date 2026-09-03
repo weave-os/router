@@ -14,6 +14,7 @@ import (
 	"workweave/router/internal/proxy"
 	"workweave/router/internal/router"
 	"workweave/router/internal/router/cache"
+	"workweave/router/internal/subscriptions"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -155,6 +156,35 @@ func TestService_Cache_EmptyConfiguredSubscriptionModelsBypass(t *testing.T) {
 	require.NoError(t, svc.ProxyMessages(ctx, body, rec2, httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))))
 
 	assert.Len(t, provider.proxyBodies, 2, "empty configured subscription-state requests must not replay a cached response")
+	assert.Empty(t, rec2.Header().Get(proxy.HeaderRouterCache))
+}
+
+func TestService_Cache_PlanAwareRoutingBypasses(t *testing.T) {
+	emb := embeddingFixture(13)
+	provider := &fakeProvider{
+		proxyResponse: func(w http.ResponseWriter) {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"id":"plan-aware"}`))
+		},
+	}
+	fr := &fakeRouter{decision: decisionWithEmbedding(emb, []int{0, 1})}
+	c := cache.New(cache.DefaultConfig())
+	svc := proxy.NewService(fr, map[string]providers.Client{providers.ProviderAnthropic: provider}, nil, false, c, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil).
+		WithPlanAwareSubscriptionRouting(true)
+
+	ctx := proxyContextWithExternalID(t, "tenant-plan-aware")
+	ctx = context.WithValue(ctx, proxy.ManagedSubscriptionPlanStatesContextKey{}, map[subscriptions.Provider]proxy.SubscriptionPlanState{
+		subscriptions.ProviderClaude: proxy.SubscriptionPlanStateExhausted,
+		subscriptions.ProviderCodex:  proxy.SubscriptionPlanStateActive,
+	})
+	body := anthropicBody("plan-aware cache", false)
+
+	rec1 := httptest.NewRecorder()
+	require.NoError(t, svc.ProxyMessages(ctx, body, rec1, httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))))
+	rec2 := httptest.NewRecorder()
+	require.NoError(t, svc.ProxyMessages(ctx, body, rec2, httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))))
+
+	assert.Len(t, provider.proxyBodies, 2, "plan-aware eligibility must not replay a response cached under another plan state")
 	assert.Empty(t, rec2.Header().Get(proxy.HeaderRouterCache))
 }
 
