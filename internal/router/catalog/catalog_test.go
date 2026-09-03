@@ -36,6 +36,7 @@ func TestCatalog_BindingsReferenceCanonicalProviders(t *testing.T) {
 		providers.ProviderMiniMax:          {},
 		providers.ProviderTogether:         {},
 		providers.ProviderXAI:              {},
+		providers.ProviderMeta:             {},
 		providers.ProviderWafer:            {},
 		providers.ProviderWaferAnthropic:   {},
 		providers.ProviderAnthropicGateway: {},

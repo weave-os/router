@@ -131,6 +131,10 @@ var (
 	openaiBase      = NewSpec()
 	// grok-4.6: openaiReasoning + the extra "xhigh" level.
 	grok46 = NewSpecWithReasoning(ReasoningCapabilities{Levels: []string{"low", "medium", "high", "xhigh"}, SupportsBudget: true}, CapReasoning, CapXhighEffort)
+	// museSpark: reasoning_effort minimal/low/medium/high/xhigh; "none" is a 400
+	// (always reasons), so AlwaysOn maps a disable to the floor level. The
+	// router canonicalizes "minimal" to "low" before dispatch.
+	museSpark = NewSpecWithReasoning(ReasoningCapabilities{Levels: []string{"low", "medium", "high", "xhigh"}, SupportsBudget: true, AlwaysOn: true}, CapReasoning, CapXhighEffort)
 )
 
 // Gemini's OpenAI-compatible endpoint does not honor reasoning_effort or
@@ -182,6 +186,8 @@ var registry = map[string]ModelSpec{
 	// grok-4.6: grok-4.5 added an "xhigh" effort that xAI didn't document for 4.5;
 	// xAI's 4.6 docs keep the low/medium/high/xhigh menu. CapReasoning + CapXhighEffort.
 	"grok-4.6": grok46,
+
+	"muse-spark-1.3": museSpark,
 
 	"gpt-5.4":      openaiReasoning,
 	"gpt-5.4-pro":  openaiReasoning,

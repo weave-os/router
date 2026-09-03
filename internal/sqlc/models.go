@@ -581,6 +581,7 @@ type RouterSessionPin struct {
 	DisabledProviders         []string
 	PolicyGroup               string
 	RoutingStrategy           string
+	PinnedEffort              string
 }
 
 // Explicit per-session router strategy preferences

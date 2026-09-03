@@ -874,6 +874,38 @@ func TestCrossFormat_AnthropicToOpenAI_ToolConversation(t *testing.T) {
 	assert.Equal(t, "package main\n\nfunc main() {}", toolResultMsg["content"])
 }
 
+// An assistant turn whose only text was a routing marker (the /force-model
+// ack) is stripped to an empty block list on ingress; it must still emit
+// with a content field, since chat-completions upstreams such as Meta reject
+// an assistant message carrying neither content nor tool_calls.
+func TestCrossFormat_AnthropicToOpenAI_EmptyAssistantKeepsContent(t *testing.T) {
+	body, err := translate.StripRoutingMarkerFromMessages([]byte(`{
+		"model": "claude-opus-5",
+		"max_tokens": 100,
+		"messages": [
+			{"role": "user", "content": "/force-model muse"},
+			{"role": "assistant", "content": [{"type": "text", "text": "✦ **Weave Router** → force-model applied: muse-spark-1.3 (meta) · Use /unforce-model to clear\n\n"}]},
+			{"role": "user", "content": "hi"}
+		]
+	}`))
+	require.NoError(t, err)
+	env, err := translate.ParseAnthropic(body)
+	require.NoError(t, err)
+
+	prep, err := env.PrepareOpenAI(http.Header{}, translate.EmitOptions{
+		TargetModel:    "muse-spark-1.3",
+		TargetProvider: "meta",
+	})
+	require.NoError(t, err)
+
+	msgs := getArray(t, unmarshalBody(t, prep.Body), "messages")
+	require.Len(t, msgs, 3)
+	assistantMsg := msgAt(t, msgs, 1)
+	assert.Equal(t, "assistant", assistantMsg["role"])
+	assert.Equal(t, "", assistantMsg["content"])
+	assert.NotContains(t, assistantMsg, "tool_calls")
+}
+
 func TestCrossFormat_AnthropicToOpenAI_OverlongToolUseIDClampedAndPaired(t *testing.T) {
 	// OpenAI rejects tool_calls[].id over 64 chars; emit must clamp round-trip
 	// IDs while keeping tool_use paired with its tool_result tool_call_id.

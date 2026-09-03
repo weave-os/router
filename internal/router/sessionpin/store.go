@@ -36,6 +36,10 @@ type Pin struct {
 	InstallationID uuid.UUID
 	Provider       string
 	Model          string
+	// Effort is the reasoning level the user forced alongside Model (the
+	// `:level` suffix of /force-model or x-weave-force-model); empty means the
+	// model's default. Persisted so later turns served from the pin carry it.
+	Effort string
 	// PairedProvider/PairedModel are the scorer's runner-up pick, refreshed by
 	// Upsert on a genuine scorer re-run, preserved on a same-model refresh, and
 	// cleared on a model change without a fresh pair (force-model, loop-break,

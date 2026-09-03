@@ -53,14 +53,17 @@ RETURNING *;
 -- stored one, and a model or strategy change without a group clears it.
 -- The pin-sticky arm-selector guard compares it against the fresh decision's
 -- group, so a stale group must never survive onto a different pinned model.
+--
+-- pinned_effort always takes the incoming value: it belongs to the pinned
+-- model, so a rewrite that carries no level intentionally clears it.
 -- name: UpsertSessionPin :exec
 INSERT INTO router.session_pins (
   session_key, role, installation_id, pinned_provider,
-  pinned_model, paired_provider, paired_model,
+  pinned_model, pinned_effort, paired_provider, paired_model,
   decision_reason, routing_strategy, policy_group, turn_count, pinned_until
 ) VALUES (
   @session_key::bytea, @role::varchar, @installation_id::uuid,
-  @pinned_provider::varchar, @pinned_model::varchar,
+  @pinned_provider::varchar, @pinned_model::varchar, @pinned_effort::varchar,
   @paired_provider::varchar, @paired_model::varchar,
   @decision_reason::text, @routing_strategy::varchar, @policy_group::varchar,
   @turn_count::int, @pinned_until::timestamp
@@ -68,6 +71,7 @@ INSERT INTO router.session_pins (
 ON CONFLICT (session_key, role) DO UPDATE SET
   pinned_provider = EXCLUDED.pinned_provider,
   pinned_model    = EXCLUDED.pinned_model,
+  pinned_effort   = EXCLUDED.pinned_effort,
   decision_reason = EXCLUDED.decision_reason,
   routing_strategy = EXCLUDED.routing_strategy,
   turn_count      = CASE

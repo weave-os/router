@@ -3060,7 +3060,9 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	forceModel := agentForceModel
 	forceCluster := ""
 	if !agentShadowMode {
-		headerForceModel, forceErr := s.applyForceModelHeader(ctx, r, installationID, forceModelSessionKey)
+		var headerForceModel string
+		var forceErr error
+		ctx, headerForceModel, forceErr = s.applyForceModelHeader(ctx, r, installationID, forceModelSessionKey)
 		if forceErr != nil {
 			return forceErr
 		}
@@ -3485,9 +3487,9 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	}
 	// User-forced effort wins over effortEscalation; also pre-populate
 	// ForceReasoningEffort so the gpt-5.x/gemini-3.x emit seams honor it.
-	if knobs := routingKnobsForRequest(ctx); knobs != nil && knobs.ForceEffort != "" {
-		opts.ForceEffort = knobs.ForceEffort
-		opts.ForceReasoningEffort = translate.ResolveForceEffort(opts.Capabilities, opts.ForceEffort)
+	if effort := forceEffortFor(ctx, decision); effort != "" {
+		opts.ForceEffort = effort
+		opts.ForceReasoningEffort = translate.ResolveForceEffort(opts.Capabilities, effort)
 	} else if effort := forcedReasoningEffort(decision.Model, routeRes.EscalateEffort); effort != "" && (s.ResolveEffortEscalation(ctx) || strings.HasPrefix(decision.Model, "grok-")) {
 		opts.ForceReasoningEffort = effort
 	}
@@ -4910,8 +4912,20 @@ func pinDecision(p sessionpin.Pin) router.Decision {
 	return router.Decision{
 		Provider: p.Provider,
 		Model:    p.Model,
+		Effort:   p.Effort,
 		Reason:   p.Reason,
 	}
+}
+
+// forceEffortFor is the effort level this turn dispatches with: a per-request
+// knob (x-weave-effort / x-weave-force-model :level) wins; otherwise the effort
+// the decision carries — a policy arm's level, or the level persisted on the
+// pin the turn was served from.
+func forceEffortFor(ctx context.Context, decision router.Decision) string {
+	if knobs := routingKnobsForRequest(ctx); knobs != nil && knobs.ForceEffort != "" {
+		return knobs.ForceEffort
+	}
+	return decision.Effort
 }
 
 // policyDeadlineDefaultDecision resolves ROUTER_POLICY_DEADLINE_DEFAULT_MODEL to a
@@ -5029,7 +5043,7 @@ func (s *Service) bandSwapServed(ctx context.Context, turnType turntype.TurnType
 // and cheaper (small) member by capability tier, tie-broken by primary input
 // price so two same-tier models still get a deterministic split.
 func orderBandPair(pin sessionpin.Pin) (large, small router.Decision) {
-	a := router.Decision{Provider: pin.Provider, Model: pin.Model, Reason: pin.Reason}
+	a := pinDecision(pin)
 	b := router.Decision{Provider: pin.PairedProvider, Model: pin.PairedModel, Reason: pin.Reason}
 	ta, tb := catalog.TierFor(a.Model), catalog.TierFor(b.Model)
 	if ta != tb {
@@ -5787,7 +5801,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	// Writes the user-forced pin and falls through to normal routing, which picks
 	// the pin up and serves the requested model on this same turn.
 	forceModel := agentForceModel
-	headerForceModel, forceErr := s.applyForceModelHeader(ctx, r, installationID, forceModelSessionKey)
+	ctx, headerForceModel, forceErr := s.applyForceModelHeader(ctx, r, installationID, forceModelSessionKey)
 	if forceErr != nil {
 		return forceErr
 	}
@@ -6040,9 +6054,9 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		ModelSwitched:            routeRes.modelSwitched(),
 		EnableExtendedContext:    shouldEnableExtendedContext(env.FullTokenEstimate(), outputReserveOAI),
 	}
-	if knobs := routingKnobsForRequest(ctx); knobs != nil && knobs.ForceEffort != "" {
-		opts.ForceEffort = knobs.ForceEffort
-		opts.ForceReasoningEffort = translate.ResolveForceEffort(opts.Capabilities, opts.ForceEffort)
+	if effort := forceEffortFor(ctx, decision); effort != "" {
+		opts.ForceEffort = effort
+		opts.ForceReasoningEffort = translate.ResolveForceEffort(opts.Capabilities, effort)
 	} else if effort := forcedReasoningEffort(decision.Model, routeRes.EscalateEffort); effort != "" && (s.ResolveEffortEscalation(ctx) || strings.HasPrefix(decision.Model, "grok-")) {
 		opts.ForceReasoningEffort = effort
 	}

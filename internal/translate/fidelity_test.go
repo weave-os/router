@@ -369,6 +369,21 @@ func TestApplyReasoningIntent_ClampsAndRejectsUnsupportedSemantics(t *testing.T)
 	require.ErrorIs(t, err, translate.ErrReasoningIncompatible)
 }
 
+func TestApplyReasoningIntent_MuseSparkAcceptsEveryLevelAndNeverDisables(t *testing.T) {
+	spec := router.Lookup("muse-spark-1.3")
+	for _, level := range []string{"low", "medium", "high", "xhigh"} {
+		got, err := translate.ApplyReasoningIntent(translate.ReasoningIntent{Kind: translate.ReasoningLevel, Level: level, Explicit: true}, spec, "")
+		require.NoError(t, err, level)
+		assert.Equal(t, level, got.Level)
+		assert.Empty(t, got.NormalizationNotes, level)
+	}
+	got, err := translate.ApplyReasoningIntent(translate.ReasoningIntent{Kind: translate.ReasoningDisabled, Explicit: true}, spec, "")
+	require.NoError(t, err)
+	assert.Equal(t, translate.ReasoningLevel, got.Kind)
+	assert.Equal(t, "low", got.Level)
+	assert.Equal(t, "xhigh", translate.ResolveForceEffort(spec, "ultra"))
+}
+
 func TestPrepareAnthropic_ClientCacheControlFidelity(t *testing.T) {
 	t.Run("ttl is preserved and router uses remaining capacity", func(t *testing.T) {
 		env, err := translate.ParseOpenAI([]byte(`{"messages":[{"role":"system","content":"rules","cache_control":{"type":"ephemeral","ttl":"1h"}},{"role":"user","content":"hi"}]}`))

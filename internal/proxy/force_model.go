@@ -109,6 +109,13 @@ var forceModelAliases = map[string]string{
 	"grok-4.6":              "grok-4.6",
 	"grok4.6":               "grok-4.6",
 	"grok-max":              "grok-4.6",
+	"muse-spark-1.3":        "muse-spark-1.3",
+	"muse-spark-1-3":        "muse-spark-1.3",
+	"musespark-1.3":         "muse-spark-1.3",
+	"musespark":             "muse-spark-1.3",
+	"muse-spark":            "muse-spark-1.3",
+	"muse":                  "muse-spark-1.3",
+	"meta":                  "muse-spark-1.3",
 	"gpt-5-4":               "gpt-5.4",
 	"gpt-5-4-pro":           "gpt-5.4-pro",
 	"gpt-5-4-mini":          "gpt-5.4-mini",
@@ -309,7 +316,7 @@ func (s *Service) setForceModelSessionPin(
 	ctx context.Context,
 	sessionKey [sessionpin.SessionKeyLen]byte,
 	installationID uuid.UUID,
-	canonicalModel, provider string,
+	canonicalModel, provider, effort string,
 ) error {
 	if s.pinStore == nil || installationID == uuid.Nil {
 		return nil
@@ -323,6 +330,7 @@ func (s *Service) setForceModelSessionPin(
 		InstallationID: installationID,
 		Provider:       provider,
 		Model:          canonicalModel,
+		Effort:         effort,
 		Reason:         translate.ReasonUserForceModel,
 		TurnCount:      1,
 		PinnedUntil:    pinNeverExpires,
@@ -455,17 +463,19 @@ func (s *Service) clearForceModelSessionPin(
 // catalog entry, or one the exclusion policy forbids, fails the request —
 // silently routing elsewhere would serve a model the caller never asked for.
 //
-// A `:level` suffix is stashed on context as router.Overrides.ForceEffort
-// so pin + effort land in one header.
+// A `:level` suffix is stashed on the returned context (and on *r) as
+// router.Overrides.ForceEffort so pin + effort land in one header; callers
+// must continue with the returned context for routingKnobsForRequest to
+// see it.
 func (s *Service) applyForceModelHeader(
 	ctx context.Context,
 	r *http.Request,
 	installationID uuid.UUID,
 	forceModelSessionKey [sessionpin.SessionKeyLen]byte,
-) (string, error) {
+) (context.Context, string, error) {
 	raw := strings.TrimSpace(r.Header.Get(ForceModelHeader))
 	if raw == "" {
-		return "", nil
+		return ctx, "", nil
 	}
 	log := observability.FromContext(ctx)
 	canonicalModel, provider, known, effortLevel := resolveForceModelWithEffort(raw)
@@ -480,8 +490,7 @@ func (s *Service) applyForceModelHeader(
 			merged.ExpectedOutputTokens = existing.ExpectedOutputTokens
 			merged.PerModelVerbosity = existing.PerModelVerbosity
 		}
-		// Mutate *r so the caller's downstream routingKnobsForRequest
-		// (which reads ctx from r.Context()) discovers the knob.
+		ctx = router.WithRoutingKnobs(ctx, &merged)
 		*r = *r.WithContext(router.WithRoutingKnobs(r.Context(), &merged))
 	}
 	if !known {
@@ -489,7 +498,7 @@ func (s *Service) applyForceModelHeader(
 			"input_model", raw,
 			"force_model_session_key_hex", fmt.Sprintf("%x", forceModelSessionKey),
 		)
-		return "", &ForcedModelUnknownError{Model: raw}
+		return ctx, "", &ForcedModelUnknownError{Model: raw}
 	}
 	binding, reason := s.forcedModelBinding(ctx, canonicalModel, provider)
 	if reason != "" {
@@ -499,12 +508,12 @@ func (s *Service) applyForceModelHeader(
 			"provider", provider,
 			"reason", reason,
 		)
-		return "", &ForcedModelExcludedError{Model: canonicalModel, Reason: reason}
+		return ctx, "", &ForcedModelExcludedError{Model: canonicalModel, Reason: reason}
 	}
 	provider = binding
-	if err := s.setForceModelSessionPin(ctx, forceModelSessionKey, installationID, canonicalModel, provider); err != nil {
+	if err := s.setForceModelSessionPin(ctx, forceModelSessionKey, installationID, canonicalModel, provider, effortLevel); err != nil {
 		log.Error("x-weave-force-model: session pin upsert failed", "err", err)
-		return canonicalModel, nil
+		return ctx, canonicalModel, nil
 	}
 	log.Info("x-weave-force-model applied",
 		"input_model", raw,
@@ -514,7 +523,7 @@ func (s *Service) applyForceModelHeader(
 		"force_model_session_key_hex", fmt.Sprintf("%x", forceModelSessionKey),
 		"role", forceModelSessionRole,
 	)
-	return canonicalModel, nil
+	return ctx, canonicalModel, nil
 }
 
 // handleForceModelCommand processes a user-issued directive and writes a
@@ -543,7 +552,8 @@ func (s *Service) handleForceModelCommand(
 
 // applyForceModelCommand updates the session pin without deciding whether the
 // caller should receive a synthetic response. It returns the canonical model
-// when a force was applied.
+// (with its `:level` suffix when one was given, so a same-turn dispatch via
+// req.ForceModel resolves the same effort) when a force was applied.
 func (s *Service) applyForceModelCommand(
 	ctx context.Context,
 	env *translate.RequestEnvelope,
@@ -577,7 +587,7 @@ func (s *Service) applyForceModelCommand(
 		return "", msg, nil
 	}
 
-	canonicalModel, provider, known := resolveForceModel(cmd.Model)
+	canonicalModel, provider, known, effortLevel := resolveForceModelWithEffort(cmd.Model)
 	if !known {
 		log.Info("/force-model: rejected unknown model",
 			"input_model", cmd.Model,
@@ -612,22 +622,27 @@ func (s *Service) applyForceModelCommand(
 		log.Error("/force-model: legacy pin cleanup failed", "err", err)
 		return "", "", err
 	}
-	if err := s.setForceModelSessionPin(ctx, forceModelSessionKey, installationID, canonicalModel, binding); err != nil {
+	if err := s.setForceModelSessionPin(ctx, forceModelSessionKey, installationID, canonicalModel, binding, effortLevel); err != nil {
 		log.Error("/force-model: session pin upsert failed", "err", err)
 		return "", "", err
 	}
-	msg = fmt.Sprintf("✦ **Weave Router** → force-model applied: %s (%s) · Use /unforce-model to clear\n\n", canonicalModel, binding)
+	shownModel := canonicalModel
+	if effortLevel != "" {
+		shownModel = canonicalModel + ":" + effortLevel
+	}
+	msg = fmt.Sprintf("✦ **Weave Router** → force-model applied: %s (%s) · Use /unforce-model to clear\n\n", shownModel, binding)
 	if env.SourceFormat() == translate.FormatOpenAI {
-		msg = fmt.Sprintf("Weave Router: force-model applied: %s (%s). Use /unforce-model to clear.", canonicalModel, binding)
+		msg = fmt.Sprintf("Weave Router: force-model applied: %s (%s). Use /unforce-model to clear.", shownModel, binding)
 	}
 	log.Debug("/force-model: session pin set",
 		"input_model", cmd.Model,
 		"canonical_model", canonicalModel,
 		"provider", binding,
+		"effort", effortLevel,
 		"force_model_session_key_hex", fmt.Sprintf("%x", forceModelSessionKey),
 		"role", forceModelSessionRole,
 	)
-	return canonicalModel, msg, nil
+	return shownModel, msg, nil
 }
 
 // writeSyntheticAnthropicResponse writes a minimal Anthropic Messages API

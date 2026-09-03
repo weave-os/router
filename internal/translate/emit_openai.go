@@ -589,12 +589,19 @@ func writeOpenAIAssistantFromAnthropic(jw *jsonWriter, msg gjson.Result) {
 			return true
 		})
 
-		if len(textParts) > 0 {
+		switch {
+		case len(textParts) > 0:
 			jw.Key("content")
 			jw.Str(strings.Join(textParts, "\n"))
-		} else {
+		case len(toolCallRaws) > 0:
 			jw.Key("content")
 			jw.Null()
+		default:
+			// An assistant turn left empty after marker stripping (e.g. the
+			// /force-model ack) must still carry content: some upstreams 400
+			// on an assistant message with neither content nor tool_calls.
+			jw.Key("content")
+			jw.Str("")
 		}
 		if len(toolCallRaws) > 0 {
 			jw.Key("tool_calls")

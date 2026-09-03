@@ -160,7 +160,7 @@ func TestForceModelHeader_RejectsExcludedModel(t *testing.T) {
 	require.NoError(t, err)
 	req.Header.Set(ForceModelHeader, "opus")
 
-	model, forceErr := svc.applyForceModelHeader(
+	_, model, forceErr := svc.applyForceModelHeader(
 		excludedProvidersCtx(providers.ProviderAnthropic), req,
 		uuid.New(), DeriveSessionKey(env, "key-1"))
 
@@ -182,12 +182,36 @@ func TestForceModelHeader_UnfencedInstallationUnaffected(t *testing.T) {
 	require.NoError(t, err)
 	req.Header.Set(ForceModelHeader, "opus")
 
-	model, forceErr := svc.applyForceModelHeader(
+	_, model, forceErr := svc.applyForceModelHeader(
 		context.Background(), req, uuid.New(), DeriveSessionKey(env, "key-1"))
 
 	require.NoError(t, forceErr)
 	assert.Equal(t, "claude-opus-5", model)
 	require.Len(t, store.upserts, 1)
+}
+
+// The `:level` suffix must reach the caller's context, not only *r: the
+// dispatch path reads routingKnobsForRequest(ctx) from the context it was
+// already carrying, so a knob written only onto r.Context() never made it
+// into the upstream body.
+func TestForceModelHeader_EffortSuffixLandsOnReturnedContext(t *testing.T) {
+	store := &recordingPinStore{}
+	svc := NewService(nil, nil, nil, false, nil, store, false,
+		providers.ProviderAnthropic, "claude-haiku-4-5", nil)
+
+	env := forceCommandEnv(t)
+	req, err := http.NewRequest(http.MethodPost, "/v1/messages", nil)
+	require.NoError(t, err)
+	req.Header.Set(ForceModelHeader, "opus:xhigh")
+
+	ctx, model, forceErr := svc.applyForceModelHeader(
+		context.Background(), req, uuid.New(), DeriveSessionKey(env, "key-1"))
+
+	require.NoError(t, forceErr)
+	assert.Equal(t, "claude-opus-5", model)
+	knobs := routingKnobsForRequest(ctx)
+	require.NotNil(t, knobs)
+	assert.Equal(t, "xhigh", knobs.ForceEffort)
 }
 
 // TestTurnLoop_ForcedPinToNewlyExcludedProviderRejects: policy can change
