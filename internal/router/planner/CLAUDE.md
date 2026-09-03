@@ -1,6 +1,6 @@
 # internal/router/planner — CLAUDE
 
-> **Mirror notice.** Verbatim sync with [AGENTS.md](AGENTS.md). **Update both together** — divergence = bug.
+> **Mirror notice.** Source for generated [AGENTS.md](AGENTS.md). Edit this file, then run `make generate-agent-guides`; CI rejects drift.
 
 Prism-style cache-aware EV policy. Decides STAY (preserve pinned model's upstream prompt cache) vs SWITCH (take cluster scorer's fresh decision + eat one-time cache miss) per action. Read [root CLAUDE.md](../../../CLAUDE.md) first.
 

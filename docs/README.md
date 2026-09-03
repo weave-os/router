@@ -10,6 +10,7 @@ Index of Markdown documentation in the `router/` repo.
 | [POLICY_ROUTER_HARNESS.md](POLICY_ROUTER_HARNESS.md) | Contract for out-of-process policy sidecars. |
 | [HMM_GO_SELECTION.md](HMM_GO_SELECTION.md) | Architecture, `policy_router_v3` split, and rollback story for Go-owned HMM roster ownership and deterministic arm selection. |
 | [TRANSLATION_COMPATIBILITY.md](TRANSLATION_COMPATIBILITY.md) | Cross-format translation requirements and rollout modes. |
+| [SMOKE.md](SMOKE.md) | Pre-merge record/replay smoke-suite scenarios, cassettes, and local workflow. |
 
 For engineering conventions (layer model, package layout, recipes), see the
 root [`CLAUDE.md`](../CLAUDE.md) (and its mirror [`AGENTS.md`](../AGENTS.md)).

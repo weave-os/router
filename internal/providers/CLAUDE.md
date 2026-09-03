@@ -1,6 +1,6 @@
 # internal/providers — CLAUDE
 
-> **Mirror notice.** Verbatim sync with [AGENTS.md](AGENTS.md). **Update both together** — divergence = bug.
+> **Mirror notice.** Source for generated [AGENTS.md](AGENTS.md). Edit this file, then run `make generate-agent-guides`; CI rejects drift.
 
 Provider `Client` interface + canonical `Provider*` name constants + concrete adapters per upstream. Read [root CLAUDE.md](../../CLAUDE.md) first.
 
@@ -13,12 +13,12 @@ Provider `Client` interface + canonical `Provider*` name constants + concrete ad
 
 ## Inward-pointing import (intentional)
 
-Provider adapters (`internal/providers/<name>/`) import `internal/proxy` for the `OnUpstreamMeta` callback so streaming responses record usage/headers back to proxy. This is one of the few inward-pointing adapter→inner-ring imports and is intentional.
+Provider adapters (`internal/providers/<name>/`) import `internal/proxy` for request-scoped credential and header helpers. Upstream response headers are reported through `providers.ObserveUpstreamHeaders`, whose observer is attached by proxy without coupling adapters to proxy internals.
 
 ## Adding a new `providers.Client` adapter
 
 1. **Create `internal/providers/<name>/client.go`** with a `Client` struct + `NewClient(...)` constructor taking credentials (typically API key string + base URL). For OpenAI-compatible upstreams (vLLM, Together, customer endpoints), **prefer adding a sibling `*BaseURL` constant in [`openaicompat`](openaicompat) over a new adapter** — the openaicompat client already covers OpenRouter + Fireworks under their own provider keys.
-2. **Implement `Proxy` and `Passthrough`.** The adapter translates the prepared request body to the provider's wire format, sends it with a pooled `http.Client` (build it with `httputil.NewClient(httputil.NewTransport(...))` so redirects are refused and the managed-mode destination policy applies, and use `httputil.StreamBody`), streams the response back. Adapters call `proxy.OnUpstreamMeta` when they observe usage/header data. Do not leak provider-specific types across the package boundary.
+2. **Implement `Proxy` and `Passthrough`.** The adapter translates the prepared request body to the provider's wire format, sends it with a pooled `http.Client` (build it with `httputil.NewClient(httputil.NewTransport(...))` so redirects are refused and the managed-mode destination policy applies, and use `httputil.StreamBody`), streams the response back. Adapters call `providers.ObserveUpstreamHeaders` immediately after receiving response headers. Do not leak provider-specific types across the package boundary.
 3. **Add compile-time check:** `var _ providers.Client = (*Client)(nil)`.
 4. **Add a canonical name constant** to [`provider.go`](provider.go) (the `Provider*` block) + register the matching env-var name in `APIKeyEnvVars` **and** a `ProviderFamilies` entry (see the "THREE-map edit" comment above the `Provider*` block in `provider.go`). Today's wired keys: `"anthropic"`, `"openai"`, `"google"`, `"openrouter"`, `"fireworks"`, `"bedrock"`, `"makora"`, `"together"`, `"xai"`, `"wafer"`, `"wafer_anthropic"`. The composition root reads `APIKeyEnvVars`, so the admin `/config` view can't drift from actual wiring. Skipping the `ProviderFamilies` entry is the failure mode that silently 502s at request time (`ErrProviderNotConfigured`) instead of at boot — `families_test.go`'s `TestEveryProviderHasFamilyAndEnvVar` exists to catch it, but only if the new constant is also added to `ProviderFamilies`/`APIKeyEnvVars` in the first place (a constant that's never added to either map is invisible to `AllProviders()` and won't be caught by that test).
 5. **Check the non-family-based dispatch switches.** Most cross-format dispatch in `internal/proxy/service.go` and `internal/proxy/credentials.go` now keys off `providers.FamilyFor` (the `TranslationFamily` enum), so a new provider reusing an existing family needs no edit there. Two switches still key off literal `Provider*` constants and are **not** driven by `ProviderFamilies`, so review whether the new provider needs its own case:
@@ -48,4 +48,4 @@ Router serves five vendor pools (Anthropic / OpenAI / Google / OpenRouter / Fire
 - **Don't add bench-column averaging back to the training script.** 1:1 mapping is the point. Two entries that share a column copy the same score; they don't average across columns.
 - **Don't route Gemini 3.x preview tool-use through OpenAI-compat surface.** Loses `thought_signature`; second turn 400s. Use `google.NewNativeClient` (already wired by default).
 - **Don't add per-installation provider preference yet.** Deploy-time env config + cluster scorer's per-prompt argmax cover v1. Per-installation routing = follow-up PR with a DB migration on `model_router_installations`.
-- **Don't leak provider-specific types** (`anthropic.MessageRequest`, OpenAI streaming chunk types, etc.) across the package boundary.
+- **Don't leak provider-specific request or streaming-chunk types** across the package boundary.

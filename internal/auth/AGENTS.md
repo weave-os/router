@@ -1,6 +1,6 @@
 # internal/auth — AGENTS
 
-> **Mirror notice.** Verbatim sync with [CLAUDE.md](CLAUDE.md). **Update both together** — divergence = bug.
+> **Mirror notice.** Generated from [CLAUDE.md](CLAUDE.md). Edit CLAUDE.md, then run `make generate-agent-guides`; CI rejects drift.
 
 Identity domain. Types, repos, `Service.VerifyAPIKey`, `APIKeyCache`, ID/hashing helpers, Tink encryptor. Read [root CLAUDE.md](../../CLAUDE.md) first.
 

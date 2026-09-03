@@ -93,7 +93,7 @@ npx @workweave/router --uninstall --codex --scope project
 
 ## What it does
 
-This package is a thin Node wrapper around [`install.sh`](./install.sh) from
+This package is a thin Node wrapper around [`install.sh`](../install.sh) from
 the Weave Router repo. It exists so you can install from any machine with
 Node ≥ 18 — no `curl | sh`, no Git clone, no PATH fiddling. Everything the
 shell installer documents (targets, scopes, flags, environment variables)

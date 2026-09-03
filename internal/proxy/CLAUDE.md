@@ -1,6 +1,6 @@
 # internal/proxy — CLAUDE
 
-> **Mirror notice.** Verbatim sync with [AGENTS.md](AGENTS.md). **Update both together** — divergence = bug.
+> **Mirror notice.** Source for generated [AGENTS.md](AGENTS.md). Edit this file, then run `make generate-agent-guides`; CI rejects drift.
 
 Routing/dispatch service. Per-action orchestrator that composes scorer, planner, handover, cache, sessionpin, catalog, turntype, usage, billing, providers, and translate. Read [root CLAUDE.md](../../CLAUDE.md) first.
 
@@ -18,7 +18,7 @@ Plus the action loop, handover adapter, cache writer, and session-key derivation
 ## Adding a method to `*proxy.Service`
 
 1. **Define method on `*proxy.Service`.** No I/O directly here — push into a provider adapter or repo. Inner-ring imports (`router`, `providers`, `translate`, `observability`, `internal/router/*`, `internal/proxy/usage`) + small utility libs are fine.
-2. **If you need new repo methods**, surface them as an interface in the inner-ring package, implement in `internal/postgres/`. Example: `sessionpin.Store` in [`../router/sessionpin/store.go`](../router/sessionpin/store.go), implemented by `postgres.SessionPinRepository`.
+2. **If you need new repo methods**, surface them as an interface in the inner-ring package, implement in `internal/postgres/`. Example: `sessionpin.Store` in [`../router/sessionpin/store.go`](../router/sessionpin/store.go), implemented by `postgres.SessionPinRepo`.
 3. **Update `service_test.go` fakes** to satisfy the expanded interface. Real assertions on return values, not "mock called with X".
 
 ## Per-action flow (cache-aware action routing)
@@ -269,9 +269,9 @@ Only the Anthropic Messages surface is wrapped today — that is where the failu
 was observed. `KeepaliveWriter` takes the frame as a parameter, so adding the
 OpenAI/Gemini surfaces is a wiring change plus their own frame.
 
-## `OnUpstreamMeta` callbacks
+## Upstream response-header observation
 
-Provider adapters call back into `proxy.OnUpstreamMeta` so streaming responses record usage/headers back to proxy without coupling provider packages to proxy internals. The catalog / planner stack depends on per-action token counts being recorded promptly — **don't add a provider that forgets to call the callback.**
+Proxy attaches a `providers.UpstreamHeaderObserver` to the request context. Provider adapters call `providers.ObserveUpstreamHeaders` as soon as a response arrives, allowing subscription-limit tracking without coupling the adapters to proxy internals. **Don't add a provider that forgets to report the headers.**
 
 ## What NOT to do
 
