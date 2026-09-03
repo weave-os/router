@@ -2,9 +2,9 @@
 name: Check Migrations
 
 on:
+  # No paths filter: this is a required check, so it must report on every PR. A
+  # PR that adds no migration short-circuits to a pass below.
   pull_request:
-    paths:
-      - 'db/migrations/**'
 
 jobs:
   check-migrations:
