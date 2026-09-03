@@ -1,5 +1,9 @@
 internal/proxy/loop_detection.go
   s_423866d49d3b95::t_a396fd01514564 6
+  s_ee2e2db01c4d96::t_a97d6763a6c524 91-96
+  s_ee2e2db01c4d96::t_340388f52f786d 111,114-119,128-131
+internal/proxy/loop_detection_internal_test.go
+  s_ee2e2db01c4d96::t_d89055987173b5 112-127
 ---
 {
   "schema_version": "authorship/3.0.0",
@@ -14,6 +18,14 @@ internal/proxy/loop_detection.go
         "model": "gpt-5.6-luna"
       },
       "human_author": "steventohme <steven@workweave.ai>"
+    },
+    "s_ee2e2db01c4d96": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ae4d15f8-e193-443f-8f98-e369bba08e32",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "munir-weave <munir@workweave.ai>"
     }
   }
 }
