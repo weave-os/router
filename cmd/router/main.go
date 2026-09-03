@@ -1261,7 +1261,8 @@ func main() {
 	// fallback keeps non-cluster routers bootable.
 	deployedModels, _ := rtr.(*cluster.Multiversion)
 	analyticsSvc := analytics.NewService(repo.Analytics, time.Now)
-	server.Register(engine, authSvc, proxySvc, deployedModels, hmmRosterModels, deploymentMode, billingSvc, hmmReadinessChecker, hmmRosterSource, analyticsSvc)
+	readinessChecker := newReadinessChecker(pool, hmmReadinessChecker)
+	server.Register(engine, authSvc, proxySvc, deployedModels, hmmRosterModels, deploymentMode, billingSvc, readinessChecker, hmmRosterSource, analyticsSvc)
 
 	srv := &http.Server{
 		Addr:    ":" + config.GetOr("PORT", "8080"),
