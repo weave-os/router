@@ -1,4 +1,4 @@
-import { KeyRound, Plug, SlidersHorizontal } from "lucide-react";
+import { Boxes, KeyRound, Plug, SlidersHorizontal } from "lucide-react";
 import { type ReactNode } from "react";
 
 export interface SettingsNavItem {
@@ -16,6 +16,7 @@ export const SETTINGS_NAV: SettingsNavItem[] = [
   { href: "/settings", label: "General", icon: <KeyRound size={16} /> },
   { href: "/settings/providers", label: "Provider keys", icon: <Plug size={16} /> },
   { href: "/settings/models", label: "Models & routing", icon: <SlidersHorizontal size={16} /> },
+  { href: "/settings/inventory", label: "Provider inventory", icon: <Boxes size={16} /> },
 ];
 
 export function settingsNavItem(href: string): SettingsNavItem {

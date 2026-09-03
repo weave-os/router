@@ -4,15 +4,17 @@ import { settingsNavItem } from "./nav";
 import { Text } from "@/components/atoms/Text";
 import { Page } from "@/components/Page";
 import { PageHeader } from "@/components/PageHeader";
+import { cn } from "@/lib/cn";
 import { type ReactNode } from "react";
 
 export interface SettingsPageProps {
   href: string;
   children: ReactNode;
+  contentClassName?: string;
 }
 
 /** Shell for a single settings tab: header sourced from the shared nav config. */
-export function SettingsPage({ href, children }: SettingsPageProps) {
+export function SettingsPage({ href, children, contentClassName }: SettingsPageProps) {
   const item = settingsNavItem(href);
   return (
     <Page
@@ -31,7 +33,9 @@ export function SettingsPage({ href, children }: SettingsPageProps) {
         />
       }
     >
-      <div className="flex w-full max-w-text-width flex-col gap-2">{children}</div>
+      <div className={cn("flex w-full max-w-text-width flex-col gap-2", contentClassName)}>
+        {children}
+      </div>
     </Page>
   );
 }

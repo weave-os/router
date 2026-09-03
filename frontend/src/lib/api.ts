@@ -214,6 +214,57 @@ export interface RoutingPreferencesResponse {
   is_default: boolean;
 }
 
+export type ModelStatus = "online" | "offline" | "rate_limited" | "maintenance" | "error";
+export type ModelStatusUpdate = "online" | "offline" | "maintenance" | "auto";
+
+export interface ModelStatusEntry {
+  model_id: string;
+  provider: string;
+  status: ModelStatus;
+  reason: string;
+  source: string;
+  updated_at: string;
+  expires_at: string | null;
+  admin_pinned: boolean;
+  wired: boolean;
+}
+
+export interface ModelStatusResponse {
+  generated_at: string;
+  total: number;
+  entries: ModelStatusEntry[];
+}
+
+export interface ProviderInventoryBinding {
+  model_id: string;
+  upstream_id: string;
+  tier: "high" | "mid" | "low";
+  context_window: number;
+  price_input_per_1m_usd: number;
+  price_output_per_1m_usd: number;
+  status: ModelStatus;
+  status_reason: string;
+  status_source: string;
+  status_updated_at: string;
+  status_expires_at: string | null;
+  admin_pinned: boolean;
+}
+
+export interface ProviderInventory {
+  provider: string;
+  family: string;
+  api_key_env: string;
+  deployment_key_present: boolean;
+  is_gateway: boolean;
+  is_credential_only: boolean;
+  bindings: ProviderInventoryBinding[];
+}
+
+export interface ProviderInventoryResponse {
+  generated_at: string;
+  providers: ProviderInventory[];
+}
+
 export const api = {
   auth: {
     me: () => request<MeResponse>("/auth/me"),
@@ -361,5 +412,16 @@ export const api = {
         method: "PUT",
         body: JSON.stringify({ reset: true }),
       }),
+  },
+  modelStatus: {
+    get: () => request<ModelStatusResponse>("/model-status"),
+    update: (modelID: string, provider: string, status: ModelStatusUpdate) =>
+      request<ModelStatusEntry>("/model-status", {
+        method: "PUT",
+        body: JSON.stringify({ model_id: modelID, provider, status }),
+      }),
+  },
+  providerInventory: {
+    get: () => request<ProviderInventoryResponse>("/provider-inventory"),
   },
 };
