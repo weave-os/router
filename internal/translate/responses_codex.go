@@ -357,6 +357,11 @@ func (c *portableCodexResponsesConverter) convertMessageContent(content gjson.Re
 			text = codexResponsesBadgePattern.ReplaceAllString(text, "")
 			text = feedbackFooterPattern.ReplaceAllString(text, "")
 		}
+		if text == "" {
+			// Router-owned text can be the only content after ingress markers are
+			// stripped. Omitting the shell prevents empty Anthropic text blocks.
+			return nil, false
+		}
 		return text, true
 	}
 	if !content.IsArray() {
@@ -378,13 +383,21 @@ func (c *portableCodexResponsesConverter) convertMessageContent(content gjson.Re
 			if role == "assistant" {
 				text = feedbackFooterPattern.ReplaceAllString(text, "")
 			}
+			if text == "" {
+				continue
+			}
 			parts = append(parts, map[string]any{"type": "text", "text": text})
 		case "refusal":
-			parts = append(parts, map[string]any{"type": "text", "text": part.Get("refusal").Str})
+			if text := part.Get("refusal").Str; text != "" {
+				parts = append(parts, map[string]any{"type": "text", "text": text})
+			}
 		default:
 			c.markNativeOnly("responses_message_content_native_only", partPath)
 			return nil, false
 		}
+	}
+	if len(parts) == 0 {
+		return nil, false
 	}
 	return parts, true
 }
