@@ -19,9 +19,11 @@ out=""
 data_file=""
 url=""
 want_status="false"
+user_agent=""
 while [ $# -gt 0 ]; do
   case "$1" in
     -o) out="$2"; shift 2 ;;
+    -A) user_agent="$2"; shift 2 ;;
     -w) want_status="true"; shift 2 ;;
     --data-binary)
       data_file="${2#@}"
@@ -33,7 +35,7 @@ while [ $# -gt 0 ]; do
     *) url="$1"; shift ;;
   esac
 done
-printf '%s\t%s\n' "$url" "$data_file" >>"$FAKE_CURL_LOG"
+printf '%s\t%s\t%s\n' "$url" "$data_file" "$user_agent" >>"$FAKE_CURL_LOG"
 case "$url" in
   */api/accounts/deviceauth/usercode)
     printf '%s' '{"device_auth_id":"device-1","user_code":"ABCD-EFGH","interval":"1"}'
@@ -75,5 +77,18 @@ if grep -Fq 'refresh-new' "$FAKE_CURL_LOG"; then
   echo 'refresh token leaked into curl argv log' >&2
   exit 1
 fi
+
+# OAuth issuers rate-limit curl's default user agent, so every token-endpoint
+# call must identify the installer.
+while IFS=$'\t' read -r logged_url _ logged_agent; do
+  case "$logged_url" in
+    *deviceauth*|*/oauth/token)
+      if [ -z "$logged_agent" ]; then
+        echo "OAuth call to $logged_url sent no explicit user agent" >&2
+        exit 1
+      fi
+      ;;
+  esac
+done <"$FAKE_CURL_LOG"
 
 echo "Subscription CLI regression tests passed"

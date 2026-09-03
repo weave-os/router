@@ -22,6 +22,7 @@ func TestOAuthClientRefreshesCodexAndExtractsStableAccountID(t *testing.T) {
 	payload := base64.RawURLEncoding.EncodeToString([]byte(`{"https://api.openai.com/auth":{"chatgpt_account_id":"acct-1"}}`))
 	client := subscriptions.NewOAuthClient(&http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
 		require.Equal(t, "application/x-www-form-urlencoded", request.Header.Get("Content-Type"))
+		require.NotEmpty(t, request.Header.Get("User-Agent"), "issuers rate-limit generic client user agents")
 		require.NoError(t, request.ParseForm())
 		require.Equal(t, subscriptions.CodexClientID, request.Form.Get("client_id"))
 		require.Equal(t, "refresh-secret", request.Form.Get("refresh_token"))
@@ -54,6 +55,7 @@ func TestOAuthClientRefreshesClaudeWithJSONRequest(t *testing.T) {
 	now := time.Date(2026, 9, 2, 12, 0, 0, 0, time.UTC)
 	client := subscriptions.NewOAuthClient(&http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
 		require.Equal(t, "application/json", request.Header.Get("Content-Type"))
+		require.NotEmpty(t, request.Header.Get("User-Agent"), "Anthropic rate-limits generic client user agents")
 		requestBody, err := io.ReadAll(request.Body)
 		require.NoError(t, err)
 		require.JSONEq(t, `{"client_id":"`+subscriptions.ClaudeClientID+`","grant_type":"refresh_token","refresh_token":"refresh-secret"}`, string(requestBody))

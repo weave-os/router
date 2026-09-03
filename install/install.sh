@@ -2710,12 +2710,17 @@ jwt_account_id() {
   printf '%s' "$decoded" | jq -r '.chatgpt_account_id // .["https://api.openai.com/auth"].chatgpt_account_id // .organizations[0].id // empty' 2>/dev/null || true
 }
 
+# OAuth issuers rate-limit curl's default user agent, which fails the token
+# exchange (and every later refresh) with a 429 before the request is even
+# read, so identify the installer explicitly.
+oauth_user_agent='weave-router-installer/1.0'
+
 oauth_post_json() {
   local url="$1" body="$2" request_body
   request_body="$(mktemp)" || return 1
   chmod 600 "$request_body"
   printf '%s' "$body" >"$request_body"
-  curl -fsS --max-time 30 -H 'Content-Type: application/json' --data-binary "@$request_body" "$url"
+  curl -fsS --max-time 30 -A "$oauth_user_agent" -H 'Content-Type: application/json' --data-binary "@$request_body" "$url"
   local curl_status=$?
   rm -f "$request_body"
   return "$curl_status"
@@ -2726,7 +2731,7 @@ oauth_post_form() {
   request_body="$(mktemp)" || return 1
   chmod 600 "$request_body"
   printf '%s' "$body" >"$request_body"
-  curl -fsS --max-time 30 -H 'Content-Type: application/x-www-form-urlencoded' --data-binary "@$request_body" "$url"
+  curl -fsS --max-time 30 -A "$oauth_user_agent" -H 'Content-Type: application/x-www-form-urlencoded' --data-binary "@$request_body" "$url"
   local curl_status=$?
   rm -f "$request_body"
   return "$curl_status"

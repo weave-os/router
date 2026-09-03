@@ -20,6 +20,11 @@ const (
 	DefaultClaudeTokenURL = "https://console.anthropic.com/v1/oauth/token"
 	defaultTokenLifetime  = time.Hour
 	maxTokenResponseBytes = 1 << 20
+
+	// tokenUserAgent identifies the router on provider token endpoints. Both
+	// issuers rate-limit generic client user agents, so refresh must not rely on
+	// the transport default.
+	tokenUserAgent = "weave-router/1.0"
 )
 
 // RefreshedToken is the provider response needed to serve a subscription turn.
@@ -99,6 +104,7 @@ func (c *OAuthClient) refreshCodex(ctx context.Context, refreshToken string) (Re
 		return RefreshedToken{}, err
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("User-Agent", tokenUserAgent)
 	var response struct {
 		AccessToken  string `json:"access_token"`
 		RefreshToken string `json:"refresh_token"`
@@ -132,6 +138,7 @@ func (c *OAuthClient) refreshClaude(ctx context.Context, refreshToken string) (R
 		return RefreshedToken{}, err
 	}
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("User-Agent", tokenUserAgent)
 	var response struct {
 		AccessToken  string `json:"access_token"`
 		RefreshToken string `json:"refresh_token"`

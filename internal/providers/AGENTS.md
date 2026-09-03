@@ -39,6 +39,7 @@ Router serves five vendor pools (Anthropic / OpenAI / Google / OpenRouter / Fire
 ## What is load-bearing
 
 - **The training script is the only writer of `rankings.json`.** Hand-editing breaks the cluster geometry guarantee (`scorer.go`'s sorted-candidate ordering must match what training produced). Re-run `train_cluster_router.py` after touching `model_registry.json` + commit the regenerated artifact.
+- **Claude subscription turns must identify as Claude Code.** Anthropic answers a subscription-authenticated (`sk-ant-oat…`) `/v1/messages` call whose leading `system` block does not identify as Claude Code with 429 `rate_limit_error` regardless of remaining quota, so `anthropic/subscription_identity.go` prepends that block ahead of the caller's own system prompt. Paid `x-api-key` traffic and Bearer gateways must not carry it.
 - **Cluster scorer is availability-aware at boot, not request time.** Filter happens in `NewScorer`; runtime argmax unchanged. Empty filtered set = hard boot error so misconfigured deploys fail loud.
 
 ## What to NOT do
