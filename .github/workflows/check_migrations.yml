@@ -43,6 +43,13 @@ jobs:
         run: |
           set -o pipefail
 
+          echo "Checking down migrations for imprecise rollback guards..."
+          if grep -niE 'IF[[:space:]]+EXISTS' db/migrations/*.down.sql; then
+            echo "::error::Down migrations must be precise rollbacks without IF EXISTS"
+            exit 1
+          fi
+          echo "  Down migrations use precise rollbacks"
+
           CHANGED_MIGRATIONS=$(git diff --diff-filter=A --name-only origin/${BASE_REF}...HEAD -- db/migrations/*.sql | sort)
 
           if [ -z "$CHANGED_MIGRATIONS" ]; then

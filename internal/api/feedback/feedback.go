@@ -5,6 +5,7 @@
 package feedback
 
 import (
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"io"
@@ -17,7 +18,6 @@ import (
 	"workweave/router/internal/proxy"
 
 	"github.com/gin-gonic/gin"
-	"github.com/jackc/pgx/v5"
 )
 
 // maxBodyBytes caps the feedback submission payload. A rating + short comment is
@@ -59,7 +59,7 @@ func GetContextHandler(svc *proxy.Service) gin.HandlerFunc {
 		}
 
 		fctx, err := svc.GetFeedbackContext(c.Request.Context(), claims.InstallationID, claims.RequestID)
-		if errors.Is(err, pgx.ErrNoRows) {
+		if errors.Is(err, sql.ErrNoRows) {
 			// Token is valid but no telemetry row exists (telemetry disabled or
 			// pruned past retention). Render the page with just the request id
 			// so the user can still leave feedback.

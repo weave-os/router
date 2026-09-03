@@ -1,7 +1,49 @@
 // Package router defines the Router interface and its Decision/Request types.
 package router
 
-import "context"
+import (
+	"context"
+	"strings"
+)
+
+type effortLevel string
+
+const (
+	effortLow    effortLevel = "low"
+	effortMedium effortLevel = "medium"
+	effortHigh   effortLevel = "high"
+	effortMax    effortLevel = "max"
+	effortXHigh  effortLevel = "xhigh"
+)
+
+// CanonicalizeEffort maps user-facing aliases to canonical effort levels.
+// Unknown values pass through so request boundaries can reject them.
+func CanonicalizeEffort(level string) string {
+	switch strings.ToLower(strings.TrimSpace(level)) {
+	case "fast", string(effortLow), "minimal", "min":
+		return string(effortLow)
+	case string(effortMedium), "med":
+		return string(effortMedium)
+	case string(effortHigh):
+		return string(effortHigh)
+	case string(effortMax):
+		return string(effortMax)
+	case "ultra", string(effortXHigh):
+		return string(effortXHigh)
+	default:
+		return level
+	}
+}
+
+// IsValidEffort reports whether level canonicalizes to a supported effort.
+func IsValidEffort(level string) bool {
+	switch CanonicalizeEffort(level) {
+	case string(effortLow), string(effortMedium), string(effortHigh), string(effortMax), string(effortXHigh):
+		return true
+	default:
+		return false
+	}
+}
 
 // WireFormat identifies the client-facing request representation. It is kept
 // independent from provider names so the router package remains an inner-ring

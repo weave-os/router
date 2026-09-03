@@ -100,6 +100,11 @@ jobs:
       - name: Vet
         run: go vet ./...
 
+      - name: Lint
+        uses: golangci/golangci-lint-action@v8
+        with:
+          version: v2.6.2
+
       - name: Typecheck
         run: go build -o /dev/null ./...
 

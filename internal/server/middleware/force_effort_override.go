@@ -5,7 +5,6 @@ import (
 
 	"workweave/router/internal/observability"
 	"workweave/router/internal/router"
-	"workweave/router/internal/translate"
 
 	"github.com/gin-gonic/gin"
 )
@@ -22,11 +21,11 @@ func WithForceEffortOverride() gin.HandlerFunc {
 			c.Next()
 			return
 		}
-		if !translate.IsValidEffort(raw) {
+		if !router.IsValidEffort(raw) {
 			abortInvalidKnob(c, ForceEffortOverrideHeader+" must be one of: low, medium, high, max, xhigh (or aliases fast/minimal/ultra).")
 			return
 		}
-		canonical := translate.CanonicalizeEffort(raw)
+		canonical := router.CanonicalizeEffort(raw)
 		// Merge with any existing routing knobs (e.g. from WithRoutingKnobsOverride)
 		// so ForceEffort doesn't silently drop a separately-configured Alpha/QualityBias.
 		merged := router.Overrides{ForceEffort: canonical}

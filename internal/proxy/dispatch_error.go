@@ -355,7 +355,7 @@ func ClassifyDispatchError(err error) (DispatchErrorClass, bool) {
 // "emit body: ". Falls back to err.Error().
 func unwrapToSentinelMessage(err error) string {
 	for e := err; e != nil; e = errors.Unwrap(e) {
-		if child := errors.Unwrap(e); child == translate.ErrAnthropicCacheControlOverflow || child == translate.ErrAnthropicCacheControlInvalid {
+		if child := errors.Unwrap(e); errors.Unwrap(child) == nil && (errors.Is(child, translate.ErrAnthropicCacheControlOverflow) || errors.Is(child, translate.ErrAnthropicCacheControlInvalid)) {
 			return e.Error()
 		}
 	}

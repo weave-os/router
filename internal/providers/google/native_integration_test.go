@@ -1,5 +1,4 @@
 //go:build google_integration
-// +build google_integration
 
 package google_test
 

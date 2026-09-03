@@ -1,6 +1,7 @@
 package toolcheck
 
 import (
+	"errors"
 	"strconv"
 	"strings"
 
@@ -34,8 +35,8 @@ func repairArgs(schema *jsonschema.Schema, args string, verr error) (out string,
 	out = args
 	current := verr
 	for pass := 0; pass < maxRepairPasses; pass++ {
-		validationErr, ok := current.(*jsonschema.ValidationError)
-		if !ok {
+		var validationErr *jsonschema.ValidationError
+		if !errors.As(current, &validationErr) {
 			return out, actions
 		}
 		passActions := applyLeafRepairs(&out, validationErr)
