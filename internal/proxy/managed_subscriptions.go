@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"workweave/router/internal/auth"
+	"workweave/router/internal/billing"
 	"workweave/router/internal/observability"
 	"workweave/router/internal/providers"
 	"workweave/router/internal/subscriptions"
@@ -102,6 +103,9 @@ func (s *Service) leaseManagedSubscription(ctx context.Context, provider, model 
 		return ctx, subscriptions.Lease{}, false, nil
 	}
 	if s.planAwareSubscriptionRouting && managedSubscriptionPlansAllExhausted(ctx) {
+		if billing.SubscriptionOnlyFromContext(ctx) {
+			return ctx, subscriptions.Lease{}, true, ErrSubscriptionPoolExhausted
+		}
 		return ctx, subscriptions.Lease{}, false, nil
 	}
 	lease, present, err := s.managedSubscriptions.Lease(ctx, apiKeyIDFromContext(ctx), poolProvider, ClientIdentityFrom(ctx).SessionID)

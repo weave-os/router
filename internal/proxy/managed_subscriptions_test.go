@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"workweave/router/internal/auth"
+	"workweave/router/internal/billing"
 	"workweave/router/internal/providers"
 	"workweave/router/internal/router"
 	"workweave/router/internal/router/catalog"
@@ -146,6 +147,28 @@ func TestManagedSubscriptionAllPlansExhaustedFallsThroughToNormalRouting(t *test
 
 	require.NoError(t, err)
 	require.False(t, managed)
+	require.Same(t, ctx, out)
+	require.Empty(t, leaser.providers)
+}
+
+func TestManagedSubscriptionAllPlansExhaustedPreservesSubscriptionOnly(t *testing.T) {
+	leaser := &scriptedSubscriptionLeaser{}
+	svc := newServiceWithProviders(t, nil).
+		WithManagedSubscriptions(leaser).
+		WithPlanAwareSubscriptionRouting(true)
+	ctx := billing.WithSubscriptionOnly(managedSubscriptionTestContext())
+	ctx = context.WithValue(ctx, ManagedSubscriptionPlanStatesContextKey{}, map[subscriptions.Provider]SubscriptionPlanState{
+		subscriptions.ProviderClaude: SubscriptionPlanStateExhausted,
+	})
+
+	out, _, managed, err := svc.leaseManagedSubscription(
+		ctx,
+		providers.ProviderAnthropic,
+		"claude-opus-4-8",
+	)
+
+	require.ErrorIs(t, err, ErrSubscriptionPoolExhausted)
+	require.True(t, managed)
 	require.Same(t, ctx, out)
 	require.Empty(t, leaser.providers)
 }
