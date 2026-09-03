@@ -120,6 +120,12 @@ func redactJSON(t *testing.T, data []byte) map[string]interface{} {
 	t.Helper()
 	var m map[string]interface{}
 	require.NoError(t, json.Unmarshal(data, &m), "response frame is not a JSON object: %s", string(data))
+	// weave_cost is router metadata appended to the terminal usage event. It is
+	// covered by the cost-response tests, while translation goldens intentionally
+	// remain focused on provider-to-Anthropic wire shape.
+	if usage, ok := m["usage"].(map[string]interface{}); ok {
+		delete(usage, "weave_cost")
+	}
 	redactVolatile(m)
 	return m
 }

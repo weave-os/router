@@ -16,6 +16,7 @@ func TestLookup(t *testing.T) {
 		wantOutput float64
 	}{
 		// ── Anthropic ──────────────────────────────────────────
+		{name: "claude-fable-5-1", model: "claude-fable-5-1", wantInput: 10.00, wantOutput: 50.00},
 		{name: "claude-fable-5", model: "claude-fable-5", wantInput: 10.00, wantOutput: 50.00},
 		{name: "claude-opus-5", model: "claude-opus-5", wantInput: 5.00, wantOutput: 25.00},
 		{name: "claude-opus-4-8", model: "claude-opus-4-8", wantInput: 5.00, wantOutput: 25.00},
@@ -65,6 +66,7 @@ func TestLookup(t *testing.T) {
 		{name: "gemini-3.6-flash", model: "gemini-3.6-flash", wantInput: 1.50, wantOutput: 7.50},
 		{name: "gemini-3.5-flash-lite", model: "gemini-3.5-flash-lite", wantInput: 0.30, wantOutput: 2.50},
 		{name: "gemini-3.7-flash", model: "gemini-3.7-flash", wantInput: 1.50, wantOutput: 7.50},
+		{name: "gemini-3.8-flash", model: "gemini-3.8-flash", wantInput: 1.50, wantOutput: 7.50},
 
 		// ── Google Gemini 2.x (legacy) ─────────────────────────
 		{name: "gemini-2.5-pro", model: "gemini-2.5-pro", wantInput: 1.25, wantOutput: 5.00},

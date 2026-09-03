@@ -39,7 +39,7 @@ The provider-backed `Summarizer` implementation for handover lives in [`handover
 
 ## Proactive context-window compaction
 
-`ProxyMessages` / `ProxyOpenAIChatCompletion` call [`maybeCompact`](compaction.go) **before** routing so an over-long session is compacted rather than dead-ending in the scorer with no eligible provider. It engages when the estimate reaches `ROUTER_COMPACTION_PCT` (default 0.85) of the largest eligible model's window and runs Claude Code's tiered cascade: (1) `ClearOldToolResults` — local, clears stale tool results; (2) structured 9-section summary via a **window-aware** Anthropic-family summarizer (`SummarizeForCompaction`; haiku when the history fits, `claude-fable-5` for larger) rewritten with `RewriteForCompaction(summary, recentTurns)`; (3) progressive `TrimLastNMessages` rescue. If even the trimmed floor overflows, it returns `ErrContextWindowExceeded` → HTTP 413 (distinct from the "no provider keys" `ErrNoEligibleProvider`). The summary call is billed as a `_precompaction_summary` ledger row. Trigger below the window (not at overflow) is load-bearing: a summarizer can only ingest a history that still fits *some* model.
+`ProxyMessages` / `ProxyOpenAIChatCompletion` / `ProxyGeminiGenerateContent` call [`maybeCompact`](compaction.go) **before** routing so an over-long session is compacted rather than dead-ending in the scorer with no eligible provider. It engages when the estimate reaches `ROUTER_COMPACTION_PCT` (default 0.85) of the largest eligible model's window and runs Claude Code's tiered cascade: (1) `ClearOldToolResults` — local, clears stale tool results; (2) structured 9-section summary via a **window-aware** Anthropic-family summarizer (`SummarizeForCompaction`; the session's active Anthropic pin when it is mid-tier or better — the model that ran the conversation, prompt cache warm — else `ROUTER_COMPACTION_MODEL`, default `claude-sonnet-4-6`, else `claude-fable-5` when the history won't fit) rewritten with `RewriteForCompaction(summary, recentTurns)`; (3) progressive `TrimLastNMessages` rescue. If even the trimmed floor overflows, it returns `ErrContextWindowExceeded` → HTTP 413 (distinct from the "no provider keys" `ErrNoEligibleProvider`). The summary call is billed as a `_precompaction_summary` ledger row. The cascade is **harness-aware** (`compactionPolicyFor(ClientIdentity.ClientApp)`): Claude Code auto-compacts itself at `window − 13K` against the *requested* model, so its turns defer to the client while the routable pool can serve that window (the router still compacts when the pool is smaller or the request already overflows); Codex / Gemini CLI / unknown harnesses always get the router cascade. Native `/v1/responses` passthrough bytes are still not rewritten. Claude Code's own compaction turn (`turntype.Compaction`) is never rewritten; `compactionHardPin` pins it to the session's Anthropic model (else the compaction model) unless the operator set `ROUTER_HARD_PIN_MODEL`, which keeps the generic hard-pin. Trigger below the window (not at overflow) is load-bearing: a summarizer can only ingest a history that still fits *some* model.
 
 ## Model-restriction layers
 
@@ -50,6 +50,7 @@ collapse them.
 |---|---|---|---|
 | `allowed_models` | org (installation) | fail-closed | desugared into `ExcludedModels` by `excludedModelsForRequest` |
 | `excluded_models` | org (installation) | fail-closed | scorer + policy resolver |
+| `global_automatic_routing_exclusions` | deployment | fail-open (soft) | `AutomaticExcludedModels`: scorer, policy resolver, and every automatic-pin gate |
 | `cluster_model_lists` | API key (org default) | fail-open | `policy.ApplyClusterArmOverrides` |
 | `model_router_user_cluster_model_lists` | router user | fail-open | same, after `mergeClusterOverrides` |
 
@@ -58,6 +59,26 @@ adds every routable model absent from a non-empty allowlist to the exclusion
 set, so all six existing enforcement sites honor it with no new filter loops.
 `router.Request.AllowedModels` exists only so errors and diagnostics can name
 the allowlist instead of dumping the desugared exclusion list.
+
+**The deployment-wide automatic exclusion is soft, and is a separate request
+field for that reason.** `global_automatic_routing_exclusions` is the Weave
+control plane's list of models the router may not *choose*; the same models
+still serve an explicit `/force-model` pin, which is what makes it safe to
+disable a model without stranding a debugging or eval session. Folding it into
+`ExcludedModels` would have made it hard — that set also rejects a forced pin
+(`forcedModelBinding`) — so it travels as `router.Request.AutomaticExcludedModels`
+and every enforcement site treats an emptied pool as "ignore me this turn"
+rather than an error. It reaches the request path through a ~1min TTL cache
+(`globalAutomaticExclusionCache`) that serves its last good snapshot on a
+refresh failure and fails open on a cold one; there is no invalidation topic
+because the existing one is keyed per installation.
+
+**Automatic reuse of a model is not just fresh selection.** A disable has to
+reach sessions already pinned, so `automaticPinEligible` and the pin-drop guard
+in `runTurnLoop` cover tool-result stickies, planner STAY, HMM EV stays, expiry
+re-anchors, post-command continuations, band swap, sibling failover, the policy
+deadline default, and loop/struggle escalation — every path where the router
+picked the model. `forcedPinEligible` deliberately does not.
 
 **A wholly non-routable allowlist is rejected at the admin API.** Membership
 validation for `PUT /admin/v1/allowed-models` is catalog-wide on purpose —

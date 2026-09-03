@@ -410,6 +410,8 @@ Set `DATABASE_URL` directly, or compose it from the individual vars:
 | `ROUTER_SCOPED_SEARCH_REQUIREMENT` | `true` | Scopes the citations/search native-capability requirement to sessions that actually used a web-search tool this turn or recently, instead of every turn that merely advertises one. Advertised-only turns return to normal policy routing. |
 | `ROUTER_SEARCH_REQUIREMENT_DECAY_TURNS` | `3` | With `ROUTER_SCOPED_SEARCH_REQUIREMENT`, how many routed turns after the last actual search-tool use keep the requirement before it decays. |
 | `ROUTER_COMPACTION_PCT`           | `0.85`                       | Fraction of the largest eligible model's context window at which the proactive compaction cascade engages (clear old tool results → structured summary → trim). Range `(0,1]`; `0` disables compaction (over-window requests then 413). Mirrors Claude Code's ~0.85 auto-compact trigger. |
+| `ROUTER_COMPACTION_MODEL`         | `claude-sonnet-4-6`          | Anthropic model the compaction cascade summarizes with (and Claude Code's native compaction turn is pinned to) when the session has no warm Anthropic pin to reuse. Must have a direct Anthropic binding; `claude-fable-5` is used automatically for histories that exceed its window. |
+| `ROUTER_COMPACTION_TIMEOUT_MS`    | `90000`                      | Hard timeout for one compaction summary call (separate from `ROUTER_HANDOVER_TIMEOUT_MS`; a Sonnet-class summary of a near-full window is slow). On timeout the cascade falls back to trimming. |
 | `ROUTER_ONNX_ASSETS_DIR`          | `/opt/router/assets`         | Directory containing `model.onnx` + `tokenizer.json`. |
 | `ROUTER_ONNX_LIBRARY_DIR`         | *(system default)*           | Path to `libonnxruntime` (e.g. `/opt/homebrew/lib` on Apple Silicon). |
 | `MODEL_STATUS_DISABLED`           | `false`                      | Disable runtime provider-binding health tracking and its self-hosted admin endpoints. |
@@ -462,12 +464,15 @@ with nowhere to go (HTTP 503 from the scorer), so exclude deliberately.
 
 ## Forcing a model or a routing cluster
 
-`/force-model <model>` (alias `/fm`) pins the session to one model. The name is
-matched **exactly** — it must be a canonical catalog ID (`qwen/qwen3.8-max`),
-that model's bare name without the vendor prefix (`qwen3.8-max`), or an alias
-(`opus`, `qwen-max`), optionally with a `:level` effort suffix (`opus:high`).
-There is no prefix, substring, or nearest-match fallback: a name the router
-doesn't recognize is refused, never approximated.
+`/force-model <model>` (alias `/fm`) pins the client session to one model. The
+pin applies to parent and child agent threads that share the same client-session
+identity, regardless of their first prompt or active routing strategy. Clients
+that send no session identity can only be pinned at the current thread scope.
+The name is matched **exactly** — it must be a canonical catalog ID
+(`qwen/qwen3.8-max`), that model's bare name without the vendor prefix
+(`qwen3.8-max`), or an alias (`opus`, `qwen-max`), optionally with a `:level`
+effort suffix (`opus:high`). There is no prefix, substring, or nearest-match
+fallback: a name the router doesn't recognize is refused, never approximated.
 
 That strictness is the point. Approximate matching served a model the caller
 never named — `/fm qwen 3.8` resolved through the bare `qwen` alias to
@@ -533,6 +538,8 @@ for Go-owned deterministic selection are documented in
 | `ROUTER_HMM_SIDECAR_ATTEMPT_TIMEOUT_MS` | 60% of the decision timeout | Bounds a single HMM attempt so one stalled sidecar instance cannot spend the whole decision budget before the retries run. Set it equal to `ROUTER_HMM_SIDECAR_TIMEOUT_MS`, or to `0`, to let one attempt use the full budget. |
 | `ROUTER_HMM_SIDECAR_AUTH`          | `none`  | Authentication for the HMM sidecar. Use `google-id-token` for managed Cloud Run; the exact sidecar origin is used as the token audience. |
 | `ROUTER_HMM_ROSTER_PATH`           | *(none; required with `ROUTER_HMM_SIDECAR_URL`)* | Path to a generated declarative roster JSON (`hmm_router_cluster_roster_v6`). The roster is loaded and validated against the model catalog at startup (boot fails on any invalid arm) and drives the router's authoritative deterministic within-cluster arm selection: the sidecar's classifier label/confidence is kept, its arm is not. Explicit force-cluster and per-key cluster overrides still take precedence when they actually constrain the pick; selection fails open to the sidecar's pick when no ranked group holds an eligible arm. Pin-sticky eligibility is neutralized on any Go pick so a session pin cannot veto it. Leaving it unset while an HMM sidecar is configured fails boot. |
+| `ROUTER_HMM_BETA_SIDECAR_URL`      | *(none)* | Second HMM sidecar serving the candidate package that sessions opt into with `/beta`. Unset leaves `/beta` answering "unavailable" and never touches stable routing. `ROUTER_HMM_BETA_SIDECAR_AUTH`, `ROUTER_HMM_BETA_SIDECAR_TIMEOUT_MS`, and `ROUTER_HMM_BETA_SIDECAR_ATTEMPT_TIMEOUT_MS` mirror the stable variables. |
+| `ROUTER_HMM_BETA_ROSTER_PATH`      | *(none; required with `ROUTER_HMM_BETA_SIDECAR_URL`)* | Declarative roster the beta strategy's Go-side selection reads. It must be the roster embedded in the pinned beta package, which may carry a different cluster taxonomy from stable's. Unlike the stable pair, a missing or invalid beta roster disables beta with an error log instead of failing boot, so a broken candidate cannot take stable routing down. |
 | `ROUTER_RL_SIDECAR_URL`            | *(none)* | Legacy built-in RL registration. Prefer the generic map for new strategies. |
 | `ROUTER_RL_SIDECAR_TIMEOUT_MS`     | `3000`  | Total RL decision timeout. |
 | `ROUTER_RL_SIDECAR_MODAL_KEY`      | *(none)* | Optional Modal proxy token id (`Modal-Key`) when the RL sidecar is a Modal ASGI app with `requires_proxy_auth`. |

@@ -24,6 +24,16 @@ const (
 	// HeaderRouterFallbackAttempt carries the zero-based fallback attempt index
 	// that ultimately served the turn.
 	HeaderRouterFallbackAttempt = "x-router-fallback-attempt"
+	// HeaderRouterCostUSD carries actual input plus output cost in USD.
+	HeaderRouterCostUSD = "x-router-cost-usd"
+	// HeaderRouterCostInputUSD carries actual input cost in USD.
+	HeaderRouterCostInputUSD = "x-router-cost-input-usd"
+	// HeaderRouterCostOutputUSD carries actual output cost in USD.
+	HeaderRouterCostOutputUSD = "x-router-cost-output-usd"
+	// HeaderRouterCacheReadTokens carries cache-read token count.
+	HeaderRouterCacheReadTokens = "x-router-cache-read-tokens"
+	// HeaderRouterCacheCreationTokens carries cache-creation token count.
+	HeaderRouterCacheCreationTokens = "x-router-cache-creation-tokens"
 )
 
 // RouterCacheHit is the HeaderRouterCache value set when a response is served

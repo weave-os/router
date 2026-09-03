@@ -60,7 +60,7 @@ func TestForceModelCommand_RejectsSoleProviderExcluded(t *testing.T) {
 	require.NoError(t, svc.handleForceModelCommand(
 		excludedProvidersCtx(providers.ProviderAnthropic), rec, env,
 		translate.ForceModelResult{Model: "opus"},
-		uuid.New(), DeriveSessionKey(env, "key-1"), 10))
+		uuid.New(), DeriveSessionKey(env, "key-1"), DeriveSessionKey(env, "key-1"), 10))
 
 	assert.Empty(t, store.upserts, "a refused force must not write a pin")
 	assert.Contains(t, rec.Body.String(), "force-model rejected")
@@ -82,7 +82,7 @@ func TestForceModelCommand_RejectsExcludedModel(t *testing.T) {
 	rec := httptest.NewRecorder()
 	require.NoError(t, svc.handleForceModelCommand(ctx, rec, env,
 		translate.ForceModelResult{Model: "opus"},
-		uuid.New(), DeriveSessionKey(env, "key-1"), 10))
+		uuid.New(), DeriveSessionKey(env, "key-1"), DeriveSessionKey(env, "key-1"), 10))
 
 	assert.Empty(t, store.upserts, "an excluded model must not be pinned")
 	assert.Contains(t, rec.Body.String(), "force-model rejected")
@@ -101,7 +101,7 @@ func TestForceModelCommand_AllowsWhenOneBindingSurvives(t *testing.T) {
 	require.NoError(t, svc.handleForceModelCommand(
 		excludedProvidersCtx(providers.ProviderOpenRouter), rec, env,
 		translate.ForceModelResult{Model: multiBindingModel},
-		uuid.New(), DeriveSessionKey(env, "key-1"), 10))
+		uuid.New(), DeriveSessionKey(env, "key-1"), DeriveSessionKey(env, "key-1"), 10))
 
 	require.Len(t, store.upserts, 1, "one excluded binding must not refuse the force")
 	assert.Equal(t, multiBindingModel, store.upserts[0].Model)
@@ -121,7 +121,7 @@ func TestForceModelCommand_RejectsWhenEveryBindingExcluded(t *testing.T) {
 	require.NoError(t, svc.handleForceModelCommand(
 		excludedProvidersCtx(providers.ProviderBedrock, providers.ProviderOpenRouter),
 		rec, env, translate.ForceModelResult{Model: multiBindingModel},
-		uuid.New(), DeriveSessionKey(env, "key-1"), 10))
+		uuid.New(), DeriveSessionKey(env, "key-1"), DeriveSessionKey(env, "key-1"), 10))
 
 	assert.Empty(t, store.upserts)
 	assert.Contains(t, rec.Body.String(), "force-model rejected")
@@ -141,7 +141,7 @@ func TestForceModelCommand_SessionStrikeOutDoesNotReject(t *testing.T) {
 	rec := httptest.NewRecorder()
 	require.NoError(t, svc.handleForceModelCommand(ctx, rec, env,
 		translate.ForceModelResult{Model: "opus"},
-		uuid.New(), DeriveSessionKey(env, "key-1"), 10))
+		uuid.New(), DeriveSessionKey(env, "key-1"), DeriveSessionKey(env, "key-1"), 10))
 
 	require.Len(t, store.upserts, 1,
 		"a provider struck out for overload is not an exclusion")
@@ -161,7 +161,7 @@ func TestForceModelHeader_RejectsExcludedModel(t *testing.T) {
 	req.Header.Set(ForceModelHeader, "opus")
 
 	model, forceErr := svc.applyForceModelHeader(
-		excludedProvidersCtx(providers.ProviderAnthropic), req, env,
+		excludedProvidersCtx(providers.ProviderAnthropic), req,
 		uuid.New(), DeriveSessionKey(env, "key-1"))
 
 	require.Error(t, forceErr)
@@ -183,7 +183,7 @@ func TestForceModelHeader_UnfencedInstallationUnaffected(t *testing.T) {
 	req.Header.Set(ForceModelHeader, "opus")
 
 	model, forceErr := svc.applyForceModelHeader(
-		context.Background(), req, env, uuid.New(), DeriveSessionKey(env, "key-1"))
+		context.Background(), req, uuid.New(), DeriveSessionKey(env, "key-1"))
 
 	require.NoError(t, forceErr)
 	assert.Equal(t, "claude-opus-5", model)
@@ -255,7 +255,7 @@ func TestForceModelCommand_AllowsWhenAnotherKeyedBindingServes(t *testing.T) {
 	require.NoError(t, svc.handleForceModelCommand(
 		excludedProvidersCtx(providers.ProviderAnthropic), rec, env,
 		translate.ForceModelResult{Model: "opus"},
-		uuid.New(), DeriveSessionKey(env, "key-1"), 10))
+		uuid.New(), DeriveSessionKey(env, "key-1"), DeriveSessionKey(env, "key-1"), 10))
 
 	require.Len(t, store.upserts, 1)
 	assert.Contains(t, rec.Body.String(), "force-model applied")
@@ -278,7 +278,7 @@ func TestForceModelCommand_RejectsDeploymentExcludedModel(t *testing.T) {
 	rec := httptest.NewRecorder()
 	require.NoError(t, svc.handleForceModelCommand(context.Background(), rec, env,
 		translate.ForceModelResult{Model: "opus"},
-		uuid.New(), DeriveSessionKey(env, "key-1"), 10))
+		uuid.New(), DeriveSessionKey(env, "key-1"), DeriveSessionKey(env, "key-1"), 10))
 
 	assert.Empty(t, store.upserts, "an env-excluded model must not be pinned")
 	assert.Contains(t, rec.Body.String(), "force-model rejected")

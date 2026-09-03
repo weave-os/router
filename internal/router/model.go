@@ -143,10 +143,11 @@ var openAICompatBase = NewSpec()
 var registry = map[string]ModelSpec{
 	// claude-fable-5 has adaptive thinking always on (disabled is rejected);
 	// 1M context is native, so CapExtendedContext's beta header is a no-op.
-	"claude-fable-5":  anthropicAdaptiveFallback,
-	"claude-opus-5":   anthropicAdaptiveFallback,
-	"claude-opus-4-8": anthropicAdaptiveXhigh,
-	"claude-opus-4-7": anthropicAdaptiveXhigh,
+	"claude-fable-5":   anthropicAdaptiveFallback,
+	"claude-fable-5-1": anthropicAdaptiveFallback,
+	"claude-opus-5":    anthropicAdaptiveFallback,
+	"claude-opus-4-8":  anthropicAdaptiveXhigh,
+	"claude-opus-4-7":  anthropicAdaptiveXhigh,
 	// claude-sonnet-5 mirrors sonnet-4-6: no xhigh, since Sonnet tops out at
 	// effort "max" and marking xhigh unsupported clamps rather than 400s.
 	"claude-sonnet-5":   anthropicAdaptive,
@@ -224,6 +225,7 @@ var registry = map[string]ModelSpec{
 	"gemini-3.5-flash-lite":         google3Base,
 	"gemini-3.6-flash":              google3Base,
 	"gemini-3.7-flash":              google3Base,
+	"gemini-3.8-flash":              google3Base,
 
 	"gemini-2.5-pro":        googleBase,
 	"gemini-2.5-flash":      googleBase,

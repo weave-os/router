@@ -261,6 +261,12 @@ var Models = []Model{
 	{ID: "claude-fable-5", ContextWindow: 1_000_000, Providers: []ProviderBinding{
 		{Provider: providers.ProviderAnthropic, Price: Pricing{InputUSDPer1M: 10.00, OutputUSDPer1M: 50.00, CacheReadMultiplier: 0.10}},
 	}},
+	// Fable 5.1: same $10/$50 as Fable 5, cache reads at $0.25/MTok (0.025x).
+	// Native 1M context, adaptive thinking always on, stop_reason "refusal"
+	// like Fable 5. Not a cluster roster member until it has quality labels.
+	{ID: "claude-fable-5-1", Tier: TierHigh, ContextWindow: 1_000_000, Providers: []ProviderBinding{
+		{Provider: providers.ProviderAnthropic, Price: Pricing{InputUSDPer1M: 10.00, OutputUSDPer1M: 50.00, CacheReadMultiplier: 0.025}},
+	}},
 
 	// --- OpenAI GPT-4.x (legacy) ---
 	{ID: "gpt-4.1-nano", Tier: TierLow, ContextWindow: 1_047_576, Providers: []ProviderBinding{
@@ -408,6 +414,11 @@ var Models = []Model{
 	// rather than the $0.75/$3.75 introductory rate shared with 3.6-flash
 	// (through 2026-12-31) — avoids a compile-time price going stale.
 	{ID: "gemini-3.7-flash", Tier: TierMid, ContextWindow: 1_048_576, Providers: []ProviderBinding{
+		{Provider: providers.ProviderGoogle, Price: Pricing{InputUSDPer1M: 1.50, OutputUSDPer1M: 7.50, CacheReadMultiplier: 0.10}},
+	}},
+	// Same post-promo list price as 3.7-flash; the shared $0.75/$3.75
+	// introductory rate also ends 2026-12-31.
+	{ID: "gemini-3.8-flash", Tier: TierMid, ContextWindow: 1_048_576, Providers: []ProviderBinding{
 		{Provider: providers.ProviderGoogle, Price: Pricing{InputUSDPer1M: 1.50, OutputUSDPer1M: 7.50, CacheReadMultiplier: 0.10}},
 	}},
 	{ID: "google/gemma-4-26b-a4b-it", Tier: TierLow, ContextWindow: 262_144, Providers: []ProviderBinding{
@@ -591,15 +602,21 @@ var Models = []Model{
 	}},
 	// GLM-5.3-Flash: first native-multimodal (image+video) in the GLM-5 line —
 	// ImageInput stays default. Thinking cannot be disabled — do not add it to
-	// openRouterReasoningHint. Together leads, Wafer trails. Priced at post-promo
-	// rate, not $0.075/$0.25 introductory (cf. gemini-3.7-flash). ContextWindow
-	// 1,048,576 (Together served max); 1,310,720 is Cloudflare-only.
+	// openRouterReasoningHint. Makora leads, followed by Together and the two
+	// Wafer surfaces; Fireworks is the final fallback. Priced at post-promo rate,
+	// not $0.075/$0.25 introductory (cf. gemini-3.7-flash). ContextWindow
+	// 1,048,576 (Makora/Together/Fireworks served max); 1,310,720 is
+	// Cloudflare-only.
 	{ID: "z-ai/glm-5.3-flash", Tier: TierLow, ContextWindow: 1_048_576, Providers: []ProviderBinding{
+		{Provider: providers.ProviderMakora, UpstreamID: "zai-org/GLM-5.3-Flash",
+			Price: Pricing{InputUSDPer1M: 0.150, OutputUSDPer1M: 0.500, CacheReadMultiplier: 0.03 / 0.150}},
 		{Provider: providers.ProviderTogether, UpstreamID: "zai-org/GLM-5.3-Flash",
 			Price: Pricing{InputUSDPer1M: 0.150, OutputUSDPer1M: 0.500, CacheReadMultiplier: 0.03 / 0.150}},
 		{Provider: providers.ProviderWafer, UpstreamID: "GLM-5.3-Flash",
 			Price: Pricing{InputUSDPer1M: 0.150, OutputUSDPer1M: 0.500, CacheReadMultiplier: 0.03 / 0.150}},
 		{Provider: providers.ProviderWaferAnthropic, UpstreamID: "GLM-5.3-Flash",
+			Price: Pricing{InputUSDPer1M: 0.150, OutputUSDPer1M: 0.500, CacheReadMultiplier: 0.03 / 0.150}},
+		{Provider: providers.ProviderFireworks, UpstreamID: "accounts/fireworks/models/glm-5p3-flash",
 			Price: Pricing{InputUSDPer1M: 0.150, OutputUSDPer1M: 0.500, CacheReadMultiplier: 0.03 / 0.150}},
 	}},
 	// Fireworks-dedicated rows below carry an OpenRouter trailing binding so

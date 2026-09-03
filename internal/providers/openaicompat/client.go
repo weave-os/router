@@ -24,9 +24,9 @@ import (
 const (
 	DefaultBaseURL   = "https://openrouter.ai/api/v1"
 	FireworksBaseURL = "https://api.fireworks.ai/inference/v1"
-	// MakoraBaseURL serves DeepSeek V4 Flash at higher throughput than
-	// commodity providers; pair with NewClientWithModelIDMap to rewrite slugs
-	// to Makora's upstream IDs.
+	// MakoraBaseURL serves the OSS catalog at higher throughput than commodity
+	// providers; pair with NewClientWithModelIDMap to rewrite slugs to Makora's
+	// upstream IDs.
 	MakoraBaseURL = "https://inference.makora.com/v1"
 	// TogetherBaseURL serves the OSS pool (DeepSeek, GLM, MiniMax, Qwen, Kimi)
 	// and is fastest on artificialanalysis.ai for several routed models; pair

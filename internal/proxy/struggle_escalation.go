@@ -74,7 +74,8 @@ func (s *Service) handleStruggleEscalation(
 	installationID uuid.UUID,
 	sessionKey [sessionpin.SessionKeyLen]byte,
 	role string,
-	evidence []string,
+	evidence []spiralReason,
+	forceModelSessionKeys ...[sessionpin.SessionKeyLen]byte,
 ) {
 	log := observability.FromContext(ctx)
 
@@ -122,6 +123,10 @@ func (s *Service) handleStruggleEscalation(
 	if !timerArmed && !evidenceArmed {
 		return // not yet struggling, or only "late" (not armed)
 	}
+	if len(forceModelSessionKeys) > 0 {
+		_, active, _ := s.loadForceModelSessionPin(ctx, forceModelSessionKeys[0])
+		userForced = userForced || active
+	}
 	armingMode := struggleArmingTurnWall
 	if evidenceArmed {
 		armingMode = struggleArmingEvidence
@@ -156,7 +161,7 @@ func (s *Service) handleStruggleEscalation(
 	default:
 		target, targetCluster, err := s.struggleEscalationRoster.EscalationTarget(
 			ctx, pin.PolicyGroup, pin.Model,
-			nil,
+			mergeExcludedModels(s.excludedModelsForRequest(ctx), s.globalAutomaticExcludedModels(ctx)),
 			func(model string) bool {
 				if s.availableModels != nil {
 					if _, ok := s.availableModels[model]; !ok {
@@ -204,11 +209,12 @@ func (s *Service) handleStruggleEscalation(
 		}
 	}
 
+	evidenceReasons := spiralReasonStrings(evidence)
 	log.Info("router.struggle_escalation",
 		"struggling_model", strugglingModel,
 		"action", action,
 		"arming_mode", armingMode,
-		"evidence_reasons", evidence,
+		"evidence_reasons", evidenceReasons,
 		"escalation_target", escalationTarget,
 		"escalation_cluster", escalationCluster,
 		"user_forced", userForced,
@@ -232,7 +238,7 @@ func (s *Service) handleStruggleEscalation(
 			WallSeconds:         int64(wall.Seconds()),
 			SessionEverSwitched: pin.HasEverSwitched,
 			ArmingMode:          armingMode,
-			EvidenceReasons:     evidence,
+			EvidenceReasons:     evidenceReasons,
 		}
 		if err := s.struggleEscalationStore.InsertStruggleEscalationEvent(context.Background(), event); err != nil {
 			log.Error("struggle-escalation: event insert failed", "err", err)

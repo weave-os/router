@@ -19,6 +19,76 @@
 
 set -euo pipefail
 
+# ---------- background self-refresh ----------
+#
+# Codex runs this helper on SessionStart and after every turn. Once per
+# interval, use that lifecycle as the update check so installed helpers pick
+# up router fixes without requiring the user to rerun the installer. The
+# download is detached and swapped atomically; the current hook always
+# finishes against the copy it started with.
+#
+# Set WEAVE_CODEX_STATUS_UPDATE=0 to disable it. Self-hosters can point
+# WEAVE_CODEX_STATUS_URL at their own helper source. The common
+# WEAVE_STATUSLINE_UPDATE and WEAVE_STATUSLINE_UPDATE_INTERVAL_DAYS variables
+# remain accepted as aliases for users who configure both clients together.
+weave_self_refresh() {
+  [ "${WEAVE_CODEX_STATUS_UPDATE:-${WEAVE_STATUSLINE_UPDATE:-1}}" = "0" ] && return 0
+  command -v curl >/dev/null 2>&1 || return 0
+
+  local self="${BASH_SOURCE[0]:-$0}"
+  [ -f "$self" ] && [ -w "$self" ] || return 0
+
+  local interval_days="${WEAVE_CODEX_STATUS_UPDATE_INTERVAL_DAYS:-${WEAVE_STATUSLINE_UPDATE_INTERVAL_DAYS:-7}}"
+  case "$interval_days" in
+    ''|*[!0-9]*) return 0 ;;
+  esac
+  local interval_seconds=$(( interval_days * 86400 ))
+
+  local cache_dir="${XDG_CACHE_HOME:-$HOME/.cache}/weave-router"
+  mkdir -p "$cache_dir" 2>/dev/null || return 0
+  local script_slug path_digest
+  script_slug="$(printf '%s' "$self" | tr -c 'A-Za-z0-9._-' '_')"
+  path_digest="$(printf '%s' "$self" | cksum | awk '{print $1}')"
+  local stamp="$cache_dir/checked-at${script_slug}-${path_digest}-codex"
+
+  local now stamp_mtime
+  now="$(date +%s 2>/dev/null)" || return 0
+  if [ -f "$stamp" ]; then
+    stamp_mtime="$(stat -c %Y "$stamp" 2>/dev/null || stat -f %m "$stamp" 2>/dev/null)" || stamp_mtime=0
+  else
+    stamp_mtime=0
+  fi
+  if [ -n "${stamp_mtime:-}" ] && [ "$stamp_mtime" -gt 0 ] \
+     && [ $(( now - stamp_mtime )) -lt "$interval_seconds" ]; then
+    return 0
+  fi
+
+  # Stamp before forking so concurrent SessionStart/Stop hooks share one
+  # download. A failed download consumes the interval; the next hook retries.
+  : >"$stamp" 2>/dev/null || return 0
+
+  local url="${WEAVE_CODEX_STATUS_URL:-https://raw.githubusercontent.com/workweave/router/main/install/codex-status.sh}"
+  local tmp="${self}.tmp.$$"
+  (
+    exec </dev/null
+    if curl -fsSL --max-time 15 "$url" -o "$tmp" 2>/dev/null \
+       && [ -s "$tmp" ] \
+       && head -n 1 "$tmp" | grep -q '^#!.*bash' \
+       && [ "$(wc -c <"$tmp")" -ge 1024 ]; then
+      if cmp -s "$tmp" "$self"; then
+        rm -f "$tmp"
+      else
+        chmod 700 "$tmp" 2>/dev/null || true
+        mv "$tmp" "$self" 2>/dev/null || rm -f "$tmp"
+      fi
+    else
+      rm -f "$tmp"
+    fi
+  ) >/dev/null 2>&1 &
+  disown 2>/dev/null || true
+  return 0
+}
+
 state_root="${XDG_CACHE_HOME:-$HOME/.cache}/weave-router/codex"
 helper_dir="$(cd "$(dirname "$0")" 2>/dev/null && pwd -P)"
 disabled_marker="$helper_dir/.weave-router-disabled"
@@ -224,6 +294,7 @@ esac
 
 payload="$(cat)"
 [ -n "$payload" ] || exit 0
+weave_self_refresh 2>/dev/null || true
 command -v jq >/dev/null 2>&1 || exit 0
 jq -e . >/dev/null 2>&1 <<<"$payload" || exit 0
 
@@ -231,10 +302,8 @@ hook_event_name="$(jq -r '.hook_event_name // ""' <<<"$payload")"
 if [ "$hook_event_name" = "SessionStart" ]; then
   if [ -f "$disabled_marker" ]; then
     emit_title "Codex · direct"
-    jq -cn '{systemMessage:"Codex direct · Weave Router is off"}'
   else
     emit_title "Weave Router · active"
-    jq -cn '{systemMessage:"Weave Router active · routed model appears in the terminal title"}'
   fi
   exit 0
 fi
@@ -307,6 +376,3 @@ else
   title="Weave Router · active$savings"
 fi
 emit_title "$title"
-if [ -n "$marker_model" ] || [ -n "$force_model" ]; then
-  printf '%s' "$title" | jq -Rc '{systemMessage: .}'
-fi

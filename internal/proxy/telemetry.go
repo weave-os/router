@@ -173,6 +173,27 @@ type InsertTelemetryParams struct {
 	AuthorityShadowCorrectedSavingsUSD *float64
 	AuthorityShadowStayScore           *float64
 	AuthorityShadowFreshScore          *float64
+
+	// Spiral* fields are a nullable group: nil = not recorded, zero = measured;
+	// spiral_shadow_events holds threshold crossings only.
+	SpiralErrStreak          *int32
+	SpiralErroredResults     *int32
+	SpiralToolResults        *int32
+	SpiralMaxSameFileEdits   *int32
+	SpiralSameFilePathHash   string
+	SpiralRepeatFrac         *float64
+	SpiralMonologueLen       *int32
+	SpiralToolCallCount      *int32
+	SpiralMessageCount       *int32
+	SpiralPingPongLen        *int32
+	SpiralStepsSinceProgress *int32
+	SpiralEditAttempted      *bool
+	// SpiralReasons is non-nil and empty for a recorded turn with no crossings.
+	SpiralReasons []string
+	// RequestedAllowedModels is the canonical x-weave-allowed-models subset the
+	// caller sent, before intersection with the installation allowlist. Nil
+	// (NULL) when the header was absent.
+	RequestedAllowedModels []string
 }
 
 // TelemetrySummary holds aggregated totals for the dashboard cards.
@@ -295,4 +316,48 @@ func applyAuthorityShadowTelemetry(p *InsertTelemetryParams, res turnLoopResult)
 	p.AuthorityShadowCorrectedOutcome = plannerOutcome(shadow.Decision.ShadowOutcome)
 	corrected := shadow.Decision.ShadowExpectedSavingsUSD
 	p.AuthorityShadowCorrectedSavingsUSD = &corrected
+}
+
+// turnSignalCaptureAllowed requires both privacy gates. CaptureOff is the
+// fallback for an unknown mode, so both gates fail closed by default.
+func turnSignalCaptureAllowed(trainingAllowed bool, capture ContentCaptureMode) bool {
+	return trainingAllowed && (capture == CaptureHashed || capture == CaptureFull)
+}
+
+// applyTurnSignalTelemetry fills p only when all gates pass, preserving
+// the distinction between a measured zero and an absent snapshot.
+func applyTurnSignalTelemetry(
+	p *InsertTelemetryParams,
+	sig spiralSignals,
+	reasons []spiralReason,
+	computed bool,
+	enabled bool,
+	trainingAllowed bool,
+	capture ContentCaptureMode,
+) {
+	if p == nil || !computed || !enabled || !turnSignalCaptureAllowed(trainingAllowed, capture) {
+		return
+	}
+	p.SpiralErrStreak = int32Ptr(int32(sig.errStats.TrailingErrStreak))
+	p.SpiralErroredResults = int32Ptr(int32(sig.errStats.Errored))
+	p.SpiralToolResults = int32Ptr(int32(sig.errStats.Total))
+	p.SpiralMaxSameFileEdits = int32Ptr(int32(sig.maxSameFileEdits))
+	p.SpiralSameFilePathHash = sig.sameFilePathHash
+	repeatFrac := sig.repeatFrac
+	p.SpiralRepeatFrac = &repeatFrac
+	p.SpiralMonologueLen = int32Ptr(int32(sig.monologueLen))
+	p.SpiralToolCallCount = int32Ptr(int32(sig.toolCallCount))
+	p.SpiralMessageCount = int32Ptr(int32(sig.messageCount))
+	p.SpiralPingPongLen = int32Ptr(int32(sig.pingPongLen))
+	p.SpiralStepsSinceProgress = int32Ptr(int32(sig.stepsSinceProgress))
+	editAttempted := sig.editAttempted
+	p.SpiralEditAttempted = &editAttempted
+	if reasons == nil {
+		reasons = []spiralReason{}
+	}
+	p.SpiralReasons = spiralReasonStrings(reasons)
+}
+
+func int32Ptr(v int32) *int32 {
+	return &v
 }

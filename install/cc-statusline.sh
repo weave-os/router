@@ -458,6 +458,7 @@ normalize_model() {
 prices='{
   "input": {
     "claude-fable-5":                   0.01,
+    "claude-fable-5-1":                 0.01,
     "claude-haiku-4-5":                 0.001,
     "claude-opus-4-0":                  0.015,
     "claude-opus-4-1":                  0.015,
@@ -485,6 +486,7 @@ prices='{
     "gemini-3.5-flash-lite":            0.0003,
     "gemini-3.6-flash":                 0.0015,
     "gemini-3.7-flash":                 0.0015,
+    "gemini-3.8-flash":                 0.0015,
     "google/gemma-4-26b-a4b-it":        0.00015,
     "gpt-4.1":                          0.002,
     "gpt-4.1-mini":                     0.0004,
@@ -535,6 +537,7 @@ prices='{
   },
   "output": {
     "claude-fable-5":                   0.05,
+    "claude-fable-5-1":                 0.05,
     "claude-haiku-4-5":                 0.005,
     "claude-opus-4-0":                  0.075,
     "claude-opus-4-1":                  0.075,
@@ -562,6 +565,7 @@ prices='{
     "gemini-3.5-flash-lite":            0.0025,
     "gemini-3.6-flash":                 0.0075,
     "gemini-3.7-flash":                 0.0075,
+    "gemini-3.8-flash":                 0.0075,
     "google/gemma-4-26b-a4b-it":        0.0006,
     "gpt-4.1":                          0.008,
     "gpt-4.1-mini":                     0.0016,
@@ -612,6 +616,7 @@ prices='{
   },
   "cache_read": {
     "claude-fable-5":                   0.1,
+    "claude-fable-5-1":                 0.025,
     "claude-haiku-4-5":                 0.1,
     "claude-opus-4-0":                  0.1,
     "claude-opus-4-1":                  0.1,
@@ -639,6 +644,7 @@ prices='{
     "gemini-3.5-flash-lite":            0.1,
     "gemini-3.6-flash":                 0.1,
     "gemini-3.7-flash":                 0.1,
+    "gemini-3.8-flash":                 0.1,
     "google/gemma-4-26b-a4b-it":        0.1,
     "gpt-4.1":                          0.25,
     "gpt-4.1-mini":                     0.25,

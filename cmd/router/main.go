@@ -291,7 +291,7 @@ func runServer() {
 	}
 
 	{
-		// Makora uses DeepSeek-canonical model IDs vs. the router's slash-form
+		// Makora uses provider-canonical model IDs vs. the router's slash-form
 		// slugs; modelIDMap comes from the catalog's per-binding UpstreamID.
 		makoraBaseURL := config.GetOr("MAKORA_BASE_URL", openaiCompatProvider.MakoraBaseURL)
 		registerDeploymentKeyedProvider(providerMap, envKeyedProviders, logger,
@@ -303,9 +303,9 @@ func runServer() {
 
 	{
 		// Primary binding for DeepSeek V4 Pro / GLM-5.1 / MiniMax M2.7 (top of
-		// artificialanalysis.ai throughput tables); prior providers stay as
-		// ordered fallbacks. Uses "Org/Model" IDs vs. the router's slash-form
-		// slugs; modelIDMap comes from the catalog's per-binding UpstreamID.
+		// artificialanalysis.ai throughput tables); also an ordered fallback for
+		// models led by another provider. Uses "Org/Model" IDs vs. the router's
+		// slash-form slugs; modelIDMap comes from each binding's UpstreamID.
 		togetherBaseURL := config.GetOr("TOGETHER_BASE_URL", openaiCompatProvider.TogetherBaseURL)
 		registerDeploymentKeyedProvider(providerMap, envKeyedProviders, logger,
 			providers.ProviderTogether, "Together", "TOGETHER_API_KEY", togetherBaseURL, byokOnly,
@@ -679,6 +679,7 @@ func runServer() {
 	// model's bindings are all exhausted by a transient upstream fault.
 	siblingFailover := config.GetOr("ROUTER_SIBLING_FAILOVER", "true") == "true"
 	openAIResponsesBroad := config.GetOr("ROUTER_OPENAI_RESPONSES_BROAD", "true") == "true"
+	allowedModelsHeader := config.GetOr("ROUTER_ALLOWED_MODELS_HEADER", "false") == "true"
 	sseKeepalive := sseKeepaliveInterval()
 	ccOrchToolsCrossVendor := config.GetOr("ROUTER_CC_ORCH_TOOLS_CROSSVENDOR", "true") == "true"
 	// Per-turn large-vs-small action-classifier swap. Off by default until the
@@ -702,6 +703,10 @@ func runServer() {
 	// Shadow mode is log-only, so it ships enabled; the switch just sheds the
 	// per-turn signal-scan cost if it misbehaves.
 	spiralShadowEnabled := config.GetOr("ROUTER_SPIRAL_SHADOW_ENABLED", "true") == "true"
+	// Per-turn signal snapshot on telemetry rows. Ships enabled; only source
+	// of negative examples. Skipped regardless for opted-out installations.
+	// Kill switch: ROUTER_TURN_SIGNAL_CAPTURE_ENABLED.
+	turnSignalCaptureEnabled := config.GetOr("ROUTER_TURN_SIGNAL_CAPTURE_ENABLED", "true") == "true"
 	// Session-level struggle detector, also log-only and shipped enabled.
 	// Switch sheds the per-turn check if it misbehaves; exists for symmetry with the spiral detector.
 	struggleShadowEnabled := config.GetOr("ROUTER_STRUGGLE_SHADOW_ENABLED", "true") == "true"
@@ -748,6 +753,7 @@ func runServer() {
 	handoverProviderName := config.GetOr("ROUTER_HANDOVER_PROVIDER", providers.ProviderAnthropic)
 	handoverModel := config.GetOr("ROUTER_HANDOVER_MODEL", proxy.DefaultHandoverModel)
 	handoverTimeout := parseEnvDurationMs("ROUTER_HANDOVER_TIMEOUT_MS", proxy.DefaultHandoverTimeout)
+	compactionTimeout := parseEnvDurationMs("ROUTER_COMPACTION_TIMEOUT_MS", proxy.DefaultCompactionTimeout)
 	// Kept as the interface type: a typed-nil *ProviderSummarizer would defeat
 	// the orchestrator's `!= nil` check.
 	var summarizer handover.Summarizer
@@ -756,14 +762,15 @@ func runServer() {
 	// typed-nil concrete pointer would defeat it).
 	var compactionSz proxy.CompactionSummarizer
 	if client, ok := providerMap[handoverProviderName]; ok {
-		ps := proxy.NewProviderSummarizer(client, handoverModel, handoverTimeout)
+		ps := proxy.NewProviderSummarizer(client, handoverModel, handoverTimeout).WithCompactionTimeout(compactionTimeout)
 		summarizer = ps
 		compactionSz = ps
-		logger.Info("Handover summarizer wired", "provider", handoverProviderName, "model", handoverModel, "timeout_ms", handoverTimeout.Milliseconds())
+		logger.Info("Handover summarizer wired", "provider", handoverProviderName, "model", handoverModel, "timeout_ms", handoverTimeout.Milliseconds(), "compaction_timeout_ms", compactionTimeout.Milliseconds())
 	} else {
 		logger.Info("Handover summarizer disabled (provider not registered); switch turns will preserve full history instead", "requested_provider", handoverProviderName)
 	}
 	compactionPct := parseEnvFloat("ROUTER_COMPACTION_PCT", proxy.DefaultCompactionTriggerPct)
+	compactionModel := resolveCompactionModel(logger)
 
 	// Strategy-specific artifacts own selection membership; the legacy cluster bundle must not constrain HMM candidates.
 	routingTargets := catalog.RoutingTargetSet(routingProviders)
@@ -937,11 +944,27 @@ func runServer() {
 			hmmBetaTimeout,
 			policyclient.WithAttemptTimeout(hmmBetaAttemptTimeout),
 		)
-		if clientErr != nil {
+		// The beta package embeds its own roster (a different taxonomy from
+		// stable's is the point of a candidate), so Go-side selection for beta
+		// decisions reads the matching declarative roster rather than stable's.
+		// Without it the beta router would negotiate the pre-v3 contract the
+		// sidecar no longer serves, so every beta turn would fail closed.
+		var betaRoster *rosterdata.Roster
+		betaRosterPath := strings.TrimSpace(config.GetOr("ROUTER_HMM_BETA_ROSTER_PATH", ""))
+		if betaRosterPath == "" {
+			logger.Error("beta HMM sidecar configured without ROUTER_HMM_BETA_ROSTER_PATH; beta disabled", "sidecar_url", hmmBetaSidecarURL)
+		} else if loadedRoster, rosterErr := rosterdata.Load(betaRosterPath); rosterErr != nil {
+			logger.Error("beta HMM declarative roster failed to load; beta disabled", "path", betaRosterPath, "err", rosterErr)
+		} else {
+			betaRoster = loadedRoster
+		}
+		switch {
+		case clientErr != nil:
 			// Beta is an optional isolation ring. A malformed beta-only auth
 			// setting must not take the stable router down with it.
 			logger.Error("beta HMM policy sidecar client failed to build; beta disabled", "auth_mode", hmmBetaAuthMode, "err", clientErr)
-		} else {
+		case betaRoster == nil:
+		default:
 			capabilityCtx, cancelCapabilityDiscovery := context.WithTimeout(context.Background(), hmmBetaTimeout)
 			var capabilityErr error
 			hmmBetaCapabilities, capabilityErr = hmmBetaClient.Capabilities(capabilityCtx)
@@ -955,6 +978,7 @@ func runServer() {
 				routingProviders,
 			)
 			hmmBetaPolicyRouter.WithCapabilities(hmmBetaCapabilities)
+			hmmBetaPolicyRouter.WithArmSelector(selection.Selector(betaRoster))
 			if capabilityErr != nil {
 				go func() {
 					retryErr := retryPolicyCapabilitiesUntilAvailable(
@@ -982,6 +1006,10 @@ func runServer() {
 				"attempt_timeout_ms", hmmBetaAttemptTimeout.Milliseconds(),
 				"candidate_models", len(routingTargets),
 				"strategy", router.StrategyHMMBeta,
+				"roster_path", betaRosterPath,
+				"roster_schema_version", betaRoster.SchemaVersion,
+				"roster_clusters", len(betaRoster.Clusters),
+				"roster_arms", len(betaRoster.AllArms()),
 			)
 		}
 	} else {
@@ -1034,6 +1062,7 @@ func runServer() {
 		flags.KeyStruggleEscalationHoldout: strconv.Itoa(struggleEscalationHoldoutPct),
 		flags.KeyStruggleEvidenceArming:    boolDefault(struggleEvidenceArming),
 		flags.KeySpiralShadowEnabled:       boolDefault(spiralShadowEnabled),
+		flags.KeyTurnSignalCapture:         boolDefault(turnSignalCaptureEnabled),
 		flags.KeyLoopEscalationEnabled:     boolDefault(loopEscalationEnabled),
 		flags.KeyLoopEscalationHoldoutPct:  strconv.Itoa(loopEscalationHoldoutPct),
 		flags.KeyTextRepetitionBreak:       boolDefault(textRepetitionBreakEnabled),
@@ -1044,6 +1073,7 @@ func runServer() {
 		flags.KeyAuthorityCacheShadow:      boolDefault(authorityCacheShadow),
 		flags.KeySiblingFailover:           boolDefault(siblingFailover),
 		flags.KeyOpenAIResponsesBroad:      boolDefault(openAIResponsesBroad),
+		flags.KeyAllowedModelsHeader:       boolDefault(allowedModelsHeader),
 		flags.KeyEffortEscalation:          boolDefault(effortEscalation),
 		flags.KeyCyberRefusalRepin:         boolDefault(cyberRefusalRepin),
 		flags.KeyCyberRefusalFallback:      cyberRefusalFallbackModel,
@@ -1088,6 +1118,7 @@ func runServer() {
 		WithAnthropicServerSideFallback(anthropicServerSideFallback).
 		WithSiblingFailover(siblingFailover).
 		WithOpenAIResponsesBroad(openAIResponsesBroad).
+		WithAllowedModelsHeader(allowedModelsHeader).
 		WithSSEKeepalive(sseKeepalive).
 		WithPrefixTrimFreeSwitch(prefixTrimFreeSwitch).
 		WithHMMUpgradeConfidenceThreshold(hmmUpgradeConfidence).
@@ -1102,7 +1133,9 @@ func runServer() {
 		WithBandSwap(bandSwapEnabled).
 		WithLoopEscalationConfig(loopEscalationEnabled, loopEscalationHoldoutPct).
 		WithLoopEscalationStore(repo.Telemetry).
+		WithGlobalAutomaticExclusions(repo.GlobalAutomaticExclusions).
 		WithSpiralShadowConfig(spiralShadowEnabled).
+		WithTurnSignalCapture(turnSignalCaptureEnabled).
 		WithSpiralShadowStore(repo.Telemetry).
 		WithStruggleShadowConfig(struggleShadowEnabled).
 		WithStruggleShadowStore(repo.Telemetry).
@@ -1116,6 +1149,8 @@ func runServer() {
 		WithSummarizer(summarizer).
 		WithWebSearchExecutor(cortexWebSearch(logger)).
 		WithCompaction(compactionSz, compactionPct).
+		WithCompactionModel(compactionModel).
+		WithCompactionHardPin(config.GetOr("ROUTER_HARD_PIN_MODEL", "") == "").
 		WithAvailableModels(proxyRoutableModels(routingTargets, routingProviders, hmmRouter != nil)).
 		WithDefaultBaselineModel(resolveDefaultBaselineModel()).
 		WithBillingService(billingSvc)
@@ -1135,6 +1170,7 @@ func runServer() {
 	logger.Info("Cross-vendor Claude Code orchestration tools configured", "enabled", ccOrchToolsCrossVendor)
 	logger.Info("Loop escalation configured", "enabled", loopEscalationEnabled, "holdout_pct", loopEscalationHoldoutPct)
 	logger.Info("Spiral shadow detector configured", "enabled", spiralShadowEnabled)
+	logger.Info("Turn signal capture configured", "enabled", turnSignalCaptureEnabled)
 	logger.Info("Text-repetition break configured", "enabled", textRepetitionBreakEnabled)
 	logger.Info("Planner configured", "enabled", plannerEnabled, "threshold_usd", plannerCfg.ThresholdUSD, "expected_remaining_turns", plannerCfg.ExpectedRemainingTurns, "tier_upgrade_enabled", plannerCfg.TierUpgradeEnabled, "cold_pin_follow_fresh", plannerCfg.ColdPinFollowFresh, "corrected_economics", plannerCfg.CorrectedEconomics, "prefix_trim_free_switch", prefixTrimFreeSwitch, "routing_targets_count", len(routingTargets))
 	logger.Info("Tool-result scoring configured", "enabled", scoreToolResultTurns)
@@ -1914,9 +1950,26 @@ func resolveDefaultBaselineModel() string {
 	return strings.TrimSpace(v)
 }
 
-// resolveHardPinModel returns the (provider, model) for compaction and
-// Explore hard-pins: operator override wins, else the fastest available
-// model in the default bundle, else (defaultHardPinProvider, defaultHardPinModel).
+// resolveCompactionModel returns the Sonnet-class Anthropic model the
+// compaction cascade summarizes with (ROUTER_COMPACTION_MODEL). An override
+// with no direct Anthropic binding is rejected in favor of the default: the
+// summarizer dispatches on the Anthropic client only.
+func resolveCompactionModel(logger *slog.Logger) string {
+	m := strings.TrimSpace(config.GetOr("ROUTER_COMPACTION_MODEL", proxy.DefaultCompactionModel))
+	if m == "" {
+		return proxy.DefaultCompactionModel
+	}
+	if _, ok := catalog.ResolveBinding(m, map[string]struct{}{providers.ProviderAnthropic: {}}); !ok {
+		logger.Warn("ROUTER_COMPACTION_MODEL has no Anthropic binding; using default", "model", m, "default_model", proxy.DefaultCompactionModel)
+		return proxy.DefaultCompactionModel
+	}
+	return m
+}
+
+// resolveHardPinModel returns the (provider, model) for Explore and utility
+// hard-pins (Claude Code's compaction turn prefers the compaction model):
+// operator override wins, else the fastest available model in the default
+// bundle, else (defaultHardPinProvider, defaultHardPinModel).
 func resolveHardPinModel(available map[string]struct{}, logger *slog.Logger) (provider, model string) {
 	if m := config.GetOr("ROUTER_HARD_PIN_MODEL", ""); m != "" {
 		p := config.GetOr("ROUTER_HARD_PIN_PROVIDER", defaultHardPinProvider)

@@ -440,8 +440,44 @@ func pinEligible(pin sessionpin.Pin, req router.Request) bool {
 	return ok
 }
 
+// automaticallyDisabled reports whether a deployment-wide disable withdrew this
+// model from automatic selection. Every reuse of an automatically-chosen model
+// consults it, so a disable takes effect on sessions already pinned to that
+// model instead of only on sessions that route fresh.
+func automaticallyDisabled(req router.Request, model string) bool {
+	_, disabled := req.AutomaticExcludedModels[model]
+	return disabled
+}
+
+// automaticPinEligible gates reuse of a pin the router chose on the session's
+// behalf. forcedPinEligible deliberately omits the deployment-wide check: an
+// explicit /force-model is the escape hatch that keeps a disabled model
+// reachable for debugging and evaluation.
+func automaticPinEligible(pin sessionpin.Pin, req router.Request) bool {
+	return pinEligible(pin, req) && !automaticallyDisabled(req, pin.Model)
+}
+
+// withAutomaticExclusions folds the deployment-wide soft set into the hard-pin
+// resolver's own exclusions, which is the only denylist that selector reads.
+func withAutomaticExclusions(req HardPinRequest, automaticExcluded map[string]struct{}) HardPinRequest {
+	req.ExcludedModels = mergeExcludedModels(req.ExcludedModels, automaticExcluded)
+	return req
+}
+
 func forcedPinEligible(pin sessionpin.Pin, req router.Request) bool {
 	return pinEligible(pin, req)
+}
+
+func forcedPinIneligibilityReason(pin sessionpin.Pin, req router.Request) string {
+	if req.EnabledProviders != nil {
+		if _, enabled := req.EnabledProviders[pin.Provider]; !enabled {
+			return "provider_not_enabled"
+		}
+	}
+	if !pinServesImages(pin, req) {
+		return "not_image_capable"
+	}
+	return "excluded"
 }
 
 // runTurnLoop is the format-agnostic routing orchestrator: detect turn type,
@@ -474,6 +510,9 @@ func (s *Service) runTurnLoop(
 		return turnLoopResult{}, compatibilityErr
 	}
 	ctx = context.WithValue(ctx, translationPlanAppliedContextKey{}, true)
+	// The turn-loop has to load this before any automatic pin or utility hard-pin
+	// branch; routeFor receives a copy and cannot populate the caller's request.
+	req.AutomaticExcludedModels = s.globalAutomaticExcludedModels(ctx)
 	if transforms, ok := ctx.Value(responsesTransformsContextKey{}).([]translate.ResponseTransform); ok {
 		for _, transform := range transforms {
 			apm.RecordTranslationTransform(
@@ -518,36 +557,90 @@ func (s *Service) runTurnLoop(
 		"sub_agent_hint", subAgentHint,
 	)
 
+	// Force state is session-scoped so sub-agents inherit the parent choice.
+	forceModelSessionKey := deriveForceModelSessionKeyForRequest(ctx, env, apiKeyID, threadSessionKey)
+	forceModelPin := sessionpin.Pin{}
+	forceModelFound := false
+	forceModelCleared := false
+	if req.ForceModel != "" {
+		canonicalModel, provider, known := resolveForceModel(req.ForceModel)
+		if !known {
+			return res, &ForcedModelUnknownError{Model: req.ForceModel}
+		}
+		forceModelPin = sessionpin.Pin{
+			SessionKey:     forceModelSessionKey,
+			Role:           forceModelSessionRole,
+			InstallationID: installationID,
+			Provider:       provider,
+			Model:          canonicalModel,
+			Reason:         translate.ReasonUserForceModel,
+			PinnedUntil:    pinNeverExpires,
+		}
+		forceModelFound = true
+	}
+	if !forceModelFound {
+		forceModelPin, forceModelFound, forceModelCleared = s.loadForceModelSessionPin(ctx, forceModelSessionKey)
+	}
+	if forceModelFound {
+		binding, reason := s.forcedModelBinding(ctx, forceModelPin.Model, forceModelPin.Provider)
+		if reason != "" {
+			return res, &ForcedModelExcludedError{Model: forceModelPin.Model, Reason: reason}
+		}
+		forceModelPin.Provider = binding
+		req.ExcludedModels = s.readmitForcedModel(ctx, req, env, feats, forceModelPin)
+	}
+	sessionForceControlFound := forceModelFound
+
 	// Discounts covered models' cost term by the caller's observed subscription
 	// headroom. nil (feature off / no headroom yet) leaves scoring unchanged.
 	req.SubsidizedModelCostFactor = s.subsidyFactors(ctx, reqHeaders)
 
-	// Explicit user-forced pins outrank every automatic fast path, including
-	// the turn-type hard pin; only check here so ordinary turns use the normal flow.
+	// Explicit user force outranks every automatic fast path, including hard
+	// pins. Legacy thread-scoped forces keep their original thread boundary.
 	hardPinnedTurn := s.isHardPinnedTurn(ctx, res.TurnType)
-	if s.pinStore != nil && hardPinnedTurn {
-		forcedPin, found := s.loadPin(ctx, threadSessionKey, res.PinRole)
-		permitted := found && isUserForcedReason(forcedPin.Reason)
-		// Same binding remap as the main path: excluded primary whose fallback
-		// is permitted stays forced; excluded outright, hard pin wins quietly.
-		if permitted {
-			binding, reason := s.forcedModelBinding(ctx, forcedPin.Model, forcedPin.Provider)
-			forcedPin.Provider = binding
-			permitted = reason == ""
+	if s.pinStore != nil && hardPinnedTurn && !forceModelFound && !forceModelCleared {
+		legacyPin, found := s.loadPin(ctx, threadSessionKey, res.PinRole)
+		if found && isUserForcedReason(legacyPin.Reason) {
+			binding, reason := s.forcedModelBinding(ctx, legacyPin.Model, legacyPin.Provider)
+			if reason != "" {
+				return res, &ForcedModelExcludedError{Model: legacyPin.Model, Reason: reason}
+			}
+			legacyPin.Provider = binding
+			forceModelPin, forceModelFound = legacyPin, true
+			req.ExcludedModels = s.readmitForcedModel(ctx, req, env, feats, forceModelPin)
 		}
-		if permitted && forcedPinEligible(forcedPin, req) {
+	}
+	if forceModelFound && hardPinnedTurn {
+		if forcedPinEligible(forceModelPin, req) {
+			threadPin, hmmHistory, forceHistory := sessionpin.Pin{}, sessionpin.Pin{}, sessionpin.Pin{}
+			if s.pinStore != nil {
+				threadPin, _ = s.loadPin(ctx, threadSessionKey, res.PinRole)
+				hmmHistory = s.loadHMMHistory(ctx, threadSessionKey, res.PinRole)
+				forceHistory = s.loadForceModelHistory(ctx, threadSessionKey, res.PinRole)
+			}
 			res.SessionKey = threadSessionKey
-			res.PinModel = forcedPin.Model
-			res.PinAgeSec = pinAge(forcedPin)
-			res.PriorServedModel, res.SessionEverSwitched = switchHistoryFromPins(forcedPin, sessionpin.Pin{})
-			res.EscalateEffort = !forcedPin.LastTurnEndedAt.IsZero() &&
-				(forcedPin.LastOutputTokens == 0 || forcedPin.ConsecutiveUpstreamErrors > 0)
-			res.Decision = pinDecision(forcedPin)
+			res.PinModel = forceModelPin.Model
+			res.PinAgeSec = pinAge(forceModelPin)
+			res.PriorServedModel, res.SessionEverSwitched = switchHistoryFromPins(threadPin, hmmHistory, forceHistory)
+			res.EscalateEffort = !forceHistory.LastTurnEndedAt.IsZero() &&
+				(forceHistory.LastOutputTokens == 0 || forceHistory.ConsecutiveUpstreamErrors > 0)
+			res.Decision = pinDecision(forceModelPin)
+			res.Decision.Reason = translate.ReasonUserForceModel
 			res.StickyHit = true
-			res.PinTier = forcedPin.Reason
-			s.refreshPin(ctx, installationID, res.SessionKey, forcedPin, res.PinRole, res.Decision)
+			res.PinTier = translate.ReasonUserForceModel
+			s.anchorForceModelHistory(ctx, installationID, threadSessionKey, res.PinRole, forceModelPin)
 			return res, nil
 		}
+		res.SessionKey = threadSessionKey
+		res.ForcedPinDropped = true
+		res.ForcedPinModel = forceModelPin.Model
+		res.ForcedPinDropReason = forcedPinIneligibilityReason(forceModelPin, req)
+		log.Info("Forced session pin dropped for hard-pinned turn",
+			"pin_model", forceModelPin.Model,
+			"pin_provider", forceModelPin.Provider,
+			"drop_reason", res.ForcedPinDropReason,
+			"role", res.PinRole,
+		)
 	}
 
 	// A native Codex Responses request is already an explicit provider choice:
@@ -580,13 +673,38 @@ func (s *Service) runTurnLoop(
 		// per-request against enabled-providers, and apply ExcludedModels
 		// here too — this path bypasses the scorer, the only other place
 		// exclusions are honored.
-		if s.hardPinResolver != nil && !useSubAgentOverride {
-			p, m, ok := s.hardPinResolver(HardPinRequest{
+		// Claude Code's own compaction turn summarizes the whole session, so
+		// it goes to the session's Anthropic model (warm cache) or the
+		// Sonnet-class compaction model rather than the cheapest utility pin.
+		compactionProvider, compactionModel, compactionPin := "", "", false
+		if s.compactionHardPinEnabled && res.TurnType == turntype.Compaction && !useSubAgentOverride {
+			compactionProvider, compactionModel, compactionPin = s.compactionHardPin(ctx, threadSessionKey, res.PinRole, req)
+		}
+		switch {
+		case compactionPin:
+			provider, model = compactionProvider, compactionModel
+			log.Info("Hard-pin: compaction turn on compaction model", "hard_pin_model", model, "hard_pin_provider", provider)
+		case s.hardPinResolver != nil && !useSubAgentOverride:
+			hardPinReq := HardPinRequest{
 				EnabledProviders: req.EnabledProviders,
 				ExcludedModels:   req.ExcludedModels,
 				CustomBindings:   req.CustomBindings,
 				GatewayProviders: req.GatewayProviders,
-			})
+			}
+			p, m, ok := s.hardPinResolver(withAutomaticExclusions(hardPinReq, req.AutomaticExcludedModels))
+			if !ok {
+				// Utility turns are automatic, so they honor the deployment-wide
+				// disable — but softly: retry unrestricted rather than 503 a
+				// probe or title-gen turn the operator never meant to break.
+				p, m, ok = s.hardPinResolver(hardPinReq)
+				if ok {
+					log.Warn("Hard-pin: automatic-routing exclusions left no candidate; ignoring them for this turn",
+						"turn_type", string(res.TurnType),
+						"hard_pin_model", m,
+						"hard_pin_provider", p,
+					)
+				}
+			}
 			if !ok {
 				// Gateway empty result = no aliases configured (customer fix), not a router fault.
 				hardPinErr := cluster.ErrClusterUnavailable
@@ -602,7 +720,7 @@ func (s *Service) runTurnLoop(
 				return res, fmt.Errorf("hard-pin: no eligible provider for %s: %w", res.TurnType, hardPinErr)
 			}
 			provider, model = p, m
-		} else {
+		default:
 			if req.EnabledProviders != nil {
 				if _, enabled := req.EnabledProviders[provider]; !enabled {
 					return res, fmt.Errorf("hard-pin provider %q is ineligible for %s: %w", provider, res.TurnType, cluster.ErrNoEligibleProvider)
@@ -610,6 +728,15 @@ func (s *Service) runTurnLoop(
 			}
 			if _, excluded := req.ExcludedModels[model]; excluded {
 				return res, fmt.Errorf("hard-pin model %q is ineligible for %s: %w", model, res.TurnType, cluster.ErrNoEligibleProvider)
+			}
+			if automaticallyDisabled(req, model) {
+				// A statically configured hard pin has no alternative to fall
+				// back to, and a soft exclusion must not fail a turn.
+				log.Warn("Hard-pin model is disabled for automatic routing; serving it anyway",
+					"turn_type", string(res.TurnType),
+					"hard_pin_model", model,
+					"hard_pin_provider", provider,
+				)
 			}
 		}
 		// Operator hard-pins (ROUTER_HARD_PIN_MODEL) bypass the tier ceiling
@@ -651,6 +778,13 @@ func (s *Service) runTurnLoop(
 	// Without a pin store, run the scorer and return its decision. The usage
 	// bypass intercepts the fresh scorer decision here too (no pins to honor).
 	if s.pinStore == nil {
+		if forceModelFound && forcedPinEligible(forceModelPin, req) {
+			res.Decision = pinDecision(forceModelPin)
+			res.Decision.Reason = translate.ReasonUserForceModel
+			res.StickyHit = true
+			res.PinTier = translate.ReasonUserForceModel
+			return res, nil
+		}
 		req.PolicyTurnContext = buildPolicyTurnContext(req, res, sessionpin.Pin{}, sessionpin.Pin{})
 		if dec, ok := s.usageBypassDecision(ctx, reqHeaders, req); ok {
 			res.Decision = dec
@@ -685,6 +819,23 @@ func (s *Service) runTurnLoop(
 		clearedPinReason = pin.Reason
 	}
 	hmmHistory := s.loadHMMHistory(ctx, res.SessionKey, res.PinRole)
+	forceHistory := sessionpin.Pin{}
+	if forceModelFound || forceModelCleared {
+		forceHistory = s.loadForceModelHistory(ctx, res.SessionKey, res.PinRole)
+	}
+	if !forceModelFound && !forceModelCleared && pinFound && isUserForcedReason(pin.Reason) {
+		binding, reason := s.forcedModelBinding(ctx, pin.Model, pin.Provider)
+		if reason != "" {
+			return res, &ForcedModelExcludedError{Model: pin.Model, Reason: reason}
+		}
+		pin.Provider = binding
+		forceModelPin, forceModelFound = pin, true
+		req.ExcludedModels = s.readmitForcedModel(ctx, req, env, feats, forceModelPin)
+	}
+	if forceModelCleared && pinFound && isUserForcedReason(pin.Reason) {
+		pinFound = false
+		pin = sessionpin.Pin{}
+	}
 	commandContinuation := sessionpin.Pin{}
 	commandContinuationFound := false
 	if res.TurnType == turntype.MainLoop {
@@ -711,13 +862,18 @@ func (s *Service) runTurnLoop(
 		pin.Provider = binding
 	}
 	disabledProviders := mergeDisabledProviders(pin.DisabledProviders, hmmHistory.DisabledProviders)
-	// User-forced pin exempts its own provider: an explicit /force-model
-	// must not be silently reverted by the session-level breaker.
-	if pinFound && pin.Provider != "" && isUserForcedReason(pin.Reason) {
+	// Explicit force exempts its own provider from session-level breaker state.
+	forcedProvider := ""
+	if forceModelFound {
+		forcedProvider = forceModelPin.Provider
+	} else if pinFound && isUserForcedReason(pin.Reason) {
+		forcedProvider = pin.Provider
+	}
+	if forcedProvider != "" {
 		filtered := make([]string, 0, len(disabledProviders))
-		for _, p := range disabledProviders {
-			if p != pin.Provider {
-				filtered = append(filtered, p)
+		for _, provider := range disabledProviders {
+			if provider != forcedProvider {
+				filtered = append(filtered, provider)
 			}
 		}
 		disabledProviders = filtered
@@ -737,7 +893,7 @@ func (s *Service) runTurnLoop(
 			req.EnabledProviders = filtered
 		}
 	}
-	res.PriorServedModel, res.SessionEverSwitched = switchHistoryFromPins(pin, hmmHistory)
+	res.PriorServedModel, res.SessionEverSwitched = switchHistoryFromPins(pin, hmmHistory, forceHistory)
 	req.PolicyTurnContext = buildPolicyTurnContext(req, res, pin, hmmHistory)
 	// Computed before any same-turn pin-drop guards below so it reflects the
 	// prior turn's outcome; Service.effortEscalation gates whether it's acted on.
@@ -777,12 +933,53 @@ func (s *Service) runTurnLoop(
 	// the scorer call further down constrains the fresh decision to this tier
 	// instead of collapsing to the cheap tier-default. TierUnknown = no constraint.
 	forcedTierFloor := catalog.TierUnknown
+	if forceModelFound {
+		_, excluded := req.ExcludedModels[forceModelPin.Model]
+		_, providerEnabled := req.EnabledProviders[forceModelPin.Provider]
+		providerEligible := req.EnabledProviders == nil || providerEnabled
+		imageCapable := pinServesImages(forceModelPin, req)
+		if !excluded && providerEligible && imageCapable {
+			res.PinModel = forceModelPin.Model
+			res.PinAgeSec = pinAge(forceModelPin)
+			res.EscalateEffort = !forceHistory.LastTurnEndedAt.IsZero() &&
+				(forceHistory.LastOutputTokens == 0 || forceHistory.ConsecutiveUpstreamErrors > 0)
+			res.Decision = pinDecision(forceModelPin)
+			res.Decision.Reason = translate.ReasonUserForceModel
+			res.StickyHit = true
+			res.PinTier = translate.ReasonUserForceModel
+			s.anchorForceModelHistory(ctx, installationID, res.SessionKey, res.PinRole, forceModelPin)
+			return res, nil
+		}
+		res.ForcedPinDropped = true
+		res.ForcedPinDropReason = forcedPinIneligibilityReason(forceModelPin, req)
+		res.ForcedPinModel = forceModelPin.Model
+		log.Info("Forced session pin dropped for this turn",
+			"pin_model", forceModelPin.Model,
+			"pin_provider", forceModelPin.Provider,
+			"drop_reason", res.ForcedPinDropReason,
+			"role", res.PinRole,
+		)
+		if excluded || !imageCapable {
+			forcedTierFloor = catalog.TierFor(forceModelPin.Model)
+		}
+		if !imageCapable {
+			req.ExcludedModels = excludingModel(req.ExcludedModels, forceModelPin.Model)
+		}
+		if !sessionForceControlFound || isUserForcedReason(pin.Reason) {
+			pinFound = false
+			pin = sessionpin.Pin{}
+		}
+	}
 	if pinFound && (isUserForcedReason(pin.Reason) || pin.Reason == translate.ReasonLoopEscalation || pin.Reason == translate.ReasonStruggleEscalation) {
 		_, excluded := req.ExcludedModels[pin.Model]
 		_, providerEnabled := req.EnabledProviders[pin.Provider]
 		providerEligible := req.EnabledProviders == nil || providerEnabled
 		imageCapable := pinServesImages(pin, req)
-		if !excluded && providerEligible && imageCapable {
+		// Loop and struggle escalation are router-chosen rescues, so a
+		// deployment-wide disable applies to them; only the user's own
+		// /force-model outranks it.
+		autoDisabled := !isUserForcedReason(pin.Reason) && automaticallyDisabled(req, pin.Model)
+		if !excluded && !autoDisabled && providerEligible && imageCapable {
 			decision := pinDecision(pin)
 			decision.Reason = pin.Reason
 			res.PinTier = pin.Reason
@@ -795,6 +992,8 @@ func (s *Service) runTurnLoop(
 		// to the scorer while the user still trusts the "force-model applied" ack.
 		dropReason := "excluded"
 		switch {
+		case autoDisabled:
+			dropReason = "automatic_routing_disabled"
 		case !providerEligible:
 			dropReason = "provider_not_enabled"
 		case !imageCapable:
@@ -811,11 +1010,22 @@ func (s *Service) runTurnLoop(
 			res.ForcedPinDropped = true
 			res.ForcedPinDropReason = dropReason
 			res.ForcedPinModel = pin.Model
-		}
-		if excluded || !imageCapable {
-			// User still asked for this tier; constrain the fresh decision
-			// to it below rather than losing the intent entirely.
-			forcedTierFloor = catalog.TierFor(pin.Model)
+			if excluded || !imageCapable {
+				// User still asked for this tier; constrain the fresh decision
+				// to it below rather than losing the intent entirely.
+				forcedTierFloor = catalog.TierFor(pin.Model)
+			}
+		} else if excluded || autoDisabled {
+			// Auto-escalation carries no user tier intent. An excluded escalation
+			// pin can never serve, so expire it instead of re-dropping it every
+			// turn until TTL.
+			evictReason := "escalation_pin_excluded"
+			if autoDisabled {
+				evictReason = "escalation_pin_automatic_routing_disabled"
+			}
+			if err := s.expireSessionPin(ctx, installationID, res.SessionKey, res.PinRole, evictReason); err != nil {
+				log.Error("ineligible escalation pin eviction failed", "err", err, "pin_model", pin.Model, "role", res.PinRole, "evict_reason", evictReason)
+			}
 		}
 		if !imageCapable {
 			// The scorer's own image filter fails open when no image-capable
@@ -826,6 +1036,25 @@ func (s *Service) runTurnLoop(
 		// Treat as missing so downstream sticky branches don't dispatch to an
 		// unauthorized provider. The row stays in storage — a later request
 		// with the forced provider enabled resumes serving it.
+		pinFound = false
+		pin = sessionpin.Pin{}
+	}
+
+	// A pin the router chose itself stops being reusable the moment Weave
+	// disables its model deployment-wide. Dropping it here — before the
+	// tool-result, planner-disabled, EV-stay, and re-anchor branches — is what
+	// makes the setting reach sessions that are already pinned, instead of only
+	// sessions that route fresh. The row is left in storage: the next turn
+	// re-pins whatever the scorer picks, and re-enabling the model restores it.
+	if pinFound && !isUserForcedReason(pin.Reason) && automaticallyDisabled(req, pin.Model) {
+		reason, _ := s.globalAutomaticExclusionReason(ctx, pin.Model)
+		log.Info("Session pin model is disabled for automatic routing; falling through to scorer",
+			"pin_model", pin.Model,
+			"pin_provider", pin.Provider,
+			"pin_reason", pin.Reason,
+			"disable_reason", reason,
+			"role", res.PinRole,
+		)
 		pinFound = false
 		pin = sessionpin.Pin{}
 	}
@@ -942,6 +1171,16 @@ func (s *Service) runTurnLoop(
 		}
 	}
 
+	// A request-level allowlist narrows the pool for this turn only; a pin
+	// outside it reroutes inside the subset instead of serving through.
+	if pinFound && !modelInRequestSubset(ctx, pin.Model) {
+		log.Info("Session pin outside request allowed-models subset; falling through to scorer",
+			"pin_model", pin.Model,
+			"pin_provider", pin.Provider,
+		)
+		pinFound = false
+	}
+
 	// If the pinned provider is no longer in this request's enabled set
 	// (installation/env exclusion, or BYOK without that provider's creds),
 	// treat the pin as missing so sticky branches below can't keep serving
@@ -986,14 +1225,18 @@ func (s *Service) runTurnLoop(
 		)
 		commandContinuationFound = false
 	}
-	if commandContinuationFound && pinEligible(commandContinuation, req) {
+	if commandContinuationFound && automaticPinEligible(commandContinuation, req) {
 		decision := pinDecision(commandContinuation)
 		res.Decision = decision
 		res.StickyHit = true
 		res.PinTier = "post_command_continuation"
 		res.PinModel = commandContinuation.Model
 		res.PinAgeSec = pinAge(commandContinuation)
-		res.PriorServedModel, res.SessionEverSwitched = switchHistoryFromPins(commandContinuation, hmmHistory)
+		if forceModelCleared {
+			res.PriorServedModel, res.SessionEverSwitched = switchHistoryFromPins(commandContinuation, hmmHistory, forceHistory, forceModelPin)
+		} else {
+			res.PriorServedModel, res.SessionEverSwitched = switchHistoryFromPins(commandContinuation, hmmHistory, forceHistory)
+		}
 		res.EscalateEffort = !commandContinuation.LastTurnEndedAt.IsZero() &&
 			(commandContinuation.LastOutputTokens == 0 || commandContinuation.ConsecutiveUpstreamErrors > 0)
 		log.Info("turnloop used one-shot post-command continuation",
@@ -1242,7 +1485,7 @@ func (s *Service) runTurnLoop(
 		pinTier := catalog.TierFor(pin.Model)
 		freshTier := catalog.TierFor(fresh.Model)
 		if pinTier != catalog.TierUnknown && freshTier != catalog.TierUnknown && freshTier <= pinTier {
-			if _, excluded := req.ExcludedModels[pin.Model]; !excluded {
+			if _, excluded := req.ExcludedModels[pin.Model]; !excluded && !automaticallyDisabled(req, pin.Model) {
 				if _, available := s.availableModels[pin.Model]; available {
 					_, providerOK := req.EnabledProviders[pin.Provider]
 					if req.EnabledProviders == nil || providerOK {
@@ -1669,6 +1912,11 @@ func (s *Service) normalizeHMMStayPin(req router.Request, p sessionpin.Pin) (ses
 			return sessionpin.Pin{}, false
 		}
 	}
+	// An HMM stay is the policy re-choosing the incumbent, so a deployment-wide
+	// disable applies to it exactly as it does to a fresh selection.
+	if automaticallyDisabled(req, model) {
+		return sessionpin.Pin{}, false
+	}
 	if s.availableModels != nil {
 		if _, available := s.availableModels[model]; !available {
 			return sessionpin.Pin{}, false
@@ -1810,19 +2058,24 @@ func (s *Service) loadHMMHistory(ctx context.Context, sessionKey [sessionpin.Ses
 	return pin
 }
 
-func switchHistoryFromPins(activePin, hmmHistory sessionpin.Pin) (string, bool) {
-	priorServedModel := activePin.LastServedModel
-	sessionEverSwitched := activePin.HasEverSwitched || hmmHistory.HasEverSwitched
-	if hmmHistory.LastServedModel != "" &&
-		(priorServedModel == "" || hmmHistory.LastTurnEndedAt.After(activePin.LastTurnEndedAt)) {
-		priorServedModel = hmmHistory.LastServedModel
+func switchHistoryFromPins(pins ...sessionpin.Pin) (string, bool) {
+	var latest sessionpin.Pin
+	sessionEverSwitched := false
+	seenModel := ""
+	for _, pin := range pins {
+		sessionEverSwitched = sessionEverSwitched || pin.HasEverSwitched
+		if pin.LastServedModel == "" {
+			continue
+		}
+		if seenModel != "" && seenModel != pin.LastServedModel {
+			sessionEverSwitched = true
+		}
+		seenModel = pin.LastServedModel
+		if latest.LastServedModel == "" || pin.LastTurnEndedAt.After(latest.LastTurnEndedAt) {
+			latest = pin
+		}
 	}
-	if activePin.LastServedModel != "" &&
-		hmmHistory.LastServedModel != "" &&
-		activePin.LastServedModel != hmmHistory.LastServedModel {
-		sessionEverSwitched = true
-	}
-	return priorServedModel, sessionEverSwitched
+	return latest.LastServedModel, sessionEverSwitched
 }
 
 func buildPolicyTurnContext(

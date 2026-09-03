@@ -40,6 +40,12 @@ func (s *Service) ResolveSpiralShadowEnabled(ctx context.Context) bool {
 	return flags.BoolOr(ctx, flags.KeySpiralShadowEnabled, s.spiralShadowEnabled)
 }
 
+// ResolveTurnSignalCaptureEnabled reports whether per-turn behavioral
+// snapshots may be persisted. Installation privacy gates still take precedence.
+func (s *Service) ResolveTurnSignalCaptureEnabled(ctx context.Context) bool {
+	return flags.BoolOr(ctx, flags.KeyTurnSignalCapture, s.turnSignalCaptureEnabled)
+}
+
 // ResolveLoopEscalationEnabled reports whether a detected cyclic loop may
 // escalate the routed model. Detection telemetry is recorded either way.
 func (s *Service) ResolveLoopEscalationEnabled(ctx context.Context) bool {
@@ -92,6 +98,13 @@ func (s *Service) ResolveAuthorityCacheShadow(ctx context.Context) bool {
 // same-cluster candidate.
 func (s *Service) ResolveSiblingFailover(ctx context.Context) bool {
 	return flags.BoolOr(ctx, flags.KeySiblingFailover, s.siblingFailover)
+}
+
+// ResolveAllowedModelsHeader reports the ROUTER_ALLOWED_MODELS_HEADER flag:
+// whether x-weave-allowed-models is honored for an installation that is not
+// authorized for policy headers.
+func (s *Service) ResolveAllowedModelsHeader(ctx context.Context) bool {
+	return flags.BoolOr(ctx, flags.KeyAllowedModelsHeader, s.allowedModelsHeader)
 }
 
 // ResolveOpenAIResponsesBroad reports the ROUTER_OPENAI_RESPONSES_BROAD flag:

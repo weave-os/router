@@ -55,6 +55,9 @@ const (
 	// loopActionDisabled: the ROUTER_LOOP_ESCALATION_ENABLED kill switch is
 	// off. Detection and telemetry continue; the pin write does not.
 	loopActionDisabled = "disabled"
+	// loopActionAutomaticRoutingDisabled records that the configured rescue
+	// target was withdrawn from automatic routing and was not pinned.
+	loopActionAutomaticRoutingDisabled = "automatic_routing_disabled"
 )
 
 // DeterministicHoldout deterministically buckets a session using the session
@@ -138,6 +141,7 @@ func (s *Service) handleLoopEscalation(
 	sessionKey [sessionpin.SessionKeyLen]byte,
 	role string,
 	routedModel string,
+	forceModelSessionKeys ...[sessionpin.SessionKeyLen]byte,
 ) {
 	log := observability.FromContext(ctx)
 
@@ -161,6 +165,13 @@ func (s *Service) handleLoopEscalation(
 			}
 		}
 	}
+	if len(forceModelSessionKeys) > 0 {
+		forcePin, active, _ := s.loadForceModelSessionPin(ctx, forceModelSessionKeys[0])
+		if active {
+			userForced = true
+			loopingModel = forcePin.Model
+		}
+	}
 
 	// Once-per-session budget, durable past pin TTL expiry: covers sessions
 	// outliving their pin, and non-escalating actions that never write a pin
@@ -179,12 +190,19 @@ func (s *Service) handleLoopEscalation(
 	holdout := s.loopEscalationStore != nil && installationID != uuid.Nil &&
 		DeterministicHoldout(sessionKey, s.ResolveLoopEscalationHoldoutPct(ctx))
 
+	automaticRoutingDisabled := false
+	if !userForced {
+		_, automaticRoutingDisabled = s.globalAutomaticExclusionReason(ctx, escalateModel)
+	}
+
 	action := loopActionEscalated
 	switch {
 	case !s.ResolveLoopEscalationEnabled(ctx):
 		action = loopActionDisabled
 	case userForced:
 		action = loopActionUserForced
+	case automaticRoutingDisabled:
+		action = loopActionAutomaticRoutingDisabled
 	case loopingModel == escalateModel:
 		action = loopActionAlreadyStrong
 	case holdout:

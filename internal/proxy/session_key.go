@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"context"
+	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
 	"log/slog"
@@ -117,6 +118,33 @@ func DeriveSessionKey(env *translate.RequestEnvelope, apiKeyID string) [sessionp
 
 func deriveSessionKeyForRequest(ctx context.Context, env *translate.RequestEnvelope, apiKeyID string) [sessionpin.SessionKeyLen]byte {
 	return deriveSessionKey(env, apiKeyID, clientSessionIDForRequest(ctx, env))
+}
+
+// deriveForceModelSessionKeyForRequest omits the first-message discriminator
+// so an explicit force applies to every thread in one client session.
+func deriveForceModelSessionKeyForRequest(
+	ctx context.Context,
+	env *translate.RequestEnvelope,
+	apiKeyID string,
+	threadSessionKey [sessionpin.SessionKeyLen]byte,
+) [sessionpin.SessionKeyLen]byte {
+	h := hmac.New(sha256.New, []byte(apiKeyID))
+	h.Write([]byte("force_model_session:"))
+	h.Write([]byte{0x00})
+
+	if clientSessionID := clientSessionIDForRequest(ctx, env); clientSessionID != "" {
+		h.Write([]byte("client_session_id:"))
+		h.Write([]byte(clientSessionID))
+	} else {
+		// Without a client session identifier there is no safe parent scope.
+		h.Write([]byte("thread_key:"))
+		h.Write(threadSessionKey[:])
+	}
+
+	sum := h.Sum(nil)
+	var key [sessionpin.SessionKeyLen]byte
+	copy(key[:], sum[:sessionpin.SessionKeyLen])
+	return key
 }
 
 func clientSessionIDForRequest(ctx context.Context, env *translate.RequestEnvelope) string {

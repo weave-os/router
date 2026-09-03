@@ -341,13 +341,13 @@ func TestService_SessionPin_EveryTurnReadsPostgres(t *testing.T) {
 	httpReq1 := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
 	require.NoError(t, svc.ProxyMessages(ctx, []byte(pinTestBody), rec1, httpReq1))
 	require.Equal(t, 1, fr.routeCalls)
-	require.Equal(t, 2, store.getCalls, "first turn must read the active pin and HMM history roles")
+	require.Equal(t, 3, store.getCalls, "first turn reads force control, active pin, and HMM history")
 
 	rec2 := httptest.NewRecorder()
 	httpReq2 := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
 	require.NoError(t, svc.ProxyMessages(ctx, []byte(pinTestBody), rec2, httpReq2))
 	assert.Equal(t, 2, fr.routeCalls, "planner re-evaluates every MainLoop turn")
-	assert.Equal(t, 4, store.getCalls, "second turn must also read Postgres — there is no in-process cache")
+	assert.Equal(t, 6, store.getCalls, "second turn must also read Postgres — there is no in-process cache")
 }
 
 func TestService_SessionPin_StoreErrorFallsThroughToFreshRoute(t *testing.T) {
@@ -400,7 +400,7 @@ func TestService_SessionPin_EvalOverrideHeaderKeepsSessionKeyPinning(t *testing.
 
 	// Scorer still runs, but the pin wins under ReasonNoPriorUsage.
 	assert.Equal(t, 1, fr.routeCalls, "scorer runs every MainLoop turn under the planner")
-	assert.Equal(t, 2, store.getCalls)
+	assert.Equal(t, 3, store.getCalls, "force control, thread pin, and HMM history are read independently")
 	assert.Equal(t, "claude-haiku-4-5", rec.Header().Get(proxy.HeaderRouterModel))
 }
 
@@ -549,7 +549,7 @@ func TestService_HardPin_CompactionAlwaysRoutesToHaiku(t *testing.T) {
 
 	assert.Equal(t, 0, fr.routeCalls, "compaction must bypass the cluster scorer")
 	assert.Equal(t, "claude-haiku-4-5", rec.Header().Get(proxy.HeaderRouterModel))
-	assert.Equal(t, 1, store.getCalls, "compaction must check for an explicit user-forced pin before the hard-pin fast path")
+	assert.Equal(t, 2, store.getCalls, "compaction checks session and legacy thread force state before hard-pinning")
 
 	select {
 	case <-store.upsertCh:
@@ -1509,8 +1509,8 @@ func TestService_ForceModelHeader_WritesUserForcedPin(t *testing.T) {
 	require.NotNil(t, forced, "header must write a user_forced pin upsert")
 	assert.Equal(t, "claude-opus-5", forced.Model, "alias 'opus' resolves to the canonical id")
 	assert.Equal(t, providers.ProviderAnthropic, forced.Provider)
-	require.NotNil(t, fr.capturedReq)
-	assert.Equal(t, "claude-opus-5", fr.capturedReq.ForceModel, "valid force-model header must bypass router decorators")
+	assert.Equal(t, 0, fr.routeCalls, "a valid force bypasses automatic routing")
+	assert.Equal(t, "claude-opus-5", rec.Header().Get(proxy.HeaderRouterModel))
 }
 
 // An unrecognized x-weave-force-model value fails the request: routing on

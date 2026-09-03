@@ -67,6 +67,10 @@ const (
 	// ExclusionCredentialScope means a credential exists but does not cover the
 	// model or endpoint requested by the caller.
 	ExclusionCredentialScope ExclusionReason = ExclusionReason(router.CandidateExclusionCredentialScope)
+	// ExclusionAutomaticDisabled means Weave withdrew the model from automatic
+	// routing deployment-wide. Soft: an explicit user pin still reaches it, and
+	// the filter is skipped entirely rather than emptying the candidate set.
+	ExclusionAutomaticDisabled ExclusionReason = "automatic_disabled"
 )
 
 // Diagnostic describes one candidate exclusion for conformance checks and
@@ -403,6 +407,10 @@ func (r *Resolver) Resolve(req router.Request) ResolvedCandidates {
 
 	base, diagnostics = softFilter(base, req.HasImages, r.imageLow, ExclusionImageCapability, diagnostics)
 	base, diagnostics = softFilter(base, req.HasTools, r.toolLow, ExclusionToolCapability, diagnostics)
+	// Soft on purpose: a deployment-wide disable withdraws a model from the
+	// policy's choices without being able to fail the turn, since the same model
+	// stays reachable through an explicit user pin.
+	base, diagnostics = softFilter(base, true, req.AutomaticExcludedModels, ExclusionAutomaticDisabled, diagnostics)
 
 	selectionCounts := make(map[string]int, len(base))
 	for _, candidate := range base {

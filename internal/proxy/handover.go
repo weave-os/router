@@ -44,6 +44,11 @@ const handoverInstruction = "Summarize the conversation so far in <= 800 tokens.
 // just a gist.
 const DefaultCompactionMaxTokens = 4000
 
+// DefaultCompactionTimeout bounds one compaction summary call. A Sonnet-class
+// summary over a near-full context window routinely takes tens of seconds;
+// the client is blocked on the compaction either way.
+const DefaultCompactionTimeout = 90 * time.Second
+
 // compactionInstruction elicits Claude Code's 9-section structured summary used
 // when a long session is compacted to fit a context window. Unlike the terse
 // switch-handover instruction, this preserves enough task state (pending work,
@@ -70,6 +75,10 @@ type ProviderSummarizer struct {
 	model     string
 	timeout   time.Duration
 	maxTokens int
+	// compactionTimeout bounds SummarizeForCompaction separately: a
+	// Sonnet-class summary of a near-full window is far slower than the
+	// 800-token handover call.
+	compactionTimeout time.Duration
 }
 
 // NewProviderSummarizer constructs a summarizer adapter. Empty/zero args
@@ -82,11 +91,21 @@ func NewProviderSummarizer(client providers.Client, model string, timeout time.D
 		timeout = DefaultHandoverTimeout
 	}
 	return &ProviderSummarizer{
-		client:    client,
-		model:     model,
-		timeout:   timeout,
-		maxTokens: DefaultHandoverMaxTokens,
+		client:            client,
+		model:             model,
+		timeout:           timeout,
+		maxTokens:         DefaultHandoverMaxTokens,
+		compactionTimeout: DefaultCompactionTimeout,
 	}
+}
+
+// WithCompactionTimeout overrides the hard timeout for compaction summaries
+// (ROUTER_COMPACTION_TIMEOUT_MS). Zero/negative leaves the default.
+func (s *ProviderSummarizer) WithCompactionTimeout(d time.Duration) *ProviderSummarizer {
+	if d > 0 {
+		s.compactionTimeout = d
+	}
+	return s
 }
 
 // WithMaxTokens overrides the per-summary output cap. Zero/negative
@@ -112,7 +131,7 @@ var ErrEmptySummary = errors.New("handover: upstream returned no summary text")
 // usage for a separate ledger row. On failure returns ("", zero Usage, err)
 // so the caller falls back to the full prior history.
 func (s *ProviderSummarizer) Summarize(ctx context.Context, env *translate.RequestEnvelope) (string, handover.Usage, error) {
-	return s.summarize(ctx, env, s.model, handoverInstruction, s.maxTokens, "handover")
+	return s.summarize(ctx, env, s.model, handoverInstruction, s.maxTokens, s.timeout, "handover")
 }
 
 // SummarizeForCompaction summarizes env with the structured 9-section
@@ -127,14 +146,14 @@ func (s *ProviderSummarizer) SummarizeForCompaction(ctx context.Context, env *tr
 	if maxTokens <= 0 {
 		maxTokens = DefaultCompactionMaxTokens
 	}
-	return s.summarize(ctx, env, model, compactionInstruction, maxTokens, "compaction")
+	return s.summarize(ctx, env, model, compactionInstruction, maxTokens, s.compactionTimeout, "compaction")
 }
 
 // summarize builds an Anthropic Messages call from env with the given
 // instruction/model/cap and dispatches it under a hard timeout. kind is a log
 // label ("handover" or "compaction"). On any failure returns ("", zero, err)
 // so callers fall back to the full history.
-func (s *ProviderSummarizer) summarize(ctx context.Context, env *translate.RequestEnvelope, model, instruction string, maxTokens int, kind string) (string, handover.Usage, error) {
+func (s *ProviderSummarizer) summarize(ctx context.Context, env *translate.RequestEnvelope, model, instruction string, maxTokens int, timeout time.Duration, kind string) (string, handover.Usage, error) {
 	log := observability.FromContext(ctx)
 	if env == nil {
 		return "", handover.Usage{}, errors.New("handover: nil envelope")
@@ -148,7 +167,7 @@ func (s *ProviderSummarizer) summarize(ctx context.Context, env *translate.Reque
 		return "", handover.Usage{}, fmt.Errorf("build %s request: %w", kind, err)
 	}
 
-	callCtx, cancel := context.WithTimeout(ctx, s.timeout)
+	callCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
 	rec := httptest.NewRecorder()

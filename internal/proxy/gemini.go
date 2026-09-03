@@ -14,6 +14,7 @@ import (
 	"workweave/router/internal/router"
 	"workweave/router/internal/router/catalog"
 	"workweave/router/internal/router/sessionpin"
+	"workweave/router/internal/router/turntype"
 	"workweave/router/internal/translate"
 )
 
@@ -63,6 +64,16 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 		log.Error("Failed to parse Gemini request", "err", parseErr)
 		return fmt.Errorf("parse request: %w", parseErr)
 	}
+	var responseBuffer *responseCostBuffer
+	if !env.Stream() {
+		responseBuffer = newResponseCostBuffer(w)
+		w = responseBuffer
+		defer func() {
+			if flushErr := responseBuffer.FlushToClient(); flushErr != nil {
+				log.Error("Failed to flush buffered response", "err", flushErr)
+			}
+		}()
+	}
 	embedFlag := s.ResolveEmbedOnlyUserMessage(ctx)
 	feats := env.RoutingFeatures(embedFlag)
 	promptText := feats.PromptText
@@ -91,6 +102,42 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 		return forceErr
 	}
 
+	enabledProviders := s.enabledProvidersForRequest(ctx, providers.ProviderGoogle, r.Header)
+	excluded := s.excludedModelsForRequest(ctx)
+
+	// Proactive context-window compaction, as in ProxyMessages.
+	outputReserve := contextWindowOutputReserve
+	if feats.MaxTokens > outputReserve {
+		outputReserve = feats.MaxTokens
+	}
+	maxEligibleWindow := s.maxEligibleContextWindow(excluded, enabledProviders, env.SignatureTokenSavings())
+	compRes, compErr := s.maybeCompact(ctx, env, compactionInput{
+		TurnType:       turntype.DetectFromEnvelope(env, feats, subAgentHint),
+		OutputReserve:  outputReserve,
+		MaxWindow:      maxEligibleWindow,
+		RequestedModel: feats.Model,
+		ClientApp:      clientID.ClientApp,
+		PreferredSummarizer: func() string {
+			return s.compactionPreferredSummarizer(ctx, sessionKey, roleForTier(catalog.TierFor(feats.Model)))
+		},
+		Headers: r.Header,
+	})
+	if compErr != nil {
+		log.Warn("Compaction could not fit request to any eligible model",
+			"err", compErr, "final_estimate", compRes.FinalEstimate, "max_window", maxEligibleWindow, "requested_model", feats.Model)
+		return compErr
+	}
+	if compRes.Applied {
+		feats = env.RoutingFeatures(embedFlag)
+		log.Info("Proactive compaction applied",
+			"tool_results_cleared", compRes.ToolResultsCleared,
+			"summarized", compRes.Summarized,
+			"summary_model", compRes.SummaryModel,
+			"trimmed_to_recent", compRes.TrimmedToRecent,
+			"final_estimate", compRes.FinalEstimate,
+		)
+	}
+
 	routeRequest := router.Request{
 		RequestedModel:               feats.Model,
 		ForceCluster:                 forceCluster,
@@ -104,11 +151,12 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 		ConversationMessages:         conversationMessagesForRouting(env),
 		AvailableTools:               availableToolsForRouting(env),
 		Tools:                        toolsForRouting(env),
+		HistoryTruncated:             compRes.Applied,
 		ClientSessionID:              clientSessionIDForRequest(ctx, env),
-		EnabledProviders:             s.enabledProvidersForRequest(ctx, providers.ProviderGoogle, r.Header),
+		EnabledProviders:             enabledProviders,
 		CustomBindings:               s.customBindingsForRequest(ctx),
 		GatewayProviders:             s.gatewayProvidersForRequest(ctx),
-		ExcludedModels:               s.excludedModelsForRequest(ctx),
+		ExcludedModels:               excluded,
 		AllowedModels:                allowedModelsForRequest(ctx),
 		PreferredModels:              s.preferredModelsForRequest(ctx),
 		RoutingKnobs:                 router.RoutingKnobsFromContext(ctx),
@@ -258,6 +306,9 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 
 	in, out := extractor.Tokens()
 	cacheCreation, cacheRead := extractor.CacheTokens()
+	if responseBuffer != nil && proxyErr == nil {
+		setRouterCostHeaders(w.Header(), routerResponseCostFromPricing(actPricing, decision.Provider, in, out, cacheCreation, cacheRead))
+	}
 	geminiUpstreamBuilder := otel.NewAttrBuilder(40).
 		String("request_id", requestID).
 		String("external_id", externalID).
@@ -303,6 +354,9 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 
 	if proxyErr == nil {
 		s.emitBilling(ctx, requestID, externalID, decision, actPricing, routeRes, in, out, cacheCreation, cacheRead)
+		if compRes.Summarized {
+			s.billCompactionSummary(ctx, requestID, externalID, compRes.SummaryUsage)
+		}
 	}
 
 	// Two-strike provider disable: see ProxyMessages. Gemini rarely produces a

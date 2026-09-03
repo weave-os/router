@@ -35,6 +35,17 @@ type RouterFlagDefinition struct {
 	UpdatedAt       pgtype.Timestamptz
 }
 
+// Deployment-wide models removed from automatic routing (scorer/policy selection, utility hard pins, and automatic session stickies). Soft: an explicit user /force-model pin may still serve these models. Read on the request path through a short-TTL in-process cache.
+type RouterGlobalAutomaticRoutingExclusion struct {
+	// Catalog model ID, validated against the deployed catalog by the writer.
+	Model string
+	// Operator note shown in the internal admin UI and in force-model diagnostics; NULL when none was given.
+	Reason    *string
+	CreatedAt pgtype.Timestamp
+	// Opaque external identifier of the Weave account that disabled the model.
+	CreatedBy *string
+}
+
 // Cyclic tool-call loop detections: ops signal and (session, looping_model) -> looped training labels
 type RouterLoopEscalationEvent struct {
 	ID             uuid.UUID
@@ -278,6 +289,33 @@ type RouterModelRouterRequestTelemetry struct {
 	AuthorityShadowFreshScore *float64
 	// The actual served-path pin tier for this turn (for example, authoritative_per_turn or hmm_ev_stay_ev_negative). NULL on rows written before this column existed or when no turn-loop tier was available.
 	PinTier *string
+	// Consecutive errored tool_results at the tail of history at request time
+	SpiralErrStreak *int32
+	// Errored tool_results across the whole history at request time
+	SpiralErroredResults *int32
+	// Total tool_results across the whole history at request time
+	SpiralToolResults *int32
+	// Edits targeting the single most-edited file path
+	SpiralMaxSameFileEdits *int32
+	// Truncated sha256 of the most-edited file path: confirms "the same file" across turns without persisting customer file names
+	SpiralSameFilePathHash *string
+	// Fraction of the last 12 tool-call signatures that are duplicates; 0 before 12 calls exist
+	SpiralRepeatFrac *float64
+	// Consecutive tool-less assistant messages since the last real user input
+	SpiralMonologueLen *int32
+	// Assistant tool_use blocks across the whole history at request time
+	SpiralToolCallCount *int32
+	// Messages in the inbound history at request time
+	SpiralMessageCount *int32
+	// Length of the trailing A/B/A/B alternation between exactly two tool-call signatures
+	SpiralPingPongLen *int32
+	// Tool calls made since the last non-errored edit/write result; meaningless unless spiral_edit_attempted is true
+	SpiralStepsSinceProgress *int32
+	// Whether the session has attempted any edit yet; qualifies spiral_steps_since_progress
+	SpiralEditAttempted *bool
+	// Signal classes whose thresholds this turn crossed (err_streak, same_file_thrash, repetition, monologue, ping_pong, no_progress); empty array when the snapshot was recorded and nothing fired
+	SpiralReasons          []string
+	RequestedAllowedModels []string
 }
 
 // End-user identities seen on inbound requests, scoped to an installation. Replaces the per-user API key pattern.
