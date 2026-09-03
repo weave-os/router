@@ -2100,12 +2100,17 @@ func (s *Service) refreshPin(ctx context.Context, installationID uuid.UUID, sess
 	if installationID == uuid.Nil {
 		return
 	}
+	effort := chosen.Effort
+	if effort == "" && chosen.Model == existing.Model {
+		effort = existing.Effort
+	}
 	p := sessionpin.Pin{
 		SessionKey:     sessionKey,
 		Role:           role,
 		InstallationID: installationID,
 		Provider:       chosen.Provider,
 		Model:          chosen.Model,
+		Effort:         effort,
 		// No scorer runs on a plain refresh, so carry the existing pair
 		// forward unchanged (ON CONFLICT preserves an empty one).
 		PairedProvider: existing.PairedProvider,

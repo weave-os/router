@@ -5043,7 +5043,7 @@ func (s *Service) bandSwapServed(ctx context.Context, turnType turntype.TurnType
 // and cheaper (small) member by capability tier, tie-broken by primary input
 // price so two same-tier models still get a deterministic split.
 func orderBandPair(pin sessionpin.Pin) (large, small router.Decision) {
-	a := router.Decision{Provider: pin.Provider, Model: pin.Model, Reason: pin.Reason}
+	a := pinDecision(pin)
 	b := router.Decision{Provider: pin.PairedProvider, Model: pin.PairedModel, Reason: pin.Reason}
 	ta, tb := catalog.TierFor(a.Model), catalog.TierFor(b.Model)
 	if ta != tb {

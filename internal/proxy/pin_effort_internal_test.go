@@ -132,6 +132,48 @@ func TestRunTurnLoop_RequestForceModelCarriesEffort(t *testing.T) {
 	assert.Equal(t, "medium", res.Decision.Effort)
 }
 
+// A TTL refresh rewrites the row, and the upsert always takes the incoming
+// effort — so the refresh must carry the stored level forward.
+func TestRefreshPin_CarriesEffortForward(t *testing.T) {
+	store := &recordingPinStore{}
+	svc := NewService(nil, nil, nil, false, nil, store, false,
+		providers.ProviderAnthropic, "claude-haiku-4-5", nil)
+
+	existing := sessionpin.Pin{
+		Provider: providers.ProviderAnthropic,
+		Model:    "claude-opus-4-8",
+		Effort:   "xhigh",
+		Reason:   translate.ReasonUserForceModel,
+	}
+	svc.refreshPin(context.Background(), uuid.New(), [sessionpin.SessionKeyLen]byte{},
+		existing, "default", router.Decision{
+			Provider: existing.Provider, Model: existing.Model, Reason: existing.Reason,
+		})
+	require.Len(t, store.upserts, 1)
+	assert.Equal(t, "xhigh", store.upserts[0].Effort)
+
+	svc.refreshPin(context.Background(), uuid.New(), [sessionpin.SessionKeyLen]byte{},
+		existing, "default", router.Decision{
+			Provider: providers.ProviderAnthropic, Model: "claude-haiku-4-5",
+		})
+	require.Len(t, store.upserts, 2)
+	assert.Empty(t, store.upserts[1].Effort,
+		"a refresh onto a different model must not inherit the old level")
+}
+
+func TestOrderBandPair_AnchoredHalfKeepsEffort(t *testing.T) {
+	large, small := orderBandPair(sessionpin.Pin{
+		Provider:       providers.ProviderAnthropic,
+		Model:          "claude-opus-4-7",
+		Effort:         "high",
+		PairedProvider: providers.ProviderAnthropic,
+		PairedModel:    "claude-haiku-4-5",
+	})
+	assert.Equal(t, "claude-opus-4-7", large.Model)
+	assert.Equal(t, "high", large.Effort)
+	assert.Empty(t, small.Effort)
+}
+
 // An explicit per-request knob still outranks whatever the pin carries.
 func TestForceEffortFor_KnobWinsOverDecision(t *testing.T) {
 	ctx := router.WithRoutingKnobs(context.Background(), &router.Overrides{ForceEffort: "low"})
