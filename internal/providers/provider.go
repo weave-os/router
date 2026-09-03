@@ -513,6 +513,18 @@ func IsUpstreamOutputConfigFormatRejection(err error) bool {
 	return false
 }
 
+// IsAnthropicFastModeQuotaRejection reports whether err is a buffered 429
+// refusing a fast-tier request for lack of fast-mode allocation (Anthropic
+// phrases it as a rate limit of N "fast mode input tokens"), as opposed to an
+// ordinary rate limit — licensing a one-shot retry at standard speed.
+func IsAnthropicFastModeQuotaRejection(err error) bool {
+	var buffered *UpstreamErrorResponse
+	if !errors.As(err, &buffered) || buffered.Status != http.StatusTooManyRequests {
+		return false
+	}
+	return strings.Contains(strings.ToLower(string(buffered.Body)), "fast mode")
+}
+
 // IsUpstreamPromptCacheKeyRejection reports whether err is a buffered 400
 // that rejects prompt_cache_key as an unknown field — some gateways trail the
 // spec and 400 bodies naming it — licensing a one-shot hint-stripped retry.

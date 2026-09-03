@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"context"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -125,6 +126,105 @@ func TestProxyMessages_FastModeOffLeavesRequestAndListPrice(t *testing.T) {
 	require.True(t, ok)
 	want := routerResponseCostFromPricing(base, providers.ProviderAnthropic, inputTokens, outputTokens, 0, 0)
 	assert.Equal(t, strconv.FormatFloat(want.TotalUSD, 'f', -1, 64), rec.Header().Get(HeaderRouterCostUSD))
+}
+
+// fastQuotaFakeProvider refuses every fast-tier body with Anthropic's
+// fast-mode quota 429 and answers standard-speed bodies with respBody,
+// recording each dispatched body in order.
+type fastQuotaFakeProvider struct {
+	respBody string
+	bodies   [][]byte
+}
+
+const anthropicFastQuota429 = `{"type":"error","error":{"type":"rate_limit_error","message":"This request would exceed your organization's rate limit of 0 fast mode input tokens per minute."}}`
+
+func (f *fastQuotaFakeProvider) Proxy(_ context.Context, _ router.Decision, prep providers.PreparedRequest, w http.ResponseWriter, _ *http.Request) error {
+	f.bodies = append(f.bodies, append([]byte(nil), prep.Body...))
+	if gjson.GetBytes(prep.Body, "speed").Str == "fast" {
+		return &providers.UpstreamErrorResponse{Status: http.StatusTooManyRequests, Body: []byte(anthropicFastQuota429)}
+	}
+	_, _ = io.WriteString(w, f.respBody)
+	return nil
+}
+
+func (f *fastQuotaFakeProvider) Passthrough(context.Context, providers.PreparedRequest, http.ResponseWriter, *http.Request) error {
+	return nil
+}
+
+func TestProxyMessages_FastModeQuotaRejectionRetriesAtStandardSpeedAndBillsListPrice(t *testing.T) {
+	const (
+		inputTokens  = 1200
+		outputTokens = 340
+	)
+	upstream := &fastQuotaFakeProvider{respBody: `{"id":"msg_1","type":"message","role":"assistant","content":[{"type":"text","text":"hi"}],"model":"claude-opus-5","stop_reason":"end_turn","usage":{"input_tokens":1200,"output_tokens":340}}`}
+	svc, _ := newFastModeService(router.Decision{Provider: providers.ProviderAnthropic, Model: fastOpusModel}, upstream)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	body := []byte(`{"model":"claude-opus-4-7","messages":[{"role":"user","content":"hi"}]}`)
+	require.NoError(t, svc.ProxyMessages(fastModeCtx(fastOpusModel), body, rec, req))
+
+	require.Len(t, upstream.bodies, 2, "one fast send, one standard-speed retry")
+	assert.Equal(t, "fast", gjson.GetBytes(upstream.bodies[0], "speed").Str)
+	assert.False(t, gjson.GetBytes(upstream.bodies[1], "speed").Exists(), "retry must drop the fast tier")
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	base, ok := catalog.PriceFor(providers.ProviderAnthropic, fastOpusModel)
+	require.True(t, ok)
+	want := routerResponseCostFromPricing(base, providers.ProviderAnthropic, inputTokens, outputTokens, 0, 0)
+	assert.Equal(t, strconv.FormatFloat(want.TotalUSD, 'f', -1, 64), rec.Header().Get(HeaderRouterCostUSD), "a turn served at standard speed bills at list price")
+}
+
+func TestProxyOpenAIChatCompletion_FastModeQuotaRejectionRetriesAtStandardSpeed(t *testing.T) {
+	upstream := &fastQuotaFakeProvider{respBody: `{"id":"msg_1","type":"message","role":"assistant","content":[{"type":"text","text":"hi"}],"model":"claude-opus-5","stop_reason":"end_turn","usage":{"input_tokens":10,"output_tokens":5}}`}
+	svc, _ := newFastModeService(router.Decision{Provider: providers.ProviderAnthropic, Model: fastOpusModel}, upstream)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(""))
+	body := []byte(`{"model":"claude-opus-5","messages":[{"role":"user","content":"hi"}]}`)
+	require.NoError(t, svc.ProxyOpenAIChatCompletion(fastModeCtx(fastOpusModel), body, rec, req))
+
+	require.Len(t, upstream.bodies, 2)
+	assert.Equal(t, "fast", gjson.GetBytes(upstream.bodies[0], "speed").Str)
+	assert.False(t, gjson.GetBytes(upstream.bodies[1], "speed").Exists())
+	assert.Equal(t, http.StatusOK, rec.Code)
+}
+
+// An ordinary 429 on a fast send is not a quota rejection: the failover loop
+// owns it and every retry stays on the fast tier.
+func TestAnthropicTierAttempt_OrdinaryRateLimitStaysFast(t *testing.T) {
+	env, err := translate.ParseAnthropic([]byte(`{"model":"claude-opus-5","max_tokens":64,"messages":[{"role":"user","content":"hi"}]}`))
+	require.NoError(t, err)
+	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	opts := translate.EmitOptions{
+		TargetModel:    fastOpusModel,
+		TargetProvider: providers.ProviderAnthropic,
+		Capabilities:   router.Lookup(fastOpusModel),
+		FastMode:       true,
+	}
+	prep, err := env.PrepareAnthropic(req.Header, opts)
+	require.NoError(t, err)
+
+	rateLimited := &providers.UpstreamErrorResponse{Status: http.StatusTooManyRequests, Body: []byte(`{"type":"error","error":{"type":"rate_limit_error","message":"This request would exceed your organization's rate limit of 50 requests per minute."}}`)}
+	upstream := &bypassFakeProvider{proxyErr: rateLimited}
+	svc, _ := newFastModeService(router.Decision{Provider: providers.ProviderAnthropic, Model: fastOpusModel}, upstream)
+	tiered := &anthropicTierAttempt{
+		s:             svc,
+		log:           slog.Default(),
+		env:           env,
+		r:             req,
+		opts:          opts,
+		native:        svc.anthropicNativeAttempt(env, req, prep, httptest.NewRecorder(), nil, "", func(*otel.UsageExtractor) {}, func(router.Decision, bool) {}),
+		sink:          httptest.NewRecorder(),
+		setExtractor:  func(*otel.UsageExtractor) {},
+		setStreamCost: func(router.Decision, bool) {},
+		logBody:       func(router.Decision, []byte) { t.Fatal("an ordinary rate limit must not re-emit the body") },
+	}
+	var served []bool
+	_, err = tiered.dispatch(fastModeCtx(fastOpusModel), router.Decision{Provider: providers.ProviderAnthropic, Model: fastOpusModel}, upstream, func(fast bool) { served = append(served, fast) })
+	require.ErrorIs(t, err, rateLimited)
+	assert.Equal(t, 1, upstream.dispatches)
+	assert.Equal(t, []bool{true}, served)
 }
 
 func TestProxyMessages_FastModeOpenAICrossFormatSetsPriorityTier(t *testing.T) {

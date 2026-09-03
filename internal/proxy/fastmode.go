@@ -53,16 +53,46 @@ func (a *anthropicTierAttempt) forBinding(actx context.Context, d router.Decisio
 	return attemptOpts, native, fast, nil
 }
 
-// attempt is forBinding as a dispatchAttempt; recordFast receives the tier of
-// every attempt so the caller's fastServed reflects the winning one.
+// dispatch sends d on its own tier and returns the emit options the winning
+// send used. A fast send the upstream refuses for lack of fast-mode allocation
+// is re-sent once at standard speed (billed at list) rather than failing the
+// turn; an ordinary rate limit is left to the failover loop. recordFast
+// receives the tier of every send so the caller's fastServed reflects the
+// winning one.
+func (a *anthropicTierAttempt) dispatch(actx context.Context, d router.Decision, p providers.Client, recordFast func(bool)) (translate.EmitOptions, error) {
+	attemptOpts, native, fast, err := a.forBinding(actx, d)
+	recordFast(fast)
+	if err != nil {
+		return attemptOpts, err
+	}
+	err = native(actx, d, p)
+	if err == nil || !fast || committed(a.preludeBuf) || !providers.IsAnthropicFastModeQuotaRejection(err) {
+		return attemptOpts, err
+	}
+	standardOpts := attemptOpts
+	standardOpts.FastMode = false
+	prep, emitErr := a.env.PrepareAnthropic(a.r.Header, standardOpts)
+	if emitErr != nil {
+		a.log.Error("Failed to re-emit Anthropic body at standard speed", "err", emitErr)
+		return attemptOpts, err
+	}
+	a.log.Warn("Retrying Anthropic request at standard speed after fast-mode quota rejection",
+		"model", d.Model,
+		"provider", d.Provider)
+	if a.preludeBuf != nil {
+		a.preludeBuf.Discard()
+	}
+	a.logBody(d, prep.Body)
+	recordFast(false)
+	standard := a.s.anthropicNativeAttempt(a.env, a.r, prep, a.sink, a.preludeBuf, a.marker, a.setExtractor, a.setStreamCost)
+	return standardOpts, standard(actx, d, p)
+}
+
+// attempt is dispatch as a dispatchAttempt.
 func (a *anthropicTierAttempt) attempt(recordFast func(bool)) dispatchAttempt {
 	return func(actx context.Context, d router.Decision, p providers.Client) error {
-		_, native, fast, err := a.forBinding(actx, d)
-		recordFast(fast)
-		if err != nil {
-			return err
-		}
-		return native(actx, d, p)
+		_, err := a.dispatch(actx, d, p, recordFast)
+		return err
 	}
 }
 

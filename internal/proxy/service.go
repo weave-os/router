@@ -3637,12 +3637,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			logUpstreamBody(log, routeRes.SessionKey, target, feats, prep.Body)
 			tiered := anthropicTierAttemptFor(targetOpts, prep, targetMarker)
 			return func(actx context.Context, d router.Decision, p providers.Client) error {
-				attemptOpts, attemptNative, fast, emitErr := tiered.forBinding(actx, d)
-				fastServed = fast
-				if emitErr != nil {
-					return emitErr
-				}
-				err := attemptNative(actx, d, p)
+				attemptOpts, err := tiered.dispatch(actx, d, p, recordFastServed)
 				// Cortex documents output_config.format, so the knob goes out as
 				// written; only a gateway whose relayed schema predates it rejects
 				// it — re-emit once without it rather than sending every gateway
@@ -6433,18 +6428,21 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 			log.Error("Failed to translate OpenAI request to Anthropic format", "err", emitErr)
 			return fmt.Errorf("translate openai request: %w", emitErr)
 		}
-		attempt = func(actx context.Context, d router.Decision, p providers.Client) error {
-			fastServed = fastModeForAttempt(actx, d.Model, d.Provider)
+		// One send on the given tier, split into the raw upstream error plus a
+		// finalize thunk so a fast send refused for lack of fast-mode allocation
+		// can be re-sent at standard speed before finalize commits the prelude.
+		dispatchAnthropic := func(actx context.Context, d router.Decision, p providers.Client, fast bool) (error, func(error) error) {
+			fastServed = fast
 			attemptPrep := prep
-			if fastServed != opts.FastMode {
+			if fast != opts.FastMode {
 				attemptOpts := opts
 				attemptOpts.TargetProvider = d.Provider
-				attemptOpts.FastMode = fastServed
+				attemptOpts.FastMode = fast
 				var attemptEmitErr error
 				attemptPrep, attemptEmitErr = env.PrepareAnthropic(r.Header, attemptOpts)
 				if attemptEmitErr != nil {
 					log.Error("Failed to re-translate OpenAI request to Anthropic format for fast-tier change", "err", attemptEmitErr)
-					return fmt.Errorf("translate openai request: %w", attemptEmitErr)
+					return fmt.Errorf("translate openai request: %w", attemptEmitErr), func(err error) error { return err }
 				}
 			}
 			var usage otel.UsageSink
@@ -6457,12 +6455,29 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 			if preludeBuf != nil {
 				preludeBuf.Seal()
 			}
-			err := p.Proxy(actx, d, attemptPrep, translator, r)
-			// Post-commit streaming error: see same-format OpenAI case above.
-			if err != nil && env.Stream() && preludeBuf.Committed() {
-				err = emitOpenAISSEErrorEvent(sink, err)
+			rawErr := p.Proxy(actx, d, attemptPrep, translator, r)
+			finalize := func(err error) error {
+				// Post-commit streaming error: see same-format OpenAI case above.
+				if err != nil && env.Stream() && preludeBuf.Committed() {
+					err = emitOpenAISSEErrorEvent(sink, err)
+				}
+				return finalizeAfterProxy(err, translator.Finalize)
 			}
-			return finalizeAfterProxy(err, translator.Finalize)
+			return rawErr, finalize
+		}
+		attempt = func(actx context.Context, d router.Decision, p providers.Client) error {
+			fast := fastModeForAttempt(actx, d.Model, d.Provider)
+			rawErr, finalize := dispatchAnthropic(actx, d, p, fast)
+			if rawErr != nil && fast && !committed(preludeBuf) && providers.IsAnthropicFastModeQuotaRejection(rawErr) {
+				log.Warn("Retrying Anthropic request at standard speed after fast-mode quota rejection",
+					"model", d.Model,
+					"request_id", requestID)
+				if preludeBuf != nil {
+					preludeBuf.Discard()
+				}
+				rawErr, finalize = dispatchAnthropic(actx, d, p, false)
+			}
+			return finalize(rawErr)
 		}
 	default:
 		return fmt.Errorf("%w: %s (no translation path defined)", ErrProviderNotConfigured, decision.Provider)

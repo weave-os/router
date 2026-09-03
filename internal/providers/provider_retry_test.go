@@ -263,6 +263,46 @@ func TestIsUpstreamOutputConfigFormatRejection(t *testing.T) {
 	assert.False(t, providers.IsUpstreamOutputConfigFormatRejection(fmt.Errorf("transport blew up")))
 }
 
+// TestIsAnthropicFastModeQuotaRejection pins the 429 Anthropic returns for an
+// org without fast-mode allocation; an ordinary rate limit must not match, or
+// the standard-speed retry would mask genuine throttling.
+func TestIsAnthropicFastModeQuotaRejection(t *testing.T) {
+	cases := []struct {
+		name   string
+		status int
+		body   string
+		want   bool
+	}{
+		{
+			name:   "no fast-mode allocation",
+			status: http.StatusTooManyRequests,
+			body:   `{"type":"error","error":{"type":"rate_limit_error","message":"This request would exceed your organization's rate limit of 0 fast mode input tokens per minute."}}`,
+			want:   true,
+		},
+		{
+			name:   "ordinary per-minute rate limit",
+			status: http.StatusTooManyRequests,
+			body:   `{"type":"error","error":{"type":"rate_limit_error","message":"This request would exceed your organization's rate limit of 50 requests per minute."}}`,
+			want:   false,
+		},
+		{
+			name:   "400 mentioning fast mode is not a quota rejection",
+			status: http.StatusBadRequest,
+			body:   `{"type":"error","error":{"type":"invalid_request_error","message":"fast mode is not available for this model"}}`,
+			want:   false,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := &providers.UpstreamErrorResponse{Status: tc.status, Body: []byte(tc.body)}
+			assert.Equal(t, tc.want, providers.IsAnthropicFastModeQuotaRejection(err))
+		})
+	}
+	assert.False(t, providers.IsAnthropicFastModeQuotaRejection(nil))
+	assert.False(t, providers.IsAnthropicFastModeQuotaRejection(&providers.UpstreamStatusError{Status: http.StatusTooManyRequests}),
+		"bytes already flushed to the client cannot be retried")
+}
+
 // TestIsUpstreamPromptCacheKeyRejection pins the gateway 400 that names prompt_cache_key
 // as an unknown field; a 400 merely mentioning it for another reason must not match.
 func TestIsUpstreamPromptCacheKeyRejection(t *testing.T) {
