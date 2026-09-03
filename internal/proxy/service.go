@@ -37,6 +37,7 @@ import (
 	"workweave/router/internal/router/sessionstrategy"
 	"workweave/router/internal/router/turntype"
 	"workweave/router/internal/sse"
+	"workweave/router/internal/subscriptions"
 	"workweave/router/internal/timing"
 	"workweave/router/internal/translate"
 	"workweave/router/internal/websearch"
@@ -359,6 +360,9 @@ type Service struct {
 	// factor near epsilon until the window nears its cap.
 	subsidyEpsilon float64
 	subsidyGamma   float64
+	// managedSubscriptions leases encrypted, owner-scoped Claude/Codex
+	// subscription credentials. Nil leaves the legacy credential path unchanged.
+	managedSubscriptions subscriptions.Leaser
 }
 
 type registeredStrategy struct {
@@ -1314,7 +1318,7 @@ func claudeSubscriptionSuppressed(ctx context.Context) bool {
 // paid, so billing applies the subscription fee rather than full cost.
 func servedOnSubscription(ctx context.Context) bool {
 	creds := CredentialsFromContext(ctx)
-	return creds != nil && creds.OAuth
+	return (creds != nil && creds.OAuth) || managedSubscriptionServed(ctx)
 }
 
 // servedOnBYOK reports whether the turn's resolved credential is a customer-owned
@@ -2121,6 +2125,12 @@ func (s *Service) newTelemetryBuffer() *otel.Buffer {
 // that depleted its balance is 402'd before reaching the proxy.
 func (s *Service) WithBillingService(b *billing.Service) *Service {
 	s.billing = b
+	return s
+}
+
+// WithManagedSubscriptions enables server-side owner/provider account pools.
+func (s *Service) WithManagedSubscriptions(pool subscriptions.Leaser) *Service {
+	s.managedSubscriptions = pool
 	return s
 }
 
@@ -3523,7 +3533,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	// (shouldFailover is already false with an OAuth credential in context; this
 	// is belt-and-suspenders) so failover can't reroute onto a paid provider.
 	if billing.SubscriptionOnlyFromContext(ctx) && !routeRes.UsageBypass {
-		if !servedOnSubscription(ctx) || s.anthropicSubscriptionObservedExhausted(ctx, r.Header) {
+		if (!servedOnSubscription(ctx) && !managedSubscriptionCanServe(ctx, decision.Provider, decision.Model)) || s.anthropicSubscriptionObservedExhausted(ctx, r.Header) {
 			log.Info("Subscription-only request cannot be served on the subscription; refusing",
 				"requested_model", feats.Model, "external_id", externalID, "decision_provider", decision.Provider)
 			return ErrCreditsExhaustedSubscriptionUnavailable
@@ -3957,6 +3967,9 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			flushErr:               flushUpstreamErrorAsAnthropic,
 			deferFlushOnExhaustion: baselineViable || subscriptionRetryEligible || siblingViable,
 		})
+		if isSubscriptionPoolError(proxyErr) {
+			return proxyErr
+		}
 	}
 
 	// The deferred upstream error must reach the client exactly once: each
@@ -4054,6 +4067,9 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 				attempt:         baselineAttempt,
 				flushErr:        flushUpstreamErrorAsAnthropic,
 			})
+			if isSubscriptionPoolError(proxyErr) {
+				return proxyErr
+			}
 			decision = baselineDecision
 			bindings = baselineBindings
 			baselineAttempted = true
@@ -4126,6 +4142,9 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 				// the sibling rescue below can still serve the turn.
 				deferFlushOnExhaustion: siblingViable,
 			})
+			if isSubscriptionPoolError(proxyErr) {
+				return proxyErr
+			}
 			bindings = subBindings
 			subscriptionFailoverUsed = proxyErr == nil
 		}
@@ -4196,6 +4215,9 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 				attempt:         siblingAttempt,
 				flushErr:        flushUpstreamErrorAsAnthropic,
 			})
+			if isSubscriptionPoolError(proxyErr) {
+				return proxyErr
+			}
 			decision = siblingDecision
 			bindings = siblingBindings
 			marker = siblingMarker
@@ -6064,7 +6086,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	// paid model against an already-negative balance. When it did, pin dispatch
 	// to that single binding so failover can't reroute onto a paid provider.
 	if billing.SubscriptionOnlyFromContext(ctx) {
-		if !servedOnSubscription(ctx) {
+		if !servedOnSubscription(ctx) && !managedSubscriptionCanServe(ctx, decision.Provider, decision.Model) {
 			log.Info("Subscription-only request cannot be served on the subscription; refusing",
 				"requested_model", feats.Model, "external_id", externalID, "decision_provider", decision.Provider)
 			return ErrCreditsExhaustedSubscriptionUnavailable
@@ -6495,6 +6517,9 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		attempt:         attempt,
 		flushErr:        flushBufferedIfPresent,
 	})
+	if isSubscriptionPoolError(proxyErr) {
+		return proxyErr
+	}
 	finalProvider := primaryProvider
 	if winnerIdx >= 0 && winnerIdx < len(bindings) {
 		finalProvider = bindings[winnerIdx].Provider

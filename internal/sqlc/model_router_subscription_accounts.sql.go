@@ -156,3 +156,30 @@ func (q *Queries) UpdateModelRouterSubscriptionAccountState(ctx context.Context,
 	}
 	return result.RowsAffected(), nil
 }
+
+const updateModelRouterSubscriptionRefreshToken = `-- name: UpdateModelRouterSubscriptionRefreshToken :execrows
+UPDATE router.model_router_subscription_accounts
+SET refresh_token_ciphertext = $1::bytea,
+    updated_at = CURRENT_TIMESTAMP
+WHERE id = $2::uuid AND api_key_id = $3::uuid
+`
+
+type UpdateModelRouterSubscriptionRefreshTokenParams struct {
+	RefreshTokenCiphertext []byte
+	ID                     uuid.UUID
+	APIKeyID               uuid.UUID
+}
+
+// UpdateModelRouterSubscriptionRefreshToken
+//
+//	UPDATE router.model_router_subscription_accounts
+//	SET refresh_token_ciphertext = $1::bytea,
+//	    updated_at = CURRENT_TIMESTAMP
+//	WHERE id = $2::uuid AND api_key_id = $3::uuid
+func (q *Queries) UpdateModelRouterSubscriptionRefreshToken(ctx context.Context, arg UpdateModelRouterSubscriptionRefreshTokenParams) (int64, error) {
+	result, err := q.db.Exec(ctx, updateModelRouterSubscriptionRefreshToken, arg.RefreshTokenCiphertext, arg.ID, arg.APIKeyID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}

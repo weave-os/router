@@ -44,6 +44,11 @@ func (m *Manager) Upsert(account Account) error {
 	return m.pool(account.OwnerID, account.Provider).Upsert(account)
 }
 
+// Sync replaces one owner's provider account set from durable storage.
+func (m *Manager) Sync(ownerID string, provider Provider, accounts []Account) error {
+	return m.pool(ownerID, provider).Sync(accounts)
+}
+
 // Lease selects an account from only the requested owner's provider pool.
 func (m *Manager) Lease(ctx context.Context, ownerID string, provider Provider, sessionID string, refresh Refresher) (Account, func(), error) {
 	return m.pool(ownerID, provider).Lease(ctx, provider, sessionID, refresh)

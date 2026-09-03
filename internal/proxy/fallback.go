@@ -225,6 +225,7 @@ func (s *Service) dispatchWithFallback(ctx context.Context, in failoverInputs) (
 		// Only used for single-binding models; multi-binding models fail
 		// straight over to the next binding after one attempt (len>1 guard).
 		var attemptErr error
+		managedBinding := false
 		retryStart := s.clockNow()
 		for sb := 0; ; sb++ {
 			// Safe to rewrite until the buffer commits; on retry the previous
@@ -241,7 +242,19 @@ func (s *Service) dispatchWithFallback(ctx context.Context, in failoverInputs) (
 				}
 			}
 
-			attemptErr = in.attempt(attemptCtx, decision, p)
+			credentialCtx, lease, managedAttempt, leaseErr := s.leaseManagedSubscription(attemptCtx, b.Provider, decision.Model)
+			if leaseErr != nil {
+				if in.buf != nil {
+					in.buf.Discard()
+				}
+				return i, leaseErr
+			}
+			managedBinding = managedBinding || managedAttempt
+			if managedAttempt {
+				markManagedSubscriptionServed(ctx)
+			}
+			attemptErr = in.attempt(credentialCtx, decision, p)
+			lease.Release()
 			if attemptErr == nil {
 				if i > 0 {
 					log.Info("dispatchWithFallback: succeeded on fallback",
@@ -253,10 +266,26 @@ func (s *Service) dispatchWithFallback(ctx context.Context, in failoverInputs) (
 				return i, nil
 			}
 
+			rotateManagedAccount := managedAttempt && s.recordManagedSubscriptionFailure(
+				credentialCtx, b.Provider, decision.Model, lease, attemptErr,
+			)
+
 			// Bytes already reached the client — committed to this attempt's
 			// error even if it would otherwise be retryable.
 			if committed(in.buf) {
 				return i, attemptErr
+			}
+			if rotateManagedAccount {
+				if in.buf != nil {
+					in.buf.Discard()
+				}
+				log.Warn("dispatchWithFallback: retrying with another subscription account",
+					"model", decision.Model,
+					"provider", b.Provider,
+					"account_id", lease.AccountID,
+					"same_binding_retry", sb+1,
+					"err", attemptErr)
+				continue
 			}
 
 			// Stop same-binding retry: error non-retryable, attempt budget
@@ -307,7 +336,7 @@ func (s *Service) dispatchWithFallback(ctx context.Context, in failoverInputs) (
 		canFailover := providers.IsRetryable(attemptErr) ||
 			providers.IsUpstreamModelNotFound(attemptErr) ||
 			providers.IsUpstreamProviderBillingBlocked(attemptErr)
-		if !canFailover || i == len(in.bindings)-1 {
+		if managedBinding || !canFailover || i == len(in.bindings)-1 {
 			// Final attempt or non-failable: discard so the client sees the
 			// error envelope next, not a half-emitted message_start.
 			if in.buf != nil {

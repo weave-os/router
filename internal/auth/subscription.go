@@ -43,6 +43,7 @@ type SubscriptionAccountRepository interface {
 	CreateSubscriptionAccount(context.Context, CreateSubscriptionAccountParams) (*SubscriptionAccount, error)
 	ListSubscriptionAccounts(context.Context, string) ([]*SubscriptionAccount, error)
 	UpdateSubscriptionAccountState(context.Context, string, string, bool, *time.Time) error
+	UpdateSubscriptionRefreshToken(context.Context, string, string, []byte) error
 	DeleteSubscriptionAccount(context.Context, string, string) error
 }
 
@@ -100,6 +101,29 @@ func (s *Service) SubscriptionRefreshToken(ctx context.Context, apiKeyID, accoun
 		}
 	}
 	return nil, ErrSubscriptionAccountNotFound
+}
+
+// UpdateSubscriptionRefreshToken encrypts a rotated refresh token using the
+// account's stable identity before replacing the stored ciphertext.
+func (s *Service) UpdateSubscriptionRefreshToken(ctx context.Context, apiKeyID, accountID string, refreshToken []byte) error {
+	if len(refreshToken) == 0 {
+		return errors.New("subscription refresh token is required")
+	}
+	accounts, err := s.ListSubscriptionAccounts(ctx, apiKeyID)
+	if err != nil {
+		return err
+	}
+	for _, account := range accounts {
+		if account.ID != accountID {
+			continue
+		}
+		ciphertext, encryptErr := s.encryptor.Encrypt(refreshToken, account.ExternalAccountID, string(account.Provider))
+		if encryptErr != nil {
+			return encryptErr
+		}
+		return s.subscriptionAccounts.UpdateSubscriptionRefreshToken(ctx, accountID, apiKeyID, ciphertext)
+	}
+	return ErrSubscriptionAccountNotFound
 }
 
 // UpdateSubscriptionAccountState changes enabled/cooldown state only for the

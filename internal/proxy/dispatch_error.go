@@ -42,6 +42,8 @@ const (
 	DispatchErrorPolicyUnavailable
 	DispatchErrorClusterUnavailable
 	DispatchErrorCreditsExhausted
+	DispatchErrorSubscriptionPoolExhausted
+	DispatchErrorSubscriptionPoolUnavailable
 	DispatchErrorTranslationIntrinsicallyIncompatible
 	DispatchErrorTranslationProviderUnavailable
 	DispatchErrorUserSpendLimitReached
@@ -91,6 +93,24 @@ func ClassifyDispatchError(err error) (DispatchErrorClass, bool) {
 	var forcedClusterStrategy *ForcedClusterUnsupportedStrategyError
 	var forcedClusterUnservable *policy.ForcedClusterUnservableError
 	switch {
+	case errors.Is(err, ErrSubscriptionPoolExhausted):
+		return DispatchErrorClass{
+			Kind:       DispatchErrorSubscriptionPoolExhausted,
+			Status:     http.StatusTooManyRequests,
+			Message:    "All enrolled subscription accounts are currently unavailable.",
+			RetryAfter: true,
+			LogLevel:   "warn",
+			LogMessage: "Subscription account pool exhausted",
+		}, true
+	case errors.Is(err, ErrSubscriptionPoolUnavailable):
+		return DispatchErrorClass{
+			Kind:       DispatchErrorSubscriptionPoolUnavailable,
+			Status:     http.StatusServiceUnavailable,
+			Message:    "Subscription account service is temporarily unavailable.",
+			RetryAfter: true,
+			LogLevel:   "error",
+			LogMessage: "Subscription account pool unavailable",
+		}, true
 	case errors.As(err, &forcedExcluded):
 		// Ahead of the sentinel cases so the reason reaches the caller: a bare
 		// "forced model is excluded" doesn't say which model or why.

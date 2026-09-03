@@ -296,6 +296,9 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 		attempt:         attempt,
 		flushErr:        flushBufferedIfPresent,
 	})
+	if isSubscriptionPoolError(proxyErr) {
+		return proxyErr
+	}
 	proxyMs := time.Since(proxyStart).Milliseconds()
 	finalProvider := decision.Provider
 	if winnerIdx >= 0 && winnerIdx < len(bindings) {

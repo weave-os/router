@@ -20,6 +20,12 @@ SET enabled = @enabled::boolean,
     updated_at = CURRENT_TIMESTAMP
 WHERE id = @id::uuid AND api_key_id = @api_key_id::uuid;
 
+-- name: UpdateModelRouterSubscriptionRefreshToken :execrows
+UPDATE router.model_router_subscription_accounts
+SET refresh_token_ciphertext = @refresh_token_ciphertext::bytea,
+    updated_at = CURRENT_TIMESTAMP
+WHERE id = @id::uuid AND api_key_id = @api_key_id::uuid;
+
 -- name: DeleteModelRouterSubscriptionAccount :execrows
 DELETE FROM router.model_router_subscription_accounts
 WHERE id = @id::uuid AND api_key_id = @api_key_id::uuid;

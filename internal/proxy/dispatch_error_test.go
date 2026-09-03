@@ -25,6 +25,27 @@ func TestClassifyDispatchError_UnknownErrorIsUnmatched(t *testing.T) {
 	assert.False(t, ok, "an error not matching any known sentinel must not be classified")
 }
 
+func TestClassifyDispatchError_SubscriptionPoolFailures(t *testing.T) {
+	tests := []struct {
+		name       string
+		err        error
+		kind       proxy.DispatchErrorKind
+		statusCode int
+	}{
+		{name: "exhausted", err: proxy.ErrSubscriptionPoolExhausted, kind: proxy.DispatchErrorSubscriptionPoolExhausted, statusCode: http.StatusTooManyRequests},
+		{name: "unavailable", err: proxy.ErrSubscriptionPoolUnavailable, kind: proxy.DispatchErrorSubscriptionPoolUnavailable, statusCode: http.StatusServiceUnavailable},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			classification, ok := proxy.ClassifyDispatchError(fmt.Errorf("dispatch: %w", test.err))
+			require.True(t, ok)
+			require.Equal(t, test.kind, classification.Kind)
+			require.Equal(t, test.statusCode, classification.Status)
+			require.True(t, classification.RetryAfter)
+		})
+	}
+}
+
 func TestClassifyDispatchError_ProviderNotConfigured(t *testing.T) {
 	// This is the exact wrapping service.go's dispatch switch uses (fmt.Errorf("%w: %s", ErrProviderNotConfigured, name)).
 	err := fmt.Errorf("%w: %s", proxy.ErrProviderNotConfigured, "some-provider")

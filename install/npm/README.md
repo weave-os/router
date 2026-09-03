@@ -8,6 +8,9 @@ npx @workweave/router --claude              # skip the picker, target Claude Cod
 npx @workweave/router --codex               # skip the picker, target the OpenAI Codex CLI
 npx @workweave/router setup --claude --codex # configure both native clients
 npx @workweave/router accounts list --claude # list enrolled subscription accounts
+npx @workweave/router login claude           # enroll Claude Pro/Max with PKCE
+npx @workweave/router login codex            # enroll ChatGPT Pro/Plus device flow
+npx @workweave/router status                 # connectivity, native configs, account health
 npx @workweave/router --opencode            # skip the picker, target opencode
 npx @workweave/router --pi                  # skip the picker, target pi + Loom UI
 npx @workweave/router --scope project       # per-repo install, commit settings.json (or .codex/ / opencode.json)

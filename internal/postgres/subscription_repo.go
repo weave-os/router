@@ -74,6 +74,27 @@ func (r *subscriptionAccountRepo) UpdateSubscriptionAccountState(ctx context.Con
 	return nil
 }
 
+func (r *subscriptionAccountRepo) UpdateSubscriptionRefreshToken(ctx context.Context, accountID, apiKeyID string, ciphertext []byte) error {
+	accountUUID, err := uuid.Parse(accountID)
+	if err != nil {
+		return err
+	}
+	keyUUID, err := uuid.Parse(apiKeyID)
+	if err != nil {
+		return err
+	}
+	rows, err := sqlc.New(r.tx).UpdateModelRouterSubscriptionRefreshToken(ctx, sqlc.UpdateModelRouterSubscriptionRefreshTokenParams{
+		ID: accountUUID, APIKeyID: keyUUID, RefreshTokenCiphertext: ciphertext,
+	})
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return auth.ErrSubscriptionAccountNotFound
+	}
+	return nil
+}
+
 func (r *subscriptionAccountRepo) DeleteSubscriptionAccount(ctx context.Context, accountID, apiKeyID string) error {
 	accountUUID, err := uuid.Parse(accountID)
 	if err != nil {

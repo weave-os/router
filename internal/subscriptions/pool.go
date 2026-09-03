@@ -22,13 +22,14 @@ const (
 // Account is the non-secret state needed to select a subscription account.
 // AccessToken is returned only from Lease and must never be persisted or logged.
 type Account struct {
-	ID          string
-	OwnerID     string
-	Provider    Provider
-	AccessToken string
-	AccountID   string
-	Enabled     bool
-	CooldownTil time.Time
+	ID                   string
+	OwnerID              string
+	Provider             Provider
+	AccessToken          string
+	AccessTokenExpiresAt time.Time
+	AccountID            string
+	Enabled              bool
+	CooldownTil          time.Time
 }
 
 // Refresher obtains a fresh access token for an account. Implementations may
@@ -65,6 +66,10 @@ type refreshCall struct {
 	err  error
 }
 
+type terminalRefreshError interface {
+	Terminal() bool
+}
+
 // NewPool creates an empty pool for one owner and provider. clock is injectable
 // for deterministic cooldown tests; nil uses time.Now.
 func NewPool(ownerID string, provider Provider, clock func() time.Time) *Pool {
@@ -96,10 +101,39 @@ func (p *Pool) Upsert(account Account) error {
 		if existing.account.Provider != account.Provider || existing.account.OwnerID != account.OwnerID {
 			return ErrProviderMismatch
 		}
+		if account.AccessToken == "" {
+			account.AccessToken = existing.account.AccessToken
+			account.AccessTokenExpiresAt = existing.account.AccessTokenExpiresAt
+		}
 		existing.account = account
 		return nil
 	}
 	p.accounts[account.ID] = &accountState{account: account}
+	return nil
+}
+
+// Sync replaces persisted account metadata while retaining live access tokens
+// and in-flight lease counts for accounts that still exist.
+func (p *Pool) Sync(accounts []Account) error {
+	present := make(map[string]struct{}, len(accounts))
+	for _, account := range accounts {
+		if err := p.Upsert(account); err != nil {
+			return err
+		}
+		present[account.ID] = struct{}{}
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	for accountID := range p.accounts {
+		if _, ok := present[accountID]; !ok {
+			delete(p.accounts, accountID)
+		}
+	}
+	for sessionID, accountID := range p.sticky {
+		if _, ok := present[accountID]; !ok {
+			delete(p.sticky, sessionID)
+		}
+	}
 	return nil
 }
 
@@ -156,7 +190,9 @@ func (p *Pool) Lease(ctx context.Context, provider Provider, sessionID string, r
 		if err != nil {
 			return Account{}, nil, err
 		}
-		if account.AccessToken != "" || refresh == nil {
+		accessTokenUsable := account.AccessToken != "" &&
+			(account.AccessTokenExpiresAt.IsZero() || account.AccessTokenExpiresAt.After(p.clock().Add(time.Minute)))
+		if accessTokenUsable || refresh == nil {
 			return account, release, nil
 		}
 		refreshed, err := p.refreshAccount(ctx, account, refresh)
@@ -166,6 +202,11 @@ func (p *Pool) Lease(ctx context.Context, provider Provider, sessionID string, r
 		release()
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 			return Account{}, nil, err
+		}
+		var terminal terminalRefreshError
+		if errors.As(err, &terminal) && terminal.Terminal() {
+			p.Disable(account.ID)
+			continue
 		}
 		p.Cooldown(account.ID, p.clock().Add(time.Minute))
 	}
@@ -218,7 +259,8 @@ func (p *Pool) tryLease(provider Provider, sessionID string) (Account, func(), e
 		p.sticky[sessionID] = state.account.ID
 	}
 	account := state.account
-	return account, func() { p.release(account.ID) }, nil
+	var releaseOnce sync.Once
+	return account, func() { releaseOnce.Do(func() { p.release(account.ID) }) }, nil
 }
 
 func removeString(values []string, target string) []string {
