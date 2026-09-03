@@ -1,0 +1,45 @@
+.github/workflows/check_migrations.yml
+  s_cb1d3d00c7beac::t_5d3b06b95e5971 46-52
+.github/workflows/test.yml
+  s_cb1d3d00c7beac::t_0f3a4165a35e4c 103-107
+.golangci.yml
+  s_cb1d3d00c7beac::t_4bf9b947a7777b 1-45
+db/migrations/0015_loop-escalation-events.down.sql
+  s_cb1d3d00c7beac::t_f5545b5ca86fab 3
+db/migrations/0018_spiral-shadow-events.down.sql
+  s_cb1d3d00c7beac::t_89ce82173301fc 3
+db/migrations/0019_telemetry-response-outcome.down.sql
+  s_cb1d3d00c7beac::t_0d717f8df417d9 3,6-11
+db/migrations/0036_policy-shadow-decisions.down.sql
+  s_cb1d3d00c7beac::t_efcbe6d2bda561 3
+internal/api/feedback/feedback.go
+  s_cb1d3d00c7beac::t_81917625b82356 8,62
+internal/proxy/dispatch_error.go
+  s_cb1d3d00c7beac::t_b3bbd4f8508201 358
+internal/router/router.go
+  s_cb1d3d00c7beac::t_ba506d24c6d5e4 4-46
+internal/server/middleware/force_effort_override.go
+  s_cb1d3d00c7beac::t_0871ff833920a2 24,28
+internal/translate/envelope.go
+  s_cb1d3d00c7beac::t_878d49f3d6eb7a 1133,1140
+internal/translate/toolcheck/repair.go
+  s_cb1d3d00c7beac::t_3d25f74672a2df 4,38-39
+internal/translate/toolcheck/toolcheck.go
+  s_cb1d3d00c7beac::t_e9fd9cec3ea0c3 17,347-348
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "8035e876641e248e6f38a9e1ec8f2a2dae6c4f16",
+  "prompts": {},
+  "sessions": {
+    "s_cb1d3d00c7beac": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06975-dbaf-7051-9db2-b5314ba5e445",
+        "model": "unknown"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}
