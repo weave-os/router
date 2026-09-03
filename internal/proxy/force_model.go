@@ -552,7 +552,8 @@ func (s *Service) handleForceModelCommand(
 
 // applyForceModelCommand updates the session pin without deciding whether the
 // caller should receive a synthetic response. It returns the canonical model
-// when a force was applied.
+// (with its `:level` suffix when one was given, so a same-turn dispatch via
+// req.ForceModel resolves the same effort) when a force was applied.
 func (s *Service) applyForceModelCommand(
 	ctx context.Context,
 	env *translate.RequestEnvelope,
@@ -641,7 +642,7 @@ func (s *Service) applyForceModelCommand(
 		"force_model_session_key_hex", fmt.Sprintf("%x", forceModelSessionKey),
 		"role", forceModelSessionRole,
 	)
-	return canonicalModel, msg, nil
+	return shownModel, msg, nil
 }
 
 // writeSyntheticAnthropicResponse writes a minimal Anthropic Messages API

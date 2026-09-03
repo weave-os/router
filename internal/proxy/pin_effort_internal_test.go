@@ -36,6 +36,26 @@ func TestForceModelCommand_PersistsEffortOnPin(t *testing.T) {
 	assert.Contains(t, rec.Body.String(), "claude-opus-5:xhigh")
 }
 
+// The tool-result form of the command dispatches on the same turn through
+// req.ForceModel, so the returned spec must keep the suffix.
+func TestApplyForceModelCommand_ReturnsEffortQualifiedSpec(t *testing.T) {
+	store := &recordingPinStore{}
+	svc := NewService(nil, nil, nil, false, nil, store, false,
+		providers.ProviderAnthropic, "claude-haiku-4-5", nil)
+
+	env := forceCommandEnv(t)
+	spec, _, err := svc.applyForceModelCommand(context.Background(), env,
+		translate.ForceModelResult{Model: "opus:xhigh", FromToolResult: true},
+		uuid.New(), DeriveSessionKey(env, "key-1"), DeriveSessionKey(env, "key-1"))
+	require.NoError(t, err)
+	assert.Equal(t, "claude-opus-5:xhigh", spec)
+
+	model, _, known, effort := resolveForceModelWithEffort(spec)
+	require.True(t, known)
+	assert.Equal(t, "claude-opus-5", model)
+	assert.Equal(t, "xhigh", effort)
+}
+
 func TestForceModelHeader_PersistsEffortOnPin(t *testing.T) {
 	store := &recordingPinStore{}
 	svc := NewService(nil, nil, nil, false, nil, store, false,
