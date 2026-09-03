@@ -1012,29 +1012,68 @@ func trainingRouteMessageDelta(messages []router.ConversationMessage) []routeMes
 	})
 }
 
+// routeMessageWindow keeps the newest maxMessages messages, except that the
+// newest user message carrying text is always kept: a long agent tool loop can
+// push every text-bearing user turn out of the window, and a routing history
+// without one describes no request at all.
+func routeMessageWindow(messages []router.ConversationMessage, maxMessages int) []router.ConversationMessage {
+	if maxMessages <= 0 || len(messages) <= maxMessages {
+		return messages
+	}
+	window := messages[len(messages)-maxMessages:]
+	if userTextIndex(window) >= 0 {
+		return window
+	}
+	boundary := userTextIndex(messages[:len(messages)-maxMessages])
+	if boundary < 0 {
+		return window
+	}
+	kept := make([]router.ConversationMessage, 0, maxMessages)
+	kept = append(kept, messages[boundary])
+	return append(kept, window[1:]...)
+}
+
+// userTextIndex is the index of the newest user message carrying text, or -1.
+func userTextIndex(messages []router.ConversationMessage) int {
+	for i := len(messages) - 1; i >= 0; i-- {
+		if routeRole(messages[i].Role) == "user" && strings.TrimSpace(messages[i].Text) != "" {
+			return i
+		}
+	}
+	return -1
+}
+
 func convertRouteMessages(messages []router.ConversationMessage, limits routeMessageLimits) []routeMessage {
 	if len(messages) == 0 {
 		return nil
 	}
-	start := 0
-	if limits.maxMessages > 0 && len(messages) > limits.maxMessages {
-		start = len(messages) - limits.maxMessages
+	messages = routeMessageWindow(messages, limits.maxMessages)
+	// The oldest message is converted last, so the text budget reserves room for
+	// it: otherwise the pulled-back user boundary arrives with empty text and is
+	// dropped, which is the same wire shape the window guard exists to prevent.
+	boundaryReserve := 0
+	if boundary := userTextIndex(messages); boundary == 0 && limits.maxTotalTextChars > 0 {
+		boundaryReserve = len(clipRouteText(messages[0].Text, limits.maxTextChars))
 	}
-	reversed := make([]routeMessage, 0, len(messages)-start)
+	reversed := make([]routeMessage, 0, len(messages))
 	totalText := 0
-	for i := len(messages) - 1; i >= start; i-- {
+	for i := len(messages) - 1; i >= 0; i-- {
 		message := messages[i]
 		role := routeRole(message.Role)
 		if role == "" {
 			continue
 		}
 		text := clipRouteText(message.Text, limits.maxTextChars)
-		if limits.maxTotalTextChars > 0 && totalText+len(text) > limits.maxTotalTextChars {
-			remaining := limits.maxTotalTextChars - totalText
-			if remaining <= 0 {
+		if limits.maxTotalTextChars > 0 {
+			budget := limits.maxTotalTextChars
+			if i > 0 {
+				budget -= boundaryReserve
+			}
+			if remaining := budget - totalText; remaining < len(text) {
 				text = ""
-			} else {
-				text = clipRouteText(text, remaining)
+				if remaining > 0 {
+					text = clipRouteText(message.Text, remaining)
+				}
 			}
 		}
 		totalText += len(text)

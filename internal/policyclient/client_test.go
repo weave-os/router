@@ -901,6 +901,35 @@ func TestRouteMessagesPreservesLatestUserWhenPayloadIsCapped(t *testing.T) {
 	}
 }
 
+func TestRouteMessagesKeepsUserBoundaryOutsideTheMessageCap(t *testing.T) {
+	source := []router.ConversationMessage{{Role: "user", Text: "fix the failing test"}}
+	for len(source) < maxRouteMessages+40 {
+		source = append(source,
+			router.ConversationMessage{Role: "assistant", ToolCalls: []router.ConversationToolCall{{Name: "exec"}}},
+			router.ConversationMessage{Role: "user", ToolResults: []router.ConversationToolResult{{ToolUseID: "call-1", ResultPresent: true}}},
+		)
+	}
+
+	messages := routeMessages(source)
+
+	assert.Len(t, messages, maxRouteMessages)
+	assert.Equal(t, "fix the failing test", latestUserText(messages))
+}
+
+func TestRouteMessagesKeepsUserBoundaryTextWhenNewerMessagesFillTheTextBudget(t *testing.T) {
+	source := []router.ConversationMessage{{Role: "user", Text: "fix the failing test"}}
+	for len(source) < maxRouteMessages+40 {
+		source = append(source,
+			router.ConversationMessage{Role: "assistant", Text: strings.Repeat("a", maxRouteMessageTextChars)},
+			router.ConversationMessage{Role: "user", ToolResults: []router.ConversationToolResult{{ToolUseID: "call-1", ResultPresent: true}}},
+		)
+	}
+
+	messages := routeMessages(source)
+
+	assert.Equal(t, "fix the failing test", latestUserText(messages))
+}
+
 func floatPtr(value float64) *float64 { return &value }
 
 func intPointer(value int) *int { return &value }
