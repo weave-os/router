@@ -34,6 +34,8 @@ const (
 	TogetherBaseURL = "https://api.together.xyz/v1"
 	// XAIBaseURL is SpaceXAI's OpenAI-compatible Chat Completions surface.
 	XAIBaseURL = "https://api.x.ai/v1"
+	// MetaBaseURL is Meta's Model API OpenAI-compatible Chat Completions surface.
+	MetaBaseURL = "https://api.meta.ai/v1"
 	// WaferBaseURL is Wafer Serverless' OpenAI-compatible surface.
 	WaferBaseURL = "https://pass.wafer.ai/v1"
 )

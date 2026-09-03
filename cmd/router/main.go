@@ -309,6 +309,15 @@ func main() {
 	}
 
 	{
+		metaBaseURL := config.GetOr("META_BASE_URL", openaiCompatProvider.MetaBaseURL)
+		registerDeploymentKeyedProvider(providerMap, envKeyedProviders, logger,
+			providers.ProviderMeta, "Meta", "META_API_KEY", metaBaseURL, byokOnly,
+			func(key, baseURL string) providers.Client {
+				return openaiCompatProvider.NewClient(key, baseURL)
+			})
+	}
+
+	{
 		// Wafer-ZDR: required — Wafer rejects requests whose model doesn't
 		// support ZDR rather than serve them without retention.
 		waferBaseURL := config.GetOr("WAFER_BASE_URL", openaiCompatProvider.WaferBaseURL)

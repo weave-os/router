@@ -36,6 +36,8 @@ var defaultRosterPrefixProviders = map[string]struct{}{
 	providers.ProviderBedrock:    {},
 	providers.ProviderMakora:     {},
 	providers.ProviderTogether:   {},
+	// Muse Spark is not in the trained roster yet; bare ID is best-effort.
+	providers.ProviderMeta: {},
 	// Anthropic-spec surfaces serving non-Claude models (Wafer's Messages API)
 	// stay bare — the roster keys vendor-prefixed Anthropic slots by Claude ID.
 	providers.ProviderWaferAnthropic: {},

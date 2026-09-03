@@ -56,6 +56,8 @@ const (
 	ProviderMakora     = "makora"
 	ProviderTogether   = "together"
 	ProviderXAI        = "xai"
+	// ProviderMeta is Meta's Model API (api.meta.ai), OpenAI-compatible Chat Completions surface.
+	ProviderMeta = "meta"
 	// ProviderWafer is Wafer Serverless' OpenAI-compatible surface; see
 	// ProviderWaferAnthropic for the Anthropic-spec surface (shared WAFER_API_KEY).
 	ProviderWafer = "wafer"
@@ -104,6 +106,7 @@ var ProviderFamilies = map[string]TranslationFamily{
 	ProviderMakora:     FamilyOpenAICompat,
 	ProviderTogether:   FamilyOpenAICompat,
 	ProviderXAI:        FamilyOpenAICompat,
+	ProviderMeta:       FamilyOpenAICompat,
 	ProviderWafer:      FamilyOpenAICompat,
 
 	ProviderWaferAnthropic:   FamilyAnthropic,
@@ -183,6 +186,7 @@ var APIKeyEnvVars = map[string]string{
 	ProviderMakora:     "MAKORA_API_KEY",
 	ProviderTogether:   "TOGETHER_API_KEY",
 	ProviderXAI:        "XAI_API_KEY",
+	ProviderMeta:       "META_API_KEY",
 	// Wafer's two surfaces share a single account key.
 	ProviderWafer:          "WAFER_API_KEY",
 	ProviderWaferAnthropic: "WAFER_API_KEY",
@@ -225,6 +229,7 @@ var CacheTTL = map[string]time.Duration{
 	ProviderFireworks:      5 * time.Minute,
 	ProviderBedrock:        5 * time.Minute,
 	ProviderXAI:            5 * time.Minute,
+	ProviderMeta:           5 * time.Minute,
 	ProviderWafer:          5 * time.Minute,
 	ProviderWaferAnthropic: 5 * time.Minute,
 	// A gateway publishes no prompt-cache lifetime of its own, so it keeps the

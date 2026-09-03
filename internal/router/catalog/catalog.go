@@ -370,6 +370,11 @@ var Models = []Model{
 		{Provider: providers.ProviderXAI, Price: Pricing{InputUSDPer1M: 2.00, OutputUSDPer1M: 6.00, CacheReadMultiplier: 0.25}},
 	}},
 
+	// --- Meta Muse Spark --- native Model API (api.meta.ai); standard (non-contributor) rate.
+	{ID: "muse-spark-1.3", Tier: TierHigh, ContextWindow: 1_048_576, Providers: []ProviderBinding{
+		{Provider: providers.ProviderMeta, Price: Pricing{InputUSDPer1M: 1.25, OutputUSDPer1M: 4.25, CacheReadMultiplier: 0.12}},
+	}},
+
 	// --- Google Gemini 2.x ---
 	{ID: "gemini-2.0-flash-lite", ContextWindow: 1_048_576, Providers: []ProviderBinding{
 		{Provider: providers.ProviderGoogle, Price: Pricing{InputUSDPer1M: 0.075, OutputUSDPer1M: 0.30, CacheReadMultiplier: 0.25}},
