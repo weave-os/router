@@ -18,12 +18,12 @@ func NewSubscriptionAccountRepo(tx sqlc.DBTX) auth.SubscriptionAccountRepository
 	return &subscriptionAccountRepo{tx: tx}
 }
 
-func (r *subscriptionAccountRepo) CreateSubscriptionAccount(ctx context.Context, params auth.CreateSubscriptionAccountParams) (*auth.SubscriptionAccount, error) {
+func (r *subscriptionAccountRepo) UpsertSubscriptionAccount(ctx context.Context, params auth.CreateSubscriptionAccountParams) (*auth.SubscriptionAccount, error) {
 	apiKeyID, err := uuid.Parse(params.APIKeyID)
 	if err != nil {
 		return nil, err
 	}
-	row, err := sqlc.New(r.tx).CreateModelRouterSubscriptionAccount(ctx, sqlc.CreateModelRouterSubscriptionAccountParams{
+	row, err := sqlc.New(r.tx).UpsertModelRouterSubscriptionAccount(ctx, sqlc.UpsertModelRouterSubscriptionAccountParams{
 		APIKeyID: apiKeyID, Provider: string(params.Provider), ExternalAccountID: params.ExternalAccountID,
 		RefreshTokenCiphertext: params.RefreshToken,
 	})
@@ -31,6 +31,27 @@ func (r *subscriptionAccountRepo) CreateSubscriptionAccount(ctx context.Context,
 		return nil, err
 	}
 	return toAuthSubscriptionAccount(row), nil
+}
+
+func (r *subscriptionAccountRepo) UpdateSubscriptionAccountCooldown(ctx context.Context, accountID, apiKeyID string, cooldownUntil time.Time) error {
+	accountUUID, err := uuid.Parse(accountID)
+	if err != nil {
+		return err
+	}
+	keyUUID, err := uuid.Parse(apiKeyID)
+	if err != nil {
+		return err
+	}
+	rows, err := sqlc.New(r.tx).UpdateModelRouterSubscriptionAccountCooldown(ctx, sqlc.UpdateModelRouterSubscriptionAccountCooldownParams{
+		ID: accountUUID, APIKeyID: keyUUID, CooldownUntil: pgtype.Timestamp{Time: cooldownUntil, Valid: true},
+	})
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return auth.ErrSubscriptionAccountNotFound
+	}
+	return nil
 }
 
 func (r *subscriptionAccountRepo) ListSubscriptionAccounts(ctx context.Context, apiKeyID string) ([]*auth.SubscriptionAccount, error) {

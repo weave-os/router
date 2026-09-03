@@ -97,6 +97,47 @@ func TestDispatchWithFallbackDoesNotCrossManagedProviderFamilies(t *testing.T) {
 	require.Empty(t, leaser.providers)
 }
 
+func TestManagedSubscriptionOverridesBYOKButNotInboundOAuth(t *testing.T) {
+	leaser := &scriptedSubscriptionLeaser{leases: []subscriptions.Lease{{AccountID: "opaque-claude", AccessToken: "managed-token"}}}
+	svc := newServiceWithProviders(t, nil).WithManagedSubscriptions(leaser)
+	base := managedSubscriptionTestContext()
+
+	byokCtx := context.WithValue(base, CredentialsContextKey{}, &Credentials{APIKey: []byte("byok-token"), Source: credSourceBYOK})
+	managedCtx, managedLease, managed, err := svc.leaseManagedSubscription(byokCtx, providers.ProviderAnthropic, "claude-opus-4-8")
+	require.NoError(t, err)
+	require.True(t, managed)
+	require.Equal(t, "managed-token", string(CredentialsFromContext(managedCtx).APIKey))
+	managedLease.Release()
+
+	oauth := &Credentials{APIKey: []byte("inbound-oauth"), Source: credSourceSubscription, OAuth: true}
+	oauthCtx := context.WithValue(base, CredentialsContextKey{}, oauth)
+	unchangedCtx, _, managed, err := svc.leaseManagedSubscription(oauthCtx, providers.ProviderAnthropic, "claude-opus-4-8")
+	require.NoError(t, err)
+	require.False(t, managed)
+	require.Same(t, oauth, CredentialsFromContext(unchangedCtx))
+}
+
+func TestManagedSubscriptionEnrollmentFailureFailsClosedAtLease(t *testing.T) {
+	leaser := &scriptedSubscriptionLeaser{}
+	svc := newServiceWithProviders(t, nil).WithManagedSubscriptions(leaser)
+	ctx := context.WithValue(context.Background(), ManagedSubscriptionEnrollmentUnavailableContextKey{}, true)
+
+	_, _, managed, err := svc.leaseManagedSubscription(ctx, providers.ProviderAnthropic, "claude-opus-4-8")
+	require.ErrorIs(t, err, ErrSubscriptionPoolUnavailable)
+	require.True(t, managed)
+	require.Empty(t, leaser.providers)
+}
+
+func TestInferenceFailsClosedWhenSubscriptionEnrollmentIsUnknown(t *testing.T) {
+	svc := &Service{}
+	ctx := context.WithValue(context.Background(), ManagedSubscriptionEnrollmentUnavailableContextKey{}, true)
+	body := []byte(`{"model":"claude-opus-4-8","messages":[]}`)
+
+	require.ErrorIs(t, svc.ProxyMessages(ctx, body, httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/v1/messages", nil)), ErrSubscriptionPoolUnavailable)
+	require.ErrorIs(t, svc.ProxyOpenAIChatCompletion(ctx, body, httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)), ErrSubscriptionPoolUnavailable)
+	require.ErrorIs(t, svc.ProxyGeminiGenerateContent(ctx, body, httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/v1beta/models/test:generateContent", nil)), ErrSubscriptionPoolUnavailable)
+}
+
 func TestDispatchWithFallbackRotatesManagedAccountBeforeCommit(t *testing.T) {
 	leaser := &scriptedSubscriptionLeaser{leases: []subscriptions.Lease{
 		{AccountID: "opaque-a", AccessToken: "token-a"},
@@ -129,6 +170,59 @@ func TestDispatchWithFallbackRotatesManagedAccountBeforeCommit(t *testing.T) {
 	require.Equal(t, []string{"opaque-a"}, leaser.cooldownIDs)
 	require.Equal(t, "served", recorder.Body.String())
 	require.True(t, servedOnSubscription(ctx))
+}
+
+func TestDispatchWithFallbackDoesNotMarkFailedManagedAttemptServed(t *testing.T) {
+	leaser := &scriptedSubscriptionLeaser{leases: []subscriptions.Lease{{AccountID: "opaque-a", AccessToken: "token-a"}}}
+	client := &fakeClient{name: providers.ProviderAnthropic, outcomes: []fakeOutcome{{err: errors.New("upstream failed")}}}
+	svc := newServiceWithProviders(t, map[string]providers.Client{providers.ProviderAnthropic: client}).WithManagedSubscriptions(leaser)
+	ctx := managedSubscriptionTestContext()
+
+	_, err := svc.dispatchWithFallback(ctx, failoverInputs{
+		w:               httptest.NewRecorder(),
+		initialDecision: router.Decision{Model: "claude-opus-4-8", Provider: providers.ProviderAnthropic},
+		bindings:        []catalog.ProviderBinding{{Provider: providers.ProviderAnthropic}},
+		attempt: func(ctx context.Context, decision router.Decision, client providers.Client) error {
+			return client.Proxy(ctx, decision, providers.PreparedRequest{}, httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/v1/messages", nil))
+		},
+	})
+
+	require.Error(t, err)
+	require.False(t, servedOnSubscription(ctx))
+}
+
+func TestDispatchWithFallbackBoundsManagedAccountRotationByTime(t *testing.T) {
+	leaser := &scriptedSubscriptionLeaser{leases: []subscriptions.Lease{
+		{AccountID: "opaque-a", AccessToken: "token-a"},
+		{AccountID: "opaque-b", AccessToken: "token-b"},
+	}}
+	client := &fakeClient{name: providers.ProviderAnthropic, outcomes: []fakeOutcome{
+		{err: &providers.UpstreamErrorResponse{Status: http.StatusTooManyRequests}},
+		{writeBytes: []byte("must not run")},
+	}}
+	svc := newServiceWithProviders(t, map[string]providers.Client{providers.ProviderAnthropic: client}).WithManagedSubscriptions(leaser)
+	startedAt := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	clockCalls := 0
+	svc.now = func() time.Time {
+		clockCalls++
+		if clockCalls == 1 {
+			return startedAt
+		}
+		return startedAt.Add(11 * time.Second)
+	}
+
+	_, err := svc.dispatchWithFallback(managedSubscriptionTestContext(), failoverInputs{
+		w:               httptest.NewRecorder(),
+		initialDecision: router.Decision{Model: "claude-opus-4-8", Provider: providers.ProviderAnthropic},
+		bindings:        []catalog.ProviderBinding{{Provider: providers.ProviderAnthropic}},
+		attempt: func(ctx context.Context, decision router.Decision, client providers.Client) error {
+			return client.Proxy(ctx, decision, providers.PreparedRequest{}, httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/v1/messages", nil))
+		},
+	})
+
+	require.Error(t, err)
+	require.Equal(t, 1, client.calls)
+	require.Equal(t, 1, leaser.next)
 }
 
 func TestDispatchWithFallbackDisablesRejectedManagedAccountBeforeRotation(t *testing.T) {

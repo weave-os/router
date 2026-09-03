@@ -12,50 +12,6 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-const createModelRouterSubscriptionAccount = `-- name: CreateModelRouterSubscriptionAccount :one
-INSERT INTO router.model_router_subscription_accounts (
-  api_key_id, provider, external_account_id, refresh_token_ciphertext
-)
-VALUES ($1::uuid, $2::varchar, $3::varchar, $4::bytea)
-RETURNING id, api_key_id, provider, external_account_id, refresh_token_ciphertext, enabled, cooldown_until, created_at, updated_at
-`
-
-type CreateModelRouterSubscriptionAccountParams struct {
-	APIKeyID               uuid.UUID
-	Provider               string
-	ExternalAccountID      string
-	RefreshTokenCiphertext []byte
-}
-
-// CreateModelRouterSubscriptionAccount
-//
-//	INSERT INTO router.model_router_subscription_accounts (
-//	  api_key_id, provider, external_account_id, refresh_token_ciphertext
-//	)
-//	VALUES ($1::uuid, $2::varchar, $3::varchar, $4::bytea)
-//	RETURNING id, api_key_id, provider, external_account_id, refresh_token_ciphertext, enabled, cooldown_until, created_at, updated_at
-func (q *Queries) CreateModelRouterSubscriptionAccount(ctx context.Context, arg CreateModelRouterSubscriptionAccountParams) (RouterModelRouterSubscriptionAccount, error) {
-	row := q.db.QueryRow(ctx, createModelRouterSubscriptionAccount,
-		arg.APIKeyID,
-		arg.Provider,
-		arg.ExternalAccountID,
-		arg.RefreshTokenCiphertext,
-	)
-	var i RouterModelRouterSubscriptionAccount
-	err := row.Scan(
-		&i.ID,
-		&i.APIKeyID,
-		&i.Provider,
-		&i.ExternalAccountID,
-		&i.RefreshTokenCiphertext,
-		&i.Enabled,
-		&i.CooldownUntil,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-	)
-	return i, err
-}
-
 const deleteModelRouterSubscriptionAccount = `-- name: DeleteModelRouterSubscriptionAccount :execrows
 DELETE FROM router.model_router_subscription_accounts
 WHERE id = $1::uuid AND api_key_id = $2::uuid
@@ -122,6 +78,38 @@ func (q *Queries) ListModelRouterSubscriptionAccounts(ctx context.Context, apiKe
 	return items, nil
 }
 
+const updateModelRouterSubscriptionAccountCooldown = `-- name: UpdateModelRouterSubscriptionAccountCooldown :execrows
+UPDATE router.model_router_subscription_accounts
+SET cooldown_until = $1::timestamp,
+    updated_at = CURRENT_TIMESTAMP
+WHERE id = $2::uuid
+  AND api_key_id = $3::uuid
+  AND enabled = TRUE
+`
+
+type UpdateModelRouterSubscriptionAccountCooldownParams struct {
+	CooldownUntil pgtype.Timestamp
+	ID            uuid.UUID
+	APIKeyID      uuid.UUID
+}
+
+// A stale replica must not turn an operator-disabled account back on while
+// persisting a quota cooldown.
+//
+//	UPDATE router.model_router_subscription_accounts
+//	SET cooldown_until = $1::timestamp,
+//	    updated_at = CURRENT_TIMESTAMP
+//	WHERE id = $2::uuid
+//	  AND api_key_id = $3::uuid
+//	  AND enabled = TRUE
+func (q *Queries) UpdateModelRouterSubscriptionAccountCooldown(ctx context.Context, arg UpdateModelRouterSubscriptionAccountCooldownParams) (int64, error) {
+	result, err := q.db.Exec(ctx, updateModelRouterSubscriptionAccountCooldown, arg.CooldownUntil, arg.ID, arg.APIKeyID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const updateModelRouterSubscriptionAccountState = `-- name: UpdateModelRouterSubscriptionAccountState :execrows
 UPDATE router.model_router_subscription_accounts
 SET enabled = $1::boolean,
@@ -182,4 +170,60 @@ func (q *Queries) UpdateModelRouterSubscriptionRefreshToken(ctx context.Context,
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const upsertModelRouterSubscriptionAccount = `-- name: UpsertModelRouterSubscriptionAccount :one
+INSERT INTO router.model_router_subscription_accounts (
+  api_key_id, provider, external_account_id, refresh_token_ciphertext
+)
+VALUES ($1::uuid, $2::varchar, $3::varchar, $4::bytea)
+ON CONFLICT (api_key_id, provider, external_account_id)
+DO UPDATE SET
+  refresh_token_ciphertext = EXCLUDED.refresh_token_ciphertext,
+  enabled = TRUE,
+  cooldown_until = NULL,
+  updated_at = CURRENT_TIMESTAMP
+RETURNING id, api_key_id, provider, external_account_id, refresh_token_ciphertext, enabled, cooldown_until, created_at, updated_at
+`
+
+type UpsertModelRouterSubscriptionAccountParams struct {
+	APIKeyID               uuid.UUID
+	Provider               string
+	ExternalAccountID      string
+	RefreshTokenCiphertext []byte
+}
+
+// UpsertModelRouterSubscriptionAccount
+//
+//	INSERT INTO router.model_router_subscription_accounts (
+//	  api_key_id, provider, external_account_id, refresh_token_ciphertext
+//	)
+//	VALUES ($1::uuid, $2::varchar, $3::varchar, $4::bytea)
+//	ON CONFLICT (api_key_id, provider, external_account_id)
+//	DO UPDATE SET
+//	  refresh_token_ciphertext = EXCLUDED.refresh_token_ciphertext,
+//	  enabled = TRUE,
+//	  cooldown_until = NULL,
+//	  updated_at = CURRENT_TIMESTAMP
+//	RETURNING id, api_key_id, provider, external_account_id, refresh_token_ciphertext, enabled, cooldown_until, created_at, updated_at
+func (q *Queries) UpsertModelRouterSubscriptionAccount(ctx context.Context, arg UpsertModelRouterSubscriptionAccountParams) (RouterModelRouterSubscriptionAccount, error) {
+	row := q.db.QueryRow(ctx, upsertModelRouterSubscriptionAccount,
+		arg.APIKeyID,
+		arg.Provider,
+		arg.ExternalAccountID,
+		arg.RefreshTokenCiphertext,
+	)
+	var i RouterModelRouterSubscriptionAccount
+	err := row.Scan(
+		&i.ID,
+		&i.APIKeyID,
+		&i.Provider,
+		&i.ExternalAccountID,
+		&i.RefreshTokenCiphertext,
+		&i.Enabled,
+		&i.CooldownUntil,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
 }

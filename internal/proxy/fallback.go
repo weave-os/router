@@ -250,12 +250,12 @@ func (s *Service) dispatchWithFallback(ctx context.Context, in failoverInputs) (
 				return i, leaseErr
 			}
 			managedBinding = managedBinding || managedAttempt
-			if managedAttempt {
-				markManagedSubscriptionServed(ctx)
-			}
 			attemptErr = in.attempt(credentialCtx, decision, p)
 			lease.Release()
 			if attemptErr == nil {
+				if managedAttempt {
+					markManagedSubscriptionServed(ctx)
+				}
 				if i > 0 {
 					log.Info("dispatchWithFallback: succeeded on fallback",
 						"model", decision.Model,
@@ -276,6 +276,16 @@ func (s *Service) dispatchWithFallback(ctx context.Context, in failoverInputs) (
 				return i, attemptErr
 			}
 			if rotateManagedAccount {
+				if spent := s.clockNow().Sub(retryStart); spent >= sameBindingRetryBudget {
+					log.Warn("dispatchWithFallback: subscription account rotation budget spent, not retrying",
+						"model", decision.Model,
+						"provider", b.Provider,
+						"spent_ms", spent.Milliseconds(),
+						"budget_ms", sameBindingRetryBudget.Milliseconds(),
+						"subscription_account_attempt", sb+1,
+						"err", attemptErr)
+					break
+				}
 				if in.buf != nil {
 					in.buf.Discard()
 				}

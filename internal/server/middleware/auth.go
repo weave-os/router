@@ -102,17 +102,16 @@ func withAPIKey(svc *auth.Service, byokRequiresOptIn bool) gin.HandlerFunc {
 			if svc.SubscriptionAccountsEnabled() {
 				accounts, listErr := svc.ListSubscriptionAccounts(ctx, apiKey.ID)
 				if listErr != nil {
-					observability.FromContext(ctx).Error("Failed to load subscription account enrollment", "api_key_id", apiKey.ID, "err", listErr)
-					c.Header("Retry-After", "1")
-					c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{"error": "subscription_accounts_unavailable"})
-					return
-				}
-				enrolled := make(map[auth.SubscriptionProvider]struct{})
-				for _, account := range accounts {
-					enrolled[account.Provider] = struct{}{}
-				}
-				if len(enrolled) > 0 {
-					ctx = context.WithValue(ctx, proxy.ManagedSubscriptionProvidersContextKey{}, enrolled)
+					observability.FromContext(ctx).Error("Failed to load subscription account enrollment", "err", listErr)
+					ctx = context.WithValue(ctx, proxy.ManagedSubscriptionEnrollmentUnavailableContextKey{}, true)
+				} else {
+					enrolled := make(map[auth.SubscriptionProvider]struct{})
+					for _, account := range accounts {
+						enrolled[account.Provider] = struct{}{}
+					}
+					if len(enrolled) > 0 {
+						ctx = context.WithValue(ctx, proxy.ManagedSubscriptionProvidersContextKey{}, enrolled)
+					}
 				}
 			}
 		}

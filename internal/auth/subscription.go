@@ -40,9 +40,10 @@ type CreateSubscriptionAccountParams struct {
 
 // SubscriptionAccountRepository persists encrypted subscription account state.
 type SubscriptionAccountRepository interface {
-	CreateSubscriptionAccount(context.Context, CreateSubscriptionAccountParams) (*SubscriptionAccount, error)
+	UpsertSubscriptionAccount(context.Context, CreateSubscriptionAccountParams) (*SubscriptionAccount, error)
 	ListSubscriptionAccounts(context.Context, string) ([]*SubscriptionAccount, error)
 	UpdateSubscriptionAccountState(context.Context, string, string, bool, *time.Time) error
+	UpdateSubscriptionAccountCooldown(context.Context, string, string, time.Time) error
 	UpdateSubscriptionRefreshToken(context.Context, string, string, []byte) error
 	DeleteSubscriptionAccount(context.Context, string, string) error
 }
@@ -74,10 +75,19 @@ func (s *Service) AddSubscriptionAccount(ctx context.Context, params CreateSubsc
 	if err != nil {
 		return nil, err
 	}
-	return s.subscriptionAccounts.CreateSubscriptionAccount(ctx, CreateSubscriptionAccountParams{
+	return s.subscriptionAccounts.UpsertSubscriptionAccount(ctx, CreateSubscriptionAccountParams{
 		APIKeyID: params.APIKeyID, Provider: params.Provider,
 		ExternalAccountID: params.ExternalAccountID, RefreshToken: ciphertext,
 	})
+}
+
+// UpdateSubscriptionAccountCooldown records quota state without changing the
+// durable enabled flag.
+func (s *Service) UpdateSubscriptionAccountCooldown(ctx context.Context, apiKeyID, accountID string, cooldownUntil time.Time) error {
+	if s.subscriptionAccounts == nil {
+		return errors.New("subscription accounts are not configured")
+	}
+	return s.subscriptionAccounts.UpdateSubscriptionAccountCooldown(ctx, accountID, apiKeyID, cooldownUntil)
 }
 
 // ListSubscriptionAccounts returns account metadata without decrypting tokens.

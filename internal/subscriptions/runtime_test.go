@@ -19,6 +19,7 @@ type runtimeStore struct {
 	refreshTokens  map[string][]byte
 	rotatedTokens  map[string][]byte
 	enabledUpdates map[string]bool
+	cooldowns      map[string]time.Time
 	stateErr       error
 }
 
@@ -48,6 +49,13 @@ func (s *runtimeStore) UpdateSubscriptionAccountState(_ context.Context, _ strin
 	return s.stateErr
 }
 
+func (s *runtimeStore) UpdateSubscriptionAccountCooldown(_ context.Context, _ string, accountID string, cooldownUntil time.Time) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.cooldowns[accountID] = cooldownUntil
+	return s.stateErr
+}
+
 type runtimeRefreshFunc func(context.Context, subscriptions.Provider, string) (subscriptions.RefreshedToken, error)
 
 func (f runtimeRefreshFunc) Refresh(ctx context.Context, provider subscriptions.Provider, token string) (subscriptions.RefreshedToken, error) {
@@ -57,8 +65,27 @@ func (f runtimeRefreshFunc) Refresh(ctx context.Context, provider subscriptions.
 func newRuntimeStore(accounts ...*auth.SubscriptionAccount) *runtimeStore {
 	return &runtimeStore{
 		accounts: accounts, refreshTokens: make(map[string][]byte),
-		rotatedTokens: make(map[string][]byte), enabledUpdates: make(map[string]bool),
+		rotatedTokens: make(map[string][]byte), enabledUpdates: make(map[string]bool), cooldowns: make(map[string]time.Time),
 	}
+}
+
+func TestRuntimeCooldownDoesNotWriteEnabledState(t *testing.T) {
+	store := newRuntimeStore(&auth.SubscriptionAccount{
+		ID: "account-1", APIKeyID: "owner-1", Provider: auth.SubscriptionProviderClaude, Enabled: true,
+	})
+	store.refreshTokens["account-1"] = []byte("refresh-secret")
+	runtime := subscriptions.NewRuntime(store, runtimeRefreshFunc(func(context.Context, subscriptions.Provider, string) (subscriptions.RefreshedToken, error) {
+		return subscriptions.RefreshedToken{AccessToken: "access", RefreshToken: "refresh-secret", ExpiresAt: time.Now().Add(time.Hour)}, nil
+	}), nil)
+	lease, present, err := runtime.Lease(context.Background(), "owner-1", subscriptions.ProviderClaude, "")
+	require.NoError(t, err)
+	require.True(t, present)
+	lease.Release()
+
+	resetAt := time.Now().Add(time.Minute)
+	require.NoError(t, runtime.Cooldown(context.Background(), "owner-1", subscriptions.ProviderClaude, "account-1", resetAt))
+	require.Equal(t, resetAt, store.cooldowns["account-1"])
+	require.Empty(t, store.enabledUpdates)
 }
 
 func TestRuntimeCoalescesRefreshAndPersistsRotation(t *testing.T) {

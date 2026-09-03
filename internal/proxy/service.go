@@ -2894,6 +2894,9 @@ func (s *Service) maybeRepinOnRefusal(ctx context.Context, obs *refusalObserver,
 var anthropicPingFrame = []byte(sseEvent("ping", `{"type":"ping"}`))
 
 func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.ResponseWriter, r *http.Request) error {
+	if managedSubscriptionEnrollmentUnavailable(ctx) {
+		return ErrSubscriptionPoolUnavailable
+	}
 	ctx, err := s.checkUserMonthlySpendLimit(ctx, r.Header, r.URL.Path)
 	if err != nil {
 		return err
@@ -3953,6 +3956,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	// decision.Model names the rescuer rather than what failed.
 	primaryModel := decision.Model
 	var winnerIdx int
+	subscriptionPoolFailure := false
 	if attemptBuildErr != nil {
 		// Nothing was dispatched — enters the rescue chain as if every binding pre-committed failed.
 		winnerIdx, proxyErr = -1, attemptBuildErr
@@ -3967,9 +3971,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			flushErr:               flushUpstreamErrorAsAnthropic,
 			deferFlushOnExhaustion: baselineViable || subscriptionRetryEligible || siblingViable,
 		})
-		if isSubscriptionPoolError(proxyErr) {
-			return proxyErr
-		}
+		subscriptionPoolFailure = isSubscriptionPoolError(proxyErr)
 	}
 
 	// The deferred upstream error must reach the client exactly once: each
@@ -3977,7 +3979,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	// Writing it forecloses any later rescue.
 	deferredErrFlushed := false
 	flushDeferredErr := func() {
-		if deferredErrFlushed {
+		if deferredErrFlushed || subscriptionPoolFailure {
 			return
 		}
 		deferredErrFlushed = true
@@ -4067,9 +4069,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 				attempt:         baselineAttempt,
 				flushErr:        flushUpstreamErrorAsAnthropic,
 			})
-			if isSubscriptionPoolError(proxyErr) {
-				return proxyErr
-			}
+			subscriptionPoolFailure = isSubscriptionPoolError(proxyErr)
 			decision = baselineDecision
 			bindings = baselineBindings
 			baselineAttempted = true
@@ -4142,9 +4142,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 				// the sibling rescue below can still serve the turn.
 				deferFlushOnExhaustion: siblingViable,
 			})
-			if isSubscriptionPoolError(proxyErr) {
-				return proxyErr
-			}
+			subscriptionPoolFailure = isSubscriptionPoolError(proxyErr)
 			bindings = subBindings
 			subscriptionFailoverUsed = proxyErr == nil
 		}
@@ -4215,9 +4213,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 				attempt:         siblingAttempt,
 				flushErr:        flushUpstreamErrorAsAnthropic,
 			})
-			if isSubscriptionPoolError(proxyErr) {
-				return proxyErr
-			}
+			subscriptionPoolFailure = isSubscriptionPoolError(proxyErr)
 			decision = siblingDecision
 			bindings = siblingBindings
 			marker = siblingMarker
@@ -5653,6 +5649,9 @@ const (
 // ProxyOpenAIChatCompletion routes an OpenAI Chat Completion request,
 // translating cross-format when the decision picks a non-OpenAI provider.
 func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w http.ResponseWriter, r *http.Request) error {
+	if managedSubscriptionEnrollmentUnavailable(ctx) {
+		return ErrSubscriptionPoolUnavailable
+	}
 	ctx, err := s.checkUserMonthlySpendLimit(ctx, r.Header, r.URL.Path)
 	if err != nil {
 		return err
@@ -6517,9 +6516,6 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		attempt:         attempt,
 		flushErr:        flushBufferedIfPresent,
 	})
-	if isSubscriptionPoolError(proxyErr) {
-		return proxyErr
-	}
 	finalProvider := primaryProvider
 	if winnerIdx >= 0 && winnerIdx < len(bindings) {
 		finalProvider = bindings[winnerIdx].Provider

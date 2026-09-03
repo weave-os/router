@@ -19,6 +19,7 @@ type AccountStore interface {
 	SubscriptionRefreshToken(context.Context, string, string) ([]byte, error)
 	UpdateSubscriptionRefreshToken(context.Context, string, string, []byte) error
 	UpdateSubscriptionAccountState(context.Context, string, string, bool, *time.Time) error
+	UpdateSubscriptionAccountCooldown(context.Context, string, string, time.Time) error
 }
 
 // Lease is a short-lived provider credential. Release must be called exactly once.
@@ -96,7 +97,7 @@ func (r *Runtime) Cooldown(ctx context.Context, ownerID string, provider Provide
 	if !r.manager.Cooldown(ownerID, provider, accountID, resetAt) {
 		return ErrNoAvailableAccount
 	}
-	return r.store.UpdateSubscriptionAccountState(ctx, ownerID, accountID, true, &resetAt)
+	return r.store.UpdateSubscriptionAccountCooldown(ctx, ownerID, accountID, resetAt)
 }
 
 func (r *Runtime) Disable(ctx context.Context, ownerID string, provider Provider, accountID string) error {
@@ -207,7 +208,7 @@ func (r *Runtime) recordRefreshFailure(ctx context.Context, ownerID, accountID s
 		return refreshErr
 	}
 	cooldownUntil := r.clock().Add(time.Minute)
-	if err := r.store.UpdateSubscriptionAccountState(ctx, ownerID, accountID, true, &cooldownUntil); err != nil {
+	if err := r.store.UpdateSubscriptionAccountCooldown(ctx, ownerID, accountID, cooldownUntil); err != nil {
 		observability.FromContext(ctx).Error("Failed to persist subscription account cooldown after token refresh failure",
 			"provider", provider, "account_id", accountID, "err", err)
 		return errors.Join(refreshErr, fmt.Errorf("persist subscription account cooldown: %w", err))

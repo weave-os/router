@@ -95,6 +95,27 @@ func (f *fakeAPIKeyRepository) SoftDelete(ctx context.Context, installationID, i
 
 type fakeInstallationRepository struct{}
 
+type failingSubscriptionAccountRepository struct{ err error }
+
+func (r failingSubscriptionAccountRepository) UpsertSubscriptionAccount(context.Context, auth.CreateSubscriptionAccountParams) (*auth.SubscriptionAccount, error) {
+	return nil, r.err
+}
+func (r failingSubscriptionAccountRepository) ListSubscriptionAccounts(context.Context, string) ([]*auth.SubscriptionAccount, error) {
+	return nil, r.err
+}
+func (r failingSubscriptionAccountRepository) UpdateSubscriptionAccountState(context.Context, string, string, bool, *time.Time) error {
+	return r.err
+}
+func (r failingSubscriptionAccountRepository) UpdateSubscriptionAccountCooldown(context.Context, string, string, time.Time) error {
+	return r.err
+}
+func (r failingSubscriptionAccountRepository) UpdateSubscriptionRefreshToken(context.Context, string, string, []byte) error {
+	return r.err
+}
+func (r failingSubscriptionAccountRepository) DeleteSubscriptionAccount(context.Context, string, string) error {
+	return r.err
+}
+
 func (fakeInstallationRepository) Create(ctx context.Context, params auth.CreateInstallationParams) (*auth.Installation, error) {
 	return nil, errors.New("not used")
 }
@@ -189,6 +210,33 @@ func TestWithAuthPrefersRouterKeyHeader(t *testing.T) {
 	engine.ServeHTTP(rr, req)
 
 	require.Equal(t, http.StatusOK, rr.Code)
+}
+
+func TestWithAuthLeavesControlPlaneAvailableWhenSubscriptionEnrollmentLookupFails(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	const routerToken = "rk_subscription_lookup"
+	hash, prefix, suffix := auth.APITokenFingerprint(routerToken)
+	apiKey := &auth.APIKey{ID: "key-subscription-lookup", KeyHash: hash, KeyPrefix: prefix, KeySuffix: suffix}
+	repo := &fakeAPIKeyRepository{byHash: map[string]fakeKeyRow{
+		hash: {apiKey: apiKey, installation: &auth.Installation{ID: "inst-1"}},
+	}}
+	svc := auth.NewService(fakeInstallationRepository{}, repo, nil, nil, auth.NoOpAPIKeyCache{}, nil, time.Now).
+		WithSubscriptionAccounts(failingSubscriptionAccountRepository{err: errors.New("database unavailable")})
+
+	engine := gin.New()
+	engine.Use(middleware.WithAuth(svc, false))
+	engine.GET("/validate", func(c *gin.Context) {
+		unavailable, _ := c.Request.Context().Value(proxy.ManagedSubscriptionEnrollmentUnavailableContextKey{}).(bool)
+		require.True(t, unavailable)
+		c.Status(http.StatusOK)
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/validate", nil)
+	req.Header.Set(middleware.RouterKeyHeader, routerToken)
+	recorder := httptest.NewRecorder()
+	engine.ServeHTTP(recorder, req)
+
+	require.Equal(t, http.StatusOK, recorder.Code)
 }
 
 func TestWithAuthPropagatesContentCaptureOverride(t *testing.T) {

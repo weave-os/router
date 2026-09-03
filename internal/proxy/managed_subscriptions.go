@@ -18,6 +18,11 @@ import (
 // so disabled or cooling accounts still fail closed instead of spending credits.
 type ManagedSubscriptionProvidersContextKey struct{}
 
+// ManagedSubscriptionEnrollmentUnavailableContextKey marks a request whose
+// enrollment snapshot could not be loaded. Control-plane handlers remain
+// available, while inference fails closed before any paid upstream dispatch.
+type ManagedSubscriptionEnrollmentUnavailableContextKey struct{}
+
 // ManagedSubscriptionUsageContextKey carries per-request billing attribution.
 type ManagedSubscriptionUsageContextKey struct{}
 
@@ -67,6 +72,11 @@ func managedSubscriptionCanServe(ctx context.Context, provider, model string) bo
 	return eligible && managedSubscriptionEnrolled(ctx, poolProvider)
 }
 
+func managedSubscriptionEnrollmentUnavailable(ctx context.Context) bool {
+	unavailable, _ := ctx.Value(ManagedSubscriptionEnrollmentUnavailableContextKey{}).(bool)
+	return unavailable
+}
+
 func markManagedSubscriptionServed(ctx context.Context) {
 	usage, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage)
 	if usage != nil {
@@ -81,7 +91,14 @@ func managedSubscriptionServed(ctx context.Context) bool {
 
 func (s *Service) leaseManagedSubscription(ctx context.Context, provider, model string) (context.Context, subscriptions.Lease, bool, error) {
 	poolProvider, eligible := managedSubscriptionProviderFromUpstream(provider, model)
-	if !eligible || s.managedSubscriptions == nil || !managedSubscriptionEnrolled(ctx, poolProvider) || CredentialsFromContext(ctx) != nil {
+	if !eligible || s.managedSubscriptions == nil {
+		return ctx, subscriptions.Lease{}, false, nil
+	}
+	if managedSubscriptionEnrollmentUnavailable(ctx) {
+		return ctx, subscriptions.Lease{}, true, ErrSubscriptionPoolUnavailable
+	}
+	currentCredentials := CredentialsFromContext(ctx)
+	if !managedSubscriptionEnrolled(ctx, poolProvider) || (currentCredentials != nil && currentCredentials.OAuth) {
 		return ctx, subscriptions.Lease{}, false, nil
 	}
 	lease, present, err := s.managedSubscriptions.Lease(ctx, apiKeyIDFromContext(ctx), poolProvider, ClientIdentityFrom(ctx).SessionID)
