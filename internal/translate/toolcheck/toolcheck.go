@@ -14,6 +14,7 @@
 package toolcheck
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 
@@ -343,8 +344,8 @@ func normalizeArgs(args string, required map[string]struct{}) (out string, actio
 // detailFromError renders the first leaf validation error as
 // "/instance/path: message", truncated.
 func detailFromError(err error) string {
-	verr, ok := err.(*jsonschema.ValidationError)
-	if !ok {
+	var verr *jsonschema.ValidationError
+	if !errors.As(err, &verr) {
 		return truncateDetail(err.Error())
 	}
 	leaf := firstLeaf(verr)

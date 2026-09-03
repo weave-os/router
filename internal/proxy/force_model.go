@@ -259,7 +259,7 @@ func stripEffortSuffix(model string) (effort string, modelOut string) {
 	if !looksLikeEffortAlias(tail) {
 		return "", model
 	}
-	return translate.CanonicalizeEffort(tail), model[:idx]
+	return router.CanonicalizeEffort(tail), model[:idx]
 }
 
 // looksLikeEffortAlias guards against future catalog IDs that contain `:`,

@@ -8,7 +8,6 @@ import (
 	"workweave/router/internal/providers"
 	"workweave/router/internal/router"
 	"workweave/router/internal/router/catalog"
-	"workweave/router/internal/translate"
 )
 
 // RosterMapper maps a catalog model to the identifier understood by a policy
@@ -432,7 +431,7 @@ func splitEffort(armID string) (string, string) {
 	for i := len(armID) - 1; i > 0; i-- {
 		if armID[i] == ':' {
 			suffix := armID[i+1:]
-			if translate.CanonicalizeEffort(suffix) == suffix && translate.IsValidEffort(suffix) {
+			if router.CanonicalizeEffort(suffix) == suffix && router.IsValidEffort(suffix) {
 				return armID[:i], suffix
 			}
 			return armID, ""

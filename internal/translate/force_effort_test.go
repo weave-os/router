@@ -150,53 +150,6 @@ func itoaLocal(n int) string {
 	return string(b[i:])
 }
 
-// TestCanonicalizeEffort maps alias and canonical forms; unrecognized values
-// pass through unchanged so IsValidEffort can distinguish typos.
-func TestCanonicalizeEffort(t *testing.T) {
-	cases := []struct {
-		in   string
-		want string
-	}{
-		{"low", "low"},
-		{"LOW", "low"},
-		{"fast", "low"},
-		{"minimal", "low"},
-		{"min", "low"},
-		{"medium", "medium"},
-		{"med", "medium"},
-		{"high", "high"},
-		{"max", "max"},
-		{"xhigh", "xhigh"},
-		{"ultra", "xhigh"},
-		{"ULTRA", "xhigh"},
-		{"garbage", "garbage"},
-	}
-	for _, tc := range cases {
-		t.Run(tc.in, func(t *testing.T) {
-			assert.Equal(t, tc.want, translate.CanonicalizeEffort(tc.in))
-		})
-	}
-}
-
-// IsValidEffort accepts canonical levels and alias forms; rejects typos.
-func TestIsValidEffort(t *testing.T) {
-	valid := []string{
-		"low", "medium", "high", "max", "xhigh",
-		"fast", "minimal", "ultra", "min", "med",
-	}
-	for _, v := range valid {
-		t.Run(v, func(t *testing.T) {
-			assert.True(t, translate.IsValidEffort(v))
-		})
-	}
-	invalid := []string{"garbage", ""}
-	for _, v := range invalid {
-		t.Run(v+"_invalid", func(t *testing.T) {
-			assert.False(t, translate.IsValidEffort(v))
-		})
-	}
-}
-
 // TestResolveForceEffort applies per-model xhigh cap (xhigh→max on
 // non-CapXhighEffort targets).
 func TestResolveForceEffort(t *testing.T) {

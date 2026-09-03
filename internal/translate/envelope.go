@@ -1126,45 +1126,13 @@ const (
 	effortXhigh  = "xhigh"
 )
 
-// CanonicalizeEffort maps user-facing aliases (fast/minimal/ultra) to canonical
-// wire strings (low/medium/high/max/xhigh). Unknown values pass through so
-// IsValidEffort can reject typos at the boundary.
-func CanonicalizeEffort(level string) string {
-	switch strings.ToLower(strings.TrimSpace(level)) {
-	case "fast", "low", "minimal", "min":
-		return effortLow
-	case "medium", "med":
-		return effortMedium
-	case "high":
-		return effortHigh
-	case "max":
-		return effortMax
-	case "ultra", "xhigh":
-		return effortXhigh
-	default:
-		return level
-	}
-}
-
-// IsValidEffort reports whether the canonicalized level is one the router
-// accepts as wire output. Returns false for typos so middleware can 400
-// rather than forward garbage to a provider.
-func IsValidEffort(level string) bool {
-	switch CanonicalizeEffort(level) {
-	case effortLow, effortMedium, effortHigh, effortMax, effortXhigh:
-		return true
-	default:
-		return false
-	}
-}
-
 // ResolveForceEffort canonicalizes level and applies the per-model cap
 // (xhigh → max on non-CapXhighEffort). Empty input → "".
 func ResolveForceEffort(caps router.ModelSpec, level string) string {
 	if level == "" {
 		return ""
 	}
-	canonical := CanonicalizeEffort(level)
+	canonical := router.CanonicalizeEffort(level)
 	if canonical == effortXhigh && !caps.Supports(router.CapXhighEffort) {
 		return effortMax
 	}

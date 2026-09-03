@@ -2,6 +2,7 @@ package feedback_test
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -14,7 +15,6 @@ import (
 	"workweave/router/internal/proxy"
 
 	"github.com/gin-gonic/gin"
-	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -71,7 +71,7 @@ func TestGetContextHandler_ValidTokenReturnsContext(t *testing.T) {
 func TestGetContextHandler_UnknownRequestStillRenders(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	signer := token.NewSigner("secret", time.Hour)
-	repo := &fakeFeedbackRepo{ctxErr: pgx.ErrNoRows}
+	repo := &fakeFeedbackRepo{ctxErr: sql.ErrNoRows}
 	engine := gin.New()
 	engine.GET("/v1/feedback/link/:token", feedbackapi.GetContextHandler(newService(repo, signer)))
 

@@ -39,6 +39,13 @@ jobs:
           fi
           echo "BASE_REF=${BASE_REF}" >> $GITHUB_ENV
 
+      - name: Check down migrations are precise
+        run: |
+          if grep -niE '\bIF EXISTS\b' db/migrations/*.down.sql; then
+            echo "::error::Down migrations must be precise rollbacks"
+            exit 1
+          fi
+
       - name: Check migration format and ordering
         run: |
           set -o pipefail
