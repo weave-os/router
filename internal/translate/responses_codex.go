@@ -49,30 +49,28 @@ func codexFeedbackSkillInvocation(input gjson.Result) bool {
 	if !input.IsArray() {
 		return false
 	}
-	items := input.Array()
-	lastUserIndex := -1
-	for index, item := range items {
-		if item.Get("type").Str != "message" || item.Get("role").Str != "user" {
-			continue
-		}
-		if codexFeedbackSkillInstructions(item.Get("content")) {
-			continue
-		}
-		lastUserIndex = index
-	}
-	if lastUserIndex < 0 || !codexFeedbackCommandContent(items[lastUserIndex].Get("content")) {
-		return false
-	}
-	for _, item := range items[lastUserIndex+1:] {
+	awaitingToolOutput := false
+	matched := false
+	for _, item := range input.Array() {
 		itemType := item.Get("type").Str
+		if itemType == "message" && item.Get("role").Str == "user" {
+			content := item.Get("content")
+			if codexFeedbackCommandContent(content) {
+				awaitingToolOutput = true
+				matched = false
+			} else if !codexFeedbackSkillInstructions(content) {
+				awaitingToolOutput = false
+				matched = false
+			}
+			continue
+		}
 		if itemType != "function_call_output" && itemType != "custom_tool_call_output" {
 			continue
 		}
-		if codexFeedbackToolOutput(item.Get("output")) {
-			return true
-		}
+		matched = awaitingToolOutput && codexFeedbackToolOutput(item.Get("output"))
+		awaitingToolOutput = false
 	}
-	return false
+	return matched
 }
 
 func codexFeedbackToolOutput(output gjson.Result) bool {
