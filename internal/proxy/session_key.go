@@ -108,6 +108,10 @@ func bindRequestLogger(
 // session id alone would collapse concurrent threads onto one pin. Each
 // thread's first user message is stable across turns but distinct per
 // sub-agent, so it separates them while keeping each pin stable.
+//
+// System text substitutes for an empty first user message only when no client
+// session id is present, because it is per-turn volatile on the harnesses that
+// lead with a system message.
 func DeriveSessionKey(env *translate.RequestEnvelope, apiKeyID string) [sessionpin.SessionKeyLen]byte {
 	var clientSessionID string
 	if env != nil {
@@ -176,11 +180,14 @@ func deriveSessionKey(env *translate.RequestEnvelope, apiKeyID, clientSessionID 
 	}
 	if env != nil {
 		// First user message still splits Claude Code sub-agents that share one
-		// parent session id. OpenAI-format bodies fall back to system text when
-		// that first user message is empty so unrelated conversations do not
-		// collapse onto one pin.
+		// parent session id. The system-text fallback covers OpenAI-format
+		// bodies whose leading system message leaves that empty, but only when
+		// nothing else identifies the conversation: a client session id already
+		// separates them, and the harnesses that lead with system rewrite it
+		// per turn (cwd, timestamps), so folding it in there rerolls the key —
+		// and with it the upstream prompt_cache_key — on every turn.
 		disc := env.FirstUserMessageText()
-		if disc == "" {
+		if disc == "" && clientSessionID == "" {
 			disc = env.SystemText()
 		}
 		h.Write([]byte("first_msg:"))
