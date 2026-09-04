@@ -10,7 +10,7 @@ import (
 	"sort"
 	"strings"
 
-	"workweave/router/internal/router/hmm"
+	"weave-os/router/internal/router/hmm"
 )
 
 // Roster is the parsed generated roster document. Unknown top-level fields

@@ -3,8 +3,8 @@ package postgres
 import (
 	"testing"
 
-	"workweave/router/internal/router"
-	"workweave/router/internal/sqlc"
+	"weave-os/router/internal/router"
+	"weave-os/router/internal/sqlc"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"

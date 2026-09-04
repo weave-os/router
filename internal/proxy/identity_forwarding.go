@@ -7,7 +7,7 @@ import (
 	"net/url"
 	"strings"
 
-	"workweave/router/internal/auth"
+	"weave-os/router/internal/auth"
 )
 
 // identityBag is the JSON property bag rendered for auth.IdentityFormatJSON; empty fields omitted.

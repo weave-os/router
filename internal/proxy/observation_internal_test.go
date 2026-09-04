@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"testing"
 
-	"workweave/router/internal/observability/otel"
-	"workweave/router/internal/router"
+	"weave-os/router/internal/observability/otel"
+	"weave-os/router/internal/router"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

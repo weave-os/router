@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"workweave/router/internal/sse"
+	"weave-os/router/internal/sse"
 
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"

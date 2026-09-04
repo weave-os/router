@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"strings"
 
-	"workweave/router/internal/router"
+	"weave-os/router/internal/router"
 
 	"github.com/tidwall/gjson"
 )

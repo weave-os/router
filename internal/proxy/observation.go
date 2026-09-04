@@ -4,10 +4,10 @@ import (
 	"context"
 	"encoding/json"
 
-	"workweave/router/internal/observability"
-	"workweave/router/internal/observability/otel"
-	"workweave/router/internal/router"
-	"workweave/router/internal/timing"
+	"weave-os/router/internal/observability"
+	"weave-os/router/internal/observability/otel"
+	"weave-os/router/internal/router"
+	"weave-os/router/internal/timing"
 )
 
 // observationContext bundles per-request routing values shared by the OTel

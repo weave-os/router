@@ -7,7 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"workweave/router/internal/api/admin"
+	"weave-os/router/internal/api/admin"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"

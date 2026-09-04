@@ -1,6 +1,6 @@
 {
   "meta": {
-    "comment": "v0.41 retrain: v0.40's 13-model set + 5 AA top-performer OSS additions (workweave/router#204). The new 5 (xiaomi/mimo-v2.5, mimo-v2.5-pro, qwen/qwen3.6-35b-a3b, minimax/minimax-m2.7, z-ai/glm-5) have no RouterArena per-prompt coverage yet — they ride entirely on AA priors via --include-aa-labels, with the trainer's shrinkage_k0 backstop. Trained with the same Phase 3 AA-priors path as v0.40 plus 3-axis quality/cost/speed blend (speed_weight=0.2). centroids.bin retrained because the model set changed.",
+    "comment": "v0.41 retrain: v0.40's 13-model set + 5 AA top-performer OSS additions (weave-os/router#204). The new 5 (xiaomi/mimo-v2.5, mimo-v2.5-pro, qwen/qwen3.6-35b-a3b, minimax/minimax-m2.7, z-ai/glm-5) have no RouterArena per-prompt coverage yet — they ride entirely on AA priors via --include-aa-labels, with the trainer's shrinkage_k0 backstop. Trained with the same Phase 3 AA-priors path as v0.40 plus 3-axis quality/cost/speed blend (speed_weight=0.2). centroids.bin retrained because the model set changed.",
     "last_refreshed": "2026-05-19",
     "parent": "v0.40",
     "training_recipe": "retrain — model set expansion from v0.40."

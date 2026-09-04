@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"time"
 
-	"workweave/router/internal/auth"
+	"weave-os/router/internal/auth"
 
 	"github.com/gin-gonic/gin"
 )

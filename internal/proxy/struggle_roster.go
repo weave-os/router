@@ -4,8 +4,8 @@ import (
 	"context"
 	"strings"
 
-	"workweave/router/internal/router/hmm"
-	"workweave/router/internal/router/policy"
+	"weave-os/router/internal/router/hmm"
+	"weave-os/router/internal/router/policy"
 )
 
 // struggleClusterLadder orders clusters cheapest-to-strongest. fast/explore/low

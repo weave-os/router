@@ -5,9 +5,9 @@ import (
 	"errors"
 	"net/http"
 
-	"workweave/router/internal/billing"
-	"workweave/router/internal/observability"
-	"workweave/router/internal/proxy"
+	"weave-os/router/internal/billing"
+	"weave-os/router/internal/observability"
+	"weave-os/router/internal/proxy"
 
 	"github.com/gin-gonic/gin"
 )

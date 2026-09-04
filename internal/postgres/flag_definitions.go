@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"workweave/router/internal/flags"
-	"workweave/router/internal/sqlc"
+	"weave-os/router/internal/flags"
+	"weave-os/router/internal/sqlc"
 )
 
 // FlagDefinitionRepo publishes the compiled-in flag registry to

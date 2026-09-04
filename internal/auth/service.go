@@ -8,9 +8,9 @@ import (
 	"sync"
 	"time"
 
-	"workweave/router/internal/flags"
-	"workweave/router/internal/observability"
-	"workweave/router/internal/providers"
+	"weave-os/router/internal/flags"
+	"weave-os/router/internal/observability"
+	"weave-os/router/internal/providers"
 
 	"github.com/hashicorp/golang-lru/v2/expirable"
 )

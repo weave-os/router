@@ -7,11 +7,11 @@ import (
 	"strconv"
 	"time"
 
-	"workweave/router/internal/auth"
-	"workweave/router/internal/billing"
-	"workweave/router/internal/observability"
-	"workweave/router/internal/providers"
-	"workweave/router/internal/subscriptions"
+	"weave-os/router/internal/auth"
+	"weave-os/router/internal/billing"
+	"weave-os/router/internal/observability"
+	"weave-os/router/internal/providers"
+	"weave-os/router/internal/subscriptions"
 )
 
 // ManagedSubscriptionProvidersContextKey carries provider pools enrolled for

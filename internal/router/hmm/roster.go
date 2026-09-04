@@ -1,8 +1,8 @@
 package hmm
 
 import (
-	"workweave/router/internal/router/catalog"
-	"workweave/router/internal/router/cluster"
+	"weave-os/router/internal/router/catalog"
+	"weave-os/router/internal/router/cluster"
 )
 
 // DeployedModelsForRosterIDs maps sidecar roster IDs to catalog {model, provider} entries.

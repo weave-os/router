@@ -5,8 +5,8 @@ import (
 	"io"
 	"net/http"
 
-	"workweave/router/internal/observability"
-	"workweave/router/internal/providers"
+	"weave-os/router/internal/observability"
+	"weave-os/router/internal/providers"
 )
 
 // ReadCapped buffers up to limit bytes from r, then drains (without retaining)

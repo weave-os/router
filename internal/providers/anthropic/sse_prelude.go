@@ -9,10 +9,10 @@ import (
 	"net/http"
 	"time"
 
-	"workweave/router/internal/providers"
-	"workweave/router/internal/providers/httputil"
-	"workweave/router/internal/sse"
-	"workweave/router/internal/timing"
+	"weave-os/router/internal/providers"
+	"weave-os/router/internal/providers/httputil"
+	"weave-os/router/internal/sse"
+	"weave-os/router/internal/timing"
 )
 
 const anthropicOverloadedStatus = 529

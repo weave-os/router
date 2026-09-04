@@ -4,10 +4,10 @@ import (
 	"context"
 	"time"
 
-	"workweave/router/internal/auth"
-	"workweave/router/internal/billing"
-	"workweave/router/internal/router/catalog"
-	"workweave/router/internal/router/handover"
+	"weave-os/router/internal/auth"
+	"weave-os/router/internal/billing"
+	"weave-os/router/internal/router/catalog"
+	"weave-os/router/internal/router/handover"
 
 	"github.com/google/uuid"
 )

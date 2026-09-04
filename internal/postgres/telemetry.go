@@ -5,9 +5,9 @@ import (
 	"errors"
 	"time"
 
-	"workweave/router/internal/proxy"
-	"workweave/router/internal/router/catalog"
-	"workweave/router/internal/sqlc"
+	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/router/catalog"
+	"weave-os/router/internal/sqlc"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"

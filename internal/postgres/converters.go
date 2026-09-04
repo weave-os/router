@@ -3,11 +3,11 @@ package postgres
 import (
 	"time"
 
-	"workweave/router/internal/auth"
-	"workweave/router/internal/flags"
-	"workweave/router/internal/observability"
-	"workweave/router/internal/router"
-	"workweave/router/internal/sqlc"
+	"weave-os/router/internal/auth"
+	"weave-os/router/internal/flags"
+	"weave-os/router/internal/observability"
+	"weave-os/router/internal/router"
+	"weave-os/router/internal/sqlc"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"

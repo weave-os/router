@@ -1,7 +1,7 @@
 package proxy
 
 import (
-	"workweave/router/internal/router"
+	"weave-os/router/internal/router"
 )
 
 // effortHysteresisThreshold is the minimum WMI-score gap required for an

@@ -8,14 +8,14 @@ import (
 	"strconv"
 	"time"
 
-	"workweave/router/internal/observability"
-	"workweave/router/internal/observability/otel"
-	"workweave/router/internal/providers"
-	"workweave/router/internal/router"
-	"workweave/router/internal/router/catalog"
-	"workweave/router/internal/router/sessionpin"
-	"workweave/router/internal/router/turntype"
-	"workweave/router/internal/translate"
+	"weave-os/router/internal/observability"
+	"weave-os/router/internal/observability/otel"
+	"weave-os/router/internal/providers"
+	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/catalog"
+	"weave-os/router/internal/router/sessionpin"
+	"weave-os/router/internal/router/turntype"
+	"weave-os/router/internal/translate"
 )
 
 // ErrGeminiCrossFormatUnsupported is returned when a Gemini-source request

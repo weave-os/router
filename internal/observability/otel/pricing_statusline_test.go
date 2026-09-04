@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"workweave/router/internal/observability/otel"
+	"weave-os/router/internal/observability/otel"
 
 	"github.com/stretchr/testify/require"
 )

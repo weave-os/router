@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"workweave/router/internal/auth"
+	"weave-os/router/internal/auth"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

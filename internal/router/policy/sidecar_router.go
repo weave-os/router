@@ -9,8 +9,8 @@ import (
 
 	"github.com/google/uuid"
 
-	"workweave/router/internal/observability"
-	"workweave/router/internal/router"
+	"weave-os/router/internal/observability"
+	"weave-os/router/internal/router"
 )
 
 // ReasonRenderer converts policy metadata into the compact internal reason

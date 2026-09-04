@@ -5,9 +5,9 @@ import (
 	"database/sql"
 	"errors"
 
-	"workweave/router/internal/router"
-	"workweave/router/internal/router/sessionstrategy"
-	"workweave/router/internal/sqlc"
+	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/sessionstrategy"
+	"weave-os/router/internal/sqlc"
 
 	"github.com/google/uuid"
 )

@@ -5,9 +5,9 @@ import (
 	"context"
 	"encoding/json"
 
-	"workweave/router/internal/auth"
-	"workweave/router/internal/flags"
-	"workweave/router/internal/sqlc"
+	"weave-os/router/internal/auth"
+	"weave-os/router/internal/flags"
+	"weave-os/router/internal/sqlc"
 
 	"github.com/google/uuid"
 )

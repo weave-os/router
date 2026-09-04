@@ -8,9 +8,9 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"workweave/router/internal/api/admin"
-	"workweave/router/internal/providers"
-	"workweave/router/internal/router/cluster"
+	"weave-os/router/internal/api/admin"
+	"weave-os/router/internal/providers"
+	"weave-os/router/internal/router/cluster"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"

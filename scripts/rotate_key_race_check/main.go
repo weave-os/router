@@ -25,8 +25,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"workweave/router/internal/auth"
-	"workweave/router/internal/postgres"
+	"weave-os/router/internal/auth"
+	"weave-os/router/internal/postgres"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"

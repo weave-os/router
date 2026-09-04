@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
-	"workweave/router/internal/auth"
-	"workweave/router/internal/observability"
+	"weave-os/router/internal/auth"
+	"weave-os/router/internal/observability"
 
 	gcppubsub "cloud.google.com/go/pubsub/v2"
 	"cloud.google.com/go/pubsub/v2/apiv1/pubsubpb"

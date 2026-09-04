@@ -7,8 +7,8 @@ import (
 	"regexp"
 	"strings"
 
-	"workweave/router/internal/router"
-	"workweave/router/internal/translate/toolcheck"
+	"weave-os/router/internal/router"
+	"weave-os/router/internal/translate/toolcheck"
 
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"

@@ -3,7 +3,7 @@ package config_test
 import (
 	"testing"
 
-	"workweave/router/internal/config"
+	"weave-os/router/internal/config"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

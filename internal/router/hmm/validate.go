@@ -1,8 +1,8 @@
 package hmm
 
 import (
-	"workweave/router/internal/router/catalog"
-	"workweave/router/internal/router/policy"
+	"weave-os/router/internal/router/catalog"
+	"weave-os/router/internal/router/policy"
 )
 
 // Diagnostic re-exports policy.Diagnostic for roster-validation callers.

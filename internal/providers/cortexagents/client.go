@@ -16,10 +16,10 @@ import (
 
 	"github.com/tidwall/gjson"
 
-	"workweave/router/internal/auth"
-	"workweave/router/internal/providers/httputil"
-	"workweave/router/internal/proxy"
-	"workweave/router/internal/websearch"
+	"weave-os/router/internal/auth"
+	"weave-os/router/internal/providers/httputil"
+	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/websearch"
 )
 
 // runPath is the stateless agent endpoint: no agent object required, the spec

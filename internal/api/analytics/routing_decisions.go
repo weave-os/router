@@ -12,9 +12,9 @@ import (
 	"strings"
 	"time"
 
-	"workweave/router/internal/analytics"
-	"workweave/router/internal/observability"
-	"workweave/router/internal/server/middleware"
+	"weave-os/router/internal/analytics"
+	"weave-os/router/internal/observability"
+	"weave-os/router/internal/server/middleware"
 
 	"github.com/gin-gonic/gin"
 )

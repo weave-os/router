@@ -3,7 +3,7 @@ package translate
 import (
 	"net/http"
 
-	"workweave/router/internal/sse"
+	"weave-os/router/internal/sse"
 )
 
 // GeminiRoutingMarkerWriter wraps an http.ResponseWriter and injects a

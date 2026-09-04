@@ -9,12 +9,12 @@ import (
 	"sync"
 	"testing"
 
-	"workweave/router/internal/providers"
-	"workweave/router/internal/router"
-	"workweave/router/internal/router/policy"
-	"workweave/router/internal/router/sessionpin"
-	"workweave/router/internal/router/sessionstrategy"
-	"workweave/router/internal/translate"
+	"weave-os/router/internal/providers"
+	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/policy"
+	"weave-os/router/internal/router/sessionpin"
+	"weave-os/router/internal/router/sessionstrategy"
+	"weave-os/router/internal/translate"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"

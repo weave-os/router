@@ -3,9 +3,9 @@ package hmm
 import (
 	"strings"
 
-	"workweave/router/internal/providers"
-	"workweave/router/internal/router"
-	"workweave/router/internal/router/catalog"
+	"weave-os/router/internal/providers"
+	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/catalog"
 )
 
 var rosterAliases = map[string]string{

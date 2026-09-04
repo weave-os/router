@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"testing"
 
-	"workweave/router/internal/providers"
+	"weave-os/router/internal/providers"
 
 	"github.com/stretchr/testify/assert"
 )

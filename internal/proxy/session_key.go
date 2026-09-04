@@ -7,9 +7,9 @@ import (
 	"encoding/hex"
 	"log/slog"
 
-	"workweave/router/internal/observability"
-	"workweave/router/internal/router/sessionpin"
-	"workweave/router/internal/translate"
+	"weave-os/router/internal/observability"
+	"weave-os/router/internal/router/sessionpin"
+	"weave-os/router/internal/translate"
 
 	"github.com/google/uuid"
 )

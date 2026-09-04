@@ -14,8 +14,8 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"workweave/router/internal/router"
-	"workweave/router/internal/router/policy"
+	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/policy"
 )
 
 // DefaultTimeout bounds a single delegated policy decision. It has to hold more

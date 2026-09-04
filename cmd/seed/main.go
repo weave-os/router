@@ -15,8 +15,8 @@ import (
 	"os"
 	"time"
 
-	"workweave/router/internal/auth"
-	"workweave/router/internal/config"
+	"weave-os/router/internal/auth"
+	"weave-os/router/internal/config"
 
 	"github.com/jackc/pgx/v5"
 )

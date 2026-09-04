@@ -5,9 +5,9 @@ import (
 	"net/http"
 	"testing"
 
-	"workweave/router/internal/auth"
-	"workweave/router/internal/billing"
-	"workweave/router/internal/providers"
+	"weave-os/router/internal/auth"
+	"weave-os/router/internal/billing"
+	"weave-os/router/internal/providers"
 
 	"github.com/stretchr/testify/assert"
 )

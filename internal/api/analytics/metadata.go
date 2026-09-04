@@ -3,7 +3,7 @@ package analytics
 import (
 	"net/http"
 
-	"workweave/router/internal/analytics"
+	"weave-os/router/internal/analytics"
 
 	"github.com/gin-gonic/gin"
 )

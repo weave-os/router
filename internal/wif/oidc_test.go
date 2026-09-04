@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"workweave/router/internal/auth"
-	"workweave/router/internal/wif"
+	"weave-os/router/internal/auth"
+	"weave-os/router/internal/wif"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

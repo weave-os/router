@@ -1069,7 +1069,7 @@ for arg in "$@"; do
     fi
 
     require_cmd curl "https://curl.se"
-    url="${WEAVE_UNINSTALL_URL:-https://raw.githubusercontent.com/workweave/router/main/install/uninstall.sh}"
+    url="${WEAVE_UNINSTALL_URL:-https://raw.githubusercontent.com/weave-os/router/main/install/uninstall.sh}"
     # Pull the body into memory and exec via `bash -c` so we never touch
     # disk: `exec` replaces this process, so any temp file we wrote would
     # outlive the EXIT trap and leak indefinitely. Loading into a variable
@@ -3499,7 +3499,7 @@ weave_self_refresh() {
   # download. A failed download consumes the interval; the next hook retries.
   : >"$stamp" 2>/dev/null || return 0
 
-  local url="${WEAVE_CODEX_STATUS_URL:-https://raw.githubusercontent.com/workweave/router/main/install/codex-status.sh}"
+  local url="${WEAVE_CODEX_STATUS_URL:-https://raw.githubusercontent.com/weave-os/router/main/install/codex-status.sh}"
   local tmp="${self}.tmp.$$"
   (
     exec </dev/null
@@ -4069,7 +4069,7 @@ weave_self_refresh() {
   # (Claude calls us on every turn) don't all kick off downloads.
   : > "$stamp" 2>/dev/null || return 0
 
-  local url="${WEAVE_STATUSLINE_URL:-https://raw.githubusercontent.com/workweave/router/main/install/cc-statusline.sh}"
+  local url="${WEAVE_STATUSLINE_URL:-https://raw.githubusercontent.com/weave-os/router/main/install/cc-statusline.sh}"
   # $$ alone is not unique: two calls can run in one invocation (the periodic
   # check and a pricing-miss retry both fire on a cold cache) and would then
   # curl -o into the same path and mv over each other, installing a truncated
@@ -4221,7 +4221,7 @@ weave_sync_commands() {
     scope_args="$(sed -n 's|^`npx @workweave/router off --claude\(.*\)`$|\1|p' "$off" | head -n 1)"
   fi
 
-  local url_base="${WEAVE_COMMANDS_URL_BASE:-https://raw.githubusercontent.com/workweave/router/main/install/commands}"
+  local url_base="${WEAVE_COMMANDS_URL_BASE:-https://raw.githubusercontent.com/weave-os/router/main/install/commands}"
   local name installed raw prev tmp new_body prev_body installed_body
   (
     # Detach stdin (CC pipes JSON to us) so curl can't consume it, and silence

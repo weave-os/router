@@ -3,8 +3,8 @@ package proxy
 import (
 	"context"
 
-	"workweave/router/internal/router"
-	"workweave/router/internal/router/catalog"
+	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/catalog"
 )
 
 // ReasonSiblingFailover marks a turn served by a same-cluster candidate after

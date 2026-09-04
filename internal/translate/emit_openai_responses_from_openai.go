@@ -1,7 +1,7 @@
 package translate
 
 import (
-	"workweave/router/internal/router"
+	"weave-os/router/internal/router"
 
 	"github.com/tidwall/gjson"
 )

@@ -19,7 +19,7 @@ var (
 )
 
 func initTranslationMetrics() {
-	meter := otel.Meter("workweave/router/translation")
+	meter := otel.Meter("weave-os/router/translation")
 	compatibilityCounter, _ = meter.Int64Counter(
 		"router.translation.compatibility.exclusions",
 		metric.WithDescription("Translation compatibility exclusions observed during routing."),

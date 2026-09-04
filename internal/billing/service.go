@@ -3,8 +3,8 @@ package billing
 import (
 	"context"
 
-	"workweave/router/internal/observability"
-	"workweave/router/internal/router/catalog"
+	"weave-os/router/internal/observability"
+	"weave-os/router/internal/router/catalog"
 )
 
 // hasOverrideContextKeyT lives in billing (not middleware/proxy) so both

@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"workweave/router/internal/api/admin"
+	"weave-os/router/internal/api/admin"
 )
 
 type databasePinger interface {

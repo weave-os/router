@@ -9,10 +9,10 @@ import (
 	"strings"
 	"time"
 
-	"workweave/router/internal/observability"
-	"workweave/router/internal/router"
-	"workweave/router/internal/router/catalog"
-	"workweave/router/internal/router/policy"
+	"weave-os/router/internal/observability"
+	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/catalog"
+	"weave-os/router/internal/router/policy"
 )
 
 // ErrClusterUnavailable is returned when the cluster scorer cannot produce

@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"strings"
 
-	"workweave/router/internal/providers"
+	"weave-os/router/internal/providers"
 )
 
 // PrepareAnthropicPassthrough builds a PreparedRequest for non-routing

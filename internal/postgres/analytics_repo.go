@@ -3,8 +3,8 @@ package postgres
 import (
 	"context"
 
-	"workweave/router/internal/analytics"
-	"workweave/router/internal/sqlc"
+	"weave-os/router/internal/analytics"
+	"weave-os/router/internal/sqlc"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"

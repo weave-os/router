@@ -10,9 +10,9 @@ import (
 
 	"github.com/tidwall/gjson"
 
-	"workweave/router/internal/providers"
-	"workweave/router/internal/translate"
-	"workweave/router/internal/translate/toolcheck"
+	"weave-os/router/internal/providers"
+	"weave-os/router/internal/translate"
+	"weave-os/router/internal/translate/toolcheck"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"workweave/router/internal/api/admin"
+	"weave-os/router/internal/api/admin"
 )
 
 type databasePingerFunc func(context.Context) error

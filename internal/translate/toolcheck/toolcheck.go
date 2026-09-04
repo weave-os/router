@@ -24,7 +24,7 @@ import (
 	"golang.org/x/text/language"
 	"golang.org/x/text/message"
 
-	"workweave/router/internal/observability"
+	"weave-os/router/internal/observability"
 )
 
 // localePrinter renders validation-error messages for Issue.Detail.

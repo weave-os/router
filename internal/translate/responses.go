@@ -14,8 +14,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"workweave/router/internal/router"
-	"workweave/router/internal/sse"
+	"weave-os/router/internal/router"
+	"weave-os/router/internal/sse"
 
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"

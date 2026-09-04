@@ -1,7 +1,7 @@
 package middleware
 
 import (
-	"workweave/router/internal/timing"
+	"weave-os/router/internal/timing"
 
 	"github.com/gin-gonic/gin"
 )

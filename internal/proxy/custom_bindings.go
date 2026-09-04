@@ -4,9 +4,9 @@ import (
 	"context"
 	"sort"
 
-	"workweave/router/internal/auth"
-	"workweave/router/internal/providers"
-	"workweave/router/internal/router/catalog"
+	"weave-os/router/internal/auth"
+	"weave-os/router/internal/providers"
+	"weave-os/router/internal/router/catalog"
 )
 
 // customBindingsForRequest derives configuration-declared provider bindings

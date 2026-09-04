@@ -21,9 +21,9 @@ import (
 	"errors"
 	"fmt"
 
-	"workweave/router/internal/observability"
-	"workweave/router/internal/router"
-	"workweave/router/internal/router/policy"
+	"weave-os/router/internal/observability"
+	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/policy"
 )
 
 // ErrPolicyUnavailable signals the RL strategy could not produce a decision

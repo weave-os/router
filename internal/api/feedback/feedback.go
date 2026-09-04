@@ -13,9 +13,9 @@ import (
 	"strings"
 	"time"
 
-	token "workweave/router/internal/feedback"
-	"workweave/router/internal/observability"
-	"workweave/router/internal/proxy"
+	token "weave-os/router/internal/feedback"
+	"weave-os/router/internal/observability"
+	"weave-os/router/internal/proxy"
 
 	"github.com/gin-gonic/gin"
 )

@@ -9,8 +9,8 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
-	"workweave/router/internal/auth"
-	"workweave/router/internal/subscriptions"
+	"weave-os/router/internal/auth"
+	"weave-os/router/internal/subscriptions"
 )
 
 type runtimeStore struct {

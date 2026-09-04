@@ -13,7 +13,7 @@ import (
 
 	lru "github.com/hashicorp/golang-lru/v2"
 
-	"workweave/router/internal/observability"
+	"weave-os/router/internal/observability"
 )
 
 // CachedResponse captures the upstream response in the inbound wire format.

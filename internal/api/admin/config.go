@@ -3,9 +3,9 @@ package admin
 import (
 	"net/http"
 
-	"workweave/router/internal/config"
-	"workweave/router/internal/providers"
-	"workweave/router/internal/server/middleware"
+	"weave-os/router/internal/config"
+	"weave-os/router/internal/providers"
+	"weave-os/router/internal/server/middleware"
 
 	"github.com/gin-gonic/gin"
 )

@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"workweave/router/internal/observability"
+	"weave-os/router/internal/observability"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"

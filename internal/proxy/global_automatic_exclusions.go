@@ -5,7 +5,7 @@ import (
 	"sync"
 	"time"
 
-	"workweave/router/internal/observability"
+	"weave-os/router/internal/observability"
 )
 
 // globalAutomaticExclusionTTL bounds how stale a replica's snapshot may be.

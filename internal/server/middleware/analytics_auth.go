@@ -3,7 +3,7 @@ package middleware
 import (
 	"github.com/gin-gonic/gin"
 
-	"workweave/router/internal/auth"
+	"weave-os/router/internal/auth"
 )
 
 // WithAnalyticsKey authenticates ra_ bearer tokens for the read-only export surface;

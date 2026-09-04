@@ -9,9 +9,9 @@ import (
 	"strings"
 	"time"
 
-	"workweave/router/internal/observability"
-	"workweave/router/internal/providers"
-	"workweave/router/internal/translate"
+	"weave-os/router/internal/observability"
+	"weave-os/router/internal/providers"
+	"weave-os/router/internal/translate"
 )
 
 // countTokensUpstreamBudget bounds the upstream count_tokens attempt. It must

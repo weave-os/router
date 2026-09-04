@@ -11,10 +11,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
-	"workweave/router/internal/providers"
-	"workweave/router/internal/providers/anthropic"
-	"workweave/router/internal/proxy"
-	"workweave/router/internal/router"
+	"weave-os/router/internal/providers"
+	"weave-os/router/internal/providers/anthropic"
+	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/router"
 )
 
 const claudeCodeIdentity = "You are Claude Code, Anthropic's official CLI for Claude."

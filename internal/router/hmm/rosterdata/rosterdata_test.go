@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"workweave/router/internal/router/hmm/rosterdata"
+	"weave-os/router/internal/router/hmm/rosterdata"
 )
 
 func TestLoadValidRoster(t *testing.T) {

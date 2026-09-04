@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	"workweave/router/internal/router/catalog"
+	"weave-os/router/internal/router/catalog"
 )
 
 // ErrForcedModelExcluded is returned when a caller forces a model the

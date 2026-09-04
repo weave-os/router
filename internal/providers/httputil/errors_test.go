@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"workweave/router/internal/providers"
+	"weave-os/router/internal/providers"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

@@ -7,8 +7,8 @@ import (
 	"net/http"
 	"strconv"
 
-	"workweave/router/internal/router/catalog"
-	"workweave/router/internal/sse"
+	"weave-os/router/internal/router/catalog"
+	"weave-os/router/internal/sse"
 
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"

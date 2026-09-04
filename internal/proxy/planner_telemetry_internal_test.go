@@ -3,7 +3,7 @@ package proxy
 import (
 	"testing"
 
-	"workweave/router/internal/router/planner"
+	"weave-os/router/internal/router/planner"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

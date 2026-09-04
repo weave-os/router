@@ -21,7 +21,7 @@ linters:
             - "**/internal/observability/*.go"
             - "!**/*_test.go"
           deny:
-            - pkg: workweave/router/internal
+            - pkg: weave-os/router/internal
               desc: leaf utilities cannot import internal packages
         presentation:
           files:
@@ -29,10 +29,10 @@ linters:
             - "**/internal/server/**"
             - "!**/*_test.go"
           deny:
-            - pkg: workweave/router/internal/postgres
-            - pkg: workweave/router/internal/sqlc
-            - pkg: workweave/router/internal/translate
-            - pkg: workweave/router/internal/providers/
+            - pkg: weave-os/router/internal/postgres
+            - pkg: weave-os/router/internal/sqlc
+            - pkg: weave-os/router/internal/translate
+            - pkg: weave-os/router/internal/providers/
             - pkg: github.com/jackc/pgx
         pgx-only-postgres:
           files:

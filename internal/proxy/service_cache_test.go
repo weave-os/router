@@ -9,12 +9,12 @@ import (
 	"testing"
 	"time"
 
-	"workweave/router/internal/feedback"
-	"workweave/router/internal/providers"
-	"workweave/router/internal/proxy"
-	"workweave/router/internal/router"
-	"workweave/router/internal/router/cache"
-	"workweave/router/internal/subscriptions"
+	"weave-os/router/internal/feedback"
+	"weave-os/router/internal/providers"
+	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/cache"
+	"weave-os/router/internal/subscriptions"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"

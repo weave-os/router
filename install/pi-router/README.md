@@ -3,7 +3,7 @@
 > Bundled inside the [`@workweave/router`](https://www.npmjs.com/package/@workweave/router) package — not published separately. `src/` here is the source of truth; `npm run prepack` copies it into the package.
 
 A [pi](https://pi.dev) extension that routes every request through the
-[WorkWeave Router](https://github.com/workweave/router) — a trained, per-request
+[WorkWeave Router](https://github.com/weave-os/router) — a trained, per-request
 LLM proxy that picks the most cost-efficient model that still solves each task.
 
 Installed automatically by the Weave Router installer:

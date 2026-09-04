@@ -3,7 +3,7 @@ package auth
 import (
 	"context"
 
-	"workweave/router/internal/observability"
+	"weave-os/router/internal/observability"
 )
 
 // resolveUpstreamSecrets replaces each key's Plaintext with its upstream credential.

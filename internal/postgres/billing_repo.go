@@ -4,8 +4,8 @@ import (
 	"context"
 	"errors"
 
-	"workweave/router/internal/billing"
-	"workweave/router/internal/sqlc"
+	"weave-os/router/internal/billing"
+	"weave-os/router/internal/sqlc"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"

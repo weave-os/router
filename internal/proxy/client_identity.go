@@ -6,8 +6,8 @@ import (
 	"net/http"
 	"strings"
 
-	"workweave/router/internal/auth"
-	"workweave/router/internal/observability"
+	"weave-os/router/internal/auth"
+	"weave-os/router/internal/observability"
 )
 
 // ClientIdentity holds per-request user identification signals, persisted to

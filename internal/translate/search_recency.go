@@ -3,7 +3,7 @@ package translate
 import (
 	"strings"
 
-	"workweave/router/internal/websearch"
+	"weave-os/router/internal/websearch"
 
 	"github.com/tidwall/gjson"
 )

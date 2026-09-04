@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
-	feedbackapi "workweave/router/internal/api/feedback"
-	token "workweave/router/internal/feedback"
-	"workweave/router/internal/proxy"
+	feedbackapi "weave-os/router/internal/api/feedback"
+	token "weave-os/router/internal/feedback"
+	"weave-os/router/internal/proxy"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"

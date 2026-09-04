@@ -8,9 +8,9 @@ import (
 	"errors"
 	"strings"
 
-	"workweave/router/internal/router"
-	"workweave/router/internal/router/catalog"
-	"workweave/router/internal/router/policy"
+	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/catalog"
+	"weave-os/router/internal/router/policy"
 )
 
 var ErrHMMUnavailable = errors.New("hmm: policy router unavailable")

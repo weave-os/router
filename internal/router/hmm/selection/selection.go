@@ -6,8 +6,8 @@ package selection
 import (
 	"strings"
 
-	"workweave/router/internal/router/hmm"
-	"workweave/router/internal/router/hmm/rosterdata"
+	"weave-os/router/internal/router/hmm"
+	"weave-os/router/internal/router/hmm/rosterdata"
 )
 
 // Pick is the deterministic selection for one decision.

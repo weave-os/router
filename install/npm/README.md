@@ -140,7 +140,7 @@ Four install targets:
   context-isolated `dispatch` tool. There is no forked pi binary and no separate
   Loom runtime.
 
-See the [main installer docs](https://github.com/workweave/router/tree/main/install)
+See the [main installer docs](https://github.com/weave-os/router/tree/main/install)
 for the full reference.
 
 ## Requirements

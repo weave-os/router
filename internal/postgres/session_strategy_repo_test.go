@@ -8,10 +8,10 @@ import (
 	"testing"
 	"time"
 
-	"workweave/router/internal/router"
-	"workweave/router/internal/router/sessionpin"
-	"workweave/router/internal/router/sessionstrategy"
-	"workweave/router/internal/sqlc"
+	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/sessionpin"
+	"weave-os/router/internal/router/sessionstrategy"
+	"weave-os/router/internal/sqlc"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"

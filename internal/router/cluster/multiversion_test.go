@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"workweave/router/internal/router"
+	"weave-os/router/internal/router"
 )
 
 // scorerForVersion tags the canonical 2-cluster fixture with an

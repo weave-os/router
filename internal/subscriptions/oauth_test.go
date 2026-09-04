@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
-	"workweave/router/internal/subscriptions"
+	"weave-os/router/internal/subscriptions"
 )
 
 type roundTripFunc func(*http.Request) (*http.Response, error)

@@ -9,8 +9,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"workweave/router/internal/providers"
-	"workweave/router/internal/router/policy"
+	"weave-os/router/internal/providers"
+	"weave-os/router/internal/router/policy"
 )
 
 func classifierOnlyClient(t *testing.T, body string) (policy.Result, error) {

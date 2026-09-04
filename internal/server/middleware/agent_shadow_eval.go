@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"strings"
 
-	"workweave/router/internal/proxy"
+	"weave-os/router/internal/proxy"
 
 	"github.com/gin-gonic/gin"
 )

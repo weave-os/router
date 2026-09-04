@@ -4,8 +4,8 @@ import (
 	"bytes"
 	"net/http"
 
-	"workweave/router/internal/sse"
-	"workweave/router/internal/translate"
+	"weave-os/router/internal/sse"
+	"weave-os/router/internal/translate"
 )
 
 // responsesTerminalObserver tees a native /v1/responses stream to inner while

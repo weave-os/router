@@ -5,15 +5,15 @@ import (
 	"log/slog"
 	"net/http"
 
-	"workweave/router/internal/billing"
-	"workweave/router/internal/providers"
-	"workweave/router/internal/router"
-	"workweave/router/internal/router/bandit"
-	"workweave/router/internal/router/cluster"
-	"workweave/router/internal/router/hmm"
-	"workweave/router/internal/router/policy"
-	"workweave/router/internal/router/rl"
-	"workweave/router/internal/translate"
+	"weave-os/router/internal/billing"
+	"weave-os/router/internal/providers"
+	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/bandit"
+	"weave-os/router/internal/router/cluster"
+	"weave-os/router/internal/router/hmm"
+	"weave-os/router/internal/router/policy"
+	"weave-os/router/internal/router/rl"
+	"weave-os/router/internal/translate"
 )
 
 // DispatchErrorKind identifies which sentinel a dispatch error (from

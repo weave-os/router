@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"workweave/router/internal/auth"
+	"weave-os/router/internal/auth"
 
 	gcppubsub "cloud.google.com/go/pubsub/v2"
 	"github.com/stretchr/testify/assert"

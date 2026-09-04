@@ -17,7 +17,7 @@ const script = path.join(__dirname, scriptName);
 
 if (!existsSync(script)) {
   console.error(
-    `Weave Router: ${scriptName} missing from package — report it at https://github.com/workweave/router/issues`,
+    `Weave Router: ${scriptName} missing from package — report it at https://github.com/weave-os/router/issues`,
   );
   process.exit(1);
 }

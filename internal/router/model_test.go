@@ -3,7 +3,7 @@ package router_test
 import (
 	"testing"
 
-	"workweave/router/internal/router"
+	"weave-os/router/internal/router"
 
 	"github.com/stretchr/testify/assert"
 )

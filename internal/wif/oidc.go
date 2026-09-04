@@ -6,7 +6,7 @@ import (
 	"os"
 	"strings"
 
-	"workweave/router/internal/auth"
+	"weave-os/router/internal/auth"
 )
 
 // FileTokenSource reads a projected OIDC token from disk on every call;

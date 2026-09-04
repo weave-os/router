@@ -11,8 +11,8 @@ import (
 	"sort"
 
 	"github.com/tidwall/gjson"
-	"workweave/router/internal/providers"
-	"workweave/router/internal/proxy"
+	"weave-os/router/internal/providers"
+	"weave-os/router/internal/proxy"
 )
 
 // maxModelListBytes caps the buffered model-list response body.

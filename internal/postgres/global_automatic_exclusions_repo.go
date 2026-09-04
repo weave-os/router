@@ -3,8 +3,8 @@ package postgres
 import (
 	"context"
 
-	"workweave/router/internal/proxy"
-	"workweave/router/internal/sqlc"
+	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/sqlc"
 )
 
 // GlobalAutomaticExclusionRepo reads the deployment-wide models the Weave

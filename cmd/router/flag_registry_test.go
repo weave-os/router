@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"workweave/router/internal/flags"
+	"weave-os/router/internal/flags"
 )
 
 type publishFunc func(context.Context, []flags.PublishedDefinition) error

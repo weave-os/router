@@ -6,8 +6,8 @@ import (
 	"context"
 	"time"
 
-	"workweave/router/internal/flags"
-	"workweave/router/internal/router"
+	"weave-os/router/internal/flags"
+	"weave-os/router/internal/router"
 )
 
 type Installation struct {

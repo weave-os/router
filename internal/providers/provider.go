@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"workweave/router/internal/router"
+	"weave-os/router/internal/router"
 )
 
 // UpstreamHeaderObserver records subscription rate-limit headroom (see

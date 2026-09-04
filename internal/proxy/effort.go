@@ -4,9 +4,9 @@ import (
 	"context"
 	"strings"
 
-	"workweave/router/internal/observability/otel"
-	"workweave/router/internal/router"
-	"workweave/router/internal/translate"
+	"weave-os/router/internal/observability/otel"
+	"weave-os/router/internal/router"
+	"weave-os/router/internal/translate"
 )
 
 // Effort sources, ordered by the precedence resolveEffort applies.

@@ -6,7 +6,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"workweave/router/internal/auth"
+	"weave-os/router/internal/auth"
 )
 
 func TestNormalizeAuthTypeAzureEntraPreservesPrincipalValues(t *testing.T) {

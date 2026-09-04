@@ -9,9 +9,9 @@ import (
 	"testing"
 	"time"
 
-	"workweave/router/internal/api/admin"
-	"workweave/router/internal/auth"
-	"workweave/router/internal/proxy"
+	"weave-os/router/internal/api/admin"
+	"weave-os/router/internal/auth"
+	"weave-os/router/internal/proxy"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"

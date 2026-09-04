@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
 
-	"workweave/router/internal/translate"
+	"weave-os/router/internal/translate"
 )
 
 func TestCanonicalModel(t *testing.T) {

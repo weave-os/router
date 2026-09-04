@@ -7,8 +7,8 @@ import (
 	"sync"
 	"time"
 
-	"workweave/router/internal/auth"
-	"workweave/router/internal/observability"
+	"weave-os/router/internal/auth"
+	"weave-os/router/internal/observability"
 )
 
 const defaultAccountSyncTTL = 15 * time.Second

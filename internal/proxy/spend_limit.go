@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"net/http"
 
-	"workweave/router/internal/auth"
-	"workweave/router/internal/billing"
-	"workweave/router/internal/observability"
+	"weave-os/router/internal/auth"
+	"weave-os/router/internal/billing"
+	"weave-os/router/internal/observability"
 )
 
 // checkUserMonthlySpendLimit gates a turn on the resolved engineer's monthly

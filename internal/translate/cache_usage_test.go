@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
 
-	"workweave/router/internal/translate"
+	"weave-os/router/internal/translate"
 )
 
 // fakeUsageSink records the last RecordUsage / RecordCacheUsage calls.

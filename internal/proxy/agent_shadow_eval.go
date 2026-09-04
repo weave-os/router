@@ -5,11 +5,11 @@ import (
 	"fmt"
 	"strings"
 
-	"workweave/router/internal/router"
-	"workweave/router/internal/router/catalog"
-	"workweave/router/internal/router/cluster"
-	"workweave/router/internal/router/turntype"
-	"workweave/router/internal/translate"
+	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/catalog"
+	"weave-os/router/internal/router/cluster"
+	"weave-os/router/internal/router/turntype"
+	"weave-os/router/internal/translate"
 
 	"github.com/google/uuid"
 )

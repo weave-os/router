@@ -4,11 +4,11 @@ import (
 	"context"
 	"net/http"
 
-	"workweave/router/internal/observability"
-	"workweave/router/internal/providers"
-	"workweave/router/internal/proxy/usage"
-	"workweave/router/internal/router/catalog"
-	"workweave/router/internal/subscriptions"
+	"weave-os/router/internal/observability"
+	"weave-os/router/internal/providers"
+	"weave-os/router/internal/proxy/usage"
+	"weave-os/router/internal/router/catalog"
+	"weave-os/router/internal/subscriptions"
 )
 
 // Inference route paths (gin FullPath templates) whose upstream cost a caller

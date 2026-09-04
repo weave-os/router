@@ -5,11 +5,11 @@ import (
 	"net/http"
 	"sort"
 
-	"workweave/router/internal/auth"
-	"workweave/router/internal/observability"
-	"workweave/router/internal/proxy"
-	"workweave/router/internal/router/catalog"
-	"workweave/router/internal/router/cluster"
+	"weave-os/router/internal/auth"
+	"weave-os/router/internal/observability"
+	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/router/catalog"
+	"weave-os/router/internal/router/cluster"
 
 	"github.com/gin-gonic/gin"
 )

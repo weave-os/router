@@ -3,7 +3,7 @@ package translate
 import (
 	"strings"
 
-	"workweave/router/internal/observability"
+	"weave-os/router/internal/observability"
 
 	"github.com/tidwall/gjson"
 )

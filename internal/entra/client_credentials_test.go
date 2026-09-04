@@ -14,8 +14,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"workweave/router/internal/auth"
-	"workweave/router/internal/entra"
+	"weave-os/router/internal/auth"
+	"weave-os/router/internal/entra"
 )
 
 type roundTripFunc func(*http.Request) (*http.Response, error)

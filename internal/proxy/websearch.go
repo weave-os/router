@@ -8,9 +8,9 @@ import (
 	"net/http"
 	"time"
 
-	"workweave/router/internal/observability"
-	"workweave/router/internal/providers"
-	"workweave/router/internal/websearch"
+	"weave-os/router/internal/observability"
+	"weave-os/router/internal/providers"
+	"weave-os/router/internal/websearch"
 )
 
 // serveNativeWebSearch answers a native web-search turn when no enabled

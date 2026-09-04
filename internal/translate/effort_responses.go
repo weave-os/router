@@ -3,7 +3,7 @@ package translate
 import (
 	"fmt"
 
-	"workweave/router/internal/router"
+	"weave-os/router/internal/router"
 
 	"github.com/tidwall/sjson"
 )

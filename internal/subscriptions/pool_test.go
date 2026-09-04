@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
-	"workweave/router/internal/subscriptions"
+	"weave-os/router/internal/subscriptions"
 )
 
 func TestPoolSeparatesProvidersAndOwners(t *testing.T) {

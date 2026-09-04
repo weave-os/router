@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"workweave/router/internal/providers"
-	"workweave/router/internal/sse"
+	"weave-os/router/internal/providers"
+	"weave-os/router/internal/sse"
 
 	"github.com/tidwall/gjson"
 )
