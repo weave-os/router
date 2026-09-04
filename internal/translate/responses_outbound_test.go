@@ -1,6 +1,7 @@
 package translate_test
 
 import (
+	"bytes"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -124,6 +125,91 @@ func TestPrepareOpenAIResponses_RequestShape(t *testing.T) {
 	assert.Equal(t, "file.go", fco["output"])
 
 	assert.Equal(t, providers.EndpointResponses, prep.Endpoint)
+}
+
+func topLevelResponsesFields(t *testing.T, body []byte) []string {
+	t.Helper()
+	decoder := json.NewDecoder(bytes.NewReader(body))
+	token, err := decoder.Token()
+	require.NoError(t, err)
+	require.Equal(t, json.Delim('{'), token)
+
+	fields := make([]string, 0)
+	for decoder.More() {
+		token, err = decoder.Token()
+		require.NoError(t, err)
+		field, ok := token.(string)
+		require.True(t, ok, "top-level JSON key must be a string")
+		var value json.RawMessage
+		require.NoError(t, decoder.Decode(&value))
+		fields = append(fields, field)
+	}
+
+	token, err = decoder.Token()
+	require.NoError(t, err)
+	require.Equal(t, json.Delim('}'), token)
+	return fields
+}
+
+func responseFieldIndex(fields []string, want string) int {
+	for index, field := range fields {
+		if field == want {
+			return index
+		}
+	}
+	return -1
+}
+
+// The Responses body keeps static controls ahead of append-only conversation
+// input so those controls remain in the cacheable prefix across turns.
+func TestPrepareOpenAIResponses_StaticFieldsPrecedeInput(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		parse      func([]byte) (*translate.RequestEnvelope, error)
+		body       string
+		staticKeys []string
+	}{
+		{
+			name:  "Anthropic source",
+			parse: translate.ParseAnthropic,
+			body: `{"model":"claude-opus-4-8","max_tokens":1024,
+				"system":"You are helpful.",
+				"tools":[{"name":"bash","description":"run","input_schema":{"type":"object"}}],
+				"tool_choice":{"type":"auto"},
+				"temperature":0.7,"top_p":0.9,
+				"messages":[{"role":"user","content":"hi"}]}`,
+			staticKeys: []string{"tools", "tool_choice", "max_output_tokens", "temperature", "top_p"},
+		},
+		{
+			name:  "OpenAI chat source",
+			parse: translate.ParseOpenAI,
+			body: `{"model":"gpt-4.1","max_tokens":1024,
+				"tools":[{"type":"function","function":{"name":"bash","description":"run","parameters":{"type":"object"}}}],
+				"tool_choice":"auto","parallel_tool_calls":false,
+				"temperature":0.7,"top_p":0.9,
+				"messages":[{"role":"user","content":"hi"}]}`,
+			staticKeys: []string{"tools", "tool_choice", "parallel_tool_calls", "max_output_tokens", "temperature", "top_p"},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			env, err := tc.parse([]byte(tc.body))
+			require.NoError(t, err)
+			prepared, err := env.PrepareOpenAIResponses(http.Header{}, translate.EmitOptions{
+				TargetModel:  "gpt-4.1",
+				Capabilities: router.Lookup("gpt-4.1"),
+			})
+			require.NoError(t, err)
+
+			fields := topLevelResponsesFields(t, prepared.Body)
+			inputIndex := responseFieldIndex(fields, "input")
+			require.NotEqual(t, -1, inputIndex, "Responses body must include input")
+			for _, key := range tc.staticKeys {
+				fieldIndex := responseFieldIndex(fields, key)
+				require.NotEqual(t, -1, fieldIndex, "Responses body must include %q", key)
+				assert.Less(t, fieldIndex, inputIndex, "%q must precede input", key)
+			}
+		})
+	}
 }
 
 // TestPrepareOpenAIResponses_ToolChoiceVariants covers the Anthropic ->

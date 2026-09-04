@@ -57,7 +57,6 @@ func (e *RequestEnvelope) buildResponsesFromOpenAI(opts EmitOptions) ([]byte, er
 		}
 	}
 
-	writeResponsesInputFromOpenAI(jw, messages, hoisted)
 	writeResponsesToolsFromOpenAI(jw, body)
 	writeResponsesToolChoiceFromOpenAI(jw, body)
 	if p := gjson.GetBytes(body, "parallel_tool_calls"); isJSONBool(p) {
@@ -88,6 +87,8 @@ func (e *RequestEnvelope) buildResponsesFromOpenAI(opts EmitOptions) ([]byte, er
 			}
 		}
 	}
+
+	writeResponsesInputFromOpenAI(jw, messages, hoisted)
 
 	jw.EndObj()
 	return jw.Bytes(), nil

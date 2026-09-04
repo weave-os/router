@@ -319,7 +319,6 @@ func (e *RequestEnvelope) buildResponsesFromAnthropic(opts EmitOptions) ([]byte,
 		jw.EndArr()
 	}
 
-	writeResponsesInputFromAnthropic(jw, body)
 	writeResponsesToolsFromAnthropic(jw, body)
 	writeResponsesToolChoiceFromAnthropic(jw, body)
 
@@ -343,6 +342,8 @@ func (e *RequestEnvelope) buildResponsesFromAnthropic(opts EmitOptions) ([]byte,
 			}
 		}
 	}
+
+	writeResponsesInputFromAnthropic(jw, body)
 
 	jw.EndObj()
 	return jw.Bytes(), stats, nil
