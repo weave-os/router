@@ -1,0 +1,27 @@
+internal/translate/emit_openai_responses_from_openai.go
+  s_f746fc01bed6c2::t_0fbd6bd7214250 91
+  s_f746fc01bed6c2::t_c7c5854bb08c5e 92
+internal/translate/responses_outbound_test.go
+  s_f746fc01bed6c2::t_432516e673495d 130-213
+  s_f746fc01bed6c2::t_25d2d4c654cf8a 4
+  s_f746fc01bed6c2::t_e1fd5785593780 214
+internal/translate/emit_openai_responses.go
+  s_f746fc01bed6c2::t_ae41c8d949c822 346
+  s_f746fc01bed6c2::t_ed798c3398311e 347
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "3d70fa67e62e0411c39e90dd5c1ce694adcdbc3e",
+  "prompts": {},
+  "sessions": {
+    "s_f746fc01bed6c2": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "530d0793-38d4-4f22-ac5c-9dc5df46b37e",
+        "model": "claude-opus-5"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}
