@@ -22,7 +22,7 @@ func candidateSet(ids ...string) map[string]struct{} {
 
 func testRoster() *rosterdata.Roster {
 	return &rosterdata.Roster{
-		SchemaVersion: "hmm_router_cluster_roster_v6",
+		SchemaVersion: rosterdata.SchemaVersionV6,
 		Clusters: map[string]rosterdata.Cluster{
 			"low": {
 				Arms: []string{"vendor-a/cheap", "vendor-b/cheap"},

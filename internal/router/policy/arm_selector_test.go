@@ -192,3 +192,38 @@ func TestArmSelectorForceClusterUsesFinalGroupScores(t *testing.T) {
 	assert.Equal(t, "low", decision.Metadata.PolicyGroup)
 	assert.Equal(t, map[string]float32{"anthropic/claude-sonnet-5": 20}, decision.Metadata.ArmScores)
 }
+
+func TestArmSelectorForceClusterPreservesPreferenceRanking(t *testing.T) {
+	result := classifierOnlyResult()
+	result.RankedFallback = append(result.RankedFallback, policy.PreviewGroup{
+		Group:        "low",
+		Probability:  0.2,
+		RosterArms:   []string{"anthropic/claude-opus-4-8", "anthropic/claude-sonnet-5"},
+		EligibleArms: []string{"anthropic/claude-opus-4-8", "anthropic/claude-sonnet-5"},
+	})
+	adapter := newSelectorAdapter(result)
+	adapter.WithArmSelector(func(_ context.Context, input policy.SelectionInput) (policy.SelectionPick, error) {
+		require.Len(t, input.RankedFallback, 1)
+		assert.Equal(t, "low", input.ClassifierGroup)
+		assert.Equal(t, "low", input.RankedFallback[0].Group)
+		return policy.SelectionPick{
+			Group: "low",
+			Arm:   "anthropic/claude-sonnet-5",
+			ArmScoresByGroup: map[string]map[string]float32{
+				"low": {"anthropic/claude-opus-4-8": 10, "anthropic/claude-sonnet-5": 20},
+			},
+		}, nil
+	})
+
+	decision, err := adapter.Route(context.Background(), router.Request{ForceCluster: "low"})
+
+	require.NoError(t, err)
+	assert.Equal(t, "claude-sonnet-5", decision.Model)
+	assert.Contains(t, decision.Reason, ":force_cluster")
+	require.NotNil(t, decision.Metadata)
+	assert.Equal(t, "low", decision.Metadata.PolicyGroup)
+	assert.Equal(t, map[string]float32{
+		"anthropic/claude-opus-4-8": 10,
+		"anthropic/claude-sonnet-5": 20,
+	}, decision.Metadata.ArmScores)
+}

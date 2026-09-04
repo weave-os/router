@@ -48,5 +48,16 @@ func selectionInputFor(strategy router.Strategy, executionMode string, req route
 		qualityBias := *req.RoutingKnobs.QualityBias
 		input.QualityBias = &qualityBias
 	}
+	if req.ForceCluster != "" {
+		if _, hasOverride := req.ClusterArmOverrides[req.ForceCluster]; !hasOverride {
+			for _, group := range res.RankedFallback {
+				if group.Group == req.ForceCluster && len(group.EligibleArms) > 0 {
+					input.ClassifierGroup = req.ForceCluster
+					input.RankedFallback = []PreviewGroup{group}
+					break
+				}
+			}
+		}
+	}
 	return input
 }

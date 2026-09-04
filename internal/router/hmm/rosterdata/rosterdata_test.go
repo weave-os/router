@@ -16,7 +16,7 @@ func TestLoadValidRoster(t *testing.T) {
 	roster, err := rosterdata.Load(filepath.Join("testdata", "roster_valid.json"))
 	require.NoError(t, err)
 
-	assert.Equal(t, "hmm_router_cluster_roster_v6", roster.SchemaVersion)
+	assert.Equal(t, rosterdata.SchemaVersionV6, roster.SchemaVersion)
 	require.Len(t, roster.Clusters, 2)
 
 	low := roster.Clusters["low"]
@@ -66,7 +66,7 @@ func TestParseUnknownFieldsTolerated(t *testing.T) {
 
 	roster, parseErr := rosterdata.Parse(data)
 	require.NoError(t, parseErr)
-	assert.Equal(t, "hmm_router_cluster_roster_v6", roster.SchemaVersion)
+	assert.Equal(t, rosterdata.SchemaVersionV6, roster.SchemaVersion)
 }
 
 func TestParseSchemaErrors(t *testing.T) {
@@ -154,7 +154,7 @@ func TestParseDynamicRoster(t *testing.T) {
   "clusters": {
     "low": {
       "complexity_label": "low",
-      "arms": ["provider/scored", "provider/manual"],
+      "arms": ["provider/scored"],
       "arms_by_harness": {"pi": ["provider/manual"]},
       "cost_ref_usd": 0.02,
       "latency_ref_ms": 8000,
@@ -189,6 +189,30 @@ func TestParseDynamicRosterRejectsMissingIndices(t *testing.T) {
 }`))
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "no arm_indices entry")
+}
+
+func TestParseDynamicRosterRejectsHarnessPinWithoutGlobalCoverage(t *testing.T) {
+	_, err := rosterdata.Parse([]byte(`{
+  "schema_version": "hmm_router_cluster_roster_v7",
+  "ranking": {
+    "alpha": {"low": 0.4}, "alpha_min": {"low": 0.05}, "alpha_max": {"low": 0.8},
+    "quality_bias_neutral": 0.7,
+    "wii_score_version": "wii-v1", "wii_normalization_sha256": "wii-sha",
+    "wpi_score_version": "wpi-v1", "wpi_normalization_sha256": "wpi-sha"
+  },
+  "clusters": {
+    "low": {
+      "complexity_label": "low", "arms": ["provider/scored", "provider/manual"],
+      "arms_by_harness": {"pi": ["provider/manual"]},
+      "cost_ref_usd": 0.02, "latency_ref_ms": 8000,
+      "arm_scores": {"provider/scored": 10, "provider/manual": 20},
+      "arm_indices": {"provider/scored": {"wii_v1": 50, "wpi_v1": 10}},
+      "manual_pins_by_harness": {"pi": ["provider/manual"]}
+    }
+  }
+}`))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), `arm "provider/manual" has no arm_indices entry`)
 }
 
 // replaceJSON returns a mutator that swaps one occurrence of old for new in

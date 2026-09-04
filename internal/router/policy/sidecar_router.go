@@ -363,17 +363,21 @@ func (r *SidecarRouter) Route(ctx context.Context, req router.Request) (router.D
 			return router.Decision{}, err
 		}
 		previousRosterID := overrideRosterID
-		overrideArmID = outcome.ArmID
-		overrideRosterID = outcome.RosterID
+		_, hasExplicitOverride := req.ClusterArmOverrides[req.ForceCluster]
+		selectedForcedGroupWithPreference := r.armSelector != nil && !hasExplicitOverride && res.PolicyGroup == outcome.Group
+		if !selectedForcedGroupWithPreference {
+			overrideArmID = outcome.ArmID
+			overrideRosterID = outcome.RosterID
+		}
 		// Annotated even when the forced cluster is the one already selected,
 		// so telemetry can tell a constrained turn from a free one.
 		overrideReasonSuffix = ":force_cluster"
-		reselected = reselected || outcome.Changed
+		reselected = reselected || outcome.Changed || selectedForcedGroupWithPreference
 		observability.FromContext(ctx).Info("Forced cluster applied",
 			"strategy", strategy,
 			"group", outcome.Group,
 			"previous_arm", previousRosterID,
-			"forced_arm", outcome.RosterID,
+			"forced_arm", overrideRosterID,
 		)
 		res.PolicyGroup = outcome.Group
 	case len(req.ClusterArmOverrides) > 0 && len(res.RankedFallback) > 0:

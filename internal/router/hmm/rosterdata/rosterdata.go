@@ -17,6 +17,7 @@ import (
 type SchemaVersion string
 
 const (
+	SchemaVersionV6   SchemaVersion = "hmm_router_cluster_roster_v6"
 	SchemaVersionV7   SchemaVersion = "hmm_router_cluster_roster_v7"
 	SchemaVersionV75C SchemaVersion = "hmm_router_cluster_roster_v7_5c"
 )
@@ -173,20 +174,11 @@ func validateDynamicCluster(r *Roster, label string, cluster Cluster) error {
 	if !hasMin || !hasMax || !finiteUnit(minAlpha) || !finiteUnit(defaultAlpha) || !finiteUnit(maxAlpha) || minAlpha > defaultAlpha || defaultAlpha > maxAlpha {
 		return fmt.Errorf("cluster %q has invalid alpha calibration", label)
 	}
-	pins := make(map[string]struct{})
-	for _, arms := range cluster.ManualPinsByHarness {
-		for _, arm := range arms {
-			pins[arm] = struct{}{}
-		}
-	}
-	allOrderedArms := append([]string(nil), cluster.Arms...)
-	for _, arms := range cluster.ArmsByHarness {
-		allOrderedArms = append(allOrderedArms, arms...)
-	}
-	for _, arm := range allOrderedArms {
+	globalPins := armSet(cluster.ManualPinsByHarness["*"])
+	for _, arm := range cluster.Arms {
 		indices, ok := cluster.ArmIndices[arm]
 		if !ok {
-			if _, explicitlyPinned := pins[arm]; explicitlyPinned {
+			if _, globallyPinned := globalPins[arm]; globallyPinned {
 				continue
 			}
 			return fmt.Errorf("cluster %q arm %q has no arm_indices entry", label, arm)
@@ -195,7 +187,32 @@ func validateDynamicCluster(r *Roster, label string, cluster Cluster) error {
 			return fmt.Errorf("cluster %q arm %q has invalid WII/WPI indices", label, arm)
 		}
 	}
+	for harness, arms := range cluster.ArmsByHarness {
+		harnessPins := armSet(cluster.ManualPinsByHarness[harness])
+		for _, arm := range arms {
+			indices, ok := cluster.ArmIndices[arm]
+			if !ok {
+				_, globallyPinned := globalPins[arm]
+				_, pinnedForHarness := harnessPins[arm]
+				if globallyPinned || pinnedForHarness {
+					continue
+				}
+				return fmt.Errorf("cluster %q harness %q arm %q has no arm_indices entry", label, harness, arm)
+			}
+			if !finiteRange(indices.WII, 0, 100) || !finiteRange(indices.WPI, 0, 100) {
+				return fmt.Errorf("cluster %q harness %q arm %q has invalid WII/WPI indices", label, harness, arm)
+			}
+		}
+	}
 	return nil
+}
+
+func armSet(arms []string) map[string]struct{} {
+	set := make(map[string]struct{}, len(arms))
+	for _, arm := range arms {
+		set[arm] = struct{}{}
+	}
+	return set
 }
 
 func finiteUnit(value float64) bool { return finiteRange(value, 0, 1) }
