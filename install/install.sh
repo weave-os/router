@@ -1010,7 +1010,7 @@ install_lsp_servers() {
       warn "--lsp $id: needs '$toolchain' on PATH (install command: $cmd). Skipping — re-run after installing the $toolchain toolchain."
       continue
     fi
-    # shellcheck disable=SC2086 — $cmd is a fixed argv from the case above, never user input.
+    # shellcheck disable=SC2086 # $cmd is a fixed argv from the case above, never user input.
     if spin "Installing $id language server" $cmd; then
       ok "$id language server installed ($cmd)"
       if [ -n "$fallback_dir" ] && ! command -v "$bin" >/dev/null 2>&1; then
@@ -4224,7 +4224,7 @@ weave_sync_commands() {
   local scope_args="" scope_known="false" off="$cmd_dir/router-off.md"
   if [ -f "$off" ] && grep -Eq '^`npx @(workweave/router|weave-os/router) off --claude.*`$' "$off" 2>/dev/null; then
     scope_known="true"
-    scope_args="$(sed -En 's|^`npx @(workweave/router|weave-os/router) off --claude(.*)`$|\2|p' "$off" | head -n 1)"
+    scope_args="$(sed -En 's#^`npx @(workweave/router|weave-os/router) off --claude(.*)`$#\2#p' "$off" | head -n 1)"
   fi
 
   local url_base="${WEAVE_COMMANDS_URL_BASE:-https://raw.githubusercontent.com/workweave/router/main/install/commands}"

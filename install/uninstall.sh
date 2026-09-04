@@ -752,12 +752,10 @@ if [ -f "$parked_file" ]; then
   ok "Removed $parked_file"
 fi
 
-for f in "$statusline_file"; do
-  if [ -f "$f" ]; then
-    rm -f "$f"
-    ok "Removed $f"
-  fi
-done
+if [ -f "$statusline_file" ]; then
+  rm -f "$statusline_file"
+  ok "Removed $statusline_file"
+fi
 
 # Remove only the slash command files this installer owns; leave any other
 # files in commands/ alone. The directory itself stays if it still contains
