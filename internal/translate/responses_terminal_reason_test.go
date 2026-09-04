@@ -6,6 +6,7 @@ import (
 	"workweave/router/internal/translate"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // A native /v1/responses turn is forwarded verbatim, so the upstream's terminal
@@ -58,4 +59,47 @@ func TestResponsesTerminalReason(t *testing.T) {
 			assert.Equal(t, tc.want, got)
 		})
 	}
+}
+
+// A native non-streaming body is the response object itself: no SSE framing,
+// no envelope "type", no nested "response". The observer hands it here whole.
+func TestResponsesTerminalReason_NonStreamingBody(t *testing.T) {
+	body := []byte(`{"id":"resp_1","object":"response","status":"completed",` +
+		`"output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"done"}]}],` +
+		`"usage":{"input_tokens":10,"output_tokens":3}}`)
+
+	reason, ok := translate.ResponsesTerminalReason(body)
+	require.True(t, ok, "a non-streaming native body states the turn's outcome")
+	assert.Equal(t, "stop", reason)
+}
+
+// Codex native turns emit custom_tool_call for shell-style tools; those end the
+// turn in a tool call exactly as function_call does.
+func TestResponsesTerminalReason_CustomToolCallIsToolCalls(t *testing.T) {
+	payload := []byte(`{"type":"response.completed","response":{"id":"r","status":"completed",` +
+		`"output":[{"type":"custom_tool_call","call_id":"c1","name":"shell","input":"ls -la"}],` +
+		`"usage":{"input_tokens":10,"output_tokens":5}}}`)
+
+	reason, ok := translate.ResponsesTerminalReason(payload)
+	require.True(t, ok)
+	assert.Equal(t, "tool_calls", reason)
+}
+
+func TestResponsesTerminalReason_NonStreamingCustomToolCall(t *testing.T) {
+	body := []byte(`{"id":"resp_1","object":"response","status":"completed",` +
+		`"output":[{"type":"custom_tool_call","call_id":"c1","name":"shell","input":"ls"}]}`)
+
+	reason, ok := translate.ResponsesTerminalReason(body)
+	require.True(t, ok)
+	assert.Equal(t, "tool_calls", reason)
+}
+
+// A non-terminal streaming frame must stay unrecorded even though the
+// non-streaming path now accepts envelope-less payloads.
+func TestResponsesTerminalReason_NonStreamingRejectsNonTerminal(t *testing.T) {
+	_, ok := translate.ResponsesTerminalReason([]byte(`{"type":"response.output_text.delta","delta":"hi"}`))
+	assert.False(t, ok, "a delta frame states no outcome")
+
+	_, ok = translate.ResponsesTerminalReason([]byte(`{"id":"resp_1","object":"response","status":"in_progress"}`))
+	assert.False(t, ok, "an in-progress body states no outcome")
 }
