@@ -24,7 +24,7 @@ const registry = path.join(installDir, "directives.tsv");
 const registryText = require("node:fs").readFileSync(registry, "utf8");
 
 // commands dir relative to its own location, so colocating it alongside the
-// script makes the bundle self-contained for `npx @workweave/router`.
+// script makes the bundle self-contained for `npx @weave-os/router`.
 const commandsSrc = path.join(installDir, "commands");
 const commandsDst = path.join(root, "commands");
 const commandsSrcReal = realpathSync(commandsSrc);
@@ -97,7 +97,7 @@ for (const line of registryText.split(/\r?\n/)) {
 }
 
 // installer and the pi-router extension: pi loads it via the "pi.extensions"
-// field in package.json, and install.sh adds `npm:@workweave/router` to pi's
+// field in package.json, and install.sh adds `npm:@weave-os/router` to pi's
 // settings. Source of truth lives at install/pi-router/src.
 const piSrc = path.join(installDir, "pi-router", "src");
 const piDst = path.join(root, "pi-router", "src");

@@ -5,6 +5,6 @@ allowed-tools: Bash(npx:*)
 
 Report whether Claude Code is using the Weave Router by running:
 
-`npx @workweave/router status --claude{{SCOPE}}`
+`npx @weave-os/router status --claude{{SCOPE}}`
 
 Then summarize the result for me in one line.

@@ -13,7 +13,7 @@ Weave Router without logging out or deleting its router configuration.
 Run exactly:
 
 ```bash
-npx --package @workweave/router -y -- weave-router off --codex{{SCOPE}}
+npx --package @weave-os/router -y -- weave-router off --codex{{SCOPE}}
 ```
 
 Then report the result and tell the user the change takes effect on their next

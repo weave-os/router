@@ -234,9 +234,9 @@ weave_sync_commands() {
   # be recovered those three are skipped rather than rewritten to point at the
   # user-scope install.
   local scope_args="" scope_known="false" off="$cmd_dir/router-off.md"
-  if [ -f "$off" ] && grep -q '^`npx @workweave/router off --claude.*`$' "$off" 2>/dev/null; then
+  if [ -f "$off" ] && grep -Eq '^`npx @(workweave/router|weave-os/router) off --claude.*`$' "$off" 2>/dev/null; then
     scope_known="true"
-    scope_args="$(sed -n 's|^`npx @workweave/router off --claude\(.*\)`$|\1|p' "$off" | head -n 1)"
+    scope_args="$(sed -En 's|^`npx @(workweave/router|weave-os/router) off --claude(.*)`$|\2|p' "$off" | head -n 1)"
   fi
 
   local url_base="${WEAVE_COMMANDS_URL_BASE:-https://raw.githubusercontent.com/workweave/router/main/install/commands}"

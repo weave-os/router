@@ -9,17 +9,17 @@ Weave Router permanently. No shell exports, no manual config edits.
 
 ```bash
 # Interactive: the installer asks Claude Code / Codex / opencode, then user vs. project
-npx @workweave/router
+npx @weave-os/router
 
 # Skip the target picker:
-npx @workweave/router --claude                     # Claude Code, user scope
-npx @workweave/router --codex                      # Codex, user scope
-npx @workweave/router --opencode                   # opencode, user scope
+npx @weave-os/router --claude                     # Claude Code, user scope
+npx @weave-os/router --codex                      # Codex, user scope
+npx @weave-os/router --opencode                   # opencode, user scope
 
 # Project scope — only when running inside this repo:
-npx @workweave/router --claude   --scope project   # Claude Code
-npx @workweave/router --codex    --scope project   # Codex
-npx @workweave/router --opencode --scope project   # opencode
+npx @weave-os/router --claude   --scope project   # Claude Code
+npx @weave-os/router --codex    --scope project   # Codex
+npx @weave-os/router --opencode --scope project   # opencode
 ```
 
 On npm ≤ 6 the bundled `npx` mis-parses a leading `-y` (it consumes the next
@@ -27,7 +27,7 @@ token, dropping the package name), so name the binary explicitly there — or
 just upgrade with `npm i -g npm@latest`:
 
 ```bash
-npx --package @workweave/router -y -- weave-router --claude
+npx --package @weave-os/router -y -- weave-router --claude
 ```
 
 Or from a clone of this repo:
@@ -173,7 +173,7 @@ configuration and ChatGPT OAuth, and takes effect when you start the next
 reserves slash commands for its built-ins. The shell equivalent is:
 
 ```bash
-npx --package @workweave/router -y -- weave-router disable-routing
+npx --package @weave-os/router -y -- weave-router disable-routing
 ```
 
 ### opencode (`--opencode`)
@@ -204,7 +204,7 @@ servers, agents, and unrelated top-level model choices stay untouched.
 ```bash
 git clone <repo>
 cd <repo>
-npx @workweave/router --claude --scope project   # or --codex / --opencode
+npx @weave-os/router --claude --scope project   # or --codex / --opencode
 export WEAVE_ROUTER_KEY=rk_...                    # in shell rc / dotenv / 1Password
 claude                                             # or `CODEX_HOME=.codex codex` / `opencode`
 ```
@@ -240,8 +240,8 @@ the key already installed for this target and scope → interactive prompt. So a
 plain re-run needs no key at all:
 
 ```bash
-npx @workweave/router --claude                  # reuses the installed key
-npx @workweave/router --claude --rotate-key     # ignore it, prompt for a new one
+npx @weave-os/router --claude                  # reuses the installed key
+npx @weave-os/router --claude --rotate-key     # ignore it, prompt for a new one
 ```
 
 If the installed key turns out to be revoked, an interactive run says so and
@@ -252,9 +252,9 @@ env or disk only, refreshes the managed config and assets in place, and errors
 (rather than asking) if no key can be found — safe for cron:
 
 ```bash
-npx @workweave/router update --claude                    # user scope
-npx @workweave/router update --claude --scope project    # in the repo
-npx @workweave/router update --codex                     # Codex / opencode / pi too
+npx @weave-os/router update --claude                    # user scope
+npx @weave-os/router update --claude --scope project    # in the repo
+npx @weave-os/router update --codex                     # Codex / opencode / pi too
 ```
 
 A rejected key is an error for `update` (exit 1), not a warning, so a scheduled
@@ -331,11 +331,11 @@ provider directly — without losing the router config, so switching back is
 instant. These never prompt for a key and require an explicit client:
 
 ```bash
-npx @workweave/router off --claude       # route Claude Code directly to Anthropic
-npx @workweave/router on --claude        # route Claude Code through the router again
-npx @workweave/router status --codex     # report whether Codex is on the router or direct
-npx @workweave/router disable-routing    # switch Codex back to its default provider
-npx @workweave/router off --opencode --scope project   # project-scoped opencode
+npx @weave-os/router off --claude       # route Claude Code directly to Anthropic
+npx @weave-os/router on --claude        # route Claude Code through the router again
+npx @weave-os/router status --codex     # report whether Codex is on the router or direct
+npx @weave-os/router disable-routing    # switch Codex back to its default provider
+npx @weave-os/router off --opencode --scope project   # project-scoped opencode
 ```
 
 Inside Claude Code you can also run the slash commands `/router-off`,
@@ -362,7 +362,7 @@ installer owns the config file.
 
 - **Codex** uses `$name` skills because Codex reserves `/…` for built-ins; each
   skill sends the leading-space prompt form.
-- **pi** implements `/fm` and `/ufm` in the `@workweave/router` extension rather
+- **pi** implements `/fm` and `/ufm` in the `@weave-os/router` extension rather
   than through installed files; the registry asserts its names match.
 - **Cursor** exposes no command or skill file this installer owns, so its
   directives are manual: type the leading-space form ( `/force-model …`)
@@ -400,14 +400,14 @@ install talks to its own router with its own key, and the key is never passed
 as a command-line argument.
 
 ```bash
-npx @workweave/router models --claude                          # every model, with its on/off state
-npx @workweave/router models --codex                           # same, for a Codex install
-npx @workweave/router models disable gpt-5.6 --claude          # take a model out of rotation
-npx @workweave/router models enable gpt-5.6 --claude           # put it back
-npx @workweave/router models providers --claude                # same, one row per provider
-npx @workweave/router models providers disable openai --claude # drop a whole provider
-npx @workweave/router models prefer claude-opus-5 --claude     # priority ranking ('clear' to drop it)
-npx @workweave/router models list --json --claude              # machine-readable, for scripts
+npx @weave-os/router models --claude                          # every model, with its on/off state
+npx @weave-os/router models --codex                           # same, for a Codex install
+npx @weave-os/router models disable gpt-5.6 --claude          # take a model out of rotation
+npx @weave-os/router models enable gpt-5.6 --claude           # put it back
+npx @weave-os/router models providers --claude                # same, one row per provider
+npx @weave-os/router models providers disable openai --claude # drop a whole provider
+npx @weave-os/router models prefer claude-opus-5 --claude     # priority ranking ('clear' to drop it)
+npx @weave-os/router models list --json --claude              # machine-readable, for scripts
 ```
 
 The list groups by provider and marks each model `[x]` (the router may pick it)
@@ -479,12 +479,12 @@ errors invoking `cc-statusline.sh`. The script needs `jq` on PATH.
 ## Uninstall
 
 ```bash
-npx @workweave/router --uninstall                       # Claude Code, user scope
-npx @workweave/router --uninstall --codex               # Codex, user scope
-npx @workweave/router --uninstall --opencode            # opencode, user scope
-npx @workweave/router --uninstall --scope project       # Claude Code, in the repo
-npx @workweave/router --uninstall --codex --scope project
-npx @workweave/router --uninstall --opencode --scope project
+npx @weave-os/router --uninstall                       # Claude Code, user scope
+npx @weave-os/router --uninstall --codex               # Codex, user scope
+npx @weave-os/router --uninstall --opencode            # opencode, user scope
+npx @weave-os/router --uninstall --scope project       # Claude Code, in the repo
+npx @weave-os/router --uninstall --codex --scope project
+npx @weave-os/router --uninstall --opencode --scope project
 ```
 
 Removes only the keys / block this installer added; everything else in

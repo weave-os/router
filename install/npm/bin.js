@@ -1,13 +1,23 @@
 #!/usr/bin/env node
 // Thin wrapper that runs install.sh with the user's arguments.
-// Bundled install.sh ships with the npm package so `npx @workweave/router`
+// Bundled install.sh ships with the npm package so `npx @weave-os/router`
 // works offline (modulo the router API ping the installer does).
 
 const { spawnSync } = require("node:child_process");
-const { existsSync } = require("node:fs");
+const { existsSync, readFileSync } = require("node:fs");
 const path = require("node:path");
 
 const args = process.argv.slice(2);
+const packageName = JSON.parse(
+  readFileSync(path.join(__dirname, "package.json"), "utf8"),
+).name;
+
+if (packageName === "@workweave/router") {
+  console.error(
+    "warning: @workweave/router is deprecated; use @weave-os/router instead (npx @weave-os/router).",
+  );
+}
+
 const uninstallIdx = args.indexOf("--uninstall");
 const isUninstall = uninstallIdx !== -1;
 if (isUninstall) args.splice(uninstallIdx, 1);
@@ -32,7 +42,10 @@ if (!bash) {
 
 const result = spawnSync(bash, [script, ...args], {
   stdio: "inherit",
-  env: process.env,
+  env: {
+    ...process.env,
+    WEAVE_ROUTER_NPM_PACKAGE: packageName,
+  },
 });
 
 if (result.error) {

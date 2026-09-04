@@ -435,7 +435,7 @@ Without either env var the lists come from the installation, editable in the
 dashboard or through `PUT /admin/v1/excluded-providers` and
 `PUT /admin/v1/excluded-models`.
 
-From a terminal, `npx @workweave/router models --claude` lists every deployed
+From a terminal, `npx @weave-os/router models --claude` lists every deployed
 model with its on/off state and `models enable` / `models disable` edit it,
 reading the endpoint and key from the Claude Code install already on disk.
 Claude Code gets the same thing as `/router-models` (alias `/models`). While

@@ -15,7 +15,7 @@ router dashboard's settings page.
 Start by running:
 
 ```bash
-npx --package @workweave/router -y -- weave-router models --codex{{SCOPE}}
+npx --package @weave-os/router -y -- weave-router models --codex{{SCOPE}}
 ```
 
 That prints every deployed model grouped by provider, with `[x]` for models the

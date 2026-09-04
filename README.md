@@ -59,7 +59,7 @@ The fastest way: point Claude Code, Codex, opencode, or pi at the **hosted**
 Weave Router with one command. No clone, no Docker, no Postgres.
 
 ```bash
-npx @workweave/router
+npx @weave-os/router
 ```
 
 That's it. The installer asks which tool (Claude Code, Codex, opencode, or pi),
@@ -67,18 +67,22 @@ walks you through scope (user vs. project), grabs a router key, and wires
 the right config file. Other flavors:
 
 ```bash
-npx @workweave/router --claude              # skip the picker, Claude Code
-npx @workweave/router --codex               # skip the picker, OpenAI Codex CLI
-npx @workweave/router --opencode            # skip the picker, opencode
-npx @workweave/router --pi                  # skip the picker, pi + Loom UI
-npx @workweave/router --scope project       # per-repo, commits settings.json (or .codex/ / opencode.json)
-npx @workweave/router --local               # self-hosted localhost:8080
-npx @workweave/router --base-url https://router.acme.internal
-npx @workweave/router@0.1.0                 # pin a version
+npx @weave-os/router --claude              # skip the picker, Claude Code
+npx @weave-os/router --codex               # skip the picker, OpenAI Codex CLI
+npx @weave-os/router --opencode            # skip the picker, opencode
+npx @weave-os/router --pi                  # skip the picker, pi + Loom UI
+npx @weave-os/router --scope project       # per-repo, commits settings.json (or .codex/ / opencode.json)
+npx @weave-os/router --local               # self-hosted localhost:8080
+npx @weave-os/router --base-url https://router.acme.internal
+npx @weave-os/router@0.1.0                 # pin a version
 ```
 
 Requires Node ≥ 18 (Claude Code, opencode, and pi paths also need `jq`). Full
 flag reference: [install/npm/README.md](install/npm/README.md).
+
+The npm package is published as `@weave-os/router`. The former
+`@workweave/router` package remains available as a compatibility alias and
+continues to receive the same releases.
 
 ### Or: self-host the whole stack
 
@@ -163,10 +167,10 @@ embedding compatibility, and explicit HMM selection.
 
 **Claude Code.** Run `make install-cc` to wire Claude Code at the local
 self-hosted router (it's also invoked automatically at the end of
-`make full-setup`). For the hosted router, use `npx @workweave/router`
+`make full-setup`). For the hosted router, use `npx @weave-os/router`
 above.
 
-**Codex** (OpenAI CLI). `npx @workweave/router --codex` patches
+**Codex** (OpenAI CLI). `npx @weave-os/router --codex` patches
 `~/.codex/config.toml` (or `<repo>/.codex/config.toml` with `--scope project`)
 with a managed `[model_providers.weave]` block and sets `model_provider = "weave"`.
 The provider preserves Codex's existing ChatGPT OAuth login while the router
@@ -189,10 +193,10 @@ rest of your Codex config untouched. Codex also gets `$router-status`,
 `$router-off`, `$router-on`, and `$router-models` as skills that call this
 installer's own verbs. Invoke `$disable-routing` (or `$router-off`) to switch the
 next Codex session back to its normal provider, or run
-`npx @workweave/router disable-routing` in a shell; a literal
+`npx @weave-os/router disable-routing` in a shell; a literal
 `/disable-routing` is not a third-party extension point in Codex.
 
-**opencode.** `npx @workweave/router --opencode` merges a `provider.weave`
+**opencode.** `npx @weave-os/router --opencode` merges a `provider.weave`
 entry into `~/.config/opencode/opencode.json` (or `<repo>/opencode.json`
 with `--scope project`). It uses opencode's bundled `@ai-sdk/anthropic`
 provider pointed at the router's `/v1` endpoint — the router speaks the
@@ -200,7 +204,7 @@ Anthropic Messages API natively, so opencode works unmodified. The router
 key and identity headers ride alongside the provider config; re-install
 rewrites only the managed block and `--uninstall --opencode` strips it.
 
-**pi.** `npx @workweave/router --pi` keeps stock pi as the runtime and installs
+**pi.** `npx @weave-os/router --pi` keeps stock pi as the runtime and installs
 the router's pi extension. It adds the Loom header, Wooly's animated terminal
 mascot, a persistent `WEAVE ROUTER` route/savings line, `/fm` + `/ufm`
 model-pin commands with a `[forced]` status, and context-isolated subagents
@@ -210,14 +214,14 @@ without shipping or maintaining a forked pi binary.
 Models → *Override OpenAI Base URL* → `http://localhost:8080/v1`, paste
 `rk_...` as the API key.
 
-**Switching on/off.** After installing, `npx @workweave/router off --claude`
+**Switching on/off.** After installing, `npx @weave-os/router off --claude`
 (or `--codex` / `--opencode`) routes that client straight to its provider
 again without discarding the router config; `on` flips it back, and `status`
 reports which way it's pointing. Claude Code also gets `/router-off`,
 `/router-on`, and `/router-status` slash commands. Cursor toggles via the same
 Settings → Models override above. See [install/README.md](install/README.md#switching-on-and-off).
 
-**Choosing which models the router may pick.** `npx @workweave/router models
+**Choosing which models the router may pick.** `npx @weave-os/router models
 --claude` lists every deployed model with its on/off state, and `models enable`
 / `models disable` change it — the same setting as the dashboard's settings
 page, edited from the terminal. Claude Code gets this as `/router-models`

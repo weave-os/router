@@ -8,7 +8,7 @@ best model, and bills the plan that matches the model it served — ChatGPT pays
 for GPT/Codex turns, Claude pays for Claude turns, your Weave key pays for
 everything else.
 
-Bundled into `@workweave/router`; the installer (`--codex` / `--opencode`) drops
+Bundled into `@weave-os/router`; the installer (`--codex` / `--opencode`) drops
 `src/index.ts` into the user's opencode plugins dir and writes a single
 Responses-format `weave` provider (plus a login-only `weave-claude` provider)
 into `opencode.json`.

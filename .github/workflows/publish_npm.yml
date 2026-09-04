@@ -1,14 +1,14 @@
 # yaml-language-server: $schema=https://json.schemastore.org/github-workflow.json
 #
-# Publish the @workweave/router npm package on tag push.
+# Publish the @weave-os/router and @workweave/router npm packages on tag push.
 #
 # Trigger: push a tag matching `router-v*` (e.g. `router-v0.1.0`). The job
 # asserts the tag's version matches install/npm/package.json before publishing
 # — mismatched tag fails fast instead of shipping a wrong version.
 #
 # Publish auth: npm OIDC trusted publishing (no secret in the repo). Configure
-# the @workweave/router package on npmjs.com → Settings → Trusted Publishers
-# → GitHub Actions with org=workweave, repo=router, workflow=publish_npm.yml.
+# both packages on npmjs.com → Settings → Trusted Publishers → GitHub Actions
+# with org=workweave, repo=router, workflow=publish_npm.yml.
 name: Publish npm
 
 on:
@@ -18,7 +18,7 @@ on:
 
 jobs:
   publish:
-    name: Publish @workweave/router
+    name: Publish @weave-os/router and @workweave/router
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -72,7 +72,12 @@ jobs:
             echo "::error::Tag version ($tag) does not match package.json version ($pkg_version)"
             exit 1
           fi
-          echo "Publishing @workweave/router@$pkg_version"
+          echo "Publishing @weave-os/router@$pkg_version"
 
-      - name: Publish to npm
+      - name: Publish @weave-os/router to npm
         run: npm publish --provenance --access public
+
+      - name: Publish legacy @workweave/router to npm
+        run: |
+          npm pkg set name=@workweave/router
+          npm publish --provenance --access public
