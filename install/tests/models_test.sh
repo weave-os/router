@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Regression tests for `npx @workweave/router models` — the model-selection CLI
+# Regression tests for `npx @weave-os/router models` — the model-selection CLI
 # behind the /models slash command.
 #
 # Fully offline: an isolated $HOME keeps real config untouched, and a fake curl
@@ -352,7 +352,7 @@ check "models reads the parked endpoint, not api.anthropic.com" \
 empty="$work/empty"; mkdir -p "$empty"
 run_models "$empty" -- --claude
 check "no install found fails" "$rc" "1"
-contains "no install found explains how to fix it" "$out" "npx @workweave/router --claude"
+contains "no install found explains how to fix it" "$out" "npx @weave-os/router --claude"
 
 nokey="$work/nokey"; mkdir -p "$nokey/.claude"
 cat >"$nokey/.claude/settings.json" <<'EOF'
@@ -493,7 +493,7 @@ for wrapper in router-models models; do
     no "$wrapper.md is shipped" "a file at $file" "missing"
     continue
   fi
-  bad="$(grep -o 'npx @workweave/router models[^`]*' "$file" | grep -cv -- '--claude' || true)"
+  bad="$(grep -o 'npx @weave-os/router models[^`]*' "$file" | grep -cv -- '--claude' || true)"
   check "every $wrapper.md command line names a client" "$bad" "0"
 done
 
