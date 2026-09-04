@@ -22,6 +22,8 @@ var rosterAliases = map[string]string{
 	// what makes an xAI-native model roster-addressable.
 	"grok-4.5": "x-ai/grok-4.5",
 	"grok-4.6": "x-ai/grok-4.6",
+	// Same for Meta's first-party Muse Spark.
+	"muse-spark-1.3": "meta/muse-spark-1.3",
 }
 
 func rosterIDFor(m catalog.Model) string {

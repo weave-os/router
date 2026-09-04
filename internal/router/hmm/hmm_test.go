@@ -233,6 +233,18 @@ func TestRosterIDForMapsBareGrokIDsToXAIRosterSlugs(t *testing.T) {
 	assert.Equal(t, "grok-4.5", CatalogIDForRoster("x-ai/grok-4.5"))
 }
 
+func TestRosterIDForMapsBareMuseSparkToMetaRosterSlug(t *testing.T) {
+	muse, ok := catalog.ByID("muse-spark-1.3")
+	require.True(t, ok)
+	assert.Equal(t, "meta/muse-spark-1.3", rosterIDFor(muse))
+	assert.Equal(t, "muse-spark-1.3", CatalogIDForRoster("meta/muse-spark-1.3"))
+
+	got := DeployedModelsForRosterIDs([]string{"meta/muse-spark-1.3", "meta/muse-spark-1.3:xhigh"})
+	require.Len(t, got, 1)
+	assert.Equal(t, "muse-spark-1.3", got[0].Model)
+	assert.Equal(t, providers.ProviderMeta, got[0].Provider)
+}
+
 func TestRouterOffersAndSelectsTerraWithoutLegacyDeployedSet(t *testing.T) {
 	decider := &fakeDecider{res: Result{
 		Model:    "openai/gpt-5.6-terra",
