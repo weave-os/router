@@ -410,7 +410,7 @@ func writeResponsesInputFromAnthropic(jw *jsonWriter, body []byte) {
 				jw.Key("call_id")
 				jw.Str(clampOpenAIToolCallID(callID))
 				jw.Key("name")
-				jw.Str(block.Get("name").String())
+				jw.Str(sanitizeResponsesToolAlias(block.Get("name").String()))
 				inputRaw := block.Get("input").Raw
 				if inputRaw == "" {
 					inputRaw = "{}"
@@ -630,7 +630,7 @@ func writeResponsesFunctionTools(jw *jsonWriter, tools []responsesFunctionTool) 
 		jw.Key("type")
 		jw.Str("function")
 		jw.Key("name")
-		jw.Str(tool.name)
+		jw.Str(sanitizeResponsesToolAlias(tool.name))
 		if tool.description.Exists() {
 			jw.Key("description")
 			jw.Raw(tool.description.Raw)
@@ -665,7 +665,7 @@ func writeResponsesToolChoiceFromAnthropic(jw *jsonWriter, body []byte) {
 		jw.Key("type")
 		jw.Str("function")
 		jw.Key("name")
-		jw.Str(name)
+		jw.Str(sanitizeResponsesToolAlias(name))
 		jw.EndObj()
 	}
 }

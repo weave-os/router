@@ -127,6 +127,33 @@ func TestPrepareOpenAIResponses_RequestShape(t *testing.T) {
 	assert.Equal(t, providers.EndpointResponses, prep.Endpoint)
 }
 
+// Unknown tool calls stay in Anthropic history for the client's feedback loop,
+// but OpenAI Responses only accepts the restricted function-name alphabet.
+func TestPrepareOpenAIResponses_SanitizesHistoricalToolName(t *testing.T) {
+	body := []byte(`{
+      "model":"claude-opus-5",
+      "messages":[
+        {"role":"assistant","content":[{"type":"tool_use","id":"toolu_1","name":"dots schema search --scope all","input":{}}]},
+        {"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_1","content":"done"}]}
+      ]
+    }`)
+	env, err := translate.ParseAnthropic(body)
+	require.NoError(t, err)
+	prep, err := env.PrepareOpenAIResponses(http.Header{}, translate.EmitOptions{
+		TargetModel:  "gpt-5.6-luna",
+		Capabilities: router.Lookup("gpt-5.6-luna"),
+	})
+	require.NoError(t, err)
+
+	var out map[string]any
+	require.NoError(t, json.Unmarshal(prep.Body, &out))
+	input, _ := out["input"].([]any)
+	require.Len(t, input, 2)
+	call, _ := input[0].(map[string]any)
+	assert.Equal(t, "dots_schema_search_--scope_all", call["name"])
+	assert.Regexp(t, `^[a-zA-Z0-9_-]+$`, call["name"])
+}
+
 func topLevelResponsesFields(t *testing.T, body []byte) []string {
 	t.Helper()
 	decoder := json.NewDecoder(bytes.NewReader(body))

@@ -156,7 +156,7 @@ func writeResponsesInputFromOpenAI(jw *jsonWriter, messages gjson.Result, skip i
 				jw.Key("call_id")
 				jw.Str(clampOpenAIToolCallID(call.Get("id").String()))
 				jw.Key("name")
-				jw.Str(call.Get("function.name").String())
+				jw.Str(sanitizeResponsesToolAlias(call.Get("function.name").String()))
 				args := call.Get("function.arguments").String()
 				if args == "" {
 					args = "{}"
@@ -316,7 +316,7 @@ func writeResponsesToolChoiceFromOpenAI(jw *jsonWriter, body []byte) {
 		jw.Key("type")
 		jw.Str("function")
 		jw.Key("name")
-		jw.Str(name)
+		jw.Str(sanitizeResponsesToolAlias(name))
 		jw.EndObj()
 	}
 }

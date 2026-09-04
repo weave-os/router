@@ -631,7 +631,7 @@ func buildOpenAIToolCall(block gjson.Result) string {
 	inner.Key("function")
 	inner.Obj()
 	inner.Key("name")
-	inner.Str(block.Get("name").String())
+	inner.Str(sanitizeResponsesToolAlias(block.Get("name").String()))
 	// input is a JSON object; encode it as a JSON string (arguments field).
 	inputRaw := block.Get("input").Raw
 	if inputRaw == "" {
@@ -821,7 +821,7 @@ func writeOpenAIToolsFromAnthropic(jw *jsonWriter, body []byte) {
 		jw.Key("function")
 		jw.Obj()
 		jw.Key("name")
-		jw.Str(tool.Get("name").String())
+		jw.Str(sanitizeResponsesToolAlias(tool.Get("name").String()))
 		if desc := tool.Get("description"); desc.Exists() {
 			jw.Key("description")
 			jw.Raw(desc.Raw)
@@ -858,7 +858,7 @@ func writeOpenAIToolChoiceFromAnthropic(jw *jsonWriter, body []byte) {
 		inner.Key("function")
 		inner.Obj()
 		inner.Key("name")
-		inner.Str(name)
+		inner.Str(sanitizeResponsesToolAlias(name))
 		inner.EndObj()
 		inner.EndObj()
 		jw.Key("tool_choice")
