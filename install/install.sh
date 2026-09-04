@@ -264,7 +264,9 @@ _spin_cleanup() {
   if [ "$tty_out" = "true" ]; then
     printf '\033[?25h' # show cursor
   fi
-  [ -n "$spin_log" ] && rm -f "$spin_log" 2>/dev/null || true
+  if [ -n "$spin_log" ]; then
+    rm -f "$spin_log" 2>/dev/null || true
+  fi
   # Also restore stty echo in case we died mid-keypaste prompt. macOS
   # `[ -r /dev/tty ]` returns true even when the underlying device errors
   # on open (ENXIO "Device not configured") under `curl | sh` and CI, so
@@ -1356,6 +1358,8 @@ if [ -z "$install_dir" ] && [ "$scope_explicit" = "false" ] && [ "$non_interacti
   # Per-target paths so the prompt text matches what actually gets written.
   case "$target" in
     codex)
+      # This path is display text, not an expansion target.
+      # shellcheck disable=SC2088
       scope_user_path="~/.codex/"
       scope_project_path="<repo>/.codex/"
       scope_cli_label="codex"
@@ -1368,17 +1372,23 @@ if [ -z "$install_dir" ] && [ "$scope_explicit" = "false" ] && [ "$non_interacti
       if [ -n "${XDG_CONFIG_HOME:-}" ]; then
         scope_user_path="$XDG_CONFIG_HOME/opencode/"
       else
+        # This path is display text, not an expansion target.
+        # shellcheck disable=SC2088
         scope_user_path="~/.config/opencode/"
       fi
       scope_project_path="<repo>/opencode.json"
       scope_cli_label="opencode"
       ;;
     pi)
+      # This path is display text, not an expansion target.
+      # shellcheck disable=SC2088
       scope_user_path="~/.pi/agent/"
       scope_project_path="<repo>/.pi/"
       scope_cli_label="pi"
       ;;
     *)
+      # This path is display text, not an expansion target.
+      # shellcheck disable=SC2088
       scope_user_path="~/.claude/"
       scope_project_path="<repo>/.claude/"
       scope_cli_label="claude"
@@ -1404,6 +1414,8 @@ if [ -z "$install_dir" ] && [ "$scope_explicit" = "false" ] && [ "$non_interacti
     read -r project_dir_choice </dev/tty || project_dir_choice=""
     project_dir="${project_dir_choice:-$default_project_dir}"
     # Expand a leading ~ since `read` doesn't.
+    # The pattern intentionally matches a literal tilde.
+    # shellcheck disable=SC2088
     case "$project_dir" in
       "~")    project_dir="$HOME" ;;
       "~/"*)  project_dir="$HOME/${project_dir#~/}" ;;
@@ -1476,7 +1488,9 @@ case "$target" in
 esac
 fi
 
-script_dir="$(cd "$(dirname "$0")" 2>/dev/null && pwd || true)"
+if ! script_dir="$(cd "$(dirname "$0")" 2>/dev/null && pwd)"; then
+  script_dir=""
+fi
 
 # ---------- directive registry (embedded) ----------
 #
@@ -1606,7 +1620,9 @@ else
       # preserved for --scope project passed on the command line).
       if [ -n "${project_dir:-}" ]; then
         settings_base="$project_dir"
-        git_root="$(cd "$project_dir" && git rev-parse --show-toplevel 2>/dev/null || true)"
+        if ! git_root="$(cd "$project_dir" && git rev-parse --show-toplevel 2>/dev/null)"; then
+          git_root=""
+        fi
       else
         if ! git_root="$(git rev-parse --show-toplevel 2>/dev/null)"; then
           err "--scope project must be run inside a git repo, or pass --dir <path>. cd into your project first, or use --dir."
@@ -2752,7 +2768,10 @@ run_login_claude() {
   authorize_endpoint="${WEAVE_ANTHROPIC_OAUTH_AUTHORIZE:-https://claude.ai/oauth/authorize}"
   authorize_url="$authorize_endpoint?code=true&client_id=9d1c250a-e61b-44d9-88ed-5944d1962f5e&response_type=code&redirect_uri=$(jq -nr '"https://console.anthropic.com/oauth/code/callback"|@uri')&scope=$(jq -nr '"org:create_api_key user:profile user:inference"|@uri')&code_challenge=$challenge&code_challenge_method=S256&state=$expected_state"
   open_oauth_url "$authorize_url"
-  [ "$non_interactive" != "true" ] && [ -r /dev/tty ] || { err "Claude login requires an interactive terminal to paste the authorization code."; exit 1; }
+  if [ "$non_interactive" = "true" ] || [ ! -r /dev/tty ]; then
+    err "Claude login requires an interactive terminal to paste the authorization code."
+    exit 1
+  fi
   printf 'Paste the Claude authorization code: ' >/dev/tty
   read -r pasted_code </dev/tty
   auth_code="${pasted_code%%#*}"
@@ -2781,7 +2800,10 @@ run_login_codex() {
   case "$interval" in *[!0-9]*|"") interval=5 ;; esac
   [ "$interval" -ge 1 ] || interval=1
   [ "$interval" -le 30 ] || interval=5
-  [ -n "$device_auth_id" ] && [ -n "$user_code" ] || { err "Codex device authorization returned an invalid response."; exit 1; }
+  if [ -z "$device_auth_id" ] || [ -z "$user_code" ]; then
+    err "Codex device authorization returned an invalid response."
+    exit 1
+  fi
   open_oauth_url "$issuer/codex/device"
   printf '%s\n' "Enter code: $user_code"
   attempts=0
@@ -2793,13 +2815,19 @@ run_login_codex() {
   done
   authorization_code="$(printf '%s' "$authorization_response" | jq -r '.authorization_code // empty')"
   verifier="$(printf '%s' "$authorization_response" | jq -r '.code_verifier // empty')"
-  [ -n "$authorization_code" ] && [ -n "$verifier" ] || { err "Codex authorization returned an invalid response."; exit 1; }
+  if [ -z "$authorization_code" ] || [ -z "$verifier" ]; then
+    err "Codex authorization returned an invalid response."
+    exit 1
+  fi
   token_form="grant_type=authorization_code&code=$(jq -nr --arg value "$authorization_code" '$value|@uri')&redirect_uri=$(jq -nr --arg value "$issuer/deviceauth/callback" '$value|@uri')&client_id=app_EMoamEEZ73f0CkXaXp7hrann&code_verifier=$(jq -nr --arg value "$verifier" '$value|@uri')"
   token_response="$(oauth_post_form "$issuer/oauth/token" "$token_form")" \
     || { err "Codex token exchange failed."; exit 1; }
   refresh_token="$(printf '%s' "$token_response" | jq -r '.refresh_token // empty')"
   account_id="$(jwt_account_id "$(printf '%s' "$token_response" | jq -r '.id_token // .access_token // empty')")"
-  [ -n "$refresh_token" ] && [ -n "$account_id" ] || { err "Codex token exchange omitted account identity or refresh credentials."; exit 1; }
+  if [ -z "$refresh_token" ] || [ -z "$account_id" ]; then
+    err "Codex token exchange omitted account identity or refresh credentials."
+    exit 1
+  fi
   body="$(jq -nc --arg provider codex --arg account "$account_id" --arg token "$refresh_token" '{provider:$provider,external_account_id:$account,refresh_token:$token}')"
   models_api POST "/v1/subscriptions/accounts" "$body" || models_fail "enrolling Codex subscription"
   ok "Codex subscription enrolled."
@@ -3233,7 +3261,9 @@ remove_obsolete_codex_prompt_wrappers() {
   while IFS= read -r cmd; do
     src="$commands_src_dir/$cmd.md"
     dst="$dst_dir/$cmd.md"
-    [ -f "$src" ] && [ -f "$dst" ] || continue
+    if [ ! -f "$src" ] || [ ! -f "$dst" ]; then
+      continue
+    fi
     [ -L "$dst" ] && continue
     if [ "$scope" = "project" ] || [ -n "$install_dir" ]; then
       refuse_if_symlink "$dst"
@@ -4223,8 +4253,12 @@ weave_sync_commands() {
   # be recovered those three are skipped rather than rewritten to point at the
   # user-scope install.
   local scope_args="" scope_known="false" off="$cmd_dir/router-off.md"
+  # Backticks are literal Markdown delimiters.
+  # shellcheck disable=SC2016
   if [ -f "$off" ] && grep -Eq '^`npx @(workweave/router|weave-os/router) off --claude.*`$' "$off" 2>/dev/null; then
     scope_known="true"
+    # Backticks are literal Markdown delimiters.
+    # shellcheck disable=SC2016
     scope_args="$(sed -En 's#^`npx @(workweave/router|weave-os/router) off --claude(.*)`$#\2#p' "$off" | head -n 1)"
   fi
 
@@ -4263,7 +4297,7 @@ weave_sync_commands() {
       if [ -f "$prev" ]; then
         new_body="$(weave_render_command "$raw" "$scope_args")"
         prev_body="$(weave_render_command "$prev" "$scope_args")"
-        installed_body="$(cat "$installed" 2>/dev/null | sed '/^<!-- weave-router managed command: .* -->$/d')" || installed_body=""
+        installed_body="$(sed '/^<!-- weave-router managed command: .* -->$/d' "$installed" 2>/dev/null)" || installed_body=""
         if [ "$prev_body" = "$installed_body" ] && [ "$new_body" != "$installed_body" ]; then
           tmp="$installed.tmp.$$"
           if printf '%s\n<!-- weave-router managed command: %s -->' "$new_body" "$name" >"$tmp" 2>/dev/null; then

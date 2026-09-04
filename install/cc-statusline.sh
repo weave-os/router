@@ -234,8 +234,12 @@ weave_sync_commands() {
   # be recovered those three are skipped rather than rewritten to point at the
   # user-scope install.
   local scope_args="" scope_known="false" off="$cmd_dir/router-off.md"
+  # Backticks are literal Markdown delimiters.
+  # shellcheck disable=SC2016
   if [ -f "$off" ] && grep -Eq '^`npx @(workweave/router|weave-os/router) off --claude.*`$' "$off" 2>/dev/null; then
     scope_known="true"
+    # Backticks are literal Markdown delimiters.
+    # shellcheck disable=SC2016
     scope_args="$(sed -En 's#^`npx @(workweave/router|weave-os/router) off --claude(.*)`$#\2#p' "$off" | head -n 1)"
   fi
 
@@ -274,7 +278,7 @@ weave_sync_commands() {
       if [ -f "$prev" ]; then
         new_body="$(weave_render_command "$raw" "$scope_args")"
         prev_body="$(weave_render_command "$prev" "$scope_args")"
-        installed_body="$(cat "$installed" 2>/dev/null | sed '/^<!-- weave-router managed command: .* -->$/d')" || installed_body=""
+        installed_body="$(sed '/^<!-- weave-router managed command: .* -->$/d' "$installed" 2>/dev/null)" || installed_body=""
         if [ "$prev_body" = "$installed_body" ] && [ "$new_body" != "$installed_body" ]; then
           tmp="$installed.tmp.$$"
           if printf '%s\n<!-- weave-router managed command: %s -->' "$new_body" "$name" >"$tmp" 2>/dev/null; then
