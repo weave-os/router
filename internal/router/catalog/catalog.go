@@ -571,7 +571,7 @@ var Models = []Model{
 		{Provider: providers.ProviderFireworks, UpstreamID: "accounts/fireworks/models/minimax-m3",
 			Price: Pricing{InputUSDPer1M: 0.300, OutputUSDPer1M: 1.200, CacheReadMultiplier: 0.20}},
 		{Provider: providers.ProviderMiniMax, UpstreamID: "MiniMax-M3",
-			Price: Pricing{InputUSDPer1M: 0.600, OutputUSDPer1M: 2.400, CacheReadMultiplier: 0.12 / 0.600}},
+			Price: Pricing{InputUSDPer1M: 0.300, OutputUSDPer1M: 1.200, CacheReadMultiplier: 0.06 / 0.300}},
 		{Provider: providers.ProviderOpenRouter, Price: Pricing{InputUSDPer1M: 0.300, OutputUSDPer1M: 1.200, CacheReadMultiplier: 0.10}},
 	}},
 	{ID: "z-ai/glm-5", Tier: TierHigh, ContextWindow: 202_752, ImageInput: ImageInputUnsupported, Providers: []ProviderBinding{

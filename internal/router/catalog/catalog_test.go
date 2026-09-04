@@ -152,7 +152,7 @@ func TestResolveBinding_MiniMaxUsesNativeModelIDs(t *testing.T) {
 		inputPrice  float64
 		outputPrice float64
 	}{
-		{model: "minimax/minimax-m3", upstreamID: "MiniMax-M3", inputPrice: 0.600, outputPrice: 2.400},
+		{model: "minimax/minimax-m3", upstreamID: "MiniMax-M3", inputPrice: 0.300, outputPrice: 1.200},
 		{model: "minimax/minimax-m2.7", upstreamID: "MiniMax-M2.7", inputPrice: 0.300, outputPrice: 1.200},
 	}
 
