@@ -93,7 +93,7 @@ home="$work/home"; mkdir -p "$home/bin"
 printf '%s\n' '#!/usr/bin/env bash' 'exit 22' >"$home/bin/curl"
 chmod +x "$home/bin/curl"
 
-# Drive bin.js exactly as `npx @workweave/router` does. A tarball missing any
+# Drive bin.js exactly as `npx @weave-os/router` does. A tarball missing any
 # runtime asset fails here even though every string assertion above passed.
 HOME="$home" PATH="$home/bin:$PATH" WEAVE_ROUTER_KEY="rk_test_key" NO_COLOR=1 \
   node "$root/bin.js" --codex --scope user --quiet --base-url http://127.0.0.1:9 >/dev/null 2>&1 || true
