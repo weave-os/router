@@ -4869,7 +4869,7 @@ func (s *Service) reportPolicyOutcome(ctx context.Context, res turnLoopResult, d
 		)
 	}
 	// An effort-qualified arm is only a label for what was bought when the
-	// selected level is the level that went on the wire; training on a clamped
+	// arm's own level is the level that went on the wire; training on a clamped
 	// or overridden turn credits the arm with another level's outcome.
 	effortMismatch := effort.Mismatch()
 	if effortMismatch {
@@ -4878,6 +4878,7 @@ func (s *Service) reportPolicyOutcome(ctx context.Context, res turnLoopResult, d
 			"Selected effort did not match the effort sent upstream",
 			"route_id", routeMetadata.RouteID,
 			"served_model", decision.Model,
+			"arm_effort", effort.Arm,
 			"selected_effort", effort.Selected,
 			"sent_effort", effort.Sent,
 			"effort_source", effort.Source,
@@ -4904,6 +4905,7 @@ func (s *Service) reportPolicyOutcome(ctx context.Context, res turnLoopResult, d
 		"decision_model":                   routeDecision.Model,
 		"decision_provider":                routeDecision.Provider,
 		"selected_served_model_match":      selectedServedModelMatch,
+		"arm_effort":                       effort.Arm,
 		"selected_effort":                  effort.Selected,
 		"sent_effort":                      effort.Sent,
 		"effort_source":                    effort.Source,

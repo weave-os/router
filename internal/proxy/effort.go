@@ -17,19 +17,24 @@ const (
 	effortSourceModelPolicy = "model_policy"
 )
 
-// effortResolution is one dispatch target's effort: the level routing selected
-// and the level the emit path actually writes on the wire, which differ when
-// the target's menu can't express the selection (xhigh → max → high).
+// effortResolution is one dispatch target's effort: the arm's own level, the
+// level that won precedence, and the level the emit path actually writes on
+// the wire, which differ when an override outranks the arm or the target's
+// menu can't express the selection (xhigh → max → high).
 type effortResolution struct {
+	Arm      string
 	Selected string
 	Sent     string
 	Source   string
 }
 
-// Mismatch reports whether the wire level differs from the selected one. A
-// policy arm labelled with the selected level did not buy what it was charged
-// for, so such a turn must not train the policy.
+// Mismatch reports whether the wire level differs from the one the policy arm
+// is labelled with. An override or a clamp credits that arm with a level it
+// never bought, so such a turn must not train the policy.
 func (e effortResolution) Mismatch() bool {
+	if e.Arm != "" {
+		return e.Arm != e.Sent
+	}
 	return e.Selected != "" && e.Selected != e.Sent
 }
 
@@ -53,7 +58,8 @@ func (e effortResolution) apply(opts *translate.EmitOptions) {
 // applyEffortAttrs stamps the effort actually dispatched with, alongside the
 // level routing selected and where it came from.
 func applyEffortAttrs(b *otel.AttrBuilder, e effortResolution) *otel.AttrBuilder {
-	return b.String("routing.selected_effort", e.Selected).
+	return b.String("routing.arm_effort", e.Arm).
+		String("routing.selected_effort", e.Selected).
 		String("routing.sent_effort", e.Sent).
 		String("routing.effort_source", e.Source).
 		Bool("routing.effort_mismatch", e.Mismatch())
@@ -64,31 +70,35 @@ func applyEffortAttrs(b *otel.AttrBuilder, e effortResolution) *otel.AttrBuilder
 // Escalation outranks the arm because it exists to rescue a turn the arm's
 // level already failed.
 func (s *Service) resolveEffort(ctx context.Context, decision router.Decision, caps router.ModelSpec, escalate bool) effortResolution {
+	arm := router.CanonicalizeEffort(decision.Effort)
 	escalationAllowed := s.ResolveEffortEscalation(ctx) || strings.HasPrefix(decision.Model, "grok-")
 	if knobs := routingKnobsForRequest(ctx); knobs != nil && knobs.ForceEffort != "" {
-		return effortResolutionFor(caps, knobs.ForceEffort, effortSourceUser)
+		return effortResolutionFor(caps, arm, knobs.ForceEffort, effortSourceUser)
 	}
 	if escalate && escalationAllowed {
-		if level := forcedReasoningEffort(decision.Model, true); level != "" {
-			return effortResolutionFor(caps, level, effortSourceEscalation)
+		// Escalation rescues a turn the arm's level already failed, so it may
+		// only raise the level: the per-model escalation default is a fixed
+		// "high"/"low" that would otherwise downgrade a richer arm.
+		if level := router.HigherEffort(forcedReasoningEffort(decision.Model, true), arm); level != arm {
+			return effortResolutionFor(caps, arm, level, effortSourceEscalation)
 		}
 	}
-	if decision.Effort != "" {
-		return effortResolutionFor(caps, decision.Effort, effortSourceArm)
+	if arm != "" {
+		return effortResolutionFor(caps, arm, arm, effortSourceArm)
 	}
 	if escalationAllowed {
 		if level := forcedReasoningEffort(decision.Model, false); level != "" {
-			return effortResolutionFor(caps, level, effortSourceModelPolicy)
+			return effortResolutionFor(caps, arm, level, effortSourceModelPolicy)
 		}
 	}
 	return effortResolution{}
 }
 
-func effortResolutionFor(caps router.ModelSpec, level, source string) effortResolution {
+func effortResolutionFor(caps router.ModelSpec, arm, level, source string) effortResolution {
 	selected := router.CanonicalizeEffort(level)
 	sent := translate.ClampReasoningLevel(caps, translate.ResolveForceEffort(caps, level))
 	if sent == "" {
-		return effortResolution{}
+		return effortResolution{Arm: arm}
 	}
-	return effortResolution{Selected: selected, Sent: sent, Source: source}
+	return effortResolution{Arm: arm, Selected: selected, Sent: sent, Source: source}
 }

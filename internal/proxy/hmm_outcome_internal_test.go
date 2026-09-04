@@ -191,7 +191,7 @@ func TestReportPolicyOutcome_EffortMismatchExcludedFromTraining(t *testing.T) {
 		},
 	}
 	ctx := context.WithValue(context.Background(), PolicyTrainingAllowedContextKey{}, true)
-	effort := effortResolutionFor(router.Lookup(decision.Model), decision.Effort, effortSourceArm)
+	effort := effortResolutionFor(router.Lookup(decision.Model), decision.Effort, decision.Effort, effortSourceArm)
 
 	s.reportPolicyOutcome(
 		ctx,
@@ -205,6 +205,7 @@ func TestReportPolicyOutcome_EffortMismatchExcludedFromTraining(t *testing.T) {
 
 	select {
 	case payload := <-reporter.ch:
+		assert.Equal(t, "xhigh", payload["arm_effort"])
 		assert.Equal(t, "xhigh", payload["selected_effort"])
 		assert.Equal(t, "high", payload["sent_effort"])
 		assert.Equal(t, effortSourceArm, payload["effort_source"])

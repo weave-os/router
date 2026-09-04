@@ -1127,14 +1127,25 @@ const (
 )
 
 // ResolveForceEffort canonicalizes level and applies the per-model cap
-// (xhigh → max on non-CapXhighEffort). Empty input → "".
+// (xhigh → max on non-CapXhighEffort, max → xhigh on a menu that tops out
+// there). Empty input → "".
 func ResolveForceEffort(caps router.ModelSpec, level string) string {
 	if level == "" {
 		return ""
 	}
 	canonical := router.CanonicalizeEffort(level)
-	if canonical == effortXhigh && !caps.Supports(router.CapXhighEffort) {
-		return effortMax
+	switch canonical {
+	case effortXhigh:
+		if !caps.Supports(router.CapXhighEffort) {
+			return effortMax
+		}
+	case effortMax:
+		// A menu whose ceiling is xhigh (GPT-5.6 on the public Responses API,
+		// where max is Codex-backend only) has no max rung; rank-clamping it
+		// would fall to high, one rung below what the target can serve.
+		if caps.Supports(router.CapXhighEffort) && !containsReasoningLevel(caps.Reasoning().Levels, effortMax) {
+			return effortXhigh
+		}
 	}
 	return canonical
 }

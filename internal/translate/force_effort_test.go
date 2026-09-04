@@ -162,6 +162,13 @@ func TestResolveForceEffort(t *testing.T) {
 		{"xhigh_capable_passes", "xhigh", router.NewSpec(router.CapAdaptiveThinking, router.CapXhighEffort), "xhigh"},
 		{"xhigh_incapable_clamps_to_max", "xhigh", router.NewSpec(router.CapAdaptiveThinking), "max"},
 		{"low_no_cap", "low", router.NewSpec(), "low"},
+		{"max_on_xhigh_ceiling_menu_serves_xhigh", "max", router.NewSpecWithReasoning(
+			router.ReasoningCapabilities{Levels: []string{"low", "medium", "high", "xhigh"}},
+			router.CapReasoning, router.CapXhighEffort), "xhigh"},
+		{"max_on_menu_with_max_passes", "max", router.NewSpecWithReasoning(
+			router.ReasoningCapabilities{Levels: []string{"low", "medium", "high", "max", "xhigh"}},
+			router.CapReasoning, router.CapXhighEffort), "max"},
+		{"max_on_non_xhigh_target_passes", "max", router.NewSpec(router.CapAdaptiveThinking), "max"},
 		{"ultra_alias_resolved", "ultra", router.NewSpec(router.CapAdaptiveThinking, router.CapXhighEffort), "xhigh"},
 		{"fast_alias_resolved", "fast", router.NewSpec(), "low"},
 	}
