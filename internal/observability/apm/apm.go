@@ -41,7 +41,9 @@ var (
 )
 
 // Init wires the OTel SDK against the SigNoz collector using
-// WV_APM_OTLP_ENDPOINT (host:port for OTLP/gRPC). Empty = no-op. Idempotent.
+// WV_APM_OTLP_ENDPOINT (host:port for OTLP/gRPC). With an empty endpoint it
+// still enables W3C trace-context propagation but does not export telemetry.
+// Idempotent.
 // Mirrors backend/internal/app/telemetry/otel.go's init() so the router
 // reports the same resource attribute shape as the rest of Weave.
 func Init() {
@@ -54,10 +56,7 @@ func initLocked() {
 	// Configure extraction/injection even when exporting is disabled. This
 	// keeps distributed trace headers flowing through the router in no-op APM
 	// deployments, and lets request logs retain an inbound parent trace.
-	otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(
-		propagation.TraceContext{},
-		propagation.Baggage{},
-	))
+	otel.SetTextMapPropagator(propagation.TraceContext{})
 
 	endpoint := config.GetOr("WV_APM_OTLP_ENDPOINT", "")
 	if endpoint == "" {

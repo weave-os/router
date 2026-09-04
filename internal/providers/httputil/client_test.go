@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/baggage"
 	"go.opentelemetry.io/otel/propagation"
 	oteltrace "go.opentelemetry.io/otel/trace"
 )
@@ -34,17 +35,25 @@ func TestNewClientPropagatesTraceContext(t *testing.T) {
 		TraceFlags: oteltrace.FlagsSampled,
 		Remote:     true,
 	}))
+	member, err := baggage.NewMember("tenant", "internal")
+	require.NoError(t, err)
+	bag, err := baggage.New(member)
+	require.NoError(t, err)
+	ctx = baggage.ContextWithBaggage(ctx, bag)
 
-	var got string
+	var got, gotBaggage string
 	client := NewClient(roundTripFunc(func(req *http.Request) (*http.Response, error) {
 		got = req.Header.Get("traceparent")
+		gotBaggage = req.Header.Get("baggage")
 		return &http.Response{StatusCode: http.StatusNoContent, Body: http.NoBody, Header: make(http.Header)}, nil
 	}))
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://example.com", nil)
 	require.NoError(t, err)
-	_, err = client.Do(req)
+	resp, err := client.Do(req)
 	require.NoError(t, err)
+	require.NoError(t, resp.Body.Close())
 	assert.Equal(t, "00-0123456789abcdef0123456789abcdef-0123456789abcdef-01", got)
+	assert.Empty(t, gotBaggage)
 }
 
 func TestNewClientFailsTheCallOnARedirect(t *testing.T) {

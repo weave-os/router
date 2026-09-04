@@ -47,6 +47,7 @@ func NewHTTPDeciderWithHeaders(baseURL string, client *http.Client, timeout time
 			},
 		}
 	}
+	client = observability.WrapHTTPClient(client)
 	copied := map[string]string{}
 	for k, v := range headers {
 		if strings.TrimSpace(k) == "" || v == "" {
@@ -103,7 +104,6 @@ func (d *HTTPDecider) Decide(ctx context.Context, q Query) (Result, error) {
 	for k, v := range d.headers {
 		req.Header.Set(k, v)
 	}
-	observability.InjectTraceContext(ctx, req)
 
 	resp, err := d.client.Do(req)
 	if err != nil {

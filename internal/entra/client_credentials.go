@@ -49,6 +49,7 @@ func NewClientCredentialsSource(httpClient *http.Client, now auth.Clock) *Client
 	if httpClient == nil {
 		httpClient = http.DefaultClient
 	}
+	httpClient = observability.WrapHTTPClient(httpClient)
 	if now == nil {
 		now = time.Now
 	}
@@ -131,7 +132,6 @@ func (s *ClientCredentialsSource) mint(ctx context.Context, key *auth.ExternalAP
 	if err != nil {
 		return nil, fmt.Errorf("%w: build token request: %v", auth.ErrEntraUnavailable, err)
 	}
-	observability.InjectTraceContext(ctx, request)
 	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	response, err := s.httpClient.Do(request)
 	if err != nil {

@@ -4,12 +4,9 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"net/http"
 	"os"
 	"strings"
 
-	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/propagation"
 	oteltrace "go.opentelemetry.io/otel/trace"
 )
 
@@ -43,14 +40,4 @@ func LoggerWithTraceContext(ctx context.Context, log *slog.Logger) *slog.Logger 
 		log = log.With(gcpSpanField, spanCtx.SpanID().String())
 	}
 	return log
-}
-
-// InjectTraceContext propagates the active OpenTelemetry context into an
-// outbound HTTP request. It emits the globally configured W3C Trace Context
-// and Baggage headers (typically traceparent, tracestate, and baggage).
-func InjectTraceContext(ctx context.Context, req *http.Request) {
-	if req == nil || ctx == nil {
-		return
-	}
-	otel.GetTextMapPropagator().Inject(ctx, propagation.HeaderCarrier(req.Header))
 }
