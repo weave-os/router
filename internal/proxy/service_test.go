@@ -1522,3 +1522,46 @@ func TestService_ExcludedModelsThroughRequest(t *testing.T) {
 		assert.Equal(t, []string{"gpt-4o"}, svc.ExcludedModelsOverride())
 	})
 }
+
+// The native Responses body is dispatched verbatim, so the arm's level has to
+// be written onto it — otherwise an effort-qualified arm serves at whatever
+// level the caller sent.
+func TestService_ProxyOpenAIResponses_NativeDispatchAppliesArmEffort(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		armEffort  string
+		wantEffort string
+	}{
+		{name: "arm level within the target's menu", armEffort: "low", wantEffort: "low"},
+		{name: "the top level reaches the wire unclamped", armEffort: "xhigh", wantEffort: "xhigh"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			provider := &fakeProvider{proxyResponse: func(w http.ResponseWriter) {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusOK)
+				_, _ = io.WriteString(w, `{"id":"chatcmpl_1","object":"chat.completion","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}]}`)
+			}}
+			fr := &fakeRouter{decision: router.Decision{
+				Provider: providers.ProviderOpenAI,
+				Model:    "gpt-5.6-luna",
+				Effort:   tc.armEffort,
+				Reason:   "test",
+			}}
+			svc := proxy.NewService(fr, map[string]providers.Client{
+				providers.ProviderOpenAI: provider,
+			}, nil, false, nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil)
+
+			ctx := context.WithValue(context.Background(), proxy.ClientIdentityContextKey{}, proxy.ClientIdentity{ClientApp: proxy.ClientAppOpencode})
+			body := []byte(`{"model":"auto","input":"remove the router","reasoning":{"effort":"medium","summary":"auto"}}`)
+			rec := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(""))
+
+			require.NoError(t, svc.ProxyOpenAIResponses(ctx, body, rec, req))
+			require.Len(t, provider.proxyBodies, 1)
+			assert.Equal(t, tc.wantEffort, gjson.GetBytes(provider.proxyBodies[0], "reasoning.effort").Str)
+			assert.Equal(t, "auto", gjson.GetBytes(provider.proxyBodies[0], "reasoning.summary").Str,
+				"unrelated native fields survive")
+			assert.Equal(t, "remove the router", gjson.GetBytes(provider.proxyBodies[0], "input").Str)
+		})
+	}
+}

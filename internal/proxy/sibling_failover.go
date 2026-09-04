@@ -163,7 +163,8 @@ func siblingProvider(model string, resolved map[string]string, available map[str
 // siblingDecisionFor rebases a failed decision onto the rescue candidate. The
 // arm selection is dropped: it names an upstream of the failed model, and
 // carrying it would make binding resolution prioritize a binding the candidate
-// doesn't have.
+// doesn't have. Effort goes with it — it was chosen against the failed model's
+// menu, and keeping it would persist an identity the candidate never served.
 func siblingDecisionFor(failed router.Decision, model, provider string) router.Decision {
 	md := *failed.Metadata
 	md.SelectedArmID = ""
@@ -173,6 +174,7 @@ func siblingDecisionFor(failed router.Decision, model, provider string) router.D
 	out := failed
 	out.Model = model
 	out.Provider = provider
+	out.Effort = ""
 	out.Reason = ReasonSiblingFailover
 	out.Metadata = &md
 	return out

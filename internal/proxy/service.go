@@ -3492,7 +3492,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		Int64("latency.route_ms", routeMs)
 	applySidecarAttrs(decisionBuilder, routeRes)
 	applyPlannerAttrs(decisionBuilder, routeRes)
-	applyRoutingStateAttrs(decisionBuilder, routeRes, decision.Model, sessionKey)
+	applyRoutingStateAttrs(decisionBuilder, routeRes, decision.ServedIdentity(), sessionKey)
 	otel.Record(ctx, otel.Span{
 		Name:  "router.decision",
 		Start: requestStart,
@@ -3512,14 +3512,8 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		EnableServerSideFallback:          s.ResolveAnthropicServerSideFallback(ctx),
 		KeepCrossVendorOrchestrationTools: s.ccOrchToolsCrossVendor,
 	}
-	// User-forced effort wins over effortEscalation; also pre-populate
-	// ForceReasoningEffort so the gpt-5.x/gemini-3.x emit seams honor it.
-	if effort := forceEffortFor(ctx, decision); effort != "" {
-		opts.ForceEffort = effort
-		opts.ForceReasoningEffort = translate.ResolveForceEffort(opts.Capabilities, effort)
-	} else if effort := forcedReasoningEffort(decision.Model, routeRes.EscalateEffort); effort != "" && (s.ResolveEffortEscalation(ctx) || strings.HasPrefix(decision.Model, "grok-")) {
-		opts.ForceReasoningEffort = effort
-	}
+	effortServed := s.resolveEffort(ctx, decision, opts.Capabilities, routeRes.EscalateEffort)
+	effortServed.apply(&opts)
 
 	// A caller whose Claude subscription has bound its plan window can't serve
 	// another turn on it (429 until reset). Suppress the spent token so
@@ -4041,12 +4035,11 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		// subsumes it.
 		baselineOpts.ModelSwitched = baseModelOf(routeRes.PriorServedModel) != baselineModel ||
 			routeRes.SessionEverSwitched
-		if knobs := routingKnobsForRequest(ctx); knobs != nil && knobs.ForceEffort != "" {
-			baselineOpts.ForceEffort = knobs.ForceEffort
-			baselineOpts.ForceReasoningEffort = translate.ResolveForceEffort(baselineOpts.Capabilities, knobs.ForceEffort)
-		} else if effort := forcedReasoningEffort(baselineModel, routeRes.EscalateEffort); effort != "" && (s.ResolveEffortEscalation(ctx) || strings.HasPrefix(baselineModel, "grok-")) {
-			baselineOpts.ForceReasoningEffort = effort
-		}
+		// The arm's level named the failed model's menu; the baseline resolves
+		// its own so the persisted identity matches what goes on the wire.
+		baselineDecision.Effort = ""
+		effortServed = s.resolveEffort(ctx, baselineDecision, baselineOpts.Capabilities, routeRes.EscalateEffort)
+		effortServed.apply(&baselineOpts)
 		baselineCtx := ctx
 		baselineSubExhausted := s.claudeSubscriptionExhausted(ctx, r.Header)
 		if baselineSubExhausted {
@@ -4189,12 +4182,8 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		// The turn now serves a model the session hasn't seen, so signed
 		// thinking blocks from the prior model must not be replayed verbatim.
 		siblingOpts.ModelSwitched = true
-		if knobs := routingKnobsForRequest(ctx); knobs != nil && knobs.ForceEffort != "" {
-			siblingOpts.ForceEffort = knobs.ForceEffort
-			siblingOpts.ForceReasoningEffort = translate.ResolveForceEffort(siblingOpts.Capabilities, knobs.ForceEffort)
-		} else if effort := forcedReasoningEffort(siblingDecision.Model, routeRes.EscalateEffort); effort != "" && (s.ResolveEffortEscalation(ctx) || strings.HasPrefix(siblingDecision.Model, "grok-")) {
-			siblingOpts.ForceReasoningEffort = effort
-		}
+		effortServed = s.resolveEffort(ctx, siblingDecision, siblingOpts.Capabilities, routeRes.EscalateEffort)
+		effortServed.apply(&siblingOpts)
 		siblingCtx := resolveAndInjectCredentials(ctx, siblingDecision.Provider, siblingDecision.Model, r.Header)
 		siblingOpts.FastMode = fastModeForAttempt(siblingCtx, siblingDecision.Model, siblingDecision.Provider)
 		siblingBindings := s.resolveBindingsForDispatch(siblingCtx, siblingDecision)
@@ -4338,7 +4327,8 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		Bool("dispatch.subscription_failover", subscriptionFailoverUsed).
 		Bool("dispatch.sibling_failover", siblingFailoverUsed)
 	applyPlannerAttrs(upstreamBuilder, routeRes)
-	applyRoutingStateAttrs(upstreamBuilder, routeRes, decision.Model, sessionKey)
+	applyRoutingStateAttrs(upstreamBuilder, routeRes, decision.ServedIdentity(), sessionKey)
+	applyEffortAttrs(upstreamBuilder, effortServed)
 	addTimingAttrs(ctx, upstreamBuilder)
 
 	obs := buildObservationContext(ctx, decision, routeRes.Fresh, s.effectiveCaptureMode(ctx))
@@ -4539,7 +4529,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		policyResp = &policyOutcomeResponse{Body: policyRespBody, Truncated: policyRespTrunc}
 	}
 	if !agentShadowMode {
-		s.reportPolicyOutcome(ctx, routeRes, decision, finalProvider, fastServed, feats.Tokens, in, out, cacheCreation, cacheRead, routeMs, proxyMs, proxyErr, policyResp)
+		s.reportPolicyOutcome(ctx, routeRes, decision, effortServed, finalProvider, fastServed, feats.Tokens, in, out, cacheCreation, cacheRead, routeMs, proxyMs, proxyErr, policyResp)
 	}
 	return proxyErr
 }
@@ -4627,16 +4617,19 @@ func applySidecarAttrs(b *otel.AttrBuilder, res turnLoopResult) *otel.AttrBuilde
 
 // applyRoutingStateAttrs stamps thread identity and transition attrs; it
 // distinguishes real model changes from first selection and sub-agent calls.
+// servedIdentity, not the bare model: PriorServedModel is a serving identity
+// ("gpt-5.6-luna:xhigh"), so comparing it against a bare id reports a model
+// change on every effort-qualified turn.
 func applyRoutingStateAttrs(
 	b *otel.AttrBuilder,
 	res turnLoopResult,
-	servedModel string,
+	servedIdentity string,
 	sessionKey [sessionpin.SessionKeyLen]byte,
 ) *otel.AttrBuilder {
 	return b.String("routing.session_key", sessionKeyHex(sessionKey)).
 		String("routing.pin_role", res.PinRole).
 		String("routing.prior_served_model", res.PriorServedModel).
-		Bool("routing.model_changed", res.PriorServedModel != "" && res.PriorServedModel != servedModel)
+		Bool("routing.model_changed", res.PriorServedModel != "" && res.PriorServedModel != servedIdentity)
 }
 
 // plannerOutcomeAttr maps the planner's typed outcome to an OTel string.
@@ -4854,7 +4847,7 @@ func (s *Service) capturePolicyOutcomeResponse(ctx context.Context, w http.Respo
 	return capture, capture
 }
 
-func (s *Service) reportPolicyOutcome(ctx context.Context, res turnLoopResult, decision router.Decision, finalProvider string, servedFast bool, estimatedInputTokens, inputTokens, outputTokens, cacheCreation, cacheRead int, routeMs, proxyMs int64, proxyErr error, response *policyOutcomeResponse) {
+func (s *Service) reportPolicyOutcome(ctx context.Context, res turnLoopResult, decision router.Decision, effort effortResolution, finalProvider string, servedFast bool, estimatedInputTokens, inputTokens, outputTokens, cacheCreation, cacheRead int, routeMs, proxyMs int64, proxyErr error, response *policyOutcomeResponse) {
 	routeDecision, routeMetadata, reporter, ok := s.policyOutcomeRoute(res, decision)
 	if !ok {
 		return
@@ -4873,6 +4866,21 @@ func (s *Service) reportPolicyOutcome(ctx context.Context, res turnLoopResult, d
 			"route_id", routeMetadata.RouteID,
 			"selected_model", routeDecision.Model,
 			"served_model", decision.Model,
+		)
+	}
+	// An effort-qualified arm is only a label for what was bought when the
+	// selected level is the level that went on the wire; training on a clamped
+	// or overridden turn credits the arm with another level's outcome.
+	effortMismatch := effort.Mismatch()
+	if effortMismatch {
+		trainingAllowed = false
+		observability.FromContext(ctx).Warn(
+			"Selected effort did not match the effort sent upstream",
+			"route_id", routeMetadata.RouteID,
+			"served_model", decision.Model,
+			"selected_effort", effort.Selected,
+			"sent_effort", effort.Sent,
+			"effort_source", effort.Source,
 		)
 	}
 	payload := map[string]interface{}{
@@ -4896,6 +4904,10 @@ func (s *Service) reportPolicyOutcome(ctx context.Context, res turnLoopResult, d
 		"decision_model":                   routeDecision.Model,
 		"decision_provider":                routeDecision.Provider,
 		"selected_served_model_match":      selectedServedModelMatch,
+		"selected_effort":                  effort.Selected,
+		"sent_effort":                      effort.Sent,
+		"effort_source":                    effort.Source,
+		"selected_sent_effort_match":       !effortMismatch,
 		"authoritative_per_turn_selection": routeMetadata.AuthoritativePerTurnSelection,
 		"status":                           upstreamStatus(proxyErr),
 		"error":                            "",
@@ -4909,8 +4921,11 @@ func (s *Service) reportPolicyOutcome(ctx context.Context, res turnLoopResult, d
 		"turn_type":                        string(res.TurnType),
 		"sticky_hit":                       res.StickyHit,
 	}
-	if authoritativeModelMismatch {
+	switch {
+	case authoritativeModelMismatch:
 		payload["training_exclusion_reason"] = "selected_served_model_mismatch"
+	case effortMismatch:
+		payload["training_exclusion_reason"] = "selected_sent_effort_mismatch"
 	}
 	if trainingAllowed && response != nil {
 		payload["response_body_truncated"] = response.Truncated
@@ -4947,17 +4962,6 @@ func pinDecision(p sessionpin.Pin) router.Decision {
 		Effort:   p.Effort,
 		Reason:   p.Reason,
 	}
-}
-
-// forceEffortFor is the effort level this turn dispatches with: a per-request
-// knob (x-weave-effort / x-weave-force-model :level) wins; otherwise the effort
-// the decision carries — a policy arm's level, or the level persisted on the
-// pin the turn was served from.
-func forceEffortFor(ctx context.Context, decision router.Decision) string {
-	if knobs := routingKnobsForRequest(ctx); knobs != nil && knobs.ForceEffort != "" {
-		return knobs.ForceEffort
-	}
-	return decision.Effort
 }
 
 // policyDeadlineDefaultDecision resolves ROUTER_POLICY_DEADLINE_DEFAULT_MODEL to a
@@ -6073,7 +6077,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		Int64("latency.route_ms", routeMs)
 	applySidecarAttrs(openaiDecisionBuilder, routeRes)
 	applyPlannerAttrs(openaiDecisionBuilder, routeRes)
-	applyRoutingStateAttrs(openaiDecisionBuilder, routeRes, decision.Model, sessionKey)
+	applyRoutingStateAttrs(openaiDecisionBuilder, routeRes, decision.ServedIdentity(), sessionKey)
 	otel.Record(ctx, otel.Span{
 		Name:  "router.decision",
 		Start: requestStart,
@@ -6092,12 +6096,8 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		ModelSwitched:            routeRes.modelSwitched(),
 		EnableExtendedContext:    shouldEnableExtendedContext(env.FullTokenEstimate(), outputReserveOAI),
 	}
-	if effort := forceEffortFor(ctx, decision); effort != "" {
-		opts.ForceEffort = effort
-		opts.ForceReasoningEffort = translate.ResolveForceEffort(opts.Capabilities, effort)
-	} else if effort := forcedReasoningEffort(decision.Model, routeRes.EscalateEffort); effort != "" && (s.ResolveEffortEscalation(ctx) || strings.HasPrefix(decision.Model, "grok-")) {
-		opts.ForceReasoningEffort = effort
-	}
+	effortServed := s.resolveEffort(ctx, decision, opts.Capabilities, routeRes.EscalateEffort)
+	effortServed.apply(&opts)
 
 	ctx = resolveAndInjectCredentials(ctx, decision.Provider, decision.Model, r.Header)
 	opts.FastMode = fastModeForAttempt(ctx, decision.Model, decision.Provider)
@@ -6297,6 +6297,12 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 				outBody, setErr = translate.ApplyOpenAIFastMode(outBody, nativeOpts)
 				if setErr != nil {
 					return fmt.Errorf("set codex service_tier: %w", setErr)
+				}
+				// The caller's own effort would otherwise serve an effort-qualified
+				// arm, so the policy learns from a level it never bought.
+				outBody, setErr = translate.ApplyOpenAIResponsesEffort(outBody, nativeOpts)
+				if setErr != nil {
+					return fmt.Errorf("set codex reasoning effort: %w", setErr)
 				}
 				prep = providers.PreparedRequest{
 					Body:     outBody,
@@ -6630,7 +6636,8 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		Int64("dispatch.fallback_attempts", int64(winnerIdx)).
 		Bool("dispatch.failover_used", finalProvider != primaryProvider)
 	applyPlannerAttrs(openaiUpstreamBuilder, routeRes)
-	applyRoutingStateAttrs(openaiUpstreamBuilder, routeRes, decision.Model, sessionKey)
+	applyRoutingStateAttrs(openaiUpstreamBuilder, routeRes, decision.ServedIdentity(), sessionKey)
+	applyEffortAttrs(openaiUpstreamBuilder, effortServed)
 	addTimingAttrs(ctx, openaiUpstreamBuilder)
 
 	openaiObs := buildObservationContext(ctx, decision, routeRes.Fresh, s.effectiveCaptureMode(ctx))
@@ -6770,7 +6777,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	}
 
 	log.Info("ProxyOpenAIChatCompletion complete", append([]any{"requested_model", feats.Model, "baseline_model", s.baselineFor(feats.Model), "decision_model", decision.Model, "decision_provider", decision.Provider, "primary_provider", primaryProvider, "primary_model", primaryModel, "fallback_attempts", winnerIdx, "failover_used", finalProvider != primaryProvider, "decision_reason", decision.Reason, "requested_tier", routeRes.RequestedTier.String(), "decision_tier", catalog.TierFor(decision.Model).String(), "embedded_tokens", len(promptText) / 4, "total_input_tokens", feats.Tokens, "has_tools", feats.HasTools, "embed_input", embedInput, "cross_format", crossFormat, "sticky_hit", stickyHit, "pin_tier", pinTier, "turn_type", string(tt), "route_ms", routeMs, "proxy_ms", proxyMs, "proxy_err", proxyErr, "upstream_err_body", providers.UpstreamErrorBodyMessage(proxyErr), "upstream_status", upstreamStatus(proxyErr), "upstream_finish_reason", respSummary.UpstreamFinishReason, "resp_stop_reason", respSummary.StopReason, "routing_marker", marker, "prior_served_model", routeRes.PriorServedModel, "hard_pinned", routeRes.HardPinned}, plannerLogFields(routeRes)...)...)
-	s.reportPolicyOutcome(ctx, routeRes, decision, finalProvider, fastServed, feats.Tokens, in, out, cacheCreation, cacheRead, routeMs, proxyMs, proxyErr, nil)
+	s.reportPolicyOutcome(ctx, routeRes, decision, effortServed, finalProvider, fastServed, feats.Tokens, in, out, cacheCreation, cacheRead, routeMs, proxyMs, proxyErr, nil)
 
 	// Subscription-only mode disables paid failover by pinning dispatch to the
 	// single subscription binding above, so a dispatch failure here is the

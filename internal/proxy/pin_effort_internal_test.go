@@ -103,7 +103,9 @@ func TestRunTurnLoop_ForcedPinRehydratesEffort(t *testing.T) {
 
 	assert.Equal(t, "claude-opus-4-8", res.Decision.Model)
 	assert.Equal(t, "xhigh", res.Decision.Effort)
-	assert.Equal(t, "xhigh", forceEffortFor(context.Background(), res.Decision))
+	assert.Equal(t, "xhigh",
+		svc.resolveEffort(context.Background(), res.Decision,
+			router.Lookup(res.Decision.Model), false).Selected)
 }
 
 // req.ForceModel (the header path) carries its own suffix into the in-memory
@@ -175,9 +177,21 @@ func TestOrderBandPair_AnchoredHalfKeepsEffort(t *testing.T) {
 }
 
 // An explicit per-request knob still outranks whatever the pin carries.
-func TestForceEffortFor_KnobWinsOverDecision(t *testing.T) {
+func TestResolveEffort_KnobWinsOverDecision(t *testing.T) {
+	svc := NewService(nil, nil, nil, false, nil, nil, false,
+		providers.ProviderAnthropic, "claude-haiku-4-5", nil)
+	decision := router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-opus-4-8", Effort: "xhigh"}
+	caps := router.Lookup(decision.Model)
+
 	ctx := router.WithRoutingKnobs(context.Background(), &router.Overrides{ForceEffort: "low"})
-	assert.Equal(t, "low", forceEffortFor(ctx, router.Decision{Effort: "xhigh"}))
-	assert.Equal(t, "xhigh", forceEffortFor(context.Background(), router.Decision{Effort: "xhigh"}))
-	assert.Empty(t, forceEffortFor(context.Background(), router.Decision{}))
+	knobbed := svc.resolveEffort(ctx, decision, caps, false)
+	assert.Equal(t, "low", knobbed.Selected)
+	assert.Equal(t, effortSourceUser, knobbed.Source)
+
+	arm := svc.resolveEffort(context.Background(), decision, caps, false)
+	assert.Equal(t, "xhigh", arm.Selected)
+	assert.Equal(t, effortSourceArm, arm.Source)
+
+	assert.Empty(t, svc.resolveEffort(context.Background(),
+		router.Decision{Provider: decision.Provider, Model: decision.Model}, caps, false).Selected)
 }
