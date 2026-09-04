@@ -191,6 +191,19 @@ func TestOpenAISameFormat_ExplicitMaxTokensNotClampedTo8192ForQwen38Max(t *testi
 	assert.Equal(t, float64(32000), out["max_tokens"])
 }
 
+// Regression: GPT-6 Astra supports 128K output, so its always-on reasoning
+// must not be squeezed into the unlisted-model 8192-token fallback.
+func TestOpenAISameFormat_ExplicitMaxTokensNotClampedTo8192ForGPT6Astra(t *testing.T) {
+	body := []byte(`{"model":"gpt-4o","messages":[{"role":"user","content":"hi"}],"max_tokens":64000}`)
+	opts := translate.EmitOptions{
+		TargetModel:  "gpt-6-astra",
+		Capabilities: router.Lookup("gpt-6-astra"),
+	}
+	out := parseAndEmit(t, body, "openai", opts)
+	assert.Equal(t, float64(64000), out["max_completion_tokens"])
+	assert.NotContains(t, out, "max_tokens")
+}
+
 // Regression: both GLM-5.3 arms missing from modelMaxOutputTokens; max_tokens was
 // clamped to 8192 — always-on reasoning exhausts that budget before answering.
 func TestOpenAISameFormat_ExplicitMaxTokensNotClampedTo8192ForGLM53(t *testing.T) {
