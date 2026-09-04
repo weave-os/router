@@ -196,3 +196,21 @@ func responsesFinishReason(resp gjson.Result) string {
 		return "stop"
 	}
 }
+
+// ResponsesTerminalReason reports the finish_reason a terminal Responses SSE
+// payload corresponds to. It exists for callers that forward a native Responses
+// stream verbatim: no translator runs there, so the upstream's terminal event is
+// the only statement of how the turn ended. ok is false for a non-terminal
+// event and for a failed one, whose outcome is the upstream error instead.
+func ResponsesTerminalReason(payload []byte) (finishReason string, ok bool) {
+	switch gjson.GetBytes(payload, "type").String() {
+	case "response.completed", "response.incomplete":
+	default:
+		return "", false
+	}
+	resp := gjson.GetBytes(payload, "response")
+	if responsesTerminalIsFailure(resp) {
+		return "", false
+	}
+	return responsesFinishReason(resp), true
+}

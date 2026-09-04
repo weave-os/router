@@ -6312,6 +6312,9 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 			// A translated attempt reads Responses SSE, which the chat-shaped
 			// usage extractor can't parse — the translator records usage instead.
 			var translator *translate.ResponsesToOpenAIChatWriter
+			// A native attempt has no translator, so its terminal Responses event
+			// is the only source for the turn's finish reason.
+			var nativeTerminal *responsesTerminalObserver
 			switch {
 			case surface == surfaceResponsesTranslated:
 				var usage otel.UsageSink
@@ -6326,6 +6329,13 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 					log.Error("chat/completions prelude failed (Responses upstream)", "err", err)
 				}
 				proxyWriter = translator
+			case surface == surfaceResponsesNative:
+				nativeTerminal = newResponsesTerminalObserver(attemptSink)
+				proxyWriter = nativeTerminal
+				if s.usageRequired() {
+					extractor = otel.NewUsageExtractor(nativeTerminal, d.Provider)
+					proxyWriter = extractor
+				}
 			case s.usageRequired():
 				extractor = otel.NewUsageExtractor(attemptSink, d.Provider)
 				proxyWriter = extractor
@@ -6346,6 +6356,10 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 				finalErr := finalizeAfterProxy(err, translator.Finalize)
 				respSummary = translator.Summary()
 				return finalErr
+			}
+			if nativeTerminal != nil {
+				nativeTerminal.Finalize()
+				respSummary = translate.ResponseSummary{UpstreamFinishReason: nativeTerminal.finishReason}
 			}
 			return err
 		}
@@ -6577,6 +6591,8 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		String("decision.provider", finalProvider).
 		String("decision.reason", decision.Reason).
 		String("routing.turn_type", string(routeRes.TurnType)).
+		String("upstream.finish_reason", respSummary.UpstreamFinishReason).
+		String("upstream.stop_reason", respSummary.StopReason).
 		Int64("usage.input_tokens", int64(in)).
 		Int64("usage.output_tokens", int64(out)).
 		Int64("usage.cache_creation_input_tokens", int64(cacheCreation)).
@@ -6698,6 +6714,8 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 			ClientApp:              clientID.ClientApp,
 			TurnType:               string(routeRes.TurnType),
 			RolloutID:              openaiObs.RolloutID,
+			UpstreamFinishReason:   stringPtrOrEmpty(respSummary.UpstreamFinishReason),
+			StopReason:             stringPtrOrEmpty(respSummary.StopReason),
 			FailoverUsed:           boolPtrTrue(finalProvider != primaryProvider),
 			// (session_key, role) join key — see the Anthropic-path write site.
 			SessionKey: sessionKey[:],
@@ -6734,7 +6752,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		)
 	}
 
-	log.Info("ProxyOpenAIChatCompletion complete", append([]any{"requested_model", feats.Model, "baseline_model", s.baselineFor(feats.Model), "decision_model", decision.Model, "decision_provider", decision.Provider, "primary_provider", primaryProvider, "primary_model", primaryModel, "fallback_attempts", winnerIdx, "failover_used", finalProvider != primaryProvider, "decision_reason", decision.Reason, "requested_tier", routeRes.RequestedTier.String(), "decision_tier", catalog.TierFor(decision.Model).String(), "embedded_tokens", len(promptText) / 4, "total_input_tokens", feats.Tokens, "has_tools", feats.HasTools, "embed_input", embedInput, "cross_format", crossFormat, "sticky_hit", stickyHit, "pin_tier", pinTier, "turn_type", string(tt), "route_ms", routeMs, "proxy_ms", proxyMs, "proxy_err", proxyErr, "upstream_err_body", providers.UpstreamErrorBodyMessage(proxyErr), "upstream_status", upstreamStatus(proxyErr), "routing_marker", marker, "prior_served_model", routeRes.PriorServedModel, "hard_pinned", routeRes.HardPinned}, plannerLogFields(routeRes)...)...)
+	log.Info("ProxyOpenAIChatCompletion complete", append([]any{"requested_model", feats.Model, "baseline_model", s.baselineFor(feats.Model), "decision_model", decision.Model, "decision_provider", decision.Provider, "primary_provider", primaryProvider, "primary_model", primaryModel, "fallback_attempts", winnerIdx, "failover_used", finalProvider != primaryProvider, "decision_reason", decision.Reason, "requested_tier", routeRes.RequestedTier.String(), "decision_tier", catalog.TierFor(decision.Model).String(), "embedded_tokens", len(promptText) / 4, "total_input_tokens", feats.Tokens, "has_tools", feats.HasTools, "embed_input", embedInput, "cross_format", crossFormat, "sticky_hit", stickyHit, "pin_tier", pinTier, "turn_type", string(tt), "route_ms", routeMs, "proxy_ms", proxyMs, "proxy_err", proxyErr, "upstream_err_body", providers.UpstreamErrorBodyMessage(proxyErr), "upstream_status", upstreamStatus(proxyErr), "upstream_finish_reason", respSummary.UpstreamFinishReason, "resp_stop_reason", respSummary.StopReason, "routing_marker", marker, "prior_served_model", routeRes.PriorServedModel, "hard_pinned", routeRes.HardPinned}, plannerLogFields(routeRes)...)...)
 	s.reportPolicyOutcome(ctx, routeRes, decision, finalProvider, fastServed, feats.Tokens, in, out, cacheCreation, cacheRead, routeMs, proxyMs, proxyErr, nil)
 
 	// Subscription-only mode disables paid failover by pinning dispatch to the
