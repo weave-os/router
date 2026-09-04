@@ -1,0 +1,70 @@
+internal/proxy/service.go
+  s_c83b9791b31b4c::t_b0f9a24a43354c 3391,3394-3395,3477-3478
+  s_c83b9791b31b4c::t_413faddcfffbe0 3392-3393,3396-3398,3474-3476
+  s_c83b9791b31b4c::t_843039baff1cd4 3413-3417
+  s_9e57dc1a300e0e::t_2e3fdd010ba9a1 3418-3419
+  s_c83b9791b31b4c::t_29109507bf2294 3399-3403
+  s_9e57dc1a300e0e::t_57780cec9606a2 3404
+internal/router/planner/policy_test.go
+  s_c83b9791b31b4c::t_b6ebefdafaf106 102,128
+  s_c83b9791b31b4c::t_b0f9a24a43354c 8,10,86-101,103-106,108-113,115-127,129-137,140-141,171
+  s_c83b9791b31b4c::t_0975d53a09ae8e 107,114
+  s_c83b9791b31b4c::t_d8962371c9f646 172
+  s_c83b9791b31b4c::t_41983ead9a7b4d 150-152,154
+  s_c83b9791b31b4c::t_bf3af40cc838e7 163-166
+  s_c83b9791b31b4c::t_843039baff1cd4 146-149,153,155-156,158-162,167-172
+  s_c83b9791b31b4c::t_84a92f9fd8f1a4 157
+internal/router/planner/policy.go
+  s_c83b9791b31b4c::t_b0f9a24a43354c 47-53,147-148,188-189,240-251
+  s_c83b9791b31b4c::t_b056708f421133 252-253
+  s_c83b9791b31b4c::t_843039baff1cd4 56-59,88-91,191-193,214-237
+  s_c83b9791b31b4c::t_41983ead9a7b4d 92
+  s_c83b9791b31b4c::t_69b5477872ec6e 238-239
+  s_c83b9791b31b4c::t_29109507bf2294 54-55,194,212-213
+internal/proxy/turnloop_internal_test.go
+  s_c83b9791b31b4c::t_1abd821a9c1b58 84-98
+  s_c83b9791b31b4c::t_29109507bf2294 121-127
+internal/proxy/turnloop.go
+  s_c83b9791b31b4c::t_1abd821a9c1b58 91-94,1072
+  s_c83b9791b31b4c::t_413faddcfffbe0 126-130,545
+  s_c83b9791b31b4c::t_41983ead9a7b4d 1066-1068,1070,1190-1192,1194-1196
+  s_c83b9791b31b4c::t_29109507bf2294 105-108,1069,1193
+internal/proxy/turn_logs_internal_test.go
+  s_c83b9791b31b4c::t_413faddcfffbe0 350-351,372-373
+  s_c83b9791b31b4c::t_5a68ccd2eb0dfc 20
+  s_c83b9791b31b4c::t_9a4988534c1c0a 347-349
+  s_c83b9791b31b4c::t_d080c24e9498e8 353-357,359-362
+  s_c83b9791b31b4c::t_29109507bf2294 334,337-341,358,375
+internal/router/catalog/cost_test.go
+  s_c83b9791b31b4c::t_1b230cdabfbe03 75,79
+  s_c83b9791b31b4c::t_550c50a78f2465 71-74,76-78,80
+internal/router/catalog/cost.go
+  s_c83b9791b31b4c::t_550c50a78f2465 10-12,27
+internal/router/catalog/catalog.go
+  s_c83b9791b31b4c::t_550c50a78f2465 43-46,58-61,71-77
+  s_9e57dc1a300e0e::t_2e0418a94e7e8d 78-79
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "f4248c7bfed08d9d7cc6f5cfc161f913cee5f557",
+  "prompts": {},
+  "sessions": {
+    "s_9e57dc1a300e0e": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a015f8-3b03-7170-bb3e-bc665ecc6168",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    },
+    "s_c83b9791b31b4c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a01636-0d3f-72b1-8dd9-19a20eba3771",
+        "model": "gpt-5.6-terra"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

@@ -1,0 +1,21 @@
+internal/translate/responses_test.go
+  s_b40f812e11f9a2::t_288e8e77c89892 23
+internal/translate/responses.go
+  s_b40f812e11f9a2::t_28230b7473f1c8 189-191
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "be29b74702890a3108f0d7aa6fe6d66fe66fe339",
+  "prompts": {},
+  "sessions": {
+    "s_b40f812e11f9a2": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "be376180-8312-42f8-a2e9-87f208750c73",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}
