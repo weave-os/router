@@ -12,7 +12,7 @@
 # opencode.json — since the file is JSON, install/uninstall are structural
 # (jq) rather than marker-delimited. For pi it merges a `weave` provider into
 # ~/.pi/agent/models.json, sets it as the default in settings.json, and adds
-# the @workweave/router extension (which also adds a parallel subagent
+# the @weave-os/router extension (which also adds a parallel subagent
 # `dispatch` tool) — all structural (jq) merges.
 #
 # Two scopes (apply to all targets):
@@ -32,42 +32,42 @@
 #                       <dir>/.pi/ (run: PI_CODING_AGENT_DIR=<dir>/.pi pi)   (with --pi)
 #
 # Usage:
-#   npx @workweave/router                                  # interactive picker (Claude Code, Codex, opencode)
-#   npx @workweave/router --claude                         # skip the picker, target Claude Code
-#   npx @workweave/router --codex                          # skip the picker, target Codex
-#   npx @workweave/router setup --claude --codex            # configure both native clients
-#   npx @workweave/router login claude                      # enroll Claude Pro/Max
-#   npx @workweave/router login codex                       # enroll ChatGPT Pro/Plus
-#   npx @workweave/router accounts list                     # inspect enrolled accounts
-#   npx @workweave/router status                            # router + native client status
-#   npx @workweave/router --opencode                       # skip the picker, target opencode
-#   npx @workweave/router --pi                              # skip the picker, target pi
-#   npx @workweave/router --pi --lsp go,typescript          # also install language servers for pi's lsp tool
+#   npx @weave-os/router                                  # interactive picker (Claude Code, Codex, opencode)
+#   npx @weave-os/router --claude                         # skip the picker, target Claude Code
+#   npx @weave-os/router --codex                          # skip the picker, target Codex
+#   npx @weave-os/router setup --claude --codex            # configure both native clients
+#   npx @weave-os/router login claude                      # enroll Claude Pro/Max
+#   npx @weave-os/router login codex                       # enroll ChatGPT Pro/Plus
+#   npx @weave-os/router accounts list                     # inspect enrolled accounts
+#   npx @weave-os/router status                            # router + native client status
+#   npx @weave-os/router --opencode                       # skip the picker, target opencode
+#   npx @weave-os/router --pi                              # skip the picker, target pi
+#   npx @weave-os/router --pi --lsp go,typescript          # also install language servers for pi's lsp tool
 #                                                             (go/typescript/python/rust; needs that language's toolchain)
-#   npx @workweave/router --scope project                  # commit-with-team install
-#   npx @workweave/router --dir /tmp/my-sandbox            # isolated throwaway install
-#   npx @workweave/router --local                          # local router on localhost:8080
-#   npx @workweave/router --base-url http://localhost:8080 # self-hosted, custom port
-#   npx @workweave/router --non-interactive                # require WEAVE_ROUTER_KEY env var (defaults target to claude)
-#   npx @workweave/router --quiet                          # suppress banner, ping check, and trailing tips
-#   npx @workweave/router --rotate-key                     # ignore the installed key and prompt for a new one
-#   npx @workweave/router --uninstall                      # remove a previous install (delegates to uninstall.sh)
+#   npx @weave-os/router --scope project                  # commit-with-team install
+#   npx @weave-os/router --dir /tmp/my-sandbox            # isolated throwaway install
+#   npx @weave-os/router --local                          # local router on localhost:8080
+#   npx @weave-os/router --base-url http://localhost:8080 # self-hosted, custom port
+#   npx @weave-os/router --non-interactive                # require WEAVE_ROUTER_KEY env var (defaults target to claude)
+#   npx @weave-os/router --quiet                          # suppress banner, ping check, and trailing tips
+#   npx @weave-os/router --rotate-key                     # ignore the installed key and prompt for a new one
+#   npx @weave-os/router --uninstall                      # remove a previous install (delegates to uninstall.sh)
 #
 # Re-running the installer reuses the key already on disk, so you only paste it
 # once — for every client, not just Claude Code. `update` is the scriptable form
 # of that: it never prompts, refreshes the managed config + assets in place, and
 # errors (rather than asking) when no key can be found:
-#   npx @workweave/router update --claude                  # refresh the Claude Code install in place
-#   npx @workweave/router update --codex                   # same for Codex / opencode / pi
+#   npx @weave-os/router update --claude                  # refresh the Claude Code install in place
+#   npx @weave-os/router update --codex                   # same for Codex / opencode / pi
 #
 # Toggle an existing install on/off without losing the router config (so
 # switching back is instant). These never prompt for a key and require an
 # explicit client (--claude / --codex / --opencode); they only flip config
 # that install.sh already wrote:
-#   npx @workweave/router off --claude                     # route directly to Anthropic again (Claude Code)
-#   npx @workweave/router on --codex                       # route through the Weave Router again (Codex)
-#   npx @workweave/router status --opencode                # report whether opencode is on the router or direct
-#   npx @workweave/router disable-routing                   # Codex shortcut: use Codex's normal provider again
+#   npx @weave-os/router off --claude                     # route directly to Anthropic again (Claude Code)
+#   npx @weave-os/router on --codex                       # route through the Weave Router again (Codex)
+#   npx @weave-os/router status --opencode                # report whether opencode is on the router or direct
+#   npx @weave-os/router disable-routing                   # Codex shortcut: use Codex's normal provider again
 # Claude Code reads env at launch, so an off/on takes effect on the next
 # `claude` start; Codex and opencode re-read config every invocation.
 # Cursor's base URL lives in its own settings UI (no file we own), so there's
@@ -83,13 +83,13 @@
 # the same lists the router dashboard's settings page renders. The endpoint and
 # router key both come from the install already on disk, so nothing is prompted
 # and no key is ever passed on the command line:
-#   npx @workweave/router models --claude                            # every model, with its on/off state
-#   npx @workweave/router models disable gpt-5.6 --claude            # take a model out of rotation
-#   npx @workweave/router models enable gpt-5.6 --claude             # put it back
-#   npx @workweave/router models providers --claude                  # same, one row per provider
-#   npx @workweave/router models providers disable openai --claude   # drop a whole provider
-#   npx @workweave/router models prefer claude-opus-5 --claude       # set the preferred-model ranking
-#   npx @workweave/router models list --json --claude                # machine-readable, for scripts
+#   npx @weave-os/router models --claude                            # every model, with its on/off state
+#   npx @weave-os/router models disable gpt-5.6 --claude            # take a model out of rotation
+#   npx @weave-os/router models enable gpt-5.6 --claude             # put it back
+#   npx @weave-os/router models providers --claude                  # same, one row per provider
+#   npx @weave-os/router models providers disable openai --claude   # drop a whole provider
+#   npx @weave-os/router models prefer claude-opus-5 --claude       # set the preferred-model ranking
+#   npx @weave-os/router models list --json --claude                # machine-readable, for scripts
 # Editing needs a router that mounts the model-selection API (self-hosted and
 # local routers do). The Weave-hosted router keeps model selection with the
 # organization, in the Weave dashboard — there `models` lists and points you at
@@ -103,8 +103,9 @@ set -euo pipefail
 HOSTED_BASE_URL="https://router.workweave.ai"
 DEFAULT_BASE_URL="${WEAVE_ROUTER_URL:-$HOSTED_BASE_URL}"
 # npm package name is supplied by the Node wrapper; direct shell installs keep
-# the legacy name for compatibility.
-npm_package_name="${WEAVE_ROUTER_NPM_PACKAGE:-@workweave/router}"
+# the current package name; WEAVE_ROUTER_NPM_PACKAGE remains an escape hatch for
+# compatibility with wrappers that explicitly select another package.
+npm_package_name="${WEAVE_ROUTER_NPM_PACKAGE:-@weave-os/router}"
 
 
 scope="user"
@@ -195,7 +196,7 @@ skip() { printf "%s⊙%s %s%s%s\n" "$C_DIM" "$C_RESET" "$C_DIM" "$*" "$C_RESET";
 # uninstall.sh's flag surface.
 uninstall_cmd() {
   # --package + `--` is load-bearing: npm <= 6's bundled npx treats an
-  # undeclared `-y` as consuming the NEXT token, so `npx -y @workweave/router`
+  # undeclared `-y` as consuming the NEXT token, so `npx -y @weave-os/router`
   # loses the package name and resolves whatever follows as the command.
   local cmd="npx --package $npm_package_name -y -- weave-router --uninstall"
   case "$target" in
@@ -844,7 +845,7 @@ write_opencode_config() {
 # write_pi_models_config merges a managed `weave` provider into pi's
 # models.json (anthropic-compatible — the router speaks Anthropic Messages
 # natively). The header set carries identity plus the main-loop routing knobs
-# (quality bias); the @workweave/router extension re-registers the provider
+# (quality bias); the @weave-os/router extension re-registers the provider
 # per process to flip those knobs for subagents/compaction. apiKey is the
 # router key as well as a header — pi treats apiKey as required to consider auth
 # configured, but the router authenticates off X-Weave-Router-Key
@@ -881,7 +882,7 @@ write_pi_models_config() {
 
   # Headline models surfaced in pi's /model picker. The router re-routes every
   # request regardless, so this list is UX; keep it Anthropic-shaped and in
-  # sync with @workweave/router's WEAVE_MODELS constant.
+  # sync with @weave-os/router's WEAVE_MODELS constant.
   #
   # baseUrl is the router ROOT (no /v1): pi's anthropic-messages provider uses
   # @anthropic-ai/sdk, which appends /v1/messages itself. Unlike the codex block
@@ -1052,7 +1053,7 @@ resolve_user_name() {
 # canonical uninstall logic lives in a sibling file, and we want both
 # direct invocations (`./install.sh --uninstall`) and curl-piped ones
 # (`curl ... | sh -s -- --uninstall`) to behave the same as
-# `npx @workweave/router --uninstall` (which bin.js routes to uninstall.sh on
+# `npx @weave-os/router --uninstall` (which bin.js routes to uninstall.sh on
 # its own).
 #
 # Scan every arg, not just $1, so flag order doesn't matter; build a clean
@@ -1859,7 +1860,7 @@ read_opencode_key() {
 }
 
 # read_pi_key prints the router key this pi install already has. The dedicated
-# key file comes first — it is what the @workweave/router extension itself reads
+# key file comes first — it is what the @weave-os/router extension itself reads
 # at runtime — and models.json is the fallback for an install whose key file was
 # removed by hand.
 read_pi_key() {
