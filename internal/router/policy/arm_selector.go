@@ -2,9 +2,14 @@ package policy
 
 import (
 	"context"
+	"errors"
 
 	"weave-os/router/internal/router"
 )
+
+// ErrNoEligibleArm is returned when deterministic selection exhausts every
+// eligible arm reported by the policy sidecar.
+var ErrNoEligibleArm = errors.New("no eligible arm in any ranked group")
 
 // SelectionInput is the content-free classification the router selects an arm from.
 type SelectionInput struct {

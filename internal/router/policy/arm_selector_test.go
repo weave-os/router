@@ -86,6 +86,27 @@ func TestArmSelectorErrorFailsTheTurn(t *testing.T) {
 		"a failed selection must surface as the strategy's unavailable sentinel, not a sidecar-picked arm")
 }
 
+func TestArmSelectorForceClusterExhaustionIsCallerError(t *testing.T) {
+	result := classifierOnlyResult()
+	result.RankedFallback = append(result.RankedFallback, policy.PreviewGroup{
+		Group:        "low",
+		Probability:  0.2,
+		EligibleArms: []string{"anthropic/claude-sonnet-5"},
+	})
+	adapter := newSelectorAdapter(result)
+	adapter.WithArmSelector(func(_ context.Context, input policy.SelectionInput) (policy.SelectionPick, error) {
+		require.Len(t, input.RankedFallback, 1)
+		assert.Equal(t, "low", input.RankedFallback[0].Group)
+		return policy.SelectionPick{}, policy.ErrNoEligibleArm
+	})
+
+	_, err := adapter.Route(context.Background(), router.Request{ForceCluster: "low"})
+
+	require.ErrorIs(t, err, policy.ErrForcedClusterUnservable)
+	assert.NotContains(t, err.Error(), "selection unavailable")
+	assert.Contains(t, err.Error(), "low")
+}
+
 func TestArmSelectorRejectsLegacySchema(t *testing.T) {
 	result := classifierOnlyResult()
 	result.SchemaVersion = policy.SchemaVersionV1

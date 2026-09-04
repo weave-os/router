@@ -2,7 +2,6 @@ package selection
 
 import (
 	"context"
-	"errors"
 	"fmt"
 
 	"weave-os/router/internal/observability"
@@ -11,7 +10,7 @@ import (
 )
 
 // ErrNoEligibleArm is returned when no ranked group holds an eligible arm.
-var ErrNoEligibleArm = errors.New("no eligible arm in any ranked group")
+var ErrNoEligibleArm = policy.ErrNoEligibleArm
 
 // Selector returns the deterministic arm selector backed by roster.
 func Selector(roster *rosterdata.Roster) policy.ArmSelector {

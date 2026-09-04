@@ -2,6 +2,7 @@ package policy
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math"
 	"slices"
@@ -338,8 +339,17 @@ func (r *SidecarRouter) Route(ctx context.Context, req router.Request) (router.D
 		if res.SchemaVersion != SchemaVersionV3 {
 			return router.Decision{}, fmt.Errorf("%s: sidecar reported schema %q, expected %s: %w", strategy, res.SchemaVersion, SchemaVersionV3, r.config.Unavailable)
 		}
-		pick, selectErr := r.armSelector(ctx, selectionInputFor(strategy, executionMode, req, res, resolved))
+		selectionInput := selectionInputFor(strategy, executionMode, req, res, resolved)
+		pick, selectErr := r.armSelector(ctx, selectionInput)
 		if selectErr != nil {
+			if errors.Is(selectErr, ErrNoEligibleArm) &&
+				req.ForceCluster != "" && len(selectionInput.RankedFallback) == 1 &&
+				selectionInput.RankedFallback[0].Group == req.ForceCluster {
+				return router.Decision{}, &ForcedClusterUnservableError{
+					Cluster: req.ForceCluster,
+					Reason:  fmt.Sprintf("no model in cluster %q can serve this request", req.ForceCluster),
+				}
+			}
 			return router.Decision{}, fmt.Errorf("%s: arm selection: %w: %w", strategy, selectErr, r.config.Unavailable)
 		}
 		overrideArmID = indexCandidates(resolved).rosterToArm[pick.Arm]
