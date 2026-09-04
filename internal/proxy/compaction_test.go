@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
@@ -303,6 +304,101 @@ func TestCompactionHardPin(t *testing.T) {
 	unavailable := &Service{compactionHardPinEnabled: true, availableModels: map[string]struct{}{"claude-haiku-4-5": {}}}
 	_, _, ok = unavailable.compactionHardPin(ctx, key, "", router.Request{})
 	assert.False(t, ok, "default not routable in this deployment → fall back to generic hard-pin")
+}
+
+// rolePinStore serves a distinct pin per role so the thread pin and the
+// _hmm_history row can disagree.
+type rolePinStore struct {
+	stubPinStore
+	byRole map[string]sessionpin.Pin
+}
+
+func (s *rolePinStore) Get(_ context.Context, _ [sessionpin.SessionKeyLen]byte, role string) (sessionpin.Pin, bool, error) {
+	pin, found := s.byRole[role]
+	return pin, found, nil
+}
+
+func TestCompactionHardPin_CodexKeepsNonAnthropicSessionModel(t *testing.T) {
+	var key [sessionpin.SessionKeyLen]byte
+	ctx := context.Background()
+	live := time.Now().Add(time.Hour)
+	openAIProviders := map[string]providers.Client{providers.ProviderOpenAI: nil, providers.ProviderAnthropic: nil}
+	codex := func(req router.Request) router.Request {
+		req.ClientApp = ClientAppCodex
+		return req
+	}
+
+	// A Codex thread the HMM has been serving on gpt-5.6-sol: its compaction
+	// turn stays on Sol instead of crossing to the Anthropic summarizer.
+	hmmServed := &rolePinStore{byRole: map[string]sessionpin.Pin{
+		hmmHistoryRole(sessionpin.DefaultRole): {Provider: providers.ProviderOpenAI, LastServedModel: "gpt-5.6-sol", LastTurnEndedAt: time.Now(), PinnedUntil: live},
+	}}
+	s := &Service{compactionHardPinEnabled: true, pinStore: hmmServed, providers: openAIProviders}
+	p, m, ok := s.compactionHardPin(ctx, key, sessionpin.DefaultRole, codex(router.Request{}))
+	require.True(t, ok)
+	assert.Equal(t, providers.ProviderOpenAI, p)
+	assert.Equal(t, "gpt-5.6-sol", m)
+
+	// Claude Code's compaction turn is Anthropic-format: the same history keeps
+	// the Sonnet-class summarizer.
+	p, m, ok = s.compactionHardPin(ctx, key, sessionpin.DefaultRole, router.Request{ClientApp: ClientAppClaudeCode})
+	require.True(t, ok)
+	assert.Equal(t, providers.ProviderAnthropic, p)
+	assert.Equal(t, DefaultCompactionModel, m)
+
+	// The most recently served model wins when the thread pin and HMM history disagree.
+	switched := &rolePinStore{byRole: map[string]sessionpin.Pin{
+		sessionpin.DefaultRole:                 {Provider: providers.ProviderOpenAI, Model: "gpt-5.6-terra", LastServedModel: "gpt-5.6-terra", LastTurnEndedAt: time.Now().Add(-time.Minute), PinnedUntil: live},
+		hmmHistoryRole(sessionpin.DefaultRole): {Provider: providers.ProviderOpenAI, LastServedModel: "gpt-5.6-sol", LastTurnEndedAt: time.Now(), PinnedUntil: live},
+	}}
+	s = &Service{compactionHardPinEnabled: true, pinStore: switched, providers: openAIProviders}
+	_, m, ok = s.compactionHardPin(ctx, key, sessionpin.DefaultRole, codex(router.Request{}))
+	require.True(t, ok)
+	assert.Equal(t, "gpt-5.6-sol", m)
+
+	// An expired thread pin no longer speaks for the session.
+	expired := &rolePinStore{byRole: map[string]sessionpin.Pin{
+		sessionpin.DefaultRole: {Provider: providers.ProviderOpenAI, Model: "gpt-5.6-sol", LastServedModel: "gpt-5.6-sol", LastTurnEndedAt: time.Now(), PinnedUntil: time.Now().Add(-time.Hour)},
+	}}
+	s = &Service{compactionHardPinEnabled: true, pinStore: expired, providers: openAIProviders}
+	p, m, ok = s.compactionHardPin(ctx, key, sessionpin.DefaultRole, codex(router.Request{}))
+	require.True(t, ok)
+	assert.Equal(t, providers.ProviderAnthropic, p)
+	assert.Equal(t, DefaultCompactionModel, m)
+
+	// A tenant that turned OpenAI off cannot keep the thread there.
+	s = &Service{compactionHardPinEnabled: true, pinStore: switched, providers: openAIProviders}
+	_, m, ok = s.compactionHardPin(ctx, key, sessionpin.DefaultRole, codex(router.Request{EnabledProviders: map[string]struct{}{providers.ProviderAnthropic: {}}}))
+	require.True(t, ok)
+	assert.Equal(t, DefaultCompactionModel, m, "served vendor disabled → Sonnet-class default")
+
+	// Org exclusions and the deployment-wide automatic disable still apply.
+	_, m, ok = s.compactionHardPin(ctx, key, sessionpin.DefaultRole, codex(router.Request{ExcludedModels: map[string]struct{}{"gpt-5.6-sol": {}}}))
+	require.True(t, ok)
+	assert.Equal(t, DefaultCompactionModel, m)
+	_, m, ok = s.compactionHardPin(ctx, key, sessionpin.DefaultRole, codex(router.Request{AutomaticExcludedModels: map[string]struct{}{"gpt-5.6-sol": {}}}))
+	require.True(t, ok)
+	assert.Equal(t, DefaultCompactionModel, m)
+
+	// A low-tier session model is what the cascade moves away from.
+	lowServed := &rolePinStore{byRole: map[string]sessionpin.Pin{
+		hmmHistoryRole(sessionpin.DefaultRole): {Provider: providers.ProviderOpenAI, LastServedModel: "gpt-4.1-mini", LastTurnEndedAt: time.Now(), PinnedUntil: live},
+	}}
+	s = &Service{compactionHardPinEnabled: true, pinStore: lowServed, providers: openAIProviders}
+	p, m, ok = s.compactionHardPin(ctx, key, sessionpin.DefaultRole, codex(router.Request{}))
+	require.True(t, ok)
+	assert.Equal(t, providers.ProviderAnthropic, p)
+	assert.Equal(t, DefaultCompactionModel, m)
+
+	// An Anthropic-served Codex session keeps its own model, as before.
+	anthropicServed := &rolePinStore{byRole: map[string]sessionpin.Pin{
+		sessionpin.DefaultRole: {Provider: providers.ProviderAnthropic, Model: "claude-opus-4-8", LastServedModel: "claude-opus-4-8", LastTurnEndedAt: time.Now(), PinnedUntil: live},
+	}}
+	s = &Service{compactionHardPinEnabled: true, pinStore: anthropicServed, providers: openAIProviders}
+	p, m, ok = s.compactionHardPin(ctx, key, sessionpin.DefaultRole, codex(router.Request{}))
+	require.True(t, ok)
+	assert.Equal(t, providers.ProviderAnthropic, p)
+	assert.Equal(t, "claude-opus-4-8", m)
 }
 
 func TestMaxEligibleContextWindow(t *testing.T) {

@@ -398,16 +398,24 @@ func (s *Service) runCompactionSummary(ctx context.Context, env *translate.Reque
 	return summary, usage, model, true
 }
 
-// compactionHardPin picks the model for Claude Code's own compaction turn:
-// the session's active Anthropic pin when it is Sonnet-class or better (the
-// model that ran the conversation, prompt cache warm — what Claude Code does
-// against Anthropic directly), else the configured compaction model on
-// Anthropic. ok=false when neither is eligible for this request, so the
-// caller falls back to the generic hard-pin tier.
+// compactionHardPin picks the model for a harness's own compaction turn: the
+// model that ran the conversation when it is Sonnet-class or better (prompt
+// cache warm — what Claude Code and Codex do against their vendor directly),
+// else the configured compaction model on Anthropic. A Codex thread arrives
+// in Responses format, so when a non-Anthropic model has been serving it the
+// turn stays there rather than being summarized cross-format by Sonnet — the
+// summary replaces the thread's history for every turn that follows. ok=false
+// when nothing is eligible for this request, so the caller falls back to the
+// generic hard-pin tier.
 func (s *Service) compactionHardPin(ctx context.Context, sessionKey [sessionpin.SessionKeyLen]byte, role string, req router.Request) (provider, model string, ok bool) {
 	// Gateway-exclusive tenants drop vendor bindings; leave them to the resolver.
 	if len(req.GatewayProviders) > 0 {
 		return "", "", false
+	}
+	if req.ClientApp == ClientAppCodex {
+		if p, m, served := s.compactionSessionModel(ctx, sessionKey, role, req); served {
+			return p, m, true
+		}
 	}
 	if req.EnabledProviders != nil {
 		if _, enabled := req.EnabledProviders[providers.ProviderAnthropic]; !enabled {
@@ -435,4 +443,82 @@ func (s *Service) compactionHardPin(ctx context.Context, sessionKey [sessionpin.
 		return providers.ProviderAnthropic, m, true
 	}
 	return "", "", false
+}
+
+// compactionSessionModel returns the non-Anthropic model that has been serving
+// the session — its active thread pin or HMM switch history, whichever
+// finished a turn last — when it is mid-tier or better and still eligible for
+// this request. Anthropic-served sessions return ok=false: the Sonnet-class
+// path in compactionHardPin owns them.
+func (s *Service) compactionSessionModel(ctx context.Context, sessionKey [sessionpin.SessionKeyLen]byte, role string, req router.Request) (provider, model string, ok bool) {
+	if s.pinStore == nil {
+		return "", "", false
+	}
+	threadPin, active := s.loadPin(ctx, sessionKey, role)
+	if !active {
+		threadPin = sessionpin.Pin{}
+	}
+	served := latestServedPin(threadPin, s.loadHMMHistory(ctx, sessionKey, role))
+	model = served.LastServedModel
+	if model == "" {
+		model = served.Model
+	}
+	m, known := catalog.ByID(model)
+	if !known || m.Tier == catalog.TierLow {
+		return "", "", false
+	}
+	binding, bound := s.servedBinding(model, served.Provider, req)
+	if !bound || binding.Provider == providers.ProviderAnthropic {
+		return "", "", false
+	}
+	if s.availableModels != nil {
+		if _, available := s.availableModels[model]; !available {
+			return "", "", false
+		}
+	}
+	if _, excluded := req.ExcludedModels[model]; excluded {
+		return "", "", false
+	}
+	if automaticallyDisabled(req, model) {
+		return "", "", false
+	}
+	return binding.Provider, model, true
+}
+
+// latestServedPin picks the pin whose last turn ended most recently among
+// those that record a served model.
+func latestServedPin(pins ...sessionpin.Pin) sessionpin.Pin {
+	var latest sessionpin.Pin
+	found := false
+	for _, pin := range pins {
+		if pin.LastServedModel == "" && pin.Model == "" {
+			continue
+		}
+		if !found || pin.LastTurnEndedAt.After(latest.LastTurnEndedAt) {
+			latest = pin
+			found = true
+		}
+	}
+	return latest
+}
+
+// servedBinding resolves the provider binding for a session's served model:
+// the provider that served it when that provider is still enabled and binds
+// the model, else the first enabled binding (a failed turn may leave the
+// stored provider stale).
+func (s *Service) servedBinding(model, servedProvider string, req router.Request) (catalog.ProviderBinding, bool) {
+	providerSet := req.EnabledProviders
+	if providerSet == nil {
+		providerSet = make(map[string]struct{}, len(s.providers))
+		for provider := range s.providers {
+			providerSet[provider] = struct{}{}
+		}
+	}
+	if _, enabled := providerSet[servedProvider]; enabled {
+		pinned := map[string]struct{}{servedProvider: {}}
+		if binding, valid := catalog.ResolveBindingWithCustom(model, pinned, req.CustomBindings); valid {
+			return binding, true
+		}
+	}
+	return catalog.ResolveBindingWithCustom(model, providerSet, req.CustomBindings)
 }
