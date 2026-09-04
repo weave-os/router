@@ -10,6 +10,8 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"weave-os/router/internal/observability"
 )
 
 const (
@@ -103,6 +105,7 @@ func (c *OAuthClient) refreshCodex(ctx context.Context, refreshToken string) (Re
 	if err != nil {
 		return RefreshedToken{}, err
 	}
+	observability.InjectTraceContext(ctx, req)
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("User-Agent", tokenUserAgent)
 	var response struct {
@@ -137,6 +140,7 @@ func (c *OAuthClient) refreshClaude(ctx context.Context, refreshToken string) (R
 	if err != nil {
 		return RefreshedToken{}, err
 	}
+	observability.InjectTraceContext(ctx, req)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("User-Agent", tokenUserAgent)
 	var response struct {

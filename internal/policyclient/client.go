@@ -14,6 +14,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"weave-os/router/internal/observability"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/policy"
 )
@@ -122,6 +123,7 @@ func (c *Client) CheckHealth(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("build policy readiness request: %w", err)
 	}
+	observability.InjectTraceContext(ctx, req)
 	resp, err := c.client.Do(req)
 	if err != nil {
 		return fmt.Errorf("call policy readiness endpoint: %w", err)
@@ -150,6 +152,7 @@ func (c *Client) Capabilities(ctx context.Context) (policy.Capabilities, error) 
 	if err != nil {
 		return policy.Capabilities{}, fmt.Errorf("build policy capabilities request: %w", err)
 	}
+	observability.InjectTraceContext(ctx, req)
 	resp, err := c.client.Do(req)
 	if err != nil {
 		return policy.Capabilities{}, fmt.Errorf("call policy capabilities endpoint: %w", err)
@@ -204,6 +207,7 @@ func (c *Client) fetchRoster(ctx context.Context) (rosterResponse, error) {
 	if err != nil {
 		return rosterResponse{}, fmt.Errorf("build policy roster request: %w", err)
 	}
+	observability.InjectTraceContext(ctx, req)
 	resp, err := c.client.Do(req)
 	if err != nil {
 		return rosterResponse{}, fmt.Errorf("call policy roster endpoint: %w", err)
@@ -235,6 +239,7 @@ func (c *Client) post(ctx context.Context, path string, payload map[string]inter
 	if err != nil {
 		return fmt.Errorf("build policy %s request: %w", label, err)
 	}
+	observability.InjectTraceContext(ctx, req)
 	req.Header.Set("content-type", "application/json")
 	resp, err := c.client.Do(req)
 	if err != nil {
@@ -845,6 +850,7 @@ func (c *Client) doPolicyAttempt(
 	if err != nil {
 		return nil, nil, true, fmt.Errorf("build policy route request: %w", err)
 	}
+	observability.InjectTraceContext(attemptCtx, req)
 	req.Header.Set("content-type", "application/json")
 
 	resp, err := c.client.Do(req)

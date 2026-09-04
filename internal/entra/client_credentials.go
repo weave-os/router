@@ -17,6 +17,7 @@ import (
 	"golang.org/x/sync/singleflight"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/observability"
 )
 
 const (
@@ -130,6 +131,7 @@ func (s *ClientCredentialsSource) mint(ctx context.Context, key *auth.ExternalAP
 	if err != nil {
 		return nil, fmt.Errorf("%w: build token request: %v", auth.ErrEntraUnavailable, err)
 	}
+	observability.InjectTraceContext(ctx, request)
 	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	response, err := s.httpClient.Do(request)
 	if err != nil {

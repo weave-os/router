@@ -51,6 +51,14 @@ func Init() {
 func initLocked() {
 	log := observability.Get()
 
+	// Configure extraction/injection even when exporting is disabled. This
+	// keeps distributed trace headers flowing through the router in no-op APM
+	// deployments, and lets request logs retain an inbound parent trace.
+	otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(
+		propagation.TraceContext{},
+		propagation.Baggage{},
+	))
+
 	endpoint := config.GetOr("WV_APM_OTLP_ENDPOINT", "")
 	if endpoint == "" {
 		log.Info("APM disabled: WV_APM_OTLP_ENDPOINT unset")
@@ -91,11 +99,6 @@ func initLocked() {
 		sdktrace.WithSampler(sdktrace.AlwaysSample()),
 	)
 	otel.SetTracerProvider(tracerProvider)
-
-	otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(
-		propagation.TraceContext{},
-		propagation.Baggage{},
-	))
 
 	metricExporter, err := otlpmetricgrpc.New(ctx, metricGRPCOpts(endpoint, insecure)...)
 	if err != nil {

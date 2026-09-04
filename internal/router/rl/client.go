@@ -9,6 +9,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"weave-os/router/internal/observability"
 )
 
 // DefaultTimeout bounds a single policy decision. The sidecar embeds the
@@ -101,6 +103,7 @@ func (d *HTTPDecider) Decide(ctx context.Context, q Query) (Result, error) {
 	for k, v := range d.headers {
 		req.Header.Set(k, v)
 	}
+	observability.InjectTraceContext(ctx, req)
 
 	resp, err := d.client.Do(req)
 	if err != nil {

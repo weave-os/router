@@ -265,6 +265,7 @@ func Middleware() gin.HandlerFunc {
 			"method", c.Request.Method,
 			"path", c.Request.URL.Path,
 		)
+		logger = LoggerWithTraceContext(c.Request.Context(), logger)
 		if upstream := sanitizeLogValue(c.Request.Header.Get("X-Request-Id")); upstream != "" {
 			logger = logger.With("upstream_request_id", upstream)
 		}

@@ -267,7 +267,27 @@ var ErrRefusedRedirect = errors.New("upstream returned a redirect, which is not 
 // Failing the call keeps a 3xx off every relay path — returning it would let
 // each adapter treat the redirect status as success.
 func NewClient(transport http.RoundTripper) *http.Client {
-	return &http.Client{Transport: transport, CheckRedirect: refuseRedirect}
+	if transport == nil {
+		transport = http.DefaultTransport
+	}
+	return &http.Client{Transport: tracePropagatingTransport{next: transport}, CheckRedirect: refuseRedirect}
+}
+
+// tracePropagatingTransport injects the current OTel context at the last
+// possible point before an outbound request is sent. Doing this in the shared
+// client keeps provider adapters (including model discovery and passthrough)
+// from accidentally dropping traceparent/tracestate headers.
+type tracePropagatingTransport struct {
+	next http.RoundTripper
+}
+
+func (t tracePropagatingTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	if req == nil {
+		return t.next.RoundTrip(req)
+	}
+	out := req.Clone(req.Context())
+	observability.InjectTraceContext(out.Context(), out)
+	return t.next.RoundTrip(out)
 }
 
 func refuseRedirect(*http.Request, []*http.Request) error {

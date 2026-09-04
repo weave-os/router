@@ -1254,9 +1254,9 @@ func main() {
 	engine.UnescapePathValues = true
 	engine.UseRawPath = true
 	engine.Use(
+		apm.Middleware(),
 		observability.Middleware(),
 		observability.AccessLog(),
-		apm.Middleware(),
 		gin.Recovery(),
 	)
 
