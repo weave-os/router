@@ -132,6 +132,8 @@ var (
 	// GPT-5.6 accepts "xhigh"; "max" is Codex-backend only (the OpenAI adapter
 	// clamps it to xhigh for api.openai.com), so it stays off the menu.
 	openai56 = NewSpecWithReasoning(ReasoningCapabilities{Levels: []string{"low", "medium", "high", "xhigh"}, SupportsBudget: true}, CapReasoning, CapXhighEffort)
+	// GPT-6 Astra exposes max on the public Responses API and always reasons.
+	openaiAstra = NewSpecWithReasoning(ReasoningCapabilities{Levels: []string{"low", "medium", "high", "xhigh", "max"}, SupportsBudget: true, AlwaysOn: true}, CapReasoning, CapXhighEffort)
 	// grok-4.6: openaiReasoning + the extra "xhigh" level.
 	grok46 = NewSpecWithReasoning(ReasoningCapabilities{Levels: []string{"low", "medium", "high", "xhigh"}, SupportsBudget: true}, CapReasoning, CapXhighEffort)
 	// museSpark: reasoning_effort minimal/low/medium/high/xhigh; "none" is a 400
@@ -170,6 +172,8 @@ var registry = map[string]ModelSpec{
 
 	"claude-sonnet-4-5": NewSpec(),
 	"claude-sonnet-4-0": NewSpec(),
+
+	"gpt-6-astra": openaiAstra,
 
 	"gpt-5.6-sol":      openai56,
 	"gpt-5.6-sol-pro":  openai56,

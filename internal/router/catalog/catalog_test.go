@@ -174,6 +174,28 @@ func TestGPT56ProCatalogRowsAreDirectOpenAIRoutable(t *testing.T) {
 	}
 }
 
+func TestGPT6AstraCatalogRow(t *testing.T) {
+	model, ok := ByID("gpt-6-astra")
+	require.True(t, ok)
+	assert.Equal(t, TierHigh, model.Tier)
+	assert.Equal(t, 1_050_000, model.ContextWindow)
+
+	binding, ok := ResolveBinding("gpt-6-astra", map[string]struct{}{providers.ProviderOpenAI: {}})
+	require.True(t, ok)
+	assert.Equal(t, providers.ProviderOpenAI, binding.Provider)
+	assert.Equal(t, 10.00, binding.Price.InputUSDPer1M)
+	assert.Equal(t, 50.00, binding.Price.OutputUSDPer1M)
+	assert.Equal(t, 0.10, binding.Price.CacheReadMultiplier)
+	assert.Equal(t, 1.25, binding.Price.CacheWriteMultiplier)
+
+	fast, ok := FastPriceFor(providers.ProviderOpenAI, "gpt-6-astra")
+	require.True(t, ok)
+	assert.Equal(t, 20.00, fast.InputUSDPer1M)
+	assert.Equal(t, 100.00, fast.OutputUSDPer1M)
+	assert.Equal(t, 0.10, fast.CacheReadMultiplier)
+	assert.Equal(t, 1.25, fast.CacheWriteMultiplier)
+}
+
 func TestRoutingTargetSet_FiltersByTierAndRegisteredProviders(t *testing.T) {
 	targets := RoutingTargetSet(map[string]struct{}{providers.ProviderOpenAI: {}})
 
@@ -328,6 +350,7 @@ func TestContextWindowFor_KnownModels(t *testing.T) {
 	assert.Equal(t, 1_050_000, ContextWindowFor("gpt-5.6-terra"))
 	assert.Equal(t, 1_050_000, ContextWindowFor("gpt-5.6-luna"))
 	assert.Equal(t, 1_050_000, ContextWindowFor("gpt-5.6-luna-pro"))
+	assert.Equal(t, 1_050_000, ContextWindowFor("gpt-6-astra"))
 	// GPT-4.1 family has 1M context.
 	assert.Equal(t, 1_047_576, ContextWindowFor("gpt-4.1"))
 	// Gemini models have 1M context.

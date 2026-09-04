@@ -28,6 +28,7 @@ func TestLookup_DateSuffixNormalization(t *testing.T) {
 		{"openai dated", "gpt-4o-2024-08-06", false, false, false},
 		{"openai luna pro registered", "gpt-5.6-luna-pro", false, false, true},
 		{"openai sol pro registered", "gpt-5.6-sol-pro", false, false, true},
+		{"openai gpt-6 astra registered", "gpt-6-astra", false, false, true},
 		{"google flash registered", "gemini-2.5-flash", false, false, false},
 		{"google pro registered", "gemini-2.5-pro", false, false, false},
 		{"openrouter qwen registered", "qwen/qwen3-coder-next", false, false, false},
@@ -41,4 +42,13 @@ func TestLookup_DateSuffixNormalization(t *testing.T) {
 			assert.Equal(t, tc.wantReasoning, spec.Supports(router.CapReasoning))
 		})
 	}
+}
+
+func TestLookup_GPT6AstraReasoning(t *testing.T) {
+	spec := router.Lookup("gpt-6-astra")
+	assert.True(t, spec.Supports(router.CapReasoning))
+	assert.True(t, spec.Supports(router.CapXhighEffort))
+	assert.Equal(t, []string{"low", "medium", "high", "xhigh", "max"}, spec.Reasoning().Levels)
+	assert.True(t, spec.Reasoning().SupportsBudget)
+	assert.True(t, spec.Reasoning().AlwaysOn)
 }

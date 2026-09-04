@@ -360,6 +360,13 @@ var Models = []Model{
 	{ID: "gpt-5.6-sol-pro", HMMTarget: true, ContextWindow: 1_050_000, Providers: []ProviderBinding{
 		{Provider: providers.ProviderOpenAI, UpstreamID: "gpt-5.6-sol", Price: Pricing{InputUSDPer1M: 5.00, OutputUSDPer1M: 30.00, CacheReadMultiplier: 0.10}, FastPrice: Pricing{InputUSDPer1M: 10.00, OutputUSDPer1M: 60.00}},
 	}},
+	// Native 1.05M context. The catalog uses the standard <=272K rate;
+	// threshold-based long-context repricing is not represented yet.
+	{ID: "gpt-6-astra", Tier: TierHigh, ContextWindow: 1_050_000, Providers: []ProviderBinding{
+		{Provider: providers.ProviderOpenAI,
+			Price:     Pricing{InputUSDPer1M: 10.00, OutputUSDPer1M: 50.00, CacheReadMultiplier: 0.10, CacheWriteMultiplier: 1.25},
+			FastPrice: Pricing{InputUSDPer1M: 20.00, OutputUSDPer1M: 100.00, CacheReadMultiplier: 0.10, CacheWriteMultiplier: 1.25}},
+	}},
 
 	// --- xAI Grok --- native only; OpenRouter unused in prod.
 	// Standard rate (<200K) used; long-context repricing is a future Pricing follow-up.

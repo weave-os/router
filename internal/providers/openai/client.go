@@ -9,6 +9,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"slices"
 	"time"
 
 	"weave-os/router/internal/observability"
@@ -40,11 +41,13 @@ const (
 	codexUserAgentValue   = "codex_cli_rs"
 )
 
-// maxEffortToXhigh clamps reasoning.effort from "max" to "xhigh" in a
-// Responses-API body. "max" is valid only on the Codex backend; the public
-// api.openai.com Responses API tops out at "xhigh" and 400s on "max".
-func maxEffortToXhigh(body []byte) []byte {
+// maxEffortToXhigh clamps max for public-API models whose declared reasoning
+// menu tops out at xhigh. Models such as GPT-6 Astra accept max directly.
+func maxEffortToXhigh(body []byte, model string) []byte {
 	if gjson.GetBytes(body, "reasoning.effort").String() != "max" {
+		return body
+	}
+	if slices.Contains(router.Lookup(model).Reasoning().Levels, "max") {
 		return body
 	}
 	out, err := sjson.SetBytes(body, "reasoning.effort", "xhigh")
@@ -282,7 +285,7 @@ func (c *Client) Proxy(ctx context.Context, decision router.Decision, prep provi
 	} else if prep.Endpoint == providers.EndpointResponses {
 		// Only the direct api.openai.com Responses path needs the clamp; the
 		// Codex backend branch above understands "max" natively.
-		reqBody = maxEffortToXhigh(reqBody)
+		reqBody = maxEffortToXhigh(reqBody, decision.Model)
 	}
 	// Applied after the catalog map so a BYOK endpoint's own naming wins.
 	reqBody = proxy.ApplyModelAlias(ctx, reqBody, decision.Model)

@@ -155,16 +155,16 @@ func TestResolveForceModel(t *testing.T) {
 			wantProvider: providers.ProviderFireworks,
 			wantKnown:    true,
 		},
+		{
+			name:         "gpt-6 alias resolves to Astra",
+			input:        "gpt-6",
+			wantID:       "gpt-6-astra",
+			wantProvider: providers.ProviderOpenAI,
+			wantKnown:    true,
+		},
 		// Heuristic fallback: not in the catalog, so known is false. The
 		// provider is a best-effort guess for logging only; the handler rejects
 		// these rather than pinning a model with no known tier.
-		{
-			name:         "heuristic openai — gpt-6 not in catalog",
-			input:        "gpt-6",
-			wantID:       "gpt-6",
-			wantProvider: providers.ProviderOpenAI,
-			wantKnown:    false,
-		},
 		{
 			name:         "heuristic openai — o3",
 			input:        "o3",
@@ -180,11 +180,11 @@ func TestResolveForceModel(t *testing.T) {
 			wantKnown:    false,
 		},
 		{
-			name:         "unknown native openai prefix",
+			name:         "native openai gpt-6 alias resolves to Astra",
 			input:        "openai/gpt-6",
-			wantID:       "gpt-6",
+			wantID:       "gpt-6-astra",
 			wantProvider: providers.ProviderOpenAI,
-			wantKnown:    false,
+			wantKnown:    true,
 		},
 		{
 			name:         "heuristic anthropic — unknown bareword",
