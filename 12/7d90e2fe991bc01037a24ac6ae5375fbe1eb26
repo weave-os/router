@@ -1,0 +1,22 @@
+internal/translate/envelope.go
+  s_4e940056984b6d::t_875c98c8123a0f 559-561,567,569
+internal/translate/force_effort_anthropic_test.go
+  s_4e940056984b6d::t_875c98c8123a0f 72,77-92
+  s_4e940056984b6d::t_592016941b2697 93-94
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "127d90e2fe991bc01037a24ac6ae5375fbe1eb26",
+  "prompts": {},
+  "sessions": {
+    "s_4e940056984b6d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06d2a-66a2-7c20-9767-9eb039a3404d",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

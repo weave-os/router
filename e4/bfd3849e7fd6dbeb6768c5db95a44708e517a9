@@ -1,0 +1,24 @@
+internal/proxy/service.go
+  s_54eed062b921da::t_371af13ffb5959 3219-3220
+  s_54eed062b921da::t_079be5ec603a8f 2838-2839,5116-5117
+  s_54eed062b921da::t_20dd77e9c00b8f 1442-1447
+  s_54eed062b921da::t_b2de8207b59dad 3355-3356
+internal/proxy/force_effort_test.go
+  s_54eed062b921da::t_3a6048d8ee6dff 20-21
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.23",
+  "base_commit_sha": "e4bfd3849e7fd6dbeb6768c5db95a44708e517a9",
+  "prompts": {},
+  "sessions": {
+    "s_54eed062b921da": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d02b656d-81f5-41d1-88eb-98e754eb8bdb",
+        "model": "moonshotai/kimi-k3"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}
