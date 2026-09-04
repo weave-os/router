@@ -15,12 +15,14 @@ type SelectionInput struct {
 	ClassifierGroup    string
 	RankedFallback     []PreviewGroup
 	CandidateRosterIDs []string
+	QualityBias        *float64
 }
 
 // SelectionPick is the router's selected arm.
 type SelectionPick struct {
-	Group string
-	Arm   string
+	Group            string
+	Arm              string
+	ArmScoresByGroup map[string]map[string]float32
 }
 
 // ArmSelector picks the served arm from a sidecar classification. An error
@@ -33,7 +35,7 @@ func selectionInputFor(strategy router.Strategy, executionMode string, req route
 	for _, candidate := range resolved.Candidates {
 		candidateRosterIDs = append(candidateRosterIDs, candidate.RosterID)
 	}
-	return SelectionInput{
+	input := SelectionInput{
 		Strategy:           strategy,
 		ExecutionMode:      executionMode,
 		RouteID:            res.RouteID,
@@ -42,4 +44,9 @@ func selectionInputFor(strategy router.Strategy, executionMode string, req route
 		RankedFallback:     res.RankedFallback,
 		CandidateRosterIDs: candidateRosterIDs,
 	}
+	if req.RoutingKnobs != nil && req.RoutingKnobs.QualityBias != nil {
+		qualityBias := *req.RoutingKnobs.QualityBias
+		input.QualityBias = &qualityBias
+	}
+	return input
 }

@@ -333,6 +333,7 @@ func (r *SidecarRouter) Route(ctx context.Context, req router.Request) (router.D
 	// sidecar's, which is the only case where res.Provider legitimately names a
 	// different provider than the resolved binding.
 	reselected := false
+	var routerArmScoresByGroup map[string]map[string]float32
 	if r.armSelector != nil {
 		if res.SchemaVersion != SchemaVersionV3 {
 			return router.Decision{}, fmt.Errorf("%s: sidecar reported schema %q, expected %s: %w", strategy, res.SchemaVersion, SchemaVersionV3, r.config.Unavailable)
@@ -346,6 +347,7 @@ func (r *SidecarRouter) Route(ctx context.Context, req router.Request) (router.D
 		overrideReasonSuffix = ":go_selection"
 		reselected = true
 		res.PolicyGroup = pick.Group
+		routerArmScoresByGroup = pick.ArmScoresByGroup
 	}
 
 	// Per-key cluster allowlist enforcement. ranked_fallback presence in the /route
@@ -373,6 +375,7 @@ func (r *SidecarRouter) Route(ctx context.Context, req router.Request) (router.D
 			"previous_arm", previousRosterID,
 			"forced_arm", outcome.RosterID,
 		)
+		res.PolicyGroup = outcome.Group
 	case len(req.ClusterArmOverrides) > 0 && len(res.RankedFallback) > 0:
 		outcome := ApplyClusterArmOverrides(req.ClusterArmOverrides, res.RankedFallback, resolved, overrideRosterID)
 		// Only a configured allowlist supersedes the router's own selection; an
@@ -383,6 +386,7 @@ func (r *SidecarRouter) Route(ctx context.Context, req router.Request) (router.D
 			// be ambiguous (shared across providers) and absent from ByRosterID.
 			overrideArmID = outcome.ArmID
 			overrideRosterID = outcome.RosterID
+			res.PolicyGroup = outcome.Group
 			if outcome.Changed {
 				overrideReasonSuffix = ":cluster_override"
 				reselected = true
@@ -399,6 +403,9 @@ func (r *SidecarRouter) Route(ctx context.Context, req router.Request) (router.D
 	selectedRosterArmID := overrideArmID
 	if selectedRosterArmID == "" {
 		selectedRosterArmID = overrideRosterID
+	}
+	if routerArmScoresByGroup != nil {
+		res.ArmScores = routerArmScoresByGroup[res.PolicyGroup]
 	}
 
 	binding, ok := resolved.BindingForSelection(overrideArmID, overrideRosterID)

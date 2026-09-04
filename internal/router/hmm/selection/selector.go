@@ -30,7 +30,7 @@ func Selector(roster *rosterdata.Roster) policy.ArmSelector {
 		for _, rosterID := range input.CandidateRosterIDs {
 			candidates[rosterID] = struct{}{}
 		}
-		pick, ok := SelectGroups(roster, groups, input.Harness, candidates)
+		pick, scoresByGroup, ok := SelectGroupsWithPreference(roster, groups, input.Harness, candidates, input.QualityBias)
 		if !ok {
 			log.Warn("HMM selection found no eligible arm in any ranked group",
 				"strategy", input.Strategy,
@@ -43,6 +43,14 @@ func Selector(roster *rosterdata.Roster) policy.ArmSelector {
 			)
 			return policy.SelectionPick{}, ErrNoEligibleArm
 		}
-		return policy.SelectionPick{Group: pick.Group, Arm: pick.Arm}, nil
+		logFields := []any{"strategy", input.Strategy, "group", pick.Group, "arm", pick.Arm}
+		if input.QualityBias != nil {
+			logFields = append(logFields,
+				"quality_bias", *input.QualityBias,
+				"effective_alpha", EffectiveAlpha(roster, pick.Group, *input.QualityBias),
+			)
+		}
+		log.Debug("HMM preference-aware arm selected", logFields...)
+		return policy.SelectionPick{Group: pick.Group, Arm: pick.Arm, ArmScoresByGroup: scoresByGroup}, nil
 	}
 }
