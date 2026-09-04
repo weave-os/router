@@ -5,9 +5,9 @@ import (
 	"errors"
 	"fmt"
 
-	"workweave/router/internal/observability"
-	"workweave/router/internal/router/hmm/rosterdata"
-	"workweave/router/internal/router/policy"
+	"weave-os/router/internal/observability"
+	"weave-os/router/internal/router/hmm/rosterdata"
+	"weave-os/router/internal/router/policy"
 )
 
 // ErrNoEligibleArm is returned when no ranked group holds an eligible arm.

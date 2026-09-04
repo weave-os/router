@@ -1,5 +1,5 @@
 BEGIN;
 
-DROP TABLE IF EXISTS router.spiral_shadow_events;
+DROP TABLE router.spiral_shadow_events;
 
 COMMIT;

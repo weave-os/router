@@ -37,6 +37,11 @@ Claude Code keep using the user's logged-in plan.
 | `MINIMAX_API_KEY`     | *(none)*                                                   | Enables the native MiniMax provider through its OpenAI-compatible API. |
 | `MINIMAX_REGION`      | `global`                                                   | Set to `cn` (or `china`) to use the mainland-China endpoint. |
 | `MINIMAX_BASE_URL`    | regional default                                           | Override the MiniMax endpoint; defaults to `https://api.minimax.io/v1` globally or `https://api.minimaxi.com/v1` for mainland China. |
+| `ROUTER_SUBSCRIPTION_POOLS_ENABLED` | `false`                                         | Enables encrypted server-side subscription enrollment and account-management endpoints. Set `false` as the emergency pool-disable switch. |
+| `ROUTER_SUBSCRIPTION_PLAN_AWARE_ROUTING` | `false`                                | Removes models covered only by exhausted Claude/Codex plans from automatic routing per user; restores the normal roster when every linked plan is exhausted. |
+| `WEAVE_CODEX_OAUTH_ISSUER` | `https://auth.openai.com` | Optional Codex OAuth issuer override for self-hosted testing. |
+| `WEAVE_ANTHROPIC_OAUTH_AUTHORIZE` | `https://claude.ai/oauth/authorize` | Optional Claude OAuth authorization endpoint override used by the enrollment CLI. |
+| `WEAVE_ANTHROPIC_OAUTH_TOKEN` | `https://console.anthropic.com/v1/oauth/token` | Optional Claude OAuth token endpoint override used by enrollment and server-side refresh. |
 | `GOOGLE_API_KEY`      | *(none)*                                                  | Enables Gemini via its OpenAI-compatible endpoint. |
 | `GOOGLE_BASE_URL`     | `https://generativelanguage.googleapis.com/v1beta/openai` | Override for Gemini. |
 | `ANTHROPIC_GATEWAY_BASE_URL` | *(none)*                                           | Base URL of an Anthropic-compatible gateway; `/v1/messages` is appended to it. |
@@ -433,7 +438,7 @@ Without either env var the lists come from the installation, editable in the
 dashboard or through `PUT /admin/v1/excluded-providers` and
 `PUT /admin/v1/excluded-models`.
 
-From a terminal, `npx @workweave/router models --claude` lists every deployed
+From a terminal, `npx @weave-os/router models --claude` lists every deployed
 model with its on/off state and `models enable` / `models disable` edit it,
 reading the endpoint and key from the Claude Code install already on disk.
 Claude Code gets the same thing as `/router-models` (alias `/models`). While

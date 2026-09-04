@@ -8,20 +8,21 @@ import (
 	"strings"
 	"time"
 
-	"workweave/router/internal/analytics"
-	"workweave/router/internal/api/admin"
-	analyticsapi "workweave/router/internal/api/analytics"
-	anthropicapi "workweave/router/internal/api/anthropic"
-	feedbackapi "workweave/router/internal/api/feedback"
-	geminiapi "workweave/router/internal/api/gemini"
-	openaiapi "workweave/router/internal/api/openai"
-	"workweave/router/internal/auth"
-	"workweave/router/internal/billing"
-	"workweave/router/internal/policyclient"
-	"workweave/router/internal/proxy"
-	"workweave/router/internal/router"
-	"workweave/router/internal/router/policy"
-	"workweave/router/internal/server/middleware"
+	"weave-os/router/internal/analytics"
+	"weave-os/router/internal/api/admin"
+	analyticsapi "weave-os/router/internal/api/analytics"
+	anthropicapi "weave-os/router/internal/api/anthropic"
+	feedbackapi "weave-os/router/internal/api/feedback"
+	geminiapi "weave-os/router/internal/api/gemini"
+	openaiapi "weave-os/router/internal/api/openai"
+	subscriptionsapi "weave-os/router/internal/api/subscriptions"
+	"weave-os/router/internal/auth"
+	"weave-os/router/internal/billing"
+	"weave-os/router/internal/policyclient"
+	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/policy"
+	"weave-os/router/internal/server/middleware"
 
 	"github.com/gin-gonic/gin"
 )
@@ -157,6 +158,10 @@ func Register(engine *gin.Engine, authSvc *auth.Service, proxySvc *proxy.Service
 	// /validate is a token-validity probe used by clients (not the dashboard), so it stays mounted in both modes.
 	adminAuthed := engine.Group("", middleware.WithTimeout(validateTimeout), middleware.WithAuth(authSvc, byokRequiresOptIn))
 	adminAuthed.GET("/validate", admin.ValidateHandler)
+	if authSvc.SubscriptionAccountsEnabled() {
+		subscriptionGroup := engine.Group("/v1", middleware.WithTimeout(adminTimeout), middleware.WithAuth(authSvc, byokRequiresOptIn))
+		subscriptionsapi.Register(subscriptionGroup, authSvc)
+	}
 
 	if mode == DeploymentModeSelfHosted {
 		engine.GET("/", func(c *gin.Context) { c.Redirect(http.StatusFound, "/ui") })

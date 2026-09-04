@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"workweave/router/internal/auth"
+	"weave-os/router/internal/auth"
 )
 
 // baggageOnBehalfOf is the key the router adds to the vendor's baggage header.

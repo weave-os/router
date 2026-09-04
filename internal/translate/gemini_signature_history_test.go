@@ -6,7 +6,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"workweave/router/internal/translate"
+	"weave-os/router/internal/translate"
 )
 
 // "c2ln" is base64url(RawURLEncoding) of "sig" — the embedded-signature form

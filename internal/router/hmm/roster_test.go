@@ -3,8 +3,8 @@ package hmm_test
 import (
 	"testing"
 
-	"workweave/router/internal/providers"
-	"workweave/router/internal/router/hmm"
+	"weave-os/router/internal/providers"
+	"weave-os/router/internal/router/hmm"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

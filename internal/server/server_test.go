@@ -7,9 +7,9 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"workweave/router/internal/analytics"
-	"workweave/router/internal/router/cluster"
-	"workweave/router/internal/server"
+	"weave-os/router/internal/analytics"
+	"weave-os/router/internal/router/cluster"
+	"weave-os/router/internal/server"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"

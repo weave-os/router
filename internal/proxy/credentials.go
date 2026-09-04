@@ -5,8 +5,8 @@ import (
 	"net/http"
 	"strings"
 
-	"workweave/router/internal/auth"
-	"workweave/router/internal/providers"
+	"weave-os/router/internal/auth"
+	"weave-os/router/internal/providers"
 
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"

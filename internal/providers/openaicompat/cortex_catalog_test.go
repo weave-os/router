@@ -7,8 +7,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"workweave/router/internal/providers/anthropic"
-	"workweave/router/internal/providers/openaicompat"
+	"weave-os/router/internal/providers/anthropic"
+	"weave-os/router/internal/providers/openaicompat"
 )
 
 // cortex replays Snowflake Cortex's observed catalog responses: 415 without a

@@ -3,8 +3,8 @@ package rl
 import (
 	"strings"
 
-	"workweave/router/internal/providers"
-	"workweave/router/internal/router/catalog"
+	"weave-os/router/internal/providers"
+	"weave-os/router/internal/router/catalog"
 )
 
 // rosterAliases maps a catalog model ID to the policy-artifact roster ID when

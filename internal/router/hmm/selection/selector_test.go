@@ -7,8 +7,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"workweave/router/internal/router/hmm/selection"
-	"workweave/router/internal/router/policy"
+	"weave-os/router/internal/router/hmm/selection"
+	"weave-os/router/internal/router/policy"
 )
 
 func TestSelectorReturnsDeterministicPick(t *testing.T) {

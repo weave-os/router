@@ -6,9 +6,9 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"workweave/router/internal/router"
-	"workweave/router/internal/router/planner"
-	"workweave/router/internal/translate"
+	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/planner"
+	"weave-os/router/internal/translate"
 )
 
 func TestRoutingMarkerFor_PlannerPaths(t *testing.T) {
@@ -437,4 +437,12 @@ func TestRoutingMarkerFor_SuppressesStickyTurnForAllClients(t *testing.T) {
 		PriorServedModel: "gpt-5.6-terra",
 	}
 	assert.Empty(t, routingMarkerFor(res), "same-model suppression applies to Codex as well as Claude Code")
+}
+
+func TestRoutingMarkerFor_SuppressesEffortOnlyChange(t *testing.T) {
+	res := turnLoopResult{
+		Decision:         router.Decision{Model: "gpt-5.6-luna", Provider: "openai", Effort: "xhigh"},
+		PriorServedModel: "gpt-5.6-luna:xhigh",
+	}
+	assert.Empty(t, routingMarkerFor(res), "changing effort must not repeat the model-choice marker")
 }

@@ -3,7 +3,7 @@ package catalog
 import (
 	"math"
 
-	"workweave/router/internal/providers"
+	"weave-os/router/internal/providers"
 )
 
 // EffectiveInputCost returns the true USD input cost after applying cache

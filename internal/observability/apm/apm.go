@@ -25,9 +25,9 @@ import (
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	semconv "go.opentelemetry.io/otel/semconv/v1.21.0"
 
-	"workweave/router/internal/config"
-	"workweave/router/internal/observability"
-	"workweave/router/internal/version"
+	"weave-os/router/internal/config"
+	"weave-os/router/internal/observability"
+	"weave-os/router/internal/version"
 )
 
 // serviceName is the resource attribute the SigNoz UI groups spans + metrics

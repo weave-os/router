@@ -10,7 +10,7 @@ package handover
 import (
 	"context"
 
-	"workweave/router/internal/translate"
+	"weave-os/router/internal/translate"
 )
 
 // Usage captures the upstream token counts of a Summarize call so callers can

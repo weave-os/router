@@ -43,6 +43,9 @@ done
 
 # Every registry-declared adapter is packaged, and nothing is packaged that the
 # registry does not declare. This is the check that keeps the two in lockstep.
+check "the canonical package name is published" "@weave-os/router" \
+  "$(node -p 'require(process.argv[1]).name' "$root/package.json")"
+
 missing=""
 while IFS= read -r name; do
   [ -f "$root/commands/$name.md" ] || missing="$missing $name"
@@ -105,12 +108,52 @@ installed="$(cd "$home/.claude/commands" 2>/dev/null && ls *.md 2>/dev/null | se
 check "the packed entrypoint installs every Claude command" \
   "$(weave_registry_names claude | sort | tr '\n' ' ' | sed 's/ $//')" "$installed"
 
+HOME="$home" PATH="$home/bin:$PATH" WEAVE_ROUTER_KEY="rk_test_key" NO_COLOR=1 \
+  node "$root/bin.js" --pi --scope user --quiet --base-url http://127.0.0.1:9 >/dev/null 2>&1 || true
+check "the packed entrypoint registers its own pi package" \
+  "npm:@weave-os/router" \
+  "$(jq -r '.packages[]? // empty' "$home/.pi/agent/settings.json" 2>/dev/null | grep -F 'npm:@weave-os/router' || true)"
+
+# Re-install after a prior @workweave/router install must not leave both
+# extensions in packages — pi would load them twice.
+mkdir -p "$home/.pi/agent"
+printf '%s\n' '{"defaultProvider":"weave","packages":["npm:@workweave/router","npm:@workweave/pi-router"]}' >"$home/.pi/agent/settings.json"
+HOME="$home" PATH="$home/bin:$PATH" WEAVE_ROUTER_KEY="rk_test_key" NO_COLOR=1 \
+  node "$root/bin.js" --pi --scope user --quiet --base-url http://127.0.0.1:9 >/dev/null 2>&1 || true
+check "a weave-os re-install drops leftover workweave pi packages" \
+  "npm:@weave-os/router" \
+  "$(jq -r '.packages[]? // empty' "$home/.pi/agent/settings.json" 2>/dev/null | tr '\n' ' ' | sed 's/ $//')"
+
 # The uninstall path is bundled too; a tarball that can install but not
 # uninstall strands the user.
 HOME="$home" PATH="$home/bin:$PATH" NO_COLOR=1 \
   node "$root/bin.js" --uninstall --claude --scope user >/dev/null 2>&1 || true
 check "the packed entrypoint uninstalls what it installed" "" \
   "$(cd "$home/.claude/commands" 2>/dev/null && ls *.md 2>/dev/null | tr '\n' ' ' | sed 's/ $//')"
+
+HOME="$home" PATH="$home/bin:$PATH" NO_COLOR=1 \
+  node "$root/bin.js" --uninstall --pi --scope user >/dev/null 2>&1 || true
+check "the packed entrypoint removes its pi package" "" \
+  "$(jq -r '.packages[]? // empty' "$home/.pi/agent/settings.json" 2>/dev/null | grep -E 'npm:(@weave-os/router|@workweave/router)' || true)"
+
+# The legacy package is published from the same tarball with only its package
+# name changed. Its entrypoint must identify that name and explain the
+# migration while retaining the exact installer behavior.
+legacy="$work/legacy"
+cp -R "$root" "$legacy"
+node -e '
+  const fs = require("node:fs");
+  const file = process.argv[1];
+  const pkg = JSON.parse(fs.readFileSync(file, "utf8"));
+  pkg.name = "@workweave/router";
+  fs.writeFileSync(file, JSON.stringify(pkg, null, 2) + "\n");
+' "$legacy/package.json"
+legacy_err="$work/legacy.err"
+HOME="$home" PATH="$home/bin:$PATH" WEAVE_ROUTER_KEY="rk_test_key" NO_COLOR=1 \
+  node "$legacy/bin.js" --codex --scope user --quiet --base-url http://127.0.0.1:9 \
+  >/dev/null 2>"$legacy_err" || true
+check "the legacy entrypoint points to the renamed package" \
+  "yes" "$(grep -Fq 'use @weave-os/router' "$legacy_err" && echo yes || echo no)"
 
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]

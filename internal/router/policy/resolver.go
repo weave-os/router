@@ -5,10 +5,9 @@ package policy
 import (
 	"sort"
 
-	"workweave/router/internal/providers"
-	"workweave/router/internal/router"
-	"workweave/router/internal/router/catalog"
-	"workweave/router/internal/translate"
+	"weave-os/router/internal/providers"
+	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/catalog"
 )
 
 // RosterMapper maps a catalog model to the identifier understood by a policy
@@ -432,7 +431,7 @@ func splitEffort(armID string) (string, string) {
 	for i := len(armID) - 1; i > 0; i-- {
 		if armID[i] == ':' {
 			suffix := armID[i+1:]
-			if translate.CanonicalizeEffort(suffix) == suffix && translate.IsValidEffort(suffix) {
+			if router.CanonicalizeEffort(suffix) == suffix && router.IsValidEffort(suffix) {
 				return armID[:i], suffix
 			}
 			return armID, ""

@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"workweave/router/internal/auth"
-	"workweave/router/internal/server/middleware"
+	"weave-os/router/internal/auth"
+	"weave-os/router/internal/server/middleware"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"

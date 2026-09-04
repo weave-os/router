@@ -21,7 +21,7 @@ fake_bin="$work/bin"
 mkdir -p "$fake_bin"
 
 # Fake curl. Understands the flags install.sh actually passes (-X, --data-binary,
-# -o, -w, --header @-) and routes on the request path. $ROUTER_MODE decides which
+# -o, -w, and file-backed headers) and routes on the request path. $ROUTER_MODE decides which
 # router it impersonates:
 #   full    — serves the model-selection API
 #   managed — 404s /admin/v1/* (the Weave-hosted router) but serves the catalog
@@ -29,25 +29,30 @@ mkdir -p "$fake_bin"
 # Requests are appended to $REQUEST_LOG as "METHOD PATH BODY".
 cat >"$fake_bin/curl" <<'FAKE_CURL'
 #!/usr/bin/env bash
-method="GET"; out=""; url=""; body=""
+method="GET"; out=""; url=""; body=""; header_source=""
 while [ $# -gt 0 ]; do
   case "$1" in
     -X) method="$2"; shift 2 ;;
     -o) out="$2"; shift 2 ;;
-    --data-binary|-d) body="$2"; shift 2 ;;
+    --data-binary|-d)
+      body="$2"
+      case "$body" in @*) body="$(cat "${body#@}")" ;; esac
+      shift 2
+      ;;
     -w|-H|--max-time) shift 2 ;;
-    --header) shift 2 ;;
+    --header) header_source="$2"; shift 2 ;;
     -sS|-fsS|-s|-S|-f) shift ;;
     http*) url="$1"; shift ;;
     *) shift ;;
   esac
 done
-# The key rides in on stdin (curl --header @-). Normally just drained; when
-# KEY_LOG is set, record it so a test can assert which install's key was sent.
+# The key rides in a mode-600 header file. When KEY_LOG is set, record its
+# contents so a test can assert which install's key was sent.
 if [ -n "${KEY_LOG:-}" ]; then
-  cat >>"$KEY_LOG" 2>/dev/null || true
-else
-  cat >/dev/null 2>&1 || true
+  case "$header_source" in
+    @-) cat >>"$KEY_LOG" 2>/dev/null || true ;;
+    @*) cat "${header_source#@}" >>"$KEY_LOG" 2>/dev/null || true ;;
+  esac
 fi
 path="${url#http://}"; path="${path#https://}"; path="/${path#*/}"
 [ -n "${REQUEST_LOG:-}" ] && printf '%s %s %s\n' "$method" "$path" "$body" >>"$REQUEST_LOG"

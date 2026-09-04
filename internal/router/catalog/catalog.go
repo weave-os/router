@@ -7,7 +7,7 @@
 package catalog
 
 import (
-	"workweave/router/internal/providers"
+	"weave-os/router/internal/providers"
 )
 
 // Tier is the coarse capability bucket. Higher is stronger; integer

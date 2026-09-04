@@ -72,4 +72,4 @@ it and follow its printed PATH instructions afterwards.
   `~/.cargo/bin`. The lsp tool finds both without PATH changes; other tools
   may still want a PATH entry.
 - All of this can also happen at install time:
-  `npx @workweave/router --pi --lsp go,typescript,python,rust`.
+  `npx @weave-os/router --pi --lsp go,typescript,python,rust`.

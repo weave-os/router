@@ -9,11 +9,11 @@ import (
 	"strconv"
 	"time"
 
-	"workweave/router/internal/observability"
-	"workweave/router/internal/providers"
-	"workweave/router/internal/router"
-	"workweave/router/internal/router/catalog"
-	"workweave/router/internal/translate"
+	"weave-os/router/internal/observability"
+	"weave-os/router/internal/providers"
+	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/catalog"
+	"weave-os/router/internal/translate"
 )
 
 // preludeBuffer absorbs pre-upstream writes (the eager SSE Prelude) so
@@ -225,6 +225,7 @@ func (s *Service) dispatchWithFallback(ctx context.Context, in failoverInputs) (
 		// Only used for single-binding models; multi-binding models fail
 		// straight over to the next binding after one attempt (len>1 guard).
 		var attemptErr error
+		managedBinding := false
 		retryStart := s.clockNow()
 		for sb := 0; ; sb++ {
 			// Safe to rewrite until the buffer commits; on retry the previous
@@ -241,8 +242,20 @@ func (s *Service) dispatchWithFallback(ctx context.Context, in failoverInputs) (
 				}
 			}
 
-			attemptErr = in.attempt(attemptCtx, decision, p)
+			credentialCtx, lease, managedAttempt, leaseErr := s.leaseManagedSubscription(attemptCtx, b.Provider, decision.Model)
+			if leaseErr != nil {
+				if in.buf != nil {
+					in.buf.Discard()
+				}
+				return i, leaseErr
+			}
+			managedBinding = managedBinding || managedAttempt
+			attemptErr = in.attempt(credentialCtx, decision, p)
+			lease.Release()
 			if attemptErr == nil {
+				if managedAttempt {
+					markManagedSubscriptionServed(ctx)
+				}
 				if i > 0 {
 					log.Info("dispatchWithFallback: succeeded on fallback",
 						"model", decision.Model,
@@ -253,10 +266,36 @@ func (s *Service) dispatchWithFallback(ctx context.Context, in failoverInputs) (
 				return i, nil
 			}
 
+			rotateManagedAccount := managedAttempt && s.recordManagedSubscriptionFailure(
+				credentialCtx, b.Provider, decision.Model, lease, attemptErr,
+			)
+
 			// Bytes already reached the client — committed to this attempt's
 			// error even if it would otherwise be retryable.
 			if committed(in.buf) {
 				return i, attemptErr
+			}
+			if rotateManagedAccount {
+				if spent := s.clockNow().Sub(retryStart); spent >= sameBindingRetryBudget {
+					log.Warn("dispatchWithFallback: subscription account rotation budget spent, not retrying",
+						"model", decision.Model,
+						"provider", b.Provider,
+						"spent_ms", spent.Milliseconds(),
+						"budget_ms", sameBindingRetryBudget.Milliseconds(),
+						"subscription_account_attempt", sb+1,
+						"err", attemptErr)
+					break
+				}
+				if in.buf != nil {
+					in.buf.Discard()
+				}
+				log.Warn("dispatchWithFallback: retrying with another subscription account",
+					"model", decision.Model,
+					"provider", b.Provider,
+					"account_id", lease.AccountID,
+					"same_binding_retry", sb+1,
+					"err", attemptErr)
+				continue
 			}
 
 			// Stop same-binding retry: error non-retryable, attempt budget
@@ -307,7 +346,7 @@ func (s *Service) dispatchWithFallback(ctx context.Context, in failoverInputs) (
 		canFailover := providers.IsRetryable(attemptErr) ||
 			providers.IsUpstreamModelNotFound(attemptErr) ||
 			providers.IsUpstreamProviderBillingBlocked(attemptErr)
-		if !canFailover || i == len(in.bindings)-1 {
+		if managedBinding || !canFailover || i == len(in.bindings)-1 {
 			// Final attempt or non-failable: discard so the client sees the
 			// error envelope next, not a half-emitted message_start.
 			if in.buf != nil {

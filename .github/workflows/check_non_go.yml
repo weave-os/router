@@ -1,0 +1,115 @@
+# yaml-language-server: $schema=https://json.schemastore.org/github-workflow.json
+name: Check Non-Go
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  check-non-go:
+    name: Check changed non-Go files
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The PR merge ref contains fork commits, and full history guarantees
+          # both exact event SHAs are locally available without fetching a fork.
+          fetch-depth: 0
+
+      - name: Test changed non-Go file discovery
+        run: bash scripts/changed_non_go_files_test.sh
+
+      - name: Find changed non-Go files
+        id: changes
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          files_dir="$RUNNER_TEMP/changed-non-go"
+          scripts/changed_non_go_files.sh "$BASE_SHA" "$HEAD_SHA" "$files_dir"
+
+          test -f "$files_dir/typescript-frontend" && echo "typescript_frontend=true" >>"$GITHUB_OUTPUT" || true
+          test -f "$files_dir/typescript-opencode" && echo "typescript_opencode=true" >>"$GITHUB_OUTPUT" || true
+          test -f "$files_dir/typescript-pi" && echo "typescript_pi=true" >>"$GITHUB_OUTPUT" || true
+          test -s "$files_dir/shell-files.nul" && echo "shell=true" >>"$GITHUB_OUTPUT" || true
+          test -s "$files_dir/python-files.nul" && echo "python=true" >>"$GITHUB_OUTPUT" || true
+
+      - name: Set up Node
+        if: >-
+          steps.changes.outputs.typescript_frontend == 'true' ||
+          steps.changes.outputs.typescript_opencode == 'true' ||
+          steps.changes.outputs.typescript_pi == 'true'
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: 24.12.0
+          cache: npm
+          cache-dependency-path: |
+            frontend/package-lock.json
+            install/opencode-weave/package-lock.json
+            install/pi-router/package-lock.json
+
+      - name: Typecheck dashboard
+        if: steps.changes.outputs.typescript_frontend == 'true'
+        working-directory: frontend
+        run: |
+          npm ci --ignore-scripts --no-audit --no-fund
+          npm run typegen
+          npm run typecheck
+
+      - name: Typecheck opencode extension
+        if: steps.changes.outputs.typescript_opencode == 'true'
+        working-directory: install/opencode-weave
+        run: |
+          npm ci --ignore-scripts --no-audit --no-fund
+          npm run typecheck
+
+      - name: Typecheck pi extension
+        if: steps.changes.outputs.typescript_pi == 'true'
+        working-directory: install/pi-router
+        run: |
+          npm ci --ignore-scripts --no-audit --no-fund
+          npm run typecheck
+
+      - name: Install ShellCheck 0.10.0
+        if: steps.changes.outputs.shell == 'true'
+        run: |
+          archive="$RUNNER_TEMP/shellcheck.tar.xz"
+          curl --fail --location --silent --show-error \
+            --output "$archive" \
+            https://github.com/koalaman/shellcheck/releases/download/v0.10.0/shellcheck-v0.10.0.linux.x86_64.tar.xz
+          echo "6c881ab0698e4e6ea235245f22832860544f17ba386442fe7e9d629f8cbedf87  $archive" | sha256sum --check
+          tar -xJf "$archive" -C "$RUNNER_TEMP"
+
+      - name: ShellCheck changed scripts
+        if: steps.changes.outputs.shell == 'true'
+        run: |
+          files=()
+          while IFS= read -r -d '' file; do
+            [[ -n "$file" ]] || continue
+            files+=("$file")
+          done <"$RUNNER_TEMP/changed-non-go/shell-files.nul"
+          "$RUNNER_TEMP/shellcheck-v0.10.0/shellcheck" --external-sources -- "${files[@]}"
+
+      - name: Install Ruff 0.16.6
+        if: steps.changes.outputs.python == 'true'
+        run: |
+          archive="$RUNNER_TEMP/ruff.tar.gz"
+          curl --fail --location --silent --show-error \
+            --output "$archive" \
+            https://github.com/astral-sh/ruff/releases/download/0.16.6/ruff-x86_64-unknown-linux-gnu.tar.gz
+          echo "0696335ef16615d8c7445ad438750eb0f55b3da6f153df21265a7c6d5750254f  $archive" | sha256sum --check
+          tar -xzf "$archive" -C "$RUNNER_TEMP"
+
+      - name: Ruff changed Python
+        if: steps.changes.outputs.python == 'true'
+        run: |
+          files=()
+          while IFS= read -r -d '' file; do
+            [[ -n "$file" ]] || continue
+            files+=("$file")
+          done <"$RUNNER_TEMP/changed-non-go/python-files.nul"
+          "$RUNNER_TEMP/ruff-x86_64-unknown-linux-gnu/ruff" check \
+            --config ruff.toml --no-cache --output-format github -- "${files[@]}"

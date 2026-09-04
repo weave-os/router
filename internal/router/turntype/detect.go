@@ -5,7 +5,7 @@ package turntype
 import (
 	"strings"
 
-	"workweave/router/internal/translate"
+	"weave-os/router/internal/translate"
 )
 
 // TurnType classifies an inbound conversation turn.

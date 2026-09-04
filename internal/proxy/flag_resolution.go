@@ -3,7 +3,7 @@ package proxy
 import (
 	"context"
 
-	"workweave/router/internal/flags"
+	"weave-os/router/internal/flags"
 )
 
 // Per-organization resolution for the behavioral feature flags registered in

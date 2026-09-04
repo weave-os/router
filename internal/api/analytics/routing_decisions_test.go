@@ -13,9 +13,9 @@ import (
 	"testing"
 	"time"
 
-	"workweave/router/internal/analytics"
-	analyticsapi "workweave/router/internal/api/analytics"
-	"workweave/router/internal/auth"
+	"weave-os/router/internal/analytics"
+	analyticsapi "weave-os/router/internal/api/analytics"
+	"weave-os/router/internal/auth"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"

@@ -3,8 +3,8 @@ package postgres
 import (
 	"context"
 
-	"workweave/router/internal/auth"
-	"workweave/router/internal/sqlc"
+	"weave-os/router/internal/auth"
+	"weave-os/router/internal/sqlc"
 
 	"github.com/google/uuid"
 )

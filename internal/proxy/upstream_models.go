@@ -5,7 +5,7 @@ import (
 	"errors"
 	"fmt"
 
-	"workweave/router/internal/providers"
+	"weave-os/router/internal/providers"
 )
 
 // ErrModelListingUnsupported is returned when the provider's adapter has no

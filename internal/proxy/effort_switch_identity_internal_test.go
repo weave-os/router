@@ -5,8 +5,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"workweave/router/internal/router"
-	"workweave/router/internal/router/sessionpin"
+	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/sessionpin"
 )
 
 // An effort change on the same model invalidates thinking-block signatures

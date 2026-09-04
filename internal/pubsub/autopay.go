@@ -3,7 +3,7 @@ package pubsub
 import (
 	"context"
 
-	"workweave/router/internal/observability"
+	"weave-os/router/internal/observability"
 
 	gcppubsub "cloud.google.com/go/pubsub/v2"
 )

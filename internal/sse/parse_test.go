@@ -3,7 +3,7 @@ package sse_test
 import (
 	"testing"
 
-	"workweave/router/internal/sse"
+	"weave-os/router/internal/sse"
 
 	"github.com/stretchr/testify/assert"
 )

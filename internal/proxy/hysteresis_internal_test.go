@@ -3,7 +3,7 @@ package proxy
 import (
 	"testing"
 
-	"workweave/router/internal/router"
+	"weave-os/router/internal/router"
 )
 
 func hysteresisDecision(model string, armScores map[string]float32) router.Decision {

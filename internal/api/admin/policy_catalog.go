@@ -4,9 +4,9 @@ import (
 	"net/http"
 	"sort"
 
-	"workweave/router/internal/proxy"
-	"workweave/router/internal/router"
-	"workweave/router/internal/router/policy"
+	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/policy"
 
 	"github.com/gin-gonic/gin"
 )

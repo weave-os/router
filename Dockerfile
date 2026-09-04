@@ -207,7 +207,7 @@ WORKDIR /app/cmd/router
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     GOOS=linux go build -tags ORT \
-      -ldflags "-X workweave/router/internal/version.Commit=${ROUTER_SHA} -X workweave/router/internal/version.BuildTime=${ROUTER_BUILD_TIME} -X workweave/router/internal/version.PR=${ROUTER_PR}" \
+      -ldflags "-X weave-os/router/internal/version.Commit=${ROUTER_SHA} -X weave-os/router/internal/version.BuildTime=${ROUTER_BUILD_TIME} -X weave-os/router/internal/version.PR=${ROUTER_PR}" \
       -o /server
 
 

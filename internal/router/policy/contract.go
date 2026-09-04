@@ -3,7 +3,7 @@ package policy
 import (
 	"context"
 
-	"workweave/router/internal/router"
+	"weave-os/router/internal/router"
 )
 
 // SchemaVersionV1 is the first stable policy-sidecar wire contract.

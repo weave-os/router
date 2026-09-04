@@ -1,5 +1,5 @@
 /**
- * @workweave/router — let a caller's own AI subscriptions pay for their opencode
+ * @weave-os/router — let a caller's own AI subscriptions pay for their opencode
  * turns, routed through the Weave Router.
  *
  * Model: a subscription is a CREDENTIAL scoped to the model family it can pay

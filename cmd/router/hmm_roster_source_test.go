@@ -12,8 +12,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"workweave/router/internal/observability"
-	"workweave/router/internal/router/cluster"
+	"weave-os/router/internal/observability"
+	"weave-os/router/internal/router/cluster"
 )
 
 type stubRosterFetcher struct {

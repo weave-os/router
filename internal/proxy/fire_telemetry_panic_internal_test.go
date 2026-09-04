@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"workweave/router/internal/observability"
+	"weave-os/router/internal/observability"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"

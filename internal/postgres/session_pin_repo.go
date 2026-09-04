@@ -6,9 +6,9 @@ import (
 	"errors"
 	"time"
 
-	"workweave/router/internal/router"
-	"workweave/router/internal/router/sessionpin"
-	"workweave/router/internal/sqlc"
+	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/sessionpin"
+	"weave-os/router/internal/sqlc"
 
 	"github.com/jackc/pgx/v5/pgtype"
 )

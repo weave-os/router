@@ -14,6 +14,7 @@
 package toolcheck
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 
@@ -23,7 +24,7 @@ import (
 	"golang.org/x/text/language"
 	"golang.org/x/text/message"
 
-	"workweave/router/internal/observability"
+	"weave-os/router/internal/observability"
 )
 
 // localePrinter renders validation-error messages for Issue.Detail.
@@ -343,8 +344,8 @@ func normalizeArgs(args string, required map[string]struct{}) (out string, actio
 // detailFromError renders the first leaf validation error as
 // "/instance/path: message", truncated.
 func detailFromError(err error) string {
-	verr, ok := err.(*jsonschema.ValidationError)
-	if !ok {
+	var verr *jsonschema.ValidationError
+	if !errors.As(err, &verr) {
 		return truncateDetail(err.Error())
 	}
 	leaf := firstLeaf(verr)

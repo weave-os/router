@@ -1,0 +1,44 @@
+version: "2"
+
+run:
+  tests: true
+
+linters:
+  default: none
+  enable:
+    - depguard
+    - errorlint
+  settings:
+    errorlint:
+      comparison: true
+      asserts: true
+      errorf: false
+    depguard:
+      rules:
+        leaf:
+          files:
+            - "**/internal/config/**"
+            - "**/internal/observability/*.go"
+            - "!**/*_test.go"
+          deny:
+            - pkg: weave-os/router/internal
+              desc: leaf utilities cannot import internal packages
+        presentation:
+          files:
+            - "**/internal/api/**"
+            - "**/internal/server/**"
+            - "!**/*_test.go"
+          deny:
+            - pkg: weave-os/router/internal/postgres
+            - pkg: weave-os/router/internal/sqlc
+            - pkg: weave-os/router/internal/translate
+            - pkg: weave-os/router/internal/providers/
+            - pkg: github.com/jackc/pgx
+        pgx-only-postgres:
+          files:
+            - "**/internal/**"
+            - "!**/internal/postgres/**"
+            - "!**/internal/sqlc/**"
+            - "!**/*_test.go"
+          deny:
+            - pkg: github.com/jackc/pgx

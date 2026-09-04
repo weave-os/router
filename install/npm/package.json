@@ -1,6 +1,6 @@
 {
-  "name": "@workweave/router",
-  "version": "0.2.12",
+  "name": "@weave-os/router",
+  "version": "0.2.15",
   "description": "One-command installer that points Claude Code, Codex, opencode, or pi at the Weave Router. For pi it also ships the routing extension, loaded via pi.extensions.",
   "bin": {
     "weave-router": "bin.js",
@@ -61,7 +61,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/workweave/router.git",
+    "url": "git+https://github.com/weave-os/router.git",
     "directory": "install/npm"
   },
   "homepage": "https://workweave.ai",

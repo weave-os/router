@@ -13,11 +13,11 @@ import (
 
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
-	"workweave/router/internal/providers"
-	"workweave/router/internal/providers/httputil"
-	"workweave/router/internal/proxy"
-	"workweave/router/internal/router"
-	"workweave/router/internal/timing"
+	"weave-os/router/internal/providers"
+	"weave-os/router/internal/providers/httputil"
+	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/router"
+	"weave-os/router/internal/timing"
 )
 
 const DefaultBaseURL = "https://api.anthropic.com"
@@ -261,6 +261,19 @@ func (c *Client) subscriptionAuth(ctx context.Context, inbound *http.Request) bo
 	return false
 }
 
+// claudeSubscriptionAuth reports whether this request authenticates with a
+// Claude subscription bearer specifically, as opposed to any other OAuth-style
+// credential a Bearer gateway may resolve.
+func (c *Client) claudeSubscriptionAuth(ctx context.Context, inbound *http.Request) bool {
+	if !c.subscriptionAuth(ctx, inbound) {
+		return false
+	}
+	if creds := proxy.CredentialsFromContext(ctx); creds != nil {
+		return strings.HasPrefix(string(creds.APIKey), subscriptionTokenPrefix)
+	}
+	return true
+}
+
 // mergeBeta appends token to a comma-separated anthropic-beta value if absent,
 // preserving any existing (model-capability-filtered) tokens.
 func mergeBeta(existing, token string) string {
@@ -283,6 +296,9 @@ func (c *Client) Proxy(ctx context.Context, decision router.Decision, prep provi
 	body := rewriteModelField(prep.Body, c.modelIDMap)
 	// Applied after the catalog map so a BYOK endpoint's own naming wins.
 	body = proxy.ApplyModelAlias(ctx, body, decision.Model)
+	if c.claudeSubscriptionAuth(ctx, r) {
+		body = ensureClaudeCodeIdentity(body)
+	}
 
 	// 404s are buffered before reaching w, so a duplicate "/v1" can be re-tried.
 	// A non-404 on the retried path is the real error and is memoized; only a

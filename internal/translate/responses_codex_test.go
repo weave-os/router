@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"workweave/router/internal/translate"
+	"weave-os/router/internal/translate"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -258,6 +258,33 @@ func TestConvertResponsesToChatCompletionsWithOptions_PortableCodexBadgeNeedsPro
 			assert.Equal(t, tc.want, gjson.GetBytes(converted.Body, "messages.0.content").Str)
 		})
 	}
+}
+
+func TestConvertResponsesToChatCompletionsWithOptions_PortableCodexDropsMarkerOnlyAssistantBeforeToolCall(t *testing.T) {
+	body := []byte(`{
+		"model":"gpt-5.6-sol",
+		"input":[
+			{"type":"message","role":"user","content":"run it"},
+			{"type":"message","role":"assistant","content":[{"type":"output_text","text":"` + codexResponsesBadgeSentinelForTest + `**Weave Router** — claude-sonnet-4-6 ← gpt-5.4\n\n\n_Weave Router feedback:_ $rf + good experience"}]},
+			{"type":"function_call","call_id":"call_1","name":"shell","arguments":"{}"}
+		]
+	}`)
+
+	converted, err := translate.ConvertResponsesToChatCompletionsWithOptions(body, translate.ResponsesConversionOptions{PortableCodex: true})
+	require.NoError(t, err)
+
+	messages := gjson.GetBytes(converted.Body, "messages").Array()
+	require.Len(t, messages, 2, "marker-only assistant shells must not precede the tool call")
+	assert.Equal(t, "user", messages[0].Get("role").Str)
+	assert.Equal(t, "assistant", messages[1].Get("role").Str)
+	assert.Equal(t, "call_1", messages[1].Get("tool_calls.0.id").Str)
+
+	env, err := translate.ParseOpenAI(converted.Body)
+	require.NoError(t, err)
+	prepared, err := env.PrepareAnthropic(nil, translate.EmitOptions{TargetModel: "claude-sonnet-4-6"})
+	require.NoError(t, err)
+	assert.NotContains(t, string(prepared.Body), `"type":"text","text":""`,
+		"Anthropic must not receive empty text content blocks")
 }
 
 func TestConvertResponsesToChatCompletionsWithOptions_PortableCodexUnknownStaysNative(t *testing.T) {

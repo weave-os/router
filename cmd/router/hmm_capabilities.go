@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"workweave/router/internal/router/policy"
+	"weave-os/router/internal/router/policy"
 )
 
 const hmmCapabilityRetryInterval = time.Second

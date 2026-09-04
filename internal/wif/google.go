@@ -10,7 +10,7 @@ import (
 	gauth "cloud.google.com/go/auth"
 	"cloud.google.com/go/auth/credentials/idtoken"
 
-	"workweave/router/internal/auth"
+	"weave-os/router/internal/auth"
 )
 
 // GoogleTokenSource attests the router's own Google service account with a

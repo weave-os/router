@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"workweave/router/internal/translate/toolcheck"
+	"weave-os/router/internal/translate/toolcheck"
 
 	"github.com/tidwall/gjson"
 )
@@ -181,7 +181,10 @@ func responsesToOpenAIChatResponse(body []byte, requestModel string, toolValidat
 func responsesFinishReason(resp gjson.Result) string {
 	hasToolCall := false
 	resp.Get("output").ForEach(func(_, item gjson.Result) bool {
-		if item.Get("type").String() == "function_call" {
+		// Codex emits custom_tool_call for its shell-style tools; both end the
+		// turn in a tool call.
+		switch item.Get("type").String() {
+		case "function_call", "custom_tool_call":
 			hasToolCall = true
 			return false
 		}
@@ -195,4 +198,35 @@ func responsesFinishReason(resp gjson.Result) string {
 	default:
 		return "stop"
 	}
+}
+
+// ResponsesTerminalReason reports the finish_reason a terminal Responses
+// payload corresponds to. It exists for callers that forward a native Responses
+// response verbatim: no translator runs there, so the upstream's terminal
+// statement is the only account of how the turn ended. It accepts both a
+// streaming terminal event and a non-streaming body, which is the bare response
+// object — no envelope type, no nested response. ok is false for anything that
+// states no outcome: a non-terminal event, an unfinished body, or a failed one,
+// whose outcome is the upstream error instead.
+func ResponsesTerminalReason(payload []byte) (finishReason string, ok bool) {
+	resp := gjson.GetBytes(payload, "response")
+	switch gjson.GetBytes(payload, "type").String() {
+	case "response.completed", "response.incomplete":
+	default:
+		if resp.Exists() {
+			return "", false
+		}
+		// A non-streaming body is the response object itself. Only a settled
+		// status is terminal; an in-progress snapshot states nothing yet.
+		switch gjson.GetBytes(payload, "status").String() {
+		case "completed", "incomplete":
+			resp = gjson.ParseBytes(payload)
+		default:
+			return "", false
+		}
+	}
+	if responsesTerminalIsFailure(resp) {
+		return "", false
+	}
+	return responsesFinishReason(resp), true
 }

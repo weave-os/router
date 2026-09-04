@@ -1,22 +1,22 @@
 # Weave Router pi extension
 
-> Bundled inside the [`@workweave/router`](https://www.npmjs.com/package/@workweave/router) package — not published separately. `src/` here is the source of truth; `npm run prepack` copies it into the package.
+> Bundled inside the [`@weave-os/router`](https://www.npmjs.com/package/@weave-os/router) package — not published separately. `src/` here is the source of truth; `npm run prepack` copies it into the package.
 
 A [pi](https://pi.dev) extension that routes every request through the
-[WorkWeave Router](https://github.com/workweave/router) — a trained, per-request
+[WorkWeave Router](https://github.com/weave-os/router) — a trained, per-request
 LLM proxy that picks the most cost-efficient model that still solves each task.
 
 Installed automatically by the Weave Router installer:
 
 ```bash
-WEAVE_ROUTER_KEY=rk_… npx --package @workweave/router -y -- weave-router --pi
-WEAVE_ROUTER_KEY=rk_… npx --package @workweave/router -y -- weave-router --pi --local  # local router
-WEAVE_ROUTER_KEY=rk_… npx --package @workweave/router -y -- weave-router --pi --lsp go,typescript  # + language servers for the lsp tool
+WEAVE_ROUTER_KEY=rk_… npx --package @weave-os/router -y -- weave-router --pi
+WEAVE_ROUTER_KEY=rk_… npx --package @weave-os/router -y -- weave-router --pi --local  # local router
+WEAVE_ROUTER_KEY=rk_… npx --package @weave-os/router -y -- weave-router --pi --lsp go,typescript  # + language servers for the lsp tool
 ```
 
 That writes `~/.pi/agent/models.json` (the `weave` provider), adds
-`npm:@workweave/router` to `~/.pi/agent/settings.json` `packages`, and stores
-the key in `~/.pi/agent/.weave_router_key`. pi auto-installs `@workweave/router`
+`npm:@weave-os/router` to `~/.pi/agent/settings.json` `packages`, and stores
+the key in `~/.pi/agent/.weave_router_key`. pi auto-installs `@weave-os/router`
 from npm on next start and loads this extension via its `pi.extensions` field.
 
 ## What it does

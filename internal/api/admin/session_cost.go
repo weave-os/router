@@ -4,8 +4,8 @@ import (
 	"errors"
 	"net/http"
 
-	"workweave/router/internal/proxy"
-	"workweave/router/internal/server/middleware"
+	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/server/middleware"
 
 	"github.com/gin-gonic/gin"
 )

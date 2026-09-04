@@ -4,7 +4,7 @@ import (
 	"math"
 	"testing"
 
-	"workweave/router/internal/router/catalog"
+	"weave-os/router/internal/router/catalog"
 
 	"github.com/stretchr/testify/assert"
 )

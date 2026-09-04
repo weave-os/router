@@ -6,9 +6,9 @@ import (
 	"os"
 	"testing"
 
-	"workweave/router/internal/auth"
-	"workweave/router/internal/flags"
-	"workweave/router/internal/postgres"
+	"weave-os/router/internal/auth"
+	"weave-os/router/internal/flags"
+	"weave-os/router/internal/postgres"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/assert"

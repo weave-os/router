@@ -4,8 +4,8 @@ import (
 	"context"
 	"time"
 
-	"workweave/router/internal/observability"
-	"workweave/router/internal/router/sessionpin"
+	"weave-os/router/internal/observability"
+	"weave-os/router/internal/router/sessionpin"
 
 	"github.com/google/uuid"
 	lru "github.com/hashicorp/golang-lru/v2/expirable"

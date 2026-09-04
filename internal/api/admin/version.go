@@ -3,8 +3,8 @@ package admin
 import (
 	"net/http"
 
-	"workweave/router/internal/config"
-	"workweave/router/internal/version"
+	"weave-os/router/internal/config"
+	"weave-os/router/internal/version"
 
 	"github.com/gin-gonic/gin"
 )

@@ -9,8 +9,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"workweave/router/internal/providers"
-	"workweave/router/internal/proxy/usage"
+	"weave-os/router/internal/providers"
+	"weave-os/router/internal/proxy/usage"
 )
 
 // The subsidy must recognize a subscription presented via the inbound

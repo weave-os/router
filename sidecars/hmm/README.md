@@ -20,7 +20,7 @@ strategy or an authorized `x-weave-router-strategy: hmm` override. To stop the
 sidecar and return to the normal stack, run `make down-hmm && make up`.
 
 The Compose configuration downloads the public
-[`hmm-model-v1`](https://github.com/workweave/router/releases/tag/hmm-model-v1)
+[`hmm-model-v1`](https://github.com/weave-os/router/releases/tag/hmm-model-v1)
 asset and verifies SHA-256 before extraction. Set `HMM_PACKAGE_PATH` instead
 when running the sidecar directly with a local package.
 

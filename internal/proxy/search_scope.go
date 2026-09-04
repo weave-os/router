@@ -3,9 +3,9 @@ package proxy
 import (
 	"sync"
 
-	"workweave/router/internal/router"
-	"workweave/router/internal/router/sessionpin"
-	"workweave/router/internal/translate"
+	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/sessionpin"
+	"weave-os/router/internal/translate"
 
 	lru "github.com/hashicorp/golang-lru/v2/expirable"
 )

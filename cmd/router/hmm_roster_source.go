@@ -8,10 +8,10 @@ import (
 
 	"golang.org/x/sync/singleflight"
 
-	"workweave/router/internal/observability"
-	"workweave/router/internal/policyclient"
-	"workweave/router/internal/router/cluster"
-	"workweave/router/internal/router/hmm"
+	"weave-os/router/internal/observability"
+	"weave-os/router/internal/policyclient"
+	"weave-os/router/internal/router/cluster"
+	"weave-os/router/internal/router/hmm"
 )
 
 // hmmRosterTTL reuses the same freshness window as the control plane's own

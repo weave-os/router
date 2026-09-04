@@ -129,6 +129,9 @@ var (
 var (
 	openaiReasoning = NewSpecWithReasoning(ReasoningCapabilities{Levels: []string{"low", "medium", "high"}, SupportsBudget: true}, CapReasoning)
 	openaiBase      = NewSpec()
+	// GPT-5.6 accepts "xhigh"; "max" is Codex-backend only (the OpenAI adapter
+	// clamps it to xhigh for api.openai.com), so it stays off the menu.
+	openai56 = NewSpecWithReasoning(ReasoningCapabilities{Levels: []string{"low", "medium", "high", "xhigh"}, SupportsBudget: true}, CapReasoning, CapXhighEffort)
 	// grok-4.6: openaiReasoning + the extra "xhigh" level.
 	grok46 = NewSpecWithReasoning(ReasoningCapabilities{Levels: []string{"low", "medium", "high", "xhigh"}, SupportsBudget: true}, CapReasoning, CapXhighEffort)
 	// museSpark: reasoning_effort minimal/low/medium/high/xhigh; "none" is a 400
@@ -168,11 +171,11 @@ var registry = map[string]ModelSpec{
 	"claude-sonnet-4-5": NewSpec(),
 	"claude-sonnet-4-0": NewSpec(),
 
-	"gpt-5.6-sol":      openaiReasoning,
-	"gpt-5.6-sol-pro":  openaiReasoning,
-	"gpt-5.6-terra":    openaiReasoning,
-	"gpt-5.6-luna":     openaiReasoning,
-	"gpt-5.6-luna-pro": openaiReasoning,
+	"gpt-5.6-sol":      openai56,
+	"gpt-5.6-sol-pro":  openai56,
+	"gpt-5.6-terra":    openai56,
+	"gpt-5.6-luna":     openai56,
+	"gpt-5.6-luna-pro": openai56,
 
 	"gpt-5.5":      openaiReasoning,
 	"gpt-5.5-pro":  openaiReasoning,

@@ -6,7 +6,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	analyticsapi "workweave/router/internal/api/analytics"
+	analyticsapi "weave-os/router/internal/api/analytics"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"

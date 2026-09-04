@@ -3,8 +3,8 @@ package middleware
 import (
 	"strings"
 
-	"workweave/router/internal/observability"
-	"workweave/router/internal/router/cluster"
+	"weave-os/router/internal/observability"
+	"weave-os/router/internal/router/cluster"
 
 	"github.com/gin-gonic/gin"
 )

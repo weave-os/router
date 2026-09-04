@@ -8,14 +8,14 @@ import (
 	"strconv"
 	"time"
 
-	"workweave/router/internal/observability"
-	"workweave/router/internal/observability/otel"
-	"workweave/router/internal/providers"
-	"workweave/router/internal/router"
-	"workweave/router/internal/router/catalog"
-	"workweave/router/internal/router/sessionpin"
-	"workweave/router/internal/router/turntype"
-	"workweave/router/internal/translate"
+	"weave-os/router/internal/observability"
+	"weave-os/router/internal/observability/otel"
+	"weave-os/router/internal/providers"
+	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/catalog"
+	"weave-os/router/internal/router/sessionpin"
+	"weave-os/router/internal/router/turntype"
+	"weave-os/router/internal/translate"
 )
 
 // ErrGeminiCrossFormatUnsupported is returned when a Gemini-source request
@@ -31,10 +31,14 @@ var ErrGeminiCrossFormatUnsupported = errors.New("gemini cross-format emit not i
 // and "stream" (true for :streamGenerateContent) fields into body before
 // calling; both are stripped before forwarding upstream.
 func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w http.ResponseWriter, r *http.Request) error {
+	if managedSubscriptionEnrollmentUnavailable(ctx) {
+		return ErrSubscriptionPoolUnavailable
+	}
 	ctx, err := s.checkUserMonthlySpendLimit(ctx, r.Header, r.URL.Path)
 	if err != nil {
 		return err
 	}
+	ctx = s.withPlanAwareSubscriptionModels(ctx, r.Header)
 	log := observability.FromContext(ctx)
 	requestStart := time.Now()
 	requestID := requestIDFor(ctx)
@@ -218,7 +222,7 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 		Int64("latency.route_ms", routeMs)
 	applySidecarAttrs(geminiDecisionBuilder, routeRes)
 	applyPlannerAttrs(geminiDecisionBuilder, routeRes)
-	applyRoutingStateAttrs(geminiDecisionBuilder, routeRes, decision.Model, sessionKey)
+	applyRoutingStateAttrs(geminiDecisionBuilder, routeRes, decision.ServedIdentity(), sessionKey)
 	otel.Record(ctx, otel.Span{
 		Name:  "router.decision",
 		Start: requestStart,
@@ -238,10 +242,8 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 		Capabilities:       router.Lookup(decision.Model),
 		IncludeStreamUsage: s.usageRequired(),
 	}
-	if effort := forceEffortFor(ctx, decision); effort != "" {
-		opts.ForceEffort = effort
-		opts.ForceReasoningEffort = translate.ResolveForceEffort(opts.Capabilities, effort)
-	}
+	effortServed := s.resolveEffort(ctx, decision, opts.Capabilities, routeRes.EscalateEffort)
+	effortServed.apply(&opts)
 	ctx = resolveAndInjectCredentials(ctx, decision.Provider, decision.Model, r.Header)
 
 	prep, emitErr := env.PrepareGemini(r.Header, opts)
@@ -334,7 +336,8 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 		Int64("upstream.status_code", int64(upstreamStatus(proxyErr))).
 		Bool("routing.cross_format", false)
 	applyPlannerAttrs(geminiUpstreamBuilder, routeRes)
-	applyRoutingStateAttrs(geminiUpstreamBuilder, routeRes, decision.Model, sessionKey)
+	applyRoutingStateAttrs(geminiUpstreamBuilder, routeRes, decision.ServedIdentity(), sessionKey)
+	applyEffortAttrs(geminiUpstreamBuilder, effortServed)
 	addTimingAttrs(ctx, geminiUpstreamBuilder)
 	otel.Record(ctx, otel.Span{
 		Name:  "router.upstream",
@@ -362,6 +365,6 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 	s.maybeDisableProviderAfterOverload(ctx, stickyHit, proxyErr, finalProvider, decision.Reason, installationID, routeRes.SessionKey, stickyStateRole(routeRes), routeRes.PinRole)
 
 	log.Info("ProxyGeminiGenerateContent complete", append([]any{"requested_model", feats.Model, "baseline_model", s.baselineFor(feats.Model), "decision_model", decision.Model, "decision_provider", decision.Provider, "decision_reason", decision.Reason, "embedded_tokens", len(promptText) / 4, "total_input_tokens", feats.Tokens, "has_tools", feats.HasTools, "embed_input", embedInput, "sticky_hit", stickyHit, "pin_tier", pinTier, "turn_type", string(tt), "route_ms", routeMs, "proxy_ms", proxyMs, "proxy_err", proxyErr, "upstream_status", upstreamStatus(proxyErr)}, plannerLogFields(routeRes)...)...)
-	s.reportPolicyOutcome(ctx, routeRes, decision, decision.Provider, false, feats.Tokens, in, out, cacheCreation, cacheRead, routeMs, proxyMs, proxyErr, nil)
+	s.reportPolicyOutcome(ctx, routeRes, decision, effortServed, decision.Provider, false, feats.Tokens, in, out, cacheCreation, cacheRead, routeMs, proxyMs, proxyErr, nil)
 	return proxyErr
 }

@@ -12,14 +12,14 @@ import (
 	"testing"
 	"time"
 
-	"workweave/router/internal/auth"
-	"workweave/router/internal/flags"
-	"workweave/router/internal/providers"
-	"workweave/router/internal/proxy"
-	"workweave/router/internal/router"
-	"workweave/router/internal/router/policy"
-	"workweave/router/internal/router/sessionpin"
-	"workweave/router/internal/translate"
+	"weave-os/router/internal/auth"
+	"weave-os/router/internal/flags"
+	"weave-os/router/internal/providers"
+	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/policy"
+	"weave-os/router/internal/router/sessionpin"
+	"weave-os/router/internal/translate"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -1003,7 +1003,7 @@ func TestService_ProxyMessages_EmbedOnlyUserMessageFlag(t *testing.T) {
 		"messages":[
 			{"role":"user","content":"` + firstUserPrompt + `"},
 			{"role":"assistant","content":[{"type":"tool_use","id":"toolu_1","name":"Read","input":{"path":"go.mod"}}]},
-			{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_1","content":"module workweave/router\n\ngo 1.23\n\nrequire (\n\tgithub.com/gin-gonic/gin v1.10.0\n)"}]},
+			{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_1","content":"module weave-os/router\n\ngo 1.23\n\nrequire (\n\tgithub.com/gin-gonic/gin v1.10.0\n)"}]},
 			{"role":"user","content":"` + secondUserPrompt + `"}
 		]
 	}`)
@@ -1521,4 +1521,47 @@ func TestService_ExcludedModelsThroughRequest(t *testing.T) {
 		assert.True(t, svc.HasExcludedModelsOverride())
 		assert.Equal(t, []string{"gpt-4o"}, svc.ExcludedModelsOverride())
 	})
+}
+
+// The native Responses body is dispatched verbatim, so the arm's level has to
+// be written onto it — otherwise an effort-qualified arm serves at whatever
+// level the caller sent.
+func TestService_ProxyOpenAIResponses_NativeDispatchAppliesArmEffort(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		armEffort  string
+		wantEffort string
+	}{
+		{name: "arm level within the target's menu", armEffort: "low", wantEffort: "low"},
+		{name: "the top level reaches the wire unclamped", armEffort: "xhigh", wantEffort: "xhigh"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			provider := &fakeProvider{proxyResponse: func(w http.ResponseWriter) {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusOK)
+				_, _ = io.WriteString(w, `{"id":"chatcmpl_1","object":"chat.completion","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}]}`)
+			}}
+			fr := &fakeRouter{decision: router.Decision{
+				Provider: providers.ProviderOpenAI,
+				Model:    "gpt-5.6-luna",
+				Effort:   tc.armEffort,
+				Reason:   "test",
+			}}
+			svc := proxy.NewService(fr, map[string]providers.Client{
+				providers.ProviderOpenAI: provider,
+			}, nil, false, nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil)
+
+			ctx := context.WithValue(context.Background(), proxy.ClientIdentityContextKey{}, proxy.ClientIdentity{ClientApp: proxy.ClientAppOpencode})
+			body := []byte(`{"model":"auto","input":"remove the router","reasoning":{"effort":"medium","summary":"auto"}}`)
+			rec := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(""))
+
+			require.NoError(t, svc.ProxyOpenAIResponses(ctx, body, rec, req))
+			require.Len(t, provider.proxyBodies, 1)
+			assert.Equal(t, tc.wantEffort, gjson.GetBytes(provider.proxyBodies[0], "reasoning.effort").Str)
+			assert.Equal(t, "auto", gjson.GetBytes(provider.proxyBodies[0], "reasoning.summary").Str,
+				"unrelated native fields survive")
+			assert.Equal(t, "remove the router", gjson.GetBytes(provider.proxyBodies[0], "input").Str)
+		})
+	}
 }

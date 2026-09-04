@@ -6,7 +6,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"workweave/router/internal/providers"
+	"weave-os/router/internal/providers"
 )
 
 // TestEveryProviderHasFamilyAndEnvVar guards the three-map invariant: every

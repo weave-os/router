@@ -4,11 +4,11 @@ import (
 	"context"
 	"testing"
 
-	"workweave/router/internal/providers"
-	"workweave/router/internal/router"
-	"workweave/router/internal/router/bandswap"
-	"workweave/router/internal/router/sessionpin"
-	"workweave/router/internal/router/turntype"
+	"weave-os/router/internal/providers"
+	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/bandswap"
+	"weave-os/router/internal/router/sessionpin"
+	"weave-os/router/internal/router/turntype"
 )
 
 // orderBandPair must put the stronger-tier model in `large` regardless of which

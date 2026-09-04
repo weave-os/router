@@ -7,8 +7,8 @@ import (
 
 	"github.com/google/uuid"
 
-	"workweave/router/internal/router"
-	"workweave/router/internal/router/sessionpin"
+	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/sessionpin"
 )
 
 // repinFakeStore is a minimal sessionpin.Store for the re-pin unit tests.

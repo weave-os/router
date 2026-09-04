@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"workweave/router/internal/router"
+	"weave-os/router/internal/router"
 )
 
 // fakeRouter returns a fixed decision (or error) and records nothing.

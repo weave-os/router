@@ -1,6 +1,6 @@
 # internal/router/catalog — AGENTS
 
-> **Mirror notice.** Verbatim sync with [CLAUDE.md](CLAUDE.md). **Update both together** — divergence = bug.
+> **Mirror notice.** Generated from [CLAUDE.md](CLAUDE.md). Edit CLAUDE.md, then run `make generate-agent-guides`; CI rejects drift.
 
 Single source of truth for per-model data: capability tier, ordered list of provider bindings, per-binding pricing + upstream model ID. Read [root CLAUDE.md](../../../CLAUDE.md) first.
 

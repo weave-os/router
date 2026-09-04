@@ -5,8 +5,8 @@ import (
 	"errors"
 	"testing"
 
-	"workweave/router/internal/providers"
-	"workweave/router/internal/router"
+	"weave-os/router/internal/providers"
+	"weave-os/router/internal/router"
 
 	"github.com/stretchr/testify/assert"
 )

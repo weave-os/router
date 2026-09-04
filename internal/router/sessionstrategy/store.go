@@ -6,8 +6,8 @@ import (
 	"context"
 	"errors"
 
-	"workweave/router/internal/router"
-	"workweave/router/internal/router/sessionpin"
+	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/sessionpin"
 
 	"github.com/google/uuid"
 )

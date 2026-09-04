@@ -10,10 +10,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"workweave/router/internal/auth"
-	"workweave/router/internal/providers"
-	"workweave/router/internal/proxy"
-	"workweave/router/internal/router"
+	"weave-os/router/internal/auth"
+	"weave-os/router/internal/providers"
+	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/router"
 )
 
 // pckStrictGatewayProvider rejects any body carrying prompt_cache_key

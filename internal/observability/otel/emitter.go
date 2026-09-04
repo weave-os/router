@@ -18,7 +18,7 @@ import (
 	resourcev1 "go.opentelemetry.io/proto/otlp/resource/v1"
 	tracev1 "go.opentelemetry.io/proto/otlp/trace/v1"
 
-	"workweave/router/internal/observability"
+	"weave-os/router/internal/observability"
 )
 
 // EmitterConfig controls the emitter's async export pipeline.

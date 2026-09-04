@@ -5,15 +5,15 @@ import (
 	"log/slog"
 	"net/http"
 
-	"workweave/router/internal/billing"
-	"workweave/router/internal/providers"
-	"workweave/router/internal/router"
-	"workweave/router/internal/router/bandit"
-	"workweave/router/internal/router/cluster"
-	"workweave/router/internal/router/hmm"
-	"workweave/router/internal/router/policy"
-	"workweave/router/internal/router/rl"
-	"workweave/router/internal/translate"
+	"weave-os/router/internal/billing"
+	"weave-os/router/internal/providers"
+	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/bandit"
+	"weave-os/router/internal/router/cluster"
+	"weave-os/router/internal/router/hmm"
+	"weave-os/router/internal/router/policy"
+	"weave-os/router/internal/router/rl"
+	"weave-os/router/internal/translate"
 )
 
 // DispatchErrorKind identifies which sentinel a dispatch error (from
@@ -42,6 +42,8 @@ const (
 	DispatchErrorPolicyUnavailable
 	DispatchErrorClusterUnavailable
 	DispatchErrorCreditsExhausted
+	DispatchErrorSubscriptionPoolExhausted
+	DispatchErrorSubscriptionPoolUnavailable
 	DispatchErrorTranslationIntrinsicallyIncompatible
 	DispatchErrorTranslationProviderUnavailable
 	DispatchErrorUserSpendLimitReached
@@ -91,6 +93,24 @@ func ClassifyDispatchError(err error) (DispatchErrorClass, bool) {
 	var forcedClusterStrategy *ForcedClusterUnsupportedStrategyError
 	var forcedClusterUnservable *policy.ForcedClusterUnservableError
 	switch {
+	case errors.Is(err, ErrSubscriptionPoolExhausted):
+		return DispatchErrorClass{
+			Kind:       DispatchErrorSubscriptionPoolExhausted,
+			Status:     http.StatusTooManyRequests,
+			Message:    "All enrolled subscription accounts are currently unavailable.",
+			RetryAfter: true,
+			LogLevel:   "warn",
+			LogMessage: "Subscription account pool exhausted",
+		}, true
+	case errors.Is(err, ErrSubscriptionPoolUnavailable):
+		return DispatchErrorClass{
+			Kind:       DispatchErrorSubscriptionPoolUnavailable,
+			Status:     http.StatusServiceUnavailable,
+			Message:    "Subscription account service is temporarily unavailable.",
+			RetryAfter: true,
+			LogLevel:   "error",
+			LogMessage: "Subscription account pool unavailable",
+		}, true
 	case errors.As(err, &forcedExcluded):
 		// Ahead of the sentinel cases so the reason reaches the caller: a bare
 		// "forced model is excluded" doesn't say which model or why.
@@ -335,7 +355,11 @@ func ClassifyDispatchError(err error) (DispatchErrorClass, bool) {
 // "emit body: ". Falls back to err.Error().
 func unwrapToSentinelMessage(err error) string {
 	for e := err; e != nil; e = errors.Unwrap(e) {
-		if child := errors.Unwrap(e); child == translate.ErrAnthropicCacheControlOverflow || child == translate.ErrAnthropicCacheControlInvalid {
+		child := errors.Unwrap(e)
+		if errors.Unwrap(child) != nil {
+			continue
+		}
+		if errors.Is(child, translate.ErrAnthropicCacheControlOverflow) || errors.Is(child, translate.ErrAnthropicCacheControlInvalid) {
 			return e.Error()
 		}
 	}

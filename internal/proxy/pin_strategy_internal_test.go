@@ -4,9 +4,9 @@ import (
 	"context"
 	"testing"
 
-	"workweave/router/internal/router"
-	"workweave/router/internal/router/sessionpin"
-	"workweave/router/internal/translate"
+	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/sessionpin"
+	"weave-os/router/internal/translate"
 
 	"github.com/stretchr/testify/assert"
 )

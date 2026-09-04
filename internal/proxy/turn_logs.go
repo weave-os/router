@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"workweave/router/internal/observability/otel"
-	"workweave/router/internal/translate"
+	"weave-os/router/internal/observability/otel"
+	"weave-os/router/internal/translate"
 
 	commonv1 "go.opentelemetry.io/proto/otlp/common/v1"
 )

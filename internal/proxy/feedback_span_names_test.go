@@ -10,12 +10,12 @@ import (
 	"testing"
 	"time"
 
-	feedbacktoken "workweave/router/internal/feedback"
-	"workweave/router/internal/observability/otel"
-	"workweave/router/internal/providers"
-	"workweave/router/internal/proxy"
-	"workweave/router/internal/router"
-	"workweave/router/internal/router/sessionpin"
+	feedbacktoken "weave-os/router/internal/feedback"
+	"weave-os/router/internal/observability/otel"
+	"weave-os/router/internal/providers"
+	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/sessionpin"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"

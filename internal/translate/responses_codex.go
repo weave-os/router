@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	"workweave/router/internal/router"
+	"weave-os/router/internal/router"
 
 	"github.com/tidwall/gjson"
 )
@@ -43,6 +43,96 @@ type portableCodexResponsesConverter struct {
 	toolAliases     map[responsesToolIdentity]string
 	declaredAliases map[string]struct{}
 	tools           []map[string]any
+}
+
+func codexFeedbackSkillInvocation(input gjson.Result) bool {
+	if !input.IsArray() {
+		return false
+	}
+	awaitingToolOutput := false
+	matched := false
+	for _, item := range input.Array() {
+		itemType := item.Get("type").Str
+		if itemType == "message" && item.Get("role").Str == "user" {
+			content := item.Get("content")
+			if codexFeedbackCommandContent(content) {
+				awaitingToolOutput = true
+				matched = false
+			} else if !codexFeedbackSkillInstructions(content) {
+				awaitingToolOutput = false
+				matched = false
+			}
+			continue
+		}
+		if itemType != "function_call_output" && itemType != "custom_tool_call_output" {
+			continue
+		}
+		if awaitingToolOutput && codexFeedbackToolOutput(item.Get("output")) {
+			matched = true
+			awaitingToolOutput = false
+		}
+	}
+	return matched
+}
+
+func codexFeedbackToolOutput(output gjson.Result) bool {
+	if output.Type == gjson.String {
+		return routerFeedbackCommandFound(output.Str)
+	}
+	if !output.IsArray() {
+		return false
+	}
+	var text strings.Builder
+	for _, part := range output.Array() {
+		if part.Get("type").Str == "input_text" {
+			text.WriteString(part.Get("text").Str)
+		}
+	}
+	return routerFeedbackCommandFound(text.String())
+}
+
+func codexFeedbackSkillInstructions(content gjson.Result) bool {
+	if content.Type == gjson.String {
+		return strings.Contains(content.Str, "<skill>") && strings.Contains(content.Str, "</skill>")
+	}
+	if !content.IsArray() {
+		return false
+	}
+	for _, part := range content.Array() {
+		if part.Get("type").Str == "input_text" && codexFeedbackSkillInstructions(part.Get("text")) {
+			return true
+		}
+	}
+	return false
+}
+
+func codexFeedbackCommandContent(content gjson.Result) bool {
+	if content.Type == gjson.String {
+		return codexFeedbackCommandText(content.Str)
+	}
+	if !content.IsArray() {
+		return false
+	}
+	for _, part := range content.Array() {
+		if part.Get("type").Str == "input_text" && codexFeedbackCommandText(part.Get("text").Str) {
+			return true
+		}
+	}
+	return false
+}
+
+func codexFeedbackCommandText(text string) bool {
+	first, _, _ := strings.Cut(strings.TrimSpace(text), "\n")
+	if !strings.HasPrefix(first, "$") {
+		return false
+	}
+	_, _, found := matchRouterFeedbackCommand(first)
+	return found
+}
+
+func routerFeedbackCommandFound(text string) bool {
+	_, found, _ := parseRouterFeedbackCommand(text)
+	return found
 }
 
 func convertPortableCodexResponses(body []byte) (ResponsesConversion, error) {
@@ -81,6 +171,7 @@ func convertPortableCodexResponses(body []byte) (ResponsesConversion, error) {
 	}
 
 	converter.collectDeclaredTools(root)
+	converter.result.CodexFeedbackSkill = codexFeedbackSkillInvocation(root.Get("input"))
 	messages := converter.convertInput(root.Get("input"))
 	var systemMessages []map[string]any
 	if instructions := root.Get("instructions").Str; instructions != "" {
@@ -357,6 +448,11 @@ func (c *portableCodexResponsesConverter) convertMessageContent(content gjson.Re
 			text = codexResponsesBadgePattern.ReplaceAllString(text, "")
 			text = feedbackFooterPattern.ReplaceAllString(text, "")
 		}
+		if text == "" {
+			// Router-owned text can be the only content after ingress markers are
+			// stripped. Omitting the shell prevents empty Anthropic text blocks.
+			return nil, false
+		}
 		return text, true
 	}
 	if !content.IsArray() {
@@ -378,13 +474,21 @@ func (c *portableCodexResponsesConverter) convertMessageContent(content gjson.Re
 			if role == "assistant" {
 				text = feedbackFooterPattern.ReplaceAllString(text, "")
 			}
+			if text == "" {
+				continue
+			}
 			parts = append(parts, map[string]any{"type": "text", "text": text})
 		case "refusal":
-			parts = append(parts, map[string]any{"type": "text", "text": part.Get("refusal").Str})
+			if text := part.Get("refusal").Str; text != "" {
+				parts = append(parts, map[string]any{"type": "text", "text": text})
+			}
 		default:
 			c.markNativeOnly("responses_message_content_native_only", partPath)
 			return nil, false
 		}
+	}
+	if len(parts) == 0 {
+		return nil, false
 	}
 	return parts, true
 }

@@ -3,7 +3,7 @@ package providers_test
 import (
 	"testing"
 
-	"workweave/router/internal/providers"
+	"weave-os/router/internal/providers"
 )
 
 func TestSupportsAnthropicServerTools(t *testing.T) {

@@ -12,7 +12,7 @@ import (
 	"strconv"
 	"strings"
 
-	"workweave/router/internal/observability/otel"
+	"weave-os/router/internal/observability/otel"
 )
 
 const (

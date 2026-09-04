@@ -9,9 +9,9 @@ import (
 
 	"github.com/tidwall/gjson"
 
-	"workweave/router/internal/auth"
-	"workweave/router/internal/providers"
-	"workweave/router/internal/websearch"
+	"weave-os/router/internal/auth"
+	"weave-os/router/internal/providers"
+	"weave-os/router/internal/websearch"
 )
 
 type fakeSearch struct {

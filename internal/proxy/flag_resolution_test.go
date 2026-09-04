@@ -4,9 +4,9 @@ import (
 	"context"
 	"testing"
 
-	"workweave/router/internal/flags"
-	"workweave/router/internal/providers"
-	"workweave/router/internal/proxy"
+	"weave-os/router/internal/flags"
+	"weave-os/router/internal/providers"
+	"weave-os/router/internal/proxy"
 
 	"github.com/stretchr/testify/assert"
 )

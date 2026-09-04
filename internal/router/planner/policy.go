@@ -24,9 +24,9 @@
 package planner
 
 import (
-	"workweave/router/internal/router"
-	"workweave/router/internal/router/catalog"
-	"workweave/router/internal/router/sessionpin"
+	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/catalog"
+	"weave-os/router/internal/router/sessionpin"
 )
 
 // Outcome is the planner's verdict for this turn.

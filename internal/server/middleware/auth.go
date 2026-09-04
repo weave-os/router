@@ -6,11 +6,11 @@ import (
 	"net/http"
 	"strings"
 
-	"workweave/router/internal/auth"
-	"workweave/router/internal/flags"
-	"workweave/router/internal/observability"
-	"workweave/router/internal/proxy"
-	"workweave/router/internal/router"
+	"weave-os/router/internal/auth"
+	"weave-os/router/internal/flags"
+	"weave-os/router/internal/observability"
+	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/router"
 
 	"github.com/gin-gonic/gin"
 )
@@ -98,6 +98,26 @@ func withAPIKey(svc *auth.Service, byokRequiresOptIn bool) gin.HandlerFunc {
 		ctx := c.Request.Context()
 		if apiKey != nil {
 			ctx = context.WithValue(ctx, proxy.APIKeyIDContextKey{}, apiKey.ID)
+			ctx = proxy.WithManagedSubscriptionUsage(ctx)
+			if svc.SubscriptionAccountsEnabled() {
+				accounts, listErr := svc.ListSubscriptionAccounts(ctx, apiKey.ID)
+				if listErr != nil {
+					observability.FromContext(ctx).Error("Failed to load subscription account enrollment", "err", listErr)
+					ctx = context.WithValue(ctx, proxy.ManagedSubscriptionEnrollmentUnavailableContextKey{}, true)
+				} else {
+					enrolled := make(map[auth.SubscriptionProvider]struct{})
+					for _, account := range accounts {
+						enrolled[account.Provider] = struct{}{}
+					}
+					if len(enrolled) > 0 {
+						ctx = context.WithValue(ctx, proxy.ManagedSubscriptionProvidersContextKey{}, enrolled)
+					}
+					planStates := proxy.ManagedSubscriptionPlanStates(accounts, svc.CurrentTime())
+					if len(planStates) > 0 {
+						ctx = context.WithValue(ctx, proxy.ManagedSubscriptionPlanStatesContextKey{}, planStates)
+					}
+				}
+			}
 		}
 		if installation != nil {
 			if installation.ExternalID != "" {

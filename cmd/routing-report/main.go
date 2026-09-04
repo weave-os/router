@@ -32,8 +32,8 @@ import (
 	"sort"
 	"strings"
 
-	"workweave/router/internal/router"
-	"workweave/router/internal/router/cluster"
+	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/cluster"
 )
 
 // Registers in display order. Must match the `register` values in the corpus.

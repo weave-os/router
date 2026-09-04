@@ -6,7 +6,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"workweave/router/internal/sse"
+	"weave-os/router/internal/sse"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

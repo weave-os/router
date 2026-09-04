@@ -7,8 +7,8 @@ import (
 	"net/http"
 	"strings"
 
-	"workweave/router/internal/observability"
-	"workweave/router/internal/router"
+	"weave-os/router/internal/observability"
+	"weave-os/router/internal/router"
 )
 
 // ForceClusterHeader constrains serving to one of the policy sidecar's

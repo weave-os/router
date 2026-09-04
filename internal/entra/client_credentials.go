@@ -16,7 +16,7 @@ import (
 	lru "github.com/hashicorp/golang-lru/v2"
 	"golang.org/x/sync/singleflight"
 
-	"workweave/router/internal/auth"
+	"weave-os/router/internal/auth"
 )
 
 const (

@@ -6,15 +6,15 @@ import (
 	"net/http"
 	"testing"
 
-	"workweave/router/internal/billing"
-	"workweave/router/internal/providers"
-	"workweave/router/internal/proxy"
-	"workweave/router/internal/router/bandit"
-	"workweave/router/internal/router/cluster"
-	"workweave/router/internal/router/hmm"
-	"workweave/router/internal/router/policy"
-	"workweave/router/internal/router/rl"
-	"workweave/router/internal/translate"
+	"weave-os/router/internal/billing"
+	"weave-os/router/internal/providers"
+	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/router/bandit"
+	"weave-os/router/internal/router/cluster"
+	"weave-os/router/internal/router/hmm"
+	"weave-os/router/internal/router/policy"
+	"weave-os/router/internal/router/rl"
+	"weave-os/router/internal/translate"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -23,6 +23,27 @@ import (
 func TestClassifyDispatchError_UnknownErrorIsUnmatched(t *testing.T) {
 	_, ok := proxy.ClassifyDispatchError(errors.New("boom"))
 	assert.False(t, ok, "an error not matching any known sentinel must not be classified")
+}
+
+func TestClassifyDispatchError_SubscriptionPoolFailures(t *testing.T) {
+	tests := []struct {
+		name       string
+		err        error
+		kind       proxy.DispatchErrorKind
+		statusCode int
+	}{
+		{name: "exhausted", err: proxy.ErrSubscriptionPoolExhausted, kind: proxy.DispatchErrorSubscriptionPoolExhausted, statusCode: http.StatusTooManyRequests},
+		{name: "unavailable", err: proxy.ErrSubscriptionPoolUnavailable, kind: proxy.DispatchErrorSubscriptionPoolUnavailable, statusCode: http.StatusServiceUnavailable},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			classification, ok := proxy.ClassifyDispatchError(fmt.Errorf("dispatch: %w", test.err))
+			require.True(t, ok)
+			require.Equal(t, test.kind, classification.Kind)
+			require.Equal(t, test.statusCode, classification.Status)
+			require.True(t, classification.RetryAfter)
+		})
+	}
 }
 
 func TestClassifyDispatchError_ProviderNotConfigured(t *testing.T) {

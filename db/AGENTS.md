@@ -1,6 +1,6 @@
 # db — AGENTS
 
-> **Mirror notice.** Verbatim sync with [CLAUDE.md](CLAUDE.md). **Update both together** — divergence = bug.
+> **Mirror notice.** Generated from [CLAUDE.md](CLAUDE.md). Edit CLAUDE.md, then run `make generate-agent-guides`; CI rejects drift.
 
 Migrations + SQLC query sources. Read [root CLAUDE.md](../CLAUDE.md) first. Adapter that consumes these lives in [`../internal/postgres`](../internal/postgres) — see [its CLAUDE.md](../internal/postgres/CLAUDE.md).
 

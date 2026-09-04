@@ -7,10 +7,10 @@ import (
 	"fmt"
 	"net/http"
 
-	"workweave/router/internal/observability"
-	"workweave/router/internal/providers"
-	"workweave/router/internal/router"
-	"workweave/router/internal/websearch"
+	"weave-os/router/internal/observability"
+	"weave-os/router/internal/providers"
+	"weave-os/router/internal/router"
+	"weave-os/router/internal/websearch"
 
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
@@ -319,7 +319,6 @@ func (e *RequestEnvelope) buildResponsesFromAnthropic(opts EmitOptions) ([]byte,
 		jw.EndArr()
 	}
 
-	writeResponsesInputFromAnthropic(jw, body)
 	writeResponsesToolsFromAnthropic(jw, body)
 	writeResponsesToolChoiceFromAnthropic(jw, body)
 
@@ -343,6 +342,8 @@ func (e *RequestEnvelope) buildResponsesFromAnthropic(opts EmitOptions) ([]byte,
 			}
 		}
 	}
+
+	writeResponsesInputFromAnthropic(jw, body)
 
 	jw.EndObj()
 	return jw.Bytes(), stats, nil

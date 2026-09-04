@@ -4,7 +4,7 @@ import (
 	"context"
 	"net/http"
 
-	"workweave/router/internal/auth"
+	"weave-os/router/internal/auth"
 )
 
 // ApplyWIFTokenType marks the bearer as a workload attestation, not an upstream-issued token.

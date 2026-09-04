@@ -4,10 +4,11 @@ import (
 	"context"
 	"net/http"
 
-	"workweave/router/internal/observability"
-	"workweave/router/internal/providers"
-	"workweave/router/internal/proxy/usage"
-	"workweave/router/internal/router/catalog"
+	"weave-os/router/internal/observability"
+	"weave-os/router/internal/providers"
+	"weave-os/router/internal/proxy/usage"
+	"weave-os/router/internal/router/catalog"
+	"weave-os/router/internal/subscriptions"
 )
 
 // Inference route paths (gin FullPath templates) whose upstream cost a caller
@@ -120,10 +121,10 @@ func presentSubscriptionTokens(ctx context.Context, headers http.Header) (codex,
 func subscriptionServableProviders(ctx context.Context, headers http.Header) map[string]struct{} {
 	codex, anthropic := presentSubscriptionTokens(ctx, headers)
 	out := make(map[string]struct{}, 2)
-	if codex != "" {
+	if codex != "" || managedSubscriptionEnrolled(ctx, subscriptions.ProviderCodex) {
 		out[providers.ProviderOpenAI] = struct{}{}
 	}
-	if anthropic != "" {
+	if anthropic != "" || managedSubscriptionEnrolled(ctx, subscriptions.ProviderClaude) {
 		out[providers.ProviderAnthropic] = struct{}{}
 	}
 	return out
@@ -162,9 +163,9 @@ func RequestPresentsCoveringSubscription(ctx context.Context, headers http.Heade
 	codex, anthropic := presentSubscriptionTokens(ctx, headers)
 	switch routePath {
 	case routePathMessages:
-		return anthropic != ""
+		return anthropic != "" || managedSubscriptionEnrolled(ctx, subscriptions.ProviderClaude)
 	case routePathChatCompletions, routePathResponses:
-		return codex != ""
+		return codex != "" || managedSubscriptionEnrolled(ctx, subscriptions.ProviderCodex)
 	default:
 		return false
 	}
@@ -181,6 +182,7 @@ func (s *Service) withUsageObserver(ctx context.Context, headers http.Header, ro
 	if len(routePaths) > 0 {
 		routePath = routePaths[0]
 	}
+	ctx = s.withPlanAwareSubscriptionModels(ctx, headers)
 	ctx = s.withSubscriptionConditionalModels(ctx, headers, routePath)
 	codexTok, anthroTok := presentSubscriptionTokens(ctx, headers)
 	if s.usageObserver == nil && anthroTok == "" {

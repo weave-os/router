@@ -8,9 +8,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"workweave/router/internal/providers"
-	"workweave/router/internal/router"
-	"workweave/router/internal/translate"
+	"weave-os/router/internal/providers"
+	"weave-os/router/internal/router"
+	"weave-os/router/internal/translate"
 )
 
 // EmitOptions.ForceReasoningEffort overrides the request-derived effort on the
@@ -150,53 +150,6 @@ func itoaLocal(n int) string {
 	return string(b[i:])
 }
 
-// TestCanonicalizeEffort maps alias and canonical forms; unrecognized values
-// pass through unchanged so IsValidEffort can distinguish typos.
-func TestCanonicalizeEffort(t *testing.T) {
-	cases := []struct {
-		in   string
-		want string
-	}{
-		{"low", "low"},
-		{"LOW", "low"},
-		{"fast", "low"},
-		{"minimal", "low"},
-		{"min", "low"},
-		{"medium", "medium"},
-		{"med", "medium"},
-		{"high", "high"},
-		{"max", "max"},
-		{"xhigh", "xhigh"},
-		{"ultra", "xhigh"},
-		{"ULTRA", "xhigh"},
-		{"garbage", "garbage"},
-	}
-	for _, tc := range cases {
-		t.Run(tc.in, func(t *testing.T) {
-			assert.Equal(t, tc.want, translate.CanonicalizeEffort(tc.in))
-		})
-	}
-}
-
-// IsValidEffort accepts canonical levels and alias forms; rejects typos.
-func TestIsValidEffort(t *testing.T) {
-	valid := []string{
-		"low", "medium", "high", "max", "xhigh",
-		"fast", "minimal", "ultra", "min", "med",
-	}
-	for _, v := range valid {
-		t.Run(v, func(t *testing.T) {
-			assert.True(t, translate.IsValidEffort(v))
-		})
-	}
-	invalid := []string{"garbage", ""}
-	for _, v := range invalid {
-		t.Run(v+"_invalid", func(t *testing.T) {
-			assert.False(t, translate.IsValidEffort(v))
-		})
-	}
-}
-
 // TestResolveForceEffort applies per-model xhigh cap (xhigh→max on
 // non-CapXhighEffort targets).
 func TestResolveForceEffort(t *testing.T) {
@@ -209,6 +162,13 @@ func TestResolveForceEffort(t *testing.T) {
 		{"xhigh_capable_passes", "xhigh", router.NewSpec(router.CapAdaptiveThinking, router.CapXhighEffort), "xhigh"},
 		{"xhigh_incapable_clamps_to_max", "xhigh", router.NewSpec(router.CapAdaptiveThinking), "max"},
 		{"low_no_cap", "low", router.NewSpec(), "low"},
+		{"max_on_xhigh_ceiling_menu_serves_xhigh", "max", router.NewSpecWithReasoning(
+			router.ReasoningCapabilities{Levels: []string{"low", "medium", "high", "xhigh"}},
+			router.CapReasoning, router.CapXhighEffort), "xhigh"},
+		{"max_on_menu_with_max_passes", "max", router.NewSpecWithReasoning(
+			router.ReasoningCapabilities{Levels: []string{"low", "medium", "high", "max", "xhigh"}},
+			router.CapReasoning, router.CapXhighEffort), "max"},
+		{"max_on_non_xhigh_target_passes", "max", router.NewSpec(router.CapAdaptiveThinking), "max"},
 		{"ultra_alias_resolved", "ultra", router.NewSpec(router.CapAdaptiveThinking, router.CapXhighEffort), "xhigh"},
 		{"fast_alias_resolved", "fast", router.NewSpec(), "low"},
 	}

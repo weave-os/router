@@ -16,7 +16,7 @@ import (
 
 	collogspb "go.opentelemetry.io/proto/otlp/collector/logs/v1"
 
-	"workweave/router/internal/observability/otel"
+	"weave-os/router/internal/observability/otel"
 )
 
 // pathCollector records request bodies keyed by the URL path so trace and log

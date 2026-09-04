@@ -8,10 +8,10 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"workweave/router/internal/providers"
-	"workweave/router/internal/providers/anthropic"
-	"workweave/router/internal/providers/httputil"
-	"workweave/router/internal/router"
+	"weave-os/router/internal/providers"
+	"weave-os/router/internal/providers/anthropic"
+	"weave-os/router/internal/providers/httputil"
+	"weave-os/router/internal/router"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

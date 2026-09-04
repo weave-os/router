@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"workweave/router/internal/providers"
+	"weave-os/router/internal/providers"
 )
 
 const routerKeyedInstallationID = "11111111-1111-1111-1111-111111111111"

@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"workweave/router/internal/observability/otel"
+	"weave-os/router/internal/observability/otel"
 )
 
 // TestFmtPriceRoundsAwayFloat64Artifacts pins fmtPrice to a clean decimal form

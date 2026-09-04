@@ -3,7 +3,7 @@ package policy
 import (
 	"context"
 
-	"workweave/router/internal/router"
+	"weave-os/router/internal/router"
 )
 
 // SelectionInput is the content-free classification the router selects an arm from.

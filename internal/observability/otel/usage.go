@@ -6,8 +6,8 @@ import (
 
 	"github.com/tidwall/gjson"
 
-	"workweave/router/internal/providers"
-	"workweave/router/internal/sse"
+	"weave-os/router/internal/providers"
+	"weave-os/router/internal/sse"
 )
 
 // UsageSink receives extracted token usage. Translators call it directly when

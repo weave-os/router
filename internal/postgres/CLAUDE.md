@@ -1,6 +1,6 @@
 # internal/postgres — CLAUDE
 
-> **Mirror notice.** Verbatim sync with [AGENTS.md](AGENTS.md). **Update both together** — divergence = bug.
+> **Mirror notice.** Source for generated [AGENTS.md](AGENTS.md). Edit this file, then run `make generate-agent-guides`; CI rejects drift.
 
 Postgres adapter: SQLC over pgx, plus the session-pin store impl. Read [root CLAUDE.md](../../CLAUDE.md) first.
 

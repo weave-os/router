@@ -9,7 +9,7 @@
 #   (and .env.local if present). Start Postgres via `make db` or point
 #   DATABASE_URL at any Postgres you already have running.
 
-.PHONY: generate generate-statusline build test test-verbose test-statusline test-install smoke initdb migrate-up migrate-down migrate-create seed setup full-setup db dev check fmt vet precommit install-hooks help install-cc uninstall-cc up up-hmm down down-hmm logs
+.PHONY: generate generate-statusline generate-agent-guides check-agent-guides check-docs build test test-verbose test-statusline test-install smoke initdb migrate-up migrate-down migrate-create seed setup full-setup db dev check fmt vet precommit install-hooks help install-cc uninstall-cc up up-hmm down down-hmm logs
 
 # Load DATABASE_URL from .env files (matches docker-compose defaults).
 -include .env.development
@@ -25,6 +25,16 @@ generate: generate-statusline ## Regenerate all generated files (SQLC + statusli
 
 generate-statusline: ## Sync cc-statusline.sh prices block from pricing.go
 	go run ./cmd/genprices
+
+generate-agent-guides: ## Generate AGENTS.md mirrors from authoritative CLAUDE.md guides
+	@python3 scripts/generate_agent_guides.py
+
+check-agent-guides: ## Check that generated AGENTS.md mirrors are current
+	@python3 scripts/generate_agent_guides.py --check
+
+check-docs: ## Check repository-local documentation links, symbols, and index
+	@python3 scripts/check_docs.py
+	@python3 -m unittest scripts/test_check_docs.py
 
 build: ## Typecheck the entire module
 	go build -o /dev/null ./...

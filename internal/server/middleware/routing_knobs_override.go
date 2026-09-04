@@ -6,8 +6,8 @@ import (
 	"strconv"
 	"strings"
 
-	"workweave/router/internal/observability"
-	"workweave/router/internal/router"
+	"weave-os/router/internal/observability"
+	"weave-os/router/internal/router"
 
 	"github.com/gin-gonic/gin"
 )

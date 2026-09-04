@@ -63,7 +63,7 @@ export function routerOrigin(): string {
  * rides in as a WEAVE_ROUTER_KEY env prefix, which install.sh reads to skip its
  * interactive prompt.
  *
- * `--package … -- <bin>` rather than `npx -y @workweave/router`: npm <= 6's
+ * `--package … -- <bin>` rather than `npx -y @weave-os/router`: npm <= 6's
  * bundled npx treats an undeclared flag as consuming the next token, so the
  * short form drops the package name and resolves `weave-router` from the
  * registry instead — with the key already in its environment.
@@ -75,7 +75,7 @@ export function installCommand(
   origin: string,
 ): string {
   const flags = [`--${harnessID}`, `--scope ${scope}`, `--base-url ${shellSingleQuote(origin)}`];
-  return `WEAVE_ROUTER_KEY=${shellSingleQuote(token)} npx --package @workweave/router -y -- weave-router ${flags.join(" ")}`;
+  return `WEAVE_ROUTER_KEY=${shellSingleQuote(token)} npx --package @weave-os/router -y -- weave-router ${flags.join(" ")}`;
 }
 
 /**

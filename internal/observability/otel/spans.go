@@ -9,7 +9,7 @@ import (
 	resourcev1 "go.opentelemetry.io/proto/otlp/resource/v1"
 	tracev1 "go.opentelemetry.io/proto/otlp/trace/v1"
 
-	"workweave/router/internal/observability"
+	"weave-os/router/internal/observability"
 )
 
 // cryptoRandRead is a seam for tests to simulate crypto/rand.Read failures.

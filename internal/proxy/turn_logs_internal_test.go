@@ -16,11 +16,11 @@ import (
 
 	collogspb "go.opentelemetry.io/proto/otlp/collector/logs/v1"
 
-	"workweave/router/internal/observability/otel"
-	"workweave/router/internal/providers"
-	"workweave/router/internal/router"
-	"workweave/router/internal/router/planner"
-	"workweave/router/internal/router/sessionpin"
+	"weave-os/router/internal/observability/otel"
+	"weave-os/router/internal/providers"
+	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/planner"
+	"weave-os/router/internal/router/sessionpin"
 
 	commonv1 "go.opentelemetry.io/proto/otlp/common/v1"
 )

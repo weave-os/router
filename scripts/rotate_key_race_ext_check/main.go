@@ -26,10 +26,10 @@ import (
 	"sync/atomic"
 	"time"
 
-	"workweave/router/internal/api/admin"
-	"workweave/router/internal/auth"
-	"workweave/router/internal/postgres"
-	"workweave/router/internal/server/middleware"
+	"weave-os/router/internal/api/admin"
+	"weave-os/router/internal/auth"
+	"weave-os/router/internal/postgres"
+	"weave-os/router/internal/server/middleware"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"

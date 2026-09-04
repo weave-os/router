@@ -9,10 +9,10 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"workweave/router/internal/billing"
-	"workweave/router/internal/observability"
-	"workweave/router/internal/providers"
-	"workweave/router/internal/router/catalog"
+	"weave-os/router/internal/billing"
+	"weave-os/router/internal/observability"
+	"weave-os/router/internal/providers"
+	"weave-os/router/internal/router/catalog"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"workweave/router/internal/translate"
+	"weave-os/router/internal/translate"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"

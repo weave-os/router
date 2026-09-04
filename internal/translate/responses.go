@@ -14,8 +14,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"workweave/router/internal/router"
-	"workweave/router/internal/sse"
+	"weave-os/router/internal/router"
+	"weave-os/router/internal/sse"
 
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
@@ -29,9 +29,12 @@ type ResponsesConversion struct {
 	OriginalBody []byte
 	Stream       bool
 	Model        string
-	Requirements router.TranslationRequirements
-	Report       []ResponseTransform
-	ToolMappings map[string]ResponsesToolMapping
+	// CodexFeedbackSkill reports a user-invoked $rf/$router-feedback skill
+	// whose emitted directive arrived in a later tool-result item.
+	CodexFeedbackSkill bool
+	Requirements       router.TranslationRequirements
+	Report             []ResponseTransform
+	ToolMappings       map[string]ResponsesToolMapping
 }
 
 // ResponseTransform reports an ingress conversion outcome with a stable code.

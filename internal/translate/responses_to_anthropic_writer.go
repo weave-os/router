@@ -7,10 +7,10 @@ import (
 	"net/http"
 	"strings"
 
-	"workweave/router/internal/observability"
-	"workweave/router/internal/providers"
-	"workweave/router/internal/sse"
-	"workweave/router/internal/translate/toolcheck"
+	"weave-os/router/internal/observability"
+	"weave-os/router/internal/providers"
+	"weave-os/router/internal/sse"
+	"weave-os/router/internal/translate/toolcheck"
 
 	"github.com/tidwall/gjson"
 )

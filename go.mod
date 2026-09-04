@@ -1,4 +1,4 @@
-module workweave/router
+module weave-os/router
 
 go 1.25.0
 

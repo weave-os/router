@@ -1,6 +1,6 @@
 # internal/proxy — AGENTS
 
-> **Mirror notice.** Verbatim sync with [CLAUDE.md](CLAUDE.md). **Update both together** — divergence = bug.
+> **Mirror notice.** Generated from [CLAUDE.md](CLAUDE.md). Edit CLAUDE.md, then run `make generate-agent-guides`; CI rejects drift.
 
 Routing/dispatch service. Per-action orchestrator that composes scorer, planner, handover, cache, sessionpin, catalog, turntype, usage, billing, providers, and translate. Read [root CLAUDE.md](../../CLAUDE.md) first.
 
@@ -18,7 +18,7 @@ Plus the action loop, handover adapter, cache writer, and session-key derivation
 ## Adding a method to `*proxy.Service`
 
 1. **Define method on `*proxy.Service`.** No I/O directly here — push into a provider adapter or repo. Inner-ring imports (`router`, `providers`, `translate`, `observability`, `internal/router/*`, `internal/proxy/usage`) + small utility libs are fine.
-2. **If you need new repo methods**, surface them as an interface in the inner-ring package, implement in `internal/postgres/`. Example: `sessionpin.Store` in [`../router/sessionpin/store.go`](../router/sessionpin/store.go), implemented by `postgres.SessionPinRepository`.
+2. **If you need new repo methods**, surface them as an interface in the inner-ring package, implement in `internal/postgres/`. Example: `sessionpin.Store` in [`../router/sessionpin/store.go`](../router/sessionpin/store.go), implemented by `postgres.SessionPinRepo`.
 3. **Update `service_test.go` fakes** to satisfy the expanded interface. Real assertions on return values, not "mock called with X".
 
 ## Per-action flow (cache-aware action routing)
@@ -39,7 +39,7 @@ The provider-backed `Summarizer` implementation for handover lives in [`handover
 
 ## Proactive context-window compaction
 
-`ProxyMessages` / `ProxyOpenAIChatCompletion` / `ProxyGeminiGenerateContent` call [`maybeCompact`](compaction.go) **before** routing so an over-long session is compacted rather than dead-ending in the scorer with no eligible provider. It engages when the estimate reaches `ROUTER_COMPACTION_PCT` (default 0.85) of the largest eligible model's window and runs Claude Code's tiered cascade: (1) `ClearOldToolResults` — local, clears stale tool results; (2) structured 9-section summary via a **window-aware** Anthropic-family summarizer (`SummarizeForCompaction`; the session's active Anthropic pin when it is mid-tier or better — the model that ran the conversation, prompt cache warm — else `ROUTER_COMPACTION_MODEL`, default `claude-sonnet-4-6`, else `claude-fable-5` when the history won't fit) rewritten with `RewriteForCompaction(summary, recentTurns)`; (3) progressive `TrimLastNMessages` rescue. If even the trimmed floor overflows, it returns `ErrContextWindowExceeded` → HTTP 413 (distinct from the "no provider keys" `ErrNoEligibleProvider`). The summary call is billed as a `_precompaction_summary` ledger row. The cascade is **harness-aware** (`compactionPolicyFor(ClientIdentity.ClientApp)`): Claude Code auto-compacts itself at `window − 13K` against the *requested* model, so its turns defer to the client while the routable pool can serve that window (the router still compacts when the pool is smaller or the request already overflows); Codex / Gemini CLI / unknown harnesses always get the router cascade. Native `/v1/responses` passthrough bytes are still not rewritten. Claude Code's own compaction turn (`turntype.Compaction`) is never rewritten; `compactionHardPin` pins it to the session's Anthropic model (else the compaction model) unless the operator set `ROUTER_HARD_PIN_MODEL`, which keeps the generic hard-pin. Trigger below the window (not at overflow) is load-bearing: a summarizer can only ingest a history that still fits *some* model.
+`ProxyMessages` / `ProxyOpenAIChatCompletion` / `ProxyGeminiGenerateContent` call [`maybeCompact`](compaction.go) **before** routing so an over-long session is compacted rather than dead-ending in the scorer with no eligible provider. It engages when the estimate reaches `ROUTER_COMPACTION_PCT` (default 0.85) of the largest eligible model's window and runs Claude Code's tiered cascade: (1) `ClearOldToolResults` — local, clears stale tool results; (2) structured 9-section summary via a **window-aware** Anthropic-family summarizer (`SummarizeForCompaction`; the session's active Anthropic pin when it is mid-tier or better — the model that ran the conversation, prompt cache warm — else `ROUTER_COMPACTION_MODEL`, default `claude-sonnet-4-6`, else `claude-fable-5` when the history won't fit) rewritten with `RewriteForCompaction(summary, recentTurns)`; (3) progressive `TrimLastNMessages` rescue. If even the trimmed floor overflows, it returns `ErrContextWindowExceeded` → HTTP 413 (distinct from the "no provider keys" `ErrNoEligibleProvider`). The summary call is billed as a `_precompaction_summary` ledger row. The cascade is **harness-aware** (`compactionPolicyFor(ClientIdentity.ClientApp)`): Claude Code auto-compacts itself at `window − 13K` against the *requested* model, so its turns defer to the client while the routable pool can serve that window (the router still compacts when the pool is smaller or the request already overflows); Codex / Gemini CLI / unknown harnesses always get the router cascade. Native `/v1/responses` passthrough bytes are still not rewritten. A harness's own compaction turn (`turntype.Compaction`, Claude Code's or Codex's) is never rewritten; `compactionHardPin` pins it to the session's Anthropic model (else the compaction model) — except that a Codex thread a non-Anthropic model has been serving (active thread pin or `_hmm_history` row, mid-tier or better) stays on that model, since the turn is Responses-format and its summary replaces the thread's history — unless the operator set `ROUTER_HARD_PIN_MODEL`, which keeps the generic hard-pin. Trigger below the window (not at overflow) is load-bearing: a summarizer can only ingest a history that still fits *some* model.
 
 ## Model-restriction layers
 
@@ -53,6 +53,7 @@ collapse them.
 | `global_automatic_routing_exclusions` | deployment | fail-open (soft) | `AutomaticExcludedModels`: scorer, policy resolver, and every automatic-pin gate |
 | `cluster_model_lists` | API key (org default) | fail-open | `policy.ApplyClusterArmOverrides` |
 | `model_router_user_cluster_model_lists` | router user | fail-open | same, after `mergeClusterOverrides` |
+| subscription plan-aware routing | router user | fail-open on unknown/all-exhausted state | request-scoped exclusions from `withPlanAwareSubscriptionModels` |
 
 **The allowlist is desugared, not separately filtered.** `excludedModelsForRequest`
 adds every routable model absent from a non-empty allowlist to the exclusion
@@ -106,6 +107,14 @@ fail-open would silently defeat it.
 intersects a user's selection with the API-key-scoped list. A plain override
 would let an individual re-admit a model the org deliberately removed —
 privilege escalation through an admin control.
+
+**Subscription plan-aware routing is an overlay, not a roster mutation.** When
+enabled, the request observes the user's Claude and Codex plan families. If at
+least one plan has headroom, models covered only by exhausted plans are added
+to the request's hard exclusions. If every linked plan is exhausted, the
+overlay contributes no exclusions and normal paid/BYOK routing resumes. Unknown
+state also contributes no exclusions; only reliable quota exhaustion changes
+eligibility. The global HMM roster remains unchanged.
 
 **Two paths deliberately bypass `excluded_models` and need explicit allowlist
 handling:** `usageBypassEngaged` (consults `SafetyExcludedModels`, since
@@ -269,9 +278,9 @@ Only the Anthropic Messages surface is wrapped today — that is where the failu
 was observed. `KeepaliveWriter` takes the frame as a parameter, so adding the
 OpenAI/Gemini surfaces is a wiring change plus their own frame.
 
-## `OnUpstreamMeta` callbacks
+## Upstream response-header observation
 
-Provider adapters call back into `proxy.OnUpstreamMeta` so streaming responses record usage/headers back to proxy without coupling provider packages to proxy internals. The catalog / planner stack depends on per-action token counts being recorded promptly — **don't add a provider that forgets to call the callback.**
+Proxy attaches a `providers.UpstreamHeaderObserver` to the request context. Provider adapters call `providers.ObserveUpstreamHeaders` as soon as a response arrives, allowing subscription-limit tracking without coupling the adapters to proxy internals. **Don't add a provider that forgets to report the headers.**
 
 ## What NOT to do
 

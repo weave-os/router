@@ -5,7 +5,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"workweave/router/internal/providers"
+	"weave-os/router/internal/providers"
 )
 
 func TestUpstreamIDsForProvider_MiniMax(t *testing.T) {

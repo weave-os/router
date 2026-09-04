@@ -5,7 +5,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"workweave/router/internal/server/middleware"
+	"weave-os/router/internal/server/middleware"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"

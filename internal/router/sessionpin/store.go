@@ -6,7 +6,7 @@ import (
 	"context"
 	"time"
 
-	"workweave/router/internal/router"
+	"weave-os/router/internal/router"
 
 	"github.com/google/uuid"
 )

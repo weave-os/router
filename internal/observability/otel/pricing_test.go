@@ -5,7 +5,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"workweave/router/internal/observability/otel"
+	"weave-os/router/internal/observability/otel"
 )
 
 func TestLookup(t *testing.T) {

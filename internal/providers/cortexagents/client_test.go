@@ -12,10 +12,10 @@ import (
 
 	"github.com/tidwall/gjson"
 
-	"workweave/router/internal/auth"
-	"workweave/router/internal/providers/cortexagents"
-	"workweave/router/internal/proxy"
-	"workweave/router/internal/websearch"
+	"weave-os/router/internal/auth"
+	"weave-os/router/internal/providers/cortexagents"
+	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/websearch"
 )
 
 // wifContext mirrors what the proxy injects for a WIF-authenticated gateway key.

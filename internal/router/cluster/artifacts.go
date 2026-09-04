@@ -14,7 +14,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"workweave/router/internal/router/catalog"
+	"weave-os/router/internal/router/catalog"
 )
 
 // centroids.bin file format (little-endian):

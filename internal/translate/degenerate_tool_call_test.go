@@ -6,7 +6,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"workweave/router/internal/translate"
+	"weave-os/router/internal/translate"
 )
 
 // Degenerate tool-call turn: an OpenAI-compat upstream (GLM-5.1 on DeepInfra

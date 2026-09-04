@@ -2,9 +2,9 @@
 name: Check Migrations
 
 on:
+  # No paths filter: this is a required check, so it must report on every PR. A
+  # PR that adds no migration short-circuits to a pass below.
   pull_request:
-    paths:
-      - 'db/migrations/**'
 
 jobs:
   check-migrations:
@@ -38,6 +38,13 @@ jobs:
             git fetch origin main:refs/remotes/origin/main
           fi
           echo "BASE_REF=${BASE_REF}" >> $GITHUB_ENV
+
+      - name: Check down migrations are precise
+        run: |
+          if grep -niE '\bIF EXISTS\b' db/migrations/*.down.sql; then
+            echo "::error::Down migrations must be precise rollbacks"
+            exit 1
+          fi
 
       - name: Check migration format and ordering
         run: |

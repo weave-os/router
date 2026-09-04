@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
-	"workweave/router/internal/api/admin"
-	"workweave/router/internal/auth"
-	"workweave/router/internal/flags"
+	"weave-os/router/internal/api/admin"
+	"weave-os/router/internal/auth"
+	"weave-os/router/internal/flags"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"

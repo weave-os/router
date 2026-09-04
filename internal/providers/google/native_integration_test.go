@@ -12,10 +12,10 @@ import (
 	"strings"
 	"testing"
 
-	"workweave/router/internal/providers"
-	"workweave/router/internal/providers/google"
-	"workweave/router/internal/router"
-	"workweave/router/internal/translate"
+	"weave-os/router/internal/providers"
+	"weave-os/router/internal/providers/google"
+	"weave-os/router/internal/router"
+	"weave-os/router/internal/translate"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

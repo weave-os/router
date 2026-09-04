@@ -100,6 +100,11 @@ jobs:
       - name: Vet
         run: go vet ./...
 
+      - name: Lint
+        uses: golangci/golangci-lint-action@4afd733a84b1f43292c63897423277bb7f4313a9 # v8
+        with:
+          version: v2.6.2
+
       - name: Typecheck
         run: go build -o /dev/null ./...
 
@@ -163,7 +168,7 @@ jobs:
         working-directory: sidecars/hmm
         run: |
           curl --fail --location --output /tmp/hmm-router-frozen-v1.tar.gz \
-            https://github.com/workweave/router/releases/download/hmm-model-v1/hmm-router-frozen-v1.tar.gz
+            https://github.com/weave-os/router/releases/download/hmm-model-v1/hmm-router-frozen-v1.tar.gz
           echo "b326bda644aac86831bae47d0b69de008046f62324a4b93a1eba702581c174df  /tmp/hmm-router-frozen-v1.tar.gz" \
             | sha256sum --check
           poetry run python -m scripts.verify_artifact \

@@ -7,9 +7,9 @@ import (
 	"strings"
 	"time"
 
-	"workweave/router/internal/feedback"
-	"workweave/router/internal/observability/otel"
-	"workweave/router/internal/router/turntype"
+	"weave-os/router/internal/feedback"
+	"weave-os/router/internal/observability/otel"
+	"weave-os/router/internal/router/turntype"
 
 	"github.com/google/uuid"
 )

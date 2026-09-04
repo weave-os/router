@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"workweave/router/internal/flags"
+	"weave-os/router/internal/flags"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

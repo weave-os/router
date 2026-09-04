@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"strings"
 
-	"workweave/router/internal/router/cluster"
+	"weave-os/router/internal/router/cluster"
 
 	"github.com/gin-gonic/gin"
 )
