@@ -556,15 +556,17 @@ func applyOverrides(body []byte, ov EmitOverrides) ([]byte, error) {
 	}
 
 	// ForceOutputConfigEffort wins over any request-derived or inbound
-	// effort; write both sibling fields so either form is overridden.
+	// output_config.effort. Anthropic Messages only accepts the nested form;
+	// a top-level `effort` field is rejected as an unknown input. Delete any
+	// client-supplied top-level value rather than forwarding it upstream.
 	if ov.ForceOutputConfigEffort != "" {
 		out, err = sjson.SetBytes(out, "output_config.effort", ov.ForceOutputConfigEffort)
 		if err != nil {
 			return nil, fmt.Errorf("set output_config.effort (forced): %w", err)
 		}
-		out, err = sjson.SetBytes(out, "effort", ov.ForceOutputConfigEffort)
+		out, err = sjson.DeleteBytes(out, "effort")
 		if err != nil {
-			return nil, fmt.Errorf("set effort (forced): %w", err)
+			return nil, fmt.Errorf("delete effort (forced): %w", err)
 		}
 	}
 

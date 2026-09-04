@@ -69,8 +69,27 @@ func TestForceEffort_AnthropicOverrides(t *testing.T) {
 			oc, ok := out["output_config"].(map[string]any)
 			require.True(t, ok, "output_config must survive the rewrite")
 			assert.Equal(t, tc.wantEff, oc["effort"])
+			assert.NotContains(t, out, "effort", "forced Anthropic effort must not be sent at top level")
 		})
 	}
+}
+
+func TestForceEffort_AnthropicRemovesInboundTopLevelEffort(t *testing.T) {
+	body := []byte(`{"model":"claude-opus-5","max_tokens":1024,"messages":[{"role":"user","content":"hi"}],"thinking":{"type":"adaptive"},"effort":"high"}`)
+	env, err := translate.ParseAnthropic(body)
+	require.NoError(t, err)
+	prep, err := env.PrepareAnthropic(http.Header{}, translate.EmitOptions{
+		TargetModel:  "claude-opus-5",
+		Capabilities: router.Lookup("claude-opus-5"),
+		ForceEffort:  "low",
+	})
+	require.NoError(t, err)
+	var out map[string]any
+	require.NoError(t, json.Unmarshal(prep.Body, &out))
+	assert.NotContains(t, out, "effort", "top-level effort is not valid in Anthropic Messages")
+	outputConfig, ok := out["output_config"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "low", outputConfig["effort"])
 }
 
 // TestForceEffort_AnthropicPassesThroughAlias verifies alias forms (e.g. ultra)
