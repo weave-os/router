@@ -17,10 +17,11 @@ import (
 // bill the summary turn separately from the main inference debit. Zero
 // values mean usage wasn't reported.
 type Usage struct {
-	InputTokens   int
-	OutputTokens  int
-	CacheCreation int
-	CacheRead     int
+	InputTokens     int
+	OutputTokens    int
+	CacheCreation   int
+	CacheCreation1h int
+	CacheRead       int
 	// Model and Provider identify the upstream the summarizer dispatched
 	// to so the ledger row can record them. Empty means "not reported".
 	Model    string

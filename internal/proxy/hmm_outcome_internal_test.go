@@ -61,13 +61,13 @@ func TestReportPolicyOutcome_UsesFreshMetadataForStickyServedDecision(t *testing
 		inputTokens  = 90
 		outputTokens = 10
 	)
-	s.reportPolicyOutcome(ctx, routeRes, served, effortResolution{}, providers.ProviderAnthropic, false, 100, inputTokens, outputTokens, 0, 0, 12, 34, nil, &policyOutcomeResponse{
+	s.reportPolicyOutcome(ctx, routeRes, served, effortResolution{}, providers.ProviderAnthropic, false, 100, inputTokens, outputTokens, 0, 0, 0, 12, 34, nil, &policyOutcomeResponse{
 		Body: []byte(`{"content":[{"type":"text","text":"done"}]}`),
 	})
 
 	price, ok := catalog.PriceFor(providers.ProviderAnthropic, "claude-haiku-4-5")
 	require.True(t, ok)
-	wantCost := catalog.EffectiveInputCost(inputTokens, 0, 0, price, providers.ProviderAnthropic) +
+	wantCost := catalog.EffectiveInputCost(inputTokens, 0, 0, 0, price, providers.ProviderAnthropic) +
 		catalog.EffectiveOutputCost(inputTokens, outputTokens, price)
 
 	select {
@@ -107,7 +107,7 @@ func TestReportPolicyOutcome_OmitsResponseBodyWhenTrainingIsNotAllowed(t *testin
 		Metadata: &router.RoutingMetadata{RouteID: "route-1", Strategy: string(router.StrategyHMM)},
 	}}
 
-	s.reportPolicyOutcome(context.Background(), routeRes, routeRes.Fresh, effortResolution{}, providers.ProviderFireworks, false, 1, 1, 1, 0, 0, 1, 1, nil, &policyOutcomeResponse{Body: []byte("private response")})
+	s.reportPolicyOutcome(context.Background(), routeRes, routeRes.Fresh, effortResolution{}, providers.ProviderFireworks, false, 1, 1, 1, 0, 0, 0, 1, 1, nil, &policyOutcomeResponse{Body: []byte("private response")})
 
 	select {
 	case payload := <-reporter.ch:
@@ -151,6 +151,7 @@ func TestReportPolicyOutcome_AuthoritativeMismatchFailsClosedForTraining(t *test
 		100,
 		90,
 		10,
+		0,
 		0,
 		0,
 		12,
@@ -199,7 +200,7 @@ func TestReportPolicyOutcome_EffortMismatchExcludedFromTraining(t *testing.T) {
 		decision,
 		effort,
 		providers.ProviderOpenAI,
-		false, 100, 90, 10, 0, 0, 12, 34, nil,
+		false, 100, 90, 10, 0, 0, 0, 12, 34, nil,
 		&policyOutcomeResponse{Body: []byte("must not train")},
 	)
 

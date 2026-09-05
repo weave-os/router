@@ -132,6 +132,9 @@ func (t *SSETranslator) Finalize() error {
 				int(usage.Get("cache_creation_input_tokens").Int()),
 				int(usage.Get("cache_read_input_tokens").Int()),
 			)
+			t.usageSink.RecordCacheCreation1hTokens(
+				int(usage.Get("cache_creation.ephemeral_1h_input_tokens").Int()),
+			)
 		}
 	}
 
@@ -240,6 +243,9 @@ func (t *SSETranslator) handleMessageStart(data []byte) error {
 			t.usageSink.RecordCacheUsage(
 				int(usageResult.Get("cache_creation_input_tokens").Int()),
 				int(usageResult.Get("cache_read_input_tokens").Int()),
+			)
+			t.usageSink.RecordCacheCreation1hTokens(
+				int(usageResult.Get("cache_creation.ephemeral_1h_input_tokens").Int()),
 			)
 		}
 	}

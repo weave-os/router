@@ -16,7 +16,7 @@ import (
 func TestStreamCostWriterAnnotatesFinalMessageDelta(t *testing.T) {
 	rec := httptest.NewRecorder()
 	writer := newStreamCostWriter(rec)
-	writer.SetCostCalculator(func(input, output, creation, read int) routerResponseCost {
+	writer.SetCostCalculator(func(input, output, creation, read, creation1h int) routerResponseCost {
 		return routerResponseCost{
 			TotalUSD:            1.25,
 			InputUSD:            0.75,
@@ -87,7 +87,7 @@ func TestRouterResponseCostFromPricingRoundsFloatNoise(t *testing.T) {
 	// gpt-5.4-mini pricing: 12 input + 9 output tokens yielded
 	// 0.000049500000000000004 before rounding.
 	pricing := catalog.Pricing{InputUSDPer1M: 0.75, OutputUSDPer1M: 4.5}
-	cost := routerResponseCostFromPricing(pricing, providers.ProviderOpenAI, 12, 9, 0, 0)
+	cost := routerResponseCostFromPricing(pricing, providers.ProviderOpenAI, 12, 9, 0, 0, 0)
 
 	rec := httptest.NewRecorder()
 	setRouterCostHeaders(rec.Header(), cost)

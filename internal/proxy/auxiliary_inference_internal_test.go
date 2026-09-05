@@ -211,7 +211,7 @@ func TestBillAuxiliaryInferenceTagsSessionAndCost(t *testing.T) {
 
 	pricing, ok := catalog.PrimaryPriceFor(auxTestModel)
 	require.True(t, ok, "the test model must be priced in the catalog")
-	wantInput := catalog.EffectiveInputCost(usage.InputTokens, usage.CacheCreation, usage.CacheRead, pricing, usage.Provider)
+	wantInput := catalog.EffectiveInputCost(usage.InputTokens, usage.CacheCreation, usage.CacheCreation1h, usage.CacheRead, pricing, usage.Provider)
 	wantOutput := catalog.EffectiveOutputCost(usage.InputTokens, usage.OutputTokens, pricing)
 	assert.Greater(t, wantInput+wantOutput, 0.0, "the fixture must produce a non-zero cost")
 	assert.InDelta(t, wantInput, row.ActualInputCostUSD, 1e-12)
