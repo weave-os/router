@@ -13,12 +13,14 @@ import (
 	"weave-os/router/internal/translate"
 )
 
-// fakeUsageSink records the last RecordUsage / RecordCacheUsage calls.
+// fakeUsageSink records the last RecordUsage / RecordCacheUsage /
+// RecordCacheCreation1hTokens calls.
 type fakeUsageSink struct {
-	input         int
-	output        int
-	cacheCreation int
-	cacheRead     int
+	input           int
+	output          int
+	cacheCreation   int
+	cacheCreation1h int
+	cacheRead       int
 }
 
 func (f *fakeUsageSink) RecordUsage(input, output int) {
@@ -31,6 +33,10 @@ func (f *fakeUsageSink) RecordCacheUsage(creation, read int) {
 	f.cacheRead = read
 }
 
+func (f *fakeUsageSink) RecordCacheCreation1hTokens(tokens int) {
+	f.cacheCreation1h = tokens
+}
+
 // Catches typos in the message_start cache_creation_input_tokens /
 // cache_read_input_tokens JSON paths.
 func TestSSETranslator_ForwardsAnthropicCacheTokens(t *testing.T) {
@@ -41,13 +47,14 @@ func TestSSETranslator_ForwardsAnthropicCacheTokens(t *testing.T) {
 	translator.Header().Set("Content-Type", "text/event-stream")
 	translator.WriteHeader(http.StatusOK)
 
-	event := "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_1\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"claude-sonnet-4-5\",\"usage\":{\"input_tokens\":150,\"output_tokens\":0,\"cache_creation_input_tokens\":512,\"cache_read_input_tokens\":2048}}}\n\n"
+	event := "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_1\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"claude-sonnet-4-5\",\"usage\":{\"input_tokens\":150,\"output_tokens\":0,\"cache_creation_input_tokens\":512,\"cache_read_input_tokens\":2048,\"cache_creation\":{\"ephemeral_5m_input_tokens\":412,\"ephemeral_1h_input_tokens\":100}}}}\n\n"
 	_, err := translator.Write([]byte(event))
 	require.NoError(t, err)
 
 	assert.Equal(t, 150, sink.input)
 	assert.Equal(t, 512, sink.cacheCreation)
 	assert.Equal(t, 2048, sink.cacheRead)
+	assert.Equal(t, 100, sink.cacheCreation1h, "message_start must forward the 1-hour TTL breakdown")
 }
 
 // Catches typos in the prompt_tokens_details.cached_tokens nested path that

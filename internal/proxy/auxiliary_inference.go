@@ -67,6 +67,7 @@ func (s *Service) billAuxiliaryInference(ctx context.Context, requestID, request
 		InputTokens:     usage.InputTokens,
 		OutputTokens:    usage.OutputTokens,
 		CacheCreation:   usage.CacheCreation,
+		CacheCreation1h: usage.CacheCreation1h,
 		CacheRead:       usage.CacheRead,
 		Pricing:         pricing,
 		HasOverride:     billing.HasOverrideFromContext(ctx),
@@ -80,7 +81,7 @@ func (s *Service) billAuxiliaryInference(ctx context.Context, requestID, request
 		return
 	}
 	clientID := ClientIdentityFrom(ctx)
-	inputCost := catalog.EffectiveInputCost(usage.InputTokens, usage.CacheCreation, usage.CacheRead, pricing, usage.Provider)
+	inputCost := catalog.EffectiveInputCost(usage.InputTokens, usage.CacheCreation, usage.CacheCreation1h, usage.CacheRead, pricing, usage.Provider)
 	outputCost := catalog.EffectiveOutputCost(usage.InputTokens, usage.OutputTokens, pricing)
 
 	s.fireTelemetry(InsertTelemetryParams{

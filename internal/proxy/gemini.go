@@ -308,8 +308,9 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 
 	in, out := extractor.Tokens()
 	cacheCreation, cacheRead := extractor.CacheTokens()
+	cacheCreation1h := extractor.CacheCreation1hTokens()
 	if responseBuffer != nil && proxyErr == nil {
-		setRouterCostHeaders(w.Header(), routerResponseCostFromPricing(actPricing, decision.Provider, in, out, cacheCreation, cacheRead))
+		setRouterCostHeaders(w.Header(), routerResponseCostFromPricing(actPricing, decision.Provider, in, out, cacheCreation, cacheRead, cacheCreation1h))
 	}
 	geminiUpstreamBuilder := otel.NewAttrBuilder(40).
 		String("request_id", requestID).
@@ -328,9 +329,9 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 		Int64("usage.output_tokens", int64(out)).
 		Int64("usage.cache_creation_input_tokens", int64(cacheCreation)).
 		Int64("usage.cache_read_input_tokens", int64(cacheRead)).
-		Float64("cost.requested_input_usd", catalog.EffectiveInputCost(in, cacheCreation, cacheRead, reqPricing, decision.Provider)).
+		Float64("cost.requested_input_usd", catalog.EffectiveInputCost(in, cacheCreation, cacheCreation1h, cacheRead, reqPricing, decision.Provider)).
 		Float64("cost.requested_output_usd", catalog.EffectiveOutputCost(in, out, reqPricing)).
-		Float64("cost.actual_input_usd", catalog.EffectiveInputCost(in, cacheCreation, cacheRead, actPricing, decision.Provider)).
+		Float64("cost.actual_input_usd", catalog.EffectiveInputCost(in, cacheCreation, cacheCreation1h, cacheRead, actPricing, decision.Provider)).
 		Float64("cost.actual_output_usd", catalog.EffectiveOutputCost(in, out, actPricing)).
 		Bool("cost.subscription_served", servedOnSubscription(ctx)).
 		Int64("latency.upstream_ms", proxyMs).
@@ -356,7 +357,7 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 	s.recordTurnUsage(routeRes, finalProvider, decision.ServedIdentity(), in, out, cacheCreation, cacheRead)
 
 	if proxyErr == nil {
-		s.emitBilling(ctx, requestID, externalID, decision, actPricing, routeRes, in, out, cacheCreation, cacheRead)
+		s.emitBilling(ctx, requestID, externalID, decision, actPricing, routeRes, in, out, cacheCreation, cacheCreation1h, cacheRead)
 		if compRes.Summarized {
 			s.billCompactionSummary(ctx, requestID, externalID, compRes.SummaryUsage)
 		}
@@ -367,6 +368,6 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 	s.maybeDisableProviderAfterOverload(ctx, stickyHit, proxyErr, finalProvider, decision.Reason, installationID, routeRes.SessionKey, stickyStateRole(routeRes), routeRes.PinRole)
 
 	log.Info("ProxyGeminiGenerateContent complete", append([]any{"requested_model", feats.Model, "baseline_model", s.baselineFor(feats.Model), "decision_model", decision.Model, "decision_provider", decision.Provider, "decision_reason", decision.Reason, "embedded_tokens", len(promptText) / 4, "total_input_tokens", feats.Tokens, "has_tools", feats.HasTools, "embed_input", embedInput, "sticky_hit", stickyHit, "pin_tier", pinTier, "turn_type", string(tt), "route_ms", routeMs, "proxy_ms", proxyMs, "proxy_err", proxyErr, "upstream_status", upstreamStatus(proxyErr)}, plannerLogFields(routeRes)...)...)
-	s.reportPolicyOutcome(ctx, routeRes, decision, effortServed, decision.Provider, false, feats.Tokens, in, out, cacheCreation, cacheRead, routeMs, proxyMs, proxyErr, nil)
+	s.reportPolicyOutcome(ctx, routeRes, decision, effortServed, decision.Provider, false, feats.Tokens, in, out, cacheCreation, cacheCreation1h, cacheRead, routeMs, proxyMs, proxyErr, nil)
 	return proxyErr
 }

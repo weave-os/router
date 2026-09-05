@@ -347,7 +347,7 @@ func TestBypass_NonStreamResponseIncludesCostHeaders(t *testing.T) {
 
 	pricing, ok := catalog.PriceFor(providers.ProviderAnthropic, feats.Model)
 	require.True(t, ok, "test model must have catalog pricing")
-	want := routerResponseCostFromPricing(pricing, providers.ProviderAnthropic, inputTokens, outputTokens, 0, 0)
+	want := routerResponseCostFromPricing(pricing, providers.ProviderAnthropic, inputTokens, outputTokens, 0, 0, 0)
 	assert.Equal(t, strconv.FormatFloat(want.TotalUSD, 'f', -1, 64), rec.Header().Get(HeaderRouterCostUSD))
 	assert.Equal(t, strconv.FormatFloat(want.InputUSD, 'f', -1, 64), rec.Header().Get(HeaderRouterCostInputUSD))
 	assert.Equal(t, strconv.FormatFloat(want.OutputUSD, 'f', -1, 64), rec.Header().Get(HeaderRouterCostOutputUSD))
@@ -582,7 +582,7 @@ func TestBypass_EmitsUsageAndCost(t *testing.T) {
 	pricing, ok := catalog.PriceFor(providers.ProviderAnthropic, model)
 	require.True(t, ok, "test model must have catalog pricing")
 	wantOut := catalog.EffectiveOutputCost(inputTokens, outputTokens, pricing)
-	wantIn := catalog.EffectiveInputCost(inputTokens, 0, 0, pricing, providers.ProviderAnthropic)
+	wantIn := catalog.EffectiveInputCost(inputTokens, 0, 0, 0, pricing, providers.ProviderAnthropic)
 
 	// Bypass never substitutes the model, so requested == actual on the span;
 	// Weave zeroes actual downstream when subscription_served is set.

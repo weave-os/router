@@ -72,20 +72,20 @@ type routerResponseCost struct {
 	CacheCreationTokens int     `json:"cache_creation_tokens"`
 }
 
-type routerCostCalculator func(inputTokens, outputTokens, cacheCreationTokens, cacheReadTokens int) routerResponseCost
+type routerCostCalculator func(inputTokens, outputTokens, cacheCreationTokens, cacheReadTokens, cacheCreation1hTokens int) routerResponseCost
 
 func routerCostCalculatorFor(model, provider string, fast bool) routerCostCalculator {
 	pricing, ok := servedPricing(provider, model, fast)
 	if !ok {
 		return nil
 	}
-	return func(inputTokens, outputTokens, cacheCreationTokens, cacheReadTokens int) routerResponseCost {
-		return routerResponseCostFromPricing(pricing, provider, inputTokens, outputTokens, cacheCreationTokens, cacheReadTokens)
+	return func(inputTokens, outputTokens, cacheCreationTokens, cacheReadTokens, cacheCreation1hTokens int) routerResponseCost {
+		return routerResponseCostFromPricing(pricing, provider, inputTokens, outputTokens, cacheCreationTokens, cacheReadTokens, cacheCreation1hTokens)
 	}
 }
 
-func routerResponseCostFromPricing(pricing catalog.Pricing, provider string, inputTokens, outputTokens, cacheCreationTokens, cacheReadTokens int) routerResponseCost {
-	inputUSD := catalog.EffectiveInputCost(inputTokens, cacheCreationTokens, cacheReadTokens, pricing, provider)
+func routerResponseCostFromPricing(pricing catalog.Pricing, provider string, inputTokens, outputTokens, cacheCreationTokens, cacheReadTokens, cacheCreation1hTokens int) routerResponseCost {
+	inputUSD := catalog.EffectiveInputCost(inputTokens, cacheCreationTokens, cacheCreation1hTokens, cacheReadTokens, pricing, provider)
 	outputUSD := catalog.EffectiveOutputCost(inputTokens, outputTokens, pricing)
 	return routerResponseCost{
 		TotalUSD:            roundUSD(inputUSD + outputUSD),
@@ -118,10 +118,13 @@ type streamCostWriter struct {
 	calculate routerCostCalculator
 	// Translated Anthropic usage reports fresh input, while the bound pricing
 	// calculator expects OpenAI/Gemini input to include cached tokens.
-	inputIncludesCache   bool
-	messageStartInput    int
-	messageStartRead     int
-	messageStartCreation int
+	inputIncludesCache bool
+	messageStartInput  int
+	messageStartRead   int
+	// messageStartCreation is the cache-creation aggregate; messageStartCreation1h
+	// its 1-hour-tier portion when the upstream reported the TTL breakdown.
+	messageStartCreation   int
+	messageStartCreation1h int
 }
 
 func newStreamCostWriter(inner http.ResponseWriter) *streamCostWriter {
@@ -175,6 +178,7 @@ func (w *streamCostWriter) annotateEvent(event []byte) []byte {
 		w.messageStartInput = int(usage.Get("input_tokens").Int())
 		w.messageStartRead = int(usage.Get("cache_read_input_tokens").Int())
 		w.messageStartCreation = int(usage.Get("cache_creation_input_tokens").Int())
+		w.messageStartCreation1h = int(usage.Get("cache_creation.ephemeral_1h_input_tokens").Int())
 		return event
 	}
 	if string(eventType) != "message_delta" || w.calculate == nil {
@@ -191,6 +195,7 @@ func (w *streamCostWriter) annotateEvent(event []byte) []byte {
 	inputTokens := int(usage.Get("input_tokens").Int())
 	outputTokens := int(usage.Get("output_tokens").Int())
 	cacheCreation := int(usage.Get("cache_creation_input_tokens").Int())
+	cacheCreation1h := int(usage.Get("cache_creation.ephemeral_1h_input_tokens").Int())
 	cacheRead := int(usage.Get("cache_read_input_tokens").Int())
 	if inputTokens == 0 {
 		inputTokens = w.messageStartInput
@@ -198,13 +203,16 @@ func (w *streamCostWriter) annotateEvent(event []byte) []byte {
 	if cacheCreation == 0 {
 		cacheCreation = w.messageStartCreation
 	}
+	if cacheCreation1h == 0 {
+		cacheCreation1h = w.messageStartCreation1h
+	}
 	if cacheRead == 0 {
 		cacheRead = w.messageStartRead
 	}
 	if w.inputIncludesCache {
 		inputTokens += cacheCreation + cacheRead
 	}
-	cost, err := json.Marshal(w.calculate(inputTokens, outputTokens, cacheCreation, cacheRead))
+	cost, err := json.Marshal(w.calculate(inputTokens, outputTokens, cacheCreation, cacheRead, cacheCreation1h))
 	if err != nil {
 		return event
 	}

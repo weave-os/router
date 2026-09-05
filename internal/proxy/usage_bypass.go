@@ -357,11 +357,12 @@ func (s *Service) bypassToAnthropic(
 	// actual to $0 downstream when cost.subscription_served is set.
 	in, out := extractor.Tokens()
 	cacheCreation, cacheRead := extractor.CacheTokens()
+	cacheCreation1h := extractor.CacheCreation1hTokens()
 	pricing, _ := servedPricing(decision.Provider, decision.Model, opts.FastMode)
 	if !env.Stream() && proxyErr == nil {
-		setRouterCostHeaders(w.Header(), routerResponseCostFromPricing(pricing, decision.Provider, in, out, cacheCreation, cacheRead))
+		setRouterCostHeaders(w.Header(), routerResponseCostFromPricing(pricing, decision.Provider, in, out, cacheCreation, cacheRead, cacheCreation1h))
 	}
-	inputCost := catalog.EffectiveInputCost(in, cacheCreation, cacheRead, pricing, decision.Provider)
+	inputCost := catalog.EffectiveInputCost(in, cacheCreation, cacheCreation1h, cacheRead, pricing, decision.Provider)
 	outputCost := catalog.EffectiveOutputCost(in, out, pricing)
 
 	// Same identity block as the routed upstream span so Weave groups bypass turns by user/session.

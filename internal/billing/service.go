@@ -205,6 +205,10 @@ type DebitInferenceParams struct {
 	InputTokens     int
 	OutputTokens    int
 	CacheCreation   int
+	// CacheCreation1h is the portion of CacheCreation written on Anthropic's
+	// 1-hour TTL tier. Zero prices every write at the 5-minute rate — the
+	// aggregate-only payloads some providers emit.
+	CacheCreation1h int
 	CacheRead       int
 	Pricing         catalog.Pricing
 	HasOverride     bool
@@ -323,7 +327,7 @@ func warnOnUnknownPricing(p DebitInferenceParams) {
 // computeNotionalMicros returns the would-be charge in USD micros,
 // regardless of override status, for the shadow billing trail.
 func computeNotionalMicros(p DebitInferenceParams) int64 {
-	inUSD := catalog.EffectiveInputCost(p.InputTokens, p.CacheCreation, p.CacheRead, p.Pricing, p.Provider)
+	inUSD := catalog.EffectiveInputCost(p.InputTokens, p.CacheCreation, p.CacheCreation1h, p.CacheRead, p.Pricing, p.Provider)
 	outUSD := catalog.EffectiveOutputCost(p.InputTokens, p.OutputTokens, p.Pricing)
 	return catalog.USDToMicros(inUSD + outUSD)
 }

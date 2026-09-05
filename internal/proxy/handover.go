@@ -227,10 +227,11 @@ func extractAnthropicUsage(body []byte) handover.Usage {
 		return handover.Usage{}
 	}
 	return handover.Usage{
-		InputTokens:   int(usage.Get("input_tokens").Int()),
-		OutputTokens:  int(usage.Get("output_tokens").Int()),
-		CacheCreation: int(usage.Get("cache_creation_input_tokens").Int()),
-		CacheRead:     int(usage.Get("cache_read_input_tokens").Int()),
+		InputTokens:     int(usage.Get("input_tokens").Int()),
+		OutputTokens:    int(usage.Get("output_tokens").Int()),
+		CacheCreation:   int(usage.Get("cache_creation_input_tokens").Int()),
+		CacheCreation1h: int(usage.Get("cache_creation.ephemeral_1h_input_tokens").Int()),
+		CacheRead:       int(usage.Get("cache_read_input_tokens").Int()),
 	}
 }
 

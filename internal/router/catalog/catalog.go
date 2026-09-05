@@ -40,9 +40,14 @@ func (t Tier) String() string {
 type Pricing struct {
 	InputUSDPer1M  float64
 	OutputUSDPer1M float64
-	// CacheWriteMultiplier is the cache-creation price relative to base input price.
-	// Zero means unspecified — existing production pricing is preserved.
+	// CacheWriteMultiplier is the cache-creation price relative to base input price
+	// for 5-minute writes. Zero means unspecified — existing production pricing is
+	// preserved.
 	CacheWriteMultiplier float64
+	// CacheWriteMultiplier1h is the cache-creation price relative to base input
+	// price for 1-hour writes (Anthropic's ttl "1h" tier). Zero means
+	// "unspecified — use DefaultCacheWriteMultiplier1h".
+	CacheWriteMultiplier1h float64
 	// CacheReadMultiplier is the cost of a cache hit relative to the base
 	// input price (e.g. 0.10 for Anthropic, 0.50 for OpenAI). Zero means
 	// "unspecified — use DefaultCacheReadMultiplier".
@@ -54,11 +59,12 @@ type Pricing struct {
 
 // LongContextPricing holds alternate rates for a provider's long-context tier.
 type LongContextPricing struct {
-	ThresholdTokens      int
-	InputUSDPer1M        float64
-	OutputUSDPer1M       float64
-	CacheWriteMultiplier float64
-	CacheReadMultiplier  float64
+	ThresholdTokens        int
+	InputUSDPer1M          float64
+	OutputUSDPer1M         float64
+	CacheWriteMultiplier   float64
+	CacheWriteMultiplier1h float64
+	CacheReadMultiplier    float64
 }
 
 // DefaultCacheReadMultiplier is the fallback multiplier for bindings
@@ -69,6 +75,11 @@ const DefaultCacheReadMultiplier = 0.5
 // DefaultCacheWriteMultiplier preserves the legacy production cache-creation
 // calculation until provider/model/retention-specific data is verified.
 const DefaultCacheWriteMultiplier = 1.25
+
+// DefaultCacheWriteMultiplier1h is Anthropic's published 1-hour cache-write
+// price. Like the 5-minute default it applies only where the binding does not
+// carry its own value.
+const DefaultCacheWriteMultiplier1h = 2.0
 
 // EffectiveCacheReadMultiplier returns CacheReadMultiplier if set, else
 // DefaultCacheReadMultiplier.
@@ -88,6 +99,15 @@ func (p Pricing) EffectiveCacheWriteMultiplier() float64 {
 	return DefaultCacheWriteMultiplier
 }
 
+// EffectiveCacheWriteMultiplier1h returns the binding-specific 1-hour
+// cache-write multiplier when known, otherwise Anthropic's published rate.
+func (p Pricing) EffectiveCacheWriteMultiplier1h() float64 {
+	if p.CacheWriteMultiplier1h > 0 {
+		return p.CacheWriteMultiplier1h
+	}
+	return DefaultCacheWriteMultiplier1h
+}
+
 // ForInputTokens returns the applicable pricing tier for a provider-reported
 // prompt token count.
 func (p Pricing) ForInputTokens(inputTokens int) Pricing {
@@ -96,10 +116,11 @@ func (p Pricing) ForInputTokens(inputTokens int) Pricing {
 	}
 	long := p.LongContext
 	return Pricing{
-		InputUSDPer1M:        long.InputUSDPer1M,
-		OutputUSDPer1M:       long.OutputUSDPer1M,
-		CacheWriteMultiplier: long.CacheWriteMultiplier,
-		CacheReadMultiplier:  long.CacheReadMultiplier,
+		InputUSDPer1M:          long.InputUSDPer1M,
+		OutputUSDPer1M:         long.OutputUSDPer1M,
+		CacheWriteMultiplier:   long.CacheWriteMultiplier,
+		CacheWriteMultiplier1h: long.CacheWriteMultiplier1h,
+		CacheReadMultiplier:    long.CacheReadMultiplier,
 	}
 }
 
