@@ -96,7 +96,7 @@ explicitly to its managed Codex config.
 
 | Path                                  | Purpose                                                       |
 | ------------------------------------- | ------------------------------------------------------------- |
-| `~/.claude/settings.json`             | Sets `env.ANTHROPIC_BASE_URL`, `env.ANTHROPIC_CUSTOM_HEADERS` with `X-Weave-Router-Key`, `env.ENABLE_TOOL_SEARCH=auto` (a custom base URL otherwise disables Claude Code's MCP tool-search deferral), `statusLine`, and Claude Code `attribution` so commits/PRs credit Weave Router. Other keys preserved. |
+| `~/.claude/settings.json`             | Sets `env.ANTHROPIC_BASE_URL`, `env.ANTHROPIC_CUSTOM_HEADERS` with `X-Weave-Router-Key`, `env.ENABLE_TOOL_SEARCH=true` (a custom base URL otherwise inlines tool schemas into every request), `statusLine`, and Claude Code `attribution` so commits/PRs credit Weave Router. Other keys preserved. |
 | `~/.weave/cc-statusline.sh`           | The status line script. Reads the router's decisions log + the CC transcript to show routed-model + savings. |
 
 **Project scope (`--scope project`):**

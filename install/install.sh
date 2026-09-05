@@ -5013,14 +5013,12 @@ write_claude_settings() {
   fi
   custom_headers="$custom_headers"$'\n'"X-App: claude-code"
 
-  # Setting ANTHROPIC_BASE_URL makes Claude Code treat us as non-first-party and
-  # disable MCP tool-search deferral, inlining every tool schema into every request
-  # — a large uncompactable prefix that can push a session into an autocompact
-  # thrash loop. ENABLE_TOOL_SEARCH=auto restores on-demand loading (Claude Code's
-  # own first-party default).
+  # Setting ANTHROPIC_BASE_URL makes Claude Code treat us as non-first-party.
+  # Force tool-search deferral to match first-party Claude Code; "auto" can inline
+  # every tool schema when the custom endpoint advertises a 200K context window.
   if [ "$scope" = "project" ] && [ -z "$install_dir" ]; then
     jq -n --arg url "$base_url" --arg sl "$statusline_path_for_settings" '{
-      env: { ANTHROPIC_BASE_URL: $url, ENABLE_TOOL_SEARCH: "auto" },
+      env: { ANTHROPIC_BASE_URL: $url, ENABLE_TOOL_SEARCH: "true" },
       statusLine: { type: "command", command: $sl },
       attribution: {
         commit: "Co-Authored-By: Weave Router <router@workweave.ai>",
@@ -5029,7 +5027,7 @@ write_claude_settings() {
     }' >"$tmp_patch"
   else
     jq -n --arg url "$base_url" --arg header "$custom_headers" --arg sl "$statusline_path_for_settings" '{
-      env: { ANTHROPIC_BASE_URL: $url, ANTHROPIC_CUSTOM_HEADERS: $header, ENABLE_TOOL_SEARCH: "auto" },
+      env: { ANTHROPIC_BASE_URL: $url, ANTHROPIC_CUSTOM_HEADERS: $header, ENABLE_TOOL_SEARCH: "true" },
       statusLine: { type: "command", command: $sl },
       attribution: {
         commit: "Co-Authored-By: Weave Router <router@workweave.ai>",
