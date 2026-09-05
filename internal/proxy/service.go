@@ -2556,7 +2556,10 @@ func defaultStrategyUnavailable(strategy router.Strategy) error {
 // Route exposes the underlying router for callers that need a decision
 // without dispatching (e.g. admin endpoints). Honors the per-request strategy.
 func (s *Service) Route(ctx context.Context, req router.Request) (router.Decision, error) {
-	return s.routeFor(ctx, req)
+	routeCtx, span := startRoutingSpan(ctx, req)
+	decision, err := s.routeFor(routeCtx, req)
+	finishRoutingSpan(span, decision, err)
+	return decision, err
 }
 
 // RouteAnthropicRequest parses a raw Anthropic-Messages body and returns the
@@ -3258,11 +3261,13 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	}
 	var routeRes turnLoopResult
 	var routeErr error
+	routeCtx, routeSpan := startRoutingSpan(ctx, req)
 	if agentShadowMode {
-		routeRes, routeErr = s.runAgentShadowEvaluationRoute(ctx, env, feats, installationID, req, agentShadowEval)
+		routeRes, routeErr = s.runAgentShadowEvaluationRoute(routeCtx, env, feats, installationID, req, agentShadowEval)
 	} else {
-		routeRes, routeErr = s.runTurnLoop(ctx, env, feats, apiKeyID, installationID, "", r.Header, req)
+		routeRes, routeErr = s.runTurnLoop(routeCtx, env, feats, apiKeyID, installationID, "", r.Header, req)
 	}
+	finishRoutingSpan(routeSpan, routeRes.Decision, routeErr)
 	if routeErr != nil {
 		log.Error("Routing failed", "err", routeErr, "route_ms", time.Since(routeStart).Milliseconds(), "requested_model", feats.Model, "total_input_tokens", feats.Tokens)
 		return routeErr
@@ -3312,7 +3317,9 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		}
 
 		routeRes.UsageBypass = false
-		decision, rerouteErr := s.routeFor(ctx, req)
+		rerouteCtx, rerouteSpan := startRoutingSpan(ctx, req)
+		decision, rerouteErr := s.routeFor(rerouteCtx, req)
+		finishRoutingSpan(rerouteSpan, decision, rerouteErr)
 		if rerouteErr != nil {
 			log.Error("Reroute after usage-bypass failure failed", "err", rerouteErr)
 			return rerouteErr
@@ -3594,6 +3601,9 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	sink = refusalObs
 
 	proxyStart := time.Now()
+	inferenceParentCtx := ctx
+	ctx, inferenceSpan := startInferenceSpan(ctx, decision)
+	defer inferenceSpan.End()
 	var proxyErr error
 	crossFormat := false
 	var extractor *otel.UsageExtractor
@@ -3898,6 +3908,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	// An intrinsically-incompatible build error means the routed model provably
 	// can't serve this shape — let it fall through to the baseline rescue below.
 	if attemptBuildErr != nil && !translate.IsIntrinsicallyIncompatible(attemptBuildErr) {
+		finishInferenceSpan(inferenceSpan, decision, decision.Provider, -1, attemptBuildErr)
 		return attemptBuildErr
 	}
 
@@ -4276,6 +4287,8 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	}
 
 	proxyMs := time.Since(proxyStart).Milliseconds()
+	finishInferenceSpan(inferenceSpan, decision, finalProvider, winnerIdx, proxyErr)
+	ctx = restoreParentSpan(ctx, inferenceParentCtx)
 
 	// On the native path there is no translator Summary, so a refusal would
 	// otherwise never reach the completion log or the routing_decisions row.
@@ -5995,7 +6008,9 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		ClusterArmOverrides:  clusterArmOverridesForRequest(ctx),
 	}
 	routeStart := time.Now()
-	routeRes, err := s.runTurnLoop(ctx, env, feats, apiKeyID, installationID, subAgentHint, r.Header, routeRequest)
+	routeCtx, routeSpan := startRoutingSpan(ctx, routeRequest)
+	routeRes, err := s.runTurnLoop(routeCtx, env, feats, apiKeyID, installationID, subAgentHint, r.Header, routeRequest)
+	finishRoutingSpan(routeSpan, routeRes.Decision, err)
 	routeMs := time.Since(routeStart).Milliseconds()
 	if err != nil {
 		log.Error("Routing failed for OpenAI request", "err", err, "route_ms", routeMs, "requested_model", feats.Model, "total_input_tokens", feats.Tokens)
@@ -6267,6 +6282,9 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	toolValidator := env.ToolValidator()
 
 	proxyStart := time.Now()
+	inferenceParentCtx := ctx
+	ctx, inferenceSpan := startInferenceSpan(ctx, decision)
+	defer inferenceSpan.End()
 	var proxyErr error
 	crossFormat := false
 	var extractor *otel.UsageExtractor
@@ -6452,7 +6470,9 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		prep, emitErr := env.PrepareGemini(r.Header, opts)
 		if emitErr != nil {
 			log.Error("Failed to translate OpenAI request to Gemini format", "err", emitErr)
-			return fmt.Errorf("translate openai request to gemini: %w", emitErr)
+			proxyErr = fmt.Errorf("translate openai request to gemini: %w", emitErr)
+			finishInferenceSpan(inferenceSpan, decision, decision.Provider, -1, proxyErr)
+			return proxyErr
 		}
 		// See ProxyMessages' Gemini case: a VALIDATED-mode request can 400 with a
 		// generic INVALID_ARGUMENT when Gemini can't compile a tool schema into
@@ -6504,7 +6524,9 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		prep, emitErr := env.PrepareAnthropic(r.Header, opts)
 		if emitErr != nil {
 			log.Error("Failed to translate OpenAI request to Anthropic format", "err", emitErr)
-			return fmt.Errorf("translate openai request: %w", emitErr)
+			proxyErr = fmt.Errorf("translate openai request: %w", emitErr)
+			finishInferenceSpan(inferenceSpan, decision, decision.Provider, -1, proxyErr)
+			return proxyErr
 		}
 		// One send on the given tier, split into the raw upstream error plus a
 		// finalize thunk so a fast send refused for lack of fast-mode allocation
@@ -6558,7 +6580,9 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 			return finalize(rawErr)
 		}
 	default:
-		return fmt.Errorf("%w: %s (no translation path defined)", ErrProviderNotConfigured, decision.Provider)
+		proxyErr = fmt.Errorf("%w: %s (no translation path defined)", ErrProviderNotConfigured, decision.Provider)
+		finishInferenceSpan(inferenceSpan, decision, decision.Provider, -1, proxyErr)
+		return proxyErr
 	}
 
 	primaryProvider := decision.Provider
@@ -6600,6 +6624,8 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	}
 
 	proxyMs := time.Since(proxyStart).Milliseconds()
+	finishInferenceSpan(inferenceSpan, decision, finalProvider, winnerIdx, proxyErr)
+	ctx = restoreParentSpan(ctx, inferenceParentCtx)
 
 	in, out := extractor.Tokens()
 	cacheCreation, cacheRead := extractor.CacheTokens()
