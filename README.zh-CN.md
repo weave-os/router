@@ -18,263 +18,116 @@
 
 
 
-**One endpoint. Every model. Always the right one.**
+**一个入口。所有模型。始终选对。**
 
-A drop-in proxy for Anthropic, OpenAI, and Gemini that picks the best model
-for *every* request: using a tiny on-box embedder, not a vibes-based prompt.
+面向 Anthropic、OpenAI 和 Gemini 的即插即用代理，为*每一次*请求选择最合适的模型：使用的是一个极小的本地嵌入器，而不是靠提示词“凭感觉”判断。
 
 [![Weave Badge](https://img.shields.io/endpoint?url=https%3A%2F%2Fapp.workweave.ai%2Fapi%2Frepository%2Fbadge%2Forg_QWsHDcRQWQEs6RpkdEZrlFK8%2F1222789989%2Fhttps%253A%252F%252Fgithub.com&cacheSeconds=3600)](https://app.workweave.ai/reports/repository/org_QWsHDcRQWQEs6RpkdEZrlFK8/https%3A%2F%2Fgithub.com/1222789989)
 [![Go](https://img.shields.io/badge/Go-1.25%2B-00ADD8?logo=go)](go.mod)
-[![Tests](https://github.com/weave-os/router/actions/workflows/test.yml/badge.svg)](https://github.com/weave-os/router/actions/workflows/test.yml)
+[![Tests](https://github.com/workweave/router/actions/workflows/test.yml/badge.svg)](https://github.com/workweave/router/actions/workflows/test.yml)
 [![License: ELv2](https://img.shields.io/badge/License-ELv2-00BFB3.svg)](https://www.elastic.co/licensing/elastic-license)
-[![Managed deployment](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Frouter.workweave.ai%2Fv1%2Fversion&query=%24.display&label=managed%20deployment&color=EC6341&cacheSeconds=1800)](https://github.com/weave-os/router/deployments)
 
-[简体中文](README.zh-CN.md) · English
+简体中文 · [English](README.md)
 
-*Built by [Weave](https://www.workweave.ai): The #1 engineering intelligence platform,
-loved by Robinhood, PostHog, Reducto, and hundreds of others.*
+*由 [Weave](https://www.workweave.ai) 打造：领先的工程智能平台，深受 Robinhood、PostHog、Reducto 及数百家其他团队信赖。*
 
 </div>
 
 ---
 
-## What it does
+## 它能做什么
 
-Point Claude Code, Codex, Cursor, or your own app at `localhost:8080`. The router:
+把 Claude Code、Cursor 或你自己的应用指向 `localhost:8080`。路由器会：
 
-- 🎯 **Routes per action.** A cluster scorer derived from
-  [Avengers-Pro](https://arxiv.org/abs/2508.12631) [^1] picks the right
-  model from your enabled providers, for every upstream API request.
-  (See [docs/SEMANTICS.md](docs/SEMANTICS.md) for the canonical terminology:
-  the router routes per **action**, not per **turn**.)
-- 🔌 **Speaks everyone's API.** Anthropic Messages, OpenAI Chat Completions,
-  Gemini native. Streaming, tools, vision, the works.
-- 🧠 **Knows OSS too.** DeepSeek, Kimi, GLM, Qwen, Llama, Mistral via
-  OpenRouter (or any OpenAI-compatible endpoint).
-- 🔒 **BYOK by default.** Provider keys stay on your box, encrypted at rest.
-- 📊 **Observable.** OTLP traces out of the box. See them in the Weave dashboard (http://localhost:8080/ui/dashboard) or drop in Honeycomb, Datadog,
-  Grafana, whatever.
+- 🎯 **按请求路由。** 基于 [Avengers-Pro](https://arxiv.org/abs/2508.12631) [^1] 的集群评分器，会为每一轮请求从你启用的提供商中选出最合适的模型。
+- 🔌 **兼容所有人的 API。** Anthropic Messages、OpenAI Chat Completions、Gemini 原生接口，流式输出、工具、视觉能力都支持。
+- 🧠 **也懂开源模型。** 通过 OpenRouter（或任何 OpenAI 兼容端点）接入 DeepSeek、Kimi、GLM、Qwen、Llama、Mistral。
+- 🔒 **默认 BYOK。** 提供商密钥保存在你自己的机器上，并在静态存储时加密。
+- 📊 **可观测。** 默认支持 OTLP traces。你可以在 Weave 仪表盘中查看（http://localhost:8080/ui/dashboard），也可以接入 Honeycomb、Datadog、Grafana 等工具。
 
-## 30-second quickstart
+## 30 秒快速开始
 
-The fastest way: point Claude Code, Codex, opencode, or pi at the **hosted**
-Weave Router with one command. No clone, no Docker, no Postgres.
+最快的方式：用一个命令把 Claude Code 指向 **托管版** Weave Router。无需克隆、无需 Docker、无需 Postgres。
 
 ```bash
-npx @weave-os/router
+npx @workweave/router
 ```
 
-That's it. The installer asks which tool (Claude Code, Codex, opencode, or pi),
-walks you through scope (user vs. project), grabs a router key, and wires
-the right config file. Other flavors:
+就这么简单。安装器会引导你选择作用域（用户级或项目级）、获取 router key，并完成 Claude Code 配置。其他用法：
 
 ```bash
-npx @weave-os/router --claude              # skip the picker, Claude Code
-npx @weave-os/router --codex               # skip the picker, OpenAI Codex CLI
-npx @weave-os/router --opencode            # skip the picker, opencode
-npx @weave-os/router --pi                  # skip the picker, pi + Loom UI
-npx @weave-os/router --scope project       # per-repo, commits settings.json (or .codex/ / opencode.json)
-npx @weave-os/router --local               # self-hosted localhost:8080
-npx @weave-os/router --base-url https://router.acme.internal
-npx @weave-os/router@0.1.0                 # pin a version
+npx @workweave/router --scope project       # 按仓库写入 settings.json
+npx @workweave/router --local               # 自托管 localhost:8080
+npx @workweave/router --base-url https://router.acme.internal
+npx @workweave/router@0.1.0                 # 固定版本
 ```
 
-Requires Node ≥ 18 (Claude Code, opencode, and pi paths also need `jq`). Full
-flag reference: [install/npm/README.md](install/npm/README.md).
+需要 Node ≥ 18 和 `jq`。完整参数说明见：[install/npm/README.md](install/npm/README.md)。
 
-The npm package is published as `@weave-os/router`. The former
-`@workweave/router` package remains available as a compatibility alias and
-continues to receive the same releases.
+### 或者：自行托管整套服务
 
-### Or: self-host the whole stack
-
-If you want the router (and dashboard) running on your own box:
+如果你想在自己的机器上运行路由器（和仪表盘）：
 
 ```bash
-# 1. Drop a provider key in. OpenRouter is the recommended baseline.
+# 1. 先放入一个提供商密钥。推荐先用 OpenRouter 作为基线。
 echo "OPENROUTER_API_KEY=sk-or-v1-..." >> .env.local
 
-# 2. Boot Postgres + router on :8080 and seed an rk_ key.
+# 2. 启动 Postgres + 路由器，监听 :8080，并生成一个 rk_ key。
 make full-setup
 ```
 
-The router is up at <http://localhost:8080>, the dashboard at
-<http://localhost:8080/ui/> (password: `admin`), and your `rk_...` key
-prints in the logs.
+路由器运行在 <http://localhost:8080>，仪表盘运行在 <http://localhost:8080/ui/>（密码：`admin`），你的 `rk_...` key 会打印到日志里。
 
 ```bash
-# Call it like Anthropic
+# 以 Anthropic 方式调用
 curl -sS http://localhost:8080/v1/messages \
   -H "Authorization: Bearer rk_..." \
   -d '{"model":"claude-sonnet-4-5","max_tokens":256,
        "messages":[{"role":"user","content":"hi"}]}'
 
-# ...or like OpenAI
+# 或者以 OpenAI 方式调用
 curl -sS http://localhost:8080/v1/chat/completions \
   -H "Authorization: Bearer rk_..." \
   -d '{"model":"gpt-4o-mini",
        "messages":[{"role":"user","content":"hi"}]}'
 
-# Peek at the routing decision without proxying
+# 只查看路由决策，不转发到上游
 curl -sS http://localhost:8080/v1/route -H "Authorization: Bearer rk_..." -d '...'
 ```
 
-### What that stack looks like
+## 接入你的工具
 
-Only the grey boxes are off your machine. The router, the scorer, Postgres, and
-your provider keys all stay local; prompts go from the router straight to the
-provider you configured, never to Weave.
+**Claude Code。** 运行 `make install-cc`，把 Claude Code 接到本地自托管路由器上（`make full-setup` 结束时也会自动执行）。如果使用托管版，请用上面的 `npx @workweave/router`。
 
-```mermaid
-flowchart LR
-    client["Claude Code, Codex, opencode,<br/>pi, Cursor, your own app"]
-    router["Router :8080<br/>/v1/messages · /v1/chat/completions<br/>/v1beta/models · /v1/route"]
-    scorer["Cluster scorer<br/>in-process ONNX embedder"]
-    hmm["HMM policy sidecar :8093<br/>optional, make up-hmm"]
-    pg[("Postgres<br/>installations, rk_ keys,<br/>encrypted BYOK keys, usage")]
-    ui["Dashboard /ui<br/>selfhosted mode only"]
-    providers["Anthropic · OpenAI · Gemini<br/>OpenRouter and any<br/>OpenAI-compatible endpoint"]
-    otel["Your OTLP collector<br/>Honeycomb, Datadog, Grafana"]
+**Cursor**（早期 beta，性能可能不是最佳）。进入 Settings → Models → *Override OpenAI Base URL* → `http://localhost:8080/v1`，然后把 `rk_...` 作为 API key 粘贴进去。
 
-    client -->|"rk_… bearer token,<br/>streamed response back"| router
-    router -->|"embed and score the action"| scorer
-    router -.->|"ROUTER_DEFAULT_STRATEGY=hmm"| hmm
-    router -->|"auth, config, usage"| pg
-    pg --> ui
-    router -->|"provider key from env or BYOK"| providers
-    router -.->|"spans and usage logs"| otel
+> 两种 key，别混了：
+> - `sk-or-...` / `sk-ant-...` / `sk-...` = 你的**上游**提供商 key，存放在 `.env.local`。
+> - `rk_...` = 你的**路由器** key，客户端通过 Bearer token 发送。
 
-    classDef external fill:#f4f4f5,stroke:#a1a1aa,color:#3f3f46
-    class providers,otel external
-```
+## 端点
 
-Multi-replica deployments also need Pub/Sub (`PUBSUB_*`) for cache
-invalidation; `docker compose` runs the emulator for you.
+| 端点 | 格式 |
+| ---- | ---- |
+| `POST /v1/messages` | Anthropic Messages，已路由 |
+| `POST /v1/chat/completions` | OpenAI Chat Completions，已路由 |
+| `POST /v1beta/models/:action` | Gemini `generateContent`，已路由 |
+| `POST /v1/route` | 返回路由决策，不发起上游调用 |
+| `GET /v1/models` &nbsp;·&nbsp; `POST /v1/messages/count_tokens` | Anthropic 透传 |
+| `GET /health` &nbsp;·&nbsp; `GET /validate` | 存活检查 + key 校验 |
 
-### Optional: self-host the frozen HMM policy
+## 更深入的文档
 
-The default stack uses the in-process cluster scorer. To run the frozen HMM
-policy as a companion container, add a Google API key and use the opt-in target:
+- 📐 [**配置参考**](docs/CONFIGURATION.md)：所有环境变量、BYOK 加密、OTel 配置、集群路由。
+- 🛠️ [**贡献指南**](CONTRIBUTING.md)：分层规则、热重载开发、迁移、测试等完整工程流程。
+- 🏗️ [**架构说明**](AGENTS.md)：包结构、导入约束、添加端点 / 提供商 / 策略的做法。
+- 🌐 [**English README**](README.md)：英文原版说明。
 
-```bash
-echo 'GOOGLE_API_KEY=...' >> .env.local
-make up-hmm
-```
+## 路线图
 
-This does not change the default strategy. See
-[`sidecars/hmm/README.md`](sidecars/hmm/README.md) for artifact verification,
-embedding compatibility, and explicit HMM selection.
-
-## Wire it into your tools
-
-**Claude Code.** Run `make install-cc` to wire Claude Code at the local
-self-hosted router (it's also invoked automatically at the end of
-`make full-setup`). For the hosted router, use `npx @weave-os/router`
-above.
-
-**Codex** (OpenAI CLI). `npx @weave-os/router --codex` patches
-`~/.codex/config.toml` (or `<repo>/.codex/config.toml` with `--scope project`)
-with a managed `[model_providers.weave]` block and sets `model_provider = "weave"`.
-The provider preserves Codex's existing ChatGPT OAuth login while the router
-key rides in an `X-Weave-Router-Key` HTTP header and the installer selects the
-HMM strategy for the public hosted endpoint. `--codex --local` and custom
-self-hosted URLs keep their router's configured default because the HMM
-sidecar is optional. HMM and forced selections in the native Codex family
-(`gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-5.6-luna`) use that OAuth credential;
-every other selected model uses its WorkWeave deployment or BYOK credential,
-matching the Claude Code plugin's model-to-credential dispatch.
-Codex does not load third-party slash-command files, so the installer ships the
-router directives as native Codex skills: `$force-model <model-id>` (alias
-`$fm <model-id>`), `$unforce-model` (alias `$ufm`), and
-`$router-feedback <text>` (alias `$rf <text>`). Each skill runs a local
-`scripts/emit.sh` that prints the leading-space directive (for example,
-` /force-model gpt-5.6-terra`); the router intercepts that exec output.
-You can type that form directly instead. Re-install
-and `--uninstall --codex` rewrite/remove only the managed block, leaving the
-rest of your Codex config untouched. Codex also gets `$router-status`,
-`$router-off`, `$router-on`, and `$router-models` as skills that call this
-installer's own verbs. Invoke `$disable-routing` (or `$router-off`) to switch the
-next Codex session back to its normal provider, or run
-`npx @weave-os/router disable-routing` in a shell; a literal
-`/disable-routing` is not a third-party extension point in Codex.
-
-**opencode.** `npx @weave-os/router --opencode` merges a `provider.weave`
-entry into `~/.config/opencode/opencode.json` (or `<repo>/opencode.json`
-with `--scope project`). It uses opencode's bundled `@ai-sdk/anthropic`
-provider pointed at the router's `/v1` endpoint — the router speaks the
-Anthropic Messages API natively, so opencode works unmodified. The router
-key and identity headers ride alongside the provider config; re-install
-rewrites only the managed block and `--uninstall --opencode` strips it.
-
-**pi.** `npx @weave-os/router --pi` keeps stock pi as the runtime and installs
-the router's pi extension. It adds the Loom header, Wooly's animated terminal
-mascot, a persistent `WEAVE ROUTER` route/savings line, `/fm` + `/ufm`
-model-pin commands with a `[forced]` status, and context-isolated subagents
-without shipping or maintaining a forked pi binary.
-
-**Cursor** *(early beta, performance may not be the best).* Settings →
-Models → *Override OpenAI Base URL* → `http://localhost:8080/v1`, paste
-`rk_...` as the API key.
-
-**Switching on/off.** After installing, `npx @weave-os/router off --claude`
-(or `--codex` / `--opencode`) routes that client straight to its provider
-again without discarding the router config; `on` flips it back, and `status`
-reports which way it's pointing. Claude Code also gets `/router-off`,
-`/router-on`, and `/router-status` slash commands. Cursor toggles via the same
-Settings → Models override above. See [install/README.md](install/README.md#switching-on-and-off).
-
-**Choosing which models the router may pick.** `npx @weave-os/router models
---claude` lists every deployed model with its on/off state, and `models enable`
-/ `models disable` change it — the same setting as the dashboard's settings
-page, edited from the terminal. Claude Code gets this as `/router-models`
-(alias `/models`). Requires a router that serves the model-selection API;
-against the Weave-hosted router the list still prints and points you at the
-dashboard, where selection is an organization-wide setting. See
-[install/README.md](install/README.md#choosing-which-models-the-router-may-pick).
-
-> Two keys, don't mix them up:
-> - `sk-or-...` / `sk-ant-...` / `sk-...` = your **upstream** provider key. Lives in `.env.local`.
-> - `rk_...` = your **router** key. Clients send this as a Bearer token.
-
-## Endpoints
-
-| Endpoint                       | Format                                   |
-| ------------------------------ | ---------------------------------------- |
-| `POST /v1/messages`            | Anthropic Messages, routed               |
-| `POST /v1/chat/completions`    | OpenAI Chat Completions, routed          |
-| `POST /v1beta/models/:action`  | Gemini `generateContent`, routed         |
-| `POST /v1/route`               | Returns the decision, no upstream call   |
-| `GET /v1/models` &nbsp;·&nbsp; `POST /v1/messages/count_tokens` | Anthropic passthrough |
-| `GET /health` &nbsp;·&nbsp; `GET /readyz` &nbsp;·&nbsp; `GET /validate` | liveness + dependency readiness + key check |
-| `GET /v1/sessions/:session_id/cost` | One session's committed cost + savings, scoped to your key |
-| `GET /v1/analytics/routing-decisions` | Raw routing decisions as cursor-paginated NDJSON ([docs](docs/ANALYTICS_EXPORT.md)) |
-| `GET /v1/analytics/schema` &nbsp;·&nbsp; `GET /v1/analytics/models` | Export field dictionary + price book |
-
-Keep liveness probes on `/health`. Point startup or readiness probes at
-`/readyz` when configured policy sidecars must be ready before traffic arrives.
-
-Routed non-stream responses include `x-router-cost-usd`,
-`x-router-cost-input-usd`, `x-router-cost-output-usd`,
-`x-router-cache-read-tokens`, and `x-router-cache-creation-tokens`. Streaming
-responses cannot carry the final cost in HTTP headers because headers flush
-before usage is known; stream clients should read the `weave_cost` object on
-the final Anthropic `message_delta` usage event.
-
-## Deeper docs
-
-- 📐 [**Configuration reference**](docs/CONFIGURATION.md): every env var,
-  BYOK encryption, OTel knobs, cluster routing.
-- 🧭 [**Semantics and terminology**](docs/SEMANTICS.md): canonical definitions
-  for session, round, turn, action, and step.
-- 📊 [**Analytics export**](docs/ANALYTICS_EXPORT.md): pulling raw routing
-  decisions into your own warehouse with a read-only key.
-- [**Policy router harness**](docs/POLICY_ROUTER_HARNESS.md): contract and
-  rollout checklist for adding an out-of-process policy model.
-- 🛠️ [**Contributing**](CONTRIBUTING.md): layering rules, hot-reload dev,
-  migrations, tests, the whole engineering loop.
-- 🏗️ [**Architecture**](AGENTS.md): package layout, import contracts,
-  recipes for adding endpoints / providers / strategies.
-
+- 面向 token 的限流（按 installation 使用 Redis 滑动窗口）
+- 支持租户层级的子 installation
+- 推测性分发 + 级联兜底，降低尾延迟
 
 ---
 
