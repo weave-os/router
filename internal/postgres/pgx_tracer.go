@@ -5,14 +5,13 @@ import (
 	"errors"
 	"regexp"
 
-	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
-	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
+	semconv "go.opentelemetry.io/otel/semconv/v1.40.0"
 	"go.opentelemetry.io/otel/trace"
 )
 
@@ -26,9 +25,7 @@ var (
 
 	pgxOperationTypeKey     = attribute.Key("pgx.operation.type")
 	pgxPoolConnOperationKey = attribute.Key("pgx.pool.operation")
-	dbStatusCodeKey         = attribute.Key("db.response.status_code")
 	dbPIDKey                = attribute.Key("db.client.connection.pid")
-	dbQueryIDKey            = attribute.Key("db.query.id")
 	dbQueryCommandTagKey    = attribute.Key("db.query.command.tag")
 	sqlcQueryNameKey        = attribute.Key("sqlc.query.name")
 	sqlcQueryCommandKey     = attribute.Key("sqlc.query.command")
@@ -74,14 +71,19 @@ func newPGXTracer(databaseName string, provider trace.TracerProvider) (*pgxTrace
 }
 
 func (t *pgxTracer) TraceQueryStart(ctx context.Context, conn *pgx.Conn, data pgx.TraceQueryStartData) context.Context {
+	ctx, span := t.provider.Tracer(tracerName).Start(ctx, "postgresql.query", trace.WithSpanKind(trace.SpanKindClient))
+	ctx = context.WithValue(ctx, queryTraceKey{}, queryTrace{span: span})
+	if !span.IsRecording() {
+		return ctx
+	}
+
 	metadata := queryMetadataFromSQL(data.SQL)
-	spanName := "postgresql.query"
 	if metadata != nil {
-		spanName += " " + metadata.name
+		span.SetName("postgresql.query " + metadata.name)
 	}
 
 	attrs := []attribute.KeyValue{
-		semconv.DBSystemPostgreSQL,
+		semconv.DBSystemNamePostgreSQL,
 		semconv.DBNamespace(t.databaseName),
 		pgxOperationTypeKey.String("query"),
 		dbPIDKey.Int(int(connectionPID(conn))),
@@ -91,15 +93,12 @@ func (t *pgxTracer) TraceQueryStart(ctx context.Context, conn *pgx.Conn, data pg
 		attrs = append(attrs,
 			sqlcQueryNameKey.String(metadata.name),
 			sqlcQueryCommandKey.String(metadata.command),
-			semconv.DBOperationName(metadata.name),
+			semconv.DBQuerySummary(metadata.name),
 		)
 	}
 
-	ctx, span := t.provider.Tracer(tracerName).Start(ctx, spanName,
-		trace.WithSpanKind(trace.SpanKindClient),
-		trace.WithAttributes(attrs...),
-	)
-	return context.WithValue(ctx, queryTraceKey{}, queryTrace{span: span})
+	span.SetAttributes(attrs...)
+	return ctx
 }
 
 func (t *pgxTracer) TraceQueryEnd(ctx context.Context, _ *pgx.Conn, data pgx.TraceQueryEndData) {
@@ -108,25 +107,28 @@ func (t *pgxTracer) TraceQueryEnd(ctx context.Context, _ *pgx.Conn, data pgx.Tra
 		return
 	}
 	defer traceData.span.End()
+	if !traceData.span.IsRecording() {
+		return
+	}
 
 	recordSpanError(traceData.span, data.Err)
 	if data.Err == nil {
 		traceData.span.SetStatus(codes.Ok, "")
 		traceData.span.SetAttributes(dbQueryCommandTagKey.String(data.CommandTag.String()))
 	}
-	traceData.span.SetAttributes(dbQueryIDKey.String(uuid.NewString()))
 }
 
 func (t *pgxTracer) TraceAcquireStart(ctx context.Context, _ *pgxpool.Pool, _ pgxpool.TraceAcquireStartData) context.Context {
-	ctx, span := t.provider.Tracer(tracerName).Start(ctx, "pgxpool.acquire",
-		trace.WithSpanKind(trace.SpanKindClient),
-		trace.WithAttributes(
-			semconv.DBSystemPostgreSQL,
+	ctx, span := t.provider.Tracer(tracerName).Start(ctx, "pgxpool.acquire", trace.WithSpanKind(trace.SpanKindClient))
+	ctx = context.WithValue(ctx, acquireTraceKey{}, acquireTrace{span: span})
+	if span.IsRecording() {
+		span.SetAttributes(
+			semconv.DBSystemNamePostgreSQL,
 			semconv.DBNamespace(t.databaseName),
 			pgxPoolConnOperationKey.String("acquire"),
-		),
-	)
-	return context.WithValue(ctx, acquireTraceKey{}, acquireTrace{span: span})
+		)
+	}
+	return ctx
 }
 
 func (t *pgxTracer) TraceAcquireEnd(ctx context.Context, _ *pgxpool.Pool, data pgxpool.TraceAcquireEndData) {
@@ -135,6 +137,9 @@ func (t *pgxTracer) TraceAcquireEnd(ctx context.Context, _ *pgxpool.Pool, data p
 		return
 	}
 	defer traceData.span.End()
+	if !traceData.span.IsRecording() {
+		return
+	}
 
 	recordSpanError(traceData.span, data.Err)
 	if data.Err == nil {
@@ -167,6 +172,6 @@ func recordSpanError(span trace.Span, err error) {
 
 	var pgErr *pgconn.PgError
 	if errors.As(err, &pgErr) {
-		span.SetAttributes(dbStatusCodeKey.String(pgErr.Code))
+		span.SetAttributes(semconv.DBResponseStatusCode(pgErr.Code))
 	}
 }

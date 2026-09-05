@@ -6466,7 +6466,9 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		prep, emitErr := env.PrepareGemini(r.Header, opts)
 		if emitErr != nil {
 			log.Error("Failed to translate OpenAI request to Gemini format", "err", emitErr)
-			return fmt.Errorf("translate openai request to gemini: %w", emitErr)
+			proxyErr = fmt.Errorf("translate openai request to gemini: %w", emitErr)
+			finishInferenceSpan(inferenceSpan, decision, decision.Provider, -1, proxyErr)
+			return proxyErr
 		}
 		// See ProxyMessages' Gemini case: a VALIDATED-mode request can 400 with a
 		// generic INVALID_ARGUMENT when Gemini can't compile a tool schema into
@@ -6518,7 +6520,9 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		prep, emitErr := env.PrepareAnthropic(r.Header, opts)
 		if emitErr != nil {
 			log.Error("Failed to translate OpenAI request to Anthropic format", "err", emitErr)
-			return fmt.Errorf("translate openai request: %w", emitErr)
+			proxyErr = fmt.Errorf("translate openai request: %w", emitErr)
+			finishInferenceSpan(inferenceSpan, decision, decision.Provider, -1, proxyErr)
+			return proxyErr
 		}
 		// One send on the given tier, split into the raw upstream error plus a
 		// finalize thunk so a fast send refused for lack of fast-mode allocation

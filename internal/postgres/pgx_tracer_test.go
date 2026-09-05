@@ -40,14 +40,14 @@ func TestPGXTracerEmitsNamedSQLCQuerySpan(t *testing.T) {
 	span := endedSpanByName(t, recorder.Ended(), "postgresql.query GetInstallation")
 	assert.Equal(t, trace.SpanKindClient, span.SpanKind())
 	assert.Equal(t, parent.SpanContext().SpanID(), span.Parent().SpanID())
-	assert.Equal(t, "postgresql", spanAttribute(t, span.Attributes(), "db.system").AsString())
+	assert.Equal(t, "postgresql", spanAttribute(t, span.Attributes(), "db.system.name").AsString())
 	assert.Equal(t, "router", spanAttribute(t, span.Attributes(), "db.namespace").AsString())
 	assert.Equal(t, "query", spanAttribute(t, span.Attributes(), "pgx.operation.type").AsString())
 	assert.Equal(t, "GetInstallation", spanAttribute(t, span.Attributes(), "sqlc.query.name").AsString())
 	assert.Equal(t, "one", spanAttribute(t, span.Attributes(), "sqlc.query.command").AsString())
-	assert.Equal(t, "GetInstallation", spanAttribute(t, span.Attributes(), "db.operation.name").AsString())
+	assert.Equal(t, "GetInstallation", spanAttribute(t, span.Attributes(), "db.query.summary").AsString())
+	assert.False(t, hasSpanAttribute(span.Attributes(), "db.operation.name"))
 	assert.Equal(t, "SELECT 1", spanAttribute(t, span.Attributes(), "db.query.command.tag").AsString())
-	assert.NotEmpty(t, spanAttribute(t, span.Attributes(), "db.query.id").AsString())
 	assert.Contains(t, spanAttribute(t, span.Attributes(), "db.query.text").AsString(), "router.installations")
 	assert.Equal(t, sdktrace.Status{Code: codes.Ok}, span.Status())
 }
@@ -110,4 +110,13 @@ func spanAttribute(t *testing.T, attrs []attribute.KeyValue, key string) attribu
 	}
 	require.FailNow(t, "span attribute not found", "key=%s", key)
 	return attribute.Value{}
+}
+
+func hasSpanAttribute(attrs []attribute.KeyValue, key string) bool {
+	for _, attr := range attrs {
+		if string(attr.Key) == key {
+			return true
+		}
+	}
+	return false
 }
