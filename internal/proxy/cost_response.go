@@ -85,8 +85,8 @@ func routerCostCalculatorFor(model, provider string, fast bool) routerCostCalcul
 }
 
 func routerResponseCostFromPricing(pricing catalog.Pricing, provider string, inputTokens, outputTokens, cacheCreationTokens, cacheReadTokens int) routerResponseCost {
-	inputUSD := catalog.EffectiveInputCost(inputTokens, cacheCreationTokens, cacheReadTokens, pricing.InputUSDPer1M, pricing, provider)
-	outputUSD := catalog.EffectiveOutputCost(outputTokens, pricing.OutputUSDPer1M)
+	inputUSD := catalog.EffectiveInputCost(inputTokens, cacheCreationTokens, cacheReadTokens, pricing, provider)
+	outputUSD := catalog.EffectiveOutputCost(inputTokens, outputTokens, pricing)
 	return routerResponseCost{
 		TotalUSD:            roundUSD(inputUSD + outputUSD),
 		InputUSD:            roundUSD(inputUSD),

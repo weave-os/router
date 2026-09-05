@@ -54,6 +54,12 @@ func TestCatalog_BindingsHavePositivePrice(t *testing.T) {
 		for i, b := range m.Providers {
 			assert.Greaterf(t, b.Price.InputUSDPer1M, 0.0, "%s binding %d (%s) has non-positive InputUSDPer1M", m.ID, i, b.Provider)
 			assert.Greaterf(t, b.Price.OutputUSDPer1M, 0.0, "%s binding %d (%s) has non-positive OutputUSDPer1M", m.ID, i, b.Provider)
+			if b.Price.LongContext != nil {
+				assert.Greaterf(t, b.Price.LongContext.ThresholdTokens, 0, "%s binding %d (%s) has non-positive long-context threshold", m.ID, i, b.Provider)
+				assert.Greaterf(t, b.Price.LongContext.InputUSDPer1M, 0.0, "%s binding %d (%s) has non-positive long-context input price", m.ID, i, b.Provider)
+				assert.Greaterf(t, b.Price.LongContext.OutputUSDPer1M, 0.0, "%s binding %d (%s) has non-positive long-context output price", m.ID, i, b.Provider)
+				assert.Lessf(t, b.Price.LongContext.ThresholdTokens, ContextWindowFor(m.ID), "%s binding %d (%s) long-context threshold must be below its context window", m.ID, i, b.Provider)
+			}
 		}
 	}
 }
@@ -151,8 +157,8 @@ func TestGPT56ProCatalogRowsAreDirectOpenAIRoutable(t *testing.T) {
 		inputUSDPer1M  float64
 		outputUSDPer1M float64
 	}{
-		{"gpt-5.6-luna-pro", "gpt-5.6-luna", 1.00, 6.00},
-		{"gpt-5.6-sol-pro", "gpt-5.6-sol", 5.00, 30.00},
+		{"gpt-5.6-luna-pro", "gpt-5.6-luna", 0.20, 1.20},
+		{"gpt-5.6-sol-pro", "gpt-5.6-sol", 4.00, 20.00},
 	}
 
 	for _, tc := range cases {
@@ -170,6 +176,8 @@ func TestGPT56ProCatalogRowsAreDirectOpenAIRoutable(t *testing.T) {
 			assert.Equal(t, tc.inputUSDPer1M, binding.Price.InputUSDPer1M)
 			assert.Equal(t, tc.outputUSDPer1M, binding.Price.OutputUSDPer1M)
 			assert.Equal(t, 0.10, binding.Price.CacheReadMultiplier)
+			require.NotNil(t, binding.Price.LongContext)
+			assert.Equal(t, 272_000, binding.Price.LongContext.ThresholdTokens)
 		})
 	}
 }
@@ -521,8 +529,8 @@ func TestAnthropicGatewayPricesCacheReadsLikeDirectAnthropic(t *testing.T) {
 
 			assert.InDelta(t, 0.10, gateway.CacheReadMultiplier, 1e-9)
 			assert.InDelta(t,
-				EffectiveInputCost(0, 0, 1_000_000, direct.InputUSDPer1M, direct, providers.ProviderAnthropic),
-				EffectiveInputCost(0, 0, 1_000_000, gateway.InputUSDPer1M, gateway, providers.ProviderAnthropicGateway),
+				EffectiveInputCost(0, 0, 1_000_000, direct, providers.ProviderAnthropic),
+				EffectiveInputCost(0, 0, 1_000_000, gateway, providers.ProviderAnthropicGateway),
 				1e-9,
 			)
 		})

@@ -323,8 +323,8 @@ func warnOnUnknownPricing(p DebitInferenceParams) {
 // computeNotionalMicros returns the would-be charge in USD micros,
 // regardless of override status, for the shadow billing trail.
 func computeNotionalMicros(p DebitInferenceParams) int64 {
-	inUSD := catalog.EffectiveInputCost(p.InputTokens, p.CacheCreation, p.CacheRead, p.Pricing.InputUSDPer1M, p.Pricing, p.Provider)
-	outUSD := catalog.EffectiveOutputCost(p.OutputTokens, p.Pricing.OutputUSDPer1M)
+	inUSD := catalog.EffectiveInputCost(p.InputTokens, p.CacheCreation, p.CacheRead, p.Pricing, p.Provider)
+	outUSD := catalog.EffectiveOutputCost(p.InputTokens, p.OutputTokens, p.Pricing)
 	return catalog.USDToMicros(inUSD + outUSD)
 }
 

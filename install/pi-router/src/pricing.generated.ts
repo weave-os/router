@@ -7,7 +7,7 @@ export interface ModelPricing {
 	cacheReadMultiplier: number;
 }
 
-export const PRICING_VERSION = "catalog-sha256:e5e9b295d340284b";
+export const PRICING_VERSION = "catalog-sha256:a96c21de7b4ad8ef";
 
 export const MODEL_PRICING: Readonly<Record<string, ModelPricing>> = Object.freeze({
 	"claude-fable-5": { inputUsdPerMillion: 10, outputUsdPerMillion: 50, cacheReadMultiplier: 0.1 },
@@ -58,11 +58,11 @@ export const MODEL_PRICING: Readonly<Record<string, ModelPricing>> = Object.free
 	"gpt-5.5-mini": { inputUsdPerMillion: 0.5, outputUsdPerMillion: 2.5, cacheReadMultiplier: 0.1 },
 	"gpt-5.5-nano": { inputUsdPerMillion: 0.15, outputUsdPerMillion: 0.6, cacheReadMultiplier: 0.1 },
 	"gpt-5.5-pro": { inputUsdPerMillion: 30, outputUsdPerMillion: 180, cacheReadMultiplier: 1 },
-	"gpt-5.6-luna": { inputUsdPerMillion: 1, outputUsdPerMillion: 6, cacheReadMultiplier: 0.1 },
-	"gpt-5.6-luna-pro": { inputUsdPerMillion: 1, outputUsdPerMillion: 6, cacheReadMultiplier: 0.1 },
-	"gpt-5.6-sol": { inputUsdPerMillion: 5, outputUsdPerMillion: 30, cacheReadMultiplier: 0.1 },
-	"gpt-5.6-sol-pro": { inputUsdPerMillion: 5, outputUsdPerMillion: 30, cacheReadMultiplier: 0.1 },
-	"gpt-5.6-terra": { inputUsdPerMillion: 2.5, outputUsdPerMillion: 15, cacheReadMultiplier: 0.1 },
+	"gpt-5.6-luna": { inputUsdPerMillion: 0.2, outputUsdPerMillion: 1.2, cacheReadMultiplier: 0.1 },
+	"gpt-5.6-luna-pro": { inputUsdPerMillion: 0.2, outputUsdPerMillion: 1.2, cacheReadMultiplier: 0.1 },
+	"gpt-5.6-sol": { inputUsdPerMillion: 4, outputUsdPerMillion: 20, cacheReadMultiplier: 0.1 },
+	"gpt-5.6-sol-pro": { inputUsdPerMillion: 4, outputUsdPerMillion: 20, cacheReadMultiplier: 0.1 },
+	"gpt-5.6-terra": { inputUsdPerMillion: 2, outputUsdPerMillion: 12, cacheReadMultiplier: 0.1 },
 	"gpt-6-astra": { inputUsdPerMillion: 10, outputUsdPerMillion: 50, cacheReadMultiplier: 0.1 },
 	"grok-4.5": { inputUsdPerMillion: 2, outputUsdPerMillion: 6, cacheReadMultiplier: 0.25 },
 	"grok-4.6": { inputUsdPerMillion: 2, outputUsdPerMillion: 6, cacheReadMultiplier: 0.25 },

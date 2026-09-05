@@ -1359,8 +1359,9 @@ func (s *Service) runTurnLoop(
 		if pinFound {
 			activePin = pin
 		}
+		plannerTokens := s.plannerTokensFor(env, feats)
 		res.AuthorityShadow = s.authorityCacheShadowFor(
-			ctx, req, activePin, hmmHistory, fresh, s.plannerTokensFor(env, feats), prefixBroken,
+			ctx, req, activePin, hmmHistory, fresh, plannerTokens, prefixBroken,
 		)
 		s.logAuthorityCacheShadow(ctx, res)
 		// Upgrade-confidence guard: authoritative selection bypasses the HMM
@@ -1369,7 +1370,7 @@ func (s *Service) runTurnLoop(
 		// confidence >= threshold; below it the session stays on its pin.
 		// Unscored decisions, downgrades, and unpinned turns pass through.
 		if s.ResolveAuthoritativeUpgradeGate(ctx) && pinFound && pin.Model != "" && pin.Model != fresh.Model &&
-			hmmFreshIsMoreExpensive(pin.Model, fresh.Model, req.SubsidizedModelCostFactor) {
+			hmmFreshIsMoreExpensive(pin.Model, fresh.Model, plannerTokens, req.SubsidizedModelCostFactor) {
 			if confidence, ok := hmmDecisionConfidence(fresh); ok && confidence < s.hmmUpgradeConfidenceThreshold {
 				decision := pinDecision(pin)
 				res.Decision = decision
@@ -1637,7 +1638,7 @@ func (s *Service) hmmCostGatedDecision(
 		SubsidizedCostFactor:  req.SubsidizedModelCostFactor,
 	}, cfg)
 
-	if hmmFreshIsMoreExpensive(stayPin.Model, fresh.Model, req.SubsidizedModelCostFactor) {
+	if hmmFreshIsMoreExpensive(stayPin.Model, fresh.Model, estimatedInputTokens, req.SubsidizedModelCostFactor) {
 		confidence, ok := hmmDecisionConfidence(fresh)
 		if ok && confidence >= s.hmmUpgradeConfidenceThreshold {
 			base.Outcome = planner.OutcomeSwitch
@@ -1930,17 +1931,18 @@ func hmmDecisionConfidence(dec router.Decision) (float64, bool) {
 	return confidence, true
 }
 
-func hmmFreshIsMoreExpensive(stayModel, freshModel string, factors map[string]float64) bool {
-	stay, okStay := hmmEffectiveInputUSDPer1M(stayModel, factors)
-	fresh, okFresh := hmmEffectiveInputUSDPer1M(freshModel, factors)
+func hmmFreshIsMoreExpensive(stayModel, freshModel string, inputTokens int, factors map[string]float64) bool {
+	stay, okStay := hmmEffectiveInputUSDPer1M(stayModel, inputTokens, factors)
+	fresh, okFresh := hmmEffectiveInputUSDPer1M(freshModel, inputTokens, factors)
 	return okStay && okFresh && fresh > stay
 }
 
-func hmmEffectiveInputUSDPer1M(model string, factors map[string]float64) (float64, bool) {
+func hmmEffectiveInputUSDPer1M(model string, inputTokens int, factors map[string]float64) (float64, bool) {
 	price, ok := catalog.PrimaryPriceFor(model)
 	if !ok {
 		return 0, false
 	}
+	price = price.ForInputTokens(inputTokens)
 	value := price.InputUSDPer1M
 	if factor, covered := factors[model]; covered {
 		value *= factor

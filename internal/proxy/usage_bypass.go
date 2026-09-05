@@ -361,8 +361,8 @@ func (s *Service) bypassToAnthropic(
 	if !env.Stream() && proxyErr == nil {
 		setRouterCostHeaders(w.Header(), routerResponseCostFromPricing(pricing, decision.Provider, in, out, cacheCreation, cacheRead))
 	}
-	inputCost := catalog.EffectiveInputCost(in, cacheCreation, cacheRead, pricing.InputUSDPer1M, pricing, decision.Provider)
-	outputCost := catalog.EffectiveOutputCost(out, pricing.OutputUSDPer1M)
+	inputCost := catalog.EffectiveInputCost(in, cacheCreation, cacheRead, pricing, decision.Provider)
+	outputCost := catalog.EffectiveOutputCost(in, out, pricing)
 
 	// Same identity block as the routed upstream span so Weave groups bypass turns by user/session.
 	clientID := ClientIdentityFrom(ctx)

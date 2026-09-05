@@ -28,9 +28,9 @@ func TestLookup(t *testing.T) {
 
 		// ── OpenAI GPT-5.5 ─────────────────────────────────────
 		{name: "gpt-6-astra", model: "gpt-6-astra", wantInput: 10.00, wantOutput: 50.00},
-		{name: "gpt-5.6-sol", model: "gpt-5.6-sol", wantInput: 5.00, wantOutput: 30.00},
-		{name: "gpt-5.6-terra", model: "gpt-5.6-terra", wantInput: 2.50, wantOutput: 15.00},
-		{name: "gpt-5.6-luna", model: "gpt-5.6-luna", wantInput: 1.00, wantOutput: 6.00},
+		{name: "gpt-5.6-sol", model: "gpt-5.6-sol", wantInput: 4.00, wantOutput: 20.00},
+		{name: "gpt-5.6-terra", model: "gpt-5.6-terra", wantInput: 2.00, wantOutput: 12.00},
+		{name: "gpt-5.6-luna", model: "gpt-5.6-luna", wantInput: 0.20, wantOutput: 1.20},
 		{name: "gpt-5.5", model: "gpt-5.5", wantInput: 5.00, wantOutput: 30.00},
 		{name: "gpt-5.5-pro", model: "gpt-5.5-pro", wantInput: 30.00, wantOutput: 180.00},
 		{name: "gpt-5.5-mini", model: "gpt-5.5-mini", wantInput: 0.50, wantOutput: 2.50},

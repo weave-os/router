@@ -3463,6 +3463,8 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 
 	reqPricing := otel.Lookup(s.baselineFor(feats.Model))
 	actPricing := otel.Lookup(decision.Model)
+	reqDecisionPricing := reqPricing.ForInputTokens(feats.Tokens)
+	actDecisionPricing := actPricing.ForInputTokens(feats.Tokens)
 	decisionBuilder := otel.NewAttrBuilder(45).
 		String("request_id", requestID).
 		String("external_id", externalID).
@@ -3485,10 +3487,10 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		String("routing.embed_input", embedInput).
 		Int64("routing.estimated_input_tokens", int64(feats.Tokens)).
 		IntSlice("routing.cluster_ids", clusterIDsFromDecision(decision)).
-		Float64("catalog.requested_input_per_1m", reqPricing.InputUSDPer1M).
-		Float64("catalog.requested_output_per_1m", reqPricing.OutputUSDPer1M).
-		Float64("catalog.actual_input_per_1m", actPricing.InputUSDPer1M).
-		Float64("catalog.actual_output_per_1m", actPricing.OutputUSDPer1M).
+		Float64("catalog.requested_input_per_1m", reqDecisionPricing.InputUSDPer1M).
+		Float64("catalog.requested_output_per_1m", reqDecisionPricing.OutputUSDPer1M).
+		Float64("catalog.actual_input_per_1m", actDecisionPricing.InputUSDPer1M).
+		Float64("catalog.actual_output_per_1m", actDecisionPricing.OutputUSDPer1M).
 		Int64("latency.route_ms", routeMs)
 	applySidecarAttrs(decisionBuilder, routeRes)
 	applyPlannerAttrs(decisionBuilder, routeRes)
@@ -4308,10 +4310,10 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		Int64("usage.output_tokens", int64(out)).
 		Int64("usage.cache_creation_input_tokens", int64(cacheCreation)).
 		Int64("usage.cache_read_input_tokens", int64(cacheRead)).
-		Float64("cost.requested_input_usd", catalog.EffectiveInputCost(in, cacheCreation, cacheRead, reqPricing.InputUSDPer1M, reqPricing, decision.Provider)).
-		Float64("cost.requested_output_usd", catalog.EffectiveOutputCost(out, reqPricing.OutputUSDPer1M)).
-		Float64("cost.actual_input_usd", catalog.EffectiveInputCost(in, cacheCreation, cacheRead, actPricing.InputUSDPer1M, actPricing, decision.Provider)).
-		Float64("cost.actual_output_usd", catalog.EffectiveOutputCost(out, actPricing.OutputUSDPer1M)).
+		Float64("cost.requested_input_usd", catalog.EffectiveInputCost(in, cacheCreation, cacheRead, reqPricing, decision.Provider)).
+		Float64("cost.requested_output_usd", catalog.EffectiveOutputCost(in, out, reqPricing)).
+		Float64("cost.actual_input_usd", catalog.EffectiveInputCost(in, cacheCreation, cacheRead, actPricing, decision.Provider)).
+		Float64("cost.actual_output_usd", catalog.EffectiveOutputCost(in, out, actPricing)).
 		Bool("cost.subscription_served", servedOnSubscription(ctx)).
 		Bool("cost.fast_mode", fastServed).
 		Int64("latency.upstream_ms", proxyMs).
@@ -4391,10 +4393,10 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			EmbedInput:             embedInput,
 			InputTokens:            int32(in),
 			OutputTokens:           int32(out),
-			RequestedInputCostUSD:  catalog.EffectiveInputCost(in, cacheCreation, cacheRead, reqPricing.InputUSDPer1M, reqPricing, decision.Provider),
-			RequestedOutputCostUSD: catalog.EffectiveOutputCost(out, reqPricing.OutputUSDPer1M),
-			ActualInputCostUSD:     catalog.EffectiveInputCost(in, cacheCreation, cacheRead, actPricing.InputUSDPer1M, actPricing, decision.Provider),
-			ActualOutputCostUSD:    catalog.EffectiveOutputCost(out, actPricing.OutputUSDPer1M),
+			RequestedInputCostUSD:  catalog.EffectiveInputCost(in, cacheCreation, cacheRead, reqPricing, decision.Provider),
+			RequestedOutputCostUSD: catalog.EffectiveOutputCost(in, out, reqPricing),
+			ActualInputCostUSD:     catalog.EffectiveInputCost(in, cacheCreation, cacheRead, actPricing, decision.Provider),
+			ActualOutputCostUSD:    catalog.EffectiveOutputCost(in, out, actPricing),
 			RouteLatencyMs:         routeMs,
 			UpstreamLatencyMs:      proxyMs,
 			TotalLatencyMs:         time.Since(requestStart).Milliseconds(),
@@ -4939,8 +4941,8 @@ func (s *Service) reportPolicyOutcome(ctx context.Context, res turnLoopResult, d
 		payload["error"] = proxyErr.Error()
 	}
 	if price, ok := servedPricing(finalProvider, decision.Model, servedFast); ok {
-		inputCost := catalog.EffectiveInputCost(inputTokens, cacheCreation, cacheRead, price.InputUSDPer1M, price, finalProvider)
-		outputCost := catalog.EffectiveOutputCost(outputTokens, price.OutputUSDPer1M)
+		inputCost := catalog.EffectiveInputCost(inputTokens, cacheCreation, cacheRead, price, finalProvider)
+		outputCost := catalog.EffectiveOutputCost(inputTokens, outputTokens, price)
 		payload["cost_usd"] = inputCost + outputCost
 	}
 	log := observability.FromContext(ctx).With("route_id", routeMetadata.RouteID)
@@ -6050,6 +6052,8 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 
 	reqPricing := otel.Lookup(s.baselineFor(feats.Model))
 	actPricing := otel.Lookup(decision.Model)
+	reqDecisionPricing := reqPricing.ForInputTokens(feats.Tokens)
+	actDecisionPricing := actPricing.ForInputTokens(feats.Tokens)
 	openaiDecisionBuilder := otel.NewAttrBuilder(45).
 		String("request_id", requestID).
 		String("external_id", externalID).
@@ -6072,10 +6076,10 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		String("routing.embed_input", embedInput).
 		Int64("routing.estimated_input_tokens", int64(feats.Tokens)).
 		IntSlice("routing.cluster_ids", clusterIDsFromDecision(decision)).
-		Float64("catalog.requested_input_per_1m", reqPricing.InputUSDPer1M).
-		Float64("catalog.requested_output_per_1m", reqPricing.OutputUSDPer1M).
-		Float64("catalog.actual_input_per_1m", actPricing.InputUSDPer1M).
-		Float64("catalog.actual_output_per_1m", actPricing.OutputUSDPer1M).
+		Float64("catalog.requested_input_per_1m", reqDecisionPricing.InputUSDPer1M).
+		Float64("catalog.requested_output_per_1m", reqDecisionPricing.OutputUSDPer1M).
+		Float64("catalog.actual_input_per_1m", actDecisionPricing.InputUSDPer1M).
+		Float64("catalog.actual_output_per_1m", actDecisionPricing.OutputUSDPer1M).
 		Int64("latency.route_ms", routeMs)
 	applySidecarAttrs(openaiDecisionBuilder, routeRes)
 	applyPlannerAttrs(openaiDecisionBuilder, routeRes)
@@ -6622,10 +6626,10 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		Int64("usage.output_tokens", int64(out)).
 		Int64("usage.cache_creation_input_tokens", int64(cacheCreation)).
 		Int64("usage.cache_read_input_tokens", int64(cacheRead)).
-		Float64("cost.requested_input_usd", catalog.EffectiveInputCost(in, cacheCreation, cacheRead, reqPricing.InputUSDPer1M, reqPricing, decision.Provider)).
-		Float64("cost.requested_output_usd", catalog.EffectiveOutputCost(out, reqPricing.OutputUSDPer1M)).
-		Float64("cost.actual_input_usd", catalog.EffectiveInputCost(in, cacheCreation, cacheRead, actPricing.InputUSDPer1M, actPricing, decision.Provider)).
-		Float64("cost.actual_output_usd", catalog.EffectiveOutputCost(out, actPricing.OutputUSDPer1M)).
+		Float64("cost.requested_input_usd", catalog.EffectiveInputCost(in, cacheCreation, cacheRead, reqPricing, decision.Provider)).
+		Float64("cost.requested_output_usd", catalog.EffectiveOutputCost(in, out, reqPricing)).
+		Float64("cost.actual_input_usd", catalog.EffectiveInputCost(in, cacheCreation, cacheRead, actPricing, decision.Provider)).
+		Float64("cost.actual_output_usd", catalog.EffectiveOutputCost(in, out, actPricing)).
 		Bool("cost.subscription_served", servedOnSubscription(ctx)).
 		Bool("cost.fast_mode", fastServed).
 		Int64("latency.upstream_ms", proxyMs).
@@ -6706,10 +6710,10 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 			EmbedInput:             embedInput,
 			InputTokens:            int32(in),
 			OutputTokens:           int32(out),
-			RequestedInputCostUSD:  catalog.EffectiveInputCost(in, cacheCreation, cacheRead, reqPricing.InputUSDPer1M, reqPricing, decision.Provider),
-			RequestedOutputCostUSD: catalog.EffectiveOutputCost(out, reqPricing.OutputUSDPer1M),
-			ActualInputCostUSD:     catalog.EffectiveInputCost(in, cacheCreation, cacheRead, actPricing.InputUSDPer1M, actPricing, decision.Provider),
-			ActualOutputCostUSD:    catalog.EffectiveOutputCost(out, actPricing.OutputUSDPer1M),
+			RequestedInputCostUSD:  catalog.EffectiveInputCost(in, cacheCreation, cacheRead, reqPricing, decision.Provider),
+			RequestedOutputCostUSD: catalog.EffectiveOutputCost(in, out, reqPricing),
+			ActualInputCostUSD:     catalog.EffectiveInputCost(in, cacheCreation, cacheRead, actPricing, decision.Provider),
+			ActualOutputCostUSD:    catalog.EffectiveOutputCost(in, out, actPricing),
 			RouteLatencyMs:         routeMs,
 			UpstreamLatencyMs:      proxyMs,
 			TotalLatencyMs:         time.Since(requestStart).Milliseconds(),

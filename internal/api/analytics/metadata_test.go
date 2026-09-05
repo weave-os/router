@@ -57,10 +57,18 @@ func TestModelsHandlerPublishesPrices(t *testing.T) {
 			ID            string `json:"id"`
 			ContextWindow int    `json:"context_window"`
 			Providers     []struct {
-				Provider            string  `json:"provider"`
-				InputUSDPer1M       float64 `json:"input_usd_per_1m"`
-				OutputUSDPer1M      float64 `json:"output_usd_per_1m"`
-				CacheReadMultiplier float64 `json:"cache_read_multiplier"`
+				Provider             string  `json:"provider"`
+				InputUSDPer1M        float64 `json:"input_usd_per_1m"`
+				OutputUSDPer1M       float64 `json:"output_usd_per_1m"`
+				CacheWriteMultiplier float64 `json:"cache_write_multiplier"`
+				CacheReadMultiplier  float64 `json:"cache_read_multiplier"`
+				LongContext          *struct {
+					ThresholdTokens      int     `json:"threshold_tokens"`
+					InputUSDPer1M        float64 `json:"input_usd_per_1m"`
+					OutputUSDPer1M       float64 `json:"output_usd_per_1m"`
+					CacheWriteMultiplier float64 `json:"cache_write_multiplier"`
+					CacheReadMultiplier  float64 `json:"cache_read_multiplier"`
+				} `json:"long_context"`
 			} `json:"providers"`
 		} `json:"models"`
 	}
@@ -72,7 +80,15 @@ func TestModelsHandlerPublishesPrices(t *testing.T) {
 		require.NotEmpty(t, m.Providers, "%s has no provider bindings", m.ID)
 		for _, p := range m.Providers {
 			require.NotEmpty(t, p.Provider)
+			require.Positive(t, p.CacheWriteMultiplier, "%s/%s must publish a usable cache write multiplier", m.ID, p.Provider)
 			require.Positive(t, p.CacheReadMultiplier, "%s/%s must publish a usable cache multiplier", m.ID, p.Provider)
+			if p.LongContext != nil {
+				require.Positive(t, p.LongContext.ThresholdTokens)
+				require.Positive(t, p.LongContext.InputUSDPer1M)
+				require.Positive(t, p.LongContext.OutputUSDPer1M)
+				require.Positive(t, p.LongContext.CacheWriteMultiplier)
+				require.Positive(t, p.LongContext.CacheReadMultiplier)
+			}
 		}
 	}
 }

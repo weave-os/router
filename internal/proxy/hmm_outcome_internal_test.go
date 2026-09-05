@@ -67,8 +67,8 @@ func TestReportPolicyOutcome_UsesFreshMetadataForStickyServedDecision(t *testing
 
 	price, ok := catalog.PriceFor(providers.ProviderAnthropic, "claude-haiku-4-5")
 	require.True(t, ok)
-	wantCost := catalog.EffectiveInputCost(inputTokens, 0, 0, price.InputUSDPer1M, price, providers.ProviderAnthropic) +
-		catalog.EffectiveOutputCost(outputTokens, price.OutputUSDPer1M)
+	wantCost := catalog.EffectiveInputCost(inputTokens, 0, 0, price, providers.ProviderAnthropic) +
+		catalog.EffectiveOutputCost(inputTokens, outputTokens, price)
 
 	select {
 	case payload := <-reporter.ch:

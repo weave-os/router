@@ -80,9 +80,8 @@ func (s *Service) billAuxiliaryInference(ctx context.Context, requestID, request
 		return
 	}
 	clientID := ClientIdentityFrom(ctx)
-	inputCost := catalog.EffectiveInputCost(usage.InputTokens, usage.CacheCreation, usage.CacheRead,
-		pricing.InputUSDPer1M, pricing, usage.Provider)
-	outputCost := catalog.EffectiveOutputCost(usage.OutputTokens, pricing.OutputUSDPer1M)
+	inputCost := catalog.EffectiveInputCost(usage.InputTokens, usage.CacheCreation, usage.CacheRead, pricing, usage.Provider)
+	outputCost := catalog.EffectiveOutputCost(usage.InputTokens, usage.OutputTokens, pricing)
 
 	s.fireTelemetry(InsertTelemetryParams{
 		InstallationID:   installationID.String(),

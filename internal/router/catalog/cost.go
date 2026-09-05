@@ -15,7 +15,8 @@ import (
 //
 // Single source of truth for the proxy's OTel emitter, telemetry write
 // path, and the billing debit hook.
-func EffectiveInputCost(inputTokens, cacheCreation, cacheRead int, pricePer1M float64, p Pricing, upstreamProvider string) float64 {
+func EffectiveInputCost(inputTokens, cacheCreation, cacheRead int, p Pricing, upstreamProvider string) float64 {
+	p = p.ForInputTokens(inputTokens)
 	fresh := inputTokens
 	if upstreamProvider != providers.ProviderAnthropic {
 		fresh = inputTokens - cacheCreation - cacheRead
@@ -25,13 +26,14 @@ func EffectiveInputCost(inputTokens, cacheCreation, cacheRead int, pricePer1M fl
 	}
 	return (float64(fresh) +
 		float64(cacheCreation)*p.EffectiveCacheWriteMultiplier() +
-		float64(cacheRead)*p.EffectiveCacheReadMultiplier()) / 1_000_000 * pricePer1M
+		float64(cacheRead)*p.EffectiveCacheReadMultiplier()) / 1_000_000 * p.InputUSDPer1M
 }
 
 // EffectiveOutputCost returns USD output cost for a call. Output tokens
 // have no caching multipliers — straight tokens × per-1M price.
-func EffectiveOutputCost(outputTokens int, pricePer1M float64) float64 {
-	return float64(outputTokens) / 1_000_000 * pricePer1M
+func EffectiveOutputCost(inputTokens, outputTokens int, p Pricing) float64 {
+	p = p.ForInputTokens(inputTokens)
+	return float64(outputTokens) / 1_000_000 * p.OutputUSDPer1M
 }
 
 // USDToMicros rounds a float64 USD value to BIGINT micros (USD x 1e6) for

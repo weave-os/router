@@ -163,6 +163,8 @@ func Decide(in Inputs, cfg EVConfig) Decision {
 			FreshPriceFallback: freshPriceFallback && ok2,
 		}
 	}
+	pinPrice = pinPrice.ForInputTokens(in.EstimatedInputTokens)
+	freshPrice = freshPrice.ForInputTokens(in.EstimatedInputTokens)
 	// Subscription discount: price a covered model at its subsidized marginal
 	// cost in the EV math too, so a pin on a cheap model correctly switches to a
 	// now-near-free subscription model (and a covered pin is priced cheap to

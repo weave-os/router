@@ -14,10 +14,21 @@ type ModelPrice struct {
 // ProviderPrice is one (provider, model) price binding. The router prefers
 // providers in this order; the first enabled one priced the turn.
 type ProviderPrice struct {
-	Provider            string  `json:"provider"`
-	InputUSDPer1M       float64 `json:"input_usd_per_1m"`
-	OutputUSDPer1M      float64 `json:"output_usd_per_1m"`
-	CacheReadMultiplier float64 `json:"cache_read_multiplier"`
+	Provider             string            `json:"provider"`
+	InputUSDPer1M        float64           `json:"input_usd_per_1m"`
+	OutputUSDPer1M       float64           `json:"output_usd_per_1m"`
+	CacheWriteMultiplier float64           `json:"cache_write_multiplier"`
+	CacheReadMultiplier  float64           `json:"cache_read_multiplier"`
+	LongContext          *LongContextPrice `json:"long_context,omitempty"`
+}
+
+// LongContextPrice is the alternate rate tier above ThresholdTokens.
+type LongContextPrice struct {
+	ThresholdTokens      int     `json:"threshold_tokens"`
+	InputUSDPer1M        float64 `json:"input_usd_per_1m"`
+	OutputUSDPer1M       float64 `json:"output_usd_per_1m"`
+	CacheWriteMultiplier float64 `json:"cache_write_multiplier"`
+	CacheReadMultiplier  float64 `json:"cache_read_multiplier"`
 }
 
 // PriceBook returns current prices for every model the router knows. These are
@@ -28,12 +39,24 @@ func PriceBook() []ModelPrice {
 	for _, m := range catalog.Models {
 		bindings := make([]ProviderPrice, 0, len(m.Providers))
 		for _, b := range m.Providers {
-			bindings = append(bindings, ProviderPrice{
-				Provider:            b.Provider,
-				InputUSDPer1M:       b.Price.InputUSDPer1M,
-				OutputUSDPer1M:      b.Price.OutputUSDPer1M,
-				CacheReadMultiplier: b.Price.EffectiveCacheReadMultiplier(),
-			})
+			price := ProviderPrice{
+				Provider:             b.Provider,
+				InputUSDPer1M:        b.Price.InputUSDPer1M,
+				OutputUSDPer1M:       b.Price.OutputUSDPer1M,
+				CacheWriteMultiplier: b.Price.EffectiveCacheWriteMultiplier(),
+				CacheReadMultiplier:  b.Price.EffectiveCacheReadMultiplier(),
+			}
+			if b.Price.LongContext != nil {
+				long := b.Price.ForInputTokens(b.Price.LongContext.ThresholdTokens + 1)
+				price.LongContext = &LongContextPrice{
+					ThresholdTokens:      b.Price.LongContext.ThresholdTokens,
+					InputUSDPer1M:        long.InputUSDPer1M,
+					OutputUSDPer1M:       long.OutputUSDPer1M,
+					CacheWriteMultiplier: long.EffectiveCacheWriteMultiplier(),
+					CacheReadMultiplier:  long.EffectiveCacheReadMultiplier(),
+				}
+			}
+			bindings = append(bindings, price)
 		}
 		out = append(out, ModelPrice{
 			ID:            m.ID,

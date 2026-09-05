@@ -441,6 +441,7 @@ func splitEffort(armID string) (string, string) {
 }
 
 func estimatedCostUSD(req router.Request, pricing catalog.Pricing) float64 {
+	pricing = pricing.ForInputTokens(req.EstimatedInputTokens)
 	outputTokens := expectedOutputTokens(req)
 	return (float64(req.EstimatedInputTokens)*pricing.InputUSDPer1M +
 		float64(outputTokens)*pricing.OutputUSDPer1M) / 1_000_000
@@ -492,6 +493,7 @@ func (r *Resolver) appendCandidates(base []eligibleCandidate, ctx candidateConte
 		if factor, found := ctx.req.SubsidizedModelCostFactor[ctx.catalogID]; found && factor > 0 {
 			marginalCostFactor = factor
 		}
+		pricing := binding.Price.ForInputTokens(ctx.req.EstimatedInputTokens)
 		base = append(base, eligibleCandidate{Candidate: Candidate{
 			ArmID:                        armID,
 			RosterID:                     ctx.rosterID,
@@ -504,14 +506,14 @@ func (r *Resolver) appendCandidates(base []eligibleCandidate, ctx candidateConte
 			ReasoningConfigurationSHA256: ctx.armContext.ReasoningConfigurationSHA256,
 			ToolConfigurationSHA256:      ctx.armContext.ToolConfigurationSHA256,
 			PreferenceRank:               ctx.preferenceRanks[ctx.catalogID],
-			InputUSDPer1M:                binding.Price.InputUSDPer1M,
-			OutputUSDPer1M:               binding.Price.OutputUSDPer1M,
-			EstimatedCostUSD:             estimatedCostUSD(ctx.req, binding.Price),
-			CacheReadMultiplier:          binding.Price.EffectiveCacheReadMultiplier(),
+			InputUSDPer1M:                pricing.InputUSDPer1M,
+			OutputUSDPer1M:               pricing.OutputUSDPer1M,
+			EstimatedCostUSD:             estimatedCostUSD(ctx.req, pricing),
+			CacheReadMultiplier:          pricing.EffectiveCacheReadMultiplier(),
 			MarginalCostFactor:           marginalCostFactor,
-			EffectiveInputUSDPer1M:       binding.Price.InputUSDPer1M * marginalCostFactor,
-			EffectiveOutputUSDPer1M:      binding.Price.OutputUSDPer1M * marginalCostFactor,
-			EffectiveEstimatedCostUSD:    estimatedCostUSD(ctx.req, binding.Price) * marginalCostFactor,
+			EffectiveInputUSDPer1M:       pricing.InputUSDPer1M * marginalCostFactor,
+			EffectiveOutputUSDPer1M:      pricing.OutputUSDPer1M * marginalCostFactor,
+			EffectiveEstimatedCostUSD:    estimatedCostUSD(ctx.req, pricing) * marginalCostFactor,
 			Capabilities: CandidateCapabilities{
 				ContextWindow:  ctx.contextWindow,
 				Tier:           ctx.model.Tier.String(),

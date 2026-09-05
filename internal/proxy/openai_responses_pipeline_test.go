@@ -129,8 +129,8 @@ func TestService_ProxyOpenAIChatCompletion_ResponsesUsageDebitsBilling(t *testin
 	price, ok := catalog.PriceFor(providers.ProviderOpenAI, "gpt-5.6-luna")
 	require.True(t, ok)
 	want := catalog.USDToMicros(
-		catalog.EffectiveInputCost(40, 0, 32, price.InputUSDPer1M, price, providers.ProviderOpenAI) +
-			catalog.EffectiveOutputCost(6, price.OutputUSDPer1M))
+		catalog.EffectiveInputCost(40, 0, 32, price, providers.ProviderOpenAI) +
+			catalog.EffectiveOutputCost(40, 6, price))
 
 	debits := repo.recordedDebits()
 	require.Len(t, debits, 1, "a served Responses turn must debit exactly once")

@@ -245,6 +245,27 @@ func TestResolverIncludesLiveCandidateEconomics(t *testing.T) {
 	assert.InDelta(t, candidate.EstimatedCostUSD*0.25, candidate.EffectiveEstimatedCostUSD, 1e-12)
 }
 
+func TestResolverUsesLongContextPricing(t *testing.T) {
+	resolver := policy.NewResolver(
+		set("gpt-5.6-luna"),
+		set(providers.ProviderOpenAI),
+		catalogRosterID,
+		policy.ManagedProviderPolicy(),
+	)
+	expectedOutputTokens := 1_000
+
+	resolved := resolver.Resolve(router.Request{
+		EstimatedInputTokens: 300_000,
+		RoutingKnobs:         &router.Overrides{ExpectedOutputTokens: &expectedOutputTokens},
+	})
+
+	require.Len(t, resolved.Candidates, 1)
+	candidate := resolved.Candidates[0]
+	assert.Equal(t, 0.40, candidate.InputUSDPer1M)
+	assert.Equal(t, 1.80, candidate.OutputUSDPer1M)
+	assert.InDelta(t, 0.1218, candidate.EstimatedCostUSD, 1e-12)
+}
+
 func set(values ...string) map[string]struct{} {
 	result := make(map[string]struct{}, len(values))
 	for _, value := range values {
