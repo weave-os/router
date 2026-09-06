@@ -254,7 +254,7 @@ func (s *Service) dispatchWithFallback(ctx context.Context, in failoverInputs) (
 			lease.Release()
 			if attemptErr == nil {
 				if managedAttempt {
-					markManagedSubscriptionServed(ctx)
+					markManagedSubscriptionServed(ctx, credentialCtx)
 				}
 				if i > 0 {
 					log.Info("dispatchWithFallback: succeeded on fallback",

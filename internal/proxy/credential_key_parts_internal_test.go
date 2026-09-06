@@ -56,6 +56,20 @@ func TestCredentialKeyParts_ShortKey(t *testing.T) {
 	assert.Equal(t, credSourceClient, src)
 }
 
+func TestCredentialKeyParts_ManagedSubscriptionSourceOutranksOuterCredential(t *testing.T) {
+	s := &Service{}
+	ctx := WithManagedSubscriptionUsage(ctxWithCreds(&Credentials{APIKey: []byte("byok-token"), Source: credSourceBYOK}))
+	managedCtx := context.WithValue(ctx, CredentialsContextKey{}, &Credentials{
+		APIKey: []byte("managed-token"), Source: credSourceSubscription, OAuth: true,
+	})
+	markManagedSubscriptionServed(ctx, managedCtx)
+
+	prefix, suffix, source := s.credentialKeyParts(ctx)
+	assert.Empty(t, prefix, "managed access tokens must not be copied to outer telemetry")
+	assert.Empty(t, suffix, "managed access tokens must not be copied to outer telemetry")
+	assert.Equal(t, credSourceSubscription, source)
+}
+
 // These string values are a wire contract with the SQL export query; changing them breaks subscription_served.
 func TestCredentialSources_OAuthValuesMatchExportContract(t *testing.T) {
 	assert.Equal(t, "subscription", credSourceSubscription)

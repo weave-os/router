@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"weave-os/router/internal/auth"
@@ -66,8 +67,9 @@ func TestDispatchWithFallbackUsesOnlyMatchingManagedProviderFamily(t *testing.T)
 	recorder := httptest.NewRecorder()
 	buffer := newPreludeBuffer(recorder)
 	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	ctx := managedSubscriptionContext(auth.SubscriptionProviderCodex)
 
-	_, err := svc.dispatchWithFallback(managedSubscriptionContext(auth.SubscriptionProviderCodex), failoverInputs{
+	_, err := svc.dispatchWithFallback(ctx, failoverInputs{
 		w: recorder, buf: buffer,
 		initialDecision: router.Decision{Model: "gpt-5.6-sol", Provider: providers.ProviderOpenAI},
 		bindings:        []catalog.ProviderBinding{{Provider: providers.ProviderOpenAI}},
@@ -81,6 +83,7 @@ func TestDispatchWithFallbackUsesOnlyMatchingManagedProviderFamily(t *testing.T)
 	require.NoError(t, err)
 	require.Equal(t, []subscriptions.Provider{subscriptions.ProviderCodex}, leaser.providers)
 	require.Equal(t, "served", recorder.Body.String())
+	assert.Equal(t, credSourceCodexSubscription, managedSubscriptionCredentialSource(ctx))
 }
 
 func TestDispatchWithFallbackDoesNotCrossManagedProviderFamilies(t *testing.T) {

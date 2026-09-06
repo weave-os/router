@@ -30,7 +30,8 @@ type ManagedSubscriptionUsageContextKey struct{}
 // ManagedSubscriptionUsage is request-local attribution shared by the auth
 // middleware context and provider-specific dispatch attempt contexts.
 type ManagedSubscriptionUsage struct {
-	Served bool
+	Served           bool
+	CredentialSource string
 }
 
 var (
@@ -78,11 +79,22 @@ func managedSubscriptionEnrollmentUnavailable(ctx context.Context) bool {
 	return unavailable
 }
 
-func markManagedSubscriptionServed(ctx context.Context) {
+func markManagedSubscriptionServed(ctx context.Context, credentialCtx context.Context) {
 	usage, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage)
 	if usage != nil {
 		usage.Served = true
+		if creds := CredentialsFromContext(credentialCtx); creds != nil {
+			usage.CredentialSource = creds.Source
+		}
 	}
+}
+
+func managedSubscriptionCredentialSource(ctx context.Context) string {
+	usage, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage)
+	if usage == nil || !usage.Served {
+		return ""
+	}
+	return usage.CredentialSource
 }
 
 func managedSubscriptionServed(ctx context.Context) bool {

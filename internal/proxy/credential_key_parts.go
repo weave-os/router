@@ -10,6 +10,9 @@ import (
 // resolved upstream credential. Empty values mean the turn ran on the deployment
 // key or no credential was resolved.
 func (s *Service) credentialKeyParts(ctx context.Context) (prefix, suffix, source string) {
+	if managedSource := managedSubscriptionCredentialSource(ctx); managedSource != "" {
+		return "", "", managedSource
+	}
 	creds := CredentialsFromContext(ctx)
 	if creds == nil || len(creds.APIKey) == 0 {
 		return "", "", ""
