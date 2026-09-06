@@ -221,7 +221,13 @@ func Register(engine *gin.Engine, authSvc *auth.Service, proxySvc *proxy.Service
 		middleware.WithAgentShadowEvaluation(),
 	}
 	if billingSvc != nil {
-		messagesMiddleware = append(messagesMiddleware, middleware.WithBalanceCheck(billingSvc, billing.MinBalanceMicros), middleware.WithAPIKeySpendCap(billingSvc), middleware.WithOrgMonthlySpendCap(billingSvc))
+		messagesMiddleware = append(messagesMiddleware,
+			middleware.WithBillingSpan(),
+			middleware.WithBalanceCheck(billingSvc, billing.MinBalanceMicros),
+			middleware.WithAPIKeySpendCap(billingSvc),
+			middleware.WithOrgMonthlySpendCap(billingSvc),
+			middleware.WithBillingSpanEnd(),
+		)
 	}
 	messagesMiddleware = append(messagesMiddleware,
 		middleware.WithEmbedOnlyUserMessageOverride(),
@@ -241,7 +247,13 @@ func Register(engine *gin.Engine, authSvc *auth.Service, proxySvc *proxy.Service
 		middleware.WithAuth(authSvc, byokRequiresOptIn),
 	}
 	if billingSvc != nil {
-		chatCompletionMiddleware = append(chatCompletionMiddleware, middleware.WithBalanceCheck(billingSvc, billing.MinBalanceMicros), middleware.WithAPIKeySpendCap(billingSvc), middleware.WithOrgMonthlySpendCap(billingSvc))
+		chatCompletionMiddleware = append(chatCompletionMiddleware,
+			middleware.WithBillingSpan(),
+			middleware.WithBalanceCheck(billingSvc, billing.MinBalanceMicros),
+			middleware.WithAPIKeySpendCap(billingSvc),
+			middleware.WithOrgMonthlySpendCap(billingSvc),
+			middleware.WithBillingSpanEnd(),
+		)
 	}
 	chatCompletionMiddleware = append(chatCompletionMiddleware,
 		middleware.WithEmbedOnlyUserMessageOverride(),
@@ -280,7 +292,13 @@ func Register(engine *gin.Engine, authSvc *auth.Service, proxySvc *proxy.Service
 		middleware.WithAuth(authSvc, byokRequiresOptIn),
 	}
 	if billingSvc != nil {
-		routeMiddleware = append(routeMiddleware, middleware.WithBalanceCheck(billingSvc, billing.MinBalanceMicros), middleware.WithAPIKeySpendCap(billingSvc), middleware.WithOrgMonthlySpendCap(billingSvc))
+		routeMiddleware = append(routeMiddleware,
+			middleware.WithBillingSpan(),
+			middleware.WithBalanceCheck(billingSvc, billing.MinBalanceMicros),
+			middleware.WithAPIKeySpendCap(billingSvc),
+			middleware.WithOrgMonthlySpendCap(billingSvc),
+			middleware.WithBillingSpanEnd(),
+		)
 	}
 	routeMiddleware = append(routeMiddleware,
 		middleware.WithEmbedOnlyUserMessageOverride(),

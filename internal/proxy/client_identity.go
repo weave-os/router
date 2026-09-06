@@ -82,6 +82,7 @@ func ResolveUserFromContext(ctx context.Context, authSvc *auth.Service, installa
 		return ctx
 	}
 	id := ClientIdentityFrom(ctx)
+	ctx = observability.WithClientSessionID(ctx, id.SessionID)
 	if id.Email == "" && id.AccountID == "" {
 		log.Info("ResolveUserFromContext bailout",
 			"reason", "no_identity_signal",

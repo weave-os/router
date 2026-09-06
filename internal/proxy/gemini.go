@@ -258,7 +258,7 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 
 	proxyStart := time.Now()
 	inferenceParentCtx := ctx
-	ctx, inferenceSpan := startInferenceSpan(ctx, decision)
+	ctx, inferenceSpan := startInferenceSpan(ctx, decision, clientSessionIDForRequest(ctx, env))
 	defer inferenceSpan.End()
 	var extractor *otel.UsageExtractor
 	// Append the one-click feedback thumbs as a trailing part on streaming

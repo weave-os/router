@@ -3,6 +3,7 @@ package proxy
 import (
 	"context"
 
+	"weave-os/router/internal/observability"
 	"weave-os/router/internal/router"
 
 	"go.opentelemetry.io/otel"
@@ -16,8 +17,10 @@ const proxyTracerName = "weave-os/router/internal/proxy"
 var proxyFlowTracer = otel.Tracer(proxyTracerName)
 
 func startRoutingSpan(ctx context.Context, req router.Request) (context.Context, trace.Span) {
+	ctx = observability.WithClientSessionID(ctx, req.ClientSessionID)
 	return proxyFlowTracer.Start(ctx, "router.routing",
 		trace.WithAttributes(
+			attribute.String("client.session_id", req.ClientSessionID),
 			attribute.String("requested.model", req.RequestedModel),
 			attribute.Int("request.estimated_input_tokens", req.EstimatedInputTokens),
 			attribute.Bool("request.has_tools", req.HasTools),
@@ -35,9 +38,11 @@ func finishRoutingSpan(span trace.Span, decision router.Decision, err error) {
 	finishFlowSpan(span, err)
 }
 
-func startInferenceSpan(ctx context.Context, decision router.Decision) (context.Context, trace.Span) {
+func startInferenceSpan(ctx context.Context, decision router.Decision, clientSessionID string) (context.Context, trace.Span) {
+	ctx = observability.WithClientSessionID(ctx, clientSessionID)
 	return proxyFlowTracer.Start(ctx, "router.inference",
 		trace.WithAttributes(
+			attribute.String("client.session_id", clientSessionID),
 			attribute.String("decision.model", decision.Model),
 			attribute.String("decision.provider", decision.Provider),
 			attribute.String("decision.reason", decision.Reason),

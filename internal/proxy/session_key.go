@@ -64,6 +64,7 @@ func bindRequestLogger(
 	apiKeyID, requestID, ingress string,
 ) (context.Context, *slog.Logger, [sessionpin.SessionKeyLen]byte) {
 	clientSessionID := clientSessionIDForRequest(ctx, env)
+	ctx = observability.WithClientSessionID(ctx, clientSessionID)
 	key := deriveSessionKey(env, apiKeyID, clientSessionID)
 	log := observability.FromContext(ctx).With(
 		"session_key", shortKey(key),

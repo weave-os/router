@@ -4,6 +4,8 @@ import (
 	"context"
 	"testing"
 
+	"weave-os/router/internal/observability"
+
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -30,6 +32,7 @@ func TestPGXTracerEmitsNamedSQLCQuerySpan(t *testing.T) {
 	require.NoError(t, err)
 
 	parentCtx, parent := provider.Tracer("test").Start(context.Background(), "request")
+	parentCtx = observability.WithClientSessionID(parentCtx, "client-session-abc")
 	queryCtx := tracer.TraceQueryStart(parentCtx, nil, pgx.TraceQueryStartData{
 		SQL:  "-- name: GetInstallation :one\nSELECT * FROM router.installations WHERE id = $1",
 		Args: []any{"installation-id"},
@@ -46,6 +49,7 @@ func TestPGXTracerEmitsNamedSQLCQuerySpan(t *testing.T) {
 	assert.Equal(t, "GetInstallation", spanAttribute(t, span.Attributes(), "sqlc.query.name").AsString())
 	assert.Equal(t, "one", spanAttribute(t, span.Attributes(), "sqlc.query.command").AsString())
 	assert.Equal(t, "GetInstallation", spanAttribute(t, span.Attributes(), "db.query.summary").AsString())
+	assert.Equal(t, "client-session-abc", spanAttribute(t, span.Attributes(), "client.session_id").AsString())
 	assert.False(t, hasSpanAttribute(span.Attributes(), "db.operation.name"))
 	assert.Equal(t, "SELECT 1", spanAttribute(t, span.Attributes(), "db.query.command.tag").AsString())
 	assert.Contains(t, spanAttribute(t, span.Attributes(), "db.query.text").AsString(), "router.installations")
@@ -78,6 +82,7 @@ func TestPGXTracerEmitsPoolAcquireSpan(t *testing.T) {
 	require.NoError(t, err)
 
 	parentCtx, parent := provider.Tracer("test").Start(context.Background(), "request")
+	parentCtx = observability.WithClientSessionID(parentCtx, "client-session-abc")
 	acquireCtx := tracer.TraceAcquireStart(parentCtx, nil, pgxpool.TraceAcquireStartData{})
 	tracer.TraceAcquireEnd(acquireCtx, nil, pgxpool.TraceAcquireEndData{})
 	parent.End()
@@ -86,6 +91,7 @@ func TestPGXTracerEmitsPoolAcquireSpan(t *testing.T) {
 	assert.Equal(t, trace.SpanKindClient, span.SpanKind())
 	assert.Equal(t, parent.SpanContext().SpanID(), span.Parent().SpanID())
 	assert.Equal(t, "acquire", spanAttribute(t, span.Attributes(), "pgx.pool.operation").AsString())
+	assert.Equal(t, "client-session-abc", spanAttribute(t, span.Attributes(), "client.session_id").AsString())
 	assert.Equal(t, int64(0), spanAttribute(t, span.Attributes(), "db.client.connection.pid").AsInt64())
 	assert.Equal(t, sdktrace.Status{Code: codes.Ok}, span.Status())
 }

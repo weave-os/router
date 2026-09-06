@@ -87,15 +87,19 @@ func WithAdminOnly(svc *auth.Service) gin.HandlerFunc {
 // single ctx key, so gating it here decides the whole path in one place.
 func withAPIKey(svc *auth.Service, byokRequiresOptIn bool) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		parentCtx := c.Request.Context()
+		clientSessionID := proxy.ClientIdentityFromHeaders(c.Request.Header).SessionID
+		authCtx, authSpan := startAuthSpan(parentCtx, clientSessionID)
 		token := extractToken(c)
-		installation, apiKey, externalKeys, clusterModelLists, err := svc.VerifyAPIKey(c.Request.Context(), token)
+		installation, apiKey, externalKeys, clusterModelLists, err := svc.VerifyAPIKey(authCtx, token)
 		if err != nil {
+			finishAuthSpan(authSpan, err)
 			handleAuthError(c, err)
 			return
 		}
 		c.Set(ctxKeyInstallation, installation)
 		c.Set(ctxKeyAPIKey, apiKey)
-		ctx := c.Request.Context()
+		ctx := authCtx
 		if apiKey != nil {
 			ctx = context.WithValue(ctx, proxy.APIKeyIDContextKey{}, apiKey.ID)
 			ctx = proxy.WithManagedSubscriptionUsage(ctx)
@@ -225,6 +229,8 @@ func withAPIKey(svc *auth.Service, byokRequiresOptIn bool) gin.HandlerFunc {
 		if acct := strings.TrimSpace(c.GetHeader(OpenAIAccountIDHeader)); acct != "" {
 			ctx = context.WithValue(ctx, proxy.OpenAIAccountIDContextKey{}, acct)
 		}
+		finishAuthSpan(authSpan, nil)
+		ctx = restoreRequestParent(ctx, parentCtx)
 		c.Request = c.Request.WithContext(ctx)
 		c.Next()
 	}

@@ -336,7 +336,7 @@ func (s *Service) bypassToAnthropic(
 
 	proxyStart := time.Now()
 	inferenceParentCtx := ctx
-	ctx, inferenceSpan := startInferenceSpan(ctx, decision)
+	ctx, inferenceSpan := startInferenceSpan(ctx, decision, clientSessionIDForRequest(ctx, env))
 	proxyErr := p.Proxy(ctx, decision, prep, respW, r)
 	finishInferenceSpan(inferenceSpan, decision, decision.Provider, 0, proxyErr)
 	ctx = restoreParentSpan(ctx, inferenceParentCtx)

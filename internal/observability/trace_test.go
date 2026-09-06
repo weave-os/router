@@ -43,6 +43,13 @@ func TestLoggerWithTraceContextUsesCloudLoggingFields(t *testing.T) {
 	assert.Equal(t, "0123456789abcdef", record["logging.googleapis.com/spanId"])
 }
 
+func TestClientSessionIDContextRoundTrip(t *testing.T) {
+	ctx := observability.WithClientSessionID(context.Background(), "client-session-abc")
+
+	assert.Equal(t, "client-session-abc", observability.ClientSessionIDFromContext(ctx))
+	assert.Empty(t, observability.ClientSessionIDFromContext(context.Background()))
+}
+
 func TestWrapHTTPClientPropagatesTraceContextWithoutBaggage(t *testing.T) {
 	previous := otel.GetTextMapPropagator()
 	t.Cleanup(func() { otel.SetTextMapPropagator(previous) })

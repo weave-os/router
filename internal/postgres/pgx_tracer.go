@@ -5,6 +5,8 @@ import (
 	"errors"
 	"regexp"
 
+	"weave-os/router/internal/observability"
+
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -89,6 +91,9 @@ func (t *pgxTracer) TraceQueryStart(ctx context.Context, conn *pgx.Conn, data pg
 		dbPIDKey.Int(int(connectionPID(conn))),
 		semconv.DBQueryText(data.SQL),
 	}
+	if clientSessionID := observability.ClientSessionIDFromContext(ctx); clientSessionID != "" {
+		attrs = append(attrs, attribute.String("client.session_id", clientSessionID))
+	}
 	if metadata != nil {
 		attrs = append(attrs,
 			sqlcQueryNameKey.String(metadata.name),
@@ -122,11 +127,15 @@ func (t *pgxTracer) TraceAcquireStart(ctx context.Context, _ *pgxpool.Pool, _ pg
 	ctx, span := t.provider.Tracer(tracerName).Start(ctx, "pgxpool.acquire", trace.WithSpanKind(trace.SpanKindClient))
 	ctx = context.WithValue(ctx, acquireTraceKey{}, acquireTrace{span: span})
 	if span.IsRecording() {
-		span.SetAttributes(
+		attrs := []attribute.KeyValue{
 			semconv.DBSystemNamePostgreSQL,
 			semconv.DBNamespace(t.databaseName),
 			pgxPoolConnOperationKey.String("acquire"),
-		)
+		}
+		if clientSessionID := observability.ClientSessionIDFromContext(ctx); clientSessionID != "" {
+			attrs = append(attrs, attribute.String("client.session_id", clientSessionID))
+		}
+		span.SetAttributes(attrs...)
 	}
 	return ctx
 }
