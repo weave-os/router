@@ -509,3 +509,19 @@ func TestDetectFromEnvelope_NilEnv(t *testing.T) {
 	got := turntype.DetectFromEnvelope(nil, translate.RoutingFeatures{}, "")
 	assert.Equal(t, turntype.MainLoop, got)
 }
+
+func TestDetectFromEnvelope_CodexTitleHintOverridesToolRegistry(t *testing.T) {
+	env, err := translate.ParseOpenAI([]byte(`{
+		"model":"gpt-5.6-sol",
+		"tools":[{"type":"function","function":{"name":"shell"}}],
+		"response_format":{"type":"json_schema","json_schema":{"schema":{"type":"object","properties":{"title":{"type":"string"}}}}},
+		"messages":[{"role":"user","content":"Generate a title"}]
+	}`))
+	require.NoError(t, err)
+	feats := env.RoutingFeatures(false)
+	assert.Equal(t, turntype.MainLoop, turntype.DetectFromEnvelope(env, feats, ""),
+		"a tool-bearing Chat Completions request remains a main loop without the Codex signal")
+	feats.TitleGenHint = true
+	assert.Equal(t, turntype.TitleGen, turntype.DetectFromEnvelope(env, feats, ""),
+		"the trusted native Codex shape must hard-pin even when the converted body carries tools")
+}

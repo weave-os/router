@@ -454,6 +454,12 @@ type codexFeedbackSkillContextKey struct{}
 // already carries a rating hint after the last human turn.
 type responsesFooterEchoedContextKey struct{}
 
+// codexTitleGenerationContextKey carries the native Responses title shape
+// into the shared Chat Completions turn loop. It is set only after the request
+// is identified as coming from Codex, so other clients' structured outputs are
+// unaffected.
+type codexTitleGenerationContextKey struct{}
+
 // InstallationExcludedModelsContextKey is the context key for the authed
 // installation's model exclusion list. Carried as []string.
 type InstallationExcludedModelsContextKey struct{}
@@ -5758,7 +5764,11 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		log.Info("Stripped beta artifacts from OpenAI history", "removed_messages", removed)
 	}
 	embedFlag := s.ResolveEmbedOnlyUserMessage(ctx)
+	codexTitleGen, _ := ctx.Value(codexTitleGenerationContextKey{}).(bool)
 	feats := env.RoutingFeatures(embedFlag)
+	if codexTitleGen {
+		feats.TitleGenHint = true
+	}
 	promptText := feats.PromptText
 	embedInput := "concatenated_stream"
 	if embedFlag && feats.OnlyUserMessageText != "" {
@@ -5838,6 +5848,9 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	}
 	if requestBodyChanged {
 		feats = env.RoutingFeatures(embedFlag)
+		if codexTitleGen {
+			feats.TitleGenHint = true
+		}
 		promptText = feats.PromptText
 		embedInput = "concatenated_stream"
 		if embedFlag && feats.OnlyUserMessageText != "" {
@@ -5941,6 +5954,9 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		}
 		if compResOAI.Applied {
 			feats = env.RoutingFeatures(embedFlag)
+			if codexTitleGen {
+				feats.TitleGenHint = true
+			}
 			log.Info("Proactive compaction applied",
 				"tool_results_cleared", compResOAI.ToolResultsCleared,
 				"summarized", compResOAI.Summarized,
@@ -6870,6 +6886,9 @@ func (s *Service) ProxyOpenAIResponses(ctx context.Context, body []byte, w http.
 		ctx = context.WithValue(ctx, nativeResponsesToolHashContextKey{}, originalEnvelope.ToolConfigurationSHA256())
 	}
 	ctx = context.WithValue(ctx, responsesRequirementsContextKey{}, conversion.Requirements)
+	if clientAppCodex && conversion.TitleGeneration {
+		ctx = context.WithValue(ctx, codexTitleGenerationContextKey{}, true)
+	}
 	ctx = context.WithValue(ctx, responsesTransformsContextKey{}, conversion.Report)
 	// Routing, billing, and telemetry are reused via
 	// ProxyOpenAIChatCompletion; chatBody is used only for routing features.

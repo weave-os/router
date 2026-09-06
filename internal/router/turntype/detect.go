@@ -69,7 +69,7 @@ func DetectFromEnvelope(env *translate.RequestEnvelope, feats translate.RoutingF
 	if isProbe(feats) {
 		return Probe
 	}
-	if isTitleGen(env, feats.HasTools) {
+	if isTitleGen(env, feats.HasTools) || (feats.TitleGenHint && env.SourceFormat() == translate.FormatOpenAI) {
 		return TitleGen
 	}
 	systemText := env.SystemText()

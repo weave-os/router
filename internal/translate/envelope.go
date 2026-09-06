@@ -366,25 +366,56 @@ func (e *RequestEnvelope) HasImages() bool {
 }
 
 // RequestsTitleSchema reports whether the request asks for a JSON-schema response
-// with a top-level string "title" property. Used to identify Claude Code's
-// sidebar-title generation call without content-matching the system prompt.
+// with a top-level string "title" property. Used to identify client title
+// generation calls without content-matching the prompt.
 func (e *RequestEnvelope) RequestsTitleSchema() bool {
-	switch e.format {
+	return requestRootRequestsTitleSchema(gjson.ParseBytes(e.body), e.format)
+}
+
+func requestRootRequestsTitleSchema(root gjson.Result, format Format) bool {
+	switch format {
 	case FormatAnthropic:
-		fmtNode := gjson.GetBytes(e.body, "output_config.format")
-		if fmtNode.Get("type").String() != "json_schema" {
-			return false
-		}
-		return fmtNode.Get("schema.properties.title.type").String() == "string"
+		formatNode := root.Get("output_config.format")
+		return formatNode.Get("type").String() == "json_schema" &&
+			formatNode.Get("schema.properties.title.type").String() == "string"
 	case FormatOpenAI:
-		rf := gjson.GetBytes(e.body, "response_format")
-		if rf.Get("type").String() != "json_schema" {
-			return false
+		// Chat Completions uses response_format; Responses uses text.format.
+		if formatNode := root.Get("response_format"); formatNode.Exists() {
+			return formatNode.Get("type").String() == "json_schema" &&
+				formatNode.Get("json_schema.schema.properties.title.type").String() == "string"
 		}
-		return rf.Get("json_schema.schema.properties.title.type").String() == "string"
+		formatNode := root.Get("text.format")
+		return formatNode.Get("type").String() == "json_schema" &&
+			formatNode.Get("schema.properties.title.type").String() == "string"
 	default:
 		return false
 	}
+}
+
+func requestRootRequestsCodexTitleSchema(root gjson.Result) bool {
+	formatNode := root.Get("text.format")
+	if formatNode.Get("type").String() != "json_schema" {
+		return false
+	}
+	schema := formatNode.Get("schema")
+	if schema.Get("type").String() != "object" {
+		return false
+	}
+	properties := schema.Get("properties")
+	if !properties.IsObject() || len(properties.Map()) != 1 ||
+		properties.Get("title.type").String() != "string" {
+		return false
+	}
+	required := schema.Get("required")
+	if !required.IsArray() {
+		return false
+	}
+	requiredItems := required.Array()
+	if len(requiredItems) != 1 || requiredItems[0].String() != "title" {
+		return false
+	}
+	additionalProperties := schema.Get("additionalProperties")
+	return additionalProperties.Exists() && additionalProperties.Type == gjson.False
 }
 
 // EmitOverrides describes byte-level mutations for same-format serialization.

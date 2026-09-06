@@ -35,6 +35,10 @@ type ResponsesConversion struct {
 	Requirements       router.TranslationRequirements
 	Report             []ResponseTransform
 	ToolMappings       map[string]ResponsesToolMapping
+	// TitleGeneration reports the native Codex title-generation shape (a
+	// closed object containing only the required string title). It is consumed
+	// only when the proxy has independently identified the Codex client.
+	TitleGeneration bool
 }
 
 // ResponseTransform reports an ingress conversion outcome with a stable code.
@@ -103,6 +107,7 @@ func ConvertResponsesToChatCompletions(body []byte) (ResponsesConversion, error)
 	result.Requirements.Audio, result.Requirements.Files = openAIMediaRequirements(body)
 	result.Requirements.CitationsOrSearch = len(nativeServerToolsFromBody(body, FormatOpenAI)) > 0
 	result.Requirements.StructuredOutput = root.Get("text.format").Exists() || root.Get("response_format").Exists()
+	result.TitleGeneration = requestRootRequestsCodexTitleSchema(root)
 	out := map[string]any{}
 
 	model := root.Get("model").Str

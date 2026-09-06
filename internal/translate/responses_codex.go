@@ -153,6 +153,7 @@ func convertPortableCodexResponses(body []byte) (ResponsesConversion, error) {
 		toolAliases:     make(map[responsesToolIdentity]string),
 		declaredAliases: make(map[string]struct{}),
 	}
+	converter.result.TitleGeneration = requestRootRequestsCodexTitleSchema(root)
 	converter.result.Requirements.Images = root.Get("input").Exists() && containsAnyKey(body, "image_url", "input_image")
 	converter.result.Requirements.Audio, converter.result.Requirements.Files = openAIMediaRequirements(body)
 	converter.result.Requirements.CitationsOrSearch = len(nativeServerToolsFromBody(body, FormatOpenAI)) > 0

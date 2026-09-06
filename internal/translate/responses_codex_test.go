@@ -11,6 +11,40 @@ import (
 	"github.com/tidwall/gjson"
 )
 
+func TestConvertResponsesToChatCompletionsWithOptions_PortableCodexTitleGenerationShape(t *testing.T) {
+	body := []byte(`{
+		"model":"gpt-5.6-sol",
+		"tools":[{"type":"function","name":"shell","parameters":{"type":"object"}}],
+		"text":{"format":{"type":"json_schema","schema":{
+			"type":"object","properties":{"title":{"type":"string"}},"required":["title"],"additionalProperties":false
+		}}},
+		"input":"Generate a concise task title."
+	}`)
+
+	converted, err := translate.ConvertResponsesToChatCompletionsWithOptions(body, translate.ResponsesConversionOptions{PortableCodex: true})
+	require.NoError(t, err)
+	assert.True(t, converted.TitleGeneration)
+	assert.True(t, converted.Requirements.FunctionTools)
+	assert.True(t, gjson.GetBytes(converted.Body, "tools").IsArray(), "routing projection must retain tool requirements")
+}
+
+func TestConvertResponsesToChatCompletionsWithOptions_PortableCodexTitleShapeIsStrict(t *testing.T) {
+	body := []byte(`{
+		"model":"gpt-5.6-sol",
+		"text":{"format":{"type":"json_schema","schema":{
+			"type":"object",
+			"properties":{"title":{"type":"string"},"summary":{"type":"string"}},
+			"required":["title","summary"],
+			"additionalProperties":false
+		}}},
+		"input":"Return structured metadata."
+	}`)
+
+	converted, err := translate.ConvertResponsesToChatCompletionsWithOptions(body, translate.ResponsesConversionOptions{PortableCodex: true})
+	require.NoError(t, err)
+	assert.False(t, converted.TitleGeneration, "other structured-output objects must not be treated as hidden title calls")
+}
+
 func TestConvertResponsesToChatCompletionsWithOptions_PortableCodexTools(t *testing.T) {
 	body := []byte(`{
 		"model":"gpt-5.6-sol",

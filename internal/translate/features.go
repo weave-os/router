@@ -42,6 +42,10 @@ type RoutingFeatures struct {
 	// MaxTokens is the caller's requested output cap. 0 means unset.
 	// Probe detection keys off this — Anthropic SDK quota probes set max_tokens=1.
 	MaxTokens int
+	// TitleGenHint marks a Codex Responses title-generation request. The
+	// Responses ingress sets this only for the Codex client after inspecting
+	// the native request shape; it is deliberately not inferred from prompt text.
+	TitleGenHint bool
 	// LastKind: "user_prompt", "tool_result", or "assistant".
 	LastKind string
 	// LastPreview: first previewMaxChars of the last message's text.
