@@ -1,0 +1,20 @@
+internal/proxy/compaction.go
+  s_e52c0d655cb59a::t_a91175a4a52891 99,103,105,114-115
+  s_e52c0d655cb59a::t_7692245aca13e2 116
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.23",
+  "base_commit_sha": "304d2a1d9067ea20a180d89b6ddf0ef7c9d43adc",
+  "prompts": {},
+  "sessions": {
+    "s_e52c0d655cb59a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "65eee4ba-c3d3-4f71-9c78-991a0ffe98d6",
+        "model": "deepseek/deepseek-v4-pro-0813"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

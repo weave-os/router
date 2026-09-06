@@ -1,0 +1,43 @@
+internal/proxy/service.go
+  s_3ed591f1ee8fde::t_88ee621dbd0c4b 2773
+  s_3ed591f1ee8fde::t_6b5fcb16fde4d2 2800
+  s_3ed591f1ee8fde::t_0670a5cbd603f1 3704,3706-3709,3712-3721,3723-3738
+  s_3ed591f1ee8fde::t_e9ef716cb012f8 5053
+  s_3ed591f1ee8fde::t_2acf3a025736d4 5080
+internal/router/router.go
+  s_3ed591f1ee8fde::t_d8536300648b90 324-335
+  s_3ed591f1ee8fde::t_1b3edf5f123962 273-276
+internal/router/policy/contract.go
+  s_3ed591f1ee8fde::t_8b5c4b2abf4851 113-116
+internal/policyclient/client.go
+  s_3ed591f1ee8fde::t_58fd06d2ce8afd 518
+  s_3ed591f1ee8fde::t_f3c0bef6e6c7de 375-381,383-390
+  s_3ed591f1ee8fde::t_b16316a146f4fe 421-440
+internal/router/policy/sidecar_router.go
+  s_3ed591f1ee8fde::t_ae330ececfef30 433
+internal/proxy/decision_span_sidecar_stats_test.go
+  s_3ed591f1ee8fde::t_a43331de532d3e 1-71,74,82,87-89,98-104,115-170
+  s_3ed591f1ee8fde::t_a9f5c8ddc92fc0 72-73,75-81,83-86,90-97,105-114
+internal/proxy/gemini.go
+  s_3ed591f1ee8fde::t_12ca2619cfb632 147
+  s_3ed591f1ee8fde::t_f55a835320ad2b 172
+internal/policyclient/client_test.go
+  s_3ed591f1ee8fde::t_d27bb600942a4c 785-786
+  s_3ed591f1ee8fde::t_0bc7437fbf0ff4 237-306
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.23",
+  "base_commit_sha": "af0cfad4f96c148f355edf8af442cb9d7039f4fc",
+  "prompts": {},
+  "sessions": {
+    "s_3ed591f1ee8fde": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "fc3b1c9d-6660-4831-8dac-a6529259716f",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Drew Bailey <drew@workweave.ai>"
+    }
+  }
+}

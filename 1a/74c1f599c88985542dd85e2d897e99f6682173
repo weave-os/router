@@ -1,0 +1,23 @@
+internal/server/middleware/balance_check.go
+  s_28c704cbde0a7f::t_9e65ba9317197a 27-33,62-72,77,80,124-125
+internal/server/middleware/balance_check_test.go
+  s_28c704cbde0a7f::t_ee85a7e1090ef1 268,270-273,277-278
+  s_28c704cbde0a7f::t_1beb5acfdb2d54 246-250,252,254
+  s_28c704cbde0a7f::t_a9bc45249b0e78 258-260,262
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.16",
+  "base_commit_sha": "1a74c1f599c88985542dd85e2d897e99f6682173",
+  "prompts": {},
+  "sessions": {
+    "s_28c704cbde0a7f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "73aed909-c7b3-467e-a0ce-d2938fc8f9ec",
+        "model": "deepseek/deepseek-v4-pro"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

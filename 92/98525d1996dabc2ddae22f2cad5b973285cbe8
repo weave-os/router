@@ -1,0 +1,37 @@
+internal/proxy/policy_deadline_fallback_internal_test.go
+  s_6faa72b416a6e5::t_d9226a1a5de459 1-5,7-119,121-292
+  s_6faa72b416a6e5::t_6f271371818317 6
+  s_6faa72b416a6e5::t_c61996acc7347a 120
+internal/proxy/turnloop.go
+  s_6faa72b416a6e5::t_5b49da7a7c430e 887-897,905-932
+  s_6faa72b416a6e5::t_f677dba9a2976c 5,20
+  s_6faa72b416a6e5::t_5513aac2a02f1e 107-113
+  s_6faa72b416a6e5::t_765785043c5075 238-265
+  s_6faa72b416a6e5::t_8cf8945fa37971 898-904
+internal/proxy/service.go
+  s_6faa72b416a6e5::t_3cd672c97de828 1156-1172
+  s_6faa72b416a6e5::t_365bfcd92713bb 3720-3744
+  s_6faa72b416a6e5::t_87511b76a9a712 2619,4701
+  s_6faa72b416a6e5::t_a7809c8eeb4514 139-147
+internal/proxy/gemini.go
+  s_6faa72b416a6e5::t_2c72c982f28037 157
+cmd/router/main.go
+  s_6faa72b416a6e5::t_56f552f6dc49df 790-791
+  s_6faa72b416a6e5::t_3db041b96e7494 581-590
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "9298525d1996dabc2ddae22f2cad5b973285cbe8",
+  "prompts": {},
+  "sessions": {
+    "s_6faa72b416a6e5": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9c1be66a-dad3-4172-aa8c-a16e48815c42",
+        "model": "claude-sonnet-5"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}
