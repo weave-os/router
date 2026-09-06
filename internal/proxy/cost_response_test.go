@@ -16,7 +16,7 @@ import (
 func TestStreamCostWriterAnnotatesFinalMessageDelta(t *testing.T) {
 	rec := httptest.NewRecorder()
 	writer := newStreamCostWriter(rec)
-	writer.SetCostCalculator(func(input, output, creation, read, creation1h int) routerResponseCost {
+	writer.SetCostCalculator(func(input, output, creation, creation1h, read int) routerResponseCost {
 		return routerResponseCost{
 			TotalUSD:            1.25,
 			InputUSD:            0.75,

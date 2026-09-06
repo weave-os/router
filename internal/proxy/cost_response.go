@@ -72,19 +72,19 @@ type routerResponseCost struct {
 	CacheCreationTokens int     `json:"cache_creation_tokens"`
 }
 
-type routerCostCalculator func(inputTokens, outputTokens, cacheCreationTokens, cacheReadTokens, cacheCreation1hTokens int) routerResponseCost
+type routerCostCalculator func(inputTokens, outputTokens, cacheCreationTokens, cacheCreation1hTokens, cacheReadTokens int) routerResponseCost
 
 func routerCostCalculatorFor(model, provider string, fast bool) routerCostCalculator {
 	pricing, ok := servedPricing(provider, model, fast)
 	if !ok {
 		return nil
 	}
-	return func(inputTokens, outputTokens, cacheCreationTokens, cacheReadTokens, cacheCreation1hTokens int) routerResponseCost {
-		return routerResponseCostFromPricing(pricing, provider, inputTokens, outputTokens, cacheCreationTokens, cacheReadTokens, cacheCreation1hTokens)
+	return func(inputTokens, outputTokens, cacheCreationTokens, cacheCreation1hTokens, cacheReadTokens int) routerResponseCost {
+		return routerResponseCostFromPricing(pricing, provider, inputTokens, outputTokens, cacheCreationTokens, cacheCreation1hTokens, cacheReadTokens)
 	}
 }
 
-func routerResponseCostFromPricing(pricing catalog.Pricing, provider string, inputTokens, outputTokens, cacheCreationTokens, cacheReadTokens, cacheCreation1hTokens int) routerResponseCost {
+func routerResponseCostFromPricing(pricing catalog.Pricing, provider string, inputTokens, outputTokens, cacheCreationTokens, cacheCreation1hTokens, cacheReadTokens int) routerResponseCost {
 	inputUSD := catalog.EffectiveInputCost(inputTokens, cacheCreationTokens, cacheCreation1hTokens, cacheReadTokens, pricing, provider)
 	outputUSD := catalog.EffectiveOutputCost(inputTokens, outputTokens, pricing)
 	return routerResponseCost{
@@ -212,7 +212,7 @@ func (w *streamCostWriter) annotateEvent(event []byte) []byte {
 	if w.inputIncludesCache {
 		inputTokens += cacheCreation + cacheRead
 	}
-	cost, err := json.Marshal(w.calculate(inputTokens, outputTokens, cacheCreation, cacheRead, cacheCreation1h))
+	cost, err := json.Marshal(w.calculate(inputTokens, outputTokens, cacheCreation, cacheCreation1h, cacheRead))
 	if err != nil {
 		return event
 	}

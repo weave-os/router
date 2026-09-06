@@ -80,19 +80,16 @@ func TestEffectiveInputCost_UsesBindingCacheWritePrice(t *testing.T) {
 	assert.InDelta(t, 0.000185, legacy, 1e-12, "unspecified values preserve legacy 1.25x behavior")
 }
 
-// The 1-hour TTL tier (issue #867): Anthropic charges 2x base input for 1h
-// cache writes, not the 5-minute 1.25x the aggregate-only math applied.
+// Anthropic prices 1-hour cache writes at 2x base input; 5-minute writes stay at 1.25x.
 func TestEffectiveInputCost_OneHourCacheWrite(t *testing.T) {
-	// claude-opus-5's published rate, as in the issue's worked example.
+	// claude-opus-5's published rate.
 	opus := catalog.Pricing{InputUSDPer1M: 5, CacheReadMultiplier: 0.10}
 
-	// All 1M creation tokens on the 1h tier, 10 fresh: (10 + 1M*2) * 5/1M
-	// = $10.00005 — the issue's expected number, vs $6.25005 before.
+	// All 1M creation tokens on the 1h tier, 10 fresh: (10 + 1M*2) * 5/1M = $10.00005.
 	got := catalog.EffectiveInputCost(10, 1_000_000, 1_000_000, 0, opus, providers.ProviderAnthropic)
 	assert.Equal(t, int64(10_000_050), catalog.USDToMicros(got))
 
-	// No TTL breakdown (Bedrock/Vertex aggregate-only): byte-identical legacy
-	// behavior — every write at 1.25x.
+	// No TTL breakdown (Bedrock/Vertex aggregate-only): every write at 1.25x.
 	legacy := catalog.EffectiveInputCost(10, 1_000_000, 0, 0, opus, providers.ProviderAnthropic)
 	assert.Equal(t, int64(6_250_050), catalog.USDToMicros(legacy))
 

@@ -360,7 +360,7 @@ func (s *Service) bypassToAnthropic(
 	cacheCreation1h := extractor.CacheCreation1hTokens()
 	pricing, _ := servedPricing(decision.Provider, decision.Model, opts.FastMode)
 	if !env.Stream() && proxyErr == nil {
-		setRouterCostHeaders(w.Header(), routerResponseCostFromPricing(pricing, decision.Provider, in, out, cacheCreation, cacheRead, cacheCreation1h))
+		setRouterCostHeaders(w.Header(), routerResponseCostFromPricing(pricing, decision.Provider, in, out, cacheCreation, cacheCreation1h, cacheRead))
 	}
 	inputCost := catalog.EffectiveInputCost(in, cacheCreation, cacheCreation1h, cacheRead, pricing, decision.Provider)
 	outputCost := catalog.EffectiveOutputCost(in, out, pricing)
