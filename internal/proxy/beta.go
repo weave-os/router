@@ -42,15 +42,17 @@ func (s *Service) WithSessionStrategyStore(store sessionstrategy.Store) *Service
 	return s
 }
 
+// applySessionStrategy reads the /beta preference stored under preferenceKey
+// (see deriveBetaSessionKeyForRequest), not the per-thread pin key.
 func (s *Service) applySessionStrategy(
 	ctx context.Context,
 	installationID uuid.UUID,
-	sessionKey [sessionpin.SessionKeyLen]byte,
+	preferenceKey [sessionpin.SessionKeyLen]byte,
 ) (context.Context, error) {
-	if s.sessionStrategyStore == nil || installationID == uuid.Nil || sessionKey == ([sessionpin.SessionKeyLen]byte{}) {
+	if s.sessionStrategyStore == nil || installationID == uuid.Nil || preferenceKey == ([sessionpin.SessionKeyLen]byte{}) {
 		return ctx, nil
 	}
-	preference, found, err := s.sessionStrategyStore.Get(ctx, installationID, sessionKey)
+	preference, found, err := s.sessionStrategyStore.Get(ctx, installationID, preferenceKey)
 	if err != nil {
 		return ctx, fmt.Errorf("load session routing strategy: %w", err)
 	}
@@ -70,12 +72,13 @@ func (s *Service) handleBetaCommand(
 	cmd translate.BetaCommandResult,
 	installationID uuid.UUID,
 	sessionKey [sessionpin.SessionKeyLen]byte,
+	preferenceKey [sessionpin.SessionKeyLen]byte,
 	inputTokens int,
 ) error {
 	if cmd.Invalid {
 		return writeBetaCommandResponse(w, env, betaUsageMessage, inputTokens)
 	}
-	if s.sessionStrategyStore == nil || installationID == uuid.Nil || sessionKey == ([sessionpin.SessionKeyLen]byte{}) || clientSessionIDForRequest(ctx, env) == "" {
+	if s.sessionStrategyStore == nil || installationID == uuid.Nil || preferenceKey == ([sessionpin.SessionKeyLen]byte{}) || clientSessionIDForRequest(ctx, env) == "" {
 		return writeBetaCommandResponse(w, env, betaUnavailable, inputTokens)
 	}
 
@@ -86,7 +89,7 @@ func (s *Service) handleBetaCommand(
 	if s.PolicyStrategyAvailable(router.StrategyHMMBeta) {
 		enabled, err := s.sessionStrategyStore.Toggle(context.Background(), sessionstrategy.Preference{
 			InstallationID: installationID,
-			SessionKey:     sessionKey,
+			SessionKey:     preferenceKey,
 			Strategy:       router.StrategyHMMBeta,
 		})
 		if err != nil {
@@ -94,7 +97,7 @@ func (s *Service) handleBetaCommand(
 		}
 		nowEnabled = enabled
 	} else {
-		wasEnabled, err := s.sessionStrategyStore.Disable(context.Background(), installationID, sessionKey)
+		wasEnabled, err := s.sessionStrategyStore.Disable(context.Background(), installationID, preferenceKey)
 		if err != nil {
 			return fmt.Errorf("disable beta routing: %w", err)
 		}
@@ -113,6 +116,7 @@ func (s *Service) handleBetaCommand(
 	log := observability.FromContext(ctx)
 	// Persist first: strategy-bound reads make old-strategy pins ineligible
 	// immediately, so cleanup cannot overwrite a concurrent new-mode pin.
+	// Pins stay keyed per thread, so only this thread's state is dropped.
 	if err := s.invalidateSessionRoutingState(
 		router.WithStrategy(ctx, previousStrategy),
 		sessionKey,

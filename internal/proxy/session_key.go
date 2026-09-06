@@ -124,6 +124,11 @@ func deriveSessionKeyForRequest(ctx context.Context, env *translate.RequestEnvel
 	return deriveSessionKey(env, apiKeyID, clientSessionIDForRequest(ctx, env))
 }
 
+const (
+	forceModelSessionKeyDomain = "force_model_session:"
+	betaSessionKeyDomain       = "beta_session:"
+)
+
 // deriveForceModelSessionKeyForRequest omits the first-message discriminator
 // so an explicit force applies to every thread in one client session.
 func deriveForceModelSessionKeyForRequest(
@@ -132,8 +137,30 @@ func deriveForceModelSessionKeyForRequest(
 	apiKeyID string,
 	threadSessionKey [sessionpin.SessionKeyLen]byte,
 ) [sessionpin.SessionKeyLen]byte {
+	return deriveConversationSessionKeyForRequest(ctx, env, apiKeyID, threadSessionKey, forceModelSessionKeyDomain)
+}
+
+// deriveBetaSessionKeyForRequest scopes the /beta preference to the whole
+// client session: compaction rewrites the first user message and sub-agents
+// carry their own, so a thread-keyed preference would vanish on both.
+func deriveBetaSessionKeyForRequest(
+	ctx context.Context,
+	env *translate.RequestEnvelope,
+	apiKeyID string,
+	threadSessionKey [sessionpin.SessionKeyLen]byte,
+) [sessionpin.SessionKeyLen]byte {
+	return deriveConversationSessionKeyForRequest(ctx, env, apiKeyID, threadSessionKey, betaSessionKeyDomain)
+}
+
+func deriveConversationSessionKeyForRequest(
+	ctx context.Context,
+	env *translate.RequestEnvelope,
+	apiKeyID string,
+	threadSessionKey [sessionpin.SessionKeyLen]byte,
+	domain string,
+) [sessionpin.SessionKeyLen]byte {
 	h := hmac.New(sha256.New, []byte(apiKeyID))
-	h.Write([]byte("force_model_session:"))
+	h.Write([]byte(domain))
 	h.Write([]byte{0x00})
 
 	if clientSessionID := clientSessionIDForRequest(ctx, env); clientSessionID != "" {

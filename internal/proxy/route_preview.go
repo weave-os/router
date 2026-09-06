@@ -53,7 +53,7 @@ func (s *Service) anthropicRoutingRequest(
 	if removed := env.StripBetaArtifacts(); removed > 0 {
 		log.Info("Stripped beta artifacts from route preview", "removed_messages", removed)
 	}
-	ctx, err = s.applySessionStrategy(ctx, installationIDFromContext(ctx), sessionKey)
+	ctx, err = s.applySessionStrategy(ctx, installationIDFromContext(ctx), deriveBetaSessionKeyForRequest(ctx, env, apiKeyID, sessionKey))
 	if err != nil {
 		return ctx, router.Request{}, err
 	}

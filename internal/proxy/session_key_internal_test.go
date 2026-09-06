@@ -82,6 +82,28 @@ func TestDeriveForceModelSessionKeyForRequest_IsolatesSessionsAndAPIKeys(t *test
 	assert.NotEqual(t, keyA, otherAPIKey)
 }
 
+func TestDeriveBetaSessionKeyForRequest_SharedAcrossThreadsAndDistinctFromForceModel(t *testing.T) {
+	ctx := context.WithValue(context.Background(), ClientIdentityContextKey{}, ClientIdentity{SessionID: "shared-session"})
+	parent, err := translate.ParseAnthropic([]byte(`{
+		"messages": [{"role": "user", "content": "parent task"}]
+	}`))
+	require.NoError(t, err)
+	child, err := translate.ParseAnthropic([]byte(`{
+		"messages": [{"role": "user", "content": "compaction summary"}]
+	}`))
+	require.NoError(t, err)
+
+	parentThread := deriveSessionKeyForRequest(ctx, parent, "api-key")
+	childThread := deriveSessionKeyForRequest(ctx, child, "api-key")
+	parentBeta := deriveBetaSessionKeyForRequest(ctx, parent, "api-key", parentThread)
+	childBeta := deriveBetaSessionKeyForRequest(ctx, child, "api-key", childThread)
+
+	assert.Equal(t, parentBeta, childBeta)
+	assert.NotEqual(t, parentBeta, parentThread)
+	assert.NotEqual(t, parentBeta, deriveForceModelSessionKeyForRequest(ctx, parent, "api-key", parentThread))
+	assert.NotEqual(t, parentBeta, deriveBetaSessionKeyForRequest(ctx, parent, "other-api-key", parentThread))
+}
+
 func TestDeriveForceModelSessionKeyForRequest_FallsBackToThreadScope(t *testing.T) {
 	parent, err := translate.ParseAnthropic([]byte(`{
 		"messages": [{"role": "user", "content": "parent task"}]

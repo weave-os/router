@@ -3004,11 +3004,12 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 
 	// /beta toggle: handled server-side, never forwarded upstream, no post-command continuation.
 	if !agentShadowMode {
+		betaSessionKey := deriveBetaSessionKeyForRequest(ctx, env, apiKeyID, sessionKey)
 		if cmd, hasCmd := env.ExtractBetaCommand(); hasCmd {
 			log.Info("ProxyMessages beta command")
-			return s.handleBetaCommand(ctx, w, env, cmd, installationID, sessionKey, feats.Tokens)
+			return s.handleBetaCommand(ctx, w, env, cmd, installationID, sessionKey, betaSessionKey, feats.Tokens)
 		}
-		ctx, err = s.applySessionStrategy(ctx, installationID, sessionKey)
+		ctx, err = s.applySessionStrategy(ctx, installationID, betaSessionKey)
 		if err != nil {
 			return err
 		}
@@ -5777,11 +5778,12 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	)
 
 	// /beta toggle: handled server-side before other routing commands; no post-command continuation.
+	betaSessionKey := deriveBetaSessionKeyForRequest(ctx, env, apiKeyID, sessionKey)
 	if cmd, hasCmd := env.ExtractBetaCommand(); hasCmd {
 		log.Info("ProxyOpenAIChatCompletion beta command")
-		return s.handleBetaCommand(ctx, w, env, cmd, installationID, sessionKey, feats.Tokens)
+		return s.handleBetaCommand(ctx, w, env, cmd, installationID, sessionKey, betaSessionKey, feats.Tokens)
 	}
-	ctx, err = s.applySessionStrategy(ctx, installationID, sessionKey)
+	ctx, err = s.applySessionStrategy(ctx, installationID, betaSessionKey)
 	if err != nil {
 		return err
 	}
