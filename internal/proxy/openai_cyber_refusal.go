@@ -23,10 +23,11 @@ const ReasonCyberRefusalRetry = "cyber-refusal-retry"
 // moves the session off the refusing model.
 const reasonCyberRefusalRepin = "cyber-refusal-repin"
 
-// cyberRefusalHoldCap bounds the bytes withheld while waiting to classify the
-// stream's first events. A refusal arrives as the first frame, so anything
-// larger is real output and must reach the client.
-const cyberRefusalHoldCap = 16 * 1024
+// cyberRefusalHoldCap bounds the memory the withheld preamble may occupy.
+// /v1/responses echoes the request's instructions and tools in
+// response.created, so a Codex preamble alone runs to hundreds of kilobytes;
+// the cap only decides when to stop buffering and commit the stream.
+const cyberRefusalHoldCap = 1 << 20
 
 // responsesPreambleEventTypes are the /v1/responses events that precede any
 // output. While the stream carries only these, nothing is committed yet, so a
@@ -105,8 +106,8 @@ func (g *cyberRefusalGate) scanHeld() (refusal, release bool) {
 	for {
 		event, n := sse.SplitNext(b)
 		if n == 0 {
-			// Hold for the rest of an incomplete frame, but never past the cap:
-			// a stream this long is output, whatever its framing.
+			// Hold for the rest of an incomplete frame, unless buffering it would
+			// outgrow the cap.
 			return false, g.held.Len() >= cyberRefusalHoldCap
 		}
 		b = b[n:]
@@ -184,7 +185,7 @@ func (s *Service) cyberRefusalRetryTarget(
 	role string,
 	est, sigSavings, outputReserve int,
 ) (router.Decision, bool) {
-	repinTarget, _, ok := s.cyberRefusalFallback(ctx, sessionKey, role, failed)
+	repinTarget, _, ok := s.cyberRefusalFallback(ctx, sessionKey, role, failed, failed.Provider)
 	if !ok {
 		return router.Decision{}, false
 	}
@@ -206,28 +207,46 @@ func (s *Service) cyberRefusalRetryTarget(
 
 // cyberRefusalFallback resolves the model/provider a safety refusal moves off
 // to: the scorer's runner-up carried on the session pin, else the configured
-// fallback model. context.Background() reads the pin because the request ctx may
-// already be canceled once the response has been written.
+// fallback model. avoidProvider, when set, rules out a target on that vendor —
+// OpenAI's classifier declines the request whichever of its models serves it,
+// so the pin's runner-up is no escape if it is another OpenAI model. Anthropic
+// refusals name a single model and pass "". context.Background() reads the pin
+// because the request ctx may already be canceled once the response has been
+// written.
 func (s *Service) cyberRefusalFallback(
 	ctx context.Context,
 	sessionKey [sessionpin.SessionKeyLen]byte,
 	role string,
 	served router.Decision,
+	avoidProvider string,
 ) (model, provider string, ok bool) {
 	model = s.ResolveCyberRefusalFallbackModel(ctx)
 	if s.pinStore != nil {
 		if existing, found, err := s.pinStore.Get(context.Background(), sessionKey, role); err == nil && found &&
-			pinMatchesEffectiveStrategy(ctx, existing) && existing.PairedModel != "" {
+			pinMatchesEffectiveStrategy(ctx, existing) && existing.PairedModel != "" &&
+			!providerAvoided(providerForModel(existing.PairedProvider, existing.PairedModel), avoidProvider) {
 			model, provider = existing.PairedModel, existing.PairedProvider
 		}
 	}
-	if provider == "" {
-		if m, known := catalog.ByID(model); known && len(m.Providers) > 0 {
-			provider = m.Providers[0].Provider
-		}
-	}
-	if model == "" || provider == "" || model == served.Model {
+	provider = providerForModel(provider, model)
+	if model == "" || provider == "" || model == served.Model || providerAvoided(provider, avoidProvider) {
 		return "", "", false
 	}
 	return model, provider, true
+}
+
+// providerForModel keeps a pin's own provider and otherwise reads the model's
+// first catalog binding.
+func providerForModel(provider, model string) string {
+	if provider != "" {
+		return provider
+	}
+	if m, known := catalog.ByID(model); known && len(m.Providers) > 0 {
+		return m.Providers[0].Provider
+	}
+	return ""
+}
+
+func providerAvoided(provider, avoidProvider string) bool {
+	return avoidProvider != "" && provider == avoidProvider
 }

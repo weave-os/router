@@ -2863,12 +2863,12 @@ func (s *Service) maybeRepinOnRefusal(ctx context.Context, obs *refusalObserver,
 	if obs == nil || !obs.refused {
 		return
 	}
-	s.repinOffRefusingModel(ctx, sessionKey, role, served, obs.category)
+	s.repinOffRefusingModel(ctx, sessionKey, role, served, obs.category, "")
 }
 
 // repinOffRefusingModel moves the session pin to the refusal fallback, whatever
 // vendor signalled the refusal (Anthropic's stop reason, OpenAI's cyber policy).
-func (s *Service) repinOffRefusingModel(ctx context.Context, sessionKey [sessionpin.SessionKeyLen]byte, role string, served router.Decision, category string) {
+func (s *Service) repinOffRefusingModel(ctx context.Context, sessionKey [sessionpin.SessionKeyLen]byte, role string, served router.Decision, category, avoidProvider string) {
 	if s.pinStore == nil {
 		return
 	}
@@ -2892,7 +2892,7 @@ func (s *Service) repinOffRefusingModel(ctx context.Context, sessionKey [session
 		return
 	}
 	log := observability.FromContext(ctx)
-	fbModel, fbProvider, ok := s.cyberRefusalFallback(ctx, sessionKey, role, served)
+	fbModel, fbProvider, ok := s.cyberRefusalFallback(ctx, sessionKey, role, served, avoidProvider)
 	if !ok {
 		log.Warn("safety refusal observed but no distinct fallback model available; not re-pinning",
 			"from_model", served.Model, "fallback_model", fbModel, "refusal_category", category)
@@ -6956,7 +6956,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	// Re-pin the session off the refusing model so the next turn skips it,
 	// whether or not this turn was rescued.
 	if cyberRefusalSeen {
-		s.repinOffRefusingModel(ctx, routeRes.SessionKey, stickyStateRole(routeRes), primaryDecision, providers.CyberPolicyErrorCode)
+		s.repinOffRefusingModel(ctx, routeRes.SessionKey, stickyStateRole(routeRes), primaryDecision, providers.CyberPolicyErrorCode, primaryDecision.Provider)
 	}
 
 	// One event per tool call that failed toolcheck validation, mirroring the

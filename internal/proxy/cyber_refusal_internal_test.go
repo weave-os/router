@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/sessionpin"
 )
@@ -208,6 +209,30 @@ func TestMaybeRepinOnRefusal_PrefersPairedModel(t *testing.T) {
 	}
 	if got := store.upserts[0].Provider; got != "anthropic" {
 		t.Fatalf("re-pin provider = %q, want anthropic (from PairedProvider)", got)
+	}
+}
+
+// OpenAI's classifier declines the request on any of its models, so the pin's
+// runner-up is only an escape when it is another vendor.
+func TestRepinOffRefusingModel_SkipsPairedModelOnTheRefusingVendor(t *testing.T) {
+	store := &repinFakeStore{
+		hasPin: true,
+		getPin: sessionpin.Pin{PairedModel: "gpt-5.4", PairedProvider: providers.ProviderOpenAI},
+	}
+	s := &Service{pinStore: store, cyberRefusalRepin: true, cyberRefusalFallbackModel: "claude-sonnet-5"}
+	served := router.Decision{Provider: providers.ProviderOpenAI, Model: "gpt-5.6-sol"}
+
+	s.repinOffRefusingModel(repinCtx(), [sessionpin.SessionKeyLen]byte{8, 9}, "main_loop", served,
+		providers.CyberPolicyErrorCode, providers.ProviderOpenAI)
+
+	if len(store.upserts) != 1 {
+		t.Fatalf("expected 1 upsert, got %d", len(store.upserts))
+	}
+	if got := store.upserts[0].Model; got != "claude-sonnet-5" {
+		t.Fatalf("re-pinned to %q, want the off-vendor fallback claude-sonnet-5", got)
+	}
+	if got := store.upserts[0].Provider; got != providers.ProviderAnthropic {
+		t.Fatalf("re-pin provider = %q, want anthropic", got)
 	}
 }
 

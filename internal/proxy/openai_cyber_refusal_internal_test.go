@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -133,4 +134,26 @@ func TestCyberRefusalGate_HoldsIncompleteFrame(t *testing.T) {
 	_, err = gate.Write([]byte(":\"hi\"}\n\n"))
 	require.NoError(t, err)
 	assert.NotEmpty(t, rec.Body.String(), "the completed output frame releases the stream")
+}
+
+// response.created echoes the request's instructions and tools, so a Codex
+// preamble is far larger than the frames above and must not be mistaken for
+// committed output.
+func TestCyberRefusalGate_WithholdsRefusalAfterLargePreamble(t *testing.T) {
+	rec := httptest.NewRecorder()
+	gate := newCyberRefusalGate(rec, true)
+
+	created := "event: response.created\n" +
+		`data: {"type":"response.created","response":{"id":"resp_1","instructions":"` +
+		strings.Repeat("x", 256*1024) + `"}}` + "\n\n"
+	_, err := gate.Write([]byte(created))
+	require.NoError(t, err)
+	require.Empty(t, rec.Body.String(), "a large preamble frame is still a preamble")
+
+	_, err = gate.Write([]byte(cyberRefusalFrame))
+	require.NoError(t, err)
+	require.NoError(t, gate.Finalize())
+
+	assert.True(t, gate.withheld)
+	assert.Empty(t, rec.Body.String())
 }
