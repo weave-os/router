@@ -61,6 +61,7 @@ const (
 	KeySiblingFailover              Key = "sibling_failover"
 	KeyEffortEscalation             Key = "effort_escalation"
 	KeyCyberRefusalRepin            Key = "cyber_refusal_repin"
+	KeyCyberRefusalRetry            Key = "cyber_refusal_retry"
 	KeyCyberRefusalFallback         Key = "cyber_refusal_fallback_model"
 	KeyAnthropicServerFallback      Key = "anthropic_server_side_fallback"
 	KeyEmbedOnlyUserMessage         Key = "embed_only_user_message"
@@ -87,7 +88,7 @@ type Definition struct {
 // RegistryVersion changes whenever Registry's membership changes. Publish uses
 // it to make pruning safe during rolling deploys: a revision with an older
 // registry version may not delete definitions published by a newer revision.
-const RegistryVersion = 7
+const RegistryVersion = 8
 
 // Registry is the curated allowlist of flags that may carry a per-organization
 // override. It is deliberately explicit rather than derived from the env var
@@ -218,6 +219,13 @@ var Registry = []Definition{
 		EnvVar:         "ROUTER_CYBER_REFUSAL_REPIN",
 		Kind:           KindBool,
 		Description:    "Re-pin a session off a model that returned a safety refusal (cyber, reasoning_extraction, ...).",
+		OrgOverridable: true,
+	},
+	{
+		Key:            KeyCyberRefusalRetry,
+		EnvVar:         "ROUTER_CYBER_REFUSAL_RETRY",
+		Kind:           KindBool,
+		Description:    "Re-dispatch a turn OpenAI declined on cyber policy to a non-OpenAI fallback before any output reaches the client.",
 		OrgOverridable: true,
 	},
 	{

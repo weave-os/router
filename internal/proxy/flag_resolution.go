@@ -125,6 +125,12 @@ func (s *Service) ResolveCyberRefusalRepin(ctx context.Context) bool {
 	return flags.BoolOr(ctx, flags.KeyCyberRefusalRepin, s.cyberRefusalRepin)
 }
 
+// ResolveCyberRefusalRetry reports whether a turn OpenAI declined on cyber
+// policy is re-dispatched to the fallback model within the same turn.
+func (s *Service) ResolveCyberRefusalRetry(ctx context.Context) bool {
+	return flags.BoolOr(ctx, flags.KeyCyberRefusalRetry, s.cyberRefusalRetry)
+}
+
 // ResolveCyberRefusalFallbackModel returns the model to re-pin to on a safety
 // refusal with no runner-up.
 func (s *Service) ResolveCyberRefusalFallbackModel(ctx context.Context) string {

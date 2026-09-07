@@ -145,7 +145,7 @@ func TestEffortResolution_Apply(t *testing.T) {
 
 // A rescue candidate never served the failed model's level, so keeping it
 // would report an identity the sibling never served.
-func TestSiblingDecisionFor_DropsEffort(t *testing.T) {
+func TestRescueDecisionFor_DropsEffort(t *testing.T) {
 	failed := router.Decision{
 		Provider: providers.ProviderOpenAI,
 		Model:    "gpt-5.6-luna",
@@ -153,7 +153,7 @@ func TestSiblingDecisionFor_DropsEffort(t *testing.T) {
 		Metadata: &router.RoutingMetadata{SelectedArmID: "gpt-5.6-luna:xhigh"},
 	}
 
-	out := siblingDecisionFor(failed, "gpt-5.6-sol", providers.ProviderOpenAI)
+	out := rescueDecisionFor(failed, "gpt-5.6-sol", providers.ProviderOpenAI, ReasonSiblingFailover)
 
 	assert.Empty(t, out.Effort)
 	assert.Equal(t, "gpt-5.6-sol", out.ServedIdentity())

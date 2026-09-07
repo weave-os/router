@@ -679,6 +679,7 @@ func main() {
 	// Safety-refusal backstop: re-pin session off the refusing model and ask
 	// Anthropic to re-serve the refused turn on a fallback model.
 	cyberRefusalRepin := config.GetOr("ROUTER_CYBER_REFUSAL_REPIN", "true") == "true"
+	cyberRefusalRetry := config.GetOr("ROUTER_CYBER_REFUSAL_RETRY", "true") == "true"
 	cyberRefusalFallbackModel := config.GetOr("ROUTER_CYBER_REFUSAL_FALLBACK_MODEL", "claude-sonnet-5")
 	anthropicServerSideFallback := config.GetOr("ROUTER_ANTHROPIC_SERVER_SIDE_FALLBACK", "true") == "true"
 	scopedSearchRequirement := config.GetOr("ROUTER_SCOPED_SEARCH_REQUIREMENT", "true") == "true"
@@ -1091,6 +1092,7 @@ func main() {
 		flags.KeyAllowedModelsHeader:          boolDefault(allowedModelsHeader),
 		flags.KeyEffortEscalation:             boolDefault(effortEscalation),
 		flags.KeyCyberRefusalRepin:            boolDefault(cyberRefusalRepin),
+		flags.KeyCyberRefusalRetry:            boolDefault(cyberRefusalRetry),
 		flags.KeyCyberRefusalFallback:         cyberRefusalFallbackModel,
 		flags.KeyAnthropicServerFallback:      boolDefault(anthropicServerSideFallback),
 		flags.KeyEmbedOnlyUserMessage:         boolDefault(embedOnlyUser),
@@ -1128,6 +1130,7 @@ func main() {
 		WithPlannerEnabled(plannerEnabled).
 		WithScoreToolResultTurns(scoreToolResultTurns).
 		WithCyberRefusalRepin(cyberRefusalRepin).
+		WithCyberRefusalRetry(cyberRefusalRetry).
 		WithCyberRefusalFallbackModel(cyberRefusalFallbackModel).
 		WithAnthropicServerSideFallback(anthropicServerSideFallback).
 		WithSiblingFailover(siblingFailover).

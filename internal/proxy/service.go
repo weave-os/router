@@ -197,6 +197,12 @@ type Service struct {
 	// the session off the refusing model (opus ~45% refusal rate; sonnet 0%).
 	// Refusal detection itself is unconditional — the flag gates only the action.
 	cyberRefusalRepin bool
+	// cyberRefusalRetry is the kill switch (ROUTER_CYBER_REFUSAL_RETRY, default
+	// on) for the same-turn rescue of a turn OpenAI declined on cyber policy:
+	// the refusal is withheld and re-dispatched off-vendor while nothing has
+	// reached the client. Independent of cyberRefusalRepin, which governs the
+	// following turns.
+	cyberRefusalRetry bool
 	// anthropicServerSideFallback (ROUTER_ANTHROPIC_SERVER_SIDE_FALLBACK, default on)
 	// opts Anthropic-targeted requests into server-side fallback: Anthropic re-serves
 	// a refused turn on a fallback model (rescues the current turn; cyberRefusalRepin
@@ -697,6 +703,7 @@ const (
 	markerReasonBestPick          = "best pick for this turn"
 	markerReasonBaseline          = "fell back to baseline after provider outage"
 	markerReasonSibling           = "switched after the picked model was overloaded"
+	markerReasonCyberRefusal      = "switched after the picked model declined the request"
 	markerReasonForcedPinDropped  = "your force-model pin could not be served this turn"
 )
 
@@ -723,6 +730,15 @@ func siblingRoutingMarkerFor(res turnLoopResult, siblingModel string) string {
 		return ""
 	}
 	return "✦ **Weave Router** → " + siblingModel + " · " + markerReasonSibling + "\n\n"
+}
+
+// cyberRefusalRoutingMarkerFor renders the routing badge for a turn re-served
+// after the picked model refused it.
+func cyberRefusalRoutingMarkerFor(res turnLoopResult, fallbackModel string) string {
+	if res.SuggestionMode || fallbackModel == "" || baseModelOf(res.PriorServedModel) == fallbackModel {
+		return ""
+	}
+	return "✦ **Weave Router** → " + fallbackModel + " · " + markerReasonCyberRefusal + "\n\n"
 }
 
 // routingReasonShort returns a short user-facing reason for the routing
@@ -1458,6 +1474,7 @@ func NewService(r router.Router, providerMap map[string]providers.Client, emitte
 		scoreToolResultTurns:          true,
 		loopEscalationEnabled:         true,
 		cyberRefusalRepin:             true,
+		cyberRefusalRetry:             true,
 		anthropicServerSideFallback:   true,
 		siblingFailover:               true,
 		openAIResponsesBroad:          true,
@@ -1518,6 +1535,13 @@ func (s *Service) WithScoreToolResultTurns(enabled bool) *Service {
 // (ROUTER_CYBER_REFUSAL_REPIN); see cyberRefusalRepin.
 func (s *Service) WithCyberRefusalRepin(enabled bool) *Service {
 	s.cyberRefusalRepin = enabled
+	return s
+}
+
+// WithCyberRefusalRetry is the kill switch for the same-turn OpenAI
+// cyber-refusal rescue (ROUTER_CYBER_REFUSAL_RETRY); see cyberRefusalRetry.
+func (s *Service) WithCyberRefusalRetry(enabled bool) *Service {
+	s.cyberRefusalRetry = enabled
 	return s
 }
 
@@ -2836,7 +2860,16 @@ func delimitedValue(b, prefix []byte, end byte) (string, bool) {
 // maybeRepinOnRefusal re-pins the session off the refusing model post-turn
 // so subsequent turns route to a non-refusing model.
 func (s *Service) maybeRepinOnRefusal(ctx context.Context, obs *refusalObserver, sessionKey [sessionpin.SessionKeyLen]byte, role string, served router.Decision) {
-	if obs == nil || !obs.refused || s.pinStore == nil {
+	if obs == nil || !obs.refused {
+		return
+	}
+	s.repinOffRefusingModel(ctx, sessionKey, role, served, obs.category)
+}
+
+// repinOffRefusingModel moves the session pin to the refusal fallback, whatever
+// vendor signalled the refusal (Anthropic's stop reason, OpenAI's cyber policy).
+func (s *Service) repinOffRefusingModel(ctx context.Context, sessionKey [sessionpin.SessionKeyLen]byte, role string, served router.Decision, category string) {
+	if s.pinStore == nil {
 		return
 	}
 	// Detection is unconditional so refusals stay measurable; the flag gates
@@ -2859,20 +2892,10 @@ func (s *Service) maybeRepinOnRefusal(ctx context.Context, obs *refusalObserver,
 		return
 	}
 	log := observability.FromContext(ctx)
-	// Prefer the scorer's runner-up (PairedModel); use context.Background() because
-	// the request ctx may already be canceled when the response has been written.
-	fbModel, fbProvider := s.ResolveCyberRefusalFallbackModel(ctx), ""
-	if existing, found, err := s.pinStore.Get(context.Background(), sessionKey, role); err == nil && found && pinMatchesEffectiveStrategy(ctx, existing) && existing.PairedModel != "" {
-		fbModel, fbProvider = existing.PairedModel, existing.PairedProvider
-	}
-	if fbProvider == "" {
-		if m, ok := catalog.ByID(fbModel); ok && len(m.Providers) > 0 {
-			fbProvider = m.Providers[0].Provider
-		}
-	}
-	if fbModel == "" || fbProvider == "" || fbModel == served.Model {
+	fbModel, fbProvider, ok := s.cyberRefusalFallback(ctx, sessionKey, role, served)
+	if !ok {
 		log.Warn("safety refusal observed but no distinct fallback model available; not re-pinning",
-			"from_model", served.Model, "fallback_model", fbModel, "refusal_category", obs.category)
+			"from_model", served.Model, "fallback_model", fbModel, "refusal_category", category)
 		return
 	}
 	pin := sessionpin.Pin{
@@ -2881,10 +2904,10 @@ func (s *Service) maybeRepinOnRefusal(ctx context.Context, obs *refusalObserver,
 		InstallationID: installationID,
 		Provider:       fbProvider,
 		Model:          fbModel,
-		Reason:         "cyber-refusal-repin",
+		Reason:         reasonCyberRefusalRepin,
 		Strategy:       router.StrategyFromContext(ctx),
 		TurnCount:      1,
-		PinnedUntil:    pinExpiry("cyber-refusal-repin"),
+		PinnedUntil:    pinExpiry(reasonCyberRefusalRepin),
 	}
 	// context.Background(): ctx may already be canceled here (response written,
 	// client disconnected); a canceled ctx would drop the re-pin write.
@@ -2894,7 +2917,7 @@ func (s *Service) maybeRepinOnRefusal(ctx context.Context, obs *refusalObserver,
 	}
 	log.Info("safety refusal — re-pinned session off refusing model",
 		"session_key", shortSessionKey(sessionKey),
-		"refusal_category", obs.category,
+		"refusal_category", category,
 		"from_model", served.Model,
 		"to_model", fbModel,
 		"to_provider", fbProvider)
@@ -6260,14 +6283,14 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	// for the OpenAI→openaicompat passthrough, and the empty-marker Prelude
 	// still flips the streaming flag so the watchdog can arm (emits a harmless
 	// ": routing complete" comment, not a content chunk).
-	makeMarkerSink := func() http.ResponseWriter {
+	makeMarkerSink := func(model, markerText string) http.ResponseWriter {
 		// Codex passthrough streams raw Responses SSE; wrapping it in a
 		// chat-completions marker writer would inject a foreign frame (and the
 		// output-progress scan reads choices[].delta, which Responses lacks).
 		if isResponses || verbatimPassthrough {
 			return sink
 		}
-		mw := translate.NewOpenAIRoutingMarkerWriter(sink, decision.Model, marker)
+		mw := translate.NewOpenAIRoutingMarkerWriter(sink, model, markerText)
 		if err := mw.Prelude(env.Stream()); err != nil {
 			log.Error("OpenAI routing-marker prelude failed", "err", err)
 		}
@@ -6296,315 +6319,444 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	crossFormat := false
 	var extractor *otel.UsageExtractor
 
-	var attempt dispatchAttempt
 	// Overwritten per attempt, so it holds the winning attempt's signals.
 	var respSummary translate.ResponseSummary
+	// cyberRetryArmed licenses the refusal gate to withhold an OpenAI stream's
+	// preamble; set once the rescue target is known to be dispatchable.
+	cyberRetryArmed := false
+	// cyberRefusalSeen survives per-attempt writers so the re-pin runs whether
+	// the refusal was withheld, passed through, or arrived as an error body.
+	cyberRefusalSeen := false
+	// buildAttempt composes the dispatch for one target model: same structure as
+	// ProxyMessages', so a rescue on another model rebuilds the whole chain
+	// (emit, translator, marker) instead of reusing the failed model's.
+	//
 	// Dispatch keys off the provider's translation family, not a hardcoded name
 	// list, so a new OpenAI-compat provider routes here as soon as it has a
 	// ProviderFamilies entry (see internal/providers/provider.go).
-	switch providers.FamilyFor(decision.Provider) {
-	case providers.FamilyOpenAICompat:
-		// Prep rebuilt per attempt: targetIsOpenRouter(opts) gates four
-		// OpenRouter-only body fields that Fireworks/Bedrock/Makora/Together
-		// should not see. On failover to OpenRouter the body must be re-emitted.
-		// Split from attempt so a native dispatch that finds no Responses surface
-		// can re-emit onto chat/completions while still pre-commit.
-		dispatchOpenAI := func(actx context.Context, d router.Decision, p providers.Client, surface openAISurface, stripPromptCacheKey bool) error {
-			var prep providers.PreparedRequest
-			switch surface {
-			case surfaceResponsesNative:
-				// Dispatch the caller's ORIGINAL Responses body (untranslated) to
-				// the OpenAI Responses endpoint, rewriting only the model. This keeps
-				// native Responses extensions lossless.
-				outBody, setErr := sjson.SetBytes(responsesBody, "model", d.Model)
-				if setErr != nil {
-					log.Error("Failed to set routed model on Codex Responses body", "err", setErr, "decision_model", d.Model)
-					return fmt.Errorf("set codex model: %w", setErr)
+	buildAttempt := func(target router.Decision, targetOpts translate.EmitOptions, targetMarker string) (dispatchAttempt, error) {
+		switch providers.FamilyFor(target.Provider) {
+		case providers.FamilyOpenAICompat:
+			// Prep rebuilt per attempt: targetIsOpenRouter(opts) gates four
+			// OpenRouter-only body fields that Fireworks/Bedrock/Makora/Together
+			// should not see. On failover to OpenRouter the body must be re-emitted.
+			// Split from attempt so a native dispatch that finds no Responses surface
+			// can re-emit onto chat/completions while still pre-commit.
+			dispatchOpenAI := func(actx context.Context, d router.Decision, p providers.Client, surface openAISurface, stripPromptCacheKey bool) error {
+				var prep providers.PreparedRequest
+				switch surface {
+				case surfaceResponsesNative:
+					// Dispatch the caller's ORIGINAL Responses body (untranslated) to
+					// the OpenAI Responses endpoint, rewriting only the model. This keeps
+					// native Responses extensions lossless.
+					outBody, setErr := sjson.SetBytes(responsesBody, "model", d.Model)
+					if setErr != nil {
+						log.Error("Failed to set routed model on Codex Responses body", "err", setErr, "decision_model", d.Model)
+						return fmt.Errorf("set codex model: %w", setErr)
+					}
+					nativeOpts := targetOpts
+					nativeOpts.TargetProvider = d.Provider
+					nativeOpts.FastMode = fastModeForAttempt(actx, d.Model, d.Provider)
+					fastServed = nativeOpts.FastMode
+					outBody, setErr = translate.ApplyOpenAIFastMode(outBody, nativeOpts)
+					if setErr != nil {
+						return fmt.Errorf("set codex service_tier: %w", setErr)
+					}
+					// The caller's own effort would otherwise serve an effort-qualified
+					// arm, so the policy learns from a level it never bought.
+					outBody, setErr = translate.ApplyOpenAIResponsesEffort(outBody, nativeOpts)
+					if setErr != nil {
+						return fmt.Errorf("set codex reasoning effort: %w", setErr)
+					}
+					prep = providers.PreparedRequest{
+						Body:     outBody,
+						Endpoint: providers.EndpointResponses,
+						Headers:  make(http.Header),
+						Stats: providers.RequestMutationStats{
+							Transformations: responseTransformationsFromContext(actx),
+						},
+					}
+				default:
+					attemptOpts := targetOpts
+					attemptOpts.TargetProvider = d.Provider
+					attemptOpts.StripPromptCacheKey = stripPromptCacheKey
+					attemptOpts.FastMode = fastModeForAttempt(actx, d.Model, d.Provider)
+					fastServed = attemptOpts.FastMode
+					var emitErr error
+					if surface == surfaceResponsesTranslated {
+						prep, emitErr = env.PrepareOpenAIResponses(r.Header, attemptOpts)
+					} else {
+						prep, emitErr = env.PrepareOpenAI(r.Header, attemptOpts)
+					}
+					if emitErr != nil {
+						log.Error("Failed to emit OpenAI body", "err", emitErr,
+							"decision_provider", d.Provider, "endpoint", prep.Endpoint)
+						return fmt.Errorf("emit body: %w", emitErr)
+					}
 				}
-				nativeOpts := opts
-				nativeOpts.TargetProvider = d.Provider
-				nativeOpts.FastMode = fastModeForAttempt(actx, d.Model, d.Provider)
-				fastServed = nativeOpts.FastMode
-				outBody, setErr = translate.ApplyOpenAIFastMode(outBody, nativeOpts)
-				if setErr != nil {
-					return fmt.Errorf("set codex service_tier: %w", setErr)
-				}
-				// The caller's own effort would otherwise serve an effort-qualified
-				// arm, so the policy learns from a level it never bought.
-				outBody, setErr = translate.ApplyOpenAIResponsesEffort(outBody, nativeOpts)
-				if setErr != nil {
-					return fmt.Errorf("set codex reasoning effort: %w", setErr)
-				}
-				prep = providers.PreparedRequest{
-					Body:     outBody,
-					Endpoint: providers.EndpointResponses,
-					Headers:  make(http.Header),
-					Stats: providers.RequestMutationStats{
-						Transformations: responseTransformationsFromContext(actx),
-					},
-				}
-			default:
-				attemptOpts := opts
-				attemptOpts.TargetProvider = d.Provider
-				attemptOpts.StripPromptCacheKey = stripPromptCacheKey
-				attemptOpts.FastMode = fastModeForAttempt(actx, d.Model, d.Provider)
-				fastServed = attemptOpts.FastMode
-				var emitErr error
-				if surface == surfaceResponsesTranslated {
-					prep, emitErr = env.PrepareOpenAIResponses(r.Header, attemptOpts)
-				} else {
-					prep, emitErr = env.PrepareOpenAI(r.Header, attemptOpts)
-				}
-				if emitErr != nil {
-					log.Error("Failed to emit OpenAI body", "err", emitErr,
-						"decision_provider", d.Provider, "endpoint", prep.Endpoint)
-					return fmt.Errorf("emit body: %w", emitErr)
-				}
-			}
-			attemptSink := makeMarkerSink()
-			proxyWriter := attemptSink
-			// A translated attempt reads Responses SSE, which the chat-shaped
-			// usage extractor can't parse — the translator records usage instead.
-			var translator *translate.ResponsesToOpenAIChatWriter
-			// A native attempt has no translator, so its terminal Responses event
-			// is the only source for the turn's finish reason.
-			var nativeTerminal *responsesTerminalObserver
-			switch {
-			case surface == surfaceResponsesTranslated:
-				var usage otel.UsageSink
-				if s.usageRequired() {
-					extractor = otel.NewUsageExtractor(nil, d.Provider)
-					usage = extractor
-				}
-				translator = translate.NewResponsesToOpenAIChatWriter(attemptSink, d.Model, usage).
-					WithLogger(log).
-					WithToolValidator(toolValidator)
-				if err := translator.Prelude(env.Stream()); err != nil {
-					log.Error("chat/completions prelude failed (Responses upstream)", "err", err)
-				}
-				proxyWriter = translator
-			case surface == surfaceResponsesNative:
-				nativeTerminal = newResponsesTerminalObserver(attemptSink)
-				proxyWriter = nativeTerminal
-				if s.usageRequired() {
-					extractor = otel.NewUsageExtractor(nativeTerminal, d.Provider)
+				// OpenAI's cyber-policy refusal arrives on an HTTP 200 stream, so
+				// only the response body identifies it. The gate withholds the
+				// pre-output frames so a refusal can be swallowed and the turn
+				// re-dispatched off-vendor while the client has seen nothing.
+				refusalGate := newCyberRefusalGate(makeMarkerSink(target.Model, targetMarker),
+					cyberRetryArmed && d.Provider == providers.ProviderOpenAI)
+				var attemptSink http.ResponseWriter = refusalGate
+				proxyWriter := attemptSink
+				// A translated attempt reads Responses SSE, which the chat-shaped
+				// usage extractor can't parse — the translator records usage instead.
+				var translator *translate.ResponsesToOpenAIChatWriter
+				// A native attempt has no translator, so its terminal Responses event
+				// is the only source for the turn's finish reason.
+				var nativeTerminal *responsesTerminalObserver
+				switch {
+				case surface == surfaceResponsesTranslated:
+					var usage otel.UsageSink
+					if s.usageRequired() {
+						extractor = otel.NewUsageExtractor(nil, d.Provider)
+						usage = extractor
+					}
+					translator = translate.NewResponsesToOpenAIChatWriter(attemptSink, d.Model, usage).
+						WithLogger(log).
+						WithToolValidator(toolValidator)
+					if err := translator.Prelude(env.Stream()); err != nil {
+						log.Error("chat/completions prelude failed (Responses upstream)", "err", err)
+					}
+					proxyWriter = translator
+				case surface == surfaceResponsesNative:
+					nativeTerminal = newResponsesTerminalObserver(attemptSink)
+					proxyWriter = nativeTerminal
+					if s.usageRequired() {
+						extractor = otel.NewUsageExtractor(nativeTerminal, d.Provider)
+						proxyWriter = extractor
+					}
+				case s.usageRequired():
+					extractor = otel.NewUsageExtractor(attemptSink, d.Provider)
 					proxyWriter = extractor
 				}
-			case s.usageRequired():
-				extractor = otel.NewUsageExtractor(attemptSink, d.Provider)
-				proxyWriter = extractor
-			}
-			if preludeBuf != nil {
-				preludeBuf.Seal()
-			}
-			err := p.Proxy(actx, d, prep, proxyWriter, r)
-			// Post-commit: bytes already on the wire, render as an in-stream
-			// frame instead of a corrupting envelope (pre-commit goes through
-			// dispatchWithFallback). Gate on THIS attempt being native: a non-native
-			// request through the translating ResponsesWriter still needs its own
-			// error frame; a native attempt already delivered the upstream's.
-			if err != nil && surface != surfaceResponsesNative && env.Stream() && preludeBuf.Committed() {
-				err = emitOpenAISSEErrorEvent(sink, err)
-			}
-			if translator != nil {
-				finalErr := finalizeAfterProxy(err, translator.Finalize)
-				respSummary = translator.Summary()
-				return finalErr
-			}
-			if nativeTerminal != nil {
-				nativeTerminal.Finalize()
-				respSummary = translate.ResponseSummary{UpstreamFinishReason: nativeTerminal.finishReason}
-			}
-			return err
-		}
-		attempt = func(actx context.Context, d router.Decision, p providers.Client) error {
-			surface := surfaceChat
-			if d.Provider == providers.ProviderOpenAI {
-				switch {
-				case responsesPassthrough:
-					surface = surfaceResponsesNative
-				case translateToResponses:
-					surface = surfaceResponsesTranslated
+				if preludeBuf != nil {
+					preludeBuf.Seal()
 				}
+				err := p.Proxy(actx, d, prep, proxyWriter, r)
+				// Post-commit: bytes already on the wire, render as an in-stream
+				// frame instead of a corrupting envelope (pre-commit goes through
+				// dispatchWithFallback). Gate on THIS attempt being native: a non-native
+				// request through the translating ResponsesWriter still needs its own
+				// error frame; a native attempt already delivered the upstream's.
+				if err != nil && surface != surfaceResponsesNative && env.Stream() && preludeBuf.Committed() {
+					err = emitOpenAISSEErrorEvent(sink, err)
+				}
+				if translator != nil {
+					err = finalizeAfterProxy(err, translator.Finalize)
+					respSummary = translator.Summary()
+				} else if nativeTerminal != nil {
+					nativeTerminal.Finalize()
+					respSummary = translate.ResponseSummary{UpstreamFinishReason: nativeTerminal.finishReason}
+				}
+				if releaseErr := refusalGate.Finalize(); releaseErr != nil && err == nil {
+					err = releaseErr
+				}
+				if refusalGate.refused {
+					cyberRefusalSeen = true
+				}
+				// A withheld refusal left the turn unserved with nothing on the
+				// wire: report it as an upstream rejection so the dispatch chain
+				// classifies it like the non-streaming refusal.
+				if refusalGate.withheld && err == nil {
+					err = providers.CyberPolicyRefusalError()
+				}
+				return err
 			}
-			gatewayKey := gatewayResponsesKey(actx, d.Provider)
-			stripPCK := s.gatewayRejectsPromptCacheKey(gatewayKey)
-			err := dispatchOpenAI(actx, d, p, surface, stripPCK)
-			// Same prompt_cache_key unknown-field class as ProxyMessages' OpenAI-compat
-			// path: re-emit once without the hint while pre-commit; memoize the endpoint.
-			if err != nil && !stripPCK && gatewayKey != "" && !committed(preludeBuf) &&
-				providers.IsUpstreamPromptCacheKeyRejection(err) {
-				s.rememberGatewayRejectsPromptCacheKey(gatewayKey)
-				stripPCK = true
-				log.Warn("Gateway rejected prompt_cache_key; retrying without the affinity hint",
+			return func(actx context.Context, d router.Decision, p providers.Client) error {
+				surface := surfaceChat
+				if d.Provider == providers.ProviderOpenAI {
+					switch {
+					case responsesPassthrough:
+						surface = surfaceResponsesNative
+					case translateToResponses:
+						surface = surfaceResponsesTranslated
+					}
+				}
+				gatewayKey := gatewayResponsesKey(actx, d.Provider)
+				stripPCK := s.gatewayRejectsPromptCacheKey(gatewayKey)
+				err := dispatchOpenAI(actx, d, p, surface, stripPCK)
+				// Same prompt_cache_key unknown-field class as ProxyMessages' OpenAI-compat
+				// path: re-emit once without the hint while pre-commit; memoize the endpoint.
+				if err != nil && !stripPCK && gatewayKey != "" && !committed(preludeBuf) &&
+					providers.IsUpstreamPromptCacheKeyRejection(err) {
+					s.rememberGatewayRejectsPromptCacheKey(gatewayKey)
+					stripPCK = true
+					log.Warn("Gateway rejected prompt_cache_key; retrying without the affinity hint",
+						"model", d.Model,
+						"decision_provider", d.Provider,
+						"request_id", requestID)
+					if preludeBuf != nil {
+						preludeBuf.Discard()
+					}
+					err = dispatchOpenAI(actx, d, p, surface, true)
+				}
+				// Retried once pre-commit on chat/completions; memoized for later turns.
+				// A native attempt also needs promotedToResponses — a Codex passthrough has none.
+				if err == nil || surface == surfaceChat ||
+					committed(preludeBuf) || !providers.IsUpstreamResponsesUnsupported(err) {
+					return err
+				}
+				if surface == surfaceResponsesNative {
+					rw, ok := w.(*translate.ResponsesWriter)
+					if !promotedToResponses || !ok || !rw.ClearPassthrough() {
+						return err
+					}
+					responsesPassthrough = false
+					if translatedMarker != "" {
+						rw.SetBadgeText(translatedMarker)
+					}
+				}
+				translateToResponses = false
+				s.rememberGatewayLacksResponses(responsesEndpointKey)
+				log.Warn("OpenAI endpoint rejected the Responses API; retrying on chat/completions",
 					"model", d.Model,
 					"decision_provider", d.Provider,
 					"request_id", requestID)
 				if preludeBuf != nil {
 					preludeBuf.Discard()
 				}
-				err = dispatchOpenAI(actx, d, p, surface, true)
+				return dispatchOpenAI(actx, d, p, surfaceChat, stripPCK)
+			}, nil
+		case providers.FamilyGemini:
+			crossFormat = true
+			prep, emitErr := env.PrepareGemini(r.Header, targetOpts)
+			if emitErr != nil {
+				log.Error("Failed to translate OpenAI request to Gemini format", "err", emitErr)
+				return nil, fmt.Errorf("translate openai request to gemini: %w", emitErr)
 			}
-			// Retried once pre-commit on chat/completions; memoized for later turns.
-			// A native attempt also needs promotedToResponses — a Codex passthrough has none.
-			if err == nil || surface == surfaceChat ||
-				committed(preludeBuf) || !providers.IsUpstreamResponsesUnsupported(err) {
-				return err
-			}
-			if surface == surfaceResponsesNative {
-				rw, ok := w.(*translate.ResponsesWriter)
-				if !promotedToResponses || !ok || !rw.ClearPassthrough() {
-					return err
+			// See ProxyMessages' Gemini case: a VALIDATED-mode request can 400 with a
+			// generic INVALID_ARGUMENT when Gemini can't compile a tool schema into
+			// its decode-time grammar. Retry once with mode=AUTO when pre-commit.
+			geminiUsedValidated := prep.Stats.GeminiValidatedToolMode
+			dispatchGemini := func(actx context.Context, d router.Decision, p providers.Client, pr providers.PreparedRequest) (error, func(error) error) {
+				var usage otel.UsageSink
+				if s.usageRequired() {
+					extractor = otel.NewUsageExtractor(nil, d.Provider)
+					usage = extractor
 				}
-				responsesPassthrough = false
-				if translatedMarker != "" {
-					rw.SetBadgeText(translatedMarker)
-				}
-			}
-			translateToResponses = false
-			s.rememberGatewayLacksResponses(responsesEndpointKey)
-			log.Warn("OpenAI endpoint rejected the Responses API; retrying on chat/completions",
-				"model", d.Model,
-				"decision_provider", d.Provider,
-				"request_id", requestID)
-			if preludeBuf != nil {
-				preludeBuf.Discard()
-			}
-			return dispatchOpenAI(actx, d, p, surfaceChat, stripPCK)
-		}
-	case providers.FamilyGemini:
-		crossFormat = true
-		prep, emitErr := env.PrepareGemini(r.Header, opts)
-		if emitErr != nil {
-			log.Error("Failed to translate OpenAI request to Gemini format", "err", emitErr)
-			proxyErr = fmt.Errorf("translate openai request to gemini: %w", emitErr)
-			finishInferenceSpan(inferenceSpan, decision, decision.Provider, -1, proxyErr)
-			return proxyErr
-		}
-		// See ProxyMessages' Gemini case: a VALIDATED-mode request can 400 with a
-		// generic INVALID_ARGUMENT when Gemini can't compile a tool schema into
-		// its decode-time grammar. Retry once with mode=AUTO when pre-commit.
-		geminiUsedValidated := prep.Stats.GeminiValidatedToolMode
-		dispatchGemini := func(actx context.Context, d router.Decision, p providers.Client, pr providers.PreparedRequest) (error, func(error) error) {
-			var usage otel.UsageSink
-			if s.usageRequired() {
-				extractor = otel.NewUsageExtractor(nil, d.Provider)
-				usage = extractor
-			}
-			attemptSink := makeMarkerSink()
-			translator := translate.NewGeminiToOpenAISSETranslator(attemptSink, d.Model, usage)
-			if preludeBuf != nil {
-				preludeBuf.Seal()
-			}
-			rawErr := p.Proxy(actx, d, pr, translator, r)
-			finalize := func(err error) error {
-				// Post-commit streaming error: see same-format OpenAI case above.
-				if err != nil && env.Stream() && preludeBuf.Committed() {
-					err = emitOpenAISSEErrorEvent(sink, err)
-				}
-				return finalizeAfterProxy(err, translator.Finalize)
-			}
-			return rawErr, finalize
-		}
-		attempt = func(actx context.Context, d router.Decision, p providers.Client) error {
-			rawErr, finalize := dispatchGemini(actx, d, p, prep)
-			if rawErr != nil && geminiUsedValidated && !committed(preludeBuf) && upstreamStatus(rawErr) == http.StatusBadRequest {
-				autoOpts := opts
-				autoOpts.DowngradeGeminiValidatedToAuto = true
-				autoPrep, autoErr := env.PrepareGemini(r.Header, autoOpts)
-				if autoErr != nil {
-					log.Error("Failed to re-translate Gemini request with tool mode AUTO", "err", autoErr)
-					return finalize(rawErr)
-				}
-				log.Warn("Retrying Gemini request with functionCallingConfig.mode=AUTO after VALIDATED-mode 400",
-					"model", d.Model,
-					"request_id", requestID)
+				attemptSink := makeMarkerSink(target.Model, targetMarker)
+				translator := translate.NewGeminiToOpenAISSETranslator(attemptSink, d.Model, usage)
 				if preludeBuf != nil {
-					preludeBuf.Discard()
+					preludeBuf.Seal()
 				}
-				rawErr, finalize = dispatchGemini(actx, d, p, autoPrep)
-			}
-			return finalize(rawErr)
-		}
-	case providers.FamilyAnthropic:
-		crossFormat = true
-		prep, emitErr := env.PrepareAnthropic(r.Header, opts)
-		if emitErr != nil {
-			log.Error("Failed to translate OpenAI request to Anthropic format", "err", emitErr)
-			proxyErr = fmt.Errorf("translate openai request: %w", emitErr)
-			finishInferenceSpan(inferenceSpan, decision, decision.Provider, -1, proxyErr)
-			return proxyErr
-		}
-		// One send on the given tier, split into the raw upstream error plus a
-		// finalize thunk so a fast send refused for lack of fast-mode allocation
-		// can be re-sent at standard speed before finalize commits the prelude.
-		dispatchAnthropic := func(actx context.Context, d router.Decision, p providers.Client, fast bool) (error, func(error) error) {
-			fastServed = fast
-			attemptPrep := prep
-			if fast != opts.FastMode {
-				attemptOpts := opts
-				attemptOpts.TargetProvider = d.Provider
-				attemptOpts.FastMode = fast
-				var attemptEmitErr error
-				attemptPrep, attemptEmitErr = env.PrepareAnthropic(r.Header, attemptOpts)
-				if attemptEmitErr != nil {
-					log.Error("Failed to re-translate OpenAI request to Anthropic format for fast-tier change", "err", attemptEmitErr)
-					return fmt.Errorf("translate openai request: %w", attemptEmitErr), func(err error) error { return err }
+				rawErr := p.Proxy(actx, d, pr, translator, r)
+				finalize := func(err error) error {
+					// Post-commit streaming error: see same-format OpenAI case above.
+					if err != nil && env.Stream() && preludeBuf.Committed() {
+						err = emitOpenAISSEErrorEvent(sink, err)
+					}
+					return finalizeAfterProxy(err, translator.Finalize)
 				}
+				return rawErr, finalize
 			}
-			var usage otel.UsageSink
-			if s.usageRequired() {
-				extractor = otel.NewUsageExtractor(nil, providers.ProviderAnthropic)
-				usage = extractor
-			}
-			attemptSink := makeMarkerSink()
-			translator := translate.NewSSETranslator(attemptSink, d.Model, usage)
-			if preludeBuf != nil {
-				preludeBuf.Seal()
-			}
-			rawErr := p.Proxy(actx, d, attemptPrep, translator, r)
-			finalize := func(err error) error {
-				// Post-commit streaming error: see same-format OpenAI case above.
-				if err != nil && env.Stream() && preludeBuf.Committed() {
-					err = emitOpenAISSEErrorEvent(sink, err)
+			return func(actx context.Context, d router.Decision, p providers.Client) error {
+				rawErr, finalize := dispatchGemini(actx, d, p, prep)
+				if rawErr != nil && geminiUsedValidated && !committed(preludeBuf) && upstreamStatus(rawErr) == http.StatusBadRequest {
+					autoOpts := targetOpts
+					autoOpts.DowngradeGeminiValidatedToAuto = true
+					autoPrep, autoErr := env.PrepareGemini(r.Header, autoOpts)
+					if autoErr != nil {
+						log.Error("Failed to re-translate Gemini request with tool mode AUTO", "err", autoErr)
+						return finalize(rawErr)
+					}
+					log.Warn("Retrying Gemini request with functionCallingConfig.mode=AUTO after VALIDATED-mode 400",
+						"model", d.Model,
+						"request_id", requestID)
+					if preludeBuf != nil {
+						preludeBuf.Discard()
+					}
+					rawErr, finalize = dispatchGemini(actx, d, p, autoPrep)
 				}
-				return finalizeAfterProxy(err, translator.Finalize)
+				return finalize(rawErr)
+			}, nil
+		case providers.FamilyAnthropic:
+			crossFormat = true
+			prep, emitErr := env.PrepareAnthropic(r.Header, targetOpts)
+			if emitErr != nil {
+				log.Error("Failed to translate OpenAI request to Anthropic format", "err", emitErr)
+				return nil, fmt.Errorf("translate openai request: %w", emitErr)
 			}
-			return rawErr, finalize
-		}
-		attempt = func(actx context.Context, d router.Decision, p providers.Client) error {
-			fast := fastModeForAttempt(actx, d.Model, d.Provider)
-			rawErr, finalize := dispatchAnthropic(actx, d, p, fast)
-			if rawErr != nil && fast && !committed(preludeBuf) && providers.IsAnthropicFastModeQuotaRejection(rawErr) {
-				log.Warn("Retrying Anthropic request at standard speed after fast-mode quota rejection",
-					"model", d.Model,
-					"request_id", requestID)
+			// One send on the given tier, split into the raw upstream error plus a
+			// finalize thunk so a fast send refused for lack of fast-mode allocation
+			// can be re-sent at standard speed before finalize commits the prelude.
+			dispatchAnthropic := func(actx context.Context, d router.Decision, p providers.Client, fast bool) (error, func(error) error) {
+				fastServed = fast
+				attemptPrep := prep
+				if fast != targetOpts.FastMode {
+					attemptOpts := targetOpts
+					attemptOpts.TargetProvider = d.Provider
+					attemptOpts.FastMode = fast
+					var attemptEmitErr error
+					attemptPrep, attemptEmitErr = env.PrepareAnthropic(r.Header, attemptOpts)
+					if attemptEmitErr != nil {
+						log.Error("Failed to re-translate OpenAI request to Anthropic format for fast-tier change", "err", attemptEmitErr)
+						return fmt.Errorf("translate openai request: %w", attemptEmitErr), func(err error) error { return err }
+					}
+				}
+				var usage otel.UsageSink
+				if s.usageRequired() {
+					extractor = otel.NewUsageExtractor(nil, providers.ProviderAnthropic)
+					usage = extractor
+				}
+				attemptSink := makeMarkerSink(target.Model, targetMarker)
+				translator := translate.NewSSETranslator(attemptSink, d.Model, usage)
 				if preludeBuf != nil {
-					preludeBuf.Discard()
+					preludeBuf.Seal()
 				}
-				rawErr, finalize = dispatchAnthropic(actx, d, p, false)
+				rawErr := p.Proxy(actx, d, attemptPrep, translator, r)
+				finalize := func(err error) error {
+					// Post-commit streaming error: see same-format OpenAI case above.
+					if err != nil && env.Stream() && preludeBuf.Committed() {
+						err = emitOpenAISSEErrorEvent(sink, err)
+					}
+					return finalizeAfterProxy(err, translator.Finalize)
+				}
+				return rawErr, finalize
 			}
-			return finalize(rawErr)
+			return func(actx context.Context, d router.Decision, p providers.Client) error {
+				fast := fastModeForAttempt(actx, d.Model, d.Provider)
+				rawErr, finalize := dispatchAnthropic(actx, d, p, fast)
+				if rawErr != nil && fast && !committed(preludeBuf) && providers.IsAnthropicFastModeQuotaRejection(rawErr) {
+					log.Warn("Retrying Anthropic request at standard speed after fast-mode quota rejection",
+						"model", d.Model,
+						"request_id", requestID)
+					if preludeBuf != nil {
+						preludeBuf.Discard()
+					}
+					rawErr, finalize = dispatchAnthropic(actx, d, p, false)
+				}
+				return finalize(rawErr)
+			}, nil
+		default:
+			return nil, fmt.Errorf("%w: %s (no translation path defined)", ErrProviderNotConfigured, target.Provider)
 		}
-	default:
-		proxyErr = fmt.Errorf("%w: %s (no translation path defined)", ErrProviderNotConfigured, decision.Provider)
-		finishInferenceSpan(inferenceSpan, decision, decision.Provider, -1, proxyErr)
-		return proxyErr
 	}
+
+	attempt, attemptBuildErr := buildAttempt(decision, opts, marker)
+	if attemptBuildErr != nil {
+		finishInferenceSpan(inferenceSpan, decision, decision.Provider, -1, attemptBuildErr)
+		return attemptBuildErr
+	}
+
+	// OpenAI's cybersecurity classifier declines the turn itself, so the rescue
+	// has to leave the vendor — a retry on another OpenAI binding meets the same
+	// classifier. Resolved pre-dispatch: the refusal gate must be armed before
+	// the first upstream byte, and the primary dispatch has to hold its
+	// exhaustion flush so the refusal envelope can still be swallowed.
+	cyberRetryEligible := s.ResolveCyberRefusalRetry(ctx) &&
+		decision.Provider == providers.ProviderOpenAI &&
+		!strings.HasPrefix(decision.Reason, translate.ReasonUserForceModel) &&
+		!s.isHardPinnedTurn(ctx, routeRes.TurnType) &&
+		!billing.SubscriptionOnlyFromContext(ctx) &&
+		!bypassEval
+	var cyberRetryTarget router.Decision
+	cyberRetryViable := false
+	if cyberRetryEligible {
+		target, found := s.cyberRefusalRetryTarget(ctx, decision, routeRes.SessionKey, stickyStateRole(routeRes),
+			overflowEstimateOAI, env.SignatureTokenSavings(), outputReserveOAI)
+		cyberRetryViable = found && (s.shouldFailover(ctx) || s.gatewaySiblingAllowed(ctx, target))
+		cyberRetryTarget = target
+	}
+	cyberRetryArmed = cyberRetryViable
 
 	primaryProvider := decision.Provider
 	primaryModel := decision.Model
+	primaryDecision := decision
 	var winnerIdx int
 	winnerIdx, proxyErr = s.dispatchWithFallback(ctx, failoverInputs{
 		// contentSink is the raw w when capture is off.
-		w:               contentSink,
-		buf:             preludeBuf,
-		initialDecision: decision,
-		bindings:        bindings,
-		attempt:         attempt,
-		flushErr:        flushBufferedIfPresent,
+		w:                      contentSink,
+		buf:                    preludeBuf,
+		initialDecision:        decision,
+		bindings:               bindings,
+		attempt:                attempt,
+		flushErr:               flushBufferedIfPresent,
+		deferFlushOnExhaustion: cyberRetryViable,
 	})
-	finalProvider := primaryProvider
+	cyberRefusalSeen = cyberRefusalSeen || providers.IsUpstreamCyberPolicyRefusal(proxyErr)
+
+	// The deferred upstream error must reach the client exactly once: the rescue
+	// owns it, and flushes it itself when it declines to run.
+	deferredErrFlushed := false
+	flushDeferredErr := func() {
+		if deferredErrFlushed {
+			return
+		}
+		deferredErrFlushed = true
+		flushBufferedIfPresent(contentSink, proxyErr)
+	}
+
+	cyberRetryRan := false
+	if cyberRetryViable && proxyErr != nil && !preludeBuf.Committed() &&
+		providers.IsUpstreamCyberPolicyRefusal(proxyErr) {
+		retryOpts := opts
+		retryOpts.TargetModel = cyberRetryTarget.Model
+		retryOpts.TargetProvider = cyberRetryTarget.Provider
+		retryOpts.Capabilities = router.Lookup(cyberRetryTarget.Model)
+		// The turn now serves a model the session hasn't seen, so signed
+		// reasoning from the refusing model must not be replayed verbatim.
+		retryOpts.ModelSwitched = true
+		effortServed = s.resolveEffort(ctx, cyberRetryTarget, retryOpts.Capabilities, routeRes.EscalateEffort)
+		effortServed.apply(&retryOpts)
+		retryCtx := resolveAndInjectCredentials(ctx, cyberRetryTarget.Provider, cyberRetryTarget.Model, r.Header)
+		retryOpts.FastMode = fastModeForAttempt(retryCtx, cyberRetryTarget.Model, cyberRetryTarget.Provider)
+		retryBindings := s.resolveBindingsForDispatch(retryCtx, cyberRetryTarget)
+		retryMarker := suppressMarkerIfRequested(ctx, r.Header, cyberRefusalRoutingMarkerFor(routeRes, cyberRetryTarget.Model))
+		retryAttempt, retryBuildErr := buildAttempt(cyberRetryTarget, retryOpts, retryMarker)
+		rw, responsesIngress := w.(*translate.ResponsesWriter)
+		switch {
+		case retryBuildErr != nil:
+			log.Error("Cyber-refusal retry: preparing the fallback request failed; surfacing the refusal",
+				"err", retryBuildErr,
+				"fallback_model", cyberRetryTarget.Model)
+		case len(retryBindings) == 0:
+			log.Warn("Cyber-refusal retry: fallback has no usable binding; surfacing the refusal",
+				"fallback_model", cyberRetryTarget.Model,
+				"fallback_provider", cyberRetryTarget.Provider)
+		// The refused attempt streamed native Responses; the fallback speaks
+		// another format, so the writer has to translate for the rest of the turn.
+		case verbatimPassthrough && (!responsesIngress || !rw.ClearPassthrough()):
+			log.Warn("Cyber-refusal retry: Responses passthrough already committed; surfacing the refusal",
+				"fallback_model", cyberRetryTarget.Model)
+		default:
+			log.Warn("Cyber-refusal retry: OpenAI declined the turn on cyber policy, retrying off-vendor",
+				"failed_model", primaryModel,
+				"failed_provider", primaryProvider,
+				"fallback_model", cyberRetryTarget.Model,
+				"fallback_provider", cyberRetryTarget.Provider,
+				"request_id", requestID)
+			if verbatimPassthrough {
+				verbatimPassthrough = false
+				responsesPassthrough = false
+				if retryMarker != "" {
+					rw.SetBadgeText(retryMarker)
+				}
+			}
+			cyberRetryRan = true
+			respSummary = translate.ResponseSummary{}
+			winnerIdx, proxyErr = s.dispatchWithFallback(retryCtx, failoverInputs{
+				w:               contentSink,
+				buf:             preludeBuf,
+				initialDecision: cyberRetryTarget,
+				bindings:        retryBindings,
+				attempt:         retryAttempt,
+				flushErr:        flushBufferedIfPresent,
+			})
+			decision = cyberRetryTarget
+			bindings = retryBindings
+			marker = retryMarker
+		}
+	}
+	// The rescue declined to run; surface the held error now so it's never dropped.
+	if cyberRetryViable && !cyberRetryRan && proxyErr != nil && !preludeBuf.Committed() {
+		flushDeferredErr()
+	}
+
+	finalProvider := decision.Provider
 	if winnerIdx >= 0 && winnerIdx < len(bindings) {
 		finalProvider = bindings[winnerIdx].Provider
 	}
@@ -6673,7 +6825,8 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		String("dispatch.primary_model", primaryModel).
 		String("dispatch.final_provider", finalProvider).
 		Int64("dispatch.fallback_attempts", int64(winnerIdx)).
-		Bool("dispatch.failover_used", finalProvider != primaryProvider)
+		Bool("dispatch.failover_used", finalProvider != primaryProvider).
+		Bool("dispatch.cyber_refusal_retry", cyberRetryRan)
 	applyPlannerAttrs(openaiUpstreamBuilder, routeRes)
 	applyRoutingStateAttrs(openaiUpstreamBuilder, routeRes, decision.ServedIdentity(), sessionKey)
 	applyEffortAttrs(openaiUpstreamBuilder, effortServed)
@@ -6798,6 +6951,12 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		applyPlannerTelemetry(&telOAI, routeRes)
 		applyAuthorityShadowTelemetry(&telOAI, routeRes)
 		s.fireTelemetry(telOAI)
+	}
+
+	// Re-pin the session off the refusing model so the next turn skips it,
+	// whether or not this turn was rescued.
+	if cyberRefusalSeen {
+		s.repinOffRefusingModel(ctx, routeRes.SessionKey, stickyStateRole(routeRes), primaryDecision, providers.CyberPolicyErrorCode)
 	}
 
 	// One event per tool call that failed toolcheck validation, mirroring the

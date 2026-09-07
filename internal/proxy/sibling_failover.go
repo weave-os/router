@@ -21,20 +21,31 @@ func (s *Service) siblingFailoverDecision(ctx context.Context, failed router.Dec
 	if md == nil {
 		return router.Decision{}, false
 	}
+	return s.rescueDecision(ctx, failed, siblingCandidateOrder(md), ReasonSiblingFailover, est, sigSavings, outputReserve)
+}
+
+// rescueDecision resolves the first candidate the request is allowed to reach,
+// under the same availability, exclusion, context-fit and BYOK-gateway rules for
+// every in-turn rescue (sibling failover, safety-refusal retry).
+func (s *Service) rescueDecision(ctx context.Context, failed router.Decision, candidates []string, reason string, est, sigSavings, outputReserve int) (router.Decision, bool) {
 	if gw := s.gatewayProvidersForRequest(ctx); len(gw) > 0 {
-		return s.gatewaySiblingDecision(ctx, failed, gw, est, sigSavings, outputReserve)
+		return s.gatewayRescueDecision(ctx, failed, candidates, reason, gw, est, sigSavings, outputReserve)
 	}
 	if s.deploymentKeyedProviders == nil {
 		return router.Decision{}, false
 	}
 	available := s.keyedProvidersExcluding(s.excludedProvidersForRequest(ctx))
 	excludedModels := s.excludedModelsForRequest(ctx)
+	var candidateProviders map[string]string
+	if failed.Metadata != nil {
+		candidateProviders = failed.Metadata.CandidateProviders
+	}
 	// The rescue picks a stand-in on the router's own initiative, so a disabled
 	// model must not be resurrected here after the pool already excluded it.
 	automaticExcluded := s.globalAutomaticExcludedModels(ctx)
 
 	var sameProvider []router.Decision
-	for _, id := range siblingCandidateOrder(md) {
+	for _, id := range candidates {
 		if id == "" || id == failed.Model {
 			continue
 		}
@@ -44,14 +55,14 @@ func (s *Service) siblingFailoverDecision(ctx context.Context, failed router.Dec
 		if _, disabled := automaticExcluded[id]; disabled {
 			continue
 		}
-		provider, ok := siblingProvider(id, md.CandidateProviders, available)
+		provider, ok := siblingProvider(id, candidateProviders, available)
 		if !ok {
 			continue
 		}
 		if !siblingFitsContext(id, provider, est, sigSavings, outputReserve) {
 			continue
 		}
-		candidate := siblingDecisionFor(failed, id, provider)
+		candidate := rescueDecisionFor(failed, id, provider, reason)
 		if provider == failed.Provider {
 			sameProvider = append(sameProvider, candidate)
 			continue
@@ -64,18 +75,18 @@ func (s *Service) siblingFailoverDecision(ctx context.Context, failed router.Dec
 	return router.Decision{}, false
 }
 
-// gatewaySiblingDecision rescues a BYOK-gateway turn onto a sibling reachable
+// gatewayRescueDecision rescues a BYOK-gateway turn onto a candidate reachable
 // through a gateway key the request already holds. BYOK disables cross-provider
-// failover (foreign provider would 401); gateway siblings re-use the same
+// failover (foreign provider would 401); gateway candidates re-use the same
 // credentials so the restriction doesn't apply. A candidate behind a different
 // gateway binding ranks first over one on the same gateway.
-func (s *Service) gatewaySiblingDecision(ctx context.Context, failed router.Decision, gw map[string]struct{}, est, sigSavings, outputReserve int) (router.Decision, bool) {
+func (s *Service) gatewayRescueDecision(ctx context.Context, failed router.Decision, candidates []string, reason string, gw map[string]struct{}, est, sigSavings, outputReserve int) (router.Decision, bool) {
 	custom := s.customBindingsForRequest(ctx)
 	excludedModels := s.excludedModelsForRequest(ctx)
 	automaticExcluded := s.globalAutomaticExcludedModels(ctx)
 
 	var sameProvider []router.Decision
-	for _, id := range siblingCandidateOrder(failed.Metadata) {
+	for _, id := range candidates {
 		if id == "" || id == failed.Model {
 			continue
 		}
@@ -92,7 +103,7 @@ func (s *Service) gatewaySiblingDecision(ctx context.Context, failed router.Deci
 		if !siblingFitsContext(id, provider, est, sigSavings, outputReserve) {
 			continue
 		}
-		candidate := siblingDecisionFor(failed, id, provider)
+		candidate := rescueDecisionFor(failed, id, provider, reason)
 		if provider == failed.Provider {
 			sameProvider = append(sameProvider, candidate)
 			continue
@@ -160,23 +171,24 @@ func siblingProvider(model string, resolved map[string]string, available map[str
 	return binding.Provider, true
 }
 
-// siblingDecisionFor rebases a failed decision onto the rescue candidate. The
+// rescueDecisionFor rebases a failed decision onto the rescue candidate. The
 // arm selection is dropped: it names an upstream of the failed model, and
 // carrying it would make binding resolution prioritize a binding the candidate
 // doesn't have. Effort goes with it — it was chosen against the failed model's
 // menu, and keeping it would persist an identity the candidate never served.
-func siblingDecisionFor(failed router.Decision, model, provider string) router.Decision {
-	md := *failed.Metadata
-	md.SelectedArmID = ""
-	md.SelectedUpstreamID = ""
-	md.BindingIndex = 0
-
+func rescueDecisionFor(failed router.Decision, model, provider, reason string) router.Decision {
 	out := failed
 	out.Model = model
 	out.Provider = provider
 	out.Effort = ""
-	out.Reason = ReasonSiblingFailover
-	out.Metadata = &md
+	out.Reason = reason
+	if failed.Metadata != nil {
+		md := *failed.Metadata
+		md.SelectedArmID = ""
+		md.SelectedUpstreamID = ""
+		md.BindingIndex = 0
+		out.Metadata = &md
+	}
 	return out
 }
 
