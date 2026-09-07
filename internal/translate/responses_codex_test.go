@@ -28,6 +28,63 @@ func TestConvertResponsesToChatCompletionsWithOptions_PortableCodexTitleGenerati
 	assert.True(t, gjson.GetBytes(converted.Body, "tools").IsArray(), "routing projection must retain tool requirements")
 }
 
+func TestConvertResponsesToChatCompletionsWithOptions_PortableCodexTitleGenerationPrompt(t *testing.T) {
+	body := []byte(`{
+		"client_metadata":{"originator":"conductor"},
+		"include":["reasoning.encrypted_content"],
+		"input":[
+			{"type":"message","role":"developer","content":[{"type":"input_text","text":"Base instructions."}]},
+			{"type":"message","role":"user","content":[{"type":"input_text","text":"Respond directly to the user's prompt.\n\nYou are generating a short conversation title. Keep it concise."}]}
+		],
+		"model":"gpt-5.6-sol",
+		"parallel_tool_calls":true,
+		"prompt_cache_key":"title-session",
+		"reasoning":{"effort":"medium","summary":"auto"},
+		"store":false,
+		"stream":true,
+		"text":{"verbosity":"low"},
+		"tool_choice":"auto"
+	}`)
+
+	converted, err := translate.ConvertResponsesToChatCompletionsWithOptions(body, translate.ResponsesConversionOptions{PortableCodex: true})
+	require.NoError(t, err)
+	assert.True(t, converted.TitleGeneration)
+	assert.False(t, gjson.GetBytes(body, "text.format").Exists(), "current title requests no longer carry a JSON schema")
+}
+
+func TestConvertResponsesToChatCompletionsWithOptions_PortableCodexTitlePromptIsStrict(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+	}{
+		{
+			name:  "ordinary low verbosity request",
+			input: `[{"type":"message","role":"user","content":[{"type":"input_text","text":"Give this task a short title."}]}]`,
+		},
+		{
+			name:  "title marker without direct response instruction",
+			input: `[{"type":"message","role":"user","content":[{"type":"input_text","text":"You are generating a short conversation title."}]}]`,
+		},
+		{
+			name: "quoted prompt in an established conversation",
+			input: `[
+				{"type":"message","role":"user","content":[{"type":"input_text","text":"Respond directly to the user's prompt. You are generating a short conversation title."}]},
+				{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Example Title"}]},
+				{"type":"message","role":"user","content":[{"type":"input_text","text":"Why did that get hard-pinned?"}]}
+			]`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			body := []byte(`{"model":"gpt-5.6-sol","text":{"verbosity":"low"},"input":` + tt.input + `}`)
+			converted, err := translate.ConvertResponsesToChatCompletionsWithOptions(body, translate.ResponsesConversionOptions{PortableCodex: true})
+			require.NoError(t, err)
+			assert.False(t, converted.TitleGeneration)
+		})
+	}
+}
+
 func TestConvertResponsesToChatCompletionsWithOptions_PortableCodexTitleShapeIsStrict(t *testing.T) {
 	body := []byte(`{
 		"model":"gpt-5.6-sol",

@@ -43,8 +43,8 @@ type RoutingFeatures struct {
 	// Probe detection keys off this — Anthropic SDK quota probes set max_tokens=1.
 	MaxTokens int
 	// TitleGenHint marks a Codex Responses title-generation request. The
-	// Responses ingress sets this only for the Codex client after inspecting
-	// the native request shape; it is deliberately not inferred from prompt text.
+	// Responses ingress sets this only for the Codex client after matching the
+	// native request's schema or hidden-session prompt fingerprint.
 	TitleGenHint bool
 	// LastKind: "user_prompt", "tool_result", or "assistant".
 	LastKind string

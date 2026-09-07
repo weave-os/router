@@ -21,8 +21,8 @@ const (
 	// Probe: quota/liveness check (max_tokens=1..4). Hard-pinned to cheap
 	// model AND skips session-pin creation.
 	Probe TurnType = "probe"
-	// TitleGen: Claude Code sidebar-title generation. Hard-pinned AND
-	// skips session-pin creation.
+	// TitleGen: harness sidebar-title generation. Hard-pinned AND skips
+	// session-pin creation.
 	TitleGen TurnType = "title_gen"
 	// Classifier: short-form classification call (security monitor, etc.).
 	// Hard-pinned AND skips session-pin creation.

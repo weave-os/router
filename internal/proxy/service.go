@@ -460,7 +460,7 @@ type codexFeedbackSkillContextKey struct{}
 // already carries a rating hint after the last human turn.
 type responsesFooterEchoedContextKey struct{}
 
-// codexTitleGenerationContextKey carries the native Responses title shape
+// codexTitleGenerationContextKey carries the native Responses title signal
 // into the shared Chat Completions turn loop. It is set only after the request
 // is identified as coming from Codex, so other clients' structured outputs are
 // unaffected.

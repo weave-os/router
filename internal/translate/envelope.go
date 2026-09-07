@@ -418,6 +418,63 @@ func requestRootRequestsCodexTitleSchema(root gjson.Result) bool {
 	return additionalProperties.Exists() && additionalProperties.Type == gjson.False
 }
 
+const (
+	codexTitlePromptMarker          = "you are generating a short conversation title."
+	codexDirectResponsePromptMarker = "respond directly to the user's prompt"
+)
+
+func requestRootRequestsCodexTitle(root gjson.Result) bool {
+	if requestRootRequestsCodexTitleSchema(root) {
+		return true
+	}
+	text, ok := freshCodexResponsesUserText(root.Get("input"))
+	if !ok {
+		return false
+	}
+	lower := strings.ToLower(text)
+	return strings.Contains(lower, codexTitlePromptMarker) &&
+		strings.Contains(lower, codexDirectResponsePromptMarker)
+}
+
+// freshCodexResponsesUserText returns the sole user message from a new
+// Responses conversation. Conductor generates titles in a separate hidden
+// session, so accepting conversation history here would make quoted title
+// instructions in a normal coding session a false positive.
+func freshCodexResponsesUserText(input gjson.Result) (string, bool) {
+	if input.Type == gjson.String {
+		return input.Str, input.Str != ""
+	}
+	if !input.IsArray() {
+		return "", false
+	}
+	var userText string
+	for _, item := range input.Array() {
+		itemType := item.Get("type").Str
+		if itemType == "" && item.Get("role").Str != "" {
+			itemType = "message"
+		}
+		switch itemType {
+		case "additional_tools":
+			continue
+		case "message":
+			role := item.Get("role").Str
+			if role == "developer" || role == "system" {
+				continue
+			}
+			if role != "user" || userText != "" {
+				return "", false
+			}
+			userText = contentTextGJSON(item.Get("content"))
+			if userText == "" {
+				return "", false
+			}
+		default:
+			return "", false
+		}
+	}
+	return userText, userText != ""
+}
+
 // EmitOverrides describes byte-level mutations for same-format serialization.
 // Zero-valued fields are no-ops.
 type EmitOverrides struct {

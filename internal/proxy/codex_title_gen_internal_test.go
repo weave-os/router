@@ -67,3 +67,57 @@ func TestCodexResponsesTitleGenerationHardPinsWithoutScoring(t *testing.T) {
 	require.Zero(t, routerSpy.routeCalls, "Codex title generation must use the hard-pin path")
 	assert.NotContains(t, rec.Body.String(), "Weave Router", "hard-pinned title responses must not carry a routing marker")
 }
+
+func TestCodexResponsesTitlePromptHardPinsWithoutScoring(t *testing.T) {
+	routerSpy := &codexTitleRouter{}
+	provider := &codexTitleProvider{}
+	svc := NewService(
+		routerSpy,
+		map[string]providers.Client{providers.ProviderOpenAI: provider},
+		nil, false, nil, nil, false,
+		providers.ProviderOpenAI, "gpt-5.6-luna", nil,
+	)
+	body := []byte(`{
+		"model":"gpt-5.6-sol",
+		"parallel_tool_calls":true,
+		"store":false,
+		"stream":true,
+		"text":{"verbosity":"low"},
+		"tool_choice":"auto",
+		"input":[
+			{"type":"message","role":"developer","content":[{"type":"input_text","text":"Base instructions."}]},
+			{"type":"message","role":"user","content":[{"type":"input_text","text":"Respond directly to the user's prompt.\n\nYou are generating a short conversation title. Keep it concise."}]}
+		]
+	}`)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+	ctx := context.WithValue(context.Background(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppCodex})
+
+	require.NoError(t, svc.ProxyOpenAIResponses(ctx, body, rec, req))
+	require.Len(t, provider.endpoints, 1)
+	require.Zero(t, routerSpy.routeCalls, "Codex title generation must use the hard-pin path")
+	assert.NotContains(t, rec.Body.String(), "Weave Router", "hard-pinned title responses must not carry a routing marker")
+}
+
+func TestResponsesTitlePromptWithoutCodexIdentityUsesScorer(t *testing.T) {
+	routerSpy := &codexTitleRouter{}
+	provider := &codexTitleProvider{}
+	svc := NewService(
+		routerSpy,
+		map[string]providers.Client{providers.ProviderOpenAI: provider},
+		nil, false, nil, nil, false,
+		providers.ProviderOpenAI, "gpt-5.6-luna", nil,
+	)
+	body := []byte(`{
+		"model":"gpt-5.6-sol",
+		"stream":true,
+		"text":{"verbosity":"low"},
+		"input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"Respond directly to the user's prompt. You are generating a short conversation title."}]}]
+	}`)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+
+	require.NoError(t, svc.ProxyOpenAIResponses(context.Background(), body, rec, req))
+	require.Len(t, provider.endpoints, 1)
+	assert.Equal(t, 1, routerSpy.routeCalls, "prompt matching must remain gated to Codex ingress")
+}

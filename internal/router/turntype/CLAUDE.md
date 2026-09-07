@@ -13,7 +13,7 @@ Classifies inbound requests into:
 - `SubAgentDispatch`
 - `Compaction` — harness-issued compaction turn (Claude Code's summary instruction, or Codex's "CONTEXT CHECKPOINT COMPACTION" handoff prompt); hard-pinned
 - `Probe` — proxy bypasses routing entirely
-- `TitleGen` — Claude Code sidebar-title generation; hard-pinned AND skips session-pin creation (an anchored pin here would leak the cheap-model decision into the real conversation that follows ~25ms later)
+- `TitleGen` — harness sidebar-title generation; hard-pinned AND skips session-pin creation (an anchored pin here would leak the cheap-model decision into the real conversation that follows ~25ms later). Claude Code is identified by its title JSON schema; Codex title requests are trusted only on Codex Responses ingress and match either the closed title schema or Conductor's fresh hidden-session prompt fingerprint.
 - `Classifier` — short-form classification call (e.g. Claude Code's security monitor); hard-pinned AND skips session-pin creation
 
 Used by [`../../proxy`](../../proxy) to keep the action loop cheap + correct.
