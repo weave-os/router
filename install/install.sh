@@ -1785,6 +1785,17 @@ json_get() {
   jq -r "${2} // empty" "$1" 2>/dev/null || true
 }
 
+# strip_trailing_slashes removes every trailing slash from a URL while keeping
+# comparisons between config files stable when a value was written with more
+# than one separator.
+strip_trailing_slashes() {
+  local value="$1"
+  while [ "${value%/}" != "$value" ]; do
+    value="${value%/}"
+  done
+  printf '%s' "$value"
+}
+
 # read_claude_key prints the router key already installed in the given settings
 # file, or nothing when the file is absent / carries no key header. Claude Code
 # packs several headers into one newline-delimited ANTHROPIC_CUSTOM_HEADERS
@@ -1960,11 +1971,13 @@ resolve_installed_base_url() {
 # alongside the endpoint lets update apply the same provenance check as models
 # before it sends the installed key to that endpoint.
 resolve_installed_base_source() {
-  local expected="$1" candidate found
+  local expected="$1" normalized_expected candidate found normalized_found
+  normalized_expected="$(strip_trailing_slashes "$expected")"
   while IFS= read -r candidate; do
     [ -n "$candidate" ] || continue
     found="$(json_get "$candidate" '.env.ANTHROPIC_BASE_URL')"
-    if [ "${found%/}" = "${expected%/}" ]; then
+    normalized_found="$(strip_trailing_slashes "$found")"
+    if [ "$normalized_found" = "$normalized_expected" ]; then
       printf '%s' "$candidate"
       return 0
     fi
@@ -2049,9 +2062,10 @@ resolve_installed_endpoint() {
 # hosted default, or an explicit --base-url — rather than whatever the checkout
 # happened to contain.
 models_endpoint_is_trusted() {
-  local url="$1" base_src="$2" key_src="$3"
+  local url="$1" base_src="$2" key_src="$3" normalized_url normalized_marked_url
+  normalized_url="$(strip_trailing_slashes "$url")"
   [ "$base_url_explicit" = "true" ] && return 0
-  [ "$url" = "$HOSTED_BASE_URL" ] && return 0
+  [ "$normalized_url" = "$(strip_trailing_slashes "$HOSTED_BASE_URL")" ] && return 0
   [ -n "$base_src" ] && [ "$base_src" = "$key_src" ] && return 0
   # Project-scoped self-hosted installs intentionally split the endpoint and
   # key. The installer writes a gitignored marker beside the key; require that
@@ -2063,7 +2077,8 @@ models_endpoint_is_trusted() {
      && [ ! -L "$local_settings_file" ]; then
     local marked_url
     marked_url="$(json_get "$local_settings_file" '.env.WEAVE_ROUTER_BASE_URL')"
-    if [ "${marked_url%/}" = "${url%/}" ]; then
+    normalized_marked_url="$(strip_trailing_slashes "$marked_url")"
+    if [ "$normalized_marked_url" = "$normalized_url" ]; then
       command -v git >/dev/null 2>&1 || return 1
       git -C "$(dirname "$local_settings_file")" ls-files --error-unmatch -- "$local_settings_file" >/dev/null 2>&1 && return 1
       return 0

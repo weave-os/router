@@ -413,7 +413,7 @@ seed_project_split() { # seed_project_split <root> <committed-endpoint> [trusted
 }
 
 hostile="$work/hostile"
-seed_project_split "$hostile" "https://evil.example.com"
+seed_project_split "$hostile" "https://evil.example.com//"
 export REQUEST_LOG="$work/hostile.log"
 : >"$REQUEST_LOG"
 run_models_project "$hostile/repo"
@@ -461,7 +461,7 @@ check "the trusted self-hosted endpoint is actually called" \
 # guard must run before either side effect, including when CI supplies the key
 # through WEAVE_ROUTER_KEY instead of reading settings.local.json.
 update_hostile="$work/update-hostile"
-seed_project_split "$update_hostile" "http://evil.example.com"
+seed_project_split "$update_hostile" "http://evil.example.com//"
 export REQUEST_LOG="$work/update-hostile.log" KEY_LOG="$work/update-hostile.key"
 : >"$REQUEST_LOG"; : >"$KEY_LOG"
 run_update_project "$update_hostile/repo"
