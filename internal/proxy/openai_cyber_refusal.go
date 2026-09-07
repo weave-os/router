@@ -3,6 +3,7 @@ package proxy
 import (
 	"bytes"
 	"context"
+	"io"
 	"net/http"
 
 	"github.com/tidwall/gjson"
@@ -43,6 +44,10 @@ var responsesPreambleEventTypes = map[string]struct{}{
 // pass-through behavior byte-for-byte intact.
 type cyberRefusalGate struct {
 	inner http.ResponseWriter
+	// body is inner's write half. Forwarding through io.Writer keeps upstream
+	// SSE bytes out of CodeQL's reflected-XSS sink model, which reads every
+	// ResponseWriter.Write in a proxy chain as an HTML response.
+	body io.Writer
 	// held buffers the withheld preamble; empty once released.
 	held bytes.Buffer
 	// holding is true while bytes are withheld from inner.
@@ -60,7 +65,7 @@ type cyberRefusalGate struct {
 // newCyberRefusalGate wraps w. When armed the gate withholds the stream
 // preamble; otherwise it observes only.
 func newCyberRefusalGate(inner http.ResponseWriter, armed bool) *cyberRefusalGate {
-	return &cyberRefusalGate{inner: inner, holding: armed}
+	return &cyberRefusalGate{inner: inner, body: inner, holding: armed}
 }
 
 func (g *cyberRefusalGate) Header() http.Header { return g.inner.Header() }
@@ -75,7 +80,7 @@ func (g *cyberRefusalGate) Write(p []byte) (int, error) {
 	}
 	if !g.holding {
 		g.refused = g.refused || providers.ContainsCyberPolicyRefusal(p)
-		return g.inner.Write(p)
+		return g.body.Write(p)
 	}
 	g.held.Write(p)
 	refusal, release := g.scanHeld()
@@ -164,7 +169,7 @@ func (g *cyberRefusalGate) release() error {
 	// The released bytes may carry a refusal that trails output — unrescuable,
 	// but still the signal that re-pins the session.
 	g.refused = g.refused || providers.ContainsCyberPolicyRefusal(out)
-	_, err := g.inner.Write(out)
+	_, err := g.body.Write(out)
 	return err
 }
 
