@@ -261,6 +261,11 @@ A rejected key is an error for `update` (exit 1), not a warning, so a scheduled
 run surfaces a revoked key instead of logging past it. `update` works for every
 target; a plain re-run of the installer reuses your installed key the same way.
 
+For a project-scoped Claude Code install, `update` also verifies that the
+endpoint in the tracked project settings is one you approved. If the endpoint
+was changed in the checkout, repeat it with `--base-url <url>` (or reinstall
+against that endpoint) before the update can send a local router key there.
+
 **Claude Code also refreshes itself.** `cc-statusline.sh` checks
 `raw.githubusercontent.com` for a newer copy of itself at most once every
 `$WEAVE_STATUSLINE_UPDATE_INTERVAL_DAYS` (default 7) in a detached background

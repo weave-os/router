@@ -1955,6 +1955,39 @@ resolve_installed_base_url() {
   printf ''
 }
 
+# resolve_installed_base_source prints the file that supplied the expected
+# Claude Code endpoint, or nothing when no file matches. Keeping the source
+# alongside the endpoint lets update apply the same provenance check as models
+# before it sends the installed key to that endpoint.
+resolve_installed_base_source() {
+  local expected="$1" candidate found
+  while IFS= read -r candidate; do
+    [ -n "$candidate" ] || continue
+    found="$(json_get "$candidate" '.env.ANTHROPIC_BASE_URL')"
+    if [ "${found%/}" = "${expected%/}" ]; then
+      printf '%s' "$candidate"
+      return 0
+    fi
+  done <<<"$(models_base_file_order)"
+  printf ''
+}
+
+# resolve_installed_key_source prints the file that supplied the installed
+# Claude Code key, or nothing when the key came from the environment or is
+# absent. The update trust gate uses this to distinguish the normal project
+# split from a repo-planted endpoint.
+resolve_installed_key_source() {
+  local candidate
+  while IFS= read -r candidate; do
+    [ -n "$candidate" ] || continue
+    if [ -n "$(read_claude_key "$candidate")" ]; then
+      printf '%s' "$candidate"
+      return 0
+    fi
+  done <<<"$(models_key_file_order)"
+  printf ''
+}
+
 # resolve_installed_endpoint prints the router endpoint this install already
 # points at, for whichever client is being installed, or nothing. `update` uses
 # it so a refresh never silently retargets a self-hosted install at the hosted
@@ -2024,12 +2057,15 @@ models_endpoint_is_trusted() {
   # key. The installer writes a gitignored marker beside the key; require that
   # marker to match before trusting the split. A tracked/symlinked local file is
   # not a teammate's private configuration and cannot vouch for an endpoint.
-  if [ "$key_src" = "$local_settings_file" ] && [ ! -L "$key_src" ]; then
+  # The marker vouches for the endpoint independently of whether this run uses
+  # the key from disk or a replacement supplied through WEAVE_ROUTER_KEY.
+  if [ "$target" = "claude" ] && [ -n "$local_settings_file" ] \
+     && [ ! -L "$local_settings_file" ]; then
     local marked_url
-    marked_url="$(json_get "$key_src" '.env.WEAVE_ROUTER_BASE_URL')"
+    marked_url="$(json_get "$local_settings_file" '.env.WEAVE_ROUTER_BASE_URL')"
     if [ "${marked_url%/}" = "${url%/}" ]; then
       command -v git >/dev/null 2>&1 || return 1
-      git -C "$(dirname "$key_src")" ls-files --error-unmatch -- "$key_src" >/dev/null 2>&1 && return 1
+      git -C "$(dirname "$local_settings_file")" ls-files --error-unmatch -- "$local_settings_file" >/dev/null 2>&1 && return 1
       return 0
     fi
   fi
@@ -2910,21 +2946,13 @@ if [ "$mode" = "models" ] || [ "$mode" = "accounts" ] || [ "$mode" = "login" ] |
       exit 1
     fi
     base_url="$models_base"
-    # resolve_installed_endpoint ran in a command substitution, so any global it
-    # set died with that subshell. Recover the source by walking the same
-    # precedence to find which file holds the endpoint we just adopted. Only
-    # Claude Code spreads its endpoint across several files; every other client
-    # keeps endpoint and key in one managed config, which is self-consistent by
-    # construction (see models_endpoint_is_trusted's same-file rule).
+    # resolve_installed_endpoint ran in a command substitution, so recover the
+    # source by walking the same precedence to find which file holds the
+    # endpoint we just adopted. Only Claude Code spreads its endpoint across
+    # several files; every other client keeps endpoint and key in one managed
+    # config, which is self-consistent by construction.
     if [ "$target" = "claude" ]; then
-      while IFS= read -r models_src_candidate; do
-        [ -n "$models_src_candidate" ] || continue
-        models_src_url="$(json_get "$models_src_candidate" '.env.ANTHROPIC_BASE_URL')"
-        if [ "${models_src_url%/}" = "$models_base" ]; then
-          models_base_source="$models_src_candidate"
-          break
-        fi
-      done <<<"$(models_base_file_order)"
+      models_base_source="$(resolve_installed_base_source "$models_base")"
     else
       models_base_source="$(models_config_file_for_target)"
     fi
@@ -2939,13 +2967,7 @@ if [ "$mode" = "models" ] || [ "$mode" = "accounts" ] || [ "$mode" = "login" ] |
     # came from by re-reading them in read_installed_key's own precedence.
     models_key_source=""
     if [ "$target" = "claude" ]; then
-      while IFS= read -r models_src_candidate; do
-        [ -n "$models_src_candidate" ] || continue
-        if [ -n "$(read_claude_key "$models_src_candidate")" ]; then
-          models_key_source="$models_src_candidate"
-          break
-        fi
-      done <<<"$(models_key_file_order)"
+      models_key_source="$(resolve_installed_key_source)"
     else
       models_key_source="$(models_config_file_for_target)"
     fi
@@ -2957,9 +2979,9 @@ if [ "$mode" = "models" ] || [ "$mode" = "accounts" ] || [ "$mode" = "login" ] |
   # Never send a key to an endpoint the checkout supplied. See
   # models_endpoint_is_trusted: a hostile repo can commit a settings.json naming
   # its own router, and pairing that with the teammate key from the gitignored
-  # settings.local.json would hand the key to whoever wrote the repo.
-  if [ "$models_key_source" != "env:WEAVE_ROUTER_KEY" ] \
-     && ! models_endpoint_is_trusted "$base_url" "$models_base_source" "$models_key_source"; then
+  # settings.local.json or WEAVE_ROUTER_KEY would hand the key to whoever wrote
+  # the repo.
+  if ! models_endpoint_is_trusted "$base_url" "$models_base_source" "$models_key_source"; then
     err "Refusing to send this installation's router key to $base_url."
     printf "  %sThat endpoint comes from %s, which git tracks — a checked-out repo can set it —%s\n" \
       "$C_DIM" "${models_base_source##*/}" "$C_RESET" >&2
@@ -3001,10 +3023,15 @@ fi
 # `off` parks the router URL and points Claude Code at Anthropic, so the parked
 # sidecar is the authority while toggled off — reading the live file there would
 # pin the install to api.anthropic.com.
+installed_base=""
+installed_base_source=""
 if [ "$mode" = "update" ] && [ "$base_url_explicit" != "true" ]; then
   installed_base="$(resolve_installed_endpoint)"
   if [ -n "$installed_base" ]; then
     base_url="${installed_base%/}"
+    if [ "$target" = "claude" ]; then
+      installed_base_source="$(resolve_installed_base_source "$base_url")"
+    fi
   fi
 fi
 
@@ -3072,6 +3099,31 @@ else
     exit 1
   fi
   prompt_for_key
+fi
+
+# A project-scoped Claude install intentionally reads its endpoint from the
+# tracked settings.json and its key from the ignored settings.local.json. An
+# update must not carry a newly changed tracked endpoint into the validation or
+# config write unless the user has independently vouched for it. The same gate
+# also protects cron/CI runs that provide WEAVE_ROUTER_KEY instead of reading
+# the installed key from disk.
+update_key_source=""
+if [ "$mode" = "update" ] && [ "$target" = "claude" ]; then
+  if [ -n "${WEAVE_ROUTER_KEY:-}" ]; then
+    update_key_source="env:WEAVE_ROUTER_KEY"
+  else
+    update_key_source="$(resolve_installed_key_source)"
+  fi
+fi
+if [ "$mode" = "update" ] && [ "$target" = "claude" ] \
+   && [ "$base_url_explicit" != "true" ] && [ -n "$installed_base" ] \
+   && ! models_endpoint_is_trusted "$base_url" "$installed_base_source" "$update_key_source"; then
+  err "Refusing to use the installed router endpoint $base_url."
+  printf "  %sThat endpoint comes from a git-tracked project file and has not been independently approved.%s\n" \
+    "$C_DIM" "$C_RESET" >&2
+  printf "  %sPass --base-url <url> to confirm it, or re-run the installer against the endpoint you want.%s\n" \
+    "$C_DIM" "$C_RESET" >&2
+  exit 1
 fi
 
 # ---------- identity (user email + name) ----------

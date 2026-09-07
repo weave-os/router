@@ -375,7 +375,19 @@ run_models_project() { # run_models_project <repo> [extra args...]
   ( cd "$repo" && HOME="$repo/../home" XDG_CACHE_HOME="$repo/../home/.cache" \
       PATH="$test_path" NO_COLOR=1 ROUTER_MODE="${ROUTER_MODE:-full}" \
       REQUEST_LOG="${REQUEST_LOG:-}" \
+      KEY_LOG="${KEY_LOG:-}" WEAVE_ROUTER_KEY="${WEAVE_ROUTER_KEY:-}" \
       bash "$installer" models --claude --scope project "$@" </dev/null >"$work/out" 2>&1 )
+  rc=$?
+  out="$(cat "$work/out")"
+}
+
+run_update_project() { # run_update_project <repo> [extra args...]
+  local repo="$1"; shift
+  ( cd "$repo" && HOME="$repo/../home" XDG_CACHE_HOME="$repo/../home/.cache" \
+      PATH="$test_path" NO_COLOR=1 ROUTER_MODE="${ROUTER_MODE:-full}" \
+      REQUEST_LOG="${REQUEST_LOG:-}" KEY_LOG="${KEY_LOG:-}" \
+      WEAVE_ROUTER_KEY="${WEAVE_ROUTER_KEY:-}" \
+      bash "$installer" update --claude --scope project "$@" </dev/null >"$work/out" 2>&1 )
   rc=$?
   out="$(cat "$work/out")"
 }
@@ -409,6 +421,14 @@ check "a git-tracked endpoint paired with a local key is refused" "$rc" "1"
 contains "the refusal names the endpoint" "$out" "evil.example.com"
 check "the refusal sends no request at all" "$(wc -l <"$REQUEST_LOG" | tr -d ' ')" "0"
 
+export WEAVE_ROUTER_KEY="rk_env_secret"
+: >"$REQUEST_LOG"
+run_models_project "$hostile/repo"
+check "an env key does not bypass the endpoint trust check" "$rc" "1"
+check "an env key still sends no request to the hostile endpoint" \
+  "$(wc -l <"$REQUEST_LOG" | tr -d ' ')" "0"
+unset WEAVE_ROUTER_KEY
+
 # The same split against the hosted default is the layout the installer itself
 # writes, so it must keep working — the endpoint is one the user can vouch for.
 legit="$work/legit"
@@ -435,6 +455,44 @@ run_models_project "$selfhosted_project/repo"
 check "the installer's committed self-hosted layout still works" "$rc" "0"
 check "the trusted self-hosted endpoint is actually called" \
   "$(grep -c '^GET /admin/v1/models ' "$REQUEST_LOG")" "1"
+
+# `update` has the same endpoint/key split as `models`, but it also writes the
+# endpoint into the live project config and validates the key against it. The
+# guard must run before either side effect, including when CI supplies the key
+# through WEAVE_ROUTER_KEY instead of reading settings.local.json.
+update_hostile="$work/update-hostile"
+seed_project_split "$update_hostile" "http://evil.example.com"
+export REQUEST_LOG="$work/update-hostile.log" KEY_LOG="$work/update-hostile.key"
+: >"$REQUEST_LOG"; : >"$KEY_LOG"
+run_update_project "$update_hostile/repo"
+check "update refuses a tracked hostile endpoint" "$rc" "1"
+check "update sends no request to a hostile endpoint" "$(wc -l <"$REQUEST_LOG" | tr -d ' ')" "0"
+check "update sends no key to a hostile endpoint" "$(wc -c <"$KEY_LOG" | tr -d ' ')" "0"
+
+export WEAVE_ROUTER_KEY="rk_env_secret"
+: >"$REQUEST_LOG"; : >"$KEY_LOG"
+run_update_project "$update_hostile/repo"
+check "update refuses a tracked hostile endpoint with an env key" "$rc" "1"
+check "env-key update sends no request to a hostile endpoint" "$(wc -l <"$REQUEST_LOG" | tr -d ' ')" "0"
+unset WEAVE_ROUTER_KEY
+
+update_explicit="$work/update-explicit"
+seed_project_split "$update_explicit" "http://evil.example.com"
+export REQUEST_LOG="$work/update-explicit.log" KEY_LOG="$work/update-explicit.key"
+: >"$REQUEST_LOG"; : >"$KEY_LOG"
+run_update_project "$update_explicit/repo" --base-url http://127.0.0.1:8080
+check "explicit update endpoint is allowed" "$rc" "0"
+check "explicit update endpoint is called" "$(grep -c '^GET /health ' "$REQUEST_LOG")" "1"
+check "explicit update sends the local key" "$(grep -c 'X-Weave-Router-Key: rk_teammate' "$KEY_LOG")" "1"
+
+update_marked="$work/update-marked"
+seed_project_split "$update_marked" "http://127.0.0.1:8080" trusted
+export REQUEST_LOG="$work/update-marked.log" KEY_LOG="$work/update-marked.key"
+: >"$REQUEST_LOG"; : >"$KEY_LOG"
+run_update_project "$update_marked/repo"
+check "marked self-hosted update is allowed" "$rc" "0"
+check "marked self-hosted update endpoint is called" "$(grep -c '^GET /health ' "$REQUEST_LOG")" "1"
+check "marked self-hosted update sends the local key" "$(grep -c 'X-Weave-Router-Key: rk_teammate' "$KEY_LOG")" "1"
 
 # An explicit --base-url is the user vouching out-of-band, so it overrides the
 # committed value rather than being refused.
