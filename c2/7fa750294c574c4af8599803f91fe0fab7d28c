@@ -1,0 +1,27 @@
+internal/proxy/turnloop.go
+  s_3211b1482b7151::t_653bfe0ad0305d 1081,1083-1084,1088-1092
+  s_3211b1482b7151::t_e1d14ec8dbe623 1082
+internal/proxy/hysteresis.go
+  s_3211b1482b7151::t_29b8f6009107c7 13-23,27,30-43,45-46,49,52-58,60-61,63,66-67,70-71,78-100,103-112,114-120,123-128,130
+  s_3211b1482b7151::t_949855f25bfc99 48
+  s_3211b1482b7151::t_00bacf0409769b 50
+  s_3211b1482b7151::t_b709cf433c7d88 59
+  s_3211b1482b7151::t_accebd6486e42a 47,51,64,68,72,74-75,77,101-102
+  s_3211b1482b7151::t_9e5079bf25d906 24-26,28-29
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.23",
+  "base_commit_sha": "c27fa750294c574c4af8599803f91fe0fab7d28c",
+  "prompts": {},
+  "sessions": {
+    "s_3211b1482b7151": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "bca6d564-81fe-4094-bb2d-0b0bae4bb3c4",
+        "model": "moonshotai/kimi-k3"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}
