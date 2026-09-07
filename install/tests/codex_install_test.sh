@@ -202,4 +202,140 @@ run_uninstall
 grep -qx 'user-authored skill' "$skill" \
   || fail "uninstall removed a user-owned Codex disable-routing skill"
 
+
+# ---------- Codex rewrites config.toml and our comment markers do not survive ----------
+#
+# Codex round-trips the whole file through a TOML serializer whenever it
+# persists its own state (hook trust hashes, project trust levels, the model
+# NUX table). Comments are dropped, so the managed markers disappear while
+# `[model_providers.weave]` survives -- re-emitted in the serializer's own
+# shape: keys alphabetized and our inline `http_headers` expanded into a
+# [model_providers.weave.http_headers] subtable.
+#
+# Every reader and writer keyed on the markers alone broke on that config:
+# install appended a second provider table (TOML rejects a table declared
+# twice, so Codex refused to start), the endpoint reader reported a live
+# install as absent, the key reader missed the router key, and uninstall left
+# the provider and its key on disk. Seed exactly that file for each case.
+seed_codex_normalized_config() {
+  rm -rf "$home/.codex" "$home/.weave"
+  mkdir -p "$home/.codex"
+  cat >"$config" <<'NORMALIZED'
+model_provider = "weave"
+
+[features]
+hooks = true
+
+[hooks.state."/Users/a/.codex/config.toml:stop:0:0"]
+enabled = true
+trusted_hash = "sha256:deadbeef"
+
+[model_providers.weave]
+base_url = "https://router.workweave.ai/v1"
+name = "Weave Router"
+requires_openai_auth = true
+wire_api = "responses"
+
+[model_providers.weave.http_headers]
+X-App = "codex"
+X-Weave-Router-Key = "rk_normalized_key"
+
+[projects."/Users/a/Code/weave"]
+trust_level = "trusted"
+NORMALIZED
+}
+
+# assert_config_parses fails when config.toml is not loadable TOML -- the exact
+# check Codex performs at startup, and the one that caught the duplicate table.
+# Skipped rather than faked where no python3 is available; the count assertions
+# below still pin the regression.
+assert_config_parses() {
+  command -v python3 >/dev/null 2>&1 || return 0
+  python3 - "$config" <<'PARSE' || fail "$1"
+import sys, tomllib
+with open(sys.argv[1], "rb") as fh:
+    tomllib.load(fh)
+PARSE
+}
+
+seed_codex_normalized_config
+run_hosted_install
+assert_config_parses "install over a Codex-rewritten config produced unparseable TOML"
+[ "$(grep -c '^\[model_providers\.weave\]$' "$config")" -eq 1 ] \
+  || fail "install over a Codex-rewritten config duplicated [model_providers.weave]"
+[ "$(grep -c '^\[model_providers\.weave\.http_headers\]$' "$config")" -eq 0 ] \
+  || fail "install over a Codex-rewritten config left the serializer's headers subtable"
+[ "$(grep -c '^model_provider = "weave"$' "$config")" -eq 1 ] \
+  || fail "install over a Codex-rewritten config duplicated the top-level model_provider"
+# Unrelated Codex-owned state is not ours to drop while rewriting around it.
+grep -Fq '[hooks.state."/Users/a/.codex/config.toml:stop:0:0"]' "$config" \
+  || fail "install over a Codex-rewritten config dropped Codex hook state"
+grep -Fq '[projects."/Users/a/Code/weave"]' "$config" \
+  || fail "install over a Codex-rewritten config dropped Codex project trust"
+
+# The endpoint reader backs `login`/`status`. Reading only between the markers
+# reported "No Weave Router install found for codex in this scope" on a
+# perfectly good install, which sent users through a reinstall to fix it.
+seed_codex_normalized_config
+router_status="$(HOME="$home" PATH="$test_path" NO_COLOR=1 \
+  bash "$installer" status --scope user 2>&1 || true)"
+printf '%s' "$router_status" | grep -q 'Codex: points at Router' \
+  || fail "status did not detect a Codex install whose markers Codex had dropped"
+
+# `login codex` is where users hit this first: it refused to enroll a
+# subscription against a working install and told them to run the installer
+# again. The device-authorization step still fails offline here -- what must not
+# come back is the "no install" refusal that precedes it.
+login_out="$(HOME="$home" PATH="$test_path" NO_COLOR=1 \
+  bash "$installer" login codex --scope user 2>&1 || true)"
+if printf '%s' "$login_out" | grep -q 'No Weave Router install found'; then
+  fail "login codex did not see an install whose markers Codex had dropped"
+fi
+
+# The key reader has to accept both spellings of the header name: our writer
+# emits one quoted inline table, Codex re-emits it as a bare key in a subtable.
+# Missing it made a re-install mint a second router key -- or, non-interactively,
+# fail outright with no key to fall back on.
+seed_codex_normalized_config
+HOME="$home" PATH="$test_path" NO_COLOR=1 WEAVE_ROUTER_KEY="" \
+  bash "$installer" --codex --scope user --quiet --non-interactive \
+    --base-url https://router.workweave.ai </dev/null >/dev/null 2>&1 \
+  || fail "re-install could not reuse the key from a Codex-rewritten config"
+grep -Fq 'rk_normalized_key' "$config" \
+  || fail "re-install replaced the router key already in a Codex-rewritten config"
+
+# Uninstall reported success while leaving the provider -- and the key inside
+# it -- behind, so routing kept working and the credential stayed on disk.
+seed_codex_normalized_config
+run_uninstall
+[ "$(grep -c '^\[model_providers\.weave\]$' "$config")" -eq 0 ] \
+  || fail "uninstall left the provider table from a Codex-rewritten config"
+if grep -Fq 'rk_normalized_key' "$config"; then
+  fail "uninstall left the router key in a Codex-rewritten config"
+fi
+if grep -Fq 'model_provider = "weave"' "$config"; then
+  fail "uninstall left Codex routed at the Weave provider"
+fi
+# Codex's own state still has to survive an uninstall.
+grep -Fq '[projects."/Users/a/Code/weave"]' "$config" \
+  || fail "uninstall dropped Codex project trust"
+
+# A provider whose name merely starts with "weave" is a different provider and
+# must be left alone -- the table matcher is anchored, not a prefix search.
+seed_codex_normalized_config
+cat >>"$config" <<'NEIGHBOUR'
+
+[model_providers.weaver]
+base_url = "https://example.invalid/v1"
+name = "Weaver"
+NEIGHBOUR
+run_hosted_install
+grep -Fq '[model_providers.weaver]' "$config" \
+  || fail "install removed an unrelated provider whose name starts with weave"
+run_uninstall
+grep -Fq '[model_providers.weaver]' "$config" \
+  || fail "uninstall removed an unrelated provider whose name starts with weave"
+
+rm -rf "$home/.codex" "$home/.weave"
+
 echo "Codex installer routing regression tests passed"

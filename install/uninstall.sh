@@ -206,11 +206,17 @@ fi
 WEAVE_CODEX_BEGIN_MARKER="# >>> weave-router managed (do not edit between markers) >>>"
 WEAVE_CODEX_END_MARKER="# <<< weave-router managed <<<"
 
-# strip_codex_block rewrites config.toml without the managed block and any
+# strip_codex_block rewrites config.toml without the managed block, any
 # top-level `model_provider = "weave"` that lived outside the markers (which
-# can happen if the user copy-pasted our key into their own config). Other
-# top-level model_provider values are preserved so we don't yank a user back
-# into the OpenAI default when they meant to keep their own.
+# can happen if the user copy-pasted our key into their own config), and any
+# `[model_providers.weave]` table outside them. Other top-level model_provider
+# values are preserved so we don't yank a user back into the OpenAI default
+# when they meant to keep their own.
+#
+# The out-of-marker table has to go for the same reason install.sh strips it:
+# Codex rewrites config.toml through a TOML serializer and our comment markers
+# do not survive, so a marker-only uninstall reported success while leaving the
+# provider -- and the router key inside it -- on disk.
 strip_codex_block() {
   local config_file="$1"
   local tmp; tmp="$(mktemp -t weave-codex-uninstall.XXXXXX)"
@@ -218,7 +224,15 @@ strip_codex_block() {
     $0 == begin { skip = 1; next }
     $0 == end   { skip = 0; next }
     skip        { next }
-    /^[[:space:]]*\[/ { in_section = 1 }
+    /^[[:space:]]*\[/ {
+      in_section = 1
+      if ($0 ~ /^[[:space:]]*\[[[:space:]]*model_providers[[:space:]]*\.[[:space:]]*weave[[:space:]]*(\.[^]]*)?\][[:space:]]*(#.*)?$/) {
+        in_weave_provider = 1
+        next
+      }
+      in_weave_provider = 0
+    }
+    in_weave_provider { next }
     !in_section && /^[[:space:]]*model_provider[[:space:]]*=[[:space:]]*"weave"[[:space:]]*$/ { next }
     { print }
   ' "$config_file" >"$tmp"

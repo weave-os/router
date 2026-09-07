@@ -596,15 +596,34 @@ TOML
 
   if [ -f "$config_file" ]; then
     local tmp; tmp="$(mktemp -t weave-codex.XXXXXX)"
-    # Strip the managed block (between markers) plus any top-level
-    # `model_provider =` outside it. We define "top-level" as everything
-    # before the first `[section]` header. The awk handles both passes in
-    # one sweep so we never emit a duplicate.
+    # Strip the managed block (between markers), any top-level
+    # `model_provider =` outside it, and any `[model_providers.weave]` table
+    # (with its subtables) outside it. "Top-level" means everything before the
+    # first `[section]` header. The awk handles every pass in one sweep so we
+    # never emit a duplicate.
+    #
+    # Dropping the out-of-marker provider table is what keeps a re-install
+    # idempotent once Codex has rewritten config.toml itself. Codex round-trips
+    # the whole file through a TOML serializer when it persists its own state
+    # (hook trust hashes, project trust levels), and comments do not survive
+    # that: the markers vanish while `[model_providers.weave]` remains. Keying
+    # the strip on the markers alone then left the stale table in place and
+    # appended a second one -- TOML rejects a table declared twice, so Codex
+    # refused to start with "duplicate key" while the installer reported
+    # success.
     awk -v begin="$WEAVE_CODEX_BEGIN_MARKER" -v end="$WEAVE_CODEX_END_MARKER" '
       $0 == begin { skip = 1; next }
       $0 == end   { skip = 0; next }
       skip        { next }
-      /^[[:space:]]*\[/ { in_section = 1 }
+      /^[[:space:]]*\[/ {
+        in_section = 1
+        if ($0 ~ /^[[:space:]]*\[[[:space:]]*model_providers[[:space:]]*\.[[:space:]]*weave[[:space:]]*(\.[^]]*)?\][[:space:]]*(#.*)?$/) {
+          in_weave_provider = 1
+          next
+        }
+        in_weave_provider = 0
+      }
+      in_weave_provider { next }
       !in_section && /^[[:space:]]*model_provider[[:space:]]*=/ { next }
       { print }
     ' "$config_file" >"$tmp"
@@ -1848,10 +1867,19 @@ key_source_is_own() {
 read_codex_key() {
   local f="$1"
   key_source_is_own "$f" || return 0
-  awk -v begin="$WEAVE_CODEX_BEGIN_MARKER" -v end="$WEAVE_CODEX_END_MARKER" '
-    $0 == begin { inblk = 1; next }
-    $0 == end   { inblk = 0; next }
-    inblk && match($0, /"X-Weave-Router-Key"[[:space:]]*=[[:space:]]*"[^"]*"/) {
+  # Scan the [model_providers.weave] table and its subtables rather than the
+  # managed markers, and accept the header name quoted or bare. Our own writer
+  # emits one inline `http_headers = { "X-Weave-Router-Key" = "..." }`; Codex's
+  # serializer re-emits the same value as a bare key in a
+  # [model_providers.weave.http_headers] subtable. Matching only the quoted
+  # in-marker spelling missed the key on any config Codex had rewritten, and a
+  # re-install then minted a second router key instead of reusing this one.
+  awk '
+    /^[[:space:]]*\[/ {
+      in_provider = ($0 ~ /^[[:space:]]*\[[[:space:]]*model_providers[[:space:]]*\.[[:space:]]*weave[[:space:]]*(\.[^]]*)?\][[:space:]]*(#.*)?$/)
+      next
+    }
+    in_provider && match($0, /"?X-Weave-Router-Key"?[[:space:]]*=[[:space:]]*"[^"]*"/) {
       hdr = substr($0, RSTART, RLENGTH)
       sub(/^.*=[[:space:]]*"/, "", hdr)
       sub(/"$/, "", hdr)
@@ -2019,11 +2047,19 @@ resolve_installed_endpoint() {
       return 0
       ;;
     codex)
+      # Read base_url from the [model_providers.weave] table wherever it sits,
+      # not only from between the managed markers. Codex drops our comment
+      # markers when it rewrites config.toml (see write_codex_config) while
+      # keeping the table, and a marker-scoped read then reported a live
+      # install as absent -- `login codex` and `status` claimed Codex was not
+      # configured until the user re-installed to restore the markers.
       if key_source_is_own "$codex_config_file"; then
-        found="$(awk -v begin="$WEAVE_CODEX_BEGIN_MARKER" -v end="$WEAVE_CODEX_END_MARKER" '
-          $0 == begin { inblk = 1; next }
-          $0 == end   { inblk = 0; next }
-          inblk && match($0, /^[[:space:]]*base_url[[:space:]]*=[[:space:]]*"[^"]*"/) {
+        found="$(awk '
+          /^[[:space:]]*\[/ {
+            in_provider = ($0 ~ /^[[:space:]]*\[[[:space:]]*model_providers[[:space:]]*\.[[:space:]]*weave[[:space:]]*\][[:space:]]*(#.*)?$/)
+            next
+          }
+          in_provider && match($0, /^[[:space:]]*base_url[[:space:]]*=[[:space:]]*"[^"]*"/) {
             line = substr($0, RSTART, RLENGTH)
             sub(/^.*=[[:space:]]*"/, "", line)
             sub(/"$/, "", line)
@@ -2947,6 +2983,12 @@ if [ "$mode" = "models" ] || [ "$mode" = "accounts" ] || [ "$mode" = "login" ] |
   # branches below so `set -u` holds on every path.
   models_base_source=""
   models_key_source=""
+  # The codex fallback below and run_router_status both resolve a Codex install
+  # even on a run whose target is Claude, and the per-target setup only defines
+  # codex_config_file when the target IS codex. Default it here or `set -u`
+  # aborts the whole command: `status` with a Codex-only install died on
+  # "codex_config_file: unbound variable" instead of reporting the install.
+  codex_config_file="${codex_config_file:-$settings_base/.codex/config.toml}"
   # Editing model selection needs the endpoint and key of one specific install,
   # never the hosted defaults: a self-hosted user pointing at their own router
   # would otherwise silently edit the hosted one's installation.
