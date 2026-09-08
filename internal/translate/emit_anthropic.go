@@ -1,6 +1,7 @@
 package translate
 
 import (
+	"crypto/sha1"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -30,6 +31,10 @@ func (e *RequestEnvelope) PrepareAnthropic(in http.Header, opts EmitOptions) (pr
 		}
 	default:
 		return providers.PreparedRequest{}, fmt.Errorf("unsupported source format for Anthropic emit: %d", e.format)
+	}
+	body, err = sanitizeAnthropicToolUseNamesBytes(body)
+	if err != nil {
+		return providers.PreparedRequest{}, fmt.Errorf("sanitize anthropic tool_use names: %w", err)
 	}
 	body, err = applyAnthropicCachePolicy(body, true)
 	if err != nil {
@@ -808,6 +813,29 @@ func sanitizeAnthropicToolSchemasBytes(body []byte) ([]byte, error) {
 		return nil, err
 	}
 	return sjson.SetRawBytes(body, "tools", raw)
+}
+
+// maxAnthropicToolUseNameLen is Anthropic's request limit for names in
+// historical tool_use blocks. Tool names produced by another provider can be
+// malformed while still surviving in client history, so overlong values are
+// replaced with a stable alias before that history is replayed to Anthropic.
+const maxAnthropicToolUseNameLen = 200
+
+func sanitizeAnthropicToolUseNamesBytes(body []byte) ([]byte, error) {
+	return rewriteMessageBlocks(body, hasOverlongAnthropicToolUseName, sanitizeAnthropicToolUseNameBlock)
+}
+
+func hasOverlongAnthropicToolUseName(block gjson.Result) bool {
+	return block.Get("type").String() == "tool_use" && len(block.Get("name").String()) > maxAnthropicToolUseNameLen
+}
+
+func sanitizeAnthropicToolUseNameBlock(raw string) (string, error) {
+	nameHash := sha1.Sum([]byte(gjson.Get(raw, "name").String()))
+	out, err := sjson.Set(raw, "name", fmt.Sprintf("invalid_tool_%x", nameHash))
+	if err != nil {
+		return "", fmt.Errorf("rewrite tool_use name: %w", err)
+	}
+	return out, nil
 }
 
 func anthropicToolSchemaRaw(schema gjson.Result) string {
