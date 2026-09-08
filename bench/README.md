@@ -146,9 +146,12 @@ or by any client of `GET /v1/analytics/routing-decisions`.
 
 ## Reproducing the published comparisons
 
-All published runs: k=2 attempts, Codex `model_reasoning_effort=high`
-(Astra control `max`), `--n-concurrent` as pinned (Atlas 24, TB4 12), the
-manifests below. The router arm ran against WorkWeave's staging router; the
+All published runs: k=2 attempts, `--n-concurrent` as pinned (Atlas 24, TB4
+12), the manifests below. Codex effort: Atlas pinned
+`model_reasoning_effort=high` (Astra control `max`); the published TB4 launcher
+set no effort in either arm, so both used Codex's default — this harness
+sets `high` on every benchmark, so TB4 reruns are effort-pinned rather than
+launcher-exact. The router arm ran against WorkWeave's staging router; the
 HMM package it served is noted per run — your router's package is whatever
 `weave-bench probe` reports.
 
@@ -194,10 +197,11 @@ run id should say so.
   cannot install Codex's prerequisites (`nodejs npm ripgrep`); these show as
   `harbor-environment-setup-failure` / `NonZeroAgentExitCodeError` with zero
   model spend, symmetrically across arms. Rerun the same run id to retry.
-- **Effort vs. the tbench.ai leaderboard.** The leaderboard protocol is k=5
-  with Codex `effort=max`; the published comparison is k=2 at `high` (the
-  router's default lane). Numbers here are not leaderboard-comparable; use
-  `--n-attempts 5` and an `astra`-style `max` control if you want that.
+- **Not leaderboard-comparable.** tbench.ai submissions run the full dataset
+  (the Terminal-Bench 2.0 leaderboard specifies `-k 5`); the published
+  comparison is a 66-task subset at k=2, and each leaderboard entry picks its
+  own Codex reasoning effort. Treat the numbers here as paired router-vs-control
+  deltas, not as a leaderboard score.
 - **Atlas ran on Harbor 0.18.0.** The published Atlas numbers used a private
   Harbor 0.18 patch that added what `BetaCodex` + the `config` agent kwarg do
   in 0.22.0. Harbor's Codex install/exec shape changed between releases;

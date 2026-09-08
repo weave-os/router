@@ -23,8 +23,8 @@ class Upstream(StrEnum):
 
 
 class ReasoningEffort(StrEnum):
-    """Codex ``model_reasoning_effort``. Published runs use ``high``; the
-    tbench.ai leaderboard and the Astra control ran ``max``."""
+    """Codex ``model_reasoning_effort``. Atlas pins ``high`` (Scale's QA
+    protocol); the Astra control ran ``max``."""
 
     MEDIUM = "medium"
     HIGH = "high"
