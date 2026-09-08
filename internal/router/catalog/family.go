@@ -47,9 +47,11 @@ func versionLess(a, b [2]int) bool {
 // never an older version. Variant suffixes remain separate families. Unknown
 // IDs return empty; new naming schemes need an explicit family mapping.
 func LatestInFamily(id string, eligible func(string) bool) string {
-	if _, known := ByID(id); !known {
+	model, known := ByID(id)
+	if !known {
 		return ""
 	}
+	id = model.ID
 	family, version, versioned := FamilyAndVersion(id)
 	latest := ""
 	if eligible(id) {
