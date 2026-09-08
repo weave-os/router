@@ -85,6 +85,19 @@ func TestUsageBypass_BelowThreshold_SkipsScorer(t *testing.T) {
 	assert.Equal(t, bypassRequestedMdl, rec.Header().Get("x-router-model"))
 }
 
+func TestUsageBypass_NativeWebSearchSubTurnUsesSubscription(t *testing.T) {
+	svc, fr, p := bypassFixture(t, 0.20)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+
+	require.NoError(t, svc.ProxyMessages(bypassCtx(0.80), []byte(nativeWebSearchSubTurnBody), rec, req))
+
+	assert.Zero(t, fr.routeCalls, "an isolated search sub-turn must bypass policy scoring")
+	require.Len(t, p.proxyBodies, 1, "the subscription request must dispatch exactly once")
+	assert.Equal(t, "claude-opus-4-8", rec.Header().Get(proxy.HeaderRouterModel))
+	assert.Equal(t, "usage_bypass", rec.Header().Get(proxy.HeaderRouterDecision))
+}
+
 // TestUsageBypass_AtThreshold_EngagesRouting is the counterpart: once observed
 // utilization crosses the threshold, the scorer runs and substitutes its pick.
 func TestUsageBypass_AtThreshold_EngagesRouting(t *testing.T) {

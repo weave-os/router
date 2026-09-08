@@ -749,6 +749,13 @@ func (s *Service) runTurnLoop(
 	// new uncached arm; ordinary in-context search turns continue below and
 	// retain their pin.
 	if !forceModelFound && env.IsNativeWebSearchSubTurn() {
+		if decision, ok := s.usageBypassDecision(ctx, reqHeaders, req); ok {
+			res.SessionKey = threadSessionKey
+			res.Decision = decision
+			res.UsageBypass = true
+			return res, nil
+		}
+
 		passthroughModel := s.baselineFor(req.RequestedModel)
 		_, excluded := req.ExcludedModels[passthroughModel]
 		_, safetyExcluded := req.SafetyExcludedModels[passthroughModel]
