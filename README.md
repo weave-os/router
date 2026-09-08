@@ -269,7 +269,7 @@ the final Anthropic `message_delta` usage event.
 - [**Policy router harness**](docs/POLICY_ROUTER_HARNESS.md): contract and
   rollout checklist for adding an out-of-process policy model.
 - 📏 [**Codex benchmark harness**](bench/README.md): reproduce the published
-  SWE-Atlas QnA, Terminal-Bench 4.0, and SWE-Bench Pro comparisons of
+  SWE-Atlas QnA and Terminal-Bench 4.0 comparisons of
   `/beta` routing vs. direct and OpenRouter controls.
 - 🛠️ [**Contributing**](CONTRIBUTING.md): layering rules, hot-reload dev,
   migrations, tests, the whole engineering loop.

@@ -3,14 +3,12 @@
 Subcommands::
 
   weave-bench probe                          # router version / roster / /beta ack
-  weave-bench fetch atlas|pro-grader|pro-dataset
+  weave-bench fetch atlas
   weave-bench tap serve                      # OpenRouter recording tap
   weave-bench run <benchmark> [--arms a,b] [--smoke|--tasks ...] [--dry-run]
   weave-bench report <benchmark> <run-id> [--no-analytics] [--tap-records PATH]
-  weave-bench pro grade <run-id> [--dry-run]  # official Scale grader
 
-No subcommand spends money unless it is ``run`` without ``--dry-run`` or
-``pro grade`` without ``--dry-run`` (Docker only, no LLM calls).
+No subcommand spends money unless it is ``run`` without ``--dry-run``.
 """
 
 from __future__ import annotations
@@ -28,18 +26,10 @@ from weave_bench.analytics import AnalyticsUnavailable, DecisionRow, fetch_rows,
 from weave_bench.arms import ArmSpec, parse_arms
 from weave_bench.benchmarks import PINS, Benchmark
 from weave_bench.config import BenchConfig, load_config, require_secret
-from weave_bench.fetch import fetch_atlas, fetch_pro_grader
+from weave_bench.fetch import fetch_atlas
 from weave_bench.harbor_command import job_name
 from weave_bench.launch import LaunchPlan, plan, render_dry_run, run_job
 from weave_bench.markdown import render_markdown
-from weave_bench.pro import (
-    OfficialPrediction,
-    compare_verdicts,
-    grade_officially,
-    predictions_from_trials,
-    write_predictions,
-)
-from weave_bench.pro_dataset import fetch_raw_samples
 from weave_bench.probe import probe_router
 from weave_bench.report import build_report, load_tap_rows
 from weave_bench.trials import TrialRecord, load_job
@@ -90,12 +80,7 @@ def cmd_probe(args: argparse.Namespace) -> int:
 
 def cmd_fetch(args: argparse.Namespace) -> int:
     config = _load(args)
-    if args.source == "atlas":
-        print(fetch_atlas(Path(config.harbor.atlas_checkout_dir)))
-    elif args.source == "pro-grader":
-        print(fetch_pro_grader(Path(config.harbor.pro_grader_dir)))
-    else:
-        print(fetch_raw_samples(_jobs_dir(config) / "swe-bench-pro"))
+    print(fetch_atlas(Path(config.harbor.atlas_checkout_dir)))
     return 0
 
 
@@ -228,42 +213,6 @@ def cmd_report(args: argparse.Namespace) -> int:
     return 0
 
 
-def cmd_pro_grade(args: argparse.Namespace) -> int:
-    config = _load(args)
-    arms = parse_arms(args.arms)
-    trials_by_arm = _load_trials(config, args.run_id, arms)
-    jobs_dir = _jobs_dir(config)
-    official_dir = jobs_dir / REPORT_DIRNAME / args.run_id / "official"
-    by_prefix: dict[str, list[OfficialPrediction]] = {}
-    for arm, trials in trials_by_arm.items():
-        by_prefix.update(predictions_from_trials(trials, jobs_dir / job_name(args.run_id, arm)))
-    patch_paths = write_predictions(official_dir / "predictions", by_prefix)
-    verdicts_by_prefix = grade_officially(
-        grader_dir=Path(config.harbor.pro_grader_dir),
-        raw_sample_path=fetch_raw_samples(jobs_dir / "swe-bench-pro"),
-        patch_paths=patch_paths,
-        out_dir=official_dir,
-        dockerhub_username=config.harbor.dockerhub_username,
-        num_workers=args.num_workers,
-        docker_platform=args.docker_platform,
-        dry_run=args.dry_run,
-    )
-    if args.dry_run:
-        return 0
-    verdicts = compare_verdicts(
-        [t for trials in trials_by_arm.values() for t in trials],
-        verdicts_by_prefix,
-    )
-    verdicts_path = official_dir / "verdicts.json"
-    verdicts_path.write_text(json.dumps([v.__dict__ | {"agreement": v.agreement} for v in verdicts], indent=2))
-    for arm in arms:
-        arm_verdicts = [v for v in verdicts if v.arm == arm.name]
-        resolved = sum(bool(v.official_resolved) for v in arm_verdicts)
-        print(f"{arm.name}: official resolved {resolved}/{len(arm_verdicts)}")
-    print(f"wrote {verdicts_path}", file=sys.stderr)
-    return 0
-
-
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="weave-bench", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
@@ -276,7 +225,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     fetch = subparsers.add_parser("fetch", help="check out pinned sources")
     _add_common(fetch)
-    fetch.add_argument("source", choices=("atlas", "pro-grader", "pro-dataset"))
+    fetch.add_argument("source", choices=("atlas",))
     fetch.set_defaults(func=cmd_fetch)
 
     tap = subparsers.add_parser("tap", help="OpenRouter recording tap")
@@ -309,16 +258,6 @@ def build_parser() -> argparse.ArgumentParser:
     report.add_argument("--tap-records", type=Path, default=None)
     report.set_defaults(func=cmd_report)
 
-    pro = subparsers.add_parser("pro", help="SWE-Bench Pro official grading")
-    pro_sub = pro.add_subparsers(dest="pro_command", required=True)
-    grade = pro_sub.add_parser("grade")
-    _add_common(grade)
-    grade.add_argument("run_id", type=run_id_arg)
-    grade.add_argument("--arms", default="")
-    grade.add_argument("--num-workers", type=int, default=4)
-    grade.add_argument("--docker-platform", default=None)
-    grade.add_argument("--dry-run", action="store_true")
-    grade.set_defaults(func=cmd_pro_grade)
     return parser
 
 

@@ -1,7 +1,7 @@
 # weave-bench — reproducible Codex-harness benchmarks for the router
 
 Standalone Python tooling that reruns the router's published Codex comparisons
-on **SWE-Atlas Codebase QnA**, **Terminal-Bench 4.0** and **SWE-Bench Pro**:
+on **SWE-Atlas Codebase QnA** and **Terminal-Bench 4.0**:
 Codex CLI through the router's `/beta` lane versus the same Codex CLI pointed
 directly at one pinned model (GPT-5.6 Sol / Luna, GPT-6 Astra) or at
 OpenRouter's `auto-beta` metarouter.
@@ -9,8 +9,8 @@ OpenRouter's `auto-beta` metarouter.
 Everything that determines a published number is pinned in code
 (`weave_bench/benchmarks.py`, `weave_bench/manifests/`, `weave_bench/arms.py`)
 and surfaced by `--dry-run`. Nothing here talks to WorkWeave-internal systems:
-the router is whatever URL you configure, task definitions and graders are
-fetched from their official sources, and router-billed cost comes from the
+the router is whatever URL you configure, task definitions are fetched from
+their official sources, and router-billed cost comes from the
 public [analytics export](../docs/ANALYTICS_EXPORT.md).
 
 Claude Code harnesses are out of scope for now (Codex only).
@@ -20,11 +20,9 @@ Claude Code harnesses are out of scope for now (Codex only).
 | Piece | Where | Notes |
 |---|---|---|
 | Harbor agent `BetaCodex` | `weave_bench/agent/beta_codex.py`, `beta_turn.py` | Harbor's stock Codex agent plus: a Codex `config.toml` pointing at the router/tap, and — for router arms — a `/beta` first turn followed by `codex exec resume --last` so the whole trial runs on the beta lane. |
-| `ProCodex` | `weave_bench/agent/pro_codex.py` | `BetaCodex` that also exports `/app/model.patch` for Scale's official grader. |
 | OpenRouter tap | `weave_bench/tap/` | Recording reverse proxy for `/v1/responses`. Injects `usage.include`, the request-level `cache_control: {type: ephemeral}` marker, the `auto-beta-router` plugin with `cost_tier`, and a stable `session_id`; records served model, tokens and OpenRouter-billed cost per request. |
 | Harbor launcher | `harbor_command.py`, `launch.py`, `cli.py` | Renders the exact `harbor run …` argv per arm; `--dry-run` prints it without spending. |
 | Report | `trials.py`, `analytics.py`, `stats.py`, `report.py`, `markdown.py` | Pass rate + Wilson CI, task-level bootstrap CI, paired Δ, wins/ties/losses, exact sign test, McNemar, pass@k, $/trial (list vs router-billed vs OpenRouter-billed), served-model mix, token/cache totals, error categories, agent-time median/p90. Markdown in the `RESULTS_*.md` layout plus `report.json`. |
-| SWE-Bench Pro grading | `pro.py`, `pro_dataset.py` | Prediction JSON + invocation of Scale's `swe_bench_pro_eval.py` at a pinned revision (sha256-checked). |
 | Prices | `prices.generated.json` | Generated from the router's `internal/router/catalog` by `make generate` (`cmd/genprices`). Used for the direct arms' *list* cost. |
 
 ## Install
@@ -37,7 +35,7 @@ the pinned version; nothing touches your own `~/.codex`.
 ```bash
 cd bench
 python3 -m venv ~/.venvs/bench && source ~/.venvs/bench/bin/activate
-pip install -e ".[harbor,tap,dev]"      # add ",pro" for SWE-Bench Pro grading, ",modal" for Modal sandboxes
+pip install -e ".[harbor,tap,dev]"      # add ",modal" for Modal sandboxes
 cp bench.example.toml bench.toml         # git-ignored; edit URLs / env-var names
 weave-bench --help
 ```
@@ -68,14 +66,13 @@ packages (see below); a different build is a different experiment.
 ```bash
 weave-bench run terminal-bench-4 --arms router,luna --smoke --dry-run
 weave-bench run atlas-qna --dry-run                # full 124 tasks, router vs sol
-weave-bench run swe-bench-pro --arms router,sol --dry-run
 ```
 
 `--dry-run` resolves the manifest (task count), pins (Harbor + Codex version),
 per-arm Codex `config.toml`, which environment variables are read, and the full
 `harbor run` argv. It performs no network calls. `--smoke` selects the pinned
-≤3-task subset (`cad-model`; Atlas `task-6905333b74f22949d97ba998`; three Pro
-instances). `--tasks a,b` accepts explicit Harbor task names and refuses names
+≤3-task subset (`cad-model`; Atlas `task-6905333b74f22949d97ba998`).
+`--tasks a,b` accepts explicit Harbor task names and refuses names
 outside the pinned manifest.
 
 ## 3. Run
@@ -147,28 +144,10 @@ PATH` replays a file written by an earlier report
 the trials' span, so a report re-run after `harbor jobs resume` fetches afresh)
 or by any client of `GET /v1/analytics/routing-decisions`.
 
-## 5. SWE-Bench Pro official grading
-
-Harbor's `swebenchpro@1.0` verifier is a convenience signal; the published Pro
-numbers are Scale's official grader. Both are kept and compared:
-
-```bash
-pip install -e ".[pro]"                   # datasets (Hugging Face) for the raw samples
-weave-bench fetch pro-grader              # scaleapi/SWE-bench_Pro-os @ ca10a60a, sha256-checked
-weave-bench fetch pro-dataset             # ScaleAI/SWE-bench_Pro test split @ 7ab51149
-weave-bench pro grade <run-id> --arms router,sol --num-workers 8 [--docker-platform linux/amd64] [--dry-run]
-```
-
-Produces `reports/<run-id>/official/predictions/<arm>__attempt<n>.json`, the
-grader's output directory per prediction file, and `verdicts.json` with the
-Harbor-vs-official agreement per trial. Grading is Docker-only (pulls Scale's
-public `sweap-images`); no LLM calls, so `--dry-run` prints the exact grader
-command instead.
-
 ## Reproducing the published comparisons
 
 All published runs: k=2 attempts, Codex `model_reasoning_effort=high`
-(Astra control `max`), `--n-concurrent` as pinned (Atlas 24, TB4/Pro 12), the
+(Astra control `max`), `--n-concurrent` as pinned (Atlas 24, TB4 12), the
 manifests below. The router arm ran against WorkWeave's staging router; the
 HMM package it served is noted per run — your router's package is whatever
 `weave-bench probe` reports.
@@ -182,24 +161,22 @@ HMM package it served is noted per run — your router's package is whatever
 | TB4 · router `/beta` vs Sol | `weave-bench run terminal-bench-4 --arms router,sol` | 24.6% vs 30.3% trial pass, McNemar p=0.29; $399 billed vs $633 list (pkg `af0ef6ce`) | ≈ $1,030; 10 h wall for both arms |
 | TB4 · router `/beta` vs Luna | `--arms router,luna` | 25.8% vs 0.8%, McNemar p<0.0001; $651 billed vs $36 list (pkg `468b99a9`) | ≈ $690 |
 | TB4 · router `/beta` vs OpenRouter auto-beta (xhigh) | `--arms router,openrouter-beta-xhigh` | 25.8% vs 19.0% (121/132 control trials graded), McNemar p=0.21; $651 vs $668 on graded trials | control $1,288 total incl. smoke + preemption losses |
-| SWE-Bench Pro · router `/beta` vs Sol | `weave-bench run swe-bench-pro --arms router,sol` then `weave-bench pro grade` | official 67.5% vs 70.0% task-level; $617 billed vs $589 list (pkg `af0ef6ce`) | ≈ $1,160 + ≈ $50 sandboxes/grading; 6.1 h vs 4.7 h wall at 12 concurrent |
 
 Budget rule of thumb: a full Atlas or TB4 arm is $36–$1,250 depending on the
-model (Luna cheapest, Astra-max dearest); Pro is ≈ $600 per arm; the Atlas
-judge adds ≈ $75–110 per arm pair. Always `--smoke` first — the smoke tasks
+model (Luna cheapest, Astra-max dearest); the Atlas judge adds ≈ $75–110 per arm pair. Always `--smoke` first — the smoke tasks
 exercise the full path (sandbox build, Codex install, `/beta` ack, verifier,
 analytics join) for a few dollars.
 
 ### Pins
 
-| | SWE-Atlas QnA | Terminal-Bench 4.0 | SWE-Bench Pro |
-|---|---|---|---|
-| Tasks | 124 (`manifests/sweatlas_qna_tasks.json`) | 66 (`manifests/terminalbench4_tasks.json`) | 300 of 731 (`manifests/swebench_pro_subset.json`, seed `20260904`) |
-| Source | `scaleapi/SWE-Atlas` @ `49e4af3b`, `data/qa` (`weave-bench fetch atlas`) | Harbor registry `terminal-bench/terminal-bench@4.0.0`, content sha256 `39d9f44b…` | Harbor registry `swebenchpro@1.0`; HF `ScaleAI/SWE-bench_Pro` test @ `7ab51149` |
-| Harbor | 0.22.0 (published: 0.18.0 + a private patch equivalent to `BetaCodex`) | 0.22.0 | 0.22.0 |
-| Codex CLI | 0.153.0 | 0.150.0 | 0.150.0 |
-| Verifier | task rubrics judged by `anthropic/claude-opus-4-5-20251101` (`EVAL_*` env, prompt ships in each task's `tests/`) | task tests | Harbor tests + Scale `swe_bench_pro_eval.py` @ `ca10a60a` |
-| k / concurrency | 2 / 24 | 2 / 12 | 2 / 12 |
+| | SWE-Atlas QnA | Terminal-Bench 4.0 |
+|---|---|---|
+| Tasks | 124 (`manifests/sweatlas_qna_tasks.json`) | 66 (`manifests/terminalbench4_tasks.json`) |
+| Source | `scaleapi/SWE-Atlas` @ `49e4af3b`, `data/qa` (`weave-bench fetch atlas`) | Harbor registry `terminal-bench/terminal-bench@4.0.0`, content sha256 `39d9f44b…` |
+| Harbor | 0.22.0 (published: 0.18.0 + a private patch equivalent to `BetaCodex`) | 0.22.0 |
+| Codex CLI | 0.153.0 | 0.150.0 |
+| Verifier | task rubrics judged by `anthropic/claude-opus-4-5-20251101` (`EVAL_*` env, prompt ships in each task's `tests/`) | task tests |
+| k / concurrency | 2 / 24 | 2 / 12 |
 
 Override for ablations with `--n-attempts`, `--n-concurrent`,
 `--codex-version`; the dry-run header shows the effective values and the
@@ -213,9 +190,8 @@ run id should say so.
   `openai-cyber-filter-refusal`. They hit the router arm more (it can land on
   Sol/Luna with the filter) than an Anthropic-served control — read the
   paired Δ with and without them.
-- **Harbor environment/setup failures.** About 17% of Pro task images cannot
-  `apt-get install nodejs npm ripgrep` (openlibrary, navidrome, …) so Codex
-  never installs, and some TB4 images fail to build; these show as
+- **Harbor environment/setup failures.** Some TB4 images fail to build or
+  cannot install Codex's prerequisites (`nodejs npm ripgrep`); these show as
   `harbor-environment-setup-failure` / `NonZeroAgentExitCodeError` with zero
   model spend, symmetrically across arms. Rerun the same run id to retry.
 - **Effort vs. the tbench.ai leaderboard.** The leaderboard protocol is k=5
@@ -256,5 +232,5 @@ cd .. && make generate && make check-docs        # regenerates prices.generated.
 
 Tests cover config parsing, the `/beta` command rewrite, analytics paging and
 hold-back, the statistics, trial loading from Harbor's on-disk layout, report
-aggregation and Markdown, Pro prediction/grader plumbing, the tap's request
+aggregation and Markdown, the tap's request
 rewrite and recording, and the CLI's dry-run/report paths — all offline.

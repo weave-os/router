@@ -97,12 +97,6 @@ def test_atlas_uses_local_checkout_and_rubric_judge_env() -> None:
     assert job.env_from["WEAVE_BENCH_JUDGE_API_KEY"] == "ANTHROPIC_API_KEY"
 
 
-def test_pro_uses_patch_exporting_agent() -> None:
-    job = _job(Benchmark.SWE_BENCH_PRO, "sol")
-    assert _flag_values(job.argv, "--agent") == ["weave_bench.agent.pro_codex:ProCodex"]
-    assert _flag_values(job.argv, "--dataset") == ["swebenchpro@1.0"]
-
-
 def test_coordinator_env_resolves_keys_and_strips_base_url_overrides() -> None:
     job = _job(Benchmark.ATLAS_QNA, "router")
     env = coordinator_env(

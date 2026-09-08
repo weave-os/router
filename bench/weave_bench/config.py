@@ -66,10 +66,6 @@ class HarborConfig:
     jobs_dir: str = "jobs"
     # SWE-Atlas checkout at the pinned commit (``weave-bench fetch atlas``).
     atlas_checkout_dir: str = "vendor/SWE-Atlas"
-    # SWE-Bench Pro official grader checkout at the pinned revision.
-    pro_grader_dir: str = "vendor/SWE-bench_Pro-os"
-    # Docker Hub namespace of Scale's public ``sweap-images`` (the grader README's default).
-    dockerhub_username: str = "jefzda"
 
 
 @dataclass(frozen=True)

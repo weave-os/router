@@ -32,7 +32,6 @@ def test_cost_mirrors_catalog_cost_math() -> None:
     [
         (Benchmark.ATLAS_QNA, "task-"),
         (Benchmark.TERMINAL_BENCH_4, "terminal-bench/"),
-        (Benchmark.SWE_BENCH_PRO, "instance_"),
     ],
 )
 def test_manifests_match_the_pinned_population(benchmark: Benchmark, prefix: str) -> None:

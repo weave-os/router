@@ -18,8 +18,6 @@ from weave_bench.codex_config import codex_config_for_arm
 from weave_bench.config import BenchConfig
 
 BETA_CODEX_AGENT = "weave_bench.agent.beta_codex:BetaCodex"
-# Same agent plus a ``model.patch`` export for the official Scale grader.
-PRO_CODEX_AGENT = "weave_bench.agent.pro_codex:ProCodex"
 # Harbor's Codex agent always authenticates via OPENAI_API_KEY; the launcher
 # exports the arm's key under this coordinator-side name and Harbor templates it.
 AGENT_API_KEY_ENV = "WEAVE_BENCH_AGENT_API_KEY"
@@ -90,7 +88,7 @@ def build_job(
         "--env",
         config.harbor.environment.value,
         "--agent",
-        PRO_CODEX_AGENT if benchmark is Benchmark.SWE_BENCH_PRO else BETA_CODEX_AGENT,
+        BETA_CODEX_AGENT,
         "--model",
         arm.harbor_model.value,
         "--n-attempts",

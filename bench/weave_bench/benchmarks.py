@@ -1,7 +1,7 @@
 """Everything that determines a published number, pinned per benchmark.
 
 Task lists live in ``weave_bench/manifests/`` (exact ids the published runs
-used); dataset/grader revisions, Harbor and Codex versions, attempt counts and
+used); dataset revisions, Harbor and Codex versions, attempt counts and
 concurrency are here. Change any of these and you are running a different
 experiment — record it in the run id.
 """
@@ -15,7 +15,6 @@ from enum import StrEnum
 class Benchmark(StrEnum):
     ATLAS_QNA = "atlas-qna"
     TERMINAL_BENCH_4 = "terminal-bench-4"
-    SWE_BENCH_PRO = "swe-bench-pro"
 
 
 HARBOR_VERSION = "0.22.0"
@@ -48,15 +47,6 @@ ATLAS_JUDGE_BASE_URL = "https://api.anthropic.com/v1"
 
 TB4_CONTENT_SHA256 = "39d9f44b40420cde8fdcc087579c0d72a7e14fa3656d603c3f0d22fb35e27732"
 
-PRO_HF_DATASET = "ScaleAI/SWE-bench_Pro"
-PRO_HF_SPLIT = "test"
-PRO_HF_REVISION = "7ab5114912baf22bb098818e604c02fe7ad2c11f"
-PRO_SUBSET_SEED = 20260904
-PRO_GRADER_REPO = "https://github.com/scaleapi/SWE-bench_Pro-os.git"
-PRO_GRADER_REVISION = "ca10a60a5fcae51e6948ffe1485d4153d421e6c5"
-PRO_GRADER_SCRIPT = "swe_bench_pro_eval.py"
-PRO_GRADER_SHA256 = "bb5d4c5486be296e464e695df3747064aaa3bb197394bc6d39980634afec2034"
-
 PINS: dict[Benchmark, BenchmarkPins] = {
     Benchmark.ATLAS_QNA: BenchmarkPins(
         Benchmark.ATLAS_QNA,
@@ -81,16 +71,5 @@ PINS: dict[Benchmark, BenchmarkPins] = {
         n_attempts=2,
         n_concurrent=12,
         smoke_tasks=("cad-model",),
-    ),
-    Benchmark.SWE_BENCH_PRO: BenchmarkPins(
-        Benchmark.SWE_BENCH_PRO,
-        published_harbor_version=HARBOR_VERSION,
-        codex_version="0.150.0",
-        harbor_dataset="swebenchpro@1.0",
-        manifest_filename="swebench_pro_subset.json",
-        n_tasks=300,
-        n_attempts=2,
-        n_concurrent=12,
-        smoke_tasks=(),
     ),
 }

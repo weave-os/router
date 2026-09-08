@@ -36,5 +36,3 @@ records_path = "jobs/openrouter-tap.jsonl"
 environment = "docker"                    # or "modal" once the docker path is verified
 jobs_dir = "jobs"
 atlas_checkout_dir = "vendor/SWE-Atlas"   # populated by `weave-bench fetch atlas`
-pro_grader_dir = "vendor/SWE-bench_Pro-os"  # populated by `weave-bench fetch pro-grader`
-dockerhub_username = "jefzda"             # Scale's public sweap-images namespace
