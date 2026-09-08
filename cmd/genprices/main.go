@@ -5,6 +5,7 @@ package main
 
 import (
 	"crypto/sha256"
+	"encoding/json"
 	"fmt"
 	"math"
 	"os"
@@ -30,6 +31,10 @@ var scriptPaths = []string{
 
 const piPricingPath = "install/pi-router/src/pricing.generated.ts"
 
+// benchPricingPath is the list-price table the Python benchmark harness
+// (bench/) uses to reprice Codex token counts; JSON so it needs no Go toolchain.
+const benchPricingPath = "bench/weave_bench/prices.generated.json"
+
 func main() {
 	table := otel.AllPricing()
 	block := buildBlock(table)
@@ -45,6 +50,53 @@ func main() {
 		os.Exit(1)
 	}
 	fmt.Printf("Wrote %s\n", piPricingPath)
+	benchJSON, err := buildBenchJSON(table)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: encoding %s: %v\n", benchPricingPath, err)
+		os.Exit(1)
+	}
+	if err := os.WriteFile(benchPricingPath, benchJSON, 0o644); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: writing %s: %v\n", benchPricingPath, err)
+		os.Exit(1)
+	}
+	fmt.Printf("Wrote %s\n", benchPricingPath)
+}
+
+// benchModelPricing mirrors catalog.Pricing in the catalog's native USD/1M
+// units plus the effective cache multipliers, so the harness can compute
+// list-price cost exactly like catalog.Cost without re-deriving defaults.
+type benchModelPricing struct {
+	InputUSDPerMillion   float64 `json:"input_usd_per_million"`
+	OutputUSDPerMillion  float64 `json:"output_usd_per_million"`
+	CacheReadMultiplier  float64 `json:"cache_read_multiplier"`
+	CacheWriteMultiplier float64 `json:"cache_write_multiplier"`
+}
+
+type benchPricingFile struct {
+	PricingVersion string                       `json:"pricing_version"`
+	Models         map[string]benchModelPricing `json:"models"`
+}
+
+func buildBenchJSON(table map[string]otel.Pricing) ([]byte, error) {
+	models := sortedModels(table)
+	file := benchPricingFile{
+		PricingVersion: pricingVersion(table, models),
+		Models:         make(map[string]benchModelPricing, len(models)),
+	}
+	for _, model := range models {
+		price := table[model]
+		file.Models[model] = benchModelPricing{
+			InputUSDPerMillion:   price.InputUSDPer1M,
+			OutputUSDPerMillion:  price.OutputUSDPer1M,
+			CacheReadMultiplier:  price.EffectiveCacheReadMultiplier(),
+			CacheWriteMultiplier: price.EffectiveCacheWriteMultiplier(),
+		}
+	}
+	encoded, err := json.MarshalIndent(file, "", "  ")
+	if err != nil {
+		return nil, err
+	}
+	return append(encoded, '\n'), nil
 }
 
 func spliceFile(path, block string) error {
