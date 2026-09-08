@@ -32,9 +32,9 @@ func (e *RequestEnvelope) PrepareAnthropic(in http.Header, opts EmitOptions) (pr
 	default:
 		return providers.PreparedRequest{}, fmt.Errorf("unsupported source format for Anthropic emit: %d", e.format)
 	}
-	body, err = sanitizeAnthropicToolUseNamesBytes(body)
+	body, err = sanitizeAnthropicToolNamesBytes(body)
 	if err != nil {
-		return providers.PreparedRequest{}, fmt.Errorf("sanitize anthropic tool_use names: %w", err)
+		return providers.PreparedRequest{}, fmt.Errorf("sanitize anthropic tool names: %w", err)
 	}
 	body, err = applyAnthropicCachePolicy(body, true)
 	if err != nil {
@@ -815,27 +815,52 @@ func sanitizeAnthropicToolSchemasBytes(body []byte) ([]byte, error) {
 	return sjson.SetRawBytes(body, "tools", raw)
 }
 
-// maxAnthropicToolUseNameLen is Anthropic's request limit for names in
-// historical tool_use blocks. Tool names produced by another provider can be
-// malformed while still surviving in client history, so overlong values are
-// replaced with a stable alias before that history is replayed to Anthropic.
-const maxAnthropicToolUseNameLen = 200
+// maxAnthropicToolNameLen is Anthropic's request limit for tool names. Tool
+// names produced by another provider can be malformed while still surviving in
+// client history, so every reference uses the same stable alias on replay.
+const maxAnthropicToolNameLen = 200
 
-func sanitizeAnthropicToolUseNamesBytes(body []byte) ([]byte, error) {
-	return rewriteMessageBlocks(body, hasOverlongAnthropicToolUseName, sanitizeAnthropicToolUseNameBlock)
+func sanitizeAnthropicToolNamesBytes(body []byte) ([]byte, error) {
+	out, err := rewriteMessageBlocks(body, hasOverlongAnthropicToolUseName, sanitizeAnthropicToolUseNameBlock)
+	if err != nil {
+		return nil, err
+	}
+	for index, tool := range gjson.GetBytes(out, "tools").Array() {
+		name := tool.Get("name").String()
+		if len(name) <= maxAnthropicToolNameLen {
+			continue
+		}
+		out, err = sjson.SetBytes(out, fmt.Sprintf("tools.%d.name", index), sanitizedAnthropicToolName(name))
+		if err != nil {
+			return nil, fmt.Errorf("rewrite declared tool name: %w", err)
+		}
+	}
+	choice := gjson.GetBytes(out, "tool_choice")
+	choiceName := choice.Get("name").String()
+	if choice.Get("type").String() == "tool" && len(choiceName) > maxAnthropicToolNameLen {
+		out, err = sjson.SetBytes(out, "tool_choice.name", sanitizedAnthropicToolName(choiceName))
+		if err != nil {
+			return nil, fmt.Errorf("rewrite tool_choice name: %w", err)
+		}
+	}
+	return out, nil
 }
 
 func hasOverlongAnthropicToolUseName(block gjson.Result) bool {
-	return block.Get("type").String() == "tool_use" && len(block.Get("name").String()) > maxAnthropicToolUseNameLen
+	return block.Get("type").String() == "tool_use" && len(block.Get("name").String()) > maxAnthropicToolNameLen
 }
 
 func sanitizeAnthropicToolUseNameBlock(raw string) (string, error) {
-	nameHash := sha1.Sum([]byte(gjson.Get(raw, "name").String()))
-	out, err := sjson.Set(raw, "name", fmt.Sprintf("invalid_tool_%x", nameHash))
+	out, err := sjson.Set(raw, "name", sanitizedAnthropicToolName(gjson.Get(raw, "name").String()))
 	if err != nil {
 		return "", fmt.Errorf("rewrite tool_use name: %w", err)
 	}
 	return out, nil
+}
+
+func sanitizedAnthropicToolName(name string) string {
+	nameHash := sha1.Sum([]byte(name))
+	return fmt.Sprintf("invalid_tool_%x", nameHash)
 }
 
 func anthropicToolSchemaRaw(schema gjson.Result) string {
