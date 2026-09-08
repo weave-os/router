@@ -27,7 +27,6 @@ set -euo pipefail
 scope="user"
 scope_explicit="false"
 install_dir=""
-script_dir="$(cd "$(dirname "$0")" 2>/dev/null && pwd || true)"
 
 # ---------- directive registry (embedded) ----------
 #
@@ -259,6 +258,9 @@ if [ "$target" = "opencode" ]; then
       printf "Project directory to uninstall from [default: %s]: " "$default_project_dir"
       read -r project_dir_choice </dev/tty || project_dir_choice=""
       project_dir="${project_dir_choice:-$default_project_dir}"
+      # Expand a leading ~ since `read` doesn't.
+      # The pattern intentionally matches a literal tilde.
+      # shellcheck disable=SC2088
       case "$project_dir" in
         "~")    project_dir="$HOME" ;;
         "~/"*)  project_dir="$HOME/${project_dir#~/}" ;;
@@ -409,6 +411,9 @@ if [ "$target" = "pi" ]; then
       printf "Project directory to uninstall from [default: %s]: " "$default_project_dir"
       read -r project_dir_choice </dev/tty || project_dir_choice=""
       project_dir="${project_dir_choice:-$default_project_dir}"
+      # Expand a leading ~ since `read` doesn't.
+      # The pattern intentionally matches a literal tilde.
+      # shellcheck disable=SC2088
       case "$project_dir" in
         "~")    project_dir="$HOME" ;;
         "~/"*)  project_dir="$HOME/${project_dir#~/}" ;;
@@ -515,6 +520,9 @@ if [ "$target" = "codex" ]; then
       printf "Project directory to uninstall from [default: %s]: " "$default_project_dir"
       read -r project_dir_choice </dev/tty || project_dir_choice=""
       project_dir="${project_dir_choice:-$default_project_dir}"
+      # Expand a leading ~ since `read` doesn't.
+      # The pattern intentionally matches a literal tilde.
+      # shellcheck disable=SC2088
       case "$project_dir" in
         "~")    project_dir="$HOME" ;;
         "~/"*)  project_dir="$HOME/${project_dir#~/}" ;;
@@ -686,6 +694,9 @@ else
     printf "Project directory to uninstall from [default: %s]: " "$default_project_dir"
     read -r project_dir_choice </dev/tty || project_dir_choice=""
     project_dir="${project_dir_choice:-$default_project_dir}"
+    # Expand a leading ~ since `read` doesn't.
+    # The pattern intentionally matches a literal tilde.
+    # shellcheck disable=SC2088
     case "$project_dir" in
       "~")    project_dir="$HOME" ;;
       "~/"*)  project_dir="$HOME/${project_dir#~/}" ;;

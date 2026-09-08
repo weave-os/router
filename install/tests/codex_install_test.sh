@@ -159,6 +159,8 @@ done
 # arrays. Preserve either user shape and install routing without managed hooks.
 for hooks_shape in scalar table; do
   if [ "$hooks_shape" = scalar ]; then
+    # The literal ${HOME} is the point: it must survive the install unexpanded.
+    # shellcheck disable=SC2016
     printf '%s\n' 'hooks = "${HOME}/.codex/hooks.json"' >"$config"
   else
     printf '%s\n' '[hooks]' 'enabled = true' >"$config"
@@ -170,6 +172,7 @@ for hooks_shape in scalar table; do
     fail "installer added inline hooks to conflicting hooks $hooks_shape config"
   fi
   if [ "$hooks_shape" = scalar ]; then
+    # shellcheck disable=SC2016
     grep -Fq 'hooks = "${HOME}/.codex/hooks.json"' "$config" \
       || fail "installer did not preserve hooks path"
   else
