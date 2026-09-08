@@ -514,6 +514,7 @@ func (s *Service) runTurnLoop(
 	// The turn-loop has to load this before any automatic pin or utility hard-pin
 	// branch; routeFor receives a copy and cannot populate the caller's request.
 	req.AutomaticExcludedModels = s.globalAutomaticExcludedModels(ctx)
+	req.ClientApp = ClientIdentityFrom(ctx).ClientApp
 	if transforms, ok := ctx.Value(responsesTransformsContextKey{}).([]translate.ResponseTransform); ok {
 		for _, transform := range transforms {
 			apm.RecordTranslationTransform(

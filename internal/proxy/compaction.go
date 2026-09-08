@@ -27,12 +27,12 @@ const (
 	// (not at overflow) keeps the pre-summary history small enough for a
 	// summarizer to ingest.
 	DefaultCompactionTriggerPct = 0.85
-	// DefaultCompactionModel is the Anthropic-family model the cascade
-	// summarizes with when the session has no warm Anthropic pin to reuse.
+	// DefaultCompactionModel selects the fallback Anthropic family when no
+	// eligible session family can summarize the history.
 	// Sonnet-class: the compaction summary is the only record of the elided
 	// history, so it is worth a mid-tier model. Overridable via
 	// ROUTER_COMPACTION_MODEL.
-	DefaultCompactionModel = "claude-sonnet-4-6"
+	DefaultCompactionModel = "claude-sonnet-5"
 	// compactionSummaryOutputReserve is headroom (summary output + margin) the
 	// selected summarizer model needs above the history it must ingest.
 	compactionSummaryOutputReserve = DefaultCompactionMaxTokens + 8_000
@@ -40,7 +40,7 @@ const (
 	// to summarize histories too large for the default summarizer. It is
 	// Anthropic-family so the Anthropic-only ProviderSummarizer can target it
 	// with no cross-format translation.
-	largeWindowSummarizerModel = "claude-fable-5"
+	largeWindowSummarizerModel = "claude-opus-5"
 	// claudeCodeAutoCompactBuffer is the token headroom below its believed
 	// context window at which Claude Code's own auto-compact fires. Mirrors
 	// the client (2.1.x) so the router can tell whether the client would have
@@ -171,7 +171,7 @@ func (s *Service) compactionModelOrDefault() string {
 // model (a low-tier summary is what the cascade is moving away from).
 func anthropicSummarizerEligible(model string) bool {
 	m, ok := catalog.ByID(model)
-	if !ok || m.Tier == catalog.TierLow {
+	if !ok || (m.Tier != catalog.TierMid && m.Tier != catalog.TierHigh && !m.HMMTarget) {
 		return false
 	}
 	for _, b := range m.Providers {
@@ -182,10 +182,8 @@ func anthropicSummarizerEligible(model string) bool {
 	return false
 }
 
-// compactionSummarizerCandidates orders the models the cascade may summarize
-// with: the session's warm Anthropic pin first (the model that saw the
-// conversation, mirroring Claude Code's own-model compaction), then the
-// configured Sonnet-class default, then the large-window model.
+// compactionSummarizerCandidates prefers the session's Anthropic family,
+// followed by the configured default and large-window family.
 func (s *Service) compactionSummarizerCandidates(preferred string) []string {
 	out := make([]string, 0, 3)
 	seen := map[string]struct{}{}
@@ -199,9 +197,7 @@ func (s *Service) compactionSummarizerCandidates(preferred string) []string {
 		seen[m] = struct{}{}
 		out = append(out, m)
 	}
-	if anthropicSummarizerEligible(preferred) {
-		add(preferred)
-	}
+	add(preferred)
 	add(s.compactionModelOrDefault())
 	add(largeWindowSummarizerModel)
 	return out
@@ -210,11 +206,17 @@ func (s *Service) compactionSummarizerCandidates(preferred string) []string {
 // selectCompactionSummarizer returns the first candidate summarizer model
 // whose context window can ingest historyTokens plus summary headroom, or ""
 // when none can (caller falls back to trimming).
-func (s *Service) selectCompactionSummarizer(historyTokens int, preferred string) string {
+func (s *Service) selectCompactionSummarizer(historyTokens int, preferred string, excluded map[string]struct{}) string {
 	need := historyTokens + compactionSummaryOutputReserve
+	eligible := func(model string) bool {
+		if _, blocked := excluded[model]; blocked {
+			return false
+		}
+		return anthropicSummarizerEligible(model) && catalog.ContextWindowFor(model) >= need
+	}
 	for _, m := range s.compactionSummarizerCandidates(preferred) {
-		if catalog.ContextWindowFor(m) >= need {
-			return m
+		if latest := catalog.LatestInFamily(m, eligible); latest != "" {
+			return latest
 		}
 	}
 	return ""
@@ -367,9 +369,21 @@ func (s *Service) billCompactionSummary(ctx context.Context, requestID, external
 func (s *Service) runCompactionSummary(ctx context.Context, env *translate.RequestEnvelope, preferred string, reqHeaders http.Header) (string, handover.Usage, string, bool) {
 	log := observability.FromContext(ctx)
 
-	model := s.selectCompactionSummarizer(env.ContextOverflowTokenEstimate(), preferred)
+	excluded := mergeExcludedModels(s.excludedModelsForRequest(ctx), s.globalAutomaticExcludedModels(ctx))
+	// Auxiliary models need not belong to the routing pool whose allowlist was desugared.
+	if allowed := allowedModelsForRequest(ctx); allowed != nil && s.excludedModelsOverride == nil {
+		if excluded == nil {
+			excluded = make(map[string]struct{})
+		}
+		for _, candidate := range catalog.Models {
+			if _, permitted := allowed[candidate.ID]; !permitted {
+				excluded[candidate.ID] = struct{}{}
+			}
+		}
+	}
+	model := s.selectCompactionSummarizer(env.ContextOverflowTokenEstimate(), preferred, excluded)
 	if model == "" {
-		log.Info("Compaction Tier-3 skipped: history exceeds every summarizer window", "history", env.ContextOverflowTokenEstimate())
+		log.Info("Compaction Tier-3 skipped: no eligible summarizer fits history", "history", env.ContextOverflowTokenEstimate())
 		return "", handover.Usage{}, "", false
 	}
 
@@ -436,20 +450,19 @@ func (s *Service) compactionHardPin(ctx context.Context, sessionKey [sessionpin.
 		}
 		return !automaticallyDisabled(req, m)
 	}
-	if preferred := s.compactionPreferredSummarizer(ctx, sessionKey, role); eligible(preferred) {
-		return providers.ProviderAnthropic, preferred, true
+	preferred := s.compactionPreferredSummarizer(ctx, sessionKey, role)
+	if latest := catalog.LatestInFamily(preferred, eligible); latest != "" {
+		return providers.ProviderAnthropic, latest, true
 	}
-	if m := s.compactionModelOrDefault(); eligible(m) {
+	if m := catalog.LatestInFamily(s.compactionModelOrDefault(), eligible); m != "" {
 		return providers.ProviderAnthropic, m, true
 	}
 	return "", "", false
 }
 
-// compactionSessionModel returns the non-Anthropic model that has been serving
-// the session — its active thread pin or HMM switch history, whichever
-// finished a turn last — when it is mid-tier or better and still eligible for
-// this request. Anthropic-served sessions return ok=false: the Sonnet-class
-// path in compactionHardPin owns them.
+// compactionSessionModel upgrades the last served non-Anthropic session
+// family to its newest eligible catalog version. The active thread pin and
+// HMM history compete by completion time; Anthropic uses its separate path.
 func (s *Service) compactionSessionModel(ctx context.Context, sessionKey [sessionpin.SessionKeyLen]byte, role string, req router.Request) (provider, model string, ok bool) {
 	if s.pinStore == nil {
 		return "", "", false
@@ -463,23 +476,30 @@ func (s *Service) compactionSessionModel(ctx context.Context, sessionKey [sessio
 	if model == "" {
 		model = served.Model
 	}
-	m, known := catalog.ByID(model)
-	if !known || m.Tier == catalog.TierLow {
+	model = catalog.LatestInFamily(model, func(candidate string) bool {
+		m, known := catalog.ByID(candidate)
+		if !known || (m.Tier != catalog.TierMid && m.Tier != catalog.TierHigh && !m.HMMTarget) {
+			return false
+		}
+		binding, bound := s.servedBinding(candidate, served.Provider, req)
+		if !bound || binding.Provider == providers.ProviderAnthropic {
+			return false
+		}
+		if s.availableModels != nil {
+			if _, available := s.availableModels[candidate]; !available {
+				return false
+			}
+		}
+		if _, excluded := req.ExcludedModels[candidate]; excluded {
+			return false
+		}
+		return !automaticallyDisabled(req, candidate)
+	})
+	if model == "" {
 		return "", "", false
 	}
 	binding, bound := s.servedBinding(model, served.Provider, req)
-	if !bound || binding.Provider == providers.ProviderAnthropic {
-		return "", "", false
-	}
-	if s.availableModels != nil {
-		if _, available := s.availableModels[model]; !available {
-			return "", "", false
-		}
-	}
-	if _, excluded := req.ExcludedModels[model]; excluded {
-		return "", "", false
-	}
-	if automaticallyDisabled(req, model) {
+	if !bound {
 		return "", "", false
 	}
 	return binding.Provider, model, true
