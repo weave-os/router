@@ -1,0 +1,21 @@
+smoke/mitmproxy/cassettes/8e945374e9208209e69f32c9f312994d03165763c10d46504b3244fd2275f378.json
+  s_f746fc01bed6c2::t_202800fa64c2fe 1-17
+smoke/mitmproxy/cassettes/b1039cae4f3419b6765487f26bb6eb4020d168713d3234c51751f96fbc4cd3a8.json
+  s_f746fc01bed6c2::t_202800fa64c2fe 1-17
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "de66fad02109f9b6acdc6e343c8a11707ae90a96",
+  "prompts": {},
+  "sessions": {
+    "s_f746fc01bed6c2": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "530d0793-38d4-4f22-ac5c-9dc5df46b37e",
+        "model": "claude-opus-5"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}
