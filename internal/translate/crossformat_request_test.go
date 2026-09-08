@@ -2152,6 +2152,31 @@ func TestSanitizeAnthropicHistoricalToolNameCountsUnicodeCharacters(t *testing.T
 	assert.Regexp(t, `^invalid_tool_[a-f0-9]{40}$`, gjson.GetBytes(prep.Body, "messages.0.content.0.name").String())
 }
 
+func TestSanitizeAnthropicToolNamesAvoidsHistoricalAliasCollisions(t *testing.T) {
+	invalidDeclaredName := strings.Repeat("b", 65)
+	collidingHistoricalName := "invalid_tool_af8615a17a61c9bc8fec267292a3abde6a482f0b"
+	body := []byte(fmt.Sprintf(`{
+		"model": "claude-opus-4-7",
+		"tools": [{"name": %q, "input_schema": {"type": "object"}}],
+		"tool_choice": {"type": "tool", "name": %q},
+		"messages": [{"role": "assistant", "content": [
+			{"type": "tool_use", "id": "toolu_existing_alias", "name": %q, "input": {}},
+			{"type": "tool_use", "id": "toolu_invalid_declared", "name": %q, "input": {}}
+		]}]
+	}`, invalidDeclaredName, invalidDeclaredName, collidingHistoricalName, invalidDeclaredName))
+
+	env, err := translate.ParseAnthropic(body)
+	require.NoError(t, err)
+	prep, err := env.PrepareAnthropic(http.Header{}, translate.EmitOptions{TargetModel: "claude-opus-4-7"})
+	require.NoError(t, err)
+
+	assert.Equal(t, collidingHistoricalName, gjson.GetBytes(prep.Body, "messages.0.content.0.name").String())
+	declaredAlias := gjson.GetBytes(prep.Body, "tools.0.name").String()
+	assert.NotEqual(t, collidingHistoricalName, declaredAlias)
+	assert.Equal(t, declaredAlias, gjson.GetBytes(prep.Body, "tool_choice.name").String())
+	assert.Equal(t, declaredAlias, gjson.GetBytes(prep.Body, "messages.0.content.1.name").String())
+}
+
 // TestStripToolUseThoughtSignature_AnthropicToAnthropic checks a Gemini
 // thought_signature on a tool_use block is stripped before forwarding to
 // Anthropic (which 400s on the unknown field), while the id — which smuggles
