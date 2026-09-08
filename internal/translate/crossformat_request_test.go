@@ -2152,29 +2152,46 @@ func TestSanitizeAnthropicHistoricalToolNameCountsUnicodeCharacters(t *testing.T
 	assert.Regexp(t, `^invalid_tool_[a-f0-9]{40}$`, gjson.GetBytes(prep.Body, "messages.0.content.0.name").String())
 }
 
-func TestSanitizeAnthropicToolNamesAvoidsHistoricalAliasCollisions(t *testing.T) {
-	invalidDeclaredName := strings.Repeat("b", 65)
-	collidingHistoricalName := "invalid_tool_af8615a17a61c9bc8fec267292a3abde6a482f0b"
-	body := []byte(fmt.Sprintf(`{
+func TestSanitizeAnthropicToolNameAliasStableAcrossReplay(t *testing.T) {
+	invalidDeclaredName := strings.Repeat("a", 65)
+	collidingDeclaredName := "invalid_tool_11655326c708d70319be2610e8a57d9a5b959d3b"
+	initialBody := []byte(fmt.Sprintf(`{
 		"model": "claude-opus-4-7",
-		"tools": [{"name": %q, "input_schema": {"type": "object"}}],
+		"tools": [
+			{"name": %q, "input_schema": {"type": "object"}},
+			{"name": %q, "input_schema": {"type": "object"}}
+		],
 		"tool_choice": {"type": "tool", "name": %q},
-		"messages": [{"role": "assistant", "content": [
-			{"type": "tool_use", "id": "toolu_existing_alias", "name": %q, "input": {}},
-			{"type": "tool_use", "id": "toolu_invalid_declared", "name": %q, "input": {}}
-		]}]
-	}`, invalidDeclaredName, invalidDeclaredName, collidingHistoricalName, invalidDeclaredName))
+		"messages": [{"role": "user", "content": "use the tool"}]
+	}`, collidingDeclaredName, invalidDeclaredName, invalidDeclaredName))
 
-	env, err := translate.ParseAnthropic(body)
+	env, err := translate.ParseAnthropic(initialBody)
 	require.NoError(t, err)
 	prep, err := env.PrepareAnthropic(http.Header{}, translate.EmitOptions{TargetModel: "claude-opus-4-7"})
 	require.NoError(t, err)
+	initialAlias := gjson.GetBytes(prep.Body, "tools.1.name").String()
+	require.NotEqual(t, collidingDeclaredName, initialAlias)
 
-	assert.Equal(t, collidingHistoricalName, gjson.GetBytes(prep.Body, "messages.0.content.0.name").String())
-	declaredAlias := gjson.GetBytes(prep.Body, "tools.0.name").String()
-	assert.NotEqual(t, collidingHistoricalName, declaredAlias)
-	assert.Equal(t, declaredAlias, gjson.GetBytes(prep.Body, "tool_choice.name").String())
-	assert.Equal(t, declaredAlias, gjson.GetBytes(prep.Body, "messages.0.content.1.name").String())
+	replayBody := []byte(fmt.Sprintf(`{
+		"model": "claude-opus-4-7",
+		"tools": [
+			{"name": %q, "input_schema": {"type": "object"}},
+			{"name": %q, "input_schema": {"type": "object"}}
+		],
+		"tool_choice": {"type": "tool", "name": %q},
+		"messages": [{"role": "assistant", "content": [
+			{"type": "tool_use", "id": "toolu_prior_alias", "name": %q, "input": {}}
+		]}]
+	}`, collidingDeclaredName, invalidDeclaredName, invalidDeclaredName, initialAlias))
+
+	replayEnv, err := translate.ParseAnthropic(replayBody)
+	require.NoError(t, err)
+	replay, err := replayEnv.PrepareAnthropic(http.Header{}, translate.EmitOptions{TargetModel: "claude-opus-4-7"})
+	require.NoError(t, err)
+
+	assert.Equal(t, initialAlias, gjson.GetBytes(replay.Body, "tools.1.name").String())
+	assert.Equal(t, initialAlias, gjson.GetBytes(replay.Body, "tool_choice.name").String())
+	assert.Equal(t, initialAlias, gjson.GetBytes(replay.Body, "messages.0.content.0.name").String())
 }
 
 // TestStripToolUseThoughtSignature_AnthropicToAnthropic checks a Gemini
