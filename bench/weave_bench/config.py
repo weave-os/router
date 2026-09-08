@@ -50,11 +50,12 @@ class ProviderConfig:
 
 @dataclass(frozen=True)
 class OpenRouterTapConfig:
-    # Where the tap process listens...
-    listen_host: str = "0.0.0.0"
+    # Where the tap process listens. The tap authenticates nobody (it relays the
+    # caller's own OpenRouter key), so bind it to an interface only the sandboxes
+    # reach — Docker's default bridge gateway for local Harbor runs.
+    listen_host: str = "172.17.0.1"
     listen_port: int = 8787
-    # ...and how sandboxes reach it. Docker's default bridge gateway works for
-    # local Harbor runs; a Modal deployment substitutes its web URL.
+    # ...and how sandboxes reach it; a Modal deployment substitutes its web URL.
     public_url: str = "http://172.17.0.1:8787"
     records_path: str = "jobs/openrouter-tap.jsonl"
 

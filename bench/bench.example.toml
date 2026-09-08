@@ -22,7 +22,10 @@ judge_api_key_env = "ANTHROPIC_API_KEY"        # SWE-Atlas rubric judge (Claude 
 openrouter_api_key_env = "OPENROUTER_API_KEY"  # `openrouter*` arms via the tap
 
 [openrouter_tap]
-listen_host = "0.0.0.0"
+# The tap relays whatever OpenRouter key the caller presents and authenticates
+# nobody itself: bind it to an interface only the sandboxes can reach (Docker's
+# default bridge gateway), never to a public address.
+listen_host = "172.17.0.1"
 listen_port = 8787
 # How Codex inside the sandbox reaches the tap. Docker's default bridge gateway
 # for local runs; a Modal deployment substitutes its public web URL.

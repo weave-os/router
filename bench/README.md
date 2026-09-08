@@ -92,7 +92,9 @@ Each arm is one Harbor job at `<jobs_dir>/<run-id>--<arm>/`; Harbor's own
 reads. To continue an interrupted arm: `harbor jobs resume <jobs_dir>/<run-id>--<arm>`.
 
 For OpenRouter arms start the tap first (it must be reachable from the sandbox
-at `openrouter_tap.public_url`; the default is Docker's bridge gateway):
+at `openrouter_tap.public_url`; the default is Docker's bridge gateway). The
+tap forwards the caller's own `Authorization` header and authenticates nobody
+itself, so keep `listen_host` on an interface only the sandboxes reach:
 
 ```bash
 export OPENROUTER_API_KEY=sk-or-…
@@ -140,7 +142,9 @@ If no analytics key is set, the export is unreachable, or you pass
 `--no-analytics`, router-billed fields stay blank — they are never estimated.
 To reproduce a router-billed number after the fact you need either analytics
 access to the org that ran it or its saved export: `--analytics-ndjson
-PATH` replays a file written by an earlier report (`reports/<run-id>/analytics.ndjson`)
+PATH` replays a file written by an earlier report
+(`reports/<run-id>/analytics-<window-start>-<window-end>.ndjson`; the window is
+the trials' span, so a report re-run after `harbor jobs resume` fetches afresh)
 or by any client of `GET /v1/analytics/routing-decisions`.
 
 ## 5. SWE-Bench Pro official grading

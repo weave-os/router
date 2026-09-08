@@ -16,6 +16,7 @@ from weave_bench.analytics import (
     parse_ndjson,
     parse_rfc3339,
     row_cost_usd,
+    row_fresh_input_tokens,
     write_ndjson,
 )
 
@@ -50,6 +51,14 @@ def test_ndjson_round_trip_and_cost(tmp_path: Path) -> None:
     assert parsed == rows
     assert row_cost_usd(parsed[0]) == pytest.approx(0.75)
     assert row_cost_usd(parsed[1]) == 0.0
+
+
+def test_fresh_input_tokens_follow_the_provider_usage_convention() -> None:
+    usage = {"input_tokens": 1000, "cache_read_tokens": 600, "cache_creation_tokens": 100}
+    assert row_fresh_input_tokens({**usage, "decision_provider": "openai"}) == 300
+    assert row_fresh_input_tokens({**usage, "decision_provider": "google"}) == 300
+    assert row_fresh_input_tokens({**usage, "decision_provider": "anthropic"}) == 1000
+    assert row_fresh_input_tokens({"input_tokens": 10, "cache_read_tokens": 50, "decision_provider": "openai"}) == 0
 
 
 def test_by_session_dedupes_rows_repeated_across_pages() -> None:

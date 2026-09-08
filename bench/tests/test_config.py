@@ -35,7 +35,7 @@ listen_port = 9000
     assert config.router.analytics_url == "https://analytics.example.test"
     assert config.harbor.environment is HarborEnvironment.MODAL
     assert config.openrouter_tap.listen_port == 9000
-    assert config.openrouter_tap.listen_host == "0.0.0.0"
+    assert config.openrouter_tap.listen_host == "172.17.0.1"
 
 
 def test_env_overrides_beat_the_file(tmp_path: Path) -> None:

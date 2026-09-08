@@ -8,8 +8,15 @@ from collections.abc import Iterable, Sequence
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
-from weave_bench.analytics import AnalyticsColumn, DecisionRow, by_session, row_cost_usd, row_int
-from weave_bench.arms import ArmSpec
+from weave_bench.analytics import (
+    AnalyticsColumn,
+    DecisionRow,
+    by_session,
+    row_cost_usd,
+    row_fresh_input_tokens,
+    row_int,
+)
+from weave_bench.arms import ArmSpec, Upstream
 from weave_bench.prices import PriceTable, load_price_table
 from weave_bench.stats import (
     Interval,
@@ -126,7 +133,7 @@ def _codex_client_tokens(trials: Sequence[TrialRecord]) -> TokenTotals:
 def _router_tokens(rows: Sequence[DecisionRow]) -> TokenTotals:
     return TokenTotals(
         requests=len(rows),
-        input_tokens=sum(row_int(r, AnalyticsColumn.INPUT_TOKENS) for r in rows),
+        input_tokens=sum(row_fresh_input_tokens(r) for r in rows),
         cache_read_tokens=sum(row_int(r, AnalyticsColumn.CACHE_READ_TOKENS) for r in rows),
         cache_write_tokens=sum(row_int(r, AnalyticsColumn.CACHE_CREATION_TOKENS) for r in rows),
         output_tokens=sum(row_int(r, AnalyticsColumn.OUTPUT_TOKENS) for r in rows),
@@ -140,12 +147,29 @@ def _router_list_price_usd(rows: Sequence[DecisionRow], prices: PriceTable) -> f
         if price is None:
             return None
         total += price.cost_usd(
-            input_tokens=row_int(row, AnalyticsColumn.INPUT_TOKENS),
+            input_tokens=row_fresh_input_tokens(row),
             cache_read_tokens=row_int(row, AnalyticsColumn.CACHE_READ_TOKENS),
             cache_write_tokens=row_int(row, AnalyticsColumn.CACHE_CREATION_TOKENS),
             output_tokens=row_int(row, AnalyticsColumn.OUTPUT_TOKENS),
         )
     return total
+
+
+def _direct_list_price_usd(arm: ArmSpec, trials: Sequence[TrialRecord], prices: PriceTable) -> float | None:
+    """A direct arm's spend repriced from its own Codex transcript at the pinned
+    catalog list price, so it doesn't depend on Harbor's optional LiteLLM cost."""
+    price = prices.lookup(arm.codex_model)
+    if price is None:
+        return None
+    tokens = _codex_client_tokens(trials)
+    if tokens.requests == 0:
+        return None
+    return price.cost_usd(
+        input_tokens=tokens.input_tokens,
+        cache_read_tokens=tokens.cache_read_tokens,
+        cache_write_tokens=tokens.cache_write_tokens,
+        output_tokens=tokens.output_tokens,
+    )
 
 
 def _optional_sum(values: Iterable[float | None]) -> float | None:
@@ -183,6 +207,13 @@ def summarize_arm(
     arm_tap_rows = [r for r in tap_rows if str(r.get("session_id", "")) in session_ids]
     tap_served: Counter[str] = Counter(str(r.get("served_model") or "") for r in arm_tap_rows)
 
+    prices = load_price_table()
+    agent_cost_usd = _optional_sum(t.agent_cost_usd for t in trials)
+    if arm.upstream is Upstream.DIRECT:
+        list_price_usd = _direct_list_price_usd(arm, trials, prices)
+        if list_price_usd is not None:
+            agent_cost_usd = list_price_usd
+
     return ArmSummary(
         arm=arm.name,
         n_tasks=len(per_task),
@@ -207,9 +238,9 @@ def summarize_arm(
             (max(t.finished_at for t in trials) - min(t.started_at for t in trials)).total_seconds() if trials else 0.0
         ),
         codex_client_tokens=_codex_client_tokens(trials),
-        agent_cost_usd=_optional_sum(t.agent_cost_usd for t in trials),
+        agent_cost_usd=agent_cost_usd,
         router_billed_usd=sum(row_cost_usd(r) for r in router_rows) if router_rows else None,
-        router_list_price_usd=_router_list_price_usd(router_rows, load_price_table()) if router_rows else None,
+        router_list_price_usd=_router_list_price_usd(router_rows, prices) if router_rows else None,
         router_tokens=_router_tokens(router_rows) if router_rows else None,
         router_served_models=dict(served_models.most_common()),
         sessions_without_router_rows=sessions_without_rows,

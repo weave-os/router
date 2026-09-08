@@ -18,6 +18,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import subprocess
 import sys
 from datetime import datetime, timedelta
@@ -44,13 +45,25 @@ from weave_bench.report import build_report, load_tap_rows
 from weave_bench.trials import TrialRecord, load_job
 
 DEFAULT_RUN_ID_FORMAT = "%Y%m%d-%H%M%S"
+# A run id becomes a Harbor job name, a jobs-dir path segment, and the
+# ``x-weave-rollout-id`` header value in the generated Codex config.
+RUN_ID_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}")
 ANALYTICS_WINDOW_PAD = timedelta(minutes=5)
+ANALYTICS_CACHE_STAMP = "%Y%m%dT%H%M%S"
 REPORT_DIRNAME = "reports"
 TAP_MODULE = "weave_bench.tap.app"
 
 
 def _default_run_id(benchmark: Benchmark) -> str:
     return f"{benchmark}-{datetime.now().strftime(DEFAULT_RUN_ID_FORMAT)}"
+
+
+def run_id_arg(value: str) -> str:
+    if RUN_ID_PATTERN.fullmatch(value) is None:
+        raise argparse.ArgumentTypeError(
+            f"run id {value!r} must be 1-128 chars of letters, digits, '.', '_' or '-' and start alphanumeric"
+        )
+    return value
 
 
 def _add_common(parser: argparse.ArgumentParser) -> None:
@@ -147,15 +160,23 @@ def _read_ndjson(path: Path) -> list[DecisionRow]:
 def _analytics_rows(
     config: BenchConfig,
     trials_by_arm: dict[ArmSpec, list[TrialRecord]],
-    cache_path: Path,
+    report_dir: Path,
 ) -> list[DecisionRow] | None:
+    """The export is cached per trial window, so a report re-run after more
+    trials land (``harbor jobs resume``) fetches again instead of replaying a
+    dump that predates them."""
     if not any(arm.via_router for arm in trials_by_arm):
         return None
-    if cache_path.exists():
-        return _read_ndjson(cache_path)
     trials = [t for arm_trials in trials_by_arm.values() for t in arm_trials]
     if not trials:
         return None
+    window_start = min(t.started_at for t in trials) - ANALYTICS_WINDOW_PAD
+    window_end = max(t.finished_at for t in trials) + ANALYTICS_WINDOW_PAD
+    cache_path = report_dir / (
+        f"analytics-{window_start.strftime(ANALYTICS_CACHE_STAMP)}-{window_end.strftime(ANALYTICS_CACHE_STAMP)}.ndjson"
+    )
+    if cache_path.exists():
+        return _read_ndjson(cache_path)
     analytics_key = os.environ.get(config.router.analytics_key_env, "")
     if not analytics_key:
         print(
@@ -167,8 +188,8 @@ def _analytics_rows(
         rows = fetch_rows(
             base_url=config.router.analytics_url,
             api_key=analytics_key,
-            window_start=min(t.started_at for t in trials) - ANALYTICS_WINDOW_PAD,
-            window_end=max(t.finished_at for t in trials) + ANALYTICS_WINDOW_PAD,
+            window_start=window_start,
+            window_end=window_end,
         )
     except AnalyticsUnavailable as exc:
         print(f"[report] analytics export unavailable: {exc}", file=sys.stderr)
@@ -189,7 +210,7 @@ def cmd_report(args: argparse.Namespace) -> int:
     elif args.analytics_ndjson is not None:
         analytics_rows = _read_ndjson(args.analytics_ndjson)
     else:
-        analytics_rows = _analytics_rows(config, trials_by_arm, report_dir / "analytics.ndjson")
+        analytics_rows = _analytics_rows(config, trials_by_arm, report_dir)
     tap_records = args.tap_records or Path(config.openrouter_tap.records_path)
     report = build_report(
         benchmark=str(benchmark),
@@ -268,7 +289,7 @@ def build_parser() -> argparse.ArgumentParser:
     _add_common(run)
     run.add_argument("benchmark", choices=[b.value for b in Benchmark])
     run.add_argument("--arms", default="", help="comma-separated arm names (default: router,sol)")
-    run.add_argument("--run-id", default=None)
+    run.add_argument("--run-id", type=run_id_arg, default=None)
     run.add_argument("--smoke", action="store_true", help="the pinned <=3-task smoke subset")
     run.add_argument("--tasks", nargs="*", default=None, help="explicit Harbor task names")
     run.add_argument("--n-attempts", type=int, default=None)
@@ -280,7 +301,7 @@ def build_parser() -> argparse.ArgumentParser:
     report = subparsers.add_parser("report", help="aggregate Harbor results into Markdown + JSON")
     _add_common(report)
     report.add_argument("benchmark", choices=[b.value for b in Benchmark])
-    report.add_argument("run_id")
+    report.add_argument("run_id", type=run_id_arg)
     report.add_argument("--arms", default="")
     report.add_argument("--k", type=int, default=None, help="pass@k (default: the benchmark's n_attempts)")
     report.add_argument("--no-analytics", action="store_true", help="skip the router analytics export")
@@ -292,7 +313,7 @@ def build_parser() -> argparse.ArgumentParser:
     pro_sub = pro.add_subparsers(dest="pro_command", required=True)
     grade = pro_sub.add_parser("grade")
     _add_common(grade)
-    grade.add_argument("run_id")
+    grade.add_argument("run_id", type=run_id_arg)
     grade.add_argument("--arms", default="")
     grade.add_argument("--num-workers", type=int, default=4)
     grade.add_argument("--docker-platform", default=None)
