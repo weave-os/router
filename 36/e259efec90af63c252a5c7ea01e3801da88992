@@ -1,0 +1,19 @@
+internal/translate/emit_anthropic.go
+  s_2921c831dd4797::t_b5183f9ed165d5 807-808
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "36e259efec90af63c252a5c7ea01e3801da88992",
+  "prompts": {},
+  "sessions": {
+    "s_2921c831dd4797": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e720616c-29a8-477d-a955-a4080f429d60",
+        "model": "grok-4.6"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}
