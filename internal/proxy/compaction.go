@@ -171,7 +171,7 @@ func (s *Service) compactionModelOrDefault() string {
 // model (a low-tier summary is what the cascade is moving away from).
 func anthropicSummarizerEligible(model string) bool {
 	m, ok := catalog.ByID(model)
-	if !ok || (m.Tier != catalog.TierMid && m.Tier != catalog.TierHigh && !m.HMMTarget) {
+	if !ok || m.Tier == catalog.TierLow {
 		return false
 	}
 	for _, b := range m.Providers {
@@ -478,7 +478,7 @@ func (s *Service) compactionSessionModel(ctx context.Context, sessionKey [sessio
 	}
 	model = catalog.LatestInFamily(model, func(candidate string) bool {
 		m, known := catalog.ByID(candidate)
-		if !known || (m.Tier != catalog.TierMid && m.Tier != catalog.TierHigh && !m.HMMTarget) {
+		if !known || m.Tier == catalog.TierLow {
 			return false
 		}
 		binding, bound := s.servedBinding(candidate, served.Provider, req)

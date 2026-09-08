@@ -470,6 +470,28 @@ func TestCompactionHardPin_FamilyUpgradeHonorsRestrictions(t *testing.T) {
 	assert.Equal(t, olderModel, model)
 }
 
+func TestCompactionHardPin_CodexKeepsUntieredSessionFamily(t *testing.T) {
+	for _, sessionModel := range []string{"gpt-4o", "gpt-5-chat"} {
+		t.Run(sessionModel, func(t *testing.T) {
+			store := &rolePinStore{byRole: map[string]sessionpin.Pin{
+				hmmHistoryRole(sessionpin.DefaultRole): {
+					Provider: providers.ProviderOpenAI, LastServedModel: sessionModel,
+					LastTurnEndedAt: time.Now(), PinnedUntil: time.Now().Add(time.Hour),
+				},
+			}}
+			s := &Service{
+				pinStore:        store,
+				providers:       map[string]providers.Client{providers.ProviderOpenAI: nil},
+				availableModels: map[string]struct{}{sessionModel: {}},
+			}
+			provider, model, ok := s.compactionHardPin(context.Background(), [sessionpin.SessionKeyLen]byte{}, sessionpin.DefaultRole, router.Request{ClientApp: ClientAppCodex})
+			require.True(t, ok)
+			assert.Equal(t, providers.ProviderOpenAI, provider)
+			assert.Equal(t, sessionModel, model)
+		})
+	}
+}
+
 func TestTurnLoop_CompactionReadsClientIdentityBeforeHardPin(t *testing.T) {
 	const sessionModel = "gpt-5.6-sol"
 	store := &rolePinStore{byRole: map[string]sessionpin.Pin{
