@@ -241,6 +241,7 @@ wire_api = "responses"
 
 [model_providers.weave.http_headers]
 X-App = "codex"
+# X-Weave-Router-Key = "rk_commented_key"
 X-Weave-Router-Key = "rk_normalized_key"
 
 [projects."/Users/a/Code/weave"]
@@ -275,6 +276,42 @@ grep -Fq '[hooks.state."/Users/a/.codex/config.toml:stop:0:0"]' "$config" \
   || fail "install over a Codex-rewritten config dropped Codex hook state"
 grep -Fq '[projects."/Users/a/Code/weave"]' "$config" \
   || fail "install over a Codex-rewritten config dropped Codex project trust"
+
+# Rewritten configs can retain our hook children next to user-owned children.
+seed_codex_normalized_config
+cat >>"$config" <<HOOKS
+
+[[hooks.SessionStart]]
+[[hooks.SessionStart.hooks]]
+type = "command"
+command = "$status_helper"
+[[hooks.SessionStart.hooks]]
+type = "command"
+command = "echo user-hook"
+[[hooks.SessionStart]]
+[[hooks.SessionStart.hooks]]
+type = "command"
+command = "$status_helper"
+[[hooks.Stop]]
+[[hooks.Stop.hooks]]
+type = "command"
+command = "$status_helper"
+HOOKS
+for pass in 1 2; do
+  run_hosted_install
+  assert_config_parses "hook reconciliation produced invalid TOML"
+  python3 - "$config" "$status_helper" <<'HOOK_CHECK'
+import sys, tomllib
+with open(sys.argv[1], "rb") as stream:
+    config = tomllib.load(stream)
+for event in ("SessionStart", "Stop"):
+    commands = [hook["command"] for entry in config["hooks"][event] for hook in entry["hooks"]]
+    assert commands.count(sys.argv[2]) == 1, commands
+    assert commands.count("echo user-hook") == (1 if event == "SessionStart" else 0), commands
+HOOK_CHECK
+  sed '/^[[:space:]]*#/d' "$config" >"$config.rewritten"
+  mv "$config.rewritten" "$config"
+done
 
 # The endpoint reader backs `login`/`status`. Reading only between the markers
 # reported "No Weave Router install found for codex in this scope" on a

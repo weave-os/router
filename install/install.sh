@@ -611,10 +611,43 @@ TOML
     # appended a second one -- TOML rejects a table declared twice, so Codex
     # refused to start with "duplicate key" while the installer reported
     # success.
-    awk -v begin="$WEAVE_CODEX_BEGIN_MARKER" -v end="$WEAVE_CODEX_END_MARKER" '
-      $0 == begin { skip = 1; next }
+    # Remove only our command children from markerless hook arrays; preserve
+    # other commands, including children sharing the same event entry.
+    awk -v begin="$WEAVE_CODEX_BEGIN_MARKER" -v end="$WEAVE_CODEX_END_MARKER" -v status="$esc_status" '
+      function flush_child() {
+        if (child != "" && !owned_child) kept_children = kept_children child
+        if (owned_child) removed_child = 1
+        child = ""; owned_child = 0
+      }
+      function flush_hook() {
+        flush_child()
+        if (hook_header != "" && (kept_children != "" || !removed_child))
+          printf "%s%s", hook_header, kept_children
+        hook_header = ""; kept_children = ""; removed_child = 0
+      }
+      $0 == begin { flush_hook(); skip = 1; next }
       $0 == end   { skip = 0; next }
       skip        { next }
+      hook_header != "" && /^[[:space:]]*\[\[hooks\.(SessionStart|Stop)\.hooks\]\][[:space:]]*(#.*)?$/ {
+        flush_child(); child = $0 "\n"; next
+      }
+      /^[[:space:]]*\[/ { flush_hook() }
+      /^[[:space:]]*\[\[hooks\.(SessionStart|Stop)\]\][[:space:]]*(#.*)?$/ {
+        in_section = 1; in_weave_provider = 0; hook_header = $0 "\n"; next
+      }
+      hook_header != "" {
+        if (child == "") hook_header = hook_header $0 "\n"
+        else {
+          child = child $0 "\n"
+          if ($0 ~ /^[[:space:]]*command[[:space:]]*=/) {
+            command = $0
+            sub(/^[[:space:]]*command[[:space:]]*=[[:space:]]*"/, "", command)
+            sub(/"[[:space:]]*(#.*)?$/, "", command)
+            if (command == status) owned_child = 1
+          }
+        }
+        next
+      }
       /^[[:space:]]*\[/ {
         in_section = 1
         if ($0 ~ /^[[:space:]]*\[[[:space:]]*model_providers[[:space:]]*\.[[:space:]]*weave[[:space:]]*(\.[^]]*)?\][[:space:]]*(#.*)?$/) {
@@ -626,6 +659,7 @@ TOML
       in_weave_provider { next }
       !in_section && /^[[:space:]]*model_provider[[:space:]]*=/ { next }
       { print }
+      END { flush_hook() }
     ' "$config_file" >"$tmp"
 
     # Insert the managed block at TOML top-level scope, NOT end-of-file. In
@@ -1879,7 +1913,7 @@ read_codex_key() {
       in_provider = ($0 ~ /^[[:space:]]*\[[[:space:]]*model_providers[[:space:]]*\.[[:space:]]*weave[[:space:]]*(\.[^]]*)?\][[:space:]]*(#.*)?$/)
       next
     }
-    in_provider && match($0, /"?X-Weave-Router-Key"?[[:space:]]*=[[:space:]]*"[^"]*"/) {
+    in_provider && $0 ~ /^[[:space:]]*(http_headers[[:space:]]*=[[:space:]]*\{|"?X-Weave-Router-Key"?[[:space:]]*=)/ && match($0, /"?X-Weave-Router-Key"?[[:space:]]*=[[:space:]]*"[^"]*"/) {
       hdr = substr($0, RSTART, RLENGTH)
       sub(/^.*=[[:space:]]*"/, "", hdr)
       sub(/"$/, "", hdr)
