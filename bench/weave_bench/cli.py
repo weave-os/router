@@ -124,7 +124,8 @@ def cmd_run(args: argparse.Namespace) -> int:
     exit_code = 0
     for job in launch.jobs:
         exit_code |= run_job(job, config)
-    print(f"\nreport with: weave-bench report {launch.benchmark} {launch.run_id}")
+    arm_names = ",".join(job.arm.name for job in launch.jobs)
+    print(f"\nreport with: weave-bench report {launch.benchmark} {launch.run_id} --arms {arm_names}")
     return exit_code
 
 

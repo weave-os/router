@@ -83,7 +83,7 @@ outside the pinned manifest.
 ```bash
 export WEAVE_ROUTER_API_KEY=rk_… OPENAI_API_KEY=sk-…
 weave-bench run terminal-bench-4 --arms router,luna --smoke --run-id tb4-smoke-$(date +%Y%m%d)
-weave-bench report terminal-bench-4 tb4-smoke-<date>
+weave-bench report terminal-bench-4 tb4-smoke-<date> --arms router,luna
 ```
 
 Each arm is one Harbor job at `<jobs_dir>/<run-id>--<arm>/`; Harbor's own

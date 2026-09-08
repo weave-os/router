@@ -57,6 +57,15 @@ def test_run_dry_run_honours_bench_toml_and_explicit_tasks(
     assert "--jobs-dir out" in out
 
 
+def test_run_report_hint_names_the_arms_that_ran(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("weave_bench.cli.run_job", lambda job, config: 0)
+    assert main(["run", "terminal-bench-4", "--arms", "router,luna", "--smoke", "--run-id", "r1"]) == 0
+    assert "weave-bench report terminal-bench-4 r1 --arms router,luna" in capsys.readouterr().out
+
+
 def test_report_without_analytics_writes_markdown_and_json(
     tmp_path: Path, write_trial: TrialWriter, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:

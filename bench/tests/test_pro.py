@@ -78,17 +78,18 @@ def test_grader_command_matches_official_cli() -> None:
     assert "--dockerhub_username=jefzda" in command
     assert "--num_workers=4" in command
     assert command[-1] == "--docker_platform=linux/amd64"
-    assert not any(
-        arg.startswith("--docker_platform")
-        for arg in grader_command(
-            raw_sample_path=Path("r"),
-            patch_path=Path("p"),
-            output_dir=Path("o"),
-            dockerhub_username="u",
-            num_workers=1,
-            docker_platform=None,
-        )
+    relative = grader_command(
+        raw_sample_path=Path("r"),
+        patch_path=Path("p"),
+        output_dir=Path("o"),
+        dockerhub_username="u",
+        num_workers=1,
+        docker_platform=None,
     )
+    assert not any(arg.startswith("--docker_platform") for arg in relative)
+    # The grader runs with cwd=grader clone, so bench-relative paths must be absolutized.
+    assert f"--patch_path={Path.cwd() / 'p'}" in relative
+    assert f"--output_dir={Path.cwd() / 'o'}" in relative
 
 
 def test_grader_hash_is_verified_before_running(tmp_path: Path) -> None:

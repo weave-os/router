@@ -102,13 +102,14 @@ def grader_command(
     docker_platform: str | None,
 ) -> list[str]:
     """The exact ``swe_bench_pro_eval.py`` invocation; cwd must be the grader
-    clone because it reads ``dockerfiles/`` and ``run_scripts/`` relative to it."""
+    clone because it reads ``dockerfiles/`` and ``run_scripts/`` relative to it,
+    so our own paths are made absolute to survive that cwd."""
     command = [
         sys.executable,
         PRO_GRADER_SCRIPT,
-        f"--raw_sample_path={raw_sample_path}",
-        f"--patch_path={patch_path}",
-        f"--output_dir={output_dir}",
+        f"--raw_sample_path={raw_sample_path.resolve()}",
+        f"--patch_path={patch_path.resolve()}",
+        f"--output_dir={output_dir.resolve()}",
         f"--scripts_dir={PRO_GRADER_SCRIPTS_DIR}",
         f"--dockerhub_username={dockerhub_username}",
         f"--num_workers={num_workers}",
