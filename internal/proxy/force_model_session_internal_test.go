@@ -303,8 +303,12 @@ func TestRunTurnLoop_SessionForceOverridesAuxiliaryHardPin(t *testing.T) {
 	assert.Empty(t, freshRouter.captured)
 }
 
-func TestApplyForceModelCommand_WritesAndClearsSessionControl(t *testing.T) {
-	const apiKeyID = "api-key"
+func TestApplyForceModelCommand_FableThenAstraWritesAndClearsSessionControl(t *testing.T) {
+	const (
+		apiKeyID     = "api-key"
+		fableModelID = "claude-fable-5-1"
+		astraModelID = "gpt-6-astra"
+	)
 	installationID := uuid.New()
 	ctx := context.WithValue(context.Background(), ClientIdentityContextKey{}, ClientIdentity{SessionID: "client-session"})
 	env, err := translate.ParseAnthropic([]byte(`{
@@ -318,12 +322,14 @@ func TestApplyForceModelCommand_WritesAndClearsSessionControl(t *testing.T) {
 	svc := NewService(nil, nil, nil, false, nil, store, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil)
 
-	forcedModel, _, err := svc.applyForceModelCommand(ctx, env, translate.ForceModelResult{Model: "opus"}, installationID, threadKey, forceKey)
+	forcedModel, _, err := svc.applyForceModelCommand(ctx, env, translate.ForceModelResult{Model: "fable"}, installationID, threadKey, forceKey)
 	require.NoError(t, err)
-	assert.Equal(t, "claude-opus-5", forcedModel)
+	assert.Equal(t, fableModelID, forcedModel)
 	pin, found, err := store.Get(ctx, forceKey, forceModelSessionRole)
 	require.NoError(t, err)
 	require.True(t, found)
+	assert.Equal(t, fableModelID, pin.Model)
+	assert.Equal(t, providers.ProviderAnthropic, pin.Provider)
 	assert.Equal(t, translate.ReasonUserForceModel, pin.Reason)
 	assert.Equal(t, pinNeverExpires, pin.PinnedUntil)
 	for _, role := range forceModelClearRoles() {
@@ -332,13 +338,14 @@ func TestApplyForceModelCommand_WritesAndClearsSessionControl(t *testing.T) {
 		assert.False(t, threadForceFound, "new force state must have only one authoritative row")
 	}
 
-	nextModel, _, err := svc.applyForceModelCommand(ctx, env, translate.ForceModelResult{Model: "sonnet"}, installationID, threadKey, forceKey)
+	nextModel, _, err := svc.applyForceModelCommand(ctx, env, translate.ForceModelResult{Model: "astra"}, installationID, threadKey, forceKey)
 	require.NoError(t, err)
-	assert.Equal(t, "claude-sonnet-5", nextModel)
+	assert.Equal(t, astraModelID, nextModel)
 	switched, found, err := store.Get(ctx, forceKey, forceModelSessionRole)
 	require.NoError(t, err)
 	require.True(t, found)
-	assert.Equal(t, "claude-opus-5", switched.LastServedModel)
+	assert.Equal(t, fableModelID, switched.LastServedModel)
+	assert.Equal(t, providers.ProviderOpenAI, switched.Provider)
 
 	_, _, err = svc.applyForceModelCommand(ctx, env, translate.ForceModelResult{Clear: true}, installationID, threadKey, forceKey)
 	require.NoError(t, err)
@@ -347,7 +354,7 @@ func TestApplyForceModelCommand_WritesAndClearsSessionControl(t *testing.T) {
 	require.True(t, found)
 	assert.Equal(t, pinNeverExpires, cleared.PinnedUntil, "the clear tombstone prevents legacy child pins from reviving")
 	assert.Empty(t, cleared.Model)
-	assert.Equal(t, "claude-sonnet-5", cleared.LastServedModel)
+	assert.Equal(t, astraModelID, cleared.LastServedModel)
 	assert.True(t, cleared.HasEverSwitched)
 	assert.Equal(t, userUnforcedReason, cleared.Reason)
 }
