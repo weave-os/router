@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"regexp"
 	"strings"
+	"unicode/utf8"
 
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
@@ -815,45 +817,69 @@ func sanitizeAnthropicToolSchemasBytes(body []byte) ([]byte, error) {
 	return sjson.SetRawBytes(body, "tools", raw)
 }
 
-// maxAnthropicToolNameLen is Anthropic's request limit for tool names. Tool
-// names produced by another provider can be malformed while still surviving in
-// client history, so every reference uses the same stable alias on replay.
-const maxAnthropicToolNameLen = 200
+// Anthropic permits longer historical tool_use names than declared tool names.
+const maxAnthropicHistoricalToolNameChars = 200
+
+var anthropicDeclaredToolNamePattern = regexp.MustCompile(`^[a-zA-Z0-9_-]{1,64}$`)
 
 func sanitizeAnthropicToolNamesBytes(body []byte) ([]byte, error) {
-	out, err := rewriteMessageBlocks(body, hasOverlongAnthropicToolUseName, sanitizeAnthropicToolUseNameBlock)
+	aliases := make(map[string]string)
+	for _, tool := range gjson.GetBytes(body, "tools").Array() {
+		name := tool.Get("name").String()
+		if !anthropicDeclaredToolNamePattern.MatchString(name) {
+			aliases[name] = sanitizedAnthropicToolName(name)
+		}
+	}
+	choice := gjson.GetBytes(body, "tool_choice")
+	choiceName := choice.Get("name").String()
+	if choice.Get("type").String() == "tool" && !anthropicDeclaredToolNamePattern.MatchString(choiceName) {
+		aliases[choiceName] = sanitizedAnthropicToolName(choiceName)
+	}
+
+	out, err := rewriteMessageBlocks(
+		body,
+		func(block gjson.Result) bool {
+			if block.Get("type").String() != "tool_use" {
+				return false
+			}
+			name := block.Get("name").String()
+			_, hasAlias := aliases[name]
+			return hasAlias || utf8.RuneCountInString(name) > maxAnthropicHistoricalToolNameChars
+		},
+		func(raw string) (string, error) {
+			name := gjson.Get(raw, "name").String()
+			alias, ok := aliases[name]
+			if !ok {
+				alias = sanitizedAnthropicToolName(name)
+			}
+			rewritten, rewriteErr := sjson.Set(raw, "name", alias)
+			if rewriteErr != nil {
+				return "", fmt.Errorf("rewrite tool_use name: %w", rewriteErr)
+			}
+			return rewritten, nil
+		},
+	)
 	if err != nil {
 		return nil, err
 	}
 	for index, tool := range gjson.GetBytes(out, "tools").Array() {
 		name := tool.Get("name").String()
-		if len(name) <= maxAnthropicToolNameLen {
+		alias, ok := aliases[name]
+		if !ok {
 			continue
 		}
-		out, err = sjson.SetBytes(out, fmt.Sprintf("tools.%d.name", index), sanitizedAnthropicToolName(name))
+		out, err = sjson.SetBytes(out, fmt.Sprintf("tools.%d.name", index), alias)
 		if err != nil {
 			return nil, fmt.Errorf("rewrite declared tool name: %w", err)
 		}
 	}
-	choice := gjson.GetBytes(out, "tool_choice")
-	choiceName := choice.Get("name").String()
-	if choice.Get("type").String() == "tool" && len(choiceName) > maxAnthropicToolNameLen {
-		out, err = sjson.SetBytes(out, "tool_choice.name", sanitizedAnthropicToolName(choiceName))
-		if err != nil {
-			return nil, fmt.Errorf("rewrite tool_choice name: %w", err)
+	if choice.Get("type").String() == "tool" {
+		if alias, ok := aliases[choiceName]; ok {
+			out, err = sjson.SetBytes(out, "tool_choice.name", alias)
+			if err != nil {
+				return nil, fmt.Errorf("rewrite tool_choice name: %w", err)
+			}
 		}
-	}
-	return out, nil
-}
-
-func hasOverlongAnthropicToolUseName(block gjson.Result) bool {
-	return block.Get("type").String() == "tool_use" && len(block.Get("name").String()) > maxAnthropicToolNameLen
-}
-
-func sanitizeAnthropicToolUseNameBlock(raw string) (string, error) {
-	out, err := sjson.Set(raw, "name", sanitizedAnthropicToolName(gjson.Get(raw, "name").String()))
-	if err != nil {
-		return "", fmt.Errorf("rewrite tool_use name: %w", err)
 	}
 	return out, nil
 }

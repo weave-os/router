@@ -2104,6 +2104,48 @@ func TestSanitizeOverlongToolUseNames(t *testing.T) {
 	}
 }
 
+func TestSanitizeAnthropicToolNamesUsesFieldSpecificLimits(t *testing.T) {
+	validHistoricalUnicodeName := strings.Repeat("界", 100)
+	invalidDeclaredName := strings.Repeat("a", 65)
+	body := []byte(fmt.Sprintf(`{
+		"model": "claude-opus-4-7",
+		"tools": [{"name": %q, "input_schema": {"type": "object"}}],
+		"tool_choice": {"type": "tool", "name": %q},
+		"messages": [{"role": "assistant", "content": [
+			{"type": "tool_use", "id": "toolu_valid_unicode", "name": %q, "input": {}},
+			{"type": "tool_use", "id": "toolu_invalid_declared", "name": %q, "input": {}}
+		]}]
+	}`, invalidDeclaredName, invalidDeclaredName, validHistoricalUnicodeName, invalidDeclaredName))
+
+	env, err := translate.ParseAnthropic(body)
+	require.NoError(t, err)
+	prep, err := env.PrepareAnthropic(http.Header{}, translate.EmitOptions{TargetModel: "claude-opus-4-7"})
+	require.NoError(t, err)
+
+	assert.Equal(t, validHistoricalUnicodeName, gjson.GetBytes(prep.Body, "messages.0.content.0.name").String())
+	declaredAlias := gjson.GetBytes(prep.Body, "tools.0.name").String()
+	assert.Regexp(t, `^invalid_tool_[a-f0-9]{40}$`, declaredAlias)
+	assert.Equal(t, declaredAlias, gjson.GetBytes(prep.Body, "tool_choice.name").String())
+	assert.Equal(t, declaredAlias, gjson.GetBytes(prep.Body, "messages.0.content.1.name").String())
+}
+
+func TestSanitizeAnthropicHistoricalToolNameCountsUnicodeCharacters(t *testing.T) {
+	overlongHistoricalName := strings.Repeat("界", 201)
+	body := []byte(fmt.Sprintf(`{
+		"model": "claude-opus-4-7",
+		"messages": [{"role": "assistant", "content": [
+			{"type": "tool_use", "id": "toolu_overlong_unicode", "name": %q, "input": {}}
+		]}]
+	}`, overlongHistoricalName))
+
+	env, err := translate.ParseAnthropic(body)
+	require.NoError(t, err)
+	prep, err := env.PrepareAnthropic(http.Header{}, translate.EmitOptions{TargetModel: "claude-opus-4-7"})
+	require.NoError(t, err)
+
+	assert.Regexp(t, `^invalid_tool_[a-f0-9]{40}$`, gjson.GetBytes(prep.Body, "messages.0.content.0.name").String())
+}
+
 // TestStripToolUseThoughtSignature_AnthropicToAnthropic checks a Gemini
 // thought_signature on a tool_use block is stripped before forwarding to
 // Anthropic (which 400s on the unknown field), while the id — which smuggles
