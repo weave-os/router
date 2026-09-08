@@ -197,11 +197,6 @@ run id should say so.
   cannot install Codex's prerequisites (`nodejs npm ripgrep`); these show as
   `harbor-environment-setup-failure` / `NonZeroAgentExitCodeError` with zero
   model spend, symmetrically across arms. Rerun the same run id to retry.
-- **Not leaderboard-comparable.** tbench.ai submissions run the full dataset
-  (the Terminal-Bench 2.0 leaderboard specifies `-k 5`); the published
-  comparison is a 66-task subset at k=2, and each leaderboard entry picks its
-  own Codex reasoning effort. Treat the numbers here as paired router-vs-control
-  deltas, not as a leaderboard score.
 - **Atlas ran on Harbor 0.18.0.** The published Atlas numbers used a private
   Harbor 0.18 patch that added what `BetaCodex` + the `config` agent kwarg do
   in 0.22.0. Harbor's Codex install/exec shape changed between releases;
