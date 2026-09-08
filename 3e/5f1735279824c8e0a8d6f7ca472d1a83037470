@@ -1,0 +1,22 @@
+internal/router/catalog/catalog.go
+  s_1b1fe4c4f86efb::t_81e907c819dfc5 376,380-382
+  s_1b1fe4c4f86efb::t_75d4806dd3f17a 367-371
+internal/router/catalog/catalog_test.go
+  s_1b1fe4c4f86efb::t_33b9d5b4ddd468 269-272
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.18",
+  "base_commit_sha": "3e5f1735279824c8e0a8d6f7ca472d1a83037470",
+  "prompts": {},
+  "sessions": {
+    "s_1b1fe4c4f86efb": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "2ac5020d-fc2c-4bdc-a8b7-25a9f5d4d4df",
+        "model": "deepseek/deepseek-v4-pro"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

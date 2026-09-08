@@ -1,0 +1,21 @@
+internal/translate/envelope.go
+  s_e3b5d67ea6eb7e::t_7ef3f93f6d3ec3 1167-1169
+internal/translate/default_max_tokens_test.go
+  s_e3b5d67ea6eb7e::t_991c77f36ca0bb 167-180
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.16",
+  "base_commit_sha": "db253969712d7bc37cf306fd1abc6eaeaeac47c1",
+  "prompts": {},
+  "sessions": {
+    "s_e3b5d67ea6eb7e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a02260d2-79ff-401e-bb3f-6430397b6292",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}
