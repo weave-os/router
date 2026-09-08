@@ -24,6 +24,7 @@ func TestSearchToolUseRecency_AdvertisedOnlyIsNotUse(t *testing.T) {
 			{"role":"user","content":"write a function"}
 		]
 	}`)
+	assert.False(t, env.IsNativeWebSearchSubTurn())
 	assert.Equal(t, -1, env.SearchToolUseRecency())
 }
 
@@ -76,6 +77,7 @@ func TestSearchToolUseRecency_ClaudeCodeSearchSubTurn(t *testing.T) {
 			{"role":"user","content":"Perform a web search for the query: golang lru"}
 		]
 	}`)
+	assert.True(t, env.IsNativeWebSearchSubTurn())
 	assert.Equal(t, 0, env.SearchToolUseRecency())
 }
 

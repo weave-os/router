@@ -516,8 +516,8 @@ func (c *Client) Decide(ctx context.Context, query policy.Query) (policy.Result,
 	case policy.SchemaVersionV3:
 		// Classifier-only contract: the caller selects the arm, so a response
 		// naming one is a contract violation rather than a harmless extra.
-		if parsed.SelectedArmID != "" || selectedModel != "" {
-			return policy.Result{}, fmt.Errorf("policy sidecar returned a selected arm on schema %s", policy.SchemaVersionV3)
+		if parsed.SelectedArmID != "" || selectedModel != "" || parsed.SelectedProvider != "" {
+			return policy.Result{}, fmt.Errorf("policy sidecar returned a selected arm or provider on schema %s", policy.SchemaVersionV3)
 		}
 		if len(parsed.RankedFallback) == 0 {
 			return policy.Result{}, fmt.Errorf("policy sidecar returned no ranked fallback on schema %s", policy.SchemaVersionV3)

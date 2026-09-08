@@ -63,6 +63,20 @@ func TestClientDecideRejectsSelectedArmOnClassifierOnlySchema(t *testing.T) {
 	assert.Contains(t, err.Error(), "selected arm")
 }
 
+func TestClientDecideRejectsSelectedProviderOnClassifierOnlySchema(t *testing.T) {
+	_, err := classifierOnlyClient(t, `{
+		"schema_version": "policy_router_v3",
+		"route_id": "route-v3",
+		"selected_provider": "anthropic",
+		"ranked_fallback": [
+			{"group": "high", "probability": 0.7, "roster_arms": ["anthropic/claude-opus-4-8"], "eligible_arms": ["anthropic/claude-opus-4-8"]}
+		]
+	}`)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "selected arm")
+}
+
 func TestClientDecideRejectsClassifierOnlyResponseWithoutRankedFallback(t *testing.T) {
 	_, err := classifierOnlyClient(t, `{
 		"schema_version": "policy_router_v3",

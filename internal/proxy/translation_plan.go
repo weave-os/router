@@ -124,7 +124,12 @@ func (s *Service) planTranslation(req router.Request) TranslationPlan {
 		return plan
 	}
 
-	plan.Enforced = s.translationCompatibilityMode == TranslationCompatibilityEnforce ||
+	// A native search tool or result block cannot be translated to another
+	// provider family. Keep that safety boundary active independently of the
+	// broader compatibility rollout; scopeSearchRequirement has already removed
+	// advertised-only tools from this requirement.
+	plan.Enforced = requirements.CitationsOrSearch ||
+		s.translationCompatibilityMode == TranslationCompatibilityEnforce ||
 		((requirements.NativeOnly || requirements.SourceFormat == router.WireFormatGemini) && s.translationCompatibilityMode != TranslationCompatibilityOff)
 	constraints, valid := translationConstraints(requirements)
 	if !valid {

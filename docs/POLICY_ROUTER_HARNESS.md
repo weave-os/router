@@ -24,6 +24,12 @@ contain OpenRouter bindings. A production sidecar must not send prompts,
 outcomes, or feedback to OpenRouter for auxiliary inference either; use the
 same direct provider stack approved for the router deployment.
 
+Request-shape recognition and compatibility are router responsibilities. A
+sidecar may use generic tool evidence for classification, but it must not detect
+native search (or another wire capability) to select, exclude, reorder, or
+allowlist providers/models. Go applies those constraints before invoking the
+sidecar, and isolated pass-through turns do not invoke it at all.
+
 There is no strategy fallback. If a serving policy cannot return a valid
 selection after bounded transient retries, the client receives HTTP 503.
 Availability comes from healthy replicas, readiness gates, immutable artifacts,
