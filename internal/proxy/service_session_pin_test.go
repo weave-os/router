@@ -297,6 +297,8 @@ func TestService_NativeWebSearchSubTurnPassesThroughRequestedModel(t *testing.T)
 			assert.Equal(t, providers.ProviderAnthropic, rec.Header().Get(proxy.HeaderRouterProvider))
 			assert.Equal(t, "native_web_search_passthrough", rec.Header().Get(proxy.HeaderRouterDecision))
 			assert.Empty(t, store.upserts, "an isolated search sub-turn must not create a session pin")
+			assert.Zero(t, store.resetCalls, "pass-through must not mutate a parent pin's error state")
+			assert.Zero(t, store.overloadResetCalls, "pass-through must not mutate a parent pin's overload state")
 		})
 	}
 }

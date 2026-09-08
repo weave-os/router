@@ -744,9 +744,10 @@ func (s *Service) runTurnLoop(
 	}
 
 	// Claude Code executes WebSearch in an isolated one-message request with a
-	// different cache key from the parent conversation. Preserve the requested
-	// Anthropic model instead of asking the policy to choose a new uncached arm;
-	// ordinary in-context search turns continue below and retain their pin.
+	// different cache key from the parent conversation. Preserve the request's
+	// resolved baseline Anthropic model instead of asking the policy to choose a
+	// new uncached arm; ordinary in-context search turns continue below and
+	// retain their pin.
 	if !forceModelFound && env.IsNativeWebSearchSubTurn() {
 		passthroughModel := s.baselineFor(req.RequestedModel)
 		_, excluded := req.ExcludedModels[passthroughModel]
@@ -765,7 +766,6 @@ func (s *Service) runTurnLoop(
 				Model:    passthroughModel,
 				Reason:   nativeWebSearchPassthroughReason,
 			}
-			res.StickyHit = true
 			res.HardPinned = true
 			res.PinTier = nativeWebSearchPassthroughReason
 			log.Info("Native web-search sub-turn passed through to requested model",
