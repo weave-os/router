@@ -823,17 +823,30 @@ const maxAnthropicHistoricalToolNameChars = 200
 var anthropicDeclaredToolNamePattern = regexp.MustCompile(`^[a-zA-Z0-9_-]{1,64}$`)
 
 func sanitizeAnthropicToolNamesBytes(body []byte) ([]byte, error) {
+	tools := gjson.GetBytes(body, "tools").Array()
+	reservedNames := make(map[string]struct{}, len(tools))
+	for _, tool := range tools {
+		name := tool.Get("name").String()
+		if anthropicDeclaredToolNamePattern.MatchString(name) {
+			reservedNames[name] = struct{}{}
+		}
+	}
+
 	aliases := make(map[string]string)
-	for _, tool := range gjson.GetBytes(body, "tools").Array() {
+	for _, tool := range tools {
 		name := tool.Get("name").String()
 		if !anthropicDeclaredToolNamePattern.MatchString(name) {
-			aliases[name] = sanitizedAnthropicToolName(name)
+			if _, exists := aliases[name]; !exists {
+				aliases[name] = uniqueSanitizedAnthropicToolName(name, reservedNames)
+			}
 		}
 	}
 	choice := gjson.GetBytes(body, "tool_choice")
 	choiceName := choice.Get("name").String()
 	if choice.Get("type").String() == "tool" && !anthropicDeclaredToolNamePattern.MatchString(choiceName) {
-		aliases[choiceName] = sanitizedAnthropicToolName(choiceName)
+		if _, exists := aliases[choiceName]; !exists {
+			aliases[choiceName] = uniqueSanitizedAnthropicToolName(choiceName, reservedNames)
+		}
 	}
 
 	out, err := rewriteMessageBlocks(
@@ -887,6 +900,21 @@ func sanitizeAnthropicToolNamesBytes(body []byte) ([]byte, error) {
 func sanitizedAnthropicToolName(name string) string {
 	nameHash := sha1.Sum([]byte(name))
 	return fmt.Sprintf("invalid_tool_%x", nameHash)
+}
+
+func uniqueSanitizedAnthropicToolName(name string, reservedNames map[string]struct{}) string {
+	for attempt := 0; ; attempt++ {
+		hashInput := name
+		if attempt > 0 {
+			hashInput = fmt.Sprintf("%s_%d", name, attempt)
+		}
+		alias := sanitizedAnthropicToolName(hashInput)
+		if _, exists := reservedNames[alias]; exists {
+			continue
+		}
+		reservedNames[alias] = struct{}{}
+		return alias
+	}
 }
 
 func anthropicToolSchemaRaw(schema gjson.Result) string {

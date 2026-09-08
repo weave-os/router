@@ -2107,15 +2107,19 @@ func TestSanitizeOverlongToolUseNames(t *testing.T) {
 func TestSanitizeAnthropicToolNamesUsesFieldSpecificLimits(t *testing.T) {
 	validHistoricalUnicodeName := strings.Repeat("界", 100)
 	invalidDeclaredName := strings.Repeat("a", 65)
+	collidingDeclaredName := "invalid_tool_11655326c708d70319be2610e8a57d9a5b959d3b"
 	body := []byte(fmt.Sprintf(`{
 		"model": "claude-opus-4-7",
-		"tools": [{"name": %q, "input_schema": {"type": "object"}}],
+		"tools": [
+			{"name": %q, "input_schema": {"type": "object"}},
+			{"name": %q, "input_schema": {"type": "object"}}
+		],
 		"tool_choice": {"type": "tool", "name": %q},
 		"messages": [{"role": "assistant", "content": [
 			{"type": "tool_use", "id": "toolu_valid_unicode", "name": %q, "input": {}},
 			{"type": "tool_use", "id": "toolu_invalid_declared", "name": %q, "input": {}}
 		]}]
-	}`, invalidDeclaredName, invalidDeclaredName, validHistoricalUnicodeName, invalidDeclaredName))
+	}`, collidingDeclaredName, invalidDeclaredName, invalidDeclaredName, validHistoricalUnicodeName, invalidDeclaredName))
 
 	env, err := translate.ParseAnthropic(body)
 	require.NoError(t, err)
@@ -2123,8 +2127,10 @@ func TestSanitizeAnthropicToolNamesUsesFieldSpecificLimits(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, validHistoricalUnicodeName, gjson.GetBytes(prep.Body, "messages.0.content.0.name").String())
-	declaredAlias := gjson.GetBytes(prep.Body, "tools.0.name").String()
+	assert.Equal(t, collidingDeclaredName, gjson.GetBytes(prep.Body, "tools.0.name").String())
+	declaredAlias := gjson.GetBytes(prep.Body, "tools.1.name").String()
 	assert.Regexp(t, `^invalid_tool_[a-f0-9]{40}$`, declaredAlias)
+	assert.NotEqual(t, collidingDeclaredName, declaredAlias)
 	assert.Equal(t, declaredAlias, gjson.GetBytes(prep.Body, "tool_choice.name").String())
 	assert.Equal(t, declaredAlias, gjson.GetBytes(prep.Body, "messages.0.content.1.name").String())
 }
