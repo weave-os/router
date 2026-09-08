@@ -20,6 +20,9 @@ const (
 	// field (opus-5 and fable-5 today — the models whose safety classifiers can
 	// return stop_reason "refusal"). Every other Claude 400s on the field.
 	CapServerSideFallback ModelCapability = "server_side_fallback"
+	// CapAutoToolChoiceOnly marks models that 400 on a forced tool_choice
+	// ({"type":"any"} / {"type":"tool"}); emit downgrades those to auto.
+	CapAutoToolChoiceOnly ModelCapability = "auto_tool_choice_only"
 )
 
 // ModelSpec describes what a model supports. Zero value is safe: provider
@@ -123,7 +126,10 @@ var (
 	anthropicAdaptiveXhigh = NewSpecWithReasoning(ReasoningCapabilities{Levels: []string{"low", "medium", "high", "max", "xhigh"}, AlwaysOn: true}, CapAdaptiveThinking, CapExtendedContext, CapXhighEffort)
 	// Opus 5 / Fable 5 add server-side fallback on top of the xhigh menu.
 	anthropicAdaptiveFallback = NewSpecWithReasoning(ReasoningCapabilities{Levels: []string{"low", "medium", "high", "max", "xhigh"}, AlwaysOn: true}, CapAdaptiveThinking, CapExtendedContext, CapXhighEffort, CapServerSideFallback)
-	anthropicExtended         = NewSpecWithReasoning(ReasoningCapabilities{Levels: []string{"low", "medium", "high"}, SupportsBudget: true}, CapExtendedThinking)
+	// Fable 5.1 additionally rejects tool_choice any/tool ("not supported for
+	// this model"); opus-5 and fable-5 accept them.
+	anthropicAdaptiveFallbackAutoTools = NewSpecWithReasoning(ReasoningCapabilities{Levels: []string{"low", "medium", "high", "max", "xhigh"}, AlwaysOn: true}, CapAdaptiveThinking, CapExtendedContext, CapXhighEffort, CapServerSideFallback, CapAutoToolChoiceOnly)
+	anthropicExtended                  = NewSpecWithReasoning(ReasoningCapabilities{Levels: []string{"low", "medium", "high"}, SupportsBudget: true}, CapExtendedThinking)
 )
 
 var (
@@ -153,7 +159,7 @@ var registry = map[string]ModelSpec{
 	// claude-fable-5 has adaptive thinking always on (disabled is rejected);
 	// 1M context is native, so CapExtendedContext's beta header is a no-op.
 	"claude-fable-5":   anthropicAdaptiveFallback,
-	"claude-fable-5-1": anthropicAdaptiveFallback,
+	"claude-fable-5-1": anthropicAdaptiveFallbackAutoTools,
 	"claude-opus-5":    anthropicAdaptiveFallback,
 	"claude-opus-4-8":  anthropicAdaptiveXhigh,
 	"claude-opus-4-7":  anthropicAdaptiveXhigh,

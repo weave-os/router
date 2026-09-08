@@ -525,6 +525,10 @@ type EmitOverrides struct {
 	// xhigh (router.CapXhighEffort) so a mid-session re-route doesn't forward
 	// an effort level Anthropic rejects with a session-killing 400.
 	ClampEffortXhighTo string
+	// DowngradeForcedToolChoice rewrites an Anthropic tool_choice of type
+	// "any" / "tool" to {"type":"auto"} (keeping disable_parallel_tool_use).
+	// Set when the target carries router.CapAutoToolChoiceOnly.
+	DowngradeForcedToolChoice bool
 }
 
 func (e *RequestEnvelope) emitSameFormat(ov EmitOverrides) ([]byte, error) {
@@ -658,6 +662,13 @@ func applyOverrides(body []byte, ov EmitOverrides) ([]byte, error) {
 		}
 	}
 
+	if ov.DowngradeForcedToolChoice {
+		out, err = downgradeForcedToolChoiceBytes(out)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	for _, key := range ov.DeleteKeys {
 		out, err = sjson.DeleteBytes(out, key)
 		if err != nil {
@@ -672,6 +683,31 @@ func applyOverrides(body []byte, ov EmitOverrides) ([]byte, error) {
 		}
 	}
 
+	return out, nil
+}
+
+// downgradeForcedToolChoiceBytes rewrites tool_choice type "any"/"tool" to
+// "auto", keeping disable_parallel_tool_use; other shapes pass through.
+func downgradeForcedToolChoiceBytes(body []byte) ([]byte, error) {
+	tc := gjson.GetBytes(body, "tool_choice")
+	if !tc.IsObject() {
+		return body, nil
+	}
+	switch tc.Get("type").String() {
+	case "any", "tool":
+	default:
+		return body, nil
+	}
+	out, err := sjson.SetBytes(body, "tool_choice", map[string]string{"type": "auto"})
+	if err != nil {
+		return nil, fmt.Errorf("downgrade tool_choice: %w", err)
+	}
+	if dp := tc.Get("disable_parallel_tool_use"); dp.Exists() {
+		out, err = sjson.SetRawBytes(out, "tool_choice.disable_parallel_tool_use", []byte(dp.Raw))
+		if err != nil {
+			return nil, fmt.Errorf("downgrade tool_choice: %w", err)
+		}
+	}
 	return out, nil
 }
 
@@ -1338,6 +1374,8 @@ func resolveAnthropicOverrides(body []byte, opts EmitOptions) EmitOverrides {
 	if opts.ModelSwitched {
 		ov.StripThinkingBlocks = true
 	}
+
+	ov.DowngradeForcedToolChoice = opts.Capabilities.Supports(router.CapAutoToolChoiceOnly)
 
 	// Floor under the switch-history guard: Anthropic rejects unsigned blocks
 	// regardless of pin TTL, so strip them unconditionally (#860). Foreign-signed

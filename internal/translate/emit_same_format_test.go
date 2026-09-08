@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"testing"
 
 	"weave-os/router/internal/providers"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/tidwall/gjson"
 )
 
 func parseAndEmit(t *testing.T, body []byte, format string, opts translate.EmitOptions) map[string]any {
@@ -1425,4 +1427,57 @@ func TestAnthropicSameFormat_ForeignSignedThinkingOnlyMessageDropped(t *testing.
 	out := parseAndEmit(t, body, "anthropic", opts)
 	msgs, _ := out["messages"].([]any)
 	require.Len(t, msgs, 2, "the foreign-signed-thinking-only assistant message must be dropped entirely")
+}
+
+// Fable 5.1 400s on tool_choice any/tool ("not supported for this model");
+// the forced choice downgrades to auto so the turn still reaches upstream.
+func TestAnthropicSameFormat_ForcedToolChoiceDowngradedForAutoOnlyModel(t *testing.T) {
+	for _, tc := range []string{
+		`{"type":"tool","name":"web_search","disable_parallel_tool_use":true}`,
+		`{"type":"any"}`,
+	} {
+		body := []byte(`{"model":"claude-opus-5","messages":[{"role":"user","content":"Perform a web search for the query: x"}],"max_tokens":1024,"tools":[{"type":"web_search_20260209","name":"web_search"}],"tool_choice":` + tc + `}`)
+		opts := translate.EmitOptions{
+			TargetModel:  "claude-fable-5-1",
+			Capabilities: router.Lookup("claude-fable-5-1"),
+		}
+		out := parseAndEmit(t, body, "anthropic", opts)
+		choice, _ := out["tool_choice"].(map[string]any)
+		require.NotNil(t, choice, tc)
+		assert.Equal(t, "auto", choice["type"], tc)
+		assert.Nil(t, choice["name"], tc)
+		if strings.Contains(tc, "disable_parallel_tool_use") {
+			assert.Equal(t, true, choice["disable_parallel_tool_use"], tc)
+		}
+	}
+}
+
+func TestAnthropicSameFormat_ForcedToolChoicePreservedForCapableModel(t *testing.T) {
+	body := []byte(`{"model":"claude-fable-5-1","messages":[{"role":"user","content":"hi"}],"max_tokens":1024,"tools":[{"type":"web_search_20260209","name":"web_search"}],"tool_choice":{"type":"tool","name":"web_search"}}`)
+	opts := translate.EmitOptions{
+		TargetModel:  "claude-opus-5",
+		Capabilities: router.Lookup("claude-opus-5"),
+	}
+	out := parseAndEmit(t, body, "anthropic", opts)
+	choice, _ := out["tool_choice"].(map[string]any)
+	require.NotNil(t, choice)
+	assert.Equal(t, "tool", choice["type"])
+	assert.Equal(t, "web_search", choice["name"])
+}
+
+// OpenAI-sourced forced choices ("required" / named function) hit the same
+// Fable limitation on the cross-format path.
+func TestOpenAIToAnthropic_ForcedToolChoiceDowngradedForAutoOnlyModel(t *testing.T) {
+	for _, tc := range []string{`"required"`, `{"type":"function","function":{"name":"lookup"}}`} {
+		body := []byte(`{"model":"gpt-5","messages":[{"role":"user","content":"hi"}],"tools":[{"type":"function","function":{"name":"lookup","parameters":{"type":"object"}}}],"tool_choice":` + tc + `}`)
+		env, err := translate.ParseOpenAI(body)
+		require.NoError(t, err)
+		p, err := env.PrepareAnthropic(http.Header{}, translate.EmitOptions{
+			TargetModel:  "claude-fable-5-1",
+			Capabilities: router.Lookup("claude-fable-5-1"),
+		})
+		require.NoError(t, err)
+		assert.Equal(t, "auto", gjson.GetBytes(p.Body, "tool_choice.type").String(), tc)
+		assert.False(t, gjson.GetBytes(p.Body, "tool_choice.name").Exists(), tc)
+	}
 }

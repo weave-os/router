@@ -201,7 +201,7 @@ func (e *RequestEnvelope) buildAnthropicFromOpenAI(opts EmitOptions) ([]byte, er
 	suppressTools := kind == toolChoiceNone
 	if !suppressTools {
 		writeAnthropicTools(jw, e.body)
-		writeAnthropicToolChoice(jw, e.body)
+		writeAnthropicToolChoice(jw, e.body, opts.Capabilities.Supports(router.CapAutoToolChoiceOnly))
 	}
 	writeAnthropicSharedParams(jw, e.body)
 
@@ -681,8 +681,11 @@ func writeAnthropicTools(jw *jsonWriter, body []byte) {
 	jw.EndArr()
 }
 
-func writeAnthropicToolChoice(jw *jsonWriter, body []byte) {
+func writeAnthropicToolChoice(jw *jsonWriter, body []byte, autoOnly bool) {
 	kind, name := openAIToolChoice(body)
+	if autoOnly && (kind == toolChoiceRequired || kind == toolChoiceNamed) {
+		kind = toolChoiceAuto
+	}
 	switch kind {
 	case toolChoiceAuto:
 		jw.Key("tool_choice")
