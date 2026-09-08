@@ -489,6 +489,36 @@ func IsUpstreamSchemaRejection(err error) bool {
 	return false
 }
 
+// thoughtSignatureRejectionPhrases are Gemini 3.x 400 bodies rejecting the
+// thoughtSignature replayed on a historical functionCall ("Corrupted thought
+// signature.", "Missing thought signature ..."). Any model that does not
+// validate Gemini signatures can serve the same history.
+var thoughtSignatureRejectionPhrases = []string{
+	"thought signature",
+	"thought_signature",
+	"thoughtsignature",
+}
+
+// IsUpstreamThoughtSignatureRejection reports whether err is a buffered
+// upstream 400 rejecting a Gemini thoughtSignature in the request history.
+// The signature is opaque and lives in the client-echoed tool id, so the
+// router cannot repair it; the same request 400s on every Gemini 3.x turn for
+// the rest of the session unless it is rescued onto a model that ignores the
+// signature. Cross-binding rescue signal only, like IsUpstreamSchemaRejection.
+func IsUpstreamThoughtSignatureRejection(err error) bool {
+	var buffered *UpstreamErrorResponse
+	if !errors.As(err, &buffered) || buffered.Status != http.StatusBadRequest {
+		return false
+	}
+	body := strings.ToLower(string(buffered.Body))
+	for _, phrase := range thoughtSignatureRejectionPhrases {
+		if strings.Contains(body, phrase) {
+			return true
+		}
+	}
+	return false
+}
+
 // unknownFieldPhrases are the verdicts meaning the upstream's request schema
 // has no such field at all, as opposed to disliking its contents.
 var unknownFieldPhrases = []string{

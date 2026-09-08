@@ -4037,11 +4037,15 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	// Capability rejection means the routed model cannot serve this shape at all —
 	// rescue via baseline even when the policy owns per-turn selection.
 	capabilityRejected := providers.IsUpstreamCapabilityRejection(proxyErr)
+	// A cross-binding rescuable 400: another model's compiler accepts the
+	// schemas, or another model ignores the Gemini thoughtSignature Gemini 3.x
+	// rejected in the history.
+	crossBindingRejected := providers.IsUpstreamSchemaRejection(proxyErr) || providers.IsUpstreamThoughtSignatureRejection(proxyErr)
 	// A provably-dead-arm rejection (schema/capability/intrinsically-incompatible)
 	// is snapshotted before any rescue runs — the rescue nils proxyErr on
 	// success, which would otherwise hide the rejection from the post-rescue
 	// pin-eviction decision below.
-	deadArmRejected := capabilityRejected || providers.IsUpstreamSchemaRejection(proxyErr) || translate.IsIntrinsicallyIncompatible(proxyErr)
+	deadArmRejected := capabilityRejected || crossBindingRejected || translate.IsIntrinsicallyIncompatible(proxyErr)
 	if capabilityRejected {
 		log.Error("Upstream rejected the request as unsupported by the routed model",
 			"model", decision.Model,
@@ -4051,7 +4055,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	}
 	if proxyErr != nil && !preludeBuf.Committed() &&
 		((baselineEligible && (providers.IsRetryable(proxyErr) || providers.IsUpstreamModelNotFound(proxyErr))) ||
-			(baselineViable && (capabilityRejected || translate.IsIntrinsicallyIncompatible(proxyErr) || providers.IsUpstreamSchemaRejection(proxyErr)))) {
+			(baselineViable && (capabilityRejected || translate.IsIntrinsicallyIncompatible(proxyErr) || crossBindingRejected))) {
 		baselineDecision := decision
 		baselineDecision.Model = baselineModel
 		baselineDecision.Provider = providers.ProviderAnthropic
@@ -4206,7 +4210,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		(providers.IsRetryable(proxyErr) ||
 			providers.IsUpstreamModelNotFound(proxyErr) ||
 			providers.IsUpstreamProviderBillingBlocked(proxyErr) ||
-			providers.IsUpstreamSchemaRejection(proxyErr)) {
+			crossBindingRejected) {
 		siblingOpts := opts
 		siblingOpts.TargetModel = siblingDecision.Model
 		siblingOpts.TargetProvider = siblingDecision.Provider
