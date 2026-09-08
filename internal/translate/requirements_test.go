@@ -111,3 +111,51 @@ func TestTranslationRequirements_DetectsGeminiAudioAndFiles(t *testing.T) {
 	assert.True(t, req.Audio)
 	assert.True(t, req.Files)
 }
+
+func TestTranslationRequirements_DetectsForcedToolChoice(t *testing.T) {
+	tools := `"tools":[{"name":"lookup","description":"d","input_schema":{"type":"object"}}]`
+	cases := map[string]struct {
+		parse  func([]byte) (*RequestEnvelope, error)
+		body   string
+		forced bool
+	}{
+		"anthropic named": {ParseAnthropic, `{"model":"m","messages":[],` + tools + `,"tool_choice":{"type":"tool","name":"lookup"}}`, true},
+		"anthropic any":   {ParseAnthropic, `{"model":"m","messages":[],` + tools + `,"tool_choice":{"type":"any"}}`, true},
+		"anthropic auto":  {ParseAnthropic, `{"model":"m","messages":[],` + tools + `,"tool_choice":{"type":"auto"}}`, false},
+		"anthropic none":  {ParseAnthropic, `{"model":"m","messages":[]}`, false},
+		"openai required": {ParseOpenAI, `{"model":"m","messages":[],"tool_choice":"required"}`, true},
+		"openai named":    {ParseOpenAI, `{"model":"m","messages":[],"tool_choice":{"type":"function","function":{"name":"lookup"}}}`, true},
+		"openai auto":     {ParseOpenAI, `{"model":"m","messages":[],"tool_choice":"auto"}`, false},
+		"gemini any":      {ParseGemini, `{"contents":[],"toolConfig":{"functionCallingConfig":{"mode":"ANY"}}}`, true},
+		"gemini auto":     {ParseGemini, `{"contents":[],"toolConfig":{"functionCallingConfig":{"mode":"AUTO"}}}`, false},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			env, err := tc.parse([]byte(tc.body))
+			require.NoError(t, err)
+			assert.Equal(t, tc.forced, env.TranslationRequirements("").ForcedToolChoice)
+		})
+	}
+}
+
+func TestResponsesConversion_DetectsForcedToolChoice(t *testing.T) {
+	tools := `"tools":[{"type":"function","name":"lookup","parameters":{"type":"object"}}]`
+	for name, tc := range map[string]struct {
+		choice string
+		forced bool
+	}{
+		"required": {`"required"`, true},
+		"named":    {`{"type":"function","name":"lookup"}`, true},
+		"auto":     {`"auto"`, false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			body := []byte(`{"model":"gpt-5","input":"hi",` + tools + `,"tool_choice":` + tc.choice + `}`)
+			conv, err := ConvertResponsesToChatCompletions(body)
+			require.NoError(t, err)
+			assert.Equal(t, tc.forced, conv.Requirements.ForcedToolChoice)
+			codex, err := ConvertResponsesToChatCompletionsWithOptions(body, ResponsesConversionOptions{})
+			require.NoError(t, err)
+			assert.Equal(t, tc.forced, codex.Requirements.ForcedToolChoice)
+		})
+	}
+}

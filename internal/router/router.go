@@ -43,6 +43,10 @@ type TranslationRequirements struct {
 	StructuredOutput   bool
 	PromptCacheControl bool
 	UsageDetail        bool
+	// ForcedToolChoice is a tool_choice that mandates a tool call (Anthropic
+	// any/tool, OpenAI required/named). Models with CapAutoToolChoiceOnly
+	// are removed from automatic routing for such turns.
+	ForcedToolChoice bool
 
 	// NativeOnly requires the source wire family and endpoint to reach the
 	// upstream unchanged. It is used for currently unrepresentable unions,
@@ -54,7 +58,7 @@ type TranslationRequirements struct {
 func (r TranslationRequirements) IsZero() bool {
 	return r.SourceFormat == "" && r.Endpoint == "" && !r.FunctionTools && !r.CustomTools &&
 		!r.ReasoningReplay && !r.ReasoningSignature && !r.Images && !r.Audio && !r.Files &&
-		!r.CitationsOrSearch && !r.StructuredOutput && !r.PromptCacheControl && !r.UsageDetail && !r.NativeOnly
+		!r.CitationsOrSearch && !r.StructuredOutput && !r.PromptCacheControl && !r.UsageDetail && !r.ForcedToolChoice && !r.NativeOnly
 }
 
 type Overrides struct {
