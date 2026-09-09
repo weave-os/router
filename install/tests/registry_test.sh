@@ -7,15 +7,18 @@
 # real install output matches it, so adding a directive to one client without
 # the others fails here rather than silently shipping.
 
+# Every `ls` here lists installer-created names in a temp dir this test just
+# built, so find(1) buys nothing (SC2012/SC2035). Registry rows are read
+# positionally with `read -r`, so unread fields still have to consume their
+# columns (SC2034). File-scoped: a directive only applies file-wide when it
+# precedes the first command.
+# shellcheck disable=SC2012,SC2034,SC2035
 set -euo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 install_dir="$script_dir/.."
 installer="${INSTALLER:-$install_dir/install.sh}"
 uninstaller="${UNINSTALLER:-$install_dir/uninstall.sh}"
-# registry, aliases and adapter are read positionally out of the TSV row; the
-# unused ones still have to consume their columns.
-# shellcheck disable=SC2034
 registry="$install_dir/directives.tsv"
 # shellcheck disable=SC1091
 . "$install_dir/registry.sh"
@@ -212,8 +215,6 @@ check "opencode gets no Claude-only local toggle" "" "$absent"
 # Codex, user scope: skills (not prompt wrappers) for every prompt directive.
 cx_home="$work/codex-user"; mkdir -p "$cx_home"
 run_install "$cx_home" --codex --scope user
-# Installer-created directories with known-safe names; find(1) buys nothing here.
-# shellcheck disable=SC2012,SC2035
 codex_skills="$(cd "$cx_home/.codex/skills" && ls -d */ 2>/dev/null | tr -d '/' | sort | tr '\n' ' ' | sed 's/ $//')"
 check "codex user install writes a skill per supported directive" \
   "disable-routing fm force-model rf router-feedback router-models router-off router-on router-session router-status ufm unforce-model" "$codex_skills"

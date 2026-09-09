@@ -14,13 +14,14 @@
 #
 # A mock router stands in for the real one so the wire format is asserted
 # directly: the tests read back exactly what the hook POSTed.
+#
+# Directives are literal text: `$fm`, `$rf` and `$router-session` are what the
+# user types and what the hook parses, never shell expansions. The disable is
+# file-scoped (it has to precede the first command) because every prompt
+# fixture below would otherwise need its own.
+# shellcheck disable=SC2016
 
 set -euo pipefail
-
-# Directives are literal text: `$fm`, `$rf` and `$router-session` are what the
-# user types and what the hook parses, never shell expansions. Scoped to the
-# file because every prompt fixture below would otherwise need its own.
-# shellcheck disable=SC2016
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 install_dir="$script_dir/.."
