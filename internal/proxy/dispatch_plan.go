@@ -205,6 +205,13 @@ func (s *Service) dispatchPlanned(ctx context.Context, in failoverInputs, plan i
 	}
 	var abort dispatchAbort
 	if errors.As(runErr, &abort) {
+		// An abort (e.g. no subscription account to lease) renders on the same
+		// terms as binding exhaustion. Skipping it left a released prelude with
+		// no terminal frame, since the handler cannot write once the client has
+		// bytes.
+		if in.flushErr != nil && !in.deferFlushOnExhaustion && !committed(in.buf) {
+			in.flushErr(in.w, abort.err)
+		}
 		return lastIdx, abort.err
 	}
 	switch result.Summary.FallbackReason {

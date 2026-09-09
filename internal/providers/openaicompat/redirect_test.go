@@ -79,11 +79,11 @@ func TestPassthrough_RefusedRedirectRelaysNothing(t *testing.T) {
 func TestListModels_RedirectRefused(t *testing.T) {
 	upstream, targetHit := redirectFixture(t)
 
-	c := openaicompat.NewClient("test-key", upstream.URL+"/v1")
+	c := openaicompat.NewClient("test-key", upstream.URL+"/v1", openaicompat.WithModelListHTTPClient(openAICompatibleDiscoveryClient(t, upstream.URL)))
 	ids, err := c.ListModels(context.Background())
 
 	require.Error(t, err)
-	assert.ErrorIs(t, err, httputil.ErrRefusedRedirect)
+	assert.ErrorIs(t, err, providers.ErrModelDiscoveryTransport)
 	assert.Empty(t, ids)
 	assert.False(t, targetHit.Load(), "the redirect target must never be contacted")
 }

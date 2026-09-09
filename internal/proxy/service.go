@@ -622,7 +622,8 @@ func suppressMarkerIfRequested(ctx context.Context, h http.Header, marker string
 }
 
 // routingMarkerFor builds the "brand → model · note" snippet emitted when the
-// selected serving model changes (and on the first routed turn).
+// selected serving model changes, on the first routed turn, or when a shadow
+// escalation is marked without affecting selection.
 func routingMarkerFor(res turnLoopResult) string {
 	decision := res.Decision
 	if decision.Model == "" {
@@ -648,6 +649,10 @@ func routingMarkerFor(res turnLoopResult) string {
 	// letting it read as a first turn.
 	if res.HardPinned {
 		return ""
+	}
+	// A shadow checkpoint is news even when ordinary routing keeps the same model.
+	if res.EscalationShadowMarked {
+		return routingMarkerPrefix + decision.Model + " · " + markerReasonShadowEscalation + "\n\n"
 	}
 	// Same model as last turn: the user already knows. Empty prior model means
 	// the first turn of this session (or role), which still shows. Effort changes
@@ -708,6 +713,7 @@ func sanitizeSidecarDisplayMarker(raw string) string {
 // the marker wording; tests assert the mapping against these constants rather
 // than re-spelling the literals.
 const (
+	markerReasonShadowEscalation  = "escalation marked — shadow mode; no action taken"
 	markerReasonUserForced        = "pinned by force-model"
 	markerReasonLoopEscalated     = "escalated due to loop"
 	markerReasonStruggleEscalated = "picked a different model to break a grind"
@@ -4081,24 +4087,32 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	primaryModel := decision.Model
 	var winnerIdx int
 	subscriptionPoolFailure := false
+	// A released prelude can only take an SSE error frame, so every dispatch in
+	// the chain renders through this — a JSON envelope appended to a live stream
+	// is unparseable to the client.
+	flushErrAsAnthropic := func(w http.ResponseWriter, err error) {
+		if env.Stream() && preludeBuf.PreludeSent() {
+			_ = emitAnthropicSSEErrorEvent(w, err)
+			return
+		}
+		// Pre-commit, the handler renders the classified sentinel itself.
+		if isSubscriptionPoolError(err) {
+			return
+		}
+		flushUpstreamErrorAsAnthropic(w, err)
+	}
 	if attemptBuildErr != nil {
 		// Nothing was dispatched — enters the rescue chain as if every binding pre-committed failed.
 		winnerIdx, proxyErr = -1, attemptBuildErr
 	} else {
 		winnerIdx, proxyErr = s.dispatchWithFallback(ctx, failoverInputs{
 			// contentSink is the raw w when capture is off.
-			w:               contentSink,
-			buf:             preludeBuf,
-			initialDecision: decision,
-			bindings:        bindings,
-			attempt:         attempt,
-			flushErr: func(w http.ResponseWriter, err error) {
-				if env.Stream() && preludeBuf.PreludeSent() {
-					_ = emitAnthropicSSEErrorEvent(w, err)
-					return
-				}
-				flushUpstreamErrorAsAnthropic(w, err)
-			},
+			w:                      contentSink,
+			buf:                    preludeBuf,
+			initialDecision:        decision,
+			bindings:               bindings,
+			attempt:                attempt,
+			flushErr:               flushErrAsAnthropic,
 			deferFlushOnExhaustion: baselineViable || subscriptionRetryEligible || siblingViable,
 			purpose:                routeRes.dispatchPurpose(inference.PurposeAnthropicMessages),
 			origin:                 routeRes.dispatchOrigin(decision),
@@ -4111,12 +4125,24 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	// Writing it forecloses any later rescue.
 	deferredErrFlushed := false
 	flushDeferredErr := func() {
-		if deferredErrFlushed || subscriptionPoolFailure {
+		if deferredErrFlushed {
 			return
 		}
 		deferredErrFlushed = true
 		if env.Stream() && preludeBuf.PreludeSent() {
-			proxyErr = emitAnthropicSSEErrorEvent(contentSink, proxyErr)
+			// The handler cannot render anything once the client has bytes,
+			// so an in-stream frame is the only way the turn reports at all —
+			// including for a pool sentinel, which would otherwise truncate
+			// the stream silently. Keep the sentinel as the returned error so
+			// the handler still classifies and logs it.
+			sseErr := emitAnthropicSSEErrorEvent(contentSink, proxyErr)
+			if !subscriptionPoolFailure {
+				proxyErr = sseErr
+			}
+			return
+		}
+		// Pre-commit, the handler renders the classified sentinel itself.
+		if subscriptionPoolFailure {
 			return
 		}
 		flushUpstreamErrorAsAnthropic(contentSink, proxyErr)
@@ -4206,7 +4232,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 				initialDecision: baselineDecision,
 				bindings:        baselineBindings,
 				attempt:         baselineAttempt,
-				flushErr:        flushUpstreamErrorAsAnthropic,
+				flushErr:        flushErrAsAnthropic,
 				purpose:         routeRes.dispatchPurpose(inference.PurposeAnthropicMessages),
 				origin:          routeRes.rescueOrigin(),
 			})
@@ -4278,7 +4304,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 				initialDecision: decision,
 				bindings:        subBindings,
 				attempt:         subAttempt,
-				flushErr:        flushUpstreamErrorAsAnthropic,
+				flushErr:        flushErrAsAnthropic,
 				// A failed retry keeps the same dark model; hold the error so
 				// the sibling rescue below can still serve the turn.
 				deferFlushOnExhaustion: siblingViable,
@@ -4350,7 +4376,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 				initialDecision: siblingDecision,
 				bindings:        siblingBindings,
 				attempt:         siblingAttempt,
-				flushErr:        flushUpstreamErrorAsAnthropic,
+				flushErr:        flushErrAsAnthropic,
 				purpose:         routeRes.dispatchPurpose(inference.PurposeAnthropicMessages),
 				origin:          routeRes.rescueOrigin(),
 			})
@@ -6834,9 +6860,13 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	if isResponsesWriter {
 		surfacePurpose = inference.PurposeOpenAIResponses
 	}
-	// A prelude already on the wire means the client is mid-stream: a JSON
-	// envelope there would corrupt it, so the error goes out in-stream instead.
-	flushOpenAIErr := func(w http.ResponseWriter, err error) {
+	var winnerIdx int
+	// A released prelude can only take an SSE error frame, so every dispatch in
+	// the chain renders through this — a JSON envelope appended to a live stream
+	// is unparseable to the client.
+	flushErrAsOpenAI := func(w http.ResponseWriter, err error) {
+		// Native Responses bytes are passed through verbatim; there is no
+		// error frame we can synthesize into that stream.
 		if isResponses && responsesPreludeBuf != nil && responsesPreludeBuf.PreludeSent() {
 			return
 		}
@@ -6844,10 +6874,12 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 			_ = emitOpenAISSEErrorEvent(w, err)
 			return
 		}
+		// Pre-commit, the handler renders the classified sentinel itself.
+		if isSubscriptionPoolError(err) {
+			return
+		}
 		flushBufferedIfPresent(w, err)
 	}
-
-	var winnerIdx int
 	winnerIdx, proxyErr = s.dispatchWithFallback(ctx, failoverInputs{
 		// contentSink is the raw w when capture is off.
 		w:                      contentSink,
@@ -6855,15 +6887,18 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		initialDecision:        decision,
 		bindings:               bindings,
 		attempt:                attempt,
-		flushErr:               flushOpenAIErr,
+		flushErr:               flushErrAsOpenAI,
 		deferFlushOnExhaustion: cyberRetryViable || codexRetryViable,
 		purpose:                routeRes.dispatchPurpose(surfacePurpose),
 		origin:                 routeRes.dispatchOrigin(decision),
 	})
+	subscriptionPoolFailure := isSubscriptionPoolError(proxyErr)
 	cyberRefusalSeen = cyberRefusalSeen || providers.IsUpstreamCyberPolicyRefusal(proxyErr)
 
 	// The deferred upstream error must reach the client exactly once: the rescue
-	// owns it, and flushes it itself when it declines to run.
+	// owns it, and flushes it itself when it declines to run. A managed-pool
+	// failure is rendered by the handler from the classified sentinel, so the
+	// proxy must not write it here as well.
 	deferredErrFlushed := false
 	flushDeferredErr := func() {
 		if deferredErrFlushed {
@@ -6874,7 +6909,19 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 			return
 		}
 		if env.Stream() && preludeBuf.PreludeSent() {
-			proxyErr = emitOpenAISSEErrorEvent(contentSink, proxyErr)
+			// The handler cannot render anything once the client has bytes,
+			// so an in-stream frame is the only way the turn reports at all —
+			// including for a pool sentinel, which would otherwise truncate
+			// the stream silently. Keep the sentinel as the returned error so
+			// the handler still classifies and logs it.
+			sseErr := emitOpenAISSEErrorEvent(contentSink, proxyErr)
+			if !subscriptionPoolFailure {
+				proxyErr = sseErr
+			}
+			return
+		}
+		// Pre-commit, the handler renders the classified sentinel itself.
+		if subscriptionPoolFailure {
 			return
 		}
 		flushBufferedIfPresent(contentSink, proxyErr)
@@ -6916,7 +6963,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 				initialDecision: decision,
 				bindings:        subBindings,
 				attempt:         subAttempt,
-				flushErr:        flushOpenAIErr,
+				flushErr:        flushErrAsOpenAI,
 				// A failed retry keeps the same model; hold the error so the
 				// cyber-refusal rescue below can still serve the turn.
 				deferFlushOnExhaustion: cyberRetryViable,
@@ -6988,10 +7035,11 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 				initialDecision: cyberRetryTarget,
 				bindings:        retryBindings,
 				attempt:         retryAttempt,
-				flushErr:        flushBufferedIfPresent,
+				flushErr:        flushErrAsOpenAI,
 				purpose:         routeRes.dispatchPurpose(surfacePurpose),
 				origin:          routeRes.rescueOrigin(),
 			})
+			subscriptionPoolFailure = isSubscriptionPoolError(proxyErr)
 			decision = cyberRetryTarget
 			bindings = retryBindings
 			marker = retryMarker

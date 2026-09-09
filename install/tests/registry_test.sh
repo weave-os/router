@@ -7,6 +7,12 @@
 # real install output matches it, so adding a directive to one client without
 # the others fails here rather than silently shipping.
 
+# Every `ls` here lists installer-created names in a temp dir this test just
+# built, so find(1) buys nothing (SC2012/SC2035). Registry rows are read
+# positionally with `read -r`, so unread fields still have to consume their
+# columns (SC2034). File-scoped: a directive only applies file-wide when it
+# precedes the first command.
+# shellcheck disable=SC2012,SC2034,SC2035
 set -euo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -60,7 +66,7 @@ check "every row declares a known capability and client support" "" "$bad_rows"
 dupes="$(weave_registry_names claude; weave_registry_names codex; weave_registry_names opencode)"
 dupes="$(printf '%s\n' "$dupes" | sort | uniq -d | tr '\n' ' ' | sed 's/ $//')"
 check "names shared across clients are the expected shared directives" \
-  "fm force-model models rf router-feedback router-models router-off router-on router-status ufm unforce-model" "$dupes"
+  "fm force-model models rf router-feedback router-models router-off router-on router-session router-status ufm unforce-model" "$dupes"
 
 check "an alias resolves to its canonical directive" "force-model" "$(weave_registry_canonical_for fm)"
 check "a canonical name resolves to itself" "router-feedback" "$(weave_registry_canonical_for router-feedback)"
@@ -136,6 +142,8 @@ fi
 # can be piped). Sourcing a sibling registry.sh would abort it under `set -e`
 # before it removed anything.
 cp "$install_dir/uninstall.sh" "$standalone/uninstall.sh"
+# The cat is load-bearing: piping into `bash -s` is the install path under test.
+# shellcheck disable=SC2002
 ( cd "$standalone" && cat uninstall.sh | HOME="$standalone/home" bash -s -- --claude --scope user ) \
   >"$work/standalone-uninstall.log" 2>&1 || true
 if grep -qi 'registry.sh: No such file\|unbound variable\|command not found' "$work/standalone-uninstall.log"; then
@@ -209,7 +217,7 @@ cx_home="$work/codex-user"; mkdir -p "$cx_home"
 run_install "$cx_home" --codex --scope user
 codex_skills="$(cd "$cx_home/.codex/skills" && ls -d */ 2>/dev/null | tr -d '/' | sort | tr '\n' ' ' | sed 's/ $//')"
 check "codex user install writes a skill per supported directive" \
-  "disable-routing fm force-model rf router-feedback router-models router-off router-on router-status ufm unforce-model" "$codex_skills"
+  "disable-routing fm force-model rf router-feedback router-models router-off router-on router-session router-status ufm unforce-model" "$codex_skills"
 check "codex install writes no prompt wrappers" "" \
   "$(ls "$cx_home/.codex/prompts" 2>/dev/null | tr '\n' ' ' | sed 's/ $//')"
 
@@ -265,6 +273,8 @@ nojq_bin="$work/nojq"; mkdir -p "$nojq_bin"
 cp "$fake_bin/curl" "$nojq_bin/curl"
 for tool in bash cat sed awk grep mkdir rm cp mv chmod ls dirname basename date stat cmp printf tr head tail git curl mktemp rmdir wc sort uniq diff; do
   src="$(command -v "$tool" 2>/dev/null || true)"
+  # Best effort by design: a tool missing from PATH simply is not linked.
+  # shellcheck disable=SC2015
   [ -n "$src" ] && ln -sf "$src" "$nojq_bin/$tool" 2>/dev/null || true
 done
 nojq_home="$work/codex-nojq"; mkdir -p "$nojq_home"

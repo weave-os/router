@@ -93,11 +93,6 @@ state_root="${XDG_CACHE_HOME:-$HOME/.cache}/weave-router/codex"
 helper_dir="$(cd "$(dirname "$0")" 2>/dev/null && pwd -P)"
 disabled_marker="$helper_dir/.weave-router-disabled"
 router_badge_sentinel=$'⁣⁠⁣⁠'
-# Must stay verbatim in sync with install.sh / uninstall.sh: the endpoint read
-# below is scoped to this block so a key-shaped string elsewhere in the user's
-# config.toml is never adopted.
-codex_begin_marker="# >>> weave-router managed (do not edit between markers) >>>"
-codex_end_marker="# <<< weave-router managed <<<"
 
 emit_title() {
   local title="$1"
@@ -157,10 +152,18 @@ cost_file_for() {
 # Resolved from the helper's own location first so a project-scope install never
 # reads (or leaks) the user-scope key: the project helper lives in the same
 # .codex directory as its config, while the user-scope helper sits in ~/.weave
-# and reads ~/.codex. Values are scoped to the managed block so a key-shaped
-# string the user wrote elsewhere in the file is never adopted. awk, not a TOML
-# parser, because the Codex target deliberately does not require jq for config
-# reads.
+# and reads ~/.codex. Values are scoped to the [model_providers.weave] table so
+# a key-shaped string the user wrote elsewhere in the file is never adopted. awk,
+# not a TOML parser, because the Codex target deliberately does not require jq
+# for config reads.
+#
+# Scoped to the table rather than the managed comment markers, and matching the
+# header name quoted or bare, because Codex rewrites config.toml through a TOML
+# serializer whenever it persists its own state: comments do not survive, so the
+# markers vanish while the table remains, and the inline http_headers come back
+# as a subtable with the header name unquoted. A marker-scoped, quoted-only read
+# resolved nothing on any config Codex had touched, which silently dropped the
+# savings figure from the title with no error anywhere.
 read_codex_endpoint() {
   local config=""
   # Project/custom installs name the helper weave-status.sh and keep it next
@@ -173,19 +176,45 @@ read_codex_endpoint() {
     config="$HOME/.codex/config.toml"
   fi
   [ -n "$config" ] || return 0
-  awk -v begin="$codex_begin_marker" -v end="$codex_end_marker" '
-    $0 == begin { inblk = 1; next }
-    $0 == end   { inblk = 0; next }
-    !inblk { next }
+  awk '
+    # Cut a TOML comment, honouring quoted strings so a # inside a value stays.
+    # A full-line comment reduces to empty and matches nothing below, so this
+    # replaces a separate skip rule -- and unlike one, it also catches a comment
+    # trailing another assignment, which the unanchored matches would otherwise
+    # read as live config on any line preceding the real value.
+    function weave_strip_comment(line,   i, c, out, indq, insq, esc) {
+      out = ""
+      indq = 0
+      insq = 0
+      esc = 0
+      for (i = 1; i <= length(line); i++) {
+        c = substr(line, i, 1)
+        if (esc) { out = out c; esc = 0; continue }
+        # Only basic strings have escapes; a backslash in a literal string is
+        # data, so consuming the next character there would mis-track the quote.
+        if (indq && c == "\\") { out = out c; esc = 1; continue }
+        if (!insq && c == "\"") { indq = !indq; out = out c; continue }
+        if (!indq && c == "'"'"'") { insq = !insq; out = out c; continue }
+        if (c == "#" && !indq && !insq) break
+        out = out c
+      }
+      return out
+    }
+    { $0 = weave_strip_comment($0) }
+    /^[[:space:]]*\[/ {
+      in_provider = ($0 ~ /^[[:space:]]*\[[[:space:]]*model_providers[[:space:]]*\.[[:space:]]*weave[[:space:]]*(\.[^]]*)?\][[:space:]]*(#.*)?$/)
+      next
+    }
+    !in_provider { next }
     match($0, /base_url[[:space:]]*=[[:space:]]*"[^"]*"/) {
       v = substr($0, RSTART, RLENGTH)
       sub(/^.*=[[:space:]]*"/, "", v); sub(/"$/, "", v)
-      url = v
+      if (url == "") url = v
     }
-    match($0, /"X-Weave-Router-Key"[[:space:]]*=[[:space:]]*"[^"]*"/) {
+    match($0, /"?X-Weave-Router-Key"?[[:space:]]*=[[:space:]]*"[^"]*"/) {
       v = substr($0, RSTART, RLENGTH)
       sub(/^.*=[[:space:]]*"/, "", v); sub(/"$/, "", v)
-      key = v
+      if (key == "") key = v
     }
     END { if (url != "" && key != "") printf "%s\n%s\n", url, key }
   ' "$config" 2>/dev/null || true

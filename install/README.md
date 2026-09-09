@@ -121,6 +121,7 @@ logged-in user's Team/Pro/Max/individual plan.
 | -------------------------- | ------------------------------------------------------------- |
 | `~/.codex/config.toml`     | Adds a managed `[model_providers.weave]` block + sets top-level `model_provider = "weave"`, both between `# >>> weave-router managed` markers. The provider preserves the existing ChatGPT OAuth login and keeps the target router's default routing strategy. Anything outside the markers is preserved. |
 | `~/.weave/codex-status.sh` | Codex `SessionStart`/`Stop` hook helper. Keeps the latest routed model in the terminal title without adding status messages to the conversation. |
+| `~/.weave/codex-directive.sh` | Codex `UserPromptSubmit` hook helper. Answers `$fm`, `$ufm`, `$rf` and `$router-session` before the prompt reaches a model, so a directive costs no inference. |
 
 The status helper is installed with mode `0700`, stores only the session's requested and routed model IDs under `${XDG_CACHE_HOME:-~/.cache}/weave-router/codex/`, and never stores prompts, credentials, or response bodies. Existing Codex hooks are preserved and the managed hooks are safe to reinstall or remove.
 
@@ -130,6 +131,7 @@ The status helper is installed with mode `0700`, stores only the session's reque
 | -------------------------------- | ---------- | ------------------------------------------------------------- |
 | `<repo>/.codex/config.toml`      | ❌ ignored | Per-teammate config (holds the router key). Each teammate runs the installer for their own key. |
 | `<repo>/.codex/weave-status.sh`  | ❌ ignored | Per-teammate Codex lifecycle helper used by the managed status hooks. |
+| `<repo>/.codex/weave-directive.sh` | ❌ ignored | Per-teammate Codex `UserPromptSubmit` helper used by the managed directive hook. |
 | `<repo>/.codex/.weave-router-disabled` | ❌ ignored | Local off-state marker used by the helper. |
 | `<repo>/.gitignore`              | ✅ commit  | Adds the Codex config, status helper, and off-state marker to the ignore list. |
 
@@ -295,6 +297,30 @@ toggles — in a detached fork, so no Codex turn blocks on it, and it skips the
 replacement when the bytes are unchanged. The `WEAVE_STATUSLINE_*` variables
 above are accepted as fallbacks for users who configure both clients together.
 
+**Codex directive hook.** Codex directives are also installed as skills, but a
+skill is prompt text: the model has to read it, decide to run its script, and
+compose the arguments. That costs two inference turns for what is a local state
+change, and it loses argument fidelity — a `$rf - too slow` verdict was
+routinely paraphrased down to an unrated note before it ever reached the router.
+
+The managed `UserPromptSubmit` hook removes both problems. Codex hands the hook
+the raw prompt before `$skill` expansion and before any model call, so the hook
+parses the directive itself, sends it to the router as a user-typed message (the
+same shape Claude Code's slash commands use, which the router answers with a
+synthetic response and no upstream call), and blocks the turn — showing the
+router's reply. `$router-session` is answered from the hook payload alone, with
+no request at all.
+
+The hook fails open by design. No `jq`, no `curl`, no credentials, an
+unreachable router, or a prompt it does not recognise all pass the prompt
+through untouched, and the skills remain as the fallback. It only ever claims a
+prompt that *starts* with a directive it owns, so prose mentioning `$fm` is left
+alone. Local toggles (`$router-on`/`$router-off`/`$router-status`/
+`$router-models`/`$disable-routing`) mutate local config rather than router
+state and remain skill-driven.
+
+Like any Codex hook, it must be trusted once in the Codex TUI before it runs.
+
 **Codex status integration.** Codex 0.150+ supports lifecycle hooks. The installer enables hooks and adds managed `SessionStart` and `Stop` handlers. They maintain a small local state file and set the terminal title to `Weave Router · <routed-model> ← <requested-model>` when the router provides a routed-model marker. On ordinary turns where the model is unchanged, the title remains the last known routed model; before the first routed response it shows `Weave Router · active`. The hooks intentionally emit no status messages: Codex renders hook output in the conversation, which makes a persistent router indicator noisy and easy to confuse with model output. It is not a replacement for Codex's requested-model line: that line continues to show the model selected in Codex configuration, while the Weave status identifies the model that actually served. Existing user and project hooks remain outside the managed block and are preserved on reinstall/uninstall.
 
 **Session savings.** The title also carries `· saved $X.XX` when the router has beaten the model Codex asked for. The number comes from the router — the hook reads `GET <base-url>/v1/sessions/<session-id>/cost` with the router key already in `config.toml` — and is never computed locally: Codex records only its *requested* model on every turn, never the one that served, so client-side pricing would compare a model against itself and always report zero. The fetch is detached and its result is cached for the following turn, so no turn ever blocks on the network; a slow, unreachable, or older router simply leaves the title model-only. A session where the router spent more than the requested model would have shows no clause at all rather than a negative number, and a total under a cent reads `saved <$0.01`. Set `WEAVE_CODEX_STATUS_SAVINGS=0` to turn the lookup off entirely.
@@ -361,7 +387,7 @@ installer owns the config file.
 | force-model (`fm`) | `/force-model` | `$force-model` | `/force-model` | `/fm` (native) | manual |
 | unforce-model (`ufm`) | `/unforce-model` | `$unforce-model` | `/unforce-model` | `/ufm` (native) | manual |
 | router-feedback (`rf`) | `/router-feedback` | `$router-feedback` | `/router-feedback` | — | manual |
-| router-session | `/router-session` | — | — | — | — |
+| router-session | `/router-session` | `$router-session` | — | — | — |
 | router-off / on / status | `/router-off` … | `$router-off` … (plus `$disable-routing`) | — | — | — |
 | router-models (`models`) | `/router-models` | `$router-models` | — | — | — |
 

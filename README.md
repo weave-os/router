@@ -92,13 +92,16 @@ If you want the router (and dashboard) running on your own box:
 # 1. Drop a provider key in. OpenRouter is the recommended baseline.
 echo "OPENROUTER_API_KEY=sk-or-v1-..." >> .env.local
 
-# 2. Boot Postgres + router on :8080 and seed an rk_ key.
+# 2. Set a dashboard password. Without one, inference still runs but
+# dashboard administration is disabled.
+echo "ROUTER_ADMIN_PASSWORD=replace-with-a-strong-password" >> .env.local
+
+# 3. Boot Postgres + router on :8080 and seed an rk_ key.
 make full-setup
 ```
 
 The router is up at <http://localhost:8080>, the dashboard at
-<http://localhost:8080/ui/> (password: `admin`), and your `rk_...` key
-prints in the logs.
+<http://localhost:8080/ui/>, and your `rk_...` key prints in the logs.
 
 ```bash
 # Call it like Anthropic

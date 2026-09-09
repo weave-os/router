@@ -6,7 +6,26 @@ helper="$script_dir/../codex-status.sh"
 [ -x "$helper" ] || { echo "missing executable Codex status helper" >&2; exit 1; }
 
 work="$(mktemp -d)"
-trap 'rm -rf "$work"' EXIT
+cost_mock_pid=""
+cleanup() {
+  # Capture first: reaping the fixture would otherwise leave the shell exiting
+  # 143 and turn a green run red.
+  status=$?
+  if [ -n "$cost_mock_pid" ]; then
+    kill "$cost_mock_pid" 2>/dev/null
+    wait "$cost_mock_pid" 2>/dev/null || true
+  fi
+  rm -rf "$work"
+  exit "$status"
+}
+trap cleanup EXIT
+
+# One case below needs a real HTTP fixture (curl sends no headers to file://).
+# Say so up front rather than letting it surface as a readiness timeout.
+command -v python3 >/dev/null 2>&1 || {
+  echo "python3 is required for the Codex status helper tests" >&2
+  exit 1
+}
 
 # The hook self-updates from GitHub. Left on, every case below would race a
 # download that replaces the helper under test with the published copy, so the
@@ -134,6 +153,215 @@ run_savings_turn
   exit 1
 }
 
+# ---------- credentials survive a config Codex has rewritten ----------
+#
+# Codex round-trips config.toml through a TOML serializer whenever it persists
+# its own state, which drops the managed comment markers while keeping the
+# provider table, and re-emits the inline http_headers as a subtable with the
+# header name unquoted. A marker-scoped, quoted-only read resolved nothing on
+# such a config, so the savings figure silently vanished from the title with no
+# error anywhere -- the failure looked like "the router just stopped showing
+# savings".
+normalized_home="$work/normalized-home"
+mkdir -p "$normalized_home/.codex"
+normalized_cost="$work/cost-normalized.json"
+printf '%s\n' '{"session_id":"session-3","savings_usd":1.25}' >"$normalized_cost"
+cat >"$normalized_home/.codex/config.toml" <<TOML
+model_provider = "weave"
+
+[model_providers.weave]
+base_url = "file://$normalized_cost"
+name = "Weave Router"
+requires_openai_auth = true
+wire_api = "responses"
+
+[model_providers.weave.http_headers]
+X-App = "codex"
+X-Weave-Router-Key = "rk_test"
+
+[projects."/some/repo"]
+trust_level = "trusted"
+TOML
+
+normalized_cache="$work/cache-normalized"
+run_normalized_turn() {
+  printf '%s\n' '{"session_id":"session-3","model":"gpt-5.6-terra","last_assistant_message":"✦ **Weave Router** → claude-sonnet-5 · best pick for this turn"}' \
+    | HOME="$normalized_home" XDG_CACHE_HOME="$normalized_cache" \
+      WEAVE_CODEX_STATUS_TITLE_FILE="$title_file" "$helper" >/dev/null
+}
+
+run_normalized_turn
+normalized_cost_cache="$normalized_cache/weave-router/codex/session-3.cost"
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+  [ -f "$normalized_cost_cache" ] && break
+  sleep 0.2
+done
+[ -f "$normalized_cost_cache" ] || {
+  echo "credentials did not resolve from a Codex-rewritten config (no cost fetch ran)" >&2
+  exit 1
+}
+
+run_normalized_turn
+[ "$(cat "$title_file")" = "Weave Router · claude-sonnet-5 ← gpt-5.6-terra · saved \$1.25" ] || {
+  echo "savings did not reach the title from a Codex-rewritten config: $(cat "$title_file")" >&2
+  exit 1
+}
+
+# A commented-out endpoint or key left above the live one must not win. First
+# match wins, so treating a comment as config would point the fetch at a stale
+# endpoint and send the router key there.
+#
+# This one needs a real HTTP fixture rather than the file:// seam used above:
+# curl sends no headers to a file:// URL, so a file-based check would prove the
+# base_url comment is skipped while saying nothing about the key.
+commented_port="$(python3 -c 'import socket
+s = socket.socket()
+s.bind(("127.0.0.1", 0))
+print(s.getsockname()[1])
+s.close()')"
+commented_seen="$work/commented-key.txt"
+cat >"$work/cost-mock.py" <<'MOCK'
+import pathlib, sys
+from http.server import BaseHTTPRequestHandler, HTTPServer
+
+SEEN = pathlib.Path(sys.argv[2])
+
+
+class Handler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        SEEN.write_text(self.headers.get("X-Weave-Router-Key") or "")
+        body = b'{"savings_usd":2.50}'
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, *a):
+        pass
+
+
+HTTPServer(("127.0.0.1", int(sys.argv[1])), Handler).serve_forever()
+MOCK
+python3 "$work/cost-mock.py" "$commented_port" "$commented_seen" &
+cost_mock_pid=$!  # reaped by the EXIT trap if anything below fails
+cost_mock_ready=""
+for _ in $(seq 1 60); do
+  if curl -fsS -o /dev/null --max-time 1 "http://127.0.0.1:$commented_port/v1/sessions/x/cost" 2>/dev/null; then
+    cost_mock_ready=1
+    break
+  fi
+  sleep 0.25
+done
+[ -n "$cost_mock_ready" ] || {
+  echo "cost mock never came up on port $commented_port" >&2
+  exit 1
+}
+rm -f "$commented_seen"
+
+commented_home="$work/commented-home"
+mkdir -p "$commented_home/.codex"
+cat >"$commented_home/.codex/config.toml" <<TOML
+[model_providers.weave]
+# base_url = "http://127.0.0.1:9/v1"
+base_url = "http://127.0.0.1:$commented_port/v1"
+
+[model_providers.weave.http_headers]
+# X-Weave-Router-Key = "rk_stale"
+X-Weave-Router-Key = "rk_test"
+TOML
+commented_cache="$work/cache-commented"
+printf '%s\n' '{"session_id":"session-5","model":"gpt-5.6-terra","last_assistant_message":"✦ **Weave Router** → claude-sonnet-5 · best pick"}' \
+  | HOME="$commented_home" XDG_CACHE_HOME="$commented_cache" \
+    WEAVE_CODEX_STATUS_TITLE_FILE="$title_file" "$helper" >/dev/null
+commented_cost_cache="$commented_cache/weave-router/codex/session-5.cost"
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+  [ -f "$commented_cost_cache" ] && break
+  sleep 0.2
+done
+[ -f "$commented_cost_cache" ] || {
+  echo "a commented-out example blocked the live endpoint" >&2
+  exit 1
+}
+[ "$(cat "$commented_seen" 2>/dev/null)" = "rk_test" ] || {
+  echo "the commented-out key was forwarded instead of the live one: $(cat "$commented_seen" 2>/dev/null)" >&2
+  exit 1
+}
+
+# A comment trailing another assignment is the same hazard one line over: the
+# matches are unanchored, so a commented base_url riding on an earlier line
+# wins under first-match unless comments are stripped rather than line-skipped.
+inline_home="$work/inline-home"
+mkdir -p "$inline_home/.codex"
+cat >"$inline_home/.codex/config.toml" <<TOML
+[model_providers.weave]
+name = "Weave Router" # base_url = "http://127.0.0.1:9/v1"
+base_url = "http://127.0.0.1:$commented_port/v1"
+wire_api = "responses" # X-Weave-Router-Key = "rk_inline_stale"
+# A literal string is a string: a # inside one must not end the line, or the
+# key after it in this inline table is lost and the fetch never runs.
+http_headers = { "X-App" = 'codex#1', "X-Weave-Router-Key" = "rk_test" }
+TOML
+inline_seen="$work/inline-key.txt"
+rm -f "$inline_seen"
+cp "$commented_seen" "$work/commented-key.keep" 2>/dev/null || true
+inline_cache="$work/cache-inline"
+kill "$cost_mock_pid" 2>/dev/null
+wait "$cost_mock_pid" 2>/dev/null || true
+python3 "$work/cost-mock.py" "$commented_port" "$inline_seen" &
+cost_mock_pid=$!
+for _ in $(seq 1 60); do
+  curl -fsS -o /dev/null --max-time 1 "http://127.0.0.1:$commented_port/v1/sessions/x/cost" 2>/dev/null && break
+  sleep 0.25
+done
+rm -f "$inline_seen"
+
+printf '%s\n' '{"session_id":"session-6","model":"gpt-5.6-terra","last_assistant_message":"✦ **Weave Router** → claude-sonnet-5 · best pick"}' \
+  | HOME="$inline_home" XDG_CACHE_HOME="$inline_cache" \
+    WEAVE_CODEX_STATUS_TITLE_FILE="$title_file" "$helper" >/dev/null
+inline_cost_cache="$inline_cache/weave-router/codex/session-6.cost"
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+  [ -f "$inline_cost_cache" ] && break
+  sleep 0.2
+done
+[ -f "$inline_cost_cache" ] || {
+  echo "an inline comment on an earlier line shadowed the live base_url" >&2
+  exit 1
+}
+[ "$(cat "$inline_seen" 2>/dev/null)" = "rk_test" ] || {
+  echo "the inline-commented key was forwarded instead of the live one: $(cat "$inline_seen" 2>/dev/null)" >&2
+  exit 1
+}
+kill "$cost_mock_pid" 2>/dev/null
+wait "$cost_mock_pid" 2>/dev/null || true
+cost_mock_pid=""
+
+# A provider whose name merely starts with "weave" is a different provider: its
+# key must never be adopted, and a config holding only that one resolves nothing.
+neighbour_home="$work/neighbour-home"
+mkdir -p "$neighbour_home/.codex"
+cat >"$neighbour_home/.codex/config.toml" <<TOML
+[model_providers.weaver]
+base_url = "file://$normalized_cost"
+X-Weave-Router-Key = "rk_not_ours"
+TOML
+neighbour_cache="$work/cache-neighbour"
+printf '%s\n' '{"session_id":"session-4","model":"gpt-5.6-terra","last_assistant_message":"✦ **Weave Router** → claude-sonnet-5 · best pick"}' \
+  | HOME="$neighbour_home" XDG_CACHE_HOME="$neighbour_cache" \
+    WEAVE_CODEX_STATUS_TITLE_FILE="$title_file" "$helper" >/dev/null
+# Poll the full window the positive fetches get rather than sleeping once: a
+# fixed wait can expire before a wrongly-adopted fetch lands, which would pass
+# this assertion under CI load precisely when it ought to fail.
+neighbour_cost_cache="$neighbour_cache/weave-router/codex/session-4.cost"
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+  [ -f "$neighbour_cost_cache" ] && break
+  sleep 0.2
+done
+[ ! -f "$neighbour_cost_cache" ] || {
+  echo "adopted credentials from an unrelated provider whose name starts with weave" >&2
+  exit 1
+}
+
 # The remaining rendering cases run with no reachable config ($HOME has no
 # config.toml), so the fetch is a no-op and the seeded cache is what the turn
 # renders. That also proves an unreachable router leaves the last good value in
@@ -242,7 +470,7 @@ run_refresh_turn() {
   printf '%s\n' '{"session_id":"session-refresh","model":"gpt-5.6-terra","last_assistant_message":"✦ **Weave Router** → claude-sonnet-5 · best pick"}' \
     | HOME="$refresh_home" XDG_CACHE_HOME="$work/cache-refresh" \
       WEAVE_CODEX_STATUS_UPDATE=1 WEAVE_CODEX_STATUS_URL="file://$newer_helper" \
-      WEAVE_CODEX_STATUS_TITLE_FILE="$title_file" "$@" "$refresh_helper" >/dev/null
+      WEAVE_CODEX_STATUS_TITLE_FILE="$title_file" "$refresh_helper" >/dev/null
 }
 
 run_refresh_turn

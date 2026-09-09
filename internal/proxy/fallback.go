@@ -434,9 +434,13 @@ func emitAnthropicSSEErrorEvent(sink http.ResponseWriter, err error) error {
 	var resp *providers.UpstreamErrorResponse
 	status := http.StatusBadGateway
 	body := []byte(`{"type":"error","error":{"type":"api_error","message":"upstream stream failed"}}`)
-	if errors.As(err, &resp) {
+	switch cls, classified := ClassifyDispatchError(err); {
+	case errors.As(err, &resp):
 		status = resp.Status
 		body = translate.OpenAIToAnthropicError(resp.Body)
+	case classified:
+		status = cls.Status
+		body = anthropicErrorFrameBody(cls)
 	}
 	_, _ = sink.Write([]byte("event: error\ndata: "))
 	_, _ = sink.Write(body)
@@ -454,9 +458,13 @@ func emitOpenAISSEErrorEvent(sink http.ResponseWriter, err error) error {
 	var resp *providers.UpstreamErrorResponse
 	status := http.StatusBadGateway
 	body := []byte(`{"error":{"message":"upstream stream failed","type":"server_error","code":"upstream_error"}}`)
-	if errors.As(err, &resp) {
+	switch cls, classified := ClassifyDispatchError(err); {
+	case errors.As(err, &resp):
 		status = resp.Status
 		body = resp.Body
+	case classified:
+		status = cls.Status
+		body = openAIErrorFrameBody(cls)
 	}
 	_, _ = sink.Write([]byte("data: "))
 	_, _ = sink.Write(body)
@@ -465,6 +473,28 @@ func emitOpenAISSEErrorEvent(sink http.ResponseWriter, err error) error {
 		f.Flush()
 	}
 	return &providers.UpstreamStatusError{Status: status}
+}
+
+// anthropicErrorFrameBody renders a classified dispatch error as an
+// Anthropic error body. The ingress handler cannot write its own envelope
+// once the stream is committed, so the frame carries the class's own message
+// rather than the generic upstream-failure text.
+func anthropicErrorFrameBody(cls DispatchErrorClass) []byte {
+	return []byte(fmt.Sprintf(`{"type":"error","error":{"type":%q,"message":%q}}`,
+		errorFrameType(cls), cls.Message))
+}
+
+// openAIErrorFrameBody is anthropicErrorFrameBody's OpenAI-shape counterpart.
+func openAIErrorFrameBody(cls DispatchErrorClass) []byte {
+	return []byte(fmt.Sprintf(`{"error":{"message":%q,"type":%q,"code":"upstream_error"}}`,
+		cls.Message, errorFrameType(cls)))
+}
+
+func errorFrameType(cls DispatchErrorClass) string {
+	if cls.Kind.IsClientError() {
+		return "invalid_request_error"
+	}
+	return "api_error"
 }
 
 // emitGeminiSSEErrorEvent writes a terminal error frame to a committed

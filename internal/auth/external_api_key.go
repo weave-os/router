@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -89,14 +90,60 @@ const (
 // maxIdentityHeaderNameLength bounds the configured field name.
 const maxIdentityHeaderNameLength = 128
 
-// headersRejectedForIdentity are request-critical headers a tenant must not redirect identity into.
-var headersRejectedForIdentity = map[string]struct{}{
-	"authorization":  {},
-	"x-api-key":      {},
-	"host":           {},
-	"content-type":   {},
-	"content-length": {},
-	"accept":         {},
+const (
+	weaveHeaderPrefix     = "x-weave-"
+	forwardedHeaderPrefix = "x-forwarded-"
+)
+
+// protectedForwardingHeaders are request-control, credential, metadata, and
+// framing fields that tenant configuration must never read or overwrite.
+var protectedForwardingHeaders = map[string]struct{}{
+	"accept":                               {},
+	"accept-encoding":                      {},
+	"anthropic-beta":                       {},
+	"anthropic-version":                    {},
+	"api-key":                              {},
+	"authentication":                       {},
+	"authentication-info":                  {},
+	"authorization":                        {},
+	"chatgpt-account-id":                   {},
+	"connection":                           {},
+	"content-encoding":                     {},
+	"content-length":                       {},
+	"content-type":                         {},
+	"cookie":                               {},
+	"forwarded":                            {},
+	"host":                                 {},
+	"keep-alive":                           {},
+	"metadata":                             {},
+	"metadata-flavor":                      {},
+	"ocp-apim-subscription-key":            {},
+	"openai-organization":                  {},
+	"openai-project":                       {},
+	"proxy-authenticate":                   {},
+	"proxy-authorization":                  {},
+	"proxy-connection":                     {},
+	"set-cookie":                           {},
+	"te":                                   {},
+	"trailer":                              {},
+	"transfer-encoding":                    {},
+	"upgrade":                              {},
+	"www-authenticate":                     {},
+	"x-access-token":                       {},
+	"x-amz-content-sha256":                 {},
+	"x-amz-date":                           {},
+	"x-amz-security-token":                 {},
+	"x-amz-target":                         {},
+	"x-api-key":                            {},
+	"x-auth-token":                         {},
+	"x-authentication":                     {},
+	"x-aws-ec2-metadata-token":             {},
+	"x-aws-ec2-metadata-token-ttl-seconds": {},
+	"x-goog-api-key":                       {},
+	"x-goog-metadata-request":              {},
+	"x-real-ip":                            {},
+	"x-original-url":                       {},
+	"x-rewrite-url":                        {},
 }
 
 // NormalizeIdentityHeader validates the header name and format; both nil clears forwarding.
@@ -119,7 +166,7 @@ func NormalizeIdentityHeader(name, format *string) (*string, *string, error) {
 	if !validHeaderName(trimmedName) {
 		return nil, nil, fmt.Errorf("%w: %q is not a valid header name", ErrInvalidIdentityHeader, trimmedName)
 	}
-	if _, rejected := headersRejectedForIdentity[strings.ToLower(trimmedName)]; rejected {
+	if !IsSafeForwardingHeader(trimmedName) {
 		return nil, nil, fmt.Errorf("%w: %q is reserved", ErrInvalidIdentityHeader, trimmedName)
 	}
 	if trimmedFormat != IdentityFormatEmail && trimmedFormat != IdentityFormatJSON {
@@ -177,16 +224,56 @@ func NormalizeBaggageHeader(raw *string) (*string, error) {
 	return &trimmed, nil
 }
 
+// ValidateForwardingHeaderConfiguration rejects collisions between the three
+// configurable destinations so runtime behavior never depends on write order.
+func ValidateForwardingHeaderConfiguration(forwarded []string, baggage, identity string) error {
+	seen := make(map[string]struct{}, len(forwarded)+2)
+	for _, name := range forwarded {
+		lowerName := strings.ToLower(name)
+		if _, duplicate := seen[lowerName]; duplicate {
+			return fmt.Errorf("%w: header destinations must be distinct", ErrInvalidForwardedHeader)
+		}
+		seen[lowerName] = struct{}{}
+	}
+	for _, name := range []string{baggage, identity} {
+		if name == "" {
+			continue
+		}
+		lowerName := strings.ToLower(name)
+		if _, collision := seen[lowerName]; collision {
+			return fmt.Errorf("%w: header destinations must be distinct", ErrInvalidForwardedHeader)
+		}
+		seen[lowerName] = struct{}{}
+	}
+	return nil
+}
+
 // validateForwardableHeader rejects malformed names and the request-critical
 // ones a caller could otherwise use to redirect its own credentials upstream.
 func validateForwardableHeader(name string) error {
-	if !validHeaderName(name) {
-		return fmt.Errorf("%w: %q is not a valid header name", ErrInvalidForwardedHeader, name)
-	}
-	if _, rejected := headersRejectedForIdentity[strings.ToLower(name)]; rejected {
+	if !IsSafeForwardingHeader(name) {
+		if !validHeaderName(name) {
+			return fmt.Errorf("%w: %q is not a valid header name", ErrInvalidForwardedHeader, name)
+		}
 		return fmt.Errorf("%w: %q is reserved", ErrInvalidForwardedHeader, name)
 	}
 	return nil
+}
+
+// IsSafeForwardingHeader reports whether name may be used as a configurable
+// forwarding, baggage, or identity destination at runtime.
+func IsSafeForwardingHeader(name string) bool {
+	if name == "" || strings.TrimSpace(name) != name || !validHeaderName(name) {
+		return false
+	}
+	lowerName := strings.ToLower(name)
+	if strings.HasPrefix(lowerName, weaveHeaderPrefix) || strings.HasPrefix(lowerName, forwardedHeaderPrefix) {
+		return false
+	}
+	if _, protected := protectedForwardingHeaders[lowerName]; protected {
+		return false
+	}
+	return true
 }
 
 // headerNameChars are the RFC 9110 token characters a field name may contain.
@@ -248,14 +335,31 @@ func NormalizeBaseURL(raw *string) (*string, error) {
 	if trimmed == "" {
 		return nil, nil
 	}
+	if strings.ContainsAny(trimmed, "?#") {
+		return nil, ErrInvalidBaseURL
+	}
 	parsed, err := url.Parse(trimmed)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %q", ErrInvalidBaseURL, trimmed)
+		return nil, ErrInvalidBaseURL
 	}
-	if (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {
-		return nil, fmt.Errorf("%w: %q", ErrInvalidBaseURL, trimmed)
+	if (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" || parsed.Hostname() == "" ||
+		parsed.User != nil || parsed.Opaque != "" || parsed.RawQuery != "" || parsed.ForceQuery || parsed.Fragment != "" ||
+		!validBaseURLPort(parsed) {
+		return nil, ErrInvalidBaseURL
 	}
 	return &trimmed, nil
+}
+
+func validBaseURLPort(parsed *url.URL) bool {
+	if strings.HasSuffix(parsed.Host, ":") {
+		return false
+	}
+	port := parsed.Port()
+	if port == "" {
+		return true
+	}
+	portNumber, err := strconv.Atoi(port)
+	return err == nil && portNumber >= 1 && portNumber <= 65535
 }
 
 // maxKeypairFieldLength bounds the account and user identifiers.

@@ -1050,12 +1050,11 @@ func convertRouteMessages(messages []router.ConversationMessage, limits routeMes
 		return nil
 	}
 	messages = routeMessageWindow(messages, limits.maxMessages)
-	// The oldest message is converted last, so the text budget reserves room for
-	// it: otherwise the pulled-back user boundary arrives with empty text and is
-	// dropped, which is the same wire shape the window guard exists to prevent.
+	// Reserve the task before newer assistant text consumes the shared budget.
+	latestUserTextIndex := userTextIndex(messages)
 	boundaryReserve := 0
-	if boundary := userTextIndex(messages); boundary == 0 && limits.maxTotalTextChars > 0 {
-		boundaryReserve = len(clipRouteText(messages[0].Text, limits.maxTextChars))
+	if latestUserTextIndex >= 0 && limits.maxTotalTextChars > 0 {
+		boundaryReserve = len(clipRouteText(clipRouteText(messages[latestUserTextIndex].Text, limits.maxTextChars), limits.maxTotalTextChars))
 	}
 	reversed := make([]routeMessage, 0, len(messages))
 	totalText := 0
@@ -1068,7 +1067,7 @@ func convertRouteMessages(messages []router.ConversationMessage, limits routeMes
 		text := clipRouteText(message.Text, limits.maxTextChars)
 		if limits.maxTotalTextChars > 0 {
 			budget := limits.maxTotalTextChars
-			if i > 0 {
+			if i > latestUserTextIndex {
 				budget -= boundaryReserve
 			}
 			if remaining := budget - totalText; remaining < len(text) {
@@ -1153,6 +1152,9 @@ func clipRouteText(text string, limit int) string {
 	text = strings.TrimSpace(text)
 	if limit <= 0 || len(text) <= limit {
 		return text
+	}
+	for limit > 0 && !utf8.RuneStart(text[limit]) {
+		limit--
 	}
 	return strings.TrimSpace(text[:limit])
 }

@@ -4,11 +4,12 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 
+	"weave-os/router/internal/auth"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/requestcontext"
 )
@@ -22,32 +23,55 @@ const maxModelListBytes = 1 << 20
 func (c *Client) ListModels(ctx context.Context) ([]string, error) {
 	baseURL := c.effectiveBaseURL(ctx)
 	if baseURL == "" {
-		return nil, errors.New("no base URL configured for model listing")
+		return nil, providers.ErrModelDiscoveryDestination
+	}
+	normalizedBaseURL, err := auth.NormalizeBaseURL(&baseURL)
+	if err != nil || normalizedBaseURL == nil {
+		return nil, providers.ErrModelDiscoveryDestination
+	}
+	baseURL = *normalizedBaseURL
+	listURLs, err := modelListURLs(baseURL)
+	if err != nil {
+		return nil, providers.ErrModelDiscoveryDestination
 	}
 	var (
-		ids []string
-		err error
+		ids     []string
+		listErr error
 	)
-	for _, listURL := range modelListURLs(baseURL) {
+	for _, listURL := range listURLs {
 		var status int
-		ids, status, err = c.listModelsAt(ctx, listURL)
+		ids, status, listErr = c.listModelsAt(ctx, listURL)
 		if status != http.StatusNotFound {
-			return ids, err
+			return ids, listErr
 		}
 	}
-	return ids, err
+	return ids, listErr
 }
 
 // modelListURLs returns catalog URLs to try for baseURL, likeliest first.
 // For gateways that mount their catalog above /v1 (e.g. Snowflake Cortex:
 // /api/v2/cortex/models vs /api/v2/cortex/v1/chat/completions), also
 // includes one segment up.
-func modelListURLs(baseURL string) []string {
-	urls := []string{baseURL + "/models"}
-	if root, trimmed := strings.CutSuffix(baseURL, "/v1"); trimmed {
-		urls = append(urls, root+"/models")
+func modelListURLs(baseURL string) ([]string, error) {
+	primary, err := url.JoinPath(baseURL, "models")
+	if err != nil {
+		return nil, err
 	}
-	return urls
+	urls := []string{primary}
+	parsedBaseURL, err := url.Parse(baseURL)
+	if err != nil {
+		return nil, err
+	}
+	if strings.HasSuffix(parsedBaseURL.Path, "/v1") {
+		parsedBaseURL.Path = strings.TrimSuffix(parsedBaseURL.Path, "/v1")
+		parsedBaseURL.RawPath = ""
+		fallback, joinErr := url.JoinPath(parsedBaseURL.String(), "models")
+		if joinErr != nil {
+			return nil, joinErr
+		}
+		urls = append(urls, fallback)
+	}
+	return urls, nil
 }
 
 // listModelsAt reads one model-list URL, also reporting the upstream status so
@@ -68,7 +92,7 @@ func (c *Client) getModelList(ctx context.Context, listURL string, withEntity bo
 	}
 	upstream, err := http.NewRequestWithContext(ctx, http.MethodGet, listURL, entity)
 	if err != nil {
-		return nil, 0, fmt.Errorf("build model-list request: %w", err)
+		return nil, 0, providers.ErrModelDiscoveryDestination
 	}
 	if withEntity {
 		upstream.Header.Set("Content-Type", "application/json")
@@ -78,17 +102,20 @@ func (c *Client) getModelList(ctx context.Context, listURL string, withEntity bo
 	requestcontext.ApplyWIFTokenType(ctx, upstream)
 	requestcontext.ApplyIdentityHeader(ctx, upstream)
 
-	resp, err := c.http.Do(upstream)
+	resp, err := c.modelHTTP.Do(upstream)
 	if err != nil {
-		return nil, 0, fmt.Errorf("model-list call: %w", err)
+		if errors.Is(err, providers.ErrModelDiscoveryDestination) {
+			return nil, 0, providers.ErrModelDiscoveryDestination
+		}
+		return nil, 0, providers.ErrModelDiscoveryTransport
 	}
 	defer resp.Body.Close()
 	body, err := io.ReadAll(io.LimitReader(resp.Body, maxModelListBytes))
 	if resp.StatusCode >= 400 {
-		return nil, resp.StatusCode, providers.ModelListStatusError(resp.StatusCode, body)
+		return nil, resp.StatusCode, providers.NewModelListStatusError(resp.StatusCode)
 	}
 	if err != nil {
-		return nil, resp.StatusCode, fmt.Errorf("read model-list response: %w", err)
+		return nil, resp.StatusCode, providers.ErrModelDiscoveryTransport
 	}
 	ids, err := providers.ParseModelIDs(body)
 	return ids, resp.StatusCode, err

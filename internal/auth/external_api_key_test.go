@@ -34,15 +34,83 @@ func TestNormalizeBaseURL(t *testing.T) {
 
 	t.Run("rejects values that cannot address an upstream", func(t *testing.T) {
 		for name, in := range map[string]string{
-			"no scheme":       "gateway.example.com",
-			"relative path":   "/v1/messages",
-			"no host":         "https://",
-			"unsupported ftp": "ftp://gateway.example.com",
+			"no scheme":          "gateway.example.com",
+			"relative path":      "/v1/messages",
+			"no host":            "https://",
+			"unsupported ftp":    "ftp://gateway.example.com",
+			"userinfo":           "https://user:secret@gateway.example.com/v1",
+			"opaque":             "https:gateway.example.com/v1",
+			"bare query":         "https://gateway.example.com/v1?",
+			"populated query":    "https://gateway.example.com/v1?target=internal",
+			"bare fragment":      "https://gateway.example.com/v1#",
+			"populated fragment": "https://gateway.example.com/v1#hidden",
+			"empty port":         "https://gateway.example.com:",
+			"zero port":          "https://gateway.example.com:0",
+			"oversized port":     "https://gateway.example.com:65536",
+			"non-numeric port":   "https://gateway.example.com:not-a-port",
 		} {
 			_, err := auth.NormalizeBaseURL(ptr(in))
 			assert.ErrorIs(t, err, auth.ErrInvalidBaseURL, name)
+			assert.NotContains(t, err.Error(), in, name)
 		}
 	})
+
+	t.Run("accepts conventional literal addresses and custom paths", func(t *testing.T) {
+		for _, in := range []string{
+			"http://192.0.2.10:8080/custom/path",
+			"https://[2001:db8::1]/gateway/v1",
+		} {
+			got, err := auth.NormalizeBaseURL(ptr(in))
+			require.NoError(t, err, in)
+			require.NotNil(t, got, in)
+			assert.Equal(t, in, *got)
+		}
+	})
+}
+
+func TestForwardingHeaderSafetyPolicy(t *testing.T) {
+	for _, protected := range []string{
+		"Authorization",
+		"Cookie",
+		"Ocp-Apim-Subscription-Key",
+		"X-Aws-Ec2-Metadata-Token",
+		"X-Forwarded-For",
+		"x-WEAVE-router-key",
+		"Transfer-Encoding",
+	} {
+		t.Run(protected, func(t *testing.T) {
+			assert.False(t, auth.IsSafeForwardingHeader(protected))
+			_, forwardedErr := auth.NormalizeForwardedClientHeaders([]string{"  " + protected + "  "})
+			assert.ErrorIs(t, forwardedErr, auth.ErrInvalidForwardedHeader)
+			_, baggageErr := auth.NormalizeBaggageHeader(ptr("  " + protected + "  "))
+			assert.ErrorIs(t, baggageErr, auth.ErrInvalidForwardedHeader)
+			_, _, identityErr := auth.NormalizeIdentityHeader(ptr("  "+protected+"  "), ptr(auth.IdentityFormatEmail))
+			assert.ErrorIs(t, identityErr, auth.ErrInvalidIdentityHeader)
+		})
+	}
+
+	assert.True(t, auth.IsSafeForwardingHeader("X-Correlation-ID"))
+}
+
+func TestValidateForwardingHeaderConfiguration(t *testing.T) {
+	assert.NoError(t, auth.ValidateForwardingHeaderConfiguration(
+		[]string{"X-Correlation-ID"}, "X-Request-Baggage", "X-Caller-Identity",
+	))
+	for name, testCase := range map[string]struct {
+		forwarded []string
+		baggage   string
+		identity  string
+	}{
+		"forwarded duplicate": {forwarded: []string{"X-Correlation-ID", "x-correlation-id"}},
+		"baggage collision":   {forwarded: []string{"X-Correlation-ID"}, baggage: "x-correlation-id"},
+		"identity collision":  {forwarded: []string{"X-Correlation-ID"}, identity: "x-correlation-id"},
+		"baggage identity":    {baggage: "X-Metadata", identity: "x-metadata"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			err := auth.ValidateForwardingHeaderConfiguration(testCase.forwarded, testCase.baggage, testCase.identity)
+			assert.ErrorIs(t, err, auth.ErrInvalidForwardedHeader)
+		})
+	}
 }
 
 func ptr(s string) *string { return &s }

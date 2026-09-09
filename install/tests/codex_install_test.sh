@@ -341,4 +341,111 @@ grep -Fq '[model_providers.weaver]' "$config" \
 
 rm -rf "$home/.codex" "$home/.weave"
 
+
+# ---------- the UserPromptSubmit directive hook ----------
+#
+# The hook is what makes $fm / $rf / $router-session cost no inference. It has
+# to be registered in the managed block (so uninstall takes it away with
+# everything else) and the helper it points at has to exist and be executable --
+# a hook command pointing at a missing file is a broken Codex turn, not a
+# degraded one.
+rm -rf "$home/.codex" "$home/.weave"
+run_hosted_install
+directive_helper="$home/.weave/codex-directive.sh"
+
+[ -x "$directive_helper" ] \
+  || fail "install did not write an executable Codex directive helper"
+grep -Fq '<!-- weave-router managed codex directive -->' "$directive_helper" \
+  || fail "the installed Codex directive helper has no ownership marker"
+# GNU stat first: on macOS -c is unrecognised and exits non-zero so this falls
+# through, whereas GNU stat -f is --file-system and would silently succeed with
+# the wrong value (same trap cc-statusline.sh documents).
+[ "$(stat -c '%a' "$directive_helper" 2>/dev/null || stat -f '%Lp' "$directive_helper" 2>/dev/null)" = "700" ] \
+  || fail "the Codex directive helper is not mode 700"
+
+grep -Fq '[[hooks.UserPromptSubmit]]' "$config" \
+  || fail "install did not register the UserPromptSubmit hook"
+grep -Fq "command = \"$directive_helper\"" "$config" \
+  || fail "the UserPromptSubmit hook does not point at the installed helper"
+assert_config_parses "installing the directive hook produced unparseable TOML"
+
+# The hook must live inside the managed markers so uninstall removes it.
+awk -v begin='# >>> weave-router managed (do not edit between markers) >>>' \
+    -v end='# <<< weave-router managed <<<' '
+  $0 == begin { inblk = 1; next }
+  $0 == end   { inblk = 0; next }
+  inblk && /hooks\.UserPromptSubmit/ { found = 1 }
+  END { exit(found ? 0 : 1) }
+' "$config" || fail "the UserPromptSubmit hook was written outside the managed markers"
+
+# Re-running must not stack duplicate hook entries.
+run_hosted_install
+[ "$(grep -c '^\[\[hooks\.UserPromptSubmit\]\]$' "$config")" -eq 1 ] \
+  || fail "a repeat install duplicated the UserPromptSubmit hook"
+
+run_uninstall
+[ ! -e "$directive_helper" ] \
+  || fail "uninstall left the Codex directive helper behind"
+if [ -f "$config" ] && grep -Fq 'hooks.UserPromptSubmit' "$config"; then
+  fail "uninstall left the UserPromptSubmit hook in config.toml"
+fi
+
+# A helper path the installer does not own is never overwritten, and routing
+# still installs -- the directives just fall back to their skills.
+rm -rf "$home/.codex" "$home/.weave"
+mkdir -p "$(dirname "$directive_helper")"
+printf '%s\n' 'user-authored directive helper' >"$directive_helper"
+run_hosted_install
+grep -qx 'user-authored directive helper' "$directive_helper" \
+  || fail "install overwrote a user-owned Codex directive helper"
+grep -Fq 'model_provider = "weave"' "$config" \
+  || fail "an unowned directive helper blocked Codex routing setup"
+if grep -Fq 'hooks.UserPromptSubmit' "$config"; then
+  fail "install wired a UserPromptSubmit hook at an unowned helper path"
+fi
+assert_config_parses "skipping the directive hook produced unparseable TOML"
+rm -f "$directive_helper"
+rm -rf "$home/.codex" "$home/.weave"
+
+
+# ---------- project scope gitignores every generated helper ----------
+#
+# Each of these is per-teammate and carries or executes install-specific state,
+# so committing one either leaks a key or ships one developer's absolute paths
+# to everyone else. The directive helper was documented as ignored before it
+# actually was.
+proj_home="$work/proj-home"
+proj_repo="$work/proj-repo"
+mkdir -p "$proj_home" "$proj_repo"
+git -C "$proj_repo" init -q .
+git -C "$proj_repo" config user.email test@example.com
+git -C "$proj_repo" config user.name test
+( cd "$proj_repo" && HOME="$proj_home" PATH="$test_path" WEAVE_ROUTER_KEY="rk_test_key" NO_COLOR=1 \
+    bash "$installer" --codex --scope project --quiet \
+      --base-url https://router.workweave.ai >/dev/null 2>&1 )
+
+for entry in \
+  ".codex/config.toml" \
+  ".codex/weave-status.sh" \
+  ".codex/weave-directive.sh" \
+  ".codex/.weave-router-disabled"
+do
+  grep -qxF "$entry" "$proj_repo/.gitignore" \
+    || fail "project install did not gitignore $entry"
+done
+
+# Whatever the installer generated in .codex must actually be covered by those
+# rules -- an entry list that drifts from the files written is the failure mode.
+# The count guards the sweep itself: a traversal that returns nothing would let
+# this pass while checking no paths at all.
+swept=0
+while IFS= read -r generated; do
+  [ -n "$generated" ] || continue
+  swept=$((swept + 1))
+  ( cd "$proj_repo" && git check-ignore -q "$generated" ) \
+    || fail "project install left $generated tracked by git"
+done < <(cd "$proj_repo" && find .codex -maxdepth 1 -type f)
+[ "$swept" -ge 3 ] \
+  || fail "the gitignore sweep inspected only $swept generated file(s); expected at least 3"
+
 echo "Codex installer routing regression tests passed"
