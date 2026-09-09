@@ -157,6 +157,22 @@ func TestAdmissionBoundsConcurrencyAndHalfOpenProbes(t *testing.T) {
 	assert.True(t, r.openUntil.IsZero())
 }
 
+func TestCanceledHalfOpenProbeDoesNotCloseCircuit(t *testing.T) {
+	now := time.Now()
+	r := newResilience(ResilienceConfig{FailureThreshold: 1, Now: func() time.Time { return now }})
+	finish, err := r.admit(context.Background())
+	require.NoError(t, err)
+	finish(&policy.DependencyError{Reason: policy.FailureTransport})
+	now = now.Add(31 * time.Second)
+	probe, err := r.admit(context.Background())
+	require.NoError(t, err)
+	probe(context.Canceled)
+	assert.False(t, r.ready())
+	assert.False(t, r.probeEligible())
+	_, err = r.admit(context.Background())
+	assert.Equal(t, policy.FailureCircuitOpen, policy.FailureReasonFor(err))
+}
+
 func TestSharedPolicyBudgetDoesNotResetOnReroute(t *testing.T) {
 	parent := policy.WithDecisionBudget(context.Background())
 	first, cancel := policy.DecisionContext(parent, time.Now(), 10*time.Millisecond)

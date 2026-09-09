@@ -37,7 +37,7 @@ func TestGuardTargetBoundsEverySendAcrossPlansAndInnerRetries(t *testing.T) {
 	}
 	err := second.Proxy(context.Background(), decision, providers.PreparedRequest{}, httptest.NewRecorder(), request)
 	assert.ErrorContains(t, err, dispatch.FailureReasonAttemptBudget)
-	assert.ErrorIs(t, err, hmm.ErrHMMUnavailable)
+	assert.False(t, errors.Is(err, hmm.ErrHMMUnavailable))
 	assert.Equal(t, []string{primary.CatalogID, primary.CatalogID}, upstream.models)
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()

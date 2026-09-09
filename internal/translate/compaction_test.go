@@ -188,6 +188,22 @@ func TestRewriteForCompaction_Gemini_PreservesBoundaryCallAndResponse(t *testing
 	assert.Equal(t, "ls", contents[4].Get("parts.0.functionResponse.name").String())
 }
 
+func TestRewriteForCompaction_Gemini_StripsOrphanHeadFunctionResponse(t *testing.T) {
+	body := `{"contents":[` +
+		`{"role":"user","parts":[{"functionResponse":{"name":"read","response":{"r":1}}},{"text":"keep me"}]},` +
+		`{"role":"model","parts":[{"text":"m2"}]},` +
+		`{"role":"user","parts":[{"text":"u3 latest"}]}` +
+		`]}`
+	e, err := ParseGemini([]byte(body))
+	require.NoError(t, err)
+
+	e.RewriteForCompaction("GSUM", 3)
+	got := string(e.body)
+	assert.NotContains(t, got, `"functionResponse"`)
+	assert.Contains(t, got, "keep me")
+	assert.Contains(t, got, "u3 latest")
+}
+
 func TestTrimLastNMessages_Gemini_PreservesCompleteBoundaryPair(t *testing.T) {
 	body := `{"contents":[` +
 		`{"role":"user","parts":[{"text":"u1"}]},` +

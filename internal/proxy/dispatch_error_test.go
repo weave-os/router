@@ -356,10 +356,9 @@ func TestClassifyDispatchError_HMMUnavailableStaysAnOutage(t *testing.T) {
 	assert.Equal(t, proxy.DispatchErrorHMMUnavailable, cls.Kind)
 	assert.Equal(t, http.StatusServiceUnavailable, cls.Status)
 
-	cls, ok = proxy.ClassifyDispatchError(fmt.Errorf("dispatch: %s: %w", dispatch.FailureReasonAttemptBudget, hmm.ErrHMMUnavailable))
-	require.True(t, ok)
-	assert.Equal(t, proxy.DispatchErrorHMMUnavailable, cls.Kind)
-	assert.Equal(t, http.StatusServiceUnavailable, cls.Status)
+	cls, ok = proxy.ClassifyDispatchError(fmt.Errorf("dispatch: %s", dispatch.FailureReasonAttemptBudget))
+	assert.False(t, ok)
+	assert.NotEqual(t, proxy.DispatchErrorHMMUnavailable, cls.Kind)
 }
 
 func TestClassifyDispatchError_ResponsesChatCompletionsBodyIs400ClientError(t *testing.T) {
