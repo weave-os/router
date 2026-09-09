@@ -134,6 +134,79 @@ run_savings_turn
   exit 1
 }
 
+# ---------- credentials survive a config Codex has rewritten ----------
+#
+# Codex round-trips config.toml through a TOML serializer whenever it persists
+# its own state, which drops the managed comment markers while keeping the
+# provider table, and re-emits the inline http_headers as a subtable with the
+# header name unquoted. A marker-scoped, quoted-only read resolved nothing on
+# such a config, so the savings figure silently vanished from the title with no
+# error anywhere -- the failure looked like "the router just stopped showing
+# savings".
+normalized_home="$work/normalized-home"
+mkdir -p "$normalized_home/.codex"
+normalized_cost="$work/cost-normalized.json"
+printf '%s\n' '{"session_id":"session-3","savings_usd":1.25}' >"$normalized_cost"
+cat >"$normalized_home/.codex/config.toml" <<TOML
+model_provider = "weave"
+
+[model_providers.weave]
+base_url = "file://$normalized_cost"
+name = "Weave Router"
+requires_openai_auth = true
+wire_api = "responses"
+
+[model_providers.weave.http_headers]
+X-App = "codex"
+X-Weave-Router-Key = "rk_test"
+
+[projects."/some/repo"]
+trust_level = "trusted"
+TOML
+
+normalized_cache="$work/cache-normalized"
+run_normalized_turn() {
+  printf '%s\n' '{"session_id":"session-3","model":"gpt-5.6-terra","last_assistant_message":"✦ **Weave Router** → claude-sonnet-5 · best pick for this turn"}' \
+    | HOME="$normalized_home" XDG_CACHE_HOME="$normalized_cache" \
+      WEAVE_CODEX_STATUS_TITLE_FILE="$title_file" "$helper" >/dev/null
+}
+
+run_normalized_turn
+normalized_cost_cache="$normalized_cache/weave-router/codex/session-3.cost"
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+  [ -f "$normalized_cost_cache" ] && break
+  sleep 0.2
+done
+[ -f "$normalized_cost_cache" ] || {
+  echo "credentials did not resolve from a Codex-rewritten config (no cost fetch ran)" >&2
+  exit 1
+}
+
+run_normalized_turn
+[ "$(cat "$title_file")" = "Weave Router · claude-sonnet-5 ← gpt-5.6-terra · saved \$1.25" ] || {
+  echo "savings did not reach the title from a Codex-rewritten config: $(cat "$title_file")" >&2
+  exit 1
+}
+
+# A provider whose name merely starts with "weave" is a different provider: its
+# key must never be adopted, and a config holding only that one resolves nothing.
+neighbour_home="$work/neighbour-home"
+mkdir -p "$neighbour_home/.codex"
+cat >"$neighbour_home/.codex/config.toml" <<TOML
+[model_providers.weaver]
+base_url = "file://$normalized_cost"
+X-Weave-Router-Key = "rk_not_ours"
+TOML
+neighbour_cache="$work/cache-neighbour"
+printf '%s\n' '{"session_id":"session-4","model":"gpt-5.6-terra","last_assistant_message":"✦ **Weave Router** → claude-sonnet-5 · best pick"}' \
+  | HOME="$neighbour_home" XDG_CACHE_HOME="$neighbour_cache" \
+    WEAVE_CODEX_STATUS_TITLE_FILE="$title_file" "$helper" >/dev/null
+sleep 0.5
+[ ! -f "$neighbour_cache/weave-router/codex/session-4.cost" ] || {
+  echo "adopted credentials from an unrelated provider whose name starts with weave" >&2
+  exit 1
+}
+
 # The remaining rendering cases run with no reachable config ($HOME has no
 # config.toml), so the fetch is a no-op and the seeded cache is what the turn
 # renders. That also proves an unreachable router leaves the last good value in
