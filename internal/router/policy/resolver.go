@@ -286,6 +286,7 @@ type eligibleCandidate struct {
 func (r *Resolver) Resolve(req router.Request) ResolvedCandidates {
 	diagnostics := make([]Diagnostic, 0)
 	base := make([]eligibleCandidate, 0, len(r.deployed))
+	var rejectedContext bool
 	preferenceRanks := preferenceRanks(req.PreferredModels)
 	armContext := DeriveArmContext(req)
 
@@ -334,7 +335,7 @@ func (r *Resolver) Resolve(req router.Request) ResolvedCandidates {
 				diagnostics = append(diagnostics, Diagnostic{CatalogID: id, RosterID: rosterID, Reason: ExclusionGatewayNotServed})
 				continue
 			}
-			base = r.appendCandidates(base, candidateContext{
+			base, rejectedContext = r.appendCandidates(base, candidateContext{
 				req:             req,
 				catalogID:       id,
 				rosterID:        rosterID,
@@ -343,6 +344,9 @@ func (r *Resolver) Resolve(req router.Request) ResolvedCandidates {
 				armContext:      armContext,
 				preferenceRanks: preferenceRanks,
 			}, allowedBindings)
+			if rejectedContext {
+				diagnostics = append(diagnostics, Diagnostic{CatalogID: id, RosterID: rosterID, Reason: ExclusionContextWindow})
+			}
 			continue
 		}
 
@@ -360,7 +364,7 @@ func (r *Resolver) Resolve(req router.Request) ResolvedCandidates {
 			continue
 		}
 
-		base = r.appendCandidates(base, candidateContext{
+		base, rejectedContext = r.appendCandidates(base, candidateContext{
 			req:             req,
 			catalogID:       id,
 			rosterID:        rosterID,
@@ -369,6 +373,9 @@ func (r *Resolver) Resolve(req router.Request) ResolvedCandidates {
 			armContext:      armContext,
 			preferenceRanks: preferenceRanks,
 		}, allowedBindings)
+		if rejectedContext {
+			diagnostics = append(diagnostics, Diagnostic{CatalogID: id, RosterID: rosterID, Reason: ExclusionContextWindow})
+		}
 	}
 
 	base, diagnostics = softFilter(base, req.HasImages, r.imageLow, ExclusionImageCapability, diagnostics)
@@ -482,7 +489,7 @@ type candidateContext struct {
 	preferenceRanks map[string]*int
 }
 
-func (r *Resolver) appendCandidates(base []eligibleCandidate, ctx candidateContext, bindings []catalog.IndexedBinding) []eligibleCandidate {
+func (r *Resolver) appendCandidates(base []eligibleCandidate, ctx candidateContext, bindings []catalog.IndexedBinding) ([]eligibleCandidate, bool) {
 	expanded := make([]Candidate, 0, len(bindings))
 	for _, binding := range bindings {
 		if !bindingFitsContext(ctx.req, ctx.catalogID, binding.Provider) {
@@ -536,7 +543,7 @@ func (r *Resolver) appendCandidates(base []eligibleCandidate, ctx candidateConte
 		})
 	}
 	if len(expanded) == 0 {
-		return base
+		return base, true
 	}
 	resolvedBindings := make([]resolvedBinding, len(expanded))
 	for index, candidate := range expanded {
@@ -546,12 +553,12 @@ func (r *Resolver) appendCandidates(base []eligibleCandidate, ctx candidateConte
 		}
 	}
 	if !r.enumerateBindings {
-		return append(base, eligibleCandidate{Candidate: expanded[0], bindings: resolvedBindings})
+		return append(base, eligibleCandidate{Candidate: expanded[0], bindings: resolvedBindings}), false
 	}
 	for _, candidate := range expanded {
 		base = append(base, eligibleCandidate{Candidate: candidate, bindings: resolvedBindings})
 	}
-	return base
+	return base, false
 }
 
 func bindingFromCandidate(candidate Candidate) Binding {

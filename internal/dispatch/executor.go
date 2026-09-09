@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"weave-os/router/internal/inference"
@@ -337,6 +338,8 @@ func failureReason(err error) string {
 		return FailureReasonUpstreamStatus
 	case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
 		return FailureReasonCanceled
+	case strings.Contains(err.Error(), FailureReasonAttemptBudget):
+		return FailureReasonAttemptBudget
 	default:
 		return FailureReasonTransport
 	}

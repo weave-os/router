@@ -75,6 +75,7 @@ type SelectionStrategy = inference.SelectionStrategy
 
 const (
 	SelectionStrategyRouter              = inference.SelectionStrategyRouter
+	SelectionStrategyRecovery            = inference.SelectionStrategyRecovery
 	SelectionStrategyFixedCatalog        = inference.SelectionStrategyFixedCatalog
 	SelectionStrategyDeploymentHardPin   = inference.SelectionStrategyDeploymentHardPin
 	SelectionStrategyClientAuthoritative = inference.SelectionStrategyClientAuthoritative

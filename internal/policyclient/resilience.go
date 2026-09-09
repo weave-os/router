@@ -91,6 +91,11 @@ func (r *resilience) admit(ctx context.Context) (func(error), error) {
 			endpointFailure = true
 		}
 		if !endpointFailure {
+			if probe {
+				r.failures = 0
+				r.openUntil = time.Time{}
+				r.generation++
+			}
 			return
 		}
 		r.failures++

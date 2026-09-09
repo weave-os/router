@@ -328,13 +328,13 @@ func (e *RequestEnvelope) taskPreservingWindow(messages []gjson.Result, n int) [
 		semanticInput := isTextBearingUserMessage(message, e.format)
 		message.Get("content").ForEach(func(_, block gjson.Result) bool {
 			switch block.Get("type").String() {
-			case "image", "image_url", "input_image", "document", "file", "input_file":
+			case "image", "image_url", "input_image", "document", "file", "input_file", "audio", "input_audio", "audio_url":
 				semanticInput = true
 			}
 			return true
 		})
 		message.Get("parts").ForEach(func(_, part gjson.Result) bool {
-			semanticInput = semanticInput || part.Get("inlineData").Exists() || part.Get("fileData").Exists()
+			semanticInput = semanticInput || part.Get("inlineData").Exists() || part.Get("inline_data").Exists() || part.Get("fileData").Exists() || part.Get("file_data").Exists()
 			return true
 		})
 		if semanticInput {

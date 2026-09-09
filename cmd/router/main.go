@@ -1184,7 +1184,7 @@ func main() {
 
 	escalationStore := postgres.NewEscalationRepo(pool)
 	safeGo(logger, "escalation-state-sweep", func() { runEscalationSweep(context.Background(), escalationStore) })
-	servedModels := proxyRoutableModels(routingTargets, availableProviders, hmmRouter != nil || policyDeadlineFallback)
+	servedModels := proxyRoutableModels(routingTargets, availableProviders, hmmRouter != nil || recoveryReady)
 	proxySvc := proxy.NewService(routeEntry, providerMap, telemetryEmitter, embedOnlyUser, semanticCache, pinStore, hardPinExplore, hardPinProvider, hardPinModel, repo.Telemetry).
 		WithSessionStrategyStore(sessionStrategyStore).
 		WithEscalation(escalationStore, escalationObserver).

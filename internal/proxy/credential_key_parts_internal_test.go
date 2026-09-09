@@ -31,7 +31,7 @@ func TestCredentialKeyParts_DeploymentKeyTurnIsEmpty(t *testing.T) {
 
 func TestRecoveryWinningDeploymentCredentialClearsFailedSubscription(t *testing.T) {
 	ctx := ctxWithCreds(&Credentials{APIKey: []byte("synthetic-subscription"), Source: credSourceSubscription, OAuth: true})
-	winner := router.Decision{Provider: providers.ProviderOpenAI, Model: "gpt-5.6-luna", Recovery: &router.ServingRecovery{}}
+	winner := router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-sonnet-5", Recovery: &router.ServingRecovery{}}
 	served := resolveRecoveryCredentials(ctx, winner, http.Header{})
 	assert.False(t, servedOnSubscription(served))
 	prefix, suffix, source := (&Service{}).credentialKeyParts(served)

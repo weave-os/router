@@ -928,7 +928,7 @@ func (c *Client) doPolicyAttempt(
 	}
 	statusErr := policyStatusError(resp.StatusCode, payload)
 	observability.FromContext(ctx).Warn("Policy sidecar returned a non-success status",
-		"operation", "decide", "path", path, "status_code", resp.StatusCode,
+		"operation", strings.TrimPrefix(path, "/"), "path", path, "status_code", resp.StatusCode,
 		"attempt", attempt, "failure_reason", policy.FailureReasonFor(statusErr))
 	return nil, nil, !isTransientPolicyStatus(resp.StatusCode), statusErr
 }

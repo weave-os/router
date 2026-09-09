@@ -891,6 +891,9 @@ func (s *Service) runTurnLoop(
 		res.Decision = decision
 		res.Fresh = decision
 		res.PolicyFallback = decision.Recovery != nil
+		if decision.Recovery != nil {
+			res.PinTier = policyRecoveryReason
+		}
 		return res, nil
 	}
 
@@ -988,7 +991,7 @@ func (s *Service) runTurnLoop(
 			servedIdentity := candidate.LastServedModel
 			candidate.LastServedModel = baseModelOf(candidate.LastServedModel)
 			candidate.Model = baseModelOf(candidate.Model)
-			if valid, ok := s.normalizeHMMStayPin(req, candidate); ok && (latestPin.LastServedModel == "" || valid.LastTurnEndedAt.After(latestPin.LastTurnEndedAt)) {
+			if valid, ok := s.normalizeHMMStayPin(req, candidate); ok && (latestPin.LastTurnEndedAt.IsZero() || valid.LastTurnEndedAt.After(latestPin.LastTurnEndedAt)) {
 				latestPin = valid
 				latestPin.LastServedModel = servedIdentity
 			}
