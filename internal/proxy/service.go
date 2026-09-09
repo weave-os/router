@@ -4410,7 +4410,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	otel.Flush(ctx)
 
 	if !agentShadowMode {
-		s.recordTurnUsage(routeRes, finalProvider, decision.ServedIdentity(), in, out, cacheCreation, cacheRead)
+		s.recordTurnUsage(ctx, routeRes, finalProvider, decision.ServedIdentity(), in, out, cacheCreation, cacheRead)
 	}
 
 	// Eval rows must not enter serving telemetry; they would corrupt offline policy analysis.
@@ -4777,12 +4777,12 @@ func (s *Service) logPlannerOutcome(ctx context.Context, res turnLoopResult) {
 	)
 }
 
-func (s *Service) recordTurnUsage(res turnLoopResult, servedProvider, servedModel string, in, out, cacheCreation, cacheRead int) {
+func (s *Service) recordTurnUsage(ctx context.Context, res turnLoopResult, servedProvider, servedModel string, in, out, cacheCreation, cacheRead int) {
 	if s.pinStore == nil || res.HardPinned {
 		return
 	}
 	if res.BlindExperimentPassthrough {
-		s.recordPassthroughTurnHistory(res, servedProvider, servedModel, in, out, cacheCreation, cacheRead)
+		s.recordPassthroughTurnHistory(ctx, res, servedProvider, servedModel, in, out, cacheCreation, cacheRead)
 		return
 	}
 	if isHMMTurn(res) {
@@ -4822,22 +4822,10 @@ func (s *Service) recordTurnUsage(res turnLoopResult, servedProvider, servedMode
 
 // recordPassthroughTurnHistory updates an existing session row's switch
 // history without creating or refreshing an automatic routing pin.
-func (s *Service) recordPassthroughTurnHistory(res turnLoopResult, servedProvider, servedModel string, in, out, cacheCreation, cacheRead int) {
+func (s *Service) recordPassthroughTurnHistory(ctx context.Context, res turnLoopResult, servedProvider, servedModel string, in, out, cacheCreation, cacheRead int) {
 	var zeroKey [sessionpin.SessionKeyLen]byte
-	if res.SessionKey == zeroKey {
+	if res.SessionKey == zeroKey || in == 0 && out == 0 && cacheCreation == 0 && cacheRead == 0 {
 		return
-	}
-	usage := sessionpin.Usage{
-		Strategy:            strategyForTurnLoopResult(res),
-		InputTokens:         in,
-		CachedReadTokens:    cacheRead,
-		CachedWriteTokens:   cacheCreation,
-		OutputTokens:        out,
-		EndedAt:             time.Now(),
-		ServedModel:         servedModel,
-		ServedProvider:      servedProvider,
-		PriorServedModel:    res.PriorServedModel,
-		SessionEverSwitched: res.SessionEverSwitched,
 	}
 	role := res.PinRole
 	if isUserForcedReason(res.Decision.Reason) {
@@ -4846,8 +4834,41 @@ func (s *Service) recordPassthroughTurnHistory(res turnLoopResult, servedProvide
 	if role == "" {
 		role = sessionpin.DefaultRole
 	}
+	pin, found, err := s.pinStore.Get(ctx, res.SessionKey, role)
+	if err != nil {
+		observability.FromContext(ctx).Error("session pin passthrough history lookup failed", "err", err)
+		return
+	}
+	if !found {
+		return
+	}
+	// UpdateUsage is also responsible for LastServedModel and
+	// HasEverSwitched, but it writes the provider and planner usage columns in
+	// the same statement. Preserve those fields from the existing pin so a
+	// passthrough turn cannot make the automatic pin point at the caller's
+	// model or erase its prior usage evidence.
+	strategy := pin.Strategy
+	if strategy == "" {
+		strategy = strategyForTurnLoopResult(res)
+	}
+	historyProvider := pin.Provider
+	if historyProvider == "" {
+		historyProvider = servedProvider
+	}
+	usage := sessionpin.Usage{
+		Strategy:            strategy,
+		InputTokens:         pin.LastInputTokens,
+		CachedReadTokens:    pin.LastCachedReadTokens,
+		CachedWriteTokens:   pin.LastCachedWriteTokens,
+		OutputTokens:        pin.LastOutputTokens,
+		EndedAt:             pin.LastTurnEndedAt,
+		ServedModel:         servedModel,
+		ServedProvider:      historyProvider,
+		PriorServedModel:    res.PriorServedModel,
+		SessionEverSwitched: res.SessionEverSwitched,
+	}
 	if err := s.pinStore.UpdateUsage(context.Background(), res.SessionKey, role, usage); err != nil {
-		observability.FromContext(context.Background()).Error("session pin passthrough history writeback failed", "err", err)
+		observability.FromContext(ctx).Error("session pin passthrough history writeback failed", "err", err)
 	}
 }
 
@@ -6970,7 +6991,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		emitCallLog()
 	}
 
-	s.recordTurnUsage(routeRes, finalProvider, decision.ServedIdentity(), in, out, cacheCreation, cacheRead)
+	s.recordTurnUsage(ctx, routeRes, finalProvider, decision.ServedIdentity(), in, out, cacheCreation, cacheRead)
 
 	if proxyErr == nil {
 		s.emitBilling(ctx, requestID, externalID, decision, actPricing, routeRes, in, out, cacheCreation, cacheRead)

@@ -74,6 +74,18 @@ func TestLRUBlindExperimentCacheTTLExpires(t *testing.T) {
 	}, time.Second, 5*time.Millisecond)
 }
 
+func TestLRUBlindExperimentCacheBoundsErrorsSeparately(t *testing.T) {
+	cache := auth.NewLRUBlindExperimentCache(1, time.Minute, time.Now)
+	cache.Set("inst-1", "active-user", auth.BlindExperimentState{Active: true, Arm: auth.BlindExperimentArmRouterOn})
+	cache.SetError("inst-1", "failed-user")
+
+	state, found := cache.Get("active-user")
+	assert.True(t, found, "a failed lookup must not evict an active assignment")
+	assert.Equal(t, auth.BlindExperimentArmRouterOn, state.Arm)
+	_, found = cache.Get("failed-user")
+	assert.True(t, found, "an active error entry should fail open without a repository retry")
+}
+
 type fakeBlindExperimentRepository struct {
 	record auth.BlindExperimentRecord
 	err    error

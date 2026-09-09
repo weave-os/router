@@ -52,6 +52,8 @@ var ErrInvalidEntraAuth = errors.New("auth: invalid Microsoft Entra auth")
 
 type Clock func() time.Time
 
+const blindExperimentFetchTimeout = 5 * time.Second
+
 // InstallationChangeNotifier fans out installation-change events to peer replicas.
 // Fire-and-forget: implementations must not block the caller.
 type InstallationChangeNotifier interface {
@@ -852,13 +854,17 @@ func (s *Service) withBlindExperiment(ctx context.Context, installationID, route
 	}
 	state, ok := s.blindExperimentCache.Get(routerUserID)
 	if !ok {
-		value, err, _ := s.blindExperimentFetches.Do(routerUserID, func() (any, error) {
+		fetchKey := installationID + "\x00" + routerUserID
+		fetchGeneration := s.blindExperimentCache.InvalidationGeneration()
+		resultCh := s.blindExperimentFetches.DoChan(fetchKey, func() (any, error) {
+			fetchCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), blindExperimentFetchTimeout)
+			defer cancel()
 			// A concurrent request may have filled the cache while this request
 			// waited for the per-user refresh. Re-check before querying Postgres.
 			if cached, found := s.blindExperimentCache.Get(routerUserID); found {
 				return cached, nil
 			}
-			record, fetchErr := s.blindExperiments.GetForUser(ctx, installationID, routerUserID)
+			record, fetchErr := s.blindExperiments.GetForUser(fetchCtx, installationID, routerUserID)
 			if fetchErr != nil {
 				// Fail open for the request, but cache the failure only for the
 				// cache's short retry window so an outage does not hammer the DB or
@@ -870,6 +876,13 @@ func (s *Service) withBlindExperiment(ctx context.Context, installationID, route
 			s.blindExperimentCache.Set(installationID, routerUserID, resolved)
 			return resolved, nil
 		})
+		var result singleflight.Result
+		select {
+		case result = <-resultCh:
+		case <-ctx.Done():
+			return ctx
+		}
+		value, err := result.Val, result.Err
 		if err != nil {
 			observability.FromContext(ctx).Warn("Failed to fetch blind router experiment assignment", "router_user_id", routerUserID, "err", err)
 			return ctx
@@ -878,6 +891,17 @@ func (s *Service) withBlindExperiment(ctx context.Context, installationID, route
 		state, found = value.(BlindExperimentState)
 		if !found {
 			return ctx
+		}
+		if s.blindExperimentCache.InvalidationGeneration() != fetchGeneration {
+			return ctx
+		}
+		// An installation invalidation may have evicted the value after the
+		// shared fetch completed. Never stash a result that is no longer in the
+		// cache; the next request will fetch the current assignment.
+		if current, currentFound := s.blindExperimentCache.Get(routerUserID); !currentFound {
+			return ctx
+		} else {
+			state = current
 		}
 	}
 	if !state.Active {

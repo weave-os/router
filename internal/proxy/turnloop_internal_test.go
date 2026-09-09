@@ -183,6 +183,15 @@ func TestCacheablePrefixTokens_UsesReadOrWriteEvidence(t *testing.T) {
 // prior-turn evidence by the next turn.
 func TestRecordTurnUsage_WritesToStore(t *testing.T) {
 	store := newStubPinStore()
+	store.getFound = true
+	store.getPin = sessionpin.Pin{
+		Provider:              providers.ProviderAnthropic,
+		Strategy:              router.StrategyCluster,
+		LastInputTokens:       7,
+		LastCachedReadTokens:  8,
+		LastCachedWriteTokens: 9,
+		LastOutputTokens:      10,
+	}
 	svc := NewService(
 		nil,
 		nil,
@@ -205,7 +214,7 @@ func TestRecordTurnUsage_WritesToStore(t *testing.T) {
 		SessionKey: sessionKey,
 		PinRole:    sessionpin.DefaultRole,
 	}
-	svc.recordTurnUsage(res, res.Decision.Provider, res.Decision.Model, 1200, 80, 200, 900)
+	svc.recordTurnUsage(context.Background(), res, res.Decision.Provider, res.Decision.Model, 1200, 80, 200, 900)
 
 	store.mu.Lock()
 	defer store.mu.Unlock()
@@ -235,7 +244,7 @@ func TestRecordTurnUsage_PassthroughWritesHistoryWithoutCreatingPin(t *testing.T
 
 	var sessionKey [sessionpin.SessionKeyLen]byte
 	sessionKey[0] = 1
-	svc.recordTurnUsage(turnLoopResult{
+	svc.recordTurnUsage(context.Background(), turnLoopResult{
 		Decision:                   router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-sonnet-4-6"},
 		SessionKey:                 sessionKey,
 		PinRole:                    sessionpin.DefaultRole,
@@ -246,6 +255,8 @@ func TestRecordTurnUsage_PassthroughWritesHistoryWithoutCreatingPin(t *testing.T
 	defer store.mu.Unlock()
 	assert.Equal(t, 1, store.usageHits, "passthrough must preserve switch history on an existing session pin")
 	assert.Equal(t, "claude-sonnet-4-6", store.lastUsage.ServedModel)
+	assert.Equal(t, providers.ProviderAnthropic, store.lastUsage.ServedProvider, "passthrough must preserve the automatic pin provider")
+	assert.Equal(t, 7, store.lastUsage.InputTokens, "passthrough must preserve automatic pin usage evidence")
 	assert.Empty(t, store.upserts, "passthrough must not create session history rows")
 }
 
@@ -275,7 +286,7 @@ func TestRecordTurnUsage_ForwardsSwitchHistory(t *testing.T) {
 		PriorServedModel:    "claude-opus-4-7",
 		SessionEverSwitched: true,
 	}
-	svc.recordTurnUsage(res, res.Decision.Provider, res.Decision.Model, 1200, 80, 200, 900)
+	svc.recordTurnUsage(context.Background(), res, res.Decision.Provider, res.Decision.Model, 1200, 80, 200, 900)
 
 	store.mu.Lock()
 	defer store.mu.Unlock()
@@ -322,7 +333,7 @@ func TestRecordTurnUsage_HMMDecisionWritesHistoryOnly(t *testing.T) {
 		// latch has_ever_switched without mutating the active routing role.
 		PriorServedModel: "claude-haiku-4-5",
 	}
-	svc.recordTurnUsage(res, res.Decision.Provider, res.Decision.Model, 1200, 80, 200, 900)
+	svc.recordTurnUsage(context.Background(), res, res.Decision.Provider, res.Decision.Model, 1200, 80, 200, 900)
 
 	store.mu.Lock()
 	defer store.mu.Unlock()
@@ -378,7 +389,7 @@ func TestRecordTurnUsage_HMMModelChangeWritesCurrentUsageOnly(t *testing.T) {
 		PinTier:          "hmm_fresh_unpinned",
 		PriorServedModel: "claude-haiku-4-5",
 	}
-	svc.recordTurnUsage(res, res.Decision.Provider, res.Decision.Model, 1200, 80, 200, 900)
+	svc.recordTurnUsage(context.Background(), res, res.Decision.Provider, res.Decision.Model, 1200, 80, 200, 900)
 
 	store.mu.Lock()
 	defer store.mu.Unlock()
@@ -424,7 +435,7 @@ func TestRecordHMMTurnHistory_ZeroUsageRefreshesTTLButSkipsUsageWriteback(t *tes
 		PinRole:    sessionpin.DefaultRole,
 	}
 	// A failed/empty upstream turn: all usage counts zero.
-	svc.recordTurnUsage(res, res.Decision.Provider, res.Decision.Model, 0, 0, 0, 0)
+	svc.recordTurnUsage(context.Background(), res, res.Decision.Provider, res.Decision.Model, 0, 0, 0, 0)
 
 	store.mu.Lock()
 	defer store.mu.Unlock()
@@ -467,7 +478,7 @@ func TestRecordHMMTurnHistory_ZeroUsagePreservesPriorProvider(t *testing.T) {
 		PinRole:    sessionpin.DefaultRole,
 	}
 
-	svc.recordTurnUsage(res, res.Decision.Provider, res.Decision.Model, 0, 0, 0, 0)
+	svc.recordTurnUsage(context.Background(), res, res.Decision.Provider, res.Decision.Model, 0, 0, 0, 0)
 
 	store.mu.Lock()
 	defer store.mu.Unlock()
@@ -596,7 +607,7 @@ func TestRecordTurnUsage_HMMEVStayWritesHistoryOnly(t *testing.T) {
 		PinRole:    sessionpin.DefaultRole,
 		PinTier:    "hmm_ev_stay_ev_negative",
 	}
-	svc.recordTurnUsage(res, res.Decision.Provider, res.Decision.Model, 1200, 80, 200, 900)
+	svc.recordTurnUsage(context.Background(), res, res.Decision.Provider, res.Decision.Model, 1200, 80, 200, 900)
 
 	store.mu.Lock()
 	defer store.mu.Unlock()

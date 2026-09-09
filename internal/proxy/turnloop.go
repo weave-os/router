@@ -754,9 +754,9 @@ func (s *Service) runTurnLoop(
 			return res, err
 		}
 		if passthrough {
-			// Passthrough skips automatic pin reuse and writes, but still carries
-			// the session's switch history forward so same-format emit can strip
-			// stale thinking blocks and handover can detect a model transition.
+			// Passthrough skips automatic pin creation and reuse, but records the
+			// served model in switch history so same-format emit can strip stale
+			// thinking blocks and a later routed turn can detect model transitions.
 			res.SessionKey = threadSessionKey
 			if s.pinStore != nil {
 				pin, _ := s.loadPin(ctx, threadSessionKey, res.PinRole)
