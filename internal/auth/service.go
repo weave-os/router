@@ -13,6 +13,7 @@ import (
 	"weave-os/router/internal/providers"
 
 	"github.com/hashicorp/golang-lru/v2/expirable"
+	"golang.org/x/sync/singleflight"
 )
 
 // ErrUnknownModel is returned when a requested model ID is not in the caller-supplied allowed set.
@@ -65,22 +66,23 @@ func (NoOpInstallationChangeNotifier) NotifyInstallationChanged(string) {}
 
 // Service authenticates incoming bearer tokens. Identity only; routing/dispatch lives in proxy.Service.
 type Service struct {
-	installations         InstallationRepository
-	apiKeys               APIKeyRepository
-	externalKeys          ExternalAPIKeyRepository
-	users                 UserRepository
-	clusterModelLists     ClusterModelListRepository
-	userClusterModelLists UserClusterModelListRepository
-	blindExperiments      BlindExperimentRepository
-	cache                 APIKeyCache
-	userCache             UserCache
-	userClusterCache      UserClusterListCache
-	blindExperimentCache  BlindExperimentCache
-	subscriptionAccounts  SubscriptionAccountRepository
-	notifier              InstallationChangeNotifier
-	now                   Clock
-	encryptor             Encryptor
-	keypairTokens         *KeypairTokenCache
+	installations          InstallationRepository
+	apiKeys                APIKeyRepository
+	externalKeys           ExternalAPIKeyRepository
+	users                  UserRepository
+	clusterModelLists      ClusterModelListRepository
+	userClusterModelLists  UserClusterModelListRepository
+	blindExperiments       BlindExperimentRepository
+	cache                  APIKeyCache
+	userCache              UserCache
+	userClusterCache       UserClusterListCache
+	blindExperimentCache   BlindExperimentCache
+	blindExperimentFetches singleflight.Group
+	subscriptionAccounts   SubscriptionAccountRepository
+	notifier               InstallationChangeNotifier
+	now                    Clock
+	encryptor              Encryptor
+	keypairTokens          *KeypairTokenCache
 	// wifTokens is nil unless the deployment runs with a workload identity;
 	// WIF keys are then dropped rather than sent without a credential.
 	wifTokens WIFTokenSource
@@ -850,17 +852,33 @@ func (s *Service) withBlindExperiment(ctx context.Context, installationID, route
 	}
 	state, ok := s.blindExperimentCache.Get(routerUserID)
 	if !ok {
-		record, err := s.blindExperiments.GetForUser(ctx, installationID, routerUserID)
+		value, err, _ := s.blindExperimentFetches.Do(routerUserID, func() (any, error) {
+			// A concurrent request may have filled the cache while this request
+			// waited for the per-user refresh. Re-check before querying Postgres.
+			if cached, found := s.blindExperimentCache.Get(routerUserID); found {
+				return cached, nil
+			}
+			record, fetchErr := s.blindExperiments.GetForUser(ctx, installationID, routerUserID)
+			if fetchErr != nil {
+				// Fail open for the request, but cache the failure only for the
+				// cache's short retry window so an outage does not hammer the DB or
+				// permanently bias the experiment cohort after recovery.
+				s.blindExperimentCache.SetError(installationID, routerUserID)
+				return nil, fetchErr
+			}
+			resolved := resolveBlindExperiment(record, routerUserID)
+			s.blindExperimentCache.Set(installationID, routerUserID, resolved)
+			return resolved, nil
+		})
 		if err != nil {
 			observability.FromContext(ctx).Warn("Failed to fetch blind router experiment assignment", "router_user_id", routerUserID, "err", err)
-			// Fail open for the request, but cache the failure only for the
-			// cache's short retry window so an outage does not hammer the DB or
-			// permanently bias the experiment cohort after recovery.
-			s.blindExperimentCache.SetError(installationID, routerUserID)
 			return ctx
 		}
-		state = resolveBlindExperiment(record, routerUserID)
-		s.blindExperimentCache.Set(installationID, routerUserID, state)
+		var found bool
+		state, found = value.(BlindExperimentState)
+		if !found {
+			return ctx
+		}
 	}
 	if !state.Active {
 		return ctx

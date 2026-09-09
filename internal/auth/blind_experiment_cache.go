@@ -30,6 +30,7 @@ func (NoOpBlindExperimentCache) InvalidateInstallation(string)            {}
 type LRUBlindExperimentCache struct {
 	mu             sync.Mutex
 	entries        *expirable.LRU[string, BlindExperimentState]
+	now            Clock
 	errorTTL       time.Duration
 	byInstallation map[string]map[string]struct{}
 	// A global epoch closes the Set/Invalidate race without retaining one
@@ -41,12 +42,16 @@ type LRUBlindExperimentCache struct {
 }
 
 // NewLRUBlindExperimentCache constructs the per-user experiment cache.
-func NewLRUBlindExperimentCache(size int, ttl time.Duration) *LRUBlindExperimentCache {
+func NewLRUBlindExperimentCache(size int, ttl time.Duration, now Clock) *LRUBlindExperimentCache {
 	errorTTL := ttl
 	if errorTTL <= 0 || errorTTL > 10*time.Second {
 		errorTTL = 10 * time.Second
 	}
+	if now == nil {
+		now = time.Now
+	}
 	cache := &LRUBlindExperimentCache{
+		now:                now,
 		byInstallation:     make(map[string]map[string]struct{}),
 		installationByUser: make(map[string]string),
 		errorTTL:           errorTTL,
@@ -60,7 +65,7 @@ func (cache *LRUBlindExperimentCache) Get(routerUserID string) (BlindExperimentS
 	if !ok {
 		return BlindExperimentState{}, false
 	}
-	if !state.errorCachedUntil.IsZero() && !time.Now().Before(state.errorCachedUntil) {
+	if !state.errorCachedUntil.IsZero() && !cache.now().Before(state.errorCachedUntil) {
 		// Leave the expired entry in place until the next successful Set or
 		// installation invalidation. Returning a miss without removing it avoids
 		// racing a concurrent Set that may have already refreshed the entry.
@@ -109,7 +114,7 @@ func (cache *LRUBlindExperimentCache) Set(installationID, routerUserID string, s
 // assignment TTL or an invalidation event.
 func (cache *LRUBlindExperimentCache) SetError(installationID, routerUserID string) {
 	cache.Set(installationID, routerUserID, BlindExperimentState{
-		errorCachedUntil: time.Now().Add(cache.errorTTL),
+		errorCachedUntil: cache.now().Add(cache.errorTTL),
 	})
 }
 

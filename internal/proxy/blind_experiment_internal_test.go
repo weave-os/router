@@ -9,7 +9,6 @@ import (
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
-	"weave-os/router/internal/router/cluster"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/translate"
 
@@ -149,8 +148,8 @@ func TestBlindExperimentPassthroughHonorsExcludedModels(t *testing.T) {
 		},
 	)
 
-	require.ErrorIs(t, err, cluster.ErrNoEligibleProvider)
-	assert.True(t, passthrough)
+	require.NoError(t, err)
+	assert.False(t, passthrough)
 }
 
 func TestBlindExperimentRouterOnUsesScorer(t *testing.T) {

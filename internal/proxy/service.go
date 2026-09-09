@@ -4778,7 +4778,11 @@ func (s *Service) logPlannerOutcome(ctx context.Context, res turnLoopResult) {
 }
 
 func (s *Service) recordTurnUsage(res turnLoopResult, servedProvider, servedModel string, in, out, cacheCreation, cacheRead int) {
-	if s.pinStore == nil || res.HardPinned || res.BlindExperimentPassthrough {
+	if s.pinStore == nil || res.HardPinned {
+		return
+	}
+	if res.BlindExperimentPassthrough {
+		s.recordPassthroughTurnHistory(res, servedProvider, servedModel, in, out, cacheCreation, cacheRead)
 		return
 	}
 	if isHMMTurn(res) {
@@ -4813,6 +4817,37 @@ func (s *Service) recordTurnUsage(res turnLoopResult, servedProvider, servedMode
 	}
 	if err := s.pinStore.UpdateUsage(context.Background(), res.SessionKey, role, usage); err != nil {
 		observability.Get().Error("session pin usage writeback failed", "err", err)
+	}
+}
+
+// recordPassthroughTurnHistory updates an existing session row's switch
+// history without creating or refreshing an automatic routing pin.
+func (s *Service) recordPassthroughTurnHistory(res turnLoopResult, servedProvider, servedModel string, in, out, cacheCreation, cacheRead int) {
+	var zeroKey [sessionpin.SessionKeyLen]byte
+	if res.SessionKey == zeroKey {
+		return
+	}
+	usage := sessionpin.Usage{
+		Strategy:            strategyForTurnLoopResult(res),
+		InputTokens:         in,
+		CachedReadTokens:    cacheRead,
+		CachedWriteTokens:   cacheCreation,
+		OutputTokens:        out,
+		EndedAt:             time.Now(),
+		ServedModel:         servedModel,
+		ServedProvider:      servedProvider,
+		PriorServedModel:    res.PriorServedModel,
+		SessionEverSwitched: res.SessionEverSwitched,
+	}
+	role := res.PinRole
+	if isUserForcedReason(res.Decision.Reason) {
+		role = forceModelHistoryRole(role)
+	}
+	if role == "" {
+		role = sessionpin.DefaultRole
+	}
+	if err := s.pinStore.UpdateUsage(context.Background(), res.SessionKey, role, usage); err != nil {
+		observability.FromContext(context.Background()).Error("session pin passthrough history writeback failed", "err", err)
 	}
 }
 

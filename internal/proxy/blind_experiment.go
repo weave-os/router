@@ -32,7 +32,10 @@ func (s *Service) blindExperimentPassthroughDecision(ctx context.Context, req ro
 		return router.Decision{}, true, fmt.Errorf("requested model %q is not allowed: %w", req.RequestedModel, cluster.ErrAllowlistEmptiesPool)
 	}
 	if _, excluded := req.ExcludedModels[req.RequestedModel]; excluded {
-		return router.Decision{}, true, fmt.Errorf("requested model %q is excluded: %w", req.RequestedModel, cluster.ErrNoEligibleProvider)
+		// Organization policy exclusions are part of normal scorer eligibility.
+		// Let the routed arm choose another eligible model instead of turning a
+		// passthrough request into a hard failure.
+		return router.Decision{}, false, nil
 	}
 	if _, excluded := req.SafetyExcludedModels[req.RequestedModel]; excluded {
 		return router.Decision{}, true, fmt.Errorf("requested model %q cannot serve this request: %w", req.RequestedModel, cluster.ErrNoEligibleProvider)

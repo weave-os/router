@@ -35,7 +35,7 @@ func TestAssignBlindExperimentArmPercentageOnlyMovesBoundarySubjects(t *testing.
 }
 
 func TestLRUBlindExperimentCacheStoresInactiveAndInvalidatesByInstallation(t *testing.T) {
-	cache := auth.NewLRUBlindExperimentCache(10, time.Minute)
+	cache := auth.NewLRUBlindExperimentCache(10, time.Minute, time.Now)
 	cache.Set("inst-1", "user-1", auth.BlindExperimentState{})
 	cache.Set("inst-2", "user-2", auth.BlindExperimentState{Active: true, Arm: auth.BlindExperimentArmRouterOn})
 
@@ -50,7 +50,7 @@ func TestLRUBlindExperimentCacheStoresInactiveAndInvalidatesByInstallation(t *te
 }
 
 func TestLRUBlindExperimentCacheReassignsUserBetweenInstallations(t *testing.T) {
-	cache := auth.NewLRUBlindExperimentCache(10, time.Minute)
+	cache := auth.NewLRUBlindExperimentCache(10, time.Minute, time.Now)
 	cache.Set("inst-1", "user-1", auth.BlindExperimentState{Active: true, Arm: auth.BlindExperimentArmRouterOn})
 	cache.Set("inst-2", "user-1", auth.BlindExperimentState{Active: true, Arm: auth.BlindExperimentArmPassthrough})
 
@@ -65,7 +65,7 @@ func TestLRUBlindExperimentCacheReassignsUserBetweenInstallations(t *testing.T) 
 }
 
 func TestLRUBlindExperimentCacheTTLExpires(t *testing.T) {
-	cache := auth.NewLRUBlindExperimentCache(10, 10*time.Millisecond)
+	cache := auth.NewLRUBlindExperimentCache(10, 10*time.Millisecond, time.Now)
 	cache.Set("inst-1", "user-1", auth.BlindExperimentState{Active: true, Arm: auth.BlindExperimentArmPassthrough})
 
 	require.Eventually(t, func() bool {
@@ -99,7 +99,7 @@ func TestResolveAndStashUserBlindExperimentOverrideAndCache(t *testing.T) {
 		ManualOverride:      auth.BlindExperimentArmPassthrough,
 	}}
 	service := makeServiceWithUsers(t, users).
-		WithBlindExperiments(experiments, auth.NewLRUBlindExperimentCache(10, time.Minute))
+		WithBlindExperiments(experiments, auth.NewLRUBlindExperimentCache(10, time.Minute, time.Now))
 
 	firstContext := service.ResolveAndStashUser(context.Background(), "inst-1", "alice@example.com", "", "")
 	secondContext := service.ResolveAndStashUser(context.Background(), "inst-1", "alice@example.com", "", "")
@@ -119,7 +119,7 @@ func TestResolveAndStashUserBlindExperimentFetchFailureFailsOpen(t *testing.T) {
 	users := &fakeUserRepo{user: &auth.User{ID: "user-42", InstallationID: "inst-1", Email: "alice@example.com"}}
 	experiments := &fakeBlindExperimentRepository{err: errors.New("database unavailable")}
 	service := makeServiceWithUsers(t, users).
-		WithBlindExperiments(experiments, auth.NewLRUBlindExperimentCache(10, 10*time.Millisecond))
+		WithBlindExperiments(experiments, auth.NewLRUBlindExperimentCache(10, 10*time.Millisecond, time.Now))
 
 	requestContext := service.ResolveAndStashUser(context.Background(), "inst-1", "alice@example.com", "", "")
 
@@ -131,4 +131,19 @@ func TestResolveAndStashUserBlindExperimentFetchFailureFailsOpen(t *testing.T) {
 		service.ResolveAndStashUser(context.Background(), "inst-1", "alice@example.com", "", "")
 		return experiments.calls == 2
 	}, time.Second, 5*time.Millisecond, "failed reads should retry after the short outage cache window")
+}
+
+func TestResolveAndStashUserBlindExperimentRetriesUsingCacheClock(t *testing.T) {
+	users := &fakeUserRepo{user: &auth.User{ID: "user-42", InstallationID: "inst-1", Email: "alice@example.com"}}
+	experiments := &fakeBlindExperimentRepository{err: errors.New("database unavailable")}
+	current := time.Date(2026, 9, 8, 12, 0, 0, 0, time.UTC)
+	cache := auth.NewLRUBlindExperimentCache(10, time.Minute, func() time.Time { return current })
+	service := makeServiceWithUsers(t, users).WithBlindExperiments(experiments, cache)
+
+	service.ResolveAndStashUser(context.Background(), "inst-1", "alice@example.com", "", "")
+	assert.Equal(t, 1, experiments.calls)
+
+	current = current.Add(11 * time.Second)
+	service.ResolveAndStashUser(context.Background(), "inst-1", "alice@example.com", "", "")
+	assert.Equal(t, 2, experiments.calls, "the injected cache clock must control the error retry boundary")
 }

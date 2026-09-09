@@ -459,7 +459,7 @@ func main() {
 	userCache := auth.NewLRUUserCache(50000, 10*time.Minute)
 	// 5-min TTL matches the API-key cache so both halves share one staleness bound under a Pub/Sub outage.
 	userClusterCache := auth.NewLRUUserClusterListCache(50000, 5*time.Minute)
-	blindExperimentCache := auth.NewLRUBlindExperimentCache(50000, 5*time.Minute)
+	blindExperimentCache := auth.NewLRUBlindExperimentCache(50000, 5*time.Minute, time.Now)
 
 	pubsubProjectID := config.MustGet("PUBSUB_PROJECT_ID")
 	pubsubTopicID := config.MustGet("PUBSUB_TOPIC_ROUTER_INVALIDATION")

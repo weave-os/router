@@ -219,7 +219,7 @@ func TestRecordTurnUsage_WritesToStore(t *testing.T) {
 	assert.False(t, store.lastUsage.EndedAt.IsZero(), "EndedAt must be stamped — the planner uses IsZero() as its no-prior-usage gate")
 }
 
-func TestRecordTurnUsage_PassthroughDoesNotWriteSessionHistory(t *testing.T) {
+func TestRecordTurnUsage_PassthroughWritesHistoryWithoutCreatingPin(t *testing.T) {
 	store := newStubPinStore()
 	svc := NewService(
 		nil,
@@ -244,7 +244,8 @@ func TestRecordTurnUsage_PassthroughDoesNotWriteSessionHistory(t *testing.T) {
 
 	store.mu.Lock()
 	defer store.mu.Unlock()
-	assert.Zero(t, store.usageHits, "passthrough must not write usage into the automatic session pin")
+	assert.Equal(t, 1, store.usageHits, "passthrough must preserve switch history on an existing session pin")
+	assert.Equal(t, "claude-sonnet-4-6", store.lastUsage.ServedModel)
 	assert.Empty(t, store.upserts, "passthrough must not create session history rows")
 }
 
