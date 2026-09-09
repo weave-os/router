@@ -25,7 +25,7 @@ func NewEscalationRepo(pool *pgxpool.Pool) *EscalationRepo { return &EscalationR
 var _ escalation.Store = (*EscalationRepo)(nil)
 
 // Claim returns false when another observer owns the session's unexpired lease.
-func (r *EscalationRepo) Claim(ctx context.Context, scope [32]byte, installationID, token string) (escalation.Session, bool, error) {
+func (r *EscalationRepo) Claim(ctx context.Context, scope [32]byte, installationID, token string, boundary [32]byte) (escalation.Session, bool, error) {
 	installationUUID, err := uuid.Parse(installationID)
 	if err != nil {
 		return escalation.Session{}, false, fmt.Errorf("parse escalation installation id: %w", err)
@@ -42,7 +42,7 @@ func (r *EscalationRepo) Claim(ctx context.Context, scope [32]byte, installation
 		if deleteErr != nil {
 			return deleteErr
 		}
-		encodedSessionState, claimErr := queries.UpsertEscalationSessionClaim(ctx, sqlc.UpsertEscalationSessionClaimParams{Scope: scope[:], InstallationID: installationUUID, LeaseToken: leaseUUID})
+		encodedSessionState, claimErr := queries.UpsertEscalationSessionClaim(ctx, sqlc.UpsertEscalationSessionClaimParams{Scope: scope[:], InstallationID: installationUUID, LeaseToken: leaseUUID, Boundary: boundary[:]})
 		if errors.Is(claimErr, sql.ErrNoRows) {
 			return nil
 		}
@@ -126,9 +126,9 @@ func (r *EscalationRepo) Release(ctx context.Context, scope [32]byte, token stri
 	return nil
 }
 
-// Invalidate revokes an observation's lease when another action breaks continuity.
-func (r *EscalationRepo) Invalidate(ctx context.Context, scope [32]byte) error {
-	err := sqlc.New(r.pool).UpdateEscalationSessionInvalidated(ctx, scope[:])
+// Invalidate resets broken continuity without revoking a distinct active observer.
+func (r *EscalationRepo) Invalidate(ctx context.Context, scope, boundary [32]byte) error {
+	err := sqlc.New(r.pool).UpdateEscalationSessionInvalidated(ctx, sqlc.UpdateEscalationSessionInvalidatedParams{Scope: scope[:], Boundary: boundary[:]})
 	if err != nil {
 		return fmt.Errorf("invalidate escalation session: %w", err)
 	}

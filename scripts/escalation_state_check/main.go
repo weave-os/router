@@ -68,7 +68,7 @@ func checkEscalationState(ctx context.Context, dsn string) error {
 			token := uuid.NewString()
 			ready.Done()
 			<-start
-			_, acquired, claimErr := store.Claim(ctx, scope, installation.ID, token)
+			_, acquired, claimErr := store.Claim(ctx, scope, installation.ID, token, boundary)
 			if claimErr != nil {
 				return claimErr
 			}
@@ -103,12 +103,16 @@ func checkEscalationState(ctx context.Context, dsn string) error {
 	if err != nil {
 		return err
 	}
-	_, acquired, err := store.Claim(ctx, scope, installation.ID, uuid.NewString())
+	_, acquired, err := store.Claim(ctx, scope, installation.ID, uuid.NewString(), boundary)
 	if err != nil {
 		return err
 	}
 	if acquired {
 		return errors.New("wrong-token release removed active lease")
+	}
+	err = store.Invalidate(ctx, scope, boundary)
+	if err != nil {
+		return err
 	}
 	err = store.Commit(ctx, scope, boundary, winner, session, checkpoint)
 	if err != nil {
@@ -146,11 +150,11 @@ func checkEscalationState(ctx context.Context, dsn string) error {
 		return err
 	}
 	nextToken := uuid.NewString()
-	next, acquired, err := postgres.NewEscalationRepo(pool).Claim(ctx, scope, installation.ID, nextToken)
+	next, acquired, err := postgres.NewEscalationRepo(pool).Claim(ctx, scope, installation.ID, nextToken, boundary)
 	if err != nil {
 		return err
 	}
-	if !acquired || next.Ordinal != 1 || next.Floor != escalation.Medium || next.PreviousOutcome == nil || next.PreviousOutcome.StatusCode != 503 {
+	if !acquired || next.Ordinal != 1 || next.Floor != escalation.Medium || next.PreviousOutcome == nil || next.PreviousOutcome.StatusCode != 503 || next.FeatureTurns != 1 || len(next.FeatureState) == 0 {
 		return errors.New("restart lost committed session/outcome")
 	}
 	err = store.SaveContinuation(ctx, activation, "response-busy", scope, 1, history)
@@ -195,12 +199,16 @@ func checkEscalationState(ctx context.Context, dsn string) error {
 		return errors.New("stale ordinal wrote a continuation")
 	}
 	expiredToken := uuid.NewString()
-	next, acquired, err = store.Claim(ctx, scope, installation.ID, expiredToken)
+	next, acquired, err = store.Claim(ctx, scope, installation.ID, expiredToken, boundary)
 	if err != nil {
 		return err
 	}
 	if !acquired || next.Ordinal != 2 || next.PreviousOutcome != nil {
 		return errors.New("stale outcome changed a newer observation")
+	}
+	err = store.Invalidate(ctx, scope, secondBoundary)
+	if err != nil {
+		return err
 	}
 	timer := time.NewTimer(16 * time.Second)
 	defer timer.Stop()
@@ -210,12 +218,12 @@ func checkEscalationState(ctx context.Context, dsn string) error {
 	case <-timer.C:
 	}
 	replacementToken := uuid.NewString()
-	next, acquired, err = store.Claim(ctx, scope, installation.ID, replacementToken)
+	next, acquired, err = store.Claim(ctx, scope, installation.ID, replacementToken, boundary)
 	if err != nil {
 		return err
 	}
-	if !acquired {
-		return errors.New("expired lease was not reclaimable")
+	if !acquired || next.FeatureTurns != 0 || string(next.FeatureState) != "null" {
+		return errors.New("expired lease did not apply deferred reset when reclaimed")
 	}
 	next.Ordinal = 3
 	thirdBoundary := sha256.Sum256([]byte("third boundary"))
@@ -227,35 +235,100 @@ func checkEscalationState(ctx context.Context, dsn string) error {
 	if err != nil {
 		return err
 	}
+	fourthBoundary := sha256.Sum256([]byte("fourth boundary"))
 	invalidatedToken := uuid.NewString()
-	next, acquired, err = store.Claim(ctx, scope, installation.ID, invalidatedToken)
+	next, acquired, err = store.Claim(ctx, scope, installation.ID, invalidatedToken, fourthBoundary)
 	if err != nil {
 		return err
 	}
 	if !acquired {
 		return errors.New("could not claim invalidation fixture")
 	}
-	err = store.Invalidate(ctx, scope)
+	err = store.Invalidate(ctx, scope, secondBoundary)
 	if err != nil {
 		return err
 	}
-	err = store.SaveOutcome(ctx, scope, 3, escalation.PreviousOutcome{IsError: true, StatusCode: 500})
+	_, acquired, err = store.Claim(ctx, scope, installation.ID, uuid.NewString(), secondBoundary)
 	if err != nil {
 		return err
+	}
+	if acquired {
+		return errors.New("invalidation revoked the active owner")
 	}
 	next.Ordinal = 4
-	fourthBoundary := sha256.Sum256([]byte("fourth boundary"))
+	next.FeatureTurns = 4
+	next.FeatureState = json.RawMessage(`{"turns":4}`)
+	next.Floor = escalation.High
 	err = store.Commit(ctx, scope, fourthBoundary, invalidatedToken, next, escalation.Checkpoint{Ordinal: 4})
-	if !errors.Is(err, escalation.ErrLeaseLost) {
-		return fmt.Errorf("invalidated observer committed: %v", err)
+	if err != nil {
+		return fmt.Errorf("deferred invalidation rejected active owner: %w", err)
 	}
-	restartedToken := uuid.NewString()
-	restarted, acquired, err := store.Claim(ctx, scope, installation.ID, restartedToken)
+	err = store.SaveOutcome(ctx, scope, 4, escalation.PreviousOutcome{IsError: true, StatusCode: 500})
 	if err != nil {
 		return err
 	}
-	if !acquired || restarted.Ordinal != 3 || restarted.Floor != escalation.Medium || restarted.FeatureTurns != 0 || string(restarted.FeatureState) != "null" || restarted.PreviousOutcome != nil {
-		return errors.New("invalidation failed to reset features while retaining ordinal/floor")
+	restartedToken := uuid.NewString()
+	restarted, acquired, err := store.Claim(ctx, scope, installation.ID, restartedToken, boundary)
+	if err != nil {
+		return err
+	}
+	if !acquired || restarted.Ordinal != 4 || restarted.Floor != escalation.High || restarted.FeatureTurns != 0 || string(restarted.FeatureState) != "null" || restarted.PreviousOutcome != nil {
+		return errors.New("deferred reset failed to retain committed ordinal/floor and clear features")
+	}
+	restarted.Ordinal = 5
+	restarted.FeatureTurns = 1
+	restarted.FeatureState = json.RawMessage(`{"turns":1}`)
+	fifthBoundary := sha256.Sum256([]byte("fifth boundary"))
+	err = store.Commit(ctx, scope, fifthBoundary, restartedToken, restarted, escalation.Checkpoint{Ordinal: 5})
+	if err != nil {
+		return err
+	}
+	// A released owner must leave the deferred reset for the next claimant.
+	releasedToken := uuid.NewString()
+	_, acquired, err = store.Claim(ctx, scope, installation.ID, releasedToken, boundary)
+	if err != nil || !acquired {
+		return fmt.Errorf("claim released-owner fixture: acquired=%t: %w", acquired, err)
+	}
+	err = store.Invalidate(ctx, scope, secondBoundary)
+	if err != nil {
+		return err
+	}
+	err = store.Release(ctx, scope, releasedToken)
+	if err != nil {
+		return err
+	}
+	restartedToken = uuid.NewString()
+	restarted, acquired, err = store.Claim(ctx, scope, installation.ID, restartedToken, boundary)
+	if err != nil {
+		return err
+	}
+	if !acquired || restarted.Ordinal != 5 || restarted.FeatureTurns != 0 || string(restarted.FeatureState) != "null" {
+		return errors.New("claim did not apply released owner's deferred reset")
+	}
+	restarted.Ordinal = 6
+	restarted.FeatureTurns = 1
+	restarted.FeatureState = json.RawMessage(`{"turns":1}`)
+	sixthBoundary := sha256.Sum256([]byte("sixth boundary"))
+	err = store.Commit(ctx, scope, sixthBoundary, restartedToken, restarted, escalation.Checkpoint{Ordinal: 6})
+	if err != nil {
+		return err
+	}
+	// With no owner, invalidation resets immediately and late outcome writes lose.
+	err = store.Invalidate(ctx, scope, secondBoundary)
+	if err != nil {
+		return err
+	}
+	err = store.SaveOutcome(ctx, scope, 6, escalation.PreviousOutcome{IsError: true, StatusCode: 500})
+	if err != nil {
+		return err
+	}
+	restartedToken = uuid.NewString()
+	restarted, acquired, err = store.Claim(ctx, scope, installation.ID, restartedToken, boundary)
+	if err != nil {
+		return err
+	}
+	if !acquired || restarted.Ordinal != 6 || restarted.Floor != escalation.High || restarted.FeatureTurns != 0 || string(restarted.FeatureState) != "null" || restarted.PreviousOutcome != nil {
+		return errors.New("idle invalidation did not clear features and preserve ordinal/floor")
 	}
 	err = store.Release(ctx, scope, restartedToken)
 	if err != nil {

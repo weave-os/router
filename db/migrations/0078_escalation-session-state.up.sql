@@ -7,8 +7,11 @@ CREATE TABLE router.escalation_sessions (
     session_state jsonb NOT NULL DEFAULT '{}',
     lease_token uuid,
     lease_until timestamptz,
+    lease_boundary bytea CHECK (octet_length(lease_boundary) = 32),
+    continuity_broken boolean NOT NULL DEFAULT false,
     expires_at timestamptz NOT NULL,
-    CHECK ((lease_token IS NULL) = (lease_until IS NULL))
+    CHECK ((lease_token IS NULL) = (lease_until IS NULL)),
+    CHECK ((lease_token IS NULL) = (lease_boundary IS NULL))
 );
 
 CREATE INDEX escalation_sessions_expiry_idx ON router.escalation_sessions (expires_at);

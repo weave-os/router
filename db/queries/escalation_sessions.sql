@@ -6,14 +6,19 @@ WHERE scope = @scope::bytea AND expires_at <= clock_timestamp();
 -- name: UpsertEscalationSessionClaim :one
 -- Only an expired or released lease can be acquired; no lock spans inference.
 INSERT INTO router.escalation_sessions (
-    scope, installation_id, lease_token, lease_until, expires_at
+    scope, installation_id, lease_token, lease_boundary, lease_until, expires_at
 ) VALUES (
-    @scope::bytea, @installation_id::uuid, @lease_token::uuid,
+    @scope::bytea, @installation_id::uuid, @lease_token::uuid, @boundary::bytea,
     clock_timestamp() + interval '15 seconds', clock_timestamp() + interval '24 hours'
 )
 ON CONFLICT (scope) DO UPDATE SET
     lease_token = EXCLUDED.lease_token,
     lease_until = EXCLUDED.lease_until,
+    lease_boundary = EXCLUDED.lease_boundary,
+    session_state = CASE WHEN router.escalation_sessions.continuity_broken
+        THEN router.escalation_sessions.session_state || '{"feature_state":null,"feature_turns":0,"previous_outcome":null}'::jsonb
+        ELSE router.escalation_sessions.session_state END,
+    continuity_broken = false,
     expires_at = EXCLUDED.expires_at
 WHERE router.escalation_sessions.installation_id = EXCLUDED.installation_id
     AND (router.escalation_sessions.lease_until IS NULL
@@ -31,9 +36,13 @@ WHERE c.scope = @scope::bytea AND c.boundary = @boundary::bytea
 -- The nonce and deadline prevent a late inference from overwriting a successor.
 UPDATE router.escalation_sessions SET
     ordinal = @ordinal::bigint,
-    session_state = @session_state::jsonb,
+    session_state = CASE WHEN continuity_broken
+        THEN @session_state::jsonb || '{"feature_state":null,"feature_turns":0,"previous_outcome":null}'::jsonb
+        ELSE @session_state::jsonb END,
+    continuity_broken = false,
     lease_token = NULL,
     lease_until = NULL,
+    lease_boundary = NULL,
     expires_at = clock_timestamp() + interval '24 hours'
 WHERE scope = @scope::bytea AND lease_token = @lease_token::uuid
     AND lease_until > clock_timestamp() AND expires_at > clock_timestamp()
@@ -46,7 +55,7 @@ VALUES (@scope::bytea, @boundary::bytea, @checkpoint::jsonb);
 
 -- name: UpdateEscalationSessionRelease :exec
 -- Releasing an old nonce cannot cancel a later owner's lease.
-UPDATE router.escalation_sessions SET lease_token = NULL, lease_until = NULL
+UPDATE router.escalation_sessions SET lease_token = NULL, lease_until = NULL, lease_boundary = NULL
 WHERE scope = @scope::bytea AND lease_token = @lease_token::uuid;
 
 -- name: UpdateEscalationSessionOutcome :exec
@@ -59,12 +68,17 @@ WHERE scope = @scope::bytea AND ordinal = @ordinal::bigint
     AND session_state->'feature_state' <> 'null'::jsonb;
 
 -- name: UpdateEscalationSessionInvalidated :exec
--- A missed action revokes in-flight observations without undoing accepted class intent.
+-- A distinct missed action defers feature reset while preserving the active owner.
 UPDATE router.escalation_sessions SET
-    session_state = session_state || '{"feature_state":null,"feature_turns":0,"previous_outcome":null}'::jsonb,
-    lease_token = NULL,
-    lease_until = NULL
-WHERE scope = @scope::bytea AND expires_at > clock_timestamp();
+    session_state = CASE WHEN lease_until > statement_timestamp() THEN session_state
+        ELSE session_state || '{"feature_state":null,"feature_turns":0,"previous_outcome":null}'::jsonb END,
+    continuity_broken = COALESCE(lease_until > statement_timestamp(), false),
+    lease_token = CASE WHEN lease_until > statement_timestamp() THEN lease_token END,
+    lease_boundary = CASE WHEN lease_until > statement_timestamp() THEN lease_boundary END,
+    lease_until = CASE WHEN lease_until > statement_timestamp() THEN lease_until END
+WHERE scope = @scope::bytea AND expires_at > statement_timestamp()
+    AND (lease_until IS NULL OR lease_until <= statement_timestamp()
+         OR lease_boundary IS DISTINCT FROM @boundary::bytea);
 
 -- name: DeleteExpiredEscalationSessions :exec
 -- Expired feature state and checkpoint identities share one retention boundary.

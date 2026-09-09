@@ -159,9 +159,13 @@ func (q *Queries) InsertEscalationContinuation(ctx context.Context, arg InsertEs
 const updateEscalationSessionCommit = `-- name: UpdateEscalationSessionCommit :execrows
 UPDATE router.escalation_sessions SET
     ordinal = $1::bigint,
-    session_state = $2::jsonb,
+    session_state = CASE WHEN continuity_broken
+        THEN $2::jsonb || '{"feature_state":null,"feature_turns":0,"previous_outcome":null}'::jsonb
+        ELSE $2::jsonb END,
+    continuity_broken = false,
     lease_token = NULL,
     lease_until = NULL,
+    lease_boundary = NULL,
     expires_at = clock_timestamp() + interval '24 hours'
 WHERE scope = $3::bytea AND lease_token = $4::uuid
     AND lease_until > clock_timestamp() AND expires_at > clock_timestamp()
@@ -179,9 +183,13 @@ type UpdateEscalationSessionCommitParams struct {
 //
 //	UPDATE router.escalation_sessions SET
 //	    ordinal = $1::bigint,
-//	    session_state = $2::jsonb,
+//	    session_state = CASE WHEN continuity_broken
+//	        THEN $2::jsonb || '{"feature_state":null,"feature_turns":0,"previous_outcome":null}'::jsonb
+//	        ELSE $2::jsonb END,
+//	    continuity_broken = false,
 //	    lease_token = NULL,
 //	    lease_until = NULL,
+//	    lease_boundary = NULL,
 //	    expires_at = clock_timestamp() + interval '24 hours'
 //	WHERE scope = $3::bytea AND lease_token = $4::uuid
 //	    AND lease_until > clock_timestamp() AND expires_at > clock_timestamp()
@@ -201,21 +209,36 @@ func (q *Queries) UpdateEscalationSessionCommit(ctx context.Context, arg UpdateE
 
 const updateEscalationSessionInvalidated = `-- name: UpdateEscalationSessionInvalidated :exec
 UPDATE router.escalation_sessions SET
-    session_state = session_state || '{"feature_state":null,"feature_turns":0,"previous_outcome":null}'::jsonb,
-    lease_token = NULL,
-    lease_until = NULL
-WHERE scope = $1::bytea AND expires_at > clock_timestamp()
+    session_state = CASE WHEN lease_until > statement_timestamp() THEN session_state
+        ELSE session_state || '{"feature_state":null,"feature_turns":0,"previous_outcome":null}'::jsonb END,
+    continuity_broken = COALESCE(lease_until > statement_timestamp(), false),
+    lease_token = CASE WHEN lease_until > statement_timestamp() THEN lease_token END,
+    lease_boundary = CASE WHEN lease_until > statement_timestamp() THEN lease_boundary END,
+    lease_until = CASE WHEN lease_until > statement_timestamp() THEN lease_until END
+WHERE scope = $1::bytea AND expires_at > statement_timestamp()
+    AND (lease_until IS NULL OR lease_until <= statement_timestamp()
+         OR lease_boundary IS DISTINCT FROM $2::bytea)
 `
 
-// A missed action revokes in-flight observations without undoing accepted class intent.
+type UpdateEscalationSessionInvalidatedParams struct {
+	Scope    []byte
+	Boundary []byte
+}
+
+// A distinct missed action defers feature reset while preserving the active owner.
 //
 //	UPDATE router.escalation_sessions SET
-//	    session_state = session_state || '{"feature_state":null,"feature_turns":0,"previous_outcome":null}'::jsonb,
-//	    lease_token = NULL,
-//	    lease_until = NULL
-//	WHERE scope = $1::bytea AND expires_at > clock_timestamp()
-func (q *Queries) UpdateEscalationSessionInvalidated(ctx context.Context, scope []byte) error {
-	_, err := q.db.Exec(ctx, updateEscalationSessionInvalidated, scope)
+//	    session_state = CASE WHEN lease_until > statement_timestamp() THEN session_state
+//	        ELSE session_state || '{"feature_state":null,"feature_turns":0,"previous_outcome":null}'::jsonb END,
+//	    continuity_broken = COALESCE(lease_until > statement_timestamp(), false),
+//	    lease_token = CASE WHEN lease_until > statement_timestamp() THEN lease_token END,
+//	    lease_boundary = CASE WHEN lease_until > statement_timestamp() THEN lease_boundary END,
+//	    lease_until = CASE WHEN lease_until > statement_timestamp() THEN lease_until END
+//	WHERE scope = $1::bytea AND expires_at > statement_timestamp()
+//	    AND (lease_until IS NULL OR lease_until <= statement_timestamp()
+//	         OR lease_boundary IS DISTINCT FROM $2::bytea)
+func (q *Queries) UpdateEscalationSessionInvalidated(ctx context.Context, arg UpdateEscalationSessionInvalidatedParams) error {
+	_, err := q.db.Exec(ctx, updateEscalationSessionInvalidated, arg.Scope, arg.Boundary)
 	return err
 }
 
@@ -248,7 +271,7 @@ func (q *Queries) UpdateEscalationSessionOutcome(ctx context.Context, arg Update
 }
 
 const updateEscalationSessionRelease = `-- name: UpdateEscalationSessionRelease :exec
-UPDATE router.escalation_sessions SET lease_token = NULL, lease_until = NULL
+UPDATE router.escalation_sessions SET lease_token = NULL, lease_until = NULL, lease_boundary = NULL
 WHERE scope = $1::bytea AND lease_token = $2::uuid
 `
 
@@ -259,7 +282,7 @@ type UpdateEscalationSessionReleaseParams struct {
 
 // Releasing an old nonce cannot cancel a later owner's lease.
 //
-//	UPDATE router.escalation_sessions SET lease_token = NULL, lease_until = NULL
+//	UPDATE router.escalation_sessions SET lease_token = NULL, lease_until = NULL, lease_boundary = NULL
 //	WHERE scope = $1::bytea AND lease_token = $2::uuid
 func (q *Queries) UpdateEscalationSessionRelease(ctx context.Context, arg UpdateEscalationSessionReleaseParams) error {
 	_, err := q.db.Exec(ctx, updateEscalationSessionRelease, arg.Scope, arg.LeaseToken)
@@ -268,14 +291,19 @@ func (q *Queries) UpdateEscalationSessionRelease(ctx context.Context, arg Update
 
 const upsertEscalationSessionClaim = `-- name: UpsertEscalationSessionClaim :one
 INSERT INTO router.escalation_sessions (
-    scope, installation_id, lease_token, lease_until, expires_at
+    scope, installation_id, lease_token, lease_boundary, lease_until, expires_at
 ) VALUES (
-    $1::bytea, $2::uuid, $3::uuid,
+    $1::bytea, $2::uuid, $3::uuid, $4::bytea,
     clock_timestamp() + interval '15 seconds', clock_timestamp() + interval '24 hours'
 )
 ON CONFLICT (scope) DO UPDATE SET
     lease_token = EXCLUDED.lease_token,
     lease_until = EXCLUDED.lease_until,
+    lease_boundary = EXCLUDED.lease_boundary,
+    session_state = CASE WHEN router.escalation_sessions.continuity_broken
+        THEN router.escalation_sessions.session_state || '{"feature_state":null,"feature_turns":0,"previous_outcome":null}'::jsonb
+        ELSE router.escalation_sessions.session_state END,
+    continuity_broken = false,
     expires_at = EXCLUDED.expires_at
 WHERE router.escalation_sessions.installation_id = EXCLUDED.installation_id
     AND (router.escalation_sessions.lease_until IS NULL
@@ -287,26 +315,37 @@ type UpsertEscalationSessionClaimParams struct {
 	Scope          []byte
 	InstallationID uuid.UUID
 	LeaseToken     uuid.UUID
+	Boundary       []byte
 }
 
 // Only an expired or released lease can be acquired; no lock spans inference.
 //
 //	INSERT INTO router.escalation_sessions (
-//	    scope, installation_id, lease_token, lease_until, expires_at
+//	    scope, installation_id, lease_token, lease_boundary, lease_until, expires_at
 //	) VALUES (
-//	    $1::bytea, $2::uuid, $3::uuid,
+//	    $1::bytea, $2::uuid, $3::uuid, $4::bytea,
 //	    clock_timestamp() + interval '15 seconds', clock_timestamp() + interval '24 hours'
 //	)
 //	ON CONFLICT (scope) DO UPDATE SET
 //	    lease_token = EXCLUDED.lease_token,
 //	    lease_until = EXCLUDED.lease_until,
+//	    lease_boundary = EXCLUDED.lease_boundary,
+//	    session_state = CASE WHEN router.escalation_sessions.continuity_broken
+//	        THEN router.escalation_sessions.session_state || '{"feature_state":null,"feature_turns":0,"previous_outcome":null}'::jsonb
+//	        ELSE router.escalation_sessions.session_state END,
+//	    continuity_broken = false,
 //	    expires_at = EXCLUDED.expires_at
 //	WHERE router.escalation_sessions.installation_id = EXCLUDED.installation_id
 //	    AND (router.escalation_sessions.lease_until IS NULL
 //	         OR router.escalation_sessions.lease_until <= clock_timestamp())
 //	RETURNING session_state
 func (q *Queries) UpsertEscalationSessionClaim(ctx context.Context, arg UpsertEscalationSessionClaimParams) ([]byte, error) {
-	row := q.db.QueryRow(ctx, upsertEscalationSessionClaim, arg.Scope, arg.InstallationID, arg.LeaseToken)
+	row := q.db.QueryRow(ctx, upsertEscalationSessionClaim,
+		arg.Scope,
+		arg.InstallationID,
+		arg.LeaseToken,
+		arg.Boundary,
+	)
 	var session_state []byte
 	err := row.Scan(&session_state)
 	return session_state, err

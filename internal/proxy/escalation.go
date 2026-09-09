@@ -78,7 +78,7 @@ func (s *Service) beginEscalation(ctx context.Context, env *translate.RequestEnv
 		observation, err = translate.ParseResponsesEscalationObservation(original)
 	}
 	if err != nil {
-		s.invalidateEscalation(ctx, scope)
+		s.invalidateEscalation(ctx, scope, [32]byte{})
 		log.Warn("Escalation input unavailable", "error_type", fmt.Sprintf("%T", err))
 		return nil
 	}
@@ -131,9 +131,9 @@ func (s *Service) beginEscalation(ctx context.Context, env *translate.RequestEnv
 		encodedObservation, _ = json.Marshal(observation)
 	}
 	turn.observation = observation
-	session, claimed, err := s.escalationStore.Claim(claimCtx, scope, res.InstallationID.String(), turn.token)
+	session, claimed, err := s.escalationStore.Claim(claimCtx, scope, res.InstallationID.String(), turn.token, turn.boundary)
 	if err != nil || !claimed {
-		s.invalidateEscalation(ctx, scope)
+		s.invalidateEscalation(ctx, scope, turn.boundary)
 		log.Warn("Escalation observation not claimed", "err", err, "claimed", claimed)
 		return nil
 	}
@@ -180,10 +180,10 @@ func (s *Service) beginEscalation(ctx context.Context, env *translate.RequestEnv
 	return turn
 }
 
-func (s *Service) invalidateEscalation(ctx context.Context, scope [32]byte) {
+func (s *Service) invalidateEscalation(ctx context.Context, scope, boundary [32]byte) {
 	invalidateCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), time.Second)
 	defer cancel()
-	if err := s.escalationStore.Invalidate(invalidateCtx, scope); err != nil {
+	if err := s.escalationStore.Invalidate(invalidateCtx, scope, boundary); err != nil {
 		observability.FromContext(ctx).Warn("Escalation continuity reset failed", "err", err)
 	}
 }

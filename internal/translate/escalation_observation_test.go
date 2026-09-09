@@ -2,12 +2,50 @@ package translate_test
 
 import (
 	"encoding/json"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"weave-os/router/internal/translate"
 )
+
+func TestEscalationObservationRejectsMalformedNamedTools(t *testing.T) {
+	for _, tool := range []string{`null`, `{}`, `{"name":null}`, `{"name":7}`, `{"name":""}`, `{"name":"  "}`} {
+		fixtures := []struct {
+			name  string
+			body  string
+			parse func([]byte) (*translate.RequestEnvelope, error)
+		}{
+			{"chat", fmt.Sprintf(`{"messages":[{"role":"assistant","tool_calls":[{"function":%s}]}]}`, tool), translate.ParseOpenAI},
+			{"chat legacy", fmt.Sprintf(`{"messages":[{"role":"assistant","function_call":%s}]}`, tool), translate.ParseOpenAI},
+			{"gemini call", fmt.Sprintf(`{"contents":[{"role":"model","parts":[{"functionCall":%s}]}]}`, tool), translate.ParseGemini},
+			{"gemini result", fmt.Sprintf(`{"contents":[{"role":"user","parts":[{"functionResponse":%s}]}]}`, tool), translate.ParseGemini},
+		}
+		for _, fixture := range fixtures {
+			t.Run(fixture.name+tool, func(t *testing.T) {
+				envelope, err := fixture.parse([]byte(fixture.body))
+				require.NoError(t, err)
+				_, err = envelope.EscalationObservation()
+				require.Error(t, err)
+			})
+		}
+	}
+	for _, name := range []string{`null`, `7`, `""`, `"  "`} {
+		t.Run("anthropic"+name, func(t *testing.T) {
+			envelope, err := translate.ParseAnthropic([]byte(fmt.Sprintf(`{"messages":[{"role":"assistant","content":[{"type":"tool_use","name":%s,"input":{}}]}]}`, name)))
+			require.NoError(t, err)
+			_, err = envelope.EscalationObservation()
+			require.Error(t, err)
+		})
+		for _, kind := range []string{"function_call", "custom_tool_call"} {
+			t.Run(kind+name, func(t *testing.T) {
+				_, err := translate.ParseResponsesEscalationObservation([]byte(fmt.Sprintf(`{"input":[{"type":%q,"name":%s,"arguments":"{}","input":""}]}`, kind, name)))
+				require.Error(t, err)
+			})
+		}
+	}
+}
 
 func TestEscalationObservationPreservesToolIdentityAcrossProtocols(t *testing.T) {
 	fixtures := []struct {

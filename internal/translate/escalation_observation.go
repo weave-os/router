@@ -3,6 +3,7 @@ package translate
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/tidwall/gjson"
 )
@@ -155,12 +156,15 @@ func (e *RequestEnvelope) EscalationObservation() (EscalationObservation, error)
 				}
 				for _, call := range message.Get("tool_calls").Array() {
 					function := call.Get("function")
-					if !function.Exists() {
+					if !escalationNamedTool(function) {
 						return observation, fmt.Errorf("unsupported chat tool call")
 					}
 					blocks = append(blocks, EscalationBlock{Type: EscalationBlockToolCall, ID: call.Get("id").String(), Name: function.Get("name").String(), ArgumentsJSON: escalationArguments(function.Get("arguments"))})
 				}
 				if function := message.Get("function_call"); function.Exists() {
+					if !escalationNamedTool(function) {
+						return observation, fmt.Errorf("invalid chat function call")
+					}
 					blocks = append(blocks, EscalationBlock{Type: EscalationBlockToolCall, Name: function.Get("name").String(), ArgumentsJSON: escalationArguments(function.Get("arguments"))})
 				}
 			}
@@ -243,6 +247,9 @@ func ParseResponsesEscalationObservation(body []byte) (EscalationObservation, er
 				}
 				observation.Messages = append(observation.Messages, EscalationMessage{Role: role, Blocks: blocks})
 			case escalationWireFunctionCall, escalationWireCustomCall:
+				if !escalationNamedTool(item) {
+					return observation, fmt.Errorf("invalid Responses tool call")
+				}
 				arguments := escalationArguments(item.Get("arguments"))
 				if kind == escalationWireCustomCall {
 					arguments = escalationJSON(item.Get("input"))
@@ -319,6 +326,9 @@ func escalationContentBlocks(content gjson.Result) ([]EscalationBlock, error) {
 		case escalationWireText, escalationWireInputText, escalationWireOutputText:
 			blocks = append(blocks, EscalationBlock{Type: EscalationBlockText, Text: block.Get("text").String()})
 		case escalationWireToolUse:
+			if !escalationNamedTool(block) {
+				return nil, fmt.Errorf("invalid observation tool use")
+			}
 			blocks = append(blocks, EscalationBlock{Type: EscalationBlockToolCall, ID: block.Get("id").String(), Name: block.Get("name").String(), ArgumentsJSON: escalationJSON(block.Get("input"))})
 		case escalationWireToolResult:
 			blocks = append(blocks, EscalationBlock{Type: EscalationBlockToolResult, CallID: block.Get("tool_use_id").String(), ContentJSON: escalationJSON(block.Get("content")), IsError: escalationErrorFlag(block)})
@@ -345,6 +355,9 @@ func escalationGeminiBlocks(parts gjson.Result) ([]EscalationBlock, error) {
 			call = part.Get("function_call")
 		}
 		if call.Exists() {
+			if !escalationNamedTool(call) {
+				return nil, fmt.Errorf("invalid Gemini function call")
+			}
 			arguments := call.Get("args")
 			if !arguments.Exists() {
 				arguments = call.Get("arguments")
@@ -357,6 +370,9 @@ func escalationGeminiBlocks(parts gjson.Result) ([]EscalationBlock, error) {
 			response = part.Get("function_response")
 		}
 		if response.Exists() {
+			if !escalationNamedTool(response) {
+				return nil, fmt.Errorf("invalid Gemini function response")
+			}
 			isError := escalationErrorFlag(response)
 			if isError == nil {
 				isError = escalationErrorFlag(response.Get("response"))
@@ -370,6 +386,11 @@ func escalationGeminiBlocks(parts gjson.Result) ([]EscalationBlock, error) {
 		return nil, fmt.Errorf("unsupported Gemini observation part")
 	}
 	return blocks, nil
+}
+
+func escalationNamedTool(value gjson.Result) bool {
+	name := value.Get("name")
+	return value.IsObject() && name.Type == gjson.String && strings.TrimSpace(name.String()) != ""
 }
 
 func escalationErrorFlag(value gjson.Result) *bool {

@@ -33,13 +33,15 @@ type RouterEscalationContinuation struct {
 }
 
 type RouterEscalationSession struct {
-	Scope          []byte
-	InstallationID uuid.UUID
-	Ordinal        int64
-	SessionState   []byte
-	LeaseToken     pgtype.UUID
-	LeaseUntil     pgtype.Timestamptz
-	ExpiresAt      pgtype.Timestamptz
+	Scope            []byte
+	InstallationID   uuid.UUID
+	Ordinal          int64
+	SessionState     []byte
+	LeaseToken       pgtype.UUID
+	LeaseUntil       pgtype.Timestamptz
+	LeaseBoundary    []byte
+	ContinuityBroken bool
+	ExpiresAt        pgtype.Timestamptz
 }
 
 // Published mirror of internal/flags.Registry, upserted by the router at boot. Read by the Weave control plane to render the per-org flag override admin UI. Never read on the request path.

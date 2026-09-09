@@ -1413,6 +1413,8 @@ func (s *Service) runTurnLoop(
 	)
 	res.Fresh = fresh
 	if escalationRoutingApplied(fresh) {
+		// Keep the ordinary sticky pin independent of this opt-in floor so flag-off
+		// removes the intervention. recordTurnUsage still records actual HMM service.
 		res.Decision = fresh
 		res.PinTier = "escalation_xgb"
 		return res, nil

@@ -39,7 +39,7 @@ func newEscalationTestStore() *escalationTestStore {
 		history json.RawMessage
 	})}
 }
-func (s *escalationTestStore) Claim(_ context.Context, scope [32]byte, _, _ string) (escalation.Session, bool, error) {
+func (s *escalationTestStore) Claim(_ context.Context, scope [32]byte, _, _ string, _ [32]byte) (escalation.Session, bool, error) {
 	return s.sessions[scope], true, nil
 }
 func (s *escalationTestStore) Checkpoint(_ context.Context, scope, boundary [32]byte) (escalation.Checkpoint, bool, error) {
@@ -66,7 +66,7 @@ func (s *escalationTestStore) SaveOutcome(_ context.Context, scope [32]byte, ord
 	}
 	return nil
 }
-func (s *escalationTestStore) Invalidate(_ context.Context, scope [32]byte) error {
+func (s *escalationTestStore) Invalidate(_ context.Context, scope [32]byte, _ [32]byte) error {
 	session := s.sessions[scope]
 	session.FeatureState = nil
 	session.FeatureTurns = 0
@@ -283,4 +283,16 @@ func TestEscalationCommitFailureDoesNotDispatchUncommittedPromotion(t *testing.T
 			require.Equal(t, "claude-sonnet-4-6", res.Fresh.Model)
 		}
 	}
+}
+
+func TestEscalationRecordsServedHistoryWithoutReplacingBaselinePin(t *testing.T) {
+	pins := newStubPinStore()
+	svc := NewService(nil, nil, nil, false, nil, pins, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil)
+	res := turnLoopResult{Strategy: router.StrategyHMMEmbedding, InstallationID: uuid.New(), PinRole: "default", Decision: router.Decision{Model: "claude-sonnet-4-6", Provider: providers.ProviderAnthropic, Metadata: &router.RoutingMetadata{Strategy: string(router.StrategyHMMEmbedding), Escalation: &escalation.Decision{Baseline: escalation.Low, Effective: escalation.Medium, Outcome: escalation.OutcomePromoted, Constrained: true}}}}
+	res.SessionKey[0] = 1
+	svc.recordTurnUsage(res, providers.ProviderAnthropic, "claude-sonnet-4-6", 100, 20, 0, 0)
+	require.Len(t, pins.upserts, 1)
+	require.Equal(t, hmmHistoryRole(res.PinRole), pins.upserts[0].Role)
+	require.Equal(t, "claude-sonnet-4-6", pins.lastUsage.ServedModel)
+	require.Equal(t, 20, pins.lastUsage.OutputTokens)
 }
