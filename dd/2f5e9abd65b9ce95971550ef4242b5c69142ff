@@ -1,0 +1,22 @@
+internal/architecture/inference_boundary_baseline.json
+  s_0ee4441e964a9c::t_d9db3fe7cb7659 3,273,285,297,305-314
+  s_0ee4441e964a9c::t_8dfb9f61cc4970 315-316
+docs/README.md
+  s_0ee4441e964a9c::t_3b877ac83c4bcb 9-10
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "dd2f5e9abd65b9ce95971550ef4242b5c69142ff",
+  "prompts": {},
+  "sessions": {
+    "s_0ee4441e964a9c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08342-b3e7-7910-90bc-da7ad7ff7959",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}
