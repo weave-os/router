@@ -5,6 +5,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"weave-os/router/internal/auth"
 )
 
 // InstallationIDContextKey is the request-context key for the authenticated installation UUID.
@@ -44,17 +46,20 @@ type InsertTelemetryParams struct {
 	InstallationID string
 	// APIKeyID attributes the row to the authenticating api key (per-key spend
 	// audit). Empty leaves the column NULL.
-	APIKeyID             string
-	RequestID            string
-	SpanType             string
-	TraceID              string
-	Timestamp            time.Time
-	RequestedModel       string
-	DecisionModel        string
-	DecisionProvider     string
-	DecisionReason       string
-	EstimatedInputTokens int32
-	StickyHit            bool
+	APIKeyID                        string
+	RequestID                       string
+	SpanType                        string
+	TraceID                         string
+	Timestamp                       time.Time
+	RequestedModel                  string
+	DecisionModel                   string
+	DecisionProvider                string
+	DecisionReason                  string
+	BlindExperimentArm              auth.BlindExperimentArm
+	BlindExperimentAssignmentSource auth.BlindExperimentAssignmentSource
+	BlindExperimentSubjectKey       string
+	EstimatedInputTokens            int32
+	StickyHit                       bool
 	// PinTier is the actual served-path turn-loop tier. Empty leaves the column NULL.
 	PinTier                string
 	EmbedInput             string
@@ -194,6 +199,19 @@ type InsertTelemetryParams struct {
 	// caller sent, before intersection with the installation allowlist. Nil
 	// (NULL) when the header was absent.
 	RequestedAllowedModels []string
+}
+
+func applyBlindExperimentTelemetry(ctx context.Context, params *InsertTelemetryParams) {
+	state, active := auth.BlindExperimentFrom(ctx)
+	if params == nil || !active {
+		return
+	}
+	params.BlindExperimentArm = state.Arm
+	params.BlindExperimentAssignmentSource = state.AssignmentSource
+	params.BlindExperimentSubjectKey = state.CanonicalSubjectKey
+	if state.Arm == auth.BlindExperimentArmPassthrough {
+		params.TrainingAllowed = false
+	}
 }
 
 // TelemetrySummary holds aggregated totals for the dashboard cards.

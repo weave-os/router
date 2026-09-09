@@ -71,9 +71,11 @@ type Service struct {
 	users                 UserRepository
 	clusterModelLists     ClusterModelListRepository
 	userClusterModelLists UserClusterModelListRepository
+	blindExperiments      BlindExperimentRepository
 	cache                 APIKeyCache
 	userCache             UserCache
 	userClusterCache      UserClusterListCache
+	blindExperimentCache  BlindExperimentCache
 	subscriptionAccounts  SubscriptionAccountRepository
 	notifier              InstallationChangeNotifier
 	now                   Clock
@@ -126,17 +128,18 @@ func NewService(
 		userCache = NoOpUserCache{}
 	}
 	return &Service{
-		installations:    installations,
-		apiKeys:          apiKeys,
-		externalKeys:     externalKeys,
-		users:            users,
-		cache:            cache,
-		userCache:        userCache,
-		userClusterCache: NoOpUserClusterListCache{},
-		notifier:         NoOpInstallationChangeNotifier{},
-		now:              now,
-		encryptor:        NoOpEncryptor{},
-		keypairTokens:    NewKeypairTokenCache(now),
+		installations:        installations,
+		apiKeys:              apiKeys,
+		externalKeys:         externalKeys,
+		users:                users,
+		cache:                cache,
+		userCache:            userCache,
+		userClusterCache:     NoOpUserClusterListCache{},
+		blindExperimentCache: NoOpBlindExperimentCache{},
+		notifier:             NoOpInstallationChangeNotifier{},
+		now:                  now,
+		encryptor:            NoOpEncryptor{},
+		keypairTokens:        NewKeypairTokenCache(now),
 	}
 }
 
@@ -175,6 +178,17 @@ func (s *Service) WithUserClusterModelLists(repo UserClusterModelListRepository,
 		cache = NoOpUserClusterListCache{}
 	}
 	s.userClusterCache = cache
+	return s
+}
+
+// WithBlindExperiments wires the control-plane-owned experiment assignment
+// repository and its installation-invalidated cache.
+func (s *Service) WithBlindExperiments(repo BlindExperimentRepository, cache BlindExperimentCache) *Service {
+	s.blindExperiments = repo
+	if cache == nil {
+		cache = NoOpBlindExperimentCache{}
+	}
+	s.blindExperimentCache = cache
 	return s
 }
 
@@ -747,7 +761,7 @@ func (s *Service) ResolveAndStashUser(ctx context.Context, installationID, email
 	identityKey := userIdentityKey(email, claudeAccountUUID)
 	if cached, ok := s.userCache.Get(installationID, identityKey); ok {
 		log.Debug("ResolveAndStashUser cache hit", "installation_id", installationID, "user_id", cached)
-		return s.withUserClusterLists(ctx, installationID, cached)
+		return s.withUserSettings(ctx, installationID, cached)
 	}
 
 	var namePtr *string
@@ -786,7 +800,12 @@ func (s *Service) ResolveAndStashUser(ctx context.Context, installationID, email
 	}
 	s.userCache.Set(installationID, identityKey, user.ID)
 	log.Debug("ResolveAndStashUser upsert ok", "installation_id", installationID, "user_id", user.ID)
-	return s.withUserClusterLists(ctx, installationID, user.ID)
+	return s.withUserSettings(ctx, installationID, user.ID)
+}
+
+func (s *Service) withUserSettings(ctx context.Context, installationID, routerUserID string) context.Context {
+	ctx = s.withUserClusterLists(ctx, installationID, routerUserID)
+	return s.withBlindExperiment(ctx, installationID, routerUserID)
 }
 
 // withUserClusterLists stashes the router user ID and per-cluster selections on
@@ -823,6 +842,26 @@ func (s *Service) withUserClusterLists(ctx context.Context, installationID, rout
 		return ctx
 	}
 	return context.WithValue(ctx, UserClusterModelListsContextKey{}, overrides)
+}
+
+func (s *Service) withBlindExperiment(ctx context.Context, installationID, routerUserID string) context.Context {
+	if s.blindExperiments == nil || routerUserID == "" {
+		return ctx
+	}
+	state, ok := s.blindExperimentCache.Get(routerUserID)
+	if !ok {
+		record, err := s.blindExperiments.GetForUser(ctx, installationID, routerUserID)
+		if err != nil {
+			observability.FromContext(ctx).Warn("Failed to fetch blind router experiment assignment", "router_user_id", routerUserID, "err", err)
+			return ctx
+		}
+		state = resolveBlindExperiment(record, routerUserID)
+		s.blindExperimentCache.Set(installationID, routerUserID, state)
+	}
+	if !state.Active {
+		return ctx
+	}
+	return context.WithValue(ctx, BlindExperimentContextKey{}, state)
 }
 
 func userIdentityKey(email, claudeAccountUUID string) string {

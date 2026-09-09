@@ -2546,7 +2546,7 @@ func (s *Service) withPolicyRequestContext(ctx context.Context, req router.Reque
 	req.ClientApp = clientIdentity.ClientApp
 	req.RolloutID = policyRolloutIDFromContext(ctx)
 	req.CaptureMode = s.effectiveCaptureMode(ctx).String()
-	req.TrainingAllowed, _ = ctx.Value(PolicyTrainingAllowedContextKey{}).(bool)
+	req.TrainingAllowed = policyTrainingAllowedForRequest(ctx)
 	req.DebugEnabled, _ = ctx.Value(PolicyDebugEnabledContextKey{}).(bool)
 	req.RoutingIntent, _ = ctx.Value(PolicyRoutingIntentContextKey{}).(string)
 	return req
@@ -3392,10 +3392,9 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			// Use the bindRequestLogger digest, not routeRes.SessionKey (zero
 			// with no pin store), so the spiral event's session_key matches the
 			// telemetry row's in every mode for the offline join.
-			trainingAllowed, _ := ctx.Value(PolicyTrainingAllowedContextKey{}).(bool)
 			s.handleSpiralShadow(ctx, inboundSpiralSignals, inboundSpiralReasons,
 				installationID, sessionKey, role, decision.Model, string(tt),
-				trainingAllowed, s.effectiveCaptureMode(ctx))
+				policyTrainingAllowedForRequest(ctx), s.effectiveCaptureMode(ctx))
 		}
 	}
 
@@ -4499,6 +4498,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		}
 		applyPlannerTelemetry(&tel, routeRes)
 		applyAuthorityShadowTelemetry(&tel, routeRes)
+		applyBlindExperimentTelemetry(ctx, &tel)
 		// Hard-pinned turn types carry history shapes that mimic failure signals,
 		// so only the detector's trusted turn types enter the training corpus.
 		signalTurn := tt == turntype.MainLoop || tt == turntype.ToolResult
@@ -4874,8 +4874,7 @@ func (s *Service) policyOutcomeRoute(res turnLoopResult, decision router.Decisio
 }
 
 func (s *Service) capturePolicyOutcomeResponse(ctx context.Context, w http.ResponseWriter, res turnLoopResult, decision router.Decision) (http.ResponseWriter, *captureWriter) {
-	trainingAllowed, _ := ctx.Value(PolicyTrainingAllowedContextKey{}).(bool)
-	if !trainingAllowed {
+	if !policyTrainingAllowedForRequest(ctx) {
 		return w, nil
 	}
 	if _, _, _, ok := s.policyOutcomeRoute(res, decision); !ok {
@@ -4892,7 +4891,7 @@ func (s *Service) reportPolicyOutcome(ctx context.Context, res turnLoopResult, d
 	}
 	organizationID, _ := ctx.Value(ExternalIDContextKey{}).(string)
 	installationID, _ := ctx.Value(InstallationIDContextKey{}).(string)
-	trainingAllowed, _ := ctx.Value(PolicyTrainingAllowedContextKey{}).(bool)
+	trainingAllowed := policyTrainingAllowedForRequest(ctx)
 	clientIdentity := ClientIdentityFrom(ctx)
 	selectedServedModelMatch := routeDecision.Model == decision.Model
 	authoritativeModelMismatch := routeMetadata.AuthoritativePerTurnSelection &&
@@ -6954,6 +6953,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		}
 		applyPlannerTelemetry(&telOAI, routeRes)
 		applyAuthorityShadowTelemetry(&telOAI, routeRes)
+		applyBlindExperimentTelemetry(ctx, &telOAI)
 		s.fireTelemetry(telOAI)
 	}
 

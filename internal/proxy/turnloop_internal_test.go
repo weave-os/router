@@ -26,6 +26,7 @@ type stubPinStore struct {
 	usageRoles []string
 	getPin     sessionpin.Pin
 	getFound   bool
+	getRoles   []string
 	consumePin sessionpin.Pin
 	consumeHit bool
 	consumeFor router.Strategy
@@ -37,9 +38,10 @@ func newStubPinStore() *stubPinStore {
 	return &stubPinStore{}
 }
 
-func (s *stubPinStore) Get(context.Context, [sessionpin.SessionKeyLen]byte, string) (sessionpin.Pin, bool, error) {
+func (s *stubPinStore) Get(_ context.Context, _ [sessionpin.SessionKeyLen]byte, role string) (sessionpin.Pin, bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.getRoles = append(s.getRoles, role)
 	return s.getPin, s.getFound, nil
 }
 

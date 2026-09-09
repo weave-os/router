@@ -196,7 +196,7 @@ func (s *Service) handleRouterFeedbackCommand(
 		strategy = router.Strategy(telemetryStrategy)
 	}
 	if registered, ok := s.strategies[strategy]; ok && registered.feedback != nil {
-		trainingAllowed, _ := ctx.Value(PolicyTrainingAllowedContextKey{}).(bool)
+		trainingAllowed := policyTrainingAllowedForRequest(ctx)
 		// Delta only matches the rated turn for sequence 0 (latest) or -1 (the last assistant segment in env).
 		// For anything older, suppress the delta; request_id + route_id give the sidecar the join key.
 		trainingDelta := []router.ConversationMessage(nil)
@@ -298,7 +298,7 @@ func (s *Service) reportRouterFeedback(
 		rolloutID = persistedRolloutID
 	}
 	payload["rollout_id"] = rolloutID
-	trainingAllowed, _ := ctx.Value(PolicyTrainingAllowedContextKey{}).(bool)
+	trainingAllowed := policyTrainingAllowedForRequest(ctx)
 	payload["training_allowed"] = trainingAllowed
 	if installationID != uuid.Nil {
 		payload["installation_id"] = installationID.String()

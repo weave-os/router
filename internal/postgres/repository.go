@@ -22,6 +22,7 @@ type Repository struct {
 	// UserClusterModelLists is the per-user sibling of ClusterModelLists: the
 	// key-scoped list is the org default, this narrows it per router user.
 	UserClusterModelLists auth.UserClusterModelListRepository
+	BlindExperiments      auth.BlindExperimentRepository
 	SubscriptionAccounts  auth.SubscriptionAccountRepository
 	Telemetry             *TelemetryRepo
 	Feedback              *FeedbackRepo
@@ -42,6 +43,7 @@ func NewRepository(tx sqlc.DBTX, encryptor auth.Encryptor) *Repository {
 		Users:                     NewUserRepository(tx),
 		ClusterModelLists:         NewClusterModelListRepo(tx),
 		UserClusterModelLists:     NewUserClusterModelListRepo(tx),
+		BlindExperiments:          NewBlindExperimentRepo(tx),
 		SubscriptionAccounts:      NewSubscriptionAccountRepo(tx),
 		Telemetry:                 NewTelemetryRepo(tx),
 		Feedback:                  NewFeedbackRepo(tx),

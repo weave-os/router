@@ -9,6 +9,36 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+type RouterBlindRouterExperimentAssignment struct {
+	RouterUserID        uuid.UUID
+	InstallationID      uuid.UUID
+	OrganizationID      string
+	CanonicalSubjectKey string
+	AutomaticArm        string
+	ManualOverride      *string
+	CreatedAt           pgtype.Timestamptz
+	UpdatedAt           pgtype.Timestamptz
+}
+
+type RouterBlindRouterExperimentConfiguration struct {
+	InstallationID     uuid.UUID
+	OrganizationID     string
+	Enabled            bool
+	RouterOnPercentage int16
+	Seed               uuid.UUID
+	CreatedAt          pgtype.Timestamptz
+	UpdatedAt          pgtype.Timestamptz
+}
+
+type RouterBlindRouterExperimentSubjectOverride struct {
+	InstallationID      uuid.UUID
+	OrganizationID      string
+	CanonicalSubjectKey string
+	ManualOverride      string
+	CreatedAt           pgtype.Timestamptz
+	UpdatedAt           pgtype.Timestamptz
+}
+
 type RouterClusterModelList struct {
 	ID             uuid.UUID
 	OrganizationID string
@@ -315,8 +345,11 @@ type RouterModelRouterRequestTelemetry struct {
 	// Whether the session has attempted any edit yet; qualifies spiral_steps_since_progress
 	SpiralEditAttempted *bool
 	// Signal classes whose thresholds this turn crossed (err_streak, same_file_thrash, repetition, monologue, ping_pong, no_progress); empty array when the snapshot was recorded and nothing fired
-	SpiralReasons          []string
-	RequestedAllowedModels []string
+	SpiralReasons                   []string
+	RequestedAllowedModels          []string
+	BlindExperimentArm              *string
+	BlindExperimentAssignmentSource *string
+	BlindExperimentSubjectKey       *string
 }
 
 type RouterModelRouterSubscriptionAccount struct {

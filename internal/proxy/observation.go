@@ -67,10 +67,9 @@ type observationContext struct {
 // this turn, which differs from decision on STAY (decision rehydrates from the
 // pin); fresh's scores are captured separately to measure the hysteresis downgrade lever.
 func buildObservationContext(ctx context.Context, decision, fresh router.Decision, captureMode ContentCaptureMode) observationContext {
-	trainingAllowed, _ := ctx.Value(PolicyTrainingAllowedContextKey{}).(bool)
 	debugEnabled, _ := ctx.Value(PolicyDebugEnabledContextKey{}).(bool)
 	obs := observationContext{
-		TrainingAllowed: trainingAllowed,
+		TrainingAllowed: policyTrainingAllowedForRequest(ctx),
 		CaptureMode:     captureMode.String(),
 		RolloutID:       ClientIdentityFrom(ctx).RolloutID,
 	}
