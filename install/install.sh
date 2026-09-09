@@ -4147,6 +4147,26 @@ resolve_router_endpoint() {
   fi
   [ -n "$config" ] || return 1
   awk '
+    # Cut a TOML comment, honouring quoted strings so a # inside a value stays.
+    # A full-line comment reduces to empty and matches nothing below, so this
+    # replaces a separate skip rule -- and unlike one, it also catches a comment
+    # trailing another assignment, which the unanchored matches would otherwise
+    # read as live config on any line preceding the real value.
+    function weave_strip_comment(line,   i, c, out, instr, esc) {
+      out = ""
+      instr = 0
+      esc = 0
+      for (i = 1; i <= length(line); i++) {
+        c = substr(line, i, 1)
+        if (esc) { out = out c; esc = 0; continue }
+        if (instr && c == "\\") { out = out c; esc = 1; continue }
+        if (c == "\"") { instr = !instr; out = out c; continue }
+        if (c == "#" && !instr) break
+        out = out c
+      }
+      return out
+    }
+    { $0 = weave_strip_comment($0) }
     # TOML basic string -> raw value: drop the `<header> = "` prefix and the
     # closing quote, then undo the escaping write_codex_config applied.
     function weave_unescape(s) {
@@ -4160,11 +4180,6 @@ resolve_router_endpoint() {
       in_provider = ($0 ~ /^[[:space:]]*\[[[:space:]]*model_providers[[:space:]]*\.[[:space:]]*weave[[:space:]]*(\.[^]]*)?\][[:space:]]*(#.*)?$/)
       next
     }
-    # A commented-out example is not configuration. The matches below are
-    # unanchored (the key can live inside an inline http_headers table), so
-    # without this a `# base_url = "https://old"` line reads as live config --
-    # and first-match-wins would send the router key to that stale endpoint.
-    /^[[:space:]]*#/ { next }
     !in_provider { next }
     match($0, /base_url[[:space:]]*=[[:space:]]*"[^"]*"/) {
       v = substr($0, RSTART, RLENGTH)

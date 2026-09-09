@@ -239,6 +239,34 @@ rm -f "$recorded"
 out="$(run_hook '$fm astra' sess-abc)"
 check "a commented-out example does not shadow the live endpoint" "block" "$(decision "$out")"
 check "and the live key is the one sent" "rk_hooktest" "$(jq -r '.router_key' "$recorded")"
+# The same hazard one line over: a comment trailing another assignment. The
+# matches are unanchored, so a commented endpoint riding on an earlier line
+# wins under first-match unless comments are stripped rather than line-skipped.
+cat >"$codex_home/config.toml" <<TOML
+[model_providers.weave]
+name = "Weave Router" # base_url = "http://127.0.0.1:9/v1"
+base_url = "http://127.0.0.1:$port/v1"
+wire_api = "responses" # X-Weave-Router-Key = "rk_inline_stale"
+http_headers = { "X-Weave-Router-Key" = "rk_hooktest" }
+TOML
+rm -f "$recorded"
+out="$(run_hook '$fm astra' sess-abc)"
+check "an inline comment on an earlier line does not shadow the endpoint" "block" "$(decision "$out")"
+check "nor the key" "rk_hooktest" "$(jq -r '.router_key' "$recorded")"
+
+# A # inside a quoted value is data, not a comment, so the value must survive.
+cat >"$codex_home/config.toml" <<TOML
+[model_providers.weave]
+base_url = "http://127.0.0.1:$port/v1"
+
+[model_providers.weave.http_headers]
+X-Weave-Router-Key = "rk_hooktest"
+X-Weave-User-Name = "Dev #2"
+TOML
+rm -f "$recorded"
+run_hook '$fm astra' sess-abc >/dev/null
+check "a # inside a quoted value is kept" "Dev #2" "$(jq -r '.name' "$recorded")"
+
 write_config "http://127.0.0.1:$port/v1"
 
 # ---------- fail open ----------
