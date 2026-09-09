@@ -14,6 +14,8 @@ import (
 	"github.com/tidwall/gjson"
 
 	"weave-os/router/internal/dispatch"
+	"weave-os/router/internal/inference"
+	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
@@ -242,4 +244,33 @@ func TestProviderSummarizer_Non2xxIsNotRetried(t *testing.T) {
 	_, _, err = s.Summarize(context.Background(), env)
 	require.Error(t, err)
 	assert.Equal(t, 1, fake.calls, "policy budget allows one attempt")
+}
+
+func TestProviderSummarizer_AttemptEventsCarryRequestID(t *testing.T) {
+	t.Parallel()
+
+	env, err := translate.ParseAnthropic([]byte(sampleConversation))
+	require.NoError(t, err)
+
+	fake := &fakeHandoverProvider{respBody: canonicalAnthropicResponse, respStatus: http.StatusOK}
+	available := map[string]struct{}{providers.ProviderAnthropic: {}}
+	deployed := map[string]struct{}{DefaultHandoverModel: {}}
+	plans, err := policy.NewPlanResolver(policy.DefaultRegistry(), policy.NewResolver(
+		deployed, available, func(m catalog.Model) string { return m.ID }, policy.ProviderPolicy{}))
+	require.NoError(t, err)
+	var events []inference.AttemptEvent
+	executor, err := dispatch.NewExecutor(
+		dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: fake}),
+		dispatch.WithAttemptSink(dispatch.AttemptSinkFunc(func(_ context.Context, event inference.AttemptEvent) {
+			events = append(events, event)
+		})),
+	)
+	require.NoError(t, err)
+	s := NewProviderSummarizer(plans, executor, providers.ProviderAnthropic, DefaultHandoverModel, 200*time.Millisecond)
+
+	ctx := observability.WithRequestID(context.Background(), "req-handover-1")
+	_, _, err = s.Summarize(ctx, env)
+	require.NoError(t, err)
+	require.Len(t, events, 1)
+	assert.Equal(t, "req-handover-1", events[0].RequestID)
 }

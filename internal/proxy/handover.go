@@ -201,7 +201,7 @@ func (s *ProviderSummarizer) Summarize(ctx context.Context, env *translate.Reque
 			return err
 		},
 	}.Transport()
-	result, err := s.executor.Run(callCtx, inference.InvocationRequest{Purpose: plan.Purpose()}, plan, transport)
+	result, err := s.executor.Run(callCtx, inference.InvocationRequest{Purpose: plan.Purpose(), RequestID: observability.RequestIDFromContext(ctx)}, plan, transport)
 	if err != nil {
 		log.Warn("Summarizer upstream call failed", "kind", "handover", "err", err, "model", plan.SelectedTarget().CatalogID, "provider", plan.SelectedTarget().Provider, "fallback_reason", result.Summary.FallbackReason)
 		return "", handover.Usage{}, err
