@@ -4060,24 +4060,28 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	primaryModel := decision.Model
 	var winnerIdx int
 	subscriptionPoolFailure := false
+	// A released prelude can only take an SSE error frame, so every dispatch in
+	// the chain renders through this — a JSON envelope appended to a live stream
+	// is unparseable to the client.
+	flushErrAsAnthropic := func(w http.ResponseWriter, err error) {
+		if env.Stream() && preludeBuf.PreludeSent() {
+			_ = emitAnthropicSSEErrorEvent(w, err)
+			return
+		}
+		flushUpstreamErrorAsAnthropic(w, err)
+	}
 	if attemptBuildErr != nil {
 		// Nothing was dispatched — enters the rescue chain as if every binding pre-committed failed.
 		winnerIdx, proxyErr = -1, attemptBuildErr
 	} else {
 		winnerIdx, proxyErr = s.dispatchWithFallback(ctx, failoverInputs{
 			// contentSink is the raw w when capture is off.
-			w:               contentSink,
-			buf:             preludeBuf,
-			initialDecision: decision,
-			bindings:        bindings,
-			attempt:         attempt,
-			flushErr: func(w http.ResponseWriter, err error) {
-				if env.Stream() && preludeBuf.PreludeSent() {
-					_ = emitAnthropicSSEErrorEvent(w, err)
-					return
-				}
-				flushUpstreamErrorAsAnthropic(w, err)
-			},
+			w:                      contentSink,
+			buf:                    preludeBuf,
+			initialDecision:        decision,
+			bindings:               bindings,
+			attempt:                attempt,
+			flushErr:               flushErrAsAnthropic,
 			deferFlushOnExhaustion: baselineViable || subscriptionRetryEligible || siblingViable,
 			purpose:                routeRes.dispatchPurpose(inference.PurposeAnthropicMessages),
 			origin:                 routeRes.dispatchOrigin(decision),
@@ -4185,7 +4189,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 				initialDecision: baselineDecision,
 				bindings:        baselineBindings,
 				attempt:         baselineAttempt,
-				flushErr:        flushUpstreamErrorAsAnthropic,
+				flushErr:        flushErrAsAnthropic,
 				purpose:         routeRes.dispatchPurpose(inference.PurposeAnthropicMessages),
 				origin:          routeRes.rescueOrigin(),
 			})
@@ -4257,7 +4261,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 				initialDecision: decision,
 				bindings:        subBindings,
 				attempt:         subAttempt,
-				flushErr:        flushUpstreamErrorAsAnthropic,
+				flushErr:        flushErrAsAnthropic,
 				// A failed retry keeps the same dark model; hold the error so
 				// the sibling rescue below can still serve the turn.
 				deferFlushOnExhaustion: siblingViable,
@@ -4329,7 +4333,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 				initialDecision: siblingDecision,
 				bindings:        siblingBindings,
 				attempt:         siblingAttempt,
-				flushErr:        flushUpstreamErrorAsAnthropic,
+				flushErr:        flushErrAsAnthropic,
 				purpose:         routeRes.dispatchPurpose(inference.PurposeAnthropicMessages),
 				origin:          routeRes.rescueOrigin(),
 			})
@@ -6816,13 +6820,16 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		purpose:                routeRes.dispatchPurpose(surfacePurpose),
 		origin:                 routeRes.dispatchOrigin(decision),
 	})
+	subscriptionPoolFailure := isSubscriptionPoolError(proxyErr)
 	cyberRefusalSeen = cyberRefusalSeen || providers.IsUpstreamCyberPolicyRefusal(proxyErr)
 
 	// The deferred upstream error must reach the client exactly once: the rescue
-	// owns it, and flushes it itself when it declines to run.
+	// owns it, and flushes it itself when it declines to run. A managed-pool
+	// failure is rendered by the handler from the classified sentinel, so the
+	// proxy must not write it here as well.
 	deferredErrFlushed := false
 	flushDeferredErr := func() {
-		if deferredErrFlushed {
+		if deferredErrFlushed || subscriptionPoolFailure {
 			return
 		}
 		deferredErrFlushed = true
@@ -6894,6 +6901,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 				purpose:         routeRes.dispatchPurpose(surfacePurpose),
 				origin:          routeRes.rescueOrigin(),
 			})
+			subscriptionPoolFailure = isSubscriptionPoolError(proxyErr)
 			decision = cyberRetryTarget
 			bindings = retryBindings
 			marker = retryMarker
