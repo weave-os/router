@@ -28,7 +28,6 @@ jobs:
 
   test:
     name: Test
-    needs: inference-boundary
     runs-on: ubuntu-latest
     services:
       postgres:

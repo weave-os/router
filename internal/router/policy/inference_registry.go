@@ -124,7 +124,7 @@ func validatePolicySpecs(specs []PolicySpec) error {
 			return fmt.Errorf("inference purpose %q has more than one policy", spec.Purpose)
 		}
 		seenPurposes[spec.Purpose] = struct{}{}
-		if spec.PolicyID == "" || spec.PolicyRevision == "" || strings.TrimSpace(spec.Owner) == "" || strings.TrimSpace(spec.Rationale) == "" {
+		if strings.TrimSpace(string(spec.PolicyID)) == "" || strings.TrimSpace(string(spec.PolicyRevision)) == "" || strings.TrimSpace(spec.Owner) == "" || strings.TrimSpace(spec.Rationale) == "" {
 			return fmt.Errorf("purpose %q is missing policy identity, owner, rationale, or revision", spec.Purpose)
 		}
 		if _, duplicate := seenPolicyIDs[spec.PolicyID]; duplicate {

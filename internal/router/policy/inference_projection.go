@@ -44,31 +44,34 @@ func (r Registry) StaticMarkdown() []byte {
 	for _, spec := range r.Specs() {
 		fmt.Fprintf(
 			&output,
-			"| `%s` | `%s` | `%s@%s` | `%s` | %s | %s | %s | %s | `%s` | `%s` | %s |\n",
-			spec.Purpose,
-			spec.DispatchClass,
-			spec.PolicyID,
-			spec.PolicyRevision,
-			spec.SelectionStrategy,
+			"| %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |\n",
+			markdownCode(string(spec.Purpose)),
+			markdownCode(string(spec.DispatchClass)),
+			markdownCode(string(spec.PolicyID)+"@"+string(spec.PolicyRevision)),
+			markdownCode(string(spec.SelectionStrategy)),
 			markdownCodeList(spec.FixedCatalogModels, string(spec.CandidateSource)),
 			markdownConstraintList(spec.HardConstraints),
 			markdownFallback(spec.Fallback),
 			markdownBudget(spec.Budget),
-			spec.MigrationStatus,
-			spec.Owner,
+			markdownCode(string(spec.MigrationStatus)),
+			markdownCode(spec.Owner),
 			escapeMarkdownTable(spec.Rationale),
 		)
 	}
 	return []byte(output.String())
 }
 
+func markdownCode(value string) string {
+	return "`" + escapeMarkdownTable(value) + "`"
+}
+
 func markdownCodeList(values []string, empty string) string {
 	if len(values) == 0 {
-		return "`" + empty + "`"
+		return markdownCode(empty)
 	}
 	quoted := make([]string, len(values))
 	for i, value := range values {
-		quoted[i] = "`" + value + "`"
+		quoted[i] = markdownCode(value)
 	}
 	return strings.Join(quoted, "<br>")
 }
@@ -86,9 +89,9 @@ func markdownConstraintList(values []Constraint) string {
 
 func markdownFallback(fallback FallbackSpec) string {
 	if len(fallback.Alternatives) == 0 {
-		return "`" + string(fallback.Kind) + "`"
+		return markdownCode(string(fallback.Kind))
 	}
-	return "`" + string(fallback.Kind) + "`<br>" + markdownCodeList(fallback.Alternatives, "")
+	return markdownCode(string(fallback.Kind)) + "<br>" + markdownCodeList(fallback.Alternatives, "")
 }
 
 func markdownBudget(budget BudgetSpec) string {
@@ -102,9 +105,13 @@ func markdownBudget(budget BudgetSpec) string {
 	if budget.MaxOutputTokens > 0 {
 		parts = append(parts, fmt.Sprintf("max_output=%d", budget.MaxOutputTokens))
 	}
-	return "`" + strings.Join(parts, " ") + "`"
+	return markdownCode(strings.Join(parts, " "))
 }
 
+// escapeMarkdownTable keeps arbitrary policy strings inside a single table cell.
 func escapeMarkdownTable(value string) string {
+	value = strings.ReplaceAll(value, "\r\n", "\n")
+	value = strings.ReplaceAll(value, "\r", "\n")
+	value = strings.ReplaceAll(value, "\n", " ")
 	return strings.ReplaceAll(value, "|", "\\|")
 }

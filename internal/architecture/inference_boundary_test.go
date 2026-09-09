@@ -33,6 +33,8 @@ const (
 	baselinePath          = "inference_boundary_baseline.json"
 )
 
+var purposePackagePaths = []string{policyPackagePath}
+
 type findingKind string
 
 const (
@@ -119,11 +121,45 @@ func TestInferenceBoundaryRejectsNegativeFixtures(t *testing.T) {
 	}
 }
 
+func TestInferenceBoundaryDetectsEveryPurposeShape(t *testing.T) {
+	findings := scanPackages(t, repositoryRoot(t), "./internal/architecture/testdata/unregistered_purpose")
+	details := make(map[string]struct{}, len(findings))
+	for _, item := range findings {
+		require.Equal(t, findingUnregisteredPurpose, item.Kind)
+		details[item.Detail] = struct{}{}
+	}
+	for _, expected := range []string{
+		"fixture_unregistered_purpose",
+		"fixture_unregistered_purpose_paren",
+		"fixture_unregistered_purpose_typed",
+		"fixture_unregistered_purpose_const",
+		"fixture_unregistered_purpose_arg",
+	} {
+		assert.Contains(t, details, expected)
+	}
+}
+
 func TestInferenceBoundaryRejectsBaselineExpansion(t *testing.T) {
 	newFinding := finding{ID: "direct_provider_call|new.go|feature|providers.Client.Proxy|1"}
 	missing, stale := compareBaseline([]finding{newFinding}, nil)
 
 	assert.Equal(t, []finding{newFinding}, missing)
+	assert.Empty(t, stale)
+}
+
+func TestInferenceBoundaryToleratesLineShiftsButNotDetailChanges(t *testing.T) {
+	reviewed := exception{finding: finding{ID: "kind|file.go|symbol|subject|1", Kind: "kind", File: "file.go", Line: 10, Symbol: "symbol", Detail: "detail"}}
+
+	shifted := reviewed.finding
+	shifted.Line = 42
+	missing, stale := compareBaseline([]finding{shifted}, []exception{reviewed})
+	assert.Empty(t, missing)
+	assert.Empty(t, stale)
+
+	changed := reviewed.finding
+	changed.Detail = "other"
+	missing, stale = compareBaseline([]finding{changed}, []exception{reviewed})
+	assert.Equal(t, []finding{changed}, missing)
 	assert.Empty(t, stale)
 }
 
@@ -177,6 +213,16 @@ func scanPackages(t *testing.T, root string, patterns ...string) []finding {
 					})
 				}
 
+				if expression, ok := node.(ast.Expr); ok && isPurposeType(loadedPackage.TypesInfo.TypeOf(expression)) {
+					purposeValue, known := compileTimeString(loadedPackage.TypesInfo, expression)
+					if known {
+						if _, registered := knownPurposes[purposeValue]; !registered {
+							appendFinding(findingUnregisteredPurpose, purposeValue, purposeValue)
+						}
+						return false
+					}
+				}
+
 				switch typedNode := node.(type) {
 				case *ast.ImportSpec:
 					importPath, err := strconv.Unquote(typedNode.Path.Value)
@@ -224,14 +270,6 @@ func scanPackages(t *testing.T, root string, patterns ...string) []finding {
 						}
 						if isRawInferenceHTTPCall(loadedPackage.TypesInfo, typedNode, object) && !rawHTTPAllowed(loadedPackage.PkgPath) {
 							appendFinding(findingRawHTTPClient, callee, callee)
-						}
-					}
-					if isPurposeConversion(object) && len(typedNode.Args) == 1 {
-						purposeValue, known := compileTimeString(loadedPackage.TypesInfo, typedNode.Args[0])
-						if known {
-							if _, registered := knownPurposes[purposeValue]; !registered {
-								appendFinding(findingUnregisteredPurpose, purposeValue, purposeValue)
-							}
 						}
 					}
 				}
@@ -294,9 +332,19 @@ func calledObject(info *types.Info, expression ast.Expr) types.Object {
 	}
 }
 
-func isPurposeConversion(object types.Object) bool {
-	typeName, ok := object.(*types.TypeName)
-	return ok && typeName.Pkg() != nil && typeName.Pkg().Path() == policyPackagePath && typeName.Name() == "Purpose"
+// isPurposeType matches every typed purpose expression: explicit conversions,
+// parenthesized conversions, typed declarations, and untyped constants passed
+// where a Purpose is expected.
+func isPurposeType(value types.Type) bool {
+	if value == nil {
+		return false
+	}
+	for _, packagePath := range purposePackagePaths {
+		if isNamedType(value, packagePath, "Purpose") {
+			return true
+		}
+	}
+	return false
 }
 
 func isRawInferenceHTTPCall(info *types.Info, call *ast.CallExpr, object types.Object) bool {
@@ -456,7 +504,7 @@ func compareBaseline(findings []finding, exceptions []exception) (missing []find
 	}
 	for _, current := range findings {
 		reviewed, found := exceptionByID[current.ID]
-		if !found || reviewed.finding != current {
+		if !found || withoutLine(reviewed.finding) != withoutLine(current) {
 			missing = append(missing, current)
 		}
 	}
@@ -467,6 +515,13 @@ func compareBaseline(findings []finding, exceptions []exception) (missing []find
 	}
 	sort.Strings(stale)
 	return missing, stale
+}
+
+// withoutLine drops the advisory line number so unrelated edits above a
+// reviewed exception do not count as a boundary change; IDs never include it.
+func withoutLine(item finding) finding {
+	item.Line = 0
+	return item
 }
 
 func findingKinds(findings []finding) []findingKind {

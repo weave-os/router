@@ -1,6 +1,7 @@
 package policy_test
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -25,23 +26,37 @@ func TestDefaultInferenceRegistryCoversEveryPurpose(t *testing.T) {
 
 func TestInferenceRegistryRejectsDuplicateAndMissingPurposes(t *testing.T) {
 	specs := policy.DefaultRegistry().Specs()
+	index := policyIndex(t, specs, policy.PurposeAnthropicMessages)
 
-	duplicate := specs[0]
+	duplicate := specs[index]
 	duplicate.PolicyID = "duplicate-purpose-policy"
 	_, err := policy.NewRegistry(append(specs, duplicate))
 	require.Error(t, err)
 	assert.ErrorContains(t, err, "more than one policy")
 
-	_, err = policy.NewRegistry(specs[1:])
+	_, err = policy.NewRegistry(append(specs[:index:index], specs[index+1:]...))
 	require.Error(t, err)
 	assert.ErrorContains(t, err, "has no policy")
 }
 
 func TestInferenceRegistryRejectsMissingRequiredFields(t *testing.T) {
 	specs := policy.DefaultRegistry().Specs()
-	specs[0].Rationale = ""
+	index := policyIndex(t, specs, policy.PurposeAnthropicMessages)
+	specs[index].Rationale = ""
 
 	_, err := policy.NewRegistry(specs)
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "missing policy identity, owner, rationale, or revision")
+
+	specs = policy.DefaultRegistry().Specs()
+	specs[index].PolicyID = "  "
+	_, err = policy.NewRegistry(specs)
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "missing policy identity, owner, rationale, or revision")
+
+	specs = policy.DefaultRegistry().Specs()
+	specs[index].PolicyRevision = "\t"
+	_, err = policy.NewRegistry(specs)
 	require.Error(t, err)
 	assert.ErrorContains(t, err, "missing policy identity, owner, rationale, or revision")
 }
@@ -106,10 +121,12 @@ func TestInferenceRegistryRejectsInvalidFallbackAndOverridePrecedence(t *testing
 func TestInferenceRegistryReturnsImmutableCopies(t *testing.T) {
 	registry := policy.DefaultRegistry()
 	specs := registry.Specs()
-	specs[0].HardConstraints[0] = policy.Constraint("changed")
-	specs[0].Fallback.Alternatives = append(specs[0].Fallback.Alternatives, "changed")
+	index := policyIndex(t, specs, policy.PurposeAnthropicMessages)
+	require.NotEmpty(t, specs[index].HardConstraints)
+	specs[index].HardConstraints[0] = policy.Constraint("changed")
+	specs[index].Fallback.Alternatives = append(specs[index].Fallback.Alternatives, "changed")
 
-	unchanged, found := registry.Spec(specs[0].Purpose)
+	unchanged, found := registry.Spec(policy.PurposeAnthropicMessages)
 	require.True(t, found)
 	assert.NotEqual(t, policy.Constraint("changed"), unchanged.HardConstraints[0])
 	assert.NotContains(t, unchanged.Fallback.Alternatives, "changed")
@@ -127,6 +144,25 @@ func TestInferenceRegistryProjectionIsDeterministic(t *testing.T) {
 	assert.Equal(t, firstJSON, secondJSON)
 	assert.Equal(t, firstMarkdown, secondMarkdown)
 	assert.Contains(t, string(firstMarkdown), registry.Revision())
+}
+
+func TestInferenceRegistryMarkdownKeepsCellsIntact(t *testing.T) {
+	specs := policy.DefaultRegistry().Specs()
+	index := policyIndex(t, specs, policy.PurposeHandoverSummary)
+	specs[index].Owner = "@owner|team"
+	specs[index].Rationale = "first line\r\nsecond | line"
+	registry, err := policy.NewRegistry(specs)
+	require.NoError(t, err)
+
+	markdown := string(registry.StaticMarkdown())
+	assert.Contains(t, markdown, "`@owner\\|team`")
+	assert.Contains(t, markdown, "first line second \\| line")
+	assert.NotContains(t, markdown, "\r")
+	for _, line := range strings.Split(strings.TrimSpace(markdown), "\n") {
+		if strings.HasPrefix(line, "| `") {
+			assert.Equal(t, 12, strings.Count(strings.ReplaceAll(line, "\\|", ""), "|"), line)
+		}
+	}
 }
 
 func policyIndex(t *testing.T, specs []policy.PolicySpec, purpose policy.Purpose) int {
