@@ -1,0 +1,33 @@
+cmd/router/main.go
+  s_2f40bb97923467::t_b2cf0090662149 378
+internal/auth/user.go
+  s_2f40bb97923467::t_b2cf0090662149 11-13
+internal/auth/service.go
+  s_2f40bb97923467::t_c87c2b472242b8 648-652
+internal/auth/user_cluster_model_list.go
+  s_2f40bb97923467::t_c87c2b472242b8 5-9
+internal/proxy/cluster_overrides.go
+  s_2f40bb97923467::t_c87c2b472242b8 3-4,6-9
+internal/auth/user_cluster_cache.go
+  s_2f40bb97923467::t_c87c2b472242b8 35-39
+internal/router/policy/contract.go
+  s_2f40bb97923467::t_b2cf0090662149 35-38
+internal/pubsub/invalidation.go
+  s_2f40bb97923467::t_b2cf0090662149 102-104
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "fbf7b73b6b4dfa777cfdb0af860daf13f46f63b2",
+  "prompts": {},
+  "sessions": {
+    "s_2f40bb97923467": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "94fcecb7-2f4d-43f6-bda6-f33d59ff2276",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}

@@ -1,0 +1,81 @@
+internal/router/cluster/scorer.go
+  s_e790ec9259d346::t_34a55bbc8f4314 583-613
+db/migrations/0073_global-automatic-routing-exclusions.up.sql
+  s_e790ec9259d346::t_91b281d082d0ad 1-25
+internal/proxy/CLAUDE.md
+  s_e790ec9259d346::t_14aa4386d4dd6b 53,63-81
+  s_e790ec9259d346::t_242494c363849c 82
+internal/postgres/repository.go
+  s_e790ec9259d346::t_3b69331d1c64bd 29-32
+  s_e790ec9259d346::t_3ab654c998dadf 44-48
+db/migrations/0073_global-automatic-routing-exclusions.down.sql
+  s_e790ec9259d346::t_91412ecc0cfabb 1-5
+internal/sqlc/global_automatic_routing_exclusions.sql.go
+  s_e790ec9259d346::t_42784e08f61e04 3
+  s_e790ec9259d346::t_95819cc6df0e10 1-2,4-47
+internal/proxy/AGENTS.md
+  s_e790ec9259d346::t_14aa4386d4dd6b 53,63-81
+  s_e790ec9259d346::t_fdf60749505416 82
+internal/proxy/global_automatic_exclusions.go
+  s_e790ec9259d346::t_83e5c85deaec4e 1-90
+internal/proxy/turnloop.go
+  s_e790ec9259d346::t_4ffb29885a6d7d 1063
+  s_e790ec9259d346::t_28d3c8587f847f 1305
+  s_e790ec9259d346::t_4ad759e5f21c02 840-841
+  s_e790ec9259d346::t_d8106d17fe255a 863,867-872
+  s_e790ec9259d346::t_00ed44d9835b94 888-906
+  s_e790ec9259d346::t_0f01eb5876f510 1732-1736
+  s_e790ec9259d346::t_a4fbc0b1b152d5 460-476
+  s_e790ec9259d346::t_87d52072364642 651-657
+  s_e790ec9259d346::t_2e61d4a8e9373f 443-459
+  s_e790ec9259d346::t_6859ca9dccec4c 606,611-625
+  s_e790ec9259d346::t_0c55484eb0fd71 650,658
+  s_e790ec9259d346::t_b3015ac7beef0b 823-827
+internal/proxy/sibling_failover.go
+  s_e790ec9259d346::t_275379df48b917 32-34,44
+  s_e790ec9259d346::t_c9502595bf313d 75,85
+  s_e790ec9259d346::t_df0d79c5fd4da8 45-46
+  s_e790ec9259d346::t_e24a086c485ab4 86-87
+db/queries/global_automatic_routing_exclusions.sql
+  s_e790ec9259d346::t_69b37c71028dae 1-6
+internal/postgres/global_automatic_exclusions_repo.go
+  s_e790ec9259d346::t_372a5712268ce6 1-39
+internal/router/cluster/scorer_test.go
+  s_e790ec9259d346::t_94c4586e1e8b97 1022-1051
+internal/proxy/global_automatic_exclusions_internal_test.go
+  s_e790ec9259d346::t_f6c2e79b5aadf2 1-192
+cmd/router/main.go
+  s_e790ec9259d346::t_6b2583c8ddf85e 1067
+internal/router/router.go
+  s_e790ec9259d346::t_6d82affb9593cd 169-175
+internal/router/policy/resolver.go
+  s_e790ec9259d346::t_91476a93744547 359-362
+  s_e790ec9259d346::t_39d0926b981824 64-67
+internal/router/policy/resolver_test.go
+  s_e790ec9259d346::t_421760938c6c77 304-340
+internal/sqlc/models.go
+  s_e790ec9259d346::t_95819cc6df0e10 38-46
+  s_e790ec9259d346::t_6aba8a0fe4350c 47-48
+internal/proxy/service.go
+  s_e790ec9259d346::t_4197db4dbf337e 1860-1871
+  s_e790ec9259d346::t_4188df8464e555 4856-4860
+  s_e790ec9259d346::t_39869b3ca5cd75 2403-2406
+  s_e790ec9259d346::t_b345c690a07a5d 148-151
+  s_e790ec9259d346::t_fae47a998c95ee 4785-4789
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "e88a5d3ab129cf5873ddadc3db4ecc79a7f17460",
+  "prompts": {},
+  "sessions": {
+    "s_e790ec9259d346": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f94f023a-8c80-4ef9-9ade-e84de8422fa4",
+        "model": "claude-opus-5"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}
