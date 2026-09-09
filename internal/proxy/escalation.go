@@ -222,6 +222,10 @@ func (s *Service) finishEscalation(ctx context.Context, turn *escalationTurn, re
 	commitCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), time.Second)
 	defer cancel()
 	if err := s.escalationStore.Commit(commitCtx, turn.scope, turn.boundary, turn.token, turn.session, turn.checkpoint); err != nil {
+		s.releaseEscalation(ctx, turn)
+		// A rolled-back observation leaves a gap. Invalidation checks the
+		// boundary checkpoint so an ambiguously successful commit stays intact.
+		s.invalidateEscalation(ctx, turn.scope, turn.boundary)
 		return err
 	}
 	res.EscalationScope = turn.scope
