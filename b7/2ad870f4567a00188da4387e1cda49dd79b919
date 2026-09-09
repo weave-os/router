@@ -1,0 +1,22 @@
+internal/proxy/service.go
+  s_8697acb4176b05::t_ac36b43299c169 3426-3428,6008-6011
+internal/proxy/service_cache_test.go
+  s_8697acb4176b05::t_ac36b43299c169 17,162-187
+  s_8697acb4176b05::t_871230b2ade9ec 188-190
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "b72ad870f4567a00188da4387e1cda49dd79b919",
+  "prompts": {},
+  "sessions": {
+    "s_8697acb4176b05": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a068bd-b05d-7a42-bf65-794c0e3a8ba1",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}

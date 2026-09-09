@@ -1,0 +1,21 @@
+internal/router/catalog/family_test.go
+  s_108b236fe89c6d::t_628283037a3086 17-19,28
+internal/router/catalog/family.go
+  s_108b236fe89c6d::t_628283037a3086 50-51,54
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "4da1c9d8a97bffc4d6afffd400be8c846e48c44e",
+  "prompts": {},
+  "sessions": {
+    "s_108b236fe89c6d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08322-f5a8-7ad1-8c63-14d71de76912",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}
