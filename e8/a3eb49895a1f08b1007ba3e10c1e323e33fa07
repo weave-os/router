@@ -1,0 +1,24 @@
+internal/postgres/telemetry.go
+  s_058485d2635629::t_1f74474312fb06 27-28
+  s_058485d2635629::t_ff589ee1164e3a 5,33
+internal/proxy/telemetry.go
+  s_058485d2635629::t_ff589ee1164e3a 133-134,206-207
+internal/postgres/usd_micros_internal_test.go
+  s_058485d2635629::t_6d35008b510a53 1-26
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "e8a3eb49895a1f08b1007ba3e10c1e323e33fa07",
+  "prompts": {},
+  "sessions": {
+    "s_058485d2635629": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "bc459cec-44c1-4e73-9977-ec456ecc2a56",
+        "model": "grok-4.6"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}
