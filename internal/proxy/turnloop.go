@@ -761,7 +761,8 @@ func (s *Service) runTurnLoop(
 			if s.pinStore != nil {
 				pin, _ := s.loadPin(ctx, threadSessionKey, res.PinRole)
 				hmmHistory := s.loadHMMHistory(ctx, threadSessionKey, res.PinRole)
-				res.PriorServedModel, res.SessionEverSwitched = switchHistoryFromPins(pin, hmmHistory)
+				forceHistory := s.loadForceModelHistory(ctx, threadSessionKey, res.PinRole)
+				res.PriorServedModel, res.SessionEverSwitched = switchHistoryFromPins(pin, hmmHistory, forceHistory)
 			}
 			res.Decision = decision
 			res.BlindExperimentPassthrough = true
