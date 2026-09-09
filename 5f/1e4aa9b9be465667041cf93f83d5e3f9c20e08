@@ -30,6 +30,7 @@ internal/proxy/service.go
   s_5d7f0258888930::t_e7dff4f1fcab2c 2584,3018-3019,3023,3046-3047,3056,3251-3254,3476,3481-3483,6067
   s_5d7f0258888930::t_bace15e6c1b69d 3475,3477,3479-3480
   s_5d7f0258888930::t_9825468fbceedf 28,3255,6064-6066,6068
+  s_7fa428a6b6817b::t_60230a105c9fcc 3520
 internal/proxy/compaction.go
   s_5d7f0258888930::t_e7dff4f1fcab2c 58,88-89,252-256,282,288-289
   s_baac67a6a222f8::t_879594e1d20d24 49-50
@@ -106,6 +107,14 @@ internal/proxy/gemini.go
         "tool": "claude",
         "id": "cf044266-8fa1-42fb-84e3-f5b29f214e29",
         "model": "gpt-6-astra"
+      },
+      "human_author": "Drew Bailey <drew@workweave.ai>"
+    },
+    "s_7fa428a6b6817b": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "92be9f94-6f27-4e58-a8fb-0fe9429576cf",
+        "model": "grok-4.6"
       },
       "human_author": "Drew Bailey <drew@workweave.ai>"
     },
