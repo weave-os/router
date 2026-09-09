@@ -26,9 +26,9 @@ func (NoOpBlindExperimentCache) InvalidateInstallation(string)            {}
 // LRUBlindExperimentCache is keyed by router user and secondarily indexed by
 // installation so Pub/Sub invalidation can evict a whole organization's cohort.
 type LRUBlindExperimentCache struct {
-	mu                 sync.Mutex
-	entries            *expirable.LRU[string, BlindExperimentState]
-	byInstallation     map[string]map[string]struct{}
+	mu             sync.Mutex
+	entries        *expirable.LRU[string, BlindExperimentState]
+	byInstallation map[string]map[string]struct{}
 	// A global epoch closes the Set/Invalidate race without retaining one
 	// generation counter per installation forever. An invalidation may evict a
 	// concurrent Set for another installation; that is safe because the next
