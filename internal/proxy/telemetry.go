@@ -5,6 +5,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"weave-os/router/internal/inference"
 )
 
 // InstallationIDContextKey is the request-context key for the authenticated installation UUID.
@@ -23,6 +25,19 @@ type TelemetryRepository interface {
 	GetTelemetryModelBreakdownAll(ctx context.Context, from, to time.Time, granularity string) ([]TelemetryModelBucket, error)
 	GetTelemetryBySessionSequence(ctx context.Context, installationID uuid.UUID, sessionKey []byte, role string, seq int) (TelemetryTurnResult, error)
 	GetSessionCost(ctx context.Context, installationID, sessionID string) (SessionCost, error)
+}
+
+// InferenceAttemptStore persists the ordered upstream attempts of an inference
+// operation. Kept separate from TelemetryRepository so the executor can be
+// wired with attempt persistence without depending on the dashboard queries.
+type InferenceAttemptStore interface {
+	InsertInferenceAttempt(ctx context.Context, p InsertInferenceAttemptParams) error
+}
+
+// InsertInferenceAttemptParams mirrors one model_router_inference_attempts row.
+type InsertInferenceAttemptParams struct {
+	InstallationID string
+	Event          inference.AttemptEvent
 }
 
 // Costs are USD micros ($1.00 = 1,000,000) summed as integers so no float rounding accumulates.
@@ -194,6 +209,11 @@ type InsertTelemetryParams struct {
 	// caller sent, before intersection with the installation allowlist. Nil
 	// (NULL) when the header was absent.
 	RequestedAllowedModels []string
+
+	// Inference is the policy provenance of the operation this row summarizes.
+	// Nil on paths not yet dispatched through the executor, leaving every
+	// provenance column NULL.
+	Inference *inference.OperationSummary
 }
 
 // TelemetrySummary holds aggregated totals for the dashboard cards.

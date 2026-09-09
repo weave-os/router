@@ -31,6 +31,11 @@
 -- set observed on this turn (Claude Code cost-observing-proxy Phase 0
 -- instrumentation). NULL on non-subscription turns and on rows written before
 -- the column existed. Nothing reads it yet.
+-- inference_* / plan_* / fallback_reason / accounting_outcome / usage_known are
+-- the inference-policy provenance of the operation (purpose, policy entry and
+-- revisions, policy-selected target, why the served target differs, how usage
+-- was accounted). NULL on rows written before the columns existed and on paths
+-- not yet migrated to the executor.
 -- name: InsertRequestTelemetry :exec
 INSERT INTO router.model_router_request_telemetry (
     installation_id,
@@ -134,7 +139,16 @@ INSERT INTO router.model_router_request_telemetry (
     spiral_steps_since_progress,
     spiral_edit_attempted,
     spiral_reasons,
-    requested_allowed_models
+    requested_allowed_models,
+    inference_purpose,
+    inference_policy_id,
+    inference_registry_revision,
+    inference_policy_revision,
+    plan_model,
+    plan_provider,
+    fallback_reason,
+    accounting_outcome,
+    usage_known
 ) VALUES (
     @installation_id::uuid,
     sqlc.narg('api_key_id')::uuid,
@@ -237,7 +251,16 @@ INSERT INTO router.model_router_request_telemetry (
     sqlc.narg('spiral_steps_since_progress')::int,
     sqlc.narg('spiral_edit_attempted')::boolean,
     sqlc.narg('spiral_reasons')::varchar[],
-    sqlc.narg('requested_allowed_models')::varchar[]
+    sqlc.narg('requested_allowed_models')::varchar[],
+    sqlc.narg('inference_purpose')::varchar,
+    sqlc.narg('inference_policy_id')::varchar,
+    sqlc.narg('inference_registry_revision')::varchar,
+    sqlc.narg('inference_policy_revision')::varchar,
+    sqlc.narg('plan_model')::varchar,
+    sqlc.narg('plan_provider')::varchar,
+    sqlc.narg('fallback_reason')::varchar,
+    sqlc.narg('accounting_outcome')::varchar,
+    sqlc.narg('usage_known')::boolean
 )
 ON CONFLICT (installation_id, request_id, span_type) DO NOTHING;
 
