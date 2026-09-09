@@ -1,0 +1,29 @@
+internal/postgres/telemetry.go
+  s_b606a0b04ceeb1::t_7e6c197eb23952 700
+  s_b606a0b04ceeb1::t_29cc6c459dfab9 682-683
+internal/proxy/telemetry.go
+  s_b606a0b04ceeb1::t_a3c97f6499a24b 28-31
+internal/proxy/service.go
+  s_b606a0b04ceeb1::t_83414c953aac2a 1900-1901
+internal/server/server.go
+  s_b606a0b04ceeb1::t_6d68d5eb693f38 246
+internal/api/admin/session_cost.go
+  s_b606a0b04ceeb1::t_b3a5caa7dac4a4 13
+  s_b606a0b04ceeb1::t_7391b9f66dfc20 35-36
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "d40e3d2db9b1ff668faeb0d4e3b5208f15ee55c2",
+  "prompts": {},
+  "sessions": {
+    "s_b606a0b04ceeb1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "2c1bb7a0-3852-4d27-8741-6a344a196cc3",
+        "model": "claude-opus-5"
+      },
+      "human_author": "munir-weave <munir@workweave.ai>"
+    }
+  }
+}

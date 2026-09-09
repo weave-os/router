@@ -1,0 +1,33 @@
+internal/proxy/service.go
+  s_1184d1f1518d65::t_230a8454ce6120 136-142
+  s_1184d1f1518d65::t_3043b6e35e4bfc 1128-1137
+internal/proxy/turnloop.go
+  s_1184d1f1518d65::t_905eb2c3dddc96 207-216
+  s_1184d1f1518d65::t_a35e958b94140a 182-206,217-235
+  s_1184d1f1518d65::t_3b039e9cfb8d84 869-882
+internal/proxy/hmm_pin_sticky_internal_test.go
+  s_1184d1f1518d65::t_57e79767045a57 29,33,50,57-63
+  s_1184d1f1518d65::t_de8496c40b971c 31-32
+  s_1184d1f1518d65::t_d886501920e444 85
+  s_1184d1f1518d65::t_366ecafc1e3d37 1-19,120-129,138-139,145-146,148-153,155-164,166-168,170-175,178-229
+  s_1184d1f1518d65::t_019dc78810acad 20-28,30,34-49,51-56,64-84,86-119,130-137,140-144,147,154,165,169,176-177
+cmd/router/main.go
+  s_1184d1f1518d65::t_cf996fc777d11a 580
+  s_1184d1f1518d65::t_b954d77694c75b 779
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.21",
+  "base_commit_sha": "eeff777dd6291f7774a56bddb99538e10667b28e",
+  "prompts": {},
+  "sessions": {
+    "s_1184d1f1518d65": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a650f0bb-cd2f-48b3-8efa-5a236c4ae15a",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}

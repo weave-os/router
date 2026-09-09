@@ -1,0 +1,34 @@
+internal/translate/responses.go
+  s_99a26d7f7deb6c::t_43c92465164351 1183,1190
+  s_99a26d7f7deb6c::t_f5c2dac303c077 1136-1137,1151,1153-1180,1229
+  s_99a26d7f7deb6c::t_9e79171e99d433 1152
+  s_99a26d7f7deb6c::t_79b74bf1f8015c 1035,1045,1065
+  s_99a26d7f7deb6c::t_effd02d0f5a38f 1181-1182
+internal/translate/footer_echo_test.go
+  s_99a26d7f7deb6c::t_3930b38d3de78f 83-88
+internal/translate/footer_echo.go
+  s_99a26d7f7deb6c::t_81f38652eb4e1f 11-13,34-73,75-79
+  s_99a26d7f7deb6c::t_92f48c2114b423 74
+internal/translate/responses_test.go
+  s_99a26d7f7deb6c::t_594aa71aac5871 945-949
+internal/proxy/service.go
+  s_99a26d7f7deb6c::t_06b2ed71bb80f1 2630-2632,6067-6069
+  s_99a26d7f7deb6c::t_b98e9f4ed59333 5227-5229
+  s_99a26d7f7deb6c::t_59aadac30cad98 401-404
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "b95c72670a957c74b876da71c63999ee99818ea1",
+  "prompts": {},
+  "sessions": {
+    "s_99a26d7f7deb6c": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6a458e13-f54a-43f2-8dcb-023370249ea7",
+        "model": "grok-4.6"
+      },
+      "human_author": "munir-weave <munir@workweave.ai>"
+    }
+  }
+}

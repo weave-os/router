@@ -1,0 +1,22 @@
+install/install.sh
+  s_1329d82a6b5096::t_6f59035648a297 1163-1165,1178,2626-2659,2734-2737
+  s_1329d82a6b5096::t_3ce76bd727470e 2738
+install/npm/README.md
+  s_1329d82a6b5096::t_6f59035648a297 10
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "cac3e3a216d4cb5bac468f8226f544df85dea2b0",
+  "prompts": {},
+  "sessions": {
+    "s_1329d82a6b5096": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06411-d06e-7bf2-a146-148e786307ea",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}
