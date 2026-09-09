@@ -14,13 +14,13 @@ import (
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/providers/cortexagents"
-	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/websearch"
 )
 
 // wifContext mirrors what the proxy injects for a WIF-authenticated gateway key.
 func wifContext(baseURL string) context.Context {
-	return context.WithValue(context.Background(), proxy.CredentialsContextKey{}, &proxy.Credentials{
+	return context.WithValue(context.Background(), requestcontext.CredentialsContextKey{}, &requestcontext.Credentials{
 		APIKey:   []byte("WIF.GCP.attestation-token"),
 		BaseURL:  baseURL,
 		AuthType: auth.AuthTypeWIF,
@@ -241,7 +241,7 @@ func TestSearchOmitsRoleHeaderAndTokenTypeWhenNotApplicable(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	ctx := context.WithValue(context.Background(), proxy.CredentialsContextKey{}, &proxy.Credentials{
+	ctx := context.WithValue(context.Background(), requestcontext.CredentialsContextKey{}, &requestcontext.Credentials{
 		APIKey:   []byte("static-pat"),
 		BaseURL:  srv.URL,
 		AuthType: auth.AuthTypeBearer,
@@ -266,17 +266,17 @@ func TestSearchForwardsClientCorrelationHeaders(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	ctx := context.WithValue(context.Background(), proxy.CredentialsContextKey{}, &proxy.Credentials{
+	ctx := context.WithValue(context.Background(), requestcontext.CredentialsContextKey{}, &requestcontext.Credentials{
 		APIKey:                 []byte("static-pat"),
 		BaseURL:                srv.URL,
 		AuthType:               auth.AuthTypeBearer,
 		ForwardedClientHeaders: []string{"X-SNOWFLAKE-APPLICATION"},
 		BaggageHeader:          "X-SNOWFLAKE-BAGGAGE",
 	})
-	ctx = context.WithValue(ctx, proxy.ClientIdentityContextKey{}, proxy.ClientIdentity{Email: "engineer@example.com"})
+	ctx = context.WithValue(ctx, requestcontext.ClientIdentityContextKey{}, requestcontext.ClientIdentity{Email: "engineer@example.com"})
 	inbound := http.Header{}
 	inbound.Set("X-SNOWFLAKE-APPLICATION", "cortex-cli/1.2.3")
-	ctx = proxy.WithForwardedHeaderSnapshot(ctx, []*auth.ExternalAPIKey{{
+	ctx = requestcontext.WithForwardedHeaderSnapshot(ctx, []*auth.ExternalAPIKey{{
 		ForwardedClientHeaders: []string{"X-SNOWFLAKE-APPLICATION"},
 	}}, inbound)
 

@@ -15,7 +15,7 @@ import (
 	"github.com/tidwall/sjson"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/providers/httputil"
-	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/timing"
 )
@@ -200,7 +200,7 @@ const subscriptionTokenPrefix = "sk-ant-oat"
 // The passthrough tier scrubs router-issued Bearer tokens via
 // httputil.SanitizeInboundAuthHeader before relaying inbound auth upstream.
 func (c *Client) setAuth(ctx context.Context, upstream *http.Request, inbound *http.Request) {
-	if creds := proxy.CredentialsFromContext(ctx); creds != nil {
+	if creds := requestcontext.CredentialsFromContext(ctx); creds != nil {
 		if creds.OAuth || c.authScheme == AuthBearer {
 			upstream.Header.Set("authorization", "Bearer "+string(creds.APIKey))
 			return
@@ -249,7 +249,7 @@ func (c *Client) applyOAuthBeta(ctx context.Context, upstream, inbound *http.Req
 // suppressed (exhausted) subscription failing over to the deployment key
 // otherwise sends key auth plus an OAuth-only beta, which Anthropic rejects.
 func (c *Client) subscriptionAuth(ctx context.Context, inbound *http.Request) bool {
-	if creds := proxy.CredentialsFromContext(ctx); creds != nil {
+	if creds := requestcontext.CredentialsFromContext(ctx); creds != nil {
 		return creds.OAuth
 	}
 	if c.apiKey != "" {
@@ -268,7 +268,7 @@ func (c *Client) claudeSubscriptionAuth(ctx context.Context, inbound *http.Reque
 	if !c.subscriptionAuth(ctx, inbound) {
 		return false
 	}
-	if creds := proxy.CredentialsFromContext(ctx); creds != nil {
+	if creds := requestcontext.CredentialsFromContext(ctx); creds != nil {
 		return strings.HasPrefix(string(creds.APIKey), subscriptionTokenPrefix)
 	}
 	return true
@@ -292,10 +292,10 @@ func (c *Client) Proxy(ctx context.Context, decision router.Decision, prep provi
 	ctx, cancel := context.WithCancelCause(ctx)
 	defer cancel(nil)
 
-	baseURL := proxy.EffectiveBaseURL(ctx, c.baseURL)
+	baseURL := requestcontext.EffectiveBaseURL(ctx, c.baseURL)
 	body := rewriteModelField(prep.Body, c.modelIDMap)
 	// Applied after the catalog map so a BYOK endpoint's own naming wins.
-	body = proxy.ApplyModelAlias(ctx, body, decision.Model)
+	body = requestcontext.ApplyModelAlias(ctx, body, decision.Model)
 	if c.claudeSubscriptionAuth(ctx, r) {
 		body = ensureClaudeCodeIdentity(body)
 	}
@@ -329,9 +329,9 @@ func (c *Client) proxyTo(ctx context.Context, cancel context.CancelCauseFunc, ur
 	}
 	c.applyProtectedHeaders(upstream)
 	c.applyOAuthBeta(ctx, upstream, r)
-	proxy.ApplyWIFTokenType(ctx, upstream)
-	proxy.ApplyIdentityHeader(ctx, upstream)
-	proxy.ApplyForwardedClientHeaders(ctx, upstream, r.Header)
+	requestcontext.ApplyWIFTokenType(ctx, upstream)
+	requestcontext.ApplyIdentityHeader(ctx, upstream)
+	requestcontext.ApplyForwardedClientHeaders(ctx, upstream, r.Header)
 	if v := r.Header.Get("accept"); v != "" {
 		upstream.Header.Set("accept", v)
 	}
@@ -422,7 +422,7 @@ func (c *Client) proxyTo(ctx context.Context, cancel context.CancelCauseFunc, ur
 }
 
 func (c *Client) Passthrough(ctx context.Context, prep providers.PreparedRequest, w http.ResponseWriter, r *http.Request) error {
-	url := proxy.EffectiveBaseURL(ctx, c.baseURL) + r.URL.Path
+	url := requestcontext.EffectiveBaseURL(ctx, c.baseURL) + r.URL.Path
 	if r.URL.RawQuery != "" {
 		url += "?" + r.URL.RawQuery
 	}
@@ -441,8 +441,8 @@ func (c *Client) Passthrough(ctx context.Context, prep providers.PreparedRequest
 	}
 	c.applyProtectedHeaders(upstream)
 	c.applyOAuthBeta(ctx, upstream, r)
-	proxy.ApplyWIFTokenType(ctx, upstream)
-	proxy.ApplyForwardedClientHeaders(ctx, upstream, r.Header)
+	requestcontext.ApplyWIFTokenType(ctx, upstream)
+	requestcontext.ApplyForwardedClientHeaders(ctx, upstream, r.Header)
 	if v := r.Header.Get("accept"); v != "" {
 		upstream.Header.Set("accept", v)
 	}

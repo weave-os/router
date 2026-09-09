@@ -420,9 +420,6 @@ func apiKeyIDFromContext(ctx context.Context) string {
 // ExternalIDContextKey is the request-context key for the installation's external_id.
 type ExternalIDContextKey struct{}
 
-// CredentialsContextKey is the request-context key for resolved per-request credentials.
-type CredentialsContextKey struct{}
-
 // AnthropicSubscriptionContextKey is the request-context key for a caller's raw
 // Claude subscription OAuth token, stashed by the auth middleware from the
 // X-Weave-Anthropic-Subscription header on router-keyed requests.
@@ -1298,16 +1295,6 @@ func (s *Service) restrictToTier(excluded map[string]struct{}, tier catalog.Tier
 		return excluded, false
 	}
 	return out, true
-}
-
-// CredentialsFromContext returns the resolved credentials stashed on ctx.
-func CredentialsFromContext(ctx context.Context) *Credentials {
-	v := ctx.Value(CredentialsContextKey{})
-	if v == nil {
-		return nil
-	}
-	creds, _ := v.(*Credentials)
-	return creds
 }
 
 // anthropicSubscriptionFromContext returns the raw Claude subscription token

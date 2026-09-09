@@ -1,4 +1,4 @@
-package proxy_test
+package requestcontext_test
 
 import (
 	"context"
@@ -9,19 +9,19 @@ import (
 	"testing"
 
 	"weave-os/router/internal/auth"
-	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/requestcontext"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func identityCtx(creds *proxy.Credentials, identity proxy.ClientIdentity) context.Context {
-	ctx := context.WithValue(context.Background(), proxy.CredentialsContextKey{}, creds)
-	return context.WithValue(ctx, proxy.ClientIdentityContextKey{}, identity)
+func identityCtx(creds *requestcontext.Credentials, identity requestcontext.ClientIdentity) context.Context {
+	ctx := context.WithValue(context.Background(), requestcontext.CredentialsContextKey{}, creds)
+	return context.WithValue(ctx, requestcontext.ClientIdentityContextKey{}, identity)
 }
 
 func TestApplyIdentityHeader(t *testing.T) {
-	identity := proxy.ClientIdentity{
+	identity := requestcontext.ClientIdentity{
 		Email:       "engineer@example.com",
 		DisplayName: "Engineer, Staff",
 		SessionID:   "session-1",
@@ -30,22 +30,22 @@ func TestApplyIdentityHeader(t *testing.T) {
 
 	t.Run("sends nothing when the key configures no header", func(t *testing.T) {
 		upstream := httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
-		proxy.ApplyIdentityHeader(identityCtx(&proxy.Credentials{}, identity), upstream)
+		requestcontext.ApplyIdentityHeader(identityCtx(&requestcontext.Credentials{}, identity), upstream)
 		assert.Empty(t, upstream.Header,
 			"a key that asked for nothing must not leak the caller's address to its endpoint")
 	})
 
 	t.Run("sends the bare address in email format", func(t *testing.T) {
 		upstream := httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
-		creds := &proxy.Credentials{IdentityHeader: "X-Caller-Identity", IdentityHeaderFormat: auth.IdentityFormatEmail}
-		proxy.ApplyIdentityHeader(identityCtx(creds, identity), upstream)
+		creds := &requestcontext.Credentials{IdentityHeader: "X-Caller-Identity", IdentityHeaderFormat: auth.IdentityFormatEmail}
+		requestcontext.ApplyIdentityHeader(identityCtx(creds, identity), upstream)
 		assert.Equal(t, "engineer@example.com", upstream.Header.Get("X-Caller-Identity"))
 	})
 
 	t.Run("sends a URL-encoded property bag in json format", func(t *testing.T) {
 		upstream := httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
-		creds := &proxy.Credentials{IdentityHeader: "X-Caller-Identity", IdentityHeaderFormat: auth.IdentityFormatJSON}
-		proxy.ApplyIdentityHeader(identityCtx(creds, identity), upstream)
+		creds := &requestcontext.Credentials{IdentityHeader: "X-Caller-Identity", IdentityHeaderFormat: auth.IdentityFormatJSON}
+		requestcontext.ApplyIdentityHeader(identityCtx(creds, identity), upstream)
 
 		raw := upstream.Header.Get("X-Caller-Identity")
 		assert.NotContains(t, raw, ",",
@@ -66,8 +66,8 @@ func TestApplyIdentityHeader(t *testing.T) {
 
 	t.Run("omits empty identity fields", func(t *testing.T) {
 		upstream := httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
-		creds := &proxy.Credentials{IdentityHeader: "X-Caller-Identity", IdentityHeaderFormat: auth.IdentityFormatJSON}
-		proxy.ApplyIdentityHeader(identityCtx(creds, proxy.ClientIdentity{Email: "engineer@example.com"}), upstream)
+		creds := &requestcontext.Credentials{IdentityHeader: "X-Caller-Identity", IdentityHeaderFormat: auth.IdentityFormatJSON}
+		requestcontext.ApplyIdentityHeader(identityCtx(creds, requestcontext.ClientIdentity{Email: "engineer@example.com"}), upstream)
 
 		decoded, err := url.QueryUnescape(upstream.Header.Get("X-Caller-Identity"))
 		require.NoError(t, err)
@@ -77,8 +77,8 @@ func TestApplyIdentityHeader(t *testing.T) {
 
 	t.Run("sends nothing when the request carries no identity", func(t *testing.T) {
 		upstream := httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
-		creds := &proxy.Credentials{IdentityHeader: "X-Caller-Identity", IdentityHeaderFormat: auth.IdentityFormatJSON}
-		proxy.ApplyIdentityHeader(identityCtx(creds, proxy.ClientIdentity{}), upstream)
+		creds := &requestcontext.Credentials{IdentityHeader: "X-Caller-Identity", IdentityHeaderFormat: auth.IdentityFormatJSON}
+		requestcontext.ApplyIdentityHeader(identityCtx(creds, requestcontext.ClientIdentity{}), upstream)
 		assert.Empty(t, upstream.Header.Get("X-Caller-Identity"),
 			"an empty header is worse than none: it attributes the turn to nobody instead of leaving it unattributed")
 	})
@@ -86,8 +86,8 @@ func TestApplyIdentityHeader(t *testing.T) {
 	t.Run("overrides a client-supplied value of the same name", func(t *testing.T) {
 		upstream := httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
 		upstream.Header.Set("X-Caller-Identity", "someone-else@example.com")
-		creds := &proxy.Credentials{IdentityHeader: "X-Caller-Identity", IdentityHeaderFormat: auth.IdentityFormatEmail}
-		proxy.ApplyIdentityHeader(identityCtx(creds, identity), upstream)
+		creds := &requestcontext.Credentials{IdentityHeader: "X-Caller-Identity", IdentityHeaderFormat: auth.IdentityFormatEmail}
+		requestcontext.ApplyIdentityHeader(identityCtx(creds, identity), upstream)
 		assert.Equal(t, "engineer@example.com", upstream.Header.Get("X-Caller-Identity"),
 			"a caller must not be able to bill their turns to another user by setting the header themselves")
 	})

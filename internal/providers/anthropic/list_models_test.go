@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	"weave-os/router/internal/providers/anthropic"
-	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/requestcontext"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -42,7 +42,7 @@ func TestListModels_BYOKCredentialsOverrideBaseURL(t *testing.T) {
 	defer byokSrv.Close()
 
 	c := anthropic.NewClient("", "", anthropic.WithAuthScheme(anthropic.AuthBearer))
-	ctx := context.WithValue(context.Background(), proxy.CredentialsContextKey{}, &proxy.Credentials{
+	ctx := context.WithValue(context.Background(), requestcontext.CredentialsContextKey{}, &requestcontext.Credentials{
 		APIKey:  []byte("byok-token"),
 		BaseURL: byokSrv.URL,
 	})

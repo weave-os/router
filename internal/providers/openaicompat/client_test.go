@@ -11,7 +11,7 @@ import (
 
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/providers/openaicompat"
-	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 
 	"github.com/stretchr/testify/assert"
@@ -80,8 +80,8 @@ func TestProxy_BYOKCredentialsOverrideEnvKey(t *testing.T) {
 	defer upstream.Close()
 
 	c := openaicompat.NewClient("deployment-key", upstream.URL+"/api/v1")
-	byok := &proxy.Credentials{APIKey: []byte("sk-or-v1-byok-key"), Source: "byok"}
-	ctx := context.WithValue(context.Background(), proxy.CredentialsContextKey{}, byok)
+	byok := &requestcontext.Credentials{APIKey: []byte("sk-or-v1-byok-key"), Source: "byok"}
+	ctx := context.WithValue(context.Background(), requestcontext.CredentialsContextKey{}, byok)
 
 	rec := httptest.NewRecorder()
 	clientReq := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(""))
@@ -117,12 +117,12 @@ func TestProxy_BYOKBaseURLOverridesDeploymentBaseURL(t *testing.T) {
 	c := openaicompat.NewClient("deployment-key", deployment.URL+"/api/v1")
 	// Trailing slash is deliberate: EffectiveBaseURL must normalize it so the
 	// joined path doesn't end up with a doubled separator.
-	byok := &proxy.Credentials{
+	byok := &requestcontext.Credentials{
 		APIKey:  []byte("mk-customer-key"),
 		Source:  "byok",
 		BaseURL: customer.URL + "/v1/",
 	}
-	ctx := context.WithValue(context.Background(), proxy.CredentialsContextKey{}, byok)
+	ctx := context.WithValue(context.Background(), requestcontext.CredentialsContextKey{}, byok)
 
 	rec := httptest.NewRecorder()
 	clientReq := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(""))
@@ -148,8 +148,8 @@ func TestProxy_DeploymentBaseURLUsedWhenBYOKOmitsIt(t *testing.T) {
 	defer upstream.Close()
 
 	c := openaicompat.NewClient("deployment-key", upstream.URL+"/api/v1")
-	byok := &proxy.Credentials{APIKey: []byte("mk-customer-key"), Source: "byok"}
-	ctx := context.WithValue(context.Background(), proxy.CredentialsContextKey{}, byok)
+	byok := &requestcontext.Credentials{APIKey: []byte("mk-customer-key"), Source: "byok"}
+	ctx := context.WithValue(context.Background(), requestcontext.CredentialsContextKey{}, byok)
 
 	rec := httptest.NewRecorder()
 	clientReq := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(""))

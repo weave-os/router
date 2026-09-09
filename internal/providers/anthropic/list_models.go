@@ -12,7 +12,7 @@ import (
 
 	"github.com/tidwall/gjson"
 	"weave-os/router/internal/providers"
-	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/requestcontext"
 )
 
 // maxModelListBytes caps the buffered model-list response body.
@@ -32,7 +32,7 @@ const maxModelListPages = 20
 // Cortex) publish their catalog at the sibling /models instead, so a 404 on the
 // first page falls back to that.
 func (c *Client) ListModels(ctx context.Context) ([]string, error) {
-	baseURL := proxy.EffectiveBaseURL(ctx, c.baseURL)
+	baseURL := requestcontext.EffectiveBaseURL(ctx, c.baseURL)
 	if baseURL == "" {
 		return nil, errors.New("no base URL configured for model listing")
 	}
@@ -50,8 +50,8 @@ func (c *Client) ListModels(ctx context.Context) ([]string, error) {
 		}
 		upstream.Header.Set("anthropic-version", anthropicVersion)
 		c.setAuth(ctx, upstream, upstream)
-		proxy.ApplyWIFTokenType(ctx, upstream)
-		proxy.ApplyIdentityHeader(ctx, upstream)
+		requestcontext.ApplyWIFTokenType(ctx, upstream)
+		requestcontext.ApplyIdentityHeader(ctx, upstream)
 
 		resp, err := c.http.Do(upstream)
 		if err != nil {
@@ -116,8 +116,8 @@ func (c *Client) getGatewayModels(ctx context.Context, baseURL string, withEntit
 	}
 	upstream.Header.Set("anthropic-version", anthropicVersion)
 	c.setAuth(ctx, upstream, upstream)
-	proxy.ApplyWIFTokenType(ctx, upstream)
-	proxy.ApplyIdentityHeader(ctx, upstream)
+	requestcontext.ApplyWIFTokenType(ctx, upstream)
+	requestcontext.ApplyIdentityHeader(ctx, upstream)
 
 	resp, err := c.http.Do(upstream)
 	if err != nil {

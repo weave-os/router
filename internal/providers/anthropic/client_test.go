@@ -12,7 +12,7 @@ import (
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/providers/anthropic"
-	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/timing"
 
@@ -197,8 +197,8 @@ func TestProxy_SubscriptionOAuthCredentialUsesBearerAndBetaHeader(t *testing.T) 
 	// Deployment key is configured, but a resolved subscription OAuth credential
 	// must win and authenticate via Bearer — never x-api-key.
 	c := anthropic.NewClient("deployment-key", upstream.URL)
-	ctx := context.WithValue(context.Background(), proxy.CredentialsContextKey{},
-		&proxy.Credentials{APIKey: []byte("sk-ant-oat01-subscription-token"), Source: "subscription", OAuth: true})
+	ctx := context.WithValue(context.Background(), requestcontext.CredentialsContextKey{},
+		&requestcontext.Credentials{APIKey: []byte("sk-ant-oat01-subscription-token"), Source: "subscription", OAuth: true})
 	rec := httptest.NewRecorder()
 	clientReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
 
@@ -234,8 +234,8 @@ func TestProxy_NonOAuthCredentialUsesAPIKey(t *testing.T) {
 	defer upstream.Close()
 
 	c := anthropic.NewClient("deployment-key", upstream.URL)
-	ctx := context.WithValue(context.Background(), proxy.CredentialsContextKey{},
-		&proxy.Credentials{APIKey: []byte("sk-ant-api-byok"), Source: "byok"})
+	ctx := context.WithValue(context.Background(), requestcontext.CredentialsContextKey{},
+		&requestcontext.Credentials{APIKey: []byte("sk-ant-api-byok"), Source: "byok"})
 	rec := httptest.NewRecorder()
 	clientReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
 	prep := providers.PreparedRequest{Body: []byte(`{"model":"x"}`), Headers: make(http.Header)}
@@ -297,7 +297,7 @@ func TestProxy_DeploymentKeyOutranksInboundSubscriptionBearerAndDropsBeta(t *tes
 	// Authorization. setAuth authenticates with the deployment key here, so the
 	// oauth beta must NOT ride along — Anthropic rejects it on x-api-key auth.
 	c := anthropic.NewClient("deployment-key", upstream.URL)
-	ctx := context.WithValue(context.Background(), proxy.CredentialsContextKey{}, (*proxy.Credentials)(nil))
+	ctx := context.WithValue(context.Background(), requestcontext.CredentialsContextKey{}, (*requestcontext.Credentials)(nil))
 	rec := httptest.NewRecorder()
 	clientReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
 	clientReq.Header.Set("Authorization", "Bearer sk-ant-oat01-subscription-token")
@@ -523,7 +523,7 @@ func TestProxy_RewritesModelForAliasedBYOKEndpoint(t *testing.T) {
 	}))
 	defer upstream.Close()
 
-	ctx := context.WithValue(context.Background(), proxy.CredentialsContextKey{}, &proxy.Credentials{
+	ctx := context.WithValue(context.Background(), requestcontext.CredentialsContextKey{}, &requestcontext.Credentials{
 		APIKey:       []byte("gateway-token"),
 		ModelAliases: map[string]string{"claude-fable-5": "internal.claude-fable-5"},
 	})
@@ -554,12 +554,12 @@ func TestProxy_ForwardsConfiguredIdentityHeader(t *testing.T) {
 	}))
 	defer upstream.Close()
 
-	ctx := context.WithValue(context.Background(), proxy.CredentialsContextKey{}, &proxy.Credentials{
+	ctx := context.WithValue(context.Background(), requestcontext.CredentialsContextKey{}, &requestcontext.Credentials{
 		APIKey:               []byte("gateway-token"),
 		IdentityHeader:       "X-Caller-Identity",
 		IdentityHeaderFormat: auth.IdentityFormatEmail,
 	})
-	ctx = context.WithValue(ctx, proxy.ClientIdentityContextKey{}, proxy.ClientIdentity{Email: "engineer@example.com"})
+	ctx = context.WithValue(ctx, requestcontext.ClientIdentityContextKey{}, requestcontext.ClientIdentity{Email: "engineer@example.com"})
 
 	prep := providers.PreparedRequest{
 		Body:    []byte(`{"model":"claude-fable-5","messages":[{"role":"user","content":"hi"}]}`),
