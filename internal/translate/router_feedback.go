@@ -76,9 +76,17 @@ func (env *RequestEnvelope) StripRouterFeedbackArtifacts() int {
 
 	lastUserIdx := -1
 	msgs.ForEach(func(key, msg gjson.Result) bool {
-		if msg.Get("role").String() == "user" {
-			lastUserIdx = int(key.Int())
+		if msg.Get("role").String() != "user" {
+			return true
 		}
+		// Codex appends the invoked skill's SKILL.md as its own user message
+		// after the typed directive. Counting it as the trailing user turn makes
+		// the directive itself look like a prior one, so it gets stripped here
+		// before ExtractRouterFeedbackCommand ever sees it.
+		if isSkillInstructionsOnly(msg.Get("content")) {
+			return true
+		}
+		lastUserIdx = int(key.Int())
 		return true
 	})
 

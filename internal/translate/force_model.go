@@ -61,6 +61,38 @@ func (env *RequestEnvelope) extractLeadingCommand(parse func(text string) (found
 	return found
 }
 
+// isSkillInstructionsOnly reports whether a message carries nothing but the
+// <skill>…</skill> block Codex appends when the user invokes `$name`. Codex
+// sends that as its own user message right after the typed directive, so
+// treating it as a newer turn hides the directive from every reader here.
+//
+// Deliberately stricter than a substring test: a message that merely mentions
+// the tag is a real turn and must not be skipped, or a directive from an older
+// turn could fire on a later one.
+func isSkillInstructionsOnly(content gjson.Result) bool {
+	var text string
+	switch {
+	case content.Type == gjson.String:
+		text = content.String()
+	case content.IsArray():
+		var b strings.Builder
+		for _, part := range content.Array() {
+			switch part.Get("type").String() {
+			case "text", "input_text":
+				b.WriteString(part.Get("text").String())
+			default:
+				// A non-text part means real turn content, not an attachment.
+				return false
+			}
+		}
+		text = b.String()
+	default:
+		return false
+	}
+	text = strings.TrimSpace(text)
+	return strings.HasPrefix(text, "<skill>") && strings.HasSuffix(text, "</skill>")
+}
+
 type commandTextCandidate struct {
 	path     string
 	dropPath string
@@ -85,7 +117,15 @@ func (env *RequestEnvelope) extractLeadingCommandWithSource(parse func(text stri
 	lastRole := ""
 	var lastContent gjson.Result
 	for i := len(all) - 1; i >= 0; i-- {
-		switch role := all[i].Get("role").String(); role {
+		role := all[i].Get("role").String()
+		// Codex splits one user turn into the typed directive and a second user
+		// message carrying the invoked skill's SKILL.md. That blob is an
+		// attachment to the same turn, so stopping on it would hide the
+		// directive the user actually typed.
+		if role == "user" && isSkillInstructionsOnly(all[i].Get("content")) {
+			continue
+		}
+		switch role {
 		case "user", "tool":
 			lastIdx, lastRole, lastContent = i, role, all[i].Get("content")
 		}
@@ -100,7 +140,11 @@ func (env *RequestEnvelope) extractLeadingCommandWithSource(parse func(text stri
 	// follows. Non-conversational role:"system" notices (Claude Code deferred
 	// tools) don't count as a newer turn.
 	for i := lastIdx + 1; i < len(all); i++ {
-		if isConversationTurn(all[i].Get("role").String()) {
+		role := all[i].Get("role").String()
+		if role == "user" && isSkillInstructionsOnly(all[i].Get("content")) {
+			continue
+		}
+		if isConversationTurn(role) {
 			return false, false
 		}
 	}
