@@ -175,7 +175,24 @@ func TestEscalationShadowCheckpointsDoNotChangeRoutingOrEstablishFloor(t *testin
 		require.Equal(t, ordinal%5 == 0, turn.EscalationShadowMarked)
 		if ordinal%5 == 0 {
 			require.Contains(t, routingMarkerFor(turn), markerReasonShadowEscalation)
+			replayed, replayErr := svc.runTurnLoop(ctx, env, features, "shadow-key", installation, "", http.Header{}, router.Request{RequestedModel: features.Model})
+			require.NoError(t, replayErr)
+			require.Equal(t, int64(ordinal), replayed.EscalationOrdinal)
+			require.Equal(t, turn.Decision.Model, replayed.Decision.Model)
+			require.Contains(t, routingMarkerFor(replayed), markerReasonShadowEscalation)
+			require.False(t, escalationRoutingApplied(replayed.Decision))
+			require.Empty(t, store.sessions[replayed.EscalationScope].Floor)
+			require.Len(t, observer.requests, ordinal, "replay must load the committed checkpoint without scoring again")
 		}
+	}
+	for _, disabledInstallation := range []uuid.UUID{installation, uuid.New()} {
+		env := escalationTestEnvelope(t, 12)
+		features := env.RoutingFeatures(false)
+		disabled, err := svc.runTurnLoop(escalationTestContext(false, false), env, features, "shadow-key", disabledInstallation, "", http.Header{}, router.Request{RequestedModel: features.Model})
+		require.NoError(t, err)
+		require.Zero(t, disabled.EscalationOrdinal)
+		require.False(t, disabled.EscalationShadowMarked)
+		require.False(t, escalationRoutingApplied(disabled.Decision))
 	}
 	require.Len(t, observer.requests, 11)
 	positiveCheckpoints := 0
@@ -387,14 +404,11 @@ func TestEscalationShadowMarkerRequiresCommittedPositiveShadowCheckpoint(t *test
 		name       string
 		active     bool
 		prediction *escalation.Prediction
-		replay     bool
 		failCommit bool
 		wantMarked bool
 	}{
 		{name: "positive shadow", prediction: &escalation.Prediction{Escalate: true}, wantMarked: true},
-		{name: "replayed shadow", prediction: &escalation.Prediction{Escalate: true}, replay: true, wantMarked: true},
 		{name: "active promotion", active: true, prediction: &escalation.Prediction{Escalate: true}},
-		{name: "replayed active", active: true, prediction: &escalation.Prediction{Escalate: true}, replay: true},
 		{name: "negative shadow", prediction: &escalation.Prediction{}},
 		{name: "between checkpoints"},
 		{name: "uncommitted shadow", prediction: &escalation.Prediction{Escalate: true}, failCommit: true},
@@ -403,7 +417,7 @@ func TestEscalationShadowMarkerRequiresCommittedPositiveShadowCheckpoint(t *test
 			store := newEscalationTestStore()
 			store.failCommit = tc.failCommit
 			svc := (&Service{}).WithEscalation(store, nil)
-			turn := &escalationTurn{active: tc.active, replay: tc.replay, checkpoint: escalation.Checkpoint{Ordinal: 5, Prediction: tc.prediction}}
+			turn := &escalationTurn{active: tc.active, checkpoint: escalation.Checkpoint{Ordinal: 5, Prediction: tc.prediction}}
 			var routed turnLoopResult
 			err := svc.finishEscalation(context.Background(), turn, &routed, nil)
 			if tc.failCommit {
