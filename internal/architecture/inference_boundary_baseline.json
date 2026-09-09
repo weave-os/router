@@ -123,18 +123,6 @@
       "removal_phase": "8"
     },
     {
-      "id": "provider_map|internal/proxy/service.go|proxy.package|providers.Client|1",
-      "kind": "provider_map",
-      "file": "internal/proxy/service.go",
-      "line": 63,
-      "symbol": "proxy.package",
-      "detail": "map value type is providers.Client",
-      "owner": "@steventohme",
-      "rationale": "Proxy currently owns provider clients; the compatibility executor will take ownership without changing routing behavior.",
-      "operation_class": "main_inference",
-      "removal_phase": "5"
-    },
-    {
       "id": "provider_map|internal/proxy/service.go|NewService|providers.Client|1",
       "kind": "provider_map",
       "file": "internal/proxy/service.go",
@@ -265,30 +253,6 @@
       "rationale": "Existing Gemini translation dispatch remains until the OpenAI public surface migrates through the executor.",
       "operation_class": "main_inference",
       "removal_phase": "8"
-    },
-    {
-      "id": "provider_map|internal/proxy/translation_plan.go|candidateProviders|providers.Client|1",
-      "kind": "provider_map",
-      "file": "internal/proxy/translation_plan.go",
-      "line": 235,
-      "symbol": "candidateProviders",
-      "detail": "map value type is providers.Client",
-      "owner": "@steventohme",
-      "rationale": "Translation planning reads the legacy provider map until deployment availability is supplied through policy and executor contracts.",
-      "operation_class": "main_inference",
-      "removal_phase": "5"
-    },
-    {
-      "id": "provider_map|internal/proxy/translation_plan.go|configuredProviders|providers.Client|1",
-      "kind": "provider_map",
-      "file": "internal/proxy/translation_plan.go",
-      "line": 256,
-      "symbol": "configuredProviders",
-      "detail": "map value type is providers.Client",
-      "owner": "@steventohme",
-      "rationale": "Translation planning reads the legacy provider map until executor ownership exposes configured binding identities.",
-      "operation_class": "main_inference",
-      "removal_phase": "5"
     },
     {
       "id": "target_construction|internal/proxy/turnloop.go|Service.runTurnLoop|router.Decision|1",

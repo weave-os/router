@@ -509,10 +509,7 @@ func latestServedPin(pins ...sessionpin.Pin) sessionpin.Pin {
 func (s *Service) servedBinding(model, servedProvider string, req router.Request) (catalog.ProviderBinding, bool) {
 	providerSet := req.EnabledProviders
 	if providerSet == nil {
-		providerSet = make(map[string]struct{}, len(s.providers))
-		for provider := range s.providers {
-			providerSet[provider] = struct{}{}
-		}
+		providerSet = s.clients.NameSet()
 	}
 	if _, enabled := providerSet[servedProvider]; enabled {
 		pinned := map[string]struct{}{servedProvider: {}}

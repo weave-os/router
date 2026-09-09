@@ -17,6 +17,7 @@ import (
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/billing"
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/feedback"
 	"weave-os/router/internal/flags"
 	"weave-os/router/internal/observability"
@@ -59,8 +60,11 @@ type Service struct {
 	router router.Router
 	// strategies contains every non-default router and its optional lifecycle
 	// reporters. Adding a strategy does not require another Service field.
-	strategies                   map[router.Strategy]registeredStrategy
-	providers                    map[string]providers.Client
+	strategies map[router.Strategy]registeredStrategy
+	clients    *dispatch.Clients
+	// executor is the shared inference execution boundary; nil until the
+	// composition root wires one.
+	executor                     *dispatch.Executor
 	translationCompatibilityMode TranslationCompatibilityMode
 	// scopedSearchRequirement gates CitationsOrSearch on actual (current or recent)
 	// search-tool use, not mere advertisement; env ROUTER_SCOPED_SEARCH_REQUIREMENT.
@@ -1427,7 +1431,7 @@ const DefaultPlannerCorrectedEconomics = false
 func NewService(r router.Router, providerMap map[string]providers.Client, emitter TelemetryEmitter, embedOnlyUserMessage bool, semanticCache *cache.Cache, pinStore sessionpin.Store, hardPinExplore bool, hardPinProvider, hardPinModel string, telemetry TelemetryRepository) *Service {
 	return &Service{
 		router:                       r,
-		providers:                    providerMap,
+		clients:                      dispatch.NewClients(providerMap),
 		translationCompatibilityMode: TranslationCompatibilityShadow,
 		emitter:                      emitter,
 		embedOnlyUserMessage:         embedOnlyUserMessage,
@@ -1939,6 +1943,18 @@ func (s *Service) baselineFor(requested string) string {
 	return s.defaultBaselineModel
 }
 
+// WithInferenceExecutor installs the dispatch executor that policy-resolved
+// operations run through. It must be built over this service's Clients().
+func (s *Service) WithInferenceExecutor(executor *dispatch.Executor) *Service {
+	s.executor = executor
+	return s
+}
+
+// InferenceExecutor returns the wired dispatch executor, or nil.
+func (s *Service) InferenceExecutor() *dispatch.Executor {
+	return s.executor
+}
+
 // WithByokOnly enables BYOK-only credential resolution: providers without
 // caller-supplied credentials are ineligible.
 func (s *Service) WithByokOnly(byokOnly bool) *Service {
@@ -2271,7 +2287,7 @@ func (s *Service) MetricsRowsAll(ctx context.Context, from, to time.Time, limit 
 
 // ErrProviderNotConfigured is returned when a routing decision selects a
 // provider that is not present in the registry.
-var ErrProviderNotConfigured = errors.New("provider not configured")
+var ErrProviderNotConfigured = dispatch.ErrProviderNotConfigured
 
 // ErrRequestNotJSONObject re-exports translate.ErrNotJSONObject so api/* handlers
 // avoid importing internal/translate directly (layering rule, root CLAUDE.md).
@@ -2370,11 +2386,13 @@ func (s *Service) ResolveEmbedOnlyUserMessage(ctx context.Context) bool {
 }
 
 func (s *Service) provider(name string) (providers.Client, error) {
-	p, ok := s.providers[name]
-	if !ok {
-		return nil, fmt.Errorf("%w: %s", ErrProviderNotConfigured, name)
-	}
-	return p, nil
+	return s.clients.Client(name)
+}
+
+// Clients exposes the provider registry so the composition root can share it
+// with the dispatch executor and admin views.
+func (s *Service) Clients() *dispatch.Clients {
+	return s.clients
 }
 
 // WithPolicyStrategy registers one non-default router and its lifecycle
@@ -2602,7 +2620,7 @@ func (s *Service) anthropicCredentialReachable(ctx context.Context, headers http
 	// nil deploymentKeyedProviders means every registered provider is
 	// deployment-keyed (legacy behavior, mirrors enabledProvidersForRequest).
 	if s.deploymentKeyedProviders == nil && !s.byokOnly {
-		if _, registered := s.providers[providers.ProviderAnthropic]; registered {
+		if s.clients.Has(providers.ProviderAnthropic) {
 			return true
 		}
 	}
@@ -5011,8 +5029,8 @@ func (s *Service) policyDeadlineDefaultDecision(req router.Request) (router.Deci
 
 	// nil EnabledProviders means unrestricted, so fall back to everything this
 	// deployment registered; otherwise only providers this turn can authenticate.
-	providerSet := make(map[string]struct{}, len(s.providers))
-	for provider := range s.providers {
+	providerSet := make(map[string]struct{}, s.clients.Len())
+	for _, provider := range s.clients.Names() {
 		if req.EnabledProviders != nil {
 			if _, enabled := req.EnabledProviders[provider]; !enabled {
 				continue
@@ -5082,7 +5100,7 @@ func (s *Service) bandSwapServed(ctx context.Context, turnType turntype.TurnType
 		}
 		// nil enabledProviders means "no restriction" (boot behavior), matching
 		// turnloop's pin guard.
-		if _, registered := s.providers[served.Provider]; !registered {
+		if !s.clients.Has(served.Provider) {
 			return anchor
 		}
 		if enabledProviders != nil {
@@ -5196,14 +5214,14 @@ func (s *Service) requestUsesNonDeploymentCreds(ctx context.Context, headers htt
 // never a licence to enable other OpenAI-compat upstreams sharing the same
 // Authorization format.
 func (s *Service) enabledProvidersForRequest(ctx context.Context, surfaceProvider string, headers http.Header) map[string]struct{} {
-	out := make(map[string]struct{}, len(s.providers))
+	out := make(map[string]struct{}, s.clients.Len())
 	if !s.byokOnly {
 		if s.deploymentKeyedProviders != nil {
 			for p := range s.deploymentKeyedProviders {
 				out[p] = struct{}{}
 			}
 		} else {
-			for p := range s.providers {
+			for p := range s.clients.NameSet() {
 				out[p] = struct{}{}
 			}
 		}
@@ -5300,8 +5318,7 @@ func (s *Service) hasOpenAIInfrastructureCredential(ctx context.Context, headers
 	}
 	if !s.byokOnly {
 		if s.deploymentKeyedProviders == nil {
-			_, registered := s.providers[providers.ProviderOpenAI]
-			if registered {
+			if s.clients.Has(providers.ProviderOpenAI) {
 				return true
 			}
 		} else if _, keyed := s.deploymentKeyedProviders[providers.ProviderOpenAI]; keyed {

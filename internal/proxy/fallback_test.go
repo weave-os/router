@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"testing"
 	"time"
+	"weave-os/router/internal/dispatch"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -55,7 +56,7 @@ func (f *fakeClient) Passthrough(context.Context, providers.PreparedRequest, htt
 // doesn't touch the other fields.
 func newServiceWithProviders(t *testing.T, providerMap map[string]providers.Client) *Service {
 	t.Helper()
-	s := &Service{providers: providerMap}
+	s := &Service{clients: dispatch.NewClients(providerMap)}
 	return s
 }
 

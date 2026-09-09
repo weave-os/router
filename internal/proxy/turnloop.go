@@ -1938,10 +1938,7 @@ func (s *Service) normalizeHMMStayPin(req router.Request, p sessionpin.Pin) (ses
 	p.Model = model
 	providerSet := req.EnabledProviders
 	if providerSet == nil {
-		providerSet = make(map[string]struct{}, len(s.providers))
-		for provider := range s.providers {
-			providerSet[provider] = struct{}{}
-		}
+		providerSet = s.clients.NameSet()
 	}
 	// A failed turn preserves the prior model but may leave an invalid provider
 	// binding; validate before reusing, or re-resolve against available providers.

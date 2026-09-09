@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"weave-os/router/internal/dispatch"
 
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
@@ -13,11 +14,11 @@ import (
 
 func compatibilityService(mode TranslationCompatibilityMode) *Service {
 	return &Service{
-		providers: map[string]providers.Client{
+		clients: dispatch.NewClients(map[string]providers.Client{
 			providers.ProviderAnthropic: nil,
 			providers.ProviderOpenAI:    nil,
 			providers.ProviderGoogle:    nil,
-		},
+		}),
 		translationCompatibilityMode: mode,
 	}
 }
@@ -158,7 +159,7 @@ func TestTranslationPlan_NativeSearchAlwaysFiltersToSourceProvider(t *testing.T)
 
 func TestApplyTranslationPlan_CompatibleButUnavailable(t *testing.T) {
 	svc := &Service{
-		providers:                    map[string]providers.Client{providers.ProviderAnthropic: nil},
+		clients:                      dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: nil}),
 		translationCompatibilityMode: TranslationCompatibilityShadow,
 	}
 	_, err := svc.applyTranslationPlan(context.Background(), router.Request{

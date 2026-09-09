@@ -23,6 +23,7 @@ import (
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/billing"
 	"weave-os/router/internal/config"
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/entra"
 	"weave-os/router/internal/feedback"
 	"weave-os/router/internal/flags"
@@ -1204,6 +1205,12 @@ func main() {
 		WithAvailableModels(proxyRoutableModels(routingTargets, availableProviders, hmmRouter != nil)).
 		WithDefaultBaselineModel(resolveDefaultBaselineModel()).
 		WithBillingService(billingSvc)
+	inferenceExecutor, err := dispatch.NewExecutor(proxySvc.Clients(),
+		dispatch.WithAttemptSink(proxy.NewAttemptSink(repo.Telemetry, logger)))
+	if err != nil {
+		panic(fmt.Sprintf("inference executor: %v", err))
+	}
+	proxySvc = proxySvc.WithInferenceExecutor(inferenceExecutor)
 	if subscriptionRuntime != nil {
 		proxySvc.WithManagedSubscriptions(subscriptionRuntime)
 	}
