@@ -188,15 +188,61 @@ run_normalized_turn
   exit 1
 }
 
-# A commented-out endpoint left above the live one must not win. First match
-# wins, so treating a comment as config would point the fetch at a stale
+# A commented-out endpoint or key left above the live one must not win. First
+# match wins, so treating a comment as config would point the fetch at a stale
 # endpoint and send the router key there.
+#
+# This one needs a real HTTP fixture rather than the file:// seam used above:
+# curl sends no headers to a file:// URL, so a file-based check would prove the
+# base_url comment is skipped while saying nothing about the key.
+commented_port=8809
+commented_seen="$work/commented-key.txt"
+cat >"$work/cost-mock.py" <<'MOCK'
+import pathlib, sys
+from http.server import BaseHTTPRequestHandler, HTTPServer
+
+SEEN = pathlib.Path(sys.argv[2])
+
+
+class Handler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        SEEN.write_text(self.headers.get("X-Weave-Router-Key") or "")
+        body = b'{"savings_usd":2.50}'
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, *a):
+        pass
+
+
+HTTPServer(("127.0.0.1", int(sys.argv[1])), Handler).serve_forever()
+MOCK
+python3 "$work/cost-mock.py" "$commented_port" "$commented_seen" &
+cost_mock_pid=$!
+cost_mock_ready=""
+for _ in $(seq 1 60); do
+  if curl -fsS -o /dev/null --max-time 1 "http://127.0.0.1:$commented_port/v1/sessions/x/cost" 2>/dev/null; then
+    cost_mock_ready=1
+    break
+  fi
+  sleep 0.25
+done
+[ -n "$cost_mock_ready" ] || {
+  echo "cost mock never came up on port $commented_port" >&2
+  kill "$cost_mock_pid" 2>/dev/null
+  exit 1
+}
+rm -f "$commented_seen"
+
 commented_home="$work/commented-home"
 mkdir -p "$commented_home/.codex"
 cat >"$commented_home/.codex/config.toml" <<TOML
 [model_providers.weave]
-# base_url = "file:///nonexistent/stale-endpoint.json"
-base_url = "file://$normalized_cost"
+# base_url = "http://127.0.0.1:9/v1"
+base_url = "http://127.0.0.1:$commented_port/v1"
 
 [model_providers.weave.http_headers]
 # X-Weave-Router-Key = "rk_stale"
@@ -211,8 +257,15 @@ for _ in 1 2 3 4 5 6 7 8 9 10; do
   [ -f "$commented_cost_cache" ] && break
   sleep 0.2
 done
+kill "$cost_mock_pid" 2>/dev/null
+wait "$cost_mock_pid" 2>/dev/null || true
+
 [ -f "$commented_cost_cache" ] || {
-  echo "a commented-out example blocked the live credentials" >&2
+  echo "a commented-out example blocked the live endpoint" >&2
+  exit 1
+}
+[ "$(cat "$commented_seen" 2>/dev/null)" = "rk_test" ] || {
+  echo "the commented-out key was forwarded instead of the live one: $(cat "$commented_seen" 2>/dev/null)" >&2
   exit 1
 }
 
