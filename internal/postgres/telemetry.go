@@ -5,6 +5,7 @@ import (
 	"errors"
 	"time"
 
+	"weave-os/router/internal/inference"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/sqlc"
@@ -47,6 +48,7 @@ func NewTelemetryRepo(tx sqlc.DBTX) *TelemetryRepo {
 
 var _ proxy.TelemetryRepository = (*TelemetryRepo)(nil)
 var _ proxy.PolicyShadowStore = (*TelemetryRepo)(nil)
+var _ proxy.InferenceAttemptStore = (*TelemetryRepo)(nil)
 
 func (r *TelemetryRepo) InsertPolicyShadowDecision(ctx context.Context, p proxy.PolicyShadowDecision) error {
 	id, err := uuid.Parse(p.InstallationID)
@@ -189,7 +191,82 @@ func (r *TelemetryRepo) InsertRequestTelemetry(ctx context.Context, p proxy.Inse
 		SpiralEditAttempted:                      p.SpiralEditAttempted,
 		SpiralReasons:                            p.SpiralReasons,
 		RequestedAllowedModels:                   p.RequestedAllowedModels,
+		InferencePurpose:                         inferenceSummaryString(p.Inference, func(s inference.OperationSummary) string { return string(s.Purpose) }),
+		InferencePolicyID:                        inferenceSummaryString(p.Inference, func(s inference.OperationSummary) string { return string(s.PolicyID) }),
+		InferenceRegistryRevision:                inferenceSummaryString(p.Inference, func(s inference.OperationSummary) string { return string(s.RegistryRevision) }),
+		InferencePolicyRevision:                  inferenceSummaryString(p.Inference, func(s inference.OperationSummary) string { return string(s.PolicyRevision) }),
+		PlanModel:                                inferenceSummaryString(p.Inference, func(s inference.OperationSummary) string { return s.PlanTarget.CatalogID }),
+		PlanProvider:                             inferenceSummaryString(p.Inference, func(s inference.OperationSummary) string { return s.PlanTarget.Provider }),
+		FallbackReason:                           inferenceSummaryString(p.Inference, func(s inference.OperationSummary) string { return s.FallbackReason }),
+		AccountingOutcome:                        inferenceSummaryString(p.Inference, func(s inference.OperationSummary) string { return string(s.AccountingOutcome) }),
+		UsageKnown:                               inferenceUsageKnown(p.Inference),
 	})
+}
+
+// inferenceSummaryString projects one provenance field; nil summary or empty
+// value leaves the column NULL.
+func inferenceSummaryString(summary *inference.OperationSummary, field func(inference.OperationSummary) string) *string {
+	if summary == nil {
+		return nil
+	}
+	return stringPtrOrNil(field(*summary))
+}
+
+func inferenceUsageKnown(summary *inference.OperationSummary) *bool {
+	if summary == nil {
+		return nil
+	}
+	known := summary.Usage.Known
+	return &known
+}
+
+// InsertInferenceAttempt persists one ordered attempt event. Usage and cost
+// columns stay NULL when the attempt's usage is unknown, so an unmeasured
+// attempt is never stored as a zero-cost one.
+func (r *TelemetryRepo) InsertInferenceAttempt(ctx context.Context, p proxy.InsertInferenceAttemptParams) error {
+	id, err := uuid.Parse(p.InstallationID)
+	if err != nil {
+		return err
+	}
+	return sqlc.New(r.tx).InsertInferenceAttempt(ctx, inferenceAttemptParams(id, p.Event))
+}
+
+func inferenceAttemptParams(installationID uuid.UUID, event inference.AttemptEvent) sqlc.InsertInferenceAttemptParams {
+	params := sqlc.InsertInferenceAttemptParams{
+		InstallationID:   installationID,
+		RequestID:        event.RequestID,
+		OperationID:      event.OperationID,
+		AttemptIndex:     int32(event.AttemptIndex),
+		Purpose:          string(event.Purpose),
+		PolicyID:         string(event.PolicyID),
+		RegistryRevision: string(event.RegistryRevision),
+		PolicyRevision:   string(event.PolicyRevision),
+		Model:            event.Target.CatalogID,
+		Provider:         event.Target.Provider,
+		BindingIndex:     int32(event.Target.BindingIndex),
+		Outcome:          string(event.Outcome),
+		FailureReason:    stringPtrOrNil(event.FailureReason),
+		UsageKnown:       event.Usage.Known,
+	}
+	if event.UpstreamStatusCode != 0 {
+		status := int32(event.UpstreamStatusCode)
+		params.UpstreamStatusCode = &status
+	}
+	if event.Latency > 0 {
+		latency := event.Latency.Milliseconds()
+		params.LatencyMs = &latency
+	}
+	if event.Usage.Known {
+		input, output := int32(event.Usage.InputTokens), int32(event.Usage.OutputTokens)
+		cacheCreation, cacheRead := int32(event.Usage.CacheCreationTokens), int32(event.Usage.CacheReadTokens)
+		cost := catalog.USDToMicros(event.CostUSD)
+		params.InputTokens = &input
+		params.OutputTokens = &output
+		params.CacheCreationTokens = &cacheCreation
+		params.CacheReadTokens = &cacheRead
+		params.CostUsdMicros = &cost
+	}
+	return params
 }
 
 var _ proxy.LoopEscalationStore = (*TelemetryRepo)(nil)

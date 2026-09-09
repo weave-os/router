@@ -10,7 +10,7 @@ import (
 	"strings"
 
 	"weave-os/router/internal/providers"
-	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/requestcontext"
 )
 
 // maxModelListBytes caps the buffered model-list response body.
@@ -75,8 +75,8 @@ func (c *Client) getModelList(ctx context.Context, listURL string, withEntity bo
 		upstream.Header.Set("Accept", "application/json")
 	}
 	c.setAuth(ctx, upstream)
-	proxy.ApplyWIFTokenType(ctx, upstream)
-	proxy.ApplyIdentityHeader(ctx, upstream)
+	requestcontext.ApplyWIFTokenType(ctx, upstream)
+	requestcontext.ApplyIdentityHeader(ctx, upstream)
 
 	resp, err := c.http.Do(upstream)
 	if err != nil {

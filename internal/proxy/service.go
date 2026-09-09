@@ -17,8 +17,10 @@ import (
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/billing"
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/feedback"
 	"weave-os/router/internal/flags"
+	"weave-os/router/internal/inference"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/observability/otel"
 	"weave-os/router/internal/providers"
@@ -59,8 +61,17 @@ type Service struct {
 	router router.Router
 	// strategies contains every non-default router and its optional lifecycle
 	// reporters. Adding a strategy does not require another Service field.
-	strategies                   map[router.Strategy]registeredStrategy
-	providers                    map[string]providers.Client
+	strategies map[router.Strategy]registeredStrategy
+	clients    *dispatch.Clients
+	// executor is the shared inference execution boundary; nil until the
+	// composition root wires one.
+	executor            *dispatch.Executor
+	defaultExecutorOnce sync.Once
+	// plans authorizes routed main-inference decisions; nil until the
+	// composition root wires one (a registry-only default is built lazily).
+	plans                        *policy.PlanResolver
+	defaultPlansOnce             sync.Once
+	inferenceDeployment          policy.DeploymentPolicyConfig
 	translationCompatibilityMode TranslationCompatibilityMode
 	// scopedSearchRequirement gates CitationsOrSearch on actual (current or recent)
 	// search-tool use, not mere advertisement; env ROUTER_SCOPED_SEARCH_REQUIREMENT.
@@ -310,13 +321,16 @@ type Service struct {
 	// context-window compaction cascade (maybeCompact). nil disables Tier-3
 	// summarization (the cascade still runs Tier-1 cleanup + trim rescue).
 	compactionSummarizer CompactionSummarizer
+	// compactionHandoverSummarizer serves runCompactionHandover under its own
+	// policy purpose; nil reuses summarizer.
+	compactionHandoverSummarizer handover.Summarizer
 	// compactionTriggerPct is the fraction of the largest eligible model's
 	// context window at which the compaction cascade engages. Zero disables
 	// compaction entirely.
 	compactionTriggerPct float64
 	// compactionModel is the Anthropic-family model the cascade summarizes
 	// with (and Claude Code's own compaction turn is pinned to) when the
-	// session has no warm Anthropic pin. Empty means DefaultCompactionModel.
+	// session has no warm Anthropic pin. Empty means policy.PrecompactionDefaultModel.
 	compactionModel string
 	// compactionHardPinEnabled routes Claude Code's own compaction turn through
 	// compactionHardPin instead of the generic utility hard-pin. Off unless
@@ -419,9 +433,6 @@ func apiKeyIDFromContext(ctx context.Context) string {
 
 // ExternalIDContextKey is the request-context key for the installation's external_id.
 type ExternalIDContextKey struct{}
-
-// CredentialsContextKey is the request-context key for resolved per-request credentials.
-type CredentialsContextKey struct{}
 
 // AnthropicSubscriptionContextKey is the request-context key for a caller's raw
 // Claude subscription OAuth token, stashed by the auth middleware from the
@@ -1300,16 +1311,6 @@ func (s *Service) restrictToTier(excluded map[string]struct{}, tier catalog.Tier
 	return out, true
 }
 
-// CredentialsFromContext returns the resolved credentials stashed on ctx.
-func CredentialsFromContext(ctx context.Context) *Credentials {
-	v := ctx.Value(CredentialsContextKey{})
-	if v == nil {
-		return nil
-	}
-	creds, _ := v.(*Credentials)
-	return creds
-}
-
 // anthropicSubscriptionFromContext returns the raw Claude subscription token
 // stashed by the auth middleware (router-keyed path), or "" when none.
 func anthropicSubscriptionFromContext(ctx context.Context) string {
@@ -1440,7 +1441,7 @@ const DefaultPlannerCorrectedEconomics = false
 func NewService(r router.Router, providerMap map[string]providers.Client, emitter TelemetryEmitter, embedOnlyUserMessage bool, semanticCache *cache.Cache, pinStore sessionpin.Store, hardPinExplore bool, hardPinProvider, hardPinModel string, telemetry TelemetryRepository) *Service {
 	return &Service{
 		router:                       r,
-		providers:                    providerMap,
+		clients:                      dispatch.NewClients(providerMap),
 		translationCompatibilityMode: TranslationCompatibilityShadow,
 		emitter:                      emitter,
 		embedOnlyUserMessage:         embedOnlyUserMessage,
@@ -1847,6 +1848,14 @@ func (s *Service) WithSummarizer(sz handover.Summarizer) *Service {
 	return s
 }
 
+// WithCompactionHandoverSummarizer installs the summarizer for the
+// compaction-handover purpose (a client-compacted turn routed off Anthropic).
+// nil falls back to the switch-handover summarizer.
+func (s *Service) WithCompactionHandoverSummarizer(sz handover.Summarizer) *Service {
+	s.compactionHandoverSummarizer = sz
+	return s
+}
+
 // WithWebSearchExecutor installs the backend that runs Anthropic's native
 // web-search server tool when the routed upstream rejects it. nil leaves
 // those turns on normal routing.
@@ -1873,7 +1882,7 @@ func (s *Service) WithCompaction(cs CompactionSummarizer, pct float64) *Service 
 // WithCompactionModel overrides the Sonnet-class default summarizer for the
 // compaction cascade and Claude Code's native compaction turn
 // (ROUTER_COMPACTION_MODEL). A model with no Anthropic binding is rejected
-// at boot by the caller; empty keeps DefaultCompactionModel.
+// at boot by the caller; empty keeps policy.PrecompactionDefaultModel.
 func (s *Service) WithCompactionModel(model string) *Service {
 	s.compactionModel = model
 	return s
@@ -1950,6 +1959,22 @@ func (s *Service) baselineFor(requested string) string {
 		}
 	}
 	return s.defaultBaselineModel
+}
+
+// WithInferenceExecutor installs the dispatch executor that policy-resolved
+// operations run through. The service adopts the executor's client registry
+// so eligibility checks and dispatch read one provider set.
+func (s *Service) WithInferenceExecutor(executor *dispatch.Executor) *Service {
+	s.executor = executor
+	if executor != nil && executor.Clients() != nil {
+		s.clients = executor.Clients()
+	}
+	return s
+}
+
+// InferenceExecutor returns the wired dispatch executor, or nil.
+func (s *Service) InferenceExecutor() *dispatch.Executor {
+	return s.executor
 }
 
 // WithByokOnly enables BYOK-only credential resolution: providers without
@@ -2284,7 +2309,7 @@ func (s *Service) MetricsRowsAll(ctx context.Context, from, to time.Time, limit 
 
 // ErrProviderNotConfigured is returned when a routing decision selects a
 // provider that is not present in the registry.
-var ErrProviderNotConfigured = errors.New("provider not configured")
+var ErrProviderNotConfigured = dispatch.ErrProviderNotConfigured
 
 // ErrRequestNotJSONObject re-exports translate.ErrNotJSONObject so api/* handlers
 // avoid importing internal/translate directly (layering rule, root CLAUDE.md).
@@ -2383,11 +2408,13 @@ func (s *Service) ResolveEmbedOnlyUserMessage(ctx context.Context) bool {
 }
 
 func (s *Service) provider(name string) (providers.Client, error) {
-	p, ok := s.providers[name]
-	if !ok {
-		return nil, fmt.Errorf("%w: %s", ErrProviderNotConfigured, name)
-	}
-	return p, nil
+	return s.clients.Client(name)
+}
+
+// Clients exposes the provider registry so the composition root can share it
+// with the dispatch executor and admin views.
+func (s *Service) Clients() *dispatch.Clients {
+	return s.clients
 }
 
 // WithPolicyStrategy registers one non-default router and its lifecycle
@@ -2615,7 +2642,7 @@ func (s *Service) anthropicCredentialReachable(ctx context.Context, headers http
 	// nil deploymentKeyedProviders means every registered provider is
 	// deployment-keyed (legacy behavior, mirrors enabledProvidersForRequest).
 	if s.deploymentKeyedProviders == nil && !s.byokOnly {
-		if _, registered := s.providers[providers.ProviderAnthropic]; registered {
+		if s.clients.Has(providers.ProviderAnthropic) {
 			return true
 		}
 	}
@@ -2704,15 +2731,21 @@ func (s *Service) anthropicNativeAttempt(
 	prep providers.PreparedRequest,
 	sink http.ResponseWriter,
 	preludeBuf *preludeBuffer,
+	preludeState *anthropicPreludeState,
 	marker string,
 	setExtractor func(*otel.UsageExtractor),
 	setStreamCost func(router.Decision, bool),
 ) dispatchAttempt {
 	return func(actx context.Context, d router.Decision, p providers.Client) error {
 		setStreamCost(d, false)
+		attemptMarker := preludeState.markerForAttempt(marker, preludeBuf)
 		attemptSink := sink
-		if marker != "" {
-			attemptSink = translate.NewAnthropicRoutingMarkerWriter(sink, d.Model, marker)
+		if marker != "" || (preludeBuf != nil && preludeBuf.PreludeSent()) {
+			markerWriter := translate.NewAnthropicRoutingMarkerWriter(sink, d.Model, attemptMarker)
+			if err := preludeState.emit(env.Stream(), marker, markerWriter, preludeBuf); err != nil {
+				return fmt.Errorf("emit Anthropic routing marker: %w", err)
+			}
+			attemptSink = markerWriter
 		}
 		proxyWriter := attemptSink
 		if s.usageRequired() {
@@ -3208,6 +3241,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 				return s.compactionPreferredSummarizer(ctx, sessionKey, roleForTier(catalog.TierFor(feats.Model)))
 			},
 			Headers: r.Header,
+			Scope:   s.summarizerScope(ctx, enabledProviders, baseExcluded),
 		})
 		if compErr != nil {
 			log.Warn("Compaction could not fit request to any eligible model",
@@ -3436,7 +3470,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			"decision_model", decision.Model,
 			"decision_provider", decision.Provider,
 		)
-		compactionHandoverOutcome = s.runCompactionHandover(ctx, env, r.Header, decision.Model)
+		compactionHandoverOutcome = s.runCompactionHandover(ctx, env, r.Header, decision.Model, req)
 		compactionHandoverRan = true
 	}
 
@@ -3647,6 +3681,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	// translators validate/repair model tool calls against it. Nil if no tools.
 	toolValidator := env.ToolValidator()
 	setExtractor := func(e *otel.UsageExtractor) { extractor = e }
+	anthropicPrelude := &anthropicPreludeState{}
 	// fastServed tracks whether the most recent attempt went out on the fast
 	// tier; each attempt closure sets it before dispatch so the stream cost
 	// calculator and post-dispatch billing price the winning attempt.
@@ -3663,9 +3698,10 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			env:           env,
 			r:             r,
 			opts:          targetOpts,
-			native:        s.anthropicNativeAttempt(env, r, prep, sink, preludeBuf, targetMarker, setExtractor, setStreamCost),
+			native:        s.anthropicNativeAttempt(env, r, prep, sink, preludeBuf, anthropicPrelude, targetMarker, setExtractor, setStreamCost),
 			sink:          sink,
 			preludeBuf:    preludeBuf,
+			preludeState:  anthropicPrelude,
 			marker:        targetMarker,
 			setExtractor:  setExtractor,
 			setStreamCost: setStreamCost,
@@ -3714,7 +3750,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 					preludeBuf.Discard()
 				}
 				logUpstreamBody(log, routeRes.SessionKey, target, feats, unstructuredPrep.Body)
-				return s.anthropicNativeAttempt(env, r, unstructuredPrep, sink, preludeBuf, targetMarker, setExtractor, setStreamCost)(actx, d, p)
+				return s.anthropicNativeAttempt(env, r, unstructuredPrep, sink, preludeBuf, anthropicPrelude, targetMarker, setExtractor, setStreamCost)(actx, d, p)
 			}, nil
 		case providers.FamilyOpenAICompat:
 			crossFormat = true
@@ -3753,24 +3789,30 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 					usage = extractor
 				}
 				var translator translate.ResponseTranslator
+				attemptMarker := anthropicPrelude.markerForAttempt(targetMarker, preludeBuf)
 				if useResponses {
-					translator = translate.NewResponsesToAnthropicWriter(sink, d.Model, usage).
-						WithRoutingMarker(targetMarker).
+					responsesTranslator := translate.NewResponsesToAnthropicWriter(sink, d.Model, usage).
+						WithRoutingMarker(attemptMarker).
 						WithEstimatedInputTokens(feats.Tokens).
 						WithRequestHadTools(feats.HasTools).
 						WithToolValidator(toolValidator)
+					if err := anthropicPrelude.emit(env.Stream(), targetMarker, responsesTranslator, preludeBuf); err != nil {
+						return fmt.Errorf("emit Anthropic routing marker: %w", err), func(err error) error { return err }
+					}
+					translator = responsesTranslator
 				} else {
-					translator = translate.NewAnthropicSSETranslator(sink, d.Model, usage).
+					chatTranslator := translate.NewAnthropicSSETranslator(sink, d.Model, usage).
 						WithLogger(log).
-						WithRoutingMarker(targetMarker).
+						WithRoutingMarker(attemptMarker).
 						WithEstimatedInputTokens(feats.Tokens).
 						WithRequestHadTools(feats.HasTools).
 						WithThinkTagReasoning(catalog.ThinkTagReasoningFor(d.Model)).
 						WithEscapeNormalize(s.escapeNormalize).
 						WithToolValidator(toolValidator)
-				}
-				if err := translator.Prelude(env.Stream()); err != nil {
-					log.Error("Anthropic SSE prelude failed (OpenAI upstream)", "err", err)
+					if err := anthropicPrelude.emit(env.Stream(), targetMarker, chatTranslator, preludeBuf); err != nil {
+						return fmt.Errorf("emit Anthropic routing marker: %w", err), func(err error) error { return err }
+					}
+					translator = chatTranslator
 				}
 				if preludeBuf != nil {
 					preludeBuf.Seal()
@@ -3866,15 +3908,16 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 					usage = extractor
 				}
 				// SSE chain: Gemini → OpenAI → Anthropic.
+				attemptMarker := anthropicPrelude.markerForAttempt(targetMarker, preludeBuf)
 				anthropicTr := translate.NewAnthropicSSETranslator(sink, d.Model, usage).
 					WithLogger(log).
-					WithRoutingMarker(targetMarker).
+					WithRoutingMarker(attemptMarker).
 					WithEstimatedInputTokens(feats.Tokens).
 					WithRequestHadTools(feats.HasTools).
 					WithEscapeNormalize(s.escapeNormalize).
 					WithToolValidator(toolValidator)
-				if err := anthropicTr.Prelude(env.Stream()); err != nil {
-					log.Error("Anthropic SSE prelude failed (Gemini upstream)", "err", err)
+				if err := anthropicPrelude.emit(env.Stream(), targetMarker, anthropicTr, preludeBuf); err != nil {
+					return fmt.Errorf("emit Anthropic routing marker: %w", err), func(err error) error { return err }
 				}
 				if preludeBuf != nil {
 					preludeBuf.Seal()
@@ -4005,13 +4048,21 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	} else {
 		winnerIdx, proxyErr = s.dispatchWithFallback(ctx, failoverInputs{
 			// contentSink is the raw w when capture is off.
-			w:                      contentSink,
-			buf:                    preludeBuf,
-			initialDecision:        decision,
-			bindings:               bindings,
-			attempt:                attempt,
-			flushErr:               flushUpstreamErrorAsAnthropic,
+			w:               contentSink,
+			buf:             preludeBuf,
+			initialDecision: decision,
+			bindings:        bindings,
+			attempt:         attempt,
+			flushErr: func(w http.ResponseWriter, err error) {
+				if env.Stream() && preludeBuf.PreludeSent() {
+					_ = emitAnthropicSSEErrorEvent(w, err)
+					return
+				}
+				flushUpstreamErrorAsAnthropic(w, err)
+			},
 			deferFlushOnExhaustion: baselineViable || subscriptionRetryEligible || siblingViable,
+			purpose:                routeRes.dispatchPurpose(inference.PurposeAnthropicMessages),
+			origin:                 routeRes.dispatchOrigin(decision),
 		})
 		subscriptionPoolFailure = isSubscriptionPoolError(proxyErr)
 	}
@@ -4025,6 +4076,10 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			return
 		}
 		deferredErrFlushed = true
+		if env.Stream() && preludeBuf.PreludeSent() {
+			proxyErr = emitAnthropicSSEErrorEvent(contentSink, proxyErr)
+			return
+		}
 		flushUpstreamErrorAsAnthropic(contentSink, proxyErr)
 	}
 
@@ -4113,6 +4168,8 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 				bindings:        baselineBindings,
 				attempt:         baselineAttempt,
 				flushErr:        flushUpstreamErrorAsAnthropic,
+				purpose:         routeRes.dispatchPurpose(inference.PurposeAnthropicMessages),
+				origin:          routeRes.rescueOrigin(),
 			})
 			subscriptionPoolFailure = isSubscriptionPoolError(proxyErr)
 			decision = baselineDecision
@@ -4186,6 +4243,8 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 				// A failed retry keeps the same dark model; hold the error so
 				// the sibling rescue below can still serve the turn.
 				deferFlushOnExhaustion: siblingViable,
+				purpose:                routeRes.dispatchPurpose(inference.PurposeAnthropicMessages),
+				origin:                 routeRes.dispatchOrigin(decision),
 			})
 			subscriptionPoolFailure = isSubscriptionPoolError(proxyErr)
 			bindings = subBindings
@@ -4253,6 +4312,8 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 				bindings:        siblingBindings,
 				attempt:         siblingAttempt,
 				flushErr:        flushUpstreamErrorAsAnthropic,
+				purpose:         routeRes.dispatchPurpose(inference.PurposeAnthropicMessages),
+				origin:          routeRes.rescueOrigin(),
 			})
 			subscriptionPoolFailure = isSubscriptionPoolError(proxyErr)
 			decision = siblingDecision
@@ -5024,8 +5085,8 @@ func (s *Service) policyDeadlineDefaultDecision(req router.Request) (router.Deci
 
 	// nil EnabledProviders means unrestricted, so fall back to everything this
 	// deployment registered; otherwise only providers this turn can authenticate.
-	providerSet := make(map[string]struct{}, len(s.providers))
-	for provider := range s.providers {
+	providerSet := make(map[string]struct{}, s.clients.Len())
+	for _, provider := range s.clients.Names() {
 		if req.EnabledProviders != nil {
 			if _, enabled := req.EnabledProviders[provider]; !enabled {
 				continue
@@ -5095,7 +5156,7 @@ func (s *Service) bandSwapServed(ctx context.Context, turnType turntype.TurnType
 		}
 		// nil enabledProviders means "no restriction" (boot behavior), matching
 		// turnloop's pin guard.
-		if _, registered := s.providers[served.Provider]; !registered {
+		if !s.clients.Has(served.Provider) {
 			return anchor
 		}
 		if enabledProviders != nil {
@@ -5209,14 +5270,14 @@ func (s *Service) requestUsesNonDeploymentCreds(ctx context.Context, headers htt
 // never a licence to enable other OpenAI-compat upstreams sharing the same
 // Authorization format.
 func (s *Service) enabledProvidersForRequest(ctx context.Context, surfaceProvider string, headers http.Header) map[string]struct{} {
-	out := make(map[string]struct{}, len(s.providers))
+	out := make(map[string]struct{}, s.clients.Len())
 	if !s.byokOnly {
 		if s.deploymentKeyedProviders != nil {
 			for p := range s.deploymentKeyedProviders {
 				out[p] = struct{}{}
 			}
 		} else {
-			for p := range s.providers {
+			for p := range s.clients.NameSet() {
 				out[p] = struct{}{}
 			}
 		}
@@ -5313,8 +5374,7 @@ func (s *Service) hasOpenAIInfrastructureCredential(ctx context.Context, headers
 	}
 	if !s.byokOnly {
 		if s.deploymentKeyedProviders == nil {
-			_, registered := s.providers[providers.ProviderOpenAI]
-			if registered {
+			if s.clients.Has(providers.ProviderOpenAI) {
 				return true
 			}
 		} else if _, keyed := s.deploymentKeyedProviders[providers.ProviderOpenAI]; keyed {
@@ -5973,6 +6033,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 				return s.compactionPreferredSummarizer(ctx, sessionKey, roleForTier(catalog.TierFor(feats.Model)))
 			},
 			Headers: r.Header,
+			Scope:   s.summarizerScope(ctx, enabledProviders, baseExcludedOAI),
 		})
 		if compErrOAI != nil {
 			log.Warn("Compaction could not fit request to any eligible model",
@@ -6189,8 +6250,6 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		}
 	}
 	contentSink, contentCap := s.maybeCaptureResponse(ctx, clientSink)
-	preludeBuf := newPreludeBuffer(contentSink)
-	var rootSink http.ResponseWriter = preludeBuf
 
 	marker := suppressMarkerIfRequested(ctx, r.Header, routingMarkerFor(routeRes))
 	if billing.SubscriptionOnlyFromContext(ctx) {
@@ -6236,12 +6295,27 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	// Keep a stable copy for a possible chat/completions fallback after a native
 	// Responses endpoint rejects the request.
 	translatedMarker := marker
+	responsesMarker := marker
+	responsesPreludeWillEmit := env.Stream() && !verbatimPassthrough && (len(bindings) <= 1 || marker != "")
+	if verbatimPassthrough {
+		responsesPreludeWillEmit = env.Stream() && clientID.ClientApp == ClientAppCodex && marker != ""
+	}
 
-	// Responses entry point delegates the eager response.created emit to
-	// this layer because it has the post-routing binding count. Fire only
-	// when single-binding so multi-binding requests stay failover-safe
-	// (Codex client sees response.created via ResponsesWriter's lazy
-	// emitCreated on the first upstream byte instead).
+	var responsesPreludeBuf *preludeBuffer
+	if responsesPreludeWillEmit {
+		if rw, ok := contentSink.(*translate.ResponsesWriter); ok {
+			rw.WrapInner(func(inner http.ResponseWriter) http.ResponseWriter {
+				responsesPreludeBuf = newPreludeBuffer(inner)
+				return responsesPreludeBuf
+			})
+		}
+	}
+	preludeBuf := newPreludeBuffer(contentSink)
+	var rootSink http.ResponseWriter = preludeBuf
+
+	// Responses entry point delegates the eager lifecycle and routing badge to
+	// this layer because it has the completed routing decision. Provider output
+	// remains separately buffered so retry and failover stay possible.
 	if rw, ok := w.(*translate.ResponsesWriter); ok {
 		// A native OpenAI Responses route streams the original Responses
 		// bytes verbatim; cross-family routes stay in translation mode.
@@ -6264,15 +6338,23 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 				rw.SetPassthrough()
 			}
 		}
-		if len(bindings) <= 1 {
-			if err := rw.Prelude(env.Stream()); err != nil {
+		if responsesPreludeWillEmit {
+			if err := rw.Prelude(true); err != nil {
 				log.Error("Responses prelude failed", "err", err)
+			} else {
+				rw.Flush()
+				if err := responsesPreludeBuf.CommitPrelude(); err != nil {
+					return fmt.Errorf("commit Responses prelude: %w", err)
+				} else if err := responsesPreludeBuf.commit(); err != nil {
+					return fmt.Errorf("open Responses stream: %w", err)
+				}
 			}
 		}
 	}
 
 	var captureW *captureWriter
 	var sink http.ResponseWriter = rootSink
+	openAIPrelude := &openAIPreludeState{}
 	if cacheEligible {
 		captureW = newCaptureWriter(rootSink, semanticCacheMaxBodyBytes)
 		sink = captureW
@@ -6295,7 +6377,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 			return sink
 		}
 		mw := translate.NewOpenAIRoutingMarkerWriter(sink, model, markerText)
-		if err := mw.Prelude(env.Stream()); err != nil {
+		if err := openAIPrelude.emit(env.Stream(), markerText, mw, preludeBuf); err != nil {
 			log.Error("OpenAI routing-marker prelude failed", "err", err)
 		}
 		return mw
@@ -6339,6 +6421,15 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	// list, so a new OpenAI-compat provider routes here as soon as it has a
 	// ProviderFamilies entry (see internal/providers/provider.go).
 	buildAttempt := func(target router.Decision, targetOpts translate.EmitOptions, targetMarker string) (dispatchAttempt, error) {
+		if rw, ok := w.(*translate.ResponsesWriter); ok {
+			rw.SetRoutedModel(target.Model)
+			if targetMarker != "" && targetMarker != responsesMarker {
+				if err := rw.EmitRoutingBadge(targetMarker); err != nil {
+					return nil, fmt.Errorf("emit Responses routing badge: %w", err)
+				}
+				responsesMarker = targetMarker
+			}
+		}
 		switch providers.FamilyFor(target.Provider) {
 		case providers.FamilyOpenAICompat:
 			// Prep rebuilt per attempt: targetIsOpenRouter(opts) gates four
@@ -6670,16 +6761,31 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	primaryProvider := decision.Provider
 	primaryModel := decision.Model
 	primaryDecision := decision
+	surfacePurpose := inference.PurposeOpenAIChatCompletions
+	if isResponsesWriter {
+		surfacePurpose = inference.PurposeOpenAIResponses
+	}
 	var winnerIdx int
 	winnerIdx, proxyErr = s.dispatchWithFallback(ctx, failoverInputs{
 		// contentSink is the raw w when capture is off.
-		w:                      contentSink,
-		buf:                    preludeBuf,
-		initialDecision:        decision,
-		bindings:               bindings,
-		attempt:                attempt,
-		flushErr:               flushBufferedIfPresent,
+		w:               contentSink,
+		buf:             preludeBuf,
+		initialDecision: decision,
+		bindings:        bindings,
+		attempt:         attempt,
+		flushErr: func(w http.ResponseWriter, err error) {
+			if isResponses && responsesPreludeBuf != nil && responsesPreludeBuf.PreludeSent() {
+				return
+			}
+			if env.Stream() && preludeBuf.PreludeSent() {
+				_ = emitOpenAISSEErrorEvent(w, err)
+				return
+			}
+			flushBufferedIfPresent(w, err)
+		},
 		deferFlushOnExhaustion: cyberRetryViable,
+		purpose:                routeRes.dispatchPurpose(surfacePurpose),
+		origin:                 routeRes.dispatchOrigin(decision),
 	})
 	cyberRefusalSeen = cyberRefusalSeen || providers.IsUpstreamCyberPolicyRefusal(proxyErr)
 
@@ -6691,6 +6797,13 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 			return
 		}
 		deferredErrFlushed = true
+		if isResponses && responsesPreludeBuf != nil && responsesPreludeBuf.PreludeSent() {
+			return
+		}
+		if env.Stream() && preludeBuf.PreludeSent() {
+			proxyErr = emitOpenAISSEErrorEvent(contentSink, proxyErr)
+			return
+		}
 		flushBufferedIfPresent(contentSink, proxyErr)
 	}
 
@@ -6749,6 +6862,8 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 				bindings:        retryBindings,
 				attempt:         retryAttempt,
 				flushErr:        flushBufferedIfPresent,
+				purpose:         routeRes.dispatchPurpose(surfacePurpose),
+				origin:          routeRes.rescueOrigin(),
 			})
 			decision = cyberRetryTarget
 			bindings = retryBindings
@@ -7068,11 +7183,8 @@ func (s *Service) ProxyOpenAIResponses(ctx context.Context, body []byte, w http.
 	// call log's io.request_body matches the Responses-format response body
 	// (ProxyOpenAIChatCompletion otherwise sees the translated chatBody).
 	deferredLog.requestBody = body
-	// Prelude (response.created emit) deferred to ProxyOpenAIChatCompletion,
-	// which knows the post-routing decision and binding count: fires eagerly
-	// only when single-binding, else relies on ResponsesWriter's lazy
-	// emitCreated on first byte — preserving the failover invariant that
-	// nothing reaches the client before the upstream commits.
+	// Prelude emission is delegated to ProxyOpenAIChatCompletion, which knows
+	// the completed routing decision and can surface its badge before dispatch.
 	proxyErr := s.ProxyOpenAIChatCompletion(ctx, chatBody, wrapper, r)
 	if proxyErr != nil {
 		// If the Responses stream already committed (response.created is on the

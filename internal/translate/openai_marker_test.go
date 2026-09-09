@@ -129,6 +129,22 @@ func TestOpenAIRoutingMarkerWriter_PreludeFiresBeforeUpstream(t *testing.T) {
 	require.Len(t, events, 2, "marker should be emitted exactly once across prelude + upstream")
 }
 
+func TestOpenAIRoutingMarkerWriter_ContinueAfterPreludeDoesNotDuplicateMarker(t *testing.T) {
+	rec := httptest.NewRecorder()
+	initial := translate.NewOpenAIRoutingMarkerWriter(rec, "gpt-4o", "✦ marker\n\n")
+	require.NoError(t, initial.Prelude(true))
+
+	retry := translate.NewOpenAIRoutingMarkerWriter(rec, "gpt-4o", "✦ marker\n\n")
+	retry.ContinueAfterPrelude(true)
+	_, err := retry.Write([]byte("data: {\"choices\":[{\"delta\":{\"content\":\"answer\"}}]}\n\n"))
+	require.NoError(t, err)
+
+	events := splitSSEEvents(rec.Body.String())
+	require.Len(t, events, 2)
+	assert.Contains(t, events[0], "marker")
+	assert.NotContains(t, events[1], "marker")
+}
+
 func TestOpenAIRoutingMarkerWriter_PreludeNoOpWhenNonStreaming(t *testing.T) {
 	rec := httptest.NewRecorder()
 	w := translate.NewOpenAIRoutingMarkerWriter(rec, "gpt-4o", "marker")

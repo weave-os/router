@@ -15,7 +15,7 @@ import (
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/providers/httputil"
-	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/timing"
 
@@ -84,8 +84,8 @@ func stripCodexUnsupportedParams(body []byte) []byte {
 // codexSubscriptionCreds returns the resolved credential when it's a Codex
 // (ChatGPT) subscription bearer (OAuth token with a paired account id), else
 // nil. Such a turn must dispatch to the Codex backend, not api.openai.com.
-func codexSubscriptionCreds(ctx context.Context) *proxy.Credentials {
-	creds := proxy.CredentialsFromContext(ctx)
+func codexSubscriptionCreds(ctx context.Context) *requestcontext.Credentials {
+	creds := requestcontext.CredentialsFromContext(ctx)
 	if creds != nil && creds.OAuth && len(creds.AccountID) > 0 {
 		return creds
 	}
@@ -224,10 +224,10 @@ func (c *Client) stallBudgetFor(endpoint providers.Endpoint, cause error) time.D
 //
 // The passthrough tier strips `Authorization: Bearer rk_...` — the router
 // auth middleware accepts the same header for router-key auth, so we must not
-// relay a router credential to OpenAI. Mirrors proxy.ExtractClientCredentials's
+// relay a router credential to OpenAI. Mirrors requestcontext.ExtractClientCredentials's
 // !HasAPIKeyPrefix guard.
 func (c *Client) setAuth(ctx context.Context, upstream *http.Request, inbound *http.Request) {
-	if creds := proxy.CredentialsFromContext(ctx); creds != nil {
+	if creds := requestcontext.CredentialsFromContext(ctx); creds != nil {
 		upstream.Header.Set("Authorization", "Bearer "+string(creds.APIKey))
 		return
 	}
@@ -241,7 +241,7 @@ func (c *Client) setAuth(ctx context.Context, upstream *http.Request, inbound *h
 	// tier relay the same bearer to api.openai.com. Inspect the complete
 	// credential shape: an ordinary sk- API key remains a client credential
 	// even if a caller also supplied a stray ChatGPT-Account-ID header.
-	if creds := proxy.ExtractClientCredentials(providers.ProviderOpenAI, inbound.Header); creds != nil && creds.OAuth {
+	if creds := requestcontext.ExtractClientCredentials(providers.ProviderOpenAI, inbound.Header); creds != nil && creds.OAuth {
 		return
 	}
 	v := inbound.Header.Get("authorization")
@@ -265,14 +265,14 @@ func (c *Client) Proxy(ctx context.Context, decision router.Decision, prep provi
 	// that happens to resolve a Codex credential never hits the Codex
 	// /responses endpoint (Responses schema only).
 	codexCreds := codexSubscriptionCreds(ctx)
-	if codexCreds != nil && !proxy.CodexSubscriptionCoversModel(decision.Model) {
+	if codexCreds != nil && !requestcontext.CodexSubscriptionCoversModel(decision.Model) {
 		return fmt.Errorf("refusing Codex subscription credential for infrastructure model %q", decision.Model)
 	}
 	useCodex := codexCreds != nil && prep.Endpoint == providers.EndpointResponses
 	// A BYOK key may point at a customer-hosted OpenAI-compatible endpoint; the
 	// Codex branch below still wins, since a Codex subscription bearer only
 	// authenticates against the Codex backend.
-	baseURL := proxy.EffectiveBaseURL(ctx, c.baseURL)
+	baseURL := requestcontext.EffectiveBaseURL(ctx, c.baseURL)
 	path := "/v1/chat/completions"
 	if prep.Endpoint == providers.EndpointResponses {
 		path = "/v1/responses"
@@ -288,7 +288,7 @@ func (c *Client) Proxy(ctx context.Context, decision router.Decision, prep provi
 		reqBody = maxEffortToXhigh(reqBody, decision.Model)
 	}
 	// Applied after the catalog map so a BYOK endpoint's own naming wins.
-	reqBody = proxy.ApplyModelAlias(ctx, reqBody, decision.Model)
+	reqBody = requestcontext.ApplyModelAlias(ctx, reqBody, decision.Model)
 	upstream, err := http.NewRequestWithContext(ctx, http.MethodPost, baseURL+path, bytes.NewReader(reqBody))
 	if err != nil {
 		return fmt.Errorf("build upstream request: %w", err)
@@ -298,8 +298,8 @@ func (c *Client) Proxy(ctx context.Context, decision router.Decision, prep provi
 	for k, vs := range prep.Headers {
 		upstream.Header[http.CanonicalHeaderKey(k)] = vs
 	}
-	proxy.ApplyIdentityHeader(ctx, upstream)
-	proxy.ApplyForwardedClientHeaders(ctx, upstream, r.Header)
+	requestcontext.ApplyIdentityHeader(ctx, upstream)
+	requestcontext.ApplyForwardedClientHeaders(ctx, upstream, r.Header)
 	if v := r.Header.Get("Accept"); v != "" {
 		upstream.Header.Set("Accept", v)
 	}
@@ -467,7 +467,7 @@ func logStreamStall(ctx context.Context, model, path string, budget time.Duratio
 func (c *Client) Passthrough(ctx context.Context, prep providers.PreparedRequest, w http.ResponseWriter, r *http.Request) error {
 	// Codex subscriptions are served only via the routed Responses dispatch
 	// (Proxy), never here — no Codex backend switch needed.
-	url := proxy.EffectiveBaseURL(ctx, c.baseURL) + r.URL.Path
+	url := requestcontext.EffectiveBaseURL(ctx, c.baseURL) + r.URL.Path
 	if r.URL.RawQuery != "" {
 		url += "?" + r.URL.RawQuery
 	}
@@ -483,7 +483,7 @@ func (c *Client) Passthrough(ctx context.Context, prep providers.PreparedRequest
 	for k, vs := range prep.Headers {
 		upstream.Header[http.CanonicalHeaderKey(k)] = vs
 	}
-	proxy.ApplyForwardedClientHeaders(ctx, upstream, r.Header)
+	requestcontext.ApplyForwardedClientHeaders(ctx, upstream, r.Header)
 	if v := r.Header.Get("Accept"); v != "" {
 		upstream.Header.Set("Accept", v)
 	}

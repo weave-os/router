@@ -93,3 +93,17 @@ func TestCheckedInPiPricingIsCurrent(t *testing.T) {
 		t.Fatal("install/pi-router/src/pricing.generated.ts is stale; run go run ./cmd/genprices")
 	}
 }
+
+func TestCheckedInBenchPricingIsCurrent(t *testing.T) {
+	got, err := os.ReadFile("../../bench/weave_bench/prices.generated.json")
+	if err != nil {
+		t.Fatalf("read checked-in bench pricing: %v", err)
+	}
+	want, err := buildBenchJSON(otel.AllPricing())
+	if err != nil {
+		t.Fatalf("build bench pricing: %v", err)
+	}
+	if string(got) != string(want) {
+		t.Fatal("bench/weave_bench/prices.generated.json is stale; run go run ./cmd/genprices")
+	}
+}

@@ -1806,7 +1806,16 @@ INSERT INTO router.model_router_request_telemetry (
     spiral_steps_since_progress,
     spiral_edit_attempted,
     spiral_reasons,
-    requested_allowed_models
+    requested_allowed_models,
+    inference_purpose,
+    inference_policy_id,
+    inference_registry_revision,
+    inference_policy_revision,
+    plan_model,
+    plan_provider,
+    fallback_reason,
+    accounting_outcome,
+    usage_known
 ) VALUES (
     $1::uuid,
     $2::uuid,
@@ -1909,7 +1918,16 @@ INSERT INTO router.model_router_request_telemetry (
     $99::int,
     $100::boolean,
     $101::varchar[],
-    $102::varchar[]
+    $102::varchar[],
+    $103::varchar,
+    $104::varchar,
+    $105::varchar,
+    $106::varchar,
+    $107::varchar,
+    $108::varchar,
+    $109::varchar,
+    $110::varchar,
+    $111::boolean
 )
 ON CONFLICT (installation_id, request_id, span_type) DO NOTHING
 `
@@ -2017,6 +2035,15 @@ type InsertRequestTelemetryParams struct {
 	SpiralEditAttempted                      *bool
 	SpiralReasons                            []string
 	RequestedAllowedModels                   []string
+	InferencePurpose                         *string
+	InferencePolicyID                        *string
+	InferenceRegistryRevision                *string
+	InferencePolicyRevision                  *string
+	PlanModel                                *string
+	PlanProvider                             *string
+	FallbackReason                           *string
+	AccountingOutcome                        *string
+	UsageKnown                               *bool
 }
 
 // Records a completed proxied request for the dashboard UI and routing
@@ -2052,6 +2079,11 @@ type InsertRequestTelemetryParams struct {
 // set observed on this turn (Claude Code cost-observing-proxy Phase 0
 // instrumentation). NULL on non-subscription turns and on rows written before
 // the column existed. Nothing reads it yet.
+// inference_* / plan_* / fallback_reason / accounting_outcome / usage_known are
+// the inference-policy provenance of the operation (purpose, policy entry and
+// revisions, policy-selected target, why the served target differs, how usage
+// was accounted). NULL on rows written before the columns existed and on paths
+// not yet migrated to the executor.
 //
 //	INSERT INTO router.model_router_request_telemetry (
 //	    installation_id,
@@ -2155,7 +2187,16 @@ type InsertRequestTelemetryParams struct {
 //	    spiral_steps_since_progress,
 //	    spiral_edit_attempted,
 //	    spiral_reasons,
-//	    requested_allowed_models
+//	    requested_allowed_models,
+//	    inference_purpose,
+//	    inference_policy_id,
+//	    inference_registry_revision,
+//	    inference_policy_revision,
+//	    plan_model,
+//	    plan_provider,
+//	    fallback_reason,
+//	    accounting_outcome,
+//	    usage_known
 //	) VALUES (
 //	    $1::uuid,
 //	    $2::uuid,
@@ -2258,7 +2299,16 @@ type InsertRequestTelemetryParams struct {
 //	    $99::int,
 //	    $100::boolean,
 //	    $101::varchar[],
-//	    $102::varchar[]
+//	    $102::varchar[],
+//	    $103::varchar,
+//	    $104::varchar,
+//	    $105::varchar,
+//	    $106::varchar,
+//	    $107::varchar,
+//	    $108::varchar,
+//	    $109::varchar,
+//	    $110::varchar,
+//	    $111::boolean
 //	)
 //	ON CONFLICT (installation_id, request_id, span_type) DO NOTHING
 func (q *Queries) InsertRequestTelemetry(ctx context.Context, arg InsertRequestTelemetryParams) error {
@@ -2365,6 +2415,15 @@ func (q *Queries) InsertRequestTelemetry(ctx context.Context, arg InsertRequestT
 		arg.SpiralEditAttempted,
 		arg.SpiralReasons,
 		arg.RequestedAllowedModels,
+		arg.InferencePurpose,
+		arg.InferencePolicyID,
+		arg.InferenceRegistryRevision,
+		arg.InferencePolicyRevision,
+		arg.PlanModel,
+		arg.PlanProvider,
+		arg.FallbackReason,
+		arg.AccountingOutcome,
+		arg.UsageKnown,
 	)
 	return err
 }

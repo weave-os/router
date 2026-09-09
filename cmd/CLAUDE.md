@@ -13,10 +13,11 @@ Composition root. Only place that constructs concrete adapters + wires them toge
   - `buildSemanticCache` — response-cache assembly
   - `buildOtelEmitter` — OTel span exporter
   - `runSessionPinSweep` — TTL sweep loop
-  - `resolveHardPinModel` / `resolveDefaultBaselineModel` / `resolveAvailableModels` — boot-time model resolution
+  - `resolveHardPinModel` / `resolveCompactionModel` / `resolveDefaultBaselineModel` / `resolveAvailableModels` — boot-time model resolution
   - `registerDeploymentKeyedProvider` — shared "resolve key → build client → log" registration for the providers whose gating collapses to that shape (Fireworks, Makora, Together, Bedrock, Google); OpenRouter and Anthropic/OpenAI stay bespoke
   - small env parsers (e.g. `envVarHint`, `parseEnvInt`, `parseEnvFloat`, `parseEnvDurationMs`)
 - **No more heuristic-fallback router.** If cluster routing fails to boot, `main.go` panics. Misconfiguration must abort the process rather than silently degrade.
+- Validate deployment target overrides through `policy.Registry.ValidateDeployment` after provider/model configuration is resolved. A partial or catalog-incompatible explicit target is a startup error, not permission to substitute a default.
 - **Never introduce DI container, reflection-based wiring, or service locator.** Composition = plain Go function calls.
 - **`panic` is reserved for startup-time fail-fast** (`config.MustGet`, cluster-scorer boot failure, invalid `ROUTER_DEPLOYMENT_MODE`). Never panic on request path.
 

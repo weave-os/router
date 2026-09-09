@@ -758,6 +758,26 @@ func (t *AnthropicSSETranslator) Prelude(streaming bool) error {
 	return t.emitRoutingMarkerIfConfigured()
 }
 
+// ContinueAfterPrelude resumes a stream whose message_start and earlier
+// prelude content blocks were emitted by a previous attempt.
+func (t *AnthropicSSETranslator) ContinueAfterPrelude(streaming bool, existingBlocks int64) error {
+	if !streaming || t.started {
+		return nil
+	}
+	t.inner.Header().Set("Content-Type", "text/event-stream")
+	t.inner.Header().Del("Content-Length")
+	t.inner.Header().Del("Content-Encoding")
+	t.statusCode = http.StatusOK
+	t.streaming = true
+	t.headersEmitted = true
+	t.started = true
+	t.blockIdx = int(existingBlocks)
+	if err := t.lifecycle.Start(); err != nil {
+		return err
+	}
+	return t.emitRoutingMarkerIfConfigured()
+}
+
 func (t *AnthropicSSETranslator) Write(data []byte) (int, error) {
 	n := len(data)
 	// Once streaming and an error status has been seen, subsequent bytes are

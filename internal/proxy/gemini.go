@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"time"
 
+	"weave-os/router/internal/inference"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/observability/otel"
 	"weave-os/router/internal/providers"
@@ -121,6 +122,7 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 		MaxWindow:      maxEligibleWindow,
 		RequestedModel: feats.Model,
 		ClientApp:      clientID.ClientApp,
+		Scope:          s.summarizerScope(ctx, enabledProviders, excluded),
 		PreferredSummarizer: func() string {
 			return s.compactionPreferredSummarizer(ctx, sessionKey, roleForTier(catalog.TierFor(feats.Model)))
 		},
@@ -304,6 +306,8 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 		bindings:        bindings,
 		attempt:         attempt,
 		flushErr:        flushBufferedIfPresent,
+		purpose:         routeRes.dispatchPurpose(inference.PurposeGeminiGenerateContent),
+		origin:          routeRes.dispatchOrigin(decision),
 	})
 	proxyMs := time.Since(proxyStart).Milliseconds()
 	finalProvider := decision.Provider

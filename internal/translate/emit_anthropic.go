@@ -831,13 +831,6 @@ func sanitizeAnthropicToolNamesBytes(body []byte) ([]byte, error) {
 			reservedNames[name] = struct{}{}
 		}
 	}
-	for _, message := range gjson.GetBytes(body, "messages").Array() {
-		for _, block := range message.Get("content").Array() {
-			if block.Get("type").String() == "tool_use" {
-				reservedNames[block.Get("name").String()] = struct{}{}
-			}
-		}
-	}
 
 	aliases := make(map[string]string)
 	for _, tool := range tools {

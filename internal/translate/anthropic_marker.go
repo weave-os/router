@@ -22,6 +22,7 @@ type AnthropicRoutingMarkerWriter struct {
 	buf bytes.Buffer
 
 	markerEmitted bool
+	indexOffset   int64
 
 	// upstreamUsage holds the input-side token counts lifted off the upstream's
 	// dropped message_start, pending merge into message_delta.
@@ -50,12 +51,13 @@ func (w *AnthropicRoutingMarkerWriter) Write(data []byte) (int, error) {
 	if w.Streaming && !w.markerEmitted {
 		w.markerEmitted = true
 		if w.marker != "" {
+			w.indexOffset = 1
 			if err := w.emitPreludeEvents(); err != nil {
 				return 0, err
 			}
 		}
 	}
-	if !w.Streaming || w.marker == "" {
+	if !w.Streaming || w.indexOffset == 0 {
 		// Non-streaming or empty marker: fully transparent passthrough.
 		return w.Inner.Write(data)
 	}
@@ -87,7 +89,37 @@ func (w *AnthropicRoutingMarkerWriter) Prelude(streaming bool) error {
 		w.BW.WriteString(": routing complete\n\n")
 		return w.FlushEvent()
 	}
+	w.indexOffset = 1
 	return w.emitPreludeEvents()
+}
+
+// ContinueAfterPrelude resumes rewriting after an earlier attempt already made
+// the Anthropic message_start and routing block(s) visible.
+func (w *AnthropicRoutingMarkerWriter) ContinueAfterPrelude(streaming bool, existingBlocks int64) error {
+	if !streaming || w.markerEmitted {
+		return nil
+	}
+	w.Inner.Header().Set("Content-Type", "text/event-stream")
+	w.Streaming = true
+	w.HeadersEmitted = true
+	w.markerEmitted = true
+	w.indexOffset = existingBlocks
+	if w.marker == "" {
+		return nil
+	}
+	w.BW.WriteString("event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":")
+	sse.WriteJSONInt(w.BW, existingBlocks)
+	w.BW.WriteString(",\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n")
+	w.BW.WriteString("event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":")
+	sse.WriteJSONInt(w.BW, existingBlocks)
+	w.BW.WriteString(",\"delta\":{\"type\":\"text_delta\",\"text\":")
+	sse.WriteJSONString(w.BW, w.marker)
+	w.BW.WriteString("}}\n\n")
+	w.BW.WriteString("event: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":")
+	sse.WriteJSONInt(w.BW, existingBlocks)
+	w.BW.WriteString("}\n\n")
+	w.indexOffset = existingBlocks + 1
+	return w.FlushEvent()
 }
 
 // emitPreludeEvents writes message_start followed by the routing marker as a
@@ -158,7 +190,7 @@ func (w *AnthropicRoutingMarkerWriter) processUpstream(data []byte) (int, error)
 			}
 			// Rewrite the index field: shift by +1.
 			currentIdx := gjson.GetBytes(eventData, "index").Int()
-			rewritten, err := sjson.SetBytes(eventData, "index", currentIdx+1)
+			rewritten, err := sjson.SetBytes(eventData, "index", currentIdx+w.indexOffset)
 			if err != nil {
 				// Fall through: emit original event if rewrite fails.
 				if _, err := w.Inner.Write(event[:n]); err != nil {

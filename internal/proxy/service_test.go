@@ -536,6 +536,63 @@ func TestService_ProxyOpenAIResponses_NativeBadgeIsCodexOnlyAndHonorsSuppression
 	}
 }
 
+func TestService_ProxyOpenAIResponses_TranslatedMarkerOptOutPreservesStream(t *testing.T) {
+	const upstream = "data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"hello\"},\"finish_reason\":null}]}\n\n" +
+		"data: {\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n" +
+		"data: [DONE]\n\n"
+	together := &fakeProvider{proxyResponse: func(w http.ResponseWriter) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		_, _ = io.WriteString(w, upstream)
+	}}
+	fr := &fakeRouter{decision: router.Decision{
+		Provider: providers.ProviderTogether,
+		Model:    "z-ai/glm-5.1",
+		Reason:   "test",
+	}}
+	svc := proxy.NewService(fr, map[string]providers.Client{
+		providers.ProviderTogether: together,
+		providers.ProviderFireworks: &fakeProvider{
+			proxyResponse: together.proxyResponse,
+		},
+	}, nil, false, nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil)
+
+	ctx := context.WithValue(context.Background(), proxy.ClientIdentityContextKey{}, proxy.ClientIdentity{ClientApp: proxy.ClientAppCodex})
+	body := []byte(`{"model":"gpt-5.6-luna","stream":true,"input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"say hello"}]}]}`)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(""))
+	req.Header.Set("X-Weave-Routing-Marker", "off")
+
+	require.NoError(t, svc.ProxyOpenAIResponses(ctx, body, rec, req))
+	assert.Equal(t, "text/event-stream", rec.Header().Get("Content-Type"))
+	assert.Equal(t, []string{"hello"}, responsesTextDeltas(t, rec.Body.Bytes()))
+	assert.NotContains(t, rec.Body.String(), "Weave Router")
+}
+
+func TestService_ProxyOpenAIResponses_NativeMarkerOptOutPreservesContentType(t *testing.T) {
+	terminal := "event: response.completed\n" +
+		`data: {"type":"response.completed","sequence_number":2,"response":{"id":"resp_1","status":"completed","model":"gpt-5.6-sol","output":[{"id":"msg_1","type":"message","role":"assistant","content":[{"type":"output_text","text":"done"}]}],"usage":{"input_tokens":120,"output_tokens":8}}}` + "\n\n"
+	openAI := &fakeProvider{proxyResponse: nativeResponsesStream(terminal)}
+	fr := &fakeRouter{decision: router.Decision{
+		Provider: providers.ProviderOpenAI,
+		Model:    "gpt-5.6-sol",
+		Reason:   "test",
+	}}
+	svc := proxy.NewService(fr, map[string]providers.Client{
+		providers.ProviderOpenAI: openAI,
+	}, nil, false, nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil)
+
+	body := []byte(`{"model":"gpt-5.6-sol","stream":true,"input":[{"type":"reasoning","id":"rs_0","encrypted_content":"opaque"},{"type":"message","role":"user","content":[{"type":"input_text","text":"continue"}]}]}`)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(""))
+	req.Header.Set("X-Weave-Routing-Marker", "off")
+
+	require.NoError(t, svc.ProxyOpenAIResponses(codexNativeResponsesCtx(), body, rec, req))
+	assert.Equal(t, "text/event-stream", rec.Header().Get("Content-Type"))
+	assert.Contains(t, rec.Body.String(), `"type":"response.completed"`)
+	assert.NotContains(t, rec.Body.String(), "✦ **Weave Router**")
+}
+
 // A first Codex turn must show the marker even when the action is tool-call-only;
 // both cases were previously invisible (debug-gated marker; badge could only
 // ride text deltas).

@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"weave-os/router/internal/billing"
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/router/bandit"
@@ -58,6 +59,43 @@ func TestClassifyDispatchError_ProviderNotConfigured(t *testing.T) {
 	assert.Equal(t, "Provider not configured.", cls.Message)
 	assert.False(t, cls.RetryAfter)
 	assert.False(t, cls.Kind.IsClientError(), "provider-not-configured is an upstream/routing problem, not a client-input one")
+}
+
+func TestClassifyDispatchError_ExecutorSentinels(t *testing.T) {
+	cls, ok := proxy.ClassifyDispatchError(fmt.Errorf("%w: %s", dispatch.ErrProviderNotConfigured, "some-provider"))
+	require.True(t, ok)
+	assert.Equal(t, proxy.DispatchErrorProviderNotConfigured, cls.Kind)
+	assert.Equal(t, http.StatusBadGateway, cls.Status)
+
+	cls, ok = proxy.ClassifyDispatchError(fmt.Errorf("attempt: %w", dispatch.ErrTargetMismatch))
+	require.True(t, ok)
+	assert.Equal(t, proxy.DispatchErrorPlanTargetMismatch, cls.Kind)
+	assert.Equal(t, http.StatusBadGateway, cls.Status)
+	assert.Equal(t, "error", cls.LogLevel)
+	assert.False(t, cls.Kind.IsClientError())
+}
+
+func TestClassifyDispatchError_PlanResolution(t *testing.T) {
+	requestOverride := &policy.ResolutionError{Code: policy.ResolutionErrorInvalidOverride, Purpose: policy.PurposeAnthropicMessages, Source: policy.OverrideSourceRequest}
+	cls, ok := proxy.ClassifyDispatchError(fmt.Errorf("resolve: %w", requestOverride))
+	require.True(t, ok)
+	assert.Equal(t, proxy.DispatchErrorPlanOverrideRejected, cls.Kind)
+	assert.Equal(t, http.StatusBadRequest, cls.Status)
+	assert.True(t, cls.Kind.IsClientError())
+
+	deploymentOverride := &policy.ResolutionError{Code: policy.ResolutionErrorInvalidOverride, Purpose: policy.PurposeAnthropicMessages, Source: policy.OverrideSourceDeployment}
+	cls, ok = proxy.ClassifyDispatchError(deploymentOverride)
+	require.True(t, ok)
+	assert.Equal(t, proxy.DispatchErrorPlanUnresolvable, cls.Kind)
+	assert.Equal(t, http.StatusServiceUnavailable, cls.Status)
+	assert.True(t, cls.RetryAfter)
+	assert.False(t, cls.Kind.IsClientError())
+
+	noBinding := &policy.ResolutionError{Code: policy.ResolutionErrorNoEligibleBinding, Purpose: policy.PurposeAnthropicMessages}
+	cls, ok = proxy.ClassifyDispatchError(noBinding)
+	require.True(t, ok)
+	assert.Equal(t, proxy.DispatchErrorPlanUnresolvable, cls.Kind)
+	assert.Equal(t, http.StatusServiceUnavailable, cls.Status)
 }
 
 func TestClassifyDispatchError_UpstreamStatusErrorPreservesStatus(t *testing.T) {

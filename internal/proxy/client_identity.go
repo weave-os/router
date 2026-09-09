@@ -8,30 +8,19 @@ import (
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/observability"
+	"weave-os/router/internal/requestcontext"
 )
 
-// ClientIdentity holds per-request user identification signals, persisted to
-// router.model_router_users (Email, DisplayName).
-type ClientIdentity struct {
-	DeviceID    string
-	AccountID   string
-	SessionID   string
-	Email       string
-	DisplayName string
-	UserAgent   string
-	ClientApp   string
-	// RolloutID is the x-weave-rollout-id eval/training-harness correlation
-	// id; joins a sandbox rollout's graded reward to its routing decisions.
-	RolloutID string
-}
+// ClientIdentity holds per-request user identification signals; defined in
+// internal/requestcontext so provider adapters can read it.
+type ClientIdentity = requestcontext.ClientIdentity
 
 // ClientIdentityContextKey is the request-context key for client identity.
-type ClientIdentityContextKey struct{}
+type ClientIdentityContextKey = requestcontext.ClientIdentityContextKey
 
 // ClientIdentityFrom reads the ClientIdentity stashed on ctx.
 func ClientIdentityFrom(ctx context.Context) ClientIdentity {
-	id, _ := ctx.Value(ClientIdentityContextKey{}).(ClientIdentity)
-	return id
+	return requestcontext.ClientIdentityFrom(ctx)
 }
 
 // ClientIdentityFromHeaders builds a ClientIdentity from the headers common
