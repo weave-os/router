@@ -31,8 +31,10 @@ func (e *RequestEnvelope) RewriteForHandover(summary string) int {
 	}
 }
 
-// TrimLastNMessages keeps the most recent n non-system messages plus system
-// blocks. Falls back to n=3 when n <= 0. Returns the number elided.
+// TrimLastNMessages keeps a bounded window of n non-system messages plus
+// system blocks. When the recent tail has no text-bearing user turn, its
+// oldest slot is replaced with the newest earlier one. Falls back to n=3 when
+// n <= 0. Returns the number elided.
 func (e *RequestEnvelope) TrimLastNMessages(n int) int {
 	if e == nil {
 		return 0
@@ -127,7 +129,7 @@ func (e *RequestEnvelope) trimAnthropicLastN(n int) int {
 	if len(all) <= n {
 		return 0
 	}
-	keep := all[len(all)-n:]
+	keep, _ := recentMessagesWithUserTextBoundary(all, n, FormatAnthropic)
 	rebuilt, _ := stripOrphanedAnthropicToolResults(keep)
 	newMessages := "[" + strings.Join(rebuilt, ",") + "]"
 	out, err := sjson.SetRawBytes(e.body, "messages", []byte(newMessages))
@@ -222,19 +224,23 @@ func (e *RequestEnvelope) trimOpenAILastN(n int) int {
 		return 0
 	}
 	systems := make([]string, 0)
-	others := make([]string, 0, len(all))
+	others := make([]gjson.Result, 0, len(all))
 	for _, m := range all {
 		if m.Get("role").String() == "system" {
 			systems = append(systems, m.Raw)
 			continue
 		}
-		others = append(others, m.Raw)
+		others = append(others, m)
 	}
 	if len(others) <= n {
 		return 0
 	}
-	keep := others[len(others)-n:]
-	cleaned := stripOrphanedOpenAIToolMessages(keep)
+	keep, _ := recentMessagesWithUserTextBoundary(others, n, FormatOpenAI)
+	keepRaw := make([]string, 0, len(keep))
+	for _, message := range keep {
+		keepRaw = append(keepRaw, message.Raw)
+	}
+	cleaned := stripOrphanedOpenAIToolMessages(keepRaw)
 	rebuilt := make([]string, 0, len(systems)+len(cleaned))
 	rebuilt = append(rebuilt, systems...)
 	rebuilt = append(rebuilt, cleaned...)
@@ -302,7 +308,13 @@ func (e *RequestEnvelope) trimGeminiLastN(n int) int {
 	if len(all) <= n {
 		return 0
 	}
-	rebuilt := stripLeadingGeminiOrphanFunctionResponses(all[len(all)-n:])
+	keep, boundaryPulledBack := recentMessagesWithUserTextBoundary(all, n, FormatGemini)
+	var rebuilt []string
+	if boundaryPulledBack {
+		rebuilt = append([]string{keep[0].Raw}, stripLeadingGeminiOrphanFunctionResponses(keep[1:])...)
+	} else {
+		rebuilt = stripLeadingGeminiOrphanFunctionResponses(keep)
+	}
 	newContents := "[" + strings.Join(rebuilt, ",") + "]"
 	out, err := sjson.SetRawBytes(e.body, "contents", []byte(newContents))
 	if err != nil {
@@ -310,6 +322,46 @@ func (e *RequestEnvelope) trimGeminiLastN(n int) int {
 	}
 	e.body = out
 	return len(all) - len(rebuilt)
+}
+
+// recentMessagesWithUserTextBoundary keeps the newest messages while ensuring
+// the window still describes the user's request. Tool-result-only user entries
+// do not qualify because the routing policy cannot derive intent from them.
+func recentMessagesWithUserTextBoundary(messages []gjson.Result, limit int, format Format) ([]gjson.Result, bool) {
+	if limit <= 0 || len(messages) <= limit {
+		return messages, false
+	}
+	recent := messages[len(messages)-limit:]
+	for i := len(recent) - 1; i >= 0; i-- {
+		if isTextBearingUserMessage(recent[i], format) {
+			return recent, false
+		}
+	}
+	for i := len(messages) - limit - 1; i >= 0; i-- {
+		if !isTextBearingUserMessage(messages[i], format) {
+			continue
+		}
+		preserved := make([]gjson.Result, 0, limit)
+		preserved = append(preserved, messages[i])
+		return append(preserved, recent[1:]...), true
+	}
+	return recent, false
+}
+
+func isTextBearingUserMessage(message gjson.Result, format Format) bool {
+	switch format {
+	case FormatAnthropic:
+		return message.Get("role").String() == "user" &&
+			strings.TrimSpace(userPromptTextGJSON(message.Get("content"))) != ""
+	case FormatOpenAI:
+		return message.Get("role").String() == "user" &&
+			strings.TrimSpace(openAIContentTextGJSON(message.Get("content"))) != ""
+	case FormatGemini:
+		role := message.Get("role").String()
+		return (role == "user" || role == "") && strings.TrimSpace(geminiPartsText(message.Get("parts"))) != ""
+	default:
+		return false
+	}
 }
 
 // stripOrphanedAnthropicToolResults drops tool_result blocks whose tool_use_id

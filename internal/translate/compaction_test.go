@@ -1,6 +1,7 @@
 package translate
 
 import (
+	"strconv"
 	"strings"
 	"testing"
 
@@ -206,4 +207,78 @@ func TestTrimLastNMessages_Gemini_DropsHeadLeftWithOnlyOrphanResponse(t *testing
 	require.Len(t, contents, 2)
 	assert.Equal(t, "m2", contents[0].Get("parts.0.text").String())
 	assert.NotContains(t, string(e.body), "functionResponse")
+}
+
+func TestCompactionPreservesUserTextBoundaryAcrossToolLoop(t *testing.T) {
+	const toolTurns = 6
+
+	anthropicMessages := []string{`{"role":"user","content":"actual request"}`}
+	openAIMessages := []string{`{"role":"user","content":"actual request"}`}
+	geminiContents := []string{`{"role":"user","parts":[{"text":"actual request"}]}`}
+	for i := 0; i < toolTurns; i++ {
+		toolUseID := "tool-" + strconv.Itoa(i)
+		anthropicMessages = append(anthropicMessages,
+			anthropicAssistantToolUse(toolUseID),
+			anthropicToolResultMsg(toolUseID, "tool output"),
+		)
+		openAIMessages = append(openAIMessages,
+			`{"role":"assistant","tool_calls":[{"id":"`+toolUseID+`","type":"function","function":{"name":"read","arguments":"{}"}}]}`,
+			`{"role":"tool","tool_call_id":"`+toolUseID+`","content":"tool output"}`,
+		)
+		geminiContents = append(geminiContents,
+			`{"role":"model","parts":[{"functionCall":{"name":"`+toolUseID+`","args":{}}}]}`,
+			`{"role":"user","parts":[{"functionResponse":{"name":"`+toolUseID+`","response":{"result":"tool output"}}}]}`,
+		)
+	}
+
+	testCases := []struct {
+		name  string
+		parse func([]byte) (*RequestEnvelope, error)
+		body  string
+	}{
+		{
+			name:  "anthropic",
+			parse: ParseAnthropic,
+			body:  `{"messages":[` + strings.Join(anthropicMessages, ",") + `]}`,
+		},
+		{
+			name:  "openai",
+			parse: ParseOpenAI,
+			body:  `{"messages":[` + strings.Join(openAIMessages, ",") + `]}`,
+		},
+		{
+			name:  "gemini",
+			parse: ParseGemini,
+			body:  `{"contents":[` + strings.Join(geminiContents, ",") + `]}`,
+		},
+	}
+
+	assertUserTextBoundary := func(t *testing.T, envelope *RequestEnvelope) {
+		t.Helper()
+		for _, message := range envelope.ConversationMessages() {
+			if message.Role == "user" && message.Text == "actual request" {
+				return
+			}
+		}
+		assert.Fail(t, "text-bearing user boundary was elided")
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name+"/emergency trim", func(t *testing.T) {
+			envelope, err := testCase.parse([]byte(testCase.body))
+			require.NoError(t, err)
+
+			envelope.TrimLastNMessages(12)
+			assertUserTextBoundary(t, envelope)
+			assert.NotContains(t, string(envelope.body), "tool-0", "orphaned first tool result must be removed")
+		})
+
+		t.Run(testCase.name+"/summary rewrite", func(t *testing.T) {
+			envelope, err := testCase.parse([]byte(testCase.body))
+			require.NoError(t, err)
+
+			envelope.RewriteForCompaction("summary", 12)
+			assertUserTextBoundary(t, envelope)
+		})
+	}
 }

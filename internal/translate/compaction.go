@@ -36,11 +36,12 @@ func (e *RequestEnvelope) ClearOldToolResults(keepRecent int) int {
 }
 
 // RewriteForCompaction rewrites history to [summary + recent keepRecentTurns
-// non-system messages], aligned to begin on a user turn so roles alternate.
-// Orphaned tool results (whose tool_use was elided) are stripped to keep the
-// request wire-valid. Unlike RewriteForHandover, a tail is kept so the model
-// retains immediate working context. Returns the number of messages elided.
-// Pure: no I/O. keepRecentTurns <= 0 is treated as 1.
+// non-system messages], aligned to begin on a text-bearing user turn so the
+// request retains a routing boundary. Orphaned tool results (whose tool_use
+// was elided) are stripped to keep the request wire-valid. Unlike
+// RewriteForHandover, a tail is kept so the model retains immediate working
+// context. Returns the number of messages elided. Pure: no I/O.
+// keepRecentTurns <= 0 is treated as 1.
 func (e *RequestEnvelope) RewriteForCompaction(summary string, keepRecentTurns int) int {
 	if e == nil {
 		return 0
@@ -58,18 +59,17 @@ func (e *RequestEnvelope) RewriteForCompaction(summary string, keepRecentTurns i
 	}
 }
 
-// userAlignedStart returns the index at which to begin a recent-message window
-// of size keepRecent drawn from msgs, advanced forward to the first user
-// message so the window starts on a user turn. Falls back to the last user
-// message's index when the window contains none.
-func userAlignedStart(msgs []gjson.Result, keepRecent int) int {
+// userTextAlignedStart returns the index at which to begin a recent-message
+// window, advanced to a user turn that still carries request text. Tool-result
+// turns do not establish a usable routing boundary.
+func userTextAlignedStart(msgs []gjson.Result, keepRecent int, format Format) int {
 	start := max(len(msgs)-keepRecent, 0)
-	for start < len(msgs) && msgs[start].Get("role").String() != "user" {
+	for start < len(msgs) && !isTextBearingUserMessage(msgs[start], format) {
 		start++
 	}
 	if start >= len(msgs) {
 		for i := len(msgs) - 1; i >= 0; i-- {
-			if msgs[i].Get("role").String() == "user" {
+			if isTextBearingUserMessage(msgs[i], format) {
 				return i
 			}
 		}
@@ -279,7 +279,7 @@ func (e *RequestEnvelope) rewriteAnthropicForCompaction(summary string, keepRece
 	if len(all) == 0 {
 		return 0
 	}
-	start := userAlignedStart(all, keepRecent)
+	start := userTextAlignedStart(all, keepRecent, FormatAnthropic)
 	cleaned, _ := stripOrphanedAnthropicToolResults(all[start:])
 	rebuilt := append([]string{anthropicAssistantSummaryBlock(summary)}, cleaned...)
 	elided := max(len(all)-len(cleaned), 0)
@@ -307,7 +307,7 @@ func (e *RequestEnvelope) rewriteOpenAIForCompaction(summary string, keepRecent 
 	if len(others) == 0 {
 		return 0
 	}
-	start := userAlignedStart(others, keepRecent)
+	start := userTextAlignedStart(others, keepRecent, FormatOpenAI)
 	keptRaw := make([]string, 0, len(others)-start)
 	for _, m := range others[start:] {
 		keptRaw = append(keptRaw, m.Raw)
@@ -330,7 +330,7 @@ func (e *RequestEnvelope) rewriteGeminiForCompaction(summary string, keepRecent 
 	if len(all) == 0 {
 		return 0
 	}
-	start := userAlignedStart(all, keepRecent)
+	start := userTextAlignedStart(all, keepRecent, FormatGemini)
 	kept := stripLeadingGeminiOrphanFunctionResponses(all[start:])
 
 	tagged := HandoverSummaryTag + summary
