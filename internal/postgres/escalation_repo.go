@@ -143,8 +143,17 @@ func (r *EscalationRepo) Release(ctx context.Context, scope [32]byte, token stri
 	return nil
 }
 
-// Invalidate resets broken continuity without revoking a distinct active observer.
-func (r *EscalationRepo) Invalidate(ctx context.Context, scope, boundary [32]byte) error {
+// Invalidate resets continuity and atomically releases failedToken when it owns
+// the lease. An empty token preserves a distinct active observer.
+func (r *EscalationRepo) Invalidate(ctx context.Context, scope, boundary [32]byte, failedToken string) error {
+	failedLeaseUUID := uuid.Nil
+	if failedToken != "" {
+		var err error
+		failedLeaseUUID, err = uuid.Parse(failedToken)
+		if err != nil {
+			return fmt.Errorf("parse failed escalation lease token: %w", err)
+		}
+	}
 	err := pgx.BeginTxFunc(ctx, r.pool, pgx.TxOptions{IsoLevel: pgx.ReadCommitted}, func(tx pgx.Tx) error {
 		queries := sqlc.New(tx)
 		_, lockErr := queries.GetEscalationSessionForInvalidation(ctx, scope[:])
@@ -156,7 +165,7 @@ func (r *EscalationRepo) Invalidate(ctx context.Context, scope, boundary [32]byt
 		}
 		// Commit inserts the checkpoint under this same session lock. A second
 		// statement sees it even when the lock request waited for that commit.
-		return queries.UpdateEscalationSessionInvalidated(ctx, sqlc.UpdateEscalationSessionInvalidatedParams{Scope: scope[:], Boundary: boundary[:]})
+		return queries.UpdateEscalationSessionInvalidated(ctx, sqlc.UpdateEscalationSessionInvalidatedParams{Scope: scope[:], Boundary: boundary[:], FailedLeaseToken: failedLeaseUUID})
 	})
 	if err != nil {
 		return fmt.Errorf("invalidate escalation session: %w", err)

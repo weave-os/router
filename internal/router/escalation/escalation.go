@@ -181,7 +181,7 @@ type Store interface {
 	Checkpoint(ctx context.Context, scope, boundary [32]byte) (Checkpoint, bool, error)
 	Commit(ctx context.Context, scope, boundary [32]byte, token string, session Session, checkpoint Checkpoint) error
 	Release(ctx context.Context, scope [32]byte, token string) error
-	Invalidate(ctx context.Context, scope, boundary [32]byte) error
+	Invalidate(ctx context.Context, scope, boundary [32]byte, failedToken string) error
 	SaveOutcome(ctx context.Context, scope [32]byte, ordinal int64, outcome PreviousOutcome) error
 	SaveContinuation(ctx context.Context, activation [32]byte, responseID string, scope [32]byte, ordinal int64, history json.RawMessage) error
 	Continuation(ctx context.Context, activation [32]byte, responseID string) (scope [32]byte, history json.RawMessage, found bool, err error)

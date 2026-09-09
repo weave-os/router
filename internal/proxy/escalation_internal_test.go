@@ -68,7 +68,7 @@ func (s *escalationTestStore) SaveOutcome(_ context.Context, scope [32]byte, ord
 	}
 	return nil
 }
-func (s *escalationTestStore) Invalidate(_ context.Context, scope [32]byte, _ [32]byte) error {
+func (s *escalationTestStore) Invalidate(_ context.Context, scope [32]byte, _ [32]byte, _ string) error {
 	session := s.sessions[scope]
 	session.FeatureState = nil
 	session.FeatureTurns = 0

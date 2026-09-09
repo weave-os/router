@@ -78,7 +78,7 @@ func (s *Service) beginEscalation(ctx context.Context, env *translate.RequestEnv
 		observation, err = translate.ParseResponsesEscalationObservation(original)
 	}
 	if err != nil {
-		s.invalidateEscalation(ctx, scope, [32]byte{})
+		s.invalidateEscalation(ctx, scope, [32]byte{}, "")
 		log.Warn("Escalation input unavailable", "error_type", fmt.Sprintf("%T", err))
 		return nil
 	}
@@ -133,7 +133,7 @@ func (s *Service) beginEscalation(ctx context.Context, env *translate.RequestEnv
 	turn.observation = observation
 	session, claimed, err := s.escalationStore.Claim(claimCtx, scope, res.InstallationID.String(), turn.token, turn.boundary)
 	if err != nil || !claimed {
-		s.invalidateEscalation(ctx, scope, turn.boundary)
+		s.invalidateEscalation(ctx, scope, turn.boundary, "")
 		log.Warn("Escalation observation not claimed", "err", err, "claimed", claimed)
 		return nil
 	}
@@ -180,10 +180,10 @@ func (s *Service) beginEscalation(ctx context.Context, env *translate.RequestEnv
 	return turn
 }
 
-func (s *Service) invalidateEscalation(ctx context.Context, scope, boundary [32]byte) {
+func (s *Service) invalidateEscalation(ctx context.Context, scope, boundary [32]byte, failedToken string) {
 	invalidateCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), time.Second)
 	defer cancel()
-	if err := s.escalationStore.Invalidate(invalidateCtx, scope, boundary); err != nil {
+	if err := s.escalationStore.Invalidate(invalidateCtx, scope, boundary, failedToken); err != nil {
 		observability.FromContext(ctx).Warn("Escalation continuity reset failed", "err", err)
 	}
 }
@@ -222,10 +222,9 @@ func (s *Service) finishEscalation(ctx context.Context, turn *escalationTurn, re
 	commitCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), time.Second)
 	defer cancel()
 	if err := s.escalationStore.Commit(commitCtx, turn.scope, turn.boundary, turn.token, turn.session, turn.checkpoint); err != nil {
-		s.releaseEscalation(ctx, turn)
-		// A rolled-back observation leaves a gap. Invalidation checks the
-		// boundary checkpoint so an ambiguously successful commit stays intact.
-		s.invalidateEscalation(ctx, turn.scope, turn.boundary)
+		// Reset the gap and release the lease atomically. A committed boundary
+		// remains intact if only its acknowledgment was lost.
+		s.invalidateEscalation(ctx, turn.scope, turn.boundary, turn.token)
 		return err
 	}
 	res.EscalationScope = turn.scope

@@ -117,7 +117,7 @@ func checkEscalationState(ctx context.Context, dsn string) (checkErr error) {
 	if acquired {
 		return errors.New("wrong-token release removed active lease")
 	}
-	err = store.Invalidate(ctx, scope, boundary)
+	err = store.Invalidate(ctx, scope, boundary, "")
 	if err != nil {
 		return err
 	}
@@ -127,14 +127,14 @@ func checkEscalationState(ctx context.Context, dsn string) (checkErr error) {
 	})
 	for range 8 {
 		commitRace.Go(func() error {
-			return store.Invalidate(ctx, scope, boundary)
+			return store.Invalidate(ctx, scope, boundary, "")
 		})
 	}
 	if err = commitRace.Wait(); err != nil {
 		return err
 	}
 	// A duplicate may lose its claim, then invalidate after the winner commits.
-	err = store.Invalidate(ctx, scope, boundary)
+	err = store.Invalidate(ctx, scope, boundary, "")
 	if err != nil {
 		return err
 	}
@@ -226,7 +226,7 @@ func checkEscalationState(ctx context.Context, dsn string) (checkErr error) {
 	if !acquired || next.Ordinal != 2 || next.PreviousOutcome != nil {
 		return errors.New("stale outcome changed a newer observation")
 	}
-	err = store.Invalidate(ctx, scope, missedBoundary)
+	err = store.Invalidate(ctx, scope, missedBoundary, "")
 	if err != nil {
 		return err
 	}
@@ -264,7 +264,7 @@ func checkEscalationState(ctx context.Context, dsn string) (checkErr error) {
 	if !acquired {
 		return errors.New("could not claim invalidation fixture")
 	}
-	err = store.Invalidate(ctx, scope, missedBoundary)
+	err = store.Invalidate(ctx, scope, missedBoundary, "")
 	if err != nil {
 		return err
 	}
@@ -309,7 +309,7 @@ func checkEscalationState(ctx context.Context, dsn string) (checkErr error) {
 	if err != nil || !acquired {
 		return fmt.Errorf("claim released-owner fixture: acquired=%t: %w", acquired, err)
 	}
-	err = store.Invalidate(ctx, scope, missedBoundary)
+	err = store.Invalidate(ctx, scope, missedBoundary, "")
 	if err != nil {
 		return err
 	}
@@ -334,7 +334,7 @@ func checkEscalationState(ctx context.Context, dsn string) (checkErr error) {
 		return err
 	}
 	// With no owner, invalidation resets immediately and late outcome writes lose.
-	err = store.Invalidate(ctx, scope, missedBoundary)
+	err = store.Invalidate(ctx, scope, missedBoundary, "")
 	if err != nil {
 		return err
 	}
@@ -376,12 +376,53 @@ func checkEscalationState(ctx context.Context, dsn string) (checkErr error) {
 	}
 	// Leave one child in each table so deferred cleanup verifies its cascades.
 	fresh.Ordinal = 1
+	fresh.FeatureTurns = 1
+	fresh.FeatureState = json.RawMessage(`{"turns":1}`)
 	err = store.Commit(ctx, scope, boundary, freshToken, fresh, escalation.Checkpoint{Ordinal: 1})
 	if err != nil {
 		return err
 	}
 	err = store.SaveContinuation(ctx, activation, "response-fresh", scope, 1, history)
 	if err != nil {
+		return err
+	}
+	failedBoundary := sha256.Sum256([]byte("failed observation boundary"))
+	failedToken := uuid.NewString()
+	_, acquired, err = store.Claim(ctx, scope, installation.ID, failedToken, failedBoundary)
+	if err != nil || !acquired {
+		return fmt.Errorf("claim failed observation fixture: acquired=%t: %w", acquired, err)
+	}
+	// Recovery and the next claimant race; any successful claim must see
+	// the reset in the same snapshot as the released lease.
+	var recoveryRace errgroup.Group
+	recoveryRace.Go(func() error {
+		return store.Invalidate(ctx, scope, failedBoundary, failedToken)
+	})
+	for range 8 {
+		recoveryRace.Go(func() error {
+			token := uuid.NewString()
+			claimed, acquired, claimErr := store.Claim(ctx, scope, installation.ID, token, missedBoundary)
+			if claimErr != nil || !acquired {
+				return claimErr
+			}
+			if claimed.FeatureTurns != 0 || string(claimed.FeatureState) != "null" || claimed.PreviousOutcome != nil {
+				return errors.New("failed commit exposed a released lease before resetting features")
+			}
+			return store.Release(ctx, scope, token)
+		})
+	}
+	if err = recoveryRace.Wait(); err != nil {
+		return err
+	}
+	recoveredToken := uuid.NewString()
+	recovered, acquired, err := store.Claim(ctx, scope, installation.ID, recoveredToken, missedBoundary)
+	if err != nil || !acquired {
+		return fmt.Errorf("claim after failed observation recovery: acquired=%t: %w", acquired, err)
+	}
+	if recovered.FeatureTurns != 0 || string(recovered.FeatureState) != "null" || recovered.PreviousOutcome != nil {
+		return errors.New("failed observation recovery retained stale features")
+	}
+	if err = store.Release(ctx, scope, recoveredToken); err != nil {
 		return err
 	}
 	return store.SweepExpired(ctx)

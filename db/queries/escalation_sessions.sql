@@ -80,17 +80,18 @@ WHERE scope = @scope::bytea AND expires_at > clock_timestamp()
 FOR UPDATE;
 
 -- name: UpdateEscalationSessionInvalidated :exec
--- A distinct missed action defers feature reset while preserving the active owner.
+-- A failed owner resets and releases atomically; other live observers retain their lease.
 UPDATE router.escalation_sessions SET
-    session_state = CASE WHEN lease_until > statement_timestamp() THEN session_state
+    session_state = CASE WHEN lease_until > statement_timestamp() AND lease_token <> @failed_lease_token::uuid THEN session_state
         ELSE session_state || '{"feature_state":null,"feature_turns":0,"previous_outcome":null}'::jsonb END,
-    continuity_broken = COALESCE(lease_until > statement_timestamp(), false),
-    lease_token = CASE WHEN lease_until > statement_timestamp() THEN lease_token END,
-    lease_boundary = CASE WHEN lease_until > statement_timestamp() THEN lease_boundary END,
-    lease_until = CASE WHEN lease_until > statement_timestamp() THEN lease_until END
+    continuity_broken = COALESCE(lease_until > statement_timestamp() AND lease_token <> @failed_lease_token::uuid, false),
+    lease_token = CASE WHEN lease_until > statement_timestamp() AND lease_token <> @failed_lease_token::uuid THEN lease_token END,
+    lease_boundary = CASE WHEN lease_until > statement_timestamp() AND lease_token <> @failed_lease_token::uuid THEN lease_boundary END,
+    lease_until = CASE WHEN lease_until > statement_timestamp() AND lease_token <> @failed_lease_token::uuid THEN lease_until END
 WHERE scope = @scope::bytea AND expires_at > statement_timestamp()
     AND (lease_until IS NULL OR lease_until <= statement_timestamp()
-         OR lease_boundary IS DISTINCT FROM @boundary::bytea)
+         OR lease_boundary IS DISTINCT FROM @boundary::bytea
+         OR lease_token = @failed_lease_token::uuid)
     AND NOT EXISTS (
         SELECT 1 FROM router.escalation_checkpoints c
         WHERE c.scope = @scope::bytea AND c.boundary = @boundary::bytea

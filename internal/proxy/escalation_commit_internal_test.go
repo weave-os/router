@@ -42,11 +42,14 @@ func (s *escalationCommitTestStore) Commit(ctx context.Context, scope, boundary 
 	return errors.New("commit connection lost")
 }
 
-func (s *escalationCommitTestStore) Invalidate(ctx context.Context, scope, boundary [32]byte) error {
+func (s *escalationCommitTestStore) Invalidate(ctx context.Context, scope, boundary [32]byte, failedToken string) error {
 	if _, committed := s.checkpoints[scope][boundary]; committed {
 		return nil
 	}
-	return s.escalationTestStore.Invalidate(ctx, scope, boundary)
+	if s.leaseToken == failedToken {
+		s.leaseToken = ""
+	}
+	return s.escalationTestStore.Invalidate(ctx, scope, boundary, failedToken)
 }
 
 func TestEscalationCommitFailureReleasesLeaseAndPreservesOnlyCommittedFeatures(t *testing.T) {
