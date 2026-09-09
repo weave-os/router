@@ -25,6 +25,7 @@ import (
 	"weave-os/router/internal/observability/otel"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy/usage"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/bandit"
 	"weave-os/router/internal/router/bandswap"
@@ -2580,6 +2581,7 @@ func (s *Service) withPolicyRequestContext(ctx context.Context, req router.Reque
 	}
 	clientIdentity := ClientIdentityFrom(ctx)
 	req.ClientApp = clientIdentity.ClientApp
+	req.ClientBudget = requestcontext.ClientBudgetFrom(ctx)
 	req.RolloutID = policyRolloutIDFromContext(ctx)
 	req.CaptureMode = s.effectiveCaptureMode(ctx).String()
 	req.TrainingAllowed = policyTrainingAllowedForRequest(ctx)
@@ -3013,10 +3015,12 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	// telemetry key off the real model and it never reaches a native Anthropic
 	// upstream (which 404s on it). The 1M window is enabled separately via the
 	// context-1m beta.
-	if canon, _, modelErr := translate.CanonicalizeModelInBody(body); modelErr != nil {
+	var modelVariant1M bool
+	if canon, hadVariant, modelErr := translate.CanonicalizeModelInBody(body); modelErr != nil {
 		log.Error("Failed to canonicalize inbound model", "err", modelErr)
 	} else {
 		body = canon
+		modelVariant1M = hadVariant
 	}
 
 	env, parseErr := translate.ParseAnthropic(body)
@@ -3039,6 +3043,8 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	externalID, _ := ctx.Value(ExternalIDContextKey{}).(string)
 	installationID := installationIDFromContext(ctx)
 	clientID := ClientIdentityFrom(ctx)
+	clientBudget := resolveClientBudget(clientID, r.Header, env.Model(), modelVariant1M)
+	ctx = requestcontext.WithClientBudget(ctx, clientBudget)
 	agentShadowEval, agentShadowMode := AgentShadowEvalFromContext(ctx)
 	bypassEval := hasEvalOverrideHeader(r) || agentShadowMode
 
@@ -3047,6 +3053,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	// avoid a second hash + divergent key if env.body mutates mid-flow.
 	var sessionKey [sessionpin.SessionKeyLen]byte
 	ctx, log, sessionKey = bindRequestLogger(ctx, env, apiKeyID, requestID, "anthropic_messages")
+	log.Debug("Resolved client context budget", "budget_evidence", clientBudget.Evidence, "client_version", clientBudget.Version, "model_variant_1m", clientBudget.ModelVariant1M, "inbound_context_1m", clientBudget.InboundContext1M, "default_window", clientBudget.DefaultWindow, "default_compact_threshold", clientBudget.DefaultCompactThreshold)
 	if removed := env.StripRouterFeedbackArtifacts(); removed > 0 {
 		log.Info("Stripped router-feedback artifacts from Anthropic history", "removed_messages", removed)
 	}
@@ -3241,11 +3248,11 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	if !agentShadowMode {
 		var compErr error
 		compRes, compErr = s.maybeCompact(ctx, env, compactionInput{
-			TurnType:       turntype.DetectFromEnvelope(env, feats, ""),
-			OutputReserve:  outputReserve,
-			MaxWindow:      maxEligibleWindow,
-			RequestedModel: feats.Model,
-			ClientApp:      ClientIdentityFrom(ctx).ClientApp,
+			TurnType:      turntype.DetectFromEnvelope(env, feats, ""),
+			OutputReserve: outputReserve,
+			MaxWindow:     maxEligibleWindow,
+			ClientBudget:  requestcontext.ClientBudgetFrom(ctx),
+			ClientApp:     ClientIdentityFrom(ctx).ClientApp,
 			PreferredSummarizer: func() string {
 				if blindExperimentPassthroughActive(ctx) {
 					return ""
@@ -3292,6 +3299,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	routeStart := time.Now()
 	req := router.Request{
 		RequestedModel:               feats.Model,
+		ClientBudget:                 clientBudget,
 		ForceModel:                   forceModel,
 		ForceCluster:                 forceCluster,
 		EstimatedInputTokens:         feats.Tokens,
@@ -3464,6 +3472,15 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		}
 	}
 
+	clientRecoveryApplied := false
+	if !agentShadowMode && !blindExperimentPassthroughActive(ctx) {
+		var recoveryErr error
+		clientRecoveryApplied, recoveryErr = applyClientCompactionRecovery(ctx, env, clientBudget, tt, req.ConversationMessages)
+		if recoveryErr != nil {
+			return recoveryErr
+		}
+	}
+
 	// Compaction-aware handover: Claude Code can trim history via full
 	// compaction (message count drops sharply) or rolling-window trimming
 	// (flat message count, tool-call count shrinks). Either leaves the
@@ -3500,7 +3517,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	// Subscription-state conditional model lists are likewise absent from the
 	// cache key, so never cache a request after one has been selected. Plan-aware
 	// exclusions are also absent from the key and must bypass the cache.
-	cacheEligible := routeRes.EscalationOrdinal == 0 && s.semanticCacheAllowed(ctx) && s.semanticCache != nil && !env.Stream() && decision.Metadata != nil && externalID != "" && !bypassEval && !compactionHandoverRan && !billing.SubscriptionOnlyFromContext(ctx) && len(s.subsidyFactors(ctx, r.Header)) == 0 && !subscriptionConditionalModelsConfigured(ctx) && len(subscriptionPlanAwareExcludedModelsFromContext(ctx)) == 0 && !requestAllowedModelsPresent(ctx)
+	cacheEligible := routeRes.EscalationOrdinal == 0 && !clientRecoveryApplied && s.semanticCacheAllowed(ctx) && s.semanticCache != nil && !env.Stream() && decision.Metadata != nil && externalID != "" && !bypassEval && !compactionHandoverRan && !billing.SubscriptionOnlyFromContext(ctx) && len(s.subsidyFactors(ctx, r.Header)) == 0 && !subscriptionConditionalModelsConfigured(ctx) && len(subscriptionPlanAwareExcludedModelsFromContext(ctx)) == 0 && !requestAllowedModelsPresent(ctx)
 	if cacheEligible {
 		if resp, hit := s.semanticCache.Lookup(externalID, cache.FormatAnthropic, decision.Metadata.Embedding, decision.Metadata.ClusterIDs, decision.Metadata.ClusterRouterVersion, decision.Metadata.EffectiveKnobsHash); hit {
 			s.writeCachedResponse(w, resp, decision)
@@ -6044,11 +6061,11 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		maxEligibleWindowOAI := s.maxEligibleContextWindow(baseExcludedOAI, enabledProviders, env.SignatureTokenSavings())
 		var compErrOAI error
 		compResOAI, compErrOAI = s.maybeCompact(ctx, env, compactionInput{
-			TurnType:       turntype.DetectFromEnvelope(env, feats, subAgentHint),
-			OutputReserve:  outputReserveOAI,
-			MaxWindow:      maxEligibleWindowOAI,
-			RequestedModel: feats.Model,
-			ClientApp:      ClientIdentityFrom(ctx).ClientApp,
+			TurnType:      turntype.DetectFromEnvelope(env, feats, subAgentHint),
+			OutputReserve: outputReserveOAI,
+			MaxWindow:     maxEligibleWindowOAI,
+			ClientBudget:  requestcontext.ClientBudgetFrom(ctx),
+			ClientApp:     ClientIdentityFrom(ctx).ClientApp,
 			PreferredSummarizer: func() string {
 				if blindExperimentPassthroughActive(ctx) {
 					return ""

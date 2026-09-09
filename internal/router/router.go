@@ -89,6 +89,7 @@ type Request struct {
 	Escalation *escalation.Constraint
 
 	RequestedModel string
+	ClientBudget   ClientBudget
 	// ForceModel is the canonical model named by a valid explicit force-model
 	// request. Router decorators must preserve the underlying selection rather
 	// than applying alternative-policy behavior such as exploration.

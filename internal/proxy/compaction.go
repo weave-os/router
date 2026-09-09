@@ -32,11 +32,6 @@ const (
 	// compactionSummaryOutputReserve is headroom (summary output + margin) the
 	// selected summarizer model needs above the history it must ingest.
 	compactionSummaryOutputReserve = DefaultCompactionMaxTokens + 8_000
-	// claudeCodeAutoCompactBuffer is the token headroom below its believed
-	// context window at which Claude Code's own auto-compact fires. Mirrors
-	// the client (2.1.x) so the router can tell whether the client would have
-	// compacted this history itself.
-	claudeCodeAutoCompactBuffer = 13_000
 )
 
 // compactionPolicy is the per-harness shape of the compaction cascade. Each
@@ -51,22 +46,16 @@ type compactionPolicy struct {
 	// ToolResultKeep is how many trailing tool results Tier-1 cleanup leaves
 	// intact; older ones are replaced with a placeholder.
 	ToolResultKeep int
-	// DeferToClient marks a harness that auto-compacts on its own against the
-	// requested model's context window. The router then only compacts when
-	// the routable pool's largest window is smaller than what the client
-	// believes it has — otherwise the client's own compaction (on its own
-	// model, with a warm prompt cache) fires first and does a better job.
+	// DeferToClient permits deferral when a supported client budget is known
+	// and the eligible pool can serve it; it never substitutes provider capacity.
 	DeferToClient bool
-	// ClientBuffer is the token headroom below the requested model's window
-	// at which the deferring client compacts itself.
-	ClientBuffer int
 }
 
 var (
 	defaultCompactionPolicy = compactionPolicy{RecentTurns: 12, ToolResultKeep: 5}
 
 	compactionPolicies = map[string]compactionPolicy{
-		ClientAppClaudeCode: {RecentTurns: 12, ToolResultKeep: 5, DeferToClient: true, ClientBuffer: claudeCodeAutoCompactBuffer},
+		ClientAppClaudeCode: {RecentTurns: 12, ToolResultKeep: 5, DeferToClient: true},
 		ClientAppCodex:      {RecentTurns: 12, ToolResultKeep: 5},
 		ClientAppGeminiCLI:  {RecentTurns: 12, ToolResultKeep: 5},
 	}
@@ -96,10 +85,8 @@ type compactionInput struct {
 	OutputReserve int
 	// MaxWindow is the largest effective context window among eligible
 	// routing models (maxEligibleContextWindow). Zero disables the cascade.
-	MaxWindow int
-	// RequestedModel is the client-requested model; a deferring harness sizes
-	// its own compaction against this model's window.
-	RequestedModel string
+	MaxWindow    int
+	ClientBudget router.ClientBudget
 	// ClientApp selects the harness policy (ClientIdentity.ClientApp).
 	ClientApp string
 	// PreferredSummarizer resolves the session's pinned Anthropic model when
@@ -262,17 +249,11 @@ func (s *Service) compactionPreferredSummarizer(ctx context.Context, sessionKey 
 	return pin.Model
 }
 
-// clientWouldCompact reports whether a deferring harness's own auto-compact
-// would fire on this history before the router's cascade is needed: the
-// routable pool can serve the window the client believes it has, so the
-// request will still fit an eligible model when the client compacts at
-// (requested window - ClientBuffer).
-func clientWouldCompact(pol compactionPolicy, requestedModel string, maxWindow int) bool {
-	if !pol.DeferToClient || requestedModel == "" {
-		return false
-	}
-	clientWindow := catalog.ContextWindowFor(requestedModel)
-	return clientWindow-pol.ClientBuffer <= maxWindow
+// clientWouldCompact defers only when the pool can serve the harness default.
+// A private lower override can compact sooner; unknown harnesses never borrow a provider window.
+func clientWouldCompact(pol compactionPolicy, budget router.ClientBudget, maxWindow int) bool {
+	return pol.DeferToClient && budget.Evidence == router.ClientBudgetHarnessDefault &&
+		budget.DefaultCompactThreshold > 0 && budget.DefaultCompactThreshold <= maxWindow
 }
 
 // maybeCompact runs the compaction cascade when needed ≥ compactionTriggerPct
@@ -298,13 +279,14 @@ func (s *Service) maybeCompact(ctx context.Context, env *translate.RequestEnvelo
 	if needed() < trigger {
 		return res, nil
 	}
-	if fits() && clientWouldCompact(pol, in.RequestedModel, in.MaxWindow) {
+	if fits() && clientWouldCompact(pol, in.ClientBudget, in.MaxWindow) {
 		res.DeferredToClient = true
 		log.Info("Compaction deferred to client harness",
 			"client_app", in.ClientApp,
 			"needed", needed(),
 			"max_window", in.MaxWindow,
-			"client_window", catalog.ContextWindowFor(in.RequestedModel),
+			"client_default_window", in.ClientBudget.DefaultWindow,
+			"client_budget_evidence", in.ClientBudget.Evidence,
 		)
 		return res, nil
 	}

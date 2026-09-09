@@ -246,7 +246,6 @@ func TestPrecompactionPolicyReviewsEveryCascadeCandidate(t *testing.T) {
 
 func TestCompactionPolicyFor(t *testing.T) {
 	assert.True(t, compactionPolicyFor(ClientAppClaudeCode).DeferToClient, "Claude Code auto-compacts itself")
-	assert.Equal(t, claudeCodeAutoCompactBuffer, compactionPolicyFor(ClientAppClaudeCode).ClientBuffer)
 	assert.False(t, compactionPolicyFor(ClientAppCodex).DeferToClient, "Codex gets the router cascade")
 	assert.False(t, compactionPolicyFor(ClientAppGeminiCLI).DeferToClient)
 	assert.Equal(t, defaultCompactionPolicy, compactionPolicyFor(""), "unknown client → default policy")
@@ -285,13 +284,13 @@ func TestCompactionSummaryHonorsAllowlistOutsideRoutingPool(t *testing.T) {
 func TestClientWouldCompact(t *testing.T) {
 	cc := compactionPolicyFor(ClientAppClaudeCode)
 	// Pool serves the 200K window the client sizes against: the client's
-	// own auto-compact (at 200K-13K) fires before the router needs to.
-	assert.True(t, clientWouldCompact(cc, "claude-opus-4-8", 200_000))
+	// own auto-compact (at 167K) fires before the router needs to.
+	assert.True(t, clientWouldCompact(cc, smallClientBudget(), 200_000))
 	// Pool's largest window is below the client's compaction point: router
 	// must compact or the request dead-ends.
-	assert.False(t, clientWouldCompact(cc, "claude-opus-4-8", 128_000))
-	assert.False(t, clientWouldCompact(compactionPolicyFor(ClientAppCodex), "gpt-5.5", 1_000_000), "non-deferring harness never defers")
-	assert.False(t, clientWouldCompact(cc, "", 200_000), "unknown requested model → no deferral")
+	assert.False(t, clientWouldCompact(cc, smallClientBudget(), 128_000))
+	assert.False(t, clientWouldCompact(compactionPolicyFor(ClientAppCodex), smallClientBudget(), 1_000_000), "non-deferring harness never defers")
+	assert.False(t, clientWouldCompact(cc, router.ClientBudget{}, 200_000), "unknown requested model → no deferral")
 }
 
 func TestMaybeCompact_ClaudeCodeDefersWhenPoolServesClientWindow(t *testing.T) {
@@ -304,10 +303,10 @@ func TestMaybeCompact_ClaudeCodeDefersWhenPoolServesClientWindow(t *testing.T) {
 	before := env.ContextOverflowTokenEstimate()
 
 	res, err := s.maybeCompact(context.Background(), env, compactionInput{
-		TurnType: turntype.MainLoop, MaxWindow: 200_000, RequestedModel: "claude-opus-4-8", ClientApp: ClientAppClaudeCode, Headers: http.Header{},
+		TurnType: turntype.MainLoop, MaxWindow: 200_000, ClientBudget: smallClientBudget(), ClientApp: ClientAppClaudeCode, Headers: http.Header{},
 	})
 	require.NoError(t, err)
-	assert.True(t, res.DeferredToClient, "Claude Code compacts itself at window-13K; pool serves that window")
+	assert.True(t, res.DeferredToClient, "Claude Code compacts itself at the default threshold; pool serves that window")
 	assert.False(t, res.Applied)
 	assert.Equal(t, before, env.ContextOverflowTokenEstimate(), "env must be untouched when deferred")
 
@@ -315,7 +314,7 @@ func TestMaybeCompact_ClaudeCodeDefersWhenPoolServesClientWindow(t *testing.T) {
 	env2, err := translate.ParseAnthropic(toolHeavyAnthropicBody(20, 300))
 	require.NoError(t, err)
 	res, err = s.maybeCompact(context.Background(), env2, compactionInput{
-		TurnType: turntype.MainLoop, MaxWindow: 200_000, RequestedModel: "gpt-5.5", ClientApp: ClientAppCodex, Headers: http.Header{},
+		TurnType: turntype.MainLoop, MaxWindow: 200_000, ClientApp: ClientAppCodex, Headers: http.Header{},
 	})
 	require.NoError(t, err)
 	assert.False(t, res.DeferredToClient)
@@ -327,7 +326,7 @@ func TestMaybeCompact_ClaudeCodeDefersWhenPoolServesClientWindow(t *testing.T) {
 	env3, err := translate.ParseAnthropic(toolHeavyAnthropicBody(20, 300))
 	require.NoError(t, err)
 	res, err = s.maybeCompact(context.Background(), env3, compactionInput{
-		TurnType: turntype.MainLoop, MaxWindow: 128_000, RequestedModel: "claude-opus-4-8", ClientApp: ClientAppClaudeCode, Headers: http.Header{},
+		TurnType: turntype.MainLoop, MaxWindow: 128_000, ClientBudget: smallClientBudget(), ClientApp: ClientAppClaudeCode, Headers: http.Header{},
 	})
 	require.NoError(t, err)
 	assert.False(t, res.DeferredToClient)
@@ -342,7 +341,7 @@ func TestMaybeCompact_OverflowNeverDefers(t *testing.T) {
 	require.NoError(t, err)
 	before := env.ContextOverflowTokenEstimate()
 	res, err := s.maybeCompact(context.Background(), env, compactionInput{
-		TurnType: turntype.MainLoop, MaxWindow: before * 3 / 4, RequestedModel: "claude-opus-4-8", ClientApp: ClientAppClaudeCode, Headers: http.Header{},
+		TurnType: turntype.MainLoop, MaxWindow: before * 3 / 4, ClientBudget: smallClientBudget(), ClientApp: ClientAppClaudeCode, Headers: http.Header{},
 	})
 	require.NoError(t, err)
 	assert.False(t, res.DeferredToClient)

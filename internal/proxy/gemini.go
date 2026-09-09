@@ -121,12 +121,11 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 	}
 	maxEligibleWindow := s.maxEligibleContextWindow(excluded, enabledProviders, env.SignatureTokenSavings())
 	compRes, compErr := s.maybeCompact(ctx, env, compactionInput{
-		TurnType:       turntype.DetectFromEnvelope(env, feats, subAgentHint),
-		OutputReserve:  outputReserve,
-		MaxWindow:      maxEligibleWindow,
-		RequestedModel: feats.Model,
-		ClientApp:      clientID.ClientApp,
-		Scope:          s.summarizerScope(ctx, enabledProviders, excluded),
+		TurnType:      turntype.DetectFromEnvelope(env, feats, subAgentHint),
+		OutputReserve: outputReserve,
+		MaxWindow:     maxEligibleWindow,
+		ClientApp:     clientID.ClientApp,
+		Scope:         s.summarizerScope(ctx, enabledProviders, excluded),
 		PreferredSummarizer: func() string {
 			if blindExperimentPassthroughActive(ctx) {
 				return ""

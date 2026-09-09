@@ -105,6 +105,16 @@ func deriveAnthropicHeaders(in http.Header, opts EmitOptions, body []byte) http.
 // models; native-1M models (Fable 5) accept it as a no-op.
 const context1MBeta = "context-1m-2025-08-07"
 
+// HasContext1MBeta checks inbound capabilities without adding upstream-only betas.
+func HasContext1MBeta(headers http.Header) bool {
+	for _, value := range headers.Values("Anthropic-Beta") {
+		if joinKept(value, func(token string) bool { return token == context1MBeta }) != "" {
+			return true
+		}
+	}
+	return false
+}
+
 const contextManagementBeta = "context-management-2025-06-27"
 
 // serverSideFallbackBeta is the first-party Anthropic beta for server-side

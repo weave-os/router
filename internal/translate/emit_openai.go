@@ -332,6 +332,7 @@ func (e *RequestEnvelope) buildOpenAIFromAnthropic(opts EmitOptions) ([]byte, pr
 
 	// Tool choice
 	writeOpenAIToolChoiceFromAnthropic(jw, body)
+	writeOpenAIParallelToolCallsFromAnthropic(jw, body)
 
 	// Temperature, top_p
 	clientSetTemp := false

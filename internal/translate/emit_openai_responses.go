@@ -321,6 +321,7 @@ func (e *RequestEnvelope) buildResponsesFromAnthropic(opts EmitOptions) ([]byte,
 
 	writeResponsesToolsFromAnthropic(jw, body)
 	writeResponsesToolChoiceFromAnthropic(jw, body)
+	writeOpenAIParallelToolCallsFromAnthropic(jw, body)
 
 	if mt := gjson.GetBytes(body, "max_tokens"); mt.Exists() && mt.Type == gjson.Number {
 		want := mt.Int()

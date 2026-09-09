@@ -10,6 +10,7 @@ import (
 	"weave-os/router/internal/billing"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/sessionpin"
@@ -33,16 +34,20 @@ func (s *Service) anthropicRoutingRequest(
 	} else {
 		cleanBody = withoutFooter
 	}
-	if canonical, _, modelErr := translate.CanonicalizeModelInBody(cleanBody); modelErr != nil {
+	var modelVariant1M bool
+	if canonical, hadVariant, modelErr := translate.CanonicalizeModelInBody(cleanBody); modelErr != nil {
 		log.Error("Failed to canonicalize model for route preview", "err", modelErr)
 	} else {
 		cleanBody = canonical
+		modelVariant1M = hadVariant
 	}
 
 	env, err := translate.ParseAnthropic(cleanBody)
 	if err != nil {
 		return ctx, router.Request{}, fmt.Errorf("parse request: %w", err)
 	}
+
+	ctx = requestcontext.WithClientBudget(ctx, resolveClientBudget(ClientIdentityFrom(ctx), headers, env.Model(), modelVariant1M))
 
 	apiKeyID, _ := ctx.Value(APIKeyIDContextKey{}).(string)
 	var sessionKey [sessionpin.SessionKeyLen]byte
@@ -90,6 +95,7 @@ func (s *Service) anthropicRoutingRequest(
 	}
 	return ctx, router.Request{
 		RequestedModel:               features.Model,
+		ClientBudget:                 requestcontext.ClientBudgetFrom(ctx),
 		EstimatedInputTokens:         features.Tokens,
 		HasTools:                     features.HasTools,
 		HasImages:                    features.HasImages,
