@@ -128,8 +128,11 @@ func (s *Service) dispatchPlanned(ctx context.Context, in failoverInputs, plan i
 		},
 		Terminal: func(_ dispatch.Attempt, err error) bool {
 			var abort dispatchAbort
-			return managedBinding || errors.As(err, &abort)
+			return errors.As(err, &abort)
 		},
+		// A managed-subscription turn never fails over to a paid binding; a
+		// transient error on it still gets the same-binding retries.
+		Bound: func(dispatch.Attempt, error) bool { return managedBinding },
 	}
 	transport.Attempt = func(attemptCtx context.Context, attempt dispatch.Attempt, client providers.Client) error {
 		decision := in.initialDecision

@@ -391,3 +391,45 @@ func TestRunTerminalStopsSameTargetRetryAndFailover(t *testing.T) {
 		})
 	}
 }
+
+func TestRunBoundRetriesSameTargetButNeverFailsOver(t *testing.T) {
+	transient := &providers.UpstreamErrorResponse{Status: http.StatusTooManyRequests}
+	slept := 0
+	sleep := func(context.Context, time.Duration) error { slept++; return nil }
+
+	t.Run("single target keeps same-target retries", func(t *testing.T) {
+		slept = 0
+		fw := &fakeUpstream{errs: []error{transient}}
+		exec, err := dispatch.NewExecutor(dispatch.NewClients(map[string]providers.Client{providers.ProviderFireworks: fw}), dispatch.WithSleep(sleep))
+		require.NoError(t, err)
+
+		result, err := exec.Run(context.Background(), inference.InvocationRequest{}, fakePlan{selected: primary}, dispatch.Transport{
+			Attempt: attemptWith([]byte(`{"model":"kimi-k2.5"}`)),
+			Bound:   func(dispatch.Attempt, error) bool { return true },
+		})
+		require.NoError(t, err)
+		assert.Equal(t, 2, result.Outcome.AttemptCount)
+		assert.Len(t, fw.models, 2)
+		assert.Equal(t, 1, slept)
+	})
+
+	t.Run("multi target never reaches the alternative", func(t *testing.T) {
+		slept = 0
+		fw := &fakeUpstream{errs: []error{transient, transient, transient}}
+		or := &fakeUpstream{}
+		exec, err := dispatch.NewExecutor(dispatch.NewClients(map[string]providers.Client{
+			providers.ProviderFireworks: fw, providers.ProviderOpenRouter: or,
+		}), dispatch.WithSleep(sleep))
+		require.NoError(t, err)
+
+		result, err := exec.Run(context.Background(), inference.InvocationRequest{}, fakePlan{selected: primary, alternatives: []inference.Target{backup}}, dispatch.Transport{
+			Attempt: attemptWith([]byte(`{"model":"kimi-k2.5"}`)),
+			Bound:   func(dispatch.Attempt, error) bool { return true },
+		})
+		require.ErrorIs(t, err, transient)
+		assert.Equal(t, 1, result.Outcome.AttemptCount)
+		assert.Len(t, fw.models, 1)
+		assert.Empty(t, or.models, "bound operation must not fail over")
+		assert.Equal(t, 0, slept)
+	})
+}

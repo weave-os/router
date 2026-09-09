@@ -387,3 +387,37 @@ func TestDispatchWithFallbackNeverUsesPaidBindingAfterManagedExhaustion(t *testi
 	require.True(t, errors.Is(err, ErrSubscriptionPoolExhausted))
 	require.Equal(t, 0, paidFallback.calls)
 }
+
+func TestDispatchWithFallbackRetriesManagedTransientErrorOnSameBinding(t *testing.T) {
+	leaser := &scriptedSubscriptionLeaser{leases: []subscriptions.Lease{
+		{AccountID: "opaque-a", AccessToken: "token-a"},
+		{AccountID: "opaque-a", AccessToken: "token-a"},
+	}}
+	client := &fakeClient{name: providers.ProviderAnthropic, outcomes: []fakeOutcome{
+		{err: &providers.UpstreamErrorResponse{Status: http.StatusServiceUnavailable}},
+		{writeBytes: []byte("served")},
+	}}
+	svc := newServiceWithProviders(t, map[string]providers.Client{providers.ProviderAnthropic: client}).WithManagedSubscriptions(leaser)
+	svc.retrySleep = noopSleep
+	recorder := httptest.NewRecorder()
+	buffer := newPreludeBuffer(recorder)
+	request := httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+
+	ctx := managedSubscriptionTestContext()
+	_, err := svc.dispatchWithFallback(ctx, failoverInputs{
+		w: recorder, buf: buffer,
+		initialDecision: router.Decision{Model: "claude-opus-4-8", Provider: providers.ProviderAnthropic},
+		purpose:         inference.PurposeAnthropicMessages,
+		bindings:        []catalog.ProviderBinding{{Provider: providers.ProviderAnthropic}},
+		attempt: func(ctx context.Context, decision router.Decision, client providers.Client) error {
+			buffer.Seal()
+			return client.Proxy(ctx, decision, providers.PreparedRequest{}, buffer, request)
+		},
+	})
+
+	require.NoError(t, err)
+	require.Equal(t, 2, client.calls)
+	require.Empty(t, leaser.cooldownIDs, "a 503 is not a quota signal")
+	require.Equal(t, "served", recorder.Body.String())
+	require.True(t, servedOnSubscription(ctx))
+}
