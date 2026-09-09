@@ -341,4 +341,67 @@ grep -Fq '[model_providers.weaver]' "$config" \
 
 rm -rf "$home/.codex" "$home/.weave"
 
+
+# ---------- the UserPromptSubmit directive hook ----------
+#
+# The hook is what makes $fm / $rf / $router-session cost no inference. It has
+# to be registered in the managed block (so uninstall takes it away with
+# everything else) and the helper it points at has to exist and be executable --
+# a hook command pointing at a missing file is a broken Codex turn, not a
+# degraded one.
+rm -rf "$home/.codex" "$home/.weave"
+run_hosted_install
+directive_helper="$home/.weave/codex-directive.sh"
+
+[ -x "$directive_helper" ] \
+  || fail "install did not write an executable Codex directive helper"
+grep -Fq '<!-- weave-router managed codex directive -->' "$directive_helper" \
+  || fail "the installed Codex directive helper has no ownership marker"
+[ "$(stat -f '%Lp' "$directive_helper" 2>/dev/null || stat -c '%a' "$directive_helper" 2>/dev/null)" = "700" ] \
+  || fail "the Codex directive helper is not mode 700"
+
+grep -Fq '[[hooks.UserPromptSubmit]]' "$config" \
+  || fail "install did not register the UserPromptSubmit hook"
+grep -Fq "command = \"$directive_helper\"" "$config" \
+  || fail "the UserPromptSubmit hook does not point at the installed helper"
+assert_config_parses "installing the directive hook produced unparseable TOML"
+
+# The hook must live inside the managed markers so uninstall removes it.
+awk -v begin='# >>> weave-router managed (do not edit between markers) >>>' \
+    -v end='# <<< weave-router managed <<<' '
+  $0 == begin { inblk = 1; next }
+  $0 == end   { inblk = 0; next }
+  inblk && /hooks\.UserPromptSubmit/ { found = 1 }
+  END { exit(found ? 0 : 1) }
+' "$config" || fail "the UserPromptSubmit hook was written outside the managed markers"
+
+# Re-running must not stack duplicate hook entries.
+run_hosted_install
+[ "$(grep -c '^\[\[hooks\.UserPromptSubmit\]\]$' "$config")" -eq 1 ] \
+  || fail "a repeat install duplicated the UserPromptSubmit hook"
+
+run_uninstall
+[ ! -e "$directive_helper" ] \
+  || fail "uninstall left the Codex directive helper behind"
+if [ -f "$config" ] && grep -Fq 'hooks.UserPromptSubmit' "$config"; then
+  fail "uninstall left the UserPromptSubmit hook in config.toml"
+fi
+
+# A helper path the installer does not own is never overwritten, and routing
+# still installs -- the directives just fall back to their skills.
+rm -rf "$home/.codex" "$home/.weave"
+mkdir -p "$(dirname "$directive_helper")"
+printf '%s\n' 'user-authored directive helper' >"$directive_helper"
+run_hosted_install
+grep -qx 'user-authored directive helper' "$directive_helper" \
+  || fail "install overwrote a user-owned Codex directive helper"
+grep -Fq 'model_provider = "weave"' "$config" \
+  || fail "an unowned directive helper blocked Codex routing setup"
+if grep -Fq 'hooks.UserPromptSubmit' "$config"; then
+  fail "install wired a UserPromptSubmit hook at an unowned helper path"
+fi
+assert_config_parses "skipping the directive hook produced unparseable TOML"
+rm -f "$directive_helper"
+rm -rf "$home/.codex" "$home/.weave"
+
 echo "Codex installer routing regression tests passed"

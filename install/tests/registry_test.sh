@@ -60,7 +60,7 @@ check "every row declares a known capability and client support" "" "$bad_rows"
 dupes="$(weave_registry_names claude; weave_registry_names codex; weave_registry_names opencode)"
 dupes="$(printf '%s\n' "$dupes" | sort | uniq -d | tr '\n' ' ' | sed 's/ $//')"
 check "names shared across clients are the expected shared directives" \
-  "fm force-model models rf router-feedback router-models router-off router-on router-status ufm unforce-model" "$dupes"
+  "fm force-model models rf router-feedback router-models router-off router-on router-session router-status ufm unforce-model" "$dupes"
 
 check "an alias resolves to its canonical directive" "force-model" "$(weave_registry_canonical_for fm)"
 check "a canonical name resolves to itself" "router-feedback" "$(weave_registry_canonical_for router-feedback)"
@@ -209,7 +209,7 @@ cx_home="$work/codex-user"; mkdir -p "$cx_home"
 run_install "$cx_home" --codex --scope user
 codex_skills="$(cd "$cx_home/.codex/skills" && ls -d */ 2>/dev/null | tr -d '/' | sort | tr '\n' ' ' | sed 's/ $//')"
 check "codex user install writes a skill per supported directive" \
-  "disable-routing fm force-model rf router-feedback router-models router-off router-on router-status ufm unforce-model" "$codex_skills"
+  "disable-routing fm force-model rf router-feedback router-models router-off router-on router-session router-status ufm unforce-model" "$codex_skills"
 check "codex install writes no prompt wrappers" "" \
   "$(ls "$cx_home/.codex/prompts" 2>/dev/null | tr '\n' ' ' | sed 's/ $//')"
 

@@ -515,12 +515,13 @@ write_codex_config() {
     printf '%s' "${s//\"/\\\"}"
   }
 
-  local esc_key esc_email esc_name esc_url esc_status
+  local esc_key esc_email esc_name esc_url esc_status esc_directive
   esc_key="$(toml_escape "$block_key")"
   esc_email="$(toml_escape "$block_email")"
   esc_name="$(toml_escape "$block_name")"
   esc_url="$(toml_escape "$block_url")"
   esc_status="$(toml_escape "$codex_status_file")"
+  esc_directive="$(toml_escape "$codex_directive_file")"
 
   # Plant whichever identity values we have alongside the router key so the
   # router can attribute Codex traffic to a person on shared keys. Build the
@@ -573,6 +574,19 @@ type = "command"
 command = "${esc_status}"
 TOML
 )"
+    # Only wire the directive hook when its helper actually installed. An empty
+    # command would be invalid TOML config, and a Codex that refuses to start is
+    # a far worse outcome than directives falling back to their skills.
+    if [ -n "$codex_directive_file" ]; then
+      hook_block="${hook_block}$(cat <<TOML
+
+[[hooks.UserPromptSubmit]]
+[[hooks.UserPromptSubmit.hooks]]
+type = "command"
+command = "${esc_directive}"
+TOML
+)"
+    fi
   fi
   local block
   block="$(cat <<TOML
@@ -1528,7 +1542,7 @@ router-feedback|rf|prompt|yes|yes|yes|no|manual|command,skill
 router-off||local-toggle|yes|yes|no|no|manual|command,skill
 router-on||local-toggle|yes|yes|no|no|manual|command,skill
 router-status||local-toggle|yes|yes|no|no|manual|command,skill
-router-session||prompt|yes|no|no|no|manual|command
+router-session||prompt|yes|yes|no|no|manual|command,skill
 router-models|models|local-toggle|yes|yes|no|no|manual|command,skill
 disable-routing||local-toggle|no|yes|no|no|manual|skill
 beta||prompt|yes|no|no|yes|manual|command
@@ -1701,8 +1715,10 @@ elif [ "$target" = "codex" ]; then
   codex_config_file="$codex_dir/config.toml"
   if [ "$scope" = "user" ] && [ -z "$install_dir" ]; then
     codex_status_file="$settings_base/.weave/codex-status.sh"
+    codex_directive_file="$settings_base/.weave/codex-directive.sh"
   else
     codex_status_file="$codex_dir/weave-status.sh"
+    codex_directive_file="$codex_dir/weave-directive.sh"
   fi
   codex_status_disabled_marker="$(dirname "$codex_status_file")/.weave-router-disabled"
 
@@ -3962,10 +3978,242 @@ CODEX_STATUS_EOF
   ok "Codex status integration installed at $codex_status_file"
 }
 
+# install_codex_directive_script installs the UserPromptSubmit hook that answers
+# Weave directives before any inference. Same ownership rules as the status
+# helper: a file we do not own is never overwritten, and refusing to install is
+# preferable to wiring a hook at a path holding someone else's code.
+#
+# The heredoc fallback exists because install.sh is also served standalone
+# (`curl | sh`, and the npm bin runs it directly), where no sibling asset is
+# available to copy. install/tests/codex-status_test.sh asserts the two copies
+# never drift.
+install_codex_directive_script() {
+  local candidate directive_src=""
+  for candidate in \
+    "$script_dir/codex-directive.sh" \
+    "$script_dir/../codex-directive.sh"
+  do
+    if [ -f "$candidate" ]; then
+      directive_src="$candidate"
+      break
+    fi
+  done
+  if [ "$scope" = "user" ] && [ -z "$install_dir" ]; then
+    mkdir -p "$(dirname "$codex_directive_file")"
+  else
+    refuse_if_symlink "$codex_directive_file"
+  fi
+  if [ -e "$codex_directive_file" ] && { [ ! -f "$codex_directive_file" ] || ! grep -Fq '<!-- weave-router managed codex directive -->' "$codex_directive_file"; }; then
+    warn "A user-owned Codex directive helper already exists at $codex_directive_file; leaving it untouched."
+    return 1
+  fi
+  if [ -n "$directive_src" ]; then
+    grep -Fq '<!-- weave-router managed codex directive -->' "$directive_src" || {
+      warn "Codex directive helper has no ownership marker; leaving it unchanged."
+      return 1
+    }
+    cp "$directive_src" "$codex_directive_file"
+  else
+    cat >"$codex_directive_file" <<'CODEX_DIRECTIVE_EOF'
+#!/usr/bin/env bash
+# <!-- weave-router managed codex directive -->
+#
+# Codex UserPromptSubmit hook for the Weave Router. Codex passes a JSON object
+# on stdin carrying the RAW prompt text, before `$skill` expansion and before
+# any inference. That is what makes this hook the deterministic equivalent of
+# Claude Code's slash commands.
+#
+# Why this exists. A Codex skill is prompt text: the model reads it, decides to
+# exec a script, and invents the arguments. Pinning a model that way costs two
+# inference turns (one to decide to run the script, one because the script's
+# output arrives as a tool result) and loses argument fidelity — a `$rf - note`
+# verdict is routinely paraphrased away by the model before it reaches the
+# router. Claude Code pays neither cost, because `/fm x` is expanded textually
+# by the client and the router short-circuits a user-typed directive into a
+# synthetic response with no upstream call at all.
+#
+# This hook closes that gap. It parses the directive itself, sends it to the
+# router as a user-typed message, and blocks the Codex turn — so the directive
+# costs zero inference and the arguments arrive byte-for-byte.
+#
+# The pin lands on the caller's real session because the force-model pin key
+# omits the first-message discriminator (see deriveForceModelSessionKeyForRequest):
+# it is derived from the API key and the client session id alone, and this hook
+# sends the same Session-Id that Codex sends on its own turns.
+#
+# FAIL OPEN. Every unexpected condition — no jq, no curl, no credentials, an
+# unreachable router, a malformed payload — must let the prompt through
+# untouched. A directive that silently swallows the user's prompt is far worse
+# than one that does not fire.
+
+set -uo pipefail
+
+# ---------- responses ----------
+
+# pass_through hands the prompt to Codex unchanged. Every failure path ends here.
+pass_through() {
+  printf '{"continue":true}\n'
+  exit 0
+}
+
+# block stops the turn before any inference and shows the text to the user.
+# Codex renders `reason`; nothing reaches the model.
+block() {
+  local reason="$1" payload
+  payload="$(jq -cn --arg r "$reason" '{decision:"block", reason:$r, continue:false}' 2>/dev/null)" \
+    || pass_through
+  printf '%s\n' "$payload"
+  exit 0
+}
+
+command -v jq >/dev/null 2>&1 || pass_through
+
+payload="$(cat)" || pass_through
+[ -n "$payload" ] || pass_through
+
+prompt="$(jq -r '.prompt // ""' <<<"$payload" 2>/dev/null)" || pass_through
+session_id="$(jq -r '.session_id // ""' <<<"$payload" 2>/dev/null)" || pass_through
+requested_model="$(jq -r '.model // ""' <<<"$payload" 2>/dev/null)" || pass_through
+
+# Only a directive at the very start of the prompt is ours. Prose that merely
+# mentions `$fm` somewhere in a sentence is the user's text, not a command.
+case "$prompt" in
+  '$'*) ;;
+  *) pass_through ;;
+esac
+
+verb="${prompt#$}"
+args=""
+case "$verb" in
+  *' '*)
+    args="${verb#* }"
+    verb="${verb%% *}"
+    ;;
+esac
+# Trim surrounding whitespace from the argument tail without touching its
+# interior: a leading `-`/`+` is a router-feedback verdict and must survive.
+args="${args#"${args%%[![:space:]]*}"}"
+args="${args%"${args##*[![:space:]]}"}"
+
+# ---------- directive table ----------
+#
+# Only prompt-capability directives are handled here. The local-toggle skills
+# (router-on/off/status/models, disable-routing) mutate local config rather than
+# router state, so a skill remains the right adapter for them.
+directive=""
+case "$verb" in
+  fm|force-model)          directive="/force-model" ;;
+  ufm|unforce-model)       directive="/unforce-model" ;;
+  rf|router-feedback)      directive="/router-feedback" ;;
+  router-session)
+    # Purely local: the session id is already in the hook payload, so this
+    # answers without a network call and without a model turn.
+    [ -n "$session_id" ] || pass_through
+    block "✦ Weave Router · session id: $session_id"
+    ;;
+  *) pass_through ;;
+esac
+
+# A directive that needs an argument and has none is more useful as a prompt:
+# the skill can still explain itself rather than the hook eating the message.
+case "$directive" in
+  /force-model|/router-feedback)
+    [ -n "$args" ] || pass_through
+    ;;
+esac
+
+# Without a client session id the router would derive a different pin key than
+# Codex's own turns, so the pin would apply to a session the user is not in.
+# Passing through is the honest failure: the skill path still works.
+[ -n "$session_id" ] || pass_through
+command -v curl >/dev/null 2>&1 || pass_through
+
+# ---------- credentials ----------
+#
+# Read base_url and the router key from the [model_providers.weave] table.
+# Deliberately NOT scoped to the managed comment markers: Codex rewrites
+# config.toml through a TOML serializer when it persists its own state, which
+# drops comments while keeping the table, and re-emits the inline http_headers
+# as a subtable with the header name unquoted. A marker-scoped or quoted-only
+# reader misses both on any config Codex has touched.
+resolve_router_endpoint() {
+  local config=""
+  local helper_dir
+  helper_dir="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd)" || helper_dir=""
+  if [ -n "$helper_dir" ] && [ -f "$helper_dir/config.toml" ]; then
+    config="$helper_dir/config.toml"
+  elif [ -f "${CODEX_HOME:-$HOME/.codex}/config.toml" ]; then
+    config="${CODEX_HOME:-$HOME/.codex}/config.toml"
+  fi
+  [ -n "$config" ] || return 1
+  awk '
+    /^[[:space:]]*\[/ {
+      in_provider = ($0 ~ /^[[:space:]]*\[[[:space:]]*model_providers[[:space:]]*\.[[:space:]]*weave[[:space:]]*(\.[^]]*)?\][[:space:]]*(#.*)?$/)
+      next
+    }
+    !in_provider { next }
+    match($0, /base_url[[:space:]]*=[[:space:]]*"[^"]*"/) {
+      v = substr($0, RSTART, RLENGTH)
+      sub(/^.*=[[:space:]]*"/, "", v); sub(/"$/, "", v)
+      if (url == "") url = v
+    }
+    match($0, /"?X-Weave-Router-Key"?[[:space:]]*=[[:space:]]*"[^"]*"/) {
+      v = substr($0, RSTART, RLENGTH)
+      sub(/^.*=[[:space:]]*"/, "", v); sub(/"$/, "", v)
+      if (key == "") key = v
+    }
+    END { if (url != "" && key != "") printf "%s\n%s\n", url, key }
+  ' "$config" 2>/dev/null
+}
+
+endpoint="$(resolve_router_endpoint)" || pass_through
+base_url="$(printf '%s' "$endpoint" | sed -n 1p)"
+router_key="$(printf '%s' "$endpoint" | sed -n 2p)"
+[ -n "$base_url" ] && [ -n "$router_key" ] || pass_through
+
+url="${base_url%/}"
+url="${url%/v1}/v1/chat/completions"
+
+# ---------- send ----------
+#
+# The leading space is what stops Codex's own slash-command handling from
+# claiming the line; the router strips it. Sent as a user message (not a tool
+# result) so the router takes its synthetic short-circuit and never calls a
+# model — the same path Claude Code's slash commands already take.
+line=" $directive"
+[ -n "$args" ] && line="$line $args"
+
+body="$(jq -cn --arg m "${requested_model:-gpt-5.6-sol}" --arg c "$line" \
+  '{model:$m, messages:[{role:"user", content:$c}]}' 2>/dev/null)" || pass_through
+
+response="$(curl -fsS --max-time 10 \
+  -H "Content-Type: application/json" \
+  -H "X-Weave-Router-Key: $router_key" \
+  -H "Session-Id: $session_id" \
+  -H "X-App: codex" \
+  -d "$body" \
+  "$url" 2>/dev/null)" || pass_through
+[ -n "$response" ] || pass_through
+
+marker="$(jq -r '.choices[0].message.content // ""' <<<"$response" 2>/dev/null)" || pass_through
+marker="$(printf '%s' "$marker" | sed -e 's/\*\*//g' -e '/^[[:space:]]*$/d')"
+[ -n "$marker" ] || pass_through
+
+block "$marker"
+CODEX_DIRECTIVE_EOF
+  fi
+  chmod 700 "$codex_directive_file"
+  ok "Codex directive hook installed at $codex_directive_file"
+}
+
 if [ "$target" = "codex" ]; then
   if ! install_codex_status_script; then
     err "Cannot install the Codex status helper safely; refusing to write hooks that could execute unowned code."
     exit 1
+  fi
+  if ! install_codex_directive_script; then
+    warn "Skipping the Codex directive hook; \$fm, \$rf and \$router-session will fall back to their skills."
+    codex_directive_file=""
   fi
   write_codex_config "$codex_config_file" "$base_url" "$api_key" "$user_email" "$user_name"
   ok "Codex config written to $codex_config_file"

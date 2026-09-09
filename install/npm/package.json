@@ -20,6 +20,7 @@
     "uninstall.sh",
     "cc-statusline.sh",
     "codex-status.sh",
+    "codex-directive.sh",
     "registry.sh",
     "directives.tsv",
     "commands/",
