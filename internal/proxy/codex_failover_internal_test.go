@@ -3,7 +3,9 @@ package proxy
 import (
 	"context"
 	"net/http"
+	"net/http/httptest"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -12,6 +14,7 @@ import (
 
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy/usage"
+	"weave-os/router/internal/router"
 )
 
 const (
@@ -162,6 +165,153 @@ func TestCodexExhaustionWindow_OutlivesWeeklyReset(t *testing.T) {
 		"a reset inside the rolling window keeps the default length; freshFor clamps to ResetAt")
 	assert.Equal(t, codexQuotaWindowMinutes, codexExhaustionWindow(time.Time{}, now).WindowMinutes,
 		"a body naming no reset falls back to the rolling window")
+}
+
+// TestCodexQuotaExhaustion_SuppressionLastsUntilThePlanResets: the recorded
+// window is what the observer retains the reading for, so a weekly reset must
+// keep later turns off the spent plan well past the 5h rolling window, while a
+// body naming no reset still lets the plan be retried after it.
+func TestCodexQuotaExhaustion_SuppressionLastsUntilThePlanResets(t *testing.T) {
+	spentPlan := func(resetsAt string) *providers.UpstreamErrorResponse {
+		return &providers.UpstreamErrorResponse{
+			Status: http.StatusTooManyRequests,
+			Body: []byte(`{"error":{"type":"usage_limit_reached","message":"The usage limit has been reached"` +
+				resetsAt + `}}`),
+		}
+	}
+
+	for _, tc := range []struct {
+		name             string
+		resetsAt         string
+		stillSuppressed  bool
+		suppressionAfter time.Duration
+	}{
+		{
+			name:             "weekly reset outlives the rolling window",
+			resetsAt:         `,"resets_at":` + strconv.FormatInt(time.Now().Add(6*24*time.Hour).Unix(), 10),
+			stillSuppressed:  true,
+			suppressionAfter: 6 * time.Hour,
+		},
+		{
+			name:             "no reset falls back to the rolling window",
+			stillSuppressed:  false,
+			suppressionAfter: 6 * time.Hour,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			clock := time.Now()
+			svc := &Service{
+				usageObserver:            usage.NewObserver([]byte("test-salt"), time.Minute, func() time.Time { return clock }),
+				deploymentKeyedProviders: map[string]struct{}{providers.ProviderOpenAI: {}},
+			}
+			ctx, headers := codexSubscriptionTestCtx(), http.Header{}
+
+			svc.recordCodexQuotaExhaustion(ctx, headers, spentPlan(tc.resetsAt))
+			require.True(t, svc.codexSubscriptionExhausted(ctx, headers),
+				"the plan the upstream just refused must be suppressed immediately")
+
+			clock = clock.Add(tc.suppressionAfter)
+			assert.Equal(t, tc.stillSuppressed, svc.codexSubscriptionExhausted(ctx, headers),
+				"suppression must last exactly as long as the upstream's own reset warrants")
+		})
+	}
+}
+
+// codexQuotaClient answers every dispatch with the ChatGPT plan-spent envelope,
+// recording whether each attempt carried the caller's OAuth subscription.
+type codexQuotaClient struct{ oauthPerCall []bool }
+
+// leakProbe appears only in the raw upstream envelope, so any renderer that
+// writes the buffered body verbatim is visible in the client's bytes.
+const (
+	leakProbe  = "raw_envelope_leak_probe"
+	leakHeader = "X-Weave-Test-Upstream-Envelope"
+)
+
+func (c *codexQuotaClient) Proxy(ctx context.Context, _ router.Decision, _ providers.PreparedRequest, _ http.ResponseWriter, _ *http.Request) error {
+	creds := CredentialsFromContext(ctx)
+	c.oauthPerCall = append(c.oauthPerCall, creds != nil && creds.OAuth)
+	return &providers.UpstreamErrorResponse{
+		Status:  http.StatusTooManyRequests,
+		Headers: http.Header{leakHeader: []string{"1"}},
+		Body: []byte(`{"error":{"type":"usage_limit_reached","message":"The usage limit has been reached",` +
+			`"` + leakProbe + `":true}}`),
+	}
+}
+
+func (c *codexQuotaClient) Passthrough(context.Context, providers.PreparedRequest, http.ResponseWriter, *http.Request) error {
+	return providers.ErrNotImplemented
+}
+
+// codexQuotaService wires a Codex-covered OpenAI route whose only client always
+// reports the plan spent, with a deployment OpenAI key so the rescue is viable.
+func codexQuotaService(client providers.Client) *Service {
+	svc := NewService(
+		staticRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: codexCoveredModel, Reason: "test"}},
+		map[string]providers.Client{providers.ProviderOpenAI: client},
+		nil, false, nil, nil, false, providers.ProviderOpenAI, codexCoveredModel, nil,
+	).WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderOpenAI: {}})
+	svc.retrySleep = noopSleep
+	return svc
+}
+
+// codexSubHTTPRequest builds a request carrying the ChatGPT subscription the way
+// the client presents it: an OAuth bearer plus the account id.
+func codexSubHTTPRequest(path, body string) *http.Request {
+	req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+codexTestToken)
+	req.Header.Set("ChatGPT-Account-ID", codexTestAccountID)
+	return req
+}
+
+// TestCodexRescue_FailedRetryRendersIntoTheLiveStream: the rescue runs whenever
+// the prelude is not COMMITTED, which still allows the buffered 200 + routing
+// marker to be on the wire. A failed rescue must therefore render the way the
+// primary dispatch would — an SSE frame — instead of appending a JSON envelope
+// to what the client is parsing as a stream.
+func TestCodexRescue_FailedRetryRendersIntoTheLiveStream(t *testing.T) {
+	client := &codexQuotaClient{}
+	svc := codexQuotaService(client)
+
+	body := `{"model":"auto","stream":true,"messages":[{"role":"user","content":"read main.go"}]}`
+	rec := httptest.NewRecorder()
+	err := svc.ProxyOpenAIChatCompletion(context.Background(), []byte(body), rec, codexSubHTTPRequest("/v1/chat/completions", body))
+	require.Error(t, err)
+
+	require.GreaterOrEqual(t, len(client.oauthPerCall), 2, "the spent plan must be rescued on the Weave key")
+	assert.True(t, client.oauthPerCall[0], "the primary dispatch serves on the caller's ChatGPT plan")
+	assert.False(t, client.oauthPerCall[len(client.oauthPerCall)-1], "the rescue must dispatch on the Weave key")
+
+	out := rec.Body.String()
+	require.Contains(t, out, "data: ", "the marker prelude must already be on the wire for this to be a stream")
+	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
+		if line == "" {
+			continue
+		}
+		require.True(t, strings.HasPrefix(line, "data: ") || strings.HasPrefix(line, ":") || strings.HasPrefix(line, "event:"),
+			"a failed rescue must stay in SSE framing, got a bare line: %s", line)
+	}
+}
+
+// TestCodexRescue_FailedRetryWritesNothingIntoACommittedResponsesStream: on the
+// Responses ingress the prelude is released before dispatch, so the turn is
+// already an open Responses stream. A failed rescue must write nothing there —
+// a chat-shaped envelope is not something a Responses client can parse.
+func TestCodexRescue_FailedRetryWritesNothingIntoACommittedResponsesStream(t *testing.T) {
+	client := &codexQuotaClient{}
+	svc := codexQuotaService(client)
+
+	body := `{"model":"auto","stream":true,"input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"read main.go"}]}]}`
+	rec := httptest.NewRecorder()
+	ctx := context.WithValue(context.Background(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppCodex})
+	err := svc.ProxyOpenAIResponses(ctx, []byte(body), rec, codexSubHTTPRequest("/v1/responses", body))
+	require.Error(t, err)
+
+	require.GreaterOrEqual(t, len(client.oauthPerCall), 2, "the spent plan must be rescued on the Weave key")
+	assert.NotContains(t, rec.Body.String(), leakProbe,
+		"the upstream envelope must not be written into an open Responses stream")
+	assert.Empty(t, rec.Header().Get(leakHeader),
+		"a failed rescue must not replay the upstream error response onto a committed Responses stream")
 }
 
 // TestCodexSubscriptionExhausted_NoFallbackKey: suppressing the only OpenAI
