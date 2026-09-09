@@ -230,26 +230,38 @@ func TestCompactionPreservesUserTextBoundaryAcrossToolLoop(t *testing.T) {
 			`{"role":"user","parts":[{"functionResponse":{"name":"`+toolUseID+`","response":{"result":"tool output"}}}]}`,
 		)
 	}
+	// Claude Code can append an injected reminder beside a tool result. The
+	// reminder is not a routing boundary, but it keeps the user message alive
+	// if orphan cleanup removes only the tool_result block.
+	anthropicMessages[2] = `{"role":"user","content":[{"type":"tool_result","tool_use_id":"tool-0","content":"tool output"},{"type":"text","text":"<system-reminder>injected</system-reminder>"}]}`
 
 	testCases := []struct {
-		name  string
-		parse func([]byte) (*RequestEnvelope, error)
-		body  string
+		name              string
+		parse             func([]byte) (*RequestEnvelope, error)
+		body              string
+		messageArrayPath  string
+		wireAssistantRole string
 	}{
 		{
-			name:  "anthropic",
-			parse: ParseAnthropic,
-			body:  `{"messages":[` + strings.Join(anthropicMessages, ",") + `]}`,
+			name:              "anthropic",
+			parse:             ParseAnthropic,
+			body:              `{"messages":[` + strings.Join(anthropicMessages, ",") + `]}`,
+			messageArrayPath:  "messages",
+			wireAssistantRole: "assistant",
 		},
 		{
-			name:  "openai",
-			parse: ParseOpenAI,
-			body:  `{"messages":[` + strings.Join(openAIMessages, ",") + `]}`,
+			name:              "openai",
+			parse:             ParseOpenAI,
+			body:              `{"messages":[` + strings.Join(openAIMessages, ",") + `]}`,
+			messageArrayPath:  "messages",
+			wireAssistantRole: "assistant",
 		},
 		{
-			name:  "gemini",
-			parse: ParseGemini,
-			body:  `{"contents":[` + strings.Join(geminiContents, ",") + `]}`,
+			name:              "gemini",
+			parse:             ParseGemini,
+			body:              `{"contents":[` + strings.Join(geminiContents, ",") + `]}`,
+			messageArrayPath:  "contents",
+			wireAssistantRole: "model",
 		},
 	}
 
@@ -271,6 +283,10 @@ func TestCompactionPreservesUserTextBoundaryAcrossToolLoop(t *testing.T) {
 			envelope.TrimLastNMessages(12)
 			assertUserTextBoundary(t, envelope)
 			assert.NotContains(t, string(envelope.body), "tool-0", "orphaned first tool result must be removed")
+			wireMessages := gjson.GetBytes(envelope.body, testCase.messageArrayPath).Array()
+			require.GreaterOrEqual(t, len(wireMessages), 2)
+			assert.Equal(t, "user", wireMessages[0].Get("role").String())
+			assert.Equal(t, testCase.wireAssistantRole, wireMessages[1].Get("role").String())
 		})
 
 		t.Run(testCase.name+"/summary rewrite", func(t *testing.T) {

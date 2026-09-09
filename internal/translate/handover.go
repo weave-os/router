@@ -32,9 +32,9 @@ func (e *RequestEnvelope) RewriteForHandover(summary string) int {
 }
 
 // TrimLastNMessages keeps a bounded window of n non-system messages plus
-// system blocks. When the recent tail has no text-bearing user turn, its
-// oldest slot is replaced with the newest earlier one. Falls back to n=3 when
-// n <= 0. Returns the number elided.
+// system blocks. When the recent tail has no text-bearing user turn, it pulls
+// back the newest earlier one and resumes the retained tail on an assistant
+// turn. Falls back to n=3 when n <= 0. Returns the number elided.
 func (e *RequestEnvelope) TrimLastNMessages(n int) int {
 	if e == nil {
 		return 0
@@ -326,7 +326,8 @@ func (e *RequestEnvelope) trimGeminiLastN(n int) int {
 
 // recentMessagesWithUserTextBoundary keeps the newest messages while ensuring
 // the window still describes the user's request. Tool-result-only user entries
-// do not qualify because the routing policy cannot derive intent from them.
+// do not qualify, and a pulled-back user boundary resumes on an assistant turn
+// so the rewritten wire history does not contain consecutive user roles.
 func recentMessagesWithUserTextBoundary(messages []gjson.Result, limit int, format Format) ([]gjson.Result, bool) {
 	if limit <= 0 || len(messages) <= limit {
 		return messages, false
@@ -341,11 +342,23 @@ func recentMessagesWithUserTextBoundary(messages []gjson.Result, limit int, form
 		if !isTextBearingUserMessage(messages[i], format) {
 			continue
 		}
-		preserved := make([]gjson.Result, 0, limit)
-		preserved = append(preserved, messages[i])
-		return append(preserved, recent[1:]...), true
+		preserved := []gjson.Result{messages[i]}
+		for suffixStart := 1; suffixStart < len(recent); suffixStart++ {
+			if isAssistantMessage(recent[suffixStart], format) {
+				return append(preserved, recent[suffixStart:]...), true
+			}
+		}
+		return preserved, true
 	}
 	return recent, false
+}
+
+func isAssistantMessage(message gjson.Result, format Format) bool {
+	role := message.Get("role").String()
+	if format == FormatGemini {
+		return role == "model"
+	}
+	return role == "assistant"
 }
 
 func isTextBearingUserMessage(message gjson.Result, format Format) bool {
