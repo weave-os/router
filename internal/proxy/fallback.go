@@ -607,21 +607,22 @@ func flushBufferedIfPresent(w http.ResponseWriter, err error) {
 // frame and returns *UpstreamStatusError so flushErr becomes a no-op.
 // Used when the upstream errors after Prelude already committed HTTP 200 +
 // message_start — a JSON error envelope would corrupt the SSE stream, but
-// an `event: error` frame terminates cleanly. Returns err unchanged if it
-// is not an *UpstreamErrorResponse.
+// an `event: error` frame terminates cleanly.
 func emitAnthropicSSEErrorEvent(sink http.ResponseWriter, err error) error {
 	var resp *providers.UpstreamErrorResponse
-	if !errors.As(err, &resp) {
-		return err
+	status := http.StatusBadGateway
+	body := []byte(`{"type":"error","error":{"type":"api_error","message":"upstream stream failed"}}`)
+	if errors.As(err, &resp) {
+		status = resp.Status
+		body = translate.OpenAIToAnthropicError(resp.Body)
 	}
-	anthErrJSON := translate.OpenAIToAnthropicError(resp.Body)
 	_, _ = sink.Write([]byte("event: error\ndata: "))
-	_, _ = sink.Write(anthErrJSON)
+	_, _ = sink.Write(body)
 	_, _ = sink.Write([]byte("\n\n"))
 	if f, ok := sink.(http.Flusher); ok {
 		f.Flush()
 	}
-	return &providers.UpstreamStatusError{Status: resp.Status}
+	return &providers.UpstreamStatusError{Status: status}
 }
 
 // emitOpenAISSEErrorEvent is emitAnthropicSSEErrorEvent's OpenAI-shape
@@ -629,16 +630,19 @@ func emitAnthropicSSEErrorEvent(sink http.ResponseWriter, err error) error {
 // OpenAIRoutingMarkerWriter has already committed HTTP 200.
 func emitOpenAISSEErrorEvent(sink http.ResponseWriter, err error) error {
 	var resp *providers.UpstreamErrorResponse
-	if !errors.As(err, &resp) {
-		return err
+	status := http.StatusBadGateway
+	body := []byte(`{"error":{"message":"upstream stream failed","type":"server_error","code":"upstream_error"}}`)
+	if errors.As(err, &resp) {
+		status = resp.Status
+		body = resp.Body
 	}
 	_, _ = sink.Write([]byte("data: "))
-	_, _ = sink.Write(resp.Body)
+	_, _ = sink.Write(body)
 	_, _ = sink.Write([]byte("\n\n"))
 	if f, ok := sink.(http.Flusher); ok {
 		f.Flush()
 	}
-	return &providers.UpstreamStatusError{Status: resp.Status}
+	return &providers.UpstreamStatusError{Status: status}
 }
 
 // emitGeminiSSEErrorEvent writes a terminal error frame to a committed

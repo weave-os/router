@@ -1118,6 +1118,32 @@ func TestPreludeBuffer_NoOpFlushPreCommit(t *testing.T) {
 	assert.Equal(t, 2, flushCount, "post-commit Flush passes through")
 }
 
+func TestEmitAnthropicSSEErrorEvent_GenericFailureTerminatesStream(t *testing.T) {
+	rec := httptest.NewRecorder()
+
+	err := emitAnthropicSSEErrorEvent(rec, errors.New("connection reset"))
+
+	var statusErr *providers.UpstreamStatusError
+	require.ErrorAs(t, err, &statusErr)
+	assert.Equal(t, http.StatusBadGateway, statusErr.Status)
+	assert.Contains(t, rec.Body.String(), "event: error")
+	assert.Contains(t, rec.Body.String(), `"type":"api_error"`)
+	assert.NotContains(t, rec.Body.String(), "connection reset")
+}
+
+func TestEmitOpenAISSEErrorEvent_GenericFailureTerminatesStream(t *testing.T) {
+	rec := httptest.NewRecorder()
+
+	err := emitOpenAISSEErrorEvent(rec, errors.New("connection reset"))
+
+	var statusErr *providers.UpstreamStatusError
+	require.ErrorAs(t, err, &statusErr)
+	assert.Equal(t, http.StatusBadGateway, statusErr.Status)
+	assert.Contains(t, rec.Body.String(), `data: {"error":`)
+	assert.Contains(t, rec.Body.String(), `"type":"server_error"`)
+	assert.NotContains(t, rec.Body.String(), "connection reset")
+}
+
 type fakeFlushTracker struct {
 	*httptest.ResponseRecorder
 	onFlush func()
