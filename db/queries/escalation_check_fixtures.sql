@@ -13,9 +13,9 @@ WHERE id = @installation_id::uuid AND external_id = @external_id::varchar;
 
 -- name: GetEscalationCheckFixtureRemaining :one
 -- The check verifies physical cleanup, including all session-dependent tables.
-SELECT
+SELECT (
     (SELECT count(*) FROM router.model_router_installations WHERE id = @installation_id::uuid)
     + (SELECT count(*) FROM router.escalation_sessions WHERE scope = @scope::bytea)
     + (SELECT count(*) FROM router.escalation_checkpoints WHERE scope = @scope::bytea)
     + (SELECT count(*) FROM router.escalation_continuations WHERE scope = @scope::bytea)
-    AS remaining;
+    )::bigint AS remaining;

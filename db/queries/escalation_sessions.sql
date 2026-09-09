@@ -26,6 +26,11 @@ WHERE router.escalation_sessions.installation_id = EXCLUDED.installation_id
          OR router.escalation_sessions.lease_until <= clock_timestamp())
 RETURNING session_state;
 
+-- name: GetEscalationSessionExpired :one
+-- A failed claim retries only if expiry crossed the delete/claim boundary.
+SELECT expires_at <= clock_timestamp() AS expired
+FROM router.escalation_sessions WHERE scope = @scope::bytea;
+
 -- name: GetEscalationCheckpoint :one
 -- A checkpoint belongs to the current unexpired session lifetime.
 SELECT c.checkpoint FROM router.escalation_checkpoints c
@@ -68,6 +73,12 @@ WHERE scope = @scope::bytea AND ordinal = @ordinal::bigint
     AND session_state->'feature_state' IS NOT NULL
     AND session_state->'feature_state' <> 'null'::jsonb;
 
+-- name: GetEscalationSessionForInvalidation :one
+-- Lock before checking checkpoints in a fresh READ COMMITTED statement snapshot.
+SELECT scope FROM router.escalation_sessions
+WHERE scope = @scope::bytea AND expires_at > clock_timestamp()
+FOR UPDATE;
+
 -- name: UpdateEscalationSessionInvalidated :exec
 -- A distinct missed action defers feature reset while preserving the active owner.
 UPDATE router.escalation_sessions SET
@@ -79,7 +90,11 @@ UPDATE router.escalation_sessions SET
     lease_until = CASE WHEN lease_until > statement_timestamp() THEN lease_until END
 WHERE scope = @scope::bytea AND expires_at > statement_timestamp()
     AND (lease_until IS NULL OR lease_until <= statement_timestamp()
-         OR lease_boundary IS DISTINCT FROM @boundary::bytea);
+         OR lease_boundary IS DISTINCT FROM @boundary::bytea)
+    AND NOT EXISTS (
+        SELECT 1 FROM router.escalation_checkpoints c
+        WHERE c.scope = @scope::bytea AND c.boundary = @boundary::bytea
+    );
 
 -- name: DeleteExpiredEscalationSessions :exec
 -- Expired feature state and checkpoint identities share one retention boundary.

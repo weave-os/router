@@ -34,12 +34,12 @@ func (q *Queries) DeleteEscalationCheckFixture(ctx context.Context, arg DeleteEs
 }
 
 const getEscalationCheckFixtureRemaining = `-- name: GetEscalationCheckFixtureRemaining :one
-SELECT
+SELECT (
     (SELECT count(*) FROM router.model_router_installations WHERE id = $1::uuid)
     + (SELECT count(*) FROM router.escalation_sessions WHERE scope = $2::bytea)
     + (SELECT count(*) FROM router.escalation_checkpoints WHERE scope = $2::bytea)
     + (SELECT count(*) FROM router.escalation_continuations WHERE scope = $2::bytea)
-    AS remaining
+    )::bigint AS remaining
 `
 
 type GetEscalationCheckFixtureRemainingParams struct {
@@ -49,15 +49,15 @@ type GetEscalationCheckFixtureRemainingParams struct {
 
 // The check verifies physical cleanup, including all session-dependent tables.
 //
-//	SELECT
+//	SELECT (
 //	    (SELECT count(*) FROM router.model_router_installations WHERE id = $1::uuid)
 //	    + (SELECT count(*) FROM router.escalation_sessions WHERE scope = $2::bytea)
 //	    + (SELECT count(*) FROM router.escalation_checkpoints WHERE scope = $2::bytea)
 //	    + (SELECT count(*) FROM router.escalation_continuations WHERE scope = $2::bytea)
-//	    AS remaining
-func (q *Queries) GetEscalationCheckFixtureRemaining(ctx context.Context, arg GetEscalationCheckFixtureRemainingParams) (int32, error) {
+//	    )::bigint AS remaining
+func (q *Queries) GetEscalationCheckFixtureRemaining(ctx context.Context, arg GetEscalationCheckFixtureRemainingParams) (int64, error) {
 	row := q.db.QueryRow(ctx, getEscalationCheckFixtureRemaining, arg.InstallationID, arg.Scope)
-	var remaining int32
+	var remaining int64
 	err := row.Scan(&remaining)
 	return remaining, err
 }

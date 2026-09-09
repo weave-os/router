@@ -5,7 +5,6 @@ package main
 import (
 	"context"
 	"crypto/sha256"
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -18,7 +17,6 @@ import (
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/postgres"
 	"weave-os/router/internal/router/escalation"
-	"weave-os/router/internal/sqlc"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -55,27 +53,14 @@ func checkEscalationState(ctx context.Context, dsn string) (checkErr error) {
 	store := postgres.NewEscalationRepo(pool)
 	activation := sha256.Sum256([]byte(installation.ID))
 	scope := sha256.Sum256([]byte(uuid.NewString()))
-	queries := sqlc.New(pool)
-	installationUUID := uuid.MustParse(installation.ID)
+	fixture := postgres.NewEscalationCheckFixture(pool, *installation, scope)
 	defer func() {
 		cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		deleted, cleanupErr := queries.DeleteEscalationCheckFixture(cleanupCtx, sqlc.DeleteEscalationCheckFixtureParams{InstallationID: installationUUID, ExternalID: installation.ExternalID})
-		if cleanupErr != nil {
-			checkErr = errors.Join(checkErr, fmt.Errorf("delete escalation check fixture: %w", cleanupErr))
-			return
-		}
-		if deleted != 1 {
-			checkErr = errors.Join(checkErr, fmt.Errorf("fixture cleanup deleted %d installations", deleted))
-		}
-		remaining, cleanupErr := queries.GetEscalationCheckFixtureRemaining(cleanupCtx, sqlc.GetEscalationCheckFixtureRemainingParams{InstallationID: installationUUID, Scope: scope[:]})
-		if cleanupErr != nil {
-			checkErr = errors.Join(checkErr, fmt.Errorf("verify escalation check cleanup: %w", cleanupErr))
-		} else if remaining != 0 {
-			checkErr = errors.Join(checkErr, fmt.Errorf("fixture cleanup left %d rows", remaining))
-		}
+		checkErr = errors.Join(checkErr, fixture.Cleanup(cleanupCtx))
 	}()
 	boundary := sha256.Sum256([]byte("first boundary"))
+	missedBoundary := sha256.Sum256([]byte("unobserved boundary"))
 	type claim struct {
 		token    string
 		acquired bool
@@ -136,7 +121,20 @@ func checkEscalationState(ctx context.Context, dsn string) (checkErr error) {
 	if err != nil {
 		return err
 	}
-	err = store.Commit(ctx, scope, boundary, winner, session, checkpoint)
+	var commitRace errgroup.Group
+	commitRace.Go(func() error {
+		return store.Commit(ctx, scope, boundary, winner, session, checkpoint)
+	})
+	for range 8 {
+		commitRace.Go(func() error {
+			return store.Invalidate(ctx, scope, boundary)
+		})
+	}
+	if err = commitRace.Wait(); err != nil {
+		return err
+	}
+	// A duplicate may lose its claim, then invalidate after the winner commits.
+	err = store.Invalidate(ctx, scope, boundary)
 	if err != nil {
 		return err
 	}
@@ -228,7 +226,7 @@ func checkEscalationState(ctx context.Context, dsn string) (checkErr error) {
 	if !acquired || next.Ordinal != 2 || next.PreviousOutcome != nil {
 		return errors.New("stale outcome changed a newer observation")
 	}
-	err = store.Invalidate(ctx, scope, secondBoundary)
+	err = store.Invalidate(ctx, scope, missedBoundary)
 	if err != nil {
 		return err
 	}
@@ -266,7 +264,7 @@ func checkEscalationState(ctx context.Context, dsn string) (checkErr error) {
 	if !acquired {
 		return errors.New("could not claim invalidation fixture")
 	}
-	err = store.Invalidate(ctx, scope, secondBoundary)
+	err = store.Invalidate(ctx, scope, missedBoundary)
 	if err != nil {
 		return err
 	}
@@ -311,7 +309,7 @@ func checkEscalationState(ctx context.Context, dsn string) (checkErr error) {
 	if err != nil || !acquired {
 		return fmt.Errorf("claim released-owner fixture: acquired=%t: %w", acquired, err)
 	}
-	err = store.Invalidate(ctx, scope, secondBoundary)
+	err = store.Invalidate(ctx, scope, missedBoundary)
 	if err != nil {
 		return err
 	}
@@ -336,7 +334,7 @@ func checkEscalationState(ctx context.Context, dsn string) (checkErr error) {
 		return err
 	}
 	// With no owner, invalidation resets immediately and late outcome writes lose.
-	err = store.Invalidate(ctx, scope, secondBoundary)
+	err = store.Invalidate(ctx, scope, missedBoundary)
 	if err != nil {
 		return err
 	}
@@ -356,18 +354,9 @@ func checkEscalationState(ctx context.Context, dsn string) (checkErr error) {
 	if err != nil {
 		return err
 	}
-	// Force expiry precisely between the production delete and claim statements.
-	err = queries.DeleteExpiredEscalationSession(ctx, scope[:])
+	err = fixture.CheckExpiryBoundary(ctx, boundary)
 	if err != nil {
 		return err
-	}
-	expired, err := queries.UpdateEscalationCheckFixtureExpired(ctx, sqlc.UpdateEscalationCheckFixtureExpiredParams{Scope: scope[:], InstallationID: installationUUID, ExternalID: installation.ExternalID})
-	if err != nil || expired != 1 {
-		return fmt.Errorf("expire escalation fixture: rows=%d: %w", expired, err)
-	}
-	_, err = queries.UpsertEscalationSessionClaim(ctx, sqlc.UpsertEscalationSessionClaimParams{Scope: scope[:], InstallationID: installationUUID, LeaseToken: uuid.New(), Boundary: boundary[:]})
-	if !errors.Is(err, sql.ErrNoRows) {
-		return fmt.Errorf("claim resurrected an expired lifetime: %v", err)
 	}
 	freshToken := uuid.NewString()
 	fresh, acquired, err := store.Claim(ctx, scope, installation.ID, freshToken, boundary)

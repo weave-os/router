@@ -323,3 +323,22 @@ func TestEscalationCommitFailurePreservesOrdinaryStickySelection(t *testing.T) {
 	}
 	require.Len(t, observer.requests, 5, "fail-open selection must not observe the same turn twice")
 }
+
+func TestEscalationCommitFailureDoesNotRepeatUnconstrainedSelection(t *testing.T) {
+	for _, outcome := range []escalation.Outcome{escalation.OutcomeMaximum, escalation.OutcomeNoTarget} {
+		t.Run(string(outcome), func(t *testing.T) {
+			store := newEscalationTestStore()
+			store.failCommit = true
+			pins := newStubPinStore()
+			classifier := &authoritativeTestRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-opus-4-8", Metadata: &router.RoutingMetadata{Strategy: string(router.StrategyHMMEmbedding), Escalation: &escalation.Decision{Baseline: escalation.Maximum, Effective: escalation.Maximum, Outcome: outcome}}}}
+			svc := NewService(nil, nil, nil, false, nil, pins, false, providers.ProviderAnthropic, "claude-opus-4-8", nil).WithEscalation(store, &escalationTestObserver{}).WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyHMMEmbedding, Router: classifier, Capabilities: policy.Capabilities{SchemaVersion: policy.SchemaVersionV1, AuthoritativePerTurnSelection: true}})
+			env := escalationTestEnvelope(t, 1)
+			feats := env.RoutingFeatures(false)
+			res, err := svc.runTurnLoop(escalationTestContext(true, false), env, feats, "test-key", uuid.New(), "", http.Header{}, router.Request{RequestedModel: feats.Model})
+			require.NoError(t, err)
+			require.Equal(t, "claude-opus-4-8", res.Decision.Model)
+			require.Zero(t, res.EscalationOrdinal)
+			require.Len(t, classifier.requests, 1, "failed observational commits cannot repeat ordinary routing and its side effects")
+		})
+	}
+}

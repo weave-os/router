@@ -1672,7 +1672,7 @@ func (s *Service) runTurnLoop(
 	if escalationTurn != nil {
 		if err := s.finishEscalation(ctx, escalationTurn, &res, routeErr); err != nil {
 			log.Warn("Escalation state commit failed; routing without intervention", "err", err, "ordinal", escalationTurn.session.Ordinal)
-			if res.Decision.Metadata != nil && res.Decision.Metadata.Escalation != nil {
+			if escalationRoutingApplied(res.Decision) {
 				req = baselineRequest
 				res = baselineTurn
 				res, routeErr = routeRemaining()

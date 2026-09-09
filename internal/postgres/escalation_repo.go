@@ -46,6 +46,15 @@ func (r *EscalationRepo) Claim(ctx context.Context, scope [32]byte, installation
 				return nil, backoff.Permanent(deleteErr)
 			}
 			encoded, upsertErr := queries.UpsertEscalationSessionClaim(ctx, sqlc.UpsertEscalationSessionClaimParams{Scope: scope[:], InstallationID: installationUUID, LeaseToken: leaseUUID, Boundary: boundary[:]})
+			if errors.Is(upsertErr, sql.ErrNoRows) {
+				expired, expiryErr := queries.GetEscalationSessionExpired(ctx, scope[:])
+				if expiryErr != nil {
+					return nil, backoff.Permanent(expiryErr)
+				}
+				if !expired {
+					return nil, backoff.Permanent(upsertErr)
+				}
+			}
 			if upsertErr != nil && !errors.Is(upsertErr, sql.ErrNoRows) {
 				return nil, backoff.Permanent(upsertErr)
 			}
@@ -136,7 +145,19 @@ func (r *EscalationRepo) Release(ctx context.Context, scope [32]byte, token stri
 
 // Invalidate resets broken continuity without revoking a distinct active observer.
 func (r *EscalationRepo) Invalidate(ctx context.Context, scope, boundary [32]byte) error {
-	err := sqlc.New(r.pool).UpdateEscalationSessionInvalidated(ctx, sqlc.UpdateEscalationSessionInvalidatedParams{Scope: scope[:], Boundary: boundary[:]})
+	err := pgx.BeginTxFunc(ctx, r.pool, pgx.TxOptions{IsoLevel: pgx.ReadCommitted}, func(tx pgx.Tx) error {
+		queries := sqlc.New(tx)
+		_, lockErr := queries.GetEscalationSessionForInvalidation(ctx, scope[:])
+		if errors.Is(lockErr, sql.ErrNoRows) {
+			return nil
+		}
+		if lockErr != nil {
+			return lockErr
+		}
+		// Commit inserts the checkpoint under this same session lock. A second
+		// statement sees it even when the lock request waited for that commit.
+		return queries.UpdateEscalationSessionInvalidated(ctx, sqlc.UpdateEscalationSessionInvalidatedParams{Scope: scope[:], Boundary: boundary[:]})
+	})
 	if err != nil {
 		return fmt.Errorf("invalidate escalation session: %w", err)
 	}

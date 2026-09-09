@@ -92,6 +92,39 @@ func (q *Queries) GetEscalationContinuation(ctx context.Context, arg GetEscalati
 	return i, err
 }
 
+const getEscalationSessionExpired = `-- name: GetEscalationSessionExpired :one
+SELECT expires_at <= clock_timestamp() AS expired
+FROM router.escalation_sessions WHERE scope = $1::bytea
+`
+
+// A failed claim retries only if expiry crossed the delete/claim boundary.
+//
+//	SELECT expires_at <= clock_timestamp() AS expired
+//	FROM router.escalation_sessions WHERE scope = $1::bytea
+func (q *Queries) GetEscalationSessionExpired(ctx context.Context, scope []byte) (bool, error) {
+	row := q.db.QueryRow(ctx, getEscalationSessionExpired, scope)
+	var expired bool
+	err := row.Scan(&expired)
+	return expired, err
+}
+
+const getEscalationSessionForInvalidation = `-- name: GetEscalationSessionForInvalidation :one
+SELECT scope FROM router.escalation_sessions
+WHERE scope = $1::bytea AND expires_at > clock_timestamp()
+FOR UPDATE
+`
+
+// Lock before checking checkpoints in a fresh READ COMMITTED statement snapshot.
+//
+//	SELECT scope FROM router.escalation_sessions
+//	WHERE scope = $1::bytea AND expires_at > clock_timestamp()
+//	FOR UPDATE
+func (q *Queries) GetEscalationSessionForInvalidation(ctx context.Context, scope []byte) ([]byte, error) {
+	row := q.db.QueryRow(ctx, getEscalationSessionForInvalidation, scope)
+	err := row.Scan(&scope)
+	return scope, err
+}
+
 const insertEscalationCheckpoint = `-- name: InsertEscalationCheckpoint :exec
 INSERT INTO router.escalation_checkpoints (scope, boundary, checkpoint)
 VALUES ($1::bytea, $2::bytea, $3::jsonb)
@@ -218,6 +251,10 @@ UPDATE router.escalation_sessions SET
 WHERE scope = $1::bytea AND expires_at > statement_timestamp()
     AND (lease_until IS NULL OR lease_until <= statement_timestamp()
          OR lease_boundary IS DISTINCT FROM $2::bytea)
+    AND NOT EXISTS (
+        SELECT 1 FROM router.escalation_checkpoints c
+        WHERE c.scope = $1::bytea AND c.boundary = $2::bytea
+    )
 `
 
 type UpdateEscalationSessionInvalidatedParams struct {
@@ -237,6 +274,10 @@ type UpdateEscalationSessionInvalidatedParams struct {
 //	WHERE scope = $1::bytea AND expires_at > statement_timestamp()
 //	    AND (lease_until IS NULL OR lease_until <= statement_timestamp()
 //	         OR lease_boundary IS DISTINCT FROM $2::bytea)
+//	    AND NOT EXISTS (
+//	        SELECT 1 FROM router.escalation_checkpoints c
+//	        WHERE c.scope = $1::bytea AND c.boundary = $2::bytea
+//	    )
 func (q *Queries) UpdateEscalationSessionInvalidated(ctx context.Context, arg UpdateEscalationSessionInvalidatedParams) error {
 	_, err := q.db.Exec(ctx, updateEscalationSessionInvalidated, arg.Scope, arg.Boundary)
 	return err
