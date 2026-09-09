@@ -17,6 +17,11 @@
 
 set -euo pipefail
 
+# Directives are literal text: `$fm`, `$rf` and `$router-session` are what the
+# user types and what the hook parses, never shell expansions. Scoped to the
+# file because every prompt fixture below would otherwise need its own.
+# shellcheck disable=SC2016
+
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 install_dir="$script_dir/.."
 hook="${CODEX_DIRECTIVE:-$install_dir/codex-directive.sh}"
@@ -55,7 +60,9 @@ printf 'codex directive hook\n'
 #
 # Records the request and answers in the OpenAI shape the router's synthetic
 # directive short-circuit uses, so the hook's parsing is exercised for real.
-port=8798
+# Random high port: a fixed one collides with whatever else a CI runner or a
+# developer machine happens to have bound.
+port=$(( 20000 + RANDOM % 20000 ))
 recorded="$work/recorded.json"
 cat >"$work/mock.py" <<'MOCK'
 import json, pathlib, sys

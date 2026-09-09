@@ -98,12 +98,16 @@ chmod +x "$home/bin/curl"
 HOME="$home" PATH="$home/bin:$PATH" WEAVE_ROUTER_KEY="rk_test_key" NO_COLOR=1 \
   node "$root/bin.js" --codex --scope user --quiet --base-url http://127.0.0.1:9 >/dev/null 2>&1 || true
 
+# Installer-created names, listed flat and sorted; find(1) buys nothing here.
+# shellcheck disable=SC2012,SC2035
 installed="$(cd "$home/.codex/skills" 2>/dev/null && ls -d */ 2>/dev/null | tr -d '/' | sort | tr '\n' ' ' | sed 's/ $//')"
 check "the packed entrypoint installs every Codex skill" \
   "disable-routing fm force-model rf router-feedback router-models router-off router-on router-session router-status ufm unforce-model" "$installed"
 
 HOME="$home" PATH="$home/bin:$PATH" WEAVE_ROUTER_KEY="rk_test_key" NO_COLOR=1 \
   node "$root/bin.js" --claude --scope user --quiet --base-url http://127.0.0.1:9 >/dev/null 2>&1 || true
+# Installer-created names, listed flat and sorted; find(1) buys nothing here.
+# shellcheck disable=SC2012,SC2035
 installed="$(cd "$home/.claude/commands" 2>/dev/null && ls *.md 2>/dev/null | sed 's/\.md$//' | sort | tr '\n' ' ' | sed 's/ $//')"
 check "the packed entrypoint installs every Claude command" \
   "$(weave_registry_names claude | sort | tr '\n' ' ' | sed 's/ $//')" "$installed"

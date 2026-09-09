@@ -13,6 +13,9 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 install_dir="$script_dir/.."
 installer="${INSTALLER:-$install_dir/install.sh}"
 uninstaller="${UNINSTALLER:-$install_dir/uninstall.sh}"
+# registry, aliases and adapter are read positionally out of the TSV row; the
+# unused ones still have to consume their columns.
+# shellcheck disable=SC2034
 registry="$install_dir/directives.tsv"
 # shellcheck disable=SC1091
 . "$install_dir/registry.sh"
@@ -136,6 +139,8 @@ fi
 # can be piped). Sourcing a sibling registry.sh would abort it under `set -e`
 # before it removed anything.
 cp "$install_dir/uninstall.sh" "$standalone/uninstall.sh"
+# The cat is load-bearing: piping into `bash -s` is the install path under test.
+# shellcheck disable=SC2002
 ( cd "$standalone" && cat uninstall.sh | HOME="$standalone/home" bash -s -- --claude --scope user ) \
   >"$work/standalone-uninstall.log" 2>&1 || true
 if grep -qi 'registry.sh: No such file\|unbound variable\|command not found' "$work/standalone-uninstall.log"; then
@@ -207,6 +212,8 @@ check "opencode gets no Claude-only local toggle" "" "$absent"
 # Codex, user scope: skills (not prompt wrappers) for every prompt directive.
 cx_home="$work/codex-user"; mkdir -p "$cx_home"
 run_install "$cx_home" --codex --scope user
+# Installer-created directories with known-safe names; find(1) buys nothing here.
+# shellcheck disable=SC2012,SC2035
 codex_skills="$(cd "$cx_home/.codex/skills" && ls -d */ 2>/dev/null | tr -d '/' | sort | tr '\n' ' ' | sed 's/ $//')"
 check "codex user install writes a skill per supported directive" \
   "disable-routing fm force-model rf router-feedback router-models router-off router-on router-session router-status ufm unforce-model" "$codex_skills"
@@ -265,6 +272,8 @@ nojq_bin="$work/nojq"; mkdir -p "$nojq_bin"
 cp "$fake_bin/curl" "$nojq_bin/curl"
 for tool in bash cat sed awk grep mkdir rm cp mv chmod ls dirname basename date stat cmp printf tr head tail git curl mktemp rmdir wc sort uniq diff; do
   src="$(command -v "$tool" 2>/dev/null || true)"
+  # Best effort by design: a tool missing from PATH simply is not linked.
+  # shellcheck disable=SC2015
   [ -n "$src" ] && ln -sf "$src" "$nojq_bin/$tool" 2>/dev/null || true
 done
 nojq_home="$work/codex-nojq"; mkdir -p "$nojq_home"

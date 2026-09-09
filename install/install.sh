@@ -4169,7 +4169,9 @@ resolve_router_endpoint() {
 endpoint="$(resolve_router_endpoint)" || pass_through
 base_url="$(printf '%s' "$endpoint" | sed -n 1p)"
 router_key="$(printf '%s' "$endpoint" | sed -n 2p)"
-[ -n "$base_url" ] && [ -n "$router_key" ] || pass_through
+if [ -z "$base_url" ] || [ -z "$router_key" ]; then
+  pass_through
+fi
 
 url="${base_url%/}"
 url="${url%/v1}/v1/chat/completions"

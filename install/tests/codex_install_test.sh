@@ -357,7 +357,10 @@ directive_helper="$home/.weave/codex-directive.sh"
   || fail "install did not write an executable Codex directive helper"
 grep -Fq '<!-- weave-router managed codex directive -->' "$directive_helper" \
   || fail "the installed Codex directive helper has no ownership marker"
-[ "$(stat -f '%Lp' "$directive_helper" 2>/dev/null || stat -c '%a' "$directive_helper" 2>/dev/null)" = "700" ] \
+# GNU stat first: on macOS -c is unrecognised and exits non-zero so this falls
+# through, whereas GNU stat -f is --file-system and would silently succeed with
+# the wrong value (same trap cc-statusline.sh documents).
+[ "$(stat -c '%a' "$directive_helper" 2>/dev/null || stat -f '%Lp' "$directive_helper" 2>/dev/null)" = "700" ] \
   || fail "the Codex directive helper is not mode 700"
 
 grep -Fq '[[hooks.UserPromptSubmit]]' "$config" \
