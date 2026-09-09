@@ -9,4 +9,8 @@ package translate
 type UsageSink interface {
 	RecordUsage(inputTokens, outputTokens int)
 	RecordCacheUsage(cacheCreationTokens, cacheReadTokens int)
+	// RecordCacheCreation1hTokens reports the 1-hour-tier portion of the
+	// cache-creation aggregate. Called only when the upstream emitted the
+	// TTL breakdown (usage.cache_creation); 0 means "all writes 5-minute".
+	RecordCacheCreation1hTokens(tokens int)
 }

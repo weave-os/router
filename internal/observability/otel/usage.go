@@ -15,6 +15,7 @@ import (
 type UsageSink interface {
 	RecordUsage(inputTokens, outputTokens int)
 	RecordCacheUsage(cacheCreationTokens, cacheReadTokens int)
+	RecordCacheCreation1hTokens(tokens int)
 }
 
 var (
@@ -29,10 +30,11 @@ type UsageExtractor struct {
 	inner    http.ResponseWriter
 	provider string
 
-	input         int
-	output        int
-	cacheCreation int
-	cacheRead     int
+	input           int
+	output          int
+	cacheCreation   int
+	cacheCreation1h int
+	cacheRead       int
 
 	leftover []byte
 }
@@ -116,6 +118,14 @@ func (u *UsageExtractor) RecordCacheUsage(cacheCreationTokens, cacheReadTokens i
 	}
 }
 
+// RecordCacheCreation1hTokens sets the 1-hour-tier portion of the
+// cache-creation aggregate (Anthropic's usage.cache_creation breakdown).
+func (u *UsageExtractor) RecordCacheCreation1hTokens(tokens int) {
+	if tokens > 0 {
+		u.cacheCreation1h = tokens
+	}
+}
+
 // Tokens returns the extracted input and output token counts.
 func (u *UsageExtractor) Tokens() (input, output int) {
 	if u == nil {
@@ -131,6 +141,16 @@ func (u *UsageExtractor) CacheTokens() (creation, read int) {
 		return 0, 0
 	}
 	return u.cacheCreation, u.cacheRead
+}
+
+// CacheCreation1hTokens returns the extracted 1-hour-tier portion of the
+// cache-creation aggregate. Zero means no TTL breakdown was seen (aggregate-
+// only payloads) — every write prices at the 5-minute rate.
+func (u *UsageExtractor) CacheCreation1hTokens() int {
+	if u == nil {
+		return 0
+	}
+	return u.cacheCreation1h
 }
 
 // scanBuffer splits buffered data on SSE event boundaries and extracts token
@@ -170,13 +190,15 @@ func (u *UsageExtractor) extractFromSSEEvent(eventType []byte, data []byte) {
 	}
 }
 
-// message_start carries input_tokens + cache tokens; message_delta carries output_tokens.
+// message_start carries input_tokens + cache tokens (and, when the upstream
+// reports it, the cache_creation TTL breakdown); message_delta carries
+// output_tokens and cumulative aggregates only.
 func (u *UsageExtractor) extractAnthropicSSE(eventType []byte, data []byte) {
 	if !bytes.Equal(eventType, []byte("message_start")) && !bytes.Equal(eventType, []byte("message_delta")) {
 		return
 	}
 
-	input, output, cacheCreation, cacheRead, found := extractUsageGJSON(data, providers.ProviderAnthropic)
+	input, output, cacheCreation, cacheCreation1h, cacheRead, found := extractUsageGJSON(data, providers.ProviderAnthropic)
 	if !found {
 		return
 	}
@@ -187,6 +209,9 @@ func (u *UsageExtractor) extractAnthropicSSE(eventType []byte, data []byte) {
 		}
 		if cacheCreation > 0 {
 			u.cacheCreation = cacheCreation
+		}
+		if cacheCreation1h > 0 {
+			u.cacheCreation1h = cacheCreation1h
 		}
 		if cacheRead > 0 {
 			u.cacheRead = cacheRead
@@ -204,7 +229,7 @@ func (u *UsageExtractor) extractOpenAISSE(data []byte) {
 		return
 	}
 
-	input, output, cacheCreation, cacheRead, found := extractUsageGJSON(trimmed, u.provider)
+	input, output, cacheCreation, _, cacheRead, found := extractUsageGJSON(trimmed, u.provider)
 	if !found {
 		return
 	}
@@ -228,7 +253,7 @@ func (u *UsageExtractor) tryExtractFromJSON() {
 		return
 	}
 
-	input, output, cacheCreation, cacheRead, found := extractUsageGJSON(u.leftover, u.provider)
+	input, output, cacheCreation, cacheCreation1h, cacheRead, found := extractUsageGJSON(u.leftover, u.provider)
 	if !found {
 		return
 	}
@@ -242,6 +267,9 @@ func (u *UsageExtractor) tryExtractFromJSON() {
 	if cacheCreation > 0 {
 		u.cacheCreation = cacheCreation
 	}
+	if cacheCreation1h > 0 {
+		u.cacheCreation1h = cacheCreation1h
+	}
 	if cacheRead > 0 {
 		u.cacheRead = cacheRead
 	}
@@ -250,8 +278,11 @@ func (u *UsageExtractor) tryExtractFromJSON() {
 // extractUsageGJSON probes usage fields via gjson (no json.Unmarshal/map allocs).
 // OpenAI cache-read maps from cached_tokens; GPT-5.6+ cache-write maps from cache_write_tokens.
 // Google's native :generateContent uses usageMetadata; its OpenAI-compat surface
-// uses the OpenAI shape instead.
-func extractUsageGJSON(data []byte, provider string) (input, output, cacheCreation, cacheRead int, found bool) {
+// uses the OpenAI shape instead. cacheCreation1h is Anthropic-only: the
+// 1-hour-tier portion of the cache-creation aggregate from
+// usage.cache_creation.ephemeral_1h_input_tokens; zero when the upstream
+// reports no TTL breakdown.
+func extractUsageGJSON(data []byte, provider string) (input, output, cacheCreation, cacheCreation1h, cacheRead int, found bool) {
 	family := providers.FamilyFor(provider)
 
 	if family == providers.FamilyGemini {
@@ -259,7 +290,7 @@ func extractUsageGJSON(data []byte, provider string) (input, output, cacheCreati
 			input = int(meta.Get("promptTokenCount").Int())
 			output = int(meta.Get("candidatesTokenCount").Int())
 			cacheRead = int(meta.Get("cachedContentTokenCount").Int())
-			return input, output, 0, cacheRead, true
+			return input, output, 0, 0, cacheRead, true
 		}
 	}
 
@@ -273,7 +304,7 @@ func extractUsageGJSON(data []byte, provider string) (input, output, cacheCreati
 		usage = gjson.GetBytes(data, "response.usage")
 	}
 	if !usage.Exists() {
-		return 0, 0, 0, 0, false
+		return 0, 0, 0, 0, 0, false
 	}
 
 	switch family {
@@ -281,6 +312,7 @@ func extractUsageGJSON(data []byte, provider string) (input, output, cacheCreati
 		input = int(usage.Get("input_tokens").Int())
 		output = int(usage.Get("output_tokens").Int())
 		cacheCreation = int(usage.Get("cache_creation_input_tokens").Int())
+		cacheCreation1h = int(usage.Get("cache_creation.ephemeral_1h_input_tokens").Int())
 		cacheRead = int(usage.Get("cache_read_input_tokens").Int())
 	case providers.FamilyOpenAICompat, providers.FamilyGemini:
 		// Chat Completions uses prompt_tokens/completion_tokens; Responses API
@@ -294,10 +326,10 @@ func extractUsageGJSON(data []byte, provider string) (input, output, cacheCreati
 		}
 		cacheCreation, cacheRead = openaiCacheTokens(usage)
 	default:
-		return 0, 0, 0, 0, false
+		return 0, 0, 0, 0, 0, false
 	}
 
-	return input, output, cacheCreation, cacheRead, true
+	return input, output, cacheCreation, cacheCreation1h, cacheRead, true
 }
 
 // openaiCacheTokens mirrors translate.OpenAICacheTokens. Duplicated here so
