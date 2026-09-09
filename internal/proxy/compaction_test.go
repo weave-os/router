@@ -12,6 +12,7 @@ import (
 
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/handover"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/sessionpin"
@@ -23,16 +24,18 @@ import (
 )
 
 type fakeCompactionSummarizer struct {
-	summary   string
-	usage     handover.Usage
-	err       error
-	calls     int
-	lastModel string
+	summary    string
+	usage      handover.Usage
+	err        error
+	calls      int
+	lastModel  string
+	lastSource policy.OverrideSource
 }
 
-func (f *fakeCompactionSummarizer) SummarizeForCompaction(_ context.Context, _ *translate.RequestEnvelope, model string, _ int) (string, handover.Usage, error) {
+func (f *fakeCompactionSummarizer) SummarizeForCompaction(_ context.Context, _ *translate.RequestEnvelope, target CompactionTarget, _ int) (string, handover.Usage, error) {
 	f.calls++
-	f.lastModel = model
+	f.lastModel = target.CatalogID
+	f.lastSource = target.Source
 	return f.summary, f.usage, f.err
 }
 
@@ -205,6 +208,31 @@ func TestSelectCompactionSummarizer_WindowAware(t *testing.T) {
 
 	custom := &Service{compactionModel: "claude-sonnet-4-5"}
 	assert.Equal(t, "claude-sonnet-4-5", custom.selectCompactionSummarizer(1_000, ""), "ROUTER_COMPACTION_MODEL overrides the default")
+}
+
+func TestCompactionTargetFor_TypesTheCascadeChoice(t *testing.T) {
+	s := &Service{}
+	assert.Equal(t, CompactionTarget{CatalogID: "claude-opus-4-8", Source: policy.OverrideSourceSession}, s.compactionTargetFor("claude-opus-4-8", "claude-opus-4-8"))
+	assert.Equal(t, CompactionTarget{CatalogID: DefaultCompactionModel, Source: policy.OverrideSourceDeployment}, s.compactionTargetFor(DefaultCompactionModel, "claude-opus-4-8"))
+	assert.Equal(t, CompactionTarget{CatalogID: largeWindowSummarizerModel}, s.compactionTargetFor(largeWindowSummarizerModel, ""))
+	custom := &Service{compactionModel: "claude-sonnet-4-5"}
+	assert.Equal(t, CompactionTarget{CatalogID: "claude-sonnet-4-5", Source: policy.OverrideSourceDeployment}, custom.compactionTargetFor("claude-sonnet-4-5", ""))
+}
+
+func TestPrecompactionPolicyReviewsEveryCascadeCandidate(t *testing.T) {
+	spec, ok := policy.DefaultRegistry().Spec(policy.PurposePrecompactionSummary)
+	require.True(t, ok)
+	assert.Contains(t, spec.FixedCatalogModels, DefaultCompactionModel)
+	assert.Contains(t, spec.FixedCatalogModels, largeWindowSummarizerModel)
+	for _, m := range catalog.Models {
+		anthropic := false
+		for _, b := range m.Providers {
+			anthropic = anthropic || b.Provider == providers.ProviderAnthropic
+		}
+		if anthropic && m.Tier != catalog.TierLow {
+			assert.Contains(t, spec.FixedCatalogModels, m.ID, "warm-pin candidate %s must be a reviewed summarizer", m.ID)
+		}
+	}
 }
 
 func TestCompactionPolicyFor(t *testing.T) {

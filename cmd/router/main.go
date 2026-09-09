@@ -825,11 +825,13 @@ func main() {
 	// registered, so the Service's nil-check disables Tier-3 correctly (a
 	// typed-nil concrete pointer would defeat it).
 	var compactionSz proxy.CompactionSummarizer
-	if client, ok := providerMap[handoverProviderName]; ok {
+	var compactionHandoverSz handover.Summarizer
+	if _, ok := providerMap[handoverProviderName]; ok {
 		ps := proxy.NewProviderSummarizer(auxiliaryPlans, inferenceExecutor, handoverProviderName, handoverModel, handoverTimeout).
-			WithCompactionClient(client).
+			WithCompactionModel(compactionModel).
 			WithCompactionTimeout(compactionTimeout)
 		summarizer = ps
+		compactionHandoverSz = ps.CompactionHandover()
 		compactionSz = ps
 		logger.Info("Handover summarizer wired", "provider", handoverProviderName, "model", handoverModel, "timeout_ms", handoverTimeout.Milliseconds(), "compaction_timeout_ms", compactionTimeout.Milliseconds())
 	} else {
@@ -1214,6 +1216,7 @@ func main() {
 		WithRouterFeedbackStore(repo.Telemetry).
 		WithPlanner(plannerCfg).
 		WithSummarizer(summarizer).
+		WithCompactionHandoverSummarizer(compactionHandoverSz).
 		WithWebSearchExecutor(cortexWebSearch(logger)).
 		WithCompaction(compactionSz, compactionPct).
 		WithCompactionModel(compactionModel).

@@ -33,6 +33,7 @@ type fakeHandoverProvider struct {
 	upstreamErr error
 	calls       int
 	wireModels  []string
+	maxTokens   []int64
 	decisions   []router.Decision
 }
 
@@ -40,6 +41,7 @@ func (f *fakeHandoverProvider) Proxy(ctx context.Context, decision router.Decisi
 	f.calls++
 	f.decisions = append(f.decisions, decision)
 	f.wireModels = append(f.wireModels, gjson.GetBytes(prep.Body, "model").String())
+	f.maxTokens = append(f.maxTokens, gjson.GetBytes(prep.Body, "max_tokens").Int())
 	if f.sleep > 0 {
 		select {
 		case <-time.After(f.sleep):
@@ -273,4 +275,113 @@ func TestProviderSummarizer_AttemptEventsCarryRequestID(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, events, 1)
 	assert.Equal(t, "req-handover-1", events[0].RequestID)
+}
+
+// newTestCompactionSummarizer deploys every model in models so the compaction
+// cascade's candidates are all resolvable bindings.
+func newTestCompactionSummarizer(t *testing.T, fake providers.Client, compactionModel string, models ...string) *ProviderSummarizer {
+	t.Helper()
+	available := map[string]struct{}{providers.ProviderAnthropic: {}}
+	deployed := map[string]struct{}{DefaultHandoverModel: {}}
+	for _, m := range models {
+		deployed[m] = struct{}{}
+	}
+	plans, err := policy.NewPlanResolver(policy.DefaultRegistry(), policy.NewResolver(
+		deployed, available, func(m catalog.Model) string { return m.ID }, policy.ProviderPolicy{}))
+	require.NoError(t, err)
+	executor, err := dispatch.NewExecutor(dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: fake}))
+	require.NoError(t, err)
+	return NewProviderSummarizer(plans, executor, providers.ProviderAnthropic, "", 200*time.Millisecond).
+		WithCompactionModel(compactionModel).
+		WithCompactionTimeout(200 * time.Millisecond)
+}
+
+func TestProviderSummarizer_CompactionSessionPinRunsThroughExecutor(t *testing.T) {
+	t.Parallel()
+
+	env, err := translate.ParseAnthropic([]byte(sampleConversation))
+	require.NoError(t, err)
+
+	fake := &fakeHandoverProvider{respBody: canonicalAnthropicResponse, respStatus: http.StatusOK}
+	s := newTestCompactionSummarizer(t, fake, DefaultCompactionModel, DefaultCompactionModel, "claude-opus-4-7")
+
+	target := CompactionTarget{CatalogID: "claude-opus-4-7", Source: policy.OverrideSourceSession}
+	got, usage, err := s.SummarizeForCompaction(context.Background(), env, target, DefaultCompactionMaxTokens)
+	require.NoError(t, err)
+	assert.Equal(t, "Refactor in progress: step 1 done, step 2 pending.", got)
+	require.Equal(t, 1, fake.calls)
+	assert.Equal(t, []string{"claude-opus-4-7"}, fake.wireModels)
+	assert.Equal(t, "claude-opus-4-7", fake.decisions[0].Model)
+	assert.Equal(t, "claude-opus-4-7", usage.Model)
+	assert.Equal(t, providers.ProviderAnthropic, usage.Provider)
+}
+
+func TestProviderSummarizer_CompactionPolicyDefaultTargetIsHonored(t *testing.T) {
+	t.Parallel()
+
+	env, err := translate.ParseAnthropic([]byte(sampleConversation))
+	require.NoError(t, err)
+
+	fake := &fakeHandoverProvider{respBody: canonicalAnthropicResponse, respStatus: http.StatusOK}
+	s := newTestCompactionSummarizer(t, fake, DefaultCompactionModel, DefaultCompactionModel, largeWindowSummarizerModel)
+
+	// No override source: the cascade fell through to the large-window model,
+	// which must resolve as the policy default rather than the first listed one.
+	_, _, err = s.SummarizeForCompaction(context.Background(), env, CompactionTarget{CatalogID: largeWindowSummarizerModel}, DefaultCompactionMaxTokens)
+	require.NoError(t, err)
+	assert.Equal(t, []string{largeWindowSummarizerModel}, fake.wireModels)
+}
+
+func TestProviderSummarizer_CompactionUnreviewedPinFailsBeforeIO(t *testing.T) {
+	t.Parallel()
+
+	env, err := translate.ParseAnthropic([]byte(sampleConversation))
+	require.NoError(t, err)
+
+	fake := &fakeHandoverProvider{respBody: canonicalAnthropicResponse, respStatus: http.StatusOK}
+	s := newTestCompactionSummarizer(t, fake, DefaultCompactionModel, DefaultCompactionModel)
+
+	// Haiku is deployed but the precompaction policy does not review it.
+	target := CompactionTarget{CatalogID: DefaultHandoverModel, Source: policy.OverrideSourceSession}
+	got, _, err := s.SummarizeForCompaction(context.Background(), env, target, DefaultCompactionMaxTokens)
+	require.Error(t, err)
+	var resolution *policy.ResolutionError
+	require.ErrorAs(t, err, &resolution)
+	assert.Equal(t, policy.ResolutionErrorInvalidOverride, resolution.Code)
+	assert.Empty(t, got)
+	assert.Equal(t, 0, fake.calls)
+}
+
+func TestProviderSummarizer_CompactionOutputCapFollowsPolicyBudget(t *testing.T) {
+	t.Parallel()
+
+	env, err := translate.ParseAnthropic([]byte(sampleConversation))
+	require.NoError(t, err)
+
+	fake := &fakeHandoverProvider{respBody: canonicalAnthropicResponse, respStatus: http.StatusOK}
+	s := newTestCompactionSummarizer(t, fake, DefaultCompactionModel, DefaultCompactionModel)
+
+	target := CompactionTarget{CatalogID: DefaultCompactionModel, Source: policy.OverrideSourceDeployment}
+	_, _, err = s.SummarizeForCompaction(context.Background(), env, target, 1_000_000)
+	require.NoError(t, err)
+	spec, ok := policy.DefaultRegistry().Spec(policy.PurposePrecompactionSummary)
+	require.True(t, ok)
+	assert.Equal(t, int64(spec.Budget.MaxOutputTokens), fake.maxTokens[0])
+}
+
+func TestProviderSummarizer_CompactionHandoverUsesCompactionPolicy(t *testing.T) {
+	t.Parallel()
+
+	env, err := translate.ParseAnthropic([]byte(sampleConversation))
+	require.NoError(t, err)
+
+	fake := &fakeHandoverProvider{respBody: canonicalAnthropicResponse, respStatus: http.StatusOK}
+	s := newTestCompactionSummarizer(t, fake, DefaultCompactionModel, DefaultCompactionModel)
+
+	got, usage, err := s.CompactionHandover().Summarize(context.Background(), env)
+	require.NoError(t, err)
+	assert.NotEmpty(t, got)
+	assert.Equal(t, []string{DefaultCompactionModel}, fake.wireModels)
+	assert.Equal(t, DefaultCompactionModel, usage.Model)
+	assert.Equal(t, int64(DefaultHandoverMaxTokens), fake.maxTokens[0])
 }

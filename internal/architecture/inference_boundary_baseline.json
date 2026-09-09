@@ -46,9 +46,9 @@
       "symbol": "proxy.package",
       "detail": "DefaultCompactionModel=claude-sonnet-4-6",
       "owner": "@steventohme",
-      "rationale": "Current compaction default is preserved for behavior parity and is now visible in the static policy registry.",
+      "rationale": "Deployment default for ROUTER_COMPACTION_MODEL and the cascade's large-window fallback; both are reviewed members of the precompaction policy and are validated by plan resolution before any I/O.",
       "operation_class": "auxiliary_inference",
-      "removal_phase": "7"
+      "removal_phase": "15"
     },
     {
       "id": "feature_target_constant|internal/proxy/compaction.go|proxy.package|largeWindowSummarizerModel|1",
@@ -58,9 +58,9 @@
       "symbol": "proxy.package",
       "detail": "largeWindowSummarizerModel=claude-fable-5",
       "owner": "@steventohme",
-      "rationale": "Current large-window compaction candidate is preserved for behavior parity and is now visible in policy data.",
+      "rationale": "Deployment default for ROUTER_COMPACTION_MODEL and the cascade's large-window fallback; both are reviewed members of the precompaction policy and are validated by plan resolution before any I/O.",
       "operation_class": "auxiliary_inference",
-      "removal_phase": "7"
+      "removal_phase": "15"
     },
     {
       "id": "direct_provider_call|internal/proxy/gemini.go|Service.ProxyGeminiGenerateContent|weave-os/router/internal/providers.Proxy|1",
@@ -85,30 +85,6 @@
       "rationale": "Deployment default for ROUTER_HANDOVER_MODEL; it is validated against the handover-summary policy at boot and resolved through the plan resolver at runtime.",
       "operation_class": "auxiliary_inference",
       "removal_phase": "15"
-    },
-    {
-      "id": "target_construction|internal/proxy/handover.go|ProviderSummarizer.summarizeDirect|router.Decision|1",
-      "kind": "target_construction",
-      "file": "internal/proxy/handover.go",
-      "line": 293,
-      "symbol": "ProviderSummarizer.summarizeDirect",
-      "detail": "provider=<dynamic> model=<dynamic>",
-      "owner": "@steventohme",
-      "rationale": "Compaction summaries still construct their provider-call DTO directly; they move onto the executor with the window-aware compaction policies.",
-      "operation_class": "auxiliary_inference",
-      "removal_phase": "7"
-    },
-    {
-      "id": "direct_provider_call|internal/proxy/handover.go|ProviderSummarizer.summarizeDirect|weave-os/router/internal/providers.Proxy|1",
-      "kind": "direct_provider_call",
-      "file": "internal/proxy/handover.go",
-      "line": 299,
-      "symbol": "ProviderSummarizer.summarizeDirect",
-      "detail": "weave-os/router/internal/providers.Proxy",
-      "owner": "@steventohme",
-      "rationale": "Compaction summary dispatch stays direct until the compaction purposes are executor-migrated.",
-      "operation_class": "auxiliary_inference",
-      "removal_phase": "7"
     },
     {
       "id": "feature_target_constant|internal/proxy/loop_detection.go|proxy.package|escalateModel|1",

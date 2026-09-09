@@ -35,11 +35,10 @@ The generated static registry in [`POLICY_INFERENCE.md`](POLICY_INFERENCE.md) is
 
 ## Direct Provider Calls
 
-These are the complete production `providers.Client.Proxy`/`Passthrough` call sites at the baseline. No new call site may be added outside `internal/dispatch` or a provider adapter.
+These are the complete production `providers.Client.Proxy`/`Passthrough` call sites at the baseline. No new call site may be added outside `internal/dispatch` or a provider adapter. Handover, compaction-handover, and precompaction summaries run through `dispatch.Buffered` since Phases 6–7; `ProviderSummarizer` no longer holds a provider client.
 
 | File / symbol | Operation |
 | --- | --- |
-| `internal/proxy/handover.go` — `ProviderSummarizer.summarizeDirect` | auxiliary compaction summary (handover summaries run through `dispatch.Buffered` since Phase 6) |
 | `internal/proxy/usage_bypass.go` — `Service.bypassToAnthropic` | subscription-token main inference |
 | `internal/proxy/gemini.go` — `Service.ProxyGeminiGenerateContent` | Gemini main inference |
 | `internal/proxy/service.go` — `Service.PassthroughToNamedProvider` | metadata/passthrough |

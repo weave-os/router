@@ -314,6 +314,9 @@ type Service struct {
 	// context-window compaction cascade (maybeCompact). nil disables Tier-3
 	// summarization (the cascade still runs Tier-1 cleanup + trim rescue).
 	compactionSummarizer CompactionSummarizer
+	// compactionHandoverSummarizer serves runCompactionHandover under its own
+	// policy purpose; nil reuses summarizer.
+	compactionHandoverSummarizer handover.Summarizer
 	// compactionTriggerPct is the fraction of the largest eligible model's
 	// context window at which the compaction cascade engages. Zero disables
 	// compaction entirely.
@@ -1835,6 +1838,14 @@ func forcedReasoningEffort(model string, escalate bool) string {
 // through unchanged.
 func (s *Service) WithSummarizer(sz handover.Summarizer) *Service {
 	s.summarizer = sz
+	return s
+}
+
+// WithCompactionHandoverSummarizer installs the summarizer for the
+// compaction-handover purpose (a client-compacted turn routed off Anthropic).
+// nil falls back to the switch-handover summarizer.
+func (s *Service) WithCompactionHandoverSummarizer(sz handover.Summarizer) *Service {
+	s.compactionHandoverSummarizer = sz
 	return s
 }
 

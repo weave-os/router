@@ -19,6 +19,24 @@ const (
 	inferencePolicyOwner           = "@steventohme"
 )
 
+// precompactionSummarizerModels is the reviewed set the compaction cascade may
+// summarize with, in default preference order. It includes every Anthropic
+// non-low catalog model so a session's warm pin can summarize its own history.
+var precompactionSummarizerModels = []string{
+	"claude-sonnet-4-6",
+	"claude-fable-5",
+	"claude-sonnet-4-5",
+	"claude-sonnet-5",
+	"claude-opus-4-0",
+	"claude-opus-4-1",
+	"claude-opus-4-5",
+	"claude-opus-4-6",
+	"claude-opus-4-7",
+	"claude-opus-4-8",
+	"claude-opus-5",
+	"claude-fable-5-1",
+}
+
 // FallbackSpec declares the only fallback family and fixed alternatives a policy permits.
 type FallbackSpec struct {
 	Kind         FallbackKind `json:"kind"`
@@ -481,23 +499,23 @@ func defaultPolicySpecs() []PolicySpec {
 			Purpose:            PurposePrecompactionSummary,
 			DispatchClass:      DispatchClassAuxiliaryInference,
 			PolicyID:           "aux-precompaction-summary",
-			PolicyRevision:     "1",
+			PolicyRevision:     "2",
 			Owner:              inferencePolicyOwner,
-			Rationale:          "Preserve elided task state with the current context-window-aware summarizer cascade before local trim rescue.",
+			Rationale:          "Preserve elided task state with the context-window-aware summarizer cascade before local trim rescue: the session's warm Anthropic pin when it is a reviewed non-low model, else the deployment compaction model, else the large-window model.",
 			SelectionStrategy:  SelectionStrategyFixedCatalog,
 			CandidateSource:    CandidateSourceFixedCatalog,
-			FixedCatalogModels: []string{"claude-sonnet-4-6", "claude-fable-5"},
+			FixedCatalogModels: precompactionSummarizerModels,
 			HardConstraints:    []Constraint{ConstraintCatalogBinding, ConstraintContextWindow, ConstraintCredentialScope, ConstraintModelExclusions, ConstraintProviderExclusions, ConstraintTenant},
 			OverridePrecedence: []OverrideSource{OverrideSourceSession, OverrideSourceDeployment, OverrideSourcePolicyDefault},
 			Budget:             BudgetSpec{Source: BudgetSourcePolicy, MaxAttempts: 1, TimeoutMillis: 90_000, MaxOutputTokens: 4_000},
 			Fallback:           FallbackSpec{Kind: FallbackKindLocalRecovery},
-			MigrationStatus:    MigrationStatusLegacyDirect,
+			MigrationStatus:    MigrationStatusExecutor,
 		},
 		{
 			Purpose:            PurposeCompactionHandoverSummary,
 			DispatchClass:      DispatchClassAuxiliaryInference,
 			PolicyID:           "aux-compaction-handover-summary",
-			PolicyRevision:     "1",
+			PolicyRevision:     "2",
 			Owner:              inferencePolicyOwner,
 			Rationale:          "Restore task state after client history trimming; failure keeps the client's remaining history unchanged.",
 			SelectionStrategy:  SelectionStrategyFixedCatalog,
@@ -507,7 +525,7 @@ func defaultPolicySpecs() []PolicySpec {
 			OverridePrecedence: []OverrideSource{OverrideSourceSession, OverrideSourceDeployment, OverrideSourcePolicyDefault},
 			Budget:             BudgetSpec{Source: BudgetSourcePolicy, MaxAttempts: 1, TimeoutMillis: 90_000, MaxOutputTokens: 4_000},
 			Fallback:           FallbackSpec{Kind: FallbackKindFullHistory},
-			MigrationStatus:    MigrationStatusLegacyDirect,
+			MigrationStatus:    MigrationStatusExecutor,
 		},
 		hardPinPolicy(PurposeTitleGeneration, "aux-title-generation", "Keep hidden title-generation calls cheap and isolated from the main session pin."),
 		hardPinPolicy(PurposeClassifier, "aux-classifier", "Serve client classifier turns without contaminating the main session pin."),
@@ -556,7 +574,7 @@ func defaultPolicySpecs() []PolicySpec {
 			OverridePrecedence: []OverrideSource{OverrideSourceClientAuthoritative},
 			Budget:             BudgetSpec{Source: BudgetSourcePolicy, MaxAttempts: 1, TimeoutMillis: 5_000},
 			Fallback:           FallbackSpec{Kind: FallbackKindLocalRecovery},
-			MigrationStatus:    MigrationStatusLegacyDirect,
+			MigrationStatus:    MigrationStatusExecutor,
 		},
 		{
 			Purpose:            PurposeUpstreamModelListing,

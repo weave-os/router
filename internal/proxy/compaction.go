@@ -5,12 +5,14 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/handover"
+	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/router/turntype"
 	"weave-os/router/internal/translate"
@@ -95,7 +97,7 @@ func compactionPolicyFor(clientApp string) compactionPolicy {
 // *ProviderSummarizer; declared here so the Service depends on the behavior,
 // not the concrete type.
 type CompactionSummarizer interface {
-	SummarizeForCompaction(ctx context.Context, env *translate.RequestEnvelope, model string, maxTokens int) (string, handover.Usage, error)
+	SummarizeForCompaction(ctx context.Context, env *translate.RequestEnvelope, target CompactionTarget, maxTokens int) (string, handover.Usage, error)
 	Provider() string
 }
 
@@ -166,10 +168,14 @@ func (s *Service) compactionModelOrDefault() string {
 	return DefaultCompactionModel
 }
 
-// anthropicSummarizerEligible reports whether model is a catalog model the
-// Anthropic-only ProviderSummarizer can dispatch to, and is not a low-tier
-// model (a low-tier summary is what the cascade is moving away from).
+// anthropicSummarizerEligible reports whether model is a reviewed member of
+// the precompaction-summary policy: an Anthropic-served, non-low-tier catalog
+// model the cascade may reuse as a warm-pin summarizer.
 func anthropicSummarizerEligible(model string) bool {
+	spec, ok := policy.DefaultRegistry().Spec(policy.PurposePrecompactionSummary)
+	if !ok || !slices.Contains(spec.FixedCatalogModels, model) {
+		return false
+	}
 	m, ok := catalog.ByID(model)
 	if !ok || m.Tier == catalog.TierLow {
 		return false
@@ -180,6 +186,20 @@ func anthropicSummarizerEligible(model string) bool {
 		}
 	}
 	return false
+}
+
+// compactionTargetFor types the cascade's chosen summarizer model by where the
+// choice came from, so the policy resolver can validate it as a session or
+// deployment override rather than an untyped string.
+func (s *Service) compactionTargetFor(model, preferred string) CompactionTarget {
+	switch model {
+	case preferred:
+		return CompactionTarget{CatalogID: model, Source: policy.OverrideSourceSession}
+	case s.compactionModelOrDefault():
+		return CompactionTarget{CatalogID: model, Source: policy.OverrideSourceDeployment}
+	default:
+		return CompactionTarget{CatalogID: model}
+	}
 }
 
 // compactionSummarizerCandidates orders the models the cascade may summarize
@@ -386,7 +406,7 @@ func (s *Service) runCompactionSummary(ctx context.Context, env *translate.Reque
 		summCtx = clearCredentials(ctx)
 	}
 
-	summary, usage, err := s.compactionSummarizer.SummarizeForCompaction(summCtx, env, model, DefaultCompactionMaxTokens)
+	summary, usage, err := s.compactionSummarizer.SummarizeForCompaction(summCtx, env, s.compactionTargetFor(model, preferred), DefaultCompactionMaxTokens)
 	if err != nil {
 		log.Warn("Compaction summarizer failed; falling back to trim", "err", err, "model", model)
 		return "", handover.Usage{}, "", false
