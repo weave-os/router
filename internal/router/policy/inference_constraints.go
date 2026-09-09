@@ -91,7 +91,7 @@ func constraintViolation(constraint Constraint, request router.Request, budget B
 			return fmt.Sprintf("provider %q has no catalog or custom binding for the model", binding.Provider)
 		}
 	case ConstraintContextWindow:
-		if required := requiredContextTokens(request); required > catalog.ContextWindowFor(binding.CatalogID) {
+		if !bindingFitsContext(request, binding.CatalogID, binding.Provider) {
 			return "request does not fit the model context window"
 		}
 	case ConstraintModelExclusions:
@@ -120,4 +120,11 @@ func constraintViolation(constraint Constraint, request router.Request, budget B
 		}
 	}
 	return ""
+}
+
+func bindingFitsContext(request router.Request, model, provider string) bool {
+	if request.DispatchContext != nil && request.DispatchContext.FitsBinding != nil {
+		return request.DispatchContext.FitsBinding(model, provider)
+	}
+	return requiredContextTokens(request) <= catalog.ContextWindowFor(model)
 }

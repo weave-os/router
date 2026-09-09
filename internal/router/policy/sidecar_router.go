@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"slices"
+	"strings"
 	"sync"
 
 	"github.com/google/uuid"
@@ -182,6 +183,33 @@ func (r *SidecarRouter) PreviewRoute(ctx context.Context, req router.Request) (P
 	return result, nil
 }
 
+// ValidateRankedFallback checks classifier ordering and optional posterior consistency.
+func ValidateRankedFallback(ranked []PreviewGroup, probabilities map[string]float64) error {
+	if len(ranked) == 0 {
+		return fmt.Errorf("policy sidecar returned no ranked fallback")
+	}
+	seen := make(map[string]struct{}, len(ranked))
+	for index, group := range ranked {
+		if strings.TrimSpace(group.Group) == "" || math.IsNaN(group.Probability) || group.Probability < 0 || group.Probability > 1 {
+			return fmt.Errorf("invalid ranked fallback at index %d", index)
+		}
+		if _, duplicate := seen[group.Group]; duplicate {
+			return fmt.Errorf("duplicate fallback class %q", group.Group)
+		}
+		seen[group.Group] = struct{}{}
+		if index > 0 && ranked[index-1].Probability < group.Probability {
+			return fmt.Errorf("fallback groups are not deterministically ranked")
+		}
+		if probabilities != nil {
+			probability, ok := probabilities[group.Group]
+			if !ok || math.IsNaN(probability) || math.Abs(group.Probability-probability) > 1e-9 {
+				return fmt.Errorf("fallback probability mismatch for class %q", group.Group)
+			}
+		}
+	}
+	return nil
+}
+
 func validatePreviewResult(result PreviewResult, expectedSchemaVersion string) error {
 	if result.SchemaVersion != expectedSchemaVersion {
 		return fmt.Errorf("unsupported schema %q", result.SchemaVersion)
@@ -236,20 +264,13 @@ func validatePreviewResult(result PreviewResult, expectedSchemaVersion string) e
 	for index, className := range result.ClassOrder {
 		classRank[className] = index
 	}
-	seenFallback := make(map[string]struct{}, len(result.RankedFallback))
+	if err := ValidateRankedFallback(result.RankedFallback, result.ClassProbabilities); err != nil {
+		return err
+	}
 	for index, fallback := range result.RankedFallback {
-		probability, ok := result.ClassProbabilities[fallback.Group]
-		if !ok || math.Abs(fallback.Probability-probability) > 1e-9 {
-			return fmt.Errorf("fallback probability mismatch for class %q", fallback.Group)
-		}
-		if _, duplicate := seenFallback[fallback.Group]; duplicate {
-			return fmt.Errorf("duplicate fallback class %q", fallback.Group)
-		}
-		seenFallback[fallback.Group] = struct{}{}
 		if index > 0 {
 			previous := result.RankedFallback[index-1]
-			if previous.Probability < fallback.Probability ||
-				(previous.Probability == fallback.Probability && classRank[previous.Group] > classRank[fallback.Group]) {
+			if previous.Probability == fallback.Probability && classRank[previous.Group] > classRank[fallback.Group] {
 				return fmt.Errorf("fallback groups are not deterministically ranked")
 			}
 		}
@@ -290,6 +311,10 @@ func (r *SidecarRouter) Route(ctx context.Context, req router.Request) (router.D
 			append([]any{"strategy", strategy}, candidateLogFields(resolved)...)...)
 		return router.Decision{}, fmt.Errorf("%s: no eligible candidate: %w: %w",
 			strategy, emptyCandidateError(resolved.Diagnostics), r.config.Unavailable)
+	}
+	if router.IsHMMStrategy(strategy) && router.UserTextIndex(req.ConversationMessages) < 0 && req.TranslationRequirements.Endpoint != "" {
+		observability.FromContext(ctx).Warn("Policy classification evidence unavailable", "strategy", strategy, "endpoint", req.TranslationRequirements.Endpoint, "policy_failure", FailureEvidence)
+		return router.Decision{}, fmt.Errorf("%s: classification evidence unavailable: %w: %w", strategy, &DependencyError{Reason: FailureEvidence}, r.config.Unavailable)
 	}
 	requestRouteID := uuid.NewString()
 	res, err := r.decider.Decide(ctx, Query{

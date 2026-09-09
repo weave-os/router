@@ -6,6 +6,10 @@ Root guide for AI agents in the `router/` subproject. Covers cross-cutting desig
 
 ## Engineering principles
 
+HMM serving resilience is defined in [POLICY_RECOVERY.md](docs/POLICY_RECOVERY.md):
+reject failed classifier output, independently authorize recovery, preserve hard
+request constraints and keep evaluations strict.
+
 - **Patterns of Enterprise Application Architecture** (Fowler)
 - **Designing Data-Intensive Applications** (Kleppmann)
 - **Design Patterns** (GoF)

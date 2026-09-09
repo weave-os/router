@@ -64,3 +64,16 @@ func TestReadinessCheckerWithoutHMM(t *testing.T) {
 }
 
 var _ admin.HealthChecker = readinessChecker{}
+
+func TestReadinessReportsDegradedOnlyWithAuthorizedRecovery(t *testing.T) {
+	for _, recoveryReady := range []bool{false, true} {
+		checker := readinessChecker{database: databasePingerFunc(func(context.Context) error { return nil }), hmm: unavailablePolicyHealth{}, recoveryReady: recoveryReady}
+		degraded, err := checker.CheckReadiness(context.Background())
+		assert.Equal(t, recoveryReady, degraded)
+		if recoveryReady {
+			require.NoError(t, err)
+		} else {
+			require.ErrorContains(t, err, "primary policy is not configured")
+		}
+	}
+}

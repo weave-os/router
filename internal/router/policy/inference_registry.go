@@ -80,6 +80,7 @@ type PolicySpec struct {
 	OverridePrecedence []OverrideSource  `json:"override_precedence"`
 	Budget             BudgetSpec        `json:"budget"`
 	Fallback           FallbackSpec      `json:"fallback"`
+	ServingRecovery    bool              `json:"serving_recovery,omitempty"`
 	MigrationStatus    MigrationStatus   `json:"migration_status"`
 }
 
@@ -182,6 +183,9 @@ func validatePolicySpecs(specs []PolicySpec) error {
 		}
 		if !validDispatchClass(spec.DispatchClass) || !validSelectionStrategy(spec.SelectionStrategy) || !validCandidateSource(spec.CandidateSource) || !validBudgetSource(spec.Budget.Source) || !validFallbackKind(spec.Fallback.Kind) || !validMigrationStatus(spec.MigrationStatus) {
 			return fmt.Errorf("policy %q contains an invalid typed value", spec.PolicyID)
+		}
+		if spec.ServingRecovery && spec.DispatchClass != DispatchClassMainInference {
+			return fmt.Errorf("policy %q permits serving recovery outside main inference", spec.PolicyID)
 		}
 		if spec.SelectionStrategy == SelectionStrategyFixedCatalog && len(spec.FixedCatalogModels) == 0 {
 			return fmt.Errorf("fixed policy %q has no catalog models", spec.PolicyID)
@@ -477,6 +481,7 @@ func defaultPolicySpecs() []PolicySpec {
 			OverridePrecedence: append([]OverrideSource(nil), mainOverrides...),
 			Budget:             BudgetSpec{Source: BudgetSourceRequest},
 			Fallback:           FallbackSpec{Kind: FallbackKindBinding},
+			ServingRecovery:    true,
 			MigrationStatus:    status,
 		}
 	}
@@ -515,10 +520,10 @@ func defaultPolicySpecs() []PolicySpec {
 	}
 
 	return []PolicySpec{
-		mainPolicy(PurposeAnthropicMessages, "main-anthropic-messages", "3", MigrationStatusExecutor, "Select an eligible catalog binding for Anthropic Messages while preserving request semantics and tenant boundaries."),
-		mainPolicy(PurposeOpenAIChatCompletions, "main-openai-chat-completions", "3", MigrationStatusExecutor, "Select an eligible catalog binding for OpenAI Chat Completions while preserving request semantics and tenant boundaries."),
-		mainPolicy(PurposeOpenAIResponses, "main-openai-responses", "3", MigrationStatusExecutor, "Select an eligible catalog binding and compatible endpoint for OpenAI Responses requests."),
-		mainPolicy(PurposeGeminiGenerateContent, "main-gemini-generate-content", "3", MigrationStatusExecutor, "Select an eligible catalog binding for Gemini Generate Content while preserving native URL and body semantics."),
+		mainPolicy(PurposeAnthropicMessages, "main-anthropic-messages", "4", MigrationStatusExecutor, "Select an eligible catalog binding for Anthropic Messages while preserving request semantics and tenant boundaries."),
+		mainPolicy(PurposeOpenAIChatCompletions, "main-openai-chat-completions", "4", MigrationStatusExecutor, "Select an eligible catalog binding for OpenAI Chat Completions while preserving request semantics and tenant boundaries."),
+		mainPolicy(PurposeOpenAIResponses, "main-openai-responses", "4", MigrationStatusExecutor, "Select an eligible catalog binding and compatible endpoint for OpenAI Responses requests."),
+		mainPolicy(PurposeGeminiGenerateContent, "main-gemini-generate-content", "4", MigrationStatusExecutor, "Select an eligible catalog binding for Gemini Generate Content while preserving native URL and body semantics."),
 		{
 			Purpose:            PurposeHandoverSummary,
 			DispatchClass:      DispatchClassAuxiliaryInference,

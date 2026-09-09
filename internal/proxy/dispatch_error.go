@@ -337,8 +337,8 @@ func ClassifyDispatchError(err error) (DispatchErrorClass, bool) {
 		return DispatchErrorClass{
 			Kind:       DispatchErrorHMMUnavailable,
 			Status:     http.StatusServiceUnavailable,
-			Message:    "Router unavailable: HMM policy router failed and no fallback is configured.",
-			RetryAfter: true,
+			Message:    "Routing unavailable: classification failed and no authorized recovery target could serve this request. Use X-Request-Id when reporting this error.",
+			RetryAfter: false,
 			LogLevel:   "error",
 			LogMessage: "HMM routing unavailable",
 		}, true

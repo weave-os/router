@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"weave-os/router/internal/inference"
+	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
@@ -233,6 +234,16 @@ func (s *Service) dispatchWithFallback(ctx context.Context, in failoverInputs) (
 		}
 		return -1, &providers.UpstreamStatusError{Status: http.StatusBadGateway}
 	}
+	if in.initialDecision.Recovery != nil {
+		plan, err := recoveryPlan(in.initialDecision, in.purpose)
+		if err != nil {
+			observability.FromContext(ctx).Error("Recovery dispatch plan validation failed",
+				"model", in.initialDecision.Model, "provider", in.initialDecision.Provider,
+				"purpose", in.purpose, "err", err)
+			return -1, err
+		}
+		return s.dispatchPlanned(ctx, in, plan)
+	}
 	plans, err := s.inferencePlans()
 	if err != nil {
 		return -1, err
@@ -294,6 +305,15 @@ func (s *Service) shouldFailover(ctx context.Context) bool {
 // When failover is disabled or unavailable, returns a single-element
 // slice carrying the already-resolved decision provider.
 func (s *Service) resolveBindingsForDispatch(ctx context.Context, decision router.Decision) []catalog.ProviderBinding {
+	if decision.Recovery != nil {
+		plan := decision.Recovery.Plans[0]
+		targets := append([]inference.Target{plan.SelectedTarget()}, plan.AlternativeTargets()...)
+		bindings := make([]catalog.ProviderBinding, 0, len(targets))
+		for _, target := range targets {
+			bindings = append(bindings, catalog.ProviderBinding{Provider: target.Provider, UpstreamID: target.UpstreamID})
+		}
+		return bindings
+	}
 	primary := catalog.ProviderBinding{Provider: decision.Provider}
 	if !s.shouldFailover(ctx) {
 		return []catalog.ProviderBinding{primary}

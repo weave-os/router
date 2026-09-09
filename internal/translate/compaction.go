@@ -58,26 +58,6 @@ func (e *RequestEnvelope) RewriteForCompaction(summary string, keepRecentTurns i
 	}
 }
 
-// userAlignedStart returns the index at which to begin a recent-message window
-// of size keepRecent drawn from msgs, advanced forward to the first user
-// message so the window starts on a user turn. Falls back to the last user
-// message's index when the window contains none.
-func userAlignedStart(msgs []gjson.Result, keepRecent int) int {
-	start := max(len(msgs)-keepRecent, 0)
-	for start < len(msgs) && msgs[start].Get("role").String() != "user" {
-		start++
-	}
-	if start >= len(msgs) {
-		for i := len(msgs) - 1; i >= 0; i-- {
-			if msgs[i].Get("role").String() == "user" {
-				return i
-			}
-		}
-		return len(msgs)
-	}
-	return start
-}
-
 func (e *RequestEnvelope) clearOldToolResultsAnthropic(keepRecent int) int {
 	msgs := gjson.GetBytes(e.body, "messages")
 	if !msgs.IsArray() {
@@ -279,8 +259,7 @@ func (e *RequestEnvelope) rewriteAnthropicForCompaction(summary string, keepRece
 	if len(all) == 0 {
 		return 0
 	}
-	start := userAlignedStart(all, keepRecent)
-	cleaned, _ := stripOrphanedAnthropicToolResults(all[start:])
+	cleaned, _ := stripOrphanedAnthropicToolResults(e.taskPreservingWindow(all, keepRecent))
 	rebuilt := append([]string{anthropicAssistantSummaryBlock(summary)}, cleaned...)
 	elided := max(len(all)-len(cleaned), 0)
 	return e.setMessages(rebuilt, elided)
@@ -307,9 +286,9 @@ func (e *RequestEnvelope) rewriteOpenAIForCompaction(summary string, keepRecent 
 	if len(others) == 0 {
 		return 0
 	}
-	start := userAlignedStart(others, keepRecent)
-	keptRaw := make([]string, 0, len(others)-start)
-	for _, m := range others[start:] {
+	kept := e.taskPreservingWindow(others, keepRecent)
+	keptRaw := make([]string, 0, len(kept))
+	for _, m := range kept {
 		keptRaw = append(keptRaw, m.Raw)
 	}
 	cleaned := stripOrphanedOpenAIToolMessages(keptRaw)
@@ -330,8 +309,7 @@ func (e *RequestEnvelope) rewriteGeminiForCompaction(summary string, keepRecent 
 	if len(all) == 0 {
 		return 0
 	}
-	start := userAlignedStart(all, keepRecent)
-	kept := stripLeadingGeminiOrphanFunctionResponses(all[start:])
+	kept := stripLeadingGeminiOrphanFunctionResponses(e.taskPreservingWindow(all, keepRecent))
 
 	tagged := HandoverSummaryTag + summary
 	summaryEntry := map[string]any{

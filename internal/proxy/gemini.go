@@ -35,6 +35,7 @@ var ErrGeminiCrossFormatUnsupported = errors.New("gemini cross-format emit not i
 // and "stream" (true for :streamGenerateContent) fields into body before
 // calling; both are stripped before forwarding upstream.
 func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w http.ResponseWriter, r *http.Request) error {
+	ctx = withServingPolicyContext(ctx, r)
 	if managedSubscriptionEnrollmentUnavailable(ctx) {
 		return ErrSubscriptionPoolUnavailable
 	}
@@ -120,6 +121,7 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 		outputReserve = feats.MaxTokens
 	}
 	maxEligibleWindow := s.maxEligibleContextWindow(excluded, enabledProviders, env.SignatureTokenSavings())
+	classificationMessages := conversationMessagesForRouting(env)
 	compRes, compErr := s.maybeCompact(ctx, env, compactionInput{
 		TurnType:       turntype.DetectFromEnvelope(env, feats, subAgentHint),
 		OutputReserve:  outputReserve,
@@ -151,17 +153,19 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 		)
 	}
 
+	recordClassificationEvidence(ctx, classificationMessages, feats.MessageCount)
 	routeRequest := router.Request{
 		RequestedModel:               feats.Model,
 		ForceCluster:                 forceCluster,
 		EstimatedInputTokens:         feats.Tokens,
+		DispatchContext:              &router.DispatchContext{InputTokens: env.ContextOverflowTokenEstimate(), OutputReserve: outputReserve, SignatureSavings: env.SignatureTokenSavings()},
 		HasTools:                     feats.HasTools,
 		HasImages:                    feats.HasImages,
 		TranslationRequirements:      env.TranslationRequirements(router.EndpointGeminiGenerate),
 		ReasoningConfigurationSHA256: env.ReasoningConfigurationSHA256(),
 		ToolConfigurationSHA256:      env.ToolConfigurationSHA256(),
 		PromptText:                   promptText,
-		ConversationMessages:         conversationMessagesForRouting(env),
+		ConversationMessages:         classificationMessages,
 		AvailableTools:               availableToolsForRouting(env),
 		Tools:                        toolsForRouting(env),
 		HistoryTruncated:             compRes.Applied,
@@ -258,13 +262,7 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 	}
 	effortServed := s.resolveEffort(ctx, decision, opts.Capabilities, routeRes.EscalateEffort)
 	effortServed.apply(&opts)
-	ctx = resolveAndInjectCredentials(ctx, decision.Provider, decision.Model, r.Header)
-
-	prep, emitErr := env.PrepareGemini(r.Header, opts)
-	if emitErr != nil {
-		log.Error("Failed to emit Gemini body", "err", emitErr)
-		return fmt.Errorf("emit body: %w", emitErr)
-	}
+	ctx = resolveRecoveryCredentials(ctx, decision, r.Header)
 
 	proxyStart := time.Now()
 	inferenceParentCtx := ctx
@@ -286,6 +284,18 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 	marker := suppressMarkerIfRequested(ctx, r.Header, routingMarkerFor(routeRes))
 	bindings := s.resolveBindingsForDispatch(ctx, decision)
 	attempt := func(actx context.Context, d router.Decision, p providers.Client) error {
+		attemptOpts := opts
+		attemptOpts.TargetModel = d.Model
+		attemptOpts.TargetProvider = d.Provider
+		attemptOpts.Capabilities = router.Lookup(d.Model)
+		attemptOpts.ModelSwitched = d.Model != opts.TargetModel
+		effortServed = s.resolveEffort(actx, d, attemptOpts.Capabilities, routeRes.EscalateEffort)
+		effortServed.apply(&attemptOpts)
+		prep, err := env.PrepareGemini(r.Header, attemptOpts)
+		if err != nil {
+			log.Error("Failed to prepare Gemini attempt", "err", err, "model", d.Model, "provider", d.Provider)
+			return err
+		}
 		attemptSink := http.ResponseWriter(preludeBuf)
 		if marker != "" {
 			mw := translate.NewGeminiRoutingMarkerWriter(attemptSink, marker)
@@ -298,7 +308,7 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 			proxySink = extractor
 		}
 		preludeBuf.Seal()
-		err := p.Proxy(actx, d, prep, proxySink, r)
+		err = p.Proxy(actx, d, prep, proxySink, r)
 		if err == nil && env.Stream() && !preludeBuf.Committed() {
 			return translate.ErrStreamEmpty
 		}
@@ -307,22 +317,42 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 		}
 		return err
 	}
-	winnerIdx, proxyErr := s.dispatchWithFallback(ctx, failoverInputs{
-		w:               contentSink,
-		buf:             preludeBuf,
-		initialDecision: decision,
-		bindings:        bindings,
-		attempt:         attempt,
-		flushErr:        flushBufferedIfPresent,
-		purpose:         routeRes.dispatchPurpose(inference.PurposeGeminiGenerateContent),
-		origin:          routeRes.dispatchOrigin(decision),
-	})
-	proxyMs := time.Since(proxyStart).Milliseconds()
 	primaryProvider := decision.Provider
-	finalProvider := primaryProvider
+	var winnerIdx int
+	var proxyErr error
+	for {
+		next, recoveryAvailable := nextRecoveryDecision(decision)
+		winnerIdx, proxyErr = s.dispatchWithFallback(ctx, failoverInputs{
+			w:                      contentSink,
+			buf:                    preludeBuf,
+			initialDecision:        decision,
+			bindings:               bindings,
+			attempt:                attempt,
+			flushErr:               flushBufferedIfPresent,
+			deferFlushOnExhaustion: recoveryAvailable,
+			purpose:                routeRes.dispatchPurpose(inference.PurposeGeminiGenerateContent),
+			origin:                 routeRes.dispatchOrigin(decision),
+		})
+		if proxyErr == nil || preludeBuf.Committed() {
+			break
+		}
+		if ctx.Err() != nil || !recoveryAvailable || !recoveryRetryable(proxyErr) {
+			if recoveryAvailable {
+				flushBufferedIfPresent(contentSink, proxyErr)
+			}
+			break
+		}
+		decision = next
+		ctx = resolveRecoveryCredentials(ctx, decision, r.Header)
+		bindings = s.resolveBindingsForDispatch(ctx, decision)
+		marker = suppressMarkerIfRequested(ctx, r.Header, siblingRoutingMarkerFor(routeRes, decision.Model))
+	}
+	proxyMs := time.Since(proxyStart).Milliseconds()
+	finalProvider := decision.Provider
 	if winnerIdx >= 0 && winnerIdx < len(bindings) {
 		finalProvider = bindings[winnerIdx].Provider
 	}
+	recordRecoveryOutcome(ctx, decision, proxyErr)
 	finishInferenceSpan(inferenceSpan, decision, finalProvider, winnerIdx, proxyErr)
 	ctx = restoreParentSpan(ctx, inferenceParentCtx)
 	decision.Provider = finalProvider
@@ -379,7 +409,9 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 
 	// Persist last-turn usage to the pin row so the next turn's planner
 	// has cache-hit evidence. Off the request path; drops on saturation.
-	s.recordTurnUsage(ctx, routeRes, finalProvider, decision.ServedIdentity(), in, out, cacheCreation, cacheRead)
+	if proxyErr == nil || !routeRes.PolicyFallback {
+		s.recordTurnUsage(ctx, routeRes, finalProvider, decision.ServedIdentity(), in, out, cacheCreation, cacheRead)
+	}
 
 	if installationID != uuid.Nil {
 		credentialKeyPrefix, credentialKeySuffix, credentialSource := s.credentialKeyParts(ctx)

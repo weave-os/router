@@ -26,7 +26,7 @@ All inner-ring — except `cluster/`, which is the adapter-tier exception: it do
 3. **Add compile-time check:** `var _ router.Router = (*X)(nil)`.
 4. **Wire in `../../cmd/router/main.go`** (replacing, wrapping, or registering it as needed).
 5. **If the impl needs CGO or external libs**, follow the build-tag pattern in `cluster/embedder_onnx.go` + `embedder_stub.go` so contributors without the library can still `go test` locally.
-6. **Failure modes return errors, not silent fallbacks.** The cluster scorer's `ErrClusterUnavailable` → HTTP 503 pattern is the model: silent fallback to a default model masks regressions + lets quality silently degrade in eval + prod.
+6. **Classifier faults remain errors.** The serving layer may independently authorize local HMM recovery through `policy.PlanResolver.ResolveRecovery`; failed output is never authority. Shadow/evaluation remains strict. See [recovery contract](../../docs/POLICY_RECOVERY.md).
 
 ## Invariants
 

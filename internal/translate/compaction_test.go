@@ -163,7 +163,7 @@ func TestRewriteForCompaction_Gemini_KeepsSummaryModelTurn(t *testing.T) {
 	assert.Contains(t, string(e.body), "u2 latest")
 }
 
-func TestRewriteForCompaction_Gemini_StripsOrphanedFunctionResponse(t *testing.T) {
+func TestRewriteForCompaction_Gemini_PreservesBoundaryCallAndResponse(t *testing.T) {
 	body := `{"contents":[` +
 		`{"role":"user","parts":[{"text":"u1 old"}]},` +
 		`{"role":"model","parts":[{"functionCall":{"name":"read","args":{}}}]},` +
@@ -176,20 +176,18 @@ func TestRewriteForCompaction_Gemini_StripsOrphanedFunctionResponse(t *testing.T
 	e, err := ParseGemini([]byte(body))
 	require.NoError(t, err)
 
-	// Window starts at the user turn carrying the "read" response; its
-	// functionCall is elided, so that part must go while "ls" stays paired.
+	// A window beginning on a result expands to retain its call.
 	e.RewriteForCompaction("GSUM", 5)
 	contents := gjson.GetBytes(e.body, "contents").Array()
-	require.Len(t, contents, 6)
+	require.Len(t, contents, 7)
 	assert.Equal(t, "model", contents[0].Get("role").String())
-	head := contents[1]
-	assert.Equal(t, "user", head.Get("role").String())
-	assert.False(t, head.Get(`parts.#(functionResponse)`).Exists(), "orphaned functionResponse must be stripped")
-	assert.Equal(t, "also text", head.Get("parts.0.text").String())
-	assert.True(t, contents[3].Get(`parts.#(functionResponse)`).Exists(), "paired functionResponse kept")
+	assert.Equal(t, "read", contents[1].Get("parts.0.functionCall.name").String())
+	assert.Equal(t, "read", contents[2].Get("parts.0.functionResponse.name").String())
+	assert.Equal(t, "also text", contents[2].Get("parts.1.text").String())
+	assert.Equal(t, "ls", contents[4].Get("parts.0.functionResponse.name").String())
 }
 
-func TestTrimLastNMessages_Gemini_DropsHeadLeftWithOnlyOrphanResponse(t *testing.T) {
+func TestTrimLastNMessages_Gemini_PreservesCompleteBoundaryPair(t *testing.T) {
 	body := `{"contents":[` +
 		`{"role":"user","parts":[{"text":"u1"}]},` +
 		`{"role":"model","parts":[{"functionCall":{"name":"ls","args":{}}}]},` +
@@ -201,9 +199,10 @@ func TestTrimLastNMessages_Gemini_DropsHeadLeftWithOnlyOrphanResponse(t *testing
 	require.NoError(t, err)
 
 	elided := e.TrimLastNMessages(3)
-	assert.Equal(t, 3, elided)
+	assert.Equal(t, 1, elided)
 	contents := gjson.GetBytes(e.body, "contents").Array()
-	require.Len(t, contents, 2)
-	assert.Equal(t, "m2", contents[0].Get("parts.0.text").String())
-	assert.NotContains(t, string(e.body), "functionResponse")
+	require.Len(t, contents, 4)
+	assert.Equal(t, "ls", contents[0].Get("parts.0.functionCall.name").String())
+	assert.Equal(t, "ls", contents[1].Get("parts.0.functionResponse.name").String())
+	assert.Equal(t, "u3 latest", contents[3].Get("parts.0.text").String())
 }

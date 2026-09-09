@@ -57,7 +57,7 @@ func TestGoogleIDTokenClientAuthenticatesEveryEndpoint(t *testing.T) {
 	require.NoError(t, client.ReportOutcome(context.Background(), map[string]any{"route_id": "route-1"}))
 	require.NoError(t, client.ReportFeedback(context.Background(), map[string]any{"route_id": "route-1"}))
 
-	assert.Equal(t, []string{"/readyz", "/capabilities", "/route", "/outcome", "/feedback"}, paths)
+	assert.Equal(t, []string{"/readyz", "/capabilities", "/capabilities", "/route", "/outcome", "/feedback"}, paths)
 }
 
 func TestNewGoogleIDTokenRejectsEmptySidecarURL(t *testing.T) {

@@ -323,7 +323,7 @@ func (r *Resolver) Resolve(req router.Request) ResolvedCandidates {
 			continue
 		}
 		contextWindow := catalog.ContextWindowFor(id)
-		if requiredContextTokens(req) > contextWindow {
+		if (req.DispatchContext == nil || req.DispatchContext.FitsBinding == nil) && requiredContextTokens(req) > contextWindow {
 			diagnostics = append(diagnostics, Diagnostic{CatalogID: id, RosterID: rosterID, Reason: ExclusionContextWindow})
 			continue
 		}
@@ -485,6 +485,9 @@ type candidateContext struct {
 func (r *Resolver) appendCandidates(base []eligibleCandidate, ctx candidateContext, bindings []catalog.IndexedBinding) []eligibleCandidate {
 	expanded := make([]Candidate, 0, len(bindings))
 	for _, binding := range bindings {
+		if !bindingFitsContext(ctx.req, ctx.catalogID, binding.Provider) {
+			continue
+		}
 		upstreamID := catalog.UpstreamIDFor(ctx.catalogID, binding.UpstreamID)
 		modelRevision := upstreamID
 		armID := ctx.rosterID
@@ -531,6 +534,9 @@ func (r *Resolver) appendCandidates(base []eligibleCandidate, ctx candidateConte
 				SupportsImages: ctx.model.ImageInput != catalog.ImageInputUnsupported,
 			},
 		})
+	}
+	if len(expanded) == 0 {
+		return base
 	}
 	resolvedBindings := make([]resolvedBinding, len(expanded))
 	for index, candidate := range expanded {

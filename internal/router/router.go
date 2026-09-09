@@ -98,6 +98,8 @@ type Request struct {
 	// with a typed error rather than silently ignoring.
 	ForceCluster         string
 	EstimatedInputTokens int
+	// DispatchContext measures the effective provider envelope, independently of classifier evidence.
+	DispatchContext *DispatchContext
 	// OrganizationID and InstallationID are opaque external identifiers used
 	// to correlate policy decisions with rollout and privacy state.
 	OrganizationID string
@@ -131,6 +133,8 @@ type Request struct {
 	// PolicyTurnContext carries persisted, content-free state from the turn
 	// orchestrator. Nil keeps older policy clients wire-compatible.
 	PolicyTurnContext *PolicyTurnContext
+	// RecoveryPreviousModel comes only from a live, successfully served session record.
+	RecoveryPreviousModel string
 	// HistoryTruncated records deterministic ingress rewrites that happened
 	// before the turn orchestrator could build PolicyTurnContext.
 	HistoryTruncated bool
@@ -270,6 +274,8 @@ type Decision struct {
 	Reason string
 	// Nil for non-content-aware routers; nil-check before dereferencing.
 	Metadata *RoutingMetadata
+	// Recovery carries independently authorized serving plans, never classifier output.
+	Recovery *ServingRecovery `json:"-"`
 }
 
 // ServedIdentity returns the model identity to persist and compare across

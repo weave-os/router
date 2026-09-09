@@ -235,6 +235,9 @@ func (e *Executor) Run(ctx context.Context, req inference.InvocationRequest, pla
 		retryStart := e.now()
 		var attemptErr error
 		for sb := 0; ; sb++ {
+			if err := ctx.Err(); err != nil {
+				return fail(err, FailureReasonCanceled)
+			}
 			attempt.SameBindingRetry = sb
 			attemptCtx := ctx
 			if transport.Prepare != nil {

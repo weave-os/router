@@ -11,6 +11,7 @@ import (
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/policy"
@@ -33,20 +34,25 @@ func (s *Service) inferencePlans() (*policy.PlanResolver, error) {
 	}
 	var err error
 	s.defaultPlansOnce.Do(func() {
+		availableProviders := s.clients.NameSet()
+		deployedModels := s.availableModels
+		if deployedModels == nil {
+			deployedModels = catalog.HMMRoutingTargetSet(availableProviders)
+		}
 		var plans *policy.PlanResolver
 		plans, err = policy.NewPlanResolver(policy.DefaultRegistry(), policy.NewResolver(
-			nil, nil, func(model catalog.Model) string { return model.ID }, policy.ProviderPolicy{}))
+			deployedModels, availableProviders, func(model catalog.Model) string { return model.ID }, policy.ProviderPolicy{}))
 		if err == nil {
-			s.plans = plans
+			s.defaultPlans = plans
 		}
 	})
 	if err != nil {
 		return nil, fmt.Errorf("inference plan resolver: %w", err)
 	}
-	if s.plans == nil {
+	if s.defaultPlans == nil {
 		return nil, errors.New("inference plan resolver unavailable")
 	}
-	return s.plans, nil
+	return s.defaultPlans, nil
 }
 
 // inferenceExecutor returns the wired executor, or one built over the
@@ -62,15 +68,15 @@ func (s *Service) inferenceExecutor() (*dispatch.Executor, error) {
 		if s.retrySleep != nil {
 			opts = append(opts, dispatch.WithSleep(s.retrySleep))
 		}
-		s.executor, err = dispatch.NewExecutor(s.clients, opts...)
+		s.defaultExecutor, err = dispatch.NewExecutor(s.clients, opts...)
 	})
-	if s.executor == nil {
+	if s.defaultExecutor == nil {
 		if err == nil {
 			err = errors.New("dispatch executor unavailable")
 		}
 		return nil, err
 	}
-	return s.executor, nil
+	return s.defaultExecutor, nil
 }
 
 // routedOrigin names the override source that fixed a routed decision's
@@ -121,6 +127,9 @@ func (s *Service) dispatchPlanned(ctx context.Context, in failoverInputs, plan i
 			if attempt.Index == 0 {
 				return ctx, nil
 			}
+			if in.initialDecision.Recovery != nil {
+				ctx = requestcontext.WithCredentials(ctx, nil)
+			}
 			// Fallback attempts re-resolve credentials against an empty header
 			// set: shouldFailover() already ruled out BYOK/client-credential
 			// paths, so the only source left is the deployment env key.
@@ -134,12 +143,19 @@ func (s *Service) dispatchPlanned(ctx context.Context, in failoverInputs, plan i
 		// transient error on it still gets the same-binding retries.
 		Bound: func(dispatch.Attempt, error) bool { return managedBinding },
 	}
+	var attemptBudget *inference.AttemptBudget
+	if in.initialDecision.Recovery != nil {
+		attemptBudget = in.initialDecision.Recovery.Budget
+	}
 	transport.Attempt = func(attemptCtx context.Context, attempt dispatch.Attempt, client providers.Client) error {
 		decision := in.initialDecision
 		decision.Provider = attempt.Target.Provider
-		guarded := dispatch.GuardTarget(client, attempt.Target)
+		guarded := dispatch.GuardTarget(client, attempt.Target, attemptBudget)
 		retryStart := s.clockNow()
 		for account := 0; ; account++ {
+			if err := attemptCtx.Err(); err != nil {
+				return err
+			}
 			if !committed(in.buf) {
 				in.w.Header().Set(HeaderRouterProvider, decision.Provider)
 				in.w.Header().Set(HeaderRouterModel, decision.Model)

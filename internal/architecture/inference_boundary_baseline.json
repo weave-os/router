@@ -147,14 +147,14 @@
       "removal_phase": "8"
     },
     {
-      "id": "target_construction|internal/proxy/service.go|Service.policyDeadlineDefaultDecision|router.Decision|1",
+      "id": "target_construction|internal/proxy/policy_recovery.go|recoveryDecision|router.Decision|1",
       "kind": "target_construction",
-      "file": "internal/proxy/service.go",
-      "line": 5040,
-      "symbol": "Service.policyDeadlineDefaultDecision",
+      "file": "internal/proxy/policy_recovery.go",
+      "line": 91,
+      "symbol": "recoveryDecision",
       "detail": "provider=<dynamic> model=<dynamic>",
       "owner": "@steventohme",
-      "rationale": "Existing policy-deadline compatibility fallback remains until failure behavior is represented by a resolved plan.",
+      "rationale": "Projects an already authorized recovery plan into the proxy compatibility decision; dispatch verifies the same immutable target and purpose before execution.",
       "operation_class": "main_inference",
       "removal_phase": "8"
     },

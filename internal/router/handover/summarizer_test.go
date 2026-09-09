@@ -219,11 +219,10 @@ func TestTrimLastN_NilEnvelopeReturnsZero(t *testing.T) {
 	assert.Equal(t, 0, got)
 }
 
-func TestTrimLastN_StripsOrphanedAnthropicToolResults(t *testing.T) {
+func TestTrimLastN_PreservesBoundaryAnthropicToolPair(t *testing.T) {
 	t.Parallel()
 
-	// TrimLastN(3) keeps the last 3, starting with a tool_result whose
-	// matching tool_use gets trimmed away.
+	// A result at the trim boundary retains its matching call.
 	const body = `{
   "model": "claude-opus-4-7",
   "messages": [
@@ -238,20 +237,19 @@ func TestTrimLastN_StripsOrphanedAnthropicToolResults(t *testing.T) {
 	require.NoError(t, err)
 
 	elided := handover.TrimLastN(env, 3)
-	assert.Equal(t, 2, elided)
+	assert.Equal(t, 1, elided)
 
 	prep, err := env.PrepareAnthropic(nil, translate.EmitOptions{TargetModel: "claude-opus-4-7"})
 	require.NoError(t, err)
 	msgs := gjson.GetBytes(prep.Body, "messages").Array()
 
-	// The orphaned tool_result user message should be stripped entirely,
-	// leaving only [assistant "done", user "next question"].
-	require.Len(t, msgs, 2)
-	assert.Equal(t, "assistant", msgs[0].Get("role").String())
-	assert.Equal(t, "done", msgs[0].Get("content").String())
-	assert.Equal(t, "user", msgs[1].Get("role").String())
+	require.Len(t, msgs, 4)
+	assert.Equal(t, "t1", msgs[0].Get("content.0.id").String())
+	assert.Equal(t, "t1", msgs[1].Get("content.0.tool_use_id").String())
+	assert.Equal(t, "done", msgs[2].Get("content").String())
+	assert.Equal(t, "user", msgs[3].Get("role").String())
 	// Content may be promoted to an array with a cache_control marker.
-	c := msgs[1].Get("content")
+	c := msgs[3].Get("content")
 	if c.IsArray() {
 		assert.Equal(t, "next question", c.Get("0.text").String())
 	} else {
@@ -291,7 +289,7 @@ func TestTrimLastN_PreservesMatchedToolResults(t *testing.T) {
 	assert.Equal(t, "t2", msgs[2].Get("content.0.tool_use_id").String())
 }
 
-func TestTrimLastN_StripsOrphanedOpenAIToolMessages(t *testing.T) {
+func TestTrimLastN_PreservesBoundaryOpenAIToolPair(t *testing.T) {
 	t.Parallel()
 
 	const body = `{
@@ -309,18 +307,18 @@ func TestTrimLastN_StripsOrphanedOpenAIToolMessages(t *testing.T) {
 	require.NoError(t, err)
 
 	elided := handover.TrimLastN(env, 3)
-	assert.Equal(t, 2, elided)
+	assert.Equal(t, 1, elided)
 
 	prep, err := env.PrepareOpenAI(nil, translate.EmitOptions{TargetModel: "gpt-5"})
 	require.NoError(t, err)
 	msgs := gjson.GetBytes(prep.Body, "messages").Array()
 
-	// system preserved + orphaned tool message stripped → [system, assistant, user]
-	require.Len(t, msgs, 3)
+	require.Len(t, msgs, 5)
 	assert.Equal(t, "system", msgs[0].Get("role").String())
-	assert.Equal(t, "assistant", msgs[1].Get("role").String())
-	assert.Equal(t, "here you go", msgs[1].Get("content").String())
-	assert.Equal(t, "user", msgs[2].Get("role").String())
+	assert.Equal(t, "tc1", msgs[1].Get("tool_calls.0.id").String())
+	assert.Equal(t, "tc1", msgs[2].Get("tool_call_id").String())
+	assert.Equal(t, "here you go", msgs[3].Get("content").String())
+	assert.Equal(t, "user", msgs[4].Get("role").String())
 }
 
 func TestRewriteEnvelope_StripsToolResultsFromLatestUser(t *testing.T) {
@@ -513,7 +511,7 @@ func TestTrimLastN_ThenPrepareGemini_NoEmptyFunctionResponseName(t *testing.T) {
 
 	// Now translate to Gemini — this is the path that produced the 400.
 	prep, err := env.PrepareGemini(http.Header{}, translate.EmitOptions{
-		TargetModel:  "gemini-3.1-flash-lite-preview",
+		TargetModel:  "gemini-2.5-flash",
 		Capabilities: router.ModelSpec{},
 	})
 	require.NoError(t, err)

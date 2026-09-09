@@ -39,6 +39,13 @@ The provider-backed `Summarizer` implementation for handover lives in [`handover
 
 ## Proactive context-window compaction
 
+Capture classification evidence before mutating the provider envelope. Rescue
+trimming and summary rewrites preserve the newest semantic user task and recent
+tool exchanges. Fit recovery targets against the full effective dispatch
+envelope. HMM dependency failures use independently resolved local plans on all
+serving surfaces; never run baseline overrides on those plans or turn failed
+recovery into a sticky pin. See [recovery contract](../../docs/POLICY_RECOVERY.md).
+
 `ProxyMessages` / `ProxyOpenAIChatCompletion` / `ProxyGeminiGenerateContent` call [`maybeCompact`](compaction.go) before routing. At `ROUTER_COMPACTION_PCT` (default 0.85) of the largest eligible context window, the cascade clears old tool results, attempts a structured Anthropic summary, then progressively trims. It returns `ErrContextWindowExceeded` (HTTP 413) if the trimmed history still cannot fit. Summary inference is billed separately as `_precompaction_summary`.
 
 Summary selection tries the active Anthropic session family, `ROUTER_COMPACTION_MODEL` (default `claude-sonnet-5`), then the large-window `claude-opus-5` family. Each resolves to its newest eligible catalog version using numeric family/version comparison; model variants stay separate. Selection honors context fit and model exclusions. Auxiliary summaries use their dedicated Anthropic client independently of the ordinary routing pool. Claude Code defers to its own compaction while the pool can serve its requested window; other harnesses use the router cascade. Native Responses bytes are not rewritten.

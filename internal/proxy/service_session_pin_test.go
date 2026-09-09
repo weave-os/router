@@ -811,7 +811,8 @@ func TestService_HMMFeedbackKeyUsesClientSessionBeforeCompaction(t *testing.T) {
 	require.NotNil(t, fr.capturedReq)
 	assert.Equal(t, beforeKey, fr.capturedReq.FeedbackKey)
 	assert.NotEqual(t, afterKey, fr.capturedReq.FeedbackKey)
-	assert.Equal(t, "latest request", fr.capturedReq.ConversationMessages[0].Text)
+	require.Len(t, fr.capturedReq.ConversationMessages, 3)
+	assert.Equal(t, "latest request", fr.capturedReq.ConversationMessages[2].Text)
 }
 
 func TestService_HMMFeedbackKeyOpenAIUsesClientSessionBeforeCompaction(t *testing.T) {
@@ -856,7 +857,8 @@ func TestService_HMMFeedbackKeyOpenAIUsesClientSessionBeforeCompaction(t *testin
 	require.NotNil(t, fr.capturedReq)
 	assert.Equal(t, beforeKey, fr.capturedReq.FeedbackKey)
 	assert.NotEqual(t, afterKey, fr.capturedReq.FeedbackKey)
-	assert.Equal(t, "latest request", fr.capturedReq.ConversationMessages[0].Text)
+	require.Len(t, fr.capturedReq.ConversationMessages, 3)
+	assert.Equal(t, "latest request", fr.capturedReq.ConversationMessages[2].Text)
 }
 
 func TestService_HardPin_ExploreFallsThroughWhenFlagOff(t *testing.T) {

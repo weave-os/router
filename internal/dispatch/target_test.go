@@ -6,20 +6,42 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"weave-os/router/internal/dispatch"
+	"weave-os/router/internal/inference"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 )
 
 func guardedProxy(t *testing.T, upstream *fakeUpstream, decision router.Decision, body string) error {
 	t.Helper()
-	guarded := dispatch.GuardTarget(upstream, primary)
+	guarded := dispatch.GuardTarget(upstream, primary, nil)
 	req := httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
 	return guarded.Proxy(context.Background(), decision, providers.PreparedRequest{Body: []byte(body)}, httptest.NewRecorder(), req)
+}
+
+func TestGuardTargetBoundsEverySendAcrossPlansAndInnerRetries(t *testing.T) {
+	upstream := &fakeUpstream{name: primary.Provider}
+	budget := &inference.AttemptBudget{Remaining: 2, Deadline: time.Now().Add(time.Minute)}
+	first := dispatch.GuardTarget(upstream, primary, budget)
+	second := dispatch.GuardTarget(upstream, primary, budget)
+	decision := router.Decision{Model: primary.CatalogID, Provider: primary.Provider}
+	request := httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+	for _, client := range []providers.Client{first, first} {
+		require.NoError(t, client.Proxy(context.Background(), decision, providers.PreparedRequest{}, httptest.NewRecorder(), request))
+	}
+	err := second.Proxy(context.Background(), decision, providers.PreparedRequest{}, httptest.NewRecorder(), request)
+	assert.ErrorContains(t, err, dispatch.FailureReasonAttemptBudget)
+	assert.Equal(t, []string{primary.CatalogID, primary.CatalogID}, upstream.models)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	err = dispatch.GuardTarget(upstream, primary, nil).Proxy(ctx, decision, providers.PreparedRequest{}, httptest.NewRecorder(), request)
+	assert.ErrorIs(t, err, context.Canceled)
+	assert.Len(t, upstream.models, 2)
 }
 
 func TestGuardTarget_ForwardsMatchingRequest(t *testing.T) {

@@ -31,8 +31,9 @@ func (e *RequestEnvelope) RewriteForHandover(summary string) int {
 	}
 }
 
-// TrimLastNMessages keeps the most recent n non-system messages plus system
-// blocks. Falls back to n=3 when n <= 0. Returns the number elided.
+// TrimLastNMessages keeps the recent tail, current user task and complete tool
+// exchanges. n is a soft limit; callers must check the resulting context size.
+// Falls back to n=3 when n <= 0. Returns the number elided.
 func (e *RequestEnvelope) TrimLastNMessages(n int) int {
 	if e == nil {
 		return 0
@@ -127,7 +128,7 @@ func (e *RequestEnvelope) trimAnthropicLastN(n int) int {
 	if len(all) <= n {
 		return 0
 	}
-	keep := all[len(all)-n:]
+	keep := e.taskPreservingWindow(all, n)
 	rebuilt, _ := stripOrphanedAnthropicToolResults(keep)
 	newMessages := "[" + strings.Join(rebuilt, ",") + "]"
 	out, err := sjson.SetRawBytes(e.body, "messages", []byte(newMessages))
@@ -135,7 +136,7 @@ func (e *RequestEnvelope) trimAnthropicLastN(n int) int {
 		return 0
 	}
 	e.body = out
-	return len(all) - n
+	return len(all) - len(rebuilt)
 }
 
 // rewriteOpenAIForHandover preserves role=="system" messages and replaces
@@ -222,18 +223,22 @@ func (e *RequestEnvelope) trimOpenAILastN(n int) int {
 		return 0
 	}
 	systems := make([]string, 0)
-	others := make([]string, 0, len(all))
+	others := make([]gjson.Result, 0, len(all))
 	for _, m := range all {
 		if m.Get("role").String() == "system" {
 			systems = append(systems, m.Raw)
 			continue
 		}
-		others = append(others, m.Raw)
+		others = append(others, m)
 	}
 	if len(others) <= n {
 		return 0
 	}
-	keep := others[len(others)-n:]
+	window := e.taskPreservingWindow(others, n)
+	keep := make([]string, 0, len(window))
+	for _, message := range window {
+		keep = append(keep, message.Raw)
+	}
 	cleaned := stripOrphanedOpenAIToolMessages(keep)
 	rebuilt := make([]string, 0, len(systems)+len(cleaned))
 	rebuilt = append(rebuilt, systems...)
@@ -244,7 +249,7 @@ func (e *RequestEnvelope) trimOpenAILastN(n int) int {
 		return 0
 	}
 	e.body = out
-	return len(others) - n
+	return len(others) - len(cleaned)
 }
 
 // rewriteGeminiForHandover mirrors the Anthropic path against Gemini's
@@ -302,7 +307,7 @@ func (e *RequestEnvelope) trimGeminiLastN(n int) int {
 	if len(all) <= n {
 		return 0
 	}
-	rebuilt := stripLeadingGeminiOrphanFunctionResponses(all[len(all)-n:])
+	rebuilt := stripLeadingGeminiOrphanFunctionResponses(e.taskPreservingWindow(all, n))
 	newContents := "[" + strings.Join(rebuilt, ",") + "]"
 	out, err := sjson.SetRawBytes(e.body, "contents", []byte(newContents))
 	if err != nil {
@@ -310,6 +315,64 @@ func (e *RequestEnvelope) trimGeminiLastN(n int) int {
 	}
 	e.body = out
 	return len(all) - len(rebuilt)
+}
+
+func (e *RequestEnvelope) taskPreservingWindow(messages []gjson.Result, n int) []gjson.Result {
+	start := max(len(messages)-n, 0)
+	taskIndex := -1
+	for i, message := range messages {
+		role := message.Get("role").String()
+		if role != "user" && !(e.format == FormatGemini && role == "") {
+			continue
+		}
+		var text string
+		switch e.format {
+		case FormatAnthropic:
+			text = userPromptTextGJSON(message.Get("content"))
+		case FormatOpenAI:
+			text = openAIContentTextGJSON(message.Get("content"))
+		case FormatGemini:
+			text = geminiPartsText(message.Get("parts"))
+		}
+		semanticInput := strings.TrimSpace(text) != ""
+		message.Get("content").ForEach(func(_, block gjson.Result) bool {
+			switch block.Get("type").String() {
+			case "image", "image_url", "input_image", "document", "file", "input_file":
+				semanticInput = true
+			}
+			return true
+		})
+		message.Get("parts").ForEach(func(_, part gjson.Result) bool {
+			semanticInput = semanticInput || part.Get("inlineData").Exists() || part.Get("fileData").Exists()
+			return true
+		})
+		if semanticInput {
+			taskIndex = i
+		}
+	}
+	// A tail beginning with results must retain their preceding call batch.
+	for start > 0 {
+		message := messages[start]
+		hasResults := message.Get("role").String() == "tool" || message.Get("role").String() == "function"
+		message.Get("content").ForEach(func(_, block gjson.Result) bool {
+			hasResults = hasResults || block.Get("type").String() == "tool_result"
+			return true
+		})
+		message.Get("parts").ForEach(func(_, part gjson.Result) bool {
+			hasResults = hasResults || part.Get("functionResponse").Exists()
+			return true
+		})
+		if !hasResults {
+			break
+		}
+		start--
+	}
+	if taskIndex >= 0 && taskIndex < start {
+		kept := make([]gjson.Result, 0, len(messages)-start+1)
+		kept = append(kept, messages[taskIndex])
+		return append(kept, messages[start:]...)
+	}
+	return messages[start:]
 }
 
 // stripOrphanedAnthropicToolResults drops tool_result blocks whose tool_use_id

@@ -311,7 +311,8 @@ func TestProxyOpenAIResponses_CyberRefusalRetriesOnlyOnce(t *testing.T) {
 	defer anthropicServer.Close()
 
 	svc := cyberRefusalService(openAIServer.URL, anthropicServer.URL, "test", newFakePinStore(), newCaptureTelemetry())
-	proxyResponsesTurn(t, svc)
+	response := proxyResponsesTurn(t, svc)
+	assert.Equal(t, 1, strings.Count(response.Body.String(), `"type":"response.failed"`), response.Body.String())
 
 	openAIHits, anthropicHits := upstreams.counts()
 	assert.Equal(t, 1, openAIHits)

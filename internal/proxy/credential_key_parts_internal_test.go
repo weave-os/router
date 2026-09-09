@@ -2,7 +2,11 @@ package proxy
 
 import (
 	"context"
+	"net/http"
 	"testing"
+
+	"weave-os/router/internal/providers"
+	"weave-os/router/internal/router"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -23,6 +27,17 @@ func TestCredentialKeyParts_DeploymentKeyTurnIsEmpty(t *testing.T) {
 	assert.Empty(t, prefixNil)
 	assert.Empty(t, suffixNil)
 	assert.Empty(t, srcNil)
+}
+
+func TestRecoveryWinningDeploymentCredentialClearsFailedSubscription(t *testing.T) {
+	ctx := ctxWithCreds(&Credentials{APIKey: []byte("synthetic-subscription"), Source: credSourceSubscription, OAuth: true})
+	winner := router.Decision{Provider: providers.ProviderOpenAI, Model: "gpt-5.6-luna", Recovery: &router.ServingRecovery{}}
+	served := resolveRecoveryCredentials(ctx, winner, http.Header{})
+	assert.False(t, servedOnSubscription(served))
+	prefix, suffix, source := (&Service{}).credentialKeyParts(served)
+	assert.Empty(t, prefix)
+	assert.Empty(t, suffix)
+	assert.Empty(t, source)
 }
 
 func TestCredentialKeyParts_RecordsPrefixSuffixAndSource(t *testing.T) {

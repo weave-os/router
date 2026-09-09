@@ -2,7 +2,6 @@ package proxy
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"net/http"
 	"testing"
@@ -28,8 +27,7 @@ var policyDeadlineTestErr = fmt.Errorf(
 	hmm.ErrHMMUnavailable,
 )
 
-// policyContractViolationTestErr mirrors a contract violation (sidecar_router.go:367/370): wraps
-// ErrHMMUnavailable without a deadline/cancel, so isPolicyDeadlineErr must return false.
+// policyContractViolationTestErr preserves the classifier contract fault for recovery diagnostics.
 var policyContractViolationTestErr = fmt.Errorf(
 	"hmm_embedding: sidecar returned unknown arm %q or model %q: %w",
 	"bogus-arm", "bogus-model",
@@ -44,59 +42,6 @@ type erroringTestRouter struct {
 
 func (r *erroringTestRouter) Route(_ context.Context, _ router.Request) (router.Decision, error) {
 	return router.Decision{}, r.err
-}
-
-func TestIsPolicyDeadlineErr(t *testing.T) {
-	tests := []struct {
-		name string
-		err  error
-		want bool
-	}{
-		{
-			name: "nil error",
-			err:  nil,
-			want: false,
-		},
-		{
-			name: "deadline exceeded wrapping ErrHMMUnavailable",
-			err:  policyDeadlineTestErr,
-			want: true,
-		},
-		{
-			name: "context canceled wrapping ErrHMMUnavailable",
-			err: fmt.Errorf("hmm_embedding: sidecar decide: %w: %w",
-				context.Canceled, hmm.ErrHMMUnavailable),
-			want: true,
-		},
-		{
-			name: "contract violation (unknown arm) must still fail closed",
-			err:  policyContractViolationTestErr,
-			want: false,
-		},
-		{
-			name: "contract violation (provider mismatch) must still fail closed",
-			err: fmt.Errorf("hmm_embedding: sidecar returned provider %q for %q, expected %q: %w",
-				"openai", "claude-opus-4-7", "anthropic", hmm.ErrHMMUnavailable),
-			want: false,
-		},
-		{
-			name: "ErrHMMUnavailable without a deadline/cancel is not a deadline error",
-			err:  fmt.Errorf("hmm_embedding: sidecar unavailable: %w", hmm.ErrHMMUnavailable),
-			want: false,
-		},
-		{
-			name: "unrelated error",
-			err:  errors.New("boom"),
-			want: false,
-		},
-	}
-
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			got := isPolicyDeadlineErr(test.err)
-			assert.Equal(t, test.want, got)
-		})
-	}
 }
 
 // buildPolicyDeadlineFallbackService constructs a *Service wired with an
@@ -162,8 +107,6 @@ func runPolicyDeadlineFallbackTurnLoop(
 	return svc.runTurnLoop(ctx, env, features, "api-key", uuid.New(), "", http.Header{}, req)
 }
 
-// TestTurnLoop_DeadlineFallbackToPin covers T5: with a pin present and the
-// fallback enabled, a deadline error degrades to the pin instead of a 503.
 func TestTurnLoop_DeadlineFallbackToPin(t *testing.T) {
 	strategy := router.Strategy("policy-deadline-fallback-pin-test")
 	const pinnedModel = "claude-sonnet-4-6"
@@ -188,25 +131,17 @@ func TestTurnLoop_DeadlineFallbackToPin(t *testing.T) {
 	require.NoError(t, err, "a policy deadline miss with a pin present must serve, not error")
 	assert.Equal(t, pinnedModel, result.Decision.Model)
 	assert.Equal(t, pinnedProvider, result.Decision.Provider)
-	assert.Equal(t, policyDeadlineFallbackReason, result.Decision.Reason)
-	assert.True(t, result.StickyHit)
+	assert.Equal(t, policyRecoveryReason, result.Decision.Reason)
+	assert.False(t, result.StickyHit)
 	assert.True(t, result.PolicyFallback)
-	assert.Equal(t, policyDeadlineFallbackReason, result.PinTier)
+	assert.Equal(t, policyRecoveryReason, result.PinTier)
 
-	// The pin must be refreshed, not silently left to expire.
 	store.mu.Lock()
-	upserts := append([]sessionpin.Pin(nil), store.upserts...)
-	store.mu.Unlock()
-	require.NotEmpty(t, upserts)
-	assert.Equal(t, pinnedModel, upserts[len(upserts)-1].Model)
-	assert.Equal(t, store.getPin.Reason, upserts[len(upserts)-1].Reason,
-		"the persisted pin must keep its hmm_policy reason so later turns still see an HMM pin")
+	defer store.mu.Unlock()
+	assert.Empty(t, store.upserts, "classification recovery must not persist an unserved target")
 }
 
-// TestTurnLoop_DeadlineFallbackDefaultExcludedFailsClosed proves the tier-3
-// default honours this turn's exclusions instead of serving (and pinning) a
-// model the request forbids.
-func TestTurnLoop_DeadlineFallbackDefaultExcludedFailsClosed(t *testing.T) {
+func TestTurnLoop_RecoverySkipsExcludedPreference(t *testing.T) {
 	strategy := router.Strategy("policy-deadline-fallback-default-excluded-test")
 	const defaultModel = "claude-haiku-4-5"
 
@@ -215,10 +150,11 @@ func TestTurnLoop_DeadlineFallbackDefaultExcludedFailsClosed(t *testing.T) {
 
 	svc := buildPolicyDeadlineFallbackService(t, strategy, policyDeadlineTestErr, store, true, defaultModel)
 
-	_, err := runPolicyDeadlineFallbackTurnLoop(t, svc, strategy, defaultModel)
+	result, err := runPolicyDeadlineFallbackTurnLoop(t, svc, strategy, defaultModel)
 
-	require.Error(t, err, "an excluded tier-3 default must fail closed, not be served")
-	assert.ErrorIs(t, err, hmm.ErrHMMUnavailable)
+	require.NoError(t, err)
+	assert.NotEqual(t, defaultModel, result.Decision.Model)
+	require.NotNil(t, result.Decision.Recovery)
 
 	store.mu.Lock()
 	upserts := append([]sessionpin.Pin(nil), store.upserts...)
@@ -226,8 +162,6 @@ func TestTurnLoop_DeadlineFallbackDefaultExcludedFailsClosed(t *testing.T) {
 	assert.Empty(t, upserts, "an excluded model must never be persisted as a pin")
 }
 
-// TestTurnLoop_DeadlineFallbackToTierThreeDefault covers the pinless branch:
-// no session pin yet, but a tier-3 static default model is configured.
 func TestTurnLoop_DeadlineFallbackToTierThreeDefault(t *testing.T) {
 	strategy := router.Strategy("policy-deadline-fallback-default-test")
 	const defaultModel = "claude-haiku-4-5"
@@ -242,20 +176,17 @@ func TestTurnLoop_DeadlineFallbackToTierThreeDefault(t *testing.T) {
 	require.NoError(t, err, "a policy deadline miss with a configured tier-3 default must serve, not error")
 	assert.Equal(t, defaultModel, result.Decision.Model)
 	assert.Equal(t, providers.ProviderAnthropic, result.Decision.Provider)
-	assert.Equal(t, policyDeadlineDefaultReason, result.Decision.Reason)
+	assert.Equal(t, policyRecoveryReason, result.Decision.Reason)
 	assert.False(t, result.StickyHit, "the tier-3 default is a fresh pin, not a sticky reuse")
 	assert.True(t, result.PolicyFallback)
-	assert.Equal(t, policyDeadlineFallbackReason, result.PinTier)
+	assert.Equal(t, policyRecoveryReason, result.PinTier)
 
 	store.mu.Lock()
 	upserts := append([]sessionpin.Pin(nil), store.upserts...)
 	store.mu.Unlock()
-	require.NotEmpty(t, upserts, "the tier-3 default decision must be written as a new pin")
-	assert.Equal(t, defaultModel, upserts[len(upserts)-1].Model)
+	assert.Empty(t, upserts, "an unserved recovery decision must not become a session pin")
 }
 
-// TestTurnLoop_DeadlineFallbackNoPinNoDefault covers the last rung: no pin,
-// no tier-3 default configured — must still fail closed with a 503-mapping error.
 func TestTurnLoop_DeadlineFallbackNoPinNoDefault(t *testing.T) {
 	strategy := router.Strategy("policy-deadline-fallback-no-default-test")
 
@@ -264,14 +195,35 @@ func TestTurnLoop_DeadlineFallbackNoPinNoDefault(t *testing.T) {
 
 	svc := buildPolicyDeadlineFallbackService(t, strategy, policyDeadlineTestErr, store, true, "")
 
-	_, err := runPolicyDeadlineFallbackTurnLoop(t, svc, strategy)
+	result, err := runPolicyDeadlineFallbackTurnLoop(t, svc, strategy)
 
-	require.Error(t, err, "no pin and no tier-3 default must preserve the 503 (fail closed)")
-	assert.ErrorIs(t, err, hmm.ErrHMMUnavailable)
+	require.NoError(t, err)
+	require.NotNil(t, result.Decision.Recovery)
+	assert.NotEmpty(t, result.Decision.Model)
 }
 
-// TestTurnLoop_DeadlineFallbackKillSwitchOff proves ROUTER_POLICY_DEADLINE_FALLBACK=false
-// preserves the 503 even with a pin present.
+func TestRouteOnlyPreservesStrictEvaluationHeaders(t *testing.T) {
+	for _, header := range []string{"", "x-weave-cluster-version", "x-weave-embed-only-user-message"} {
+		t.Run(header, func(t *testing.T) {
+			strategy := router.Strategy("route-recovery-contract")
+			svc := buildPolicyDeadlineFallbackService(t, strategy, policyContractViolationTestErr, nil, true, "claude-haiku-4-5")
+			headers := http.Header{}
+			if header != "" {
+				headers.Set(header, "synthetic")
+			}
+			decision, err := svc.RouteAnthropicRequest(router.WithStrategy(context.Background(), strategy), []byte(`{"model":"claude-opus-4-8","max_tokens":2048,"messages":[{"role":"user","content":"Synthetic task"}]}`), headers)
+			if header != "" {
+				assert.ErrorIs(t, err, hmm.ErrHMMUnavailable)
+				assert.Nil(t, decision.Recovery)
+			} else {
+				require.NoError(t, err)
+				assert.Equal(t, "claude-haiku-4-5", decision.Model)
+				require.NotNil(t, decision.Recovery)
+			}
+		})
+	}
+}
+
 func TestTurnLoop_DeadlineFallbackKillSwitchOff(t *testing.T) {
 	strategy := router.Strategy("policy-deadline-fallback-killswitch-test")
 	const pinnedModel = "claude-sonnet-4-6"
@@ -296,9 +248,7 @@ func TestTurnLoop_DeadlineFallbackKillSwitchOff(t *testing.T) {
 	assert.ErrorIs(t, err, hmm.ErrHMMUnavailable)
 }
 
-// TestTurnLoop_DeadlineFallbackContractViolationStillFailsClosed: contract violations must never
-// degrade even with fallback enabled — serving one would write a wrong route ledger.
-func TestTurnLoop_DeadlineFallbackContractViolationStillFailsClosed(t *testing.T) {
+func TestTurnLoop_ContractFailureUsesIndependentRecovery(t *testing.T) {
 	strategy := router.Strategy("policy-deadline-fallback-contract-violation-test")
 	const pinnedModel = "claude-sonnet-4-6"
 
@@ -316,8 +266,11 @@ func TestTurnLoop_DeadlineFallbackContractViolationStillFailsClosed(t *testing.T
 
 	svc := buildPolicyDeadlineFallbackService(t, strategy, policyContractViolationTestErr, store, true, "claude-haiku-4-5")
 
-	_, err := runPolicyDeadlineFallbackTurnLoop(t, svc, strategy)
+	result, err := runPolicyDeadlineFallbackTurnLoop(t, svc, strategy)
 
-	require.Error(t, err, "a contract violation must fail closed even with fallback enabled, a pin, and a tier-3 default")
-	assert.ErrorIs(t, err, hmm.ErrHMMUnavailable)
+	require.NoError(t, err)
+	assert.Equal(t, pinnedModel, result.Decision.Model)
+	assert.Nil(t, result.Decision.Metadata, "recovery must not fabricate HMM metadata")
+	require.NotNil(t, result.Decision.Recovery)
+	assert.ErrorIs(t, result.Decision.Recovery.Failure, hmm.ErrHMMUnavailable)
 }
