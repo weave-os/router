@@ -1,6 +1,6 @@
 {
   "schema_version": "inference_policy_registry_v2",
-  "registry_revision": "sha256:8a927943d13586fc8c602d73c2d5a2d000a814c5db1afa1762cddc32d7e5cc63",
+  "registry_revision": "sha256:1f958b46e70df13034de693ffa9c30715c66730c71f125f8eb94b1d1ebb46a13",
   "policies": [
     {
       "purpose": "agent_shadow_evaluation",
@@ -231,7 +231,7 @@
       "purpose": "gemini_generate_content",
       "dispatch_class": "main_inference",
       "policy_id": "main-gemini-generate-content",
-      "policy_revision": "2",
+      "policy_revision": "3",
       "owner": "@steventohme",
       "rationale": "Select an eligible catalog binding for Gemini Generate Content while preserving native URL and body semantics.",
       "selection_strategy": "router",
@@ -266,7 +266,7 @@
       "fallback": {
         "kind": "binding"
       },
-      "migration_status": "legacy_direct"
+      "migration_status": "executor"
     },
     {
       "purpose": "handover_summary",
@@ -328,7 +328,7 @@
       "purpose": "openai_chat_completions",
       "dispatch_class": "main_inference",
       "policy_id": "main-openai-chat-completions",
-      "policy_revision": "2",
+      "policy_revision": "3",
       "owner": "@steventohme",
       "rationale": "Select an eligible catalog binding for OpenAI Chat Completions while preserving request semantics and tenant boundaries.",
       "selection_strategy": "router",
@@ -363,13 +363,13 @@
       "fallback": {
         "kind": "binding"
       },
-      "migration_status": "legacy_direct"
+      "migration_status": "executor"
     },
     {
       "purpose": "openai_responses",
       "dispatch_class": "main_inference",
       "policy_id": "main-openai-responses",
-      "policy_revision": "2",
+      "policy_revision": "3",
       "owner": "@steventohme",
       "rationale": "Select an eligible catalog binding and compatible endpoint for OpenAI Responses requests.",
       "selection_strategy": "router",
@@ -404,7 +404,7 @@
       "fallback": {
         "kind": "binding"
       },
-      "migration_status": "legacy_direct"
+      "migration_status": "executor"
     },
     {
       "purpose": "policy_sidecar_decision",

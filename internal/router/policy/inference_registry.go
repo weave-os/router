@@ -497,9 +497,9 @@ func defaultPolicySpecs() []PolicySpec {
 
 	return []PolicySpec{
 		mainPolicy(PurposeAnthropicMessages, "main-anthropic-messages", "3", MigrationStatusExecutor, "Select an eligible catalog binding for Anthropic Messages while preserving request semantics and tenant boundaries."),
-		mainPolicy(PurposeOpenAIChatCompletions, "main-openai-chat-completions", "2", MigrationStatusLegacyDirect, "Select an eligible catalog binding for OpenAI Chat Completions while preserving request semantics and tenant boundaries."),
-		mainPolicy(PurposeOpenAIResponses, "main-openai-responses", "2", MigrationStatusLegacyDirect, "Select an eligible catalog binding and compatible endpoint for OpenAI Responses requests."),
-		mainPolicy(PurposeGeminiGenerateContent, "main-gemini-generate-content", "2", MigrationStatusLegacyDirect, "Select an eligible catalog binding for Gemini Generate Content while preserving native URL and body semantics."),
+		mainPolicy(PurposeOpenAIChatCompletions, "main-openai-chat-completions", "3", MigrationStatusExecutor, "Select an eligible catalog binding for OpenAI Chat Completions while preserving request semantics and tenant boundaries."),
+		mainPolicy(PurposeOpenAIResponses, "main-openai-responses", "3", MigrationStatusExecutor, "Select an eligible catalog binding and compatible endpoint for OpenAI Responses requests."),
+		mainPolicy(PurposeGeminiGenerateContent, "main-gemini-generate-content", "3", MigrationStatusExecutor, "Select an eligible catalog binding for Gemini Generate Content while preserving native URL and body semantics."),
 		{
 			Purpose:            PurposeHandoverSummary,
 			DispatchClass:      DispatchClassAuxiliaryInference,

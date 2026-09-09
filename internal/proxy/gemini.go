@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"time"
 
+	"weave-os/router/internal/inference"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/observability/otel"
 	"weave-os/router/internal/providers"
@@ -304,6 +305,8 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 		bindings:        bindings,
 		attempt:         attempt,
 		flushErr:        flushBufferedIfPresent,
+		purpose:         inference.PurposeGeminiGenerateContent,
+		origin:          routedOrigin(decision, routeRes.HardPinned, stickyHit),
 	})
 	proxyMs := time.Since(proxyStart).Milliseconds()
 	finalProvider := decision.Provider
