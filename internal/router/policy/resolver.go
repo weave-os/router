@@ -126,10 +126,27 @@ type Binding struct {
 
 // ResolvedCandidates is the complete result of candidate resolution.
 type ResolvedCandidates struct {
-	Candidates  []Candidate
-	ByArmID     map[string]Binding
-	ByRosterID  map[string]Binding
-	Diagnostics []Diagnostic
+	Candidates          []Candidate
+	ByArmID             map[string]Binding
+	ByRosterID          map[string]Binding
+	Diagnostics         []Diagnostic
+	bindingsByCatalogID map[string][]resolvedBinding
+}
+
+// BindingsForCatalog returns every eligible provider binding for a catalog
+// model in catalog order. The returned slice is detached from resolver state.
+func (r ResolvedCandidates) BindingsForCatalog(catalogID string) []Binding {
+	resolvedBindings := r.bindingsByCatalogID[catalogID]
+	bindings := make([]Binding, len(resolvedBindings))
+	for index, resolvedBinding := range resolvedBindings {
+		bindings[index] = resolvedBinding.Binding
+	}
+	return bindings
+}
+
+type resolvedBinding struct {
+	Binding
+	estimatedCostUSD float64
 }
 
 // CandidateModels returns unique catalog IDs in first-candidate order.
@@ -261,6 +278,7 @@ func (r *Resolver) SchemaVersion() string {
 
 type eligibleCandidate struct {
 	Candidate
+	bindings []resolvedBinding
 }
 
 // Resolve applies request filters, provider policy, capability soft filters,
@@ -366,10 +384,11 @@ func (r *Resolver) Resolve(req router.Request) ResolvedCandidates {
 	}
 
 	resolved := ResolvedCandidates{
-		Candidates:  make([]Candidate, 0, len(base)),
-		ByArmID:     make(map[string]Binding, len(base)),
-		ByRosterID:  make(map[string]Binding, len(base)),
-		Diagnostics: diagnostics,
+		Candidates:          make([]Candidate, 0, len(base)),
+		ByArmID:             make(map[string]Binding, len(base)),
+		ByRosterID:          make(map[string]Binding, len(base)),
+		Diagnostics:         diagnostics,
+		bindingsByCatalogID: make(map[string][]resolvedBinding, len(base)),
 	}
 	ambiguousRosterIDs := make(map[string]struct{})
 	for _, candidate := range base {
@@ -382,18 +401,11 @@ func (r *Resolver) Resolve(req router.Request) ResolvedCandidates {
 			continue
 		}
 		resolved.Candidates = append(resolved.Candidates, candidate.Candidate)
-		binding := Binding{
-			ArmID:                        candidate.ArmID,
-			CatalogID:                    candidate.CatalogID,
-			Provider:                     candidate.Provider,
-			UpstreamID:                   candidate.UpstreamID,
-			BindingIndex:                 candidate.BindingIndex,
-			Endpoint:                     candidate.Endpoint,
-			ModelRevision:                candidate.ModelRevision,
-			ReasoningConfigurationSHA256: candidate.ReasoningConfigurationSHA256,
-			ToolConfigurationSHA256:      candidate.ToolConfigurationSHA256,
-		}
+		binding := bindingFromCandidate(candidate.Candidate)
 		resolved.ByArmID[candidate.ArmID] = binding
+		if _, recorded := resolved.bindingsByCatalogID[candidate.CatalogID]; !recorded {
+			resolved.bindingsByCatalogID[candidate.CatalogID] = append([]resolvedBinding(nil), candidate.bindings...)
+		}
 		if _, ambiguous := ambiguousRosterIDs[candidate.RosterID]; ambiguous {
 			continue
 		}
@@ -471,9 +483,7 @@ type candidateContext struct {
 }
 
 func (r *Resolver) appendCandidates(base []eligibleCandidate, ctx candidateContext, bindings []catalog.IndexedBinding) []eligibleCandidate {
-	if !r.enumerateBindings {
-		bindings = bindings[:1]
-	}
+	expanded := make([]Candidate, 0, len(bindings))
 	for _, binding := range bindings {
 		upstreamID := catalog.UpstreamIDFor(ctx.catalogID, binding.UpstreamID)
 		modelRevision := upstreamID
@@ -494,7 +504,7 @@ func (r *Resolver) appendCandidates(base []eligibleCandidate, ctx candidateConte
 			marginalCostFactor = factor
 		}
 		pricing := binding.Price.ForInputTokens(ctx.req.EstimatedInputTokens)
-		base = append(base, eligibleCandidate{Candidate: Candidate{
+		expanded = append(expanded, Candidate{
 			ArmID:                        armID,
 			RosterID:                     ctx.rosterID,
 			CatalogID:                    ctx.catalogID,
@@ -520,9 +530,36 @@ func (r *Resolver) appendCandidates(base []eligibleCandidate, ctx candidateConte
 				SupportsTools:  ctx.model.ToolUseQuality != catalog.ToolUseLow && ctx.model.AgenticUse != catalog.AgenticLow,
 				SupportsImages: ctx.model.ImageInput != catalog.ImageInputUnsupported,
 			},
-		}})
+		})
+	}
+	resolvedBindings := make([]resolvedBinding, len(expanded))
+	for index, candidate := range expanded {
+		resolvedBindings[index] = resolvedBinding{
+			Binding:          bindingFromCandidate(candidate),
+			estimatedCostUSD: candidate.EstimatedCostUSD,
+		}
+	}
+	if !r.enumerateBindings {
+		return append(base, eligibleCandidate{Candidate: expanded[0], bindings: resolvedBindings})
+	}
+	for _, candidate := range expanded {
+		base = append(base, eligibleCandidate{Candidate: candidate, bindings: resolvedBindings})
 	}
 	return base
+}
+
+func bindingFromCandidate(candidate Candidate) Binding {
+	return Binding{
+		ArmID:                        candidate.ArmID,
+		CatalogID:                    candidate.CatalogID,
+		Provider:                     candidate.Provider,
+		UpstreamID:                   candidate.UpstreamID,
+		BindingIndex:                 candidate.BindingIndex,
+		Endpoint:                     candidate.Endpoint,
+		ModelRevision:                candidate.ModelRevision,
+		ReasoningConfigurationSHA256: candidate.ReasoningConfigurationSHA256,
+		ToolConfigurationSHA256:      candidate.ToolConfigurationSHA256,
+	}
 }
 
 // gatewayBindings limits a model to the gateways whose key aliases it. A

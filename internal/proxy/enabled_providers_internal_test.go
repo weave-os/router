@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"testing"
+	"weave-os/router/internal/dispatch"
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/billing"
@@ -19,10 +20,10 @@ import (
 func TestEnabledProvidersForRequest_PassthroughIsSurfaceScoped(t *testing.T) {
 	s := &Service{
 		// Mimic selfhosted with no env keys, both passthrough-eligible.
-		providers: map[string]providers.Client{
+		clients: dispatch.NewClients(map[string]providers.Client{
 			providers.ProviderAnthropic: nil,
 			providers.ProviderOpenAI:    nil,
-		},
+		}),
 		deploymentKeyedProviders: map[string]struct{}{},
 		passthroughEligibleProviders: map[string]struct{}{
 			providers.ProviderAnthropic: {},
@@ -58,10 +59,10 @@ func TestEnabledProvidersForRequest_PassthroughIsSurfaceScoped(t *testing.T) {
 func TestEnabledProvidersForRequest_ExcludedProvidersSubtracted(t *testing.T) {
 	makeService := func() *Service {
 		return &Service{
-			providers: map[string]providers.Client{
+			clients: dispatch.NewClients(map[string]providers.Client{
 				providers.ProviderAnthropic: nil,
 				providers.ProviderOpenAI:    nil,
-			},
+			}),
 			deploymentKeyedProviders: map[string]struct{}{
 				providers.ProviderAnthropic: {},
 				providers.ProviderOpenAI:    {},
@@ -105,10 +106,10 @@ func TestEnabledProvidersForRequest_SubscriptionEnrollsAnthropic(t *testing.T) {
 	makeService := func() *Service {
 		return &Service{
 			byokOnly: true,
-			providers: map[string]providers.Client{
+			clients: dispatch.NewClients(map[string]providers.Client{
 				providers.ProviderAnthropic: nil,
 				providers.ProviderOpenAI:    nil,
-			},
+			}),
 			deploymentKeyedProviders:     map[string]struct{}{},
 			passthroughEligibleProviders: map[string]struct{}{},
 		}
@@ -169,10 +170,10 @@ func TestEnabledProvidersForRequest_CodexSubscriptionEnrollsOpenAI(t *testing.T)
 	makeService := func() *Service {
 		return &Service{
 			byokOnly: true,
-			providers: map[string]providers.Client{
+			clients: dispatch.NewClients(map[string]providers.Client{
 				providers.ProviderAnthropic: nil,
 				providers.ProviderOpenAI:    nil,
-			},
+			}),
 			deploymentKeyedProviders:     map[string]struct{}{},
 			passthroughEligibleProviders: map[string]struct{}{},
 		}
@@ -241,7 +242,7 @@ func TestExcludeCodexOAuthOnlyModels(t *testing.T) {
 	t.Run("OAuth-only excludes infrastructure OpenAI models", func(t *testing.T) {
 		s := &Service{
 			byokOnly:                     true,
-			providers:                    map[string]providers.Client{providers.ProviderOpenAI: nil},
+			clients:                      dispatch.NewClients(map[string]providers.Client{providers.ProviderOpenAI: nil}),
 			deploymentKeyedProviders:     map[string]struct{}{},
 			passthroughEligibleProviders: map[string]struct{}{},
 		}
@@ -255,7 +256,7 @@ func TestExcludeCodexOAuthOnlyModels(t *testing.T) {
 	t.Run("OpenAI BYOK keeps infrastructure models eligible", func(t *testing.T) {
 		s := &Service{
 			byokOnly:                     true,
-			providers:                    map[string]providers.Client{providers.ProviderOpenAI: nil},
+			clients:                      dispatch.NewClients(map[string]providers.Client{providers.ProviderOpenAI: nil}),
 			deploymentKeyedProviders:     map[string]struct{}{},
 			passthroughEligibleProviders: map[string]struct{}{},
 		}
@@ -268,7 +269,7 @@ func TestExcludeCodexOAuthOnlyModels(t *testing.T) {
 
 	t.Run("subscription-only ignores infrastructure credentials", func(t *testing.T) {
 		s := &Service{
-			providers: map[string]providers.Client{providers.ProviderOpenAI: nil},
+			clients: dispatch.NewClients(map[string]providers.Client{providers.ProviderOpenAI: nil}),
 			deploymentKeyedProviders: map[string]struct{}{
 				providers.ProviderOpenAI: {},
 			},
@@ -284,10 +285,10 @@ func TestExcludeCodexOAuthOnlyModels(t *testing.T) {
 // env-keyed providers stay eligible regardless of surface.
 func TestEnabledProvidersForRequest_DeploymentKeyedStillCrossSurface(t *testing.T) {
 	s := &Service{
-		providers: map[string]providers.Client{
+		clients: dispatch.NewClients(map[string]providers.Client{
 			providers.ProviderAnthropic: nil,
 			providers.ProviderOpenAI:    nil,
-		},
+		}),
 		deploymentKeyedProviders: map[string]struct{}{
 			providers.ProviderAnthropic: {},
 			providers.ProviderOpenAI:    {},
@@ -305,11 +306,11 @@ func TestEnabledProvidersForRequest_DeploymentKeyedStillCrossSurface(t *testing.
 // gateway is the exclusive upstream; no vendor may stay eligible.
 func TestEnabledProvidersForRequest_GatewayKeyDisplacesVendors(t *testing.T) {
 	s := &Service{
-		providers: map[string]providers.Client{
+		clients: dispatch.NewClients(map[string]providers.Client{
 			providers.ProviderAnthropic:        nil,
 			providers.ProviderOpenAI:           nil,
 			providers.ProviderAnthropicGateway: nil,
-		},
+		}),
 		deploymentKeyedProviders: map[string]struct{}{
 			providers.ProviderAnthropic: {},
 			providers.ProviderOpenAI:    {},
@@ -327,10 +328,10 @@ func TestEnabledProvidersForRequest_GatewayKeyDisplacesVendors(t *testing.T) {
 
 func TestEnabledProvidersForRequest_VendorByokKeyDoesNotDisplaceVendors(t *testing.T) {
 	s := &Service{
-		providers: map[string]providers.Client{
+		clients: dispatch.NewClients(map[string]providers.Client{
 			providers.ProviderAnthropic: nil,
 			providers.ProviderOpenAI:    nil,
-		},
+		}),
 		deploymentKeyedProviders: map[string]struct{}{
 			providers.ProviderAnthropic: {},
 			providers.ProviderOpenAI:    {},

@@ -11,9 +11,9 @@ Provider `Client` interface + canonical `Provider*` name constants + concrete ad
 - `cortexagents/` — Snowflake Cortex Agents (`agent:run`). Not a `providers.Client`: it implements `websearch.Executor` only, serving the native web-search server tool that Cortex's inference endpoints reject.
 - `httputil/` — shared transport + streaming helpers.
 
-## Inward-pointing import (intentional)
+## Request-scoped context
 
-Provider adapters (`internal/providers/<name>/`) import `internal/proxy` for request-scoped credential and header helpers. Upstream response headers are reported through `providers.ObserveUpstreamHeaders`, whose observer is attached by proxy without coupling adapters to proxy internals.
+Provider adapters read per-request credentials (`Credentials`, `EffectiveBaseURL`, `ApplyModelAlias`), caller identity, and forwarded/baggage headers from the inner-ring `internal/requestcontext` package. Adapters must not import `internal/proxy`; `internal/architecture` fails the build if one does. Upstream response headers are reported through `providers.ObserveUpstreamHeaders`, whose observer is attached by proxy without coupling adapters to proxy internals.
 
 ## Adding a new `providers.Client` adapter
 

@@ -9,7 +9,7 @@
 #   (and .env.local if present). Start Postgres via `make db` or point
 #   DATABASE_URL at any Postgres you already have running.
 
-.PHONY: generate generate-statusline generate-agent-guides check-agent-guides check-docs build test test-verbose test-statusline test-install smoke initdb migrate-up migrate-down migrate-create seed setup full-setup db dev check fmt vet precommit install-hooks help install-cc uninstall-cc up up-hmm down down-hmm logs
+.PHONY: generate generate-statusline generate-inference-policy check-inference-policy inference-boundary generate-agent-guides check-agent-guides check-docs build test test-verbose test-statusline test-install smoke initdb migrate-up migrate-down migrate-create seed setup full-setup db dev check fmt vet precommit install-hooks help install-cc uninstall-cc up up-hmm down down-hmm logs
 
 # Load DATABASE_URL from .env files (matches docker-compose defaults).
 -include .env.development
@@ -20,11 +20,20 @@ help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | \
 		awk 'BEGIN {FS = ":.*?## "}; {printf "  %-20s %s\n", $$1, $$2}'
 
-generate: generate-statusline ## Regenerate all generated files (SQLC + statusline prices)
+generate: generate-statusline generate-inference-policy ## Regenerate all generated files (SQLC + statusline prices + inference policy)
 	cd db && sqlc generate
 
 generate-statusline: ## Sync cc-statusline.sh prices block from pricing.go
 	go run ./cmd/genprices
+
+generate-inference-policy: ## Generate static inference-policy Markdown and JSON
+	go run ./cmd/geninferencepolicy
+
+check-inference-policy: ## Check that generated inference-policy projections are current
+	go run ./cmd/geninferencepolicy --check
+
+inference-boundary: check-inference-policy ## Reject new inference/provider bypasses and stale policy docs
+	go test ./internal/router/policy ./internal/architecture
 
 generate-agent-guides: ## Generate AGENTS.md mirrors from authoritative CLAUDE.md guides
 	@python3 scripts/generate_agent_guides.py
@@ -201,7 +210,7 @@ fmt: ## Check gofmt (fails on unformatted files)
 vet: ## Run go vet
 	go vet ./...
 
-precommit: fmt vet build test test-statusline test-install ## Fast pre-commit check (no codegen, no DB)
+precommit: inference-boundary fmt vet build test test-statusline test-install ## Fast pre-commit check (no codegen, no DB)
 
 install-hooks: ## Install git pre-commit hook
 	@HOOK_DIR=$$(git rev-parse --git-common-dir)/hooks; \
@@ -210,7 +219,7 @@ install-hooks: ## Install git pre-commit hook
 	chmod +x "$$HOOK_DIR/pre-commit"; \
 	echo "Pre-commit hook installed at $$HOOK_DIR/pre-commit"
 
-check: generate fmt vet build test test-statusline test-install ## Full CI-equivalent check
+check: inference-boundary generate fmt vet build test test-statusline test-install ## Full CI-equivalent check
 	@if ! git diff --quiet internal/sqlc/; then \
 		echo "error: sqlc generation produced uncommitted changes"; \
 		git diff internal/sqlc/; \

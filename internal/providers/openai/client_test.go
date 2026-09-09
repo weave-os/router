@@ -14,7 +14,7 @@ import (
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/providers/openai"
-	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/timing"
 
@@ -113,7 +113,7 @@ func TestProxy_BYOKModelAliasOverridesCatalogModelIDMap(t *testing.T) {
 	c := openai.NewClientWithModelIDMap("deployment-key", upstream.URL, map[string]string{
 		"gpt-5.6-luna-pro": "gpt-5.6-luna",
 	})
-	ctx := context.WithValue(context.Background(), proxy.CredentialsContextKey{}, &proxy.Credentials{
+	ctx := context.WithValue(context.Background(), requestcontext.CredentialsContextKey{}, &requestcontext.Credentials{
 		APIKey:       []byte("byok-key"),
 		Source:       "byok",
 		ModelAliases: map[string]string{"gpt-5.6-luna-pro": "customer-luna"},

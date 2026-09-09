@@ -13,7 +13,7 @@ import (
 	"github.com/tidwall/gjson"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/providers/anthropic"
-	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 )
 
@@ -47,7 +47,7 @@ func proxyWithBody(ctx context.Context, t *testing.T, requestBody string) []byte
 }
 
 func subscriptionContext() context.Context {
-	return context.WithValue(context.Background(), proxy.CredentialsContextKey{}, &proxy.Credentials{
+	return context.WithValue(context.Background(), requestcontext.CredentialsContextKey{}, &requestcontext.Credentials{
 		APIKey: []byte("sk-ant-oat01-subscription-token"),
 		OAuth:  true,
 		Source: "subscription",
@@ -95,7 +95,7 @@ func TestSubscriptionRequestAlreadyIdentifyingAsClaudeCodeIsUnchanged(t *testing
 }
 
 func TestAPIKeyRequestKeepsCallerSystemPromptUntouched(t *testing.T) {
-	ctx := context.WithValue(context.Background(), proxy.CredentialsContextKey{}, &proxy.Credentials{
+	ctx := context.WithValue(context.Background(), requestcontext.CredentialsContextKey{}, &requestcontext.Credentials{
 		APIKey: []byte("sk-ant-api-byok"),
 		Source: "byok",
 	})

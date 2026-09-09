@@ -10,6 +10,7 @@ package handover
 import (
 	"context"
 
+	"weave-os/router/internal/router"
 	"weave-os/router/internal/translate"
 )
 
@@ -33,11 +34,15 @@ type Usage struct {
 // Implementations SHOULD respect the context deadline; on timeout or error,
 // callers keep the full prior history unchanged instead of dropping it.
 //
+// scope carries the request's eligibility (enabled providers, excluded
+// models, gateways, custom bindings): the summary is a router-initiated call
+// on the tenant's behalf, so it may only use what the tenant's own turn could.
+//
 // Provider identifies the upstream this summarizer dispatches to (e.g.
 // "anthropic"), so the orchestrator can plumb matching BYOK creds through
 // and keep tenant data from crossing the deployment key boundary.
 type Summarizer interface {
-	Summarize(ctx context.Context, env *translate.RequestEnvelope) (summary string, usage Usage, err error)
+	Summarize(ctx context.Context, env *translate.RequestEnvelope, scope router.Request) (summary string, usage Usage, err error)
 	Provider() string
 }
 

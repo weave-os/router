@@ -3,6 +3,7 @@ package proxy
 import (
 	"context"
 	"testing"
+	"weave-os/router/internal/dispatch"
 
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
@@ -95,7 +96,7 @@ func TestBandSwapServed_UnservableChoiceFallsBackToAnchor(t *testing.T) {
 		embedOnlyUserMessage: true,
 		bandSwap:             clf,
 		availableModels:      map[string]struct{}{large: {}, small: {}},
-		providers:            map[string]providers.Client{"anthropic": nil},
+		clients:              dispatch.NewClients(map[string]providers.Client{"anthropic": nil}),
 	}
 	pin := sessionpin.Pin{
 		Provider: "anthropic", Model: anchor,

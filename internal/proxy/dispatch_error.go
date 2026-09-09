@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"weave-os/router/internal/billing"
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/bandit"
@@ -56,6 +57,9 @@ const (
 	DispatchErrorRoutedModelIncompatible
 	DispatchErrorGatewayServesNoModel
 	DispatchErrorNoRoutableModels
+	DispatchErrorPlanTargetMismatch
+	DispatchErrorPlanOverrideRejected
+	DispatchErrorPlanUnresolvable
 )
 
 // DispatchErrorClass is the format-agnostic classification of a dispatch
@@ -92,6 +96,7 @@ func ClassifyDispatchError(err error) (DispatchErrorClass, bool) {
 	var forcedUnknown *ForcedModelUnknownError
 	var forcedClusterStrategy *ForcedClusterUnsupportedStrategyError
 	var forcedClusterUnservable *policy.ForcedClusterUnservableError
+	var resolution *policy.ResolutionError
 	switch {
 	case errors.Is(err, ErrSubscriptionPoolExhausted):
 		return DispatchErrorClass{
@@ -166,7 +171,7 @@ func ClassifyDispatchError(err error) (DispatchErrorClass, bool) {
 			Status:  http.StatusNotImplemented,
 			Message: "Provider not implemented.",
 		}, true
-	case errors.Is(err, ErrProviderNotConfigured):
+	case errors.Is(err, ErrProviderNotConfigured), errors.Is(err, dispatch.ErrProviderNotConfigured):
 		return DispatchErrorClass{
 			Kind:    DispatchErrorProviderNotConfigured,
 			Status:  http.StatusBadGateway,
@@ -300,6 +305,16 @@ func ClassifyDispatchError(err error) (DispatchErrorClass, bool) {
 			LogLevel:   "warn",
 			LogMessage: "Installation configuration leaves no routable model",
 		}, true
+	case errors.Is(err, dispatch.ErrTargetMismatch):
+		return DispatchErrorClass{
+			Kind:       DispatchErrorPlanTargetMismatch,
+			Status:     http.StatusBadGateway,
+			Message:    "Upstream call failed: the prepared request did not match the authorized inference target.",
+			LogLevel:   "error",
+			LogMessage: "Prepared request rejected by inference target check",
+		}, true
+	case errors.As(err, &resolution):
+		return classifyResolutionError(resolution), true
 	case errors.Is(err, rl.ErrPolicyUnavailable):
 		return DispatchErrorClass{
 			Kind:       DispatchErrorRLPolicyUnavailable,
@@ -350,6 +365,32 @@ func ClassifyDispatchError(err error) (DispatchErrorClass, bool) {
 	}
 }
 
+// classifyResolutionError maps a failed plan resolution to a client-facing
+// class: an override or selection the request itself supplied is a client
+// error; a policy with nothing eligible to run on is a routing outage.
+func classifyResolutionError(err *policy.ResolutionError) DispatchErrorClass {
+	switch err.Code {
+	case policy.ResolutionErrorInvalidOverride, policy.ResolutionErrorOverrideNotAllowed, policy.ResolutionErrorDuplicateOverride, policy.ResolutionErrorUnknownSelection, policy.ResolutionErrorBudgetViolation:
+		if err.Source == policy.OverrideSourceRequest || err.Code == policy.ResolutionErrorUnknownSelection {
+			return DispatchErrorClass{
+				Kind:       DispatchErrorPlanOverrideRejected,
+				Status:     http.StatusBadRequest,
+				Message:    "The requested model, provider, or budget is not permitted for this operation.",
+				LogLevel:   "warn",
+				LogMessage: "Inference plan rejected request-supplied override",
+			}
+		}
+	}
+	return DispatchErrorClass{
+		Kind:       DispatchErrorPlanUnresolvable,
+		Status:     http.StatusServiceUnavailable,
+		Message:    "Router unavailable: no inference target could be authorized for this request.",
+		RetryAfter: true,
+		LogLevel:   "error",
+		LogMessage: "Inference plan resolution failed",
+	}
+}
+
 // unwrapToSentinelMessage returns the message of the wrap layer whose direct
 // child is one of the cache_control sentinels, stripping outer prefixes like
 // "emit body: ". Falls back to err.Error().
@@ -372,7 +413,7 @@ func unwrapToSentinelMessage(err error) string {
 // rather than "api_error".
 func (k DispatchErrorKind) IsClientError() bool {
 	switch k {
-	case DispatchErrorRequestNotJSONObject, DispatchErrorResponsesChatCompletionsBody, DispatchErrorNoEligibleProvider, DispatchErrorAllowlistEmptiesPool, DispatchErrorContextWindowExceeded, DispatchErrorInvalidRoutingKnobs, DispatchErrorTranslationIntrinsicallyIncompatible, DispatchErrorAnthropicCacheControlInvalid, DispatchErrorForcedModelExcluded, DispatchErrorForcedModelUnknown, DispatchErrorForcedClusterUnsupportedStrategy, DispatchErrorForcedClusterUnservable, DispatchErrorGatewayServesNoModel, DispatchErrorNoRoutableModels:
+	case DispatchErrorRequestNotJSONObject, DispatchErrorResponsesChatCompletionsBody, DispatchErrorNoEligibleProvider, DispatchErrorAllowlistEmptiesPool, DispatchErrorContextWindowExceeded, DispatchErrorInvalidRoutingKnobs, DispatchErrorTranslationIntrinsicallyIncompatible, DispatchErrorAnthropicCacheControlInvalid, DispatchErrorForcedModelExcluded, DispatchErrorForcedModelUnknown, DispatchErrorForcedClusterUnsupportedStrategy, DispatchErrorForcedClusterUnservable, DispatchErrorGatewayServesNoModel, DispatchErrorNoRoutableModels, DispatchErrorPlanOverrideRejected:
 		return true
 	default:
 		return false

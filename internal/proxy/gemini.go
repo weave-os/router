@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/inference"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/observability/otel"
 	"weave-os/router/internal/providers"
@@ -125,6 +126,7 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 		MaxWindow:      maxEligibleWindow,
 		RequestedModel: feats.Model,
 		ClientApp:      clientID.ClientApp,
+		Scope:          s.summarizerScope(ctx, enabledProviders, excluded),
 		PreferredSummarizer: func() string {
 			if blindExperimentPassthroughActive(ctx) {
 				return ""
@@ -312,6 +314,8 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 		bindings:        bindings,
 		attempt:         attempt,
 		flushErr:        flushBufferedIfPresent,
+		purpose:         routeRes.dispatchPurpose(inference.PurposeGeminiGenerateContent),
+		origin:          routeRes.dispatchOrigin(decision),
 	})
 	proxyMs := time.Since(proxyStart).Milliseconds()
 	primaryProvider := decision.Provider

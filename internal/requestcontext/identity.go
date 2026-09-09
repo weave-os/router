@@ -1,4 +1,4 @@
-package proxy
+package requestcontext
 
 import (
 	"context"
@@ -9,6 +9,35 @@ import (
 
 	"weave-os/router/internal/auth"
 )
+
+// ClientIdentity holds per-request user identification signals, persisted to
+// router.model_router_users (Email, DisplayName).
+type ClientIdentity struct {
+	DeviceID    string
+	AccountID   string
+	SessionID   string
+	Email       string
+	DisplayName string
+	UserAgent   string
+	ClientApp   string
+	// RolloutID is the x-weave-rollout-id eval/training-harness correlation
+	// id; joins a sandbox rollout's graded reward to its routing decisions.
+	RolloutID string
+}
+
+// ClientIdentityContextKey is the request-context key for client identity.
+type ClientIdentityContextKey struct{}
+
+// ClientIdentityFrom reads the ClientIdentity stashed on ctx.
+func ClientIdentityFrom(ctx context.Context) ClientIdentity {
+	id, _ := ctx.Value(ClientIdentityContextKey{}).(ClientIdentity)
+	return id
+}
+
+// WithClientIdentity stashes id on ctx.
+func WithClientIdentity(ctx context.Context, id ClientIdentity) context.Context {
+	return context.WithValue(ctx, ClientIdentityContextKey{}, id)
+}
 
 // identityBag is the JSON property bag rendered for auth.IdentityFormatJSON; empty fields omitted.
 type identityBag struct {
@@ -25,16 +54,16 @@ func ApplyIdentityHeader(ctx context.Context, upstream *http.Request) {
 	if creds == nil || creds.IdentityHeader == "" {
 		return
 	}
-	value := identityHeaderValue(creds.IdentityHeaderFormat, ClientIdentityFrom(ctx))
+	value := IdentityHeaderValue(creds.IdentityHeaderFormat, ClientIdentityFrom(ctx))
 	if value == "" {
 		return
 	}
 	upstream.Header.Set(creds.IdentityHeader, value)
 }
 
-// identityHeaderValue renders identity in the endpoint's configured format,
+// IdentityHeaderValue renders identity in the endpoint's configured format,
 // returning "" when there is nothing worth sending.
-func identityHeaderValue(format string, identity ClientIdentity) string {
+func IdentityHeaderValue(format string, identity ClientIdentity) string {
 	if identity.Email == "" {
 		return ""
 	}

@@ -155,6 +155,34 @@ type RouterModelRouterExternalAPIKey struct {
 	BaggageHeader *string
 }
 
+// Ordered upstream attempts per inference operation; joins to model_router_request_telemetry on (installation_id, request_id)
+type RouterModelRouterInferenceAttempt struct {
+	ID                 uuid.UUID
+	CreatedAt          pgtype.Timestamptz
+	InstallationID     uuid.UUID
+	RequestID          string
+	OperationID        string
+	AttemptIndex       int32
+	Purpose            string
+	PolicyID           string
+	RegistryRevision   string
+	PolicyRevision     string
+	Model              string
+	Provider           string
+	BindingIndex       int32
+	Outcome            string
+	FailureReason      *string
+	UpstreamStatusCode *int32
+	LatencyMs          *int64
+	// FALSE when the upstream reported no usage; token and cost columns are then unmeasured rather than zero
+	UsageKnown          bool
+	InputTokens         *int32
+	OutputTokens        *int32
+	CacheCreationTokens *int32
+	CacheReadTokens     *int32
+	CostUsdMicros       *int64
+}
+
 // Customer router installations; owns API keys
 type RouterModelRouterInstallation struct {
 	ID                          uuid.UUID
@@ -350,6 +378,15 @@ type RouterModelRouterRequestTelemetry struct {
 	BlindExperimentArm              *string
 	BlindExperimentAssignmentSource *string
 	BlindExperimentSubjectKey       *string
+	InferencePurpose                *string
+	InferencePolicyID               *string
+	InferenceRegistryRevision       *string
+	InferencePolicyRevision         *string
+	PlanModel                       *string
+	PlanProvider                    *string
+	FallbackReason                  *string
+	AccountingOutcome               *string
+	UsageKnown                      *bool
 }
 
 type RouterModelRouterSubscriptionAccount struct {

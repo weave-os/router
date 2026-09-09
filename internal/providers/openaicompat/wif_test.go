@@ -10,7 +10,7 @@ import (
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/providers/openaicompat"
-	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 
 	"github.com/stretchr/testify/assert"
@@ -32,12 +32,12 @@ func TestProxy_WIFCredentialsCarryTokenTypeHeader(t *testing.T) {
 	defer upstream.Close()
 
 	c := openaicompat.NewGatewayClient("", upstream.URL+"/api/v2/cortex/v1")
-	creds := &proxy.Credentials{
+	creds := &requestcontext.Credentials{
 		APIKey:   []byte("WIF.GCP.header.payload.sig"),
 		Source:   "byok",
 		AuthType: auth.AuthTypeWIF,
 	}
-	ctx := context.WithValue(context.Background(), proxy.CredentialsContextKey{}, creds)
+	ctx := context.WithValue(context.Background(), requestcontext.CredentialsContextKey{}, creds)
 
 	rec := httptest.NewRecorder()
 	clientReq := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(""))
