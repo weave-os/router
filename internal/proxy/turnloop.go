@@ -754,16 +754,6 @@ func (s *Service) runTurnLoop(
 			return res, err
 		}
 		if passthrough {
-			// Passthrough skips automatic pin creation and reuse, but records the
-			// served model in switch history so same-format emit can strip stale
-			// thinking blocks and a later routed turn can detect model transitions.
-			res.SessionKey = threadSessionKey
-			if s.pinStore != nil {
-				pin, _ := s.loadPin(ctx, threadSessionKey, res.PinRole)
-				hmmHistory := s.loadHMMHistory(ctx, threadSessionKey, res.PinRole)
-				forceHistory := s.loadForceModelHistory(ctx, threadSessionKey, res.PinRole)
-				res.PriorServedModel, res.SessionEverSwitched = switchHistoryFromPins(pin, hmmHistory, forceHistory)
-			}
 			res.Decision = decision
 			res.BlindExperimentPassthrough = true
 			return res, nil

@@ -852,16 +852,16 @@ func (s *Service) withBlindExperiment(ctx context.Context, installationID, route
 	if s.blindExperiments == nil || routerUserID == "" {
 		return ctx
 	}
-	state, ok := s.blindExperimentCache.Get(routerUserID)
+	fetchGeneration := s.blindExperimentCache.InstallationGeneration(installationID)
+	state, ok := s.blindExperimentCache.GetAtGeneration(installationID, routerUserID, fetchGeneration)
 	if !ok {
 		fetchKey := installationID + "\x00" + routerUserID
-		fetchGeneration := s.blindExperimentCache.InvalidationGeneration()
 		resultCh := s.blindExperimentFetches.DoChan(fetchKey, func() (any, error) {
 			fetchCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), blindExperimentFetchTimeout)
 			defer cancel()
 			// A concurrent request may have filled the cache while this request
 			// waited for the per-user refresh. Re-check before querying Postgres.
-			if cached, found := s.blindExperimentCache.Get(routerUserID); found {
+			if cached, found := s.blindExperimentCache.GetAtGeneration(installationID, routerUserID, fetchGeneration); found {
 				return cached, nil
 			}
 			record, fetchErr := s.blindExperiments.GetForUser(fetchCtx, installationID, routerUserID)
@@ -869,17 +869,11 @@ func (s *Service) withBlindExperiment(ctx context.Context, installationID, route
 				// Fail open for the request, but cache the failure only for the
 				// cache's short retry window so an outage does not hammer the DB or
 				// permanently bias the experiment cohort after recovery.
-				s.blindExperimentCache.SetError(installationID, routerUserID, fetchGeneration)
+				s.blindExperimentCache.SetErrorAtGeneration(installationID, routerUserID, fetchGeneration)
 				return nil, fetchErr
 			}
 			resolved := resolveBlindExperiment(record, routerUserID)
-			// If invalidation landed during the repository read, do not publish
-			// the pre-invalidation assignment under the cache's newer epoch.
-			// Set's own epoch guard closes the remaining check-to-write race.
-			if s.blindExperimentCache.InvalidationGeneration() != fetchGeneration {
-				return resolved, nil
-			}
-			s.blindExperimentCache.Set(installationID, routerUserID, resolved)
+			s.blindExperimentCache.SetAtGeneration(installationID, routerUserID, resolved, fetchGeneration)
 			return resolved, nil
 		})
 		var result singleflight.Result
@@ -904,7 +898,7 @@ func (s *Service) withBlindExperiment(ctx context.Context, installationID, route
 			// cache; the next request will fetch the current assignment. A no-op
 			// cache deliberately has no entry, so its fetched state remains valid
 			// for this request.
-			if current, currentFound := s.blindExperimentCache.GetAtGeneration(routerUserID, fetchGeneration); !currentFound {
+			if current, currentFound := s.blindExperimentCache.GetAtGeneration(installationID, routerUserID, fetchGeneration); !currentFound {
 				return ctx
 			} else {
 				state = current

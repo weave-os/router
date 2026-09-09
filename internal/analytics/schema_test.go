@@ -49,3 +49,21 @@ func TestDecisionReasonDocumentedAsUnstable(t *testing.T) {
 	}
 	t.Fatal("decision_reason missing from schema")
 }
+
+func TestBlindExperimentSchemaFieldsAreNullable(t *testing.T) {
+	experimentFields := map[string]bool{
+		"blind_experiment_arm":               false,
+		"blind_experiment_assignment_source": false,
+		"blind_experiment_subject_key":       false,
+	}
+	for _, field := range analytics.Schema() {
+		if _, isExperimentField := experimentFields[field.Name]; !isExperimentField {
+			continue
+		}
+		require.True(t, field.Nullable, "%s must remain null for non-experiment rows", field.Name)
+		experimentFields[field.Name] = true
+	}
+	for fieldName, found := range experimentFields {
+		require.True(t, found, "%s missing from schema", fieldName)
+	}
+}

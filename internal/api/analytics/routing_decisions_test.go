@@ -104,6 +104,29 @@ func TestRoutingDecisionsStreamsNDJSON(t *testing.T) {
 	rows := decodeNDJSON(t, rec.Body)
 	require.Len(t, rows, 3)
 	require.Equal(t, "req-a", rows[0]["request_id"])
+	require.Nil(t, rows[0]["blind_experiment_arm"])
+	require.Nil(t, rows[0]["blind_experiment_assignment_source"])
+	require.Nil(t, rows[0]["blind_experiment_subject_key"])
+}
+
+func TestRoutingDecisionsStreamsBlindExperimentFields(t *testing.T) {
+	arm := auth.BlindExperimentArmPassthrough
+	assignmentSource := auth.BlindExperimentAssignmentManual
+	subjectKey := "account-1"
+	decisions := rowsAt(1)
+	decisions[0].BlindExperimentArm = &arm
+	decisions[0].BlindExperimentAssignmentSource = &assignmentSource
+	decisions[0].BlindExperimentSubjectKey = &subjectKey
+	engine := newRouter(&fakeRepo{rows: decisions}, &auth.Installation{ID: "inst"})
+
+	recorder := get(engine, "/v1/analytics/routing-decisions?since=2026-01-01T00:00:00Z", nil)
+
+	require.Equal(t, http.StatusOK, recorder.Code)
+	rows := decodeNDJSON(t, recorder.Body)
+	require.Len(t, rows, 1)
+	require.Equal(t, string(auth.BlindExperimentArmPassthrough), rows[0]["blind_experiment_arm"])
+	require.Equal(t, string(auth.BlindExperimentAssignmentManual), rows[0]["blind_experiment_assignment_source"])
+	require.Equal(t, subjectKey, rows[0]["blind_experiment_subject_key"])
 }
 
 // Cursor and has-more travel as headers so the body stays pure rows.

@@ -9,6 +9,7 @@ import (
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/cluster"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/translate"
 
@@ -70,18 +71,14 @@ func TestBlindExperimentPassthroughSkipsAutomaticPinsAndScorer(t *testing.T) {
 	assert.Equal(t, blindExperimentPublicDecisionReason, loopResult.Decision.Reason)
 	pins.mu.Lock()
 	defer pins.mu.Unlock()
-	assert.Contains(t, pins.getRoles, forceModelSessionRole)
+	assert.Equal(t, []string{forceModelSessionRole}, pins.getRoles,
+		"passthrough may inspect explicit force-model state but must not read automatic or history pins")
 	assert.Empty(t, pins.upserts, "automatic pins must not be written before experiment passthrough")
+	assert.Zero(t, pins.usageHits, "passthrough must not update automatic pin usage")
 }
 
-func TestBlindExperimentPassthroughPreservesSessionHistory(t *testing.T) {
+func TestBlindExperimentPassthroughLeavesAutomaticSessionHistoryUntouched(t *testing.T) {
 	pins := newStubPinStore()
-	pins.getFound = true
-	pins.getPin = sessionpin.Pin{
-		Reason:          "cluster",
-		LastServedModel: "claude-haiku-4-5",
-		HasEverSwitched: true,
-	}
 	service := NewService(nil, nil, nil, false, nil, pins, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil)
 	envelope, err := translate.ParseAnthropic([]byte(`{"model":"claude-sonnet-4-6","messages":[{"role":"user","content":"hello"}]}`))
@@ -99,10 +96,16 @@ func TestBlindExperimentPassthroughPreservesSessionHistory(t *testing.T) {
 	)
 
 	require.NoError(t, err)
-	assert.NotEqual(t, [sessionpin.SessionKeyLen]byte{}, loopResult.SessionKey)
-	assert.Equal(t, "claude-haiku-4-5", loopResult.PriorServedModel)
-	assert.True(t, loopResult.SessionEverSwitched)
+	assert.Equal(t, [sessionpin.SessionKeyLen]byte{}, loopResult.SessionKey)
+	assert.Empty(t, loopResult.PriorServedModel)
+	assert.False(t, loopResult.SessionEverSwitched)
 	assert.True(t, loopResult.BlindExperimentPassthrough)
+	pins.mu.Lock()
+	defer pins.mu.Unlock()
+	assert.Equal(t, []string{forceModelSessionRole}, pins.getRoles,
+		"automatic, HMM, and force-model history rows must remain unread")
+	assert.Empty(t, pins.upserts)
+	assert.Zero(t, pins.usageHits)
 }
 
 func TestBlindExperimentPassthroughUsesGatewayAlias(t *testing.T) {
@@ -135,11 +138,20 @@ func TestBlindExperimentPassthroughUsesGatewayAlias(t *testing.T) {
 }
 
 func TestBlindExperimentPassthroughHonorsExcludedModels(t *testing.T) {
-	service := NewService(nil, nil, nil, false, nil, nil, false,
+	routerSpy := &blindExperimentRouterSpy{err: errors.New("scorer must not run")}
+	service := NewService(routerSpy, nil, nil, false, nil, nil, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil)
+	envelope, err := translate.ParseAnthropic([]byte(`{"model":"claude-sonnet-4-6","messages":[{"role":"user","content":"hello"}]}`))
+	require.NoError(t, err)
 
-	_, passthrough, err := service.blindExperimentPassthroughDecision(
+	_, err = service.runTurnLoop(
 		blindExperimentContext(auth.BlindExperimentArmPassthrough),
+		envelope,
+		envelope.RoutingFeatures(false),
+		"api-key",
+		uuid.New(),
+		"",
+		http.Header{},
 		router.Request{
 			RequestedModel: "claude-sonnet-4-6",
 			ExcludedModels: map[string]struct{}{
@@ -148,8 +160,9 @@ func TestBlindExperimentPassthroughHonorsExcludedModels(t *testing.T) {
 		},
 	)
 
-	require.NoError(t, err)
-	assert.False(t, passthrough)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, cluster.ErrNoEligibleProvider)
+	assert.Zero(t, routerSpy.routeCalls, "an excluded requested model must fail directly instead of falling through to automatic routing")
 }
 
 func TestBlindExperimentRouterOnUsesScorer(t *testing.T) {

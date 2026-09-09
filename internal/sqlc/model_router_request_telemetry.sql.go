@@ -91,6 +91,9 @@ SELECT
     t.candidate_models,
     t.chosen_score,
     t.decision_reason,
+    t.blind_experiment_arm,
+    t.blind_experiment_assignment_source,
+    t.blind_experiment_subject_key,
     t.sticky_hit,
     t.failover_used,
     t.cross_format,
@@ -142,44 +145,47 @@ type GetRoutingDecisionsForExportParams struct {
 }
 
 type GetRoutingDecisionsForExportRow struct {
-	ID                    uuid.UUID
-	CreatedAt             pgtype.Timestamptz
-	Timestamp             pgtype.Timestamptz
-	RequestID             string
-	TraceID               string
-	SessionID             *string
-	DeviceID              *string
-	ClientApp             *string
-	TurnType              *string
-	RouterUserID          pgtype.UUID
-	UserEmail             *string
-	UserAccountUUID       pgtype.UUID
-	RequestedModel        *string
-	DecisionModel         *string
-	DecisionProvider      *string
-	CandidateModels       []string
-	ChosenScore           *float64
-	DecisionReason        *string
-	StickyHit             *bool
-	FailoverUsed          *bool
-	CrossFormat           *bool
-	EstimatedInputTokens  *int32
-	InputTokens           *int32
-	OutputTokens          *int32
-	CacheCreationTokens   *int32
-	CacheReadTokens       *int32
-	SubscriptionServed    bool
-	ActualInputCostUsd    *int64
-	ActualOutputCostUsd   *int64
-	RouteLatencyMs        *int64
-	UpstreamLatencyMs     *int64
-	TotalLatencyMs        *int64
-	TtftMs                *int64
-	UpstreamStatusCode    *int32
-	UpstreamFinishReason  *string
-	StopReason            *string
-	ToolUseBlocks         *int32
-	InvalidToolArgsBlocks *int32
+	ID                              uuid.UUID
+	CreatedAt                       pgtype.Timestamptz
+	Timestamp                       pgtype.Timestamptz
+	RequestID                       string
+	TraceID                         string
+	SessionID                       *string
+	DeviceID                        *string
+	ClientApp                       *string
+	TurnType                        *string
+	RouterUserID                    pgtype.UUID
+	UserEmail                       *string
+	UserAccountUUID                 pgtype.UUID
+	RequestedModel                  *string
+	DecisionModel                   *string
+	DecisionProvider                *string
+	CandidateModels                 []string
+	ChosenScore                     *float64
+	DecisionReason                  *string
+	BlindExperimentArm              *string
+	BlindExperimentAssignmentSource *string
+	BlindExperimentSubjectKey       *string
+	StickyHit                       *bool
+	FailoverUsed                    *bool
+	CrossFormat                     *bool
+	EstimatedInputTokens            *int32
+	InputTokens                     *int32
+	OutputTokens                    *int32
+	CacheCreationTokens             *int32
+	CacheReadTokens                 *int32
+	SubscriptionServed              bool
+	ActualInputCostUsd              *int64
+	ActualOutputCostUsd             *int64
+	RouteLatencyMs                  *int64
+	UpstreamLatencyMs               *int64
+	TotalLatencyMs                  *int64
+	TtftMs                          *int64
+	UpstreamStatusCode              *int32
+	UpstreamFinishReason            *string
+	StopReason                      *string
+	ToolUseBlocks                   *int32
+	InvalidToolArgsBlocks           *int32
 }
 
 // Returns raw routing decisions for the analytics export, one row per upstream
@@ -211,6 +217,9 @@ type GetRoutingDecisionsForExportRow struct {
 //	    t.candidate_models,
 //	    t.chosen_score,
 //	    t.decision_reason,
+//	    t.blind_experiment_arm,
+//	    t.blind_experiment_assignment_source,
+//	    t.blind_experiment_subject_key,
 //	    t.sticky_hit,
 //	    t.failover_used,
 //	    t.cross_format,
@@ -285,6 +294,9 @@ func (q *Queries) GetRoutingDecisionsForExport(ctx context.Context, arg GetRouti
 			&i.CandidateModels,
 			&i.ChosenScore,
 			&i.DecisionReason,
+			&i.BlindExperimentArm,
+			&i.BlindExperimentAssignmentSource,
+			&i.BlindExperimentSubjectKey,
 			&i.StickyHit,
 			&i.FailoverUsed,
 			&i.CrossFormat,

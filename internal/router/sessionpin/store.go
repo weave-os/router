@@ -97,9 +97,6 @@ type Usage struct {
 	CachedWriteTokens int
 	OutputTokens      int
 	EndedAt           time.Time
-	// PreservePriorUsage leaves planner evidence and provider affinity untouched
-	// during a history-only update, avoiding a concurrent normal-turn overwrite.
-	PreservePriorUsage bool
 	// ServedModel is the model that served the turn this usage came from.
 	ServedModel string
 	// ServedProvider is the provider binding that served the turn. UpdateUsage

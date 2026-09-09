@@ -357,27 +357,26 @@ func (q *Queries) SweepExpiredSessionPins(ctx context.Context) error {
 
 const updateSessionPinUsage = `-- name: UpdateSessionPinUsage :exec
 UPDATE router.session_pins
-SET last_input_tokens        = CASE WHEN $1::boolean THEN last_input_tokens ELSE $2::int END,
-    last_cached_read_tokens  = CASE WHEN $1::boolean THEN last_cached_read_tokens ELSE $3::int END,
-    last_cached_write_tokens = CASE WHEN $1::boolean THEN last_cached_write_tokens ELSE $4::int END,
-    last_output_tokens       = CASE WHEN $1::boolean THEN last_output_tokens ELSE $5::int END,
-    last_turn_ended_at       = CASE WHEN $1::boolean THEN last_turn_ended_at ELSE $6::timestamptz END,
-    pinned_provider          = CASE WHEN $1::boolean THEN pinned_provider ELSE $7::varchar END,
+SET last_input_tokens        = $1::int,
+    last_cached_read_tokens  = $2::int,
+    last_cached_write_tokens = $3::int,
+    last_output_tokens       = $4::int,
+    last_turn_ended_at       = $5::timestamptz,
+    pinned_provider          = $6::varchar,
     has_ever_switched        = has_ever_switched
-      OR $8::boolean
-      OR (last_served_model <> '' AND last_served_model <> $9::varchar)
-      OR ($10::varchar <> '' AND $10::varchar <> $9::varchar),
-    last_served_model        = $9::varchar
-WHERE session_key = $11::bytea
-  AND role        = $12::varchar
+      OR $7::boolean
+      OR (last_served_model <> '' AND last_served_model <> $8::varchar)
+      OR ($9::varchar <> '' AND $9::varchar <> $8::varchar),
+    last_served_model        = $8::varchar
+WHERE session_key = $10::bytea
+  AND role        = $11::varchar
   AND (
-    routing_strategy = $13::varchar
-    OR (routing_strategy = '' AND $13::varchar <> 'hmm_beta')
+    routing_strategy = $12::varchar
+    OR (routing_strategy = '' AND $12::varchar <> 'hmm_beta')
   )
 `
 
 type UpdateSessionPinUsageParams struct {
-	PreservePriorUsage      bool
 	LastInputTokens         int32
 	LastCachedReadTokens    int32
 	LastCachedWriteTokens   int32
@@ -412,26 +411,25 @@ type UpdateSessionPinUsageParams struct {
 // clients resend the full transcript.
 //
 //	UPDATE router.session_pins
-//	SET last_input_tokens        = CASE WHEN $1::boolean THEN last_input_tokens ELSE $2::int END,
-//	    last_cached_read_tokens  = CASE WHEN $1::boolean THEN last_cached_read_tokens ELSE $3::int END,
-//	    last_cached_write_tokens = CASE WHEN $1::boolean THEN last_cached_write_tokens ELSE $4::int END,
-//	    last_output_tokens       = CASE WHEN $1::boolean THEN last_output_tokens ELSE $5::int END,
-//	    last_turn_ended_at       = CASE WHEN $1::boolean THEN last_turn_ended_at ELSE $6::timestamptz END,
-//	    pinned_provider          = CASE WHEN $1::boolean THEN pinned_provider ELSE $7::varchar END,
+//	SET last_input_tokens        = $1::int,
+//	    last_cached_read_tokens  = $2::int,
+//	    last_cached_write_tokens = $3::int,
+//	    last_output_tokens       = $4::int,
+//	    last_turn_ended_at       = $5::timestamptz,
+//	    pinned_provider          = $6::varchar,
 //	    has_ever_switched        = has_ever_switched
-//	      OR $8::boolean
-//	      OR (last_served_model <> '' AND last_served_model <> $9::varchar)
-//	      OR ($10::varchar <> '' AND $10::varchar <> $9::varchar),
-//	    last_served_model        = $9::varchar
-//	WHERE session_key = $11::bytea
-//	  AND role        = $12::varchar
+//	      OR $7::boolean
+//	      OR (last_served_model <> '' AND last_served_model <> $8::varchar)
+//	      OR ($9::varchar <> '' AND $9::varchar <> $8::varchar),
+//	    last_served_model        = $8::varchar
+//	WHERE session_key = $10::bytea
+//	  AND role        = $11::varchar
 //	  AND (
-//	    routing_strategy = $13::varchar
-//	    OR (routing_strategy = '' AND $13::varchar <> 'hmm_beta')
+//	    routing_strategy = $12::varchar
+//	    OR (routing_strategy = '' AND $12::varchar <> 'hmm_beta')
 //	  )
 func (q *Queries) UpdateSessionPinUsage(ctx context.Context, arg UpdateSessionPinUsageParams) error {
 	_, err := q.db.Exec(ctx, updateSessionPinUsage,
-		arg.PreservePriorUsage,
 		arg.LastInputTokens,
 		arg.LastCachedReadTokens,
 		arg.LastCachedWriteTokens,

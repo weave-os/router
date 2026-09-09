@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"weave-os/router/internal/analytics"
+	"weave-os/router/internal/auth"
 	"weave-os/router/internal/sqlc"
 
 	"github.com/google/uuid"
@@ -61,15 +62,18 @@ func decisionFromExportRow(row sqlc.GetRoutingDecisionsForExportRow) analytics.D
 		UserEmail:       row.UserEmail,
 		UserAccountUUID: uuidStringPtr(row.UserAccountUUID),
 
-		RequestedModel:   row.RequestedModel,
-		DecisionModel:    row.DecisionModel,
-		DecisionProvider: row.DecisionProvider,
-		CandidateModels:  row.CandidateModels,
-		ChosenScore:      row.ChosenScore,
-		DecisionReason:   row.DecisionReason,
-		StickyHit:        row.StickyHit != nil && *row.StickyHit,
-		FailoverUsed:     row.FailoverUsed != nil && *row.FailoverUsed,
-		CrossFormat:      row.CrossFormat != nil && *row.CrossFormat,
+		RequestedModel:                  row.RequestedModel,
+		DecisionModel:                   row.DecisionModel,
+		DecisionProvider:                row.DecisionProvider,
+		CandidateModels:                 row.CandidateModels,
+		ChosenScore:                     row.ChosenScore,
+		DecisionReason:                  row.DecisionReason,
+		BlindExperimentArm:              blindExperimentArmPtr(row.BlindExperimentArm),
+		BlindExperimentAssignmentSource: blindExperimentAssignmentSourcePtr(row.BlindExperimentAssignmentSource),
+		BlindExperimentSubjectKey:       row.BlindExperimentSubjectKey,
+		StickyHit:                       row.StickyHit != nil && *row.StickyHit,
+		FailoverUsed:                    row.FailoverUsed != nil && *row.FailoverUsed,
+		CrossFormat:                     row.CrossFormat != nil && *row.CrossFormat,
 
 		EstimatedInputTokens: int32PtrToInt64(row.EstimatedInputTokens),
 		InputTokens:          int32PtrToInt64(row.InputTokens),
@@ -91,6 +95,22 @@ func decisionFromExportRow(row sqlc.GetRoutingDecisionsForExportRow) analytics.D
 		ToolUseBlocks:         int32PtrToInt64(row.ToolUseBlocks),
 		InvalidToolArgsBlocks: int32PtrToInt64(row.InvalidToolArgsBlocks),
 	}
+}
+
+func blindExperimentArmPtr(value *string) *auth.BlindExperimentArm {
+	if value == nil {
+		return nil
+	}
+	arm := auth.BlindExperimentArm(*value)
+	return &arm
+}
+
+func blindExperimentAssignmentSourcePtr(value *string) *auth.BlindExperimentAssignmentSource {
+	if value == nil {
+		return nil
+	}
+	source := auth.BlindExperimentAssignmentSource(*value)
+	return &source
 }
 
 func int32PtrToInt64(v *int32) *int64 {

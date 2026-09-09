@@ -13,29 +13,29 @@ import (
 
 const blindExperimentPublicDecisionReason = "cluster_argmax"
 
+func blindExperimentPassthroughActive(ctx context.Context) bool {
+	state, active := auth.BlindExperimentFrom(ctx)
+	return active && state.Arm == auth.BlindExperimentArmPassthrough
+}
+
 // policyTrainingAllowedForRequest excludes passthrough outcomes because the
 // served model was selected by the caller, not by the routing policy.
 func policyTrainingAllowedForRequest(ctx context.Context) bool {
 	trainingAllowed, _ := ctx.Value(PolicyTrainingAllowedContextKey{}).(bool)
-	state, active := auth.BlindExperimentFrom(ctx)
-	return trainingAllowed && (!active || state.Arm != auth.BlindExperimentArmPassthrough)
+	return trainingAllowed && !blindExperimentPassthroughActive(ctx)
 }
 
 // blindExperimentPassthroughDecision resolves the requested model without
 // exposing the experiment arm in the client-visible decision reason.
 func (s *Service) blindExperimentPassthroughDecision(ctx context.Context, req router.Request) (router.Decision, bool, error) {
-	state, active := auth.BlindExperimentFrom(ctx)
-	if !active || state.Arm != auth.BlindExperimentArmPassthrough {
+	if !blindExperimentPassthroughActive(ctx) {
 		return router.Decision{}, false, nil
 	}
 	if !modelPermittedByAllowlist(ctx, req.RequestedModel) || !modelInRequestSubset(ctx, req.RequestedModel) {
 		return router.Decision{}, true, fmt.Errorf("requested model %q is not allowed: %w", req.RequestedModel, cluster.ErrAllowlistEmptiesPool)
 	}
 	if _, excluded := req.ExcludedModels[req.RequestedModel]; excluded {
-		// Organization policy exclusions are part of normal scorer eligibility.
-		// Let the routed arm choose another eligible model instead of turning a
-		// passthrough request into a hard failure.
-		return router.Decision{}, false, nil
+		return router.Decision{}, true, fmt.Errorf("requested model %q cannot serve this request: %w", req.RequestedModel, cluster.ErrNoEligibleProvider)
 	}
 	if _, excluded := req.SafetyExcludedModels[req.RequestedModel]; excluded {
 		return router.Decision{}, true, fmt.Errorf("requested model %q cannot serve this request: %w", req.RequestedModel, cluster.ErrNoEligibleProvider)

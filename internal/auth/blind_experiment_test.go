@@ -23,7 +23,13 @@ func TestAssignBlindExperimentArmBoundariesAndStability(t *testing.T) {
 	}
 }
 
+func TestAssignBlindExperimentArmSeedRotationChangesKnownSubject(t *testing.T) {
+	assert.Equal(t, auth.BlindExperimentArmRouterOn, auth.AssignBlindExperimentArm("seed-a", "user-42", 50))
+	assert.Equal(t, auth.BlindExperimentArmPassthrough, auth.AssignBlindExperimentArm("seed-b", "user-42", 50))
+}
+
 func TestAssignBlindExperimentArmPercentageOnlyMovesBoundarySubjects(t *testing.T) {
+	movedIntoRouterOn := 0
 	for index := range 500 {
 		subject := "subject-" + strconv.Itoa(index)
 		atTwentyFive := auth.AssignBlindExperimentArm("seed", subject, 25)
@@ -31,59 +37,114 @@ func TestAssignBlindExperimentArmPercentageOnlyMovesBoundarySubjects(t *testing.
 		if atTwentyFive == auth.BlindExperimentArmRouterOn {
 			assert.Equal(t, auth.BlindExperimentArmRouterOn, atSeventyFive)
 		}
+		if atTwentyFive == auth.BlindExperimentArmPassthrough && atSeventyFive == auth.BlindExperimentArmRouterOn {
+			movedIntoRouterOn++
+		}
 	}
+	assert.Positive(t, movedIntoRouterOn, "raising the percentage must expand the router-on cohort")
 }
 
 func TestLRUBlindExperimentCacheStoresInactiveAndInvalidatesByInstallation(t *testing.T) {
 	cache := auth.NewLRUBlindExperimentCache(10, time.Minute, time.Now)
-	cache.Set("inst-1", "user-1", auth.BlindExperimentState{})
-	cache.Set("inst-2", "user-2", auth.BlindExperimentState{Active: true, Arm: auth.BlindExperimentArmRouterOn})
+	firstGeneration := cache.InstallationGeneration("inst-1")
+	secondGeneration := cache.InstallationGeneration("inst-2")
+	require.True(t, cache.SetAtGeneration("inst-1", "user-1", auth.BlindExperimentState{}, firstGeneration))
+	require.True(t, cache.SetAtGeneration("inst-2", "user-2", auth.BlindExperimentState{Active: true, Arm: auth.BlindExperimentArmRouterOn}, secondGeneration))
 
-	_, inactiveHit := cache.Get("user-1")
+	_, inactiveHit := cache.GetAtGeneration("inst-1", "user-1", firstGeneration)
 	require.True(t, inactiveHit, "a missing or disabled configuration must be negatively cached")
 
 	cache.InvalidateInstallation("inst-1")
-	_, firstFound := cache.Get("user-1")
-	_, secondFound := cache.Get("user-2")
+	_, firstFound := cache.GetAtGeneration("inst-1", "user-1", cache.InstallationGeneration("inst-1"))
+	_, secondFound := cache.GetAtGeneration("inst-2", "user-2", secondGeneration)
 	assert.False(t, firstFound)
 	assert.True(t, secondFound)
 }
 
 func TestLRUBlindExperimentCacheReassignsUserBetweenInstallations(t *testing.T) {
 	cache := auth.NewLRUBlindExperimentCache(10, time.Minute, time.Now)
-	cache.Set("inst-1", "user-1", auth.BlindExperimentState{Active: true, Arm: auth.BlindExperimentArmRouterOn})
-	cache.Set("inst-2", "user-1", auth.BlindExperimentState{Active: true, Arm: auth.BlindExperimentArmPassthrough})
+	require.True(t, cache.SetAtGeneration("inst-1", "user-1", auth.BlindExperimentState{Active: true, Arm: auth.BlindExperimentArmRouterOn}, cache.InstallationGeneration("inst-1")))
+	secondGeneration := cache.InstallationGeneration("inst-2")
+	require.True(t, cache.SetAtGeneration("inst-2", "user-1", auth.BlindExperimentState{Active: true, Arm: auth.BlindExperimentArmPassthrough}, secondGeneration))
 
 	cache.InvalidateInstallation("inst-1")
-	state, found := cache.Get("user-1")
+	state, found := cache.GetAtGeneration("inst-2", "user-1", secondGeneration)
 	assert.True(t, found, "invalidating the previous installation must not evict the reassigned user")
 	assert.Equal(t, auth.BlindExperimentArmPassthrough, state.Arm)
 
 	cache.InvalidateInstallation("inst-2")
-	_, found = cache.Get("user-1")
+	_, found = cache.GetAtGeneration("inst-2", "user-1", cache.InstallationGeneration("inst-2"))
 	assert.False(t, found)
 }
 
 func TestLRUBlindExperimentCacheTTLExpires(t *testing.T) {
 	cache := auth.NewLRUBlindExperimentCache(10, 10*time.Millisecond, time.Now)
-	cache.Set("inst-1", "user-1", auth.BlindExperimentState{Active: true, Arm: auth.BlindExperimentArmPassthrough})
+	generation := cache.InstallationGeneration("inst-1")
+	require.True(t, cache.SetAtGeneration("inst-1", "user-1", auth.BlindExperimentState{Active: true, Arm: auth.BlindExperimentArmPassthrough}, generation))
 
 	require.Eventually(t, func() bool {
-		_, found := cache.Get("user-1")
+		_, found := cache.GetAtGeneration("inst-1", "user-1", generation)
 		return !found
 	}, time.Second, 5*time.Millisecond)
 }
 
 func TestLRUBlindExperimentCacheBoundsErrorsSeparately(t *testing.T) {
 	cache := auth.NewLRUBlindExperimentCache(1, time.Minute, time.Now)
-	cache.Set("inst-1", "active-user", auth.BlindExperimentState{Active: true, Arm: auth.BlindExperimentArmRouterOn})
-	cache.SetError("inst-1", "failed-user", cache.InvalidationGeneration())
+	generation := cache.InstallationGeneration("inst-1")
+	require.True(t, cache.SetAtGeneration("inst-1", "active-user", auth.BlindExperimentState{Active: true, Arm: auth.BlindExperimentArmRouterOn}, generation))
+	require.True(t, cache.SetErrorAtGeneration("inst-1", "failed-user", generation))
 
-	state, found := cache.Get("active-user")
+	state, found := cache.GetAtGeneration("inst-1", "active-user", generation)
 	assert.True(t, found, "a failed lookup must not evict an active assignment")
 	assert.Equal(t, auth.BlindExperimentArmRouterOn, state.Arm)
-	_, found = cache.Get("failed-user")
+	_, found = cache.GetAtGeneration("inst-1", "failed-user", generation)
 	assert.True(t, found, "an active error entry should fail open without a repository retry")
+}
+
+func TestLRUBlindExperimentCacheRejectsStaleAssignmentsAndErrors(t *testing.T) {
+	cache := auth.NewLRUBlindExperimentCache(10, time.Minute, time.Now)
+	staleGeneration := cache.InstallationGeneration("inst-1")
+	cache.InvalidateInstallation("inst-1")
+
+	assert.False(t, cache.SetAtGeneration("inst-1", "user-1", auth.BlindExperimentState{Active: true, Arm: auth.BlindExperimentArmRouterOn}, staleGeneration))
+	assert.False(t, cache.SetErrorAtGeneration("inst-1", "user-2", staleGeneration))
+	currentGeneration := cache.InstallationGeneration("inst-1")
+	_, assignmentFound := cache.GetAtGeneration("inst-1", "user-1", currentGeneration)
+	_, errorFound := cache.GetAtGeneration("inst-1", "user-2", currentGeneration)
+	assert.False(t, assignmentFound)
+	assert.False(t, errorFound)
+}
+
+func TestLRUBlindExperimentCacheCapacityEvictionConcurrentGenerationReadDoesNotDeadlock(t *testing.T) {
+	cache := auth.NewLRUBlindExperimentCache(1, time.Minute, time.Now)
+	generation := cache.InstallationGeneration("inst-1")
+	require.True(t, cache.SetAtGeneration("inst-1", "initial-user", auth.BlindExperimentState{Active: true, Arm: auth.BlindExperimentArmRouterOn}, generation))
+
+	start := make(chan struct{})
+	done := make(chan struct{}, 2)
+	go func() {
+		<-start
+		for range 2_000 {
+			cache.GetAtGeneration("inst-1", "initial-user", generation)
+		}
+		done <- struct{}{}
+	}()
+	go func() {
+		<-start
+		for index := range 2_000 {
+			cache.SetAtGeneration("inst-1", "capacity-user-"+strconv.Itoa(index), auth.BlindExperimentState{Active: true, Arm: auth.BlindExperimentArmPassthrough}, generation)
+		}
+		done <- struct{}{}
+	}()
+	close(start)
+
+	for range 2 {
+		select {
+		case <-done:
+		case <-time.After(5 * time.Second):
+			t.Fatal("concurrent generation reads and forced capacity evictions deadlocked")
+		}
+	}
 }
 
 type fakeBlindExperimentRepository struct {
@@ -214,6 +275,39 @@ func TestResolveAndStashUserBlindExperimentDropsFetchInvalidatedDuringRead(t *te
 
 	_, active := auth.BlindExperimentFrom(requestContext)
 	assert.False(t, active, "the request must fail open after its assignment was invalidated")
-	_, found := cache.Get("user-42")
+	_, found := cache.GetAtGeneration("inst-1", "user-42", cache.InstallationGeneration("inst-1"))
 	assert.False(t, found, "a pre-invalidation repository result must not survive in the cache")
+}
+
+func TestResolveAndStashUserBlindExperimentKeepsFetchAcrossUnrelatedInvalidation(t *testing.T) {
+	users := &fakeUserRepo{user: &auth.User{ID: "user-42", InstallationID: "inst-1", Email: "alice@example.com"}}
+	experiments := &fakeBlindExperimentRepository{
+		record: auth.BlindExperimentRecord{
+			Configured:          true,
+			Enabled:             true,
+			RouterOnPercentage:  100,
+			Seed:                "seed",
+			CanonicalSubjectKey: "account-7",
+		},
+		started: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+	cache := auth.NewLRUBlindExperimentCache(10, time.Minute, time.Now)
+	service := makeServiceWithUsers(t, users).WithBlindExperiments(experiments, cache)
+
+	contextResult := make(chan context.Context, 1)
+	go func() {
+		contextResult <- service.ResolveAndStashUser(context.Background(), "inst-1", "alice@example.com", "", "")
+	}()
+	<-experiments.started
+	cache.InvalidateInstallation("inst-2")
+	close(experiments.release)
+	requestContext := <-contextResult
+
+	state, active := auth.BlindExperimentFrom(requestContext)
+	require.True(t, active, "another installation's invalidation must not discard this fetch")
+	assert.Equal(t, auth.BlindExperimentArmRouterOn, state.Arm)
+	cacheState, found := cache.GetAtGeneration("inst-1", "user-42", cache.InstallationGeneration("inst-1"))
+	require.True(t, found)
+	assert.Equal(t, state, cacheState)
 }
