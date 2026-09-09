@@ -182,16 +182,20 @@ read_codex_endpoint() {
     # replaces a separate skip rule -- and unlike one, it also catches a comment
     # trailing another assignment, which the unanchored matches would otherwise
     # read as live config on any line preceding the real value.
-    function weave_strip_comment(line,   i, c, out, instr, esc) {
+    function weave_strip_comment(line,   i, c, out, indq, insq, esc) {
       out = ""
-      instr = 0
+      indq = 0
+      insq = 0
       esc = 0
       for (i = 1; i <= length(line); i++) {
         c = substr(line, i, 1)
         if (esc) { out = out c; esc = 0; continue }
-        if (instr && c == "\\") { out = out c; esc = 1; continue }
-        if (c == "\"") { instr = !instr; out = out c; continue }
-        if (c == "#" && !instr) break
+        # Only basic strings have escapes; a backslash in a literal string is
+        # data, so consuming the next character there would mis-track the quote.
+        if (indq && c == "\\") { out = out c; esc = 1; continue }
+        if (!insq && c == "\"") { indq = !indq; out = out c; continue }
+        if (!indq && c == "'"'"'") { insq = !insq; out = out c; continue }
+        if (c == "#" && !indq && !insq) break
         out = out c
       }
       return out

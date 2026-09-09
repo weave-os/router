@@ -279,10 +279,6 @@ for _ in 1 2 3 4 5 6 7 8 9 10; do
   [ -f "$commented_cost_cache" ] && break
   sleep 0.2
 done
-kill "$cost_mock_pid" 2>/dev/null
-wait "$cost_mock_pid" 2>/dev/null || true
-cost_mock_pid=""
-
 [ -f "$commented_cost_cache" ] || {
   echo "a commented-out example blocked the live endpoint" >&2
   exit 1
@@ -300,11 +296,26 @@ mkdir -p "$inline_home/.codex"
 cat >"$inline_home/.codex/config.toml" <<TOML
 [model_providers.weave]
 name = "Weave Router" # base_url = "http://127.0.0.1:9/v1"
-base_url = "file://$normalized_cost"
+base_url = "http://127.0.0.1:$commented_port/v1"
 wire_api = "responses" # X-Weave-Router-Key = "rk_inline_stale"
-http_headers = { "X-Weave-Router-Key" = "rk_test" }
+# A literal string is a string: a # inside one must not end the line, or the
+# key after it in this inline table is lost and the fetch never runs.
+http_headers = { "X-App" = 'codex#1', "X-Weave-Router-Key" = "rk_test" }
 TOML
+inline_seen="$work/inline-key.txt"
+rm -f "$inline_seen"
+cp "$commented_seen" "$work/commented-key.keep" 2>/dev/null || true
 inline_cache="$work/cache-inline"
+kill "$cost_mock_pid" 2>/dev/null
+wait "$cost_mock_pid" 2>/dev/null || true
+python3 "$work/cost-mock.py" "$commented_port" "$inline_seen" &
+cost_mock_pid=$!
+for _ in $(seq 1 60); do
+  curl -fsS -o /dev/null --max-time 1 "http://127.0.0.1:$commented_port/v1/sessions/x/cost" 2>/dev/null && break
+  sleep 0.25
+done
+rm -f "$inline_seen"
+
 printf '%s\n' '{"session_id":"session-6","model":"gpt-5.6-terra","last_assistant_message":"✦ **Weave Router** → claude-sonnet-5 · best pick"}' \
   | HOME="$inline_home" XDG_CACHE_HOME="$inline_cache" \
     WEAVE_CODEX_STATUS_TITLE_FILE="$title_file" "$helper" >/dev/null
@@ -317,6 +328,13 @@ done
   echo "an inline comment on an earlier line shadowed the live base_url" >&2
   exit 1
 }
+[ "$(cat "$inline_seen" 2>/dev/null)" = "rk_test" ] || {
+  echo "the inline-commented key was forwarded instead of the live one: $(cat "$inline_seen" 2>/dev/null)" >&2
+  exit 1
+}
+kill "$cost_mock_pid" 2>/dev/null
+wait "$cost_mock_pid" 2>/dev/null || true
+cost_mock_pid=""
 
 # A provider whose name merely starts with "weave" is a different provider: its
 # key must never be adopted, and a config holding only that one resolves nothing.
