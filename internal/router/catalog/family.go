@@ -43,6 +43,33 @@ func versionLess(a, b [2]int) bool {
 	return a[1] < b[1]
 }
 
+// LatestInFamily returns the newest eligible catalog model in id's family,
+// never an older version. Variant suffixes remain separate families. Unknown
+// IDs return empty; new naming schemes need an explicit family mapping.
+func LatestInFamily(id string, eligible func(string) bool) string {
+	model, known := ByID(id)
+	if !known {
+		return ""
+	}
+	id = model.ID
+	family, version, versioned := FamilyAndVersion(id)
+	latest := ""
+	if eligible(id) {
+		latest = id
+	}
+	if !versioned {
+		return latest
+	}
+	for _, candidate := range Models {
+		candidateFamily, candidateVersion, ok := FamilyAndVersion(candidate.ID)
+		if !ok || candidateFamily != family || !versionLess(version, candidateVersion) || !eligible(candidate.ID) {
+			continue
+		}
+		latest, version = candidate.ID, candidateVersion
+	}
+	return latest
+}
+
 // FamilyDuplicates returns, for each family with 2+ members, the non-newest
 // ids paired with the newest superseder. IDs with ok=false are exempt.
 func FamilyDuplicates(ids []string) []Duplicate {

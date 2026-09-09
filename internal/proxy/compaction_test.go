@@ -19,6 +19,7 @@ import (
 	"weave-os/router/internal/router/turntype"
 	"weave-os/router/internal/translate"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -197,26 +198,34 @@ func TestWithCompaction_ZeroPctDisables(t *testing.T) {
 
 func TestSelectCompactionSummarizer_WindowAware(t *testing.T) {
 	s := &Service{}
-	assert.Equal(t, policy.PrecompactionDefaultModel, s.selectCompactionSummarizer(1_000, ""), "small history → Sonnet-class default")
-	assert.Equal(t, policy.PrecompactionLargeWindowModel, s.selectCompactionSummarizer(300_000, ""), "history over the default's window → large-window model")
-	assert.Equal(t, "", s.selectCompactionSummarizer(5_000_000, ""), "history over every window → none")
+	assert.Equal(t, policy.PrecompactionDefaultModel, s.selectCompactionSummarizer(1_000, "", nil), "small history → Sonnet-class default")
+	assert.Equal(t, policy.PrecompactionLargeWindowModel, s.selectCompactionSummarizer(300_000, "", nil), "history over the default's window → large-window model")
+	assert.Equal(t, "", s.selectCompactionSummarizer(5_000_000, "", nil), "history over every window → none")
 
-	assert.Equal(t, "claude-opus-4-8", s.selectCompactionSummarizer(1_000, "claude-opus-4-8"), "warm Anthropic pin summarizes its own session")
-	assert.Equal(t, policy.PrecompactionDefaultModel, s.selectCompactionSummarizer(1_000, "claude-haiku-4-5"), "low-tier pin is not reused as summarizer")
-	assert.Equal(t, policy.PrecompactionDefaultModel, s.selectCompactionSummarizer(1_000, "gpt-5.5"), "non-Anthropic pin is not reused as summarizer")
-	assert.Equal(t, policy.PrecompactionLargeWindowModel, s.selectCompactionSummarizer(300_000, "claude-opus-4-8"), "pin that can't ingest the history is skipped")
+	assert.Equal(t, "claude-opus-5", s.selectCompactionSummarizer(1_000, "claude-opus-4-8", nil), "session family upgrades to its newest eligible version")
+	assert.Equal(t, policy.PrecompactionDefaultModel, s.selectCompactionSummarizer(1_000, "claude-haiku-4-5", nil), "low-tier pin is not reused as summarizer")
+	assert.Equal(t, policy.PrecompactionDefaultModel, s.selectCompactionSummarizer(1_000, "gpt-5.5", nil), "non-Anthropic pin is not reused as summarizer")
+	assert.Equal(t, policy.PrecompactionLargeWindowModel, s.selectCompactionSummarizer(300_000, "claude-opus-4-8", nil), "upgraded pin can ingest the larger history")
 
 	custom := &Service{compactionModel: "claude-sonnet-4-5"}
-	assert.Equal(t, "claude-sonnet-4-5", custom.selectCompactionSummarizer(1_000, ""), "ROUTER_COMPACTION_MODEL overrides the default")
+	assert.Equal(t, "claude-sonnet-5", custom.selectCompactionSummarizer(1_000, "", nil), "ROUTER_COMPACTION_MODEL selects a family, not an obsolete version")
+
+	excluded := map[string]struct{}{policy.PrecompactionDefaultModel: {}}
+	assert.Equal(t, "claude-sonnet-4-6", s.selectCompactionSummarizer(1_000, "claude-sonnet-4-5", excluded))
+	excluded[policy.PrecompactionLargeWindowModel] = struct{}{}
+	assert.Empty(t, s.selectCompactionSummarizer(300_000, "claude-sonnet-4-5", excluded))
 }
 
 func TestCompactionTargetFor_TypesTheCascadeChoice(t *testing.T) {
 	s := &Service{}
 	assert.Equal(t, CompactionTarget{CatalogID: "claude-opus-4-8", Source: policy.OverrideSourceSession}, s.compactionTargetFor("claude-opus-4-8", "claude-opus-4-8"))
+	assert.Equal(t, CompactionTarget{CatalogID: policy.PrecompactionLargeWindowModel, Source: policy.OverrideSourceSession}, s.compactionTargetFor(policy.PrecompactionLargeWindowModel, "claude-opus-4-8"))
 	assert.Equal(t, CompactionTarget{CatalogID: policy.PrecompactionDefaultModel, Source: policy.OverrideSourceDeployment}, s.compactionTargetFor(policy.PrecompactionDefaultModel, "claude-opus-4-8"))
 	assert.Equal(t, CompactionTarget{CatalogID: policy.PrecompactionLargeWindowModel}, s.compactionTargetFor(policy.PrecompactionLargeWindowModel, ""))
 	custom := &Service{compactionModel: "claude-sonnet-4-5"}
 	assert.Equal(t, CompactionTarget{CatalogID: "claude-sonnet-4-5", Source: policy.OverrideSourceDeployment}, custom.compactionTargetFor("claude-sonnet-4-5", ""))
+	assert.Equal(t, CompactionTarget{CatalogID: policy.PrecompactionDefaultModel, Source: policy.OverrideSourceDeployment}, custom.compactionTargetFor(policy.PrecompactionDefaultModel, ""))
+	assert.Equal(t, CompactionTarget{}, s.compactionTargetFor("", ""))
 }
 
 func TestPrecompactionPolicyReviewsEveryCascadeCandidate(t *testing.T) {
@@ -242,6 +251,35 @@ func TestCompactionPolicyFor(t *testing.T) {
 	assert.False(t, compactionPolicyFor(ClientAppGeminiCLI).DeferToClient)
 	assert.Equal(t, defaultCompactionPolicy, compactionPolicyFor(""), "unknown client → default policy")
 	assert.Equal(t, defaultCompactionPolicy, compactionPolicyFor("some-new-harness"))
+}
+
+func TestCompactionSummaryHonorsAllowlistOutsideRoutingPool(t *testing.T) {
+	env, err := translate.ParseAnthropic(alternatingAnthropicBody(4, 100))
+	require.NoError(t, err)
+	for _, test := range []struct {
+		name string
+		ctx  context.Context
+		want string
+	}{
+		{"unrestricted auxiliary model", context.Background(), policy.PrecompactionDefaultModel},
+		{"org allowlist", ctxWithAllowedModels(testSol), ""},
+		{"request subset", ctxWithRequestSubset(context.Background(), testSol), ""},
+		{"allowed large-window fallback", ctxWithAllowedModels(testSol, testOpus), testOpus},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			summarizer := &fakeCompactionSummarizer{summary: "preserved session context"}
+			s := &Service{compactionSummarizer: summarizer, availableModels: map[string]struct{}{testSol: {}}}
+			summary, _, model, ok := s.runCompactionSummary(test.ctx, env, "", router.Request{}, nil)
+			assert.Equal(t, test.want != "", ok)
+			assert.Equal(t, test.want, model)
+			if test.want == "" {
+				assert.Empty(t, summary)
+				assert.Zero(t, summarizer.calls)
+			} else {
+				assert.Equal(t, "preserved session context", summary)
+			}
+		})
+	}
 }
 
 func TestClientWouldCompact(t *testing.T) {
@@ -412,15 +450,15 @@ func TestCompactionHardPin_CodexKeepsNonAnthropicSessionModel(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, policy.PrecompactionDefaultModel, m)
 
-	// A low-tier session model is what the cascade moves away from.
+	// An older low-tier model may have a newer mid-tier successor.
 	lowServed := &rolePinStore{byRole: map[string]sessionpin.Pin{
 		hmmHistoryRole(sessionpin.DefaultRole): {Provider: providers.ProviderOpenAI, LastServedModel: "gpt-4.1-mini", LastTurnEndedAt: time.Now(), PinnedUntil: live},
 	}}
 	s = &Service{compactionHardPinEnabled: true, pinStore: lowServed, clients: dispatch.NewClients(openAIProviders)}
 	p, m, _, ok = s.compactionHardPin(ctx, key, sessionpin.DefaultRole, codex(router.Request{}))
 	require.True(t, ok)
-	assert.Equal(t, providers.ProviderAnthropic, p)
-	assert.Equal(t, policy.PrecompactionDefaultModel, m)
+	assert.Equal(t, providers.ProviderOpenAI, p)
+	assert.Equal(t, "gpt-5.5-mini", m)
 
 	// An Anthropic-served Codex session keeps its own model, as before.
 	anthropicServed := &rolePinStore{byRole: map[string]sessionpin.Pin{
@@ -430,7 +468,83 @@ func TestCompactionHardPin_CodexKeepsNonAnthropicSessionModel(t *testing.T) {
 	p, m, _, ok = s.compactionHardPin(ctx, key, sessionpin.DefaultRole, codex(router.Request{}))
 	require.True(t, ok)
 	assert.Equal(t, providers.ProviderAnthropic, p)
-	assert.Equal(t, "claude-opus-4-8", m)
+	assert.Equal(t, "claude-opus-5", m)
+}
+
+func TestCompactionHardPin_FamilyUpgradeHonorsRestrictions(t *testing.T) {
+	const olderModel = "z-ai/glm-5.2"
+	const newerModel = "z-ai/glm-5.3"
+	ctx := context.Background()
+	store := &rolePinStore{byRole: map[string]sessionpin.Pin{
+		hmmHistoryRole(sessionpin.DefaultRole): {
+			Provider: providers.ProviderFireworks, LastServedModel: olderModel,
+			LastTurnEndedAt: time.Now(), PinnedUntil: time.Now().Add(time.Hour),
+		},
+	}}
+	s := &Service{pinStore: store, clients: dispatch.NewClients(map[string]providers.Client{providers.ProviderFireworks: nil})}
+	for _, test := range []struct {
+		name string
+		req  router.Request
+		want string
+	}{
+		{"upgrade", router.Request{}, newerModel},
+		{"org exclusion", router.Request{ExcludedModels: map[string]struct{}{newerModel: {}}}, olderModel},
+		{"automatic exclusion", router.Request{AutomaticExcludedModels: map[string]struct{}{newerModel: {}}}, olderModel},
+		{"provider disabled", router.Request{EnabledProviders: map[string]struct{}{providers.ProviderOpenAI: {}}}, ""},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			_, model, ok := s.compactionSessionModel(ctx, [sessionpin.SessionKeyLen]byte{}, sessionpin.DefaultRole, test.req)
+			assert.Equal(t, test.want != "", ok)
+			assert.Equal(t, test.want, model)
+		})
+	}
+	s.availableModels = map[string]struct{}{olderModel: {}}
+	_, model, ok := s.compactionSessionModel(ctx, [sessionpin.SessionKeyLen]byte{}, sessionpin.DefaultRole, router.Request{})
+	require.True(t, ok)
+	assert.Equal(t, olderModel, model)
+}
+
+func TestCompactionHardPin_CodexKeepsUntieredSessionFamily(t *testing.T) {
+	for _, sessionModel := range []string{"gpt-4o", "gpt-5-chat"} {
+		t.Run(sessionModel, func(t *testing.T) {
+			store := &rolePinStore{byRole: map[string]sessionpin.Pin{
+				hmmHistoryRole(sessionpin.DefaultRole): {
+					Provider: providers.ProviderOpenAI, LastServedModel: sessionModel,
+					LastTurnEndedAt: time.Now(), PinnedUntil: time.Now().Add(time.Hour),
+				},
+			}}
+			s := &Service{
+				pinStore:        store,
+				clients:         dispatch.NewClients(map[string]providers.Client{providers.ProviderOpenAI: nil}),
+				availableModels: map[string]struct{}{sessionModel: {}},
+			}
+			provider, model, _, ok := s.compactionHardPin(context.Background(), [sessionpin.SessionKeyLen]byte{}, sessionpin.DefaultRole, router.Request{ClientApp: ClientAppCodex})
+			require.True(t, ok)
+			assert.Equal(t, providers.ProviderOpenAI, provider)
+			assert.Equal(t, sessionModel, model)
+		})
+	}
+}
+
+func TestTurnLoop_CompactionReadsClientIdentityBeforeHardPin(t *testing.T) {
+	const sessionModel = "gpt-5.6-sol"
+	store := &rolePinStore{byRole: map[string]sessionpin.Pin{
+		hmmHistoryRole(roleForTier(catalog.TierMid)): {
+			Provider: providers.ProviderOpenAI, LastServedModel: sessionModel,
+			LastTurnEndedAt: time.Now(), PinnedUntil: time.Now().Add(time.Hour),
+		},
+	}}
+	s := NewService(nil, map[string]providers.Client{providers.ProviderOpenAI: nil, providers.ProviderAnthropic: nil}, nil, false, nil, store, false, providers.ProviderAnthropic, policy.PrecompactionDefaultModel, nil)
+	s.compactionHardPinEnabled = true
+	env, err := translate.ParseOpenAI([]byte(`{"model":"gpt-5.6-luna","messages":[{"role":"user","content":"You are performing a CONTEXT CHECKPOINT COMPACTION. Create a summary."}],"max_tokens":4096}`))
+	require.NoError(t, err)
+	ctx := context.WithValue(context.Background(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppCodex})
+	features := env.RoutingFeatures(false)
+	turn, err := s.runTurnLoop(ctx, env, features, "test-key", uuid.Nil, "", nil, router.Request{RequestedModel: features.Model})
+	require.NoError(t, err)
+	assert.Equal(t, turntype.Compaction, turn.TurnType)
+	assert.Equal(t, providers.ProviderOpenAI, turn.Decision.Provider)
+	assert.Equal(t, sessionModel, turn.Decision.Model)
 }
 
 func TestMaxEligibleContextWindow(t *testing.T) {

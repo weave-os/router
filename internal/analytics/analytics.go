@@ -6,6 +6,8 @@ package analytics
 import (
 	"context"
 	"time"
+
+	"weave-os/router/internal/auth"
 )
 
 // Decision is one exported routing decision: a single upstream action, not a
@@ -38,10 +40,13 @@ type Decision struct {
 	// DecisionReason is free-form diagnostic prose whose format changes between
 	// router versions; do not parse it — group on DecisionModel / StickyHit /
 	// CandidateModels instead.
-	DecisionReason *string `json:"decision_reason"`
-	StickyHit      bool    `json:"sticky_hit"`
-	FailoverUsed   bool    `json:"failover_used"`
-	CrossFormat    bool    `json:"cross_format"`
+	DecisionReason                  *string                               `json:"decision_reason"`
+	BlindExperimentArm              *auth.BlindExperimentArm              `json:"blind_experiment_arm"`
+	BlindExperimentAssignmentSource *auth.BlindExperimentAssignmentSource `json:"blind_experiment_assignment_source"`
+	BlindExperimentSubjectKey       *string                               `json:"blind_experiment_subject_key"`
+	StickyHit                       bool                                  `json:"sticky_hit"`
+	FailoverUsed                    bool                                  `json:"failover_used"`
+	CrossFormat                     bool                                  `json:"cross_format"`
 
 	EstimatedInputTokens *int64 `json:"estimated_input_tokens"`
 	InputTokens          *int64 `json:"input_tokens"`

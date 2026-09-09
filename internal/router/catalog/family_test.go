@@ -1,6 +1,45 @@
 package catalog
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+)
+
+func TestLatestInFamily(t *testing.T) {
+	tests := []struct {
+		name     string
+		model    string
+		eligible []string
+		want     string
+	}{
+		{"major beats minor", "claude-sonnet-4-6", []string{"claude-sonnet-4-6", "claude-sonnet-5", "claude-opus-5"}, "claude-sonnet-5"},
+		{"dated Anthropic alias", "claude-sonnet-4-5-20250929", []string{"claude-sonnet-4-6", "claude-sonnet-5"}, "claude-sonnet-5"},
+		{"dated OpenAI alias", "gpt-4.1-mini-2025-04-14", []string{"gpt-5.5-mini"}, "gpt-5.5-mini"},
+		{"dated alias cannot bypass eligibility", "claude-sonnet-4-5-20250929", []string{"claude-sonnet-4-5-20250929"}, ""},
+		{"Gemini versions", "gemini-3.5-flash", []string{"gemini-3.7-flash", "gemini-3.8-flash", "gemini-3.5-flash-lite"}, "gemini-3.8-flash"},
+		{"GLM keeps variant", "z-ai/glm-5.1", []string{"z-ai/glm-5.2", "z-ai/glm-5.3", "z-ai/glm-5.3-flash"}, "z-ai/glm-5.3"},
+		{"Kimi major", "moonshotai/kimi-k2.5", []string{"moonshotai/kimi-k2.7", "moonshotai/kimi-k3"}, "moonshotai/kimi-k3"},
+		{"OpenAI keeps size", "gpt-5.4-mini", []string{"gpt-5.5-mini", "gpt-5.6-luna", "gpt-6-astra"}, "gpt-5.5-mini"},
+		{"newest unavailable", "claude-sonnet-4-5", []string{"claude-sonnet-4-5", "claude-sonnet-4-6"}, "claude-sonnet-4-6"},
+		{"no downgrade", "claude-sonnet-5", []string{"claude-sonnet-4-6"}, ""},
+		{"unknown ID", "unknown-1", []string{"unknown-1"}, ""},
+		{"unversioned catalog ID", "gpt-4o", []string{"gpt-4o", "gpt-5.5"}, "gpt-4o"},
+		{"dated unversioned alias", "gpt-4o-2024-08-06", []string{"gpt-4o", "gpt-5.5"}, "gpt-4o"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			eligible := make(map[string]struct{}, len(test.eligible))
+			for _, model := range test.eligible {
+				eligible[model] = struct{}{}
+			}
+			assert.Equal(t, test.want, LatestInFamily(test.model, func(model string) bool {
+				_, allowed := eligible[model]
+				return allowed
+			}))
+		})
+	}
+}
 
 func TestFamilyAndVersion(t *testing.T) {
 	tests := []struct {

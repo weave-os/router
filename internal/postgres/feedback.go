@@ -90,11 +90,3 @@ func (r *FeedbackRepo) GetContext(ctx context.Context, installationID, requestID
 	}
 	return out, nil
 }
-
-// derefString returns the pointed-to string or "" for a nil pointer.
-func derefString(s *string) string {
-	if s == nil {
-		return ""
-	}
-	return *s
-}

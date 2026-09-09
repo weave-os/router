@@ -78,7 +78,7 @@ func (r *SessionPinRepo) Upsert(ctx context.Context, p sessionpin.Pin) error {
 
 // UpdateUsage records the previous turn's usage on the pin row. A missing
 // pin (evicted/swept/never created) is a no-op, not an error. A zero
-// EndedAt is stamped with time.Now so the column is always populated.
+// EndedAt is stamped with time.Now when the caller omits it.
 func (r *SessionPinRepo) UpdateUsage(ctx context.Context, sessionKey [sessionpin.SessionKeyLen]byte, role string, usage sessionpin.Usage) error {
 	endedAt := usage.EndedAt
 	if endedAt.IsZero() {
@@ -92,7 +92,7 @@ func (r *SessionPinRepo) UpdateUsage(ctx context.Context, sessionKey [sessionpin
 		LastCachedReadTokens:    int32(usage.CachedReadTokens),
 		LastCachedWriteTokens:   int32(usage.CachedWriteTokens),
 		LastOutputTokens:        int32(usage.OutputTokens),
-		LastTurnEndedAt:         pgtype.Timestamptz{Time: endedAt.UTC(), Valid: true},
+		LastTurnEndedAt:         pgtype.Timestamptz{Time: endedAt.UTC(), Valid: !endedAt.IsZero()},
 		LastServedModel:         usage.ServedModel,
 		LastServedProvider:      usage.ServedProvider,
 		PriorServedModel:        usage.PriorServedModel,

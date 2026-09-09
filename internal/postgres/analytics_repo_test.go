@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	"weave-os/router/internal/auth"
 	"weave-os/router/internal/sqlc"
 
 	"github.com/google/uuid"
@@ -119,4 +120,31 @@ func TestDecisionFromExportRowNullUserIsNull(t *testing.T) {
 
 	assert.Nil(t, got.UserID)
 	assert.Nil(t, got.UserAccountUUID)
+}
+
+func TestDecisionFromExportRowMapsBlindExperimentFields(t *testing.T) {
+	arm := string(auth.BlindExperimentArmPassthrough)
+	assignmentSource := string(auth.BlindExperimentAssignmentManual)
+	subjectKey := "account-1"
+
+	got := decisionFromExportRow(sqlc.GetRoutingDecisionsForExportRow{
+		BlindExperimentArm:              &arm,
+		BlindExperimentAssignmentSource: &assignmentSource,
+		BlindExperimentSubjectKey:       &subjectKey,
+	})
+
+	require.NotNil(t, got.BlindExperimentArm)
+	assert.Equal(t, auth.BlindExperimentArmPassthrough, *got.BlindExperimentArm)
+	require.NotNil(t, got.BlindExperimentAssignmentSource)
+	assert.Equal(t, auth.BlindExperimentAssignmentManual, *got.BlindExperimentAssignmentSource)
+	require.NotNil(t, got.BlindExperimentSubjectKey)
+	assert.Equal(t, subjectKey, *got.BlindExperimentSubjectKey)
+}
+
+func TestDecisionFromExportRowPreservesNullBlindExperimentFields(t *testing.T) {
+	got := decisionFromExportRow(sqlc.GetRoutingDecisionsForExportRow{})
+
+	assert.Nil(t, got.BlindExperimentArm)
+	assert.Nil(t, got.BlindExperimentAssignmentSource)
+	assert.Nil(t, got.BlindExperimentSubjectKey)
 }

@@ -91,6 +91,9 @@ SELECT
     t.candidate_models,
     t.chosen_score,
     t.decision_reason,
+    t.blind_experiment_arm,
+    t.blind_experiment_assignment_source,
+    t.blind_experiment_subject_key,
     t.sticky_hit,
     t.failover_used,
     t.cross_format,
@@ -142,44 +145,47 @@ type GetRoutingDecisionsForExportParams struct {
 }
 
 type GetRoutingDecisionsForExportRow struct {
-	ID                    uuid.UUID
-	CreatedAt             pgtype.Timestamptz
-	Timestamp             pgtype.Timestamptz
-	RequestID             string
-	TraceID               string
-	SessionID             *string
-	DeviceID              *string
-	ClientApp             *string
-	TurnType              *string
-	RouterUserID          pgtype.UUID
-	UserEmail             *string
-	UserAccountUUID       pgtype.UUID
-	RequestedModel        *string
-	DecisionModel         *string
-	DecisionProvider      *string
-	CandidateModels       []string
-	ChosenScore           *float64
-	DecisionReason        *string
-	StickyHit             *bool
-	FailoverUsed          *bool
-	CrossFormat           *bool
-	EstimatedInputTokens  *int32
-	InputTokens           *int32
-	OutputTokens          *int32
-	CacheCreationTokens   *int32
-	CacheReadTokens       *int32
-	SubscriptionServed    bool
-	ActualInputCostUsd    *int64
-	ActualOutputCostUsd   *int64
-	RouteLatencyMs        *int64
-	UpstreamLatencyMs     *int64
-	TotalLatencyMs        *int64
-	TtftMs                *int64
-	UpstreamStatusCode    *int32
-	UpstreamFinishReason  *string
-	StopReason            *string
-	ToolUseBlocks         *int32
-	InvalidToolArgsBlocks *int32
+	ID                              uuid.UUID
+	CreatedAt                       pgtype.Timestamptz
+	Timestamp                       pgtype.Timestamptz
+	RequestID                       string
+	TraceID                         string
+	SessionID                       *string
+	DeviceID                        *string
+	ClientApp                       *string
+	TurnType                        *string
+	RouterUserID                    pgtype.UUID
+	UserEmail                       *string
+	UserAccountUUID                 pgtype.UUID
+	RequestedModel                  *string
+	DecisionModel                   *string
+	DecisionProvider                *string
+	CandidateModels                 []string
+	ChosenScore                     *float64
+	DecisionReason                  *string
+	BlindExperimentArm              *string
+	BlindExperimentAssignmentSource *string
+	BlindExperimentSubjectKey       *string
+	StickyHit                       *bool
+	FailoverUsed                    *bool
+	CrossFormat                     *bool
+	EstimatedInputTokens            *int32
+	InputTokens                     *int32
+	OutputTokens                    *int32
+	CacheCreationTokens             *int32
+	CacheReadTokens                 *int32
+	SubscriptionServed              bool
+	ActualInputCostUsd              *int64
+	ActualOutputCostUsd             *int64
+	RouteLatencyMs                  *int64
+	UpstreamLatencyMs               *int64
+	TotalLatencyMs                  *int64
+	TtftMs                          *int64
+	UpstreamStatusCode              *int32
+	UpstreamFinishReason            *string
+	StopReason                      *string
+	ToolUseBlocks                   *int32
+	InvalidToolArgsBlocks           *int32
 }
 
 // Returns raw routing decisions for the analytics export, one row per upstream
@@ -211,6 +217,9 @@ type GetRoutingDecisionsForExportRow struct {
 //	    t.candidate_models,
 //	    t.chosen_score,
 //	    t.decision_reason,
+//	    t.blind_experiment_arm,
+//	    t.blind_experiment_assignment_source,
+//	    t.blind_experiment_subject_key,
 //	    t.sticky_hit,
 //	    t.failover_used,
 //	    t.cross_format,
@@ -285,6 +294,9 @@ func (q *Queries) GetRoutingDecisionsForExport(ctx context.Context, arg GetRouti
 			&i.CandidateModels,
 			&i.ChosenScore,
 			&i.DecisionReason,
+			&i.BlindExperimentArm,
+			&i.BlindExperimentAssignmentSource,
+			&i.BlindExperimentSubjectKey,
 			&i.StickyHit,
 			&i.FailoverUsed,
 			&i.CrossFormat,
@@ -1754,6 +1766,9 @@ INSERT INTO router.model_router_request_telemetry (
     session_id,
     router_user_id,
     client_app,
+    blind_experiment_arm,
+    blind_experiment_assignment_source,
+    blind_experiment_subject_key,
     turn_type,
     rollout_id,
     upstream_finish_reason,
@@ -1868,66 +1883,69 @@ INSERT INTO router.model_router_request_telemetry (
     $49::text,
     $50::varchar,
     $51::varchar,
-    $52::text,
-    $53::text,
-    $54::int,
-    $55::int,
-    $56::boolean,
-    $57::boolean,
-    $58::bytea,
-    $59::varchar,
-    $60::varchar,
-    $61::jsonb,
-    $62::bigint,
-    $63::int,
-    $64::varchar,
-    $65::varchar,
-    $66::varchar,
-    $67::jsonb,
+    $52::varchar,
+    $53::varchar,
+    $54::varchar,
+    $55::text,
+    $56::text,
+    $57::int,
+    $58::int,
+    $59::boolean,
+    $60::boolean,
+    $61::bytea,
+    $62::varchar,
+    $63::varchar,
+    $64::jsonb,
+    $65::bigint,
+    $66::int,
+    $67::varchar,
     $68::varchar,
     $69::varchar,
-    $70::varchar,
+    $70::jsonb,
     $71::varchar,
-    $72::bigint,
-    $73::bigint,
-    $74::boolean,
-    $75::varchar,
+    $72::varchar,
+    $73::varchar,
+    $74::varchar,
+    $75::bigint,
     $76::bigint,
-    $77::varchar,
-    $78::boolean,
-    $79::varchar,
+    $77::boolean,
+    $78::varchar,
+    $79::bigint,
     $80::varchar,
-    $81::varchar,
-    $82::bigint,
-    $83::bigint,
-    $84::boolean,
-    $85::varchar,
+    $81::boolean,
+    $82::varchar,
+    $83::varchar,
+    $84::varchar,
+    $85::bigint,
     $86::bigint,
-    $87::double precision,
-    $88::double precision,
-    $89::int,
-    $90::int,
-    $91::int,
+    $87::boolean,
+    $88::varchar,
+    $89::bigint,
+    $90::double precision,
+    $91::double precision,
     $92::int,
-    $93::varchar,
-    $94::double precision,
+    $93::int,
+    $94::int,
     $95::int,
-    $96::int,
-    $97::int,
+    $96::varchar,
+    $97::double precision,
     $98::int,
     $99::int,
-    $100::boolean,
-    $101::varchar[],
-    $102::varchar[],
-    $103::varchar,
-    $104::varchar,
-    $105::varchar,
+    $100::int,
+    $101::int,
+    $102::int,
+    $103::boolean,
+    $104::varchar[],
+    $105::varchar[],
     $106::varchar,
     $107::varchar,
     $108::varchar,
     $109::varchar,
     $110::varchar,
-    $111::boolean
+    $111::varchar,
+    $112::varchar,
+    $113::varchar,
+    $114::boolean
 )
 ON CONFLICT (installation_id, request_id, span_type) DO NOTHING
 `
@@ -1982,6 +2000,9 @@ type InsertRequestTelemetryParams struct {
 	SessionID                                *string
 	RouterUserID                             pgtype.UUID
 	ClientApp                                *string
+	BlindExperimentArm                       *string
+	BlindExperimentAssignmentSource          *string
+	BlindExperimentSubjectKey                *string
 	TurnType                                 string
 	RolloutID                                *string
 	UpstreamFinishReason                     *string
@@ -2135,6 +2156,9 @@ type InsertRequestTelemetryParams struct {
 //	    session_id,
 //	    router_user_id,
 //	    client_app,
+//	    blind_experiment_arm,
+//	    blind_experiment_assignment_source,
+//	    blind_experiment_subject_key,
 //	    turn_type,
 //	    rollout_id,
 //	    upstream_finish_reason,
@@ -2249,66 +2273,69 @@ type InsertRequestTelemetryParams struct {
 //	    $49::text,
 //	    $50::varchar,
 //	    $51::varchar,
-//	    $52::text,
-//	    $53::text,
-//	    $54::int,
-//	    $55::int,
-//	    $56::boolean,
-//	    $57::boolean,
-//	    $58::bytea,
-//	    $59::varchar,
-//	    $60::varchar,
-//	    $61::jsonb,
-//	    $62::bigint,
-//	    $63::int,
-//	    $64::varchar,
-//	    $65::varchar,
-//	    $66::varchar,
-//	    $67::jsonb,
+//	    $52::varchar,
+//	    $53::varchar,
+//	    $54::varchar,
+//	    $55::text,
+//	    $56::text,
+//	    $57::int,
+//	    $58::int,
+//	    $59::boolean,
+//	    $60::boolean,
+//	    $61::bytea,
+//	    $62::varchar,
+//	    $63::varchar,
+//	    $64::jsonb,
+//	    $65::bigint,
+//	    $66::int,
+//	    $67::varchar,
 //	    $68::varchar,
 //	    $69::varchar,
-//	    $70::varchar,
+//	    $70::jsonb,
 //	    $71::varchar,
-//	    $72::bigint,
-//	    $73::bigint,
-//	    $74::boolean,
-//	    $75::varchar,
+//	    $72::varchar,
+//	    $73::varchar,
+//	    $74::varchar,
+//	    $75::bigint,
 //	    $76::bigint,
-//	    $77::varchar,
-//	    $78::boolean,
-//	    $79::varchar,
+//	    $77::boolean,
+//	    $78::varchar,
+//	    $79::bigint,
 //	    $80::varchar,
-//	    $81::varchar,
-//	    $82::bigint,
-//	    $83::bigint,
-//	    $84::boolean,
-//	    $85::varchar,
+//	    $81::boolean,
+//	    $82::varchar,
+//	    $83::varchar,
+//	    $84::varchar,
+//	    $85::bigint,
 //	    $86::bigint,
-//	    $87::double precision,
-//	    $88::double precision,
-//	    $89::int,
-//	    $90::int,
-//	    $91::int,
+//	    $87::boolean,
+//	    $88::varchar,
+//	    $89::bigint,
+//	    $90::double precision,
+//	    $91::double precision,
 //	    $92::int,
-//	    $93::varchar,
-//	    $94::double precision,
+//	    $93::int,
+//	    $94::int,
 //	    $95::int,
-//	    $96::int,
-//	    $97::int,
+//	    $96::varchar,
+//	    $97::double precision,
 //	    $98::int,
 //	    $99::int,
-//	    $100::boolean,
-//	    $101::varchar[],
-//	    $102::varchar[],
-//	    $103::varchar,
-//	    $104::varchar,
-//	    $105::varchar,
+//	    $100::int,
+//	    $101::int,
+//	    $102::int,
+//	    $103::boolean,
+//	    $104::varchar[],
+//	    $105::varchar[],
 //	    $106::varchar,
 //	    $107::varchar,
 //	    $108::varchar,
 //	    $109::varchar,
 //	    $110::varchar,
-//	    $111::boolean
+//	    $111::varchar,
+//	    $112::varchar,
+//	    $113::varchar,
+//	    $114::boolean
 //	)
 //	ON CONFLICT (installation_id, request_id, span_type) DO NOTHING
 func (q *Queries) InsertRequestTelemetry(ctx context.Context, arg InsertRequestTelemetryParams) error {
@@ -2362,6 +2389,9 @@ func (q *Queries) InsertRequestTelemetry(ctx context.Context, arg InsertRequestT
 		arg.SessionID,
 		arg.RouterUserID,
 		arg.ClientApp,
+		arg.BlindExperimentArm,
+		arg.BlindExperimentAssignmentSource,
+		arg.BlindExperimentSubjectKey,
 		arg.TurnType,
 		arg.RolloutID,
 		arg.UpstreamFinishReason,

@@ -403,7 +403,7 @@ func (s *Service) bypassToAnthropic(
 	// marks the lane. Required for Phase 0 unified_limit_headers capture.
 	if installationID := installationIDFromContext(ctx); installationID != uuid.Nil {
 		credentialKeyPrefix, credentialKeySuffix, credSource := s.credentialKeyParts(ctx)
-		s.fireTelemetry(InsertTelemetryParams{
+		telemetryParams := InsertTelemetryParams{
 			InstallationID:         installationID.String(),
 			APIKeyID:               apiKeyIDFromContext(ctx),
 			RequestID:              requestID,
@@ -437,7 +437,9 @@ func (s *Service) bypassToAnthropic(
 			CredentialKeySuffix:    credentialKeySuffix,
 			CredentialSource:       credSource,
 			UnifiedLimitHeaders:    unifiedLimitHeadersJSON(ctx),
-		})
+		}
+		applyBlindExperimentTelemetry(ctx, &telemetryParams)
+		s.fireTelemetry(telemetryParams)
 	}
 
 	log.Info("ProxyMessages usage-bypass complete",

@@ -1,6 +1,6 @@
 {
   "schema_version": "inference_policy_registry_v2",
-  "registry_revision": "sha256:1053e477a14cba51020b983ee69b28ac3f9356a4382e1a26515fcb401cc55b72",
+  "registry_revision": "sha256:c39f4fd7a0506b0c9ea57d3a3e9291dd0caab4953fed34a53e2114791096e6c7",
   "policies": [
     {
       "purpose": "agent_shadow_evaluation",
@@ -164,17 +164,17 @@
       "selection_strategy": "fixed_catalog",
       "candidate_source": "fixed_catalog",
       "fixed_catalog_models": [
-        "claude-sonnet-4-6",
-        "claude-fable-5",
-        "claude-sonnet-4-5",
         "claude-sonnet-5",
+        "claude-opus-5",
+        "claude-sonnet-4-5",
+        "claude-sonnet-4-6",
         "claude-opus-4-0",
         "claude-opus-4-1",
         "claude-opus-4-5",
         "claude-opus-4-6",
         "claude-opus-4-7",
         "claude-opus-4-8",
-        "claude-opus-5",
+        "claude-fable-5",
         "claude-fable-5-1"
       ],
       "hard_constraints": [
@@ -474,17 +474,17 @@
       "selection_strategy": "fixed_catalog",
       "candidate_source": "fixed_catalog",
       "fixed_catalog_models": [
-        "claude-sonnet-4-6",
-        "claude-fable-5",
-        "claude-sonnet-4-5",
         "claude-sonnet-5",
+        "claude-opus-5",
+        "claude-sonnet-4-5",
+        "claude-sonnet-4-6",
         "claude-opus-4-0",
         "claude-opus-4-1",
         "claude-opus-4-5",
         "claude-opus-4-6",
         "claude-opus-4-7",
         "claude-opus-4-8",
-        "claude-opus-5",
+        "claude-fable-5",
         "claude-fable-5-1"
       ],
       "hard_constraints": [

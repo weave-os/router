@@ -13,6 +13,7 @@ import (
 	"weave-os/router/internal/providers"
 
 	"github.com/hashicorp/golang-lru/v2/expirable"
+	"golang.org/x/sync/singleflight"
 )
 
 // ErrUnknownModel is returned when a requested model ID is not in the caller-supplied allowed set.
@@ -51,6 +52,8 @@ var ErrInvalidEntraAuth = errors.New("auth: invalid Microsoft Entra auth")
 
 type Clock func() time.Time
 
+const blindExperimentFetchTimeout = 5 * time.Second
+
 // InstallationChangeNotifier fans out installation-change events to peer replicas.
 // Fire-and-forget: implementations must not block the caller.
 type InstallationChangeNotifier interface {
@@ -65,20 +68,23 @@ func (NoOpInstallationChangeNotifier) NotifyInstallationChanged(string) {}
 
 // Service authenticates incoming bearer tokens. Identity only; routing/dispatch lives in proxy.Service.
 type Service struct {
-	installations         InstallationRepository
-	apiKeys               APIKeyRepository
-	externalKeys          ExternalAPIKeyRepository
-	users                 UserRepository
-	clusterModelLists     ClusterModelListRepository
-	userClusterModelLists UserClusterModelListRepository
-	cache                 APIKeyCache
-	userCache             UserCache
-	userClusterCache      UserClusterListCache
-	subscriptionAccounts  SubscriptionAccountRepository
-	notifier              InstallationChangeNotifier
-	now                   Clock
-	encryptor             Encryptor
-	keypairTokens         *KeypairTokenCache
+	installations          InstallationRepository
+	apiKeys                APIKeyRepository
+	externalKeys           ExternalAPIKeyRepository
+	users                  UserRepository
+	clusterModelLists      ClusterModelListRepository
+	userClusterModelLists  UserClusterModelListRepository
+	blindExperiments       BlindExperimentRepository
+	cache                  APIKeyCache
+	userCache              UserCache
+	userClusterCache       UserClusterListCache
+	blindExperimentCache   BlindExperimentCache
+	blindExperimentFetches singleflight.Group
+	subscriptionAccounts   SubscriptionAccountRepository
+	notifier               InstallationChangeNotifier
+	now                    Clock
+	encryptor              Encryptor
+	keypairTokens          *KeypairTokenCache
 	// wifTokens is nil unless the deployment runs with a workload identity;
 	// WIF keys are then dropped rather than sent without a credential.
 	wifTokens WIFTokenSource
@@ -126,17 +132,18 @@ func NewService(
 		userCache = NoOpUserCache{}
 	}
 	return &Service{
-		installations:    installations,
-		apiKeys:          apiKeys,
-		externalKeys:     externalKeys,
-		users:            users,
-		cache:            cache,
-		userCache:        userCache,
-		userClusterCache: NoOpUserClusterListCache{},
-		notifier:         NoOpInstallationChangeNotifier{},
-		now:              now,
-		encryptor:        NoOpEncryptor{},
-		keypairTokens:    NewKeypairTokenCache(now),
+		installations:        installations,
+		apiKeys:              apiKeys,
+		externalKeys:         externalKeys,
+		users:                users,
+		cache:                cache,
+		userCache:            userCache,
+		userClusterCache:     NoOpUserClusterListCache{},
+		blindExperimentCache: NoOpBlindExperimentCache{},
+		notifier:             NoOpInstallationChangeNotifier{},
+		now:                  now,
+		encryptor:            NoOpEncryptor{},
+		keypairTokens:        NewKeypairTokenCache(now),
 	}
 }
 
@@ -175,6 +182,17 @@ func (s *Service) WithUserClusterModelLists(repo UserClusterModelListRepository,
 		cache = NoOpUserClusterListCache{}
 	}
 	s.userClusterCache = cache
+	return s
+}
+
+// WithBlindExperiments wires the control-plane-owned experiment assignment
+// repository and its installation-invalidated cache.
+func (s *Service) WithBlindExperiments(repo BlindExperimentRepository, cache BlindExperimentCache) *Service {
+	s.blindExperiments = repo
+	if cache == nil {
+		cache = NoOpBlindExperimentCache{}
+	}
+	s.blindExperimentCache = cache
 	return s
 }
 
@@ -747,7 +765,7 @@ func (s *Service) ResolveAndStashUser(ctx context.Context, installationID, email
 	identityKey := userIdentityKey(email, claudeAccountUUID)
 	if cached, ok := s.userCache.Get(installationID, identityKey); ok {
 		log.Debug("ResolveAndStashUser cache hit", "installation_id", installationID, "user_id", cached)
-		return s.withUserClusterLists(ctx, installationID, cached)
+		return s.withUserSettings(ctx, installationID, cached)
 	}
 
 	var namePtr *string
@@ -786,7 +804,12 @@ func (s *Service) ResolveAndStashUser(ctx context.Context, installationID, email
 	}
 	s.userCache.Set(installationID, identityKey, user.ID)
 	log.Debug("ResolveAndStashUser upsert ok", "installation_id", installationID, "user_id", user.ID)
-	return s.withUserClusterLists(ctx, installationID, user.ID)
+	return s.withUserSettings(ctx, installationID, user.ID)
+}
+
+func (s *Service) withUserSettings(ctx context.Context, installationID, routerUserID string) context.Context {
+	ctx = s.withUserClusterLists(ctx, installationID, routerUserID)
+	return s.withBlindExperiment(ctx, installationID, routerUserID)
 }
 
 // withUserClusterLists stashes the router user ID and per-cluster selections on
@@ -823,6 +846,69 @@ func (s *Service) withUserClusterLists(ctx context.Context, installationID, rout
 		return ctx
 	}
 	return context.WithValue(ctx, UserClusterModelListsContextKey{}, overrides)
+}
+
+func (s *Service) withBlindExperiment(ctx context.Context, installationID, routerUserID string) context.Context {
+	if s.blindExperiments == nil || routerUserID == "" {
+		return ctx
+	}
+	fetchGeneration := s.blindExperimentCache.InstallationGeneration(installationID)
+	state, ok := s.blindExperimentCache.GetAtGeneration(installationID, routerUserID, fetchGeneration)
+	if !ok {
+		fetchKey := installationID + "\x00" + routerUserID
+		resultCh := s.blindExperimentFetches.DoChan(fetchKey, func() (any, error) {
+			fetchCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), blindExperimentFetchTimeout)
+			defer cancel()
+			// A concurrent request may have filled the cache while this request
+			// waited for the per-user refresh. Re-check before querying Postgres.
+			if cached, found := s.blindExperimentCache.GetAtGeneration(installationID, routerUserID, fetchGeneration); found {
+				return cached, nil
+			}
+			record, fetchErr := s.blindExperiments.GetForUser(fetchCtx, installationID, routerUserID)
+			if fetchErr != nil {
+				// Fail open for the request, but cache the failure only for the
+				// cache's short retry window so an outage does not hammer the DB or
+				// permanently bias the experiment cohort after recovery.
+				s.blindExperimentCache.SetErrorAtGeneration(installationID, routerUserID, fetchGeneration)
+				return nil, fetchErr
+			}
+			resolved := resolveBlindExperiment(record, routerUserID)
+			s.blindExperimentCache.SetAtGeneration(installationID, routerUserID, resolved, fetchGeneration)
+			return resolved, nil
+		})
+		var result singleflight.Result
+		select {
+		case result = <-resultCh:
+		case <-ctx.Done():
+			return ctx
+		}
+		value, err := result.Val, result.Err
+		if err != nil {
+			observability.FromContext(ctx).Warn("Failed to fetch blind router experiment assignment", "router_user_id", routerUserID, "err", err)
+			return ctx
+		}
+		var found bool
+		state, found = value.(BlindExperimentState)
+		if !found {
+			return ctx
+		}
+		if s.blindExperimentCache.Enabled() {
+			// An installation invalidation may have evicted the value after the
+			// shared fetch completed. Never stash a result that is no longer in the
+			// cache; the next request will fetch the current assignment. A no-op
+			// cache deliberately has no entry, so its fetched state remains valid
+			// for this request.
+			if current, currentFound := s.blindExperimentCache.GetAtGeneration(installationID, routerUserID, fetchGeneration); !currentFound {
+				return ctx
+			} else {
+				state = current
+			}
+		}
+	}
+	if !state.Active {
+		return ctx
+	}
+	return context.WithValue(ctx, BlindExperimentContextKey{}, state)
 }
 
 func userIdentityKey(email, claudeAccountUUID string) string {

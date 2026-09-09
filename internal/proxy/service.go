@@ -2576,7 +2576,7 @@ func (s *Service) withPolicyRequestContext(ctx context.Context, req router.Reque
 	req.ClientApp = clientIdentity.ClientApp
 	req.RolloutID = policyRolloutIDFromContext(ctx)
 	req.CaptureMode = s.effectiveCaptureMode(ctx).String()
-	req.TrainingAllowed, _ = ctx.Value(PolicyTrainingAllowedContextKey{}).(bool)
+	req.TrainingAllowed = policyTrainingAllowedForRequest(ctx)
 	req.DebugEnabled, _ = ctx.Value(PolicyDebugEnabledContextKey{}).(bool)
 	req.RoutingIntent, _ = ctx.Value(PolicyRoutingIntentContextKey{}).(string)
 	return req
@@ -3161,7 +3161,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 
 	// Wide cyclic re-read loop (same few files, no edits, dozens of turns) on a
 	// cheap/mid model escalates the session to opus.
-	if !agentShadowMode {
+	if !agentShadowMode && !blindExperimentPassthroughActive(ctx) {
 		if cyc, csig, ccount, cratio, cwin := detectCyclicToolCallLoop(env); cyc {
 			loopRole := roleForTier(catalog.TierFor(feats.Model))
 			s.handleLoopEscalation(ctx, csig, ccount, cratio, cwin, installationID, sessionKey, loopRole, feats.Model, forceModelSessionKey)
@@ -3182,7 +3182,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 
 	// Struggle escalation: writes a sticky pin before routing so runTurnLoop
 	// dispatches the sideways target on the same turn.
-	if !agentShadowMode && s.ResolveStruggleEscalationEnabled(ctx) && (turntype.DetectFromEnvelope(env, feats, "") == turntype.MainLoop || turntype.DetectFromEnvelope(env, feats, "") == turntype.ToolResult) {
+	if !agentShadowMode && !blindExperimentPassthroughActive(ctx) && s.ResolveStruggleEscalationEnabled(ctx) && (turntype.DetectFromEnvelope(env, feats, "") == turntype.MainLoop || turntype.DetectFromEnvelope(env, feats, "") == turntype.ToolResult) {
 		struggleRole := roleForTier(catalog.TierFor(feats.Model))
 		s.handleStruggleEscalation(ctx, installationID, sessionKey, struggleRole, inboundSpiralReasons, forceModelSessionKey)
 	}
@@ -3241,6 +3241,9 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			RequestedModel: feats.Model,
 			ClientApp:      ClientIdentityFrom(ctx).ClientApp,
 			PreferredSummarizer: func() string {
+				if blindExperimentPassthroughActive(ctx) {
+					return ""
+				}
 				return s.compactionPreferredSummarizer(ctx, sessionKey, roleForTier(catalog.TierFor(feats.Model)))
 			},
 			Headers: r.Header,
@@ -3405,7 +3408,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	// Gated to tool-bearing turns so a frozen marker + frozen prompt prefix
 	// can't collide on healthy text-only turns.
 	toolBearingTurn := inboundToolCallCount > 0 || inboundLastUser.HasToolResult
-	if !agentShadowMode && !routeRes.AuthoritativePerTurn && toolBearingTurn && s.noProgress != nil {
+	if !agentShadowMode && !routeRes.BlindExperimentPassthrough && !routeRes.AuthoritativePerTurn && toolBearingTurn && s.noProgress != nil {
 		fp := computeNoProgressFingerprint(decision, promptText, feats.MessageCount, toolProgressMarker(env))
 		role := roleForTier(catalog.TierFor(feats.Model))
 		if looped, count := s.noProgress.recordAndDetect(routeRes.SessionKey, installationID, role, fp, time.Now()); looped {
@@ -3415,7 +3418,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 
 	// Text-repetition break: fresh tool calls each turn defeat the no-progress
 	// fingerprint; repeated narration is the durable tell. See text_repetition.go.
-	if !agentShadowMode && !routeRes.AuthoritativePerTurn && s.ResolveTextRepetitionBreakEnabled(ctx) && (turntype.DetectFromEnvelope(env, feats, "") == turntype.MainLoop || turntype.DetectFromEnvelope(env, feats, "") == turntype.ToolResult) {
+	if !agentShadowMode && !routeRes.BlindExperimentPassthrough && !routeRes.AuthoritativePerTurn && s.ResolveTextRepetitionBreakEnabled(ctx) && (turntype.DetectFromEnvelope(env, feats, "") == turntype.MainLoop || turntype.DetectFromEnvelope(env, feats, "") == turntype.ToolResult) {
 		if looped, count, sampleHash := detectTextRepetition(env); looped {
 			role := roleForTier(catalog.TierFor(feats.Model))
 			return s.handleTextRepetitionBreak(ctx, w, env, count, sampleHash, installationID, routeRes.SessionKey, role, decision.Model, decision.Provider, feats.Tokens)
@@ -3433,10 +3436,9 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			// Use the bindRequestLogger digest, not routeRes.SessionKey (zero
 			// with no pin store), so the spiral event's session_key matches the
 			// telemetry row's in every mode for the offline join.
-			trainingAllowed, _ := ctx.Value(PolicyTrainingAllowedContextKey{}).(bool)
 			s.handleSpiralShadow(ctx, inboundSpiralSignals, inboundSpiralReasons,
 				installationID, sessionKey, role, decision.Model, string(tt),
-				trainingAllowed, s.effectiveCaptureMode(ctx))
+				policyTrainingAllowedForRequest(ctx), s.effectiveCaptureMode(ctx))
 		}
 	}
 
@@ -3998,6 +4000,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	// baselineViable omits authoritative-per-turn: that contract governs which
 	// model the policy picks, not whether a provably-unservable request can be rescued.
 	baselineViable := !agentShadowMode &&
+		!routeRes.BlindExperimentPassthrough &&
 		decision.Reason != translate.ReasonUserForceModel &&
 		s.shouldFailover(ctx) &&
 		!anthropicExcluded &&
@@ -4040,6 +4043,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	siblingViable := s.ResolveSiblingFailover(ctx) &&
 		siblingFound &&
 		!agentShadowMode &&
+		!routeRes.BlindExperimentPassthrough &&
 		decision.Reason != translate.ReasonUserForceModel &&
 		(s.shouldFailover(ctx) || s.gatewaySiblingAllowed(ctx, siblingDecision)) &&
 		!billing.SubscriptionOnlyFromContext(ctx)
@@ -4455,7 +4459,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	otel.Flush(ctx)
 
 	if !agentShadowMode {
-		s.recordTurnUsage(routeRes, finalProvider, decision.ServedIdentity(), in, out, cacheCreation, cacheRead)
+		s.recordTurnUsage(ctx, routeRes, finalProvider, decision.ServedIdentity(), in, out, cacheCreation, cacheRead)
 	}
 
 	// Eval rows must not enter serving telemetry; they would corrupt offline policy analysis.
@@ -4568,6 +4572,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		}
 		applyPlannerTelemetry(&tel, routeRes)
 		applyAuthorityShadowTelemetry(&tel, routeRes)
+		applyBlindExperimentTelemetry(ctx, &tel)
 		// Hard-pinned turn types carry history shapes that mimic failure signals,
 		// so only the detector's trusted turn types enter the training corpus.
 		signalTurn := tt == turntype.MainLoop || tt == turntype.ToolResult
@@ -4594,7 +4599,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	// Two-strike eviction: a session pinned to a model returning non-retryable
 	// 4xx wedges until manually /force-model'd out. Expires the pin after a
 	// persistent counter hits threshold; successful turns reset it.
-	if !agentShadowMode {
+	if !agentShadowMode && !routeRes.BlindExperimentPassthrough {
 		s.maybeEvictPinAfterUpstreamErr(ctx, stickyHit, proxyErr, decision.Reason, installationID, routeRes.SessionKey, stickyStateRole(routeRes))
 
 		// A schema/capability/incompatible rejection marks the pinned arm provably
@@ -4821,8 +4826,8 @@ func (s *Service) logPlannerOutcome(ctx context.Context, res turnLoopResult) {
 	)
 }
 
-func (s *Service) recordTurnUsage(res turnLoopResult, servedProvider, servedModel string, in, out, cacheCreation, cacheRead int) {
-	if s.pinStore == nil || res.HardPinned {
+func (s *Service) recordTurnUsage(ctx context.Context, res turnLoopResult, servedProvider, servedModel string, in, out, cacheCreation, cacheRead int) {
+	if s.pinStore == nil || res.HardPinned || res.BlindExperimentPassthrough {
 		return
 	}
 	if isHMMTurn(res) {
@@ -4943,8 +4948,7 @@ func (s *Service) policyOutcomeRoute(res turnLoopResult, decision router.Decisio
 }
 
 func (s *Service) capturePolicyOutcomeResponse(ctx context.Context, w http.ResponseWriter, res turnLoopResult, decision router.Decision) (http.ResponseWriter, *captureWriter) {
-	trainingAllowed, _ := ctx.Value(PolicyTrainingAllowedContextKey{}).(bool)
-	if !trainingAllowed {
+	if !policyTrainingAllowedForRequest(ctx) {
 		return w, nil
 	}
 	if _, _, _, ok := s.policyOutcomeRoute(res, decision); !ok {
@@ -4961,7 +4965,7 @@ func (s *Service) reportPolicyOutcome(ctx context.Context, res turnLoopResult, d
 	}
 	organizationID, _ := ctx.Value(ExternalIDContextKey{}).(string)
 	installationID, _ := ctx.Value(InstallationIDContextKey{}).(string)
-	trainingAllowed, _ := ctx.Value(PolicyTrainingAllowedContextKey{}).(bool)
+	trainingAllowed := policyTrainingAllowedForRequest(ctx)
 	clientIdentity := ClientIdentityFrom(ctx)
 	selectedServedModelMatch := routeDecision.Model == decision.Model
 	authoritativeModelMismatch := routeMetadata.AuthoritativePerTurnSelection &&
@@ -5972,9 +5976,11 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 
 	// Wide cyclic re-read loop → escalate to opus (same path as the Anthropic
 	// ingress). See detectCyclicToolCallLoop / handleLoopEscalation.
-	if cyc, csig, ccount, cratio, cwin := detectCyclicToolCallLoop(env); cyc {
-		loopRole := roleForTier(catalog.TierFor(feats.Model))
-		s.handleLoopEscalation(ctx, csig, ccount, cratio, cwin, installationID, sessionKey, loopRole, feats.Model, forceModelSessionKey)
+	if !blindExperimentPassthroughActive(ctx) {
+		if cyc, csig, ccount, cratio, cwin := detectCyclicToolCallLoop(env); cyc {
+			loopRole := roleForTier(catalog.TierFor(feats.Model))
+			s.handleLoopEscalation(ctx, csig, ccount, cratio, cwin, installationID, sessionKey, loopRole, feats.Model, forceModelSessionKey)
+		}
 	}
 
 	logInboundRequestDiagnostics(log, env)
@@ -6038,6 +6044,9 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 			RequestedModel: feats.Model,
 			ClientApp:      ClientIdentityFrom(ctx).ClientApp,
 			PreferredSummarizer: func() string {
+				if blindExperimentPassthroughActive(ctx) {
+					return ""
+				}
 				return s.compactionPreferredSummarizer(ctx, sessionKey, roleForTier(catalog.TierFor(feats.Model)))
 			},
 			Headers: r.Header,
@@ -6756,6 +6765,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	// the first upstream byte, and the primary dispatch has to hold its
 	// exhaustion flush so the refusal envelope can still be swallowed.
 	cyberRetryEligible := s.ResolveCyberRefusalRetry(ctx) &&
+		!routeRes.BlindExperimentPassthrough &&
 		decision.Provider == providers.ProviderOpenAI &&
 		!strings.HasPrefix(decision.Reason, translate.ReasonUserForceModel) &&
 		!s.isHardPinnedTurn(ctx, routeRes.TurnType) &&
@@ -6993,7 +7003,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		emitCallLog()
 	}
 
-	s.recordTurnUsage(routeRes, finalProvider, decision.ServedIdentity(), in, out, cacheCreation, cacheRead)
+	s.recordTurnUsage(ctx, routeRes, finalProvider, decision.ServedIdentity(), in, out, cacheCreation, cacheRead)
 
 	if proxyErr == nil {
 		s.emitBilling(ctx, requestID, externalID, decision, actPricing, routeRes, in, out, cacheCreation, cacheRead)
@@ -7003,9 +7013,11 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	}
 
 	// See ProxyMessages for the two-strike eviction rationale.
-	s.maybeEvictPinAfterUpstreamErr(ctx, stickyHit, proxyErr, decision.Reason, installationIDFromContext(ctx), routeRes.SessionKey, stickyStateRole(routeRes))
-	// See ProxyMessages for the two-strike provider-disable rationale.
-	s.maybeDisableProviderAfterOverload(ctx, stickyHit, proxyErr, finalProvider, decision.Reason, installationIDFromContext(ctx), routeRes.SessionKey, stickyStateRole(routeRes), routeRes.PinRole)
+	if !routeRes.BlindExperimentPassthrough {
+		s.maybeEvictPinAfterUpstreamErr(ctx, stickyHit, proxyErr, decision.Reason, installationIDFromContext(ctx), routeRes.SessionKey, stickyStateRole(routeRes))
+		// See ProxyMessages for the two-strike provider-disable rationale.
+		s.maybeDisableProviderAfterOverload(ctx, stickyHit, proxyErr, finalProvider, decision.Reason, installationIDFromContext(ctx), routeRes.SessionKey, stickyStateRole(routeRes), routeRes.PinRole)
+	}
 
 	installationIDOAI, _ := ctx.Value(InstallationIDContextKey{}).(string)
 	if installationIDOAI != "" {
@@ -7082,12 +7094,13 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		}
 		applyPlannerTelemetry(&telOAI, routeRes)
 		applyAuthorityShadowTelemetry(&telOAI, routeRes)
+		applyBlindExperimentTelemetry(ctx, &telOAI)
 		s.fireTelemetry(telOAI)
 	}
 
 	// Re-pin the session off the refusing model so the next turn skips it,
 	// whether or not this turn was rescued.
-	if cyberRefusalSeen {
+	if cyberRefusalSeen && !routeRes.BlindExperimentPassthrough {
 		s.repinOffRefusingModel(ctx, routeRes.SessionKey, stickyStateRole(routeRes), primaryDecision, providers.CyberPolicyErrorCode, primaryDecision.Provider)
 	}
 

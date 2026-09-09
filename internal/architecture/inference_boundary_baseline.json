@@ -15,6 +15,42 @@
       "removal_phase": "8"
     },
     {
+      "id": "target_construction|internal/proxy/blind_experiment.go|Service.blindExperimentPassthroughDecision|router.Decision|1",
+      "kind": "target_construction",
+      "file": "internal/proxy/blind_experiment.go",
+      "line": 51,
+      "symbol": "Service.blindExperimentPassthroughDecision",
+      "detail": "provider=<dynamic> model=<dynamic>",
+      "owner": "@steventohme",
+      "rationale": "Blind-experiment gateway passthrough preserves the caller-selected model until public-surface passthrough becomes a typed policy transition.",
+      "operation_class": "main_inference",
+      "removal_phase": "8"
+    },
+    {
+      "id": "target_construction|internal/proxy/blind_experiment.go|Service.blindExperimentPassthroughDecision|router.Decision|2",
+      "kind": "target_construction",
+      "file": "internal/proxy/blind_experiment.go",
+      "line": 67,
+      "symbol": "Service.blindExperimentPassthroughDecision",
+      "detail": "provider=<dynamic> model=<dynamic>",
+      "owner": "@steventohme",
+      "rationale": "Blind-experiment deployment-key passthrough preserves the caller-selected model until public-surface passthrough becomes a typed policy transition.",
+      "operation_class": "main_inference",
+      "removal_phase": "8"
+    },
+    {
+      "id": "target_construction|internal/proxy/blind_experiment.go|Service.blindExperimentPassthroughDecision|router.Decision|3",
+      "kind": "target_construction",
+      "file": "internal/proxy/blind_experiment.go",
+      "line": 78,
+      "symbol": "Service.blindExperimentPassthroughDecision",
+      "detail": "provider=<dynamic> model=<dynamic>",
+      "owner": "@steventohme",
+      "rationale": "Blind-experiment request-scoped passthrough preserves the caller-selected model until public-surface passthrough becomes a typed policy transition.",
+      "operation_class": "main_inference",
+      "removal_phase": "8"
+    },
+    {
       "id": "direct_provider_call|internal/proxy/gemini.go|Service.ProxyGeminiGenerateContent|weave-os/router/internal/providers.Proxy|1",
       "kind": "direct_provider_call",
       "file": "internal/proxy/gemini.go",
