@@ -315,7 +315,7 @@ run_refresh_turn() {
   printf '%s\n' '{"session_id":"session-refresh","model":"gpt-5.6-terra","last_assistant_message":"✦ **Weave Router** → claude-sonnet-5 · best pick"}' \
     | HOME="$refresh_home" XDG_CACHE_HOME="$work/cache-refresh" \
       WEAVE_CODEX_STATUS_UPDATE=1 WEAVE_CODEX_STATUS_URL="file://$newer_helper" \
-      WEAVE_CODEX_STATUS_TITLE_FILE="$title_file" "$@" "$refresh_helper" >/dev/null
+      WEAVE_CODEX_STATUS_TITLE_FILE="$title_file" "$refresh_helper" >/dev/null
 }
 
 run_refresh_turn
