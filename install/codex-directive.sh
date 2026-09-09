@@ -143,6 +143,11 @@ resolve_router_endpoint() {
       in_provider = ($0 ~ /^[[:space:]]*\[[[:space:]]*model_providers[[:space:]]*\.[[:space:]]*weave[[:space:]]*(\.[^]]*)?\][[:space:]]*(#.*)?$/)
       next
     }
+    # A commented-out example is not configuration. The matches below are
+    # unanchored (the key can live inside an inline http_headers table), so
+    # without this a `# base_url = "https://old"` line reads as live config --
+    # and first-match-wins would send the router key to that stale endpoint.
+    /^[[:space:]]*#/ { next }
     !in_provider { next }
     match($0, /base_url[[:space:]]*=[[:space:]]*"[^"]*"/) {
       v = substr($0, RSTART, RLENGTH)

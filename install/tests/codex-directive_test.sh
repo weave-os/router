@@ -224,6 +224,23 @@ check "\$router-session reports the id" \
   "✦ Weave Router · session id: sess-local" "$(jq -r '.reason' <<<"$out")"
 check "\$router-session makes no router call" "" "$(sent)"
 
+# A commented-out example inside the table is not configuration. First match
+# wins, so treating one as live would send the router key to a stale endpoint.
+cat >"$codex_home/config.toml" <<TOML
+[model_providers.weave]
+# base_url = "http://127.0.0.1:9/v1"
+base_url = "http://127.0.0.1:$port/v1"
+
+[model_providers.weave.http_headers]
+# X-Weave-Router-Key = "rk_stale"
+X-Weave-Router-Key = "rk_hooktest"
+TOML
+rm -f "$recorded"
+out="$(run_hook '$fm astra' sess-abc)"
+check "a commented-out example does not shadow the live endpoint" "block" "$(decision "$out")"
+check "and the live key is the one sent" "rk_hooktest" "$(jq -r '.router_key' "$recorded")"
+write_config "http://127.0.0.1:$port/v1"
+
 # ---------- fail open ----------
 
 write_config "http://127.0.0.1:9/v1"
