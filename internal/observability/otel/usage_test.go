@@ -173,7 +173,7 @@ func TestUsageExtractor_AnthropicCacheTokens_NonStreaming(t *testing.T) {
 	rec := httptest.NewRecorder()
 	ext := otel.NewUsageExtractor(rec, "anthropic")
 
-	body := `{"id":"msg_456","type":"message","role":"assistant","content":[{"type":"text","text":"OK"}],"model":"claude-sonnet-4-5","stop_reason":"end_turn","usage":{"input_tokens":42,"output_tokens":17,"cache_creation_input_tokens":256,"cache_read_input_tokens":1024}}`
+	body := `{"id":"msg_456","type":"message","role":"assistant","content":[{"type":"text","text":"OK"}],"model":"claude-sonnet-4-5","stop_reason":"end_turn","usage":{"input_tokens":42,"output_tokens":17,"cache_creation_input_tokens":256,"cache_read_input_tokens":1024,"cache_creation":{"ephemeral_5m_input_tokens":156,"ephemeral_1h_input_tokens":100}}}`
 	_, err := ext.Write([]byte(body))
 	require.NoError(t, err)
 
@@ -184,6 +184,7 @@ func TestUsageExtractor_AnthropicCacheTokens_NonStreaming(t *testing.T) {
 	cacheCreation, cacheRead := ext.CacheTokens()
 	assert.Equal(t, 256, cacheCreation)
 	assert.Equal(t, 1024, cacheRead)
+	assert.Equal(t, 100, ext.CacheCreation1hTokens())
 }
 
 func TestUsageExtractor_AnthropicCacheTokens_Streaming(t *testing.T) {
@@ -193,9 +194,12 @@ func TestUsageExtractor_AnthropicCacheTokens_Streaming(t *testing.T) {
 	// cache tokens arrive in message_start; subsequent message_delta carries
 	// only output_tokens and must not clobber the cache values.
 	events := []string{
-		"event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_1\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"claude-sonnet-4-5\",\"usage\":{\"input_tokens\":100,\"output_tokens\":0,\"cache_creation_input_tokens\":300,\"cache_read_input_tokens\":900}}}\n\n",
+		"event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_1\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"claude-sonnet-4-5\",\"usage\":{\"input_tokens\":100,\"output_tokens\":0,\"cache_creation_input_tokens\":300,\"cache_read_input_tokens\":900,\"cache_creation\":{\"ephemeral_5m_input_tokens\":250,\"ephemeral_1h_input_tokens\":50}}}}\n\n",
 		"event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"Hi\"}}\n\n",
-		"event: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":25}}\n\n",
+		// message_delta repeats the cumulative aggregate without the TTL
+		// breakdown (Anthropic documents the split on message_start only) —
+		// the 1h split captured at message_start must survive it.
+		"event: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":25,\"cache_creation_input_tokens\":300}}\n\n",
 	}
 
 	for _, e := range events {
@@ -210,6 +214,7 @@ func TestUsageExtractor_AnthropicCacheTokens_Streaming(t *testing.T) {
 	cacheCreation, cacheRead := ext.CacheTokens()
 	assert.Equal(t, 300, cacheCreation)
 	assert.Equal(t, 900, cacheRead)
+	assert.Equal(t, 50, ext.CacheCreation1hTokens())
 }
 
 func TestUsageExtractor_OpenAICacheTokens_NonStreaming(t *testing.T) {

@@ -102,7 +102,7 @@ func TestProxyMessages_FastModeAnthropicDispatchesFastAndBillsFastRate(t *testin
 
 	fast, ok := catalog.FastPriceFor(providers.ProviderAnthropic, fastOpusModel)
 	require.True(t, ok)
-	want := routerResponseCostFromPricing(fast, providers.ProviderAnthropic, inputTokens, outputTokens, 0, 0)
+	want := routerResponseCostFromPricing(fast, providers.ProviderAnthropic, inputTokens, outputTokens, 0, 0, 0)
 	assert.Equal(t, strconv.FormatFloat(want.TotalUSD, 'f', -1, 64), rec.Header().Get(HeaderRouterCostUSD))
 }
 
@@ -124,7 +124,7 @@ func TestProxyMessages_FastModeOffLeavesRequestAndListPrice(t *testing.T) {
 
 	base, ok := catalog.PriceFor(providers.ProviderAnthropic, fastOpusModel)
 	require.True(t, ok)
-	want := routerResponseCostFromPricing(base, providers.ProviderAnthropic, inputTokens, outputTokens, 0, 0)
+	want := routerResponseCostFromPricing(base, providers.ProviderAnthropic, inputTokens, outputTokens, 0, 0, 0)
 	assert.Equal(t, strconv.FormatFloat(want.TotalUSD, 'f', -1, 64), rec.Header().Get(HeaderRouterCostUSD))
 }
 
@@ -171,7 +171,7 @@ func TestProxyMessages_FastModeQuotaRejectionRetriesAtStandardSpeedAndBillsListP
 
 	base, ok := catalog.PriceFor(providers.ProviderAnthropic, fastOpusModel)
 	require.True(t, ok)
-	want := routerResponseCostFromPricing(base, providers.ProviderAnthropic, inputTokens, outputTokens, 0, 0)
+	want := routerResponseCostFromPricing(base, providers.ProviderAnthropic, inputTokens, outputTokens, 0, 0, 0)
 	assert.Equal(t, strconv.FormatFloat(want.TotalUSD, 'f', -1, 64), rec.Header().Get(HeaderRouterCostUSD), "a turn served at standard speed bills at list price")
 }
 
