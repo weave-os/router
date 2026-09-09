@@ -800,9 +800,6 @@ func TestSubscriptionFailoverParity_HeldErrorDelivery(t *testing.T) {
 		})
 
 		t.Run(in.name+"/prelude-sent stream keeps the SSE framing", func(t *testing.T) {
-			if in.name == "anthropic" {
-				t.Skip("B1: the Anthropic rescue dispatch is handed a bare flushUpstreamErrorAsAnthropic, so a failed rescue appends a JSON envelope to a stream the client is parsing as SSE")
-			}
 			upstream := &parityUpstream{subErr: fault, paidErr: fault, okBody: in.upstreamOK(true)}
 			svc := in.parityService(upstream)
 			rec, req, body := in.request(t, true)
@@ -812,9 +809,13 @@ func TestSubscriptionFailoverParity_HeldErrorDelivery(t *testing.T) {
 			require.Positive(t, upstream.paidDispatches, "the scenario under test is a failed rescue")
 			require.Contains(t, out, "✦ **Weave Router**",
 				"the scenario under test needs the routing prelude already on the wire")
-			assert.NotContains(t, out, `{"type":"error"`,
-				"a bare JSON error envelope corrupts a stream the client is parsing as SSE")
-			assert.Contains(t, out, "data: ", "the held error must be delivered as an SSE frame")
+			for _, line := range strings.Split(out, "\n") {
+				if !strings.Contains(line, needle) {
+					continue
+				}
+				assert.True(t, strings.HasPrefix(line, "data: "),
+					"a bare JSON error envelope corrupts a stream the client is parsing as SSE, got %q", line)
+			}
 			assert.Equal(t, 1, countOccurrences(out, needle),
 				"the held error must reach the client exactly once")
 		})
