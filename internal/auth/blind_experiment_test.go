@@ -49,6 +49,21 @@ func TestLRUBlindExperimentCacheStoresInactiveAndInvalidatesByInstallation(t *te
 	assert.True(t, secondFound)
 }
 
+func TestLRUBlindExperimentCacheReassignsUserBetweenInstallations(t *testing.T) {
+	cache := auth.NewLRUBlindExperimentCache(10, time.Minute)
+	cache.Set("inst-1", "user-1", auth.BlindExperimentState{Active: true, Arm: auth.BlindExperimentArmRouterOn})
+	cache.Set("inst-2", "user-1", auth.BlindExperimentState{Active: true, Arm: auth.BlindExperimentArmPassthrough})
+
+	cache.InvalidateInstallation("inst-1")
+	state, found := cache.Get("user-1")
+	assert.True(t, found, "invalidating the previous installation must not evict the reassigned user")
+	assert.Equal(t, auth.BlindExperimentArmPassthrough, state.Arm)
+
+	cache.InvalidateInstallation("inst-2")
+	_, found = cache.Get("user-1")
+	assert.False(t, found)
+}
+
 func TestLRUBlindExperimentCacheTTLExpires(t *testing.T) {
 	cache := auth.NewLRUBlindExperimentCache(10, 10*time.Millisecond)
 	cache.Set("inst-1", "user-1", auth.BlindExperimentState{Active: true, Arm: auth.BlindExperimentArmPassthrough})
@@ -111,5 +126,5 @@ func TestResolveAndStashUserBlindExperimentFetchFailureFailsOpen(t *testing.T) {
 	_, active := auth.BlindExperimentFrom(requestContext)
 	assert.False(t, active)
 	service.ResolveAndStashUser(context.Background(), "inst-1", "alice@example.com", "", "")
-	assert.Equal(t, 2, experiments.calls, "failed reads must not be cached")
+	assert.Equal(t, 1, experiments.calls, "failed reads should be negatively cached during an outage")
 }

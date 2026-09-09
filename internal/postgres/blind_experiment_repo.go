@@ -5,8 +5,6 @@ import (
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/sqlc"
-
-	"github.com/google/uuid"
 )
 
 type blindExperimentRepo struct {
@@ -19,11 +17,11 @@ func NewBlindExperimentRepo(tx sqlc.DBTX) auth.BlindExperimentRepository {
 }
 
 func (repo *blindExperimentRepo) GetForUser(ctx context.Context, installationID, routerUserID string) (auth.BlindExperimentRecord, error) {
-	parsedInstallationID, err := uuid.Parse(installationID)
+	parsedInstallationID, err := parseUUID(installationID)
 	if err != nil {
 		return auth.BlindExperimentRecord{}, err
 	}
-	parsedRouterUserID, err := uuid.Parse(routerUserID)
+	parsedRouterUserID, err := parseUUID(routerUserID)
 	if err != nil {
 		return auth.BlindExperimentRecord{}, err
 	}

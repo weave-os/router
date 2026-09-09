@@ -13,6 +13,18 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+func parseUUID(value string) (uuid.UUID, error) {
+	return uuid.Parse(value)
+}
+
+// derefString returns the pointed-to string or "" for a nil pointer.
+func derefString(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
+}
+
 func toAuthInstallation(row sqlc.RouterModelRouterInstallation) *auth.Installation {
 	excluded := row.ExcludedModels
 	if excluded == nil {

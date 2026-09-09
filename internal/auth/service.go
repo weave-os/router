@@ -853,6 +853,9 @@ func (s *Service) withBlindExperiment(ctx context.Context, installationID, route
 		record, err := s.blindExperiments.GetForUser(ctx, installationID, routerUserID)
 		if err != nil {
 			observability.FromContext(ctx).Warn("Failed to fetch blind router experiment assignment", "router_user_id", routerUserID, "err", err)
+			// Fail open for the request, but cache the negative result so a
+			// database outage does not turn every request into another read.
+			s.blindExperimentCache.Set(installationID, routerUserID, BlindExperimentState{})
 			return ctx
 		}
 		state = resolveBlindExperiment(record, routerUserID)

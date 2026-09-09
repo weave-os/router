@@ -31,6 +31,9 @@ func (s *Service) blindExperimentPassthroughDecision(ctx context.Context, req ro
 	if !modelPermittedByAllowlist(ctx, req.RequestedModel) || !modelInRequestSubset(ctx, req.RequestedModel) {
 		return router.Decision{}, true, fmt.Errorf("requested model %q is not allowed: %w", req.RequestedModel, cluster.ErrAllowlistEmptiesPool)
 	}
+	if _, excluded := req.ExcludedModels[req.RequestedModel]; excluded {
+		return router.Decision{}, true, fmt.Errorf("requested model %q is excluded: %w", req.RequestedModel, cluster.ErrNoEligibleProvider)
+	}
 	if _, excluded := req.SafetyExcludedModels[req.RequestedModel]; excluded {
 		return router.Decision{}, true, fmt.Errorf("requested model %q cannot serve this request: %w", req.RequestedModel, cluster.ErrNoEligibleProvider)
 	}

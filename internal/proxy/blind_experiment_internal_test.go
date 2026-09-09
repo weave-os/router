@@ -9,6 +9,7 @@ import (
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/cluster"
 	"weave-os/router/internal/translate"
 
 	"github.com/google/uuid"
@@ -101,6 +102,24 @@ func TestBlindExperimentPassthroughUsesGatewayAlias(t *testing.T) {
 		"gateway-exclusive passthrough must use the held key's alias instead of the catalog gateway binding")
 	assert.Equal(t, "gpt-5.4", decision.Model)
 	assert.Equal(t, blindExperimentPublicDecisionReason, decision.Reason)
+}
+
+func TestBlindExperimentPassthroughHonorsExcludedModels(t *testing.T) {
+	service := NewService(nil, nil, nil, false, nil, nil, false,
+		providers.ProviderAnthropic, "claude-haiku-4-5", nil)
+
+	_, passthrough, err := service.blindExperimentPassthroughDecision(
+		blindExperimentContext(auth.BlindExperimentArmPassthrough),
+		router.Request{
+			RequestedModel: "claude-sonnet-4-6",
+			ExcludedModels: map[string]struct{}{
+				"claude-sonnet-4-6": {},
+			},
+		},
+	)
+
+	require.ErrorIs(t, err, cluster.ErrNoEligibleProvider)
+	assert.True(t, passthrough)
 }
 
 func TestBlindExperimentRouterOnUsesScorer(t *testing.T) {

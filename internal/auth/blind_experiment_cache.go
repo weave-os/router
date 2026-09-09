@@ -29,7 +29,11 @@ type LRUBlindExperimentCache struct {
 	mu                 sync.Mutex
 	entries            *expirable.LRU[string, BlindExperimentState]
 	byInstallation     map[string]map[string]struct{}
-	invalidationGen    map[string]uint64
+	// A global epoch closes the Set/Invalidate race without retaining one
+	// generation counter per installation forever. An invalidation may evict a
+	// concurrent Set for another installation; that is safe because the next
+	// request simply refills the cache.
+	invalidationEpoch  uint64
 	installationByUser map[string]string
 }
 
@@ -37,7 +41,6 @@ type LRUBlindExperimentCache struct {
 func NewLRUBlindExperimentCache(size int, ttl time.Duration) *LRUBlindExperimentCache {
 	cache := &LRUBlindExperimentCache{
 		byInstallation:     make(map[string]map[string]struct{}),
-		invalidationGen:    make(map[string]uint64),
 		installationByUser: make(map[string]string),
 	}
 	cache.entries = expirable.NewLRU(size, cache.onEvict, ttl)
@@ -52,10 +55,13 @@ func (cache *LRUBlindExperimentCache) Set(installationID, routerUserID string, s
 	if routerUserID == "" {
 		return
 	}
-	var generation uint64
+	var epoch uint64
 	cache.mu.Lock()
 	if installationID != "" {
-		generation = cache.invalidationGen[installationID]
+		epoch = cache.invalidationEpoch
+		if previousInstallationID, ok := cache.installationByUser[routerUserID]; ok && previousInstallationID != installationID {
+			cache.removeFromIndexLocked(previousInstallationID, routerUserID)
+		}
 		users, ok := cache.byInstallation[installationID]
 		if !ok {
 			users = make(map[string]struct{}, 1)
@@ -70,7 +76,7 @@ func (cache *LRUBlindExperimentCache) Set(installationID, routerUserID string, s
 		return
 	}
 	cache.mu.Lock()
-	if cache.invalidationGen[installationID] != generation {
+	if cache.invalidationEpoch != epoch {
 		cache.removeFromIndexLocked(installationID, routerUserID)
 		cache.mu.Unlock()
 		cache.entries.Remove(routerUserID)
@@ -87,7 +93,7 @@ func (cache *LRUBlindExperimentCache) InvalidateInstallation(installationID stri
 	cache.mu.Lock()
 	users := cache.byInstallation[installationID]
 	delete(cache.byInstallation, installationID)
-	cache.invalidationGen[installationID]++
+	cache.invalidationEpoch++
 	for routerUserID := range users {
 		delete(cache.installationByUser, routerUserID)
 	}
