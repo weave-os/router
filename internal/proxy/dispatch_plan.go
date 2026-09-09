@@ -208,7 +208,7 @@ func (s *Service) dispatchPlanned(ctx context.Context, in failoverInputs, plan i
 	case dispatch.FailureReasonProviderNotConfigured, dispatch.FailureReasonPrepare:
 		return lastIdx, runErr
 	}
-	if in.flushErr != nil && !in.deferFlushOnExhaustion {
+	if in.flushErr != nil && !in.deferFlushOnExhaustion && !committed(in.buf) {
 		in.flushErr(in.w, runErr)
 	}
 	return lastIdx, runErr
