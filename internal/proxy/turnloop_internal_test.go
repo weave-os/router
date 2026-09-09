@@ -38,7 +38,10 @@ func newStubPinStore() *stubPinStore {
 	return &stubPinStore{}
 }
 
-func (s *stubPinStore) Get(_ context.Context, _ [sessionpin.SessionKeyLen]byte, role string) (sessionpin.Pin, bool, error) {
+func (s *stubPinStore) Get(ctx context.Context, _ [sessionpin.SessionKeyLen]byte, role string) (sessionpin.Pin, bool, error) {
+	if err := ctx.Err(); err != nil {
+		return sessionpin.Pin{}, false, err
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.getRoles = append(s.getRoles, role)
@@ -258,6 +261,56 @@ func TestRecordTurnUsage_PassthroughWritesHistoryWithoutCreatingPin(t *testing.T
 	assert.Equal(t, providers.ProviderAnthropic, store.lastUsage.ServedProvider, "passthrough must preserve the automatic pin provider")
 	assert.Equal(t, 7, store.lastUsage.InputTokens, "passthrough must preserve automatic pin usage evidence")
 	assert.Empty(t, store.upserts, "passthrough must not create session history rows")
+}
+
+func TestRecordTurnUsage_PassthroughRecordsHistoryAfterRequestCancellation(t *testing.T) {
+	store := newStubPinStore()
+	store.getFound = true
+	store.getPin = sessionpin.Pin{
+		Provider: providers.ProviderAnthropic,
+		Strategy: router.StrategyCluster,
+	}
+	svc := NewService(nil, nil, nil, false, nil, store, false,
+		providers.ProviderAnthropic, "claude-haiku-4-5", nil)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	var sessionKey [sessionpin.SessionKeyLen]byte
+	sessionKey[0] = 1
+	svc.recordTurnUsage(ctx, turnLoopResult{
+		Decision:                   router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-sonnet-4-6"},
+		SessionKey:                 sessionKey,
+		PinRole:                    sessionpin.DefaultRole,
+		BlindExperimentPassthrough: true,
+	}, providers.ProviderAnthropic, "claude-sonnet-4-6", 1200, 80, 200, 900)
+
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	assert.Equal(t, 1, store.usageHits, "request cancellation must not discard completed passthrough history")
+}
+
+func TestRecordTurnUsage_PassthroughIgnoresPinFromDifferentStrategy(t *testing.T) {
+	store := newStubPinStore()
+	store.getFound = true
+	store.getPin = sessionpin.Pin{
+		Provider: providers.ProviderAnthropic,
+		Strategy: router.StrategyHMMBeta,
+	}
+	svc := NewService(nil, nil, nil, false, nil, store, false,
+		providers.ProviderAnthropic, "claude-haiku-4-5", nil)
+
+	var sessionKey [sessionpin.SessionKeyLen]byte
+	sessionKey[0] = 1
+	svc.recordTurnUsage(router.WithStrategy(context.Background(), router.StrategyCluster), turnLoopResult{
+		Decision:                   router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-sonnet-4-6"},
+		SessionKey:                 sessionKey,
+		PinRole:                    sessionpin.DefaultRole,
+		BlindExperimentPassthrough: true,
+	}, providers.ProviderAnthropic, "claude-sonnet-4-6", 1200, 80, 200, 900)
+
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	assert.Zero(t, store.usageHits, "passthrough must not mutate a pin owned by another routing strategy")
 }
 
 func TestRecordTurnUsage_ForwardsSwitchHistory(t *testing.T) {

@@ -87,13 +87,21 @@ func TestLRUBlindExperimentCacheBoundsErrorsSeparately(t *testing.T) {
 }
 
 type fakeBlindExperimentRepository struct {
-	record auth.BlindExperimentRecord
-	err    error
-	calls  int
+	record  auth.BlindExperimentRecord
+	err     error
+	calls   int
+	started chan struct{}
+	release chan struct{}
 }
 
 func (repository *fakeBlindExperimentRepository) GetForUser(context.Context, string, string) (auth.BlindExperimentRecord, error) {
 	repository.calls++
+	if repository.started != nil {
+		close(repository.started)
+	}
+	if repository.release != nil {
+		<-repository.release
+	}
 	if repository.err != nil {
 		return auth.BlindExperimentRecord{}, repository.err
 	}
@@ -158,4 +166,35 @@ func TestResolveAndStashUserBlindExperimentRetriesUsingCacheClock(t *testing.T) 
 	current = current.Add(11 * time.Second)
 	service.ResolveAndStashUser(context.Background(), "inst-1", "alice@example.com", "", "")
 	assert.Equal(t, 2, experiments.calls, "the injected cache clock must control the error retry boundary")
+}
+
+func TestResolveAndStashUserBlindExperimentDropsFetchInvalidatedDuringRead(t *testing.T) {
+	users := &fakeUserRepo{user: &auth.User{ID: "user-42", InstallationID: "inst-1", Email: "alice@example.com"}}
+	experiments := &fakeBlindExperimentRepository{
+		record: auth.BlindExperimentRecord{
+			Configured:          true,
+			Enabled:             true,
+			RouterOnPercentage:  0,
+			Seed:                "stale-seed",
+			CanonicalSubjectKey: "account-7",
+		},
+		started: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+	cache := auth.NewLRUBlindExperimentCache(10, time.Minute, time.Now)
+	service := makeServiceWithUsers(t, users).WithBlindExperiments(experiments, cache)
+
+	contextResult := make(chan context.Context, 1)
+	go func() {
+		contextResult <- service.ResolveAndStashUser(context.Background(), "inst-1", "alice@example.com", "", "")
+	}()
+	<-experiments.started
+	cache.InvalidateInstallation("inst-1")
+	close(experiments.release)
+	requestContext := <-contextResult
+
+	_, active := auth.BlindExperimentFrom(requestContext)
+	assert.False(t, active, "the request must fail open after its assignment was invalidated")
+	_, found := cache.Get("user-42")
+	assert.False(t, found, "a pre-invalidation repository result must not survive in the cache")
 }

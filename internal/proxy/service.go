@@ -4834,12 +4834,16 @@ func (s *Service) recordPassthroughTurnHistory(ctx context.Context, res turnLoop
 	if role == "" {
 		role = sessionpin.DefaultRole
 	}
-	pin, found, err := s.pinStore.Get(ctx, res.SessionKey, role)
+	// Response streaming may cancel the request context before accounting runs.
+	// Retain its tracing values while detaching the pin history I/O from that
+	// cancellation so a completed passthrough turn still records the switch.
+	historyCtx := context.WithoutCancel(ctx)
+	pin, found, err := s.pinStore.Get(historyCtx, res.SessionKey, role)
 	if err != nil {
 		observability.FromContext(ctx).Error("session pin passthrough history lookup failed", "err", err)
 		return
 	}
-	if !found {
+	if !found || !pinMatchesEffectiveStrategy(ctx, pin) {
 		return
 	}
 	// UpdateUsage is also responsible for LastServedModel and
@@ -4867,7 +4871,7 @@ func (s *Service) recordPassthroughTurnHistory(ctx context.Context, res turnLoop
 		PriorServedModel:    res.PriorServedModel,
 		SessionEverSwitched: res.SessionEverSwitched,
 	}
-	if err := s.pinStore.UpdateUsage(context.Background(), res.SessionKey, role, usage); err != nil {
+	if err := s.pinStore.UpdateUsage(historyCtx, res.SessionKey, role, usage); err != nil {
 		observability.FromContext(ctx).Error("session pin passthrough history writeback failed", "err", err)
 	}
 }

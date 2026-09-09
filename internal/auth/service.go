@@ -873,6 +873,12 @@ func (s *Service) withBlindExperiment(ctx context.Context, installationID, route
 				return nil, fetchErr
 			}
 			resolved := resolveBlindExperiment(record, routerUserID)
+			// If invalidation landed during the repository read, do not publish
+			// the pre-invalidation assignment under the cache's newer epoch.
+			// Set's own epoch guard closes the remaining check-to-write race.
+			if s.blindExperimentCache.InvalidationGeneration() != fetchGeneration {
+				return resolved, nil
+			}
 			s.blindExperimentCache.Set(installationID, routerUserID, resolved)
 			return resolved, nil
 		})
