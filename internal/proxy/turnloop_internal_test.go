@@ -183,15 +183,6 @@ func TestCacheablePrefixTokens_UsesReadOrWriteEvidence(t *testing.T) {
 // prior-turn evidence by the next turn.
 func TestRecordTurnUsage_WritesToStore(t *testing.T) {
 	store := newStubPinStore()
-	store.getFound = true
-	store.getPin = sessionpin.Pin{
-		Provider:              providers.ProviderAnthropic,
-		Strategy:              router.StrategyCluster,
-		LastInputTokens:       7,
-		LastCachedReadTokens:  8,
-		LastCachedWriteTokens: 9,
-		LastOutputTokens:      10,
-	}
 	svc := NewService(
 		nil,
 		nil,
@@ -230,6 +221,15 @@ func TestRecordTurnUsage_WritesToStore(t *testing.T) {
 
 func TestRecordTurnUsage_PassthroughWritesHistoryWithoutCreatingPin(t *testing.T) {
 	store := newStubPinStore()
+	store.getFound = true
+	store.getPin = sessionpin.Pin{
+		Provider:              providers.ProviderAnthropic,
+		Strategy:              router.StrategyCluster,
+		LastInputTokens:       7,
+		LastCachedReadTokens:  8,
+		LastCachedWriteTokens: 9,
+		LastOutputTokens:      10,
+	}
 	svc := NewService(
 		nil,
 		nil,
