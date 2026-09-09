@@ -9,10 +9,12 @@ import (
 	"strconv"
 	"time"
 
+	"weave-os/router/internal/inference"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
+	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/translate"
 )
 
@@ -167,6 +169,11 @@ type failoverInputs struct {
 	// higher-level fallback instead (e.g. ProxyMessages' baseline failover
 	// re-dispatching the Anthropic model when a routed OSS model exhausts).
 	deferFlushOnExhaustion bool
+	// purpose, when set, routes the walk through the dispatch executor under
+	// a resolved plan for that purpose; origin names the override source
+	// that fixed the decision's model. Empty purpose keeps the legacy loop.
+	purpose inference.Purpose
+	origin  policy.OverrideSource
 }
 
 // dispatchWithFallback runs the attempt closure against each binding in
@@ -189,6 +196,22 @@ func (s *Service) dispatchWithFallback(ctx context.Context, in failoverInputs) (
 			return -1, err
 		}
 		return -1, &providers.UpstreamStatusError{Status: http.StatusBadGateway}
+	}
+	if len(in.purpose) != 0 {
+		plans, err := s.inferencePlans()
+		if err != nil {
+			return -1, err
+		}
+		plan, err := plans.ResolveRouted(policy.RoutedResolutionRequest{
+			Purpose:  policy.Purpose(in.purpose),
+			Decision: in.initialDecision,
+			Bindings: in.bindings,
+			Origin:   in.origin,
+		})
+		if err != nil {
+			return -1, err
+		}
+		return s.dispatchPlanned(ctx, in, plan)
 	}
 
 	for i, b := range in.bindings {

@@ -36,6 +36,10 @@ type Transport struct {
 	// adapter (credential injection, per-attempt headers). Returning an error
 	// aborts the operation.
 	Prepare func(ctx context.Context, attempt Attempt) (context.Context, error)
+	// Terminal, when set, reports that a failed attempt must end the
+	// operation even though the error class would otherwise permit failover
+	// (a caller-bound credential served it, for example).
+	Terminal func(attempt Attempt, err error) bool
 	// OperationID distinguishes this operation from others in the same
 	// request; empty means the purpose is used.
 	OperationID string
@@ -279,6 +283,9 @@ func (e *Executor) Run(ctx context.Context, req inference.InvocationRequest, pla
 		canFailover := providers.IsRetryable(attemptErr) ||
 			providers.IsUpstreamModelNotFound(attemptErr) ||
 			providers.IsUpstreamProviderBillingBlocked(attemptErr)
+		if transport.Terminal != nil && transport.Terminal(attempt, attemptErr) {
+			canFailover = false
+		}
 		if !canFailover || i == len(targets)-1 {
 			transport.reset()
 			return fail(attemptErr, failureReason(attemptErr))

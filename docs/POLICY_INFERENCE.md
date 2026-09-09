@@ -3,14 +3,14 @@
 # Router Inference Policy Registry
 
 - Schema version: `inference_policy_registry_v2`
-- Registry revision: `sha256:6724c84b8752ca6b0c2a4b326b41e58a8ff5012db5f0d8cda2c485fcc97c47f5`
+- Registry revision: `sha256:8a927943d13586fc8c602d73c2d5a2d000a814c5db1afa1762cddc32d7e5cc63`
 
 This static projection contains no tenant credentials, installation overrides, request content, or private gateway details. Migration status describes the current execution boundary; `legacy_direct` entries are inventory, not authorization for new call sites.
 
 | Purpose | Class | Policy | Selection | Candidates | Constraints | Preferences | Fallback | Budget | Status | Owner | Rationale |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | `agent_shadow_evaluation` | `auxiliary_inference` | `aux-agent-shadow-evaluation@1` | `client_authoritative` | `request` | `catalog_binding`<br>`capability`<br>`context_window`<br>`credential_scope`<br>`model_exclusions`<br>`provider_exclusions`<br>`request_format`<br>`spend`<br>`tenant` | — | `binding` | `source=request` | `legacy_direct` | `@steventohme` | Evaluate an explicitly requested catalog model without mutating serving pins or policy state. |
-| `anthropic_messages` | `main_inference` | `main-anthropic-messages@2` | `router` | `routable_catalog` | `catalog_binding`<br>`capability`<br>`context_window`<br>`credential_scope`<br>`model_exclusions`<br>`provider_exclusions`<br>`request_format`<br>`spend`<br>`tenant` | `quality_price`<br>`preferred_models`<br>`cache_affinity`<br>`subscription_capacity` | `binding` | `source=request` | `legacy_direct` | `@steventohme` | Select an eligible catalog binding for Anthropic Messages while preserving request semantics and tenant boundaries. |
+| `anthropic_messages` | `main_inference` | `main-anthropic-messages@3` | `router` | `routable_catalog` | `catalog_binding`<br>`capability`<br>`context_window`<br>`credential_scope`<br>`model_exclusions`<br>`provider_exclusions`<br>`request_format`<br>`spend`<br>`tenant` | `quality_price`<br>`preferred_models`<br>`cache_affinity`<br>`subscription_capacity` | `binding` | `source=request` | `executor` | `@steventohme` | Select an eligible catalog binding for Anthropic Messages while preserving request semantics and tenant boundaries. |
 | `classifier` | `auxiliary_inference` | `aux-classifier@1` | `deployment_hard_pin` | `deployment` | `catalog_binding`<br>`capability`<br>`context_window`<br>`credential_scope`<br>`model_exclusions`<br>`provider_exclusions`<br>`request_format`<br>`spend`<br>`tenant` | — | `none` | `source=request` | `legacy_direct` | `@steventohme` | Serve client classifier turns without contaminating the main session pin. |
 | `client_compaction` | `client_authoritative` | `client-compaction@1` | `client_authoritative` | `request` | `credential_scope`<br>`request_format`<br>`tenant` | — | `none` | `source=request` | `legacy_direct` | `@steventohme` | Treat the client-supplied compaction turn and body as authoritative rather than inventing another router summary operation. |
 | `cluster_embedding` | `local_support` | `local-cluster-embedding@1` | `none` | `local` | — | — | `none` | `source=local` | `non_inference` | `@steventohme` | Compute routing features locally; this operation must never gain an upstream provider escape hatch. |

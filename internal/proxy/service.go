@@ -20,6 +20,7 @@ import (
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/feedback"
 	"weave-os/router/internal/flags"
+	"weave-os/router/internal/inference"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/observability/otel"
 	"weave-os/router/internal/providers"
@@ -64,7 +65,12 @@ type Service struct {
 	clients    *dispatch.Clients
 	// executor is the shared inference execution boundary; nil until the
 	// composition root wires one.
-	executor                     *dispatch.Executor
+	executor            *dispatch.Executor
+	defaultExecutorOnce sync.Once
+	// plans authorizes routed main-inference decisions; nil until the
+	// composition root wires one (a registry-only default is built lazily).
+	plans                        *policy.PlanResolver
+	defaultPlansOnce             sync.Once
 	translationCompatibilityMode TranslationCompatibilityMode
 	// scopedSearchRequirement gates CitationsOrSearch on actual (current or recent)
 	// search-tool use, not mere advertisement; env ROUTER_SCOPED_SEARCH_REQUIREMENT.
@@ -4032,6 +4038,8 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			attempt:                attempt,
 			flushErr:               flushUpstreamErrorAsAnthropic,
 			deferFlushOnExhaustion: baselineViable || subscriptionRetryEligible || siblingViable,
+			purpose:                inference.PurposeAnthropicMessages,
+			origin:                 routedOrigin(decision, routeRes.HardPinned, stickyHit),
 		})
 		subscriptionPoolFailure = isSubscriptionPoolError(proxyErr)
 	}
@@ -4133,6 +4141,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 				bindings:        baselineBindings,
 				attempt:         baselineAttempt,
 				flushErr:        flushUpstreamErrorAsAnthropic,
+				purpose:         inference.PurposeAnthropicMessages,
 			})
 			subscriptionPoolFailure = isSubscriptionPoolError(proxyErr)
 			decision = baselineDecision
@@ -4206,6 +4215,8 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 				// A failed retry keeps the same dark model; hold the error so
 				// the sibling rescue below can still serve the turn.
 				deferFlushOnExhaustion: siblingViable,
+				purpose:                inference.PurposeAnthropicMessages,
+				origin:                 routedOrigin(decision, routeRes.HardPinned, stickyHit),
 			})
 			subscriptionPoolFailure = isSubscriptionPoolError(proxyErr)
 			bindings = subBindings
@@ -4273,6 +4284,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 				bindings:        siblingBindings,
 				attempt:         siblingAttempt,
 				flushErr:        flushUpstreamErrorAsAnthropic,
+				purpose:         inference.PurposeAnthropicMessages,
 			})
 			subscriptionPoolFailure = isSubscriptionPoolError(proxyErr)
 			decision = siblingDecision

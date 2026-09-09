@@ -1,6 +1,6 @@
 {
   "schema_version": "inference_policy_registry_v2",
-  "registry_revision": "sha256:6724c84b8752ca6b0c2a4b326b41e58a8ff5012db5f0d8cda2c485fcc97c47f5",
+  "registry_revision": "sha256:8a927943d13586fc8c602d73c2d5a2d000a814c5db1afa1762cddc32d7e5cc63",
   "policies": [
     {
       "purpose": "agent_shadow_evaluation",
@@ -39,7 +39,7 @@
       "purpose": "anthropic_messages",
       "dispatch_class": "main_inference",
       "policy_id": "main-anthropic-messages",
-      "policy_revision": "2",
+      "policy_revision": "3",
       "owner": "@steventohme",
       "rationale": "Select an eligible catalog binding for Anthropic Messages while preserving request semantics and tenant boundaries.",
       "selection_strategy": "router",
@@ -74,7 +74,7 @@
       "fallback": {
         "kind": "binding"
       },
-      "migration_status": "legacy_direct"
+      "migration_status": "executor"
     },
     {
       "purpose": "classifier",

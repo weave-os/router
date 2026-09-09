@@ -810,16 +810,16 @@ func main() {
 	routingTargets := catalog.RoutingTargetSet(availableProviders)
 	logger.Info("Catalog routing targets resolved", "catalog_routing_targets", len(routingTargets))
 
-	// Auxiliary purposes (handover/compaction summaries) resolve through the
+	// One resolver serves every purpose: auxiliary summaries pick from the
 	// routing candidates plus the fixed-catalog policy members (which may be
 	// untiered, e.g. the large-window compaction summarizer), pinned by the
-	// validated deployment override; no provider is denied because the
-	// override already names one.
+	// validated deployment override, and public surfaces adopt the router's
+	// decision as a plan.
 	auxiliaryTargets := policy.DefaultRegistry().FixedCatalogTargetSet(availableProviders)
 	for id := range routingTargets {
 		auxiliaryTargets[id] = struct{}{}
 	}
-	auxiliaryPlans, err := policy.NewPlanResolver(policy.DefaultRegistry(), policy.NewResolver(
+	inferencePlans, err := policy.NewPlanResolver(policy.DefaultRegistry(), policy.NewResolver(
 		auxiliaryTargets, availableProviders, func(model catalog.Model) string { return model.ID }, policy.ProviderPolicy{}))
 	if err != nil {
 		panic(fmt.Sprintf("inference plan resolver: %v", err))
@@ -833,7 +833,7 @@ func main() {
 	var compactionSz proxy.CompactionSummarizer
 	var compactionHandoverSz handover.Summarizer
 	if _, ok := providerMap[handoverProviderName]; ok {
-		ps := proxy.NewProviderSummarizer(auxiliaryPlans, inferenceExecutor, handoverProviderName, handoverModel, handoverTimeout).
+		ps := proxy.NewProviderSummarizer(inferencePlans, inferenceExecutor, handoverProviderName, handoverModel, handoverTimeout).
 			WithCompactionModel(compactionModel).
 			WithCompactionTimeout(compactionTimeout)
 		summarizer = ps
@@ -1230,7 +1230,7 @@ func main() {
 		WithAvailableModels(proxyRoutableModels(routingTargets, availableProviders, hmmRouter != nil)).
 		WithDefaultBaselineModel(resolveDefaultBaselineModel()).
 		WithBillingService(billingSvc)
-	proxySvc = proxySvc.WithInferenceExecutor(inferenceExecutor)
+	proxySvc = proxySvc.WithInferenceExecutor(inferenceExecutor).WithInferencePlans(inferencePlans)
 	if subscriptionRuntime != nil {
 		proxySvc.WithManagedSubscriptions(subscriptionRuntime)
 	}
