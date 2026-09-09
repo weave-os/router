@@ -387,7 +387,7 @@ installer owns the config file.
 | force-model (`fm`) | `/force-model` | `$force-model` | `/force-model` | `/fm` (native) | manual |
 | unforce-model (`ufm`) | `/unforce-model` | `$unforce-model` | `/unforce-model` | `/ufm` (native) | manual |
 | router-feedback (`rf`) | `/router-feedback` | `$router-feedback` | `/router-feedback` | — | manual |
-| router-session | `/router-session` | — | — | — | — |
+| router-session | `/router-session` | `$router-session` | — | — | — |
 | router-off / on / status | `/router-off` … | `$router-off` … (plus `$disable-routing`) | — | — | — |
 | router-models (`models`) | `/router-models` | `$router-models` | — | — | — |
 

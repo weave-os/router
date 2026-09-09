@@ -80,10 +80,16 @@ class Handler(BaseHTTPRequestHandler):
             "session_id": self.headers.get("Session-Id"),
             "router_key": self.headers.get("X-Weave-Router-Key"),
             "app": self.headers.get("X-App"),
+            "email": self.headers.get("X-Weave-User-Email"),
+            "name": self.headers.get("X-Weave-User-Name"),
             "content": json.loads(raw)["messages"][0]["content"],
         }))
+        # MOCK_CONTENT lets a test answer with a non-string content, which a
+        # real router should never send but which must not block the turn.
+        reply = pathlib.Path(sys.argv[3]).read_text() if len(sys.argv) > 3 and pathlib.Path(sys.argv[3]).exists() \
+            else json.dumps("✦ **Weave Router** → gpt-6-astra · pinned by force-model")
         body = json.dumps({"choices": [{"message": {
-            "content": "✦ **Weave Router** → gpt-6-astra · pinned by force-model",
+            "content": json.loads(reply),
         }}]}).encode()
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
@@ -116,7 +122,8 @@ EOF
 }
 write_config "http://127.0.0.1:$port/v1"
 
-python3 "$work/mock.py" "$port" "$recorded" &
+reply_file="$work/reply.json"
+python3 "$work/mock.py" "$port" "$recorded" "$reply_file" &
 mock_pid=$!
 ready=""
 for _ in $(seq 1 60); do
@@ -248,6 +255,73 @@ rm -f "$recorded"
 check "a Codex-rewritten config still yields credentials" \
   "block" "$(decision "$(run_hook '$fm astra' sess-abc)")"
 check "and the directive still reaches the router" " /force-model astra" "$(sent)"
+
+# ---------- identity headers ----------
+#
+# The installer plants X-Weave-User-Email / X-Weave-User-Name in config.toml so
+# a shared router key still attributes turns to a person. A directive turn that
+# omitted them would show up unattributed next to that user's ordinary turns.
+
+cat >"$codex_home/config.toml" <<EOF
+model_provider = "weave"
+
+[model_providers.weave]
+base_url = "http://127.0.0.1:$port/v1"
+name = "Weave Router"
+
+[model_providers.weave.http_headers]
+X-App = "codex"
+X-Weave-Router-Key = "rk_hooktest"
+X-Weave-User-Email = "dev@example.invalid"
+X-Weave-User-Name = "A Developer"
+EOF
+rm -f "$recorded"
+run_hook '$fm astra' sess-abc >/dev/null
+check "the configured email is forwarded" "dev@example.invalid" "$(jq -r '.email' "$recorded")"
+check "the configured display name is forwarded" "A Developer" "$(jq -r '.name' "$recorded")"
+
+# An install with no identity must send no header at all rather than an empty
+# one -- the router treats a present-but-empty header as a value.
+write_config "http://127.0.0.1:$port/v1"
+rm -f "$recorded"
+run_hook '$fm astra' sess-abc >/dev/null
+check "no email header when the install has no identity" "null" "$(jq -r '.email' "$recorded")"
+check "no name header when the install has no identity" "null" "$(jq -r '.name' "$recorded")"
+
+# ---------- a malformed reply must not block ----------
+#
+# jq -r renders an object or array as JSON, which is non-empty; blocking on that
+# would show the user raw JSON instead of passing their prompt through.
+
+printf '%s' '{"unexpected":"object"}' >"$reply_file"
+check "a non-string content passes the prompt through" \
+  "continue" "$(decision "$(run_hook '$fm astra' sess-abc)")"
+printf '%s' '["an","array"]' >"$reply_file"
+check "an array content passes the prompt through" \
+  "continue" "$(decision "$(run_hook '$fm astra' sess-abc)")"
+printf '%s' 'null' >"$reply_file"
+check "a null content passes the prompt through" \
+  "continue" "$(decision "$(run_hook '$fm astra' sess-abc)")"
+rm -f "$reply_file"
+check "a string content still blocks" \
+  "block" "$(decision "$(run_hook '$fm astra' sess-abc)")"
+
+# ---------- router-session skill fallback ----------
+#
+# Reading the newest rollout would name whichever session wrote last, so with no
+# CODEX_SESSION_ID the script must fail rather than report another session's id.
+emit="$install_dir/codex-skills/router-session/scripts/emit.sh"
+if [ -f "$emit" ]; then
+  check "the skill reports CODEX_SESSION_ID when set" "sess-from-env" \
+    "$(CODEX_SESSION_ID=sess-from-env bash "$emit" 2>/dev/null)"
+  mkdir -p "$work/rollouts/sessions/2026/01/01"
+  : >"$work/rollouts/sessions/2026/01/01/rollout-2026-01-01T00-00-00-11111111-2222-3333-4444-555555555555.jsonl"
+  if CODEX_SESSION_ID="" CODEX_HOME="$work/rollouts" bash "$emit" >/dev/null 2>&1; then
+    no "the skill fails rather than naming another session" "non-zero exit" "exit 0"
+  else
+    ok "the skill fails rather than naming another session"
+  fi
+fi
 
 # ---------- installer heredoc must not drift ----------
 #

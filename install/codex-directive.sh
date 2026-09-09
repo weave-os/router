@@ -145,13 +145,25 @@ resolve_router_endpoint() {
       sub(/^.*=[[:space:]]*"/, "", v); sub(/"$/, "", v)
       if (key == "") key = v
     }
-    END { if (url != "" && key != "") printf "%s\n%s\n", url, key }
+    match($0, /"?X-Weave-User-Email"?[[:space:]]*=[[:space:]]*"[^"]*"/) {
+      v = substr($0, RSTART, RLENGTH)
+      sub(/^.*=[[:space:]]*"/, "", v); sub(/"$/, "", v)
+      if (email == "") email = v
+    }
+    match($0, /"?X-Weave-User-Name"?[[:space:]]*=[[:space:]]*"[^"]*"/) {
+      v = substr($0, RSTART, RLENGTH)
+      sub(/^.*=[[:space:]]*"/, "", v); sub(/"$/, "", v)
+      if (name == "") name = v
+    }
+    END { if (url != "" && key != "") printf "%s\n%s\n%s\n%s\n", url, key, email, name }
   ' "$config" 2>/dev/null
 }
 
 endpoint="$(resolve_router_endpoint)" || pass_through
 base_url="$(printf '%s' "$endpoint" | sed -n 1p)"
 router_key="$(printf '%s' "$endpoint" | sed -n 2p)"
+user_email="$(printf '%s' "$endpoint" | sed -n 3p)"
+user_name="$(printf '%s' "$endpoint" | sed -n 4p)"
 if [ -z "$base_url" ] || [ -z "$router_key" ]; then
   pass_through
 fi
@@ -171,16 +183,26 @@ line=" $directive"
 body="$(jq -cn --arg m "${requested_model:-gpt-5.6-sol}" --arg c "$line" \
   '{model:$m, messages:[{role:"user", content:$c}]}' 2>/dev/null)" || pass_through
 
+# Identity headers only when the install has them: the router must never see a
+# header with an empty value, and omitting them is what an unattributed install
+# already does on every ordinary turn.
+identity_args=()
+[ -n "$user_email" ] && identity_args+=(-H "X-Weave-User-Email: $user_email")
+[ -n "$user_name" ] && identity_args+=(-H "X-Weave-User-Name: $user_name")
+
 response="$(curl -fsS --max-time 10 \
   -H "Content-Type: application/json" \
   -H "X-Weave-Router-Key: $router_key" \
   -H "Session-Id: $session_id" \
   -H "X-App: codex" \
+  ${identity_args[@]+"${identity_args[@]}"} \
   -d "$body" \
   "$url" 2>/dev/null)" || pass_through
 [ -n "$response" ] || pass_through
 
-marker="$(jq -r '.choices[0].message.content // ""' <<<"$response" 2>/dev/null)" || pass_through
+# `strings` filters to the string type: jq -r would otherwise render an object
+# or array as JSON, which is non-empty and would block the turn with garbage.
+marker="$(jq -r '[.choices[0].message.content | strings] | first // ""' <<<"$response" 2>/dev/null)" || pass_through
 marker="$(printf '%s' "$marker" | sed -e 's/\*\*//g' -e '/^[[:space:]]*$/d')"
 [ -n "$marker" ] || pass_through
 

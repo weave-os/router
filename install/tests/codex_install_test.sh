@@ -407,4 +407,38 @@ assert_config_parses "skipping the directive hook produced unparseable TOML"
 rm -f "$directive_helper"
 rm -rf "$home/.codex" "$home/.weave"
 
+
+# ---------- project scope gitignores every generated helper ----------
+#
+# Each of these is per-teammate and carries or executes install-specific state,
+# so committing one either leaks a key or ships one developer's absolute paths
+# to everyone else. The directive helper was documented as ignored before it
+# actually was.
+proj_home="$work/proj-home"
+proj_repo="$work/proj-repo"
+mkdir -p "$proj_home" "$proj_repo"
+git -C "$proj_repo" init -q .
+git -C "$proj_repo" config user.email test@example.com
+git -C "$proj_repo" config user.name test
+( cd "$proj_repo" && HOME="$proj_home" PATH="$test_path" WEAVE_ROUTER_KEY="rk_test_key" NO_COLOR=1 \
+    bash "$installer" --codex --scope project --quiet \
+      --base-url https://router.workweave.ai >/dev/null 2>&1 )
+
+for entry in \
+  ".codex/config.toml" \
+  ".codex/weave-status.sh" \
+  ".codex/weave-directive.sh" \
+  ".codex/.weave-router-disabled"
+do
+  grep -qxF "$entry" "$proj_repo/.gitignore" \
+    || fail "project install did not gitignore $entry"
+done
+
+# Whatever the installer generated in .codex must actually be covered by those
+# rules -- an entry list that drifts from the files written is the failure mode.
+while IFS= read -r generated; do
+  ( cd "$proj_repo" && git check-ignore -q "$generated" ) \
+    || fail "project install left $generated tracked by git"
+done < <(cd "$proj_repo" && find .codex -maxdepth 1 -type f)
+
 echo "Codex installer routing regression tests passed"
