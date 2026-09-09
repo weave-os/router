@@ -39,30 +39,6 @@
       "removal_phase": "8"
     },
     {
-      "id": "feature_target_constant|internal/proxy/compaction.go|proxy.package|DefaultCompactionModel|1",
-      "kind": "feature_target_constant",
-      "file": "internal/proxy/compaction.go",
-      "line": 24,
-      "symbol": "proxy.package",
-      "detail": "DefaultCompactionModel=claude-sonnet-4-6",
-      "owner": "@steventohme",
-      "rationale": "Deployment default for ROUTER_COMPACTION_MODEL and the cascade's large-window fallback; both are reviewed members of the precompaction policy and are validated by plan resolution before any I/O.",
-      "operation_class": "auxiliary_inference",
-      "removal_phase": "15"
-    },
-    {
-      "id": "feature_target_constant|internal/proxy/compaction.go|proxy.package|largeWindowSummarizerModel|1",
-      "kind": "feature_target_constant",
-      "file": "internal/proxy/compaction.go",
-      "line": 24,
-      "symbol": "proxy.package",
-      "detail": "largeWindowSummarizerModel=claude-fable-5",
-      "owner": "@steventohme",
-      "rationale": "Deployment default for ROUTER_COMPACTION_MODEL and the cascade's large-window fallback; both are reviewed members of the precompaction policy and are validated by plan resolution before any I/O.",
-      "operation_class": "auxiliary_inference",
-      "removal_phase": "15"
-    },
-    {
       "id": "direct_provider_call|internal/proxy/gemini.go|Service.ProxyGeminiGenerateContent|weave-os/router/internal/providers.Proxy|1",
       "kind": "direct_provider_call",
       "file": "internal/proxy/gemini.go",
@@ -73,18 +49,6 @@
       "rationale": "Existing Gemini public-surface dispatch remains in proxy until the executor compatibility boundary is proven.",
       "operation_class": "main_inference",
       "removal_phase": "8"
-    },
-    {
-      "id": "feature_target_constant|internal/proxy/handover.go|proxy.package|DefaultHandoverModel|1",
-      "kind": "feature_target_constant",
-      "file": "internal/proxy/handover.go",
-      "line": 26,
-      "symbol": "proxy.package",
-      "detail": "DefaultHandoverModel=claude-haiku-4-5",
-      "owner": "@steventohme",
-      "rationale": "Deployment default for ROUTER_HANDOVER_MODEL; it is validated against the handover-summary policy at boot and resolved through the plan resolver at runtime.",
-      "operation_class": "auxiliary_inference",
-      "removal_phase": "15"
     },
     {
       "id": "feature_target_constant|internal/proxy/loop_detection.go|proxy.package|escalateModel|1",

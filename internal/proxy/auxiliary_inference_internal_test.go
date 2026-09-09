@@ -10,6 +10,7 @@ import (
 	"weave-os/router/internal/billing"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/handover"
+	"weave-os/router/internal/router/policy"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -144,7 +145,7 @@ const (
 	// auxTestModel must exist in the router catalog: the point of the
 	// telemetry row is real cost, and an unpriced model would make the
 	// assertions pass on zeros.
-	auxTestModel = DefaultHandoverModel
+	auxTestModel = policy.HandoverSummaryDefaultModel
 )
 
 // auxTestUsage is a summarizer usage with tokens in every bucket, so a

@@ -773,7 +773,7 @@ func main() {
 	// policyDeadlineDefaultModel is the tier-3 static fallback on a deadline miss with no pin; empty = fail-closed.
 	policyDeadlineDefaultModel := config.GetOr("ROUTER_POLICY_DEADLINE_DEFAULT_MODEL", "")
 	handoverProviderName := config.GetOr("ROUTER_HANDOVER_PROVIDER", providers.ProviderAnthropic)
-	handoverModel := config.GetOr("ROUTER_HANDOVER_MODEL", proxy.DefaultHandoverModel)
+	handoverModel := config.GetOr("ROUTER_HANDOVER_MODEL", policy.HandoverSummaryDefaultModel)
 	handoverTimeout := parseEnvDurationMs("ROUTER_HANDOVER_TIMEOUT_MS", proxy.DefaultHandoverTimeout)
 	compactionTimeout := parseEnvDurationMs("ROUTER_COMPACTION_TIMEOUT_MS", proxy.DefaultCompactionTimeout)
 	compactionPct := parseEnvFloat("ROUTER_COMPACTION_PCT", proxy.DefaultCompactionTriggerPct)
@@ -1990,9 +1990,9 @@ func resolveDefaultBaselineModel() string {
 // provider's client only, so a model with no binding on that provider is a
 // startup error rather than a silent substitution.
 func resolveCompactionModel(summarizerProvider string) (string, error) {
-	m := strings.TrimSpace(config.GetOr("ROUTER_COMPACTION_MODEL", proxy.DefaultCompactionModel))
+	m := strings.TrimSpace(config.GetOr("ROUTER_COMPACTION_MODEL", policy.PrecompactionDefaultModel))
 	if m == "" {
-		return proxy.DefaultCompactionModel, nil
+		return policy.PrecompactionDefaultModel, nil
 	}
 	if _, ok := catalog.ResolveBinding(m, map[string]struct{}{summarizerProvider: {}}); !ok {
 		return "", fmt.Errorf("ROUTER_COMPACTION_MODEL %q has no %s catalog binding", m, summarizerProvider)

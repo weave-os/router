@@ -28,6 +28,9 @@ jobs:
 
   test:
     name: Test
+    # The branch ruleset requires only this check, so gating it on the
+    # boundary job makes the architecture and generated-policy checks required.
+    needs: inference-boundary
     runs-on: ubuntu-latest
     services:
       postgres:

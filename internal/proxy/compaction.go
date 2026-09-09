@@ -29,20 +29,9 @@ const (
 	// (not at overflow) keeps the pre-summary history small enough for a
 	// summarizer to ingest.
 	DefaultCompactionTriggerPct = 0.85
-	// DefaultCompactionModel is the Anthropic-family model the cascade
-	// summarizes with when the session has no warm Anthropic pin to reuse.
-	// Sonnet-class: the compaction summary is the only record of the elided
-	// history, so it is worth a mid-tier model. Overridable via
-	// ROUTER_COMPACTION_MODEL.
-	DefaultCompactionModel = "claude-sonnet-4-6"
 	// compactionSummaryOutputReserve is headroom (summary output + margin) the
 	// selected summarizer model needs above the history it must ingest.
 	compactionSummaryOutputReserve = DefaultCompactionMaxTokens + 8_000
-	// largeWindowSummarizerModel is the big-context Anthropic-family model used
-	// to summarize histories too large for the default summarizer. It is
-	// Anthropic-family so the Anthropic-only ProviderSummarizer can target it
-	// with no cross-format translation.
-	largeWindowSummarizerModel = "claude-fable-5"
 	// claudeCodeAutoCompactBuffer is the token headroom below its believed
 	// context window at which Claude Code's own auto-compact fires. Mirrors
 	// the client (2.1.x) so the router can tell whether the client would have
@@ -165,7 +154,7 @@ func (s *Service) compactionModelOrDefault() string {
 	if s.compactionModel != "" {
 		return s.compactionModel
 	}
-	return DefaultCompactionModel
+	return policy.PrecompactionDefaultModel
 }
 
 // anthropicSummarizerEligible reports whether model is a reviewed member of
@@ -223,7 +212,7 @@ func (s *Service) compactionSummarizerCandidates(preferred string) []string {
 		add(preferred)
 	}
 	add(s.compactionModelOrDefault())
-	add(largeWindowSummarizerModel)
+	add(policy.PrecompactionLargeWindowModel)
 	return out
 }
 

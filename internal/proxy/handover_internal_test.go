@@ -70,7 +70,7 @@ func (f *fakeHandoverProvider) Passthrough(_ context.Context, _ providers.Prepar
 func newTestSummarizer(t *testing.T, fake providers.Client, model string, timeout time.Duration) *ProviderSummarizer {
 	t.Helper()
 	if model == "" {
-		model = DefaultHandoverModel
+		model = policy.HandoverSummaryDefaultModel
 	}
 	available := map[string]struct{}{providers.ProviderAnthropic: {}}
 	deployed := map[string]struct{}{model: {}}
@@ -208,10 +208,10 @@ func TestProviderSummarizer_WireModelMatchesPlanTarget(t *testing.T) {
 	_, usage, err := s.Summarize(context.Background(), env)
 	require.NoError(t, err)
 	require.Equal(t, 1, fake.calls)
-	assert.Equal(t, []string{DefaultHandoverModel}, fake.wireModels)
-	assert.Equal(t, DefaultHandoverModel, fake.decisions[0].Model)
+	assert.Equal(t, []string{policy.HandoverSummaryDefaultModel}, fake.wireModels)
+	assert.Equal(t, policy.HandoverSummaryDefaultModel, fake.decisions[0].Model)
 	assert.Equal(t, providers.ProviderAnthropic, fake.decisions[0].Provider)
-	assert.Equal(t, DefaultHandoverModel, usage.Model)
+	assert.Equal(t, policy.HandoverSummaryDefaultModel, usage.Model)
 	assert.Equal(t, providers.ProviderAnthropic, usage.Provider)
 }
 
@@ -282,7 +282,7 @@ func TestProviderSummarizer_AttemptEventsCarryRequestID(t *testing.T) {
 func newTestCompactionSummarizer(t *testing.T, fake providers.Client, compactionModel string, models ...string) *ProviderSummarizer {
 	t.Helper()
 	available := map[string]struct{}{providers.ProviderAnthropic: {}}
-	deployed := map[string]struct{}{DefaultHandoverModel: {}}
+	deployed := map[string]struct{}{policy.HandoverSummaryDefaultModel: {}}
 	for _, m := range models {
 		deployed[m] = struct{}{}
 	}
@@ -303,7 +303,7 @@ func TestProviderSummarizer_CompactionSessionPinRunsThroughExecutor(t *testing.T
 	require.NoError(t, err)
 
 	fake := &fakeHandoverProvider{respBody: canonicalAnthropicResponse, respStatus: http.StatusOK}
-	s := newTestCompactionSummarizer(t, fake, DefaultCompactionModel, DefaultCompactionModel, "claude-opus-4-7")
+	s := newTestCompactionSummarizer(t, fake, policy.PrecompactionDefaultModel, policy.PrecompactionDefaultModel, "claude-opus-4-7")
 
 	target := CompactionTarget{CatalogID: "claude-opus-4-7", Source: policy.OverrideSourceSession}
 	got, usage, err := s.SummarizeForCompaction(context.Background(), env, target, DefaultCompactionMaxTokens)
@@ -323,13 +323,13 @@ func TestProviderSummarizer_CompactionPolicyDefaultTargetIsHonored(t *testing.T)
 	require.NoError(t, err)
 
 	fake := &fakeHandoverProvider{respBody: canonicalAnthropicResponse, respStatus: http.StatusOK}
-	s := newTestCompactionSummarizer(t, fake, DefaultCompactionModel, DefaultCompactionModel, largeWindowSummarizerModel)
+	s := newTestCompactionSummarizer(t, fake, policy.PrecompactionDefaultModel, policy.PrecompactionDefaultModel, policy.PrecompactionLargeWindowModel)
 
 	// No override source: the cascade fell through to the large-window model,
 	// which must resolve as the policy default rather than the first listed one.
-	_, _, err = s.SummarizeForCompaction(context.Background(), env, CompactionTarget{CatalogID: largeWindowSummarizerModel}, DefaultCompactionMaxTokens)
+	_, _, err = s.SummarizeForCompaction(context.Background(), env, CompactionTarget{CatalogID: policy.PrecompactionLargeWindowModel}, DefaultCompactionMaxTokens)
 	require.NoError(t, err)
-	assert.Equal(t, []string{largeWindowSummarizerModel}, fake.wireModels)
+	assert.Equal(t, []string{policy.PrecompactionLargeWindowModel}, fake.wireModels)
 }
 
 func TestProviderSummarizer_CompactionUnreviewedPinFailsBeforeIO(t *testing.T) {
@@ -339,10 +339,10 @@ func TestProviderSummarizer_CompactionUnreviewedPinFailsBeforeIO(t *testing.T) {
 	require.NoError(t, err)
 
 	fake := &fakeHandoverProvider{respBody: canonicalAnthropicResponse, respStatus: http.StatusOK}
-	s := newTestCompactionSummarizer(t, fake, DefaultCompactionModel, DefaultCompactionModel)
+	s := newTestCompactionSummarizer(t, fake, policy.PrecompactionDefaultModel, policy.PrecompactionDefaultModel)
 
 	// Haiku is deployed but the precompaction policy does not review it.
-	target := CompactionTarget{CatalogID: DefaultHandoverModel, Source: policy.OverrideSourceSession}
+	target := CompactionTarget{CatalogID: policy.HandoverSummaryDefaultModel, Source: policy.OverrideSourceSession}
 	got, _, err := s.SummarizeForCompaction(context.Background(), env, target, DefaultCompactionMaxTokens)
 	require.Error(t, err)
 	var resolution *policy.ResolutionError
@@ -359,9 +359,9 @@ func TestProviderSummarizer_CompactionOutputCapFollowsPolicyBudget(t *testing.T)
 	require.NoError(t, err)
 
 	fake := &fakeHandoverProvider{respBody: canonicalAnthropicResponse, respStatus: http.StatusOK}
-	s := newTestCompactionSummarizer(t, fake, DefaultCompactionModel, DefaultCompactionModel)
+	s := newTestCompactionSummarizer(t, fake, policy.PrecompactionDefaultModel, policy.PrecompactionDefaultModel)
 
-	target := CompactionTarget{CatalogID: DefaultCompactionModel, Source: policy.OverrideSourceDeployment}
+	target := CompactionTarget{CatalogID: policy.PrecompactionDefaultModel, Source: policy.OverrideSourceDeployment}
 	_, _, err = s.SummarizeForCompaction(context.Background(), env, target, 1_000_000)
 	require.NoError(t, err)
 	spec, ok := policy.DefaultRegistry().Spec(policy.PurposePrecompactionSummary)
@@ -376,12 +376,12 @@ func TestProviderSummarizer_CompactionHandoverUsesCompactionPolicy(t *testing.T)
 	require.NoError(t, err)
 
 	fake := &fakeHandoverProvider{respBody: canonicalAnthropicResponse, respStatus: http.StatusOK}
-	s := newTestCompactionSummarizer(t, fake, DefaultCompactionModel, DefaultCompactionModel)
+	s := newTestCompactionSummarizer(t, fake, policy.PrecompactionDefaultModel, policy.PrecompactionDefaultModel)
 
 	got, usage, err := s.CompactionHandover().Summarize(context.Background(), env)
 	require.NoError(t, err)
 	assert.NotEmpty(t, got)
-	assert.Equal(t, []string{DefaultCompactionModel}, fake.wireModels)
-	assert.Equal(t, DefaultCompactionModel, usage.Model)
+	assert.Equal(t, []string{policy.PrecompactionDefaultModel}, fake.wireModels)
+	assert.Equal(t, policy.PrecompactionDefaultModel, usage.Model)
 	assert.Equal(t, int64(DefaultHandoverMaxTokens), fake.maxTokens[0])
 }

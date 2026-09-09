@@ -330,7 +330,7 @@ type Service struct {
 	compactionTriggerPct float64
 	// compactionModel is the Anthropic-family model the cascade summarizes
 	// with (and Claude Code's own compaction turn is pinned to) when the
-	// session has no warm Anthropic pin. Empty means DefaultCompactionModel.
+	// session has no warm Anthropic pin. Empty means policy.PrecompactionDefaultModel.
 	compactionModel string
 	// compactionHardPinEnabled routes Claude Code's own compaction turn through
 	// compactionHardPin instead of the generic utility hard-pin. Off unless
@@ -1882,7 +1882,7 @@ func (s *Service) WithCompaction(cs CompactionSummarizer, pct float64) *Service 
 // WithCompactionModel overrides the Sonnet-class default summarizer for the
 // compaction cascade and Claude Code's native compaction turn
 // (ROUTER_COMPACTION_MODEL). A model with no Anthropic binding is rejected
-// at boot by the caller; empty keeps DefaultCompactionModel.
+// at boot by the caller; empty keeps policy.PrecompactionDefaultModel.
 func (s *Service) WithCompactionModel(model string) *Service {
 	s.compactionModel = model
 	return s

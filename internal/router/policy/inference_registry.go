@@ -17,6 +17,18 @@ const (
 	// InferenceRegistrySchemaVersion is the stable static-projection schema.
 	InferenceRegistrySchemaVersion = "inference_policy_registry_v2"
 	inferencePolicyOwner           = "@steventohme"
+
+	// HandoverSummaryDefaultModel is the reviewed default target of the
+	// handover-summary policy. Haiku-class: summarization is cheap.
+	HandoverSummaryDefaultModel = "claude-haiku-4-5"
+	// PrecompactionDefaultModel is the reviewed Sonnet-class summarizer the
+	// compaction cascade uses when the session has no warm Anthropic pin; the
+	// summary is the only record of the elided history, so it is worth a
+	// mid-tier model.
+	PrecompactionDefaultModel = "claude-sonnet-4-6"
+	// PrecompactionLargeWindowModel is the big-context Anthropic-family
+	// summarizer for histories too large for PrecompactionDefaultModel.
+	PrecompactionLargeWindowModel = "claude-fable-5"
 )
 
 // compactionSummarizerModels is the reviewed set both compaction purposes may
@@ -24,8 +36,8 @@ const (
 // non-low catalog model so a session's warm pin can summarize its own history
 // and so ROUTER_COMPACTION_MODEL, which pins both purposes, validates once.
 var compactionSummarizerModels = []string{
-	"claude-sonnet-4-6",
-	"claude-fable-5",
+	PrecompactionDefaultModel,
+	PrecompactionLargeWindowModel,
 	"claude-sonnet-4-5",
 	"claude-sonnet-5",
 	"claude-opus-4-0",
@@ -509,7 +521,7 @@ func defaultPolicySpecs() []PolicySpec {
 			Rationale:          "Use the current inexpensive summarizer before a model switch; failure preserves the full prior history.",
 			SelectionStrategy:  SelectionStrategyFixedCatalog,
 			CandidateSource:    CandidateSourceFixedCatalog,
-			FixedCatalogModels: []string{"claude-haiku-4-5"},
+			FixedCatalogModels: []string{HandoverSummaryDefaultModel},
 			HardConstraints:    []Constraint{ConstraintCatalogBinding, ConstraintCredentialScope, ConstraintModelExclusions, ConstraintProviderExclusions, ConstraintTenant},
 			OverridePrecedence: []OverrideSource{OverrideSourceDeployment, OverrideSourcePolicyDefault},
 			Budget:             BudgetSpec{Source: BudgetSourcePolicy, MaxAttempts: 1, TimeoutMillis: 8_000, MaxOutputTokens: 800},

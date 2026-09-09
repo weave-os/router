@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"weave-os/router/internal/providers"
-	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/router/policy"
 )
 
 func TestResolveCompactionModelFailsClosed(t *testing.T) {
@@ -17,7 +17,7 @@ func TestResolveCompactionModelFailsClosed(t *testing.T) {
 		t.Setenv("ROUTER_COMPACTION_MODEL", "")
 		model, err := resolveCompactionModel(providers.ProviderAnthropic)
 		require.NoError(t, err)
-		assert.Equal(t, proxy.DefaultCompactionModel, model)
+		assert.Equal(t, policy.PrecompactionDefaultModel, model)
 	})
 
 	t.Run("valid Anthropic binding", func(t *testing.T) {
