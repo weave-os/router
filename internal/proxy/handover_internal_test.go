@@ -256,7 +256,7 @@ func TestProviderSummarizer_AttemptEventsCarryRequestID(t *testing.T) {
 
 	fake := &fakeHandoverProvider{respBody: canonicalAnthropicResponse, respStatus: http.StatusOK}
 	available := map[string]struct{}{providers.ProviderAnthropic: {}}
-	deployed := map[string]struct{}{DefaultHandoverModel: {}}
+	deployed := map[string]struct{}{policy.HandoverSummaryDefaultModel: {}}
 	plans, err := policy.NewPlanResolver(policy.DefaultRegistry(), policy.NewResolver(
 		deployed, available, func(m catalog.Model) string { return m.ID }, policy.ProviderPolicy{}))
 	require.NoError(t, err)
@@ -268,7 +268,7 @@ func TestProviderSummarizer_AttemptEventsCarryRequestID(t *testing.T) {
 		})),
 	)
 	require.NoError(t, err)
-	s := NewProviderSummarizer(plans, executor, providers.ProviderAnthropic, DefaultHandoverModel, 200*time.Millisecond)
+	s := NewProviderSummarizer(plans, executor, providers.ProviderAnthropic, policy.HandoverSummaryDefaultModel, 200*time.Millisecond)
 
 	ctx := observability.WithRequestID(context.Background(), "req-handover-1")
 	_, _, err = s.Summarize(ctx, env)
