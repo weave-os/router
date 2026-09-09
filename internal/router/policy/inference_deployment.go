@@ -50,7 +50,9 @@ func (r Registry) ValidateDeployment(config DeploymentPolicyConfig) error {
 	for _, spec := range r.Specs() {
 		override, hasOverride := overrides[spec.Purpose]
 		if hasOverride {
-			if _, routable := routingTargets[override.CatalogID]; !routable {
+			// Fixed-catalog policies own their membership (checked below), so a
+			// reviewed untiered row such as a large-window summarizer is valid there.
+			if _, routable := routingTargets[override.CatalogID]; !routable && spec.SelectionStrategy != SelectionStrategyFixedCatalog {
 				return fmt.Errorf("deployment inference policy %q target %q is not a routable catalog model in this deployment", spec.PolicyID, override.CatalogID)
 			}
 			if !deploymentCanResolve([]string{override.CatalogID}, override.Provider, config.AvailableProviders) {

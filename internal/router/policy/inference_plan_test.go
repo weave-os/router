@@ -390,3 +390,57 @@ func assertResolutionErrorCode(t *testing.T, err error, expected policy.Resoluti
 	require.True(t, errors.As(err, &resolutionErr), "expected ResolutionError, got %v", err)
 	assert.Equal(t, expected, resolutionErr.Code)
 }
+
+func TestFixedCatalogTargetSetIncludesReviewedUntieredModels(t *testing.T) {
+	t.Parallel()
+
+	available := providerSet(providers.ProviderAnthropic)
+	targets := policy.DefaultRegistry().FixedCatalogTargetSet(available)
+	assert.Contains(t, targets, "claude-fable-5")
+	assert.Contains(t, targets, "claude-opus-4-8")
+	assert.NotContains(t, catalog.RoutingTargetSet(available), "claude-fable-5")
+
+	assert.Empty(t, policy.DefaultRegistry().FixedCatalogTargetSet(providerSet(providers.ProviderOpenAI)))
+}
+
+func TestPlanResolverResolvesUntieredPrecompactionSummarizer(t *testing.T) {
+	t.Parallel()
+
+	available := providerSet(providers.ProviderAnthropic)
+	deployed := policy.DefaultRegistry().FixedCatalogTargetSet(available)
+	for id := range catalog.RoutingTargetSet(available) {
+		deployed[id] = struct{}{}
+	}
+	plans, err := policy.NewPlanResolver(policy.DefaultRegistry(), policy.NewResolver(
+		deployed, available, func(m catalog.Model) string { return m.ID }, policy.ProviderPolicy{}))
+	require.NoError(t, err)
+
+	for _, model := range []string{"claude-fable-5", "claude-opus-4-8"} {
+		plan, err := plans.Resolve(policy.ResolutionRequest{
+			Purpose:       policy.PurposePrecompactionSummary,
+			RouterRequest: router.Request{AllowedModels: modelSet(model)},
+			Overrides: []policy.TargetOverride{{
+				Source:    policy.OverrideSourceSession,
+				CatalogID: model,
+				Provider:  providers.ProviderAnthropic,
+			}},
+		})
+		require.NoError(t, err, model)
+		assert.Equal(t, model, plan.SelectedTarget().CatalogID)
+	}
+}
+
+func TestRegistryAcceptsUntieredFixedCatalogDeploymentTarget(t *testing.T) {
+	t.Parallel()
+
+	config := validDeploymentPolicyConfig()
+	config.TargetOverrides = append(config.TargetOverrides, policy.PurposeTargetOverride{
+		Purpose: policy.PurposePrecompactionSummary,
+		Target: policy.TargetOverride{
+			Source:    policy.OverrideSourceDeployment,
+			CatalogID: "claude-fable-5",
+			Provider:  providers.ProviderAnthropic,
+		},
+	})
+	require.NoError(t, policy.DefaultRegistry().ValidateDeployment(config))
+}

@@ -811,10 +811,16 @@ func main() {
 	logger.Info("Catalog routing targets resolved", "catalog_routing_targets", len(routingTargets))
 
 	// Auxiliary purposes (handover/compaction summaries) resolve through the
-	// same catalog candidates as routing, pinned by the validated deployment
-	// override; no provider is denied because the override already names one.
+	// routing candidates plus the fixed-catalog policy members (which may be
+	// untiered, e.g. the large-window compaction summarizer), pinned by the
+	// validated deployment override; no provider is denied because the
+	// override already names one.
+	auxiliaryTargets := policy.DefaultRegistry().FixedCatalogTargetSet(availableProviders)
+	for id := range routingTargets {
+		auxiliaryTargets[id] = struct{}{}
+	}
 	auxiliaryPlans, err := policy.NewPlanResolver(policy.DefaultRegistry(), policy.NewResolver(
-		routingTargets, availableProviders, func(model catalog.Model) string { return model.ID }, policy.ProviderPolicy{}))
+		auxiliaryTargets, availableProviders, func(model catalog.Model) string { return model.ID }, policy.ProviderPolicy{}))
 	if err != nil {
 		panic(fmt.Sprintf("inference plan resolver: %v", err))
 	}

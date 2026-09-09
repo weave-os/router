@@ -102,6 +102,26 @@ func (r Registry) Specs() []PolicySpec {
 	return clonePolicySpecs(r.specs)
 }
 
+// FixedCatalogTargetSet returns every model a fixed-catalog policy may select
+// that has a binding in availableProviders. Untiered catalog rows are included
+// only when a reviewed policy names them, so the plan resolver's deployed set
+// can honor policy membership without widening automatic routing.
+func (r Registry) FixedCatalogTargetSet(availableProviders map[string]struct{}) map[string]struct{} {
+	out := make(map[string]struct{})
+	for _, spec := range r.specs {
+		if spec.SelectionStrategy != SelectionStrategyFixedCatalog {
+			continue
+		}
+		for _, catalogID := range spec.FixedCatalogModels {
+			if len(catalog.EnumerateBindings(catalogID, availableProviders)) == 0 {
+				continue
+			}
+			out[catalogID] = struct{}{}
+		}
+	}
+	return out
+}
+
 // Spec returns a deep copy of the policy registered for purpose.
 func (r Registry) Spec(purpose Purpose) (PolicySpec, bool) {
 	spec, ok := r.byPurpose[purpose]
