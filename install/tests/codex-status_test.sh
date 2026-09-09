@@ -188,6 +188,34 @@ run_normalized_turn
   exit 1
 }
 
+# A commented-out endpoint left above the live one must not win. First match
+# wins, so treating a comment as config would point the fetch at a stale
+# endpoint and send the router key there.
+commented_home="$work/commented-home"
+mkdir -p "$commented_home/.codex"
+cat >"$commented_home/.codex/config.toml" <<TOML
+[model_providers.weave]
+# base_url = "file:///nonexistent/stale-endpoint.json"
+base_url = "file://$normalized_cost"
+
+[model_providers.weave.http_headers]
+# X-Weave-Router-Key = "rk_stale"
+X-Weave-Router-Key = "rk_test"
+TOML
+commented_cache="$work/cache-commented"
+printf '%s\n' '{"session_id":"session-5","model":"gpt-5.6-terra","last_assistant_message":"✦ **Weave Router** → claude-sonnet-5 · best pick"}' \
+  | HOME="$commented_home" XDG_CACHE_HOME="$commented_cache" \
+    WEAVE_CODEX_STATUS_TITLE_FILE="$title_file" "$helper" >/dev/null
+commented_cost_cache="$commented_cache/weave-router/codex/session-5.cost"
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+  [ -f "$commented_cost_cache" ] && break
+  sleep 0.2
+done
+[ -f "$commented_cost_cache" ] || {
+  echo "a commented-out example blocked the live credentials" >&2
+  exit 1
+}
+
 # A provider whose name merely starts with "weave" is a different provider: its
 # key must never be adopted, and a config holding only that one resolves nothing.
 neighbour_home="$work/neighbour-home"
@@ -201,8 +229,15 @@ neighbour_cache="$work/cache-neighbour"
 printf '%s\n' '{"session_id":"session-4","model":"gpt-5.6-terra","last_assistant_message":"✦ **Weave Router** → claude-sonnet-5 · best pick"}' \
   | HOME="$neighbour_home" XDG_CACHE_HOME="$neighbour_cache" \
     WEAVE_CODEX_STATUS_TITLE_FILE="$title_file" "$helper" >/dev/null
-sleep 0.5
-[ ! -f "$neighbour_cache/weave-router/codex/session-4.cost" ] || {
+# Poll the full window the positive fetches get rather than sleeping once: a
+# fixed wait can expire before a wrongly-adopted fetch lands, which would pass
+# this assertion under CI load precisely when it ought to fail.
+neighbour_cost_cache="$neighbour_cache/weave-router/codex/session-4.cost"
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+  [ -f "$neighbour_cost_cache" ] && break
+  sleep 0.2
+done
+[ ! -f "$neighbour_cost_cache" ] || {
   echo "adopted credentials from an unrelated provider whose name starts with weave" >&2
   exit 1
 }
