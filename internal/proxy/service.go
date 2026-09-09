@@ -6214,15 +6214,6 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		}
 	}
 	contentSink, contentCap := s.maybeCaptureResponse(ctx, clientSink)
-	var responsesPreludeBuf *preludeBuffer
-	if rw, ok := contentSink.(*translate.ResponsesWriter); ok {
-		rw.WrapInner(func(inner http.ResponseWriter) http.ResponseWriter {
-			responsesPreludeBuf = newPreludeBuffer(inner)
-			return responsesPreludeBuf
-		})
-	}
-	preludeBuf := newPreludeBuffer(contentSink)
-	var rootSink http.ResponseWriter = preludeBuf
 
 	marker := suppressMarkerIfRequested(ctx, r.Header, routingMarkerFor(routeRes))
 	if billing.SubscriptionOnlyFromContext(ctx) {
@@ -6269,6 +6260,22 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	// Responses endpoint rejects the request.
 	translatedMarker := marker
 	responsesMarker := marker
+	responsesPreludeWillEmit := env.Stream() && !verbatimPassthrough && (len(bindings) <= 1 || marker != "")
+	if verbatimPassthrough {
+		responsesPreludeWillEmit = env.Stream() && clientID.ClientApp == ClientAppCodex && marker != ""
+	}
+
+	var responsesPreludeBuf *preludeBuffer
+	if responsesPreludeWillEmit {
+		if rw, ok := contentSink.(*translate.ResponsesWriter); ok {
+			rw.WrapInner(func(inner http.ResponseWriter) http.ResponseWriter {
+				responsesPreludeBuf = newPreludeBuffer(inner)
+				return responsesPreludeBuf
+			})
+		}
+	}
+	preludeBuf := newPreludeBuffer(contentSink)
+	var rootSink http.ResponseWriter = preludeBuf
 
 	// Responses entry point delegates the eager lifecycle and routing badge to
 	// this layer because it has the completed routing decision. Provider output
@@ -6295,8 +6302,8 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 				rw.SetPassthrough()
 			}
 		}
-		if len(bindings) <= 1 || marker != "" {
-			if err := rw.Prelude(env.Stream()); err != nil {
+		if responsesPreludeWillEmit {
+			if err := rw.Prelude(true); err != nil {
 				log.Error("Responses prelude failed", "err", err)
 			} else {
 				rw.Flush()
