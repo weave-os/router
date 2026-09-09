@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strings"
 
 	"weave-os/router/internal/sse"
 
@@ -35,6 +36,7 @@ const (
 	escalationResponseIncomplete escalationResponseEvent = "response.incomplete"
 	escalationResponseError      escalationResponseEvent = "error"
 	escalationMessageStart       escalationResponseEvent = "message_start"
+	escalationMessageDelta       escalationResponseEvent = "message_delta"
 	escalationMessageStop        escalationResponseEvent = "message_stop"
 	escalationContentStart       escalationResponseEvent = "content_block_start"
 	escalationContentDelta       escalationResponseEvent = "content_block_delta"
@@ -45,6 +47,27 @@ const (
 type escalationResponseStatus string
 
 const escalationResponseStatusCompleted escalationResponseStatus = "completed"
+
+type escalationFinishReason string
+
+const (
+	escalationAnthropicEndTurn      escalationFinishReason = "end_turn"
+	escalationAnthropicToolUse      escalationFinishReason = "tool_use"
+	escalationAnthropicStopSequence escalationFinishReason = "stop_sequence"
+	escalationChatStop              escalationFinishReason = "stop"
+	escalationChatToolCalls         escalationFinishReason = "tool_calls"
+	escalationChatFunctionCall      escalationFinishReason = "function_call"
+	escalationGeminiStop            escalationFinishReason = "STOP"
+)
+
+func escalationAnthropicCompleted(reason escalationFinishReason) bool {
+	switch reason {
+	case escalationAnthropicEndTurn, escalationAnthropicToolUse, escalationAnthropicStopSequence:
+		return true
+	default:
+		return false
+	}
+}
 
 // ParseEscalationResponse accepts JSON or SSE and rejects incomplete streams so
 // partial tool arguments never become completed history for a later request.
@@ -153,6 +176,9 @@ func escalationAnthropicOutput(frames []gjson.Result, streaming bool) (Escalatio
 		if len(frames) != 1 || frames[0].Get("error").Exists() || !frames[0].Get("content").IsArray() {
 			return EscalationResponse{}, fmt.Errorf("invalid Anthropic response")
 		}
+		if !escalationAnthropicCompleted(escalationFinishReason(frames[0].Get("stop_reason").String())) {
+			return EscalationResponse{}, fmt.Errorf("Anthropic response did not complete")
+		}
 		blocks, err := escalationContentBlocks(frames[0].Get("content"))
 		if err != nil {
 			return EscalationResponse{}, err
@@ -161,6 +187,7 @@ func escalationAnthropicOutput(frames []gjson.Result, streaming bool) (Escalatio
 	}
 	responseID := ""
 	complete := false
+	finishReason := escalationFinishReason("")
 	blocks := make(map[int]EscalationBlock)
 	arguments := make(map[int]string)
 	for _, frame := range frames {
@@ -170,6 +197,13 @@ func escalationAnthropicOutput(frames []gjson.Result, streaming bool) (Escalatio
 			return EscalationResponse{}, fmt.Errorf("Anthropic stream failed")
 		case escalationMessageStart:
 			responseID = frame.Get("message.id").String()
+		case escalationMessageDelta:
+			if reason := frame.Get("delta.stop_reason"); reason.Exists() && reason.Type != gjson.Null {
+				finishReason = escalationFinishReason(reason.String())
+				if !escalationAnthropicCompleted(finishReason) {
+					return EscalationResponse{}, fmt.Errorf("Anthropic stream did not complete")
+				}
+			}
 		case escalationMessageStop:
 			complete = true
 		case escalationContentStart:
@@ -196,7 +230,7 @@ func escalationAnthropicOutput(frames []gjson.Result, streaming bool) (Escalatio
 			blocks[index] = block
 		}
 	}
-	if !complete {
+	if !complete || !escalationAnthropicCompleted(finishReason) {
 		return EscalationResponse{}, fmt.Errorf("Anthropic stream has no terminal event")
 	}
 	ordered, err := escalationOrderedBlocks(blocks, arguments)
@@ -212,6 +246,8 @@ func escalationChatOutput(frames []gjson.Result, streaming, done bool) (Escalati
 	toolCalls := make(map[int]EscalationBlock)
 	arguments := make(map[int]string)
 	complete := false
+	legacyCall := false
+	legacyCallExpected := false
 	for _, frame := range frames {
 		if frame.Get("error").Exists() {
 			return EscalationResponse{}, fmt.Errorf("chat response failed")
@@ -228,7 +264,13 @@ func escalationChatOutput(frames []gjson.Result, streaming, done bool) (Escalati
 		}
 		choice := choices[0]
 		if finish := choice.Get("finish_reason"); finish.Exists() && finish.Type != gjson.Null {
-			complete = true
+			switch escalationFinishReason(finish.String()) {
+			case escalationChatStop, escalationChatToolCalls, escalationChatFunctionCall:
+				complete = true
+				legacyCallExpected = escalationFinishReason(finish.String()) == escalationChatFunctionCall
+			default:
+				return EscalationResponse{}, fmt.Errorf("chat response did not complete")
+			}
 		}
 		message := choice.Get("message")
 		if streaming {
@@ -236,6 +278,9 @@ func escalationChatOutput(frames []gjson.Result, streaming, done bool) (Escalati
 		}
 		text += message.Get("content").String()
 		for position, call := range message.Get("tool_calls").Array() {
+			if legacyCall {
+				return EscalationResponse{}, fmt.Errorf("chat response mixes legacy and current tool calls")
+			}
 			index := position
 			if streaming {
 				index = int(call.Get("index").Int())
@@ -249,9 +294,27 @@ func escalationChatOutput(frames []gjson.Result, streaming, done bool) (Escalati
 			arguments[index] += call.Get("function.arguments").String()
 			toolCalls[index] = block
 		}
+		if function := message.Get("function_call"); function.Exists() {
+			if !function.IsObject() || (!legacyCall && len(toolCalls) > 0) {
+				return EscalationResponse{}, fmt.Errorf("invalid legacy chat function call")
+			}
+			name, input := function.Get("name"), function.Get("arguments")
+			if (name.Exists() && name.Type != gjson.String) || (input.Exists() && input.Type != gjson.String) {
+				return EscalationResponse{}, fmt.Errorf("invalid legacy chat function call fields")
+			}
+			legacyCall = true
+			block := toolCalls[0]
+			block.Type = EscalationBlockToolCall
+			block.Name += name.String()
+			arguments[0] += input.String()
+			toolCalls[0] = block
+		}
 	}
 	if !complete || (streaming && !done) {
 		return EscalationResponse{}, fmt.Errorf("chat response has no terminal event")
+	}
+	if (legacyCallExpected && !legacyCall) || (legacyCall && strings.TrimSpace(toolCalls[0].Name) == "") {
+		return EscalationResponse{}, fmt.Errorf("chat response has no completed legacy function call")
 	}
 	blocks := make([]EscalationBlock, 0, len(toolCalls)+1)
 	if text != "" {
@@ -284,7 +347,10 @@ func escalationGeminiOutput(frames []gjson.Result) (EscalationResponse, error) {
 			continue
 		}
 		candidate := candidates[0]
-		if candidate.Get("finishReason").String() != "" {
+		if reason := candidate.Get("finishReason"); reason.Exists() && reason.Type != gjson.Null {
+			if escalationFinishReason(reason.String()) != escalationGeminiStop {
+				return EscalationResponse{}, fmt.Errorf("Gemini response did not complete")
+			}
 			complete = true
 		}
 		parsed, err := escalationGeminiBlocks(candidate.Get("content.parts"))

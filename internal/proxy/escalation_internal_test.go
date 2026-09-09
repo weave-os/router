@@ -17,8 +17,10 @@ import (
 	"weave-os/router/internal/policyclient"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/escalation"
 	"weave-os/router/internal/router/policy"
+	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/router/turntype"
 	"weave-os/router/internal/translate"
 )
@@ -232,7 +234,7 @@ func TestEscalationLiveModelThroughTurnLoop(t *testing.T) {
 	require.NoError(t, err)
 	var observations []json.RawMessage
 	require.NoError(t, json.Unmarshal(fixture, &observations))
-	require.GreaterOrEqual(t, len(observations), 10)
+	require.GreaterOrEqual(t, len(observations), 11)
 	store := newEscalationTestStore()
 	client := policyclient.New(endpoint, &http.Client{}, time.Second)
 	ctx := escalationTestContext(true, false)
@@ -280,7 +282,7 @@ func TestEscalationCommitFailureDoesNotDispatchUncommittedPromotion(t *testing.T
 		require.Equal(t, "claude-haiku-4-5", res.Decision.Model)
 		if n == 5 {
 			require.Zero(t, res.EscalationOrdinal)
-			require.Equal(t, "claude-sonnet-4-6", res.Fresh.Model)
+			require.Equal(t, "claude-haiku-4-5", res.Fresh.Model)
 		}
 	}
 }
@@ -295,4 +297,29 @@ func TestEscalationRecordsServedHistoryWithoutReplacingBaselinePin(t *testing.T)
 	require.Equal(t, hmmHistoryRole(res.PinRole), pins.upserts[0].Role)
 	require.Equal(t, "claude-sonnet-4-6", pins.lastUsage.ServedModel)
 	require.Equal(t, 20, pins.lastUsage.OutputTokens)
+}
+
+func TestEscalationCommitFailurePreservesOrdinaryStickySelection(t *testing.T) {
+	store := newEscalationTestStore()
+	observer := &escalationTestObserver{}
+	pins := &rolePinStore{byRole: map[string]sessionpin.Pin{
+		roleForTier(catalog.TierFor("claude-opus-4-8")): {Provider: providers.ProviderAnthropic, Model: "claude-opus-4-7", Strategy: router.StrategyHMMEmbedding, PinnedUntil: time.Now().Add(time.Hour)},
+	}}
+	svc := NewService(nil, nil, nil, false, nil, pins, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil).WithEscalation(store, observer).WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyHMMEmbedding, Router: escalationDispatchRouter{}, Capabilities: policy.Capabilities{SchemaVersion: policy.SchemaVersionV1}})
+	ctx := flags.WithOverrides(router.WithStrategy(context.Background(), router.StrategyHMMEmbedding), flags.Overrides{Bools: map[flags.Key]bool{flags.KeyEscalationXGBoostEnabled: true, flags.KeyPlannerEnabled: false}})
+	installation := uuid.New()
+	for n := 1; n <= 5; n++ {
+		store.failCommit = n == 5
+		env := escalationTestEnvelope(t, n)
+		feats := env.RoutingFeatures(false)
+		res, err := svc.runTurnLoop(ctx, env, feats, "test-key", installation, "", http.Header{}, router.Request{RequestedModel: feats.Model})
+		require.NoError(t, err)
+		require.Equal(t, "claude-opus-4-7", res.Decision.Model)
+		require.True(t, res.StickyHit)
+		if n == 5 {
+			require.Zero(t, res.EscalationOrdinal)
+			require.Nil(t, res.Decision.Metadata)
+		}
+	}
+	require.Len(t, observer.requests, 5, "fail-open selection must not observe the same turn twice")
 }

@@ -1109,9 +1109,7 @@ func main() {
 	var sessionStrategyStore sessionstrategy.Store = postgres.NewSessionStrategyRepo(pool)
 
 	escalationStore := postgres.NewEscalationRepo(pool)
-	if escalationObserver != nil {
-		safeGo(logger, "escalation-state-sweep", func() { runEscalationSweep(context.Background(), escalationStore) })
-	}
+	safeGo(logger, "escalation-state-sweep", func() { runEscalationSweep(context.Background(), escalationStore) })
 	proxySvc := proxy.NewService(routeEntry, providerMap, telemetryEmitter, embedOnlyUser, semanticCache, pinStore, hardPinExplore, hardPinProvider, hardPinModel, repo.Telemetry).
 		WithSessionStrategyStore(sessionStrategyStore).
 		WithEscalation(escalationStore, escalationObserver).

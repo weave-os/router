@@ -306,6 +306,7 @@ ON CONFLICT (scope) DO UPDATE SET
     continuity_broken = false,
     expires_at = EXCLUDED.expires_at
 WHERE router.escalation_sessions.installation_id = EXCLUDED.installation_id
+    AND router.escalation_sessions.expires_at > clock_timestamp()
     AND (router.escalation_sessions.lease_until IS NULL
          OR router.escalation_sessions.lease_until <= clock_timestamp())
 RETURNING session_state
@@ -336,6 +337,7 @@ type UpsertEscalationSessionClaimParams struct {
 //	    continuity_broken = false,
 //	    expires_at = EXCLUDED.expires_at
 //	WHERE router.escalation_sessions.installation_id = EXCLUDED.installation_id
+//	    AND router.escalation_sessions.expires_at > clock_timestamp()
 //	    AND (router.escalation_sessions.lease_until IS NULL
 //	         OR router.escalation_sessions.lease_until <= clock_timestamp())
 //	RETURNING session_state

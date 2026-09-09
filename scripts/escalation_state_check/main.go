@@ -5,6 +5,7 @@ package main
 import (
 	"context"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -17,6 +18,7 @@ import (
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/postgres"
 	"weave-os/router/internal/router/escalation"
+	"weave-os/router/internal/sqlc"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -36,10 +38,10 @@ func main() {
 		slog.Error("Escalation database check failed", "err", err)
 		os.Exit(1)
 	}
-	slog.Info("Escalation database checks passed: concurrent claims, atomic checkpoints, stale completions, lease expiry, restart, continuation isolation, invalidation")
+	slog.Info("Escalation database checks passed: concurrent claims, atomic checkpoints, stale completions, lease expiry, restart, continuation isolation, invalidation, lifetime expiry, fixture cleanup")
 }
 
-func checkEscalationState(ctx context.Context, dsn string) error {
+func checkEscalationState(ctx context.Context, dsn string) (checkErr error) {
 	pool, err := pgxpool.New(ctx, dsn)
 	if err != nil {
 		return err
@@ -53,6 +55,26 @@ func checkEscalationState(ctx context.Context, dsn string) error {
 	store := postgres.NewEscalationRepo(pool)
 	activation := sha256.Sum256([]byte(installation.ID))
 	scope := sha256.Sum256([]byte(uuid.NewString()))
+	queries := sqlc.New(pool)
+	installationUUID := uuid.MustParse(installation.ID)
+	defer func() {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		deleted, cleanupErr := queries.DeleteEscalationCheckFixture(cleanupCtx, sqlc.DeleteEscalationCheckFixtureParams{InstallationID: installationUUID, ExternalID: installation.ExternalID})
+		if cleanupErr != nil {
+			checkErr = errors.Join(checkErr, fmt.Errorf("delete escalation check fixture: %w", cleanupErr))
+			return
+		}
+		if deleted != 1 {
+			checkErr = errors.Join(checkErr, fmt.Errorf("fixture cleanup deleted %d installations", deleted))
+		}
+		remaining, cleanupErr := queries.GetEscalationCheckFixtureRemaining(cleanupCtx, sqlc.GetEscalationCheckFixtureRemainingParams{InstallationID: installationUUID, Scope: scope[:]})
+		if cleanupErr != nil {
+			checkErr = errors.Join(checkErr, fmt.Errorf("verify escalation check cleanup: %w", cleanupErr))
+		} else if remaining != 0 {
+			checkErr = errors.Join(checkErr, fmt.Errorf("fixture cleanup left %d rows", remaining))
+		}
+	}()
 	boundary := sha256.Sum256([]byte("first boundary"))
 	type claim struct {
 		token    string
@@ -331,6 +353,45 @@ func checkEscalationState(ctx context.Context, dsn string) error {
 		return errors.New("idle invalidation did not clear features and preserve ordinal/floor")
 	}
 	err = store.Release(ctx, scope, restartedToken)
+	if err != nil {
+		return err
+	}
+	// Force expiry precisely between the production delete and claim statements.
+	err = queries.DeleteExpiredEscalationSession(ctx, scope[:])
+	if err != nil {
+		return err
+	}
+	expired, err := queries.UpdateEscalationCheckFixtureExpired(ctx, sqlc.UpdateEscalationCheckFixtureExpiredParams{Scope: scope[:], InstallationID: installationUUID, ExternalID: installation.ExternalID})
+	if err != nil || expired != 1 {
+		return fmt.Errorf("expire escalation fixture: rows=%d: %w", expired, err)
+	}
+	_, err = queries.UpsertEscalationSessionClaim(ctx, sqlc.UpsertEscalationSessionClaimParams{Scope: scope[:], InstallationID: installationUUID, LeaseToken: uuid.New(), Boundary: boundary[:]})
+	if !errors.Is(err, sql.ErrNoRows) {
+		return fmt.Errorf("claim resurrected an expired lifetime: %v", err)
+	}
+	freshToken := uuid.NewString()
+	fresh, acquired, err := store.Claim(ctx, scope, installation.ID, freshToken, boundary)
+	if err != nil {
+		return err
+	}
+	if !acquired || fresh.Ordinal != 0 || fresh.Floor != "" || len(fresh.FeatureState) != 0 {
+		return errors.New("claim retained expired lifetime state")
+	}
+	_, found, err = store.Checkpoint(ctx, scope, boundary)
+	if err != nil || found {
+		return fmt.Errorf("expired checkpoint survived a new lifetime: found=%t: %w", found, err)
+	}
+	_, _, found, err = store.Continuation(ctx, activation, "response-1")
+	if err != nil || found {
+		return fmt.Errorf("expired continuation survived a new lifetime: found=%t: %w", found, err)
+	}
+	// Leave one child in each table so deferred cleanup verifies its cascades.
+	fresh.Ordinal = 1
+	err = store.Commit(ctx, scope, boundary, freshToken, fresh, escalation.Checkpoint{Ordinal: 1})
+	if err != nil {
+		return err
+	}
+	err = store.SaveContinuation(ctx, activation, "response-fresh", scope, 1, history)
 	if err != nil {
 		return err
 	}

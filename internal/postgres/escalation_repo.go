@@ -11,6 +11,7 @@ import (
 	"weave-os/router/internal/router/escalation"
 	"weave-os/router/internal/sqlc"
 
+	"github.com/cenkalti/backoff/v5"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -38,11 +39,18 @@ func (r *EscalationRepo) Claim(ctx context.Context, scope [32]byte, installation
 	acquired := false
 	err = pgx.BeginFunc(ctx, r.pool, func(tx pgx.Tx) error {
 		queries := sqlc.New(tx)
-		deleteErr := queries.DeleteExpiredEscalationSession(ctx, scope[:])
-		if deleteErr != nil {
-			return deleteErr
-		}
-		encodedSessionState, claimErr := queries.UpsertEscalationSessionClaim(ctx, sqlc.UpsertEscalationSessionClaimParams{Scope: scope[:], InstallationID: installationUUID, LeaseToken: leaseUUID, Boundary: boundary[:]})
+		// A lifetime can expire between deletion and claiming. One immediate
+		// retry removes that lifetime instead of resurrecting its checkpoints.
+		encodedSessionState, claimErr := backoff.Retry(ctx, func() ([]byte, error) {
+			if deleteErr := queries.DeleteExpiredEscalationSession(ctx, scope[:]); deleteErr != nil {
+				return nil, backoff.Permanent(deleteErr)
+			}
+			encoded, upsertErr := queries.UpsertEscalationSessionClaim(ctx, sqlc.UpsertEscalationSessionClaimParams{Scope: scope[:], InstallationID: installationUUID, LeaseToken: leaseUUID, Boundary: boundary[:]})
+			if upsertErr != nil && !errors.Is(upsertErr, sql.ErrNoRows) {
+				return nil, backoff.Permanent(upsertErr)
+			}
+			return encoded, upsertErr
+		}, backoff.WithBackOff(backoff.NewConstantBackOff(0)), backoff.WithMaxTries(2))
 		if errors.Is(claimErr, sql.ErrNoRows) {
 			return nil
 		}
