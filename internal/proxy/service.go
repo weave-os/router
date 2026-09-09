@@ -4068,6 +4068,10 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			_ = emitAnthropicSSEErrorEvent(w, err)
 			return
 		}
+		// Pre-commit, the handler renders the classified sentinel itself.
+		if isSubscriptionPoolError(err) {
+			return
+		}
 		flushUpstreamErrorAsAnthropic(w, err)
 	}
 	if attemptBuildErr != nil {
@@ -4094,12 +4098,24 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	// Writing it forecloses any later rescue.
 	deferredErrFlushed := false
 	flushDeferredErr := func() {
-		if deferredErrFlushed || subscriptionPoolFailure {
+		if deferredErrFlushed {
 			return
 		}
 		deferredErrFlushed = true
 		if env.Stream() && preludeBuf.PreludeSent() {
-			proxyErr = emitAnthropicSSEErrorEvent(contentSink, proxyErr)
+			// The handler cannot render anything once the client has bytes,
+			// so an in-stream frame is the only way the turn reports at all —
+			// including for a pool sentinel, which would otherwise truncate
+			// the stream silently. Keep the sentinel as the returned error so
+			// the handler still classifies and logs it.
+			sseErr := emitAnthropicSSEErrorEvent(contentSink, proxyErr)
+			if !subscriptionPoolFailure {
+				proxyErr = sseErr
+			}
+			return
+		}
+		// Pre-commit, the handler renders the classified sentinel itself.
+		if subscriptionPoolFailure {
 			return
 		}
 		flushUpstreamErrorAsAnthropic(contentSink, proxyErr)
@@ -6799,23 +6815,33 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		surfacePurpose = inference.PurposeOpenAIResponses
 	}
 	var winnerIdx int
+	// A released prelude can only take an SSE error frame, so every dispatch in
+	// the chain renders through this — a JSON envelope appended to a live stream
+	// is unparseable to the client.
+	flushErrAsOpenAI := func(w http.ResponseWriter, err error) {
+		// Native Responses bytes are passed through verbatim; there is no
+		// error frame we can synthesize into that stream.
+		if isResponses && responsesPreludeBuf != nil && responsesPreludeBuf.PreludeSent() {
+			return
+		}
+		if env.Stream() && preludeBuf.PreludeSent() {
+			_ = emitOpenAISSEErrorEvent(w, err)
+			return
+		}
+		// Pre-commit, the handler renders the classified sentinel itself.
+		if isSubscriptionPoolError(err) {
+			return
+		}
+		flushBufferedIfPresent(w, err)
+	}
 	winnerIdx, proxyErr = s.dispatchWithFallback(ctx, failoverInputs{
 		// contentSink is the raw w when capture is off.
-		w:               contentSink,
-		buf:             preludeBuf,
-		initialDecision: decision,
-		bindings:        bindings,
-		attempt:         attempt,
-		flushErr: func(w http.ResponseWriter, err error) {
-			if isResponses && responsesPreludeBuf != nil && responsesPreludeBuf.PreludeSent() {
-				return
-			}
-			if env.Stream() && preludeBuf.PreludeSent() {
-				_ = emitOpenAISSEErrorEvent(w, err)
-				return
-			}
-			flushBufferedIfPresent(w, err)
-		},
+		w:                      contentSink,
+		buf:                    preludeBuf,
+		initialDecision:        decision,
+		bindings:               bindings,
+		attempt:                attempt,
+		flushErr:               flushErrAsOpenAI,
 		deferFlushOnExhaustion: cyberRetryViable,
 		purpose:                routeRes.dispatchPurpose(surfacePurpose),
 		origin:                 routeRes.dispatchOrigin(decision),
@@ -6829,7 +6855,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	// proxy must not write it here as well.
 	deferredErrFlushed := false
 	flushDeferredErr := func() {
-		if deferredErrFlushed || subscriptionPoolFailure {
+		if deferredErrFlushed {
 			return
 		}
 		deferredErrFlushed = true
@@ -6837,7 +6863,19 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 			return
 		}
 		if env.Stream() && preludeBuf.PreludeSent() {
-			proxyErr = emitOpenAISSEErrorEvent(contentSink, proxyErr)
+			// The handler cannot render anything once the client has bytes,
+			// so an in-stream frame is the only way the turn reports at all —
+			// including for a pool sentinel, which would otherwise truncate
+			// the stream silently. Keep the sentinel as the returned error so
+			// the handler still classifies and logs it.
+			sseErr := emitOpenAISSEErrorEvent(contentSink, proxyErr)
+			if !subscriptionPoolFailure {
+				proxyErr = sseErr
+			}
+			return
+		}
+		// Pre-commit, the handler renders the classified sentinel itself.
+		if subscriptionPoolFailure {
 			return
 		}
 		flushBufferedIfPresent(contentSink, proxyErr)
@@ -6897,7 +6935,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 				initialDecision: cyberRetryTarget,
 				bindings:        retryBindings,
 				attempt:         retryAttempt,
-				flushErr:        flushBufferedIfPresent,
+				flushErr:        flushErrAsOpenAI,
 				purpose:         routeRes.dispatchPurpose(surfacePurpose),
 				origin:          routeRes.rescueOrigin(),
 			})
