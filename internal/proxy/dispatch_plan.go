@@ -126,7 +126,10 @@ func (s *Service) dispatchPlanned(ctx context.Context, in failoverInputs, plan i
 			// paths, so the only source left is the deployment env key.
 			return resolveAndInjectCredentials(ctx, attempt.Target.Provider, in.initialDecision.Model, http.Header{}), nil
 		},
-		Terminal: func(dispatch.Attempt, error) bool { return managedBinding },
+		Terminal: func(_ dispatch.Attempt, err error) bool {
+			var abort dispatchAbort
+			return managedBinding || errors.As(err, &abort)
+		},
 	}
 	transport.Attempt = func(attemptCtx context.Context, attempt dispatch.Attempt, client providers.Client) error {
 		decision := in.initialDecision

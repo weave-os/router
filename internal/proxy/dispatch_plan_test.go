@@ -243,3 +243,26 @@ type recordingAttemptSink struct{ events []inference.AttemptEvent }
 func (r *recordingAttemptSink) RecordAttempt(_ context.Context, event inference.AttemptEvent) {
 	r.events = append(r.events, event)
 }
+
+func TestDispatchPlanned_LeaseFailureIsTerminal(t *testing.T) {
+	primary := &fakeClient{name: providers.ProviderAnthropic, outcomes: []fakeOutcome{{writeBytes: []byte("ok")}}}
+	fallback := &fakeClient{name: providers.ProviderOpenRouter, outcomes: []fakeOutcome{{writeBytes: []byte("paid")}}}
+	s := newServiceWithProviders(t, map[string]providers.Client{
+		providers.ProviderAnthropic: primary, providers.ProviderOpenRouter: fallback,
+	}).WithManagedSubscriptions(&scriptedSubscriptionLeaser{})
+	slept := 0
+	s.retrySleep = func(context.Context, time.Duration) error { slept++; return nil }
+	ctx := context.WithValue(context.Background(), ManagedSubscriptionEnrollmentUnavailableContextKey{}, true)
+
+	rec := httptest.NewRecorder()
+	buf := newPreludeBuffer(rec)
+	in := plannedInputs(rec, buf, []catalog.ProviderBinding{{Provider: providers.ProviderAnthropic}, {Provider: providers.ProviderOpenRouter}}, nil)
+	in.initialDecision.Model = "claude-opus-4-8"
+	_, err := s.dispatchWithFallback(ctx, in)
+
+	require.ErrorIs(t, err, ErrSubscriptionPoolUnavailable)
+	assert.Equal(t, 0, primary.calls, "no upstream call without a lease")
+	assert.Equal(t, 0, fallback.calls, "a pool failure must not fail over to a paid binding")
+	assert.Equal(t, 0, slept, "a pool failure must not same-binding retry")
+	assert.Empty(t, rec.Body.String(), "the pool error is returned as-is, not rendered as an upstream envelope")
+}

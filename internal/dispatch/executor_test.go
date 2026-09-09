@@ -360,3 +360,34 @@ func TestBufferedTransportValidatesTargetAndDeliversResponse(t *testing.T) {
 	require.ErrorIs(t, err, dispatch.ErrTargetMismatch)
 	assert.Len(t, fw.models, 1, "mismatch must not reach upstream")
 }
+
+func TestRunTerminalStopsSameTargetRetryAndFailover(t *testing.T) {
+	transient := &providers.UpstreamErrorResponse{Status: http.StatusTooManyRequests}
+	for _, tc := range []struct {
+		name string
+		plan fakePlan
+	}{
+		{"single target", fakePlan{selected: primary}},
+		{"multi target", fakePlan{selected: primary, alternatives: []inference.Target{backup}}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fw := &fakeUpstream{errs: []error{transient, transient, transient}}
+			or := &fakeUpstream{}
+			slept := 0
+			exec, err := dispatch.NewExecutor(dispatch.NewClients(map[string]providers.Client{
+				providers.ProviderFireworks: fw, providers.ProviderOpenRouter: or,
+			}), dispatch.WithSleep(func(context.Context, time.Duration) error { slept++; return nil }))
+			require.NoError(t, err)
+
+			result, err := exec.Run(context.Background(), inference.InvocationRequest{}, tc.plan, dispatch.Transport{
+				Attempt:  attemptWith([]byte(`{"model":"kimi-k2.5"}`)),
+				Terminal: func(dispatch.Attempt, error) bool { return true },
+			})
+			require.ErrorIs(t, err, transient)
+			assert.Equal(t, 1, result.Outcome.AttemptCount)
+			assert.Len(t, fw.models, 1)
+			assert.Empty(t, or.models)
+			assert.Equal(t, 0, slept)
+		})
+	}
+}

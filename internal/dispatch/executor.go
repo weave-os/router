@@ -37,8 +37,9 @@ type Transport struct {
 	// aborts the operation.
 	Prepare func(ctx context.Context, attempt Attempt) (context.Context, error)
 	// Terminal, when set, reports that a failed attempt must end the
-	// operation even though the error class would otherwise permit failover
-	// (a caller-bound credential served it, for example).
+	// operation even though the error class would otherwise permit a
+	// same-target retry or failover (a caller-bound credential served it,
+	// or a credential lease could not be obtained, for example).
 	Terminal func(attempt Attempt, err error) bool
 	// OperationID distinguishes this operation from others in the same
 	// request; empty means the purpose is used.
@@ -264,6 +265,9 @@ func (e *Executor) Run(ctx context.Context, req inference.InvocationRequest, pla
 			if errors.Is(attemptErr, ErrTargetMismatch) {
 				transport.reset()
 				return fail(attemptErr, FailureReasonTargetMismatch)
+			}
+			if transport.Terminal != nil && transport.Terminal(attempt, attemptErr) {
+				break
 			}
 			if !providers.IsRetryable(attemptErr) || sb >= maxSameBindingRetries || len(targets) > 1 {
 				break
