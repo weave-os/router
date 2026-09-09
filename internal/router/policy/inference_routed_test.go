@@ -70,6 +70,19 @@ func TestResolveRouted_RecordsCallerOrigin(t *testing.T) {
 	assert.Empty(t, plan.AlternativeBindings())
 }
 
+func TestResolveRouted_AppliesRequestBudgetOverride(t *testing.T) {
+	plan, err := routedResolver(t).ResolveRouted(policy.RoutedResolutionRequest{
+		Purpose:  policy.PurposeAnthropicMessages,
+		Decision: router.Decision{Model: "claude-haiku-4-5", Provider: providers.ProviderAnthropic},
+		Bindings: []catalog.ProviderBinding{{Provider: providers.ProviderAnthropic}},
+		Budget:   &policy.BudgetOverride{Source: policy.BudgetSourceRequest, MaxAttempts: 2, TimeoutMillis: 1500},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, policy.BudgetSourceRequest, plan.Budget().Source)
+	assert.Equal(t, 2, plan.Budget().MaxAttempts)
+	assert.Equal(t, int64(1500), plan.Budget().TimeoutMillis)
+}
+
 func TestResolveRouted_FailsClosed(t *testing.T) {
 	resolver := routedResolver(t)
 	valid := policy.RoutedResolutionRequest{
@@ -89,6 +102,9 @@ func TestResolveRouted_FailsClosed(t *testing.T) {
 		"policy default":      {func(r *policy.RoutedResolutionRequest) { r.Origin = policy.OverrideSourcePolicyDefault }, policy.ResolutionErrorInvalidOverride},
 		"unknown origin":      {func(r *policy.RoutedResolutionRequest) { r.Origin = "vibes" }, policy.ResolutionErrorInvalidOverride},
 		"undeclared override": {func(r *policy.RoutedResolutionRequest) { r.Origin = policy.OverrideSourceClientAuthoritative }, policy.ResolutionErrorOverrideNotAllowed},
+		"foreign budget source": {func(r *policy.RoutedResolutionRequest) {
+			r.Budget = &policy.BudgetOverride{Source: policy.BudgetSourceDeployment, MaxAttempts: 1}
+		}, policy.ResolutionErrorBudgetViolation},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {

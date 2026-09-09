@@ -148,11 +148,11 @@ type TargetOverride struct {
 // BudgetOverride supplies request- or deployment-time limits for policy
 // entries whose BudgetSpec declares the same source.
 type BudgetOverride struct {
-	Source          BudgetSource
-	MaxAttempts     int
-	TimeoutMillis   int64
-	MaxOutputTokens int
-	MaxSpendUSD     float64
+	Source          BudgetSource `json:"source"`
+	MaxAttempts     int          `json:"max_attempts,omitempty"`
+	TimeoutMillis   int64        `json:"timeout_millis,omitempty"`
+	MaxOutputTokens int          `json:"max_output_tokens,omitempty"`
+	MaxSpendUSD     float64      `json:"max_spend_usd,omitempty"`
 }
 
 // PlanProvenance records which policy mechanism authorized a target.

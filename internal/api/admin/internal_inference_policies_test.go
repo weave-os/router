@@ -145,6 +145,31 @@ func TestInternalInferencePolicies_ResolveRouterPurposeUsesProposedModel(t *test
 	assert.Equal(t, policy.SelectionStrategyRouter, body.Provenance.SelectionStrategy)
 }
 
+func TestInternalInferencePolicies_ResolveAppliesSnakeCaseBudgetOverride(t *testing.T) {
+	engine := inferencePoliciesEngine(t)
+	rec := httptest.NewRecorder()
+	engine.ServeHTTP(rec, inspectionRequest(t, http.MethodPost, "/internal/v1/inference-policies/resolve", map[string]any{
+		"purpose": string(policy.PurposeAnthropicMessages),
+		"model":   "claude-haiku-4-5",
+		"budget": map[string]any{
+			"source":            string(policy.BudgetSourceRequest),
+			"max_attempts":      2,
+			"timeout_millis":    1500,
+			"max_output_tokens": 256,
+			"max_spend_usd":     0.5,
+		},
+	}))
+
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	var body policy.PlanProjection
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+	assert.Equal(t, policy.BudgetSourceRequest, body.Budget.Source)
+	assert.Equal(t, 2, body.Budget.MaxAttempts)
+	assert.Equal(t, int64(1500), body.Budget.TimeoutMillis)
+	assert.Equal(t, 256, body.Budget.MaxOutputTokens)
+	assert.InDelta(t, 0.5, body.Budget.MaxSpendUSD, 1e-9)
+}
+
 func TestInternalInferencePolicies_ResolveFailsClosedWithStableCode(t *testing.T) {
 	engine := inferencePoliciesEngine(t)
 	cases := map[string]struct {

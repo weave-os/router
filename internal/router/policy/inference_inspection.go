@@ -253,6 +253,7 @@ func (r *PlanResolver) Inspect(request InspectionRequest, config DeploymentPolic
 			Purpose:  request.Purpose,
 			Decision: router.Decision{Model: request.Model, Provider: bindings[0].Provider, Effort: request.Effort},
 			Bindings: bindings,
+			Budget:   request.Budget,
 		})
 	}
 	if request.Model != "" {

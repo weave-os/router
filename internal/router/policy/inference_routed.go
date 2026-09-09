@@ -18,6 +18,7 @@ type RoutedResolutionRequest struct {
 	// (request force-model, session pin, deployment hard pin). Empty means
 	// the router's own selection.
 	Origin OverrideSource
+	Budget *BudgetOverride
 }
 
 // ResolveRouted builds the immutable plan for a routed main-inference
@@ -70,6 +71,11 @@ func (r *PlanResolver) ResolveRouted(request RoutedResolutionRequest) (ResolvedP
 		bindings = append(bindings, binding)
 	}
 
+	budget, err := resolveBudget(spec, request.Budget)
+	if err != nil {
+		return ResolvedPlan{}, err
+	}
+
 	provenance := PlanProvenance{SelectionStrategy: spec.SelectionStrategy, OverrideSource: request.Origin}
 	if request.Decision.Metadata != nil {
 		provenance.ArmID = request.Decision.Metadata.SelectedArmID
@@ -86,7 +92,7 @@ func (r *PlanResolver) ResolveRouted(request RoutedResolutionRequest) (ResolvedP
 		alternativeBindings: bindings[1:],
 		hardConstraints:     append([]Constraint(nil), spec.HardConstraints...),
 		softPreferences:     append([]SoftPreference(nil), spec.SoftPreferences...),
-		budget:              spec.Budget,
+		budget:              budget,
 		provenance:          provenance,
 	}, nil
 }
