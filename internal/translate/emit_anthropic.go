@@ -783,7 +783,8 @@ func hoistAnthropicSystemMessages(body []byte) ([]byte, error) {
 			kept = append(kept, msg.Raw)
 		}
 	}
-	if hoistedOutputConfig != "" && !gjson.GetBytes(body, "output_config").Exists() {
+	requestOutputConfig := gjson.GetBytes(body, "output_config")
+	if hoistedOutputConfig != "" && (!requestOutputConfig.Exists() || requestOutputConfig.Type == gjson.Null) {
 		var err error
 		body, err = sjson.SetRawBytes(body, "output_config", []byte(hoistedOutputConfig))
 		if err != nil {

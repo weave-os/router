@@ -650,6 +650,23 @@ func TestAnthropicSameFormat_SystemOutputConfigDoesNotOverwriteTopLevelConfig(t 
 	assert.NotContains(t, demoted, "output_config")
 }
 
+func TestAnthropicSameFormat_NullTopLevelOutputConfigDoesNotBlockHoist(t *testing.T) {
+	body := []byte(`{"model":"claude-sonnet-4-20250514","output_config":null,"messages":[{"role":"user","content":"hi"},{"role":"system","content":"set effort","output_config":{"effort":"high"}}],"max_tokens":1024}`)
+	opts := translate.EmitOptions{
+		TargetModel:  "claude-opus-4-7",
+		Capabilities: router.Lookup("claude-opus-4-7"),
+	}
+	out := parseAndEmit(t, body, "anthropic", opts)
+
+	outputConfig, _ := out["output_config"].(map[string]any)
+	require.NotNil(t, outputConfig)
+	assert.Equal(t, "high", outputConfig["effort"])
+	msgs, _ := out["messages"].([]any)
+	require.Len(t, msgs, 2)
+	demoted, _ := msgs[1].(map[string]any)
+	assert.NotContains(t, demoted, "output_config")
+}
+
 func TestAnthropicSameFormat_LeadingSystemOutputConfigHoisted(t *testing.T) {
 	body := []byte(`{"model":"claude-sonnet-4-20250514","messages":[{"role":"system","content":"set effort","output_config":{"effort":"high"}},{"role":"user","content":"hi"}],"max_tokens":1024}`)
 	opts := translate.EmitOptions{
