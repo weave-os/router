@@ -144,7 +144,9 @@ func (b boundExecutor) Execute(ctx context.Context, req inference.InvocationRequ
 // alternative in order. A target is retried in place only when it is the sole
 // target and the error is transient; otherwise a retryable, model-not-found,
 // or billing-blocked error fails over to the next target while nothing has
-// been committed to the client. Attempt events are emitted in order.
+// been committed to the client. Budget().MaxAttempts, when positive, bounds
+// the total attempts including same-target retries. Attempt events are
+// emitted in order.
 func (e *Executor) Run(ctx context.Context, req inference.InvocationRequest, plan inference.ResolvedPlan, transport Transport) (Result, error) {
 	if plan == nil {
 		return Result{}, errors.New("dispatch: nil plan")
@@ -153,8 +155,9 @@ func (e *Executor) Run(ctx context.Context, req inference.InvocationRequest, pla
 		return Result{}, errors.New("dispatch: transport has no attempt")
 	}
 	targets := append([]inference.Target{plan.SelectedTarget()}, plan.AlternativeTargets()...)
-	if max := plan.Budget().MaxAttempts; max > 0 && len(targets) > max {
-		targets = targets[:max]
+	maxAttempts := plan.Budget().MaxAttempts
+	if maxAttempts > 0 && len(targets) > maxAttempts {
+		targets = targets[:maxAttempts]
 	}
 	operationID := transport.OperationID
 	if operationID == "" {
@@ -259,6 +262,9 @@ func (e *Executor) Run(ctx context.Context, req inference.InvocationRequest, pla
 				return fail(attemptErr, FailureReasonTargetMismatch)
 			}
 			if !providers.IsRetryable(attemptErr) || sb >= maxSameBindingRetries || len(targets) > 1 {
+				break
+			}
+			if maxAttempts > 0 && result.Outcome.AttemptCount >= maxAttempts {
 				break
 			}
 			if e.now().Sub(retryStart) >= sameBindingRetryBudget {

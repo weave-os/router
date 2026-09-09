@@ -221,6 +221,25 @@ func TestRunRetriesSingleTargetInPlaceWithinBudget(t *testing.T) {
 	assert.Equal(t, []int{0, 1, 2}, []int{rec.events[0].AttemptIndex, rec.events[1].AttemptIndex, rec.events[2].AttemptIndex})
 }
 
+func TestRunMaxAttemptsBoundsSameTargetRetries(t *testing.T) {
+	fw := &fakeUpstream{errs: []error{
+		&providers.UpstreamErrorResponse{Status: http.StatusTooManyRequests},
+		&providers.UpstreamErrorResponse{Status: http.StatusTooManyRequests},
+	}}
+	exec, err := dispatch.NewExecutor(dispatch.NewClients(map[string]providers.Client{providers.ProviderFireworks: fw}),
+		dispatch.WithSleep(func(context.Context, time.Duration) error { return nil }),
+	)
+	require.NoError(t, err)
+
+	result, err := exec.Run(context.Background(), inference.InvocationRequest{},
+		fakePlan{selected: primary, budget: inference.BudgetSpec{MaxAttempts: 1}},
+		dispatch.Transport{Attempt: attemptWith([]byte(`{"model":"kimi-k2.5"}`))},
+	)
+	require.Error(t, err)
+	assert.Equal(t, 1, result.Outcome.AttemptCount)
+	assert.Equal(t, dispatch.FailureReasonUpstreamStatus, result.Summary.FallbackReason)
+}
+
 func TestRunStopsSameTargetRetryWhenWallClockBudgetSpent(t *testing.T) {
 	fw := &fakeUpstream{errs: []error{
 		&providers.UpstreamErrorResponse{Status: http.StatusTooManyRequests},
