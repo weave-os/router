@@ -24,6 +24,18 @@ func TestDefaultInferenceRegistryCoversEveryPurpose(t *testing.T) {
 	}
 }
 
+// ROUTER_COMPACTION_MODEL pins both compaction purposes, so a value the
+// cascade accepts must also validate for compaction handover.
+func TestDefaultInferenceRegistryCompactionPurposesShareSummarizers(t *testing.T) {
+	registry := policy.DefaultRegistry()
+	precompaction, found := registry.Spec(policy.PurposePrecompactionSummary)
+	require.True(t, found)
+	handover, found := registry.Spec(policy.PurposeCompactionHandoverSummary)
+	require.True(t, found)
+	assert.Equal(t, precompaction.FixedCatalogModels, handover.FixedCatalogModels)
+	assert.Contains(t, handover.FixedCatalogModels, "claude-sonnet-4-5")
+}
+
 func TestInferenceRegistryRejectsDuplicateAndMissingPurposes(t *testing.T) {
 	specs := policy.DefaultRegistry().Specs()
 	index := policyIndex(t, specs, policy.PurposeAnthropicMessages)

@@ -19,10 +19,11 @@ const (
 	inferencePolicyOwner           = "@steventohme"
 )
 
-// precompactionSummarizerModels is the reviewed set the compaction cascade may
+// compactionSummarizerModels is the reviewed set both compaction purposes may
 // summarize with, in default preference order. It includes every Anthropic
-// non-low catalog model so a session's warm pin can summarize its own history.
-var precompactionSummarizerModels = []string{
+// non-low catalog model so a session's warm pin can summarize its own history
+// and so ROUTER_COMPACTION_MODEL, which pins both purposes, validates once.
+var compactionSummarizerModels = []string{
 	"claude-sonnet-4-6",
 	"claude-fable-5",
 	"claude-sonnet-4-5",
@@ -524,7 +525,7 @@ func defaultPolicySpecs() []PolicySpec {
 			Rationale:          "Preserve elided task state with the context-window-aware summarizer cascade before local trim rescue: the session's warm Anthropic pin when it is a reviewed non-low model, else the deployment compaction model, else the large-window model.",
 			SelectionStrategy:  SelectionStrategyFixedCatalog,
 			CandidateSource:    CandidateSourceFixedCatalog,
-			FixedCatalogModels: precompactionSummarizerModels,
+			FixedCatalogModels: compactionSummarizerModels,
 			HardConstraints:    []Constraint{ConstraintCatalogBinding, ConstraintContextWindow, ConstraintCredentialScope, ConstraintModelExclusions, ConstraintProviderExclusions, ConstraintTenant},
 			OverridePrecedence: []OverrideSource{OverrideSourceSession, OverrideSourceDeployment, OverrideSourcePolicyDefault},
 			Budget:             BudgetSpec{Source: BudgetSourcePolicy, MaxAttempts: 1, TimeoutMillis: 90_000, MaxOutputTokens: 4_000},
@@ -535,12 +536,12 @@ func defaultPolicySpecs() []PolicySpec {
 			Purpose:            PurposeCompactionHandoverSummary,
 			DispatchClass:      DispatchClassAuxiliaryInference,
 			PolicyID:           "aux-compaction-handover-summary",
-			PolicyRevision:     "2",
+			PolicyRevision:     "3",
 			Owner:              inferencePolicyOwner,
-			Rationale:          "Restore task state after client history trimming; failure keeps the client's remaining history unchanged.",
+			Rationale:          "Restore task state after client history trimming with the same reviewed summarizer set as precompaction; failure keeps the client's remaining history unchanged.",
 			SelectionStrategy:  SelectionStrategyFixedCatalog,
 			CandidateSource:    CandidateSourceFixedCatalog,
-			FixedCatalogModels: []string{"claude-sonnet-4-6", "claude-fable-5"},
+			FixedCatalogModels: compactionSummarizerModels,
 			HardConstraints:    []Constraint{ConstraintCatalogBinding, ConstraintContextWindow, ConstraintCredentialScope, ConstraintModelExclusions, ConstraintProviderExclusions, ConstraintTenant},
 			OverridePrecedence: []OverrideSource{OverrideSourceSession, OverrideSourceDeployment, OverrideSourcePolicyDefault},
 			Budget:             BudgetSpec{Source: BudgetSourcePolicy, MaxAttempts: 1, TimeoutMillis: 90_000, MaxOutputTokens: 4_000},
