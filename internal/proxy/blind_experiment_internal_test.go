@@ -74,6 +74,35 @@ func TestBlindExperimentPassthroughSkipsAutomaticPinsAndScorer(t *testing.T) {
 	assert.Empty(t, pins.upserts)
 }
 
+func TestBlindExperimentPassthroughUsesGatewayAlias(t *testing.T) {
+	service := NewService(nil, nil, nil, false, nil, nil, false,
+		providers.ProviderAnthropic, "claude-haiku-4-5", nil)
+
+	decision, passthrough, err := service.blindExperimentPassthroughDecision(
+		blindExperimentContext(auth.BlindExperimentArmPassthrough),
+		router.Request{
+			RequestedModel: "gpt-5.4",
+			EnabledProviders: map[string]struct{}{
+				providers.ProviderOpenAIGateway:    {},
+				providers.ProviderAnthropicGateway: {},
+			},
+			GatewayProviders: map[string]struct{}{
+				providers.ProviderAnthropicGateway: {},
+			},
+			CustomBindings: map[string][]string{
+				"gpt-5.4": {providers.ProviderAnthropicGateway},
+			},
+		},
+	)
+
+	require.NoError(t, err)
+	assert.True(t, passthrough)
+	assert.Equal(t, providers.ProviderAnthropicGateway, decision.Provider,
+		"gateway-exclusive passthrough must use the held key's alias instead of the catalog gateway binding")
+	assert.Equal(t, "gpt-5.4", decision.Model)
+	assert.Equal(t, blindExperimentPublicDecisionReason, decision.Reason)
+}
+
 func TestBlindExperimentRouterOnUsesScorer(t *testing.T) {
 	routerSpy := &blindExperimentRouterSpy{decision: router.Decision{
 		Provider: providers.ProviderAnthropic,

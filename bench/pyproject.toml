@@ -1,0 +1,41 @@
+[project]
+name = "weave-bench"
+version = "0.1.0"
+description = "Reproducible Codex-harness benchmarks (SWE-Atlas QnA, Terminal-Bench 4.0) for the Weave router"
+requires-python = ">=3.12"
+license = { text = "Elastic-2.0" }
+dependencies = []
+
+[project.optional-dependencies]
+# `harbor run` and the Harbor agent subclasses. Pinned: the Harbor version is
+# part of the recorded run configuration.
+harbor = ["harbor==0.22.0"]
+# SWE-Atlas is run on Harbor v0.18.0, which the tasks were authored against.
+harbor-atlas = ["harbor==0.18.0"]
+# OpenRouter recording tap (ASGI).
+tap = ["starlette>=0.40", "uvicorn>=0.30", "httpx>=0.27"]
+modal = ["modal>=1.0"]
+dev = ["pytest>=8.3", "ruff==0.16.6"]
+
+[project.scripts]
+weave-bench = "weave_bench.cli:main"
+
+[build-system]
+requires = ["setuptools>=70"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["weave_bench*"]
+
+[tool.setuptools.package-data]
+weave_bench = ["manifests/*.json", "prices.generated.json"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+extend = "../ruff.toml"
+line-length = 120
+
+[tool.ruff.lint]
+extend-select = ["I", "UP", "B"]

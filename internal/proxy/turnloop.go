@@ -313,9 +313,10 @@ const hmmHistoryReason = "hmm_history"
 const defaultHMMUpgradeConfidenceThreshold = 0.85
 
 const (
-	hmmReasonConfidentUpgrade     = "hmm_confident_upgrade"
-	hmmReasonUpgradeConfidenceLow = "hmm_upgrade_confidence_low"
-	hmmReasonPhaseChange          = "hmm_phase_change"
+	hmmReasonConfidentUpgrade        = "hmm_confident_upgrade"
+	hmmReasonUpgradeConfidenceLow    = "hmm_upgrade_confidence_low"
+	hmmReasonPhaseChange             = "hmm_phase_change"
+	nativeWebSearchPassthroughReason = "native_web_search_passthrough"
 )
 
 // decisionPolicyGroup returns the policy cluster/group a decision was drawn
@@ -755,6 +756,46 @@ func (s *Service) runTurnLoop(
 		if passthrough {
 			res.Decision = decision
 			res.BlindExperimentPassthrough = true
+			return res, nil
+		}
+	}
+
+	// Claude Code executes WebSearch in an isolated one-message request with a
+	// different cache key from the parent conversation. Preserve the request's
+	// resolved baseline Anthropic model instead of asking the policy to choose a
+	// new uncached arm; ordinary in-context search turns continue below and
+	// retain their pin.
+	if !forceModelFound && env.IsNativeWebSearchSubTurn() {
+		if decision, ok := s.usageBypassDecision(ctx, reqHeaders, req); ok {
+			res.SessionKey = threadSessionKey
+			res.Decision = decision
+			res.UsageBypass = true
+			return res, nil
+		}
+
+		passthroughModel := s.baselineFor(req.RequestedModel)
+		_, excluded := req.ExcludedModels[passthroughModel]
+		_, safetyExcluded := req.SafetyExcludedModels[passthroughModel]
+		_, allowlisted := req.AllowedModels[passthroughModel]
+		allowed := req.AllowedModels == nil || allowlisted
+		binding, bindingFound := catalog.ResolveBindingWithCustom(
+			passthroughModel,
+			req.EnabledProviders,
+			req.CustomBindings,
+		)
+		if !excluded && !safetyExcluded && allowed && bindingFound && binding.Provider == providers.ProviderAnthropic {
+			res.SessionKey = threadSessionKey
+			res.Decision = router.Decision{
+				Provider: binding.Provider,
+				Model:    passthroughModel,
+				Reason:   nativeWebSearchPassthroughReason,
+			}
+			res.HardPinned = true
+			res.PinTier = nativeWebSearchPassthroughReason
+			log.Info("Native web-search sub-turn passed through to requested model",
+				"model", passthroughModel,
+				"provider", binding.Provider,
+			)
 			return res, nil
 		}
 	}

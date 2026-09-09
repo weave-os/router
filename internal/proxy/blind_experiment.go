@@ -8,6 +8,7 @@ import (
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/cluster"
+	"weave-os/router/internal/router/policy"
 )
 
 const blindExperimentPublicDecisionReason = "cluster_argmax"
@@ -35,6 +36,17 @@ func (s *Service) blindExperimentPassthroughDecision(ctx context.Context, req ro
 	}
 	if req.HasImages && !catalog.AcceptsImages(req.RequestedModel) {
 		return router.Decision{}, true, fmt.Errorf("requested model %q cannot accept images: %w", req.RequestedModel, cluster.ErrNoEligibleProvider)
+	}
+	if len(req.GatewayProviders) > 0 {
+		provider, found := gatewayProviderFor(req.RequestedModel, req.CustomBindings, req.GatewayProviders)
+		if !found {
+			return router.Decision{}, true, fmt.Errorf("requested model %q has no available gateway alias: %w", req.RequestedModel, policy.ErrGatewayServesNoDeployedModel)
+		}
+		return router.Decision{
+			Provider: provider,
+			Model:    req.RequestedModel,
+			Reason:   blindExperimentPublicDecisionReason,
+		}, true, nil
 	}
 
 	availableProviders := req.EnabledProviders

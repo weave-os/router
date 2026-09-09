@@ -1,12 +1,14 @@
 package proxy_test
 
 import (
+	"context"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/providers/anthropic"
@@ -121,7 +123,12 @@ func proxyResponsesTurn(t *testing.T, svc *proxy.Service) *httptest.ResponseReco
 	t.Helper()
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(""))
-	_ = svc.ProxyOpenAIResponses(authedCtx(cyberRefusalInstallationID), []byte(responsesTurnBody), rec, req)
+	ctx := context.WithValue(
+		authedCtx(cyberRefusalInstallationID),
+		proxy.ClientIdentityContextKey{},
+		proxy.ClientIdentity{ClientApp: proxy.ClientAppCodex},
+	)
+	_ = svc.ProxyOpenAIResponses(ctx, []byte(responsesTurnBody), rec, req)
 	return rec
 }
 
@@ -228,10 +235,57 @@ func TestProxyOpenAIResponses_OrdinaryOpenAIErrorIsUnchanged(t *testing.T) {
 
 	_, anthropicHits := upstreams.counts()
 	assert.Zero(t, anthropicHits)
-	assert.Contains(t, rec.Body.String(), "Unsupported parameter")
+	assert.Contains(t, rec.Body.String(), "response.failed")
+	assert.Contains(t, rec.Body.String(), "Upstream call failed.")
 	require.NotEmpty(t, store.upserts)
 	assert.Equal(t, "gpt-5.6-sol", store.upserts[len(store.upserts)-1].Model,
 		"an ordinary error is no reason to move the session")
+}
+
+func TestProxyOpenAIResponses_RoutingBadgeFlushesBeforeDelayedProvider(t *testing.T) {
+	providerStarted := make(chan struct{})
+	releaseProvider := make(chan struct{})
+	defer func() {
+		select {
+		case <-releaseProvider:
+		default:
+			close(releaseProvider)
+		}
+	}()
+	upstreams := &cyberRefusalUpstreams{openAIResponse: func(w http.ResponseWriter) {
+		close(providerStarted)
+		<-releaseProvider
+		streamResponses("event: response.completed\n" +
+			`data: {"type":"response.completed","sequence_number":0,"response":{"id":"resp_native","status":"completed","output":[]}}` + "\n\n")(w)
+	}}
+	openAIURL, anthropicURL := upstreams.start(t)
+	svc := cyberRefusalService(openAIURL, anthropicURL, "test", newFakePinStore(), newCaptureTelemetry())
+	writer := newObservedResponseWriter()
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(""))
+	ctx := context.WithValue(
+		authedCtx(cyberRefusalInstallationID),
+		proxy.ClientIdentityContextKey{},
+		proxy.ClientIdentity{ClientApp: proxy.ClientAppCodex},
+	)
+	done := make(chan error, 1)
+	go func() {
+		done <- svc.ProxyOpenAIResponses(ctx, []byte(responsesTurnBody), writer, req)
+	}()
+
+	select {
+	case <-providerStarted:
+	case <-time.After(time.Second):
+		t.Fatal("provider was not dispatched")
+	}
+	select {
+	case <-writer.flushed:
+	case <-time.After(time.Second):
+		t.Fatal("routing badge was not flushed before provider completion")
+	}
+	assert.Contains(t, writer.BodyString(), "✦ **Weave Router**")
+
+	close(releaseProvider)
+	require.NoError(t, <-done)
 }
 
 // The rescue runs once: a fallback that refuses too ends the turn rather than

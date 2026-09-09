@@ -264,6 +264,126 @@ const pinTestBody = `{
 	"messages":[{"role":"user","content":"original prompt"}]
 }`
 
+const nativeWebSearchSubTurnBody = `{
+	"model":"claude-opus-4-8",
+	"tools":[{"type":"web_search_20250305","name":"web_search"}],
+	"tool_choice":{"type":"tool","name":"web_search"},
+	"messages":[{"role":"user","content":"Perform a web search for the query: git-ai latest release"}]
+}`
+
+func TestService_NativeWebSearchSubTurnPassesThroughRequestedModel(t *testing.T) {
+	for _, requestedModel := range []string{"claude-opus-4-8", "claude-opus-5"} {
+		t.Run(requestedModel, func(t *testing.T) {
+			store := newFakePinStore()
+			fr := &fakeRouter{decision: router.Decision{
+				Provider: providers.ProviderAnthropic,
+				Model:    "claude-fable-5-1",
+				Reason:   "hmm_policy",
+			}}
+			svc := newPinSvc(fr, store)
+			body := strings.Replace(nativeWebSearchSubTurnBody, "claude-opus-4-8", requestedModel, 1)
+
+			rec := httptest.NewRecorder()
+			httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+			require.NoError(t, svc.ProxyMessages(
+				authedCtx(uuid.New().String()),
+				[]byte(body),
+				rec,
+				httpReq,
+			))
+
+			assert.Zero(t, fr.routeCalls, "an isolated search sub-turn must bypass policy scoring")
+			assert.Equal(t, requestedModel, rec.Header().Get(proxy.HeaderRouterModel))
+			assert.Equal(t, providers.ProviderAnthropic, rec.Header().Get(proxy.HeaderRouterProvider))
+			assert.Equal(t, "native_web_search_passthrough", rec.Header().Get(proxy.HeaderRouterDecision))
+			assert.Empty(t, store.upserts, "an isolated search sub-turn must not create a session pin")
+			assert.Zero(t, store.resetCalls, "pass-through must not mutate a parent pin's error state")
+			assert.Zero(t, store.overloadResetCalls, "pass-through must not mutate a parent pin's overload state")
+		})
+	}
+}
+
+func TestService_InContextNativeWebSearchKeepsAnthropicPin(t *testing.T) {
+	store := newFakePinStore()
+	store.hasPin = true
+	store.pin = sessionpin.Pin{
+		Provider:      providers.ProviderAnthropic,
+		Model:         "claude-opus-5",
+		Reason:        "cluster:v0.2",
+		PinnedUntil:   time.Now().Add(30 * time.Minute),
+		FirstPinnedAt: time.Now().Add(-5 * time.Minute),
+	}
+	fr := &fakeRouter{decision: router.Decision{
+		Provider: providers.ProviderAnthropic,
+		Model:    "claude-fable-5-1",
+		Reason:   "cluster:v0.2",
+	}}
+	svc := newPinSvc(fr, store).WithScopedSearchRequirement(true, proxy.DefaultSearchRequirementDecayTurns)
+	body := []byte(`{
+		"model":"claude-opus-4-8",
+		"tools":[{"type":"web_search_20250305","name":"web_search"}],
+		"tool_choice":{"type":"tool","name":"web_search"},
+		"messages":[
+			{"role":"user","content":"research the release"},
+			{"role":"assistant","content":"I'll search for it."},
+			{"role":"user","content":"Perform a web search for the query: git-ai latest release"}
+		]
+	}`)
+
+	rec := httptest.NewRecorder()
+	httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	require.NoError(t, svc.ProxyMessages(authedCtx(uuid.New().String()), body, rec, httpReq))
+
+	assert.Equal(t, 1, fr.routeCalls, "an in-context search turn must retain normal pin-aware routing")
+	require.NotNil(t, fr.capturedReq)
+	assert.False(t, fr.capturedReq.TranslationRequirements.CitationsOrSearch,
+		"advertising native search without using it must not constrain policy routing")
+	assert.Equal(t, "claude-opus-5", rec.Header().Get(proxy.HeaderRouterModel))
+	waitForUpsert(t, store)
+}
+
+func TestService_NativeSearchResultHistoryFiltersPolicyCandidatesInGo(t *testing.T) {
+	fr := &fakeRouter{decision: router.Decision{
+		Provider: providers.ProviderAnthropic,
+		Model:    "claude-opus-4-8",
+		Reason:   "hmm_policy",
+	}}
+	svc := proxy.NewService(
+		fr,
+		map[string]providers.Client{
+			providers.ProviderAnthropic: &fakeProvider{},
+			providers.ProviderOpenAI:    &fakeProvider{},
+		},
+		nil,
+		false,
+		nil,
+		nil,
+		false,
+		providers.ProviderAnthropic,
+		"claude-haiku-4-5",
+		nil,
+	).WithScopedSearchRequirement(true, proxy.DefaultSearchRequirementDecayTurns)
+	body := []byte(`{
+		"model":"claude-opus-4-8",
+		"tools":[{"type":"web_search_20250305","name":"web_search"}],
+		"messages":[
+			{"role":"user","content":"find the release"},
+			{"role":"assistant","content":[{"type":"server_tool_use","id":"srvtoolu_1","name":"web_search","input":{"query":"release"}}]},
+			{"role":"user","content":[{"type":"web_search_tool_result","tool_use_id":"srvtoolu_1","content":[]}]}
+		]
+	}`)
+
+	rec := httptest.NewRecorder()
+	httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	require.NoError(t, svc.ProxyMessages(authedCtx(uuid.New().String()), body, rec, httpReq))
+
+	assert.Equal(t, 1, fr.routeCalls)
+	require.NotNil(t, fr.capturedReq)
+	assert.True(t, fr.capturedReq.TranslationRequirements.CitationsOrSearch)
+	assert.Equal(t, map[string]struct{}{providers.ProviderAnthropic: {}}, fr.capturedReq.EnabledProviders,
+		"Go must constrain search-history routing before the policy scorer runs")
+}
+
 // Pin vs. divergent scorer recommendation: planner stays on the pin under
 // ReasonNoPriorUsage since there's no cache-warm evidence yet to justify eviction.
 func TestService_SessionPin_PostgresHitKeepsPinnedModel(t *testing.T) {

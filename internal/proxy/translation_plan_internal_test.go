@@ -130,6 +130,32 @@ func TestTranslationPlan_BroadSemanticRequirementOnlyFiltersInEnforce(t *testing
 	requireExclusion(t, enforce, "prompt_cache_control_native_required", providers.ProviderOpenAI, true)
 }
 
+func TestTranslationPlan_NativeSearchAlwaysFiltersToSourceProvider(t *testing.T) {
+	for _, mode := range []TranslationCompatibilityMode{
+		TranslationCompatibilityOff,
+		TranslationCompatibilityShadow,
+		TranslationCompatibilityEnforce,
+	} {
+		t.Run(string(mode), func(t *testing.T) {
+			plan := compatibilityService(mode).planTranslation(router.Request{
+				EnabledProviders: map[string]struct{}{
+					providers.ProviderAnthropic: {},
+					providers.ProviderOpenAI:    {},
+				},
+				TranslationRequirements: router.TranslationRequirements{
+					SourceFormat:      router.WireFormatAnthropic,
+					Endpoint:          router.EndpointAnthropicMessages,
+					CitationsOrSearch: true,
+				},
+			})
+
+			assert.True(t, plan.Enforced)
+			assert.Equal(t, map[string]struct{}{providers.ProviderAnthropic: {}}, plan.EnabledProviders)
+			requireExclusion(t, plan, "citations_or_search_native_required", providers.ProviderOpenAI, true)
+		})
+	}
+}
+
 func TestApplyTranslationPlan_CompatibleButUnavailable(t *testing.T) {
 	svc := &Service{
 		providers:                    map[string]providers.Client{providers.ProviderAnthropic: nil},

@@ -2,6 +2,7 @@ package translate_test
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
 	"testing"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/tidwall/gjson"
 )
 
 var openAISimpleConversation = []byte(`{
@@ -2037,6 +2039,159 @@ func TestSanitizeToolUseIDs_AnthropicToAnthropic(t *testing.T) {
 	user := msgs[1].(map[string]any)
 	result := user["content"].([]any)[0].(map[string]any)
 	assert.Equal(t, "functions_Grep_11", result["tool_use_id"], "tool_use_id must be sanitized in same-format path")
+}
+
+func TestSanitizeOverlongToolUseNames(t *testing.T) {
+	overlongName := "Bname</arg_key><arg_value>" + strings.Repeat("x", 220)
+	tests := []struct {
+		name  string
+		parse func([]byte) (*translate.RequestEnvelope, error)
+		body  string
+	}{
+		{
+			name:  "anthropic history",
+			parse: translate.ParseAnthropic,
+			body: `{
+				"model": "claude-opus-4-7",
+				"tools": [{"name": %q, "input_schema": {"type": "object"}}],
+				"tool_choice": {"type": "tool", "name": %q},
+				"messages": [
+					{"role": "assistant", "content": [
+						{"type": "tool_use", "id": "toolu_bad", "name": %q, "input": {}}
+					]},
+					{"role": "user", "content": [
+						{"type": "tool_result", "tool_use_id": "toolu_bad", "content": "unknown tool"}
+					]}
+				]
+			}`,
+		},
+		{
+			name:  "openai history",
+			parse: translate.ParseOpenAI,
+			body: `{
+				"model": "gpt-5",
+				"tools": [{"type": "function", "function": {"name": %q, "parameters": {"type": "object"}}}],
+				"tool_choice": {"type": "function", "function": {"name": %q}},
+				"messages": [
+					{"role": "assistant", "tool_calls": [
+						{"id": "call_bad", "type": "function", "function": {"name": %q, "arguments": "{}"}}
+					]},
+					{"role": "tool", "tool_call_id": "call_bad", "content": "unknown tool"}
+				]
+			}`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			env, err := tt.parse([]byte(fmt.Sprintf(tt.body, overlongName, overlongName, overlongName)))
+			require.NoError(t, err)
+			prep, err := env.PrepareAnthropic(http.Header{}, translate.EmitOptions{TargetModel: "claude-opus-4-7"})
+			require.NoError(t, err)
+
+			emittedNames := []string{
+				gjson.GetBytes(prep.Body, "messages.0.content.0.name").String(),
+				gjson.GetBytes(prep.Body, "tools.0.name").String(),
+				gjson.GetBytes(prep.Body, "tool_choice.name").String(),
+			}
+			for _, emittedName := range emittedNames {
+				assert.LessOrEqual(t, len(emittedName), 200)
+				assert.Regexp(t, `^invalid_tool_[a-f0-9]{40}$`, emittedName)
+				assert.Equal(t, emittedNames[0], emittedName)
+			}
+			assert.NotContains(t, string(prep.Body), overlongName)
+		})
+	}
+}
+
+func TestSanitizeAnthropicToolNamesUsesFieldSpecificLimits(t *testing.T) {
+	validHistoricalUnicodeName := strings.Repeat("界", 100)
+	invalidDeclaredName := strings.Repeat("a", 65)
+	collidingDeclaredName := "invalid_tool_11655326c708d70319be2610e8a57d9a5b959d3b"
+	body := []byte(fmt.Sprintf(`{
+		"model": "claude-opus-4-7",
+		"tools": [
+			{"name": %q, "input_schema": {"type": "object"}},
+			{"name": %q, "input_schema": {"type": "object"}}
+		],
+		"tool_choice": {"type": "tool", "name": %q},
+		"messages": [{"role": "assistant", "content": [
+			{"type": "tool_use", "id": "toolu_valid_unicode", "name": %q, "input": {}},
+			{"type": "tool_use", "id": "toolu_invalid_declared", "name": %q, "input": {}}
+		]}]
+	}`, collidingDeclaredName, invalidDeclaredName, invalidDeclaredName, validHistoricalUnicodeName, invalidDeclaredName))
+
+	env, err := translate.ParseAnthropic(body)
+	require.NoError(t, err)
+	prep, err := env.PrepareAnthropic(http.Header{}, translate.EmitOptions{TargetModel: "claude-opus-4-7"})
+	require.NoError(t, err)
+
+	assert.Equal(t, validHistoricalUnicodeName, gjson.GetBytes(prep.Body, "messages.0.content.0.name").String())
+	assert.Equal(t, collidingDeclaredName, gjson.GetBytes(prep.Body, "tools.0.name").String())
+	declaredAlias := gjson.GetBytes(prep.Body, "tools.1.name").String()
+	assert.Regexp(t, `^invalid_tool_[a-f0-9]{40}$`, declaredAlias)
+	assert.NotEqual(t, collidingDeclaredName, declaredAlias)
+	assert.Equal(t, declaredAlias, gjson.GetBytes(prep.Body, "tool_choice.name").String())
+	assert.Equal(t, declaredAlias, gjson.GetBytes(prep.Body, "messages.0.content.1.name").String())
+}
+
+func TestSanitizeAnthropicHistoricalToolNameCountsUnicodeCharacters(t *testing.T) {
+	overlongHistoricalName := strings.Repeat("界", 201)
+	body := []byte(fmt.Sprintf(`{
+		"model": "claude-opus-4-7",
+		"messages": [{"role": "assistant", "content": [
+			{"type": "tool_use", "id": "toolu_overlong_unicode", "name": %q, "input": {}}
+		]}]
+	}`, overlongHistoricalName))
+
+	env, err := translate.ParseAnthropic(body)
+	require.NoError(t, err)
+	prep, err := env.PrepareAnthropic(http.Header{}, translate.EmitOptions{TargetModel: "claude-opus-4-7"})
+	require.NoError(t, err)
+
+	assert.Regexp(t, `^invalid_tool_[a-f0-9]{40}$`, gjson.GetBytes(prep.Body, "messages.0.content.0.name").String())
+}
+
+func TestSanitizeAnthropicToolNameAliasStableAcrossReplay(t *testing.T) {
+	invalidDeclaredName := strings.Repeat("a", 65)
+	collidingDeclaredName := "invalid_tool_11655326c708d70319be2610e8a57d9a5b959d3b"
+	initialBody := []byte(fmt.Sprintf(`{
+		"model": "claude-opus-4-7",
+		"tools": [
+			{"name": %q, "input_schema": {"type": "object"}},
+			{"name": %q, "input_schema": {"type": "object"}}
+		],
+		"tool_choice": {"type": "tool", "name": %q},
+		"messages": [{"role": "user", "content": "use the tool"}]
+	}`, collidingDeclaredName, invalidDeclaredName, invalidDeclaredName))
+
+	env, err := translate.ParseAnthropic(initialBody)
+	require.NoError(t, err)
+	prep, err := env.PrepareAnthropic(http.Header{}, translate.EmitOptions{TargetModel: "claude-opus-4-7"})
+	require.NoError(t, err)
+	initialAlias := gjson.GetBytes(prep.Body, "tools.1.name").String()
+	require.NotEqual(t, collidingDeclaredName, initialAlias)
+
+	replayBody := []byte(fmt.Sprintf(`{
+		"model": "claude-opus-4-7",
+		"tools": [
+			{"name": %q, "input_schema": {"type": "object"}},
+			{"name": %q, "input_schema": {"type": "object"}}
+		],
+		"tool_choice": {"type": "tool", "name": %q},
+		"messages": [{"role": "assistant", "content": [
+			{"type": "tool_use", "id": "toolu_prior_alias", "name": %q, "input": {}}
+		]}]
+	}`, collidingDeclaredName, invalidDeclaredName, invalidDeclaredName, initialAlias))
+
+	replayEnv, err := translate.ParseAnthropic(replayBody)
+	require.NoError(t, err)
+	replay, err := replayEnv.PrepareAnthropic(http.Header{}, translate.EmitOptions{TargetModel: "claude-opus-4-7"})
+	require.NoError(t, err)
+
+	assert.Equal(t, initialAlias, gjson.GetBytes(replay.Body, "tools.1.name").String())
+	assert.Equal(t, initialAlias, gjson.GetBytes(replay.Body, "tool_choice.name").String())
+	assert.Equal(t, initialAlias, gjson.GetBytes(replay.Body, "messages.0.content.0.name").String())
 }
 
 // TestStripToolUseThoughtSignature_AnthropicToAnthropic checks a Gemini

@@ -1,0 +1,479 @@
+{
+  "pricing_version": "catalog-sha256:a96c21de7b4ad8ef",
+  "models": {
+    "claude-fable-5": {
+      "input_usd_per_million": 10,
+      "output_usd_per_million": 50,
+      "cache_read_multiplier": 0.1,
+      "cache_write_multiplier": 1.25
+    },
+    "claude-fable-5-1": {
+      "input_usd_per_million": 10,
+      "output_usd_per_million": 50,
+      "cache_read_multiplier": 0.025,
+      "cache_write_multiplier": 1.25
+    },
+    "claude-haiku-4-5": {
+      "input_usd_per_million": 1,
+      "output_usd_per_million": 5,
+      "cache_read_multiplier": 0.1,
+      "cache_write_multiplier": 1.25
+    },
+    "claude-opus-4-0": {
+      "input_usd_per_million": 15,
+      "output_usd_per_million": 75,
+      "cache_read_multiplier": 0.1,
+      "cache_write_multiplier": 1.25
+    },
+    "claude-opus-4-1": {
+      "input_usd_per_million": 15,
+      "output_usd_per_million": 75,
+      "cache_read_multiplier": 0.1,
+      "cache_write_multiplier": 1.25
+    },
+    "claude-opus-4-5": {
+      "input_usd_per_million": 5,
+      "output_usd_per_million": 25,
+      "cache_read_multiplier": 0.1,
+      "cache_write_multiplier": 1.25
+    },
+    "claude-opus-4-6": {
+      "input_usd_per_million": 5,
+      "output_usd_per_million": 25,
+      "cache_read_multiplier": 0.1,
+      "cache_write_multiplier": 1.25
+    },
+    "claude-opus-4-7": {
+      "input_usd_per_million": 5,
+      "output_usd_per_million": 25,
+      "cache_read_multiplier": 0.1,
+      "cache_write_multiplier": 1.25
+    },
+    "claude-opus-4-8": {
+      "input_usd_per_million": 5,
+      "output_usd_per_million": 25,
+      "cache_read_multiplier": 0.1,
+      "cache_write_multiplier": 1.25
+    },
+    "claude-opus-5": {
+      "input_usd_per_million": 5,
+      "output_usd_per_million": 25,
+      "cache_read_multiplier": 0.1,
+      "cache_write_multiplier": 1.25
+    },
+    "claude-sonnet-4-5": {
+      "input_usd_per_million": 3,
+      "output_usd_per_million": 15,
+      "cache_read_multiplier": 0.1,
+      "cache_write_multiplier": 1.25
+    },
+    "claude-sonnet-4-6": {
+      "input_usd_per_million": 3,
+      "output_usd_per_million": 15,
+      "cache_read_multiplier": 0.1,
+      "cache_write_multiplier": 1.25
+    },
+    "claude-sonnet-5": {
+      "input_usd_per_million": 3,
+      "output_usd_per_million": 15,
+      "cache_read_multiplier": 0.1,
+      "cache_write_multiplier": 1.25
+    },
+    "deepseek/deepseek-v4-flash": {
+      "input_usd_per_million": 0.1134,
+      "output_usd_per_million": 0.2791,
+      "cache_read_multiplier": 0.2,
+      "cache_write_multiplier": 1.25
+    },
+    "deepseek/deepseek-v4-pro": {
+      "input_usd_per_million": 1.74,
+      "output_usd_per_million": 3.48,
+      "cache_read_multiplier": 0.11494252873563218,
+      "cache_write_multiplier": 1.25
+    },
+    "deepseek/deepseek-v4-pro-0813": {
+      "input_usd_per_million": 1.74,
+      "output_usd_per_million": 3.48,
+      "cache_read_multiplier": 0.11494252873563218,
+      "cache_write_multiplier": 1.25
+    },
+    "gemini-2.0-flash": {
+      "input_usd_per_million": 0.1,
+      "output_usd_per_million": 0.4,
+      "cache_read_multiplier": 0.25,
+      "cache_write_multiplier": 1.25
+    },
+    "gemini-2.0-flash-lite": {
+      "input_usd_per_million": 0.075,
+      "output_usd_per_million": 0.3,
+      "cache_read_multiplier": 0.25,
+      "cache_write_multiplier": 1.25
+    },
+    "gemini-2.5-flash": {
+      "input_usd_per_million": 0.3,
+      "output_usd_per_million": 1.2,
+      "cache_read_multiplier": 0.1,
+      "cache_write_multiplier": 1.25
+    },
+    "gemini-2.5-flash-lite": {
+      "input_usd_per_million": 0.1,
+      "output_usd_per_million": 0.4,
+      "cache_read_multiplier": 0.1,
+      "cache_write_multiplier": 1.25
+    },
+    "gemini-2.5-pro": {
+      "input_usd_per_million": 1.25,
+      "output_usd_per_million": 5,
+      "cache_read_multiplier": 0.1,
+      "cache_write_multiplier": 1.25
+    },
+    "gemini-3-flash-preview": {
+      "input_usd_per_million": 0.5,
+      "output_usd_per_million": 2,
+      "cache_read_multiplier": 0.1,
+      "cache_write_multiplier": 1.25
+    },
+    "gemini-3-pro-preview": {
+      "input_usd_per_million": 2,
+      "output_usd_per_million": 8,
+      "cache_read_multiplier": 0.1,
+      "cache_write_multiplier": 1.25
+    },
+    "gemini-3.1-flash-lite-preview": {
+      "input_usd_per_million": 0.1,
+      "output_usd_per_million": 0.4,
+      "cache_read_multiplier": 0.1,
+      "cache_write_multiplier": 1.25
+    },
+    "gemini-3.1-pro-preview": {
+      "input_usd_per_million": 2,
+      "output_usd_per_million": 8,
+      "cache_read_multiplier": 0.1,
+      "cache_write_multiplier": 1.25
+    },
+    "gemini-3.5-flash": {
+      "input_usd_per_million": 1.5,
+      "output_usd_per_million": 9,
+      "cache_read_multiplier": 0.1,
+      "cache_write_multiplier": 1.25
+    },
+    "gemini-3.5-flash-lite": {
+      "input_usd_per_million": 0.3,
+      "output_usd_per_million": 2.5,
+      "cache_read_multiplier": 0.1,
+      "cache_write_multiplier": 1.25
+    },
+    "gemini-3.6-flash": {
+      "input_usd_per_million": 1.5,
+      "output_usd_per_million": 7.5,
+      "cache_read_multiplier": 0.1,
+      "cache_write_multiplier": 1.25
+    },
+    "gemini-3.7-flash": {
+      "input_usd_per_million": 1.5,
+      "output_usd_per_million": 7.5,
+      "cache_read_multiplier": 0.1,
+      "cache_write_multiplier": 1.25
+    },
+    "gemini-3.8-flash": {
+      "input_usd_per_million": 1.5,
+      "output_usd_per_million": 7.5,
+      "cache_read_multiplier": 0.1,
+      "cache_write_multiplier": 1.25
+    },
+    "google/gemma-4-26b-a4b-it": {
+      "input_usd_per_million": 0.15,
+      "output_usd_per_million": 0.6,
+      "cache_read_multiplier": 0.1,
+      "cache_write_multiplier": 1.25
+    },
+    "gpt-4.1": {
+      "input_usd_per_million": 2,
+      "output_usd_per_million": 8,
+      "cache_read_multiplier": 0.25,
+      "cache_write_multiplier": 1.25
+    },
+    "gpt-4.1-mini": {
+      "input_usd_per_million": 0.4,
+      "output_usd_per_million": 1.6,
+      "cache_read_multiplier": 0.25,
+      "cache_write_multiplier": 1.25
+    },
+    "gpt-4.1-nano": {
+      "input_usd_per_million": 0.1,
+      "output_usd_per_million": 0.4,
+      "cache_read_multiplier": 0.25,
+      "cache_write_multiplier": 1.25
+    },
+    "gpt-4o": {
+      "input_usd_per_million": 2.5,
+      "output_usd_per_million": 10,
+      "cache_read_multiplier": 0.5,
+      "cache_write_multiplier": 1.25
+    },
+    "gpt-4o-mini": {
+      "input_usd_per_million": 0.15,
+      "output_usd_per_million": 0.6,
+      "cache_read_multiplier": 0.5,
+      "cache_write_multiplier": 1.25
+    },
+    "gpt-5": {
+      "input_usd_per_million": 2.5,
+      "output_usd_per_million": 10,
+      "cache_read_multiplier": 0.1,
+      "cache_write_multiplier": 1.25
+    },
+    "gpt-5-chat": {
+      "input_usd_per_million": 2.5,
+      "output_usd_per_million": 10,
+      "cache_read_multiplier": 0.1,
+      "cache_write_multiplier": 1.25
+    },
+    "gpt-5-mini": {
+      "input_usd_per_million": 0.5,
+      "output_usd_per_million": 2,
+      "cache_read_multiplier": 0.1,
+      "cache_write_multiplier": 1.25
+    },
+    "gpt-5-nano": {
+      "input_usd_per_million": 0.1,
+      "output_usd_per_million": 0.4,
+      "cache_read_multiplier": 0.1,
+      "cache_write_multiplier": 1.25
+    },
+    "gpt-5.4": {
+      "input_usd_per_million": 2.5,
+      "output_usd_per_million": 15,
+      "cache_read_multiplier": 0.1,
+      "cache_write_multiplier": 1.25
+    },
+    "gpt-5.4-mini": {
+      "input_usd_per_million": 0.75,
+      "output_usd_per_million": 4.5,
+      "cache_read_multiplier": 0.1,
+      "cache_write_multiplier": 1.25
+    },
+    "gpt-5.4-nano": {
+      "input_usd_per_million": 0.2,
+      "output_usd_per_million": 1.25,
+      "cache_read_multiplier": 0.1,
+      "cache_write_multiplier": 1.25
+    },
+    "gpt-5.4-pro": {
+      "input_usd_per_million": 30,
+      "output_usd_per_million": 180,
+      "cache_read_multiplier": 1,
+      "cache_write_multiplier": 1.25
+    },
+    "gpt-5.5": {
+      "input_usd_per_million": 5,
+      "output_usd_per_million": 30,
+      "cache_read_multiplier": 0.1,
+      "cache_write_multiplier": 1.25
+    },
+    "gpt-5.5-mini": {
+      "input_usd_per_million": 0.5,
+      "output_usd_per_million": 2.5,
+      "cache_read_multiplier": 0.1,
+      "cache_write_multiplier": 1.25
+    },
+    "gpt-5.5-nano": {
+      "input_usd_per_million": 0.15,
+      "output_usd_per_million": 0.6,
+      "cache_read_multiplier": 0.1,
+      "cache_write_multiplier": 1.25
+    },
+    "gpt-5.5-pro": {
+      "input_usd_per_million": 30,
+      "output_usd_per_million": 180,
+      "cache_read_multiplier": 1,
+      "cache_write_multiplier": 1.25
+    },
+    "gpt-5.6-luna": {
+      "input_usd_per_million": 0.2,
+      "output_usd_per_million": 1.2,
+      "cache_read_multiplier": 0.1,
+      "cache_write_multiplier": 1.25
+    },
+    "gpt-5.6-luna-pro": {
+      "input_usd_per_million": 0.2,
+      "output_usd_per_million": 1.2,
+      "cache_read_multiplier": 0.1,
+      "cache_write_multiplier": 1.25
+    },
+    "gpt-5.6-sol": {
+      "input_usd_per_million": 4,
+      "output_usd_per_million": 20,
+      "cache_read_multiplier": 0.1,
+      "cache_write_multiplier": 1.25
+    },
+    "gpt-5.6-sol-pro": {
+      "input_usd_per_million": 4,
+      "output_usd_per_million": 20,
+      "cache_read_multiplier": 0.1,
+      "cache_write_multiplier": 1.25
+    },
+    "gpt-5.6-terra": {
+      "input_usd_per_million": 2,
+      "output_usd_per_million": 12,
+      "cache_read_multiplier": 0.1,
+      "cache_write_multiplier": 1.25
+    },
+    "gpt-6-astra": {
+      "input_usd_per_million": 10,
+      "output_usd_per_million": 50,
+      "cache_read_multiplier": 0.1,
+      "cache_write_multiplier": 1.25
+    },
+    "grok-4.5": {
+      "input_usd_per_million": 2,
+      "output_usd_per_million": 6,
+      "cache_read_multiplier": 0.25,
+      "cache_write_multiplier": 1.25
+    },
+    "grok-4.6": {
+      "input_usd_per_million": 2,
+      "output_usd_per_million": 6,
+      "cache_read_multiplier": 0.25,
+      "cache_write_multiplier": 1.25
+    },
+    "minimax/minimax-m2.7": {
+      "input_usd_per_million": 0.3,
+      "output_usd_per_million": 1.2,
+      "cache_read_multiplier": 0.2,
+      "cache_write_multiplier": 1.25
+    },
+    "minimax/minimax-m3": {
+      "input_usd_per_million": 0.3,
+      "output_usd_per_million": 1.2,
+      "cache_read_multiplier": 0.2,
+      "cache_write_multiplier": 1.25
+    },
+    "mistralai/mistral-small-2603": {
+      "input_usd_per_million": 0.2,
+      "output_usd_per_million": 0.6,
+      "cache_read_multiplier": 0.1,
+      "cache_write_multiplier": 1.25
+    },
+    "moonshotai/kimi-k2.5": {
+      "input_usd_per_million": 0.6,
+      "output_usd_per_million": 3,
+      "cache_read_multiplier": 0.5,
+      "cache_write_multiplier": 1.25
+    },
+    "moonshotai/kimi-k2.6": {
+      "input_usd_per_million": 0.95,
+      "output_usd_per_million": 4,
+      "cache_read_multiplier": 0.1684,
+      "cache_write_multiplier": 1.25
+    },
+    "moonshotai/kimi-k2.7": {
+      "input_usd_per_million": 0.95,
+      "output_usd_per_million": 4,
+      "cache_read_multiplier": 0.2,
+      "cache_write_multiplier": 1.25
+    },
+    "moonshotai/kimi-k3": {
+      "input_usd_per_million": 3,
+      "output_usd_per_million": 15,
+      "cache_read_multiplier": 0.1,
+      "cache_write_multiplier": 1.25
+    },
+    "muse-spark-1.3": {
+      "input_usd_per_million": 1.25,
+      "output_usd_per_million": 4.25,
+      "cache_read_multiplier": 0.12,
+      "cache_write_multiplier": 1.25
+    },
+    "qwen/qwen3-235b-a22b-2507": {
+      "input_usd_per_million": 0.2266,
+      "output_usd_per_million": 0.9064,
+      "cache_read_multiplier": 0.5,
+      "cache_write_multiplier": 1.25
+    },
+    "qwen/qwen3-30b-a3b-instruct-2507": {
+      "input_usd_per_million": 0.15,
+      "output_usd_per_million": 0.6,
+      "cache_read_multiplier": 0.1684,
+      "cache_write_multiplier": 1.25
+    },
+    "qwen/qwen3-coder": {
+      "input_usd_per_million": 0.9,
+      "output_usd_per_million": 2.7,
+      "cache_read_multiplier": 0.1684,
+      "cache_write_multiplier": 1.25
+    },
+    "qwen/qwen3-coder-next": {
+      "input_usd_per_million": 0.5,
+      "output_usd_per_million": 1.2,
+      "cache_read_multiplier": 0.5,
+      "cache_write_multiplier": 1.25
+    },
+    "qwen/qwen3-next-80b-a3b-instruct": {
+      "input_usd_per_million": 0.15,
+      "output_usd_per_million": 1.2,
+      "cache_read_multiplier": 0.5,
+      "cache_write_multiplier": 1.25
+    },
+    "qwen/qwen3.5-flash-02-23": {
+      "input_usd_per_million": 0.05,
+      "output_usd_per_million": 0.15,
+      "cache_read_multiplier": 0.1,
+      "cache_write_multiplier": 1.25
+    },
+    "qwen/qwen3.6-35b-a3b": {
+      "input_usd_per_million": 0.15,
+      "output_usd_per_million": 1,
+      "cache_read_multiplier": 0.1,
+      "cache_write_multiplier": 1.25
+    },
+    "qwen/qwen3.7-plus": {
+      "input_usd_per_million": 0.4,
+      "output_usd_per_million": 1.6,
+      "cache_read_multiplier": 0.2,
+      "cache_write_multiplier": 1.25
+    },
+    "qwen/qwen3.8-max": {
+      "input_usd_per_million": 2,
+      "output_usd_per_million": 6,
+      "cache_read_multiplier": 0.125,
+      "cache_write_multiplier": 1.25
+    },
+    "xiaomi/mimo-v2.5-pro": {
+      "input_usd_per_million": 1,
+      "output_usd_per_million": 3,
+      "cache_read_multiplier": 0.1,
+      "cache_write_multiplier": 1.25
+    },
+    "z-ai/glm-5": {
+      "input_usd_per_million": 1,
+      "output_usd_per_million": 3.2,
+      "cache_read_multiplier": 0.2,
+      "cache_write_multiplier": 1.25
+    },
+    "z-ai/glm-5.1": {
+      "input_usd_per_million": 1.4,
+      "output_usd_per_million": 4.4,
+      "cache_read_multiplier": 0.18571428571428572,
+      "cache_write_multiplier": 1.25
+    },
+    "z-ai/glm-5.2": {
+      "input_usd_per_million": 1.4,
+      "output_usd_per_million": 4.4,
+      "cache_read_multiplier": 0.18571428571428572,
+      "cache_write_multiplier": 1.25
+    },
+    "z-ai/glm-5.3": {
+      "input_usd_per_million": 1.4,
+      "output_usd_per_million": 4.4,
+      "cache_read_multiplier": 0.18571428571428572,
+      "cache_write_multiplier": 1.25
+    },
+    "z-ai/glm-5.3-flash": {
+      "input_usd_per_million": 0.15,
+      "output_usd_per_million": 0.5,
+      "cache_read_multiplier": 0.2,
+      "cache_write_multiplier": 1.25
+    }
+  }
+}

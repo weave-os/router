@@ -31,6 +31,7 @@ type preludeBuffer struct {
 	bufStatus      int
 	bufBody        bytes.Buffer
 	sealed         bool
+	preludeSent    bool
 	committed      bool
 }
 
@@ -78,7 +79,7 @@ func (b *preludeBuffer) WriteHeader(status int) {
 }
 
 func (b *preludeBuffer) Flush() {
-	if !b.committed {
+	if !b.preludeSent && !b.committed {
 		// Pre-commit Flush is a no-op — we don't want partial Prelude bytes
 		// reaching the client before commit decides.
 		return
@@ -92,7 +93,30 @@ func (b *preludeBuffer) Flush() {
 // will trigger commit().
 func (b *preludeBuffer) Seal() { b.sealed = true }
 
-// Committed reports whether any bytes have reached the inner writer.
+// PreludeSent reports whether the buffered prelude is already client-visible.
+func (b *preludeBuffer) PreludeSent() bool { return b.preludeSent }
+
+// CommitPrelude makes the buffered prelude client-visible without marking the
+// attempt committed. A later provider error can still be retried or fail over.
+func (b *preludeBuffer) CommitPrelude() error {
+	if !b.preludeSent && b.bufStatus != 0 {
+		b.inner.WriteHeader(b.bufStatus)
+	}
+	if b.bufBody.Len() > 0 {
+		if _, err := b.inner.Write(b.bufBody.Bytes()); err != nil {
+			return err
+		}
+	}
+	b.bufStatus = 0
+	b.bufBody.Reset()
+	b.preludeSent = true
+	if f, ok := b.inner.(http.Flusher); ok {
+		f.Flush()
+	}
+	return nil
+}
+
+// Committed reports whether provider output has reached the inner writer.
 func (b *preludeBuffer) Committed() bool { return b.committed }
 
 // Discard resets buffered Prelude bytes and headers to the construction-time
@@ -105,6 +129,9 @@ func (b *preludeBuffer) Discard() {
 	b.bufStatus = 0
 	b.bufBody.Reset()
 	b.sealed = false
+	if b.preludeSent {
+		return
+	}
 	h := b.inner.Header()
 	for k := range h {
 		delete(h, k)
@@ -121,14 +148,18 @@ func (b *preludeBuffer) commit() error {
 		return nil
 	}
 	b.committed = true
-	if b.bufStatus != 0 {
-		b.inner.WriteHeader(b.bufStatus)
-	}
-	if b.bufBody.Len() > 0 {
-		if _, err := b.inner.Write(b.bufBody.Bytes()); err != nil {
-			return err
+	if !b.preludeSent {
+		if b.bufStatus != 0 {
+			b.inner.WriteHeader(b.bufStatus)
 		}
+		if b.bufBody.Len() > 0 {
+			if _, err := b.inner.Write(b.bufBody.Bytes()); err != nil {
+				return err
+			}
+		}
+		b.preludeSent = true
 	}
+	b.bufStatus = 0
 	b.bufBody.Reset()
 	if f, ok := b.inner.(http.Flusher); ok {
 		f.Flush()
@@ -576,21 +607,22 @@ func flushBufferedIfPresent(w http.ResponseWriter, err error) {
 // frame and returns *UpstreamStatusError so flushErr becomes a no-op.
 // Used when the upstream errors after Prelude already committed HTTP 200 +
 // message_start — a JSON error envelope would corrupt the SSE stream, but
-// an `event: error` frame terminates cleanly. Returns err unchanged if it
-// is not an *UpstreamErrorResponse.
+// an `event: error` frame terminates cleanly.
 func emitAnthropicSSEErrorEvent(sink http.ResponseWriter, err error) error {
 	var resp *providers.UpstreamErrorResponse
-	if !errors.As(err, &resp) {
-		return err
+	status := http.StatusBadGateway
+	body := []byte(`{"type":"error","error":{"type":"api_error","message":"upstream stream failed"}}`)
+	if errors.As(err, &resp) {
+		status = resp.Status
+		body = translate.OpenAIToAnthropicError(resp.Body)
 	}
-	anthErrJSON := translate.OpenAIToAnthropicError(resp.Body)
 	_, _ = sink.Write([]byte("event: error\ndata: "))
-	_, _ = sink.Write(anthErrJSON)
+	_, _ = sink.Write(body)
 	_, _ = sink.Write([]byte("\n\n"))
 	if f, ok := sink.(http.Flusher); ok {
 		f.Flush()
 	}
-	return &providers.UpstreamStatusError{Status: resp.Status}
+	return &providers.UpstreamStatusError{Status: status}
 }
 
 // emitOpenAISSEErrorEvent is emitAnthropicSSEErrorEvent's OpenAI-shape
@@ -598,16 +630,19 @@ func emitAnthropicSSEErrorEvent(sink http.ResponseWriter, err error) error {
 // OpenAIRoutingMarkerWriter has already committed HTTP 200.
 func emitOpenAISSEErrorEvent(sink http.ResponseWriter, err error) error {
 	var resp *providers.UpstreamErrorResponse
-	if !errors.As(err, &resp) {
-		return err
+	status := http.StatusBadGateway
+	body := []byte(`{"error":{"message":"upstream stream failed","type":"server_error","code":"upstream_error"}}`)
+	if errors.As(err, &resp) {
+		status = resp.Status
+		body = resp.Body
 	}
 	_, _ = sink.Write([]byte("data: "))
-	_, _ = sink.Write(resp.Body)
+	_, _ = sink.Write(body)
 	_, _ = sink.Write([]byte("\n\n"))
 	if f, ok := sink.(http.Flusher); ok {
 		f.Flush()
 	}
-	return &providers.UpstreamStatusError{Status: resp.Status}
+	return &providers.UpstreamStatusError{Status: status}
 }
 
 // emitGeminiSSEErrorEvent writes a terminal error frame to a committed
