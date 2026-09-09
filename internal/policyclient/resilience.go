@@ -88,7 +88,7 @@ func (r *resilience) admit(ctx context.Context) (func(error), error) {
 		reason := policy.FailureReasonFor(err)
 		var endpointFailure bool
 		switch reason {
-		case policy.FailureTransport, policy.FailureTimeout, policy.FailureOverload, policy.FailureAuth, policy.FailureContract, policy.FailureCanceled:
+		case policy.FailureTransport, policy.FailureTimeout, policy.FailureOverload, policy.FailureAuth, policy.FailureContract:
 			endpointFailure = true
 		}
 		if !endpointFailure {

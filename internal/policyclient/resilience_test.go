@@ -167,10 +167,12 @@ func TestCanceledHalfOpenProbeDoesNotCloseCircuit(t *testing.T) {
 	probe, err := r.admit(context.Background())
 	require.NoError(t, err)
 	probe(context.Canceled)
-	assert.False(t, r.ready())
-	assert.False(t, r.probeEligible())
-	_, err = r.admit(context.Background())
-	assert.Equal(t, policy.FailureCircuitOpen, policy.FailureReasonFor(err))
+	assert.False(t, r.ready(), "a canceled probe must not mark the sidecar recovered")
+	assert.True(t, r.probeEligible(), "a canceled probe must not consume the half-open slot")
+	second, err := r.admit(context.Background())
+	require.NoError(t, err)
+	second(nil)
+	assert.True(t, r.ready())
 }
 
 func TestSharedPolicyBudgetDoesNotResetOnReroute(t *testing.T) {
