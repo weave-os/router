@@ -154,8 +154,21 @@ func TestEscalationCadenceReplayFloorAndGates(t *testing.T) {
 	require.Nil(t, svc.beginEscalation(ctx, escalationTestEnvelope(t, 7), forced, &res, "test-key"))
 }
 func TestEscalationShadowCheckpointsDoNotChangeRoutingOrEstablishFloor(t *testing.T) {
-	for name, showMarker := range map[string]bool{"hidden by default": false, "visible opt-in": true} {
-		t.Run(name, func(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		strategy   router.Strategy
+		showMarker bool
+	}{
+		{name: "hidden embedding HMM", strategy: router.StrategyHMMEmbedding},
+		{name: "visible embedding HMM", strategy: router.StrategyHMMEmbedding, showMarker: true},
+		{name: "hidden HMM", strategy: router.StrategyHMM},
+		{name: "hidden cluster", strategy: router.StrategyCluster},
+		{name: "hidden RL", strategy: router.StrategyRL},
+		{name: "hidden beta HMM", strategy: router.StrategyHMMBeta},
+		{name: "hidden bandit", strategy: router.StrategyBandit},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			showMarker := tc.showMarker
 			store := newEscalationTestStore()
 			observer := &escalationTestObserver{}
 			overrides := flags.Overrides{Bools: map[flags.Key]bool{
@@ -165,16 +178,17 @@ func TestEscalationShadowCheckpointsDoNotChangeRoutingOrEstablishFloor(t *testin
 			if showMarker {
 				overrides.Bools[flags.KeyEscalationXGBoostShadowMarkerEnabled] = true
 			}
-			ctx := flags.WithOverrides(router.WithStrategy(context.Background(), router.StrategyHMMEmbedding), overrides)
+			ctx := flags.WithOverrides(router.WithStrategy(context.Background(), tc.strategy), overrides)
 			installation := uuid.New()
-			svc := NewService(nil, nil, nil, false, nil, newStubPinStore(), false, providers.ProviderAnthropic, "claude-opus-4-8", nil).
+			svc := NewService(escalationDispatchRouter{}, nil, nil, false, nil, newStubPinStore(), false, providers.ProviderAnthropic, "claude-opus-4-8", nil).
 				WithEscalation(store, observer).
-				WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyHMMEmbedding, Router: escalationDispatchRouter{}, Capabilities: policy.Capabilities{SchemaVersion: policy.SchemaVersionV1, AuthoritativePerTurnSelection: true}})
+				WithPolicyStrategy(policy.StrategySpec{Strategy: tc.strategy, Router: escalationDispatchRouter{}, Capabilities: policy.Capabilities{SchemaVersion: policy.SchemaVersionV1, AuthoritativePerTurnSelection: router.IsHMMStrategy(tc.strategy)}})
 			for ordinal := 1; ordinal <= 11; ordinal++ {
 				env := escalationTestEnvelope(t, ordinal)
 				features := env.RoutingFeatures(false)
 				turn, err := svc.runTurnLoop(ctx, env, features, "shadow-key", installation, "", http.Header{}, router.Request{RequestedModel: features.Model})
 				require.NoError(t, err)
+				require.Equal(t, tc.strategy, turn.Strategy)
 				require.Equal(t, int64(ordinal), turn.EscalationOrdinal)
 				require.Equal(t, "claude-haiku-4-5", turn.Decision.Model)
 				require.False(t, escalationRoutingApplied(turn.Decision))
@@ -196,7 +210,7 @@ func TestEscalationShadowCheckpointsDoNotChangeRoutingOrEstablishFloor(t *testin
 			for _, disabledInstallation := range []uuid.UUID{installation, uuid.New()} {
 				env := escalationTestEnvelope(t, 12)
 				features := env.RoutingFeatures(false)
-				disabled, err := svc.runTurnLoop(escalationTestContext(false, false), env, features, "shadow-key", disabledInstallation, "", http.Header{}, router.Request{RequestedModel: features.Model})
+				disabled, err := svc.runTurnLoop(router.WithStrategy(escalationTestContext(false, false), tc.strategy), env, features, "shadow-key", disabledInstallation, "", http.Header{}, router.Request{RequestedModel: features.Model})
 				require.NoError(t, err)
 				require.Zero(t, disabled.EscalationOrdinal)
 				require.False(t, disabled.EscalationShadowMarked)
@@ -439,6 +453,20 @@ func TestEscalationShadowMarkerRequiresCommittedPositiveShadowCheckpoint(t *test
 				require.NoError(t, err)
 			}
 			require.Equal(t, tc.wantMarked, routed.EscalationShadowMarked)
+		})
+	}
+}
+
+func TestActiveEscalationRemainsRestrictedToEmbeddingHMM(t *testing.T) {
+	for _, strategy := range []router.Strategy{router.StrategyCluster, router.StrategyRL, router.StrategyHMM, router.StrategyHMMBeta, router.StrategyBandit} {
+		t.Run(string(strategy), func(t *testing.T) {
+			observer := &escalationTestObserver{}
+			svc := (&Service{}).WithEscalation(newEscalationTestStore(), observer)
+			res := turnLoopResult{Strategy: strategy, InstallationID: uuid.New(), TurnType: turntype.MainLoop}
+			for _, shadow := range []bool{false, true} {
+				require.Nil(t, svc.beginEscalation(escalationTestContext(true, shadow), escalationTestEnvelope(t, 1), router.Request{}, &res, "test-key"))
+			}
+			require.Empty(t, observer.requests)
 		})
 	}
 }

@@ -63,7 +63,7 @@ func (t *escalationTurn) constraint() *escalation.Constraint {
 func (s *Service) beginEscalation(ctx context.Context, env *translate.RequestEnvelope, req router.Request, res *turnLoopResult, apiKeyID string) *escalationTurn {
 	active := flags.BoolOr(ctx, flags.KeyEscalationXGBoostEnabled, false)
 	shadow := flags.BoolOr(ctx, flags.KeyEscalationXGBoostShadowEnabled, false)
-	if (!active && !shadow) || s.escalationStore == nil || s.escalationObserver == nil || res.Strategy != router.StrategyHMMEmbedding || req.ShadowMode || req.ForceModel != "" || req.ForceCluster != "" || res.InstallationID == uuid.Nil || (res.TurnType != turntype.MainLoop && res.TurnType != turntype.ToolResult) {
+	if (!active && !shadow) || s.escalationStore == nil || s.escalationObserver == nil || (active && res.Strategy != router.StrategyHMMEmbedding) || req.ShadowMode || req.ForceModel != "" || req.ForceCluster != "" || res.InstallationID == uuid.Nil || (res.TurnType != turntype.MainLoop && res.TurnType != turntype.ToolResult) {
 		return nil
 	}
 	mode := escalationModeShadow
