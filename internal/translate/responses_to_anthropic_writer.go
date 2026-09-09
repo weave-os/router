@@ -214,6 +214,26 @@ func (t *ResponsesToAnthropicWriter) Prelude(streaming bool) error {
 	return t.emitRoutingMarkerIfConfigured()
 }
 
+// ContinueAfterPrelude resumes a stream whose message_start and earlier
+// prelude content blocks were emitted by a previous attempt.
+func (t *ResponsesToAnthropicWriter) ContinueAfterPrelude(streaming bool, existingBlocks int64) error {
+	if !streaming || t.started {
+		return nil
+	}
+	t.inner.Header().Set("Content-Type", "text/event-stream")
+	t.inner.Header().Del("Content-Length")
+	t.inner.Header().Del("Content-Encoding")
+	t.streaming = true
+	t.statusCode = http.StatusOK
+	t.headersEmitted = true
+	t.started = true
+	t.blockIdx = int(existingBlocks)
+	if err := t.lifecycle.Start(); err != nil {
+		return err
+	}
+	return t.emitRoutingMarkerIfConfigured()
+}
+
 // Finalize emits the streaming trailer (message_delta + message_stop) for a
 // streaming client, or renders the buffered stream as one-shot Anthropic JSON
 // for a non-streaming client.

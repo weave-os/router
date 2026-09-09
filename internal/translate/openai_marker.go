@@ -157,6 +157,17 @@ func (w *OpenAIRoutingMarkerWriter) Prelude(streaming bool) error {
 	return w.emitMarkerChunk()
 }
 
+// ContinueAfterPrelude resumes rewriting after an earlier attempt already made
+// the routing marker visible.
+func (w *OpenAIRoutingMarkerWriter) ContinueAfterPrelude(streaming bool) {
+	if !streaming {
+		return
+	}
+	w.Streaming = true
+	w.HeadersEmitted = true
+	w.markerEmitted = true
+}
+
 func (w *OpenAIRoutingMarkerWriter) emitMarkerChunk() error {
 	w.BW.WriteString(`data: {"id":`)
 	sse.WriteJSONString(w.BW, generateChatCmplID())

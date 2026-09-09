@@ -391,6 +391,102 @@ func TestResponsesWriter_FinalizeErrorEmitsFailed(t *testing.T) {
 	assert.NotNil(t, resp["error"])
 }
 
+func TestResponsesWriter_EmitRoutingBadgeAfterPrelude(t *testing.T) {
+	rec := httptest.NewRecorder()
+	w := translate.NewResponsesWriter(rec, "gpt-5.6-sol")
+	w.SetBadgeText("initial decision")
+
+	require.NoError(t, w.Prelude(true))
+	require.NoError(t, w.EmitRoutingBadge("fallback decision"))
+
+	events := parseSSEEvents(t, rec.Body.Bytes())
+	var deltas []string
+	for _, event := range events {
+		if event["type"] == "response.output_text.delta" {
+			deltas = append(deltas, event["delta"].(string))
+		}
+	}
+	require.Len(t, deltas, 2)
+	assert.Contains(t, deltas[0], "initial decision")
+	assert.Contains(t, deltas[1], "fallback decision")
+}
+
+func TestResponsesWriter_NativePreludeFallbackAndFailureStaySequenced(t *testing.T) {
+	rec := httptest.NewRecorder()
+	w := translate.NewResponsesWriter(rec, "gpt-5.6-sol")
+	w.SetBadgeText("initial decision")
+	w.SetPassthroughBadge()
+
+	require.NoError(t, w.Prelude(true))
+	w.SetRoutedModel("claude-opus-4-8")
+	require.NoError(t, w.EmitRoutingBadge("fallback decision"))
+	require.NoError(t, w.FinalizeError(errors.New("upstream failed")))
+
+	events := parseSSEEvents(t, rec.Body.Bytes())
+	require.Len(t, events, 14)
+	for index, event := range events {
+		assert.EqualValues(t, index, event["sequence_number"])
+	}
+	assert.Equal(t, "response.created", events[0]["type"])
+	assert.EqualValues(t, 0, events[1]["output_index"])
+	assert.EqualValues(t, 1, events[7]["output_index"])
+	assert.Contains(t, events[3]["delta"], "initial decision")
+	assert.Contains(t, events[9]["delta"], "fallback decision")
+	assert.Equal(t, "response.failed", events[13]["type"])
+	failed := events[13]["response"].(map[string]any)
+	assert.Equal(t, "failed", failed["status"])
+	assert.Equal(t, "claude-opus-4-8", failed["model"])
+	output := failed["output"].([]any)
+	content := output[0].(map[string]any)["content"].([]any)
+	assert.Contains(t, content[0].(map[string]any)["text"], "fallback decision")
+}
+
+func TestResponsesWriter_NativePreludeRewritesFinalServingModel(t *testing.T) {
+	rec := httptest.NewRecorder()
+	w := translate.NewResponsesWriter(rec, "gpt-5.6-sol")
+	w.SetBadgeText("initial decision")
+	w.SetPassthroughBadge()
+
+	require.NoError(t, w.Prelude(true))
+	w.SetRoutedModel("gpt-5.6-luna")
+	require.NoError(t, w.EmitRoutingBadge("fallback decision"))
+	_, err := w.Write([]byte("event: response.completed\n" +
+		`data: {"type":"response.completed","sequence_number":1,"response":{"id":"resp_upstream","model":"gpt-5.6-sol","status":"completed","output":[]}}` +
+		"\n\n"))
+	require.NoError(t, err)
+
+	events := parseSSEEvents(t, rec.Body.Bytes())
+	completed := events[len(events)-1]
+	require.Equal(t, "response.completed", completed["type"])
+	response := completed["response"].(map[string]any)
+	assert.Equal(t, "gpt-5.6-luna", response["model"])
+}
+
+func TestResponsesWriter_ClearPassthroughContinuesVisiblePrelude(t *testing.T) {
+	rec := httptest.NewRecorder()
+	w := translate.NewResponsesWriter(rec, "gpt-5.6-sol")
+	w.SetBadgeText("initial decision")
+	w.SetPassthroughBadge()
+
+	require.NoError(t, w.Prelude(true))
+	require.True(t, w.ClearPassthrough())
+	w.SetRoutedModel("claude-opus-4-8")
+	require.NoError(t, w.EmitRoutingBadge("fallback decision"))
+	require.NoError(t, w.FinalizeError(errors.New("fallback failed")))
+
+	events := parseSSEEvents(t, rec.Body.Bytes())
+	for index, event := range events {
+		assert.EqualValues(t, index, event["sequence_number"])
+	}
+	assert.EqualValues(t, 0, events[1]["output_index"])
+	assert.EqualValues(t, 1, events[7]["output_index"])
+	assert.Contains(t, events[3]["delta"], "initial decision")
+	assert.Contains(t, events[9]["delta"], "fallback decision")
+	assert.Equal(t, "response.failed", events[len(events)-1]["type"])
+	failed := events[len(events)-1]["response"].(map[string]any)
+	assert.Equal(t, "claude-opus-4-8", failed["model"])
+}
+
 // Before anything streams, FinalizeError writes nothing so the handler can
 // still emit a JSON error envelope.
 func TestResponsesWriter_FinalizeErrorNoopBeforeCreated(t *testing.T) {

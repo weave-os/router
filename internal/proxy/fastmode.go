@@ -27,6 +27,7 @@ type anthropicTierAttempt struct {
 	native        dispatchAttempt
 	sink          http.ResponseWriter
 	preludeBuf    *preludeBuffer
+	preludeState  *anthropicPreludeState
 	marker        string
 	setExtractor  func(*otel.UsageExtractor)
 	setStreamCost func(router.Decision, bool)
@@ -49,7 +50,7 @@ func (a *anthropicTierAttempt) forBinding(actx context.Context, d router.Decisio
 		return attemptOpts, nil, fast, fmt.Errorf("emit body: %w", err)
 	}
 	a.logBody(d, prep.Body)
-	native := a.s.anthropicNativeAttempt(a.env, a.r, prep, a.sink, a.preludeBuf, a.marker, a.setExtractor, a.setStreamCost)
+	native := a.s.anthropicNativeAttempt(a.env, a.r, prep, a.sink, a.preludeBuf, a.preludeState, a.marker, a.setExtractor, a.setStreamCost)
 	return attemptOpts, native, fast, nil
 }
 
@@ -84,7 +85,7 @@ func (a *anthropicTierAttempt) dispatch(actx context.Context, d router.Decision,
 	}
 	a.logBody(d, prep.Body)
 	recordFast(false)
-	standard := a.s.anthropicNativeAttempt(a.env, a.r, prep, a.sink, a.preludeBuf, a.marker, a.setExtractor, a.setStreamCost)
+	standard := a.s.anthropicNativeAttempt(a.env, a.r, prep, a.sink, a.preludeBuf, a.preludeState, a.marker, a.setExtractor, a.setStreamCost)
 	return standardOpts, standard(actx, d, p)
 }
 

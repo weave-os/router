@@ -123,6 +123,34 @@ func TestAnthropicRoutingMarkerWriter_StreamingInjectsMarker(t *testing.T) {
 	}
 }
 
+func TestAnthropicRoutingMarkerWriter_ContinueAfterPrelude(t *testing.T) {
+	rec := httptest.NewRecorder()
+	initial := translate.NewAnthropicRoutingMarkerWriter(rec, "deepseek/deepseek-v4-pro", "initial marker")
+	require.NoError(t, initial.Prelude(true))
+
+	fallback := translate.NewAnthropicRoutingMarkerWriter(rec, "claude-opus-4", "fallback marker")
+	require.NoError(t, fallback.ContinueAfterPrelude(true, 1))
+	_, err := fallback.Write([]byte(
+		buildAnthropicSSE("message_start", `{"type":"message_start","message":{"id":"msg_upstream","type":"message","role":"assistant","content":[],"model":"claude-opus-4"}}`) +
+			buildAnthropicSSE("content_block_start", `{"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}`) +
+			buildAnthropicSSE("content_block_delta", `{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"answer"}}`) +
+			buildAnthropicSSE("content_block_stop", `{"type":"content_block_stop","index":0}`) +
+			buildAnthropicSSE("message_stop", `{"type":"message_stop"}`),
+	))
+	require.NoError(t, err)
+
+	events := splitSSEEvents(rec.Body.String())
+	var messageStarts int
+	for _, event := range events {
+		if gjson.Get(extractDataField(event), "type").String() == "message_start" {
+			messageStarts++
+		}
+	}
+	assert.Equal(t, 1, messageStarts)
+	assert.Contains(t, events[5], "fallback marker")
+	assert.EqualValues(t, 2, gjson.Get(extractDataField(events[8]), "index").Int())
+}
+
 func TestAnthropicRoutingMarkerWriter_ThinkingFidelity(t *testing.T) {
 	rec := httptest.NewRecorder()
 	w := translate.NewAnthropicRoutingMarkerWriter(rec, "claude-opus-4", "✦ marker")
