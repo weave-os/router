@@ -19,6 +19,17 @@ type PurposeTargetOverride struct {
 type DeploymentPolicyConfig struct {
 	AvailableProviders map[string]struct{}
 	TargetOverrides    []PurposeTargetOverride
+	// RoutableModels is the universe router-selected purposes actually serve
+	// (generic routing targets plus any strategy-only rows such as HMM
+	// targets). Nil means the generic catalog routing set.
+	RoutableModels map[string]struct{}
+}
+
+func (c DeploymentPolicyConfig) routableModels() map[string]struct{} {
+	if c.RoutableModels != nil {
+		return c.RoutableModels
+	}
+	return catalog.RoutingTargetSet(c.AvailableProviders)
 }
 
 // ValidateDeployment rejects policy/configuration combinations that cannot
@@ -46,7 +57,7 @@ func (r Registry) ValidateDeployment(config DeploymentPolicyConfig) error {
 		overrides[purposeOverride.Purpose] = purposeOverride.Target
 	}
 
-	routingTargets := catalog.RoutingTargetSet(config.AvailableProviders)
+	routingTargets := config.routableModels()
 	for _, spec := range r.Specs() {
 		override, hasOverride := overrides[spec.Purpose]
 		if hasOverride {

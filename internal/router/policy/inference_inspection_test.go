@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/router/catalog"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -52,4 +53,25 @@ func TestDeploymentProjection_OmitsCandidateDumpForRouterPolicies(t *testing.T) 
 			assert.Equal(t, projection.RoutableModels, entry.RoutableModels, entry.PolicyID)
 		}
 	}
+}
+
+func TestInspect_RouterPurposeUsesDeploymentServingUniverse(t *testing.T) {
+	available := map[string]struct{}{providers.ProviderOpenAI: {}}
+	resolver, err := NewPlanResolver(DefaultRegistry(), NewResolver(
+		catalog.RoutingTargetSet(available), available, func(model catalog.Model) string { return model.ID }, ProviderPolicy{}))
+	require.NoError(t, err)
+	request := InspectionRequest{Purpose: PurposeOpenAIResponses, Model: "gpt-5.6-luna-pro"}
+
+	_, err = resolver.Inspect(request, DeploymentPolicyConfig{AvailableProviders: available})
+	var resolution *ResolutionError
+	require.ErrorAs(t, err, &resolution)
+	assert.Equal(t, ResolutionErrorNoEligibleBinding, resolution.Code)
+
+	served := catalog.HMMRoutingTargetSet(available)
+	plan, err := resolver.Inspect(request, DeploymentPolicyConfig{AvailableProviders: available, RoutableModels: served})
+	require.NoError(t, err)
+	assert.Equal(t, "gpt-5.6-luna-pro", plan.SelectedBinding().CatalogID)
+
+	projection := DefaultRegistry().DeploymentProjection(DeploymentPolicyConfig{AvailableProviders: available, RoutableModels: served})
+	assert.Equal(t, len(served), projection.RoutableModels)
 }

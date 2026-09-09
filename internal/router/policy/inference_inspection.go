@@ -62,7 +62,7 @@ func (r Registry) DeploymentProjection(config DeploymentPolicyConfig) Deployment
 		providers = append(providers, provider)
 	}
 	sort.Strings(providers)
-	routable := catalog.RoutingTargetSet(config.AvailableProviders)
+	routable := config.routableModels()
 
 	overrides := make(map[Purpose]TargetOverride, len(config.TargetOverrides))
 	for _, override := range config.TargetOverrides {
@@ -238,7 +238,7 @@ func (r *PlanResolver) Inspect(request InspectionRequest, config DeploymentPolic
 		if request.Model == "" {
 			return ResolvedPlan{}, resolutionError(ResolutionErrorMissingSelection, request.Purpose, spec.PolicyID, "router-selected purpose inspection requires a catalog model")
 		}
-		if _, routable := catalog.RoutingTargetSet(config.AvailableProviders)[request.Model]; !routable {
+		if _, routable := config.routableModels()[request.Model]; !routable {
 			return ResolvedPlan{}, &ResolutionError{Code: ResolutionErrorNoEligibleBinding, Purpose: request.Purpose, PolicyID: spec.PolicyID, CatalogID: request.Model, detail: "model is not a routable catalog target in this deployment"}
 		}
 		bindings := catalog.AvailableBindings(request.Model, config.AvailableProviders)
