@@ -7,6 +7,7 @@ import (
 	"net/http"
 
 	"weave-os/router/internal/inference"
+	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 
@@ -45,13 +46,14 @@ func ValidateWireModel(model string, target inference.Target) error {
 // GuardTarget wraps client so every Proxy call is checked against target
 // before it reaches the wire. Surfaces that prepare the upstream body inside
 // their attempt closure get the same pre-I/O guarantee as Buffered.
-func GuardTarget(client providers.Client, target inference.Target) providers.Client {
-	return targetGuard{Client: client, target: target}
+func GuardTarget(client providers.Client, target inference.Target, budget *inference.AttemptBudget) providers.Client {
+	return targetGuard{Client: client, target: target, budget: budget}
 }
 
 type targetGuard struct {
 	providers.Client
 	target inference.Target
+	budget *inference.AttemptBudget
 }
 
 func (g targetGuard) Proxy(ctx context.Context, decision router.Decision, prep providers.PreparedRequest, w http.ResponseWriter, r *http.Request) error {
@@ -60,6 +62,15 @@ func (g targetGuard) Proxy(ctx context.Context, decision router.Decision, prep p
 	}
 	if decision.Model != g.target.CatalogID || decision.Provider != g.target.Provider {
 		return fmt.Errorf("%w: decision %s/%s, plan target %s/%s", ErrTargetMismatch, decision.Provider, decision.Model, g.target.Provider, g.target.CatalogID)
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if g.budget != nil && !g.budget.Take() {
+		err := fmt.Errorf("dispatch: %s", FailureReasonAttemptBudget)
+		observability.FromContext(ctx).Warn("Dispatch attempt budget exhausted",
+			"model", g.target.CatalogID, "provider", g.target.Provider, "err", err)
+		return err
 	}
 	return g.Client.Proxy(ctx, decision, prep, w, r)
 }

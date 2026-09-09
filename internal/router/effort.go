@@ -2,6 +2,14 @@ package router
 
 import "strings"
 
+// SplitServedIdentity separates a stored model identity from its effort suffix.
+func SplitServedIdentity(identity string) (string, string) {
+	if i := strings.LastIndex(identity, ":"); i > 0 {
+		return identity[:i], identity[i+1:]
+	}
+	return identity, ""
+}
+
 const (
 	effortLow    = "low"
 	effortMedium = "medium"

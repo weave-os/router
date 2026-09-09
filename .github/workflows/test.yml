@@ -29,7 +29,7 @@ jobs:
   test:
     name: Test
     # The branch ruleset requires this check, so gating it on the
-    # prerequisite jobs makes architecture and classifier contract checks required.
+    # prerequisite jobs makes architecture, classifier contract, and resilience checks required.
     needs: [inference-boundary, test-hmm-sidecar]
     if: ${{ always() }}
     runs-on: ubuntu-latest
@@ -180,7 +180,7 @@ jobs:
         working-directory: sidecars/hmm
         run: poetry install --no-interaction
 
-      - name: Set up Go for the serving contract
+      - name: Set up Go for the serving contract and recovery tests
         uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
@@ -190,6 +190,11 @@ jobs:
         run: |
           HMM_CONTRACT_PYTHON="$(poetry -C sidecars/hmm env info --path)/bin/python" \
             go test ./internal/policyclient -run TestBundledPythonAcceptsGoClassificationEvidence -count=1
+
+      - name: Verify concurrent classifier outage recovery
+        env:
+          ROUTER_RECOVERY_LOAD: "1"
+        run: go test -race ./internal/proxy -run TestRecoveryLoadAndClassifierRestoration -count=1
 
       - name: Check formatting
         working-directory: sidecars/hmm

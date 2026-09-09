@@ -2,7 +2,6 @@ package proxy
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"net/http"
 	"sort"
@@ -18,7 +17,6 @@ import (
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/cluster"
 	"weave-os/router/internal/router/handover"
-	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/planner"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/sessionpin"
@@ -207,9 +205,8 @@ type turnLoopResult struct {
 	PinProvider    string
 	PrefixBroken   bool
 	PriorTurnGapMS *int64
-	// PolicyFallback is true when the decision came from degrading a policy sidecar
-	// deadline to a session pin or tier-3 default. Exclude from bandit training and
-	// flag on the OTel span so degraded-mode spend is distinguishable.
+	// PolicyFallback marks recovery without a classifier training outcome.
+	// Only a successful recovered turn updates serving history.
 	PolicyFallback bool
 	// RequestedTier drives the session-pin role split (roleForTier) so a
 	// low-tier background turn and a high-tier main turn never share a pin.
@@ -342,27 +339,6 @@ func decisionPolicyGroup(dec router.Decision) string {
 		return ""
 	}
 	return dec.Metadata.PolicyGroup
-}
-
-// policyDeadlineFallbackReason is set as PinTier when a policy sidecar deadline degrades to a pin or tier-3 default.
-const policyDeadlineFallbackReason = "policy_deadline_last_known_good"
-
-// policyDeadlineDefaultReason is the Decision.Reason when a deadline miss with no pin falls to the tier-3 default.
-const policyDeadlineDefaultReason = "policy_deadline_default_model"
-
-// isPolicyDeadlineErr reports whether err is a policy sidecar deadline/transport
-// failure (safe to degrade) rather than a contract violation (must fail closed).
-// Both context.DeadlineExceeded/Canceled and hmm.ErrHMMUnavailable must be present —
-// sidecar_router.go also wraps contract violations with ErrHMMUnavailable, so the
-// deadline/cancel check is load-bearing.
-func isPolicyDeadlineErr(err error) bool {
-	if err == nil {
-		return false
-	}
-	if !errors.Is(err, hmm.ErrHMMUnavailable) {
-		return false
-	}
-	return errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled)
 }
 
 func hmmHistoryRole(role string) string {
@@ -559,6 +535,7 @@ func (s *Service) runTurnLoop(
 	reqHeaders http.Header,
 	req router.Request,
 ) (res turnLoopResult, routeErr error) {
+	ctx = policy.WithDecisionBudget(ctx)
 	log := observability.FromContext(ctx)
 	if requirements, ok := translationRequirementsFromContext(ctx); ok {
 		req.TranslationRequirements = requirements
@@ -913,6 +890,7 @@ func (s *Service) runTurnLoop(
 		}
 		res.Decision = decision
 		res.Fresh = decision
+		res.PolicyFallback = decision.Recovery != nil
 		return res, nil
 	}
 
@@ -1004,6 +982,19 @@ func (s *Service) runTurnLoop(
 	}
 	res.PriorServedModel, res.SessionEverSwitched = switchHistoryFromPins(pin, hmmHistory, forceHistory)
 	req.PolicyTurnContext = buildPolicyTurnContext(req, res, pin, hmmHistory)
+	if clearedPinReason == "" {
+		latestPin := sessionpin.Pin{}
+		for _, candidate := range []sessionpin.Pin{pin, hmmHistory} {
+			servedIdentity := candidate.LastServedModel
+			candidate.LastServedModel = baseModelOf(candidate.LastServedModel)
+			candidate.Model = baseModelOf(candidate.Model)
+			if valid, ok := s.normalizeHMMStayPin(req, candidate); ok && (latestPin.LastServedModel == "" || valid.LastTurnEndedAt.After(latestPin.LastTurnEndedAt)) {
+				latestPin = valid
+				latestPin.LastServedModel = servedIdentity
+			}
+		}
+		req.RecoveryPreviousModel = latestPin.LastServedModel
+	}
 	// Computed before any same-turn pin-drop guards below so it reflects the
 	// prior turn's outcome; Service.effortEscalation gates whether it's acted on.
 	res.EscalateEffort = pinFound && !pin.LastTurnEndedAt.IsZero() &&
@@ -1419,6 +1410,7 @@ func (s *Service) runTurnLoop(
 		if forcedTierFloor != catalog.TierUnknown {
 			if constrained, ok := s.restrictToTier(req.ExcludedModels, forcedTierFloor); ok {
 				tierReq := req
+				tierReq.ForceModel = ""
 				tierReq.ExcludedModels = constrained
 				if dec, derr := s.routeFor(ctx, tierReq); derr == nil {
 					fresh, routed = dec, true
@@ -1438,46 +1430,6 @@ func (s *Service) runTurnLoop(
 		if !routed {
 			dec, err := s.routeFor(ctx, req)
 			if err != nil {
-				// Deadline != correctness failure: all candidates were dispatchable; only
-				// ranking is lost. Contract violations still fail closed via isPolicyDeadlineErr.
-				if s.policyDeadlineFallback && isPolicyDeadlineErr(err) {
-					if pinFound && pin.Model != "" {
-						decision := pinDecision(pin)
-						// Use a distinct Reason so degraded-mode turns don't
-						// read identically to genuine policy-chosen STAYs in analytics.
-						decision.Reason = policyDeadlineFallbackReason
-						res.Decision = decision
-						res.StickyHit = true
-						res.PinTier = policyDeadlineFallbackReason
-						res.PolicyFallback = true
-						log.Warn("policy sidecar missed its deadline; serving session pin",
-							"err", err,
-							"pin_model", pin.Model,
-							"pin_provider", pin.Provider,
-							"pin_policy_group", pin.PolicyGroup,
-							"requested_model", req.RequestedModel,
-						)
-						// Persist the pin's own reason, not the degraded-mode one:
-						// isHMMPinReason gates later HMM stickiness on it.
-						refreshed := decision
-						refreshed.Reason = pin.Reason
-						s.refreshPin(ctx, installationID, res.SessionKey, pin, res.PinRole, refreshed)
-						return res, nil
-					}
-					if decision, ok := s.policyDeadlineDefaultDecision(req); ok {
-						res.Decision = decision
-						res.PinTier = policyDeadlineFallbackReason
-						res.PolicyFallback = true
-						log.Warn("policy sidecar missed its deadline; no session pin, serving tier-3 default",
-							"err", err,
-							"default_model", decision.Model,
-							"default_provider", decision.Provider,
-							"requested_model", req.RequestedModel,
-						)
-						s.writeNewPin(ctx, installationID, res.SessionKey, res.PinRole, decision)
-						return res, nil
-					}
-				}
 				log.Error("turnloop scorer failed", "err", err, "requested_model", req.RequestedModel)
 				return res, err
 			}
@@ -1489,6 +1441,12 @@ func (s *Service) runTurnLoop(
 			"fresh_reason", fresh.Reason,
 		)
 		res.Fresh = fresh
+		if fresh.Recovery != nil {
+			res.Decision = fresh
+			res.PolicyFallback = true
+			res.PinTier = policyRecoveryReason
+			return res, nil
+		}
 		if escalationRoutingApplied(fresh) {
 			// Keep the ordinary sticky pin independent of this opt-in floor so flag-off
 			// removes the intervention. recordTurnUsage still records actual HMM service.
@@ -2122,10 +2080,8 @@ func maxedOutServedModel(pin sessionpin.Pin) string {
 // baseModelOf strips a trailing ":effort" from a serving identity, returning the
 // bare catalog ID. Safe on inputs that carry no effort.
 func baseModelOf(servedIdentity string) string {
-	if idx := strings.LastIndex(servedIdentity, ":"); idx > 0 {
-		return servedIdentity[:idx]
-	}
-	return servedIdentity
+	model, _ := router.SplitServedIdentity(servedIdentity)
+	return model
 }
 
 // roleForTier maps a requested-model tier to its session-pin role. Each tier

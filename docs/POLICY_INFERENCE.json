@@ -1,6 +1,6 @@
 {
   "schema_version": "inference_policy_registry_v2",
-  "registry_revision": "sha256:c39f4fd7a0506b0c9ea57d3a3e9291dd0caab4953fed34a53e2114791096e6c7",
+  "registry_revision": "sha256:4d8059a09c4411b20a8f37494dadb639e9508907428aa4bd96ee56a3cb353699",
   "policies": [
     {
       "purpose": "agent_shadow_evaluation",
@@ -38,7 +38,7 @@
       "purpose": "anthropic_messages",
       "dispatch_class": "main_inference",
       "policy_id": "main-anthropic-messages",
-      "policy_revision": "3",
+      "policy_revision": "4",
       "owner": "@steventohme",
       "rationale": "Select an eligible catalog binding for Anthropic Messages while preserving request semantics and tenant boundaries.",
       "selection_strategy": "router",
@@ -70,6 +70,7 @@
       "fallback": {
         "kind": "binding"
       },
+      "serving_recovery": true,
       "migration_status": "executor"
     },
     {
@@ -226,7 +227,7 @@
       "purpose": "gemini_generate_content",
       "dispatch_class": "main_inference",
       "policy_id": "main-gemini-generate-content",
-      "policy_revision": "3",
+      "policy_revision": "4",
       "owner": "@steventohme",
       "rationale": "Select an eligible catalog binding for Gemini Generate Content while preserving native URL and body semantics.",
       "selection_strategy": "router",
@@ -258,6 +259,7 @@
       "fallback": {
         "kind": "binding"
       },
+      "serving_recovery": true,
       "migration_status": "executor"
     },
     {
@@ -316,7 +318,7 @@
       "purpose": "openai_chat_completions",
       "dispatch_class": "main_inference",
       "policy_id": "main-openai-chat-completions",
-      "policy_revision": "3",
+      "policy_revision": "4",
       "owner": "@steventohme",
       "rationale": "Select an eligible catalog binding for OpenAI Chat Completions while preserving request semantics and tenant boundaries.",
       "selection_strategy": "router",
@@ -348,13 +350,14 @@
       "fallback": {
         "kind": "binding"
       },
+      "serving_recovery": true,
       "migration_status": "executor"
     },
     {
       "purpose": "openai_responses",
       "dispatch_class": "main_inference",
       "policy_id": "main-openai-responses",
-      "policy_revision": "3",
+      "policy_revision": "4",
       "owner": "@steventohme",
       "rationale": "Select an eligible catalog binding and compatible endpoint for OpenAI Responses requests.",
       "selection_strategy": "router",
@@ -386,6 +389,7 @@
       "fallback": {
         "kind": "binding"
       },
+      "serving_recovery": true,
       "migration_status": "executor"
     },
     {

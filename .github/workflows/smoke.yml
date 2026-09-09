@@ -10,7 +10,7 @@ name: Smoke
 # The PR job runs in replay-only mode against the cassettes committed under
 # smoke/mitmproxy/cassettes/ — no upstream API keys, safe on fork PRs, fully
 # deterministic. It's still path-gated to the regression-prone surfaces only;
-# docs, artifacts, the HMM sidecar, and the frontend never trigger it.
+# docs, artifacts, and the frontend never trigger it.
 #
 # A separate nightly job (needs ANTHROPIC_API_KEY; OPENAI_API_KEY optional) re-
 # records the cassettes against the real APIs to catch upstream drift (a
@@ -22,7 +22,11 @@ on:
       - 'internal/proxy/**'
       - 'internal/translate/**'
       - 'internal/providers/**'
-      - 'internal/router/catalog/**'
+      - 'internal/router/**'
+      - 'internal/policyclient/**'
+      - 'internal/inference/**'
+      - 'internal/dispatch/**'
+      - 'sidecars/hmm/**'
       - 'cmd/router/**'
       - 'smoke/**'
       - 'scripts/smoke/**'

@@ -31,10 +31,9 @@ func (e *RequestEnvelope) RewriteForHandover(summary string) int {
 	}
 }
 
-// TrimLastNMessages keeps a bounded window of n non-system messages plus
-// system blocks. When the recent tail has no text-bearing user turn, it pulls
-// back the newest earlier one and resumes the retained tail on an assistant
-// turn. Falls back to n=3 when n <= 0. Returns the number elided.
+// TrimLastNMessages keeps the recent tail, current user task and complete tool
+// exchanges. n is a soft limit; callers must check the resulting context size.
+// Falls back to n=3 when n <= 0. Returns the number elided.
 func (e *RequestEnvelope) TrimLastNMessages(n int) int {
 	if e == nil {
 		return 0
@@ -129,7 +128,7 @@ func (e *RequestEnvelope) trimAnthropicLastN(n int) int {
 	if len(all) <= n {
 		return 0
 	}
-	keep, _ := recentMessagesWithUserTextBoundary(all, n, FormatAnthropic)
+	keep := e.taskPreservingWindow(all, n)
 	rebuilt, _ := stripOrphanedAnthropicToolResults(keep)
 	newMessages := "[" + strings.Join(rebuilt, ",") + "]"
 	out, err := sjson.SetRawBytes(e.body, "messages", []byte(newMessages))
@@ -137,7 +136,7 @@ func (e *RequestEnvelope) trimAnthropicLastN(n int) int {
 		return 0
 	}
 	e.body = out
-	return len(all) - n
+	return len(all) - len(rebuilt)
 }
 
 // rewriteOpenAIForHandover preserves role=="system" messages and replaces
@@ -235,12 +234,12 @@ func (e *RequestEnvelope) trimOpenAILastN(n int) int {
 	if len(others) <= n {
 		return 0
 	}
-	keep, _ := recentMessagesWithUserTextBoundary(others, n, FormatOpenAI)
-	keepRaw := make([]string, 0, len(keep))
-	for _, message := range keep {
-		keepRaw = append(keepRaw, message.Raw)
+	window := e.taskPreservingWindow(others, n)
+	keep := make([]string, 0, len(window))
+	for _, message := range window {
+		keep = append(keep, message.Raw)
 	}
-	cleaned := stripOrphanedOpenAIToolMessages(keepRaw)
+	cleaned := stripOrphanedOpenAIToolMessages(keep)
 	rebuilt := make([]string, 0, len(systems)+len(cleaned))
 	rebuilt = append(rebuilt, systems...)
 	rebuilt = append(rebuilt, cleaned...)
@@ -250,7 +249,7 @@ func (e *RequestEnvelope) trimOpenAILastN(n int) int {
 		return 0
 	}
 	e.body = out
-	return len(others) - n
+	return len(others) - len(cleaned)
 }
 
 // rewriteGeminiForHandover mirrors the Anthropic path against Gemini's
@@ -308,13 +307,7 @@ func (e *RequestEnvelope) trimGeminiLastN(n int) int {
 	if len(all) <= n {
 		return 0
 	}
-	keep, boundaryPulledBack := recentMessagesWithUserTextBoundary(all, n, FormatGemini)
-	var rebuilt []string
-	if boundaryPulledBack {
-		rebuilt = append([]string{keep[0].Raw}, stripLeadingGeminiOrphanFunctionResponses(keep[1:])...)
-	} else {
-		rebuilt = stripLeadingGeminiOrphanFunctionResponses(keep)
-	}
+	rebuilt := stripLeadingGeminiOrphanFunctionResponses(e.taskPreservingWindow(all, n))
 	newContents := "[" + strings.Join(rebuilt, ",") + "]"
 	out, err := sjson.SetRawBytes(e.body, "contents", []byte(newContents))
 	if err != nil {
@@ -324,33 +317,62 @@ func (e *RequestEnvelope) trimGeminiLastN(n int) int {
 	return len(all) - len(rebuilt)
 }
 
-// recentMessagesWithUserTextBoundary keeps the newest messages while ensuring
-// the window still describes the user's request. Tool-result-only user entries
-// do not qualify, and a pulled-back user boundary resumes on an assistant turn
-// so the rewritten wire history does not contain consecutive user roles.
-func recentMessagesWithUserTextBoundary(messages []gjson.Result, limit int, format Format) ([]gjson.Result, bool) {
-	if limit <= 0 || len(messages) <= limit {
-		return messages, false
-	}
-	recent := messages[len(messages)-limit:]
-	for i := len(recent) - 1; i >= 0; i-- {
-		if isTextBearingUserMessage(recent[i], format) {
-			return recent, false
-		}
-	}
-	for i := len(messages) - limit - 1; i >= 0; i-- {
-		if !isTextBearingUserMessage(messages[i], format) {
+func (e *RequestEnvelope) taskPreservingWindow(messages []gjson.Result, n int) []gjson.Result {
+	start := max(len(messages)-n, 0)
+	taskIndex := -1
+	for i, message := range messages {
+		role := message.Get("role").String()
+		if role != "user" && !(e.format == FormatGemini && role == "") {
 			continue
 		}
-		preserved := []gjson.Result{messages[i]}
-		for suffixStart := 1; suffixStart < len(recent); suffixStart++ {
-			if isAssistantMessage(recent[suffixStart], format) {
-				return append(preserved, recent[suffixStart:]...), true
+		semanticInput := isTextBearingUserMessage(message, e.format)
+		message.Get("content").ForEach(func(_, block gjson.Result) bool {
+			switch block.Get("type").String() {
+			case "image", "image_url", "input_image", "document", "file", "input_file":
+				semanticInput = true
+			}
+			return true
+		})
+		message.Get("parts").ForEach(func(_, part gjson.Result) bool {
+			semanticInput = semanticInput || part.Get("inlineData").Exists() || part.Get("fileData").Exists()
+			return true
+		})
+		if semanticInput {
+			taskIndex = i
+		}
+	}
+	if taskIndex >= 0 && taskIndex < start {
+		// Reserve a slot for the task and resume on a complete assistant exchange.
+		for suffixStart := min(start+1, len(messages)-1); suffixStart < len(messages); suffixStart++ {
+			if isAssistantMessage(messages[suffixStart], e.format) {
+				start = suffixStart
+				break
 			}
 		}
-		return preserved, true
 	}
-	return recent, false
+	// A tail beginning with results must retain their preceding call batch.
+	for start > 0 {
+		message := messages[start]
+		hasResults := message.Get("role").String() == "tool" || message.Get("role").String() == "function"
+		message.Get("content").ForEach(func(_, block gjson.Result) bool {
+			hasResults = hasResults || block.Get("type").String() == "tool_result"
+			return true
+		})
+		message.Get("parts").ForEach(func(_, part gjson.Result) bool {
+			hasResults = hasResults || part.Get("functionResponse").Exists()
+			return true
+		})
+		if !hasResults {
+			break
+		}
+		start--
+	}
+	if taskIndex >= 0 && taskIndex < start {
+		kept := make([]gjson.Result, 0, len(messages)-start+1)
+		kept = append(kept, messages[taskIndex])
+		return append(kept, messages[start:]...)
+	}
+	return messages[start:]
 }
 
 func isAssistantMessage(message gjson.Result, format Format) bool {

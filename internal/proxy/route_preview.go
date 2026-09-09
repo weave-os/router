@@ -91,6 +91,7 @@ func (s *Service) anthropicRoutingRequest(
 	return ctx, router.Request{
 		RequestedModel:               features.Model,
 		EstimatedInputTokens:         features.Tokens,
+		DispatchContext:              &router.DispatchContext{InputTokens: env.ContextOverflowTokenEstimate(), SignatureSavings: env.SignatureTokenSavings(), OutputReserve: outputReserve},
 		HasTools:                     features.HasTools,
 		HasImages:                    features.HasImages,
 		TranslationRequirements:      env.TranslationRequirements(router.EndpointAnthropicMessages),

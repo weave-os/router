@@ -840,6 +840,10 @@ func TestClientRosterPropagatesStatusError(t *testing.T) {
 func TestClientCheckHealth(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
 		assert.Equal(t, http.MethodGet, request.Method)
+		if request.URL.Path == "/capabilities" {
+			_, _ = w.Write([]byte(`{"schema_version":"policy_router_v1"}`))
+			return
+		}
 		assert.Equal(t, "/readyz", request.URL.Path)
 		_, _ = w.Write([]byte(`{"status":"ok"}`))
 	}))

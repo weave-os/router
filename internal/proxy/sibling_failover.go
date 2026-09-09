@@ -17,6 +17,9 @@ const ReasonSiblingFailover = "sibling_failover"
 // pins. Candidates on the failed provider rank last; context fit uses the same
 // dual-estimator as the pre-route overflow filter to reject under-sized peers.
 func (s *Service) siblingFailoverDecision(ctx context.Context, failed router.Decision, est, sigSavings, outputReserve int) (router.Decision, bool) {
+	if failed.Recovery != nil {
+		return nextRecoveryDecision(failed)
+	}
 	md := failed.Metadata
 	if md == nil {
 		return router.Decision{}, false

@@ -10,6 +10,7 @@ Index of Markdown documentation in the `router/` repo.
 | [POLICY_INFERENCE.md](POLICY_INFERENCE.md) | Generated static registry of inference purposes, selection policy, constraints, fallback, and migration status. |
 | [ANALYTICS_EXPORT.md](ANALYTICS_EXPORT.md) | `/v1/analytics/*` raw routing-decision export: read-only keys, cursor paging, row grain, field reference. |
 | [POLICY_ROUTER_HARNESS.md](POLICY_ROUTER_HARNESS.md) | Contract for out-of-process policy sidecars. |
+| [POLICY_RECOVERY.md](POLICY_RECOVERY.md) | Classifier failure recovery, bounds, diagnostics and managed release checks. |
 | [HMM_GO_SELECTION.md](HMM_GO_SELECTION.md) | Architecture, `policy_router_v3` split, and rollback story for Go-owned HMM roster ownership and deterministic arm selection. |
 | [TRANSLATION_COMPATIBILITY.md](TRANSLATION_COMPATIBILITY.md) | Cross-format translation requirements and rollout modes. |
 | [SMOKE.md](SMOKE.md) | Pre-merge record/replay smoke-suite scenarios, cassettes, and local workflow. |

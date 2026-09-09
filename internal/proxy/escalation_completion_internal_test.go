@@ -84,13 +84,21 @@ func (w *escalationFinalizeFailureWriter) Write(body []byte) (int, error) {
 }
 
 func TestEscalationCompletionWaitsForResponsesFinalization(t *testing.T) {
-	for _, failFinalize := range []bool{false, true} {
-		name := "successful_finalization"
-		if failFinalize {
-			name = "failed_finalization"
-		}
-		t.Run(name, func(t *testing.T) {
+	for _, tc := range []struct {
+		name              string
+		classifierFailure bool
+		failFinalize      bool
+		failCommit        bool
+	}{
+		{name: "successful_finalization"},
+		{name: "failed_finalization", failFinalize: true},
+		{name: "recovery_finalization", classifierFailure: true},
+		{name: "recovery_failed_finalization", classifierFailure: true, failFinalize: true},
+		{name: "recovery_survives_checkpoint_failure", classifierFailure: true, failCommit: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
 			store := newEscalationTestStore()
+			store.failCommit = tc.failCommit
 			observer := &escalationTestObserver{}
 			provider := escalationCompletionProvider{writeResponse: func(w http.ResponseWriter) error {
 				w.Header().Set("Content-Type", "application/json")
@@ -99,6 +107,15 @@ func TestEscalationCompletionWaitsForResponsesFinalization(t *testing.T) {
 				return err
 			}}
 			svc := newEscalationCompletionService(store, observer, map[string]providers.Client{providers.ProviderAnthropic: provider})
+			if tc.classifierFailure {
+				svc.WithPolicyStrategy(policy.StrategySpec{
+					Strategy:     router.StrategyHMMEmbedding,
+					Router:       &erroringTestRouter{err: policyContractViolationTestErr},
+					Capabilities: policy.Capabilities{SchemaVersion: policy.SchemaVersionV1, AuthoritativePerTurnSelection: true},
+				}).WithAvailableModels(map[string]struct{}{"claude-haiku-4-5": {}}).
+					WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}}).
+					WithPolicyDeadlineDefaultModel("claude-haiku-4-5")
+			}
 			finalizationErr := errors.New("response client disconnected during finalization")
 			writes := 0
 			writer := &escalationFinalizeFailureWriter{ResponseRecorder: httptest.NewRecorder(), beforeWrite: func() {
@@ -108,26 +125,50 @@ func TestEscalationCompletionWaitsForResponsesFinalization(t *testing.T) {
 					require.Nil(t, session.PreviousOutcome, "completion must wait for Responses Finalize to finish")
 				}
 			}}
-			if failFinalize {
+			if tc.failFinalize {
 				writer.writeErr = finalizationErr
 			}
 			body := []byte(`{"model":"gpt-5","input":"inspect the repository","tools":[{"type":"function","name":"Read","parameters":{"type":"object"}}]}`)
 			err := svc.ProxyOpenAIResponses(escalationCompletionContext(), body, writer, httptest.NewRequest(http.MethodPost, "/v1/responses", nil))
-			if failFinalize {
+			if tc.failFinalize {
 				require.ErrorIs(t, err, finalizationErr)
 			} else {
 				require.NoError(t, err)
 			}
 			require.Positive(t, writes)
 			require.Len(t, observer.requests, 1)
-			for _, session := range store.sessions {
-				require.NotNil(t, session.PreviousOutcome)
-				require.Equal(t, failFinalize, session.PreviousOutcome.IsError)
+			wantOrdinal := int64(1)
+			if tc.failCommit {
+				wantOrdinal = 0
+				require.Empty(t, store.checkpoints)
 			}
-			if failFinalize {
+			for _, session := range store.sessions {
+				require.Equal(t, wantOrdinal, session.Ordinal)
+				require.EqualValues(t, wantOrdinal, session.FeatureTurns)
+				if tc.classifierFailure {
+					require.Empty(t, session.Floor)
+				}
+				if tc.failCommit {
+					require.Nil(t, session.PreviousOutcome)
+					continue
+				}
+				require.NotNil(t, session.PreviousOutcome)
+				require.Equal(t, tc.failFinalize, session.PreviousOutcome.IsError)
+			}
+			if tc.classifierFailure {
+				require.Equal(t, "claude-haiku-4-5", writer.Header().Get(HeaderRouterModel))
+				for _, checkpoints := range store.checkpoints {
+					for _, checkpoint := range checkpoints {
+						require.Nil(t, checkpoint.Decision, "recovery must not fabricate an escalation decision")
+					}
+				}
+			}
+			if !tc.failFinalize {
+				require.Contains(t, writer.Body.String(), "repository inspected")
+			}
+			if tc.failFinalize || tc.failCommit {
 				require.Empty(t, store.continuations)
 			} else {
-				require.Contains(t, writer.Body.String(), "repository inspected")
 				require.Len(t, store.continuations, 1, "completed Responses output must remain available for continuation")
 			}
 		})

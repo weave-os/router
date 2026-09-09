@@ -6,6 +6,11 @@ Composition root. Only place that constructs concrete adapters + wires them toge
 
 ## Rules
 
+- Initialize local HMM serving recovery before the sidecar. Invalid HMM setup
+  may serve degraded only with valid local recovery authorization; readiness
+  must distinguish that from primary classifier health. See
+  [recovery contract](../docs/POLICY_RECOVERY.md).
+
 - **`cmd/router/main.go` is the only file that imports concrete `internal/providers/*` adapters and `internal/postgres`.** No other place wires things.
 - Keep `main.go` focused on wiring. Today's helpers:
   - `buildClusterScorer` — per-version Scorer assembly + embedder warmup

@@ -15,6 +15,7 @@ import (
 	"unicode/utf8"
 
 	"weave-os/router/internal/observability"
+	"weave-os/router/internal/observability/apm"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/policy"
 )
@@ -88,6 +89,7 @@ type Client struct {
 	client         *http.Client
 	timeout        time.Duration
 	attemptTimeout time.Duration
+	resilience     *resilience
 }
 
 // New builds a policy sidecar client. A nil HTTP client uses a bounded default.
@@ -111,6 +113,7 @@ func New(baseURL string, client *http.Client, timeout time.Duration, opts ...Opt
 		client:         client,
 		timeout:        timeout,
 		attemptTimeout: DeriveAttemptTimeout(timeout),
+		resilience:     newResilience(ResilienceConfig{}),
 	}
 	for _, opt := range opts {
 		opt(sidecar)
@@ -119,7 +122,13 @@ func New(baseURL string, client *http.Client, timeout time.Duration, opts ...Opt
 }
 
 // CheckHealth verifies that the policy sidecar is ready to serve traffic.
-func (c *Client) CheckHealth(ctx context.Context) error {
+func (c *Client) CheckHealth(ctx context.Context) (err error) {
+	defer func() {
+		if err != nil {
+			observability.FromContext(ctx).Warn("Policy readiness check failed",
+				"operation", "check_health", "circuit_open", !c.resilience.ready(), "err", err)
+		}
+	}()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/readyz", nil)
 	if err != nil {
 		return fmt.Errorf("build policy readiness request: %w", err)
@@ -132,6 +141,12 @@ func (c *Client) CheckHealth(ctx context.Context) error {
 	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<20))
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("policy readiness status %d", resp.StatusCode)
+	}
+	if !c.resilience.ready() {
+		return fmt.Errorf("policy circuit is open")
+	}
+	if _, err := c.Capabilities(ctx); err != nil {
+		return err
 	}
 	return nil
 }
@@ -488,13 +503,51 @@ type previewResponse struct {
 }
 
 // Decide posts the supplied candidate set and returns the sidecar selection.
-func (c *Client) Decide(ctx context.Context, query policy.Query) (policy.Result, error) {
+func (c *Client) Decide(ctx context.Context, query policy.Query) (_ policy.Result, err error) {
+	started := time.Now()
+	defer func() {
+		var failureReason policy.FailureReason
+		if err != nil {
+			failureReason = policy.FailureReasonFor(err)
+			logErr := err
+			status := 0
+			var failure *policy.DependencyError
+			if errors.As(err, &failure) {
+				status = failure.Status
+			}
+			var statusErr *PolicyStatusError
+			if errors.As(err, &statusErr) {
+				// Sidecar error bodies may echo request content.
+				logErr = statusErr.Unwrap()
+			}
+			observability.FromContext(ctx).Warn("Policy decision failed",
+				"operation", "decide", "schema_version", query.SchemaVersion,
+				"candidate_count", len(query.Candidates), "failure_reason", failureReason,
+				"status_code", status, "err", logErr)
+		}
+		apm.RecordPolicyDecision(ctx, failureReason, time.Since(started), !c.resilience.ready())
+	}()
+	finish, err := c.resilience.admit(ctx)
+	if err != nil {
+		return policy.Result{}, err
+	}
+	defer func() {
+		if ctx.Err() != nil {
+			finish(&policy.DependencyError{Reason: policy.FailureCanceled, Cause: ctx.Err()})
+			return
+		}
+		var failure *policy.DependencyError
+		if err != nil && !errors.As(err, &failure) {
+			err = &policy.DependencyError{Reason: policy.FailureReasonFor(err), Cause: err}
+		}
+		finish(err)
+	}()
 	body, err := marshalRouteRequest(query)
 	if err != nil {
 		return policy.Result{}, err
 	}
 
-	requestCtx, cancel := context.WithTimeout(ctx, c.timeout)
+	requestCtx, cancel := c.decisionContext(ctx)
 	defer cancel()
 	resp, payload, err := c.doPolicyRequest(requestCtx, "/route", body)
 	if err != nil {
@@ -503,15 +556,28 @@ func (c *Client) Decide(ctx context.Context, query policy.Query) (policy.Result,
 
 	var parsed routeResponse
 	if err := json.Unmarshal(payload, &parsed); err != nil {
-		return policy.Result{}, fmt.Errorf("decode policy route response (status %d): %w", resp.StatusCode, err)
-	}
-	if resp.StatusCode != http.StatusOK {
-		if parsed.Error != "" {
-			return policy.Result{}, fmt.Errorf("policy sidecar status %d: %s", resp.StatusCode, parsed.Error)
-		}
-		return policy.Result{}, fmt.Errorf("policy sidecar status %d", resp.StatusCode)
+		return policy.Result{}, &policy.DependencyError{Reason: policy.FailureContract, Status: resp.StatusCode, Cause: err}
 	}
 	selectedModel := firstNonEmpty(parsed.SelectedRosterID, parsed.Model)
+	if query.SchemaVersion != "" && (parsed.SchemaVersion != "" || query.SchemaVersion == policy.SchemaVersionV3) && parsed.SchemaVersion != query.SchemaVersion {
+		return policy.Result{}, fmt.Errorf("policy route schema %q does not match requested %q", parsed.SchemaVersion, query.SchemaVersion)
+	}
+	if query.RouteID != "" && parsed.RouteID != "" && query.RouteID != parsed.RouteID {
+		return policy.Result{}, fmt.Errorf("policy route id does not match request")
+	}
+	if len(query.Candidates) > 0 && parsed.SchemaVersion != policy.SchemaVersionV3 {
+		found := false
+		for _, candidate := range query.Candidates {
+			matches := selectedModel == candidate.RosterID || (parsed.SelectedArmID != "" && parsed.SelectedArmID == candidate.ArmID)
+			if matches && (parsed.SelectedProvider == "" || parsed.SelectedProvider == candidate.Provider) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return policy.Result{}, fmt.Errorf("policy selected an arm or provider outside the offered candidates")
+		}
+	}
 	switch parsed.SchemaVersion {
 	case policy.SchemaVersionV3:
 		// Classifier-only contract: the caller selects the arm, so a response
@@ -519,8 +585,8 @@ func (c *Client) Decide(ctx context.Context, query policy.Query) (policy.Result,
 		if parsed.SelectedArmID != "" || selectedModel != "" || parsed.SelectedProvider != "" {
 			return policy.Result{}, fmt.Errorf("policy sidecar returned a selected arm or provider on schema %s", policy.SchemaVersionV3)
 		}
-		if len(parsed.RankedFallback) == 0 {
-			return policy.Result{}, fmt.Errorf("policy sidecar returned no ranked fallback on schema %s", policy.SchemaVersionV3)
+		if err := policy.ValidateRankedFallback(parsed.RankedFallback, parsed.ClassProbabilities); err != nil {
+			return policy.Result{}, err
 		}
 	case "", policy.SchemaVersionV1, policy.SchemaVersionV2:
 		if parsed.SelectedArmID == "" && selectedModel == "" {
@@ -574,7 +640,7 @@ func (c *Client) Preview(ctx context.Context, query policy.Query) (policy.Previe
 	if err != nil {
 		return policy.PreviewResult{}, err
 	}
-	requestCtx, cancel := context.WithTimeout(ctx, c.timeout)
+	requestCtx, cancel := c.decisionContext(ctx)
 	defer cancel()
 	resp, payload, err := c.doPolicyRequest(requestCtx, "/preview", body)
 	if err != nil {
@@ -583,12 +649,6 @@ func (c *Client) Preview(ctx context.Context, query policy.Query) (policy.Previe
 	var parsed previewResponse
 	if err := json.Unmarshal(payload, &parsed); err != nil {
 		return policy.PreviewResult{}, fmt.Errorf("decode policy preview response (status %d): %w", resp.StatusCode, err)
-	}
-	if resp.StatusCode != http.StatusOK {
-		if parsed.Error != "" {
-			return policy.PreviewResult{}, fmt.Errorf("policy preview status %d: %s", resp.StatusCode, parsed.Error)
-		}
-		return policy.PreviewResult{}, fmt.Errorf("policy preview status %d", resp.StatusCode)
 	}
 	if !supportedSchema(parsed.SchemaVersion) {
 		return policy.PreviewResult{}, fmt.Errorf("unsupported policy preview schema %q", parsed.SchemaVersion)
@@ -858,10 +918,14 @@ func (c *Client) doPolicyAttempt(
 	if readErr != nil {
 		return nil, nil, false, c.attemptError(ctx, attemptCtx, attempt, fmt.Errorf("read policy route response: %w", readErr))
 	}
-	if !isTransientPolicyStatus(resp.StatusCode) {
+	if resp.StatusCode == http.StatusOK {
 		return resp, payload, true, nil
 	}
-	return nil, nil, false, policyStatusError(resp.StatusCode, payload)
+	statusErr := policyStatusError(resp.StatusCode, payload)
+	observability.FromContext(ctx).Warn("Policy sidecar returned a non-success status",
+		"operation", "decide", "path", path, "status_code", resp.StatusCode,
+		"attempt", attempt, "failure_reason", policy.FailureReasonFor(statusErr))
+	return nil, nil, !isTransientPolicyStatus(resp.StatusCode), statusErr
 }
 
 // attemptContext bounds one attempt so a single stalled instance cannot spend
@@ -875,7 +939,10 @@ func (c *Client) attemptContext(ctx context.Context) (context.Context, context.C
 
 // attemptError distinguishes per-attempt-bound timeouts from sidecar failures; always wraps context.DeadlineExceeded so callers can degrade on it.
 func (c *Client) attemptError(ctx, attemptCtx context.Context, attempt int, err error) error {
-	if ctx.Err() == nil && errors.Is(attemptCtx.Err(), context.DeadlineExceeded) {
+	if ctx.Err() != nil {
+		return &policy.DependencyError{Reason: policy.FailureReasonFor(ctx.Err()), Cause: ctx.Err()}
+	}
+	if errors.Is(attemptCtx.Err(), context.DeadlineExceeded) {
 		return fmt.Errorf(
 			"policy sidecar attempt %d exceeded its %s attempt budget: %w",
 			attempt,
@@ -883,11 +950,14 @@ func (c *Client) attemptError(ctx, attemptCtx context.Context, attempt int, err 
 			context.DeadlineExceeded,
 		)
 	}
-	return err
+	failure := &policy.DependencyError{Reason: policy.FailureTransport, Cause: err}
+	observability.FromContext(ctx).Warn("Policy sidecar transport attempt failed",
+		"operation", "decide", "attempt", attempt, "err", failure)
+	return failure
 }
 
 func isTransientPolicyStatus(status int) bool {
-	return status == http.StatusInternalServerError ||
+	return status == http.StatusTooManyRequests || status == http.StatusInternalServerError ||
 		status == http.StatusBadGateway ||
 		status == http.StatusServiceUnavailable ||
 		status == http.StatusGatewayTimeout
@@ -899,6 +969,24 @@ func isTransientPolicyStatus(status int) bool {
 type PolicyStatusError struct {
 	Status  int
 	Message string
+}
+
+// Unwrap classifies every sidecar HTTP status without matching response prose.
+func (e *PolicyStatusError) Unwrap() error {
+	reason := policy.FailureContract
+	switch e.Status {
+	case http.StatusBadRequest, http.StatusUnprocessableEntity:
+		reason = policy.FailureEvidence
+	case http.StatusUnauthorized, http.StatusForbidden:
+		reason = policy.FailureAuth
+	case http.StatusTooManyRequests, http.StatusServiceUnavailable:
+		reason = policy.FailureOverload
+	default:
+		if e.Status >= http.StatusInternalServerError {
+			reason = policy.FailureTransport
+		}
+	}
+	return &policy.DependencyError{Reason: reason, Status: e.Status}
 }
 
 func (e *PolicyStatusError) Error() string {
@@ -1023,10 +1111,10 @@ func routeMessageWindow(messages []router.ConversationMessage, maxMessages int) 
 		return messages
 	}
 	window := messages[len(messages)-maxMessages:]
-	if userTextIndex(window) >= 0 {
+	if router.UserTextIndex(window) >= 0 {
 		return window
 	}
-	boundary := userTextIndex(messages[:len(messages)-maxMessages])
+	boundary := router.UserTextIndex(messages[:len(messages)-maxMessages])
 	if boundary < 0 {
 		return window
 	}
@@ -1035,23 +1123,13 @@ func routeMessageWindow(messages []router.ConversationMessage, maxMessages int) 
 	return append(kept, window[1:]...)
 }
 
-// userTextIndex is the index of the newest user message carrying text, or -1.
-func userTextIndex(messages []router.ConversationMessage) int {
-	for i := len(messages) - 1; i >= 0; i-- {
-		if routeRole(messages[i].Role) == "user" && strings.TrimSpace(messages[i].Text) != "" {
-			return i
-		}
-	}
-	return -1
-}
-
 func convertRouteMessages(messages []router.ConversationMessage, limits routeMessageLimits) []routeMessage {
 	if len(messages) == 0 {
 		return nil
 	}
 	messages = routeMessageWindow(messages, limits.maxMessages)
 	// Reserve the task before newer assistant text consumes the shared budget.
-	latestUserTextIndex := userTextIndex(messages)
+	latestUserTextIndex := router.UserTextIndex(messages)
 	boundaryReserve := 0
 	if latestUserTextIndex >= 0 && limits.maxTotalTextChars > 0 {
 		boundaryReserve = len(clipRouteText(clipRouteText(messages[latestUserTextIndex].Text, limits.maxTextChars), limits.maxTotalTextChars))

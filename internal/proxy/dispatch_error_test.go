@@ -157,7 +157,7 @@ func TestClassifyDispatchError_BanditRLandHMMUnavailableRetry(t *testing.T) {
 		cls, ok := proxy.ClassifyDispatchError(err)
 		require.True(t, ok, "expected %v to be classified", err)
 		assert.Equal(t, http.StatusServiceUnavailable, cls.Status)
-		assert.True(t, cls.RetryAfter)
+		assert.Equal(t, !errors.Is(err, hmm.ErrHMMUnavailable), cls.RetryAfter)
 	}
 }
 
