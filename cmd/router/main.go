@@ -786,7 +786,7 @@ func main() {
 		logger.Info("Handover summarizer disabled (provider not registered); switch turns will preserve full history instead", "requested_provider", handoverProviderName)
 	}
 	compactionPct := parseEnvFloat("ROUTER_COMPACTION_PCT", proxy.DefaultCompactionTriggerPct)
-	compactionModel, err := resolveCompactionModel()
+	compactionModel, err := resolveCompactionModel(handoverProviderName)
 	if err != nil {
 		logger.Error("Invalid compaction model configuration; refusing to boot", "err", err)
 		panic(err)
@@ -1955,17 +1955,17 @@ func resolveDefaultBaselineModel() string {
 	return strings.TrimSpace(v)
 }
 
-// resolveCompactionModel returns the Sonnet-class Anthropic model the
-// compaction cascade summarizes with (ROUTER_COMPACTION_MODEL). An override
-// with no direct Anthropic binding is rejected in favor of the default: the
-// summarizer dispatches on the Anthropic client only.
-func resolveCompactionModel() (string, error) {
+// resolveCompactionModel returns the model the compaction cascade summarizes
+// with (ROUTER_COMPACTION_MODEL). The summarizer dispatches on the handover
+// provider's client only, so a model with no binding on that provider is a
+// startup error rather than a silent substitution.
+func resolveCompactionModel(summarizerProvider string) (string, error) {
 	m := strings.TrimSpace(config.GetOr("ROUTER_COMPACTION_MODEL", proxy.DefaultCompactionModel))
 	if m == "" {
 		return proxy.DefaultCompactionModel, nil
 	}
-	if _, ok := catalog.ResolveBinding(m, map[string]struct{}{providers.ProviderAnthropic: {}}); !ok {
-		return "", fmt.Errorf("ROUTER_COMPACTION_MODEL %q has no Anthropic catalog binding", m)
+	if _, ok := catalog.ResolveBinding(m, map[string]struct{}{summarizerProvider: {}}); !ok {
+		return "", fmt.Errorf("ROUTER_COMPACTION_MODEL %q has no %s catalog binding", m, summarizerProvider)
 	}
 	return m, nil
 }

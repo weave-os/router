@@ -260,6 +260,54 @@ func TestRegistryValidatesDeploymentTargets(t *testing.T) {
 	config.TargetOverrides[0].Target.Provider = providers.ProviderOpenAI
 	err = policy.DefaultRegistry().ValidateDeployment(config)
 	assert.ErrorContains(t, err, "has no available catalog binding")
+
+	config = validDeploymentPolicyConfig()
+	config.TargetOverrides[0].Target.CatalogID = "claude-opus-4-0"
+	err = policy.DefaultRegistry().ValidateDeployment(config)
+	assert.ErrorContains(t, err, "is not a routable catalog model")
+}
+
+func TestPlanResolverDoesNotFallBackToRosterForStaleArm(t *testing.T) {
+	planResolver := newPlanResolver(t,
+		modelSet("claude-haiku-4-5"),
+		providerSet(providers.ProviderAnthropic),
+	)
+	_, err := planResolver.Resolve(policy.ResolutionRequest{
+		Purpose: policy.PurposeAnthropicMessages,
+		Selection: policy.CandidateSelection{
+			ArmID:    "stale-arm",
+			RosterID: "claude-haiku-4-5",
+		},
+	})
+	assertResolutionErrorCode(t, err, policy.ResolutionErrorUnknownSelection)
+}
+
+func TestPlanResolverIncludesEveryAlternativeBinding(t *testing.T) {
+	specs := policy.DefaultRegistry().Specs()
+	index := policyIndex(t, specs, policy.PurposeHandoverSummary)
+	specs[index].Fallback = policy.FallbackSpec{
+		Kind:         policy.FallbackKindPlanAlternatives,
+		Alternatives: []string{"claude-sonnet-4-5"},
+	}
+	registry, err := policy.NewRegistry(specs)
+	require.NoError(t, err)
+	candidateResolver := policy.NewResolver(
+		modelSet("claude-haiku-4-5", "claude-sonnet-4-5"),
+		providerSet(providers.ProviderAnthropic, providers.ProviderAnthropicGateway),
+		func(model catalog.Model) string { return model.ID },
+		policy.ProviderPolicy{},
+	)
+	planResolver, err := policy.NewPlanResolver(registry, candidateResolver)
+	require.NoError(t, err)
+
+	plan, err := planResolver.Resolve(policy.ResolutionRequest{Purpose: policy.PurposeHandoverSummary})
+	require.NoError(t, err)
+	alternatives := plan.AlternativeBindings()
+	require.Len(t, alternatives, 2)
+	for _, alternative := range alternatives {
+		assert.Equal(t, "claude-sonnet-4-5", alternative.CatalogID)
+	}
+	assert.NotEqual(t, alternatives[0].Provider, alternatives[1].Provider)
 }
 
 func newPlanResolver(t *testing.T, deployed, available map[string]struct{}) *policy.PlanResolver {

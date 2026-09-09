@@ -2,11 +2,7 @@
 // policy resolution, and upstream execution.
 package inference
 
-import (
-	"net/http"
-
-	"weave-os/router/internal/router"
-)
+import "weave-os/router/internal/router"
 
 // Purpose identifies why an operation may perform inference or related I/O.
 // It is semantic and stable across ingress protocols and provider bindings.
@@ -170,14 +166,14 @@ type PlanProvenance struct {
 // InvocationRequest is the complete input to one logical inference operation.
 // Policy resolution consumes RouterRequest, Overrides, and Budget before an
 // executor receives the immutable plan. Body remains in the client wire format
-// so target-aware translation stays inside the execution boundary.
+// so target-aware translation stays inside the execution boundary. Transport
+// concerns (client headers, streaming sinks) belong to the executor adapter,
+// not this contract.
 type InvocationRequest struct {
-	Purpose        Purpose
-	RequestID      string
-	Body           []byte
-	ClientRequest  *http.Request
-	ResponseWriter http.ResponseWriter
-	RouterRequest  router.Request
-	Overrides      []TargetOverride
-	Budget         *BudgetOverride
+	Purpose       Purpose
+	RequestID     string
+	Body          []byte
+	RouterRequest router.Request
+	Overrides     []TargetOverride
+	Budget        *BudgetOverride
 }

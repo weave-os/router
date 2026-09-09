@@ -15,22 +15,28 @@ import (
 func TestResolveCompactionModelFailsClosed(t *testing.T) {
 	t.Run("default", func(t *testing.T) {
 		t.Setenv("ROUTER_COMPACTION_MODEL", "")
-		model, err := resolveCompactionModel()
+		model, err := resolveCompactionModel(providers.ProviderAnthropic)
 		require.NoError(t, err)
 		assert.Equal(t, proxy.DefaultCompactionModel, model)
 	})
 
 	t.Run("valid Anthropic binding", func(t *testing.T) {
 		t.Setenv("ROUTER_COMPACTION_MODEL", "claude-fable-5")
-		model, err := resolveCompactionModel()
+		model, err := resolveCompactionModel(providers.ProviderAnthropic)
 		require.NoError(t, err)
 		assert.Equal(t, "claude-fable-5", model)
 	})
 
 	t.Run("invalid binding", func(t *testing.T) {
 		t.Setenv("ROUTER_COMPACTION_MODEL", "gpt-5.5")
-		_, err := resolveCompactionModel()
-		assert.ErrorContains(t, err, "has no Anthropic catalog binding")
+		_, err := resolveCompactionModel(providers.ProviderAnthropic)
+		assert.ErrorContains(t, err, "has no anthropic catalog binding")
+	})
+
+	t.Run("binding on the configured summarizer provider", func(t *testing.T) {
+		t.Setenv("ROUTER_COMPACTION_MODEL", "claude-fable-5")
+		_, err := resolveCompactionModel(providers.ProviderOpenAI)
+		assert.ErrorContains(t, err, "has no openai catalog binding")
 	})
 }
 

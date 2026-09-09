@@ -49,8 +49,13 @@ func (r Registry) ValidateDeployment(config DeploymentPolicyConfig) error {
 	routingTargets := catalog.RoutingTargetSet(config.AvailableProviders)
 	for _, spec := range r.Specs() {
 		override, hasOverride := overrides[spec.Purpose]
-		if hasOverride && !deploymentCanResolve([]string{override.CatalogID}, override.Provider, config.AvailableProviders) {
-			return fmt.Errorf("deployment inference policy %q target %q has no available catalog binding", spec.PolicyID, override.CatalogID)
+		if hasOverride {
+			if _, routable := routingTargets[override.CatalogID]; !routable {
+				return fmt.Errorf("deployment inference policy %q target %q is not a routable catalog model in this deployment", spec.PolicyID, override.CatalogID)
+			}
+			if !deploymentCanResolve([]string{override.CatalogID}, override.Provider, config.AvailableProviders) {
+				return fmt.Errorf("deployment inference policy %q target %q has no available catalog binding", spec.PolicyID, override.CatalogID)
+			}
 		}
 		switch spec.SelectionStrategy {
 		case SelectionStrategyRouter:

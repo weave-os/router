@@ -262,7 +262,11 @@ func selectBinding(spec PolicySpec, request ResolutionRequest, override *TargetO
 		if request.Selection.ArmID == "" && request.Selection.RosterID == "" {
 			return plannedBinding{}, PlanProvenance{}, resolutionError(ResolutionErrorMissingSelection, request.Purpose, spec.PolicyID, "router-selected policy requires a candidate selection")
 		}
-		binding, found := resolved.BindingForSelection(request.Selection.ArmID, request.Selection.RosterID)
+		selectionRosterID := request.Selection.RosterID
+		if request.Selection.ArmID != "" {
+			selectionRosterID = ""
+		}
+		binding, found := resolved.BindingForSelection(request.Selection.ArmID, selectionRosterID)
 		if !found {
 			return plannedBinding{}, PlanProvenance{}, resolutionError(ResolutionErrorUnknownSelection, request.Purpose, spec.PolicyID, "selected arm was not offered by the candidate resolver")
 		}
@@ -452,9 +456,8 @@ func fallbackBindings(spec PolicySpec, selected plannedBinding, resolved Resolve
 		}
 	case FallbackKindPlanAlternatives:
 		for _, catalogID := range spec.Fallback.Alternatives {
-			bindings := resolved.bindingsByCatalogID[catalogID]
-			if len(bindings) > 0 {
-				candidates = append(candidates, plannedBinding{Binding: bindings[0].Binding, estimatedCostUSD: bindings[0].estimatedCostUSD})
+			for _, binding := range resolved.bindingsByCatalogID[catalogID] {
+				candidates = append(candidates, plannedBinding{Binding: binding.Binding, estimatedCostUSD: binding.estimatedCostUSD})
 			}
 		}
 	}
