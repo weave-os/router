@@ -240,6 +240,9 @@ func TestSessionPinUpdateUsageCanPreserveMissingEndedAt(t *testing.T) {
 		PreservePriorUsage: true,
 	}))
 	require.Len(t, db.execCalls, 1)
+	preservePriorUsage, ok := db.execCalls[0].args[0].(bool)
+	require.True(t, ok)
+	assert.True(t, preservePriorUsage)
 	endedAt, ok := db.execCalls[0].args[5].(pgtype.Timestamptz)
 	require.True(t, ok)
 	assert.False(t, endedAt.Valid, "history-only updates must leave missing prior usage timing unset")

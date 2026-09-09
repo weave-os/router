@@ -87,6 +87,7 @@ func (r *SessionPinRepo) UpdateUsage(ctx context.Context, sessionKey [sessionpin
 	}
 	q := sqlc.New(r.tx)
 	return q.UpdateSessionPinUsage(ctx, sqlc.UpdateSessionPinUsageParams{
+		PreservePriorUsage:      usage.PreservePriorUsage,
 		SessionKey:              sessionKey[:],
 		Role:                    role,
 		LastInputTokens:         int32(usage.InputTokens),
