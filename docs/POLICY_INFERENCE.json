@@ -1,6 +1,6 @@
 {
-  "schema_version": "inference_policy_registry_v1",
-  "registry_revision": "sha256:c4c5d43fe8747512538188610b88d53dedd60a735282f88a0566c7d0e5bebe52",
+  "schema_version": "inference_policy_registry_v2",
+  "registry_revision": "sha256:5b86fbf8ff8464d3a3453b12a1c736e049f7d7d221493b7093c1cd3b72805f68",
   "policies": [
     {
       "purpose": "agent_shadow_evaluation",
@@ -39,7 +39,7 @@
       "purpose": "anthropic_messages",
       "dispatch_class": "main_inference",
       "policy_id": "main-anthropic-messages",
-      "policy_revision": "1",
+      "policy_revision": "2",
       "owner": "@steventohme",
       "rationale": "Select an eligible catalog binding for Anthropic Messages while preserving request semantics and tenant boundaries.",
       "selection_strategy": "router",
@@ -54,6 +54,12 @@
         "request_format",
         "spend",
         "tenant"
+      ],
+      "soft_preferences": [
+        "quality_price",
+        "preferred_models",
+        "cache_affinity",
+        "subscription_capacity"
       ],
       "override_precedence": [
         "request",
@@ -215,7 +221,7 @@
       "purpose": "gemini_generate_content",
       "dispatch_class": "main_inference",
       "policy_id": "main-gemini-generate-content",
-      "policy_revision": "1",
+      "policy_revision": "2",
       "owner": "@steventohme",
       "rationale": "Select an eligible catalog binding for Gemini Generate Content while preserving native URL and body semantics.",
       "selection_strategy": "router",
@@ -230,6 +236,12 @@
         "request_format",
         "spend",
         "tenant"
+      ],
+      "soft_preferences": [
+        "quality_price",
+        "preferred_models",
+        "cache_affinity",
+        "subscription_capacity"
       ],
       "override_precedence": [
         "request",
@@ -306,7 +318,7 @@
       "purpose": "openai_chat_completions",
       "dispatch_class": "main_inference",
       "policy_id": "main-openai-chat-completions",
-      "policy_revision": "1",
+      "policy_revision": "2",
       "owner": "@steventohme",
       "rationale": "Select an eligible catalog binding for OpenAI Chat Completions while preserving request semantics and tenant boundaries.",
       "selection_strategy": "router",
@@ -321,6 +333,12 @@
         "request_format",
         "spend",
         "tenant"
+      ],
+      "soft_preferences": [
+        "quality_price",
+        "preferred_models",
+        "cache_affinity",
+        "subscription_capacity"
       ],
       "override_precedence": [
         "request",
@@ -341,7 +359,7 @@
       "purpose": "openai_responses",
       "dispatch_class": "main_inference",
       "policy_id": "main-openai-responses",
-      "policy_revision": "1",
+      "policy_revision": "2",
       "owner": "@steventohme",
       "rationale": "Select an eligible catalog binding and compatible endpoint for OpenAI Responses requests.",
       "selection_strategy": "router",
@@ -356,6 +374,12 @@
         "request_format",
         "spend",
         "tenant"
+      ],
+      "soft_preferences": [
+        "quality_price",
+        "preferred_models",
+        "cache_affinity",
+        "subscription_capacity"
       ],
       "override_precedence": [
         "request",

@@ -601,7 +601,11 @@ func main() {
 	// or it 401s. In managed/byokOnly mode no provider has deployment auth, so
 	// the boot-time pin here is just a fallback — per-request resolution below
 	// does the real work.
-	hardPinProvider, hardPinModel := resolveHardPinModel(envKeyedProviders, logger)
+	hardPinProvider, hardPinModel, err := resolveHardPinModel(envKeyedProviders, logger)
+	if err != nil {
+		logger.Error("Invalid hard-pin model configuration; refusing to boot", "err", err)
+		panic(err)
+	}
 	if hardPinExplore {
 		logger.Info("Explore sub-agent hard-pin enabled", "provider", hardPinProvider, "model", hardPinModel)
 	}
@@ -643,11 +647,13 @@ func main() {
 	subAgentModel := config.GetOr("ROUTER_SUBAGENT_MODEL", "")
 	switch {
 	case subAgentModel != "" && subAgentProvider == "":
-		logger.Warn("ROUTER_SUBAGENT_MODEL set without ROUTER_SUBAGENT_PROVIDER; ignoring sub-agent override")
-		subAgentModel = ""
+		err := errors.New("ROUTER_SUBAGENT_MODEL requires ROUTER_SUBAGENT_PROVIDER")
+		logger.Error("Invalid sub-agent routing override; refusing to boot", "err", err)
+		panic(err)
 	case subAgentProvider != "" && subAgentModel == "":
-		logger.Warn("ROUTER_SUBAGENT_PROVIDER set without ROUTER_SUBAGENT_MODEL; ignoring sub-agent override")
-		subAgentProvider = ""
+		err := errors.New("ROUTER_SUBAGENT_PROVIDER requires ROUTER_SUBAGENT_MODEL")
+		logger.Error("Invalid sub-agent routing override; refusing to boot", "err", err)
+		panic(err)
 	case subAgentModel != "":
 		logger.Info("Sub-agent routing override enabled", "provider", subAgentProvider, "model", subAgentModel)
 	}
@@ -780,7 +786,34 @@ func main() {
 		logger.Info("Handover summarizer disabled (provider not registered); switch turns will preserve full history instead", "requested_provider", handoverProviderName)
 	}
 	compactionPct := parseEnvFloat("ROUTER_COMPACTION_PCT", proxy.DefaultCompactionTriggerPct)
-	compactionModel := resolveCompactionModel(logger)
+	compactionModel, err := resolveCompactionModel()
+	if err != nil {
+		logger.Error("Invalid compaction model configuration; refusing to boot", "err", err)
+		panic(err)
+	}
+
+	subAgentPolicyProvider := subAgentProvider
+	subAgentPolicyModel := subAgentModel
+	if subAgentPolicyModel == "" {
+		subAgentPolicyProvider = hardPinProvider
+		subAgentPolicyModel = hardPinModel
+	}
+	deploymentTargets := []policy.PurposeTargetOverride{
+		{Purpose: policy.PurposeHandoverSummary, Target: policy.TargetOverride{Source: policy.OverrideSourceDeployment, CatalogID: handoverModel, Provider: handoverProviderName}},
+		{Purpose: policy.PurposePrecompactionSummary, Target: policy.TargetOverride{Source: policy.OverrideSourceDeployment, CatalogID: compactionModel, Provider: handoverProviderName}},
+		{Purpose: policy.PurposeCompactionHandoverSummary, Target: policy.TargetOverride{Source: policy.OverrideSourceDeployment, CatalogID: compactionModel, Provider: handoverProviderName}},
+		{Purpose: policy.PurposeTitleGeneration, Target: policy.TargetOverride{Source: policy.OverrideSourceDeployment, CatalogID: hardPinModel, Provider: hardPinProvider}},
+		{Purpose: policy.PurposeClassifier, Target: policy.TargetOverride{Source: policy.OverrideSourceDeployment, CatalogID: hardPinModel, Provider: hardPinProvider}},
+		{Purpose: policy.PurposeProbe, Target: policy.TargetOverride{Source: policy.OverrideSourceDeployment, CatalogID: hardPinModel, Provider: hardPinProvider}},
+		{Purpose: policy.PurposeSubAgentDispatch, Target: policy.TargetOverride{Source: policy.OverrideSourceDeployment, CatalogID: subAgentPolicyModel, Provider: subAgentPolicyProvider}},
+	}
+	if err := policy.DefaultRegistry().ValidateDeployment(policy.DeploymentPolicyConfig{
+		AvailableProviders: availableProviders,
+		TargetOverrides:    deploymentTargets,
+	}); err != nil {
+		logger.Error("Invalid inference policy deployment; refusing to boot", "err", err)
+		panic(err)
+	}
 
 	// Strategy-specific artifacts own selection membership; the legacy cluster bundle must not constrain HMM candidates.
 	routingTargets := catalog.RoutingTargetSet(availableProviders)
@@ -1926,45 +1959,51 @@ func resolveDefaultBaselineModel() string {
 // compaction cascade summarizes with (ROUTER_COMPACTION_MODEL). An override
 // with no direct Anthropic binding is rejected in favor of the default: the
 // summarizer dispatches on the Anthropic client only.
-func resolveCompactionModel(logger *slog.Logger) string {
+func resolveCompactionModel() (string, error) {
 	m := strings.TrimSpace(config.GetOr("ROUTER_COMPACTION_MODEL", proxy.DefaultCompactionModel))
 	if m == "" {
-		return proxy.DefaultCompactionModel
+		return proxy.DefaultCompactionModel, nil
 	}
 	if _, ok := catalog.ResolveBinding(m, map[string]struct{}{providers.ProviderAnthropic: {}}); !ok {
-		logger.Warn("ROUTER_COMPACTION_MODEL has no Anthropic binding; using default", "model", m, "default_model", proxy.DefaultCompactionModel)
-		return proxy.DefaultCompactionModel
+		return "", fmt.Errorf("ROUTER_COMPACTION_MODEL %q has no Anthropic catalog binding", m)
 	}
-	return m
+	return m, nil
 }
 
 // resolveHardPinModel returns the (provider, model) for Explore and utility
 // hard-pins (Claude Code's compaction turn prefers the compaction model):
 // operator override wins, else the fastest available model in the default
 // bundle, else (defaultHardPinProvider, defaultHardPinModel).
-func resolveHardPinModel(available map[string]struct{}, logger *slog.Logger) (provider, model string) {
-	if m := config.GetOr("ROUTER_HARD_PIN_MODEL", ""); m != "" {
-		p := config.GetOr("ROUTER_HARD_PIN_PROVIDER", defaultHardPinProvider)
-		return p, m
+func resolveHardPinModel(available map[string]struct{}, logger *slog.Logger) (provider, model string, resolutionErr error) {
+	configuredModel := strings.TrimSpace(config.GetOr("ROUTER_HARD_PIN_MODEL", ""))
+	configuredProvider := strings.TrimSpace(config.GetOr("ROUTER_HARD_PIN_PROVIDER", ""))
+	if configuredModel != "" {
+		if configuredProvider == "" {
+			configuredProvider = defaultHardPinProvider
+		}
+		return configuredProvider, configuredModel, nil
+	}
+	if configuredProvider != "" {
+		return "", "", errors.New("ROUTER_HARD_PIN_PROVIDER requires ROUTER_HARD_PIN_MODEL")
 	}
 
 	reqVersion := config.GetOr("ROUTER_CLUSTER_VERSION", cluster.LatestVersion)
 	defaultVersion, err := cluster.ResolveVersion(reqVersion)
 	if err != nil {
 		logger.Warn("Hard-pin model: could not resolve cluster version; using default", "err", err, "default_model", defaultHardPinModel)
-		return defaultHardPinProvider, defaultHardPinModel
+		return defaultHardPinProvider, defaultHardPinModel, nil
 	}
 	bundle, err := cluster.LoadBundle(defaultVersion)
 	if err != nil {
 		logger.Warn("Hard-pin model: could not load bundle; using default", "err", err, "default_model", defaultHardPinModel)
-		return defaultHardPinProvider, defaultHardPinModel
+		return defaultHardPinProvider, defaultHardPinModel, nil
 	}
 	p, m, ok := cluster.FastestModel(bundle.Metadata, bundle.Registry, available)
 	if !ok {
 		logger.Warn("Hard-pin model: no model found for available providers; using default", "default_model", defaultHardPinModel)
-		return defaultHardPinProvider, defaultHardPinModel
+		return defaultHardPinProvider, defaultHardPinModel, nil
 	}
-	return p, m
+	return p, m, nil
 }
 
 // envVarHint returns the env var name for a provider's API key, for log

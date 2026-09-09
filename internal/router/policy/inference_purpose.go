@@ -1,32 +1,32 @@
 package policy
 
-// Purpose identifies why an operation may perform inference or related I/O.
-// It is semantic and stable across ingress protocols and provider bindings.
-type Purpose string
+import "weave-os/router/internal/inference"
+
+type Purpose = inference.Purpose
 
 const (
-	PurposeAnthropicMessages         Purpose = "anthropic_messages"
-	PurposeOpenAIChatCompletions     Purpose = "openai_chat_completions"
-	PurposeOpenAIResponses           Purpose = "openai_responses"
-	PurposeGeminiGenerateContent     Purpose = "gemini_generate_content"
-	PurposeHandoverSummary           Purpose = "handover_summary"
-	PurposePrecompactionSummary      Purpose = "precompaction_summary"
-	PurposeCompactionHandoverSummary Purpose = "compaction_handover_summary"
-	PurposeTitleGeneration           Purpose = "title_generation"
-	PurposeClassifier                Purpose = "classifier"
-	PurposeProbe                     Purpose = "probe"
-	PurposeSubAgentDispatch          Purpose = "sub_agent_dispatch"
-	PurposeClientCompaction          Purpose = "client_compaction"
-	PurposeAgentShadowEvaluation     Purpose = "agent_shadow_evaluation"
-	PurposeCountTokens               Purpose = "count_tokens"
-	PurposeUpstreamModelListing      Purpose = "upstream_model_listing"
-	PurposePolicySidecarDecision     Purpose = "policy_sidecar_decision"
-	PurposePolicySidecarPreview      Purpose = "policy_sidecar_preview"
-	PurposePolicySidecarOutcome      Purpose = "policy_sidecar_outcome"
-	PurposePolicySidecarFeedback     Purpose = "policy_sidecar_feedback"
-	PurposeClusterEmbedding          Purpose = "cluster_embedding"
-	PurposeSemanticCacheEmbedding    Purpose = "semantic_cache_embedding"
-	PurposeNativeWebSearch           Purpose = "native_web_search"
+	PurposeAnthropicMessages         = inference.PurposeAnthropicMessages
+	PurposeOpenAIChatCompletions     = inference.PurposeOpenAIChatCompletions
+	PurposeOpenAIResponses           = inference.PurposeOpenAIResponses
+	PurposeGeminiGenerateContent     = inference.PurposeGeminiGenerateContent
+	PurposeHandoverSummary           = inference.PurposeHandoverSummary
+	PurposePrecompactionSummary      = inference.PurposePrecompactionSummary
+	PurposeCompactionHandoverSummary = inference.PurposeCompactionHandoverSummary
+	PurposeTitleGeneration           = inference.PurposeTitleGeneration
+	PurposeClassifier                = inference.PurposeClassifier
+	PurposeProbe                     = inference.PurposeProbe
+	PurposeSubAgentDispatch          = inference.PurposeSubAgentDispatch
+	PurposeClientCompaction          = inference.PurposeClientCompaction
+	PurposeAgentShadowEvaluation     = inference.PurposeAgentShadowEvaluation
+	PurposeCountTokens               = inference.PurposeCountTokens
+	PurposeUpstreamModelListing      = inference.PurposeUpstreamModelListing
+	PurposePolicySidecarDecision     = inference.PurposePolicySidecarDecision
+	PurposePolicySidecarPreview      = inference.PurposePolicySidecarPreview
+	PurposePolicySidecarOutcome      = inference.PurposePolicySidecarOutcome
+	PurposePolicySidecarFeedback     = inference.PurposePolicySidecarFeedback
+	PurposeClusterEmbedding          = inference.PurposeClusterEmbedding
+	PurposeSemanticCacheEmbedding    = inference.PurposeSemanticCacheEmbedding
+	PurposeNativeWebSearch           = inference.PurposeNativeWebSearch
 )
 
 var knownPurposes = []Purpose{
@@ -59,30 +59,27 @@ func KnownPurposes() []Purpose {
 	return append([]Purpose(nil), knownPurposes...)
 }
 
-// DispatchClass separates provider inference from passthrough, control-plane,
-// local-support, and tool execution.
-type DispatchClass string
+type DispatchClass = inference.DispatchClass
 
 const (
-	DispatchClassMainInference       DispatchClass = "main_inference"
-	DispatchClassAuxiliaryInference  DispatchClass = "auxiliary_inference"
-	DispatchClassClientAuthoritative DispatchClass = "client_authoritative"
-	DispatchClassMetadataPassthrough DispatchClass = "metadata_passthrough"
-	DispatchClassControlPlane        DispatchClass = "control_plane"
-	DispatchClassLocalSupport        DispatchClass = "local_support"
-	DispatchClassWebSearchTool       DispatchClass = "web_search_tool"
+	DispatchClassMainInference       = inference.DispatchClassMainInference
+	DispatchClassAuxiliaryInference  = inference.DispatchClassAuxiliaryInference
+	DispatchClassClientAuthoritative = inference.DispatchClassClientAuthoritative
+	DispatchClassMetadataPassthrough = inference.DispatchClassMetadataPassthrough
+	DispatchClassControlPlane        = inference.DispatchClassControlPlane
+	DispatchClassLocalSupport        = inference.DispatchClassLocalSupport
+	DispatchClassWebSearchTool       = inference.DispatchClassWebSearchTool
 )
 
-// SelectionStrategy identifies which authority chooses an operation target.
-type SelectionStrategy string
+type SelectionStrategy = inference.SelectionStrategy
 
 const (
-	SelectionStrategyRouter              SelectionStrategy = "router"
-	SelectionStrategyFixedCatalog        SelectionStrategy = "fixed_catalog"
-	SelectionStrategyDeploymentHardPin   SelectionStrategy = "deployment_hard_pin"
-	SelectionStrategyClientAuthoritative SelectionStrategy = "client_authoritative"
-	SelectionStrategyPassthrough         SelectionStrategy = "passthrough"
-	SelectionStrategyNone                SelectionStrategy = "none"
+	SelectionStrategyRouter              = inference.SelectionStrategyRouter
+	SelectionStrategyFixedCatalog        = inference.SelectionStrategyFixedCatalog
+	SelectionStrategyDeploymentHardPin   = inference.SelectionStrategyDeploymentHardPin
+	SelectionStrategyClientAuthoritative = inference.SelectionStrategyClientAuthoritative
+	SelectionStrategyPassthrough         = inference.SelectionStrategyPassthrough
+	SelectionStrategyNone                = inference.SelectionStrategyNone
 )
 
 // CandidateSource identifies where the selectable target set originates.
@@ -109,16 +106,15 @@ const (
 	FallbackKindNone             FallbackKind = "none"
 )
 
-// OverrideSource identifies an authority that may influence resolution.
-type OverrideSource string
+type OverrideSource = inference.OverrideSource
 
 const (
-	OverrideSourceRequest             OverrideSource = "request"
-	OverrideSourceSession             OverrideSource = "session"
-	OverrideSourceInstallation        OverrideSource = "installation"
-	OverrideSourceDeployment          OverrideSource = "deployment"
-	OverrideSourcePolicyDefault       OverrideSource = "policy_default"
-	OverrideSourceClientAuthoritative OverrideSource = "client_authoritative"
+	OverrideSourceRequest             = inference.OverrideSourceRequest
+	OverrideSourceSession             = inference.OverrideSourceSession
+	OverrideSourceInstallation        = inference.OverrideSourceInstallation
+	OverrideSourceDeployment          = inference.OverrideSourceDeployment
+	OverrideSourcePolicyDefault       = inference.OverrideSourcePolicyDefault
+	OverrideSourceClientAuthoritative = inference.OverrideSourceClientAuthoritative
 )
 
 // MigrationStatus records which execution boundary currently owns a purpose.
@@ -131,27 +127,46 @@ const (
 	MigrationStatusNonInference  MigrationStatus = "non_inference"
 )
 
-// Constraint identifies a hard condition that resolution and fallback must preserve.
-type Constraint string
+type Constraint = inference.Constraint
 
 const (
-	ConstraintCatalogBinding     Constraint = "catalog_binding"
-	ConstraintCapability         Constraint = "capability"
-	ConstraintContextWindow      Constraint = "context_window"
-	ConstraintCredentialScope    Constraint = "credential_scope"
-	ConstraintModelExclusions    Constraint = "model_exclusions"
-	ConstraintProviderExclusions Constraint = "provider_exclusions"
-	ConstraintRequestFormat      Constraint = "request_format"
-	ConstraintSpend              Constraint = "spend"
-	ConstraintTenant             Constraint = "tenant"
+	ConstraintCatalogBinding     = inference.ConstraintCatalogBinding
+	ConstraintCapability         = inference.ConstraintCapability
+	ConstraintContextWindow      = inference.ConstraintContextWindow
+	ConstraintCredentialScope    = inference.ConstraintCredentialScope
+	ConstraintModelExclusions    = inference.ConstraintModelExclusions
+	ConstraintProviderExclusions = inference.ConstraintProviderExclusions
+	ConstraintRequestFormat      = inference.ConstraintRequestFormat
+	ConstraintSpend              = inference.ConstraintSpend
+	ConstraintTenant             = inference.ConstraintTenant
 )
 
-// BudgetSource identifies which layer supplies an operation's final budget.
-type BudgetSource string
+type SoftPreference = inference.SoftPreference
 
 const (
-	BudgetSourceRequest    BudgetSource = "request"
-	BudgetSourcePolicy     BudgetSource = "policy"
-	BudgetSourceDeployment BudgetSource = "deployment"
-	BudgetSourceLocal      BudgetSource = "local"
+	SoftPreferenceQualityPrice         = inference.SoftPreferenceQualityPrice
+	SoftPreferencePreferredModels      = inference.SoftPreferencePreferredModels
+	SoftPreferenceCacheAffinity        = inference.SoftPreferenceCacheAffinity
+	SoftPreferenceSubscriptionCapacity = inference.SoftPreferenceSubscriptionCapacity
 )
+
+type BudgetSource = inference.BudgetSource
+
+const (
+	BudgetSourceRequest    = inference.BudgetSourceRequest
+	BudgetSourcePolicy     = inference.BudgetSourcePolicy
+	BudgetSourceDeployment = inference.BudgetSourceDeployment
+	BudgetSourceLocal      = inference.BudgetSourceLocal
+)
+
+type PolicyID = inference.PolicyID
+
+type PolicyRevision = inference.PolicyRevision
+
+type BudgetSpec = inference.BudgetSpec
+
+type TargetOverride = inference.TargetOverride
+
+type BudgetOverride = inference.BudgetOverride
+
+type PlanProvenance = inference.PlanProvenance

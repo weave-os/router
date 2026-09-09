@@ -39,18 +39,19 @@ func (r Registry) StaticMarkdown() []byte {
 	fmt.Fprintf(&output, "- Schema version: `%s`\n", InferenceRegistrySchemaVersion)
 	fmt.Fprintf(&output, "- Registry revision: `%s`\n\n", r.Revision())
 	output.WriteString("This static projection contains no tenant credentials, installation overrides, request content, or private gateway details. Migration status describes the current execution boundary; `legacy_direct` entries are inventory, not authorization for new call sites.\n\n")
-	output.WriteString("| Purpose | Class | Policy | Selection | Candidates | Constraints | Fallback | Budget | Status | Owner | Rationale |\n")
-	output.WriteString("| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n")
+	output.WriteString("| Purpose | Class | Policy | Selection | Candidates | Constraints | Preferences | Fallback | Budget | Status | Owner | Rationale |\n")
+	output.WriteString("| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n")
 	for _, spec := range r.Specs() {
 		fmt.Fprintf(
 			&output,
-			"| %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |\n",
+			"| %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |\n",
 			markdownCode(string(spec.Purpose)),
 			markdownCode(string(spec.DispatchClass)),
 			markdownCode(string(spec.PolicyID)+"@"+string(spec.PolicyRevision)),
 			markdownCode(string(spec.SelectionStrategy)),
 			markdownCodeList(spec.FixedCatalogModels, string(spec.CandidateSource)),
 			markdownConstraintList(spec.HardConstraints),
+			markdownPreferenceList(spec.SoftPreferences),
 			markdownFallback(spec.Fallback),
 			markdownBudget(spec.Budget),
 			markdownCode(string(spec.MigrationStatus)),
@@ -87,6 +88,17 @@ func markdownConstraintList(values []Constraint) string {
 	return markdownCodeList(labels, "")
 }
 
+func markdownPreferenceList(values []SoftPreference) string {
+	if len(values) == 0 {
+		return "—"
+	}
+	labels := make([]string, len(values))
+	for i, value := range values {
+		labels[i] = string(value)
+	}
+	return markdownCodeList(labels, "")
+}
+
 func markdownFallback(fallback FallbackSpec) string {
 	if len(fallback.Alternatives) == 0 {
 		return markdownCode(string(fallback.Kind))
@@ -104,6 +116,9 @@ func markdownBudget(budget BudgetSpec) string {
 	}
 	if budget.MaxOutputTokens > 0 {
 		parts = append(parts, fmt.Sprintf("max_output=%d", budget.MaxOutputTokens))
+	}
+	if budget.MaxSpendUSD > 0 {
+		parts = append(parts, fmt.Sprintf("max_spend_usd=%g", budget.MaxSpendUSD))
 	}
 	return markdownCode(strings.Join(parts, " "))
 }

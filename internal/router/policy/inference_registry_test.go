@@ -112,10 +112,54 @@ func TestInferenceRegistryRejectsInvalidFallbackAndOverridePrecedence(t *testing
 	assert.ErrorContains(t, err, "declares alternatives for fallback kind")
 
 	specs = policy.DefaultRegistry().Specs()
+	fixedIndex := policyIndex(t, specs, policy.PurposeHandoverSummary)
+	specs[fixedIndex].Fallback = policy.FallbackSpec{
+		Kind:         policy.FallbackKindPlanAlternatives,
+		Alternatives: []string{"claude-haiku-4-5"},
+	}
+	_, err = policy.NewRegistry(specs)
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "repeats fixed catalog model")
+
+	specs = policy.DefaultRegistry().Specs()
 	specs[index].OverridePrecedence = []policy.OverrideSource{policy.OverrideSourceRequest, policy.OverrideSourceRequest}
 	_, err = policy.NewRegistry(specs)
 	require.Error(t, err)
 	assert.ErrorContains(t, err, "repeats override source")
+
+	specs = policy.DefaultRegistry().Specs()
+	specs[index].OverridePrecedence = []policy.OverrideSource{
+		policy.OverrideSourceDeployment,
+		policy.OverrideSourceRequest,
+	}
+	_, err = policy.NewRegistry(specs)
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "invalid override precedence order")
+}
+
+func TestInferenceRegistryRejectsInvalidPreferencesAndBudgets(t *testing.T) {
+	specs := policy.DefaultRegistry().Specs()
+	index := policyIndex(t, specs, policy.PurposeAnthropicMessages)
+	specs[index].SoftPreferences = append(specs[index].SoftPreferences, policy.SoftPreference("unknown"))
+	_, err := policy.NewRegistry(specs)
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "invalid soft preference")
+
+	specs = policy.DefaultRegistry().Specs()
+	specs[index].Budget.MaxSpendUSD = -1
+	_, err = policy.NewRegistry(specs)
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "negative budget")
+}
+
+func TestInferenceRegistryRejectsSelectionCandidateMismatch(t *testing.T) {
+	specs := policy.DefaultRegistry().Specs()
+	index := policyIndex(t, specs, policy.PurposeAnthropicMessages)
+	specs[index].CandidateSource = policy.CandidateSourceDeployment
+
+	_, err := policy.NewRegistry(specs)
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "must use routable catalog candidates")
 }
 
 func TestInferenceRegistryReturnsImmutableCopies(t *testing.T) {
@@ -123,12 +167,15 @@ func TestInferenceRegistryReturnsImmutableCopies(t *testing.T) {
 	specs := registry.Specs()
 	index := policyIndex(t, specs, policy.PurposeAnthropicMessages)
 	require.NotEmpty(t, specs[index].HardConstraints)
+	require.NotEmpty(t, specs[index].SoftPreferences)
 	specs[index].HardConstraints[0] = policy.Constraint("changed")
+	specs[index].SoftPreferences[0] = policy.SoftPreference("changed")
 	specs[index].Fallback.Alternatives = append(specs[index].Fallback.Alternatives, "changed")
 
 	unchanged, found := registry.Spec(policy.PurposeAnthropicMessages)
 	require.True(t, found)
 	assert.NotEqual(t, policy.Constraint("changed"), unchanged.HardConstraints[0])
+	assert.NotEqual(t, policy.SoftPreference("changed"), unchanged.SoftPreferences[0])
 	assert.NotContains(t, unchanged.Fallback.Alternatives, "changed")
 }
 
@@ -158,11 +205,16 @@ func TestInferenceRegistryMarkdownKeepsCellsIntact(t *testing.T) {
 	assert.Contains(t, markdown, "`@owner\\|team`")
 	assert.Contains(t, markdown, "first line second \\| line")
 	assert.NotContains(t, markdown, "\r")
+	columns := 0
 	for _, line := range strings.Split(strings.TrimSpace(markdown), "\n") {
+		if strings.HasPrefix(line, "| Purpose |") {
+			columns = strings.Count(line, "|")
+		}
 		if strings.HasPrefix(line, "| `") {
-			assert.Equal(t, 12, strings.Count(strings.ReplaceAll(line, "\\|", ""), "|"), line)
+			assert.Equal(t, columns, strings.Count(strings.ReplaceAll(line, "\\|", ""), "|"), line)
 		}
 	}
+	require.Positive(t, columns)
 }
 
 func policyIndex(t *testing.T, specs []policy.PolicySpec, purpose policy.Purpose) int {

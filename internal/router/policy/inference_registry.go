@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 
@@ -14,24 +15,9 @@ import (
 
 const (
 	// InferenceRegistrySchemaVersion is the stable static-projection schema.
-	InferenceRegistrySchemaVersion = "inference_policy_registry_v1"
+	InferenceRegistrySchemaVersion = "inference_policy_registry_v2"
 	inferencePolicyOwner           = "@steventohme"
 )
-
-// PolicyID is the stable review identity of an inference policy.
-type PolicyID string
-
-// PolicyRevision identifies a reviewed version of one policy entry.
-type PolicyRevision string
-
-// BudgetSpec is the bounded execution envelope declared by a policy.
-// Zero numeric limits mean the named source supplies the request-time value.
-type BudgetSpec struct {
-	Source          BudgetSource `json:"source"`
-	MaxAttempts     int          `json:"max_attempts,omitempty"`
-	TimeoutMillis   int64        `json:"timeout_millis,omitempty"`
-	MaxOutputTokens int          `json:"max_output_tokens,omitempty"`
-}
 
 // FallbackSpec declares the only fallback family and fixed alternatives a policy permits.
 type FallbackSpec struct {
@@ -51,6 +37,7 @@ type PolicySpec struct {
 	CandidateSource    CandidateSource   `json:"candidate_source"`
 	FixedCatalogModels []string          `json:"fixed_catalog_models,omitempty"`
 	HardConstraints    []Constraint      `json:"hard_constraints"`
+	SoftPreferences    []SoftPreference  `json:"soft_preferences,omitempty"`
 	OverridePrecedence []OverrideSource  `json:"override_precedence"`
 	Budget             BudgetSpec        `json:"budget"`
 	Fallback           FallbackSpec      `json:"fallback"`
@@ -162,6 +149,14 @@ func validatePolicySpecs(specs []PolicySpec) error {
 				return fmt.Errorf("policy %q contains invalid constraint %q", spec.PolicyID, constraint)
 			}
 		}
+		if err := rejectDuplicates(spec.PolicyID, "soft preference", spec.SoftPreferences); err != nil {
+			return err
+		}
+		for _, preference := range spec.SoftPreferences {
+			if !validSoftPreference(preference) {
+				return fmt.Errorf("policy %q contains invalid soft preference %q", spec.PolicyID, preference)
+			}
+		}
 		if err := rejectDuplicates(spec.PolicyID, "override source", spec.OverridePrecedence); err != nil {
 			return err
 		}
@@ -169,6 +164,12 @@ func validatePolicySpecs(specs []PolicySpec) error {
 			if !validOverrideSource(source) {
 				return fmt.Errorf("policy %q contains invalid override source %q", spec.PolicyID, source)
 			}
+		}
+		if err := validateOverridePrecedence(spec); err != nil {
+			return err
+		}
+		if err := validateSelectionContract(spec); err != nil {
+			return err
 		}
 		if spec.Fallback.Kind == FallbackKindPlanAlternatives && len(spec.Fallback.Alternatives) == 0 {
 			return fmt.Errorf("policy %q declares plan-alternative fallback without alternatives", spec.PolicyID)
@@ -183,8 +184,11 @@ func validatePolicySpecs(specs []PolicySpec) error {
 			if _, found := catalog.ByID(model); !found {
 				return fmt.Errorf("policy %q names unknown fallback model %q", spec.PolicyID, model)
 			}
+			if slices.Contains(spec.FixedCatalogModels, model) {
+				return fmt.Errorf("policy %q repeats fixed catalog model %q as a fallback alternative", spec.PolicyID, model)
+			}
 		}
-		if spec.Budget.MaxAttempts < 0 || spec.Budget.TimeoutMillis < 0 || spec.Budget.MaxOutputTokens < 0 {
+		if spec.Budget.MaxAttempts < 0 || spec.Budget.TimeoutMillis < 0 || spec.Budget.MaxOutputTokens < 0 || spec.Budget.MaxSpendUSD < 0 {
 			return fmt.Errorf("policy %q has a negative budget", spec.PolicyID)
 		}
 	}
@@ -279,6 +283,64 @@ func validBudgetSource(value BudgetSource) bool {
 	}
 }
 
+func validSoftPreference(value SoftPreference) bool {
+	switch value {
+	case SoftPreferenceQualityPrice, SoftPreferencePreferredModels, SoftPreferenceCacheAffinity, SoftPreferenceSubscriptionCapacity:
+		return true
+	default:
+		return false
+	}
+}
+
+func validateOverridePrecedence(spec PolicySpec) error {
+	precedenceRank := map[OverrideSource]int{
+		OverrideSourceRequest:             0,
+		OverrideSourceSession:             1,
+		OverrideSourceInstallation:        2,
+		OverrideSourceDeployment:          3,
+		OverrideSourcePolicyDefault:       4,
+		OverrideSourceClientAuthoritative: 0,
+	}
+	previousRank := -1
+	for index, source := range spec.OverridePrecedence {
+		if source == OverrideSourceClientAuthoritative && len(spec.OverridePrecedence) != 1 {
+			return fmt.Errorf("policy %q must use client-authoritative override precedence alone", spec.PolicyID)
+		}
+		rank := precedenceRank[source]
+		if index > 0 && rank <= previousRank {
+			return fmt.Errorf("policy %q has invalid override precedence order", spec.PolicyID)
+		}
+		previousRank = rank
+	}
+	return nil
+}
+
+func validateSelectionContract(spec PolicySpec) error {
+	switch spec.SelectionStrategy {
+	case SelectionStrategyRouter:
+		if spec.CandidateSource != CandidateSourceRoutableCatalog {
+			return fmt.Errorf("router-selected policy %q must use routable catalog candidates", spec.PolicyID)
+		}
+	case SelectionStrategyDeploymentHardPin:
+		if spec.CandidateSource != CandidateSourceDeployment {
+			return fmt.Errorf("deployment hard-pin policy %q must use deployment candidates", spec.PolicyID)
+		}
+	case SelectionStrategyClientAuthoritative:
+		if spec.CandidateSource != CandidateSourceRequest {
+			return fmt.Errorf("client-authoritative policy %q must use request candidates", spec.PolicyID)
+		}
+	case SelectionStrategyPassthrough:
+		if spec.CandidateSource != CandidateSourceRequest && spec.CandidateSource != CandidateSourceDeployment {
+			return fmt.Errorf("passthrough policy %q must use request or deployment candidates", spec.PolicyID)
+		}
+	case SelectionStrategyNone:
+		if spec.CandidateSource != CandidateSourceNone && spec.CandidateSource != CandidateSourceLocal && spec.CandidateSource != CandidateSourceDeployment {
+			return fmt.Errorf("non-selecting policy %q has an invalid candidate source", spec.PolicyID)
+		}
+	}
+	return nil
+}
+
 func registryRevision(specs []PolicySpec) (string, error) {
 	payload, err := json.Marshal(struct {
 		SchemaVersion string       `json:"schema_version"`
@@ -302,6 +364,7 @@ func clonePolicySpecs(specs []PolicySpec) []PolicySpec {
 func clonePolicySpec(spec PolicySpec) PolicySpec {
 	spec.FixedCatalogModels = append([]string(nil), spec.FixedCatalogModels...)
 	spec.HardConstraints = append([]Constraint(nil), spec.HardConstraints...)
+	spec.SoftPreferences = append([]SoftPreference(nil), spec.SoftPreferences...)
 	spec.OverridePrecedence = append([]OverrideSource(nil), spec.OverridePrecedence...)
 	spec.Fallback.Alternatives = append([]string(nil), spec.Fallback.Alternatives...)
 	return spec
@@ -336,17 +399,24 @@ func defaultPolicySpecs() []PolicySpec {
 		OverrideSourceDeployment,
 		OverrideSourcePolicyDefault,
 	}
+	mainPreferences := []SoftPreference{
+		SoftPreferenceQualityPrice,
+		SoftPreferencePreferredModels,
+		SoftPreferenceCacheAffinity,
+		SoftPreferenceSubscriptionCapacity,
+	}
 	mainPolicy := func(purpose Purpose, id PolicyID, rationale string) PolicySpec {
 		return PolicySpec{
 			Purpose:            purpose,
 			DispatchClass:      DispatchClassMainInference,
 			PolicyID:           id,
-			PolicyRevision:     "1",
+			PolicyRevision:     "2",
 			Owner:              inferencePolicyOwner,
 			Rationale:          rationale,
 			SelectionStrategy:  SelectionStrategyRouter,
 			CandidateSource:    CandidateSourceRoutableCatalog,
 			HardConstraints:    append([]Constraint(nil), mainConstraints...),
+			SoftPreferences:    append([]SoftPreference(nil), mainPreferences...),
 			OverridePrecedence: append([]OverrideSource(nil), mainOverrides...),
 			Budget:             BudgetSpec{Source: BudgetSourceRequest},
 			Fallback:           FallbackSpec{Kind: FallbackKindBinding},

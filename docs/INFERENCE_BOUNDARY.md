@@ -90,6 +90,12 @@ The migration baseline is covered by:
 - telemetry: `internal/proxy/planner_telemetry_internal_test.go`, `turn_signal_telemetry_internal_test.go`, `fire_telemetry_panic_internal_test.go`
 - metadata passthrough: `internal/proxy/count_tokens_test.go`, `upstream_models_test.go`
 
+## Policy resolution contract
+
+Feature orchestration describes a logical operation with `inference.InvocationRequest`. The checked-in registry and the existing catalog candidate resolver feed `policy.PlanResolver`, which is the only constructor for an immutable `policy.ResolvedPlan`. The plan records registry/policy revisions, the selected catalog binding, policy-declared alternatives, constraints, budget, and selection provenance; callers receive detached copies of slice-backed fields.
+
+Target overrides must identify a typed source declared in the policy's precedence list. Invalid, disallowed, duplicated, over-budget, or ineligible explicit targets return a typed `policy.ResolutionError`; they never fall through to a lower-precedence override or default model. `Registry.ValidateDeployment` applies the corresponding fail-closed checks to boot-time targets.
+
 ## Enforcement
 
 Run `make inference-boundary`. The check uses Go type information, so import aliases, provider-client type aliases, and named string constants are resolved rather than matched only as text. Negative fixtures cover direct and named-constant targets, aliased clients, raw inference HTTP, concrete provider imports, unregistered purposes, and baseline expansion.

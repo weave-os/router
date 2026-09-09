@@ -28,12 +28,13 @@ const (
 	providersPackagePath  = modulePath + "/internal/providers"
 	routerPackagePath     = modulePath + "/internal/router"
 	policyPackagePath     = modulePath + "/internal/router/policy"
+	inferencePackagePath  = modulePath + "/internal/inference"
 	baselineSchemaVersion = "inference_boundary_baseline_v1"
 	baselineOwner         = "@steventohme"
 	baselinePath          = "inference_boundary_baseline.json"
 )
 
-var purposePackagePaths = []string{policyPackagePath}
+var purposePackagePaths = []string{policyPackagePath, inferencePackagePath}
 
 type findingKind string
 
@@ -110,6 +111,7 @@ func TestInferenceBoundaryRejectsNegativeFixtures(t *testing.T) {
 		{name: "aliased provider client", fixture: "aliased_provider_client", expectedKind: findingDirectProviderCall},
 		{name: "second raw HTTP client", fixture: "raw_inference_http", expectedKind: findingRawHTTPClient},
 		{name: "unregistered purpose", fixture: "unregistered_purpose", expectedKind: findingUnregisteredPurpose},
+		{name: "unregistered inference purpose", fixture: "unregistered_inference_purpose", expectedKind: findingUnregisteredPurpose},
 		{name: "concrete provider import", fixture: "concrete_provider_import", expectedKind: findingConcreteProviderImport},
 	}
 	for _, tt := range tests {
