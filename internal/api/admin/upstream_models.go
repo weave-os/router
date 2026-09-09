@@ -41,7 +41,7 @@ func DiscoverModelsHandler(proxySvc *proxy.Service) gin.HandlerFunc {
 		creds := proxy.BuildCredentialsMap([]*auth.ExternalAPIKey{key})[req.Provider]
 		models, err := proxySvc.ListUpstreamModels(c.Request.Context(), req.Provider, creds)
 		if err != nil {
-			abortForListingError(c, req.Provider, "", true, err)
+			abortForListingError(c, req.Provider, "", err)
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"models": models})
@@ -77,7 +77,7 @@ func ListUpstreamModelsHandler(authSvc *auth.Service, proxySvc *proxy.Service) g
 		creds := proxy.BuildCredentialsMap([]*auth.ExternalAPIKey{key})[key.Provider]
 		models, err := proxySvc.ListUpstreamModels(c.Request.Context(), key.Provider, creds)
 		if err != nil {
-			abortForListingError(c, key.Provider, key.ID, false, err)
+			abortForListingError(c, key.Provider, key.ID, err)
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"models": models})
@@ -85,12 +85,17 @@ func ListUpstreamModelsHandler(authSvc *auth.Service, proxySvc *proxy.Service) g
 }
 
 // abortForListingError maps listing errors without exposing endpoint details.
-func abortForListingError(c *gin.Context, provider, keyID string, unsaved bool, err error) {
+// A destination refusal answers 400 for saved and unsaved keys alike: it is a
+// rejected configuration, and reporting it as a 502 would read as an endpoint
+// outage and send an operator debugging the wrong system.
+func abortForListingError(c *gin.Context, provider, keyID string, err error) {
 	if errors.Is(err, proxy.ErrModelListingUnsupported) || errors.Is(err, proxy.ErrProviderNotConfigured) {
 		c.AbortWithStatusJSON(http.StatusNotImplemented, gin.H{"error": "This provider does not support model listing; enter aliases manually."})
 		return
 	}
-	if unsaved && errors.Is(err, providers.ErrModelDiscoveryDestination) {
+	if errors.Is(err, providers.ErrModelDiscoveryDestination) {
+		observability.FromGin(c).Warn("Upstream model listing refused a destination",
+			"external_api_key_id", keyID, "provider", provider, "err", err)
 		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "The model discovery destination is not allowed."})
 		return
 	}

@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"weave-os/router/internal/providers"
 	"weave-os/router/internal/providers/anthropic"
 	"weave-os/router/internal/providers/httputil"
 	"weave-os/router/internal/requestcontext"
@@ -140,4 +141,21 @@ func TestListModels_RetriesGatewayCatalogWithEntity(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, []string{"claude-4-sonnet"}, models)
 	assert.Equal(t, []string{"", "{}"}, attempts)
+}
+
+// A nil option value must not strip the constructor's destination-checked
+// discovery client, which would turn a misconfigured call site into a panic
+// on the first model-list request.
+func TestListModels_NilModelListClientKeepsTheCheckedDefault(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"data":[{"id":"claude-haiku-4-5"}]}`))
+	}))
+	defer srv.Close()
+
+	c := anthropic.NewClient("tok", srv.URL, anthropic.WithModelListHTTPClient(nil))
+
+	// The retained default refuses this loopback destination rather than panicking.
+	_, err := c.ListModels(context.Background())
+	require.Error(t, err)
+	assert.ErrorIs(t, err, providers.ErrModelDiscoveryDestination)
 }

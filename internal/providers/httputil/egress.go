@@ -133,7 +133,12 @@ func isPublicAddr(address netip.Addr) bool {
 	}
 	if address.Is4() {
 		bytes := address.As4()
-		if bytes[0] == 0 || (bytes[0] == 100 && bytes[1] >= 64 && bytes[1] <= 127) {
+		// None of these have a stdlib predicate: 0.0.0.0/8 is "this host on
+		// this network" (RFC 1122) and resolves to a local service on Linux,
+		// 100.64.0.0/10 is carrier-grade NAT (RFC 6598), and 240.0.0.0/4 is
+		// reserved (RFC 1112) — which also covers the 255.255.255.255
+		// broadcast address.
+		if bytes[0] == 0 || (bytes[0] == 100 && bytes[1] >= 64 && bytes[1] <= 127) || bytes[0] >= 240 {
 			return false
 		}
 	}
@@ -222,24 +227,11 @@ func restrictDestination(_, address string, _ syscall.RawConn) error {
 }
 
 func isPublicIP(ip net.IP) bool {
-	switch {
-	case ip.IsLoopback(),
-		ip.IsPrivate(),
-		ip.IsLinkLocalUnicast(),
-		ip.IsLinkLocalMulticast(),
-		ip.IsMulticast(),
-		ip.IsUnspecified():
+	// One destination policy for both dial paths: a range rejected for model
+	// discovery must not be reachable through the inference transport either.
+	address, ok := netip.AddrFromSlice(ip)
+	if !ok {
 		return false
 	}
-	ip4 := ip.To4()
-	if ip4 == nil {
-		return true
-	}
-	// Neither range has a stdlib predicate: 0.0.0.0/8 is "this host on this
-	// network" (RFC 1122) and resolves to a local service on Linux, and
-	// 100.64.0.0/10 is carrier-grade NAT (RFC 6598).
-	if ip4[0] == 0 {
-		return false
-	}
-	return !(ip4[0] == 100 && ip4[1] >= 64 && ip4[1] <= 127)
+	return isPublicAddr(address)
 }

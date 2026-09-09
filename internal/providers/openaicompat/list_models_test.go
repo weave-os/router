@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"weave-os/router/internal/providers"
 	"weave-os/router/internal/providers/httputil"
 	"weave-os/router/internal/providers/openaicompat"
 	"weave-os/router/internal/requestcontext"
@@ -129,4 +130,21 @@ func TestListModels_RetriesWithEntityWhenGatewayDemandsOne(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, []string{"claude-4-sonnet", "openai-gpt-5"}, models)
 	assert.Equal(t, []string{"", "{}"}, attempts)
+}
+
+// A nil option value must not strip the constructor's destination-checked
+// discovery client, which would turn a misconfigured call site into a panic
+// on the first model-list request.
+func TestListModels_NilModelListClientKeepsTheCheckedDefault(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"data":[{"id":"cortex-model"}]}`))
+	}))
+	defer srv.Close()
+
+	c := openaicompat.NewGatewayClient("tok", srv.URL, openaicompat.WithModelListHTTPClient(nil))
+
+	// The retained default refuses this loopback destination rather than panicking.
+	_, err := c.ListModels(context.Background())
+	require.Error(t, err)
+	assert.ErrorIs(t, err, providers.ErrModelDiscoveryDestination)
 }

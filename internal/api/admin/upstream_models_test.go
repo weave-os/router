@@ -214,3 +214,28 @@ func TestListUpstreamModelsHandler_EndpointFailureIs502(t *testing.T) {
 	assert.Equal(t, http.StatusBadGateway, rec.Code)
 	assert.NotContains(t, rec.Body.String(), upstreamSecret)
 }
+
+// A saved key pointed at a refused destination is a rejected configuration,
+// not an endpoint outage; a 502 here would send an operator to debug the
+// customer's gateway instead of their own base URL.
+func TestListUpstreamModelsHandler_BlockedDestinationIs400(t *testing.T) {
+	key := &auth.ExternalAPIKey{
+		ID:             "ext-1",
+		InstallationID: testInstallationID,
+		Provider:       providers.ProviderOpenAIGateway,
+		Plaintext:      []byte("sk-byok"),
+		BaseURL:        "https://gateway.example/v1",
+	}
+	lister := &modelListingClient{err: providers.ErrModelDiscoveryDestination}
+	engine := upstreamModelsEngine(
+		upstreamModelsAuthService([]*auth.ExternalAPIKey{key}),
+		upstreamModelsProxyService(map[string]providers.Client{providers.ProviderOpenAIGateway: lister}),
+	)
+
+	rec := httptest.NewRecorder()
+	engine.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/admin/v1/provider-keys/ext-1/models", nil))
+
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.NotContains(t, rec.Body.String(), "gateway.example")
+	assert.NotContains(t, rec.Body.String(), "sk-byok")
+}

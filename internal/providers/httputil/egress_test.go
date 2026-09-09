@@ -62,6 +62,8 @@ func TestRestrictDestinationClassifiesAddresses(t *testing.T) {
 		{"[fe80::1]:443", false},
 		{"0.0.0.0:443", false},
 		{"224.0.0.1:443", false},
+		{"240.0.0.1:443", false},
+		{"255.255.255.255:443", false},
 	} {
 		err := restrictDestination("tcp", tc.address, nil)
 		if tc.allowed {
@@ -124,6 +126,9 @@ func TestModelDiscoveryAddressClassification(t *testing.T) {
 		{address: "ff02::1"},
 		{address: "::ffff:127.0.0.1"},
 		{address: "::ffff:169.254.169.254"},
+		{address: "240.0.0.1"},
+		{address: "255.255.255.255"},
+		{address: "::ffff:240.0.0.1"},
 	} {
 		address := netip.MustParseAddr(testCase.address)
 		assert.Equal(t, testCase.public, isPublicAddr(address), testCase.address)
@@ -285,7 +290,9 @@ func TestModelDiscoveryIgnoresAmbientProxyConfiguration(t *testing.T) {
 	t.Setenv("HTTP_PROXY", proxyServer.URL)
 	t.Setenv("HTTPS_PROXY", proxyServer.URL)
 	t.Setenv("NO_PROXY", "")
-	t.Setenv(restrictUpstreamEgressEnv, "false")
+	// No egress-mode override here on purpose: NewModelDiscoveryClient sets
+	// transport.Proxy = nil unconditionally, so discovery ignores an ambient
+	// proxy in every deployment mode.
 
 	sink := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)

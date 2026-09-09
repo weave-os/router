@@ -46,8 +46,15 @@ func WithAuthScheme(scheme AuthScheme) Option {
 }
 
 // WithModelListHTTPClient supplies the client used only for model discovery.
+// A nil client is ignored so a misconfigured option cannot strip the
+// constructor's destination-checked default and panic on the first call.
 func WithModelListHTTPClient(client *http.Client) Option {
-	return func(c *Client) { c.modelHTTP = client }
+	return func(c *Client) {
+		if client == nil {
+			return
+		}
+		c.modelHTTP = client
+	}
 }
 
 // WithDefaultHeaders returns c with headers set on every upstream request.
