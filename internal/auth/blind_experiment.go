@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/binary"
+	"time"
 )
 
 const blindExperimentBucketCount = 10_000
@@ -41,6 +42,10 @@ type BlindExperimentState struct {
 	Arm                 BlindExperimentArm
 	AssignmentSource    BlindExperimentAssignmentSource
 	CanonicalSubjectKey string
+	// errorCachedUntil marks a short-lived fail-open cache entry. It is kept
+	// out of request contexts and expires well before normal assignment TTLs so
+	// a transient database outage cannot bias the experiment cohort.
+	errorCachedUntil time.Time
 }
 
 // BlindExperimentRecord is the repository projection needed to resolve one user.

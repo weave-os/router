@@ -4778,7 +4778,7 @@ func (s *Service) logPlannerOutcome(ctx context.Context, res turnLoopResult) {
 }
 
 func (s *Service) recordTurnUsage(res turnLoopResult, servedProvider, servedModel string, in, out, cacheCreation, cacheRead int) {
-	if s.pinStore == nil || res.HardPinned {
+	if s.pinStore == nil || res.HardPinned || res.BlindExperimentPassthrough {
 		return
 	}
 	if isHMMTurn(res) {

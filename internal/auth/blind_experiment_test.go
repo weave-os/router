@@ -119,7 +119,7 @@ func TestResolveAndStashUserBlindExperimentFetchFailureFailsOpen(t *testing.T) {
 	users := &fakeUserRepo{user: &auth.User{ID: "user-42", InstallationID: "inst-1", Email: "alice@example.com"}}
 	experiments := &fakeBlindExperimentRepository{err: errors.New("database unavailable")}
 	service := makeServiceWithUsers(t, users).
-		WithBlindExperiments(experiments, auth.NewLRUBlindExperimentCache(10, time.Minute))
+		WithBlindExperiments(experiments, auth.NewLRUBlindExperimentCache(10, 10*time.Millisecond))
 
 	requestContext := service.ResolveAndStashUser(context.Background(), "inst-1", "alice@example.com", "", "")
 
@@ -127,4 +127,8 @@ func TestResolveAndStashUserBlindExperimentFetchFailureFailsOpen(t *testing.T) {
 	assert.False(t, active)
 	service.ResolveAndStashUser(context.Background(), "inst-1", "alice@example.com", "", "")
 	assert.Equal(t, 1, experiments.calls, "failed reads should be negatively cached during an outage")
+	require.Eventually(t, func() bool {
+		service.ResolveAndStashUser(context.Background(), "inst-1", "alice@example.com", "", "")
+		return experiments.calls == 2
+	}, time.Second, 5*time.Millisecond, "failed reads should retry after the short outage cache window")
 }
