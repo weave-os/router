@@ -6,7 +6,26 @@ helper="$script_dir/../codex-status.sh"
 [ -x "$helper" ] || { echo "missing executable Codex status helper" >&2; exit 1; }
 
 work="$(mktemp -d)"
-trap 'rm -rf "$work"' EXIT
+cost_mock_pid=""
+cleanup() {
+  # Capture first: reaping the fixture would otherwise leave the shell exiting
+  # 143 and turn a green run red.
+  status=$?
+  if [ -n "$cost_mock_pid" ]; then
+    kill "$cost_mock_pid" 2>/dev/null
+    wait "$cost_mock_pid" 2>/dev/null || true
+  fi
+  rm -rf "$work"
+  exit "$status"
+}
+trap cleanup EXIT
+
+# One case below needs a real HTTP fixture (curl sends no headers to file://).
+# Say so up front rather than letting it surface as a readiness timeout.
+command -v python3 >/dev/null 2>&1 || {
+  echo "python3 is required for the Codex status helper tests" >&2
+  exit 1
+}
 
 # The hook self-updates from GitHub. Left on, every case below would race a
 # download that replaces the helper under test with the published copy, so the
@@ -195,7 +214,11 @@ run_normalized_turn
 # This one needs a real HTTP fixture rather than the file:// seam used above:
 # curl sends no headers to a file:// URL, so a file-based check would prove the
 # base_url comment is skipped while saying nothing about the key.
-commented_port=8809
+commented_port="$(python3 -c 'import socket
+s = socket.socket()
+s.bind(("127.0.0.1", 0))
+print(s.getsockname()[1])
+s.close()')"
 commented_seen="$work/commented-key.txt"
 cat >"$work/cost-mock.py" <<'MOCK'
 import pathlib, sys
@@ -221,7 +244,7 @@ class Handler(BaseHTTPRequestHandler):
 HTTPServer(("127.0.0.1", int(sys.argv[1])), Handler).serve_forever()
 MOCK
 python3 "$work/cost-mock.py" "$commented_port" "$commented_seen" &
-cost_mock_pid=$!
+cost_mock_pid=$!  # reaped by the EXIT trap if anything below fails
 cost_mock_ready=""
 for _ in $(seq 1 60); do
   if curl -fsS -o /dev/null --max-time 1 "http://127.0.0.1:$commented_port/v1/sessions/x/cost" 2>/dev/null; then
@@ -232,7 +255,6 @@ for _ in $(seq 1 60); do
 done
 [ -n "$cost_mock_ready" ] || {
   echo "cost mock never came up on port $commented_port" >&2
-  kill "$cost_mock_pid" 2>/dev/null
   exit 1
 }
 rm -f "$commented_seen"
@@ -259,6 +281,7 @@ for _ in 1 2 3 4 5 6 7 8 9 10; do
 done
 kill "$cost_mock_pid" 2>/dev/null
 wait "$cost_mock_pid" 2>/dev/null || true
+cost_mock_pid=""
 
 [ -f "$commented_cost_cache" ] || {
   echo "a commented-out example blocked the live endpoint" >&2
@@ -266,6 +289,32 @@ wait "$cost_mock_pid" 2>/dev/null || true
 }
 [ "$(cat "$commented_seen" 2>/dev/null)" = "rk_test" ] || {
   echo "the commented-out key was forwarded instead of the live one: $(cat "$commented_seen" 2>/dev/null)" >&2
+  exit 1
+}
+
+# A comment trailing another assignment is the same hazard one line over: the
+# matches are unanchored, so a commented base_url riding on an earlier line
+# wins under first-match unless comments are stripped rather than line-skipped.
+inline_home="$work/inline-home"
+mkdir -p "$inline_home/.codex"
+cat >"$inline_home/.codex/config.toml" <<TOML
+[model_providers.weave]
+name = "Weave Router" # base_url = "http://127.0.0.1:9/v1"
+base_url = "file://$normalized_cost"
+wire_api = "responses" # X-Weave-Router-Key = "rk_inline_stale"
+http_headers = { "X-Weave-Router-Key" = "rk_test" }
+TOML
+inline_cache="$work/cache-inline"
+printf '%s\n' '{"session_id":"session-6","model":"gpt-5.6-terra","last_assistant_message":"✦ **Weave Router** → claude-sonnet-5 · best pick"}' \
+  | HOME="$inline_home" XDG_CACHE_HOME="$inline_cache" \
+    WEAVE_CODEX_STATUS_TITLE_FILE="$title_file" "$helper" >/dev/null
+inline_cost_cache="$inline_cache/weave-router/codex/session-6.cost"
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+  [ -f "$inline_cost_cache" ] && break
+  sleep 0.2
+done
+[ -f "$inline_cost_cache" ] || {
+  echo "an inline comment on an earlier line shadowed the live base_url" >&2
   exit 1
 }
 
