@@ -27,6 +27,20 @@ var codexQuotaErrorTypes = map[string]struct{}{
 // x-codex-primary-window-minutes header. Matches ParseCodexHeaders' default.
 const codexQuotaWindowMinutes = 5 * 60
 
+// codexExhaustionWindow is the window recorded for a plan the upstream reported
+// spent. freshFor only ever shortens retention to ResetAt, never extends past
+// WindowMinutes, so a weekly limit resetting days out must widen the window or
+// the reading expires after five hours and later turns re-buy the rejection.
+func codexExhaustionWindow(resetAt time.Time, now time.Time) usage.Window {
+	minutes := codexQuotaWindowMinutes
+	if !resetAt.IsZero() {
+		if untilReset := int(resetAt.Sub(now).Minutes()) + 1; untilReset > minutes {
+			minutes = untilReset
+		}
+	}
+	return usage.Window{UsedPercent: 1, WindowMinutes: minutes, ResetAt: resetAt}
+}
+
 // openaiFallbackKeyAvailable reports whether a non-subscription OpenAI
 // credential is configured to serve the turn when the caller's ChatGPT plan is
 // spent: a per-request BYOK OpenAI key, or the deployment's own OPENAI_API_KEY.
@@ -120,7 +134,7 @@ func (s *Service) recordCodexQuotaExhaustion(ctx context.Context, headers http.H
 		return
 	}
 	s.usageObserver.Record(s.usageObserver.Key([]byte(codexTok)), usage.Snapshot{
-		Primary: usage.Window{UsedPercent: 1, WindowMinutes: codexQuotaWindowMinutes, ResetAt: resetAt},
+		Primary: codexExhaustionWindow(resetAt, time.Now()),
 	})
 	observability.FromContext(ctx).Info("Codex subscription reported its plan spent; suppressing it until reset",
 		"resets_at", resetAt)

@@ -6834,24 +6834,28 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	if isResponsesWriter {
 		surfacePurpose = inference.PurposeOpenAIResponses
 	}
+	// A prelude already on the wire means the client is mid-stream: a JSON
+	// envelope there would corrupt it, so the error goes out in-stream instead.
+	flushOpenAIErr := func(w http.ResponseWriter, err error) {
+		if isResponses && responsesPreludeBuf != nil && responsesPreludeBuf.PreludeSent() {
+			return
+		}
+		if env.Stream() && preludeBuf.PreludeSent() {
+			_ = emitOpenAISSEErrorEvent(w, err)
+			return
+		}
+		flushBufferedIfPresent(w, err)
+	}
+
 	var winnerIdx int
 	winnerIdx, proxyErr = s.dispatchWithFallback(ctx, failoverInputs{
 		// contentSink is the raw w when capture is off.
-		w:               contentSink,
-		buf:             preludeBuf,
-		initialDecision: decision,
-		bindings:        bindings,
-		attempt:         attempt,
-		flushErr: func(w http.ResponseWriter, err error) {
-			if isResponses && responsesPreludeBuf != nil && responsesPreludeBuf.PreludeSent() {
-				return
-			}
-			if env.Stream() && preludeBuf.PreludeSent() {
-				_ = emitOpenAISSEErrorEvent(w, err)
-				return
-			}
-			flushBufferedIfPresent(w, err)
-		},
+		w:                      contentSink,
+		buf:                    preludeBuf,
+		initialDecision:        decision,
+		bindings:               bindings,
+		attempt:                attempt,
+		flushErr:               flushOpenAIErr,
 		deferFlushOnExhaustion: cyberRetryViable || codexRetryViable,
 		purpose:                routeRes.dispatchPurpose(surfacePurpose),
 		origin:                 routeRes.dispatchOrigin(decision),
@@ -6912,7 +6916,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 				initialDecision: decision,
 				bindings:        subBindings,
 				attempt:         subAttempt,
-				flushErr:        flushBufferedIfPresent,
+				flushErr:        flushOpenAIErr,
 				// A failed retry keeps the same model; hold the error so the
 				// cyber-refusal rescue below can still serve the turn.
 				deferFlushOnExhaustion: cyberRetryViable,

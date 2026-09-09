@@ -147,6 +147,23 @@ func TestCodexQuotaExhaustion_RecordedForLaterTurns(t *testing.T) {
 		"after the plan reports itself spent, later turns must suppress it pre-dispatch")
 }
 
+// TestCodexExhaustionWindow_OutlivesWeeklyReset: freshFor never retains past
+// WindowMinutes, so a weekly limit recorded with the 5h default would expire
+// hours before the plan actually refills.
+func TestCodexExhaustionWindow_OutlivesWeeklyReset(t *testing.T) {
+	now := time.Now()
+
+	weekly := codexExhaustionWindow(now.Add(6*24*time.Hour), now)
+	assert.Greater(t, time.Duration(weekly.WindowMinutes)*time.Minute, 6*24*time.Hour-time.Minute,
+		"a weekly reset must be retained until it actually resets")
+
+	rolling := codexExhaustionWindow(now.Add(2*time.Hour), now)
+	assert.Equal(t, codexQuotaWindowMinutes, rolling.WindowMinutes,
+		"a reset inside the rolling window keeps the default length; freshFor clamps to ResetAt")
+	assert.Equal(t, codexQuotaWindowMinutes, codexExhaustionWindow(time.Time{}, now).WindowMinutes,
+		"a body naming no reset falls back to the rolling window")
+}
+
 // TestCodexSubscriptionExhausted_NoFallbackKey: suppressing the only OpenAI
 // credential the turn has would leave it unable to dispatch at all, which is
 // strictly worse than letting the subscription answer.
