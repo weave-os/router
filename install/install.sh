@@ -4147,6 +4147,15 @@ resolve_router_endpoint() {
   fi
   [ -n "$config" ] || return 1
   awk '
+    # TOML basic string -> raw value: drop the `<header> = "` prefix and the
+    # closing quote, then undo the escaping write_codex_config applied.
+    function weave_unescape(s) {
+      sub(/^"?[A-Za-z][A-Za-z0-9-]*"?[[:space:]]*=[[:space:]]*"/, "", s)
+      sub(/"$/, "", s)
+      gsub(/\\"/, "\"", s)
+      gsub(/\\\\/, "\\", s)
+      return s
+    }
     /^[[:space:]]*\[/ {
       in_provider = ($0 ~ /^[[:space:]]*\[[[:space:]]*model_providers[[:space:]]*\.[[:space:]]*weave[[:space:]]*(\.[^]]*)?\][[:space:]]*(#.*)?$/)
       next
@@ -4157,20 +4166,14 @@ resolve_router_endpoint() {
       sub(/^.*=[[:space:]]*"/, "", v); sub(/"$/, "", v)
       if (url == "") url = v
     }
-    match($0, /"?X-Weave-Router-Key"?[[:space:]]*=[[:space:]]*"[^"]*"/) {
-      v = substr($0, RSTART, RLENGTH)
-      sub(/^.*=[[:space:]]*"/, "", v); sub(/"$/, "", v)
-      if (key == "") key = v
+    match($0, /"?X-Weave-Router-Key"?[[:space:]]*=[[:space:]]*"([^"\\]|\\.)*"/) {
+      if (key == "") key = weave_unescape(substr($0, RSTART, RLENGTH))
     }
-    match($0, /"?X-Weave-User-Email"?[[:space:]]*=[[:space:]]*"[^"]*"/) {
-      v = substr($0, RSTART, RLENGTH)
-      sub(/^.*=[[:space:]]*"/, "", v); sub(/"$/, "", v)
-      if (email == "") email = v
+    match($0, /"?X-Weave-User-Email"?[[:space:]]*=[[:space:]]*"([^"\\]|\\.)*"/) {
+      if (email == "") email = weave_unescape(substr($0, RSTART, RLENGTH))
     }
-    match($0, /"?X-Weave-User-Name"?[[:space:]]*=[[:space:]]*"[^"]*"/) {
-      v = substr($0, RSTART, RLENGTH)
-      sub(/^.*=[[:space:]]*"/, "", v); sub(/"$/, "", v)
-      if (name == "") name = v
+    match($0, /"?X-Weave-User-Name"?[[:space:]]*=[[:space:]]*"([^"\\]|\\.)*"/) {
+      if (name == "") name = weave_unescape(substr($0, RSTART, RLENGTH))
     }
     END { if (url != "" && key != "") printf "%s\n%s\n%s\n%s\n", url, key, email, name }
   ' "$config" 2>/dev/null

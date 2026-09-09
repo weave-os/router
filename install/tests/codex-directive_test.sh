@@ -280,6 +280,24 @@ run_hook '$fm astra' sess-abc >/dev/null
 check "the configured email is forwarded" "dev@example.invalid" "$(jq -r '.email' "$recorded")"
 check "the configured display name is forwarded" "A Developer" "$(jq -r '.name' "$recorded")"
 
+# write_codex_config escapes backslash and quote before writing, so a display
+# name containing a quote round-trips through TOML escaping. Reading it as raw
+# text stops at the first escaped quote and forwards a truncated identity.
+cat >"$codex_home/config.toml" <<TOML
+[model_providers.weave]
+base_url = "http://127.0.0.1:$port/v1"
+
+[model_providers.weave.http_headers]
+X-Weave-Router-Key = "rk_hooktest"
+X-Weave-User-Name = "A \"J\" Developer"
+X-Weave-User-Email = "dev@example.invalid"
+TOML
+rm -f "$recorded"
+run_hook '$fm astra' sess-abc >/dev/null
+check "a quoted display name is unescaped, not truncated" \
+  'A "J" Developer' "$(jq -r '.name' "$recorded")"
+check "the key still reads alongside an escaped name" "rk_hooktest" "$(jq -r '.router_key' "$recorded")"
+
 # An install with no identity must send no header at all rather than an empty
 # one -- the router treats a present-but-empty header as a value.
 write_config "http://127.0.0.1:$port/v1"
@@ -310,17 +328,22 @@ check "a string content still blocks" \
 #
 # Reading the newest rollout would name whichever session wrote last, so with no
 # CODEX_SESSION_ID the script must fail rather than report another session's id.
+# Required, not optional: guarding these on [ -f ] would let the file go missing
+# and still report a green run.
 emit="$install_dir/codex-skills/router-session/scripts/emit.sh"
 if [ -f "$emit" ]; then
-  check "the skill reports CODEX_SESSION_ID when set" "sess-from-env" \
-    "$(CODEX_SESSION_ID=sess-from-env bash "$emit" 2>/dev/null)"
-  mkdir -p "$work/rollouts/sessions/2026/01/01"
-  : >"$work/rollouts/sessions/2026/01/01/rollout-2026-01-01T00-00-00-11111111-2222-3333-4444-555555555555.jsonl"
-  if CODEX_SESSION_ID="" CODEX_HOME="$work/rollouts" bash "$emit" >/dev/null 2>&1; then
-    no "the skill fails rather than naming another session" "non-zero exit" "exit 0"
-  else
-    ok "the skill fails rather than naming another session"
-  fi
+  ok "the router-session skill helper is present"
+else
+  no "the router-session skill helper is present" "$emit" "missing"
+fi
+check "the skill reports CODEX_SESSION_ID when set" "sess-from-env" \
+  "$(CODEX_SESSION_ID=sess-from-env bash "$emit" 2>/dev/null)"
+mkdir -p "$work/rollouts/sessions/2026/01/01"
+: >"$work/rollouts/sessions/2026/01/01/rollout-2026-01-01T00-00-00-11111111-2222-3333-4444-555555555555.jsonl"
+if CODEX_SESSION_ID="" CODEX_HOME="$work/rollouts" bash "$emit" >/dev/null 2>&1; then
+  no "the skill fails rather than naming another session" "non-zero exit" "exit 0"
+else
+  ok "the skill fails rather than naming another session"
 fi
 
 # ---------- installer heredoc must not drift ----------

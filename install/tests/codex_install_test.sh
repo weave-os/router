@@ -436,9 +436,16 @@ done
 
 # Whatever the installer generated in .codex must actually be covered by those
 # rules -- an entry list that drifts from the files written is the failure mode.
+# The count guards the sweep itself: a traversal that returns nothing would let
+# this pass while checking no paths at all.
+swept=0
 while IFS= read -r generated; do
+  [ -n "$generated" ] || continue
+  swept=$((swept + 1))
   ( cd "$proj_repo" && git check-ignore -q "$generated" ) \
     || fail "project install left $generated tracked by git"
 done < <(cd "$proj_repo" && find .codex -maxdepth 1 -type f)
+[ "$swept" -ge 3 ] \
+  || fail "the gitignore sweep inspected only $swept generated file(s); expected at least 3"
 
 echo "Codex installer routing regression tests passed"
