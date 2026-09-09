@@ -245,9 +245,11 @@ func selectBinding(spec PolicySpec, request ResolutionRequest, override *TargetO
 
 	switch spec.SelectionStrategy {
 	case SelectionStrategyFixedCatalog:
+		anyFixedBinding := false
 		for _, catalogID := range spec.FixedCatalogModels {
 			bindings := resolved.bindingsByCatalogID[catalogID]
 			for _, binding := range bindings {
+				anyFixedBinding = true
 				if exceedsSpendBudget(binding.estimatedCostUSD, budget.MaxSpendUSD) {
 					continue
 				}
@@ -256,6 +258,9 @@ func selectBinding(spec PolicySpec, request ResolutionRequest, override *TargetO
 					OverrideSource:    OverrideSourcePolicyDefault,
 				}, nil
 			}
+		}
+		if !anyFixedBinding {
+			return plannedBinding{}, PlanProvenance{}, resolutionError(ResolutionErrorNoEligibleBinding, request.Purpose, spec.PolicyID, "no fixed policy target has an eligible binding for this request")
 		}
 		return plannedBinding{}, PlanProvenance{}, budgetResolutionError(spec, "", "no fixed policy target fits the spend budget")
 	case SelectionStrategyRouter:

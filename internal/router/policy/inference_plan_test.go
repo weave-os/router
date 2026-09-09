@@ -185,6 +185,28 @@ func TestPlanResolverResolvesDeclaredModelFallbacks(t *testing.T) {
 	assert.Equal(t, "gpt-5.6-luna", plan.AlternativeBindings()[0].CatalogID)
 }
 
+func TestPlanResolverReportsMissingFixedTargetAsIneligible(t *testing.T) {
+	specs := policy.DefaultRegistry().Specs()
+	index := policyIndex(t, specs, policy.PurposeHandoverSummary)
+	specs[index].Fallback = policy.FallbackSpec{
+		Kind:         policy.FallbackKindPlanAlternatives,
+		Alternatives: []string{"gpt-5.6-luna"},
+	}
+	registry, err := policy.NewRegistry(specs)
+	require.NoError(t, err)
+	candidateResolver := policy.NewResolver(
+		modelSet("gpt-5.6-luna"),
+		providerSet(providers.ProviderOpenAI),
+		func(model catalog.Model) string { return model.ID },
+		policy.ProviderPolicy{},
+	)
+	planResolver, err := policy.NewPlanResolver(registry, candidateResolver)
+	require.NoError(t, err)
+
+	_, err = planResolver.Resolve(policy.ResolutionRequest{Purpose: policy.PurposeHandoverSummary})
+	assertResolutionErrorCode(t, err, policy.ResolutionErrorNoEligibleBinding)
+}
+
 func TestPlanResolverEnforcesBudgetEnvelopeAndSpendCap(t *testing.T) {
 	planResolver := newPlanResolver(t,
 		modelSet("claude-haiku-4-5"),
