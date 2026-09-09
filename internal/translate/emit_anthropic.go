@@ -736,7 +736,9 @@ func (e *RequestEnvelope) buildAnthropicFromAnthropic(opts EmitOptions) ([]byte,
 // hoistAnthropicSystemMessages clears role:"system" entries from "messages"
 // (Anthropic's API 400s on them after a mid-session model switch). Only the
 // leading run is hoisted; mid-conversation ones are rewritten as user messages
-// in place to keep the cached prefix stable. No-op if none present.
+// in place to keep the cached prefix stable. Message-scoped output_config is
+// moved to the request-level field before demotion so role-specific options are
+// not left on a user message.
 func hoistAnthropicSystemMessages(body []byte) ([]byte, error) {
 	msgs := gjson.GetBytes(body, "messages")
 	if !msgs.IsArray() {
@@ -745,26 +747,50 @@ func hoistAnthropicSystemMessages(body []byte) ([]byte, error) {
 
 	var hoisted []string // text from the leading system run, in order
 	var kept []string    // raw message objects, system entries demoted to user
+	var hoistedOutputConfig string
 	leading := true
+	leadingSystemFound := false
 	rewritten := false
 	for _, msg := range msgs.Array() {
 		isSystem := msg.Get("role").String() == "system"
 		switch {
 		case isSystem && leading:
+			leadingSystemFound = true
 			hoisted = append(hoisted, anthropicSystemTexts(msg.Get("content"))...)
+			if config := msg.Get("output_config"); config.Exists() && config.Type != gjson.Null && hoistedOutputConfig == "" {
+				hoistedOutputConfig = config.Raw
+			}
 		case isSystem:
-			demoted, err := sjson.Set(msg.Raw, "role", "user")
+			demoted := []byte(msg.Raw)
+			if config := msg.Get("output_config"); config.Exists() {
+				var err error
+				demoted, err = sjson.DeleteBytes(demoted, "output_config")
+				if err != nil {
+					return nil, fmt.Errorf("remove demoted system output config: %w", err)
+				}
+				if config.Type != gjson.Null && hoistedOutputConfig == "" {
+					hoistedOutputConfig = config.Raw
+				}
+			}
+			demoted, err := sjson.SetBytes(demoted, "role", "user")
 			if err != nil {
 				return nil, fmt.Errorf("demote system message: %w", err)
 			}
-			kept = append(kept, demoted)
+			kept = append(kept, string(demoted))
 			rewritten = true
 		default:
 			leading = false
 			kept = append(kept, msg.Raw)
 		}
 	}
-	if len(hoisted) == 0 && !rewritten {
+	if hoistedOutputConfig != "" && !gjson.GetBytes(body, "output_config").Exists() {
+		var err error
+		body, err = sjson.SetRawBytes(body, "output_config", []byte(hoistedOutputConfig))
+		if err != nil {
+			return nil, fmt.Errorf("hoist system output config: %w", err)
+		}
+	}
+	if !leadingSystemFound && !rewritten {
 		return body, nil
 	}
 	if len(hoisted) == 0 {

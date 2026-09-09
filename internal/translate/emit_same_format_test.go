@@ -597,6 +597,74 @@ func TestAnthropicSameFormat_MidConversationSystemMessageDemotedInPlace(t *testi
 	}
 }
 
+func TestAnthropicSameFormat_MidConversationSystemOutputConfigHoistedBeforeDemotion(t *testing.T) {
+	body := []byte(`{"model":"claude-sonnet-4-20250514","messages":[{"role":"user","content":"hi"},{"role":"system","content":"set effort","output_config":{"effort":"high"}}],"max_tokens":1024}`)
+	opts := translate.EmitOptions{
+		TargetModel:  "claude-opus-4-7",
+		Capabilities: router.Lookup("claude-opus-4-7"),
+	}
+	out := parseAndEmit(t, body, "anthropic", opts)
+
+	outputConfig, _ := out["output_config"].(map[string]any)
+	require.NotNil(t, outputConfig)
+	assert.Equal(t, "high", outputConfig["effort"])
+
+	msgs, _ := out["messages"].([]any)
+	require.Len(t, msgs, 2)
+	demoted, _ := msgs[1].(map[string]any)
+	assert.Equal(t, "user", demoted["role"])
+	assert.NotContains(t, demoted, "output_config", "role-scoped config must not remain on the demoted message")
+}
+
+func TestAnthropicSameFormat_DemotedSystemNullOutputConfigRemoved(t *testing.T) {
+	body := []byte(`{"model":"claude-sonnet-4-20250514","messages":[{"role":"user","content":"hi"},{"role":"system","content":"reminder","output_config":null}],"max_tokens":1024}`)
+	opts := translate.EmitOptions{
+		TargetModel:  "claude-opus-4-7",
+		Capabilities: router.Lookup("claude-opus-4-7"),
+	}
+	out := parseAndEmit(t, body, "anthropic", opts)
+
+	assert.NotContains(t, out, "output_config")
+	msgs, _ := out["messages"].([]any)
+	require.Len(t, msgs, 2)
+	demoted, _ := msgs[1].(map[string]any)
+	assert.Equal(t, "user", demoted["role"])
+	assert.NotContains(t, demoted, "output_config", "even null role-scoped fields must not remain on a user message")
+}
+
+func TestAnthropicSameFormat_SystemOutputConfigDoesNotOverwriteTopLevelConfig(t *testing.T) {
+	body := []byte(`{"model":"claude-sonnet-4-20250514","output_config":{"effort":"low"},"messages":[{"role":"user","content":"hi"},{"role":"system","content":"set effort","output_config":{"effort":"high"}}],"max_tokens":1024}`)
+	opts := translate.EmitOptions{
+		TargetModel:  "claude-opus-4-7",
+		Capabilities: router.Lookup("claude-opus-4-7"),
+	}
+	out := parseAndEmit(t, body, "anthropic", opts)
+
+	outputConfig, _ := out["output_config"].(map[string]any)
+	require.NotNil(t, outputConfig)
+	assert.Equal(t, "low", outputConfig["effort"], "an explicit request-level option remains authoritative")
+
+	msgs, _ := out["messages"].([]any)
+	require.Len(t, msgs, 2)
+	demoted, _ := msgs[1].(map[string]any)
+	assert.NotContains(t, demoted, "output_config")
+}
+
+func TestAnthropicSameFormat_LeadingSystemOutputConfigHoisted(t *testing.T) {
+	body := []byte(`{"model":"claude-sonnet-4-20250514","messages":[{"role":"system","content":"set effort","output_config":{"effort":"high"}},{"role":"user","content":"hi"}],"max_tokens":1024}`)
+	opts := translate.EmitOptions{
+		TargetModel:  "claude-opus-4-7",
+		Capabilities: router.Lookup("claude-opus-4-7"),
+	}
+	out := parseAndEmit(t, body, "anthropic", opts)
+
+	outputConfig, _ := out["output_config"].(map[string]any)
+	require.NotNil(t, outputConfig)
+	assert.Equal(t, "high", outputConfig["effort"])
+	msgs, _ := out["messages"].([]any)
+	require.Len(t, msgs, 1, "leading system message is still hoisted out of the message array")
+}
+
 func TestAnthropicSameFormat_NewSystemMessageLeavesEarlierTurnsInPlace(t *testing.T) {
 	// The cache-affecting property: a system reminder arriving on a later turn
 	// must not shift any earlier message, or the whole cached prefix moves.
