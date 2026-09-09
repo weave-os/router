@@ -213,3 +213,29 @@ func (s *Service) dispatchPlanned(ctx context.Context, in failoverInputs, plan i
 	}
 	return lastIdx, runErr
 }
+
+// WithInferenceDeployment records the boot-validated deployment facts so the
+// inspection API can report how each purpose resolves here.
+func (s *Service) WithInferenceDeployment(config policy.DeploymentPolicyConfig) *Service {
+	s.inferenceDeployment = config
+	return s
+}
+
+// InferencePolicyRegistry returns the registry every plan is resolved against.
+func (s *Service) InferencePolicyRegistry() policy.Registry {
+	return policy.DefaultRegistry()
+}
+
+// InferenceDeploymentProjection renders the registry against this deployment.
+func (s *Service) InferenceDeploymentProjection() policy.DeploymentProjection {
+	return policy.DefaultRegistry().DeploymentProjection(s.inferenceDeployment)
+}
+
+// InspectInferencePlan previews resolution for one purpose without dispatching.
+func (s *Service) InspectInferencePlan(request policy.InspectionRequest) (policy.ResolvedPlan, error) {
+	plans, err := s.inferencePlans()
+	if err != nil {
+		return policy.ResolvedPlan{}, err
+	}
+	return plans.Inspect(request, s.inferenceDeployment)
+}

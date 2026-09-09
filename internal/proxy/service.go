@@ -71,6 +71,7 @@ type Service struct {
 	// composition root wires one (a registry-only default is built lazily).
 	plans                        *policy.PlanResolver
 	defaultPlansOnce             sync.Once
+	inferenceDeployment          policy.DeploymentPolicyConfig
 	translationCompatibilityMode TranslationCompatibilityMode
 	// scopedSearchRequirement gates CitationsOrSearch on actual (current or recent)
 	// search-tool use, not mere advertisement; env ROUTER_SCOPED_SEARCH_REQUIREMENT.

@@ -798,10 +798,11 @@ func main() {
 		{Purpose: policy.PurposeProbe, Target: policy.TargetOverride{Source: policy.OverrideSourceDeployment, CatalogID: hardPinModel, Provider: hardPinProvider}},
 		{Purpose: policy.PurposeSubAgentDispatch, Target: policy.TargetOverride{Source: policy.OverrideSourceDeployment, CatalogID: subAgentPolicyModel, Provider: subAgentPolicyProvider}},
 	}
-	if err := policy.DefaultRegistry().ValidateDeployment(policy.DeploymentPolicyConfig{
+	inferenceDeployment := policy.DeploymentPolicyConfig{
 		AvailableProviders: availableProviders,
 		TargetOverrides:    deploymentTargets,
-	}); err != nil {
+	}
+	if err := policy.DefaultRegistry().ValidateDeployment(inferenceDeployment); err != nil {
 		logger.Error("Invalid inference policy deployment; refusing to boot", "err", err)
 		panic(err)
 	}
@@ -1230,7 +1231,7 @@ func main() {
 		WithAvailableModels(proxyRoutableModels(routingTargets, availableProviders, hmmRouter != nil)).
 		WithDefaultBaselineModel(resolveDefaultBaselineModel()).
 		WithBillingService(billingSvc)
-	proxySvc = proxySvc.WithInferenceExecutor(inferenceExecutor).WithInferencePlans(inferencePlans)
+	proxySvc = proxySvc.WithInferenceExecutor(inferenceExecutor).WithInferencePlans(inferencePlans).WithInferenceDeployment(inferenceDeployment)
 	if subscriptionRuntime != nil {
 		proxySvc.WithManagedSubscriptions(subscriptionRuntime)
 	}
