@@ -206,7 +206,7 @@ func escalationRoutingApplied(decision router.Decision) bool {
 
 func (s *Service) finishEscalation(ctx context.Context, turn *escalationTurn, res *turnLoopResult, routeErr error) error {
 	if turn.replay {
-		res.EscalationShadowMarked = !turn.active && turn.checkpoint.Prediction != nil && turn.checkpoint.Prediction.Escalate
+		res.EscalationShadowMarked = flags.BoolOr(ctx, flags.KeyEscalationXGBoostShadowMarkerEnabled, false) && !turn.active && turn.checkpoint.Prediction != nil && turn.checkpoint.Prediction.Escalate
 		res.EscalationScope = turn.scope
 		res.EscalationOrdinal = turn.checkpoint.Ordinal
 		res.escalationActivation = turn.activation
@@ -228,7 +228,7 @@ func (s *Service) finishEscalation(ctx context.Context, turn *escalationTurn, re
 		s.invalidateEscalation(ctx, turn.scope, turn.boundary, turn.token)
 		return err
 	}
-	res.EscalationShadowMarked = !turn.active && turn.checkpoint.Prediction != nil && turn.checkpoint.Prediction.Escalate
+	res.EscalationShadowMarked = flags.BoolOr(ctx, flags.KeyEscalationXGBoostShadowMarkerEnabled, false) && !turn.active && turn.checkpoint.Prediction != nil && turn.checkpoint.Prediction.Escalate
 	res.EscalationScope = turn.scope
 	res.EscalationOrdinal = turn.session.Ordinal
 	res.escalationActivation = turn.activation
