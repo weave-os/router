@@ -12,6 +12,7 @@ import (
 	"sync"
 	"testing"
 	"time"
+	"weave-os/router/internal/dispatch"
 
 	"weave-os/router/internal/observability/otel"
 	"weave-os/router/internal/providers"
@@ -69,7 +70,7 @@ func (f *bypassFakeProvider) Passthrough(context.Context, providers.PreparedRequ
 // not exercised here; only bypassToAnthropic is.
 func newBypassService(p providers.Client) *Service {
 	return &Service{
-		providers: map[string]providers.Client{providers.ProviderAnthropic: p},
+		clients: dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: p}),
 	}
 }
 
@@ -386,7 +387,7 @@ func TestBypass_TransportError_ReroutesViaScorer(t *testing.T) {
 func TestBypass_LocalPrepError_PropagatesToClient(t *testing.T) {
 	// Wire a service WITHOUT the Anthropic provider to trigger the
 	// provider-not-configured prep error path.
-	svc := &Service{providers: map[string]providers.Client{}}
+	svc := &Service{clients: dispatch.NewClients(map[string]providers.Client{})}
 
 	env := bypassAnthropicEnvelope(t)
 	feats := env.RoutingFeatures(false)

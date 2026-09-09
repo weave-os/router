@@ -1,4 +1,4 @@
-package proxy_test
+package requestcontext_test
 
 import (
 	"encoding/json"
@@ -7,15 +7,15 @@ import (
 	"testing"
 
 	"weave-os/router/internal/auth"
-	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/requestcontext"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func TestApplyForwardedClientHeaders(t *testing.T) {
-	identity := proxy.ClientIdentity{Email: "engineer@example.com", SessionID: "session-1"}
-	snowflakeCreds := &proxy.Credentials{
+	identity := requestcontext.ClientIdentity{Email: "engineer@example.com", SessionID: "session-1"}
+	snowflakeCreds := &requestcontext.Credentials{
 		ForwardedClientHeaders: []string{"X-SNOWFLAKE-APPLICATION", "X-Claude-Code-Session-Id"},
 		BaggageHeader:          "X-SNOWFLAKE-BAGGAGE",
 	}
@@ -30,8 +30,8 @@ func TestApplyForwardedClientHeaders(t *testing.T) {
 
 	t.Run("forwards nothing when the key configures nothing", func(t *testing.T) {
 		upstream := httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
-		ctx := identityCtx(&proxy.Credentials{}, identity)
-		proxy.ApplyForwardedClientHeaders(ctx, upstream, inbound(map[string]string{
+		ctx := identityCtx(&requestcontext.Credentials{}, identity)
+		requestcontext.ApplyForwardedClientHeaders(ctx, upstream, inbound(map[string]string{
 			"X-SNOWFLAKE-APPLICATION": "cortex-cli",
 			"X-SNOWFLAKE-BAGGAGE":     "deployment=prod",
 		}))
@@ -42,7 +42,7 @@ func TestApplyForwardedClientHeaders(t *testing.T) {
 	t.Run("copies configured headers verbatim", func(t *testing.T) {
 		upstream := httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
 		ctx := identityCtx(snowflakeCreds, identity)
-		proxy.ApplyForwardedClientHeaders(ctx, upstream, inbound(map[string]string{
+		requestcontext.ApplyForwardedClientHeaders(ctx, upstream, inbound(map[string]string{
 			"X-SNOWFLAKE-APPLICATION":  "cortex-cli/1.2.3",
 			"X-Claude-Code-Session-Id": "abc-123",
 			"X-Unrelated":              "nope",
@@ -56,7 +56,7 @@ func TestApplyForwardedClientHeaders(t *testing.T) {
 	t.Run("adds the resolved email to existing baggage as raw JSON", func(t *testing.T) {
 		upstream := httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
 		ctx := identityCtx(snowflakeCreds, identity)
-		proxy.ApplyForwardedClientHeaders(ctx, upstream, inbound(map[string]string{
+		requestcontext.ApplyForwardedClientHeaders(ctx, upstream, inbound(map[string]string{
 			"X-SNOWFLAKE-BAGGAGE": `{"existing-key":"existing-value"}`,
 		}))
 		raw := upstream.Header.Get("X-SNOWFLAKE-BAGGAGE")
@@ -73,14 +73,14 @@ func TestApplyForwardedClientHeaders(t *testing.T) {
 	t.Run("emits baggage even when the caller sent none", func(t *testing.T) {
 		upstream := httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
 		ctx := identityCtx(snowflakeCreds, identity)
-		proxy.ApplyForwardedClientHeaders(ctx, upstream, http.Header{})
+		requestcontext.ApplyForwardedClientHeaders(ctx, upstream, http.Header{})
 		assert.JSONEq(t, `{"on-behalf-of":"engineer@example.com"}`, upstream.Header.Get("X-SNOWFLAKE-BAGGAGE"))
 	})
 
 	t.Run("replaces a client-supplied on-behalf-of", func(t *testing.T) {
 		upstream := httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
 		ctx := identityCtx(snowflakeCreds, identity)
-		proxy.ApplyForwardedClientHeaders(ctx, upstream, inbound(map[string]string{
+		requestcontext.ApplyForwardedClientHeaders(ctx, upstream, inbound(map[string]string{
 			"X-SNOWFLAKE-BAGGAGE": `{"on-behalf-of":"ceo@example.com","deployment":"prod"}`,
 		}))
 		assert.JSONEq(t, `{"deployment":"prod","on-behalf-of":"engineer@example.com"}`,
@@ -90,8 +90,8 @@ func TestApplyForwardedClientHeaders(t *testing.T) {
 
 	t.Run("keeps the caller's baggage when no email resolved", func(t *testing.T) {
 		upstream := httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
-		ctx := identityCtx(snowflakeCreds, proxy.ClientIdentity{})
-		proxy.ApplyForwardedClientHeaders(ctx, upstream, inbound(map[string]string{
+		ctx := identityCtx(snowflakeCreds, requestcontext.ClientIdentity{})
+		requestcontext.ApplyForwardedClientHeaders(ctx, upstream, inbound(map[string]string{
 			"X-SNOWFLAKE-BAGGAGE": `{"deployment":"prod"}`,
 		}))
 		assert.JSONEq(t, `{"deployment":"prod"}`, upstream.Header.Get("X-SNOWFLAKE-BAGGAGE"))
@@ -100,7 +100,7 @@ func TestApplyForwardedClientHeaders(t *testing.T) {
 	t.Run("forwards a non-JSON bag unchanged", func(t *testing.T) {
 		upstream := httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
 		ctx := identityCtx(snowflakeCreds, identity)
-		proxy.ApplyForwardedClientHeaders(ctx, upstream, inbound(map[string]string{
+		requestcontext.ApplyForwardedClientHeaders(ctx, upstream, inbound(map[string]string{
 			"X-SNOWFLAKE-BAGGAGE": "deployment=prod",
 		}))
 		assert.Equal(t, "deployment=prod", upstream.Header.Get("X-SNOWFLAKE-BAGGAGE"),
@@ -111,7 +111,7 @@ func TestApplyForwardedClientHeaders(t *testing.T) {
 		upstream := httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
 		ctx := identityCtx(snowflakeCreds, identity)
 		require.NotPanics(t, func() {
-			proxy.ApplyForwardedClientHeaders(ctx, upstream, inbound(map[string]string{
+			requestcontext.ApplyForwardedClientHeaders(ctx, upstream, inbound(map[string]string{
 				"X-SNOWFLAKE-BAGGAGE": "null",
 			}))
 		})
@@ -120,7 +120,7 @@ func TestApplyForwardedClientHeaders(t *testing.T) {
 
 	t.Run("falls back to the ingress snapshot on router-built requests", func(t *testing.T) {
 		upstream := httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
-		ctx := proxy.WithForwardedHeaderSnapshot(
+		ctx := requestcontext.WithForwardedHeaderSnapshot(
 			identityCtx(snowflakeCreds, identity),
 			[]*auth.ExternalAPIKey{{
 				ForwardedClientHeaders: []string{"X-SNOWFLAKE-APPLICATION"},
@@ -134,7 +134,7 @@ func TestApplyForwardedClientHeaders(t *testing.T) {
 		)
 		// Compaction/handover summaries and Cortex web search synthesize their
 		// own request, so nothing but the snapshot carries the caller's ids.
-		proxy.ApplyForwardedClientHeaders(ctx, upstream, nil)
+		requestcontext.ApplyForwardedClientHeaders(ctx, upstream, nil)
 		assert.Equal(t, "cortex-cli/1.2.3", upstream.Header.Get("X-SNOWFLAKE-APPLICATION"))
 		assert.JSONEq(t, `{"deployment":"prod","on-behalf-of":"engineer@example.com"}`,
 			upstream.Header.Get("X-SNOWFLAKE-BAGGAGE"))
@@ -147,14 +147,14 @@ func TestApplyForwardedClientHeaders(t *testing.T) {
 		// Claude Code builds before 2.0.x, and every non-Anthropic surface,
 		// carry the session id in the body rather than the header.
 		ctx := identityCtx(snowflakeCreds, identity)
-		proxy.ApplyForwardedClientHeaders(ctx, upstream, http.Header{})
+		requestcontext.ApplyForwardedClientHeaders(ctx, upstream, http.Header{})
 		assert.Equal(t, "session-1", upstream.Header.Get("X-Claude-Code-Session-Id"))
 	})
 
 	t.Run("does not invent a session id for other configured headers", func(t *testing.T) {
 		upstream := httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
 		ctx := identityCtx(snowflakeCreds, identity)
-		proxy.ApplyForwardedClientHeaders(ctx, upstream, http.Header{})
+		requestcontext.ApplyForwardedClientHeaders(ctx, upstream, http.Header{})
 		assert.Empty(t, upstream.Header.Get("X-SNOWFLAKE-APPLICATION"))
 	})
 
@@ -162,7 +162,7 @@ func TestApplyForwardedClientHeaders(t *testing.T) {
 		upstream := httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
 		upstream.Header.Set("X-SNOWFLAKE-APPLICATION", "")
 		ctx := identityCtx(snowflakeCreds, identity)
-		proxy.ApplyForwardedClientHeaders(ctx, upstream, http.Header{})
+		requestcontext.ApplyForwardedClientHeaders(ctx, upstream, http.Header{})
 		assert.Empty(t, upstream.Header.Get("X-SNOWFLAKE-APPLICATION"))
 	})
 }

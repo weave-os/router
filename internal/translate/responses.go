@@ -619,8 +619,10 @@ type ResponsesWriter struct {
 	nativeBadgeContentIndex     int64
 	nativeBadgeHasContentIndex  bool
 	nativeSyntheticBadgeEmitted bool
+	nativePreludeCreated        bool
 	nativeOutputIndexShift      int64
 	nativeSequenceShift         int64
+	outputIndexOffset           int
 	footerText                  string
 	footerEmitted               bool
 	sawToolCall                 bool
@@ -725,6 +727,39 @@ func (t *ResponsesWriter) SetBadgeText(text string) {
 	t.badgeText = text + "\n\n"
 }
 
+// SetRoutedModel updates the model reported by terminal response envelopes.
+func (t *ResponsesWriter) SetRoutedModel(model string) {
+	t.model = model
+}
+
+// EmitRoutingBadge appends a corrected routing badge to an open stream.
+func (t *ResponsesWriter) EmitRoutingBadge(text string) error {
+	text = strings.TrimSpace(text)
+	if text == "" || text == strings.TrimSpace(t.badgeText) {
+		return nil
+	}
+	t.badgeText = text + "\n\n"
+	if t.passthrough {
+		if !t.nativePreludeCreated {
+			return nil
+		}
+		return t.emitNativeSyntheticBadge(1+t.nativeSequenceShift, t.nativeOutputIndexShift)
+	}
+	if !t.streaming || !t.headersEmitted {
+		return nil
+	}
+	if t.textItem == nil || t.textItem.closed {
+		if err := t.openTextItem(); err != nil {
+			return err
+		}
+		if err := t.lifecycle.Output(t.textItem.outputIndex); err != nil {
+			return err
+		}
+	}
+	t.textItem.text.WriteString(t.computeBadgeText())
+	return t.emitTextDelta(t.textItem, t.computeBadgeText())
+}
+
 // EnableCodexBadgeProvenance prefixes in-band badges with the invisible
 // sentinel so ingress stripping only removes router-injected text.
 func (t *ResponsesWriter) EnableCodexBadgeProvenance() {
@@ -739,16 +774,26 @@ func (t *ResponsesWriter) SetFooterText(text string) {
 
 func (t *ResponsesWriter) Header() http.Header { return t.inner.Header() }
 
-// SetPassthrough switches to verbatim mode: bytes forwarded unchanged, no
-// chat->Responses translation, no response.created prelude. Use when upstream
-// already speaks Responses natively (Codex backend) — re-translating would
-// corrupt the stream. Must be called before the first write (right after
-// routing, before Prelude).
+// SetPassthrough switches to native Responses mode. Upstream bytes remain in
+// Responses format, while Prelude may synthesize lifecycle and badge events.
+// Must be called before the first write.
 func (t *ResponsesWriter) SetPassthrough() { t.passthrough = true }
 
 // ClearPassthrough returns the writer to translation mode, reporting false
-// when bytes already committed it. Used for pre-commit fallback to chat/completions.
+// after provider output prevents a clean continuation. A visible synthetic
+// prelude remains valid and seeds the translated sequence and output indexes.
 func (t *ResponsesWriter) ClearPassthrough() bool {
+	if t.nativePreludeCreated && !t.completedEmitted {
+		if err := t.lifecycle.Start(); err != nil {
+			return false
+		}
+		t.passthrough = false
+		t.passthroughBadge = false
+		t.headersEmitted = true
+		t.seq = 1 + t.nativeSequenceShift
+		t.outputIndexOffset = int(t.nativeOutputIndexShift)
+		return true
+	}
 	if t.httpHeadersSent || t.headersEmitted || t.buf.Len() > 0 {
 		return false
 	}
@@ -882,9 +927,24 @@ func nativeResponsesSSEBuffer(data []byte) bool {
 // was requested; the headersEmitted guard makes it safe to call once, with
 // upstream Write emitting created later if this hasn't run yet.
 func (t *ResponsesWriter) Prelude(streaming bool) error {
-	// Upstream emits its own response.created in passthrough mode.
 	if t.passthrough {
-		return nil
+		if !streaming || !t.passthroughBadge || t.nativeSyntheticBadgeEmitted || t.computeBadgeText() == "" {
+			return nil
+		}
+		t.inner.Header().Set("Content-Type", "text/event-stream")
+		t.inner.Header().Del("Content-Length")
+		t.inner.Header().Del("Content-Encoding")
+		t.streaming = true
+		t.statusCode = http.StatusOK
+		if !t.httpHeadersSent {
+			t.inner.WriteHeader(http.StatusOK)
+			t.httpHeadersSent = true
+		}
+		if err := t.writeNativeEvent("response.created", 0, map[string]any{"response": t.responseEnvelope("in_progress")}); err != nil {
+			return err
+		}
+		t.nativePreludeCreated = true
+		return t.emitNativeSyntheticBadge(1, 0)
 	}
 	if !streaming || t.headersEmitted {
 		return nil
@@ -900,7 +960,10 @@ func (t *ResponsesWriter) Prelude(streaming bool) error {
 	if err := t.lifecycle.Start(); err != nil {
 		return err
 	}
-	return t.emitCreated()
+	if err := t.emitCreated(); err != nil {
+		return err
+	}
+	return t.ensureBadgeItem()
 }
 
 func (t *ResponsesWriter) Flush() {
@@ -1301,6 +1364,20 @@ func (t *ResponsesWriter) rewriteNativePassthroughFields(data []byte) ([]byte, b
 			changed = true
 		}
 	}
+	if t.nativePreludeCreated && root.Get("response.id").Exists() {
+		if rewritten, err := sjson.SetBytes(data, "response.id", t.responseID); err == nil {
+			data = rewritten
+			root = gjson.ParseBytes(data)
+			changed = true
+		}
+	}
+	if t.nativePreludeCreated && root.Get("response.model").Exists() {
+		if rewritten, err := sjson.SetBytes(data, "response.model", t.model); err == nil {
+			data = rewritten
+			root = gjson.ParseBytes(data)
+			changed = true
+		}
+	}
 	if !t.nativeSyntheticBadgeEmitted || (root.Get("type").Str != "response.completed" && root.Get("type").Str != "response.incomplete") {
 		return data, changed
 	}
@@ -1429,6 +1506,57 @@ func (t *ResponsesWriter) writeNativeEvent(eventType string, sequence int64, pay
 	return err
 }
 
+func (t *ResponsesWriter) emitNativeSyntheticBadge(base, outputIndex int64) error {
+	itemID := newResponsesID("msg")
+	text := t.computeBadgeText()
+	item := map[string]any{
+		"id": itemID, "type": "message", "status": "in_progress", "role": "assistant", "content": []any{},
+	}
+	if err := t.writeNativeEvent("response.output_item.added", base, map[string]any{"output_index": outputIndex, "item": item}); err != nil {
+		return err
+	}
+	if err := t.writeNativeEvent("response.content_part.added", base+1, map[string]any{
+		"item_id": itemID, "output_index": outputIndex, "content_index": 0,
+		"part": map[string]any{"type": "output_text", "text": "", "annotations": []any{}},
+	}); err != nil {
+		return err
+	}
+	if err := t.writeNativeEvent("response.output_text.delta", base+2, map[string]any{
+		"item_id": itemID, "output_index": outputIndex, "content_index": 0, "delta": text,
+	}); err != nil {
+		return err
+	}
+	if err := t.writeNativeEvent("response.output_text.done", base+3, map[string]any{
+		"item_id": itemID, "output_index": outputIndex, "content_index": 0, "text": text,
+	}); err != nil {
+		return err
+	}
+	if err := t.writeNativeEvent("response.content_part.done", base+4, map[string]any{
+		"item_id": itemID, "output_index": outputIndex, "content_index": 0,
+		"part": map[string]any{"type": "output_text", "text": text, "annotations": []any{}},
+	}); err != nil {
+		return err
+	}
+	if err := t.writeNativeEvent("response.output_item.done", base+5, map[string]any{
+		"output_index": outputIndex,
+		"item": map[string]any{"id": itemID, "type": "message", "status": "completed", "role": "assistant", "content": []any{
+			map[string]any{"type": "output_text", "text": text, "annotations": []any{}},
+		}},
+	}); err != nil {
+		return err
+	}
+	t.nativeSyntheticBadgeEmitted = true
+	t.nativeBadgeTargetSelected = true
+	t.nativeBadgeItemID = itemID
+	t.nativeBadgeOutputIndex = outputIndex
+	t.nativeBadgeHasOutputIndex = true
+	t.nativeBadgeContentIndex = 0
+	t.nativeBadgeHasContentIndex = true
+	t.nativeOutputIndexShift++
+	t.nativeSequenceShift += 6
+	return nil
+}
+
 // emitNativeBadgeBeforeOutput prepends a synthetic badge message item, emitting
 // six native events and shifting sequence numbers and output indices accordingly.
 func (t *ResponsesWriter) emitNativeBadgeBeforeOutput(event []byte) error {
@@ -1442,54 +1570,7 @@ func (t *ResponsesWriter) emitNativeBadgeBeforeOutput(event []byte) error {
 	if sequence.Type == gjson.Number {
 		base = sequence.Int() + t.nativeSequenceShift
 	}
-	itemID := newResponsesID("msg")
-	text := t.computeBadgeText()
-	item := map[string]any{
-		"id": itemID, "type": "message", "status": "in_progress", "role": "assistant", "content": []any{},
-	}
-	if err := t.writeNativeEvent("response.output_item.added", base, map[string]any{"output_index": 0, "item": item}); err != nil {
-		return err
-	}
-	if err := t.writeNativeEvent("response.content_part.added", base+1, map[string]any{
-		"item_id": itemID, "output_index": 0, "content_index": 0,
-		"part": map[string]any{"type": "output_text", "text": "", "annotations": []any{}},
-	}); err != nil {
-		return err
-	}
-	if err := t.writeNativeEvent("response.output_text.delta", base+2, map[string]any{
-		"item_id": itemID, "output_index": 0, "content_index": 0, "delta": text,
-	}); err != nil {
-		return err
-	}
-	if err := t.writeNativeEvent("response.output_text.done", base+3, map[string]any{
-		"item_id": itemID, "output_index": 0, "content_index": 0, "text": text,
-	}); err != nil {
-		return err
-	}
-	if err := t.writeNativeEvent("response.content_part.done", base+4, map[string]any{
-		"item_id": itemID, "output_index": 0, "content_index": 0,
-		"part": map[string]any{"type": "output_text", "text": text, "annotations": []any{}},
-	}); err != nil {
-		return err
-	}
-	if err := t.writeNativeEvent("response.output_item.done", base+5, map[string]any{
-		"output_index": 0,
-		"item": map[string]any{"id": itemID, "type": "message", "status": "completed", "role": "assistant", "content": []any{
-			map[string]any{"type": "output_text", "text": text, "annotations": []any{}},
-		}},
-	}); err != nil {
-		return err
-	}
-	t.nativeSyntheticBadgeEmitted = true
-	t.nativeBadgeTargetSelected = true
-	t.nativeBadgeItemID = itemID
-	t.nativeBadgeOutputIndex = 0
-	t.nativeBadgeHasOutputIndex = true
-	t.nativeBadgeContentIndex = 0
-	t.nativeBadgeHasContentIndex = true
-	t.nativeOutputIndexShift++
-	t.nativeSequenceShift += 6
-	return nil
+	return t.emitNativeSyntheticBadge(base, t.nativeOutputIndexShift)
 }
 
 func (t *ResponsesWriter) writeNativeResponsesEvent(event, delimiter []byte) error {
@@ -1499,6 +1580,9 @@ func (t *ResponsesWriter) writeNativeResponsesEvent(event, delimiter []byte) err
 	if gjson.ValidBytes(data) {
 		eventType = gjson.GetBytes(data, "type").Str
 		itemType = gjson.GetBytes(data, "item.type").Str
+	}
+	if t.nativePreludeCreated && eventType == "response.created" {
+		return nil
 	}
 	toolCall := eventType == "response.function_call_arguments.delta" || eventType == "response.custom_tool_call_input.delta" || (eventType == "response.output_item.added" && (itemType == "function_call" || itemType == "custom_tool_call")) || (eventType == "response.output_item.done" && (itemType == "function_call" || itemType == "custom_tool_call"))
 	reasoningItem := eventType == "response.output_item.added" && itemType == "reasoning"
@@ -1606,7 +1690,28 @@ func (t *ResponsesWriter) processFinalPassthroughSSETail() error {
 // of a truncated stream. No-op if nothing streamed yet (caller writes a JSON
 // error instead), in passthrough mode, or after a terminal event already fired.
 func (t *ResponsesWriter) FinalizeError(_ error) error {
-	if t.passthrough || !t.streaming || !t.headersEmitted || t.completedEmitted {
+	if t.passthrough {
+		if !t.streaming || !t.nativePreludeCreated || t.completedEmitted {
+			return nil
+		}
+		env := t.responseEnvelope("failed")
+		env["output"] = []any{map[string]any{
+			"id": t.nativeBadgeItemID, "type": "message", "status": "completed", "role": "assistant",
+			"content": []any{map[string]any{
+				"type": "output_text", "text": t.computeBadgeText(), "annotations": []any{},
+			}},
+		}}
+		env["error"] = map[string]any{
+			"code":    "upstream_error",
+			"message": "Upstream call failed.",
+		}
+		if err := t.writeNativeEvent("response.failed", 1+t.nativeSequenceShift, map[string]any{"response": env}); err != nil {
+			return err
+		}
+		t.completedEmitted = true
+		return t.bw.Flush()
+	}
+	if !t.streaming || !t.headersEmitted || t.completedEmitted {
 		return nil
 	}
 	if t.lifecycle.State() == StreamStarted {
@@ -1867,7 +1972,7 @@ func (t *ResponsesWriter) nextOutputIndex() int {
 		count++
 	}
 	count += len(t.toolItems)
-	return count - 1
+	return t.outputIndexOffset + count - 1
 }
 
 // computeBadgeText returns the routing badge to surface for this turn, with the

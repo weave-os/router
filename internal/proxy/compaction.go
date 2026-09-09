@@ -5,12 +5,14 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/handover"
+	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/router/turntype"
 	"weave-os/router/internal/translate"
@@ -27,20 +29,9 @@ const (
 	// (not at overflow) keeps the pre-summary history small enough for a
 	// summarizer to ingest.
 	DefaultCompactionTriggerPct = 0.85
-	// DefaultCompactionModel is the Anthropic-family model the cascade
-	// summarizes with when the session has no warm Anthropic pin to reuse.
-	// Sonnet-class: the compaction summary is the only record of the elided
-	// history, so it is worth a mid-tier model. Overridable via
-	// ROUTER_COMPACTION_MODEL.
-	DefaultCompactionModel = "claude-sonnet-4-6"
 	// compactionSummaryOutputReserve is headroom (summary output + margin) the
 	// selected summarizer model needs above the history it must ingest.
 	compactionSummaryOutputReserve = DefaultCompactionMaxTokens + 8_000
-	// largeWindowSummarizerModel is the big-context Anthropic-family model used
-	// to summarize histories too large for the default summarizer. It is
-	// Anthropic-family so the Anthropic-only ProviderSummarizer can target it
-	// with no cross-format translation.
-	largeWindowSummarizerModel = "claude-fable-5"
 	// claudeCodeAutoCompactBuffer is the token headroom below its believed
 	// context window at which Claude Code's own auto-compact fires. Mirrors
 	// the client (2.1.x) so the router can tell whether the client would have
@@ -95,7 +86,7 @@ func compactionPolicyFor(clientApp string) compactionPolicy {
 // *ProviderSummarizer; declared here so the Service depends on the behavior,
 // not the concrete type.
 type CompactionSummarizer interface {
-	SummarizeForCompaction(ctx context.Context, env *translate.RequestEnvelope, model string, maxTokens int) (string, handover.Usage, error)
+	SummarizeForCompaction(ctx context.Context, env *translate.RequestEnvelope, target CompactionTarget, scope router.Request, maxTokens int) (string, handover.Usage, error)
 	Provider() string
 }
 
@@ -117,6 +108,9 @@ type compactionInput struct {
 	// below-threshold turn costs no extra pin-store read. Nil means none.
 	PreferredSummarizer func() string
 	Headers             http.Header
+	// Scope is the request's eligibility the summarizer plan must honor
+	// (enabled providers, excluded models, gateways, custom bindings).
+	Scope router.Request
 }
 
 // compactionResult records what the cascade did, for logging and billing.
@@ -158,18 +152,34 @@ func (s *Service) maxEligibleContextWindow(policyExcluded, enabledProviders map[
 	return maxWindow
 }
 
+// summarizerScope is the eligibility a router-initiated summary call inherits
+// from the request it serves: the same provider, model, gateway, and custom
+// binding limits the request's own routing candidates were filtered by.
+func (s *Service) summarizerScope(ctx context.Context, enabledProviders, excludedModels map[string]struct{}) router.Request {
+	return router.Request{
+		EnabledProviders: enabledProviders,
+		ExcludedModels:   excludedModels,
+		CustomBindings:   s.customBindingsForRequest(ctx),
+		GatewayProviders: s.gatewayProvidersForRequest(ctx),
+	}
+}
+
 // compactionModelOrDefault returns the configured Sonnet-class summarizer.
 func (s *Service) compactionModelOrDefault() string {
 	if s.compactionModel != "" {
 		return s.compactionModel
 	}
-	return DefaultCompactionModel
+	return policy.PrecompactionDefaultModel
 }
 
-// anthropicSummarizerEligible reports whether model is a catalog model the
-// Anthropic-only ProviderSummarizer can dispatch to, and is not a low-tier
-// model (a low-tier summary is what the cascade is moving away from).
+// anthropicSummarizerEligible reports whether model is a reviewed member of
+// the precompaction-summary policy: an Anthropic-served, non-low-tier catalog
+// model the cascade may reuse as a warm-pin summarizer.
 func anthropicSummarizerEligible(model string) bool {
+	spec, ok := policy.DefaultRegistry().Spec(policy.PurposePrecompactionSummary)
+	if !ok || !slices.Contains(spec.FixedCatalogModels, model) {
+		return false
+	}
 	m, ok := catalog.ByID(model)
 	if !ok || m.Tier == catalog.TierLow {
 		return false
@@ -180,6 +190,20 @@ func anthropicSummarizerEligible(model string) bool {
 		}
 	}
 	return false
+}
+
+// compactionTargetFor types the cascade's chosen summarizer model by where the
+// choice came from, so the policy resolver can validate it as a session or
+// deployment override rather than an untyped string.
+func (s *Service) compactionTargetFor(model, preferred string) CompactionTarget {
+	switch model {
+	case preferred:
+		return CompactionTarget{CatalogID: model, Source: policy.OverrideSourceSession}
+	case s.compactionModelOrDefault():
+		return CompactionTarget{CatalogID: model, Source: policy.OverrideSourceDeployment}
+	default:
+		return CompactionTarget{CatalogID: model}
+	}
 }
 
 // compactionSummarizerCandidates orders the models the cascade may summarize
@@ -203,7 +227,7 @@ func (s *Service) compactionSummarizerCandidates(preferred string) []string {
 		add(preferred)
 	}
 	add(s.compactionModelOrDefault())
-	add(largeWindowSummarizerModel)
+	add(policy.PrecompactionLargeWindowModel)
 	return out
 }
 
@@ -310,7 +334,7 @@ func (s *Service) maybeCompact(ctx context.Context, env *translate.RequestEnvelo
 		if in.PreferredSummarizer != nil {
 			preferred = in.PreferredSummarizer()
 		}
-		if summary, usage, model, ok := s.runCompactionSummary(ctx, env, preferred, in.Headers); ok {
+		if summary, usage, model, ok := s.runCompactionSummary(ctx, env, preferred, in.Scope, in.Headers); ok {
 			// The summary is billed regardless; a rewrite that leaves a
 			// fitting request no longer fitting is discarded rather than
 			// letting rescue trimming drop context that was already servable.
@@ -364,7 +388,7 @@ func (s *Service) billCompactionSummary(ctx context.Context, requestID, external
 // by the switch-handover path. Returns ok=false (and logs) when no summarizer
 // fits the history, the tenant boundary forbids the call, or the call fails —
 // in every such case the caller falls through to trimming.
-func (s *Service) runCompactionSummary(ctx context.Context, env *translate.RequestEnvelope, preferred string, reqHeaders http.Header) (string, handover.Usage, string, bool) {
+func (s *Service) runCompactionSummary(ctx context.Context, env *translate.RequestEnvelope, preferred string, scope router.Request, reqHeaders http.Header) (string, handover.Usage, string, bool) {
 	log := observability.FromContext(ctx)
 
 	model := s.selectCompactionSummarizer(env.ContextOverflowTokenEstimate(), preferred)
@@ -386,7 +410,7 @@ func (s *Service) runCompactionSummary(ctx context.Context, env *translate.Reque
 		summCtx = clearCredentials(ctx)
 	}
 
-	summary, usage, err := s.compactionSummarizer.SummarizeForCompaction(summCtx, env, model, DefaultCompactionMaxTokens)
+	summary, usage, err := s.compactionSummarizer.SummarizeForCompaction(summCtx, env, s.compactionTargetFor(model, preferred), scope, DefaultCompactionMaxTokens)
 	if err != nil {
 		log.Warn("Compaction summarizer failed; falling back to trim", "err", err, "model", model)
 		return "", handover.Usage{}, "", false
@@ -404,22 +428,24 @@ func (s *Service) runCompactionSummary(ctx context.Context, env *translate.Reque
 // else the configured compaction model on Anthropic. A Codex thread arrives
 // in Responses format, so when a non-Anthropic model has been serving it the
 // turn stays there rather than being summarized cross-format by Sonnet — the
-// summary replaces the thread's history for every turn that follows. ok=false
-// when nothing is eligible for this request, so the caller falls back to the
+// summary replaces the thread's history for every turn that follows. source
+// records whether the session's own model or the deployment's configured one
+// won, so the plan is authorized under the matching override. ok=false when
+// nothing is eligible for this request, so the caller falls back to the
 // generic hard-pin tier.
-func (s *Service) compactionHardPin(ctx context.Context, sessionKey [sessionpin.SessionKeyLen]byte, role string, req router.Request) (provider, model string, ok bool) {
+func (s *Service) compactionHardPin(ctx context.Context, sessionKey [sessionpin.SessionKeyLen]byte, role string, req router.Request) (provider, model string, source policy.OverrideSource, ok bool) {
 	// Gateway-exclusive tenants drop vendor bindings; leave them to the resolver.
 	if len(req.GatewayProviders) > 0 {
-		return "", "", false
+		return "", "", "", false
 	}
 	if req.ClientApp == ClientAppCodex {
 		if p, m, served := s.compactionSessionModel(ctx, sessionKey, role, req); served {
-			return p, m, true
+			return p, m, policy.OverrideSourceSession, true
 		}
 	}
 	if req.EnabledProviders != nil {
 		if _, enabled := req.EnabledProviders[providers.ProviderAnthropic]; !enabled {
-			return "", "", false
+			return "", "", "", false
 		}
 	}
 	eligible := func(m string) bool {
@@ -437,12 +463,12 @@ func (s *Service) compactionHardPin(ctx context.Context, sessionKey [sessionpin.
 		return !automaticallyDisabled(req, m)
 	}
 	if preferred := s.compactionPreferredSummarizer(ctx, sessionKey, role); eligible(preferred) {
-		return providers.ProviderAnthropic, preferred, true
+		return providers.ProviderAnthropic, preferred, policy.OverrideSourceSession, true
 	}
 	if m := s.compactionModelOrDefault(); eligible(m) {
-		return providers.ProviderAnthropic, m, true
+		return providers.ProviderAnthropic, m, policy.OverrideSourceDeployment, true
 	}
-	return "", "", false
+	return "", "", "", false
 }
 
 // compactionSessionModel returns the non-Anthropic model that has been serving
@@ -509,10 +535,7 @@ func latestServedPin(pins ...sessionpin.Pin) sessionpin.Pin {
 func (s *Service) servedBinding(model, servedProvider string, req router.Request) (catalog.ProviderBinding, bool) {
 	providerSet := req.EnabledProviders
 	if providerSet == nil {
-		providerSet = make(map[string]struct{}, len(s.providers))
-		for provider := range s.providers {
-			providerSet[provider] = struct{}{}
-		}
+		providerSet = s.clients.NameSet()
 	}
 	if _, enabled := providerSet[servedProvider]; enabled {
 		pinned := map[string]struct{}{servedProvider: {}}

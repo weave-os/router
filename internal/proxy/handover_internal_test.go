@@ -11,9 +11,15 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/tidwall/gjson"
 
+	"weave-os/router/internal/dispatch"
+	"weave-os/router/internal/inference"
+	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/catalog"
+	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/translate"
 )
 
@@ -25,9 +31,17 @@ type fakeHandoverProvider struct {
 	respStatus  int
 	sleep       time.Duration
 	upstreamErr error
+	calls       int
+	wireModels  []string
+	maxTokens   []int64
+	decisions   []router.Decision
 }
 
-func (f *fakeHandoverProvider) Proxy(ctx context.Context, _ router.Decision, _ providers.PreparedRequest, w http.ResponseWriter, _ *http.Request) error {
+func (f *fakeHandoverProvider) Proxy(ctx context.Context, decision router.Decision, prep providers.PreparedRequest, w http.ResponseWriter, _ *http.Request) error {
+	f.calls++
+	f.decisions = append(f.decisions, decision)
+	f.wireModels = append(f.wireModels, gjson.GetBytes(prep.Body, "model").String())
+	f.maxTokens = append(f.maxTokens, gjson.GetBytes(prep.Body, "max_tokens").Int())
 	if f.sleep > 0 {
 		select {
 		case <-time.After(f.sleep):
@@ -49,6 +63,23 @@ func (f *fakeHandoverProvider) Proxy(ctx context.Context, _ router.Decision, _ p
 
 func (f *fakeHandoverProvider) Passthrough(_ context.Context, _ providers.PreparedRequest, _ http.ResponseWriter, _ *http.Request) error {
 	return nil
+}
+
+// newTestSummarizer wires fake as the only Anthropic client behind a plan
+// resolver whose deployed set contains model, mirroring composition.
+func newTestSummarizer(t *testing.T, fake providers.Client, model string, timeout time.Duration) *ProviderSummarizer {
+	t.Helper()
+	if model == "" {
+		model = policy.HandoverSummaryDefaultModel
+	}
+	available := map[string]struct{}{providers.ProviderAnthropic: {}}
+	deployed := map[string]struct{}{model: {}}
+	plans, err := policy.NewPlanResolver(policy.DefaultRegistry(), policy.NewResolver(
+		deployed, available, func(m catalog.Model) string { return m.ID }, policy.ProviderPolicy{}))
+	require.NoError(t, err)
+	executor, err := dispatch.NewExecutor(dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: fake}))
+	require.NoError(t, err)
+	return NewProviderSummarizer(plans, executor, providers.ProviderAnthropic, model, timeout)
 }
 
 // sampleConversation is the test fixture used across the cases. Both
@@ -89,9 +120,9 @@ func TestProviderSummarizer_SuccessReturnsAssistantText(t *testing.T) {
 		respBody:   canonicalAnthropicResponse,
 		respStatus: http.StatusOK,
 	}
-	s := NewProviderSummarizer(fake, "", 200*time.Millisecond)
+	s := newTestSummarizer(t, fake, "", 200*time.Millisecond)
 
-	got, _, err := s.Summarize(context.Background(), env)
+	got, _, err := s.Summarize(context.Background(), env, router.Request{})
 	require.NoError(t, err)
 	assert.Equal(t, "Refactor in progress: step 1 done, step 2 pending.", got)
 }
@@ -107,9 +138,9 @@ func TestProviderSummarizer_TimeoutReturnsError(t *testing.T) {
 		// Sleep longer than the summarizer's timeout.
 		sleep: 200 * time.Millisecond,
 	}
-	s := NewProviderSummarizer(fake, "", 25*time.Millisecond)
+	s := newTestSummarizer(t, fake, "", 25*time.Millisecond)
 
-	got, _, err := s.Summarize(context.Background(), env)
+	got, _, err := s.Summarize(context.Background(), env, router.Request{})
 	require.Error(t, err)
 	assert.Empty(t, got)
 	// Either the ctx.Err() bubble or the fake's own ctx-aware return both
@@ -127,9 +158,9 @@ func TestProviderSummarizer_Non2xxReturnsError(t *testing.T) {
 		respBody:   `{"error":"oops"}`,
 		respStatus: http.StatusInternalServerError,
 	}
-	s := NewProviderSummarizer(fake, "", 200*time.Millisecond)
+	s := newTestSummarizer(t, fake, "", 200*time.Millisecond)
 
-	got, _, err := s.Summarize(context.Background(), env)
+	got, _, err := s.Summarize(context.Background(), env, router.Request{})
 	require.Error(t, err)
 	assert.Empty(t, got)
 	assert.True(t, strings.Contains(err.Error(), "500"), "error must mention upstream status 500; got %v", err)
@@ -147,9 +178,9 @@ func TestProviderSummarizer_EmptyContentReturnsErrEmptySummary(t *testing.T) {
 		respBody:   `{"id":"msg_empty","content":[]}`,
 		respStatus: http.StatusOK,
 	}
-	s := NewProviderSummarizer(fake, "", 200*time.Millisecond)
+	s := newTestSummarizer(t, fake, "", 200*time.Millisecond)
 
-	got, _, err := s.Summarize(context.Background(), env)
+	got, _, err := s.Summarize(context.Background(), env, router.Request{})
 	require.Error(t, err)
 	assert.ErrorIs(t, err, ErrEmptySummary)
 	assert.Empty(t, got)
@@ -159,8 +190,251 @@ func TestProviderSummarizer_NilEnvelopeReturnsError(t *testing.T) {
 	t.Parallel()
 
 	fake := &fakeHandoverProvider{}
-	s := NewProviderSummarizer(fake, "", 200*time.Millisecond)
+	s := newTestSummarizer(t, fake, "", 200*time.Millisecond)
 
-	_, _, err := s.Summarize(context.Background(), nil)
+	_, _, err := s.Summarize(context.Background(), nil, router.Request{})
 	require.Error(t, err)
+}
+
+func TestProviderSummarizer_WireModelMatchesPlanTarget(t *testing.T) {
+	t.Parallel()
+
+	env, err := translate.ParseAnthropic([]byte(sampleConversation))
+	require.NoError(t, err)
+
+	fake := &fakeHandoverProvider{respBody: canonicalAnthropicResponse, respStatus: http.StatusOK}
+	s := newTestSummarizer(t, fake, "", 200*time.Millisecond)
+
+	_, usage, err := s.Summarize(context.Background(), env, router.Request{})
+	require.NoError(t, err)
+	require.Equal(t, 1, fake.calls)
+	assert.Equal(t, []string{policy.HandoverSummaryDefaultModel}, fake.wireModels)
+	assert.Equal(t, policy.HandoverSummaryDefaultModel, fake.decisions[0].Model)
+	assert.Equal(t, providers.ProviderAnthropic, fake.decisions[0].Provider)
+	assert.Equal(t, policy.HandoverSummaryDefaultModel, usage.Model)
+	assert.Equal(t, providers.ProviderAnthropic, usage.Provider)
+}
+
+func TestProviderSummarizer_UnreviewedModelFailsBeforeIO(t *testing.T) {
+	t.Parallel()
+
+	env, err := translate.ParseAnthropic([]byte(sampleConversation))
+	require.NoError(t, err)
+
+	fake := &fakeHandoverProvider{respBody: canonicalAnthropicResponse, respStatus: http.StatusOK}
+	// claude-opus-4-7 is deployed but not in the handover policy's reviewed set.
+	s := newTestSummarizer(t, fake, "claude-opus-4-7", 200*time.Millisecond)
+
+	got, _, err := s.Summarize(context.Background(), env, router.Request{})
+	require.Error(t, err)
+	var resolution *policy.ResolutionError
+	require.ErrorAs(t, err, &resolution)
+	assert.Equal(t, policy.ResolutionErrorInvalidOverride, resolution.Code)
+	assert.Empty(t, got)
+	assert.Equal(t, 0, fake.calls, "no upstream I/O after a failed plan resolution")
+}
+
+func TestProviderSummarizer_Non2xxIsNotRetried(t *testing.T) {
+	t.Parallel()
+
+	env, err := translate.ParseAnthropic([]byte(sampleConversation))
+	require.NoError(t, err)
+
+	fake := &fakeHandoverProvider{respBody: `{"error":"busy"}`, respStatus: http.StatusServiceUnavailable}
+	s := newTestSummarizer(t, fake, "", 2*time.Second)
+
+	_, _, err = s.Summarize(context.Background(), env, router.Request{})
+	require.Error(t, err)
+	assert.Equal(t, 1, fake.calls, "policy budget allows one attempt")
+}
+
+func TestProviderSummarizer_AttemptEventsCarryRequestID(t *testing.T) {
+	t.Parallel()
+
+	env, err := translate.ParseAnthropic([]byte(sampleConversation))
+	require.NoError(t, err)
+
+	fake := &fakeHandoverProvider{respBody: canonicalAnthropicResponse, respStatus: http.StatusOK}
+	available := map[string]struct{}{providers.ProviderAnthropic: {}}
+	deployed := map[string]struct{}{policy.HandoverSummaryDefaultModel: {}}
+	plans, err := policy.NewPlanResolver(policy.DefaultRegistry(), policy.NewResolver(
+		deployed, available, func(m catalog.Model) string { return m.ID }, policy.ProviderPolicy{}))
+	require.NoError(t, err)
+	var events []inference.AttemptEvent
+	executor, err := dispatch.NewExecutor(
+		dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: fake}),
+		dispatch.WithAttemptSink(dispatch.AttemptSinkFunc(func(_ context.Context, event inference.AttemptEvent) {
+			events = append(events, event)
+		})),
+	)
+	require.NoError(t, err)
+	s := NewProviderSummarizer(plans, executor, providers.ProviderAnthropic, policy.HandoverSummaryDefaultModel, 200*time.Millisecond)
+
+	ctx := observability.WithRequestID(context.Background(), "req-handover-1")
+	_, _, err = s.Summarize(ctx, env, router.Request{})
+	require.NoError(t, err)
+	require.Len(t, events, 1)
+	assert.Equal(t, "req-handover-1", events[0].RequestID)
+}
+
+// newTestCompactionSummarizer deploys every model in models so the compaction
+// cascade's candidates are all resolvable bindings.
+func newTestCompactionSummarizer(t *testing.T, fake providers.Client, compactionModel string, models ...string) *ProviderSummarizer {
+	t.Helper()
+	available := map[string]struct{}{providers.ProviderAnthropic: {}}
+	deployed := map[string]struct{}{policy.HandoverSummaryDefaultModel: {}}
+	for _, m := range models {
+		deployed[m] = struct{}{}
+	}
+	plans, err := policy.NewPlanResolver(policy.DefaultRegistry(), policy.NewResolver(
+		deployed, available, func(m catalog.Model) string { return m.ID }, policy.ProviderPolicy{}))
+	require.NoError(t, err)
+	executor, err := dispatch.NewExecutor(dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: fake}))
+	require.NoError(t, err)
+	return NewProviderSummarizer(plans, executor, providers.ProviderAnthropic, "", 200*time.Millisecond).
+		WithCompactionModel(compactionModel).
+		WithCompactionTimeout(200 * time.Millisecond)
+}
+
+func TestProviderSummarizer_CompactionSessionPinRunsThroughExecutor(t *testing.T) {
+	t.Parallel()
+
+	env, err := translate.ParseAnthropic([]byte(sampleConversation))
+	require.NoError(t, err)
+
+	fake := &fakeHandoverProvider{respBody: canonicalAnthropicResponse, respStatus: http.StatusOK}
+	s := newTestCompactionSummarizer(t, fake, policy.PrecompactionDefaultModel, policy.PrecompactionDefaultModel, "claude-opus-4-7")
+
+	target := CompactionTarget{CatalogID: "claude-opus-4-7", Source: policy.OverrideSourceSession}
+	got, usage, err := s.SummarizeForCompaction(context.Background(), env, target, router.Request{}, DefaultCompactionMaxTokens)
+	require.NoError(t, err)
+	assert.Equal(t, "Refactor in progress: step 1 done, step 2 pending.", got)
+	require.Equal(t, 1, fake.calls)
+	assert.Equal(t, []string{"claude-opus-4-7"}, fake.wireModels)
+	assert.Equal(t, "claude-opus-4-7", fake.decisions[0].Model)
+	assert.Equal(t, "claude-opus-4-7", usage.Model)
+	assert.Equal(t, providers.ProviderAnthropic, usage.Provider)
+}
+
+func TestProviderSummarizer_CompactionPolicyDefaultTargetIsHonored(t *testing.T) {
+	t.Parallel()
+
+	env, err := translate.ParseAnthropic([]byte(sampleConversation))
+	require.NoError(t, err)
+
+	fake := &fakeHandoverProvider{respBody: canonicalAnthropicResponse, respStatus: http.StatusOK}
+	s := newTestCompactionSummarizer(t, fake, policy.PrecompactionDefaultModel, policy.PrecompactionDefaultModel, policy.PrecompactionLargeWindowModel)
+
+	// No override source: the cascade fell through to the large-window model,
+	// which must resolve as the policy default rather than the first listed one.
+	_, _, err = s.SummarizeForCompaction(context.Background(), env, CompactionTarget{CatalogID: policy.PrecompactionLargeWindowModel}, router.Request{}, DefaultCompactionMaxTokens)
+	require.NoError(t, err)
+	assert.Equal(t, []string{policy.PrecompactionLargeWindowModel}, fake.wireModels)
+}
+
+func TestProviderSummarizer_RequestScopeExcludesSummaryModelBeforeIO(t *testing.T) {
+	t.Parallel()
+
+	env, err := translate.ParseAnthropic([]byte(sampleConversation))
+	require.NoError(t, err)
+
+	fake := &fakeHandoverProvider{respBody: canonicalAnthropicResponse, respStatus: http.StatusOK}
+	s := newTestSummarizer(t, fake, "", 200*time.Millisecond)
+
+	scopes := map[string]router.Request{
+		"excluded_model":    {ExcludedModels: map[string]struct{}{policy.HandoverSummaryDefaultModel: {}}},
+		"provider_disabled": {EnabledProviders: map[string]struct{}{providers.ProviderOpenAI: {}}},
+	}
+	for name, scope := range scopes {
+		t.Run(name, func(t *testing.T) {
+			got, _, err := s.Summarize(context.Background(), env, scope)
+			require.Error(t, err)
+			var resolution *policy.ResolutionError
+			require.ErrorAs(t, err, &resolution)
+			assert.Equal(t, policy.PurposeHandoverSummary, resolution.Purpose)
+			assert.Empty(t, got)
+		})
+	}
+	assert.Equal(t, 0, fake.calls, "a summary the tenant's own turn could not use must never reach a provider")
+
+	got, _, err := s.Summarize(context.Background(), env, router.Request{
+		EnabledProviders: map[string]struct{}{providers.ProviderAnthropic: {}},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "Refactor in progress: step 1 done, step 2 pending.", got)
+	assert.Equal(t, 1, fake.calls)
+}
+
+func TestProviderSummarizer_CompactionScopeExcludesTargetBeforeIO(t *testing.T) {
+	t.Parallel()
+
+	env, err := translate.ParseAnthropic([]byte(sampleConversation))
+	require.NoError(t, err)
+
+	fake := &fakeHandoverProvider{respBody: canonicalAnthropicResponse, respStatus: http.StatusOK}
+	s := newTestCompactionSummarizer(t, fake, policy.PrecompactionDefaultModel, policy.PrecompactionDefaultModel)
+
+	target := CompactionTarget{CatalogID: policy.PrecompactionDefaultModel, Source: policy.OverrideSourceDeployment}
+	scope := router.Request{ExcludedModels: map[string]struct{}{policy.PrecompactionDefaultModel: {}}}
+	got, _, err := s.SummarizeForCompaction(context.Background(), env, target, scope, DefaultCompactionMaxTokens)
+	require.Error(t, err)
+	var resolution *policy.ResolutionError
+	require.ErrorAs(t, err, &resolution)
+	assert.Equal(t, policy.PurposePrecompactionSummary, resolution.Purpose)
+	assert.Empty(t, got)
+	assert.Equal(t, 0, fake.calls)
+}
+
+func TestProviderSummarizer_CompactionUnreviewedPinFailsBeforeIO(t *testing.T) {
+	t.Parallel()
+
+	env, err := translate.ParseAnthropic([]byte(sampleConversation))
+	require.NoError(t, err)
+
+	fake := &fakeHandoverProvider{respBody: canonicalAnthropicResponse, respStatus: http.StatusOK}
+	s := newTestCompactionSummarizer(t, fake, policy.PrecompactionDefaultModel, policy.PrecompactionDefaultModel)
+
+	// Haiku is deployed but the precompaction policy does not review it.
+	target := CompactionTarget{CatalogID: policy.HandoverSummaryDefaultModel, Source: policy.OverrideSourceSession}
+	got, _, err := s.SummarizeForCompaction(context.Background(), env, target, router.Request{}, DefaultCompactionMaxTokens)
+	require.Error(t, err)
+	var resolution *policy.ResolutionError
+	require.ErrorAs(t, err, &resolution)
+	assert.Equal(t, policy.ResolutionErrorInvalidOverride, resolution.Code)
+	assert.Empty(t, got)
+	assert.Equal(t, 0, fake.calls)
+}
+
+func TestProviderSummarizer_CompactionOutputCapFollowsPolicyBudget(t *testing.T) {
+	t.Parallel()
+
+	env, err := translate.ParseAnthropic([]byte(sampleConversation))
+	require.NoError(t, err)
+
+	fake := &fakeHandoverProvider{respBody: canonicalAnthropicResponse, respStatus: http.StatusOK}
+	s := newTestCompactionSummarizer(t, fake, policy.PrecompactionDefaultModel, policy.PrecompactionDefaultModel)
+
+	target := CompactionTarget{CatalogID: policy.PrecompactionDefaultModel, Source: policy.OverrideSourceDeployment}
+	_, _, err = s.SummarizeForCompaction(context.Background(), env, target, router.Request{}, 1_000_000)
+	require.NoError(t, err)
+	spec, ok := policy.DefaultRegistry().Spec(policy.PurposePrecompactionSummary)
+	require.True(t, ok)
+	assert.Equal(t, int64(spec.Budget.MaxOutputTokens), fake.maxTokens[0])
+}
+
+func TestProviderSummarizer_CompactionHandoverUsesCompactionPolicy(t *testing.T) {
+	t.Parallel()
+
+	env, err := translate.ParseAnthropic([]byte(sampleConversation))
+	require.NoError(t, err)
+
+	fake := &fakeHandoverProvider{respBody: canonicalAnthropicResponse, respStatus: http.StatusOK}
+	s := newTestCompactionSummarizer(t, fake, policy.PrecompactionDefaultModel, policy.PrecompactionDefaultModel)
+
+	got, usage, err := s.CompactionHandover().Summarize(context.Background(), env, router.Request{})
+	require.NoError(t, err)
+	assert.NotEmpty(t, got)
+	assert.Equal(t, []string{policy.PrecompactionDefaultModel}, fake.wireModels)
+	assert.Equal(t, policy.PrecompactionDefaultModel, usage.Model)
+	assert.Equal(t, int64(DefaultHandoverMaxTokens), fake.maxTokens[0])
 }

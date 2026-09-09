@@ -8,9 +8,11 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"weave-os/router/internal/dispatch"
 
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/handover"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/sessionpin"
@@ -22,16 +24,18 @@ import (
 )
 
 type fakeCompactionSummarizer struct {
-	summary   string
-	usage     handover.Usage
-	err       error
-	calls     int
-	lastModel string
+	summary    string
+	usage      handover.Usage
+	err        error
+	calls      int
+	lastModel  string
+	lastSource policy.OverrideSource
 }
 
-func (f *fakeCompactionSummarizer) SummarizeForCompaction(_ context.Context, _ *translate.RequestEnvelope, model string, _ int) (string, handover.Usage, error) {
+func (f *fakeCompactionSummarizer) SummarizeForCompaction(_ context.Context, _ *translate.RequestEnvelope, target CompactionTarget, _ router.Request, _ int) (string, handover.Usage, error) {
 	f.calls++
-	f.lastModel = model
+	f.lastModel = target.CatalogID
+	f.lastSource = target.Source
 	return f.summary, f.usage, f.err
 }
 
@@ -124,9 +128,9 @@ func TestMaybeCompact_Tier3Summarizes(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, res.Applied)
 	assert.True(t, res.Summarized)
-	assert.Equal(t, DefaultCompactionModel, res.SummaryModel, "no warm Anthropic pin → Sonnet-class default")
+	assert.Equal(t, policy.PrecompactionDefaultModel, res.SummaryModel, "no warm Anthropic pin → Sonnet-class default")
 	assert.Equal(t, 1, fake.calls)
-	assert.Equal(t, DefaultCompactionModel, fake.lastModel)
+	assert.Equal(t, policy.PrecompactionDefaultModel, fake.lastModel)
 }
 
 func TestMaybeCompact_ExceedsFloorReturnsSentinel(t *testing.T) {
@@ -193,17 +197,42 @@ func TestWithCompaction_ZeroPctDisables(t *testing.T) {
 
 func TestSelectCompactionSummarizer_WindowAware(t *testing.T) {
 	s := &Service{}
-	assert.Equal(t, DefaultCompactionModel, s.selectCompactionSummarizer(1_000, ""), "small history → Sonnet-class default")
-	assert.Equal(t, largeWindowSummarizerModel, s.selectCompactionSummarizer(300_000, ""), "history over the default's window → large-window model")
+	assert.Equal(t, policy.PrecompactionDefaultModel, s.selectCompactionSummarizer(1_000, ""), "small history → Sonnet-class default")
+	assert.Equal(t, policy.PrecompactionLargeWindowModel, s.selectCompactionSummarizer(300_000, ""), "history over the default's window → large-window model")
 	assert.Equal(t, "", s.selectCompactionSummarizer(5_000_000, ""), "history over every window → none")
 
 	assert.Equal(t, "claude-opus-4-8", s.selectCompactionSummarizer(1_000, "claude-opus-4-8"), "warm Anthropic pin summarizes its own session")
-	assert.Equal(t, DefaultCompactionModel, s.selectCompactionSummarizer(1_000, "claude-haiku-4-5"), "low-tier pin is not reused as summarizer")
-	assert.Equal(t, DefaultCompactionModel, s.selectCompactionSummarizer(1_000, "gpt-5.5"), "non-Anthropic pin is not reused as summarizer")
-	assert.Equal(t, largeWindowSummarizerModel, s.selectCompactionSummarizer(300_000, "claude-opus-4-8"), "pin that can't ingest the history is skipped")
+	assert.Equal(t, policy.PrecompactionDefaultModel, s.selectCompactionSummarizer(1_000, "claude-haiku-4-5"), "low-tier pin is not reused as summarizer")
+	assert.Equal(t, policy.PrecompactionDefaultModel, s.selectCompactionSummarizer(1_000, "gpt-5.5"), "non-Anthropic pin is not reused as summarizer")
+	assert.Equal(t, policy.PrecompactionLargeWindowModel, s.selectCompactionSummarizer(300_000, "claude-opus-4-8"), "pin that can't ingest the history is skipped")
 
 	custom := &Service{compactionModel: "claude-sonnet-4-5"}
 	assert.Equal(t, "claude-sonnet-4-5", custom.selectCompactionSummarizer(1_000, ""), "ROUTER_COMPACTION_MODEL overrides the default")
+}
+
+func TestCompactionTargetFor_TypesTheCascadeChoice(t *testing.T) {
+	s := &Service{}
+	assert.Equal(t, CompactionTarget{CatalogID: "claude-opus-4-8", Source: policy.OverrideSourceSession}, s.compactionTargetFor("claude-opus-4-8", "claude-opus-4-8"))
+	assert.Equal(t, CompactionTarget{CatalogID: policy.PrecompactionDefaultModel, Source: policy.OverrideSourceDeployment}, s.compactionTargetFor(policy.PrecompactionDefaultModel, "claude-opus-4-8"))
+	assert.Equal(t, CompactionTarget{CatalogID: policy.PrecompactionLargeWindowModel}, s.compactionTargetFor(policy.PrecompactionLargeWindowModel, ""))
+	custom := &Service{compactionModel: "claude-sonnet-4-5"}
+	assert.Equal(t, CompactionTarget{CatalogID: "claude-sonnet-4-5", Source: policy.OverrideSourceDeployment}, custom.compactionTargetFor("claude-sonnet-4-5", ""))
+}
+
+func TestPrecompactionPolicyReviewsEveryCascadeCandidate(t *testing.T) {
+	spec, ok := policy.DefaultRegistry().Spec(policy.PurposePrecompactionSummary)
+	require.True(t, ok)
+	assert.Contains(t, spec.FixedCatalogModels, policy.PrecompactionDefaultModel)
+	assert.Contains(t, spec.FixedCatalogModels, policy.PrecompactionLargeWindowModel)
+	for _, m := range catalog.Models {
+		anthropic := false
+		for _, b := range m.Providers {
+			anthropic = anthropic || b.Provider == providers.ProviderAnthropic
+		}
+		if anthropic && m.Tier != catalog.TierLow {
+			assert.Contains(t, spec.FixedCatalogModels, m.ID, "warm-pin candidate %s must be a reviewed summarizer", m.ID)
+		}
+	}
 }
 
 func TestCompactionPolicyFor(t *testing.T) {
@@ -287,22 +316,23 @@ func TestCompactionHardPin(t *testing.T) {
 	var key [sessionpin.SessionKeyLen]byte
 	ctx := context.Background()
 
-	p, m, ok := s.compactionHardPin(ctx, key, "", router.Request{})
+	p, m, source, ok := s.compactionHardPin(ctx, key, "", router.Request{})
 	require.True(t, ok)
 	assert.Equal(t, providers.ProviderAnthropic, p)
-	assert.Equal(t, DefaultCompactionModel, m, "no pin → Sonnet-class default")
+	assert.Equal(t, policy.PrecompactionDefaultModel, m, "no pin → Sonnet-class default")
+	assert.Equal(t, policy.OverrideSourceDeployment, source, "the deployment's compaction model fixed the turn")
 
-	_, _, ok = s.compactionHardPin(ctx, key, "", router.Request{EnabledProviders: map[string]struct{}{providers.ProviderOpenAI: {}}})
+	_, _, _, ok = s.compactionHardPin(ctx, key, "", router.Request{EnabledProviders: map[string]struct{}{providers.ProviderOpenAI: {}}})
 	assert.False(t, ok, "Anthropic disabled for the tenant → fall back to generic hard-pin")
 
-	_, _, ok = s.compactionHardPin(ctx, key, "", router.Request{GatewayProviders: map[string]struct{}{providers.ProviderOpenRouter: {}}})
+	_, _, _, ok = s.compactionHardPin(ctx, key, "", router.Request{GatewayProviders: map[string]struct{}{providers.ProviderOpenRouter: {}}})
 	assert.False(t, ok, "gateway-exclusive tenant → fall back to generic hard-pin")
 
-	_, _, ok = s.compactionHardPin(ctx, key, "", router.Request{ExcludedModels: map[string]struct{}{DefaultCompactionModel: {}}})
+	_, _, _, ok = s.compactionHardPin(ctx, key, "", router.Request{ExcludedModels: map[string]struct{}{policy.PrecompactionDefaultModel: {}}})
 	assert.False(t, ok, "excluded default with no pin → fall back to generic hard-pin")
 
 	unavailable := &Service{compactionHardPinEnabled: true, availableModels: map[string]struct{}{"claude-haiku-4-5": {}}}
-	_, _, ok = unavailable.compactionHardPin(ctx, key, "", router.Request{})
+	_, _, _, ok = unavailable.compactionHardPin(ctx, key, "", router.Request{})
 	assert.False(t, ok, "default not routable in this deployment → fall back to generic hard-pin")
 }
 
@@ -333,26 +363,28 @@ func TestCompactionHardPin_CodexKeepsNonAnthropicSessionModel(t *testing.T) {
 	hmmServed := &rolePinStore{byRole: map[string]sessionpin.Pin{
 		hmmHistoryRole(sessionpin.DefaultRole): {Provider: providers.ProviderOpenAI, LastServedModel: "gpt-5.6-sol", LastTurnEndedAt: time.Now(), PinnedUntil: live},
 	}}
-	s := &Service{compactionHardPinEnabled: true, pinStore: hmmServed, providers: openAIProviders}
-	p, m, ok := s.compactionHardPin(ctx, key, sessionpin.DefaultRole, codex(router.Request{}))
+	s := &Service{compactionHardPinEnabled: true, pinStore: hmmServed, clients: dispatch.NewClients(openAIProviders)}
+	p, m, source, ok := s.compactionHardPin(ctx, key, sessionpin.DefaultRole, codex(router.Request{}))
 	require.True(t, ok)
 	assert.Equal(t, providers.ProviderOpenAI, p)
 	assert.Equal(t, "gpt-5.6-sol", m)
+	assert.Equal(t, policy.OverrideSourceSession, source, "the session's own model fixed the turn")
 
 	// Claude Code's compaction turn is Anthropic-format: the same history keeps
 	// the Sonnet-class summarizer.
-	p, m, ok = s.compactionHardPin(ctx, key, sessionpin.DefaultRole, router.Request{ClientApp: ClientAppClaudeCode})
+	p, m, source, ok = s.compactionHardPin(ctx, key, sessionpin.DefaultRole, router.Request{ClientApp: ClientAppClaudeCode})
 	require.True(t, ok)
 	assert.Equal(t, providers.ProviderAnthropic, p)
-	assert.Equal(t, DefaultCompactionModel, m)
+	assert.Equal(t, policy.PrecompactionDefaultModel, m)
+	assert.Equal(t, policy.OverrideSourceDeployment, source)
 
 	// The most recently served model wins when the thread pin and HMM history disagree.
 	switched := &rolePinStore{byRole: map[string]sessionpin.Pin{
 		sessionpin.DefaultRole:                 {Provider: providers.ProviderOpenAI, Model: "gpt-5.6-terra", LastServedModel: "gpt-5.6-terra", LastTurnEndedAt: time.Now().Add(-time.Minute), PinnedUntil: live},
 		hmmHistoryRole(sessionpin.DefaultRole): {Provider: providers.ProviderOpenAI, LastServedModel: "gpt-5.6-sol", LastTurnEndedAt: time.Now(), PinnedUntil: live},
 	}}
-	s = &Service{compactionHardPinEnabled: true, pinStore: switched, providers: openAIProviders}
-	_, m, ok = s.compactionHardPin(ctx, key, sessionpin.DefaultRole, codex(router.Request{}))
+	s = &Service{compactionHardPinEnabled: true, pinStore: switched, clients: dispatch.NewClients(openAIProviders)}
+	_, m, _, ok = s.compactionHardPin(ctx, key, sessionpin.DefaultRole, codex(router.Request{}))
 	require.True(t, ok)
 	assert.Equal(t, "gpt-5.6-sol", m)
 
@@ -360,42 +392,42 @@ func TestCompactionHardPin_CodexKeepsNonAnthropicSessionModel(t *testing.T) {
 	expired := &rolePinStore{byRole: map[string]sessionpin.Pin{
 		sessionpin.DefaultRole: {Provider: providers.ProviderOpenAI, Model: "gpt-5.6-sol", LastServedModel: "gpt-5.6-sol", LastTurnEndedAt: time.Now(), PinnedUntil: time.Now().Add(-time.Hour)},
 	}}
-	s = &Service{compactionHardPinEnabled: true, pinStore: expired, providers: openAIProviders}
-	p, m, ok = s.compactionHardPin(ctx, key, sessionpin.DefaultRole, codex(router.Request{}))
+	s = &Service{compactionHardPinEnabled: true, pinStore: expired, clients: dispatch.NewClients(openAIProviders)}
+	p, m, _, ok = s.compactionHardPin(ctx, key, sessionpin.DefaultRole, codex(router.Request{}))
 	require.True(t, ok)
 	assert.Equal(t, providers.ProviderAnthropic, p)
-	assert.Equal(t, DefaultCompactionModel, m)
+	assert.Equal(t, policy.PrecompactionDefaultModel, m)
 
 	// A tenant that turned OpenAI off cannot keep the thread there.
-	s = &Service{compactionHardPinEnabled: true, pinStore: switched, providers: openAIProviders}
-	_, m, ok = s.compactionHardPin(ctx, key, sessionpin.DefaultRole, codex(router.Request{EnabledProviders: map[string]struct{}{providers.ProviderAnthropic: {}}}))
+	s = &Service{compactionHardPinEnabled: true, pinStore: switched, clients: dispatch.NewClients(openAIProviders)}
+	_, m, _, ok = s.compactionHardPin(ctx, key, sessionpin.DefaultRole, codex(router.Request{EnabledProviders: map[string]struct{}{providers.ProviderAnthropic: {}}}))
 	require.True(t, ok)
-	assert.Equal(t, DefaultCompactionModel, m, "served vendor disabled → Sonnet-class default")
+	assert.Equal(t, policy.PrecompactionDefaultModel, m, "served vendor disabled → Sonnet-class default")
 
 	// Org exclusions and the deployment-wide automatic disable still apply.
-	_, m, ok = s.compactionHardPin(ctx, key, sessionpin.DefaultRole, codex(router.Request{ExcludedModels: map[string]struct{}{"gpt-5.6-sol": {}}}))
+	_, m, _, ok = s.compactionHardPin(ctx, key, sessionpin.DefaultRole, codex(router.Request{ExcludedModels: map[string]struct{}{"gpt-5.6-sol": {}}}))
 	require.True(t, ok)
-	assert.Equal(t, DefaultCompactionModel, m)
-	_, m, ok = s.compactionHardPin(ctx, key, sessionpin.DefaultRole, codex(router.Request{AutomaticExcludedModels: map[string]struct{}{"gpt-5.6-sol": {}}}))
+	assert.Equal(t, policy.PrecompactionDefaultModel, m)
+	_, m, _, ok = s.compactionHardPin(ctx, key, sessionpin.DefaultRole, codex(router.Request{AutomaticExcludedModels: map[string]struct{}{"gpt-5.6-sol": {}}}))
 	require.True(t, ok)
-	assert.Equal(t, DefaultCompactionModel, m)
+	assert.Equal(t, policy.PrecompactionDefaultModel, m)
 
 	// A low-tier session model is what the cascade moves away from.
 	lowServed := &rolePinStore{byRole: map[string]sessionpin.Pin{
 		hmmHistoryRole(sessionpin.DefaultRole): {Provider: providers.ProviderOpenAI, LastServedModel: "gpt-4.1-mini", LastTurnEndedAt: time.Now(), PinnedUntil: live},
 	}}
-	s = &Service{compactionHardPinEnabled: true, pinStore: lowServed, providers: openAIProviders}
-	p, m, ok = s.compactionHardPin(ctx, key, sessionpin.DefaultRole, codex(router.Request{}))
+	s = &Service{compactionHardPinEnabled: true, pinStore: lowServed, clients: dispatch.NewClients(openAIProviders)}
+	p, m, _, ok = s.compactionHardPin(ctx, key, sessionpin.DefaultRole, codex(router.Request{}))
 	require.True(t, ok)
 	assert.Equal(t, providers.ProviderAnthropic, p)
-	assert.Equal(t, DefaultCompactionModel, m)
+	assert.Equal(t, policy.PrecompactionDefaultModel, m)
 
 	// An Anthropic-served Codex session keeps its own model, as before.
 	anthropicServed := &rolePinStore{byRole: map[string]sessionpin.Pin{
 		sessionpin.DefaultRole: {Provider: providers.ProviderAnthropic, Model: "claude-opus-4-8", LastServedModel: "claude-opus-4-8", LastTurnEndedAt: time.Now(), PinnedUntil: live},
 	}}
-	s = &Service{compactionHardPinEnabled: true, pinStore: anthropicServed, providers: openAIProviders}
-	p, m, ok = s.compactionHardPin(ctx, key, sessionpin.DefaultRole, codex(router.Request{}))
+	s = &Service{compactionHardPinEnabled: true, pinStore: anthropicServed, clients: dispatch.NewClients(openAIProviders)}
+	p, m, _, ok = s.compactionHardPin(ctx, key, sessionpin.DefaultRole, codex(router.Request{}))
 	require.True(t, ok)
 	assert.Equal(t, providers.ProviderAnthropic, p)
 	assert.Equal(t, "claude-opus-4-8", m)
@@ -458,6 +490,6 @@ func TestMaybeCompact_Tier3RevertsWhenSummaryRewriteOverflows(t *testing.T) {
 	assert.Equal(t, 1, fake.calls)
 	assert.False(t, res.Summarized)
 	assert.Zero(t, res.TrimmedToRecent)
-	assert.Equal(t, DefaultCompactionModel, res.SummaryModel, "summary call is still billed")
+	assert.Equal(t, policy.PrecompactionDefaultModel, res.SummaryModel, "summary call is still billed")
 	assert.Equal(t, before, env.ContextOverflowTokenEstimate(), "history restored")
 }

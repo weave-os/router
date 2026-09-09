@@ -16,7 +16,7 @@ import (
 type EscalationResponseFormat string
 
 const (
-	EscalationResponseAnthropic EscalationResponseFormat = "anthropic"
+	EscalationResponseAnthropic EscalationResponseFormat = "anthropic_messages"
 	EscalationResponseChat      EscalationResponseFormat = "chat"
 	EscalationResponseResponses EscalationResponseFormat = "responses"
 	EscalationResponseGemini    EscalationResponseFormat = "gemini"

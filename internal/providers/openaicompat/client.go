@@ -16,7 +16,7 @@ import (
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/providers/httputil"
-	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/timing"
 )
@@ -263,13 +263,13 @@ func rewriteModelField(body []byte, modelIDMap map[string]string) []byte {
 // endpoint onto /openai/v1 and a Snowflake Cortex REST root onto
 // /api/v2/cortex/v1 — the OpenAI-spec surfaces they actually serve.
 func (c *Client) effectiveBaseURL(ctx context.Context) string {
-	base := providers.NormalizeAzureOpenAIBaseURL(proxy.EffectiveBaseURL(ctx, c.baseURL))
+	base := providers.NormalizeAzureOpenAIBaseURL(requestcontext.EffectiveBaseURL(ctx, c.baseURL))
 	return providers.NormalizeSnowflakeCortexOpenAIBaseURL(base)
 }
 
 // setAuth sets the Authorization header, preferring BYOK credentials over the deployment-level key.
 func (c *Client) setAuth(ctx context.Context, upstream *http.Request) {
-	if creds := proxy.CredentialsFromContext(ctx); creds != nil {
+	if creds := requestcontext.CredentialsFromContext(ctx); creds != nil {
 		upstream.Header.Set("Authorization", "Bearer "+string(creds.APIKey))
 		return
 	}
@@ -284,7 +284,7 @@ func (c *Client) Proxy(ctx context.Context, decision router.Decision, prep provi
 
 	body := rewriteModelField(prep.Body, c.modelIDMap)
 	// Applied after the catalog map so a BYOK endpoint's own naming wins.
-	body = proxy.ApplyModelAlias(ctx, body, decision.Model)
+	body = requestcontext.ApplyModelAlias(ctx, body, decision.Model)
 	baseURL := c.effectiveBaseURL(ctx)
 
 	// EndpointResponses is the Responses surface: reasoning models reject a tool
@@ -324,9 +324,9 @@ func (c *Client) proxyTo(ctx context.Context, cancel context.CancelCauseFunc, ur
 	}
 	c.applyProtectedHeaders(upstream)
 	c.setAuth(ctx, upstream)
-	proxy.ApplyWIFTokenType(ctx, upstream)
-	proxy.ApplyIdentityHeader(ctx, upstream)
-	proxy.ApplyForwardedClientHeaders(ctx, upstream, r.Header)
+	requestcontext.ApplyWIFTokenType(ctx, upstream)
+	requestcontext.ApplyIdentityHeader(ctx, upstream)
+	requestcontext.ApplyForwardedClientHeaders(ctx, upstream, r.Header)
 	if v := r.Header.Get("Accept"); v != "" {
 		upstream.Header.Set("Accept", v)
 	}
@@ -446,8 +446,8 @@ func (c *Client) Passthrough(ctx context.Context, prep providers.PreparedRequest
 	}
 	c.applyProtectedHeaders(upstream)
 	c.setAuth(ctx, upstream)
-	proxy.ApplyWIFTokenType(ctx, upstream)
-	proxy.ApplyForwardedClientHeaders(ctx, upstream, r.Header)
+	requestcontext.ApplyWIFTokenType(ctx, upstream)
+	requestcontext.ApplyForwardedClientHeaders(ctx, upstream, r.Header)
 	if v := r.Header.Get("Accept"); v != "" {
 		upstream.Header.Set("Accept", v)
 	}

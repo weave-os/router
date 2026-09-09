@@ -11,7 +11,7 @@ import (
 
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/providers/httputil"
-	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/timing"
 	"weave-os/router/internal/translate"
@@ -92,7 +92,7 @@ func (c *NativeClient) Proxy(ctx context.Context, decision router.Decision, prep
 		method = ":streamGenerateContent"
 		query = "?alt=sse"
 	}
-	url := proxy.EffectiveBaseURL(ctx, c.baseURL) + "/v1beta/models/" + proxy.EffectiveUpstreamModel(ctx, decision.Model) + method + query
+	url := requestcontext.EffectiveBaseURL(ctx, c.baseURL) + "/v1beta/models/" + requestcontext.EffectiveUpstreamModel(ctx, decision.Model) + method + query
 
 	upstream, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(prep.Body))
 	if err != nil {
@@ -103,8 +103,8 @@ func (c *NativeClient) Proxy(ctx context.Context, decision router.Decision, prep
 	for k, vs := range prep.Headers {
 		upstream.Header[http.CanonicalHeaderKey(k)] = vs
 	}
-	proxy.ApplyIdentityHeader(ctx, upstream)
-	proxy.ApplyForwardedClientHeaders(ctx, upstream, r.Header)
+	requestcontext.ApplyIdentityHeader(ctx, upstream)
+	requestcontext.ApplyForwardedClientHeaders(ctx, upstream, r.Header)
 	if stream {
 		upstream.Header.Set("Accept", "text/event-stream")
 	}
@@ -170,7 +170,7 @@ func (c *NativeClient) Passthrough(ctx context.Context, prep providers.PreparedR
 	} else if !strings.HasPrefix(suffix, "/v1beta") {
 		suffix = "/v1beta" + suffix
 	}
-	url := proxy.EffectiveBaseURL(ctx, c.baseURL) + suffix
+	url := requestcontext.EffectiveBaseURL(ctx, c.baseURL) + suffix
 	if r.URL.RawQuery != "" {
 		url += "?" + r.URL.RawQuery
 	}
@@ -186,7 +186,7 @@ func (c *NativeClient) Passthrough(ctx context.Context, prep providers.PreparedR
 	for k, vs := range prep.Headers {
 		upstream.Header[http.CanonicalHeaderKey(k)] = vs
 	}
-	proxy.ApplyForwardedClientHeaders(ctx, upstream, r.Header)
+	requestcontext.ApplyForwardedClientHeaders(ctx, upstream, r.Header)
 	if v := r.Header.Get("Accept"); v != "" {
 		upstream.Header.Set("Accept", v)
 	}
@@ -208,7 +208,7 @@ func (c *NativeClient) Passthrough(ctx context.Context, prep providers.PreparedR
 
 // applyAPIKey sets x-goog-api-key, preferring BYOK credentials over the deployment-level key.
 func (c *NativeClient) applyAPIKey(ctx context.Context, req *http.Request) {
-	if creds := proxy.CredentialsFromContext(ctx); creds != nil && len(creds.APIKey) > 0 {
+	if creds := requestcontext.CredentialsFromContext(ctx); creds != nil && len(creds.APIKey) > 0 {
 		req.Header.Set("x-goog-api-key", string(creds.APIKey))
 		return
 	}

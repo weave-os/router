@@ -1,6 +1,7 @@
 package proxy_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"io"
@@ -23,6 +24,45 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+type observedResponseWriter struct {
+	header  http.Header
+	body    bytes.Buffer
+	mu      sync.Mutex
+	flushed chan struct{}
+	once    sync.Once
+}
+
+func newObservedResponseWriter() *observedResponseWriter {
+	return &observedResponseWriter{
+		header:  make(http.Header),
+		flushed: make(chan struct{}),
+	}
+}
+
+func (w *observedResponseWriter) Header() http.Header {
+	return w.header
+}
+
+func (w *observedResponseWriter) WriteHeader(int) {}
+
+func (w *observedResponseWriter) Write(p []byte) (int, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.body.Write(p)
+}
+
+func (w *observedResponseWriter) Flush() {
+	w.once.Do(func() {
+		close(w.flushed)
+	})
+}
+
+func (w *observedResponseWriter) BodyString() string {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.body.String()
+}
 
 // TestProxyMessages_FireworksFailureFallbackToOpenRouter wires the real
 // dispatch + translator + openaicompat clients against stub upstreams
@@ -168,17 +208,11 @@ func TestProxyMessages_BothBindingsFail(t *testing.T) {
 
 	_ = svc.ProxyMessages(context.Background(), body, rec, req)
 
-	// Client sees the FINAL (OpenRouter's) status code and a translated
-	// Anthropic-shape error envelope, not the raw OpenAI shape.
-	assert.Equal(t, http.StatusBadGateway, rec.Code, "exhaustion surfaces the last attempt's status")
-	assert.Equal(t, "application/json", rec.Header().Get("Content-Type"), "exhaustion writes a JSON HTTP response, not SSE")
-
-	var got map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got), "body must be JSON")
-	assert.Equal(t, "error", got["type"], "Anthropic-shape error envelope: top-level `type` == \"error\"")
-	innerErr, ok := got["error"].(map[string]any)
-	require.True(t, ok, "Anthropic-shape error envelope: `error` is a nested object")
-	assert.Contains(t, innerErr["message"], "openrouter also down")
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, "text/event-stream", rec.Header().Get("Content-Type"))
+	assert.Contains(t, rec.Body.String(), "✦ **Weave Router**")
+	assert.Contains(t, rec.Body.String(), "event: error")
+	assert.Contains(t, rec.Body.String(), "openrouter also down")
 }
 
 // TestProxyMessages_SingleBindingPreservesEagerPrelude asserts that
@@ -237,14 +271,56 @@ func TestProxyMessages_SingleBindingPreservesEagerPrelude(t *testing.T) {
 	assert.Empty(t, rec.Header().Get(proxy.HeaderRouterFallbackFrom))
 }
 
-// TestProxyMessages_SingleBindingStreamingPreCommitError asserts the fixed
-// behavior: when a single-binding cross-format streaming request gets an
-// upstream error BEFORE any upstream byte arrives, the preludeBuffer
-// discards the buffered prelude and the client receives a clean
-// Anthropic-shape JSON error envelope at the upstream's status — not a
-// stranded `message_start` text-only turn that Claude Code would reject
-// for missing tool_use. This is the v0.58 SWE-bench bake-off regression
-// fix.
+func TestProxyMessages_RoutingMarkerFlushesBeforeDelayedProvider(t *testing.T) {
+	providerStarted := make(chan struct{})
+	releaseProvider := make(chan struct{})
+	defer func() {
+		select {
+		case <-releaseProvider:
+		default:
+			close(releaseProvider)
+		}
+	}()
+	svc := makeProxyService(
+		router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-haiku-4-5"},
+		map[string]providers.Client{
+			providers.ProviderAnthropic: &fakeProvider{
+				proxyResponse: func(w http.ResponseWriter) {
+					close(providerStarted)
+					<-releaseProvider
+					_, _ = w.Write([]byte("event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"))
+				},
+			},
+		},
+	).WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}})
+
+	writer := newObservedResponseWriter()
+	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	body := []byte(`{"model":"claude-haiku-4-5","stream":true,"messages":[{"role":"user","content":"hi"}]}`)
+	done := make(chan error, 1)
+	go func() {
+		done <- svc.ProxyMessages(context.Background(), body, writer, req)
+	}()
+
+	select {
+	case <-providerStarted:
+	case <-time.After(time.Second):
+		t.Fatal("provider was not dispatched")
+	}
+	select {
+	case <-writer.flushed:
+	case <-time.After(time.Second):
+		t.Fatal("routing marker was not flushed before provider completion")
+	}
+	assert.Contains(t, writer.BodyString(), "✦ **Weave Router**")
+
+	close(releaseProvider)
+	require.NoError(t, <-done)
+}
+
+// TestProxyMessages_SingleBindingStreamingPreCommitError asserts that an
+// upstream failure after an eager routing marker terminates the already-open
+// Anthropic stream with a protocol-valid error event.
 func TestProxyMessages_SingleBindingStreamingPreCommitError(t *testing.T) {
 	// Stub upstream OpenAI-compat provider that 503s on every request.
 	stub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -271,17 +347,13 @@ func TestProxyMessages_SingleBindingStreamingPreCommitError(t *testing.T) {
 
 	_ = svc.ProxyMessages(context.Background(), body, rec, req)
 
-	assert.Equal(t, http.StatusServiceUnavailable, rec.Code,
-		"pre-commit upstream error surfaces upstream's status, not a stranded HTTP 200")
-	assert.Equal(t, "application/json", rec.Header().Get("Content-Type"),
-		"pre-commit error is a clean JSON envelope, not a half-emitted SSE stream")
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, "text/event-stream", rec.Header().Get("Content-Type"))
 
 	respBody := rec.Body.String()
-	assert.NotContains(t, respBody, "event: message_start",
-		"prelude bytes were buffered and discarded — no stranded marker on the wire")
-	assert.NotContains(t, respBody, "✦ **Weave Router**",
-		"routing marker discarded with the prelude buffer")
-	assert.Contains(t, respBody, `"type":"error"`, "Anthropic-shape error envelope")
+	assert.Contains(t, respBody, "event: message_start")
+	assert.Contains(t, respBody, "✦ **Weave Router**")
+	assert.Contains(t, respBody, "event: error")
 	assert.Contains(t, respBody, "upstream unavailable", "translated upstream message reaches the client")
 }
 
@@ -363,9 +435,10 @@ func TestProxyMessages_AnthropicSSEOverloadExhaustionRecords529(t *testing.T) {
 	mu.Lock()
 	assert.Equal(t, 3, calls, "initial attempt plus two same-binding retries")
 	mu.Unlock()
-	assert.Equal(t, 529, rec.Code)
-	assert.Equal(t, "application/json", rec.Header().Get("Content-Type"))
-	assert.NotContains(t, rec.Body.String(), "event: message_start")
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, "text/event-stream", rec.Header().Get("Content-Type"))
+	assert.Contains(t, rec.Body.String(), "event: message_start")
+	assert.Contains(t, rec.Body.String(), "event: error")
 	assert.Contains(t, rec.Body.String(), "overloaded_error")
 	row := telemetry.firstRow(t)
 	assert.Equal(t, int32(529), row.UpstreamStatusCode)

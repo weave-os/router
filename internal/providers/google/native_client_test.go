@@ -12,7 +12,7 @@ import (
 
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/providers/google"
-	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/translate"
 
@@ -107,8 +107,8 @@ func TestNativeClient_BYOKCredentialsOverrideDeploymentKey(t *testing.T) {
 
 	c := google.NewNativeClient("deployment-key", upstream.URL)
 	ctx := context.WithValue(context.Background(),
-		proxy.CredentialsContextKey{},
-		&proxy.Credentials{APIKey: []byte("byok-key")})
+		requestcontext.CredentialsContextKey{},
+		&requestcontext.Credentials{APIKey: []byte("byok-key")})
 
 	rec := httptest.NewRecorder()
 	prep := providers.PreparedRequest{Body: []byte(`{}`), Headers: make(http.Header)}

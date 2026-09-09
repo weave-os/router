@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	"weave-os/router/internal/providers/openaicompat"
-	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/requestcontext"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -41,7 +41,7 @@ func TestListModels_BYOKCredentialsOverrideBaseURLAndKey(t *testing.T) {
 	defer byokSrv.Close()
 
 	c := openaicompat.NewGatewayClient("deploy-token", "http://127.0.0.1:1/unreachable")
-	ctx := context.WithValue(context.Background(), proxy.CredentialsContextKey{}, &proxy.Credentials{
+	ctx := context.WithValue(context.Background(), requestcontext.CredentialsContextKey{}, &requestcontext.Credentials{
 		APIKey:  []byte("byok-token"),
 		BaseURL: byokSrv.URL,
 	})

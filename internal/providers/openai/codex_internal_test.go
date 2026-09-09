@@ -9,7 +9,7 @@ import (
 	"testing"
 
 	"weave-os/router/internal/providers"
-	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 
 	"github.com/stretchr/testify/assert"
@@ -18,7 +18,7 @@ import (
 )
 
 func codexCtx(token, accountID string) context.Context {
-	return context.WithValue(context.Background(), proxy.CredentialsContextKey{}, &proxy.Credentials{
+	return context.WithValue(context.Background(), requestcontext.CredentialsContextKey{}, &requestcontext.Credentials{
 		APIKey:    []byte(token),
 		AccountID: []byte(accountID),
 		Source:    "codex_subscription",
