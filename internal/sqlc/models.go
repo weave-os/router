@@ -375,9 +375,6 @@ type RouterModelRouterRequestTelemetry struct {
 	// Signal classes whose thresholds this turn crossed (err_streak, same_file_thrash, repetition, monologue, ping_pong, no_progress); empty array when the snapshot was recorded and nothing fired
 	SpiralReasons                   []string
 	RequestedAllowedModels          []string
-	BlindExperimentArm              *string
-	BlindExperimentAssignmentSource *string
-	BlindExperimentSubjectKey       *string
 	InferencePurpose                *string
 	InferencePolicyID               *string
 	InferenceRegistryRevision       *string
@@ -387,6 +384,9 @@ type RouterModelRouterRequestTelemetry struct {
 	FallbackReason                  *string
 	AccountingOutcome               *string
 	UsageKnown                      *bool
+	BlindExperimentArm              *string
+	BlindExperimentAssignmentSource *string
+	BlindExperimentSubjectKey       *string
 }
 
 type RouterModelRouterSubscriptionAccount struct {
