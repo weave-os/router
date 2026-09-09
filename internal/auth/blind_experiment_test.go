@@ -77,7 +77,7 @@ func TestLRUBlindExperimentCacheTTLExpires(t *testing.T) {
 func TestLRUBlindExperimentCacheBoundsErrorsSeparately(t *testing.T) {
 	cache := auth.NewLRUBlindExperimentCache(1, time.Minute, time.Now)
 	cache.Set("inst-1", "active-user", auth.BlindExperimentState{Active: true, Arm: auth.BlindExperimentArmRouterOn})
-	cache.SetError("inst-1", "failed-user")
+	cache.SetError("inst-1", "failed-user", cache.InvalidationGeneration())
 
 	state, found := cache.Get("active-user")
 	assert.True(t, found, "a failed lookup must not evict an active assignment")

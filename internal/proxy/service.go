@@ -4866,7 +4866,7 @@ func (s *Service) recordPassthroughTurnHistory(ctx context.Context, res turnLoop
 		CachedWriteTokens:   pin.LastCachedWriteTokens,
 		OutputTokens:        pin.LastOutputTokens,
 		EndedAt:             pin.LastTurnEndedAt,
-		PreserveZeroEndedAt: true,
+		PreservePriorUsage:  true,
 		ServedModel:         servedModel,
 		ServedProvider:      historyProvider,
 		PriorServedModel:    res.PriorServedModel,

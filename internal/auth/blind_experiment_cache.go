@@ -11,9 +11,10 @@ import (
 type BlindExperimentCache interface {
 	Enabled() bool
 	Get(routerUserID string) (BlindExperimentState, bool)
+	GetAtGeneration(routerUserID string, generation uint64) (BlindExperimentState, bool)
 	InvalidationGeneration() uint64
 	Set(installationID, routerUserID string, state BlindExperimentState)
-	SetError(installationID, routerUserID string)
+	SetError(installationID, routerUserID string, generation uint64)
 	InvalidateInstallation(installationID string)
 }
 
@@ -24,9 +25,12 @@ func (NoOpBlindExperimentCache) Enabled() bool { return false }
 func (NoOpBlindExperimentCache) Get(string) (BlindExperimentState, bool) {
 	return BlindExperimentState{}, false
 }
+func (NoOpBlindExperimentCache) GetAtGeneration(string, uint64) (BlindExperimentState, bool) {
+	return BlindExperimentState{}, false
+}
 func (NoOpBlindExperimentCache) InvalidationGeneration() uint64           { return 0 }
 func (NoOpBlindExperimentCache) Set(string, string, BlindExperimentState) {}
-func (NoOpBlindExperimentCache) SetError(string, string)                  {}
+func (NoOpBlindExperimentCache) SetError(string, string, uint64)          {}
 func (NoOpBlindExperimentCache) InvalidateInstallation(string)            {}
 
 // LRUBlindExperimentCache is keyed by router user and secondarily indexed by
@@ -88,6 +92,18 @@ func (cache *LRUBlindExperimentCache) Get(routerUserID string) (BlindExperimentS
 	return BlindExperimentState{}, false
 }
 
+// GetAtGeneration reads an assignment while holding the cache index lock, so
+// an installation invalidation cannot interleave between the epoch check and
+// the value lookup.
+func (cache *LRUBlindExperimentCache) GetAtGeneration(routerUserID string, generation uint64) (BlindExperimentState, bool) {
+	cache.mu.Lock()
+	defer cache.mu.Unlock()
+	if cache.invalidationEpoch != generation {
+		return BlindExperimentState{}, false
+	}
+	return cache.entries.Peek(routerUserID)
+}
+
 // InvalidationGeneration returns a monotonic token that changes whenever an
 // installation invalidation evicts cached experiment state.
 func (cache *LRUBlindExperimentCache) InvalidationGeneration() uint64 {
@@ -133,7 +149,7 @@ func (cache *LRUBlindExperimentCache) Set(installationID, routerUserID string, s
 
 // SetError caches a failed assignment read in a separate short-lived LRU so
 // outages cannot evict valid experiment assignments from the normal cache.
-func (cache *LRUBlindExperimentCache) SetError(installationID, routerUserID string) {
+func (cache *LRUBlindExperimentCache) SetError(installationID, routerUserID string, generation uint64) {
 	if routerUserID == "" {
 		return
 	}
@@ -141,7 +157,11 @@ func (cache *LRUBlindExperimentCache) SetError(installationID, routerUserID stri
 	var epoch uint64
 	cache.mu.Lock()
 	if installationID != "" {
-		epoch = cache.invalidationEpoch
+		if cache.invalidationEpoch != generation {
+			cache.mu.Unlock()
+			return
+		}
+		epoch = generation
 		if previousInstallationID, ok := cache.errorInstallationByUser[routerUserID]; ok && previousInstallationID != installationID {
 			cache.removeErrorFromIndexLocked(previousInstallationID, routerUserID)
 		}

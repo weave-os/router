@@ -82,7 +82,7 @@ func (r *SessionPinRepo) Upsert(ctx context.Context, p sessionpin.Pin) error {
 // preserves a missing prior timestamp.
 func (r *SessionPinRepo) UpdateUsage(ctx context.Context, sessionKey [sessionpin.SessionKeyLen]byte, role string, usage sessionpin.Usage) error {
 	endedAt := usage.EndedAt
-	if endedAt.IsZero() && !usage.PreserveZeroEndedAt {
+	if endedAt.IsZero() && !usage.PreservePriorUsage {
 		endedAt = time.Now()
 	}
 	q := sqlc.New(r.tx)

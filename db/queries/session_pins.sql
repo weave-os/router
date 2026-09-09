@@ -194,12 +194,12 @@ ON CONFLICT (session_key, role) DO UPDATE SET
 -- clients resend the full transcript.
 -- name: UpdateSessionPinUsage :exec
 UPDATE router.session_pins
-SET last_input_tokens        = @last_input_tokens::int,
-    last_cached_read_tokens  = @last_cached_read_tokens::int,
-    last_cached_write_tokens = @last_cached_write_tokens::int,
-    last_output_tokens       = @last_output_tokens::int,
-    last_turn_ended_at       = @last_turn_ended_at::timestamptz,
-    pinned_provider          = @last_served_provider::varchar,
+SET last_input_tokens        = CASE WHEN @preserve_prior_usage::boolean THEN last_input_tokens ELSE @last_input_tokens::int END,
+    last_cached_read_tokens  = CASE WHEN @preserve_prior_usage::boolean THEN last_cached_read_tokens ELSE @last_cached_read_tokens::int END,
+    last_cached_write_tokens = CASE WHEN @preserve_prior_usage::boolean THEN last_cached_write_tokens ELSE @last_cached_write_tokens::int END,
+    last_output_tokens       = CASE WHEN @preserve_prior_usage::boolean THEN last_output_tokens ELSE @last_output_tokens::int END,
+    last_turn_ended_at       = CASE WHEN @preserve_prior_usage::boolean THEN last_turn_ended_at ELSE @last_turn_ended_at::timestamptz END,
+    pinned_provider          = CASE WHEN @preserve_prior_usage::boolean THEN pinned_provider ELSE @last_served_provider::varchar END,
     has_ever_switched        = has_ever_switched
       OR @session_ever_switched::boolean
       OR (last_served_model <> '' AND last_served_model <> @last_served_model::varchar)

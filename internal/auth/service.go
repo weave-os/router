@@ -869,7 +869,7 @@ func (s *Service) withBlindExperiment(ctx context.Context, installationID, route
 				// Fail open for the request, but cache the failure only for the
 				// cache's short retry window so an outage does not hammer the DB or
 				// permanently bias the experiment cohort after recovery.
-				s.blindExperimentCache.SetError(installationID, routerUserID)
+				s.blindExperimentCache.SetError(installationID, routerUserID, fetchGeneration)
 				return nil, fetchErr
 			}
 			resolved := resolveBlindExperiment(record, routerUserID)
@@ -898,16 +898,13 @@ func (s *Service) withBlindExperiment(ctx context.Context, installationID, route
 		if !found {
 			return ctx
 		}
-		if s.blindExperimentCache.InvalidationGeneration() != fetchGeneration {
-			return ctx
-		}
 		if s.blindExperimentCache.Enabled() {
 			// An installation invalidation may have evicted the value after the
 			// shared fetch completed. Never stash a result that is no longer in the
 			// cache; the next request will fetch the current assignment. A no-op
 			// cache deliberately has no entry, so its fetched state remains valid
 			// for this request.
-			if current, currentFound := s.blindExperimentCache.Get(routerUserID); !currentFound {
+			if current, currentFound := s.blindExperimentCache.GetAtGeneration(routerUserID, fetchGeneration); !currentFound {
 				return ctx
 			} else {
 				state = current

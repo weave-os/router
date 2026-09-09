@@ -260,7 +260,7 @@ func TestRecordTurnUsage_PassthroughWritesHistoryWithoutCreatingPin(t *testing.T
 	assert.Equal(t, "claude-sonnet-4-6", store.lastUsage.ServedModel)
 	assert.Equal(t, providers.ProviderAnthropic, store.lastUsage.ServedProvider, "passthrough must preserve the automatic pin provider")
 	assert.Equal(t, 7, store.lastUsage.InputTokens, "passthrough must preserve automatic pin usage evidence")
-	assert.True(t, store.lastUsage.PreserveZeroEndedAt, "passthrough history must not synthesize prior usage timing")
+	assert.True(t, store.lastUsage.PreservePriorUsage, "passthrough history must preserve prior planner evidence")
 	assert.Empty(t, store.upserts, "passthrough must not create session history rows")
 }
 

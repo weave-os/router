@@ -236,11 +236,11 @@ func TestSessionPinUpdateUsageCanPreserveMissingEndedAt(t *testing.T) {
 	repo := NewSessionPinRepo(db)
 
 	require.NoError(t, repo.UpdateUsage(context.Background(), key, sessionpin.DefaultRole, sessionpin.Usage{
-		Strategy:            router.StrategyCluster,
-		PreserveZeroEndedAt: true,
+		Strategy:           router.StrategyCluster,
+		PreservePriorUsage: true,
 	}))
 	require.Len(t, db.execCalls, 1)
-	endedAt, ok := db.execCalls[0].args[4].(pgtype.Timestamptz)
+	endedAt, ok := db.execCalls[0].args[5].(pgtype.Timestamptz)
 	require.True(t, ok)
 	assert.False(t, endedAt.Valid, "history-only updates must leave missing prior usage timing unset")
 }
