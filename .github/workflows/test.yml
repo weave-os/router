@@ -28,9 +28,10 @@ jobs:
 
   test:
     name: Test
-    # The branch ruleset requires only this check, so gating it on the
-    # boundary job makes the architecture and generated-policy checks required.
-    needs: inference-boundary
+    # The branch ruleset requires this check, so gating it on the
+    # prerequisite jobs makes architecture and classifier contract checks required.
+    needs: [inference-boundary, test-hmm-sidecar]
+    if: ${{ always() }}
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -48,6 +49,10 @@ jobs:
           --health-retries 30
 
     steps:
+      - name: Require inference and sidecar gates
+        if: needs.inference-boundary.result != 'success' || needs.test-hmm-sidecar.result != 'success'
+        run: exit 1
+
       - name: Checkout
         uses: actions/checkout@v4
 
@@ -175,6 +180,17 @@ jobs:
         working-directory: sidecars/hmm
         run: poetry install --no-interaction
 
+      - name: Set up Go for the serving contract
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+
+      - name: Verify Go to bundled Python contract
+        run: |
+          HMM_CONTRACT_PYTHON="$(poetry -C sidecars/hmm env info --path)/bin/python" \
+            go test ./internal/policyclient -run TestBundledPythonAcceptsGoClassificationEvidence -count=1
+
       - name: Check formatting
         working-directory: sidecars/hmm
         run: poetry run black --check hmm_sidecar scripts tests
@@ -204,7 +220,7 @@ jobs:
           trap 'docker rm --force router-hmm-sidecar-test >/dev/null 2>&1 || true' EXIT
           docker run --detach --name router-hmm-sidecar-test \
             --publish 8093:8093 router-hmm-sidecar:test
-          for attempt in $(seq 1 30); do
+          for _ in $(seq 1 30); do
             curl --fail http://127.0.0.1:8093/livez && exit 0
             sleep 1
           done
