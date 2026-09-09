@@ -1,0 +1,21 @@
+internal/proxy/compaction_test.go
+  s_108b236fe89c6d::t_31e87e9d53a3b9 473-494
+internal/proxy/compaction.go
+  s_108b236fe89c6d::t_31e87e9d53a3b9 174,481
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "5372ea4c3d5f5c8cefaca947b3785897b9616e9f",
+  "prompts": {},
+  "sessions": {
+    "s_108b236fe89c6d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08322-f5a8-7ad1-8c63-14d71de76912",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}
