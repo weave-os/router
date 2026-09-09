@@ -160,10 +160,11 @@ func (s *Service) plannerTokensFor(env *translate.RequestEnvelope, feats transla
 
 // turnLoopResult bundles the routing decision and pin/planner state.
 type turnLoopResult struct {
-	EscalationScope       [32]byte
-	EscalationOrdinal     int64
-	escalationActivation  [32]byte
-	escalationObservation translate.EscalationObservation
+	EscalationShadowMarked bool
+	EscalationScope        [32]byte
+	EscalationOrdinal      int64
+	escalationActivation   [32]byte
+	escalationObservation  translate.EscalationObservation
 
 	Decision       router.Decision
 	SessionKey     [sessionpin.SessionKeyLen]byte

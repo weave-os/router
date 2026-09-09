@@ -622,7 +622,8 @@ func suppressMarkerIfRequested(ctx context.Context, h http.Header, marker string
 }
 
 // routingMarkerFor builds the "brand → model · note" snippet emitted when the
-// selected serving model changes (and on the first routed turn).
+// selected serving model changes, on the first routed turn, or when a shadow
+// escalation is marked without affecting selection.
 func routingMarkerFor(res turnLoopResult) string {
 	decision := res.Decision
 	if decision.Model == "" {
@@ -648,6 +649,10 @@ func routingMarkerFor(res turnLoopResult) string {
 	// letting it read as a first turn.
 	if res.HardPinned {
 		return ""
+	}
+	// A shadow checkpoint is news even when ordinary routing keeps the same model.
+	if res.EscalationShadowMarked {
+		return routingMarkerPrefix + decision.Model + " · " + markerReasonShadowEscalation + "\n\n"
 	}
 	// Same model as last turn: the user already knows. Empty prior model means
 	// the first turn of this session (or role), which still shows. Effort changes
@@ -708,6 +713,7 @@ func sanitizeSidecarDisplayMarker(raw string) string {
 // the marker wording; tests assert the mapping against these constants rather
 // than re-spelling the literals.
 const (
+	markerReasonShadowEscalation  = "escalation marked — shadow mode; no action taken"
 	markerReasonUserForced        = "pinned by force-model"
 	markerReasonLoopEscalated     = "escalated due to loop"
 	markerReasonStruggleEscalated = "picked a different model to break a grind"
