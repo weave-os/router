@@ -254,6 +254,19 @@ out="$(run_hook '$fm astra' sess-abc)"
 check "an inline comment on an earlier line does not shadow the endpoint" "block" "$(decision "$out")"
 check "nor the key" "rk_hooktest" "$(jq -r '.router_key' "$recorded")"
 
+# TOML literal strings are single-quoted and have no escapes. A # inside one is
+# data too, and treating it as a comment truncates the line -- dropping any key
+# that follows it in an inline http_headers table.
+cat >"$codex_home/config.toml" <<TOML
+[model_providers.weave]
+base_url = "http://127.0.0.1:$port/v1"
+http_headers = { "X-App" = 'codex#1', "X-Weave-Router-Key" = "rk_hooktest" }
+TOML
+rm -f "$recorded"
+out="$(run_hook '$fm astra' sess-abc)"
+check "a # inside a literal string does not truncate the line" "block" "$(decision "$out")"
+check "so a key after it is still found" "rk_hooktest" "$(jq -r '.router_key' "$recorded")"
+
 # A # inside a quoted value is data, not a comment, so the value must survive.
 cat >"$codex_home/config.toml" <<TOML
 [model_providers.weave]
