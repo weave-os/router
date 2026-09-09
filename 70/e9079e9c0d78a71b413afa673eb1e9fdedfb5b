@@ -1,0 +1,24 @@
+internal/policyclient/client.go
+  s_c5edd0ad29d1e4::t_7cf6c4329218c7 711-714,717,724-727,735,739-751,764-770,773,837-852,858
+  s_c5edd0ad29d1e4::t_3897ce35793742 21-28,35-44,46,752-763,771-772,774
+internal/policyclient/client_test.go
+  s_c5edd0ad29d1e4::t_555ceb5a90a124 638-683,685-690,692-703
+  s_c5edd0ad29d1e4::t_d5a797a8ebfb00 6,684,691,704-729
+  s_c5edd0ad29d1e4::t_e61ebf995a8a71 730
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.23",
+  "base_commit_sha": "70e9079e9c0d78a71b413afa673eb1e9fdedfb5b",
+  "prompts": {},
+  "sessions": {
+    "s_c5edd0ad29d1e4": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b54a388a-4ca8-4006-b9b3-cb77b570f4b1",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}
