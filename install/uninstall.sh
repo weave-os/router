@@ -44,7 +44,7 @@ router-feedback|rf|prompt|yes|yes|yes|no|manual|command,skill
 router-off||local-toggle|yes|yes|no|no|manual|command,skill
 router-on||local-toggle|yes|yes|no|no|manual|command,skill
 router-status||local-toggle|yes|yes|no|no|manual|command,skill
-router-session||prompt|yes|no|no|no|manual|command
+router-session||prompt|yes|yes|no|no|manual|command,skill
 router-models|models|local-toggle|yes|yes|no|no|manual|command,skill
 disable-routing||local-toggle|no|yes|no|no|manual|skill
 beta||prompt|yes|no|no|yes|manual|command
@@ -547,12 +547,15 @@ if [ "$target" = "codex" ]; then
   codex_config_file="$codex_dir/config.toml"
   if [ "$scope" = "user" ] && [ -z "$install_dir" ]; then
     codex_status_file="$HOME/.weave/codex-status.sh"
+    codex_directive_file="$HOME/.weave/codex-directive.sh"
   else
     codex_status_file="$codex_dir/weave-status.sh"
+    codex_directive_file="$codex_dir/weave-directive.sh"
   fi
   codex_status_disabled_marker="$(dirname "$codex_status_file")/.weave-router-disabled"
   refuse_if_symlink "$codex_config_file"
   refuse_if_symlink "$codex_status_file"
+  refuse_if_symlink "$codex_directive_file"
   refuse_if_symlink "$codex_status_disabled_marker"
 
   if [ -f "$codex_config_file" ]; then
@@ -586,6 +589,16 @@ if [ "$target" = "codex" ]; then
       rmdir "$(dirname "$codex_status_file")" 2>/dev/null || true
     else
       warn "Leaving user-owned Codex status helper at $codex_status_file untouched."
+    fi
+  fi
+
+  if [ -f "$codex_directive_file" ]; then
+    if grep -Fq '<!-- weave-router managed codex directive -->' "$codex_directive_file"; then
+      rm -f "$codex_directive_file"
+      ok "Removed $codex_directive_file"
+      rmdir "$(dirname "$codex_directive_file")" 2>/dev/null || true
+    else
+      warn "Leaving user-owned Codex directive helper at $codex_directive_file untouched."
     fi
   fi
 

@@ -6,6 +6,7 @@ import (
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/observability"
+	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
 
 	"github.com/gin-gonic/gin"
@@ -83,13 +84,22 @@ func ListUpstreamModelsHandler(authSvc *auth.Service, proxySvc *proxy.Service) g
 	}
 }
 
-// abortForListingError maps listing errors to HTTP: 501 = no surface (keep manual entry), else 502.
+// abortForListingError maps listing errors without exposing endpoint details.
+// A destination refusal answers 400 for saved and unsaved keys alike: it is a
+// rejected configuration, and reporting it as a 502 would read as an endpoint
+// outage and send an operator debugging the wrong system.
 func abortForListingError(c *gin.Context, provider, keyID string, err error) {
 	if errors.Is(err, proxy.ErrModelListingUnsupported) || errors.Is(err, proxy.ErrProviderNotConfigured) {
 		c.AbortWithStatusJSON(http.StatusNotImplemented, gin.H{"error": "This provider does not support model listing; enter aliases manually."})
 		return
 	}
+	if errors.Is(err, providers.ErrModelDiscoveryDestination) {
+		observability.FromGin(c).Warn("Upstream model listing refused a destination",
+			"external_api_key_id", keyID, "provider", provider, "err", err)
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "The model discovery destination is not allowed."})
+		return
+	}
 	observability.FromGin(c).Warn("Upstream model listing failed",
 		"external_api_key_id", keyID, "provider", provider, "err", err)
-	c.AbortWithStatusJSON(http.StatusBadGateway, gin.H{"error": "The endpoint did not return a model list: " + err.Error()})
+	c.AbortWithStatusJSON(http.StatusBadGateway, gin.H{"error": "The endpoint did not return a model list."})
 }

@@ -7,12 +7,21 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"weave-os/router/internal/providers"
+	"weave-os/router/internal/providers/httputil"
 	"weave-os/router/internal/providers/openaicompat"
 	"weave-os/router/internal/requestcontext"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func openAICompatibleDiscoveryClient(t *testing.T, origin string) *http.Client {
+	t.Helper()
+	client, err := httputil.NewModelDiscoveryClient(origin)
+	require.NoError(t, err)
+	return client
+}
 
 func TestListModels_ReturnsSortedDedupedIDs(t *testing.T) {
 	var gotPath, gotAuth string
@@ -24,7 +33,7 @@ func TestListModels_ReturnsSortedDedupedIDs(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := openaicompat.NewGatewayClient("deploy-token", srv.URL)
+	c := openaicompat.NewGatewayClient("deploy-token", srv.URL, openaicompat.WithModelListHTTPClient(openAICompatibleDiscoveryClient(t, srv.URL)))
 	models, err := c.ListModels(context.Background())
 	require.NoError(t, err)
 	assert.Equal(t, []string{"claude-fable-5", "llama3.1-70b"}, models)
@@ -40,7 +49,7 @@ func TestListModels_BYOKCredentialsOverrideBaseURLAndKey(t *testing.T) {
 	}))
 	defer byokSrv.Close()
 
-	c := openaicompat.NewGatewayClient("deploy-token", "http://127.0.0.1:1/unreachable")
+	c := openaicompat.NewGatewayClient("deploy-token", "http://127.0.0.1:1/unreachable", openaicompat.WithModelListHTTPClient(openAICompatibleDiscoveryClient(t, byokSrv.URL)))
 	ctx := context.WithValue(context.Background(), requestcontext.CredentialsContextKey{}, &requestcontext.Credentials{
 		APIKey:  []byte("byok-token"),
 		BaseURL: byokSrv.URL,
@@ -57,7 +66,7 @@ func TestListModels_UpstreamErrorStatus(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := openaicompat.NewGatewayClient("bad-token", srv.URL)
+	c := openaicompat.NewGatewayClient("bad-token", srv.URL, openaicompat.WithModelListHTTPClient(openAICompatibleDiscoveryClient(t, srv.URL)))
 	_, err := c.ListModels(context.Background())
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "401")
@@ -75,7 +84,7 @@ func TestListModels_MalformedBody(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := openaicompat.NewGatewayClient("token", srv.URL)
+	c := openaicompat.NewGatewayClient("token", srv.URL, openaicompat.WithModelListHTTPClient(openAICompatibleDiscoveryClient(t, srv.URL)))
 	_, err := c.ListModels(context.Background())
 	require.Error(t, err)
 }
@@ -94,7 +103,7 @@ func TestListModels_FallsBackAboveV1On404(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := openaicompat.NewGatewayClient("gw-token", srv.URL+"/api/v2/cortex/v1")
+	c := openaicompat.NewGatewayClient("gw-token", srv.URL+"/api/v2/cortex/v1", openaicompat.WithModelListHTTPClient(openAICompatibleDiscoveryClient(t, srv.URL)))
 	models, err := c.ListModels(context.Background())
 	require.NoError(t, err)
 	assert.Equal(t, []string{"claude-opus-5", "openai-gpt-5.2"}, models)
@@ -116,9 +125,26 @@ func TestListModels_RetriesWithEntityWhenGatewayDemandsOne(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := openaicompat.NewGatewayClient("token", srv.URL)
+	c := openaicompat.NewGatewayClient("token", srv.URL, openaicompat.WithModelListHTTPClient(openAICompatibleDiscoveryClient(t, srv.URL)))
 	models, err := c.ListModels(context.Background())
 	require.NoError(t, err)
 	assert.Equal(t, []string{"claude-4-sonnet", "openai-gpt-5"}, models)
 	assert.Equal(t, []string{"", "{}"}, attempts)
+}
+
+// A nil option value must not strip the constructor's destination-checked
+// discovery client, which would turn a misconfigured call site into a panic
+// on the first model-list request.
+func TestListModels_NilModelListClientKeepsTheCheckedDefault(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"data":[{"id":"cortex-model"}]}`))
+	}))
+	defer srv.Close()
+
+	c := openaicompat.NewGatewayClient("tok", srv.URL, openaicompat.WithModelListHTTPClient(nil))
+
+	// The retained default refuses this loopback destination rather than panicking.
+	_, err := c.ListModels(context.Background())
+	require.Error(t, err)
+	assert.ErrorIs(t, err, providers.ErrModelDiscoveryDestination)
 }

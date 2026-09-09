@@ -8,7 +8,10 @@ import (
 	"testing"
 
 	"weave-os/router/internal/providers/anthropic"
+	"weave-os/router/internal/providers/httputil"
 	"weave-os/router/internal/providers/openaicompat"
+
+	"github.com/stretchr/testify/require"
 )
 
 // cortex replays Snowflake Cortex's observed catalog responses: 415 without a
@@ -49,7 +52,9 @@ func TestCortexSimOpenAI(t *testing.T) {
 	hits := 0
 	srv := httptest.NewServer(cortex(t, &hits))
 	defer srv.Close()
-	models, err := openaicompat.NewGatewayClient("tok", srv.URL+"/api/v2/cortex").ListModels(context.Background())
+	discoveryClient, err := httputil.NewModelDiscoveryClient(srv.URL)
+	require.NoError(t, err)
+	models, err := openaicompat.NewGatewayClient("tok", srv.URL+"/api/v2/cortex", openaicompat.WithModelListHTTPClient(discoveryClient)).ListModels(context.Background())
 	if err != nil || len(models) != 2 || hits != 1 {
 		t.Fatalf("openai_gateway: models=%v err=%v hits=%d", models, err, hits)
 	}
@@ -59,7 +64,9 @@ func TestCortexSimAnthropic(t *testing.T) {
 	hits := 0
 	srv := httptest.NewServer(cortex(t, &hits))
 	defer srv.Close()
-	models, err := anthropic.NewClient("tok", srv.URL+"/api/v2/cortex", anthropic.WithAuthScheme(anthropic.AuthBearer)).ListModels(context.Background())
+	discoveryClient, err := httputil.NewModelDiscoveryClient(srv.URL)
+	require.NoError(t, err)
+	models, err := anthropic.NewClient("tok", srv.URL+"/api/v2/cortex", anthropic.WithAuthScheme(anthropic.AuthBearer), anthropic.WithModelListHTTPClient(discoveryClient)).ListModels(context.Background())
 	if err != nil || len(models) != 2 || hits != 1 {
 		t.Fatalf("anthropic_gateway: models=%v err=%v hits=%d", models, err, hits)
 	}

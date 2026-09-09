@@ -76,9 +76,10 @@ func BedrockMantleBaseURL(region string) string {
 }
 
 type Client struct {
-	apiKey  string
-	baseURL string
-	http    *http.Client
+	apiKey    string
+	baseURL   string
+	http      *http.Client
+	modelHTTP *http.Client
 	// grokHTTP carries the wider time-to-first-byte guard used for Grok
 	// models; see grokResponseHeaderTimeout.
 	grokHTTP *http.Client
@@ -110,35 +111,55 @@ type Client struct {
 	versionMemo providers.GatewayVersionMemo
 }
 
-func NewClient(apiKey, baseURL string) *Client {
-	return NewClientWithModelIDMap(apiKey, baseURL, nil)
+// Option configures a Client at construction.
+type Option func(*Client)
+
+// WithModelListHTTPClient supplies the client used only for model discovery.
+// A nil client is ignored so a misconfigured option cannot strip the
+// constructor's destination-checked default and panic on the first call.
+func WithModelListHTTPClient(client *http.Client) Option {
+	return func(c *Client) {
+		if client == nil {
+			return
+		}
+		c.modelHTTP = client
+	}
+}
+
+func NewClient(apiKey, baseURL string, opts ...Option) *Client {
+	return NewClientWithModelIDMap(apiKey, baseURL, nil, opts...)
 }
 
 // NewClientWithModelIDMap builds a client that rewrites the body's top-level
 // "model" field before forwarding when the requested model has a mapping.
 // Pass nil to disable rewriting.
-func NewClientWithModelIDMap(apiKey, baseURL string, modelIDMap map[string]string) *Client {
+func NewClientWithModelIDMap(apiKey, baseURL string, modelIDMap map[string]string, opts ...Option) *Client {
 	if baseURL == "" {
 		baseURL = DefaultBaseURL
 	}
-	return newClient(apiKey, baseURL, modelIDMap)
+	return newClient(apiKey, baseURL, modelIDMap, opts...)
 }
 
 // NewGatewayClient builds a client for a customer-supplied OpenAI-spec endpoint.
 // Unlike NewClient, no default base URL is applied: an unconfigured gateway must
 // fail rather than silently dispatch the tenant's token to OpenRouter.
-func NewGatewayClient(apiKey, baseURL string) *Client {
-	return newClient(apiKey, baseURL, nil)
+func NewGatewayClient(apiKey, baseURL string, opts ...Option) *Client {
+	return newClient(apiKey, baseURL, nil, opts...)
 }
 
-func newClient(apiKey, baseURL string, modelIDMap map[string]string) *Client {
-	return &Client{
+func newClient(apiKey, baseURL string, modelIDMap map[string]string, opts ...Option) *Client {
+	client := &Client{
 		apiKey:     apiKey,
 		baseURL:    strings.TrimRight(baseURL, "/"),
 		http:       httputil.NewClient(httputil.NewTransport(5*time.Second, 5*time.Second)),
 		grokHTTP:   httputil.NewClient(httputil.NewTransportWithResponseHeaderTimeout(5*time.Second, 5*time.Second, grokResponseHeaderTimeout)),
+		modelHTTP:  httputil.NewDefaultModelDiscoveryClient(),
 		modelIDMap: modelIDMap,
 	}
+	for _, opt := range opts {
+		opt(client)
+	}
+	return client
 }
 
 // httpFor picks the HTTP client for a routed model: Grok models get the

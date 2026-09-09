@@ -63,7 +63,7 @@ func (t *escalationTurn) constraint() *escalation.Constraint {
 func (s *Service) beginEscalation(ctx context.Context, env *translate.RequestEnvelope, req router.Request, res *turnLoopResult, apiKeyID string) *escalationTurn {
 	active := flags.BoolOr(ctx, flags.KeyEscalationXGBoostEnabled, false)
 	shadow := flags.BoolOr(ctx, flags.KeyEscalationXGBoostShadowEnabled, false)
-	if (!active && !shadow) || s.escalationStore == nil || s.escalationObserver == nil || res.Strategy != router.StrategyHMMEmbedding || req.ShadowMode || req.ForceModel != "" || req.ForceCluster != "" || res.InstallationID == uuid.Nil || (res.TurnType != turntype.MainLoop && res.TurnType != turntype.ToolResult) {
+	if (!active && !shadow) || s.escalationStore == nil || s.escalationObserver == nil || (active && res.Strategy != router.StrategyHMMEmbedding) || req.ShadowMode || req.ForceModel != "" || req.ForceCluster != "" || res.InstallationID == uuid.Nil || (res.TurnType != turntype.MainLoop && res.TurnType != turntype.ToolResult) {
 		return nil
 	}
 	mode := escalationModeShadow
@@ -206,6 +206,7 @@ func escalationRoutingApplied(decision router.Decision) bool {
 
 func (s *Service) finishEscalation(ctx context.Context, turn *escalationTurn, res *turnLoopResult, routeErr error) error {
 	if turn.replay {
+		res.EscalationShadowMarked = flags.BoolOr(ctx, flags.KeyEscalationXGBoostShadowMarkerEnabled, false) && !turn.active && turn.checkpoint.Prediction != nil && turn.checkpoint.Prediction.Escalate
 		res.EscalationScope = turn.scope
 		res.EscalationOrdinal = turn.checkpoint.Ordinal
 		res.escalationActivation = turn.activation
@@ -227,6 +228,7 @@ func (s *Service) finishEscalation(ctx context.Context, turn *escalationTurn, re
 		s.invalidateEscalation(ctx, turn.scope, turn.boundary, turn.token)
 		return err
 	}
+	res.EscalationShadowMarked = flags.BoolOr(ctx, flags.KeyEscalationXGBoostShadowMarkerEnabled, false) && !turn.active && turn.checkpoint.Prediction != nil && turn.checkpoint.Prediction.Escalate
 	res.EscalationScope = turn.scope
 	res.EscalationOrdinal = turn.session.Ordinal
 	res.escalationActivation = turn.activation

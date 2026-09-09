@@ -40,8 +40,7 @@ func TestListModels_AzureEndpointStoredWithOpenAIStyleV1(t *testing.T) {
 	require.NoError(t, err)
 
 	rt := &hostRewriter{target: target}
-	c := NewGatewayClient("k", "https://zllama-dev.openai.azure.com/v1")
-	c.http = &http.Client{Transport: rt}
+	c := NewGatewayClient("k", "https://zllama-dev.openai.azure.com/v1", WithModelListHTTPClient(&http.Client{Transport: rt}))
 
 	ids, err := c.ListModels(context.Background())
 	require.NoError(t, err)

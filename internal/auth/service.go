@@ -370,6 +370,17 @@ func (s *Service) UpsertExternalAPIKey(ctx context.Context, installationID strin
 	if err != nil {
 		return nil, err
 	}
+	baggageName := ""
+	if baggageHeader != nil {
+		baggageName = *baggageHeader
+	}
+	identityName := ""
+	if identityHeader != nil {
+		identityName = *identityHeader
+	}
+	if err := ValidateForwardingHeaderConfiguration(forwardedHeaders, baggageName, identityName); err != nil {
+		return nil, err
+	}
 	authType, authAccount, authUser, err := NormalizeAuthType(params.AuthType, params.AuthAccount, params.AuthUser)
 	if err != nil {
 		return nil, err

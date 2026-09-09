@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"sort"
-	"strings"
 
 	"github.com/tidwall/gjson"
 )
@@ -13,30 +12,28 @@ import (
 // the OpenAI/Anthropic list shape nor a gateway's bare model array.
 var ErrUnknownModelListShape = errors.New("model listing response has no recognizable model list")
 
-// maxModelListErrorBytes caps how much of a rejected model-list body is quoted
-// back in the error.
-const maxModelListErrorBytes = 400
+// ModelListFailureCategory is the non-sensitive class of a model-list failure.
+type ModelListFailureCategory string
 
-// ModelListStatusError describes a rejected model-list response, quoting a
-// truncated, single-line excerpt of the upstream body. Gateways explain
-// themselves there (Snowflake Cortex answers 400 with a JSON "message"), and
-// without it a status code alone is undiagnosable in production.
-func ModelListStatusError(status int, body []byte) error {
-	detail := gjson.GetBytes(body, "message").String()
-	if detail == "" {
-		detail = gjson.GetBytes(body, "error.message").String()
-	}
-	if detail == "" {
-		detail = string(body)
-	}
-	detail = strings.TrimSpace(strings.Join(strings.Fields(detail), " "))
-	if len(detail) > maxModelListErrorBytes {
-		detail = detail[:maxModelListErrorBytes] + "…"
-	}
-	if detail == "" {
-		return fmt.Errorf("model listing returned status %d", status)
-	}
-	return fmt.Errorf("model listing returned status %d: %s", status, detail)
+const (
+	// ModelListFailureUpstreamStatus means the endpoint rejected the request.
+	ModelListFailureUpstreamStatus ModelListFailureCategory = "upstream_status"
+)
+
+// ModelListHTTPStatusError describes an upstream rejection without retaining
+// response content that may contain credentials or private endpoint details.
+type ModelListHTTPStatusError struct {
+	Status   int
+	Category ModelListFailureCategory
+}
+
+func (e *ModelListHTTPStatusError) Error() string {
+	return fmt.Sprintf("model listing failed with status %d (%s)", e.Status, e.Category)
+}
+
+// NewModelListStatusError returns a safe typed upstream-status failure.
+func NewModelListStatusError(status int) error {
+	return &ModelListHTTPStatusError{Status: status, Category: ModelListFailureUpstreamStatus}
 }
 
 // ParseModelIDs extracts sorted, deduplicated model IDs from a model-list body.
