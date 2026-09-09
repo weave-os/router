@@ -10,6 +10,7 @@ import (
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/cluster"
+	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/translate"
 
 	"github.com/google/uuid"
@@ -70,9 +71,39 @@ func TestBlindExperimentPassthroughSkipsAutomaticPinsAndScorer(t *testing.T) {
 	assert.Equal(t, blindExperimentPublicDecisionReason, loopResult.Decision.Reason)
 	pins.mu.Lock()
 	defer pins.mu.Unlock()
-	assert.Equal(t, []string{forceModelSessionRole}, pins.getRoles,
-		"only explicit force-model state may be read before experiment passthrough")
-	assert.Empty(t, pins.upserts)
+	assert.Contains(t, pins.getRoles, forceModelSessionRole)
+	assert.Empty(t, pins.upserts, "automatic pins must not be written before experiment passthrough")
+}
+
+func TestBlindExperimentPassthroughPreservesSessionHistory(t *testing.T) {
+	pins := newStubPinStore()
+	pins.getFound = true
+	pins.getPin = sessionpin.Pin{
+		Reason:          "cluster",
+		LastServedModel: "claude-haiku-4-5",
+		HasEverSwitched: true,
+	}
+	service := NewService(nil, nil, nil, false, nil, pins, false,
+		providers.ProviderAnthropic, "claude-haiku-4-5", nil)
+	envelope, err := translate.ParseAnthropic([]byte(`{"model":"claude-sonnet-4-6","messages":[{"role":"user","content":"hello"}]}`))
+	require.NoError(t, err)
+
+	loopResult, err := service.runTurnLoop(
+		blindExperimentContext(auth.BlindExperimentArmPassthrough),
+		envelope,
+		envelope.RoutingFeatures(false),
+		"api-key",
+		uuid.New(),
+		"",
+		http.Header{},
+		router.Request{RequestedModel: "claude-sonnet-4-6"},
+	)
+
+	require.NoError(t, err)
+	assert.NotEqual(t, [sessionpin.SessionKeyLen]byte{}, loopResult.SessionKey)
+	assert.Equal(t, "claude-haiku-4-5", loopResult.PriorServedModel)
+	assert.True(t, loopResult.SessionEverSwitched)
+	assert.True(t, loopResult.BlindExperimentPassthrough)
 }
 
 func TestBlindExperimentPassthroughUsesGatewayAlias(t *testing.T) {
