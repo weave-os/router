@@ -216,6 +216,55 @@ WEAVE_CODEX_END_MARKER="# <<< weave-router managed <<<"
 # Codex rewrites config.toml through a TOML serializer and our comment markers
 # do not survive, so a marker-only uninstall reported success while leaving the
 # provider -- and the router key inside it -- on disk.
+# strip_weave_codex_hooks removes every hook registration this installer owns,
+# matched by helper filename. Marker-scoped removal is not enough: Codex
+# rewrites config.toml through a TOML serializer and our registrations often end
+# up outside the markers, which used to leave them behind after an uninstall.
+# Removal is per sub-entry so a group shared with a third party keeps theirs.
+strip_weave_codex_hooks() {
+  local config_file="$1"
+  [ -f "$config_file" ] || return 0
+  local tmp; tmp="$(mktemp -t weave-codex-hooks.XXXXXX)"
+  awk -v want_re='command[[:space:]]*=[[:space:]]*"[^"]*(codex|weave)-(status|directive)[.]sh"' '
+    function flush_sub(   i) {
+      if (sub_n == 0) return
+      if (!sub_is_weave) {
+        if (group_pending != "") {
+          print group_pending
+          group_pending = ""
+          if (group_blank) { print ""; group_blank = 0 }
+        }
+        for (i = 1; i <= sub_n; i++) print sub_line[i]
+      }
+      sub_n = 0
+      sub_is_weave = 0
+    }
+    function close_group() { flush_sub(); group_pending = ""; group_blank = 0 }
+    /^[[:space:]]*\[\[hooks\.[A-Za-z]+\.hooks\]\][[:space:]]*$/ {
+      flush_sub(); sub_n = 1; sub_line[1] = $0; next
+    }
+    /^[[:space:]]*\[\[hooks\.[A-Za-z]+\]\][[:space:]]*$/ {
+      close_group(); group_pending = $0; next
+    }
+    /^[[:space:]]*\[/ { close_group(); print; next }
+    {
+      if (sub_n > 0) {
+        sub_line[++sub_n] = $0
+        if ($0 ~ want_re) sub_is_weave = 1
+        next
+      }
+      if (group_pending != "" && $0 ~ /^[[:space:]]*$/) { group_blank = 1; next }
+      if (group_pending != "") {
+        print group_pending; group_pending = ""
+        if (group_blank) { print ""; group_blank = 0 }
+      }
+      print
+    }
+    END { close_group() }
+  ' "$config_file" >"$tmp" && mv "$tmp" "$config_file"
+  rm -f "$tmp" 2>/dev/null || true
+}
+
 strip_codex_block() {
   local config_file="$1"
   local tmp; tmp="$(mktemp -t weave-codex-uninstall.XXXXXX)"
@@ -236,6 +285,7 @@ strip_codex_block() {
     { print }
   ' "$config_file" >"$tmp"
   mv "$tmp" "$config_file"
+  strip_weave_codex_hooks "$config_file"
 }
 
 # ---------- opencode uninstall path ----------

@@ -342,69 +342,84 @@ grep -Fq '[model_providers.weaver]' "$config" \
 rm -rf "$home/.codex" "$home/.weave"
 
 
-# ---------- the UserPromptSubmit directive hook ----------
+# ---------- the retired UserPromptSubmit directive hook ----------
 #
-# The hook is what makes $fm / $rf / $router-session cost no inference. It has
-# to be registered in the managed block (so uninstall takes it away with
-# everything else) and the helper it points at has to exist and be executable --
-# a hook command pointing at a missing file is a broken Codex turn, not a
-# degraded one.
+# 0.2.17 shipped a UserPromptSubmit hook to answer $fm / $rf / $router-session
+# locally. The router now recognizes those directives itself, so the hook is
+# gone -- but an install upgrading from 0.2.17 has to take the registration and
+# the helper away together. A registration left pointing at a deleted script
+# makes Codex run a missing command on every prompt, which is worse than the
+# hook it replaced.
 rm -rf "$home/.codex" "$home/.weave"
-run_hosted_install
+mkdir -p "$home/.codex" "$home/.weave"
 directive_helper="$home/.weave/codex-directive.sh"
+printf '%s\n' '#!/usr/bin/env bash' '# <!-- weave-router managed codex directive -->' 'exit 0' \
+  >"$directive_helper"
+chmod 700 "$directive_helper"
 
-[ -x "$directive_helper" ] \
-  || fail "install did not write an executable Codex directive helper"
-grep -Fq '<!-- weave-router managed codex directive -->' "$directive_helper" \
-  || fail "the installed Codex directive helper has no ownership marker"
-# GNU stat first: on macOS -c is unrecognised and exits non-zero so this falls
-# through, whereas GNU stat -f is --file-system and would silently succeed with
-# the wrong value (same trap cc-statusline.sh documents).
-[ "$(stat -c '%a' "$directive_helper" 2>/dev/null || stat -f '%Lp' "$directive_helper" 2>/dev/null)" = "700" ] \
-  || fail "the Codex directive helper is not mode 700"
+# A config in the shape 0.2.17 leaves behind once Codex has normalized it: our
+# registrations outside the markers, duplicated by a later install, sharing a
+# Stop group with a third-party hook.
+cat >"$config" <<TOML
+model_provider = "weave"
 
-grep -Fq '[[hooks.UserPromptSubmit]]' "$config" \
-  || fail "install did not register the UserPromptSubmit hook"
-grep -Fq "command = \"$directive_helper\"" "$config" \
-  || fail "the UserPromptSubmit hook does not point at the installed helper"
-assert_config_parses "installing the directive hook produced unparseable TOML"
+[model_providers.weave]
+base_url = "https://router.workweave.ai/v1"
 
-# The hook must live inside the managed markers so uninstall removes it.
-awk -v begin='# >>> weave-router managed (do not edit between markers) >>>' \
-    -v end='# <<< weave-router managed <<<' '
-  $0 == begin { inblk = 1; next }
-  $0 == end   { inblk = 0; next }
-  inblk && /hooks\.UserPromptSubmit/ { found = 1 }
-  END { exit(found ? 0 : 1) }
-' "$config" || fail "the UserPromptSubmit hook was written outside the managed markers"
+[model_providers.weave.http_headers]
+X-Weave-Router-Key = "rk_prior"
 
-# Re-running must not stack duplicate hook entries.
+[[hooks.UserPromptSubmit]]
+[[hooks.UserPromptSubmit.hooks]]
+type = "command"
+command = "$directive_helper"
+
+[[hooks.SessionStart]]
+[[hooks.SessionStart.hooks]]
+type = "command"
+command = "$home/.weave/codex-status.sh"
+
+[[hooks.SessionStart]]
+
+[[hooks.SessionStart.hooks]]
+command = "$home/.weave/codex-status.sh"
+type = "command"
+
+[[hooks.Stop]]
+
+[[hooks.Stop.hooks]]
+command = "$home/.weave/codex-status.sh"
+type = "command"
+
+[[hooks.Stop.hooks]]
+command = "$home/.git-ai/bin/git-ai checkpoint codex"
+type = "command"
+TOML
+
 run_hosted_install
-[ "$(grep -c '^\[\[hooks\.UserPromptSubmit\]\]$' "$config")" -eq 1 ] \
-  || fail "a repeat install duplicated the UserPromptSubmit hook"
+assert_config_parses "upgrading from the directive-hook release produced unparseable TOML"
+
+[ ! -e "$directive_helper" ] \
+  || fail "the upgrade left the retired directive helper on disk"
+if grep -Fq 'hooks.UserPromptSubmit' "$config"; then
+  fail "the upgrade left a UserPromptSubmit registration pointing at a deleted script"
+fi
+
+# The duplicates are the same orphan class: Codex normalized our block out of
+# the markers, so the previous install could not see them and appended more.
+# Stripping by helper filename collapses them to the one the block re-adds.
+[ "$(grep -c "command = \"$home/.weave/codex-status.sh\"" "$config")" -eq 2 ] \
+  || fail "expected exactly one status registration per event, got $(grep -c "command = \"$home/.weave/codex-status.sh\"" "$config")"
+
+# A third party's hook in a group we also wrote to must survive.
+grep -Fq 'git-ai checkpoint codex' "$config" \
+  || fail "the upgrade removed a third-party hook sharing a group with ours"
+
+# Routing itself still lands.
+grep -Fq 'model_provider = "weave"' "$config" \
+  || fail "the upgrade did not leave Codex routed at the Weave provider"
 
 run_uninstall
-[ ! -e "$directive_helper" ] \
-  || fail "uninstall left the Codex directive helper behind"
-if [ -f "$config" ] && grep -Fq 'hooks.UserPromptSubmit' "$config"; then
-  fail "uninstall left the UserPromptSubmit hook in config.toml"
-fi
-
-# A helper path the installer does not own is never overwritten, and routing
-# still installs -- the directives just fall back to their skills.
-rm -rf "$home/.codex" "$home/.weave"
-mkdir -p "$(dirname "$directive_helper")"
-printf '%s\n' 'user-authored directive helper' >"$directive_helper"
-run_hosted_install
-grep -qx 'user-authored directive helper' "$directive_helper" \
-  || fail "install overwrote a user-owned Codex directive helper"
-grep -Fq 'model_provider = "weave"' "$config" \
-  || fail "an unowned directive helper blocked Codex routing setup"
-if grep -Fq 'hooks.UserPromptSubmit' "$config"; then
-  fail "install wired a UserPromptSubmit hook at an unowned helper path"
-fi
-assert_config_parses "skipping the directive hook produced unparseable TOML"
-rm -f "$directive_helper"
 rm -rf "$home/.codex" "$home/.weave"
 
 
@@ -445,7 +460,9 @@ while IFS= read -r generated; do
   ( cd "$proj_repo" && git check-ignore -q "$generated" ) \
     || fail "project install left $generated tracked by git"
 done < <(cd "$proj_repo" && find .codex -maxdepth 1 -type f)
-[ "$swept" -ge 3 ] \
-  || fail "the gitignore sweep inspected only $swept generated file(s); expected at least 3"
+# config.toml plus the status helper. The directive helper used to make three;
+# its retirement is why this is two.
+[ "$swept" -ge 2 ] \
+  || fail "the gitignore sweep inspected only $swept generated file(s); expected at least 2"
 
 echo "Codex installer routing regression tests passed"

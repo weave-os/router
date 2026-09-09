@@ -12,6 +12,5 @@ fi
 # which is a different session whenever two run concurrently -- and a wrong id
 # silently attributes feedback to someone else's session. Fail instead.
 echo "session id unavailable: CODEX_SESSION_ID is not set in this environment." >&2
-echo "The Weave Router's UserPromptSubmit hook answers \$router-session directly" >&2
-echo "from the session id Codex gives it; re-run the installer to enable it." >&2
+echo "Codex prints the same id in its session banner." >&2
 exit 1
