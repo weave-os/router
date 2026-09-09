@@ -135,6 +135,25 @@ func TestResolveAndStashUserBlindExperimentOverrideAndCache(t *testing.T) {
 	assert.Equal(t, 1, experiments.calls)
 }
 
+func TestResolveAndStashUserBlindExperimentWithoutCache(t *testing.T) {
+	users := &fakeUserRepo{user: &auth.User{ID: "user-42", InstallationID: "inst-1", Email: "alice@example.com"}}
+	experiments := &fakeBlindExperimentRepository{record: auth.BlindExperimentRecord{
+		Configured:          true,
+		Enabled:             true,
+		RouterOnPercentage:  0,
+		Seed:                "seed",
+		CanonicalSubjectKey: "account-7",
+	}}
+	service := makeServiceWithUsers(t, users).WithBlindExperiments(experiments, nil)
+
+	requestContext := service.ResolveAndStashUser(context.Background(), "inst-1", "alice@example.com", "", "")
+
+	state, active := auth.BlindExperimentFrom(requestContext)
+	require.True(t, active)
+	assert.Equal(t, auth.BlindExperimentArmPassthrough, state.Arm)
+	assert.Equal(t, 1, experiments.calls)
+}
+
 func TestResolveAndStashUserBlindExperimentFetchFailureFailsOpen(t *testing.T) {
 	users := &fakeUserRepo{user: &auth.User{ID: "user-42", InstallationID: "inst-1", Email: "alice@example.com"}}
 	experiments := &fakeBlindExperimentRepository{err: errors.New("database unavailable")}

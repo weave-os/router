@@ -9,6 +9,7 @@ import (
 
 // BlindExperimentCache caches active and inactive per-user experiment states.
 type BlindExperimentCache interface {
+	Enabled() bool
 	Get(routerUserID string) (BlindExperimentState, bool)
 	InvalidationGeneration() uint64
 	Set(installationID, routerUserID string, state BlindExperimentState)
@@ -19,6 +20,7 @@ type BlindExperimentCache interface {
 // NoOpBlindExperimentCache disables experiment caching.
 type NoOpBlindExperimentCache struct{}
 
+func (NoOpBlindExperimentCache) Enabled() bool { return false }
 func (NoOpBlindExperimentCache) Get(string) (BlindExperimentState, bool) {
 	return BlindExperimentState{}, false
 }
@@ -67,6 +69,8 @@ func NewLRUBlindExperimentCache(size int, ttl time.Duration, now Clock) *LRUBlin
 	cache.errorEntries = expirable.NewLRU(size, cache.onErrorEvict, errorTTL)
 	return cache
 }
+
+func (*LRUBlindExperimentCache) Enabled() bool { return true }
 
 func (cache *LRUBlindExperimentCache) Get(routerUserID string) (BlindExperimentState, bool) {
 	state, ok := cache.entries.Get(routerUserID)

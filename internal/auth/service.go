@@ -901,13 +901,17 @@ func (s *Service) withBlindExperiment(ctx context.Context, installationID, route
 		if s.blindExperimentCache.InvalidationGeneration() != fetchGeneration {
 			return ctx
 		}
-		// An installation invalidation may have evicted the value after the
-		// shared fetch completed. Never stash a result that is no longer in the
-		// cache; the next request will fetch the current assignment.
-		if current, currentFound := s.blindExperimentCache.Get(routerUserID); !currentFound {
-			return ctx
-		} else {
-			state = current
+		if s.blindExperimentCache.Enabled() {
+			// An installation invalidation may have evicted the value after the
+			// shared fetch completed. Never stash a result that is no longer in the
+			// cache; the next request will fetch the current assignment. A no-op
+			// cache deliberately has no entry, so its fetched state remains valid
+			// for this request.
+			if current, currentFound := s.blindExperimentCache.Get(routerUserID); !currentFound {
+				return ctx
+			} else {
+				state = current
+			}
 		}
 	}
 	if !state.Active {

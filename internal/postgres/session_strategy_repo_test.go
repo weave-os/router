@@ -16,6 +16,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -225,4 +226,21 @@ func TestSessionPinMutationsCarryExpectedRoutingStrategy(t *testing.T) {
 		assert.Contains(t, call.query, "<> 'hmm_beta'")
 		assert.Equal(t, string(router.StrategyHMMBeta), call.args[len(call.args)-1])
 	}
+}
+
+func TestSessionPinUpdateUsageCanPreserveMissingEndedAt(t *testing.T) {
+	t.Parallel()
+
+	key := [sessionpin.SessionKeyLen]byte{10, 11, 12}
+	db := &sessionStrategyDB{}
+	repo := NewSessionPinRepo(db)
+
+	require.NoError(t, repo.UpdateUsage(context.Background(), key, sessionpin.DefaultRole, sessionpin.Usage{
+		Strategy:            router.StrategyCluster,
+		PreserveZeroEndedAt: true,
+	}))
+	require.Len(t, db.execCalls, 1)
+	endedAt, ok := db.execCalls[0].args[4].(pgtype.Timestamptz)
+	require.True(t, ok)
+	assert.False(t, endedAt.Valid, "history-only updates must leave missing prior usage timing unset")
 }

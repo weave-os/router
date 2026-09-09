@@ -97,6 +97,10 @@ type Usage struct {
 	CachedWriteTokens int
 	OutputTokens      int
 	EndedAt           time.Time
+	// PreserveZeroEndedAt keeps a missing prior usage timestamp unset during a
+	// history-only update instead of making the planner treat it as a completed
+	// warm-cache turn.
+	PreserveZeroEndedAt bool
 	// ServedModel is the model that served the turn this usage came from.
 	ServedModel string
 	// ServedProvider is the provider binding that served the turn. UpdateUsage
