@@ -82,7 +82,7 @@ func BuildCredentialsMap(keys []*auth.ExternalAPIKey) map[string]*Credentials {
 
 			IdentityHeader:         key.IdentityHeader,
 			IdentityHeaderFormat:   key.IdentityHeaderFormat,
-			ForwardedClientHeaders: key.ForwardedClientHeaders,
+			ForwardedClientHeaders: append([]string(nil), key.ForwardedClientHeaders...),
 			BaggageHeader:          key.BaggageHeader,
 			AuthType:               key.AuthType,
 		}

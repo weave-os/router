@@ -45,6 +45,11 @@ func WithAuthScheme(scheme AuthScheme) Option {
 	return func(c *Client) { c.authScheme = scheme }
 }
 
+// WithModelListHTTPClient supplies the client used only for model discovery.
+func WithModelListHTTPClient(client *http.Client) Option {
+	return func(c *Client) { c.modelHTTP = client }
+}
+
 // WithDefaultHeaders returns c with headers set on every upstream request.
 // Prepared and inbound per-request headers can override these values.
 func (c *Client) WithDefaultHeaders(h http.Header) *Client {
@@ -85,9 +90,10 @@ func rewriteModelField(body []byte, modelIDMap map[string]string) []byte {
 }
 
 type Client struct {
-	apiKey  string
-	baseURL string
-	http    *http.Client
+	apiKey    string
+	baseURL   string
+	http      *http.Client
+	modelHTTP *http.Client
 	// authScheme is the credential header this upstream expects; zero value
 	// (AuthAPIKeyHeader) preserves Anthropic's own behavior.
 	authScheme AuthScheme
@@ -118,9 +124,10 @@ type Client struct {
 
 func NewClient(apiKey, baseURL string, opts ...Option) *Client {
 	c := &Client{
-		apiKey:  apiKey,
-		baseURL: baseURL,
-		http:    httputil.NewClient(httputil.NewTransport(10*time.Second, 10*time.Second)),
+		apiKey:    apiKey,
+		baseURL:   baseURL,
+		http:      httputil.NewClient(httputil.NewTransport(10*time.Second, 10*time.Second)),
+		modelHTTP: httputil.NewDefaultModelDiscoveryClient(),
 	}
 	for _, opt := range opts {
 		opt(c)

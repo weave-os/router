@@ -48,7 +48,7 @@ func InternalListUpstreamModelsHandler(authSvc *auth.Service, proxySvc *proxy.Se
 		creds := proxy.BuildCredentialsMap([]*auth.ExternalAPIKey{key})[key.Provider]
 		models, err := proxySvc.ListUpstreamModels(c.Request.Context(), key.Provider, creds)
 		if err != nil {
-			abortForListingError(c, key.Provider, key.ID, err)
+			abortForListingError(c, key.Provider, key.ID, false, err)
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"models": models})

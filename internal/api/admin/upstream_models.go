@@ -6,6 +6,7 @@ import (
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/observability"
+	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
 
 	"github.com/gin-gonic/gin"
@@ -40,7 +41,7 @@ func DiscoverModelsHandler(proxySvc *proxy.Service) gin.HandlerFunc {
 		creds := proxy.BuildCredentialsMap([]*auth.ExternalAPIKey{key})[req.Provider]
 		models, err := proxySvc.ListUpstreamModels(c.Request.Context(), req.Provider, creds)
 		if err != nil {
-			abortForListingError(c, req.Provider, "", err)
+			abortForListingError(c, req.Provider, "", true, err)
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"models": models})
@@ -76,20 +77,24 @@ func ListUpstreamModelsHandler(authSvc *auth.Service, proxySvc *proxy.Service) g
 		creds := proxy.BuildCredentialsMap([]*auth.ExternalAPIKey{key})[key.Provider]
 		models, err := proxySvc.ListUpstreamModels(c.Request.Context(), key.Provider, creds)
 		if err != nil {
-			abortForListingError(c, key.Provider, key.ID, err)
+			abortForListingError(c, key.Provider, key.ID, false, err)
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"models": models})
 	}
 }
 
-// abortForListingError maps listing errors to HTTP: 501 = no surface (keep manual entry), else 502.
-func abortForListingError(c *gin.Context, provider, keyID string, err error) {
+// abortForListingError maps listing errors without exposing endpoint details.
+func abortForListingError(c *gin.Context, provider, keyID string, unsaved bool, err error) {
 	if errors.Is(err, proxy.ErrModelListingUnsupported) || errors.Is(err, proxy.ErrProviderNotConfigured) {
 		c.AbortWithStatusJSON(http.StatusNotImplemented, gin.H{"error": "This provider does not support model listing; enter aliases manually."})
 		return
 	}
+	if unsaved && errors.Is(err, providers.ErrModelDiscoveryDestination) {
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "The model discovery destination is not allowed."})
+		return
+	}
 	observability.FromGin(c).Warn("Upstream model listing failed",
 		"external_api_key_id", keyID, "provider", provider, "err", err)
-	c.AbortWithStatusJSON(http.StatusBadGateway, gin.H{"error": "The endpoint did not return a model list: " + err.Error()})
+	c.AbortWithStatusJSON(http.StatusBadGateway, gin.H{"error": "The endpoint did not return a model list."})
 }

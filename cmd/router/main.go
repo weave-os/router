@@ -36,6 +36,7 @@ import (
 	"weave-os/router/internal/providers/anthropic"
 	"weave-os/router/internal/providers/cortexagents"
 	googleProvider "weave-os/router/internal/providers/google"
+	providerHTTP "weave-os/router/internal/providers/httputil"
 	openaiProvider "weave-os/router/internal/providers/openai"
 	openaiCompatProvider "weave-os/router/internal/providers/openaicompat"
 	"weave-os/router/internal/proxy"
@@ -159,6 +160,11 @@ func main() {
 	}
 
 	repo := postgres.NewRepository(pool, encryptor)
+	discoveryHTTPClient, err := providerHTTP.NewModelDiscoveryClient(config.GetOr("ROUTER_MODEL_DISCOVERY_PRIVATE_ORIGINS", ""))
+	if err != nil {
+		logger.Error("Invalid model discovery private-origin configuration", "err", err)
+		panic(err)
+	}
 
 	providerMap := make(map[string]providers.Client)
 	// envKeyedProviders = providers with a real deployment-level API key.
@@ -205,7 +211,7 @@ func main() {
 	if !byokOnly {
 		anthropicKey = config.GetOr("ANTHROPIC_API_KEY", "")
 	}
-	providerMap[providers.ProviderAnthropic] = anthropic.NewClient(anthropicKey, anthropic.DefaultBaseURL)
+	providerMap[providers.ProviderAnthropic] = anthropic.NewClient(anthropicKey, anthropic.DefaultBaseURL, anthropic.WithModelListHTTPClient(discoveryHTTPClient))
 	switch {
 	case byokOnly:
 		logger.Info("Anthropic provider enabled (BYOK only)", "base_url", anthropic.DefaultBaseURL)
@@ -264,7 +270,7 @@ func main() {
 		if !byokOnly && openRouterPlatformEnabled {
 			openRouterKey = config.GetOr("OPENROUTER_API_KEY", "")
 		}
-		providerMap[providers.ProviderOpenRouter] = openaiCompatProvider.NewClient(openRouterKey, openRouterBaseURL)
+		providerMap[providers.ProviderOpenRouter] = openaiCompatProvider.NewClient(openRouterKey, openRouterBaseURL, openaiCompatProvider.WithModelListHTTPClient(discoveryHTTPClient))
 		switch {
 		case byokOnly:
 			logger.Info("OpenRouter provider enabled (BYOK only)", "base_url", openRouterBaseURL)
@@ -283,7 +289,7 @@ func main() {
 		registerDeploymentKeyedProvider(providerMap, envKeyedProviders, logger,
 			providers.ProviderFireworks, "Fireworks", "FIREWORKS_API_KEY", fireworksBaseURL, byokOnly,
 			func(key, baseURL string) providers.Client {
-				return openaiCompatProvider.NewClientWithModelIDMap(key, baseURL, upstreamIDsForProvider(providers.ProviderFireworks))
+				return openaiCompatProvider.NewClientWithModelIDMap(key, baseURL, upstreamIDsForProvider(providers.ProviderFireworks), openaiCompatProvider.WithModelListHTTPClient(discoveryHTTPClient))
 			})
 	}
 
@@ -294,7 +300,7 @@ func main() {
 		registerDeploymentKeyedProvider(providerMap, envKeyedProviders, logger,
 			providers.ProviderMakora, "Makora", "MAKORA_API_KEY", makoraBaseURL, byokOnly,
 			func(key, baseURL string) providers.Client {
-				return openaiCompatProvider.NewClientWithModelIDMap(key, baseURL, upstreamIDsForProvider(providers.ProviderMakora))
+				return openaiCompatProvider.NewClientWithModelIDMap(key, baseURL, upstreamIDsForProvider(providers.ProviderMakora), openaiCompatProvider.WithModelListHTTPClient(discoveryHTTPClient))
 			})
 	}
 
@@ -307,7 +313,7 @@ func main() {
 		registerDeploymentKeyedProvider(providerMap, envKeyedProviders, logger,
 			providers.ProviderTogether, "Together", "TOGETHER_API_KEY", togetherBaseURL, byokOnly,
 			func(key, baseURL string) providers.Client {
-				return openaiCompatProvider.NewClientWithModelIDMap(key, baseURL, upstreamIDsForProvider(providers.ProviderTogether))
+				return openaiCompatProvider.NewClientWithModelIDMap(key, baseURL, upstreamIDsForProvider(providers.ProviderTogether), openaiCompatProvider.WithModelListHTTPClient(discoveryHTTPClient))
 			})
 	}
 
@@ -317,7 +323,7 @@ func main() {
 		registerDeploymentKeyedProvider(providerMap, envKeyedProviders, logger,
 			providers.ProviderMiniMax, "MiniMax", "MINIMAX_API_KEY", minimaxBaseURL, byokOnly,
 			func(key, baseURL string) providers.Client {
-				return openaiCompatProvider.NewClientWithModelIDMap(key, baseURL, upstreamIDsForProvider(providers.ProviderMiniMax))
+				return openaiCompatProvider.NewClientWithModelIDMap(key, baseURL, upstreamIDsForProvider(providers.ProviderMiniMax), openaiCompatProvider.WithModelListHTTPClient(discoveryHTTPClient))
 			})
 	}
 
@@ -326,7 +332,7 @@ func main() {
 		registerDeploymentKeyedProvider(providerMap, envKeyedProviders, logger,
 			providers.ProviderXAI, "XAI", "XAI_API_KEY", xaiBaseURL, byokOnly,
 			func(key, baseURL string) providers.Client {
-				return openaiCompatProvider.NewClient(key, baseURL)
+				return openaiCompatProvider.NewClient(key, baseURL, openaiCompatProvider.WithModelListHTTPClient(discoveryHTTPClient))
 			})
 	}
 
@@ -335,7 +341,7 @@ func main() {
 		registerDeploymentKeyedProvider(providerMap, envKeyedProviders, logger,
 			providers.ProviderMeta, "Meta", "META_API_KEY", metaBaseURL, byokOnly,
 			func(key, baseURL string) providers.Client {
-				return openaiCompatProvider.NewClient(key, baseURL)
+				return openaiCompatProvider.NewClient(key, baseURL, openaiCompatProvider.WithModelListHTTPClient(discoveryHTTPClient))
 			})
 	}
 
@@ -346,7 +352,7 @@ func main() {
 		registerDeploymentKeyedProvider(providerMap, envKeyedProviders, logger,
 			providers.ProviderWafer, "Wafer", "WAFER_API_KEY", waferBaseURL, byokOnly,
 			func(key, baseURL string) providers.Client {
-				return openaiCompatProvider.NewClientWithModelIDMap(key, baseURL, upstreamIDsForProvider(providers.ProviderWafer)).
+				return openaiCompatProvider.NewClientWithModelIDMap(key, baseURL, upstreamIDsForProvider(providers.ProviderWafer), openaiCompatProvider.WithModelListHTTPClient(discoveryHTTPClient)).
 					WithProtectedHeaders(http.Header{"Wafer-ZDR": []string{"required"}})
 			})
 	}
@@ -361,7 +367,8 @@ func main() {
 		waferMessagesBaseURL := anthropic.WaferMessagesBaseURL
 		providerMap[providers.ProviderWaferAnthropic] = anthropic.NewClient(
 			waferAnthropicKey, waferMessagesBaseURL,
-			anthropic.WithAuthScheme(anthropic.AuthBearer)).
+			anthropic.WithAuthScheme(anthropic.AuthBearer),
+			anthropic.WithModelListHTTPClient(discoveryHTTPClient)).
 			WithProtectedHeaders(http.Header{"Wafer-ZDR": []string{"required"}}).
 			WithModelIDMap(upstreamIDsForProvider(providers.ProviderWaferAnthropic))
 		if waferAnthropicKey != "" {
@@ -382,7 +389,7 @@ func main() {
 		registerDeploymentKeyedProvider(providerMap, envKeyedProviders, logger,
 			providers.ProviderBedrock, "Bedrock", "AWS_BEARER_TOKEN_BEDROCK", bedrockBaseURL, byokOnly,
 			func(key, baseURL string) providers.Client {
-				return openaiCompatProvider.NewClientWithModelIDMap(key, baseURL, upstreamIDsForProvider(providers.ProviderBedrock))
+				return openaiCompatProvider.NewClientWithModelIDMap(key, baseURL, upstreamIDsForProvider(providers.ProviderBedrock), openaiCompatProvider.WithModelListHTTPClient(discoveryHTTPClient))
 			},
 			"region", bedrockRegion)
 	}
@@ -396,7 +403,9 @@ func main() {
 			gatewayToken = config.GetOr(providers.APIKeyEnvVar(providers.ProviderAnthropicGateway), "")
 		}
 		providerMap[providers.ProviderAnthropicGateway] = anthropic.NewClient(
-			gatewayToken, gatewayBaseURL, anthropic.WithAuthScheme(anthropic.AuthBearer))
+			gatewayToken, gatewayBaseURL,
+			anthropic.WithAuthScheme(anthropic.AuthBearer),
+			anthropic.WithModelListHTTPClient(discoveryHTTPClient))
 		if gatewayToken != "" {
 			envKeyedProviders[providers.ProviderAnthropicGateway] = struct{}{}
 			logger.Info("Anthropic gateway provider enabled", "base_url", gatewayBaseURL)
@@ -413,7 +422,7 @@ func main() {
 		if !byokOnly && gatewayBaseURL != "" {
 			gatewayToken = config.GetOr(providers.APIKeyEnvVar(providers.ProviderOpenAIGateway), "")
 		}
-		providerMap[providers.ProviderOpenAIGateway] = openaiCompatProvider.NewGatewayClient(gatewayToken, gatewayBaseURL)
+		providerMap[providers.ProviderOpenAIGateway] = openaiCompatProvider.NewGatewayClient(gatewayToken, gatewayBaseURL, openaiCompatProvider.WithModelListHTTPClient(discoveryHTTPClient))
 		if gatewayToken != "" {
 			envKeyedProviders[providers.ProviderOpenAIGateway] = struct{}{}
 			logger.Info("OpenAI gateway provider enabled", "base_url", gatewayBaseURL)
@@ -563,8 +572,7 @@ func main() {
 	if deploymentMode == server.DeploymentModeSelfHosted {
 		adminPassword := config.GetOr("ROUTER_ADMIN_PASSWORD", "")
 		if adminPassword == "" {
-			adminPassword = "admin"
-			logger.Warn("ROUTER_ADMIN_PASSWORD not set; using default 'admin'. Set ROUTER_ADMIN_PASSWORD to secure the dashboard.")
+			logger.Warn("ROUTER_ADMIN_PASSWORD not set; dashboard administration is disabled. Set ROUTER_ADMIN_PASSWORD to enable it.")
 		}
 		authSvc.WithAdminPassword(adminPassword)
 	}

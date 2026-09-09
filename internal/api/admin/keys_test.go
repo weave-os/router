@@ -590,6 +590,26 @@ func TestUpsertExternalKeyHandler_RejectsReservedIdentityHeader(t *testing.T) {
 		"a rejected upsert must not take out the working key it would have replaced")
 }
 
+func TestUpsertExternalKeyHandler_RejectsCollidingHeaderDestinationsBeforeReplacement(t *testing.T) {
+	t.Setenv(providers.APIKeyEnvVar(providers.ProviderAnthropic), "")
+
+	repo := &fakeExternalAPIKeyRepo{}
+	body, err := json.Marshal(map[string]any{
+		"provider":                 providers.ProviderAnthropic,
+		"key":                      "sk-test-key",
+		"forwarded_client_headers": []string{"X-Correlation-ID"},
+		"identity_header":          "x-correlation-id",
+		"identity_header_format":   auth.IdentityFormatEmail,
+	})
+	require.NoError(t, err)
+	rec := postProviderKeyBody(upsertKeyEngine(newUpsertKeyService(repo)), body)
+
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Zero(t, repo.created)
+	assert.Zero(t, repo.softDeletedByProvider,
+		"invalid effective configuration must leave the active key untouched")
+}
+
 func aliasUpdateEngine(svc *auth.Service, models admin.DeployedModelsSource) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	engine := gin.New()

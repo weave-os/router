@@ -51,7 +51,7 @@ type identityBag struct {
 // must be called after prep.Headers are copied so it wins over a client-supplied value.
 func ApplyIdentityHeader(ctx context.Context, upstream *http.Request) {
 	creds := CredentialsFromContext(ctx)
-	if creds == nil || creds.IdentityHeader == "" {
+	if creds == nil || !safeCredentialHeaderDestination(creds, creds.IdentityHeader) {
 		return
 	}
 	value := IdentityHeaderValue(creds.IdentityHeaderFormat, ClientIdentityFrom(ctx))

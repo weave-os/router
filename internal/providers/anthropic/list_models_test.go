@@ -8,11 +8,19 @@ import (
 	"testing"
 
 	"weave-os/router/internal/providers/anthropic"
+	"weave-os/router/internal/providers/httputil"
 	"weave-os/router/internal/requestcontext"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func anthropicDiscoveryClient(t *testing.T, origin string) *http.Client {
+	t.Helper()
+	client, err := httputil.NewModelDiscoveryClient(origin)
+	require.NoError(t, err)
+	return client
+}
 
 func TestListModels_GatewayBearerAuth(t *testing.T) {
 	var gotPath, gotAuth, gotVersion string
@@ -24,7 +32,7 @@ func TestListModels_GatewayBearerAuth(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := anthropic.NewClient("gw-token", srv.URL, anthropic.WithAuthScheme(anthropic.AuthBearer))
+	c := anthropic.NewClient("gw-token", srv.URL, anthropic.WithAuthScheme(anthropic.AuthBearer), anthropic.WithModelListHTTPClient(anthropicDiscoveryClient(t, srv.URL)))
 	models, err := c.ListModels(context.Background())
 	require.NoError(t, err)
 	assert.Equal(t, []string{"claude-fable-5", "claude-haiku-4-5"}, models)
@@ -41,7 +49,7 @@ func TestListModels_BYOKCredentialsOverrideBaseURL(t *testing.T) {
 	}))
 	defer byokSrv.Close()
 
-	c := anthropic.NewClient("", "", anthropic.WithAuthScheme(anthropic.AuthBearer))
+	c := anthropic.NewClient("", "", anthropic.WithAuthScheme(anthropic.AuthBearer), anthropic.WithModelListHTTPClient(anthropicDiscoveryClient(t, byokSrv.URL)))
 	ctx := context.WithValue(context.Background(), requestcontext.CredentialsContextKey{}, &requestcontext.Credentials{
 		APIKey:  []byte("byok-token"),
 		BaseURL: byokSrv.URL,
@@ -68,7 +76,7 @@ func TestListModels_WalksAllPages(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := anthropic.NewClient("tok", srv.URL, anthropic.WithAuthScheme(anthropic.AuthBearer))
+	c := anthropic.NewClient("tok", srv.URL, anthropic.WithAuthScheme(anthropic.AuthBearer), anthropic.WithModelListHTTPClient(anthropicDiscoveryClient(t, srv.URL)))
 	models, err := c.ListModels(context.Background())
 	require.NoError(t, err)
 	assert.Equal(t, []string{"claude-a", "claude-b", "claude-c"}, models)
@@ -81,7 +89,7 @@ func TestListModels_UpstreamErrorStatus(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := anthropic.NewClient("tok", srv.URL, anthropic.WithAuthScheme(anthropic.AuthBearer))
+	c := anthropic.NewClient("tok", srv.URL, anthropic.WithAuthScheme(anthropic.AuthBearer), anthropic.WithModelListHTTPClient(anthropicDiscoveryClient(t, srv.URL)))
 	_, err := c.ListModels(context.Background())
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "403")
@@ -101,7 +109,7 @@ func TestListModels_FallsBackToGatewayCatalogOn404(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := anthropic.NewClient("gw-token", srv.URL, anthropic.WithAuthScheme(anthropic.AuthBearer))
+	c := anthropic.NewClient("gw-token", srv.URL, anthropic.WithAuthScheme(anthropic.AuthBearer), anthropic.WithModelListHTTPClient(anthropicDiscoveryClient(t, srv.URL)))
 	models, err := c.ListModels(context.Background())
 	require.NoError(t, err)
 	assert.Equal(t, []string{"claude-haiku-4-5", "claude-opus-5"}, models)
@@ -127,7 +135,7 @@ func TestListModels_RetriesGatewayCatalogWithEntity(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := anthropic.NewClient("gw-token", srv.URL, anthropic.WithAuthScheme(anthropic.AuthBearer))
+	c := anthropic.NewClient("gw-token", srv.URL, anthropic.WithAuthScheme(anthropic.AuthBearer), anthropic.WithModelListHTTPClient(anthropicDiscoveryClient(t, srv.URL)))
 	models, err := c.ListModels(context.Background())
 	require.NoError(t, err)
 	assert.Equal(t, []string{"claude-4-sonnet"}, models)

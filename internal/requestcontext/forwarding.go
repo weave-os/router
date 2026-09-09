@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"strings"
 
 	"weave-os/router/internal/auth"
 )
@@ -43,9 +44,13 @@ func WithForwardedHeaderSnapshot(ctx context.Context, keys []*auth.ExternalAPIKe
 			continue
 		}
 		for _, name := range key.ForwardedClientHeaders {
-			capture(name)
+			if safeExternalKeyHeaderDestination(key, name) {
+				capture(name)
+			}
 		}
-		capture(key.BaggageHeader)
+		if safeExternalKeyHeaderDestination(key, key.BaggageHeader) {
+			capture(key.BaggageHeader)
+		}
 	}
 	if snapshot == nil {
 		return ctx
@@ -67,11 +72,14 @@ func ApplyForwardedClientHeaders(ctx context.Context, upstream *http.Request, in
 		return
 	}
 	for _, name := range creds.ForwardedClientHeaders {
+		if !safeCredentialHeaderDestination(creds, name) || headerFieldExists(upstream.Header, name) {
+			continue
+		}
 		if v := forwardedValue(ctx, inbound, name); v != "" {
 			upstream.Header.Set(name, v)
 		}
 	}
-	if creds.BaggageHeader == "" {
+	if !safeCredentialHeaderDestination(creds, creds.BaggageHeader) || headerFieldExists(upstream.Header, creds.BaggageHeader) {
 		return
 	}
 	baggage := forwardedValue(ctx, inbound, creds.BaggageHeader)
@@ -84,6 +92,9 @@ func ApplyForwardedClientHeaders(ctx context.Context, upstream *http.Request, in
 // ingress snapshot, or (for X-Claude-Code-Session-Id only) the resolved
 // identity — covering clients that embed the id in the body, not a header.
 func forwardedValue(ctx context.Context, inbound http.Header, name string) string {
+	if !auth.IsSafeForwardingHeader(name) {
+		return ""
+	}
 	if v := inbound.Get(name); v != "" {
 		return v
 	}
@@ -94,6 +105,45 @@ func forwardedValue(ctx context.Context, inbound http.Header, name string) strin
 		return ClientIdentityFrom(ctx).SessionID
 	}
 	return ""
+}
+
+func safeExternalKeyHeaderDestination(key *auth.ExternalAPIKey, name string) bool {
+	if key == nil || !auth.IsSafeForwardingHeader(name) {
+		return false
+	}
+	return headerDestinationCount(name, key.ForwardedClientHeaders, key.BaggageHeader, key.IdentityHeader) == 1
+}
+
+func safeCredentialHeaderDestination(creds *Credentials, name string) bool {
+	if creds == nil || !auth.IsSafeForwardingHeader(name) {
+		return false
+	}
+	return headerDestinationCount(name, creds.ForwardedClientHeaders, creds.BaggageHeader, creds.IdentityHeader) == 1
+}
+
+func headerDestinationCount(name string, forwarded []string, baggage, identity string) int {
+	count := 0
+	for _, candidate := range forwarded {
+		if strings.EqualFold(name, candidate) {
+			count++
+		}
+	}
+	if strings.EqualFold(name, baggage) {
+		count++
+	}
+	if strings.EqualFold(name, identity) {
+		count++
+	}
+	return count
+}
+
+func headerFieldExists(headers http.Header, name string) bool {
+	for existingName := range headers {
+		if strings.EqualFold(existingName, name) {
+			return true
+		}
+	}
+	return false
 }
 
 // MergeBaggageEmail injects the router-resolved email as on-behalf-of, overwriting any
