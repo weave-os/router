@@ -10,6 +10,7 @@ import (
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/hmm"
 
 	"github.com/tidwall/gjson"
 )
@@ -67,7 +68,7 @@ func (g targetGuard) Proxy(ctx context.Context, decision router.Decision, prep p
 		return err
 	}
 	if g.budget != nil && !g.budget.Take() {
-		err := fmt.Errorf("dispatch: %s", FailureReasonAttemptBudget)
+		err := fmt.Errorf("dispatch: %s: %w", FailureReasonAttemptBudget, hmm.ErrHMMUnavailable)
 		observability.FromContext(ctx).Warn("Dispatch attempt budget exhausted",
 			"model", g.target.CatalogID, "provider", g.target.Provider, "err", err)
 		return err

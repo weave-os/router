@@ -15,6 +15,7 @@ import (
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/hmm"
 )
 
 func guardedProxy(t *testing.T, upstream *fakeUpstream, decision router.Decision, body string) error {
@@ -36,6 +37,7 @@ func TestGuardTargetBoundsEverySendAcrossPlansAndInnerRetries(t *testing.T) {
 	}
 	err := second.Proxy(context.Background(), decision, providers.PreparedRequest{}, httptest.NewRecorder(), request)
 	assert.ErrorContains(t, err, dispatch.FailureReasonAttemptBudget)
+	assert.ErrorIs(t, err, hmm.ErrHMMUnavailable)
 	assert.Equal(t, []string{primary.CatalogID, primary.CatalogID}, upstream.models)
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()

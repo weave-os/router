@@ -143,7 +143,12 @@ func (c *Client) CheckHealth(ctx context.Context) (err error) {
 		return fmt.Errorf("policy readiness status %d", resp.StatusCode)
 	}
 	if !c.resilience.ready() {
-		return fmt.Errorf("policy circuit is open")
+		if !c.resilience.probeEligible() {
+			return fmt.Errorf("policy circuit is open")
+		}
+		if _, err := c.Decide(ctx, policy.Query{}); err != nil {
+			return fmt.Errorf("policy circuit is open: %w", err)
+		}
 	}
 	if _, err := c.Capabilities(ctx); err != nil {
 		return err

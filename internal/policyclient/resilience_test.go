@@ -77,13 +77,15 @@ func TestCircuitOpensProbesAndRecoversWithoutContaminatingBeta(t *testing.T) {
 	assert.Equal(t, int32(7), calls.Load())
 	now = now.Add(31 * time.Second)
 	assert.False(t, stable.resilience.ready(), "elapsed cooldown is not proof of recovery")
+	assert.True(t, stable.resilience.probeEligible(), "health checks must be able to admit the half-open probe")
+	require.NoError(t, stable.CheckHealth(context.Background()))
+	assert.True(t, stable.resilience.ready(), "a successful probe restores readiness")
 	for i := 0; i < 2; i++ {
 		got, err = stable.Decide(context.Background(), policy.Query{})
 		require.NoError(t, err)
 		assert.Equal(t, "permitted", got.Model)
 	}
-	assert.Equal(t, int32(9), calls.Load())
-	assert.True(t, stable.resilience.ready(), "a successful probe restores readiness")
+	assert.Equal(t, int32(12), calls.Load())
 }
 
 func TestV3ResponseRequiresExplicitSchemaBeforeCircuitSuccess(t *testing.T) {

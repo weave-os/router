@@ -110,3 +110,9 @@ func (r *resilience) ready() bool {
 	defer r.mu.Unlock()
 	return r.openUntil.IsZero()
 }
+
+func (r *resilience) probeEligible() bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return !r.openUntil.IsZero() && !r.now().Before(r.openUntil) && !r.probing
+}

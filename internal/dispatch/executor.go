@@ -8,6 +8,7 @@ import (
 
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/router/hmm"
 )
 
 // AttemptFunc performs one upstream attempt against client for target. It
@@ -306,7 +307,7 @@ func (e *Executor) Run(ctx context.Context, req inference.InvocationRequest, pla
 			return fail(attemptErr, failureReason(attemptErr))
 		}
 	}
-	return fail(fmt.Errorf("dispatch: %s", FailureReasonAttemptBudget), FailureReasonAttemptBudget)
+	return fail(fmt.Errorf("dispatch: %s: %w", FailureReasonAttemptBudget, hmm.ErrHMMUnavailable), FailureReasonAttemptBudget)
 }
 
 func (t Transport) committed() bool {
