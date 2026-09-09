@@ -1,0 +1,5 @@
+/internal/router/policy/inference_*.go @steventohme
+/internal/architecture/ @steventohme
+/cmd/geninferencepolicy/ @steventohme
+/docs/POLICY_INFERENCE.* @steventohme
+/.github/CODEOWNERS @steventohme

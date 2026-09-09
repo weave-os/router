@@ -1,0 +1,631 @@
+{
+  "schema_version": "inference_policy_registry_v1",
+  "registry_revision": "sha256:c4c5d43fe8747512538188610b88d53dedd60a735282f88a0566c7d0e5bebe52",
+  "policies": [
+    {
+      "purpose": "agent_shadow_evaluation",
+      "dispatch_class": "auxiliary_inference",
+      "policy_id": "aux-agent-shadow-evaluation",
+      "policy_revision": "1",
+      "owner": "@steventohme",
+      "rationale": "Evaluate an explicitly requested catalog model without mutating serving pins or policy state.",
+      "selection_strategy": "client_authoritative",
+      "candidate_source": "request",
+      "hard_constraints": [
+        "catalog_binding",
+        "capability",
+        "context_window",
+        "credential_scope",
+        "model_exclusions",
+        "provider_exclusions",
+        "request_format",
+        "spend",
+        "tenant"
+      ],
+      "override_precedence": [
+        "request",
+        "installation",
+        "deployment"
+      ],
+      "budget": {
+        "source": "request"
+      },
+      "fallback": {
+        "kind": "binding"
+      },
+      "migration_status": "legacy_direct"
+    },
+    {
+      "purpose": "anthropic_messages",
+      "dispatch_class": "main_inference",
+      "policy_id": "main-anthropic-messages",
+      "policy_revision": "1",
+      "owner": "@steventohme",
+      "rationale": "Select an eligible catalog binding for Anthropic Messages while preserving request semantics and tenant boundaries.",
+      "selection_strategy": "router",
+      "candidate_source": "routable_catalog",
+      "hard_constraints": [
+        "catalog_binding",
+        "capability",
+        "context_window",
+        "credential_scope",
+        "model_exclusions",
+        "provider_exclusions",
+        "request_format",
+        "spend",
+        "tenant"
+      ],
+      "override_precedence": [
+        "request",
+        "session",
+        "installation",
+        "deployment",
+        "policy_default"
+      ],
+      "budget": {
+        "source": "request"
+      },
+      "fallback": {
+        "kind": "binding"
+      },
+      "migration_status": "legacy_direct"
+    },
+    {
+      "purpose": "classifier",
+      "dispatch_class": "auxiliary_inference",
+      "policy_id": "aux-classifier",
+      "policy_revision": "1",
+      "owner": "@steventohme",
+      "rationale": "Serve client classifier turns without contaminating the main session pin.",
+      "selection_strategy": "deployment_hard_pin",
+      "candidate_source": "deployment",
+      "hard_constraints": [
+        "catalog_binding",
+        "capability",
+        "context_window",
+        "credential_scope",
+        "model_exclusions",
+        "provider_exclusions",
+        "request_format",
+        "spend",
+        "tenant"
+      ],
+      "override_precedence": [
+        "installation",
+        "deployment",
+        "policy_default"
+      ],
+      "budget": {
+        "source": "request"
+      },
+      "fallback": {
+        "kind": "none"
+      },
+      "migration_status": "legacy_direct"
+    },
+    {
+      "purpose": "client_compaction",
+      "dispatch_class": "client_authoritative",
+      "policy_id": "client-compaction",
+      "policy_revision": "1",
+      "owner": "@steventohme",
+      "rationale": "Treat the client-supplied compaction turn and body as authoritative rather than inventing another router summary operation.",
+      "selection_strategy": "client_authoritative",
+      "candidate_source": "request",
+      "hard_constraints": [
+        "credential_scope",
+        "request_format",
+        "tenant"
+      ],
+      "override_precedence": [
+        "client_authoritative"
+      ],
+      "budget": {
+        "source": "request"
+      },
+      "fallback": {
+        "kind": "none"
+      },
+      "migration_status": "legacy_direct"
+    },
+    {
+      "purpose": "cluster_embedding",
+      "dispatch_class": "local_support",
+      "policy_id": "local-cluster-embedding",
+      "policy_revision": "1",
+      "owner": "@steventohme",
+      "rationale": "Compute routing features locally; this operation must never gain an upstream provider escape hatch.",
+      "selection_strategy": "none",
+      "candidate_source": "local",
+      "hard_constraints": null,
+      "override_precedence": null,
+      "budget": {
+        "source": "local"
+      },
+      "fallback": {
+        "kind": "none"
+      },
+      "migration_status": "non_inference"
+    },
+    {
+      "purpose": "compaction_handover_summary",
+      "dispatch_class": "auxiliary_inference",
+      "policy_id": "aux-compaction-handover-summary",
+      "policy_revision": "1",
+      "owner": "@steventohme",
+      "rationale": "Restore task state after client history trimming; failure keeps the client's remaining history unchanged.",
+      "selection_strategy": "fixed_catalog",
+      "candidate_source": "fixed_catalog",
+      "fixed_catalog_models": [
+        "claude-sonnet-4-6",
+        "claude-fable-5"
+      ],
+      "hard_constraints": [
+        "catalog_binding",
+        "context_window",
+        "credential_scope",
+        "model_exclusions",
+        "provider_exclusions",
+        "tenant"
+      ],
+      "override_precedence": [
+        "session",
+        "deployment",
+        "policy_default"
+      ],
+      "budget": {
+        "source": "policy",
+        "max_attempts": 1,
+        "timeout_millis": 90000,
+        "max_output_tokens": 4000
+      },
+      "fallback": {
+        "kind": "full_history"
+      },
+      "migration_status": "legacy_direct"
+    },
+    {
+      "purpose": "count_tokens",
+      "dispatch_class": "metadata_passthrough",
+      "policy_id": "metadata-count-tokens",
+      "policy_revision": "1",
+      "owner": "@steventohme",
+      "rationale": "Forward Anthropic token counting without model selection and use the bounded local estimator only for transient upstream failure.",
+      "selection_strategy": "passthrough",
+      "candidate_source": "request",
+      "hard_constraints": [
+        "credential_scope",
+        "request_format",
+        "tenant"
+      ],
+      "override_precedence": [
+        "client_authoritative"
+      ],
+      "budget": {
+        "source": "policy",
+        "max_attempts": 1,
+        "timeout_millis": 5000
+      },
+      "fallback": {
+        "kind": "local_recovery"
+      },
+      "migration_status": "legacy_direct"
+    },
+    {
+      "purpose": "gemini_generate_content",
+      "dispatch_class": "main_inference",
+      "policy_id": "main-gemini-generate-content",
+      "policy_revision": "1",
+      "owner": "@steventohme",
+      "rationale": "Select an eligible catalog binding for Gemini Generate Content while preserving native URL and body semantics.",
+      "selection_strategy": "router",
+      "candidate_source": "routable_catalog",
+      "hard_constraints": [
+        "catalog_binding",
+        "capability",
+        "context_window",
+        "credential_scope",
+        "model_exclusions",
+        "provider_exclusions",
+        "request_format",
+        "spend",
+        "tenant"
+      ],
+      "override_precedence": [
+        "request",
+        "session",
+        "installation",
+        "deployment",
+        "policy_default"
+      ],
+      "budget": {
+        "source": "request"
+      },
+      "fallback": {
+        "kind": "binding"
+      },
+      "migration_status": "legacy_direct"
+    },
+    {
+      "purpose": "handover_summary",
+      "dispatch_class": "auxiliary_inference",
+      "policy_id": "aux-handover-summary",
+      "policy_revision": "1",
+      "owner": "@steventohme",
+      "rationale": "Use the current inexpensive summarizer before a model switch; failure preserves the full prior history.",
+      "selection_strategy": "fixed_catalog",
+      "candidate_source": "fixed_catalog",
+      "fixed_catalog_models": [
+        "claude-haiku-4-5"
+      ],
+      "hard_constraints": [
+        "catalog_binding",
+        "credential_scope",
+        "model_exclusions",
+        "provider_exclusions",
+        "tenant"
+      ],
+      "override_precedence": [
+        "deployment",
+        "policy_default"
+      ],
+      "budget": {
+        "source": "policy",
+        "max_attempts": 1,
+        "timeout_millis": 8000,
+        "max_output_tokens": 800
+      },
+      "fallback": {
+        "kind": "full_history"
+      },
+      "migration_status": "legacy_direct"
+    },
+    {
+      "purpose": "native_web_search",
+      "dispatch_class": "web_search_tool",
+      "policy_id": "tool-native-web-search",
+      "policy_revision": "1",
+      "owner": "@steventohme",
+      "rationale": "Execute the explicit native web-search tool without exposing it as generic model inference.",
+      "selection_strategy": "none",
+      "candidate_source": "deployment",
+      "hard_constraints": [
+        "credential_scope",
+        "tenant"
+      ],
+      "override_precedence": null,
+      "budget": {
+        "source": "deployment"
+      },
+      "fallback": {
+        "kind": "routed_dispatch"
+      },
+      "migration_status": "non_inference"
+    },
+    {
+      "purpose": "openai_chat_completions",
+      "dispatch_class": "main_inference",
+      "policy_id": "main-openai-chat-completions",
+      "policy_revision": "1",
+      "owner": "@steventohme",
+      "rationale": "Select an eligible catalog binding for OpenAI Chat Completions while preserving request semantics and tenant boundaries.",
+      "selection_strategy": "router",
+      "candidate_source": "routable_catalog",
+      "hard_constraints": [
+        "catalog_binding",
+        "capability",
+        "context_window",
+        "credential_scope",
+        "model_exclusions",
+        "provider_exclusions",
+        "request_format",
+        "spend",
+        "tenant"
+      ],
+      "override_precedence": [
+        "request",
+        "session",
+        "installation",
+        "deployment",
+        "policy_default"
+      ],
+      "budget": {
+        "source": "request"
+      },
+      "fallback": {
+        "kind": "binding"
+      },
+      "migration_status": "legacy_direct"
+    },
+    {
+      "purpose": "openai_responses",
+      "dispatch_class": "main_inference",
+      "policy_id": "main-openai-responses",
+      "policy_revision": "1",
+      "owner": "@steventohme",
+      "rationale": "Select an eligible catalog binding and compatible endpoint for OpenAI Responses requests.",
+      "selection_strategy": "router",
+      "candidate_source": "routable_catalog",
+      "hard_constraints": [
+        "catalog_binding",
+        "capability",
+        "context_window",
+        "credential_scope",
+        "model_exclusions",
+        "provider_exclusions",
+        "request_format",
+        "spend",
+        "tenant"
+      ],
+      "override_precedence": [
+        "request",
+        "session",
+        "installation",
+        "deployment",
+        "policy_default"
+      ],
+      "budget": {
+        "source": "request"
+      },
+      "fallback": {
+        "kind": "binding"
+      },
+      "migration_status": "legacy_direct"
+    },
+    {
+      "purpose": "policy_sidecar_decision",
+      "dispatch_class": "control_plane",
+      "policy_id": "control-policy-sidecar-decision",
+      "policy_revision": "1",
+      "owner": "@steventohme",
+      "rationale": "Ask the configured policy sidecar for a routing decision; this is control-plane I/O, not upstream inference.",
+      "selection_strategy": "none",
+      "candidate_source": "none",
+      "hard_constraints": null,
+      "override_precedence": null,
+      "budget": {
+        "source": "deployment"
+      },
+      "fallback": {
+        "kind": "none"
+      },
+      "migration_status": "non_inference"
+    },
+    {
+      "purpose": "policy_sidecar_feedback",
+      "dispatch_class": "control_plane",
+      "policy_id": "control-policy-sidecar-feedback",
+      "policy_revision": "1",
+      "owner": "@steventohme",
+      "rationale": "Report explicit bounded feedback to the configured policy sidecar.",
+      "selection_strategy": "none",
+      "candidate_source": "none",
+      "hard_constraints": null,
+      "override_precedence": null,
+      "budget": {
+        "source": "deployment"
+      },
+      "fallback": {
+        "kind": "none"
+      },
+      "migration_status": "non_inference"
+    },
+    {
+      "purpose": "policy_sidecar_outcome",
+      "dispatch_class": "control_plane",
+      "policy_id": "control-policy-sidecar-outcome",
+      "policy_revision": "1",
+      "owner": "@steventohme",
+      "rationale": "Report bounded serving outcomes to the configured policy sidecar.",
+      "selection_strategy": "none",
+      "candidate_source": "none",
+      "hard_constraints": null,
+      "override_precedence": null,
+      "budget": {
+        "source": "deployment"
+      },
+      "fallback": {
+        "kind": "none"
+      },
+      "migration_status": "non_inference"
+    },
+    {
+      "purpose": "policy_sidecar_preview",
+      "dispatch_class": "control_plane",
+      "policy_id": "control-policy-sidecar-preview",
+      "policy_revision": "1",
+      "owner": "@steventohme",
+      "rationale": "Preview a policy decision without serving or mutating routing state.",
+      "selection_strategy": "none",
+      "candidate_source": "none",
+      "hard_constraints": null,
+      "override_precedence": null,
+      "budget": {
+        "source": "deployment"
+      },
+      "fallback": {
+        "kind": "none"
+      },
+      "migration_status": "non_inference"
+    },
+    {
+      "purpose": "precompaction_summary",
+      "dispatch_class": "auxiliary_inference",
+      "policy_id": "aux-precompaction-summary",
+      "policy_revision": "1",
+      "owner": "@steventohme",
+      "rationale": "Preserve elided task state with the current context-window-aware summarizer cascade before local trim rescue.",
+      "selection_strategy": "fixed_catalog",
+      "candidate_source": "fixed_catalog",
+      "fixed_catalog_models": [
+        "claude-sonnet-4-6",
+        "claude-fable-5"
+      ],
+      "hard_constraints": [
+        "catalog_binding",
+        "context_window",
+        "credential_scope",
+        "model_exclusions",
+        "provider_exclusions",
+        "tenant"
+      ],
+      "override_precedence": [
+        "session",
+        "deployment",
+        "policy_default"
+      ],
+      "budget": {
+        "source": "policy",
+        "max_attempts": 1,
+        "timeout_millis": 90000,
+        "max_output_tokens": 4000
+      },
+      "fallback": {
+        "kind": "local_recovery"
+      },
+      "migration_status": "legacy_direct"
+    },
+    {
+      "purpose": "probe",
+      "dispatch_class": "auxiliary_inference",
+      "policy_id": "aux-probe",
+      "policy_revision": "1",
+      "owner": "@steventohme",
+      "rationale": "Serve provider and quota probes without creating a durable session pin.",
+      "selection_strategy": "deployment_hard_pin",
+      "candidate_source": "deployment",
+      "hard_constraints": [
+        "catalog_binding",
+        "capability",
+        "context_window",
+        "credential_scope",
+        "model_exclusions",
+        "provider_exclusions",
+        "request_format",
+        "spend",
+        "tenant"
+      ],
+      "override_precedence": [
+        "installation",
+        "deployment",
+        "policy_default"
+      ],
+      "budget": {
+        "source": "request"
+      },
+      "fallback": {
+        "kind": "none"
+      },
+      "migration_status": "legacy_direct"
+    },
+    {
+      "purpose": "semantic_cache_embedding",
+      "dispatch_class": "local_support",
+      "policy_id": "local-semantic-cache-embedding",
+      "policy_revision": "1",
+      "owner": "@steventohme",
+      "rationale": "Compute semantic-cache keys locally and independently from provider dispatch.",
+      "selection_strategy": "none",
+      "candidate_source": "local",
+      "hard_constraints": null,
+      "override_precedence": null,
+      "budget": {
+        "source": "local"
+      },
+      "fallback": {
+        "kind": "none"
+      },
+      "migration_status": "non_inference"
+    },
+    {
+      "purpose": "sub_agent_dispatch",
+      "dispatch_class": "auxiliary_inference",
+      "policy_id": "aux-sub-agent-dispatch",
+      "policy_revision": "1",
+      "owner": "@steventohme",
+      "rationale": "Apply the reviewed deployment hard pin for sub-agent work while preserving tenant eligibility.",
+      "selection_strategy": "deployment_hard_pin",
+      "candidate_source": "deployment",
+      "hard_constraints": [
+        "catalog_binding",
+        "capability",
+        "context_window",
+        "credential_scope",
+        "model_exclusions",
+        "provider_exclusions",
+        "request_format",
+        "spend",
+        "tenant"
+      ],
+      "override_precedence": [
+        "installation",
+        "deployment",
+        "policy_default"
+      ],
+      "budget": {
+        "source": "request"
+      },
+      "fallback": {
+        "kind": "none"
+      },
+      "migration_status": "legacy_direct"
+    },
+    {
+      "purpose": "title_generation",
+      "dispatch_class": "auxiliary_inference",
+      "policy_id": "aux-title-generation",
+      "policy_revision": "1",
+      "owner": "@steventohme",
+      "rationale": "Keep hidden title-generation calls cheap and isolated from the main session pin.",
+      "selection_strategy": "deployment_hard_pin",
+      "candidate_source": "deployment",
+      "hard_constraints": [
+        "catalog_binding",
+        "capability",
+        "context_window",
+        "credential_scope",
+        "model_exclusions",
+        "provider_exclusions",
+        "request_format",
+        "spend",
+        "tenant"
+      ],
+      "override_precedence": [
+        "installation",
+        "deployment",
+        "policy_default"
+      ],
+      "budget": {
+        "source": "request"
+      },
+      "fallback": {
+        "kind": "none"
+      },
+      "migration_status": "legacy_direct"
+    },
+    {
+      "purpose": "upstream_model_listing",
+      "dispatch_class": "metadata_passthrough",
+      "policy_id": "metadata-upstream-model-listing",
+      "policy_revision": "1",
+      "owner": "@steventohme",
+      "rationale": "List models from the operator-selected upstream endpoint without automatic inference selection.",
+      "selection_strategy": "passthrough",
+      "candidate_source": "deployment",
+      "hard_constraints": [
+        "credential_scope",
+        "tenant"
+      ],
+      "override_precedence": [
+        "deployment"
+      ],
+      "budget": {
+        "source": "deployment"
+      },
+      "fallback": {
+        "kind": "none"
+      },
+      "migration_status": "non_inference"
+    }
+  ]
+}

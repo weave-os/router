@@ -132,6 +132,14 @@ Three concentric layers. Imports flow inward only.
 
 If wanting to import something that violates these rules, design is wrong — surface as interface in appropriate inner-ring package and implement in adapter subpackage.
 
+## Inference policy boundary
+
+- Every inference or adjacent operation has a typed purpose and reviewed policy in `internal/router/policy/inference_registry.go`; generated review projections live in `docs/POLICY_INFERENCE.{md,json}`.
+- New feature code must not own a provider client/map, call `providers.Client.Proxy`/`Passthrough`, construct a provider/model `router.Decision` for execution, or add a fixed catalog target. Current migration exceptions are enumerated with owner, rationale, operation class, and removal phase in `internal/architecture/inference_boundary_baseline.json`.
+- `router.Decision` remains a compatibility/result DTO during migration; it is not provider-call authorization. New selection behavior starts as a policy entry and later resolves to the executor contract.
+- Run `make generate-inference-policy` after registry changes and `make inference-boundary` before broader tests. The latter is type-aware and rejects baseline growth, concrete-provider imports outside adapters/composition, raw HTTP calls to known inference routes, and unregistered purposes.
+- Read `docs/INFERENCE_BOUNDARY.md` before moving a call site. It records the operation taxonomy, current owners, pending PR sequencing, and behavior-regression suites.
+
 ## Where to put new code
 
 Pick by responsibility, then read that package's `CLAUDE.md`:
