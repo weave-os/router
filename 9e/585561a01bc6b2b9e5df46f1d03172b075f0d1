@@ -27,11 +27,14 @@ cmd/router/main.go
   s_84ceb7c3bf245f::t_1fc19a39b35f80 923-924
   s_84ceb7c3bf245f::t_1d67541b86a900 774,830
   s_84ceb7c3bf245f::t_947825e782f3de 931-933
+  s_84ceb7c3bf245f::t_3c5f52b41807b3 958-959,1021,1025,1182
 internal/translate/handover.go
   s_84ceb7c3bf245f::t_7a68ff6e232529 322,341,370,372
   s_84ceb7c3bf245f::t_3e0e26f96c1c4e 329-340,342
   s_84ceb7c3bf245f::t_36d8a1fc0b0725 34-36,131,139,226,232,237-241,252,310,320-321,323-327,343,353-369,371,373-375
   s_c5c07cefb50829::t_b8ecb6eba9d478 376-377
+  s_84ceb7c3bf245f::t_d11db41f264dd2 242
+  s_84ceb7c3bf245f::t_3c5f52b41807b3 328,344-349
 internal/inference/request.go
   s_84ceb7c3bf245f::t_bb73cfb10a8a54 53
   s_84ceb7c3bf245f::t_5d8fe7931a38a0 180-182
@@ -113,6 +116,7 @@ internal/translate/task_trim_test.go
   s_84ceb7c3bf245f::t_80e16497f241f8 47-49,51-66,68,70-72
   s_84ceb7c3bf245f::t_c59506e3fcbc0a 1-14,20-46
   s_84ceb7c3bf245f::t_870d923821f4a6 50
+  s_84ceb7c3bf245f::t_8e4ce41cd3fbad 67,69
 internal/inference/attempt_budget.go
   s_84ceb7c3bf245f::t_13daba92fae3a0 11,13
   s_84ceb7c3bf245f::t_3021a38eaa5a3f 1-10,12,14-24
@@ -221,6 +225,7 @@ internal/proxy/turnloop.go
   s_84ceb7c3bf245f::t_e82f2f475480af 208-209
   s_84ceb7c3bf245f::t_230059c1f6bf57 985,987,994-995,997
   s_84ceb7c3bf245f::t_acf5165712af2e 2083-2084
+  s_84ceb7c3bf245f::t_3c5f52b41807b3 1413,1444-1449
 docs/POLICY_RECOVERY.md
   s_84ceb7c3bf245f::t_908493e0862d2d 75-87
   s_84ceb7c3bf245f::t_cb4381e89aadae 1-61,65-74,88-102
@@ -296,6 +301,9 @@ internal/dispatch/target_test.go
   s_84ceb7c3bf245f::t_72170c2813d2da 9,15,27-44
   s_84ceb7c3bf245f::t_b7fcda86a4ee54 22
   s_84ceb7c3bf245f::t_c6e4c0e1de89a0 45-46
+internal/proxy/escalation_completion_internal_test.go
+  s_84ceb7c3bf245f::t_e339f6aba90c0e 140-144,146-147,150-153
+  s_84ceb7c3bf245f::t_b23194ef4ac2c7 87-99,101,110-118,128,133,148-149,154,156-164,166-169
 ---
 {
   "schema_version": "authorship/3.0.0",
