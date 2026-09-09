@@ -60,9 +60,9 @@ func (f AttemptSinkFunc) RecordAttempt(ctx context.Context, event inference.Atte
 }
 
 const (
-	// maxSameBindingRetries bounds same-binding retries after a transient
+	// MaxSameBindingRetries bounds same-binding retries after a transient
 	// error; the only failover a single-target plan gets.
-	maxSameBindingRetries  = 2
+	MaxSameBindingRetries  = 2
 	sameBindingBackoffBase = 250 * time.Millisecond
 	// sameBindingRetryBudget caps wall-clock across retries of one target so a
 	// hung upstream does not burn a full header timeout per attempt.
@@ -269,7 +269,7 @@ func (e *Executor) Run(ctx context.Context, req inference.InvocationRequest, pla
 			if transport.Terminal != nil && transport.Terminal(attempt, attemptErr) {
 				break
 			}
-			if !providers.IsRetryable(attemptErr) || sb >= maxSameBindingRetries || len(targets) > 1 {
+			if !providers.IsRetryable(attemptErr) || sb >= MaxSameBindingRetries || len(targets) > 1 {
 				break
 			}
 			if maxAttempts > 0 && result.Outcome.AttemptCount >= maxAttempts {

@@ -32,7 +32,7 @@ type fakeSummarizer struct {
 	calls     atomic.Int32
 }
 
-func (f *fakeSummarizer) Summarize(ctx context.Context, env *translate.RequestEnvelope) (string, handover.Usage, error) {
+func (f *fakeSummarizer) Summarize(ctx context.Context, env *translate.RequestEnvelope, _ router.Request) (string, handover.Usage, error) {
 	f.calls.Add(1)
 	if f.errOnCall != nil {
 		return "", handover.Usage{}, f.errOnCall

@@ -346,12 +346,13 @@ func newPlanResolver(t *testing.T, deployed, available map[string]struct{}) *pol
 }
 
 func validDeploymentPolicyConfig() policy.DeploymentPolicyConfig {
-	targetOverrides := make([]policy.PurposeTargetOverride, 0, 4)
+	targetOverrides := make([]policy.PurposeTargetOverride, 0, 5)
 	for _, purpose := range []policy.Purpose{
 		policy.PurposeTitleGeneration,
 		policy.PurposeClassifier,
 		policy.PurposeProbe,
 		policy.PurposeSubAgentDispatch,
+		policy.PurposeClientCompaction,
 	} {
 		targetOverrides = append(targetOverrides, policy.PurposeTargetOverride{
 			Purpose: purpose,

@@ -117,3 +117,64 @@ func TestResolveRouted_FailsClosed(t *testing.T) {
 		})
 	}
 }
+
+// Hard-pinned turns are authorized under their own policies: the turn loop
+// fixed the model, so the caller must name the override that did it, and only
+// overrides the policy declares are accepted.
+func TestResolveRouted_AuthorizesHardPinnedUtilityTurns(t *testing.T) {
+	resolver := routedResolver(t)
+	anthropic := []catalog.ProviderBinding{{Provider: providers.ProviderAnthropic}}
+
+	for _, purpose := range []policy.Purpose{policy.PurposeTitleGeneration, policy.PurposeClassifier, policy.PurposeProbe, policy.PurposeSubAgentDispatch} {
+		plan, err := resolver.ResolveRouted(policy.RoutedResolutionRequest{
+			Purpose:  purpose,
+			Decision: router.Decision{Model: "claude-haiku-4-5", Provider: providers.ProviderAnthropic},
+			Bindings: anthropic,
+			Origin:   policy.OverrideSourceDeployment,
+		})
+		require.NoError(t, err, purpose)
+		assert.Equal(t, purpose, plan.Purpose())
+		assert.Equal(t, policy.OverrideSourceDeployment, plan.Provenance().OverrideSource)
+		assert.Equal(t, "claude-haiku-4-5", plan.SelectedBinding().CatalogID)
+	}
+
+	compaction, err := resolver.ResolveRouted(policy.RoutedResolutionRequest{
+		Purpose:  policy.PurposeClientCompaction,
+		Decision: router.Decision{Model: "gpt-5.6-sol", Provider: providers.ProviderOpenAI},
+		Bindings: []catalog.ProviderBinding{{Provider: providers.ProviderOpenAI}},
+		Origin:   policy.OverrideSourceSession,
+	})
+	require.NoError(t, err, "a compaction turn kept on the session's own model")
+	assert.Equal(t, policy.OverrideSourceSession, compaction.Provenance().OverrideSource)
+
+	cases := map[string]struct {
+		request policy.RoutedResolutionRequest
+		code    policy.ResolutionErrorCode
+	}{
+		"hard pin without origin": {policy.RoutedResolutionRequest{
+			Purpose:  policy.PurposeTitleGeneration,
+			Decision: router.Decision{Model: "claude-haiku-4-5", Provider: providers.ProviderAnthropic},
+			Bindings: anthropic,
+		}, policy.ResolutionErrorMissingSelection},
+		"utility turn claiming a session pin": {policy.RoutedResolutionRequest{
+			Purpose:  policy.PurposeTitleGeneration,
+			Decision: router.Decision{Model: "claude-haiku-4-5", Provider: providers.ProviderAnthropic},
+			Bindings: anthropic,
+			Origin:   policy.OverrideSourceSession,
+		}, policy.ResolutionErrorOverrideNotAllowed},
+		"summary operation is not routed": {policy.RoutedResolutionRequest{
+			Purpose:  policy.PurposePrecompactionSummary,
+			Decision: router.Decision{Model: "claude-sonnet-4-6", Provider: providers.ProviderAnthropic},
+			Bindings: anthropic,
+			Origin:   policy.OverrideSourceDeployment,
+		}, policy.ResolutionErrorUnsupportedPurpose},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			_, err := resolver.ResolveRouted(tc.request)
+			var resolution *policy.ResolutionError
+			require.True(t, errors.As(err, &resolution), "got %v", err)
+			assert.Equal(t, tc.code, resolution.Code)
+		})
+	}
+}

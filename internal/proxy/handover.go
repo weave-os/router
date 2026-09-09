@@ -146,14 +146,15 @@ func (s *ProviderSummarizer) Provider() string {
 var ErrEmptySummary = errors.New("handover: upstream returned no summary text")
 
 // Summarize implements handover.Summarizer: resolves the handover-summary
-// plan and runs the Anthropic Messages call through the executor under the
-// plan's budget, returning summary text plus usage for a separate ledger row.
-// On failure returns ("", zero Usage, err) so the caller falls back to the
-// full prior history.
-func (s *ProviderSummarizer) Summarize(ctx context.Context, env *translate.RequestEnvelope) (string, handover.Usage, error) {
+// plan within the request's scope and runs the Anthropic Messages call
+// through the executor under the plan's budget, returning summary text plus
+// usage for a separate ledger row. On failure returns ("", zero Usage, err)
+// so the caller falls back to the full prior history.
+func (s *ProviderSummarizer) Summarize(ctx context.Context, env *translate.RequestEnvelope, scope router.Request) (string, handover.Usage, error) {
 	plan, err := s.resolve(ctx, policy.ResolutionRequest{
-		Purpose:   policy.PurposeHandoverSummary,
-		Overrides: []policy.TargetOverride{{Source: policy.OverrideSourceDeployment, CatalogID: s.model, Provider: s.provider}},
+		Purpose:       policy.PurposeHandoverSummary,
+		RouterRequest: summarizerRequest(scope, env),
+		Overrides:     []policy.TargetOverride{{Source: policy.OverrideSourceDeployment, CatalogID: s.model, Provider: s.provider}},
 	})
 	if err != nil {
 		return "", handover.Usage{}, err
@@ -171,8 +172,11 @@ func (s *ProviderSummarizer) CompactionHandover() handover.Summarizer {
 
 type compactionHandoverSummarizer struct{ *ProviderSummarizer }
 
-func (c compactionHandoverSummarizer) Summarize(ctx context.Context, env *translate.RequestEnvelope) (string, handover.Usage, error) {
-	request := policy.ResolutionRequest{Purpose: policy.PurposeCompactionHandoverSummary}
+func (c compactionHandoverSummarizer) Summarize(ctx context.Context, env *translate.RequestEnvelope, scope router.Request) (string, handover.Usage, error) {
+	request := policy.ResolutionRequest{
+		Purpose:       policy.PurposeCompactionHandoverSummary,
+		RouterRequest: summarizerRequest(scope, env),
+	}
 	if c.compactionModel != "" {
 		request.Overrides = []policy.TargetOverride{{Source: policy.OverrideSourceDeployment, CatalogID: c.compactionModel, Provider: c.provider}}
 	}
@@ -194,18 +198,20 @@ type CompactionTarget struct {
 // SummarizeForCompaction summarizes env with the structured 9-section
 // compaction prompt against target (the window-aware selection happens in the
 // caller) and a larger output cap. The target must be a reviewed member of
-// the precompaction policy; an unreviewed one fails resolution before any
-// upstream I/O. Same failure contract as Summarize.
-func (s *ProviderSummarizer) SummarizeForCompaction(ctx context.Context, env *translate.RequestEnvelope, target CompactionTarget, maxTokens int) (string, handover.Usage, error) {
+// the precompaction policy and eligible within scope; otherwise resolution
+// fails before any upstream I/O. Same failure contract as Summarize.
+func (s *ProviderSummarizer) SummarizeForCompaction(ctx context.Context, env *translate.RequestEnvelope, target CompactionTarget, scope router.Request, maxTokens int) (string, handover.Usage, error) {
 	if target.CatalogID == "" {
 		target.CatalogID = s.model
 	}
 	if maxTokens <= 0 {
 		maxTokens = DefaultCompactionMaxTokens
 	}
+	routerRequest := summarizerRequest(scope, env)
+	routerRequest.AllowedModels = map[string]struct{}{target.CatalogID: {}}
 	request := policy.ResolutionRequest{
 		Purpose:       policy.PurposePrecompactionSummary,
-		RouterRequest: router.Request{AllowedModels: map[string]struct{}{target.CatalogID: {}}},
+		RouterRequest: routerRequest,
 	}
 	if target.Source != "" {
 		request.Overrides = []policy.TargetOverride{{Source: target.Source, CatalogID: target.CatalogID, Provider: s.provider}}
@@ -215,6 +221,23 @@ func (s *ProviderSummarizer) SummarizeForCompaction(ctx context.Context, env *tr
 		return "", handover.Usage{}, err
 	}
 	return s.run(ctx, env, plan, compactionInstruction, maxTokens, s.compactionTimeout)
+}
+
+// summarizerRequest is the candidate-resolution input for a summary call:
+// the tenant's eligibility from scope plus the size of the history the
+// summarizer must ingest, measured on env at call time because the compaction
+// cascade shrinks env between tiers.
+func summarizerRequest(scope router.Request, env *translate.RequestEnvelope) router.Request {
+	request := router.Request{
+		EnabledProviders: scope.EnabledProviders,
+		ExcludedModels:   scope.ExcludedModels,
+		GatewayProviders: scope.GatewayProviders,
+		CustomBindings:   scope.CustomBindings,
+	}
+	if env != nil {
+		request.EstimatedInputTokens = env.ContextOverflowTokenEstimate()
+	}
+	return request
 }
 
 func (s *ProviderSummarizer) resolve(ctx context.Context, request policy.ResolutionRequest) (policy.ResolvedPlan, error) {
@@ -410,7 +433,7 @@ var _ handover.Summarizer = (*ProviderSummarizer)(nil)
 // On any failure it logs and passes the compacted body through unchanged
 // (never trims it further, which would discard Claude Code's own compaction
 // summary). Returns a handoverOutcome so the caller can bill the summary call.
-func (s *Service) runCompactionHandover(ctx context.Context, env *translate.RequestEnvelope, reqHeaders http.Header, decisionModel string) handoverOutcome {
+func (s *Service) runCompactionHandover(ctx context.Context, env *translate.RequestEnvelope, reqHeaders http.Header, decisionModel string, scope router.Request) handoverOutcome {
 	log := observability.FromContext(ctx)
 	var out handoverOutcome
 	out.Invoked = true
@@ -449,7 +472,7 @@ func (s *Service) runCompactionHandover(ctx context.Context, env *translate.Requ
 			summCtx = clearCredentials(ctx)
 		}
 		start := time.Now()
-		summary, summaryUsage, sumErr := summarizer.Summarize(summCtx, env)
+		summary, summaryUsage, sumErr := summarizer.Summarize(summCtx, env, scope)
 		out.LatencyMS = time.Since(start).Milliseconds()
 		switch {
 		case sumErr != nil:

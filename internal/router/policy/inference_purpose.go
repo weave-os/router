@@ -131,19 +131,16 @@ type Constraint = inference.Constraint
 
 const (
 	ConstraintCatalogBinding     = inference.ConstraintCatalogBinding
-	ConstraintCapability         = inference.ConstraintCapability
 	ConstraintContextWindow      = inference.ConstraintContextWindow
-	ConstraintCredentialScope    = inference.ConstraintCredentialScope
 	ConstraintModelExclusions    = inference.ConstraintModelExclusions
 	ConstraintProviderExclusions = inference.ConstraintProviderExclusions
-	ConstraintRequestFormat      = inference.ConstraintRequestFormat
 	ConstraintSpend              = inference.ConstraintSpend
-	ConstraintTenant             = inference.ConstraintTenant
 )
 
 type SoftPreference = inference.SoftPreference
 
 const (
+	SoftPreferenceCapability           = inference.SoftPreferenceCapability
 	SoftPreferenceQualityPrice         = inference.SoftPreferenceQualityPrice
 	SoftPreferencePreferredModels      = inference.SoftPreferencePreferredModels
 	SoftPreferenceCacheAffinity        = inference.SoftPreferenceCacheAffinity

@@ -789,6 +789,13 @@ func main() {
 		subAgentPolicyProvider = hardPinProvider
 		subAgentPolicyModel = hardPinModel
 	}
+	// The client's own compaction turn is served by proxy.compactionHardPin on
+	// Anthropic unless the operator pinned every utility turn explicitly.
+	compactionHardPin := config.GetOr("ROUTER_HARD_PIN_MODEL", "") == ""
+	clientCompactionProvider, clientCompactionModel := providers.ProviderAnthropic, compactionModel
+	if !compactionHardPin {
+		clientCompactionProvider, clientCompactionModel = hardPinProvider, hardPinModel
+	}
 	deploymentTargets := []policy.PurposeTargetOverride{
 		{Purpose: policy.PurposeHandoverSummary, Target: policy.TargetOverride{Source: policy.OverrideSourceDeployment, CatalogID: handoverModel, Provider: handoverProviderName}},
 		{Purpose: policy.PurposePrecompactionSummary, Target: policy.TargetOverride{Source: policy.OverrideSourceDeployment, CatalogID: compactionModel, Provider: handoverProviderName}},
@@ -797,6 +804,7 @@ func main() {
 		{Purpose: policy.PurposeClassifier, Target: policy.TargetOverride{Source: policy.OverrideSourceDeployment, CatalogID: hardPinModel, Provider: hardPinProvider}},
 		{Purpose: policy.PurposeProbe, Target: policy.TargetOverride{Source: policy.OverrideSourceDeployment, CatalogID: hardPinModel, Provider: hardPinProvider}},
 		{Purpose: policy.PurposeSubAgentDispatch, Target: policy.TargetOverride{Source: policy.OverrideSourceDeployment, CatalogID: subAgentPolicyModel, Provider: subAgentPolicyProvider}},
+		{Purpose: policy.PurposeClientCompaction, Target: policy.TargetOverride{Source: policy.OverrideSourceDeployment, CatalogID: clientCompactionModel, Provider: clientCompactionProvider}},
 	}
 	inferenceDeployment := policy.DeploymentPolicyConfig{
 		AvailableProviders: availableProviders,
@@ -1228,7 +1236,7 @@ func main() {
 		WithWebSearchExecutor(cortexWebSearch(logger)).
 		WithCompaction(compactionSz, compactionPct).
 		WithCompactionModel(compactionModel).
-		WithCompactionHardPin(config.GetOr("ROUTER_HARD_PIN_MODEL", "") == "").
+		WithCompactionHardPin(compactionHardPin).
 		WithAvailableModels(servedModels).
 		WithDefaultBaselineModel(resolveDefaultBaselineModel()).
 		WithBillingService(billingSvc)
@@ -1945,13 +1953,6 @@ func runSessionPinSweep(ctx context.Context, store sessionpin.Store) {
 	}
 }
 
-// defaultHardPinProvider and defaultHardPinModel are the fallback (provider,
-// model) used by resolveHardPinModel when the cluster bundle can't be loaded.
-const (
-	defaultHardPinProvider = providers.ProviderAnthropic
-	defaultHardPinModel    = "claude-haiku-4-5"
-)
-
 // cortexWebSearch builds the Cortex Agents web-search executor for gateway
 // tenants whose Anthropic path rejects the native server tool. Returns nil
 // when ROUTER_CORTEX_WEB_SEARCH != "true", leaving those turns on normal routing.
@@ -2003,13 +2004,13 @@ func resolveCompactionModel(summarizerProvider string) (string, error) {
 // resolveHardPinModel returns the (provider, model) for Explore and utility
 // hard-pins (Claude Code's compaction turn prefers the compaction model):
 // operator override wins, else the fastest available model in the default
-// bundle, else (defaultHardPinProvider, defaultHardPinModel).
+// bundle, else the policy-owned utility hard-pin default.
 func resolveHardPinModel(available map[string]struct{}, logger *slog.Logger) (provider, model string, resolutionErr error) {
 	configuredModel := strings.TrimSpace(config.GetOr("ROUTER_HARD_PIN_MODEL", ""))
 	configuredProvider := strings.TrimSpace(config.GetOr("ROUTER_HARD_PIN_PROVIDER", ""))
 	if configuredModel != "" {
 		if configuredProvider == "" {
-			configuredProvider = defaultHardPinProvider
+			configuredProvider = policy.UtilityHardPinDefaultProvider
 		}
 		return configuredProvider, configuredModel, nil
 	}
@@ -2020,18 +2021,18 @@ func resolveHardPinModel(available map[string]struct{}, logger *slog.Logger) (pr
 	reqVersion := config.GetOr("ROUTER_CLUSTER_VERSION", cluster.LatestVersion)
 	defaultVersion, err := cluster.ResolveVersion(reqVersion)
 	if err != nil {
-		logger.Warn("Hard-pin model: could not resolve cluster version; using default", "err", err, "default_model", defaultHardPinModel)
-		return defaultHardPinProvider, defaultHardPinModel, nil
+		logger.Warn("Hard-pin model: could not resolve cluster version; using default", "err", err, "default_model", policy.UtilityHardPinDefaultModel)
+		return policy.UtilityHardPinDefaultProvider, policy.UtilityHardPinDefaultModel, nil
 	}
 	bundle, err := cluster.LoadBundle(defaultVersion)
 	if err != nil {
-		logger.Warn("Hard-pin model: could not load bundle; using default", "err", err, "default_model", defaultHardPinModel)
-		return defaultHardPinProvider, defaultHardPinModel, nil
+		logger.Warn("Hard-pin model: could not load bundle; using default", "err", err, "default_model", policy.UtilityHardPinDefaultModel)
+		return policy.UtilityHardPinDefaultProvider, policy.UtilityHardPinDefaultModel, nil
 	}
 	p, m, ok := cluster.FastestModel(bundle.Metadata, bundle.Registry, available)
 	if !ok {
-		logger.Warn("Hard-pin model: no model found for available providers; using default", "default_model", defaultHardPinModel)
-		return defaultHardPinProvider, defaultHardPinModel, nil
+		logger.Warn("Hard-pin model: no model found for available providers; using default", "default_model", policy.UtilityHardPinDefaultModel)
+		return policy.UtilityHardPinDefaultProvider, policy.UtilityHardPinDefaultModel, nil
 	}
 	return p, m, nil
 }

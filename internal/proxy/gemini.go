@@ -122,6 +122,7 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 		MaxWindow:      maxEligibleWindow,
 		RequestedModel: feats.Model,
 		ClientApp:      clientID.ClientApp,
+		Scope:          s.summarizerScope(ctx, enabledProviders, excluded),
 		PreferredSummarizer: func() string {
 			return s.compactionPreferredSummarizer(ctx, sessionKey, roleForTier(catalog.TierFor(feats.Model)))
 		},
@@ -305,8 +306,8 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 		bindings:        bindings,
 		attempt:         attempt,
 		flushErr:        flushBufferedIfPresent,
-		purpose:         inference.PurposeGeminiGenerateContent,
-		origin:          routedOrigin(decision, routeRes.HardPinned, stickyHit),
+		purpose:         routeRes.dispatchPurpose(inference.PurposeGeminiGenerateContent),
+		origin:          routeRes.dispatchOrigin(decision),
 	})
 	proxyMs := time.Since(proxyStart).Milliseconds()
 	finalProvider := decision.Provider

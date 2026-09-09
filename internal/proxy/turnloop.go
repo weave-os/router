@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"weave-os/router/internal/inference"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/observability/apm"
 	"weave-os/router/internal/observability/otel"
@@ -168,6 +169,15 @@ type turnLoopResult struct {
 	TurnType   turntype.TurnType
 	StickyHit  bool
 	HardPinned bool
+	// Purpose is the inference purpose a utility turn (title-gen, classifier,
+	// probe, sub-agent, client compaction) is authorized under. Empty means
+	// the turn is main inference and dispatches under the surface's purpose.
+	Purpose inference.Purpose
+	// Origin is the override source that fixed a hard-pinned decision's model
+	// when the turn loop knows it more precisely than the decision alone tells
+	// (a compaction turn kept on the session's own model). Empty defers to
+	// routedOrigin.
+	Origin policy.OverrideSource
 	// AuthoritativePerTurn is true only for eligible main/tool-result turns
 	// whose active policy declared model-authoritative dispatch.
 	AuthoritativePerTurn bool
@@ -371,6 +381,49 @@ type handoverOutcome struct {
 // a partial override is treated as unconfigured.
 func (s *Service) hasSubAgentOverride() bool {
 	return s.subAgentProvider != "" && s.subAgentModel != ""
+}
+
+// utilityPurposes maps each hard-pinned turn type to the inference purpose
+// whose policy authorizes it. Compaction is the client's own summary turn,
+// served as client-authoritative work rather than as a router summary
+// operation. A hard-pinned turn type missing here fails the turn: the
+// deployment pin must never be served under the ingress surface's policy.
+var utilityPurposes = map[turntype.TurnType]inference.Purpose{
+	turntype.TitleGen:         inference.PurposeTitleGeneration,
+	turntype.Classifier:       inference.PurposeClassifier,
+	turntype.Probe:            inference.PurposeProbe,
+	turntype.SubAgentDispatch: inference.PurposeSubAgentDispatch,
+	turntype.Compaction:       inference.PurposeClientCompaction,
+}
+
+// dispatchPurpose is the purpose the turn is authorized under: its own
+// utility purpose when the turn loop hard-pinned it, else the surface's.
+func (r turnLoopResult) dispatchPurpose(surface inference.Purpose) inference.Purpose {
+	if len(r.Purpose) > 0 {
+		return r.Purpose
+	}
+	return surface
+}
+
+// dispatchOrigin names the override source that fixed decision's model for
+// plan authorization, preferring what the turn loop recorded over what the
+// decision's shape implies.
+func (r turnLoopResult) dispatchOrigin(decision router.Decision) policy.OverrideSource {
+	if r.Origin != "" && decision.Model == r.Decision.Model && decision.Provider == r.Decision.Provider {
+		return r.Origin
+	}
+	return routedOrigin(decision, r.HardPinned, r.StickyHit)
+}
+
+// rescueOrigin names the override source for a rescue target (deployment
+// baseline, cluster sibling, refusal retry) that replaces the routed model.
+// A utility turn's rescue is still deployment-fixed work; a main-inference
+// rescue is the router's own selection.
+func (r turnLoopResult) rescueOrigin() policy.OverrideSource {
+	if len(r.Purpose) > 0 {
+		return policy.OverrideSourceDeployment
+	}
+	return ""
 }
 
 // isHardPinnedTurn reports whether a turn type bypasses pin lookup/write,
@@ -612,6 +665,13 @@ func (s *Service) runTurnLoop(
 			req.ExcludedModels = s.readmitForcedModel(ctx, req, env, feats, forceModelPin)
 		}
 	}
+	if hardPinnedTurn {
+		purpose, registered := utilityPurposes[res.TurnType]
+		if !registered {
+			return res, fmt.Errorf("hard-pinned turn type %q has no inference purpose", res.TurnType)
+		}
+		res.Purpose = purpose
+	}
 	if forceModelFound && hardPinnedTurn {
 		if forcedPinEligible(forceModelPin, req) {
 			threadPin, hmmHistory, forceHistory := sessionpin.Pin{}, sessionpin.Pin{}, sessionpin.Pin{}
@@ -667,8 +727,9 @@ func (s *Service) runTurnLoop(
 		// it goes to the session's Anthropic model (warm cache) or the
 		// Sonnet-class compaction model rather than the cheapest utility pin.
 		compactionProvider, compactionModel, compactionPin := "", "", false
+		origin := policy.OverrideSourceDeployment
 		if s.compactionHardPinEnabled && res.TurnType == turntype.Compaction && !useSubAgentOverride {
-			compactionProvider, compactionModel, compactionPin = s.compactionHardPin(ctx, threadSessionKey, res.PinRole, req)
+			compactionProvider, compactionModel, origin, compactionPin = s.compactionHardPin(ctx, threadSessionKey, res.PinRole, req)
 		}
 		switch {
 		case compactionPin:
@@ -739,6 +800,7 @@ func (s *Service) runTurnLoop(
 		res.Decision = hardDecision
 		res.StickyHit = true
 		res.HardPinned = true
+		res.Origin = origin
 		res.PinTier = string(res.TurnType) + "_hard_pin"
 		return res, nil
 	}
@@ -1620,7 +1682,7 @@ func (s *Service) runTurnLoop(
 				summCtx = clearCredentials(ctx)
 			}
 			start := time.Now()
-			summary, summaryUsage, sumErr := s.summarizer.Summarize(summCtx, env)
+			summary, summaryUsage, sumErr := s.summarizer.Summarize(summCtx, env, req)
 			res.Handover.Invoked = true
 			res.Handover.LatencyMS = time.Since(start).Milliseconds()
 			switch {

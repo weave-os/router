@@ -187,7 +187,7 @@ type fakeChatCompactionSummarizer struct {
 	calls   int
 }
 
-func (f *fakeChatCompactionSummarizer) SummarizeForCompaction(context.Context, *translate.RequestEnvelope, proxy.CompactionTarget, int) (string, handover.Usage, error) {
+func (f *fakeChatCompactionSummarizer) SummarizeForCompaction(context.Context, *translate.RequestEnvelope, proxy.CompactionTarget, router.Request, int) (string, handover.Usage, error) {
 	f.calls++
 	return f.summary, handover.Usage{InputTokens: 10, OutputTokens: 4}, nil
 }

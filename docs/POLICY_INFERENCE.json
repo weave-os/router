@@ -1,6 +1,6 @@
 {
   "schema_version": "inference_policy_registry_v2",
-  "registry_revision": "sha256:1f958b46e70df13034de693ffa9c30715c66730c71f125f8eb94b1d1ebb46a13",
+  "registry_revision": "sha256:1053e477a14cba51020b983ee69b28ac3f9356a4382e1a26515fcb401cc55b72",
   "policies": [
     {
       "purpose": "agent_shadow_evaluation",
@@ -13,14 +13,13 @@
       "candidate_source": "request",
       "hard_constraints": [
         "catalog_binding",
-        "capability",
         "context_window",
-        "credential_scope",
         "model_exclusions",
         "provider_exclusions",
-        "request_format",
-        "spend",
-        "tenant"
+        "spend"
+      ],
+      "soft_preferences": [
+        "capability"
       ],
       "override_precedence": [
         "request",
@@ -46,16 +45,13 @@
       "candidate_source": "routable_catalog",
       "hard_constraints": [
         "catalog_binding",
-        "capability",
         "context_window",
-        "credential_scope",
         "model_exclusions",
         "provider_exclusions",
-        "request_format",
-        "spend",
-        "tenant"
+        "spend"
       ],
       "soft_preferences": [
+        "capability",
         "quality_price",
         "preferred_models",
         "cache_affinity",
@@ -80,23 +76,23 @@
       "purpose": "classifier",
       "dispatch_class": "auxiliary_inference",
       "policy_id": "aux-classifier",
-      "policy_revision": "1",
+      "policy_revision": "2",
       "owner": "@steventohme",
       "rationale": "Serve client classifier turns without contaminating the main session pin.",
       "selection_strategy": "deployment_hard_pin",
       "candidate_source": "deployment",
       "hard_constraints": [
         "catalog_binding",
-        "capability",
         "context_window",
-        "credential_scope",
         "model_exclusions",
         "provider_exclusions",
-        "request_format",
-        "spend",
-        "tenant"
+        "spend"
+      ],
+      "soft_preferences": [
+        "capability"
       ],
       "override_precedence": [
+        "request",
         "installation",
         "deployment",
         "policy_default"
@@ -105,34 +101,39 @@
         "source": "request"
       },
       "fallback": {
-        "kind": "none"
+        "kind": "binding"
       },
-      "migration_status": "legacy_direct"
+      "migration_status": "executor"
     },
     {
       "purpose": "client_compaction",
       "dispatch_class": "client_authoritative",
       "policy_id": "client-compaction",
-      "policy_revision": "1",
+      "policy_revision": "2",
       "owner": "@steventohme",
-      "rationale": "Treat the client-supplied compaction turn and body as authoritative rather than inventing another router summary operation.",
-      "selection_strategy": "client_authoritative",
-      "candidate_source": "request",
+      "rationale": "Serve the client-supplied compaction turn on the session's own warm model when it is summary-grade, else the deployment compaction hard pin, rather than inventing another router summary operation.",
+      "selection_strategy": "deployment_hard_pin",
+      "candidate_source": "deployment",
       "hard_constraints": [
-        "credential_scope",
-        "request_format",
-        "tenant"
+        "catalog_binding",
+        "context_window",
+        "model_exclusions",
+        "provider_exclusions",
+        "spend"
       ],
       "override_precedence": [
-        "client_authoritative"
+        "request",
+        "session",
+        "deployment",
+        "policy_default"
       ],
       "budget": {
         "source": "request"
       },
       "fallback": {
-        "kind": "none"
+        "kind": "binding"
       },
-      "migration_status": "legacy_direct"
+      "migration_status": "executor"
     },
     {
       "purpose": "cluster_embedding",
@@ -179,10 +180,8 @@
       "hard_constraints": [
         "catalog_binding",
         "context_window",
-        "credential_scope",
         "model_exclusions",
-        "provider_exclusions",
-        "tenant"
+        "provider_exclusions"
       ],
       "override_precedence": [
         "session",
@@ -209,11 +208,7 @@
       "rationale": "Forward Anthropic token counting without model selection and use the bounded local estimator only for transient upstream failure.",
       "selection_strategy": "passthrough",
       "candidate_source": "request",
-      "hard_constraints": [
-        "credential_scope",
-        "request_format",
-        "tenant"
-      ],
+      "hard_constraints": null,
       "override_precedence": [
         "client_authoritative"
       ],
@@ -238,16 +233,13 @@
       "candidate_source": "routable_catalog",
       "hard_constraints": [
         "catalog_binding",
-        "capability",
         "context_window",
-        "credential_scope",
         "model_exclusions",
         "provider_exclusions",
-        "request_format",
-        "spend",
-        "tenant"
+        "spend"
       ],
       "soft_preferences": [
+        "capability",
         "quality_price",
         "preferred_models",
         "cache_affinity",
@@ -282,10 +274,9 @@
       ],
       "hard_constraints": [
         "catalog_binding",
-        "credential_scope",
+        "context_window",
         "model_exclusions",
-        "provider_exclusions",
-        "tenant"
+        "provider_exclusions"
       ],
       "override_precedence": [
         "deployment",
@@ -311,10 +302,7 @@
       "rationale": "Execute the explicit native web-search tool without exposing it as generic model inference.",
       "selection_strategy": "none",
       "candidate_source": "deployment",
-      "hard_constraints": [
-        "credential_scope",
-        "tenant"
-      ],
+      "hard_constraints": null,
       "override_precedence": null,
       "budget": {
         "source": "deployment"
@@ -335,16 +323,13 @@
       "candidate_source": "routable_catalog",
       "hard_constraints": [
         "catalog_binding",
-        "capability",
         "context_window",
-        "credential_scope",
         "model_exclusions",
         "provider_exclusions",
-        "request_format",
-        "spend",
-        "tenant"
+        "spend"
       ],
       "soft_preferences": [
+        "capability",
         "quality_price",
         "preferred_models",
         "cache_affinity",
@@ -376,16 +361,13 @@
       "candidate_source": "routable_catalog",
       "hard_constraints": [
         "catalog_binding",
-        "capability",
         "context_window",
-        "credential_scope",
         "model_exclusions",
         "provider_exclusions",
-        "request_format",
-        "spend",
-        "tenant"
+        "spend"
       ],
       "soft_preferences": [
+        "capability",
         "quality_price",
         "preferred_models",
         "cache_affinity",
@@ -508,10 +490,8 @@
       "hard_constraints": [
         "catalog_binding",
         "context_window",
-        "credential_scope",
         "model_exclusions",
-        "provider_exclusions",
-        "tenant"
+        "provider_exclusions"
       ],
       "override_precedence": [
         "session",
@@ -533,23 +513,23 @@
       "purpose": "probe",
       "dispatch_class": "auxiliary_inference",
       "policy_id": "aux-probe",
-      "policy_revision": "1",
+      "policy_revision": "2",
       "owner": "@steventohme",
       "rationale": "Serve provider and quota probes without creating a durable session pin.",
       "selection_strategy": "deployment_hard_pin",
       "candidate_source": "deployment",
       "hard_constraints": [
         "catalog_binding",
-        "capability",
         "context_window",
-        "credential_scope",
         "model_exclusions",
         "provider_exclusions",
-        "request_format",
-        "spend",
-        "tenant"
+        "spend"
+      ],
+      "soft_preferences": [
+        "capability"
       ],
       "override_precedence": [
+        "request",
         "installation",
         "deployment",
         "policy_default"
@@ -558,9 +538,9 @@
         "source": "request"
       },
       "fallback": {
-        "kind": "none"
+        "kind": "binding"
       },
-      "migration_status": "legacy_direct"
+      "migration_status": "executor"
     },
     {
       "purpose": "semantic_cache_embedding",
@@ -585,23 +565,23 @@
       "purpose": "sub_agent_dispatch",
       "dispatch_class": "auxiliary_inference",
       "policy_id": "aux-sub-agent-dispatch",
-      "policy_revision": "1",
+      "policy_revision": "2",
       "owner": "@steventohme",
       "rationale": "Apply the reviewed deployment hard pin for sub-agent work while preserving tenant eligibility.",
       "selection_strategy": "deployment_hard_pin",
       "candidate_source": "deployment",
       "hard_constraints": [
         "catalog_binding",
-        "capability",
         "context_window",
-        "credential_scope",
         "model_exclusions",
         "provider_exclusions",
-        "request_format",
-        "spend",
-        "tenant"
+        "spend"
+      ],
+      "soft_preferences": [
+        "capability"
       ],
       "override_precedence": [
+        "request",
         "installation",
         "deployment",
         "policy_default"
@@ -610,31 +590,31 @@
         "source": "request"
       },
       "fallback": {
-        "kind": "none"
+        "kind": "binding"
       },
-      "migration_status": "legacy_direct"
+      "migration_status": "executor"
     },
     {
       "purpose": "title_generation",
       "dispatch_class": "auxiliary_inference",
       "policy_id": "aux-title-generation",
-      "policy_revision": "1",
+      "policy_revision": "2",
       "owner": "@steventohme",
       "rationale": "Keep hidden title-generation calls cheap and isolated from the main session pin.",
       "selection_strategy": "deployment_hard_pin",
       "candidate_source": "deployment",
       "hard_constraints": [
         "catalog_binding",
-        "capability",
         "context_window",
-        "credential_scope",
         "model_exclusions",
         "provider_exclusions",
-        "request_format",
-        "spend",
-        "tenant"
+        "spend"
+      ],
+      "soft_preferences": [
+        "capability"
       ],
       "override_precedence": [
+        "request",
         "installation",
         "deployment",
         "policy_default"
@@ -643,9 +623,9 @@
         "source": "request"
       },
       "fallback": {
-        "kind": "none"
+        "kind": "binding"
       },
-      "migration_status": "legacy_direct"
+      "migration_status": "executor"
     },
     {
       "purpose": "upstream_model_listing",
@@ -656,10 +636,7 @@
       "rationale": "List models from the operator-selected upstream endpoint without automatic inference selection.",
       "selection_strategy": "passthrough",
       "candidate_source": "deployment",
-      "hard_constraints": [
-        "credential_scope",
-        "tenant"
-      ],
+      "hard_constraints": null,
       "override_precedence": [
         "deployment"
       ],

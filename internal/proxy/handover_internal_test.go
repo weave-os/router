@@ -122,7 +122,7 @@ func TestProviderSummarizer_SuccessReturnsAssistantText(t *testing.T) {
 	}
 	s := newTestSummarizer(t, fake, "", 200*time.Millisecond)
 
-	got, _, err := s.Summarize(context.Background(), env)
+	got, _, err := s.Summarize(context.Background(), env, router.Request{})
 	require.NoError(t, err)
 	assert.Equal(t, "Refactor in progress: step 1 done, step 2 pending.", got)
 }
@@ -140,7 +140,7 @@ func TestProviderSummarizer_TimeoutReturnsError(t *testing.T) {
 	}
 	s := newTestSummarizer(t, fake, "", 25*time.Millisecond)
 
-	got, _, err := s.Summarize(context.Background(), env)
+	got, _, err := s.Summarize(context.Background(), env, router.Request{})
 	require.Error(t, err)
 	assert.Empty(t, got)
 	// Either the ctx.Err() bubble or the fake's own ctx-aware return both
@@ -160,7 +160,7 @@ func TestProviderSummarizer_Non2xxReturnsError(t *testing.T) {
 	}
 	s := newTestSummarizer(t, fake, "", 200*time.Millisecond)
 
-	got, _, err := s.Summarize(context.Background(), env)
+	got, _, err := s.Summarize(context.Background(), env, router.Request{})
 	require.Error(t, err)
 	assert.Empty(t, got)
 	assert.True(t, strings.Contains(err.Error(), "500"), "error must mention upstream status 500; got %v", err)
@@ -180,7 +180,7 @@ func TestProviderSummarizer_EmptyContentReturnsErrEmptySummary(t *testing.T) {
 	}
 	s := newTestSummarizer(t, fake, "", 200*time.Millisecond)
 
-	got, _, err := s.Summarize(context.Background(), env)
+	got, _, err := s.Summarize(context.Background(), env, router.Request{})
 	require.Error(t, err)
 	assert.ErrorIs(t, err, ErrEmptySummary)
 	assert.Empty(t, got)
@@ -192,7 +192,7 @@ func TestProviderSummarizer_NilEnvelopeReturnsError(t *testing.T) {
 	fake := &fakeHandoverProvider{}
 	s := newTestSummarizer(t, fake, "", 200*time.Millisecond)
 
-	_, _, err := s.Summarize(context.Background(), nil)
+	_, _, err := s.Summarize(context.Background(), nil, router.Request{})
 	require.Error(t, err)
 }
 
@@ -205,7 +205,7 @@ func TestProviderSummarizer_WireModelMatchesPlanTarget(t *testing.T) {
 	fake := &fakeHandoverProvider{respBody: canonicalAnthropicResponse, respStatus: http.StatusOK}
 	s := newTestSummarizer(t, fake, "", 200*time.Millisecond)
 
-	_, usage, err := s.Summarize(context.Background(), env)
+	_, usage, err := s.Summarize(context.Background(), env, router.Request{})
 	require.NoError(t, err)
 	require.Equal(t, 1, fake.calls)
 	assert.Equal(t, []string{policy.HandoverSummaryDefaultModel}, fake.wireModels)
@@ -225,7 +225,7 @@ func TestProviderSummarizer_UnreviewedModelFailsBeforeIO(t *testing.T) {
 	// claude-opus-4-7 is deployed but not in the handover policy's reviewed set.
 	s := newTestSummarizer(t, fake, "claude-opus-4-7", 200*time.Millisecond)
 
-	got, _, err := s.Summarize(context.Background(), env)
+	got, _, err := s.Summarize(context.Background(), env, router.Request{})
 	require.Error(t, err)
 	var resolution *policy.ResolutionError
 	require.ErrorAs(t, err, &resolution)
@@ -243,7 +243,7 @@ func TestProviderSummarizer_Non2xxIsNotRetried(t *testing.T) {
 	fake := &fakeHandoverProvider{respBody: `{"error":"busy"}`, respStatus: http.StatusServiceUnavailable}
 	s := newTestSummarizer(t, fake, "", 2*time.Second)
 
-	_, _, err = s.Summarize(context.Background(), env)
+	_, _, err = s.Summarize(context.Background(), env, router.Request{})
 	require.Error(t, err)
 	assert.Equal(t, 1, fake.calls, "policy budget allows one attempt")
 }
@@ -271,7 +271,7 @@ func TestProviderSummarizer_AttemptEventsCarryRequestID(t *testing.T) {
 	s := NewProviderSummarizer(plans, executor, providers.ProviderAnthropic, policy.HandoverSummaryDefaultModel, 200*time.Millisecond)
 
 	ctx := observability.WithRequestID(context.Background(), "req-handover-1")
-	_, _, err = s.Summarize(ctx, env)
+	_, _, err = s.Summarize(ctx, env, router.Request{})
 	require.NoError(t, err)
 	require.Len(t, events, 1)
 	assert.Equal(t, "req-handover-1", events[0].RequestID)
@@ -306,7 +306,7 @@ func TestProviderSummarizer_CompactionSessionPinRunsThroughExecutor(t *testing.T
 	s := newTestCompactionSummarizer(t, fake, policy.PrecompactionDefaultModel, policy.PrecompactionDefaultModel, "claude-opus-4-7")
 
 	target := CompactionTarget{CatalogID: "claude-opus-4-7", Source: policy.OverrideSourceSession}
-	got, usage, err := s.SummarizeForCompaction(context.Background(), env, target, DefaultCompactionMaxTokens)
+	got, usage, err := s.SummarizeForCompaction(context.Background(), env, target, router.Request{}, DefaultCompactionMaxTokens)
 	require.NoError(t, err)
 	assert.Equal(t, "Refactor in progress: step 1 done, step 2 pending.", got)
 	require.Equal(t, 1, fake.calls)
@@ -327,9 +327,62 @@ func TestProviderSummarizer_CompactionPolicyDefaultTargetIsHonored(t *testing.T)
 
 	// No override source: the cascade fell through to the large-window model,
 	// which must resolve as the policy default rather than the first listed one.
-	_, _, err = s.SummarizeForCompaction(context.Background(), env, CompactionTarget{CatalogID: policy.PrecompactionLargeWindowModel}, DefaultCompactionMaxTokens)
+	_, _, err = s.SummarizeForCompaction(context.Background(), env, CompactionTarget{CatalogID: policy.PrecompactionLargeWindowModel}, router.Request{}, DefaultCompactionMaxTokens)
 	require.NoError(t, err)
 	assert.Equal(t, []string{policy.PrecompactionLargeWindowModel}, fake.wireModels)
+}
+
+func TestProviderSummarizer_RequestScopeExcludesSummaryModelBeforeIO(t *testing.T) {
+	t.Parallel()
+
+	env, err := translate.ParseAnthropic([]byte(sampleConversation))
+	require.NoError(t, err)
+
+	fake := &fakeHandoverProvider{respBody: canonicalAnthropicResponse, respStatus: http.StatusOK}
+	s := newTestSummarizer(t, fake, "", 200*time.Millisecond)
+
+	scopes := map[string]router.Request{
+		"excluded_model":    {ExcludedModels: map[string]struct{}{policy.HandoverSummaryDefaultModel: {}}},
+		"provider_disabled": {EnabledProviders: map[string]struct{}{providers.ProviderOpenAI: {}}},
+	}
+	for name, scope := range scopes {
+		t.Run(name, func(t *testing.T) {
+			got, _, err := s.Summarize(context.Background(), env, scope)
+			require.Error(t, err)
+			var resolution *policy.ResolutionError
+			require.ErrorAs(t, err, &resolution)
+			assert.Equal(t, policy.PurposeHandoverSummary, resolution.Purpose)
+			assert.Empty(t, got)
+		})
+	}
+	assert.Equal(t, 0, fake.calls, "a summary the tenant's own turn could not use must never reach a provider")
+
+	got, _, err := s.Summarize(context.Background(), env, router.Request{
+		EnabledProviders: map[string]struct{}{providers.ProviderAnthropic: {}},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "Refactor in progress: step 1 done, step 2 pending.", got)
+	assert.Equal(t, 1, fake.calls)
+}
+
+func TestProviderSummarizer_CompactionScopeExcludesTargetBeforeIO(t *testing.T) {
+	t.Parallel()
+
+	env, err := translate.ParseAnthropic([]byte(sampleConversation))
+	require.NoError(t, err)
+
+	fake := &fakeHandoverProvider{respBody: canonicalAnthropicResponse, respStatus: http.StatusOK}
+	s := newTestCompactionSummarizer(t, fake, policy.PrecompactionDefaultModel, policy.PrecompactionDefaultModel)
+
+	target := CompactionTarget{CatalogID: policy.PrecompactionDefaultModel, Source: policy.OverrideSourceDeployment}
+	scope := router.Request{ExcludedModels: map[string]struct{}{policy.PrecompactionDefaultModel: {}}}
+	got, _, err := s.SummarizeForCompaction(context.Background(), env, target, scope, DefaultCompactionMaxTokens)
+	require.Error(t, err)
+	var resolution *policy.ResolutionError
+	require.ErrorAs(t, err, &resolution)
+	assert.Equal(t, policy.PurposePrecompactionSummary, resolution.Purpose)
+	assert.Empty(t, got)
+	assert.Equal(t, 0, fake.calls)
 }
 
 func TestProviderSummarizer_CompactionUnreviewedPinFailsBeforeIO(t *testing.T) {
@@ -343,7 +396,7 @@ func TestProviderSummarizer_CompactionUnreviewedPinFailsBeforeIO(t *testing.T) {
 
 	// Haiku is deployed but the precompaction policy does not review it.
 	target := CompactionTarget{CatalogID: policy.HandoverSummaryDefaultModel, Source: policy.OverrideSourceSession}
-	got, _, err := s.SummarizeForCompaction(context.Background(), env, target, DefaultCompactionMaxTokens)
+	got, _, err := s.SummarizeForCompaction(context.Background(), env, target, router.Request{}, DefaultCompactionMaxTokens)
 	require.Error(t, err)
 	var resolution *policy.ResolutionError
 	require.ErrorAs(t, err, &resolution)
@@ -362,7 +415,7 @@ func TestProviderSummarizer_CompactionOutputCapFollowsPolicyBudget(t *testing.T)
 	s := newTestCompactionSummarizer(t, fake, policy.PrecompactionDefaultModel, policy.PrecompactionDefaultModel)
 
 	target := CompactionTarget{CatalogID: policy.PrecompactionDefaultModel, Source: policy.OverrideSourceDeployment}
-	_, _, err = s.SummarizeForCompaction(context.Background(), env, target, 1_000_000)
+	_, _, err = s.SummarizeForCompaction(context.Background(), env, target, router.Request{}, 1_000_000)
 	require.NoError(t, err)
 	spec, ok := policy.DefaultRegistry().Spec(policy.PurposePrecompactionSummary)
 	require.True(t, ok)
@@ -378,7 +431,7 @@ func TestProviderSummarizer_CompactionHandoverUsesCompactionPolicy(t *testing.T)
 	fake := &fakeHandoverProvider{respBody: canonicalAnthropicResponse, respStatus: http.StatusOK}
 	s := newTestCompactionSummarizer(t, fake, policy.PrecompactionDefaultModel, policy.PrecompactionDefaultModel)
 
-	got, usage, err := s.CompactionHandover().Summarize(context.Background(), env)
+	got, usage, err := s.CompactionHandover().Summarize(context.Background(), env, router.Request{})
 	require.NoError(t, err)
 	assert.NotEmpty(t, got)
 	assert.Equal(t, []string{policy.PrecompactionDefaultModel}, fake.wireModels)

@@ -5,32 +5,38 @@ import (
 	"weave-os/router/internal/router/catalog"
 )
 
-// RoutedResolutionRequest adapts a decision the existing router already made
-// into a plan for a main-inference purpose. The ordered provider bindings are
-// the runtime failover walk the surface computed (exclusions, BYOK, and
-// deployment-key filtering already applied); the adapter authorizes exactly
-// that walk for the decision's model and records where the model came from.
+// RoutedResolutionRequest adapts a decision the turn loop already made into a
+// plan: the router's own selection for a main-inference purpose, or the
+// deployment hard pin for an auxiliary utility purpose. The ordered provider
+// bindings are the runtime failover walk the surface computed (exclusions,
+// BYOK, and deployment-key filtering already applied); the adapter authorizes
+// exactly that walk for the decision's model and records where the model came
+// from.
 type RoutedResolutionRequest struct {
 	Purpose  Purpose
 	Decision router.Decision
 	Bindings []catalog.ProviderBinding
 	// Origin names the override source that fixed the decision's model
 	// (request force-model, session pin, deployment hard pin). Empty means
-	// the router's own selection.
+	// the router's own selection, which only a router-selected policy accepts.
 	Origin OverrideSource
 	Budget *BudgetOverride
 }
 
-// ResolveRouted builds the immutable plan for a routed main-inference
-// decision. It fails closed on unregistered or non-router purposes, an empty
-// model, an empty binding walk, or an origin the policy does not declare.
+// ResolveRouted builds the immutable plan for a decision the turn loop made.
+// It fails closed on unregistered purposes, purposes whose policy neither
+// routes nor hard-pins, an empty model, an empty binding walk, a hard-pin
+// decision with no origin, or an origin the policy does not declare.
 func (r *PlanResolver) ResolveRouted(request RoutedResolutionRequest) (ResolvedPlan, error) {
 	spec, found := r.registry.Spec(request.Purpose)
 	if !found {
 		return ResolvedPlan{}, resolutionError(ResolutionErrorUnknownPurpose, request.Purpose, PolicyID(""), "purpose is not registered")
 	}
-	if spec.DispatchClass != DispatchClassMainInference || spec.SelectionStrategy != SelectionStrategyRouter {
+	if !acceptsRoutedDecision(spec) {
 		return ResolvedPlan{}, resolutionError(ResolutionErrorUnsupportedPurpose, request.Purpose, spec.PolicyID, "purpose does not accept routed decisions")
+	}
+	if spec.SelectionStrategy == SelectionStrategyDeploymentHardPin && request.Origin == "" {
+		return ResolvedPlan{}, resolutionError(ResolutionErrorMissingSelection, request.Purpose, spec.PolicyID, "hard-pin purpose requires the override source that fixed the model")
 	}
 	model := request.Decision.Model
 	if model == "" {
@@ -95,6 +101,20 @@ func (r *PlanResolver) ResolveRouted(request RoutedResolutionRequest) (ResolvedP
 		budget:              budget,
 		provenance:          provenance,
 	}, nil
+}
+
+// acceptsRoutedDecision reports whether a policy's model is chosen by the
+// turn loop rather than by PlanResolver.Resolve: the public surfaces' router
+// selection and the hard-pinned turns' deployment (or session/request
+// override) selection.
+func acceptsRoutedDecision(spec PolicySpec) bool {
+	switch spec.SelectionStrategy {
+	case SelectionStrategyRouter:
+		return spec.DispatchClass == DispatchClassMainInference
+	case SelectionStrategyDeploymentHardPin:
+		return spec.DispatchClass == DispatchClassAuxiliaryInference || spec.DispatchClass == DispatchClassClientAuthoritative
+	}
+	return false
 }
 
 // catalogBinding locates the binding in the catalog entry so telemetry can

@@ -36,6 +36,7 @@ type authoritativeHandoverSummarizer struct {
 func (s *authoritativeHandoverSummarizer) Summarize(
 	_ context.Context,
 	_ *translate.RequestEnvelope,
+	_ router.Request,
 ) (string, handover.Usage, error) {
 	s.calls++
 	return "must not run", handover.Usage{}, nil

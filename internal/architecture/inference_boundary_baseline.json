@@ -3,30 +3,6 @@
   "source_revision": "a6f208243bc51e478e0f35d099b4ce973a9eda6d",
   "exceptions": [
     {
-      "id": "feature_target_constant|cmd/router/main.go|main.package|defaultHardPinModel|1",
-      "kind": "feature_target_constant",
-      "file": "cmd/router/main.go",
-      "line": 1920,
-      "symbol": "main.package",
-      "detail": "defaultHardPinModel=claude-haiku-4-5",
-      "owner": "@steventohme",
-      "rationale": "Existing boot fallback for utility hard pins; retained until each utility turn resolves through its registered purpose.",
-      "operation_class": "auxiliary_inference",
-      "removal_phase": "7"
-    },
-    {
-      "id": "feature_target_constant|cmd/router/main.go|main.package|defaultHardPinProvider|1",
-      "kind": "feature_target_constant",
-      "file": "cmd/router/main.go",
-      "line": 1920,
-      "symbol": "main.package",
-      "detail": "defaultHardPinProvider=anthropic",
-      "owner": "@steventohme",
-      "rationale": "Existing boot fallback paired with the utility hard-pin model; retained until purpose policy owns provider eligibility.",
-      "operation_class": "auxiliary_inference",
-      "removal_phase": "7"
-    },
-    {
       "id": "target_construction|internal/proxy/agent_shadow_eval.go|Service.runAgentShadowEvaluationRoute|router.Decision|1",
       "kind": "target_construction",
       "file": "internal/proxy/agent_shadow_eval.go",
@@ -70,9 +46,9 @@
       "symbol": "NewService",
       "detail": "map value type is providers.Client",
       "owner": "@steventohme",
-      "rationale": "Proxy constructor receives the legacy provider map until composition wires the compatibility executor instead.",
+      "rationale": "Proxy constructor still accepts the legacy provider map as the compatibility path for the Phase 8 direct dispatch sites in proxy; it goes when the executor becomes the only way to reach a provider client.",
       "operation_class": "main_inference",
-      "removal_phase": "5"
+      "removal_phase": "8"
     },
     {
       "id": "direct_provider_call|internal/proxy/service.go|Service.PassthroughToNamedProvider|weave-os/router/internal/providers.Passthrough|1",

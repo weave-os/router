@@ -71,19 +71,30 @@ const (
 	OverrideSourceClientAuthoritative OverrideSource = "client_authoritative"
 )
 
-// Constraint identifies a hard condition that resolution and fallback must preserve.
+// Constraint identifies a hard condition the plan resolver verifies on every
+// binding a plan emits, selected and fallback alike. The vocabulary is limited
+// to properties of a binding against the resolution request; credential scope,
+// tenant isolation, and wire-format compatibility are enforced by the proxy
+// and translation layers, not by policy resolution, and are deliberately not
+// claimable here.
 type Constraint string
 
 const (
-	ConstraintCatalogBinding     Constraint = "catalog_binding"
-	ConstraintCapability         Constraint = "capability"
-	ConstraintContextWindow      Constraint = "context_window"
-	ConstraintCredentialScope    Constraint = "credential_scope"
-	ConstraintModelExclusions    Constraint = "model_exclusions"
+	// ConstraintCatalogBinding: the binding is a catalog-declared or
+	// request-declared custom binding of a known catalog model.
+	ConstraintCatalogBinding Constraint = "catalog_binding"
+	// ConstraintContextWindow: the request's estimated input plus expected
+	// output fits the model's context window.
+	ConstraintContextWindow Constraint = "context_window"
+	// ConstraintModelExclusions: the model honors the request's allowlist and
+	// exclusion set.
+	ConstraintModelExclusions Constraint = "model_exclusions"
+	// ConstraintProviderExclusions: the provider honors the request's enabled
+	// provider set and, under gateway-only tenancy, its gateway set.
 	ConstraintProviderExclusions Constraint = "provider_exclusions"
-	ConstraintRequestFormat      Constraint = "request_format"
-	ConstraintSpend              Constraint = "spend"
-	ConstraintTenant             Constraint = "tenant"
+	// ConstraintSpend: the binding's estimated cost fits the resolved budget's
+	// spend cap.
+	ConstraintSpend Constraint = "spend"
 )
 
 // SoftPreference identifies a ranking signal that may influence selection but
@@ -91,6 +102,10 @@ const (
 type SoftPreference string
 
 const (
+	// SoftPreferenceCapability withdraws low tool-use or image-input models
+	// from automatic selection when the request needs them; it is soft because
+	// an explicit pin to such a model still dispatches.
+	SoftPreferenceCapability           SoftPreference = "capability"
 	SoftPreferenceQualityPrice         SoftPreference = "quality_price"
 	SoftPreferencePreferredModels      SoftPreference = "preferred_models"
 	SoftPreferenceCacheAffinity        SoftPreference = "cache_affinity"

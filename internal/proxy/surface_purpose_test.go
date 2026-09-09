@@ -48,7 +48,7 @@ func TestPublicSurfaces_DispatchThroughResolvedPlan(t *testing.T) {
 			purpose: inference.PurposeAnthropicMessages, policyID: "main-anthropic-messages",
 			upstream: jsonUpstream(`{"id":"msg_1","type":"message","role":"assistant","content":[{"type":"text","text":"hi"}],"usage":{"input_tokens":1,"output_tokens":1}}`),
 			run: func(svc *proxy.Service, w http.ResponseWriter) error {
-				body := []byte(`{"model":"claude-haiku-4-5","max_tokens":64,"messages":[{"role":"user","content":"hi"}]}`)
+				body := []byte(`{"model":"claude-haiku-4-5","max_tokens":4096,"messages":[{"role":"user","content":"hi"}]}`)
 				return svc.ProxyMessages(authedCtx("00000000-0000-0000-0000-000000000001"), body, w,
 					httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader("")))
 			},
@@ -106,6 +106,56 @@ func TestPublicSurfaces_DispatchThroughResolvedPlan(t *testing.T) {
 			assert.Equal(t, inference.AttemptOutcomeServed, event.Outcome)
 			assert.Equal(t, tc.model, event.Target.CatalogID)
 			assert.Equal(t, tc.provider, event.Target.Provider)
+		})
+	}
+}
+
+// A hard-pinned utility turn is authorized under its own purpose and policy
+// and served on the deployment hard pin — not under the ingress surface's
+// main-inference policy.
+func TestHardPinnedUtilityTurns_DispatchUnderOwnPurpose(t *testing.T) {
+	const anthropicOK = `{"id":"msg_1","type":"message","role":"assistant","content":[{"type":"text","text":"ok"}],"usage":{"input_tokens":1,"output_tokens":1}}`
+	cases := map[string]struct {
+		body     string
+		purpose  inference.Purpose
+		policyID inference.PolicyID
+	}{
+		"probe": {
+			body:    `{"model":"claude-sonnet-4-6","max_tokens":1,"messages":[{"role":"user","content":"ping"}]}`,
+			purpose: inference.PurposeProbe, policyID: "aux-probe",
+		},
+		"classifier": {
+			body:    `{"model":"claude-sonnet-4-6","max_tokens":64,"messages":[{"role":"user","content":"is this safe? yes/no"}]}`,
+			purpose: inference.PurposeClassifier, policyID: "aux-classifier",
+		},
+		"title generation": {
+			body:    `{"model":"claude-sonnet-4-6","max_tokens":512,"output_config":{"format":{"type":"json_schema","schema":{"type":"object","properties":{"title":{"type":"string"}}}}},"messages":[{"role":"user","content":"Please write a title for this conversation."}]}`,
+			purpose: inference.PurposeTitleGeneration, policyID: "aux-title-generation",
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			provider := &fakeProvider{proxyResponse: jsonUpstream(anthropicOK)}
+			clients := map[string]providers.Client{providers.ProviderAnthropic: provider}
+			sink := &purposeSink{}
+			executor, err := dispatch.NewExecutor(dispatch.NewClients(clients), dispatch.WithAttemptSink(sink))
+			require.NoError(t, err)
+			fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-sonnet-4-6", Reason: "test"}}
+			svc := proxy.NewService(fr, clients, nil, false, nil, newFakePinStore(), false, providers.ProviderAnthropic, "claude-haiku-4-5", nil).
+				WithInferenceExecutor(executor)
+
+			rec := httptest.NewRecorder()
+			require.NoError(t, svc.ProxyMessages(authedCtx("00000000-0000-0000-0000-000000000001"), []byte(tc.body), rec,
+				httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))))
+
+			require.Len(t, provider.proxyBodies, 1)
+			require.Len(t, sink.events, 1)
+			event := sink.events[0]
+			assert.Equal(t, tc.purpose, event.Purpose)
+			assert.Equal(t, tc.policyID, event.PolicyID)
+			assert.Equal(t, inference.AttemptOutcomeServed, event.Outcome)
+			assert.Equal(t, "claude-haiku-4-5", event.Target.CatalogID)
+			assert.Equal(t, providers.ProviderAnthropic, event.Target.Provider)
 		})
 	}
 }

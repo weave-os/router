@@ -13,15 +13,16 @@ import (
 type ResolutionErrorCode string
 
 const (
-	ResolutionErrorUnknownPurpose     ResolutionErrorCode = "unknown_purpose"
-	ResolutionErrorUnsupportedPurpose ResolutionErrorCode = "unsupported_purpose"
-	ResolutionErrorInvalidOverride    ResolutionErrorCode = "invalid_override"
-	ResolutionErrorOverrideNotAllowed ResolutionErrorCode = "override_not_allowed"
-	ResolutionErrorDuplicateOverride  ResolutionErrorCode = "duplicate_override"
-	ResolutionErrorMissingSelection   ResolutionErrorCode = "missing_selection"
-	ResolutionErrorUnknownSelection   ResolutionErrorCode = "unknown_selection"
-	ResolutionErrorNoEligibleBinding  ResolutionErrorCode = "no_eligible_binding"
-	ResolutionErrorBudgetViolation    ResolutionErrorCode = "budget_violation"
+	ResolutionErrorUnknownPurpose      ResolutionErrorCode = "unknown_purpose"
+	ResolutionErrorUnsupportedPurpose  ResolutionErrorCode = "unsupported_purpose"
+	ResolutionErrorInvalidOverride     ResolutionErrorCode = "invalid_override"
+	ResolutionErrorOverrideNotAllowed  ResolutionErrorCode = "override_not_allowed"
+	ResolutionErrorDuplicateOverride   ResolutionErrorCode = "duplicate_override"
+	ResolutionErrorMissingSelection    ResolutionErrorCode = "missing_selection"
+	ResolutionErrorUnknownSelection    ResolutionErrorCode = "unknown_selection"
+	ResolutionErrorNoEligibleBinding   ResolutionErrorCode = "no_eligible_binding"
+	ResolutionErrorBudgetViolation     ResolutionErrorCode = "budget_violation"
+	ResolutionErrorConstraintViolation ResolutionErrorCode = "constraint_violation"
 )
 
 // ResolutionError carries a stable reason code without exposing request
@@ -202,6 +203,9 @@ func (r *PlanResolver) Resolve(request ResolutionRequest) (ResolvedPlan, error) 
 		return ResolvedPlan{}, err
 	}
 	alternatives := fallbackBindings(spec, selected, resolved, budget.MaxSpendUSD)
+	if err := verifyHardConstraints(spec, routerRequest, budget, append([]plannedBinding{selected}, alternatives...)); err != nil {
+		return ResolvedPlan{}, err
+	}
 	return ResolvedPlan{
 		purpose:             spec.Purpose,
 		dispatchClass:       spec.DispatchClass,
@@ -210,12 +214,20 @@ func (r *PlanResolver) Resolve(request ResolutionRequest) (ResolvedPlan, error) 
 		policyRevision:      spec.PolicyRevision,
 		selectionStrategy:   spec.SelectionStrategy,
 		selectedBinding:     selected.Binding,
-		alternativeBindings: alternatives,
+		alternativeBindings: bindingsOf(alternatives),
 		hardConstraints:     append([]Constraint(nil), spec.HardConstraints...),
 		softPreferences:     append([]SoftPreference(nil), spec.SoftPreferences...),
 		budget:              budget,
 		provenance:          provenance,
 	}, nil
+}
+
+func bindingsOf(planned []plannedBinding) []Binding {
+	bindings := make([]Binding, len(planned))
+	for index, binding := range planned {
+		bindings[index] = binding.Binding
+	}
+	return bindings
 }
 
 type plannedBinding struct {
@@ -452,7 +464,7 @@ func plannedBindingFor(resolved ResolvedCandidates, selected Binding) (plannedBi
 	return plannedBinding{}, false
 }
 
-func fallbackBindings(spec PolicySpec, selected plannedBinding, resolved ResolvedCandidates, maxSpendUSD float64) []Binding {
+func fallbackBindings(spec PolicySpec, selected plannedBinding, resolved ResolvedCandidates, maxSpendUSD float64) []plannedBinding {
 	var candidates []plannedBinding
 	switch spec.Fallback.Kind {
 	case FallbackKindBinding:
@@ -467,13 +479,13 @@ func fallbackBindings(spec PolicySpec, selected plannedBinding, resolved Resolve
 		}
 	}
 
-	alternatives := make([]Binding, 0, len(candidates))
+	alternatives := make([]plannedBinding, 0, len(candidates))
 	for _, candidate := range candidates {
 		if sameBinding(selected.Binding, candidate.Binding) || exceedsSpendBudget(candidate.estimatedCostUSD, maxSpendUSD) {
 			continue
 		}
 		candidate.Effort = selected.Effort
-		alternatives = append(alternatives, candidate.Binding)
+		alternatives = append(alternatives, candidate)
 	}
 	return alternatives
 }

@@ -86,7 +86,7 @@ func compactionPolicyFor(clientApp string) compactionPolicy {
 // *ProviderSummarizer; declared here so the Service depends on the behavior,
 // not the concrete type.
 type CompactionSummarizer interface {
-	SummarizeForCompaction(ctx context.Context, env *translate.RequestEnvelope, target CompactionTarget, maxTokens int) (string, handover.Usage, error)
+	SummarizeForCompaction(ctx context.Context, env *translate.RequestEnvelope, target CompactionTarget, scope router.Request, maxTokens int) (string, handover.Usage, error)
 	Provider() string
 }
 
@@ -108,6 +108,9 @@ type compactionInput struct {
 	// below-threshold turn costs no extra pin-store read. Nil means none.
 	PreferredSummarizer func() string
 	Headers             http.Header
+	// Scope is the request's eligibility the summarizer plan must honor
+	// (enabled providers, excluded models, gateways, custom bindings).
+	Scope router.Request
 }
 
 // compactionResult records what the cascade did, for logging and billing.
@@ -147,6 +150,18 @@ func (s *Service) maxEligibleContextWindow(policyExcluded, enabledProviders map[
 		}
 	}
 	return maxWindow
+}
+
+// summarizerScope is the eligibility a router-initiated summary call inherits
+// from the request it serves: the same provider, model, gateway, and custom
+// binding limits the request's own routing candidates were filtered by.
+func (s *Service) summarizerScope(ctx context.Context, enabledProviders, excludedModels map[string]struct{}) router.Request {
+	return router.Request{
+		EnabledProviders: enabledProviders,
+		ExcludedModels:   excludedModels,
+		CustomBindings:   s.customBindingsForRequest(ctx),
+		GatewayProviders: s.gatewayProvidersForRequest(ctx),
+	}
 }
 
 // compactionModelOrDefault returns the configured Sonnet-class summarizer.
@@ -319,7 +334,7 @@ func (s *Service) maybeCompact(ctx context.Context, env *translate.RequestEnvelo
 		if in.PreferredSummarizer != nil {
 			preferred = in.PreferredSummarizer()
 		}
-		if summary, usage, model, ok := s.runCompactionSummary(ctx, env, preferred, in.Headers); ok {
+		if summary, usage, model, ok := s.runCompactionSummary(ctx, env, preferred, in.Scope, in.Headers); ok {
 			// The summary is billed regardless; a rewrite that leaves a
 			// fitting request no longer fitting is discarded rather than
 			// letting rescue trimming drop context that was already servable.
@@ -373,7 +388,7 @@ func (s *Service) billCompactionSummary(ctx context.Context, requestID, external
 // by the switch-handover path. Returns ok=false (and logs) when no summarizer
 // fits the history, the tenant boundary forbids the call, or the call fails —
 // in every such case the caller falls through to trimming.
-func (s *Service) runCompactionSummary(ctx context.Context, env *translate.RequestEnvelope, preferred string, reqHeaders http.Header) (string, handover.Usage, string, bool) {
+func (s *Service) runCompactionSummary(ctx context.Context, env *translate.RequestEnvelope, preferred string, scope router.Request, reqHeaders http.Header) (string, handover.Usage, string, bool) {
 	log := observability.FromContext(ctx)
 
 	model := s.selectCompactionSummarizer(env.ContextOverflowTokenEstimate(), preferred)
@@ -395,7 +410,7 @@ func (s *Service) runCompactionSummary(ctx context.Context, env *translate.Reque
 		summCtx = clearCredentials(ctx)
 	}
 
-	summary, usage, err := s.compactionSummarizer.SummarizeForCompaction(summCtx, env, s.compactionTargetFor(model, preferred), DefaultCompactionMaxTokens)
+	summary, usage, err := s.compactionSummarizer.SummarizeForCompaction(summCtx, env, s.compactionTargetFor(model, preferred), scope, DefaultCompactionMaxTokens)
 	if err != nil {
 		log.Warn("Compaction summarizer failed; falling back to trim", "err", err, "model", model)
 		return "", handover.Usage{}, "", false
@@ -413,22 +428,24 @@ func (s *Service) runCompactionSummary(ctx context.Context, env *translate.Reque
 // else the configured compaction model on Anthropic. A Codex thread arrives
 // in Responses format, so when a non-Anthropic model has been serving it the
 // turn stays there rather than being summarized cross-format by Sonnet — the
-// summary replaces the thread's history for every turn that follows. ok=false
-// when nothing is eligible for this request, so the caller falls back to the
+// summary replaces the thread's history for every turn that follows. source
+// records whether the session's own model or the deployment's configured one
+// won, so the plan is authorized under the matching override. ok=false when
+// nothing is eligible for this request, so the caller falls back to the
 // generic hard-pin tier.
-func (s *Service) compactionHardPin(ctx context.Context, sessionKey [sessionpin.SessionKeyLen]byte, role string, req router.Request) (provider, model string, ok bool) {
+func (s *Service) compactionHardPin(ctx context.Context, sessionKey [sessionpin.SessionKeyLen]byte, role string, req router.Request) (provider, model string, source policy.OverrideSource, ok bool) {
 	// Gateway-exclusive tenants drop vendor bindings; leave them to the resolver.
 	if len(req.GatewayProviders) > 0 {
-		return "", "", false
+		return "", "", "", false
 	}
 	if req.ClientApp == ClientAppCodex {
 		if p, m, served := s.compactionSessionModel(ctx, sessionKey, role, req); served {
-			return p, m, true
+			return p, m, policy.OverrideSourceSession, true
 		}
 	}
 	if req.EnabledProviders != nil {
 		if _, enabled := req.EnabledProviders[providers.ProviderAnthropic]; !enabled {
-			return "", "", false
+			return "", "", "", false
 		}
 	}
 	eligible := func(m string) bool {
@@ -446,12 +463,12 @@ func (s *Service) compactionHardPin(ctx context.Context, sessionKey [sessionpin.
 		return !automaticallyDisabled(req, m)
 	}
 	if preferred := s.compactionPreferredSummarizer(ctx, sessionKey, role); eligible(preferred) {
-		return providers.ProviderAnthropic, preferred, true
+		return providers.ProviderAnthropic, preferred, policy.OverrideSourceSession, true
 	}
 	if m := s.compactionModelOrDefault(); eligible(m) {
-		return providers.ProviderAnthropic, m, true
+		return providers.ProviderAnthropic, m, policy.OverrideSourceDeployment, true
 	}
-	return "", "", false
+	return "", "", "", false
 }
 
 // compactionSessionModel returns the non-Anthropic model that has been serving

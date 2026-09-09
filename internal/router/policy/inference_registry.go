@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strings"
 
+	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router/catalog"
 )
 
@@ -29,6 +30,13 @@ const (
 	// PrecompactionLargeWindowModel is the big-context Anthropic-family
 	// summarizer for histories too large for PrecompactionDefaultModel.
 	PrecompactionLargeWindowModel = "claude-fable-5"
+	// UtilityHardPinDefaultProvider and UtilityHardPinDefaultModel are the
+	// reviewed fallback target of the utility hard-pin policies (title-gen,
+	// classifier, probe, sub-agent dispatch, client compaction without a
+	// summary-grade session model) when the deployment names no override and
+	// the cluster bundle cannot supply its fastest available model.
+	UtilityHardPinDefaultProvider = providers.ProviderAnthropic
+	UtilityHardPinDefaultModel    = "claude-haiku-4-5"
 )
 
 // compactionSummarizerModels is the reviewed set both compaction purposes may
@@ -222,6 +230,9 @@ func validatePolicySpecs(specs []PolicySpec) error {
 		if err := validateSelectionContract(spec); err != nil {
 			return err
 		}
+		if err := validateConstraintContract(spec); err != nil {
+			return err
+		}
 		if spec.Fallback.Kind == FallbackKindPlanAlternatives && len(spec.Fallback.Alternatives) == 0 {
 			return fmt.Errorf("policy %q declares plan-alternative fallback without alternatives", spec.PolicyID)
 		}
@@ -318,7 +329,7 @@ func validMigrationStatus(value MigrationStatus) bool {
 
 func validConstraint(value Constraint) bool {
 	switch value {
-	case ConstraintCatalogBinding, ConstraintCapability, ConstraintContextWindow, ConstraintCredentialScope, ConstraintModelExclusions, ConstraintProviderExclusions, ConstraintRequestFormat, ConstraintSpend, ConstraintTenant:
+	case ConstraintCatalogBinding, ConstraintContextWindow, ConstraintModelExclusions, ConstraintProviderExclusions, ConstraintSpend:
 		return true
 	default:
 		return false
@@ -336,7 +347,7 @@ func validBudgetSource(value BudgetSource) bool {
 
 func validSoftPreference(value SoftPreference) bool {
 	switch value {
-	case SoftPreferenceQualityPrice, SoftPreferencePreferredModels, SoftPreferenceCacheAffinity, SoftPreferenceSubscriptionCapacity:
+	case SoftPreferenceCapability, SoftPreferenceQualityPrice, SoftPreferencePreferredModels, SoftPreferenceCacheAffinity, SoftPreferenceSubscriptionCapacity:
 		return true
 	default:
 		return false
@@ -432,17 +443,11 @@ func mustRegistry(specs []PolicySpec) Registry {
 var defaultInferenceRegistry = mustRegistry(defaultPolicySpecs())
 
 func defaultPolicySpecs() []PolicySpec {
-	mainConstraints := []Constraint{
-		ConstraintCatalogBinding,
-		ConstraintCapability,
-		ConstraintContextWindow,
-		ConstraintCredentialScope,
-		ConstraintModelExclusions,
-		ConstraintProviderExclusions,
-		ConstraintRequestFormat,
-		ConstraintSpend,
-		ConstraintTenant,
-	}
+	// fixedConstraints is what the plan resolver verifies for a policy whose
+	// budget is fixed by the registry; spend joins it when the budget source
+	// lets a caller cap spend.
+	fixedConstraints := append([]Constraint(nil), coreConstraints...)
+	mainConstraints := append(append([]Constraint(nil), coreConstraints...), ConstraintSpend)
 	mainOverrides := []OverrideSource{
 		OverrideSourceRequest,
 		OverrideSourceSession,
@@ -451,6 +456,7 @@ func defaultPolicySpecs() []PolicySpec {
 		OverrideSourcePolicyDefault,
 	}
 	mainPreferences := []SoftPreference{
+		SoftPreferenceCapability,
 		SoftPreferenceQualityPrice,
 		SoftPreferencePreferredModels,
 		SoftPreferenceCacheAffinity,
@@ -479,16 +485,17 @@ func defaultPolicySpecs() []PolicySpec {
 			Purpose:            purpose,
 			DispatchClass:      DispatchClassAuxiliaryInference,
 			PolicyID:           id,
-			PolicyRevision:     "1",
+			PolicyRevision:     "2",
 			Owner:              inferencePolicyOwner,
 			Rationale:          rationale,
 			SelectionStrategy:  SelectionStrategyDeploymentHardPin,
 			CandidateSource:    CandidateSourceDeployment,
 			HardConstraints:    append([]Constraint(nil), mainConstraints...),
-			OverridePrecedence: []OverrideSource{OverrideSourceInstallation, OverrideSourceDeployment, OverrideSourcePolicyDefault},
+			SoftPreferences:    []SoftPreference{SoftPreferenceCapability},
+			OverridePrecedence: []OverrideSource{OverrideSourceRequest, OverrideSourceInstallation, OverrideSourceDeployment, OverrideSourcePolicyDefault},
 			Budget:             BudgetSpec{Source: BudgetSourceRequest},
-			Fallback:           FallbackSpec{Kind: FallbackKindNone},
-			MigrationStatus:    MigrationStatusLegacyDirect,
+			Fallback:           FallbackSpec{Kind: FallbackKindBinding},
+			MigrationStatus:    MigrationStatusExecutor,
 		}
 	}
 	controlPolicy := func(purpose Purpose, id PolicyID, rationale string) PolicySpec {
@@ -522,7 +529,7 @@ func defaultPolicySpecs() []PolicySpec {
 			SelectionStrategy:  SelectionStrategyFixedCatalog,
 			CandidateSource:    CandidateSourceFixedCatalog,
 			FixedCatalogModels: []string{HandoverSummaryDefaultModel},
-			HardConstraints:    []Constraint{ConstraintCatalogBinding, ConstraintCredentialScope, ConstraintModelExclusions, ConstraintProviderExclusions, ConstraintTenant},
+			HardConstraints:    append([]Constraint(nil), fixedConstraints...),
 			OverridePrecedence: []OverrideSource{OverrideSourceDeployment, OverrideSourcePolicyDefault},
 			Budget:             BudgetSpec{Source: BudgetSourcePolicy, MaxAttempts: 1, TimeoutMillis: 8_000, MaxOutputTokens: 800},
 			Fallback:           FallbackSpec{Kind: FallbackKindFullHistory},
@@ -538,7 +545,7 @@ func defaultPolicySpecs() []PolicySpec {
 			SelectionStrategy:  SelectionStrategyFixedCatalog,
 			CandidateSource:    CandidateSourceFixedCatalog,
 			FixedCatalogModels: compactionSummarizerModels,
-			HardConstraints:    []Constraint{ConstraintCatalogBinding, ConstraintContextWindow, ConstraintCredentialScope, ConstraintModelExclusions, ConstraintProviderExclusions, ConstraintTenant},
+			HardConstraints:    append([]Constraint(nil), fixedConstraints...),
 			OverridePrecedence: []OverrideSource{OverrideSourceSession, OverrideSourceDeployment, OverrideSourcePolicyDefault},
 			Budget:             BudgetSpec{Source: BudgetSourcePolicy, MaxAttempts: 1, TimeoutMillis: 90_000, MaxOutputTokens: 4_000},
 			Fallback:           FallbackSpec{Kind: FallbackKindLocalRecovery},
@@ -554,7 +561,7 @@ func defaultPolicySpecs() []PolicySpec {
 			SelectionStrategy:  SelectionStrategyFixedCatalog,
 			CandidateSource:    CandidateSourceFixedCatalog,
 			FixedCatalogModels: compactionSummarizerModels,
-			HardConstraints:    []Constraint{ConstraintCatalogBinding, ConstraintContextWindow, ConstraintCredentialScope, ConstraintModelExclusions, ConstraintProviderExclusions, ConstraintTenant},
+			HardConstraints:    append([]Constraint(nil), fixedConstraints...),
 			OverridePrecedence: []OverrideSource{OverrideSourceSession, OverrideSourceDeployment, OverrideSourcePolicyDefault},
 			Budget:             BudgetSpec{Source: BudgetSourcePolicy, MaxAttempts: 1, TimeoutMillis: 90_000, MaxOutputTokens: 4_000},
 			Fallback:           FallbackSpec{Kind: FallbackKindFullHistory},
@@ -568,16 +575,16 @@ func defaultPolicySpecs() []PolicySpec {
 			Purpose:            PurposeClientCompaction,
 			DispatchClass:      DispatchClassClientAuthoritative,
 			PolicyID:           "client-compaction",
-			PolicyRevision:     "1",
+			PolicyRevision:     "2",
 			Owner:              inferencePolicyOwner,
-			Rationale:          "Treat the client-supplied compaction turn and body as authoritative rather than inventing another router summary operation.",
-			SelectionStrategy:  SelectionStrategyClientAuthoritative,
-			CandidateSource:    CandidateSourceRequest,
-			HardConstraints:    []Constraint{ConstraintCredentialScope, ConstraintRequestFormat, ConstraintTenant},
-			OverridePrecedence: []OverrideSource{OverrideSourceClientAuthoritative},
+			Rationale:          "Serve the client-supplied compaction turn on the session's own warm model when it is summary-grade, else the deployment compaction hard pin, rather than inventing another router summary operation.",
+			SelectionStrategy:  SelectionStrategyDeploymentHardPin,
+			CandidateSource:    CandidateSourceDeployment,
+			HardConstraints:    append([]Constraint(nil), mainConstraints...),
+			OverridePrecedence: []OverrideSource{OverrideSourceRequest, OverrideSourceSession, OverrideSourceDeployment, OverrideSourcePolicyDefault},
 			Budget:             BudgetSpec{Source: BudgetSourceRequest},
-			Fallback:           FallbackSpec{Kind: FallbackKindNone},
-			MigrationStatus:    MigrationStatusLegacyDirect,
+			Fallback:           FallbackSpec{Kind: FallbackKindBinding},
+			MigrationStatus:    MigrationStatusExecutor,
 		},
 		{
 			Purpose:            PurposeAgentShadowEvaluation,
@@ -589,6 +596,7 @@ func defaultPolicySpecs() []PolicySpec {
 			SelectionStrategy:  SelectionStrategyClientAuthoritative,
 			CandidateSource:    CandidateSourceRequest,
 			HardConstraints:    append([]Constraint(nil), mainConstraints...),
+			SoftPreferences:    []SoftPreference{SoftPreferenceCapability},
 			OverridePrecedence: []OverrideSource{OverrideSourceRequest, OverrideSourceInstallation, OverrideSourceDeployment},
 			Budget:             BudgetSpec{Source: BudgetSourceRequest},
 			Fallback:           FallbackSpec{Kind: FallbackKindBinding},
@@ -603,7 +611,6 @@ func defaultPolicySpecs() []PolicySpec {
 			Rationale:          "Forward Anthropic token counting without model selection and use the bounded local estimator only for transient upstream failure.",
 			SelectionStrategy:  SelectionStrategyPassthrough,
 			CandidateSource:    CandidateSourceRequest,
-			HardConstraints:    []Constraint{ConstraintCredentialScope, ConstraintRequestFormat, ConstraintTenant},
 			OverridePrecedence: []OverrideSource{OverrideSourceClientAuthoritative},
 			Budget:             BudgetSpec{Source: BudgetSourcePolicy, MaxAttempts: 1, TimeoutMillis: 5_000},
 			Fallback:           FallbackSpec{Kind: FallbackKindLocalRecovery},
@@ -618,7 +625,6 @@ func defaultPolicySpecs() []PolicySpec {
 			Rationale:          "List models from the operator-selected upstream endpoint without automatic inference selection.",
 			SelectionStrategy:  SelectionStrategyPassthrough,
 			CandidateSource:    CandidateSourceDeployment,
-			HardConstraints:    []Constraint{ConstraintCredentialScope, ConstraintTenant},
 			OverridePrecedence: []OverrideSource{OverrideSourceDeployment},
 			Budget:             BudgetSpec{Source: BudgetSourceDeployment},
 			Fallback:           FallbackSpec{Kind: FallbackKindNone},
@@ -663,7 +669,6 @@ func defaultPolicySpecs() []PolicySpec {
 			Rationale:         "Execute the explicit native web-search tool without exposing it as generic model inference.",
 			SelectionStrategy: SelectionStrategyNone,
 			CandidateSource:   CandidateSourceDeployment,
-			HardConstraints:   []Constraint{ConstraintCredentialScope, ConstraintTenant},
 			Budget:            BudgetSpec{Source: BudgetSourceDeployment},
 			Fallback:          FallbackSpec{Kind: FallbackKindRoutedDispatch},
 			MigrationStatus:   MigrationStatusNonInference,

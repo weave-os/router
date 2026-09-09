@@ -3235,6 +3235,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 				return s.compactionPreferredSummarizer(ctx, sessionKey, roleForTier(catalog.TierFor(feats.Model)))
 			},
 			Headers: r.Header,
+			Scope:   s.summarizerScope(ctx, enabledProviders, baseExcluded),
 		})
 		if compErr != nil {
 			log.Warn("Compaction could not fit request to any eligible model",
@@ -3463,7 +3464,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			"decision_model", decision.Model,
 			"decision_provider", decision.Provider,
 		)
-		compactionHandoverOutcome = s.runCompactionHandover(ctx, env, r.Header, decision.Model)
+		compactionHandoverOutcome = s.runCompactionHandover(ctx, env, r.Header, decision.Model, req)
 		compactionHandoverRan = true
 	}
 
@@ -4039,8 +4040,8 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			attempt:                attempt,
 			flushErr:               flushUpstreamErrorAsAnthropic,
 			deferFlushOnExhaustion: baselineViable || subscriptionRetryEligible || siblingViable,
-			purpose:                inference.PurposeAnthropicMessages,
-			origin:                 routedOrigin(decision, routeRes.HardPinned, stickyHit),
+			purpose:                routeRes.dispatchPurpose(inference.PurposeAnthropicMessages),
+			origin:                 routeRes.dispatchOrigin(decision),
 		})
 		subscriptionPoolFailure = isSubscriptionPoolError(proxyErr)
 	}
@@ -4142,7 +4143,8 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 				bindings:        baselineBindings,
 				attempt:         baselineAttempt,
 				flushErr:        flushUpstreamErrorAsAnthropic,
-				purpose:         inference.PurposeAnthropicMessages,
+				purpose:         routeRes.dispatchPurpose(inference.PurposeAnthropicMessages),
+				origin:          routeRes.rescueOrigin(),
 			})
 			subscriptionPoolFailure = isSubscriptionPoolError(proxyErr)
 			decision = baselineDecision
@@ -4216,8 +4218,8 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 				// A failed retry keeps the same dark model; hold the error so
 				// the sibling rescue below can still serve the turn.
 				deferFlushOnExhaustion: siblingViable,
-				purpose:                inference.PurposeAnthropicMessages,
-				origin:                 routedOrigin(decision, routeRes.HardPinned, stickyHit),
+				purpose:                routeRes.dispatchPurpose(inference.PurposeAnthropicMessages),
+				origin:                 routeRes.dispatchOrigin(decision),
 			})
 			subscriptionPoolFailure = isSubscriptionPoolError(proxyErr)
 			bindings = subBindings
@@ -4285,7 +4287,8 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 				bindings:        siblingBindings,
 				attempt:         siblingAttempt,
 				flushErr:        flushUpstreamErrorAsAnthropic,
-				purpose:         inference.PurposeAnthropicMessages,
+				purpose:         routeRes.dispatchPurpose(inference.PurposeAnthropicMessages),
+				origin:          routeRes.rescueOrigin(),
 			})
 			subscriptionPoolFailure = isSubscriptionPoolError(proxyErr)
 			decision = siblingDecision
@@ -6005,6 +6008,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 				return s.compactionPreferredSummarizer(ctx, sessionKey, roleForTier(catalog.TierFor(feats.Model)))
 			},
 			Headers: r.Header,
+			Scope:   s.summarizerScope(ctx, enabledProviders, baseExcludedOAI),
 		})
 		if compErrOAI != nil {
 			log.Warn("Compaction could not fit request to any eligible model",
@@ -6716,8 +6720,8 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		attempt:                attempt,
 		flushErr:               flushBufferedIfPresent,
 		deferFlushOnExhaustion: cyberRetryViable,
-		purpose:                surfacePurpose,
-		origin:                 routedOrigin(decision, routeRes.HardPinned, stickyHit),
+		purpose:                routeRes.dispatchPurpose(surfacePurpose),
+		origin:                 routeRes.dispatchOrigin(decision),
 	})
 	cyberRefusalSeen = cyberRefusalSeen || providers.IsUpstreamCyberPolicyRefusal(proxyErr)
 
@@ -6787,7 +6791,8 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 				bindings:        retryBindings,
 				attempt:         retryAttempt,
 				flushErr:        flushBufferedIfPresent,
-				purpose:         surfacePurpose,
+				purpose:         routeRes.dispatchPurpose(surfacePurpose),
+				origin:          routeRes.rescueOrigin(),
 			})
 			decision = cyberRetryTarget
 			bindings = retryBindings
