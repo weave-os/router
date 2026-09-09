@@ -42,6 +42,7 @@ func TestResolveClientBudget(t *testing.T) {
 		{"beta substring is not capability", ClientAppClaudeCode, budgetTestUserAgent, budgetTestFable, false, budgetTestBeta + "-other", 200_000, 167_000},
 		{"small model does not gain provider support", ClientAppClaudeCode, budgetTestUserAgent, budgetTestHaiku, false, budgetTestBeta, 200_000, 167_000},
 		{"dated model", ClientAppClaudeCode, budgetTestUserAgent, budgetTestHaiku + "-20251001", false, "", 200_000, 167_000},
+		{"provider qualified model", ClientAppClaudeCode, budgetTestUserAgent, "anthropic/" + budgetTestFable, false, "", 200_000, 167_000},
 		{"unverified version", ClientAppClaudeCode, "claude-cli/2.1.258 (external, sdk-ts)", budgetTestFable, true, budgetTestBeta, 0, 0},
 		{"missing version", ClientAppClaudeCode, "sdk-ts", budgetTestFable, false, "", 0, 0},
 		{"SDK entrypoint is not a harness", "", "sdk-ts", budgetTestFable, false, "", 0, 0},

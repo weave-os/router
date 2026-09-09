@@ -34,8 +34,15 @@ func applyClientCompactionRecovery(ctx context.Context, env *translate.RequestEn
 		log.Debug("Applied client compaction guidance", "summary_target_tokens", summaryTargetTokens, "budget_evidence", budget.Evidence)
 		return true, nil
 	}
+	continuation := env.FirstUserMessageText()
+	for _, message := range history {
+		if message.Role == "user" && strings.HasPrefix(message.Text, clientCompactContinuationPrefix) {
+			continuation = message.Text
+			break
+		}
+	}
 	if (turn != turntype.MainLoop && turn != turntype.ToolResult) || budget.DefaultWindow > claudeCodeDefaultWindow ||
-		!env.HasTools() || !strings.HasPrefix(env.FirstUserMessageText(), clientCompactContinuationPrefix) {
+		!env.HasTools() || !strings.HasPrefix(continuation, clientCompactContinuationPrefix) {
 		return false, nil
 	}
 	// Bound the recovery period from this request's history, not a session cache.

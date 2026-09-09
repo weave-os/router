@@ -69,3 +69,25 @@ func TestClientRecoveryLeavesUnknownBudgetsAndUtilityTurnsUntouched(t *testing.T
 		})
 	}
 }
+
+func TestClientRecoverySeesContinuationAfterHandoverRewrite(t *testing.T) {
+	body, err := json.Marshal(map[string]any{
+		"model": budgetTestFable,
+		"messages": []map[string]any{{
+			"role": "assistant", "content": "Handover summary of prior work.",
+		}},
+		"tools": []any{map[string]any{"name": "Read", "input_schema": map[string]any{"type": "object"}}},
+	})
+	require.NoError(t, err)
+	env, err := translate.ParseAnthropic(body)
+	require.NoError(t, err)
+	history := []router.ConversationMessage{{
+		Role: "user", Text: clientCompactContinuationPrefix + " Summary: continue the verified fix.",
+	}}
+	applied, err := applyClientCompactionRecovery(context.Background(), env, smallClientBudget(), turntype.MainLoop, history)
+	require.NoError(t, err)
+	assert.True(t, applied)
+	prepared, err := env.PrepareAnthropic(nil, translate.EmitOptions{TargetModel: budgetTestFable, Capabilities: router.Lookup(budgetTestFable)})
+	require.NoError(t, err)
+	assert.True(t, gjson.GetBytes(prepared.Body, "tool_choice.disable_parallel_tool_use").Bool())
+}

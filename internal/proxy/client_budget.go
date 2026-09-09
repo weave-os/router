@@ -34,6 +34,9 @@ func resolveClientBudget(clientIdentity ClientIdentity, headers http.Header, mod
 		return budget
 	}
 	model = router.StripDateSuffix(model)
+	if rest, ok := strings.CutPrefix(model, "anthropic/"); ok {
+		model = rest
+	}
 	if _, known := catalog.ByID(model); !known || !strings.HasPrefix(model, "claude-") {
 		return budget
 	}
