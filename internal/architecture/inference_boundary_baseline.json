@@ -1,6 +1,6 @@
 {
   "schema_version": "inference_boundary_baseline_v1",
-  "source_revision": "70a3532fa9a256c53fd70df372a33ca64351963d",
+  "source_revision": "a6f208243bc51e478e0f35d099b4ce973a9eda6d",
   "exceptions": [
     {
       "id": "feature_target_constant|cmd/router/main.go|main.package|defaultHardPinModel|1",
@@ -270,7 +270,7 @@
       "id": "provider_map|internal/proxy/translation_plan.go|candidateProviders|providers.Client|1",
       "kind": "provider_map",
       "file": "internal/proxy/translation_plan.go",
-      "line": 230,
+      "line": 235,
       "symbol": "candidateProviders",
       "detail": "map value type is providers.Client",
       "owner": "@steventohme",
@@ -282,7 +282,7 @@
       "id": "provider_map|internal/proxy/translation_plan.go|configuredProviders|providers.Client|1",
       "kind": "provider_map",
       "file": "internal/proxy/translation_plan.go",
-      "line": 251,
+      "line": 256,
       "symbol": "configuredProviders",
       "detail": "map value type is providers.Client",
       "owner": "@steventohme",
@@ -294,12 +294,24 @@
       "id": "target_construction|internal/proxy/turnloop.go|Service.runTurnLoop|router.Decision|1",
       "kind": "target_construction",
       "file": "internal/proxy/turnloop.go",
-      "line": 733,
+      "line": 734,
       "symbol": "Service.runTurnLoop",
       "detail": "provider=<dynamic> model=<dynamic>",
       "owner": "@steventohme",
       "rationale": "Existing hard-pin path constructs a compatibility decision until utility and public purposes resolve typed plans.",
       "operation_class": "main_inference",
+      "removal_phase": "8"
+    },
+    {
+      "id": "target_construction|internal/proxy/turnloop.go|Service.runTurnLoop|router.Decision|2",
+      "kind": "target_construction",
+      "file": "internal/proxy/turnloop.go",
+      "line": 771,
+      "symbol": "Service.runTurnLoop",
+      "detail": "provider=<dynamic> model=<dynamic>",
+      "owner": "@steventohme",
+      "rationale": "Existing native web-search sub-turn passthrough preserves the resolved Anthropic binding until the public web-search path is represented as a typed policy operation.",
+      "operation_class": "web_search_tool",
       "removal_phase": "8"
     },
     {
