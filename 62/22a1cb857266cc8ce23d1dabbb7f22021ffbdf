@@ -1,0 +1,28 @@
+internal/translate/handover.go
+  s_4c926a922bc7fe::t_9af23fe4547dbc 227,233,239-243,317,327-329,331,333-336,338-345,347,349-365
+  s_4c926a922bc7fe::t_f755a5a6ee021b 34-37,132,238,311-316,330,332,337,346,348
+  s_4c926a922bc7fe::t_8ba01258c598d6 366
+internal/translate/compaction.go
+  s_4c926a922bc7fe::t_8346eee57f6db8 62-65,67,72,282,310,333
+  s_4c926a922bc7fe::t_f755a5a6ee021b 39-44
+internal/translate/compaction_test.go
+  s_4c926a922bc7fe::t_9af23fe4547dbc 211,213-218,220,223-224,227-228,231-233,235-255,268-271,279,282-284
+  s_4c926a922bc7fe::t_f755a5a6ee021b 4,212,219,221-222,225-226,229-230,273
+  s_4c926a922bc7fe::t_8346eee57f6db8 234,256-267,272,274-278,280-281
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "6222a1cb857266cc8ce23d1dabbb7f22021ffbdf",
+  "prompts": {},
+  "sessions": {
+    "s_4c926a922bc7fe": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08782-fdc9-7781-a78b-9613daad3e2d",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}
