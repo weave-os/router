@@ -436,6 +436,11 @@ func main() {
 	for name := range providerMap {
 		availableProviders[name] = struct{}{}
 	}
+	inferenceExecutor, err := dispatch.NewExecutor(dispatch.NewClients(providerMap),
+		dispatch.WithAttemptSink(proxy.NewAttemptSink(repo.Telemetry, logger)))
+	if err != nil {
+		panic(fmt.Sprintf("inference executor: %v", err))
+	}
 
 	// A provider missing a ProviderFamilies entry would silently 502 every
 	// request despite looking "enabled" — panic at boot instead.
@@ -771,21 +776,6 @@ func main() {
 	handoverModel := config.GetOr("ROUTER_HANDOVER_MODEL", proxy.DefaultHandoverModel)
 	handoverTimeout := parseEnvDurationMs("ROUTER_HANDOVER_TIMEOUT_MS", proxy.DefaultHandoverTimeout)
 	compactionTimeout := parseEnvDurationMs("ROUTER_COMPACTION_TIMEOUT_MS", proxy.DefaultCompactionTimeout)
-	// Kept as the interface type: a typed-nil *ProviderSummarizer would defeat
-	// the orchestrator's `!= nil` check.
-	var summarizer handover.Summarizer
-	// compactionSz stays a true-nil interface unless the summarizer provider is
-	// registered, so the Service's nil-check disables Tier-3 correctly (a
-	// typed-nil concrete pointer would defeat it).
-	var compactionSz proxy.CompactionSummarizer
-	if client, ok := providerMap[handoverProviderName]; ok {
-		ps := proxy.NewProviderSummarizer(client, handoverModel, handoverTimeout).WithCompactionTimeout(compactionTimeout)
-		summarizer = ps
-		compactionSz = ps
-		logger.Info("Handover summarizer wired", "provider", handoverProviderName, "model", handoverModel, "timeout_ms", handoverTimeout.Milliseconds(), "compaction_timeout_ms", compactionTimeout.Milliseconds())
-	} else {
-		logger.Info("Handover summarizer disabled (provider not registered); switch turns will preserve full history instead", "requested_provider", handoverProviderName)
-	}
 	compactionPct := parseEnvFloat("ROUTER_COMPACTION_PCT", proxy.DefaultCompactionTriggerPct)
 	compactionModel, err := resolveCompactionModel(handoverProviderName)
 	if err != nil {
@@ -819,6 +809,32 @@ func main() {
 	// Strategy-specific artifacts own selection membership; the legacy cluster bundle must not constrain HMM candidates.
 	routingTargets := catalog.RoutingTargetSet(availableProviders)
 	logger.Info("Catalog routing targets resolved", "catalog_routing_targets", len(routingTargets))
+
+	// Auxiliary purposes (handover/compaction summaries) resolve through the
+	// same catalog candidates as routing, pinned by the validated deployment
+	// override; no provider is denied because the override already names one.
+	auxiliaryPlans, err := policy.NewPlanResolver(policy.DefaultRegistry(), policy.NewResolver(
+		routingTargets, availableProviders, func(model catalog.Model) string { return model.ID }, policy.ProviderPolicy{}))
+	if err != nil {
+		panic(fmt.Sprintf("inference plan resolver: %v", err))
+	}
+	// Kept as the interface type: a typed-nil *ProviderSummarizer would defeat
+	// the orchestrator's `!= nil` check.
+	var summarizer handover.Summarizer
+	// compactionSz stays a true-nil interface unless the summarizer provider is
+	// registered, so the Service's nil-check disables Tier-3 correctly (a
+	// typed-nil concrete pointer would defeat it).
+	var compactionSz proxy.CompactionSummarizer
+	if client, ok := providerMap[handoverProviderName]; ok {
+		ps := proxy.NewProviderSummarizer(auxiliaryPlans, inferenceExecutor, handoverProviderName, handoverModel, handoverTimeout).
+			WithCompactionClient(client).
+			WithCompactionTimeout(compactionTimeout)
+		summarizer = ps
+		compactionSz = ps
+		logger.Info("Handover summarizer wired", "provider", handoverProviderName, "model", handoverModel, "timeout_ms", handoverTimeout.Milliseconds(), "compaction_timeout_ms", compactionTimeout.Milliseconds())
+	} else {
+		logger.Info("Handover summarizer disabled (provider not registered); switch turns will preserve full history instead", "requested_provider", handoverProviderName)
+	}
 
 	// OFF by default: wraps only the proxy's routing entrypoint, so rtr stays
 	// the *cluster.Multiversion the admin cast and semantic cache reference.
@@ -1205,11 +1221,6 @@ func main() {
 		WithAvailableModels(proxyRoutableModels(routingTargets, availableProviders, hmmRouter != nil)).
 		WithDefaultBaselineModel(resolveDefaultBaselineModel()).
 		WithBillingService(billingSvc)
-	inferenceExecutor, err := dispatch.NewExecutor(proxySvc.Clients(),
-		dispatch.WithAttemptSink(proxy.NewAttemptSink(repo.Telemetry, logger)))
-	if err != nil {
-		panic(fmt.Sprintf("inference executor: %v", err))
-	}
 	proxySvc = proxySvc.WithInferenceExecutor(inferenceExecutor)
 	if subscriptionRuntime != nil {
 		proxySvc.WithManagedSubscriptions(subscriptionRuntime)

@@ -1944,9 +1944,13 @@ func (s *Service) baselineFor(requested string) string {
 }
 
 // WithInferenceExecutor installs the dispatch executor that policy-resolved
-// operations run through. It must be built over this service's Clients().
+// operations run through. The service adopts the executor's client registry
+// so eligibility checks and dispatch read one provider set.
 func (s *Service) WithInferenceExecutor(executor *dispatch.Executor) *Service {
 	s.executor = executor
+	if executor != nil && executor.Clients() != nil {
+		s.clients = executor.Clients()
+	}
 	return s
 }
 

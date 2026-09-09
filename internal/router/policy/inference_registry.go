@@ -465,7 +465,7 @@ func defaultPolicySpecs() []PolicySpec {
 			Purpose:            PurposeHandoverSummary,
 			DispatchClass:      DispatchClassAuxiliaryInference,
 			PolicyID:           "aux-handover-summary",
-			PolicyRevision:     "1",
+			PolicyRevision:     "2",
 			Owner:              inferencePolicyOwner,
 			Rationale:          "Use the current inexpensive summarizer before a model switch; failure preserves the full prior history.",
 			SelectionStrategy:  SelectionStrategyFixedCatalog,
@@ -475,7 +475,7 @@ func defaultPolicySpecs() []PolicySpec {
 			OverridePrecedence: []OverrideSource{OverrideSourceDeployment, OverrideSourcePolicyDefault},
 			Budget:             BudgetSpec{Source: BudgetSourcePolicy, MaxAttempts: 1, TimeoutMillis: 8_000, MaxOutputTokens: 800},
 			Fallback:           FallbackSpec{Kind: FallbackKindFullHistory},
-			MigrationStatus:    MigrationStatusLegacyDirect,
+			MigrationStatus:    MigrationStatusExecutor,
 		},
 		{
 			Purpose:            PurposePrecompactionSummary,

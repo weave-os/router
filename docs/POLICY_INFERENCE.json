@@ -1,6 +1,6 @@
 {
   "schema_version": "inference_policy_registry_v2",
-  "registry_revision": "sha256:5b86fbf8ff8464d3a3453b12a1c736e049f7d7d221493b7093c1cd3b72805f68",
+  "registry_revision": "sha256:14ae9b2b672cb50d3901d8900e3f6f6f22a0b0a517170a8e180768b47a997333",
   "policies": [
     {
       "purpose": "agent_shadow_evaluation",
@@ -262,7 +262,7 @@
       "purpose": "handover_summary",
       "dispatch_class": "auxiliary_inference",
       "policy_id": "aux-handover-summary",
-      "policy_revision": "1",
+      "policy_revision": "2",
       "owner": "@steventohme",
       "rationale": "Use the current inexpensive summarizer before a model switch; failure preserves the full prior history.",
       "selection_strategy": "fixed_catalog",
@@ -290,7 +290,7 @@
       "fallback": {
         "kind": "full_history"
       },
-      "migration_status": "legacy_direct"
+      "migration_status": "executor"
     },
     {
       "purpose": "native_web_search",

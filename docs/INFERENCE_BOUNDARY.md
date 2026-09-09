@@ -39,7 +39,7 @@ These are the complete production `providers.Client.Proxy`/`Passthrough` call si
 
 | File / symbol | Operation |
 | --- | --- |
-| `internal/proxy/handover.go` — `ProviderSummarizer.summarize` | auxiliary handover/compaction summary |
+| `internal/proxy/handover.go` — `ProviderSummarizer.summarizeDirect` | auxiliary compaction summary (handover summaries run through `dispatch.Buffered` since Phase 6) |
 | `internal/proxy/usage_bypass.go` — `Service.bypassToAnthropic` | subscription-token main inference |
 | `internal/proxy/gemini.go` — `Service.ProxyGeminiGenerateContent` | Gemini main inference |
 | `internal/proxy/service.go` — `Service.PassthroughToNamedProvider` | metadata/passthrough |

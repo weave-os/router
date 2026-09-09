@@ -1,9 +1,11 @@
 package dispatch_test
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
@@ -324,4 +326,37 @@ func TestClientsRegistryIsDetachedFromSource(t *testing.T) {
 	assert.Equal(t, []string{providers.ProviderFireworks, providers.ProviderOpenAI}, clients.Names())
 	_, err = clients.Client(providers.ProviderAnthropic)
 	require.ErrorIs(t, err, dispatch.ErrProviderNotConfigured)
+}
+
+func TestBufferedTransportValidatesTargetAndDeliversResponse(t *testing.T) {
+	fw := &fakeUpstream{}
+	exec, err := dispatch.NewExecutor(dispatch.NewClients(map[string]providers.Client{providers.ProviderFireworks: fw}))
+	require.NoError(t, err)
+
+	var consumed int
+	transport := dispatch.Buffered{
+		Reason: "test",
+		Prepare: func(_ context.Context, attempt dispatch.Attempt) (providers.PreparedRequest, *http.Request, error) {
+			body := []byte(`{"model":"` + attempt.Target.CatalogID + `"}`)
+			return providers.PreparedRequest{Body: body}, httptest.NewRequest(http.MethodPost, "/v1/messages", bytes.NewReader(body)), nil
+		},
+		Consume: func(_ context.Context, _ dispatch.Attempt, resp *http.Response) error {
+			consumed = resp.StatusCode
+			return nil
+		},
+	}.Transport()
+	result, err := exec.Run(context.Background(), inference.InvocationRequest{}, fakePlan{selected: primary}, transport)
+	require.NoError(t, err)
+	assert.Equal(t, 1, result.Outcome.AttemptCount)
+	assert.Equal(t, http.StatusOK, consumed)
+	assert.Equal(t, []string{"kimi-k2.5"}, fw.models)
+
+	mismatch := dispatch.Buffered{
+		Prepare: func(context.Context, dispatch.Attempt) (providers.PreparedRequest, *http.Request, error) {
+			return providers.PreparedRequest{Body: []byte(`{"model":"other"}`)}, httptest.NewRequest(http.MethodPost, "/", nil), nil
+		},
+	}.Transport()
+	_, err = exec.Run(context.Background(), inference.InvocationRequest{}, fakePlan{selected: primary}, mismatch)
+	require.ErrorIs(t, err, dispatch.ErrTargetMismatch)
+	assert.Len(t, fw.models, 1, "mismatch must not reach upstream")
 }
