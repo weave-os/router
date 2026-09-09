@@ -1,7 +1,10 @@
 // Package router defines the Router interface and its Decision/Request types.
 package router
 
-import "context"
+import (
+	"context"
+	"weave-os/router/internal/router/escalation"
+)
 
 // WireFormat identifies the client-facing request representation. It is kept
 // independent from provider names so the router package remains an inner-ring
@@ -82,6 +85,9 @@ type Overrides struct {
 }
 
 type Request struct {
+	// Escalation constrains automatic class selection for an opted-in session.
+	Escalation *escalation.Constraint
+
 	RequestedModel string
 	// ForceModel is the canonical model named by a valid explicit force-model
 	// request. Router decorators must preserve the underlying selection rather
@@ -286,6 +292,9 @@ func (d Decision) ServedIdentity() string {
 // RoutingMetadata lets downstream components reuse the embedding and
 // cluster context without recomputing.
 type RoutingMetadata struct {
+	// Escalation preserves the raw classifier group and accepted automatic intervention.
+	Escalation *escalation.Decision
+
 	Embedding            []float32
 	ClusterIDs           []int // Sorted ascending; [0] is NOT necessarily closest.
 	CandidateModels      []string

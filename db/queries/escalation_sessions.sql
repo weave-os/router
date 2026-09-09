@@ -1,0 +1,91 @@
+-- name: DeleteExpiredEscalationSession :exec
+-- Expiry starts a new lifetime and cascades its prior boundary records.
+DELETE FROM router.escalation_sessions
+WHERE scope = @scope::bytea AND expires_at <= clock_timestamp();
+
+-- name: UpsertEscalationSessionClaim :one
+-- Only an expired or released lease can be acquired; no lock spans inference.
+INSERT INTO router.escalation_sessions (
+    scope, installation_id, lease_token, lease_until, expires_at
+) VALUES (
+    @scope::bytea, @installation_id::uuid, @lease_token::uuid,
+    clock_timestamp() + interval '15 seconds', clock_timestamp() + interval '24 hours'
+)
+ON CONFLICT (scope) DO UPDATE SET
+    lease_token = EXCLUDED.lease_token,
+    lease_until = EXCLUDED.lease_until,
+    expires_at = EXCLUDED.expires_at
+WHERE router.escalation_sessions.installation_id = EXCLUDED.installation_id
+    AND (router.escalation_sessions.lease_until IS NULL
+         OR router.escalation_sessions.lease_until <= clock_timestamp())
+RETURNING session_state;
+
+-- name: GetEscalationCheckpoint :one
+-- A checkpoint belongs to the current unexpired session lifetime.
+SELECT c.checkpoint FROM router.escalation_checkpoints c
+JOIN router.escalation_sessions s ON s.scope = c.scope
+WHERE c.scope = @scope::bytea AND c.boundary = @boundary::bytea
+    AND s.expires_at > clock_timestamp();
+
+-- name: UpdateEscalationSessionCommit :execrows
+-- The nonce and deadline prevent a late inference from overwriting a successor.
+UPDATE router.escalation_sessions SET
+    ordinal = @ordinal::bigint,
+    session_state = @session_state::jsonb,
+    lease_token = NULL,
+    lease_until = NULL,
+    expires_at = clock_timestamp() + interval '24 hours'
+WHERE scope = @scope::bytea AND lease_token = @lease_token::uuid
+    AND lease_until > clock_timestamp() AND expires_at > clock_timestamp()
+    AND ordinal + 1 = @ordinal::bigint;
+
+-- name: InsertEscalationCheckpoint :exec
+-- The boundary uniqueness constraint makes repeated intervention commits atomic failures.
+INSERT INTO router.escalation_checkpoints (scope, boundary, checkpoint)
+VALUES (@scope::bytea, @boundary::bytea, @checkpoint::jsonb);
+
+-- name: UpdateEscalationSessionRelease :exec
+-- Releasing an old nonce cannot cancel a later owner's lease.
+UPDATE router.escalation_sessions SET lease_token = NULL, lease_until = NULL
+WHERE scope = @scope::bytea AND lease_token = @lease_token::uuid;
+
+-- name: UpdateEscalationSessionOutcome :exec
+-- A completed response never changes an observation already claimed by a successor.
+UPDATE router.escalation_sessions
+SET session_state = jsonb_set(session_state, '{previous_outcome}', @previous_outcome::jsonb)
+WHERE scope = @scope::bytea AND ordinal = @ordinal::bigint
+    AND lease_token IS NULL AND expires_at > clock_timestamp()
+    AND session_state->'feature_state' IS NOT NULL
+    AND session_state->'feature_state' <> 'null'::jsonb;
+
+-- name: UpdateEscalationSessionInvalidated :exec
+-- A missed action revokes in-flight observations without undoing accepted class intent.
+UPDATE router.escalation_sessions SET
+    session_state = session_state || '{"feature_state":null,"feature_turns":0,"previous_outcome":null}'::jsonb,
+    lease_token = NULL,
+    lease_until = NULL
+WHERE scope = @scope::bytea AND expires_at > clock_timestamp();
+
+-- name: DeleteExpiredEscalationSessions :exec
+-- Expired feature state and checkpoint identities share one retention boundary.
+DELETE FROM router.escalation_sessions WHERE expires_at <= clock_timestamp();
+
+-- name: InsertEscalationContinuation :exec
+-- Lock the session while checking ordinal so a successor cannot race the response write.
+WITH completed_session AS (
+    SELECT scope FROM router.escalation_sessions
+    WHERE scope = @scope::bytea AND ordinal = @ordinal::bigint
+        AND lease_token IS NULL AND expires_at > clock_timestamp()
+    FOR UPDATE
+)
+INSERT INTO router.escalation_continuations (activation, response_digest, scope, history)
+SELECT @activation::bytea, @response_digest::bytea, scope, @history::jsonb
+FROM completed_session
+ON CONFLICT (activation, response_digest) DO NOTHING;
+
+-- name: GetEscalationContinuation :one
+-- Response references are isolated by activation and expire with their owning session.
+SELECT c.scope, c.history FROM router.escalation_continuations c
+JOIN router.escalation_sessions s ON s.scope = c.scope
+WHERE c.activation = @activation::bytea AND c.response_digest = @response_digest::bytea
+    AND s.expires_at > clock_timestamp();

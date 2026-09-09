@@ -19,6 +19,29 @@ type RouterClusterModelList struct {
 	UpdatedAt      pgtype.Timestamptz
 }
 
+type RouterEscalationCheckpoint struct {
+	Scope      []byte
+	Boundary   []byte
+	Checkpoint []byte
+}
+
+type RouterEscalationContinuation struct {
+	Activation     []byte
+	ResponseDigest []byte
+	Scope          []byte
+	History        []byte
+}
+
+type RouterEscalationSession struct {
+	Scope          []byte
+	InstallationID uuid.UUID
+	Ordinal        int64
+	SessionState   []byte
+	LeaseToken     pgtype.UUID
+	LeaseUntil     pgtype.Timestamptz
+	ExpiresAt      pgtype.Timestamptz
+}
+
 // Published mirror of internal/flags.Registry, upserted by the router at boot. Read by the Weave control plane to render the per-org flag override admin UI. Never read on the request path.
 type RouterFlagDefinition struct {
 	Key string

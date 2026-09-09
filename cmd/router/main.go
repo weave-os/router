@@ -46,6 +46,7 @@ import (
 	"weave-os/router/internal/router/cache"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/cluster"
+	"weave-os/router/internal/router/escalation"
 	"weave-os/router/internal/router/handover"
 	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/hmm/rosterdata"
@@ -853,6 +854,7 @@ func main() {
 
 	// Wired only when ROUTER_HMM_SIDECAR_URL is set; x-weave-router-strategy:
 	// hmm then routes through it. Unset fails closed with 503.
+	var escalationObserver escalation.Observer
 	var hmmRouter router.Router
 	var hmmEmbeddingRouter router.Router
 	var hmmBetaRouter router.Router
@@ -877,6 +879,7 @@ func main() {
 			logger.Error("HMM policy sidecar client failed to build; refusing to boot", "auth_mode", hmmAuthMode, "err", clientErr)
 			panic(clientErr)
 		}
+		escalationObserver = hmmClient
 		hmmReadinessChecker = hmmClient
 		hmmRosterSource = hmmClient
 		hmmRosterModels = newHMMRosterSource(hmmClient, hmmTimeout)
@@ -1072,38 +1075,46 @@ func main() {
 	// effort: the table is never read on the request path, so a failure here
 	// degrades that UI and nothing else.
 	publishFlagRegistry(logger, repo.FlagDefinitions, map[flags.Key]string{
-		flags.KeySubscriptionPlanAwareRouting: boolDefault(false),
-		flags.KeyStruggleShadowEnabled:        boolDefault(struggleShadowEnabled),
-		flags.KeyStruggleEscalationEnabled:    boolDefault(struggleEscalationEnabled),
-		flags.KeyStruggleEscalationHoldout:    strconv.Itoa(struggleEscalationHoldoutPct),
-		flags.KeyStruggleEvidenceArming:       boolDefault(struggleEvidenceArming),
-		flags.KeySpiralShadowEnabled:          boolDefault(spiralShadowEnabled),
-		flags.KeyTurnSignalCapture:            boolDefault(turnSignalCaptureEnabled),
-		flags.KeyLoopEscalationEnabled:        boolDefault(loopEscalationEnabled),
-		flags.KeyLoopEscalationHoldoutPct:     strconv.Itoa(loopEscalationHoldoutPct),
-		flags.KeyTextRepetitionBreak:          boolDefault(textRepetitionBreakEnabled),
-		flags.KeyPlannerEnabled:               boolDefault(plannerEnabled),
-		flags.KeyScoreToolResultTurns:         boolDefault(scoreToolResultTurns),
-		flags.KeyPrefixTrimFreeSwitch:         boolDefault(prefixTrimFreeSwitch),
-		flags.KeyAuthoritativeUpgradeGate:     boolDefault(authoritativeUpgradeGate),
-		flags.KeyAuthorityCacheShadow:         boolDefault(authorityCacheShadow),
-		flags.KeySiblingFailover:              boolDefault(siblingFailover),
-		flags.KeyOpenAIResponsesBroad:         boolDefault(openAIResponsesBroad),
-		flags.KeyAllowedModelsHeader:          boolDefault(allowedModelsHeader),
-		flags.KeyEffortEscalation:             boolDefault(effortEscalation),
-		flags.KeyCyberRefusalRepin:            boolDefault(cyberRefusalRepin),
-		flags.KeyCyberRefusalRetry:            boolDefault(cyberRefusalRetry),
-		flags.KeyCyberRefusalFallback:         cyberRefusalFallbackModel,
-		flags.KeyAnthropicServerFallback:      boolDefault(anthropicServerSideFallback),
-		flags.KeyEmbedOnlyUserMessage:         boolDefault(embedOnlyUser),
+		flags.KeyEscalationXGBoostEnabled:       boolDefault(false),
+		flags.KeyEscalationXGBoostShadowEnabled: boolDefault(false),
+		flags.KeyEscalationXGBoostEpoch:         "0",
+		flags.KeySubscriptionPlanAwareRouting:   boolDefault(false),
+		flags.KeyStruggleShadowEnabled:          boolDefault(struggleShadowEnabled),
+		flags.KeyStruggleEscalationEnabled:      boolDefault(struggleEscalationEnabled),
+		flags.KeyStruggleEscalationHoldout:      strconv.Itoa(struggleEscalationHoldoutPct),
+		flags.KeyStruggleEvidenceArming:         boolDefault(struggleEvidenceArming),
+		flags.KeySpiralShadowEnabled:            boolDefault(spiralShadowEnabled),
+		flags.KeyTurnSignalCapture:              boolDefault(turnSignalCaptureEnabled),
+		flags.KeyLoopEscalationEnabled:          boolDefault(loopEscalationEnabled),
+		flags.KeyLoopEscalationHoldoutPct:       strconv.Itoa(loopEscalationHoldoutPct),
+		flags.KeyTextRepetitionBreak:            boolDefault(textRepetitionBreakEnabled),
+		flags.KeyPlannerEnabled:                 boolDefault(plannerEnabled),
+		flags.KeyScoreToolResultTurns:           boolDefault(scoreToolResultTurns),
+		flags.KeyPrefixTrimFreeSwitch:           boolDefault(prefixTrimFreeSwitch),
+		flags.KeyAuthoritativeUpgradeGate:       boolDefault(authoritativeUpgradeGate),
+		flags.KeyAuthorityCacheShadow:           boolDefault(authorityCacheShadow),
+		flags.KeySiblingFailover:                boolDefault(siblingFailover),
+		flags.KeyOpenAIResponsesBroad:           boolDefault(openAIResponsesBroad),
+		flags.KeyAllowedModelsHeader:            boolDefault(allowedModelsHeader),
+		flags.KeyEffortEscalation:               boolDefault(effortEscalation),
+		flags.KeyCyberRefusalRepin:              boolDefault(cyberRefusalRepin),
+		flags.KeyCyberRefusalRetry:              boolDefault(cyberRefusalRetry),
+		flags.KeyCyberRefusalFallback:           cyberRefusalFallbackModel,
+		flags.KeyAnthropicServerFallback:        boolDefault(anthropicServerSideFallback),
+		flags.KeyEmbedOnlyUserMessage:           boolDefault(embedOnlyUser),
 	})
 
 	// Always wire even when beta is unavailable: existing beta sessions fail
 	// closed via nil policy registration rather than silently falling to stable.
 	var sessionStrategyStore sessionstrategy.Store = postgres.NewSessionStrategyRepo(pool)
 
+	escalationStore := postgres.NewEscalationRepo(pool)
+	if escalationObserver != nil {
+		safeGo(logger, "escalation-state-sweep", func() { runEscalationSweep(context.Background(), escalationStore) })
+	}
 	proxySvc := proxy.NewService(routeEntry, providerMap, telemetryEmitter, embedOnlyUser, semanticCache, pinStore, hardPinExplore, hardPinProvider, hardPinModel, repo.Telemetry).
 		WithSessionStrategyStore(sessionStrategyStore).
+		WithEscalation(escalationStore, escalationObserver).
 		WithTranslationCompatibilityMode(proxy.TranslationCompatibilityMode(translationCompatibilityMode)).
 		WithScopedSearchRequirement(scopedSearchRequirement, searchRequirementDecayTurns).
 		WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyRL, Router: rlRouter, Unavailable: rl.ErrPolicyUnavailable}).
@@ -2025,4 +2036,21 @@ func upstreamIDsForProvider(provider string) map[string]string {
 		return nil
 	}
 	return out
+}
+
+func runEscalationSweep(ctx context.Context, store escalation.Store) {
+	ticker := time.NewTicker(time.Hour)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			sweepCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+			if err := store.SweepExpired(sweepCtx); err != nil {
+				observability.FromContext(ctx).Error("Escalation state sweep failed", "err", err)
+			}
+			cancel()
+		}
+	}
 }

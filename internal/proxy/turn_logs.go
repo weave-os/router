@@ -136,7 +136,8 @@ func capturedResponse(c *captureWriter) (body []byte, truncated bool) {
 // calls Finalize after ProxyOpenAIChatCompletion returns (reading the
 // captured body earlier would yield empty/partial content).
 type deferredCallLog struct {
-	fn func()
+	escalation func(error)
+	fn         func()
 	// requestBody overrides the captured request body: ProxyOpenAIResponses
 	// sets it to the client's original Responses JSON so io.request_body
 	// matches, instead of the translated Chat Completions payload.

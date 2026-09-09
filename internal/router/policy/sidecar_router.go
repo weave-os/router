@@ -12,6 +12,7 @@ import (
 
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/escalation"
 )
 
 // ReasonRenderer converts policy metadata into the compact internal reason
@@ -335,12 +336,19 @@ func (r *SidecarRouter) Route(ctx context.Context, req router.Request) (router.D
 	// different provider than the resolved binding.
 	reselected := false
 	var routerArmScoresByGroup map[string]map[string]float32
+	var escalationDecision *escalation.Decision
 	if r.armSelector != nil {
 		if res.SchemaVersion != SchemaVersionV3 {
 			return router.Decision{}, fmt.Errorf("%s: sidecar reported schema %q, expected %s: %w", strategy, res.SchemaVersion, SchemaVersionV3, r.config.Unavailable)
 		}
-		selectionInput := selectionInputFor(strategy, executionMode, req, res, resolved)
-		pick, selectErr := r.armSelector(ctx, selectionInput)
+		originalSelectionInput := selectionInputFor(strategy, executionMode, req, res, resolved)
+		selectionInput, decision, constrained := constrainEscalation(req, originalSelectionInput, resolved)
+		escalationDecision = decision
+		pick, selectErr := r.selectEscalationArm(ctx, req, selectionInput, resolved, constrained)
+		for selectErr != nil && constrained && errors.Is(selectErr, ErrNoEligibleArm) {
+			selectionInput, escalationDecision, constrained = fallbackEscalation(req, originalSelectionInput, resolved, escalationDecision)
+			pick, selectErr = r.selectEscalationArm(ctx, req, selectionInput, resolved, constrained)
+		}
 		if selectErr != nil {
 			if errors.Is(selectErr, ErrNoEligibleArm) &&
 				req.ForceCluster != "" && len(selectionInput.RankedFallback) == 1 &&
@@ -351,6 +359,9 @@ func (r *SidecarRouter) Route(ctx context.Context, req router.Request) (router.D
 				}
 			}
 			return router.Decision{}, fmt.Errorf("%s: arm selection: %w: %w", strategy, selectErr, r.config.Unavailable)
+		}
+		if escalationDecision != nil {
+			escalationDecision.Constrained = constrained
 		}
 		overrideArmID = indexCandidates(resolved).rosterToArm[pick.Arm]
 		overrideRosterID = pick.Arm
@@ -390,7 +401,7 @@ func (r *SidecarRouter) Route(ctx context.Context, req router.Request) (router.D
 			"forced_arm", overrideRosterID,
 		)
 		res.PolicyGroup = outcome.Group
-	case len(req.ClusterArmOverrides) > 0 && len(res.RankedFallback) > 0:
+	case len(req.ClusterArmOverrides) > 0 && len(res.RankedFallback) > 0 && !(escalationDecision != nil && escalationDecision.Constrained):
 		outcome := ApplyClusterArmOverrides(req.ClusterArmOverrides, res.RankedFallback, resolved, overrideRosterID)
 		// Only a configured allowlist supersedes the router's own selection; an
 		// unconstrained group walk would just re-derive the same ranked order.
@@ -414,6 +425,9 @@ func (r *SidecarRouter) Route(ctx context.Context, req router.Request) (router.D
 		}
 	}
 
+	if escalationDecision != nil {
+		escalationDecision.Effective = escalation.Group(res.PolicyGroup)
+	}
 	selectedRosterArmID := overrideArmID
 	if selectedRosterArmID == "" {
 		selectedRosterArmID = overrideRosterID
@@ -475,6 +489,7 @@ func (r *SidecarRouter) Route(ctx context.Context, req router.Request) (router.D
 		Effort:   binding.Effort,
 		Reason:   reason,
 		Metadata: &router.RoutingMetadata{
+			Escalation:                    escalationDecision,
 			CandidateModels:               resolved.CandidateModels(),
 			CandidateProviders:            resolved.CandidateProviders(),
 			CandidateScores:               resolved.CatalogCandidateScores(res.CandidateScores),

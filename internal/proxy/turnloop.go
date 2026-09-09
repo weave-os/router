@@ -159,6 +159,11 @@ func (s *Service) plannerTokensFor(env *translate.RequestEnvelope, feats transla
 
 // turnLoopResult bundles the routing decision and pin/planner state.
 type turnLoopResult struct {
+	EscalationScope       [32]byte
+	EscalationOrdinal     int64
+	escalationActivation  [32]byte
+	escalationObservation translate.EscalationObservation
+
 	Decision       router.Decision
 	SessionKey     [sessionpin.SessionKeyLen]byte
 	InstallationID uuid.UUID
@@ -496,7 +501,7 @@ func (s *Service) runTurnLoop(
 	subAgentHint string,
 	reqHeaders http.Header,
 	req router.Request,
-) (turnLoopResult, error) {
+) (res turnLoopResult, routeErr error) {
 	log := observability.FromContext(ctx)
 	if requirements, ok := translationRequirementsFromContext(ctx); ok {
 		req.TranslationRequirements = requirements
@@ -540,7 +545,7 @@ func (s *Service) runTurnLoop(
 	if installationID != uuid.Nil {
 		req.InstallationID = installationID.String()
 	}
-	res := turnLoopResult{
+	res = turnLoopResult{
 		InstallationID:      installationID,
 		Strategy:            router.StrategyFromContext(ctx),
 		TurnType:            turntype.DetectFromEnvelope(env, feats, subAgentHint),
@@ -1286,12 +1291,27 @@ func (s *Service) runTurnLoop(
 		return res, nil
 	}
 
+	escalationTurn := s.beginEscalation(ctx, env, req, &res, apiKeyID)
+	if escalationTurn != nil {
+		req.Escalation = escalationTurn.constraint()
+		defer func() {
+			if err := s.finishEscalation(ctx, escalationTurn, &res, routeErr); err != nil {
+				log.Warn("Escalation state commit failed; routing without intervention", "err", err, "ordinal", escalationTurn.session.Ordinal)
+				if res.Decision.Metadata != nil && res.Decision.Metadata.Escalation != nil {
+					baseline := req
+					baseline.Escalation = nil
+					res.Decision, routeErr = s.routeFor(ctx, baseline)
+				}
+			}
+		}()
+	}
+
 	// Tool-result turns: by default, fall through to the scorer + planner for
 	// MainLoop parity. Kill switch preserves the legacy #82 verbatim-reuse path.
 	// The #82 noisy-embedding concern is stale under only_user_message embed mode:
 	// translate.userPromptTextGJSON strips tool_result blocks from the embed input.
 	// Switches degrade safely — handover.RewriteEnvelope strips orphaned tool_results.
-	if !res.AuthoritativePerTurn &&
+	if req.Escalation == nil && !res.AuthoritativePerTurn &&
 		!s.ResolveScoreToolResultTurns(ctx) &&
 		res.TurnType == turntype.ToolResult &&
 		pinFound {
@@ -1304,7 +1324,7 @@ func (s *Service) runTurnLoop(
 	}
 
 	// Planner-disabled + pin found: preserve first-decision-wins behavior.
-	if !res.AuthoritativePerTurn && !s.ResolvePlannerEnabled(ctx) && pinFound {
+	if req.Escalation == nil && !res.AuthoritativePerTurn && !s.ResolvePlannerEnabled(ctx) && pinFound {
 		decision := pinDecision(pin)
 		res.Decision = decision
 		res.StickyHit = true
@@ -1392,6 +1412,11 @@ func (s *Service) runTurnLoop(
 		"fresh_reason", fresh.Reason,
 	)
 	res.Fresh = fresh
+	if escalationRoutingApplied(fresh) {
+		res.Decision = fresh
+		res.PinTier = "escalation_xgb"
+		return res, nil
+	}
 	if res.AuthoritativePerTurn {
 		// Shadow before the pin-preserving gates so it covers every authoritative
 		// exit. PinTier partitions the result: authoritative_per_turn = fresh was

@@ -44,30 +44,33 @@ const (
 
 // Registered flag keys. Each corresponds to exactly one entry in Registry.
 const (
-	KeyStruggleShadowEnabled        Key = "struggle_shadow_enabled"
-	KeyStruggleEscalationEnabled    Key = "struggle_escalation_enabled"
-	KeyStruggleEscalationHoldout    Key = "struggle_escalation_holdout_pct"
-	KeyStruggleEvidenceArming       Key = "struggle_evidence_arming"
-	KeySpiralShadowEnabled          Key = "spiral_shadow_enabled"
-	KeyTurnSignalCapture            Key = "turn_signal_capture_enabled"
-	KeyLoopEscalationEnabled        Key = "loop_escalation_enabled"
-	KeyLoopEscalationHoldoutPct     Key = "loop_escalation_holdout_pct"
-	KeyTextRepetitionBreak          Key = "text_repetition_break_enabled"
-	KeyPlannerEnabled               Key = "planner_enabled"
-	KeyScoreToolResultTurns         Key = "score_tool_result_turns"
-	KeyPrefixTrimFreeSwitch         Key = "prefix_trim_free_switch"
-	KeyAuthoritativeUpgradeGate     Key = "authoritative_upgrade_gate"
-	KeyAuthorityCacheShadow         Key = "authority_cache_shadow"
-	KeySiblingFailover              Key = "sibling_failover"
-	KeyEffortEscalation             Key = "effort_escalation"
-	KeyCyberRefusalRepin            Key = "cyber_refusal_repin"
-	KeyCyberRefusalRetry            Key = "cyber_refusal_retry"
-	KeyCyberRefusalFallback         Key = "cyber_refusal_fallback_model"
-	KeyAnthropicServerFallback      Key = "anthropic_server_side_fallback"
-	KeyEmbedOnlyUserMessage         Key = "embed_only_user_message"
-	KeyOpenAIResponsesBroad         Key = "openai_responses_broad"
-	KeyAllowedModelsHeader          Key = "allowed_models_header"
-	KeySubscriptionPlanAwareRouting Key = "subscription_plan_aware_routing_enabled"
+	KeyEscalationXGBoostEnabled       Key = "escalation_xgb_enabled"
+	KeyEscalationXGBoostShadowEnabled Key = "escalation_xgb_shadow_enabled"
+	KeyEscalationXGBoostEpoch         Key = "escalation_xgb_epoch"
+	KeyStruggleShadowEnabled          Key = "struggle_shadow_enabled"
+	KeyStruggleEscalationEnabled      Key = "struggle_escalation_enabled"
+	KeyStruggleEscalationHoldout      Key = "struggle_escalation_holdout_pct"
+	KeyStruggleEvidenceArming         Key = "struggle_evidence_arming"
+	KeySpiralShadowEnabled            Key = "spiral_shadow_enabled"
+	KeyTurnSignalCapture              Key = "turn_signal_capture_enabled"
+	KeyLoopEscalationEnabled          Key = "loop_escalation_enabled"
+	KeyLoopEscalationHoldoutPct       Key = "loop_escalation_holdout_pct"
+	KeyTextRepetitionBreak            Key = "text_repetition_break_enabled"
+	KeyPlannerEnabled                 Key = "planner_enabled"
+	KeyScoreToolResultTurns           Key = "score_tool_result_turns"
+	KeyPrefixTrimFreeSwitch           Key = "prefix_trim_free_switch"
+	KeyAuthoritativeUpgradeGate       Key = "authoritative_upgrade_gate"
+	KeyAuthorityCacheShadow           Key = "authority_cache_shadow"
+	KeySiblingFailover                Key = "sibling_failover"
+	KeyEffortEscalation               Key = "effort_escalation"
+	KeyCyberRefusalRepin              Key = "cyber_refusal_repin"
+	KeyCyberRefusalRetry              Key = "cyber_refusal_retry"
+	KeyCyberRefusalFallback           Key = "cyber_refusal_fallback_model"
+	KeyAnthropicServerFallback        Key = "anthropic_server_side_fallback"
+	KeyEmbedOnlyUserMessage           Key = "embed_only_user_message"
+	KeyOpenAIResponsesBroad           Key = "openai_responses_broad"
+	KeyAllowedModelsHeader            Key = "allowed_models_header"
+	KeySubscriptionPlanAwareRouting   Key = "subscription_plan_aware_routing_enabled"
 )
 
 // Definition describes one overridable flag. DeploymentDefault is not stored
@@ -88,7 +91,7 @@ type Definition struct {
 // RegistryVersion changes whenever Registry's membership changes. Publish uses
 // it to make pruning safe during rolling deploys: a revision with an older
 // registry version may not delete definitions published by a newer revision.
-const RegistryVersion = 8
+const RegistryVersion = 9
 
 // Registry is the curated allowlist of flags that may carry a per-organization
 // override. It is deliberately explicit rather than derived from the env var
@@ -96,6 +99,9 @@ const RegistryVersion = 8
 // are already per-installation columns on model_router_installations, or are
 // consumed at construction time and have no per-request read site to override.
 var Registry = []Definition{
+	{Key: KeyEscalationXGBoostEnabled, Kind: KindBool, Description: "Promote one complexity class on an XGBoost escalation checkpoint. Off by default.", OrgOverridable: true},
+	{Key: KeyEscalationXGBoostShadowEnabled, Kind: KindBool, Description: "Observe XGBoost escalation without changing routing. Off by default.", OrgOverridable: true},
+	{Key: KeyEscalationXGBoostEpoch, Kind: KindInt, Description: "Observation generation; increment before enabling or resetting escalation.", OrgOverridable: true},
 	{
 		Key:            KeySubscriptionPlanAwareRouting,
 		Kind:           KindBool,

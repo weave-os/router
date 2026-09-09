@@ -7,6 +7,7 @@ toolchain go1.25.9
 require (
 	cloud.google.com/go/auth v0.18.2
 	cloud.google.com/go/pubsub/v2 v2.4.0
+	github.com/cenkalti/backoff/v5 v5.0.3
 	github.com/dmitryikh/leaves v0.0.0-20230708180554-25d19a787328
 	github.com/gin-gonic/gin v1.10.1
 	github.com/google/uuid v1.6.0
@@ -47,7 +48,6 @@ require (
 	cloud.google.com/go/iam v1.5.3 // indirect
 	github.com/bytedance/sonic v1.13.2 // indirect
 	github.com/bytedance/sonic/loader v0.2.4 // indirect
-	github.com/cenkalti/backoff/v5 v5.0.3 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/cloudwego/base64x v0.1.5 // indirect
 	github.com/daulet/tokenizers v1.26.0 // indirect
