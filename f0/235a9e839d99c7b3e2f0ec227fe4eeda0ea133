@@ -67,6 +67,7 @@ internal/router/policy/decision_budget.go
   s_84ceb7c3bf245f::t_fec4dff3b459dd 1-37
 internal/policyclient/client.go
   s_84ceb7c3bf245f::t_fec4dff3b459dd 18,92,116,125-131,145-150,506-544,550,559,561-578,588-589,643,921,924-928,942-945,953-956,960,974-991,1114,1117
+  s_7fa428a6b6817b::t_ea4783dc7cdb2d 1132
 internal/architecture/inference_boundary_baseline.json
   s_84ceb7c3bf245f::t_fec4dff3b459dd 150,152-154,157
 internal/router/policy/inference_recovery_test.go
@@ -107,6 +108,8 @@ internal/proxy/turnloop.go
   s_84ceb7c3bf245f::t_fec4dff3b459dd 208-209,538,893,985-997,1413,1444-1449,2083-2084
 .github/workflows/test.yml
   s_84ceb7c3bf245f::t_fec4dff3b459dd 31,33-34,52-55,184-188,194-198,228
+  s_7fa428a6b6817b::t_eaff9d35da4a42 32
+  s_7fa428a6b6817b::t_a4750ce5d3044e 183
 internal/proxy/AGENTS.md
   s_84ceb7c3bf245f::t_fec4dff3b459dd 42-48
 cmd/CLAUDE.md
@@ -146,6 +149,14 @@ internal/router/policy/resolver.go
   "base_commit_sha": "f0235a9e839d99c7b3e2f0ec227fe4eeda0ea133",
   "prompts": {},
   "sessions": {
+    "s_7fa428a6b6817b": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "92be9f94-6f27-4e58-a8fb-0fe9429576cf",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Drew Bailey <drew@workweave.ai>"
+    },
     "s_84ceb7c3bf245f": {
       "agent_id": {
         "tool": "codex",
