@@ -575,7 +575,7 @@ write_codex_config() {
     printf '%s' "${s//\"/\\\"}"
   }
 
-  local esc_key esc_email esc_name esc_url esc_status esc_directive
+  local esc_key esc_email esc_name esc_url esc_status
   esc_key="$(toml_escape "$block_key")"
   esc_email="$(toml_escape "$block_email")"
   esc_name="$(toml_escape "$block_name")"
