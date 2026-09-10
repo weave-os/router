@@ -1,5 +1,5 @@
 {
-  "pricing_version": "catalog-sha256:a96c21de7b4ad8ef",
+  "pricing_version": "catalog-sha256:d5f776ac45c47230",
   "models": {
     "claude-fable-5": {
       "input_usd_per_million": 10,
@@ -88,13 +88,13 @@
     "deepseek/deepseek-v4-pro": {
       "input_usd_per_million": 1.74,
       "output_usd_per_million": 3.48,
-      "cache_read_multiplier": 0.11494252873563218,
+      "cache_read_multiplier": 0.0862,
       "cache_write_multiplier": 1.25
     },
     "deepseek/deepseek-v4-pro-0813": {
       "input_usd_per_million": 1.74,
       "output_usd_per_million": 3.48,
-      "cache_read_multiplier": 0.11494252873563218,
+      "cache_read_multiplier": 0.0862,
       "cache_write_multiplier": 1.25
     },
     "gemini-2.0-flash": {
