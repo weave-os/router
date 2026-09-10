@@ -584,11 +584,19 @@ func TestAnthropicSSETranslator_StreamingParallelToolCallsDeterministicOrder(t *
 		start0 := strings.Index(body, `"type":"content_block_start","index":0`)
 		start1 := strings.Index(body, `"type":"content_block_start","index":1`)
 		start2 := strings.Index(body, `"type":"content_block_start","index":2`)
+		require.True(t, start0 != -1 && start1 != -1 && start2 != -1, "all start events must be present")
 		require.True(t, start0 < start1 && start1 < start2, "starts must be in order: 0 < 1 < 2")
+
+		delta0 := strings.Index(body, `"type":"content_block_delta","index":0`)
+		delta1 := strings.Index(body, `"type":"content_block_delta","index":1`)
+		delta2 := strings.Index(body, `"type":"content_block_delta","index":2`)
+		require.True(t, delta0 != -1 && delta1 != -1 && delta2 != -1, "all delta events must be present")
+		require.True(t, delta0 < delta1 && delta1 < delta2, "deltas must be in order: 0 < 1 < 2")
 
 		stop0 := strings.Index(body, `"type":"content_block_stop","index":0`)
 		stop1 := strings.Index(body, `"type":"content_block_stop","index":1`)
 		stop2 := strings.Index(body, `"type":"content_block_stop","index":2`)
+		require.True(t, stop0 != -1 && stop1 != -1 && stop2 != -1, "all stop events must be present")
 		require.True(t, stop0 < stop1 && stop1 < stop2, "stops must be in deterministic order: 0 < 1 < 2 (trial %d)", trial)
 	}
 }
