@@ -504,27 +504,42 @@ resolve_user_email() {
 #      it then declines to delete.
 #   2. A missing file is ours. Its registration points at nothing, which is
 #      residue we left behind.
-#   3. A symlink is followed for the marker test, never deleted through. It
-#      cannot simply be disowned: the status helper is rewritten on every
-#      install, so refusing to unwire a symlinked one leaves its old
-#      registrations in place while the managed block adds a fresh pair, which
-#      stacks the duplicates this strip exists to remove. Reading a marker
-#      through a link is safe; deleting through one is not, and
-#      remove_codex_directive_helper still refuses that separately. A dangling
-#      link fails the marker test and so stays the user's, which is why rule 2
-#      must not see it first.
+#   3. What a symlink means depends on the helper's lifecycle, so the caller
+#      says which it is.
+#        rewrite (status): the file is rewritten in place and never deleted, so
+#          the link is followed to read the marker. Disowning it instead leaves
+#          the old registrations while the managed block adds a fresh pair,
+#          stacking the duplicates this strip exists to remove.
+#        delete (directive): the file is removed, and removal refuses to act
+#          through a link. Claiming one would strip the registration and then
+#          decline the delete, leaving a helper Codex no longer runs -- rule 4
+#          violated in the one case it exists for.
+#      Either way the check precedes -e, which is false for a dangling link: it
+#      then fails the marker test and stays the user's, rather than being
+#      claimed by rule 2.
 #   4. Registration and file must be decided together. Removing one while
 #      keeping the other leaves a script Codex never runs, with nothing on
 #      screen to explain it.
 #   5. Compare decoded paths. The command value is a TOML basic string and the
 #      writer escapes it, so a raw comparison misses any path with a quote or
 #      backslash.
+# warn_if_symlink reports a symlinked path and returns non-zero so the caller
+# can skip just that file. refuse_if_symlink exits the process, which is right
+# for a path we are about to write but wrong for these helpers: one symlinked
+# helper would abort the whole run, stranding the config rewrite that is the
+# actual work. Neither is deleted through a link either way.
+warn_if_symlink() {
+  local target="$1"
+  [ -L "$target" ] || return 0
+  warn "$target is a symlink (-> $(readlink "$target")); leaving it untouched."
+  return 1
+}
+
 weave_owns_codex_helper() {
-  local path="$1" marker="$2"
-  [ -n "$path" ] && [ -n "$marker" ] || return 1
-  # Checked before -e, which is false for a dangling link: the marker test then
-  # fails and the link stays the user's, instead of rule 2 claiming it.
+  local path="$1" marker="$2" lifecycle="$3"
+  [ -n "$path" ] && [ -n "$marker" ] && [ -n "$lifecycle" ] || return 1
   if [ -L "$path" ]; then
+    [ "$lifecycle" = "rewrite" ] || return 1
     grep -Fq "$marker" "$path" 2>/dev/null
     return $?
   fi
@@ -535,9 +550,9 @@ weave_owns_codex_helper() {
 # weave_owned_codex_helpers prints, one per line, whichever of the two helper
 # paths this installation may unwire.
 weave_owned_codex_helpers() {
-  weave_owns_codex_helper "${codex_status_file:-}" '<!-- weave-router managed codex status -->' \
+  weave_owns_codex_helper "${codex_status_file:-}" '<!-- weave-router managed codex status -->' rewrite \
     && printf '%s\n' "$codex_status_file"
-  weave_owns_codex_helper "${codex_directive_file:-}" '<!-- weave-router managed codex directive -->' \
+  weave_owns_codex_helper "${codex_directive_file:-}" '<!-- weave-router managed codex directive -->' delete \
     && printf '%s\n' "$codex_directive_file"
   return 0
 }
@@ -3694,7 +3709,9 @@ announce_done() {
 # strip_weave_codex_hooks removes the registration; this removes the file.
 remove_codex_directive_helper() {
   [ -e "$codex_directive_file" ] || return 0
-  refuse_if_symlink "$codex_directive_file"
+  # Skip, do not exit: a symlink here is the user's, and aborting would leave
+  # the install half-applied over something we were never going to touch.
+  warn_if_symlink "$codex_directive_file" || return 0
   [ -f "$codex_directive_file" ] || return 0
   if grep -Fq '<!-- weave-router managed codex directive -->' "$codex_directive_file"; then
     rm -f "$codex_directive_file"

@@ -556,6 +556,56 @@ assert_config_parses "a symlinked status helper produced unparseable TOML"
   || fail "the installer replaced the status symlink instead of writing through it"
 rm -rf "$home/.codex" "$home/.weave"
 
+# A symlinked DIRECTIVE helper is a different case from a symlinked status one:
+# this helper gets deleted, and deletion refuses to act through a link. Claiming
+# it would strip the registration and then decline the delete, leaving a helper
+# Codex no longer runs. It must stay wired, and the install must still finish.
+rm -rf "$home/.codex" "$home/.weave"
+mkdir -p "$home/.codex" "$home/.weave"
+marked_target="$home/.weave/directive-real.sh"
+printf '%s\n' '#!/usr/bin/env bash' '# <!-- weave-router managed codex directive -->' 'exit 0' \
+  >"$marked_target"
+chmod 700 "$marked_target"
+ln -s "$marked_target" "$home/.weave/codex-directive.sh"
+cat >"$config" <<TOML
+model_provider = "weave"
+
+[model_providers.weave]
+base_url = "https://router.workweave.ai/v1"
+
+[[hooks.UserPromptSubmit]]
+[[hooks.UserPromptSubmit.hooks]]
+type = "command"
+command = "$home/.weave/codex-directive.sh"
+TOML
+
+run_hosted_install
+assert_config_parses "a symlinked directive helper produced unparseable TOML"
+grep -Fq "command = \"$home/.weave/codex-directive.sh\"" "$config" \
+  || fail "a symlinked directive helper was unwired even though it cannot be deleted"
+[ -L "$home/.weave/codex-directive.sh" ] \
+  || fail "the installer deleted through a symlinked directive helper"
+# The install has to complete: aborting here leaves it half-applied over a file
+# it was never going to touch.
+[ -f "$home/.codex/skills/fm/SKILL.md" ] \
+  || fail "a symlinked directive helper aborted the install before skills landed"
+rm -rf "$home/.codex" "$home/.weave"
+
+# Uninstall must not abort on a symlinked helper either: refusing before the
+# config rewrite left Codex wired to the router the uninstall was removing.
+rm -rf "$home/.codex" "$home/.weave"
+run_hosted_install
+status_target="$home/.weave/status-real.sh"
+mv "$home/.weave/codex-status.sh" "$status_target"
+ln -s "$status_target" "$home/.weave/codex-status.sh"
+run_uninstall || fail "a symlinked status helper aborted the uninstall outright"
+if [ -f "$config" ] && grep -Fq 'model_provider = "weave"' "$config"; then
+  fail "a symlinked status helper aborted uninstall before the config was cleaned"
+fi
+[ -L "$home/.weave/codex-status.sh" ] \
+  || fail "uninstall deleted through a symlinked status helper"
+rm -rf "$home/.codex" "$home/.weave"
+
 # Ownership is decided by each helper's own marker. The status marker must not
 # vouch for the directive path: the deletion sites check exact markers, so a
 # prefix match would unwire a file the installer then declines to delete.
