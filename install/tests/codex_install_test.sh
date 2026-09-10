@@ -494,6 +494,58 @@ grep -Fq "command = \"$unowned\"" "$config" \
 rm -f "$unowned"
 rm -rf "$home/.codex" "$home/.weave"
 
+# A dangling symlink at the helper path is the user's, not residue. `-e` is
+# false for one, so the missing-file rule would otherwise claim it and unwire a
+# link they created.
+rm -rf "$home/.codex" "$home/.weave"
+mkdir -p "$home/.codex" "$home/.weave"
+dangling="$home/.weave/codex-directive.sh"
+ln -s "$home/.weave/nothing-here.sh" "$dangling"
+cat >"$config" <<TOML
+model_provider = "weave"
+
+[model_providers.weave]
+base_url = "https://router.workweave.ai/v1"
+
+[[hooks.UserPromptSubmit]]
+[[hooks.UserPromptSubmit.hooks]]
+type = "command"
+command = "$dangling"
+TOML
+run_hosted_install
+grep -Fq "command = \"$dangling\"" "$config" \
+  || fail "a dangling symlink at the helper path was treated as our own residue"
+[ -L "$dangling" ] || fail "the installer removed a user-created symlink"
+rm -f "$dangling"
+rm -rf "$home/.codex" "$home/.weave"
+
+# Ownership is decided by each helper's own marker. The status marker must not
+# vouch for the directive path: the deletion sites check exact markers, so a
+# prefix match would unwire a file the installer then declines to delete.
+rm -rf "$home/.codex" "$home/.weave"
+mkdir -p "$home/.codex" "$home/.weave"
+crossmarked="$home/.weave/codex-directive.sh"
+printf '%s\n' '#!/usr/bin/env bash' '# <!-- weave-router managed codex status -->' 'exit 0' \
+  >"$crossmarked"
+chmod 755 "$crossmarked"
+cat >"$config" <<TOML
+model_provider = "weave"
+
+[model_providers.weave]
+base_url = "https://router.workweave.ai/v1"
+
+[[hooks.UserPromptSubmit]]
+[[hooks.UserPromptSubmit.hooks]]
+type = "command"
+command = "$crossmarked"
+TOML
+run_hosted_install
+grep -Fq "command = \"$crossmarked\"" "$config" \
+  || fail "the status marker vouched for the directive path and unwired it"
+[ -f "$crossmarked" ] || fail "the installer deleted a file whose marker does not match its path"
+rm -f "$crossmarked"
+rm -rf "$home/.codex" "$home/.weave"
+
 
 # ---------- project scope gitignores every generated helper ----------
 #

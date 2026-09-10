@@ -495,18 +495,39 @@ resolve_user_email() {
 # Removal is per sub-entry, not per group: a [[hooks.Stop]] group can hold our
 # hook and a third party's, and dropping the group would take theirs with it.
 # The group header goes only once nothing is left inside it.
-# weave_owns_codex_helper reports whether a helper path is ours to unwire.
+# Ownership contract for the Codex hook helpers. Every rule here was a bug
+# first; keep them together so the next change has the whole set.
 #
-# Ours means the file carries the managed marker, or is already gone -- a
-# registration pointing at nothing is a stale one we left behind. A file the
-# user wrote at the same path is theirs, and so is its registration: stripping
-# one while preserving the other would leave them a script with no wiring,
-# which is worse than either consistent outcome.
+#   1. Ours is decided per path by that helper's EXACT marker. A prefix match
+#      lets the status marker vouch for the directive path, and the two
+#      deletion sites check exact markers -- so the strip would unwire a file
+#      it then declines to delete.
+#   2. A missing file is ours. Its registration points at nothing, which is
+#      residue we left behind.
+#   3. A symlink is never ours, dangling or not. `-e` is false for a dangling
+#      one, so rule 2 would otherwise claim a link the user created.
+#   4. Registration and file must be decided together. Removing one while
+#      keeping the other leaves a script Codex never runs, with nothing on
+#      screen to explain it.
+#   5. Compare decoded paths. The command value is a TOML basic string and the
+#      writer escapes it, so a raw comparison misses any path with a quote or
+#      backslash.
 weave_owns_codex_helper() {
-  local path="$1"
-  [ -n "$path" ] || return 1
+  local path="$1" marker="$2"
+  [ -n "$path" ] && [ -n "$marker" ] || return 1
+  [ -L "$path" ] && return 1
   [ -e "$path" ] || return 0
-  grep -Fq '<!-- weave-router managed codex ' "$path" 2>/dev/null
+  grep -Fq "$marker" "$path" 2>/dev/null
+}
+
+# weave_owned_codex_helpers prints, one per line, whichever of the two helper
+# paths this installation may unwire.
+weave_owned_codex_helpers() {
+  weave_owns_codex_helper "${codex_status_file:-}" '<!-- weave-router managed codex status -->' \
+    && printf '%s\n' "$codex_status_file"
+  weave_owns_codex_helper "${codex_directive_file:-}" '<!-- weave-router managed codex directive -->' \
+    && printf '%s\n' "$codex_directive_file"
+  return 0
 }
 
 strip_weave_codex_hooks() {
@@ -517,7 +538,6 @@ strip_weave_codex_hooks() {
   local owned="" candidate
   for candidate in "$@"; do
     [ -n "$candidate" ] || continue
-    weave_owns_codex_helper "$candidate" || continue
     # A unit separator, not a newline: BSD awk rejects an embedded newline in a
     # -v value outright ("newline in string"), which silently disabled the whole
     # pass on macOS.
@@ -736,7 +756,13 @@ TOML
     # Drop every registration we own first; the managed block below re-adds
     # exactly the ones this version still ships. The section scan has to run
     # after it, since removing a group can move the first header.
-    strip_weave_codex_hooks "$tmp" "$codex_status_file" "$codex_directive_file"
+    local owned_helpers=()
+    while IFS= read -r owned_helper; do
+      [ -n "$owned_helper" ] && owned_helpers+=("$owned_helper")
+    done <<EOF
+$(weave_owned_codex_helpers)
+EOF
+    strip_weave_codex_hooks "$tmp" ${owned_helpers[@]+"${owned_helpers[@]}"}
     local first_section
     first_section="$(awk '/^[[:space:]]*\[/ { print NR; exit }' "$tmp")"
     if [ -n "$first_section" ]; then
