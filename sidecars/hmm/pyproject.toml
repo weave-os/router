@@ -25,6 +25,25 @@ dev = [
 
 [tool.uv]
 package = false
+# Preserve the versions selected by Poetry while this build-system migration
+# remains dependency-neutral. Remove a constraint only with an explicit upgrade.
+constraint-dependencies = [
+    "annotated-doc==0.0.4",
+    "annotated-types==0.7.0",
+    "anyio==4.14.2",
+    "certifi==2026.6.17",
+    "click==8.4.2",
+    "idna==3.18",
+    "numpy==2.5.1",
+    "nvidia-nccl-cu12==2.30.7",
+    "packaging==26.2",
+    "platformdirs==4.10.0",
+    "pydantic==2.13.4",
+    "pydantic-core==2.46.4",
+    "pygments==2.20.0",
+    "scipy==1.18.0",
+    "typing-inspection==0.4.2",
+]
 
 # XGBoost's normal Linux x86 wheel bundles CUDA/NCCL. Use the official
 # inference-compatible CPU distribution there; other platforms do not publish

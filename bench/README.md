@@ -34,10 +34,9 @@ the pinned version; nothing touches your own `~/.codex`.
 
 ```bash
 cd bench
-python3 -m venv ~/.venvs/bench && source ~/.venvs/bench/bin/activate
-pip install -e ".[harbor,tap,dev]"      # add ",modal" for Modal sandboxes
+uv sync --locked --extra harbor --extra tap --group dev  # use harbor-atlas instead of harbor for Atlas
 cp bench.example.toml bench.toml         # git-ignored; edit URLs / env-var names
-weave-bench --help
+uv run --locked --extra harbor --extra tap weave-bench --help
 ```
 
 Secrets are never written to disk: `bench.toml` names the environment
@@ -223,9 +222,9 @@ run id should say so.
 ## Development
 
 ```bash
-cd bench && source ~/.venvs/bench/bin/activate
-python -m ruff check . && python -m ruff format --check .
-python -m pytest tests
+cd bench
+uv run --locked ruff check . && uv run --locked ruff format --check .
+uv run --locked pytest tests
 cd .. && make generate && make check-docs        # regenerates prices.generated.json, checks links
 ```
 
