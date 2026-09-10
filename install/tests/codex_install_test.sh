@@ -724,6 +724,61 @@ grep -Fq 'model_provider = "weave"' "$config" \
   || fail "an unowned directive helper stopped routing from being configured"
 
 
+# ---------- a symlink at the hook path is never ours ----------
+#
+# Three ways this went wrong, all one rule. Following a marked symlink let a
+# reinstall overwrite whatever it pointed at, anywhere on disk. A dangling
+# symlink is invisible to -e, so the user-owned guard passed and the install
+# created the missing target. And refuse_if_symlink exited the whole
+# installer, which contradicts this hook being optional.
+rm -rf "$home/.codex" "$home/.weave"
+mkdir -p "$home/.codex" "$home/.weave"
+outside="$work/not-the-codex-dir.txt"
+printf '%s\n' 'important unrelated file' >"$outside"
+ln -s "$outside" "$home/.weave/codex-directive.sh"
+
+run_hosted_install || fail "a symlink at the hook path must not fail the install"
+assert_config_parses "install over a symlinked directive helper produced unparseable TOML"
+
+grep -Fq 'important unrelated file' "$outside" \
+  || fail "the install followed the symlink and overwrote its target"
+if grep -Fq 'hooks.UserPromptSubmit' "$config"; then
+  fail "the install registered a symlinked hook path"
+fi
+grep -Fq 'model_provider = "weave"' "$config" \
+  || fail "a symlinked hook path stopped routing from being configured"
+
+# A symlink whose target carries OUR marker is still not ours: the write would
+# land outside the Codex directory just the same.
+rm -rf "$home/.codex" "$home/.weave"
+mkdir -p "$home/.codex" "$home/.weave"
+marked="$work/marked-target.sh"
+printf '%s\n' '#!/usr/bin/env bash' '# <!-- weave-router managed codex directive -->' 'exit 0' >"$marked"
+ln -s "$marked" "$home/.weave/codex-directive.sh"
+run_hosted_install || fail "a marked symlink must not fail the install"
+# Literal on purpose: matching the installed script's text, not expanding it.
+# shellcheck disable=SC2016
+if ! grep -Fq 'exit 0' "$marked" || grep -Fq 'weave-router "$toggle"' "$marked"; then
+  fail "the install wrote through a marked symlink to its target"
+fi
+
+# A DANGLING symlink: -e is false, so an existence-based guard would sail past
+# it, create the target, then register it as a command Codex runs every prompt.
+rm -rf "$home/.codex" "$home/.weave"
+mkdir -p "$home/.codex" "$home/.weave"
+missing="$work/does-not-exist.sh"
+rm -f "$missing"
+ln -s "$missing" "$home/.weave/codex-directive.sh"
+run_hosted_install || fail "a dangling symlink must not fail the install"
+[ ! -e "$missing" ] \
+  || fail "the install wrote through a dangling symlink and created its target"
+if grep -Fq 'hooks.UserPromptSubmit' "$config"; then
+  fail "the install registered a dangling symlink as the prompt hook"
+fi
+
+rm -f "$outside" "$marked"
+
+
 # ---------- uninstall takes the hook and its registration together ----------
 rm -rf "$home/.codex" "$home/.weave"
 mkdir -p "$home"

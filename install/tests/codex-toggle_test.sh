@@ -165,6 +165,83 @@ out="$(printf '%s' '{"prompt":"$router-off","session_id":"s"}' \
 check "no jq on PATH passes through" "$passthrough" "$out"
 
 echo
+echo "the paths the FAIL OPEN claim rests on"
+# The suite asserted FAIL OPEN as its overriding property while only ever
+# feeding it valid JSON and a fake npx that printed and exited 0. These three
+# are the documented bail-outs that were never exercised.
+
+# A payload that is not JSON at all: jq fails, the hook must not eat the turn.
+out="$(printf '%s' 'this is not json' | PATH="$fake_bin:$PATH" bash "$hook" 2>/dev/null || true)"
+check "a malformed payload passes through" "$passthrough" "$out"
+
+out="$(printf '%s' '' | PATH="$fake_bin:$PATH" bash "$hook" 2>/dev/null || true)"
+check "an empty payload passes through" "$passthrough" "$out"
+
+# The timeout path. A hanging npx must be given up on, not waited out.
+hang_bin="$work/hang"; mkdir -p "$hang_bin"
+cat >"$hang_bin/npx" <<'HANG'
+#!/usr/bin/env bash
+sleep 30
+HANG
+chmod +x "$hang_bin/npx"
+start=$(date +%s)
+out="$(jq -Rn --arg p '$router-off' '{prompt:$p, session_id:"s"}' \
+  | WEAVE_TOGGLE_TIMEOUT=1 PATH="$hang_bin:$PATH" bash "$hook" 2>/dev/null || true)"
+elapsed=$(( $(date +%s) - start ))
+check "a hanging toggle times out and passes through" "$passthrough" "$out"
+if [ "$elapsed" -lt 15 ]; then
+  printf '  ok   the timeout actually fired (%ss, not the 30s hang)\n' "$elapsed"
+else
+  printf '  FAIL the hook waited out the hang (%ss)\n' "$elapsed"
+  fails=$((fails + 1))
+fi
+
+# A non-numeric budget must not silently disable the cap.
+start=$(date +%s)
+out="$(jq -Rn --arg p '$router-off' '{prompt:$p, session_id:"s"}' \
+  | WEAVE_TOGGLE_TIMEOUT=banana PATH="$hang_bin:$PATH" bash "$hook" 2>/dev/null || true)"
+elapsed=$(( $(date +%s) - start ))
+if [ "$elapsed" -lt 60 ]; then
+  printf '  ok   a non-numeric timeout falls back to the default rather than never firing\n'
+else
+  printf '  FAIL a non-numeric timeout disabled the cap (%ss)\n' "$elapsed"
+  fails=$((fails + 1))
+fi
+
+# A failing toggle is REPORTED, not passed through -- otherwise the model gets
+# a prompt the user meant as a command and retries it.
+fail_bin="$work/failing"; mkdir -p "$fail_bin"
+cat >"$fail_bin/npx" <<'FAILING'
+#!/usr/bin/env bash
+echo "error: could not write config.toml"
+exit 3
+FAILING
+chmod +x "$fail_bin/npx"
+out="$(jq -Rn --arg p '$router-off' '{prompt:$p, session_id:"s"}' \
+  | PATH="$fail_bin:$PATH" bash "$hook" 2>/dev/null || true)"
+contains "a failing toggle blocks rather than passing through" '"decision":"block"' "$out"
+contains "a failing toggle surfaces its error" 'could not write config.toml' "$out"
+# ...and must not claim a change that did not happen.
+case "$out" in
+  *'next `codex` launch'*)
+    printf '  FAIL a failed toggle still claimed it takes effect next launch\n'
+    fails=$((fails + 1)) ;;
+  *) printf '  ok   a failed toggle makes no restart claim\n' ;;
+esac
+
+# Exit 124 from the toggle ITSELF is a real failure, not our timeout sentinel.
+sentinel_bin="$work/exit124"; mkdir -p "$sentinel_bin"
+cat >"$sentinel_bin/npx" <<'S124'
+#!/usr/bin/env bash
+echo "error: the toggle exited 124 on its own"
+exit 124
+S124
+chmod +x "$sentinel_bin/npx"
+out="$(jq -Rn --arg p '$router-off' '{prompt:$p, session_id:"s"}' \
+  | PATH="$sentinel_bin:$PATH" bash "$hook" 2>/dev/null || true)"
+contains "a toggle exiting 124 is reported, not read as a timeout" 'exited 124 on its own' "$out"
+
+echo
 echo "the curl-installer copy has not drifted"
 # install.sh embeds this hook as a heredoc so a standalone `curl | sh` install
 # has no sibling asset to copy. Nothing keeps the two in sync, so an edit to

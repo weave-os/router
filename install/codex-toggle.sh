@@ -33,7 +33,15 @@ set -uo pipefail
 # How long the toggle may take before the hook gives up and passes the prompt
 # through. npx resolves from cache after first use; the budget covers a cold
 # fetch without letting a dead network hang the turn indefinitely.
+#
+# Validated, not trusted: `[ "$waited" -ge "$seconds" ]` with a non-numeric
+# bound errors instead of comparing, so the cap would never fire and the hook
+# would hang until npx exited on its own. An unusable value falls back to the
+# default rather than disabling the timeout.
 WEAVE_TOGGLE_TIMEOUT="${WEAVE_TOGGLE_TIMEOUT:-45}"
+case "$WEAVE_TOGGLE_TIMEOUT" in
+  ''|*[!0-9]*|0) WEAVE_TOGGLE_TIMEOUT=45 ;;
+esac
 
 # ---------- responses ----------
 
@@ -94,17 +102,39 @@ command -v npx >/dev/null 2>&1 || pass_through
 
 # ---------- run ----------
 
+# WEAVE_TOGGLE_TIMED_OUT is set by run_bounded instead of encoding the timeout
+# in the exit status. 124 is a status the child can legitimately return, and
+# reading that as "we timed out" would swallow the toggle's own error output.
+WEAVE_TOGGLE_TIMED_OUT=0
+
 # run_bounded runs a command with a wall-clock cap. GNU `timeout` is not on
 # macOS, so this polls the child rather than depending on coreutils.
+#
+# The child runs in its own process group (`set -m` + `kill -- -PID`) because
+# npx execs node: signalling only the direct child leaves that node process
+# running after the hook has already passed the prompt through.
 run_bounded() {
   local seconds="$1" out="$2"; shift 2
+  WEAVE_TOGGLE_TIMED_OUT=0
+
+  local had_monitor=0
+  case "$-" in *m*) had_monitor=1 ;; esac
+  set -m
   "$@" >"$out" 2>&1 &
-  local pid=$! waited=0
+  local pid=$!
+  [ "$had_monitor" -eq 1 ] || set +m
+
+  local waited=0
   while kill -0 "$pid" 2>/dev/null; do
     if [ "$waited" -ge "$seconds" ]; then
-      kill -TERM "$pid" 2>/dev/null
+      WEAVE_TOGGLE_TIMED_OUT=1
+      # Negative pid = the whole group. Fall back to the bare pid if the
+      # group is already gone, so a raced exit still gets reaped.
+      kill -TERM -- "-$pid" 2>/dev/null || kill -TERM "$pid" 2>/dev/null
+      sleep 1
+      kill -KILL -- "-$pid" 2>/dev/null || kill -KILL "$pid" 2>/dev/null
       wait "$pid" 2>/dev/null
-      return 124
+      return 0
     fi
     sleep 1
     waited=$((waited + 1))
@@ -132,19 +162,21 @@ output="$(printf '%s' "$output" | sed -e 's/\x1b\[[0-9;]*m//g')"
 
 # A failure is reported, not swallowed: passing through here would hand the
 # model a prompt the user meant as a command, and it would likely try the same
-# command again. Timeouts pass through instead -- nothing ran, so the skill
-# path is still the honest fallback.
-if [ "$status" -eq 124 ]; then
+# command again. Only a real timeout passes through -- the toggle never got to
+# finish, so the skill path is still the honest fallback.
+if [ "$WEAVE_TOGGLE_TIMED_OUT" -eq 1 ]; then
   pass_through
 fi
 
 [ -n "$output" ] || output="weave-router $toggle --codex exited with status $status."
 
-case "$verb" in
-  router-status) ;;
-  *) output="$output"$'\n\n'"Takes effect on your next \`codex\` launch: Codex reads its provider config at startup, so this session keeps routing as it already was." ;;
-esac
-if [ "$verb" = "disable-routing" ] && [ "$status" -eq 0 ]; then
+# Both trailers describe a change that actually happened, so they are gated on
+# a zero exit. A failed toggle rewrote no config; telling the user it takes
+# effect next launch would send them to restart Codex for nothing.
+if [ "$status" -eq 0 ] && [ "$verb" != "router-status" ]; then
+  output="$output"$'\n\n'"Takes effect on your next \`codex\` launch: Codex reads its provider config at startup, so this session keeps routing as it already was."
+fi
+if [ "$status" -eq 0 ] && [ "$verb" = "disable-routing" ]; then
   output="$output"$'\n'"Reverse it with \$router-on."
 fi
 
