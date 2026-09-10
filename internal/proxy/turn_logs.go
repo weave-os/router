@@ -131,11 +131,11 @@ func capturedResponse(c *captureWriter) (body []byte, truncated bool) {
 	return b, false
 }
 
-// deferredCallLog lets a wrapping handler run call-log emission after the
-// response body is fully written, since /v1/responses' ResponsesWriter only
-// calls Finalize after ProxyOpenAIChatCompletion returns (reading the
-// captured body earlier would yield empty/partial content).
+// deferredCallLog coordinates the Responses wrapper's finalization and logging.
+// Successful responses finalize before bookkeeping; early returns finalize in
+// the wrapping handler. Call-log capture always follows finalization.
 type deferredCallLog struct {
+	finalize   func() error
 	escalation func(error)
 	fn         func()
 	// requestBody overrides the captured request body: ProxyOpenAIResponses

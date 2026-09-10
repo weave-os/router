@@ -340,6 +340,9 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 	cacheCreation, cacheRead := extractor.CacheTokens()
 	if responseBuffer != nil && proxyErr == nil {
 		setRouterCostHeaders(w.Header(), routerResponseCostFromPricing(actPricing, decision.Provider, in, out, cacheCreation, cacheRead))
+		if flushErr := responseBuffer.FlushToClient(); flushErr != nil {
+			log.Error("Failed to flush buffered response", "err", flushErr)
+		}
 	}
 	geminiUpstreamBuilder := otel.NewAttrBuilder(40).
 		String("request_id", requestID).
@@ -383,8 +386,7 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 	s.recordCallLog(ctx, geminiUpstreamBuilder.Build(), routeMs, proxyErr != nil, body, respBody, respTrunc)
 	otel.Flush(ctx)
 
-	// Persist last-turn usage to the pin row so the next turn's planner
-	// has cache-hit evidence. Off the request path; drops on saturation.
+	// Preserve ordered usage updates after releasing the response.
 	s.recordTurnUsage(ctx, routeRes, finalProvider, decision.ServedIdentity(), in, out, cacheCreation, cacheRead)
 
 	if installationID != uuid.Nil {

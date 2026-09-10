@@ -246,6 +246,20 @@ Per-attempt body rebuild: each closure constructs `EmitOptions` with `TargetProv
 - Cancel/deadline classified as non-retryable: client disconnect or per-request budget elapse must not waste a second upstream call.
 - After dispatch, `actPricing` is re-resolved against the WINNING binding via `catalog.PriceFor(finalProvider, decision.Model)` so debits and OTel `cost.actual_*` reflect the actually-served provider's per-1M rate (the catalog's `PrimaryPriceFor` would otherwise always return the primary's).
 
+## Persistence and response completion
+
+Attempt diagnostics use `AttemptSink`: one ordered worker, a 1,024-event queue,
+250ms writes, and a 500ms shutdown drain owned by composition. Queue saturation,
+write failures and shutdown losses are counted and logged; they never delay
+provider retries. Events retain immutable provenance and a request logger, not
+credentials or a request context. This queue is not a durable billing ledger.
+
+Session mutations remain synchronous and ordered, with 250ms cancellation-independent
+contexts rather than unbounded background writes. Successful buffered responses
+are released after cost headers are known and before post-response bookkeeping;
+Responses finalization is once-only. Required billing retains its existing bounded
+synchronous debit and reconciliation logging. A failed write is not durable success.
+
 ## Fast-tier dispatch (`fast_mode_models`)
 
 An installation opts catalog models into the provider's paid fast tier via `PUT /admin/v1/fast-mode-models` (`auth.Installation.FastModeModels`, carried in ctx under `InstallationFastModeModelsContextKey`). [`fastModeForAttempt`](fastmode.go) decides **per attempt** — against the attempt's own ctx, model, and binding — whether `EmitOptions.FastMode` is set: the model must be listed, the `(provider, model)` binding must publish a `FastPrice` (first-party OpenAI → `service_tier:"priority"`, first-party Anthropic → `speed:"fast"` + beta; gateways never), and the resolved credential must not be a subscription OAuth token (Weave does not bill those turns). Raw passthrough is untouched.

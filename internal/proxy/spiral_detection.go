@@ -350,9 +350,10 @@ func (s *Service) handleSpiralShadow(
 				PingPongLen:        int32(sig.pingPongLen),
 				StepsSinceProgress: int32(sig.stepsSinceProgress),
 			}
-			// context.Background(): the request ctx may already be canceled;
-			// losing the row would skew the shadow fire-rate corpus.
-			if err := s.spiralShadowStore.InsertSpiralShadowEvent(context.Background(), event); err != nil {
+
+			eventCtx, cancelEvent := bookkeepingContext(ctx)
+			defer cancelEvent()
+			if err := s.spiralShadowStore.InsertSpiralShadowEvent(eventCtx, event); err != nil {
 				log.Error("spiral-shadow: event insert failed", "err", err)
 				continue // leave the LRU unset so the next turn retries
 			}

@@ -446,8 +446,16 @@ func main() {
 	for name := range providerMap {
 		availableProviders[name] = struct{}{}
 	}
+	attemptSink := proxy.NewAttemptSink(repo.Telemetry, logger)
+	defer func() {
+		drainCtx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+		defer cancel()
+		if err := attemptSink.Shutdown(drainCtx); err != nil {
+			logger.Warn("Inference attempt shutdown incomplete", "err", err, "dropped", attemptSink.Dropped())
+		}
+	}()
 	inferenceExecutor, err := dispatch.NewExecutor(dispatch.NewClients(providerMap),
-		dispatch.WithAttemptSink(proxy.NewAttemptSink(repo.Telemetry, logger)))
+		dispatch.WithAttemptSink(attemptSink))
 	if err != nil {
 		panic(fmt.Sprintf("inference executor: %v", err))
 	}
@@ -1339,10 +1347,10 @@ func main() {
 		logger.Info("Received shutdown signal; draining", "signal", sig.String())
 	}
 
-	// Cloud Run gives 10s between SIGTERM and SIGKILL; budget across three
+	// Cloud Run gives 10s between SIGTERM and SIGKILL; budget across four
 	// flush stages (defer on apm.Shutdown would never run in time):
 	//   srv.Shutdown 6.0s + emitter.Shutdown 1.5s + apm.Shutdown 1.5s = 9.0s,
-	//   leaving ~1s slack.
+	//   plus attemptSink.Shutdown 0.5s, leaving ~0.5s slack.
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 6*time.Second)
 	defer cancel()
 	if err := srv.Shutdown(shutdownCtx); err != nil {

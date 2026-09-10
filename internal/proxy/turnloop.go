@@ -2390,15 +2390,15 @@ func (s *Service) writeNewPin(ctx context.Context, installationID uuid.UUID, ses
 	s.upsertPin(ctx, p)
 }
 
-// upsertPin synchronously persists a pin write. context.Background() is used
-// so the DB write survives request-ctx cancellation after the response has
-// finished streaming.
+// upsertPin preserves write ordering with a bounded, cancellation-independent wait.
 func (s *Service) upsertPin(ctx context.Context, p sessionpin.Pin) {
 	log := observability.FromContext(ctx)
 	if p.Strategy == "" {
 		p.Strategy = router.StrategyFromContext(ctx)
 	}
-	if err := s.pinStore.Upsert(context.Background(), p); err != nil {
+	pinCtx, cancelPin := bookkeepingContext(ctx)
+	defer cancelPin()
+	if err := s.pinStore.Upsert(pinCtx, p); err != nil {
 		log.Error("session pin upsert failed", "err", err)
 		return
 	}

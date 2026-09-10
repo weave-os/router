@@ -90,7 +90,9 @@ func (s *Service) invalidatePostCommandContinuation(
 	if s.pinStore == nil {
 		return nil
 	}
-	_, _, err := s.pinStore.Consume(context.Background(), sessionKey, commandContinuationRole(role), router.StrategyFromContext(ctx))
+	consumeCtx, cancelConsume := bookkeepingContext(ctx)
+	defer cancelConsume()
+	_, _, err := s.pinStore.Consume(consumeCtx, sessionKey, commandContinuationRole(role), router.StrategyFromContext(ctx))
 	if err != nil {
 		observability.FromContext(ctx).Error(
 			"post-command continuation invalidation failed",

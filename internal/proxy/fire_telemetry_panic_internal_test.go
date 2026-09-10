@@ -5,6 +5,7 @@ import (
 	"context"
 	"log/slog"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -12,7 +13,25 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
+
+type telemetryLogBuffer struct {
+	mu sync.Mutex
+	bytes.Buffer
+}
+
+func (b *telemetryLogBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.Buffer.Write(p)
+}
+
+func (b *telemetryLogBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.Buffer.String()
+}
 
 // panicTelemetryRepo is a TelemetryRepository whose InsertRequestTelemetry
 // always panics, simulating a bug in the telemetry sink.
@@ -69,24 +88,17 @@ func TestFireTelemetryRecoversFromPanic(t *testing.T) {
 	// first Get() call races SetDefault and resets the handler.
 	observability.Get()
 
-	var buf bytes.Buffer
+	var buf telemetryLogBuffer
 	prev := slog.Default()
 	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, nil)))
 	defer slog.SetDefault(prev)
 
 	s := &Service{telemetry: panicTelemetryRepo{}}
 
-	assert.NotPanics(t, func() {
-		s.fireTelemetry(InsertTelemetryParams{RequestID: "req-1"})
-		// fireTelemetry launches a goroutine; give it a moment to run and recover.
-		deadline := time.Now().Add(2 * time.Second)
-		for time.Now().Before(deadline) {
-			if strings.Contains(buf.String(), "Background goroutine panicked") {
-				break
-			}
-			time.Sleep(10 * time.Millisecond)
-		}
-	})
+	s.fireTelemetry(InsertTelemetryParams{RequestID: "req-1"})
+	require.Eventually(t, func() bool {
+		return strings.Contains(buf.String(), "Background goroutine panicked")
+	}, 2*time.Second, time.Millisecond)
 
 	assert.Contains(t, buf.String(), "Background goroutine panicked")
 	assert.Contains(t, buf.String(), "fireTelemetry")

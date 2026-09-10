@@ -168,9 +168,10 @@ func (s *Service) handleRouterFeedbackCommand(
 			RequestID:      telemetryRequestID,
 			RouteID:        telemetryRouteID,
 		}
-		// context.Background(): ctx may already be canceled (client disconnected
-		// mid-command); don't drop feedback the user explicitly typed.
-		if err := s.feedbackStore.InsertRouterFeedback(context.Background(), event); err != nil {
+
+		feedbackCtx, cancelFeedback := bookkeepingContext(ctx)
+		defer cancelFeedback()
+		if err := s.feedbackStore.InsertRouterFeedback(feedbackCtx, event); err != nil {
 			log.Error("/router-feedback: feedback insert failed", "err", err)
 			return err
 		}
@@ -187,7 +188,9 @@ func (s *Service) handleRouterFeedbackCommand(
 			Source:         "router-feedback-command",
 			RouterUserID:   routerUserID,
 		}
-		if err := s.feedbackRepo.Upsert(context.Background(), upsertParams); err != nil {
+		ratingCtx, cancelRating := bookkeepingContext(ctx)
+		defer cancelRating()
+		if err := s.feedbackRepo.Upsert(ratingCtx, upsertParams); err != nil {
 			log.Error("/router-feedback: request_feedback upsert failed", "rated_request_id", telemetryRequestID, "err", err)
 		}
 	}
