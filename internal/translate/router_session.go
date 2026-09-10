@@ -1,7 +1,5 @@
 package translate
 
-import "strings"
-
 // routerSessionTokens are the spellings of the router-session directive.
 // Codex reserves `/…` for its own built-ins and exposes the directive as a
 // `$name` skill, so both sigils are accepted here for the same reason
@@ -28,45 +26,8 @@ func (env *RequestEnvelope) ExtractRouterSessionCommand() bool {
 	return env.extractLeadingCommand(parseRouterSessionCommand)
 }
 
-// parseRouterSessionCommand matches the directive on the first non-empty line
-// and returns the text with that line removed. Restricted to the leading line
-// for the same reason as the other directives: pasted transcripts must not be
-// able to fire one. The directive takes no arguments, so a line carrying
-// anything after the token is left alone as ordinary prompt text.
+// parseRouterSessionCommand recognizes the bare directive; parseBareDirective holds the
+// rules, so a fix there reaches every directive at once.
 func parseRouterSessionCommand(text string) (found bool, stripped string) {
-	prefixEnd := leadingInjectedPrefixEnd(text)
-	prefix := text[:prefixEnd]
-	body := text[prefixEnd:]
-
-	lines := strings.Split(body, "\n")
-	cmdIdx := -1
-	for i, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		if trimmed == "" {
-			continue
-		}
-		for _, tok := range routerSessionTokens {
-			if trimmed == tok {
-				cmdIdx = i
-				break
-			}
-		}
-		break
-	}
-	if cmdIdx < 0 {
-		return false, text
-	}
-
-	remaining := make([]string, 0, len(lines)-1)
-	remaining = append(remaining, lines[:cmdIdx]...)
-	remaining = append(remaining, lines[cmdIdx+1:]...)
-	stripped = strings.TrimSpace(prefix + strings.Join(remaining, "\n"))
-	// Nothing but the directive may remain. The short-circuit ends the turn,
-	// so matching the token alone and discarding the rest would swallow
-	// whatever the user wrote under it -- "$router-session\nand what has this
-	// session cost?" would answer the first line and drop the question.
-	if !isOnlyKnownInjectedText(stripped) {
-		return false, text
-	}
-	return true, stripped
+	return parseBareDirective(text, routerSessionTokens[:])
 }

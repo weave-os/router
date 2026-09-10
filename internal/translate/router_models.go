@@ -1,7 +1,5 @@
 package translate
 
-import "strings"
-
 // routerModelsTokens are the spellings of the router-models directive and its
 // `models` alias, in both sigils. Codex reserves `/…` for its own built-ins
 // and exposes the directive as a `$name` skill, so both are accepted for the
@@ -28,44 +26,8 @@ func (env *RequestEnvelope) ExtractRouterModelsCommand() bool {
 	return env.extractLeadingCommand(parseRouterModelsCommand)
 }
 
-// parseRouterModelsCommand matches a bare directive on the first non-empty
-// line and returns the text with that line removed. Restricted to the leading
-// line so a pasted transcript cannot fire one.
+// parseRouterModelsCommand recognizes the bare directive; parseBareDirective holds the
+// rules, so a fix there reaches every directive at once.
 func parseRouterModelsCommand(text string) (found bool, stripped string) {
-	prefixEnd := leadingInjectedPrefixEnd(text)
-	prefix := text[:prefixEnd]
-	body := text[prefixEnd:]
-
-	lines := strings.Split(body, "\n")
-	cmdIdx := -1
-	for i, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		if trimmed == "" {
-			continue
-		}
-		for _, tok := range routerModelsTokens {
-			if trimmed == tok {
-				cmdIdx = i
-				break
-			}
-		}
-		break
-	}
-	if cmdIdx < 0 {
-		return false, text
-	}
-
-	remaining := make([]string, 0, len(lines)-1)
-	remaining = append(remaining, lines[:cmdIdx]...)
-	remaining = append(remaining, lines[cmdIdx+1:]...)
-	stripped = strings.TrimSpace(prefix + strings.Join(remaining, "\n"))
-	// Nothing but the directive may remain. Matching the token alone and
-	// discarding the rest would swallow whatever the user wrote under it --
-	// and for router-models it would silently drop a mutating argument split
-	// across lines ("$router-models\nenable gpt-5.5"), answering with a bare
-	// listing instead of falling through to the skill that can apply it.
-	if !isOnlyKnownInjectedText(stripped) {
-		return false, text
-	}
-	return true, stripped
+	return parseBareDirective(text, routerModelsTokens[:])
 }
