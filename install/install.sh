@@ -495,6 +495,20 @@ resolve_user_email() {
 # Removal is per sub-entry, not per group: a [[hooks.Stop]] group can hold our
 # hook and a third party's, and dropping the group would take theirs with it.
 # The group header goes only once nothing is left inside it.
+# weave_owns_codex_helper reports whether a helper path is ours to unwire.
+#
+# Ours means the file carries the managed marker, or is already gone -- a
+# registration pointing at nothing is a stale one we left behind. A file the
+# user wrote at the same path is theirs, and so is its registration: stripping
+# one while preserving the other would leave them a script with no wiring,
+# which is worse than either consistent outcome.
+weave_owns_codex_helper() {
+  local path="$1"
+  [ -n "$path" ] || return 1
+  [ -e "$path" ] || return 0
+  grep -Fq '<!-- weave-router managed codex ' "$path" 2>/dev/null
+}
+
 strip_weave_codex_hooks() {
   local config_file="$1"; shift
   [ -f "$config_file" ] || return 0
@@ -503,6 +517,7 @@ strip_weave_codex_hooks() {
   local owned="" candidate
   for candidate in "$@"; do
     [ -n "$candidate" ] || continue
+    weave_owns_codex_helper "$candidate" || continue
     # A unit separator, not a newline: BSD awk rejects an embedded newline in a
     # -v value outright ("newline in string"), which silently disabled the whole
     # pass on macOS.
@@ -539,9 +554,13 @@ strip_weave_codex_hooks() {
     {
       if (sub_n > 0) {
         sub_line[++sub_n] = $0
-        if (match($0, /^[[:space:]]*command[[:space:]]*=[[:space:]]*"[^"]*"/)) {
+        if (match($0, /^[[:space:]]*command[[:space:]]*=[[:space:]]*"([^"\\]|\\.)*"/)) {
           v = substr($0, RSTART, RLENGTH)
           sub(/^[^"]*"/, "", v); sub(/"$/, "", v)
+          # write_codex_config escapes the path before writing it, so undo that
+          # before comparing; quotes first, then backslashes.
+          gsub(/\\"/, "\"", v)
+          gsub(/\\\\/, "\\", v)
           if (v in own) sub_is_weave = 1
         }
         next

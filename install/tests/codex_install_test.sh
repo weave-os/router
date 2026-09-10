@@ -465,6 +465,35 @@ assert_config_parses "an unowned file at the helper path produced unparseable TO
 rm -f "$unowned"
 rm -rf "$home/.codex" "$home/.weave"
 
+# ...and their hook registration survives with it. Keeping the file while
+# stripping its wiring would leave a script Codex never runs, which is worse
+# than either consistent outcome.
+rm -rf "$home/.codex" "$home/.weave"
+mkdir -p "$home/.codex" "$home/.weave"
+unowned="$home/.weave/codex-directive.sh"
+printf '%s\n' 'user-authored directive helper' >"$unowned"
+chmod 755 "$unowned"
+cat >"$config" <<TOML
+model_provider = "weave"
+
+[model_providers.weave]
+base_url = "https://router.workweave.ai/v1"
+
+[[hooks.UserPromptSubmit]]
+[[hooks.UserPromptSubmit.hooks]]
+type = "command"
+command = "$unowned"
+TOML
+
+run_hosted_install
+assert_config_parses "an unowned helper with a registration produced unparseable TOML"
+grep -qx 'user-authored directive helper' "$unowned" \
+  || fail "the retirement deleted a user-owned helper that had its own registration"
+grep -Fq "command = \"$unowned\"" "$config" \
+  || fail "the retirement unwired a user-owned helper it had just refused to delete"
+rm -f "$unowned"
+rm -rf "$home/.codex" "$home/.weave"
+
 
 # ---------- project scope gitignores every generated helper ----------
 #
