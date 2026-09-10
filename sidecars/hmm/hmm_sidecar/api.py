@@ -114,7 +114,10 @@ def _policy_for(artifact_sha256: object) -> FrozenPolicy | JSONResponse:
     policy = policies.get(wanted)
     if policy is None:
         return JSONResponse(
-            {"error": f"unknown {ARTIFACT_SHA256_FIELD}", ARTIFACT_SHA256_FIELD: wanted},
+            {
+                "error": f"unknown {ARTIFACT_SHA256_FIELD}",
+                ARTIFACT_SHA256_FIELD: wanted,
+            },
             status_code=404,
         )
     return policy

@@ -152,7 +152,10 @@ def test_package_registry_parses_bounded_https_entries() -> None:
         ("not json", "must be a JSON list"),
         ('{"sha256": "x"}', "must be a JSON list"),
         ('[{"sha256": "abc", "url": "https://x.test/a"}]', "64 lowercase hex"),
-        ('[{"sha256": "' + "a" * 64 + '", "url": "http://x.test/a"}]', "must use https"),
+        (
+            '[{"sha256": "' + "a" * 64 + '", "url": "http://x.test/a"}]',
+            "must use https",
+        ),
         ('[{"sha256": "' + "a" * 64 + '"}]', "exactly one of url or path"),
         (
             '[{"sha256": "' + "a" * 64 + '", "url": "https://x.test/a"},'
