@@ -456,7 +456,7 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 		s.fireTelemetry(telemetryParams)
 	}
 
-	if proxyErr == nil {
+	if shouldBillInference(proxyErr, in, out) {
 		s.emitBilling(ctx, requestID, externalID, decision, actPricing, routeRes, in, out, cacheCreation, cacheRead)
 		if compRes.Summarized {
 			s.billCompactionSummary(ctx, requestID, externalID, compRes.SummaryUsage)
