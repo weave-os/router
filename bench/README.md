@@ -34,9 +34,9 @@ the pinned version; nothing touches your own `~/.codex`.
 
 ```bash
 cd bench
-uv sync --locked --extra harbor --extra tap --extra dev  # use harbor-atlas instead of harbor for Atlas
+uv sync --locked --extra harbor --extra tap --extra dev  # choose exactly one: use harbor-atlas instead for Atlas
 cp bench.example.toml bench.toml         # git-ignored; edit URLs / env-var names
-uv run --locked --extra harbor --extra tap weave-bench --help
+uv run --locked --extra harbor --extra tap weave-bench --help  # match the chosen Harbor extra above
 ```
 
 Secrets are never written to disk: `bench.toml` names the environment
@@ -223,8 +223,8 @@ run id should say so.
 
 ```bash
 cd bench
-uv run --locked ruff check . && uv run --locked ruff format --check .
-uv run --locked pytest tests
+uv run --locked --extra dev ruff check . && uv run --locked --extra dev ruff format --check .
+uv run --locked --extra dev pytest tests
 cd .. && make generate && make check-docs        # regenerates prices.generated.json, checks links
 ```
 
