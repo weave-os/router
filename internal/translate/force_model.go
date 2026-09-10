@@ -61,6 +61,25 @@ func (env *RequestEnvelope) extractLeadingCommand(parse func(text string) (found
 	return found
 }
 
+// isSkillAttachment reports whether msgs[i] is the skill block Codex appends
+// to the message before it, rather than a turn in its own right.
+//
+// Position is half the test. Codex emits the block immediately after the text
+// the user typed, so it is an attachment only when a user message precedes it.
+// One that follows an assistant turn is a real trailing turn, and skipping it
+// would make a completed directive look current: the feedback strip would keep
+// the old command, drop the ack that ended it, and the extractor would record
+// it a second time.
+func isSkillAttachment(msgs []gjson.Result, i int) bool {
+	if i <= 0 || msgs[i].Get("role").String() != "user" {
+		return false
+	}
+	if msgs[i-1].Get("role").String() != "user" {
+		return false
+	}
+	return isSkillInstructionsOnly(msgs[i].Get("content"))
+}
+
 // isSkillInstructionsOnly reports whether a message carries nothing but the
 // <skill>…</skill> block Codex appends when the user invokes `$name`. Codex
 // sends that as its own user message right after the typed directive, so
@@ -119,10 +138,10 @@ func (env *RequestEnvelope) extractLeadingCommandWithSource(parse func(text stri
 	for i := len(all) - 1; i >= 0; i-- {
 		role := all[i].Get("role").String()
 		// Codex splits one user turn into the typed directive and a second user
-		// message carrying the invoked skill's SKILL.md. That blob is an
+		// message carrying the invoked skill's SKILL.md. That block is an
 		// attachment to the same turn, so stopping on it would hide the
 		// directive the user actually typed.
-		if role == "user" && isSkillInstructionsOnly(all[i].Get("content")) {
+		if isSkillAttachment(all, i) {
 			continue
 		}
 		switch role {
@@ -140,11 +159,10 @@ func (env *RequestEnvelope) extractLeadingCommandWithSource(parse func(text stri
 	// follows. Non-conversational role:"system" notices (Claude Code deferred
 	// tools) don't count as a newer turn.
 	for i := lastIdx + 1; i < len(all); i++ {
-		role := all[i].Get("role").String()
-		if role == "user" && isSkillInstructionsOnly(all[i].Get("content")) {
+		if isSkillAttachment(all, i) {
 			continue
 		}
-		if isConversationTurn(role) {
+		if isConversationTurn(all[i].Get("role").String()) {
 			return false, false
 		}
 	}

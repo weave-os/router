@@ -135,3 +135,39 @@ func TestStripThenExtract_PriorFeedbackTurnStillStripped(t *testing.T) {
 	_, found := env.ExtractRouterFeedbackCommand()
 	assert.False(t, found)
 }
+
+// A skill block is an attachment only when a user message precedes it. One that
+// follows an assistant turn is a real trailing turn, and skipping it made a
+// completed feedback exchange look current: the strip kept the old command and
+// removed the ack that ended it, so the extractor recorded the same complaint a
+// second time.
+func TestStripThenExtract_SkillBlobAfterAnAckDoesNotRevivePriorFeedback(t *testing.T) {
+	body, err := json.Marshal(map[string]any{
+		"model": "gpt-5.6-sol",
+		"messages": []any{
+			map[string]any{"role": "user", "content": "$rf - an older complaint"},
+			map[string]any{"role": "assistant", "content": "Weave Router: Feedback recorded 👎. Thank you."},
+			map[string]any{"role": "user", "content": codexSkillBlob},
+		},
+	})
+	require.NoError(t, err)
+	env, err := translate.ParseOpenAI(body)
+	require.NoError(t, err)
+
+	removed := env.StripRouterFeedbackArtifacts()
+	assert.Equal(t, 2, removed, "the completed exchange is history: both the command and its ack go")
+	_, found := env.ExtractRouterFeedbackCommand()
+	assert.False(t, found, "a completed feedback turn must not be recorded twice")
+}
+
+// The same positional rule must not break the attachment case it exists for.
+func TestExtractForceModelCommand_BlobIsStillAnAttachmentAfterAUserMessage(t *testing.T) {
+	env := codexEnvelope(t,
+		codexUserItem("<environment_context><cwd>/x</cwd></environment_context>"),
+		codexUserItem("$fm astra"),
+		codexUserItem(codexSkillBlob),
+	)
+	res, found := env.ExtractForceModelCommand()
+	require.True(t, found)
+	assert.Equal(t, "astra", res.Model)
+}
