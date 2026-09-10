@@ -2497,6 +2497,19 @@ func (s *Service) semanticCacheAllowed(ctx context.Context) bool {
 	return !s.authoritativePerTurnSelection(ctx)
 }
 
+// cacheTenantKey derives the cache isolation key for a request. Multi-tenant
+// cloud deployments isolate by external organization ID, while self-hosted
+// and single-tenant deployments isolate by the installation ID.
+func cacheTenantKey(installationID uuid.UUID, externalID string) string {
+	if externalID != "" {
+		return externalID
+	}
+	if installationID != uuid.Nil {
+		return installationID.String()
+	}
+	return ""
+}
+
 // PolicyStrategyAvailable reports whether a strategy has a live router;
 // registration stays visible when a sidecar is absent so callers see the gap.
 func (s *Service) PolicyStrategyAvailable(strategy router.Strategy) bool {
@@ -3544,9 +3557,10 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	// Subscription-state conditional model lists are likewise absent from the
 	// cache key, so never cache a request after one has been selected. Plan-aware
 	// exclusions are also absent from the key and must bypass the cache.
-	cacheEligible := routeRes.EscalationOrdinal == 0 && !clientRecoveryApplied && s.semanticCacheAllowed(ctx) && s.semanticCache != nil && !env.Stream() && decision.Metadata != nil && externalID != "" && !bypassEval && !compactionHandoverRan && !billing.SubscriptionOnlyFromContext(ctx) && len(s.subsidyFactors(ctx, r.Header)) == 0 && !subscriptionConditionalModelsConfigured(ctx) && len(subscriptionPlanAwareExcludedModelsFromContext(ctx)) == 0 && !requestAllowedModelsPresent(ctx)
+	tenantKey := cacheTenantKey(installationID, externalID)
+	cacheEligible := routeRes.EscalationOrdinal == 0 && !clientRecoveryApplied && s.semanticCacheAllowed(ctx) && s.semanticCache != nil && !env.Stream() && decision.Metadata != nil && tenantKey != "" && !bypassEval && !compactionHandoverRan && !billing.SubscriptionOnlyFromContext(ctx) && len(s.subsidyFactors(ctx, r.Header)) == 0 && !subscriptionConditionalModelsConfigured(ctx) && len(subscriptionPlanAwareExcludedModelsFromContext(ctx)) == 0 && !requestAllowedModelsPresent(ctx)
 	if cacheEligible {
-		if resp, hit := s.semanticCache.Lookup(externalID, cache.FormatAnthropic, decision.Metadata.Embedding, decision.Metadata.ClusterIDs, decision.Metadata.ClusterRouterVersion, decision.Metadata.EffectiveKnobsHash); hit {
+		if resp, hit := s.semanticCache.Lookup(tenantKey, cache.FormatAnthropic, decision.Metadata.Embedding, decision.Metadata.ClusterIDs, decision.Metadata.ClusterRouterVersion, decision.Metadata.EffectiveKnobsHash); hit {
 			s.writeCachedResponse(w, resp, decision)
 			otel.Record(ctx, otel.Span{
 				Name:  "router.cache_hit",
@@ -4448,7 +4462,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 				Headers:    cloneCacheHeaders(w.Header()),
 				Body:       body,
 			}
-			s.semanticCache.Store(externalID, cache.FormatAnthropic, decision.Metadata.Embedding, decision.Metadata.ClusterIDs[0], storeResp, decision.Metadata.ClusterRouterVersion, decision.Metadata.EffectiveKnobsHash)
+			s.semanticCache.Store(tenantKey, cache.FormatAnthropic, decision.Metadata.Embedding, decision.Metadata.ClusterIDs[0], storeResp, decision.Metadata.ClusterRouterVersion, decision.Metadata.EffectiveKnobsHash)
 		}
 	}
 
@@ -6217,9 +6231,10 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	// See the ProxyMessages cache-eligibility note: subsidized, subscription-state-
 	// conditional, and plan-aware requests bypass the semantic cache because the
 	// key does not capture headroom-dependent model eligibility.
-	cacheEligible := routeRes.EscalationOrdinal == 0 && s.semanticCacheAllowed(ctx) && s.semanticCache != nil && !env.Stream() && decision.Metadata != nil && externalID != "" && !bypassEval && !responsesPassthrough && !billing.SubscriptionOnlyFromContext(ctx) && len(s.subsidyFactors(ctx, r.Header)) == 0 && !subscriptionConditionalModelsConfigured(ctx) && len(subscriptionPlanAwareExcludedModelsFromContext(ctx)) == 0 && !requestAllowedModelsPresent(ctx)
+	tenantKey := cacheTenantKey(installationID, externalID)
+	cacheEligible := routeRes.EscalationOrdinal == 0 && s.semanticCacheAllowed(ctx) && s.semanticCache != nil && !env.Stream() && decision.Metadata != nil && tenantKey != "" && !bypassEval && !responsesPassthrough && !billing.SubscriptionOnlyFromContext(ctx) && len(s.subsidyFactors(ctx, r.Header)) == 0 && !subscriptionConditionalModelsConfigured(ctx) && len(subscriptionPlanAwareExcludedModelsFromContext(ctx)) == 0 && !requestAllowedModelsPresent(ctx)
 	if cacheEligible {
-		if resp, hit := s.semanticCache.Lookup(externalID, cache.FormatOpenAI, decision.Metadata.Embedding, decision.Metadata.ClusterIDs, decision.Metadata.ClusterRouterVersion, decision.Metadata.EffectiveKnobsHash); hit {
+		if resp, hit := s.semanticCache.Lookup(tenantKey, cache.FormatOpenAI, decision.Metadata.Embedding, decision.Metadata.ClusterIDs, decision.Metadata.ClusterRouterVersion, decision.Metadata.EffectiveKnobsHash); hit {
 			s.writeCachedResponse(w, resp, decision)
 			otel.Record(ctx, otel.Span{
 				Name:  "router.cache_hit",
@@ -7094,7 +7109,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 				Headers:    cloneCacheHeaders(w.Header()),
 				Body:       body,
 			}
-			s.semanticCache.Store(externalID, cache.FormatOpenAI, decision.Metadata.Embedding, decision.Metadata.ClusterIDs[0], storeResp, decision.Metadata.ClusterRouterVersion, decision.Metadata.EffectiveKnobsHash)
+			s.semanticCache.Store(tenantKey, cache.FormatOpenAI, decision.Metadata.Embedding, decision.Metadata.ClusterIDs[0], storeResp, decision.Metadata.ClusterRouterVersion, decision.Metadata.EffectiveKnobsHash)
 		}
 	}
 
