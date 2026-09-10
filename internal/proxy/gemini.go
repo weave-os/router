@@ -456,11 +456,11 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 		s.fireTelemetry(telemetryParams)
 	}
 
-	if shouldBillInference(proxyErr, in, out) {
+	if shouldBillInference(proxyErr, in, out, cacheCreation, cacheRead) {
 		s.emitBilling(ctx, requestID, externalID, decision, actPricing, routeRes, in, out, cacheCreation, cacheRead)
-		if compRes.Summarized {
-			s.billCompactionSummary(ctx, requestID, externalID, compRes.SummaryUsage)
-		}
+	}
+	if compRes.Summarized {
+		s.billCompactionSummary(ctx, requestID, externalID, compRes.SummaryUsage)
 	}
 
 	// Two-strike provider disable: see ProxyMessages. Gemini rarely produces a
