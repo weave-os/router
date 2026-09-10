@@ -44,6 +44,23 @@ func TestExtractRouterModelsCommand_CodexSkillBlobFollowsDirective(t *testing.T)
 	require.True(t, env.ExtractRouterModelsCommand())
 }
 
+// An argument on its own line is still an argument. Matching the bare token
+// and dropping the rest would answer with a listing while silently discarding
+// the mutation the user asked for.
+func TestExtractRouterModelsCommand_ArgumentOnTheNextLineStillFallsThrough(t *testing.T) {
+	for _, text := range []string{
+		"$router-models\nenable gpt-5.5",
+		"$router-models\n\ndisable gpt-5.5",
+		"/router-models\nprefer claude-opus-5",
+	} {
+		t.Run(text, func(t *testing.T) {
+			env := codexEnvelope(t, codexUserItem(text))
+			assert.False(t, env.ExtractRouterModelsCommand(),
+				"%q carries a mutating argument and must reach the skill", text)
+		})
+	}
+}
+
 func TestExtractRouterModelsCommand_IgnoresNonLeadingUses(t *testing.T) {
 	for name, text := range map[string]string{
 		"not on the leading line": "notes below\n$router-models",

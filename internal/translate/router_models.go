@@ -58,5 +58,14 @@ func parseRouterModelsCommand(text string) (found bool, stripped string) {
 	remaining := make([]string, 0, len(lines)-1)
 	remaining = append(remaining, lines[:cmdIdx]...)
 	remaining = append(remaining, lines[cmdIdx+1:]...)
-	return true, strings.TrimSpace(prefix + strings.Join(remaining, "\n"))
+	stripped = strings.TrimSpace(prefix + strings.Join(remaining, "\n"))
+	// Nothing but the directive may remain. Matching the token alone and
+	// discarding the rest would swallow whatever the user wrote under it --
+	// and for router-models it would silently drop a mutating argument split
+	// across lines ("$router-models\nenable gpt-5.5"), answering with a bare
+	// listing instead of falling through to the skill that can apply it.
+	if !isOnlyInjectedCommandText(stripped) {
+		return false, text
+	}
+	return true, stripped
 }

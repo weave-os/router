@@ -60,5 +60,13 @@ func parseRouterSessionCommand(text string) (found bool, stripped string) {
 	remaining := make([]string, 0, len(lines)-1)
 	remaining = append(remaining, lines[:cmdIdx]...)
 	remaining = append(remaining, lines[cmdIdx+1:]...)
-	return true, strings.TrimSpace(prefix + strings.Join(remaining, "\n"))
+	stripped = strings.TrimSpace(prefix + strings.Join(remaining, "\n"))
+	// Nothing but the directive may remain. The short-circuit ends the turn,
+	// so matching the token alone and discarding the rest would swallow
+	// whatever the user wrote under it -- "$router-session\nand what has this
+	// session cost?" would answer the first line and drop the question.
+	if !isOnlyInjectedCommandText(stripped) {
+		return false, text
+	}
+	return true, stripped
 }
