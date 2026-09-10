@@ -519,6 +519,43 @@ grep -Fq "command = \"$dangling\"" "$config" \
 rm -f "$dangling"
 rm -rf "$home/.codex" "$home/.weave"
 
+# A symlinked status helper still has to be unwired, or reinstall stacks the
+# duplicates this strip exists to remove: the old registrations survive while
+# the managed block writes a fresh pair. The marker is read through the link.
+rm -rf "$home/.codex" "$home/.weave"
+mkdir -p "$home/.codex" "$home/.weave"
+linked_target="$home/.weave/codex-status-real.sh"
+printf '%s\n' '#!/usr/bin/env bash' '# <!-- weave-router managed codex status -->' 'exit 0' \
+  >"$linked_target"
+chmod 700 "$linked_target"
+ln -s "$linked_target" "$home/.weave/codex-status.sh"
+cat >"$config" <<TOML
+model_provider = "weave"
+
+[model_providers.weave]
+base_url = "https://router.workweave.ai/v1"
+
+[[hooks.SessionStart]]
+[[hooks.SessionStart.hooks]]
+type = "command"
+command = "$home/.weave/codex-status.sh"
+
+[[hooks.Stop]]
+[[hooks.Stop.hooks]]
+type = "command"
+command = "$home/.weave/codex-status.sh"
+TOML
+
+run_hosted_install
+assert_config_parses "a symlinked status helper produced unparseable TOML"
+[ "$(grep -c '^\[\[hooks\.SessionStart\]\]$' "$config")" -eq 1 ] \
+  || fail "a symlinked status helper stacked duplicate SessionStart registrations"
+[ "$(grep -c '^\[\[hooks\.Stop\]\]$' "$config")" -eq 1 ] \
+  || fail "a symlinked status helper stacked duplicate Stop registrations"
+[ -L "$home/.weave/codex-status.sh" ] \
+  || fail "the installer replaced the status symlink instead of writing through it"
+rm -rf "$home/.codex" "$home/.weave"
+
 # Ownership is decided by each helper's own marker. The status marker must not
 # vouch for the directive path: the deletion sites check exact markers, so a
 # prefix match would unwire a file the installer then declines to delete.

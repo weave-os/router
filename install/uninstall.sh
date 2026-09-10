@@ -230,8 +230,15 @@ WEAVE_CODEX_END_MARKER="# <<< weave-router managed <<<"
 #      it then declines to delete.
 #   2. A missing file is ours. Its registration points at nothing, which is
 #      residue we left behind.
-#   3. A symlink is never ours, dangling or not. `-e` is false for a dangling
-#      one, so rule 2 would otherwise claim a link the user created.
+#   3. A symlink is followed for the marker test, never deleted through. It
+#      cannot simply be disowned: the status helper is rewritten on every
+#      install, so refusing to unwire a symlinked one leaves its old
+#      registrations in place while the managed block adds a fresh pair, which
+#      stacks the duplicates this strip exists to remove. Reading a marker
+#      through a link is safe; deleting through one is not, and
+#      remove_codex_directive_helper still refuses that separately. A dangling
+#      link fails the marker test and so stays the user's, which is why rule 2
+#      must not see it first.
 #   4. Registration and file must be decided together. Removing one while
 #      keeping the other leaves a script Codex never runs, with nothing on
 #      screen to explain it.
@@ -241,7 +248,12 @@ WEAVE_CODEX_END_MARKER="# <<< weave-router managed <<<"
 weave_owns_codex_helper() {
   local path="$1" marker="$2"
   [ -n "$path" ] && [ -n "$marker" ] || return 1
-  [ -L "$path" ] && return 1
+  # Checked before -e, which is false for a dangling link: the marker test then
+  # fails and the link stays the user's, instead of rule 2 claiming it.
+  if [ -L "$path" ]; then
+    grep -Fq "$marker" "$path" 2>/dev/null
+    return $?
+  fi
   [ -e "$path" ] || return 0
   grep -Fq "$marker" "$path" 2>/dev/null
 }
