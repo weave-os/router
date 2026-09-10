@@ -558,8 +558,10 @@ var Models = []Model{
 	// above resolves to the retired 0423 build, so the HMM roster must target
 	// this dated ID to route to what it was actually ranked on.
 	{ID: "deepseek/deepseek-v4-pro-0813", Tier: TierMid, ContextWindow: 1_048_576, ImageInput: ImageInputUnsupported, Providers: []ProviderBinding{
-		// Same Fireworks-first ordering as the bare alias above.
-		{Provider: providers.ProviderFireworks, UpstreamID: "accounts/fireworks/models/deepseek-v4-pro",
+		// Same Fireworks-first ordering as the bare alias above, on the dated
+		// slug: Fireworks lists the bare deepseek-v4-pro slug but 404s it as
+		// "not deployed".
+		{Provider: providers.ProviderFireworks, UpstreamID: "accounts/fireworks/models/deepseek-v4-pro-0813",
 			Price: Pricing{InputUSDPer1M: 1.740, OutputUSDPer1M: 3.480, CacheReadMultiplier: 0.0862}},
 		{Provider: providers.ProviderTogether, UpstreamID: "deepseek-ai/DeepSeek-V4-Pro",
 			ContextWindow: 512_000, Price: Pricing{InputUSDPer1M: 1.740, OutputUSDPer1M: 3.480, CacheReadMultiplier: 0.20 / 1.740}},
