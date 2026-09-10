@@ -120,9 +120,11 @@ func ClassifyDispatchError(err error) (DispatchErrorClass, bool) {
 		// Ahead of the sentinel cases so the reason reaches the caller: a bare
 		// "forced model is excluded" doesn't say which model or why.
 		return DispatchErrorClass{
-			Kind:       DispatchErrorForcedModelExcluded,
-			Status:     http.StatusBadRequest,
-			Message:    forcedExcluded.Reason + ". Clear the force (/unforce-model) or pick a model from a permitted provider.",
+			Kind:   DispatchErrorForcedModelExcluded,
+			Status: http.StatusBadRequest,
+			// Sigil-free on purpose: this classifier has no request context to
+			// read the client from, and Codex never accepts the "/" form.
+			Message:    forcedExcluded.Reason + ". Clear it with the unforce-model directive, or pick a model from a permitted provider.",
 			LogLevel:   "warn",
 			LogMessage: "Rejected request: forced model is excluded on this installation",
 		}, true

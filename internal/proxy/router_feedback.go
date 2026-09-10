@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -87,9 +88,10 @@ func (s *Service) handleRouterFeedbackCommand(
 	if rating == "" && feedback == "" {
 		// No verdict and no note. Message is formatted as a routing marker so
 		// StripRoutingMarkerFromMessages strips it from later requests.
-		msg := "✦ **Weave Router** → Router-feedback needs a verdict or a note, e.g. /rf+ or /rf- too slow.\n\n"
+		rf := directivePrefix(ClientIdentityFrom(ctx).ClientApp) + "rf"
+		msg := fmt.Sprintf("✦ **Weave Router** → Router-feedback needs a verdict or a note, e.g. %s+ or %s- too slow.\n\n", rf, rf)
 		if env.SourceFormat() == translate.FormatOpenAI {
-			msg = "Weave Router: router-feedback needs a verdict or a note, e.g. /rf+ or /rf- too slow."
+			msg = fmt.Sprintf("Weave Router: router-feedback needs a verdict or a note, e.g. %s+ or %s- too slow.", rf, rf)
 		}
 		if synthetic {
 			return writeSyntheticCommandResponse(w, env, msg, inputTokens)
@@ -107,9 +109,10 @@ func (s *Service) handleRouterFeedbackCommand(
 		if err != nil {
 			log.Error("/router-feedback: sequence lookup failed", "sequence", cmd.Sequence, "err", err)
 			if errors.Is(err, sql.ErrNoRows) {
-				msg := "✦ **Weave Router** → No turn found at that sequence number. Try `/rf` without a number for the last turn.\n\n"
+				rf := directivePrefix(ClientIdentityFrom(ctx).ClientApp) + "rf"
+				msg := fmt.Sprintf("✦ **Weave Router** → No turn found at that sequence number. Try `%s` without a number for the last turn.\n\n", rf)
 				if env.SourceFormat() == translate.FormatOpenAI {
-					msg = "Weave Router: No turn found at that sequence number. Try `/rf` without a number for the last turn."
+					msg = fmt.Sprintf("Weave Router: No turn found at that sequence number. Try `%s` without a number for the last turn.", rf)
 				}
 				if synthetic {
 					return writeSyntheticCommandResponse(w, env, msg, inputTokens)
