@@ -10,6 +10,9 @@ dependencies = [
     "uvicorn>=0.32.0,<0.33",
     "pydantic>=2.10.0,<3",
     "numpy>=2.2.0,<3",
+    # XGBoost's normal Linux x86 wheel bundles CUDA/NCCL. Use the official
+    # inference-compatible CPU distribution there; other platforms do not publish
+    # xgboost-cpu and receive the platform-native standard wheel.
     "xgboost-cpu==3.3.0; sys_platform == 'linux' and platform_machine == 'x86_64'",
     "xgboost==3.3.0; sys_platform != 'linux' or platform_machine != 'x86_64'",
     "httpx>=0.28.0,<0.29",
@@ -25,8 +28,9 @@ dev = [
 
 [tool.uv]
 package = false
-# Preserve the versions selected by Poetry while this build-system migration
-# remains dependency-neutral. Remove a constraint only with an explicit upgrade.
+# Pin only the packages whose uv resolution changed during the migration to
+# their Poetry-selected versions. The lockfile governs all other dependencies;
+# update these constraints only with an intentional dependency upgrade.
 constraint-dependencies = [
     "annotated-doc==0.0.4",
     "annotated-types==0.7.0",
@@ -44,10 +48,6 @@ constraint-dependencies = [
     "scipy==1.18.0",
     "typing-inspection==0.4.2",
 ]
-
-# XGBoost's normal Linux x86 wheel bundles CUDA/NCCL. Use the official
-# inference-compatible CPU distribution there; other platforms do not publish
-# xgboost-cpu and receive the platform-native standard wheel.
 
 [tool.black]
 line-length = 88
