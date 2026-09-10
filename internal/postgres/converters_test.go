@@ -7,6 +7,7 @@ import (
 	"weave-os/router/internal/sqlc"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -56,6 +57,22 @@ func TestToAuthInstallationPolicyRouting(t *testing.T) {
 	assert.True(t, inst.PolicyHeaderOverridesEnabled)
 	assert.Equal(t, "high", inst.PolicyRoutingIntent)
 	assert.True(t, inst.AITrainingAllowed)
+}
+
+func TestToAuthInstallationTrialMode(t *testing.T) {
+	enrollment := uuid.New()
+	inst := toAuthInstallation(sqlc.RouterModelRouterInstallation{
+		ID:                  uuid.New(),
+		ExternalID:          "org-trial",
+		TrialCaptureEnabled: true,
+		TrialEnrollmentID:   pgtype.UUID{Bytes: enrollment, Valid: true},
+	})
+	assert.True(t, inst.TrialCaptureEnabled)
+	assert.Equal(t, enrollment.String(), inst.TrialEnrollmentID)
+
+	unenrolled := toAuthInstallation(sqlc.RouterModelRouterInstallation{ID: uuid.New(), ExternalID: "org-plain"})
+	assert.False(t, unenrolled.TrialCaptureEnabled)
+	assert.Empty(t, unenrolled.TrialEnrollmentID)
 }
 
 func TestToAuthInstallationSubscriptionConditionalModels(t *testing.T) {

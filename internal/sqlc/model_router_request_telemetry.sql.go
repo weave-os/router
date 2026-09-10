@@ -120,7 +120,10 @@ SELECT
     t.upstream_finish_reason,
     t.stop_reason,
     t.tool_use_blocks,
-    t.invalid_tool_args_blocks
+    t.invalid_tool_args_blocks,
+    t.client_git_head_sha,
+    t.client_git_branch,
+    t.client_git_dirty
 FROM router.model_router_request_telemetry t
 LEFT JOIN router.model_router_users u
     ON u.id = t.router_user_id
@@ -190,6 +193,9 @@ type GetRoutingDecisionsForExportRow struct {
 	StopReason                      *string
 	ToolUseBlocks                   *int32
 	InvalidToolArgsBlocks           *int32
+	ClientGitHeadSha                *string
+	ClientGitBranch                 *string
+	ClientGitDirty                  *bool
 }
 
 // Returns raw routing decisions for the analytics export, one row per upstream
@@ -250,7 +256,10 @@ type GetRoutingDecisionsForExportRow struct {
 //	    t.upstream_finish_reason,
 //	    t.stop_reason,
 //	    t.tool_use_blocks,
-//	    t.invalid_tool_args_blocks
+//	    t.invalid_tool_args_blocks,
+//	    t.client_git_head_sha,
+//	    t.client_git_branch,
+//	    t.client_git_dirty
 //	FROM router.model_router_request_telemetry t
 //	LEFT JOIN router.model_router_users u
 //	    ON u.id = t.router_user_id
@@ -325,6 +334,9 @@ func (q *Queries) GetRoutingDecisionsForExport(ctx context.Context, arg GetRouti
 			&i.StopReason,
 			&i.ToolUseBlocks,
 			&i.InvalidToolArgsBlocks,
+			&i.ClientGitHeadSha,
+			&i.ClientGitBranch,
+			&i.ClientGitDirty,
 		); err != nil {
 			return nil, err
 		}
@@ -1840,7 +1852,10 @@ INSERT INTO router.model_router_request_telemetry (
     plan_provider,
     fallback_reason,
     accounting_outcome,
-    usage_known
+    usage_known,
+    client_git_head_sha,
+    client_git_branch,
+    client_git_dirty
 ) VALUES (
     $1::uuid,
     $2::uuid,
@@ -1957,7 +1972,10 @@ INSERT INTO router.model_router_request_telemetry (
     $113::varchar,
     $114::varchar,
     $115::varchar,
-    $116::boolean
+    $116::boolean,
+    $117::varchar,
+    $118::varchar,
+    $119::boolean
 )
 ON CONFLICT (installation_id, request_id, span_type) DO NOTHING
 `
@@ -2079,6 +2097,9 @@ type InsertRequestTelemetryParams struct {
 	FallbackReason                           *string
 	AccountingOutcome                        *string
 	UsageKnown                               *bool
+	ClientGitHeadSha                         *string
+	ClientGitBranch                          *string
+	ClientGitDirty                           *bool
 }
 
 // Records a completed proxied request for the dashboard UI and routing
@@ -2119,6 +2140,10 @@ type InsertRequestTelemetryParams struct {
 // revisions, policy-selected target, why the served target differs, how usage
 // was accounted). NULL on rows written before the columns existed and on paths
 // not yet migrated to the executor.
+// client_git_head_sha / client_git_branch / client_git_dirty are the git
+// context parsed from the Claude Code system prompt on a trial-mode session's
+// first turn. NULL on every other turn and whenever the block was absent or
+// unparseable; never read on the routing path.
 //
 //	INSERT INTO router.model_router_request_telemetry (
 //	    installation_id,
@@ -2236,7 +2261,10 @@ type InsertRequestTelemetryParams struct {
 //	    plan_provider,
 //	    fallback_reason,
 //	    accounting_outcome,
-//	    usage_known
+//	    usage_known,
+//	    client_git_head_sha,
+//	    client_git_branch,
+//	    client_git_dirty
 //	) VALUES (
 //	    $1::uuid,
 //	    $2::uuid,
@@ -2353,7 +2381,10 @@ type InsertRequestTelemetryParams struct {
 //	    $113::varchar,
 //	    $114::varchar,
 //	    $115::varchar,
-//	    $116::boolean
+//	    $116::boolean,
+//	    $117::varchar,
+//	    $118::varchar,
+//	    $119::boolean
 //	)
 //	ON CONFLICT (installation_id, request_id, span_type) DO NOTHING
 func (q *Queries) InsertRequestTelemetry(ctx context.Context, arg InsertRequestTelemetryParams) error {
@@ -2474,6 +2505,9 @@ func (q *Queries) InsertRequestTelemetry(ctx context.Context, arg InsertRequestT
 		arg.FallbackReason,
 		arg.AccountingOutcome,
 		arg.UsageKnown,
+		arg.ClientGitHeadSha,
+		arg.ClientGitBranch,
+		arg.ClientGitDirty,
 	)
 	return err
 }

@@ -548,6 +548,11 @@ type InstallationSubscriptionRoutingDisabledContextKey struct{}
 // suppresses the routing marker, feedback footer, and feedback-link header.
 type InstallationHideTerminalSurfacesContextKey struct{}
 
+// InstallationTrialCaptureContextKey is the context key for the installation's
+// trial-mode capture opt-in (bool; absent == false); enables the first-turn
+// client git-context telemetry parse. Never read by routing.
+type InstallationTrialCaptureContextKey struct{}
+
 // PolicyTrainingAllowedContextKey carries the installation's explicit
 // learning eligibility. Absence is fail-closed (false).
 type PolicyTrainingAllowedContextKey struct{}
@@ -4664,6 +4669,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			s.ResolveTurnSignalCaptureEnabled(ctx),
 			obs.TrainingAllowed,
 			s.effectiveCaptureMode(ctx))
+		applyClientGitContextTelemetry(ctx, &tel, routeRes.SessionFirstTurn, env.SystemBlocks())
 		s.fireTelemetry(tel)
 	}
 
@@ -5730,7 +5736,9 @@ func (s *Service) fireTelemetry(p InsertTelemetryParams) {
 	log := observability.Get().With("request_id", p.RequestID)
 	observability.SafeGo(log, 5*time.Second, "fireTelemetry", func(ctx context.Context) {
 		if err := s.telemetry.InsertRequestTelemetry(ctx, p); err != nil {
-			log.Debug("Telemetry insert failed", "err", err)
+			// A dropped row is a dropped billing/session-cost record, so it is
+			// reported loudly enough to alert on.
+			log.Warn("Telemetry insert failed", "err", err)
 		}
 	})
 }
