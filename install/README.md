@@ -306,12 +306,25 @@ upstream inference and the arguments arrive exactly as typed. That last part is
 why a `$rf - too slow` verdict now survives: nothing paraphrases it.
 
 0.2.17 shipped a `UserPromptSubmit` hook to do this client-side, before the
-router could see the directive behind the skill block. It is retired, and an
-upgrade removes both the hook and its helper.
+router could see the directive behind the skill block. It is retired for these
+directives; the hook that remains handles only the local toggles below.
 
-One group stays skill-driven because it is not router state: the local toggles
-(`$router-on`/`$router-off`/`$router-status`/`$disable-routing`) mutate config
-on disk, which the router cannot do.
+The four local toggles (`$router-on`/`$router-off`/`$router-status`/
+`$disable-routing`) mutate config on disk, which a remote service cannot do, so
+they are answered by a `UserPromptSubmit` hook instead. The hook runs the same
+installer subcommand the skill used to ask the model to run, and blocks the
+turn with its output — zero inference, same as the router-answered directives.
+
+`$router-off` is the reason this is a hook and not a skill. As a skill it needed
+a model turn, and that turn was served *through the router* — so the off switch
+depended on the thing it turns off. The hook runs locally before any network
+call, so it still works when the router is down. Their skills stay installed as
+the fallback for a Codex older than 0.150, which has no hooks.
+
+0.2.17 shipped a hook for `$fm`/`$rf`/`$router-session` and #1257 retired it once
+the router answered those itself. This one is deliberately narrower: it claims
+only what the router cannot answer, so there is no second path to the same
+directive.
 
 `$router-models` is split. A **bare** invocation is a read, and the router
 answers it directly — with more than the skill could: `weave-router models`

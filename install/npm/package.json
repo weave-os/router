@@ -1,6 +1,6 @@
 {
   "name": "@weave-os/router",
-  "version": "0.2.18",
+  "version": "0.2.19",
   "description": "One-command installer that points Claude Code, Codex, opencode, or pi at the Weave Router. For pi it also ships the routing extension, loaded via pi.extensions.",
   "bin": {
     "weave-router": "bin.js",
@@ -20,6 +20,7 @@
     "uninstall.sh",
     "cc-statusline.sh",
     "codex-status.sh",
+    "codex-toggle.sh",
     "registry.sh",
     "directives.tsv",
     "commands/",
