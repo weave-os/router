@@ -449,6 +449,22 @@ grep -Fq "command = \"$home/elsewhere/weave-status.sh\"" "$config" \
   || fail "the installer removed a third-party script it does not own"
 rm -rf "$home/.codex" "$home/.weave" "$home/elsewhere"
 
+# remove_codex_directive_helper only deletes a file carrying our ownership
+# marker. A user who happens to keep their own codex-directive.sh at that path
+# must get it back untouched -- the retirement is ours to clean up, not theirs.
+rm -rf "$home/.codex" "$home/.weave"
+mkdir -p "$home/.weave"
+unowned="$home/.weave/codex-directive.sh"
+printf '%s\n' 'user-authored directive helper' >"$unowned"
+run_hosted_install
+grep -qx 'user-authored directive helper' "$unowned" \
+  || fail "the retirement deleted or rewrote a user-owned file at the helper path"
+grep -Fq 'model_provider = "weave"' "$config" \
+  || fail "an unowned file at the helper path blocked Codex routing setup"
+assert_config_parses "an unowned file at the helper path produced unparseable TOML"
+rm -f "$unowned"
+rm -rf "$home/.codex" "$home/.weave"
+
 
 # ---------- project scope gitignores every generated helper ----------
 #
