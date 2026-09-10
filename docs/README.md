@@ -6,7 +6,6 @@ Index of Markdown documentation in the `router/` repo.
 |---|---|
 | [SEMANTICS.md](SEMANTICS.md) | **Canonical terminology** for sessions, rounds, turns, actions, and steps. Read this first before other docs. |
 | [CONFIGURATION.md](CONFIGURATION.md) | Environment variables, provider keys (gateways, model aliases, key-pair auth), BYOK encryption, OTel knobs, cluster routing artifacts. |
-| [CLIENT_CONTEXT_BUDGET.md](CLIENT_CONTEXT_BUDGET.md) | Per-request Claude Code context-budget evidence, compaction deferral, and resumed-turn recovery limits. |
 | [INFERENCE_BOUNDARY.md](INFERENCE_BOUNDARY.md) | Inference operation inventory, policy-boundary exceptions, and staged migration enforcement. |
 | [POLICY_INFERENCE.md](POLICY_INFERENCE.md) | Generated static registry of inference purposes, selection policy, constraints, fallback, and migration status. |
 | [ANALYTICS_EXPORT.md](ANALYTICS_EXPORT.md) | `/v1/analytics/*` raw routing-decision export: read-only keys, cursor paging, row grain, field reference. |

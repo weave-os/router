@@ -45,7 +45,7 @@ Summary selection tries the active Anthropic session family, `ROUTER_COMPACTION_
 
 Harness-issued Claude Code/Codex compaction turns are never proactively rewritten. Claude Code currently selects a direct-Anthropic session/default family; Codex may select its last served non-Anthropic family from the active pin or HMM history. These choices also upgrade within the family and honor deployment availability, provider availability, and request exclusions. Client identity must be populated before this branch. An explicit `ROUTER_HARD_PIN_MODEL` retains the generic exact override. Reusing a family or upgrading its version does not guarantee a warm prompt cache.
 
-Client budget evidence and the initial resumed-turn recovery policy live in [`client_budget.go`](client_budget.go) / [`client_compaction.go`](client_compaction.go). Inbound 1M beta alone is ambiguous; private client thresholds are not observable. See [`CLIENT_CONTEXT_BUDGET.md`](../../docs/CLIENT_CONTEXT_BUDGET.md) for the supported calculation, wire audit, and mitigation limits.
+Client budget evidence and the initial resumed-turn recovery policy live in [`client_budget.go`](client_budget.go) / [`client_compaction.go`](client_compaction.go). Inbound 1M beta alone is ambiguous; private client thresholds are not observable.
 
 ## Model-restriction layers
 
