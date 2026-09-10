@@ -416,7 +416,10 @@ func TestClassifyDispatchError_ForcedModelExcluded(t *testing.T) {
 	assert.True(t, cls.Kind.IsClientError(),
 		"an excluded force is a client-input problem, not an upstream failure")
 	assert.Contains(t, cls.Message, "claude-opus-5")
-	assert.Contains(t, cls.Message, "/unforce-model")
+	// Sigil-free: this classifier has no request context to tell a Codex
+	// caller (which needs "$") from a Claude Code one (which needs "/").
+	assert.Contains(t, cls.Message, "unforce-model")
+	assert.NotContains(t, cls.Message, "/unforce-model")
 }
 
 // Desugaring only covers routableUniverse; claude-opus-4-8 is passthrough-only

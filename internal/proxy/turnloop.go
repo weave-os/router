@@ -661,6 +661,10 @@ func (s *Service) runTurnLoop(
 	// bypass, blind-experiment passthrough, planner stays) is not consulted.
 	// Utility hard pins below are never policy-scored and keep their own path.
 	if _, pinned := router.HonouredPolicyPin(ctx); pinned && !s.isHardPinnedTurn(ctx, res.TurnType) {
+		if s.pinStore != nil {
+			res.SessionKey = threadSessionKey
+			_, _, res.SessionFirstTurn = s.loadPinWithStoreState(ctx, res.SessionKey, res.PinRole)
+		}
 		req.PolicyTurnContext = buildPolicyTurnContext(req, res, sessionpin.Pin{}, sessionpin.Pin{})
 		decision, err := s.routeFor(ctx, req)
 		if err != nil {

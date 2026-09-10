@@ -61,6 +61,57 @@ func (env *RequestEnvelope) extractLeadingCommand(parse func(text string) (found
 	return found
 }
 
+// isSkillAttachment reports whether msgs[i] is the skill block Codex appends
+// to the message before it, rather than a turn in its own right.
+//
+// Position is half the test. Codex emits the block immediately after the text
+// the user typed, so it is an attachment only when a user message precedes it.
+// One that follows an assistant turn is a real trailing turn, and skipping it
+// would make a completed directive look current: the feedback strip would keep
+// the old command, drop the ack that ended it, and the extractor would record
+// it a second time.
+func isSkillAttachment(msgs []gjson.Result, i int) bool {
+	if i <= 0 || msgs[i].Get("role").String() != "user" {
+		return false
+	}
+	if msgs[i-1].Get("role").String() != "user" {
+		return false
+	}
+	return isSkillInstructionsOnly(msgs[i].Get("content"))
+}
+
+// isSkillInstructionsOnly reports whether a message carries nothing but the
+// <skill>…</skill> block Codex appends when the user invokes `$name`. Codex
+// sends that as its own user message right after the typed directive, so
+// treating it as a newer turn hides the directive from every reader here.
+//
+// Deliberately stricter than a substring test: a message that merely mentions
+// the tag is a real turn and must not be skipped, or a directive from an older
+// turn could fire on a later one.
+func isSkillInstructionsOnly(content gjson.Result) bool {
+	var text string
+	switch {
+	case content.Type == gjson.String:
+		text = content.String()
+	case content.IsArray():
+		var b strings.Builder
+		for _, part := range content.Array() {
+			switch part.Get("type").String() {
+			case "text", "input_text":
+				b.WriteString(part.Get("text").String())
+			default:
+				// A non-text part means real turn content, not an attachment.
+				return false
+			}
+		}
+		text = b.String()
+	default:
+		return false
+	}
+	text = strings.TrimSpace(text)
+	return strings.HasPrefix(text, "<skill>") && strings.HasSuffix(text, "</skill>")
+}
+
 type commandTextCandidate struct {
 	path     string
 	dropPath string
@@ -85,7 +136,15 @@ func (env *RequestEnvelope) extractLeadingCommandWithSource(parse func(text stri
 	lastRole := ""
 	var lastContent gjson.Result
 	for i := len(all) - 1; i >= 0; i-- {
-		switch role := all[i].Get("role").String(); role {
+		role := all[i].Get("role").String()
+		// Codex splits one user turn into the typed directive and a second user
+		// message carrying the invoked skill's SKILL.md. That block is an
+		// attachment to the same turn, so stopping on it would hide the
+		// directive the user actually typed.
+		if isSkillAttachment(all, i) {
+			continue
+		}
+		switch role {
 		case "user", "tool":
 			lastIdx, lastRole, lastContent = i, role, all[i].Get("content")
 		}
@@ -100,6 +159,9 @@ func (env *RequestEnvelope) extractLeadingCommandWithSource(parse func(text stri
 	// follows. Non-conversational role:"system" notices (Claude Code deferred
 	// tools) don't count as a newer turn.
 	for i := lastIdx + 1; i < len(all); i++ {
+		if isSkillAttachment(all, i) {
+			continue
+		}
 		if isConversationTurn(all[i].Get("role").String()) {
 			return false, false
 		}

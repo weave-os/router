@@ -216,6 +216,140 @@ WEAVE_CODEX_END_MARKER="# <<< weave-router managed <<<"
 # Codex rewrites config.toml through a TOML serializer and our comment markers
 # do not survive, so a marker-only uninstall reported success while leaving the
 # provider -- and the router key inside it -- on disk.
+# strip_weave_codex_hooks removes every hook registration this installer owns,
+# matched by helper filename. Marker-scoped removal is not enough: Codex
+# rewrites config.toml through a TOML serializer and our registrations often end
+# up outside the markers, which used to leave them behind after an uninstall.
+# Removal is per sub-entry so a group shared with a third party keeps theirs.
+# Ownership contract for the Codex hook helpers. Every rule here was a bug
+# first; keep them together so the next change has the whole set.
+#
+#   1. Ours is decided per path by that helper's EXACT marker. A prefix match
+#      lets the status marker vouch for the directive path, and the two
+#      deletion sites check exact markers -- so the strip would unwire a file
+#      it then declines to delete.
+#   2. A missing file is ours. Its registration points at nothing, which is
+#      residue we left behind.
+#   3. What a symlink means depends on the helper's lifecycle, so the caller
+#      says which it is.
+#        rewrite (status): the file is rewritten in place and never deleted, so
+#          the link is followed to read the marker. Disowning it instead leaves
+#          the old registrations while the managed block adds a fresh pair,
+#          stacking the duplicates this strip exists to remove.
+#        delete (directive): the file is removed, and removal refuses to act
+#          through a link. Claiming one would strip the registration and then
+#          decline the delete, leaving a helper Codex no longer runs -- rule 4
+#          violated in the one case it exists for.
+#      Either way the check precedes -e, which is false for a dangling link: it
+#      then fails the marker test and stays the user's, rather than being
+#      claimed by rule 2.
+#   4. Registration and file must be decided together. Removing one while
+#      keeping the other leaves a script Codex never runs, with nothing on
+#      screen to explain it.
+#   5. Compare decoded paths. The command value is a TOML basic string and the
+#      writer escapes it, so a raw comparison misses any path with a quote or
+#      backslash.
+# warn_if_symlink reports a symlinked path and returns non-zero so the caller
+# can skip just that file. refuse_if_symlink exits the process, which is right
+# for a path we are about to write but wrong for these helpers: one symlinked
+# helper would abort the whole run, stranding the config rewrite that is the
+# actual work. Neither is deleted through a link either way.
+warn_if_symlink() {
+  local target="$1"
+  [ -L "$target" ] || return 0
+  warn "$target is a symlink (-> $(readlink "$target")); leaving it untouched."
+  return 1
+}
+
+weave_owns_codex_helper() {
+  local path="$1" marker="$2" lifecycle="$3"
+  [ -n "$path" ] && [ -n "$marker" ] && [ -n "$lifecycle" ] || return 1
+  if [ -L "$path" ]; then
+    [ "$lifecycle" = "rewrite" ] || return 1
+    grep -Fq "$marker" "$path" 2>/dev/null
+    return $?
+  fi
+  [ -e "$path" ] || return 0
+  grep -Fq "$marker" "$path" 2>/dev/null
+}
+
+# weave_owned_codex_helpers prints, one per line, whichever of the two helper
+# paths this installation may unwire.
+weave_owned_codex_helpers() {
+  weave_owns_codex_helper "${codex_status_file:-}" '<!-- weave-router managed codex status -->' rewrite \
+    && printf '%s\n' "$codex_status_file"
+  weave_owns_codex_helper "${codex_directive_file:-}" '<!-- weave-router managed codex directive -->' delete \
+    && printf '%s\n' "$codex_directive_file"
+  return 0
+}
+
+strip_weave_codex_hooks() {
+  local config_file="$1"; shift
+  [ -f "$config_file" ] || return 0
+  # Exact paths, never a filename pattern: a third party's hook is free to be
+  # called weave-status.sh, and matching on the basename would delete it.
+  local owned="" candidate
+  for candidate in "$@"; do
+    [ -n "$candidate" ] || continue
+    # A unit separator, not a newline: BSD awk rejects an embedded newline in a
+    # -v value outright ("newline in string"), which silently disabled the whole
+    # pass on macOS.
+    owned="${owned}${candidate}$(printf '\037')"
+  done
+  [ -n "$owned" ] || return 0
+  local tmp; tmp="$(mktemp -t weave-codex-hooks.XXXXXX)"
+  awk -v owned="$owned" '
+    BEGIN {
+      n = split(owned, list, "\037")
+      for (i = 1; i <= n; i++) if (list[i] != "") own[list[i]] = 1
+    }
+    function flush_sub(   i) {
+      if (sub_n == 0) return
+      if (!sub_is_weave) {
+        if (group_pending != "") {
+          print group_pending
+          group_pending = ""
+          if (group_blank) { print ""; group_blank = 0 }
+        }
+        for (i = 1; i <= sub_n; i++) print sub_line[i]
+      }
+      sub_n = 0
+      sub_is_weave = 0
+    }
+    function close_group() { flush_sub(); group_pending = ""; group_blank = 0 }
+    /^[[:space:]]*\[\[hooks\.[A-Za-z]+\.hooks\]\][[:space:]]*$/ {
+      flush_sub(); sub_n = 1; sub_line[1] = $0; next
+    }
+    /^[[:space:]]*\[\[hooks\.[A-Za-z]+\]\][[:space:]]*$/ {
+      close_group(); group_pending = $0; next
+    }
+    /^[[:space:]]*\[/ { close_group(); print; next }
+    {
+      if (sub_n > 0) {
+        sub_line[++sub_n] = $0
+        if (match($0, /^[[:space:]]*command[[:space:]]*=[[:space:]]*"([^"\\]|\\.)*"/)) {
+          v = substr($0, RSTART, RLENGTH)
+          sub(/^[^"]*"/, "", v); sub(/"$/, "", v)
+          # write_codex_config escapes the path before writing it, so undo that
+          # before comparing; quotes first, then backslashes.
+          gsub(/\\"/, "\"", v)
+          gsub(/\\\\/, "\\", v)
+          if (v in own) sub_is_weave = 1
+        }
+        next
+      }
+      if (group_pending != "" && $0 ~ /^[[:space:]]*$/) { group_blank = 1; next }
+      if (group_pending != "") {
+        print group_pending; group_pending = ""
+        if (group_blank) { print ""; group_blank = 0 }
+      }
+      print
+    }
+    END { close_group() }
+  ' "$config_file" >"$tmp" && mv "$tmp" "$config_file"
+  rm -f "$tmp" 2>/dev/null || true
+}
+
 strip_codex_block() {
   local config_file="$1"
   local tmp; tmp="$(mktemp -t weave-codex-uninstall.XXXXXX)"
@@ -236,6 +370,13 @@ strip_codex_block() {
     { print }
   ' "$config_file" >"$tmp"
   mv "$tmp" "$config_file"
+  local owned_helpers=()
+  while IFS= read -r owned_helper; do
+    [ -n "$owned_helper" ] && owned_helpers+=("$owned_helper")
+  done <<EOF
+$(weave_owned_codex_helpers)
+EOF
+  strip_weave_codex_hooks "$config_file" ${owned_helpers[@]+"${owned_helpers[@]}"}
 }
 
 # ---------- opencode uninstall path ----------
@@ -554,9 +695,10 @@ if [ "$target" = "codex" ]; then
   fi
   codex_status_disabled_marker="$(dirname "$codex_status_file")/.weave-router-disabled"
   refuse_if_symlink "$codex_config_file"
-  refuse_if_symlink "$codex_status_file"
-  refuse_if_symlink "$codex_directive_file"
   refuse_if_symlink "$codex_status_disabled_marker"
+  # The helpers are checked at their own removal sites instead. Refusing here
+  # exits before strip_codex_block, so one symlinked helper left the config
+  # wired to a router the uninstall had just been asked to remove.
 
   if [ -f "$codex_config_file" ]; then
     strip_codex_block "$codex_config_file"
@@ -581,7 +723,7 @@ if [ "$target" = "codex" ]; then
     mv "$tmp" "$codex_config_file"
   fi
 
-  if [ -f "$codex_status_file" ]; then
+  if [ -f "$codex_status_file" ] && warn_if_symlink "$codex_status_file"; then
     if grep -Fq '<!-- weave-router managed codex status -->' "$codex_status_file"; then
       rm -f "$codex_status_file"
       rm -f "$codex_status_disabled_marker"
@@ -592,7 +734,7 @@ if [ "$target" = "codex" ]; then
     fi
   fi
 
-  if [ -f "$codex_directive_file" ]; then
+  if [ -f "$codex_directive_file" ] && warn_if_symlink "$codex_directive_file"; then
     if grep -Fq '<!-- weave-router managed codex directive -->' "$codex_directive_file"; then
       rm -f "$codex_directive_file"
       ok "Removed $codex_directive_file"

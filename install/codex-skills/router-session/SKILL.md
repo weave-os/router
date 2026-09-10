@@ -16,12 +16,11 @@ not type a Codex slash command.
 The router carries this id as `Session-Id` on every request and stores it for
 analytics joins, so it is also the lookup key in the router dashboard.
 
-The Weave Router also installs a `UserPromptSubmit` hook that answers
-`$router-session` directly, with no model turn at all — that is the normal path,
-and it works whether or not this skill runs.
+This skill needs `CODEX_SESSION_ID` in the environment. If it is unset the script
+exits non-zero rather than reporting an id: the alternative is reading the newest
+rollout transcript, which names a different session whenever two run at once, and
+a wrong id sends someone else's session to support. Report the error as-is instead
+of guessing.
 
-This skill is only the fallback for sessions where the hook is unavailable, and it
-needs `CODEX_SESSION_ID` in the environment. If that is unset the script exits
-non-zero rather than reporting an id: the alternative is reading the newest rollout
-transcript, which names a different session whenever two run at once. Report the
-error as-is instead of guessing an id.
+Codex also prints the same id in its own session banner, which is the quickest
+answer when this skill cannot produce one.

@@ -13,8 +13,8 @@ import (
 
 // diffV2PromptsSHA pins the SHA-256 of testdata/diff_v2_prompts.jsonl so
 // unnoticed corpus drift fails CI before TestV2MatchesV1 runs. Regenerate via
-// `poetry run python regen_diff_corpus.py --n 1000 --seed 42 --routerarena-only`
-// (from router-internal/scripts) and update this constant in the same commit.
+// `cd router-internal/scripts && uv run --locked python regen_diff_corpus.py --n 1000 --seed 42 --routerarena-only`
+// (from the WorkWeave root) and update this constant in the same commit.
 const diffV2PromptsSHA = "7f72e9a4b217242e56417d2933b9b9f31c5f319ae0222115a7958b49b97aa20f"
 
 // diffV2FixturePath is the committed fixture path; the driver script may

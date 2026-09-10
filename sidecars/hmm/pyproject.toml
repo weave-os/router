@@ -1,29 +1,53 @@
-[tool.poetry]
+[project]
 name = "workweave-hmm-sidecar"
 version = "0.1.0"
 description = "Frozen HMM policy sidecar for the self-hosted Weave Router"
-authors = ["Weave Team <engineering@workweave.ai>"]
-license = "Elastic-2.0"
-package-mode = false
+authors = [{ name = "Weave Team", email = "engineering@workweave.ai" }]
+license = { text = "Elastic-2.0" }
+requires-python = ">=3.12,<4"
+dependencies = [
+    "fastapi>=0.123.0,<0.124",
+    "uvicorn>=0.32.0,<0.33",
+    "pydantic>=2.10.0,<3",
+    "numpy>=2.2.0,<3",
+    # XGBoost's normal Linux x86 wheel bundles CUDA/NCCL. Use the official
+    # inference-compatible CPU distribution there; other platforms do not publish
+    # xgboost-cpu and receive the platform-native standard wheel.
+    "xgboost-cpu==3.3.0; sys_platform == 'linux' and platform_machine == 'x86_64'",
+    "xgboost==3.3.0; sys_platform != 'linux' or platform_machine != 'x86_64'",
+    "httpx>=0.28.0,<0.29",
+]
 
-[tool.poetry.dependencies]
-python = "^3.12"
-fastapi = "^0.123.0"
-uvicorn = "^0.32.0"
-pydantic = "^2.10.0"
-numpy = "^2.2.0"
-# XGBoost's normal Linux x86 wheel bundles CUDA/NCCL. Use the official
-# inference-compatible CPU distribution there; other platforms do not publish
-# xgboost-cpu and receive the platform-native standard wheel.
-xgboost-cpu = { version = "3.3.0", markers = "sys_platform == 'linux' and platform_machine == 'x86_64'" }
-xgboost = { version = "3.3.0", markers = "sys_platform != 'linux' or platform_machine != 'x86_64'" }
-httpx = "^0.28.0"
+[dependency-groups]
+dev = [
+    "black>=25.1,<26",
+    "pytest>=8.3,<9",
+    "pytest-asyncio>=0.24,<0.25",
+    "respx>=0.22,<0.23",
+]
 
-[tool.poetry.group.dev.dependencies]
-black = "^25.1.0"
-pytest = "^8.3.0"
-pytest-asyncio = "^0.24.0"
-respx = "^0.22.0"
+[tool.uv]
+package = false
+# Pin only the packages whose uv resolution changed during the migration to
+# their Poetry-selected versions. The lockfile governs all other dependencies;
+# update these constraints only with an intentional dependency upgrade.
+constraint-dependencies = [
+    "annotated-doc==0.0.4",
+    "annotated-types==0.7.0",
+    "anyio==4.14.2",
+    "certifi==2026.6.17",
+    "click==8.4.2",
+    "idna==3.18",
+    "numpy==2.5.1",
+    "nvidia-nccl-cu12==2.30.7",
+    "packaging==26.2",
+    "platformdirs==4.10.0",
+    "pydantic==2.13.4",
+    "pydantic-core==2.46.4",
+    "pygments==2.20.0",
+    "scipy==1.18.0",
+    "typing-inspection==0.4.2",
+]
 
 [tool.black]
 line-length = 88
@@ -32,7 +56,3 @@ line-length = 88
 asyncio_mode = "auto"
 pythonpath = ["."]
 testpaths = ["tests"]
-
-[build-system]
-requires = ["poetry-core"]
-build-backend = "poetry.core.masonry.api"

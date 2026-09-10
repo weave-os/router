@@ -257,7 +257,7 @@ When adding new endpoint, put inside `selfhosted` block in `server.Register` unl
 
 ## Eval harness (sibling `router-internal/eval/`)
 
-The eval harness is a sibling Poetry package, **not in this repo** — lives at `router-internal/eval/` in the WorkWeave monorepo and runs as a Modal app. It exercises the router via staging headers; see that package's README.
+The eval harness is a sibling uv project, **not in this repo** — lives at `router-internal/eval/` in the WorkWeave monorepo and runs as a Modal app. It exercises the router via staging headers; see that package's README.
 
 **Per-request router selection (server side):**
 

@@ -173,6 +173,35 @@ func TestRunTurnLoop_HonouredPinBypassesStickyPinAndScoresFresh(t *testing.T) {
 	assert.Equal(t, stickyModel, unpinnedRes.Decision.Model, "without a pin the sticky session pin still serves")
 }
 
+func TestRunTurnLoop_HonouredPinKeepsSessionIdentity(t *testing.T) {
+	env, feats := pinnedTurnLoopEnvelope(t)
+	role := roleForTier(catalog.TierFor(feats.Model))
+	rt := &countingPinnedRouter{decision: router.Decision{
+		Provider: providers.ProviderOpenAI, Model: "gpt-5.5",
+		Metadata: &router.RoutingMetadata{PolicyPinHonoured: true},
+	}}
+	store := &rolePinStore{byRole: map[string]sessionpin.Pin{}}
+	svc := pinnedTurnLoopService(t, rt, store)
+	var zeroKey [sessionpin.SessionKeyLen]byte
+
+	first, err := svc.runTurnLoop(pinnedContext(true), env, feats, "key", uuid.Nil, "", nil, router.Request{RequestedModel: feats.Model})
+	require.NoError(t, err)
+	assert.NotEqual(t, zeroKey, first.SessionKey, "a pinned turn must keep the thread session key for telemetry and history writeback")
+	assert.True(t, first.SessionFirstTurn, "no stored pin state is the session's first turn")
+
+	store.byRole[role] = sessionpin.Pin{Provider: providers.ProviderAnthropic, Model: "claude-sonnet-5", Reason: "hmm_policy", PinnedUntil: time.Now().Add(time.Hour)}
+	later, err := svc.runTurnLoop(pinnedContext(true), env, feats, "key", uuid.Nil, "", nil, router.Request{RequestedModel: feats.Model})
+	require.NoError(t, err)
+	assert.Equal(t, first.SessionKey, later.SessionKey)
+	assert.False(t, later.SessionFirstTurn)
+	assert.Equal(t, "gpt-5.5", later.Decision.Model, "session state is carried, not consulted for the decision")
+
+	noStore, err := pinnedTurnLoopService(t, rt, nil).runTurnLoop(pinnedContext(true), env, feats, "key", uuid.Nil, "", nil, router.Request{RequestedModel: feats.Model})
+	require.NoError(t, err)
+	assert.Equal(t, zeroKey, noStore.SessionKey, "no-pin-store mode keeps the session key zero")
+	assert.False(t, noStore.SessionFirstTurn)
+}
+
 func TestRunTurnLoop_HonouredPinBypassesForceModel(t *testing.T) {
 	env, feats := pinnedTurnLoopEnvelope(t)
 	rt := &countingPinnedRouter{decision: router.Decision{

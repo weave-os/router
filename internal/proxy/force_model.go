@@ -634,9 +634,10 @@ func (s *Service) applyForceModelCommand(
 	if effortLevel != "" {
 		shownModel = canonicalModel + ":" + effortLevel
 	}
-	msg = fmt.Sprintf("✦ **Weave Router** → force-model applied: %s (%s) · Use /unforce-model to clear\n\n", shownModel, binding)
+	clear := directivePrefix(ClientIdentityFrom(ctx).ClientApp) + "unforce-model"
+	msg = fmt.Sprintf("✦ **Weave Router** → force-model applied: %s (%s) · Use %s to clear\n\n", shownModel, binding, clear)
 	if env.SourceFormat() == translate.FormatOpenAI {
-		msg = fmt.Sprintf("Weave Router: force-model applied: %s (%s). Use /unforce-model to clear.", shownModel, binding)
+		msg = fmt.Sprintf("Weave Router: force-model applied: %s (%s). Use %s to clear.", shownModel, binding, clear)
 	}
 	log.Debug("/force-model: session pin set",
 		"input_model", cmd.Model,

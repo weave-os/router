@@ -121,7 +121,6 @@ logged-in user's Team/Pro/Max/individual plan.
 | -------------------------- | ------------------------------------------------------------- |
 | `~/.codex/config.toml`     | Adds a managed `[model_providers.weave]` block + sets top-level `model_provider = "weave"`, both between `# >>> weave-router managed` markers. The provider preserves the existing ChatGPT OAuth login and keeps the target router's default routing strategy. Anything outside the markers is preserved. |
 | `~/.weave/codex-status.sh` | Codex `SessionStart`/`Stop` hook helper. Keeps the latest routed model in the terminal title without adding status messages to the conversation. |
-| `~/.weave/codex-directive.sh` | Codex `UserPromptSubmit` hook helper. Answers `$fm`, `$ufm`, `$rf` and `$router-session` before the prompt reaches a model, so a directive costs no inference. |
 
 The status helper is installed with mode `0700`, stores only the session's requested and routed model IDs under `${XDG_CACHE_HOME:-~/.cache}/weave-router/codex/`, and never stores prompts, credentials, or response bodies. Existing Codex hooks are preserved and the managed hooks are safe to reinstall or remove.
 
@@ -131,7 +130,6 @@ The status helper is installed with mode `0700`, stores only the session's reque
 | -------------------------------- | ---------- | ------------------------------------------------------------- |
 | `<repo>/.codex/config.toml`      | ❌ ignored | Per-teammate config (holds the router key). Each teammate runs the installer for their own key. |
 | `<repo>/.codex/weave-status.sh`  | ❌ ignored | Per-teammate Codex lifecycle helper used by the managed status hooks. |
-| `<repo>/.codex/weave-directive.sh` | ❌ ignored | Per-teammate Codex `UserPromptSubmit` helper used by the managed directive hook. |
 | `<repo>/.codex/.weave-router-disabled` | ❌ ignored | Local off-state marker used by the helper. |
 | `<repo>/.gitignore`              | ✅ commit  | Adds the Codex config, status helper, and off-state marker to the ignore list. |
 
@@ -297,29 +295,31 @@ toggles — in a detached fork, so no Codex turn blocks on it, and it skips the
 replacement when the bytes are unchanged. The `WEAVE_STATUSLINE_*` variables
 above are accepted as fallbacks for users who configure both clients together.
 
-**Codex directive hook.** Codex directives are also installed as skills, but a
-skill is prompt text: the model has to read it, decide to run its script, and
-compose the arguments. That costs two inference turns for what is a local state
-change, and it loses argument fidelity — a `$rf - too slow` verdict was
-routinely paraphrased down to an unrated note before it ever reached the router.
+**Prompt directives are answered by the router.** `$fm`/`$force-model`,
+`$ufm`/`$unforce-model`, `$rf`/`$router-feedback` and `$router-session` reach
+the router; the local toggles do not, and are covered below. Codex sends a
+`$name` invocation as two user messages: the text the user typed, then a second message
+carrying the invoked skill's `SKILL.md`. The router reads the directive out of
+the first one, applies it, and answers with a synthetic response — the same
+short-circuit Claude Code's slash commands take — so a directive costs no
+upstream inference and the arguments arrive exactly as typed. That last part is
+why a `$rf - too slow` verdict now survives: nothing paraphrases it.
 
-The managed `UserPromptSubmit` hook removes both problems. Codex hands the hook
-the raw prompt before `$skill` expansion and before any model call, so the hook
-parses the directive itself, sends it to the router as a user-typed message (the
-same shape Claude Code's slash commands use, which the router answers with a
-synthetic response and no upstream call), and blocks the turn — showing the
-router's reply. `$router-session` is answered from the hook payload alone, with
-no request at all.
+0.2.17 shipped a `UserPromptSubmit` hook to do this client-side, before the
+router could see the directive behind the skill block. It is retired, and an
+upgrade removes both the hook and its helper.
 
-The hook fails open by design. No `jq`, no `curl`, no credentials, an
-unreachable router, or a prompt it does not recognise all pass the prompt
-through untouched, and the skills remain as the fallback. It only ever claims a
-prompt that *starts* with a directive it owns, so prose mentioning `$fm` is left
-alone. Local toggles (`$router-on`/`$router-off`/`$router-status`/
-`$router-models`/`$disable-routing`) mutate local config rather than router
-state and remain skill-driven.
+One group stays skill-driven because it is not router state: the local toggles
+(`$router-on`/`$router-off`/`$router-status`/`$router-models`/
+`$disable-routing`) mutate config on disk, which the router cannot do.
 
-Like any Codex hook, it must be trusted once in the Codex TUI before it runs.
+`$router-session` used to be in that group and no longer is. It reported
+`$CODEX_SESSION_ID` from a script, which cost a model turn plus a tool exec and
+failed outright wherever that variable was unset. The router already receives
+the id as `Session-Id` on every request and stores it for analytics joins, so
+it now answers the directive itself — no inference, and the id is by
+construction the one telemetry recorded rather than a client-side guess at it.
+The skill and its script remain installed as a fallback for older routers.
 
 **Codex status integration.** Codex 0.150+ supports lifecycle hooks. The installer enables hooks and adds managed `SessionStart` and `Stop` handlers. They maintain a small local state file and set the terminal title to `Weave Router · <routed-model> ← <requested-model>` when the router provides a routed-model marker. On ordinary turns where the model is unchanged, the title remains the last known routed model; before the first routed response it shows `Weave Router · active`. The hooks intentionally emit no status messages: Codex renders hook output in the conversation, which makes a persistent router indicator noisy and easy to confuse with model output. It is not a replacement for Codex's requested-model line: that line continues to show the model selected in Codex configuration, while the Weave status identifies the model that actually served. Existing user and project hooks remain outside the managed block and are preserved on reinstall/uninstall.
 
