@@ -196,17 +196,30 @@ else
   fails=$((fails + 1))
 fi
 
-# A non-numeric budget must not silently disable the cap.
-start=$(date +%s)
-out="$(jq -Rn --arg p '$router-off' '{prompt:$p, session_id:"s"}' \
-  | WEAVE_TOGGLE_TIMEOUT=banana PATH="$hang_bin:$PATH" bash "$hook" 2>/dev/null || true)"
-elapsed=$(( $(date +%s) - start ))
-if [ "$elapsed" -lt 60 ]; then
-  printf '  ok   a non-numeric timeout falls back to the default rather than never firing\n'
-else
-  printf '  FAIL a non-numeric timeout disabled the cap (%ss)\n' "$elapsed"
-  fails=$((fails + 1))
-fi
+# An unusable budget must fall back, not silently disable the cap. Asserted on
+# the stderr diagnostic rather than by timing: the fallback is 45s, so any
+# hang short enough to keep the suite fast exits on its own first and a timing
+# assertion passes whether the fallback works or not.
+assert_timeout_rejected() {
+  local label="$1" value="$2" err
+  err="$(jq -Rn --arg p '$router-off' '{prompt:$p, session_id:"s"}' \
+    | WEAVE_TOGGLE_TIMEOUT="$value" PATH="$fake_bin:$PATH" bash "$hook" 2>&1 >/dev/null || true)"
+  contains "$label" 'ignoring invalid WEAVE_TOGGLE_TIMEOUT' "$err"
+}
+assert_timeout_rejected "a non-numeric budget falls back to the default" "banana"
+# Digit-only but past the shell's integer type: [ -ge ] errors rather than
+# comparing, which is the same never-fires failure by another route.
+assert_timeout_rejected "an oversized budget falls back to the default" "99999999999999999999"
+assert_timeout_rejected "a zero budget falls back to the default" "0"
+
+# ...and a usable value is left alone.
+err="$(jq -Rn --arg p '$router-off' '{prompt:$p, session_id:"s"}' \
+  | WEAVE_TOGGLE_TIMEOUT=30 PATH="$fake_bin:$PATH" bash "$hook" 2>&1 >/dev/null || true)"
+case "$err" in
+  *'ignoring invalid'*)
+    printf '  FAIL a valid budget was rejected\n'; fails=$((fails + 1)) ;;
+  *) printf '  ok   a valid budget is left alone\n' ;;
+esac
 
 # A failing toggle is REPORTED, not passed through -- otherwise the model gets
 # a prompt the user meant as a command and retries it.

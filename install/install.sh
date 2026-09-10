@@ -4261,14 +4261,34 @@ set -uo pipefail
 # through. npx resolves from cache after first use; the budget covers a cold
 # fetch without letting a dead network hang the turn indefinitely.
 #
-# Validated, not trusted: `[ "$waited" -ge "$seconds" ]` with a non-numeric
-# bound errors instead of comparing, so the cap would never fire and the hook
-# would hang until npx exited on its own. An unusable value falls back to the
-# default rather than disabling the timeout.
-WEAVE_TOGGLE_TIMEOUT="${WEAVE_TOGGLE_TIMEOUT:-45}"
-case "$WEAVE_TOGGLE_TIMEOUT" in
-  ''|*[!0-9]*|0) WEAVE_TOGGLE_TIMEOUT=45 ;;
+# Validated, not trusted. `[ "$waited" -ge "$seconds" ]` does not compare a
+# bound it cannot parse -- it errors -- so the cap would never fire and the
+# hook would hang until npx exited on its own. Two ways to get there: a
+# non-numeric value, and a digit-only value too large for the shell's integer
+# type ("[: 99999999999999999999: integer expression expected"). The length
+# bound covers the second; 4 digits is already ~2.7h, far past anything
+# meaningful for a prompt hook.
+#
+# The diagnostic goes to stderr, never stdout: stdout is the hook protocol
+# channel and any stray byte there corrupts the JSON. Codex discards stderr,
+# so this costs a user nothing and tells whoever set the variable why it was
+# ignored.
+WEAVE_TOGGLE_TIMEOUT_DEFAULT=45
+# Resolved into a local first: under `set -u`, ${#WEAVE_TOGGLE_TIMEOUT} on an
+# unset variable aborts the hook outright -- which would swallow every prompt,
+# the one failure this script must never have.
+weave_timeout="${WEAVE_TOGGLE_TIMEOUT:-$WEAVE_TOGGLE_TIMEOUT_DEFAULT}"
+weave_timeout_invalid=""
+case "$weave_timeout" in
+  ''|*[!0-9]*|0) weave_timeout_invalid=1 ;;
+  *) [ "${#weave_timeout}" -gt 4 ] && weave_timeout_invalid=1 ;;
 esac
+if [ -n "$weave_timeout_invalid" ]; then
+  printf 'weave-router: ignoring invalid WEAVE_TOGGLE_TIMEOUT=%s; using %ss\n' \
+    "$weave_timeout" "$WEAVE_TOGGLE_TIMEOUT_DEFAULT" >&2
+  weave_timeout="$WEAVE_TOGGLE_TIMEOUT_DEFAULT"
+fi
+WEAVE_TOGGLE_TIMEOUT="$weave_timeout"
 
 # ---------- responses ----------
 
