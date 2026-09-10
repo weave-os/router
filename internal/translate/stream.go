@@ -409,8 +409,9 @@ type AnthropicSSETranslator struct {
 	// DeepSeek-v4 et al emit a bare "\n\n" between reasoning and tool_calls;
 	// opening a text block for it would render as an empty block. Flushed once
 	// real text arrives, or dropped if only whitespace ever comes.
-	pendingText strings.Builder
-	toolBlocks  map[int]int
+	pendingText    strings.Builder
+	toolBlocks     map[int]int
+	toolBlockOrder []int
 	// suppressedTools holds tool_call indices refused for carrying no function
 	// name (see emitDelta); later argument fragments reuse the index and must
 	// be dropped too.
@@ -1166,6 +1167,7 @@ func (t *AnthropicSSETranslator) emitDelta(delta gjson.Result) error {
 			}
 			blockIdx = t.blockIdx
 			t.toolBlocks[idx] = blockIdx
+			t.toolBlockOrder = append(t.toolBlockOrder, blockIdx)
 			t.toolNames[blockIdx] = name
 			t.toolUseEmitted = true
 			t.toolUseCount++
@@ -1408,7 +1410,7 @@ func (t *AnthropicSSETranslator) finishStream() error {
 		}
 		t.thinkingOpen = false
 	}
-	for _, blockIdx := range t.toolBlocks {
+	for _, blockIdx := range t.toolBlockOrder {
 		if err := t.emitValidatedToolArgsDelta(blockIdx); err != nil {
 			return err
 		}
@@ -1417,6 +1419,7 @@ func (t *AnthropicSSETranslator) finishStream() error {
 		}
 	}
 	t.toolBlocks = map[int]int{}
+	t.toolBlockOrder = nil
 
 	// Upstream error seen after Prelude committed: surface it as an `error`
 	// event, not a clean end_turn (which agent harnesses would silently accept
