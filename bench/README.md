@@ -34,7 +34,7 @@ the pinned version; nothing touches your own `~/.codex`.
 
 ```bash
 cd bench
-uv sync --locked --extra harbor --extra tap --group dev  # use harbor-atlas instead of harbor for Atlas
+uv sync --locked --extra harbor --extra tap --extra dev  # use harbor-atlas instead of harbor for Atlas
 cp bench.example.toml bench.toml         # git-ignored; edit URLs / env-var names
 uv run --locked --extra harbor --extra tap weave-bench --help
 ```
