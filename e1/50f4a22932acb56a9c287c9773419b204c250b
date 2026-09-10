@@ -1,0 +1,23 @@
+Makefile
+  s_b3d94294f4c49d::t_5263515ed8cb8b 37
+scripts/check_docs.py
+  s_b3d94294f4c49d::t_7ad2609a253306 42-46
+scripts/test_check_docs.py
+  s_b3d94294f4c49d::t_7ad2609a253306 1-35
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "e150f4a22932acb56a9c287c9773419b204c250b",
+  "prompts": {},
+  "sessions": {
+    "s_b3d94294f4c49d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06974-8166-72a1-9f4f-4775e6d61966",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

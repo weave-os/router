@@ -1,0 +1,57 @@
+internal/api/feedback/feedback_test.go
+  s_b3d94294f4c49d::t_aac543274434a6 5,74
+internal/api/feedback/feedback.go
+  s_b3d94294f4c49d::t_aac543274434a6 8,62
+internal/proxy/dispatch_error.go
+  s_b3d94294f4c49d::t_421dd83f1b2bf7 358-362
+internal/translate/toolcheck/toolcheck.go
+  s_b3d94294f4c49d::t_e572c0625da05c 17
+  s_b3d94294f4c49d::t_aac543274434a6 347-348
+internal/proxy/force_model.go
+  s_b3d94294f4c49d::t_4cb52ca55003b3 262
+.golangci.yml
+  s_b3d94294f4c49d::t_aac543274434a6 1-44
+internal/server/middleware/force_effort_override.go
+  s_b3d94294f4c49d::t_4cb52ca55003b3 24
+  s_b3d94294f4c49d::t_4c374108725e3f 28
+db/migrations/0018_spiral-shadow-events.down.sql
+  s_b3d94294f4c49d::t_aac543274434a6 3
+internal/translate/envelope.go
+  s_b3d94294f4c49d::t_4cb52ca55003b3 1135
+db/migrations/0036_policy-shadow-decisions.down.sql
+  s_b3d94294f4c49d::t_aac543274434a6 3
+internal/router/policy/resolver.go
+  s_b3d94294f4c49d::t_4cb52ca55003b3 434
+internal/router/hmm/mapping.go
+  s_b3d94294f4c49d::t_4cb52ca55003b3 7,49,52
+.github/workflows/check_migrations.yml
+  s_b3d94294f4c49d::t_aac543274434a6 42-48
+.github/workflows/test.yml
+  s_b3d94294f4c49d::t_aac543274434a6 103-107
+db/migrations/0015_loop-escalation-events.down.sql
+  s_b3d94294f4c49d::t_aac543274434a6 3
+internal/translate/toolcheck/repair.go
+  s_b3d94294f4c49d::t_aac543274434a6 4,38-39
+db/migrations/0019_telemetry-response-outcome.down.sql
+  s_b3d94294f4c49d::t_aac543274434a6 3,6-11
+internal/router/effort.go
+  s_b3d94294f4c49d::t_4cb52ca55003b3 1-39
+internal/router/effort_test.go
+  s_b3d94294f4c49d::t_4cb52ca55003b3 1-48
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "d82825fd40f817888c9d5a8972151e5c81c9b34b",
+  "prompts": {},
+  "sessions": {
+    "s_b3d94294f4c49d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06974-8166-72a1-9f4f-4775e6d61966",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

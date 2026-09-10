@@ -1,0 +1,22 @@
+internal/translate/router_feedback.go
+  s_99a26d7f7deb6c::t_6b7e4297335bde 226-227
+  s_99a26d7f7deb6c::t_5146cc3ec2b705 231,233,235,237,246,249
+internal/translate/router_feedback_test.go
+  s_99a26d7f7deb6c::t_c439a3139a8326 125-148
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "fceac3df8b9be5b0dd0f643d066a5e4f5535c73f",
+  "prompts": {},
+  "sessions": {
+    "s_99a26d7f7deb6c": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6a458e13-f54a-43f2-8dcb-023370249ea7",
+        "model": "grok-4.6"
+      },
+      "human_author": "munir-weave <munir@workweave.ai>"
+    }
+  }
+}
