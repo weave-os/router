@@ -113,7 +113,19 @@ func TestPolicyPinUnauthorizedRequestRoutesAsUnpinned(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, decider.query.ArtifactSHA256, "an unauthorized pin must not reach the sidecar")
 	assert.False(t, decision.Metadata.PolicyPinHonoured)
-	assert.Equal(t, otherRosterSHA, decision.Metadata.RosterVersion, "the default roster serves the turn")
+	assert.Equal(t, "sidecar-roster", decision.Metadata.RosterVersion, "an unpinned turn keeps the sidecar's roster_version")
+}
+
+func TestUnpinnedReselectedTurnKeepsSidecarRosterVersion(t *testing.T) {
+	adapter, _ := newPinnedAdapter(t, pinnedArtifactSHA)
+	adapter.WithArmSelector(rosterSelector(otherRosterSHA))
+
+	decision, err := adapter.Route(context.Background(), router.Request{})
+
+	require.NoError(t, err)
+	require.NotNil(t, decision.Metadata)
+	assert.False(t, decision.Metadata.PolicyPinHonoured)
+	assert.Equal(t, "sidecar-roster", decision.Metadata.RosterVersion, "Go reselection must not rewrite roster_version to the roster-file sha when no pin is honoured")
 }
 
 func TestPolicyPinPreviewCarriesArtifactAndRejectsMismatch(t *testing.T) {

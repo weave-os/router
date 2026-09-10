@@ -12,6 +12,7 @@ from fastapi.responses import JSONResponse
 from . import SCHEMA_VERSION
 from .artifacts import ArtifactRegistry, FrozenArtifacts, resolve_artifact_registry
 from .embeddings import (
+    Embedder,
     EmbeddingError,
     build_embedder,
     verify_embedding_contract,
@@ -45,23 +46,58 @@ def configure_logging() -> None:
     package_log.addHandler(handler)
 
 
-@asynccontextmanager
-async def lifespan(application: FastAPI):
-    configure_logging()
-    try:
-        registry = resolve_artifact_registry()
-        policies: dict[str, FrozenPolicy] = {}
-        similarity = None
-        for package_sha256, artifacts in registry.by_sha256.items():
+def _probe_key(artifacts: FrozenArtifacts) -> tuple[object, ...]:
+    contract = artifacts.manifest.embedding_contract
+    return (
+        contract.model,
+        contract.dimensions,
+        contract.task_type,
+        contract.probe_text,
+        contract.minimum_cosine_similarity,
+        artifacts.probe_vector.tobytes(),
+    )
+
+
+async def load_policies(
+    registry: ArtifactRegistry,
+) -> tuple[dict[str, FrozenPolicy], float]:
+    """Build one policy per registry package, probing the embedding endpoint
+    once per distinct embedding contract (packages sharing a contract share the
+    embedder and its probe). Returns the policies and the default's similarity.
+    """
+    policies: dict[str, FrozenPolicy] = {}
+    probed: dict[tuple[object, ...], tuple[Embedder, float]] = {}
+    similarity = None
+    for package_sha256, artifacts in registry.by_sha256.items():
+        key = _probe_key(artifacts)
+        if key not in probed:
             embedder = build_embedder(artifacts.manifest.embedding_contract)
             probe_similarity = await verify_embedding_contract(
                 embedder,
                 artifacts.manifest.embedding_contract,
                 artifacts.probe_vector,
             )
-            policies[package_sha256] = FrozenPolicy(artifacts, embedder)
-            if artifacts is registry.default:
-                similarity = probe_similarity
+            probed[key] = (embedder, probe_similarity)
+        embedder, probe_similarity = probed[key]
+        policies[package_sha256] = FrozenPolicy(artifacts, embedder)
+        if artifacts is registry.default:
+            similarity = probe_similarity
+    if similarity is None:
+        raise RuntimeError("artifact registry default is not among its packages")
+    log.info(
+        "HMM sidecar probed %d embedding contract(s) for %d package(s)",
+        len(probed),
+        len(policies),
+    )
+    return policies, similarity
+
+
+@asynccontextmanager
+async def lifespan(application: FastAPI):
+    configure_logging()
+    try:
+        registry = resolve_artifact_registry()
+        policies, similarity = await load_policies(registry)
         application.state.artifacts = registry.default
         application.state.registry = registry
         application.state.policy = policies[registry.default.package_sha256]

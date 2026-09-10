@@ -87,7 +87,30 @@ func TestPolicyPinOverride_UnauthorizedInstallationRecordsButIgnoresPin(t *testi
 			require.Equal(t, http.StatusOK, probe.status)
 			require.True(t, probe.requested, "an ignored pin must still be recorded as requested")
 			assert.False(t, probe.request.Authorized, "an unauthorized pin must not be honoured")
-			assert.Equal(t, pinArtifactSHA, probe.request.Pin.ArtifactSHA256)
+			assert.Equal(t, router.PolicyPin{}, probe.request.Pin, "an unauthorized header value must never be parsed")
+			_, honoured := router.HonouredPolicyPin(probe.ctx)
+			assert.False(t, honoured)
+		})
+	}
+}
+
+func TestPolicyPinOverride_UnauthorizedInstallationIgnoresHeaderValueEntirely(t *testing.T) {
+	installation := &auth.Installation{ID: "inst-plain"}
+	baseline := runPolicyPinOverride(t, installation, "", true)
+	require.Equal(t, http.StatusOK, baseline.status)
+
+	for name, raw := range map[string]string{
+		"valid":     validPolicyPin,
+		"malformed": "not-a-pin",
+		"huge":      strings.Repeat("z", 1<<16),
+	} {
+		t.Run(name, func(t *testing.T) {
+			probe := runPolicyPinOverride(t, installation, raw, true)
+
+			assert.Equal(t, baseline.status, probe.status, "gate-off must serve the same status as a request without the header")
+			assert.Equal(t, baseline.body, probe.body)
+			require.True(t, probe.requested)
+			assert.Equal(t, router.PolicyPinRequest{}, probe.request)
 		})
 	}
 }
@@ -114,10 +137,10 @@ func TestPolicyPinOverride_MalformedPinIs400WithTypedCode(t *testing.T) {
 	}
 }
 
-func TestPolicyPinOverride_MalformedPinFromUnauthorizedInstallationStill400(t *testing.T) {
+func TestPolicyPinOverride_MalformedPinFromUnauthorizedInstallationIsNot400(t *testing.T) {
 	probe := runPolicyPinOverride(t, &auth.Installation{ID: "inst-plain"}, "not-a-pin", true)
 
-	assert.Equal(t, http.StatusBadRequest, probe.status, "syntax is validated before authorization")
+	assert.Equal(t, http.StatusOK, probe.status, "authorization is checked before the value is parsed")
 }
 
 func TestPolicyPinOverride_AbsentHeaderLeavesNoMark(t *testing.T) {

@@ -393,11 +393,13 @@ func (r *SidecarRouter) Route(ctx context.Context, req router.Request) (router.D
 		reselected = true
 		res.PolicyGroup = pick.Group
 		routerArmScoresByGroup = pick.ArmScoresByGroup
-		if pick.RosterSHA256 != "" {
+		// roster_version keeps the sidecar's meaning on unpinned turns; only a
+		// pinned turn reports the roster file digest the selection was frozen to.
+		if pinned {
+			if pick.RosterSHA256 != pin.RosterSHA256 {
+				return router.Decision{}, fmt.Errorf("%s: selection used roster %q, pin requires %q: %w", strategy, pick.RosterSHA256, pin.RosterSHA256, router.ErrPolicyPinUnavailable)
+			}
 			servedRosterSHA256 = pick.RosterSHA256
-		}
-		if pinned && pick.RosterSHA256 != pin.RosterSHA256 {
-			return router.Decision{}, fmt.Errorf("%s: selection used roster %q, pin requires %q: %w", strategy, pick.RosterSHA256, pin.RosterSHA256, router.ErrPolicyPinUnavailable)
 		}
 	}
 

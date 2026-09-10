@@ -74,8 +74,9 @@ func (p PolicyPin) String() string {
 }
 
 // PolicyPinRequest is a parsed pin header together with whether the calling
-// installation may have it honoured. An unauthorized pin is still recorded
-// (requested, not honoured) so replay analysis can see it was asked for.
+// installation may have it honoured. An unauthorized request is recorded with
+// a zero Pin (requested, not honoured, value never parsed) so replay analysis
+// can see it was asked for without the header affecting the response.
 type PolicyPinRequest struct {
 	Pin        PolicyPin
 	Authorized bool

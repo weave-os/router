@@ -459,10 +459,11 @@ const DecisionReasonPolicyPinUnservable = router.PolicyPinUnavailableReason
 const DecisionReasonRoutingFailed = "routing_failed"
 
 // recordPolicyPinRouteFailure persists the routing refusal for a turn that
-// carried a policy pin, so replay analysis sees requested=true, honoured=false
-// even though no upstream dispatch happened. Other routing failures write no row.
+// carried an honoured policy pin, so replay analysis sees requested=true,
+// honoured=false even though no upstream dispatch happened. Unauthorized pins
+// and other routing failures write no row.
 func (s *Service) recordPolicyPinRouteFailure(ctx context.Context, requestID string, requestStart time.Time, requestedModel string, turnType turntype.TurnType, routeErr error) {
-	if _, requested := router.PolicyPinRequestFrom(ctx); !requested {
+	if _, honoured := router.HonouredPolicyPin(ctx); !honoured {
 		return
 	}
 	installationID := installationIDFromContext(ctx)
