@@ -151,6 +151,9 @@ func (r *SidecarRouter) PreviewRoute(ctx context.Context, req router.Request) (P
 		Candidates:           resolved.Candidates,
 	})
 	if err != nil {
+		if errors.Is(err, router.ErrPolicyPinUnavailable) {
+			return PreviewResult{}, fmt.Errorf("%s: sidecar preview: %w", strategy, err)
+		}
 		return PreviewResult{}, fmt.Errorf("%s: sidecar preview: %w: %w", strategy, err, r.config.Unavailable)
 	}
 	if pinned && result.PolicyArtifactSHA256 != pin.ArtifactSHA256 {

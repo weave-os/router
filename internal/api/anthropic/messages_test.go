@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -362,6 +363,19 @@ func TestRouteHandler_InvalidRoutingKnobsReturns400(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 	errObj := errorEnvelope(t, rec.Body.Bytes())
 	assert.Equal(t, "invalid_request_error", errObj["type"])
+}
+
+func TestRouteHandler_PolicyPinUnavailableReturns503(t *testing.T) {
+	svc := newTestService(&fakeRouter{err: fmt.Errorf("hmm: %w", router.ErrPolicyPinUnavailable)}, "", nil)
+	engine := routeEngine(svc)
+
+	rec := httptest.NewRecorder()
+	engine.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/v1/route", bytes.NewReader([]byte(validAnthropicBody))))
+
+	require.Equal(t, http.StatusServiceUnavailable, rec.Code)
+	errObj := errorEnvelope(t, rec.Body.Bytes())
+	assert.Equal(t, "api_error", errObj["type"])
+	assert.Equal(t, router.PolicyPinUnavailableReason, errObj["message"])
 }
 
 func TestRouteHandler_GenericRoutingErrorReturns502(t *testing.T) {
