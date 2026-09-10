@@ -52,6 +52,9 @@ var defaultMechanismProviders = map[string]struct{}{
 	providers.ProviderTogether:  {},
 	providers.ProviderMeta:      {},
 	providers.ProviderWafer:     {},
+	// DeepSeek's context cache is automatic and prefix-keyed server-side;
+	// the generic header is harmless and nothing bespoke is documented.
+	providers.ProviderDeepSeek: {},
 }
 
 // TestSessionAffinityCoversEveryOpenAICompatProvider guards against a new

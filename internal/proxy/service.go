@@ -1050,19 +1050,35 @@ func sessionDisabledProvidersFromContext(ctx context.Context) []string {
 	return out
 }
 
-// policyExcludedProviders returns configured exclusions only. Session
-// strike-outs are omitted — transient 529 evidence must not veto a force
-// the operator permits.
+// policyExcludedProviders returns configured exclusions plus the beta
+// providers this organization has not opted into. Session strike-outs are
+// omitted — transient 529 evidence must not veto a force the operator
+// permits. The beta gate is not subject to the operator override: a beta
+// provider stays hidden from an organization until its flag says otherwise.
 func (s *Service) policyExcludedProviders(ctx context.Context) map[string]struct{} {
+	beta := betaProvidersDisabledForRequest(ctx)
 	if s.excludedProvidersOverride != nil {
-		return s.excludedProvidersOverride
+		if len(beta) == 0 {
+			return s.excludedProvidersOverride
+		}
+		out := make(map[string]struct{}, len(s.excludedProvidersOverride)+len(beta))
+		for p := range s.excludedProvidersOverride {
+			out[p] = struct{}{}
+		}
+		for p := range beta {
+			out[p] = struct{}{}
+		}
+		return out
 	}
 	excluded := installationExcludedProvidersFromContext(ctx)
-	if len(excluded) == 0 {
+	if len(excluded) == 0 && len(beta) == 0 {
 		return nil
 	}
-	out := make(map[string]struct{}, len(excluded))
+	out := make(map[string]struct{}, len(excluded)+len(beta))
 	for _, p := range excluded {
+		out[p] = struct{}{}
+	}
+	for p := range beta {
 		out[p] = struct{}{}
 	}
 	return out
