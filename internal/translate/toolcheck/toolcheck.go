@@ -41,6 +41,9 @@ const (
 	// BucketSchemaMismatch means the arguments parsed but violate the tool's
 	// input_schema.
 	BucketSchemaMismatch Bucket = "schema_mismatch"
+	// BucketSemanticRepair means the arguments were schema-valid but carried
+	// a shape the semantic tier rewrites (e.g. a markdown autolink as a path).
+	BucketSemanticRepair Bucket = "semantic_repair"
 )
 
 // maxDetailBytes caps Issue.Detail so a pathological validation error can't
@@ -97,6 +100,7 @@ type toolSchema struct {
 // Compile — schemas and sets are read-only.
 type Validator struct {
 	tools map[string]*toolSchema
+	mode  Mode
 }
 
 // Compile parses an Anthropic `tools` array into a Validator. It never
@@ -204,9 +208,10 @@ func (v *Validator) Check(name, argsJSON string) Verdict {
 	}
 	jsonRepaired := len(actions) > 0
 
-	if v == nil {
+	if v == nil || v.mode == ModeOff || len(v.tools) == 0 {
 		return verdictAfterValidation(name, args, jsonRepaired, actions, nil)
 	}
+	semantic := v.mode == ModeSemantic
 
 	ts, known := v.tools[name]
 	if !known {
@@ -228,21 +233,26 @@ func (v *Validator) Check(name, argsJSON string) Verdict {
 	// stricter than JSON Schema (e.g. Read rejects pages:"" that {type:string} accepts).
 	args, normActions := normalizeArgs(args, ts.required)
 	actions = append(actions, normActions...)
+	var semanticActions []string
+	if semantic {
+		args, semanticActions = semanticNormalizeArgs(args)
+		actions = append(actions, semanticActions...)
+	}
 
 	if ts.compiled == nil {
 		// Uncheckable schema: normalize-only pass-through, but a JSON repair
 		// is still worth reporting.
-		return verdictAfterValidation(name, args, jsonRepaired, actions, nil)
+		return verdictAfterNormalize(name, args, jsonRepaired, len(semanticActions) > 0, actions)
 	}
 
 	verr := validate(ts.compiled, args)
 	if verr == nil {
-		return verdictAfterValidation(name, args, jsonRepaired, actions, nil)
+		return verdictAfterNormalize(name, args, jsonRepaired, len(semanticActions) > 0, actions)
 	}
 
 	// Drive safe coercions off the validation errors, then re-validate. On
 	// failure forward the normalized original — half-repaired is worse.
-	repaired, repairActions := repairArgs(ts.compiled, args, verr)
+	repaired, repairActions := repairArgs(ts.compiled, args, verr, semantic)
 	if len(repairActions) > 0 {
 		if rerr := validate(ts.compiled, repaired); rerr == nil {
 			return Verdict{
@@ -264,6 +274,25 @@ func (v *Validator) Check(name, argsJSON string) Verdict {
 			Bucket:   BucketSchemaMismatch,
 			Detail:   detailFromError(verr),
 			Repaired: false,
+			Actions:  actions,
+		},
+	}
+}
+
+// verdictAfterNormalize is verdictAfterValidation plus the semantic tier's
+// telemetry: a schema-valid payload the semantic pass rewrote is reported
+// (Repaired) so the repair rate per model is observable.
+func verdictAfterNormalize(name, args string, jsonRepaired, semanticRepaired bool, actions []string) Verdict {
+	if jsonRepaired || !semanticRepaired {
+		return verdictAfterValidation(name, args, jsonRepaired, actions, nil)
+	}
+	return Verdict{
+		Args: args,
+		Issue: &Issue{
+			ToolName: name,
+			Bucket:   BucketSemanticRepair,
+			Detail:   truncateDetail("schema-valid arguments rewritten by the semantic tier"),
+			Repaired: true,
 			Actions:  actions,
 		},
 	}
@@ -336,6 +365,34 @@ func normalizeArgs(args string, required map[string]struct{}) (out string, actio
 		} else {
 			actions = append(actions, "drop_null_optional")
 		}
+		return true
+	})
+	return out, actions
+}
+
+// semanticNormalizeArgs rewrites top-level string params that are
+// schema-valid but carry a rendering artefact: a markdown autolink where a
+// path-like key expects a bare path.
+func semanticNormalizeArgs(args string) (out string, actions []string) {
+	parsed := gjson.Parse(args)
+	if !parsed.IsObject() {
+		return args, nil
+	}
+	out = args
+	parsed.ForEach(func(key, val gjson.Result) bool {
+		if val.Type != gjson.String || !pathLikeKey(key.String()) {
+			return true
+		}
+		stripped, ok := stripMarkdownAutolink(val.Str)
+		if !ok {
+			return true
+		}
+		next, err := sjson.Set(out, escapeJSONPathToken(key.String()), stripped)
+		if err != nil {
+			return true
+		}
+		out = next
+		actions = append(actions, "strip_markdown_autolink")
 		return true
 	})
 	return out, actions

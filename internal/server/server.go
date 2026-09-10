@@ -243,6 +243,7 @@ func Register(engine *gin.Engine, authSvc *auth.Service, proxySvc *proxy.Service
 		middleware.WithAllowedModelsOverride(proxySvc),
 		middleware.WithRoutingKnobsOverride(),
 		middleware.WithForceEffortOverride(),
+		middleware.WithToolCheckOverride(),
 	)
 	messagesGroup := engine.Group("", messagesMiddleware...)
 	messagesGroup.POST("/v1/messages", anthropicapi.MessagesHandler(proxySvc, authSvc))
@@ -269,6 +270,7 @@ func Register(engine *gin.Engine, authSvc *auth.Service, proxySvc *proxy.Service
 		middleware.WithAllowedModelsOverride(proxySvc),
 		middleware.WithRoutingKnobsOverride(),
 		middleware.WithForceEffortOverride(),
+		middleware.WithToolCheckOverride(),
 	)
 	chatCompletionGroup := engine.Group("", chatCompletionMiddleware...)
 	chatCompletionGroup.POST("/v1/chat/completions", openaiapi.ChatCompletionHandler(proxySvc, authSvc))
@@ -314,6 +316,7 @@ func Register(engine *gin.Engine, authSvc *auth.Service, proxySvc *proxy.Service
 		middleware.WithAllowedModelsOverride(proxySvc),
 		middleware.WithRoutingKnobsOverride(),
 		middleware.WithForceEffortOverride(),
+		middleware.WithToolCheckOverride(),
 	)
 	routeGroup := engine.Group("", routeMiddleware...)
 	routeGroup.POST("/v1/route", anthropicapi.RouteHandler(proxySvc))
