@@ -69,6 +69,13 @@ type Decision struct {
 	StopReason            *string `json:"stop_reason"`
 	ToolUseBlocks         *int64  `json:"tool_use_blocks"`
 	InvalidToolArgsBlocks *int64  `json:"invalid_tool_args_blocks"`
+
+	// ClientGit* is the client-reported starting tree of a trial-mode session,
+	// captured on its first turn only. Null everywhere else. HeadSHA is
+	// abbreviated as the client printed it; compare by prefix.
+	ClientGitHeadSHA *string `json:"client_git_head_sha"`
+	ClientGitBranch  *string `json:"client_git_branch"`
+	ClientGitDirty   *bool   `json:"client_git_dirty"`
 }
 
 // Query is one normalized page request: window [From, To), optional keyset

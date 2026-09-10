@@ -96,6 +96,8 @@ func toAuthInstallation(row sqlc.RouterModelRouterInstallation) *auth.Installati
 		ByokEnabled:                    row.ByokEnabled,
 		ContentCaptureMode:             row.ContentCaptureMode,
 		HideTerminalSurfaces:           row.HideTerminalSurfaces,
+		TrialCaptureEnabled:            row.TrialCaptureEnabled,
+		TrialEnrollmentID:              derefString(uuidStringPtr(row.TrialEnrollmentID)),
 		FirstRequestServedAt:           timestamptzPtr(row.FirstRequestServedAt),
 		FlagOverrides:                  overrides,
 	}

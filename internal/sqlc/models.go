@@ -247,8 +247,12 @@ type RouterModelRouterInstallation struct {
 	// Optional model allowlist while the caller subscription is active; empty means no conditional restriction.
 	ModelsWhenSubscriptionActive []string
 	// Optional model allowlist while the caller subscription is exhausted; empty means no conditional restriction.
-	ModelsWhenSubscriptionInactive []string
-	FastModeModels                 []string
+	ModelsWhenSubscriptionInactive   []string
+	FastModeModels                   []string
+	TrialCaptureEnabled              bool
+	TrialEnrollmentID                pgtype.UUID
+	TrialShadowSampleRate            pgtype.Numeric
+	TrialShadowDailyCeilingUsdMicros *int64
 }
 
 type RouterModelRouterRequestTelemetry struct {
@@ -412,6 +416,9 @@ type RouterModelRouterRequestTelemetry struct {
 	BlindExperimentArm              *string
 	BlindExperimentAssignmentSource *string
 	BlindExperimentSubjectKey       *string
+	ClientGitHeadSha                *string
+	ClientGitBranch                 *string
+	ClientGitDirty                  *bool
 }
 
 type RouterModelRouterSubscriptionAccount struct {

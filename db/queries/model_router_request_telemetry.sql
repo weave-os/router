@@ -36,6 +36,10 @@
 -- revisions, policy-selected target, why the served target differs, how usage
 -- was accounted). NULL on rows written before the columns existed and on paths
 -- not yet migrated to the executor.
+-- client_git_head_sha / client_git_branch / client_git_dirty are the git
+-- context parsed from the Claude Code system prompt on a trial-mode session's
+-- first turn. NULL on every other turn and whenever the block was absent or
+-- unparseable; never read on the routing path.
 -- name: InsertRequestTelemetry :exec
 INSERT INTO router.model_router_request_telemetry (
     installation_id,
@@ -151,7 +155,10 @@ INSERT INTO router.model_router_request_telemetry (
     plan_provider,
     fallback_reason,
     accounting_outcome,
-    usage_known
+    usage_known,
+    client_git_head_sha,
+    client_git_branch,
+    client_git_dirty
 ) VALUES (
     @installation_id::uuid,
     sqlc.narg('api_key_id')::uuid,
@@ -266,7 +273,10 @@ INSERT INTO router.model_router_request_telemetry (
     sqlc.narg('plan_provider')::varchar,
     sqlc.narg('fallback_reason')::varchar,
     sqlc.narg('accounting_outcome')::varchar,
-    sqlc.narg('usage_known')::boolean
+    sqlc.narg('usage_known')::boolean,
+    sqlc.narg('client_git_head_sha')::varchar,
+    sqlc.narg('client_git_branch')::varchar,
+    sqlc.narg('client_git_dirty')::boolean
 )
 ON CONFLICT (installation_id, request_id, span_type) DO NOTHING;
 
@@ -671,7 +681,10 @@ SELECT
     t.upstream_finish_reason,
     t.stop_reason,
     t.tool_use_blocks,
-    t.invalid_tool_args_blocks
+    t.invalid_tool_args_blocks,
+    t.client_git_head_sha,
+    t.client_git_branch,
+    t.client_git_dirty
 FROM router.model_router_request_telemetry t
 LEFT JOIN router.model_router_users u
     ON u.id = t.router_user_id

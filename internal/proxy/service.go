@@ -548,6 +548,11 @@ type InstallationSubscriptionRoutingDisabledContextKey struct{}
 // suppresses the routing marker, feedback footer, and feedback-link header.
 type InstallationHideTerminalSurfacesContextKey struct{}
 
+// InstallationTrialCaptureContextKey is the context key for the installation's
+// trial-mode capture opt-in (bool; absent == false); enables the first-turn
+// client git-context telemetry parse. Never read by routing.
+type InstallationTrialCaptureContextKey struct{}
+
 // PolicyTrainingAllowedContextKey carries the installation's explicit
 // learning eligibility. Absence is fail-closed (false).
 type PolicyTrainingAllowedContextKey struct{}
@@ -4651,6 +4656,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			s.ResolveTurnSignalCaptureEnabled(ctx),
 			obs.TrainingAllowed,
 			s.effectiveCaptureMode(ctx))
+		applyClientGitContextTelemetry(ctx, &tel, routeRes.SessionFirstTurn, env.SystemBlocks())
 		s.fireTelemetry(tel)
 	}
 

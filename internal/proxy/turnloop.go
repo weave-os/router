@@ -175,6 +175,10 @@ type turnLoopResult struct {
 	TurnType   turntype.TurnType
 	StickyHit  bool
 	HardPinned bool
+	// SessionFirstTurn is true when the pin store had no state at all for
+	// (SessionKey, PinRole): no live, expired, or cleared pin. Telemetry-only;
+	// nothing on the routing path reads it.
+	SessionFirstTurn bool
 	// Purpose is the inference purpose a utility turn (title-gen, classifier,
 	// probe, sub-agent, client compaction) is authorized under. Empty means
 	// the turn is main inference and dispatches under the surface's purpose.
@@ -919,6 +923,7 @@ func (s *Service) runTurnLoop(
 	res.SessionKey = sessionKey
 
 	pin, pinFound := s.loadPin(ctx, res.SessionKey, res.PinRole)
+	res.SessionFirstTurn = !pinFound && pin.Model == "" && pin.Provider == "" && pin.Reason == ""
 	// A deliberate clear is stored as an expired, blank pin with a reason.
 	// Natural expiry retains the model/provider and may still use a renewed
 	// one-shot command continuation, but an explicit clear must never be

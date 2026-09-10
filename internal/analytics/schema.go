@@ -60,5 +60,8 @@ func Schema() []Field {
 		{"stop_reason", "string", true, "Normalized stop reason for the turn."},
 		{"tool_use_blocks", "integer", true, "Count of tool-use blocks in the response."},
 		{"invalid_tool_args_blocks", "integer", true, "Count of tool-use blocks whose arguments failed to parse."},
+		{"client_git_head_sha", "string", true, "Client-reported HEAD sha of the tree a trial-mode session started from, abbreviated as the client printed it (compare by prefix). Stamped on the session's first turn only; null elsewhere."},
+		{"client_git_branch", "string", true, "Client-reported branch of the tree a trial-mode session started from. First turn only; null elsewhere."},
+		{"client_git_dirty", "boolean", true, "True when the client-reported starting tree had uncommitted changes. Null when not captured, so null and false are distinct."},
 	}
 }

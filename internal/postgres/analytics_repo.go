@@ -94,6 +94,10 @@ func decisionFromExportRow(row sqlc.GetRoutingDecisionsForExportRow) analytics.D
 		StopReason:            row.StopReason,
 		ToolUseBlocks:         int32PtrToInt64(row.ToolUseBlocks),
 		InvalidToolArgsBlocks: int32PtrToInt64(row.InvalidToolArgsBlocks),
+
+		ClientGitHeadSHA: row.ClientGitHeadSha,
+		ClientGitBranch:  row.ClientGitBranch,
+		ClientGitDirty:   row.ClientGitDirty,
 	}
 }
 

@@ -10,6 +10,8 @@ import (
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/inference"
+	"weave-os/router/internal/observability"
+	"weave-os/router/internal/router/gitcontext"
 )
 
 // InstallationIDContextKey is the request-context key for the authenticated installation UUID.
@@ -220,6 +222,35 @@ type InsertTelemetryParams struct {
 	// Nil on paths not yet dispatched through the executor, leaving every
 	// provenance column NULL.
 	Inference *inference.OperationSummary
+
+	// ClientGit* is the client-reported starting tree, parsed from the Claude
+	// Code gitStatus system block on a trial-mode session's first turn only.
+	// Nullable group: nil/empty on every other turn and on parse failure.
+	ClientGitHeadSHA string
+	ClientGitBranch  string
+	ClientGitDirty   *bool
+}
+
+// applyClientGitContextTelemetry stamps the ClientGit* group when the
+// installation is in trial mode and this is the session's first turn. The
+// parse is pure and fail-open: a miss logs at debug and leaves the group null.
+func applyClientGitContextTelemetry(ctx context.Context, params *InsertTelemetryParams, firstTurn bool, systemBlocks []string) {
+	if params == nil || !firstTurn || !trialCaptureEnabledFromContext(ctx) {
+		return
+	}
+	gc, ok := gitcontext.Parse(systemBlocks)
+	if !ok {
+		observability.FromContext(ctx).Debug("router.client_git_context_unparsed", "system_blocks", len(systemBlocks))
+		return
+	}
+	params.ClientGitHeadSHA = gc.HeadSHA
+	params.ClientGitBranch = gc.Branch
+	params.ClientGitDirty = &gc.Dirty
+}
+
+func trialCaptureEnabledFromContext(ctx context.Context) bool {
+	enabled, _ := ctx.Value(InstallationTrialCaptureContextKey{}).(bool)
+	return enabled
 }
 
 func applyBlindExperimentTelemetry(ctx context.Context, params *InsertTelemetryParams) {

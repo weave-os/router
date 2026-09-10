@@ -95,6 +95,13 @@ type Installation struct {
 	// HideTerminalSurfaces suppresses the routing marker, feedback footer, and
 	// statusline; routing and feedback recording are unaffected. Defaults false.
 	HideTerminalSurfaces bool
+	// TrialCaptureEnabled opts the installation into the consented trial-period
+	// benchmark's extra telemetry capture (client git context on a session's
+	// first turn). Written by WorkWeave; never influences routing. Defaults false.
+	TrialCaptureEnabled bool
+	// TrialEnrollmentID is the WorkWeave trial enrollment this installation is
+	// mirrored from. Empty when not enrolled.
+	TrialEnrollmentID string
 	// FirstRequestServedAt is when this installation first routed a request.
 	// Set once and never cleared so it survives key rotation.
 	FirstRequestServedAt *time.Time

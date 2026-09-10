@@ -173,6 +173,7 @@ Field groups:
 | Economics | `subscription_served`, `actual_input_cost_usd`, `actual_output_cost_usd` |
 | Performance | `route_latency_ms`, `upstream_latency_ms`, `total_latency_ms`, `ttft_ms` |
 | Outcome | `upstream_status_code`, `upstream_finish_reason`, `stop_reason`, `tool_use_blocks`, `invalid_tool_args_blocks` |
+| Trial git context | `client_git_head_sha`, `client_git_branch`, `client_git_dirty` — the client-reported starting tree, stamped on the first turn of a session for installations in trial mode only; null everywhere else. `client_git_head_sha` is abbreviated as the client printed it, so compare by prefix. |
 
 The export deliberately omits the scorer's internals (cluster assignments,
 per-candidate scores, exploration propensities, policy artifact identifiers),
