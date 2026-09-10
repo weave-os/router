@@ -1,0 +1,43 @@
+internal/policyclient/resilience.go
+  s_7fa428a6b6817b::t_cf491e77b53bfb 94-98
+internal/proxy/dispatch_plan.go
+  s_7fa428a6b6817b::t_a66f7c595d3e4c 153-155
+internal/router/policy/resolver.go
+  s_7fa428a6b6817b::t_e02de5fffedb2b 289,347-349,376-378,492,546,556,561
+  s_7fa428a6b6817b::t_61fc92e82c2f1c 338,367
+internal/translate/handover.go
+  s_7fa428a6b6817b::t_bd75063c3c86a4 331,337
+cmd/router/readiness_test.go
+  s_7fa428a6b6817b::t_e47887998d3c9c 69-79
+internal/dispatch/executor.go
+  s_7fa428a6b6817b::t_c93e870dd298fe 341-342
+  s_7fa428a6b6817b::t_2d6c90c9de3f5b 7
+docs/CONFIGURATION.md
+  s_7fa428a6b6817b::t_7093aeba11c5dd 564
+internal/proxy/turnloop.go
+  s_7fa428a6b6817b::t_e44a3b2f8a6fc3 894-896,994
+cmd/router/main.go
+  s_7fa428a6b6817b::t_b091f5c339463c 1187
+internal/policyclient/client.go
+  s_7fa428a6b6817b::t_93f98848c07450 931
+internal/proxy/credential_key_parts_internal_test.go
+  s_7fa428a6b6817b::t_3d54771343fa1d 34
+internal/router/policy/inference_purpose.go
+  s_7fa428a6b6817b::t_a79c93a8412190 78
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "28cba57e75457c4321a09e7aff16eda62ca8d9f5",
+  "prompts": {},
+  "sessions": {
+    "s_7fa428a6b6817b": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "92be9f94-6f27-4e58-a8fb-0fe9429576cf",
+        "model": "grok-4.6"
+      },
+      "human_author": "Drew Bailey <drew@workweave.ai>"
+    }
+  }
+}
