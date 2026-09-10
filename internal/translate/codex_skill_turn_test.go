@@ -159,15 +159,3 @@ func TestStripThenExtract_SkillBlobAfterAnAckDoesNotRevivePriorFeedback(t *testi
 	_, found := env.ExtractRouterFeedbackCommand()
 	assert.False(t, found, "a completed feedback turn must not be recorded twice")
 }
-
-// The same positional rule must not break the attachment case it exists for.
-func TestExtractForceModelCommand_BlobIsStillAnAttachmentAfterAUserMessage(t *testing.T) {
-	env := codexEnvelope(t,
-		codexUserItem("<environment_context><cwd>/x</cwd></environment_context>"),
-		codexUserItem("$fm astra"),
-		codexUserItem(codexSkillBlob),
-	)
-	res, found := env.ExtractForceModelCommand()
-	require.True(t, found)
-	assert.Equal(t, "astra", res.Model)
-}

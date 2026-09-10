@@ -222,10 +222,25 @@ WEAVE_CODEX_END_MARKER="# <<< weave-router managed <<<"
 # up outside the markers, which used to leave them behind after an uninstall.
 # Removal is per sub-entry so a group shared with a third party keeps theirs.
 strip_weave_codex_hooks() {
-  local config_file="$1"
+  local config_file="$1"; shift
   [ -f "$config_file" ] || return 0
+  # Exact paths, never a filename pattern: a third party's hook is free to be
+  # called weave-status.sh, and matching on the basename would delete it.
+  local owned="" candidate
+  for candidate in "$@"; do
+    [ -n "$candidate" ] || continue
+    # A unit separator, not a newline: BSD awk rejects an embedded newline in a
+    # -v value outright ("newline in string"), which silently disabled the whole
+    # pass on macOS.
+    owned="${owned}${candidate}$(printf '\037')"
+  done
+  [ -n "$owned" ] || return 0
   local tmp; tmp="$(mktemp -t weave-codex-hooks.XXXXXX)"
-  awk -v want_re='command[[:space:]]*=[[:space:]]*"[^"]*(codex|weave)-(status|directive)[.]sh"' '
+  awk -v owned="$owned" '
+    BEGIN {
+      n = split(owned, list, "\037")
+      for (i = 1; i <= n; i++) if (list[i] != "") own[list[i]] = 1
+    }
     function flush_sub(   i) {
       if (sub_n == 0) return
       if (!sub_is_weave) {
@@ -250,7 +265,11 @@ strip_weave_codex_hooks() {
     {
       if (sub_n > 0) {
         sub_line[++sub_n] = $0
-        if ($0 ~ want_re) sub_is_weave = 1
+        if (match($0, /^[[:space:]]*command[[:space:]]*=[[:space:]]*"[^"]*"/)) {
+          v = substr($0, RSTART, RLENGTH)
+          sub(/^[^"]*"/, "", v); sub(/"$/, "", v)
+          if (v in own) sub_is_weave = 1
+        }
         next
       }
       if (group_pending != "" && $0 ~ /^[[:space:]]*$/) { group_blank = 1; next }
@@ -285,7 +304,7 @@ strip_codex_block() {
     { print }
   ' "$config_file" >"$tmp"
   mv "$tmp" "$config_file"
-  strip_weave_codex_hooks "$config_file"
+  strip_weave_codex_hooks "$config_file" "$codex_status_file" "$codex_directive_file"
 }
 
 # ---------- opencode uninstall path ----------

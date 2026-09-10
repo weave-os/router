@@ -422,6 +422,33 @@ grep -Fq 'model_provider = "weave"' "$config" \
 run_uninstall
 rm -rf "$home/.codex" "$home/.weave"
 
+# A third party is free to name its hook weave-status.sh. Removal matches the
+# exact paths this installation owns, so a same-named hook somewhere else is not
+# ours to delete -- a filename pattern would have taken it.
+rm -rf "$home/.codex" "$home/.weave"
+mkdir -p "$home/.codex" "$home/elsewhere"
+printf '%s\n' '#!/usr/bin/env bash' 'exit 0' >"$home/elsewhere/weave-status.sh"
+chmod 755 "$home/elsewhere/weave-status.sh"
+cat >"$config" <<TOML
+model_provider = "weave"
+
+[model_providers.weave]
+base_url = "https://router.workweave.ai/v1"
+
+[[hooks.SessionStart]]
+[[hooks.SessionStart.hooks]]
+type = "command"
+command = "$home/elsewhere/weave-status.sh"
+TOML
+
+run_hosted_install
+assert_config_parses "a same-named third-party hook produced unparseable TOML"
+grep -Fq "command = \"$home/elsewhere/weave-status.sh\"" "$config" \
+  || fail "removal matched on filename and deleted a third-party hook we do not own"
+[ -x "$home/elsewhere/weave-status.sh" ] \
+  || fail "the installer removed a third-party script it does not own"
+rm -rf "$home/.codex" "$home/.weave" "$home/elsewhere"
+
 
 # ---------- project scope gitignores every generated helper ----------
 #

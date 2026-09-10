@@ -496,10 +496,25 @@ resolve_user_email() {
 # hook and a third party's, and dropping the group would take theirs with it.
 # The group header goes only once nothing is left inside it.
 strip_weave_codex_hooks() {
-  local config_file="$1"
+  local config_file="$1"; shift
   [ -f "$config_file" ] || return 0
+  # Exact paths, never a filename pattern: a third party's hook is free to be
+  # called weave-status.sh, and matching on the basename would delete it.
+  local owned="" candidate
+  for candidate in "$@"; do
+    [ -n "$candidate" ] || continue
+    # A unit separator, not a newline: BSD awk rejects an embedded newline in a
+    # -v value outright ("newline in string"), which silently disabled the whole
+    # pass on macOS.
+    owned="${owned}${candidate}$(printf '\037')"
+  done
+  [ -n "$owned" ] || return 0
   local tmp; tmp="$(mktemp -t weave-codex-hooks.XXXXXX)"
-  awk -v want_re='command[[:space:]]*=[[:space:]]*"[^"]*(codex|weave)-(status|directive)[.]sh"' '
+  awk -v owned="$owned" '
+    BEGIN {
+      n = split(owned, list, "\037")
+      for (i = 1; i <= n; i++) if (list[i] != "") own[list[i]] = 1
+    }
     function flush_sub(   i) {
       if (sub_n == 0) return
       if (!sub_is_weave) {
@@ -513,11 +528,7 @@ strip_weave_codex_hooks() {
       sub_n = 0
       sub_is_weave = 0
     }
-    function close_group() {
-      flush_sub()
-      group_pending = ""
-      group_blank = 0
-    }
+    function close_group() { flush_sub(); group_pending = ""; group_blank = 0 }
     /^[[:space:]]*\[\[hooks\.[A-Za-z]+\.hooks\]\][[:space:]]*$/ {
       flush_sub(); sub_n = 1; sub_line[1] = $0; next
     }
@@ -528,7 +539,11 @@ strip_weave_codex_hooks() {
     {
       if (sub_n > 0) {
         sub_line[++sub_n] = $0
-        if ($0 ~ want_re) sub_is_weave = 1
+        if (match($0, /^[[:space:]]*command[[:space:]]*=[[:space:]]*"[^"]*"/)) {
+          v = substr($0, RSTART, RLENGTH)
+          sub(/^[^"]*"/, "", v); sub(/"$/, "", v)
+          if (v in own) sub_is_weave = 1
+        }
         next
       }
       if (group_pending != "" && $0 ~ /^[[:space:]]*$/) { group_blank = 1; next }
@@ -702,7 +717,7 @@ TOML
     # Drop every registration we own first; the managed block below re-adds
     # exactly the ones this version still ships. The section scan has to run
     # after it, since removing a group can move the first header.
-    strip_weave_codex_hooks "$tmp"
+    strip_weave_codex_hooks "$tmp" "$codex_status_file" "$codex_directive_file"
     local first_section
     first_section="$(awk '/^[[:space:]]*\[/ { print NR; exit }' "$tmp")"
     if [ -n "$first_section" ]; then
@@ -3621,6 +3636,8 @@ announce_done() {
 # run a missing command on every prompt, so the two must go together.
 # strip_weave_codex_hooks removes the registration; this removes the file.
 remove_codex_directive_helper() {
+  [ -e "$codex_directive_file" ] || return 0
+  refuse_if_symlink "$codex_directive_file"
   [ -f "$codex_directive_file" ] || return 0
   if grep -Fq '<!-- weave-router managed codex directive -->' "$codex_directive_file"; then
     rm -f "$codex_directive_file"
@@ -4079,9 +4096,11 @@ if [ "$target" = "codex" ]; then
     err "Cannot install the Codex status helper safely; refusing to write hooks that could execute unowned code."
     exit 1
   fi
-  remove_codex_directive_helper
   write_codex_config "$codex_config_file" "$base_url" "$api_key" "$user_email" "$user_name"
   ok "Codex config written to $codex_config_file"
+  # Only once the registration is gone: a helper deleted while its registration
+  # survives makes Codex run a missing command on every prompt.
+  remove_codex_directive_helper
   remove_obsolete_codex_prompt_wrappers "$codex_dir/prompts"
   install_codex_prompt_skills
   info "Codex router directives: begin the message with one space, e.g. ' /force-model gpt-5.6-terra'."

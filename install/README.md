@@ -295,8 +295,10 @@ toggles — in a detached fork, so no Codex turn blocks on it, and it skips the
 replacement when the bytes are unchanged. The `WEAVE_STATUSLINE_*` variables
 above are accepted as fallbacks for users who configure both clients together.
 
-**Codex directives are answered by the router.** Codex sends a `$name`
-invocation as two user messages: the text the user typed, then a second message
+**Prompt directives are answered by the router.** `$fm`/`$force-model`,
+`$ufm`/`$unforce-model` and `$rf`/`$router-feedback` reach the router; the local
+toggles and `$router-session` do not, and are covered below. Codex sends a
+`$name` invocation as two user messages: the text the user typed, then a second message
 carrying the invoked skill's `SKILL.md`. The router reads the directive out of
 the first one, applies it, and answers with a synthetic response — the same
 short-circuit Claude Code's slash commands take — so a directive costs no
@@ -305,10 +307,14 @@ why a `$rf - too slow` verdict now survives: nothing paraphrases it.
 
 0.2.17 shipped a `UserPromptSubmit` hook to do this client-side, before the
 router could see the directive behind the skill block. It is retired, and an
-upgrade removes both the hook and its helper. Local toggles
-(`$router-on`/`$router-off`/`$router-status`/`$router-models`/
-`$disable-routing`) mutate local config rather than router state and remain
-skill-driven.
+upgrade removes both the hook and its helper.
+
+Two groups stay skill-driven because they are not router state. The local
+toggles (`$router-on`/`$router-off`/`$router-status`/`$router-models`/
+`$disable-routing`) mutate config on disk. `$router-session` prints a
+client-local id, so it never reaches the router and still costs a model turn;
+its script needs `CODEX_SESSION_ID`, and Codex prints the same id in its own
+session banner.
 
 **Codex status integration.** Codex 0.150+ supports lifecycle hooks. The installer enables hooks and adds managed `SessionStart` and `Stop` handlers. They maintain a small local state file and set the terminal title to `Weave Router · <routed-model> ← <requested-model>` when the router provides a routed-model marker. On ordinary turns where the model is unchanged, the title remains the last known routed model; before the first routed response it shows `Weave Router · active`. The hooks intentionally emit no status messages: Codex renders hook output in the conversation, which makes a persistent router indicator noisy and easy to confuse with model output. It is not a replacement for Codex's requested-model line: that line continues to show the model selected in Codex configuration, while the Weave status identifies the model that actually served. Existing user and project hooks remain outside the managed block and are preserved on reinstall/uninstall.
 
