@@ -64,7 +64,7 @@ func parseRouterModelsCommand(text string) (found bool, stripped string) {
 	// and for router-models it would silently drop a mutating argument split
 	// across lines ("$router-models\nenable gpt-5.5"), answering with a bare
 	// listing instead of falling through to the skill that can apply it.
-	if !isOnlyInjectedCommandText(stripped) {
+	if !isOnlyKnownInjectedText(stripped) {
 		return false, text
 	}
 	return true, stripped

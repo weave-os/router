@@ -66,3 +66,23 @@ func TestExtractRouterSessionCommand_IgnoresNonLeadingAndArgumentForms(t *testin
 		})
 	}
 }
+
+// Same guard as router-models: a pasted <error>...</error> under the directive
+// is the user's text, and short-circuiting would lose it entirely.
+func TestExtractRouterSessionCommand_TaggedTrailingTextIsNotSynthetic(t *testing.T) {
+	for _, text := range []string{
+		"$router-session\n<error>stack trace here</error>",
+		"$router-session\n<log>what happened?</log>",
+	} {
+		t.Run(text, func(t *testing.T) {
+			env := codexEnvelope(t, codexUserItem(text))
+			assert.False(t, env.ExtractRouterSessionCommand(),
+				"%q would lose the user's text", text)
+		})
+	}
+}
+
+func TestExtractRouterSessionCommand_ClientWrappersStillCount(t *testing.T) {
+	env := codexEnvelope(t, codexUserItem("/router-session\n<system-reminder>be concise</system-reminder>"))
+	assert.True(t, env.ExtractRouterSessionCommand())
+}

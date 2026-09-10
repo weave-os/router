@@ -65,7 +65,7 @@ func parseRouterSessionCommand(text string) (found bool, stripped string) {
 	// so matching the token alone and discarding the rest would swallow
 	// whatever the user wrote under it -- "$router-session\nand what has this
 	// session cost?" would answer the first line and drop the question.
-	if !isOnlyInjectedCommandText(stripped) {
+	if !isOnlyKnownInjectedText(stripped) {
 		return false, text
 	}
 	return true, stripped

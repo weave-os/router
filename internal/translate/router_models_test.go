@@ -72,3 +72,34 @@ func TestExtractRouterModelsCommand_IgnoresNonLeadingUses(t *testing.T) {
 		})
 	}
 }
+
+// A tag is not a licence to discard. leadingInjectedPrefixEnd accepts any
+// well-formed <name>...</name>, so the earlier guard treated arbitrary tagged
+// text as synthetic and dropped it -- here, a mutating argument.
+func TestExtractRouterModelsCommand_TaggedArgumentIsNotSynthetic(t *testing.T) {
+	for _, text := range []string{
+		"$router-models\n<foo>enable gpt-5.5</foo>",
+		"$router-models\n<note>disable gpt-5.5</note>",
+	} {
+		t.Run(text, func(t *testing.T) {
+			env := codexEnvelope(t, codexUserItem(text))
+			assert.False(t, env.ExtractRouterModelsCommand(),
+				"%q is the user's text, not a client wrapper", text)
+		})
+	}
+}
+
+// The client's OWN wrappers still have to pass, or the directive breaks for
+// every Claude Code user: it appends these to user messages.
+func TestExtractRouterModelsCommand_ClientWrappersStillCount(t *testing.T) {
+	for _, text := range []string{
+		"/router-models\n<system-reminder>be concise</system-reminder>",
+		"<command-name>/router-models</command-name>\n/router-models",
+	} {
+		t.Run(text, func(t *testing.T) {
+			env := codexEnvelope(t, codexUserItem(text))
+			assert.True(t, env.ExtractRouterModelsCommand(),
+				"%q carries only client-injected wrappers", text)
+		})
+	}
+}
