@@ -59,6 +59,7 @@ import (
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/router/sessionstrategy"
 	"weave-os/router/internal/server"
+	"weave-os/router/internal/server/middleware"
 	"weave-os/router/internal/subscriptions"
 	"weave-os/router/internal/websearch"
 	"weave-os/router/internal/wif"
@@ -912,20 +913,27 @@ func main() {
 
 	// Loaded only when ROUTER_HMM_ROSTER_PATH is set; the declarative roster is
 	// the source of the HMM strategies' deterministic arm selection below.
+	// ROUTER_HMM_ROSTER_PINNABLE_PATHS adds older roster versions, indexed by
+	// file digest, that an authorized x-weave-policy-pin may select.
 	var declarativeRoster *rosterdata.Roster
+	var rosterSet *rosterdata.Set
 	if rosterPath := strings.TrimSpace(config.GetOr("ROUTER_HMM_ROSTER_PATH", "")); rosterPath != "" {
-		loadedRoster, rosterErr := rosterdata.Load(rosterPath)
+		pinnablePaths := strings.Split(config.GetOr("ROUTER_HMM_ROSTER_PINNABLE_PATHS", ""), ",")
+		loadedSet, rosterErr := rosterdata.LoadSet(rosterPath, pinnablePaths)
 		if rosterErr != nil {
-			logger.Error("HMM declarative roster failed to load; refusing to boot", "path", rosterPath, "err", rosterErr)
+			logger.Error("HMM declarative roster failed to load; refusing to boot", "path", rosterPath, "pinnable_paths", pinnablePaths, "err", rosterErr)
 			panic(rosterErr)
 		}
-		declarativeRoster = loadedRoster
+		rosterSet = loadedSet
+		declarativeRoster = loadedSet.Default
 		logger.Info(
 			"HMM declarative roster loaded",
 			"path", rosterPath,
 			"schema_version", declarativeRoster.SchemaVersion,
 			"clusters", len(declarativeRoster.Clusters),
 			"arms", len(declarativeRoster.AllArms()),
+			"roster_sha256", declarativeRoster.SHA256,
+			"pinnable_roster_sha256s", rosterSet.SHA256s(),
 		)
 	}
 
@@ -1005,7 +1013,7 @@ func main() {
 			logger.Error("HMM sidecar configured without ROUTER_HMM_ROSTER_PATH; refusing to boot", "sidecar_url", hmmSidecarURL)
 			panic("ROUTER_HMM_ROSTER_PATH is required when ROUTER_HMM_SIDECAR_URL is set")
 		}
-		armSelector := selection.Selector(declarativeRoster)
+		armSelector := selection.SetSelector(rosterSet)
 		hmmPolicyRouter.WithArmSelector(armSelector)
 		hmmEmbeddingPolicyRouter.WithArmSelector(armSelector)
 		hmmRouter = hmmPolicyRouter
@@ -1377,7 +1385,13 @@ func main() {
 	deployedModels, _ := rtr.(*cluster.Multiversion)
 	analyticsSvc := analytics.NewService(repo.Analytics, time.Now)
 	readinessChecker := newReadinessChecker(pool, hmmReadinessChecker)
-	server.Register(engine, authSvc, proxySvc, deployedModels, hmmRosterModels, deploymentMode, billingSvc, readinessChecker, hmmRosterSource, analyticsSvc, declarativeRoster)
+	// ROUTER_POLICY_PIN_ENABLED=true registers x-weave-policy-pin; off, the
+	// header is never read and no pin telemetry is written.
+	policyPinEnabled := strings.EqualFold(config.GetOr("ROUTER_POLICY_PIN_ENABLED", "false"), "true")
+	if policyPinEnabled {
+		logger.Info("Policy pin header enabled", "header", middleware.PolicyPinOverrideHeader)
+	}
+	server.RegisterWithFeatures(engine, authSvc, proxySvc, deployedModels, hmmRosterModels, deploymentMode, billingSvc, readinessChecker, hmmRosterSource, analyticsSvc, server.Features{PolicyPinEnabled: policyPinEnabled}, declarativeRoster)
 
 	srv := &http.Server{
 		Addr:    ":" + config.GetOr("PORT", "8080"),

@@ -93,6 +93,9 @@ type Query struct {
 	CaptureMode          string
 	DebugEnabled         bool
 	Candidates           []Candidate
+	// ArtifactSHA256 selects a boot-loaded sidecar package; empty serves the
+	// sidecar's default package.
+	ArtifactSHA256 string
 }
 
 // Result is a policy sidecar's selected candidate and decision metadata.

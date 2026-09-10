@@ -40,6 +40,8 @@ func Schema() []Field {
 		{"blind_experiment_arm", "string", true, "Effective blind experiment arm: router_on or passthrough. Null outside an active experiment."},
 		{"blind_experiment_assignment_source", "string", true, "Whether the effective experiment arm came from automatic allocation or a manual override. Null outside an active experiment."},
 		{"blind_experiment_subject_key", "string", true, "Canonical subject key used for the experiment assignment. Null outside an active experiment."},
+		{"policy_pin_requested", "boolean", true, "True when the caller sent an x-weave-policy-pin header. Null when no pin was requested."},
+		{"policy_pin_honoured", "boolean", true, "True when the turn was served by exactly the pinned policy artifact and roster. False when the pin was ignored (installation not authorized) or unservable. Null when no pin was requested."},
 		{"sticky_hit", "boolean", false, "True when the turn reused a session-sticky decision instead of scoring fresh."},
 		{"failover_used", "boolean", false, "True when the first-choice upstream failed and another served the turn."},
 		{"cross_format", "boolean", false, "True when the request was translated between API formats (e.g. Anthropic to OpenAI)."},

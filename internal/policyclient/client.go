@@ -262,6 +262,7 @@ func (c *Client) post(ctx context.Context, path string, payload map[string]inter
 
 type routeRequest struct {
 	SchemaVersion             string            `json:"schema_version"`
+	ArtifactSHA256            string            `json:"artifact_sha256,omitempty"`
 	Strategy                  string            `json:"strategy"`
 	ExecutionMode             string            `json:"execution_mode"`
 	RouteID                   string            `json:"route_id"`
@@ -506,6 +507,9 @@ func (c *Client) Decide(ctx context.Context, query policy.Query) (policy.Result,
 		return policy.Result{}, fmt.Errorf("decode policy route response (status %d): %w", resp.StatusCode, err)
 	}
 	if resp.StatusCode != http.StatusOK {
+		if err := unknownArtifactErr(query, resp.StatusCode); err != nil {
+			return policy.Result{}, err
+		}
 		if parsed.Error != "" {
 			return policy.Result{}, fmt.Errorf("policy sidecar status %d: %s", resp.StatusCode, parsed.Error)
 		}
@@ -585,6 +589,9 @@ func (c *Client) Preview(ctx context.Context, query policy.Query) (policy.Previe
 		return policy.PreviewResult{}, fmt.Errorf("decode policy preview response (status %d): %w", resp.StatusCode, err)
 	}
 	if resp.StatusCode != http.StatusOK {
+		if err := unknownArtifactErr(query, resp.StatusCode); err != nil {
+			return policy.PreviewResult{}, err
+		}
 		if parsed.Error != "" {
 			return policy.PreviewResult{}, fmt.Errorf("policy preview status %d: %s", resp.StatusCode, parsed.Error)
 		}
@@ -669,6 +676,7 @@ func marshalRouteRequest(query policy.Query) ([]byte, error) {
 	}
 	body, err := json.Marshal(routeRequest{
 		SchemaVersion:             schemaVersion,
+		ArtifactSHA256:            query.ArtifactSHA256,
 		Strategy:                  string(query.Strategy),
 		ExecutionMode:             query.ExecutionMode,
 		RouteID:                   query.RouteID,
@@ -891,6 +899,15 @@ func isTransientPolicyStatus(status int) bool {
 		status == http.StatusBadGateway ||
 		status == http.StatusServiceUnavailable ||
 		status == http.StatusGatewayTimeout
+}
+
+// unknownArtifactErr maps the sidecar's 404 for a selected artifact_sha256 to
+// the pin sentinel so the turn fails closed instead of retrying elsewhere.
+func unknownArtifactErr(query policy.Query, status int) error {
+	if query.ArtifactSHA256 == "" || status != http.StatusNotFound {
+		return nil
+	}
+	return fmt.Errorf("policy sidecar has no artifact %q: %w", query.ArtifactSHA256, router.ErrPolicyPinUnavailable)
 }
 
 // PolicyStatusError is a non-2xx response from the sidecar, typed so the retry

@@ -21,6 +21,9 @@ type SelectionInput struct {
 	RankedFallback     []PreviewGroup
 	CandidateRosterIDs []string
 	QualityBias        *float64
+	// RosterSHA256 pins selection to one boot-loaded roster; empty uses the
+	// default. Unknown digests fail with router.ErrPolicyPinUnavailable.
+	RosterSHA256 string
 }
 
 // SelectionPick is the router's selected arm.
@@ -28,6 +31,9 @@ type SelectionPick struct {
 	Group            string
 	Arm              string
 	ArmScoresByGroup map[string]map[string]float32
+	// RosterSHA256 identifies the roster that produced the pick; empty when the
+	// selector has no roster identity.
+	RosterSHA256 string
 }
 
 // ArmSelector picks the served arm from a sidecar classification. An error

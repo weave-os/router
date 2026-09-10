@@ -318,6 +318,9 @@ type RoutingMetadata struct {
 	PolicyArtifactID     string
 	PolicyArtifactSHA256 string
 	RosterVersion        string
+	// PolicyPinHonoured is true only when an authorized x-weave-policy-pin
+	// selected both the served artifact and the served roster.
+	PolicyPinHonoured bool
 	// SidecarTimings is set only on fresh sidecar decisions; never persist
 	// into pins or a replayed pin re-emits a stale measurement.
 	SidecarTimings *SidecarTimings

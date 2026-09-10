@@ -412,6 +412,8 @@ type RouterModelRouterRequestTelemetry struct {
 	BlindExperimentArm              *string
 	BlindExperimentAssignmentSource *string
 	BlindExperimentSubjectKey       *string
+	PolicyPinRequested              *bool
+	PolicyPinHonoured               *bool
 }
 
 type RouterModelRouterSubscriptionAccount struct {

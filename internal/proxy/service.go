@@ -2579,6 +2579,17 @@ func (s *Service) routeFor(ctx context.Context, req router.Request) (router.Deci
 }
 
 func (s *Service) routeWithStrategy(ctx context.Context, strategy router.Strategy, req router.Request) (router.Decision, error) {
+	decision, err := s.routeWithStrategyUnchecked(ctx, strategy, req)
+	if err != nil {
+		return decision, err
+	}
+	if pin, pinned := router.HonouredPolicyPin(ctx); pinned && (decision.Metadata == nil || !decision.Metadata.PolicyPinHonoured) {
+		return router.Decision{}, fmt.Errorf("strategy %q cannot serve policy pin %s: %w", strategy, pin, router.ErrPolicyPinUnavailable)
+	}
+	return decision, nil
+}
+
+func (s *Service) routeWithStrategyUnchecked(ctx context.Context, strategy router.Strategy, req router.Request) (router.Decision, error) {
 	if strategy == router.StrategyCluster {
 		if s.router == nil {
 			return router.Decision{}, fmt.Errorf("strategy %q requested but no router configured: %w", strategy, router.ErrStrategyUnavailable)
@@ -3374,6 +3385,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	finishRoutingSpan(routeSpan, routeRes.Decision, routeErr)
 	if routeErr != nil {
 		log.Error("Routing failed", "err", routeErr, "route_ms", time.Since(routeStart).Milliseconds(), "requested_model", feats.Model, "total_input_tokens", feats.Tokens)
+		s.recordPolicyPinRouteFailure(ctx, requestID, requestStart, feats.Model, routeRes.TurnType, routeErr)
 		return routeErr
 	}
 	if len(routeRes.SessionDisabledProviders) > 0 {
@@ -4643,6 +4655,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		applyPlannerTelemetry(&tel, routeRes)
 		applyAuthorityShadowTelemetry(&tel, routeRes)
 		applyBlindExperimentTelemetry(ctx, &tel)
+		applyPolicyPinTelemetry(ctx, &tel, decision.Metadata)
 		// Hard-pinned turn types carry history shapes that mimic failure signals,
 		// so only the detector's trusted turn types enter the training corpus.
 		signalTurn := tt == turntype.MainLoop || tt == turntype.ToolResult
@@ -6200,6 +6213,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	routeMs := time.Since(routeStart).Milliseconds()
 	if err != nil {
 		log.Error("Routing failed for OpenAI request", "err", err, "route_ms", routeMs, "requested_model", feats.Model, "total_input_tokens", feats.Tokens)
+		s.recordPolicyPinRouteFailure(ctx, requestID, requestStart, feats.Model, routeRes.TurnType, err)
 		return err
 	}
 	if len(routeRes.SessionDisabledProviders) > 0 {
@@ -7272,6 +7286,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		applyPlannerTelemetry(&telOAI, routeRes)
 		applyAuthorityShadowTelemetry(&telOAI, routeRes)
 		applyBlindExperimentTelemetry(ctx, &telOAI)
+		applyPolicyPinTelemetry(ctx, &telOAI, decision.Metadata)
 		s.fireTelemetry(telOAI)
 	}
 

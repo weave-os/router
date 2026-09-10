@@ -4,6 +4,8 @@
 package rosterdata
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"math"
@@ -28,6 +30,9 @@ type Roster struct {
 	SchemaVersion SchemaVersion      `json:"schema_version"`
 	Ranking       Ranking            `json:"ranking"`
 	Clusters      map[string]Cluster `json:"clusters"`
+	// SHA256 is the hex digest of the roster file bytes; the identity a
+	// policy pin names. Empty for rosters built in memory.
+	SHA256 string `json:"-"`
 }
 
 // Ranking carries the ranking metadata the roster builder used; Alpha is the
@@ -115,6 +120,7 @@ func Load(path string) (*Roster, error) {
 	if err != nil {
 		return nil, err
 	}
+	roster.SHA256 = SHA256Hex(data)
 	if diagnostics := hmm.ValidateRosterIDs(roster.AllArms()); len(diagnostics) > 0 {
 		lines := make([]string, 0, len(diagnostics))
 		for _, d := range diagnostics {
@@ -219,4 +225,10 @@ func finiteUnit(value float64) bool { return finiteRange(value, 0, 1) }
 
 func finiteRange(value, minimum, maximum float64) bool {
 	return !math.IsNaN(value) && !math.IsInf(value, 0) && value >= minimum && value <= maximum
+}
+
+// SHA256Hex returns the lowercase hex sha256 of raw roster bytes.
+func SHA256Hex(data []byte) string {
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:])
 }

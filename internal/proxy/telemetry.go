@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"time"
 
@@ -10,6 +11,8 @@ import (
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/inference"
+	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/turntype"
 )
 
 // InstallationIDContextKey is the request-context key for the authenticated installation UUID.
@@ -133,6 +136,8 @@ type InsertTelemetryParams struct {
 	InvalidToolArgsBlocks *int32
 	FailoverUsed          *bool
 	DegenerateShadow      *bool
+	PolicyPinRequested    *bool
+	PolicyPinHonoured     *bool
 
 	// SessionKey + Role are the offline join key to spiral_shadow_events and
 	// session_pins (16-byte digest + roleForTier of the requested model). Nil /
@@ -220,6 +225,19 @@ type InsertTelemetryParams struct {
 	// Nil on paths not yet dispatched through the executor, leaving every
 	// provenance column NULL.
 	Inference *inference.OperationSummary
+}
+
+// applyPolicyPinTelemetry records whether an x-weave-policy-pin header reached
+// the router and whether the served decision came from exactly the pinned
+// artifact and roster. Both stay nil when no pin was requested.
+func applyPolicyPinTelemetry(ctx context.Context, params *InsertTelemetryParams, metadata *router.RoutingMetadata) {
+	request, requested := router.PolicyPinRequestFrom(ctx)
+	if params == nil || !requested {
+		return
+	}
+	honoured := request.Authorized && metadata != nil && metadata.PolicyPinHonoured
+	params.PolicyPinRequested = &requested
+	params.PolicyPinHonoured = &honoured
 }
 
 func applyBlindExperimentTelemetry(ctx context.Context, params *InsertTelemetryParams) {
@@ -430,4 +448,44 @@ func (s attemptSink) RecordAttempt(ctx context.Context, event inference.AttemptE
 // NewAttemptSink returns the dispatch attempt sink backed by store.
 func NewAttemptSink(store InferenceAttemptStore, logger *slog.Logger) dispatch.AttemptSink {
 	return attemptSink{store: store, logger: logger}
+}
+
+// DecisionReasonPolicyPinUnservable marks a telemetry row for a turn that was
+// refused because its policy pin could not be served; no upstream was called.
+const DecisionReasonPolicyPinUnservable = router.PolicyPinUnavailableReason
+
+// DecisionReasonRoutingFailed marks a pinned turn refused by routing for a
+// reason other than the pin itself.
+const DecisionReasonRoutingFailed = "routing_failed"
+
+// recordPolicyPinRouteFailure persists the routing refusal for a turn that
+// carried a policy pin, so replay analysis sees requested=true, honoured=false
+// even though no upstream dispatch happened. Other routing failures write no row.
+func (s *Service) recordPolicyPinRouteFailure(ctx context.Context, requestID string, requestStart time.Time, requestedModel string, turnType turntype.TurnType, routeErr error) {
+	if _, requested := router.PolicyPinRequestFrom(ctx); !requested {
+		return
+	}
+	installationID := installationIDFromContext(ctx)
+	if installationID == uuid.Nil {
+		return
+	}
+	params := InsertTelemetryParams{
+		InstallationID: installationID.String(),
+		APIKeyID:       apiKeyIDFromContext(ctx),
+		RequestID:      requestID,
+		SpanType:       "router.upstream",
+		TraceID:        requestID,
+		Timestamp:      requestStart,
+		RequestedModel: requestedModel,
+		TurnType:       string(turnType),
+		DecisionReason: DecisionReasonPolicyPinUnservable,
+		Strategy:       string(router.StrategyFromContext(ctx)),
+		RouterUserID:   auth.UserIDFrom(ctx),
+	}
+	if !errors.Is(routeErr, router.ErrPolicyPinUnavailable) {
+		params.DecisionReason = DecisionReasonRoutingFailed
+	}
+	applyBlindExperimentTelemetry(ctx, &params)
+	applyPolicyPinTelemetry(ctx, &params, nil)
+	s.fireTelemetry(params)
 }

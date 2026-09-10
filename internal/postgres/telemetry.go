@@ -149,6 +149,8 @@ func (r *TelemetryRepo) InsertRequestTelemetry(ctx context.Context, p proxy.Inse
 		InvalidToolArgsBlocks:                    p.InvalidToolArgsBlocks,
 		FailoverUsed:                             p.FailoverUsed,
 		DegenerateShadow:                         p.DegenerateShadow,
+		PolicyPinRequested:                       p.PolicyPinRequested,
+		PolicyPinHonoured:                        p.PolicyPinHonoured,
 		SessionKey:                               p.SessionKey,
 		Role:                                     stringPtrOrNil(p.Role),
 		FreshDecisionModel:                       stringPtrOrNil(p.FreshDecisionModel),

@@ -119,7 +119,9 @@ func (r *SidecarRouter) PreviewRoute(ctx context.Context, req router.Request) (P
 
 	resolved := r.resolver.Resolve(req)
 	requestRouteID := uuid.NewString()
+	pin, pinned := router.HonouredPolicyPin(ctx)
 	result, err := previewer.Preview(ctx, Query{
+		ArtifactSHA256:       pin.ArtifactSHA256,
 		SchemaVersion:        r.resolver.SchemaVersion(),
 		Strategy:             strategy,
 		ExecutionMode:        ExecutionModePreview,
@@ -150,6 +152,9 @@ func (r *SidecarRouter) PreviewRoute(ctx context.Context, req router.Request) (P
 	})
 	if err != nil {
 		return PreviewResult{}, fmt.Errorf("%s: sidecar preview: %w: %w", strategy, err, r.config.Unavailable)
+	}
+	if pinned && result.PolicyArtifactSHA256 != pin.ArtifactSHA256 {
+		return PreviewResult{}, fmt.Errorf("%s: sidecar served artifact %q, pin requires %q: %w", strategy, result.PolicyArtifactSHA256, pin.ArtifactSHA256, router.ErrPolicyPinUnavailable)
 	}
 	if result.RouteID != "" && result.RouteID != requestRouteID {
 		return PreviewResult{}, fmt.Errorf("%s: preview route id mismatch: %w", strategy, r.config.Unavailable)
@@ -293,7 +298,12 @@ func (r *SidecarRouter) Route(ctx context.Context, req router.Request) (router.D
 			strategy, emptyCandidateError(resolved.Diagnostics), r.config.Unavailable)
 	}
 	requestRouteID := uuid.NewString()
+	pin, pinned := router.HonouredPolicyPin(ctx)
+	if pinned && r.armSelector == nil {
+		return router.Decision{}, fmt.Errorf("%s: roster pin requires router-owned arm selection: %w", strategy, router.ErrPolicyPinUnavailable)
+	}
 	res, err := r.decider.Decide(ctx, Query{
+		ArtifactSHA256:       pin.ArtifactSHA256,
 		SchemaVersion:        r.resolver.SchemaVersion(),
 		Strategy:             strategy,
 		ExecutionMode:        executionMode,
@@ -325,8 +335,15 @@ func (r *SidecarRouter) Route(ctx context.Context, req router.Request) (router.D
 	if err != nil {
 		observability.FromContext(ctx).Error("Policy router sidecar decision failed",
 			append([]any{"strategy", strategy, "err", err}, candidateLogFields(resolved)...)...)
+		if errors.Is(err, router.ErrPolicyPinUnavailable) {
+			return router.Decision{}, fmt.Errorf("%s: sidecar decide: %w", strategy, err)
+		}
 		return router.Decision{}, fmt.Errorf("%s: sidecar decide: %w: %w", strategy, err, r.config.Unavailable)
 	}
+	if pinned && res.PolicyArtifactSHA256 != pin.ArtifactSHA256 {
+		return router.Decision{}, fmt.Errorf("%s: sidecar served artifact %q, pin requires %q: %w", strategy, res.PolicyArtifactSHA256, pin.ArtifactSHA256, router.ErrPolicyPinUnavailable)
+	}
+	servedRosterSHA256 := res.RosterVersion
 
 	overrideArmID := res.ArmID
 	overrideRosterID := res.Model
@@ -342,6 +359,7 @@ func (r *SidecarRouter) Route(ctx context.Context, req router.Request) (router.D
 			return router.Decision{}, fmt.Errorf("%s: sidecar reported schema %q, expected %s: %w", strategy, res.SchemaVersion, SchemaVersionV3, r.config.Unavailable)
 		}
 		originalSelectionInput := selectionInputFor(strategy, executionMode, req, res, resolved)
+		originalSelectionInput.RosterSHA256 = pin.RosterSHA256
 		selectionInput, decision, constrained := constrainEscalation(req, originalSelectionInput, resolved)
 		escalationDecision = decision
 		pick, selectErr := r.selectEscalationArm(ctx, req, selectionInput, resolved, constrained)
@@ -350,6 +368,9 @@ func (r *SidecarRouter) Route(ctx context.Context, req router.Request) (router.D
 			pick, selectErr = r.selectEscalationArm(ctx, req, selectionInput, resolved, constrained)
 		}
 		if selectErr != nil {
+			if errors.Is(selectErr, router.ErrPolicyPinUnavailable) {
+				return router.Decision{}, fmt.Errorf("%s: arm selection: %w", strategy, selectErr)
+			}
 			if errors.Is(selectErr, ErrNoEligibleArm) &&
 				req.ForceCluster != "" && len(selectionInput.RankedFallback) == 1 &&
 				selectionInput.RankedFallback[0].Group == req.ForceCluster {
@@ -369,6 +390,12 @@ func (r *SidecarRouter) Route(ctx context.Context, req router.Request) (router.D
 		reselected = true
 		res.PolicyGroup = pick.Group
 		routerArmScoresByGroup = pick.ArmScoresByGroup
+		if pick.RosterSHA256 != "" {
+			servedRosterSHA256 = pick.RosterSHA256
+		}
+		if pinned && pick.RosterSHA256 != pin.RosterSHA256 {
+			return router.Decision{}, fmt.Errorf("%s: selection used roster %q, pin requires %q: %w", strategy, pick.RosterSHA256, pin.RosterSHA256, router.ErrPolicyPinUnavailable)
+		}
 	}
 
 	// Per-key cluster allowlist enforcement. ranked_fallback presence in the /route
@@ -504,7 +531,8 @@ func (r *SidecarRouter) Route(ctx context.Context, req router.Request) (router.D
 			PolicyGroup:                   res.PolicyGroup,
 			PolicyArtifactID:              res.PolicyArtifactID,
 			PolicyArtifactSHA256:          res.PolicyArtifactSHA256,
-			RosterVersion:                 res.RosterVersion,
+			RosterVersion:                 servedRosterSHA256,
+			PolicyPinHonoured:             pinned,
 			SidecarTimings:                res.Timings,
 			SidecarStats:                  res.ServingStats,
 			SelectedArmID:                 binding.ArmID,

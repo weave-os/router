@@ -186,6 +186,7 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 	routeMs := time.Since(routeStart).Milliseconds()
 	if err != nil {
 		log.Error("Routing failed for Gemini request", "err", err, "route_ms", routeMs, "requested_model", feats.Model, "total_input_tokens", feats.Tokens)
+		s.recordPolicyPinRouteFailure(ctx, requestID, requestStart, feats.Model, routeRes.TurnType, err)
 		return err
 	}
 	if len(routeRes.SessionDisabledProviders) > 0 {
@@ -453,6 +454,7 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 		applyPlannerTelemetry(&telemetryParams, routeRes)
 		applyAuthorityShadowTelemetry(&telemetryParams, routeRes)
 		applyBlindExperimentTelemetry(ctx, &telemetryParams)
+		applyPolicyPinTelemetry(ctx, &telemetryParams, decision.Metadata)
 		s.fireTelemetry(telemetryParams)
 	}
 

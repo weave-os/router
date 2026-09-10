@@ -44,9 +44,12 @@ type Decision struct {
 	BlindExperimentArm              *auth.BlindExperimentArm              `json:"blind_experiment_arm"`
 	BlindExperimentAssignmentSource *auth.BlindExperimentAssignmentSource `json:"blind_experiment_assignment_source"`
 	BlindExperimentSubjectKey       *string                               `json:"blind_experiment_subject_key"`
-	StickyHit                       bool                                  `json:"sticky_hit"`
-	FailoverUsed                    bool                                  `json:"failover_used"`
-	CrossFormat                     bool                                  `json:"cross_format"`
+	// PolicyPin* are null when the turn carried no x-weave-policy-pin header.
+	PolicyPinRequested *bool `json:"policy_pin_requested"`
+	PolicyPinHonoured  *bool `json:"policy_pin_honoured"`
+	StickyHit          bool  `json:"sticky_hit"`
+	FailoverUsed       bool  `json:"failover_used"`
+	CrossFormat        bool  `json:"cross_format"`
 
 	EstimatedInputTokens *int64 `json:"estimated_input_tokens"`
 	InputTokens          *int64 `json:"input_tokens"`
