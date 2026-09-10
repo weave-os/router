@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"weave-os/router/internal/flags"
 	"weave-os/router/internal/router"
 )
 
@@ -72,7 +73,27 @@ const (
 	// to ProviderAnthropicGateway: a per-tenant endpoint, bearer auth, no
 	// deployment default. Serves model classes the Anthropic spec cannot carry.
 	ProviderOpenAIGateway = "openai_gateway"
+	// ProviderDeepSeek is DeepSeek's first-party OpenAI-compatible API
+	// (api.deepseek.com). Beta: see BetaProviderFlags.
+	ProviderDeepSeek = "deepseek"
 )
+
+// BetaProviderFlags names the providers that are opt-in per organization.
+// A beta provider is registered and keyed like any other, but the proxy
+// treats it as excluded for every request whose organization has not set
+// the mapped flag, so it never serves automatic routing, fallback, session
+// pins, or /force-model there. Its catalog bindings must trail the model's
+// generally available bindings so Providers[0]-derived defaults never name
+// it (enforced by catalog tests).
+var BetaProviderFlags = map[string]flags.Key{
+	ProviderDeepSeek: flags.KeyBetaProviderDeepSeek,
+}
+
+// IsBeta reports whether the provider requires a per-organization opt-in.
+func IsBeta(provider string) bool {
+	_, ok := BetaProviderFlags[provider]
+	return ok
+}
 
 // TranslationFamily is the wire-format family a provider speaks; the proxy
 // dispatches cross-format translation off this instead of enumerated
@@ -111,6 +132,7 @@ var ProviderFamilies = map[string]TranslationFamily{
 	ProviderXAI:        FamilyOpenAICompat,
 	ProviderMeta:       FamilyOpenAICompat,
 	ProviderWafer:      FamilyOpenAICompat,
+	ProviderDeepSeek:   FamilyOpenAICompat,
 
 	ProviderWaferAnthropic:   FamilyAnthropic,
 	ProviderAnthropicGateway: FamilyAnthropic,
@@ -191,6 +213,7 @@ var APIKeyEnvVars = map[string]string{
 	ProviderTogether:   "TOGETHER_API_KEY",
 	ProviderXAI:        "XAI_API_KEY",
 	ProviderMeta:       "META_API_KEY",
+	ProviderDeepSeek:   "DEEPSEEK_API_KEY",
 	// Wafer's two surfaces share a single account key.
 	ProviderWafer:          "WAFER_API_KEY",
 	ProviderWaferAnthropic: "WAFER_API_KEY",
@@ -236,6 +259,7 @@ var CacheTTL = map[string]time.Duration{
 	ProviderMeta:           5 * time.Minute,
 	ProviderWafer:          5 * time.Minute,
 	ProviderWaferAnthropic: 5 * time.Minute,
+	ProviderDeepSeek:       5 * time.Minute,
 	// A gateway publishes no prompt-cache lifetime of its own, so it keeps the
 	// conservative window rather than inheriting Anthropic's 1h extended cache.
 	ProviderAnthropicGateway: 5 * time.Minute,

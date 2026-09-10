@@ -41,6 +41,7 @@ func TestCatalog_BindingsReferenceCanonicalProviders(t *testing.T) {
 		providers.ProviderWaferAnthropic:   {},
 		providers.ProviderAnthropicGateway: {},
 		providers.ProviderOpenAIGateway:    {},
+		providers.ProviderDeepSeek:         {},
 	}
 	for _, m := range Models {
 		for i, b := range m.Providers {
@@ -48,6 +49,23 @@ func TestCatalog_BindingsReferenceCanonicalProviders(t *testing.T) {
 			require.Truef(t, ok, "model %q binding %d uses unknown provider %q", m.ID, i, b.Provider)
 		}
 	}
+}
+
+// A beta provider is hidden from organizations that have not opted in, so it
+// must never be a model's primary binding: PrimaryPriceFor, the HMM roster,
+// /force-model, and the escalation ladder all read Providers[0] as the default.
+func TestCatalog_BetaProvidersNeverPrimary(t *testing.T) {
+	betaBound := 0
+	for _, m := range Models {
+		for i, b := range m.Providers {
+			if !providers.IsBeta(b.Provider) {
+				continue
+			}
+			betaBound++
+			require.NotZerof(t, i, "model %q lists beta provider %q as its primary binding", m.ID, b.Provider)
+		}
+	}
+	require.Positive(t, betaBound, "expected at least one beta provider binding in the catalog")
 }
 
 func TestCatalog_BindingsHavePositivePrice(t *testing.T) {

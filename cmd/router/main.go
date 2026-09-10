@@ -358,6 +358,18 @@ func main() {
 	}
 
 	{
+		// Beta provider (providers.BetaProviderFlags): registered and keyed
+		// like the others, but the proxy hides it from every organization
+		// whose beta_provider_deepseek flag is unset.
+		deepseekBaseURL := config.GetOr("DEEPSEEK_BASE_URL", openaiCompatProvider.DeepSeekBaseURL)
+		registerDeploymentKeyedProvider(providerMap, envKeyedProviders, logger,
+			providers.ProviderDeepSeek, "DeepSeek (beta)", "DEEPSEEK_API_KEY", deepseekBaseURL, byokOnly,
+			func(key, baseURL string) providers.Client {
+				return openaiCompatProvider.NewClientWithModelIDMap(key, baseURL, upstreamIDsForProvider(providers.ProviderDeepSeek), openaiCompatProvider.WithModelListHTTPClient(discoveryHTTPClient))
+			})
+	}
+
+	{
 		// Wafer's Anthropic-compatible Messages surface; same WAFER_API_KEY,
 		// bearer auth, fixed endpoint.
 		waferAnthropicKey := ""
@@ -1180,6 +1192,7 @@ func main() {
 		flags.KeyCyberRefusalFallback:                 cyberRefusalFallbackModel,
 		flags.KeyAnthropicServerFallback:              boolDefault(anthropicServerSideFallback),
 		flags.KeyEmbedOnlyUserMessage:                 boolDefault(embedOnlyUser),
+		flags.KeyBetaProviderDeepSeek:                 boolDefault(false),
 	})
 
 	// Always wire even when beta is unavailable: existing beta sessions fail

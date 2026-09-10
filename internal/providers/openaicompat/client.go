@@ -42,6 +42,9 @@ const (
 	MetaBaseURL = "https://api.meta.ai/v1"
 	// WaferBaseURL is Wafer Serverless' OpenAI-compatible surface.
 	WaferBaseURL = "https://pass.wafer.ai/v1"
+	// DeepSeekBaseURL is DeepSeek's first-party OpenAI-compatible surface;
+	// pair with NewClientWithModelIDMap to rewrite slugs to its bare model IDs.
+	DeepSeekBaseURL = "https://api.deepseek.com/v1"
 )
 
 // MiniMaxBaseURL returns the regional MiniMax OpenAI-compatible endpoint.

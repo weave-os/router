@@ -72,6 +72,10 @@ const (
 	KeyOpenAIResponsesBroad                 Key = "openai_responses_broad"
 	KeyAllowedModelsHeader                  Key = "allowed_models_header"
 	KeySubscriptionPlanAwareRouting         Key = "subscription_plan_aware_routing_enabled"
+	// Beta provider opt-ins. Each admits one provider from
+	// providers.BetaProviderFlags for the organization; there is no
+	// deployment default because a beta provider is never on for everyone.
+	KeyBetaProviderDeepSeek Key = "beta_provider_deepseek"
 )
 
 // Definition describes one overridable flag. DeploymentDefault is not stored
@@ -92,7 +96,7 @@ type Definition struct {
 // RegistryVersion changes whenever Registry's membership changes. Publish uses
 // it to make pruning safe during rolling deploys: a revision with an older
 // registry version may not delete definitions published by a newer revision.
-const RegistryVersion = 10
+const RegistryVersion = 11
 
 // Registry is the curated allowlist of flags that may carry a per-organization
 // override. It is deliberately explicit rather than derived from the env var
@@ -269,6 +273,12 @@ var Registry = []Definition{
 		EnvVar:         "ROUTER_ALLOWED_MODELS_HEADER",
 		Kind:           KindBool,
 		Description:    "Honor the x-weave-allowed-models request header (per-request routing subset) for this organization even when the installation is not authorized for policy headers.",
+		OrgOverridable: true,
+	},
+	{
+		Key:            KeyBetaProviderDeepSeek,
+		Kind:           KindBool,
+		Description:    "Beta provider: let this organization route to DeepSeek's first-party API (api.deepseek.com). Off by default; beta providers are excluded from routing, fallback, and /force-model until enabled.",
 		OrgOverridable: true,
 	},
 }

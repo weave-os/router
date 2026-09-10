@@ -537,6 +537,9 @@ var Models = []Model{
 			Price: Pricing{InputUSDPer1M: 0.280, OutputUSDPer1M: 0.560, CacheReadMultiplier: 0.07 / 0.280}},
 		{Provider: providers.ProviderWaferAnthropic, UpstreamID: "DeepSeek-V4-Flash-0731-Fast",
 			Price: Pricing{InputUSDPer1M: 0.280, OutputUSDPer1M: 0.560, CacheReadMultiplier: 0.07 / 0.280}},
+		// Beta provider (org opt-in); trails every GA binding by design.
+		{Provider: providers.ProviderDeepSeek, UpstreamID: "deepseek-v4-flash",
+			Price: Pricing{InputUSDPer1M: 0.140, OutputUSDPer1M: 0.280, CacheReadMultiplier: 0.10}},
 	}},
 	// Untiered: Makora EOL'd V4-Pro and recommends V4-Flash, which takes the
 	// tier. Priced and bound so session pins and /force-model still dispatch.
@@ -550,6 +553,9 @@ var Models = []Model{
 		{Provider: providers.ProviderFireworks, UpstreamID: "accounts/fireworks/models/deepseek-v4-pro",
 			Price: Pricing{InputUSDPer1M: 1.740, OutputUSDPer1M: 3.480, CacheReadMultiplier: 0.0862}},
 		{Provider: providers.ProviderOpenRouter, Price: Pricing{InputUSDPer1M: 0.435, OutputUSDPer1M: 0.870, CacheReadMultiplier: 0.10}},
+		// Beta provider (org opt-in); trails every GA binding by design.
+		{Provider: providers.ProviderDeepSeek, UpstreamID: "deepseek-v4-pro",
+			Price: Pricing{InputUSDPer1M: 0.435, OutputUSDPer1M: 0.870, CacheReadMultiplier: 0.10}},
 	}},
 	// The current V4-Pro release, and the one Artificial Analysis scores
 	// (agentic index 49.56; our aa_skill_scores entry already carries
@@ -563,6 +569,9 @@ var Models = []Model{
 		{Provider: providers.ProviderFireworks, UpstreamID: "accounts/fireworks/models/deepseek-v4-pro",
 			Price: Pricing{InputUSDPer1M: 1.740, OutputUSDPer1M: 3.480, CacheReadMultiplier: 0.0862}},
 		{Provider: providers.ProviderOpenRouter, Price: Pricing{InputUSDPer1M: 0.660, OutputUSDPer1M: 1.980, CacheReadMultiplier: 0.022 / 0.660}},
+		// Beta provider (org opt-in); trails every GA binding by design.
+		{Provider: providers.ProviderDeepSeek, UpstreamID: "deepseek-v4-pro",
+			Price: Pricing{InputUSDPer1M: 0.660, OutputUSDPer1M: 1.980, CacheReadMultiplier: 0.022 / 0.660}},
 	}},
 	{ID: "moonshotai/kimi-k2.5", Tier: TierHigh, ContextWindow: 262_144, ImageInput: ImageInputUnsupported, Providers: []ProviderBinding{
 		{Provider: providers.ProviderBedrock, UpstreamID: "moonshotai.kimi-k2.5",
