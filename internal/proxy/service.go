@@ -3739,7 +3739,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	}
 	// toolValidator compiles the request's tool schemas once (LRU-cached);
 	// translators validate/repair model tool calls against it. Nil if no tools.
-	toolValidator := env.ToolValidator()
+	toolValidator := toolValidatorForRequest(ctx, env)
 	setExtractor := func(e *otel.UsageExtractor) { extractor = e }
 	anthropicPrelude := &anthropicPreludeState{}
 	// fastServed tracks whether the most recent attempt went out on the fast
@@ -4698,6 +4698,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			"detail", iss.Detail,
 			"repaired", iss.Repaired,
 			"repair_actions", iss.Actions,
+			"toolcheck_mode", string(toolValidator.Mode()),
 			"model", decision.Model,
 			"provider", finalProvider,
 			"session_key_prefix", shortSessionKey(routeRes.SessionKey),
@@ -6494,7 +6495,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		}) &&
 		!s.gatewayLacksResponses(responsesEndpointKey)
 	// nil when the request has no tools; the translator treats nil as syntax-check-only.
-	toolValidator := env.ToolValidator()
+	toolValidator := toolValidatorForRequest(ctx, env)
 
 	proxyStart := time.Now()
 	inferenceParentCtx := ctx
@@ -7290,6 +7291,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 			"detail", iss.Detail,
 			"repaired", iss.Repaired,
 			"repair_actions", iss.Actions,
+			"toolcheck_mode", string(toolValidator.Mode()),
 			"model", decision.Model,
 			"provider", finalProvider,
 			"session_key_prefix", shortSessionKey(routeRes.SessionKey),
