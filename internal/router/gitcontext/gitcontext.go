@@ -6,6 +6,7 @@ package gitcontext
 
 import (
 	"strings"
+	"unicode/utf8"
 )
 
 // GitContext is the starting tree of a coding-agent session as the client
@@ -23,6 +24,8 @@ type blockMarker string
 const (
 	markerBlock         blockMarker = "gitStatus:"
 	markerCurrentBranch blockMarker = "Current branch:"
+	markerMainBranch    blockMarker = "Main branch"
+	markerGitUser       blockMarker = "Git user:"
 	markerStatus        blockMarker = "Status:"
 	markerRecentCommits blockMarker = "Recent commits:"
 )
@@ -31,19 +34,50 @@ const (
 // `git status --short` is empty.
 const cleanStatusPlaceholder = "(clean)"
 
+// The system prompt is client-controlled and unbounded; the block itself is a
+// handful of lines. Parsing stops after this many bytes so a multi-megabyte
+// prompt cannot turn capture into a scan of the whole payload.
+const maxBlockBytes = 64 * 1024
+
+// Git ref names are practically far below this; the branch column is
+// VARCHAR(255).
+const maxBranchBytes = 255
+
 // Parse finds the gitStatus block among the request's system blocks and
 // extracts the current branch, the head sha (first line of "Recent commits:"),
 // and whether the tree was dirty. Returns (zero, false) when no block is
 // present or any required section is missing or malformed.
 func Parse(systemBlocks []string) (GitContext, bool) {
 	for _, block := range systemBlocks {
-		start := strings.Index(block, string(markerBlock))
-		if start < 0 {
+		start, found := markerLineStart(block, markerBlock)
+		if !found {
 			continue
 		}
-		return parseBlock(block[start:])
+		rest := block[start:]
+		if len(rest) > maxBlockBytes {
+			rest = rest[:maxBlockBytes]
+		}
+		return parseBlock(rest)
 	}
 	return GitContext{}, false
+}
+
+// markerLineStart reports the offset of the first occurrence of marker that
+// begins a line, so a mention of the marker inside prose is not treated as the
+// start of a block.
+func markerLineStart(block string, marker blockMarker) (int, bool) {
+	for offset := 0; offset < len(block); {
+		i := strings.Index(block[offset:], string(marker))
+		if i < 0 {
+			return 0, false
+		}
+		at := offset + i
+		if at == 0 || block[at-1] == '\n' || block[at-1] == '\r' {
+			return at, true
+		}
+		offset = at + len(marker)
+	}
+	return 0, false
 }
 
 func parseBlock(block string) (GitContext, bool) {
@@ -60,7 +94,7 @@ func parseBlock(block string) (GitContext, bool) {
 		line := strings.TrimSpace(lines[i])
 		switch {
 		case strings.HasPrefix(line, string(markerCurrentBranch)):
-			branch = strings.TrimSpace(strings.TrimPrefix(line, string(markerCurrentBranch)))
+			branch = sanitizeBranch(strings.TrimPrefix(line, string(markerCurrentBranch)))
 		case line == string(markerStatus):
 			statusSeen = true
 			dirty, i = parseStatusSection(lines, i+1)
@@ -75,23 +109,70 @@ func parseBlock(block string) (GitContext, bool) {
 	return GitContext{Branch: branch, HeadSHA: headSHA, Dirty: dirty}, true
 }
 
-// parseStatusSection scans porcelain lines until the next section marker or
-// the end of the block. Returns the dirty verdict and the index of the last
-// line consumed.
+// sanitizeBranch drops control characters (including NUL, which Postgres
+// rejects outright, and the escape sequences that would carry into any
+// terminal printing a branch name) and caps the result at maxBranchBytes on a
+// rune boundary. A branch that sanitizes to nothing is treated as absent.
+func sanitizeBranch(raw string) string {
+	var b strings.Builder
+	for _, r := range raw {
+		if r < 0x20 || r == 0x7f || r == utf8.RuneError {
+			continue
+		}
+		if b.Len()+utf8.RuneLen(r) > maxBranchBytes {
+			break
+		}
+		b.WriteRune(r)
+	}
+	return strings.TrimSpace(b.String())
+}
+
+// parseStatusSection scans the porcelain lines of the Status section and
+// returns whether any of them reports a modified path. Scanning stops at the
+// next section marker or at the first line that is not porcelain-shaped, so
+// prose after the block cannot mark the tree dirty. Returns the index of the
+// last line consumed.
 func parseStatusSection(lines []string, from int) (dirty bool, last int) {
 	last = from - 1
 	for i := from; i < len(lines); i++ {
 		line := strings.TrimSpace(lines[i])
-		if strings.HasPrefix(line, string(markerRecentCommits)) {
+		if line == "" || line == cleanStatusPlaceholder {
+			last = i
+			continue
+		}
+		if isSectionMarker(line) || !isPorcelainLine(line) {
 			return dirty, i - 1
 		}
 		last = i
-		if line == "" || line == cleanStatusPlaceholder {
-			continue
-		}
 		dirty = true
 	}
 	return dirty, last
+}
+
+func isSectionMarker(line string) bool {
+	for _, m := range []blockMarker{markerBlock, markerCurrentBranch, markerMainBranch, markerGitUser, markerStatus, markerRecentCommits} {
+		if strings.HasPrefix(line, string(m)) {
+			return true
+		}
+	}
+	return false
+}
+
+// porcelainStatusCodes are the XY code characters of `git status --short`.
+const porcelainStatusCodes = "MADRCUT?!"
+
+// isPorcelainLine reports whether a trimmed Status line is `<XY> <path>`.
+func isPorcelainLine(line string) bool {
+	code, path, found := strings.Cut(line, " ")
+	if !found || path == "" || len(code) == 0 || len(code) > 2 {
+		return false
+	}
+	for _, c := range code {
+		if !strings.ContainsRune(porcelainStatusCodes, c) {
+			return false
+		}
+	}
+	return true
 }
 
 // parseFirstCommitSHA returns the abbreviated sha leading the first non-blank

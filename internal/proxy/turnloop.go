@@ -175,9 +175,11 @@ type turnLoopResult struct {
 	TurnType   turntype.TurnType
 	StickyHit  bool
 	HardPinned bool
-	// SessionFirstTurn is true when the pin store had no state at all for
-	// (SessionKey, PinRole): no live, expired, or cleared pin. Telemetry-only;
-	// nothing on the routing path reads it.
+	// SessionFirstTurn is true when the pin store positively answered "no
+	// state at all" for (SessionKey, PinRole): no live, expired, or cleared
+	// pin. A store outage leaves it false, so first-turn-only capture stays
+	// off rather than running on every turn. Telemetry-only; nothing on the
+	// routing path reads it.
 	SessionFirstTurn bool
 	// Purpose is the inference purpose a utility turn (title-gen, classifier,
 	// probe, sub-agent, client compaction) is authorized under. Empty means
@@ -922,8 +924,8 @@ func (s *Service) runTurnLoop(
 
 	res.SessionKey = sessionKey
 
-	pin, pinFound := s.loadPin(ctx, res.SessionKey, res.PinRole)
-	res.SessionFirstTurn = !pinFound && pin.Model == "" && pin.Provider == "" && pin.Reason == ""
+	pin, pinFound, noStoredState := s.loadPinWithStoreState(ctx, res.SessionKey, res.PinRole)
+	res.SessionFirstTurn = noStoredState
 	// A deliberate clear is stored as an expired, blank pin with a reason.
 	// Natural expiry retains the model/provider and may still use a renewed
 	// one-shot command continuation, but an explicit clear must never be
@@ -2153,23 +2155,32 @@ func roleForTier(t catalog.Tier) string {
 // Expired rows are misses for routing, but their history fields still protect
 // Anthropic emit from stale thinking-block signatures in the client transcript.
 func (s *Service) loadPin(ctx context.Context, sessionKey [sessionpin.SessionKeyLen]byte, role string) (sessionpin.Pin, bool) {
+	pin, active, _ := s.loadPinWithStoreState(ctx, sessionKey, role)
+	return pin, active
+}
+
+// loadPinWithStoreState is loadPin plus noStoredState: the store answered and
+// held nothing for this key. A store error routes exactly like a miss (fall
+// through to the scorer), but a caller that reads absence as session state —
+// first-turn telemetry capture — must not read an outage as a fresh session.
+func (s *Service) loadPinWithStoreState(ctx context.Context, sessionKey [sessionpin.SessionKeyLen]byte, role string) (_ sessionpin.Pin, active, noStoredState bool) {
 	log := observability.FromContext(ctx)
 	log.Debug("loadPin called", "role", role, "session_key_hex", fmt.Sprintf("%x", sessionKey))
 	pin, found, err := s.pinStore.Get(ctx, sessionKey, role)
 	if err != nil {
 		log.Error("session pin store unavailable; falling through to cluster scorer", "err", err)
-		return sessionpin.Pin{}, false
+		return sessionpin.Pin{}, false, false
 	}
 	if !found {
-		return sessionpin.Pin{}, false
+		return sessionpin.Pin{}, false, true
 	}
 	if !pinMatchesEffectiveStrategy(ctx, pin) {
-		return sessionpin.Pin{}, false
+		return sessionpin.Pin{}, false, false
 	}
 	if !pin.PinnedUntil.After(time.Now()) {
-		return pin, false
+		return pin, false, false
 	}
-	return pin, true
+	return pin, true, false
 }
 
 func (s *Service) loadHMMHistory(ctx context.Context, sessionKey [sessionpin.SessionKeyLen]byte, role string) sessionpin.Pin {

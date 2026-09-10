@@ -5723,7 +5723,9 @@ func (s *Service) fireTelemetry(p InsertTelemetryParams) {
 	log := observability.Get().With("request_id", p.RequestID)
 	observability.SafeGo(log, 5*time.Second, "fireTelemetry", func(ctx context.Context) {
 		if err := s.telemetry.InsertRequestTelemetry(ctx, p); err != nil {
-			log.Debug("Telemetry insert failed", "err", err)
+			// A dropped row is a dropped billing/session-cost record, so it is
+			// reported loudly enough to alert on.
+			log.Warn("Telemetry insert failed", "err", err)
 		}
 	})
 }

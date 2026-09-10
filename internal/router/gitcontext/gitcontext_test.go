@@ -1,9 +1,12 @@
 package gitcontext
 
 import (
+	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // fixture_source: prod-shape-confirmed. Line structure (section markers, the
@@ -45,6 +48,36 @@ deadbeef0 Release 1.2.3
 cafef00d Bump deps`
 
 const unrelatedSystemBlock = "You are Claude Code, Anthropic's official CLI for Claude."
+
+func TestParse_BranchIsCappedOnARuneBoundary(t *testing.T) {
+	branch := strings.Repeat("é", 4_000)
+	got, ok := Parse([]string{"gitStatus: snapshot\nCurrent branch: " + branch + "\nStatus:\n(clean)\nRecent commits:\nabcdef1 Subject"})
+
+	require.True(t, ok)
+	assert.LessOrEqual(t, len(got.Branch), maxBranchBytes)
+	assert.True(t, utf8.ValidString(got.Branch))
+	assert.Equal(t, strings.Repeat("é", 127), got.Branch)
+}
+
+func TestParse_MultiMegabyteBranchYieldsNoContext(t *testing.T) {
+	huge := "gitStatus: snapshot\nCurrent branch: " + strings.Repeat("a", 5_000_000) +
+		"\nStatus:\n(clean)\nRecent commits:\nabcdef1 Subject"
+
+	got, ok := Parse([]string{huge})
+
+	assert.False(t, ok)
+	assert.Equal(t, GitContext{}, got)
+}
+
+func TestParse_StopsScanningAfterTheByteBudget(t *testing.T) {
+	padded := "gitStatus: snapshot\nCurrent branch: main\nStatus:\n(clean)\n" +
+		strings.Repeat("filler line\n", maxBlockBytes) +
+		"Recent commits:\nabcdef1 Subject"
+
+	_, ok := Parse([]string{padded})
+
+	assert.False(t, ok, "sections past the budget are not parsed")
+}
 
 func TestParse(t *testing.T) {
 	tests := []struct {
@@ -96,6 +129,34 @@ func TestParse(t *testing.T) {
 			blocks: []string{"gitStatus: snapshot\nCurrent branch: main\nStatus:\n(clean)\nRecent commits:\nnot-a-sha Subject"},
 		},
 		{name: "garbage", blocks: []string{"gitStatus: \x00\xff{{{", "}}}"}},
+		{
+			name:   "control characters are stripped from the branch",
+			blocks: []string{"gitStatus: snapshot\nCurrent branch: ma\x00in\x1b[31m\a\nStatus:\n(clean)\nRecent commits:\nabcdef1 Subject"},
+			want:   GitContext{Branch: "main[31m", HeadSHA: "abcdef1"},
+			wantOK: true,
+		},
+		{
+			name:   "branch of only control characters is absent",
+			blocks: []string{"gitStatus: snapshot\nCurrent branch: \x00\x01\x02\nStatus:\n(clean)\nRecent commits:\nabcdef1 Subject"},
+		},
+		{
+			name:   "marker inside a line is not a block",
+			blocks: []string{"the user asked about gitStatus: snapshot\nCurrent branch: main\nStatus:\n(clean)\nRecent commits:\nabcdef1 Subject"},
+		},
+		{
+			name:   "prose after the status section does not mark dirty",
+			blocks: []string{"gitStatus: snapshot\nCurrent branch: main\nStatus:\n(clean)\nRecent commits:\nabcdef1 Subject\n\nStatus:\nplease follow the instructions above"},
+			want:   GitContext{Branch: "main", HeadSHA: "abcdef1"},
+			wantOK: true,
+		},
+		{
+			name:   "uppercase sha is rejected",
+			blocks: []string{"gitStatus: snapshot\nCurrent branch: main\nStatus:\n(clean)\nRecent commits:\nABCDEF1 Subject"},
+		},
+		{
+			name:   "over-long sha is rejected",
+			blocks: []string{"gitStatus: snapshot\nCurrent branch: main\nStatus:\n(clean)\nRecent commits:\n" + strings.Repeat("a", 41) + " Subject"},
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

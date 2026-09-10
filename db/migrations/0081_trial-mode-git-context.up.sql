@@ -24,7 +24,7 @@ ALTER TABLE router.model_router_installations
 -- or the installation is not in trial mode. Never read on the routing path.
 ALTER TABLE router.model_router_request_telemetry
   ADD COLUMN client_git_head_sha VARCHAR(40),
-  ADD COLUMN client_git_branch VARCHAR,
+  ADD COLUMN client_git_branch VARCHAR(255),
   ADD COLUMN client_git_dirty BOOLEAN;
 
 COMMIT;

@@ -2,6 +2,7 @@ package proxy_test
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -76,6 +77,13 @@ func TestProxyMessages_ClientGitContext_SecondTurnLeavesNulls(t *testing.T) {
 		PinnedUntil:   time.Now().Add(30 * time.Minute),
 		FirstPinnedAt: time.Now().Add(-5 * time.Minute),
 	}
+	row := proxyClientGitContextTurn(t, trialCtx(uuid.New().String()), store)
+	assertClientGitContextNull(t, row)
+}
+
+func TestProxyMessages_ClientGitContext_PinStoreErrorLeavesNulls(t *testing.T) {
+	store := newFakePinStore()
+	store.getErr = errors.New("postgres unreachable")
 	row := proxyClientGitContextTurn(t, trialCtx(uuid.New().String()), store)
 	assertClientGitContextNull(t, row)
 }
