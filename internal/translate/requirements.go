@@ -27,14 +27,20 @@ func (e *RequestEnvelope) TranslationRequirements(endpoint router.TranslationEnd
 		req.StructuredOutput = gjson.GetBytes(e.body, "output_config.format").Exists()
 		req.Audio, req.Files = anthropicMediaRequirements(e.body)
 		req.CitationsOrSearch = len(e.NativeServerTools()) > 0
+		kind, _ := anthropicToolChoice(e.body)
+		req.ForcedToolChoice = kind == toolChoiceRequired || kind == toolChoiceNamed
 	case FormatOpenAI:
 		req.SourceFormat = router.WireFormatOpenAI
+		kind, _ := openAIToolChoice(e.body)
+		req.ForcedToolChoice = kind == toolChoiceRequired || kind == toolChoiceNamed
 		req.ReasoningReplay = hasContentType(e.body, "reasoning") || gjson.GetBytes(e.body, "reasoning").Exists()
 		req.StructuredOutput = gjson.GetBytes(e.body, "response_format").Exists()
 		req.UsageDetail = gjson.GetBytes(e.body, "stream_options.include_usage").Bool()
 		req.Audio, req.Files = openAIMediaRequirements(e.body)
 		req.CitationsOrSearch = len(e.NativeServerTools()) > 0
 	case FormatGemini:
+		mode := gjson.GetBytes(e.body, "toolConfig.functionCallingConfig.mode").String()
+		req.ForcedToolChoice = mode == "ANY"
 		req.SourceFormat = router.WireFormatGemini
 		req.ReasoningSignature = containsKey(e.body, "thoughtSignature") || containsKey(e.body, "thought_signature")
 		req.StructuredOutput = gjson.GetBytes(e.body, "generationConfig.responseSchema").Exists()
@@ -42,6 +48,20 @@ func (e *RequestEnvelope) TranslationRequirements(endpoint router.TranslationEnd
 		req.Audio, req.Files = geminiMediaRequirements(e.body)
 	}
 	return req
+}
+
+// responsesForcedToolChoice reports whether a Responses tool_choice mandates a
+// tool call: "required", or a named function/custom tool.
+func responsesForcedToolChoice(root gjson.Result) bool {
+	choice := root.Get("tool_choice")
+	if choice.Type == gjson.String {
+		return choice.Str == "required"
+	}
+	switch choice.Get("type").Str {
+	case "function", "custom":
+		return true
+	}
+	return false
 }
 
 func hasContentType(body []byte, typ string) bool {

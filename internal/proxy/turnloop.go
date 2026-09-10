@@ -573,6 +573,7 @@ func (s *Service) runTurnLoop(
 		return turnLoopResult{}, compatibilityErr
 	}
 	ctx = context.WithValue(ctx, translationPlanAppliedContextKey{}, true)
+	ctx = s.withRequestAutomaticExclusions(ctx, req.TranslationRequirements)
 	// The turn-loop has to load this before any automatic pin or utility hard-pin
 	// branch; routeFor receives a copy and cannot populate the caller's request.
 	req.AutomaticExcludedModels = s.globalAutomaticExcludedModels(ctx)
