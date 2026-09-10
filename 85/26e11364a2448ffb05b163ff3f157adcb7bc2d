@@ -1,0 +1,30 @@
+.github/workflows/test.yml
+  s_69cd46bfa4ee2a::t_f5eaa3de64c646 172,174,176-177,180,190,195,199,208,212
+bench/pyproject.toml
+  s_69cd46bfa4ee2a::t_f5eaa3de64c646 20-22
+sidecars/hmm/Dockerfile
+  s_69cd46bfa4ee2a::t_f5eaa3de64c646 4-7
+sidecars/hmm/pyproject.toml
+  s_69cd46bfa4ee2a::t_36a0091085d040 5
+  s_69cd46bfa4ee2a::t_f5eaa3de64c646 1,6-27
+bench/uv.lock
+  s_69cd46bfa4ee2a::t_8f9e6043a79c72 1-2624
+sidecars/hmm/uv.lock
+  s_69cd46bfa4ee2a::t_544406ced7f8f7 1-3,7-11,16-20,25-33,39-66,70-74,79-83,89-92,98-107,113-116,122-129,135-144,149-153,159-162,168-171,176-244,249-253,258-262,268-271,276-280,286-289,294-304,309-380,384-388,394-404,410-416,422-446,451-457,462-529,534-541,547-550,555-562,568-597,600-609,611-617,622-635,640-648
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "8526e11364a2448ffb05b163ff3f157adcb7bc2d",
+  "prompts": {},
+  "sessions": {
+    "s_69cd46bfa4ee2a": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a087c3-7213-71e0-8b05-3ddedb15d03b",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}
