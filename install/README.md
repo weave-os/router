@@ -310,8 +310,20 @@ router could see the directive behind the skill block. It is retired, and an
 upgrade removes both the hook and its helper.
 
 One group stays skill-driven because it is not router state: the local toggles
-(`$router-on`/`$router-off`/`$router-status`/`$router-models`/
-`$disable-routing`) mutate config on disk, which the router cannot do.
+(`$router-on`/`$router-off`/`$router-status`/`$disable-routing`) mutate config
+on disk, which the router cannot do.
+
+`$router-models` is split. A **bare** invocation is a read, and the router
+answers it directly — with more than the skill could: `weave-router models`
+gets a 404 from the admin API on a managed router and degrades to the plain
+catalog, which is why it has to print "this router does not report which of
+them your installation has enabled". The installation's exclusions are on the
+request, so the router marks each row `[x]`/`[ ]` instead. Anything with
+arguments (`enable`, `disable`, `prefer`, `providers`) still goes to the skill:
+those hit `/admin/v1/*`, which requires an admin session and rejects the `rk_`
+data-plane key a chat request carries — deliberately, so a leaked key cannot
+rewrite routing config. The registry still lists it as `local-toggle` because
+that column names the adapter its mutating path needs.
 
 `$router-session` used to be in that group and no longer is. It reported
 `$CODEX_SESSION_ID` from a script, which cost a model turn plus a tool exec and
