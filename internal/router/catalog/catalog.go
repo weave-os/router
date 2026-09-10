@@ -558,13 +558,12 @@ var Models = []Model{
 	// above resolves to the retired 0423 build, so the HMM roster must target
 	// this dated ID to route to what it was actually ranked on.
 	{ID: "deepseek/deepseek-v4-pro-0813", Tier: TierMid, ContextWindow: 1_048_576, ImageInput: ImageInputUnsupported, Providers: []ProviderBinding{
-		// Same Fireworks-first ordering as the bare alias above, on the dated
-		// slug: Fireworks lists the bare deepseek-v4-pro slug but 404s it as
-		// "not deployed".
+		// Fireworks serves the dated slug (the bare deepseek-v4-pro slug 404s as
+		// "not deployed"). No Together binding: Together only offers V4-Pro as a
+		// dedicated endpoint and answers a non-retryable 400, so a Fireworks
+		// failover into it turns a transient blip into a terminal client error.
 		{Provider: providers.ProviderFireworks, UpstreamID: "accounts/fireworks/models/deepseek-v4-pro-0813",
 			Price: Pricing{InputUSDPer1M: 1.740, OutputUSDPer1M: 3.480, CacheReadMultiplier: 0.0862}},
-		{Provider: providers.ProviderTogether, UpstreamID: "deepseek-ai/DeepSeek-V4-Pro",
-			ContextWindow: 512_000, Price: Pricing{InputUSDPer1M: 1.740, OutputUSDPer1M: 3.480, CacheReadMultiplier: 0.20 / 1.740}},
 		{Provider: providers.ProviderOpenRouter, Price: Pricing{InputUSDPer1M: 0.660, OutputUSDPer1M: 1.980, CacheReadMultiplier: 0.022 / 0.660}},
 	}},
 	{ID: "moonshotai/kimi-k2.5", Tier: TierHigh, ContextWindow: 262_144, ImageInput: ImageInputUnsupported, Providers: []ProviderBinding{
