@@ -5,6 +5,8 @@ package rosterdata
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -49,6 +51,8 @@ type Roster struct {
 	Preferences           PreferencePolicy                  `json:"preferences,omitempty"`
 	Provenance            Provenance                        `json:"provenance,omitempty"`
 	Clusters              map[string]Cluster                `json:"clusters"`
+	// SHA256 identifies the exact roster bytes when loaded from disk.
+	SHA256 string `json:"-"`
 }
 
 // HarnessVendorPriority records legacy generated vendor-affinity provenance.
@@ -179,10 +183,17 @@ func ParseValidated(data []byte) (*Roster, error) {
 	if err != nil {
 		return nil, err
 	}
+	roster.SHA256 = SHA256Hex(data)
 	if err := ValidateCatalog(roster); err != nil {
 		return nil, err
 	}
 	return roster, nil
+}
+
+// SHA256Hex returns the lowercase hexadecimal SHA-256 digest of raw roster bytes.
+func SHA256Hex(data []byte) string {
+	digest := sha256.Sum256(data)
+	return hex.EncodeToString(digest[:])
 }
 
 // ValidateCatalog rejects serving-policy arms that cannot resolve through the
@@ -227,6 +238,7 @@ func Load(path string) (*Roster, error) {
 	if err != nil {
 		return nil, err
 	}
+	roster.SHA256 = SHA256Hex(data)
 	if err := ValidateCatalog(roster); err != nil {
 		return nil, fmt.Errorf("rosterdata: roster %q: %w", path, err)
 	}

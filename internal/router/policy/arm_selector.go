@@ -26,6 +26,9 @@ type SelectionInput struct {
 	PreferredModels                  []string
 	SubscriptionStatePreferredModels []string
 	SubsidizedModelCostFactor        map[string]float64
+	// RosterSHA256 pins selection to one boot-loaded roster; empty uses the
+	// default. Unknown digests fail with router.ErrPolicyPinUnavailable.
+	RosterSHA256 string
 }
 
 // SelectionPick is the router's selected arm.
@@ -35,6 +38,9 @@ type SelectionPick struct {
 	ArmScoresByGroup map[string]map[string]float32
 	RankedFallback   []PreviewGroup
 	Trace            SelectionTrace
+	// RosterSHA256 identifies the roster that produced the pick; empty when the
+	// selector has no roster identity.
+	RosterSHA256 string
 }
 
 // SelectionTrace records the Go-owned inputs and result used for diagnostics.

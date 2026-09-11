@@ -7,6 +7,7 @@ import (
 	"sort"
 
 	"weave-os/router/internal/observability"
+	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/hmm/rosterdata"
 	"weave-os/router/internal/router/policy"
@@ -19,6 +20,9 @@ var ErrNoEligibleArm = policy.ErrNoEligibleArm
 func Selector(roster *rosterdata.Roster) policy.ArmSelector {
 	return func(ctx context.Context, input policy.SelectionInput) (policy.SelectionPick, error) {
 		log := observability.FromContext(ctx)
+		if input.RosterSHA256 != "" && input.RosterSHA256 != roster.SHA256 {
+			return policy.SelectionPick{}, fmt.Errorf("roster %q is not the loaded serving roster: %w", input.RosterSHA256, router.ErrPolicyPinUnavailable)
+		}
 		rankedGroups, err := classifierGroups(input)
 		if err != nil {
 			return policy.SelectionPick{}, err
@@ -79,7 +83,7 @@ func Selector(roster *rosterdata.Roster) policy.ArmSelector {
 			fallback = append(fallback, policy.PreviewGroup{Group: label, Probability: input.ClassProbabilities[label], RosterArms: append([]string(nil), cluster.Arms...), EligibleArms: eligible})
 		}
 		return policy.SelectionPick{
-			Group: pick.Group, Arm: pick.Arm, ArmScoresByGroup: scoresByGroup, RankedFallback: fallback,
+			Group: pick.Group, Arm: pick.Arm, ArmScoresByGroup: scoresByGroup, RankedFallback: fallback, RosterSHA256: roster.SHA256,
 			Trace: policy.SelectionTrace{
 				ClassifierRanking:                append([]string(nil), rankedGroups...),
 				Harness:                          input.Harness,

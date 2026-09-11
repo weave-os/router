@@ -94,6 +94,8 @@ SELECT
     t.blind_experiment_arm,
     t.blind_experiment_assignment_source,
     t.blind_experiment_subject_key,
+    t.policy_pin_requested,
+    t.policy_pin_honoured,
     t.sticky_hit,
     t.failover_used,
     t.cross_format,
@@ -118,7 +120,10 @@ SELECT
     t.upstream_finish_reason,
     t.stop_reason,
     t.tool_use_blocks,
-    t.invalid_tool_args_blocks
+    t.invalid_tool_args_blocks,
+    t.client_git_head_sha,
+    t.client_git_branch,
+    t.client_git_dirty
 FROM router.model_router_request_telemetry t
 LEFT JOIN router.model_router_users u
     ON u.id = t.router_user_id
@@ -166,6 +171,8 @@ type GetRoutingDecisionsForExportRow struct {
 	BlindExperimentArm              *string
 	BlindExperimentAssignmentSource *string
 	BlindExperimentSubjectKey       *string
+	PolicyPinRequested              *bool
+	PolicyPinHonoured               *bool
 	StickyHit                       *bool
 	FailoverUsed                    *bool
 	CrossFormat                     *bool
@@ -186,6 +193,9 @@ type GetRoutingDecisionsForExportRow struct {
 	StopReason                      *string
 	ToolUseBlocks                   *int32
 	InvalidToolArgsBlocks           *int32
+	ClientGitHeadSha                *string
+	ClientGitBranch                 *string
+	ClientGitDirty                  *bool
 }
 
 // Returns raw routing decisions for the analytics export, one row per upstream
@@ -220,6 +230,8 @@ type GetRoutingDecisionsForExportRow struct {
 //	    t.blind_experiment_arm,
 //	    t.blind_experiment_assignment_source,
 //	    t.blind_experiment_subject_key,
+//	    t.policy_pin_requested,
+//	    t.policy_pin_honoured,
 //	    t.sticky_hit,
 //	    t.failover_used,
 //	    t.cross_format,
@@ -244,7 +256,10 @@ type GetRoutingDecisionsForExportRow struct {
 //	    t.upstream_finish_reason,
 //	    t.stop_reason,
 //	    t.tool_use_blocks,
-//	    t.invalid_tool_args_blocks
+//	    t.invalid_tool_args_blocks,
+//	    t.client_git_head_sha,
+//	    t.client_git_branch,
+//	    t.client_git_dirty
 //	FROM router.model_router_request_telemetry t
 //	LEFT JOIN router.model_router_users u
 //	    ON u.id = t.router_user_id
@@ -297,6 +312,8 @@ func (q *Queries) GetRoutingDecisionsForExport(ctx context.Context, arg GetRouti
 			&i.BlindExperimentArm,
 			&i.BlindExperimentAssignmentSource,
 			&i.BlindExperimentSubjectKey,
+			&i.PolicyPinRequested,
+			&i.PolicyPinHonoured,
 			&i.StickyHit,
 			&i.FailoverUsed,
 			&i.CrossFormat,
@@ -317,6 +334,9 @@ func (q *Queries) GetRoutingDecisionsForExport(ctx context.Context, arg GetRouti
 			&i.StopReason,
 			&i.ToolUseBlocks,
 			&i.InvalidToolArgsBlocks,
+			&i.ClientGitHeadSha,
+			&i.ClientGitBranch,
+			&i.ClientGitDirty,
 		); err != nil {
 			return nil, err
 		}
@@ -1796,6 +1816,8 @@ INSERT INTO router.model_router_request_telemetry (
     credential_key_suffix,
     credential_source,
     unified_limit_headers,
+    policy_pin_requested,
+    policy_pin_honoured,
     planner_outcome,
     planner_reason,
     planner_pin_model,
@@ -1839,7 +1861,10 @@ INSERT INTO router.model_router_request_telemetry (
     plan_provider,
     fallback_reason,
     accounting_outcome,
-    usage_known
+    usage_known,
+    client_git_head_sha,
+    client_git_branch,
+    client_git_dirty
 ) VALUES (
     $1::uuid,
     $2::uuid,
@@ -1920,50 +1945,55 @@ INSERT INTO router.model_router_request_telemetry (
     $77::varchar,
     $78::varchar,
     $79::jsonb,
-    $80::varchar,
-    $81::varchar,
+    $80::boolean,
+    $81::boolean,
     $82::varchar,
     $83::varchar,
-    $84::bigint,
-    $85::bigint,
-    $86::boolean,
-    $87::varchar,
-    $88::bigint,
+    $84::varchar,
+    $85::varchar,
+    $86::bigint,
+    $87::bigint,
+    $88::boolean,
     $89::varchar,
-    $90::boolean,
+    $90::bigint,
     $91::varchar,
-    $92::varchar,
+    $92::boolean,
     $93::varchar,
-    $94::bigint,
-    $95::bigint,
-    $96::boolean,
-    $97::varchar,
-    $98::bigint,
-    $99::double precision,
-    $100::double precision,
-    $101::int,
-    $102::int,
+    $94::varchar,
+    $95::varchar,
+    $96::bigint,
+    $97::bigint,
+    $98::boolean,
+    $99::varchar,
+    $100::bigint,
+    $101::double precision,
+    $102::double precision,
     $103::int,
     $104::int,
-    $105::varchar,
-    $106::double precision,
-    $107::int,
-    $108::int,
+    $105::int,
+    $106::int,
+    $107::varchar,
+    $108::double precision,
     $109::int,
     $110::int,
     $111::int,
-    $112::boolean,
-    $113::varchar[],
-    $114::varchar[],
-    $115::varchar,
-    $116::varchar,
+    $112::int,
+    $113::int,
+    $114::boolean,
+    $115::varchar[],
+    $116::varchar[],
     $117::varchar,
     $118::varchar,
     $119::varchar,
     $120::varchar,
     $121::varchar,
     $122::varchar,
-    $123::boolean
+    $123::varchar,
+    $124::varchar,
+    $125::boolean,
+    $126::varchar,
+    $127::varchar,
+    $128::boolean
 )
 ON CONFLICT (installation_id, request_id, span_type) DO NOTHING
 `
@@ -2048,6 +2078,8 @@ type InsertRequestTelemetryParams struct {
 	CredentialKeySuffix                      *string
 	CredentialSource                         *string
 	UnifiedLimitHeaders                      []byte
+	PolicyPinRequested                       *bool
+	PolicyPinHonoured                        *bool
 	PlannerOutcome                           *string
 	PlannerReason                            *string
 	PlannerPinModel                          *string
@@ -2092,6 +2124,9 @@ type InsertRequestTelemetryParams struct {
 	FallbackReason                           *string
 	AccountingOutcome                        *string
 	UsageKnown                               *bool
+	ClientGitHeadSha                         *string
+	ClientGitBranch                          *string
+	ClientGitDirty                           *bool
 }
 
 // Records a completed proxied request for the dashboard UI and routing
@@ -2132,6 +2167,10 @@ type InsertRequestTelemetryParams struct {
 // revisions, policy-selected target, why the served target differs, how usage
 // was accounted). NULL on rows written before the columns existed and on paths
 // not yet migrated to the executor.
+// client_git_head_sha / client_git_branch / client_git_dirty are the git
+// context parsed from the Claude Code system prompt on a trial-mode session's
+// first turn. NULL on every other turn and whenever the block was absent or
+// unparseable; never read on the routing path.
 //
 //	INSERT INTO router.model_router_request_telemetry (
 //	    installation_id,
@@ -2213,6 +2252,8 @@ type InsertRequestTelemetryParams struct {
 //	    credential_key_suffix,
 //	    credential_source,
 //	    unified_limit_headers,
+//	    policy_pin_requested,
+//	    policy_pin_honoured,
 //	    planner_outcome,
 //	    planner_reason,
 //	    planner_pin_model,
@@ -2256,7 +2297,10 @@ type InsertRequestTelemetryParams struct {
 //	    plan_provider,
 //	    fallback_reason,
 //	    accounting_outcome,
-//	    usage_known
+//	    usage_known,
+//	    client_git_head_sha,
+//	    client_git_branch,
+//	    client_git_dirty
 //	) VALUES (
 //	    $1::uuid,
 //	    $2::uuid,
@@ -2337,50 +2381,55 @@ type InsertRequestTelemetryParams struct {
 //	    $77::varchar,
 //	    $78::varchar,
 //	    $79::jsonb,
-//	    $80::varchar,
-//	    $81::varchar,
+//	    $80::boolean,
+//	    $81::boolean,
 //	    $82::varchar,
 //	    $83::varchar,
-//	    $84::bigint,
-//	    $85::bigint,
-//	    $86::boolean,
-//	    $87::varchar,
-//	    $88::bigint,
+//	    $84::varchar,
+//	    $85::varchar,
+//	    $86::bigint,
+//	    $87::bigint,
+//	    $88::boolean,
 //	    $89::varchar,
-//	    $90::boolean,
+//	    $90::bigint,
 //	    $91::varchar,
-//	    $92::varchar,
+//	    $92::boolean,
 //	    $93::varchar,
-//	    $94::bigint,
-//	    $95::bigint,
-//	    $96::boolean,
-//	    $97::varchar,
-//	    $98::bigint,
-//	    $99::double precision,
-//	    $100::double precision,
-//	    $101::int,
-//	    $102::int,
+//	    $94::varchar,
+//	    $95::varchar,
+//	    $96::bigint,
+//	    $97::bigint,
+//	    $98::boolean,
+//	    $99::varchar,
+//	    $100::bigint,
+//	    $101::double precision,
+//	    $102::double precision,
 //	    $103::int,
 //	    $104::int,
-//	    $105::varchar,
-//	    $106::double precision,
-//	    $107::int,
-//	    $108::int,
+//	    $105::int,
+//	    $106::int,
+//	    $107::varchar,
+//	    $108::double precision,
 //	    $109::int,
 //	    $110::int,
 //	    $111::int,
-//	    $112::boolean,
-//	    $113::varchar[],
-//	    $114::varchar[],
-//	    $115::varchar,
-//	    $116::varchar,
+//	    $112::int,
+//	    $113::int,
+//	    $114::boolean,
+//	    $115::varchar[],
+//	    $116::varchar[],
 //	    $117::varchar,
 //	    $118::varchar,
 //	    $119::varchar,
 //	    $120::varchar,
 //	    $121::varchar,
 //	    $122::varchar,
-//	    $123::boolean
+//	    $123::varchar,
+//	    $124::varchar,
+//	    $125::boolean,
+//	    $126::varchar,
+//	    $127::varchar,
+//	    $128::boolean
 //	)
 //	ON CONFLICT (installation_id, request_id, span_type) DO NOTHING
 func (q *Queries) InsertRequestTelemetry(ctx context.Context, arg InsertRequestTelemetryParams) error {
@@ -2464,6 +2513,8 @@ func (q *Queries) InsertRequestTelemetry(ctx context.Context, arg InsertRequestT
 		arg.CredentialKeySuffix,
 		arg.CredentialSource,
 		arg.UnifiedLimitHeaders,
+		arg.PolicyPinRequested,
+		arg.PolicyPinHonoured,
 		arg.PlannerOutcome,
 		arg.PlannerReason,
 		arg.PlannerPinModel,
@@ -2508,6 +2559,9 @@ func (q *Queries) InsertRequestTelemetry(ctx context.Context, arg InsertRequestT
 		arg.FallbackReason,
 		arg.AccountingOutcome,
 		arg.UsageKnown,
+		arg.ClientGitHeadSha,
+		arg.ClientGitBranch,
+		arg.ClientGitDirty,
 	)
 	return err
 }

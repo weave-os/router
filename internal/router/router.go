@@ -322,6 +322,9 @@ type RoutingMetadata struct {
 	PolicyArtifactID     string
 	PolicyArtifactSHA256 string
 	RosterVersion        string
+	// PolicyPinHonoured records whether an authorized policy pin selected the
+	// served artifact and roster.
+	PolicyPinHonoured bool
 	// Classifier identity and selection-policy identity are recorded separately
 	// so one telemetry row can resolve the complete atomic release.
 	ClassifierArtifactID     string

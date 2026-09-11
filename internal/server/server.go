@@ -82,7 +82,22 @@ const (
 //
 // analyticsSvc, when non-nil, mounts the /v1/analytics/* export surface;
 // nil leaves it unmounted (tests, deployments without telemetry storage).
+//
+// Register keeps the default route surface backwards-compatible. Optional
+// request features are enabled through RegisterWithFeatures.
 func Register(engine *gin.Engine, authSvc *auth.Service, proxySvc *proxy.Service, deployedModels admin.DeployedModelsSource, hmmModels admin.HMMRosterSource, mode DeploymentMode, billingSvc *billing.Service, readinessChecker admin.HealthChecker, hmmRosterSources map[router.Strategy]policy.RosterSource, analyticsSvc *analytics.Service, hmmDistributionRosters ...*rosterdata.Roster) {
+	RegisterWithFeatures(engine, authSvc, proxySvc, deployedModels, hmmModels, mode, billingSvc, readinessChecker, hmmRosterSources, analyticsSvc, Features{}, hmmDistributionRosters...)
+}
+
+// Features toggles optional request surfaces that are off by default.
+type Features struct {
+	// PolicyPinEnabled registers the x-weave-policy-pin middleware. Off means
+	// the header is never read.
+	PolicyPinEnabled bool
+}
+
+// RegisterWithFeatures is Register with optional request features enabled.
+func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *proxy.Service, deployedModels admin.DeployedModelsSource, hmmModels admin.HMMRosterSource, mode DeploymentMode, billingSvc *billing.Service, readinessChecker admin.HealthChecker, hmmRosterSources map[router.Strategy]policy.RosterSource, analyticsSvc *analytics.Service, features Features, hmmDistributionRosters ...*rosterdata.Roster) {
 	// Browser clients need an explicit expose list before fetch can read the
 	// router's routing and cost metadata from a cross-origin response.
 	engine.Use(func(c *gin.Context) {
@@ -104,6 +119,10 @@ func Register(engine *gin.Engine, authSvc *auth.Service, proxySvc *proxy.Service
 	})
 	// Managed mode: BYOK is opt-in per installation (see WithAuth).
 	byokRequiresOptIn := mode == DeploymentModeManaged
+	var policyPinMiddleware []gin.HandlerFunc
+	if features.PolicyPinEnabled {
+		policyPinMiddleware = []gin.HandlerFunc{middleware.WithPolicyPinOverride()}
+	}
 
 	engine.GET("/health", middleware.WithTimeout(healthTimeout), admin.HealthHandler)
 	engine.GET("/readyz", middleware.WithTimeout(readinessTimeout), admin.ReadinessHandler(readinessChecker))
@@ -244,6 +263,7 @@ func Register(engine *gin.Engine, authSvc *auth.Service, proxySvc *proxy.Service
 		middleware.WithRoutingKnobsOverride(),
 		middleware.WithForceEffortOverride(),
 	)
+	messagesMiddleware = append(messagesMiddleware, policyPinMiddleware...)
 	messagesGroup := engine.Group("", messagesMiddleware...)
 	messagesGroup.POST("/v1/messages", anthropicapi.MessagesHandler(proxySvc, authSvc))
 
@@ -270,6 +290,7 @@ func Register(engine *gin.Engine, authSvc *auth.Service, proxySvc *proxy.Service
 		middleware.WithRoutingKnobsOverride(),
 		middleware.WithForceEffortOverride(),
 	)
+	chatCompletionMiddleware = append(chatCompletionMiddleware, policyPinMiddleware...)
 	chatCompletionGroup := engine.Group("", chatCompletionMiddleware...)
 	chatCompletionGroup.POST("/v1/chat/completions", openaiapi.ChatCompletionHandler(proxySvc, authSvc))
 	// Responses surface required by Codex CLI after wire_api="chat" was retired;
@@ -315,10 +336,11 @@ func Register(engine *gin.Engine, authSvc *auth.Service, proxySvc *proxy.Service
 		middleware.WithRoutingKnobsOverride(),
 		middleware.WithForceEffortOverride(),
 	)
+	routeMiddleware = append(routeMiddleware, policyPinMiddleware...)
 	routeGroup := engine.Group("", routeMiddleware...)
 	routeGroup.POST("/v1/route", anthropicapi.RouteHandler(proxySvc))
 
-	previewGroup := engine.Group("",
+	previewMiddleware := []gin.HandlerFunc{
 		middleware.WithTimingEntry(),
 		middleware.WithTimeout(routeTimeout),
 		middleware.WithAuth(authSvc, byokRequiresOptIn),
@@ -327,7 +349,9 @@ func Register(engine *gin.Engine, authSvc *auth.Service, proxySvc *proxy.Service
 		middleware.WithPolicyDebugOverride(),
 		middleware.WithAllowedModelsOverride(proxySvc),
 		middleware.WithRoutingKnobsOverride(),
-	)
+	}
+	previewMiddleware = append(previewMiddleware, policyPinMiddleware...)
+	previewGroup := engine.Group("", previewMiddleware...)
 	previewGroup.POST("/v1/route/preview", anthropicapi.PreviewRouteHandler(proxySvc))
 
 	// Read-only routing-decision export. Product surface, so it mounts in both

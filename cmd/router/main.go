@@ -58,6 +58,7 @@ import (
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/router/sessionstrategy"
 	"weave-os/router/internal/server"
+	"weave-os/router/internal/server/middleware"
 	"weave-os/router/internal/subscriptions"
 	"weave-os/router/internal/websearch"
 	"weave-os/router/internal/wif"
@@ -1287,7 +1288,13 @@ func main() {
 	deployedModels, _ := rtr.(*cluster.Multiversion)
 	analyticsSvc := analytics.NewService(repo.Analytics, time.Now)
 	readinessChecker := newReadinessChecker(pool, hmmReadinessChecker)
-	server.Register(engine, authSvc, proxySvc, deployedModels, hmmRosterModels, deploymentMode, billingSvc, readinessChecker, hmmRosterSources, analyticsSvc)
+	// ROUTER_POLICY_PIN_ENABLED=true registers x-weave-policy-pin; when off,
+	// the header is never read and no pin telemetry is written.
+	policyPinEnabled := strings.EqualFold(config.GetOr("ROUTER_POLICY_PIN_ENABLED", "false"), "true")
+	if policyPinEnabled {
+		logger.Info("Policy pin header enabled", "header", middleware.PolicyPinOverrideHeader)
+	}
+	server.RegisterWithFeatures(engine, authSvc, proxySvc, deployedModels, hmmRosterModels, deploymentMode, billingSvc, readinessChecker, hmmRosterSources, analyticsSvc, server.Features{PolicyPinEnabled: policyPinEnabled})
 
 	srv := &http.Server{
 		Addr:    ":" + config.GetOr("PORT", "8080"),
