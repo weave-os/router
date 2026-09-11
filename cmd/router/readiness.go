@@ -23,17 +23,27 @@ type readinessChecker struct {
 	hmm             admin.HealthChecker
 	strategies      strategyAvailability
 	defaultStrategy router.Strategy
+	degraded        bool
 }
 
 // newReadinessChecker gates /readyz on PostgreSQL, the HMM policy snapshot
 // when one is wired, and the deployment default strategy being routable. A
 // revision whose default strategy would 503 every request must never pass
-// its startup probe.
-func newReadinessChecker(database databasePinger, hmm admin.HealthChecker, strategies strategyAvailability, defaultStrategy router.Strategy) readinessChecker {
-	return readinessChecker{database: database, hmm: hmm, strategies: strategies, defaultStrategy: defaultStrategy}
+// its startup probe, unless bounded fail-open mode is enabled.
+func newReadinessChecker(database databasePinger, hmm admin.HealthChecker, strategies strategyAvailability, defaultStrategy router.Strategy, degraded bool) readinessChecker {
+	return readinessChecker{
+		database:        database,
+		hmm:             hmm,
+		strategies:      strategies,
+		defaultStrategy: defaultStrategy,
+		degraded:        degraded,
+	}
 }
 
 func (c readinessChecker) CheckHealth(ctx context.Context) error {
+	if c.degraded {
+		return nil
+	}
 	if err := c.database.Ping(ctx); err != nil {
 		return fmt.Errorf("postgres readiness check failed: %w", err)
 	}
