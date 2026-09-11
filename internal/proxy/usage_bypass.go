@@ -364,6 +364,11 @@ func (s *Service) bypassToAnthropic(
 	pricing, _ := servedPricing(decision.Provider, decision.Model, opts.FastMode)
 	if !env.Stream() && proxyErr == nil {
 		setRouterCostHeaders(w.Header(), routerResponseCostFromPricing(pricing, decision.Provider, in, out, cacheCreation, cacheRead))
+		if responseBuffer != nil {
+			if flushErr := responseBuffer.FlushToClient(); flushErr != nil {
+				log.Error("Failed to flush buffered response", "err", flushErr)
+			}
+		}
 	}
 	inputCost := catalog.EffectiveInputCost(in, cacheCreation, cacheRead, pricing, decision.Provider)
 	outputCost := catalog.EffectiveOutputCost(in, out, pricing)

@@ -33,11 +33,6 @@ const pinEvictionStrikeThreshold = 2
 // scorer. Shared by force-model clear, loop-break/no-progress/
 // degenerate-response eviction, and the upstream-error strike threshold —
 // call sites differ only in the Reason string recorded for observability.
-//
-// context.Background(): callers invoke this once the response has already
-// streamed or is about to be written, so the request ctx may already be
-// canceled; the eviction write must still land or the next turn inherits
-// the stale pin.
 func (s *Service) expireSessionPin(
 	ctx context.Context,
 	installationID uuid.UUID,
@@ -70,7 +65,9 @@ func (s *Service) expireSessionPinRow(
 		TurnCount:      1,
 		PinnedUntil:    time.Now().Add(-time.Second),
 	}
-	if err := s.pinStore.Upsert(context.Background(), expired); err != nil {
+	pinCtx, cancelPin := bookkeepingContext(ctx)
+	defer cancelPin()
+	if err := s.pinStore.Upsert(pinCtx, expired); err != nil {
 		return err
 	}
 	if !invalidateContinuation {
@@ -192,9 +189,9 @@ func (s *Service) maybeEvictPinAfterUpstreamErr(
 	log := observability.FromContext(ctx)
 
 	if proxyErr == nil {
-		// context.Background(): the request ctx is already canceled by the
-		// time streaming finishes, but this reset must still go through.
-		if err := s.pinStore.ResetUpstreamErrors(context.Background(), sessionKey, role, router.StrategyFromContext(ctx)); err != nil {
+		resetCtx, cancelReset := bookkeepingContext(ctx)
+		defer cancelReset()
+		if err := s.pinStore.ResetUpstreamErrors(resetCtx, sessionKey, role, router.StrategyFromContext(ctx)); err != nil {
 			log.Error("pin error-counter reset failed", "err", err, "role", role)
 		}
 		return
@@ -210,7 +207,9 @@ func (s *Service) maybeEvictPinAfterUpstreamErr(
 		return
 	}
 
-	count, err := s.pinStore.IncrementUpstreamErrors(context.Background(), sessionKey, role, router.StrategyFromContext(ctx))
+	incrementCtx, cancelIncrement := bookkeepingContext(ctx)
+	defer cancelIncrement()
+	count, err := s.pinStore.IncrementUpstreamErrors(incrementCtx, sessionKey, role, router.StrategyFromContext(ctx))
 	if err != nil {
 		log.Error("pin error-counter increment failed", "err", err, "role", role, "upstream_status", status)
 		return

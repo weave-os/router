@@ -188,7 +188,9 @@ func (s *Service) handleStruggleEscalation(
 				if targetCluster != pin.PolicyGroup {
 					action = struggleActionUpCluster
 				}
-				upsertErr := s.pinStore.Upsert(context.Background(), sessionpin.Pin{
+				pinCtx, cancelPin := bookkeepingContext(ctx)
+				defer cancelPin()
+				upsertErr := s.pinStore.Upsert(pinCtx, sessionpin.Pin{
 					SessionKey:      sessionKey,
 					Role:            role,
 					InstallationID:  installationID,
@@ -240,7 +242,9 @@ func (s *Service) handleStruggleEscalation(
 			ArmingMode:          armingMode,
 			EvidenceReasons:     evidenceReasons,
 		}
-		if err := s.struggleEscalationStore.InsertStruggleEscalationEvent(context.Background(), event); err != nil {
+		eventCtx, cancelEvent := bookkeepingContext(ctx)
+		defer cancelEvent()
+		if err := s.struggleEscalationStore.InsertStruggleEscalationEvent(eventCtx, event); err != nil {
 			log.Error("struggle-escalation: event insert failed", "err", err)
 		}
 	}

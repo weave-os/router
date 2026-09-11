@@ -304,7 +304,9 @@ func (s *Service) preserveForceModelControlHistory(
 	if !found || !isUserForcedReason(existing.Reason) || existing.Model == "" || existing.Model == nextModel {
 		return nil
 	}
-	return s.pinStore.UpdateUsage(context.Background(), sessionKey, forceModelSessionRole, sessionpin.Usage{
+	usageCtx, cancelUsage := bookkeepingContext(ctx)
+	defer cancelUsage()
+	return s.pinStore.UpdateUsage(usageCtx, sessionKey, forceModelSessionRole, sessionpin.Usage{
 		Strategy:            existing.Strategy,
 		EndedAt:             time.Now(),
 		ServedModel:         existing.Model,
@@ -339,7 +341,9 @@ func (s *Service) setForceModelSessionPin(
 		TurnCount:      1,
 		PinnedUntil:    pinNeverExpires,
 	}
-	return s.pinStore.Upsert(context.Background(), forced)
+	pinCtx, cancelPin := bookkeepingContext(ctx)
+	defer cancelPin()
+	return s.pinStore.Upsert(pinCtx, forced)
 }
 
 func (s *Service) loadForceModelSessionPin(
@@ -458,7 +462,9 @@ func (s *Service) clearForceModelSessionPin(
 		TurnCount:      1,
 		PinnedUntil:    pinNeverExpires,
 	}
-	return s.pinStore.Upsert(context.Background(), cleared)
+	pinCtx, cancelPin := bookkeepingContext(ctx)
+	defer cancelPin()
+	return s.pinStore.Upsert(pinCtx, cleared)
 }
 
 // applyForceModelHeader honors the x-weave-force-model request header,

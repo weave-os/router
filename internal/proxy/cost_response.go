@@ -54,6 +54,7 @@ func (b *responseCostBuffer) FlushToClient() error {
 		return nil
 	}
 	b.flushed = true
+	b.inner.Header().Set("Content-Length", strconv.Itoa(b.body.Len()))
 	b.inner.WriteHeader(b.status)
 	if _, err := b.inner.Write(b.body.Bytes()); err != nil {
 		return err
