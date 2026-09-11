@@ -1,0 +1,24 @@
+install/tests/models_test.sh
+  s_32ab2cb9054632::t_8872f94b096f5c 367
+  s_32ab2cb9054632::t_e2349f51b70ebd 392-407
+  s_32ab2cb9054632::t_6611814364e719 354-356,360-366
+install/install.sh
+  s_32ab2cb9054632::t_38f0cafe635517 3574-3575
+  s_32ab2cb9054632::t_3c6f61d64bc161 1552-1564
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "bcfe52b235975d080bfdecf398a74424d31a18ef",
+  "prompts": {},
+  "sessions": {
+    "s_32ab2cb9054632": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6f6090cd-f83b-4eff-b1c3-94b47d9dd39e",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}

@@ -1,0 +1,27 @@
+internal/billing/service.go
+  s_c7e25d8bc46482::t_5efdf34c11d6d7 324-326
+internal/sqlc/billing.sql.go
+  s_c7e25d8bc46482::t_a99c157130e697 106-107,265-266
+db/queries/billing.sql
+  s_c7e25d8bc46482::t_f44b826b2cc37f 99-100
+internal/proxy/service.go
+  s_c7e25d8bc46482::t_4cb23c603767e7 926-929
+internal/auth/external_api_key.go
+  s_c7e25d8bc46482::t_dd9384846921ee 17
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.18",
+  "base_commit_sha": "aa812aa60f2c4ca274bec62a0d81689ee3d2b87b",
+  "prompts": {},
+  "sessions": {
+    "s_c7e25d8bc46482": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f7d534e7-28b1-46eb-a3d4-724bd5fb515d",
+        "model": "claude-sonnet-5"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

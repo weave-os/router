@@ -1,0 +1,26 @@
+internal/translate/router_models_test.go
+  s_049874a7166f8d::t_aa82b7489ef593 47-63
+internal/translate/router_session_test.go
+  s_049874a7166f8d::t_aa82b7489ef593 41-55
+internal/translate/router_models.go
+  s_049874a7166f8d::t_661ee908bd8f52 61-70
+internal/translate/router_session.go
+  s_049874a7166f8d::t_661ee908bd8f52 63,68-71
+  s_049874a7166f8d::t_aa82b7489ef593 64-67
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "8b3b37ec2ac67eacd8088aaeb6366305430e0a92",
+  "prompts": {},
+  "sessions": {
+    "s_049874a7166f8d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "7b6a9f0a-cd46-4fd9-942c-7daea97cec2a",
+        "model": "claude-opus-5"
+      },
+      "human_author": "munir-weave <munir@workweave.ai>"
+    }
+  }
+}
