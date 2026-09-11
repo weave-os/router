@@ -20,18 +20,14 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version-file: go.mod
+          go-version: '1.25.9'
           cache-dependency-path: go.sum
 
       - name: Check policy registry and inference boundary
         run: make inference-boundary
 
-  test:
-    name: Test
-    # The branch ruleset requires this check, so gating it on the
-    # prerequisite jobs makes architecture and classifier contract checks required.
-    needs: [inference-boundary, test-hmm-sidecar]
-    if: ${{ always() }}
+  go-checks:
+    name: Go checks
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -49,17 +45,13 @@ jobs:
           --health-retries 30
 
     steps:
-      - name: Require inference and sidecar gates
-        if: needs.inference-boundary.result != 'success' || needs.test-hmm-sidecar.result != 'success'
-        run: exit 1
-
       - name: Checkout
         uses: actions/checkout@v4
 
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version-file: go.mod
+          go-version: '1.25.9'
           cache-dependency-path: go.sum
 
       - name: Install golang-migrate
@@ -182,7 +174,7 @@ jobs:
       - name: Set up Go for the serving contract
         uses: actions/setup-go@v5
         with:
-          go-version-file: go.mod
+          go-version: '1.25.9'
           cache-dependency-path: go.sum
 
       - name: Verify Go to bundled Python contract
@@ -230,3 +222,39 @@ jobs:
         run: |
           docker compose -f docker-compose.yml -f sidecars/hmm/docker-compose.yml \
             --profile hmm config --quiet
+
+  # Keep the branch ruleset's required `Test` check stable while the expensive
+  # jobs run in parallel. `always()` ensures a failed or cancelled dependency
+  # is reported as a failed gate instead of leaving the required check pending.
+  test:
+    name: Test
+    needs:
+      - inference-boundary
+      - go-checks
+      - test-statusline
+      - test-install
+      - test-hmm-sidecar
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require all test jobs
+        env:
+          INFERENCE_BOUNDARY_RESULT: ${{ needs.inference-boundary.result }}
+          GO_CHECKS_RESULT: ${{ needs.go-checks.result }}
+          STATUSLINE_RESULT: ${{ needs.test-statusline.result }}
+          INSTALLER_RESULT: ${{ needs.test-install.result }}
+          HMM_SIDECAR_RESULT: ${{ needs.test-hmm-sidecar.result }}
+        run: |
+          printf '%s\n' \
+            "Inference boundary: $INFERENCE_BOUNDARY_RESULT" \
+            "Go checks: $GO_CHECKS_RESULT" \
+            "Statusline: $STATUSLINE_RESULT" \
+            "Installer: $INSTALLER_RESULT" \
+            "HMM sidecar: $HMM_SIDECAR_RESULT"
+          if [ "$INFERENCE_BOUNDARY_RESULT" != success ] || \
+             [ "$GO_CHECKS_RESULT" != success ] || \
+             [ "$STATUSLINE_RESULT" != success ] || \
+             [ "$INSTALLER_RESULT" != success ] || \
+             [ "$HMM_SIDECAR_RESULT" != success ]; then
+            exit 1
+          fi
