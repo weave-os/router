@@ -1,0 +1,24 @@
+docs/CI.md
+  s_cba51ff194424d::t_145de31cfaa4d0 77-81
+scripts/smoke/run.sh
+  s_cba51ff194424d::t_145de31cfaa4d0 127-132
+  s_cba51ff194424d::t_8b3945b7f81445 31-32
+.github/workflows/smoke.yml
+  s_cba51ff194424d::t_145de31cfaa4d0 70-85,105,142-157,164
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "c58a70751c6002de0e24adfbad60c92f144f3777",
+  "prompts": {},
+  "sessions": {
+    "s_cba51ff194424d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a09259-4d5f-7d53-9896-3f1e6fa28e4d",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}
