@@ -181,6 +181,59 @@ func TestTaskReminderStripped_InsideToolResultContent(t *testing.T) {
 	}
 }
 
+// A quiet tool (e.g. a Write, or a Bash with no stdout) leaves the reminder as
+// the tool_result's entire content. Empty tool output is valid on every
+// cross-vendor emit, so the reminder is still cut rather than kept.
+const taskReminderIsWholeToolResultBody = `{
+	"model":"claude-sonnet-5",
+	"messages":[
+		{"role":"user","content":"write the file"},
+		{"role":"assistant","content":[{"type":"tool_use","id":"toolu_1","name":"Bash","input":{"command":"touch a"}}]},
+		{"role":"user","content":[
+			{"type":"tool_result","tool_use_id":"toolu_1","content":"<system-reminder>\nThe task tools haven't been used recently.\n</system-reminder>"}
+		]},
+		{"role":"assistant","content":[{"type":"tool_use","id":"toolu_2","name":"Bash","input":{"command":"touch b"}}]},
+		{"role":"user","content":[
+			{"type":"tool_result","tool_use_id":"toolu_2","content":[
+				{"type":"text","text":"\n<system-reminder>\nThe task tools haven't been used recently.\n</system-reminder>"}
+			]}
+		]}
+	],
+	"tools":[
+		{"name":"Bash","description":"b","input_schema":{"type":"object"}},
+		{"name":"TaskCreate","description":"","input_schema":{"type":"object"}}
+	],
+	"max_tokens":256
+}`
+
+func TestTaskReminderStripped_WhenItIsTheWholeToolResult(t *testing.T) {
+	env, err := translate.ParseAnthropic([]byte(taskReminderIsWholeToolResultBody))
+	require.NoError(t, err)
+
+	for name, prepare := range map[string]func() (providers.PreparedRequest, error){
+		"OpenAI chat": func() (providers.PreparedRequest, error) {
+			return env.PrepareOpenAI(nil, translate.EmitOptions{TargetModel: "gpt-5.6-luna"})
+		},
+		"OpenAI Responses": func() (providers.PreparedRequest, error) {
+			return env.PrepareOpenAIResponses(nil, translate.EmitOptions{TargetModel: "gpt-5.6-sol"})
+		},
+		"Gemini": func() (providers.PreparedRequest, error) {
+			return env.PrepareGemini(http.Header{}, translate.EmitOptions{TargetModel: "gemini-2.5-pro"})
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			out, err := prepare()
+			require.NoError(t, err)
+			s := string(out.Body)
+			assert.NotContains(t, s, "task tools haven't been used recently")
+			assert.NotContains(t, s, "system-reminder")
+			assert.Contains(t, s, "write the file")
+			assert.Contains(t, s, "touch b", "both tool calls survive with empty results")
+			assert.Equal(t, 2, out.Stats.CCTaskRemindersStripped)
+		})
+	}
+}
+
 func TestTaskReminderKept_WhenItIsTheWholeUserMessage(t *testing.T) {
 	// Never leave a user message with empty content.
 	body := `{

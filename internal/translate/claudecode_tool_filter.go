@@ -259,31 +259,49 @@ type reminderEdit struct {
 
 // stripTaskToolReminders removes the task-list reminder from user messages.
 // Claude Code appends it either as its own text block or inside the trailing
-// tool_result's content (string or text parts). An element left empty by the
-// cut is dropped, unless it is the sole element of its array, in which case it
-// is left intact so no content array ends up empty.
+// tool_result's content (string or text parts). A text element left empty by
+// the cut is dropped, unless it is the sole element of its array. User prose
+// left empty is kept so no message ends up without content; a tool_result left
+// empty becomes empty tool output, which every emit target accepts.
 func stripTaskToolReminders(body []byte) (out []byte, removed int, err error) {
 	if !bytes.Contains(body, []byte(taskToolReminderRawPrefix)) {
 		return body, 0, nil
 	}
 	var edits []reminderEdit
-	// editString rewrites a scalar string in place; an empty remainder is kept.
-	editString := func(path string, v gjson.Result) {
+	// editString rewrites a scalar string in place; an empty remainder is
+	// written only when allowEmpty is set.
+	editString := func(path string, v gjson.Result, allowEmpty bool) {
 		s, n := removeTaskToolReminders(v.String())
-		if n == 0 || strings.TrimSpace(s) == "" {
+		if n == 0 {
 			return
+		}
+		if strings.TrimSpace(s) == "" {
+			if !allowEmpty {
+				return
+			}
+			s = ""
 		}
 		edits = append(edits, reminderEdit{path: path, text: s})
 		removed += n
 	}
 	// editTextElem rewrites a text element of an array; an empty remainder
-	// drops the element unless it is the array's only one.
-	editTextElem := func(path string, v gjson.Result, sole bool) {
+	// drops the element unless it is the array's only one, in which case it is
+	// emptied when allowEmpty is set and otherwise left intact.
+	editTextElem := func(path string, v gjson.Result, sole, allowEmpty bool) {
 		s, n := removeTaskToolReminders(v.String())
-		if n == 0 || (sole && strings.TrimSpace(s) == "") {
+		if n == 0 {
 			return
 		}
-		edits = append(edits, reminderEdit{path: path, text: s, drop: strings.TrimSpace(s) == ""})
+		empty := strings.TrimSpace(s) == ""
+		if empty && sole {
+			if !allowEmpty {
+				return
+			}
+			edits = append(edits, reminderEdit{path: path, text: ""})
+			removed += n
+			return
+		}
+		edits = append(edits, reminderEdit{path: path, text: s, drop: empty})
 		removed += n
 	}
 	gjson.GetBytes(body, "messages").ForEach(func(mi, msg gjson.Result) bool {
@@ -293,7 +311,7 @@ func stripTaskToolReminders(body []byte) (out []byte, removed int, err error) {
 		msgPath := "messages." + mi.String() + ".content"
 		content := msg.Get("content")
 		if content.Type == gjson.String {
-			editString(msgPath, content)
+			editString(msgPath, content, false)
 			return true
 		}
 		if !content.IsArray() {
@@ -304,17 +322,17 @@ func stripTaskToolReminders(body []byte) (out []byte, removed int, err error) {
 			blockPath := msgPath + "." + strconv.Itoa(bi)
 			switch block.Get("type").String() {
 			case "text":
-				editTextElem(blockPath+".text", block.Get("text"), len(blocks) == 1)
+				editTextElem(blockPath+".text", block.Get("text"), len(blocks) == 1, false)
 			case "tool_result":
 				rc := block.Get("content")
 				if rc.Type == gjson.String {
-					editString(blockPath+".content", rc)
+					editString(blockPath+".content", rc, true)
 					continue
 				}
 				parts := rc.Array()
 				for pi, part := range parts {
 					if part.Get("type").String() == "text" {
-						editTextElem(blockPath+".content."+strconv.Itoa(pi)+".text", part.Get("text"), len(parts) == 1)
+						editTextElem(blockPath+".content."+strconv.Itoa(pi)+".text", part.Get("text"), len(parts) == 1, true)
 					}
 				}
 			}
