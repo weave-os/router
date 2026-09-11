@@ -618,6 +618,51 @@ func TestAnthropicSameFormat_NewSystemMessageLeavesEarlierTurnsInPlace(t *testin
 	assert.Equal(t, before["system"], after["system"])
 }
 
+// Claude Code attaches output_config to a trailing system message (subagent
+// effort). Anthropic 400s when the field rides along on a demoted user turn:
+// "messages.1.output_config: output_config is only permitted on role 'system'".
+func TestAnthropicSameFormat_DemotedSystemMessageDropsOutputConfig(t *testing.T) {
+	body := []byte(`{"model":"claude-fable-5-1","system":"rules","messages":[{"role":"user","content":"previous"},{"role":"system","content":"deferred reminder","output_config":{"effort":"high"}}],"max_tokens":1024}`)
+	opts := translate.EmitOptions{
+		TargetModel:    "claude-fable-5-1",
+		TargetProvider: providers.ProviderAnthropic,
+		Capabilities:   router.Lookup("claude-fable-5-1"),
+	}
+	out := parseAndEmit(t, body, "anthropic", opts)
+
+	assert.Equal(t, "rules", out["system"], "system field untouched")
+	assert.NotContains(t, out, "output_config", "message-level field is not promoted to the request")
+	msgs, _ := out["messages"].([]any)
+	require.Len(t, msgs, 2, "message kept at its original index")
+	demoted, _ := msgs[1].(map[string]any)
+	assert.Equal(t, "user", demoted["role"])
+	assert.NotContains(t, demoted, "output_config")
+	blocks, _ := demoted["content"].([]any)
+	require.Len(t, blocks, 1)
+	block, _ := blocks[0].(map[string]any)
+	assert.Equal(t, "deferred reminder", block["text"])
+}
+
+func TestAnthropicSameFormat_DemotedSystemMessageKeepsRequestOutputConfig(t *testing.T) {
+	// Only the message-level copy is system-only; a request-level
+	// output_config is a valid Anthropic field and must survive.
+	body := []byte(`{"model":"claude-fable-5-1","output_config":{"effort":"medium"},"messages":[{"role":"user","content":"previous"},{"role":"system","content":"reminder","output_config":{"effort":"high"}},{"role":"user","content":"next"}],"max_tokens":1024}`)
+	opts := translate.EmitOptions{
+		TargetModel:    "claude-fable-5-1",
+		TargetProvider: providers.ProviderAnthropic,
+		Capabilities:   router.Lookup("claude-fable-5-1"),
+	}
+	out := parseAndEmit(t, body, "anthropic", opts)
+
+	assert.Equal(t, map[string]any{"effort": "medium"}, out["output_config"])
+	msgs, _ := out["messages"].([]any)
+	require.Len(t, msgs, 3)
+	demoted, _ := msgs[1].(map[string]any)
+	assert.Equal(t, "user", demoted["role"])
+	assert.NotContains(t, demoted, "output_config")
+	assert.Equal(t, "reminder", demoted["content"])
+}
+
 func TestAnthropicSameFormat_SystemMessageMergedWithExistingSystem(t *testing.T) {
 	// Existing top-level system is preserved and the hoisted text appended.
 	body := []byte(`{"model":"claude-sonnet-4-20250514","system":"top-level rules","messages":[{"role":"system","content":[{"type":"text","text":"extra rule"}]},{"role":"user","content":"hi"}],"max_tokens":1024}`)

@@ -763,9 +763,9 @@ func hoistAnthropicSystemMessages(body []byte) ([]byte, error) {
 		case isSystem && leading:
 			hoisted = append(hoisted, anthropicSystemTexts(msg.Get("content"))...)
 		case isSystem:
-			demoted, err := sjson.Set(msg.Raw, "role", "user")
+			demoted, err := demoteAnthropicSystemMessage(msg.Raw)
 			if err != nil {
-				return nil, fmt.Errorf("demote system message: %w", err)
+				return nil, err
 			}
 			kept = append(kept, demoted)
 			rewritten = true
@@ -813,6 +813,24 @@ func hoistAnthropicSystemMessages(body []byte) ([]byte, error) {
 		return nil, fmt.Errorf("set system: %w", err)
 	}
 	return out, nil
+}
+
+// demoteAnthropicSystemMessage rewrites a system message as a user message.
+// output_config is only permitted on role "system", so the user role 400s
+// when it is carried along.
+func demoteAnthropicSystemMessage(raw string) (string, error) {
+	demoted, err := sjson.Set(raw, "role", "user")
+	if err != nil {
+		return "", fmt.Errorf("demote system message: %w", err)
+	}
+	if !gjson.Get(demoted, "output_config").Exists() {
+		return demoted, nil
+	}
+	demoted, err = sjson.Delete(demoted, "output_config")
+	if err != nil {
+		return "", fmt.Errorf("demote system message: drop output_config: %w", err)
+	}
+	return demoted, nil
 }
 
 func sanitizeAnthropicToolSchemasBytes(body []byte) ([]byte, error) {
