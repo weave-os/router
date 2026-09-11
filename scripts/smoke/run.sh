@@ -28,6 +28,8 @@
 #                          outside an actual GitHub Actions runner (it needs
 #                          ACTIONS_CACHE_URL/ACTIONS_RUNTIME_TOKEN), so never set
 #                          this locally.
+#   SMOKE_PREBUILT=1      use images built by the workflow's bake step instead
+#                          of invoking Compose's builder again.
 #
 # Cost: replay-only runs make zero upstream calls (served from cassettes).
 # record/replay-or-record make ~10-15 real calls, all pinned to the cheapest
@@ -122,8 +124,12 @@ services:
       OPENAI_API_KEY: "${SERVER_OPENAI_KEY}"
 EOF
 
-log "building router images (proxy mode: $PROXY_MODE)"
-SMOKE_PROXY_MODE="$PROXY_MODE" $COMPOSE build server mitmproxy seed
+if [[ "${SMOKE_PREBUILT:-0}" == "1" ]]; then
+  log "using prebuilt router images (proxy mode: $PROXY_MODE)"
+else
+  log "building router images (proxy mode: $PROXY_MODE)"
+  SMOKE_PROXY_MODE="$PROXY_MODE" $COMPOSE build server mitmproxy seed
+fi
 
 log "starting the router stack"
 SMOKE_PROXY_MODE="$PROXY_MODE" $COMPOSE up -d server mitmproxy

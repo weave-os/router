@@ -74,11 +74,11 @@ on every run: `npm ci` and the UI build took roughly 32s each, two
 41s. The separate `golang:1.25-bookworm` seed service added about 47s while it
 downloaded and compiled on a cold container.
 
-The Smoke runner now invokes an explicit `docker compose build` for the server,
-MITM proxy, and seed targets before starting Compose without `--build`. The
-seed service builds a small `seed-runtime` target instead of launching a fresh
-`golang:1.25-bookworm` SDK container and running `go run`. Each image has its
-own stable `type=gha` cache scope.
+The CI workflow now uses `docker/bake-action` to build the server, MITM proxy,
+and seed targets with the existing `type=gha` cache scopes, loads those images,
+and starts Compose without `--build`. Local runs retain an explicit Compose
+build. The seed service builds a small `seed-runtime` target instead of
+launching a fresh `golang:1.25-bookworm` SDK container and running `go run`.
 
 Verify this change on the next CI runs by checking that warm-run logs show both
 cache import and export, and compare the build and seed phases across at least

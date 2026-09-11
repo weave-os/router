@@ -67,6 +67,22 @@ jobs:
         with:
           version: latest
 
+      - name: Build Smoke images with GitHub Actions cache
+        uses: docker/bake-action@v6
+        env:
+          COMPOSE_PROFILES: tools
+        with:
+          files: |
+            ./docker-compose.yml
+            ./smoke/mitmproxy/docker-compose.yml
+            ./smoke/mitmproxy/docker-compose.ci-cache.yml
+          targets: server mitmproxy seed
+          load: true
+          set: |
+            server.tags=router-server
+            mitmproxy.tags=router-mitmproxy
+            seed.tags=router-seed
+
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
@@ -86,6 +102,7 @@ jobs:
           # actually make a cold build slow; a warm cache turns an ~8-12 minute
           # build into low single-digit minutes.
           SMOKE_CI_CACHE: "1"
+          SMOKE_PREBUILT: "1"
         run: ./scripts/smoke/run.sh
 
   refresh-cassettes:
@@ -122,12 +139,29 @@ jobs:
             exit 1
           fi
 
+      - name: Build Smoke images with GitHub Actions cache
+        uses: docker/bake-action@v6
+        env:
+          COMPOSE_PROFILES: tools
+        with:
+          files: |
+            ./docker-compose.yml
+            ./smoke/mitmproxy/docker-compose.yml
+            ./smoke/mitmproxy/docker-compose.ci-cache.yml
+          targets: server mitmproxy seed
+          load: true
+          set: |
+            server.tags=router-server
+            mitmproxy.tags=router-mitmproxy
+            seed.tags=router-seed
+
       - name: Record fresh cassettes against the real API
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           SMOKE_PROXY_MODE: record
           SMOKE_CI_CACHE: "1"
+          SMOKE_PREBUILT: "1"
         run: ./scripts/smoke/run.sh
 
       - name: Open a PR if the cassettes changed
