@@ -24,6 +24,26 @@ The Compose configuration downloads the public
 asset and verifies SHA-256 before extraction. Set `HMM_PACKAGE_PATH` instead
 when running the sidecar directly with a local package.
 
+### Serving more than one frozen package (policy pins)
+
+`HMM_PACKAGE_URL` / `HMM_PACKAGE_PATH` (+ `HMM_PACKAGE_SHA256`) name the
+**default** package. `HMM_PACKAGE_REGISTRY` optionally adds a bounded set of
+further packages as a JSON list of `{"sha256": ..., "url": ...}` entries
+(`path` may replace `url` for a pre-staged archive; at most 8 entries; https
+only). Every entry is downloaded, digest-checked, extracted, manifest-verified
+and loaded during startup — a failure in any entry fails readiness, and nothing
+is ever fetched on a live request.
+
+```bash
+HMM_PACKAGE_REGISTRY='[{"sha256":"<sha256>","url":"https://.../hmm-model-v0.tar.gz"}]'
+```
+
+`/route`, `/preview` (request field `artifact_sha256`) and `/roster` (query
+`?artifact_sha256=`) select a loaded package by its outer digest; omitting it
+serves the default. An unknown digest answers **404** rather than the default
+package, so a router honouring an `x-weave-policy-pin` header fails closed.
+`/readyz` lists every loaded digest under `policy_artifact_sha256s`.
+
 ## Embedding compatibility
 
 The v1 artifact requires `google/gemini-embedding-2` with 3,072 output

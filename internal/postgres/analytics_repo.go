@@ -71,6 +71,8 @@ func decisionFromExportRow(row sqlc.GetRoutingDecisionsForExportRow) analytics.D
 		BlindExperimentArm:              blindExperimentArmPtr(row.BlindExperimentArm),
 		BlindExperimentAssignmentSource: blindExperimentAssignmentSourcePtr(row.BlindExperimentAssignmentSource),
 		BlindExperimentSubjectKey:       row.BlindExperimentSubjectKey,
+		PolicyPinRequested:              row.PolicyPinRequested,
+		PolicyPinHonoured:               row.PolicyPinHonoured,
 		StickyHit:                       row.StickyHit != nil && *row.StickyHit,
 		FailoverUsed:                    row.FailoverUsed != nil && *row.FailoverUsed,
 		CrossFormat:                     row.CrossFormat != nil && *row.CrossFormat,
@@ -94,6 +96,10 @@ func decisionFromExportRow(row sqlc.GetRoutingDecisionsForExportRow) analytics.D
 		StopReason:            row.StopReason,
 		ToolUseBlocks:         int32PtrToInt64(row.ToolUseBlocks),
 		InvalidToolArgsBlocks: int32PtrToInt64(row.InvalidToolArgsBlocks),
+
+		ClientGitHeadSHA: row.ClientGitHeadSha,
+		ClientGitBranch:  row.ClientGitBranch,
+		ClientGitDirty:   row.ClientGitDirty,
 	}
 }
 

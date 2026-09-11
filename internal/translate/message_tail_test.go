@@ -150,3 +150,40 @@ func TestSystemTextTail_Short(t *testing.T) {
 	assert.Equal(t, "Hi", head)
 	assert.Equal(t, "", tail)
 }
+
+func TestSystemBlocks_AnthropicKeepsBlockBoundaries(t *testing.T) {
+	body := []byte(`{
+		"model": "claude-opus-4-7",
+		"system": [
+			{"type": "text", "text": "You are Claude."},
+			{"type": "text", "text": "gitStatus: synthetic"}
+		],
+		"messages": [{"role": "user", "content": "hi"}]
+	}`)
+
+	env, err := ParseAnthropic(body)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"You are Claude.", "gitStatus: synthetic"}, env.SystemBlocks())
+}
+
+func TestSystemBlocks_NoSystemIsNil(t *testing.T) {
+	body := []byte(`{"model": "claude-opus-4-7", "messages": [{"role": "user", "content": "hi"}]}`)
+
+	env, err := ParseAnthropic(body)
+	require.NoError(t, err)
+	assert.Nil(t, env.SystemBlocks())
+}
+
+func TestSystemBlocks_OpenAISingleBlock(t *testing.T) {
+	body := []byte(`{
+		"model": "gpt-5",
+		"messages": [
+			{"role": "system", "content": "You are helpful."},
+			{"role": "user", "content": "hi"}
+		]
+	}`)
+
+	env, err := ParseOpenAI(body)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"You are helpful."}, env.SystemBlocks())
+}

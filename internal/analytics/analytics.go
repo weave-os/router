@@ -44,9 +44,12 @@ type Decision struct {
 	BlindExperimentArm              *auth.BlindExperimentArm              `json:"blind_experiment_arm"`
 	BlindExperimentAssignmentSource *auth.BlindExperimentAssignmentSource `json:"blind_experiment_assignment_source"`
 	BlindExperimentSubjectKey       *string                               `json:"blind_experiment_subject_key"`
-	StickyHit                       bool                                  `json:"sticky_hit"`
-	FailoverUsed                    bool                                  `json:"failover_used"`
-	CrossFormat                     bool                                  `json:"cross_format"`
+	// PolicyPin* are null when the turn carried no x-weave-policy-pin header.
+	PolicyPinRequested *bool `json:"policy_pin_requested"`
+	PolicyPinHonoured  *bool `json:"policy_pin_honoured"`
+	StickyHit          bool  `json:"sticky_hit"`
+	FailoverUsed       bool  `json:"failover_used"`
+	CrossFormat        bool  `json:"cross_format"`
 
 	EstimatedInputTokens *int64 `json:"estimated_input_tokens"`
 	InputTokens          *int64 `json:"input_tokens"`
@@ -69,6 +72,13 @@ type Decision struct {
 	StopReason            *string `json:"stop_reason"`
 	ToolUseBlocks         *int64  `json:"tool_use_blocks"`
 	InvalidToolArgsBlocks *int64  `json:"invalid_tool_args_blocks"`
+
+	// ClientGit* is the client-reported starting tree of a trial-mode session,
+	// captured on its first turn only. Null everywhere else. HeadSHA is
+	// abbreviated as the client printed it; compare by prefix.
+	ClientGitHeadSHA *string `json:"client_git_head_sha"`
+	ClientGitBranch  *string `json:"client_git_branch"`
+	ClientGitDirty   *bool   `json:"client_git_dirty"`
 }
 
 // Query is one normalized page request: window [From, To), optional keyset

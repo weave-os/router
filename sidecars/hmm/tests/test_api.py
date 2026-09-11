@@ -1,10 +1,18 @@
 from __future__ import annotations
 
+import asyncio
 import logging
+from pathlib import Path
+from types import SimpleNamespace
 
+import numpy as np
+import pytest
 from fastapi.testclient import TestClient
 
+import hmm_sidecar.api as api_module
 from hmm_sidecar.api import app, configure_logging
+from hmm_sidecar.artifacts import ArtifactRegistry, FrozenArtifacts
+from hmm_sidecar.schemas import EmbeddingContract
 from hmm_sidecar.policy import RouteTimings
 from hmm_sidecar.schemas import RoutePreviewResult, RouteResult
 
@@ -354,3 +362,176 @@ def test_configure_logging_does_not_duplicate_an_existing_setup() -> None:
         root.removeHandler(probe)
         package_log.handlers = original_handlers
         package_log.setLevel(original_level)
+
+
+class SelectedArtifactPolicy(RosterPolicy):
+    def __init__(self, sha: str) -> None:
+        self.roster_version = sha
+        self.sha = sha
+
+    async def route_with_timings(self, payload: dict[str, object]):
+        del payload
+        return (
+            RouteResult(
+                route_id="route",
+                score=0.9,
+                candidate_scores={"provider/a": 0.9},
+                reason="test",
+                state_label="state_1",
+                policy_group="fast",
+                policy_label="fast",
+                policy_route_key="hmm:1:fast",
+                confidence=0.9,
+                margin=0.4,
+                propensity=1.0,
+                policy_artifact_id="artifact",
+                policy_artifact_sha256=self.sha,
+                roster_version=self.roster_version,
+                ranked_fallback=(
+                    {
+                        "group": "fast",
+                        "probability": 1.0,
+                        "roster_arms": ("provider/a",),
+                        "eligible_arms": ("provider/a",),
+                    },
+                ),
+                debug={"frozen_policy": True},
+            ),
+            RouteTimings(
+                sequence_ms=1.0,
+                embed_ms=1.0,
+                hmm_ms=1.0,
+                classifier_ms=1.0,
+                total_ms=4.0,
+                turns=1,
+                embed_requested=1,
+                embed_cached=1,
+                embed_fetched=0,
+            ),
+        )
+
+
+def test_route_serves_the_requested_registry_artifact() -> None:
+    default = SelectedArtifactPolicy("d" * 64)
+    pinned = SelectedArtifactPolicy("e" * 64)
+    with TestClient(app) as client:
+        app.state.policy = default
+        app.state.policies = {default.sha: default, pinned.sha: pinned}
+        unpinned = client.post("/route", json={"schema_version": "policy_router_v3"})
+        selected = client.post(
+            "/route",
+            json={"schema_version": "policy_router_v3", "artifact_sha256": pinned.sha},
+        )
+        roster = client.get("/roster", params={"artifact_sha256": pinned.sha})
+
+    assert unpinned.status_code == 200
+    assert unpinned.json()["policy_artifact_sha256"] == default.sha
+    assert selected.status_code == 200
+    assert selected.json()["policy_artifact_sha256"] == pinned.sha
+    assert roster.status_code == 200
+    assert roster.json()["roster_version"] == pinned.sha
+
+
+def test_unknown_artifact_sha256_is_a_404_never_the_default() -> None:
+    default = SelectedArtifactPolicy("d" * 64)
+    with TestClient(app) as client:
+        app.state.policy = default
+        app.state.policies = {default.sha: default}
+        route = client.post(
+            "/route",
+            json={"schema_version": "policy_router_v3", "artifact_sha256": "f" * 64},
+        )
+        preview = client.post(
+            "/preview",
+            json={
+                "schema_version": "policy_router_v3",
+                "execution_mode": "preview",
+                "artifact_sha256": "f" * 64,
+            },
+        )
+        roster = client.get("/roster", params={"artifact_sha256": "f" * 64})
+        bad_type = client.post(
+            "/route", json={"schema_version": "policy_router_v3", "artifact_sha256": 7}
+        )
+
+    assert route.status_code == 404
+    assert route.json()["artifact_sha256"] == "f" * 64
+    assert preview.status_code == 404
+    assert roster.status_code == 404
+    assert bad_type.status_code == 400
+
+
+def _artifacts(
+    sha: str, contract: EmbeddingContract, probe: np.ndarray
+) -> FrozenArtifacts:
+    return FrozenArtifacts(
+        root=Path("/nonexistent") / sha,
+        manifest=SimpleNamespace(embedding_contract=contract),  # type: ignore[arg-type]
+        package_sha256=sha,
+        probe_vector=probe,
+    )
+
+
+def _contract(**overrides: object) -> EmbeddingContract:
+    fields: dict[str, object] = {
+        "model": "gemini-embedding-001",
+        "dimensions": 3,
+        "task_type": None,
+        "probe_text": "probe",
+        "probe_vector_file": "probe.npy",
+        "minimum_cosine_similarity": 0.99,
+    }
+    fields.update(overrides)
+    return EmbeddingContract(**fields)  # type: ignore[arg-type]
+
+
+def test_boot_probes_once_per_distinct_embedding_contract(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    shared = _contract()
+    other = _contract(model="text-embedding-3-large", dimensions=3)
+    probe = np.array([1.0, 0.0, 0.0])
+    default = _artifacts("d" * 64, shared, probe)
+    registry = ArtifactRegistry(
+        default=default,
+        by_sha256={
+            default.package_sha256: default,
+            "e" * 64: _artifacts("e" * 64, shared, probe.copy()),
+            "f" * 64: _artifacts("f" * 64, other, probe),
+        },
+    )
+    built: list[EmbeddingContract] = []
+    probed: list[EmbeddingContract] = []
+
+    def fake_build(contract: EmbeddingContract) -> object:
+        built.append(contract)
+        return object()
+
+    async def fake_verify(
+        embedder: object, contract: EmbeddingContract, reference: np.ndarray
+    ) -> float:
+        del embedder, reference
+        probed.append(contract)
+        return 0.5 if contract is shared else 0.25
+
+    class FakePolicy:
+        def __init__(self, artifacts: FrozenArtifacts, embedder: object) -> None:
+            self.artifacts = artifacts
+            self.embedder = embedder
+
+    monkeypatch.setattr(api_module, "build_embedder", fake_build)
+    monkeypatch.setattr(api_module, "verify_embedding_contract", fake_verify)
+    monkeypatch.setattr(api_module, "FrozenPolicy", FakePolicy)
+
+    policies, similarity = asyncio.run(api_module.load_policies(registry))
+
+    assert set(policies) == set(
+        registry.by_sha256
+    ), "every registry entry still gets a policy"
+    assert (
+        len(probed) == 2
+    ), "one probe per distinct embedding contract, not per package"
+    assert probed == built == [shared, other]
+    assert policies["d" * 64].embedder is policies["e" * 64].embedder
+    assert policies["f" * 64].embedder is not policies["d" * 64].embedder
+    assert similarity == 0.5

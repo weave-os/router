@@ -552,6 +552,11 @@ weave_owns_codex_helper() {
 weave_owned_codex_helpers() {
   weave_owns_codex_helper "${codex_status_file:-}" '<!-- weave-router managed codex status -->' rewrite \
     && printf '%s\n' "$codex_status_file"
+  # delete, not rewrite: unlike the status helper, a symlink at the directive
+  # path is never ours even when its target carries the marker. Classifying it
+  # rewrite-owned made a reinstall follow the link and overwrite whatever it
+  # pointed at. install_codex_directive_script skips symlinks for the same
+  # reason, so the two stay consistent.
   weave_owns_codex_helper "${codex_directive_file:-}" '<!-- weave-router managed codex directive -->' delete \
     && printf '%s\n' "$codex_directive_file"
   return 0
@@ -662,6 +667,7 @@ write_codex_config() {
   esc_name="$(toml_escape "$block_name")"
   esc_url="$(toml_escape "$block_url")"
   esc_status="$(toml_escape "$codex_status_file")"
+  esc_directive="$(toml_escape "$codex_directive_file")"
 
   # Plant whichever identity values we have alongside the router key so the
   # router can attribute Codex traffic to a person on shared keys. Build the
@@ -701,6 +707,25 @@ write_codex_config() {
     hook_feature_line=""
   fi
   if [ "$codex_hooks_enabled" = "true" ]; then
+    # UserPromptSubmit is registered only when OUR hook is actually on disk.
+    # Existence alone is the wrong test: install_codex_directive_script leaves
+    # a user-owned file at that path untouched, and registering it would hand
+    # someone else's script every prompt. Registering a command that is not
+    # there is the other failure -- Codex then fails every prompt rather than
+    # every toggle -- so the file must exist and carry our marker. -L is
+    # checked first because -f follows the link: a symlink to a marked file is
+    # still not a file we may point Codex at.
+    local directive_hook_block=""
+    if [ ! -L "$codex_directive_file" ] && [ -f "$codex_directive_file" ] && grep -Fq '<!-- weave-router managed codex directive -->' "$codex_directive_file"; then
+      directive_hook_block="$(cat <<TOML
+
+[[hooks.UserPromptSubmit]]
+[[hooks.UserPromptSubmit.hooks]]
+type = "command"
+command = "${esc_directive}"
+TOML
+)"
+    fi
     hook_block="$(cat <<TOML
 
 [[hooks.SessionStart]]
@@ -713,7 +738,7 @@ command = "${esc_status}"
 type = "command"
 command = "${esc_status}"
 TOML
-)"
+)${directive_hook_block}"
   fi
   local block
   block="$(cat <<TOML
@@ -3702,11 +3727,12 @@ announce_done() {
 # latest known routed model in the terminal title. The embedded copy keeps the
 # standalone curl installer feature-complete; packaged installs use the
 # canonical sibling asset.
-# remove_codex_directive_helper deletes the UserPromptSubmit helper shipped in
-# 0.2.17. The router now answers those directives itself, so the hook is dead
-# weight — and a registration left pointing at a deleted script would make Codex
-# run a missing command on every prompt, so the two must go together.
-# strip_weave_codex_hooks removes the registration; this removes the file.
+# remove_codex_directive_helper deletes the UserPromptSubmit helper. Install no
+# longer calls it — install_codex_directive_script writes the local-toggle hook
+# in its place — but uninstall still does, and a registration left pointing at a
+# deleted script would make Codex run a missing command on every prompt, so the
+# two must go together. strip_weave_codex_hooks removes the registration; this
+# removes the file.
 remove_codex_directive_helper() {
   [ -e "$codex_directive_file" ] || return 0
   # Skip, do not exit: a symlink here is the user's, and aborting would leave
@@ -4164,17 +4190,300 @@ CODEX_STATUS_EOF
   ok "Codex status integration installed at $codex_status_file"
 }
 
+# Install the UserPromptSubmit hook that answers the four local-config toggles
+# ($router-on/off/status, $disable-routing) without an inference turn.
+#
+# Only these four. Everything the router can answer it already answers itself,
+# and a hook that also intercepted those would re-open the duplicate-path
+# problem #1257 closed. What is left here cannot move server-side at all: they
+# rewrite this machine's config.toml, and $router-off in particular must keep
+# working when the router is the thing that is broken.
+#
+# Mirrors install_codex_status_script, with one addition: the {{SCOPE}} token
+# is substituted the same way install_slash_commands does it, because the
+# installed hook cannot discover at run time which install it belongs to.
+install_codex_directive_script() {
+  local candidate directive_src=""
+  for candidate in \
+    "$script_dir/codex-toggle.sh" \
+    "$script_dir/../codex-toggle.sh"
+  do
+    if [ -f "$candidate" ]; then
+      directive_src="$candidate"
+      break
+    fi
+  done
+  # Every bail-out below is a skip, never a failure. Unlike the status helper,
+  # this hook has a working fallback -- the toggle skills still shell out to
+  # the same installer -- so refusing to install the router because of a stray
+  # file would cost the user far more than the two turns the hook saves.
+  #
+  # No sibling asset means a standalone `curl | sh` install, which has only
+  # this file. The embedded copy below keeps that path feature-complete;
+  # install/tests/codex-toggle_test.sh diffs the two and fails on drift.
+  local embedded_src=""
+  if [ -z "$directive_src" ]; then
+    embedded_src="$(mktemp -t weave-codex-toggle.XXXXXX)" || return 0
+    cat >"$embedded_src" <<'CODEX_TOGGLE_EOF'
+#!/usr/bin/env bash
+# <!-- weave-router managed codex directive -->
+#
+# Codex UserPromptSubmit hook for the Weave Router's LOCAL config toggles.
+# Codex passes a JSON object on stdin carrying the RAW prompt text, before
+# `$skill` expansion and before any inference.
+#
+# Why this exists. The other directives ($fm, $ufm, $rf, $router-session,
+# a bare $router-models) are router state, and the router answers them itself
+# with no model turn. These four are not: they rewrite config.toml on this
+# machine, which a remote HTTP service cannot do. Left as skills they cost two
+# inference turns each -- one for the model to read the skill and decide to
+# exec, one to report the tool result.
+#
+# The second reason matters more than the cost. $router-off and
+# $disable-routing are what you reach for when the router is slow, broken, or
+# out of credits -- and as skills they need a model turn, which is served
+# THROUGH the router. The off switch depended on the thing it turns off. This
+# hook runs locally before any network call, so it works when the router does
+# not.
+#
+# Scope: only the four local toggles. Everything the router can answer is
+# deliberately absent -- a hook that intercepted those would re-open the
+# duplicate-path problem #1257 closed.
+#
+# FAIL OPEN. Every unexpected condition -- no jq, no npx, a malformed payload,
+# a command that errors -- must let the prompt through untouched. A directive
+# that silently swallows the user's prompt is far worse than one that does not
+# fire.
+
+set -uo pipefail
+
+# How long the toggle may take before the hook gives up and passes the prompt
+# through. npx resolves from cache after first use; the budget covers a cold
+# fetch without letting a dead network hang the turn indefinitely.
+#
+# Validated, not trusted. `[ "$waited" -ge "$seconds" ]` does not compare a
+# bound it cannot parse -- it errors -- so the cap would never fire and the
+# hook would hang until npx exited on its own. Two ways to get there: a
+# non-numeric value, and a digit-only value too large for the shell's integer
+# type ("[: 99999999999999999999: integer expression expected"). The length
+# bound covers the second; 4 digits is already ~2.7h, far past anything
+# meaningful for a prompt hook.
+#
+# The diagnostic goes to stderr, never stdout: stdout is the hook protocol
+# channel and any stray byte there corrupts the JSON. Codex discards stderr,
+# so this costs a user nothing and tells whoever set the variable why it was
+# ignored.
+WEAVE_TOGGLE_TIMEOUT_DEFAULT=45
+# Resolved into a local first: under `set -u`, ${#WEAVE_TOGGLE_TIMEOUT} on an
+# unset variable aborts the hook outright -- which would swallow every prompt,
+# the one failure this script must never have.
+weave_timeout="${WEAVE_TOGGLE_TIMEOUT:-$WEAVE_TOGGLE_TIMEOUT_DEFAULT}"
+weave_timeout_invalid=""
+case "$weave_timeout" in
+  ''|*[!0-9]*|0) weave_timeout_invalid=1 ;;
+  *) [ "${#weave_timeout}" -gt 4 ] && weave_timeout_invalid=1 ;;
+esac
+if [ -n "$weave_timeout_invalid" ]; then
+  printf 'weave-router: ignoring invalid WEAVE_TOGGLE_TIMEOUT=%s; using %ss\n' \
+    "$weave_timeout" "$WEAVE_TOGGLE_TIMEOUT_DEFAULT" >&2
+  weave_timeout="$WEAVE_TOGGLE_TIMEOUT_DEFAULT"
+fi
+WEAVE_TOGGLE_TIMEOUT="$weave_timeout"
+
+# ---------- responses ----------
+
+# pass_through hands the prompt to Codex unchanged. Every failure path ends here.
+pass_through() {
+  printf '{"continue":true}\n'
+  exit 0
+}
+
+# block stops the turn before any inference and shows the text to the user.
+# Codex renders `reason`; nothing reaches the model.
+#
+# Setting only `decision` is deliberate: `continue:false` alongside it wins and
+# renders a bare "Hook stopped" with the reason discarded.
+block() {
+  local reason="$1" payload
+  payload="$(jq -cn --arg r "$reason" '{decision:"block", reason:$r}' 2>/dev/null)" \
+    || pass_through
+  printf '%s\n' "$payload"
+  exit 0
+}
+
+command -v jq >/dev/null 2>&1 || pass_through
+
+payload="$(cat)" || pass_through
+[ -n "$payload" ] || pass_through
+
+prompt="$(jq -r '.prompt // ""' <<<"$payload" 2>/dev/null)" || pass_through
+
+# Only a directive at the very start of the prompt is ours. Prose that merely
+# mentions `$router-off` in a sentence is the user's text, not a command.
+case "$prompt" in
+  '$'*) ;;
+  *) pass_through ;;
+esac
+
+verb="${prompt#$}"
+# These four take no arguments. A prompt with a tail is not one of ours --
+# pass it through so the skill can explain itself rather than the hook eating
+# a message it cannot honour.
+case "$verb" in
+  *[[:space:]]*) pass_through ;;
+esac
+
+# ---------- directive table ----------
+#
+# Local-config toggles only. router-on/off/status flip this install's
+# config.toml; disable-routing is `off` plus the reversal hint below.
+case "$verb" in
+  router-on)       toggle="on" ;;
+  router-off)      toggle="off" ;;
+  router-status)   toggle="status" ;;
+  disable-routing) toggle="off" ;;
+  *) pass_through ;;
+esac
+
+command -v npx >/dev/null 2>&1 || pass_through
+
+# ---------- run ----------
+
+# WEAVE_TOGGLE_TIMED_OUT is set by run_bounded instead of encoding the timeout
+# in the exit status. 124 is a status the child can legitimately return, and
+# reading that as "we timed out" would swallow the toggle's own error output.
+WEAVE_TOGGLE_TIMED_OUT=0
+
+# run_bounded runs a command with a wall-clock cap. GNU `timeout` is not on
+# macOS, so this polls the child rather than depending on coreutils.
+#
+# The child runs in its own process group (`set -m` + `kill -- -PID`) because
+# npx execs node: signalling only the direct child leaves that node process
+# running after the hook has already passed the prompt through.
+run_bounded() {
+  local seconds="$1" out="$2"; shift 2
+  WEAVE_TOGGLE_TIMED_OUT=0
+
+  local had_monitor=0
+  case "$-" in *m*) had_monitor=1 ;; esac
+  set -m
+  "$@" >"$out" 2>&1 &
+  local pid=$!
+  [ "$had_monitor" -eq 1 ] || set +m
+
+  local waited=0
+  while kill -0 "$pid" 2>/dev/null; do
+    if [ "$waited" -ge "$seconds" ]; then
+      WEAVE_TOGGLE_TIMED_OUT=1
+      # Negative pid = the whole group. Fall back to the bare pid if the
+      # group is already gone, so a raced exit still gets reaped.
+      kill -TERM -- "-$pid" 2>/dev/null || kill -TERM "$pid" 2>/dev/null
+      sleep 1
+      kill -KILL -- "-$pid" 2>/dev/null || kill -KILL "$pid" 2>/dev/null
+      wait "$pid" 2>/dev/null
+      return 0
+    fi
+    sleep 1
+    waited=$((waited + 1))
+  done
+  wait "$pid"
+}
+
+out_file="$(mktemp -t weave-codex-toggle.XXXXXX)" || pass_through
+# shellcheck disable=SC2064  # expand out_file now; it never changes after this
+trap "rm -f '$out_file'" EXIT
+
+# {{SCOPE}} is substituted at install time by the only code that knows whether
+# this install is user, project, or --dir scoped. It becomes literal argument
+# text (the installer printf %q-quotes any path), so there is nothing here to
+# word-split at runtime -- the braces are a template token, not an expansion.
+# shellcheck disable=SC1083
+run_bounded "$WEAVE_TOGGLE_TIMEOUT" "$out_file" \
+  npx --package @weave-os/router -y -- weave-router "$toggle" --codex{{SCOPE}}
+status=$?
+
+output="$(cat "$out_file" 2>/dev/null || true)"
+# Strip ANSI colour the installer emits when it thinks it has a terminal;
+# Codex renders `reason` as plain text.
+output="$(printf '%s' "$output" | sed -e 's/\x1b\[[0-9;]*m//g')"
+
+# A failure is reported, not swallowed: passing through here would hand the
+# model a prompt the user meant as a command, and it would likely try the same
+# command again. Only a real timeout passes through -- the toggle never got to
+# finish, so the skill path is still the honest fallback.
+if [ "$WEAVE_TOGGLE_TIMED_OUT" -eq 1 ]; then
+  pass_through
+fi
+
+[ -n "$output" ] || output="weave-router $toggle --codex exited with status $status."
+
+# Both trailers describe a change that actually happened, so they are gated on
+# a zero exit. A failed toggle rewrote no config; telling the user it takes
+# effect next launch would send them to restart Codex for nothing.
+if [ "$status" -eq 0 ] && [ "$verb" != "router-status" ]; then
+  output="$output"$'\n\n'"Takes effect on your next \`codex\` launch: Codex reads its provider config at startup, so this session keeps routing as it already was."
+fi
+if [ "$status" -eq 0 ] && [ "$verb" = "disable-routing" ]; then
+  output="$output"$'\n'"Reverse it with \$router-on."
+fi
+
+block "$output"
+CODEX_TOGGLE_EOF
+    directive_src="$embedded_src"
+  fi
+  if ! grep -Fq '<!-- weave-router managed codex directive -->' "$directive_src"; then
+    warn "Codex directive hook has no ownership marker; skipping it. The \$router-on/off/status toggles still work as skills."
+    [ -n "$embedded_src" ] && rm -f "$embedded_src"
+    return 0
+  fi
+  # A symlink at this path is never ours, whatever it points at and whether or
+  # not the target carries our marker. Writing through one would let a
+  # reinstall overwrite an arbitrary file outside the Codex directory, and a
+  # DANGLING link is invisible to -e, so this test must be -L and must come
+  # first. It skips rather than exits: refuse_if_symlink would abort the whole
+  # installer, and this hook is optional -- the toggle skills still work.
+  if [ -L "$codex_directive_file" ]; then
+    warn "A symlink sits at $codex_directive_file; leaving it untouched and skipping the local-toggle hook. The \$router-on/off/status toggles still work as skills."
+    [ -n "$embedded_src" ] && rm -f "$embedded_src"
+    return 0
+  fi
+  if [ "$scope" = "user" ] && [ -z "$install_dir" ]; then
+    mkdir -p "$(dirname "$codex_directive_file")"
+  fi
+  if [ -e "$codex_directive_file" ] && { [ ! -f "$codex_directive_file" ] || ! grep -Fq '<!-- weave-router managed codex directive -->' "$codex_directive_file"; }; then
+    warn "A user-owned Codex directive helper already exists at $codex_directive_file; leaving it untouched. The \$router-on/off/status toggles still work as skills."
+    [ -n "$embedded_src" ] && rm -f "$embedded_src"
+    return 0
+  fi
+
+  local scope_args=""
+  if [ -n "$install_dir" ]; then
+    scope_args=" --dir $(printf '%q' "$install_dir")"
+  elif [ "$scope" = "project" ]; then
+    scope_args=" --scope project"
+  fi
+  local body
+  body="$(cat "$directive_src")" || { [ -n "$embedded_src" ] && rm -f "$embedded_src"; return 0; }
+  [ -n "$embedded_src" ] && rm -f "$embedded_src"
+  printf '%s\n' "${body//\{\{SCOPE\}\}/$scope_args}" >"$codex_directive_file" || return 0
+  chmod 700 "$codex_directive_file"
+  ok "Codex local-toggle hook installed at $codex_directive_file"
+}
+
 
 if [ "$target" = "codex" ]; then
   if ! install_codex_status_script; then
     err "Cannot install the Codex status helper safely; refusing to write hooks that could execute unowned code."
     exit 1
   fi
+  # Before write_codex_config, which registers whatever this leaves on disk:
+  # a registration pointing at a script that is not there yet makes Codex run
+  # a missing command on every prompt. It never fails the install -- the
+  # toggles fall back to their skills -- so its outcome is read off the file,
+  # not off an exit status.
+  install_codex_directive_script
   write_codex_config "$codex_config_file" "$base_url" "$api_key" "$user_email" "$user_name"
   ok "Codex config written to $codex_config_file"
-  # Only once the registration is gone: a helper deleted while its registration
-  # survives makes Codex run a missing command on every prompt.
-  remove_codex_directive_helper
   remove_obsolete_codex_prompt_wrappers "$codex_dir/prompts"
   install_codex_prompt_skills
   info "Codex router directives: begin the message with one space, e.g. ' /force-model gpt-5.6-terra'."

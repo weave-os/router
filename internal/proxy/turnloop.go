@@ -158,6 +158,10 @@ func (s *Service) plannerTokensFor(env *translate.RequestEnvelope, feats transla
 	return plannerInputTokens(env, feats)
 }
 
+// policyPinTier is the PinTier stamped on a turn scored fresh under an
+// honoured x-weave-policy-pin, bypassing every session short-circuit.
+const policyPinTier = "policy_pin"
+
 // turnLoopResult bundles the routing decision and pin/planner state.
 type turnLoopResult struct {
 	EscalationShadowMarked bool
@@ -175,6 +179,12 @@ type turnLoopResult struct {
 	TurnType   turntype.TurnType
 	StickyHit  bool
 	HardPinned bool
+	// SessionFirstTurn is true when the pin store positively answered "no
+	// state at all" for (SessionKey, PinRole): no live, expired, or cleared
+	// pin. A store outage leaves it false, so first-turn-only capture stays
+	// off rather than running on every turn. Telemetry-only; nothing on the
+	// routing path reads it.
+	SessionFirstTurn bool
 	// Purpose is the inference purpose a utility turn (title-gen, classifier,
 	// probe, sub-agent, client compaction) is authorized under. Empty means
 	// the turn is main inference and dispatches under the surface's purpose.
@@ -549,6 +559,26 @@ func forcedPinIneligibilityReason(pin sessionpin.Pin, req router.Request) string
 //
 // installationID == uuid.Nil skips the async pin upsert (rows need one); the
 // rest of the path runs normally.
+//
+// An honoured x-weave-policy-pin narrows the loop to one outcome: the turn is
+// scored fresh by exactly the pinned artifact and roster, or it fails closed
+// with ErrPolicyPinUnavailable. No branch may answer 200 for a pinned turn
+// with a decision the pinned policy did not produce.
+// policyPinServed is the fail-closed guard behind every turn-loop branch:
+// with an honoured pin, only a decision the pinned policy produced may leave
+// the loop. Utility hard pins (probe, title-gen, classifier, compaction) are
+// never policy-scored and stay exempt; they report policy_pin_honoured=false.
+func policyPinServed(ctx context.Context, res turnLoopResult) error {
+	pin, pinned := router.HonouredPolicyPin(ctx)
+	if !pinned || len(res.Purpose) > 0 {
+		return nil
+	}
+	if res.Decision.Metadata == nil || !res.Decision.Metadata.PolicyPinHonoured {
+		return fmt.Errorf("turn served by %q (%s), not by policy pin %s: %w", res.Decision.Model, res.PinTier, pin, router.ErrPolicyPinUnavailable)
+	}
+	return nil
+}
+
 func (s *Service) runTurnLoop(
 	ctx context.Context,
 	env *translate.RequestEnvelope,
@@ -559,6 +589,11 @@ func (s *Service) runTurnLoop(
 	reqHeaders http.Header,
 	req router.Request,
 ) (res turnLoopResult, routeErr error) {
+	defer func() {
+		if routeErr == nil {
+			routeErr = policyPinServed(ctx, res)
+		}
+	}()
 	log := observability.FromContext(ctx)
 	if requirements, ok := translationRequirementsFromContext(ctx); ok {
 		req.TranslationRequirements = requirements
@@ -620,6 +655,27 @@ func (s *Service) runTurnLoop(
 		"pin_role", res.PinRole,
 		"sub_agent_hint", subAgentHint,
 	)
+
+	// A pinned turn is a replay of one frozen policy, so session state that
+	// would otherwise short-circuit scoring (/force-model, sticky pins, usage
+	// bypass, blind-experiment passthrough, planner stays) is not consulted.
+	// Utility hard pins below are never policy-scored and keep their own path.
+	if _, pinned := router.HonouredPolicyPin(ctx); pinned && !s.isHardPinnedTurn(ctx, res.TurnType) {
+		if s.pinStore != nil {
+			res.SessionKey = threadSessionKey
+			_, _, res.SessionFirstTurn = s.loadPinWithStoreState(ctx, res.SessionKey, res.PinRole)
+		}
+		req.PolicyTurnContext = buildPolicyTurnContext(req, res, sessionpin.Pin{}, sessionpin.Pin{})
+		decision, err := s.routeFor(ctx, req)
+		if err != nil {
+			return res, err
+		}
+		res.Decision = decision
+		res.Fresh = decision
+		res.PinTier = policyPinTier
+		log.Info("turnloop served by policy pin", "decision_model", decision.Model, "decision_provider", decision.Provider)
+		return res, nil
+	}
 
 	// Force state is session-scoped so sub-agents inherit the parent choice.
 	forceModelSessionKey := deriveForceModelSessionKeyForRequest(ctx, env, apiKeyID, threadSessionKey)
@@ -918,7 +974,8 @@ func (s *Service) runTurnLoop(
 
 	res.SessionKey = sessionKey
 
-	pin, pinFound := s.loadPin(ctx, res.SessionKey, res.PinRole)
+	pin, pinFound, noStoredState := s.loadPinWithStoreState(ctx, res.SessionKey, res.PinRole)
+	res.SessionFirstTurn = noStoredState
 	// A deliberate clear is stored as an expired, blank pin with a reason.
 	// Natural expiry retains the model/provider and may still use a renewed
 	// one-shot command continuation, but an explicit clear must never be
@@ -2148,23 +2205,32 @@ func roleForTier(t catalog.Tier) string {
 // Expired rows are misses for routing, but their history fields still protect
 // Anthropic emit from stale thinking-block signatures in the client transcript.
 func (s *Service) loadPin(ctx context.Context, sessionKey [sessionpin.SessionKeyLen]byte, role string) (sessionpin.Pin, bool) {
+	pin, active, _ := s.loadPinWithStoreState(ctx, sessionKey, role)
+	return pin, active
+}
+
+// loadPinWithStoreState is loadPin plus noStoredState: the store answered and
+// held nothing for this key. A store error routes exactly like a miss (fall
+// through to the scorer), but a caller that reads absence as session state —
+// first-turn telemetry capture — must not read an outage as a fresh session.
+func (s *Service) loadPinWithStoreState(ctx context.Context, sessionKey [sessionpin.SessionKeyLen]byte, role string) (_ sessionpin.Pin, active, noStoredState bool) {
 	log := observability.FromContext(ctx)
 	log.Debug("loadPin called", "role", role, "session_key_hex", fmt.Sprintf("%x", sessionKey))
 	pin, found, err := s.pinStore.Get(ctx, sessionKey, role)
 	if err != nil {
 		log.Error("session pin store unavailable; falling through to cluster scorer", "err", err)
-		return sessionpin.Pin{}, false
+		return sessionpin.Pin{}, false, false
 	}
 	if !found {
-		return sessionpin.Pin{}, false
+		return sessionpin.Pin{}, false, true
 	}
 	if !pinMatchesEffectiveStrategy(ctx, pin) {
-		return sessionpin.Pin{}, false
+		return sessionpin.Pin{}, false, false
 	}
 	if !pin.PinnedUntil.After(time.Now()) {
-		return pin, false
+		return pin, false, false
 	}
-	return pin, true
+	return pin, true, false
 }
 
 func (s *Service) loadHMMHistory(ctx context.Context, sessionKey [sessionpin.SessionKeyLen]byte, role string) sessionpin.Pin {

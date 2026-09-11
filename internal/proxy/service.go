@@ -551,6 +551,11 @@ type InstallationSubscriptionRoutingDisabledContextKey struct{}
 // suppresses the routing marker, feedback footer, and feedback-link header.
 type InstallationHideTerminalSurfacesContextKey struct{}
 
+// InstallationTrialCaptureContextKey is the context key for the installation's
+// trial-mode capture opt-in (bool; absent == false); enables the first-turn
+// client git-context telemetry parse. Never read by routing.
+type InstallationTrialCaptureContextKey struct{}
+
 // PolicyTrainingAllowedContextKey carries the installation's explicit
 // learning eligibility. Absence is fail-closed (false).
 type PolicyTrainingAllowedContextKey struct{}
@@ -2553,6 +2558,17 @@ func (s *Service) routeFor(ctx context.Context, req router.Request) (router.Deci
 }
 
 func (s *Service) routeWithStrategy(ctx context.Context, strategy router.Strategy, req router.Request) (router.Decision, error) {
+	decision, err := s.routeWithStrategyUnchecked(ctx, strategy, req)
+	if err != nil {
+		return decision, err
+	}
+	if pin, pinned := router.HonouredPolicyPin(ctx); pinned && (decision.Metadata == nil || !decision.Metadata.PolicyPinHonoured) {
+		return router.Decision{}, fmt.Errorf("strategy %q cannot serve policy pin %s: %w", strategy, pin, router.ErrPolicyPinUnavailable)
+	}
+	return decision, nil
+}
+
+func (s *Service) routeWithStrategyUnchecked(ctx context.Context, strategy router.Strategy, req router.Request) (router.Decision, error) {
 	if strategy == router.StrategyCluster {
 		if s.router == nil {
 			return router.Decision{}, fmt.Errorf("strategy %q requested but no router configured: %w", strategy, router.ErrStrategyUnavailable)
@@ -3134,6 +3150,22 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			requestBodyChanged = true
 		}
 	}
+	if !agentShadowMode && env.ExtractRouterSessionCommand() {
+		log.Info("ProxyMessages router-session command")
+		if err := s.handleRouterSessionCommand(ctx, w, env, feats.Tokens); err != nil {
+			return err
+		}
+		s.grantPostCommandContinuation(ctx, installationID, sessionKey, roleForTier(catalog.TierFor(feats.Model)))
+		return nil
+	}
+	if !agentShadowMode && env.ExtractRouterModelsCommand() {
+		log.Info("ProxyMessages router-models command")
+		if err := s.handleRouterModelsCommand(ctx, w, env, feats.Tokens); err != nil {
+			return err
+		}
+		s.grantPostCommandContinuation(ctx, installationID, sessionKey, roleForTier(catalog.TierFor(feats.Model)))
+		return nil
+	}
 
 	// Sanitize after command extraction: a skill can encode its command as a
 	// plain user string after an assistant tool_use, and sanitizing first would
@@ -3349,6 +3381,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	finishRoutingSpan(routeSpan, routeRes.Decision, routeErr)
 	if routeErr != nil {
 		log.Error("Routing failed", "err", routeErr, "route_ms", time.Since(routeStart).Milliseconds(), "requested_model", feats.Model, "total_input_tokens", feats.Tokens)
+		s.recordPolicyPinRouteFailure(ctx, requestID, requestStart, feats.Model, routeRes.TurnType, routeErr)
 		return routeErr
 	}
 	if len(routeRes.SessionDisabledProviders) > 0 {
@@ -4627,6 +4660,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		applyPlannerTelemetry(&tel, routeRes)
 		applyAuthorityShadowTelemetry(&tel, routeRes)
 		applyBlindExperimentTelemetry(ctx, &tel)
+		applyPolicyPinTelemetry(ctx, &tel, decision.Metadata)
 		// Hard-pinned turn types carry history shapes that mimic failure signals,
 		// so only the detector's trusted turn types enter the training corpus.
 		signalTurn := tt == turntype.MainLoop || tt == turntype.ToolResult
@@ -4635,6 +4669,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			s.ResolveTurnSignalCaptureEnabled(ctx),
 			obs.TrainingAllowed,
 			s.effectiveCaptureMode(ctx))
+		applyClientGitContextTelemetry(ctx, &tel, routeRes.SessionFirstTurn, env.SystemBlocks())
 		s.fireTelemetry(tel)
 	}
 
@@ -5706,7 +5741,9 @@ func (s *Service) fireTelemetry(p InsertTelemetryParams) {
 	log := observability.Get().With("request_id", p.RequestID)
 	observability.SafeGo(log, 5*time.Second, "fireTelemetry", func(ctx context.Context) {
 		if err := s.telemetry.InsertRequestTelemetry(ctx, p); err != nil {
-			log.Debug("Telemetry insert failed", "err", err)
+			// A dropped row is a dropped billing/session-cost record, so it is
+			// reported loudly enough to alert on.
+			log.Warn("Telemetry insert failed", "err", err)
 		}
 	})
 }
@@ -5996,6 +6033,22 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		}
 		requestBodyChanged = true
 	}
+	if env.ExtractRouterSessionCommand() {
+		log.Info("ProxyOpenAIChatCompletion router-session command")
+		if err := s.handleRouterSessionCommand(ctx, w, env, feats.Tokens); err != nil {
+			return err
+		}
+		s.grantPostCommandContinuation(ctx, installationID, sessionKey, roleForTier(catalog.TierFor(feats.Model)))
+		return nil
+	}
+	if env.ExtractRouterModelsCommand() {
+		log.Info("ProxyOpenAIChatCompletion router-models command")
+		if err := s.handleRouterModelsCommand(ctx, w, env, feats.Tokens); err != nil {
+			return err
+		}
+		s.grantPostCommandContinuation(ctx, installationID, sessionKey, roleForTier(catalog.TierFor(feats.Model)))
+		return nil
+	}
 
 	// Sanitize after command extraction: a skill can encode its command as a
 	// plain user string after an assistant tool_use, and sanitizing first would
@@ -6190,6 +6243,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	routeMs := time.Since(routeStart).Milliseconds()
 	if err != nil {
 		log.Error("Routing failed for OpenAI request", "err", err, "route_ms", routeMs, "requested_model", feats.Model, "total_input_tokens", feats.Tokens)
+		s.recordPolicyPinRouteFailure(ctx, requestID, requestStart, feats.Model, routeRes.TurnType, err)
 		return err
 	}
 	if len(routeRes.SessionDisabledProviders) > 0 {
@@ -7271,6 +7325,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		applyPlannerTelemetry(&telOAI, routeRes)
 		applyAuthorityShadowTelemetry(&telOAI, routeRes)
 		applyBlindExperimentTelemetry(ctx, &telOAI)
+		applyPolicyPinTelemetry(ctx, &telOAI, decision.Metadata)
 		s.fireTelemetry(telOAI)
 	}
 

@@ -434,6 +434,41 @@ func leadingInjectedPrefixEnd(text string) int {
 	return i
 }
 
+// isOnlyKnownInjectedText reports whether text holds nothing but the wrapper
+// blocks a client injects around a user's message.
+//
+// Deliberately stricter than isOnlyInjectedCommandText, which delegates to
+// leadingInjectedPrefixEnd and therefore accepts ANY well-formed
+// <name>...</name>. That is fine where the text still reaches a model, but a
+// directive that short-circuits the turn must not decide that arbitrary
+// tagged text the user wrote is synthetic and drop it -- pasting
+// "<error>...</error>" under a directive would lose it silently.
+//
+// Claude Code appends its own wrappers to user messages, so those still have
+// to pass; only the names in claudeCodeInjectedBlockPrefixes do.
+func isOnlyKnownInjectedText(text string) bool {
+	rest := strings.TrimSpace(text)
+	for rest != "" {
+		// Checks the LEADING tag against the known set, then consumes exactly
+		// that block: leadingInjectedPrefixEnd would run past an unknown block
+		// sitting behind a known one.
+		if !isClaudeCodeInjectedBlock(rest) {
+			return false
+		}
+		gt := strings.Index(rest, ">")
+		if gt < 0 {
+			return false
+		}
+		closeTag := "</" + rest[1:gt] + ">"
+		closeIdx := strings.Index(rest[gt+1:], closeTag)
+		if closeIdx < 0 {
+			return false
+		}
+		rest = strings.TrimSpace(rest[gt+1+closeIdx+len(closeTag):])
+	}
+	return true
+}
+
 func isTagNameByte(c byte, first bool) bool {
 	switch {
 	case c >= 'a' && c <= 'z', c >= 'A' && c <= 'Z':

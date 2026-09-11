@@ -247,6 +247,20 @@ func (e *RequestEnvelope) SystemText() string {
 	}
 }
 
+// SystemBlocks returns the system prompt as its constituent text blocks.
+// Anthropic requests keep their content-block boundaries (Claude Code sends
+// its gitStatus context as a separate block); other formats yield a single
+// block with the concatenated system text. Nil when there is no system prompt.
+func (e *RequestEnvelope) SystemBlocks() []string {
+	if e.format == FormatAnthropic {
+		return anthropicSystemTexts(gjson.GetBytes(e.body, "system"))
+	}
+	if text := e.SystemText(); text != "" {
+		return []string{text}
+	}
+	return nil
+}
+
 // LastUserMessageInfo summarizes the trailing user-side input.
 type LastUserMessageInfo struct {
 	HasText         bool

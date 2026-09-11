@@ -172,6 +172,23 @@ const (
 	ClientAppOpencode   = "opencode"
 )
 
+// directivePrefix returns the sigil a client's user has to type to reach the
+// router. Codex reserves a leading "/" for its own built-ins: it answers
+// "Unrecognized command" and never forwards the line, so a hint naming the
+// slash form there sends the user down a dead end. Every other client passes
+// "/" through untouched.
+//
+// Ingress accepts both spellings from every client regardless (see
+// translate.parseForceModelCommand) -- this only decides which one we print
+// back. Unknown clients get "/", the form the docs and every non-Codex client
+// use.
+func directivePrefix(clientApp string) string {
+	if clientApp == ClientAppCodex {
+		return "$"
+	}
+	return "/"
+}
+
 // clientAppAliases maps the raw X-App values some clients send to their
 // canonical client_app. Claude Code sends "cli", which would otherwise store
 // verbatim and miss the dashboard's label map.

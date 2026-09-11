@@ -60,6 +60,7 @@ const (
 	DispatchErrorPlanTargetMismatch
 	DispatchErrorPlanOverrideRejected
 	DispatchErrorPlanUnresolvable
+	DispatchErrorPolicyPinUnavailable
 )
 
 // DispatchErrorClass is the format-agnostic classification of a dispatch
@@ -120,9 +121,11 @@ func ClassifyDispatchError(err error) (DispatchErrorClass, bool) {
 		// Ahead of the sentinel cases so the reason reaches the caller: a bare
 		// "forced model is excluded" doesn't say which model or why.
 		return DispatchErrorClass{
-			Kind:       DispatchErrorForcedModelExcluded,
-			Status:     http.StatusBadRequest,
-			Message:    forcedExcluded.Reason + ". Clear the force (/unforce-model) or pick a model from a permitted provider.",
+			Kind:   DispatchErrorForcedModelExcluded,
+			Status: http.StatusBadRequest,
+			// Sigil-free on purpose: this classifier has no request context to
+			// read the client from, and Codex never accepts the "/" form.
+			Message:    forcedExcluded.Reason + ". Clear it with the unforce-model directive, or pick a model from a permitted provider.",
 			LogLevel:   "warn",
 			LogMessage: "Rejected request: forced model is excluded on this installation",
 		}, true
@@ -286,6 +289,15 @@ func ClassifyDispatchError(err error) (DispatchErrorClass, bool) {
 			Message:    "Invalid routing knobs supplied.",
 			LogLevel:   "warn",
 			LogMessage: "Invalid routing knobs supplied",
+		}, true
+	case errors.Is(err, router.ErrPolicyPinUnavailable):
+		return DispatchErrorClass{
+			Kind:       DispatchErrorPolicyPinUnavailable,
+			Status:     http.StatusServiceUnavailable,
+			Message:    router.PolicyPinUnavailableReason + ": the pinned policy artifact or roster is not loaded on this router.",
+			RetryAfter: false,
+			LogLevel:   "warn",
+			LogMessage: "Policy pin unavailable",
 		}, true
 	// Must precede every policy-unavailable case: ErrGatewayServesNoDeployedModel
 	// also wraps ErrHMMUnavailable, and the more-specific sentinel wins.

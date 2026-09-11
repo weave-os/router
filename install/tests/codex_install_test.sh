@@ -342,14 +342,15 @@ grep -Fq '[model_providers.weaver]' "$config" \
 rm -rf "$home/.codex" "$home/.weave"
 
 
-# ---------- the retired UserPromptSubmit directive hook ----------
+# ---------- the UserPromptSubmit local-toggle hook ----------
 #
-# 0.2.17 shipped a UserPromptSubmit hook to answer $fm / $rf / $router-session
-# locally. The router now recognizes those directives itself, so the hook is
-# gone -- but an install upgrading from 0.2.17 has to take the registration and
-# the helper away together. A registration left pointing at a deleted script
-# makes Codex run a missing command on every prompt, which is worse than the
-# hook it replaced.
+# 0.2.17 shipped a UserPromptSubmit hook answering $fm / $rf / $router-session
+# locally; #1257 retired it once the router answered those itself. The hook is
+# back, scoped to the four directives the router CANNOT answer -- they rewrite
+# config.toml on this machine. An upgrade from either release has to land the
+# helper and its registration together and exactly once: a registration
+# pointing at a missing script makes Codex fail every prompt, and a duplicate
+# one runs the toggle twice.
 rm -rf "$home/.codex" "$home/.weave"
 mkdir -p "$home/.codex" "$home/.weave"
 directive_helper="$home/.weave/codex-directive.sh"
@@ -399,11 +400,24 @@ TOML
 run_hosted_install
 assert_config_parses "upgrading from the directive-hook release produced unparseable TOML"
 
-[ ! -e "$directive_helper" ] \
-  || fail "the upgrade left the retired directive helper on disk"
-if grep -Fq 'hooks.UserPromptSubmit' "$config"; then
-  fail "the upgrade left a UserPromptSubmit registration pointing at a deleted script"
-fi
+[ -f "$directive_helper" ] \
+  || fail "the upgrade did not install the local-toggle hook"
+grep -Fq '<!-- weave-router managed codex directive -->' "$directive_helper" \
+  || fail "the installed directive helper carries no ownership marker"
+# The helper the upgrade replaced was a 0.2.17 stub; the real one drives the
+# local toggles, so the marker alone is not enough to say it was refreshed.
+# Literal on purpose: this is the text of the installed script, not an
+# expansion this test should perform.
+# shellcheck disable=SC2016
+grep -Fq 'weave-router "$toggle" --codex' "$directive_helper" \
+  || fail "the upgrade left the 0.2.17 directive helper in place instead of replacing it"
+# Exactly once: the prior release's registration must be collapsed, not joined.
+[ "$(grep -c "command = \"$directive_helper\"" "$config")" -eq 1 ] \
+  || fail "expected exactly one UserPromptSubmit registration, got $(grep -c "command = \"$directive_helper\"" "$config")"
+# A registration is only safe if the script it names is actually there.
+registered_hook="$(awk -F'"' '/^command = /{print $2}' "$config" | grep -F 'codex-directive.sh' | head -1)"
+[ -x "$registered_hook" ] \
+  || fail "the registered UserPromptSubmit command is not an executable file: $registered_hook"
 
 # The duplicates are the same orphan class: Codex normalized our block out of
 # the markers, so the previous install could not see them and appended more.
@@ -671,9 +685,113 @@ while IFS= read -r generated; do
   ( cd "$proj_repo" && git check-ignore -q "$generated" ) \
     || fail "project install left $generated tracked by git"
 done < <(cd "$proj_repo" && find .codex -maxdepth 1 -type f)
-# config.toml plus the status helper. The directive helper used to make three;
-# its retirement is why this is two.
-[ "$swept" -ge 2 ] \
-  || fail "the gitignore sweep inspected only $swept generated file(s); expected at least 2"
+# config.toml, the status helper, and the local-toggle directive hook.
+[ "$swept" -ge 3 ] \
+  || fail "the gitignore sweep inspected only $swept generated file(s); expected at least 3"
+
+# A project-scope install has to bake its own scope into the hook, because the
+# installed copy cannot work out at run time which install it belongs to.
+proj_hook="$proj_repo/.codex/weave-directive.sh"
+[ -f "$proj_hook" ] || fail "project install did not write the local-toggle hook"
+grep -Fq -- '--scope project' "$proj_hook" \
+  || fail "project-scope hook did not bake in its scope; it would flip the user-scope install"
+grep -Fq '{{SCOPE}}' "$proj_hook" \
+  && fail "the installed hook still carries the unsubstituted {{SCOPE}} token"
+
+
+# ---------- an unowned file at the hook path is never registered ----------
+#
+# The status helper hard-fails the install when something unowned sits at its
+# path. This hook must not: the toggles still work as skills, so refusing to
+# install the router over a stray file costs far more than it protects. What
+# it must never do is register that file as a command Codex runs on every
+# prompt.
+rm -rf "$home/.codex" "$home/.weave"
+mkdir -p "$home/.codex" "$home/.weave"
+stray="$home/.weave/codex-directive.sh"
+printf '%s\n' '#!/usr/bin/env bash' '# someone else, entirely' 'exit 0' >"$stray"
+chmod 700 "$stray"
+
+run_hosted_install || fail "an unowned directive helper must not fail the install"
+assert_config_parses "install over an unowned directive helper produced unparseable TOML"
+
+grep -Fq 'someone else, entirely' "$stray" \
+  || fail "the install overwrote a user-owned file at the directive hook path"
+if grep -Fq "command = \"$stray\"" "$config"; then
+  fail "the install registered an unowned script to run on every prompt"
+fi
+grep -Fq 'model_provider = "weave"' "$config" \
+  || fail "an unowned directive helper stopped routing from being configured"
+
+
+# ---------- a symlink at the hook path is never ours ----------
+#
+# Three ways this went wrong, all one rule. Following a marked symlink let a
+# reinstall overwrite whatever it pointed at, anywhere on disk. A dangling
+# symlink is invisible to -e, so the user-owned guard passed and the install
+# created the missing target. And refuse_if_symlink exited the whole
+# installer, which contradicts this hook being optional.
+rm -rf "$home/.codex" "$home/.weave"
+mkdir -p "$home/.codex" "$home/.weave"
+outside="$work/not-the-codex-dir.txt"
+printf '%s\n' 'important unrelated file' >"$outside"
+ln -s "$outside" "$home/.weave/codex-directive.sh"
+
+run_hosted_install || fail "a symlink at the hook path must not fail the install"
+assert_config_parses "install over a symlinked directive helper produced unparseable TOML"
+
+grep -Fq 'important unrelated file' "$outside" \
+  || fail "the install followed the symlink and overwrote its target"
+if grep -Fq 'hooks.UserPromptSubmit' "$config"; then
+  fail "the install registered a symlinked hook path"
+fi
+grep -Fq 'model_provider = "weave"' "$config" \
+  || fail "a symlinked hook path stopped routing from being configured"
+
+# A symlink whose target carries OUR marker is still not ours: the write would
+# land outside the Codex directory just the same.
+rm -rf "$home/.codex" "$home/.weave"
+mkdir -p "$home/.codex" "$home/.weave"
+marked="$work/marked-target.sh"
+printf '%s\n' '#!/usr/bin/env bash' '# <!-- weave-router managed codex directive -->' 'exit 0' >"$marked"
+ln -s "$marked" "$home/.weave/codex-directive.sh"
+run_hosted_install || fail "a marked symlink must not fail the install"
+# Literal on purpose: matching the installed script's text, not expanding it.
+# shellcheck disable=SC2016
+if ! grep -Fq 'exit 0' "$marked" || grep -Fq 'weave-router "$toggle"' "$marked"; then
+  fail "the install wrote through a marked symlink to its target"
+fi
+
+# A DANGLING symlink: -e is false, so an existence-based guard would sail past
+# it, create the target, then register it as a command Codex runs every prompt.
+rm -rf "$home/.codex" "$home/.weave"
+mkdir -p "$home/.codex" "$home/.weave"
+missing="$work/does-not-exist.sh"
+rm -f "$missing"
+ln -s "$missing" "$home/.weave/codex-directive.sh"
+run_hosted_install || fail "a dangling symlink must not fail the install"
+[ ! -e "$missing" ] \
+  || fail "the install wrote through a dangling symlink and created its target"
+if grep -Fq 'hooks.UserPromptSubmit' "$config"; then
+  fail "the install registered a dangling symlink as the prompt hook"
+fi
+
+rm -f "$outside" "$marked"
+
+
+# ---------- uninstall takes the hook and its registration together ----------
+rm -rf "$home/.codex" "$home/.weave"
+mkdir -p "$home"
+run_hosted_install
+hook="$home/.weave/codex-directive.sh"
+[ -f "$hook" ] || fail "fresh install did not write the local-toggle hook"
+grep -Fq "command = \"$hook\"" "$config" \
+  || fail "fresh install did not register the local-toggle hook"
+
+run_uninstall || fail "uninstall failed with the local-toggle hook installed"
+[ ! -e "$hook" ] || fail "uninstall left the local-toggle hook on disk"
+if [ -f "$config" ] && grep -Fq 'hooks.UserPromptSubmit' "$config"; then
+  fail "uninstall left a UserPromptSubmit registration behind"
+fi
 
 echo "Codex installer routing regression tests passed"

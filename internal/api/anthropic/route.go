@@ -42,6 +42,11 @@ func RouteHandler(svc *proxy.Service) gin.HandlerFunc {
 				writeAnthropicError(c, http.StatusBadRequest, "invalid_request_error", "Invalid routing knobs supplied.")
 				return
 			}
+			if errors.Is(routeErr, router.ErrPolicyPinUnavailable) {
+				log.Warn("Policy pin unavailable on route", "err", routeErr)
+				writeAnthropicError(c, http.StatusServiceUnavailable, "api_error", router.PolicyPinUnavailableReason)
+				return
+			}
 			log.Error("Routing failed", "err", routeErr)
 			writeAnthropicError(c, http.StatusBadGateway, "api_error", "Routing failed.")
 			return
@@ -91,6 +96,11 @@ func PreviewRouteHandler(svc *proxy.Service) gin.HandlerFunc {
 			}
 			if errors.Is(previewErr, cluster.ErrInvalidRoutingKnobs) {
 				writeAnthropicError(c, http.StatusBadRequest, "invalid_request_error", "Invalid routing knobs supplied.")
+				return
+			}
+			if errors.Is(previewErr, router.ErrPolicyPinUnavailable) {
+				log.Warn("Policy pin unavailable on route preview", "err", previewErr)
+				writeAnthropicError(c, http.StatusServiceUnavailable, "api_error", router.PolicyPinUnavailableReason)
 				return
 			}
 			log.Error("Route preview failed", "err", previewErr)

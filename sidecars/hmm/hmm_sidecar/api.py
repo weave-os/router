@@ -10,8 +10,9 @@ from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 
 from . import SCHEMA_VERSION
-from .artifacts import FrozenArtifacts, resolve_artifacts
+from .artifacts import ArtifactRegistry, FrozenArtifacts, resolve_artifact_registry
 from .embeddings import (
+    Embedder,
     EmbeddingError,
     build_embedder,
     verify_embedding_contract,
@@ -45,25 +46,75 @@ def configure_logging() -> None:
     package_log.addHandler(handler)
 
 
+def _probe_key(artifacts: FrozenArtifacts) -> tuple[object, ...]:
+    contract = artifacts.manifest.embedding_contract
+    return (
+        contract.model,
+        contract.dimensions,
+        contract.task_type,
+        contract.probe_text,
+        contract.minimum_cosine_similarity,
+        artifacts.probe_vector.tobytes(),
+    )
+
+
+async def load_policies(
+    registry: ArtifactRegistry,
+) -> tuple[dict[str, FrozenPolicy], float]:
+    """Build one policy per registry package, probing the embedding endpoint
+    once per distinct embedding contract (packages sharing a contract share the
+    embedder and its probe). Returns the policies and the default's similarity.
+    """
+    policies: dict[str, FrozenPolicy] = {}
+    probed: dict[tuple[object, ...], tuple[Embedder, float]] = {}
+    similarity = None
+    for package_sha256, artifacts in registry.by_sha256.items():
+        key = _probe_key(artifacts)
+        if key not in probed:
+            embedder = build_embedder(artifacts.manifest.embedding_contract)
+            probe_similarity = await verify_embedding_contract(
+                embedder,
+                artifacts.manifest.embedding_contract,
+                artifacts.probe_vector,
+            )
+            probed[key] = (embedder, probe_similarity)
+        embedder, probe_similarity = probed[key]
+        policies[package_sha256] = FrozenPolicy(artifacts, embedder)
+        if artifacts is registry.default:
+            similarity = probe_similarity
+    if similarity is None:
+        raise RuntimeError("artifact registry default is not among its packages")
+    log.info(
+        "HMM sidecar probed %d embedding contract(s) for %d package(s)",
+        len(probed),
+        len(policies),
+    )
+    return policies, similarity
+
+
 @asynccontextmanager
 async def lifespan(application: FastAPI):
     configure_logging()
     try:
-        artifacts = resolve_artifacts()
-        embedder = build_embedder(artifacts.manifest.embedding_contract)
-        similarity = await verify_embedding_contract(
-            embedder,
-            artifacts.manifest.embedding_contract,
-            artifacts.probe_vector,
-        )
-        application.state.artifacts = artifacts
-        application.state.policy = FrozenPolicy(artifacts, embedder)
+        registry = resolve_artifact_registry()
+        policies, similarity = await load_policies(registry)
+        application.state.artifacts = registry.default
+        application.state.registry = registry
+        application.state.policy = policies[registry.default.package_sha256]
+        application.state.policies = policies
         application.state.embedding_probe_similarity = similarity
         application.state.startup_error = None
+        log.info(
+            "HMM sidecar loaded %d frozen package(s); default %s",
+            len(policies),
+            registry.default.package_sha256,
+        )
     except Exception as exc:  # fail readiness while preserving liveness diagnostics
         log.exception("HMM sidecar failed to initialize")
         application.state.artifacts = None
+        application.state.registry = None
         application.state.policy = None
+        application.state.policies = {}
         application.state.embedding_probe_similarity = None
         application.state.startup_error = f"{type(exc).__name__}: {exc}"
     yield
@@ -74,6 +125,45 @@ app = FastAPI(title="WorkWeave frozen HMM sidecar", lifespan=lifespan)
 
 def _artifacts() -> FrozenArtifacts | None:
     return getattr(app.state, "artifacts", None)
+
+
+ARTIFACT_SHA256_FIELD = "artifact_sha256"
+
+
+def _policy_for(artifact_sha256: object) -> FrozenPolicy | JSONResponse:
+    """Select the boot-loaded policy for ``artifact_sha256`` (default when absent).
+
+    Unknown shas are a 404: the registry is frozen at boot and nothing is
+    fetched on a live request.
+    """
+    default: FrozenPolicy | None = getattr(app.state, "policy", None)
+    if artifact_sha256 in (None, ""):
+        if default is None:
+            return JSONResponse({"error": "policy not loaded"}, status_code=503)
+        return default
+    if not isinstance(artifact_sha256, str):
+        return JSONResponse(
+            {"error": f"{ARTIFACT_SHA256_FIELD} must be a string"}, status_code=400
+        )
+    wanted = artifact_sha256.strip().lower()
+    policies: dict[str, FrozenPolicy] = getattr(app.state, "policies", {}) or {}
+    policy = policies.get(wanted)
+    if policy is None:
+        return JSONResponse(
+            {
+                "error": f"unknown {ARTIFACT_SHA256_FIELD}",
+                ARTIFACT_SHA256_FIELD: wanted,
+            },
+            status_code=404,
+        )
+    return policy
+
+
+def _loaded_artifact_sha256s() -> list[str]:
+    registry: ArtifactRegistry | None = getattr(app.state, "registry", None)
+    if registry is None:
+        return []
+    return sorted(registry.by_sha256)
 
 
 @app.get("/livez")
@@ -95,6 +185,7 @@ def ready() -> JSONResponse:
         "schema_version": SCHEMA_VERSION,
         "policy_artifact_id": artifacts.manifest.model_id if artifacts else None,
         "policy_artifact_sha256": artifacts.package_sha256 if artifacts else None,
+        "policy_artifact_sha256s": _loaded_artifact_sha256s(),
         "embedding_probe_similarity": getattr(
             app.state, "embedding_probe_similarity", None
         ),
@@ -127,11 +218,13 @@ def capabilities() -> JSONResponse:
 
 
 @app.get("/roster")
-def roster() -> JSONResponse:
+def roster(artifact_sha256: str | None = None) -> JSONResponse:
     """Return the frozen roster: flat arm union + per-cluster ordered arm lists."""
-    policy: FrozenPolicy | None = getattr(app.state, "policy", None)
-    if policy is None:
+    if artifact_sha256 in (None, "") and getattr(app.state, "policy", None) is None:
         return JSONResponse({"error": "policy unavailable"}, status_code=503)
+    policy = _policy_for(artifact_sha256)
+    if isinstance(policy, JSONResponse):
+        return policy
     clusters: dict[str, list[str]] = {
         label: [str(arm) for arm in cluster.get("arms") or []]
         for label, cluster in policy.clusters.items()
@@ -158,9 +251,9 @@ def feedback() -> None:
 
 @app.post("/route")
 async def route(payload: dict[str, Any]) -> JSONResponse:
-    policy: FrozenPolicy | None = getattr(app.state, "policy", None)
-    if policy is None:
-        return JSONResponse({"error": "policy not loaded"}, status_code=503)
+    policy = _policy_for(payload.get(ARTIFACT_SHA256_FIELD))
+    if isinstance(policy, JSONResponse):
+        return policy
     if payload.get("schema_version") not in (None, SCHEMA_VERSION):
         return JSONResponse({"error": "unsupported policy schema"}, status_code=400)
     try:
@@ -188,9 +281,9 @@ async def route(payload: dict[str, Any]) -> JSONResponse:
 
 @app.post("/preview")
 async def preview(payload: dict[str, Any]) -> JSONResponse:
-    policy: FrozenPolicy | None = getattr(app.state, "policy", None)
-    if policy is None:
-        return JSONResponse({"error": "policy not loaded"}, status_code=503)
+    policy = _policy_for(payload.get(ARTIFACT_SHA256_FIELD))
+    if isinstance(policy, JSONResponse):
+        return policy
     if payload.get("schema_version") not in (None, SCHEMA_VERSION):
         return JSONResponse({"error": "unsupported policy schema"}, status_code=400)
     if payload.get("execution_mode") != "preview":
