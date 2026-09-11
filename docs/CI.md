@@ -83,9 +83,13 @@ versions. Local runs retain an explicit Compose build. The seed service builds
 a small `seed-runtime` target instead of launching a fresh
 `golang:1.25-bookworm` SDK container and running `go run`.
 
-Verify this change on the next CI runs by checking that warm-run logs show both
-cache import and export, and compare the build and seed phases across at least
-ten comparable PR runs.
+The first PR run after the change imported and exported all three cache scopes
+and took 274s in the image-build phase (5m47s job wall time). A same-PR rerun
+hit the imported layers (`CACHED` in the BuildKit log), reduced image-build
+time to 27s, and reduced the job to 1m48s. The smoke summary now exposes the
+build, boot/health, seed, and assertion phases so future regressions are easy
+to separate from cache-transfer time. Continue tracking at least ten
+comparable PR runs before treating those two samples as a stable new baseline.
 
 ### 4. Cancel superseded Test runs
 
