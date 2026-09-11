@@ -20,6 +20,7 @@ const (
 	betaDisabledMessage = "Beta disabled. Stable routing restored."
 	betaUsageMessage    = "Usage: /beta"
 	betaUnavailable     = "Beta is unavailable for this session."
+	betaPinnedMessage   = "Beta is always on for this installation; /beta has no effect."
 )
 
 type betaArtifactHistoryContextKey struct{}
@@ -80,6 +81,11 @@ func (s *Service) handleBetaCommand(
 	}
 	if s.sessionStrategyStore == nil || installationID == uuid.Nil || preferenceKey == ([sessionpin.SessionKeyLen]byte{}) || clientSessionIDForRequest(ctx, env) == "" {
 		return writeBetaCommandResponse(w, env, betaUnavailable, inputTokens)
+	}
+	// Runs before applySessionStrategy, so the context strategy here is the
+	// installation's baseline; a session toggle cannot leave an installation pin.
+	if router.StrategyFromContext(ctx) == router.StrategyHMMBeta {
+		return writeBetaCommandResponse(w, env, betaPinnedMessage, inputTokens)
 	}
 
 	// Both branches decide from what the store persisted rather than a prior

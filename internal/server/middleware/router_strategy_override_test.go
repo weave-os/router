@@ -127,24 +127,53 @@ func TestNormalizeRouterStrategyDefault(t *testing.T) {
 		"beta cannot be activated by a deployment default")
 }
 
-func TestRouterStrategyOverride_BetaHeaderCannotActivateBeta(t *testing.T) {
+func TestRouterStrategyOverride_AuthorizedBetaHeaderActivatesBeta(t *testing.T) {
 	got := runStrategyOverride(
 		t,
 		&auth.Installation{ID: "inst-beta", PolicyHeaderOverridesEnabled: true},
 		string(router.StrategyHMMBeta),
 		router.StrategyHMMBeta,
 	)
-	assert.Equal(t, router.StrategyCluster, got)
+	assert.Equal(t, router.StrategyHMMBeta, got)
 }
 
-func TestRouterStrategyOverride_InstallationDefaultBetaCannotActivateBeta(t *testing.T) {
+func TestRouterStrategyOverride_PersistedInstallationBetaActivatesBeta(t *testing.T) {
 	got := runStrategyOverride(
 		t,
 		&auth.Installation{ID: "inst-beta", RoutingStrategy: router.StrategyHMMBeta},
 		"",
 		router.StrategyHMMBeta,
 	)
-	assert.Equal(t, router.StrategyCluster, got)
+	assert.Equal(t, router.StrategyHMMBeta, got)
+}
+
+func TestRouterStrategyOverride_PersistedBetaIgnoredWhenBetaUnregistered(t *testing.T) {
+	got := runStrategyOverride(
+		t,
+		&auth.Installation{ID: "inst-beta", RoutingStrategy: router.StrategyHMMBeta},
+		"",
+		router.StrategyHMM,
+	)
+	assert.Equal(t, router.StrategyCluster, got, "a beta lane that failed to load must not be selectable")
+}
+
+func TestRouterStrategyOverride_DeploymentDefaultBetaClampsToCluster(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	engine := gin.New()
+	engine.Use(func(c *gin.Context) {
+		c.Set("router_installation", &auth.Installation{ID: "inst-global"})
+		c.Next()
+	})
+	engine.Use(middleware.WithRouterStrategyDefault(router.StrategyHMMBeta, router.StrategyHMMBeta))
+	var observed router.Strategy
+	engine.GET("/probe", func(c *gin.Context) {
+		observed = router.StrategyFromContext(c.Request.Context())
+		c.Status(http.StatusOK)
+	})
+
+	engine.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/probe", nil))
+
+	assert.Equal(t, router.StrategyCluster, observed, "beta cannot be activated by a deployment default")
 }
 
 func TestRouterStrategyOverride_UnknownValueIgnored(t *testing.T) {

@@ -221,6 +221,26 @@ func TestHandleBetaCommandTogglesAndAcknowledges(t *testing.T) {
 	assert.Equal(t, router.StrategyHMMBeta, pins.consumedStrategy[len(pins.consumedStrategy)-1])
 }
 
+func TestHandleBetaCommandIsInertWhenInstallationPinnedToBeta(t *testing.T) {
+	store := &betaTestPreferenceStore{}
+	pins := &betaCleanupPinStore{}
+	svc := (&Service{pinStore: pins}).
+		WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyHMMBeta, Router: &betaTestRouter{}}).
+		WithSessionStrategyStore(store)
+	env := betaTestEnvelope(t, "/beta", true)
+	cmd, found := env.ExtractBetaCommand()
+	require.True(t, found)
+	var sessionKey [sessionstrategy.SessionKeyLen]byte
+	sessionKey[0] = 1
+	ctx := router.WithStrategy(context.Background(), router.StrategyHMMBeta)
+
+	response := httptest.NewRecorder()
+	require.NoError(t, svc.handleBetaCommand(ctx, response, env, cmd, uuid.New(), sessionKey, sessionKey, 1))
+	assert.Equal(t, "✦ **Weave Router** → "+betaPinnedMessage+"\n\n", gjson.Get(response.Body.String(), "content.0.text").String())
+	assert.Equal(t, 0, store.toggles, "an installation pin must not be shadowed by a session toggle")
+	assert.Empty(t, pins.consumedStrategy)
+}
+
 func TestHandleBetaCommandAcceptsHeaderOnlyClientSession(t *testing.T) {
 	store := &betaTestPreferenceStore{}
 	svc := (&Service{pinStore: &betaCleanupPinStore{}}).

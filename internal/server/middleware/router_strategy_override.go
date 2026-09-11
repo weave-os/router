@@ -24,9 +24,10 @@ func WithRouterStrategyOverride(available ...router.Strategy) gin.HandlerFunc {
 
 // WithRouterStrategyDefault applies a deployment-level default for installations
 // with no explicit override, enabling allowlist-first then one-flag global rollout.
+// hmm_beta may be pinned per installation (or requested by an authorized header)
+// but never becomes the deployment default, so a broken beta lane cannot take
+// every installation with it.
 func WithRouterStrategyDefault(defaultStrategy router.Strategy, available ...router.Strategy) gin.HandlerFunc {
-	allowed := make(map[router.Strategy]struct{}, len(available)+1)
-	allowed[router.StrategyCluster] = struct{}{}
 	if len(available) == 0 {
 		available = []router.Strategy{
 			router.StrategyRL,
@@ -35,14 +36,12 @@ func WithRouterStrategyDefault(defaultStrategy router.Strategy, available ...rou
 			router.StrategyBandit,
 		}
 	}
+	allowed := make(map[router.Strategy]struct{}, len(available)+1)
+	allowed[router.StrategyCluster] = struct{}{}
 	for _, strategy := range available {
-		// hmm_beta is session-only: never activated by header, installation, or deployment default.
-		if strategy == router.StrategyHMMBeta {
-			continue
-		}
 		allowed[strategy] = struct{}{}
 	}
-	defaultStrategy = normalizeRouterStrategyDefault(defaultStrategy, allowed)
+	defaultStrategy = NormalizeRouterStrategyDefault(defaultStrategy, available...)
 	return func(c *gin.Context) {
 		installation := InstallationFrom(c)
 		if installation == nil {
@@ -83,7 +82,9 @@ func WithRouterStrategyDefault(defaultStrategy router.Strategy, available ...rou
 	}
 }
 
-// NormalizeRouterStrategyDefault clamps an unregistered deployment default to cluster.
+// NormalizeRouterStrategyDefault clamps an unregistered deployment default to
+// cluster. hmm_beta is never a valid default: it is an opt-in lane pinned per
+// installation or per session, not a fleet-wide policy.
 func NormalizeRouterStrategyDefault(defaultStrategy router.Strategy, available ...router.Strategy) router.Strategy {
 	allowed := make(map[router.Strategy]struct{}, len(available)+1)
 	allowed[router.StrategyCluster] = struct{}{}
@@ -93,10 +94,6 @@ func NormalizeRouterStrategyDefault(defaultStrategy router.Strategy, available .
 		}
 		allowed[strategy] = struct{}{}
 	}
-	return normalizeRouterStrategyDefault(defaultStrategy, allowed)
-}
-
-func normalizeRouterStrategyDefault(defaultStrategy router.Strategy, allowed map[router.Strategy]struct{}) router.Strategy {
 	if !strategyAllowed(defaultStrategy, allowed) {
 		return router.StrategyCluster
 	}
