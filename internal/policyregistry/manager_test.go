@@ -67,8 +67,22 @@ func TestDynamicRouterFailsClosedWithoutSnapshot(t *testing.T) {
 		}, slog.Default())
 	require.NoError(t, err)
 
-	_, err = policyregistry.NewDynamicRouter(manager, router.StrategyHMM).Route(context.Background(), router.Request{})
+	dynamic := policyregistry.NewDynamicRouter(manager, router.StrategyHMM)
+	assert.False(t, dynamic.Available())
+	_, err = dynamic.Route(context.Background(), router.Request{})
 	require.ErrorIs(t, err, policyregistry.ErrNoActivePolicy)
+}
+
+func TestDynamicRouterReportsAvailabilityAfterRefresh(t *testing.T) {
+	manager, err := policyregistry.NewManager(validLoader(t), policyregistry.EnvironmentStaging, policyregistry.LaneStable,
+		func(context.Context, policyregistry.Candidate) (map[router.Strategy]router.Router, error) {
+			return map[router.Strategy]router.Router{router.StrategyHMM: fixedRouter{model: "ready"}}, nil
+		}, slog.Default())
+	require.NoError(t, err)
+	dynamic := policyregistry.NewDynamicRouter(manager, router.StrategyHMM)
+	assert.False(t, dynamic.Available())
+	require.NoError(t, manager.Refresh(context.Background()))
+	assert.True(t, dynamic.Available())
 }
 
 func validLoader(t *testing.T) *fakeLoader {

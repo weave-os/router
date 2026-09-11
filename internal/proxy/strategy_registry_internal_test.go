@@ -23,6 +23,15 @@ type dynamicCapabilityRouter struct {
 	capabilities policy.Capabilities
 }
 
+type availabilityRouter struct {
+	registryRouter
+	available bool
+}
+
+func (r *availabilityRouter) Available() bool {
+	return r.available
+}
+
 func (r *dynamicCapabilityRouter) CurrentCapabilities() policy.Capabilities {
 	return r.capabilities
 }
@@ -102,4 +111,17 @@ func TestPolicyCapabilitiesReadsRefreshedRouterCapabilities(t *testing.T) {
 
 	require.True(t, ok)
 	assert.True(t, capabilities.SupportsShadow)
+}
+
+func TestPolicyStrategyAvailableReadsDynamicReadiness(t *testing.T) {
+	strategy := router.Strategy("future-policy")
+	policyRouter := &availabilityRouter{}
+	svc := (&Service{}).WithPolicyStrategy(policy.StrategySpec{
+		Strategy: strategy,
+		Router:   policyRouter,
+	})
+
+	assert.False(t, svc.PolicyStrategyAvailable(strategy))
+	policyRouter.available = true
+	assert.True(t, svc.PolicyStrategyAvailable(strategy))
 }

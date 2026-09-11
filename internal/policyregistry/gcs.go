@@ -181,7 +181,7 @@ func (r *Registry) Promote(ctx context.Context, head LaneHead, expectedGeneratio
 	if err != nil {
 		return HeadSnapshot{}, fmt.Errorf("validate promoted selection policy: %w", err)
 	}
-	if selectionPolicy == nil || !slices.Equal(selectionPolicy.ClassOrder, release.Classifier.ClassOrder) {
+	if !slices.Equal(selectionPolicy.ClassOrder, release.Classifier.ClassOrder) {
 		return HeadSnapshot{}, errors.New("promoted classifier class order does not match selection policy")
 	}
 	payload, err := CanonicalBytes(head)

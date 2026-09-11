@@ -60,6 +60,13 @@ type CapabilitySource interface {
 	CurrentCapabilities() Capabilities
 }
 
+// AvailabilitySource reports whether a policy-backed router has an active
+// serving snapshot. Registration alone is not readiness: a dynamic router can
+// be wired before its first valid policy refresh completes.
+type AvailabilitySource interface {
+	Available() bool
+}
+
 // StrategySpec is the complete proxy registration for one policy strategy.
 // Reporter capabilities are discovered from Router when the spec is installed.
 type StrategySpec struct {

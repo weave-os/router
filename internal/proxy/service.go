@@ -2483,7 +2483,13 @@ func (s *Service) PolicyStrategyAvailable(strategy router.Strategy) bool {
 		return s != nil && s.router != nil
 	}
 	registered, ok := s.strategies[strategy]
-	return ok && registered.router != nil
+	if !ok || registered.router == nil {
+		return false
+	}
+	if source, dynamic := registered.router.(policy.AvailabilitySource); dynamic {
+		return source.Available()
+	}
+	return true
 }
 
 // RegisteredStrategies returns every configured non-default strategy in
