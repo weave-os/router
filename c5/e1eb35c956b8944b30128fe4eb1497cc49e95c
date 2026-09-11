@@ -1,0 +1,85 @@
+internal/providers/anthropic/list_models_test.go
+  s_387a07ff3a4dfd::t_edda9142335b5f 18-24,35,79,92,112,138
+  s_387a07ff3a4dfd::t_ff260d4876bb8d 52
+  s_387a07ff3a4dfd::t_22598da19187f3 11
+cmd/router/main.go
+  s_387a07ff3a4dfd::t_edda9142335b5f 39,163-167,214,273,292,303,316,326,335,344,355,370-371,392,406-408,425,575
+internal/api/admin/upstream_models.go
+  s_387a07ff3a4dfd::t_edda9142335b5f 9,44,80,87-88,93-96,99
+internal/providers/openaicompat/list_models.go
+  s_387a07ff3a4dfd::t_edda9142335b5f 9,12,26-35,38-39,41,43,45,48,55-58,60-74,95,105,107-110,115,118
+internal/providers/model_list_parse.go
+  s_387a07ff3a4dfd::t_edda9142335b5f 15-36
+internal/api/admin/keys_test.go
+  s_387a07ff3a4dfd::t_edda9142335b5f 593-612
+internal/api/admin/upstream_models_test.go
+  s_387a07ff3a4dfd::t_edda9142335b5f 174-195,204-205,215
+internal/providers/openaicompat/azure_internal_test.go
+  s_387a07ff3a4dfd::t_edda9142335b5f 43
+internal/providers/openaicompat/list_models_test.go
+  s_387a07ff3a4dfd::t_edda9142335b5f 10,18-24,35,51,68,86,105,127
+.env.example
+  s_387a07ff3a4dfd::t_edda9142335b5f 80-85,91-92
+internal/providers/openaicompat/client.go
+  s_387a07ff3a4dfd::t_edda9142335b5f 79-82,114-123,129,133,139-140,143-144,149,152-155
+README.md
+  s_387a07ff3a4dfd::t_edda9142335b5f 95-99,104
+internal/providers/httputil/egress.go
+  s_387a07ff3a4dfd::t_edda9142335b5f 4,8-10,15-17,24-190
+  s_387a07ff3a4dfd::t_2a5461c61ce6fd 191
+docs/CONFIGURATION.md
+  s_387a07ff3a4dfd::t_edda9142335b5f 397,399
+internal/auth/service.go
+  s_387a07ff3a4dfd::t_edda9142335b5f 373-383
+internal/providers/anthropic/client.go
+  s_387a07ff3a4dfd::t_edda9142335b5f 48-52,93-96,127-130
+internal/providers/anthropic/list_models.go
+  s_387a07ff3a4dfd::t_edda9142335b5f 13,37,39-43,48-57,59,61-62,64,71,73-76,84,87,127-131,133,144,146-149,154,157
+internal/providers/anthropic/redirect_test.go
+  s_387a07ff3a4dfd::t_edda9142335b5f 52-57,59,63,67,69
+internal/providers/openaicompat/redirect_test.go
+  s_387a07ff3a4dfd::t_edda9142335b5f 82,86
+internal/providers/model_lister.go
+  s_387a07ff3a4dfd::t_edda9142335b5f 3-14
+internal/providers/openaicompat/cortex_catalog_test.go
+  s_387a07ff3a4dfd::t_edda9142335b5f 11,13-14,55-57,67-69
+internal/auth/external_api_key_test.go
+  s_387a07ff3a4dfd::t_edda9142335b5f 37-50,54,57-113
+internal/requestcontext/header_forwarding_test.go
+  s_387a07ff3a4dfd::t_f24b31f99beb94 11
+  s_387a07ff3a4dfd::t_edda9142335b5f 4,171-241
+internal/auth/admin_test.go
+  s_387a07ff3a4dfd::t_edda9142335b5f 145-146
+internal/providers/httputil/egress_test.go
+  s_387a07ff3a4dfd::t_edda9142335b5f 4-5,8-11,15-16,21-26,103-356
+internal/requestcontext/forwarding.go
+  s_387a07ff3a4dfd::t_d65328fc653537 7,47-52,75-77,82,95-97,110-147
+  s_387a07ff3a4dfd::t_ee28abde1a3196 148
+internal/providers/model_list_parse_test.go
+  s_387a07ff3a4dfd::t_edda9142335b5f 32-35,37-40
+internal/requestcontext/identity.go
+  s_387a07ff3a4dfd::t_edda9142335b5f 54
+internal/proxy/credentials.go
+  s_387a07ff3a4dfd::t_edda9142335b5f 85
+internal/auth/external_api_key.go
+  s_387a07ff3a4dfd::t_edda9142335b5f 7,93-146,169,227-250,254-257,263-278,338-340,343,345-348,353-362
+  s_387a07ff3a4dfd::t_757f5a0e1a8aa9 363-364
+internal/api/admin/internal_upstream_models.go
+  s_387a07ff3a4dfd::t_edda9142335b5f 51
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "c5e1eb35c956b8944b30128fe4eb1497cc49e95c",
+  "prompts": {},
+  "sessions": {
+    "s_387a07ff3a4dfd": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a087a8-7dee-7352-af13-df40cb57857d",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

@@ -1,0 +1,30 @@
+internal/api/admin/hmm_roster.go
+  s_6a8d06b8168940::t_e7fc1a8094c07a 17-21
+  s_4528709f0a4b78::t_9cbfacf19132b8 15,45-49
+internal/api/admin/hmm_roster_test.go
+  s_6a8d06b8168940::t_035468f3e97747 1-61
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "9395f672e11f7ea4353871e0c050c1624a4f66b4",
+  "prompts": {},
+  "sessions": {
+    "s_4528709f0a4b78": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "258bd15c-18af-463c-987a-f11b589cc072",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    },
+    "s_6a8d06b8168940": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "5a505b99-288b-4e1b-b136-54fb64b31ac1",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}
