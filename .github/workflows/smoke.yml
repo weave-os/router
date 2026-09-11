@@ -77,7 +77,10 @@ jobs:
         with:
           source: .
           files: ./docker-bake.smoke.hcl
-          targets: server mitmproxy seed
+          targets: |
+            server
+            mitmproxy
+            seed
           load: true
           set: |
             server.tags=router-server
@@ -152,7 +155,10 @@ jobs:
         with:
           source: .
           files: ./docker-bake.smoke.hcl
-          targets: server mitmproxy seed
+          targets: |
+            server
+            mitmproxy
+            seed
           load: true
           set: |
             server.tags=router-server
