@@ -4681,8 +4681,10 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 
 	// No-op when billing is unwired (selfhosted); only reached on a real
 	// upstream call since the cache-hit branch above already returned.
-	if proxyErr == nil && !agentShadowMode {
+	if shouldBillInference(proxyErr, in, out, cacheCreation, cacheRead) && !agentShadowMode {
 		s.emitBilling(ctx, requestID, externalID, decision, actPricing, routeRes, in, out, cacheCreation, cacheRead)
+	}
+	if !agentShadowMode {
 		if compRes.Summarized {
 			s.billCompactionSummary(ctx, requestID, externalID, compRes.SummaryUsage)
 		}
@@ -5752,6 +5754,21 @@ func (s *Service) fireTelemetry(p InsertTelemetryParams) {
 			log.Warn("Telemetry insert failed", "err", err)
 		}
 	})
+}
+
+// shouldBillInference reports whether inference tokens were consumed and must
+// be debited. When proxyErr is nil, billing proceeds normally. When proxyErr is
+// non-nil (e.g. client disconnect, context cancellation, or stream drop),
+// billing is still recorded if tokens were actually processed (fresh, generated,
+// or cached) and the error is not an upstream rejection (upstream status < 400).
+func shouldBillInference(proxyErr error, in, out, cacheCreation, cacheRead int) bool {
+	if proxyErr == nil {
+		return true
+	}
+	if upstreamStatus(proxyErr) >= 400 {
+		return false
+	}
+	return in > 0 || out > 0 || cacheCreation > 0 || cacheRead > 0
 }
 
 // emitBilling debits the customer for one upstream call and, on switch turns
@@ -7230,11 +7247,11 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 
 	s.recordTurnUsage(ctx, routeRes, finalProvider, decision.ServedIdentity(), in, out, cacheCreation, cacheRead)
 
-	if proxyErr == nil {
+	if shouldBillInference(proxyErr, in, out, cacheCreation, cacheRead) {
 		s.emitBilling(ctx, requestID, externalID, decision, actPricing, routeRes, in, out, cacheCreation, cacheRead)
-		if compResOAI.Summarized {
-			s.billCompactionSummary(ctx, requestID, externalID, compResOAI.SummaryUsage)
-		}
+	}
+	if compResOAI.Summarized {
+		s.billCompactionSummary(ctx, requestID, externalID, compResOAI.SummaryUsage)
 	}
 
 	// See ProxyMessages for the two-strike eviction rationale.
