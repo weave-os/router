@@ -1,0 +1,19 @@
+.github/workflows/smoke.yml
+  s_cba51ff194424d::t_15f9fd9caa3df4 80-83,158-161
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "43535f67d183ef97c56ca1c846ceaf2d2a548ec7",
+  "prompts": {},
+  "sessions": {
+    "s_cba51ff194424d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a09259-4d5f-7d53-9896-3f1e6fa28e4d",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}
