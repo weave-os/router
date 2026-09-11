@@ -6,9 +6,11 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
+	"weave-os/router/internal/auth"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/providers/httputil"
 	"weave-os/router/internal/requestcontext"
@@ -92,6 +94,12 @@ func (c *NativeClient) Proxy(ctx context.Context, decision router.Decision, prep
 		method = ":streamGenerateContent"
 		query = "?alt=sse"
 	}
+	if prep.PreserveNative {
+		// The caller's own action and query are authoritative; rebuilding
+		// them would drop native parameters the client relied on.
+		method, query = nativeGeminiAction(r, method)
+		stream = method == ":streamGenerateContent"
+	}
 	url := requestcontext.EffectiveBaseURL(ctx, c.baseURL) + "/v1beta/models/" + requestcontext.EffectiveUpstreamModel(ctx, decision.Model) + method + query
 
 	upstream, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(prep.Body))
@@ -160,6 +168,40 @@ func (c *NativeClient) Proxy(ctx context.Context, decision router.Decision, prep
 	}
 
 	return httputil.StreamBody(ctx, cancel, c.idleTimeout(), resp.Body, resp.StatusCode, w, t)
+}
+
+// geminiQueryKeyParam is the Gemini API's query-string credential parameter.
+const geminiQueryKeyParam = "key"
+
+// nativeGeminiAction returns the inbound request's ":action" suffix and raw
+// query for a preserved native request. The router-selected action is kept
+// when the inbound path carries none. A router-issued key in the query is
+// dropped so it never reaches Google; the real credential travels in the
+// x-goog-api-key header set by applyAPIKey.
+func nativeGeminiAction(r *http.Request, fallback string) (method string, query string) {
+	method = fallback
+	if r == nil || r.URL == nil {
+		return method, ""
+	}
+	if index := strings.LastIndex(r.URL.Path, ":"); index >= 0 {
+		if action := r.URL.Path[index:]; len(action) > 1 && !strings.Contains(action, "/") {
+			method = action
+		}
+	}
+	if r.URL.RawQuery == "" {
+		return method, ""
+	}
+	values, err := url.ParseQuery(r.URL.RawQuery)
+	if err != nil {
+		return method, ""
+	}
+	if auth.HasAPIKeyPrefix(values.Get(geminiQueryKeyParam)) {
+		values.Del(geminiQueryKeyParam)
+	}
+	if len(values) == 0 {
+		return method, ""
+	}
+	return method, "?" + values.Encode()
 }
 
 // Passthrough rewrites inbound /v1/ paths to /v1beta/ for the native API surface.

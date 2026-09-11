@@ -4,6 +4,7 @@ import (
 	"context"
 	"sync"
 	"time"
+	"weave-os/router/internal/requestcontext"
 
 	"weave-os/router/internal/observability"
 )
@@ -56,14 +57,20 @@ func (c *globalAutomaticExclusionCache) snapshot(ctx context.Context) map[string
 	stale := c.byModel
 	c.mu.Unlock()
 
-	byModel, err := c.store.ListGlobalAutomaticRoutingExclusions(ctx)
+	readCtx, finish, err := startDependency(ctx, requestcontext.DependencyDatabase)
+	var byModel map[string]string
+	if err == nil {
+		byModel, err = c.store.ListGlobalAutomaticRoutingExclusions(readCtx)
+	}
+	finish(err)
 	c.mu.Lock()
 	c.refreshing = false
 	if err != nil {
+		loaded := c.loaded
 		c.mu.Unlock()
 		observability.FromContext(ctx).Error("Failed to refresh global automatic-routing exclusions",
 			"err", err,
-			"serving_stale_snapshot", c.loaded,
+			"serving_stale_snapshot", loaded,
 			"cached_model_count", len(stale),
 		)
 		return stale

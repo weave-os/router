@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"weave-os/router/internal/requestcontext"
 
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/observability"
@@ -1497,7 +1498,7 @@ func (s *Service) runTurnLoop(
 			if err != nil {
 				// Deadline != correctness failure: all candidates were dispatchable; only
 				// ranking is lost. Contract violations still fail closed via isPolicyDeadlineErr.
-				if s.policyDeadlineFallback && isPolicyDeadlineErr(err) {
+				if requestcontext.PreparationFrom(ctx) == nil && s.policyDeadlineFallback && isPolicyDeadlineErr(err) {
 					if pinFound && pin.Model != "" {
 						decision := pinDecision(pin)
 						// Use a distinct Reason so degraded-mode turns don't
@@ -1786,9 +1787,11 @@ func (s *Service) runTurnLoop(
 				res.Handover.LatencyMS = time.Since(start).Milliseconds()
 				switch {
 				case sumErr != nil:
+					markDependencyFailure(ctx, requestcontext.DependencyAuxiliary, sumErr)
 					res.Handover.FallbackToFullHistory = true
 					log.Warn("Handover summarizer failed; preserved full history instead", "err", sumErr, "pin_model", pin.Model, "fresh_model", fresh.Model)
 				case summary == "":
+					markDependencyFailure(ctx, requestcontext.DependencyAuxiliary, errors.New("empty handover summary"))
 					res.Handover.FallbackToFullHistory = true
 					log.Warn("Handover summarizer returned empty summary; preserved full history instead", "pin_model", pin.Model, "fresh_model", fresh.Model)
 				default:
@@ -2216,7 +2219,7 @@ func (s *Service) loadPin(ctx context.Context, sessionKey [sessionpin.SessionKey
 func (s *Service) loadPinWithStoreState(ctx context.Context, sessionKey [sessionpin.SessionKeyLen]byte, role string) (_ sessionpin.Pin, active, noStoredState bool) {
 	log := observability.FromContext(ctx)
 	log.Debug("loadPin called", "role", role, "session_key_hex", fmt.Sprintf("%x", sessionKey))
-	pin, found, err := s.pinStore.Get(ctx, sessionKey, role)
+	pin, found, err := s.getSessionPin(ctx, sessionKey, role)
 	if err != nil {
 		log.Error("session pin store unavailable; falling through to cluster scorer", "err", err)
 		return sessionpin.Pin{}, false, false
@@ -2235,7 +2238,7 @@ func (s *Service) loadPinWithStoreState(ctx context.Context, sessionKey [session
 
 func (s *Service) loadHMMHistory(ctx context.Context, sessionKey [sessionpin.SessionKeyLen]byte, role string) sessionpin.Pin {
 	log := observability.FromContext(ctx)
-	pin, found, err := s.pinStore.Get(ctx, sessionKey, hmmHistoryRole(role))
+	pin, found, err := s.getSessionPin(ctx, sessionKey, hmmHistoryRole(role))
 	if err != nil {
 		log.Error("HMM switch-history store unavailable", "err", err)
 		return sessionpin.Pin{}
@@ -2392,6 +2395,9 @@ func (s *Service) writeNewPin(ctx context.Context, installationID uuid.UUID, ses
 
 // upsertPin preserves write ordering with a bounded, cancellation-independent wait.
 func (s *Service) upsertPin(ctx context.Context, p sessionpin.Pin) {
+	if pendingDependencyFailure(ctx) != nil {
+		return
+	}
 	log := observability.FromContext(ctx)
 	if p.Strategy == "" {
 		p.Strategy = router.StrategyFromContext(ctx)

@@ -223,7 +223,7 @@ func (s *Service) cyberRefusalFallback(
 	if s.pinStore != nil {
 		pinCtx, cancelPin := bookkeepingContext(ctx)
 		defer cancelPin()
-		if existing, found, err := s.pinStore.Get(pinCtx, sessionKey, role); err == nil && found &&
+		if existing, found, err := s.getSessionPin(pinCtx, sessionKey, role); err == nil && found &&
 			pinMatchesEffectiveStrategy(ctx, existing) && existing.PairedModel != "" &&
 			!providerAvoided(providerForModel(existing.PairedProvider, existing.PairedModel), avoidProvider) {
 			model, provider = existing.PairedModel, existing.PairedProvider

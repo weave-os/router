@@ -260,6 +260,28 @@ are released after cost headers are known and before post-response bookkeeping;
 Responses finalization is once-only. Required billing retains its existing bounded
 synchronous debit and reconciliation logging. A failed write is not durable success.
 
+## Original-model dependency fallback
+
+`ROUTER_DEPENDENCY_FAIL_OPEN` is deployment-level and defaults off. When on,
+`fail_open.go` captures the original request before mutation and separates the
+12s preparation deadline from the live client context used for provider I/O.
+Session reads share a 1s aggregate DB budget with 250ms individual calls;
+failed prerequisites enter a process-local cooldown with one recovery probe.
+
+An internal failure before provider dispatch resolves `original_model_fallback`
+through the policy registry and executor, with one target and one attempt. It
+never substitutes a session pin or deadline default. Native requests preserve
+native fields; cross-format originals use the existing emit/response adapters
+from the snapshot, not a compacted or rewritten envelope. Known restrictions
+and credential/gateway isolation still apply; missing authority is unavailable,
+not permission to use an unrelated key. Degraded turns do not train policy or
+write pins. Provider failures and client cancellation do not start another relay.
+
+This switch does not make database-backed authentication, spend checks, or cold
+startup outage-independent; those boundaries remain strict until their serving
+capabilities are explicitly wired. `X-Router-Fail-Open` identifies the bounded
+reason on a relayed response.
+
 ## Fast-tier dispatch (`fast_mode_models`)
 
 An installation opts catalog models into the provider's paid fast tier via `PUT /admin/v1/fast-mode-models` (`auth.Installation.FastModeModels`, carried in ctx under `InstallationFastModeModelsContextKey`). [`fastModeForAttempt`](fastmode.go) decides **per attempt** — against the attempt's own ctx, model, and binding — whether `EmitOptions.FastMode` is set: the model must be listed, the `(provider, model)` binding must publish a `FastPrice` (first-party OpenAI → `service_tier:"priority"`, first-party Anthropic → `speed:"fast"` + beta; gateways never), and the resolved credential must not be a subscription OAuth token (Weave does not bill those turns). Raw passthrough is untouched.

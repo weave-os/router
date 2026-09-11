@@ -22,7 +22,7 @@ func blindExperimentPassthroughActive(ctx context.Context) bool {
 // served model was selected by the caller, not by the routing policy.
 func policyTrainingAllowedForRequest(ctx context.Context) bool {
 	trainingAllowed, _ := ctx.Value(PolicyTrainingAllowedContextKey{}).(bool)
-	return trainingAllowed && !blindExperimentPassthroughActive(ctx)
+	return trainingAllowed && !blindExperimentPassthroughActive(ctx) && pendingDependencyFailure(ctx) == nil
 }
 
 // blindExperimentPassthroughDecision resolves the requested model without

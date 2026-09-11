@@ -663,6 +663,12 @@ type PreparedRequest struct {
 	// by translate.Prepare*), folded into the ProxyMessages-complete log so
 	// per-PR mitigation impact can be measured in production traffic.
 	Stats RequestMutationStats
+	// PreserveNative forwards Body as the caller's own native wire request:
+	// adapters keep the original model spelling (apart from the BYOK alias
+	// contract), the inbound path/query, and native-only fields, and must not
+	// issue a second speculative upstream attempt. Credential, identity,
+	// gateway, secret-filtering, timeout, and watchdog behavior is unchanged.
+	PreserveNative bool
 }
 
 // RequestMutationStats reports translation-time mitigations the router

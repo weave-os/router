@@ -82,7 +82,7 @@ func (s *Service) handleStruggleEscalation(
 	if s.pinStore == nil {
 		return
 	}
-	pin, found, err := s.pinStore.Get(ctx, sessionKey, role)
+	pin, found, err := s.getSessionPin(ctx, sessionKey, role)
 	if err != nil {
 		log.Error("struggle-escalation: pin lookup failed", "err", err)
 		return

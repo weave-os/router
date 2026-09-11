@@ -60,7 +60,9 @@ type TelemetryEmitter interface {
 
 // Service orchestrates routing decisions and provider dispatch.
 type Service struct {
-	router router.Router
+	failOpenHealth *requestcontext.DependencyHealth
+	failOpenLimits requestcontext.PreparationLimits
+	router         router.Router
 	// strategies contains every non-default router and its optional lifecycle
 	// reporters. Adding a strategy does not require another Service field.
 	strategies map[router.Strategy]registeredStrategy
@@ -2553,6 +2555,9 @@ func (s *Service) WithBanditRouter(r router.Router) *Service {
 // ErrPolicyUnavailable (→ HTTP 503) — never a silent fallback that would mask
 // which strategy actually served the turn.
 func (s *Service) routeFor(ctx context.Context, req router.Request) (router.Decision, error) {
+	if err := pendingDependencyFailure(ctx); err != nil {
+		return router.Decision{}, err
+	}
 	var err error
 	req, err = s.applyTranslationPlan(ctx, req)
 	if err != nil {
@@ -2560,7 +2565,20 @@ func (s *Service) routeFor(ctx context.Context, req router.Request) (router.Deci
 	}
 	req = s.withPolicyRequestContext(ctx, req)
 	strategy := router.StrategyFromContext(ctx)
-	return s.routeWithStrategy(ctx, strategy, req)
+	routeCtx, finish, err := startDependency(ctx, requestcontext.DependencyPolicy)
+	if err != nil {
+		return router.Decision{}, err
+	}
+	decision, err := s.routeWithStrategy(routeCtx, strategy, req)
+	if classification, ok := ClassifyDispatchError(err); ok && classification.Status >= 400 && classification.Status < 500 {
+		finish(nil)
+		return decision, err
+	}
+	finish(err)
+	if err != nil {
+		return decision, markDependencyFailure(ctx, requestcontext.DependencyPolicy, err)
+	}
+	return decision, nil
 }
 
 func (s *Service) routeWithStrategy(ctx context.Context, strategy router.Strategy, req router.Request) (router.Decision, error) {
@@ -2996,6 +3014,10 @@ func (s *Service) repinOffRefusingModel(ctx context.Context, sessionKey [session
 var anthropicPingFrame = []byte(sseEvent("ping", `{"type":"ping"}`))
 
 func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.ResponseWriter, r *http.Request) (returnErr error) {
+	ctx, w, finishOriginal := s.prepareOriginalRequest(ctx, body, w, r, originalMessages)
+	if finishOriginal != nil {
+		defer func() { returnErr = finishOriginal(ctx, returnErr) }()
+	}
 	if managedSubscriptionEnrollmentUnavailable(ctx) {
 		return ErrSubscriptionPoolUnavailable
 	}
@@ -3380,6 +3402,9 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		routeRes, routeErr = s.runAgentShadowEvaluationRoute(routeCtx, env, feats, installationID, req, agentShadowEval)
 	} else {
 		routeRes, routeErr = s.runTurnLoop(routeCtx, env, feats, apiKeyID, installationID, "", r.Header, req)
+	}
+	if routeErr == nil {
+		routeErr = pendingDependencyFailure(ctx)
 	}
 	var escalationCapture *captureWriter
 	defer func() {
@@ -5902,6 +5927,10 @@ const (
 // ProxyOpenAIChatCompletion routes an OpenAI Chat Completion request,
 // translating cross-format when the decision picks a non-OpenAI provider.
 func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w http.ResponseWriter, r *http.Request) (returnErr error) {
+	ctx, w, finishOriginal := s.prepareOriginalRequest(ctx, body, w, r, originalChat)
+	if finishOriginal != nil {
+		defer func() { returnErr = finishOriginal(ctx, returnErr) }()
+	}
 	if managedSubscriptionEnrollmentUnavailable(ctx) {
 		return ErrSubscriptionPoolUnavailable
 	}
@@ -6248,6 +6277,9 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	routeStart := time.Now()
 	routeCtx, routeSpan := startRoutingSpan(ctx, routeRequest)
 	routeRes, err := s.runTurnLoop(routeCtx, env, feats, apiKeyID, installationID, subAgentHint, r.Header, routeRequest)
+	if err == nil {
+		err = pendingDependencyFailure(ctx)
+	}
 	var escalationCapture *captureWriter
 	defer func() {
 		s.completeEscalation(ctx, routeRes, returnErr, escalationCapture, translate.EscalationResponseChat)
@@ -7391,7 +7423,11 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 // the existing chat-completions path, then the chat-completions response is
 // re-emitted as Responses-shaped SSE / JSON. This keeps the turn loop, cache,
 // pricing, and translation matrix unchanged.
-func (s *Service) ProxyOpenAIResponses(ctx context.Context, body []byte, w http.ResponseWriter, r *http.Request) error {
+func (s *Service) ProxyOpenAIResponses(ctx context.Context, body []byte, w http.ResponseWriter, r *http.Request) (returnErr error) {
+	ctx, w, finishOriginal := s.prepareOriginalRequest(ctx, body, w, r, originalResponses)
+	if finishOriginal != nil {
+		defer func() { returnErr = finishOriginal(ctx, returnErr) }()
+	}
 	ctx = s.withUsageObserver(ctx, r.Header, routePathResponses)
 	clientAppCodex := ClientIdentityFrom(ctx).ClientApp == ClientAppCodex
 	if translate.FeedbackFooterSinceLastHumanTurnInResponses(body) {

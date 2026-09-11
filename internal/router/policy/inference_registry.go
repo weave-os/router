@@ -673,5 +673,20 @@ func defaultPolicySpecs() []PolicySpec {
 			Fallback:          FallbackSpec{Kind: FallbackKindRoutedDispatch},
 			MigrationStatus:   MigrationStatusNonInference,
 		},
+		{
+			Purpose:            PurposeOriginalModelFallback,
+			DispatchClass:      DispatchClassClientAuthoritative,
+			PolicyID:           "client-original-model-fallback",
+			PolicyRevision:     "1",
+			Owner:              inferencePolicyOwner,
+			Rationale:          "Serve one independently authorized request to the original native model after an internal routing failure; never invent an alternative target or recurse into routing.",
+			SelectionStrategy:  SelectionStrategyClientAuthoritative,
+			CandidateSource:    CandidateSourceRequest,
+			HardConstraints:    append([]Constraint(nil), coreConstraints...),
+			OverridePrecedence: []OverrideSource{OverrideSourceClientAuthoritative},
+			Budget:             BudgetSpec{Source: BudgetSourcePolicy, MaxAttempts: 1},
+			Fallback:           FallbackSpec{Kind: FallbackKindNone},
+			MigrationStatus:    MigrationStatusExecutor,
+		},
 	}
 }

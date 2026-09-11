@@ -31,6 +31,7 @@ const (
 	PurposeClusterEmbedding          Purpose = "cluster_embedding"
 	PurposeSemanticCacheEmbedding    Purpose = "semantic_cache_embedding"
 	PurposeNativeWebSearch           Purpose = "native_web_search"
+	PurposeOriginalModelFallback     Purpose = "original_model_fallback"
 )
 
 // DispatchClass separates provider inference from passthrough, control-plane,
