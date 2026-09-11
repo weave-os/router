@@ -30,6 +30,7 @@ func TestCatalog_BindingsReferenceCanonicalProviders(t *testing.T) {
 		providers.ProviderOpenAI:           {},
 		providers.ProviderGoogle:           {},
 		providers.ProviderOpenRouter:       {},
+		providers.ProviderTrustedRouter:    {},
 		providers.ProviderFireworks:        {},
 		providers.ProviderBedrock:          {},
 		providers.ProviderMakora:           {},

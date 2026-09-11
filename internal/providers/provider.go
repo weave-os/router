@@ -47,16 +47,17 @@ func ObserveUpstreamHeaders(ctx context.Context, h http.Header) {
 // even though the provider looked "enabled" at boot. ValidateDispatchable and
 // the table test catch this at boot instead of in production.
 const (
-	ProviderAnthropic  = "anthropic"
-	ProviderOpenAI     = "openai"
-	ProviderGoogle     = "google"
-	ProviderOpenRouter = "openrouter"
-	ProviderFireworks  = "fireworks"
-	ProviderBedrock    = "bedrock"
-	ProviderMakora     = "makora"
-	ProviderMiniMax    = "minimax"
-	ProviderTogether   = "together"
-	ProviderXAI        = "xai"
+	ProviderAnthropic     = "anthropic"
+	ProviderOpenAI        = "openai"
+	ProviderGoogle        = "google"
+	ProviderOpenRouter    = "openrouter"
+	ProviderTrustedRouter = "trustedrouter"
+	ProviderFireworks     = "fireworks"
+	ProviderBedrock       = "bedrock"
+	ProviderMakora        = "makora"
+	ProviderMiniMax       = "minimax"
+	ProviderTogether      = "together"
+	ProviderXAI           = "xai"
 	// ProviderMeta is Meta's Model API (api.meta.ai), OpenAI-compatible Chat Completions surface.
 	ProviderMeta = "meta"
 	// ProviderWafer is Wafer Serverless' OpenAI-compatible surface; see
@@ -99,18 +100,19 @@ const (
 // ProviderFamilies is the single source of truth for cross-format dispatch;
 // keep it covering EVERY Provider* constant (see the three-map note above).
 var ProviderFamilies = map[string]TranslationFamily{
-	ProviderAnthropic:  FamilyAnthropic,
-	ProviderOpenAI:     FamilyOpenAICompat,
-	ProviderGoogle:     FamilyGemini,
-	ProviderOpenRouter: FamilyOpenAICompat,
-	ProviderFireworks:  FamilyOpenAICompat,
-	ProviderBedrock:    FamilyOpenAICompat,
-	ProviderMakora:     FamilyOpenAICompat,
-	ProviderMiniMax:    FamilyOpenAICompat,
-	ProviderTogether:   FamilyOpenAICompat,
-	ProviderXAI:        FamilyOpenAICompat,
-	ProviderMeta:       FamilyOpenAICompat,
-	ProviderWafer:      FamilyOpenAICompat,
+	ProviderAnthropic:     FamilyAnthropic,
+	ProviderOpenAI:        FamilyOpenAICompat,
+	ProviderGoogle:        FamilyGemini,
+	ProviderOpenRouter:    FamilyOpenAICompat,
+	ProviderTrustedRouter: FamilyOpenAICompat,
+	ProviderFireworks:     FamilyOpenAICompat,
+	ProviderBedrock:       FamilyOpenAICompat,
+	ProviderMakora:        FamilyOpenAICompat,
+	ProviderMiniMax:       FamilyOpenAICompat,
+	ProviderTogether:      FamilyOpenAICompat,
+	ProviderXAI:           FamilyOpenAICompat,
+	ProviderMeta:          FamilyOpenAICompat,
+	ProviderWafer:         FamilyOpenAICompat,
 
 	ProviderWaferAnthropic:   FamilyAnthropic,
 	ProviderAnthropicGateway: FamilyAnthropic,
@@ -180,17 +182,18 @@ func ValidateDispatchable(registered []string) error {
 // APIKeyEnvVars maps provider name to the env var providing its deployment-level upstream API key.
 // Bedrock uses AWS-issued long-term Bedrock API keys (static bearer tokens), not SigV4 access keys.
 var APIKeyEnvVars = map[string]string{
-	ProviderAnthropic:  "ANTHROPIC_API_KEY",
-	ProviderOpenAI:     "OPENAI_API_KEY",
-	ProviderGoogle:     "GOOGLE_API_KEY",
-	ProviderOpenRouter: "OPENROUTER_API_KEY",
-	ProviderFireworks:  "FIREWORKS_API_KEY",
-	ProviderBedrock:    "AWS_BEARER_TOKEN_BEDROCK",
-	ProviderMakora:     "MAKORA_API_KEY",
-	ProviderMiniMax:    "MINIMAX_API_KEY",
-	ProviderTogether:   "TOGETHER_API_KEY",
-	ProviderXAI:        "XAI_API_KEY",
-	ProviderMeta:       "META_API_KEY",
+	ProviderAnthropic:     "ANTHROPIC_API_KEY",
+	ProviderOpenAI:        "OPENAI_API_KEY",
+	ProviderGoogle:        "GOOGLE_API_KEY",
+	ProviderOpenRouter:    "OPENROUTER_API_KEY",
+	ProviderTrustedRouter: "TRUSTEDROUTER_API_KEY",
+	ProviderFireworks:     "FIREWORKS_API_KEY",
+	ProviderBedrock:       "AWS_BEARER_TOKEN_BEDROCK",
+	ProviderMakora:        "MAKORA_API_KEY",
+	ProviderMiniMax:       "MINIMAX_API_KEY",
+	ProviderTogether:      "TOGETHER_API_KEY",
+	ProviderXAI:           "XAI_API_KEY",
+	ProviderMeta:          "META_API_KEY",
 	// Wafer's two surfaces share a single account key.
 	ProviderWafer:          "WAFER_API_KEY",
 	ProviderWaferAnthropic: "WAFER_API_KEY",

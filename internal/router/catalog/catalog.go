@@ -125,6 +125,10 @@ type ProviderBinding struct {
 	ContextWindow int
 }
 
+func trustedRouterBinding(price Pricing) ProviderBinding {
+	return ProviderBinding{Provider: providers.ProviderTrustedRouter, Price: price}
+}
+
 // ToolUseQuality marks a model's reliability under has_tools=true turns.
 // ToolUseUnknown (zero value) = no concerns recorded; ToolUseLow flags models
 // that hallucinate tool calls, emit malformed tool_use blocks, or loop on the
@@ -513,16 +517,19 @@ var Models = []Model{
 		{Provider: providers.ProviderBedrock, UpstreamID: "qwen.qwen3-235b-a22b-2507",
 			Price: Pricing{InputUSDPer1M: 0.2266, OutputUSDPer1M: 0.9064}},
 		{Provider: providers.ProviderOpenRouter, Price: Pricing{InputUSDPer1M: 0.071, OutputUSDPer1M: 0.463}},
+		trustedRouterBinding(Pricing{InputUSDPer1M: 0.211, OutputUSDPer1M: 0.844, CacheReadMultiplier: 1.0000}),
 	}},
 	{ID: "qwen/qwen3-coder-next", Tier: TierMid, ContextWindow: 262_144, ImageInput: ImageInputUnsupported, Providers: []ProviderBinding{
 		{Provider: providers.ProviderBedrock, UpstreamID: "qwen.qwen3-coder-next",
 			Price: Pricing{InputUSDPer1M: 0.500, OutputUSDPer1M: 1.200}},
 		{Provider: providers.ProviderOpenRouter, Price: Pricing{InputUSDPer1M: 0.070, OutputUSDPer1M: 0.300}},
+		trustedRouterBinding(Pricing{InputUSDPer1M: 0.127, OutputUSDPer1M: 0.844, CacheReadMultiplier: 0.5833}),
 	}},
 	{ID: "qwen/qwen3-next-80b-a3b-instruct", Tier: TierMid, ContextWindow: 262_144, ImageInput: ImageInputUnsupported, AgenticUse: AgenticLow, Providers: []ProviderBinding{
 		{Provider: providers.ProviderBedrock, UpstreamID: "qwen.qwen3-next-80b-a3b-instruct",
 			Price: Pricing{InputUSDPer1M: 0.150, OutputUSDPer1M: 1.200}},
 		{Provider: providers.ProviderOpenRouter, Price: Pricing{InputUSDPer1M: 0.090, OutputUSDPer1M: 1.100}},
+		trustedRouterBinding(Pricing{InputUSDPer1M: 0.095, OutputUSDPer1M: 1.160}),
 	}},
 	// DeepSeek V4 natively serves 1,048,576 tokens; the 131_072 carried over
 	// from V3.2 was filtering requests over ~128K (excludeContextOverflowModels
@@ -531,6 +538,7 @@ var Models = []Model{
 		{Provider: providers.ProviderMakora, UpstreamID: "deepseek-ai/DeepSeek-V4-Flash",
 			Price: Pricing{InputUSDPer1M: 0.1134, OutputUSDPer1M: 0.2791, CacheReadMultiplier: 0.20}},
 		{Provider: providers.ProviderOpenRouter, Price: Pricing{InputUSDPer1M: 0.140, OutputUSDPer1M: 0.280, CacheReadMultiplier: 0.10}},
+		trustedRouterBinding(Pricing{InputUSDPer1M: 0.072, OutputUSDPer1M: 0.177, CacheReadMultiplier: 0.2500}),
 		// Trailing Wafer bindings ($0.28/$0.56 fast tier): resolve only when
 		// Makora and OpenRouter are unwired; wafer_anthropic trails wafer.
 		{Provider: providers.ProviderWafer, UpstreamID: "DeepSeek-V4-Flash-0731-Fast",
@@ -550,6 +558,7 @@ var Models = []Model{
 		{Provider: providers.ProviderFireworks, UpstreamID: "accounts/fireworks/models/deepseek-v4-pro",
 			Price: Pricing{InputUSDPer1M: 1.740, OutputUSDPer1M: 3.480, CacheReadMultiplier: 0.0862}},
 		{Provider: providers.ProviderOpenRouter, Price: Pricing{InputUSDPer1M: 0.435, OutputUSDPer1M: 0.870, CacheReadMultiplier: 0.10}},
+		trustedRouterBinding(Pricing{InputUSDPer1M: 0.696, OutputUSDPer1M: 1.836, CacheReadMultiplier: 0.0333}),
 	}},
 	// The current V4-Pro release, and the one Artificial Analysis scores
 	// (agentic index 49.56; our aa_skill_scores entry already carries
@@ -563,16 +572,19 @@ var Models = []Model{
 		{Provider: providers.ProviderFireworks, UpstreamID: "accounts/fireworks/models/deepseek-v4-pro",
 			Price: Pricing{InputUSDPer1M: 1.740, OutputUSDPer1M: 3.480, CacheReadMultiplier: 0.0862}},
 		{Provider: providers.ProviderOpenRouter, Price: Pricing{InputUSDPer1M: 0.660, OutputUSDPer1M: 1.980, CacheReadMultiplier: 0.022 / 0.660}},
+		trustedRouterBinding(Pricing{InputUSDPer1M: 0.696, OutputUSDPer1M: 2.089, CacheReadMultiplier: 0.0333}),
 	}},
 	{ID: "moonshotai/kimi-k2.5", Tier: TierHigh, ContextWindow: 262_144, ImageInput: ImageInputUnsupported, Providers: []ProviderBinding{
 		{Provider: providers.ProviderBedrock, UpstreamID: "moonshotai.kimi-k2.5",
 			Price: Pricing{InputUSDPer1M: 0.600, OutputUSDPer1M: 3.000}},
 		{Provider: providers.ProviderOpenRouter, Price: Pricing{InputUSDPer1M: 0.440, OutputUSDPer1M: 2.000}},
+		trustedRouterBinding(Pricing{InputUSDPer1M: 0.475, OutputUSDPer1M: 2.374, CacheReadMultiplier: 0.1556}),
 	}},
 	{ID: "moonshotai/kimi-k2.6", Tier: TierHigh, ContextWindow: 262_144, ImageInput: ImageInputUnsupported, Providers: []ProviderBinding{
 		{Provider: providers.ProviderFireworks, UpstreamID: "accounts/fireworks/models/kimi-k2p6",
 			Price: Pricing{InputUSDPer1M: 0.950, OutputUSDPer1M: 4.000, CacheReadMultiplier: 0.1684}},
 		{Provider: providers.ProviderOpenRouter, Price: Pricing{InputUSDPer1M: 0.950, OutputUSDPer1M: 4.000, CacheReadMultiplier: 0.10}},
+		trustedRouterBinding(Pricing{InputUSDPer1M: 0.612, OutputUSDPer1M: 3.235, CacheReadMultiplier: 0.1000}),
 	}},
 	// kimi-k2.7 "Code" variant: same rates as k2.6, ~30% less thinking-token
 	// usage. Fireworks primary; Together added as a cross-provider fallback
@@ -587,11 +599,13 @@ var Models = []Model{
 	// kimi-k3 is a separate price class from k2.7 ($3/$15 vs $0.95/$4), not its
 	// successor — both stay routable. First multimodal Kimi, so unlike k2.5-k2.7
 	// it carries no ImageInputUnsupported. Together has no K3 endpoint yet, so
-	// OpenRouter (identical list price) is the outage fallback.
+	// OpenRouter and TrustedRouter (identical list price) are the outage
+	// fallbacks.
 	{ID: "moonshotai/kimi-k3", Tier: TierHigh, ContextWindow: 1_048_576, Providers: []ProviderBinding{
 		{Provider: providers.ProviderFireworks, UpstreamID: "accounts/fireworks/models/kimi-k3",
 			Price: Pricing{InputUSDPer1M: 3.000, OutputUSDPer1M: 15.000, CacheReadMultiplier: 0.10}},
 		{Provider: providers.ProviderOpenRouter, Price: Pricing{InputUSDPer1M: 3.000, OutputUSDPer1M: 15.000, CacheReadMultiplier: 0.10}},
+		trustedRouterBinding(Pricing{InputUSDPer1M: 2.057, OutputUSDPer1M: 10.286, CacheReadMultiplier: 0.1000}),
 		// Trailing Wafer bindings (see glm-5.2): resolve only when Fireworks
 		// and OpenRouter are both unwired or excluded. wafer_anthropic carries
 		// the Anthropic-spec Messages surface, trailing the OpenAI-compat wafer.
@@ -610,11 +624,13 @@ var Models = []Model{
 	// #24095 and Crush #1699). The pro variant doesn't show the instability.
 	{ID: "xiaomi/mimo-v2.5-pro", Tier: TierHigh, ContextWindow: 1_048_576, ImageInput: ImageInputUnsupported, ThinkTagReasoning: true, Providers: []ProviderBinding{
 		{Provider: providers.ProviderOpenRouter, Price: Pricing{InputUSDPer1M: 1.000, OutputUSDPer1M: 3.000, CacheReadMultiplier: 0.10}},
+		trustedRouterBinding(Pricing{InputUSDPer1M: 0.422, OutputUSDPer1M: 0.918, CacheReadMultiplier: 0.2000}),
 	}},
 	// TierLow despite MoE size: active-parameter budget + AA Coding Index put
 	// it below v4-flash.
 	{ID: "qwen/qwen3.6-35b-a3b", Tier: TierLow, ContextWindow: 262_144, ImageInput: ImageInputUnsupported, Providers: []ProviderBinding{
 		{Provider: providers.ProviderOpenRouter, Price: Pricing{InputUSDPer1M: 0.150, OutputUSDPer1M: 1.000, CacheReadMultiplier: 0.10}},
+		trustedRouterBinding(Pricing{InputUSDPer1M: 0.047, OutputUSDPer1M: 0.317, CacheReadMultiplier: 0.3333}),
 	}},
 	// Context window is 204,800 on Fireworks and OpenRouter despite MiniMax's
 	// "1M" marketing — do NOT raise without re-confirming the served cap, or
@@ -629,6 +645,7 @@ var Models = []Model{
 		{Provider: providers.ProviderFireworks, UpstreamID: "accounts/fireworks/models/minimax-m2p7",
 			Price: Pricing{InputUSDPer1M: 0.300, OutputUSDPer1M: 1.200}},
 		{Provider: providers.ProviderOpenRouter, Price: Pricing{InputUSDPer1M: 0.279, OutputUSDPer1M: 1.200, CacheReadMultiplier: 0.10}},
+		trustedRouterBinding(Pricing{InputUSDPer1M: 0.222, OutputUSDPer1M: 1.266, CacheReadMultiplier: 0.1429}),
 	}},
 	// The direct endpoint serves 1M context, but fallback endpoints can be limited
 	// to 512K, so the model-level window stays conservative. Unlike m2.7 it accepts
@@ -639,11 +656,13 @@ var Models = []Model{
 		{Provider: providers.ProviderMiniMax, UpstreamID: "MiniMax-M3",
 			Price: Pricing{InputUSDPer1M: 0.300, OutputUSDPer1M: 1.200, CacheReadMultiplier: 0.06 / 0.300}},
 		{Provider: providers.ProviderOpenRouter, Price: Pricing{InputUSDPer1M: 0.300, OutputUSDPer1M: 1.200, CacheReadMultiplier: 0.10}},
+		trustedRouterBinding(Pricing{InputUSDPer1M: 0.243, OutputUSDPer1M: 1.013, CacheReadMultiplier: 0.2174}),
 	}},
 	{ID: "z-ai/glm-5", Tier: TierHigh, ContextWindow: 202_752, ImageInput: ImageInputUnsupported, Providers: []ProviderBinding{
 		{Provider: providers.ProviderFireworks, UpstreamID: "accounts/fireworks/models/glm-5",
 			Price: Pricing{InputUSDPer1M: 1.000, OutputUSDPer1M: 3.200, CacheReadMultiplier: 0.20}},
 		{Provider: providers.ProviderOpenRouter, Price: Pricing{InputUSDPer1M: 0.600, OutputUSDPer1M: 1.920, CacheReadMultiplier: 0.10}},
+		trustedRouterBinding(Pricing{InputUSDPer1M: 0.907, OutputUSDPer1M: 2.690, CacheReadMultiplier: 0.5000}),
 	}},
 	// GLM-5.1 ships the streaming tool-call fix GLM-5 lacks (tool_stream=true);
 	// emit_openai injects tool_stream + disables thinking for this slug.
@@ -655,6 +674,7 @@ var Models = []Model{
 		{Provider: providers.ProviderFireworks, UpstreamID: "accounts/fireworks/models/glm-5p1",
 			Price: Pricing{InputUSDPer1M: 1.400, OutputUSDPer1M: 4.400, CacheReadMultiplier: 0.26 / 1.40}},
 		{Provider: providers.ProviderOpenRouter, Price: Pricing{InputUSDPer1M: 0.980, OutputUSDPer1M: 3.080, CacheReadMultiplier: 0.18 / 0.98}},
+		trustedRouterBinding(Pricing{InputUSDPer1M: 1.034, OutputUSDPer1M: 3.249, CacheReadMultiplier: 0.1000}),
 	}},
 	// ContextWindow 1_048_576 confirmed from OpenRouter (context_length) and
 	// Fireworks serving manifest (1_048_575) — the earlier 202_752 was held
@@ -698,19 +718,25 @@ var Models = []Model{
 	// managed-prod deploys without a Fireworks key can still resolve them.
 	{ID: "mistralai/mistral-small-2603", Tier: TierMid, ContextWindow: 262_144, Providers: []ProviderBinding{
 		{Provider: providers.ProviderOpenRouter, Price: Pricing{InputUSDPer1M: 0.200, OutputUSDPer1M: 0.600, CacheReadMultiplier: 0.10}},
+		trustedRouterBinding(Pricing{InputUSDPer1M: 0.158, OutputUSDPer1M: 0.633, CacheReadMultiplier: 0.1000}),
 	}},
 	{ID: "qwen/qwen3-30b-a3b-instruct-2507", Tier: TierMid, ContextWindow: 262_144, ImageInput: ImageInputUnsupported, Providers: []ProviderBinding{
 		{Provider: providers.ProviderFireworks, UpstreamID: "accounts/fireworks/models/qwen3-30b-a3b-instruct-2507",
 			Price: Pricing{InputUSDPer1M: 0.150, OutputUSDPer1M: 0.600, CacheReadMultiplier: 0.1684}},
 		{Provider: providers.ProviderOpenRouter, Price: Pricing{InputUSDPer1M: 0.100, OutputUSDPer1M: 0.300, CacheReadMultiplier: 0.10}},
+		trustedRouterBinding(Pricing{InputUSDPer1M: 0.105, OutputUSDPer1M: 0.317}),
 	}},
 	{ID: "qwen/qwen3-coder", Tier: TierHigh, ContextWindow: 262_144, ImageInput: ImageInputUnsupported, Providers: []ProviderBinding{
 		{Provider: providers.ProviderFireworks, UpstreamID: "accounts/fireworks/models/qwen3-coder-480b-a35b-instruct",
 			Price: Pricing{InputUSDPer1M: 0.900, OutputUSDPer1M: 2.700, CacheReadMultiplier: 0.1684}},
 		{Provider: providers.ProviderOpenRouter, Price: Pricing{InputUSDPer1M: 1.000, OutputUSDPer1M: 5.000, CacheReadMultiplier: 0.10}},
+		{Provider: providers.ProviderTrustedRouter, UpstreamID: "qwen/qwen3-coder-480b-a35b-instruct",
+			Price: Pricing{InputUSDPer1M: 1.000, OutputUSDPer1M: 5.000, CacheReadMultiplier: 0.10}},
 	}},
 	{ID: "qwen/qwen3.5-flash-02-23", Tier: TierLow, ContextWindow: 1_000_000, ImageInput: ImageInputUnsupported, Providers: []ProviderBinding{
 		{Provider: providers.ProviderOpenRouter, Price: Pricing{InputUSDPer1M: 0.050, OutputUSDPer1M: 0.150, CacheReadMultiplier: 0.10}},
+		{Provider: providers.ProviderTrustedRouter, UpstreamID: "qwen/qwen3.5-flash-2026-02-23",
+			Price: Pricing{InputUSDPer1M: 0.050, OutputUSDPer1M: 0.150, CacheReadMultiplier: 0.10}},
 	}},
 	// qwen3.7-plus retired from routing (superseded by qwen3.8-max below);
 	// kept as priced passthrough so lingering BYOK/direct pins bill at real cost.
