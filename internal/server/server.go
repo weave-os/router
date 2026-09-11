@@ -290,14 +290,16 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 		middleware.WithRoutingKnobsOverride(),
 		middleware.WithForceEffortOverride(),
 	)
+	chatCompletionWithoutPolicyPin := append([]gin.HandlerFunc(nil), chatCompletionMiddleware...)
 	chatCompletionMiddleware = append(chatCompletionMiddleware, policyPinMiddleware...)
 	chatCompletionGroup := engine.Group("", chatCompletionMiddleware...)
 	chatCompletionGroup.POST("/v1/chat/completions", openaiapi.ChatCompletionHandler(proxySvc, authSvc))
 	// Responses surface required by Codex CLI after wire_api="chat" was retired;
 	// translated internally to chat completions so the turn loop is reused.
-	chatCompletionGroup.POST("/v1/responses", openaiapi.ResponsesHandler(proxySvc, authSvc))
+	chatCompletionWithoutPolicyPinGroup := engine.Group("", chatCompletionWithoutPolicyPin...)
+	chatCompletionWithoutPolicyPinGroup.POST("/v1/responses", openaiapi.ResponsesHandler(proxySvc, authSvc))
 	// Action suffix (:generateContent or :streamGenerateContent) lives inside modelAction because Gin treats `:` outside the leading position as a literal.
-	chatCompletionGroup.POST("/v1beta/models/:modelAction", geminiapi.GenerateContentHandler(proxySvc, authSvc))
+	chatCompletionWithoutPolicyPinGroup.POST("/v1beta/models/:modelAction", geminiapi.GenerateContentHandler(proxySvc, authSvc))
 
 	// Passthrough endpoints cost no upstream tokens, so they stay open even
 	// with billing enabled — count_tokens is the SDK's pre-flight call before

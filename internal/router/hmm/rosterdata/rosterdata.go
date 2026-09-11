@@ -315,11 +315,7 @@ func validateGoPolicy(r *Roster) error {
 		if strings.TrimSpace(mode) == "" || len(modePolicy.AllowedGroups) == 0 {
 			return fmt.Errorf("mode policy %q must allow at least one group", mode)
 		}
-		for _, label := range modePolicy.AllowedGroups {
-			if _, exists := r.Clusters[label]; !exists {
-				return fmt.Errorf("mode policy %q references unknown group %q", mode, label)
-			}
-		}
+		return fmt.Errorf("mode policy %q is not supported by Go selection", mode)
 	}
 	for label, cluster := range r.Clusters {
 		for harness, arms := range cluster.ArmsByHarness {
@@ -341,6 +337,11 @@ func validateGoPolicy(r *Roster) error {
 			}
 			if duplicate := firstDuplicate(arms); duplicate != "" {
 				return fmt.Errorf("cluster %q pin harness %q contains duplicate arm %q", label, harness, duplicate)
+			}
+		}
+		for harness := range cluster.PreferredVendorsByHarness {
+			if !knownHarness(harness) {
+				return fmt.Errorf("cluster %q has unknown preferred-vendors harness %q", label, harness)
 			}
 		}
 	}

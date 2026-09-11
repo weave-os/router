@@ -141,6 +141,13 @@ func DecodeRelease(payload []byte, registryRoot string) (Release, error) {
 	if err := release.Validate(registryRoot); err != nil {
 		return Release{}, err
 	}
+	canonical, err := CanonicalBytes(release)
+	if err != nil {
+		return Release{}, err
+	}
+	if !bytes.Equal(canonical, payload) {
+		return Release{}, errors.New("router policy release is not canonical JSON")
+	}
 	return release, nil
 }
 
@@ -221,7 +228,7 @@ func (h LaneHead) Validate(registryRoot string, environment Environment, lane La
 		return errors.New("lane head previous release binding is invalid")
 	}
 	parsedRevisionURL, err := url.Parse(h.ClassifierRevisionURL)
-	if err != nil || parsedRevisionURL.Scheme != "https" || parsedRevisionURL.Host == "" || strings.TrimSpace(h.ClassifierRevisionName) == "" {
+	if err != nil || parsedRevisionURL.Scheme != "https" || parsedRevisionURL.Host == "" || parsedRevisionURL.Path != "" || parsedRevisionURL.RawQuery != "" || parsedRevisionURL.Fragment != "" || parsedRevisionURL.User != nil || strings.TrimSpace(h.ClassifierRevisionName) == "" {
 		return errors.New("lane head classifier revision must use a named immutable HTTPS revision")
 	}
 	if strings.TrimSpace(h.PromotedBy) == "" || strings.TrimSpace(h.Reason) == "" {

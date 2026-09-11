@@ -153,7 +153,7 @@ func (m *Manager) Refresh(ctx context.Context) error {
 	m.recordSuccess(headSnapshot.Generation, headSnapshot.Head.ReleaseSHA256, release.Policy.SHA256)
 	m.logger.Info("Router policy snapshot activated",
 		"environment", m.environment, "lane", m.lane, "head_generation", headSnapshot.Generation,
-		"release_id", headSnapshot.Head.ReleaseSHA256, "policy_sha256", release.Policy.SHA256)
+		"release_id_prefix", digestPrefix(headSnapshot.Head.ReleaseSHA256), "policy_sha256_prefix", digestPrefix(release.Policy.SHA256))
 	return nil
 }
 
@@ -342,17 +342,24 @@ func (r *DynamicRouter) ObserveEscalation(ctx context.Context, request escalatio
 
 func (r *DynamicRouter) activeRouter() (router.Router, error) {
 	if r == nil || r.manager == nil {
-		return nil, ErrNoActivePolicy
+		return nil, fmt.Errorf("%w: %w", router.ErrStrategyUnavailable, ErrNoActivePolicy)
 	}
 	snapshot := r.manager.Active()
 	if snapshot == nil {
-		return nil, ErrNoActivePolicy
+		return nil, fmt.Errorf("%w: %w", router.ErrStrategyUnavailable, ErrNoActivePolicy)
 	}
 	activeRouter := snapshot.Routers[r.strategy]
 	if activeRouter == nil {
-		return nil, fmt.Errorf("strategy %q missing from active policy snapshot: %w", r.strategy, ErrNoActivePolicy)
+		return nil, fmt.Errorf("strategy %q missing from active policy snapshot: %w: %w", r.strategy, router.ErrStrategyUnavailable, ErrNoActivePolicy)
 	}
 	return activeRouter, nil
+}
+
+func digestPrefix(value string) string {
+	if len(value) <= 12 {
+		return value
+	}
+	return value[:12]
 }
 
 func (m *Manager) recordObserved(generation int64) {

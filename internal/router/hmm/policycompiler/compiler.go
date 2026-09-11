@@ -15,8 +15,8 @@ var defaultClassOrder = []string{"low", "medium", "high", "maximum"}
 // it never changes membership or order inside Compile.
 type Options struct {
 	ClassOrder          []string
-	PreferredModelBonus float64
-	SubscriptionBonus   float64
+	PreferredModelBonus *float64
+	SubscriptionBonus   *float64
 	SourceRevision      string
 	EvidenceURI         string
 	EvidenceSHA256      string
@@ -28,8 +28,39 @@ func Compile(source []byte, options Options) ([]byte, *rosterdata.Roster, error)
 	if err != nil {
 		return nil, nil, err
 	}
+	sourceSchema := roster.SchemaVersion
 	if roster.SchemaVersion != rosterdata.SchemaVersionPolicyV1 {
 		roster.SchemaVersion = rosterdata.SchemaVersionPolicyV1
+	}
+	for label, pinsByHarness := range roster.ManualPins {
+		cluster, ok := roster.Clusters[label]
+		if !ok {
+			continue
+		}
+		if cluster.ManualPinsByHarness == nil {
+			cluster.ManualPinsByHarness = make(map[rosterdata.Harness][]string)
+		}
+		for harness, pins := range pinsByHarness {
+			if _, exists := cluster.ManualPinsByHarness[rosterdata.Harness(harness)]; !exists {
+				cluster.ManualPinsByHarness[rosterdata.Harness(harness)] = append([]string(nil), pins...)
+			}
+		}
+		roster.Clusters[label] = cluster
+	}
+	for harness, priority := range roster.HarnessVendorPriority {
+		for _, label := range priority.Clusters {
+			cluster, ok := roster.Clusters[label]
+			if !ok {
+				continue
+			}
+			if cluster.PreferredVendorsByHarness == nil {
+				cluster.PreferredVendorsByHarness = make(map[rosterdata.Harness][]string)
+			}
+			if _, exists := cluster.PreferredVendorsByHarness[harness]; !exists {
+				cluster.PreferredVendorsByHarness[harness] = append([]string(nil), priority.Vendors...)
+			}
+			roster.Clusters[label] = cluster
+		}
 	}
 	classOrder := append([]string(nil), options.ClassOrder...)
 	if len(classOrder) == 0 {
@@ -42,18 +73,20 @@ func Compile(source []byte, options Options) ([]byte, *rosterdata.Roster, error)
 		}
 	}
 	roster.ClassOrder = classOrder
-	preferredBonus := options.PreferredModelBonus
-	if preferredBonus == 0 {
-		preferredBonus = 0.5
+	preferences := roster.Preferences
+	if sourceSchema != rosterdata.SchemaVersionPolicyV1 && preferences.PreferredModelBonus == 0 {
+		preferences.PreferredModelBonus = 0.5
 	}
-	subscriptionBonus := options.SubscriptionBonus
-	if subscriptionBonus == 0 {
-		subscriptionBonus = 0.35
+	if sourceSchema != rosterdata.SchemaVersionPolicyV1 && preferences.SubscriptionBonus == 0 {
+		preferences.SubscriptionBonus = 0.35
 	}
-	roster.Preferences = rosterdata.PreferencePolicy{
-		PreferredModelBonus: preferredBonus,
-		SubscriptionBonus:   subscriptionBonus,
+	if options.PreferredModelBonus != nil {
+		preferences.PreferredModelBonus = *options.PreferredModelBonus
 	}
+	if options.SubscriptionBonus != nil {
+		preferences.SubscriptionBonus = *options.SubscriptionBonus
+	}
+	roster.Preferences = preferences
 	roster.Provenance = rosterdata.Provenance{
 		SourceRevision: options.SourceRevision,
 		EvidenceURI:    options.EvidenceURI,

@@ -248,6 +248,9 @@ func preferenceRanks(models []string) map[string]int {
 }
 
 func harnessList(values map[rosterdata.Harness][]string, harness string) []string {
+	if exact := values[rosterdata.Harness(harness)]; len(exact) > 0 {
+		return exact
+	}
 	return values[rosterdata.Harness(strings.ReplaceAll(harness, "-", "_"))]
 }
 

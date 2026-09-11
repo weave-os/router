@@ -288,6 +288,11 @@ func (o observationContext) applySpanAttrs(b *otel.AttrBuilder) {
 	if len(o.ClassifierProbabilities) > 0 {
 		b.String("routing.classifier_probabilities", string(o.ClassifierProbabilities))
 	}
+	if len(o.ClassifierClassOrder) > 0 {
+		if classOrder, err := json.Marshal(o.ClassifierClassOrder); err == nil {
+			b.String("routing.classifier_class_order", string(classOrder))
+		}
+	}
 	if o.SelectionPolicyReleaseID != "" {
 		b.String("routing.selection_policy_release_id", o.SelectionPolicyReleaseID)
 	}

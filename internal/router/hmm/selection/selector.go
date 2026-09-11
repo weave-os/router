@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"slices"
 	"sort"
 
 	"weave-os/router/internal/observability"
@@ -22,6 +23,9 @@ func Selector(roster *rosterdata.Roster) policy.ArmSelector {
 		log := observability.FromContext(ctx)
 		if input.RosterSHA256 != "" && input.RosterSHA256 != roster.SHA256 {
 			return policy.SelectionPick{}, fmt.Errorf("roster %q is not the loaded serving roster: %w", input.RosterSHA256, router.ErrPolicyPinUnavailable)
+		}
+		if len(roster.ClassOrder) > 0 && !slices.Equal(input.ClassOrder, roster.ClassOrder) {
+			return policy.SelectionPick{}, fmt.Errorf("classifier class order does not match the promoted roster: %w", ErrNoEligibleArm)
 		}
 		rankedGroups, err := classifierGroups(input)
 		if err != nil {

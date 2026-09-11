@@ -190,6 +190,9 @@ func (r *SidecarRouter) PreviewRoute(ctx context.Context, req router.Request) (P
 	if pinned && result.PolicyArtifactSHA256 != pin.ArtifactSHA256 {
 		return PreviewResult{}, fmt.Errorf("%s: sidecar served artifact %q, pin requires %q: %w", strategy, result.PolicyArtifactSHA256, pin.ArtifactSHA256, router.ErrPolicyPinUnavailable)
 	}
+	if pinned && result.SchemaVersion != SchemaVersionV4 && result.RosterSHA256 != pin.RosterSHA256 {
+		return PreviewResult{}, fmt.Errorf("%s: sidecar served roster %q, pin requires %q: %w", strategy, result.RosterSHA256, pin.RosterSHA256, router.ErrPolicyPinUnavailable)
+	}
 	if result.RouteID != "" && result.RouteID != requestRouteID {
 		return PreviewResult{}, fmt.Errorf("%s: preview route id mismatch: %w", strategy, r.config.Unavailable)
 	}
@@ -212,6 +215,9 @@ func (r *SidecarRouter) PreviewRoute(ctx context.Context, req router.Request) (P
 		pick, selectErr := r.armSelector(ctx, selectionInput)
 		if selectErr != nil {
 			return PreviewResult{}, fmt.Errorf("%s: preview arm selection: %w: %w", strategy, selectErr, r.config.Unavailable)
+		}
+		if pinned && pick.RosterSHA256 != pin.RosterSHA256 {
+			return PreviewResult{}, fmt.Errorf("%s: selection used roster %q, pin requires %q: %w", strategy, pick.RosterSHA256, pin.RosterSHA256, router.ErrPolicyPinUnavailable)
 		}
 		result.RankedFallback = pick.RankedFallback
 		result.SelectedGroup = pick.Group

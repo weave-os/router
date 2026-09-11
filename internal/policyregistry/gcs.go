@@ -171,14 +171,24 @@ func (r *Registry) Promote(ctx context.Context, head LaneHead, expectedGeneratio
 		return HeadSnapshot{}, err
 	}
 	releaseRef := ObjectRef{URI: head.ReleaseURI, SHA256: head.ReleaseSHA256, Generation: head.ReleaseGeneration}
-	if _, err := r.ReadRelease(ctx, releaseRef); err != nil {
+	release, err := r.ReadRelease(ctx, releaseRef)
+	if err != nil {
 		return HeadSnapshot{}, fmt.Errorf("validate promoted release: %w", err)
+	}
+	policyRef := ObjectRef{URI: release.Policy.URI, SHA256: release.Policy.SHA256, Generation: release.Policy.Generation}
+	if _, err := r.ReadPolicy(ctx, policyRef); err != nil {
+		return HeadSnapshot{}, fmt.Errorf("validate promoted selection policy: %w", err)
 	}
 	payload, err := CanonicalBytes(head)
 	if err != nil {
 		return HeadSnapshot{}, err
 	}
-	object := r.bucket.Object(r.headObjectName(head.Environment, head.Lane)).If(storage.Conditions{GenerationMatch: expectedGeneration})
+	object := r.bucket.Object(r.headObjectName(head.Environment, head.Lane))
+	if expectedGeneration == 0 {
+		object = object.If(storage.Conditions{DoesNotExist: true})
+	} else {
+		object = object.If(storage.Conditions{GenerationMatch: expectedGeneration})
+	}
 	writer := object.NewWriter(ctx)
 	writer.ContentType = "application/json"
 	if _, err := writer.Write(payload); err != nil {

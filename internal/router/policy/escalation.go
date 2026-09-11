@@ -13,12 +13,16 @@ func (r *SidecarRouter) selectEscalationArm(ctx context.Context, req router.Requ
 	if !constrained || (err != nil && !errors.Is(err, ErrNoEligibleArm)) {
 		return pick, err
 	}
-	if _, hasOverride := req.ClusterArmOverrides[pick.Group]; !hasOverride {
+	group := pick.Group
+	if group == "" {
+		group = input.ForcedGroup
+	}
+	if _, hasOverride := req.ClusterArmOverrides[group]; !hasOverride {
 		return pick, err
 	}
 	// Key-configured arms may extend the artifact roster. Preserve that explicit
 	// order, but only inside the successfully constrained class.
-	override, overrideErr := ApplyClusterArmOverridesRequireMatch(req.ClusterArmOverrides, pick.RankedFallback, resolved, pick.Arm, pick.Group)
+	override, overrideErr := ApplyClusterArmOverridesRequireMatch(req.ClusterArmOverrides, pick.RankedFallback, resolved, pick.Arm, group)
 	if overrideErr != nil {
 		return SelectionPick{}, ErrNoEligibleArm
 	}

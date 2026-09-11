@@ -6,6 +6,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"net/url"
 	"os"
 	"slices"
 	"strings"
@@ -251,6 +252,9 @@ func runPromote(ctx context.Context, args []string, rollback bool) error {
 	} else if *expectedRelease != "" {
 		return errors.New("--expect-current must be empty when --expected-generation=0")
 	}
+	if err := validateClassifierRevisionURL(*classifierRevisionURL); err != nil {
+		return err
+	}
 	head := policyregistry.LaneHead{
 		SchemaVersion: policyregistry.LaneHeadSchemaV1, Environment: environment, Lane: lane,
 		ReleaseURI: releaseRef.URI, ReleaseSHA256: releaseRef.SHA256, ReleaseGeneration: releaseRef.Generation,
@@ -337,6 +341,9 @@ func runStatus(ctx context.Context, args []string) error {
 }
 
 func validateClassifierRevision(ctx context.Context, release policyregistry.Release, revisionURL string) error {
+	if err := validateClassifierRevisionURL(revisionURL); err != nil {
+		return err
+	}
 	client, err := policyclient.NewGoogleIDToken(revisionURL, 15*time.Second)
 	if err != nil {
 		return err
@@ -357,6 +364,14 @@ func validateClassifierRevision(ctx context.Context, release policyregistry.Rele
 		return fmt.Errorf("classifier taxonomy digest %q does not match release %q", health.ClassifierTaxonomySHA, expected.TaxonomySHA256)
 	case !slices.Equal(health.ClassifierClassOrder, expected.ClassOrder):
 		return errors.New("classifier class order does not match release")
+	}
+	return nil
+}
+
+func validateClassifierRevisionURL(raw string) error {
+	parsed, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || parsed.Scheme != "https" || parsed.Host == "" || parsed.Path != "" || parsed.RawQuery != "" || parsed.Fragment != "" || parsed.User != nil {
+		return errors.New("classifier revision URL must be an absolute HTTPS base URL without path, query, fragment, or userinfo")
 	}
 	return nil
 }
