@@ -460,6 +460,14 @@ type routeTimings struct {
 	OverrunsLive        *int64   `json:"overruns_live"`
 }
 
+// Timings are telemetry, not classifier facts: the sidecar may add stages the
+// router does not consume, so they are decoded leniently even when the
+// enclosing response is decoded with DisallowUnknownFields.
+func (t *routeTimings) UnmarshalJSON(payload []byte) error {
+	type lenientRouteTimings routeTimings
+	return json.Unmarshal(payload, (*lenientRouteTimings)(t))
+}
+
 // decomposeTimings converts sidecar wire timings into non-overlapping stages; nil when nothing was measured.
 func decomposeTimings(wire *routeTimings) *router.SidecarTimings {
 	if wire == nil || (wire.RouteMs == nil && wire.SelectMs == nil && wire.EmbedMs == nil) {
