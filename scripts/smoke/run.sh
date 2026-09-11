@@ -62,6 +62,25 @@ COMPOSE="docker compose ${COMPOSE_FILES[*]}"
 log() { printf '\n\033[1;36m[smoke]\033[0m %s\n' "$*"; }
 err() { printf '\n\033[1;31m[smoke]\033[0m %s\n' "$*" >&2; }
 
+PHASE_BUILD_SECONDS="${SMOKE_BUILD_SECONDS:-}"
+PHASE_BOOT_SECONDS=""
+PHASE_SEED_SECONDS=""
+PHASE_ASSERT_SECONDS=""
+
+write_phase_summary() {
+  [[ -n "${GITHUB_STEP_SUMMARY:-}" ]] || return 0
+  {
+    echo "## Smoke phase timing"
+    echo
+    echo "| Phase | Seconds |"
+    echo "| --- | ---: |"
+    printf '| Build | %s |\n' "${PHASE_BUILD_SECONDS:-not recorded}"
+    printf '| Boot + health | %s |\n' "${PHASE_BOOT_SECONDS:-not recorded}"
+    printf '| Seed | %s |\n' "${PHASE_SEED_SECONDS:-not recorded}"
+    printf '| Assertions | %s |\n' "${PHASE_ASSERT_SECONDS:-not recorded}"
+  } >>"$GITHUB_STEP_SUMMARY" || true
+}
+
 case "$PROXY_MODE" in
   replay-only) ;;
   record|replay-or-record)
@@ -109,6 +128,7 @@ cleanup() {
     $COMPOSE down -v >/dev/null 2>&1 || true
     rm -f "$OVERRIDE_FILE"
   fi
+  write_phase_summary
   exit $code
 }
 trap cleanup EXIT
@@ -128,10 +148,14 @@ if [[ "${SMOKE_PREBUILT:-0}" == "1" ]]; then
   log "using prebuilt router images (proxy mode: $PROXY_MODE)"
 else
   log "building router images (proxy mode: $PROXY_MODE)"
+  build_started=$SECONDS
   SMOKE_PROXY_MODE="$PROXY_MODE" $COMPOSE build server mitmproxy seed
+  PHASE_BUILD_SECONDS=$((SECONDS - build_started))
+  log "build phase completed in ${PHASE_BUILD_SECONDS}s"
 fi
 
 log "starting the router stack"
+boot_started=$SECONDS
 SMOKE_PROXY_MODE="$PROXY_MODE" $COMPOSE up -d server mitmproxy
 
 log "waiting for /health at ${BASE_URL}"
@@ -144,8 +168,11 @@ until curl -sf "${BASE_URL}/health" >/dev/null 2>&1; do
   sleep 2
 done
 log "router healthy"
+PHASE_BOOT_SECONDS=$((SECONDS - boot_started))
+log "boot + health phase completed in ${PHASE_BOOT_SECONDS}s"
 
 log "seeding a router key"
+seed_started=$SECONDS
 SEED_OUTPUT="$($COMPOSE run --rm seed 2>/dev/null)"
 ROUTER_KEY="$(printf '%s\n' "$SEED_OUTPUT" | grep -oE 'rk_[A-Za-z0-9_-]+' | head -1)"
 if [[ -z "$ROUTER_KEY" ]]; then
@@ -154,13 +181,18 @@ if [[ -z "$ROUTER_KEY" ]]; then
   exit 1
 fi
 log "seeded router key ${ROUTER_KEY:0:8}…"
+PHASE_SEED_SECONDS=$((SECONDS - seed_started))
+log "seed phase completed in ${PHASE_SEED_SECONDS}s"
 
 log "running the smoke suite (proxy mode: $PROXY_MODE)"
+assert_started=$SECONDS
 SMOKE_ROUTER_KEY="$ROUTER_KEY" \
 SMOKE_BASE_URL="$BASE_URL" \
 SMOKE_OPENAI_ENABLED="$( [[ -n "${OPENAI_API_KEY:-}" || "$PROXY_MODE" == "replay-only" ]] && echo 1 || echo 0 )" \
   go test -tags smoke -count=1 -v ./smoke/
 
+PHASE_ASSERT_SECONDS=$((SECONDS - assert_started))
+log "assertion phase completed in ${PHASE_ASSERT_SECONDS}s"
 log "smoke suite passed"
 
 if [[ "$PROXY_MODE" != "replay-only" ]]; then

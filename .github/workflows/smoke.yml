@@ -28,6 +28,7 @@ on:
       - 'scripts/smoke/**'
       - 'docker-compose.yml'
       - 'Dockerfile'
+      - 'docker-bake.smoke.hcl'
       - '.github/workflows/smoke.yml'
   schedule:
     # Nightly cassette-refresh: catches Anthropic-side drift the path-gated PR
@@ -55,6 +56,7 @@ jobs:
     name: Smoke (replay-only)
     if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -67,22 +69,23 @@ jobs:
         with:
           version: latest
 
+      - name: Start Smoke image build timer
+        run: echo "SMOKE_BUILD_STARTED_AT=$(date +%s)" >> "$GITHUB_ENV"
+
       - name: Build Smoke images with GitHub Actions cache
         uses: docker/bake-action@v6
-        env:
-          COMPOSE_PROFILES: tools
         with:
           source: .
-          files: |
-            ./docker-compose.yml
-            ./smoke/mitmproxy/docker-compose.yml
-            ./smoke/mitmproxy/docker-compose.ci-cache.yml
+          files: ./docker-bake.smoke.hcl
           targets: server mitmproxy seed
           load: true
           set: |
             server.tags=router-server
             mitmproxy.tags=router-mitmproxy
             seed.tags=router-seed
+
+      - name: Record Smoke image build time
+        run: echo "SMOKE_BUILD_SECONDS=$(( $(date +%s) - SMOKE_BUILD_STARTED_AT ))" >> "$GITHUB_ENV"
 
       - name: Set up Go
         uses: actions/setup-go@v5
@@ -110,6 +113,7 @@ jobs:
     name: Refresh cassettes (nightly)
     if: github.event_name == 'schedule'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       contents: write
       pull-requests: write
@@ -140,22 +144,23 @@ jobs:
             exit 1
           fi
 
+      - name: Start Smoke image build timer
+        run: echo "SMOKE_BUILD_STARTED_AT=$(date +%s)" >> "$GITHUB_ENV"
+
       - name: Build Smoke images with GitHub Actions cache
         uses: docker/bake-action@v6
-        env:
-          COMPOSE_PROFILES: tools
         with:
           source: .
-          files: |
-            ./docker-compose.yml
-            ./smoke/mitmproxy/docker-compose.yml
-            ./smoke/mitmproxy/docker-compose.ci-cache.yml
+          files: ./docker-bake.smoke.hcl
           targets: server mitmproxy seed
           load: true
           set: |
             server.tags=router-server
             mitmproxy.tags=router-mitmproxy
             seed.tags=router-seed
+
+      - name: Record Smoke image build time
+        run: echo "SMOKE_BUILD_SECONDS=$(( $(date +%s) - SMOKE_BUILD_STARTED_AT ))" >> "$GITHUB_ENV"
 
       - name: Record fresh cassettes against the real API
         env:

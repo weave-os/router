@@ -74,11 +74,14 @@ on every run: `npm ci` and the UI build took roughly 32s each, two
 41s. The separate `golang:1.25-bookworm` seed service added about 47s while it
 downloaded and compiled on a cold container.
 
-The CI workflow now uses `docker/bake-action` to build the server, MITM proxy,
-and seed targets with the existing `type=gha` cache scopes, loads those images,
-and starts Compose without `--build`. Local runs retain an explicit Compose
-build. The seed service builds a small `seed-runtime` target instead of
-launching a fresh `golang:1.25-bookworm` SDK container and running `go run`.
+The CI workflow now uses `docker/bake-action` with explicit
+[`docker-bake.smoke.hcl`](../docker-bake.smoke.hcl) targets to build the
+server, MITM proxy, and seed images with `type=gha` cache scopes, loads those
+images, and starts Compose without `--build`. Keeping the Bake definition
+explicit avoids Compose-profile discovery differences between runner Docker
+versions. Local runs retain an explicit Compose build. The seed service builds
+a small `seed-runtime` target instead of launching a fresh
+`golang:1.25-bookworm` SDK container and running `go run`.
 
 Verify this change on the next CI runs by checking that warm-run logs show both
 cache import and export, and compare the build and seed phases across at least
@@ -95,49 +98,47 @@ runs, with `cancel-in-progress: true`. If Test later gains scheduled or manual
 triggers, keep those in separate groups where cancellation would change their
 semantics.
 
-### 5. Remove real retry delays from proxy tests
+### 5. Remove real retry delays from proxy tests (implemented)
 
 Fourteen tests under [`internal/proxy`](../internal/proxy) spent 15.04s sleeping
 inside a package whose complete test time was 17.18s. They exercise the real
 250ms exponential retry delay, including overload-exhaustion cases. Other tests
 already inject the package's no-op sleep function.
 
-Inject the no-op sleep consistently in tests that validate retry decisions,
-and reserve real-clock coverage for a narrowly scoped timing test if it is
-needed. Assertions must continue to verify attempt counts, failover, and
-provider-disable behavior. The package should fall to low single-digit seconds
-without reducing behavioral coverage.
+The retry backoff is now injectable through `Service.WithRetrySleep`. The
+external integration tests that exercise overload, rescue, and retry paths use
+the same no-op function as the internal dispatch tests. Assertions still verify
+attempt counts, failover, and provider-disable behavior. A local package run
+fell from about 23s to about 4s.
 
-### 6. Collapse redundant Go compilation passes
+### 6. Collapse redundant Go compilation passes (implemented)
 
 With isolated cold build caches, the current sequence
 `go vet ./...`, `go build -o /dev/null ./...`, and
 `go test -count=1 ./...` took 45.89s locally. A single
 `go test -vet=all -count=1 ./...` took 40.36s, about 12% less.
 
-After confirming the repaired CI cache's warm behavior, remove the separate Vet
-and Typecheck steps and run tests with full vetting. Keep golangci-lint separate.
-Compare both cold and warm runs because eliminating the early steps changes
-which command populates the Go build cache.
+The separate Vet and Typecheck steps were removed. `go test -vet=all -count=1
+./...` now performs the compilation, vetting, and test pass in one command;
+golangci-lint remains separate.
 
-### 7. Path-gate component-specific jobs
+### 7. Path-gate component-specific jobs (implemented)
 
-The statusline, installer, and frozen HMM sidecar jobs run for every pull
-request, even when their inputs cannot have changed. Add a changed-files
-classifier and job-level conditions for their owning paths. The final `Test`
-fan-in must treat an intentionally skipped optional job as acceptable while
-still failing on cancellation or failure. Include the workflow and shared build
-inputs in every component's path set so CI changes cannot bypass coverage.
+The workflow now classifies changed paths before the component jobs run. The
+statusline, installer, and frozen HMM sidecar jobs are skipped when their inputs
+are untouched. The final `Test` fan-in accepts an intentional skip but still
+fails on a required job failure, cancellation, or classifier failure. Each
+filter includes the workflow and shared build inputs so CI changes cannot
+bypass coverage.
 
 This primarily saves runner capacity rather than wall time because these jobs
 already run in parallel.
 
-### 8. Bound jobs and expose phase timings
+### 8. Bound jobs and expose phase timings (implemented)
 
-Set `timeout-minutes: 10` on the Test and HMM jobs and
-`timeout-minutes: 15` on Smoke after confirming those limits leave headroom over
-the measured p90. Split Smoke reporting into build, boot, seed, and assertion
-phases, and publish their elapsed times in the job summary. This makes a cache
+Test jobs now have ten-minute timeouts and Smoke jobs have fifteen-minute
+timeouts. The smoke runner records build, boot/health, seed, and assertion
+durations; CI writes them to the GitHub job summary. This makes a cache
 regression or service-startup stall visible without downloading the complete
 log.
 

@@ -339,7 +339,8 @@ func TestProxyMessages_SingleBindingStreamingPreCommitError(t *testing.T) {
 			providers.ProviderOpenAI: openaicompat.NewClient("test-key", stub.URL),
 		},
 		nil, false, nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil,
-	).WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderOpenAI: {}})
+	).WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderOpenAI: {}}).
+		WithRetrySleep(noRetrySleep)
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
@@ -386,7 +387,8 @@ func TestProxyMessages_AnthropicSSEOverloadRetriesSameBinding(t *testing.T) {
 		&fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-haiku-4-5"}},
 		map[string]providers.Client{providers.ProviderAnthropic: anthropic.NewClient("test-key", upstream.URL)},
 		nil, false, nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil,
-	).WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}})
+	).WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}}).
+		WithRetrySleep(noRetrySleep)
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
 	body := []byte(`{"model":"claude-haiku-4-5","stream":true,"messages":[{"role":"user","content":"hi"}]}`)
@@ -420,7 +422,8 @@ func TestProxyMessages_AnthropicSSEOverloadExhaustionRecords529(t *testing.T) {
 		&fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-haiku-4-5"}},
 		map[string]providers.Client{providers.ProviderAnthropic: anthropic.NewClient("test-key", upstream.URL)},
 		nil, false, nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", telemetry,
-	).WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}})
+	).WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}}).
+		WithRetrySleep(noRetrySleep)
 	ctx := context.WithValue(context.Background(), proxy.InstallationIDContextKey{}, "11111111-1111-1111-1111-111111111111")
 	ctx = context.WithValue(ctx, proxy.ExternalIDContextKey{}, "org-test")
 	rec := httptest.NewRecorder()
@@ -471,7 +474,8 @@ func TestProxyMessages_TwoConsecutiveOverloadExhaustionsDisableProvider(t *testi
 		map[string]providers.Client{providers.ProviderAnthropic: anthropic.NewClient("test-key", upstream.URL)},
 		nil, false, nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil,
 	).WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}}).
-		WithPlannerEnabled(false) // first-decision-wins: a pin hit serves straight through without scorer-vs-planner EV noise.
+		WithPlannerEnabled(false).
+		WithRetrySleep(noRetrySleep) // first-decision-wins: a pin hit serves straight through without scorer-vs-planner EV noise.
 
 	ctx := authedCtx(uuid.New().String())
 	body := []byte(`{"model":"claude-haiku-4-5","stream":true,"messages":[{"role":"user","content":"hi"}]}`)
@@ -543,7 +547,8 @@ func TestProxyMessages_BaselineOverloadExhaustionDoesNotDisableAnthropic(t *test
 	).WithDeploymentKeyedProviders(map[string]struct{}{
 		providers.ProviderFireworks: {},
 		providers.ProviderAnthropic: {},
-	}).WithPlannerEnabled(false)
+	}).WithPlannerEnabled(false).
+		WithRetrySleep(noRetrySleep)
 
 	ctx := authedCtx(uuid.New().String())
 	// "model" resolves baselineFor to claude-haiku-4-5 (a known Anthropic
@@ -607,7 +612,7 @@ func TestProxyMessages_ResponsesFailureBeforeOutputFallsBackToBaseline(t *testin
 	).WithDeploymentKeyedProviders(map[string]struct{}{
 		providers.ProviderOpenAI:    {},
 		providers.ProviderAnthropic: {},
-	})
+	}).WithRetrySleep(noRetrySleep)
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))

@@ -1598,6 +1598,13 @@ func (s *Service) WithSSEKeepalive(interval time.Duration) *Service {
 	return s
 }
 
+// WithRetrySleep overrides the wait between same-binding retry attempts. A nil
+// function restores the production context-aware backoff.
+func (s *Service) WithRetrySleep(sleep func(context.Context, time.Duration) error) *Service {
+	s.retrySleep = sleep
+	return s
+}
+
 // WithCyberRefusalFallbackModel sets the re-pin target used when the session pin
 // carries no runner-up (ROUTER_CYBER_REFUSAL_FALLBACK_MODEL). Empty is ignored.
 func (s *Service) WithCyberRefusalFallbackModel(model string) *Service {

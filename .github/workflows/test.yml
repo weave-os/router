@@ -14,11 +14,48 @@ concurrency:
 
 permissions:
   contents: read
+  pull-requests: read
 
 jobs:
+  changed-paths:
+    name: Classify changed paths
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      statusline: ${{ steps.filter.outputs.statusline }}
+      installer: ${{ steps.filter.outputs.installer }}
+      hmm: ${{ steps.filter.outputs.hmm }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Detect component changes
+        id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            statusline:
+              - 'install/cc-statusline.sh'
+              - 'install/tests/cc-statusline_test.sh'
+              - 'Makefile'
+              - '.github/workflows/**'
+            installer:
+              - 'install/**'
+              - 'Makefile'
+              - '.github/workflows/**'
+            hmm:
+              - 'sidecars/hmm/**'
+              - 'internal/policyclient/**'
+              - 'cmd/router/hmm_*.go'
+              - 'Dockerfile'
+              - 'docker-compose.yml'
+              - 'Makefile'
+              - '.github/workflows/**'
+
   inference-boundary:
     name: Inference boundary
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -35,6 +72,7 @@ jobs:
   go-checks:
     name: Go checks
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     services:
       postgres:
         image: postgres:15-alpine
@@ -119,26 +157,23 @@ jobs:
             exit 1
           fi
 
-      - name: Vet
-        run: go vet ./...
-
       - name: Lint
         uses: golangci/golangci-lint-action@4afd733a84b1f43292c63897423277bb7f4313a9 # v8
         with:
           version: v2.6.2
 
-      - name: Typecheck
-        run: go build -o /dev/null ./...
-
-      - name: Run tests
-        run: go test -count=1 ./...
+      - name: Run tests with vetting
+        run: go test -vet=all -count=1 ./...
 
   # Separate job: needs no Go toolchain, Postgres, or network. The statusline is
   # shipped to users as a standalone script, so a regression there is invisible
   # to `go test`.
   test-statusline:
     name: Test cc-statusline
+    needs: changed-paths
+    if: ${{ needs.changed-paths.outputs.statusline == 'true' }}
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -151,7 +186,10 @@ jobs:
   # covered here. Fully offline — fake curl, isolated $HOME.
   test-install:
     name: Test installer
+    needs: changed-paths
+    if: ${{ needs.changed-paths.outputs.installer == 'true' }}
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -161,7 +199,10 @@ jobs:
 
   test-hmm-sidecar:
     name: Test frozen HMM sidecar
+    needs: changed-paths
+    if: ${{ needs.changed-paths.outputs.hmm == 'true' }}
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -235,6 +276,7 @@ jobs:
   test:
     name: Test
     needs:
+      - changed-paths
       - inference-boundary
       - go-checks
       - test-statusline
@@ -242,6 +284,7 @@ jobs:
       - test-hmm-sidecar
     if: ${{ always() }}
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Require all test jobs
         env:
@@ -250,17 +293,43 @@ jobs:
           STATUSLINE_RESULT: ${{ needs.test-statusline.result }}
           INSTALLER_RESULT: ${{ needs.test-install.result }}
           HMM_SIDECAR_RESULT: ${{ needs.test-hmm-sidecar.result }}
+          CHANGED_PATHS_RESULT: ${{ needs.changed-paths.result }}
+          STATUSLINE_NEEDED: ${{ needs.changed-paths.outputs.statusline }}
+          INSTALLER_NEEDED: ${{ needs.changed-paths.outputs.installer }}
+          HMM_SIDECAR_NEEDED: ${{ needs.changed-paths.outputs.hmm }}
         run: |
           printf '%s\n' \
+            "Changed paths: $CHANGED_PATHS_RESULT" \
             "Inference boundary: $INFERENCE_BOUNDARY_RESULT" \
             "Go checks: $GO_CHECKS_RESULT" \
             "Statusline: $STATUSLINE_RESULT" \
             "Installer: $INSTALLER_RESULT" \
-            "HMM sidecar: $HMM_SIDECAR_RESULT"
-          if [ "$INFERENCE_BOUNDARY_RESULT" != success ] || \
-             [ "$GO_CHECKS_RESULT" != success ] || \
-             [ "$STATUSLINE_RESULT" != success ] || \
-             [ "$INSTALLER_RESULT" != success ] || \
-             [ "$HMM_SIDECAR_RESULT" != success ]; then
+            "HMM sidecar: $HMM_SIDECAR_RESULT" \
+            "Statusline needed: $STATUSLINE_NEEDED" \
+            "Installer needed: $INSTALLER_NEEDED" \
+            "HMM sidecar needed: $HMM_SIDECAR_NEEDED"
+
+          if [ "$CHANGED_PATHS_RESULT" != success ] || \
+             [ "$INFERENCE_BOUNDARY_RESULT" != success ] || \
+             [ "$GO_CHECKS_RESULT" != success ]; then
+            exit 1
+          fi
+
+          if [ "$STATUSLINE_NEEDED" = true ] && [ "$STATUSLINE_RESULT" != success ]; then
+            exit 1
+          fi
+          if [ "$STATUSLINE_NEEDED" != true ] && [ "$STATUSLINE_RESULT" != skipped ]; then
+            exit 1
+          fi
+          if [ "$INSTALLER_NEEDED" = true ] && [ "$INSTALLER_RESULT" != success ]; then
+            exit 1
+          fi
+          if [ "$INSTALLER_NEEDED" != true ] && [ "$INSTALLER_RESULT" != skipped ]; then
+            exit 1
+          fi
+          if [ "$HMM_SIDECAR_NEEDED" = true ] && [ "$HMM_SIDECAR_RESULT" != success ]; then
+            exit 1
+          fi
+          if [ "$HMM_SIDECAR_NEEDED" != true ] && [ "$HMM_SIDECAR_RESULT" != skipped ]; then
             exit 1
           fi

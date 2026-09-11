@@ -280,7 +280,7 @@ func TestProxyMessages_OSSOutageNoBaselineWhenRequestedModelIsOSS(t *testing.T) 
 		nil, false, nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil,
 	).WithDeploymentKeyedProviders(map[string]struct{}{
 		"fireworks": {}, "openrouter": {}, "anthropic": {},
-	})
+	}).WithRetrySleep(noRetrySleep)
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
@@ -361,7 +361,7 @@ func TestProxyMessages_FailedBaselineReportsAnthropicProvider(t *testing.T) {
 		nil, false, nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", tel,
 	).WithDeploymentKeyedProviders(map[string]struct{}{
 		"fireworks": {}, "openrouter": {}, "anthropic": {},
-	})
+	}).WithRetrySleep(noRetrySleep)
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
