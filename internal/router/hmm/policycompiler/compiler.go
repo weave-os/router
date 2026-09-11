@@ -11,6 +11,17 @@ import (
 
 var defaultClassOrder = []string{"low", "medium", "high", "maximum"}
 
+// legacyPooledHarness is how reviewed roster source names the all-harness pin
+// bucket that canonical policy calls rosterdata.HarnessAll.
+const legacyPooledHarness = "pooled"
+
+func canonicalHarness(harness string) rosterdata.Harness {
+	if harness == legacyPooledHarness {
+		return rosterdata.HarnessAll
+	}
+	return rosterdata.Harness(harness)
+}
+
 // Options contains reviewed policy metadata. Offline evidence is provenance;
 // it never changes membership or order inside Compile.
 type Options struct {
@@ -32,7 +43,10 @@ func Compile(source []byte, options Options) ([]byte, *rosterdata.Roster, error)
 	if roster.SchemaVersion != rosterdata.SchemaVersionPolicyV1 {
 		roster.SchemaVersion = rosterdata.SchemaVersionPolicyV1
 	}
-	for harness, pinsByLabel := range roster.ManualPins {
+	manualPins := make(map[string]map[string][]string, len(roster.ManualPins))
+	for sourceHarness, pinsByLabel := range roster.ManualPins {
+		harness := canonicalHarness(sourceHarness)
+		manualPins[string(harness)] = pinsByLabel
 		for label, pins := range pinsByLabel {
 			cluster, ok := roster.Clusters[label]
 			if !ok {
@@ -41,11 +55,14 @@ func Compile(source []byte, options Options) ([]byte, *rosterdata.Roster, error)
 			if cluster.ManualPinsByHarness == nil {
 				cluster.ManualPinsByHarness = make(map[rosterdata.Harness][]string)
 			}
-			if _, exists := cluster.ManualPinsByHarness[rosterdata.Harness(harness)]; !exists {
-				cluster.ManualPinsByHarness[rosterdata.Harness(harness)] = append([]string(nil), pins...)
+			if _, exists := cluster.ManualPinsByHarness[harness]; !exists {
+				cluster.ManualPinsByHarness[harness] = append([]string(nil), pins...)
 			}
 			roster.Clusters[label] = cluster
 		}
+	}
+	if len(manualPins) > 0 {
+		roster.ManualPins = manualPins
 	}
 	for harness, priority := range roster.HarnessVendorPriority {
 		for _, label := range priority.Clusters {
