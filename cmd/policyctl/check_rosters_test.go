@@ -108,6 +108,26 @@ func TestCheckRosterDirFailsCompilableSourceWithUnknownArm(t *testing.T) {
 	assert.ErrorContains(t, runCheckRosters([]string{"--dir", dir}), "failed to compile")
 }
 
+func TestCheckRosterDirFailsUnparseableRoster(t *testing.T) {
+	dir := t.TempDir()
+	writeRoster(t, dir, "roster_ok.json", v7RosterSource("openai/gpt-5.6-sol", `{}`))
+	writeRoster(t, dir, "roster_truncated.json", `{"schema_version": "v7", "clusters": {`)
+	writeRoster(t, dir, "roster_unversioned.json", `{"clusters": {}}`)
+
+	report, err := checkRosterDir(dir, policycompiler.Options{})
+
+	require.NoError(t, err)
+	require.Len(t, report.Compiled, 1)
+	assert.Empty(t, report.Skipped)
+	require.Len(t, report.Failed, 2)
+	assert.Equal(t, "roster_truncated.json", report.Failed[0].File)
+	assert.Contains(t, report.Failed[0].Error, "parse roster header")
+	assert.Equal(t, "roster_unversioned.json", report.Failed[1].File)
+	assert.Contains(t, report.Failed[1].Error, "missing schema_version")
+
+	assert.ErrorContains(t, runCheckRosters([]string{"--dir", dir}), "2 roster(s) failed")
+}
+
 func TestCheckRosterDirRejectsEmptyDirectory(t *testing.T) {
 	_, err := checkRosterDir(t.TempDir(), policycompiler.Options{})
 

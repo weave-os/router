@@ -58,7 +58,7 @@ func runCheckRosters(args []string) error {
 		return writeErr
 	}
 	if len(report.Failed) > 0 {
-		return fmt.Errorf("%d roster(s) in a compilable schema failed to compile into a serving policy", len(report.Failed))
+		return fmt.Errorf("%d roster(s) failed to compile into a serving policy", len(report.Failed))
 	}
 	if len(report.Compiled) == 0 {
 		return fmt.Errorf("no roster under %s is in a compilable schema; check the directory", *rosterDir)
@@ -86,7 +86,7 @@ func checkRosterDir(dir string, options policycompiler.Options) (rosterCheckRepo
 		}
 		schema, schemaErr := sourceSchemaVersion(source)
 		if schemaErr != nil {
-			report.Skipped = append(report.Skipped, skippedRosterEntry{File: file, Reason: schemaErr.Error()})
+			report.Failed = append(report.Failed, failedRosterEntry{File: file, Error: schemaErr.Error()})
 			continue
 		}
 		if !policycompiler.CompilableSource(schema) {
