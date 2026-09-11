@@ -20,10 +20,14 @@ const (
 	cloudPlatformScope        = "https://www.googleapis.com/auth/cloud-platform"
 	externalAccountCredsType  = "external_account"
 	impersonationURLJSONField = "service_account_impersonation_url"
+	// Cloud Run tagged revision URLs are <tag>---<service host>; IAM only
+	// verifies ID tokens whose audience is the service host itself.
+	cloudRunTagSeparator = "---"
 )
 
 // NewGoogleIDToken builds a Client that attaches a Google-signed ID token
-// (audience = sidecar origin) to every request; for Cloud Run sidecars only.
+// (audience = sidecar service origin, with any revision tag stripped) to every
+// request; for Cloud Run sidecars only.
 func NewGoogleIDToken(baseURL string, timeout time.Duration, opts ...Option) (*Client, error) {
 	normalizedBaseURL, audience, err := googleIDTokenURLs(baseURL)
 	if err != nil {
@@ -134,8 +138,17 @@ func googleIDTokenURLs(baseURL string) (string, string, error) {
 	if parsed.RawQuery != "" || parsed.Fragment != "" {
 		return "", "", fmt.Errorf("sidecar URL must not contain a query or fragment")
 	}
-	audience := (&url.URL{Scheme: parsed.Scheme, Host: parsed.Host}).String()
+	audience := (&url.URL{Scheme: parsed.Scheme, Host: cloudRunServiceHost(parsed.Host)}).String()
 	return normalized, audience, nil
+}
+
+func cloudRunServiceHost(host string) string {
+	firstLabel, _, _ := strings.Cut(host, ".")
+	tag, _, tagged := strings.Cut(firstLabel, cloudRunTagSeparator)
+	if !tagged || tag == "" {
+		return host
+	}
+	return strings.TrimPrefix(host, tag+cloudRunTagSeparator)
 }
 
 func newGoogleIDTokenHTTPClient(idTokenCredentials *auth.Credentials, timeout time.Duration) (*http.Client, error) {

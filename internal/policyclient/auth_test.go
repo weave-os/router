@@ -78,6 +78,29 @@ func TestGoogleIDTokenURLsUseOriginAsAudience(t *testing.T) {
 	assert.Equal(t, "https://service.run.app", audience)
 }
 
+func TestGoogleIDTokenURLsStripRevisionTagFromAudience(t *testing.T) {
+	baseURL, audience, err := googleIDTokenURLs(
+		"https://rp-de037e12e3ae---router-hmm-sidecar-3kzfceqzxa-uc.a.run.app/",
+	)
+
+	require.NoError(t, err)
+	assert.Equal(t, "https://rp-de037e12e3ae---router-hmm-sidecar-3kzfceqzxa-uc.a.run.app", baseURL)
+	assert.Equal(t, "https://router-hmm-sidecar-3kzfceqzxa-uc.a.run.app", audience)
+}
+
+func TestGoogleIDTokenURLsKeepHostWithoutTag(t *testing.T) {
+	for _, host := range []string{
+		"router-hmm-sidecar-3kzfceqzxa-uc.a.run.app",
+		"---router-hmm-sidecar.a.run.app",
+		"localhost:8080",
+	} {
+		_, audience, err := googleIDTokenURLs("https://" + host + "/readyz")
+
+		require.NoError(t, err)
+		assert.Equal(t, "https://"+host, audience)
+	}
+}
+
 func TestGoogleIDTokenClientDoesNotFollowRedirects(t *testing.T) {
 	redirected := false
 	destination := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
