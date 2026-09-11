@@ -16,18 +16,21 @@ import (
 // default.
 const RouterStrategyOverrideHeader = "x-weave-router-strategy"
 
-// WithRouterStrategyOverride applies the persisted installation strategy and permits
-// an eval header override when authorized; available is injected by the proxy registry.
-func WithRouterStrategyOverride(available ...router.Strategy) gin.HandlerFunc {
-	return WithRouterStrategyDefault(router.StrategyCluster, available...)
-}
+// StrategyAvailability reports whether a registered strategy has a live router
+// right now; the proxy service's PolicyStrategyAvailable satisfies it.
+type StrategyAvailability func(router.Strategy) bool
 
-// WithRouterStrategyDefault applies a deployment-level default for installations
-// with no explicit override, enabling allowlist-first then one-flag global rollout.
+// WithRouterStrategyDefault applies the persisted installation strategy, permits an
+// eval header override when authorized, and applies a deployment-level default for
+// installations with no explicit override (allowlist-first, then one-flag global
+// rollout); available is injected by the proxy registry.
 // hmm_beta may be pinned per installation (or requested by an authorized header)
 // but never becomes the deployment default, so a broken beta lane cannot take
-// every installation with it.
-func WithRouterStrategyDefault(defaultStrategy router.Strategy, available ...router.Strategy) gin.HandlerFunc {
+// every installation with it. Beta is also gated on live availability: the lane
+// is registered even when its manager never loaded a snapshot, and a pin to an
+// empty lane must fall back to cluster rather than 503 every turn. A nil
+// liveAvailability leaves beta unselectable.
+func WithRouterStrategyDefault(defaultStrategy router.Strategy, liveAvailability StrategyAvailability, available ...router.Strategy) gin.HandlerFunc {
 	if len(available) == 0 {
 		available = []router.Strategy{
 			router.StrategyRL,
@@ -42,6 +45,12 @@ func WithRouterStrategyDefault(defaultStrategy router.Strategy, available ...rou
 		allowed[strategy] = struct{}{}
 	}
 	defaultStrategy = NormalizeRouterStrategyDefault(defaultStrategy, available...)
+	selectable := func(strategy router.Strategy) bool {
+		if !strategyAllowed(strategy, allowed) {
+			return false
+		}
+		return strategy != router.StrategyHMMBeta || (liveAvailability != nil && liveAvailability(strategy))
+	}
 	return func(c *gin.Context) {
 		installation := InstallationFrom(c)
 		if installation == nil {
@@ -53,9 +62,9 @@ func WithRouterStrategyDefault(defaultStrategy router.Strategy, available ...rou
 		if strategy == "" {
 			strategy = defaultStrategy
 		}
-		if _, ok := allowed[strategy]; !ok {
+		if !selectable(strategy) {
 			observability.FromGin(c).Warn(
-				"Persisted router strategy is not registered; using cluster",
+				"Persisted router strategy is not registered or unavailable; using cluster",
 				"installation_id", installation.ID,
 				"persisted_strategy", strategy,
 			)
@@ -68,8 +77,8 @@ func WithRouterStrategyDefault(defaultStrategy router.Strategy, available ...rou
 			switch {
 			case !installation.PolicyHeaderOverridesEnabled:
 				observability.FromGin(c).Warn("Router-strategy override ignored: installation is not authorized for policy headers", "installation_id", installation.ID)
-			case !strategyAllowed(requested, allowed):
-				observability.FromGin(c).Warn("Router-strategy override ignored: strategy is not registered", "installation_id", installation.ID, "requested_strategy", raw)
+			case !selectable(requested):
+				observability.FromGin(c).Warn("Router-strategy override ignored: strategy is not registered or unavailable", "installation_id", installation.ID, "requested_strategy", raw)
 			default:
 				strategy = requested
 				observability.FromGin(c).Info("Router-strategy override applied", "installation_id", installation.ID, "requested_strategy", raw)
