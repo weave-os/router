@@ -262,11 +262,12 @@ const minResponsesOutputTokens = 16000
 
 func (e *RequestEnvelope) buildResponsesFromAnthropic(opts EmitOptions) ([]byte, providers.RequestMutationStats, error) {
 	var stats providers.RequestMutationStats
-	body, removed, err := filterClaudeCodeOnlyToolsFromAnthropicBody(e.body, opts.KeepCrossVendorOrchestrationTools)
+	body, ccFilter, err := filterClaudeCodeOnlyToolsFromAnthropicBody(e.body, opts.KeepCrossVendorOrchestrationTools)
 	if err != nil {
 		return nil, stats, fmt.Errorf("strip claude-code-only tools: %w", err)
 	}
-	stats.CCOnlyToolsStripped = removed
+	stats.CCOnlyToolsStripped = ccFilter.ToolsRemoved
+	stats.CCTaskRemindersStripped = ccFilter.TaskRemindersRemoved
 	// See buildOpenAIFromAnthropic: native server tools cannot cross to a
 	// non-Anthropic upstream without becoming phantom client tools.
 	body, stats.ServerToolsStripped = websearch.StripServerTools(body)

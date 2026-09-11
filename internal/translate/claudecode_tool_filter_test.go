@@ -230,7 +230,7 @@ func TestKeepOrchestrationTools_OpenAITarget_KeepsOrchestrationDropsRest(t *test
 	assert.ElementsMatch(t, []string{
 		"Read", "Edit", "Write", "Bash", "NotebookEdit",
 		"ScheduleWakeup", "CronCreate", "CronDelete", "CronList", "Monitor", "BashOutput", "KillShell",
-		"Task", "Agent", "TaskCreate", "TaskUpdate", "TaskList",
+		"Task", "Agent",
 		"EnterPlanMode", "ExitPlanMode", "UpdatePlan", "Skill", "Workflow",
 		"ToolSearch",
 	}, names, "orchestration + scheduling tools survive when the flag is on")
@@ -238,6 +238,9 @@ func TestKeepOrchestrationTools_OpenAITarget_KeepsOrchestrationDropsRest(t *test
 	assert.NotContains(t, names, "AskUserQuestion", "non-orchestration CC-only tools stay stripped")
 	assert.Contains(t, names, "ToolSearch")
 	assert.NotContains(t, names, "TodoWrite")
+	for _, name := range []string{"TaskCreate", "TaskUpdate", "TaskList"} {
+		assert.NotContains(t, names, name, "task-list bookkeeping is stripped even with orchestration kept")
+	}
 }
 
 func TestKeepOrchestrationTools_OpenAITarget_NormalizesTypelessAnyOf(t *testing.T) {
@@ -283,7 +286,7 @@ func TestKeepOrchestrationTools_GeminiTarget_KeepsOrchestrationDropsRest(t *test
 	assert.ElementsMatch(t, []string{
 		"Read", "Edit", "Write", "Bash", "NotebookEdit",
 		"ScheduleWakeup", "CronCreate", "CronDelete", "CronList", "Monitor", "BashOutput", "KillShell",
-		"Task", "Agent", "TaskCreate", "TaskUpdate", "TaskList",
+		"Task", "Agent",
 		"EnterPlanMode", "ExitPlanMode", "UpdatePlan", "Skill", "Workflow",
 		"ToolSearch",
 	}, names, "Anthropic→Gemini keeps orchestration + scheduling tools when the flag is on")

@@ -669,12 +669,16 @@ type PreparedRequest struct {
 // applied to the upstream request body. Surfaced in the ProxyMessages-
 // complete log with keys:
 //   - cc_only_tools_stripped
+//   - cc_task_reminders_stripped
 //   - gemini_reminder_injected
 //   - gemini_validated_tool_mode
 type RequestMutationStats struct {
 	// CCOnlyToolsStripped counts Claude-Code-only tools removed before
 	// dispatching to a non-Anthropic upstream. See claudecode_tool_filter.go.
 	CCOnlyToolsStripped int
+	// CCTaskRemindersStripped counts Claude Code "task tools haven't been used"
+	// reminder blocks removed alongside the task-list tools.
+	CCTaskRemindersStripped int
 	// ServerToolsStripped counts native server tools (web_search_*, web_fetch_*)
 	// removed before emitting to a non-Anthropic upstream. See websearch.StripServerTools.
 	ServerToolsStripped int

@@ -297,11 +297,12 @@ func targetIsOpenRouter(opts EmitOptions) bool {
 
 func (e *RequestEnvelope) buildOpenAIFromAnthropic(opts EmitOptions) ([]byte, providers.RequestMutationStats, error) {
 	var stats providers.RequestMutationStats
-	body, removed, err := filterClaudeCodeOnlyToolsFromAnthropicBody(e.body, opts.KeepCrossVendorOrchestrationTools)
+	body, ccFilter, err := filterClaudeCodeOnlyToolsFromAnthropicBody(e.body, opts.KeepCrossVendorOrchestrationTools)
 	if err != nil {
 		return nil, stats, fmt.Errorf("strip claude-code-only tools: %w", err)
 	}
-	stats.CCOnlyToolsStripped = removed
+	stats.CCOnlyToolsStripped = ccFilter.ToolsRemoved
+	stats.CCTaskRemindersStripped = ccFilter.TaskRemindersRemoved
 	// Anthropic executes web_search_*/web_fetch_* itself; passing them through
 	// writeOpenAIToolsFromAnthropic creates phantom function tools. Drop them.
 	body, stats.ServerToolsStripped = websearch.StripServerTools(body)

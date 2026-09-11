@@ -70,7 +70,7 @@ type EmitOptions struct {
 	// for non-first-party Anthropic targets; see applyServerSideFallback.
 	EnableServerSideFallback bool
 	// KeepCrossVendorOrchestrationTools preserves CC orchestration tools
-	// (Task*, Workflow, Skill, plan-mode) on cross-vendor emit; other CC-only
+	// (Task/Agent, Workflow, Skill, plan-mode) on cross-vendor emit; other CC-only
 	// tools are always stripped. Set from ROUTER_CC_ORCH_TOOLS_CROSSVENDOR;
 	// zero value false preserves historical strip-all behavior.
 	KeepCrossVendorOrchestrationTools bool

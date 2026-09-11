@@ -1,0 +1,145 @@
+package translate_test
+
+import (
+	"net/http"
+	"strings"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"weave-os/router/internal/translate"
+)
+
+// Claude Code appends a <system-reminder> nudging the model toward the
+// TaskCreate/TaskUpdate tools whenever they go unused. Non-Anthropic models
+// obey it literally and spend whole turns on task-list bookkeeping, so when
+// those tools are stripped on cross-vendor emit the nudge must go with them.
+
+const taskReminderText = "<system-reminder>\nThe task tools haven't been used recently. Consider updating task status or creating tasks.\nHere are the existing tasks:\n- #1 [in_progress] Fix the bug\n</system-reminder>"
+
+const taskReminderBody = `{
+	"model":"claude-sonnet-5",
+	"system":"You are Claude Code.",
+	"messages":[
+		{"role":"user","content":[{"type":"text","text":"fix the failing test"}]},
+		{"role":"assistant","content":[{"type":"tool_use","id":"toolu_1","name":"Bash","input":{"command":"go test ./..."}}]},
+		{"role":"user","content":[
+			{"type":"tool_result","tool_use_id":"toolu_1","content":"FAIL: TestFoo"},
+			{"type":"text","text":"` + "<system-reminder>\\nThe task tools haven't been used recently. Consider updating task status or creating tasks.\\nHere are the existing tasks:\\n- #1 [in_progress] Fix the bug\\n</system-reminder>" + `"}
+		]},
+		{"role":"assistant","content":[{"type":"text","text":"Looking at TestFoo."}]},
+		{"role":"user","content":[
+			{"type":"text","text":"also the task tools haven't been used recently by anyone, per the user"},
+			{"type":"text","text":"` + "<system-reminder>\\nThe task tools haven't been used recently. Consider updating task status or creating tasks.\\n</system-reminder>" + `"}
+		]}
+	],
+	"tools":[
+		{"name":"Bash","description":"b","input_schema":{"type":"object"}},
+		{"name":"TaskCreate","description":"","input_schema":{"type":"object"}},
+		{"name":"TaskUpdate","description":"","input_schema":{"type":"object"}}
+	],
+	"max_tokens":256
+}`
+
+func assertTaskReminderStripped(t *testing.T, body []byte) {
+	t.Helper()
+	s := string(body)
+	assert.Equal(t, 0, strings.Count(s, "Consider updating task status"), "task-tool reminder blocks must not reach a non-Anthropic upstream")
+	assert.Contains(t, s, "fix the failing test", "user prompt survives")
+	assert.Contains(t, s, "FAIL: TestFoo", "tool_result survives")
+	assert.Contains(t, s, "also the task tools haven't been used recently by anyone", "user-authored text mentioning the phrase survives")
+	assert.Contains(t, s, "Looking at TestFoo.", "assistant history survives")
+}
+
+func TestTaskReminderStripped_OpenAIChat(t *testing.T) {
+	env, err := translate.ParseAnthropic([]byte(taskReminderBody))
+	require.NoError(t, err)
+
+	out, err := env.PrepareOpenAI(nil, translate.EmitOptions{TargetModel: "gpt-5.6-luna", KeepCrossVendorOrchestrationTools: true})
+	require.NoError(t, err)
+
+	assertTaskReminderStripped(t, out.Body)
+	assert.ElementsMatch(t, []string{"Bash"}, emittedToolNames(t, out.Body))
+	assert.Equal(t, 2, out.Stats.CCOnlyToolsStripped)
+	assert.Equal(t, 2, out.Stats.CCTaskRemindersStripped)
+}
+
+func TestTaskReminderStripped_OpenAIResponses(t *testing.T) {
+	env, err := translate.ParseAnthropic([]byte(taskReminderBody))
+	require.NoError(t, err)
+
+	out, err := env.PrepareOpenAIResponses(nil, translate.EmitOptions{TargetModel: "gpt-5.6-sol", KeepCrossVendorOrchestrationTools: true})
+	require.NoError(t, err)
+
+	assertTaskReminderStripped(t, out.Body)
+	assert.ElementsMatch(t, []string{"Bash"}, emittedResponsesToolNames(t, out.Body))
+	assert.Equal(t, 2, out.Stats.CCTaskRemindersStripped)
+}
+
+func TestTaskReminderStripped_Gemini(t *testing.T) {
+	env, err := translate.ParseAnthropic([]byte(taskReminderBody))
+	require.NoError(t, err)
+
+	// A 2.x target: 3.x rejects history whose tool calls lack thoughtSignatures.
+	out, err := env.PrepareGemini(http.Header{}, translate.EmitOptions{TargetModel: "gemini-2.5-pro", KeepCrossVendorOrchestrationTools: true})
+	require.NoError(t, err)
+
+	assertTaskReminderStripped(t, out.Body)
+	assert.ElementsMatch(t, []string{"Bash"}, emittedGeminiToolNames(t, out.Body))
+	assert.Equal(t, 2, out.Stats.CCTaskRemindersStripped)
+}
+
+func TestTaskReminderKept_AnthropicPassthrough(t *testing.T) {
+	env, err := translate.ParseAnthropic([]byte(taskReminderBody))
+	require.NoError(t, err)
+
+	out, err := env.PrepareAnthropic(nil, translate.EmitOptions{TargetModel: "claude-sonnet-5"})
+	require.NoError(t, err)
+
+	assert.Equal(t, 2, strings.Count(string(out.Body), "Consider updating task status"),
+		"Anthropic passthrough keeps the task tools and therefore the reminder")
+	assert.Equal(t, 0, out.Stats.CCTaskRemindersStripped)
+}
+
+func TestTaskReminderKept_WhenNoTaskToolsToStrip(t *testing.T) {
+	// The reminder is only dropped alongside the tools it refers to. A body
+	// that carries the reminder but no task-list tool schemas (e.g. a client
+	// that already removed them) is left alone.
+	body := strings.Replace(taskReminderBody,
+		`{"name":"TaskCreate","description":"","input_schema":{"type":"object"}},
+		{"name":"TaskUpdate","description":"","input_schema":{"type":"object"}}`,
+		`{"name":"Skill","description":"","input_schema":{"type":"object"}}`, 1)
+	require.NotEqual(t, taskReminderBody, body)
+	env, err := translate.ParseAnthropic([]byte(body))
+	require.NoError(t, err)
+
+	out, err := env.PrepareOpenAI(nil, translate.EmitOptions{TargetModel: "gpt-5.6-luna"})
+	require.NoError(t, err)
+
+	assert.Equal(t, 1, out.Stats.CCOnlyToolsStripped, "Skill is stripped")
+	assert.Equal(t, 0, out.Stats.CCTaskRemindersStripped)
+	assert.Equal(t, 2, strings.Count(string(out.Body), "Consider updating task status"))
+}
+
+func TestTaskReminderKept_WhenItIsTheWholeUserMessage(t *testing.T) {
+	// Never leave a user message with empty content.
+	body := `{
+		"model":"claude-sonnet-5",
+		"messages":[
+			{"role":"user","content":[{"type":"text","text":"hi"}]},
+			{"role":"assistant","content":[{"type":"text","text":"hello"}]},
+			{"role":"user","content":[{"type":"text","text":"` + "<system-reminder>\\nThe task tools haven't been used recently.\\n</system-reminder>" + `"}]}
+		],
+		"tools":[{"name":"TaskCreate","description":"","input_schema":{"type":"object"}}],
+		"max_tokens":64
+	}`
+	env, err := translate.ParseAnthropic([]byte(body))
+	require.NoError(t, err)
+
+	out, err := env.PrepareOpenAI(nil, translate.EmitOptions{TargetModel: "gpt-5.6-luna"})
+	require.NoError(t, err)
+
+	assert.Equal(t, 0, out.Stats.CCTaskRemindersStripped)
+	assert.Contains(t, string(out.Body), "task tools haven't been used recently")
+}

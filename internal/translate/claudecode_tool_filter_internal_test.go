@@ -21,6 +21,17 @@ func TestAlwaysKeptToolsAreSubsetOfCCOnly(t *testing.T) {
 	}
 }
 
+func TestTaskBookkeepingToolsAreCCOnlyAndNotOrchestration(t *testing.T) {
+	for name := range claudeCodeTaskBookkeepingToolNames {
+		if !isClaudeCodeOnlyTool(name) {
+			t.Errorf("bookkeeping tool %q is not in claudeCodeOnlyToolNames", name)
+		}
+		if isCrossVendorOrchestrationTool(name) {
+			t.Errorf("bookkeeping tool %q is in claudeCodeOrchestrationToolNames; it would survive cross-vendor emit", name)
+		}
+	}
+}
+
 func TestShouldStripCCTool(t *testing.T) {
 	cases := []struct {
 		name              string
@@ -40,6 +51,12 @@ func TestShouldStripCCTool(t *testing.T) {
 		{"Task", false, true},            // orchestration: stripped when flag off
 		{"Task", true, false},            // orchestration: kept when flag on
 		{"Agent", true, false},           // orchestration (current CC name): kept when flag on
+		{"TaskOutput", true, false},      // background-agent output: kept when flag on
+		{"TaskStop", true, false},        // background-agent stop: kept when flag on
+		{"TaskCreate", true, true},       // task-list bookkeeping: stripped even when flag on
+		{"TaskUpdate", true, true},       // task-list bookkeeping: stripped even when flag on
+		{"TaskGet", true, true},          // task-list bookkeeping: stripped even when flag on
+		{"TaskList", true, true},         // task-list bookkeeping: stripped even when flag on
 		{"Workflow", true, false},        // orchestration: kept when flag on
 		{"ExitPlanMode", true, false},    // orchestration: kept when flag on
 		{"UpdatePlan", true, false},      // orchestration: kept when flag on
