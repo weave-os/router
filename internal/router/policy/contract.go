@@ -186,17 +186,17 @@ type PreviewResult struct {
 // RosterSnapshot is the live Go selection-policy projection used by routing,
 // preview, deployed-model discovery, and the admin control plane.
 type RosterSnapshot struct {
-	SchemaVersion          string                         `json:"schema_version"`
-	ReleaseID              string                         `json:"release_id"`
-	PolicySHA256           string                         `json:"policy_sha256"`
-	Environment            string                         `json:"environment"`
-	Lane                   string                         `json:"lane"`
-	HeadGeneration         int64                          `json:"head_generation"`
-	LatestObservedGeneration int64                        `json:"latest_observed_generation"`
-	RejectedGeneration     int64                          `json:"rejected_generation,omitempty"`
-	LastRejectionReason    string                         `json:"last_rejection_reason,omitempty"`
-	Clusters               map[string][]string            `json:"clusters"`
-	Harnesses              map[string]map[string][]string `json:"harnesses,omitempty"`
+	SchemaVersion            string                         `json:"schema_version"`
+	ReleaseID                string                         `json:"release_id"`
+	PolicySHA256             string                         `json:"policy_sha256"`
+	Environment              string                         `json:"environment"`
+	Lane                     string                         `json:"lane"`
+	HeadGeneration           int64                          `json:"head_generation"`
+	LatestObservedGeneration int64                          `json:"latest_observed_generation"`
+	RejectedGeneration       int64                          `json:"rejected_generation,omitempty"`
+	LastRejectionReason      string                         `json:"last_rejection_reason,omitempty"`
+	Clusters                 map[string][]string            `json:"clusters"`
+	Harnesses                map[string]map[string][]string `json:"harnesses,omitempty"`
 	// RosterSHA256 is dual-written for compatibility while callers migrate to
 	// PolicySHA256. Both identify the exact Go policy bytes.
 	RosterSHA256 string `json:"roster_sha256"`
