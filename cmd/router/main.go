@@ -979,6 +979,8 @@ func main() {
 		if betaManagerErr != nil {
 			logger.Error("Beta router policy manager is invalid; beta disabled", "err", betaManagerErr)
 		} else {
+			hmmBetaRouter = policyregistry.NewDynamicRouter(betaManager, router.StrategyHMMBeta)
+			hmmRosterSources[router.StrategyHMMBeta] = betaManager
 			safeGo(logger, "beta-policy-manager", func() { betaManager.Run(managerCtx) })
 			betaRefreshCtx, cancelBetaRefresh := context.WithTimeout(context.Background(), 30*time.Second)
 			betaRefreshErr := betaManager.Refresh(betaRefreshCtx)
@@ -986,8 +988,6 @@ func main() {
 			if betaRefreshErr != nil {
 				logger.Warn("No valid beta router policy snapshot; beta disabled", "err", betaRefreshErr)
 			} else {
-				hmmBetaRouter = policyregistry.NewDynamicRouter(betaManager, router.StrategyHMMBeta)
-				hmmRosterSources[router.StrategyHMMBeta] = betaManager
 				hmmBetaCapabilities = hmmBetaRouter.(policy.CapabilitySource).CurrentCapabilities()
 			}
 		}

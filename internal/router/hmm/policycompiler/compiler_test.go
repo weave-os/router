@@ -34,7 +34,8 @@ func TestCompileLegacyRosterPreservesWIIDescription(t *testing.T) {
       "arm_scores": {"openai/gpt-5.6-sol": 10},
       "arm_indices": {"openai/gpt-5.6-sol": {"wii_v1": 50, "wpi_v1": 10}}
     }
-  }
+  },
+  "manual_pins": {"pi": {"low": ["openai/gpt-5.6-sol"]}}
 }`)
 
 	canonical, policy, err := policycompiler.Compile(source, policycompiler.Options{
@@ -43,5 +44,6 @@ func TestCompileLegacyRosterPreservesWIIDescription(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, rosterdata.SchemaVersionPolicyV1, policy.SchemaVersion)
 	assert.Equal(t, "six-benchmark absolute WII with frozen normalization", policy.Ranking.WIIDescription)
+	assert.Equal(t, []string{"openai/gpt-5.6-sol"}, policy.Clusters["low"].ManualPinsByHarness[rosterdata.HarnessPI])
 	assert.Contains(t, string(canonical), `"wii_v1":"six-benchmark absolute WII with frozen normalization"`)
 }

@@ -2,6 +2,7 @@ package selection
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math"
 	"slices"
@@ -17,6 +18,10 @@ import (
 // ErrNoEligibleArm is returned when no ranked group holds an eligible arm.
 var ErrNoEligibleArm = policy.ErrNoEligibleArm
 
+// ErrClassifierTaxonomyMismatch means the classifier and Go policy disagree on
+// the ordered class taxonomy; retrying another fallback group cannot fix it.
+var ErrClassifierTaxonomyMismatch = errors.New("classifier taxonomy does not match serving roster")
+
 // Selector returns the deterministic arm selector backed by roster.
 func Selector(roster *rosterdata.Roster) policy.ArmSelector {
 	return func(ctx context.Context, input policy.SelectionInput) (policy.SelectionPick, error) {
@@ -25,7 +30,7 @@ func Selector(roster *rosterdata.Roster) policy.ArmSelector {
 			return policy.SelectionPick{}, fmt.Errorf("roster %q is not the loaded serving roster: %w", input.RosterSHA256, router.ErrPolicyPinUnavailable)
 		}
 		if len(roster.ClassOrder) > 0 && !slices.Equal(input.ClassOrder, roster.ClassOrder) {
-			return policy.SelectionPick{}, fmt.Errorf("classifier class order does not match the promoted roster: %w", ErrNoEligibleArm)
+			return policy.SelectionPick{}, fmt.Errorf("classifier class order does not match the promoted roster: %w", ErrClassifierTaxonomyMismatch)
 		}
 		rankedGroups, err := classifierGroups(input)
 		if err != nil {

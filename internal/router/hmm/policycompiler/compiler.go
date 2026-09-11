@@ -32,20 +32,20 @@ func Compile(source []byte, options Options) ([]byte, *rosterdata.Roster, error)
 	if roster.SchemaVersion != rosterdata.SchemaVersionPolicyV1 {
 		roster.SchemaVersion = rosterdata.SchemaVersionPolicyV1
 	}
-	for label, pinsByHarness := range roster.ManualPins {
-		cluster, ok := roster.Clusters[label]
-		if !ok {
-			continue
-		}
-		if cluster.ManualPinsByHarness == nil {
-			cluster.ManualPinsByHarness = make(map[rosterdata.Harness][]string)
-		}
-		for harness, pins := range pinsByHarness {
+	for harness, pinsByLabel := range roster.ManualPins {
+		for label, pins := range pinsByLabel {
+			cluster, ok := roster.Clusters[label]
+			if !ok {
+				continue
+			}
+			if cluster.ManualPinsByHarness == nil {
+				cluster.ManualPinsByHarness = make(map[rosterdata.Harness][]string)
+			}
 			if _, exists := cluster.ManualPinsByHarness[rosterdata.Harness(harness)]; !exists {
 				cluster.ManualPinsByHarness[rosterdata.Harness(harness)] = append([]string(nil), pins...)
 			}
+			roster.Clusters[label] = cluster
 		}
-		roster.Clusters[label] = cluster
 	}
 	for harness, priority := range roster.HarnessVendorPriority {
 		for _, label := range priority.Clusters {

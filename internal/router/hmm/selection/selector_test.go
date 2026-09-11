@@ -48,6 +48,26 @@ func TestSelectorFailsClosedWhenNoRankedGroupHoldsAnEligibleArm(t *testing.T) {
 	assert.ErrorIs(t, err, selection.ErrNoEligibleArm)
 }
 
+func TestSelectorRejectsMismatchedClassOrder(t *testing.T) {
+	roster := testRoster()
+	roster.ClassOrder = []string{"low", "balanced", "high", "effort", "efforts"}
+	selector := selection.Selector(roster)
+	input := policy.SelectionInput{
+		ClassOrder:         []string{"high", "balanced", "low", "effort", "efforts"},
+		ClassProbabilities: map[string]float64{"low": 1, "balanced": 0, "high": 0, "effort": 0, "efforts": 0},
+		CandidateRosterIDs: []string{"vendor-a/cheap"},
+	}
+
+	_, err := selector(context.Background(), input)
+	assert.ErrorIs(t, err, selection.ErrClassifierTaxonomyMismatch)
+	assert.NotErrorIs(t, err, selection.ErrNoEligibleArm)
+
+	input.ClassOrder = append([]string(nil), roster.ClassOrder...)
+	pick, err := selector(context.Background(), input)
+	require.NoError(t, err)
+	assert.Equal(t, "low", pick.Group)
+}
+
 func TestSelectorKeepsCrossProviderCandidatesAndAppliesBoundedSubscriptionPreferences(t *testing.T) {
 	roster := &rosterdata.Roster{
 		SchemaVersion: rosterdata.SchemaVersionPolicyV1,

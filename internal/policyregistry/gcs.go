@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"slices"
 	"strings"
 
 	"cloud.google.com/go/storage"
@@ -176,8 +177,12 @@ func (r *Registry) Promote(ctx context.Context, head LaneHead, expectedGeneratio
 		return HeadSnapshot{}, fmt.Errorf("validate promoted release: %w", err)
 	}
 	policyRef := ObjectRef{URI: release.Policy.URI, SHA256: release.Policy.SHA256, Generation: release.Policy.Generation}
-	if _, err := r.ReadPolicy(ctx, policyRef); err != nil {
+	selectionPolicy, err := r.ReadPolicy(ctx, policyRef)
+	if err != nil {
 		return HeadSnapshot{}, fmt.Errorf("validate promoted selection policy: %w", err)
+	}
+	if selectionPolicy == nil || !slices.Equal(selectionPolicy.ClassOrder, release.Classifier.ClassOrder) {
+		return HeadSnapshot{}, errors.New("promoted classifier class order does not match selection policy")
 	}
 	payload, err := CanonicalBytes(head)
 	if err != nil {
