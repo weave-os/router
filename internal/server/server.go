@@ -89,6 +89,16 @@ func Register(engine *gin.Engine, authSvc *auth.Service, proxySvc *proxy.Service
 	RegisterWithFeatures(engine, authSvc, proxySvc, deployedModels, hmmModels, mode, billingSvc, readinessChecker, hmmRosterSources, analyticsSvc, Features{}, hmmDistributionRosters...)
 }
 
+// DefaultStrategyFromEnv is the deployment-level strategy for installations
+// with no persisted override (ROUTER_DEFAULT_STRATEGY, cluster when unset).
+func DefaultStrategyFromEnv() router.Strategy {
+	strategy := router.Strategy(strings.ToLower(strings.TrimSpace(os.Getenv("ROUTER_DEFAULT_STRATEGY"))))
+	if strategy == "" {
+		return router.StrategyCluster
+	}
+	return strategy
+}
+
 // Features toggles optional request surfaces that are off by default.
 type Features struct {
 	// PolicyPinEnabled registers the x-weave-policy-pin middleware. Off means
@@ -134,11 +144,7 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 	if proxySvc != nil {
 		registeredStrategies = proxySvc.RegisteredStrategies()
 	}
-	defaultStrategy := router.Strategy(strings.ToLower(strings.TrimSpace(os.Getenv("ROUTER_DEFAULT_STRATEGY"))))
-	if defaultStrategy == "" {
-		defaultStrategy = router.StrategyCluster
-	}
-	defaultStrategy = middleware.NormalizeRouterStrategyDefault(defaultStrategy, registeredStrategies...)
+	defaultStrategy := middleware.NormalizeRouterStrategyDefault(DefaultStrategyFromEnv(), registeredStrategies...)
 	engine.GET(
 		"/v1/router/policies",
 		middleware.WithTimeout(healthTimeout),

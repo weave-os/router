@@ -1287,7 +1287,11 @@ func main() {
 	// fallback keeps non-cluster routers bootable.
 	deployedModels, _ := rtr.(*cluster.Multiversion)
 	analyticsSvc := analytics.NewService(repo.Analytics, time.Now)
-	readinessChecker := newReadinessChecker(pool, hmmReadinessChecker)
+	readinessChecker := newReadinessChecker(pool, hmmReadinessChecker, proxySvc, server.DefaultStrategyFromEnv())
+	if defaultStrategyErr := readinessChecker.checkDefaultStrategy(); defaultStrategyErr != nil {
+		logger.Error("ROUTER_DEFAULT_STRATEGY has no router configured; refusing to boot", "err", defaultStrategyErr)
+		panic(defaultStrategyErr)
+	}
 	// ROUTER_POLICY_PIN_ENABLED=true registers x-weave-policy-pin; when off,
 	// the header is never read and no pin telemetry is written.
 	policyPinEnabled := strings.EqualFold(config.GetOr("ROUTER_POLICY_PIN_ENABLED", "false"), "true")
