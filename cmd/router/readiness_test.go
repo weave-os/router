@@ -39,7 +39,7 @@ func TestReadinessCheckerRequiresDatabase(t *testing.T) {
 	}), healthCheckerFunc(func(context.Context) error {
 		t.Fatal("HMM readiness should not run when PostgreSQL is unavailable")
 		return nil
-	}), strategySet{router.StrategyCluster: true}, router.StrategyCluster)
+	}), strategySet{router.StrategyCluster: true}, router.StrategyCluster, false)
 
 	err := checker.CheckHealth(context.Background())
 	require.Error(t, err)
@@ -56,7 +56,7 @@ func TestReadinessCheckerChecksHMMAfterDatabase(t *testing.T) {
 	}), healthCheckerFunc(func(context.Context) error {
 		checks = append(checks, "hmm")
 		return hmmErr
-	}), strategySet{router.StrategyCluster: true}, router.StrategyCluster)
+	}), strategySet{router.StrategyCluster: true}, router.StrategyCluster, false)
 
 	err := checker.CheckHealth(context.Background())
 	require.Error(t, err)
@@ -65,13 +65,13 @@ func TestReadinessCheckerChecksHMMAfterDatabase(t *testing.T) {
 }
 
 func TestReadinessCheckerWithoutHMM(t *testing.T) {
-	checker := newReadinessChecker(databasePingerFunc(healthyDatabase), nil, strategySet{router.StrategyCluster: true}, router.StrategyCluster)
+	checker := newReadinessChecker(databasePingerFunc(healthyDatabase), nil, strategySet{router.StrategyCluster: true}, router.StrategyCluster, false)
 
 	assert.NoError(t, checker.CheckHealth(context.Background()))
 }
 
 func TestReadinessCheckerFailsWhenDefaultStrategyHasNoRouter(t *testing.T) {
-	checker := newReadinessChecker(databasePingerFunc(healthyDatabase), nil, strategySet{router.StrategyCluster: true}, router.StrategyHMMEmbedding)
+	checker := newReadinessChecker(databasePingerFunc(healthyDatabase), nil, strategySet{router.StrategyCluster: true}, router.StrategyHMMEmbedding, false)
 
 	err := checker.CheckHealth(context.Background())
 	require.Error(t, err)
@@ -80,7 +80,19 @@ func TestReadinessCheckerFailsWhenDefaultStrategyHasNoRouter(t *testing.T) {
 }
 
 func TestReadinessCheckerPassesWhenDefaultStrategyIsRoutable(t *testing.T) {
-	checker := newReadinessChecker(databasePingerFunc(healthyDatabase), nil, strategySet{router.StrategyHMMEmbedding: true}, router.StrategyHMMEmbedding)
+	checker := newReadinessChecker(databasePingerFunc(healthyDatabase), nil, strategySet{router.StrategyHMMEmbedding: true}, router.StrategyHMMEmbedding, false)
+
+	assert.NoError(t, checker.CheckHealth(context.Background()))
+}
+
+func TestReadinessCheckerServesInDegradedMode(t *testing.T) {
+	checker := newReadinessChecker(databasePingerFunc(func(context.Context) error {
+		t.Fatal("database should not be checked in degraded mode")
+		return errors.New("unexpected")
+	}), healthCheckerFunc(func(context.Context) error {
+		t.Fatal("HMM should not be checked in degraded mode")
+		return errors.New("unexpected")
+	}), strategySet{router.StrategyCluster: true}, router.StrategyCluster, true)
 
 	assert.NoError(t, checker.CheckHealth(context.Background()))
 }

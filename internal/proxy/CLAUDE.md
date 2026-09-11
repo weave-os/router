@@ -285,8 +285,9 @@ budget is shared across auth, enrollment, spend gates and routing (a second
 that already succeeded in this process, and the three billing gates do the same
 through `middleware.BillingFailOpenCache`. None of them create a snapshot: an
 unknown key, a cold cache, an explicit `InvalidateInstallation`, or an
-unprepared request fails exactly as before. Cold startup readiness remains
-strict. `X-Router-Fail-Open` identifies the bounded reason on a relayed response.
+unprepared request fails exactly as before. With the switch on, startup may
+serve while PostgreSQL, Pub/Sub invalidation, the cluster scorer or HMM sidecar
+is unavailable; readiness and startup logs expose that degraded state. `X-Router-Fail-Open` identifies the bounded reason on a relayed response.
 
 ## Fast-tier dispatch (`fast_mode_models`)
 

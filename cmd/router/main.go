@@ -74,6 +74,11 @@ import (
 
 func main() {
 	logger := observability.Get()
+	dependencyLimits := requestcontext.DefaultPreparationLimits()
+	var failOpenHealth *requestcontext.DependencyHealth
+	if config.GetOr("ROUTER_DEPENDENCY_FAIL_OPEN", "false") == "true" {
+		failOpenHealth = requestcontext.NewDependencyHealth()
+	}
 	// Initialize propagation and APM before constructing HTTP clients so their
 	// OpenTelemetry transports capture the configured providers and propagator.
 	apm.Init()
@@ -474,11 +479,17 @@ func main() {
 
 	rtr, defaultEmbedderID, err := buildClusterScorer(availableProviders)
 	if err != nil {
-		// Ops alerts on Cloud Run boot failures; silent degradation would mask quality regressions.
-		logger.Error("Cluster scorer failed to build; refusing to boot", "err", err)
-		panic(err)
+		if failOpenHealth == nil {
+			// Ops alerts on Cloud Run boot failures; silent degradation would mask quality regressions.
+			logger.Error("Cluster scorer failed to build; refusing to boot", "err", err)
+			panic(err)
+		}
+		logger.Warn("Cluster scorer failed to build; starting in degraded mode", "err", err)
+		rtr = nil
+		defaultEmbedderID = "degraded"
+	} else {
+		logger.Info("Routing via cluster scorer", "embedder", defaultEmbedderID)
 	}
-	logger.Info("Routing via cluster scorer", "embedder", defaultEmbedderID)
 
 	cache := auth.NewLRUAPIKeyCache(10000, 50000, 5*time.Minute, 60*time.Second)
 	userCache := auth.NewLRUUserCache(50000, 10*time.Minute)
@@ -486,27 +497,40 @@ func main() {
 	userClusterCache := auth.NewLRUUserClusterListCache(50000, 5*time.Minute)
 	blindExperimentCache := auth.NewLRUBlindExperimentCache(50000, 5*time.Minute, time.Now)
 
-	pubsubProjectID := config.MustGet("PUBSUB_PROJECT_ID")
-	pubsubTopicID := config.MustGet("PUBSUB_TOPIC_ROUTER_INVALIDATION")
-	// Treated as a prefix: each replica derives its own subscription
-	// "<prefix>-<uuid>" so every replica receives every invalidation. A shared
-	// subscription would load-balance, defeating cross-fleet cache broadcast.
-	pubsubSubscriptionPrefix := config.MustGet("PUBSUB_SUBSCRIPTION_ROUTER_INVALIDATION")
-	pubsubClient, err := gcppubsub.NewClient(context.Background(), pubsubProjectID)
-	if err != nil {
-		logger.Error("Failed to create Pub/Sub client", "err", err)
-		panic(err)
+	var pubsubClient *gcppubsub.Client
+	var pubsubProjectID, pubsubTopicID, pubsubSubscriptionPrefix string
+	var notifier auth.InstallationChangeNotifier = auth.NoOpInstallationChangeNotifier{}
+	if failOpenHealth == nil {
+		pubsubProjectID = config.MustGet("PUBSUB_PROJECT_ID")
+		pubsubTopicID = config.MustGet("PUBSUB_TOPIC_ROUTER_INVALIDATION")
+		pubsubSubscriptionPrefix = config.MustGet("PUBSUB_SUBSCRIPTION_ROUTER_INVALIDATION")
+	} else {
+		pubsubProjectID = config.GetOr("PUBSUB_PROJECT_ID", "")
+		pubsubTopicID = config.GetOr("PUBSUB_TOPIC_ROUTER_INVALIDATION", "")
+		pubsubSubscriptionPrefix = config.GetOr("PUBSUB_SUBSCRIPTION_ROUTER_INVALIDATION", "")
 	}
-	defer pubsubClient.Close()
-
-	publisher := pubsubClient.Publisher(pubsubTopicID)
-	notifier := routerpubsub.NewInvalidationNotifier(publisher)
-	defer notifier.Stop()
+	if pubsubProjectID != "" && pubsubTopicID != "" && pubsubSubscriptionPrefix != "" {
+		pubsubClient, err = gcppubsub.NewClient(context.Background(), pubsubProjectID)
+		if err != nil {
+			if failOpenHealth == nil {
+				logger.Error("Failed to create Pub/Sub client", "err", err)
+				panic(err)
+			}
+			logger.Warn("Failed to create Pub/Sub client; cache invalidation is degraded", "err", err)
+		} else {
+			defer pubsubClient.Close()
+			notifierImpl := routerpubsub.NewInvalidationNotifier(pubsubClient.Publisher(pubsubTopicID))
+			notifier = notifierImpl
+			defer notifierImpl.Stop()
+		}
+	} else if failOpenHealth != nil {
+		logger.Warn("Pub/Sub invalidation is not configured; cache invalidation is degraded")
+	}
 
 	// When configured, the billing debit hook publishes a signal once an org's
 	// balance crosses its recharge threshold; the Weave control plane charges
 	// the saved card. Unset topic just leaves autopay disabled.
-	if billingSvc != nil {
+	if billingSvc != nil && pubsubClient != nil {
 		if autopayTopicID := config.GetOr("PUBSUB_TOPIC_ROUTER_AUTOPAY", ""); autopayTopicID != "" {
 			autopayNotifier := routerpubsub.NewAutopayNotifier(pubsubClient.Publisher(autopayTopicID))
 			defer autopayNotifier.Stop()
@@ -523,11 +547,6 @@ func main() {
 		logger.Info("Per-organization flag overrides disabled deployment-wide (ROUTER_FLAG_OVERRIDES_DISABLED=true)")
 	}
 
-	dependencyLimits := requestcontext.DefaultPreparationLimits()
-	var failOpenHealth *requestcontext.DependencyHealth
-	if config.GetOr("ROUTER_DEPENDENCY_FAIL_OPEN", "false") == "true" {
-		failOpenHealth = requestcontext.NewDependencyHealth()
-	}
 	prepareDependencies := auth.RequestPreparer(func(ctx context.Context) context.Context {
 		if failOpenHealth == nil {
 			return ctx
@@ -575,27 +594,31 @@ func main() {
 		logger.Info("Server-side subscription account pools disabled")
 	}
 
-	// Fans out Pub/Sub invalidations to this replica's cache; the 5-min TTL
-	// is the safety net if the listener falls behind.
-	subCtx, subCancel := context.WithTimeout(context.Background(), 30*time.Second)
-	subscriptionName, deleteSubscription, err := routerpubsub.CreateReplicaSubscription(
-		subCtx, pubsubClient, pubsubProjectID, pubsubTopicID, pubsubSubscriptionPrefix,
-	)
-	subCancel()
-	if err != nil {
-		logger.Error("Failed to create per-replica invalidation subscription", "err", err)
-		panic(err)
+	if pubsubClient != nil {
+		// Fans out Pub/Sub invalidations to this replica's cache; the 5-min TTL
+		// is the safety net if the listener falls behind.
+		subCtx, subCancel := context.WithTimeout(context.Background(), 30*time.Second)
+		subscriptionName, deleteSubscription, err := routerpubsub.CreateReplicaSubscription(
+			subCtx, pubsubClient, pubsubProjectID, pubsubTopicID, pubsubSubscriptionPrefix,
+		)
+		subCancel()
+		if err != nil {
+			if failOpenHealth == nil {
+				logger.Error("Failed to create per-replica invalidation subscription", "err", err)
+				panic(err)
+			}
+			logger.Warn("Failed to create per-replica invalidation subscription; cache invalidation is degraded", "err", err)
+		} else {
+			defer deleteSubscription()
+			logger.Info("Created per-replica invalidation subscription", "subscription", subscriptionName)
+			listener := routerpubsub.NewInvalidationListener(pubsubClient.Subscriber(subscriptionName), cache, userClusterCache, blindExperimentCache)
+			listenerCtx, listenerCancel := context.WithCancel(context.Background())
+			defer func() { listenerCancel(); listener.Wait() }()
+			safeGo(logger, "invalidation-listener", func() { listener.Run(listenerCtx) })
+		}
+	} else if failOpenHealth != nil {
+		logger.Warn("Starting without Pub/Sub invalidation listener")
 	}
-	defer deleteSubscription()
-	logger.Info("Created per-replica invalidation subscription", "subscription", subscriptionName)
-
-	listener := routerpubsub.NewInvalidationListener(pubsubClient.Subscriber(subscriptionName), cache, userClusterCache, blindExperimentCache)
-	listenerCtx, listenerCancel := context.WithCancel(context.Background())
-	defer func() {
-		listenerCancel()
-		listener.Wait()
-	}()
-	safeGo(logger, "invalidation-listener", func() { listener.Run(listenerCtx) })
 
 	// Managed mode doesn't mount the dashboard, so this only matters selfhosted.
 	if deploymentMode == server.DeploymentModeSelfHosted {
@@ -1317,10 +1340,12 @@ func main() {
 	// fallback keeps non-cluster routers bootable.
 	deployedModels, _ := rtr.(*cluster.Multiversion)
 	analyticsSvc := analytics.NewService(repo.Analytics, time.Now)
-	readinessChecker := newReadinessChecker(pool, hmmReadinessChecker, proxySvc, server.DefaultStrategyFromEnv())
-	if defaultStrategyErr := readinessChecker.checkDefaultStrategy(); defaultStrategyErr != nil {
-		logger.Error("ROUTER_DEFAULT_STRATEGY has no router configured; refusing to boot", "err", defaultStrategyErr)
-		panic(defaultStrategyErr)
+	readinessChecker := newReadinessChecker(pool, hmmReadinessChecker, proxySvc, server.DefaultStrategyFromEnv(), failOpenHealth != nil)
+	if failOpenHealth == nil {
+		if defaultStrategyErr := readinessChecker.checkDefaultStrategy(); defaultStrategyErr != nil {
+			logger.Error("ROUTER_DEFAULT_STRATEGY has no router configured; refusing to boot", "err", defaultStrategyErr)
+			panic(defaultStrategyErr)
+		}
 	}
 	// ROUTER_POLICY_PIN_ENABLED=true registers x-weave-policy-pin; when off,
 	// the header is never read and no pin telemetry is written.
