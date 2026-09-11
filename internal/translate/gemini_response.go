@@ -139,10 +139,17 @@ func writeOpenAIMessageFromGemini(jw *jsonWriter, candidate gjson.Result) (hasTo
 	return hasToolCalls, leadingSig
 }
 
+// geminiOutputTokens returns the billable output count from Gemini usageMetadata.
+// candidatesTokenCount excludes thinking; Google bills thoughtsTokenCount at the
+// output rate, so the two are summed (matching OpenAI's completion_tokens).
+func geminiOutputTokens(meta gjson.Result) int64 {
+	return meta.Get("candidatesTokenCount").Int() + meta.Get("thoughtsTokenCount").Int()
+}
+
 // writeOpenAIUsageFromGemini writes the "usage" object from Gemini usageMetadata.
 func writeOpenAIUsageFromGemini(jw *jsonWriter, meta gjson.Result) {
 	prompt := meta.Get("promptTokenCount").Int()
-	completion := meta.Get("candidatesTokenCount").Int()
+	completion := geminiOutputTokens(meta)
 	total := meta.Get("totalTokenCount").Int()
 	if total == 0 {
 		total = prompt + completion

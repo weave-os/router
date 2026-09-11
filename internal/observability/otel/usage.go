@@ -257,7 +257,8 @@ func extractUsageGJSON(data []byte, provider string) (input, output, cacheCreati
 	if family == providers.FamilyGemini {
 		if meta := gjson.GetBytes(data, "usageMetadata"); meta.Exists() {
 			input = int(meta.Get("promptTokenCount").Int())
-			output = int(meta.Get("candidatesTokenCount").Int())
+			// candidatesTokenCount excludes thinking; thoughtsTokenCount is billed as output.
+			output = int(meta.Get("candidatesTokenCount").Int() + meta.Get("thoughtsTokenCount").Int())
 			cacheRead = int(meta.Get("cachedContentTokenCount").Int())
 			return input, output, 0, cacheRead, true
 		}

@@ -288,6 +288,19 @@ func TestUsageExtractor_GoogleNativeCacheTokens_NonStreaming(t *testing.T) {
 	assert.Equal(t, 1024, cacheRead)
 }
 
+func TestUsageExtractor_GoogleNativeThoughtsTokensCountAsOutput(t *testing.T) {
+	rec := httptest.NewRecorder()
+	ext := otel.NewUsageExtractor(rec, "google")
+
+	body := `{"candidates":[{"content":{"parts":[{"text":"ok"}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":100,"candidatesTokenCount":7,"thoughtsTokenCount":250,"totalTokenCount":357}}`
+	_, err := ext.Write([]byte(body))
+	require.NoError(t, err)
+
+	in, out := ext.Tokens()
+	assert.Equal(t, 100, in)
+	assert.Equal(t, 257, out, "thoughtsTokenCount is billed as output")
+}
+
 func TestUsageExtractor_AnthropicGatewayStreaming(t *testing.T) {
 	// Gateway providers use the native path (no translator RecordUsage call),
 	// so the extractor's sniffing is the only usage source.

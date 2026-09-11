@@ -148,7 +148,7 @@ func (t *GeminiToOpenAISSETranslator) Finalize() error {
 		if usage.Exists() {
 			t.usageSink.RecordUsage(
 				int(usage.Get("promptTokenCount").Int()),
-				int(usage.Get("candidatesTokenCount").Int()),
+				int(geminiOutputTokens(usage)),
 			)
 			if cached := int(usage.Get("cachedContentTokenCount").Int()); cached > 0 {
 				t.usageSink.RecordCacheUsage(0, cached)
@@ -266,7 +266,7 @@ func geminiUsageFromBytes(data []byte) map[string]int {
 		return nil
 	}
 	prompt := int(r.Get("promptTokenCount").Int())
-	completion := int(r.Get("candidatesTokenCount").Int())
+	completion := int(geminiOutputTokens(r))
 	total := int(r.Get("totalTokenCount").Int())
 	cached := int(r.Get("cachedContentTokenCount").Int())
 	if total == 0 {
