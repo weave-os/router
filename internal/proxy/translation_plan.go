@@ -48,13 +48,14 @@ type TranslationExclusion struct {
 // It intentionally reuses Request's ordinary candidate filters so every router
 // implementation receives the same hard constraints.
 type TranslationPlan struct {
-	EnabledProviders map[string]struct{}
-	ExcludedModels   map[string]struct{}
-	TargetFamily     providers.TranslationFamily
-	Exclusions       []TranslationExclusion
-	Enforced         bool
-	Intrinsic        bool
-	Unavailable      bool
+	EnabledProviders     map[string]struct{}
+	ExcludedModels       map[string]struct{}
+	SafetyExcludedModels map[string]struct{}
+	TargetFamily         providers.TranslationFamily
+	Exclusions           []TranslationExclusion
+	Enforced             bool
+	Intrinsic            bool
+	Unavailable          bool
 }
 
 // translationConstraint is the code-owned compatibility matrix entry for one
@@ -65,6 +66,19 @@ type translationConstraint struct {
 	TargetFamily   providers.TranslationFamily
 	ExactProviders map[string]struct{}
 }
+
+type modelTranslationConstraint struct {
+	Code       string
+	Present    bool
+	Capability router.ModelCapability
+}
+
+const (
+	midConversationSystemRequirementCode = "mid_conversation_system_messages_unsupported"
+	midConversationToolRequirementCode   = "mid_conversation_tool_changes_unsupported"
+	midConversationOutputRequirementCode = "mid_conversation_output_config_unsupported"
+	turnScopedSystemRequirementCode      = "turn_scoped_system_messages_unsupported"
+)
 
 // responsesRequirementsContextKey carries the original Responses contract
 // while its Chat projection is routed through the existing turn loop.
@@ -118,17 +132,18 @@ func (s *Service) planTranslation(req router.Request) TranslationPlan {
 		plan.EnabledProviders = cloneStringSet(req.EnabledProviders)
 	}
 	plan.ExcludedModels = cloneStringSet(req.ExcludedModels)
+	plan.SafetyExcludedModels = cloneStringSet(req.SafetyExcludedModels)
 
 	requirements := req.TranslationRequirements
 	if requirements.IsZero() {
 		return plan
 	}
 
-	// A native search tool or result block cannot be translated to another
-	// provider family. Keep that safety boundary active independently of the
-	// broader compatibility rollout; scopeSearchRequirement has already removed
-	// advertised-only tools from this requirement.
+	// Native search and mid-conversation system semantics cannot be translated
+	// to another provider family. Keep those safety boundaries active
+	// independently of the broader compatibility rollout.
 	plan.Enforced = requirements.CitationsOrSearch ||
+		requiresMidConversationSystemSupport(requirements) ||
 		s.translationCompatibilityMode == TranslationCompatibilityEnforce ||
 		((requirements.NativeOnly || requirements.SourceFormat == router.WireFormatGemini) && s.translationCompatibilityMode != TranslationCompatibilityOff)
 	constraints, valid := translationConstraints(requirements)
@@ -149,6 +164,32 @@ func (s *Service) planTranslation(req router.Request) TranslationPlan {
 			// before the scorer can turn it into a generic no-eligible-model error.
 			plan.Unavailable = len(configuredProviders(plan.EnabledProviders, s.clients.NameSet())) == 0
 		}
+	}
+
+	modelConstraints := modelTranslationConstraints(requirements)
+	for model := range s.routableUniverse() {
+		for _, constraint := range modelConstraints {
+			if router.Lookup(model).Supports(constraint.Capability) {
+				continue
+			}
+			plan.Exclusions = append(plan.Exclusions, TranslationExclusion{
+				Code: constraint.Code, Model: model, Enforced: plan.Enforced,
+			})
+			if plan.Enforced {
+				if plan.ExcludedModels == nil {
+					plan.ExcludedModels = make(map[string]struct{})
+				}
+				plan.ExcludedModels[model] = struct{}{}
+				if plan.SafetyExcludedModels == nil {
+					plan.SafetyExcludedModels = make(map[string]struct{})
+				}
+				plan.SafetyExcludedModels[model] = struct{}{}
+			}
+			break
+		}
+	}
+	if plan.Enforced && len(modelConstraints) > 0 && !hasEligibleModel(s.routableUniverse(), plan.ExcludedModels) {
+		plan.Unavailable = true
 	}
 
 	// Image capability was previously a soft quality preference. In enforce
@@ -174,7 +215,7 @@ func (s *Service) planTranslation(req router.Request) TranslationPlan {
 // uses a family for Messages/Chat/GenerateContent, but Responses is exact-
 // provider because only the OpenAI adapter currently implements EndpointResponses.
 func translationConstraints(req router.TranslationRequirements) ([]translationConstraint, bool) {
-	constraints := make([]translationConstraint, 0, 8)
+	constraints := make([]translationConstraint, 0, 12)
 	addSourceNative := func(code string) bool {
 		constraint, ok := sourceNativeConstraint(req, code)
 		if ok {
@@ -203,12 +244,77 @@ func translationConstraints(req router.TranslationRequirements) ([]translationCo
 		{req.StructuredOutput, "structured_output_native_required"},
 		{req.Audio, "audio_input_native_required"},
 		{req.Files, "file_input_native_required"},
+		{req.MidConversationSystemMessages, "mid_conversation_system_messages_native_required"},
+		{req.MidConversationToolChanges, "mid_conversation_tool_changes_native_required"},
+		{req.MidConversationOutputConfig, "mid_conversation_output_config_native_required"},
+		{req.TurnScopedSystemMessages, "turn_scoped_system_messages_native_required"},
 	} {
 		if semantic.present && !addSourceNative(semantic.code) {
 			return nil, false
 		}
 	}
 	return constraints, true
+}
+
+func modelTranslationConstraints(requirements router.TranslationRequirements) []modelTranslationConstraint {
+	constraints := []modelTranslationConstraint{
+		{Code: midConversationToolRequirementCode, Present: requirements.MidConversationToolChanges, Capability: router.CapMidConversationToolChanges},
+		{Code: midConversationOutputRequirementCode, Present: requirements.MidConversationOutputConfig, Capability: router.CapMidConversationOutputConfig},
+		{Code: turnScopedSystemRequirementCode, Present: requirements.TurnScopedSystemMessages, Capability: router.CapTurnScopedSystemMessages},
+		{Code: midConversationSystemRequirementCode, Present: requirements.MidConversationSystemMessages, Capability: router.CapMidConversationSystemMessages},
+	}
+	present := constraints[:0]
+	for _, constraint := range constraints {
+		if constraint.Present {
+			present = append(present, constraint)
+		}
+	}
+	return present
+}
+
+func hasEligibleModel(models, excluded map[string]struct{}) bool {
+	for model := range models {
+		if _, isExcluded := excluded[model]; !isExcluded {
+			return true
+		}
+	}
+	return false
+}
+
+func targetPreservesTranslationRequirements(provider, model string, requirements router.TranslationRequirements) bool {
+	if !requiresMidConversationSystemSupport(requirements) {
+		return true
+	}
+	return provider == providers.ProviderAnthropic &&
+		router.Lookup(model).SupportsModelSpecificRequirements(requirements)
+}
+
+func filterTranslationCompatibleBindings(bindings []catalog.ProviderBinding, model string, requirements router.TranslationRequirements) []catalog.ProviderBinding {
+	if !requiresMidConversationSystemSupport(requirements) {
+		return bindings
+	}
+	compatible := make([]catalog.ProviderBinding, 0, len(bindings))
+	for _, binding := range bindings {
+		if targetPreservesTranslationRequirements(binding.Provider, model, requirements) {
+			compatible = append(compatible, binding)
+		}
+	}
+	return compatible
+}
+
+func requiresMidConversationSystemSupport(requirements router.TranslationRequirements) bool {
+	return requirements.MidConversationSystemMessages ||
+		requirements.MidConversationToolChanges ||
+		requirements.MidConversationOutputConfig ||
+		requirements.TurnScopedSystemMessages
+}
+
+func (s *Service) resolveCompatibleBindingsForDispatch(ctx context.Context, decision router.Decision, requirements router.TranslationRequirements) []catalog.ProviderBinding {
+	return filterTranslationCompatibleBindings(
+		s.resolveBindingsForDispatch(ctx, decision),
+		decision.Model,
+		requirements,
+	)
 }
 
 func sourceNativeConstraint(req router.TranslationRequirements, code string) (translationConstraint, bool) {
@@ -317,6 +423,9 @@ func (s *Service) applyTranslationPlan(ctx context.Context, req router.Request) 
 	}
 	if plan.ExcludedModels != nil {
 		req.ExcludedModels = plan.ExcludedModels
+	}
+	if plan.SafetyExcludedModels != nil {
+		req.SafetyExcludedModels = plan.SafetyExcludedModels
 	}
 	for _, exclusion := range plan.Exclusions {
 		apm.RecordTranslationCompatibility(ctx,

@@ -95,6 +95,18 @@ func deriveAnthropicHeaders(in http.Header, opts EmitOptions, body []byte) http.
 	if gjson.GetBytes(body, "speed").Exists() {
 		beta = ensureBetaToken(beta, fastModeBeta)
 	}
+	midConversationSystem, toolChanges, outputConfig, turnScoped := anthropicMidConversationRequirements(body)
+	if midConversationSystem && (opts.TargetProvider == "" || opts.TargetProvider == providers.ProviderAnthropic) {
+		if toolChanges && opts.Capabilities.Supports(router.CapMidConversationToolChanges) {
+			beta = ensureBetaToken(beta, midConversationToolChangesBeta)
+		}
+		if outputConfig && opts.Capabilities.Supports(router.CapMidConversationOutputConfig) {
+			beta = ensureBetaToken(beta, midConversationOutputConfigBeta)
+		}
+		if turnScoped && opts.Capabilities.Supports(router.CapTurnScopedSystemMessages) {
+			beta = ensureBetaToken(beta, turnScopedSystemMessagesBeta)
+		}
+	}
 	if beta != "" {
 		h.Set("anthropic-beta", beta)
 	}
@@ -116,6 +128,12 @@ func HasContext1MBeta(headers http.Header) bool {
 }
 
 const contextManagementBeta = "context-management-2025-06-27"
+
+const (
+	midConversationToolChangesBeta  = "mid-conversation-tool-changes-2026-07-01"
+	midConversationOutputConfigBeta = "mid-conversation-output-config-2026-07-01"
+	turnScopedSystemMessagesBeta    = "mid-conversation-system-clear-at-2026-08-21"
+)
 
 // serverSideFallbackBeta is the first-party Anthropic beta for server-side
 // fallback; gateways reject the unknown top-level key with a 400.
@@ -164,6 +182,15 @@ func filterBetaHeader(beta, targetModel string) string {
 }
 
 func betaCompatible(token string, spec router.ModelSpec) bool {
+	if strings.Contains(token, "mid-conversation-tool-changes") {
+		return spec.Supports(router.CapMidConversationToolChanges)
+	}
+	if strings.Contains(token, "mid-conversation-output-config") {
+		return spec.Supports(router.CapMidConversationOutputConfig)
+	}
+	if strings.Contains(token, "mid-conversation-system-clear-at") {
+		return spec.Supports(router.CapTurnScopedSystemMessages)
+	}
 	if strings.Contains(token, "server-side-fallback") {
 		return spec.Supports(router.CapServerSideFallback)
 	}
@@ -735,6 +762,10 @@ func writeAnthropicSharedParams(jw *jsonWriter, body []byte) {
 }
 
 func (e *RequestEnvelope) buildAnthropicFromAnthropic(opts EmitOptions) ([]byte, error) {
+	requirements := e.TranslationRequirements(router.EndpointAnthropicMessages)
+	if !opts.Capabilities.SupportsModelSpecificRequirements(requirements) {
+		return nil, fmt.Errorf("%w: target model %q", ErrModelTranslationRequirementsIncompatible, opts.TargetModel)
+	}
 	body, err := hoistAnthropicSystemMessages(e.body)
 	if err != nil {
 		return nil, fmt.Errorf("hoist system messages: %w", err)
@@ -743,10 +774,8 @@ func (e *RequestEnvelope) buildAnthropicFromAnthropic(opts EmitOptions) ([]byte,
 	return applyOverrides(body, ov)
 }
 
-// hoistAnthropicSystemMessages clears role:"system" entries from "messages"
-// (Anthropic's API 400s on them after a mid-session model switch). Only the
-// leading run is hoisted; mid-conversation ones are rewritten as user messages
-// in place to keep the cached prefix stable. No-op if none present.
+// hoistAnthropicSystemMessages moves only the leading plain-text system run to
+// the top-level field. Later system messages stay at their original indices.
 func hoistAnthropicSystemMessages(body []byte) ([]byte, error) {
 	msgs := gjson.GetBytes(body, "messages")
 	if !msgs.IsArray() {
@@ -754,35 +783,25 @@ func hoistAnthropicSystemMessages(body []byte) ([]byte, error) {
 	}
 
 	var hoisted []string // text from the leading system run, in order
-	var kept []string    // raw message objects, system entries demoted to user
+	var kept []string    // raw message objects after the leading system run
 	leading := true
-	rewritten := false
 	for _, msg := range msgs.Array() {
 		isSystem := msg.Get("role").String() == "system"
+		toolChanges, outputConfig, turnScoped := anthropicSystemMessageRequirements(msg)
+		needsNativeRole := toolChanges || outputConfig || turnScoped
 		switch {
-		case isSystem && leading:
+		case isSystem && leading && !needsNativeRole:
 			hoisted = append(hoisted, anthropicSystemTexts(msg.Get("content"))...)
 		case isSystem:
-			demoted, err := sjson.Set(msg.Raw, "role", "user")
-			if err != nil {
-				return nil, fmt.Errorf("demote system message: %w", err)
-			}
-			kept = append(kept, demoted)
-			rewritten = true
+			leading = false
+			kept = append(kept, msg.Raw)
 		default:
 			leading = false
 			kept = append(kept, msg.Raw)
 		}
 	}
-	if len(hoisted) == 0 && !rewritten {
-		return body, nil
-	}
 	if len(hoisted) == 0 {
-		out, err := sjson.SetRawBytes(body, "messages", []byte("["+strings.Join(kept, ",")+"]"))
-		if err != nil {
-			return nil, fmt.Errorf("rebuild messages: %w", err)
-		}
-		return out, nil
+		return body, nil
 	}
 
 	// Merge: existing top-level system blocks first, then the hoisted text.
@@ -862,22 +881,22 @@ func sanitizeAnthropicToolNamesBytes(body []byte) ([]byte, error) {
 	out, err := rewriteMessageBlocks(
 		body,
 		func(block gjson.Result) bool {
-			if block.Get("type").String() != "tool_use" {
+			name, _ := anthropicToolBlockName(block)
+			if name == "" {
 				return false
 			}
-			name := block.Get("name").String()
 			_, hasAlias := aliases[name]
 			return hasAlias || utf8.RuneCountInString(name) > maxAnthropicHistoricalToolNameChars
 		},
 		func(raw string) (string, error) {
-			name := gjson.Get(raw, "name").String()
+			name, path := anthropicToolBlockName(gjson.Parse(raw))
 			alias, ok := aliases[name]
 			if !ok {
 				alias = sanitizedAnthropicToolName(name)
 			}
-			rewritten, rewriteErr := sjson.Set(raw, "name", alias)
+			rewritten, rewriteErr := sjson.Set(raw, path, alias)
 			if rewriteErr != nil {
-				return "", fmt.Errorf("rewrite tool_use name: %w", rewriteErr)
+				return "", fmt.Errorf("rewrite Anthropic tool reference name: %w", rewriteErr)
 			}
 			return rewritten, nil
 		},
@@ -905,6 +924,20 @@ func sanitizeAnthropicToolNamesBytes(body []byte) ([]byte, error) {
 		}
 	}
 	return out, nil
+}
+
+func anthropicToolBlockName(block gjson.Result) (name, path string) {
+	switch block.Get("type").String() {
+	case "tool_use":
+		return block.Get("name").String(), "name"
+	case "tool_addition", "tool_removal":
+		if block.Get("tool.type").String() != "tool_reference" {
+			return "", ""
+		}
+		return block.Get("tool.name").String(), "tool.name"
+	default:
+		return "", ""
+	}
 }
 
 func sanitizedAnthropicToolName(name string) string {

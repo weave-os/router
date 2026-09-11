@@ -27,6 +27,10 @@ func (e *RequestEnvelope) TranslationRequirements(endpoint router.TranslationEnd
 		req.StructuredOutput = gjson.GetBytes(e.body, "output_config.format").Exists()
 		req.Audio, req.Files = anthropicMediaRequirements(e.body)
 		req.CitationsOrSearch = len(e.NativeServerTools()) > 0
+		req.MidConversationSystemMessages,
+			req.MidConversationToolChanges,
+			req.MidConversationOutputConfig,
+			req.TurnScopedSystemMessages = anthropicMidConversationRequirements(e.body)
 	case FormatOpenAI:
 		req.SourceFormat = router.WireFormatOpenAI
 		req.ReasoningReplay = hasContentType(e.body, "reasoning") || gjson.GetBytes(e.body, "reasoning").Exists()
@@ -42,6 +46,41 @@ func (e *RequestEnvelope) TranslationRequirements(endpoint router.TranslationEnd
 		req.Audio, req.Files = geminiMediaRequirements(e.body)
 	}
 	return req
+}
+
+func anthropicMidConversationRequirements(body []byte) (systemMessages, toolChanges, outputConfig, turnScoped bool) {
+	leadingSystemRun := true
+	gjson.GetBytes(body, "messages").ForEach(func(_, message gjson.Result) bool {
+		if message.Get("role").String() != "system" {
+			leadingSystemRun = false
+			return true
+		}
+		messageToolChanges, messageOutputConfig, messageTurnScoped := anthropicSystemMessageRequirements(message)
+		if leadingSystemRun && !messageToolChanges && !messageOutputConfig && !messageTurnScoped {
+			return true
+		}
+
+		systemMessages = true
+		toolChanges = toolChanges || messageToolChanges
+		outputConfig = outputConfig || messageOutputConfig
+		turnScoped = turnScoped || messageTurnScoped
+		leadingSystemRun = false
+		return true
+	})
+	return systemMessages, toolChanges, outputConfig, turnScoped
+}
+
+func anthropicSystemMessageRequirements(message gjson.Result) (toolChanges, outputConfig, turnScoped bool) {
+	outputConfig = message.Get("output_config").Exists()
+	turnScoped = message.Get("clear_at").Exists()
+	message.Get("content").ForEach(func(_, block gjson.Result) bool {
+		switch block.Get("type").String() {
+		case "tool_addition", "tool_removal":
+			toolChanges = true
+		}
+		return true
+	})
+	return toolChanges, outputConfig, turnScoped
 }
 
 func hasContentType(body []byte, typ string) bool {

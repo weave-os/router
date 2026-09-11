@@ -23,6 +23,18 @@ const (
 	// CapAutoToolChoiceOnly marks models that 400 on a forced tool_choice
 	// ({"type":"any"} / {"type":"tool"}); emit downgrades those to auto.
 	CapAutoToolChoiceOnly ModelCapability = "auto_tool_choice_only"
+	// CapMidConversationSystemMessages marks models accepting role:"system"
+	// entries inside messages without moving them into the top-level prompt.
+	CapMidConversationSystemMessages ModelCapability = "mid_conversation_system_messages"
+	// CapMidConversationToolChanges marks models accepting tool_addition and
+	// tool_removal blocks in mid-conversation system messages.
+	CapMidConversationToolChanges ModelCapability = "mid_conversation_tool_changes"
+	// CapMidConversationOutputConfig marks models accepting message-level
+	// output_config changes to effort inside the conversation.
+	CapMidConversationOutputConfig ModelCapability = "mid_conversation_output_config"
+	// CapTurnScopedSystemMessages marks models accepting clear_at on an
+	// in-history system message.
+	CapTurnScopedSystemMessages ModelCapability = "turn_scoped_system_messages"
 )
 
 // ModelSpec describes what a model supports. Zero value is safe: provider
@@ -53,6 +65,30 @@ func NewSpec(caps ...ModelCapability) ModelSpec {
 		s.capabilities[c] = struct{}{}
 	}
 	return s
+}
+
+func withCapabilities(spec ModelSpec, caps ...ModelCapability) ModelSpec {
+	cloned := ModelSpec{
+		capabilities: make(map[ModelCapability]struct{}, len(spec.capabilities)+len(caps)),
+		reasoning:    spec.reasoning,
+	}
+	for capability := range spec.capabilities {
+		cloned.capabilities[capability] = struct{}{}
+	}
+	for _, capability := range caps {
+		cloned.capabilities[capability] = struct{}{}
+	}
+	return cloned
+}
+
+// SupportsModelSpecificRequirements reports whether the model can preserve
+// every capability-backed semantic in requirements. Provider-family and
+// endpoint compatibility are enforced separately by proxy.
+func (s ModelSpec) SupportsModelSpecificRequirements(requirements TranslationRequirements) bool {
+	return (!requirements.MidConversationSystemMessages || s.Supports(CapMidConversationSystemMessages)) &&
+		(!requirements.MidConversationToolChanges || s.Supports(CapMidConversationToolChanges)) &&
+		(!requirements.MidConversationOutputConfig || s.Supports(CapMidConversationOutputConfig)) &&
+		(!requirements.TurnScopedSystemMessages || s.Supports(CapTurnScopedSystemMessages))
 }
 
 // NewSpecWithReasoning creates a model spec with explicit reasoning support.
@@ -130,6 +166,32 @@ var (
 	// this model"); opus-5 and fable-5 accept them.
 	anthropicAdaptiveFallbackAutoTools = NewSpecWithReasoning(ReasoningCapabilities{Levels: []string{"low", "medium", "high", "max", "xhigh"}, AlwaysOn: true}, CapAdaptiveThinking, CapExtendedContext, CapXhighEffort, CapServerSideFallback, CapAutoToolChoiceOnly)
 	anthropicExtended                  = NewSpecWithReasoning(ReasoningCapabilities{Levels: []string{"low", "medium", "high"}, SupportsBudget: true}, CapExtendedThinking)
+	// Mid-conversation system roles, tool changes, and turn scoping share a
+	// model roster. Message-level output_config is narrower: Opus 5 and Fable
+	// 5.1 support it, while Opus 4.8 and Fable 5 do not.
+	anthropicAdaptiveXhighMidConversation = withCapabilities(
+		anthropicAdaptiveXhigh,
+		CapMidConversationSystemMessages,
+		CapMidConversationToolChanges,
+		CapTurnScopedSystemMessages,
+	)
+	anthropicAdaptiveFallbackMidConversation = withCapabilities(
+		anthropicAdaptiveFallback,
+		CapMidConversationSystemMessages,
+		CapMidConversationToolChanges,
+		CapTurnScopedSystemMessages,
+	)
+	anthropicAdaptiveFallbackMidConversationOutput = withCapabilities(
+		anthropicAdaptiveFallbackMidConversation,
+		CapMidConversationOutputConfig,
+	)
+	anthropicAdaptiveFallbackAutoToolsMidConversationOutput = withCapabilities(
+		anthropicAdaptiveFallbackAutoTools,
+		CapMidConversationSystemMessages,
+		CapMidConversationToolChanges,
+		CapMidConversationOutputConfig,
+		CapTurnScopedSystemMessages,
+	)
 )
 
 var (
@@ -158,10 +220,10 @@ var openAICompatBase = NewSpec()
 var registry = map[string]ModelSpec{
 	// claude-fable-5 has adaptive thinking always on (disabled is rejected);
 	// 1M context is native, so CapExtendedContext's beta header is a no-op.
-	"claude-fable-5":   anthropicAdaptiveFallback,
-	"claude-fable-5-1": anthropicAdaptiveFallbackAutoTools,
-	"claude-opus-5":    anthropicAdaptiveFallback,
-	"claude-opus-4-8":  anthropicAdaptiveXhigh,
+	"claude-fable-5":   anthropicAdaptiveFallbackMidConversation,
+	"claude-fable-5-1": anthropicAdaptiveFallbackAutoToolsMidConversationOutput,
+	"claude-opus-5":    anthropicAdaptiveFallbackMidConversationOutput,
+	"claude-opus-4-8":  anthropicAdaptiveXhighMidConversation,
 	"claude-opus-4-7":  anthropicAdaptiveXhigh,
 	// claude-sonnet-5 mirrors sonnet-4-6: no xhigh, since Sonnet tops out at
 	// effort "max" and marking xhigh unsupported clamps rather than 400s.

@@ -84,7 +84,7 @@ func (s *Service) usageBypassEngaged(ctx context.Context, headers http.Header, r
 			return "", false
 		}
 	}
-	// Use SafetyExcludedModels (hard constraints: context-overflow, gemini-unsigned),
+	// Use SafetyExcludedModels (hard context, history, and translation constraints),
 	// not ExcludedModels — the installation's excluded_models is a routing preference
 	// bypass may override; a model that can't accept the request on any credential cannot.
 	if _, excluded := req.SafetyExcludedModels[model]; excluded {

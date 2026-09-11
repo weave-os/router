@@ -32,6 +32,46 @@ func TestTranslationRequirements_DetectsAnthropicPreservationSemantics(t *testin
 	assert.True(t, req.CitationsOrSearch)
 }
 
+func TestTranslationRequirements_DetectsAnthropicMidConversationSystemSemantics(t *testing.T) {
+	env, err := ParseAnthropic([]byte(`{
+        "messages":[
+          {"role":"system","content":"leading rule"},
+          {"role":"user","content":"hello"},
+          {"role":"system","content":[
+            {"type":"text","text":"change tools"},
+            {"type":"tool_removal","tool":{"type":"tool_reference","name":"old_tool"}},
+            {"type":"tool_addition","tool":{"type":"tool_reference","name":"new_tool"}}
+          ],"output_config":{"effort":"high"}},
+          {"role":"assistant","content":"done"},
+          {"role":"system","clear_at":"next_user_message","content":"be concise"}
+        ]
+    }`))
+	require.NoError(t, err)
+
+	requirements := env.TranslationRequirements(router.EndpointAnthropicMessages)
+	assert.True(t, requirements.MidConversationSystemMessages)
+	assert.True(t, requirements.MidConversationToolChanges)
+	assert.True(t, requirements.MidConversationOutputConfig)
+	assert.True(t, requirements.TurnScopedSystemMessages)
+}
+
+func TestTranslationRequirements_LeadingAnthropicSystemMessagesDoNotRequireMidConversationSupport(t *testing.T) {
+	env, err := ParseAnthropic([]byte(`{
+        "messages":[
+          {"role":"system","content":"first"},
+          {"role":"system","content":"second"},
+          {"role":"user","content":"hello"}
+        ]
+    }`))
+	require.NoError(t, err)
+
+	requirements := env.TranslationRequirements(router.EndpointAnthropicMessages)
+	assert.False(t, requirements.MidConversationSystemMessages)
+	assert.False(t, requirements.MidConversationToolChanges)
+	assert.False(t, requirements.MidConversationOutputConfig)
+	assert.False(t, requirements.TurnScopedSystemMessages)
+}
+
 func TestTranslationRequirements_NativeServerToolsAreStructural(t *testing.T) {
 	tests := []struct {
 		name string

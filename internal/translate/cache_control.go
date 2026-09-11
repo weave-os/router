@@ -117,6 +117,13 @@ func validateAnthropicCacheControls(request map[string]any) (int, error) {
 			object, _ := message.(map[string]any)
 			blocks, _ := object["content"].([]any)
 			for _, block := range blocks {
+				if object["role"] == "system" && object["clear_at"] == "next_user_message" {
+					if blockObject, ok := block.(map[string]any); ok {
+						if _, hasCacheControl := blockObject["cache_control"]; hasCacheControl {
+							return 0, fmt.Errorf("%w: cache_control is not permitted on a turn-scoped system message", ErrAnthropicCacheControlInvalid)
+						}
+					}
+				}
 				if err := visit(block); err != nil {
 					return 0, err
 				}
@@ -171,8 +178,16 @@ func addCacheControlToLastMessageBlock(request map[string]any) (func(), bool) {
 	if !ok || len(messages) == 0 {
 		return nil, false
 	}
-	message, ok := messages[len(messages)-1].(map[string]any)
-	if !ok {
+	var message map[string]any
+	for index := len(messages) - 1; index >= 0; index-- {
+		candidate, candidateOK := messages[index].(map[string]any)
+		if !candidateOK || candidate["role"] == "system" {
+			continue
+		}
+		message = candidate
+		break
+	}
+	if message == nil {
 		return nil, false
 	}
 	blocks, ok := message["content"].([]any)

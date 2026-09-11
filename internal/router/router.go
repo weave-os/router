@@ -47,6 +47,11 @@ type TranslationRequirements struct {
 	PromptCacheControl bool
 	UsageDetail        bool
 
+	MidConversationSystemMessages bool
+	MidConversationToolChanges    bool
+	MidConversationOutputConfig   bool
+	TurnScopedSystemMessages      bool
+
 	// NativeOnly requires the source wire family and endpoint to reach the
 	// upstream unchanged. It is used for currently unrepresentable unions,
 	// never as a quality preference.
@@ -57,7 +62,9 @@ type TranslationRequirements struct {
 func (r TranslationRequirements) IsZero() bool {
 	return r.SourceFormat == "" && r.Endpoint == "" && !r.FunctionTools && !r.CustomTools &&
 		!r.ReasoningReplay && !r.ReasoningSignature && !r.Images && !r.Audio && !r.Files &&
-		!r.CitationsOrSearch && !r.StructuredOutput && !r.PromptCacheControl && !r.UsageDetail && !r.NativeOnly
+		!r.CitationsOrSearch && !r.StructuredOutput && !r.PromptCacheControl && !r.UsageDetail &&
+		!r.MidConversationSystemMessages && !r.MidConversationToolChanges &&
+		!r.MidConversationOutputConfig && !r.TurnScopedSystemMessages && !r.NativeOnly
 }
 
 type Overrides struct {
@@ -167,11 +174,11 @@ type Request struct {
 	// into it); this field lets scorer/resolver NAME the constraint in errors
 	// rather than reporting a large exclusion list.
 	AllowedModels map[string]struct{}
-	// SafetyExcludedModels holds only the hard request-time constraints a model
-	// physically cannot satisfy: context-window overflow and gemini-unsigned
-	// history — not the installation's excluded_models policy. The bypass gate
-	// consults this so policy exclusions don't block pass-through, but physical
-	// constraints still do.
+	// SafetyExcludedModels holds only hard request-time constraints a model
+	// physically cannot satisfy: context-window overflow, Gemini-unsigned
+	// history, and capability-backed translation requirements — not the
+	// installation's excluded_models policy. The bypass gate consults this so
+	// policy exclusions don't block pass-through, but physical constraints do.
 	SafetyExcludedModels map[string]struct{}
 	// AutomaticExcludedModels is the deployment-wide set Weave has withdrawn
 	// from AUTOMATIC selection. Deliberately not folded into ExcludedModels:

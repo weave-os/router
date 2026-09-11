@@ -3668,7 +3668,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	// but the v0.58 SWE-bench bake-off traced 46/84 empty-patch failures to
 	// exactly that: an api_error left Claude Code with only marker text and no
 	// tool_use. Cost: one round-trip's buffered SSE bytes (~200B).
-	bindings := s.resolveBindingsForDispatch(ctx, decision)
+	bindings := s.resolveCompatibleBindingsForDispatch(ctx, decision, req.TranslationRequirements)
 
 	// Subscription-only mode: a non-bypass turn (hard-pin, force-model, sticky)
 	// wins before usage-bypass in runTurnLoop but can still serve free on the
@@ -3790,6 +3790,9 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	// providers route automatically; a closure so in-turn model failover can
 	// re-emit for a candidate in a different family.
 	buildAttempt := func(target router.Decision, targetOpts translate.EmitOptions, targetMarker string) (dispatchAttempt, error) {
+		if !targetPreservesTranslationRequirements(target.Provider, target.Model, req.TranslationRequirements) {
+			return nil, fmt.Errorf("%w: model %q on provider %q", translate.ErrModelTranslationRequirementsIncompatible, target.Model, target.Provider)
+		}
 		switch providers.FamilyFor(target.Provider) {
 		case providers.FamilyAnthropic:
 			prep, emitErr := env.PrepareAnthropic(r.Header, targetOpts)
@@ -3801,6 +3804,9 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			logUpstreamBody(log, routeRes.SessionKey, target, feats, prep.Body)
 			tiered := anthropicTierAttemptFor(targetOpts, prep, targetMarker)
 			return func(actx context.Context, d router.Decision, p providers.Client) error {
+				if !targetPreservesTranslationRequirements(d.Provider, d.Model, req.TranslationRequirements) {
+					return fmt.Errorf("%w: model %q on provider %q", translate.ErrModelTranslationRequirementsIncompatible, d.Model, d.Provider)
+				}
 				attemptOpts, err := tiered.dispatch(actx, d, p, recordFastServed)
 				// Cortex documents output_config.format, so the knob goes out as
 				// written; only a gateway whose relayed schema predates it rejects
@@ -4071,7 +4077,8 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		baselineAllowed &&
 		decision.Provider != providers.ProviderAnthropic &&
 		baselineModel != decision.Model &&
-		baselineKnown && baselineCatalog.PrimaryProvider() == providers.ProviderAnthropic
+		baselineKnown && baselineCatalog.PrimaryProvider() == providers.ProviderAnthropic &&
+		targetPreservesTranslationRequirements(providers.ProviderAnthropic, baselineModel, req.TranslationRequirements)
 	baselineEligible := !routeRes.AuthoritativePerTurn && baselineViable
 
 	// Subscription-credit failover eligibility. A Claude turn served on the
@@ -4103,7 +4110,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	// turns (a different model incurs the paid spend that mode forbids). BYOK
 	// normally disables failover, but a gateway-aliased sibling uses the same
 	// held credentials, so it stays eligible.
-	siblingDecision, siblingFound := s.siblingFailoverDecision(ctx, decision, overflowEstimate, env.SignatureTokenSavings(), outputReserve)
+	siblingDecision, siblingFound := s.siblingFailoverDecision(ctx, decision, req.TranslationRequirements, overflowEstimate, env.SignatureTokenSavings(), outputReserve)
 	siblingViable := s.ResolveSiblingFailover(ctx) &&
 		siblingFound &&
 		!agentShadowMode &&
@@ -4249,7 +4256,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			if baselineSubExhausted {
 				ctx = withSuppressedClaudeSubscription(ctx)
 			}
-			baselineBindings := s.resolveBindingsForDispatch(baselineCtx, baselineDecision)
+			baselineBindings := s.resolveCompatibleBindingsForDispatch(baselineCtx, baselineDecision, req.TranslationRequirements)
 			baselineMarker := suppressMarkerIfRequested(ctx, r.Header, baselineRoutingMarkerFor(routeRes, baselineModel))
 			baselineAttempt := anthropicTierAttemptFor(baselineOpts, baselinePrep, baselineMarker).attempt(recordFastServed)
 			fastServed = baselineOpts.FastMode
@@ -4306,7 +4313,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			if !siblingViable {
 				flushDeferredErr()
 			}
-		} else if subBindings := s.resolveBindingsForDispatch(subCtx, decision); len(subBindings) == 0 {
+		} else if subBindings := s.resolveCompatibleBindingsForDispatch(subCtx, decision, req.TranslationRequirements); len(subBindings) == 0 {
 			// No usable Anthropic binding under suppression — surface the
 			// original retryable error (real throttle) rather than a synthetic
 			// 502 that would mask it. No Weave key attempted, so attribution
@@ -4377,7 +4384,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		effortServed.apply(&siblingOpts)
 		siblingCtx := resolveAndInjectCredentials(ctx, siblingDecision.Provider, siblingDecision.Model, r.Header)
 		siblingOpts.FastMode = fastModeForAttempt(siblingCtx, siblingDecision.Model, siblingDecision.Provider)
-		siblingBindings := s.resolveBindingsForDispatch(siblingCtx, siblingDecision)
+		siblingBindings := s.resolveCompatibleBindingsForDispatch(siblingCtx, siblingDecision, req.TranslationRequirements)
 		siblingMarker := suppressMarkerIfRequested(ctx, r.Header, siblingRoutingMarkerFor(routeRes, siblingDecision.Model))
 		siblingAttempt, siblingBuildErr := buildAttempt(siblingDecision, siblingOpts, siblingMarker)
 		switch {
