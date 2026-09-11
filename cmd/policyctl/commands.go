@@ -21,23 +21,26 @@ import (
 type commandName string
 
 const (
-	commandCompile  commandName = "compile"
-	commandValidate commandName = "validate"
-	commandPublish  commandName = "publish"
-	commandPromote  commandName = "promote"
-	commandRollback commandName = "rollback"
-	commandStatus   commandName = "status"
+	commandCompile      commandName = "compile"
+	commandCheckRosters commandName = "check-rosters"
+	commandValidate     commandName = "validate"
+	commandPublish      commandName = "publish"
+	commandPromote      commandName = "promote"
+	commandRollback     commandName = "rollback"
+	commandStatus       commandName = "status"
 )
 
 const defaultRegistryURI = "gs://weave_ml/weave_registry"
 
 func run(ctx context.Context, args []string) error {
 	if len(args) == 0 {
-		return errors.New("usage: policyctl <compile|validate|publish|promote|rollback|status> [flags]")
+		return errors.New("usage: policyctl <compile|check-rosters|validate|publish|promote|rollback|status> [flags]")
 	}
 	switch commandName(args[0]) {
 	case commandCompile:
 		return runCompile(args[1:])
+	case commandCheckRosters:
+		return runCheckRosters(args[1:])
 	case commandValidate:
 		return runValidate(args[1:])
 	case commandPublish:

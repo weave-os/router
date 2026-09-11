@@ -22,6 +22,17 @@ func canonicalHarness(harness string) rosterdata.Harness {
 	return rosterdata.Harness(harness)
 }
 
+// CompilableSource reports whether reviewed roster source in the given schema
+// carries everything Go selection needs. v6 and older lack WII/WPI provenance,
+// so the serving loader may still parse them but Compile can never emit a policy.
+func CompilableSource(schema rosterdata.SchemaVersion) bool {
+	switch schema {
+	case rosterdata.SchemaVersionV7, rosterdata.SchemaVersionV75C, rosterdata.SchemaVersionPolicyV1:
+		return true
+	}
+	return false
+}
+
 // Options contains reviewed policy metadata. Offline evidence is provenance;
 // it never changes membership or order inside Compile.
 type Options struct {
