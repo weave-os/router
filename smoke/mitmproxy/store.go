@@ -125,6 +125,14 @@ func (s *store) save(key string, c *cassette) error {
 		return err
 	}
 	tmpPath := tmp.Name()
+	// CreateTemp deliberately uses 0600. The cassettes directory is bind
+	// mounted into the nightly recorder, so the host runner must be able to
+	// read the file after the container exits and Git hashes it.
+	if err := tmp.Chmod(0o644); err != nil {
+		tmp.Close()
+		os.Remove(tmpPath)
+		return err
+	}
 	if _, err := tmp.Write(raw); err != nil {
 		tmp.Close()
 		os.Remove(tmpPath)

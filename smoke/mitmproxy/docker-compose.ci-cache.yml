@@ -27,3 +27,10 @@ services:
         - type=gha,scope=router-smoke-mitmproxy
       cache_to:
         - type=gha,scope=router-smoke-mitmproxy,mode=max
+
+  seed:
+    build:
+      cache_from:
+        - type=gha,scope=router-smoke-seed
+      cache_to:
+        - type=gha,scope=router-smoke-seed,mode=max

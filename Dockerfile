@@ -210,6 +210,21 @@ RUN --mount=type=cache,target=/go/pkg/mod \
       -ldflags "-X weave-os/router/internal/version.Commit=${ROUTER_SHA} -X weave-os/router/internal/version.BuildTime=${ROUTER_BUILD_TIME} -X weave-os/router/internal/version.PR=${ROUTER_PR}" \
       -o /server
 
+# The smoke suite's one-shot seed command does not need the router's CGO/ONNX
+# runtime. Keep it as a small target in this Dockerfile so CI does not start a
+# fresh Go SDK container and run `go run` on every smoke invocation.
+FROM golang:1.25.9-bookworm AS seed-build
+WORKDIR /app
+COPY go.mod go.sum ./
+RUN --mount=type=cache,target=/go/pkg/mod go mod download
+COPY cmd/seed ./cmd/seed
+COPY internal ./internal
+RUN CGO_ENABLED=0 go build -o /seed ./cmd/seed
+
+FROM gcr.io/distroless/static-debian12 AS seed-runtime
+COPY --from=seed-build /seed /seed
+ENTRYPOINT ["/seed"]
+
 
 FROM gcr.io/distroless/cc-debian12 AS build-release-stage
 

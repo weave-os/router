@@ -6,6 +6,12 @@ on:
     branches: [main]
   pull_request:
 
+# A newer commit supersedes an older PR run; stop the older run to free its
+# runner and avoid reporting stale results.
+concurrency:
+  group: test-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 

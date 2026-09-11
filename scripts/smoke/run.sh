@@ -122,8 +122,11 @@ services:
       OPENAI_API_KEY: "${SERVER_OPENAI_KEY}"
 EOF
 
-log "building and starting the router stack (proxy mode: $PROXY_MODE)"
-SMOKE_PROXY_MODE="$PROXY_MODE" $COMPOSE up -d --build server mitmproxy
+log "building router images (proxy mode: $PROXY_MODE)"
+SMOKE_PROXY_MODE="$PROXY_MODE" $COMPOSE build server mitmproxy seed
+
+log "starting the router stack"
+SMOKE_PROXY_MODE="$PROXY_MODE" $COMPOSE up -d server mitmproxy
 
 log "waiting for /health at ${BASE_URL}"
 deadline=$((SECONDS + 120))
@@ -160,4 +163,3 @@ if [[ "$PROXY_MODE" != "replay-only" ]]; then
     log "cassettes changed — review and commit smoke/mitmproxy/cassettes/ if this run should update the fixtures"
   fi
 fi
-

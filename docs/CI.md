@@ -41,9 +41,9 @@ extraction repeatedly failed with `Cannot open: File exists`, and the restored
 cache was discarded. Keep the workflow pins synchronized when the toolchain
 directive changes.
 
-## Follow-up backlog
+## Follow-up status
 
-### P0: repair the nightly cassette refresh
+### P0: repair the nightly cassette refresh (implemented)
 
 The scheduled Smoke workflow is functionally broken. The smoke tests record
 fresh cassettes successfully, but the Docker container writes files that the
@@ -58,13 +58,14 @@ fatal: updating files failed
 All 20 scheduled runs inspected failed this way. Public example:
 [run 34574571427](https://github.com/weave-os/router/actions/runs/34574571427).
 
-Make the recording container write with the runner's UID and GID. An ownership
-normalization step before Git operations is a smaller fallback, but aligning
-the writer avoids producing inaccessible workspace files in the first place.
-The fix is complete when a scheduled record run can read and stage every
-cassette, then either report no drift or open the refresh PR.
+The recorder now changes its temporary cassette file from `0600` (the default
+from Go's `os.CreateTemp`) to `0644` before the atomic rename. That preserves
+the bind-mounted write path while allowing the host runner to read and hash
+the file after the container exits. The fix is complete when a scheduled
+record run can read and stage every cassette, then either report no drift or
+open the refresh PR.
 
-### 3. Make Smoke's Docker cache effective and remove the cold seed container
+### 3. Make Smoke's Docker cache effective and remove the cold seed container (implemented)
 
 The Smoke Compose overlay declares a GitHub Actions cache, but sampled BuildKit
 logs did not contain cache import or export activity. Expensive layers rebuilt
@@ -73,25 +74,26 @@ on every run: `npm ci` and the UI build took roughly 32s each, two
 41s. The separate `golang:1.25-bookworm` seed service added about 47s while it
 downloaded and compiled on a cold container.
 
-Use an explicit `docker buildx bake` or `docker/build-push-action` build step
-with stable per-image `type=gha` scopes, then start Compose with `--no-build`.
-Import the cache from `main` so a new PR branch can reuse it. Build the seed
-binary into an existing image, or a small dedicated image, and invoke that
-artifact instead of `go run` in a fresh SDK container.
+The Smoke runner now invokes an explicit `docker compose build` for the server,
+MITM proxy, and seed targets before starting Compose without `--build`. The
+seed service builds a small `seed-runtime` target instead of launching a fresh
+`golang:1.25-bookworm` SDK container and running `go run`. Each image has its
+own stable `type=gha` cache scope.
 
-Verify this by checking that warm-run logs show both cache import and export,
-and by comparing the build and seed phases across at least ten comparable PR
-runs.
+Verify this change on the next CI runs by checking that warm-run logs show both
+cache import and export, and compare the build and seed phases across at least
+ten comparable PR runs.
 
 ### 4. Cancel superseded Test runs
 
-The Smoke workflow already cancels an older run when a PR is updated, but the
-Test workflow does not. Eleven overlapping stale Test runs in the inspected
-sample consumed 23.1 runner-minutes after a newer commit existed.
+The Test workflow now follows the same policy as Smoke. Before this change,
+eleven overlapping stale Test runs in the inspected sample consumed 23.1
+runner-minutes after a newer commit existed.
 
-Add workflow concurrency keyed by PR number, falling back to the ref for push
-runs, with `cancel-in-progress: true`. Keep scheduled or manually dispatched
-workflows in separate groups where cancellation would change their semantics.
+The concurrency group is keyed by PR number, falling back to the ref for push
+runs, with `cancel-in-progress: true`. If Test later gains scheduled or manual
+triggers, keep those in separate groups where cancellation would change their
+semantics.
 
 ### 5. Remove real retry delays from proxy tests
 
