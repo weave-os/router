@@ -523,7 +523,27 @@ func main() {
 		logger.Info("Per-organization flag overrides disabled deployment-wide (ROUTER_FLAG_OVERRIDES_DISABLED=true)")
 	}
 
+	dependencyLimits := requestcontext.DefaultPreparationLimits()
+	var failOpenHealth *requestcontext.DependencyHealth
+	if config.GetOr("ROUTER_DEPENDENCY_FAIL_OPEN", "false") == "true" {
+		failOpenHealth = requestcontext.NewDependencyHealth()
+	}
+	prepareDependencies := auth.RequestPreparer(func(ctx context.Context) context.Context {
+		if failOpenHealth == nil {
+			return ctx
+		}
+		prepared, _, _ := requestcontext.BeginPreparation(ctx, failOpenHealth, dependencyLimits)
+		return prepared
+	})
+	startDatabaseDependency := auth.DependencyStarter(func(ctx context.Context) (context.Context, func(error), error) {
+		return requestcontext.StartDependency(ctx, requestcontext.DependencyDatabase)
+	})
+	var billingFailOpen *middleware.BillingFailOpenCache
+	if failOpenHealth != nil {
+		billingFailOpen = middleware.NewBillingFailOpenCache()
+	}
 	authSvc := auth.NewService(repo.Installations, repo.APIKeys, repo.ExternalAPIKeys, repo.Users, cache, userCache, time.Now).
+		WithDependencyPreparation(prepareDependencies, startDatabaseDependency).
 		WithEncryptor(encryptor).
 		WithInstallationChangeNotifier(notifier).
 		WithClusterModelLists(repo.ClusterModelLists).
@@ -1110,10 +1130,6 @@ func main() {
 	safeGo(logger, "escalation-state-sweep", func() { runEscalationSweep(context.Background(), escalationStore) })
 	servedModels := proxyRoutableModels(routingTargets, availableProviders, hmmRouter != nil)
 
-	var failOpenHealth *requestcontext.DependencyHealth
-	if config.GetOr("ROUTER_DEPENDENCY_FAIL_OPEN", "false") == "true" {
-		failOpenHealth = requestcontext.NewDependencyHealth()
-	}
 	proxySvc := proxy.NewService(routeEntry, providerMap, telemetryEmitter, embedOnlyUser, semanticCache, pinStore, hardPinExplore, hardPinProvider, hardPinModel, repo.Telemetry).
 		WithSessionStrategyStore(sessionStrategyStore).
 		WithEscalation(escalationStore, escalationObserver).
@@ -1312,7 +1328,7 @@ func main() {
 	if policyPinEnabled {
 		logger.Info("Policy pin header enabled", "header", middleware.PolicyPinOverrideHeader)
 	}
-	server.RegisterWithFeatures(engine, authSvc, proxySvc, deployedModels, hmmRosterModels, deploymentMode, billingSvc, readinessChecker, hmmRosterSources, analyticsSvc, server.Features{PolicyPinEnabled: policyPinEnabled})
+	server.RegisterWithFeatures(engine, authSvc, proxySvc, deployedModels, hmmRosterModels, deploymentMode, billingSvc, readinessChecker, hmmRosterSources, analyticsSvc, server.Features{PolicyPinEnabled: policyPinEnabled, BillingFailOpen: billingFailOpen})
 
 	srv := &http.Server{
 		Addr:    ":" + config.GetOr("PORT", "8080"),

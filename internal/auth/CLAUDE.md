@@ -19,6 +19,18 @@ Identity domain. Types, repos, `Service.VerifyAPIKey`, `APIKeyCache`, ID/hashing
 - **Token safety.** Never log raw bearer tokens. 8-char prefix + 4-char suffix (`KeyPrefix` / `KeySuffix` columns on `auth.APIKey`) are the only safe form.
 - **BYOK secrets at rest** go through `auth.Encryptor` (Tink AES-256-GCM). Plaintext only in memory for the request lifetime.
 
+## Dependency fail-open (opt-in)
+
+`Service.WithDependencyPreparation` receives a request preparer and a database
+dependency starter from the composition root (`auth` cannot import
+`requestcontext`, which imports `auth`). `VerifyAPIKeyWithDependencyFailOpen`
+runs the normal lookup through the bounded starter and, only when the request
+was prepared and the failure is infrastructural, returns the
+`StaleAPIKeyCache` copy retained for 30s after the last successful `Set`.
+`ErrInvalidToken`/`ErrInvalidPrefix` never fall open, and
+`InvalidateInstallation` drops the stale copy too. Without preparation every
+method behaves exactly as `VerifyAPIKey`.
+
 ## Helpers live here
 
 Auth-shaped helpers (token prefix, ID gen, hashing, encryption) belong in this package alongside the types they support — not in a generic `util/` package.

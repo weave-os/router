@@ -277,10 +277,16 @@ and credential/gateway isolation still apply; missing authority is unavailable,
 not permission to use an unrelated key. Degraded turns do not train policy or
 write pins. Provider failures and client cancellation do not start another relay.
 
-This switch does not make database-backed authentication, spend checks, or cold
-startup outage-independent; those boundaries remain strict until their serving
-capabilities are explicitly wired. `X-Router-Fail-Open` identifies the bounded
-reason on a relayed response.
+The auth middleware begins the same preparation before verification, so the
+budget is shared across auth, enrollment, spend gates and routing (a second
+`BeginPreparation` on a prepared context is a no-op). Under the switch,
+`auth.Service.VerifyAPIKeyWithDependencyFailOpen` and
+`ListSubscriptionAccountsForRequest` serve a 30s last-known-good copy of a read
+that already succeeded in this process, and the three billing gates do the same
+through `middleware.BillingFailOpenCache`. None of them create a snapshot: an
+unknown key, a cold cache, an explicit `InvalidateInstallation`, or an
+unprepared request fails exactly as before. Cold startup readiness remains
+strict. `X-Router-Fail-Open` identifies the bounded reason on a relayed response.
 
 ## Fast-tier dispatch (`fast_mode_models`)
 

@@ -6,6 +6,7 @@ import (
 	"weave-os/router/internal/billing"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/requestcontext"
 
 	"github.com/gin-gonic/gin"
 )
@@ -24,6 +25,16 @@ import (
 // an unbilled-usage hole. Spend is only known after a response settles, so a
 // key can still overshoot by at most one in-flight request's cost.
 func WithAPIKeySpendCap(svc *billing.Service) gin.HandlerFunc {
+	return withAPIKeySpendCap(svc, nil)
+}
+
+// WithAPIKeySpendCapAndFailOpen uses a recent successful cap snapshot only
+// during a prepared dependency outage.
+func WithAPIKeySpendCapAndFailOpen(svc *billing.Service, cache *BillingFailOpenCache) gin.HandlerFunc {
+	return withAPIKeySpendCap(svc, cache)
+}
+
+func withAPIKeySpendCap(svc *billing.Service, cache *BillingFailOpenCache) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		log := observability.FromGin(c)
 		if _, ok := proxy.AgentShadowEvalFromContext(c.Request.Context()); ok {
@@ -45,6 +56,11 @@ func WithAPIKeySpendCap(svc *billing.Service) gin.HandlerFunc {
 		subscriptionExempt := proxy.RequestPresentsCoveringSubscription(c.Request.Context(), c.Request.Header, c.FullPath())
 
 		result, err := svc.CheckAPIKeySpendCap(c.Request.Context(), apiKey.ID)
+		if err != nil && cache != nil && requestcontext.PreparationFrom(c.Request.Context()) != nil {
+			if cached, ok := cache.getKey(apiKey.ID); ok {
+				result, err = cached, nil
+			}
+		}
 		if err != nil {
 			log.Error("API key spend-cap check failed; refusing request", "err", err, "api_key_id", apiKey.ID)
 			c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{
@@ -54,6 +70,9 @@ func WithAPIKeySpendCap(svc *billing.Service) gin.HandlerFunc {
 			return
 		}
 
+		if cache != nil {
+			cache.setKey(apiKey.ID, result)
+		}
 		if !result.Found || result.CapMicros == nil {
 			c.Next()
 			return

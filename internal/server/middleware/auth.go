@@ -87,11 +87,12 @@ func WithAdminOnly(svc *auth.Service) gin.HandlerFunc {
 // single ctx key, so gating it here decides the whole path in one place.
 func withAPIKey(svc *auth.Service, byokRequiresOptIn bool) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		parentCtx := c.Request.Context()
+		parentCtx := svc.PrepareRequest(c.Request.Context())
+		c.Request = c.Request.WithContext(parentCtx)
 		clientSessionID := proxy.ClientIdentityFromHeaders(c.Request.Header).SessionID
 		authCtx, authSpan := startAuthSpan(parentCtx, clientSessionID)
 		token := extractToken(c)
-		installation, apiKey, externalKeys, clusterModelLists, err := svc.VerifyAPIKey(authCtx, token)
+		installation, apiKey, externalKeys, clusterModelLists, err := svc.VerifyAPIKeyWithDependencyFailOpen(authCtx, token)
 		if err != nil {
 			finishAuthSpan(authSpan, err)
 			handleAuthError(c, err)
@@ -104,7 +105,7 @@ func withAPIKey(svc *auth.Service, byokRequiresOptIn bool) gin.HandlerFunc {
 			ctx = context.WithValue(ctx, proxy.APIKeyIDContextKey{}, apiKey.ID)
 			ctx = proxy.WithManagedSubscriptionUsage(ctx)
 			if svc.SubscriptionAccountsEnabled() {
-				accounts, listErr := svc.ListSubscriptionAccounts(ctx, apiKey.ID)
+				accounts, listErr := svc.ListSubscriptionAccountsForRequest(ctx, apiKey.ID)
 				if listErr != nil {
 					observability.FromContext(ctx).Error("Failed to load subscription account enrollment", "err", listErr)
 					ctx = context.WithValue(ctx, proxy.ManagedSubscriptionEnrollmentUnavailableContextKey{}, true)

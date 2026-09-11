@@ -606,7 +606,7 @@ func TestService_VerifyAPIKey_RecoversFromMarkUsedPanic(t *testing.T) {
 	// first Get() call races SetDefault and resets the handler.
 	observability.Get()
 
-	var buf bytes.Buffer
+	var buf syncLogBuffer
 	prev := slog.Default()
 	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, nil)))
 	t.Cleanup(func() { slog.SetDefault(prev) })
@@ -623,6 +623,24 @@ func TestService_VerifyAPIKey_RecoversFromMarkUsedPanic(t *testing.T) {
 			strings.Contains(buf.String(), "fireMarkUsed")
 	}, 500*time.Millisecond, 10*time.Millisecond,
 		"the async fireMarkUsed goroutine must recover and log the panic")
+}
+
+// syncLogBuffer is read by require.Eventually while the SafeGo goroutine writes.
+type syncLogBuffer struct {
+	mu sync.Mutex
+	bytes.Buffer
+}
+
+func (b *syncLogBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.Buffer.Write(p)
+}
+
+func (b *syncLogBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.Buffer.String()
 }
 
 func makeServiceWithCacheAndCounter(t *testing.T, cache auth.APIKeyCache, rows ...fakeKeyRow) (*auth.Service, *repoCallCounter) {

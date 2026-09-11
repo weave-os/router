@@ -8,6 +8,7 @@ import (
 	"weave-os/router/internal/billing"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/requestcontext"
 
 	"github.com/gin-gonic/gin"
 )
@@ -38,6 +39,16 @@ const TopUpURL = "https://app.workweave.ai/organization/settings/weave-router"
 // against an unknown balance. A short retry window for clients is the
 // correct tradeoff vs. silently letting tenants spend without billing.
 func WithBalanceCheck(svc *billing.Service, minBalanceMicros int64) gin.HandlerFunc {
+	return withBalanceCheck(svc, minBalanceMicros, nil)
+}
+
+// WithBalanceCheckAndFailOpen uses a recent successful balance only during a
+// prepared dependency outage.
+func WithBalanceCheckAndFailOpen(svc *billing.Service, minBalanceMicros int64, cache *BillingFailOpenCache) gin.HandlerFunc {
+	return withBalanceCheck(svc, minBalanceMicros, cache)
+}
+
+func withBalanceCheck(svc *billing.Service, minBalanceMicros int64, cache *BillingFailOpenCache) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		log := observability.FromGin(c)
 		if _, ok := proxy.AgentShadowEvalFromContext(c.Request.Context()); ok {
@@ -64,6 +75,11 @@ func WithBalanceCheck(svc *billing.Service, minBalanceMicros int64) gin.HandlerF
 		subscriptionExempt := proxy.RequestPresentsCoveringSubscription(c.Request.Context(), c.Request.Header, c.FullPath())
 
 		result, err := svc.CheckBalance(c.Request.Context(), orgID)
+		if err != nil && cache != nil && requestcontext.PreparationFrom(c.Request.Context()) != nil {
+			if cached, ok := cache.getBalance(orgID); ok {
+				result, err = cached, nil
+			}
+		}
 		if err != nil {
 			if errors.Is(err, billing.ErrBalanceRowMissing) {
 				// A subscription-only org may never have had a balance
@@ -96,6 +112,9 @@ func WithBalanceCheck(svc *billing.Service, minBalanceMicros int64) gin.HandlerF
 			return
 		}
 
+		if cache != nil {
+			cache.setBalance(orgID, result)
+		}
 		if result.HasOverride {
 			ctx := context.WithValue(c.Request.Context(), billing.HasOverrideContextKey, true)
 			c.Request = c.Request.WithContext(ctx)
