@@ -29,9 +29,13 @@ const maxRepairPasses = 3
 //   - coerce_to_string:        5 -> "5", true -> "true"
 //   - wrap_scalar_in_array:    "x" -> ["x"]
 //
+// With semantic set (ModeSemantic) one more is allowed, tried before the
+// array wrap:
+//   - parse_json_string:       "[\"a\"]" -> ["a"], "{\"k\":1}" -> {"k":1}
+//
 // Missing required params and enum violations are NOT repairable — inventing
 // values would change the call's meaning.
-func repairArgs(schema *jsonschema.Schema, args string, verr error) (out string, actions []string) {
+func repairArgs(schema *jsonschema.Schema, args string, verr error, semantic bool) (out string, actions []string) {
 	out = args
 	current := verr
 	for pass := 0; pass < maxRepairPasses; pass++ {
@@ -39,7 +43,7 @@ func repairArgs(schema *jsonschema.Schema, args string, verr error) (out string,
 		if !errors.As(current, &validationErr) {
 			return out, actions
 		}
-		passActions := applyLeafRepairs(&out, validationErr)
+		passActions := applyLeafRepairs(&out, validationErr, semantic)
 		if len(passActions) == 0 {
 			return out, actions
 		}
@@ -54,7 +58,7 @@ func repairArgs(schema *jsonschema.Schema, args string, verr error) (out string,
 
 // applyLeafRepairs walks every leaf validation error and mutates out in
 // place. Returns the actions applied this pass.
-func applyLeafRepairs(out *string, verr *jsonschema.ValidationError) (actions []string) {
+func applyLeafRepairs(out *string, verr *jsonschema.ValidationError, semantic bool) (actions []string) {
 	for _, leaf := range collectLeaves(verr, nil) {
 		path := instancePath(leaf.InstanceLocation)
 		switch k := leaf.ErrorKind.(type) {
@@ -72,7 +76,7 @@ func applyLeafRepairs(out *string, verr *jsonschema.ValidationError) (actions []
 			if path == "" {
 				continue // root-level type mismatch is not repairable
 			}
-			if action, ok := coerceValue(out, path, k); ok {
+			if action, ok := coerceValue(out, path, k, semantic); ok {
 				actions = append(actions, action)
 			}
 		}
@@ -82,7 +86,7 @@ func applyLeafRepairs(out *string, verr *jsonschema.ValidationError) (actions []
 
 // coerceValue attempts one lossless coercion of the value at path toward the
 // schema's wanted types, in fixed preference order.
-func coerceValue(out *string, path string, k *kind.Type) (action string, ok bool) {
+func coerceValue(out *string, path string, k *kind.Type, semantic bool) (action string, ok bool) {
 	val := gjson.Get(*out, path)
 	if !val.Exists() {
 		return "", false
@@ -96,9 +100,21 @@ func coerceValue(out *string, path string, k *kind.Type) (action string, ok bool
 	_, wantBool := want["boolean"]
 	_, wantString := want["string"]
 	_, wantArray := want["array"]
+	_, wantObject := want["object"]
 
 	if val.Type == gjson.String {
 		s := val.Str
+		if semantic && (wantArray || wantObject) {
+			if inner := strings.TrimSpace(s); gjson.Valid(inner) {
+				parsed := gjson.Parse(inner)
+				if (wantArray && parsed.IsArray()) || (wantObject && parsed.IsObject()) {
+					if next, serr := sjson.SetRaw(*out, path, inner); serr == nil {
+						*out = next
+						return "parse_json_string", true
+					}
+				}
+			}
+		}
 		if wantNumber || wantInteger {
 			if wantInteger {
 				if n, err := strconv.ParseInt(strings.TrimSpace(s), 10, 64); err == nil {

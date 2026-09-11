@@ -268,6 +268,7 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 		middleware.WithAllowedModelsOverride(proxySvc),
 		middleware.WithRoutingKnobsOverride(),
 		middleware.WithForceEffortOverride(),
+		middleware.WithToolCheckOverride(),
 	)
 	messagesMiddleware = append(messagesMiddleware, policyPinMiddleware...)
 	messagesGroup := engine.Group("", messagesMiddleware...)
@@ -295,6 +296,7 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 		middleware.WithAllowedModelsOverride(proxySvc),
 		middleware.WithRoutingKnobsOverride(),
 		middleware.WithForceEffortOverride(),
+		middleware.WithToolCheckOverride(),
 	)
 	chatCompletionWithoutPolicyPin := append([]gin.HandlerFunc(nil), chatCompletionMiddleware...)
 	chatCompletionMiddleware = append(chatCompletionMiddleware, policyPinMiddleware...)
@@ -343,6 +345,7 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 		middleware.WithAllowedModelsOverride(proxySvc),
 		middleware.WithRoutingKnobsOverride(),
 		middleware.WithForceEffortOverride(),
+		middleware.WithToolCheckOverride(),
 	)
 	routeMiddleware = append(routeMiddleware, policyPinMiddleware...)
 	routeGroup := engine.Group("", routeMiddleware...)
