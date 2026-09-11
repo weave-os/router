@@ -4,6 +4,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"weave-os/router/internal/requestcontext"
 
 	"weave-os/router/internal/billing"
 	"weave-os/router/internal/dispatch"
@@ -61,6 +62,7 @@ const (
 	DispatchErrorPlanOverrideRejected
 	DispatchErrorPlanUnresolvable
 	DispatchErrorPolicyPinUnavailable
+	DispatchErrorDependencyUnavailable
 )
 
 // DispatchErrorClass is the format-agnostic classification of a dispatch
@@ -99,6 +101,8 @@ func ClassifyDispatchError(err error) (DispatchErrorClass, bool) {
 	var forcedClusterUnservable *policy.ForcedClusterUnservableError
 	var resolution *policy.ResolutionError
 	switch {
+	case errors.Is(err, requestcontext.ErrDependencyUnavailable):
+		return DispatchErrorClass{Kind: DispatchErrorDependencyUnavailable, Status: http.StatusServiceUnavailable, Message: "Router dependencies and an independently authorized original-provider request are unavailable. Please retry.", RetryAfter: true, LogLevel: "warn", LogMessage: "Original-provider relay unavailable"}, true
 	case errors.Is(err, ErrSubscriptionPoolExhausted):
 		return DispatchErrorClass{
 			Kind:       DispatchErrorSubscriptionPoolExhausted,

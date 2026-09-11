@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"weave-os/router/internal/requestcontext"
 
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/router"
@@ -53,7 +54,12 @@ func (s *Service) applySessionStrategy(
 	if s.sessionStrategyStore == nil || installationID == uuid.Nil || preferenceKey == ([sessionpin.SessionKeyLen]byte{}) {
 		return ctx, nil
 	}
-	preference, found, err := s.sessionStrategyStore.Get(ctx, installationID, preferenceKey)
+	readCtx, finish, err := startDependency(ctx, requestcontext.DependencyDatabase)
+	if err != nil {
+		return ctx, err
+	}
+	preference, found, err := s.sessionStrategyStore.Get(readCtx, installationID, preferenceKey)
+	finish(err)
 	if err != nil {
 		return ctx, fmt.Errorf("load session routing strategy: %w", err)
 	}

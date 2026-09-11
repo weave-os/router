@@ -27,6 +27,7 @@ const (
 	PurposeClusterEmbedding          = inference.PurposeClusterEmbedding
 	PurposeSemanticCacheEmbedding    = inference.PurposeSemanticCacheEmbedding
 	PurposeNativeWebSearch           = inference.PurposeNativeWebSearch
+	PurposeOriginalModelFallback     = inference.PurposeOriginalModelFallback
 )
 
 var knownPurposes = []Purpose{
@@ -52,6 +53,7 @@ var knownPurposes = []Purpose{
 	PurposeClusterEmbedding,
 	PurposeSemanticCacheEmbedding,
 	PurposeNativeWebSearch,
+	PurposeOriginalModelFallback,
 }
 
 // KnownPurposes returns every purpose the registry must cover.

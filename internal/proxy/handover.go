@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"time"
+	"weave-os/router/internal/requestcontext"
 
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
@@ -255,7 +256,13 @@ func (s *ProviderSummarizer) resolve(ctx context.Context, request policy.Resolut
 // run executes one buffered Anthropic Messages summary through the executor.
 // The policy budget tightens (never loosens) the configured timeout and
 // output cap. On any failure returns ("", zero, err) so callers fall back.
-func (s *ProviderSummarizer) run(ctx context.Context, env *translate.RequestEnvelope, plan policy.ResolvedPlan, instruction string, maxTokens int, timeout time.Duration) (string, handover.Usage, error) {
+func (s *ProviderSummarizer) run(ctx context.Context, env *translate.RequestEnvelope, plan policy.ResolvedPlan, instruction string, maxTokens int, timeout time.Duration) (summary string, returnedUsage handover.Usage, returnedErr error) {
+	prepared, finish, err := startDependency(ctx, requestcontext.DependencyAuxiliary)
+	if err != nil {
+		return "", handover.Usage{}, err
+	}
+	ctx = prepared
+	defer func() { finish(returnedErr) }()
 	log := observability.FromContext(ctx)
 	if env == nil {
 		return "", handover.Usage{}, errors.New("handover: nil envelope")
@@ -288,6 +295,7 @@ func (s *ProviderSummarizer) run(ctx context.Context, env *translate.RequestEnve
 		log.Warn("Summarizer upstream call failed", "purpose", string(plan.Purpose()), "err", err, "model", plan.SelectedTarget().CatalogID, "provider", plan.SelectedTarget().Provider, "fallback_reason", result.Summary.FallbackReason)
 		return "", handover.Usage{}, err
 	}
+	recordOriginalAuxiliary(ctx, plan.Purpose(), usage)
 	return text, usage, nil
 }
 
@@ -476,9 +484,11 @@ func (s *Service) runCompactionHandover(ctx context.Context, env *translate.Requ
 		out.LatencyMS = time.Since(start).Milliseconds()
 		switch {
 		case sumErr != nil:
+			markDependencyFailure(ctx, requestcontext.DependencyAuxiliary, sumErr)
 			out.FallbackToFullHistory = true
 			log.Warn("Compaction handover: summarizer failed; preserved compacted body instead", "err", sumErr, "decision_model", decisionModel)
 		case summary == "":
+			markDependencyFailure(ctx, requestcontext.DependencyAuxiliary, errors.New("empty compaction handover summary"))
 			out.FallbackToFullHistory = true
 			log.Warn("Compaction handover: summarizer returned empty; preserved compacted body instead", "decision_model", decisionModel)
 		default:

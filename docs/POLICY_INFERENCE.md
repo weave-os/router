@@ -3,7 +3,7 @@
 # Router Inference Policy Registry
 
 - Schema version: `inference_policy_registry_v2`
-- Registry revision: `sha256:c39f4fd7a0506b0c9ea57d3a3e9291dd0caab4953fed34a53e2114791096e6c7`
+- Registry revision: `sha256:528ca1e13935180036035d0c16ea72431ccfd349c5ef69c9f9345e5476fb461f`
 
 This static projection contains no tenant credentials, installation overrides, request content, or private gateway details. Migration status describes the current execution boundary; `legacy_direct` entries are inventory, not authorization for new call sites.
 
@@ -21,6 +21,7 @@ This static projection contains no tenant credentials, installation overrides, r
 | `native_web_search` | `web_search_tool` | `tool-native-web-search@1` | `none` | `deployment` | — | — | `routed_dispatch` | `source=deployment` | `non_inference` | `@steventohme` | Execute the explicit native web-search tool without exposing it as generic model inference. |
 | `openai_chat_completions` | `main_inference` | `main-openai-chat-completions@3` | `router` | `routable_catalog` | `catalog_binding`<br>`context_window`<br>`model_exclusions`<br>`provider_exclusions`<br>`spend` | `capability`<br>`quality_price`<br>`preferred_models`<br>`cache_affinity`<br>`subscription_capacity` | `binding` | `source=request` | `executor` | `@steventohme` | Select an eligible catalog binding for OpenAI Chat Completions while preserving request semantics and tenant boundaries. |
 | `openai_responses` | `main_inference` | `main-openai-responses@3` | `router` | `routable_catalog` | `catalog_binding`<br>`context_window`<br>`model_exclusions`<br>`provider_exclusions`<br>`spend` | `capability`<br>`quality_price`<br>`preferred_models`<br>`cache_affinity`<br>`subscription_capacity` | `binding` | `source=request` | `executor` | `@steventohme` | Select an eligible catalog binding and compatible endpoint for OpenAI Responses requests. |
+| `original_model_fallback` | `client_authoritative` | `client-original-model-fallback@1` | `client_authoritative` | `request` | `catalog_binding`<br>`context_window`<br>`model_exclusions`<br>`provider_exclusions` | — | `none` | `source=policy attempts=1` | `executor` | `@steventohme` | Serve one independently authorized request to the original native model after an internal routing failure; never invent an alternative target or recurse into routing. |
 | `policy_sidecar_decision` | `control_plane` | `control-policy-sidecar-decision@1` | `none` | `none` | — | — | `none` | `source=deployment` | `non_inference` | `@steventohme` | Ask the configured policy sidecar for a routing decision; this is control-plane I/O, not upstream inference. |
 | `policy_sidecar_feedback` | `control_plane` | `control-policy-sidecar-feedback@1` | `none` | `none` | — | — | `none` | `source=deployment` | `non_inference` | `@steventohme` | Report explicit bounded feedback to the configured policy sidecar. |
 | `policy_sidecar_outcome` | `control_plane` | `control-policy-sidecar-outcome@1` | `none` | `none` | — | — | `none` | `source=deployment` | `non_inference` | `@steventohme` | Report bounded serving outcomes to the configured policy sidecar. |

@@ -1,0 +1,114 @@
+# Isolated fail-open runtime overlay. Never auto-loaded.
+# Pair with docker-compose.yml via explicit -f flags and a unique COMPOSE_PROJECT_NAME.
+#
+# Host ports are unbound so this cannot collide with a developer stack.
+# Postgres/pubsub stay on the internal Docker network only.
+# The router is started independently after migrate+seed (see scripts/smoke/fail_open.sh).
+#
+# Fixtures: generic policy sidecar + Anthropic/OpenAI/Google provider stubs.
+# This avoids frozen HMM artifact/embedding probes.
+
+services:
+  postgres:
+    ports: !reset []
+
+  pubsub-emulator:
+    ports: !reset []
+
+  server:
+    ports: !reset []
+    env_file: !reset []
+    depends_on: !reset {}
+    environment:
+      DATABASE_URL: postgres://router:router@postgres:5432/router?sslmode=disable
+      PORT: "8080"
+      ROUTER_ONNX_ASSETS_DIR: /opt/router/assets
+      ROUTER_ONNX_LIBRARY_DIR: /usr/lib
+      PUBSUB_EMULATOR_HOST: pubsub-emulator:8085
+      PUBSUB_PROJECT_ID: router-local
+      PUBSUB_TOPIC_ROUTER_INVALIDATION: router-installation-invalidate
+      PUBSUB_SUBSCRIPTION_ROUTER_INVALIDATION: router-installation-invalidate
+      ROUTER_DEPENDENCY_FAIL_OPEN: "true"
+      ROUTER_DEFAULT_STRATEGY: failopen
+      ROUTER_POLICY_SIDECARS: '{"failopen":"http://policy:8091"}'
+      ANTHROPIC_API_KEY: sk-ant-fail-open-placeholder
+      OPENAI_API_KEY: sk-fail-open-placeholder
+      GOOGLE_API_KEY: google-fail-open-placeholder
+      OPENAI_BASE_URL: http://openai:8091
+      GOOGLE_BASE_URL: http://google:8091
+      # Anthropic has no ANTHROPIC_BASE_URL in composition; HTTP_PROXY is unused.
+      # Provider stub is reached by mapping api.anthropic.com via extra_hosts + the
+      # controller's listen address, or by caller-credential native relay once PR2
+      # wiring is present. OPENAI/GOOGLE base URLs are first-class.
+    extra_hosts:
+      - "api.anthropic.com:host-gateway"
+    networks:
+      - default
+
+  migrate:
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  seed:
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+  policy:
+    image: golang:1.25-bookworm
+    working_dir: /src
+    volumes:
+      - ./scripts/smoke/fail_open:/src:ro
+    command: ["go", "run", "."]
+    environment:
+      FAIL_OPEN_ROLE: policy
+      FAIL_OPEN_LISTEN: 0.0.0.0:8091
+      FAIL_OPEN_CONTROL: 0.0.0.0:8092
+    expose:
+      - "8091"
+      - "8092"
+
+  anthropic:
+    image: golang:1.25-bookworm
+    working_dir: /src
+    volumes:
+      - ./scripts/smoke/fail_open:/src:ro
+    command: ["go", "run", "."]
+    environment:
+      FAIL_OPEN_ROLE: anthropic
+      FAIL_OPEN_LISTEN: 0.0.0.0:8091
+      FAIL_OPEN_CONTROL: 0.0.0.0:8092
+    expose:
+      - "8091"
+      - "8092"
+
+  openai:
+    image: golang:1.25-bookworm
+    working_dir: /src
+    volumes:
+      - ./scripts/smoke/fail_open:/src:ro
+    command: ["go", "run", "."]
+    environment:
+      FAIL_OPEN_ROLE: openai
+      FAIL_OPEN_LISTEN: 0.0.0.0:8091
+      FAIL_OPEN_CONTROL: 0.0.0.0:8092
+    expose:
+      - "8091"
+      - "8092"
+
+  google:
+    image: golang:1.25-bookworm
+    working_dir: /src
+    volumes:
+      - ./scripts/smoke/fail_open:/src:ro
+    command: ["go", "run", "."]
+    environment:
+      FAIL_OPEN_ROLE: google
+      FAIL_OPEN_LISTEN: 0.0.0.0:8091
+      FAIL_OPEN_CONTROL: 0.0.0.0:8092
+    expose:
+      - "8091"
+      - "8092"

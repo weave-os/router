@@ -17,6 +17,7 @@ import (
 	"strings"
 	"syscall"
 	"time"
+	"weave-os/router/internal/requestcontext"
 
 	"weave-os/router/internal/analytics"
 	"weave-os/router/internal/api/admin"
@@ -1109,6 +1110,10 @@ func main() {
 	safeGo(logger, "escalation-state-sweep", func() { runEscalationSweep(context.Background(), escalationStore) })
 	servedModels := proxyRoutableModels(routingTargets, availableProviders, hmmRouter != nil)
 
+	var failOpenHealth *requestcontext.DependencyHealth
+	if config.GetOr("ROUTER_DEPENDENCY_FAIL_OPEN", "false") == "true" {
+		failOpenHealth = requestcontext.NewDependencyHealth()
+	}
 	proxySvc := proxy.NewService(routeEntry, providerMap, telemetryEmitter, embedOnlyUser, semanticCache, pinStore, hardPinExplore, hardPinProvider, hardPinModel, repo.Telemetry).
 		WithSessionStrategyStore(sessionStrategyStore).
 		WithEscalation(escalationStore, escalationObserver).
@@ -1151,6 +1156,7 @@ func main() {
 		WithAuthoritativeUpgradeGate(authoritativeUpgradeGate).
 		WithAuthorityCacheShadow(authorityCacheShadow).
 		WithPolicyDeadlineFallback(policyDeadlineFallback).
+		WithDependencyFailOpen(failOpenHealth, requestcontext.DefaultPreparationLimits()).
 		WithPolicyDeadlineDefaultModel(policyDeadlineDefaultModel).
 		WithEscapeNormalize(escapeNormalize).
 		WithEffortEscalation(effortEscalation).

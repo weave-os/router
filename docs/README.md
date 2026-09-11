@@ -14,6 +14,7 @@ Index of Markdown documentation in the `router/` repo.
 | [TRANSLATION_COMPATIBILITY.md](TRANSLATION_COMPATIBILITY.md) | Cross-format translation requirements and rollout modes. |
 | [SMOKE.md](SMOKE.md) | Pre-merge record/replay smoke-suite scenarios, cassettes, and local workflow. |
 | [CI.md](CI.md) | CI timing baseline, completed improvements, and the remaining optimization backlog. |
+| [FAIL_OPEN_TESTING.md](FAIL_OPEN_TESTING.md) | Isolated compose and TCP fault controller for original-model fail-open policy failures. |
 
 For engineering conventions (layer model, package layout, recipes), see the
 root [`CLAUDE.md`](../CLAUDE.md) (and its mirror [`AGENTS.md`](../AGENTS.md)).

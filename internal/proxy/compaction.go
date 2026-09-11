@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"slices"
+	"weave-os/router/internal/requestcontext"
 
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
@@ -337,6 +338,9 @@ func (s *Service) maybeCompact(ctx context.Context, env *translate.RequestEnvelo
 			}
 		}
 	}
+	if err := pendingDependencyFailure(ctx); err != nil {
+		return res, err
+	}
 	if fits() {
 		res.FinalEstimate = needed()
 		return res, nil
@@ -409,10 +413,12 @@ func (s *Service) runCompactionSummary(ctx context.Context, env *translate.Reque
 
 	summary, usage, err := s.compactionSummarizer.SummarizeForCompaction(summCtx, env, s.compactionTargetFor(model, preferred), scope, DefaultCompactionMaxTokens)
 	if err != nil {
+		markDependencyFailure(ctx, requestcontext.DependencyAuxiliary, err)
 		log.Warn("Compaction summarizer failed; falling back to trim", "err", err, "model", model)
 		return "", handover.Usage{}, "", false
 	}
 	if summary == "" {
+		markDependencyFailure(ctx, requestcontext.DependencyAuxiliary, errors.New("empty compaction summary"))
 		log.Warn("Compaction summarizer returned empty; falling back to trim", "model", model)
 		return "", handover.Usage{}, "", false
 	}

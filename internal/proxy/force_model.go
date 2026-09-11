@@ -297,7 +297,7 @@ func (s *Service) preserveForceModelControlHistory(
 	sessionKey [sessionpin.SessionKeyLen]byte,
 	nextModel string,
 ) error {
-	existing, found, err := s.pinStore.Get(ctx, sessionKey, forceModelSessionRole)
+	existing, found, err := s.getSessionPin(ctx, sessionKey, forceModelSessionRole)
 	if err != nil {
 		return err
 	}
@@ -353,7 +353,7 @@ func (s *Service) loadForceModelSessionPin(
 	if s.pinStore == nil {
 		return sessionpin.Pin{}, false, false
 	}
-	pin, found, err := s.pinStore.Get(ctx, sessionKey, forceModelSessionRole)
+	pin, found, err := s.getSessionPin(ctx, sessionKey, forceModelSessionRole)
 	if err != nil {
 		observability.FromContext(ctx).Error("force-model session pin lookup failed", "err", err)
 		return sessionpin.Pin{}, false, false
@@ -375,7 +375,7 @@ func (s *Service) loadForceModelHistory(
 	if s.pinStore == nil {
 		return sessionpin.Pin{}
 	}
-	pin, found, err := s.pinStore.Get(ctx, sessionKey, forceModelHistoryRole(role))
+	pin, found, err := s.getSessionPin(ctx, sessionKey, forceModelHistoryRole(role))
 	if err != nil {
 		observability.FromContext(ctx).Error("force-model history lookup failed", "err", err)
 		return sessionpin.Pin{}
@@ -427,7 +427,7 @@ func (s *Service) clearLegacyForceModelPins(
 		return nil
 	}
 	for _, role := range forceModelClearRoles() {
-		pin, found, err := s.pinStore.Get(ctx, sessionKey, role)
+		pin, found, err := s.getSessionPin(ctx, sessionKey, role)
 		if err != nil {
 			return fmt.Errorf("load legacy force-model pin for role %q: %w", role, err)
 		}

@@ -216,6 +216,9 @@ var errDispatchWithoutPurpose = errors.New("dispatchWithFallback: no inference p
 // error. On final-attempt error it flushes the upstream's own envelope to w
 // instead of a generic 502.
 func (s *Service) dispatchWithFallback(ctx context.Context, in failoverInputs) (winnerIdx int, err error) {
+	if err := pendingDependencyFailure(ctx); err != nil {
+		return -1, err
+	}
 	if len(in.purpose) == 0 {
 		return -1, errDispatchWithoutPurpose
 	}

@@ -48,6 +48,7 @@ func GenerateContentHandler(svc *proxy.Service, authSvc *auth.Service) gin.Handl
 			return
 		}
 
+		c.Request = c.Request.WithContext(proxy.WithOriginalGeminiBody(c.Request.Context(), body))
 		body, err = injectModelAndStream(body, model, stream)
 		if err != nil {
 			log.Debug("Failed to inject Gemini synthetic fields", "err", err)

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"weave-os/router/internal/requestcontext"
 
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/inference"
@@ -100,6 +101,7 @@ func (e dispatchAbort) Unwrap() error { return e.err }
 // subscription leasing and account rotation, prelude discard on retry, and
 // the entry point's own error rendering on exhaustion.
 func (s *Service) dispatchPlanned(ctx context.Context, in failoverInputs, plan inference.ResolvedPlan) (winnerIdx int, err error) {
+	ctx = requestcontext.ProviderContext(ctx)
 	log := observability.FromContext(ctx)
 	executor, err := s.inferenceExecutor()
 	if err != nil {
@@ -154,6 +156,10 @@ func (s *Service) dispatchPlanned(ctx context.Context, in failoverInputs, plan i
 				return dispatchAbort{err: leaseErr}
 			}
 			managedBinding = managedBinding || managedAttempt
+			if err := startOriginalProvider(credentialCtx); err != nil {
+				lease.Release()
+				return dispatchAbort{err: err}
+			}
 			attemptErr := in.attempt(credentialCtx, decision, guarded)
 			lease.Release()
 			if attemptErr == nil {

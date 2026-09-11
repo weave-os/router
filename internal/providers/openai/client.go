@@ -277,8 +277,13 @@ func (c *Client) Proxy(ctx context.Context, decision router.Decision, prep provi
 	if prep.Endpoint == providers.EndpointResponses {
 		path = "/v1/responses"
 	}
-	reqBody := rewriteModelField(prep.Body, c.modelIDMap)
+	reqBody := prep.Body
+	if !prep.PreserveNative {
+		reqBody = rewriteModelField(reqBody, c.modelIDMap)
+	}
 	if useCodex {
+		// Codex only accepts its subscription endpoint and account shaping,
+		// so a preserved native body still gets the required strip.
 		baseURL = c.codexBaseURL
 		path = codexResponsesPath
 		reqBody = stripCodexUnsupportedParams(reqBody)

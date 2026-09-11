@@ -1,6 +1,6 @@
 {
   "schema_version": "inference_policy_registry_v2",
-  "registry_revision": "sha256:c39f4fd7a0506b0c9ea57d3a3e9291dd0caab4953fed34a53e2114791096e6c7",
+  "registry_revision": "sha256:528ca1e13935180036035d0c16ea72431ccfd349c5ef69c9f9345e5476fb461f",
   "policies": [
     {
       "purpose": "agent_shadow_evaluation",
@@ -385,6 +385,33 @@
       },
       "fallback": {
         "kind": "binding"
+      },
+      "migration_status": "executor"
+    },
+    {
+      "purpose": "original_model_fallback",
+      "dispatch_class": "client_authoritative",
+      "policy_id": "client-original-model-fallback",
+      "policy_revision": "1",
+      "owner": "@steventohme",
+      "rationale": "Serve one independently authorized request to the original native model after an internal routing failure; never invent an alternative target or recurse into routing.",
+      "selection_strategy": "client_authoritative",
+      "candidate_source": "request",
+      "hard_constraints": [
+        "catalog_binding",
+        "context_window",
+        "model_exclusions",
+        "provider_exclusions"
+      ],
+      "override_precedence": [
+        "client_authoritative"
+      ],
+      "budget": {
+        "source": "policy",
+        "max_attempts": 1
+      },
+      "fallback": {
+        "kind": "none"
       },
       "migration_status": "executor"
     },
