@@ -358,6 +358,8 @@ func validateClassifierRevision(ctx context.Context, release policyregistry.Rele
 		return fmt.Errorf("classifier artifact %q does not match release %q", health.ClassifierArtifactID, expected.ArtifactID)
 	case health.ClassifierSHA256 != expected.PackageSHA256:
 		return fmt.Errorf("classifier package digest %q does not match release %q", health.ClassifierSHA256, expected.PackageSHA256)
+	case health.ClassifierImageDigest != expected.ImageDigest:
+		return fmt.Errorf("classifier image digest %q does not match release %q", health.ClassifierImageDigest, expected.ImageDigest)
 	case health.SchemaVersion != expected.WireSchema:
 		return fmt.Errorf("classifier schema %q does not match release %q", health.SchemaVersion, expected.WireSchema)
 	case health.ClassifierTaxonomySHA != expected.TaxonomySHA256:

@@ -41,12 +41,34 @@ func TestDecodeLaneHeadRejectsUnknownFieldsAndWrongFacet(t *testing.T) {
 	_, err := policyregistry.DecodeLaneHead(payload, testRegistryRoot, policyregistry.EnvironmentStaging, policyregistry.LaneStable)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "unknown field")
+
+	payload = []byte(`{
+  "schema_version":"router_policy_lane_head_v1",
+  "environment":"prod-01",
+  "lane":"stable",
+  "release_uri":"gs://weave_ml/weave_registry/router_policy/v1/releases/sha256/` + strings.Repeat("b", 64) + `.json",
+  "release_sha256":"` + strings.Repeat("b", 64) + `",
+  "release_generation":1,
+  "classifier_revision_url":"https://classifier.example",
+  "classifier_revision_name":"classifier-00001",
+  "promoted_by":"operator",
+  "promoted_at":"2026-09-10T12:00:00Z",
+  "reason":"test"
+}`)
+	_, err = policyregistry.DecodeLaneHead(payload, testRegistryRoot, policyregistry.EnvironmentStaging, policyregistry.LaneStable)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "facet")
 }
 
 func TestReleaseIDChangesWhenEitherClassifierOrPolicyChanges(t *testing.T) {
 	release := validRelease()
 	first, err := policyregistry.ReleaseID(release)
 	require.NoError(t, err)
+
+	release.Classifier.ArtifactID = "classifier-2"
+	classifierChanged, err := policyregistry.ReleaseID(release)
+	require.NoError(t, err)
+	assert.NotEqual(t, first, classifierChanged)
 
 	release.Policy.SHA256 = strings.Repeat("c", 64)
 	release.Policy.URI = testRegistryRoot + "/router_policy/v1/policies/sha256/" + release.Policy.SHA256 + ".json"

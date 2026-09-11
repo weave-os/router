@@ -123,6 +123,7 @@ type ClassifierHealth struct {
 	SchemaVersion         string   `json:"schema_version"`
 	ClassifierArtifactID  string   `json:"classifier_artifact_id"`
 	ClassifierSHA256      string   `json:"classifier_artifact_sha256"`
+	ClassifierImageDigest string   `json:"classifier_image_digest"`
 	ClassifierClassOrder  []string `json:"classifier_class_order"`
 	ClassifierTaxonomySHA string   `json:"classifier_taxonomy_sha256"`
 }
@@ -149,7 +150,7 @@ func (c *Client) ReadClassifierHealth(ctx context.Context) (ClassifierHealth, er
 	if err := json.Unmarshal(payload, &health); err != nil {
 		return ClassifierHealth{}, fmt.Errorf("decode policy readiness response: %w", err)
 	}
-	if health.SchemaVersion != policy.SchemaVersionV4 || health.ClassifierArtifactID == "" || health.ClassifierSHA256 == "" || len(health.ClassifierClassOrder) == 0 || health.ClassifierTaxonomySHA == "" {
+	if health.SchemaVersion != policy.SchemaVersionV4 || health.ClassifierArtifactID == "" || health.ClassifierSHA256 == "" || health.ClassifierImageDigest == "" || len(health.ClassifierClassOrder) == 0 || health.ClassifierTaxonomySHA == "" {
 		return ClassifierHealth{}, errors.New("policy readiness response has incomplete classifier identity")
 	}
 	return health, nil

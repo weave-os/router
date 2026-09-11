@@ -41,6 +41,8 @@ func hmmPolicySnapshotBuilder(
 			return nil, fmt.Errorf("classifier artifact %q does not match release %q", health.ClassifierArtifactID, expectedClassifier.ArtifactID)
 		case health.ClassifierSHA256 != expectedClassifier.PackageSHA256:
 			return nil, fmt.Errorf("classifier package digest %q does not match release %q", health.ClassifierSHA256, expectedClassifier.PackageSHA256)
+		case health.ClassifierImageDigest != expectedClassifier.ImageDigest:
+			return nil, fmt.Errorf("classifier image digest %q does not match release %q", health.ClassifierImageDigest, expectedClassifier.ImageDigest)
 		case health.SchemaVersion != expectedClassifier.WireSchema:
 			return nil, fmt.Errorf("classifier schema %q does not match release %q", health.SchemaVersion, expectedClassifier.WireSchema)
 		case health.ClassifierTaxonomySHA != expectedClassifier.TaxonomySHA256:
