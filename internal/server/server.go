@@ -104,6 +104,9 @@ type Features struct {
 	// PolicyPinEnabled registers the x-weave-policy-pin middleware. Off means
 	// the header is never read.
 	PolicyPinEnabled bool
+	// BillingFailOpen, when non-nil, lets the spend gates serve a recent
+	// successful read during a prepared database outage (ROUTER_DEPENDENCY_FAIL_OPEN).
+	BillingFailOpen *middleware.BillingFailOpenCache
 }
 
 // RegisterWithFeatures is Register with optional request features enabled.
@@ -256,9 +259,9 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 	if billingSvc != nil {
 		messagesMiddleware = append(messagesMiddleware,
 			middleware.WithBillingSpan(),
-			middleware.WithBalanceCheck(billingSvc, billing.MinBalanceMicros),
-			middleware.WithAPIKeySpendCap(billingSvc),
-			middleware.WithOrgMonthlySpendCap(billingSvc),
+			middleware.WithBalanceCheckAndFailOpen(billingSvc, billing.MinBalanceMicros, features.BillingFailOpen),
+			middleware.WithAPIKeySpendCapAndFailOpen(billingSvc, features.BillingFailOpen),
+			middleware.WithOrgMonthlySpendCapAndFailOpen(billingSvc, features.BillingFailOpen),
 			middleware.WithBillingSpanEnd(),
 		)
 	}
@@ -283,9 +286,9 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 	if billingSvc != nil {
 		chatCompletionMiddleware = append(chatCompletionMiddleware,
 			middleware.WithBillingSpan(),
-			middleware.WithBalanceCheck(billingSvc, billing.MinBalanceMicros),
-			middleware.WithAPIKeySpendCap(billingSvc),
-			middleware.WithOrgMonthlySpendCap(billingSvc),
+			middleware.WithBalanceCheckAndFailOpen(billingSvc, billing.MinBalanceMicros, features.BillingFailOpen),
+			middleware.WithAPIKeySpendCapAndFailOpen(billingSvc, features.BillingFailOpen),
+			middleware.WithOrgMonthlySpendCapAndFailOpen(billingSvc, features.BillingFailOpen),
 			middleware.WithBillingSpanEnd(),
 		)
 	}
@@ -331,9 +334,9 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 	if billingSvc != nil {
 		routeMiddleware = append(routeMiddleware,
 			middleware.WithBillingSpan(),
-			middleware.WithBalanceCheck(billingSvc, billing.MinBalanceMicros),
-			middleware.WithAPIKeySpendCap(billingSvc),
-			middleware.WithOrgMonthlySpendCap(billingSvc),
+			middleware.WithBalanceCheckAndFailOpen(billingSvc, billing.MinBalanceMicros, features.BillingFailOpen),
+			middleware.WithAPIKeySpendCapAndFailOpen(billingSvc, features.BillingFailOpen),
+			middleware.WithOrgMonthlySpendCapAndFailOpen(billingSvc, features.BillingFailOpen),
 			middleware.WithBillingSpanEnd(),
 		)
 	}

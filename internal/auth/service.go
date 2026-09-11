@@ -106,6 +106,10 @@ type Service struct {
 	// adminLoginFailures throttles per-IP brute-force login attempts.
 	adminLoginFailures *expirable.LRU[string, int]
 	adminLoginMu       sync.Mutex
+	dependencyPreparer RequestPreparer
+	dependencyStarter  DependencyStarter
+	subscriptionMu     sync.Mutex
+	subscriptionCache  map[string]subscriptionCacheEntry
 }
 
 // WithSubscriptionAccounts wires encrypted server-side subscription storage.
@@ -144,7 +148,47 @@ func NewService(
 		now:                  now,
 		encryptor:            NoOpEncryptor{},
 		keypairTokens:        NewKeypairTokenCache(now),
+		subscriptionCache:    make(map[string]subscriptionCacheEntry),
 	}
+}
+
+type RequestPreparer func(context.Context) context.Context
+type DependencyStarter func(context.Context) (context.Context, func(error), error)
+type dependencyStarterKey struct{}
+
+func withDependencyStarter(ctx context.Context, starter DependencyStarter) context.Context {
+	if starter == nil {
+		return ctx
+	}
+	return context.WithValue(ctx, dependencyStarterKey{}, starter)
+}
+
+func startDependency(ctx context.Context) (context.Context, func(error), error) {
+	starter, _ := ctx.Value(dependencyStarterKey{}).(DependencyStarter)
+	if starter == nil {
+		return ctx, func(error) {}, nil
+	}
+	return starter(ctx)
+}
+
+func dependencyPrepared(ctx context.Context) bool {
+	_, ok := ctx.Value(dependencyStarterKey{}).(DependencyStarter)
+	return ok
+}
+
+// WithDependencyPreparation wires the composition-root preparation and database operation.
+func (s *Service) WithDependencyPreparation(preparer RequestPreparer, starter DependencyStarter) *Service {
+	s.dependencyPreparer = preparer
+	s.dependencyStarter = starter
+	return s
+}
+
+// PrepareRequest attaches the shared dependency budget to a request.
+func (s *Service) PrepareRequest(ctx context.Context) context.Context {
+	if s.dependencyPreparer == nil {
+		return ctx
+	}
+	return withDependencyStarter(s.dependencyPreparer(ctx), s.dependencyStarter)
 }
 
 func (s *Service) WithEncryptor(e Encryptor) *Service {
@@ -681,6 +725,29 @@ func (s *Service) SetInstallationFlagOverrides(ctx context.Context, externalID, 
 	}
 	s.invalidateInstallation(installationID)
 	return nil
+}
+
+// VerifyAPIKeyWithDependencyFailOpen uses a bounded auth read and a short-lived
+// positive cache only after an infrastructure failure. Unknown tokens never fall open.
+func (s *Service) VerifyAPIKeyWithDependencyFailOpen(ctx context.Context, rawToken string) (*Installation, *APIKey, []*ExternalAPIKey, []ClusterModelList, error) {
+	callCtx, finish, startErr := startDependency(ctx)
+	if startErr != nil {
+		return nil, nil, nil, nil, startErr
+	}
+	installation, apiKey, externalKeys, clusterLists, err := s.VerifyAPIKey(callCtx, rawToken)
+	finish(err)
+	if err == nil || !dependencyPrepared(ctx) || errors.Is(err, ErrInvalidToken) || errors.Is(err, ErrInvalidPrefix) {
+		return installation, apiKey, externalKeys, clusterLists, err
+	}
+	staleCache, ok := s.cache.(StaleAPIKeyCache)
+	if !ok {
+		return nil, nil, nil, nil, err
+	}
+	cached, ok := staleCache.GetStale(HashAPIKeySHA256(rawToken))
+	if !ok || cached.Negative || cached.APIKey == nil || cached.Installation == nil {
+		return nil, nil, nil, nil, err
+	}
+	return cached.Installation, cached.APIKey, cached.ExternalKeys, cached.ClusterModelLists, nil
 }
 
 // VerifyAPIKey authenticates a raw bearer token for the data plane against the

@@ -98,6 +98,41 @@ func (s *Service) ListSubscriptionAccounts(ctx context.Context, apiKeyID string)
 	return s.subscriptionAccounts.ListSubscriptionAccounts(ctx, apiKeyID)
 }
 
+type subscriptionCacheEntry struct {
+	accounts  []*SubscriptionAccount
+	expiresAt time.Time
+}
+
+// ListSubscriptionAccountsForRequest uses a short-lived enrollment snapshot when
+// the database is unavailable. A cold cache still fails closed.
+func (s *Service) ListSubscriptionAccountsForRequest(ctx context.Context, apiKeyID string) ([]*SubscriptionAccount, error) {
+	if s.subscriptionAccounts == nil {
+		return nil, errors.New("subscription accounts are not configured")
+	}
+	callCtx, finish, startErr := startDependency(ctx)
+	if startErr != nil {
+		return nil, startErr
+	}
+	accounts, err := s.subscriptionAccounts.ListSubscriptionAccounts(callCtx, apiKeyID)
+	finish(err)
+	if err == nil {
+		s.subscriptionMu.Lock()
+		s.subscriptionCache[apiKeyID] = subscriptionCacheEntry{accounts: accounts, expiresAt: time.Now().Add(30 * time.Second)}
+		s.subscriptionMu.Unlock()
+		return accounts, nil
+	}
+	if !dependencyPrepared(ctx) {
+		return nil, err
+	}
+	s.subscriptionMu.Lock()
+	cached, ok := s.subscriptionCache[apiKeyID]
+	s.subscriptionMu.Unlock()
+	if ok && time.Now().Before(cached.expiresAt) {
+		return cached.accounts, nil
+	}
+	return nil, err
+}
+
 // SubscriptionRefreshToken decrypts an owner's refresh token for the refresh
 // worker. It is intentionally a narrow method and never appears in an API DTO.
 func (s *Service) SubscriptionRefreshToken(ctx context.Context, apiKeyID, accountID string) ([]byte, error) {

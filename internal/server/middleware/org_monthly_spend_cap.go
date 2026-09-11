@@ -6,6 +6,7 @@ import (
 	"weave-os/router/internal/billing"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/requestcontext"
 
 	"github.com/gin-gonic/gin"
 )
@@ -13,6 +14,16 @@ import (
 // WithOrgMonthlySpendCap enforces the org-wide monthly inference-spend cap.
 // Must run after WithAuth (installation is guaranteed populated); fail-closed on read error.
 func WithOrgMonthlySpendCap(svc *billing.Service) gin.HandlerFunc {
+	return withOrgMonthlySpendCap(svc, nil)
+}
+
+// WithOrgMonthlySpendCapAndFailOpen uses a recent successful cap snapshot only
+// during a prepared dependency outage.
+func WithOrgMonthlySpendCapAndFailOpen(svc *billing.Service, cache *BillingFailOpenCache) gin.HandlerFunc {
+	return withOrgMonthlySpendCap(svc, cache)
+}
+
+func withOrgMonthlySpendCap(svc *billing.Service, cache *BillingFailOpenCache) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		log := observability.FromGin(c)
 		if _, ok := proxy.AgentShadowEvalFromContext(c.Request.Context()); ok {
@@ -43,6 +54,11 @@ func WithOrgMonthlySpendCap(svc *billing.Service) gin.HandlerFunc {
 		subscriptionExempt := proxy.RequestPresentsCoveringSubscription(c.Request.Context(), c.Request.Header, c.FullPath())
 
 		result, err := svc.CheckOrgMonthlySpend(c.Request.Context(), orgID)
+		if err != nil && cache != nil && requestcontext.PreparationFrom(c.Request.Context()) != nil {
+			if cached, ok := cache.getOrg(installation.ID); ok {
+				result, err = cached, nil
+			}
+		}
 		if err != nil {
 			log.Error("Org monthly spend cap check failed; refusing request", "err", err, "organization_id", orgID)
 			c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{
@@ -52,6 +68,9 @@ func WithOrgMonthlySpendCap(svc *billing.Service) gin.HandlerFunc {
 			return
 		}
 
+		if cache != nil {
+			cache.setOrg(installation.ID, result)
+		}
 		if result.LimitReached() {
 			if subscriptionExempt {
 				// Not 402'd: flag subscription-only so the proxy serves on the

@@ -179,6 +179,15 @@ func (p *Preparation) Fail(dependency Dependency, err error) error {
 
 // Start bounds a prerequisite call. Call finish exactly once with its result.
 // A nil state preserves the legacy context and does not change error handling.
+// StartDependency starts a bounded operation when request preparation is active.
+func StartDependency(ctx context.Context, dependency Dependency) (context.Context, func(error), error) {
+	preparation := PreparationFrom(ctx)
+	if preparation == nil {
+		return ctx, func(error) {}, nil
+	}
+	return preparation.Start(ctx, dependency)
+}
+
 func (p *Preparation) Start(ctx context.Context, dependency Dependency) (context.Context, func(error), error) {
 	if p == nil {
 		return ctx, func(error) {}, nil

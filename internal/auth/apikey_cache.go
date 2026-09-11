@@ -24,22 +24,36 @@ type APIKeyCache interface {
 	InvalidateInstallation(installationID string)
 }
 
+// StaleAPIKeyCache exposes a bounded last-known-good read during a database outage.
+type StaleAPIKeyCache interface {
+	GetStale(keyHash string) (CachedKey, bool)
+}
+
 // NoOpAPIKeyCache is the Null Object: every Get misses.
 type NoOpAPIKeyCache struct{}
 
-func (NoOpAPIKeyCache) Get(string) (CachedKey, bool)  { return CachedKey{}, false }
-func (NoOpAPIKeyCache) Set(string, CachedKey)         {}
-func (NoOpAPIKeyCache) InvalidateInstallation(string) {}
+func (NoOpAPIKeyCache) Get(string) (CachedKey, bool)      { return CachedKey{}, false }
+func (NoOpAPIKeyCache) GetStale(string) (CachedKey, bool) { return CachedKey{}, false }
+func (NoOpAPIKeyCache) Set(string, CachedKey)             {}
+func (NoOpAPIKeyCache) InvalidateInstallation(string)     {}
 
 // LRUAPIKeyCache uses two LRUs for positive/negative entries with independent sizes and TTLs.
 // Negative TTL is shorter so a freshly-created key isn't 401'd longer than necessary.
 // byInstallation is a secondary index for O(keys-per-installation) eviction on settings changes.
 // eviction callbacks keep the index in sync. Negative entries are not indexed.
+type staleAPIKeyEntry struct {
+	entry     CachedKey
+	expiresAt time.Time
+}
+
 type LRUAPIKeyCache struct {
-	mu             sync.Mutex
-	positive       *expirable.LRU[string, CachedKey]
-	negative       *expirable.LRU[string, CachedKey]
-	byInstallation map[string]map[string]struct{}
+	mu                  sync.Mutex
+	positive            *expirable.LRU[string, CachedKey]
+	negative            *expirable.LRU[string, CachedKey]
+	byInstallation      map[string]map[string]struct{}
+	stale               map[string]staleAPIKeyEntry
+	staleByInstallation map[string]map[string]struct{}
+	staleTTL            time.Duration
 	// invalidationGen detects invalidation races between index update and LRU insert.
 	// We cannot hold mu across positive.Add because the LRU eviction callback acquires mu,
 	// which would deadlock when Add triggers a capacity eviction.
@@ -48,8 +62,11 @@ type LRUAPIKeyCache struct {
 
 func NewLRUAPIKeyCache(positiveSize, negativeSize int, positiveTTL, negativeTTL time.Duration) *LRUAPIKeyCache {
 	c := &LRUAPIKeyCache{
-		byInstallation:  make(map[string]map[string]struct{}),
-		invalidationGen: make(map[string]uint64),
+		byInstallation:      make(map[string]map[string]struct{}),
+		stale:               make(map[string]staleAPIKeyEntry),
+		staleByInstallation: make(map[string]map[string]struct{}),
+		staleTTL:            30 * time.Second,
+		invalidationGen:     make(map[string]uint64),
 	}
 	c.positive = expirable.NewLRU(positiveSize, c.onPositiveEvict, positiveTTL)
 	c.negative = expirable.NewLRU[string, CachedKey](negativeSize, nil, negativeTTL)
@@ -79,6 +96,13 @@ func (c *LRUAPIKeyCache) Set(keyHash string, entry CachedKey) {
 	c.mu.Lock()
 	if instID != "" {
 		preGen = c.invalidationGen[instID]
+		c.stale[keyHash] = staleAPIKeyEntry{entry: entry, expiresAt: time.Now().Add(c.staleTTL)}
+		staleHashes, ok := c.staleByInstallation[instID]
+		if !ok {
+			staleHashes = make(map[string]struct{}, 1)
+			c.staleByInstallation[instID] = staleHashes
+		}
+		staleHashes[keyHash] = struct{}{}
 		hashes, ok := c.byInstallation[instID]
 		if !ok {
 			hashes = make(map[string]struct{}, 1)
@@ -125,6 +149,30 @@ func (c *LRUAPIKeyCache) InvalidateInstallation(installationID string) {
 	for hash := range hashes {
 		c.positive.Remove(hash)
 	}
+	c.mu.Lock()
+	for hash := range c.staleByInstallation[installationID] {
+		delete(c.stale, hash)
+	}
+	delete(c.staleByInstallation, installationID)
+	c.mu.Unlock()
+}
+
+// GetStale returns a short-lived last-known-good positive entry.
+func (c *LRUAPIKeyCache) GetStale(keyHash string) (CachedKey, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	entry, ok := c.stale[keyHash]
+	if !ok {
+		return CachedKey{}, false
+	}
+	if time.Now().After(entry.expiresAt) {
+		delete(c.stale, keyHash)
+		if entry.entry.Installation != nil {
+			delete(c.staleByInstallation[entry.entry.Installation.ID], keyHash)
+		}
+		return CachedKey{}, false
+	}
+	return entry.entry, true
 }
 
 // onPositiveEvict keeps byInstallation in sync with the LRU on eviction or TTL expiry.
