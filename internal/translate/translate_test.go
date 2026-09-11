@@ -556,6 +556,51 @@ func TestAnthropicSSETranslator_StreamingToolUse(t *testing.T) {
 	assert.Contains(t, body, "event: message_stop")
 }
 
+func TestAnthropicSSETranslator_StreamingParallelToolCallsDeterministicOrder(t *testing.T) {
+	for trial := 0; trial < 10; trial++ {
+		rec := httptest.NewRecorder()
+		translator := translate.NewAnthropicSSETranslator(rec, "gpt-4o", nil)
+
+		translator.Header().Set("Content-Type", "text/event-stream")
+		translator.WriteHeader(http.StatusOK)
+
+		events := []string{
+			"data: {\"id\":\"chatcmpl-p\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":null,\"tool_calls\":[{\"index\":0,\"id\":\"call_a\",\"type\":\"function\",\"function\":{\"name\":\"tool_a\",\"arguments\":\"\"}},{\"index\":1,\"id\":\"call_b\",\"type\":\"function\",\"function\":{\"name\":\"tool_b\",\"arguments\":\"\"}},{\"index\":2,\"id\":\"call_c\",\"type\":\"function\",\"function\":{\"name\":\"tool_c\",\"arguments\":\"\"}}]},\"finish_reason\":null}]}\n\n",
+			"data: {\"id\":\"chatcmpl-p\",\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":0,\"function\":{\"arguments\":\"{\\\"arg\\\":\\\"a\\\"}\"}},{\"index\":1,\"function\":{\"arguments\":\"{\\\"arg\\\":\\\"b\\\"}\"}},{\"index\":2,\"function\":{\"arguments\":\"{\\\"arg\\\":\\\"c\\\"}\"}}]},\"finish_reason\":null}]}\n\n",
+			"data: {\"id\":\"chatcmpl-p\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"tool_calls\"}],\"usage\":{\"prompt_tokens\":20,\"completion_tokens\":15,\"total_tokens\":35}}\n\n",
+			"data: [DONE]\n\n",
+		}
+
+		for _, event := range events {
+			_, err := translator.Write([]byte(event))
+			require.NoError(t, err)
+		}
+
+		require.NoError(t, translator.Finalize())
+
+		body := rec.Body.String()
+		// Check that content_block_start, content_block_delta, and content_block_stop
+		// for indices 0, 1, 2 appear in strict monotonic index order.
+		start0 := strings.Index(body, `"type":"content_block_start","index":0`)
+		start1 := strings.Index(body, `"type":"content_block_start","index":1`)
+		start2 := strings.Index(body, `"type":"content_block_start","index":2`)
+		require.True(t, start0 != -1 && start1 != -1 && start2 != -1, "all start events must be present")
+		require.True(t, start0 < start1 && start1 < start2, "starts must be in order: 0 < 1 < 2")
+
+		delta0 := strings.Index(body, `"type":"content_block_delta","index":0`)
+		delta1 := strings.Index(body, `"type":"content_block_delta","index":1`)
+		delta2 := strings.Index(body, `"type":"content_block_delta","index":2`)
+		require.True(t, delta0 != -1 && delta1 != -1 && delta2 != -1, "all delta events must be present")
+		require.True(t, delta0 < delta1 && delta1 < delta2, "deltas must be in order: 0 < 1 < 2")
+
+		stop0 := strings.Index(body, `"type":"content_block_stop","index":0`)
+		stop1 := strings.Index(body, `"type":"content_block_stop","index":1`)
+		stop2 := strings.Index(body, `"type":"content_block_stop","index":2`)
+		require.True(t, stop0 != -1 && stop1 != -1 && stop2 != -1, "all stop events must be present")
+		require.True(t, stop0 < stop1 && stop1 < stop2, "stops must be in deterministic order: 0 < 1 < 2 (trial %d)", trial)
+	}
+}
+
 // Any response with tool_use blocks must report stop_reason="tool_use" even if
 // the upstream finish_reason says otherwise. Some OpenAI-compat serves (e.g.
 // GLM-5.1 on DeepInfra) close tool-emitting turns with "stop" or "", which
