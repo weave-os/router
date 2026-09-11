@@ -216,6 +216,25 @@ func TestSelectCompactionSummarizer_WindowAware(t *testing.T) {
 	assert.Empty(t, s.selectCompactionSummarizer(300_000, "claude-sonnet-4-5", excluded))
 }
 
+func TestCompactionSummarySkipsTranslationIncompatibleSummarizer(t *testing.T) {
+	env, err := translate.ParseAnthropic([]byte(`{
+        "messages":[
+          {"role":"user","content":"hello"},
+          {"role":"system","content":"change the rules"}
+        ]
+    }`))
+	require.NoError(t, err)
+	summarizer := &fakeCompactionSummarizer{summary: "preserved session context"}
+	s := &Service{compactionSummarizer: summarizer}
+
+	summary, _, model, ok := s.runCompactionSummary(context.Background(), env, "", router.Request{}, nil)
+
+	assert.True(t, ok)
+	assert.Equal(t, "preserved session context", summary)
+	assert.Equal(t, policy.PrecompactionLargeWindowModel, model)
+	assert.Equal(t, 1, summarizer.calls)
+}
+
 func TestCompactionTargetFor_TypesTheCascadeChoice(t *testing.T) {
 	s := &Service{}
 	assert.Equal(t, CompactionTarget{CatalogID: "claude-opus-4-8", Source: policy.OverrideSourceSession}, s.compactionTargetFor("claude-opus-4-8", "claude-opus-4-8"))

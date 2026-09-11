@@ -127,6 +127,29 @@ func TestProviderSummarizer_SuccessReturnsAssistantText(t *testing.T) {
 	assert.Equal(t, "Refactor in progress: step 1 done, step 2 pending.", got)
 }
 
+func TestBuildSummaryRequestBody_PreservesMidConversationRequirementsAndHeaders(t *testing.T) {
+	env, err := translate.ParseAnthropic([]byte(`{
+        "messages":[
+          {"role":"system","content":"leading rule"},
+          {"role":"user","content":"hello"},
+          {"role":"system","content":[
+            {"type":"tool_addition","tool":{"type":"tool_reference","name":"new_tool"}}
+          ],"output_config":{"effort":"high"}},
+          {"role":"system","clear_at":"next_user_message","content":"be concise"}
+        ]
+    }`))
+	require.NoError(t, err)
+
+	body, headers, err := buildSummaryRequestBody(env, "claude-opus-5", "summarize", 256)
+	require.NoError(t, err)
+	assert.Equal(t, "claude-opus-5", gjson.GetBytes(body, "model").String())
+	assert.False(t, gjson.GetBytes(body, "stream").Bool())
+	assert.Equal(t, int64(256), gjson.GetBytes(body, "max_tokens").Int())
+	assert.Contains(t, headers.Get("anthropic-beta"), "mid-conversation-tool-changes-2026-07-01")
+	assert.Contains(t, headers.Get("anthropic-beta"), "mid-conversation-output-config-2026-07-01")
+	assert.Contains(t, headers.Get("anthropic-beta"), "mid-conversation-system-clear-at-2026-08-21")
+}
+
 func TestProviderSummarizer_TimeoutReturnsError(t *testing.T) {
 	t.Parallel()
 

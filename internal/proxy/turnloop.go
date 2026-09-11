@@ -862,6 +862,9 @@ func (s *Service) runTurnLoop(
 				)
 			}
 		}
+		if !targetPreservesTranslationRequirements(provider, model, req.TranslationRequirements) {
+			return res, fmt.Errorf("hard-pin model %q on provider %q cannot preserve translation requirements: %w", model, provider, translate.ErrModelTranslationRequirementsIncompatible)
+		}
 		// Operator hard-pins (ROUTER_HARD_PIN_MODEL) bypass the tier ceiling
 		// by design; clamping would silently defeat an explicit operator opt-in.
 		hardDecision := router.Decision{

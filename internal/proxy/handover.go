@@ -294,11 +294,11 @@ func (s *ProviderSummarizer) run(ctx context.Context, env *translate.RequestEnve
 // prepareSummaryCall builds the non-streaming Anthropic Messages request for
 // target; dispatch checks the wire model against the plan before any I/O.
 func prepareSummaryCall(env *translate.RequestEnvelope, target inference.Target, instruction string, maxTokens int) (providers.PreparedRequest, *http.Request, error) {
-	body, err := buildSummaryRequestBody(env, target.CatalogID, instruction, maxTokens)
+	body, headers, err := buildSummaryRequestBody(env, target.CatalogID, instruction, maxTokens)
 	if err != nil {
 		return providers.PreparedRequest{}, nil, fmt.Errorf("build summary request: %w", err)
 	}
-	prep := providers.PreparedRequest{Body: body, Headers: make(http.Header)}
+	prep := providers.PreparedRequest{Body: body, Headers: headers}
 	prep.Headers.Set("anthropic-version", "2023-06-01")
 	req := httptest.NewRequest(http.MethodPost, "/v1/messages", bytes.NewReader(body))
 	req.Header.Set("content-type", "application/json")
@@ -348,36 +348,40 @@ func extractAnthropicUsage(body []byte) handover.Usage {
 // buildSummaryRequestBody builds a non-streaming Anthropic Messages request
 // from the envelope's prior conversation, injecting the given summary
 // instruction and overriding model/max_tokens/stream.
-func buildSummaryRequestBody(env *translate.RequestEnvelope, model, instruction string, maxTokens int) ([]byte, error) {
-	prep, err := env.PrepareAnthropic(nil, translate.EmitOptions{TargetModel: model})
+func buildSummaryRequestBody(env *translate.RequestEnvelope, model, instruction string, maxTokens int) ([]byte, http.Header, error) {
+	prep, err := env.PrepareAnthropic(nil, translate.EmitOptions{
+		TargetModel:    model,
+		TargetProvider: providers.ProviderAnthropic,
+		Capabilities:   router.Lookup(model),
+	})
 	if err != nil {
-		return nil, fmt.Errorf("prepare anthropic body: %w", err)
+		return nil, nil, fmt.Errorf("prepare anthropic body: %w", err)
 	}
 	body := prep.Body
 
 	body, err = sjson.SetBytes(body, "model", model)
 	if err != nil {
-		return nil, fmt.Errorf("set model: %w", err)
+		return nil, nil, fmt.Errorf("set model: %w", err)
 	}
 	body, err = sjson.SetBytes(body, "stream", false)
 	if err != nil {
-		return nil, fmt.Errorf("set stream: %w", err)
+		return nil, nil, fmt.Errorf("set stream: %w", err)
 	}
 	body, err = sjson.SetBytes(body, "max_tokens", maxTokens)
 	if err != nil {
-		return nil, fmt.Errorf("set max_tokens: %w", err)
+		return nil, nil, fmt.Errorf("set max_tokens: %w", err)
 	}
 
 	body, err = appendUserInstruction(body, instruction)
 	if err != nil {
-		return nil, fmt.Errorf("append instruction: %w", err)
+		return nil, nil, fmt.Errorf("append instruction: %w", err)
 	}
 
 	for _, key := range []string{"tools", "tool_choice", "thinking", "context_management", "effort", "output_config", "metadata"} {
 		body, _ = sjson.DeleteBytes(body, key)
 	}
 
-	return body, nil
+	return body, prep.Headers, nil
 }
 
 // appendUserInstruction appends a role=user text message to the messages array.

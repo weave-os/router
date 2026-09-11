@@ -156,6 +156,20 @@ func TestUsageBypassEngaged_SafetyExclusionBlocks_PolicyExclusionDoesNot(t *test
 		assert.False(t, ok, "a safety-excluded model (context overflow / gemini-unsigned) must block bypass")
 	})
 
+	t.Run("translation-incompatible passthrough model blocks bypass", func(t *testing.T) {
+		svc := &Service{usageObserver: newObs()}
+		_, ok := svc.usageBypassEngaged(baseCtx(), http.Header{}, router.Request{
+			RequestedModel:   "claude-sonnet-4-5",
+			EnabledProviders: enabled,
+			TranslationRequirements: router.TranslationRequirements{
+				SourceFormat:                  router.WireFormatAnthropic,
+				Endpoint:                      router.EndpointAnthropicMessages,
+				MidConversationSystemMessages: true,
+			},
+		})
+		assert.False(t, ok, "a passthrough-only model that cannot preserve mid-conversation systems must not bypass routing")
+	})
+
 	t.Run("both excluded: safety exclusion still blocks", func(t *testing.T) {
 		svc := &Service{usageObserver: newObs()}
 		_, ok := svc.usageBypassEngaged(baseCtx(), http.Header{}, router.Request{

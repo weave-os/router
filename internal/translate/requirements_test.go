@@ -72,6 +72,29 @@ func TestTranslationRequirements_LeadingAnthropicSystemMessagesDoNotRequireMidCo
 	assert.False(t, requirements.TurnScopedSystemMessages)
 }
 
+func TestTranslationRequirements_IgnoresEmptyMidConversationMarkers(t *testing.T) {
+	tests := []struct {
+		name             string
+		system           string
+		wantOutputConfig bool
+		wantTurnScoped   bool
+	}{
+		{name: "null fields", system: `{"role":"system","output_config":null,"clear_at":null,"content":"rule"}`},
+		{name: "empty fields", system: `{"role":"system","output_config":{},"clear_at":"","content":"rule"}`},
+		{name: "meaningful fields", system: `{"role":"system","output_config":{"effort":"high"},"clear_at":"next_user_message","content":"rule"}`, wantOutputConfig: true, wantTurnScoped: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			env, err := ParseAnthropic([]byte(`{"messages":[{"role":"user","content":"hello"},` + tt.system + `]}`))
+			require.NoError(t, err)
+			requirements := env.TranslationRequirements(router.EndpointAnthropicMessages)
+			assert.Equal(t, tt.wantOutputConfig, requirements.MidConversationOutputConfig)
+			assert.Equal(t, tt.wantTurnScoped, requirements.TurnScopedSystemMessages)
+			assert.True(t, requirements.MidConversationSystemMessages, "a system message after the leading run still needs mid-conversation support")
+		})
+	}
+}
+
 func TestTranslationRequirements_NativeServerToolsAreStructural(t *testing.T) {
 	tests := []struct {
 		name string

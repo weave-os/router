@@ -377,6 +377,18 @@ func (s *Service) runCompactionSummary(ctx context.Context, env *translate.Reque
 	log := observability.FromContext(ctx)
 
 	excluded := mergeExcludedModels(s.excludedModelsForRequest(ctx), s.globalAutomaticExcludedModels(ctx))
+	if requirements := env.TranslationRequirements(router.EndpointAnthropicMessages); requiresMidConversationSystemSupport(requirements) {
+		compatibleExcluded := make(map[string]struct{}, len(excluded)+len(catalog.Models))
+		for model := range excluded {
+			compatibleExcluded[model] = struct{}{}
+		}
+		excluded = compatibleExcluded
+		for _, candidate := range catalog.Models {
+			if !targetPreservesTranslationRequirements(providers.ProviderAnthropic, candidate.ID, requirements) {
+				excluded[candidate.ID] = struct{}{}
+			}
+		}
+	}
 	// Auxiliary models need not belong to the routing pool whose allowlist was desugared.
 	if allowed := allowedModelsForRequest(ctx); allowed != nil && s.excludedModelsOverride == nil {
 		if excluded == nil {
@@ -447,6 +459,9 @@ func (s *Service) compactionHardPin(ctx context.Context, sessionKey [sessionpin.
 	}
 	eligible := func(m string) bool {
 		if !anthropicSummarizerEligible(m) {
+			return false
+		}
+		if !targetPreservesTranslationRequirements(providers.ProviderAnthropic, m, req.TranslationRequirements) {
 			return false
 		}
 		if s.availableModels != nil {

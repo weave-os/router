@@ -71,8 +71,9 @@ func anthropicMidConversationRequirements(body []byte) (systemMessages, toolChan
 }
 
 func anthropicSystemMessageRequirements(message gjson.Result) (toolChanges, outputConfig, turnScoped bool) {
-	outputConfig = message.Get("output_config").Exists()
-	turnScoped = message.Get("clear_at").Exists()
+	effort := message.Get("output_config.effort")
+	outputConfig = effort.Type == gjson.String && effort.String() != ""
+	turnScoped = message.Get("clear_at").String() == "next_user_message"
 	message.Get("content").ForEach(func(_, block gjson.Result) bool {
 		switch block.Get("type").String() {
 		case "tool_addition", "tool_removal":
