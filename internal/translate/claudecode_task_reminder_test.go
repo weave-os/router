@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"weave-os/router/internal/providers"
 	"weave-os/router/internal/translate"
 )
 
@@ -120,6 +121,64 @@ func TestTaskReminderKept_WhenNoTaskToolsToStrip(t *testing.T) {
 	assert.Equal(t, 1, out.Stats.CCOnlyToolsStripped, "Skill is stripped")
 	assert.Equal(t, 0, out.Stats.CCTaskRemindersStripped)
 	assert.Equal(t, 2, strings.Count(string(out.Body), "Consider updating task status"))
+}
+
+// Claude Code 2.1.x appends the reminder to the trailing tool_result's
+// content rather than emitting a separate text block.
+const taskReminderInToolResultBody = `{
+	"model":"claude-sonnet-5",
+	"messages":[
+		{"role":"user","content":"check the go version"},
+		{"role":"assistant","content":[{"type":"tool_use","id":"toolu_1","name":"Bash","input":{"command":"go version"}}]},
+		{"role":"user","content":[
+			{"type":"tool_result","tool_use_id":"toolu_1","content":"go version go1.25.9 linux/amd64\n\n<system-reminder>\nThe task tools haven't been used recently. Consider using TaskCreate or TaskUpdate.\n</system-reminder>"}
+		]},
+		{"role":"assistant","content":[{"type":"tool_use","id":"toolu_2","name":"Read","input":{"file_path":"go.mod"}}]},
+		{"role":"user","content":[
+			{"type":"tool_result","tool_use_id":"toolu_2","content":[
+				{"type":"text","text":"module weave-os/router\n\n<system-reminder>\nThe task tools haven't been used recently.\n</system-reminder>"},
+				{"type":"text","text":"<system-reminder>\nThe task tools haven't been used recently.\n</system-reminder>"}
+			]}
+		]},
+		{"role":"assistant","content":[{"type":"text","text":"Go 1.25.9."}]},
+		{"role":"user","content":"thanks\n\n<system-reminder>\nThe task tools haven't been used recently.\n</system-reminder>"}
+	],
+	"tools":[
+		{"name":"Bash","description":"b","input_schema":{"type":"object"}},
+		{"name":"Read","description":"r","input_schema":{"type":"object"}},
+		{"name":"TaskCreate","description":"","input_schema":{"type":"object"}}
+	],
+	"max_tokens":256
+}`
+
+func TestTaskReminderStripped_InsideToolResultContent(t *testing.T) {
+	env, err := translate.ParseAnthropic([]byte(taskReminderInToolResultBody))
+	require.NoError(t, err)
+
+	for name, prepare := range map[string]func() (providers.PreparedRequest, error){
+		"OpenAI chat": func() (providers.PreparedRequest, error) {
+			return env.PrepareOpenAI(nil, translate.EmitOptions{TargetModel: "gpt-5.6-luna"})
+		},
+		"OpenAI Responses": func() (providers.PreparedRequest, error) {
+			return env.PrepareOpenAIResponses(nil, translate.EmitOptions{TargetModel: "gpt-5.6-sol"})
+		},
+		"Gemini": func() (providers.PreparedRequest, error) {
+			return env.PrepareGemini(http.Header{}, translate.EmitOptions{TargetModel: "gemini-2.5-pro"})
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			out, err := prepare()
+			require.NoError(t, err)
+			s := string(out.Body)
+			assert.NotContains(t, s, "task tools haven't been used recently")
+			assert.NotContains(t, s, "system-reminder")
+			assert.Contains(t, s, "go version go1.25.9 linux/amd64", "tool output before the reminder survives")
+			assert.Contains(t, s, "module weave-os/router")
+			assert.Contains(t, s, "thanks", "user text before the reminder survives")
+			assert.NotContains(t, s, "linux/amd64\\n\\n", "trailing padding is cut with the reminder")
+			assert.Equal(t, 4, out.Stats.CCTaskRemindersStripped)
+		})
+	}
 }
 
 func TestTaskReminderKept_WhenItIsTheWholeUserMessage(t *testing.T) {

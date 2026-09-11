@@ -72,3 +72,24 @@ func TestShouldStripCCTool(t *testing.T) {
 		}
 	}
 }
+
+func TestRemoveTaskToolReminders(t *testing.T) {
+	const rem = "<system-reminder>\nThe task tools haven't been used recently.\n</system-reminder>"
+	cases := []struct {
+		in, want string
+		n        int
+	}{
+		{"output\n\n" + rem, "output", 1},
+		{rem, "", 1},
+		{"a\n" + rem + "\n\nb\n" + rem, "a\n\nb", 2},
+		{"<system-reminder>\nunrelated\n</system-reminder>\n" + rem, "<system-reminder>\nunrelated\n</system-reminder>", 1},
+		{"the task tools haven't been used recently by anyone", "the task tools haven't been used recently by anyone", 0},
+		{"<system-reminder>\nThe task tools haven't been used recently.", "<system-reminder>\nThe task tools haven't been used recently.", 0},
+	}
+	for _, c := range cases {
+		got, n := removeTaskToolReminders(c.in)
+		if got != c.want || n != c.n {
+			t.Errorf("removeTaskToolReminders(%q) = (%q, %d), want (%q, %d)", c.in, got, n, c.want, c.n)
+		}
+	}
+}
