@@ -187,10 +187,25 @@ func TestSynthesizeMessageWithoutResults(t *testing.T) {
 	if got := msg.Content[0].Name; got != "web_search" {
 		t.Fatalf("default tool name = %q", got)
 	}
-	if len(msg.Content[1].Content) != 0 {
-		t.Fatalf("expected no result blocks, got %d", len(msg.Content[1].Content))
-	}
 	if !strings.Contains(msg.TextOf(), "No web search results") {
 		t.Fatalf("empty search must say so, got %q", msg.TextOf())
+	}
+
+	raw, err := json.Marshal(msg)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	parsed := gjson.ParseBytes(raw)
+	result := parsed.Get("content.1")
+	if got := result.Get("type").String(); got != "web_search_tool_result" {
+		t.Fatalf("content.1.type = %q", got)
+	}
+	if c := result.Get("content"); !c.Exists() || !c.IsArray() || len(c.Array()) != 0 {
+		t.Fatalf("zero-hit web_search_tool_result must serialize content as [], got %s", result.Raw)
+	}
+	for _, i := range []string{"0", "2"} {
+		if parsed.Get("content." + i + ".content").Exists() {
+			t.Fatalf("block %s must not carry a content key: %s", i, parsed.Get("content."+i).Raw)
+		}
 	}
 }

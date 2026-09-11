@@ -31,9 +31,11 @@ type Block struct {
 	ID    string       `json:"id,omitempty"`
 	Name  string       `json:"name,omitempty"`
 	Input *SearchInput `json:"input,omitempty"`
-	// ToolUseID and Content are set on web_search_tool_result blocks.
-	ToolUseID string        `json:"tool_use_id,omitempty"`
-	Content   []ResultBlock `json:"content,omitempty"`
+	// ToolUseID and Content are set on web_search_tool_result blocks. Content
+	// is a pointer so a zero-hit search still serializes as "content":[] —
+	// Claude Code's WebSearch tool crashes when the key is missing.
+	ToolUseID string         `json:"tool_use_id,omitempty"`
+	Content   *[]ResultBlock `json:"content,omitempty"`
 }
 
 // SearchInput is the input recorded on a server_tool_use block.
@@ -90,7 +92,7 @@ func SynthesizeMessage(msgID, model, toolName string, q Query, resp Response, in
 		Model: model,
 		Content: []Block{
 			{Type: "server_tool_use", ID: toolUseID, Name: toolName, Input: &SearchInput{Query: q.Text}},
-			{Type: "web_search_tool_result", ToolUseID: toolUseID, Content: results},
+			{Type: "web_search_tool_result", ToolUseID: toolUseID, Content: &results},
 			{Type: "text", Text: text},
 		},
 		StopReason: "end_turn",
