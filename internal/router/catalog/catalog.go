@@ -542,13 +542,14 @@ var Models = []Model{
 	// tier. Priced and bound so session pins and /force-model still dispatch.
 	// This bare alias is the OLD 0423 release; the routable one is the dated
 	// 0813 entry below, which is what AA actually benchmarks.
+	// Fireworks leads: Together no longer serves DeepSeek-V4-Pro serverless
+	// (400 "non-serverless model", which is not a failover status), so it
+	// trails as a fallback. Together serves only 512K context.
 	{ID: "deepseek/deepseek-v4-pro", ContextWindow: 1_048_576, ImageInput: ImageInputUnsupported, Providers: []ProviderBinding{
-		// Together is primary: same $1.74/$3.48 as Fireworks with #1 AA
-		// throughput (~209 t/s vs ~120). Together serves only 512K context.
-		{Provider: providers.ProviderTogether, UpstreamID: "deepseek-ai/DeepSeek-V4-Pro",
-			ContextWindow: 512_000, Price: Pricing{InputUSDPer1M: 1.740, OutputUSDPer1M: 3.480, CacheReadMultiplier: 0.20 / 1.740}},
 		{Provider: providers.ProviderFireworks, UpstreamID: "accounts/fireworks/models/deepseek-v4-pro",
 			Price: Pricing{InputUSDPer1M: 1.740, OutputUSDPer1M: 3.480, CacheReadMultiplier: 0.0862}},
+		{Provider: providers.ProviderTogether, UpstreamID: "deepseek-ai/DeepSeek-V4-Pro",
+			ContextWindow: 512_000, Price: Pricing{InputUSDPer1M: 1.740, OutputUSDPer1M: 3.480, CacheReadMultiplier: 0.20 / 1.740}},
 		{Provider: providers.ProviderOpenRouter, Price: Pricing{InputUSDPer1M: 0.435, OutputUSDPer1M: 0.870, CacheReadMultiplier: 0.10}},
 	}},
 	// The current V4-Pro release, and the one Artificial Analysis scores
@@ -557,10 +558,11 @@ var Models = []Model{
 	// above resolves to the retired 0423 build, so the HMM roster must target
 	// this dated ID to route to what it was actually ranked on.
 	{ID: "deepseek/deepseek-v4-pro-0813", Tier: TierMid, ContextWindow: 1_048_576, ImageInput: ImageInputUnsupported, Providers: []ProviderBinding{
-		// Together first: higher throughput (~209 t/s vs Fireworks ~120) at equal price. Together serves only 512K context.
-		{Provider: providers.ProviderTogether, UpstreamID: "deepseek-ai/DeepSeek-V4-Pro",
-			ContextWindow: 512_000, Price: Pricing{InputUSDPer1M: 1.740, OutputUSDPer1M: 3.480, CacheReadMultiplier: 0.20 / 1.740}},
-		{Provider: providers.ProviderFireworks, UpstreamID: "accounts/fireworks/models/deepseek-v4-pro",
+		// Fireworks serves the dated slug (the bare deepseek-v4-pro slug 404s as
+		// "not deployed"). No Together binding: Together only offers V4-Pro as a
+		// dedicated endpoint and answers a non-retryable 400, so a Fireworks
+		// failover into it turns a transient blip into a terminal client error.
+		{Provider: providers.ProviderFireworks, UpstreamID: "accounts/fireworks/models/deepseek-v4-pro-0813",
 			Price: Pricing{InputUSDPer1M: 1.740, OutputUSDPer1M: 3.480, CacheReadMultiplier: 0.0862}},
 		{Provider: providers.ProviderOpenRouter, Price: Pricing{InputUSDPer1M: 0.660, OutputUSDPer1M: 1.980, CacheReadMultiplier: 0.022 / 0.660}},
 	}},
