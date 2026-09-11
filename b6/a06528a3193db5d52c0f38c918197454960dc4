@@ -1,0 +1,77 @@
+internal/server/server.go
+  s_7cb53e052d677f::t_86c780ed89fedb 90-92,251-253,278-280,324-326
+internal/requestcontext/fail_open.go
+  s_7cb53e052d677f::t_40f8a584d9c9c2 182-190
+internal/auth/apikey_cache.go
+  s_7cb53e052d677f::t_40f8a584d9c9c2 27-31,35-38,44-48,50-56,65-69,99-105,152-175
+cmd/router/main.go
+  s_7cb53e052d677f::t_dd225c90ca8ac2 536
+  s_7cb53e052d677f::t_e0f4edde836ce4 527-535,537-541,547
+  s_7cb53e052d677f::t_86c780ed89fedb 542-545,1424
+internal/auth/service_test.go
+  s_7cb53e052d677f::t_9edcc71ac6997f 609,628-644
+  s_7cb53e052d677f::t_c68e8ed1c7649f 645
+internal/server/middleware/auth.go
+  s_7cb53e052d677f::t_8addbeff0910ad 95
+  s_7cb53e052d677f::t_7e5afc9604dc25 90-91
+  s_7cb53e052d677f::t_fa4baa8099b044 108
+internal/auth/service.go
+  s_7cb53e052d677f::t_16ee7cbf546c4d 183-187,189-190,192-193
+  s_7cb53e052d677f::t_60378d4d2a0bed 111-112
+  s_7cb53e052d677f::t_d704792705dc41 174-176
+  s_7cb53e052d677f::t_8a88d44ba1b118 166-173
+  s_7cb53e052d677f::t_d7f6923eab2c19 109-110
+  s_7cb53e052d677f::t_0860a2d0e586ef 155-165,177-182,188,191
+  s_7cb53e052d677f::t_5237518d76455c 739
+  s_7cb53e052d677f::t_a618ae517ddb05 151
+  s_7cb53e052d677f::t_7e0e11acdb2e5f 733
+  s_7cb53e052d677f::t_33f632ad732e98 730-732,734-738,740-752
+internal/auth/AGENTS.md
+  s_7cb53e052d677f::t_20cd755aab7240 22-33
+docs/CONFIGURATION.md
+  s_7cb53e052d677f::t_20cd755aab7240 405
+internal/auth/subscription.go
+  s_7cb53e052d677f::t_10977cf24b958e 124
+  s_7cb53e052d677f::t_c4d4a6e7904d96 112
+  s_7cb53e052d677f::t_875c9a99b41f7d 101-111,113-123,125-135
+.env.example
+  s_7cb53e052d677f::t_20cd755aab7240 75-77
+internal/proxy/AGENTS.md
+  s_7cb53e052d677f::t_20cd755aab7240 280-289
+internal/server/middleware/org_monthly_spend_cap.go
+  s_7cb53e052d677f::t_561f93d412bba6 57-61
+  s_7cb53e052d677f::t_d67efd2618bf36 72-73
+  s_7cb53e052d677f::t_99a55bfc59d28b 71
+  s_7cb53e052d677f::t_6be17c3a999df5 9
+  s_7cb53e052d677f::t_fcb78ae3a55eb9 17-26
+internal/server/middleware/balance_check.go
+  s_7cb53e052d677f::t_07261e0b7ddce8 78-82
+  s_7cb53e052d677f::t_6be17c3a999df5 11
+  s_7cb53e052d677f::t_022ef4e0c580d3 42-51
+  s_7cb53e052d677f::t_6e617babc12c0d 115-117
+internal/proxy/CLAUDE.md
+  s_7cb53e052d677f::t_20cd755aab7240 280-289
+internal/auth/CLAUDE.md
+  s_7cb53e052d677f::t_20cd755aab7240 22-33
+internal/server/middleware/api_key_spend_cap.go
+  s_7cb53e052d677f::t_ec5b938a4ab1f5 28-37
+  s_7cb53e052d677f::t_76b9c9189715f9 73-75
+  s_7cb53e052d677f::t_7c662017d0abe1 59-63
+  s_7cb53e052d677f::t_6be17c3a999df5 9
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "b6a06528a3193db5d52c0f38c918197454960dc4",
+  "prompts": {},
+  "sessions": {
+    "s_7cb53e052d677f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3f3d82f0-6aca-40b2-aca0-2547069ec7de",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Drew Bailey <drew@workweave.ai>"
+    }
+  }
+}
