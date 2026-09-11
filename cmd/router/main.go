@@ -31,6 +31,7 @@ import (
 	"weave-os/router/internal/observability/apm"
 	"weave-os/router/internal/observability/otel"
 	"weave-os/router/internal/policyclient"
+	"weave-os/router/internal/policyregistry"
 	"weave-os/router/internal/postgres"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/providers/anthropic"
@@ -51,8 +52,6 @@ import (
 	"weave-os/router/internal/router/escalation"
 	"weave-os/router/internal/router/handover"
 	"weave-os/router/internal/router/hmm"
-	"weave-os/router/internal/router/hmm/rosterdata"
-	"weave-os/router/internal/router/hmm/selection"
 	"weave-os/router/internal/router/planner"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/rl"
@@ -910,205 +909,116 @@ func main() {
 		logger.Info("RL policy router disabled (ROUTER_RL_SIDECAR_URL unset); x-weave-router-strategy: rl will return 503")
 	}
 
-	// Loaded only when ROUTER_HMM_ROSTER_PATH is set; the declarative roster is
-	// the source of the HMM strategies' deterministic arm selection below.
-	var declarativeRoster *rosterdata.Roster
-	if rosterPath := strings.TrimSpace(config.GetOr("ROUTER_HMM_ROSTER_PATH", "")); rosterPath != "" {
-		loadedRoster, rosterErr := rosterdata.Load(rosterPath)
-		if rosterErr != nil {
-			logger.Error("HMM declarative roster failed to load; refusing to boot", "path", rosterPath, "err", rosterErr)
-			panic(rosterErr)
-		}
-		declarativeRoster = loadedRoster
-		logger.Info(
-			"HMM declarative roster loaded",
-			"path", rosterPath,
-			"schema_version", declarativeRoster.SchemaVersion,
-			"clusters", len(declarativeRoster.Clusters),
-			"arms", len(declarativeRoster.AllArms()),
-		)
-	}
-
-	// Wired only when ROUTER_HMM_SIDECAR_URL is set; x-weave-router-strategy:
-	// hmm then routes through it. Unset fails closed with 503.
+	// HMM policy activation is driven only by generation-CAS lane heads. The
+	// classifier URL and Go selection policy are loaded as one snapshot.
 	var escalationObserver escalation.Observer
 	var hmmRouter router.Router
 	var hmmEmbeddingRouter router.Router
 	var hmmBetaRouter router.Router
 	var hmmCapabilities policy.Capabilities
 	var hmmReadinessChecker admin.HealthChecker
-	var hmmRosterSource policy.RosterSource
+	var hmmRosterSources map[router.Strategy]policy.RosterSource
 	var hmmRosterModels admin.HMMRosterSource
-	if hmmSidecarURL := config.GetOr("ROUTER_HMM_SIDECAR_URL", ""); hmmSidecarURL != "" {
-		hmmTimeout := parseEnvDurationMs("ROUTER_HMM_SIDECAR_TIMEOUT_MS", policyclient.DefaultTimeout)
-		hmmAuthMode := config.GetOr("ROUTER_HMM_SIDECAR_AUTH", policySidecarAuthNone)
-		hmmAttemptTimeout := parseEnvAttemptTimeoutMs(
-			"ROUTER_HMM_SIDECAR_ATTEMPT_TIMEOUT_MS",
-			policyclient.DeriveAttemptTimeout(hmmTimeout),
-		)
-		hmmClient, clientErr := buildHMMPolicyClient(
-			hmmSidecarURL,
-			hmmAuthMode,
-			hmmTimeout,
-			policyclient.WithAttemptTimeout(hmmAttemptTimeout),
-		)
-		if clientErr != nil {
-			logger.Error("HMM policy sidecar client failed to build; refusing to boot", "auth_mode", hmmAuthMode, "err", clientErr)
-			panic(clientErr)
-		}
-		escalationObserver = hmmClient
-		hmmReadinessChecker = hmmClient
-		hmmRosterSource = hmmClient
-		hmmRosterModels = newHMMRosterSource(hmmClient, hmmTimeout)
-		struggleRoster = proxy.NewStruggleRoster(hmmRosterSource)
-		capabilityCtx, cancelCapabilityDiscovery := context.WithTimeout(context.Background(), hmmTimeout)
-		var capabilityErr error
-		hmmCapabilities, capabilityErr = hmmClient.Capabilities(capabilityCtx)
-		cancelCapabilityDiscovery()
-		dynamicHMMRoster := declarativeRoster != nil && (declarativeRoster.SchemaVersion == rosterdata.SchemaVersionV7 || declarativeRoster.SchemaVersion == rosterdata.SchemaVersionV75C)
-		hmmCapabilities.HonorsQualityPriceBias = dynamicHMMRoster
-		hmmCapabilities.SupportsRoutingDistribution = dynamicHMMRoster
-		if capabilityErr != nil {
-			logger.Warn("HMM policy sidecar capabilities unavailable at boot; optional behavior remains disabled", "sidecar_url", hmmSidecarURL, "err", capabilityErr)
-		}
-		hmmPolicyRouter := hmm.New(hmmClient, availableProviders)
-		hmmPolicyRouter.WithCapabilities(hmmCapabilities)
-		hmmEmbeddingPolicyRouter := hmm.NewForStrategy(
-			router.StrategyHMMEmbedding,
-			hmmClient,
-			availableProviders,
-		)
-		hmmEmbeddingPolicyRouter.WithCapabilities(hmmCapabilities)
-		if capabilityErr != nil {
-			go func() {
-				retryErr := retryPolicyCapabilitiesUntilAvailable(
-					context.Background(),
-					hmmClient,
-					hmmTimeout,
-					hmmCapabilityRetryInterval,
-					func(capabilities policy.Capabilities) {
-						capabilities.HonorsQualityPriceBias = dynamicHMMRoster
-						capabilities.SupportsRoutingDistribution = dynamicHMMRoster
-						hmmPolicyRouter.WithCapabilities(capabilities)
-						hmmEmbeddingPolicyRouter.WithCapabilities(capabilities)
-					},
-				)
-				if retryErr != nil {
-					logger.Warn("HMM policy sidecar capability refresh stopped", "sidecar_url", hmmSidecarURL, "err", retryErr)
-					return
-				}
-				logger.Info("HMM policy sidecar capabilities discovered after boot", "sidecar_url", hmmSidecarURL)
-			}()
-		}
-		// No roster means no Go-side selection authority; refuse to boot rather than silently serving the sidecar's arm.
-		if declarativeRoster == nil {
-			logger.Error("HMM sidecar configured without ROUTER_HMM_ROSTER_PATH; refusing to boot", "sidecar_url", hmmSidecarURL)
-			panic("ROUTER_HMM_ROSTER_PATH is required when ROUTER_HMM_SIDECAR_URL is set")
-		}
-		armSelector := selection.Selector(declarativeRoster)
-		hmmPolicyRouter.WithArmSelector(armSelector)
-		hmmEmbeddingPolicyRouter.WithArmSelector(armSelector)
-		hmmRouter = hmmPolicyRouter
-		hmmEmbeddingRouter = hmmEmbeddingPolicyRouter
-		logger.Info(
-			"HMM policy routers wired",
-			"sidecar_url", hmmSidecarURL,
-			"auth_mode", hmmAuthMode,
-			"timeout_ms", hmmTimeout.Milliseconds(),
-			"attempt_timeout_ms", hmmAttemptTimeout.Milliseconds(),
-			"candidate_models", len(routingTargets),
-			"strategies", []router.Strategy{router.StrategyHMM, router.StrategyHMMEmbedding},
-		)
-	} else {
-		logger.Info("HMM policy routers disabled (ROUTER_HMM_SIDECAR_URL unset); HMM strategies will return 503")
-	}
-
-	// Separate sidecar: /beta opts into an independently deployed beta policy;
-	// absent or unhealthy beta fails closed without affecting stable routing.
 	var hmmBetaCapabilities policy.Capabilities
-	if hmmBetaSidecarURL := config.GetOr("ROUTER_HMM_BETA_SIDECAR_URL", ""); hmmBetaSidecarURL != "" {
-		hmmBetaTimeout := parseEnvDurationMs("ROUTER_HMM_BETA_SIDECAR_TIMEOUT_MS", policyclient.DefaultTimeout)
-		hmmBetaAuthMode := config.GetOr("ROUTER_HMM_BETA_SIDECAR_AUTH", policySidecarAuthNone)
-		hmmBetaAttemptTimeout := parseEnvAttemptTimeoutMs(
-			"ROUTER_HMM_BETA_SIDECAR_ATTEMPT_TIMEOUT_MS",
-			policyclient.DeriveAttemptTimeout(hmmBetaTimeout),
+	policyEnvironmentRaw := strings.TrimSpace(config.GetOr("ROUTER_POLICY_ENVIRONMENT", ""))
+	if policyEnvironmentRaw != "" {
+		registryURI := strings.TrimSpace(config.GetOr("WEAVE_REGISTRY_URI", "gs://weave_ml/weave_registry"))
+		policyRegistry, registryErr := policyregistry.NewGCSRegistry(context.Background(), registryURI)
+		if registryErr != nil {
+			logger.Error("Router policy registry failed to initialize; refusing to boot", "err", registryErr)
+			panic(registryErr)
+		}
+		defer policyRegistry.Close()
+		policyEnvironment := policyregistry.Environment(policyEnvironmentRaw)
+		hmmTimeout := parseEnvDurationMs("ROUTER_HMM_SIDECAR_TIMEOUT_MS", policyclient.DefaultTimeout)
+		hmmAttemptTimeout := parseEnvAttemptTimeoutMs("ROUTER_HMM_SIDECAR_ATTEMPT_TIMEOUT_MS", policyclient.DeriveAttemptTimeout(hmmTimeout))
+		hmmAuthMode := config.GetOr("ROUTER_HMM_SIDECAR_AUTH", policySidecarAuthGoogleIDToken)
+		stableManager, managerErr := policyregistry.NewManager(
+			policyRegistry,
+			policyEnvironment,
+			policyregistry.LaneStable,
+			hmmPolicySnapshotBuilder(availableProviders, []router.Strategy{router.StrategyHMM, router.StrategyHMMEmbedding}, hmmAuthMode, hmmTimeout, hmmAttemptTimeout),
+			logger,
 		)
-		hmmBetaClient, clientErr := buildHMMBetaPolicyClient(
-			hmmBetaSidecarURL,
-			hmmBetaAuthMode,
-			hmmBetaTimeout,
-			policyclient.WithAttemptTimeout(hmmBetaAttemptTimeout),
+		if managerErr != nil {
+			logger.Error("Stable router policy manager is invalid; refusing to boot", "err", managerErr)
+			panic(managerErr)
+		}
+		refreshCtx, cancelRefresh := context.WithTimeout(context.Background(), 30*time.Second)
+		refreshErr := stableManager.Refresh(refreshCtx)
+		cancelRefresh()
+		if refreshErr != nil {
+			logger.Error("No valid stable router policy snapshot; refusing to boot", "err", refreshErr)
+			panic(refreshErr)
+		}
+		managerCtx, cancelManagers := context.WithCancel(context.Background())
+		defer cancelManagers()
+		safeGo(logger, "stable-policy-manager", func() { stableManager.Run(managerCtx) })
+
+		stableDynamicRouter := policyregistry.NewDynamicRouter(stableManager, router.StrategyHMM)
+		hmmRouter = stableDynamicRouter
+		hmmEmbeddingRouter = policyregistry.NewDynamicRouter(stableManager, router.StrategyHMMEmbedding)
+		hmmCapabilities = hmmRouter.(policy.CapabilitySource).CurrentCapabilities()
+		hmmReadinessChecker = stableManager
+		hmmRosterSources = map[router.Strategy]policy.RosterSource{
+			router.StrategyHMM:          stableManager,
+			router.StrategyHMMEmbedding: stableManager,
+		}
+		hmmRosterModels = newHMMRosterSource(stableManager, hmmTimeout)
+		struggleRoster = proxy.NewStruggleRoster(stableManager)
+		escalationObserver = stableDynamicRouter
+
+		betaManager, betaManagerErr := policyregistry.NewManager(
+			policyRegistry,
+			policyEnvironment,
+			policyregistry.LaneBeta,
+			hmmPolicySnapshotBuilder(availableProviders, []router.Strategy{router.StrategyHMMBeta}, hmmAuthMode, hmmTimeout, hmmAttemptTimeout),
+			logger,
 		)
-		// The beta package embeds its own roster (a different taxonomy from
-		// stable's is the point of a candidate), so Go-side selection for beta
-		// decisions reads the matching declarative roster rather than stable's.
-		// Without it the beta router would negotiate the pre-v3 contract the
-		// sidecar no longer serves, so every beta turn would fail closed.
-		var betaRoster *rosterdata.Roster
-		betaRosterPath := strings.TrimSpace(config.GetOr("ROUTER_HMM_BETA_ROSTER_PATH", ""))
-		if betaRosterPath == "" {
-			logger.Error("beta HMM sidecar configured without ROUTER_HMM_BETA_ROSTER_PATH; beta disabled", "sidecar_url", hmmBetaSidecarURL)
-		} else if loadedRoster, rosterErr := rosterdata.Load(betaRosterPath); rosterErr != nil {
-			logger.Error("beta HMM declarative roster failed to load; beta disabled", "path", betaRosterPath, "err", rosterErr)
+		if betaManagerErr != nil {
+			logger.Error("Beta router policy manager is invalid; beta disabled", "err", betaManagerErr)
 		} else {
-			betaRoster = loadedRoster
-		}
-		switch {
-		case clientErr != nil:
-			// Beta is an optional isolation ring. A malformed beta-only auth
-			// setting must not take the stable router down with it.
-			logger.Error("beta HMM policy sidecar client failed to build; beta disabled", "auth_mode", hmmBetaAuthMode, "err", clientErr)
-		case betaRoster == nil:
-		default:
-			capabilityCtx, cancelCapabilityDiscovery := context.WithTimeout(context.Background(), hmmBetaTimeout)
-			var capabilityErr error
-			hmmBetaCapabilities, capabilityErr = hmmBetaClient.Capabilities(capabilityCtx)
-			cancelCapabilityDiscovery()
-			if capabilityErr != nil {
-				logger.Warn("beta HMM policy sidecar capabilities unavailable at boot; optional behavior remains disabled", "sidecar_url", hmmBetaSidecarURL, "err", capabilityErr)
+			hmmBetaRouter = policyregistry.NewDynamicRouter(betaManager, router.StrategyHMMBeta)
+			hmmRosterSources[router.StrategyHMMBeta] = betaManager
+			safeGo(logger, "beta-policy-manager", func() { betaManager.Run(managerCtx) })
+			betaRefreshCtx, cancelBetaRefresh := context.WithTimeout(context.Background(), 30*time.Second)
+			betaRefreshErr := betaManager.Refresh(betaRefreshCtx)
+			cancelBetaRefresh()
+			if betaRefreshErr != nil {
+				logger.Warn("No valid beta router policy snapshot; beta disabled", "err", betaRefreshErr)
+			} else {
+				hmmBetaCapabilities = hmmBetaRouter.(policy.CapabilitySource).CurrentCapabilities()
 			}
-			hmmBetaPolicyRouter := hmm.NewForStrategy(
-				router.StrategyHMMBeta,
-				hmmBetaClient,
-				availableProviders,
+		}
+		policyInvalidationTopic := strings.TrimSpace(config.GetOr("PUBSUB_TOPIC_ROUTER_POLICY_INVALIDATION", ""))
+		if policyInvalidationTopic != "" {
+			policyInvalidationPrefix := config.GetOr("PUBSUB_SUBSCRIPTION_ROUTER_POLICY_INVALIDATION", policyInvalidationTopic)
+			policySubscriptionCtx, cancelPolicySubscription := context.WithTimeout(context.Background(), 30*time.Second)
+			policySubscriptionName, deletePolicySubscription, subscriptionErr := routerpubsub.CreateReplicaSubscription(
+				policySubscriptionCtx, pubsubClient, pubsubProjectID, policyInvalidationTopic, policyInvalidationPrefix,
 			)
-			hmmBetaPolicyRouter.WithCapabilities(hmmBetaCapabilities)
-			hmmBetaPolicyRouter.WithArmSelector(selection.Selector(betaRoster))
-			if capabilityErr != nil {
-				go func() {
-					retryErr := retryPolicyCapabilitiesUntilAvailable(
-						context.Background(),
-						hmmBetaClient,
-						hmmBetaTimeout,
-						hmmCapabilityRetryInterval,
-						func(capabilities policy.Capabilities) {
-							hmmBetaPolicyRouter.WithCapabilities(capabilities)
-						},
-					)
-					if retryErr != nil {
-						logger.Warn("beta HMM policy sidecar capability refresh stopped", "sidecar_url", hmmBetaSidecarURL, "err", retryErr)
-						return
+			cancelPolicySubscription()
+			if subscriptionErr != nil {
+				logger.Warn("Policy invalidation subscription unavailable; polling remains authoritative", "err", subscriptionErr)
+			} else {
+				defer deletePolicySubscription()
+				policyListener := routerpubsub.NewPolicyReleaseListener(pubsubClient.Subscriber(policySubscriptionName), func() {
+					stableManager.Trigger()
+					if betaManager != nil {
+						betaManager.Trigger()
 					}
-					logger.Info("beta HMM policy sidecar capabilities discovered after boot", "sidecar_url", hmmBetaSidecarURL)
+				})
+				policyListenerCtx, cancelPolicyListener := context.WithCancel(context.Background())
+				defer func() {
+					cancelPolicyListener()
+					policyListener.Wait()
 				}()
+				safeGo(logger, "policy-invalidation-listener", func() { policyListener.Run(policyListenerCtx) })
 			}
-			hmmBetaRouter = hmmBetaPolicyRouter
-			logger.Info(
-				"beta HMM policy router wired",
-				"sidecar_url", hmmBetaSidecarURL,
-				"auth_mode", hmmBetaAuthMode,
-				"timeout_ms", hmmBetaTimeout.Milliseconds(),
-				"attempt_timeout_ms", hmmBetaAttemptTimeout.Milliseconds(),
-				"candidate_models", len(routingTargets),
-				"strategy", router.StrategyHMMBeta,
-				"roster_path", betaRosterPath,
-				"roster_schema_version", betaRoster.SchemaVersion,
-				"roster_clusters", len(betaRoster.Clusters),
-				"roster_arms", len(betaRoster.AllArms()),
-			)
 		}
+		logger.Info("HMM policy managers wired", "registry_uri", registryURI, "environment", policyEnvironment, "candidate_models", len(routingTargets))
 	} else {
-		logger.Info("beta HMM policy router disabled (ROUTER_HMM_BETA_SIDECAR_URL unset); /beta will be unavailable")
+		logger.Info("HMM policy routers disabled (ROUTER_POLICY_ENVIRONMENT unset); HMM strategies will return 503")
 	}
 
 	// Wired only when ROUTER_BANDIT_POSTERIOR_FILE points at a ts_posterior.json;
@@ -1377,7 +1287,7 @@ func main() {
 	deployedModels, _ := rtr.(*cluster.Multiversion)
 	analyticsSvc := analytics.NewService(repo.Analytics, time.Now)
 	readinessChecker := newReadinessChecker(pool, hmmReadinessChecker)
-	server.Register(engine, authSvc, proxySvc, deployedModels, hmmRosterModels, deploymentMode, billingSvc, readinessChecker, hmmRosterSource, analyticsSvc, declarativeRoster)
+	server.Register(engine, authSvc, proxySvc, deployedModels, hmmRosterModels, deploymentMode, billingSvc, readinessChecker, hmmRosterSources, analyticsSvc)
 
 	srv := &http.Server{
 		Addr:    ":" + config.GetOr("PORT", "8080"),

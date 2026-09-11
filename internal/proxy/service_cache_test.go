@@ -110,7 +110,7 @@ func TestService_Cache_HitShortCircuitsProvider(t *testing.T) {
 	assert.Equal(t, proxy.RouterCacheHit, rec2.Header().Get(proxy.HeaderRouterCache))
 }
 
-func TestService_Cache_ConditionalSubscriptionModelsBypass(t *testing.T) {
+func TestService_Cache_SubscriptionStatePreferencesBypass(t *testing.T) {
 	emb := embeddingFixture(11)
 	provider := &fakeProvider{
 		proxyResponse: func(w http.ResponseWriter) {
@@ -123,7 +123,7 @@ func TestService_Cache_ConditionalSubscriptionModelsBypass(t *testing.T) {
 	svc := proxy.NewService(fr, map[string]providers.Client{providers.ProviderAnthropic: provider}, nil, false, c, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil)
 
 	ctx := proxyContextWithExternalID(t, "tenant-conditional")
-	ctx = context.WithValue(ctx, proxy.InstallationSubscriptionConditionalModelsContextKey{}, []string{"claude-haiku-4-5"})
+	ctx = context.WithValue(ctx, proxy.SubscriptionStatePreferredModelsContextKey{}, []string{"claude-haiku-4-5"})
 	body := anthropicBody("conditional cache", false)
 
 	rec1 := httptest.NewRecorder()
@@ -131,11 +131,11 @@ func TestService_Cache_ConditionalSubscriptionModelsBypass(t *testing.T) {
 	rec2 := httptest.NewRecorder()
 	require.NoError(t, svc.ProxyMessages(ctx, body, rec2, httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))))
 
-	assert.Len(t, provider.proxyBodies, 2, "subscription-state conditional requests must not replay a cached response")
+	assert.Len(t, provider.proxyBodies, 2, "subscription-state preferences must not replay a cached response")
 	assert.Empty(t, rec2.Header().Get(proxy.HeaderRouterCache))
 }
 
-func TestService_Cache_EmptyConfiguredSubscriptionModelsBypass(t *testing.T) {
+func TestService_Cache_EmptySubscriptionStatePreferencesAllowCache(t *testing.T) {
 	emb := embeddingFixture(12)
 	provider := &fakeProvider{
 		proxyResponse: func(w http.ResponseWriter) {
@@ -148,7 +148,7 @@ func TestService_Cache_EmptyConfiguredSubscriptionModelsBypass(t *testing.T) {
 	svc := proxy.NewService(fr, map[string]providers.Client{providers.ProviderAnthropic: provider}, nil, false, c, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil)
 
 	ctx := proxyContextWithExternalID(t, "tenant-conditional-empty")
-	ctx = context.WithValue(ctx, proxy.InstallationSubscriptionConditionalModelsContextKey{}, []string{})
+	ctx = context.WithValue(ctx, proxy.SubscriptionStatePreferredModelsContextKey{}, []string{})
 	body := anthropicBody("conditional empty cache", false)
 
 	rec1 := httptest.NewRecorder()
@@ -156,8 +156,8 @@ func TestService_Cache_EmptyConfiguredSubscriptionModelsBypass(t *testing.T) {
 	rec2 := httptest.NewRecorder()
 	require.NoError(t, svc.ProxyMessages(ctx, body, rec2, httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))))
 
-	assert.Len(t, provider.proxyBodies, 2, "empty configured subscription-state requests must not replay a cached response")
-	assert.Empty(t, rec2.Header().Get(proxy.HeaderRouterCache))
+	assert.Len(t, provider.proxyBodies, 1, "an empty preference list does not alter routing and can reuse the cache")
+	assert.Equal(t, proxy.RouterCacheHit, rec2.Header().Get(proxy.HeaderRouterCache))
 }
 
 func TestService_Cache_PlanAwareRoutingBypasses(t *testing.T) {

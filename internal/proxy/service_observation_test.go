@@ -324,12 +324,28 @@ func TestProxyMessages_RecordsPolicyObservation(t *testing.T) {
 		Model:    "claude-haiku-4-5",
 		Reason:   "policy:hmm",
 		Metadata: &router.RoutingMetadata{
-			Strategy:             string(router.StrategyHMM),
-			RouteID:              "route-1",
-			PolicyRouteKey:       "medium|open",
-			PolicyArtifactID:     "hmm-prod",
-			PolicyArtifactSHA256: "sha256:abc",
-			RosterVersion:        "roster-v2",
+			Strategy:                 string(router.StrategyHMM),
+			RouteID:                  "route-1",
+			PolicyRouteKey:           "medium|open",
+			PolicyArtifactID:         "release-sha",
+			PolicyArtifactSHA256:     "policy-sha",
+			RosterVersion:            "policy-sha",
+			ClassifierArtifactID:     "classifier-model",
+			ClassifierArtifactSHA256: "classifier-sha",
+			ClassifierPredictedLabel: "high",
+			ClassifierClassOrder:     []string{"low", "medium", "high", "maximum"},
+			ClassifierProbabilities:  map[string]float64{"low": 0.05, "medium": 0.15, "high": 0.7, "maximum": 0.1},
+			SelectionPolicyReleaseID: "release-sha",
+			SelectionPolicySHA256:    "policy-sha",
+			SelectionHeadGeneration:  42,
+			SelectionTrace: &router.SelectionTrace{
+				ClassifierRanking:  []string{"high", "medium", "maximum", "low"},
+				Harness:            "claude-code",
+				CandidateRosterIDs: []string{"anthropic/claude-haiku-4-5"},
+				EffectiveOrders:    map[string][]string{"high": {"anthropic/claude-haiku-4-5"}},
+				SelectedGroup:      "high",
+				SelectedArm:        "anthropic/claude-haiku-4-5",
+			},
 			SidecarSchemaVersion: "policy_router_v1",
 			DebugRef:             "debug-1",
 		},
@@ -355,9 +371,19 @@ func TestProxyMessages_RecordsPolicyObservation(t *testing.T) {
 	assert.Equal(t, "hmm", row.Strategy)
 	assert.Equal(t, "route-1", row.RouteID)
 	assert.Equal(t, "medium|open", row.PolicyRouteKey)
-	assert.Equal(t, "hmm-prod", row.PolicyArtifactID)
-	assert.Equal(t, "sha256:abc", row.PolicyArtifactSHA256)
-	assert.Equal(t, "roster-v2", row.RosterVersion)
+	assert.Equal(t, "release-sha", row.PolicyArtifactID)
+	assert.Equal(t, "policy-sha", row.PolicyArtifactSHA256)
+	assert.Equal(t, "policy-sha", row.RosterVersion)
+	assert.Equal(t, "classifier-model", row.ClassifierArtifactID)
+	assert.Equal(t, "classifier-sha", row.ClassifierArtifactSHA256)
+	assert.Equal(t, "high", row.ClassifierPredictedLabel)
+	assert.Equal(t, []string{"low", "medium", "high", "maximum"}, row.ClassifierClassOrder)
+	require.JSONEq(t, `{"high":0.7,"low":0.05,"maximum":0.1,"medium":0.15}`, string(row.ClassifierProbabilities))
+	assert.Equal(t, "release-sha", row.SelectionPolicyReleaseID)
+	assert.Equal(t, "policy-sha", row.SelectionPolicySHA256)
+	require.NotNil(t, row.SelectionHeadGeneration)
+	assert.Equal(t, int64(42), *row.SelectionHeadGeneration)
+	require.JSONEq(t, `{"candidate_roster_ids":["anthropic/claude-haiku-4-5"],"classifier_ranking":["high","medium","maximum","low"],"effective_orders":{"high":["anthropic/claude-haiku-4-5"]},"fallback_depth":0,"harness":"claude-code","selected_arm":"anthropic/claude-haiku-4-5","selected_group":"high"}`, string(row.SelectionTrace))
 	assert.Equal(t, "policy_router_v1", row.SidecarSchemaVersion)
 	assert.True(t, row.TrainingAllowed)
 	assert.Equal(t, "hashed", row.CaptureMode)

@@ -137,10 +137,10 @@ func withAPIKey(svc *auth.Service, byokRequiresOptIn bool) gin.HandlerFunc {
 				ctx = context.WithValue(ctx, proxy.InstallationAllowedModelsContextKey{}, installation.AllowedModels)
 			}
 			if len(installation.ModelsWhenSubscriptionActive) > 0 {
-				ctx = context.WithValue(ctx, proxy.InstallationSubscriptionModelsWhenActiveContextKey{}, installation.ModelsWhenSubscriptionActive)
+				ctx = context.WithValue(ctx, proxy.InstallationSubscriptionPreferredModelsWhenActiveContextKey{}, installation.ModelsWhenSubscriptionActive)
 			}
 			if len(installation.ModelsWhenSubscriptionInactive) > 0 {
-				ctx = context.WithValue(ctx, proxy.InstallationSubscriptionModelsWhenInactiveContextKey{}, installation.ModelsWhenSubscriptionInactive)
+				ctx = context.WithValue(ctx, proxy.InstallationSubscriptionPreferredModelsWhenInactiveContextKey{}, installation.ModelsWhenSubscriptionInactive)
 			}
 			if len(installation.ExcludedProviders) > 0 {
 				ctx = context.WithValue(ctx, proxy.InstallationExcludedProvidersContextKey{}, installation.ExcludedProviders)

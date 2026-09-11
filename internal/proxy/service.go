@@ -490,14 +490,17 @@ type InstallationExcludedModelsContextKey struct{}
 // means no restriction.
 type InstallationAllowedModelsContextKey struct{}
 
-// InstallationSubscriptionModelsWhenActiveContextKey is the context key for the active-subscription conditional model allowlist.
-type InstallationSubscriptionModelsWhenActiveContextKey struct{}
+// InstallationSubscriptionPreferredModelsWhenActiveContextKey carries the
+// installation's ordered soft preferences while its subscription has headroom.
+type InstallationSubscriptionPreferredModelsWhenActiveContextKey struct{}
 
-// InstallationSubscriptionModelsWhenInactiveContextKey is the context key for the exhausted-subscription conditional model allowlist.
-type InstallationSubscriptionModelsWhenInactiveContextKey struct{}
+// InstallationSubscriptionPreferredModelsWhenInactiveContextKey carries the
+// installation's ordered soft preferences after its subscription is exhausted.
+type InstallationSubscriptionPreferredModelsWhenInactiveContextKey struct{}
 
-// InstallationSubscriptionConditionalModelsContextKey is the context key for the request-selected conditional model allowlist.
-type InstallationSubscriptionConditionalModelsContextKey struct{}
+// SubscriptionStatePreferredModelsContextKey carries the request-selected
+// subscription-state preference list. It never participates in eligibility.
+type SubscriptionStatePreferredModelsContextKey struct{}
 
 // InstallationExcludedProvidersContextKey is the context key for the authed
 // installation's provider exclusion list. Carried as []string.
@@ -819,8 +822,8 @@ func installationAllowedModelsFromContext(ctx context.Context) []string {
 	return out
 }
 
-func installationSubscriptionModelsWhenActiveFromContext(ctx context.Context) []string {
-	v := ctx.Value(InstallationSubscriptionModelsWhenActiveContextKey{})
+func installationSubscriptionPreferredModelsWhenActiveFromContext(ctx context.Context) []string {
+	v := ctx.Value(InstallationSubscriptionPreferredModelsWhenActiveContextKey{})
 	if v == nil {
 		return nil
 	}
@@ -828,8 +831,8 @@ func installationSubscriptionModelsWhenActiveFromContext(ctx context.Context) []
 	return out
 }
 
-func installationSubscriptionModelsWhenInactiveFromContext(ctx context.Context) []string {
-	v := ctx.Value(InstallationSubscriptionModelsWhenInactiveContextKey{})
+func installationSubscriptionPreferredModelsWhenInactiveFromContext(ctx context.Context) []string {
+	v := ctx.Value(InstallationSubscriptionPreferredModelsWhenInactiveContextKey{})
 	if v == nil {
 		return nil
 	}
@@ -837,17 +840,13 @@ func installationSubscriptionModelsWhenInactiveFromContext(ctx context.Context) 
 	return out
 }
 
-func subscriptionConditionalModelsForRequest(ctx context.Context) []string {
-	v := ctx.Value(InstallationSubscriptionConditionalModelsContextKey{})
+func subscriptionStatePreferredModelsFromContext(ctx context.Context) []string {
+	v := ctx.Value(SubscriptionStatePreferredModelsContextKey{})
 	if v == nil {
 		return nil
 	}
 	out, _ := v.([]string)
 	return out
-}
-
-func subscriptionConditionalModelsConfigured(ctx context.Context) bool {
-	return ctx.Value(InstallationSubscriptionConditionalModelsContextKey{}) != nil
 }
 
 // allowedModelsForRequest returns the effective positive model allowlist as a
@@ -871,39 +870,17 @@ func allowedModelsForRequest(ctx context.Context) map[string]struct{} {
 	return out
 }
 
-// installationAllowedModelSet returns the installation's positive model allowlist as a set,
-// intersecting the installation list with the selected subscription-state list.
-// Nil = no policy; non-nil empty = fails closed (intentional empty intersection).
+// installationAllowedModelSet returns only the installation's explicit positive
+// model allowlist as a set. Subscription state is a soft preference and cannot
+// remove providers or models from this set.
 func installationAllowedModelSet(ctx context.Context) map[string]struct{} {
 	base := installationAllowedModelsFromContext(ctx)
-	conditional := subscriptionConditionalModelsForRequest(ctx)
-	conditionalConfigured := subscriptionConditionalModelsConfigured(ctx)
-	if len(base) == 0 && !conditionalConfigured {
-		return nil
-	}
-	if !conditionalConfigured {
-		out := make(map[string]struct{}, len(base))
-		for _, m := range base {
-			out[m] = struct{}{}
-		}
-		return out
-	}
 	if len(base) == 0 {
-		out := make(map[string]struct{}, len(conditional))
-		for _, m := range conditional {
-			out[m] = struct{}{}
-		}
-		return out
-	}
-	conditionalSet := make(map[string]struct{}, len(conditional))
-	for _, m := range conditional {
-		conditionalSet[m] = struct{}{}
+		return nil
 	}
 	out := make(map[string]struct{}, len(base))
 	for _, m := range base {
-		if _, ok := conditionalSet[m]; ok {
-			out[m] = struct{}{}
-		}
+		out[m] = struct{}{}
 	}
 	return out
 }
@@ -1109,10 +1086,7 @@ func installationFastModeModelsFromContext(ctx context.Context) []string {
 	return out
 }
 
-// preferredModelsForRequest returns the request's ordered model priority
-// ranking (index 0 = first preference). The installation list flows through
-// unchanged; the scorer ignores entries not in the eligible pool. There is no
-// env override (priority is a per-installation product knob, not an eval lever).
+// preferredModelsForRequest returns the installation's ordinary soft ranking.
 func (s *Service) preferredModelsForRequest(ctx context.Context) []string {
 	return installationPreferredModelsFromContext(ctx)
 }
@@ -3343,18 +3317,19 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		OrganizationID:               externalID,
 		// Keep this tied to client-visible history so a later feedback command
 		// can correlate with the route even if local compaction rewrites env.
-		FeedbackKey:          hex.EncodeToString(sessionKey[:]),
-		FeedbackRole:         roleForTier(catalog.TierFor(feats.Model)),
-		ClientSessionID:      clientSessionIDForRequest(ctx, env),
-		EnabledProviders:     enabledProviders,
-		CustomBindings:       s.customBindingsForRequest(ctx),
-		GatewayProviders:     s.gatewayProvidersForRequest(ctx),
-		ExcludedModels:       excluded,
-		AllowedModels:        allowedModelsForRequest(ctx),
-		SafetyExcludedModels: s.safetyExcludedModels(env, outputReserve, enabledProviders),
-		PreferredModels:      s.preferredModelsForRequest(ctx),
-		RoutingKnobs:         routingKnobsForRequest(ctx),
-		ClusterArmOverrides:  clusterArmOverridesForRequest(ctx),
+		FeedbackKey:                      hex.EncodeToString(sessionKey[:]),
+		FeedbackRole:                     roleForTier(catalog.TierFor(feats.Model)),
+		ClientSessionID:                  clientSessionIDForRequest(ctx, env),
+		EnabledProviders:                 enabledProviders,
+		CustomBindings:                   s.customBindingsForRequest(ctx),
+		GatewayProviders:                 s.gatewayProvidersForRequest(ctx),
+		ExcludedModels:                   excluded,
+		AllowedModels:                    allowedModelsForRequest(ctx),
+		SafetyExcludedModels:             s.safetyExcludedModels(env, outputReserve, enabledProviders),
+		PreferredModels:                  s.preferredModelsForRequest(ctx),
+		SubscriptionStatePreferredModels: subscriptionStatePreferredModelsFromContext(ctx),
+		RoutingKnobs:                     routingKnobsForRequest(ctx),
+		ClusterArmOverrides:              clusterArmOverridesForRequest(ctx),
 	}
 	if installationID != uuid.Nil {
 		req.InstallationID = installationID.String()
@@ -3544,7 +3519,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	// Subscription-state conditional model lists are likewise absent from the
 	// cache key, so never cache a request after one has been selected. Plan-aware
 	// exclusions are also absent from the key and must bypass the cache.
-	cacheEligible := routeRes.EscalationOrdinal == 0 && !clientRecoveryApplied && s.semanticCacheAllowed(ctx) && s.semanticCache != nil && !env.Stream() && decision.Metadata != nil && externalID != "" && !bypassEval && !compactionHandoverRan && !billing.SubscriptionOnlyFromContext(ctx) && len(s.subsidyFactors(ctx, r.Header)) == 0 && !subscriptionConditionalModelsConfigured(ctx) && len(subscriptionPlanAwareExcludedModelsFromContext(ctx)) == 0 && !requestAllowedModelsPresent(ctx)
+	cacheEligible := routeRes.EscalationOrdinal == 0 && !clientRecoveryApplied && s.semanticCacheAllowed(ctx) && s.semanticCache != nil && !env.Stream() && decision.Metadata != nil && externalID != "" && !bypassEval && !compactionHandoverRan && !billing.SubscriptionOnlyFromContext(ctx) && len(s.subsidyFactors(ctx, r.Header)) == 0 && len(subscriptionStatePreferredModelsFromContext(ctx)) == 0 && len(subscriptionPlanAwareExcludedModelsFromContext(ctx)) == 0 && !requestAllowedModelsPresent(ctx)
 	if cacheEligible {
 		if resp, hit := s.semanticCache.Lookup(externalID, cache.FormatAnthropic, decision.Metadata.Embedding, decision.Metadata.ClusterIDs, decision.Metadata.ClusterRouterVersion, decision.Metadata.EffectiveKnobsHash); hit {
 			s.writeCachedResponse(w, resp, decision)
@@ -4555,59 +4530,68 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			s.evictPinAfterDegenerateResponse(ctx, stickyHit, decision.Reason, installationID, routeRes.SessionKey, stickyStateRole(routeRes))
 		}
 		tel := InsertTelemetryParams{
-			InstallationID:         installationID.String(),
-			APIKeyID:               apiKeyIDFromContext(ctx),
-			RequestID:              requestID,
-			SpanType:               "router.upstream",
-			TraceID:                requestID,
-			Timestamp:              requestStart,
-			RequestedModel:         feats.Model,
-			DecisionModel:          decision.Model,
-			DecisionProvider:       decision.Provider,
-			DecisionReason:         telemetryDecisionReason(ctx, decision.Reason),
-			RequestedAllowedModels: requestedAllowedModelsForTelemetry(ctx),
-			EstimatedInputTokens:   int32(feats.Tokens),
-			StickyHit:              stickyHit,
-			PinTier:                routeRes.PinTier,
-			EmbedInput:             embedInput,
-			InputTokens:            int32(in),
-			OutputTokens:           int32(out),
-			RequestedInputCostUSD:  catalog.EffectiveInputCost(in, cacheCreation, cacheRead, reqPricing, decision.Provider),
-			RequestedOutputCostUSD: catalog.EffectiveOutputCost(in, out, reqPricing),
-			ActualInputCostUSD:     catalog.EffectiveInputCost(in, cacheCreation, cacheRead, actPricing, decision.Provider),
-			ActualOutputCostUSD:    catalog.EffectiveOutputCost(in, out, actPricing),
-			RouteLatencyMs:         routeMs,
-			UpstreamLatencyMs:      proxyMs,
-			TotalLatencyMs:         time.Since(requestStart).Milliseconds(),
-			CrossFormat:            crossFormat,
-			UpstreamStatusCode:     int32(upstreamStatus(proxyErr)),
-			ClusterIDs:             obs.ClusterIDs,
-			CandidateModels:        obs.CandidateModels,
-			ChosenScore:            obs.ChosenScore,
-			CandidateScores:        obs.CandidateScores,
-			Propensity:             obs.Propensity,
-			ClusterRouterVersion:   obs.ClusterRouterVersion,
-			Strategy:               obs.Strategy,
-			RouteID:                obs.RouteID,
-			PolicyRouteKey:         obs.PolicyRouteKey,
-			PolicyArtifactID:       obs.PolicyArtifactID,
-			PolicyArtifactSHA256:   obs.PolicyArtifactSHA256,
-			RosterVersion:          obs.RosterVersion,
-			SidecarSchemaVersion:   obs.SidecarSchemaVersion,
-			TrainingAllowed:        obs.TrainingAllowed,
-			CaptureMode:            obs.CaptureMode,
-			DebugRef:               obs.DebugRef,
-			TTFTMs:                 obs.TTFTMs,
-			CacheCreationTokens:    cacheTokenPtr(cacheCreation),
-			CacheReadTokens:        cacheTokenPtr(cacheRead),
-			DeviceID:               clientID.DeviceID,
-			SessionID:              clientID.SessionID,
-			RouterUserID:           auth.UserIDFrom(ctx),
-			ClientApp:              clientID.ClientApp,
-			TurnType:               string(routeRes.TurnType),
-			RolloutID:              obs.RolloutID,
-			UpstreamFinishReason:   stringPtrOrEmpty(respSummary.UpstreamFinishReason),
-			StopReason:             stringPtrOrEmpty(respSummary.StopReason),
+			InstallationID:           installationID.String(),
+			APIKeyID:                 apiKeyIDFromContext(ctx),
+			RequestID:                requestID,
+			SpanType:                 "router.upstream",
+			TraceID:                  requestID,
+			Timestamp:                requestStart,
+			RequestedModel:           feats.Model,
+			DecisionModel:            decision.Model,
+			DecisionProvider:         decision.Provider,
+			DecisionReason:           telemetryDecisionReason(ctx, decision.Reason),
+			RequestedAllowedModels:   requestedAllowedModelsForTelemetry(ctx),
+			EstimatedInputTokens:     int32(feats.Tokens),
+			StickyHit:                stickyHit,
+			PinTier:                  routeRes.PinTier,
+			EmbedInput:               embedInput,
+			InputTokens:              int32(in),
+			OutputTokens:             int32(out),
+			RequestedInputCostUSD:    catalog.EffectiveInputCost(in, cacheCreation, cacheRead, reqPricing, decision.Provider),
+			RequestedOutputCostUSD:   catalog.EffectiveOutputCost(in, out, reqPricing),
+			ActualInputCostUSD:       catalog.EffectiveInputCost(in, cacheCreation, cacheRead, actPricing, decision.Provider),
+			ActualOutputCostUSD:      catalog.EffectiveOutputCost(in, out, actPricing),
+			RouteLatencyMs:           routeMs,
+			UpstreamLatencyMs:        proxyMs,
+			TotalLatencyMs:           time.Since(requestStart).Milliseconds(),
+			CrossFormat:              crossFormat,
+			UpstreamStatusCode:       int32(upstreamStatus(proxyErr)),
+			ClusterIDs:               obs.ClusterIDs,
+			CandidateModels:          obs.CandidateModels,
+			ChosenScore:              obs.ChosenScore,
+			CandidateScores:          obs.CandidateScores,
+			Propensity:               obs.Propensity,
+			ClusterRouterVersion:     obs.ClusterRouterVersion,
+			Strategy:                 obs.Strategy,
+			RouteID:                  obs.RouteID,
+			PolicyRouteKey:           obs.PolicyRouteKey,
+			PolicyArtifactID:         obs.PolicyArtifactID,
+			PolicyArtifactSHA256:     obs.PolicyArtifactSHA256,
+			RosterVersion:            obs.RosterVersion,
+			ClassifierArtifactID:     obs.ClassifierArtifactID,
+			ClassifierArtifactSHA256: obs.ClassifierArtifactSHA256,
+			ClassifierPredictedLabel: obs.ClassifierPredictedLabel,
+			ClassifierClassOrder:     obs.ClassifierClassOrder,
+			ClassifierProbabilities:  obs.ClassifierProbabilities,
+			SelectionPolicyReleaseID: obs.SelectionPolicyReleaseID,
+			SelectionPolicySHA256:    obs.SelectionPolicySHA256,
+			SelectionHeadGeneration:  int64PtrIf(obs.SelectionHeadGeneration > 0, obs.SelectionHeadGeneration),
+			SelectionTrace:           obs.SelectionTrace,
+			SidecarSchemaVersion:     obs.SidecarSchemaVersion,
+			TrainingAllowed:          obs.TrainingAllowed,
+			CaptureMode:              obs.CaptureMode,
+			DebugRef:                 obs.DebugRef,
+			TTFTMs:                   obs.TTFTMs,
+			CacheCreationTokens:      cacheTokenPtr(cacheCreation),
+			CacheReadTokens:          cacheTokenPtr(cacheRead),
+			DeviceID:                 clientID.DeviceID,
+			SessionID:                clientID.SessionID,
+			RouterUserID:             auth.UserIDFrom(ctx),
+			ClientApp:                clientID.ClientApp,
+			TurnType:                 string(routeRes.TurnType),
+			RolloutID:                obs.RolloutID,
+			UpstreamFinishReason:     stringPtrOrEmpty(respSummary.UpstreamFinishReason),
+			StopReason:               stringPtrOrEmpty(respSummary.StopReason),
 			// Only valid when a translator ran (StopReason populated) — the
 			// Anthropic-native passthrough path leaves respSummary zero, which
 			// must not look like a measured zero-tool turn.
@@ -5078,6 +5062,11 @@ func (s *Service) reportPolicyOutcome(ctx context.Context, res turnLoopResult, d
 		"policy_artifact_id":               routeMetadata.PolicyArtifactID,
 		"policy_artifact_sha256":           routeMetadata.PolicyArtifactSHA256,
 		"roster_version":                   routeMetadata.RosterVersion,
+		"classifier_artifact_id":           routeMetadata.ClassifierArtifactID,
+		"classifier_artifact_sha256":       routeMetadata.ClassifierArtifactSHA256,
+		"selection_policy_release_id":      routeMetadata.SelectionPolicyReleaseID,
+		"selection_policy_sha256":          routeMetadata.SelectionPolicySHA256,
+		"selection_head_generation":        routeMetadata.SelectionHeadGeneration,
 		"sidecar_schema_version":           routeMetadata.SidecarSchemaVersion,
 		"selected_model":                   routeDecision.Model,
 		"selected_provider":                routeDecision.Provider,
@@ -6176,18 +6165,19 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		HistoryTruncated:             compResOAI.Applied,
 		// Keep this tied to client-visible history so a later feedback command
 		// can correlate with the route even if local compaction rewrites env.
-		FeedbackKey:          hex.EncodeToString(sessionKey[:]),
-		FeedbackRole:         roleForTier(catalog.TierFor(feats.Model)),
-		ClientSessionID:      clientSessionIDForRequest(ctx, env),
-		EnabledProviders:     enabledProviders,
-		CustomBindings:       s.customBindingsForRequest(ctx),
-		GatewayProviders:     s.gatewayProvidersForRequest(ctx),
-		ExcludedModels:       excludedOAI,
-		AllowedModels:        allowedModelsForRequest(ctx),
-		SafetyExcludedModels: s.safetyExcludedModels(env, outputReserveOAI, enabledProviders),
-		PreferredModels:      s.preferredModelsForRequest(ctx),
-		RoutingKnobs:         routingKnobsForRequest(ctx),
-		ClusterArmOverrides:  clusterArmOverridesForRequest(ctx),
+		FeedbackKey:                      hex.EncodeToString(sessionKey[:]),
+		FeedbackRole:                     roleForTier(catalog.TierFor(feats.Model)),
+		ClientSessionID:                  clientSessionIDForRequest(ctx, env),
+		EnabledProviders:                 enabledProviders,
+		CustomBindings:                   s.customBindingsForRequest(ctx),
+		GatewayProviders:                 s.gatewayProvidersForRequest(ctx),
+		ExcludedModels:                   excludedOAI,
+		AllowedModels:                    allowedModelsForRequest(ctx),
+		SafetyExcludedModels:             s.safetyExcludedModels(env, outputReserveOAI, enabledProviders),
+		PreferredModels:                  s.preferredModelsForRequest(ctx),
+		SubscriptionStatePreferredModels: subscriptionStatePreferredModelsFromContext(ctx),
+		RoutingKnobs:                     routingKnobsForRequest(ctx),
+		ClusterArmOverrides:              clusterArmOverridesForRequest(ctx),
 	}
 	routeStart := time.Now()
 	routeCtx, routeSpan := startRoutingSpan(ctx, routeRequest)
@@ -6217,7 +6207,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	// See the ProxyMessages cache-eligibility note: subsidized, subscription-state-
 	// conditional, and plan-aware requests bypass the semantic cache because the
 	// key does not capture headroom-dependent model eligibility.
-	cacheEligible := routeRes.EscalationOrdinal == 0 && s.semanticCacheAllowed(ctx) && s.semanticCache != nil && !env.Stream() && decision.Metadata != nil && externalID != "" && !bypassEval && !responsesPassthrough && !billing.SubscriptionOnlyFromContext(ctx) && len(s.subsidyFactors(ctx, r.Header)) == 0 && !subscriptionConditionalModelsConfigured(ctx) && len(subscriptionPlanAwareExcludedModelsFromContext(ctx)) == 0 && !requestAllowedModelsPresent(ctx)
+	cacheEligible := routeRes.EscalationOrdinal == 0 && s.semanticCacheAllowed(ctx) && s.semanticCache != nil && !env.Stream() && decision.Metadata != nil && externalID != "" && !bypassEval && !responsesPassthrough && !billing.SubscriptionOnlyFromContext(ctx) && len(s.subsidyFactors(ctx, r.Header)) == 0 && len(subscriptionStatePreferredModelsFromContext(ctx)) == 0 && len(subscriptionPlanAwareExcludedModelsFromContext(ctx)) == 0 && !requestAllowedModelsPresent(ctx)
 	if cacheEligible {
 		if resp, hit := s.semanticCache.Lookup(externalID, cache.FormatOpenAI, decision.Metadata.Embedding, decision.Metadata.ClusterIDs, decision.Metadata.ClusterRouterVersion, decision.Metadata.EffectiveKnobsHash); hit {
 			s.writeCachedResponse(w, resp, decision)
@@ -7198,59 +7188,68 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	if installationIDOAI != "" {
 		credentialKeyPrefix, credentialKeySuffix, credSource := s.credentialKeyParts(ctx)
 		telOAI := InsertTelemetryParams{
-			InstallationID:         installationIDOAI,
-			APIKeyID:               apiKeyIDFromContext(ctx),
-			RequestID:              requestID,
-			SpanType:               "router.upstream",
-			TraceID:                requestID,
-			Timestamp:              requestStart,
-			RequestedModel:         feats.Model,
-			DecisionModel:          decision.Model,
-			DecisionProvider:       decision.Provider,
-			DecisionReason:         telemetryDecisionReason(ctx, decision.Reason),
-			RequestedAllowedModels: requestedAllowedModelsForTelemetry(ctx),
-			EstimatedInputTokens:   int32(feats.Tokens),
-			StickyHit:              stickyHit,
-			PinTier:                routeRes.PinTier,
-			EmbedInput:             embedInput,
-			InputTokens:            int32(in),
-			OutputTokens:           int32(out),
-			RequestedInputCostUSD:  catalog.EffectiveInputCost(in, cacheCreation, cacheRead, reqPricing, decision.Provider),
-			RequestedOutputCostUSD: catalog.EffectiveOutputCost(in, out, reqPricing),
-			ActualInputCostUSD:     catalog.EffectiveInputCost(in, cacheCreation, cacheRead, actPricing, decision.Provider),
-			ActualOutputCostUSD:    catalog.EffectiveOutputCost(in, out, actPricing),
-			RouteLatencyMs:         routeMs,
-			UpstreamLatencyMs:      proxyMs,
-			TotalLatencyMs:         time.Since(requestStart).Milliseconds(),
-			CrossFormat:            crossFormat,
-			UpstreamStatusCode:     int32(upstreamStatus(proxyErr)),
-			ClusterIDs:             openaiObs.ClusterIDs,
-			CandidateModels:        openaiObs.CandidateModels,
-			ChosenScore:            openaiObs.ChosenScore,
-			CandidateScores:        openaiObs.CandidateScores,
-			Propensity:             openaiObs.Propensity,
-			ClusterRouterVersion:   openaiObs.ClusterRouterVersion,
-			Strategy:               openaiObs.Strategy,
-			RouteID:                openaiObs.RouteID,
-			PolicyRouteKey:         openaiObs.PolicyRouteKey,
-			PolicyArtifactID:       openaiObs.PolicyArtifactID,
-			PolicyArtifactSHA256:   openaiObs.PolicyArtifactSHA256,
-			RosterVersion:          openaiObs.RosterVersion,
-			SidecarSchemaVersion:   openaiObs.SidecarSchemaVersion,
-			TrainingAllowed:        openaiObs.TrainingAllowed,
-			CaptureMode:            openaiObs.CaptureMode,
-			DebugRef:               openaiObs.DebugRef,
-			TTFTMs:                 openaiObs.TTFTMs,
-			CacheCreationTokens:    cacheTokenPtr(cacheCreation),
-			CacheReadTokens:        cacheTokenPtr(cacheRead),
-			DeviceID:               clientID.DeviceID,
-			SessionID:              clientID.SessionID,
-			RouterUserID:           auth.UserIDFrom(ctx),
-			ClientApp:              clientID.ClientApp,
-			TurnType:               string(routeRes.TurnType),
-			RolloutID:              openaiObs.RolloutID,
-			UpstreamFinishReason:   stringPtrOrEmpty(respSummary.UpstreamFinishReason),
-			StopReason:             stringPtrOrEmpty(respSummary.StopReason),
+			InstallationID:           installationIDOAI,
+			APIKeyID:                 apiKeyIDFromContext(ctx),
+			RequestID:                requestID,
+			SpanType:                 "router.upstream",
+			TraceID:                  requestID,
+			Timestamp:                requestStart,
+			RequestedModel:           feats.Model,
+			DecisionModel:            decision.Model,
+			DecisionProvider:         decision.Provider,
+			DecisionReason:           telemetryDecisionReason(ctx, decision.Reason),
+			RequestedAllowedModels:   requestedAllowedModelsForTelemetry(ctx),
+			EstimatedInputTokens:     int32(feats.Tokens),
+			StickyHit:                stickyHit,
+			PinTier:                  routeRes.PinTier,
+			EmbedInput:               embedInput,
+			InputTokens:              int32(in),
+			OutputTokens:             int32(out),
+			RequestedInputCostUSD:    catalog.EffectiveInputCost(in, cacheCreation, cacheRead, reqPricing, decision.Provider),
+			RequestedOutputCostUSD:   catalog.EffectiveOutputCost(in, out, reqPricing),
+			ActualInputCostUSD:       catalog.EffectiveInputCost(in, cacheCreation, cacheRead, actPricing, decision.Provider),
+			ActualOutputCostUSD:      catalog.EffectiveOutputCost(in, out, actPricing),
+			RouteLatencyMs:           routeMs,
+			UpstreamLatencyMs:        proxyMs,
+			TotalLatencyMs:           time.Since(requestStart).Milliseconds(),
+			CrossFormat:              crossFormat,
+			UpstreamStatusCode:       int32(upstreamStatus(proxyErr)),
+			ClusterIDs:               openaiObs.ClusterIDs,
+			CandidateModels:          openaiObs.CandidateModels,
+			ChosenScore:              openaiObs.ChosenScore,
+			CandidateScores:          openaiObs.CandidateScores,
+			Propensity:               openaiObs.Propensity,
+			ClusterRouterVersion:     openaiObs.ClusterRouterVersion,
+			Strategy:                 openaiObs.Strategy,
+			RouteID:                  openaiObs.RouteID,
+			PolicyRouteKey:           openaiObs.PolicyRouteKey,
+			PolicyArtifactID:         openaiObs.PolicyArtifactID,
+			PolicyArtifactSHA256:     openaiObs.PolicyArtifactSHA256,
+			RosterVersion:            openaiObs.RosterVersion,
+			ClassifierArtifactID:     openaiObs.ClassifierArtifactID,
+			ClassifierArtifactSHA256: openaiObs.ClassifierArtifactSHA256,
+			ClassifierPredictedLabel: openaiObs.ClassifierPredictedLabel,
+			ClassifierClassOrder:     openaiObs.ClassifierClassOrder,
+			ClassifierProbabilities:  openaiObs.ClassifierProbabilities,
+			SelectionPolicyReleaseID: openaiObs.SelectionPolicyReleaseID,
+			SelectionPolicySHA256:    openaiObs.SelectionPolicySHA256,
+			SelectionHeadGeneration:  int64PtrIf(openaiObs.SelectionHeadGeneration > 0, openaiObs.SelectionHeadGeneration),
+			SelectionTrace:           openaiObs.SelectionTrace,
+			SidecarSchemaVersion:     openaiObs.SidecarSchemaVersion,
+			TrainingAllowed:          openaiObs.TrainingAllowed,
+			CaptureMode:              openaiObs.CaptureMode,
+			DebugRef:                 openaiObs.DebugRef,
+			TTFTMs:                   openaiObs.TTFTMs,
+			CacheCreationTokens:      cacheTokenPtr(cacheCreation),
+			CacheReadTokens:          cacheTokenPtr(cacheRead),
+			DeviceID:                 clientID.DeviceID,
+			SessionID:                clientID.SessionID,
+			RouterUserID:             auth.UserIDFrom(ctx),
+			ClientApp:                clientID.ClientApp,
+			TurnType:                 string(routeRes.TurnType),
+			RolloutID:                openaiObs.RolloutID,
+			UpstreamFinishReason:     stringPtrOrEmpty(respSummary.UpstreamFinishReason),
+			StopReason:               stringPtrOrEmpty(respSummary.StopReason),
 			// A subscription->Weave retry keeps the same provider, so OR it in to
 			// match the OTel span + completion log.
 			FailoverUsed: boolPtrTrue(finalProvider != primaryProvider || codexFailoverUsed),

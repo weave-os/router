@@ -15,20 +15,19 @@ import (
 )
 
 // hmmRosterTTL reuses the same freshness window as the control plane's own
-// deployed-models cache; the HMM roster only changes on a bandit-state swap.
+// deployed-models cache; the source is the active Go policy manager.
 const hmmRosterTTL = 5 * time.Minute
 
 // hmmRosterRetryBackoff caps how often a failing refresh re-hits the sidecar
 // while stale data is being served, to avoid hammering it during an outage.
 const hmmRosterRetryBackoff = 30 * time.Second
 
-// rosterFetcher is the subset of the policy sidecar client the roster source
-// needs; satisfied by *policyclient.Client.
+// rosterFetcher is the active Go policy projection needed for model discovery.
 type rosterFetcher interface {
 	Roster(ctx context.Context) ([]string, error)
 }
 
-// hmmRosterSource adapts HMM sidecar roster arms to deployed-model entries.
+// hmmRosterSource adapts active Go policy arms to deployed-model entries.
 // On fetch failure it serves the prior snapshot rather than blanking the roster.
 type hmmRosterSource struct {
 	fetch        rosterFetcher

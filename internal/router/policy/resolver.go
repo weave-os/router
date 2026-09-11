@@ -268,7 +268,7 @@ func (r *Resolver) RouterSelectsArm() {
 // SchemaVersion returns the sidecar contract required by this resolver.
 func (r *Resolver) SchemaVersion() string {
 	if r.routerSelectsArm {
-		return SchemaVersionV3
+		return SchemaVersionV4
 	}
 	if r.enumerateBindings {
 		return SchemaVersionV2

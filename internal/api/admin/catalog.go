@@ -20,7 +20,7 @@ type CatalogModelsResponse struct {
 	Models []deployedModelDTO `json:"models"`
 }
 
-// HMMRosterSource exposes the HMM sidecar roster arms as catalog entries;
+// HMMRosterSource exposes the active Go policy arms as catalog entries;
 // its roster differs from the cluster artifact's DeployedModelsSource.
 type HMMRosterSource interface {
 	HMMDeployedModels(ctx context.Context) ([]cluster.DeployedEntry, error)

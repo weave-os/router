@@ -77,12 +77,12 @@ const (
 //
 // readinessChecker gates /readyz only; /health remains process liveness.
 //
-// hmmRosterSource, when non-nil, mounts GET /v1/router/hmm-roster for the
-// control plane's cluster allowlist UI.
+// hmmRosterSources, when non-nil, mounts GET /v1/router/hmm-roster for the
+// control plane's live stable/beta policy UI.
 //
 // analyticsSvc, when non-nil, mounts the /v1/analytics/* export surface;
 // nil leaves it unmounted (tests, deployments without telemetry storage).
-func Register(engine *gin.Engine, authSvc *auth.Service, proxySvc *proxy.Service, deployedModels admin.DeployedModelsSource, hmmModels admin.HMMRosterSource, mode DeploymentMode, billingSvc *billing.Service, readinessChecker admin.HealthChecker, hmmRosterSource policy.RosterSource, analyticsSvc *analytics.Service, hmmDistributionRosters ...*rosterdata.Roster) {
+func Register(engine *gin.Engine, authSvc *auth.Service, proxySvc *proxy.Service, deployedModels admin.DeployedModelsSource, hmmModels admin.HMMRosterSource, mode DeploymentMode, billingSvc *billing.Service, readinessChecker admin.HealthChecker, hmmRosterSources map[router.Strategy]policy.RosterSource, analyticsSvc *analytics.Service, hmmDistributionRosters ...*rosterdata.Roster) {
 	// Browser clients need an explicit expose list before fetch can read the
 	// router's routing and cost metadata from a cross-origin response.
 	engine.Use(func(c *gin.Context) {
@@ -143,8 +143,8 @@ func Register(engine *gin.Engine, authSvc *auth.Service, proxySvc *proxy.Service
 
 	// /v1/router/hmm-roster: frozen per-cluster arm roster mapped to catalog IDs.
 	// Unauthed — read-only and non-sensitive, same rationale as /v1/router/models.
-	if hmmRosterSource != nil {
-		engine.GET("/v1/router/hmm-roster", middleware.WithTimeout(readinessTimeout), admin.HMMRosterHandler(hmmRosterSource))
+	if len(hmmRosterSources) > 0 {
+		engine.GET("/v1/router/hmm-roster", middleware.WithTimeout(readinessTimeout), admin.HMMRosterHandler(hmmRosterSources))
 	}
 
 	// /internal/v1/*: control-plane-to-router calls, authed by a shared secret

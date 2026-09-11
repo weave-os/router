@@ -2,7 +2,6 @@ package policy_test
 
 import (
 	"context"
-	"slices"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -75,16 +74,16 @@ func TestEscalationUsesNormalSelectorWithoutLosingFloor(t *testing.T) {
 			if test.lowerFirst {
 				groups = []escalation.Group{escalation.Low, escalation.Medium, escalation.High, escalation.Maximum}
 			}
-			classification := policy.Result{SchemaVersion: policy.SchemaVersionV3, PolicyGroup: string(test.baseline)}
-			for _, group := range groups {
-				arms := roster.Clusters[string(group)].Arms
-				eligible := slices.Clone(arms)
-				if slices.Contains(test.emptyReported, group) {
-					eligible = nil
-				}
-				classification.RankedFallback = append(classification.RankedFallback, policy.PreviewGroup{Group: string(group), RosterArms: arms, EligibleArms: eligible})
+			classification := policy.Result{
+				SchemaVersion: policy.SchemaVersionV4, PredictedLabel: string(test.baseline),
+				ClassProbabilities: make(map[string]float64, len(groups)),
 			}
-			for _, group := range test.emptyRuntime {
+			weightTotal := float64(len(groups)*(len(groups)+1)) / 2
+			for index, group := range groups {
+				classification.ClassOrder = append(classification.ClassOrder, string(group))
+				classification.ClassProbabilities[string(group)] = float64(len(groups)-index) / weightTotal
+			}
+			for _, group := range append(test.emptyReported, test.emptyRuntime...) {
 				delete(roster.Clusters, string(group))
 			}
 			adapter := newSelectorAdapter(classification).WithArmSelector(selection.Selector(roster))
@@ -107,9 +106,6 @@ func TestEscalationUsesNormalSelectorWithoutLosingFloor(t *testing.T) {
 
 func TestEscalationYieldsToExplicitClusterForce(t *testing.T) {
 	classification := classifierOnlyResult()
-	classification.RankedFallback = append(classification.RankedFallback, policy.PreviewGroup{
-		Group: string(escalation.Low), RosterArms: []string{escalationSonnetArm}, EligibleArms: []string{escalationSonnetArm},
-	})
 	roster := &rosterdata.Roster{
 		SchemaVersion: rosterdata.SchemaVersionV6,
 		Clusters: map[string]rosterdata.Cluster{

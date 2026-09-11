@@ -26,7 +26,7 @@ func testRoster() *rosterdata.Roster {
 		Clusters: map[string]rosterdata.Cluster{
 			"low": {
 				Arms: []string{"vendor-a/cheap", "vendor-b/cheap"},
-				ArmsByHarness: map[string][]string{
+				ArmsByHarness: map[rosterdata.Harness][]string{
 					"claude-code": {"vendor-b/cheap", "vendor-a/cheap"},
 					"codex_cli":   {"vendor-b/cheap"},
 				},
@@ -97,8 +97,8 @@ func TestSelectGroupsWithPreferenceReweightsWithinClassifierBand(t *testing.T) {
 func TestSelectGroupsWithPreferencePreservesPolicyTiers(t *testing.T) {
 	roster := dynamicRoster()
 	cluster := roster.Clusters["low"]
-	cluster.ManualPinsByHarness = map[string][]string{"pi": {"vendor-b/cheap"}}
-	cluster.PreferredVendorsByHarness = map[string][]string{"codex": {"vendor-b"}}
+	cluster.ManualPinsByHarness = map[rosterdata.Harness][]string{rosterdata.HarnessPI: {"vendor-b/cheap"}}
+	cluster.PreferredVendorsByHarness = map[rosterdata.Harness][]string{rosterdata.HarnessCodex: {"vendor-b"}}
 	roster.Clusters["low"] = cluster
 	qualityHeavy := 1.0
 	candidates := candidateSet("vendor-a/quality", "vendor-b/cheap")
@@ -256,87 +256,6 @@ func TestSelect(t *testing.T) {
 			}
 		})
 	}
-}
-
-func TestSelectGroupsHonorsTheSidecarArmAllowlist(t *testing.T) {
-	roster := testRoster()
-	candidates := candidateSet("vendor-a/mid", "vendor-b/mid", "vendor-a/cheap")
-
-	// Rank one of the group is a candidate but the sidecar excluded it (e.g. a
-	// capability constraint), so the next allowed arm of the same group serves.
-	pick, ok := selection.SelectGroups(
-		roster,
-		[]selection.Group{{Label: "balanced", AllowedArms: []string{"vendor-b/mid"}}},
-		"",
-		candidates,
-	)
-	require.True(t, ok)
-	assert.Equal(t, selection.Pick{Group: "balanced", Arm: "vendor-b/mid"}, pick)
-
-	// A group whose allowlist excludes every candidate falls through.
-	pick, ok = selection.SelectGroups(
-		roster,
-		[]selection.Group{
-			{Label: "balanced", AllowedArms: []string{"vendor-c/other"}},
-			{Label: "low", AllowedArms: []string{"vendor-a/cheap"}},
-		},
-		"",
-		candidates,
-	)
-	require.True(t, ok)
-	assert.Equal(t, selection.Pick{Group: "low", Arm: "vendor-a/cheap", FallbackDepth: 1}, pick)
-
-	// An empty allowlist is "no restriction", not "no arms": a sidecar roster
-	// that disagrees with the router's must not shrink the candidate set.
-	pick, ok = selection.SelectGroups(
-		roster,
-		[]selection.Group{{Label: "balanced"}},
-		"",
-		candidates,
-	)
-	require.True(t, ok)
-	assert.Equal(t, selection.Pick{Group: "balanced", Arm: "vendor-a/mid"}, pick)
-
-	// A bare allowlist entry names the base model and permits any of its
-	// effort-qualified roster arms.
-	pick, ok = selection.SelectGroups(
-		roster,
-		[]selection.Group{{Label: "effort", AllowedArms: []string{"vendor-a/deep"}}},
-		"",
-		candidateSet("vendor-a/deep"),
-	)
-	require.True(t, ok)
-	assert.Equal(t, selection.Pick{Group: "effort", Arm: "vendor-a/deep:high"}, pick)
-}
-
-func TestSelectGroupsAllowlistDistinguishesEffortVariants(t *testing.T) {
-	roster := testRoster()
-	candidates := candidateSet("vendor-a/deep")
-
-	// Each effort variant is a distinct arm; allowlisting one must not
-	// admit a higher-effort arm that ranks above it.
-	pick, ok := selection.SelectGroups(
-		roster,
-		[]selection.Group{{Label: "efforts", AllowedArms: []string{"vendor-a/deep:low"}}},
-		"",
-		candidates,
-	)
-	require.True(t, ok)
-	assert.Equal(t, selection.Pick{Group: "efforts", Arm: "vendor-a/deep:low"}, pick)
-
-	// An effort-qualified allowlist entry does not admit the unsuffixed arm,
-	// which dispatches at the provider's default effort.
-	pick, ok = selection.SelectGroups(
-		roster,
-		[]selection.Group{
-			{Label: "efforts", AllowedArms: []string{"vendor-a/deep:medium"}},
-			{Label: "low", AllowedArms: []string{"vendor-a/cheap"}},
-		},
-		"",
-		candidateSet("vendor-a/deep", "vendor-a/cheap"),
-	)
-	require.True(t, ok)
-	assert.Equal(t, selection.Pick{Group: "low", Arm: "vendor-a/cheap", FallbackDepth: 1}, pick)
 }
 
 func TestSelectIsDeterministic(t *testing.T) {

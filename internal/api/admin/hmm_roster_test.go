@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"weave-os/router/internal/api/admin"
+	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/policy"
 
 	"github.com/gin-gonic/gin"
@@ -27,7 +28,7 @@ func TestHMMRosterHandler_PreservesRosterArmsAndCatalogModels(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	engine := gin.New()
-	engine.GET("/v1/router/hmm-roster", admin.HMMRosterHandler(fakeRosterSource{
+	engine.GET("/v1/router/hmm-roster", admin.HMMRosterHandler(map[router.Strategy]policy.RosterSource{router.StrategyHMM: fakeRosterSource{
 		snapshot: policy.RosterSnapshot{
 			RosterSHA256: "sha-1",
 			Clusters: map[string][]string{
@@ -37,7 +38,7 @@ func TestHMMRosterHandler_PreservesRosterArmsAndCatalogModels(t *testing.T) {
 				},
 			},
 		},
-	}))
+	}}))
 
 	rec := httptest.NewRecorder()
 	engine.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/v1/router/hmm-roster", nil))
@@ -58,4 +59,38 @@ func TestHMMRosterHandler_PreservesRosterArmsAndCatalogModels(t *testing.T) {
 		"x-ai/grok-4.6",
 	}, body.Clusters[0].Arms)
 	assert.Equal(t, []string{"claude-opus-5", "grok-4.6"}, body.Clusters[0].Models)
+}
+
+func TestHMMRosterHandler_SelectsBetaPolicy(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	engine := gin.New()
+	engine.GET("/v1/router/hmm-roster", admin.HMMRosterHandler(map[router.Strategy]policy.RosterSource{
+		router.StrategyHMM:     fakeRosterSource{snapshot: policy.RosterSnapshot{Lane: "stable", Clusters: map[string][]string{"high": {"openai/gpt-5.6-sol"}}}},
+		router.StrategyHMMBeta: fakeRosterSource{snapshot: policy.RosterSnapshot{Lane: "beta", Clusters: map[string][]string{"high": {"x-ai/grok-4.6"}}}},
+	}))
+
+	rec := httptest.NewRecorder()
+	engine.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/v1/router/hmm-roster?strategy=hmm_beta", nil))
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	var body struct {
+		Lane string `json:"lane"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+	assert.Equal(t, "beta", body.Lane)
+}
+
+func TestHMMRosterHandler_RejectsUnsupportedStrategy(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	engine := gin.New()
+	engine.GET("/v1/router/hmm-roster", admin.HMMRosterHandler(map[router.Strategy]policy.RosterSource{
+		router.StrategyHMM: fakeRosterSource{},
+	}))
+
+	rec := httptest.NewRecorder()
+	engine.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/v1/router/hmm-roster?strategy=cluster", nil))
+
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }

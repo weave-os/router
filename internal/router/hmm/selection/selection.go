@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 
+	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/hmm/rosterdata"
 )
@@ -24,24 +25,20 @@ type Pick struct {
 	HarnessOrder bool
 }
 
-// Group is one ranked classifier group plus the sidecar's arm allowlist for it.
-// AllowedArms mirrors eligible_arms: the sidecar has already dropped arms a
-// capability constraint forbids, so honoring it is the only way those constraints
-// survive router-owned selection. Empty means no restriction — not no arms.
-// Entries are matched against roster arms verbatim, except that a bare entry
-// also permits every effort-qualified arm of that base.
+// Group is one classifier group ranked from raw probabilities in Go.
 type Group struct {
-	Label       string
-	AllowedArms []string
+	Label string
 }
 
 // ArmOrder returns the harness-specific arm order when the roster declares a non-empty one, else the pooled order (private-sidecar arms_by_harness extension).
 // Roster harness keys use underscores (claude_code) while router.Request.ClientApp is hyphenated (claude-code), so both spellings are tried.
 func ArmOrder(cluster rosterdata.Cluster, harness string) (order []string, harnessSpecific bool) {
-	if arms := cluster.ArmsByHarness[harness]; len(arms) > 0 {
+	exactHarness := rosterdata.Harness(harness)
+	if arms := cluster.ArmsByHarness[exactHarness]; len(arms) > 0 {
 		return arms, true
 	}
-	if arms := cluster.ArmsByHarness[strings.ReplaceAll(harness, "-", "_")]; len(arms) > 0 {
+	normalizedHarness := rosterdata.Harness(strings.ReplaceAll(harness, "-", "_"))
+	if arms := cluster.ArmsByHarness[normalizedHarness]; len(arms) > 0 {
 		return arms, true
 	}
 	return cluster.Arms, false
@@ -58,8 +55,7 @@ func Select(roster *rosterdata.Roster, rankedGroups []string, harness string, ca
 	return SelectGroups(roster, groups, harness, candidates)
 }
 
-// SelectGroups is Select with each group's sidecar arm allowlist applied on top
-// of the router's candidate set.
+// SelectGroups walks Go-ranked groups against the router's hard-eligible candidates.
 func SelectGroups(roster *rosterdata.Roster, groups []Group, harness string, candidates map[string]struct{}) (Pick, bool) {
 	pick, _, ok := SelectGroupsWithPreference(roster, groups, harness, candidates, nil)
 	return pick, ok
@@ -70,10 +66,33 @@ func SelectGroups(roster *rosterdata.Roster, groups []Group, harness string, can
 // order is never changed. Returned score maps are grouped because a later
 // force-cluster or key override may change the final group.
 func SelectGroupsWithPreference(roster *rosterdata.Roster, groups []Group, harness string, candidates map[string]struct{}, qualityBias *float64) (Pick, map[string]map[string]float32, bool) {
+	pick, scoresByGroup, _, _, ok := SelectGroupsWithPreferences(roster, groups, harness, candidates, qualityBias, nil, nil, nil)
+	return pick, scoresByGroup, ok
+}
+
+// SelectGroupsWithPreferences applies Go-owned score preferences after hard
+// eligibility and returns each group's effective order for diagnostics.
+func SelectGroupsWithPreferences(
+	roster *rosterdata.Roster,
+	groups []Group,
+	harness string,
+	candidates map[string]struct{},
+	qualityBias *float64,
+	preferredModels []string,
+	subscriptionStatePreferredModels []string,
+	subsidizedModelCostFactor map[string]float64,
+) (Pick, map[string]map[string]float32, map[string]map[string]router.SelectionScoreComponents, map[string][]string, bool) {
 	scoresByGroup := make(map[string]map[string]float32, len(groups))
+	componentsByGroup := make(map[string]map[string]router.SelectionScoreComponents, len(groups))
+	ordersByGroup := make(map[string][]string, len(groups))
+	hasPreferenceInputs := len(preferredModels) > 0 || len(subscriptionStatePreferredModels) > 0 || len(subsidizedModelCostFactor) > 0
 	for _, group := range groups {
 		if cluster, ok := roster.Clusters[group.Label]; ok {
-			scoresByGroup[group.Label] = Scores(roster, group.Label, cluster, qualityBias)
+			scores, components := scoresWithPreferences(roster, group.Label, cluster, qualityBias, preferredModels, subscriptionStatePreferredModels, subsidizedModelCostFactor)
+			scoresByGroup[group.Label] = scores
+			componentsByGroup[group.Label] = components
+			order, _ := ArmOrder(cluster, harness)
+			ordersByGroup[group.Label] = preferenceOrder(roster, group.Label, cluster, harness, order, qualityBias, hasPreferenceInputs, scores)
 		}
 	}
 	depth := 0
@@ -85,20 +104,8 @@ func SelectGroupsWithPreference(roster *rosterdata.Roster, groups []Group, harne
 			depth++
 			continue
 		}
-		allowedArms := make(map[string]struct{}, len(group.AllowedArms))
-		allowedBases := make(map[string]struct{}, len(group.AllowedArms))
-		for _, arm := range group.AllowedArms {
-			// Effort-qualified entries (model:low) match verbatim; bare entries
-			// permit any effort of that base to avoid emptying the group.
-			if baseID, effort := hmm.SplitEffort(arm); effort == "" {
-				allowedBases[baseID] = struct{}{}
-			} else {
-				allowedArms[arm] = struct{}{}
-			}
-		}
-		restricted := len(allowedArms)+len(allowedBases) > 0
-		order, harnessSpecific := ArmOrder(cluster, harness)
-		order = preferenceOrder(roster, group.Label, cluster, harness, order, qualityBias)
+		_, harnessSpecific := ArmOrder(cluster, harness)
+		order := ordersByGroup[group.Label]
 		for _, arm := range order {
 			// Candidates carry base roster IDs, so effort-suffixed arms
 			// (model:high) match on their base ID.
@@ -106,18 +113,11 @@ func SelectGroupsWithPreference(roster *rosterdata.Roster, groups []Group, harne
 			if _, eligible := candidates[baseID]; !eligible {
 				continue
 			}
-			if restricted {
-				_, armPermitted := allowedArms[arm]
-				_, basePermitted := allowedBases[baseID]
-				if !armPermitted && !basePermitted {
-					continue
-				}
-			}
-			return Pick{Group: group.Label, Arm: arm, FallbackDepth: depth, HarnessOrder: harnessSpecific}, scoresByGroup, true
+			return Pick{Group: group.Label, Arm: arm, FallbackDepth: depth, HarnessOrder: harnessSpecific}, scoresByGroup, componentsByGroup, ordersByGroup, true
 		}
 		depth++
 	}
-	return Pick{}, scoresByGroup, false
+	return Pick{}, scoresByGroup, componentsByGroup, ordersByGroup, false
 }
 
 // Scores returns the fixed neutral scores or preference-adjusted WII/WPI score
@@ -151,12 +151,11 @@ func EffectiveAlpha(roster *rosterdata.Roster, label string, qualityBias float64
 	return defaultAlpha + (roster.Ranking.AlphaMax[label]-defaultAlpha)*((qualityBias-neutral)/(1-neutral))
 }
 
-func preferenceOrder(roster *rosterdata.Roster, label string, cluster rosterdata.Cluster, harness string, order []string, qualityBias *float64) []string {
-	if qualityBias == nil || *qualityBias == roster.Ranking.QualityBiasNeutral || !isDynamicRoster(roster) {
+func preferenceOrder(roster *rosterdata.Roster, label string, cluster rosterdata.Cluster, harness string, order []string, qualityBias *float64, hasPreferenceInputs bool, scores map[string]float32) []string {
+	if (qualityBias == nil || *qualityBias == roster.Ranking.QualityBiasNeutral || !isDynamicRoster(roster)) && !hasPreferenceInputs {
 		return order
 	}
-	scores := Scores(roster, label, cluster, qualityBias)
-	pins := append([]string(nil), cluster.ManualPinsByHarness["*"]...)
+	pins := append([]string(nil), cluster.ManualPinsByHarness[rosterdata.HarnessAll]...)
 	pins = append(pins, harnessList(cluster.ManualPinsByHarness, harness)...)
 	preferredVendors := harnessList(cluster.PreferredVendorsByHarness, harness)
 	pinPosition := make(map[string]int, len(pins))
@@ -196,11 +195,60 @@ func preferenceOrder(roster *rosterdata.Roster, label string, cluster rosterdata
 	return ranked
 }
 
-func harnessList(values map[string][]string, harness string) []string {
-	if list := values[harness]; len(list) > 0 {
-		return list
+func scoresWithPreferences(
+	roster *rosterdata.Roster,
+	label string,
+	cluster rosterdata.Cluster,
+	qualityBias *float64,
+	preferredModels []string,
+	subscriptionStatePreferredModels []string,
+	subsidizedModelCostFactor map[string]float64,
+) (map[string]float32, map[string]router.SelectionScoreComponents) {
+	scores := Scores(roster, label, cluster, qualityBias)
+	preferredModelBonus := roster.Preferences.PreferredModelBonus
+	if preferredModelBonus == 0 {
+		preferredModelBonus = 0.5
 	}
-	return values[strings.ReplaceAll(harness, "-", "_")]
+	subscriptionBonus := roster.Preferences.SubscriptionBonus
+	if subscriptionBonus == 0 {
+		subscriptionBonus = 0.35
+	}
+	preferredRanks := preferenceRanks(preferredModels)
+	subscriptionStateRanks := preferenceRanks(subscriptionStatePreferredModels)
+	componentsByArm := make(map[string]router.SelectionScoreComponents, len(scores))
+	for arm, score := range scores {
+		baseID, _ := hmm.SplitEffort(arm)
+		catalogID := hmm.CatalogIDForRoster(baseID)
+		components := router.SelectionScoreComponents{BaseScore: score}
+		if rank, preferred := preferredRanks[catalogID]; preferred {
+			components.PreferredModelBonus = float32(preferredModelBonus / float64(rank+1))
+		}
+		if rank, preferred := subscriptionStateRanks[catalogID]; preferred {
+			components.SubscriptionStateBonus = float32(subscriptionBonus / float64(rank+1))
+		}
+		if factor, subsidized := subsidizedModelCostFactor[catalogID]; subsidized && factor > 0 {
+			boundedFactor := math.Min(factor, 1)
+			components.SubscriptionCostBonus = float32(subscriptionBonus * (1 - boundedFactor))
+		}
+		components.TotalScore = components.BaseScore + components.PreferredModelBonus + components.SubscriptionStateBonus + components.SubscriptionCostBonus
+		scores[arm] = components.TotalScore
+		componentsByArm[arm] = components
+	}
+	return scores, componentsByArm
+}
+
+func preferenceRanks(models []string) map[string]int {
+	ranks := make(map[string]int, len(models))
+	for rank, model := range models {
+		if _, exists := ranks[model]; !exists {
+			ranks[model] = rank
+		}
+	}
+	return ranks
+}
+
+func harnessList(values map[rosterdata.Harness][]string, harness string) []string {
+	return values[rosterdata.Harness(strings.ReplaceAll(harness, "-", "_"))]
 }
 
 func vendorRank(arm string, preferred []string) int {
@@ -214,5 +262,5 @@ func vendorRank(arm string, preferred []string) int {
 }
 
 func isDynamicRoster(roster *rosterdata.Roster) bool {
-	return roster.SchemaVersion == rosterdata.SchemaVersionV7 || roster.SchemaVersion == rosterdata.SchemaVersionV75C
+	return roster.SchemaVersion == rosterdata.SchemaVersionV7 || roster.SchemaVersion == rosterdata.SchemaVersionV75C || roster.SchemaVersion == rosterdata.SchemaVersionPolicyV1
 }

@@ -185,6 +185,10 @@ type Request struct {
 	// model's score — enough to win close calls, not to override a clearly
 	// better model. Entries not in the eligible pool are ignored.
 	PreferredModels []string
+	// SubscriptionStatePreferredModels is the state-selected, rank-ordered soft
+	// preference list. It is scored separately from PreferredModels and never
+	// participates in hard eligibility.
+	SubscriptionStatePreferredModels []string
 	// RoutingIntent is a strategy-neutral preset for future low/medium/high
 	// routing modes. Empty means use the installation's normal policy.
 	RoutingIntent string
@@ -318,6 +322,17 @@ type RoutingMetadata struct {
 	PolicyArtifactID     string
 	PolicyArtifactSHA256 string
 	RosterVersion        string
+	// Classifier identity and selection-policy identity are recorded separately
+	// so one telemetry row can resolve the complete atomic release.
+	ClassifierArtifactID     string
+	ClassifierArtifactSHA256 string
+	ClassifierPredictedLabel string
+	ClassifierClassOrder     []string
+	ClassifierProbabilities  map[string]float64
+	SelectionPolicyReleaseID string
+	SelectionPolicySHA256    string
+	SelectionHeadGeneration  int64
+	SelectionTrace           *SelectionTrace
 	// SidecarTimings is set only on fresh sidecar decisions; never persist
 	// into pins or a replayed pin re-emits a stale measurement.
 	SidecarTimings *SidecarTimings
@@ -368,6 +383,45 @@ type RoutingMetadata struct {
 	// ArmScores is the router-selected preference-adjusted score map for the
 	// cluster this decision was drawn from. Absent on fixed/legacy rosters.
 	ArmScores map[string]float32
+}
+
+// SelectionTrace is the content-free replay record for one Go-owned policy
+// decision. It captures the classifier ordering, exact eligible roster IDs,
+// bounded preference inputs, effective orders and typed hard exclusions.
+type SelectionTrace struct {
+	ClassifierRanking                []string                                       `json:"classifier_ranking"`
+	Harness                          string                                         `json:"harness"`
+	ForcedGroup                      string                                         `json:"forced_group,omitempty"`
+	CandidateRosterIDs               []string                                       `json:"candidate_roster_ids"`
+	QualityBias                      *float64                                       `json:"quality_bias,omitempty"`
+	PreferredModels                  []string                                       `json:"preferred_models,omitempty"`
+	SubscriptionStatePreferredModels []string                                       `json:"subscription_state_preferred_models,omitempty"`
+	SubsidizedModelCostFactor        map[string]float64                             `json:"subsidized_model_cost_factor,omitempty"`
+	EffectiveOrders                  map[string][]string                            `json:"effective_orders"`
+	ScoresByGroup                    map[string]map[string]float32                  `json:"scores_by_group,omitempty"`
+	ScoreComponentsByGroup           map[string]map[string]SelectionScoreComponents `json:"score_components_by_group,omitempty"`
+	ResolverExclusions               []SelectionExclusion                           `json:"resolver_exclusions,omitempty"`
+	SelectedGroup                    string                                         `json:"selected_group"`
+	SelectedArm                      string                                         `json:"selected_arm"`
+	FallbackDepth                    int                                            `json:"fallback_depth"`
+	OverrideReason                   string                                         `json:"override_reason,omitempty"`
+}
+
+// SelectionScoreComponents records the bounded terms behind an arm's final score.
+type SelectionScoreComponents struct {
+	BaseScore              float32 `json:"base_score"`
+	PreferredModelBonus    float32 `json:"preferred_model_bonus,omitempty"`
+	SubscriptionStateBonus float32 `json:"subscription_state_bonus,omitempty"`
+	SubscriptionCostBonus  float32 `json:"subscription_cost_bonus,omitempty"`
+	TotalScore             float32 `json:"total_score"`
+}
+
+// SelectionExclusion is one typed hard-eligibility rejection recorded without
+// request content.
+type SelectionExclusion struct {
+	CatalogID string `json:"catalog_id"`
+	RosterID  string `json:"roster_id,omitempty"`
+	Reason    string `json:"reason"`
 }
 
 // SidecarTimings holds the sidecar's per-stage decision cost in milliseconds.

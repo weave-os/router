@@ -29,30 +29,40 @@ func newSelectorAdapter(result policy.Result) *policy.SidecarRouter {
 
 func classifierOnlyResult() policy.Result {
 	return policy.Result{
-		SchemaVersion: policy.SchemaVersionV3,
-		RouteID:       "route-classifier",
-		Score:         0.8,
-		PolicyGroup:   "maximum",
-		RankedFallback: []policy.PreviewGroup{{
-			Group:        "maximum",
-			Probability:  0.8,
-			RosterArms:   []string{"anthropic/claude-opus-4-8", "anthropic/claude-sonnet-5"},
-			EligibleArms: []string{"anthropic/claude-opus-4-8", "anthropic/claude-sonnet-5"},
-		}},
+		SchemaVersion:      policy.SchemaVersionV4,
+		RouteID:            "route-classifier",
+		Score:              0.8,
+		PredictedLabel:     "maximum",
+		ClassOrder:         []string{"maximum", "low"},
+		ClassProbabilities: map[string]float64{"maximum": 0.8, "low": 0.2},
 	}
+}
+
+func classifierFallback(group string) []policy.PreviewGroup {
+	return []policy.PreviewGroup{{
+		Group:        group,
+		Probability:  0.8,
+		RosterArms:   []string{"anthropic/claude-opus-4-8", "anthropic/claude-sonnet-5"},
+		EligibleArms: []string{"anthropic/claude-opus-4-8", "anthropic/claude-sonnet-5"},
+	}}
 }
 
 func TestArmSelectorPickIsServed(t *testing.T) {
 	adapter := newSelectorAdapter(classifierOnlyResult())
 	qualityBias := 0.2
 	adapter.WithArmSelector(func(_ context.Context, input policy.SelectionInput) (policy.SelectionPick, error) {
-		assert.Equal(t, "maximum", input.ClassifierGroup)
+		assert.Equal(t, "maximum", input.PredictedLabel)
 		assert.ElementsMatch(t, []string{"anthropic/claude-opus-4-8", "anthropic/claude-sonnet-5"}, input.CandidateRosterIDs)
 		require.NotNil(t, input.QualityBias)
 		assert.Equal(t, qualityBias, *input.QualityBias)
 		return policy.SelectionPick{
-			Group: "maximum",
-			Arm:   "anthropic/claude-sonnet-5",
+			Group:          "maximum",
+			Arm:            "anthropic/claude-sonnet-5",
+			RankedFallback: classifierFallback("maximum"),
+			Trace: policy.SelectionTrace{
+				SelectedGroup: "maximum",
+				SelectedArm:   "anthropic/claude-sonnet-5",
+			},
 			ArmScoresByGroup: map[string]map[string]float32{
 				"maximum": {"anthropic/claude-sonnet-5": 42},
 			},
@@ -66,7 +76,8 @@ func TestArmSelectorPickIsServed(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "claude-sonnet-5", decision.Model)
 	assert.Equal(t, providers.ProviderAnthropic, decision.Provider)
-	assert.Contains(t, decision.Reason, ":go_selection")
+	assert.NotContains(t, decision.Reason, ":go_selection")
+	assert.Contains(t, decision.Reason, "group=maximum,arm=anthropic/claude-sonnet-5")
 	require.NotNil(t, decision.Metadata)
 	assert.Equal(t, "anthropic/claude-sonnet-5", decision.Metadata.SelectedRosterArmID)
 	assert.Equal(t, "maximum", decision.Metadata.PolicyGroup)
@@ -88,15 +99,9 @@ func TestArmSelectorErrorFailsTheTurn(t *testing.T) {
 
 func TestArmSelectorForceClusterExhaustionIsCallerError(t *testing.T) {
 	result := classifierOnlyResult()
-	result.RankedFallback = append(result.RankedFallback, policy.PreviewGroup{
-		Group:        "low",
-		Probability:  0.2,
-		EligibleArms: []string{"anthropic/claude-sonnet-5"},
-	})
 	adapter := newSelectorAdapter(result)
 	adapter.WithArmSelector(func(_ context.Context, input policy.SelectionInput) (policy.SelectionPick, error) {
-		require.Len(t, input.RankedFallback, 1)
-		assert.Equal(t, "low", input.RankedFallback[0].Group)
+		assert.Equal(t, "low", input.ForcedGroup)
 		return policy.SelectionPick{}, policy.ErrNoEligibleArm
 	})
 
@@ -123,10 +128,10 @@ func TestArmSelectorRejectsLegacySchema(t *testing.T) {
 
 	require.Error(t, err)
 	assert.False(t, called, "a legacy response must be rejected before selection runs")
-	assert.Contains(t, err.Error(), policy.SchemaVersionV3)
+	assert.Contains(t, err.Error(), policy.SchemaVersionV4)
 }
 
-func TestArmSelectorNegotiatesV3(t *testing.T) {
+func TestArmSelectorNegotiatesV4(t *testing.T) {
 	resolver := policy.NewResolver(
 		set("claude-opus-4-8"),
 		set(providers.ProviderAnthropic),
@@ -142,13 +147,13 @@ func TestArmSelectorNegotiatesV3(t *testing.T) {
 	adapter.WithArmSelector(func(_ context.Context, _ policy.SelectionInput) (policy.SelectionPick, error) {
 		return policy.SelectionPick{Group: "maximum", Arm: "anthropic/claude-opus-4-8"}, nil
 	})
-	assert.Equal(t, policy.SchemaVersionV3, resolver.SchemaVersion())
+	assert.Equal(t, policy.SchemaVersionV4, resolver.SchemaVersion())
 }
 
 func TestArmSelectorYieldsToClusterOverride(t *testing.T) {
 	adapter := newSelectorAdapter(classifierOnlyResult())
 	adapter.WithArmSelector(func(_ context.Context, _ policy.SelectionInput) (policy.SelectionPick, error) {
-		return policy.SelectionPick{Group: "maximum", Arm: "anthropic/claude-opus-4-8"}, nil
+		return policy.SelectionPick{Group: "maximum", Arm: "anthropic/claude-opus-4-8", RankedFallback: classifierFallback("maximum")}, nil
 	})
 
 	decision, err := adapter.Route(context.Background(), router.Request{
@@ -178,22 +183,17 @@ func TestArmSelectorSurvivesOverridesOmittingWinningGroup(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Equal(t, "claude-sonnet-5", decision.Model)
-	assert.Contains(t, decision.Reason, ":go_selection")
+	assert.NotContains(t, decision.Reason, ":go_selection")
 }
 
 func TestArmSelectorForceClusterUsesFinalGroupScores(t *testing.T) {
 	result := classifierOnlyResult()
-	result.RankedFallback = append(result.RankedFallback, policy.PreviewGroup{
-		Group:        "low",
-		Probability:  0.2,
-		RosterArms:   []string{"anthropic/claude-sonnet-5"},
-		EligibleArms: []string{"anthropic/claude-sonnet-5"},
-	})
 	adapter := newSelectorAdapter(result)
 	adapter.WithArmSelector(func(_ context.Context, _ policy.SelectionInput) (policy.SelectionPick, error) {
 		return policy.SelectionPick{
-			Group: "maximum",
-			Arm:   "anthropic/claude-opus-4-8",
+			Group:          "maximum",
+			Arm:            "anthropic/claude-opus-4-8",
+			RankedFallback: append(classifierFallback("maximum"), policy.PreviewGroup{Group: "low", Probability: 0.2, RosterArms: []string{"anthropic/claude-sonnet-5"}, EligibleArms: []string{"anthropic/claude-sonnet-5"}}),
 			ArmScoresByGroup: map[string]map[string]float32{
 				"maximum": {"anthropic/claude-opus-4-8": 90},
 				"low":     {"anthropic/claude-sonnet-5": 20},
@@ -216,20 +216,13 @@ func TestArmSelectorForceClusterUsesFinalGroupScores(t *testing.T) {
 
 func TestArmSelectorForceClusterPreservesPreferenceRanking(t *testing.T) {
 	result := classifierOnlyResult()
-	result.RankedFallback = append(result.RankedFallback, policy.PreviewGroup{
-		Group:        "low",
-		Probability:  0.2,
-		RosterArms:   []string{"anthropic/claude-opus-4-8", "anthropic/claude-sonnet-5"},
-		EligibleArms: []string{"anthropic/claude-opus-4-8", "anthropic/claude-sonnet-5"},
-	})
 	adapter := newSelectorAdapter(result)
 	adapter.WithArmSelector(func(_ context.Context, input policy.SelectionInput) (policy.SelectionPick, error) {
-		require.Len(t, input.RankedFallback, 1)
-		assert.Equal(t, "low", input.ClassifierGroup)
-		assert.Equal(t, "low", input.RankedFallback[0].Group)
+		assert.Equal(t, "low", input.ForcedGroup)
 		return policy.SelectionPick{
-			Group: "low",
-			Arm:   "anthropic/claude-sonnet-5",
+			Group:          "low",
+			Arm:            "anthropic/claude-sonnet-5",
+			RankedFallback: []policy.PreviewGroup{{Group: "low", Probability: 0.2, RosterArms: []string{"anthropic/claude-opus-4-8", "anthropic/claude-sonnet-5"}, EligibleArms: []string{"anthropic/claude-opus-4-8", "anthropic/claude-sonnet-5"}}},
 			ArmScoresByGroup: map[string]map[string]float32{
 				"low": {"anthropic/claude-opus-4-8": 10, "anthropic/claude-sonnet-5": 20},
 			},

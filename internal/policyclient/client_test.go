@@ -169,6 +169,92 @@ func TestClientPostsVersionedRouteAndParsesPolicyMetadata(t *testing.T) {
 	assert.Equal(t, map[string]float32{"moonshotai/kimi-k2.7-code": 0.91}, result.CandidateScores)
 }
 
+func validClassifierResponseV4() classifierResponseV4 {
+	return classifierResponseV4{
+		SchemaVersion:         policy.SchemaVersionV4,
+		RouteID:               "route-v4",
+		ClassifierArtifactID:  "classifier-20260910",
+		ClassifierSHA256:      strings.Repeat("a", 64),
+		PredictedLabel:        "high",
+		ClassOrder:            []string{"low", "medium", "high"},
+		ClassProbabilities:    map[string]float64{"low": 0.1, "medium": 0.2, "high": 0.7},
+		ClassifierConfidence:  floatPtr(0.7),
+		ClassifierMargin:      floatPtr(0.5),
+		HMMStateID:            2,
+		HMMStatePath:          []int{0, 1, 2},
+		HMMStateProbabilities: []float64{0.1, 0.2, 0.7},
+	}
+}
+
+func TestClientPostsClassifierOnlyV4RequestAndParsesFacts(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		var requestPayload map[string]json.RawMessage
+		require.NoError(t, json.NewDecoder(request.Body).Decode(&requestPayload))
+		for _, field := range []string{
+			"candidate_models",
+			"candidate_providers",
+			"candidates",
+			"preferred_models",
+			"quality_bias",
+			"requested_model",
+			"routing_intent",
+			"routing_knobs",
+		} {
+			assert.NotContains(t, requestPayload, field)
+		}
+		require.NoError(t, json.NewEncoder(w).Encode(validClassifierResponseV4()))
+	}))
+	defer server.Close()
+
+	qualityBias := 0.9
+	result, err := New(server.URL, server.Client(), 0).Decide(context.Background(), policy.Query{
+		SchemaVersion:   policy.SchemaVersionV4,
+		Strategy:        router.StrategyHMM,
+		ExecutionMode:   policy.ExecutionModeServing,
+		RouteID:         "route-v4",
+		RequestedModel:  "openai/gpt-5.6-sol",
+		PromptText:      "implement the router policy",
+		RoutingIntent:   "high",
+		PreferredModels: []string{"openai/gpt-5.6-sol"},
+		RoutingKnobs:    &router.Overrides{QualityBias: &qualityBias},
+		Candidates: []policy.Candidate{{
+			RosterID:  "openai/gpt-5.6-sol",
+			CatalogID: "openai/gpt-5.6-sol",
+			Provider:  providers.ProviderOpenAI,
+		}},
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, policy.SchemaVersionV4, result.SchemaVersion)
+	assert.Equal(t, "high", result.PredictedLabel)
+	assert.Equal(t, []string{"low", "medium", "high"}, result.ClassOrder)
+	assert.Equal(t, map[string]float64{"low": 0.1, "medium": 0.2, "high": 0.7}, result.ClassProbabilities)
+	assert.Empty(t, result.Model)
+	assert.Empty(t, result.Provider)
+	assert.Empty(t, result.RankedFallback)
+}
+
+func TestClientRejectsSelectionAuthorityInV4Response(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		response := validClassifierResponseV4()
+		payload, err := json.Marshal(response)
+		require.NoError(t, err)
+		var responsePayload map[string]interface{}
+		require.NoError(t, json.Unmarshal(payload, &responsePayload))
+		responsePayload["model"] = "openai/gpt-5.6-luna"
+		require.NoError(t, json.NewEncoder(w).Encode(responsePayload))
+	}))
+	defer server.Close()
+
+	_, err := New(server.URL, server.Client(), 0).Decide(context.Background(), policy.Query{
+		SchemaVersion: policy.SchemaVersionV4,
+		Strategy:      router.StrategyHMM,
+		PromptText:    "classify only",
+	})
+
+	require.ErrorContains(t, err, "unknown field \"model\"")
+}
+
 func decideWithTimings(t *testing.T, timings *routeTimings) policy.Result {
 	t.Helper()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -775,66 +861,6 @@ func TestClientCapabilities(t *testing.T) {
 			assert.True(t, capabilities.ReportsFeedback)
 		})
 	}
-}
-
-func TestClientRoster(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
-		require.Equal(t, "/roster", request.URL.Path)
-		_ = json.NewEncoder(w).Encode(rosterResponse{
-			SchemaVersion: policy.SchemaVersionV2,
-			RosterVersion: "abc123",
-			RosterIDs:     []string{"openai/gpt-5.6-sol", "anthropic/claude-opus-4.8"},
-		})
-	}))
-	defer server.Close()
-
-	rosterIDs, err := New(server.URL, server.Client(), 0).Roster(context.Background())
-
-	require.NoError(t, err)
-	assert.Equal(t, []string{"openai/gpt-5.6-sol", "anthropic/claude-opus-4.8"}, rosterIDs)
-}
-
-func TestClientClusterRoster(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
-		require.Equal(t, "/roster", request.URL.Path)
-		_ = json.NewEncoder(w).Encode(rosterResponse{
-			SchemaVersion: policy.SchemaVersionV2,
-			RosterVersion: "abc123",
-			RosterIDs:     []string{"openai/gpt-5.6-sol", "anthropic/claude-opus-4.8"},
-			Clusters: map[string][]string{
-				"maximum": {"anthropic/claude-opus-4.8", "openai/gpt-5.6-sol"},
-			},
-		})
-	}))
-	defer server.Close()
-
-	snapshot, err := New(server.URL, server.Client(), 0).ClusterRoster(context.Background())
-
-	require.NoError(t, err)
-	assert.Equal(t, "abc123", snapshot.RosterSHA256)
-	assert.Equal(t, []string{"anthropic/claude-opus-4.8", "openai/gpt-5.6-sol"}, snapshot.Clusters["maximum"])
-}
-
-func TestClientRosterRejectsUnknownSchema(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		_ = json.NewEncoder(w).Encode(rosterResponse{SchemaVersion: "v99", RosterIDs: []string{"x"}})
-	}))
-	defer server.Close()
-
-	_, err := New(server.URL, server.Client(), 0).Roster(context.Background())
-
-	require.Error(t, err)
-}
-
-func TestClientRosterPropagatesStatusError(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusServiceUnavailable)
-	}))
-	defer server.Close()
-
-	_, err := New(server.URL, server.Client(), 0).Roster(context.Background())
-
-	require.Error(t, err)
 }
 
 func TestClientCheckHealth(t *testing.T) {

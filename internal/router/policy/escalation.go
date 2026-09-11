@@ -13,12 +13,12 @@ func (r *SidecarRouter) selectEscalationArm(ctx context.Context, req router.Requ
 	if !constrained || (err != nil && !errors.Is(err, ErrNoEligibleArm)) {
 		return pick, err
 	}
-	if _, hasOverride := req.ClusterArmOverrides[input.ClassifierGroup]; !hasOverride {
+	if _, hasOverride := req.ClusterArmOverrides[pick.Group]; !hasOverride {
 		return pick, err
 	}
 	// Key-configured arms may extend the artifact roster. Preserve that explicit
 	// order, but only inside the successfully constrained class.
-	override, overrideErr := ApplyClusterArmOverridesRequireMatch(req.ClusterArmOverrides, input.RankedFallback, resolved, pick.Arm, input.ClassifierGroup)
+	override, overrideErr := ApplyClusterArmOverridesRequireMatch(req.ClusterArmOverrides, pick.RankedFallback, resolved, pick.Arm, pick.Group)
 	if overrideErr != nil {
 		return SelectionPick{}, ErrNoEligibleArm
 	}
@@ -31,7 +31,7 @@ func constrainEscalation(req router.Request, input SelectionInput, resolved Reso
 	if req.Escalation == nil || req.ForceCluster != "" || req.ForceModel != "" {
 		return input, nil, false
 	}
-	base := escalation.Group(input.ClassifierGroup)
+	base := escalation.Group(input.PredictedLabel)
 	if escalation.Rank(base) < 0 {
 		return input, nil, false
 	}
@@ -78,19 +78,10 @@ func fallbackEscalation(req router.Request, input SelectionInput, resolved Resol
 	return input, decision, false
 }
 
-func escalationGroupInput(req router.Request, input SelectionInput, resolved ResolvedCandidates, effective escalation.Group) (SelectionInput, bool) {
-	index := indexCandidates(resolved)
-	for _, group := range input.RankedFallback {
-		if group.Group != string(effective) {
-			continue
-		}
-		allowed, hasOverride := req.ClusterArmOverrides[group.Group]
-		group.EligibleArms = effectiveArms(group, allowed, hasOverride, index.catalogToRoster, index.eligibleRosterIDs)
-		if len(group.EligibleArms) == 0 {
-			break
-		}
-		input.ClassifierGroup = group.Group
-		input.RankedFallback = []PreviewGroup{group}
+func escalationGroupInput(_ router.Request, input SelectionInput, _ ResolvedCandidates, effective escalation.Group) (SelectionInput, bool) {
+	group := string(effective)
+	if _, classified := input.ClassProbabilities[group]; classified {
+		input.ForcedGroup = group
 		return input, true
 	}
 	return input, false

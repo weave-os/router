@@ -171,7 +171,7 @@ func (s *Service) withUsageObserver(ctx context.Context, headers http.Header, ro
 		routePath = routePaths[0]
 	}
 	ctx = s.withPlanAwareSubscriptionModels(ctx, headers)
-	ctx = s.withSubscriptionConditionalModels(ctx, headers, routePath)
+	ctx = s.withSubscriptionStatePreferences(ctx, headers, routePath)
 	codexTok, anthroTok := presentSubscriptionTokens(ctx, headers)
 	if s.usageObserver == nil && anthroTok == "" {
 		return ctx
@@ -215,12 +215,12 @@ func (s *Service) withUsageObserver(ctx context.Context, headers http.Header, ro
 	return providers.WithUpstreamHeaderObserver(ctx, obs)
 }
 
-// withSubscriptionConditionalModels selects the per-request conditional model allowlist based on subscription state.
-// An unobserved credential is treated as active (cold-start priming); an empty
-// selected list is kept in context so configured empty state lists fail closed.
-func (s *Service) withSubscriptionConditionalModels(ctx context.Context, headers http.Header, routePaths ...string) context.Context {
-	activeModels := installationSubscriptionModelsWhenActiveFromContext(ctx)
-	inactiveModels := installationSubscriptionModelsWhenInactiveFromContext(ctx)
+// withSubscriptionStatePreferences selects the bounded model preference list
+// for the covering subscription. An unobserved credential is treated as active
+// so its first eligible turn can establish real usage headroom.
+func (s *Service) withSubscriptionStatePreferences(ctx context.Context, headers http.Header, routePaths ...string) context.Context {
+	activeModels := installationSubscriptionPreferredModelsWhenActiveFromContext(ctx)
+	inactiveModels := installationSubscriptionPreferredModelsWhenInactiveFromContext(ctx)
 	if s.usageObserver == nil || (len(activeModels) == 0 && len(inactiveModels) == 0) {
 		return ctx
 	}
@@ -258,9 +258,9 @@ func (s *Service) withSubscriptionConditionalModels(ctx context.Context, headers
 		}
 	}
 	if !active && observed {
-		return context.WithValue(ctx, InstallationSubscriptionConditionalModelsContextKey{}, inactiveModels)
+		return context.WithValue(ctx, SubscriptionStatePreferredModelsContextKey{}, inactiveModels)
 	}
-	return context.WithValue(ctx, InstallationSubscriptionConditionalModelsContextKey{}, activeModels)
+	return context.WithValue(ctx, SubscriptionStatePreferredModelsContextKey{}, activeModels)
 }
 
 // subsidyFactors computes the per-covered-model cost multiplier for this

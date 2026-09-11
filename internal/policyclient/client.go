@@ -118,6 +118,43 @@ func New(baseURL string, client *http.Client, timeout time.Duration, opts ...Opt
 	return sidecar
 }
 
+// ClassifierHealth is the immutable classifier identity reported by readiness.
+type ClassifierHealth struct {
+	SchemaVersion         string   `json:"schema_version"`
+	ClassifierArtifactID  string   `json:"classifier_artifact_id"`
+	ClassifierSHA256      string   `json:"classifier_artifact_sha256"`
+	ClassifierClassOrder  []string `json:"classifier_class_order"`
+	ClassifierTaxonomySHA string   `json:"classifier_taxonomy_sha256"`
+}
+
+// ReadClassifierHealth returns the exact classifier identity behind a tagged revision.
+func (c *Client) ReadClassifierHealth(ctx context.Context) (ClassifierHealth, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/readyz", nil)
+	if err != nil {
+		return ClassifierHealth{}, fmt.Errorf("build policy readiness request: %w", err)
+	}
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return ClassifierHealth{}, fmt.Errorf("call policy readiness endpoint: %w", err)
+	}
+	defer resp.Body.Close()
+	payload, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		return ClassifierHealth{}, fmt.Errorf("read policy readiness response: %w", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return ClassifierHealth{}, fmt.Errorf("policy readiness status %d", resp.StatusCode)
+	}
+	var health ClassifierHealth
+	if err := json.Unmarshal(payload, &health); err != nil {
+		return ClassifierHealth{}, fmt.Errorf("decode policy readiness response: %w", err)
+	}
+	if health.SchemaVersion != policy.SchemaVersionV4 || health.ClassifierArtifactID == "" || health.ClassifierSHA256 == "" || len(health.ClassifierClassOrder) == 0 || health.ClassifierTaxonomySHA == "" {
+		return ClassifierHealth{}, errors.New("policy readiness response has incomplete classifier identity")
+	}
+	return health, nil
+}
+
 // CheckHealth verifies that the policy sidecar is ready to serve traffic.
 func (c *Client) CheckHealth(ctx context.Context) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/readyz", nil)
@@ -129,7 +166,6 @@ func (c *Client) CheckHealth(ctx context.Context) error {
 		return fmt.Errorf("call policy readiness endpoint: %w", err)
 	}
 	defer resp.Body.Close()
-	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<20))
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("policy readiness status %d", resp.StatusCode)
 	}
@@ -172,60 +208,6 @@ func (c *Client) Capabilities(ctx context.Context) (policy.Capabilities, error) 
 		return policy.Capabilities{}, fmt.Errorf("unsupported policy capabilities schema %q", capabilities.SchemaVersion)
 	}
 	return capabilities, nil
-}
-
-// rosterResponse is the shape of the sidecar's GET /roster body.
-type rosterResponse struct {
-	SchemaVersion string              `json:"schema_version"`
-	RosterVersion string              `json:"roster_version"`
-	RosterIDs     []string            `json:"roster_ids"`
-	Clusters      map[string][]string `json:"clusters"`
-}
-
-// Roster fetches roster arm IDs from the sidecar; unlike the cluster
-// artifact registry, this is the set the HMM strategy actually routes across.
-func (c *Client) Roster(ctx context.Context) ([]string, error) {
-	roster, err := c.fetchRoster(ctx)
-	if err != nil {
-		return nil, err
-	}
-	return roster.RosterIDs, nil
-}
-
-// ClusterRoster fetches the sidecar's frozen per-cluster arm roster.
-func (c *Client) ClusterRoster(ctx context.Context) (policy.RosterSnapshot, error) {
-	roster, err := c.fetchRoster(ctx)
-	if err != nil {
-		return policy.RosterSnapshot{}, err
-	}
-	return policy.RosterSnapshot{Clusters: roster.Clusters, RosterSHA256: roster.RosterVersion}, nil
-}
-
-func (c *Client) fetchRoster(ctx context.Context) (rosterResponse, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/roster", nil)
-	if err != nil {
-		return rosterResponse{}, fmt.Errorf("build policy roster request: %w", err)
-	}
-	resp, err := c.client.Do(req)
-	if err != nil {
-		return rosterResponse{}, fmt.Errorf("call policy roster endpoint: %w", err)
-	}
-	defer resp.Body.Close()
-	payload, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-	if err != nil {
-		return rosterResponse{}, fmt.Errorf("read policy roster response: %w", err)
-	}
-	if resp.StatusCode != http.StatusOK {
-		return rosterResponse{}, fmt.Errorf("policy roster status %d", resp.StatusCode)
-	}
-	var roster rosterResponse
-	if err := json.Unmarshal(payload, &roster); err != nil {
-		return rosterResponse{}, fmt.Errorf("decode policy roster response: %w", err)
-	}
-	if !supportedSchema(roster.SchemaVersion) {
-		return rosterResponse{}, fmt.Errorf("unsupported policy roster schema %q", roster.SchemaVersion)
-	}
-	return roster, nil
 }
 
 func (c *Client) post(ctx context.Context, path string, payload map[string]interface{}, label string) error {
@@ -304,6 +286,41 @@ type routeRequest struct {
 	Candidates                []routeCandidate  `json:"candidates"`
 	CandidateModels           []string          `json:"candidate_models"`
 	CandidateProviders        map[string]string `json:"candidate_providers"`
+}
+
+type classifierRequestV4 struct {
+	SchemaVersion             string         `json:"schema_version"`
+	Strategy                  string         `json:"strategy"`
+	ExecutionMode             string         `json:"execution_mode"`
+	RouteID                   string         `json:"route_id"`
+	OrganizationID            string         `json:"organization_id,omitempty"`
+	InstallationID            string         `json:"installation_id,omitempty"`
+	ClientApp                 string         `json:"client_app,omitempty"`
+	RolloutID                 string         `json:"rollout_id,omitempty"`
+	PromptText                string         `json:"prompt_text"`
+	LatestUserText            string         `json:"latest_user_text,omitempty"`
+	TurnIndex                 int            `json:"turn_index"`
+	IsSubagent                bool           `json:"is_subagent"`
+	VisibleTurnIndex          *int           `json:"visible_turn_index,omitempty"`
+	SessionTurnCount          *int           `json:"session_turn_count,omitempty"`
+	TurnType                  string         `json:"turn_type,omitempty"`
+	CacheState                string         `json:"cache_state,omitempty"`
+	PriorOutputTokens         *int           `json:"prior_output_tokens,omitempty"`
+	SessionEverSwitched       *bool          `json:"session_ever_switched,omitempty"`
+	HistoryTruncated          *bool          `json:"history_truncated,omitempty"`
+	ConversationMessages      []routeMessage `json:"conversation_messages,omitempty"`
+	TrainingConversationDelta []routeMessage `json:"training_conversation_delta,omitempty"`
+	AvailableTools            []string       `json:"available_tools,omitempty"`
+	Tools                     []routeTool    `json:"tools,omitempty"`
+	FeedbackKey               string         `json:"feedback_key,omitempty"`
+	FeedbackRole              string         `json:"feedback_role,omitempty"`
+	ClientSessionID           string         `json:"client_session_id,omitempty"`
+	EstimatedInputTokens      int            `json:"estimated_input_tokens"`
+	HasTools                  bool           `json:"has_tools"`
+	HasImages                 bool           `json:"has_images"`
+	TrainingAllowed           bool           `json:"training_allowed"`
+	CaptureMode               string         `json:"capture_mode,omitempty"`
+	DebugEnabled              bool           `json:"debug_enabled"`
 }
 
 type routeCandidate struct {
@@ -406,6 +423,25 @@ type routeResponse struct {
 	ClassProbabilities   map[string]float64     `json:"class_probabilities"`
 	Timings              *routeTimings          `json:"timings"`
 	Error                string                 `json:"error"`
+}
+
+type classifierResponseV4 struct {
+	SchemaVersion         string                 `json:"schema_version"`
+	RouteID               string                 `json:"route_id"`
+	ClassifierArtifactID  string                 `json:"classifier_artifact_id"`
+	ClassifierSHA256      string                 `json:"classifier_artifact_sha256"`
+	PredictedLabel        string                 `json:"predicted_label"`
+	ClassOrder            []string               `json:"class_order"`
+	ClassProbabilities    map[string]float64     `json:"class_probabilities"`
+	ClassifierConfidence  *float64               `json:"classifier_confidence"`
+	ClassifierMargin      *float64               `json:"classifier_margin"`
+	HMMStateID            int                    `json:"hmm_state_id"`
+	HMMStatePath          []int                  `json:"hmm_state_path"`
+	HMMStateProbabilities []float64              `json:"hmm_state_probabilities"`
+	DebugRef              string                 `json:"debug_ref,omitempty"`
+	Debug                 map[string]interface{} `json:"debug,omitempty"`
+	Timings               *routeTimings          `json:"timings,omitempty"`
+	Error                 string                 `json:"error,omitempty"`
 }
 
 // routeTimings is the sidecar's optional per-request latency breakdown plus
@@ -511,6 +547,31 @@ func (c *Client) Decide(ctx context.Context, query policy.Query) (policy.Result,
 		}
 		return policy.Result{}, fmt.Errorf("policy sidecar status %d", resp.StatusCode)
 	}
+	if parsed.SchemaVersion == policy.SchemaVersionV4 {
+		classifier, decodeErr := decodeClassifierResponseV4(payload)
+		if decodeErr != nil {
+			return policy.Result{}, fmt.Errorf("decode policy route response (status %d): %w", resp.StatusCode, decodeErr)
+		}
+		return policy.Result{
+			SchemaVersion:         classifier.SchemaVersion,
+			RouteID:               classifier.RouteID,
+			Score:                 valueOrZero(classifier.ClassifierConfidence),
+			Confidence:            classifier.ClassifierConfidence,
+			Margin:                classifier.ClassifierMargin,
+			PolicyArtifactID:      classifier.ClassifierArtifactID,
+			PolicyArtifactSHA256:  classifier.ClassifierSHA256,
+			DebugRef:              classifier.DebugRef,
+			Debug:                 classifier.Debug,
+			PredictedLabel:        classifier.PredictedLabel,
+			ClassOrder:            classifier.ClassOrder,
+			ClassProbabilities:    classifier.ClassProbabilities,
+			HMMStateID:            classifier.HMMStateID,
+			HMMStatePath:          classifier.HMMStatePath,
+			HMMStateProbabilities: classifier.HMMStateProbabilities,
+			Timings:               decomposeTimings(classifier.Timings),
+			ServingStats:          extractServingStats(classifier.Timings),
+		}, nil
+	}
 	selectedModel := firstNonEmpty(parsed.SelectedRosterID, parsed.Model)
 	switch parsed.SchemaVersion {
 	case policy.SchemaVersionV3:
@@ -565,6 +626,29 @@ func (c *Client) Decide(ctx context.Context, query policy.Query) (policy.Result,
 	}, nil
 }
 
+func decodeClassifierResponseV4(payload []byte) (classifierResponseV4, error) {
+	var response classifierResponseV4
+	decoder := json.NewDecoder(bytes.NewReader(payload))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&response); err != nil {
+		return classifierResponseV4{}, err
+	}
+	if response.ClassifierArtifactID == "" || response.ClassifierSHA256 == "" {
+		return classifierResponseV4{}, fmt.Errorf("classifier response is missing artifact identity")
+	}
+	if response.PredictedLabel == "" || len(response.ClassOrder) == 0 || len(response.ClassProbabilities) == 0 {
+		return classifierResponseV4{}, fmt.Errorf("classifier response is missing class facts")
+	}
+	return response, nil
+}
+
+func valueOrZero(value *float64) float64 {
+	if value == nil {
+		return 0
+	}
+	return *value
+}
+
 // Preview evaluates the supplied candidate set without serving or callbacks.
 func (c *Client) Preview(ctx context.Context, query policy.Query) (policy.PreviewResult, error) {
 	if query.ExecutionMode != policy.ExecutionModePreview {
@@ -590,6 +674,18 @@ func (c *Client) Preview(ctx context.Context, query policy.Query) (policy.Previe
 		}
 		return policy.PreviewResult{}, fmt.Errorf("policy preview status %d", resp.StatusCode)
 	}
+	if parsed.SchemaVersion == policy.SchemaVersionV4 {
+		classifier, decodeErr := decodeClassifierResponseV4(payload)
+		if decodeErr != nil {
+			return policy.PreviewResult{}, fmt.Errorf("decode policy preview response (status %d): %w", resp.StatusCode, decodeErr)
+		}
+		return policy.PreviewResult{
+			SchemaVersion: classifier.SchemaVersion, RouteID: classifier.RouteID,
+			PolicyArtifactID: classifier.ClassifierArtifactID, PolicyArtifactSHA256: classifier.ClassifierSHA256,
+			HMMStateID: classifier.HMMStateID, HMMStatePath: classifier.HMMStatePath, HMMStateProbabilities: classifier.HMMStateProbabilities,
+			ClassOrder: classifier.ClassOrder, ClassProbabilities: classifier.ClassProbabilities, PredictedLabel: classifier.PredictedLabel,
+		}, nil
+	}
 	if !supportedSchema(parsed.SchemaVersion) {
 		return policy.PreviewResult{}, fmt.Errorf("unsupported policy preview schema %q", parsed.SchemaVersion)
 	}
@@ -614,7 +710,7 @@ func (c *Client) Preview(ctx context.Context, query policy.Query) (policy.Previe
 // client speaks.
 func supportedSchema(version string) bool {
 	switch version {
-	case policy.SchemaVersionV1, policy.SchemaVersionV2, policy.SchemaVersionV3:
+	case policy.SchemaVersionV1, policy.SchemaVersionV2, policy.SchemaVersionV3, policy.SchemaVersionV4:
 		return true
 	default:
 		return false
@@ -666,6 +762,22 @@ func marshalRouteRequest(query policy.Query) ([]byte, error) {
 	var trainingDelta []routeMessage
 	if router.IsHMMStrategy(query.Strategy) && query.TrainingAllowed {
 		trainingDelta = trainingRouteMessageDelta(query.ConversationMessages)
+	}
+	if schemaVersion == policy.SchemaVersionV4 {
+		body, err := json.Marshal(classifierRequestV4{
+			SchemaVersion: schemaVersion, Strategy: string(query.Strategy), ExecutionMode: query.ExecutionMode, RouteID: query.RouteID,
+			OrganizationID: query.OrganizationID, InstallationID: query.InstallationID, ClientApp: query.ClientApp, RolloutID: query.RolloutID,
+			PromptText: query.PromptText, LatestUserText: latestUserText(messages), TurnIndex: wireTurnIndex, IsSubagent: turnType == "sub_agent_dispatch",
+			VisibleTurnIndex: visibleTurnIndex, SessionTurnCount: sessionTurnCount, TurnType: turnType, CacheState: cacheState, PriorOutputTokens: priorOutputTokens,
+			SessionEverSwitched: sessionEverSwitched, HistoryTruncated: historyTruncated, ConversationMessages: messages, TrainingConversationDelta: trainingDelta,
+			AvailableTools: clipRouteValues(query.AvailableTools, maxRouteToolCallInputKeys, maxRouteToolCallInputChars), Tools: routeTools(query.Tools),
+			FeedbackKey: query.FeedbackKey, FeedbackRole: query.FeedbackRole, ClientSessionID: query.ClientSessionID, EstimatedInputTokens: query.EstimatedInputTokens,
+			HasTools: query.HasTools, HasImages: query.HasImages, TrainingAllowed: query.TrainingAllowed, CaptureMode: query.CaptureMode, DebugEnabled: query.DebugEnabled,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("marshal classifier request: %w", err)
+		}
+		return body, nil
 	}
 	body, err := json.Marshal(routeRequest{
 		SchemaVersion:             schemaVersion,
@@ -1253,4 +1365,3 @@ var _ policy.Decider = (*Client)(nil)
 var _ policy.PreviewDecider = (*Client)(nil)
 var _ policy.OutcomeReporter = (*Client)(nil)
 var _ policy.FeedbackReporter = (*Client)(nil)
-var _ policy.RosterSource = (*Client)(nil)

@@ -106,13 +106,22 @@ type InsertTelemetryParams struct {
 	RouteID string
 	// Policy fields mirror the versioned sidecar contract. They remain generic
 	// so a future strategy is collected without adding a strategy-specific row.
-	PolicyRouteKey       string
-	PolicyArtifactID     string
-	PolicyArtifactSHA256 string
-	RosterVersion        string
-	SidecarSchemaVersion string
-	TrainingAllowed      bool
-	CaptureMode          string
+	PolicyRouteKey           string
+	PolicyArtifactID         string
+	PolicyArtifactSHA256     string
+	RosterVersion            string
+	ClassifierArtifactID     string
+	ClassifierArtifactSHA256 string
+	ClassifierPredictedLabel string
+	ClassifierClassOrder     []string
+	ClassifierProbabilities  []byte
+	SelectionPolicyReleaseID string
+	SelectionPolicySHA256    string
+	SelectionHeadGeneration  *int64
+	SelectionTrace           []byte
+	SidecarSchemaVersion     string
+	TrainingAllowed          bool
+	CaptureMode              string
 	// DebugRef is populated only when authorized policy debug mode is enabled.
 	DebugRef            string
 	TTFTMs              *int64
