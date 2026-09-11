@@ -34,6 +34,7 @@ cmd/router/main.go
   s_7cb53e052d677f::t_cf00d6493b941f 604-606
   s_7cb53e052d677f::t_f57aa8833e5318 608-610
   s_7cb53e052d677f::t_8396d286739946 500-507,515-517,525-527,533,597-603,611-620
+  s_5d28f5b9f68c22::t_84b9ed4c95649f 1343,1348
 internal/proxy/attempt_sink_test.go
   s_7cb53e052d677f::t_ca4134971b1199 1-209
 internal/proxy/CLAUDE.md
@@ -278,10 +279,12 @@ internal/server/middleware/balance_check.go
 cmd/router/readiness_test.go
   s_7cb53e052d677f::t_b474a9eb128c58 88-94
   s_ace2df55a46234::t_5fbcced50a99dc 84-87
+  s_5d28f5b9f68c22::t_84b9ed4c95649f 42,59,68,74,83,95
 docs/CONFIGURATION.md
   s_7cb53e052d677f::t_4c8921707a6d39 405
 cmd/router/readiness.go
   s_7cb53e052d677f::t_48507c6c7815cf 44-46
+  s_5d28f5b9f68c22::t_84b9ed4c95649f 35-40
 ---
 {
   "schema_version": "authorship/3.0.0",
@@ -289,6 +292,14 @@ cmd/router/readiness.go
   "base_commit_sha": "a19a482dd2e834dd78b74b39d4656789fa89e07d",
   "prompts": {},
   "sessions": {
+    "s_5d28f5b9f68c22": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9f84dbed-bc3d-4c2c-ab46-c1b6451724d0",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Drew Bailey <drew@workweave.ai>"
+    },
     "s_7cb53e052d677f": {
       "agent_id": {
         "tool": "claude",
