@@ -81,6 +81,7 @@ services:
     restart: "no"
 
   server:
+    image: router-server
     build:
       context: .
     depends_on:
@@ -162,6 +163,7 @@ services:
   # Cursor. Not started by `docker compose up`; invoke explicitly:
   #   docker compose run --rm seed
   seed:
+    image: router-seed
     build:
       context: .
       dockerfile: Dockerfile

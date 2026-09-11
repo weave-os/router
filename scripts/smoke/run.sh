@@ -30,6 +30,8 @@
 #                          this locally.
 #   SMOKE_PREBUILT=1      use images built by the workflow's bake step instead
 #                          of invoking Compose's builder again.
+#   SMOKE_BUILD_SECONDS   set by the CI workflow to report the Bake build
+#                          duration when SMOKE_PREBUILT=1.
 #
 # Cost: replay-only runs make zero upstream calls (served from cassettes).
 # record/replay-or-record make ~10-15 real calls, all pinned to the cheapest

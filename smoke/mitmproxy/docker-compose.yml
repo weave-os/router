@@ -28,6 +28,7 @@
 # mode against the same bind mount to refresh them against the real API.
 services:
   mitmproxy:
+    image: router-mitmproxy
     build:
       context: .
       dockerfile: smoke/mitmproxy/Dockerfile

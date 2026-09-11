@@ -28,6 +28,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          # paths-filter needs the previous commit when this runs on main.
+          fetch-depth: 0
 
       - name: Detect component changes
         id: filter
