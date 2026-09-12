@@ -4157,6 +4157,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		})
 		subscriptionPoolFailure = isSubscriptionPoolError(proxyErr)
 	}
+	poolArmDead := subscriptionPoolFailure
 
 	// The deferred upstream error must reach the client exactly once: each
 	// rescue hands ownership to the next, and whichever declines to run flushes.
@@ -4372,6 +4373,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		(providers.IsRetryable(proxyErr) ||
 			providers.IsUpstreamModelNotFound(proxyErr) ||
 			providers.IsUpstreamProviderBillingBlocked(proxyErr) ||
+			isSubscriptionPoolError(proxyErr) ||
 			crossBindingRejected) {
 		siblingOpts := opts
 		siblingOpts.TargetModel = siblingDecision.Model
@@ -4708,6 +4710,9 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		// dead for this request shape — the pin must not stay on it even when a
 		// rescue served the turn (which would nill proxyErr and reset the counter).
 		s.maybeExpireDeadArmPin(ctx, deadArmRejected, decision.Reason, installationID, routeRes.SessionKey, stickyStateRole(routeRes))
+		if poolArmDead && !isSubscriptionPoolError(proxyErr) {
+			s.maybeExpirePoolArmPin(ctx, poolArmDead, decision.Reason, installationID, routeRes.SessionKey, stickyStateRole(routeRes))
+		}
 
 		// Two-strike provider disable: complements the 4xx eviction above;
 		// 529 is retryable in-turn so it never trips that counter.
@@ -6927,6 +6932,14 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		!billing.SubscriptionOnlyFromContext(ctx) &&
 		s.openaiFallbackKeyAvailable(ctx)
 
+	siblingDecision, siblingFound := s.siblingFailoverDecision(ctx, decision, overflowEstimateOAI, env.SignatureTokenSavings(), outputReserveOAI)
+	siblingViable := s.ResolveSiblingFailover(ctx) &&
+		siblingFound &&
+		!routeRes.BlindExperimentPassthrough &&
+		!strings.HasPrefix(decision.Reason, translate.ReasonUserForceModel) &&
+		(s.shouldFailover(ctx) || s.gatewaySiblingAllowed(ctx, siblingDecision)) &&
+		!billing.SubscriptionOnlyFromContext(ctx)
+
 	primaryProvider := decision.Provider
 	primaryModel := decision.Model
 	primaryDecision := decision
@@ -6962,11 +6975,12 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		bindings:               bindings,
 		attempt:                attempt,
 		flushErr:               flushErrAsOpenAI,
-		deferFlushOnExhaustion: cyberRetryViable || codexRetryViable,
+		deferFlushOnExhaustion: cyberRetryViable || codexRetryViable || siblingViable,
 		purpose:                routeRes.dispatchPurpose(surfacePurpose),
 		origin:                 routeRes.dispatchOrigin(decision),
 	})
 	subscriptionPoolFailure := isSubscriptionPoolError(proxyErr)
+	poolArmDead := subscriptionPoolFailure
 	cyberRefusalSeen = cyberRefusalSeen || providers.IsUpstreamCyberPolicyRefusal(proxyErr)
 
 	// The deferred upstream error must reach the client exactly once: the rescue
@@ -7051,7 +7065,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	}
 	// The Codex retry declined to run and no other rescue owns the held error;
 	// surface it now so it's never dropped.
-	if codexRetryViable && !codexRetryRan && !cyberRetryViable && proxyErr != nil && !preludeBuf.Committed() {
+	if codexRetryViable && !codexRetryRan && !cyberRetryViable && !siblingViable && proxyErr != nil && !preludeBuf.Committed() {
 		flushDeferredErr()
 	}
 
@@ -7120,7 +7134,68 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		}
 	}
 	// The rescue declined to run; surface the held error now so it's never dropped.
-	if cyberRetryViable && !cyberRetryRan && proxyErr != nil && !preludeBuf.Committed() {
+	if cyberRetryViable && !cyberRetryRan && !siblingViable && proxyErr != nil && !preludeBuf.Committed() {
+		flushDeferredErr()
+	}
+
+	siblingFailoverUsed := false
+	siblingRescueRan := false
+	siblingRescueOwed := siblingViable && !deferredErrFlushed
+	if siblingRescueOwed && proxyErr != nil && !preludeBuf.Committed() &&
+		(providers.IsRetryable(proxyErr) ||
+			providers.IsUpstreamModelNotFound(proxyErr) ||
+			providers.IsUpstreamProviderBillingBlocked(proxyErr) ||
+			isSubscriptionPoolError(proxyErr)) {
+		siblingOpts := opts
+		siblingOpts.TargetModel = siblingDecision.Model
+		siblingOpts.TargetProvider = siblingDecision.Provider
+		siblingOpts.Capabilities = router.Lookup(siblingDecision.Model)
+		siblingOpts.ModelSwitched = true
+		effortServed = s.resolveEffort(ctx, siblingDecision, siblingOpts.Capabilities, routeRes.EscalateEffort)
+		effortServed.apply(&siblingOpts)
+		siblingCtx := resolveAndInjectCredentials(ctx, siblingDecision.Provider, siblingDecision.Model, r.Header)
+		siblingOpts.FastMode = fastModeForAttempt(siblingCtx, siblingDecision.Model, siblingDecision.Provider)
+		siblingBindings := s.resolveBindingsForDispatch(siblingCtx, siblingDecision)
+		siblingMarker := suppressMarkerIfRequested(ctx, r.Header, siblingRoutingMarkerFor(routeRes, siblingDecision.Model))
+		siblingAttempt, siblingBuildErr := buildAttempt(siblingDecision, siblingOpts, siblingMarker)
+		switch {
+		case siblingBuildErr != nil:
+			log.Error("Sibling failover: preparing the candidate request failed; surfacing original error",
+				"err", siblingBuildErr,
+				"sibling_model", siblingDecision.Model)
+		case len(siblingBindings) == 0:
+			log.Warn("Sibling failover: candidate has no usable binding; surfacing original error",
+				"sibling_model", siblingDecision.Model,
+				"sibling_provider", siblingDecision.Provider,
+				"err", proxyErr)
+		default:
+			log.Warn("Sibling failover: routed model exhausted, retrying a same-cluster candidate",
+				"failed_model", decision.Model,
+				"failed_provider", primaryProvider,
+				"sibling_model", siblingDecision.Model,
+				"sibling_provider", siblingDecision.Provider,
+				"upstream_status", upstreamStatus(proxyErr),
+				"err", proxyErr)
+			siblingRescueRan = true
+			respSummary = translate.ResponseSummary{}
+			winnerIdx, proxyErr = s.dispatchWithFallback(siblingCtx, failoverInputs{
+				w:               contentSink,
+				buf:             preludeBuf,
+				initialDecision: siblingDecision,
+				bindings:        siblingBindings,
+				attempt:         siblingAttempt,
+				flushErr:        flushErrAsOpenAI,
+				purpose:         routeRes.dispatchPurpose(surfacePurpose),
+				origin:          routeRes.rescueOrigin(),
+			})
+			subscriptionPoolFailure = isSubscriptionPoolError(proxyErr)
+			decision = siblingDecision
+			bindings = siblingBindings
+			marker = siblingMarker
+			siblingFailoverUsed = proxyErr == nil
+		}
+	}
+	if siblingRescueOwed && !siblingRescueRan && proxyErr != nil && !preludeBuf.Committed() {
 		flushDeferredErr()
 	}
 
@@ -7198,9 +7273,10 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		String("dispatch.primary_model", primaryModel).
 		String("dispatch.final_provider", finalProvider).
 		Int64("dispatch.fallback_attempts", int64(winnerIdx)).
-		Bool("dispatch.failover_used", finalProvider != primaryProvider || codexFailoverUsed).
+		Bool("dispatch.failover_used", finalProvider != primaryProvider || codexFailoverUsed || siblingFailoverUsed).
 		Bool("dispatch.subscription_failover", codexFailoverUsed).
-		Bool("dispatch.cyber_refusal_retry", cyberRetryRan)
+		Bool("dispatch.cyber_refusal_retry", cyberRetryRan).
+		Bool("dispatch.sibling_failover", siblingFailoverUsed)
 	applyPlannerAttrs(openaiUpstreamBuilder, routeRes)
 	applyRoutingStateAttrs(openaiUpstreamBuilder, routeRes, decision.ServedIdentity(), sessionKey)
 	applyEffortAttrs(openaiUpstreamBuilder, effortServed)
@@ -7247,6 +7323,9 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	// See ProxyMessages for the two-strike eviction rationale.
 	if !routeRes.BlindExperimentPassthrough {
 		s.maybeEvictPinAfterUpstreamErr(ctx, stickyHit, proxyErr, decision.Reason, installationIDFromContext(ctx), routeRes.SessionKey, stickyStateRole(routeRes))
+		if poolArmDead && !isSubscriptionPoolError(proxyErr) {
+			s.maybeExpirePoolArmPin(ctx, poolArmDead, decision.Reason, installationIDFromContext(ctx), routeRes.SessionKey, stickyStateRole(routeRes))
+		}
 		// See ProxyMessages for the two-strike provider-disable rationale.
 		s.maybeDisableProviderAfterOverload(ctx, stickyHit, proxyErr, finalProvider, decision.Reason, installationIDFromContext(ctx), routeRes.SessionKey, stickyStateRole(routeRes), routeRes.PinRole)
 	}

@@ -405,3 +405,58 @@ func TestMaybeExpireDeadArmPin(t *testing.T) {
 		})
 	}
 }
+
+func TestMaybeEvictPin_SubscriptionPoolExhaustedExpiresImmediately(t *testing.T) {
+	store := &evictionStubPinStore{incrementNext: []int{1}}
+	svc := newEvictionTestService(store)
+	installationID := uuid.New()
+	sessionKey := nonZeroSessionKey()
+
+	svc.maybeEvictPinAfterUpstreamErr(
+		context.Background(),
+		true,
+		ErrSubscriptionPoolExhausted,
+		"loop_escalation",
+		installationID,
+		sessionKey,
+		sessionpin.DefaultRole,
+	)
+
+	assert.Zero(t, store.incrementCalls, "pool exhaustion has no upstream status and must not use the 4xx strike counter")
+	require.Len(t, store.upserts, 1, "an empty subscription pool must expire the pin on the first failed turn")
+	expired := store.upserts[0]
+	assert.Equal(t, installationID, expired.InstallationID)
+	assert.Empty(t, expired.Provider)
+	assert.Empty(t, expired.Model)
+	assert.Equal(t, "subscription_pool_exhausted", expired.Reason)
+	assert.True(t, expired.PinnedUntil.Before(time.Now()))
+}
+
+func TestMaybeExpirePoolArmPin(t *testing.T) {
+	installationID := uuid.New()
+	sessionKey := nonZeroSessionKey()
+
+	cases := []struct {
+		name           string
+		dead           bool
+		decisionReason string
+		wantFired      bool
+	}{
+		{"pool exhaustion evicts the pin", true, "loop_escalation", true},
+		{"healthy pool leaves the pin", false, "loop_escalation", false},
+		{"force-model pin is never evicted", true, translate.ReasonUserForceModel, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			store := &evictionStubPinStore{}
+			svc := newEvictionTestService(store)
+			svc.maybeExpirePoolArmPin(context.Background(), tc.dead, tc.decisionReason, installationID, sessionKey, sessionpin.DefaultRole)
+			if tc.wantFired {
+				require.Len(t, store.upserts, 1)
+				assert.Equal(t, "subscription_pool_exhausted", store.upserts[0].Reason)
+			} else {
+				assert.Empty(t, store.upserts)
+			}
+		})
+	}
+}
