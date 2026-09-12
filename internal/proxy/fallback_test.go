@@ -1047,6 +1047,8 @@ func TestProvidersIsUpstreamProviderBillingBlocked(t *testing.T) {
 		{"buffered 402", &providers.UpstreamErrorResponse{Status: 402}, true},
 		{"buffered 404", &providers.UpstreamErrorResponse{Status: 404}, false},
 		{"buffered 403", &providers.UpstreamErrorResponse{Status: 403}, false},
+		{"buffered 403 xai credits exhausted", &providers.UpstreamErrorResponse{Status: 403, Body: []byte(`{"code":"permission-denied","error":"Your team 42d3ddad has either used all available credits or reached its monthly spending limit. To continue making API requests, please purchase more credits or raise your spending limit."}`)}, true},
+		{"buffered 403 real permission denial", &providers.UpstreamErrorResponse{Status: 403, Body: []byte(`{"code":"permission-denied","error":"API key does not have access to this model"}`)}, false},
 		{"flushed 402 (already on wire)", &providers.UpstreamStatusError{Status: 402}, false},
 		{"transport error", errors.New("dial tcp"), false},
 	}
