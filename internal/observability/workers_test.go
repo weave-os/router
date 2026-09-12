@@ -32,43 +32,73 @@ func testWorkers(t *testing.T) *ObservationWorkers {
 
 func workLog() *slog.Logger { return slog.New(slog.NewTextHandler(io.Discard, nil)) }
 
-func TestWorkQueueCountIncludesRunningJobAndSnapshotsPayload(t *testing.T) {
+func TestWorkQueueCountBackpressurePreservesEveryJobAndSnapshot(t *testing.T) {
 	w := testWorkers(t)
 	started, release := make(chan struct{}), make(chan struct{})
+	var releaseOnce sync.Once
+	unblock := func() { releaseOnce.Do(func() { close(release) }) }
+	t.Cleanup(unblock)
+	var completed atomic.Int32
 	observed := make(chan string, 1)
 	payload := []byte("original")
-	require.True(t, w.Database.Submit(WorkTelemetry, payload, time.Second, workLog(), func(ctx context.Context, p []byte) error {
+	require.True(t, w.Database.Submit(WorkTelemetry, payload, time.Minute, workLog(), func(ctx context.Context, p []byte) error {
 		close(started)
 		select {
 		case <-release:
 			observed <- string(p)
+			completed.Add(1)
+			return nil
 		case <-ctx.Done():
 			return ctx.Err()
 		}
-		return nil
 	}))
 	<-started
 	payload[0] = 'X'
+	persist := func(context.Context, []byte) error { completed.Add(1); return nil }
 	for range workQueueSize - 1 {
-		require.True(t, w.Database.Submit(WorkTelemetry, nil, time.Second, workLog(), func(context.Context, []byte) error { return nil }))
+		require.True(t, w.Database.Submit(WorkTelemetry, nil, time.Second, workLog(), persist))
 	}
-	require.False(t, w.Database.Submit(WorkTelemetry, nil, time.Second, workLog(), func(context.Context, []byte) error { t.Error("rejected job ran"); return nil }))
-	close(release)
+	submitted, admitted := make(chan struct{}), make(chan bool, 1)
+	go func() {
+		close(submitted)
+		admitted <- w.Database.Submit(WorkTelemetry, nil, time.Second, workLog(), persist)
+	}()
+	<-submitted
+	select {
+	case ok := <-admitted:
+		t.Fatalf("full queue must wait for capacity, returned %v", ok)
+	case <-time.After(25 * time.Millisecond):
+	}
+	w.Database.mu.Lock()
+	assert.Equal(t, workQueueSize, w.Database.count)
+	w.Database.mu.Unlock()
+	unblock()
+	select {
+	case ok := <-admitted:
+		require.True(t, ok, "saturation must not discard the waiting job")
+	case <-time.After(time.Second):
+		t.Fatal("producer did not wake when capacity was released")
+	}
 	require.Equal(t, "original", <-observed)
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 	require.NoError(t, w.Database.Shutdown(ctx))
+	assert.EqualValues(t, workQueueSize+1, completed.Load())
 	assert.Zero(t, w.Database.count)
 	assert.Zero(t, w.Database.retainedBytes)
 }
 
-func TestWorkQueueByteBoundAndLaneIsolation(t *testing.T) {
+func TestWorkQueueByteBackpressureAndLaneIsolation(t *testing.T) {
 	w := testWorkers(t)
 	release := make(chan struct{})
-	t.Cleanup(func() { close(release) })
+	var releaseOnce sync.Once
+	unblock := func() { releaseOnce.Do(func() { close(release) }) }
+	t.Cleanup(unblock)
+	var completed atomic.Int32
 	block := func(ctx context.Context, _ []byte) error {
 		select {
 		case <-release:
+			completed.Add(1)
 			return nil
 		case <-ctx.Done():
 			return ctx.Err()
@@ -76,20 +106,42 @@ func TestWorkQueueByteBoundAndLaneIsolation(t *testing.T) {
 	}
 	payload := bytes.Repeat([]byte("x"), MaxWorkPayloadBytes)
 	for range workQueueBytes / MaxWorkPayloadBytes {
-		require.True(t, w.Remote.Submit(WorkOutcome, payload, time.Second, workLog(), block))
+		require.True(t, w.Remote.Submit(WorkOutcome, payload, time.Minute, workLog(), block))
 	}
-	assert.False(t, w.Remote.Submit(WorkOutcome, []byte("x"), time.Second, workLog(), block))
-	assert.False(t, w.Database.Submit(WorkAttempt, append(payload, 'x'), time.Second, workLog(), block))
+	submitted, admitted := make(chan struct{}), make(chan bool, 1)
+	go func() {
+		close(submitted)
+		admitted <- w.Remote.Submit(WorkOutcome, []byte("x"), time.Minute, workLog(), block)
+	}()
+	<-submitted
+	select {
+	case ok := <-admitted:
+		t.Fatalf("byte-saturated queue must wait, returned %v", ok)
+	case <-time.After(25 * time.Millisecond):
+	}
+	assert.False(t, w.Remote.Submit(WorkOutcome, append(payload, 'x'), time.Second, workLog(), block), "oversized payloads must reject without waiting for capacity")
 	dbDone := make(chan struct{})
 	require.True(t, w.Database.Submit(WorkAttempt, nil, time.Second, workLog(), func(context.Context, []byte) error { close(dbDone); return nil }))
 	select {
 	case <-dbDone:
 	case <-time.After(time.Second):
-		t.Fatal("remote saturation blocked database worker")
+		t.Fatal("remote backpressure blocked the database lane")
 	}
 	w.Remote.mu.Lock()
 	assert.Equal(t, workQueueBytes, w.Remote.retainedBytes)
 	w.Remote.mu.Unlock()
+	unblock()
+	select {
+	case ok := <-admitted:
+		require.True(t, ok)
+	case <-time.After(time.Second):
+		t.Fatal("producer did not wake when bytes were released")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	require.NoError(t, w.Remote.Shutdown(ctx))
+	assert.EqualValues(t, workQueueBytes/MaxWorkPayloadBytes+1, completed.Load())
+	assert.Zero(t, w.Remote.retainedBytes)
 }
 
 func TestWorkQueueFixedConcurrencyAndShutdownCancellation(t *testing.T) {
@@ -189,10 +241,59 @@ func TestWorkQueueCountsEveryDropButRateLimitsLogs(t *testing.T) {
 	assert.Contains(t, logs.String(), "request-test")
 }
 
-func TestWorkQueueDropsExpiredJobsBeforeIO(t *testing.T) {
+func TestWorkQueueShutdownReleasesEveryBlockedProducer(t *testing.T) {
+	w := testWorkers(t)
+	started := make(chan struct{})
+	require.True(t, w.Database.Submit(WorkAttempt, nil, time.Minute, workLog(), func(ctx context.Context, _ []byte) error {
+		close(started)
+		<-ctx.Done()
+		return ctx.Err()
+	}))
+	<-started
+	for range workQueueSize - 1 {
+		require.True(t, w.Database.Submit(WorkTelemetry, nil, time.Second, workLog(), func(context.Context, []byte) error { return nil }))
+	}
+	const producers = 8
+	submitting, admissions := make(chan struct{}, producers), make(chan bool, producers)
+	for range producers {
+		go func() {
+			submitting <- struct{}{}
+			admissions <- w.Database.Submit(WorkTelemetry, nil, time.Second, workLog(), func(context.Context, []byte) error { return nil })
+		}()
+	}
+	for range producers {
+		<-submitting
+	}
+	select {
+	case ok := <-admissions:
+		t.Fatalf("full queue must backpressure producers before shutdown, returned %v", ok)
+	case <-time.After(25 * time.Millisecond):
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	require.ErrorIs(t, w.Database.Shutdown(ctx), context.DeadlineExceeded)
+	for range producers {
+		select {
+		case ok := <-admissions:
+			assert.False(t, ok, "shutdown must reject blocked submissions")
+		case <-time.After(time.Second):
+			t.Fatal("shutdown left a producer waiting for capacity")
+		}
+	}
+	drainCtx, drainCancel := context.WithTimeout(context.Background(), time.Second)
+	defer drainCancel()
+	require.NoError(t, w.Database.Shutdown(drainCtx))
+	assert.Zero(t, w.Database.count)
+	assert.Zero(t, w.Database.retainedBytes)
+}
+
+func TestWorkQueueExecutionDeadlineStartsAfterQueueWait(t *testing.T) {
 	w := testWorkers(t)
 	started, release := make(chan struct{}), make(chan struct{})
-	require.True(t, w.Database.Submit(WorkAttempt, nil, time.Second, workLog(), func(ctx context.Context, _ []byte) error {
+	var releaseOnce sync.Once
+	unblock := func() { releaseOnce.Do(func() { close(release) }) }
+	t.Cleanup(unblock)
+	require.True(t, w.Database.Submit(WorkAttempt, nil, time.Minute, workLog(), func(ctx context.Context, _ []byte) error {
 		close(started)
 		select {
 		case <-release:
@@ -202,13 +303,21 @@ func TestWorkQueueDropsExpiredJobsBeforeIO(t *testing.T) {
 		}
 	}))
 	<-started
-	var writes atomic.Int32
-	require.True(t, w.Database.Submit(WorkTelemetry, nil, time.Second, workLog(), func(context.Context, []byte) error { writes.Add(1); return nil }))
-	queued := <-w.Database.queue
-	queued.submitted = time.Now().Add(-workMaxAge - time.Second)
-	w.Database.queue <- queued
-	close(release)
-	require.NoError(t, w.Database.Shutdown(context.Background()))
-	assert.Zero(t, writes.Load())
-	assert.Zero(t, w.Database.retainedBytes)
+	observed := make(chan error, 1)
+	require.True(t, w.Database.Submit(WorkTelemetry, nil, 10*time.Millisecond, workLog(), func(ctx context.Context, _ []byte) error {
+		observed <- ctx.Err()
+		return nil
+	}))
+	select {
+	case <-observed:
+		t.Fatal("second job ran before the first released the worker")
+	case <-time.After(30 * time.Millisecond):
+	}
+	unblock()
+	select {
+	case err := <-observed:
+		assert.NoError(t, err, "queued time must not consume the execution deadline")
+	case <-time.After(time.Second):
+		t.Fatal("queued job was discarded instead of executed")
+	}
 }

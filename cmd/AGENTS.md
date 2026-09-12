@@ -39,4 +39,4 @@ Single source of truth for provider→env-var mapping = `providers.APIKeyEnvVars
 
 ## Shutdown ordering
 
-Start `ObservationWorkers` before HTTP traffic and inject the same DB lane into the executor attempt sink and proxy service. Drain HTTP handlers for up to six seconds, then stop observations and drain both lanes, OTLP and APM concurrently within the remainder of one nine-second process budget. Close the database after the drains; do not append independent timeout windows or change pool/CPU/readiness settings. Listen failures use the same cleanup path.
+Start `ObservationWorkers` before HTTP traffic and inject the same DB lane into the executor attempt sink and proxy service. Drain HTTP handlers for up to six seconds, then stop observation admissions, wake blocked producers, and drain both lanes, OTLP and APM concurrently within the remainder of one nine-second process budget. Close the database after the drains; do not append independent timeout windows or change pool/CPU/readiness settings. Listen failures use the same cleanup path.
