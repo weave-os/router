@@ -585,10 +585,10 @@ func IsUpstreamPromptCacheKeyRejection(err error) bool {
 }
 
 // IsUpstreamReasoningSummaryRejection reports whether err is a buffered 400
-// refusing the Responses reasoning.summary knob for the target model (Cortex:
-// "Unsupported parameter: 'reasoning.summary' is not supported with the
-// '…grok-4.6' model"), licensing a one-shot retry without it. A body that
-// merely mentions the field in another complaint must not match.
+// refusing the Responses reasoning.summary knob for the target model (e.g.
+// "Unsupported parameter: 'reasoning.summary' is not supported with the '…'
+// model"), licensing a one-shot retry without it. A body that merely mentions
+// the field in another complaint must not match.
 func IsUpstreamReasoningSummaryRejection(err error) bool {
 	var buffered *UpstreamErrorResponse
 	if !errors.As(err, &buffered) || buffered.Status != http.StatusBadRequest {

@@ -420,9 +420,9 @@ func TestIsUpstreamReasoningSummaryRejection(t *testing.T) {
 		want   bool
 	}{
 		{
-			name:   "cortex refuses the knob for grok",
+			name:   "gateway refuses the knob for one model",
 			status: http.StatusBadRequest,
-			body:   `{"error":{"message":"Unsupported parameter: 'reasoning.summary' is not supported with the 'global.xai.grok-4.6' model.","type":"invalid_request_error","param":"reasoning.summary","code":"unsupported_parameter"}}`,
+			body:   `{"error":{"message":"Unsupported parameter: 'reasoning.summary' is not supported with the 'vendor.grok-4.6' model.","type":"invalid_request_error","param":"reasoning.summary","code":"unsupported_parameter"}}`,
 			want:   true,
 		},
 		{

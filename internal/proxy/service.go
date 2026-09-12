@@ -151,9 +151,10 @@ type Service struct {
 	// prompt_cache_key as an unknown field, so only the first turn against
 	// such an endpoint pays the 400. Keyed by gatewayResponsesKey.
 	noPromptCacheKeyGateways sync.Map
-	// noReasoningSummaryGatewayModels memos (endpoint, model) pairs whose
-	// gateway 400s the Responses reasoning.summary knob, so only the first turn
-	// against such a model pays the retry. Keyed by gatewayModelKey.
+	// noReasoningSummaryGatewayModels memos (credential, endpoint, model)
+	// triples whose gateway 400s the Responses reasoning.summary knob, so only
+	// the first turn against such a model pays the retry. Keyed by
+	// gatewayCredentialModelKey.
 	noReasoningSummaryGatewayModels sync.Map
 	// unservedGatewayModels memos (endpoint, model) pairs a gateway answered
 	// model-not-found for. Keyed by gatewayModelKey.
@@ -2155,6 +2156,23 @@ func gatewayModelKey(endpoint, provider, model string) string {
 	return endpoint + "|" + model
 }
 
+// gatewayCredentialModelKey narrows gatewayModelKey to the credential that
+// observed the answer: "keyID|endpoint|model" under a BYOK key, the bare
+// endpoint|model for a deployment-keyed gateway. Two BYOK keys can share a
+// base URL yet authenticate to upstream accounts with different capabilities,
+// so a per-model refusal seen under one must not silence the probe for the
+// other. The key ID is the row identity, never the secret.
+func gatewayCredentialModelKey(ctx context.Context, endpoint, provider, model string) string {
+	key := gatewayModelKey(endpoint, provider, model)
+	if key == "" {
+		return ""
+	}
+	if creds := CredentialsFromContext(ctx); creds != nil && creds.KeyID != "" {
+		return creds.KeyID + "|" + key
+	}
+	return key
+}
+
 // gatewayLacksModel reports whether that endpoint already answered
 // model-not-found for the model.
 func (s *Service) gatewayLacksModel(key string) bool {
@@ -2195,7 +2213,7 @@ func (s *Service) rememberGatewayRejectsPromptCacheKey(key string) {
 }
 
 // gatewayRejectsReasoningSummary reports whether that endpoint already refused
-// reasoning.summary for the model.
+// reasoning.summary for the model under this credential.
 func (s *Service) gatewayRejectsReasoningSummary(key string) bool {
 	if key == "" {
 		return false
@@ -3942,7 +3960,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 				// Direct OpenAI serves every expressible turn on Responses;
 				// gateways only the reasoning tool turn chat/completions rejects.
 				gatewayKey := gatewayResponsesKey(actx, d.Provider)
-				gatewayModel := gatewayModelKey(gatewayKey, d.Provider, d.Model)
+				gatewayModel := gatewayCredentialModelKey(actx, gatewayKey, d.Provider, d.Model)
 				attempt := openAICompatAttempt{
 					useResponses: translate.UseOpenAIResponsesAPI(translate.ResponsesRoute{
 						Provider:       d.Provider,
@@ -3960,8 +3978,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 				retry := func(reason string) {
 					log.Warn(reason,
 						"model", d.Model,
-						"decision_provider", d.Provider,
-						"request_id", requestID)
+						"decision_provider", d.Provider)
 					if preludeBuf != nil {
 						preludeBuf.Discard()
 					}
@@ -3976,8 +3993,8 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 					retry("Gateway rejected the Responses API; retrying on chat/completions")
 				}
 				// A gateway may serve Responses for the model yet refuse the
-				// reasoning.summary knob (Cortex fronting grok-4.6). Effort and
-				// encrypted reasoning still go out; only the summary is dropped.
+				// reasoning.summary knob for that one model. Effort and encrypted
+				// reasoning still go out; only the summary is dropped.
 				if rawErr != nil && attempt.useResponses && !attempt.omitReasoningSummary &&
 					gatewayModel != "" && !committed(preludeBuf) &&
 					providers.IsUpstreamReasoningSummaryRejection(rawErr) {
