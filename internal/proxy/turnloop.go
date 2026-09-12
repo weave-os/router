@@ -506,6 +506,9 @@ func pinEligible(pin sessionpin.Pin, req router.Request) bool {
 	if !pinServesImages(pin, req) {
 		return false
 	}
+	if !targetPreservesTranslationRequirements(pin.Provider, pin.Model, req.TranslationRequirements) {
+		return false
+	}
 	if req.EnabledProviders == nil {
 		return true
 	}
@@ -549,6 +552,9 @@ func forcedPinIneligibilityReason(pin sessionpin.Pin, req router.Request) string
 	}
 	if !pinServesImages(pin, req) {
 		return "not_image_capable"
+	}
+	if !targetPreservesTranslationRequirements(pin.Provider, pin.Model, req.TranslationRequirements) {
+		return "translation_incompatible"
 	}
 	return "excluded"
 }
@@ -856,6 +862,9 @@ func (s *Service) runTurnLoop(
 				)
 			}
 		}
+		if !targetPreservesTranslationRequirements(provider, model, req.TranslationRequirements) {
+			return res, fmt.Errorf("hard-pin model %q on provider %q cannot preserve translation requirements: %w", model, provider, translate.ErrModelTranslationRequirementsIncompatible)
+		}
 		// Operator hard-pins (ROUTER_HARD_PIN_MODEL) bypass the tier ceiling
 		// by design; clamping would silently defeat an explicit operator opt-in.
 		hardDecision := router.Decision{
@@ -1104,7 +1113,8 @@ func (s *Service) runTurnLoop(
 		_, providerEnabled := req.EnabledProviders[forceModelPin.Provider]
 		providerEligible := req.EnabledProviders == nil || providerEnabled
 		imageCapable := pinServesImages(forceModelPin, req)
-		if !excluded && providerEligible && imageCapable {
+		translationCompatible := targetPreservesTranslationRequirements(forceModelPin.Provider, forceModelPin.Model, req.TranslationRequirements)
+		if !excluded && providerEligible && imageCapable && translationCompatible {
 			res.PinModel = forceModelPin.Model
 			res.PinAgeSec = pinAge(forceModelPin)
 			res.EscalateEffort = !forceHistory.LastTurnEndedAt.IsZero() &&
@@ -1125,10 +1135,13 @@ func (s *Service) runTurnLoop(
 			"drop_reason", res.ForcedPinDropReason,
 			"role", res.PinRole,
 		)
-		if excluded || !imageCapable {
+		if excluded || !imageCapable || !translationCompatible {
 			forcedTierFloor = catalog.TierFor(forceModelPin.Model)
 		}
 		if !imageCapable {
+			req.ExcludedModels = excludingModel(req.ExcludedModels, forceModelPin.Model)
+		}
+		if !translationCompatible {
 			req.ExcludedModels = excludingModel(req.ExcludedModels, forceModelPin.Model)
 		}
 		if !sessionForceControlFound || isUserForcedReason(pin.Reason) {
@@ -1141,11 +1154,12 @@ func (s *Service) runTurnLoop(
 		_, providerEnabled := req.EnabledProviders[pin.Provider]
 		providerEligible := req.EnabledProviders == nil || providerEnabled
 		imageCapable := pinServesImages(pin, req)
+		translationCompatible := targetPreservesTranslationRequirements(pin.Provider, pin.Model, req.TranslationRequirements)
 		// Loop and struggle escalation are router-chosen rescues, so a
 		// deployment-wide disable applies to them; only the user's own
 		// /force-model outranks it.
 		autoDisabled := !isUserForcedReason(pin.Reason) && automaticallyDisabled(req, pin.Model)
-		if !excluded && !autoDisabled && providerEligible && imageCapable {
+		if !excluded && !autoDisabled && providerEligible && imageCapable && translationCompatible {
 			decision := pinDecision(pin)
 			decision.Reason = pin.Reason
 			res.PinTier = pin.Reason
@@ -1164,6 +1178,8 @@ func (s *Service) runTurnLoop(
 			dropReason = "provider_not_enabled"
 		case !imageCapable:
 			dropReason = "not_image_capable"
+		case !translationCompatible:
+			dropReason = "translation_incompatible"
 		}
 		log.Info("Forced session pin dropped for this turn",
 			"pin_model", pin.Model,
@@ -1193,10 +1209,12 @@ func (s *Service) runTurnLoop(
 				log.Error("ineligible escalation pin eviction failed", "err", err, "pin_model", pin.Model, "role", res.PinRole, "evict_reason", evictReason)
 			}
 		}
-		if !imageCapable {
+		if !imageCapable || !translationCompatible {
 			// The scorer's own image filter fails open when no image-capable
 			// candidate survives, so make the drop explicit here instead of
-			// letting the same text-only model be re-picked.
+			// letting the same text-only model be re-picked. Translation-
+			// incompatible pins get the same treatment so the fallback scorer
+			// cannot reselect them after readmitForcedModel lifted the exclusion.
 			req.ExcludedModels = excludingModel(req.ExcludedModels, pin.Model)
 		}
 		// Treat as missing so downstream sticky branches don't dispatch to an
@@ -1311,7 +1329,8 @@ func (s *Service) runTurnLoop(
 				// that must not be bypassed just because context happens to fit).
 				policyExcluded := s.excludedModelsForRequest(ctx)
 				_, policyExcludes := policyExcluded[pin.Model]
-				compatibilityExcludes := req.TranslationRequirements.Images && !catalog.AcceptsImages(pin.Model)
+				compatibilityExcludes := (req.TranslationRequirements.Images && !catalog.AcceptsImages(pin.Model)) ||
+					!targetPreservesTranslationRequirements(pin.Provider, pin.Model, req.TranslationRequirements)
 				if !policyExcludes && !compatibilityExcludes {
 					if len(req.ExcludedModels) > 0 {
 						pruned := make(map[string]struct{}, len(req.ExcludedModels)-1)

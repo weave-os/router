@@ -16,20 +16,20 @@ const ReasonSiblingFailover = "sibling_failover"
 // already filtered for capability/context), plus PairedModel last for replayed
 // pins. Candidates on the failed provider rank last; context fit uses the same
 // dual-estimator as the pre-route overflow filter to reject under-sized peers.
-func (s *Service) siblingFailoverDecision(ctx context.Context, failed router.Decision, est, sigSavings, outputReserve int) (router.Decision, bool) {
+func (s *Service) siblingFailoverDecision(ctx context.Context, failed router.Decision, requirements router.TranslationRequirements, est, sigSavings, outputReserve int) (router.Decision, bool) {
 	md := failed.Metadata
 	if md == nil {
 		return router.Decision{}, false
 	}
-	return s.rescueDecision(ctx, failed, siblingCandidateOrder(md), ReasonSiblingFailover, est, sigSavings, outputReserve)
+	return s.rescueDecision(ctx, failed, siblingCandidateOrder(md), ReasonSiblingFailover, requirements, est, sigSavings, outputReserve)
 }
 
 // rescueDecision resolves the first candidate the request is allowed to reach,
 // under the same availability, exclusion, context-fit and BYOK-gateway rules for
 // every in-turn rescue (sibling failover, safety-refusal retry).
-func (s *Service) rescueDecision(ctx context.Context, failed router.Decision, candidates []string, reason string, est, sigSavings, outputReserve int) (router.Decision, bool) {
+func (s *Service) rescueDecision(ctx context.Context, failed router.Decision, candidates []string, reason string, requirements router.TranslationRequirements, est, sigSavings, outputReserve int) (router.Decision, bool) {
 	if gw := s.gatewayProvidersForRequest(ctx); len(gw) > 0 {
-		return s.gatewayRescueDecision(ctx, failed, candidates, reason, gw, est, sigSavings, outputReserve)
+		return s.gatewayRescueDecision(ctx, failed, candidates, reason, requirements, gw, est, sigSavings, outputReserve)
 	}
 	if s.deploymentKeyedProviders == nil {
 		return router.Decision{}, false
@@ -59,6 +59,9 @@ func (s *Service) rescueDecision(ctx context.Context, failed router.Decision, ca
 		if !ok {
 			continue
 		}
+		if !targetPreservesTranslationRequirements(provider, id, requirements) {
+			continue
+		}
 		if !siblingFitsContext(id, provider, est, sigSavings, outputReserve) {
 			continue
 		}
@@ -80,7 +83,7 @@ func (s *Service) rescueDecision(ctx context.Context, failed router.Decision, ca
 // failover (foreign provider would 401); gateway candidates re-use the same
 // credentials so the restriction doesn't apply. A candidate behind a different
 // gateway binding ranks first over one on the same gateway.
-func (s *Service) gatewayRescueDecision(ctx context.Context, failed router.Decision, candidates []string, reason string, gw map[string]struct{}, est, sigSavings, outputReserve int) (router.Decision, bool) {
+func (s *Service) gatewayRescueDecision(ctx context.Context, failed router.Decision, candidates []string, reason string, requirements router.TranslationRequirements, gw map[string]struct{}, est, sigSavings, outputReserve int) (router.Decision, bool) {
 	custom := s.customBindingsForRequest(ctx)
 	excludedModels := s.excludedModelsForRequest(ctx)
 	automaticExcluded := s.globalAutomaticExcludedModels(ctx)
@@ -98,6 +101,9 @@ func (s *Service) gatewayRescueDecision(ctx context.Context, failed router.Decis
 		}
 		provider, ok := gatewayProviderFor(id, custom, gw)
 		if !ok {
+			continue
+		}
+		if !targetPreservesTranslationRequirements(provider, id, requirements) {
 			continue
 		}
 		if !siblingFitsContext(id, provider, est, sigSavings, outputReserve) {

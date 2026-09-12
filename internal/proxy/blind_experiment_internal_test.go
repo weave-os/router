@@ -165,6 +165,30 @@ func TestBlindExperimentPassthroughHonorsExcludedModels(t *testing.T) {
 	assert.Zero(t, routerSpy.routeCalls, "an excluded requested model must fail directly instead of falling through to automatic routing")
 }
 
+func TestBlindExperimentPassthroughRejectsTranslationIncompatibleModel(t *testing.T) {
+	service := NewService(nil, nil, nil, false, nil, nil, false,
+		providers.ProviderAnthropic, "claude-haiku-4-5", nil)
+
+	_, passthrough, err := service.blindExperimentPassthroughDecision(
+		blindExperimentContext(auth.BlindExperimentArmPassthrough),
+		router.Request{
+			RequestedModel: "claude-sonnet-4-5",
+			EnabledProviders: map[string]struct{}{
+				providers.ProviderAnthropic: {},
+			},
+			TranslationRequirements: router.TranslationRequirements{
+				SourceFormat:                  router.WireFormatAnthropic,
+				Endpoint:                      router.EndpointAnthropicMessages,
+				MidConversationSystemMessages: true,
+			},
+		},
+	)
+
+	require.Error(t, err)
+	assert.True(t, passthrough)
+	assert.ErrorIs(t, err, cluster.ErrNoEligibleProvider)
+}
+
 func TestBlindExperimentRouterOnUsesScorer(t *testing.T) {
 	routerSpy := &blindExperimentRouterSpy{decision: router.Decision{
 		Provider: providers.ProviderAnthropic,

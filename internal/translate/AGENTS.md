@@ -47,7 +47,7 @@ Anthropic-only fields (`thinking`, `cache_control`, `metadata`, Anthropic beta h
 
 ## Prefix-stable system handling (load-bearing)
 
-Anthropic 400s on `role:"system"` inside `messages`, so `hoistAnthropicSystemMessages` clears them — but only the **leading** run is hoisted into `system`. Any system-scoped `output_config` is hoisted to the request-level field (without overwriting an explicit request-level value), while a mid-conversation system message is demoted to `user` **in place** after its message-scoped `output_config` is removed. Hoisting it instead would move its text in front of the whole history, so a client that emits a system reminder per turn (Claude Code) shifts the cached prefix on every turn and re-writes the entire prompt; prod traffic showed ~890k cache-creation tokens per turn against a flat 17.5k read.
+`hoistAnthropicSystemMessages` moves only the **leading plain-text run** into the top-level `system` field. A later `role:"system"` message stays at its original index for models that support mid-conversation system messages; moving it would shift the cached prefix, while demoting it to `user` would discard operator semantics and makes `tool_addition` / `tool_removal` blocks invalid. Translation requirements restrict these requests to first-party Anthropic and the exact model capabilities needed by plain system messages, tool changes, per-message `output_config`, or `clear_at`; an unsupported target fails closed before emit. The emitter derives each required Anthropic beta header from the preserved body. Leading messages carrying any of those special fields are not hoisted because only plain text can move to the top-level field.
 
 ## `<think>` content-channel extraction (gated)
 

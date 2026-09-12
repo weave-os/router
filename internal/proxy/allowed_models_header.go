@@ -142,7 +142,8 @@ func telemetryDecisionReason(ctx context.Context, reason string) string {
 // readmitForcedModel lifts a forced model's exclusion when it stems only from
 // the request allowlist: the force is a strict pin and outranks the header.
 // Callers must already have validated the model against installation policy
-// (forcedModelBinding); a policy or context-window exclusion is never lifted.
+// (forcedModelBinding); policy, translation, or context-window exclusions are
+// never lifted.
 func (s *Service) readmitForcedModel(
 	ctx context.Context,
 	req router.Request,
@@ -162,6 +163,9 @@ func (s *Service) readmitForcedModel(
 		return excluded
 	}
 	if _, ok := s.policyExcludedModels(ctx)[pin.Model]; ok {
+		return excluded
+	}
+	if !targetPreservesTranslationRequirements(pin.Provider, pin.Model, req.TranslationRequirements) {
 		return excluded
 	}
 	outputReserve := contextWindowOutputReserve
