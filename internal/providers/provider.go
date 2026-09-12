@@ -413,13 +413,34 @@ func IsUpstreamModelNotFound(err error) bool {
 	return false
 }
 
-// IsUpstreamProviderBillingBlocked reports whether err is a buffered 402
-// (provider refuses the model on this account). Like 404, it is fatal for
-// the binding but not the model, so it gates cross-binding failover only.
+// billingBlockedForbiddenPhrases are 403 bodies that mean the account is out
+// of credit rather than lacking permission. xAI answers an exhausted balance
+// or a hit monthly spending limit with 403 permission-denied, not 402.
+var billingBlockedForbiddenPhrases = []string{
+	"used all available credits",
+	"reached its monthly spending limit",
+	"insufficient credits",
+}
+
+// IsUpstreamProviderBillingBlocked reports whether err is a buffered 402, or
+// a buffered 403 whose body says the account is out of credit (provider
+// refuses the model on this account). Like 404, it is fatal for the binding
+// but not the model, so it gates cross-binding failover only.
 func IsUpstreamProviderBillingBlocked(err error) bool {
 	var buffered *UpstreamErrorResponse
-	if errors.As(err, &buffered) {
-		return buffered.Status == http.StatusPaymentRequired
+	if !errors.As(err, &buffered) {
+		return false
+	}
+	switch buffered.Status {
+	case http.StatusPaymentRequired:
+		return true
+	case http.StatusForbidden:
+		body := strings.ToLower(string(buffered.Body))
+		for _, phrase := range billingBlockedForbiddenPhrases {
+			if strings.Contains(body, phrase) {
+				return true
+			}
+		}
 	}
 	return false
 }
