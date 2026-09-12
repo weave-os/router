@@ -160,8 +160,9 @@ func (s *Service) maybeExpireDeadArmPin(
 // maybeExpirePoolArmPin expires a sticky pin when the managed subscription
 // pool for the pinned provider is empty. The pin is not a quality signal and
 // has no HTTP status, so the two-strike 4xx counter never sees it; without
-// this, Codex retries keep hitting the same dead Claude arm. Never expires a
-// user force-model pin.
+// this, Codex retries keep hitting the same dead Claude arm. Also expires a
+// pin written on this first unpinned turn (writeNewPin), so the next request
+// does not sticky-hit the same empty pool. Never expires a user force-model pin.
 func (s *Service) maybeExpirePoolArmPin(
 	ctx context.Context,
 	poolArmDead bool,
@@ -223,17 +224,6 @@ func (s *Service) maybeEvictPinAfterUpstreamErr(
 		if err := s.pinStore.ResetUpstreamErrors(context.Background(), sessionKey, role, router.StrategyFromContext(ctx)); err != nil {
 			log.Error("pin error-counter reset failed", "err", err, "role", role)
 		}
-		return
-	}
-
-	if isSubscriptionPoolError(proxyErr) {
-		if err := s.expireSessionPin(ctx, installationID, sessionKey, role, "subscription_pool_exhausted"); err != nil {
-			log.Error("pin eviction after subscription pool exhaustion failed", "err", err, "role", role)
-			return
-		}
-		log.Info("session pin evicted after subscription pool exhaustion",
-			"role", role,
-		)
 		return
 	}
 

@@ -406,7 +406,7 @@ func TestMaybeExpireDeadArmPin(t *testing.T) {
 	}
 }
 
-func TestMaybeEvictPin_SubscriptionPoolExhaustedExpiresImmediately(t *testing.T) {
+func TestMaybeEvictPin_SubscriptionPoolExhaustedLeavesStrikeCounter(t *testing.T) {
 	store := &evictionStubPinStore{incrementNext: []int{1}}
 	svc := newEvictionTestService(store)
 	installationID := uuid.New()
@@ -423,13 +423,7 @@ func TestMaybeEvictPin_SubscriptionPoolExhaustedExpiresImmediately(t *testing.T)
 	)
 
 	assert.Zero(t, store.incrementCalls, "pool exhaustion has no upstream status and must not use the 4xx strike counter")
-	require.Len(t, store.upserts, 1, "an empty subscription pool must expire the pin on the first failed turn")
-	expired := store.upserts[0]
-	assert.Equal(t, installationID, expired.InstallationID)
-	assert.Empty(t, expired.Provider)
-	assert.Empty(t, expired.Model)
-	assert.Equal(t, "subscription_pool_exhausted", expired.Reason)
-	assert.True(t, expired.PinnedUntil.Before(time.Now()))
+	assert.Empty(t, store.upserts, "pool-arm expiry is maybeExpirePoolArmPin, keyed off the primary attempt, not the final rescue error")
 }
 
 func TestMaybeExpirePoolArmPin(t *testing.T) {

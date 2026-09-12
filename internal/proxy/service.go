@@ -4710,9 +4710,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		// dead for this request shape — the pin must not stay on it even when a
 		// rescue served the turn (which would nill proxyErr and reset the counter).
 		s.maybeExpireDeadArmPin(ctx, deadArmRejected, decision.Reason, installationID, routeRes.SessionKey, stickyStateRole(routeRes))
-		if poolArmDead && !isSubscriptionPoolError(proxyErr) {
-			s.maybeExpirePoolArmPin(ctx, poolArmDead, decision.Reason, installationID, routeRes.SessionKey, stickyStateRole(routeRes))
-		}
+		s.maybeExpirePoolArmPin(ctx, poolArmDead, decision.Reason, installationID, routeRes.SessionKey, stickyStateRole(routeRes))
 
 		// Two-strike provider disable: complements the 4xx eviction above;
 		// 529 is retryable in-turn so it never trips that counter.
@@ -7054,7 +7052,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 				flushErr:        flushErrAsOpenAI,
 				// A failed retry keeps the same model; hold the error so the
 				// cyber-refusal rescue below can still serve the turn.
-				deferFlushOnExhaustion: cyberRetryViable,
+				deferFlushOnExhaustion: cyberRetryViable || siblingViable,
 				purpose:                routeRes.dispatchPurpose(surfacePurpose),
 				origin:                 routeRes.dispatchOrigin(decision),
 			})
@@ -7118,14 +7116,15 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 			cyberRetryRan = true
 			respSummary = translate.ResponseSummary{}
 			winnerIdx, proxyErr = s.dispatchWithFallback(retryCtx, failoverInputs{
-				w:               contentSink,
-				buf:             preludeBuf,
-				initialDecision: cyberRetryTarget,
-				bindings:        retryBindings,
-				attempt:         retryAttempt,
-				flushErr:        flushErrAsOpenAI,
-				purpose:         routeRes.dispatchPurpose(surfacePurpose),
-				origin:          routeRes.rescueOrigin(),
+				w:                      contentSink,
+				buf:                    preludeBuf,
+				initialDecision:        cyberRetryTarget,
+				bindings:               retryBindings,
+				attempt:                retryAttempt,
+				flushErr:               flushErrAsOpenAI,
+				deferFlushOnExhaustion: siblingViable,
+				purpose:                routeRes.dispatchPurpose(surfacePurpose),
+				origin:                 routeRes.rescueOrigin(),
 			})
 			subscriptionPoolFailure = isSubscriptionPoolError(proxyErr)
 			decision = cyberRetryTarget
@@ -7323,9 +7322,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	// See ProxyMessages for the two-strike eviction rationale.
 	if !routeRes.BlindExperimentPassthrough {
 		s.maybeEvictPinAfterUpstreamErr(ctx, stickyHit, proxyErr, decision.Reason, installationIDFromContext(ctx), routeRes.SessionKey, stickyStateRole(routeRes))
-		if poolArmDead && !isSubscriptionPoolError(proxyErr) {
-			s.maybeExpirePoolArmPin(ctx, poolArmDead, decision.Reason, installationIDFromContext(ctx), routeRes.SessionKey, stickyStateRole(routeRes))
-		}
+		s.maybeExpirePoolArmPin(ctx, poolArmDead, decision.Reason, installationIDFromContext(ctx), routeRes.SessionKey, stickyStateRole(routeRes))
 		// See ProxyMessages for the two-strike provider-disable rationale.
 		s.maybeDisableProviderAfterOverload(ctx, stickyHit, proxyErr, finalProvider, decision.Reason, installationIDFromContext(ctx), routeRes.SessionKey, stickyStateRole(routeRes), routeRes.PinRole)
 	}
@@ -7442,7 +7439,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		)
 	}
 
-	log.Info("ProxyOpenAIChatCompletion complete", append([]any{"requested_model", feats.Model, "baseline_model", s.baselineFor(feats.Model), "decision_model", decision.Model, "decision_provider", decision.Provider, "primary_provider", primaryProvider, "primary_model", primaryModel, "fallback_attempts", winnerIdx, "failover_used", finalProvider != primaryProvider || codexFailoverUsed, "subscription_failover", codexFailoverUsed, "decision_reason", decision.Reason, "requested_tier", routeRes.RequestedTier.String(), "decision_tier", catalog.TierFor(decision.Model).String(), "embedded_tokens", len(promptText) / 4, "total_input_tokens", feats.Tokens, "has_tools", feats.HasTools, "embed_input", embedInput, "cross_format", crossFormat, "sticky_hit", stickyHit, "pin_tier", pinTier, "turn_type", string(tt), "route_ms", routeMs, "proxy_ms", proxyMs, "proxy_err", proxyErr, "upstream_err_body", providers.UpstreamErrorBodyMessage(proxyErr), "upstream_status", upstreamStatus(proxyErr), "upstream_finish_reason", respSummary.UpstreamFinishReason, "resp_stop_reason", respSummary.StopReason, "routing_marker", marker, "prior_served_model", routeRes.PriorServedModel, "hard_pinned", routeRes.HardPinned}, plannerLogFields(routeRes)...)...)
+	log.Info("ProxyOpenAIChatCompletion complete", append([]any{"requested_model", feats.Model, "baseline_model", s.baselineFor(feats.Model), "decision_model", decision.Model, "decision_provider", decision.Provider, "primary_provider", primaryProvider, "primary_model", primaryModel, "fallback_attempts", winnerIdx, "failover_used", finalProvider != primaryProvider || codexFailoverUsed || siblingFailoverUsed, "subscription_failover", codexFailoverUsed, "decision_reason", decision.Reason, "requested_tier", routeRes.RequestedTier.String(), "decision_tier", catalog.TierFor(decision.Model).String(), "embedded_tokens", len(promptText) / 4, "total_input_tokens", feats.Tokens, "has_tools", feats.HasTools, "embed_input", embedInput, "cross_format", crossFormat, "sticky_hit", stickyHit, "pin_tier", pinTier, "turn_type", string(tt), "route_ms", routeMs, "proxy_ms", proxyMs, "proxy_err", proxyErr, "upstream_err_body", providers.UpstreamErrorBodyMessage(proxyErr), "upstream_status", upstreamStatus(proxyErr), "upstream_finish_reason", respSummary.UpstreamFinishReason, "resp_stop_reason", respSummary.StopReason, "routing_marker", marker, "prior_served_model", routeRes.PriorServedModel, "hard_pinned", routeRes.HardPinned}, plannerLogFields(routeRes)...)...)
 	s.reportPolicyOutcome(ctx, routeRes, decision, effortServed, finalProvider, fastServed, feats.Tokens, in, out, cacheCreation, cacheRead, routeMs, proxyMs, proxyErr, nil)
 
 	// Subscription-only mode disables paid failover by pinning dispatch to the
