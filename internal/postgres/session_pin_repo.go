@@ -173,6 +173,16 @@ func (r *SessionPinRepo) DisableProvider(ctx context.Context, sessionKey [sessio
 	})
 }
 
+func (r *SessionPinRepo) DemoteModel(ctx context.Context, sessionKey [sessionpin.SessionKeyLen]byte, role, model string, _ sessionpin.DemotionReason, expectedStrategy router.Strategy) error {
+	q := sqlc.New(r.tx)
+	return q.DemoteSessionPinModel(ctx, sqlc.DemoteSessionPinModelParams{
+		SessionKey:              sessionKey[:],
+		Role:                    role,
+		Model:                   model,
+		ExpectedRoutingStrategy: string(expectedStrategy),
+	})
+}
+
 func (r *SessionPinRepo) SweepExpired(ctx context.Context) error {
 	q := sqlc.New(r.tx)
 	return q.SweepExpiredSessionPins(ctx)
@@ -204,6 +214,7 @@ func toSessionPin(row sqlc.RouterSessionPin) sessionpin.Pin {
 		ConsecutiveUpstreamErrors: int(row.ConsecutiveUpstreamErrors),
 		ConsecutiveOverloadErrors: int(row.ConsecutiveOverloadErrors),
 		DisabledProviders:         row.DisabledProviders,
+		DemotedModels:             row.DemotedModels,
 	}
 	// Bounded copy guards against a corrupt row panicking the request handler.
 	copy(pin.SessionKey[:], row.SessionKey)

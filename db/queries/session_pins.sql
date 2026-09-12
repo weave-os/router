@@ -295,6 +295,24 @@ WHERE session_key = @session_key::bytea
     OR (routing_strategy = '' AND @expected_routing_strategy::varchar <> 'hmm_beta')
   );
 
+-- Appends a model to demoted_models (deduped) after an upstream stream
+-- failed with the prelude already committed, so the next turn's automatic
+-- selection skips that arm. One failure is enough: the committed turn is
+-- already lost. demoted_models only grows within one strategy's pin
+-- lifecycle, like disabled_providers.
+-- name: DemoteSessionPinModel :exec
+UPDATE router.session_pins
+SET demoted_models = CASE
+      WHEN @model::varchar = ANY(demoted_models) THEN demoted_models
+      ELSE array_append(demoted_models, @model::varchar)
+    END
+WHERE session_key = @session_key::bytea
+  AND role        = @role::varchar
+  AND (
+    routing_strategy = @expected_routing_strategy::varchar
+    OR (routing_strategy = '' AND @expected_routing_strategy::varchar <> 'hmm_beta')
+  );
+
 -- Garbage-collects pins that have been expired for >24h. The 24h grace
 -- means a transient Postgres outage doesn't immediately prune live pins;
 -- the hourly sweep is bounded because the row count is one per active

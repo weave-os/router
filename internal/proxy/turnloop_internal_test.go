@@ -83,6 +83,10 @@ func (s *stubPinStore) ResetOverloadErrors(context.Context, [sessionpin.SessionK
 	return nil
 }
 
+func (*stubPinStore) DemoteModel(context.Context, [sessionpin.SessionKeyLen]byte, string, string, sessionpin.DemotionReason, router.Strategy) error {
+	return nil
+}
+
 func (s *stubPinStore) DisableProvider(context.Context, [sessionpin.SessionKeyLen]byte, string, string, router.Strategy) error {
 	return nil
 }

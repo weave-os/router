@@ -173,6 +173,10 @@ func (f *fakePinStore) ResetOverloadErrors(ctx context.Context, key [sessionpin.
 	return nil
 }
 
+func (*fakePinStore) DemoteModel(context.Context, [sessionpin.SessionKeyLen]byte, string, string, sessionpin.DemotionReason, router.Strategy) error {
+	return nil
+}
+
 func (f *fakePinStore) DisableProvider(ctx context.Context, key [sessionpin.SessionKeyLen]byte, role, provider string, expected router.Strategy) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
