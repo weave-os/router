@@ -778,7 +778,7 @@ func main() {
 	authoritativeDowngradeGate := config.GetOr("ROUTER_AUTHORITATIVE_DOWNGRADE_GATE", "false") == "true"
 	// hmmDowngradeHysteresisTurns requires N consecutive cheaper-than-pin authoritative
 	// votes before the downgrade is served; 0 keeps today's switch-on-first-vote behavior.
-	hmmDowngradeHysteresisTurns := parseEnvInt("ROUTER_HMM_DOWNGRADE_HYSTERESIS_TURNS", 0)
+	hmmDowngradeHysteresisTurns := parseEnvNonNegativeInt("ROUTER_HMM_DOWNGRADE_HYSTERESIS_TURNS", 0)
 	// authorityCacheShadow records the HMM cache gate's counterfactual verdict on
 	// authoritative-per-turn turns, which return before that gate can run. Pure
 	// observation; kill switch for the added per-turn computation and log line.
@@ -1671,12 +1671,24 @@ func buildOtelEmitter(deploymentMode string) (*otel.Emitter, error) {
 // parseEnvInt reads an env var as a positive integer. Returns fallback when
 // the var is unset, empty, or unparseable. Logs a warning on bad values.
 func parseEnvInt(key string, fallback int) int {
+	return parseEnvIntAtLeast(key, fallback, 1)
+}
+
+// parseEnvNonNegativeInt reads an env var as an integer for which 0 is a
+// meaningful "off" value rather than a bad input.
+func parseEnvNonNegativeInt(key string, fallback int) int {
+	return parseEnvIntAtLeast(key, fallback, 0)
+}
+
+// parseEnvIntAtLeast reads an env var as an integer of at least minimum,
+// falling back with a warning on anything smaller or unparseable.
+func parseEnvIntAtLeast(key string, fallback, minimum int) int {
 	raw := config.GetOr(key, "")
 	if raw == "" {
 		return fallback
 	}
 	n, err := strconv.Atoi(raw)
-	if err != nil || n <= 0 {
+	if err != nil || n < minimum {
 		observability.Get().Warn("Invalid env var; using default", "key", key, "value", raw, "default", fallback)
 		return fallback
 	}
