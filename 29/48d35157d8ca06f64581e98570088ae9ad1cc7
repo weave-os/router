@@ -1,0 +1,41 @@
+cmd/AGENTS.md
+  s_d5165fb8d3c8eb::t_6e85021e7b67e8 42
+AGENTS.md
+  s_d5165fb8d3c8eb::t_6e85021e7b67e8 137,198
+internal/proxy/AGENTS.md
+  s_d5165fb8d3c8eb::t_6e85021e7b67e8 301,303,305,307
+cmd/CLAUDE.md
+  s_d5165fb8d3c8eb::t_6e85021e7b67e8 42
+internal/observability/workers.go
+  s_d5165fb8d3c8eb::t_6e85021e7b67e8 48-52,58,60-69,106-109,111-114,116,122,136,138
+  s_d5165fb8d3c8eb::t_6ee9ed23f4760a 59,88,98,100-101,145,179-180,189
+CLAUDE.md
+  s_d5165fb8d3c8eb::t_6e85021e7b67e8 137,198
+internal/proxy/CLAUDE.md
+  s_d5165fb8d3c8eb::t_6e85021e7b67e8 301,303,305,307
+internal/proxy/observation_work.go
+  s_d5165fb8d3c8eb::t_6ee9ed23f4760a 18
+internal/dispatch/executor.go
+  s_d5165fb8d3c8eb::t_6ee9ed23f4760a 54-55
+internal/proxy/telemetry.go
+  s_d5165fb8d3c8eb::t_6ee9ed23f4760a 462
+internal/observability/workers_test.go
+  s_d5165fb8d3c8eb::t_64a23ca8f6a6dc 35,91,244,288-290
+  s_d5165fb8d3c8eb::t_6e85021e7b67e8 38-41,44,49-50,57,59-80,86,94-97,101,109-120,122,128,133-144,245-287,293-296,306-322
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "2948d35157d8ca06f64581e98570088ae9ad1cc7",
+  "prompts": {},
+  "sessions": {
+    "s_d5165fb8d3c8eb": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "811cfb39-b733-4ed9-a66b-3d449d1adc24",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Drew Bailey <drew@workweave.ai>"
+    }
+  }
+}
