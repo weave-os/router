@@ -612,6 +612,11 @@ ON CONFLICT (session_key, role) DO UPDATE SET
     WHEN router.session_pins.routing_strategy = EXCLUDED.routing_strategy
       THEN router.session_pins.disabled_providers
     ELSE '{}'
+  END,
+  demoted_models = CASE
+    WHEN router.session_pins.routing_strategy = EXCLUDED.routing_strategy
+      THEN router.session_pins.demoted_models
+    ELSE '{}'
   END
 `
 
@@ -778,6 +783,11 @@ type UpsertSessionPinParams struct {
 //	  disabled_providers = CASE
 //	    WHEN router.session_pins.routing_strategy = EXCLUDED.routing_strategy
 //	      THEN router.session_pins.disabled_providers
+//	    ELSE '{}'
+//	  END,
+//	  demoted_models = CASE
+//	    WHEN router.session_pins.routing_strategy = EXCLUDED.routing_strategy
+//	      THEN router.session_pins.demoted_models
 //	    ELSE '{}'
 //	  END
 func (q *Queries) UpsertSessionPin(ctx context.Context, arg UpsertSessionPinParams) error {

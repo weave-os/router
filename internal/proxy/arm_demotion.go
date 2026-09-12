@@ -54,18 +54,24 @@ func (s *Service) maybeDemoteArmAfterCommittedStreamFailure(
 	log := observability.FromContext(ctx)
 	reason := sessionpin.DemotionReasonCommittedStreamFailure
 
-	if err := s.pinStore.DemoteModel(context.Background(), sessionKey, role, model, reason, router.StrategyFromContext(ctx)); err != nil {
-		log.Error("session model demotion failed", "err", err, "role", role, "model", model)
-		return ""
-	}
 	// Expire both rows for the reason maybeDisableProviderAfterOverload does:
 	// hmmStayPin treats the active pin and the HMM history row as independent
-	// stay candidates.
+	// stay candidates. It runs first because it upserts: DemoteModel is an
+	// UPDATE, and a turn that never pinned (fresh authoritative pick, swept
+	// session, escalation) has no row for it to touch, so the strike would be
+	// dropped exactly where one-strike matters most.
 	if pinRole == "" {
 		pinRole = sessionpin.DefaultRole
 	}
+	if role == "" {
+		role = sessionpin.DefaultRole
+	}
 	if err := s.expireSessionPinAndHMMHistory(ctx, installationID, sessionKey, pinRole, string(reason)); err != nil {
 		log.Error("pin eviction after committed stream failure failed", "err", err, "role", role, "pin_role", pinRole, "model", model)
+		return ""
+	}
+	if err := s.pinStore.DemoteModel(context.Background(), sessionKey, role, model, reason, router.StrategyFromContext(ctx)); err != nil {
+		log.Error("session model demotion failed", "err", err, "role", role, "model", model)
 		return ""
 	}
 	log.Info("model demoted for session after committed stream failure",

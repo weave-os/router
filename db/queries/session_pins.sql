@@ -172,6 +172,11 @@ ON CONFLICT (session_key, role) DO UPDATE SET
     WHEN router.session_pins.routing_strategy = EXCLUDED.routing_strategy
       THEN router.session_pins.disabled_providers
     ELSE '{}'
+  END,
+  demoted_models = CASE
+    WHEN router.session_pins.routing_strategy = EXCLUDED.routing_strategy
+      THEN router.session_pins.demoted_models
+    ELSE '{}'
   END;
 
 -- Records the previous turn's upstream token usage on an existing pin

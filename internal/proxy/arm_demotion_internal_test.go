@@ -80,7 +80,7 @@ func (s *demotionStubPinStore) Consume(context.Context, [sessionpin.SessionKeyLe
 
 func (s *demotionStubPinStore) SweepExpired(context.Context) error { return nil }
 
-func newDemotionTestService(store *demotionStubPinStore, flagOn bool) *Service {
+func newDemotionTestService(store sessionpin.Store, flagOn bool) *Service {
 	return NewService(
 		nil,
 		nil,
@@ -237,6 +237,81 @@ func TestMaybeDemoteArmAfterCommittedStreamFailure_UnaddressableSkipped(t *testi
 			assert.Empty(t, demoted)
 			assert.Empty(t, store.demotions)
 			assert.Empty(t, store.upserts)
+		})
+	}
+}
+
+// rowBackedPinStore mirrors the adapter's row semantics: Upsert creates the
+// (session_key, role) row, DemoteModel is an UPDATE that touches nothing when
+// that row is absent.
+type rowBackedPinStore struct {
+	demotionStubPinStore
+	rows map[string]sessionpin.Pin
+}
+
+func newRowBackedPinStore() *rowBackedPinStore {
+	return &rowBackedPinStore{rows: map[string]sessionpin.Pin{}}
+}
+
+func (s *rowBackedPinStore) Upsert(ctx context.Context, p sessionpin.Pin) error {
+	if err := s.demotionStubPinStore.Upsert(ctx, p); err != nil {
+		return err
+	}
+	existing := s.rows[p.Role]
+	p.DemotedModels = existing.DemotedModels
+	s.rows[p.Role] = p
+	return nil
+}
+
+func (s *rowBackedPinStore) DemoteModel(ctx context.Context, key [sessionpin.SessionKeyLen]byte, role, model string, reason sessionpin.DemotionReason, strategy router.Strategy) error {
+	if err := s.demotionStubPinStore.DemoteModel(ctx, key, role, model, reason, strategy); err != nil {
+		return err
+	}
+	row, ok := s.rows[role]
+	if !ok {
+		return nil
+	}
+	for _, m := range row.DemotedModels {
+		if m == model {
+			return nil
+		}
+	}
+	row.DemotedModels = append(row.DemotedModels, model)
+	s.rows[role] = row
+	return nil
+}
+
+// The strike has to survive the session that has no pin row yet — a fresh
+// authoritative pick, a post-sweep turn, an escalation. Ordering the eviction
+// upsert before the demote UPDATE is what makes one strike hold there.
+func TestMaybeDemoteArmAfterCommittedStreamFailure_PersistsWithoutExistingRow(t *testing.T) {
+	cases := []struct {
+		name string
+		role string
+	}{
+		{name: "base role", role: sessionpin.DefaultRole},
+		{name: "hmm history role", role: hmmHistoryRole(sessionpin.DefaultRole)},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			store := newRowBackedPinStore()
+			svc := newDemotionTestService(store, true)
+
+			demoted := svc.maybeDemoteArmAfterCommittedStreamFailure(
+				context.Background(),
+				true,
+				&providers.UpstreamStatusError{Status: http.StatusBadGateway},
+				demotedArm,
+				"hmm:authoritative model=claude-opus-4-7",
+				uuid.New(),
+				nonZeroSessionKey(),
+				tc.role, sessionpin.DefaultRole,
+			)
+
+			assert.Equal(t, demotedArm, demoted)
+			row, ok := store.rows[tc.role]
+			require.True(t, ok, "eviction must seed the row the demotion writes to")
+			assert.Equal(t, []string{demotedArm}, row.DemotedModels)
 		})
 	}
 }
