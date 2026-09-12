@@ -1,0 +1,38 @@
+# Top-level fields of the policy_router_v4 classifier request, sorted.
+# The Go router owns every value here; sidecars consume them verbatim and
+# must not re-derive them from conversation_messages. Keep in sync with
+# TestClassifierRequestV4FieldsMatchFixture and the sidecar's reader list.
+available_tools
+cache_state
+capture_mode
+client_app
+client_session_id
+conversation_messages
+debug_enabled
+estimated_input_tokens
+execution_mode
+feedback_key
+feedback_role
+harness
+has_images
+has_tools
+history_truncated
+installation_id
+invoked_tools
+is_subagent
+latest_user_text
+organization_id
+prior_output_tokens
+prompt_text
+rollout_id
+route_id
+schema_version
+session_ever_switched
+session_turn_count
+strategy
+tools
+training_allowed
+training_conversation_delta
+turn_index
+turn_type
+visible_turn_index

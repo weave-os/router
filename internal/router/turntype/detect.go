@@ -49,6 +49,10 @@ const codexCompactionMarkerPhrase = "you are performing a context checkpoint com
 // preambles place the phrase within ~200 bytes, so long pasted messages are excluded.
 const compactionSniffLen = 4096
 
+// subAgentSystemMarker is the flag Claude Code background agents stamp into
+// their system prompt.
+const subAgentSystemMarker = "cc_is_subagent=true"
+
 // Bounds for short-form classifier calls (e.g. Claude Code's security monitor:
 // max_tokens=64, message_count=2). Headroom for similar calls without catching main-loop turns.
 const (
@@ -84,7 +88,7 @@ func DetectFromEnvelope(env *translate.RequestEnvelope, feats translate.RoutingF
 	if isCodexCompaction(lastUserText) {
 		return Compaction
 	}
-	if isSubAgentDispatch(env.MetadataUserID(), env.FirstUserMessageText(), subAgentHint) {
+	if isSubAgentDispatch(env.MetadataUserID(), systemText, env.FirstUserMessageText(), subAgentHint) {
 		return SubAgentDispatch
 	}
 	if isClassifier(feats) {
@@ -154,17 +158,21 @@ func isCodexCompaction(lastUserText string) bool {
 }
 
 // isSubAgentDispatch reports whether the request originates from a sub-agent:
-// the x-weave-subagent-type header, a "subagent:" metadata.user_id prefix, or
-// a "<transcript>" tag (Claude Code's Agent tool convention) near the start
-// of the first user message. Matching in the user-message body rather than
+// the x-weave-subagent-type header, a "subagent:" metadata.user_id prefix,
+// Claude Code's cc_is_subagent system-prompt flag, or a "<transcript>" tag
+// (Claude Code's Agent tool convention) near the start of the first user
+// message. Matching the transcript tag in the user-message body rather than
 // the system prompt avoids false-positiving on the Agent tool's own
 // description, which appears in every main-loop turn's system prompt. The
 // prefix is bounded so a stray "<transcript>" deep in a long turn can't trigger.
-func isSubAgentDispatch(metadataUserID, firstUserText, subAgentHint string) bool {
+func isSubAgentDispatch(metadataUserID, systemText, firstUserText, subAgentHint string) bool {
 	if subAgentHint != "" {
 		return true
 	}
 	if strings.HasPrefix(metadataUserID, "subagent:") {
+		return true
+	}
+	if strings.Contains(systemText, subAgentSystemMarker) {
 		return true
 	}
 	const sniffLen = 64

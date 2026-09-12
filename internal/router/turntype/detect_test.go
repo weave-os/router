@@ -122,6 +122,11 @@ func TestDetectFromEnvelope_Anthropic(t *testing.T) {
 			want: turntype.MainLoop,
 		},
 		{
+			name: "sub-agent via cc_is_subagent system-prompt flag",
+			body: `{"model":"claude-haiku-4-5","system":[{"type":"text","text":"You are a background agent. cc_is_subagent=true"}],"messages":[{"role":"user","content":"grep"}]}`,
+			want: turntype.SubAgentDispatch,
+		},
+		{
 			name: "sub-agent via x-weave-subagent-type header hint",
 			body: `{"model":"claude-haiku-4-5","messages":[{"role":"user","content":"grep"}]}`,
 			hint: "Explore",
