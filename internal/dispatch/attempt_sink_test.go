@@ -84,7 +84,7 @@ func TestHeldAttemptPersistenceDoesNotDelayNextAllowedAttempt(t *testing.T) {
 	store.release <- struct{}{}
 	first, second := <-store.events, <-store.events
 	assert.WithinDuration(t, time.Now(), first.Timestamp, time.Second)
- assert.Equal(t, "installation-test", first.InstallationID)
+	assert.Equal(t, "installation-test", first.InstallationID)
 	assert.Equal(t, "request-test", first.Event.RequestID)
 	assert.Equal(t, "operation-test", second.Event.OperationID)
 	assert.Equal(t, 0, first.Event.AttemptIndex)
