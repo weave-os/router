@@ -167,25 +167,25 @@ echo "cc-statusline.sh"
 # suite passing vacuously because savings never render at all.
 c="$work/c1"; mkdir -p "$c/cache"; make_installed "$c/cc.sh"
 out="$(render "$c/cc.sh" "$c/cache" "file://$upstream" "$STALE_MODEL")"
-check_not_contains "priced selection reports nonzero savings" "$out" 'saved $0.00'
+check_not_contains "priced selection reports nonzero savings" "$out" "saved \$0.00"
 check_contains "priced selection still names the routed model" "$out" "deepseek/deepseek-v4-pro"
 check "priced selection writes no miss stamp" "$(count_stamps "$c/cache" .miss.)" 0
 
 # Cache-heavy routes must price each side with its own catalog multiplier.
 c="$work/c-cache"; mkdir -p "$c/cache"; make_installed "$c/cc.sh"
 out="$(render "$c/cc.sh" "$c/cache" "file://$upstream" "gpt-5.4-pro" "$cache_transcript")"
-check_contains "cache reads use per-model multipliers" "$out" 'saved $29.75'
+check_contains "cache reads use per-model multipliers" "$out" "saved \$29.75"
 
 # The bug this path exists for: an unpriced selection renders $0.00, and the
 # script heals itself for the next turn instead of waiting out the interval.
 c="$work/c2"; mkdir -p "$c/cache"; make_installed "$c/cc.sh" stale
 seed_periodic_stamp "$c/cache" "$c/cc.sh"
 out="$(render "$c/cc.sh" "$c/cache" "file://$upstream" "$STALE_MODEL")"
-check_contains "unpriced selection renders \$0.00" "$out" 'saved $0.00'
+check_contains "unpriced selection renders \$0.00" "$out" "saved \$0.00"
 if wait_for 20 grep -q "\"$STALE_MODEL\":" "$c/cc.sh"; then
   ok "unpriced selection refreshes the on-disk copy"
   out="$(render "$c/cc.sh" "$c/cache" "file://$upstream" "$STALE_MODEL")"
-  check_not_contains "next turn reports real savings" "$out" 'saved $0.00'
+  check_not_contains "next turn reports real savings" "$out" "saved \$0.00"
 else
   no "unpriced selection refreshes the on-disk copy" "price entries restored" "still missing after 20s"
 fi
@@ -311,7 +311,8 @@ make_command_install() { # make_command_install <root> <cache_home> [scope_args]
   mkdir -p "$root/.weave" "$root/.claude/commands"
   cp "$upstream" "$root/.weave/cc-statusline.sh"
   chmod +x "$root/.weave/cc-statusline.sh"
-  local baseline="$cache/weave-router/commands$(printf '%s' "$(cd "$root/.claude/commands" && pwd -P)" | tr -c 'A-Za-z0-9._-' '_')"
+  local baseline
+  baseline="$cache/weave-router/commands$(printf '%s' "$(cd "$root/.claude/commands" && pwd -P)" | tr -c 'A-Za-z0-9._-' '_')"
   mkdir -p "$baseline"
   for name in "$script_dir/../commands"/*.md; do
     body="$(cat "$name")"
@@ -334,7 +335,7 @@ sync_commands() { # sync_commands <root> <cache_home> <commands_url_base>
 
 # An upstream wrapper change reaches an untouched install.
 c="$work/cmd1"; mkdir -p "$c/cache"; make_command_install "$c/root" "$c/cache"
-printf '%s\n' '---' 'description: refreshed fm.' '---' '' '/force-model $ARGUMENTS' \
+printf '%s\n' '---' 'description: refreshed fm.' '---' '' "/force-model \$ARGUMENTS" \
   >"$commands_upstream/fm.md"
 sync_commands "$c/root" "$c/cache" "file://$commands_upstream"
 if wait_for 20 grep -q 'refreshed fm.' "$c/root/.claude/commands/fm.md"; then
@@ -347,7 +348,7 @@ fi
 # mistake here, so the baseline comparison must veto the swap.
 c="$work/cmd2"; mkdir -p "$c/cache"; make_command_install "$c/root" "$c/cache"
 printf '%s\n' 'MY OWN WRAPPER' >"$c/root/.claude/commands/rf.md"
-printf '%s\n' '---' 'description: refreshed rf.' '---' '' '/router-feedback $ARGUMENTS' \
+printf '%s\n' '---' 'description: refreshed rf.' '---' '' "/router-feedback \$ARGUMENTS" \
   >"$commands_upstream/rf.md"
 sync_commands "$c/root" "$c/cache" "file://$commands_upstream"
 sleep 1
@@ -361,7 +362,7 @@ check "a user-edited wrapper is never overwritten" \
 c="$work/cmd2b"; mkdir -p "$c/cache"; make_command_install "$c/root" "$c/cache"
 ( cd "$c/root" && git init -q . && git add .claude/commands/fm.md && git commit -q -m "commit wrappers" )
 before="$(cat "$c/root/.claude/commands/fm.md")"
-printf '%s\n' '---' 'description: refreshed fm again.' '---' '' '/force-model $ARGUMENTS' \
+printf '%s\n' '---' 'description: refreshed fm again.' '---' '' "/force-model \$ARGUMENTS" \
   >"$commands_upstream/fm.md"
 sync_commands "$c/root" "$c/cache" "file://$commands_upstream"
 sleep 1
@@ -374,7 +375,7 @@ check "a git-tracked wrapper is never overwritten" \
 c="$work/cmd3"; mkdir -p "$c/cache"
 make_command_install "$c/root" "$c/cache" " --scope project"
 printf '%s\n' '---' 'description: refreshed off.' 'allowed-tools: Bash(npx:*)' '---' '' \
-  'Turn it off:' '' '`npx @workweave/router off --claude{{SCOPE}}`' \
+  'Turn it off:' '' "\`npx @workweave/router off --claude{{SCOPE}}\`" \
   >"$commands_upstream/router-off.md"
 sync_commands "$c/root" "$c/cache" "file://$commands_upstream"
 if wait_for 20 grep -q 'refreshed off.' "$c/root/.claude/commands/router-off.md"; then
@@ -476,13 +477,13 @@ write_install "$c/proj" project "rk_proj_hidden" "file://$c/ds.json"
 cache_file="$(gate_cache "$c/cache" "$c/proj/.claude/cc-statusline.sh")"
 echo "{\"model\":{\"id\":\"$STALE_MODEL\"},\"transcript_path\":\"$transcript\"}" \
   | XDG_CACHE_HOME="$c/cache" WEAVE_STATUSLINE_UPDATE=0 WEAVE_COMMANDS_UPDATE=0 HOME="$c/home" \
-    WEAVE_ROUTER_BASE_URL= ANTHROPIC_BASE_URL= WEAVE_ROUTER_KEY= ANTHROPIC_CUSTOM_HEADERS= \
+    WEAVE_ROUTER_BASE_URL="" ANTHROPIC_BASE_URL="" WEAVE_ROUTER_KEY="" ANTHROPIC_CUSTOM_HEADERS="" \
     bash "$c/proj/.claude/cc-statusline.sh" >/dev/null 2>&1
 wait_for 5 test -f "$cache_file"
 check "background refresh caches the hidden setting" "$(cat "$cache_file" 2>/dev/null)" "1"
 out="$(echo "{\"model\":{\"id\":\"$STALE_MODEL\"},\"transcript_path\":\"$transcript\"}" \
   | XDG_CACHE_HOME="$c/cache" WEAVE_STATUSLINE_UPDATE=0 WEAVE_COMMANDS_UPDATE=0 HOME="$c/home" \
-    WEAVE_ROUTER_BASE_URL= ANTHROPIC_BASE_URL= WEAVE_ROUTER_KEY= ANTHROPIC_CUSTOM_HEADERS= \
+    WEAVE_ROUTER_BASE_URL="" ANTHROPIC_BASE_URL="" WEAVE_ROUTER_KEY="" ANTHROPIC_CUSTOM_HEADERS="" \
     bash "$c/proj/.claude/cc-statusline.sh" 2>&1)"
 check "project-scope hidden org renders a blank statusline" "$out" ""
 
@@ -497,14 +498,14 @@ write_install "$c/home" user "rk_user_visible" "file://$c/ds_user.json"
 cache_file="$(gate_cache "$c/cache" "$c/proj/.claude/cc-statusline.sh")"
 echo "{\"model\":{\"id\":\"$STALE_MODEL\"},\"transcript_path\":\"$transcript\"}" \
   | XDG_CACHE_HOME="$c/cache" WEAVE_STATUSLINE_UPDATE=0 WEAVE_COMMANDS_UPDATE=0 HOME="$c/home" \
-    WEAVE_ROUTER_BASE_URL= ANTHROPIC_BASE_URL= WEAVE_ROUTER_KEY= ANTHROPIC_CUSTOM_HEADERS= \
+    WEAVE_ROUTER_BASE_URL="" ANTHROPIC_BASE_URL="" WEAVE_ROUTER_KEY="" ANTHROPIC_CUSTOM_HEADERS="" \
     bash "$c/proj/.claude/cc-statusline.sh" >/dev/null 2>&1
 wait_for 5 test -f "$cache_file"
 check "project install caches from its own key, not the user-scope one" \
   "$(cat "$cache_file" 2>/dev/null)" "1"
 out="$(echo "{\"model\":{\"id\":\"$STALE_MODEL\"},\"transcript_path\":\"$transcript\"}" \
   | XDG_CACHE_HOME="$c/cache" WEAVE_STATUSLINE_UPDATE=0 WEAVE_COMMANDS_UPDATE=0 HOME="$c/home" \
-    WEAVE_ROUTER_BASE_URL= ANTHROPIC_BASE_URL= WEAVE_ROUTER_KEY= ANTHROPIC_CUSTOM_HEADERS= \
+    WEAVE_ROUTER_BASE_URL="" ANTHROPIC_BASE_URL="" WEAVE_ROUTER_KEY="" ANTHROPIC_CUSTOM_HEADERS="" \
     bash "$c/proj/.claude/cc-statusline.sh" 2>&1)"
 check "project install hides via its own org setting" "$out" ""
 
@@ -515,13 +516,13 @@ write_install "$c/proj" project "rk_proj_visible" "file://$c/ds.json"
 cache_file="$(gate_cache "$c/cache" "$c/proj/.claude/cc-statusline.sh")"
 echo "{\"model\":{\"id\":\"$STALE_MODEL\"},\"transcript_path\":\"$transcript\"}" \
   | XDG_CACHE_HOME="$c/cache" WEAVE_STATUSLINE_UPDATE=0 WEAVE_COMMANDS_UPDATE=0 HOME="$c/home" \
-    WEAVE_ROUTER_BASE_URL= ANTHROPIC_BASE_URL= WEAVE_ROUTER_KEY= ANTHROPIC_CUSTOM_HEADERS= \
+    WEAVE_ROUTER_BASE_URL="" ANTHROPIC_BASE_URL="" WEAVE_ROUTER_KEY="" ANTHROPIC_CUSTOM_HEADERS="" \
     bash "$c/proj/.claude/cc-statusline.sh" >/dev/null 2>&1
 wait_for 5 test -f "$cache_file"
 check "visible org caches the visible setting" "$(cat "$cache_file" 2>/dev/null)" "0"
 out="$(echo "{\"model\":{\"id\":\"$STALE_MODEL\"},\"transcript_path\":\"$transcript\"}" \
   | XDG_CACHE_HOME="$c/cache" WEAVE_STATUSLINE_UPDATE=0 WEAVE_COMMANDS_UPDATE=0 HOME="$c/home" \
-    WEAVE_ROUTER_BASE_URL= ANTHROPIC_BASE_URL= WEAVE_ROUTER_KEY= ANTHROPIC_CUSTOM_HEADERS= \
+    WEAVE_ROUTER_BASE_URL="" ANTHROPIC_BASE_URL="" WEAVE_ROUTER_KEY="" ANTHROPIC_CUSTOM_HEADERS="" \
     bash "$c/proj/.claude/cc-statusline.sh" 2>&1 | sed 's/\x1b\[[0-9;]*m//g')"
 check_contains "visible org still renders the statusline" "$out" "deepseek/deepseek-v4-pro"
 
@@ -535,7 +536,7 @@ mkdir -p "$(dirname "$cache_file")"
 printf '1' > "$cache_file"
 out="$(echo "{\"model\":{\"id\":\"$STALE_MODEL\"},\"transcript_path\":\"$transcript\"}" \
   | XDG_CACHE_HOME="$c/cache" WEAVE_STATUSLINE_UPDATE=0 WEAVE_COMMANDS_UPDATE=0 HOME="$c/home" \
-    WEAVE_ROUTER_BASE_URL= ANTHROPIC_BASE_URL= WEAVE_ROUTER_KEY= ANTHROPIC_CUSTOM_HEADERS= \
+    WEAVE_ROUTER_BASE_URL="" ANTHROPIC_BASE_URL="" WEAVE_ROUTER_KEY="" ANTHROPIC_CUSTOM_HEADERS="" \
     bash "$c/proj/.claude/cc-statusline.sh" 2>&1)"
 check "fresh hidden cache blanks the statusline without touching the network" "$out" ""
 
@@ -549,7 +550,7 @@ mkdir -p "$(dirname "$cache_file")"
 printf '1' > "$cache_file"
 out="$(echo "{\"model\":{\"id\":\"$STALE_MODEL\"},\"transcript_path\":\"$transcript\"}" \
   | XDG_CACHE_HOME="$c/cache" WEAVE_STATUSLINE_UPDATE=0 WEAVE_COMMANDS_UPDATE=0 HOME="$c/home" \
-    WEAVE_ROUTER_BASE_URL= ANTHROPIC_BASE_URL= WEAVE_ROUTER_KEY= ANTHROPIC_CUSTOM_HEADERS= \
+    WEAVE_ROUTER_BASE_URL="" ANTHROPIC_BASE_URL="" WEAVE_ROUTER_KEY="" ANTHROPIC_CUSTOM_HEADERS="" \
     WEAVE_DISPLAY_SETTINGS_TTL_SECONDS=0 \
     bash "$c/proj/.claude/cc-statusline.sh" 2>&1 | sed 's/\x1b\[[0-9;]*m//g')"
 check_contains "stale hidden cache fails open when the router is unreachable" "$out" "deepseek/deepseek-v4-pro"
@@ -563,7 +564,7 @@ write_install "$c/proj" project "rk_key" "file://$c/missing.json"
 cache_file="$(gate_cache "$c/cache" "$c/proj/.claude/cc-statusline.sh")"
 out="$(echo "{\"model\":{\"id\":\"$STALE_MODEL\"},\"transcript_path\":\"$transcript\"}" \
   | XDG_CACHE_HOME="$c/cache" WEAVE_STATUSLINE_UPDATE=0 WEAVE_COMMANDS_UPDATE=0 HOME="$c/home" \
-    WEAVE_ROUTER_BASE_URL= ANTHROPIC_BASE_URL= WEAVE_ROUTER_KEY= ANTHROPIC_CUSTOM_HEADERS= \
+    WEAVE_ROUTER_BASE_URL="" ANTHROPIC_BASE_URL="" WEAVE_ROUTER_KEY="" ANTHROPIC_CUSTOM_HEADERS="" \
     bash "$c/proj/.claude/cc-statusline.sh" 2>&1 | sed 's/\x1b\[[0-9;]*m//g')"
 check_contains "cache miss with an unreachable router renders normally" "$out" "deepseek/deepseek-v4-pro"
 sleep 1
@@ -611,8 +612,8 @@ mkdir -p "$c/turns"; : > "$c/calls"; : > "$c/overlap"; rm -f "$c/inflight"
 for _ in 1 2; do
   echo "{\"model\":{\"id\":\"$STALE_MODEL\"},\"transcript_path\":\"$transcript\"}" \
     | PATH="$c/bin:$PATH" XDG_CACHE_HOME="$c/cache" WEAVE_STATUSLINE_UPDATE=0 \
-      WEAVE_COMMANDS_UPDATE=0 HOME="$c/home" WEAVE_ROUTER_BASE_URL= ANTHROPIC_BASE_URL= \
-      WEAVE_ROUTER_KEY= ANTHROPIC_CUSTOM_HEADERS= WEAVE_TEST_TURNS="$c/turns" \
+      WEAVE_COMMANDS_UPDATE=0 HOME="$c/home" WEAVE_ROUTER_BASE_URL="" ANTHROPIC_BASE_URL="" \
+      WEAVE_ROUTER_KEY="" ANTHROPIC_CUSTOM_HEADERS="" WEAVE_TEST_TURNS="$c/turns" \
       WEAVE_TEST_CALLS="$c/calls" WEAVE_TEST_RELEASE="$c/release" \
       WEAVE_TEST_INFLIGHT="$c/inflight" WEAVE_TEST_OVERLAP="$c/overlap" \
       bash "$c/proj/.claude/cc-statusline.sh" >/dev/null 2>&1 &
@@ -647,7 +648,7 @@ mkdir -p "$cache_file.lock"
 touch -t 202001010000 "$cache_file.lock"
 echo "{\"model\":{\"id\":\"$STALE_MODEL\"},\"transcript_path\":\"$transcript\"}" \
   | XDG_CACHE_HOME="$c/cache" WEAVE_STATUSLINE_UPDATE=0 WEAVE_COMMANDS_UPDATE=0 HOME="$c/home" \
-    WEAVE_ROUTER_BASE_URL= ANTHROPIC_BASE_URL= WEAVE_ROUTER_KEY= ANTHROPIC_CUSTOM_HEADERS= \
+    WEAVE_ROUTER_BASE_URL="" ANTHROPIC_BASE_URL="" WEAVE_ROUTER_KEY="" ANTHROPIC_CUSTOM_HEADERS="" \
     bash "$c/proj/.claude/cc-statusline.sh" >/dev/null 2>&1
 wait_for 15 test -f "$cache_file"
 check "an abandoned lock is reclaimed rather than blocking refreshes forever" \
@@ -670,7 +671,7 @@ mkdir -p "$(dirname "$cache_file")"
 mkdir -p "$cache_file.lock"
 echo "{\"model\":{\"id\":\"$STALE_MODEL\"},\"transcript_path\":\"$transcript\"}" \
   | XDG_CACHE_HOME="$c/cache" WEAVE_STATUSLINE_UPDATE=0 WEAVE_COMMANDS_UPDATE=0 HOME="$c/home" \
-    WEAVE_ROUTER_BASE_URL= ANTHROPIC_BASE_URL= WEAVE_ROUTER_KEY= ANTHROPIC_CUSTOM_HEADERS= \
+    WEAVE_ROUTER_BASE_URL="" ANTHROPIC_BASE_URL="" WEAVE_ROUTER_KEY="" ANTHROPIC_CUSTOM_HEADERS="" \
     bash "$c/proj/.claude/cc-statusline.sh" >/dev/null 2>&1
 sleep 2
 check "a lock a live holder owns is left alone" \

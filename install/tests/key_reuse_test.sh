@@ -151,8 +151,11 @@ upd_settings="$upd_home/.claude/settings.json"
 # update against a machine with no install must error, not prompt or no-op.
 run "$upd_home" -- update --claude
 check "update with no installed key errors" "$?" 1
-[ ! -f "$upd_settings" ] && ok "update with no key wrote no settings" \
-  || no "update with no key wrote no settings" "no settings.json" "file exists"
+if [ ! -f "$upd_settings" ]; then
+  ok "update with no key wrote no settings"
+else
+  no "update with no key wrote no settings" "no settings.json" "file exists"
+fi
 
 run "$upd_home" rk_upd -- --claude --scope user --quiet --non-interactive
 # The fake curl rejects /validate, and update treats that as fatal (unlike
@@ -254,8 +257,11 @@ check "update while off preserves the custom base URL, not the hosted default" \
   "$(jq -r '.env.ANTHROPIC_BASE_URL // ""' "$off_settings")" "$custom_url"
 
 # The sidecar has to be gone, or the toggle is desynced from what's live.
-[ ! -f "$off_parked" ] && ok "update while off consumes the parked sidecar" \
-  || no "update while off consumes the parked sidecar" "sidecar removed" "file still present"
+if [ ! -f "$off_parked" ]; then
+  ok "update while off consumes the parked sidecar"
+else
+  no "update while off consumes the parked sidecar" "sidecar removed" "file still present"
+fi
 
 # The real symptom of a desync: `off` silently no-ops because the stale sidecar
 # makes it think it's already off, leaving router config live with no way back.
@@ -331,7 +337,7 @@ check_target_reuse() { # <label> <flag> <relative key file> <reader fn>
   mkdir -p "$home" "$dir"
   f="$dir/$rel"
 
-  run_dir "$home" "$dir" rk_${label}_first -- "$flag" --quiet --non-interactive
+  run_dir "$home" "$dir" "rk_${label}_first" -- "$flag" --quiet --non-interactive
   check "$label: first install stores the env key" "$("$reader" "$f")" "rk_${label}_first"
 
   # The whole point: a re-run with nothing in the environment must not demand
@@ -342,7 +348,7 @@ check_target_reuse() { # <label> <flag> <relative key file> <reader fn>
 
   # Env stays highest precedence — a key the user just rotated cannot lose to
   # the stale one on disk.
-  run_dir "$home" "$dir" rk_${label}_second -- "$flag" --quiet --non-interactive
+  run_dir "$home" "$dir" "rk_${label}_second" -- "$flag" --quiet --non-interactive
   check "$label: env key overwrites the installed key" "$("$reader" "$f")" "rk_${label}_second"
 
   # --rotate-key skips read-back deliberately, so with no env and no tty there
@@ -441,8 +447,11 @@ HOME="$gone_home" PATH="$test_path" NO_COLOR=1 \
   bash "$uninstaller" --pi --dir "$gone_dir" </dev/null >/dev/null 2>&1
 check "pi: uninstall removes the models.json key" \
   "$(pi_key "$gone_dir/.pi/models.json")" ""
-[ ! -f "$gone_dir/.pi/.weave_router_key" ] && ok "pi: uninstall removes the key file" \
-  || no "pi: uninstall removes the key file" "file removed" "file still present"
+if [ ! -f "$gone_dir/.pi/.weave_router_key" ]; then
+  ok "pi: uninstall removes the key file"
+else
+  no "pi: uninstall removes the key file" "file removed" "file still present"
+fi
 # With both copies gone there is nothing to read back, so a prompt-less re-run
 # has to fail rather than quietly resurrect the old key.
 run_dir "$gone_home" "$gone_dir" -- --pi --quiet --non-interactive
