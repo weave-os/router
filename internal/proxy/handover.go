@@ -154,7 +154,7 @@ func (s *ProviderSummarizer) Summarize(ctx context.Context, env *translate.Reque
 	plan, err := s.resolve(ctx, policy.ResolutionRequest{
 		Purpose:       policy.PurposeHandoverSummary,
 		RouterRequest: summarizerRequest(scope, env),
-		Overrides:     []policy.TargetOverride{{Source: policy.OverrideSourceDeployment, CatalogID: s.model, Provider: s.provider}},
+		Overrides:     []policy.TargetOverride{{Source: policy.OverrideSourceDeployment, CatalogID: handoverSummaryModel(s.model, env), Provider: s.provider}},
 	})
 	if err != nil {
 		return "", handover.Usage{}, err
@@ -236,8 +236,31 @@ func summarizerRequest(scope router.Request, env *translate.RequestEnvelope) rou
 	}
 	if env != nil {
 		request.EstimatedInputTokens = env.ContextOverflowTokenEstimate()
+		request.TranslationRequirements = env.TranslationRequirements(router.EndpointAnthropicMessages)
 	}
 	return request
+}
+
+// handoverSummaryModel keeps the cheap default unless the conversation needs
+// mid-conversation system support the default cannot preserve.
+func handoverSummaryModel(defaultModel string, env *translate.RequestEnvelope) string {
+	model := defaultModel
+	if model == "" {
+		model = policy.HandoverSummaryDefaultModel
+	}
+	if env == nil {
+		return model
+	}
+	reqs := env.TranslationRequirements(router.EndpointAnthropicMessages)
+	if targetPreservesTranslationRequirements(providers.ProviderAnthropic, model, reqs) {
+		return model
+	}
+	for _, candidate := range []string{policy.PrecompactionLargeWindowModel, policy.PrecompactionDefaultModel} {
+		if targetPreservesTranslationRequirements(providers.ProviderAnthropic, candidate, reqs) {
+			return candidate
+		}
+	}
+	return model
 }
 
 func (s *ProviderSummarizer) resolve(ctx context.Context, request policy.ResolutionRequest) (policy.ResolvedPlan, error) {
@@ -294,7 +317,7 @@ func (s *ProviderSummarizer) run(ctx context.Context, env *translate.RequestEnve
 // prepareSummaryCall builds the non-streaming Anthropic Messages request for
 // target; dispatch checks the wire model against the plan before any I/O.
 func prepareSummaryCall(env *translate.RequestEnvelope, target inference.Target, instruction string, maxTokens int) (providers.PreparedRequest, *http.Request, error) {
-	body, headers, err := buildSummaryRequestBody(env, target.CatalogID, instruction, maxTokens)
+	body, headers, err := buildSummaryRequestBody(env, target.CatalogID, target.Provider, instruction, maxTokens)
 	if err != nil {
 		return providers.PreparedRequest{}, nil, fmt.Errorf("build summary request: %w", err)
 	}
@@ -348,10 +371,13 @@ func extractAnthropicUsage(body []byte) handover.Usage {
 // buildSummaryRequestBody builds a non-streaming Anthropic Messages request
 // from the envelope's prior conversation, injecting the given summary
 // instruction and overriding model/max_tokens/stream.
-func buildSummaryRequestBody(env *translate.RequestEnvelope, model, instruction string, maxTokens int) ([]byte, http.Header, error) {
+func buildSummaryRequestBody(env *translate.RequestEnvelope, model, provider, instruction string, maxTokens int) ([]byte, http.Header, error) {
+	if provider == "" {
+		provider = providers.ProviderAnthropic
+	}
 	prep, err := env.PrepareAnthropic(nil, translate.EmitOptions{
 		TargetModel:    model,
-		TargetProvider: providers.ProviderAnthropic,
+		TargetProvider: provider,
 		Capabilities:   router.Lookup(model),
 	})
 	if err != nil {

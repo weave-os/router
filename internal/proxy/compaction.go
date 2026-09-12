@@ -481,6 +481,9 @@ func (s *Service) compactionHardPin(ctx context.Context, sessionKey [sessionpin.
 	if m := catalog.LatestInFamily(s.compactionModelOrDefault(), eligible); m != "" {
 		return providers.ProviderAnthropic, m, policy.OverrideSourceDeployment, true
 	}
+	if m := catalog.LatestInFamily(policy.PrecompactionLargeWindowModel, eligible); m != "" {
+		return providers.ProviderAnthropic, m, policy.OverrideSourceDeployment, true
+	}
 	return "", "", "", false
 }
 

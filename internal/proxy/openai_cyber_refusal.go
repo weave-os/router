@@ -183,6 +183,7 @@ func (s *Service) cyberRefusalRetryTarget(
 	failed router.Decision,
 	sessionKey [sessionpin.SessionKeyLen]byte,
 	role string,
+	requirements router.TranslationRequirements,
 	est, sigSavings, outputReserve int,
 ) (router.Decision, bool) {
 	repinTarget, _, ok := s.cyberRefusalFallback(ctx, sessionKey, role, failed, failed.Provider)
@@ -196,7 +197,7 @@ func (s *Service) cyberRefusalRetryTarget(
 			!modelPermittedByAllowlist(ctx, model) || !modelInRequestSubset(ctx, model) {
 			continue
 		}
-		target, found := s.rescueDecision(ctx, failed, []string{model}, ReasonCyberRefusalRetry, router.TranslationRequirements{}, est, sigSavings, outputReserve)
+		target, found := s.rescueDecision(ctx, failed, []string{model}, ReasonCyberRefusalRetry, requirements, est, sigSavings, outputReserve)
 		// A rescue on the refusing vendor would meet the same classifier.
 		if found && target.Provider != providers.ProviderOpenAI {
 			return target, true

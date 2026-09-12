@@ -1141,6 +1141,9 @@ func (s *Service) runTurnLoop(
 		if !imageCapable {
 			req.ExcludedModels = excludingModel(req.ExcludedModels, forceModelPin.Model)
 		}
+		if !translationCompatible {
+			req.ExcludedModels = excludingModel(req.ExcludedModels, forceModelPin.Model)
+		}
 		if !sessionForceControlFound || isUserForcedReason(pin.Reason) {
 			pinFound = false
 			pin = sessionpin.Pin{}
@@ -1206,10 +1209,12 @@ func (s *Service) runTurnLoop(
 				log.Error("ineligible escalation pin eviction failed", "err", err, "pin_model", pin.Model, "role", res.PinRole, "evict_reason", evictReason)
 			}
 		}
-		if !imageCapable {
+		if !imageCapable || !translationCompatible {
 			// The scorer's own image filter fails open when no image-capable
 			// candidate survives, so make the drop explicit here instead of
-			// letting the same text-only model be re-picked.
+			// letting the same text-only model be re-picked. Translation-
+			// incompatible pins get the same treatment so the fallback scorer
+			// cannot reselect them after readmitForcedModel lifted the exclusion.
 			req.ExcludedModels = excludingModel(req.ExcludedModels, pin.Model)
 		}
 		// Treat as missing so downstream sticky branches don't dispatch to an

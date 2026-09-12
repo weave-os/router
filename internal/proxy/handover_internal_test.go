@@ -140,7 +140,7 @@ func TestBuildSummaryRequestBody_PreservesMidConversationRequirementsAndHeaders(
     }`))
 	require.NoError(t, err)
 
-	body, headers, err := buildSummaryRequestBody(env, "claude-opus-5", "summarize", 256)
+	body, headers, err := buildSummaryRequestBody(env, "claude-opus-5", providers.ProviderAnthropic, "summarize", 256)
 	require.NoError(t, err)
 	assert.Equal(t, "claude-opus-5", gjson.GetBytes(body, "model").String())
 	assert.False(t, gjson.GetBytes(body, "stream").Bool())
@@ -148,6 +148,29 @@ func TestBuildSummaryRequestBody_PreservesMidConversationRequirementsAndHeaders(
 	assert.Contains(t, headers.Get("anthropic-beta"), "mid-conversation-tool-changes-2026-07-01")
 	assert.Contains(t, headers.Get("anthropic-beta"), "mid-conversation-output-config-2026-07-01")
 	assert.Contains(t, headers.Get("anthropic-beta"), "mid-conversation-system-clear-at-2026-08-21")
+	messages := gjson.GetBytes(body, "messages").Array()
+	require.GreaterOrEqual(t, len(messages), 3)
+	systemRoles := 0
+	var toolAddition, outputConfig, clearAt bool
+	for _, message := range messages {
+		if message.Get("role").String() != "system" {
+			continue
+		}
+		systemRoles++
+		if message.Get("content.0.type").String() == "tool_addition" {
+			toolAddition = true
+		}
+		if message.Get("output_config.effort").String() == "high" {
+			outputConfig = true
+		}
+		if message.Get("clear_at").String() == "next_user_message" {
+			clearAt = true
+		}
+	}
+	assert.GreaterOrEqual(t, systemRoles, 2)
+	assert.True(t, toolAddition)
+	assert.True(t, outputConfig)
+	assert.True(t, clearAt)
 }
 
 func TestProviderSummarizer_TimeoutReturnsError(t *testing.T) {

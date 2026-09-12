@@ -6909,7 +6909,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	cyberRetryViable := false
 	if cyberRetryEligible {
 		target, found := s.cyberRefusalRetryTarget(ctx, decision, routeRes.SessionKey, stickyStateRole(routeRes),
-			overflowEstimateOAI, env.SignatureTokenSavings(), outputReserveOAI)
+			routeRequest.TranslationRequirements, overflowEstimateOAI, env.SignatureTokenSavings(), outputReserveOAI)
 		cyberRetryViable = found && (s.shouldFailover(ctx) || s.gatewaySiblingAllowed(ctx, target))
 		cyberRetryTarget = target
 	}

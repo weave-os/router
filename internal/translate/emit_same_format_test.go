@@ -589,6 +589,17 @@ func TestAnthropicSameFormat_MidConversationSystemMessagePreservedInPlace(t *tes
 	assert.Equal(t, "be terse", last["content"])
 }
 
+func TestAnthropicSameFormat_MidConversationSystemMessageRejectsIncompatibleTarget(t *testing.T) {
+	body := []byte(`{"model":"claude-sonnet-4-20250514","system":"rules","messages":[{"role":"user","content":"hi"},{"role":"assistant","content":"ok"},{"role":"system","content":"be terse"}],"max_tokens":1024}`)
+	env, err := translate.ParseAnthropic(body)
+	require.NoError(t, err)
+	_, err = env.PrepareAnthropic(http.Header{}, translate.EmitOptions{
+		TargetModel:  "claude-opus-4-7",
+		Capabilities: router.Lookup("claude-opus-4-7"),
+	})
+	assert.ErrorIs(t, err, translate.ErrModelTranslationRequirementsIncompatible)
+}
+
 func TestAnthropicSameFormat_NewSystemMessageLeavesEarlierTurnsInPlace(t *testing.T) {
 	// The cache-affecting property: a system reminder arriving on a later turn
 	// must not shift any earlier message, or the whole cached prefix moves.

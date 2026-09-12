@@ -384,8 +384,15 @@ func TestCompactionHardPin(t *testing.T) {
 	_, _, _, ok = s.compactionHardPin(ctx, key, "", router.Request{GatewayProviders: map[string]struct{}{providers.ProviderOpenRouter: {}}})
 	assert.False(t, ok, "gateway-exclusive tenant → fall back to generic hard-pin")
 
-	_, _, _, ok = s.compactionHardPin(ctx, key, "", router.Request{ExcludedModels: map[string]struct{}{policy.PrecompactionDefaultModel: {}}})
-	assert.False(t, ok, "excluded default with no pin → fall back to generic hard-pin")
+	p, m, source, ok = s.compactionHardPin(ctx, key, "", router.Request{ExcludedModels: map[string]struct{}{policy.PrecompactionDefaultModel: {}}})
+	require.True(t, ok, "excluded default with no pin → large-window summarizer")
+	assert.Equal(t, policy.PrecompactionLargeWindowModel, m)
+	assert.Equal(t, providers.ProviderAnthropic, p)
+	assert.Equal(t, policy.OverrideSourceDeployment, source)
+
+	_, m, _, ok = s.compactionHardPin(ctx, key, "", router.Request{TranslationRequirements: router.TranslationRequirements{MidConversationSystemMessages: true}})
+	require.True(t, ok)
+	assert.Equal(t, policy.PrecompactionLargeWindowModel, m, "mid-conversation requirements skip the default Sonnet pin")
 
 	unavailable := &Service{compactionHardPinEnabled: true, availableModels: map[string]struct{}{"claude-haiku-4-5": {}}}
 	_, _, _, ok = unavailable.compactionHardPin(ctx, key, "", router.Request{})
