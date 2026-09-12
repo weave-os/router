@@ -72,6 +72,7 @@ const (
 	KeyOpenAIResponsesBroad                 Key = "openai_responses_broad"
 	KeyAllowedModelsHeader                  Key = "allowed_models_header"
 	KeySubscriptionPlanAwareRouting         Key = "subscription_plan_aware_routing_enabled"
+	KeyNativeAnthropicResponseSignals       Key = "native_anthropic_response_signals"
 )
 
 // Definition describes one overridable flag. DeploymentDefault is not stored
@@ -92,7 +93,7 @@ type Definition struct {
 // RegistryVersion changes whenever Registry's membership changes. Publish uses
 // it to make pruning safe during rolling deploys: a revision with an older
 // registry version may not delete definitions published by a newer revision.
-const RegistryVersion = 10
+const RegistryVersion = 11
 
 // Registry is the curated allowlist of flags that may carry a per-organization
 // override. It is deliberately explicit rather than derived from the env var
@@ -262,6 +263,13 @@ var Registry = []Definition{
 		EnvVar:         "ROUTER_OPENAI_RESPONSES_BROAD",
 		Kind:           KindBool,
 		Description:    "Serve every direct-OpenAI turn on /v1/responses. Off, only the reasoning tool turn chat/completions rejects is promoted.",
+		OrgOverridable: true,
+	},
+	{
+		Key:            KeyNativeAnthropicResponseSignals,
+		EnvVar:         "ROUTER_NATIVE_ANTHROPIC_RESPONSE_SIGNALS",
+		Kind:           KindBool,
+		Description:    "Record stop_reason and tool_use block count on telemetry for Anthropic-native passthrough turns. Off by default; observability only, never read by routing.",
 		OrgOverridable: true,
 	},
 	{

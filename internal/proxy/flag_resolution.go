@@ -113,6 +113,14 @@ func (s *Service) ResolveOpenAIResponsesBroad(ctx context.Context) bool {
 	return flags.BoolOr(ctx, flags.KeyOpenAIResponsesBroad, s.openAIResponsesBroad)
 }
 
+// ResolveNativeAnthropicResponseSignals reports the
+// ROUTER_NATIVE_ANTHROPIC_RESPONSE_SIGNALS flag: whether an Anthropic-native
+// passthrough turn records its observed stop_reason and tool_use block count
+// on the telemetry row. Observability only.
+func (s *Service) ResolveNativeAnthropicResponseSignals(ctx context.Context) bool {
+	return flags.BoolOr(ctx, flags.KeyNativeAnthropicResponseSignals, s.nativeAnthropicResponseSignals)
+}
+
 // ResolveEffortEscalation reports whether policy-requested reasoning-effort
 // escalation is applied.
 func (s *Service) ResolveEffortEscalation(ctx context.Context) bool {

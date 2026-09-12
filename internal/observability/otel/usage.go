@@ -23,6 +23,21 @@ var (
 	_ UsageSink           = (*UsageExtractor)(nil)
 )
 
+// Anthropic wire-format names the extractor recognizes. Duplicated here rather
+// than imported so otel does not import translate (translate already imports
+// observability); same precedent as openaiCacheTokens.
+type anthropicSSEEvent string
+
+const (
+	anthropicEventMessageStart      anthropicSSEEvent = "message_start"
+	anthropicEventMessageDelta      anthropicSSEEvent = "message_delta"
+	anthropicEventContentBlockStart anthropicSSEEvent = "content_block_start"
+)
+
+type anthropicBlockType string
+
+const anthropicBlockToolUse anthropicBlockType = "tool_use"
+
 // UsageExtractor wraps an http.ResponseWriter and sniffs token usage (SSE or
 // JSON) as bytes flow through. Only the unconsumed tail is retained between writes.
 type UsageExtractor struct {
@@ -33,6 +48,9 @@ type UsageExtractor struct {
 	output        int
 	cacheCreation int
 	cacheRead     int
+
+	stopReason    string
+	toolUseBlocks int
 
 	leftover []byte
 }
@@ -133,6 +151,17 @@ func (u *UsageExtractor) CacheTokens() (creation, read int) {
 	return u.cacheCreation, u.cacheRead
 }
 
+// AnthropicResponse returns the turn-ending signals sniffed from an
+// Anthropic-format response: the upstream stop_reason and how many tool_use
+// content blocks it carried. observed is false until a stop_reason is seen, so
+// a stream that ends early is never reported as a measured zero-tool turn.
+func (u *UsageExtractor) AnthropicResponse() (stopReason string, toolUseBlocks int, observed bool) {
+	if u == nil {
+		return "", 0, false
+	}
+	return u.stopReason, u.toolUseBlocks, u.stopReason != ""
+}
+
 // scanBuffer splits buffered data on SSE event boundaries and extracts token
 // usage from each complete event using zero-alloc gjson probes.
 func (u *UsageExtractor) scanBuffer() {
@@ -170,10 +199,24 @@ func (u *UsageExtractor) extractFromSSEEvent(eventType []byte, data []byte) {
 	}
 }
 
-// message_start carries input_tokens + cache tokens; message_delta carries output_tokens.
+// message_start carries input_tokens + cache tokens; message_delta carries
+// output_tokens and the stop_reason; content_block_start announces each
+// tool_use block.
 func (u *UsageExtractor) extractAnthropicSSE(eventType []byte, data []byte) {
-	if !bytes.Equal(eventType, []byte("message_start")) && !bytes.Equal(eventType, []byte("message_delta")) {
+	if bytes.Equal(eventType, []byte(anthropicEventContentBlockStart)) {
+		if gjson.GetBytes(data, "content_block.type").String() == string(anthropicBlockToolUse) {
+			u.toolUseBlocks++
+		}
 		return
+	}
+	if !bytes.Equal(eventType, []byte(anthropicEventMessageStart)) && !bytes.Equal(eventType, []byte(anthropicEventMessageDelta)) {
+		return
+	}
+
+	if bytes.Equal(eventType, []byte(anthropicEventMessageDelta)) {
+		if stop := gjson.GetBytes(data, "delta.stop_reason").String(); stop != "" {
+			u.stopReason = stop
+		}
 	}
 
 	input, output, cacheCreation, cacheRead, found := extractUsageGJSON(data, providers.ProviderAnthropic)
@@ -181,7 +224,7 @@ func (u *UsageExtractor) extractAnthropicSSE(eventType []byte, data []byte) {
 		return
 	}
 
-	if bytes.Equal(eventType, []byte("message_start")) {
+	if bytes.Equal(eventType, []byte(anthropicEventMessageStart)) {
 		if input > 0 {
 			u.input = input
 		}
@@ -192,7 +235,7 @@ func (u *UsageExtractor) extractAnthropicSSE(eventType []byte, data []byte) {
 			u.cacheRead = cacheRead
 		}
 	}
-	if bytes.Equal(eventType, []byte("message_delta")) && output > 0 {
+	if bytes.Equal(eventType, []byte(anthropicEventMessageDelta)) && output > 0 {
 		u.output = output
 	}
 }
@@ -233,6 +276,13 @@ func (u *UsageExtractor) tryExtractFromJSON() {
 		return
 	}
 
+	// Keyed off usage being present: leftover holds a partial body on every
+	// write before the last, and usage is the final top-level member, so a
+	// found usage object is what makes content[] safe to count.
+	if providers.FamilyFor(u.provider) == providers.FamilyAnthropic {
+		u.extractAnthropicJSONResponse(u.leftover)
+	}
+
 	if input > 0 {
 		u.input = input
 	}
@@ -244,6 +294,22 @@ func (u *UsageExtractor) tryExtractFromJSON() {
 	}
 	if cacheRead > 0 {
 		u.cacheRead = cacheRead
+	}
+}
+
+// A non-streaming Anthropic body carries stop_reason at the top level and one
+// content entry per emitted block.
+func (u *UsageExtractor) extractAnthropicJSONResponse(data []byte) {
+	stop := gjson.GetBytes(data, "stop_reason").String()
+	if stop == "" {
+		return
+	}
+	u.stopReason = stop
+	u.toolUseBlocks = 0
+	for _, block := range gjson.GetBytes(data, "content").Array() {
+		if block.Get("type").String() == string(anthropicBlockToolUse) {
+			u.toolUseBlocks++
+		}
 	}
 }
 

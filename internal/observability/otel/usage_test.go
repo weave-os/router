@@ -369,3 +369,105 @@ func TestUsageExtractor_RecordCacheUsage_NilReceiver(t *testing.T) {
 	assert.Equal(t, 0, creation)
 	assert.Equal(t, 0, read)
 }
+
+func TestUsageExtractor_AnthropicResponse(t *testing.T) {
+	anthropicToolTurn := []string{
+		"event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":100}}}\n\n",
+		"event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n",
+		"event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":1,\"content_block\":{\"type\":\"tool_use\",\"id\":\"toolu_1\",\"name\":\"Read\"}}\n\n",
+		"event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":2,\"content_block\":{\"type\":\"tool_use\",\"id\":\"toolu_2\",\"name\":\"Grep\"}}\n\n",
+		"event: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"tool_use\"},\"usage\":{\"output_tokens\":40}}\n\n",
+		"event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n",
+	}
+
+	tests := []struct {
+		name              string
+		provider          string
+		writes            []string
+		wantStopReason    string
+		wantToolUseBlocks int
+		wantObserved      bool
+	}{
+		{
+			name:              "streaming tool turn",
+			provider:          "anthropic",
+			writes:            anthropicToolTurn,
+			wantStopReason:    "tool_use",
+			wantToolUseBlocks: 2,
+			wantObserved:      true,
+		},
+		{
+			name:              "gateway family dispatch parses identically",
+			provider:          "anthropic_gateway",
+			writes:            anthropicToolTurn,
+			wantStopReason:    "tool_use",
+			wantToolUseBlocks: 2,
+			wantObserved:      true,
+		},
+		{
+			name:              "stream cut before message_delta is unobserved",
+			provider:          "anthropic",
+			writes:            anthropicToolTurn[:4],
+			wantStopReason:    "",
+			wantToolUseBlocks: 2,
+			wantObserved:      false,
+		},
+		{
+			name:     "non-streaming body",
+			provider: "anthropic",
+			writes: []string{
+				"{\"type\":\"message\",\"content\":[{\"type\":\"text\",\"text\":\"ok\"},{\"type\":\"tool_use\",\"id\":\"toolu_1\",\"name\":\"Read\"}]," +
+					"\"stop_reason\":\"tool_use\",\"usage\":{\"input_tokens\":10,\"output_tokens\":5}}",
+			},
+			wantStopReason:    "tool_use",
+			wantToolUseBlocks: 1,
+			wantObserved:      true,
+		},
+		{
+			name:     "end_turn with no tool blocks is a measured zero",
+			provider: "anthropic",
+			writes: []string{
+				"event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":10}}}\n\n",
+				"event: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":4}}\n\n",
+			},
+			wantStopReason:    "end_turn",
+			wantToolUseBlocks: 0,
+			wantObserved:      true,
+		},
+		{
+			name:     "openai family leaves the accessor unobserved",
+			provider: "openai",
+			writes: []string{
+				"data: {\"id\":\"chatcmpl-1\",\"choices\":[{\"delta\":{\"content\":\"Hi\"},\"finish_reason\":\"tool_calls\"}]}\n\n",
+				"data: {\"id\":\"chatcmpl-1\",\"choices\":[],\"usage\":{\"prompt_tokens\":20,\"completion_tokens\":12}}\n\n",
+				"data: [DONE]\n\n",
+			},
+			wantStopReason:    "",
+			wantToolUseBlocks: 0,
+			wantObserved:      false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ext := otel.NewUsageExtractor(httptest.NewRecorder(), tt.provider)
+			for _, w := range tt.writes {
+				_, err := ext.Write([]byte(w))
+				require.NoError(t, err)
+			}
+
+			stopReason, toolUseBlocks, observed := ext.AnthropicResponse()
+			assert.Equal(t, tt.wantStopReason, stopReason)
+			assert.Equal(t, tt.wantToolUseBlocks, toolUseBlocks)
+			assert.Equal(t, tt.wantObserved, observed)
+		})
+	}
+}
+
+func TestUsageExtractor_AnthropicResponse_NilReceiver(t *testing.T) {
+	var ext *otel.UsageExtractor
+	stopReason, toolUseBlocks, observed := ext.AnthropicResponse()
+	assert.Equal(t, "", stopReason)
+	assert.Equal(t, 0, toolUseBlocks)
+	assert.False(t, observed)
+}

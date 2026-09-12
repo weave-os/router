@@ -651,3 +651,78 @@ func TestNormalizeRolloutID(t *testing.T) {
 	assert.Equal(t, "", proxy.NormalizeRolloutID(strings.Repeat("x", 257)))
 	assert.Equal(t, strings.Repeat("x", 256), proxy.NormalizeRolloutID(strings.Repeat("x", 256)))
 }
+
+// TestProxyMessages_NativeAnthropicResponseSignals asserts the Anthropic-native
+// passthrough path reports the turn-ending signals the usage extractor observed,
+// and reports nothing when the stream ended before the stop reason.
+func TestProxyMessages_NativeAnthropicResponseSignals(t *testing.T) {
+	const installID = "88888888-8888-8888-8888-888888888888"
+	toolTurn := []string{
+		"event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":100}}}\n\n",
+		"event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n",
+		"event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":1,\"content_block\":{\"type\":\"tool_use\",\"id\":\"toolu_1\",\"name\":\"Read\"}}\n\n",
+		"event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":2,\"content_block\":{\"type\":\"tool_use\",\"id\":\"toolu_2\",\"name\":\"Grep\"}}\n\n",
+		"event: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"tool_use\"},\"usage\":{\"output_tokens\":40}}\n\n",
+		"event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n",
+	}
+
+	tests := []struct {
+		name              string
+		enabled           bool
+		events            []string
+		wantStopReason    *string
+		wantToolUseBlocks *int32
+	}{
+		{
+			name:              "observed tool turn",
+			enabled:           true,
+			events:            toolTurn,
+			wantStopReason:    ptrTo("tool_use"),
+			wantToolUseBlocks: ptrTo(int32(2)),
+		},
+		{
+			name:    "stream cut before message_delta stays unknown",
+			enabled: true,
+			events:  toolTurn[:4],
+		},
+		{
+			name:    "flag off keeps the row as it is today",
+			enabled: false,
+			events:  toolTurn,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			decision := router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-opus-4-7"}
+			provider := &fakeProvider{proxyResponse: func(w http.ResponseWriter) {
+				for _, e := range tt.events {
+					_, _ = w.Write([]byte(e))
+				}
+			}}
+			telem := newCaptureTelemetry()
+			svc := proxy.NewService(
+				&fakeRouter{decision: decision},
+				map[string]providers.Client{providers.ProviderAnthropic: provider},
+				nil, false, nil, nil, false,
+				providers.ProviderAnthropic, "claude-opus-4-7", telem,
+			).WithNativeAnthropicResponseSignals(tt.enabled)
+
+			ctx := context.WithValue(context.Background(), proxy.InstallationIDContextKey{}, installID)
+			rec := httptest.NewRecorder()
+			body := []byte(`{"model":"claude-opus-4-7","stream":true,"messages":[{"role":"user","content":"hello"}]}`)
+			httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+			require.NoError(t, svc.ProxyMessages(ctx, body, rec, httpReq))
+
+			row := telem.firstRow(t)
+			assert.Equal(t, tt.wantStopReason, row.StopReason)
+			assert.Equal(t, tt.wantStopReason, row.UpstreamFinishReason)
+			assert.Equal(t, tt.wantToolUseBlocks, row.ToolUseBlocks)
+			// Native tool arguments are never validated by the router, so the
+			// invalid-args count stays unknown even on an observed turn.
+			assert.Nil(t, row.InvalidToolArgsBlocks)
+		})
+	}
+}
+
+func ptrTo[T any](v T) *T { return &v }

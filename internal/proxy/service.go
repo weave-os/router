@@ -231,6 +231,10 @@ type Service struct {
 	// openAIResponsesBroad is the deployment default for
 	// ROUTER_OPENAI_RESPONSES_BROAD; see ResolveOpenAIResponsesBroad.
 	openAIResponsesBroad bool
+	// nativeAnthropicResponseSignals is the deployment default for
+	// ROUTER_NATIVE_ANTHROPIC_RESPONSE_SIGNALS; see
+	// ResolveNativeAnthropicResponseSignals.
+	nativeAnthropicResponseSignals bool
 	// allowedModelsHeader is the deployment default for
 	// ROUTER_ALLOWED_MODELS_HEADER; see ResolveAllowedModelsHeader.
 	allowedModelsHeader bool
@@ -1581,6 +1585,14 @@ func (s *Service) WithSiblingFailover(enabled bool) *Service {
 // routing (ROUTER_OPENAI_RESPONSES_BROAD).
 func (s *Service) WithOpenAIResponsesBroad(enabled bool) *Service {
 	s.openAIResponsesBroad = enabled
+	return s
+}
+
+// WithNativeAnthropicResponseSignals sets the deployment default for recording
+// Anthropic-native stop_reason and tool_use counts on telemetry
+// (ROUTER_NATIVE_ANTHROPIC_RESPONSE_SIGNALS).
+func (s *Service) WithNativeAnthropicResponseSignals(enabled bool) *Service {
+	s.nativeAnthropicResponseSignals = enabled
 	return s
 }
 
@@ -3741,9 +3753,10 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	var proxyErr error
 	crossFormat := false
 	var extractor *otel.UsageExtractor
-	// respSummary captures the winning attempt's translated-response signals
-	// for the completion log. Populated by translator-backed paths; stays
-	// zero for Anthropic-native passthrough (no translator).
+	// respSummary captures the winning attempt's response signals for the
+	// completion log. Populated by translator-backed paths; on Anthropic-native
+	// passthrough (no translator) the stop reason and tool_use block count come
+	// from the usage extractor's parse of the upstream stream instead.
 	var respSummary translate.ResponseSummary
 	// reqStats captures translation-time mutations on the winning attempt's
 	// request body. Zero for Anthropic-native passthrough.
@@ -4485,6 +4498,20 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		respSummary.StopReason = anthropicRefusalStopReason
 	}
 
+	// Anthropic-native passthrough: the extractor already parses the upstream
+	// stream for usage, so the same pass yields the turn-ending signals a
+	// translator would have reported. The native stop_reason is the raw
+	// upstream value, hence both fields.
+	nativeRespSummary := false
+	if respSummary.StopReason == "" && s.ResolveNativeAnthropicResponseSignals(ctx) {
+		if stopReason, toolUseBlocks, observed := extractor.AnthropicResponse(); observed {
+			respSummary.UpstreamFinishReason = stopReason
+			respSummary.StopReason = stopReason
+			respSummary.ToolUseBlocks = toolUseBlocks
+			nativeRespSummary = true
+		}
+	}
+
 	in, out := extractor.Tokens()
 	cacheCreation, cacheRead := extractor.CacheTokens()
 	if responseBuffer != nil && proxyErr == nil {
@@ -4562,7 +4589,9 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		// primaryProvider, so OR in subscriptionFailoverUsed to match the OTel
 		// span + completion log.
 		failoverUsed := finalProvider != primaryProvider || subscriptionFailoverUsed || siblingFailoverUsed
-		degShadow := proxyErr == nil && isDegenerateResponse(out, respSummary.ToolUseBlocks, respSummary.StopReason, respSummary.StopReasonDemoted)
+		// Degeneracy evicts the session pin, so it stays on the translated
+		// signals it was calibrated against.
+		degShadow := proxyErr == nil && !nativeRespSummary && isDegenerateResponse(out, respSummary.ToolUseBlocks, respSummary.StopReason, respSummary.StopReasonDemoted)
 		if degShadow && !agentShadowMode {
 			log.Info("router.degenerate_shadow",
 				"model", decision.Model,
@@ -4640,11 +4669,12 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			RolloutID:                obs.RolloutID,
 			UpstreamFinishReason:     stringPtrOrEmpty(respSummary.UpstreamFinishReason),
 			StopReason:               stringPtrOrEmpty(respSummary.StopReason),
-			// Only valid when a translator ran (StopReason populated) — the
-			// Anthropic-native passthrough path leaves respSummary zero, which
-			// must not look like a measured zero-tool turn.
+			// Only valid once the turn's end was observed (StopReason populated)
+			// — a stream cut before then must not look like a measured zero-tool
+			// turn. Native args are never validated by the router, so that count
+			// stays unknown on passthrough.
 			ToolUseBlocks:         int32PtrIfKnown(int32(respSummary.ToolUseBlocks), respSummary.StopReason != ""),
-			InvalidToolArgsBlocks: int32PtrIfKnown(int32(respSummary.InvalidToolArgsBlocks), respSummary.StopReason != ""),
+			InvalidToolArgsBlocks: int32PtrIfKnown(int32(respSummary.InvalidToolArgsBlocks), respSummary.StopReason != "" && !nativeRespSummary),
 			FailoverUsed:          boolPtrTrue(failoverUsed),
 			DegenerateShadow:      boolPtrOrNil(degShadow),
 			// (session_key, role) is the offline join key to spiral_shadow_events
