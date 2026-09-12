@@ -104,9 +104,10 @@ func TestWorkQueueByteBackpressureAndLaneIsolation(t *testing.T) {
 			return ctx.Err()
 		}
 	}
-	const chunk = workQueueBytes / 16
-	payload := bytes.Repeat([]byte("x"), chunk)
-	for range 16 {
+	const jobsToFillByteBudget = 16
+	require.Zero(t, workQueueBytes%jobsToFillByteBudget, "test chunks must fill the byte budget exactly")
+	payload := bytes.Repeat([]byte("x"), workQueueBytes/jobsToFillByteBudget)
+	for range jobsToFillByteBudget {
 		require.True(t, w.Remote.Submit(WorkOutcome, payload, time.Minute, workLog(), block))
 	}
 	submitted, admitted := make(chan struct{}), make(chan bool, 1)
@@ -140,7 +141,7 @@ func TestWorkQueueByteBackpressureAndLaneIsolation(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 	require.NoError(t, w.Remote.Shutdown(ctx))
-	assert.EqualValues(t, 17, completed.Load())
+	assert.EqualValues(t, jobsToFillByteBudget+1, completed.Load())
 	assert.Zero(t, w.Remote.retainedBytes)
 }
 
