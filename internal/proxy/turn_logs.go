@@ -26,7 +26,7 @@ const (
 	// CaptureHashed emits log records with metadata + SHA-256 content hashes
 	// but no raw text — dedup/cache analysis without exposing prompts.
 	CaptureHashed
-	// CaptureFull emits log records with full raw request/response bodies
+	// CaptureFull emits log records with size-limited raw request/response bodies
 	// (after the redaction hook). Default for Weave-managed deploys.
 	CaptureFull
 )
@@ -164,11 +164,18 @@ func (d *deferredCallLog) run() {
 	}
 }
 
-func (s *Service) redact(content []byte, kind ContentKind) string {
-	if s.redactor == nil {
-		return string(content)
+func (s *Service) captureContent(content []byte, kind ContentKind) (string, bool) {
+	if len(content) > s.captureMaxBytes {
+		return "", true
 	}
-	return s.redactor(string(content), kind)
+	captured := string(content)
+	if s.redactor != nil {
+		captured = s.redactor(captured, kind)
+	}
+	if len(captured) > s.captureMaxBytes {
+		return "", true
+	}
+	return captured, false
 }
 
 func sha256Hex(b []byte) string {
@@ -186,20 +193,31 @@ func (s *Service) recordCallLog(ctx context.Context, base []*commonv1.KeyValue, 
 		return
 	}
 
-	content := otel.NewAttrBuilder(7).
+	content := otel.NewAttrBuilder(9).
 		Int64("latency.route_ms", routeMs).
 		Int64("io.request_bytes", int64(len(reqBody))).
-		Int64("io.response_bytes", int64(len(respBody))).
-		Bool("io.truncated", respTruncated)
+		Int64("io.response_bytes", int64(len(respBody)))
 
+	var reqTruncated bool
 	switch mode {
 	case CaptureFull:
-		content.String("io.request_body", s.redact(reqBody, ContentKindRequest)).
-			String("io.response_body", s.redact(respBody, ContentKindResponse))
+		var requestContent string
+		requestContent, reqTruncated = s.captureContent(reqBody, ContentKindRequest)
+		content.String("io.request_body", requestContent)
+		if !respTruncated {
+			var responseContent string
+			responseContent, respTruncated = s.captureContent(respBody, ContentKindResponse)
+			content.String("io.response_body", responseContent)
+		}
 	case CaptureHashed:
-		content.String("io.request_sha256", sha256Hex(reqBody)).
-			String("io.response_sha256", sha256Hex(respBody))
+		content.String("io.request_sha256", sha256Hex(reqBody))
+		if !respTruncated {
+			content.String("io.response_sha256", sha256Hex(respBody))
+		}
 	}
+	content.Bool("io.request_truncated", reqTruncated).
+		Bool("io.response_truncated", respTruncated).
+		Bool("io.truncated", reqTruncated || respTruncated)
 
 	attrs := append(slices.Clone(base), content.Build()...)
 	sev := otel.SeverityInfo

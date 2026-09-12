@@ -31,7 +31,7 @@ var globalLoggerBudget = map[string]int{
 
 	// The exporter itself: logging its own transport failures. A ctx here
 	// would be the export's, not the request's.
-	"internal/observability/otel": 8,
+	"internal/observability/otel": 7,
 	"internal/observability/apm":  1,
 
 	// Background Pub/Sub listeners; no inbound request.

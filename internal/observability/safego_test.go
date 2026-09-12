@@ -5,6 +5,7 @@ import (
 	"context"
 	"log/slog"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -15,7 +16,7 @@ import (
 // recovered and logged rather than propagating out of the goroutine (which
 // would crash the process).
 func TestSafeGoRecoversFromPanic(t *testing.T) {
-	var buf bytes.Buffer
+	var buf lockedLogBuffer
 	log := slog.New(slog.NewTextHandler(&buf, nil))
 
 	assert.NotPanics(t, func() {
@@ -34,7 +35,7 @@ func TestSafeGoRecoversFromPanic(t *testing.T) {
 // a bounded context derived from context.Background(), independent of any
 // caller-supplied ctx.
 func TestSafeGoRunsFnToCompletion(t *testing.T) {
-	var buf bytes.Buffer
+	var buf lockedLogBuffer
 	log := slog.New(slog.NewTextHandler(&buf, nil))
 	done := make(chan struct{})
 
@@ -53,7 +54,7 @@ func TestSafeGoRunsFnToCompletion(t *testing.T) {
 
 // waitForLog polls buf until it contains substr or fails the test after a
 // bounded wait, since the goroutine under test runs concurrently.
-func waitForLog(t *testing.T, buf *bytes.Buffer, substr string) {
+func waitForLog(t *testing.T, buf *lockedLogBuffer, substr string) {
 	t.Helper()
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
@@ -63,4 +64,21 @@ func waitForLog(t *testing.T, buf *bytes.Buffer, substr string) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	t.Fatalf("expected log containing %q, got: %s", substr, buf.String())
+}
+
+type lockedLogBuffer struct {
+	mu   sync.Mutex
+	body bytes.Buffer
+}
+
+func (b *lockedLogBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.body.Write(p)
+}
+
+func (b *lockedLogBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.body.String()
 }

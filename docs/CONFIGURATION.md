@@ -664,7 +664,16 @@ log records are emitted and behavior is unchanged.
 | Variable             | Default | Purpose |
 | -------------------- | ------- | ------- |
 | `WV_CAPTURE_CONTENT` | `off`   | `off` = no log records; `hashed` = metadata + SHA-256 content hashes (no raw text); `full` = metadata + raw request/response bodies. |
-| `WV_CAPTURE_MAX_BYTES` | `1048576` | Max buffered response bytes; larger responses are dropped and flagged `io.truncated=true` (the client still receives the full stream). |
+| `WV_CAPTURE_MAX_BYTES` | `1048576` | Max bytes per raw request/response capture, checked before string conversion/redaction and again after redaction. Oversized bodies are omitted, not clipped; inference still receives/sends every byte. |
+
+`io.request_truncated` and `io.response_truncated` identify omitted bodies;
+`io.truncated` is true when either is omitted. Full capture never sends an
+over-limit body to the redactor. Hash-only mode still hashes the entire request
+without retaining its text; an overflowed response has no hash (not the hash of
+an empty body). `io.request_bytes` records the original request length;
+`io.response_bytes` records the available captured response length, which is
+zero after response-buffer overflow. Capture settings do not change training
+consent or installation privacy ceilings.
 
 Captured bodies are in the client's native wire format (Anthropic / OpenAI /
 Gemini, matching the inbound surface). The `router.deployment_mode` resource
@@ -686,14 +695,28 @@ asking for `full` under a `hashed` deployment still gets `hashed`.
 | `OTEL_EXPORTER_OTLP_TIMEOUT`     | `10000`      | Per-export HTTP timeout in ms. |
 | `OTEL_SERVICE_NAME`              | `router`     | `service.name` resource attribute. |
 | `OTEL_RESOURCE_ATTRIBUTES`       | *(none)*     | Comma-separated `key=value` resource attributes. |
-| `OTEL_BSP_MAX_QUEUE_SIZE`        | `1000`       | Span queue capacity. Spans drop when full. |
-| `OTEL_BSP_MAX_EXPORT_BATCH_SIZE` | `50`         | Max spans per OTLP POST. |
+| `OTEL_BSP_MAX_QUEUE_SIZE`        | `1000`       | Capacity of each span/log queue. Records drop when full. |
+| `OTEL_BSP_MAX_EXPORT_BATCH_SIZE` | `50`         | Max records per OTLP POST, also subject to the byte cap below. |
 | `OTEL_BSP_SCHEDULE_DELAY`        | `500`        | Partial-batch flush interval in ms. |
 | `OTEL_EXPORT_WORKERS`            | `2`          | Export-goroutine count (spans and logs each get this many workers). |
 
 The first five follow the [OTel SDK env spec](https://opentelemetry.io/docs/specs/otel/configuration/sdk-environment-variables/);
 `OTEL_BSP_*` follows the [Batch Span Processor spec](https://opentelemetry.io/docs/specs/otel/trace/sdk/#batch-span-processor).
 `OTEL_EXPORT_WORKERS` is a router-specific extension.
+
+The content exporter keeps the existing fixed worker pools and additionally
+limits each POST to **4 MiB** and shared retained payloads to **64 MiB**. The
+byte reservation covers serialization on admission, both queues, worker
+batches, and their serialized HTTP-body copies. Records are serialized into
+owned bytes before enqueue returns; a record that cannot fit in one POST is
+dropped. Queue slots and batch bookkeeping remain count-bounded separately;
+request-scoped capture buffers and HTTP/TLS transport overhead are not part of
+this payload budget. There are no additional byte-limit environment settings.
+Full or closing queues drop optional telemetry without waiting or retrying.
+Each HTTP export keeps its configured timeout. `Shutdown(ctx)` drains within
+the caller's deadline, then cancels active exports and releases pending work;
+it does not continue exporting the remaining queue after that deadline. APM
+remains on its independent SDK exporter.
 
 ## Cluster-routing artifacts
 

@@ -36,7 +36,7 @@ func (c *captureWriter) Write(p []byte) (int, error) {
 	if !c.overflow {
 		if c.body.Len()+len(p) > c.maxBytes {
 			c.overflow = true
-			c.body.Reset()
+			c.body = bytes.Buffer{}
 		} else {
 			c.body.Write(p)
 		}

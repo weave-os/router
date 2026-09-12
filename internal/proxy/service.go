@@ -135,7 +135,7 @@ type Service struct {
 	// records carry full request/response bodies, content hashes, or are
 	// suppressed entirely. Default CaptureOff (no log records emitted).
 	captureMode ContentCaptureMode
-	// captureMaxBytes caps the buffered response body when capture is on;
+	// captureMaxBytes caps each raw request/response capture;
 	// larger bodies are dropped and flagged io.truncated.
 	captureMaxBytes int
 	// redactor scrubs captured content before export. Nil passes through.
@@ -1822,7 +1822,7 @@ func (s *Service) WithRouterFeedbackStore(store RouterFeedbackStore) *Service {
 }
 
 // WithContentCapture configures high-fidelity `router.call` OTLP log emission.
-// mode selects off/hashed/full; maxBytes caps the buffered response body;
+// mode selects off/hashed/full; maxBytes caps each raw body capture;
 // redactor (optional) scrubs content before export. No-op effect when the
 // emitter is disabled. Default (unset) is CaptureOff.
 func (s *Service) WithContentCapture(mode ContentCaptureMode, maxBytes int, redactor Redactor) *Service {

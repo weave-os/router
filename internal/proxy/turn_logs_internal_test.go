@@ -397,3 +397,151 @@ func TestApplyPlannerAttrs_EmitsDetailsWhenEvaluated(t *testing.T) {
 	assert.InDelta(t, 0.003, attrs["planner.eviction_cost_usd"].GetDoubleValue(), 1e-12)
 	assert.Equal(t, "switch", attrs["planner.shadow_outcome"].GetStringValue())
 }
+
+func (c *logCollector) callAttrs(t *testing.T) map[string]*commonv1.AnyValue {
+	t.Helper()
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for _, body := range c.bodies {
+		var exported collogspb.ExportLogsServiceRequest
+		require.NoError(t, proto.Unmarshal(body, &exported))
+		for _, resource := range exported.ResourceLogs {
+			for _, scope := range resource.ScopeLogs {
+				for _, record := range scope.LogRecords {
+					if record.Body.GetStringValue() == "router.call" {
+						return attrsByKey(record.Attributes)
+					}
+				}
+			}
+		}
+	}
+	t.Fatal("no router.call log exported")
+	return nil
+}
+
+func TestRecordCallLog_RequestCaptureBoundaries(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		size      int
+		truncated bool
+	}{
+		{"empty", 0, false},
+		{"at cap", 1 << 20, false},
+		{"over cap", 1<<20 + 1, true},
+		{"maximum inbound", MaxRequestBodyBytes, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			coll := newLogCollector(t)
+			var requestRedactions int
+			redactor := func(content string, kind ContentKind) string {
+				if kind == ContentKindRequest {
+					requestRedactions++
+				}
+				return strings.ReplaceAll(content, "q", "r")
+			}
+			s, em := newServiceWithEmitter(t, CaptureFull, redactor, coll.server.URL)
+			request := []byte(strings.Repeat("q", tc.size))
+			buf := em.NewBuffer()
+			ctx := buf.WithContext(context.Background())
+			base := otel.NewAttrBuilder(1).String("training.allowed", "false").Build()
+			s.recordCallLog(ctx, base, 1, false, request, []byte("response"), false)
+			otel.Flush(ctx)
+			require.NoError(t, em.Shutdown(context.Background()))
+			attrs := coll.callAttrs(t)
+			assert.Equal(t, int64(tc.size), attrs["io.request_bytes"].GetIntValue())
+			assert.Equal(t, tc.truncated, attrs["io.request_truncated"].GetBoolValue())
+			assert.Equal(t, tc.truncated, attrs["io.truncated"].GetBoolValue())
+			assert.False(t, attrs["io.response_truncated"].GetBoolValue())
+			assert.Equal(t, "response", attrs["io.response_body"].GetStringValue())
+			assert.Equal(t, "false", attrs["training.allowed"].GetStringValue())
+			if tc.truncated {
+				assert.Empty(t, attrs["io.request_body"].GetStringValue())
+				assert.Zero(t, requestRedactions, "over-cap content must never reach the redactor")
+			} else {
+				assert.Equal(t, strings.Repeat("r", tc.size), attrs["io.request_body"].GetStringValue())
+				assert.Equal(t, 1, requestRedactions)
+			}
+			assert.Equal(t, strings.Repeat("q", tc.size), string(request), "capture must not redact the inference body in place")
+			assert.Len(t, base, 1)
+		})
+	}
+}
+
+func TestCaptureContent_OversizedRequestDoesNotAllocate(t *testing.T) {
+	s := &Service{captureMaxBytes: 1 << 20}
+	body := make([]byte, MaxRequestBodyBytes)
+	allocations := testing.AllocsPerRun(10, func() {
+		captured, truncated := s.captureContent(body, ContentKindRequest)
+		if captured != "" || !truncated {
+			panic("oversized body was retained")
+		}
+	})
+	assert.Zero(t, allocations, "must check the cap before allocating a 32 MiB string")
+}
+
+func TestRecordCallLog_RedactorCannotExpandPastCap(t *testing.T) {
+	coll := newLogCollector(t)
+	s, em := newServiceWithEmitter(t, CaptureFull, func(content string, kind ContentKind) string {
+		return strings.Repeat("x", 5)
+	}, coll.server.URL)
+	s.captureMaxBytes = 4
+	ctx := em.NewBuffer().WithContext(context.Background())
+	s.recordCallLog(ctx, nil, 1, false, []byte("req"), []byte("resp"), false)
+	otel.Flush(ctx)
+	require.NoError(t, em.Shutdown(context.Background()))
+	attrs := coll.callAttrs(t)
+	assert.Empty(t, attrs["io.request_body"].GetStringValue())
+	assert.Empty(t, attrs["io.response_body"].GetStringValue())
+	assert.True(t, attrs["io.request_truncated"].GetBoolValue())
+	assert.True(t, attrs["io.response_truncated"].GetBoolValue())
+	assert.True(t, attrs["io.truncated"].GetBoolValue())
+}
+
+func TestRecordCallLog_HashingPreservesLargeRequestWithoutFalseResponseHash(t *testing.T) {
+	coll := newLogCollector(t)
+	s, em := newServiceWithEmitter(t, CaptureHashed, func(string, ContentKind) string {
+		t.Fatal("hash-only capture must not redact raw text")
+		return ""
+	}, coll.server.URL)
+	body := []byte(strings.Repeat("q", MaxRequestBodyBytes))
+	ctx := em.NewBuffer().WithContext(context.Background())
+	s.recordCallLog(ctx, nil, 1, false, body, nil, true)
+	otel.Flush(ctx)
+	require.NoError(t, em.Shutdown(context.Background()))
+	attrs := coll.callAttrs(t)
+	assert.Equal(t, sha256Hex(body), attrs["io.request_sha256"].GetStringValue())
+	assert.NotContains(t, attrs, "io.request_body")
+	assert.NotContains(t, attrs, "io.response_sha256", "no captured response must not be misrepresented as a hash of empty content")
+	assert.False(t, attrs["io.request_truncated"].GetBoolValue())
+	assert.True(t, attrs["io.response_truncated"].GetBoolValue())
+	assert.True(t, attrs["io.truncated"].GetBoolValue())
+}
+
+func TestRecordCallLog_InstallationOffSkipsAllContentWork(t *testing.T) {
+	coll := newLogCollector(t)
+	s, em := newServiceWithEmitter(t, CaptureFull, func(string, ContentKind) string {
+		t.Fatal("capture-off content reached the redactor")
+		return ""
+	}, coll.server.URL)
+	ctx := context.WithValue(context.Background(), InstallationCaptureModeContextKey{}, CaptureOff)
+	ctx = em.NewBuffer().WithContext(ctx)
+	s.recordCallLog(ctx, nil, 1, false, []byte("secret"), []byte("secret"), false)
+	otel.Flush(ctx)
+	require.NoError(t, em.Shutdown(context.Background()))
+	assert.Zero(t, coll.count(t))
+}
+
+func TestCaptureWriter_OverflowReleasesBackingBuffer(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	writer := newCaptureWriter(recorder, 1<<20)
+	chunk := []byte(strings.Repeat("x", 1<<19))
+	for range 3 {
+		_, err := writer.Write(chunk)
+		require.NoError(t, err)
+		writer.Flush()
+	}
+	assert.True(t, writer.overflow)
+	assert.Zero(t, writer.body.Cap(), "Reset alone would retain the old backing array")
+	assert.Equal(t, strings.Repeat("x", 3<<19), recorder.Body.String())
+	assert.True(t, recorder.Flushed)
+}

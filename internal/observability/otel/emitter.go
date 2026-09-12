@@ -3,6 +3,7 @@ package otel
 import (
 	"bytes"
 	"context"
+	"maps"
 	"net/http"
 	"strings"
 	"sync"
@@ -11,14 +12,16 @@ import (
 
 	"google.golang.org/protobuf/proto"
 
-	collogspb "go.opentelemetry.io/proto/otlp/collector/logs/v1"
-	coltracepb "go.opentelemetry.io/proto/otlp/collector/trace/v1"
 	commonv1 "go.opentelemetry.io/proto/otlp/common/v1"
 	logsv1 "go.opentelemetry.io/proto/otlp/logs/v1"
-	resourcev1 "go.opentelemetry.io/proto/otlp/resource/v1"
 	tracev1 "go.opentelemetry.io/proto/otlp/trace/v1"
 
 	"weave-os/router/internal/observability"
+)
+
+const (
+	maxBufferedBytes = 64 << 20
+	maxExportBytes   = 4 << 20
 )
 
 // EmitterConfig controls the emitter's async export pipeline.
@@ -34,35 +37,38 @@ type EmitterConfig struct {
 	ExportTimeout time.Duration
 }
 
-// Emitter batches OTLP spans and exports them via HTTP POST. Safe for concurrent
-// use. A nil *Emitter means OTel is disabled; all methods no-op.
+type queuedRecord struct {
+	body     []byte
+	reserved int64
+}
+
+// Emitter batches OTLP spans and logs for best-effort HTTP export. Safe for
+// concurrent use. A nil *Emitter means OTel is disabled; all methods no-op.
 type Emitter struct {
-	queue       chan *tracev1.Span
-	logQueue    chan *logsv1.LogRecord
+	queue       chan queuedRecord
+	logQueue    chan queuedRecord
 	client      *http.Client
 	endpoint    string
 	logEndpoint string
 	headers     map[string]string
-	resource    *resourcev1.Resource
+	envelope    batchEnvelope
 	batchSz     int
 	flushInt    time.Duration
+	retained    atomic.Int64
 	dropped     atomic.Int64
 	wg          sync.WaitGroup
-	// closeMu coordinates Shutdown's queue close against in-flight Enqueue
-	// calls so a late Enqueue cannot panic with "send on closed channel".
-	// Enqueue acquires RLock for the lifetime of the send; Shutdown takes
-	// Lock to flip closed and close(queue) atomically.
-	closeMu sync.RWMutex
-	closed  atomic.Bool
+	ctx         context.Context
+	cancel      context.CancelFunc
+	done        chan struct{}
+	closeMu     sync.RWMutex
+	closed      bool
 }
 
-// NewEmitter starts the worker pool and returns a ready emitter. Returns
-// (nil, nil) when cfg.Endpoint is empty (OTel disabled).
+// NewEmitter starts the worker pool. Returns (nil, nil) when Endpoint is empty.
 func NewEmitter(cfg EmitterConfig) (*Emitter, error) {
 	if cfg.Endpoint == "" {
 		return nil, nil
 	}
-
 	if cfg.Workers <= 0 {
 		cfg.Workers = 2
 	}
@@ -82,217 +88,183 @@ func NewEmitter(cfg EmitterConfig) (*Emitter, error) {
 		cfg.ServiceName = "router"
 	}
 
+	envelope, err := newBatchEnvelope(buildResource(cfg.ServiceName, cfg.ResourceAttrs), &commonv1.InstrumentationScope{Name: "workweave-router"})
+	if err != nil {
+		return nil, err
+	}
+	ctx, cancel := context.WithCancel(context.Background())
 	e := &Emitter{
-		queue:       make(chan *tracev1.Span, cfg.QueueSize),
-		logQueue:    make(chan *logsv1.LogRecord, cfg.QueueSize),
+		queue:       make(chan queuedRecord, cfg.QueueSize),
+		logQueue:    make(chan queuedRecord, cfg.QueueSize),
 		client:      &http.Client{Timeout: cfg.ExportTimeout},
 		endpoint:    strings.TrimRight(cfg.Endpoint, "/") + "/v1/traces",
 		logEndpoint: strings.TrimRight(cfg.Endpoint, "/") + "/v1/logs",
-		headers:     cfg.Headers,
-		resource:    buildResource(cfg.ServiceName, cfg.ResourceAttrs),
+		headers:     maps.Clone(cfg.Headers),
+		envelope:    envelope,
 		batchSz:     cfg.BatchSize,
 		flushInt:    cfg.FlushInterval,
+		ctx:         ctx,
+		cancel:      cancel,
+		done:        make(chan struct{}),
 	}
 
 	e.wg.Add(cfg.Workers * 2)
 	for range cfg.Workers {
-		go e.worker()
-		go e.logWorker()
+		go e.worker(e.queue, e.endpoint)
+		go e.worker(e.logQueue, e.logEndpoint)
 	}
-
+	go func() {
+		e.wg.Wait()
+		e.cancel()
+		e.client.CloseIdleConnections()
+		if n := e.dropped.Load(); n > 0 {
+			observability.Get().Warn("Dropped OTLP records during emitter lifetime", "count", n)
+		}
+		close(e.done)
+	}()
 	return e, nil
 }
 
-// NewBuffer returns a request-scoped span/log buffer wrapping e, or nil when e
-// is nil (OTel disabled).
-func (e *Emitter) NewBuffer() *Buffer {
-	return NewBuffer(e)
-}
+// NewBuffer returns a request-scoped span/log buffer, or nil when disabled.
+func (e *Emitter) NewBuffer() *Buffer { return NewBuffer(e) }
 
-// Enqueue submits a span to the export queue. Non-blocking: drops on queue-full
-// or post-shutdown. Nil receiver is a no-op.
+// Enqueue snapshots s before returning. It never waits for export or capacity;
+// records exceeding the count/byte limits or submitted after shutdown drop.
 func (e *Emitter) Enqueue(s *tracev1.Span) {
-	if e == nil {
-		return
-	}
-	e.closeMu.RLock()
-	defer e.closeMu.RUnlock()
-	if e.closed.Load() {
-		e.dropped.Add(1)
-		return
-	}
-	select {
-	case e.queue <- s:
-	default:
-		e.dropped.Add(1)
+	if e != nil {
+		e.enqueue(e.queue, s)
 	}
 }
 
-// EnqueueLog submits a log record to the export queue. Non-blocking: drops on
-// queue-full or post-shutdown. Nil receiver is a no-op.
+// EnqueueLog has the same admission and ownership contract as Enqueue.
 func (e *Emitter) EnqueueLog(r *logsv1.LogRecord) {
-	if e == nil {
-		return
+	if e != nil {
+		e.enqueue(e.logQueue, r)
 	}
+}
+
+func (e *Emitter) enqueue(queue chan<- queuedRecord, record proto.Message) {
 	e.closeMu.RLock()
 	defer e.closeMu.RUnlock()
-	if e.closed.Load() {
+	if e.closed {
 		e.dropped.Add(1)
 		return
 	}
+
+	size := proto.Size(record)
+	exportSize := e.envelope.size(recordFieldSize(size))
+	if exportSize > maxExportBytes {
+		e.dropped.Add(1)
+		return
+	}
+	// Reserve before serialization, covering concurrent producers, queued and
+	// in-flight records, and the second copy in the HTTP batch. Per-record
+	// envelope overhead overestimates the one shared envelope in a batch.
+	reserved := int64(2 * exportSize)
+	for {
+		retained := e.retained.Load()
+		if reserved > maxBufferedBytes-retained {
+			e.dropped.Add(1)
+			return
+		}
+		if e.retained.CompareAndSwap(retained, retained+reserved) {
+			break
+		}
+	}
+	body, err := proto.MarshalOptions{}.MarshalAppend(make([]byte, 0, size), record)
+	if err != nil {
+		e.retained.Add(-reserved)
+		e.dropped.Add(1)
+		observability.Get().Warn("Failed to marshal OTLP record", "err", err)
+		return
+	}
 	select {
-	case e.logQueue <- r:
+	case queue <- queuedRecord{body: body, reserved: reserved}:
 	default:
+		e.retained.Add(-reserved)
 		e.dropped.Add(1)
 	}
 }
 
-// Shutdown closes the queue and waits for workers to drain. Blocks until all
-// workers finish or ctx expires. Idempotent; nil receiver is a no-op.
-func (e *Emitter) Shutdown(c context.Context) error {
+// Shutdown stops admission and drains within ctx. Expiration cancels active
+// HTTP exports and discards pending records. Repeated calls can await cleanup.
+func (e *Emitter) Shutdown(ctx context.Context) error {
 	if e == nil {
 		return nil
 	}
-
 	e.closeMu.Lock()
-	if e.closed.Swap(true) {
-		e.closeMu.Unlock()
-		return nil
+	if !e.closed {
+		e.closed = true
+		close(e.queue)
+		close(e.logQueue)
 	}
-	close(e.queue)
-	close(e.logQueue)
 	e.closeMu.Unlock()
 
-	done := make(chan struct{})
-	go func() {
-		e.wg.Wait()
-		close(done)
-	}()
-
 	select {
-	case <-done:
-	case <-c.Done():
-		return c.Err()
+	case <-e.done:
+		return nil
+	case <-ctx.Done():
+		e.cancel()
+		return ctx.Err()
 	}
-
-	if n := e.dropped.Load(); n > 0 {
-		observability.Get().Warn("Dropped spans during emitter lifetime", "count", n)
-	}
-
-	return nil
 }
 
-func (e *Emitter) worker() {
+func (e *Emitter) worker(queue <-chan queuedRecord, endpoint string) {
 	defer e.wg.Done()
-
-	batch := make([]*tracev1.Span, 0, e.batchSz)
+	batch := make([]queuedRecord, 0, min(e.batchSz, cap(queue)))
+	batchBytes := 0
 	timer := time.NewTimer(e.flushInt)
 	defer timer.Stop()
 
+	flush := func() {
+		if len(batch) == 0 {
+			return
+		}
+		if e.ctx.Err() == nil {
+			e.post(endpoint, e.envelope.marshal(batch, batchBytes))
+		} else {
+			e.dropped.Add(int64(len(batch)))
+		}
+		for i := range batch {
+			reserved := batch[i].reserved
+			batch[i] = queuedRecord{}
+			e.retained.Add(-reserved)
+		}
+		batch = batch[:0]
+		batchBytes = 0
+		timer.Reset(e.flushInt)
+	}
+
 	for {
 		select {
-		case span, ok := <-e.queue:
+		case record, ok := <-queue:
 			if !ok {
-				if len(batch) > 0 {
-					e.exportBatch(batch)
-				}
+				flush()
 				return
 			}
-			batch = append(batch, span)
+			if e.ctx.Err() != nil {
+				e.retained.Add(-record.reserved)
+				e.dropped.Add(1)
+				continue
+			}
+			size := recordFieldSize(len(record.body))
+			if e.envelope.size(batchBytes+size) > maxExportBytes {
+				flush()
+			}
+			batch = append(batch, record)
+			batchBytes += size
 			if len(batch) >= e.batchSz {
-				e.exportBatch(batch)
-				batch = batch[:0]
-				// Go 1.23+ drains the channel inside Stop/Reset automatically;
-				// the old `if !timer.Stop() { <-timer.C }` idiom deadlocks.
-				timer.Reset(e.flushInt)
+				flush()
 			}
-
 		case <-timer.C:
-			if len(batch) > 0 {
-				e.exportBatch(batch)
-				batch = batch[:0]
-			}
+			flush()
 			timer.Reset(e.flushInt)
 		}
 	}
 }
 
-// logWorker mirrors worker for the log-record export pipeline.
-func (e *Emitter) logWorker() {
-	defer e.wg.Done()
-
-	batch := make([]*logsv1.LogRecord, 0, e.batchSz)
-	timer := time.NewTimer(e.flushInt)
-	defer timer.Stop()
-
-	for {
-		select {
-		case rec, ok := <-e.logQueue:
-			if !ok {
-				if len(batch) > 0 {
-					e.exportLogBatch(batch)
-				}
-				return
-			}
-			batch = append(batch, rec)
-			if len(batch) >= e.batchSz {
-				e.exportLogBatch(batch)
-				batch = batch[:0]
-				timer.Reset(e.flushInt)
-			}
-
-		case <-timer.C:
-			if len(batch) > 0 {
-				e.exportLogBatch(batch)
-				batch = batch[:0]
-			}
-			timer.Reset(e.flushInt)
-		}
-	}
-}
-
-func (e *Emitter) exportBatch(spans []*tracev1.Span) {
-	req := &coltracepb.ExportTraceServiceRequest{
-		ResourceSpans: []*tracev1.ResourceSpans{{
-			Resource: e.resource,
-			ScopeSpans: []*tracev1.ScopeSpans{{
-				Scope: &commonv1.InstrumentationScope{Name: "workweave-router"},
-				Spans: spans,
-			}},
-		}},
-	}
-
-	body, err := proto.Marshal(req)
-	if err != nil {
-		observability.Get().Warn("Failed to marshal OTLP export request", "err", err)
-		return
-	}
-	e.post(e.endpoint, body)
-}
-
-func (e *Emitter) exportLogBatch(records []*logsv1.LogRecord) {
-	req := &collogspb.ExportLogsServiceRequest{
-		ResourceLogs: []*logsv1.ResourceLogs{{
-			Resource: e.resource,
-			ScopeLogs: []*logsv1.ScopeLogs{{
-				Scope:      &commonv1.InstrumentationScope{Name: "workweave-router"},
-				LogRecords: records,
-			}},
-		}},
-	}
-
-	body, err := proto.Marshal(req)
-	if err != nil {
-		observability.Get().Warn("Failed to marshal OTLP log export request", "err", err)
-		return
-	}
-	e.post(e.logEndpoint, body)
-}
-
-// post sends a marshaled OTLP protobuf body to endpoint. Failures are logged,
-// not returned: telemetry export is best-effort and never blocks the request.
 func (e *Emitter) post(endpoint string, body []byte) {
-	httpReq, err := http.NewRequest(http.MethodPost, endpoint, bytes.NewReader(body))
+	httpReq, err := http.NewRequestWithContext(e.ctx, http.MethodPost, endpoint, bytes.NewReader(body))
 	if err != nil {
 		observability.Get().Warn("Failed to create OTLP export HTTP request", "err", err)
 		return
@@ -301,14 +273,12 @@ func (e *Emitter) post(endpoint string, body []byte) {
 	for k, v := range e.headers {
 		httpReq.Header.Set(k, v)
 	}
-
 	resp, err := e.client.Do(httpReq)
 	if err != nil {
 		observability.Get().Warn("OTLP export request failed", "err", err)
 		return
 	}
 	defer resp.Body.Close()
-
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		observability.Get().Warn("OTLP export returned non-2xx status", "status", resp.StatusCode)
 	}
