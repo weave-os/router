@@ -9,6 +9,7 @@ import (
 	"context"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const getInferenceAttempts = `-- name: GetInferenceAttempts :many
@@ -78,6 +79,7 @@ func (q *Queries) GetInferenceAttempts(ctx context.Context, arg GetInferenceAtte
 
 const insertInferenceAttempt = `-- name: InsertInferenceAttempt :exec
 INSERT INTO router.model_router_inference_attempts (
+    created_at,
     installation_id,
     request_id,
     operation_id,
@@ -100,32 +102,34 @@ INSERT INTO router.model_router_inference_attempts (
     cache_read_tokens,
     cost_usd_micros
 ) VALUES (
-    $1::uuid,
-    $2::varchar,
+    $1::timestamptz,
+    $2::uuid,
     $3::varchar,
-    $4::int,
-    $5::varchar,
+    $4::varchar,
+    $5::int,
     $6::varchar,
     $7::varchar,
     $8::varchar,
     $9::varchar,
     $10::varchar,
-    $11::int,
-    $12::varchar,
+    $11::varchar,
+    $12::int,
     $13::varchar,
-    $14::int,
-    $15::bigint,
-    $16::boolean,
-    $17::int,
+    $14::varchar,
+    $15::int,
+    $16::bigint,
+    $17::boolean,
     $18::int,
     $19::int,
     $20::int,
-    $21::bigint
+    $21::int,
+    $22::bigint
 )
 ON CONFLICT (installation_id, request_id, operation_id, attempt_index) DO NOTHING
 `
 
 type InsertInferenceAttemptParams struct {
+	CreatedAt           pgtype.Timestamptz
 	InstallationID      uuid.UUID
 	RequestID           string
 	OperationID         string
@@ -158,6 +162,7 @@ type InsertInferenceAttemptParams struct {
 // Re-delivery of the same attempt is a no-op.
 //
 //	INSERT INTO router.model_router_inference_attempts (
+//	    created_at,
 //	    installation_id,
 //	    request_id,
 //	    operation_id,
@@ -180,31 +185,33 @@ type InsertInferenceAttemptParams struct {
 //	    cache_read_tokens,
 //	    cost_usd_micros
 //	) VALUES (
-//	    $1::uuid,
-//	    $2::varchar,
+//	    $1::timestamptz,
+//	    $2::uuid,
 //	    $3::varchar,
-//	    $4::int,
-//	    $5::varchar,
+//	    $4::varchar,
+//	    $5::int,
 //	    $6::varchar,
 //	    $7::varchar,
 //	    $8::varchar,
 //	    $9::varchar,
 //	    $10::varchar,
-//	    $11::int,
-//	    $12::varchar,
+//	    $11::varchar,
+//	    $12::int,
 //	    $13::varchar,
-//	    $14::int,
-//	    $15::bigint,
-//	    $16::boolean,
-//	    $17::int,
+//	    $14::varchar,
+//	    $15::int,
+//	    $16::bigint,
+//	    $17::boolean,
 //	    $18::int,
 //	    $19::int,
 //	    $20::int,
-//	    $21::bigint
+//	    $21::int,
+//	    $22::bigint
 //	)
 //	ON CONFLICT (installation_id, request_id, operation_id, attempt_index) DO NOTHING
 func (q *Queries) InsertInferenceAttempt(ctx context.Context, arg InsertInferenceAttemptParams) error {
 	_, err := q.db.Exec(ctx, insertInferenceAttempt,
+		arg.CreatedAt,
 		arg.InstallationID,
 		arg.RequestID,
 		arg.OperationID,

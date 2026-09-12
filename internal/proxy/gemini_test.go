@@ -53,7 +53,7 @@ func TestProxyGeminiGenerateContent_RoutesToGoogleProvider(t *testing.T) {
 		store,
 		false, providers.ProviderGoogle, "gemini-2.5-flash",
 		nil,
-	)
+	).WithObservationWorkers(testObservationWorkers(t))
 
 	ctx := authedCtx("00000000-0000-0000-0000-000000000001")
 	rec := httptest.NewRecorder()
@@ -84,7 +84,7 @@ func TestProxyGeminiGenerateContent_RestrictsRoutingToGeminiFamily(t *testing.T)
 		store,
 		false, providers.ProviderGoogle, "gemini-2.5-flash",
 		nil,
-	)
+	).WithObservationWorkers(testObservationWorkers(t))
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/v1beta/models/gemini-1.5-pro:generateContent", strings.NewReader(""))
@@ -108,7 +108,7 @@ func TestProxyGeminiGenerateContent_CrossFormatReturnsSentinel(t *testing.T) {
 		store,
 		false, providers.ProviderGoogle, "gemini-2.5-flash",
 		nil,
-	)
+	).WithObservationWorkers(testObservationWorkers(t))
 
 	ctx := authedCtx("00000000-0000-0000-0000-000000000001")
 	rec := httptest.NewRecorder()
@@ -130,7 +130,7 @@ func TestProxyGeminiGenerateContent_DelaysMarkerUntilFirstUpstreamEvent(t *testi
 		&fakeRouter{decision: router.Decision{Provider: providers.ProviderGoogle, Model: "gemini-2.5-pro", Reason: "cluster"}},
 		map[string]providers.Client{providers.ProviderGoogle: googleProv},
 		nil, false, nil, store, false, providers.ProviderGoogle, "gemini-2.5-flash", nil,
-	).WithRetrySleep(noRetrySleep)
+	).WithObservationWorkers(testObservationWorkers(t)).WithRetrySleep(noRetrySleep)
 	rec := httptest.NewRecorder()
 	body := strings.Replace(geminiInjectedBody, `"stream":false`, `"stream":true`, 1)
 	require.NoError(t, svc.ProxyGeminiGenerateContent(authedCtx("00000000-0000-0000-0000-000000000001"), []byte(body), rec,
@@ -153,7 +153,7 @@ func TestProxyGeminiGenerateContent_RetriesBuffered429WithoutMarkerLeak(t *testi
 		&fakeRouter{decision: router.Decision{Provider: providers.ProviderGoogle, Model: "gemini-2.5-pro", Reason: "cluster"}},
 		map[string]providers.Client{providers.ProviderGoogle: googleProv},
 		nil, false, nil, store, false, providers.ProviderGoogle, "gemini-2.5-flash", nil,
-	).WithRetrySleep(noRetrySleep)
+	).WithObservationWorkers(testObservationWorkers(t)).WithRetrySleep(noRetrySleep)
 	rec := httptest.NewRecorder()
 	body := strings.Replace(geminiInjectedBody, `"stream":false`, `"stream":true`, 1)
 	err := svc.ProxyGeminiGenerateContent(authedCtx("00000000-0000-0000-0000-000000000001"), []byte(body), rec,
@@ -197,7 +197,7 @@ func TestProxyGeminiGenerateContent_PersistsPassthroughExperimentTelemetry(t *te
 		map[string]providers.Client{providers.ProviderGoogle: googleProvider},
 		nil, false, nil, newFakePinStore(), false,
 		providers.ProviderGoogle, "gemini-2.5-flash", telemetry,
-	)
+	).WithObservationWorkers(testObservationWorkers(t))
 	body := strings.Replace(geminiInjectedBody, "gemini-1.5-pro", "gemini-2.5-pro", 1)
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodPost, "/v1beta/models/gemini-2.5-pro:generateContent", nil)
@@ -299,7 +299,7 @@ func TestProxyGeminiGenerateContent_PersistsExperimentUpstreamError(t *testing.T
 		map[string]providers.Client{providers.ProviderGoogle: googleProvider},
 		nil, false, nil, newFakePinStore(), false,
 		providers.ProviderGoogle, "gemini-2.5-flash", telemetry,
-	)
+	).WithObservationWorkers(testObservationWorkers(t))
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodPost, "/v1beta/models/gemini-1.5-pro:generateContent", nil)
 

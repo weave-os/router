@@ -86,7 +86,7 @@ func TestService_ProxyOpenAIResponses_NativeTurnRecordsTerminalFinishReason(t *t
 				}},
 				map[string]providers.Client{providers.ProviderOpenAI: provider},
 				nil, false, nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", telemetry,
-			)
+			).WithObservationWorkers(testObservationWorkers(t))
 
 			body := []byte(`{"model":"gpt-5.6-sol","stream":true,"input":[{"type":"reasoning","id":"rs_0","encrypted_content":"opaque"},{"type":"message","role":"user","content":[{"type":"input_text","text":"continue"}]}]}`)
 			rec := httptest.NewRecorder()
@@ -118,7 +118,7 @@ func TestService_ProxyOpenAIResponses_NativeFailedTerminalRecordsNoFinishReason(
 		}},
 		map[string]providers.Client{providers.ProviderOpenAI: provider},
 		nil, false, nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", telemetry,
-	)
+	).WithObservationWorkers(testObservationWorkers(t))
 
 	body := []byte(`{"model":"gpt-5.6-sol","stream":true,"input":[{"type":"reasoning","id":"rs_0","encrypted_content":"opaque"},{"type":"message","role":"user","content":[{"type":"input_text","text":"continue"}]}]}`)
 	rec := httptest.NewRecorder()

@@ -35,7 +35,7 @@ func TestSafeGoRecoversFromPanic(t *testing.T) {
 // a bounded context derived from context.Background(), independent of any
 // caller-supplied ctx.
 func TestSafeGoRunsFnToCompletion(t *testing.T) {
-	var buf bytes.Buffer
+	var buf concurrentLogBuffer
 	log := slog.New(slog.NewTextHandler(&buf, nil))
 	done := make(chan struct{})
 
@@ -90,10 +90,10 @@ type concurrentLogBuffer struct {
 	buffer bytes.Buffer
 }
 
-func (b *concurrentLogBuffer) Write(payload []byte) (int, error) {
+func (b *concurrentLogBuffer) Write(p []byte) (int, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	return b.buffer.Write(payload)
+	return b.buffer.Write(p)
 }
 
 func (b *concurrentLogBuffer) String() string {

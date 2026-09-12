@@ -2,12 +2,16 @@ package proxy
 
 import (
 	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"weave-os/router/internal/policyclient"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
@@ -33,7 +37,7 @@ func (r *captureHMMOutcomeReporter) Route(context.Context, router.Request) (rout
 
 func TestReportPolicyOutcome_UsesFreshMetadataForStickyServedDecision(t *testing.T) {
 	reporter := &captureHMMOutcomeReporter{ch: make(chan map[string]interface{}, 1)}
-	s := (&Service{}).WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyHMM, Router: reporter})
+	s := (&Service{}).WithObservationWorkers(testObservationWorkers(t)).WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyHMM, Router: reporter})
 
 	routeRes := turnLoopResult{
 		StickyHit: true,
@@ -93,7 +97,9 @@ func TestReportPolicyOutcome_UsesFreshMetadataForStickyServedDecision(t *testing
 		assert.NotContains(t, payload, "response_body")
 		assert.NotContains(t, payload, "response_body_format")
 		assert.Equal(t, false, payload["response_body_truncated"])
-		assert.Equal(t, wantCost, payload["cost_usd"])
+		cost, err := payload["cost_usd"].(json.Number).Float64()
+		require.NoError(t, err)
+		assert.Equal(t, wantCost, cost)
 	case <-time.After(time.Second):
 		t.Fatal("timed out waiting for HMM outcome payload")
 	}
@@ -101,7 +107,7 @@ func TestReportPolicyOutcome_UsesFreshMetadataForStickyServedDecision(t *testing
 
 func TestReportPolicyOutcome_OmitsResponseBodyWhenTrainingIsNotAllowed(t *testing.T) {
 	reporter := &captureHMMOutcomeReporter{ch: make(chan map[string]interface{}, 1)}
-	s := (&Service{}).WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyHMM, Router: reporter})
+	s := (&Service{}).WithObservationWorkers(testObservationWorkers(t)).WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyHMM, Router: reporter})
 	routeRes := turnLoopResult{Fresh: router.Decision{
 		Model:    "moonshotai/kimi-k2.7",
 		Metadata: &router.RoutingMetadata{RouteID: "route-1", Strategy: string(router.StrategyHMM)},
@@ -122,7 +128,7 @@ func TestReportPolicyOutcome_OmitsResponseBodyWhenTrainingIsNotAllowed(t *testin
 func TestReportPolicyOutcome_AuthoritativeMismatchFailsClosedForTraining(t *testing.T) {
 	strategy := router.Strategy("authoritative-outcome-test")
 	reporter := &captureHMMOutcomeReporter{ch: make(chan map[string]interface{}, 1)}
-	s := (&Service{}).WithPolicyStrategy(policy.StrategySpec{
+	s := (&Service{}).WithObservationWorkers(testObservationWorkers(t)).WithPolicyStrategy(policy.StrategySpec{
 		Strategy: strategy,
 		Router:   reporter,
 	})
@@ -177,7 +183,7 @@ func TestReportPolicyOutcome_AuthoritativeMismatchFailsClosedForTraining(t *test
 func TestReportPolicyOutcome_EffortMismatchExcludedFromTraining(t *testing.T) {
 	strategy := router.Strategy("effort-outcome-test")
 	reporter := &captureHMMOutcomeReporter{ch: make(chan map[string]interface{}, 1)}
-	s := (&Service{}).WithPolicyStrategy(policy.StrategySpec{
+	s := (&Service{}).WithObservationWorkers(testObservationWorkers(t)).WithPolicyStrategy(policy.StrategySpec{
 		Strategy: strategy,
 		Router:   reporter,
 	})
@@ -215,4 +221,57 @@ func TestReportPolicyOutcome_EffortMismatchExcludedFromTraining(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("timed out waiting for policy outcome payload")
 	}
+}
+
+func TestPolicyOutcomeHTTPAdmissionIsIndependentOfSlowEndpoint(t *testing.T) {
+	requests := make(chan map[string]any, 1)
+	release := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var payload map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		requests <- payload
+		select {
+		case <-release:
+			w.WriteHeader(http.StatusAccepted)
+		case <-r.Context().Done():
+		}
+	}))
+	defer server.Close()
+	defer close(release)
+	reporter := &httpOutcomeRouter{Client: policyclient.New(server.URL, server.Client(), 0)}
+	workers := testObservationWorkers(t)
+	service := (&Service{}).WithObservationWorkers(workers).WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyHMM, Router: reporter})
+	decision := router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-haiku-4-5", Metadata: &router.RoutingMetadata{RouteID: "route-http", Strategy: string(router.StrategyHMM)}}
+	ctx, cancel := context.WithCancel(context.WithValue(context.Background(), PolicyTrainingAllowedContextKey{}, true))
+	defer cancel()
+	returned := make(chan struct{})
+	go func() {
+		service.reportPolicyOutcome(ctx, turnLoopResult{Fresh: decision}, decision, effortResolution{}, decision.Provider, false, 12, 12, 4, 0, 0, 1, 2, nil, &policyOutcomeResponse{Body: []byte(`{"content":[{"type":"text","text":"finished"}]}`)})
+		close(returned)
+	}()
+	select {
+	case <-returned:
+	case <-time.After(time.Second):
+		t.Fatal("outcome endpoint delayed the producer")
+	}
+	cancel()
+	select {
+	case payload := <-requests:
+		assert.Equal(t, "route-http", payload["route_id"])
+		assert.Equal(t, "finished", payload["response_text"])
+		assert.Equal(t, true, payload["training_allowed"])
+		assert.Equal(t, float64(12), payload["input_tokens"])
+		assert.Equal(t, providers.ProviderAnthropic, payload["served_provider"])
+	case <-time.After(time.Second):
+		t.Fatal("admitted report did not survive request cancellation")
+	}
+}
+
+type httpOutcomeRouter struct{ *policyclient.Client }
+
+func (*httpOutcomeRouter) Route(context.Context, router.Request) (router.Decision, error) {
+	return router.Decision{}, nil
 }
