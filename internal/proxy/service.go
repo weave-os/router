@@ -4551,7 +4551,8 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	otel.Flush(ctx)
 
 	if !agentShadowMode {
-		s.recordTurnUsage(ctx, routeRes, finalProvider, decision.ServedIdentity(), in, out, cacheCreation, cacheRead)
+		s.recordTurnUsage(ctx, routeRes, finalProvider, decision.ServedIdentity(), in, out, cacheCreation, cacheRead,
+			s.turnCompletionIdentity(requestID, routeRes, decision, proxyErr == nil))
 	}
 
 	// Eval rows must not enter serving telemetry; they would corrupt offline policy analysis.
@@ -4929,19 +4930,20 @@ func (s *Service) logPlannerOutcome(ctx context.Context, res turnLoopResult) {
 	)
 }
 
-func (s *Service) recordTurnUsage(ctx context.Context, res turnLoopResult, servedProvider, servedModel string, in, out, cacheCreation, cacheRead int) {
+func (s *Service) recordTurnUsage(ctx context.Context, res turnLoopResult, servedProvider, servedModel string, in, out, cacheCreation, cacheRead int, completion completedTurn) {
 	if s.pinStore == nil || res.HardPinned || res.BlindExperimentPassthrough {
 		return
 	}
 	if isHMMTurn(res) {
-		s.recordHMMTurnHistory(res, servedProvider, servedModel, in, out, cacheCreation, cacheRead)
+		s.recordHMMTurnHistory(res, completion, servedProvider, servedModel, in, out, cacheCreation, cacheRead)
 		return
 	}
 	var zeroKey [sessionpin.SessionKeyLen]byte
 	if res.SessionKey == zeroKey {
 		return
 	}
-	if in == 0 && out == 0 && cacheCreation == 0 && cacheRead == 0 {
+	hasUsage := in != 0 || out != 0 || cacheCreation != 0 || cacheRead != 0
+	if !hasUsage && completion.RequestID == "" {
 		return
 	}
 	usage := sessionpin.Usage{
@@ -4950,11 +4952,20 @@ func (s *Service) recordTurnUsage(ctx context.Context, res turnLoopResult, serve
 		CachedReadTokens:    cacheRead,
 		CachedWriteTokens:   cacheCreation,
 		OutputTokens:        out,
-		EndedAt:             time.Now(),
+		EndedAt:             completion.At,
 		ServedModel:         servedModel,
 		ServedProvider:      servedProvider,
 		PriorServedModel:    res.PriorServedModel,
 		SessionEverSwitched: res.SessionEverSwitched,
+		PreserveUsage:       !hasUsage,
+		CompletedRequestID:  completion.RequestID,
+		CompletedRouteID:    completion.RouteID,
+		CompletedModel:      servedModel,
+		CompletedStrategy:   completion.Strategy,
+		CompletedAt:         completion.At,
+	}
+	if usage.EndedAt.IsZero() {
+		usage.EndedAt = time.Now()
 	}
 	role := res.PinRole
 	if isUserForcedReason(res.Decision.Reason) {
@@ -4968,11 +4979,41 @@ func (s *Service) recordTurnUsage(ctx context.Context, res turnLoopResult, serve
 	}
 }
 
+type completedTurn struct {
+	RequestID string
+	RouteID   string
+	Strategy  router.Strategy
+	At        time.Time
+}
+
+func (s *Service) turnCompletionIdentity(requestID string, res turnLoopResult, decision router.Decision, completed bool) completedTurn {
+	if !completed || requestID == "" {
+		return completedTurn{}
+	}
+	now := time.Now
+	if s.now != nil {
+		now = s.now
+	}
+	completion := completedTurn{RequestID: requestID, Strategy: strategyForTurnLoopResult(res), At: now()}
+	for _, routed := range []router.Decision{decision, res.Fresh} {
+		metadata := routed.Metadata
+		if metadata == nil || metadata.RouteID == "" {
+			continue
+		}
+		completion.RouteID = metadata.RouteID
+		if metadata.Strategy != "" {
+			completion.Strategy = router.Strategy(metadata.Strategy)
+		}
+		break
+	}
+	return completion
+}
+
 func isHMMTurn(res turnLoopResult) bool {
 	return isHMMDecision(res.Decision) || isHMMDecision(res.Fresh)
 }
 
-func (s *Service) recordHMMTurnHistory(res turnLoopResult, servedProvider, servedModel string, in, out, cacheCreation, cacheRead int) {
+func (s *Service) recordHMMTurnHistory(res turnLoopResult, completion completedTurn, servedProvider, servedModel string, in, out, cacheCreation, cacheRead int) {
 	if servedModel == "" || res.InstallationID == uuid.Nil {
 		return
 	}
@@ -4983,7 +5024,7 @@ func (s *Service) recordHMMTurnHistory(res turnLoopResult, servedProvider, serve
 	hasUsage := in != 0 || out != 0 || cacheCreation != 0 || cacheRead != 0
 	strategyCtx := strategyContext(strategyForTurnLoopResult(res))
 	historyProvider := servedProvider
-	if !hasUsage {
+	if !hasUsage && completion.RequestID == "" {
 		// A failed turn has no usage writeback; preserve the prior provider to
 		// avoid an invalid model/provider pair on the next HMM stay.
 		if prior := s.loadHMMHistory(strategyCtx, res.SessionKey, res.PinRole); prior.Provider != "" {
@@ -5003,12 +5044,15 @@ func (s *Service) recordHMMTurnHistory(res turnLoopResult, servedProvider, serve
 		TurnCount:      1,
 		PinnedUntil:    pinExpiry(hmmHistoryReason),
 	})
-	// Zero tokens means a failed/empty upstream turn — don't clobber prior
-	// usage counters; the TTL-refreshing upsert above already ran.
-	if !hasUsage {
+	// Failed zero-usage turns only refresh TTL. Successful zero-usage turns
+	// still advance completion identity without clobbering planner evidence.
+	if !hasUsage && completion.RequestID == "" {
 		return
 	}
-	now := time.Now()
+	now := completion.At
+	if now.IsZero() {
+		now = time.Now()
+	}
 	if err := s.pinStore.UpdateUsage(context.Background(), res.SessionKey, role, sessionpin.Usage{
 		Strategy:            router.StrategyFromContext(strategyCtx),
 		InputTokens:         in,
@@ -5020,6 +5064,12 @@ func (s *Service) recordHMMTurnHistory(res turnLoopResult, servedProvider, serve
 		ServedProvider:      servedProvider,
 		PriorServedModel:    res.PriorServedModel,
 		SessionEverSwitched: res.SessionEverSwitched,
+		PreserveUsage:       !hasUsage,
+		CompletedRequestID:  completion.RequestID,
+		CompletedRouteID:    completion.RouteID,
+		CompletedModel:      servedModel,
+		CompletedStrategy:   completion.Strategy,
+		CompletedAt:         completion.At,
 	}); err != nil {
 		observability.Get().Error("HMM switch-history writeback failed", "err", err)
 	}
@@ -7227,7 +7277,8 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		emitCallLog()
 	}
 
-	s.recordTurnUsage(ctx, routeRes, finalProvider, decision.ServedIdentity(), in, out, cacheCreation, cacheRead)
+	s.recordTurnUsage(ctx, routeRes, finalProvider, decision.ServedIdentity(), in, out, cacheCreation, cacheRead,
+		s.turnCompletionIdentity(requestID, routeRes, decision, proxyErr == nil))
 
 	if proxyErr == nil {
 		s.emitBilling(ctx, requestID, externalID, decision, actPricing, routeRes, in, out, cacheCreation, cacheRead)

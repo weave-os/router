@@ -707,6 +707,11 @@ type RouterSessionPin struct {
 	PolicyGroup               string
 	RoutingStrategy           string
 	PinnedEffort              string
+	LastCompletedRequestID    string
+	LastCompletedRouteID      string
+	LastCompletedModel        string
+	LastCompletedStrategy     string
+	LastCompletedAt           pgtype.Timestamptz
 }
 
 // Explicit per-session router strategy preferences

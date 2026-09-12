@@ -774,7 +774,12 @@ func TestTurnLoop_PlannerDisabledPreservesFirstDecisionWins(t *testing.T) {
 // Asserts the orchestrator writes upstream usage back to the pin row.
 func TestTurnLoop_UsageWritebackPersistsCacheStats(t *testing.T) {
 	store := newFakePinStore()
-	fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-haiku-4-5", Reason: "fresh"}}
+	fr := &fakeRouter{decision: router.Decision{
+		Provider: providers.ProviderAnthropic,
+		Model:    "claude-haiku-4-5",
+		Reason:   "fresh",
+		Metadata: &router.RoutingMetadata{RouteID: "route-usage-writeback", Strategy: string(router.StrategyCluster)},
+	}}
 	provider := &usageProvider{in: 1200, out: 80, cacheIn: 900, cacheOut: 200}
 	// Telemetry repo flips usageRequired() on; nil here would short-circuit
 	// usage extraction in the proxy.
@@ -807,6 +812,12 @@ func TestTurnLoop_UsageWritebackPersistsCacheStats(t *testing.T) {
 	assert.Equal(t, 80, got.OutputTokens)
 	assert.Equal(t, 900, got.CachedReadTokens)
 	assert.Equal(t, 200, got.CachedWriteTokens)
+	assert.False(t, got.PreserveUsage)
+	assert.NotEmpty(t, got.CompletedRequestID)
+	assert.Equal(t, "route-usage-writeback", got.CompletedRouteID)
+	assert.Equal(t, "claude-haiku-4-5", got.CompletedModel)
+	assert.Equal(t, router.StrategyCluster, got.CompletedStrategy)
+	assert.False(t, got.CompletedAt.IsZero())
 }
 
 // trimSessionTurn builds an alternating user/assistant body with a constant

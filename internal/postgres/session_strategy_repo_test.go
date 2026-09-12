@@ -223,6 +223,6 @@ func TestSessionPinMutationsCarryExpectedRoutingStrategy(t *testing.T) {
 	for _, call := range db.execCalls {
 		assert.Contains(t, call.query, "routing_strategy = ''")
 		assert.Contains(t, call.query, "<> 'hmm_beta'")
-		assert.Equal(t, string(router.StrategyHMMBeta), call.args[len(call.args)-1])
+		assert.Contains(t, call.args, string(router.StrategyHMMBeta))
 	}
 }

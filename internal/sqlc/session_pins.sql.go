@@ -21,7 +21,7 @@ WHERE session_key = $1::bytea
     OR (routing_strategy = '' AND $3::varchar <> 'hmm_beta')
   )
   AND pinned_until > CURRENT_TIMESTAMP
-RETURNING session_key, role, installation_id, pinned_provider, pinned_model, decision_reason, turn_count, pinned_until, first_pinned_at, last_seen_at, last_input_tokens, last_cached_read_tokens, last_cached_write_tokens, last_output_tokens, last_turn_ended_at, consecutive_upstream_errors, last_served_model, has_ever_switched, paired_provider, paired_model, consecutive_overload_errors, disabled_providers, policy_group, routing_strategy, pinned_effort
+RETURNING session_key, role, installation_id, pinned_provider, pinned_model, decision_reason, turn_count, pinned_until, first_pinned_at, last_seen_at, last_input_tokens, last_cached_read_tokens, last_cached_write_tokens, last_output_tokens, last_turn_ended_at, consecutive_upstream_errors, last_served_model, has_ever_switched, paired_provider, paired_model, consecutive_overload_errors, disabled_providers, policy_group, routing_strategy, pinned_effort, last_completed_request_id, last_completed_route_id, last_completed_model, last_completed_strategy, last_completed_at
 `
 
 type DeleteSessionPinParams struct {
@@ -42,7 +42,7 @@ type DeleteSessionPinParams struct {
 //	    OR (routing_strategy = '' AND $3::varchar <> 'hmm_beta')
 //	  )
 //	  AND pinned_until > CURRENT_TIMESTAMP
-//	RETURNING session_key, role, installation_id, pinned_provider, pinned_model, decision_reason, turn_count, pinned_until, first_pinned_at, last_seen_at, last_input_tokens, last_cached_read_tokens, last_cached_write_tokens, last_output_tokens, last_turn_ended_at, consecutive_upstream_errors, last_served_model, has_ever_switched, paired_provider, paired_model, consecutive_overload_errors, disabled_providers, policy_group, routing_strategy, pinned_effort
+//	RETURNING session_key, role, installation_id, pinned_provider, pinned_model, decision_reason, turn_count, pinned_until, first_pinned_at, last_seen_at, last_input_tokens, last_cached_read_tokens, last_cached_write_tokens, last_output_tokens, last_turn_ended_at, consecutive_upstream_errors, last_served_model, has_ever_switched, paired_provider, paired_model, consecutive_overload_errors, disabled_providers, policy_group, routing_strategy, pinned_effort, last_completed_request_id, last_completed_route_id, last_completed_model, last_completed_strategy, last_completed_at
 func (q *Queries) DeleteSessionPin(ctx context.Context, arg DeleteSessionPinParams) (RouterSessionPin, error) {
 	row := q.db.QueryRow(ctx, deleteSessionPin, arg.SessionKey, arg.Role, arg.ExpectedRoutingStrategy)
 	var i RouterSessionPin
@@ -72,6 +72,11 @@ func (q *Queries) DeleteSessionPin(ctx context.Context, arg DeleteSessionPinPara
 		&i.PolicyGroup,
 		&i.RoutingStrategy,
 		&i.PinnedEffort,
+		&i.LastCompletedRequestID,
+		&i.LastCompletedRouteID,
+		&i.LastCompletedModel,
+		&i.LastCompletedStrategy,
+		&i.LastCompletedAt,
 	)
 	return i, err
 }
@@ -127,7 +132,7 @@ func (q *Queries) DisableSessionPinProvider(ctx context.Context, arg DisableSess
 }
 
 const getSessionPin = `-- name: GetSessionPin :one
-SELECT session_key, role, installation_id, pinned_provider, pinned_model, decision_reason, turn_count, pinned_until, first_pinned_at, last_seen_at, last_input_tokens, last_cached_read_tokens, last_cached_write_tokens, last_output_tokens, last_turn_ended_at, consecutive_upstream_errors, last_served_model, has_ever_switched, paired_provider, paired_model, consecutive_overload_errors, disabled_providers, policy_group, routing_strategy, pinned_effort
+SELECT session_key, role, installation_id, pinned_provider, pinned_model, decision_reason, turn_count, pinned_until, first_pinned_at, last_seen_at, last_input_tokens, last_cached_read_tokens, last_cached_write_tokens, last_output_tokens, last_turn_ended_at, consecutive_upstream_errors, last_served_model, has_ever_switched, paired_provider, paired_model, consecutive_overload_errors, disabled_providers, policy_group, routing_strategy, pinned_effort, last_completed_request_id, last_completed_route_id, last_completed_model, last_completed_strategy, last_completed_at
 FROM router.session_pins
 WHERE session_key = $1::bytea
   AND role        = $2::varchar
@@ -145,7 +150,7 @@ type GetSessionPinParams struct {
 // last_turn_ended_at carry the previous turn's upstream usage; the
 // planner reads them to weigh switch EV against eviction cost.
 //
-//	SELECT session_key, role, installation_id, pinned_provider, pinned_model, decision_reason, turn_count, pinned_until, first_pinned_at, last_seen_at, last_input_tokens, last_cached_read_tokens, last_cached_write_tokens, last_output_tokens, last_turn_ended_at, consecutive_upstream_errors, last_served_model, has_ever_switched, paired_provider, paired_model, consecutive_overload_errors, disabled_providers, policy_group, routing_strategy, pinned_effort
+//	SELECT session_key, role, installation_id, pinned_provider, pinned_model, decision_reason, turn_count, pinned_until, first_pinned_at, last_seen_at, last_input_tokens, last_cached_read_tokens, last_cached_write_tokens, last_output_tokens, last_turn_ended_at, consecutive_upstream_errors, last_served_model, has_ever_switched, paired_provider, paired_model, consecutive_overload_errors, disabled_providers, policy_group, routing_strategy, pinned_effort, last_completed_request_id, last_completed_route_id, last_completed_model, last_completed_strategy, last_completed_at
 //	FROM router.session_pins
 //	WHERE session_key = $1::bytea
 //	  AND role        = $2::varchar
@@ -178,6 +183,11 @@ func (q *Queries) GetSessionPin(ctx context.Context, arg GetSessionPinParams) (R
 		&i.PolicyGroup,
 		&i.RoutingStrategy,
 		&i.PinnedEffort,
+		&i.LastCompletedRequestID,
+		&i.LastCompletedRouteID,
+		&i.LastCompletedModel,
+		&i.LastCompletedStrategy,
+		&i.LastCompletedAt,
 	)
 	return i, err
 }
@@ -357,26 +367,70 @@ func (q *Queries) SweepExpiredSessionPins(ctx context.Context) error {
 
 const updateSessionPinUsage = `-- name: UpdateSessionPinUsage :exec
 UPDATE router.session_pins
-SET last_input_tokens        = $1::int,
-    last_cached_read_tokens  = $2::int,
-    last_cached_write_tokens = $3::int,
-    last_output_tokens       = $4::int,
-    last_turn_ended_at       = $5::timestamptz,
-    pinned_provider          = $6::varchar,
-    has_ever_switched        = has_ever_switched
-      OR $7::boolean
-      OR (last_served_model <> '' AND last_served_model <> $8::varchar)
-      OR ($9::varchar <> '' AND $9::varchar <> $8::varchar),
-    last_served_model        = $8::varchar
-WHERE session_key = $10::bytea
-  AND role        = $11::varchar
-  AND (
-    routing_strategy = $12::varchar
-    OR (routing_strategy = '' AND $12::varchar <> 'hmm_beta')
-  )
+SET last_input_tokens = CASE WHEN NOT $1::boolean AND (
+        routing_strategy = $2::varchar
+        OR (routing_strategy = '' AND $2::varchar <> 'hmm_beta')
+      )
+      THEN $3::int ELSE last_input_tokens END,
+    last_cached_read_tokens = CASE WHEN NOT $1::boolean AND (
+        routing_strategy = $2::varchar
+        OR (routing_strategy = '' AND $2::varchar <> 'hmm_beta')
+      )
+      THEN $4::int ELSE last_cached_read_tokens END,
+    last_cached_write_tokens = CASE WHEN NOT $1::boolean AND (
+        routing_strategy = $2::varchar
+        OR (routing_strategy = '' AND $2::varchar <> 'hmm_beta')
+      )
+      THEN $5::int ELSE last_cached_write_tokens END,
+    last_output_tokens = CASE WHEN NOT $1::boolean AND (
+        routing_strategy = $2::varchar
+        OR (routing_strategy = '' AND $2::varchar <> 'hmm_beta')
+      )
+      THEN $6::int ELSE last_output_tokens END,
+    last_turn_ended_at = CASE WHEN NOT $1::boolean AND (
+        routing_strategy = $2::varchar
+        OR (routing_strategy = '' AND $2::varchar <> 'hmm_beta')
+      )
+      THEN $7::timestamptz ELSE last_turn_ended_at END,
+    pinned_provider = CASE WHEN NOT $1::boolean AND (
+        routing_strategy = $2::varchar
+        OR (routing_strategy = '' AND $2::varchar <> 'hmm_beta')
+      )
+      THEN $8::varchar ELSE pinned_provider END,
+    has_ever_switched = has_ever_switched OR (NOT $1::boolean AND (
+        routing_strategy = $2::varchar
+        OR (routing_strategy = '' AND $2::varchar <> 'hmm_beta')
+      ) AND (
+      $9::boolean
+      OR (last_served_model <> '' AND last_served_model <> $10::varchar)
+      OR ($11::varchar <> '' AND $11::varchar <> $10::varchar))),
+    last_served_model = CASE WHEN NOT $1::boolean AND (
+        routing_strategy = $2::varchar
+        OR (routing_strategy = '' AND $2::varchar <> 'hmm_beta')
+      )
+      THEN $10::varchar ELSE last_served_model END,
+    last_completed_request_id = CASE WHEN $12::varchar <> ''
+        AND (last_completed_at IS NULL OR $13::timestamptz >= last_completed_at)
+      THEN $12::varchar ELSE last_completed_request_id END,
+    last_completed_route_id = CASE WHEN $12::varchar <> ''
+        AND (last_completed_at IS NULL OR $13::timestamptz >= last_completed_at)
+      THEN $14::varchar ELSE last_completed_route_id END,
+    last_completed_model = CASE WHEN $12::varchar <> ''
+        AND (last_completed_at IS NULL OR $13::timestamptz >= last_completed_at)
+      THEN $15::varchar ELSE last_completed_model END,
+    last_completed_strategy = CASE WHEN $12::varchar <> ''
+        AND (last_completed_at IS NULL OR $13::timestamptz >= last_completed_at)
+      THEN $16::varchar ELSE last_completed_strategy END,
+    last_completed_at = CASE WHEN $12::varchar <> ''
+        AND (last_completed_at IS NULL OR $13::timestamptz >= last_completed_at)
+      THEN $13::timestamptz ELSE last_completed_at END
+WHERE session_key = $17::bytea
+  AND role        = $18::varchar
 `
 
 type UpdateSessionPinUsageParams struct {
+	PreserveUsage           bool
+	ExpectedRoutingStrategy string
 	LastInputTokens         int32
 	LastCachedReadTokens    int32
 	LastCachedWriteTokens   int32
@@ -386,50 +440,94 @@ type UpdateSessionPinUsageParams struct {
 	SessionEverSwitched     bool
 	LastServedModel         string
 	PriorServedModel        string
+	CompletedRequestID      string
+	CompletedAt             pgtype.Timestamptz
+	CompletedRouteID        string
+	CompletedModel          string
+	CompletedStrategy       string
 	SessionKey              []byte
 	Role                    string
-	ExpectedRoutingStrategy string
 }
 
-// Records the previous turn's upstream token usage on an existing pin
-// row. Fired off the request path after the upstream response
-// completes; the planner reads these columns at the start of the next
-// turn to compute switch EV against eviction cost. The UPDATE matches
-// by (session_key, role); if the pin has been evicted or never
-// existed, zero rows are affected and the adapter wraps that as a
-// successful no-op. A strategy mismatch is also a no-op, preventing a late
-// response from mutating a replacement strategy's pin. last_served_model records the model that actually
-// served this turn; it lives here (not in UpsertSessionPin) so a
-// /force-model upsert cannot overwrite the genuinely-last-served model
-// before the next turn reads it to detect a mid-session model switch.
-// pinned_provider is updated to the binding that actually served so per-turn
-// policies receive correct previous-provider cache affinity after fallback.
-// has_ever_switched latches true the first time the just-served model
-// differs from a prior non-empty last_served_model. Caller-supplied model and
-// latch evidence preserves history when the stored role row is new.
-// The latch keeps stripping stale thinking signatures on later turns because
-// clients resend the full transcript.
+// Records previous-turn usage and the newest successfully completed turn
+// identity on an existing pin. This write is synchronous after the upstream
+// response so feedback can resolve the latest completion without waiting for
+// asynchronous request telemetry. Missing usage preserves planner evidence
+// while still allowing completion identity to advance.
+//
+// The UPDATE matches by (session_key, role); a missing/evicted row is a no-op.
+// A strategy mismatch suppresses planner-field mutations so a late response
+// cannot alter a replacement strategy's pin, but completion identity still
+// advances by timestamp. An older completion cannot replace a newer identity.
+//
+// last_served_model and pinned_provider continue to record the binding that
+// actually served usage. has_ever_switched latches model-switch evidence so
+// later turns keep stripping stale thinking signatures from resent history.
 //
 //	UPDATE router.session_pins
-//	SET last_input_tokens        = $1::int,
-//	    last_cached_read_tokens  = $2::int,
-//	    last_cached_write_tokens = $3::int,
-//	    last_output_tokens       = $4::int,
-//	    last_turn_ended_at       = $5::timestamptz,
-//	    pinned_provider          = $6::varchar,
-//	    has_ever_switched        = has_ever_switched
-//	      OR $7::boolean
-//	      OR (last_served_model <> '' AND last_served_model <> $8::varchar)
-//	      OR ($9::varchar <> '' AND $9::varchar <> $8::varchar),
-//	    last_served_model        = $8::varchar
-//	WHERE session_key = $10::bytea
-//	  AND role        = $11::varchar
-//	  AND (
-//	    routing_strategy = $12::varchar
-//	    OR (routing_strategy = '' AND $12::varchar <> 'hmm_beta')
-//	  )
+//	SET last_input_tokens = CASE WHEN NOT $1::boolean AND (
+//	        routing_strategy = $2::varchar
+//	        OR (routing_strategy = '' AND $2::varchar <> 'hmm_beta')
+//	      )
+//	      THEN $3::int ELSE last_input_tokens END,
+//	    last_cached_read_tokens = CASE WHEN NOT $1::boolean AND (
+//	        routing_strategy = $2::varchar
+//	        OR (routing_strategy = '' AND $2::varchar <> 'hmm_beta')
+//	      )
+//	      THEN $4::int ELSE last_cached_read_tokens END,
+//	    last_cached_write_tokens = CASE WHEN NOT $1::boolean AND (
+//	        routing_strategy = $2::varchar
+//	        OR (routing_strategy = '' AND $2::varchar <> 'hmm_beta')
+//	      )
+//	      THEN $5::int ELSE last_cached_write_tokens END,
+//	    last_output_tokens = CASE WHEN NOT $1::boolean AND (
+//	        routing_strategy = $2::varchar
+//	        OR (routing_strategy = '' AND $2::varchar <> 'hmm_beta')
+//	      )
+//	      THEN $6::int ELSE last_output_tokens END,
+//	    last_turn_ended_at = CASE WHEN NOT $1::boolean AND (
+//	        routing_strategy = $2::varchar
+//	        OR (routing_strategy = '' AND $2::varchar <> 'hmm_beta')
+//	      )
+//	      THEN $7::timestamptz ELSE last_turn_ended_at END,
+//	    pinned_provider = CASE WHEN NOT $1::boolean AND (
+//	        routing_strategy = $2::varchar
+//	        OR (routing_strategy = '' AND $2::varchar <> 'hmm_beta')
+//	      )
+//	      THEN $8::varchar ELSE pinned_provider END,
+//	    has_ever_switched = has_ever_switched OR (NOT $1::boolean AND (
+//	        routing_strategy = $2::varchar
+//	        OR (routing_strategy = '' AND $2::varchar <> 'hmm_beta')
+//	      ) AND (
+//	      $9::boolean
+//	      OR (last_served_model <> '' AND last_served_model <> $10::varchar)
+//	      OR ($11::varchar <> '' AND $11::varchar <> $10::varchar))),
+//	    last_served_model = CASE WHEN NOT $1::boolean AND (
+//	        routing_strategy = $2::varchar
+//	        OR (routing_strategy = '' AND $2::varchar <> 'hmm_beta')
+//	      )
+//	      THEN $10::varchar ELSE last_served_model END,
+//	    last_completed_request_id = CASE WHEN $12::varchar <> ''
+//	        AND (last_completed_at IS NULL OR $13::timestamptz >= last_completed_at)
+//	      THEN $12::varchar ELSE last_completed_request_id END,
+//	    last_completed_route_id = CASE WHEN $12::varchar <> ''
+//	        AND (last_completed_at IS NULL OR $13::timestamptz >= last_completed_at)
+//	      THEN $14::varchar ELSE last_completed_route_id END,
+//	    last_completed_model = CASE WHEN $12::varchar <> ''
+//	        AND (last_completed_at IS NULL OR $13::timestamptz >= last_completed_at)
+//	      THEN $15::varchar ELSE last_completed_model END,
+//	    last_completed_strategy = CASE WHEN $12::varchar <> ''
+//	        AND (last_completed_at IS NULL OR $13::timestamptz >= last_completed_at)
+//	      THEN $16::varchar ELSE last_completed_strategy END,
+//	    last_completed_at = CASE WHEN $12::varchar <> ''
+//	        AND (last_completed_at IS NULL OR $13::timestamptz >= last_completed_at)
+//	      THEN $13::timestamptz ELSE last_completed_at END
+//	WHERE session_key = $17::bytea
+//	  AND role        = $18::varchar
 func (q *Queries) UpdateSessionPinUsage(ctx context.Context, arg UpdateSessionPinUsageParams) error {
 	_, err := q.db.Exec(ctx, updateSessionPinUsage,
+		arg.PreserveUsage,
+		arg.ExpectedRoutingStrategy,
 		arg.LastInputTokens,
 		arg.LastCachedReadTokens,
 		arg.LastCachedWriteTokens,
@@ -439,9 +537,13 @@ func (q *Queries) UpdateSessionPinUsage(ctx context.Context, arg UpdateSessionPi
 		arg.SessionEverSwitched,
 		arg.LastServedModel,
 		arg.PriorServedModel,
+		arg.CompletedRequestID,
+		arg.CompletedAt,
+		arg.CompletedRouteID,
+		arg.CompletedModel,
+		arg.CompletedStrategy,
 		arg.SessionKey,
 		arg.Role,
-		arg.ExpectedRoutingStrategy,
 	)
 	return err
 }

@@ -386,7 +386,7 @@ func TestRecordTurnUsage_ForcedDecisionWritesThreadHistoryOnly(t *testing.T) {
 			Model:    "claude-opus-5",
 			Reason:   translate.ReasonUserForceModel,
 		},
-	}, providers.ProviderAnthropic, "claude-opus-5", 100, 10, 0, 0)
+	}, providers.ProviderAnthropic, "claude-opus-5", 100, 10, 0, 0, completedTurn{})
 
 	store.mu.Lock()
 	defer store.mu.Unlock()

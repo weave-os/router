@@ -125,6 +125,14 @@ func (f *fakePinStore) Consume(ctx context.Context, key [sessionpin.SessionKeyLe
 func (f *fakePinStore) UpdateUsage(ctx context.Context, key [sessionpin.SessionKeyLen]byte, role string, usage sessionpin.Usage) error {
 	f.mu.Lock()
 	f.usages = append(f.usages, usage)
+	if usage.CompletedRequestID != "" && (f.pin.LastCompletedAt.IsZero() || !usage.CompletedAt.Before(f.pin.LastCompletedAt)) {
+		f.pin.LastCompletedRequestID = usage.CompletedRequestID
+		f.pin.LastCompletedRouteID = usage.CompletedRouteID
+		f.pin.LastCompletedModel = usage.CompletedModel
+		f.pin.LastCompletedStrategy = usage.CompletedStrategy
+		f.pin.LastCompletedAt = usage.CompletedAt
+		f.hasPin = true
+	}
 	f.mu.Unlock()
 	select {
 	case f.usageCh <- struct{}{}:

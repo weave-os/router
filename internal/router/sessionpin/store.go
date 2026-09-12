@@ -85,6 +85,13 @@ type Pin struct {
 	// after repeated 529 exhaustion (see DisableProvider). Only grows for
 	// the life of the row; Upsert never touches it.
 	DisabledProviders []string
+	// LastCompleted* identifies the newest successfully completed turn for
+	// immediate feedback attribution without reading asynchronous telemetry.
+	LastCompletedRequestID string
+	LastCompletedRouteID   string
+	LastCompletedModel     string
+	LastCompletedStrategy  router.Strategy
+	LastCompletedAt        time.Time
 }
 
 // Usage captures the previous turn's upstream token accounting.
@@ -109,6 +116,16 @@ type Usage struct {
 	// SessionEverSwitched carries an already-latched sibling-row verdict so a
 	// fresh role row preserves switch history even when its model is unchanged.
 	SessionEverSwitched bool
+	// PreserveUsage lets a successful zero-token/missing-usage completion
+	// advance identity without erasing the planner's prior usage evidence.
+	PreserveUsage bool
+	// CompletedRequestID is non-empty only for a successfully completed turn.
+	// These fields update atomically with usage under the same strategy guard.
+	CompletedRequestID string
+	CompletedRouteID   string
+	CompletedModel     string
+	CompletedStrategy  router.Strategy
+	CompletedAt        time.Time
 }
 
 // Store is the I/O surface for session pins. Get returns (zero, false, nil)

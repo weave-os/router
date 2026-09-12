@@ -99,52 +99,63 @@ func (s *Service) handleRouterFeedbackCommand(
 		return nil
 	}
 
-	// The model to attribute: pin's last served (or target), overridden by the resolved telemetry turn when a sequence was specified.
+	// Latest feedback uses synchronous completion identity from the pin store.
+	// Older explicit sequences remain historical telemetry lookups.
 	var servedModel string
 	var telemetryRequestID string
 	var telemetryRouteID string
 	var telemetryStrategy string
-	if cmd.Sequence != 0 && s.telemetry != nil {
-		turn, err := s.telemetry.GetTelemetryBySessionSequence(ctx, installationID, sessionKey[:], role, cmd.Sequence)
+	noTurn := func() error {
+		rf := directivePrefix(ClientIdentityFrom(ctx).ClientApp) + "rf"
+		msg := fmt.Sprintf("✦ **Weave Router** → No turn found at that sequence number. Try `%s` without a number for the last turn.\n\n", rf)
+		if env.SourceFormat() == translate.FormatOpenAI {
+			msg = fmt.Sprintf("Weave Router: No turn found at that sequence number. Try `%s` without a number for the last turn.", rf)
+		}
+		if synthetic {
+			return writeSyntheticCommandResponse(w, env, msg, inputTokens)
+		}
+		return nil
+	}
+
+	if cmd.Sequence == 0 || cmd.Sequence == -1 {
+		pin, found, err := s.latestCompletedPin(ctx, sessionKey, role)
 		if err != nil {
-			log.Error("/router-feedback: sequence lookup failed", "sequence", cmd.Sequence, "err", err)
-			if errors.Is(err, sql.ErrNoRows) {
-				rf := directivePrefix(ClientIdentityFrom(ctx).ClientApp) + "rf"
-				msg := fmt.Sprintf("✦ **Weave Router** → No turn found at that sequence number. Try `%s` without a number for the last turn.\n\n", rf)
-				if env.SourceFormat() == translate.FormatOpenAI {
-					msg = fmt.Sprintf("Weave Router: No turn found at that sequence number. Try `%s` without a number for the last turn.", rf)
-				}
-				if synthetic {
-					return writeSyntheticCommandResponse(w, env, msg, inputTokens)
-				}
-				return nil
-			}
-			// Infrastructure error: log it, fall through to the pin path so the
-			// rating is persisted with the pin's servedModel rather than dropped.
-		} else {
-			servedModel = turn.DecisionModel
-			telemetryRequestID = turn.RequestID
-			telemetryRouteID = turn.RouteID
-			telemetryStrategy = turn.Strategy
-			log.Info("/router-feedback: resolved sequence to telemetry turn",
-				"sequence", cmd.Sequence,
+			log.Error("/router-feedback: completed-turn lookup failed", "err", err)
+			return err
+		}
+		if found {
+			servedModel = pin.LastCompletedModel
+			telemetryRequestID = pin.LastCompletedRequestID
+			telemetryRouteID = pin.LastCompletedRouteID
+			telemetryStrategy = string(pin.LastCompletedStrategy)
+			log.Info("/router-feedback: resolved latest completed turn",
 				"rated_request_id", telemetryRequestID,
 				"served_model", servedModel,
 			)
+		} else if cmd.Sequence == -1 {
+			return noTurn()
 		}
-	}
-	if servedModel == "" && s.pinStore != nil {
-		pin := sessionpin.Pin{}
-		if storedPin, found, err := s.pinStore.Get(ctx, sessionKey, role); err != nil {
-			log.Error("/router-feedback: pin lookup failed", "err", err)
-		} else if found && pinMatchesEffectiveStrategy(ctx, storedPin) {
-			pin = storedPin
+	} else {
+		if s.telemetry == nil {
+			return noTurn()
 		}
-		forceHistory := s.loadForceModelHistory(ctx, sessionKey, role)
-		servedModel, _ = switchHistoryFromPins(pin, forceHistory)
-		if servedModel == "" {
-			servedModel = pin.Model
+		turn, err := s.telemetry.GetTelemetryBySessionSequence(ctx, installationID, sessionKey[:], role, cmd.Sequence)
+		if err != nil {
+			log.Error("/router-feedback: historical sequence lookup failed", "sequence", cmd.Sequence, "err", err)
+			if errors.Is(err, sql.ErrNoRows) {
+				return noTurn()
+			}
+			return err
 		}
+		servedModel = turn.DecisionModel
+		telemetryRequestID = turn.RequestID
+		telemetryRouteID = turn.RouteID
+		telemetryStrategy = turn.Strategy
+		log.Info("/router-feedback: resolved sequence to telemetry turn",
+			"sequence", cmd.Sequence,
+			"rated_request_id", telemetryRequestID,
+			"served_model", servedModel,
+		)
 	}
 
 	clientID := ClientIdentityFrom(ctx)
@@ -198,7 +209,7 @@ func (s *Service) handleRouterFeedbackCommand(
 	if telemetryStrategy != "" {
 		strategy = router.Strategy(telemetryStrategy)
 	}
-	if registered, ok := s.strategies[strategy]; ok && registered.feedback != nil {
+	if registered, ok := s.strategies[strategy]; telemetryRouteID != "" && ok && registered.feedback != nil {
 		trainingAllowed := policyTrainingAllowedForRequest(ctx)
 		// Delta only matches the rated turn for sequence 0 (latest) or -1 (the last assistant segment in env).
 		// For anything older, suppress the delta; request_id + route_id give the sidecar the join key.
@@ -360,6 +371,27 @@ func routerFeedbackAck(format translate.Format, rating string) string {
 		return "Weave Router: Feedback recorded" + verdict + ". Thank you."
 	}
 	return "✦ **Weave Router** → Feedback recorded" + verdict + ". Thank you.\n\n"
+}
+
+func (s *Service) latestCompletedPin(ctx context.Context, sessionKey [sessionpin.SessionKeyLen]byte, role string) (sessionpin.Pin, bool, error) {
+	if s.pinStore == nil {
+		return sessionpin.Pin{}, false, nil
+	}
+	roles := []string{role, hmmHistoryRole(role), forceModelHistoryRole(role)}
+	latest := sessionpin.Pin{}
+	foundLatest := false
+	for _, candidateRole := range roles {
+		pin, found, err := s.pinStore.Get(ctx, sessionKey, candidateRole)
+		if err != nil {
+			return sessionpin.Pin{}, false, err
+		}
+		if !found || pin.LastCompletedRequestID == "" || (foundLatest && !pin.LastCompletedAt.After(latest.LastCompletedAt)) {
+			continue
+		}
+		latest = pin
+		foundLatest = true
+	}
+	return latest, foundLatest, nil
 }
 
 // persistedFeedbackText is the value written to router.router_feedback.feedback.
