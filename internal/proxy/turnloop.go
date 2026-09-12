@@ -450,17 +450,19 @@ func (r turnLoopResult) rescueOrigin() policy.OverrideSource {
 // also skipped by proactive compaction: they are either tiny (probe/title-gen/
 // classifier) or carry their own dedicated flow (Claude Code's compaction turn,
 // whose request the router must not rewrite). SubAgentDispatch hard-pins when
-// the legacy hardPinExplore is on OR a per-sub-agent override is configured;
-// the HMM strategy keeps its own sub-agent handling path so it overrides both.
+// an explicit per-sub-agent override is configured (any strategy) or when the
+// legacy hardPinExplore is on under the cluster scorer; the HMM classifier
+// selects sub-agent turns like any other turn, so that legacy default does not
+// force them.
 func (s *Service) isHardPinnedTurn(ctx context.Context, tt turntype.TurnType) bool {
 	switch tt {
 	case turntype.Compaction, turntype.Probe, turntype.TitleGen, turntype.Classifier:
 		return true
 	case turntype.SubAgentDispatch:
-		if router.IsHMMStrategy(router.StrategyFromContext(ctx)) {
-			return false
+		if s.hasSubAgentOverride() {
+			return true
 		}
-		return s.hardPinExplore || s.hasSubAgentOverride()
+		return s.hardPinExplore && !router.IsHMMStrategy(router.StrategyFromContext(ctx))
 	default:
 		return false
 	}

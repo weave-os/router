@@ -1003,21 +1003,26 @@ func TestService_HardPin_PartialSubAgentOverrideFallsThroughToScorer(t *testing.
 	assert.Equal(t, "claude-opus-4-7", rec.Header().Get(proxy.HeaderRouterModel))
 }
 
-// The HMM strategy keeps its own sub-agent handling and must override the
-// new sub-agent knob exactly as it already overrides the legacy hardPinExplore.
-func TestService_HardPin_SubAgentOverrideYieldsToHMMStrategy(t *testing.T) {
+// An explicit sub-agent override is Go-owned dispatch policy and applies under
+// the HMM strategy too; the sidecar no longer has a sub-agent path of its own.
+func TestService_HardPin_SubAgentOverrideAppliesUnderHMMStrategy(t *testing.T) {
 	store := newFakePinStore()
 	fr := &fakeRouter{decision: router.Decision{
 		Provider: providers.ProviderAnthropic,
 		Model:    "claude-opus-4-7",
-		Reason:   "hmm_policy:tool_execution(label=explore)",
+		Reason:   "hmm_policy:classifier_select(label=medium)",
 		Metadata: &router.RoutingMetadata{Strategy: string(router.StrategyHMM)},
 	}}
+	openRouterResp := func(w http.ResponseWriter) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = io.WriteString(w, `{"id":"chatcmpl_1","object":"chat.completion","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}]}`)
+	}
 	svc := proxy.NewService(
 		fr,
 		map[string]providers.Client{
 			providers.ProviderAnthropic:  &fakeProvider{},
-			providers.ProviderOpenRouter: &fakeProvider{},
+			providers.ProviderOpenRouter: &fakeProvider{proxyResponse: openRouterResp},
 		},
 		nil,
 		false,
@@ -1034,7 +1039,40 @@ func TestService_HardPin_SubAgentOverrideYieldsToHMMStrategy(t *testing.T) {
 	httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
 	require.NoError(t, svc.ProxyMessages(ctx, []byte(exploreBody), rec, httpReq))
 
-	assert.Equal(t, 1, fr.routeCalls, "HMM strategy must still resolve sub-agent turns itself")
+	assert.Equal(t, 0, fr.routeCalls, "sub-agent override must bypass the HMM classifier")
+	assert.Equal(t, "local/qwen3-coder", rec.Header().Get(proxy.HeaderRouterModel))
+	assert.Equal(t, providers.ProviderOpenRouter, rec.Header().Get(proxy.HeaderRouterProvider))
+}
+
+// Without a hard pin or override, an HMM sub-agent turn is classified like any
+// other turn: turn 0 of a sub-agent gets no forced cluster.
+func TestService_HMMStrategy_SubAgentTurnIsClassifiedWithoutOverride(t *testing.T) {
+	store := newFakePinStore()
+	fr := &fakeRouter{decision: router.Decision{
+		Provider: providers.ProviderAnthropic,
+		Model:    "claude-opus-4-7",
+		Reason:   "hmm_policy:classifier_select(label=medium)",
+		Metadata: &router.RoutingMetadata{Strategy: string(router.StrategyHMM)},
+	}}
+	svc := proxy.NewService(
+		fr,
+		map[string]providers.Client{providers.ProviderAnthropic: &fakeProvider{}},
+		nil,
+		false,
+		nil,
+		store,
+		false,
+		providers.ProviderAnthropic,
+		"claude-haiku-4-5",
+		nil,
+	).WithHMMRouter(fr)
+
+	ctx := router.WithStrategy(authedCtx(uuid.New().String()), router.StrategyHMM)
+	rec := httptest.NewRecorder()
+	httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	require.NoError(t, svc.ProxyMessages(ctx, []byte(exploreBody), rec, httpReq))
+
+	assert.Equal(t, 1, fr.routeCalls, "sub-agent turn must go through the classifier")
 	assert.Equal(t, "claude-opus-4-7", rec.Header().Get(proxy.HeaderRouterModel))
 }
 
