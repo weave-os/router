@@ -26,7 +26,7 @@ func TestProxyOpenAIResponses_BlindPassthroughDoesNotRescueOrMutatePins(t *testi
 	upstreams := &cyberRefusalUpstreams{openAIResponse: streamResponses(cyberRefusalSSE)}
 	openAIURL, anthropicURL := upstreams.start(t)
 	store := newFakePinStore()
-	svc := cyberRefusalService(openAIURL, anthropicURL, "scorer-decision", store, newCaptureTelemetry())
+	svc := cyberRefusalService(t, openAIURL, anthropicURL, "scorer-decision", store, newCaptureTelemetry())
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(""))
 	ctx := blindExperimentPassthroughContext(authedCtx(cyberRefusalInstallationID))

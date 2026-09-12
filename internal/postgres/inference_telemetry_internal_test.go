@@ -13,6 +13,7 @@ import (
 )
 
 func TestInferenceAttemptParamsUnknownUsageStaysNull(t *testing.T) {
+	timestamp := time.Date(2026, 9, 11, 12, 0, 0, 0, time.UTC)
 	params := inferenceAttemptParams(uuid.New(), inference.AttemptEvent{
 		Provenance: inference.Provenance{
 			Purpose:          inference.PurposeHandoverSummary,
@@ -29,7 +30,9 @@ func TestInferenceAttemptParamsUnknownUsageStaysNull(t *testing.T) {
 		UpstreamStatusCode: 503,
 		Latency:            1500 * time.Millisecond,
 		CostUSD:            0.5,
-	})
+	}, timestamp)
+	assert.Equal(t, timestamp, params.CreatedAt.Time)
+	require.True(t, params.CreatedAt.Valid)
 
 	assert.Equal(t, "handover_summary", params.OperationID)
 	assert.Equal(t, int32(1), params.AttemptIndex)
@@ -50,6 +53,7 @@ func TestInferenceAttemptParamsUnknownUsageStaysNull(t *testing.T) {
 }
 
 func TestInferenceAttemptParamsKnownUsageIsStored(t *testing.T) {
+	timestamp := time.Date(2026, 9, 11, 12, 0, 0, 0, time.UTC)
 	params := inferenceAttemptParams(uuid.New(), inference.AttemptEvent{
 		Target:  inference.Target{CatalogID: "claude-haiku-4-5", Provider: providers.ProviderAnthropic, BindingIndex: 2},
 		Outcome: inference.AttemptOutcomeServed,
@@ -61,7 +65,9 @@ func TestInferenceAttemptParamsKnownUsageIsStored(t *testing.T) {
 			CacheReadTokens:     4,
 		},
 		CostUSD: 0.0125,
-	})
+	}, timestamp)
+	assert.Equal(t, timestamp, params.CreatedAt.Time)
+	require.True(t, params.CreatedAt.Valid)
 
 	assert.True(t, params.UsageKnown)
 	assert.Equal(t, int32(2), params.BindingIndex)

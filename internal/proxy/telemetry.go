@@ -3,7 +3,6 @@ package proxy
 import (
 	"context"
 	"errors"
-	"log/slog"
 	"time"
 
 	"github.com/google/uuid"
@@ -44,6 +43,7 @@ type InferenceAttemptStore interface {
 
 // InsertInferenceAttemptParams mirrors one model_router_inference_attempts row.
 type InsertInferenceAttemptParams struct {
+	Timestamp      time.Time
 	InstallationID string
 	Event          inference.AttemptEvent
 }
@@ -459,35 +459,27 @@ func int32Ptr(v int32) *int32 {
 	return &v
 }
 
-// attemptSink persists executor attempt events for the installation in
-// context. Persistence failures are logged, never surfaced to dispatch.
+// attemptSink snapshots executor events; saturated observation capacity applies backpressure.
 type attemptSink struct {
-	store  InferenceAttemptStore
-	logger *slog.Logger
+	store InferenceAttemptStore
+	queue *observability.WorkQueue
 }
 
 func (s attemptSink) RecordAttempt(ctx context.Context, event inference.AttemptEvent) {
-	if s.store == nil {
+	if s.store == nil || s.queue == nil {
 		return
 	}
 	installationID, _ := ctx.Value(InstallationIDContextKey{}).(string)
 	if installationID == "" {
 		return
 	}
-	if err := s.store.InsertInferenceAttempt(context.WithoutCancel(ctx), InsertInferenceAttemptParams{
-		InstallationID: installationID,
-		Event:          event,
-	}); err != nil && s.logger != nil {
-		s.logger.Warn("inference attempt persist failed",
-			"operation_id", event.OperationID,
-			"attempt_index", event.AttemptIndex,
-			"error", err)
-	}
+	log := observability.FromContext(ctx).With("operation_id", event.OperationID, "attempt_index", event.AttemptIndex)
+	submitObservation(s.queue, observability.WorkAttempt, log, InsertInferenceAttemptParams{Timestamp: time.Now(), InstallationID: installationID, Event: event}, 5*time.Second, s.store.InsertInferenceAttempt)
 }
 
-// NewAttemptSink returns the dispatch attempt sink backed by store.
-func NewAttemptSink(store InferenceAttemptStore, logger *slog.Logger) dispatch.AttemptSink {
-	return attemptSink{store: store, logger: logger}
+// NewAttemptSink submits attempts to process-owned database observation capacity.
+func NewAttemptSink(store InferenceAttemptStore, queue *observability.WorkQueue) dispatch.AttemptSink {
+	return attemptSink{store: store, queue: queue}
 }
 
 // DecisionReasonPolicyPinUnservable marks a telemetry row for a turn that was
@@ -528,5 +520,5 @@ func (s *Service) recordPolicyPinRouteFailure(ctx context.Context, requestID str
 	}
 	applyBlindExperimentTelemetry(ctx, &params)
 	applyPolicyPinTelemetry(ctx, &params, nil)
-	s.fireTelemetry(params)
+	s.fireTelemetry(ctx, params)
 }

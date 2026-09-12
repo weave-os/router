@@ -51,8 +51,8 @@ type Transport struct {
 	OperationID string
 }
 
-// AttemptSink receives ordered attempt events. Sinks must not block dispatch
-// on persistence failures.
+// AttemptSink receives ordered attempt events. Bounded sinks may apply admission
+// backpressure when saturated; persistence errors must not alter the retry policy.
 type AttemptSink interface {
 	RecordAttempt(ctx context.Context, event inference.AttemptEvent)
 }

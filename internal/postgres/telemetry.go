@@ -245,11 +245,12 @@ func (r *TelemetryRepo) InsertInferenceAttempt(ctx context.Context, p proxy.Inse
 	if err != nil {
 		return err
 	}
-	return sqlc.New(r.tx).InsertInferenceAttempt(ctx, inferenceAttemptParams(id, p.Event))
+	return sqlc.New(r.tx).InsertInferenceAttempt(ctx, inferenceAttemptParams(id, p.Event, p.Timestamp))
 }
 
-func inferenceAttemptParams(installationID uuid.UUID, event inference.AttemptEvent) sqlc.InsertInferenceAttemptParams {
+func inferenceAttemptParams(installationID uuid.UUID, event inference.AttemptEvent, timestamp time.Time) sqlc.InsertInferenceAttemptParams {
 	params := sqlc.InsertInferenceAttemptParams{
+		CreatedAt:        pgtype.Timestamptz{Time: timestamp, Valid: true},
 		InstallationID:   installationID,
 		RequestID:        event.RequestID,
 		OperationID:      event.OperationID,
