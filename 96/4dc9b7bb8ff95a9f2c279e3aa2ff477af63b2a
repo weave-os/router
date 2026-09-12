@@ -1,0 +1,47 @@
+install/pi-router/src/lsp.ts
+  s_b3d94294f4c49d::t_f46a8a25688595 503
+install/opencode-weave/tsconfig.json
+  s_b3d94294f4c49d::t_8ec1263c2fc1ce 1-13
+install/pi-router/package.json
+  s_b3d94294f4c49d::t_8ec1263c2fc1ce 6-8,15-23
+install/pi-router/tsconfig.json
+  s_b3d94294f4c49d::t_8ec1263c2fc1ce 1-12
+scripts/changed_non_go_files.sh
+  s_b3d94294f4c49d::t_b958d3c5307b98 21-23,31-40
+  s_b3d94294f4c49d::t_ed71f7ddf4c234 24,46-48,62-65
+  s_b3d94294f4c49d::t_1e221a94528125 1-20,25-30,41-45,49-61
+scripts/changed_non_go_files_test.sh
+  s_b3d94294f4c49d::t_b958d3c5307b98 15,26-28
+  s_b3d94294f4c49d::t_a985c51b3f40b1 40-47
+  s_b3d94294f4c49d::t_1e221a94528125 1-14,16-25,29-39,48-56
+install/pi-router/src/lsp-protocol.ts
+  s_b3d94294f4c49d::t_f46a8a25688595 43
+frontend/package.json
+  s_b3d94294f4c49d::t_8ec1263c2fc1ce 9-10
+ruff.toml
+  s_b3d94294f4c49d::t_1e221a94528125 1-4
+install/opencode-weave/package.json
+  s_b3d94294f4c49d::t_8ec1263c2fc1ce 6-8,11-16
+.github/workflows/check_non_go.yml
+  s_b3d94294f4c49d::t_ed71f7ddf4c234 1-103
+install/opencode-weave/package-lock.json
+  s_b3d94294f4c49d::t_2cc9eba4ec0e9e 1-491
+install/pi-router/package-lock.json
+  s_b3d94294f4c49d::t_0e8d7552a2f4b9 1-2716
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "964dc9b7bb8ff95a9f2c279e3aa2ff477af63b2a",
+  "prompts": {},
+  "sessions": {
+    "s_b3d94294f4c49d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06974-8166-72a1-9f4f-4775e6d61966",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}
