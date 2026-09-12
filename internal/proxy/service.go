@@ -250,6 +250,11 @@ type Service struct {
 	// Skill, plan-mode) on cross-vendor routes. Kill switch:
 	// ROUTER_CC_ORCH_TOOLS_CROSSVENDOR=false strips all CC-only tools.
 	ccOrchToolsCrossVendor bool
+	// ccTaskToolsCrossVendor additionally keeps the CC task-list tools
+	// (TaskCreate/TaskUpdate/TaskGet/TaskList) and their reminders on
+	// cross-vendor routes. Deployment default for
+	// ROUTER_CC_TASK_TOOLS_CROSSVENDOR; see ResolveCCTaskToolsCrossVendor.
+	ccTaskToolsCrossVendor bool
 	// bandSwap is the per-turn large-vs-small action classifier. Non-nil only
 	// when ROUTER_BAND_SWAP is on and the head loaded; a sticky MainLoop STAY
 	// then serves the predicted band (one of the pin's {Model, PairedModel})
@@ -1686,6 +1691,14 @@ func (s *Service) WithEffortEscalation(enabled bool) *Service {
 // tools (Task/Agent, Workflow, Skill, plan-mode) on cross-vendor emit. False strips all.
 func (s *Service) WithCCOrchestrationToolsCrossVendor(enabled bool) *Service {
 	s.ccOrchToolsCrossVendor = enabled
+	return s
+}
+
+// WithCCTaskToolsCrossVendor preserves Claude Code's task-list tools
+// (TaskCreate/TaskUpdate/TaskGet/TaskList) and their reminders on cross-vendor
+// emit, on top of the orchestration tools. False strips them.
+func (s *Service) WithCCTaskToolsCrossVendor(enabled bool) *Service {
+	s.ccTaskToolsCrossVendor = enabled
 	return s
 }
 
@@ -3653,6 +3666,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		EnableExtendedContext:             shouldEnableExtendedContext(env.FullTokenEstimate(), outputReserve),
 		EnableServerSideFallback:          s.ResolveAnthropicServerSideFallback(ctx),
 		KeepCrossVendorOrchestrationTools: s.ccOrchToolsCrossVendor,
+		KeepCrossVendorTaskTools:          s.ResolveCCTaskToolsCrossVendor(ctx),
 	}
 	effortServed := s.resolveEffort(ctx, decision, opts.Capabilities, routeRes.EscalateEffort)
 	effortServed.apply(&opts)

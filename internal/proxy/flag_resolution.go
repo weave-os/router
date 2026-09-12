@@ -113,6 +113,13 @@ func (s *Service) ResolveOpenAIResponsesBroad(ctx context.Context) bool {
 	return flags.BoolOr(ctx, flags.KeyOpenAIResponsesBroad, s.openAIResponsesBroad)
 }
 
+// ResolveCCTaskToolsCrossVendor reports the ROUTER_CC_TASK_TOOLS_CROSSVENDOR
+// flag: whether Claude Code's task-list tools and their reminders survive a
+// cross-vendor emit. Ignored when the orchestration tools are stripped.
+func (s *Service) ResolveCCTaskToolsCrossVendor(ctx context.Context) bool {
+	return flags.BoolOr(ctx, flags.KeyCCTaskToolsCrossVendor, s.ccTaskToolsCrossVendor)
+}
+
 // ResolveEffortEscalation reports whether policy-requested reasoning-effort
 // escalation is applied.
 func (s *Service) ResolveEffortEscalation(ctx context.Context) bool {

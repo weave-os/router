@@ -181,6 +181,17 @@ func TestLookupUnknownKey(t *testing.T) {
 	assert.False(t, ok)
 }
 
+func TestCCTaskToolsCrossVendorIsAnEnvBackedOverridableBoolean(t *testing.T) {
+	def, ok := flags.Lookup(flags.KeyCCTaskToolsCrossVendor)
+	require.True(t, ok)
+	assert.Equal(t, flags.KindBool, def.Kind)
+	assert.Equal(t, "ROUTER_CC_TASK_TOOLS_CROSSVENDOR", def.EnvVar)
+	assert.True(t, def.OrgOverridable)
+
+	overrides := flags.Overrides{Bools: map[flags.Key]bool{flags.KeyCCTaskToolsCrossVendor: true}}
+	require.NoError(t, flags.ValidateOverrides(overrides))
+}
+
 func TestSubscriptionPlanAwareRoutingIsAnOrganizationOnlyBoolean(t *testing.T) {
 	def, ok := flags.Lookup(flags.KeySubscriptionPlanAwareRouting)
 	require.True(t, ok)

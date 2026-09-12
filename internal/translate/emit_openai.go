@@ -297,7 +297,7 @@ func targetIsOpenRouter(opts EmitOptions) bool {
 
 func (e *RequestEnvelope) buildOpenAIFromAnthropic(opts EmitOptions) ([]byte, providers.RequestMutationStats, error) {
 	var stats providers.RequestMutationStats
-	body, ccFilter, err := filterClaudeCodeOnlyToolsFromAnthropicBody(e.body, opts.KeepCrossVendorOrchestrationTools)
+	body, ccFilter, err := filterClaudeCodeOnlyToolsFromAnthropicBody(e.body, opts.ccToolFilter())
 	if err != nil {
 		return nil, stats, fmt.Errorf("strip claude-code-only tools: %w", err)
 	}

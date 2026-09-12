@@ -36,39 +36,50 @@ func TestShouldStripCCTool(t *testing.T) {
 	cases := []struct {
 		name              string
 		keepOrchestration bool
+		keepTaskTools     bool
 		want              bool
 	}{
-		{"Read", false, false},           // real tool: never stripped
-		{"Read", true, false},            // real tool: never stripped
-		{"NotebookEdit", false, false},   // coding tool: never stripped
-		{"ScheduleWakeup", false, false}, // scheduling: never stripped
-		{"CronCreate", false, false},     // scheduling: never stripped
-		{"CronDelete", false, false},     // scheduling: never stripped
-		{"CronList", false, false},       // scheduling: never stripped
-		{"Monitor", true, false},         // scheduling: never stripped
-		{"BashOutput", false, false},     // shell session: never stripped
-		{"KillShell", true, false},       // shell session: never stripped
-		{"Task", false, true},            // orchestration: stripped when flag off
-		{"Task", true, false},            // orchestration: kept when flag on
-		{"Agent", true, false},           // orchestration (current CC name): kept when flag on
-		{"TaskOutput", true, false},      // background-agent output: kept when flag on
-		{"TaskStop", true, false},        // background-agent stop: kept when flag on
-		{"TaskCreate", true, true},       // task-list bookkeeping: stripped even when flag on
-		{"TaskUpdate", true, true},       // task-list bookkeeping: stripped even when flag on
-		{"TaskGet", true, true},          // task-list bookkeeping: stripped even when flag on
-		{"TaskList", true, true},         // task-list bookkeeping: stripped even when flag on
-		{"Workflow", true, false},        // orchestration: kept when flag on
-		{"ExitPlanMode", true, false},    // orchestration: kept when flag on
-		{"UpdatePlan", true, false},      // orchestration: kept when flag on
-		{"AskUserQuestion", true, true},  // CC-only non-orchestration: stripped even when flag on
-		{"ToolSearch", false, false},     // deferred MCP loader: always kept
-		{"ToolSearch", true, false},      // independent of the orchestration flag
-		{"TodoWrite", false, true},       // CC-only non-orchestration: stripped
-		{"SendMessage", true, true},      // CC-only subagent messaging: stripped even when flag on
+		{"Read", false, false, false},           // real tool: never stripped
+		{"Read", true, false, false},            // real tool: never stripped
+		{"Read", false, true, false},            // real tool: never stripped
+		{"NotebookEdit", false, false, false},   // coding tool: never stripped
+		{"ScheduleWakeup", false, false, false}, // scheduling: never stripped
+		{"CronCreate", false, false, false},     // scheduling: never stripped
+		{"CronDelete", false, false, false},     // scheduling: never stripped
+		{"CronList", false, false, false},       // scheduling: never stripped
+		{"Monitor", true, false, false},         // scheduling: never stripped
+		{"BashOutput", false, false, false},     // shell session: never stripped
+		{"KillShell", true, false, false},       // shell session: never stripped
+		{"Task", false, false, true},            // orchestration: stripped when flag off
+		{"Task", false, true, true},             // task-tool flag alone keeps nothing
+		{"Task", true, false, false},            // orchestration: kept when flag on
+		{"Agent", true, false, false},           // orchestration (current CC name): kept when flag on
+		{"TaskOutput", true, false, false},      // background-agent output: kept when flag on
+		{"TaskStop", true, false, false},        // background-agent stop: kept when flag on
+		{"TaskCreate", true, false, true},       // task-list bookkeeping: stripped with only orchestration on
+		{"TaskUpdate", true, false, true},       // task-list bookkeeping: stripped with only orchestration on
+		{"TaskGet", true, false, true},          // task-list bookkeeping: stripped with only orchestration on
+		{"TaskList", true, false, true},         // task-list bookkeeping: stripped with only orchestration on
+		{"TaskCreate", true, true, false},       // task-list bookkeeping: kept when both flags on
+		{"TaskUpdate", true, true, false},       // task-list bookkeeping: kept when both flags on
+		{"TaskGet", true, true, false},          // task-list bookkeeping: kept when both flags on
+		{"TaskList", true, true, false},         // task-list bookkeeping: kept when both flags on
+		{"TaskCreate", false, true, true},       // task tools stay nested under orchestration
+		{"TaskList", false, true, true},         // task tools stay nested under orchestration
+		{"Workflow", true, false, false},        // orchestration: kept when flag on
+		{"ExitPlanMode", true, false, false},    // orchestration: kept when flag on
+		{"UpdatePlan", true, false, false},      // orchestration: kept when flag on
+		{"AskUserQuestion", true, true, true},   // CC-only non-orchestration: stripped even when both flags on
+		{"ToolSearch", false, false, false},     // deferred MCP loader: always kept
+		{"ToolSearch", true, false, false},      // independent of the orchestration flag
+		{"TodoWrite", false, false, true},       // CC-only non-orchestration: stripped
+		{"TodoWrite", true, true, true},         // TodoWrite is not one of the four task tools
+		{"SendMessage", true, true, true},       // CC-only subagent messaging: stripped even when both flags on
 	}
 	for _, tc := range cases {
-		if got := shouldStripCCTool(tc.name, tc.keepOrchestration); got != tc.want {
-			t.Errorf("shouldStripCCTool(%q, keep=%v) = %v, want %v", tc.name, tc.keepOrchestration, got, tc.want)
+		opts := ccToolFilterOptions{KeepOrchestration: tc.keepOrchestration, KeepTaskTools: tc.keepTaskTools}
+		if got := shouldStripCCTool(tc.name, opts); got != tc.want {
+			t.Errorf("shouldStripCCTool(%q, %+v) = %v, want %v", tc.name, opts, got, tc.want)
 		}
 	}
 }
