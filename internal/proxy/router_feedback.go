@@ -315,7 +315,7 @@ func (s *Service) reportRouterFeedback(
 			payload["serving_identity"] = identity
 		}
 		if s.observations != nil {
-			submitObservation(s.observations.Remote, observability.WorkFeedback, log, payload, policyPayloadBound(payload), policyFeedbackReportTimeout, reporter.ReportFeedback)
+			submitObservation(s.observations.Remote, observability.WorkFeedback, log, payload, policyFeedbackReportTimeout, reporter.ReportFeedback)
 		}
 }
 

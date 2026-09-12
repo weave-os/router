@@ -104,8 +104,9 @@ func TestWorkQueueByteBackpressureAndLaneIsolation(t *testing.T) {
 			return ctx.Err()
 		}
 	}
-	payload := bytes.Repeat([]byte("x"), MaxWorkPayloadBytes)
-	for range workQueueBytes / MaxWorkPayloadBytes {
+	const chunk = workQueueBytes / 16
+	payload := bytes.Repeat([]byte("x"), chunk)
+	for range 16 {
 		require.True(t, w.Remote.Submit(WorkOutcome, payload, time.Minute, workLog(), block))
 	}
 	submitted, admitted := make(chan struct{}), make(chan bool, 1)
@@ -119,7 +120,6 @@ func TestWorkQueueByteBackpressureAndLaneIsolation(t *testing.T) {
 		t.Fatalf("byte-saturated queue must wait, returned %v", ok)
 	case <-time.After(25 * time.Millisecond):
 	}
-	assert.False(t, w.Remote.Submit(WorkOutcome, append(payload, 'x'), time.Second, workLog(), block), "oversized payloads must reject without waiting for capacity")
 	dbDone := make(chan struct{})
 	require.True(t, w.Database.Submit(WorkAttempt, nil, time.Second, workLog(), func(context.Context, []byte) error { close(dbDone); return nil }))
 	select {
@@ -140,7 +140,57 @@ func TestWorkQueueByteBackpressureAndLaneIsolation(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 	require.NoError(t, w.Remote.Shutdown(ctx))
-	assert.EqualValues(t, workQueueBytes/MaxWorkPayloadBytes+1, completed.Load())
+	assert.EqualValues(t, 17, completed.Load())
+	assert.Zero(t, w.Remote.retainedBytes)
+}
+
+// A job larger than the lane's byte budget is never discarded: it waits for an
+// empty lane and is admitted alone, so retained bytes stay bounded at one job.
+func TestWorkQueueOversizedJobWaitsForEmptyLaneInsteadOfDropping(t *testing.T) {
+	w := testWorkers(t)
+	started, release := make(chan struct{}), make(chan struct{})
+	var releaseOnce sync.Once
+	unblock := func() { releaseOnce.Do(func() { close(release) }) }
+	t.Cleanup(unblock)
+	require.True(t, w.Remote.Submit(WorkOutcome, []byte("small"), time.Minute, workLog(), func(ctx context.Context, _ []byte) error {
+		close(started)
+		select {
+		case <-release:
+			return nil
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}))
+	<-started
+	oversized := bytes.Repeat([]byte("x"), workQueueBytes+1)
+	delivered := make(chan int, 1)
+	submitted, admitted := make(chan struct{}), make(chan bool, 1)
+	go func() {
+		close(submitted)
+		admitted <- w.Remote.Submit(WorkOutcome, oversized, time.Minute, workLog(), func(_ context.Context, p []byte) error { delivered <- len(p); return nil })
+	}()
+	<-submitted
+	select {
+	case ok := <-admitted:
+		t.Fatalf("oversized job must wait for an empty lane, returned %v", ok)
+	case <-time.After(25 * time.Millisecond):
+	}
+	unblock()
+	select {
+	case ok := <-admitted:
+		require.True(t, ok, "size must never reject a job")
+	case <-time.After(time.Second):
+		t.Fatal("oversized job was not admitted once the lane emptied")
+	}
+	select {
+	case n := <-delivered:
+		assert.Equal(t, len(oversized), n, "the whole payload must be delivered, never truncated")
+	case <-time.After(time.Second):
+		t.Fatal("oversized job never executed")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	require.NoError(t, w.Remote.Shutdown(ctx))
 	assert.Zero(t, w.Remote.retainedBytes)
 }
 

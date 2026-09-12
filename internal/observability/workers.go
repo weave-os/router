@@ -16,15 +16,13 @@ import (
 type WorkKind string
 
 const (
-	WorkAttempt   WorkKind = "inference_attempt"
-	WorkTelemetry WorkKind = "request_telemetry"
-	WorkOutcome   WorkKind = "policy_outcome"
-	WorkFeedback  WorkKind = "policy_feedback"
-	// MaxWorkPayloadBytes bounds a serialized job before ownership transfer.
-	MaxWorkPayloadBytes = 1 << 20
-	workQueueSize       = 256
-	workQueueBytes      = 16 << 20
-	workLogInterval     = 10 * time.Second
+	WorkAttempt     WorkKind = "inference_attempt"
+	WorkTelemetry   WorkKind = "request_telemetry"
+	WorkOutcome     WorkKind = "policy_outcome"
+	WorkFeedback    WorkKind = "policy_feedback"
+	workQueueSize            = 256
+	workQueueBytes           = 16 << 20
+	workLogInterval          = 10 * time.Second
 )
 
 type workLane string
@@ -38,7 +36,6 @@ type workResult string
 
 const (
 	workInvalidPayload workResult = "invalid_payload"
-	workOversize       workResult = "oversize"
 	workClosing        workResult = "closing"
 	workFailed         workResult = "failed"
 	workPanicked       workResult = "panicked"
@@ -96,19 +93,17 @@ func newWorkQueue(lane workLane, workers int) *WorkQueue {
 }
 
 // Submit copies payload on admission, waiting for capacity when saturated.
-// run receives a shutdown-owned context with timeout, not a request context.
-// Nil queues disable observations; oversized payloads and closing queues reject.
-// Jobs must not submit back into their own full queue.
+// Size never rejects: a job larger than the lane's byte budget waits for an
+// empty lane and is admitted alone, so retained bytes stay bounded at
+// max(budget, one job). run receives a shutdown-owned context with timeout,
+// not a request context. Nil queues disable observations; only a closing queue
+// rejects. Jobs must not submit back into their own full queue.
 func (q *WorkQueue) Submit(kind WorkKind, payload []byte, timeout time.Duration, log *slog.Logger, run func(context.Context, []byte) error) bool {
 	if q == nil {
 		return false
 	}
-	if len(payload) > MaxWorkPayloadBytes {
-		q.record(log, kind, workOversize, nil)
-		return false
-	}
 	q.mu.Lock()
-	for !q.closed && (q.count >= workQueueSize || len(payload) > workQueueBytes-q.retainedBytes) {
+	for !q.closed && (q.count >= workQueueSize || (q.retainedBytes > 0 && q.retainedBytes+len(payload) > workQueueBytes)) {
 		q.capacityAvailable.Wait()
 	}
 	if q.closed {
@@ -124,7 +119,7 @@ func (q *WorkQueue) Submit(kind WorkKind, payload []byte, timeout time.Duration,
 	return true
 }
 
-// Reject records a payload that could not be prepared within the admission bound.
+// Reject records a payload that could not be serialized into a job.
 func (q *WorkQueue) Reject(kind WorkKind, log *slog.Logger, err error) {
 	if q != nil {
 		q.record(log, kind, workInvalidPayload, err)

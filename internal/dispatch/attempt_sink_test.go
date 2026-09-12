@@ -82,7 +82,7 @@ func TestHeldAttemptPersistenceDoesNotDelayNextAllowedAttempt(t *testing.T) {
 	// Allow admitted writes, then verify the IDs/index survive request cancellation.
 	store.release <- struct{}{}
 	store.release <- struct{}{}
-	first, second := <-store.events, <-store.events
+	first, second := waitForStoredAttempt(t, store), waitForStoredAttempt(t, store)
 	assert.WithinDuration(t, time.Now(), first.Timestamp, time.Second)
 	assert.Equal(t, "installation-test", first.InstallationID)
 	assert.Equal(t, "request-test", first.Event.RequestID)
@@ -92,4 +92,18 @@ func TestHeldAttemptPersistenceDoesNotDelayNextAllowedAttempt(t *testing.T) {
 	assert.Equal(t, inference.AttemptOutcomeFailed, first.Event.Outcome)
 	assert.Equal(t, inference.AttemptOutcomeServed, second.Event.Outcome)
 	assert.Equal(t, backup, second.Event.Target)
+}
+
+// waitForStoredAttempt reads one persisted attempt event or fails the test
+// after a bounded wait, so a sink that loses an event fails here instead of
+// hanging the package on an unguarded channel read.
+func waitForStoredAttempt(t *testing.T, store *heldAttemptStore) proxy.InsertInferenceAttemptParams {
+	t.Helper()
+	select {
+	case params := <-store.events:
+		return params
+	case <-time.After(2 * time.Second):
+		t.Fatal("expected a persisted inference attempt event; the sink dropped or deduplicated one")
+		return proxy.InsertInferenceAttemptParams{}
+	}
 }
