@@ -188,6 +188,16 @@ type Service struct {
 	// pricier than the session pin only escalates at confidence >=
 	// hmmUpgradeConfidenceThreshold. Env ROUTER_AUTHORITATIVE_UPGRADE_GATE, on by default.
 	authoritativeUpgradeGate bool
+	// authoritativeDowngradeGate applies the same threshold in the other
+	// direction: a cheaper-than-pin fresh decision below
+	// hmmUpgradeConfidenceThreshold keeps the pin. Env
+	// ROUTER_AUTHORITATIVE_DOWNGRADE_GATE, off by default.
+	authoritativeDowngradeGate bool
+	// hmmDowngradeHysteresisTurns is how many consecutive authoritative-per-turn
+	// votes for a cheaper-than-pin model are needed before the downgrade is
+	// applied. Env ROUTER_HMM_DOWNGRADE_HYSTERESIS_TURNS, 0 (downgrade on the
+	// first vote) by default.
+	hmmDowngradeHysteresisTurns int
 	// authorityCacheShadow records what the HMM cache gate would have decided on
 	// an authoritative-per-turn turn, which returns before that gate can run.
 	// Observation only -- it never changes the served decision. Env
@@ -1637,6 +1647,26 @@ func (s *Service) WithHMMSameTierPin(enabled bool) *Service {
 // decisions. On by default; disabling restores verbatim policy selection.
 func (s *Service) WithAuthoritativeUpgradeGate(enabled bool) *Service {
 	s.authoritativeUpgradeGate = enabled
+	return s
+}
+
+// WithAuthoritativeDowngradeGate sets the deployment default for
+// ROUTER_AUTHORITATIVE_DOWNGRADE_GATE: whether an authoritative-per-turn
+// downgrade must also clear the confidence threshold. Off by default.
+func (s *Service) WithAuthoritativeDowngradeGate(enabled bool) *Service {
+	s.authoritativeDowngradeGate = enabled
+	return s
+}
+
+// WithHMMDowngradeHysteresisTurns sets the deployment default for
+// ROUTER_HMM_DOWNGRADE_HYSTERESIS_TURNS: the number of consecutive
+// cheaper-than-pin authoritative votes required before the downgrade is
+// applied. Negative values are ignored; 0 disables hysteresis.
+func (s *Service) WithHMMDowngradeHysteresisTurns(turns int) *Service {
+	if turns < 0 {
+		return s
+	}
+	s.hmmDowngradeHysteresisTurns = turns
 	return s
 }
 

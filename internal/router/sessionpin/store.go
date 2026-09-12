@@ -81,6 +81,12 @@ type Pin struct {
 	// pinned provider. Distinct from ConsecutiveUpstreamErrors: a 529 is
 	// retryable in-turn, so it never trips that counter.
 	ConsecutiveOverloadErrors int
+	// ConsecutiveDowngradeVotes counts consecutive turns on which the HMM
+	// authoritative-per-turn classifier proposed a cheaper model than the pinned
+	// one while downgrade hysteresis held the pin. Unlike the error counters,
+	// Upsert takes the incoming value: the turn loop derives it from the pin it
+	// read at the start of the turn.
+	ConsecutiveDowngradeVotes int
 	// DisabledProviders are providers struck out for this pin's session
 	// after repeated 529 exhaustion (see DisableProvider). Only grows for
 	// the life of the row; Upsert never touches it.

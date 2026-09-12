@@ -21,7 +21,7 @@ WHERE session_key = $1::bytea
     OR (routing_strategy = '' AND $3::varchar <> 'hmm_beta')
   )
   AND pinned_until > CURRENT_TIMESTAMP
-RETURNING session_key, role, installation_id, pinned_provider, pinned_model, decision_reason, turn_count, pinned_until, first_pinned_at, last_seen_at, last_input_tokens, last_cached_read_tokens, last_cached_write_tokens, last_output_tokens, last_turn_ended_at, consecutive_upstream_errors, last_served_model, has_ever_switched, paired_provider, paired_model, consecutive_overload_errors, disabled_providers, policy_group, routing_strategy, pinned_effort
+RETURNING session_key, role, installation_id, pinned_provider, pinned_model, decision_reason, turn_count, pinned_until, first_pinned_at, last_seen_at, last_input_tokens, last_cached_read_tokens, last_cached_write_tokens, last_output_tokens, last_turn_ended_at, consecutive_upstream_errors, last_served_model, has_ever_switched, paired_provider, paired_model, consecutive_overload_errors, disabled_providers, policy_group, routing_strategy, pinned_effort, consecutive_downgrade_votes
 `
 
 type DeleteSessionPinParams struct {
@@ -42,7 +42,7 @@ type DeleteSessionPinParams struct {
 //	    OR (routing_strategy = '' AND $3::varchar <> 'hmm_beta')
 //	  )
 //	  AND pinned_until > CURRENT_TIMESTAMP
-//	RETURNING session_key, role, installation_id, pinned_provider, pinned_model, decision_reason, turn_count, pinned_until, first_pinned_at, last_seen_at, last_input_tokens, last_cached_read_tokens, last_cached_write_tokens, last_output_tokens, last_turn_ended_at, consecutive_upstream_errors, last_served_model, has_ever_switched, paired_provider, paired_model, consecutive_overload_errors, disabled_providers, policy_group, routing_strategy, pinned_effort
+//	RETURNING session_key, role, installation_id, pinned_provider, pinned_model, decision_reason, turn_count, pinned_until, first_pinned_at, last_seen_at, last_input_tokens, last_cached_read_tokens, last_cached_write_tokens, last_output_tokens, last_turn_ended_at, consecutive_upstream_errors, last_served_model, has_ever_switched, paired_provider, paired_model, consecutive_overload_errors, disabled_providers, policy_group, routing_strategy, pinned_effort, consecutive_downgrade_votes
 func (q *Queries) DeleteSessionPin(ctx context.Context, arg DeleteSessionPinParams) (RouterSessionPin, error) {
 	row := q.db.QueryRow(ctx, deleteSessionPin, arg.SessionKey, arg.Role, arg.ExpectedRoutingStrategy)
 	var i RouterSessionPin
@@ -72,6 +72,7 @@ func (q *Queries) DeleteSessionPin(ctx context.Context, arg DeleteSessionPinPara
 		&i.PolicyGroup,
 		&i.RoutingStrategy,
 		&i.PinnedEffort,
+		&i.ConsecutiveDowngradeVotes,
 	)
 	return i, err
 }
@@ -127,7 +128,7 @@ func (q *Queries) DisableSessionPinProvider(ctx context.Context, arg DisableSess
 }
 
 const getSessionPin = `-- name: GetSessionPin :one
-SELECT session_key, role, installation_id, pinned_provider, pinned_model, decision_reason, turn_count, pinned_until, first_pinned_at, last_seen_at, last_input_tokens, last_cached_read_tokens, last_cached_write_tokens, last_output_tokens, last_turn_ended_at, consecutive_upstream_errors, last_served_model, has_ever_switched, paired_provider, paired_model, consecutive_overload_errors, disabled_providers, policy_group, routing_strategy, pinned_effort
+SELECT session_key, role, installation_id, pinned_provider, pinned_model, decision_reason, turn_count, pinned_until, first_pinned_at, last_seen_at, last_input_tokens, last_cached_read_tokens, last_cached_write_tokens, last_output_tokens, last_turn_ended_at, consecutive_upstream_errors, last_served_model, has_ever_switched, paired_provider, paired_model, consecutive_overload_errors, disabled_providers, policy_group, routing_strategy, pinned_effort, consecutive_downgrade_votes
 FROM router.session_pins
 WHERE session_key = $1::bytea
   AND role        = $2::varchar
@@ -145,7 +146,7 @@ type GetSessionPinParams struct {
 // last_turn_ended_at carry the previous turn's upstream usage; the
 // planner reads them to weigh switch EV against eviction cost.
 //
-//	SELECT session_key, role, installation_id, pinned_provider, pinned_model, decision_reason, turn_count, pinned_until, first_pinned_at, last_seen_at, last_input_tokens, last_cached_read_tokens, last_cached_write_tokens, last_output_tokens, last_turn_ended_at, consecutive_upstream_errors, last_served_model, has_ever_switched, paired_provider, paired_model, consecutive_overload_errors, disabled_providers, policy_group, routing_strategy, pinned_effort
+//	SELECT session_key, role, installation_id, pinned_provider, pinned_model, decision_reason, turn_count, pinned_until, first_pinned_at, last_seen_at, last_input_tokens, last_cached_read_tokens, last_cached_write_tokens, last_output_tokens, last_turn_ended_at, consecutive_upstream_errors, last_served_model, has_ever_switched, paired_provider, paired_model, consecutive_overload_errors, disabled_providers, policy_group, routing_strategy, pinned_effort, consecutive_downgrade_votes
 //	FROM router.session_pins
 //	WHERE session_key = $1::bytea
 //	  AND role        = $2::varchar
@@ -178,6 +179,7 @@ func (q *Queries) GetSessionPin(ctx context.Context, arg GetSessionPinParams) (R
 		&i.PolicyGroup,
 		&i.RoutingStrategy,
 		&i.PinnedEffort,
+		&i.ConsecutiveDowngradeVotes,
 	)
 	return i, err
 }
@@ -450,13 +452,15 @@ const upsertSessionPin = `-- name: UpsertSessionPin :exec
 INSERT INTO router.session_pins (
   session_key, role, installation_id, pinned_provider,
   pinned_model, pinned_effort, paired_provider, paired_model,
-  decision_reason, routing_strategy, policy_group, turn_count, pinned_until
+  decision_reason, routing_strategy, policy_group, turn_count, pinned_until,
+  consecutive_downgrade_votes
 ) VALUES (
   $1::bytea, $2::varchar, $3::uuid,
   $4::varchar, $5::varchar, $6::varchar,
   $7::varchar, $8::varchar,
   $9::text, $10::varchar, $11::varchar,
-  $12::int, $13::timestamp
+  $12::int, $13::timestamp,
+  $14::int
 )
 ON CONFLICT (session_key, role) DO UPDATE SET
   pinned_provider = EXCLUDED.pinned_provider,
@@ -521,6 +525,7 @@ ON CONFLICT (session_key, role) DO UPDATE SET
       THEN router.session_pins.consecutive_overload_errors
     ELSE 0
   END,
+  consecutive_downgrade_votes = EXCLUDED.consecutive_downgrade_votes,
   -- A strategy switch selects a different policy. Do not carry cache,
   -- switch, or error evidence from the previous policy into it.
   last_input_tokens = CASE
@@ -566,19 +571,20 @@ ON CONFLICT (session_key, role) DO UPDATE SET
 `
 
 type UpsertSessionPinParams struct {
-	SessionKey      []byte
-	Role            string
-	InstallationID  uuid.UUID
-	PinnedProvider  string
-	PinnedModel     string
-	PinnedEffort    string
-	PairedProvider  string
-	PairedModel     string
-	DecisionReason  string
-	RoutingStrategy string
-	PolicyGroup     string
-	TurnCount       int32
-	PinnedUntil     pgtype.Timestamp
+	SessionKey                []byte
+	Role                      string
+	InstallationID            uuid.UUID
+	PinnedProvider            string
+	PinnedModel               string
+	PinnedEffort              string
+	PairedProvider            string
+	PairedModel               string
+	DecisionReason            string
+	RoutingStrategy           string
+	PolicyGroup               string
+	TurnCount                 int32
+	PinnedUntil               pgtype.Timestamp
+	ConsecutiveDowngradeVotes int32
 }
 
 // Upserts a pin, refreshing pinned_until on every hit (sliding TTL).
@@ -614,16 +620,22 @@ type UpsertSessionPinParams struct {
 // pinned_effort always takes the incoming value: it belongs to the pinned
 // model, so a rewrite that carries no level intentionally clears it.
 //
+// consecutive_downgrade_votes also takes the incoming value: unlike the error
+// counters above it is computed by the turn loop from the pin it just read,
+// which knows whether this turn confirmed, upgraded, or held the pin.
+//
 //	INSERT INTO router.session_pins (
 //	  session_key, role, installation_id, pinned_provider,
 //	  pinned_model, pinned_effort, paired_provider, paired_model,
-//	  decision_reason, routing_strategy, policy_group, turn_count, pinned_until
+//	  decision_reason, routing_strategy, policy_group, turn_count, pinned_until,
+//	  consecutive_downgrade_votes
 //	) VALUES (
 //	  $1::bytea, $2::varchar, $3::uuid,
 //	  $4::varchar, $5::varchar, $6::varchar,
 //	  $7::varchar, $8::varchar,
 //	  $9::text, $10::varchar, $11::varchar,
-//	  $12::int, $13::timestamp
+//	  $12::int, $13::timestamp,
+//	  $14::int
 //	)
 //	ON CONFLICT (session_key, role) DO UPDATE SET
 //	  pinned_provider = EXCLUDED.pinned_provider,
@@ -688,6 +700,7 @@ type UpsertSessionPinParams struct {
 //	      THEN router.session_pins.consecutive_overload_errors
 //	    ELSE 0
 //	  END,
+//	  consecutive_downgrade_votes = EXCLUDED.consecutive_downgrade_votes,
 //	  -- A strategy switch selects a different policy. Do not carry cache,
 //	  -- switch, or error evidence from the previous policy into it.
 //	  last_input_tokens = CASE
@@ -745,6 +758,7 @@ func (q *Queries) UpsertSessionPin(ctx context.Context, arg UpsertSessionPinPara
 		arg.PolicyGroup,
 		arg.TurnCount,
 		arg.PinnedUntil,
+		arg.ConsecutiveDowngradeVotes,
 	)
 	return err
 }

@@ -774,6 +774,11 @@ func main() {
 	// authoritativeUpgradeGate keeps the 0.85 escalation floor active for authoritative-per-turn
 	// policies; kill switch for a return to verbatim policy selection.
 	authoritativeUpgradeGate := config.GetOr("ROUTER_AUTHORITATIVE_UPGRADE_GATE", "true") == "true"
+	// authoritativeDowngradeGate mirrors the floor for cheaper-than-pin picks; off by default.
+	authoritativeDowngradeGate := config.GetOr("ROUTER_AUTHORITATIVE_DOWNGRADE_GATE", "false") == "true"
+	// hmmDowngradeHysteresisTurns requires N consecutive cheaper-than-pin authoritative
+	// votes before the downgrade is served; 0 keeps today's switch-on-first-vote behavior.
+	hmmDowngradeHysteresisTurns := parseEnvNonNegativeInt("ROUTER_HMM_DOWNGRADE_HYSTERESIS_TURNS", 0)
 	// authorityCacheShadow records the HMM cache gate's counterfactual verdict on
 	// authoritative-per-turn turns, which return before that gate can run. Pure
 	// observation; kill switch for the added per-turn computation and log line.
@@ -1081,6 +1086,8 @@ func main() {
 		flags.KeyScoreToolResultTurns:                 boolDefault(scoreToolResultTurns),
 		flags.KeyPrefixTrimFreeSwitch:                 boolDefault(prefixTrimFreeSwitch),
 		flags.KeyAuthoritativeUpgradeGate:             boolDefault(authoritativeUpgradeGate),
+		flags.KeyAuthoritativeDowngradeGate:           boolDefault(authoritativeDowngradeGate),
+		flags.KeyHMMDowngradeHysteresisTurns:          strconv.Itoa(hmmDowngradeHysteresisTurns),
 		flags.KeyAuthorityCacheShadow:                 boolDefault(authorityCacheShadow),
 		flags.KeySiblingFailover:                      boolDefault(siblingFailover),
 		flags.KeyOpenAIResponsesBroad:                 boolDefault(openAIResponsesBroad),
@@ -1141,6 +1148,8 @@ func main() {
 		WithHMMUpgradeConfidenceThreshold(hmmUpgradeConfidence).
 		WithHMMSameTierPin(hmmSameTierPin).
 		WithAuthoritativeUpgradeGate(authoritativeUpgradeGate).
+		WithAuthoritativeDowngradeGate(authoritativeDowngradeGate).
+		WithHMMDowngradeHysteresisTurns(hmmDowngradeHysteresisTurns).
 		WithAuthorityCacheShadow(authorityCacheShadow).
 		WithPolicyDeadlineFallback(policyDeadlineFallback).
 		WithPolicyDeadlineDefaultModel(policyDeadlineDefaultModel).
@@ -1662,12 +1671,24 @@ func buildOtelEmitter(deploymentMode string) (*otel.Emitter, error) {
 // parseEnvInt reads an env var as a positive integer. Returns fallback when
 // the var is unset, empty, or unparseable. Logs a warning on bad values.
 func parseEnvInt(key string, fallback int) int {
+	return parseEnvIntAtLeast(key, fallback, 1)
+}
+
+// parseEnvNonNegativeInt reads an env var as an integer for which 0 is a
+// meaningful "off" value rather than a bad input.
+func parseEnvNonNegativeInt(key string, fallback int) int {
+	return parseEnvIntAtLeast(key, fallback, 0)
+}
+
+// parseEnvIntAtLeast reads an env var as an integer of at least minimum,
+// falling back with a warning on anything smaller or unparseable.
+func parseEnvIntAtLeast(key string, fallback, minimum int) int {
 	raw := config.GetOr(key, "")
 	if raw == "" {
 		return fallback
 	}
 	n, err := strconv.Atoi(raw)
-	if err != nil || n <= 0 {
+	if err != nil || n < minimum {
 		observability.Get().Warn("Invalid env var; using default", "key", key, "value", raw, "default", fallback)
 		return fallback
 	}
