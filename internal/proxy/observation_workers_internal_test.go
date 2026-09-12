@@ -3,16 +3,16 @@ package proxy
 import (
 	"context"
 	"encoding/json"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-	"reflect"
 	"strings"
 	"testing"
 	"time"
+
 	"weave-os/router/internal/inference"
+	"weave-os/router/internal/observability"
 	"weave-os/router/internal/router"
 
-	"weave-os/router/internal/observability"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func testObservationWorkers(t *testing.T) *observability.ObservationWorkers {
@@ -99,7 +99,7 @@ func TestPolicySnapshotOwnsTrainingDeltaAndPreservesLargeInteger(t *testing.T) {
 	messages := []router.ConversationMessage{{Role: "assistant", ToolCalls: []router.ConversationToolCall{{Name: "read_file", InputKeys: []string{"path"}, InputJSON: `{"path":"file.go"}`}}}}
 	payload := map[string]any{"training_allowed": true, "selection_head_generation": int64(9007199254740993), "training_conversation_delta": messages}
 	snapshots := make(chan map[string]any, 1)
-	submitObservation(workers.Remote, observability.WorkFeedback, observability.FromContext(context.Background()), payload, policyPayloadBound(payload), time.Second, func(_ context.Context, p map[string]any) error { snapshots <- p; return nil })
+	submitObservation(workers.Remote, observability.WorkFeedback, observability.FromContext(context.Background()), payload, time.Second, func(_ context.Context, p map[string]any) error { snapshots <- p; return nil })
 	messages[0].ToolCalls[0].InputKeys[0] = "secret"
 	messages[0].ToolCalls[0].InputJSON = "mutated"
 	payload["training_allowed"] = false
@@ -109,32 +109,20 @@ func TestPolicySnapshotOwnsTrainingDeltaAndPreservesLargeInteger(t *testing.T) {
 	assert.JSONEq(t, `{"training_allowed":true,"selection_head_generation":9007199254740993,"training_conversation_delta":[{"role":"assistant","tool_calls":[{"name":"read_file","input_keys":["path"],"input_json":"{\"path\":\"file.go\"}"}]}]}`, string(encoded))
 }
 
-func TestTelemetryPayloadBoundCoversEveryVariableField(t *testing.T) {
-	oversizeField := func(value reflect.Value) {
-		switch value.Kind() {
-		case reflect.String:
-			value.SetString(strings.Repeat("x", observability.MaxWorkPayloadBytes))
-		case reflect.Slice:
-			if value.Type().Elem().Kind() == reflect.String {
-				value.Set(reflect.MakeSlice(value.Type(), 1, 1))
-				value.Index(0).SetString(strings.Repeat("x", observability.MaxWorkPayloadBytes))
-			} else {
-				value.Set(reflect.MakeSlice(value.Type(), observability.MaxWorkPayloadBytes, observability.MaxWorkPayloadBytes))
-			}
-		default:
-			return
-		}
-	}
-	typ := reflect.TypeOf(InsertTelemetryParams{})
-	for i := range typ.NumField() {
-		field := typ.Field(i)
-		if field.Type.Kind() != reflect.String && field.Type.Kind() != reflect.Slice {
-			continue
-		}
-		t.Run(field.Name, func(t *testing.T) {
-			var p InsertTelemetryParams
-			oversizeField(reflect.ValueOf(&p).Elem().Field(i))
-			assert.Greater(t, telemetryPayloadBound(p), observability.MaxWorkPayloadBytes)
-		})
+// A response_text that fills the whole capture window must be delivered with
+// its metadata intact; size is never a reason to drop an outcome.
+func TestPolicyOutcomeSnapshotDeliversFullCaptureWindowIntact(t *testing.T) {
+	workers := testObservationWorkers(t)
+	responseText := strings.Repeat("\u00e9", policyOutcomeResponseMaxBytes)
+	payload := map[string]any{"route_id": "route-large", "training_allowed": true, "response_text": responseText}
+	snapshots := make(chan map[string]any, 1)
+	submitObservation(workers.Remote, observability.WorkOutcome, observability.FromContext(context.Background()), payload, time.Second, func(_ context.Context, p map[string]any) error { snapshots <- p; return nil })
+	select {
+	case got := <-snapshots:
+		assert.Equal(t, "route-large", got["route_id"])
+		assert.Equal(t, true, got["training_allowed"])
+		assert.Equal(t, responseText, got["response_text"], "full capture window must survive snapshot and decode")
+	case <-time.After(2 * time.Second):
+		t.Fatal("a full-capture outcome was not delivered")
 	}
 }

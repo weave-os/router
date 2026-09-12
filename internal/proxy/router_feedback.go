@@ -311,7 +311,7 @@ func (s *Service) reportRouterFeedback(
 	}
 	log := observability.FromContext(ctx)
 	if s.observations != nil {
-		submitObservation(s.observations.Remote, observability.WorkFeedback, log, payload, policyPayloadBound(payload), policyFeedbackReportTimeout, reporter.ReportFeedback)
+		submitObservation(s.observations.Remote, observability.WorkFeedback, log, payload, policyFeedbackReportTimeout, reporter.ReportFeedback)
 	}
 }
 

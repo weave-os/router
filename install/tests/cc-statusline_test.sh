@@ -360,7 +360,9 @@ check "a user-edited wrapper is never overwritten" \
 # git-tracked wrapper must never be rewritten by the unattended weekly refresh —
 # that would surface as unexplained dirty files in someone's working tree.
 c="$work/cmd2b"; mkdir -p "$c/cache"; make_command_install "$c/root" "$c/cache"
-( cd "$c/root" && git init -q . && git add .claude/commands/fm.md && git commit -q -m "commit wrappers" )
+( cd "$c/root" && git init -q . && git add .claude/commands/fm.md && \
+  git -c user.email=cc-statusline-test@invalid -c user.name="cc-statusline test" \
+    commit -q -m "commit wrappers" )
 before="$(cat "$c/root/.claude/commands/fm.md")"
 printf '%s\n' '---' 'description: refreshed fm again.' '---' '' "/force-model \$ARGUMENTS" \
   >"$commands_upstream/fm.md"

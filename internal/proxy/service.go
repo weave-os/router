@@ -5168,7 +5168,7 @@ func (s *Service) reportPolicyOutcome(ctx context.Context, res turnLoopResult, d
 		return
 	}
 	if s.observations != nil {
-		submitObservation(s.observations.Remote, observability.WorkOutcome, log, payload, policyPayloadBound(payload), policyOutcomeReportTimeout, reporter.ReportOutcome)
+		submitObservation(s.observations.Remote, observability.WorkOutcome, log, payload, policyOutcomeReportTimeout, reporter.ReportOutcome)
 	}
 }
 
@@ -5750,7 +5750,7 @@ func (s *Service) fireTelemetry(ctx context.Context, p InsertTelemetryParams) {
 	if s.telemetry == nil || s.observations == nil {
 		return
 	}
-	submitObservation(s.observations.Database, observability.WorkTelemetry, observability.FromContext(ctx), p, telemetryPayloadBound(p), 5*time.Second, s.telemetry.InsertRequestTelemetry)
+	submitObservation(s.observations.Database, observability.WorkTelemetry, observability.FromContext(ctx), p, 5*time.Second, s.telemetry.InsertRequestTelemetry)
 }
 
 // emitBilling debits the customer for one upstream call and, on switch turns

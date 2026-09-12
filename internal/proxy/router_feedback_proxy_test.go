@@ -574,12 +574,14 @@ func TestService_RouterFeedbackCommand_DoesNotForwardPolicyFeedbackOutsideHMM(t 
 	store := newFakePinStore()
 	policyFeedback := &fakePolicyFeedbackRouter{}
 	fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-sonnet-4-6", Reason: "cluster"}}
-	svc := newPinSvc(fr, store).WithObservationWorkers(testObservationWorkers(t)).WithHMMRouter(policyFeedback)
+	workers := testObservationWorkers(t)
+	svc := newPinSvc(fr, store).WithObservationWorkers(workers).WithHMMRouter(policyFeedback)
 
 	rec := httptest.NewRecorder()
 	httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
 	require.NoError(t, svc.ProxyMessages(authedCtx(uuid.NewString()), []byte(body), rec, httpReq))
 
+	drainObservationWorkers(t, workers)
 	assert.Empty(t, policyFeedback.Payloads())
 }
 
@@ -949,13 +951,15 @@ func TestService_RouterFeedbackCommand_SequenceResolvesStrategyRoutesToItsReport
 	rlReporter := &fakePolicyFeedbackRouter{}
 	fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-sonnet-4-6", Reason: "cluster"}}
 	ctx := authedCtx(uuid.New().String())
-	svc := newPinSvcWithTelemetry(fr, store, telem).WithObservationWorkers(testObservationWorkers(t)).
+	workers := testObservationWorkers(t)
+	svc := newPinSvcWithTelemetry(fr, store, telem).WithObservationWorkers(workers).
 		WithRouterFeedbackStore(feedback).
 		WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyRL, Router: rlReporter}).
 		WithHMMRouter(hmmReporter)
 	require.NoError(t, svc.ProxyMessages(ctx, []byte(body), httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))))
 
 	require.Eventually(t, func() bool { return len(rlReporter.Payloads()) == 1 }, time.Second, 10*time.Millisecond)
+	drainObservationWorkers(t, workers)
 	require.Empty(t, hmmReporter.Payloads(), "current request is on cluster; HMM reporter must not be selected just because the current context might happen to be HMM somewhere else")
 	payload := rlReporter.Payloads()[0]
 	assert.Equal(t, "rl", payload["strategy"], "the resolved turn's strategy must drive both the payload and the reporter")
