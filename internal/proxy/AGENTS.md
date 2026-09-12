@@ -298,6 +298,10 @@ Proxy attaches a `providers.UpstreamHeaderObserver` to the request context. Prov
 - **Don't add a handover path that doesn't time out.** `Summarizer` contract says implementations MUST respect the context deadline. On timeout/error the proxy keeps the full prior history unchanged — do NOT reintroduce a silent trim-to-last-N fallback (it lobotomized switched-to models; see the handover-fallback fix).
 - **Don't cache streaming responses.** Streaming bypasses cache on purpose — captured bytes would be post-translation SSE frames, and lookup latency budget is hostile to first-token-time. If you think this should change, write a doc first.
 
+## Router feedback attribution
+
+Unnumbered `/rf` and `/rf -1` resolve the latest successfully completed turn from the synchronous session-pin usage write, never from asynchronously persisted request telemetry. Search the normal, HMM-history, and force-model-history roles and select the newest completion timestamp. Older explicit sequences (`-2`, positive sequence numbers) remain request-telemetry history lookups. Ancillary policy feedback requires an exact route ID; without one, preserve the durable feedback save but skip the report rather than letting a sidecar bind it to whichever route is latest at delivery time. Existing pins cannot resolve `/rf -1` until their next successful turn populates completion identity; do not fall back to asynchronous telemetry.
+
 ## Asynchronous observations with backpressure
 
 `WithObservationWorkers` injects the process-owned DB/remote lanes; nil disables observation persistence/reporting. With available capacity, attempt telemetry does not wait for persistence before the next allowed attempt. At saturation, the submitting caller waits for space: there is no load shedding of any kind — not by count, bytes, size, or age — and no caller-runs bypass of the worker limits. Request telemetry and outcome/training-feedback reports submit serialized snapshots, preserving IDs, timestamps, usage and consent. The durable `/rf` save is not queued.

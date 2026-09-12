@@ -76,29 +76,43 @@ func (r *SessionPinRepo) Upsert(ctx context.Context, p sessionpin.Pin) error {
 	})
 }
 
-// UpdateUsage records the previous turn's usage on the pin row. A missing
-// pin (evicted/swept/never created) is a no-op, not an error. A zero
+// UpdateUsage records previous-turn usage and successful completion identity.
+// A missing pin (evicted/swept/never created) is a no-op, not an error. A zero
 // EndedAt is stamped with time.Now when the caller omits it.
 func (r *SessionPinRepo) UpdateUsage(ctx context.Context, sessionKey [sessionpin.SessionKeyLen]byte, role string, usage sessionpin.Usage) error {
+	q := sqlc.New(r.tx)
+	return q.UpdateSessionPinUsage(ctx, sessionPinUsageParams(sessionKey, role, usage))
+}
+
+func sessionPinUsageParams(sessionKey [sessionpin.SessionKeyLen]byte, role string, usage sessionpin.Usage) sqlc.UpdateSessionPinUsageParams {
 	endedAt := usage.EndedAt
 	if endedAt.IsZero() {
 		endedAt = time.Now()
 	}
-	q := sqlc.New(r.tx)
-	return q.UpdateSessionPinUsage(ctx, sqlc.UpdateSessionPinUsageParams{
+	completedAt := usage.CompletedAt
+	if usage.CompletedRequestID != "" && completedAt.IsZero() {
+		completedAt = endedAt
+	}
+	return sqlc.UpdateSessionPinUsageParams{
 		SessionKey:              sessionKey[:],
 		Role:                    role,
 		LastInputTokens:         int32(usage.InputTokens),
 		LastCachedReadTokens:    int32(usage.CachedReadTokens),
 		LastCachedWriteTokens:   int32(usage.CachedWriteTokens),
 		LastOutputTokens:        int32(usage.OutputTokens),
-		LastTurnEndedAt:         pgtype.Timestamptz{Time: endedAt.UTC(), Valid: !endedAt.IsZero()},
-		LastServedModel:         usage.ServedModel,
+		LastTurnEndedAt:         pgtype.Timestamptz{Time: endedAt.UTC(), Valid: true},
 		LastServedProvider:      usage.ServedProvider,
+		LastServedModel:         usage.ServedModel,
 		PriorServedModel:        usage.PriorServedModel,
 		SessionEverSwitched:     usage.SessionEverSwitched,
 		ExpectedRoutingStrategy: string(usage.Strategy),
-	})
+		PreserveUsage:           usage.PreserveUsage,
+		CompletedRequestID:      usage.CompletedRequestID,
+		CompletedRouteID:        usage.CompletedRouteID,
+		CompletedModel:          usage.CompletedModel,
+		CompletedStrategy:       string(usage.CompletedStrategy),
+		CompletedAt:             pgtype.Timestamptz{Time: completedAt.UTC(), Valid: usage.CompletedRequestID != ""},
+	}
 }
 
 // IncrementUpstreamErrors atomically bumps the consecutive-error counter.
@@ -204,6 +218,11 @@ func toSessionPin(row sqlc.RouterSessionPin) sessionpin.Pin {
 		ConsecutiveUpstreamErrors: int(row.ConsecutiveUpstreamErrors),
 		ConsecutiveOverloadErrors: int(row.ConsecutiveOverloadErrors),
 		DisabledProviders:         row.DisabledProviders,
+		LastCompletedRequestID:    row.LastCompletedRequestID,
+		LastCompletedRouteID:      row.LastCompletedRouteID,
+		LastCompletedModel:        row.LastCompletedModel,
+		LastCompletedStrategy:     router.Strategy(row.LastCompletedStrategy),
+		LastCompletedAt:           timestamptzOrZero(row.LastCompletedAt),
 	}
 	// Bounded copy guards against a corrupt row panicking the request handler.
 	copy(pin.SessionKey[:], row.SessionKey)

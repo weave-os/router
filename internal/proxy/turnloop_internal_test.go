@@ -26,6 +26,7 @@ type stubPinStore struct {
 	usageRoles []string
 	getPin     sessionpin.Pin
 	getFound   bool
+	getPins    map[string]sessionpin.Pin
 	getRoles   []string
 	consumePin sessionpin.Pin
 	consumeHit bool
@@ -45,6 +46,9 @@ func (s *stubPinStore) Get(ctx context.Context, _ [sessionpin.SessionKeyLen]byte
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.getRoles = append(s.getRoles, role)
+	if pin, found := s.getPins[role]; found {
+		return pin, true, nil
+	}
 	return s.getPin, s.getFound, nil
 }
 
@@ -208,7 +212,7 @@ func TestRecordTurnUsage_WritesToStore(t *testing.T) {
 		SessionKey: sessionKey,
 		PinRole:    sessionpin.DefaultRole,
 	}
-	svc.recordTurnUsage(context.Background(), res, res.Decision.Provider, res.Decision.Model, 1200, 80, 200, 900)
+	svc.recordTurnUsage(context.Background(), res, res.Decision.Provider, res.Decision.Model, 1200, 80, 200, 900, completedTurn{})
 
 	store.mu.Lock()
 	defer store.mu.Unlock()
@@ -243,7 +247,7 @@ func TestRecordTurnUsage_PassthroughDoesNotReadOrWritePins(t *testing.T) {
 		SessionKey:                 sessionKey,
 		PinRole:                    sessionpin.DefaultRole,
 		BlindExperimentPassthrough: true,
-	}, providers.ProviderAnthropic, "claude-sonnet-4-6", 1200, 80, 200, 900)
+	}, providers.ProviderAnthropic, "claude-sonnet-4-6", 1200, 80, 200, 900, completedTurn{})
 
 	store.mu.Lock()
 	defer store.mu.Unlock()
@@ -278,7 +282,7 @@ func TestRecordTurnUsage_ForwardsSwitchHistory(t *testing.T) {
 		PriorServedModel:    "claude-opus-4-7",
 		SessionEverSwitched: true,
 	}
-	svc.recordTurnUsage(context.Background(), res, res.Decision.Provider, res.Decision.Model, 1200, 80, 200, 900)
+	svc.recordTurnUsage(context.Background(), res, res.Decision.Provider, res.Decision.Model, 1200, 80, 200, 900, completedTurn{})
 
 	store.mu.Lock()
 	defer store.mu.Unlock()
@@ -325,7 +329,7 @@ func TestRecordTurnUsage_HMMDecisionWritesHistoryOnly(t *testing.T) {
 		// latch has_ever_switched without mutating the active routing role.
 		PriorServedModel: "claude-haiku-4-5",
 	}
-	svc.recordTurnUsage(context.Background(), res, res.Decision.Provider, res.Decision.Model, 1200, 80, 200, 900)
+	svc.recordTurnUsage(context.Background(), res, res.Decision.Provider, res.Decision.Model, 1200, 80, 200, 900, completedTurn{})
 
 	store.mu.Lock()
 	defer store.mu.Unlock()
@@ -381,7 +385,7 @@ func TestRecordTurnUsage_HMMModelChangeWritesCurrentUsageOnly(t *testing.T) {
 		PinTier:          "hmm_fresh_unpinned",
 		PriorServedModel: "claude-haiku-4-5",
 	}
-	svc.recordTurnUsage(context.Background(), res, res.Decision.Provider, res.Decision.Model, 1200, 80, 200, 900)
+	svc.recordTurnUsage(context.Background(), res, res.Decision.Provider, res.Decision.Model, 1200, 80, 200, 900, completedTurn{})
 
 	store.mu.Lock()
 	defer store.mu.Unlock()
@@ -427,7 +431,7 @@ func TestRecordHMMTurnHistory_ZeroUsageRefreshesTTLButSkipsUsageWriteback(t *tes
 		PinRole:    sessionpin.DefaultRole,
 	}
 	// A failed/empty upstream turn: all usage counts zero.
-	svc.recordTurnUsage(context.Background(), res, res.Decision.Provider, res.Decision.Model, 0, 0, 0, 0)
+	svc.recordTurnUsage(context.Background(), res, res.Decision.Provider, res.Decision.Model, 0, 0, 0, 0, completedTurn{})
 
 	store.mu.Lock()
 	defer store.mu.Unlock()
@@ -470,7 +474,7 @@ func TestRecordHMMTurnHistory_ZeroUsagePreservesPriorProvider(t *testing.T) {
 		PinRole:    sessionpin.DefaultRole,
 	}
 
-	svc.recordTurnUsage(context.Background(), res, res.Decision.Provider, res.Decision.Model, 0, 0, 0, 0)
+	svc.recordTurnUsage(context.Background(), res, res.Decision.Provider, res.Decision.Model, 0, 0, 0, 0, completedTurn{})
 
 	store.mu.Lock()
 	defer store.mu.Unlock()
@@ -599,7 +603,7 @@ func TestRecordTurnUsage_HMMEVStayWritesHistoryOnly(t *testing.T) {
 		PinRole:    sessionpin.DefaultRole,
 		PinTier:    "hmm_ev_stay_ev_negative",
 	}
-	svc.recordTurnUsage(context.Background(), res, res.Decision.Provider, res.Decision.Model, 1200, 80, 200, 900)
+	svc.recordTurnUsage(context.Background(), res, res.Decision.Provider, res.Decision.Model, 1200, 80, 200, 900, completedTurn{})
 
 	store.mu.Lock()
 	defer store.mu.Unlock()
@@ -1590,4 +1594,51 @@ func TestHMMCostGate_UpgradeThresholdConfigurable(t *testing.T) {
 	assert.Equal(t, planner.OutcomeSwitch, plan.Outcome)
 	assert.Equal(t, hmmReasonConfidentUpgrade, plan.Reason)
 	assert.Equal(t, "moonshotai/kimi-k2.7", stayModel)
+}
+
+func TestLatestCompletedPinChoosesNewestAcrossServingRoles(t *testing.T) {
+	store := newStubPinStore()
+	now := time.Now()
+	store.getPins = map[string]sessionpin.Pin{
+		sessionpin.DefaultRole: {
+			LastCompletedRequestID: "request-cluster",
+			LastCompletedAt:        now.Add(-2 * time.Second),
+		},
+		hmmHistoryRole(sessionpin.DefaultRole): {
+			LastCompletedRequestID: "request-hmm",
+			LastCompletedRouteID:   "route-hmm",
+			LastCompletedModel:     "claude-sonnet-4-6",
+			LastCompletedStrategy:  router.StrategyHMM,
+			LastCompletedAt:        now,
+		},
+		forceModelHistoryRole(sessionpin.DefaultRole): {
+			LastCompletedRequestID: "request-force",
+			LastCompletedAt:        now.Add(-time.Second),
+		},
+	}
+	svc := &Service{pinStore: store}
+
+	pin, found, err := svc.latestCompletedPin(context.Background(), [sessionpin.SessionKeyLen]byte{1}, sessionpin.DefaultRole)
+	require.NoError(t, err)
+	require.True(t, found)
+	assert.Equal(t, "request-hmm", pin.LastCompletedRequestID)
+	assert.Equal(t, "route-hmm", pin.LastCompletedRouteID)
+	assert.Equal(t, router.StrategyHMM, pin.LastCompletedStrategy)
+	assert.ElementsMatch(t, []string{sessionpin.DefaultRole, hmmHistoryRole(sessionpin.DefaultRole), forceModelHistoryRole(sessionpin.DefaultRole)}, store.getRoles)
+}
+
+func TestTurnCompletionIdentityRequiresSuccessfulResponse(t *testing.T) {
+	completedAt := time.Date(2026, 9, 12, 6, 0, 0, 0, time.UTC)
+	svc := &Service{now: func() time.Time { return completedAt }}
+	result := turnLoopResult{Strategy: router.StrategyCluster}
+	decision := router.Decision{Metadata: &router.RoutingMetadata{RouteID: "route-complete", Strategy: string(router.StrategyRL)}}
+
+	failed := svc.turnCompletionIdentity("request-failed", result, decision, false)
+	assert.Empty(t, failed.RequestID)
+
+	completed := svc.turnCompletionIdentity("request-complete", result, decision, true)
+	assert.Equal(t, "request-complete", completed.RequestID)
+	assert.Equal(t, "route-complete", completed.RouteID)
+	assert.Equal(t, router.StrategyRL, completed.Strategy)
+	assert.Equal(t, completedAt, completed.At)
 }
