@@ -269,7 +269,7 @@ var Registry = []Definition{
 		Key:            KeyNativeAnthropicResponseSignals,
 		EnvVar:         "ROUTER_NATIVE_ANTHROPIC_RESPONSE_SIGNALS",
 		Kind:           KindBool,
-		Description:    "Record stop_reason and tool_use block count on telemetry for Anthropic-native passthrough turns. Off by default; observability only, never read by routing.",
+		Description:    "Record stop_reason and tool_use block count on telemetry for Anthropic-native passthrough turns. On by default; kill switch for the added extraction. Observability only, never read by routing.",
 		OrgOverridable: true,
 	},
 	{

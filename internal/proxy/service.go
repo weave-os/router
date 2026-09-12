@@ -231,9 +231,9 @@ type Service struct {
 	// openAIResponsesBroad is the deployment default for
 	// ROUTER_OPENAI_RESPONSES_BROAD; see ResolveOpenAIResponsesBroad.
 	openAIResponsesBroad bool
-	// nativeAnthropicResponseSignals is the deployment default for
-	// ROUTER_NATIVE_ANTHROPIC_RESPONSE_SIGNALS; see
-	// ResolveNativeAnthropicResponseSignals.
+	// nativeAnthropicResponseSignals records the stop reason and tool_use block
+	// count observed on an Anthropic-native passthrough turn. Env
+	// ROUTER_NATIVE_ANTHROPIC_RESPONSE_SIGNALS, on by default.
 	nativeAnthropicResponseSignals bool
 	// allowedModelsHeader is the deployment default for
 	// ROUTER_ALLOWED_MODELS_HEADER; see ResolveAllowedModelsHeader.
@@ -1488,18 +1488,19 @@ func NewService(r router.Router, providerMap map[string]providers.Client, emitte
 			ExpectedRemainingTurns: DefaultPlannerExpectedRemainingTurns,
 			TierUpgradeEnabled:     DefaultPlannerTierUpgradeEnabled,
 		},
-		hmmUpgradeConfidenceThreshold: defaultHMMUpgradeConfidenceThreshold,
-		authoritativeUpgradeGate:      true,
-		authorityCacheShadow:          true,
-		plannerEnabled:                true,
-		scoreToolResultTurns:          true,
-		loopEscalationEnabled:         true,
-		cyberRefusalRepin:             true,
-		cyberRefusalRetry:             true,
-		anthropicServerSideFallback:   true,
-		siblingFailover:               true,
-		openAIResponsesBroad:          true,
-		cyberRefusalFallbackModel:     "claude-sonnet-5",
+		hmmUpgradeConfidenceThreshold:  defaultHMMUpgradeConfidenceThreshold,
+		authoritativeUpgradeGate:       true,
+		authorityCacheShadow:           true,
+		plannerEnabled:                 true,
+		scoreToolResultTurns:           true,
+		loopEscalationEnabled:          true,
+		cyberRefusalRepin:              true,
+		cyberRefusalRetry:              true,
+		anthropicServerSideFallback:    true,
+		siblingFailover:                true,
+		openAIResponsesBroad:           true,
+		nativeAnthropicResponseSignals: true,
+		cyberRefusalFallbackModel:      "claude-sonnet-5",
 	}
 }
 
@@ -1588,9 +1589,10 @@ func (s *Service) WithOpenAIResponsesBroad(enabled bool) *Service {
 	return s
 }
 
-// WithNativeAnthropicResponseSignals sets the deployment default for recording
-// Anthropic-native stop_reason and tool_use counts on telemetry
-// (ROUTER_NATIVE_ANTHROPIC_RESPONSE_SIGNALS).
+// WithNativeAnthropicResponseSignals is the kill switch
+// (ROUTER_NATIVE_ANTHROPIC_RESPONSE_SIGNALS) for recording Anthropic-native
+// stop_reason and tool_use counts on telemetry. On by default; disabling
+// leaves those columns NULL on native turns.
 func (s *Service) WithNativeAnthropicResponseSignals(enabled bool) *Service {
 	s.nativeAnthropicResponseSignals = enabled
 	return s
