@@ -51,7 +51,7 @@ def test_router_beta_arm_pins_versions_and_toggles_beta() -> None:
     provider = tomllib.loads(job.codex_config)["model_providers"]["weave"]
     assert provider["base_url"] == "https://router.example.test:8443/v1"
     assert provider["name"] == "OpenAI"
-    assert provider["http_headers"] == {"x-app": "codex", "x-weave-rollout-id": "run1"}
+    assert provider["http_headers"] == {"x-app": "weave-eval-codex", "x-weave-rollout-id": "run1"}
     assert "web_search" not in tomllib.loads(job.codex_config)
 
 
