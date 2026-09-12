@@ -1,0 +1,81 @@
+internal/auth/blind_experiment_cache.go
+  s_28c8815db4c15b::t_bd837bc88a4ced 1-126
+internal/sqlc/models.go
+  s_28c8815db4c15b::t_f4811f62fb71b4 12-41,348-352
+internal/postgres/blind_experiment_repo.go
+  s_28c8815db4c15b::t_cb6d0a67831f9c 1-46
+internal/proxy/blind_experiment.go
+  s_28c8815db4c15b::t_c4728140bc690f 1-14,23-65
+  s_28c8815db4c15b::t_dadb33cb940dde 15-22
+internal/proxy/turnloop.go
+  s_28c8815db4c15b::t_c4728140bc690f 178-182,748-759
+  s_28c8815db4c15b::t_b49b9fd3e2d5d1 760-761
+internal/auth/service.go
+  s_28c8815db4c15b::t_93b43690eaade3 74,78,131-142,184-194,764,803-808,847-865
+  s_28c8815db4c15b::t_68c1d5ad026ae4 866
+db/queries/blind_experiment.sql
+  s_28c8815db4c15b::t_c43a47891c5b0a 1-5,7-89
+  s_28c8815db4c15b::t_b08400525903d5 6
+internal/proxy/telemetry.go
+  s_28c8815db4c15b::t_c4728140bc690f 58-62,204-211
+  s_28c8815db4c15b::t_6457c21a0e88f6 8-9
+  s_28c8815db4c15b::t_dadb33cb940dde 212-214
+  s_28c8815db4c15b::t_4181e3abbcee33 55-57
+  s_28c8815db4c15b::t_d42aa5ec71d228 215-216
+  s_28c8815db4c15b::t_b737e1efff8560 49-54
+internal/postgres/telemetry.go
+  s_28c8815db4c15b::t_c4728140bc690f 100-102
+internal/proxy/router_feedback.go
+  s_28c8815db4c15b::t_e3b09e2bf958da 199,301
+internal/proxy/observation.go
+  s_28c8815db4c15b::t_dadb33cb940dde 72
+db/migrations/0078_blind-router-experiment.down.sql
+  s_28c8815db4c15b::t_1bd4b563201cdb 1-18
+internal/sqlc/blind_experiment.sql.go
+  s_28c8815db4c15b::t_f4811f62fb71b4 1-2,4-44,46-68,70-82,84-277
+  s_28c8815db4c15b::t_c337aa7bc7a8cf 3
+  s_28c8815db4c15b::t_39e129a76084fc 45,69,83
+cmd/router/main.go
+  s_28c8815db4c15b::t_c4728140bc690f 462,506,547
+internal/proxy/turnloop_internal_test.go
+  s_28c8815db4c15b::t_d65fb4f6efa6a5 29,41,44
+internal/proxy/service.go
+  s_28c8815db4c15b::t_e3b09e2bf958da 2549,3397,4877,4894
+  s_28c8815db4c15b::t_c4728140bc690f 4501,6956
+db/migrations/0078_blind-router-experiment.up.sql
+  s_28c8815db4c15b::t_1bd4b563201cdb 1-75
+internal/auth/blind_experiment.go
+  s_28c8815db4c15b::t_bd837bc88a4ced 1-114
+internal/auth/blind_experiment_test.go
+  s_28c8815db4c15b::t_b7861e3d27f305 82
+  s_28c8815db4c15b::t_d65fb4f6efa6a5 1-5,7-27,29-81,83-115
+  s_28c8815db4c15b::t_acfa812b1be955 6,28
+internal/proxy/blind_experiment_internal_test.go
+  s_28c8815db4c15b::t_e3b09e2bf958da 106,112-120
+  s_28c8815db4c15b::t_acfa812b1be955 28-38,40,78
+  s_28c8815db4c15b::t_d65fb4f6efa6a5 1-27,39,41-77,79-105,107-111,121
+internal/proxy/usage_bypass.go
+  s_28c8815db4c15b::t_c4728140bc690f 406,440-442
+internal/sqlc/model_router_request_telemetry.sql.go
+  s_28c8815db4c15b::t_f4811f62fb71b4 1757-1759,1865-1880,1883,1885-1888,1890-1892,1894-1898,1900-1904,1906-1907,1909-1910,1913-1918,1973-1975,2115-2117,2223-2238,2241,2243-2246,2248-2250,2252-2256,2258-2262,2264-2265,2267-2268,2271-2276,2330-2332
+internal/postgres/repository.go
+  s_28c8815db4c15b::t_cb6d0a67831f9c 25,46
+db/queries/model_router_request_telemetry.sql
+  s_28c8815db4c15b::t_16477277cfd13d 85-87,191-193
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "fa510d0af176089535182723e59b9bf0cee2b8ee",
+  "prompts": {},
+  "sessions": {
+    "s_28c8815db4c15b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0832c-78ed-7dc3-829b-0f975789e8e8",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

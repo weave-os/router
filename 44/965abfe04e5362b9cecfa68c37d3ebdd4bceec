@@ -1,0 +1,35 @@
+smoke/mitmproxy/store.go
+  s_cba51ff194424d::t_19e2ecba64407f 128-135
+smoke/mitmproxy/docker-compose.ci-cache.yml
+  s_cba51ff194424d::t_66d8424fe14533 30-36
+scripts/smoke/run.sh
+  s_cba51ff194424d::t_66d8424fe14533 125-129
+docs/CI.md
+  s_cba51ff194424d::t_f76d9bccbeb341 44,46,68,77-81,83-85
+  s_cba51ff194424d::t_dea15484b9c73f 89-91,93-96
+  s_cba51ff194424d::t_19e2ecba64407f 61-66
+smoke/mitmproxy/store_test.go
+  s_cba51ff194424d::t_19e2ecba64407f 3-35
+.github/workflows/test.yml
+  s_cba51ff194424d::t_dea15484b9c73f 9-14
+Dockerfile
+  s_cba51ff194424d::t_66d8424fe14533 213-227
+docker-compose.yml
+  s_cba51ff194424d::t_66d8424fe14533 165-168
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "44965abfe04e5362b9cecfa68c37d3ebdd4bceec",
+  "prompts": {},
+  "sessions": {
+    "s_cba51ff194424d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a09259-4d5f-7d53-9896-3f1e6fa28e4d",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

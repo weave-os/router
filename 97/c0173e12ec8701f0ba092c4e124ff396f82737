@@ -1,0 +1,40 @@
+internal/router/policy/arm_selector.go
+  s_dc841142dd86a8::t_de48c8e25829e2 29-31,41-43
+internal/sqlc/models.go
+  s_dc841142dd86a8::t_7afeea1bb53c3c 250-255
+  s_dc841142dd86a8::t_4c32a172307452 428-432
+internal/server/server.go
+  s_dc841142dd86a8::t_563a5619074c7a 85-87,89-100,122-125,266,293,339,343,352-354
+internal/router/hmm/selection/selector.go
+  s_dc841142dd86a8::t_de48c8e25829e2 86
+  s_dc841142dd86a8::t_1486356323c053 10,23-25
+internal/router/policy/sidecar_router.go
+  s_dc841142dd86a8::t_94ac92b387d69d 153,155,185-187,190-192,210-212,367-370,372,404-406,409-412,432,441-443,462-467,599-602
+  s_dc841142dd86a8::t_e1065a9b152cfb 641
+internal/router/hmm/rosterdata/rosterdata.go
+  s_dc841142dd86a8::t_d5b06c7c77844b 241
+  s_dc841142dd86a8::t_12529bb4a72337 8-9,54-55,186,193-196
+  s_dc841142dd86a8::t_be2fea7c9d0a67 197-198
+internal/sqlc/model_router_request_telemetry.sql.go
+  s_dc841142dd86a8::t_4c32a172307452 97-98,123-126,174-175,196-198,233-234,259-262,315-316,337-339,1819-1820,1864-1867,1948-1949,1952-1956,1958,1960,1962-1970,1973-1976,1980-1984,1991-1996,2081-2082,2127-2129,2170-2173,2255-2256,2300-2303,2384-2385,2388-2392,2394,2396,2398-2406,2409-2412,2416-2420,2427-2432,2516-2517,2562-2564
+internal/router/router.go
+  s_dc841142dd86a8::t_7afeea1bb53c3c 325-327
+cmd/router/main.go
+  s_dc841142dd86a8::t_71329973d0ffcb 61,1291-1297
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "97c0173e12ec8701f0ba092c4e124ff396f82737",
+  "prompts": {},
+  "sessions": {
+    "s_dc841142dd86a8": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08c98-6b91-7643-8031-133ff9002149",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

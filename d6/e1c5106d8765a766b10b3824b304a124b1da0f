@@ -1,0 +1,55 @@
+internal/proxy/retry_sleep_test.go
+  s_cba51ff194424d::t_69e408c2c4b6d2 1-8
+docs/CI.md
+  s_cba51ff194424d::t_128d82ff69dda4 77-84
+  s_cba51ff194424d::t_6261ee2f1abfbd 101,108-112,114,121-123,125,127-132,137,139-141
+docker-bake.smoke.hcl
+  s_cba51ff194424d::t_54e7f1e2a2bef0 1-24
+.github/workflows/test.yml
+  s_cba51ff194424d::t_b04e2ad7749308 17
+  s_cba51ff194424d::t_af44f2c25da42f 165-166
+  s_cba51ff194424d::t_f6488cd6be6c34 23,58,75,176,192,205,287
+  s_cba51ff194424d::t_26596b7174f615 20-22,24-54,173-174,189-190,202-203,279,296-299,302,307-333
+scripts/smoke/run.sh
+  s_cba51ff194424d::t_1d3bfa097705ed 65-83,131,151,153-154,158,171-172,175,184-185,188,194-195
+internal/proxy/rescue_error_render_test.go
+  s_cba51ff194424d::t_19fff9e5a9c900 41-42
+internal/proxy/baseline_failover_integration_test.go
+  s_cba51ff194424d::t_0451338ed93551 364
+  s_cba51ff194424d::t_05e348c6c8c926 283
+internal/proxy/service_test.go
+  s_cba51ff194424d::t_19fff9e5a9c900 872-873
+.github/workflows/smoke.yml
+  s_cba51ff194424d::t_6797b4c5aadfcd 59,72-74,87-89,116,147-149,162-163
+  s_cba51ff194424d::t_54e7f1e2a2bef0 79,154
+  s_cba51ff194424d::t_90228179959d31 31
+  s_cba51ff194424d::t_0ddd6539f8d1f6 164
+internal/proxy/service.go
+  s_cba51ff194424d::t_c245ec6bbb0a07 1601-1607
+internal/proxy/failover_integration_test.go
+  s_cba51ff194424d::t_8c2db2f74937fe 342-343,390-391,425-426,477-478,550-551,615
+internal/proxy/sibling_failover_integration_test.go
+  s_cba51ff194424d::t_fb06190a1ead83 308
+  s_cba51ff194424d::t_d0142f31ba8e68 101,165,213,254-255
+internal/proxy/dispatch_plan_test.go
+  s_cba51ff194424d::t_19fff9e5a9c900 169
+internal/proxy/gemini_test.go
+  s_cba51ff194424d::t_e956bc065d76c3 154
+  s_cba51ff194424d::t_19fff9e5a9c900 131
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "d6e1c5106d8765a766b10b3824b304a124b1da0f",
+  "prompts": {},
+  "sessions": {
+    "s_cba51ff194424d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a09259-4d5f-7d53-9896-3f1e6fa28e4d",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

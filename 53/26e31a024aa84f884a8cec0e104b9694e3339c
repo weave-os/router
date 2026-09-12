@@ -1,0 +1,27 @@
+internal/server/server.go
+  s_f1929ee44adfce::t_0863af8a66d7f7 237-239
+internal/server/server_test.go
+  s_f1929ee44adfce::t_dfab641b4e83cd 164-166
+clients/python/weave_router_client/client.py
+  s_f1929ee44adfce::t_abad720617d568 289-296,299,301
+clients/python/tests/test_client.py
+  s_f1929ee44adfce::t_037b6d1e9023cc 169-178
+  s_f1929ee44adfce::t_62550075e6b8fb 166-168
+  s_f1929ee44adfce::t_60454095604b39 159-165
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.18",
+  "base_commit_sha": "5326e31a024aa84f884a8cec0e104b9694e3339c",
+  "prompts": {},
+  "sessions": {
+    "s_f1929ee44adfce": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "7b9c796f-2c8e-433a-a836-220f5b2f761d",
+        "model": "claude-sonnet-5"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}
