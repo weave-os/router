@@ -47,6 +47,10 @@ func (f *repinFakeStore) IncrementOverloadErrors(context.Context, [sessionpin.Se
 func (f *repinFakeStore) ResetOverloadErrors(context.Context, [sessionpin.SessionKeyLen]byte, string, router.Strategy) error {
 	return nil
 }
+func (*repinFakeStore) DemoteModel(context.Context, [sessionpin.SessionKeyLen]byte, string, string, sessionpin.DemotionReason, router.Strategy) error {
+	return nil
+}
+
 func (f *repinFakeStore) DisableProvider(context.Context, [sessionpin.SessionKeyLen]byte, string, string, router.Strategy) error {
 	return nil
 }

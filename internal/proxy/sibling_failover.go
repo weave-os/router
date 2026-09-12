@@ -42,7 +42,7 @@ func (s *Service) rescueDecision(ctx context.Context, failed router.Decision, ca
 	}
 	// The rescue picks a stand-in on the router's own initiative, so a disabled
 	// model must not be resurrected here after the pool already excluded it.
-	automaticExcluded := s.globalAutomaticExcludedModels(ctx)
+	automaticExcluded := s.rescueExcludedModels(ctx)
 
 	var sameProvider []router.Decision
 	for _, id := range candidates {
@@ -75,6 +75,20 @@ func (s *Service) rescueDecision(ctx context.Context, failed router.Decision, ca
 	return router.Decision{}, false
 }
 
+// rescueExcludedModels is the soft exclusion set an in-turn rescue must honor:
+// the deployment-wide set plus the models this session demoted.
+func (s *Service) rescueExcludedModels(ctx context.Context) map[string]struct{} {
+	demoted := sessionDemotedModelsFromContext(ctx)
+	if len(demoted) == 0 {
+		return s.globalAutomaticExcludedModels(ctx)
+	}
+	session := make(map[string]struct{}, len(demoted))
+	for _, model := range demoted {
+		session[model] = struct{}{}
+	}
+	return mergeExcludedModels(session, s.globalAutomaticExcludedModels(ctx))
+}
+
 // gatewayRescueDecision rescues a BYOK-gateway turn onto a candidate reachable
 // through a gateway key the request already holds. BYOK disables cross-provider
 // failover (foreign provider would 401); gateway candidates re-use the same
@@ -83,7 +97,7 @@ func (s *Service) rescueDecision(ctx context.Context, failed router.Decision, ca
 func (s *Service) gatewayRescueDecision(ctx context.Context, failed router.Decision, candidates []string, reason string, gw map[string]struct{}, est, sigSavings, outputReserve int) (router.Decision, bool) {
 	custom := s.customBindingsForRequest(ctx)
 	excludedModels := s.excludedModelsForRequest(ctx)
-	automaticExcluded := s.globalAutomaticExcludedModels(ctx)
+	automaticExcluded := s.rescueExcludedModels(ctx)
 
 	var sameProvider []router.Decision
 	for _, id := range candidates {

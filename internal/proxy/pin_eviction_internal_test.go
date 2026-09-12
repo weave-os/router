@@ -72,6 +72,10 @@ func (s *evictionStubPinStore) ResetOverloadErrors(context.Context, [sessionpin.
 	return nil
 }
 
+func (*evictionStubPinStore) DemoteModel(context.Context, [sessionpin.SessionKeyLen]byte, string, string, sessionpin.DemotionReason, router.Strategy) error {
+	return nil
+}
+
 func (s *evictionStubPinStore) DisableProvider(context.Context, [sessionpin.SessionKeyLen]byte, string, string, router.Strategy) error {
 	return nil
 }

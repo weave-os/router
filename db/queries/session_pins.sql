@@ -172,6 +172,11 @@ ON CONFLICT (session_key, role) DO UPDATE SET
     WHEN router.session_pins.routing_strategy = EXCLUDED.routing_strategy
       THEN router.session_pins.disabled_providers
     ELSE '{}'
+  END,
+  demoted_models = CASE
+    WHEN router.session_pins.routing_strategy = EXCLUDED.routing_strategy
+      THEN router.session_pins.demoted_models
+    ELSE '{}'
   END;
 
 -- Records the previous turn's upstream token usage on an existing pin
@@ -288,6 +293,24 @@ SET disabled_providers = CASE
       ELSE array_append(disabled_providers, @provider::varchar)
     END,
     consecutive_overload_errors = 0
+WHERE session_key = @session_key::bytea
+  AND role        = @role::varchar
+  AND (
+    routing_strategy = @expected_routing_strategy::varchar
+    OR (routing_strategy = '' AND @expected_routing_strategy::varchar <> 'hmm_beta')
+  );
+
+-- Appends a model to demoted_models (deduped) after an upstream stream
+-- failed with the prelude already committed, so the next turn's automatic
+-- selection skips that arm. One failure is enough: the committed turn is
+-- already lost. demoted_models only grows within one strategy's pin
+-- lifecycle, like disabled_providers.
+-- name: DemoteSessionPinModel :exec
+UPDATE router.session_pins
+SET demoted_models = CASE
+      WHEN @model::varchar = ANY(demoted_models) THEN demoted_models
+      ELSE array_append(demoted_models, @model::varchar)
+    END
 WHERE session_key = @session_key::bytea
   AND role        = @role::varchar
   AND (

@@ -713,6 +713,9 @@ func main() {
 	siblingFailover := config.GetOr("ROUTER_SIBLING_FAILOVER", "true") == "true"
 	openAIResponsesBroad := config.GetOr("ROUTER_OPENAI_RESPONSES_BROAD", "true") == "true"
 	allowedModelsHeader := config.GetOr("ROUTER_ALLOWED_MODELS_HEADER", "false") == "true"
+	// Session-level demotion of an arm whose stream died after commit. Off
+	// until the upstream owner of those cuts is identified.
+	committedStreamArmDemotion := config.GetOr("ROUTER_COMMITTED_STREAM_ARM_DEMOTION", "false") == "true"
 	sseKeepalive := sseKeepaliveInterval()
 	ccOrchToolsCrossVendor := config.GetOr("ROUTER_CC_ORCH_TOOLS_CROSSVENDOR", "true") == "true"
 	// Per-turn large-vs-small action-classifier swap. Off by default until the
@@ -1085,6 +1088,7 @@ func main() {
 		flags.KeySiblingFailover:                      boolDefault(siblingFailover),
 		flags.KeyOpenAIResponsesBroad:                 boolDefault(openAIResponsesBroad),
 		flags.KeyAllowedModelsHeader:                  boolDefault(allowedModelsHeader),
+		flags.KeyCommittedStreamArmDemotion:           boolDefault(committedStreamArmDemotion),
 		flags.KeyEffortEscalation:                     boolDefault(effortEscalation),
 		flags.KeyCyberRefusalRepin:                    boolDefault(cyberRefusalRepin),
 		flags.KeyCyberRefusalRetry:                    boolDefault(cyberRefusalRetry),
@@ -1136,6 +1140,7 @@ func main() {
 		WithSiblingFailover(siblingFailover).
 		WithOpenAIResponsesBroad(openAIResponsesBroad).
 		WithAllowedModelsHeader(allowedModelsHeader).
+		WithCommittedStreamArmDemotion(committedStreamArmDemotion).
 		WithSSEKeepalive(sseKeepalive).
 		WithPrefixTrimFreeSwitch(prefixTrimFreeSwitch).
 		WithHMMUpgradeConfidenceThreshold(hmmUpgradeConfidence).

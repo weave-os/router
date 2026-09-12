@@ -193,6 +193,9 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 	if len(routeRes.SessionDisabledProviders) > 0 {
 		ctx = context.WithValue(ctx, SessionDisabledProvidersContextKey{}, routeRes.SessionDisabledProviders)
 	}
+	if len(routeRes.SessionDemotedModels) > 0 {
+		ctx = context.WithValue(ctx, SessionDemotedModelsContextKey{}, routeRes.SessionDemotedModels)
+	}
 	routeRes.SuggestionMode = r.Header.Get("x-weave-suggestion-mode") == "true"
 	decision := routeRes.Decision
 	s.firePolicyShadowForServingDecision(ctx, decision, routeRequest)
@@ -468,11 +471,14 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 
 	// Two-strike provider disable: see ProxyMessages. Gemini rarely produces a
 	// real 529, but covers a future translate-layer path that might synthesize one.
+	armDemoted := ""
 	if !routeRes.BlindExperimentPassthrough {
 		s.maybeDisableProviderAfterOverload(ctx, stickyHit, proxyErr, finalProvider, decision.Reason, installationID, routeRes.SessionKey, stickyStateRole(routeRes), routeRes.PinRole)
+		// See ProxyMessages for the committed-stream demotion rationale.
+		armDemoted = s.maybeDemoteArmAfterCommittedStreamFailure(ctx, committed(preludeBuf), proxyErr, decision.Model, decision.Reason, installationID, routeRes.SessionKey, stickyStateRole(routeRes), routeRes.PinRole)
 	}
 
-	log.Info("ProxyGeminiGenerateContent complete", append([]any{"requested_model", feats.Model, "baseline_model", s.baselineFor(feats.Model), "decision_model", decision.Model, "decision_provider", decision.Provider, "decision_reason", decision.Reason, "embedded_tokens", len(promptText) / 4, "total_input_tokens", feats.Tokens, "has_tools", feats.HasTools, "embed_input", embedInput, "sticky_hit", stickyHit, "pin_tier", pinTier, "turn_type", string(tt), "route_ms", routeMs, "proxy_ms", proxyMs, "proxy_err", proxyErr, "upstream_status", upstreamStatus(proxyErr)}, plannerLogFields(routeRes)...)...)
+	log.Info("ProxyGeminiGenerateContent complete", append([]any{"requested_model", feats.Model, "baseline_model", s.baselineFor(feats.Model), "decision_model", decision.Model, "decision_provider", decision.Provider, "decision_reason", decision.Reason, "embedded_tokens", len(promptText) / 4, "total_input_tokens", feats.Tokens, "has_tools", feats.HasTools, "embed_input", embedInput, "sticky_hit", stickyHit, "pin_tier", pinTier, "turn_type", string(tt), "route_ms", routeMs, "proxy_ms", proxyMs, "proxy_err", proxyErr, "upstream_status", upstreamStatus(proxyErr), "arm_demoted", armDemoted, "arm_demotion_reason", armDemotionReason(armDemoted)}, plannerLogFields(routeRes)...)...)
 	s.reportPolicyOutcome(ctx, routeRes, decision, effortServed, decision.Provider, false, feats.Tokens, in, out, cacheCreation, cacheRead, routeMs, proxyMs, proxyErr, nil)
 	return proxyErr
 }

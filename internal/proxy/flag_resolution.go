@@ -113,6 +113,13 @@ func (s *Service) ResolveOpenAIResponsesBroad(ctx context.Context) bool {
 	return flags.BoolOr(ctx, flags.KeyOpenAIResponsesBroad, s.openAIResponsesBroad)
 }
 
+// ResolveCommittedStreamArmDemotion reports the
+// ROUTER_COMMITTED_STREAM_ARM_DEMOTION flag: on, a model whose stream failed
+// after the prelude committed leaves the session's automatic selection.
+func (s *Service) ResolveCommittedStreamArmDemotion(ctx context.Context) bool {
+	return flags.BoolOr(ctx, flags.KeyCommittedStreamArmDemotion, s.committedStreamArmDemotion)
+}
+
 // ResolveEffortEscalation reports whether policy-requested reasoning-effort
 // escalation is applied.
 func (s *Service) ResolveEffortEscalation(ctx context.Context) bool {

@@ -167,6 +167,10 @@ func (*betaCleanupPinStore) IncrementOverloadErrors(context.Context, [sessionpin
 func (*betaCleanupPinStore) ResetOverloadErrors(context.Context, [sessionpin.SessionKeyLen]byte, string, router.Strategy) error {
 	return nil
 }
+func (*betaCleanupPinStore) DemoteModel(context.Context, [sessionpin.SessionKeyLen]byte, string, string, sessionpin.DemotionReason, router.Strategy) error {
+	return nil
+}
+
 func (*betaCleanupPinStore) DisableProvider(context.Context, [sessionpin.SessionKeyLen]byte, string, string, router.Strategy) error {
 	return nil
 }

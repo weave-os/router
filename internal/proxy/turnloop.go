@@ -39,9 +39,10 @@ func addToSet(set map[string]struct{}, model string) map[string]struct{} {
 	return out
 }
 
-// mergeDisabledProviders unions two pins' DisabledProviders (deduped): either
-// the active pin or its HMM history row can carry overload strikes independently.
-func mergeDisabledProviders(a, b []string) []string {
+// mergeSessionStrikes unions two pins' strike lists (DisabledProviders,
+// DemotedModels) deduped: either the active pin or its HMM history row can
+// carry strikes independently.
+func mergeSessionStrikes(a, b []string) []string {
 	if len(a) == 0 {
 		return b
 	}
@@ -274,6 +275,10 @@ type turnLoopResult struct {
 	// exhaustion. Stashed on ctx so resolveBindingsForDispatch's failover
 	// walk also honors the exclusion, not just this turn's scorer.
 	SessionDisabledProviders []string
+	// SessionDemotedModels are models struck out after a committed upstream
+	// stream failure. Stashed on ctx so the in-turn rescue walk honors the
+	// exclusion too, not just this turn's scorer.
+	SessionDemotedModels []string
 	// AuthorityShadow is the counterfactual HMM cache-gate verdict on an
 	// authoritative-per-turn turn. Observation only: it never touches Decision.
 	AuthorityShadow authorityCacheShadow
@@ -1027,7 +1032,7 @@ func (s *Service) runTurnLoop(
 		// letting the eligibility check below drop the pin.
 		pin.Provider = binding
 	}
-	disabledProviders := mergeDisabledProviders(pin.DisabledProviders, hmmHistory.DisabledProviders)
+	disabledProviders := mergeSessionStrikes(pin.DisabledProviders, hmmHistory.DisabledProviders)
 	// Explicit force exempts its own provider from session-level breaker state.
 	forcedProvider := ""
 	if forceModelFound {
@@ -1057,6 +1062,16 @@ func (s *Service) runTurnLoop(
 				delete(filtered, p)
 			}
 			req.EnabledProviders = filtered
+		}
+	}
+	// Models whose stream died after commit. AutomaticExcludedModels is the
+	// layer that reaches the scorer, the HMM authoritative pick, sibling
+	// failover and every automatic pin reuse at once, and is the only one an
+	// explicit /force-model of the same model still routes through.
+	if demoted := mergeSessionStrikes(pin.DemotedModels, hmmHistory.DemotedModels); len(demoted) > 0 {
+		res.SessionDemotedModels = demoted
+		for _, model := range demoted {
+			req.AutomaticExcludedModels = addToSet(req.AutomaticExcludedModels, model)
 		}
 	}
 	res.PriorServedModel, res.SessionEverSwitched = switchHistoryFromPins(pin, hmmHistory, forceHistory)
