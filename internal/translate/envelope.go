@@ -47,6 +47,11 @@ type EmitOptions struct {
 	// affinity hint. Set when a gateway's schema trails the spec and rejected
 	// the field as unknown, so the retry and later turns go out without it.
 	StripPromptCacheKey bool
+	// OmitReasoningSummary drops reasoning.summary from a Responses body. Some
+	// gateway-fronted models accept reasoning.effort but 400 the summary knob
+	// (Snowflake Cortex serving grok-4.6); the proxy sets this on a one-shot
+	// retry after such a 400 and on later turns to the same (endpoint, model).
+	OmitReasoningSummary bool
 	// ModelSwitched reports the serving model changed since the last turn.
 	// Thinking-block signatures are only valid for the model that produced
 	// them, so carried-over blocks make Anthropic 400 with "Invalid signature

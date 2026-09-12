@@ -308,8 +308,10 @@ func (e *RequestEnvelope) buildResponsesFromAnthropic(opts EmitOptions) ([]byte,
 			jw.Obj()
 			jw.Key("effort")
 			jw.Str(eff)
-			jw.Key("summary")
-			jw.Str("detailed")
+			if !opts.OmitReasoningSummary {
+				jw.Key("summary")
+				jw.Str("detailed")
+			}
 			jw.EndObj()
 		}
 	}

@@ -151,6 +151,10 @@ type Service struct {
 	// prompt_cache_key as an unknown field, so only the first turn against
 	// such an endpoint pays the 400. Keyed by gatewayResponsesKey.
 	noPromptCacheKeyGateways sync.Map
+	// noReasoningSummaryGatewayModels memos (endpoint, model) pairs whose
+	// gateway 400s the Responses reasoning.summary knob, so only the first turn
+	// against such a model pays the retry. Keyed by gatewayModelKey.
+	noReasoningSummaryGatewayModels sync.Map
 	// unservedGatewayModels memos (endpoint, model) pairs a gateway answered
 	// model-not-found for. Keyed by gatewayModelKey.
 	unservedGatewayModels sync.Map
@@ -2190,6 +2194,25 @@ func (s *Service) rememberGatewayRejectsPromptCacheKey(key string) {
 	s.noPromptCacheKeyGateways.Store(key, struct{}{})
 }
 
+// gatewayRejectsReasoningSummary reports whether that endpoint already refused
+// reasoning.summary for the model.
+func (s *Service) gatewayRejectsReasoningSummary(key string) bool {
+	if key == "" {
+		return false
+	}
+	_, ok := s.noReasoningSummaryGatewayModels.Load(key)
+	return ok
+}
+
+// rememberGatewayRejectsReasoningSummary records a gateway's per-model refusal
+// of reasoning.summary so later turns go out without the knob.
+func (s *Service) rememberGatewayRejectsReasoningSummary(key string) {
+	if key == "" {
+		return
+	}
+	s.noReasoningSummaryGatewayModels.Store(key, struct{}{})
+}
+
 // newTelemetryBuffer returns a request-scoped buffer, or nil when OTel is
 // disabled — guards against a nil-interface method-call panic.
 func (s *Service) newTelemetryBuffer() *otel.Buffer {
@@ -3843,10 +3866,12 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			// error plus a finalize thunk so a gateway that rejects Responses can
 			// be re-emitted onto chat/completions before finalize commits the
 			// prelude buffer. Translators are stateful, so the retry calls again.
-			dispatchOpenAICompat := func(actx context.Context, d router.Decision, p providers.Client, useResponses, stripPromptCacheKey bool) (error, func(error) error) {
+			dispatchOpenAICompat := func(actx context.Context, d router.Decision, p providers.Client, attempt openAICompatAttempt) (error, func(error) error) {
+				useResponses := attempt.useResponses
 				attemptOpts := targetOpts
 				attemptOpts.TargetProvider = d.Provider
-				attemptOpts.StripPromptCacheKey = stripPromptCacheKey
+				attemptOpts.StripPromptCacheKey = attempt.stripPromptCacheKey
+				attemptOpts.OmitReasoningSummary = attempt.omitReasoningSummary
 				attemptOpts.FastMode = fastModeForAttempt(actx, d.Model, d.Provider)
 				fastServed = attemptOpts.FastMode
 				setStreamCost(d, true)
@@ -3917,46 +3942,56 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 				// Direct OpenAI serves every expressible turn on Responses;
 				// gateways only the reasoning tool turn chat/completions rejects.
 				gatewayKey := gatewayResponsesKey(actx, d.Provider)
-				useResponses := translate.UseOpenAIResponsesAPI(translate.ResponsesRoute{
-					Provider:       d.Provider,
-					Capabilities:   targetOpts.Capabilities,
-					HasTools:       feats.HasTools,
-					ChatOnlyParams: env.RequiresChatCompletionsParams(targetOpts.Capabilities),
-					Broad:          s.ResolveOpenAIResponsesBroad(actx),
-				}) && !s.gatewayLacksResponses(gatewayKey)
-				stripPCK := s.gatewayRejectsPromptCacheKey(gatewayKey)
-				rawErr, finalize := dispatchOpenAICompat(actx, d, p, useResponses, stripPCK)
+				gatewayModel := gatewayModelKey(gatewayKey, d.Provider, d.Model)
+				attempt := openAICompatAttempt{
+					useResponses: translate.UseOpenAIResponsesAPI(translate.ResponsesRoute{
+						Provider:       d.Provider,
+						Capabilities:   targetOpts.Capabilities,
+						HasTools:       feats.HasTools,
+						ChatOnlyParams: env.RequiresChatCompletionsParams(targetOpts.Capabilities),
+						Broad:          s.ResolveOpenAIResponsesBroad(actx),
+					}) && !s.gatewayLacksResponses(gatewayKey),
+					stripPromptCacheKey:  s.gatewayRejectsPromptCacheKey(gatewayKey),
+					omitReasoningSummary: s.gatewayRejectsReasoningSummary(gatewayModel),
+				}
+				rawErr, finalize := dispatchOpenAICompat(actx, d, p, attempt)
+				// Each compatibility retry below re-emits once while pre-commit and
+				// memoizes the answer so the next turn skips the probe.
+				retry := func(reason string) {
+					log.Warn(reason,
+						"model", d.Model,
+						"decision_provider", d.Provider,
+						"request_id", requestID)
+					if preludeBuf != nil {
+						preludeBuf.Discard()
+					}
+					rawErr, finalize = dispatchOpenAICompat(actx, d, p, attempt)
+				}
 				// A gateway with no usable Responses surface answers 404, or 4xx
-				// prose saying the API is off for this account. Re-emit onto
-				// chat/completions once while pre-commit, and remember the answer
-				// so the next turn skips the probe.
-				if rawErr != nil && useResponses && !committed(preludeBuf) &&
+				// prose saying the API is off for this account.
+				if rawErr != nil && attempt.useResponses && !committed(preludeBuf) &&
 					providers.IsUpstreamResponsesUnsupported(rawErr) {
 					s.rememberGatewayLacksResponses(gatewayKey)
-					log.Warn("Gateway rejected the Responses API; retrying on chat/completions",
-						"model", d.Model,
-						"decision_provider", d.Provider,
-						"request_id", requestID)
-					if preludeBuf != nil {
-						preludeBuf.Discard()
-					}
-					useResponses = false
-					rawErr, finalize = dispatchOpenAICompat(actx, d, p, false, stripPCK)
+					attempt.useResponses = false
+					retry("Gateway rejected the Responses API; retrying on chat/completions")
+				}
+				// A gateway may serve Responses for the model yet refuse the
+				// reasoning.summary knob (Cortex fronting grok-4.6). Effort and
+				// encrypted reasoning still go out; only the summary is dropped.
+				if rawErr != nil && attempt.useResponses && !attempt.omitReasoningSummary &&
+					gatewayModel != "" && !committed(preludeBuf) &&
+					providers.IsUpstreamReasoningSummaryRejection(rawErr) {
+					s.rememberGatewayRejectsReasoningSummary(gatewayModel)
+					attempt.omitReasoningSummary = true
+					retry("Gateway rejected reasoning.summary; retrying without the summary knob")
 				}
 				// prompt_cache_key is a spec Chat Completions field, but gateway schemas
-				// that trail the spec 400 it as unknown. Re-emit once without the hint
-				// while pre-commit; memoize the endpoint so later turns skip it.
-				if rawErr != nil && !stripPCK && gatewayKey != "" && !committed(preludeBuf) &&
+				// that trail the spec 400 it as unknown.
+				if rawErr != nil && !attempt.stripPromptCacheKey && gatewayKey != "" && !committed(preludeBuf) &&
 					providers.IsUpstreamPromptCacheKeyRejection(rawErr) {
 					s.rememberGatewayRejectsPromptCacheKey(gatewayKey)
-					log.Warn("Gateway rejected prompt_cache_key; retrying without the affinity hint",
-						"model", d.Model,
-						"decision_provider", d.Provider,
-						"request_id", requestID)
-					if preludeBuf != nil {
-						preludeBuf.Discard()
-					}
-					rawErr, finalize = dispatchOpenAICompat(actx, d, p, useResponses, true)
+					attempt.stripPromptCacheKey = true
+					retry("Gateway rejected prompt_cache_key; retrying without the affinity hint")
 				}
 				return finalize(rawErr)
 			}, nil

@@ -584,6 +584,23 @@ func IsUpstreamPromptCacheKeyRejection(err error) bool {
 	return false
 }
 
+// IsUpstreamReasoningSummaryRejection reports whether err is a buffered 400
+// refusing the Responses reasoning.summary knob for the target model (Cortex:
+// "Unsupported parameter: 'reasoning.summary' is not supported with the
+// '…grok-4.6' model"), licensing a one-shot retry without it. A body that
+// merely mentions the field in another complaint must not match.
+func IsUpstreamReasoningSummaryRejection(err error) bool {
+	var buffered *UpstreamErrorResponse
+	if !errors.As(err, &buffered) || buffered.Status != http.StatusBadRequest {
+		return false
+	}
+	body := strings.ToLower(string(buffered.Body))
+	if !strings.Contains(body, "reasoning.summary") {
+		return false
+	}
+	return strings.Contains(body, "unsupported") || strings.Contains(body, "not supported")
+}
+
 // responsesUnsupportedPhrases are prose bodies meaning the gateway does not
 // serve /v1/responses at all (as opposed to rejecting this particular body).
 // Snowflake Cortex gates the surface per account and answers 400/403 rather

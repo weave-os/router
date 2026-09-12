@@ -412,6 +412,54 @@ func TestIsUpstreamPromptCacheKeyRejection(t *testing.T) {
 	assert.False(t, providers.IsUpstreamPromptCacheKeyRejection(fmt.Errorf("transport blew up")))
 }
 
+func TestIsUpstreamReasoningSummaryRejection(t *testing.T) {
+	cases := []struct {
+		name   string
+		status int
+		body   string
+		want   bool
+	}{
+		{
+			name:   "cortex refuses the knob for grok",
+			status: http.StatusBadRequest,
+			body:   `{"error":{"message":"Unsupported parameter: 'reasoning.summary' is not supported with the 'global.xai.grok-4.6' model.","type":"invalid_request_error","param":"reasoning.summary","code":"unsupported_parameter"}}`,
+			want:   true,
+		},
+		{
+			name:   "openai phrasing for a model without summaries",
+			status: http.StatusBadRequest,
+			body:   `{"error":{"message":"reasoning.summary is not supported for this model"}}`,
+			want:   true,
+		},
+		{
+			name:   "400 disliking the summary value is not this class",
+			status: http.StatusBadRequest,
+			body:   `{"error":{"message":"Invalid value: 'verbose'. Supported values are: 'auto', 'concise', and 'detailed'.","param":"reasoning.summary"}}`,
+			want:   false,
+		},
+		{
+			name:   "unsupported effort is not this class",
+			status: http.StatusBadRequest,
+			body:   `{"error":{"message":"Unsupported parameter: 'reasoning.effort' is not supported with this model."}}`,
+			want:   false,
+		},
+		{
+			name:   "500 mentioning the field is not a rejection",
+			status: http.StatusInternalServerError,
+			body:   `{"message":"reasoning.summary unsupported"}`,
+			want:   false,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := &providers.UpstreamErrorResponse{Status: tc.status, Body: []byte(tc.body)}
+			assert.Equal(t, tc.want, providers.IsUpstreamReasoningSummaryRejection(err))
+		})
+	}
+	assert.False(t, providers.IsUpstreamReasoningSummaryRejection(nil))
+	assert.False(t, providers.IsUpstreamReasoningSummaryRejection(&providers.UpstreamStatusError{Status: http.StatusBadRequest}))
+}
+
 // TestUpstreamErrorBodyMessage pins the buffered-body extraction used by the
 // ProxyMessages complete log: nested error.message wins, top-level message is
 // the fallback, and a non-JSON body is returned truncated rather than dropped.

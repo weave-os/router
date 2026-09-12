@@ -191,7 +191,11 @@ the one turn the gateway would otherwise reject (Snowflake Cortex 400s a 5.6
 tool turn on chat/completions no matter what we send). A gateway that answers
 404/"API disabled" is retried once on chat/completions while pre-commit and
 memoized per effective base URL (`gatewayLacksResponses`), so the next turn
-skips the probe.
+skips the probe. A gateway that serves Responses for a model but 400s the
+`reasoning.summary` knob (Cortex fronting grok-4.6, prod 2026-09-11) is
+retried once without it, keeping effort and encrypted reasoning, and memoized
+per (endpoint, model) (`gatewayRejectsReasoningSummary`); the same gateway's
+other reasoning models keep requesting summaries.
 
 Both rules sit behind `ROUTER_OPENAI_RESPONSES_BROAD` (default on, per-org
 overridable via `flags.KeyOpenAIResponsesBroad`). Turning it off restores the
