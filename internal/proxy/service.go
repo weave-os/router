@@ -3605,7 +3605,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	actPricing := otel.Lookup(decision.Model)
 	reqDecisionPricing := reqPricing.ForInputTokens(feats.Tokens)
 	actDecisionPricing := actPricing.ForInputTokens(feats.Tokens)
-	decisionBuilder := otel.NewAttrBuilder(45).
+	decisionBuilder := otel.NewAttrBuilder(46).
 		String("request_id", requestID).
 		String("external_id", externalID).
 		String("router_user_id", auth.UserIDFrom(ctx)).
@@ -3614,6 +3614,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		String("client.session_id", clientID.SessionID).
 		String("client.user_agent", clientID.UserAgent).
 		String("client.app", clientID.ClientApp).
+		String("rollout_id", policyRolloutIDFromContext(ctx)).
 		String("requested.model", feats.Model).
 		String("decision.model", decision.Model).
 		String("decision.provider", decision.Provider).
@@ -4490,7 +4491,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	if responseBuffer != nil && proxyErr == nil {
 		setRouterCostHeaders(w.Header(), routerResponseCostFromPricing(actPricing, decision.Provider, in, out, cacheCreation, cacheRead))
 	}
-	upstreamBuilder := otel.NewAttrBuilder(40).
+	upstreamBuilder := otel.NewAttrBuilder(41).
 		String("request_id", requestID).
 		String("external_id", externalID).
 		String("router_user_id", auth.UserIDFrom(ctx)).
@@ -4499,6 +4500,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		String("client.session_id", clientID.SessionID).
 		String("client.user_agent", clientID.UserAgent).
 		String("client.app", clientID.ClientApp).
+		String("rollout_id", policyRolloutIDFromContext(ctx)).
 		String("requested.model", feats.Model).
 		String("decision.model", decision.Model).
 		String("decision.provider", finalProvider).
@@ -6315,7 +6317,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	actPricing := otel.Lookup(decision.Model)
 	reqDecisionPricing := reqPricing.ForInputTokens(feats.Tokens)
 	actDecisionPricing := actPricing.ForInputTokens(feats.Tokens)
-	openaiDecisionBuilder := otel.NewAttrBuilder(45).
+	openaiDecisionBuilder := otel.NewAttrBuilder(46).
 		String("request_id", requestID).
 		String("external_id", externalID).
 		String("router_user_id", auth.UserIDFrom(ctx)).
@@ -6324,6 +6326,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		String("client.session_id", clientID.SessionID).
 		String("client.user_agent", clientID.UserAgent).
 		String("client.app", clientID.ClientApp).
+		String("rollout_id", policyRolloutIDFromContext(ctx)).
 		String("requested.model", feats.Model).
 		String("decision.model", decision.Model).
 		String("decision.provider", decision.Provider).
@@ -7239,7 +7242,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	if !env.Stream() && proxyErr == nil {
 		setRouterCostHeaders(w.Header(), routerResponseCostFromPricing(actPricing, decision.Provider, in, out, cacheCreation, cacheRead))
 	}
-	openaiUpstreamBuilder := otel.NewAttrBuilder(40).
+	openaiUpstreamBuilder := otel.NewAttrBuilder(41).
 		String("request_id", requestID).
 		String("external_id", externalID).
 		String("router_user_id", auth.UserIDFrom(ctx)).
@@ -7248,6 +7251,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		String("client.session_id", clientID.SessionID).
 		String("client.user_agent", clientID.UserAgent).
 		String("client.app", clientID.ClientApp).
+		String("rollout_id", policyRolloutIDFromContext(ctx)).
 		String("requested.model", feats.Model).
 		String("decision.model", decision.Model).
 		String("decision.provider", finalProvider).
