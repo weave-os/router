@@ -14,7 +14,7 @@ from enum import StrEnum
 from weave_bench.arms import ArmSpec, Upstream
 
 ROUTER_CLIENT_APP_HEADER = "x-app"
-ROUTER_CLIENT_APP = "codex"
+ROUTER_CLIENT_APP = "weave-eval-codex"
 ROUTER_ROLLOUT_ID_HEADER = "x-weave-rollout-id"
 ROUTER_FORCE_MODEL_HEADER = "x-weave-force-model"
 # Read by the OpenRouter tap, never forwarded upstream.
