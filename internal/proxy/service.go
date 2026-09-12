@@ -7058,6 +7058,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 			})
 			bindings = subBindings
 			codexFailoverUsed = proxyErr == nil
+			subscriptionPoolFailure = isSubscriptionPoolError(proxyErr)
 			cyberRefusalSeen = cyberRefusalSeen || providers.IsUpstreamCyberPolicyRefusal(proxyErr)
 		}
 	}
