@@ -60,19 +60,20 @@ func (r *SessionPinRepo) Consume(ctx context.Context, sessionKey [sessionpin.Ses
 func (r *SessionPinRepo) Upsert(ctx context.Context, p sessionpin.Pin) error {
 	q := sqlc.New(r.tx)
 	return q.UpsertSessionPin(ctx, sqlc.UpsertSessionPinParams{
-		SessionKey:      p.SessionKey[:],
-		Role:            p.Role,
-		InstallationID:  p.InstallationID,
-		PinnedProvider:  p.Provider,
-		PinnedModel:     p.Model,
-		PinnedEffort:    p.Effort,
-		PairedProvider:  p.PairedProvider,
-		PairedModel:     p.PairedModel,
-		DecisionReason:  p.Reason,
-		RoutingStrategy: string(p.Strategy),
-		PolicyGroup:     p.PolicyGroup,
-		TurnCount:       int32(p.TurnCount),
-		PinnedUntil:     pgtype.Timestamp{Time: p.PinnedUntil.UTC(), Valid: true},
+		SessionKey:                p.SessionKey[:],
+		Role:                      p.Role,
+		InstallationID:            p.InstallationID,
+		PinnedProvider:            p.Provider,
+		PinnedModel:               p.Model,
+		PinnedEffort:              p.Effort,
+		PairedProvider:            p.PairedProvider,
+		PairedModel:               p.PairedModel,
+		DecisionReason:            p.Reason,
+		RoutingStrategy:           string(p.Strategy),
+		PolicyGroup:               p.PolicyGroup,
+		TurnCount:                 int32(p.TurnCount),
+		PinnedUntil:               pgtype.Timestamp{Time: p.PinnedUntil.UTC(), Valid: true},
+		ConsecutiveDowngradeVotes: int32(p.ConsecutiveDowngradeVotes),
 	})
 }
 
@@ -203,6 +204,7 @@ func toSessionPin(row sqlc.RouterSessionPin) sessionpin.Pin {
 		HasEverSwitched:           row.HasEverSwitched,
 		ConsecutiveUpstreamErrors: int(row.ConsecutiveUpstreamErrors),
 		ConsecutiveOverloadErrors: int(row.ConsecutiveOverloadErrors),
+		ConsecutiveDowngradeVotes: int(row.ConsecutiveDowngradeVotes),
 		DisabledProviders:         row.DisabledProviders,
 	}
 	// Bounded copy guards against a corrupt row panicking the request handler.

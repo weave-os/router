@@ -88,6 +88,19 @@ func (s *Service) ResolveAuthoritativeUpgradeGate(ctx context.Context) bool {
 	return flags.BoolOr(ctx, flags.KeyAuthoritativeUpgradeGate, s.authoritativeUpgradeGate)
 }
 
+// ResolveAuthoritativeDowngradeGate reports whether the confidence floor also
+// applies to authoritative-per-turn downgrades.
+func (s *Service) ResolveAuthoritativeDowngradeGate(ctx context.Context) bool {
+	return flags.BoolOr(ctx, flags.KeyAuthoritativeDowngradeGate, s.authoritativeDowngradeGate)
+}
+
+// ResolveHMMDowngradeHysteresisTurns returns how many consecutive
+// cheaper-than-pin authoritative votes are required before the downgrade is
+// applied. 0 disables hysteresis.
+func (s *Service) ResolveHMMDowngradeHysteresisTurns(ctx context.Context) int {
+	return flags.IntOr(ctx, flags.KeyHMMDowngradeHysteresisTurns, s.hmmDowngradeHysteresisTurns)
+}
+
 // ResolveAuthorityCacheShadow reports whether authoritative-per-turn turns
 // record the cache gate's counterfactual verdict. Observation only.
 func (s *Service) ResolveAuthorityCacheShadow(ctx context.Context) bool {

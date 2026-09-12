@@ -341,6 +341,8 @@ const defaultHMMUpgradeConfidenceThreshold = 0.85
 const (
 	hmmReasonConfidentUpgrade        = "hmm_confident_upgrade"
 	hmmReasonUpgradeConfidenceLow    = "hmm_upgrade_confidence_low"
+	hmmReasonDowngradeConfidenceLow  = "hmm_downgrade_confidence_low"
+	hmmReasonDowngradeHysteresis     = "hmm_downgrade_hysteresis"
 	hmmReasonPhaseChange             = "hmm_phase_change"
 	nativeWebSearchPassthroughReason = "native_web_search_passthrough"
 )
@@ -1590,6 +1592,50 @@ func (s *Service) runTurnLoop(
 					return res, nil
 				}
 			}
+			// Downgrade guards: the mirror image of the floor above, both off by
+			// default. Order matters -- an unconfident cheaper vote is discarded
+			// before hysteresis sees it, so noise cannot accumulate into a switch.
+			if pinFound && pin.Model != "" && pin.Model != fresh.Model &&
+				!hmmFreshIsMoreExpensive(pin.Model, fresh.Model, plannerTokens, req.SubsidizedModelCostFactor) {
+				hysteresisTurns := s.ResolveHMMDowngradeHysteresisTurns(ctx)
+				confidence, scored := hmmDecisionConfidence(fresh)
+				if s.ResolveAuthoritativeDowngradeGate(ctx) && scored && confidence < s.hmmUpgradeConfidenceThreshold {
+					decision := pinDecision(pin)
+					res.Decision = decision
+					res.StickyHit = true
+					res.PinTier = "authoritative_" + hmmReasonDowngradeConfidenceLow
+					log.Info("turnloop suppressed low-confidence authoritative downgrade; keeping session pin",
+						"pin_model", pin.Model,
+						"pin_provider", pin.Provider,
+						"fresh_model", fresh.Model,
+						"fresh_provider", fresh.Provider,
+						"confidence", confidence,
+						"threshold", s.hmmUpgradeConfidenceThreshold,
+						"downgrade_votes", pin.ConsecutiveDowngradeVotes,
+						"hysteresis_turns", hysteresisTurns,
+					)
+					s.refreshPinDowngradeVotes(ctx, installationID, res.SessionKey, pin, res.PinRole, decision, pin.ConsecutiveDowngradeVotes)
+					return res, nil
+				}
+				if votes := pin.ConsecutiveDowngradeVotes + 1; hysteresisTurns > 0 && votes < hysteresisTurns {
+					decision := pinDecision(pin)
+					res.Decision = decision
+					res.StickyHit = true
+					res.PinTier = "authoritative_" + hmmReasonDowngradeHysteresis
+					log.Info("turnloop held authoritative downgrade below the hysteresis threshold; keeping session pin",
+						"pin_model", pin.Model,
+						"pin_provider", pin.Provider,
+						"fresh_model", fresh.Model,
+						"fresh_provider", fresh.Provider,
+						"confidence", confidence,
+						"threshold", s.hmmUpgradeConfidenceThreshold,
+						"downgrade_votes", votes,
+						"hysteresis_turns", hysteresisTurns,
+					)
+					s.refreshPinDowngradeVotes(ctx, installationID, res.SessionKey, pin, res.PinRole, decision, votes)
+					return res, nil
+				}
+			}
 			res.Decision = fresh
 			res.PinTier = "authoritative_per_turn"
 			s.writeNewPin(ctx, installationID, res.SessionKey, res.PinRole, fresh)
@@ -2320,6 +2366,14 @@ func buildPolicyTurnContext(
 // usage forward so the planner has evidence before the next UpdateUsage
 // writeback lands.
 func (s *Service) refreshPin(ctx context.Context, installationID uuid.UUID, sessionKey [sessionpin.SessionKeyLen]byte, existing sessionpin.Pin, role string, chosen router.Decision) {
+	s.refreshPinDowngradeVotes(ctx, installationID, sessionKey, existing, role, chosen, 0)
+}
+
+// refreshPinDowngradeVotes refreshes the pin and persists the run of
+// consecutive cheaper-than-pin authoritative votes behind it. Only the
+// authoritative downgrade guards carry a non-zero count; every other pin write
+// ends such a run and stores zero.
+func (s *Service) refreshPinDowngradeVotes(ctx context.Context, installationID uuid.UUID, sessionKey [sessionpin.SessionKeyLen]byte, existing sessionpin.Pin, role string, chosen router.Decision, downgradeVotes int) {
 	if installationID == uuid.Nil {
 		return
 	}
@@ -2351,6 +2405,8 @@ func (s *Service) refreshPin(ctx context.Context, installationID uuid.UUID, sess
 		LastOutputTokens:      existing.LastOutputTokens,
 		LastTurnEndedAt:       existing.LastTurnEndedAt,
 		LastServedModel:       existing.LastServedModel,
+
+		ConsecutiveDowngradeVotes: downgradeVotes,
 	}
 	s.upsertPin(ctx, p)
 }
