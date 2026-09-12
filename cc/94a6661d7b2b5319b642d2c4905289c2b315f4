@@ -1,0 +1,112 @@
+smoke/mitmproxy/docker-compose.yml
+  s_9a2807b2bb04f2::t_3e72071636423b 31
+docs/CI.md
+  s_9a2807b2bb04f2::t_3e72071636423b 1-155
+docker-bake.smoke.hcl
+  s_9a2807b2bb04f2::t_3e72071636423b 1-24
+docker-compose.yml
+  s_9a2807b2bb04f2::t_3e72071636423b 84,166-170
+docs/README.md
+  s_9a2807b2bb04f2::t_3e72071636423b 16
+internal/api/admin/policy_catalog_test.go
+  s_9a2807b2bb04f2::t_3e72071636423b 67,73-75
+internal/policyclient/client.go
+  s_9a2807b2bb04f2::t_3e72071636423b 463-470
+internal/proxy/dispatch_plan_test.go
+  s_9a2807b2bb04f2::t_3e72071636423b 169
+.github/workflows/smoke.yml
+  s_9a2807b2bb04f2::t_3e72071636423b 31,59,72-92,96,112,119,138,150-170,177
+cmd/policyctl/commands_test.go
+  s_9a2807b2bb04f2::t_3e72071636423b 1-83
+Dockerfile
+  s_9a2807b2bb04f2::t_3e72071636423b 213-227
+internal/proxy/beta_internal_test.go
+  s_9a2807b2bb04f2::t_3e72071636423b 224-243
+internal/proxy/rescue_error_render_test.go
+  s_9a2807b2bb04f2::t_3e72071636423b 41-42
+internal/server/middleware/router_strategy_override_test.go
+  s_9a2807b2bb04f2::t_3e72071636423b 17-19,21-31,41,97,123,146,153-163,166,171-207,213-230
+  s_9a2807b2bb04f2::t_4599c708784c85 231
+internal/proxy/sibling_failover_integration_test.go
+  s_9a2807b2bb04f2::t_3e72071636423b 101,165,213,254-255,308
+internal/policyclient/auth_test.go
+  s_9a2807b2bb04f2::t_3e72071636423b 8-9,81-103,126-195
+internal/router/policy/inference_registry.go
+  s_9a2807b2bb04f2::t_4a925982da25b8 526,528,531
+internal/translate/emit_same_format_test.go
+  s_9a2807b2bb04f2::t_3e72071636423b 593-594,597-601,606,608-609,615-616,620,628-629,631-632,635-637,643-646
+  s_9a2807b2bb04f2::t_6125bd7c71e6fc 592,595-596,602-605,607,610-614,617-619,621-627,630,633-634,638-642
+internal/proxy/compaction.go
+  s_9a2807b2bb04f2::t_feddccdfeb7c3f 478-487
+internal/policyclient/client_test.go
+  s_9a2807b2bb04f2::t_3e72071636423b 258-298
+internal/proxy/baseline_failover_integration_test.go
+  s_9a2807b2bb04f2::t_3e72071636423b 283,364
+internal/proxy/service_test.go
+  s_9a2807b2bb04f2::t_3e72071636423b 872-873
+.github/workflows/test.yml
+  s_9a2807b2bb04f2::t_3e72071636423b 9-14,17,20-57,61,69,75-76,78,101,168-169,176-177,179,192-193,195,205-206,208,227,275-338
+internal/proxy/handover_internal_test.go
+  s_9a2807b2bb04f2::t_be7497879927cf 160-162
+  s_9a2807b2bb04f2::t_17472dc3e2031d 143,151-159
+smoke/mitmproxy/store_test.go
+  s_9a2807b2bb04f2::t_3e72071636423b 3-35
+internal/server/middleware/router_strategy_override.go
+  s_9a2807b2bb04f2::t_3e72071636423b 19-21,23-33,42-43,47-53,65,67,80-81,94-96
+internal/proxy/beta.go
+  s_9a2807b2bb04f2::t_3e72071636423b 23,85-88
+  s_9a2807b2bb04f2::t_8020461b02a8c5 89
+smoke/mitmproxy/store.go
+  s_9a2807b2bb04f2::t_3e72071636423b 128-135
+cmd/policyctl/commands.go
+  s_9a2807b2bb04f2::t_3e72071636423b 35-51,230-234,244-255,274-279,394-400,413-422,424
+  s_9a2807b2bb04f2::t_2d7f0dc47463bf 423,425
+internal/policyclient/auth.go
+  s_9a2807b2bb04f2::t_3e72071636423b 4,8,13,15,19-27,29-30,39,43,50-125,141,145-154,161
+internal/proxy/openai_cyber_refusal.go
+  s_9a2807b2bb04f2::t_f4ac9a8f99c0ce 186,200
+internal/server/server.go
+  s_9a2807b2bb04f2::t_3e72071636423b 144,147,268,295,343,358
+internal/proxy/service.go
+  s_9a2807b2bb04f2::t_f4ac9a8f99c0ce 6919
+  s_9a2807b2bb04f2::t_3e72071636423b 1601-1607
+internal/proxy/handover.go
+  s_9a2807b2bb04f2::t_f3f90c4a920588 365
+  s_9a2807b2bb04f2::t_7e025b13b21198 154-155,158-159,234-238,242-244,303,354-364,369-372,375
+internal/proxy/retry_sleep_test.go
+  s_9a2807b2bb04f2::t_3e72071636423b 1-8
+docs/POLICY_INFERENCE.md
+  s_9a2807b2bb04f2::t_f3f90c4a920588 6,20
+smoke/mitmproxy/docker-compose.ci-cache.yml
+  s_9a2807b2bb04f2::t_3e72071636423b 30-36
+docs/POLICY_INFERENCE.json
+  s_9a2807b2bb04f2::t_f3f90c4a920588 3,267,269,273-275
+internal/proxy/gemini_test.go
+  s_9a2807b2bb04f2::t_3e72071636423b 131,154
+internal/proxy/compaction_test.go
+  s_9a2807b2bb04f2::t_8741496a5a880c 387-390
+internal/proxy/turnloop.go
+  s_9a2807b2bb04f2::t_8de922cd33b089 1141,1209
+internal/proxy/failover_integration_test.go
+  s_9a2807b2bb04f2::t_3e72071636423b 342-343,390-391,425-426,477-478,550-551,615
+scripts/smoke/run.sh
+  s_9a2807b2bb04f2::t_3e72071636423b 31-34,67-85,133,149-161,173-174,177,186-187,190,196-197
+.github/workflows/check_cluster_routing.yml
+  s_9a2807b2bb04f2::t_3e72071636423b 66
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "cc94a6661d7b2b5319b642d2c4905289c2b315f4",
+  "prompts": {},
+  "sessions": {
+    "s_9a2807b2bb04f2": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0931b-55aa-7b40-ac2e-47b658e2ab59",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}
