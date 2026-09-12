@@ -141,8 +141,10 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 	// used by the README's managed-deployment badge. Public build metadata, unauthed like /health.
 	engine.GET("/v1/version", middleware.WithTimeout(healthTimeout), admin.VersionHandler)
 	var registeredStrategies []router.Strategy
+	var strategyAvailability middleware.StrategyAvailability
 	if proxySvc != nil {
 		registeredStrategies = proxySvc.RegisteredStrategies()
+		strategyAvailability = proxySvc.PolicyStrategyAvailable
 	}
 	defaultStrategy := middleware.NormalizeRouterStrategyDefault(DefaultStrategyFromEnv(), registeredStrategies...)
 	engine.GET(
@@ -263,7 +265,7 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 	messagesMiddleware = append(messagesMiddleware,
 		middleware.WithEmbedOnlyUserMessageOverride(),
 		middleware.WithClusterVersionOverride(),
-		middleware.WithRouterStrategyDefault(defaultStrategy, registeredStrategies...),
+		middleware.WithRouterStrategyDefault(defaultStrategy, strategyAvailability, registeredStrategies...),
 		middleware.WithPolicyDebugOverride(),
 		middleware.WithAllowedModelsOverride(proxySvc),
 		middleware.WithRoutingKnobsOverride(),
@@ -290,7 +292,7 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 	chatCompletionMiddleware = append(chatCompletionMiddleware,
 		middleware.WithEmbedOnlyUserMessageOverride(),
 		middleware.WithClusterVersionOverride(),
-		middleware.WithRouterStrategyDefault(defaultStrategy, registeredStrategies...),
+		middleware.WithRouterStrategyDefault(defaultStrategy, strategyAvailability, registeredStrategies...),
 		middleware.WithPolicyDebugOverride(),
 		middleware.WithAllowedModelsOverride(proxySvc),
 		middleware.WithRoutingKnobsOverride(),
@@ -338,7 +340,7 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 	routeMiddleware = append(routeMiddleware,
 		middleware.WithEmbedOnlyUserMessageOverride(),
 		middleware.WithClusterVersionOverride(),
-		middleware.WithRouterStrategyDefault(defaultStrategy, registeredStrategies...),
+		middleware.WithRouterStrategyDefault(defaultStrategy, strategyAvailability, registeredStrategies...),
 		middleware.WithPolicyDebugOverride(),
 		middleware.WithAllowedModelsOverride(proxySvc),
 		middleware.WithRoutingKnobsOverride(),
@@ -353,7 +355,7 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 		middleware.WithTimeout(routeTimeout),
 		middleware.WithAuth(authSvc, byokRequiresOptIn),
 		middleware.WithEmbedOnlyUserMessageOverride(),
-		middleware.WithRouterStrategyDefault(defaultStrategy, registeredStrategies...),
+		middleware.WithRouterStrategyDefault(defaultStrategy, strategyAvailability, registeredStrategies...),
 		middleware.WithPolicyDebugOverride(),
 		middleware.WithAllowedModelsOverride(proxySvc),
 		middleware.WithRoutingKnobsOverride(),

@@ -600,6 +600,50 @@ func TestAnthropicSameFormat_MidConversationSystemMessageRejectsIncompatibleTarg
 	assert.ErrorIs(t, err, translate.ErrModelTranslationRequirementsIncompatible)
 }
 
+func TestAnthropicSameFormat_MidConversationSystemOutputConfigPreservedInPlace(t *testing.T) {
+	body := []byte(`{"model":"claude-sonnet-4-20250514","messages":[{"role":"user","content":"hi"},{"role":"system","content":"set effort","output_config":{"effort":"high"}}],"max_tokens":1024}`)
+	opts := translate.EmitOptions{
+		TargetModel:  "claude-opus-5",
+		Capabilities: router.Lookup("claude-opus-5"),
+	}
+	out := parseAndEmit(t, body, "anthropic", opts)
+
+	msgs, _ := out["messages"].([]any)
+	require.Len(t, msgs, 2)
+	kept, _ := msgs[1].(map[string]any)
+	assert.Equal(t, "system", kept["role"])
+	assert.Equal(t, "set effort", kept["content"])
+	outputConfig, _ := kept["output_config"].(map[string]any)
+	require.NotNil(t, outputConfig)
+	assert.Equal(t, "high", outputConfig["effort"])
+}
+
+func TestAnthropicSameFormat_NullSystemOutputConfigDoesNotForceOutputConfigCapability(t *testing.T) {
+	body := []byte(`{"model":"claude-sonnet-4-20250514","messages":[{"role":"user","content":"hi"},{"role":"system","content":"reminder","output_config":null}],"max_tokens":1024}`)
+	env, err := translate.ParseAnthropic(body)
+	require.NoError(t, err)
+	reqs := env.TranslationRequirements(router.EndpointAnthropicMessages)
+	assert.True(t, reqs.MidConversationSystemMessages)
+	assert.False(t, reqs.MidConversationOutputConfig)
+}
+
+func TestAnthropicSameFormat_LeadingSystemOutputConfigStaysNative(t *testing.T) {
+	body := []byte(`{"model":"claude-sonnet-4-20250514","messages":[{"role":"system","content":"set effort","output_config":{"effort":"high"}},{"role":"user","content":"hi"}],"max_tokens":1024}`)
+	opts := translate.EmitOptions{
+		TargetModel:  "claude-opus-5",
+		Capabilities: router.Lookup("claude-opus-5"),
+	}
+	out := parseAndEmit(t, body, "anthropic", opts)
+
+	msgs, _ := out["messages"].([]any)
+	require.Len(t, msgs, 2, "leading system messages with output_config stay in messages")
+	kept, _ := msgs[0].(map[string]any)
+	assert.Equal(t, "system", kept["role"])
+	outputConfig, _ := kept["output_config"].(map[string]any)
+	require.NotNil(t, outputConfig)
+	assert.Equal(t, "high", outputConfig["effort"])
+}
+
 func TestAnthropicSameFormat_NewSystemMessageLeavesEarlierTurnsInPlace(t *testing.T) {
 	// The cache-affecting property: a system reminder arriving on a later turn
 	// must not shift any earlier message, or the whole cached prefix moves.

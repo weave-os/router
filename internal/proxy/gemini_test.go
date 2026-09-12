@@ -128,7 +128,7 @@ func TestProxyGeminiGenerateContent_DelaysMarkerUntilFirstUpstreamEvent(t *testi
 		&fakeRouter{decision: router.Decision{Provider: providers.ProviderGoogle, Model: "gemini-2.5-pro", Reason: "cluster"}},
 		map[string]providers.Client{providers.ProviderGoogle: googleProv},
 		nil, false, nil, store, false, providers.ProviderGoogle, "gemini-2.5-flash", nil,
-	)
+	).WithRetrySleep(noRetrySleep)
 	rec := httptest.NewRecorder()
 	body := strings.Replace(geminiInjectedBody, `"stream":false`, `"stream":true`, 1)
 	require.NoError(t, svc.ProxyGeminiGenerateContent(authedCtx("00000000-0000-0000-0000-000000000001"), []byte(body), rec,
@@ -151,7 +151,7 @@ func TestProxyGeminiGenerateContent_RetriesBuffered429WithoutMarkerLeak(t *testi
 		&fakeRouter{decision: router.Decision{Provider: providers.ProviderGoogle, Model: "gemini-2.5-pro", Reason: "cluster"}},
 		map[string]providers.Client{providers.ProviderGoogle: googleProv},
 		nil, false, nil, store, false, providers.ProviderGoogle, "gemini-2.5-flash", nil,
-	)
+	).WithRetrySleep(noRetrySleep)
 	rec := httptest.NewRecorder()
 	body := strings.Replace(geminiInjectedBody, `"stream":false`, `"stream":true`, 1)
 	err := svc.ProxyGeminiGenerateContent(authedCtx("00000000-0000-0000-0000-000000000001"), []byte(body), rec,

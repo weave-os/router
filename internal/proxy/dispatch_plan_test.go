@@ -166,6 +166,7 @@ func TestDispatchPlanned_ExhaustionFlushesUpstreamEnvelope(t *testing.T) {
 func TestDispatchPlanned_DeferredFlushLeavesWriterUntouched(t *testing.T) {
 	only := &fakeClient{name: providers.ProviderFireworks, outcomes: []fakeOutcome{{err: &providers.UpstreamErrorResponse{Status: 500, Body: []byte(`boom`)}}}}
 	s := newServiceWithProviders(t, map[string]providers.Client{providers.ProviderFireworks: only})
+	s.retrySleep = noopSleep
 
 	rec := httptest.NewRecorder()
 	buf := newPreludeBuffer(rec)

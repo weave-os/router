@@ -28,6 +28,7 @@ on:
       - 'scripts/smoke/**'
       - 'docker-compose.yml'
       - 'Dockerfile'
+      - 'docker-bake.smoke.hcl'
       - '.github/workflows/smoke.yml'
   schedule:
     # Nightly cassette-refresh: catches Anthropic-side drift the path-gated PR
@@ -55,6 +56,7 @@ jobs:
     name: Smoke (replay-only)
     if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -67,10 +69,31 @@ jobs:
         with:
           version: latest
 
+      - name: Start Smoke image build timer
+        run: echo "SMOKE_BUILD_STARTED_AT=$(date +%s)" >> "$GITHUB_ENV"
+
+      - name: Build Smoke images with GitHub Actions cache
+        uses: docker/bake-action@v6
+        with:
+          source: .
+          files: ./docker-bake.smoke.hcl
+          targets: |
+            server
+            mitmproxy
+            seed
+          load: true
+          set: |
+            server.tags=router-server
+            mitmproxy.tags=router-mitmproxy
+            seed.tags=router-seed
+
+      - name: Record Smoke image build time
+        run: echo "SMOKE_BUILD_SECONDS=$(( $(date +%s) - SMOKE_BUILD_STARTED_AT ))" >> "$GITHUB_ENV"
+
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version-file: go.mod
+          go-version: '1.25.9'
           cache-dependency-path: go.sum
 
       - name: Run smoke suite
@@ -86,12 +109,14 @@ jobs:
           # actually make a cold build slow; a warm cache turns an ~8-12 minute
           # build into low single-digit minutes.
           SMOKE_CI_CACHE: "1"
+          SMOKE_PREBUILT: "1"
         run: ./scripts/smoke/run.sh
 
   refresh-cassettes:
     name: Refresh cassettes (nightly)
     if: github.event_name == 'schedule'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       contents: write
       pull-requests: write
@@ -110,7 +135,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version-file: go.mod
+          go-version: '1.25.9'
           cache-dependency-path: go.sum
 
       - name: Require Anthropic key
@@ -122,12 +147,34 @@ jobs:
             exit 1
           fi
 
+      - name: Start Smoke image build timer
+        run: echo "SMOKE_BUILD_STARTED_AT=$(date +%s)" >> "$GITHUB_ENV"
+
+      - name: Build Smoke images with GitHub Actions cache
+        uses: docker/bake-action@v6
+        with:
+          source: .
+          files: ./docker-bake.smoke.hcl
+          targets: |
+            server
+            mitmproxy
+            seed
+          load: true
+          set: |
+            server.tags=router-server
+            mitmproxy.tags=router-mitmproxy
+            seed.tags=router-seed
+
+      - name: Record Smoke image build time
+        run: echo "SMOKE_BUILD_SECONDS=$(( $(date +%s) - SMOKE_BUILD_STARTED_AT ))" >> "$GITHUB_ENV"
+
       - name: Record fresh cassettes against the real API
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           SMOKE_PROXY_MODE: record
           SMOKE_CI_CACHE: "1"
+          SMOKE_PREBUILT: "1"
         run: ./scripts/smoke/run.sh
 
       - name: Open a PR if the cassettes changed

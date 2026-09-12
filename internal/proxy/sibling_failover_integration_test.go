@@ -98,7 +98,7 @@ func TestProxyMessages_OverloadedModelDegradesToSameClusterCandidate(t *testing.
 	).WithDeploymentKeyedProviders(map[string]struct{}{
 		providers.ProviderAnthropic: {},
 		providers.ProviderFireworks: {},
-	})
+	}).WithRetrySleep(noRetrySleep)
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
@@ -162,7 +162,7 @@ func TestProxyMessages_OverloadAfterCommitKeepsServingModel(t *testing.T) {
 	).WithDeploymentKeyedProviders(map[string]struct{}{
 		providers.ProviderAnthropic: {},
 		providers.ProviderFireworks: {},
-	})
+	}).WithRetrySleep(noRetrySleep)
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
@@ -210,7 +210,7 @@ func TestProxyMessages_ForceModelOverloadDoesNotDegrade(t *testing.T) {
 	).WithDeploymentKeyedProviders(map[string]struct{}{
 		providers.ProviderAnthropic: {},
 		providers.ProviderFireworks: {},
-	})
+	}).WithRetrySleep(noRetrySleep)
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
@@ -251,7 +251,8 @@ func TestProxyMessages_OverloadWithoutCandidatesSurfacesUpstreamError(t *testing
 			providers.ProviderAnthropic: anthropic.NewClient("test-anthropic-key", anthropicUpstream.URL),
 		},
 		nil, false, nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil,
-	).WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}})
+	).WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}}).
+		WithRetrySleep(noRetrySleep)
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
@@ -304,7 +305,7 @@ func TestProxyMessages_SubscriptionOverloadSurfacesOnceAfterRetry(t *testing.T) 
 	).WithDeploymentKeyedProviders(map[string]struct{}{
 		providers.ProviderAnthropic: {},
 		providers.ProviderFireworks: {},
-	})
+	}).WithRetrySleep(noRetrySleep)
 
 	ctx := context.WithValue(
 		authedCtx("11111111-1111-1111-1111-111111111111"),

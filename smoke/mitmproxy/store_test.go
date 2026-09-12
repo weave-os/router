@@ -1,6 +1,38 @@
 package main
 
-import "testing"
+import (
+	"os"
+	"testing"
+)
+
+func TestStoreSaveMakesCassetteReadableAfterContainerExit(t *testing.T) {
+	s, err := newStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	const key = "cassette-key"
+	if err := s.save(key, &cassette{
+		Method:     "POST",
+		Path:       "/v1/messages",
+		StatusCode: 200,
+		Headers:    map[string]string{"content-type": "application/json"},
+		Body:       rawTextBody(`{"ok":true}`),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	info, err := os.Stat(s.path(key))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := info.Mode().Perm(); got != 0o644 {
+		t.Fatalf("cassette mode = %o, want 644", got)
+	}
+	if _, err := os.ReadFile(s.path(key)); err != nil {
+		t.Fatalf("saved cassette is not readable: %v", err)
+	}
+}
 
 // TestRequestKeyIgnoresPromptCacheKey pins that per-run session-affinity hints
 // don't change the cassette key, so replay-only CI stays green.

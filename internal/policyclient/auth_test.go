@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -76,6 +78,29 @@ func TestGoogleIDTokenURLsUseOriginAsAudience(t *testing.T) {
 	assert.Equal(t, "https://service.run.app", audience)
 }
 
+func TestGoogleIDTokenURLsStripRevisionTagFromAudience(t *testing.T) {
+	baseURL, audience, err := googleIDTokenURLs(
+		"https://rp-de037e12e3ae---router-hmm-sidecar-3kzfceqzxa-uc.a.run.app/",
+	)
+
+	require.NoError(t, err)
+	assert.Equal(t, "https://rp-de037e12e3ae---router-hmm-sidecar-3kzfceqzxa-uc.a.run.app", baseURL)
+	assert.Equal(t, "https://router-hmm-sidecar-3kzfceqzxa-uc.a.run.app", audience)
+}
+
+func TestGoogleIDTokenURLsKeepHostWithoutTag(t *testing.T) {
+	for _, host := range []string{
+		"router-hmm-sidecar-3kzfceqzxa-uc.a.run.app",
+		"---router-hmm-sidecar.a.run.app",
+		"localhost:8080",
+	} {
+		_, audience, err := googleIDTokenURLs("https://" + host + "/readyz")
+
+		require.NoError(t, err)
+		assert.Equal(t, "https://"+host, audience)
+	}
+}
+
 func TestGoogleIDTokenClientDoesNotFollowRedirects(t *testing.T) {
 	redirected := false
 	destination := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
@@ -97,4 +122,74 @@ func TestGoogleIDTokenClientDoesNotFollowRedirects(t *testing.T) {
 	defer response.Body.Close()
 	assert.Equal(t, http.StatusTemporaryRedirect, response.StatusCode)
 	assert.False(t, redirected)
+}
+
+func TestParseWorkloadIdentityFederationSplitsTargetFromFederatedSource(t *testing.T) {
+	credentialsJSON := []byte(`{
+		"type": "external_account",
+		"audience": "//iam.googleapis.com/projects/123/locations/global/workloadIdentityPools/pool/providers/github",
+		"subject_token_type": "urn:ietf:params:oauth:token-type:jwt",
+		"token_url": "https://sts.googleapis.com/v1/token",
+		"service_account_impersonation_url": "https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/ci-sa-01@workweave-root.iam.gserviceaccount.com:generateAccessToken",
+		"credential_source": {"file": "/tmp/oidc-token"}
+	}`)
+
+	federated, err := parseWorkloadIdentityFederation(credentialsJSON)
+
+	require.NoError(t, err)
+	require.NotNil(t, federated)
+	assert.Equal(t, "ci-sa-01@workweave-root.iam.gserviceaccount.com", federated.targetServiceAccount)
+	var source map[string]any
+	require.NoError(t, json.Unmarshal(federated.sourceCredentialsJSON, &source))
+	assert.NotContains(t, source, "service_account_impersonation_url")
+	assert.Equal(t, "external_account", source["type"])
+	assert.Equal(t, "https://sts.googleapis.com/v1/token", source["token_url"])
+	assert.Equal(t, map[string]any{"file": "/tmp/oidc-token"}, source["credential_source"])
+}
+
+func TestParseWorkloadIdentityFederationIgnoresOtherCredentialTypes(t *testing.T) {
+	for name, credentialsJSON := range map[string][]byte{
+		"metadata server":                 nil,
+		"service account key":             []byte(`{"type":"service_account","client_email":"sa@example.iam.gserviceaccount.com"}`),
+		"authorized user":                 []byte(`{"type":"authorized_user","client_id":"id"}`),
+		"external account without target": []byte(`{"type":"external_account","token_url":"https://sts.googleapis.com/v1/token"}`),
+		"impersonated service account":    []byte(`{"type":"impersonated_service_account","service_account_impersonation_url":"https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/sa@x.iam.gserviceaccount.com:generateAccessToken"}`),
+	} {
+		t.Run(name, func(t *testing.T) {
+			federated, err := parseWorkloadIdentityFederation(credentialsJSON)
+
+			require.NoError(t, err)
+			assert.Nil(t, federated)
+		})
+	}
+}
+
+func TestParseWorkloadIdentityFederationRejectsUnparseableTarget(t *testing.T) {
+	federated, err := parseWorkloadIdentityFederation([]byte(`{"type":"external_account","service_account_impersonation_url":""}`))
+
+	require.Error(t, err)
+	assert.Nil(t, federated)
+	assert.Contains(t, err.Error(), "does not name a service account")
+}
+
+func TestNewGoogleIDTokenCredentialsBuildsImpersonatedProviderFromFederationFile(t *testing.T) {
+	dir := t.TempDir()
+	subjectTokenPath := filepath.Join(dir, "oidc-token")
+	require.NoError(t, os.WriteFile(subjectTokenPath, []byte("subject-token"), 0o600))
+	credentialsPath := filepath.Join(dir, "wif.json")
+	require.NoError(t, os.WriteFile(credentialsPath, []byte(`{
+		"type": "external_account",
+		"audience": "//iam.googleapis.com/projects/123/locations/global/workloadIdentityPools/pool/providers/github",
+		"subject_token_type": "urn:ietf:params:oauth:token-type:jwt",
+		"token_url": "https://sts.googleapis.com/v1/token",
+		"service_account_impersonation_url": "https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/ci-sa-01@workweave-root.iam.gserviceaccount.com:generateAccessToken",
+		"credential_source": {"file": "`+subjectTokenPath+`"}
+	}`), 0o600))
+	t.Setenv("GOOGLE_APPLICATION_CREDENTIALS", credentialsPath)
+
+	idTokenCredentials, err := newGoogleIDTokenCredentials("https://rp-abc---sidecar-uc.a.run.app")
+
+	require.NoError(t, err)
+	require.NotNil(t, idTokenCredentials)
+	assert.Empty(t, idTokenCredentials.JSON(), "impersonated ID-token credentials must not re-load the federation file")
 }

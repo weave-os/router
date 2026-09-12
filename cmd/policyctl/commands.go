@@ -32,6 +32,23 @@ const (
 
 const defaultRegistryURI = "gs://weave_ml/weave_registry"
 
+type classifierVerification string
+
+const (
+	classifierVerificationProbe classifierVerification = "probe"
+	// control-plane exists for callers outside the VPC that cannot reach an
+	// internal-ingress revision; the router still probes /readyz at boot.
+	classifierVerificationControlPlane classifierVerification = "control-plane"
+)
+
+// Identity observable on a Cloud Run revision without calling it: the
+// container image plus the pinned package env the sidecar refuses to boot without.
+type classifierRevisionIdentity struct {
+	ArtifactID    string
+	PackageSHA256 string
+	ImageDigest   string
+}
+
 func run(ctx context.Context, args []string) error {
 	if len(args) == 0 {
 		return errors.New("usage: policyctl <compile|check-rosters|validate|publish|promote|rollback|status> [flags]")
@@ -210,6 +227,11 @@ func runPromote(ctx context.Context, args []string, rollback bool) error {
 	expectedRelease := flags.String("expect-current", "", "expected current release digest")
 	classifierRevisionURL := flags.String("classifier-revision-url", "", "tagged classifier revision URL")
 	classifierRevisionName := flags.String("classifier-revision-name", "", "tagged classifier revision name")
+	verificationRaw := flags.String("classifier-verification", string(classifierVerificationProbe), "probe (call /readyz) or control-plane (compare identity read from the Cloud Run revision)")
+	observed := classifierRevisionIdentity{}
+	flags.StringVar(&observed.ArtifactID, "classifier-artifact-id", "", "HMM_PACKAGE_MODEL_ID on the revision (control-plane verification)")
+	flags.StringVar(&observed.PackageSHA256, "classifier-package-sha256", "", "HMM_PACKAGE_SHA256 on the revision (control-plane verification)")
+	flags.StringVar(&observed.ImageDigest, "classifier-image-digest", "", "CLASSIFIER_IMAGE_DIGEST on the revision (control-plane verification)")
 	reason := flags.String("reason", "", "human promotion reason")
 	actor := flags.String("actor", defaultActor(), "promotion actor")
 	prodApproved := flags.Bool("approved", false, "confirm protected production approval")
@@ -218,6 +240,18 @@ func runPromote(ctx context.Context, args []string, rollback bool) error {
 	}
 	if *environmentRaw == "" || *laneRaw == "" || *releaseID == "" || *expectedGeneration < 0 || *classifierRevisionURL == "" || *classifierRevisionName == "" || *reason == "" || *actor == "" {
 		return fmt.Errorf("%s requires environment, lane, release, expected generation, classifier revision, actor, and reason", command)
+	}
+	verification := classifierVerification(*verificationRaw)
+	if verification != classifierVerificationProbe && verification != classifierVerificationControlPlane {
+		return fmt.Errorf("unknown --classifier-verification %q; use %s or %s", *verificationRaw, classifierVerificationProbe, classifierVerificationControlPlane)
+	}
+	if err := validateClassifierRevisionURL(*classifierRevisionURL); err != nil {
+		return err
+	}
+	if verification == classifierVerificationControlPlane {
+		if observed.ArtifactID == "" || observed.PackageSHA256 == "" || observed.ImageDigest == "" {
+			return errors.New("control-plane classifier verification requires --classifier-artifact-id, --classifier-package-sha256, and --classifier-image-digest read from the revision")
+		}
 	}
 	environment := policyregistry.Environment(*environmentRaw)
 	lane := policyregistry.Lane(*laneRaw)
@@ -237,7 +271,12 @@ func runPromote(ctx context.Context, args []string, rollback bool) error {
 	if err != nil {
 		return err
 	}
-	if err := validateClassifierRevision(ctx, release, *classifierRevisionURL); err != nil {
+	if verification == classifierVerificationControlPlane {
+		err = validateClassifierRevisionIdentity(release, observed)
+	} else {
+		err = validateClassifierRevision(ctx, release, *classifierRevisionURL)
+	}
+	if err != nil {
 		return err
 	}
 	var current policyregistry.HeadSnapshot
@@ -254,9 +293,6 @@ func runPromote(ctx context.Context, args []string, rollback bool) error {
 		}
 	} else if *expectedRelease != "" {
 		return errors.New("--expect-current must be empty when --expected-generation=0")
-	}
-	if err := validateClassifierRevisionURL(*classifierRevisionURL); err != nil {
-		return err
 	}
 	head := policyregistry.LaneHead{
 		SchemaVersion: policyregistry.LaneHeadSchemaV1, Environment: environment, Lane: lane,
@@ -355,20 +391,34 @@ func validateClassifierRevision(ctx context.Context, release policyregistry.Rele
 	if err != nil {
 		return fmt.Errorf("probe classifier revision: %w", err)
 	}
+	if err := validateClassifierRevisionIdentity(release, classifierRevisionIdentity{
+		ArtifactID:    health.ClassifierArtifactID,
+		PackageSHA256: health.ClassifierSHA256,
+		ImageDigest:   health.ClassifierImageDigest,
+	}); err != nil {
+		return err
+	}
 	expected := release.Classifier
 	switch {
-	case health.ClassifierArtifactID != expected.ArtifactID:
-		return fmt.Errorf("classifier artifact %q does not match release %q", health.ClassifierArtifactID, expected.ArtifactID)
-	case health.ClassifierSHA256 != expected.PackageSHA256:
-		return fmt.Errorf("classifier package digest %q does not match release %q", health.ClassifierSHA256, expected.PackageSHA256)
-	case health.ClassifierImageDigest != expected.ImageDigest:
-		return fmt.Errorf("classifier image digest %q does not match release %q", health.ClassifierImageDigest, expected.ImageDigest)
 	case health.SchemaVersion != expected.WireSchema:
 		return fmt.Errorf("classifier schema %q does not match release %q", health.SchemaVersion, expected.WireSchema)
 	case health.ClassifierTaxonomySHA != expected.TaxonomySHA256:
 		return fmt.Errorf("classifier taxonomy digest %q does not match release %q", health.ClassifierTaxonomySHA, expected.TaxonomySHA256)
 	case !slices.Equal(health.ClassifierClassOrder, expected.ClassOrder):
 		return errors.New("classifier class order does not match release")
+	}
+	return nil
+}
+
+func validateClassifierRevisionIdentity(release policyregistry.Release, observed classifierRevisionIdentity) error {
+	expected := release.Classifier
+	switch {
+	case observed.ArtifactID != expected.ArtifactID:
+		return fmt.Errorf("classifier artifact %q does not match release %q", observed.ArtifactID, expected.ArtifactID)
+	case observed.PackageSHA256 != expected.PackageSHA256:
+		return fmt.Errorf("classifier package digest %q does not match release %q", observed.PackageSHA256, expected.PackageSHA256)
+	case observed.ImageDigest != expected.ImageDigest:
+		return fmt.Errorf("classifier image digest %q does not match release %q", observed.ImageDigest, expected.ImageDigest)
 	}
 	return nil
 }

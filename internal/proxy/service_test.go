@@ -869,7 +869,8 @@ func (f *fakeProvider) Passthrough(ctx context.Context, prep providers.PreparedR
 }
 
 func makeProxyService(decision router.Decision, p map[string]providers.Client) *proxy.Service {
-	return proxy.NewService(&fakeRouter{decision: decision}, p, nil, false, nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil)
+	return proxy.NewService(&fakeRouter{decision: decision}, p, nil, false, nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil).
+		WithRetrySleep(noRetrySleep)
 }
 
 // TestService_PassthroughToNamedProvider_ResolvesBYOKCredential: passthrough

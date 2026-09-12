@@ -255,6 +255,47 @@ func TestClientRejectsSelectionAuthorityInV4Response(t *testing.T) {
 	require.ErrorContains(t, err, "unknown field \"model\"")
 }
 
+func TestClientIgnoresUnknownTimingStagesInV4Response(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		payload, err := json.Marshal(validClassifierResponseV4())
+		require.NoError(t, err)
+		var responsePayload map[string]interface{}
+		require.NoError(t, json.Unmarshal(payload, &responsePayload))
+		responsePayload["timings"] = map[string]interface{}{
+			"route_ms":             20.0,
+			"infer_ms":             14.0,
+			"features_ms":          1.5,
+			"select_ms":            3.5,
+			"turns":                2,
+			"infer_degraded":       true,
+			"documents_ms":         0.5,
+			"embed_ms":             12.5,
+			"posterior_ms":         1.0,
+			"documents":            3,
+			"embed_cache_hits":     2,
+			"embed_cache_misses":   1,
+			"embed_inflight_joins": 0,
+		}
+		require.NoError(t, json.NewEncoder(w).Encode(responsePayload))
+	}))
+	defer server.Close()
+
+	result, err := New(server.URL, server.Client(), 0).Decide(context.Background(), policy.Query{
+		SchemaVersion: policy.SchemaVersionV4,
+		Strategy:      router.StrategyHMM,
+		PromptText:    "classify only",
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, "high", result.PredictedLabel)
+	require.NotNil(t, result.Timings)
+	assert.Equal(t, 12.5, *result.Timings.EmbedMs)
+	assert.Equal(t, 3.5, *result.Timings.SelectMs)
+	assert.Equal(t, 4.0, *result.Timings.OtherMs)
+	require.NotNil(t, result.ServingStats)
+	assert.Equal(t, int64(2), *result.ServingStats.EmbedCacheHits)
+}
+
 func decideWithTimings(t *testing.T, timings *routeTimings) policy.Result {
 	t.Helper()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {

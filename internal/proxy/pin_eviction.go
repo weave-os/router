@@ -157,6 +157,33 @@ func (s *Service) maybeExpireDeadArmPin(
 	}
 }
 
+// maybeExpirePoolArmPin expires a sticky pin when the managed subscription
+// pool for the pinned provider is empty. The pin is not a quality signal and
+// has no HTTP status, so the two-strike 4xx counter never sees it; without
+// this, Codex retries keep hitting the same dead Claude arm. Also expires a
+// pin written on this first unpinned turn (writeNewPin), so the next request
+// does not sticky-hit the same empty pool. Never expires a user force-model pin.
+func (s *Service) maybeExpirePoolArmPin(
+	ctx context.Context,
+	poolArmDead bool,
+	decisionReason string,
+	installationID uuid.UUID,
+	sessionKey [sessionpin.SessionKeyLen]byte,
+	role string,
+) {
+	if !poolArmDead || s.pinStore == nil || installationID == uuid.Nil || sessionKey == ([sessionpin.SessionKeyLen]byte{}) || strings.HasPrefix(decisionReason, translate.ReasonUserForceModel) {
+		return
+	}
+	log := observability.FromContext(ctx)
+	if err := s.expireSessionPin(ctx, installationID, sessionKey, role, "subscription_pool_exhausted"); err != nil {
+		log.Error("pin eviction after subscription pool exhaustion failed", "err", err, "role", role)
+		return
+	}
+	log.Info("session pin evicted after subscription pool exhaustion",
+		"role", role,
+	)
+}
+
 // maybeEvictPinAfterUpstreamErr applies the two-strike eviction policy for a
 // turn run against a sticky pin: a successful turn resets the strike counter,
 // a non-retryable upstream 4xx increments it, and hitting

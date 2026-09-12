@@ -38,7 +38,8 @@ func TestProxyMessages_SubscriptionRescueFailureRendersSSEErrorFrame(t *testing.
 			providers.ProviderAnthropic: anthropic.NewClient("test-anthropic-key", upstream.URL),
 		},
 		nil, false, nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil,
-	).WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}})
+	).WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}}).
+		WithRetrySleep(noRetrySleep)
 
 	ctx := context.WithValue(
 		authedCtx("11111111-1111-1111-1111-111111111111"),
