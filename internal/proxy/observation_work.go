@@ -15,7 +15,7 @@ import (
 
 var errObservationPayloadTooLarge = errors.New("observation payload exceeds admission limit")
 
-// WithObservationWorkers injects process-owned best-effort capacity. Without it,
+// WithObservationWorkers injects process-owned asynchronous capacity. Without it,
 // optional persistence/reporting is disabled; no per-service workers are started.
 func (s *Service) WithObservationWorkers(workers *observability.ObservationWorkers) *Service {
 	s.observations = workers

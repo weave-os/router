@@ -24,7 +24,6 @@ const (
 	MaxWorkPayloadBytes = 1 << 20
 	workQueueSize       = 256
 	workQueueBytes      = 16 << 20
-	workMaxAge          = 30 * time.Second
 	workLogInterval     = 10 * time.Second
 )
 
@@ -39,37 +38,35 @@ type workResult string
 
 const (
 	workInvalidPayload workResult = "invalid_payload"
-	workFull           workResult = "full"
 	workOversize       workResult = "oversize"
 	workClosing        workResult = "closing"
-	workExpired        workResult = "expired"
 	workFailed         workResult = "failed"
 	workPanicked       workResult = "panicked"
 )
 
 type observationJob struct {
-	kind      WorkKind
-	payload   []byte
-	timeout   time.Duration
-	submitted time.Time
-	log       *slog.Logger
-	run       func(context.Context, []byte) error
+	kind    WorkKind
+	payload []byte
+	timeout time.Duration
+	log     *slog.Logger
+	run     func(context.Context, []byte) error
 }
 
 // WorkQueue owns a fixed number of workers. Count and byte reservations include
 // running jobs; callers must capture only long-lived sinks in run, never requests.
 type WorkQueue struct {
-	mu            sync.Mutex
-	queue         chan observationJob
-	closed        bool
-	count         int
-	retainedBytes int
-	lastLog       time.Time
-	ctx           context.Context
-	cancel        context.CancelFunc
-	done          chan struct{}
-	counter       metric.Int64Counter
-	lane          workLane
+	mu                sync.Mutex
+	capacityAvailable *sync.Cond
+	queue             chan observationJob
+	closed            bool
+	count             int
+	retainedBytes     int
+	lastLog           time.Time
+	ctx               context.Context
+	cancel            context.CancelFunc
+	done              chan struct{}
+	counter           metric.Int64Counter
+	lane              workLane
 }
 
 // ObservationWorkers isolates database observations from slow remote reports.
@@ -88,6 +85,7 @@ func newWorkQueue(lane workLane, workers int) *WorkQueue {
 	ctx, cancel := context.WithCancel(context.Background())
 	counter, _ := otel.Meter("weave-os/router/observations").Int64Counter("router.observations.dropped")
 	q := &WorkQueue{queue: make(chan observationJob, workQueueSize), ctx: ctx, cancel: cancel, done: make(chan struct{}), counter: counter, lane: lane}
+	q.capacityAvailable = sync.NewCond(&q.mu)
 	var wg sync.WaitGroup
 	wg.Add(workers)
 	for range workers {
@@ -97,32 +95,31 @@ func newWorkQueue(lane workLane, workers int) *WorkQueue {
 	return q
 }
 
-// Submit copies payload on admission and never waits for capacity or execution.
+// Submit copies payload on admission, waiting for capacity when saturated.
 // run receives a shutdown-owned context with timeout, not a request context.
-// Nil queues disable observations. Oversized payloads are rejected, not truncated.
+// Nil queues disable observations; oversized payloads and closing queues reject.
+// Jobs must not submit back into their own full queue.
 func (q *WorkQueue) Submit(kind WorkKind, payload []byte, timeout time.Duration, log *slog.Logger, run func(context.Context, []byte) error) bool {
 	if q == nil {
 		return false
 	}
-	q.mu.Lock()
-	reason := workResult("")
-	switch {
-	case q.closed:
-		reason = workClosing
-	case len(payload) > MaxWorkPayloadBytes:
-		reason = workOversize
-	case q.count >= workQueueSize || len(payload) > workQueueBytes-q.retainedBytes:
-		reason = workFull
+	if len(payload) > MaxWorkPayloadBytes {
+		q.record(log, kind, workOversize, nil)
+		return false
 	}
-	if reason != "" {
+	q.mu.Lock()
+	for !q.closed && (q.count >= workQueueSize || len(payload) > workQueueBytes-q.retainedBytes) {
+		q.capacityAvailable.Wait()
+	}
+	if q.closed {
 		q.mu.Unlock()
-		q.record(log, kind, reason, nil)
+		q.record(log, kind, workClosing, nil)
 		return false
 	}
 	q.count++
 	q.retainedBytes += len(payload)
 	// count includes running jobs, so this send always has a free slot.
-	q.queue <- observationJob{kind: kind, payload: bytes.Clone(payload), timeout: timeout, submitted: time.Now(), log: log, run: run}
+	q.queue <- observationJob{kind: kind, payload: bytes.Clone(payload), timeout: timeout, log: log, run: run}
 	q.mu.Unlock()
 	return true
 }
@@ -136,18 +133,16 @@ func (q *WorkQueue) Reject(kind WorkKind, log *slog.Logger, err error) {
 
 func (q *WorkQueue) worker() {
 	for job := range q.queue {
-		switch {
-		case q.ctx.Err() != nil:
+		if q.ctx.Err() != nil {
 			q.record(job.log, job.kind, workClosing, nil)
-		case time.Since(job.submitted) > workMaxAge:
-			q.record(job.log, job.kind, workExpired, nil)
-		default:
+		} else {
 			q.execute(job)
 		}
 		q.mu.Lock()
 		q.count--
 		q.retainedBytes -= len(job.payload)
 		job = observationJob{}
+		q.capacityAvailable.Broadcast()
 		q.mu.Unlock()
 	}
 }
@@ -181,8 +176,8 @@ func (q *WorkQueue) record(log *slog.Logger, kind WorkKind, reason workResult, e
 	}
 }
 
-// Shutdown stops admissions and drains within ctx. Expiry cancels active I/O
-// and drops queued jobs. Repeated callers wait on the same worker completion.
+// Shutdown stops admissions, wakes blocked producers, and drains within ctx.
+// Expiry cancels active I/O and drops queued jobs. Repeated callers share completion.
 func (q *WorkQueue) Shutdown(ctx context.Context) error {
 	if q == nil {
 		return nil
@@ -191,6 +186,7 @@ func (q *WorkQueue) Shutdown(ctx context.Context) error {
 	if !q.closed {
 		q.closed = true
 		close(q.queue)
+		q.capacityAvailable.Broadcast()
 	}
 	q.mu.Unlock()
 	select {

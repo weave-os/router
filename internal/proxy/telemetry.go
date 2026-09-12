@@ -459,7 +459,7 @@ func int32Ptr(v int32) *int32 {
 	return &v
 }
 
-// attemptSink snapshots executor events without blocking the next attempt.
+// attemptSink snapshots executor events; saturated observation capacity applies backpressure.
 type attemptSink struct {
 	store InferenceAttemptStore
 	queue *observability.WorkQueue
