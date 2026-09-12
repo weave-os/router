@@ -74,6 +74,11 @@ type EmitOptions struct {
 	// tools are always stripped. Set from ROUTER_CC_ORCH_TOOLS_CROSSVENDOR;
 	// zero value false preserves historical strip-all behavior.
 	KeepCrossVendorOrchestrationTools bool
+	// KeepCrossVendorTaskTools additionally preserves the task-list tools
+	// (TaskCreate/TaskUpdate/TaskGet/TaskList) and their system reminders on
+	// cross-vendor emit. Nested under KeepCrossVendorOrchestrationTools. Set
+	// from ROUTER_CC_TASK_TOOLS_CROSSVENDOR; zero value false strips them.
+	KeepCrossVendorTaskTools bool
 	// StripOutputConfigFormat drops output_config.format. Anthropic-spec
 	// gateways are documented to serve the knob (Cortex does), so the proxy sets
 	// this only on a one-shot retry after one 400s on it.

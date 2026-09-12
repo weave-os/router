@@ -81,7 +81,7 @@ func (e *RequestEnvelope) PrepareGemini(_ http.Header, opts EmitOptions) (provid
 			return providers.PreparedRequest{}, err
 		}
 	case FormatAnthropic:
-		filtered, ccFilter, err := filterClaudeCodeOnlyToolsFromAnthropicBody(e.body, opts.KeepCrossVendorOrchestrationTools)
+		filtered, ccFilter, err := filterClaudeCodeOnlyToolsFromAnthropicBody(e.body, opts.ccToolFilter())
 		if err != nil {
 			return providers.PreparedRequest{}, fmt.Errorf("strip claude-code-only tools: %w", err)
 		}

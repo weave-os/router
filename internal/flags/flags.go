@@ -71,6 +71,7 @@ const (
 	KeyEmbedOnlyUserMessage                 Key = "embed_only_user_message"
 	KeyOpenAIResponsesBroad                 Key = "openai_responses_broad"
 	KeyAllowedModelsHeader                  Key = "allowed_models_header"
+	KeyCCTaskToolsCrossVendor               Key = "cc_task_tools_crossvendor"
 	KeySubscriptionPlanAwareRouting         Key = "subscription_plan_aware_routing_enabled"
 )
 
@@ -92,7 +93,7 @@ type Definition struct {
 // RegistryVersion changes whenever Registry's membership changes. Publish uses
 // it to make pruning safe during rolling deploys: a revision with an older
 // registry version may not delete definitions published by a newer revision.
-const RegistryVersion = 10
+const RegistryVersion = 11
 
 // Registry is the curated allowlist of flags that may carry a per-organization
 // override. It is deliberately explicit rather than derived from the env var
@@ -262,6 +263,13 @@ var Registry = []Definition{
 		EnvVar:         "ROUTER_OPENAI_RESPONSES_BROAD",
 		Kind:           KindBool,
 		Description:    "Serve every direct-OpenAI turn on /v1/responses. Off, only the reasoning tool turn chat/completions rejects is promoted.",
+		OrgOverridable: true,
+	},
+	{
+		Key:            KeyCCTaskToolsCrossVendor,
+		EnvVar:         "ROUTER_CC_TASK_TOOLS_CROSSVENDOR",
+		Kind:           KindBool,
+		Description:    "Keep Claude Code's TaskCreate/TaskUpdate/TaskGet/TaskList tools (and their reminders) on cross-vendor emits. Off by default, they are stripped; requires the cross-vendor orchestration tools to be kept.",
 		OrgOverridable: true,
 	},
 	{
