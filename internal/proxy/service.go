@@ -7395,7 +7395,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 			StopReason:               stringPtrOrEmpty(respSummary.StopReason),
 			// A subscription->Weave retry keeps the same provider, so OR it in to
 			// match the OTel span + completion log.
-			FailoverUsed: boolPtrTrue(finalProvider != primaryProvider || codexFailoverUsed),
+			FailoverUsed: boolPtrTrue(finalProvider != primaryProvider || codexFailoverUsed || siblingFailoverUsed),
 			// (session_key, role) join key — see the Anthropic-path write site.
 			SessionKey: sessionKey[:],
 			Role:       routeRes.PinRole,
