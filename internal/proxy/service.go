@@ -60,7 +60,8 @@ type TelemetryEmitter interface {
 
 // Service orchestrates routing decisions and provider dispatch.
 type Service struct {
-	router router.Router
+	observations *observability.ObservationWorkers
+	router       router.Router
 	// strategies contains every non-default router and its optional lifecycle
 	// reporters. Adding a strategy does not require another Service field.
 	strategies map[router.Strategy]registeredStrategy
@@ -4683,7 +4684,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			obs.TrainingAllowed,
 			s.effectiveCaptureMode(ctx))
 		applyClientGitContextTelemetry(ctx, &tel, routeRes.SessionFirstTurn, env.SystemBlocks())
-		s.fireTelemetry(tel)
+		s.fireTelemetry(ctx, tel)
 	}
 
 	// No-op when billing is unwired (selfhosted); only reached on a real
@@ -5097,7 +5098,7 @@ func (s *Service) reportPolicyOutcome(ctx context.Context, res turnLoopResult, d
 			"effort_source", effort.Source,
 		)
 	}
-	payload := map[string]interface{}{
+	payload := map[string]any{
 		"route_id":                         routeMetadata.RouteID,
 		"strategy":                         routeMetadata.Strategy,
 		"organization_id":                  organizationID,
@@ -5166,11 +5167,9 @@ func (s *Service) reportPolicyOutcome(ctx context.Context, res turnLoopResult, d
 		log.Debug("Skipping policy outcome report for canceled request", "err", err)
 		return
 	}
-	observability.SafeGo(log, policyOutcomeReportTimeout, "reportPolicyOutcome", func(reportCtx context.Context) {
-		if err := reporter.ReportOutcome(reportCtx, payload); err != nil {
-			log.Error("Policy outcome report failed", "strategy", routeMetadata.Strategy, "err", err)
-		}
-	})
+	if s.observations != nil {
+		submitObservation(s.observations.Remote, observability.WorkOutcome, log, payload, policyPayloadBound(payload), policyOutcomeReportTimeout, reporter.ReportOutcome)
+	}
 }
 
 // pinDecision rehydrates a router.Decision from a stored pin. Metadata is nil
@@ -5746,19 +5745,12 @@ func isDegenerateResponse(outputTokens, toolUseBlocks int, stopReason string, st
 		!stopReasonDemoted
 }
 
-// fireTelemetry persists a telemetry row asynchronously. Telemetry loss is acceptable.
-func (s *Service) fireTelemetry(p InsertTelemetryParams) {
-	if s.telemetry == nil {
+// fireTelemetry submits a snapshot; loss never changes billing or the response.
+func (s *Service) fireTelemetry(ctx context.Context, p InsertTelemetryParams) {
+	if s.telemetry == nil || s.observations == nil {
 		return
 	}
-	log := observability.Get().With("request_id", p.RequestID)
-	observability.SafeGo(log, 5*time.Second, "fireTelemetry", func(ctx context.Context) {
-		if err := s.telemetry.InsertRequestTelemetry(ctx, p); err != nil {
-			// A dropped row is a dropped billing/session-cost record, so it is
-			// reported loudly enough to alert on.
-			log.Warn("Telemetry insert failed", "err", err)
-		}
-	})
+	submitObservation(s.observations.Database, observability.WorkTelemetry, observability.FromContext(ctx), p, telemetryPayloadBound(p), 5*time.Second, s.telemetry.InsertRequestTelemetry)
 }
 
 // emitBilling debits the customer for one upstream call and, on switch turns
@@ -7339,7 +7331,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		applyAuthorityShadowTelemetry(&telOAI, routeRes)
 		applyBlindExperimentTelemetry(ctx, &telOAI)
 		applyPolicyPinTelemetry(ctx, &telOAI, decision.Metadata)
-		s.fireTelemetry(telOAI)
+		s.fireTelemetry(ctx, telOAI)
 	}
 
 	// Re-pin the session off the refusing model so the next turn skips it,

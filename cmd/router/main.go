@@ -442,12 +442,13 @@ func main() {
 			})
 	}
 
+	observationWorkers := observability.NewObservationWorkers()
 	availableProviders := make(map[string]struct{}, len(providerMap))
 	for name := range providerMap {
 		availableProviders[name] = struct{}{}
 	}
 	inferenceExecutor, err := dispatch.NewExecutor(dispatch.NewClients(providerMap),
-		dispatch.WithAttemptSink(proxy.NewAttemptSink(repo.Telemetry, logger)))
+		dispatch.WithAttemptSink(proxy.NewAttemptSink(repo.Telemetry, observationWorkers.Database)))
 	if err != nil {
 		panic(fmt.Sprintf("inference executor: %v", err))
 	}
@@ -1102,6 +1103,7 @@ func main() {
 	servedModels := proxyRoutableModels(routingTargets, availableProviders, hmmRouter != nil)
 
 	proxySvc := proxy.NewService(routeEntry, providerMap, telemetryEmitter, embedOnlyUser, semanticCache, pinStore, hardPinExplore, hardPinProvider, hardPinModel, repo.Telemetry).
+		WithObservationWorkers(observationWorkers).
 		WithSessionStrategyStore(sessionStrategyStore).
 		WithEscalation(escalationStore, escalationObserver).
 		WithTranslationCompatibilityMode(proxy.TranslationCompatibilityMode(translationCompatibilityMode)).
@@ -1329,33 +1331,11 @@ func main() {
 	select {
 	case err := <-serverErr:
 		logger.Error("Server exited with error", "err", err)
-		// A ListenAndServe failure bypasses the SIGTERM path below, so flush
-		// APM here too or the traces describing the failure never reach SigNoz.
-		apmFailCtx, apmFailCancel := context.WithTimeout(context.Background(), 1500*time.Millisecond)
-		defer apmFailCancel()
-		apm.ShutdownWithContext(apmFailCtx)
-		return
 	case sig := <-stop:
 		logger.Info("Received shutdown signal; draining", "signal", sig.String())
 	}
 
-	// Cloud Run gives 10s between SIGTERM and SIGKILL; budget across three
-	// flush stages (defer on apm.Shutdown would never run in time):
-	//   srv.Shutdown 6.0s + emitter.Shutdown 1.5s + apm.Shutdown 1.5s = 9.0s,
-	//   leaving ~1s slack.
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), 6*time.Second)
-	defer cancel()
-	if err := srv.Shutdown(shutdownCtx); err != nil {
-		logger.Error("Graceful shutdown failed", "err", err)
-	}
-	emitterCtx, emitterCancel := context.WithTimeout(context.Background(), 1500*time.Millisecond)
-	defer emitterCancel()
-	if err := emitter.Shutdown(emitterCtx); err != nil {
-		logger.Warn("OTel emitter shutdown incomplete", "err", err)
-	}
-	apmCtx, apmCancel := context.WithTimeout(context.Background(), 1500*time.Millisecond)
-	defer apmCancel()
-	apm.ShutdownWithContext(apmCtx)
+	shutdownRouter(srv, observationWorkers, emitter, apm.ShutdownWithContext, logger)
 }
 
 // buildExploringRouter optionally wraps rtr in the quality-tie-band explorer.

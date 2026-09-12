@@ -7,6 +7,7 @@
 -- Re-delivery of the same attempt is a no-op.
 -- name: InsertInferenceAttempt :exec
 INSERT INTO router.model_router_inference_attempts (
+    created_at,
     installation_id,
     request_id,
     operation_id,
@@ -29,6 +30,7 @@ INSERT INTO router.model_router_inference_attempts (
     cache_read_tokens,
     cost_usd_micros
 ) VALUES (
+    @created_at::timestamptz,
     @installation_id::uuid,
     @request_id::varchar,
     @operation_id::varchar,

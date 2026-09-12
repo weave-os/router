@@ -606,7 +606,7 @@ func TestService_VerifyAPIKey_RecoversFromMarkUsedPanic(t *testing.T) {
 	// first Get() call races SetDefault and resets the handler.
 	observability.Get()
 
-	var buf bytes.Buffer
+	var buf concurrentLogBuffer
 	prev := slog.Default()
 	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, nil)))
 	t.Cleanup(func() { slog.SetDefault(prev) })
@@ -1240,4 +1240,21 @@ func TestService_VerifyAPIKey_ClusterModelListFetchErrorSkipsCache(t *testing.T)
 	assert.Nil(t, lists, "a failed fetch must serve artifact-default routing (nil lists)")
 	assert.Empty(t, cache.setSnapshot(),
 		"a transient cluster-list fetch error must NOT be cached, so the next request retries")
+}
+
+type concurrentLogBuffer struct {
+	mu     sync.Mutex
+	buffer bytes.Buffer
+}
+
+func (b *concurrentLogBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buffer.Write(p)
+}
+
+func (b *concurrentLogBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buffer.String()
 }

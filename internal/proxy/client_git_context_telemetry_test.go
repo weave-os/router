@@ -38,7 +38,7 @@ func proxyClientGitContextTurn(t *testing.T, ctx context.Context, store *fakePin
 	t.Helper()
 	telem := newCaptureTelemetry()
 	fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-haiku-4-5", Reason: "cluster:v0.2"}}
-	svc := newPinSvcWithTelemetry(fr, store, telem)
+	svc := newPinSvcWithTelemetry(fr, store, telem).WithObservationWorkers(testObservationWorkers(t))
 
 	rec := httptest.NewRecorder()
 	httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))

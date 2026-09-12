@@ -20,6 +20,11 @@ statusline="$script_dir/../cc-statusline.sh"
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 
+# Pricing fixtures must not read the developer's live display settings or key.
+export HOME="$work/home"
+mkdir -p "$HOME"
+unset ANTHROPIC_BASE_URL ANTHROPIC_CUSTOM_HEADERS WEAVE_ROUTER_BASE_URL WEAVE_ROUTER_KEY
+
 pass=0
 fail=0
 

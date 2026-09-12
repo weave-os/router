@@ -10,6 +10,9 @@
 
 set -uo pipefail
 
+# Missing-key cases must not inherit a developer router credential.
+unset WEAVE_ROUTER_KEY
+
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 installer="${INSTALLER:-$script_dir/../install.sh}"
 [ -f "$installer" ] || { echo "cannot find installer at $installer" >&2; exit 1; }

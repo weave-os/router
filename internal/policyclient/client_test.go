@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -642,10 +643,10 @@ func TestClientRejectsUnknownRouteSchema(t *testing.T) {
 }
 
 func TestClientRetriesTransientRouteFailureWithoutFallback(t *testing.T) {
-	attempts := 0
+	var attempts atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		attempts++
-		if attempts < 3 {
+		attempts.Add(1)
+		if attempts.Load() < 3 {
 			w.WriteHeader(http.StatusServiceUnavailable)
 			_ = json.NewEncoder(w).Encode(map[string]interface{}{"error": "replica unavailable"})
 			return
@@ -664,13 +665,13 @@ func TestClientRetriesTransientRouteFailureWithoutFallback(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Equal(t, "model-a", result.Model)
-	assert.Equal(t, 3, attempts)
+	assert.EqualValues(t, 3, attempts.Load())
 }
 
 func TestClientReturnsErrorAfterTransientRetriesExhausted(t *testing.T) {
-	attempts := 0
+	var attempts atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		attempts++
+		attempts.Add(1)
 		w.WriteHeader(http.StatusServiceUnavailable)
 		_ = json.NewEncoder(w).Encode(map[string]interface{}{"error": "no ready replica"})
 	}))
@@ -684,15 +685,15 @@ func TestClientReturnsErrorAfterTransientRetriesExhausted(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "retries exhausted")
 	assert.Contains(t, err.Error(), "no ready replica")
-	assert.Equal(t, 3, attempts)
+	assert.EqualValues(t, 3, attempts.Load())
 }
 
 func TestClientRetriesPastStalledSidecarInstanceWithinBudget(t *testing.T) {
-	attempts := 0
+	var attempts atomic.Int32
 	release := make(chan struct{})
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		attempts++
-		if attempts == 1 {
+		attempts.Add(1)
+		if attempts.Load() == 1 {
 			<-release
 			return
 		}
@@ -711,14 +712,14 @@ func TestClientRetriesPastStalledSidecarInstanceWithinBudget(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Equal(t, "model-a", result.Model)
-	assert.Equal(t, 2, attempts)
+	assert.EqualValues(t, 2, attempts.Load())
 }
 
 func TestClientReportsAttemptBudgetWhenEveryAttemptStalls(t *testing.T) {
-	attempts := 0
+	var attempts atomic.Int32
 	release := make(chan struct{})
 	server := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
-		attempts++
+		attempts.Add(1)
 		<-release
 	}))
 	defer server.Close()
@@ -734,14 +735,14 @@ func TestClientReportsAttemptBudgetWhenEveryAttemptStalls(t *testing.T) {
 	// The proxy degrades on deadline errors, so the attempt bound must not
 	// disguise itself as an ordinary transport failure.
 	assert.ErrorIs(t, err, context.DeadlineExceeded)
-	assert.Equal(t, defaultRouteAttempts, attempts)
+	assert.EqualValues(t, defaultRouteAttempts, attempts.Load())
 }
 
 func TestClientAttemptBudgetNeverOutlivesDecisionBudget(t *testing.T) {
-	attempts := 0
+	var attempts atomic.Int32
 	release := make(chan struct{})
 	server := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
-		attempts++
+		attempts.Add(1)
 		<-release
 	}))
 	defer server.Close()
@@ -756,7 +757,7 @@ func TestClientAttemptBudgetNeverOutlivesDecisionBudget(t *testing.T) {
 	require.Error(t, err)
 	assert.ErrorIs(t, err, context.DeadlineExceeded)
 	assert.Less(t, time.Since(started), 3*time.Second)
-	assert.Equal(t, 1, attempts)
+	assert.EqualValues(t, 1, attempts.Load())
 }
 
 func TestDeriveAttemptTimeoutLeavesRoomForRetries(t *testing.T) {
@@ -796,9 +797,9 @@ func TestDefaultBudgetFitsASecondFullAttempt(t *testing.T) {
 // TestRetriesExhaustedKeepsBothTheSidecarErrorAndTheDeadline: a sidecar 503 must
 // survive alongside the deadline so the policy-deadline fallback still degrades.
 func TestRetriesExhaustedKeepsBothTheSidecarErrorAndTheDeadline(t *testing.T) {
-	attempts := 0
+	var attempts atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		attempts++
+		attempts.Add(1)
 		// Slower than the attempt bound derived from the tiny budget below, so
 		// the ladder ends on the parent deadline rather than on a clean status.
 		time.Sleep(150 * time.Millisecond)
@@ -816,7 +817,7 @@ func TestRetriesExhaustedKeepsBothTheSidecarErrorAndTheDeadline(t *testing.T) {
 	assert.Contains(t, err.Error(), "retries exhausted")
 	assert.Contains(t, err.Error(), "hmm inference exceeded its deadline",
 		"the sidecar's own diagnosis must survive the deadline")
-	assert.GreaterOrEqual(t, attempts, 1)
+	assert.GreaterOrEqual(t, attempts.Load(), int32(1))
 	assert.ErrorIs(t, err, context.DeadlineExceeded,
 		"the deadline must stay wrapped so the policy-deadline fallback still degrades")
 }
@@ -1002,3 +1003,21 @@ func floatPtr(value float64) *float64 { return &value }
 func intPointer(value int) *int { return &value }
 
 func int64Ptr(value int64) *int64 { return &value }
+
+func TestReportsAccept200And202AndRejectOverload(t *testing.T) {
+	for _, status := range []int{http.StatusOK, http.StatusAccepted, http.StatusServiceUnavailable} {
+		t.Run(http.StatusText(status), func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(status) }))
+			defer server.Close()
+			client := New(server.URL, server.Client(), 0)
+			for _, report := range []func(context.Context, map[string]interface{}) error{client.ReportOutcome, client.ReportFeedback} {
+				err := report(context.Background(), map[string]interface{}{"route_id": "route-test"})
+				if status == http.StatusServiceUnavailable {
+					require.ErrorContains(t, err, "status 503")
+				} else {
+					require.NoError(t, err)
+				}
+			}
+		})
+	}
+}

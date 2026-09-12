@@ -8,6 +8,9 @@
 
 set -uo pipefail
 
+# Every key in the suite comes from its fixtures, never the developer environment.
+unset WEAVE_ROUTER_KEY
+
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 installer="${INSTALLER:-$script_dir/../install.sh}"
 uninstaller="${UNINSTALLER:-$script_dir/../uninstall.sh}"

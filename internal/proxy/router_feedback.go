@@ -275,7 +275,7 @@ func (s *Service) reportRouterFeedback(
 	requestID string,
 	routeID string,
 ) {
-	payload := map[string]interface{}{
+	payload := map[string]any{
 		"strategy":          string(strategy),
 		"feedback_key":      hex.EncodeToString(sessionKey[:]),
 		"feedback_role":     role,
@@ -310,11 +310,9 @@ func (s *Service) reportRouterFeedback(
 		payload["training_conversation_delta"] = trainingDelta
 	}
 	log := observability.FromContext(ctx)
-	observability.SafeGo(log, policyFeedbackReportTimeout, "reportPolicyFeedback", func(reportCtx context.Context) {
-		if err := reporter.ReportFeedback(reportCtx, payload); err != nil {
-			log.Error("/router-feedback: policy feedback report failed", "strategy", strategy, "err", err)
-		}
-	})
+	if s.observations != nil {
+		submitObservation(s.observations.Remote, observability.WorkFeedback, log, payload, policyPayloadBound(payload), policyFeedbackReportTimeout, reporter.ReportFeedback)
+	}
 }
 
 func routerFeedbackTrainingDelta(env *translate.RequestEnvelope) []router.ConversationMessage {

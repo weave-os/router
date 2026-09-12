@@ -297,3 +297,11 @@ Proxy attaches a `providers.UpstreamHeaderObserver` to the request context. Prov
 - **Don't move provider-call logic into planner.** Planner must remain pure so EV math is provable. Anything network-touching goes in `proxy.Service`.
 - **Don't add a handover path that doesn't time out.** `Summarizer` contract says implementations MUST respect the context deadline. On timeout/error the proxy keeps the full prior history unchanged — do NOT reintroduce a silent trim-to-last-N fallback (it lobotomized switched-to models; see the handover-fallback fix).
 - **Don't cache streaming responses.** Streaming bypasses cache on purpose — captured bytes would be post-translation SSE frames, and lookup latency budget is hostile to first-token-time. If you think this should change, write a doc first.
+
+## Best-effort observations
+
+`WithObservationWorkers` injects the process-owned DB/remote lanes; nil disables optional persistence/reporting. Attempt telemetry must never block dispatch or the next allowed attempt. Request telemetry and outcome/training-feedback reports submit serialized snapshots, preserving IDs, timestamps, usage and consent. Oversize jobs are dropped as a whole, never truncated into misleading training samples. The durable `/rf` save is not queued.
+
+Each lane admits at most 256 outstanding jobs and 16 MiB of serialized payload (including running jobs), with a 1 MiB per-job ceiling and a 30-second queue-age limit. Producers precheck variable-size inputs before serialization. Decoded values and sink serialization are additionally bounded by that per-job ceiling and fixed concurrency (one DB, two remote); the serialized-byte counter is not a measurement of total heap usage. Reports retain their two-second deadlines; attempts and request telemetry get five seconds. There are no automatic retries or synchronous overload fallbacks.
+
+`router.observations.dropped` counts rejected, expired, failed and panicking jobs using lane/kind/reason only. Correlated error logs are limited to one per lane per ten seconds. These queues are explicitly lossy during overload, dependency outages and termination, not a durable audit log.
