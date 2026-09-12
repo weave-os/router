@@ -249,6 +249,35 @@ func removeTaskToolReminders(s string) (string, int) {
 	}
 }
 
+// systemMessageIsTaskReminder reports how many task-list reminders a system
+// message's content consists of, or 0 when anything else would remain after
+// cutting them.
+func systemMessageIsTaskReminder(content gjson.Result) int {
+	var texts []gjson.Result
+	switch {
+	case content.Type == gjson.String:
+		texts = []gjson.Result{content}
+	case content.IsArray():
+		for _, block := range content.Array() {
+			if block.Get("type").String() != "text" {
+				return 0
+			}
+			texts = append(texts, block.Get("text"))
+		}
+	default:
+		return 0
+	}
+	removed := 0
+	for _, v := range texts {
+		s, n := removeTaskToolReminders(v.String())
+		if strings.TrimSpace(s) != "" {
+			return 0
+		}
+		removed += n
+	}
+	return removed
+}
+
 // reminderEdit is one pending rewrite: set the string at path to text, or
 // delete the element at path.
 type reminderEdit struct {
@@ -257,12 +286,14 @@ type reminderEdit struct {
 	drop bool
 }
 
-// stripTaskToolReminders removes the task-list reminder from user messages.
-// Claude Code appends it either as its own text block or inside the trailing
-// tool_result's content (string or text parts). A text element left empty by
-// the cut is dropped, unless it is the sole element of its array. User prose
-// left empty is kept so no message ends up without content; a tool_result left
-// empty becomes empty tool output, which every emit target accepts.
+// stripTaskToolReminders removes the task-list reminder from user and
+// mid-conversation system messages. Claude Code appends it either as its own
+// text block, inside the trailing tool_result's content (string or text
+// parts), or as a standalone role:"system" message. A text element left empty
+// by the cut is dropped, unless it is the sole element of its array. User
+// prose left empty is kept so no message ends up without content; a
+// tool_result left empty becomes empty tool output, which every emit target
+// accepts; a system message left empty is dropped outright.
 func stripTaskToolReminders(body []byte) (out []byte, removed int, err error) {
 	if !bytes.Contains(body, []byte(taskToolReminderRawPrefix)) {
 		return body, 0, nil
@@ -305,11 +336,19 @@ func stripTaskToolReminders(body []byte) (out []byte, removed int, err error) {
 		removed += n
 	}
 	gjson.GetBytes(body, "messages").ForEach(func(mi, msg gjson.Result) bool {
-		if msg.Get("role").String() != "user" {
+		role := msg.Get("role").String()
+		if role != "user" && role != "system" {
 			return true
 		}
 		msgPath := "messages." + mi.String() + ".content"
 		content := msg.Get("content")
+		if role == "system" {
+			if n := systemMessageIsTaskReminder(content); n > 0 {
+				edits = append(edits, reminderEdit{path: "messages." + mi.String(), drop: true})
+				removed += n
+				return true
+			}
+		}
 		if content.Type == gjson.String {
 			editString(msgPath, content, false)
 			return true

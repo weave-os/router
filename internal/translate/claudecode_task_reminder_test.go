@@ -234,6 +234,68 @@ func TestTaskReminderStripped_WhenItIsTheWholeToolResult(t *testing.T) {
 	}
 }
 
+// Some Claude Code builds emit the reminder as its own role:"system" message
+// between turns instead of appending it to a user message. A system message
+// that is nothing but the reminder is dropped; one that also carries other
+// instructions keeps them.
+const taskReminderAsSystemMessageBody = `{
+	"model":"claude-sonnet-5",
+	"system":"You are Claude Code.",
+	"messages":[
+		{"role":"user","content":[{"type":"text","text":"check the go version"}]},
+		{"role":"assistant","content":[{"type":"tool_use","id":"toolu_1","name":"Bash","input":{"command":"go version"}}]},
+		{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_1","content":"go version go1.25.9 linux/amd64"}]},
+		{"role":"system","content":[{"type":"text","text":"<system-reminder>\nThe task tools haven't been used recently. Consider using TaskCreate or TaskUpdate.\n</system-reminder>"}]},
+		{"role":"assistant","content":[{"type":"text","text":"Go 1.25.9."}]},
+		{"role":"user","content":"and the module path?"},
+		{"role":"system","content":"<system-reminder>\nThe task tools haven't been used recently.\n</system-reminder>"},
+		{"role":"assistant","content":[{"type":"tool_use","id":"toolu_2","name":"Read","input":{"file_path":"go.mod"}}]},
+		{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_2","content":"module weave-os/router"}]},
+		{"role":"system","content":[
+			{"type":"text","text":"<system-reminder>\nThe user is in plan mode.\n</system-reminder>"},
+			{"type":"text","text":"<system-reminder>\nThe task tools haven't been used recently.\n</system-reminder>"}
+		]}
+	],
+	"tools":[
+		{"name":"Bash","description":"b","input_schema":{"type":"object"}},
+		{"name":"Read","description":"r","input_schema":{"type":"object"}},
+		{"name":"TaskCreate","description":"","input_schema":{"type":"object"}}
+	],
+	"max_tokens":256
+}`
+
+func TestTaskReminderStripped_AsSystemMessage(t *testing.T) {
+	env, err := translate.ParseAnthropic([]byte(taskReminderAsSystemMessageBody))
+	require.NoError(t, err)
+
+	for name, prepare := range map[string]func() (providers.PreparedRequest, error){
+		"OpenAI chat": func() (providers.PreparedRequest, error) {
+			return env.PrepareOpenAI(nil, translate.EmitOptions{TargetModel: "gpt-5.6-luna"})
+		},
+		"OpenAI Responses": func() (providers.PreparedRequest, error) {
+			return env.PrepareOpenAIResponses(nil, translate.EmitOptions{TargetModel: "gpt-5.6-sol"})
+		},
+		"Gemini": func() (providers.PreparedRequest, error) {
+			return env.PrepareGemini(http.Header{}, translate.EmitOptions{TargetModel: "gemini-2.5-pro"})
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			out, err := prepare()
+			require.NoError(t, err)
+			s := string(out.Body)
+			assert.NotContains(t, s, "task tools haven't been used recently")
+			if name != "Gemini" { // the Gemini emitter drops mid-conversation system messages wholesale
+				assert.Contains(t, s, "The user is in plan mode.", "other reminders in the same system message survive")
+			}
+			assert.Contains(t, s, "go version go1.25.9 linux/amd64")
+			assert.Contains(t, s, "and the module path?")
+			assert.Contains(t, s, "module weave-os/router")
+			assert.Contains(t, s, "Go 1.25.9.")
+			assert.Equal(t, 3, out.Stats.CCTaskRemindersStripped)
+		})
+	}
+}
+
 func TestTaskReminderKept_WhenItIsTheWholeUserMessage(t *testing.T) {
 	// Never leave a user message with empty content.
 	body := `{
