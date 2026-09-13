@@ -2802,6 +2802,7 @@ func (s *Service) anthropicNativeAttempt(
 	sink http.ResponseWriter,
 	preludeBuf *preludeBuffer,
 	preludeState *anthropicPreludeState,
+	streamCut *streamCutObserver,
 	marker string,
 	setExtractor func(*otel.UsageExtractor),
 	setStreamCost func(router.Decision, bool),
@@ -2826,11 +2827,14 @@ func (s *Service) anthropicNativeAttempt(
 		if preludeBuf != nil {
 			preludeBuf.Seal()
 		}
-		err := p.Proxy(actx, d, prep, proxyWriter, r)
+		err := p.Proxy(actx, d, prep, streamCut.attach(proxyWriter), r)
 		// Post-commit: bytes already on the wire, so render the error as an
 		// in-stream frame instead of letting flushErr append a corrupting
 		// envelope. Pre-commit errors go through dispatchWithFallback instead.
 		if err != nil && env.Stream() && preludeBuf.Committed() {
+			// Before synthesis: the rendered 502 no longer carries the
+			// transport error the classification reads.
+			streamCut.noteCut(err)
 			err = emitAnthropicSSEErrorEvent(sink, err)
 		}
 		return err
@@ -3762,6 +3766,10 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	// of the re-pin kill switch.
 	refusalObs := newRefusalObserver(sink)
 	sink = refusalObs
+	// Attached per attempt directly above the upstream writer, so a stream
+	// that dies after commit can be described (frames, last event, gap)
+	// instead of reported as a bare synthesized 502.
+	streamCut := newStreamCutObserver(nil)
 
 	proxyStart := time.Now()
 	inferenceParentCtx := ctx
@@ -3809,10 +3817,11 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			env:           env,
 			r:             r,
 			opts:          targetOpts,
-			native:        s.anthropicNativeAttempt(env, r, prep, sink, preludeBuf, anthropicPrelude, targetMarker, setExtractor, setStreamCost),
+			native:        s.anthropicNativeAttempt(env, r, prep, sink, preludeBuf, anthropicPrelude, streamCut, targetMarker, setExtractor, setStreamCost),
 			sink:          sink,
 			preludeBuf:    preludeBuf,
 			preludeState:  anthropicPrelude,
+			streamCut:     streamCut,
 			marker:        targetMarker,
 			setExtractor:  setExtractor,
 			setStreamCost: setStreamCost,
@@ -3861,7 +3870,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 					preludeBuf.Discard()
 				}
 				logUpstreamBody(log, routeRes.SessionKey, target, feats, unstructuredPrep.Body)
-				return s.anthropicNativeAttempt(env, r, unstructuredPrep, sink, preludeBuf, anthropicPrelude, targetMarker, setExtractor, setStreamCost)(actx, d, p)
+				return s.anthropicNativeAttempt(env, r, unstructuredPrep, sink, preludeBuf, anthropicPrelude, streamCut, targetMarker, setExtractor, setStreamCost)(actx, d, p)
 			}, nil
 		case providers.FamilyOpenAICompat:
 			crossFormat = true
@@ -3928,13 +3937,14 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 				if preludeBuf != nil {
 					preludeBuf.Seal()
 				}
-				rawErr := p.Proxy(actx, d, prep, translator, r)
+				rawErr := p.Proxy(actx, d, prep, streamCut.attach(translator), r)
 				finalize := func(err error) error {
 					// Post-commit: HTTP 200 + message_start already on the wire, so
 					// render the error as an in-stream `event: error` frame instead of
 					// a corrupting trailing envelope. Pre-commit errors go through
 					// dispatchWithFallback instead.
 					if err != nil && env.Stream() && preludeBuf.Committed() {
+						streamCut.noteCut(err)
 						err = emitAnthropicSSEErrorEvent(sink, err)
 					}
 					finErr := finalizeAfterProxy(err, translator.Finalize)
@@ -4034,10 +4044,11 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 					preludeBuf.Seal()
 				}
 				geminiTr := translate.NewGeminiToOpenAISSETranslator(anthropicTr, d.Model, nil)
-				rawErr := p.Proxy(actx, d, pr, geminiTr, r)
+				rawErr := p.Proxy(actx, d, pr, streamCut.attach(geminiTr), r)
 				finalize := func(err error) error {
 					// Post-commit: see the OpenAI-compat case above.
 					if err != nil && env.Stream() && preludeBuf.Committed() {
+						streamCut.noteCut(err)
 						err = emitAnthropicSSEErrorEvent(sink, err)
 					}
 					err = finalizeAfterProxy(err, geminiTr.Finalize)
@@ -4198,6 +4209,10 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			return
 		}
 		deferredErrFlushed = true
+		if preludeBuf.Committed() {
+			// Before synthesis, for the same reason as the native path.
+			streamCut.noteCut(proxyErr)
+		}
 		if env.Stream() && preludeBuf.PreludeSent() {
 			// The handler cannot render anything once the client has bytes,
 			// so an in-stream frame is the only way the turn reports at all —
@@ -4786,7 +4801,12 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		)
 	}
 
-	log.Info("ProxyMessages complete", append([]any{"requested_model", feats.Model, "baseline_model", s.baselineFor(feats.Model), "decision_model", decision.Model, "decision_provider", decision.Provider, "primary_provider", primaryProvider, "primary_model", primaryModel, "fallback_attempts", winnerIdx, "failover_used", finalProvider != primaryProvider || subscriptionFailoverUsed || siblingFailoverUsed, "subscription_failover", subscriptionFailoverUsed, "decision_reason", decision.Reason, "requested_tier", routeRes.RequestedTier.String(), "decision_tier", catalog.TierFor(decision.Model).String(), "embedded_tokens", len(promptText) / 4, "total_input_tokens", feats.Tokens, "has_tools", feats.HasTools, "message_count", feats.MessageCount, "last_kind", feats.LastKind, "last_preview", feats.LastPreview, "embed_input", embedInput, "cross_format", crossFormat, "sticky_hit", stickyHit, "route_ms", routeMs, "proxy_ms", proxyMs, "proxy_err", proxyErr, "upstream_err_body", providers.UpstreamErrorBodyMessage(proxyErr), "upstream_status", upstreamStatus(proxyErr), "upstream_finish_reason", respSummary.UpstreamFinishReason, "resp_stop_reason", respSummary.StopReason, "resp_refusal", refusalObs.refused, "resp_refusal_category", refusalObs.category, "stop_reason_promoted", respSummary.StopReasonPromoted, "tool_use_blocks", respSummary.ToolUseBlocks, "invalid_tool_args_blocks", respSummary.InvalidToolArgsBlocks, "text_only_turn_nudged", respSummary.TextOnlyTurnNudged, "stop_reason_demoted", respSummary.StopReasonDemoted, "suppressed_tool_calls", respSummary.SuppressedToolCalls, "tool_call_invalid_blocks", len(respSummary.ToolCallIssues), "cc_only_tools_stripped", reqStats.CCOnlyToolsStripped, "cc_task_reminders_stripped", reqStats.CCTaskRemindersStripped, "gemini_reminder_injected", reqStats.GeminiReminderInjected, "gemini_validated_tool_mode", reqStats.GeminiValidatedToolMode, "resp_output_tokens", respSummary.OutputTokens, "prelude_committed", preludeBuf.Committed(), "routing_marker", marker, "prior_served_model", routeRes.PriorServedModel, "hard_pinned", routeRes.HardPinned}, plannerLogFields(routeRes)...)...)
+	// Paths that never rendered an in-stream error frame (non-streaming, or a
+	// rescue that swallowed the flush) still owe the diagnostics.
+	if preludeBuf.Committed() {
+		streamCut.noteCut(proxyErr)
+	}
+	log.Info("ProxyMessages complete", append([]any{"requested_model", feats.Model, "baseline_model", s.baselineFor(feats.Model), "decision_model", decision.Model, "decision_provider", decision.Provider, "primary_provider", primaryProvider, "primary_model", primaryModel, "fallback_attempts", winnerIdx, "failover_used", finalProvider != primaryProvider || subscriptionFailoverUsed || siblingFailoverUsed, "subscription_failover", subscriptionFailoverUsed, "decision_reason", decision.Reason, "requested_tier", routeRes.RequestedTier.String(), "decision_tier", catalog.TierFor(decision.Model).String(), "embedded_tokens", len(promptText) / 4, "total_input_tokens", feats.Tokens, "has_tools", feats.HasTools, "message_count", feats.MessageCount, "last_kind", feats.LastKind, "last_preview", feats.LastPreview, "embed_input", embedInput, "cross_format", crossFormat, "sticky_hit", stickyHit, "route_ms", routeMs, "proxy_ms", proxyMs, "proxy_err", proxyErr, "upstream_err_body", providers.UpstreamErrorBodyMessage(proxyErr), "upstream_status", upstreamStatus(proxyErr), "upstream_finish_reason", respSummary.UpstreamFinishReason, "resp_stop_reason", respSummary.StopReason, "resp_refusal", refusalObs.refused, "resp_refusal_category", refusalObs.category, "stop_reason_promoted", respSummary.StopReasonPromoted, "tool_use_blocks", respSummary.ToolUseBlocks, "invalid_tool_args_blocks", respSummary.InvalidToolArgsBlocks, "text_only_turn_nudged", respSummary.TextOnlyTurnNudged, "stop_reason_demoted", respSummary.StopReasonDemoted, "suppressed_tool_calls", respSummary.SuppressedToolCalls, "tool_call_invalid_blocks", len(respSummary.ToolCallIssues), "cc_only_tools_stripped", reqStats.CCOnlyToolsStripped, "cc_task_reminders_stripped", reqStats.CCTaskRemindersStripped, "gemini_reminder_injected", reqStats.GeminiReminderInjected, "gemini_validated_tool_mode", reqStats.GeminiValidatedToolMode, "resp_output_tokens", respSummary.OutputTokens, "prelude_committed", preludeBuf.Committed(), "routing_marker", marker, "prior_served_model", routeRes.PriorServedModel, "hard_pinned", routeRes.HardPinned}, append(plannerLogFields(routeRes), streamCut.completionLogFields()...)...)...)
 	policyRespBody, policyRespTrunc := capturedResponse(policyOutcomeCap)
 	var policyResp *policyOutcomeResponse
 	if policyOutcomeCap != nil {
