@@ -176,22 +176,26 @@ func responsesToOpenAIChatResponse(body []byte, requestModel string, toolValidat
 	return jw.Bytes(), issues, nil
 }
 
-// responsesFinishReason maps a terminal Responses `response` object to the chat
-// finish_reason it corresponds to.
-func responsesFinishReason(resp gjson.Result) string {
-	hasToolCall := false
+// responsesToolCalls counts the tool calls a terminal Responses `response`
+// object carries. Codex emits custom_tool_call for its shell-style tools; both
+// end the turn in a tool call.
+func responsesToolCalls(resp gjson.Result) int {
+	n := 0
 	resp.Get("output").ForEach(func(_, item gjson.Result) bool {
-		// Codex emits custom_tool_call for its shell-style tools; both end the
-		// turn in a tool call.
 		switch item.Get("type").String() {
 		case "function_call", "custom_tool_call":
-			hasToolCall = true
-			return false
+			n++
 		}
 		return true
 	})
+	return n
+}
+
+// responsesFinishReason maps a terminal Responses `response` object to the chat
+// finish_reason it corresponds to.
+func responsesFinishReason(resp gjson.Result) string {
 	switch {
-	case hasToolCall:
+	case responsesToolCalls(resp) > 0:
 		return "tool_calls"
 	case resp.Get("incomplete_details.reason").String() == "max_output_tokens":
 		return "length"
@@ -200,21 +204,30 @@ func responsesFinishReason(resp gjson.Result) string {
 	}
 }
 
-// ResponsesTerminalReason reports the finish_reason a terminal Responses
-// payload corresponds to. It exists for callers that forward a native Responses
-// response verbatim: no translator runs there, so the upstream's terminal
-// statement is the only account of how the turn ended. It accepts both a
-// streaming terminal event and a non-streaming body, which is the bare response
-// object — no envelope type, no nested response. ok is false for anything that
-// states no outcome: a non-terminal event, an unfinished body, or a failed one,
-// whose outcome is the upstream error instead.
-func ResponsesTerminalReason(payload []byte) (finishReason string, ok bool) {
+// ResponsesTerminalSignals are the turn-ending signals a terminal Responses
+// payload states, for a caller that forwards the response verbatim.
+type ResponsesTerminalSignals struct {
+	// FinishReason is the chat finish_reason the terminal payload corresponds to.
+	FinishReason string
+	// ToolCalls is how many tool calls the turn ended with.
+	ToolCalls int
+}
+
+// ResponsesTerminal reports the turn-ending signals of a terminal Responses
+// payload. It exists for callers that forward a native Responses response
+// verbatim: no translator runs there, so the upstream's terminal statement is
+// the only account of how the turn ended. It accepts both a streaming terminal
+// event and a non-streaming body, which is the bare response object — no
+// envelope type, no nested response. ok is false for anything that states no
+// outcome: a non-terminal event, an unfinished body, or a failed one, whose
+// outcome is the upstream error instead.
+func ResponsesTerminal(payload []byte) (signals ResponsesTerminalSignals, ok bool) {
 	resp := gjson.GetBytes(payload, "response")
 	switch gjson.GetBytes(payload, "type").String() {
 	case "response.completed", "response.incomplete":
 	default:
 		if resp.Exists() {
-			return "", false
+			return ResponsesTerminalSignals{}, false
 		}
 		// A non-streaming body is the response object itself. Only a settled
 		// status is terminal; an in-progress snapshot states nothing yet.
@@ -222,11 +235,14 @@ func ResponsesTerminalReason(payload []byte) (finishReason string, ok bool) {
 		case "completed", "incomplete":
 			resp = gjson.ParseBytes(payload)
 		default:
-			return "", false
+			return ResponsesTerminalSignals{}, false
 		}
 	}
 	if responsesTerminalIsFailure(resp) {
-		return "", false
+		return ResponsesTerminalSignals{}, false
 	}
-	return responsesFinishReason(resp), true
+	return ResponsesTerminalSignals{
+		FinishReason: responsesFinishReason(resp),
+		ToolCalls:    responsesToolCalls(resp),
+	}, true
 }

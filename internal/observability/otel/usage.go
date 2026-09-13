@@ -52,6 +52,12 @@ type UsageExtractor struct {
 	stopReason    string
 	toolUseBlocks int
 
+	// finishReason and toolCallIdxs hold the chat-shaped signals. A streaming
+	// turn announces one tool call across many argument fragments, so calls are
+	// counted by the index that identifies them rather than by fragment.
+	finishReason string
+	toolCallIdxs map[int]struct{}
+
 	leftover []byte
 }
 
@@ -162,6 +168,17 @@ func (u *UsageExtractor) AnthropicResponse() (stopReason string, toolUseBlocks i
 	return u.stopReason, u.toolUseBlocks, u.stopReason != ""
 }
 
+// OpenAIChatResponse returns the turn-ending signals sniffed from a
+// chat/completions-format response: the upstream finish_reason and how many
+// tool calls it carried. observed is false until a finish_reason is seen, so a
+// stream that ends early is never reported as a measured zero-tool turn.
+func (u *UsageExtractor) OpenAIChatResponse() (finishReason string, toolCalls int, observed bool) {
+	if u == nil || u.finishReason == "" {
+		return "", 0, false
+	}
+	return u.finishReason, len(u.toolCallIdxs), true
+}
+
 // scanBuffer splits buffered data on SSE event boundaries and extracts token
 // usage from each complete event using zero-alloc gjson probes.
 func (u *UsageExtractor) scanBuffer() {
@@ -247,6 +264,8 @@ func (u *UsageExtractor) extractOpenAISSE(data []byte) {
 		return
 	}
 
+	u.extractOpenAIChatSSEResponse(trimmed)
+
 	input, output, cacheCreation, cacheRead, found := extractUsageGJSON(trimmed, u.provider)
 	if !found {
 		return
@@ -279,8 +298,11 @@ func (u *UsageExtractor) tryExtractFromJSON() {
 	// Keyed off usage being present: leftover holds a partial body on every
 	// write before the last, and usage is the final top-level member, so a
 	// found usage object is what makes content[] safe to count.
-	if providers.FamilyFor(u.provider) == providers.FamilyAnthropic {
+	switch providers.FamilyFor(u.provider) {
+	case providers.FamilyAnthropic:
 		u.extractAnthropicJSONResponse(u.leftover)
+	case providers.FamilyOpenAICompat:
+		u.extractOpenAIChatJSONResponse(u.leftover)
 	}
 
 	if input > 0 {
@@ -311,6 +333,47 @@ func (u *UsageExtractor) extractAnthropicJSONResponse(data []byte) {
 			u.toolUseBlocks++
 		}
 	}
+}
+
+// A chat/completions chunk states the turn's end on the choice's finish_reason
+// and announces each tool call under the choice's delta, keyed by an index that
+// is stable across the call's argument fragments. A Responses or Gemini frame
+// carries no choices, so nothing is observed from one.
+func (u *UsageExtractor) extractOpenAIChatSSEResponse(data []byte) {
+	if providers.FamilyFor(u.provider) != providers.FamilyOpenAICompat {
+		return
+	}
+	gjson.GetBytes(data, "choices").ForEach(func(_, choice gjson.Result) bool {
+		if reason := choice.Get("finish_reason").String(); reason != "" {
+			u.finishReason = reason
+		}
+		choice.Get("delta.tool_calls").ForEach(func(_, call gjson.Result) bool {
+			u.observeOpenAIToolCall(int(call.Get("index").Int()))
+			return true
+		})
+		return true
+	})
+}
+
+// A non-streaming chat/completions body carries the same signals on the
+// message instead of on a delta.
+func (u *UsageExtractor) extractOpenAIChatJSONResponse(data []byte) {
+	choice := gjson.GetBytes(data, "choices.0")
+	reason := choice.Get("finish_reason").String()
+	if reason == "" {
+		return
+	}
+	u.finishReason = reason
+	for i := range choice.Get("message.tool_calls").Array() {
+		u.observeOpenAIToolCall(i)
+	}
+}
+
+func (u *UsageExtractor) observeOpenAIToolCall(index int) {
+	if u.toolCallIdxs == nil {
+		u.toolCallIdxs = make(map[int]struct{})
+	}
+	u.toolCallIdxs[index] = struct{}{}
 }
 
 // extractUsageGJSON probes usage fields via gjson (no json.Unmarshal/map allocs).

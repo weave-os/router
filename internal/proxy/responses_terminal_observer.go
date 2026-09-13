@@ -9,17 +9,20 @@ import (
 )
 
 // responsesTerminalObserver tees a native /v1/responses stream to inner while
-// reading the terminal event's finish reason. The native passthrough runs no
-// translator, so without this a turn reports no finish_reason at all, leaving a
-// tool call, a completed answer, and a truncation indistinguishable.
+// reading the terminal event's turn-ending signals. The native passthrough runs
+// no translator, so without this a turn reports no finish_reason at all, leaving
+// a tool call, a completed answer, and a truncation indistinguishable.
 type responsesTerminalObserver struct {
 	inner http.ResponseWriter
 	// buf holds the bytes of the event currently being assembled; SSE frames
 	// arrive split across writes.
 	buf bytes.Buffer
-	// finishReason is the chat-shaped reason from the terminal event, empty
-	// until one arrives (and on a failed terminal, whose outcome is the error).
-	finishReason string
+	// signals are the chat-shaped reason and tool-call count from the terminal
+	// event; observed stays false until one arrives (and on a failed terminal,
+	// whose outcome is the error), so a cut stream is never read as a measured
+	// zero-tool turn.
+	signals  translate.ResponsesTerminalSignals
+	observed bool
 }
 
 func newResponsesTerminalObserver(inner http.ResponseWriter) *responsesTerminalObserver {
@@ -78,16 +81,17 @@ func (o *responsesTerminalObserver) Finalize() {
 	o.observeEvent(rest)
 }
 
-// observeEvent records the reason from a terminal event. A later terminal event
-// wins: an upstream that revises the envelope states its outcome last.
+// observeEvent records the signals from a terminal event. A later terminal
+// event wins: an upstream that revises the envelope states its outcome last.
 func (o *responsesTerminalObserver) observeEvent(event []byte) {
 	_, payload := sse.ParseEvent(event)
 	if len(payload) == 0 {
 		// A non-streaming body carries no SSE framing.
 		payload = event
 	}
-	if reason, ok := translate.ResponsesTerminalReason(payload); ok {
-		o.finishReason = reason
+	if signals, ok := translate.ResponsesTerminal(payload); ok {
+		o.signals = signals
+		o.observed = true
 	}
 }
 

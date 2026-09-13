@@ -235,6 +235,11 @@ type Service struct {
 	// count observed on an Anthropic-native passthrough turn. Env
 	// ROUTER_NATIVE_ANTHROPIC_RESPONSE_SIGNALS, on by default.
 	nativeAnthropicResponseSignals bool
+	// nativeOpenAIResponseSignals records the finish reason and tool-call count
+	// observed on an OpenAI-native turn, on both the chat/completions and the
+	// /v1/responses passthrough. Env ROUTER_NATIVE_OPENAI_RESPONSE_SIGNALS, on
+	// by default.
+	nativeOpenAIResponseSignals bool
 	// allowedModelsHeader is the deployment default for
 	// ROUTER_ALLOWED_MODELS_HEADER; see ResolveAllowedModelsHeader.
 	allowedModelsHeader bool
@@ -1500,6 +1505,7 @@ func NewService(r router.Router, providerMap map[string]providers.Client, emitte
 		siblingFailover:                true,
 		openAIResponsesBroad:           true,
 		nativeAnthropicResponseSignals: true,
+		nativeOpenAIResponseSignals:    true,
 		cyberRefusalFallbackModel:      "claude-sonnet-5",
 	}
 }
@@ -1595,6 +1601,15 @@ func (s *Service) WithOpenAIResponsesBroad(enabled bool) *Service {
 // leaves those columns NULL on native turns.
 func (s *Service) WithNativeAnthropicResponseSignals(enabled bool) *Service {
 	s.nativeAnthropicResponseSignals = enabled
+	return s
+}
+
+// WithNativeOpenAIResponseSignals is the kill switch
+// (ROUTER_NATIVE_OPENAI_RESPONSE_SIGNALS) for recording OpenAI-native
+// finish_reason and tool-call counts on telemetry. On by default; disabling
+// leaves those columns NULL on native turns.
+func (s *Service) WithNativeOpenAIResponseSignals(enabled bool) *Service {
+	s.nativeOpenAIResponseSignals = enabled
 	return s
 }
 
@@ -6598,6 +6613,10 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 
 	// Overwritten per attempt, so it holds the winning attempt's signals.
 	var respSummary translate.ResponseSummary
+	// nativeRespSummary marks a summary sniffed off a native passthrough rather
+	// than measured by a translator, so a count the router never computed stays
+	// unknown on the telemetry row.
+	nativeRespSummary := false
 	// cyberRetryArmed licenses the refusal gate to withhold an OpenAI stream's
 	// preamble; set once the rescue target is known to be dispatchable.
 	cyberRetryArmed := false
@@ -6734,9 +6753,16 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 				if translator != nil {
 					err = finalizeAfterProxy(err, translator.Finalize)
 					respSummary = translator.Summary()
+					nativeRespSummary = false
 				} else if nativeTerminal != nil {
 					nativeTerminal.Finalize()
-					respSummary = translate.ResponseSummary{UpstreamFinishReason: nativeTerminal.finishReason}
+					respSummary = translate.ResponseSummary{UpstreamFinishReason: nativeTerminal.signals.FinishReason}
+					nativeRespSummary = false
+					if nativeTerminal.observed && s.ResolveNativeOpenAIResponseSignals(actx) {
+						respSummary.StopReason = nativeTerminal.signals.FinishReason
+						respSummary.ToolUseBlocks = nativeTerminal.signals.ToolCalls
+						nativeRespSummary = true
+					}
 				}
 				if releaseErr := refusalGate.Finalize(); releaseErr != nil && err == nil {
 					err = releaseErr
@@ -7271,6 +7297,19 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	if !env.Stream() && proxyErr == nil {
 		setRouterCostHeaders(w.Header(), routerResponseCostFromPricing(actPricing, decision.Provider, in, out, cacheCreation, cacheRead))
 	}
+
+	// chat/completions passthrough: no translator runs, so the usage
+	// extractor's parse of the upstream stream is the only account of how the
+	// turn ended. The native finish_reason is the raw upstream value, hence
+	// both fields.
+	if respSummary.StopReason == "" && s.ResolveNativeOpenAIResponseSignals(ctx) {
+		if finishReason, toolCalls, observed := extractor.OpenAIChatResponse(); observed {
+			respSummary.UpstreamFinishReason = finishReason
+			respSummary.StopReason = finishReason
+			respSummary.ToolUseBlocks = toolCalls
+			nativeRespSummary = true
+		}
+	}
 	openaiUpstreamBuilder := otel.NewAttrBuilder(40).
 		String("request_id", requestID).
 		String("external_id", externalID).
@@ -7428,9 +7467,11 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 			StopReason:               stringPtrOrEmpty(respSummary.StopReason),
 			// See the Anthropic-path write site: only a turn whose end was
 			// observed (StopReason populated) reports counts, so a cut stream
-			// stays unknown instead of reading as a measured zero.
+			// stays unknown instead of reading as a measured zero. Native args
+			// are never validated by the router, so that count stays unknown on
+			// passthrough.
 			ToolUseBlocks:         int32PtrIfKnown(int32(respSummary.ToolUseBlocks), respSummary.StopReason != ""),
-			InvalidToolArgsBlocks: int32PtrIfKnown(int32(respSummary.InvalidToolArgsBlocks), respSummary.StopReason != ""),
+			InvalidToolArgsBlocks: int32PtrIfKnown(int32(respSummary.InvalidToolArgsBlocks), respSummary.StopReason != "" && !nativeRespSummary),
 			// A subscription->Weave retry keeps the same provider, so OR it in to
 			// match the OTel span + completion log.
 			FailoverUsed: boolPtrTrue(finalProvider != primaryProvider || codexFailoverUsed || siblingFailoverUsed),

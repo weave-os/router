@@ -464,6 +464,122 @@ func TestUsageExtractor_AnthropicResponse(t *testing.T) {
 	}
 }
 
+func TestUsageExtractor_OpenAIChatResponse(t *testing.T) {
+	// The same tool call arrives as several fragments under one index, so the
+	// count must follow indices rather than frames.
+	chatToolTurn := []string{
+		"data: {\"id\":\"chatcmpl-1\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\"}}]}\n\n",
+		"data: {\"id\":\"chatcmpl-1\",\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call_1\",\"function\":{\"name\":\"read\",\"arguments\":\"\"}}]}}]}\n\n",
+		"data: {\"id\":\"chatcmpl-1\",\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":0,\"function\":{\"arguments\":\"{\\\"path\\\"\"}}]}}]}\n\n",
+		"data: {\"id\":\"chatcmpl-1\",\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":1,\"id\":\"call_2\",\"function\":{\"name\":\"grep\",\"arguments\":\"{}\"}}]}}]}\n\n",
+		"data: {\"id\":\"chatcmpl-1\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"tool_calls\"}]}\n\n",
+		"data: {\"id\":\"chatcmpl-1\",\"choices\":[],\"usage\":{\"prompt_tokens\":20,\"completion_tokens\":12}}\n\n",
+		"data: [DONE]\n\n",
+	}
+
+	tests := []struct {
+		name             string
+		provider         string
+		writes           []string
+		wantFinishReason string
+		wantToolCalls    int
+		wantObserved     bool
+	}{
+		{
+			name:             "streaming tool turn counts each call once",
+			provider:         "openai",
+			writes:           chatToolTurn,
+			wantFinishReason: "tool_calls",
+			wantToolCalls:    2,
+			wantObserved:     true,
+		},
+		{
+			name:     "streaming text turn is a measured zero",
+			provider: "openai",
+			writes: []string{
+				"data: {\"id\":\"chatcmpl-1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"hi\"}}]}\n\n",
+				"data: {\"id\":\"chatcmpl-1\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n",
+				"data: [DONE]\n\n",
+			},
+			wantFinishReason: "stop",
+			wantToolCalls:    0,
+			wantObserved:     true,
+		},
+		{
+			name:             "stream cut before finish_reason is unobserved",
+			provider:         "openai",
+			writes:           chatToolTurn[:4],
+			wantFinishReason: "",
+			wantToolCalls:    0,
+			wantObserved:     false,
+		},
+		{
+			name:             "openai-compat family dispatch parses identically",
+			provider:         "openrouter",
+			writes:           chatToolTurn,
+			wantFinishReason: "tool_calls",
+			wantToolCalls:    2,
+			wantObserved:     true,
+		},
+		{
+			name:     "non-streaming body",
+			provider: "openai",
+			writes: []string{
+				"{\"id\":\"chatcmpl-1\",\"object\":\"chat.completion\",\"choices\":[{\"index\":0,\"finish_reason\":\"tool_calls\"," +
+					"\"message\":{\"role\":\"assistant\",\"tool_calls\":[{\"id\":\"call_1\",\"function\":{\"name\":\"read\",\"arguments\":\"{}\"}}]}}]," +
+					"\"usage\":{\"prompt_tokens\":10,\"completion_tokens\":5}}",
+			},
+			wantFinishReason: "tool_calls",
+			wantToolCalls:    1,
+			wantObserved:     true,
+		},
+		{
+			name:     "responses frames carry no choices and stay unobserved",
+			provider: "openai",
+			writes: []string{
+				"event: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"delta\":\"hi\"}\n\n",
+				"event: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"status\":\"completed\",\"output\":[],\"usage\":{\"input_tokens\":9,\"output_tokens\":3}}}\n\n",
+			},
+			wantFinishReason: "",
+			wantToolCalls:    0,
+			wantObserved:     false,
+		},
+		{
+			name:     "anthropic family leaves the accessor unobserved",
+			provider: "anthropic",
+			writes: []string{
+				"event: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":4}}\n\n",
+			},
+			wantFinishReason: "",
+			wantToolCalls:    0,
+			wantObserved:     false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ext := otel.NewUsageExtractor(httptest.NewRecorder(), tt.provider)
+			for _, w := range tt.writes {
+				_, err := ext.Write([]byte(w))
+				require.NoError(t, err)
+			}
+
+			finishReason, toolCalls, observed := ext.OpenAIChatResponse()
+			assert.Equal(t, tt.wantFinishReason, finishReason)
+			assert.Equal(t, tt.wantToolCalls, toolCalls)
+			assert.Equal(t, tt.wantObserved, observed)
+		})
+	}
+}
+
+func TestUsageExtractor_OpenAIChatResponse_NilReceiver(t *testing.T) {
+	var ext *otel.UsageExtractor
+	finishReason, toolCalls, observed := ext.OpenAIChatResponse()
+	assert.Equal(t, "", finishReason)
+	assert.Equal(t, 0, toolCalls)
+	assert.False(t, observed)
+}
+
 func TestUsageExtractor_AnthropicResponse_NilReceiver(t *testing.T) {
 	var ext *otel.UsageExtractor
 	stopReason, toolUseBlocks, observed := ext.AnthropicResponse()
