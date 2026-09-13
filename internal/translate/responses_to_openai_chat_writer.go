@@ -224,14 +224,15 @@ func (t *ResponsesToOpenAIChatWriter) Finalize() error {
 
 func (t *ResponsesToOpenAIChatWriter) Summary() ResponseSummary {
 	return ResponseSummary{
-		UpstreamFinishReason: t.upstreamFinishReason,
-		StopReason:           t.emittedFinishReason,
-		ToolUseBlocks:        t.toolCallCount,
-		ToolCallIssues:       t.toolCallIssues,
-		OutputTokens:         t.usageOutput,
-		InputTokens:          t.usageInput,
-		CacheReadTokens:      t.usageCacheRead,
-		CacheCreationTokens:  t.usageCacheCreation,
+		UpstreamFinishReason:  t.upstreamFinishReason,
+		StopReason:            t.emittedFinishReason,
+		ToolUseBlocks:         t.toolCallCount,
+		InvalidToolArgsBlocks: countUnrepairableToolArgs(t.toolCallIssues),
+		ToolCallIssues:        t.toolCallIssues,
+		OutputTokens:          t.usageOutput,
+		InputTokens:           t.usageInput,
+		CacheReadTokens:       t.usageCacheRead,
+		CacheCreationTokens:   t.usageCacheCreation,
 	}
 }
 

@@ -260,13 +260,14 @@ func (t *ResponsesToAnthropicWriter) Finalize() error {
 
 func (t *ResponsesToAnthropicWriter) Summary() ResponseSummary {
 	return ResponseSummary{
-		StopReason:          t.emittedStopReason,
-		ToolUseBlocks:       t.toolUseCount,
-		ToolCallIssues:      t.toolCallIssues,
-		OutputTokens:        t.usageOutput,
-		InputTokens:         t.usageInput,
-		CacheReadTokens:     t.usageCacheRead,
-		CacheCreationTokens: t.usageCacheCreation,
+		StopReason:            t.emittedStopReason,
+		ToolUseBlocks:         t.toolUseCount,
+		InvalidToolArgsBlocks: countUnrepairableToolArgs(t.toolCallIssues),
+		ToolCallIssues:        t.toolCallIssues,
+		OutputTokens:          t.usageOutput,
+		InputTokens:           t.usageInput,
+		CacheReadTokens:       t.usageCacheRead,
+		CacheCreationTokens:   t.usageCacheCreation,
 	}
 }
 
