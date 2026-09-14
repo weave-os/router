@@ -450,10 +450,14 @@ func requestRootRequestsCodexTitle(root gjson.Result) bool {
 		strings.Contains(lower, codexDirectResponsePromptMarker)
 }
 
-// freshCodexResponsesUserText returns the sole user message from a new
-// Responses conversation. Conductor generates titles in a separate hidden
-// session, so accepting conversation history here would make quoted title
-// instructions in a normal coding session a false positive.
+// freshCodexResponsesUserText returns the trailing user message from a new
+// Responses conversation — one with no assistant turn, tool call, or tool
+// output yet. Conductor generates titles in a separate hidden session, so
+// accepting conversation history here would make quoted title instructions in
+// a normal coding session a false positive. Earlier user items are allowed:
+// Codex prepends harness context (`<recommended_plugins>`,
+// `<environment_context>`, AGENTS.md instructions) as its own user messages,
+// and requiring a sole user message missed those title turns.
 func freshCodexResponsesUserText(input gjson.Result) (string, bool) {
 	if input.Type == gjson.String {
 		return input.Str, input.Str != ""
@@ -475,12 +479,11 @@ func freshCodexResponsesUserText(input gjson.Result) (string, bool) {
 			if role == "developer" || role == "system" {
 				continue
 			}
-			if role != "user" || userText != "" {
+			if role != "user" {
 				return "", false
 			}
-			userText = contentTextGJSON(item.Get("content"))
-			if userText == "" {
-				return "", false
+			if text := contentTextGJSON(item.Get("content")); text != "" {
+				userText = text
 			}
 		default:
 			return "", false

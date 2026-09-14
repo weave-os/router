@@ -241,6 +241,15 @@ type Service struct {
 	// openAIResponsesBroad is the deployment default for
 	// ROUTER_OPENAI_RESPONSES_BROAD; see ResolveOpenAIResponsesBroad.
 	openAIResponsesBroad bool
+	// nativeAnthropicResponseSignals records the stop reason and tool_use block
+	// count observed on an Anthropic-native passthrough turn. Env
+	// ROUTER_NATIVE_ANTHROPIC_RESPONSE_SIGNALS, on by default.
+	nativeAnthropicResponseSignals bool
+	// nativeOpenAIResponseSignals records the finish reason and tool-call count
+	// observed on an OpenAI-native turn, on both the chat/completions and the
+	// /v1/responses passthrough. Env ROUTER_NATIVE_OPENAI_RESPONSE_SIGNALS, on
+	// by default.
+	nativeOpenAIResponseSignals bool
 	// allowedModelsHeader is the deployment default for
 	// ROUTER_ALLOWED_MODELS_HEADER; see ResolveAllowedModelsHeader.
 	allowedModelsHeader bool
@@ -1494,18 +1503,20 @@ func NewService(r router.Router, providerMap map[string]providers.Client, emitte
 			ExpectedRemainingTurns: DefaultPlannerExpectedRemainingTurns,
 			TierUpgradeEnabled:     DefaultPlannerTierUpgradeEnabled,
 		},
-		hmmUpgradeConfidenceThreshold: defaultHMMUpgradeConfidenceThreshold,
-		authoritativeUpgradeGate:      true,
-		authorityCacheShadow:          true,
-		plannerEnabled:                true,
-		scoreToolResultTurns:          true,
-		loopEscalationEnabled:         true,
-		cyberRefusalRepin:             true,
-		cyberRefusalRetry:             true,
-		anthropicServerSideFallback:   true,
-		siblingFailover:               true,
-		openAIResponsesBroad:          true,
-		cyberRefusalFallbackModel:     "claude-sonnet-5",
+		hmmUpgradeConfidenceThreshold:  defaultHMMUpgradeConfidenceThreshold,
+		authoritativeUpgradeGate:       true,
+		authorityCacheShadow:           true,
+		plannerEnabled:                 true,
+		scoreToolResultTurns:           true,
+		loopEscalationEnabled:          true,
+		cyberRefusalRepin:              true,
+		cyberRefusalRetry:              true,
+		anthropicServerSideFallback:    true,
+		siblingFailover:                true,
+		openAIResponsesBroad:           true,
+		nativeAnthropicResponseSignals: true,
+		nativeOpenAIResponseSignals:    true,
+		cyberRefusalFallbackModel:      "claude-sonnet-5",
 	}
 }
 
@@ -1591,6 +1602,24 @@ func (s *Service) WithSiblingFailover(enabled bool) *Service {
 // routing (ROUTER_OPENAI_RESPONSES_BROAD).
 func (s *Service) WithOpenAIResponsesBroad(enabled bool) *Service {
 	s.openAIResponsesBroad = enabled
+	return s
+}
+
+// WithNativeAnthropicResponseSignals is the kill switch
+// (ROUTER_NATIVE_ANTHROPIC_RESPONSE_SIGNALS) for recording Anthropic-native
+// stop_reason and tool_use counts on telemetry. On by default; disabling
+// leaves those columns NULL on native turns.
+func (s *Service) WithNativeAnthropicResponseSignals(enabled bool) *Service {
+	s.nativeAnthropicResponseSignals = enabled
+	return s
+}
+
+// WithNativeOpenAIResponseSignals is the kill switch
+// (ROUTER_NATIVE_OPENAI_RESPONSE_SIGNALS) for recording OpenAI-native
+// finish_reason and tool-call counts on telemetry. On by default; disabling
+// leaves those columns NULL on native turns.
+func (s *Service) WithNativeOpenAIResponseSignals(enabled bool) *Service {
+	s.nativeOpenAIResponseSignals = enabled
 	return s
 }
 
@@ -2803,6 +2832,7 @@ func (s *Service) anthropicNativeAttempt(
 	sink http.ResponseWriter,
 	preludeBuf *preludeBuffer,
 	preludeState *anthropicPreludeState,
+	streamCut *streamCutObserver,
 	marker string,
 	setExtractor func(*otel.UsageExtractor),
 	setStreamCost func(router.Decision, bool),
@@ -2827,11 +2857,14 @@ func (s *Service) anthropicNativeAttempt(
 		if preludeBuf != nil {
 			preludeBuf.Seal()
 		}
-		err := p.Proxy(actx, d, prep, proxyWriter, r)
+		err := p.Proxy(actx, d, prep, streamCut.attach(proxyWriter), r)
 		// Post-commit: bytes already on the wire, so render the error as an
 		// in-stream frame instead of letting flushErr append a corrupting
 		// envelope. Pre-commit errors go through dispatchWithFallback instead.
 		if err != nil && env.Stream() && preludeBuf.Committed() {
+			// Before synthesis: the rendered 502 no longer carries the
+			// transport error the classification reads.
+			streamCut.noteCut(err)
 			err = emitAnthropicSSEErrorEvent(sink, err)
 		}
 		return err
@@ -3763,6 +3796,10 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	// of the re-pin kill switch.
 	refusalObs := newRefusalObserver(sink)
 	sink = refusalObs
+	// Attached per attempt directly above the upstream writer, so a stream
+	// that dies after commit can be described (frames, last event, gap)
+	// instead of reported as a bare synthesized 502.
+	streamCut := newStreamCutObserver(nil)
 
 	proxyStart := time.Now()
 	inferenceParentCtx := ctx
@@ -3771,9 +3808,10 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	var proxyErr error
 	crossFormat := false
 	var extractor *otel.UsageExtractor
-	// respSummary captures the winning attempt's translated-response signals
-	// for the completion log. Populated by translator-backed paths; stays
-	// zero for Anthropic-native passthrough (no translator).
+	// respSummary captures the winning attempt's response signals for the
+	// completion log. Populated by translator-backed paths; on Anthropic-native
+	// passthrough (no translator) the stop reason and tool_use block count come
+	// from the usage extractor's parse of the upstream stream instead.
 	var respSummary translate.ResponseSummary
 	// reqStats captures translation-time mutations on the winning attempt's
 	// request body. Zero for Anthropic-native passthrough.
@@ -3809,10 +3847,11 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			env:           env,
 			r:             r,
 			opts:          targetOpts,
-			native:        s.anthropicNativeAttempt(env, r, prep, sink, preludeBuf, anthropicPrelude, targetMarker, setExtractor, setStreamCost),
+			native:        s.anthropicNativeAttempt(env, r, prep, sink, preludeBuf, anthropicPrelude, streamCut, targetMarker, setExtractor, setStreamCost),
 			sink:          sink,
 			preludeBuf:    preludeBuf,
 			preludeState:  anthropicPrelude,
+			streamCut:     streamCut,
 			marker:        targetMarker,
 			setExtractor:  setExtractor,
 			setStreamCost: setStreamCost,
@@ -3861,7 +3900,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 					preludeBuf.Discard()
 				}
 				logUpstreamBody(log, routeRes.SessionKey, target, feats, unstructuredPrep.Body)
-				return s.anthropicNativeAttempt(env, r, unstructuredPrep, sink, preludeBuf, anthropicPrelude, targetMarker, setExtractor, setStreamCost)(actx, d, p)
+				return s.anthropicNativeAttempt(env, r, unstructuredPrep, sink, preludeBuf, anthropicPrelude, streamCut, targetMarker, setExtractor, setStreamCost)(actx, d, p)
 			}, nil
 		case providers.FamilyOpenAICompat:
 			crossFormat = true
@@ -3928,13 +3967,14 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 				if preludeBuf != nil {
 					preludeBuf.Seal()
 				}
-				rawErr := p.Proxy(actx, d, prep, translator, r)
+				rawErr := p.Proxy(actx, d, prep, streamCut.attach(translator), r)
 				finalize := func(err error) error {
 					// Post-commit: HTTP 200 + message_start already on the wire, so
 					// render the error as an in-stream `event: error` frame instead of
 					// a corrupting trailing envelope. Pre-commit errors go through
 					// dispatchWithFallback instead.
 					if err != nil && env.Stream() && preludeBuf.Committed() {
+						streamCut.noteCut(err)
 						err = emitAnthropicSSEErrorEvent(sink, err)
 					}
 					finErr := finalizeAfterProxy(err, translator.Finalize)
@@ -4034,10 +4074,11 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 					preludeBuf.Seal()
 				}
 				geminiTr := translate.NewGeminiToOpenAISSETranslator(anthropicTr, d.Model, nil)
-				rawErr := p.Proxy(actx, d, pr, geminiTr, r)
+				rawErr := p.Proxy(actx, d, pr, streamCut.attach(geminiTr), r)
 				finalize := func(err error) error {
 					// Post-commit: see the OpenAI-compat case above.
 					if err != nil && env.Stream() && preludeBuf.Committed() {
+						streamCut.noteCut(err)
 						err = emitAnthropicSSEErrorEvent(sink, err)
 					}
 					err = finalizeAfterProxy(err, geminiTr.Finalize)
@@ -4198,6 +4239,10 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			return
 		}
 		deferredErrFlushed = true
+		if preludeBuf.Committed() {
+			// Before synthesis, for the same reason as the native path.
+			streamCut.noteCut(proxyErr)
+		}
 		if env.Stream() && preludeBuf.PreludeSent() {
 			// The handler cannot render anything once the client has bytes,
 			// so an in-stream frame is the only way the turn reports at all —
@@ -4515,6 +4560,20 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		respSummary.StopReason = anthropicRefusalStopReason
 	}
 
+	// Anthropic-native passthrough: the extractor already parses the upstream
+	// stream for usage, so the same pass yields the turn-ending signals a
+	// translator would have reported. The native stop_reason is the raw
+	// upstream value, hence both fields.
+	nativeRespSummary := false
+	if respSummary.StopReason == "" && s.ResolveNativeAnthropicResponseSignals(ctx) {
+		if stopReason, toolUseBlocks, observed := extractor.AnthropicResponse(); observed {
+			respSummary.UpstreamFinishReason = stopReason
+			respSummary.StopReason = stopReason
+			respSummary.ToolUseBlocks = toolUseBlocks
+			nativeRespSummary = true
+		}
+	}
+
 	in, out := extractor.Tokens()
 	cacheCreation, cacheRead := extractor.CacheTokens()
 	if responseBuffer != nil && proxyErr == nil {
@@ -4592,7 +4651,9 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		// primaryProvider, so OR in subscriptionFailoverUsed to match the OTel
 		// span + completion log.
 		failoverUsed := finalProvider != primaryProvider || subscriptionFailoverUsed || siblingFailoverUsed
-		degShadow := proxyErr == nil && isDegenerateResponse(out, respSummary.ToolUseBlocks, respSummary.StopReason, respSummary.StopReasonDemoted)
+		// Degeneracy evicts the session pin, so it stays on the translated
+		// signals it was calibrated against.
+		degShadow := proxyErr == nil && !nativeRespSummary && isDegenerateResponse(out, respSummary.ToolUseBlocks, respSummary.StopReason, respSummary.StopReasonDemoted)
 		if degShadow && !agentShadowMode {
 			log.Info("router.degenerate_shadow",
 				"model", decision.Model,
@@ -4670,11 +4731,12 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			RolloutID:                obs.RolloutID,
 			UpstreamFinishReason:     stringPtrOrEmpty(respSummary.UpstreamFinishReason),
 			StopReason:               stringPtrOrEmpty(respSummary.StopReason),
-			// Only valid when a translator ran (StopReason populated) — the
-			// Anthropic-native passthrough path leaves respSummary zero, which
-			// must not look like a measured zero-tool turn.
+			// Only valid once the turn's end was observed (StopReason populated)
+			// — a stream cut before then must not look like a measured zero-tool
+			// turn. Native args are never validated by the router, so that count
+			// stays unknown on passthrough.
 			ToolUseBlocks:         int32PtrIfKnown(int32(respSummary.ToolUseBlocks), respSummary.StopReason != ""),
-			InvalidToolArgsBlocks: int32PtrIfKnown(int32(respSummary.InvalidToolArgsBlocks), respSummary.StopReason != ""),
+			InvalidToolArgsBlocks: int32PtrIfKnown(int32(respSummary.InvalidToolArgsBlocks), respSummary.StopReason != "" && !nativeRespSummary),
 			FailoverUsed:          boolPtrTrue(failoverUsed),
 			DegenerateShadow:      boolPtrOrNil(degShadow),
 			// (session_key, role) is the offline join key to spiral_shadow_events
@@ -4769,7 +4831,12 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		)
 	}
 
-	log.Info("ProxyMessages complete", append([]any{"requested_model", feats.Model, "baseline_model", s.baselineFor(feats.Model), "decision_model", decision.Model, "decision_provider", decision.Provider, "primary_provider", primaryProvider, "primary_model", primaryModel, "fallback_attempts", winnerIdx, "failover_used", finalProvider != primaryProvider || subscriptionFailoverUsed || siblingFailoverUsed, "subscription_failover", subscriptionFailoverUsed, "decision_reason", decision.Reason, "requested_tier", routeRes.RequestedTier.String(), "decision_tier", catalog.TierFor(decision.Model).String(), "embedded_tokens", len(promptText) / 4, "total_input_tokens", feats.Tokens, "has_tools", feats.HasTools, "message_count", feats.MessageCount, "last_kind", feats.LastKind, "last_preview", feats.LastPreview, "embed_input", embedInput, "cross_format", crossFormat, "sticky_hit", stickyHit, "route_ms", routeMs, "proxy_ms", proxyMs, "proxy_err", proxyErr, "upstream_err_body", providers.UpstreamErrorBodyMessage(proxyErr), "upstream_status", upstreamStatus(proxyErr), "upstream_finish_reason", respSummary.UpstreamFinishReason, "resp_stop_reason", respSummary.StopReason, "resp_refusal", refusalObs.refused, "resp_refusal_category", refusalObs.category, "stop_reason_promoted", respSummary.StopReasonPromoted, "tool_use_blocks", respSummary.ToolUseBlocks, "invalid_tool_args_blocks", respSummary.InvalidToolArgsBlocks, "text_only_turn_nudged", respSummary.TextOnlyTurnNudged, "stop_reason_demoted", respSummary.StopReasonDemoted, "suppressed_tool_calls", respSummary.SuppressedToolCalls, "tool_call_invalid_blocks", len(respSummary.ToolCallIssues), "cc_only_tools_stripped", reqStats.CCOnlyToolsStripped, "cc_task_reminders_stripped", reqStats.CCTaskRemindersStripped, "gemini_reminder_injected", reqStats.GeminiReminderInjected, "gemini_validated_tool_mode", reqStats.GeminiValidatedToolMode, "resp_output_tokens", respSummary.OutputTokens, "prelude_committed", preludeBuf.Committed(), "routing_marker", marker, "prior_served_model", routeRes.PriorServedModel, "hard_pinned", routeRes.HardPinned}, plannerLogFields(routeRes)...)...)
+	// Paths that never rendered an in-stream error frame (non-streaming, or a
+	// rescue that swallowed the flush) still owe the diagnostics.
+	if preludeBuf.Committed() {
+		streamCut.noteCut(proxyErr)
+	}
+	log.Info("ProxyMessages complete", append([]any{"requested_model", feats.Model, "baseline_model", s.baselineFor(feats.Model), "decision_model", decision.Model, "decision_provider", decision.Provider, "primary_provider", primaryProvider, "primary_model", primaryModel, "fallback_attempts", winnerIdx, "failover_used", finalProvider != primaryProvider || subscriptionFailoverUsed || siblingFailoverUsed, "subscription_failover", subscriptionFailoverUsed, "decision_reason", decision.Reason, "requested_tier", routeRes.RequestedTier.String(), "decision_tier", catalog.TierFor(decision.Model).String(), "embedded_tokens", len(promptText) / 4, "total_input_tokens", feats.Tokens, "has_tools", feats.HasTools, "message_count", feats.MessageCount, "last_kind", feats.LastKind, "last_preview", feats.LastPreview, "embed_input", embedInput, "cross_format", crossFormat, "sticky_hit", stickyHit, "route_ms", routeMs, "proxy_ms", proxyMs, "proxy_err", proxyErr, "upstream_err_body", providers.UpstreamErrorBodyMessage(proxyErr), "upstream_status", upstreamStatus(proxyErr), "upstream_finish_reason", respSummary.UpstreamFinishReason, "resp_stop_reason", respSummary.StopReason, "resp_refusal", refusalObs.refused, "resp_refusal_category", refusalObs.category, "stop_reason_promoted", respSummary.StopReasonPromoted, "tool_use_blocks", respSummary.ToolUseBlocks, "invalid_tool_args_blocks", respSummary.InvalidToolArgsBlocks, "text_only_turn_nudged", respSummary.TextOnlyTurnNudged, "stop_reason_demoted", respSummary.StopReasonDemoted, "suppressed_tool_calls", respSummary.SuppressedToolCalls, "tool_call_invalid_blocks", len(respSummary.ToolCallIssues), "cc_only_tools_stripped", reqStats.CCOnlyToolsStripped, "cc_task_reminders_stripped", reqStats.CCTaskRemindersStripped, "gemini_reminder_injected", reqStats.GeminiReminderInjected, "gemini_validated_tool_mode", reqStats.GeminiValidatedToolMode, "resp_output_tokens", respSummary.OutputTokens, "prelude_committed", preludeBuf.Committed(), "routing_marker", marker, "prior_served_model", routeRes.PriorServedModel, "hard_pinned", routeRes.HardPinned}, append(plannerLogFields(routeRes), streamCut.completionLogFields()...)...)...)
 	policyRespBody, policyRespTrunc := capturedResponse(policyOutcomeCap)
 	var policyResp *policyOutcomeResponse
 	if policyOutcomeCap != nil {
@@ -6596,6 +6663,10 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 
 	// Overwritten per attempt, so it holds the winning attempt's signals.
 	var respSummary translate.ResponseSummary
+	// nativeRespSummary marks a summary sniffed off a native passthrough rather
+	// than measured by a translator, so a count the router never computed stays
+	// unknown on the telemetry row.
+	nativeRespSummary := false
 	// cyberRetryArmed licenses the refusal gate to withhold an OpenAI stream's
 	// preamble; set once the rescue target is known to be dispatchable.
 	cyberRetryArmed := false
@@ -6732,9 +6803,16 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 				if translator != nil {
 					err = finalizeAfterProxy(err, translator.Finalize)
 					respSummary = translator.Summary()
+					nativeRespSummary = false
 				} else if nativeTerminal != nil {
 					nativeTerminal.Finalize()
-					respSummary = translate.ResponseSummary{UpstreamFinishReason: nativeTerminal.finishReason}
+					respSummary = translate.ResponseSummary{UpstreamFinishReason: nativeTerminal.signals.FinishReason}
+					nativeRespSummary = false
+					if nativeTerminal.observed && s.ResolveNativeOpenAIResponseSignals(actx) {
+						respSummary.StopReason = nativeTerminal.signals.FinishReason
+						respSummary.ToolUseBlocks = nativeTerminal.signals.ToolCalls
+						nativeRespSummary = true
+					}
 				}
 				if releaseErr := refusalGate.Finalize(); releaseErr != nil && err == nil {
 					err = releaseErr
@@ -7269,6 +7347,19 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	if !env.Stream() && proxyErr == nil {
 		setRouterCostHeaders(w.Header(), routerResponseCostFromPricing(actPricing, decision.Provider, in, out, cacheCreation, cacheRead))
 	}
+
+	// chat/completions passthrough: no translator runs, so the usage
+	// extractor's parse of the upstream stream is the only account of how the
+	// turn ended. The native finish_reason is the raw upstream value, hence
+	// both fields.
+	if respSummary.StopReason == "" && s.ResolveNativeOpenAIResponseSignals(ctx) {
+		if finishReason, toolCalls, observed := extractor.OpenAIChatResponse(); observed {
+			respSummary.UpstreamFinishReason = finishReason
+			respSummary.StopReason = finishReason
+			respSummary.ToolUseBlocks = toolCalls
+			nativeRespSummary = true
+		}
+	}
 	openaiUpstreamBuilder := otel.NewAttrBuilder(40).
 		String("request_id", requestID).
 		String("external_id", externalID).
@@ -7424,6 +7515,13 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 			RolloutID:                openaiObs.RolloutID,
 			UpstreamFinishReason:     stringPtrOrEmpty(respSummary.UpstreamFinishReason),
 			StopReason:               stringPtrOrEmpty(respSummary.StopReason),
+			// See the Anthropic-path write site: only a turn whose end was
+			// observed (StopReason populated) reports counts, so a cut stream
+			// stays unknown instead of reading as a measured zero. Native args
+			// are never validated by the router, so that count stays unknown on
+			// passthrough.
+			ToolUseBlocks:         int32PtrIfKnown(int32(respSummary.ToolUseBlocks), respSummary.StopReason != ""),
+			InvalidToolArgsBlocks: int32PtrIfKnown(int32(respSummary.InvalidToolArgsBlocks), respSummary.StopReason != "" && !nativeRespSummary),
 			// A subscription->Weave retry keeps the same provider, so OR it in to
 			// match the OTel span + completion log.
 			FailoverUsed: boolPtrTrue(finalProvider != primaryProvider || codexFailoverUsed || siblingFailoverUsed),
@@ -7470,7 +7568,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		)
 	}
 
-	log.Info("ProxyOpenAIChatCompletion complete", append([]any{"requested_model", feats.Model, "baseline_model", s.baselineFor(feats.Model), "decision_model", decision.Model, "decision_provider", decision.Provider, "primary_provider", primaryProvider, "primary_model", primaryModel, "fallback_attempts", winnerIdx, "failover_used", finalProvider != primaryProvider || codexFailoverUsed || siblingFailoverUsed, "subscription_failover", codexFailoverUsed, "decision_reason", decision.Reason, "requested_tier", routeRes.RequestedTier.String(), "decision_tier", catalog.TierFor(decision.Model).String(), "embedded_tokens", len(promptText) / 4, "total_input_tokens", feats.Tokens, "has_tools", feats.HasTools, "embed_input", embedInput, "cross_format", crossFormat, "sticky_hit", stickyHit, "pin_tier", pinTier, "turn_type", string(tt), "route_ms", routeMs, "proxy_ms", proxyMs, "proxy_err", proxyErr, "upstream_err_body", providers.UpstreamErrorBodyMessage(proxyErr), "upstream_status", upstreamStatus(proxyErr), "upstream_finish_reason", respSummary.UpstreamFinishReason, "resp_stop_reason", respSummary.StopReason, "routing_marker", marker, "prior_served_model", routeRes.PriorServedModel, "hard_pinned", routeRes.HardPinned}, plannerLogFields(routeRes)...)...)
+	log.Info("ProxyOpenAIChatCompletion complete", append([]any{"requested_model", feats.Model, "baseline_model", s.baselineFor(feats.Model), "decision_model", decision.Model, "decision_provider", decision.Provider, "primary_provider", primaryProvider, "primary_model", primaryModel, "fallback_attempts", winnerIdx, "failover_used", finalProvider != primaryProvider || codexFailoverUsed || siblingFailoverUsed, "subscription_failover", codexFailoverUsed, "decision_reason", decision.Reason, "requested_tier", routeRes.RequestedTier.String(), "decision_tier", catalog.TierFor(decision.Model).String(), "embedded_tokens", len(promptText) / 4, "total_input_tokens", feats.Tokens, "has_tools", feats.HasTools, "embed_input", embedInput, "cross_format", crossFormat, "sticky_hit", stickyHit, "pin_tier", pinTier, "turn_type", string(tt), "route_ms", routeMs, "proxy_ms", proxyMs, "proxy_err", proxyErr, "upstream_err_body", providers.UpstreamErrorBodyMessage(proxyErr), "upstream_status", upstreamStatus(proxyErr), "upstream_finish_reason", respSummary.UpstreamFinishReason, "resp_stop_reason", respSummary.StopReason, "stop_reason_promoted", respSummary.StopReasonPromoted, "tool_use_blocks", respSummary.ToolUseBlocks, "invalid_tool_args_blocks", respSummary.InvalidToolArgsBlocks, "tool_call_invalid_blocks", len(respSummary.ToolCallIssues), "routing_marker", marker, "prior_served_model", routeRes.PriorServedModel, "hard_pinned", routeRes.HardPinned}, plannerLogFields(routeRes)...)...)
 	s.reportPolicyOutcome(ctx, routeRes, decision, effortServed, finalProvider, fastServed, feats.Tokens, in, out, cacheCreation, cacheRead, routeMs, proxyMs, proxyErr, nil)
 
 	// Subscription-only mode disables paid failover by pinning dispatch to the

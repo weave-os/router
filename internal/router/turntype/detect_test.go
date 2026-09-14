@@ -122,6 +122,18 @@ func TestDetectFromEnvelope_Anthropic(t *testing.T) {
 			want: turntype.MainLoop,
 		},
 		{
+			name: "sub-agent via cc_is_subagent on the billing-header line",
+			body: `{"model":"claude-haiku-4-5","system":[{"type":"text","text":"x-anthropic-billing-header: cc_version=2.1.141.bb8; cc_entrypoint=cli; cc_is_subagent=true; cch=54d19;\nYou are a background agent."}],"messages":[{"role":"user","content":"grep"}]}`,
+			want: turntype.SubAgentDispatch,
+		},
+		{
+			// The flag is only trusted on the billing-header line; the same
+			// text quoted in the prompt body (docs, injected context) is prose.
+			name: "main_loop with cc_is_subagent quoted in the system prompt body stays main_loop",
+			body: `{"model":"claude-opus-4-7","system":[{"type":"text","text":"x-anthropic-billing-header: cc_version=2.1.141.bb8; cc_entrypoint=cli; cch=54d19;\nYou are Claude Code."},{"type":"text","text":"# CLAUDE.md\nSub-agents stamp cc_is_subagent=true on their billing header."}],"messages":[{"role":"user","content":"hi"}]}`,
+			want: turntype.MainLoop,
+		},
+		{
 			name: "sub-agent via x-weave-subagent-type header hint",
 			body: `{"model":"claude-haiku-4-5","messages":[{"role":"user","content":"grep"}]}`,
 			hint: "Explore",

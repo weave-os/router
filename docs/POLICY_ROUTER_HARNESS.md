@@ -30,6 +30,16 @@ native search (or another wire capability) to select, exclude, reorder, or
 allowlist providers/models. Go applies those constraints before invoking the
 sidecar, and isolated pass-through turns do not invoke it at all.
 
+Turn facts are router-owned as well. `harness`, `latest_user_text`,
+`turn_index`, `is_subagent`, `available_tools`, and `invoked_tools` on the
+`policy_router_v4` request are authoritative: a sidecar consumes them verbatim
+and must not recompute them from `conversation_messages`, `client_app`, or
+`prompt_text`. `available_tools` is the advertised set unioned with every tool
+already invoked in the full conversation (before any wire truncation);
+`invoked_tools` is that invoked subset on its own. The reviewed top-level
+field list lives in `internal/policyclient/testdata/classifier_request_v4_fields.txt`;
+adding or removing a wire field is a contract change and updates that fixture.
+
 There is no strategy fallback. If a serving policy cannot return a valid
 selection after bounded transient retries, the client receives HTTP 503.
 Availability comes from healthy replicas, readiness gates, immutable artifacts,
