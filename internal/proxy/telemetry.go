@@ -145,10 +145,18 @@ type InsertTelemetryParams struct {
 	StopReason            *string
 	ToolUseBlocks         *int32
 	InvalidToolArgsBlocks *int32
-	FailoverUsed          *bool
-	DegenerateShadow      *bool
-	PolicyPinRequested    *bool
-	PolicyPinHonoured     *bool
+	// LastToolUseName + LastToolUseInputBytes describe the final tool_use block
+	// handed to the client on a turn that ended with stop_reason=tool_use.
+	// Empty / nil on every other turn. Observation-only.
+	LastToolUseName       string
+	LastToolUseInputBytes *int32
+	// ToolErrorCounts is pre-marshaled JSON {tool name: {calls, errors}} over
+	// the request's resolved tool calls. nil when the history has none.
+	ToolErrorCounts    []byte
+	FailoverUsed       *bool
+	DegenerateShadow   *bool
+	PolicyPinRequested *bool
+	PolicyPinHonoured  *bool
 
 	// SessionKey + Role are the offline join key to spiral_shadow_events and
 	// session_pins (16-byte digest + roleForTier of the requested model). Nil /
