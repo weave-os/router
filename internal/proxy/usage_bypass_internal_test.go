@@ -101,7 +101,7 @@ func TestUsageBypassDecision_CodexSubscriptionPreservesRequestedModel(t *testing
 		EnabledProviders: map[string]struct{}{
 			providers.ProviderOpenAI: {},
 		},
-	})
+	}, nil)
 
 	require.True(t, ok)
 	assert.Equal(t, router.Decision{
@@ -109,6 +109,56 @@ func TestUsageBypassDecision_CodexSubscriptionPreservesRequestedModel(t *testing
 		Model:    "gpt-5.6-sol",
 		Reason:   "usage_bypass",
 	}, decision)
+}
+
+// TestUsageBypassDecision_SessionDemotionBlocks_GlobalAutomaticExclusionDoesNot
+// pins the two exclusion layers apart. The deployment-wide automatic exclusion
+// (req.AutomaticExcludedModels) is soft: an explicit subscription request may
+// still be served the model straight through. A session strike on the same
+// model must not be bypassed around: the arm failed this user mid-turn, and
+// the strike is what keeps the next turn off it.
+func TestUsageBypassDecision_SessionDemotionBlocks_GlobalAutomaticExclusionDoesNot(t *testing.T) {
+	const token = "sk-ant-oat01-test-subscription-token"
+	const model = "claude-sonnet-4-6"
+	threshold := 0.80
+	obs := usage.NewObserver([]byte("salt"), 10*time.Minute, time.Now)
+	obs.Record(obs.Key([]byte(token)), usage.Snapshot{
+		Primary: usage.Window{UsedPercent: 0.20, WindowMinutes: 300},
+	})
+	svc := &Service{usageObserver: obs}
+	ctx := context.WithValue(context.Background(), AnthropicSubscriptionContextKey{}, token)
+	ctx = context.WithValue(ctx, InstallationUsageBypassContextKey{}, UsageBypassConfig{
+		Enabled:   true,
+		Threshold: &threshold,
+	})
+	want := router.Decision{Provider: providers.ProviderAnthropic, Model: model, Reason: "usage_bypass"}
+
+	cases := []struct {
+		name           string
+		automaticExcl  map[string]struct{}
+		sessionDemoted []string
+		wantEngaged    bool
+	}{
+		{name: "unrestricted requested model", wantEngaged: true},
+		{name: "deployment-wide automatic exclusion only", automaticExcl: map[string]struct{}{model: {}}, wantEngaged: true},
+		{name: "session demotion only", sessionDemoted: []string{model}, wantEngaged: false},
+		{name: "session demotion and automatic exclusion", automaticExcl: map[string]struct{}{model: {}}, sessionDemoted: []string{model}, wantEngaged: false},
+		{name: "session demotion of another model", sessionDemoted: []string{"claude-opus-4-7"}, wantEngaged: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			decision, ok := svc.usageBypassDecision(ctx, http.Header{}, router.Request{
+				RequestedModel:          model,
+				AutomaticExcludedModels: tc.automaticExcl,
+			}, tc.sessionDemoted)
+			assert.Equal(t, tc.wantEngaged, ok)
+			if tc.wantEngaged {
+				assert.Equal(t, want, decision)
+			} else {
+				assert.Equal(t, router.Decision{}, decision)
+			}
+		})
+	}
 }
 
 // TestUsageBypassEngaged_SafetyExclusionBlocks_PolicyExclusionDoesNot pins the

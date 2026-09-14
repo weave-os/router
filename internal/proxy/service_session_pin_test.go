@@ -48,6 +48,14 @@ type fakePinStore struct {
 	disabledProviders      []string
 	commandContinuations   map[string]sessionpin.Pin
 	persistUpserts         bool
+	demotions              []fakeDemotion
+}
+
+// fakeDemotion is one recorded ExpireAndDemoteModel call.
+type fakeDemotion struct {
+	Role   string
+	Model  string
+	Reason sessionpin.DemotionReason
 }
 
 func newFakePinStore() *fakePinStore {
@@ -173,7 +181,10 @@ func (f *fakePinStore) ResetOverloadErrors(ctx context.Context, key [sessionpin.
 	return nil
 }
 
-func (*fakePinStore) ExpireAndDemoteModel(context.Context, sessionpin.Pin, string, sessionpin.DemotionReason) error {
+func (f *fakePinStore) ExpireAndDemoteModel(_ context.Context, expired sessionpin.Pin, model string, reason sessionpin.DemotionReason) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.demotions = append(f.demotions, fakeDemotion{Role: expired.Role, Model: model, Reason: reason})
 	return nil
 }
 

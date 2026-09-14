@@ -76,6 +76,7 @@ const (
 	KeyAllowedModelsHeader                  Key = "allowed_models_header"
 	KeySubscriptionPlanAwareRouting         Key = "subscription_plan_aware_routing_enabled"
 	KeyCommittedStreamArmDemotion           Key = "committed_stream_arm_demotion"
+	KeyRescuedFailureArmDemotion            Key = "rescued_failure_arm_demotion"
 	KeyNativeAnthropicResponseSignals       Key = "native_anthropic_response_signals"
 	KeyNativeOpenAIResponseSignals          Key = "native_openai_response_signals"
 )
@@ -296,6 +297,13 @@ var Registry = []Definition{
 		EnvVar:         "ROUTER_COMMITTED_STREAM_ARM_DEMOTION",
 		Kind:           KindBool,
 		Description:    "Withdraw a model from a session's automatic selection after its stream failed with the prelude already committed. Off by default.",
+		OrgOverridable: true,
+	},
+	{
+		Key:            KeyRescuedFailureArmDemotion,
+		EnvVar:         "ROUTER_RESCUED_FAILURE_ARM_DEMOTION",
+		Kind:           KindBool,
+		Description:    "Withdraw the primary model from a session's automatic selection after its attempt failed pre-commit and a same-cluster sibling rescue ran. Off by default.",
 		OrgOverridable: true,
 	},
 	{

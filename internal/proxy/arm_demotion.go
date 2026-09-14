@@ -61,17 +61,74 @@ func (s *Service) maybeDemoteArmAfterCommittedStreamFailure(
 	if !committedStream || !isCommittedStreamFailure(ctx, proxyErr) {
 		return ""
 	}
-
-	log := observability.FromContext(ctx)
-	if clusterAllowlistsPinModel(clusterArmOverridesForRequest(ctx), model) {
-		log.Info("model kept for session despite committed stream failure: cluster allowlists name no other model",
-			"role", role,
-			"model", model,
-			"upstream_status", upstreamStatus(proxyErr),
-		)
+	if !s.demoteArmForSession(ctx, model, sessionpin.DemotionReasonCommittedStreamFailure, upstreamStatus(proxyErr), installationID, sessionKey, role, pinRole) {
 		return ""
 	}
-	reason := sessionpin.DemotionReasonCommittedStreamFailure
+	return model
+}
+
+// maybeDemoteArmAfterRescuedFailure withdraws the primary arm from the
+// session's automatic selection after its attempt failed pre-commit and the
+// sibling rescue ran, whether or not the rescuer then served. The rescue
+// already proved the primary unusable for this turn; without the strike the
+// next turn re-decides from scratch and returns to the same arm.
+//
+// Returns the demoted model, or "" when nothing was demoted. Shares the
+// no-op conditions of maybeDemoteArmAfterCommittedStreamFailure (flag off,
+// unaddressable pin row, hard-pinned or user-forced turn, allowlists that name
+// no other model) and additionally leaves the arm alone when the primary's
+// failure is owned by another path, see isRescuedPrimaryFailure.
+func (s *Service) maybeDemoteArmAfterRescuedFailure(
+	ctx context.Context,
+	rescueRan bool,
+	hardPinned bool,
+	primaryErr error,
+	primary router.Decision,
+	installationID uuid.UUID,
+	sessionKey [sessionpin.SessionKeyLen]byte,
+	role string,
+	pinRole string,
+) string {
+	if !s.ResolveRescuedFailureArmDemotion(ctx) || s.pinStore == nil || installationID == uuid.Nil {
+		return ""
+	}
+	if sessionKey == ([sessionpin.SessionKeyLen]byte{}) || primary.Model == "" || hardPinned {
+		return ""
+	}
+	if strings.HasPrefix(primary.Reason, translate.ReasonUserForceModel) {
+		return ""
+	}
+	if !rescueRan || !isRescuedPrimaryFailure(primaryErr) {
+		return ""
+	}
+	if !s.demoteArmForSession(ctx, primary.Model, sessionpin.DemotionReasonRescuedFailure, upstreamStatus(primaryErr), installationID, sessionKey, role, pinRole) {
+		return ""
+	}
+	return primary.Model
+}
+
+// demoteArmForSession writes one strike against model on every pin row the
+// session's next turn merges. Reports whether the strike landed.
+func (s *Service) demoteArmForSession(
+	ctx context.Context,
+	model string,
+	reason sessionpin.DemotionReason,
+	primaryStatus int,
+	installationID uuid.UUID,
+	sessionKey [sessionpin.SessionKeyLen]byte,
+	role string,
+	pinRole string,
+) bool {
+	log := observability.FromContext(ctx)
+	if clusterAllowlistsPinModel(clusterArmOverridesForRequest(ctx), model) {
+		log.Info("model kept for session despite upstream failure: cluster allowlists name no other model",
+			"role", role,
+			"model", model,
+			"reason", string(reason),
+			"upstream_status", primaryStatus,
+		)
+		return false
+	}
 
 	if pinRole == "" {
 		pinRole = sessionpin.DefaultRole
@@ -101,20 +158,20 @@ func (s *Service) maybeDemoteArmAfterCommittedStreamFailure(
 		expired := expiredSessionPin(installationID, sessionKey, strikeRole, string(reason), strategy)
 		if err := s.pinStore.ExpireAndDemoteModel(context.Background(), expired, model, reason); err != nil {
 			log.Error("session model demotion failed", "err", err, "role", strikeRole, "model", model, "reason", string(reason))
-			return ""
+			return false
 		}
 	}
 	if err := s.invalidatePostCommandContinuation(ctx, sessionKey, pinRole); err != nil {
-		log.Error("continuation invalidation after session model demotion failed", "err", err, "role", role, "pin_role", pinRole, "model", model)
-		return ""
+		log.Error("continuation invalidation after session model demotion failed", "err", err, "role", role, "pin_role", pinRole, "model", model, "reason", string(reason))
+		return false
 	}
-	log.Info("model demoted for session after committed stream failure",
+	log.Info("model demoted for session",
 		"role", role,
 		"model", model,
 		"reason", string(reason),
-		"upstream_status", upstreamStatus(proxyErr),
+		"upstream_status", primaryStatus,
 	)
-	return model
+	return true
 }
 
 // demotionRoles lists the pin rows a strike is written to: the sticky-state
@@ -158,6 +215,51 @@ func armDemotionReason(demotedModel string) string {
 		return ""
 	}
 	return string(sessionpin.DemotionReasonCommittedStreamFailure)
+}
+
+// armDemotionLogFields is the completion line's account of the turn's strikes.
+// arm_demoted and arm_demotion_reason name the one strike most turns write;
+// the committed-stream strike wins when both landed (the rescuer served and
+// then cut after commit), and rescued_arm_demoted always names the primary
+// struck for a rescued failure so neither is lost.
+func armDemotionLogFields(committedDemoted, rescuedDemoted string) []any {
+	model, reason := committedDemoted, armDemotionReason(committedDemoted)
+	if model == "" && rescuedDemoted != "" {
+		model, reason = rescuedDemoted, string(sessionpin.DemotionReasonRescuedFailure)
+	}
+	return []any{"arm_demoted", model, "arm_demotion_reason", reason, "rescued_arm_demoted", rescuedDemoted}
+}
+
+// isRescuedPrimaryFailure reports whether the primary attempt's error is one
+// the session should hold against the arm. The sibling rescue only runs on
+// retryable, not-found, billing-blocked, pool and cross-binding failures, so
+// this narrows that set to the arm-owned ones:
+//
+//   - a 404 is the gateway lacking the model, remembered per endpoint by
+//     rememberGatewayLacksModel, so striking the arm would double-count it;
+//   - a 529 is provider capacity, owned by maybeDisableProviderAfterOverload;
+//   - a managed-subscription pool error has no upstream at all and is owned by
+//     maybeExpirePoolArmPin;
+//   - a bare context cancellation is the client going away, not the arm.
+//
+// The upstream watchdog sentinels are checked before the cancellation check
+// for the reason isCommittedStreamFailure gives.
+func isRescuedPrimaryFailure(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, providers.ErrUpstreamIdleTimeout) ||
+		errors.Is(err, providers.ErrUpstreamOutputStall) ||
+		errors.Is(err, providers.ErrUpstreamSlowThroughput) {
+		return true
+	}
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return false
+	}
+	if providers.IsUpstreamModelNotFound(err) || isSubscriptionPoolError(err) {
+		return false
+	}
+	return upstreamStatus(err) != providerOverloadedStatus
 }
 
 // isCommittedStreamFailure reports whether err is an upstream-owned end of a

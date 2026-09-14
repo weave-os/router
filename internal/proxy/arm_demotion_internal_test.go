@@ -434,6 +434,250 @@ func TestMaybeDemoteArmAfterCommittedStreamFailure_PersistsWithoutExistingRow(t 
 	}
 }
 
+func newRescuedDemotionTestService(store sessionpin.Store, flagOn bool) *Service {
+	return NewService(
+		nil,
+		nil,
+		nil,
+		false,
+		nil,
+		store,
+		false,
+		"anthropic", "claude-haiku-4-5",
+		nil,
+	).WithRescuedFailureArmDemotion(flagOn)
+}
+
+func rescuedPrimaryDecision(reason string) router.Decision {
+	return router.Decision{Provider: providers.ProviderAnthropic, Model: demotedArm, Reason: reason}
+}
+
+// Classification of the rescued-failure path: the rescue must have run, and
+// the primary's error must be one the arm owns. Whether the rescuer then
+// served is irrelevant; the primary failed either way.
+func TestMaybeDemoteArmAfterRescuedFailure_Classification(t *testing.T) {
+	cases := []struct {
+		name      string
+		rescueRan bool
+		flagOn    bool
+		err       error
+		want      bool
+	}{
+		{name: "rescued buffered 502", rescueRan: true, flagOn: true, err: &providers.UpstreamErrorResponse{Status: http.StatusBadGateway}, want: true},
+		{name: "rescued buffered 500", rescueRan: true, flagOn: true, err: &providers.UpstreamErrorResponse{Status: http.StatusInternalServerError}, want: true},
+		{name: "rescued 429", rescueRan: true, flagOn: true, err: &providers.UpstreamErrorResponse{Status: http.StatusTooManyRequests}, want: true},
+		{name: "rescued transport error", rescueRan: true, flagOn: true, err: errors.New("upstream call: connection reset"), want: true},
+		{name: "rescued idle watchdog", rescueRan: true, flagOn: true, err: fmt.Errorf("stream: %w", providers.ErrUpstreamIdleTimeout), want: true},
+		{name: "rescued output stall chained with cancellation", rescueRan: true, flagOn: true, err: fmt.Errorf("%w: %w", providers.ErrUpstreamOutputStall, context.Canceled), want: true},
+		{name: "rescued billing block", rescueRan: true, flagOn: true, err: &providers.UpstreamErrorResponse{Status: http.StatusPaymentRequired}, want: true},
+		{name: "no rescue ran", rescueRan: false, flagOn: true, err: &providers.UpstreamErrorResponse{Status: http.StatusBadGateway}, want: false},
+		{name: "no primary error", rescueRan: true, flagOn: true, err: nil, want: false},
+		{name: "provider overloaded 529", rescueRan: true, flagOn: true, err: &providers.UpstreamErrorResponse{Status: providerOverloadedStatus}, want: false},
+		{name: "gateway lacks model", rescueRan: true, flagOn: true, err: &providers.UpstreamErrorResponse{Status: http.StatusNotFound}, want: false},
+		{name: "subscription pool exhausted", rescueRan: true, flagOn: true, err: ErrSubscriptionPoolExhausted, want: false},
+		{name: "client cancellation", rescueRan: true, flagOn: true, err: fmt.Errorf("copy body: %w", context.Canceled), want: false},
+		{name: "flag off", rescueRan: true, flagOn: false, err: &providers.UpstreamErrorResponse{Status: http.StatusBadGateway}, want: false},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			store := &demotionStubPinStore{}
+			svc := newRescuedDemotionTestService(store, tc.flagOn)
+			installationID := uuid.New()
+
+			demoted := svc.maybeDemoteArmAfterRescuedFailure(
+				context.Background(),
+				tc.rescueRan,
+				false,
+				tc.err,
+				rescuedPrimaryDecision("hmm:authoritative model=claude-opus-4-7"),
+				installationID,
+				nonZeroSessionKey(),
+				sessionpin.DefaultRole, sessionpin.DefaultRole,
+			)
+
+			if !tc.want {
+				assert.Empty(t, demoted)
+				assert.Empty(t, store.demotions, "arm must stay eligible")
+				assert.Empty(t, store.upserts, "pin must not be evicted")
+				return
+			}
+
+			assert.Equal(t, demotedArm, demoted)
+			assert.Equal(t, []demotionCall{
+				{role: sessionpin.DefaultRole, model: demotedArm, reason: sessionpin.DemotionReasonRescuedFailure},
+				{role: hmmHistoryRole(sessionpin.DefaultRole), model: demotedArm, reason: sessionpin.DemotionReasonRescuedFailure},
+			}, store.demotions, "the strike must land on both rows the next turn merges")
+			assert.Empty(t, store.upserts, "expiry must ride the guarded demotion write, not a plain upsert")
+			require.Len(t, store.expired, 2, "demotion must expire the pin and its HMM history row")
+			assert.Equal(t, installationID, store.expired[0].InstallationID)
+			assert.Equal(t, string(sessionpin.DemotionReasonRescuedFailure), store.expired[0].Reason)
+		})
+	}
+}
+
+// The two demotion hooks are independent: a turn whose primary was rescued
+// and whose rescuer then died after commit strikes both arms, each under its
+// own reason, and neither hook fires when its own flag is off.
+func TestRescuedAndCommittedDemotionsAreIndependentlyFlagged(t *testing.T) {
+	const rescuer = "claude-sonnet-5"
+	cases := []struct {
+		name         string
+		rescuedOn    bool
+		committedOn  bool
+		wantRescued  string
+		wantCommited string
+	}{
+		{name: "both on", rescuedOn: true, committedOn: true, wantRescued: demotedArm, wantCommited: rescuer},
+		{name: "rescued only", rescuedOn: true, committedOn: false, wantRescued: demotedArm},
+		{name: "committed only", rescuedOn: false, committedOn: true, wantCommited: rescuer},
+		{name: "both off", rescuedOn: false, committedOn: false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			store := &demotionStubPinStore{}
+			svc := newDemotionTestService(store, tc.committedOn).WithRescuedFailureArmDemotion(tc.rescuedOn)
+			installationID := uuid.New()
+			key := nonZeroSessionKey()
+
+			committed := svc.maybeDemoteArmAfterCommittedStreamFailure(
+				context.Background(), true, false,
+				&providers.UpstreamStatusError{Status: http.StatusBadGateway},
+				rescuer, "hmm:authoritative model=claude-opus-4-7",
+				installationID, key, sessionpin.DefaultRole, sessionpin.DefaultRole,
+			)
+			rescued := svc.maybeDemoteArmAfterRescuedFailure(
+				context.Background(), true, false,
+				&providers.UpstreamErrorResponse{Status: http.StatusBadGateway},
+				rescuedPrimaryDecision("hmm:authoritative model=claude-opus-4-7"),
+				installationID, key, sessionpin.DefaultRole, sessionpin.DefaultRole,
+			)
+
+			assert.Equal(t, tc.wantCommited, committed)
+			assert.Equal(t, tc.wantRescued, rescued)
+			var want []demotionCall
+			if tc.wantCommited != "" {
+				want = append(want,
+					demotionCall{role: sessionpin.DefaultRole, model: rescuer, reason: sessionpin.DemotionReasonCommittedStreamFailure},
+					demotionCall{role: hmmHistoryRole(sessionpin.DefaultRole), model: rescuer, reason: sessionpin.DemotionReasonCommittedStreamFailure},
+				)
+			}
+			if tc.wantRescued != "" {
+				want = append(want,
+					demotionCall{role: sessionpin.DefaultRole, model: demotedArm, reason: sessionpin.DemotionReasonRescuedFailure},
+					demotionCall{role: hmmHistoryRole(sessionpin.DefaultRole), model: demotedArm, reason: sessionpin.DemotionReasonRescuedFailure},
+				)
+			}
+			assert.Equal(t, want, store.demotions)
+		})
+	}
+}
+
+// Hard-pinned and user-forced primaries keep their arm even when a rescue ran
+// for them; the explicit choice outranks the automatic strike.
+func TestMaybeDemoteArmAfterRescuedFailure_PinnedPrimarySkipped(t *testing.T) {
+	cases := []struct {
+		name       string
+		hardPinned bool
+		reason     string
+	}{
+		{name: "hard pinned", hardPinned: true, reason: nativeWebSearchPassthroughReason},
+		{name: "user forced", reason: translate.ReasonUserForceModel},
+		{name: "user forced with tier clamp", reason: translate.ReasonUserForceModel + "+tier_clamp"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			store := &demotionStubPinStore{}
+			svc := newRescuedDemotionTestService(store, true)
+
+			demoted := svc.maybeDemoteArmAfterRescuedFailure(
+				context.Background(),
+				true,
+				tc.hardPinned,
+				&providers.UpstreamErrorResponse{Status: http.StatusBadGateway},
+				rescuedPrimaryDecision(tc.reason),
+				uuid.New(),
+				nonZeroSessionKey(),
+				sessionpin.DefaultRole, sessionpin.DefaultRole,
+			)
+
+			assert.Empty(t, demoted)
+			assert.Empty(t, store.demotions)
+			assert.Empty(t, store.upserts, "a pinned turn must not evict the session pin")
+		})
+	}
+}
+
+// The pure-Opus red line, same as the committed-stream path: allowlists that
+// admit only the primary mean there is no sibling to move to, so the arm is
+// kept rather than letting the override layer fall open.
+func TestMaybeDemoteArmAfterRescuedFailure_ClusterAllowlistPinSkipped(t *testing.T) {
+	cases := []struct {
+		name        string
+		keyLists    map[string][]string
+		wantDemoted bool
+	}{
+		{name: "no lists configured", wantDemoted: true},
+		{name: "lists pin every cluster to the primary", keyLists: map[string][]string{"medium": {demotedArm}, "high": {demotedArm}, "maximum": {demotedArm}}, wantDemoted: false},
+		{name: "lists name an Anthropic sibling", keyLists: map[string][]string{"high": {demotedArm, "claude-sonnet-5"}}, wantDemoted: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			store := &demotionStubPinStore{}
+			svc := newRescuedDemotionTestService(store, true)
+			ctx := context.Background()
+			if tc.keyLists != nil {
+				ctx = context.WithValue(ctx, ClusterModelListsContextKey{}, tc.keyLists)
+			}
+
+			demoted := svc.maybeDemoteArmAfterRescuedFailure(
+				ctx,
+				true,
+				false,
+				&providers.UpstreamErrorResponse{Status: http.StatusBadGateway},
+				rescuedPrimaryDecision("hmm:authoritative model=claude-opus-4-7"),
+				uuid.New(),
+				nonZeroSessionKey(),
+				sessionpin.DefaultRole, sessionpin.DefaultRole,
+			)
+
+			if !tc.wantDemoted {
+				assert.Empty(t, demoted)
+				assert.Empty(t, store.demotions)
+				return
+			}
+			assert.Equal(t, demotedArm, demoted)
+			assert.Len(t, store.demotions, 2)
+		})
+	}
+}
+
+// Same row semantics as the committed-stream strike: the eviction upsert
+// seeds both rows so the rescued-failure strike holds on a session that
+// never pinned.
+func TestMaybeDemoteArmAfterRescuedFailure_PersistsWithoutExistingRow(t *testing.T) {
+	store := newRowBackedPinStore()
+	svc := newRescuedDemotionTestService(store, true)
+
+	demoted := svc.maybeDemoteArmAfterRescuedFailure(
+		context.Background(),
+		true,
+		false,
+		&providers.UpstreamErrorResponse{Status: http.StatusBadGateway},
+		rescuedPrimaryDecision("hmm:authoritative model=claude-opus-4-7"),
+		uuid.New(),
+		nonZeroSessionKey(),
+		sessionpin.DefaultRole, sessionpin.DefaultRole,
+	)
+
+	assert.Equal(t, demotedArm, demoted)
+	for _, role := range []string{sessionpin.DefaultRole, hmmHistoryRole(sessionpin.DefaultRole)} {
+		row, ok := store.rows[role]
+		require.True(t, ok, "eviction must seed row %q before the demotion writes to it", role)
+		assert.Equal(t, []string{demotedArm}, row.DemotedModels, "row %q", role)
+	}
+}
+
 // A late failure from a request routed under one strategy must not touch the
 // pin a newer request stored under another strategy for the same session.
 // Request A (hmm) is still streaming when request B replaces the pin with a
@@ -540,4 +784,22 @@ func TestIsCommittedStreamFailure_ClientDisconnect(t *testing.T) {
 func TestArmDemotionReason(t *testing.T) {
 	assert.Equal(t, "", armDemotionReason(""))
 	assert.Equal(t, "committed_stream_failure", armDemotionReason(demotedArm))
+}
+
+// arm_demoted names the committed-stream strike when it landed and the
+// rescued-primary strike otherwise; rescued_arm_demoted keeps the primary
+// visible when both landed on one turn.
+func TestArmDemotionLogFields(t *testing.T) {
+	assert.Equal(t,
+		[]any{"arm_demoted", "", "arm_demotion_reason", "", "rescued_arm_demoted", ""},
+		armDemotionLogFields("", ""))
+	assert.Equal(t,
+		[]any{"arm_demoted", demotedArm, "arm_demotion_reason", "committed_stream_failure", "rescued_arm_demoted", ""},
+		armDemotionLogFields(demotedArm, ""))
+	assert.Equal(t,
+		[]any{"arm_demoted", demotedArm, "arm_demotion_reason", "rescued_failure", "rescued_arm_demoted", demotedArm},
+		armDemotionLogFields("", demotedArm))
+	assert.Equal(t,
+		[]any{"arm_demoted", rescuerModel, "arm_demotion_reason", "committed_stream_failure", "rescued_arm_demoted", demotedArm},
+		armDemotionLogFields(rescuerModel, demotedArm))
 }
