@@ -98,16 +98,15 @@ func TestAutonomyAppend_CrossFormatEmitsCarryTheText(t *testing.T) {
 		assert.NotContains(t, gjson.GetBytes(off.Body, "instructions").String(), "operating autonomously")
 	})
 
-	t.Run("gemini systemInstruction", func(t *testing.T) {
-		out, err := env.PrepareGemini(nil, translate.EmitOptions{TargetModel: "gemini-2.5-pro", AppendAutonomySystem: true})
-		require.NoError(t, err)
-		sys := gjson.GetBytes(out.Body, "systemInstruction.parts.0.text").String()
-		assert.Contains(t, sys, translate.AutonomySystemText)
-		assert.Less(t, strings.Index(sys, "ask for confirmation before proceeding"), strings.Index(sys, "operating autonomously"), "append follows the client prompt")
-
-		off, err := env.PrepareGemini(nil, translate.EmitOptions{TargetModel: "gemini-2.5-pro"})
-		require.NoError(t, err)
-		assert.NotContains(t, gjson.GetBytes(off.Body, "systemInstruction.parts.0.text").String(), "operating autonomously")
+	t.Run("gemini systemInstruction is never appended", func(t *testing.T) {
+		for _, model := range []string{"gemini-2.5-pro", "gemini-3-pro-preview"} {
+			out, err := env.PrepareGemini(nil, translate.EmitOptions{TargetModel: model, AppendAutonomySystem: true})
+			require.NoError(t, err)
+			sys := gjson.GetBytes(out.Body, "systemInstruction.parts.0.text").String()
+			assert.Contains(t, sys, "ask for confirmation before proceeding", "client prompt still carried for %s", model)
+			assert.NotContains(t, sys, "operating autonomously", "autonomy append must not reach Gemini (%s)", model)
+			assert.Equal(t, 1, len(gjson.GetBytes(out.Body, "systemInstruction.parts").Array()), "no extra system part for %s", model)
+		}
 	})
 }
 

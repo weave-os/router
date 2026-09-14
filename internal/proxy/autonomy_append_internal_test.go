@@ -98,3 +98,12 @@ func TestAutonomySystemAppendApplies_IdempotentAndSkipsSearchSubTurn(t *testing.
 		assert.True(t, svc.autonomySystemAppendApplies(ctx, []byte(body), parseGateBody(t, body), turntype.MainLoop))
 	})
 }
+
+func TestAutonomyAppendFired_NotRecordedForGeminiServedAttempt(t *testing.T) {
+	on := translate.EmitOptions{AppendAutonomySystem: true}
+	assert.True(t, autonomyAppendFired(on, providers.ProviderAnthropic))
+	assert.True(t, autonomyAppendFired(on, providers.ProviderOpenAI))
+	assert.True(t, autonomyAppendFired(on, providers.ProviderOpenRouter))
+	assert.False(t, autonomyAppendFired(on, providers.ProviderGoogle), "PrepareGemini drops the append, telemetry must agree")
+	assert.False(t, autonomyAppendFired(translate.EmitOptions{}, providers.ProviderAnthropic))
+}

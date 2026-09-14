@@ -3,6 +3,7 @@ package proxy
 import (
 	"context"
 
+	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router/turntype"
 	"weave-os/router/internal/translate"
 	"weave-os/router/internal/websearch"
@@ -29,4 +30,11 @@ func (s *Service) autonomySystemAppendApplies(ctx context.Context, body []byte, 
 		return false
 	}
 	return !env.HasAutonomySystemText()
+}
+
+// autonomyAppendFired reports whether the served attempt actually carried the
+// append. translate.PrepareGemini ignores the option, so a turn that failed
+// over onto a Gemini binding is recorded as not fired.
+func autonomyAppendFired(opts translate.EmitOptions, servedProvider string) bool {
+	return opts.AppendAutonomySystem && providers.FamilyFor(servedProvider) != providers.FamilyGemini
 }

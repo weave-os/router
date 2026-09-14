@@ -4843,7 +4843,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			LastToolUseName:       terminalToolUse.Name,
 			LastToolUseInputBytes: int32PtrIfKnown(int32(terminalToolUse.InputBytes), endedOnToolUse),
 			ToolErrorCounts:       toolErrorCountsJSON(toolErrorTally),
-			AutonomyAppendFired:   boolPtrOrNil(opts.AppendAutonomySystem),
+			AutonomyAppendFired:   boolPtrOrNil(autonomyAppendFired(opts, finalProvider)),
 			FailoverUsed:          boolPtrTrue(failoverUsed),
 			DegenerateShadow:      boolPtrOrNil(degShadow),
 			// (session_key, role) is the offline join key to spiral_shadow_events

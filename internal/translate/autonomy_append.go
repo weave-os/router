@@ -45,9 +45,12 @@ func appendAutonomySystem(body []byte) ([]byte, error) {
 }
 
 // Cross-format emitters translate the appended Anthropic system field, so the
-// block lands in the OpenAI system message / Responses instructions / Gemini
-// systemInstruction without per-format code. Claude Code only speaks the
-// Anthropic format, so other source formats are left alone.
+// block lands in the OpenAI system message / Responses instructions without
+// per-format code. Claude Code only speaks the Anthropic format, so other
+// source formats are left alone. PrepareGemini deliberately does not call
+// this: a "keep going until complete" system nudge is what tipped Gemini 3.x
+// into explore-loop spirals and text-only tool markup (see
+// geminiSystemReminder), so a Gemini-served attempt keeps the client prompt.
 func (e *RequestEnvelope) withAutonomySystemAppended(opts EmitOptions) (*RequestEnvelope, error) {
 	if !opts.AppendAutonomySystem || e.format != FormatAnthropic {
 		return e, nil
