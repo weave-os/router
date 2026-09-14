@@ -225,12 +225,22 @@ func TestAuthoritativeDowngradeControlsAreOrgOverridable(t *testing.T) {
 	assert.Equal(t, "ROUTER_HMM_DOWNGRADE_HYSTERESIS_TURNS", hysteresis.EnvVar)
 	assert.True(t, hysteresis.OrgOverridable)
 
+	shadow, ok := flags.Lookup(flags.KeyHMMDowngradeHysteresisShadowTurns)
+	require.True(t, ok)
+	assert.Equal(t, flags.KindInt, shadow.Kind)
+	assert.Equal(t, "ROUTER_HMM_DOWNGRADE_HYSTERESIS_SHADOW_TURNS", shadow.EnvVar)
+	assert.True(t, shadow.OrgOverridable)
+
 	overrides := flags.Overrides{
 		Bools: map[flags.Key]bool{flags.KeyAuthoritativeDowngradeGate: true},
-		Ints:  map[flags.Key]int{flags.KeyHMMDowngradeHysteresisTurns: 3},
+		Ints: map[flags.Key]int{
+			flags.KeyHMMDowngradeHysteresisTurns:       3,
+			flags.KeyHMMDowngradeHysteresisShadowTurns: 0,
+		},
 	}
 	require.NoError(t, flags.ValidateOverrides(overrides))
 	ctx := flags.WithOverrides(context.Background(), overrides)
 	assert.True(t, flags.BoolOr(ctx, flags.KeyAuthoritativeDowngradeGate, false))
 	assert.Equal(t, 3, flags.IntOr(ctx, flags.KeyHMMDowngradeHysteresisTurns, 0))
+	assert.Equal(t, 0, flags.IntOr(ctx, flags.KeyHMMDowngradeHysteresisShadowTurns, 2))
 }

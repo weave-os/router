@@ -786,6 +786,9 @@ func main() {
 	// hmmDowngradeHysteresisTurns requires N consecutive cheaper-than-pin authoritative
 	// votes before the downgrade is served; 0 keeps today's switch-on-first-vote behavior.
 	hmmDowngradeHysteresisTurns := parseEnvNonNegativeInt("ROUTER_HMM_DOWNGRADE_HYSTERESIS_TURNS", 0)
+	// hmmDowngradeHysteresisShadowTurns is the threshold every served authoritative
+	// downgrade is shadow-scored against; telemetry only, 0 silences it.
+	hmmDowngradeHysteresisShadowTurns := parseEnvNonNegativeInt("ROUTER_HMM_DOWNGRADE_HYSTERESIS_SHADOW_TURNS", 2)
 	// authorityCacheShadow records the HMM cache gate's counterfactual verdict on
 	// authoritative-per-turn turns, which return before that gate can run. Pure
 	// observation; kill switch for the added per-turn computation and log line.
@@ -1095,6 +1098,7 @@ func main() {
 		flags.KeyAuthoritativeUpgradeGate:             boolDefault(authoritativeUpgradeGate),
 		flags.KeyAuthoritativeDowngradeGate:           boolDefault(authoritativeDowngradeGate),
 		flags.KeyHMMDowngradeHysteresisTurns:          strconv.Itoa(hmmDowngradeHysteresisTurns),
+		flags.KeyHMMDowngradeHysteresisShadowTurns:    strconv.Itoa(hmmDowngradeHysteresisShadowTurns),
 		flags.KeyAuthorityCacheShadow:                 boolDefault(authorityCacheShadow),
 		flags.KeySiblingFailover:                      boolDefault(siblingFailover),
 		flags.KeyOpenAIResponsesBroad:                 boolDefault(openAIResponsesBroad),
@@ -1161,6 +1165,7 @@ func main() {
 		WithAuthoritativeUpgradeGate(authoritativeUpgradeGate).
 		WithAuthoritativeDowngradeGate(authoritativeDowngradeGate).
 		WithHMMDowngradeHysteresisTurns(hmmDowngradeHysteresisTurns).
+		WithHMMDowngradeHysteresisShadowTurns(hmmDowngradeHysteresisShadowTurns).
 		WithAuthorityCacheShadow(authorityCacheShadow).
 		WithPolicyDeadlineFallback(policyDeadlineFallback).
 		WithPolicyDeadlineDefaultModel(policyDeadlineDefaultModel).

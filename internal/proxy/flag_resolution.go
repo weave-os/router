@@ -101,6 +101,13 @@ func (s *Service) ResolveHMMDowngradeHysteresisTurns(ctx context.Context) int {
 	return flags.IntOr(ctx, flags.KeyHMMDowngradeHysteresisTurns, s.hmmDowngradeHysteresisTurns)
 }
 
+// ResolveHMMDowngradeHysteresisShadowTurns returns the hysteresis threshold a
+// served authoritative downgrade is shadow-scored against. 0 disables the
+// shadow; it never changes routing.
+func (s *Service) ResolveHMMDowngradeHysteresisShadowTurns(ctx context.Context) int {
+	return flags.IntOr(ctx, flags.KeyHMMDowngradeHysteresisShadowTurns, s.hmmDowngradeHysteresisShadowTurns)
+}
+
 // ResolveAuthorityCacheShadow reports whether authoritative-per-turn turns
 // record the cache gate's counterfactual verdict. Observation only.
 func (s *Service) ResolveAuthorityCacheShadow(ctx context.Context) bool {

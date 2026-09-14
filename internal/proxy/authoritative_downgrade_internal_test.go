@@ -112,14 +112,16 @@ func TestAuthoritativeDowngradeGuards(t *testing.T) {
 		wantSticky      bool
 		wantTier        string
 		wantVotes       int
+		wantShadow      downgradeGuardShadow
 	}{
 		{
-			name:      "both levers off downgrades on the first vote",
-			pinModel:  "claude-opus-4-8",
-			fresh:     cheapFresh,
-			wantModel: "claude-haiku-4-5",
-			wantTier:  "authoritative_per_turn",
-			wantVotes: 0,
+			name:       "both levers off downgrades on the first vote",
+			pinModel:   "claude-opus-4-8",
+			fresh:      cheapFresh,
+			wantModel:  "claude-haiku-4-5",
+			wantTier:   "authoritative_per_turn",
+			wantVotes:  0,
+			wantShadow: downgradeGuardShadow{Served: true, Votes: 1, HysteresisWouldHold: true, ConfidenceWouldHold: true},
 		},
 		{
 			name:            "first vote under hysteresis keeps the pin",
@@ -140,6 +142,7 @@ func TestAuthoritativeDowngradeGuards(t *testing.T) {
 			wantModel:       "claude-haiku-4-5",
 			wantTier:        "authoritative_per_turn",
 			wantVotes:       0,
+			wantShadow:      downgradeGuardShadow{Served: true, Votes: 3, ConfidenceWouldHold: true},
 		},
 		{
 			name:            "upgrade proposal ignores hysteresis and clears the run",
@@ -182,6 +185,7 @@ func TestAuthoritativeDowngradeGuards(t *testing.T) {
 			wantModel:     "claude-haiku-4-5",
 			wantTier:      "authoritative_per_turn",
 			wantVotes:     0,
+			wantShadow:    downgradeGuardShadow{Served: true, Votes: 1, HysteresisWouldHold: true},
 		},
 		{
 			name:            "confident downgrade still serves its hysteresis sentence",
@@ -203,18 +207,142 @@ func TestAuthoritativeDowngradeGuards(t *testing.T) {
 			store.getPin = authoritativeDowngradePin(test.pinModel, test.priorVotes)
 			svc := authoritativeDowngradeService(store, test.fresh).
 				WithAuthoritativeDowngradeGate(test.downgradeGate).
-				WithHMMDowngradeHysteresisTurns(test.hysteresisTurns)
+				WithHMMDowngradeHysteresisTurns(test.hysteresisTurns).
+				WithHMMDowngradeHysteresisShadowTurns(2)
 
 			result := runAuthoritativeDowngradeTurn(t, svc)
 
 			assert.Equal(t, test.wantModel, result.Decision.Model)
 			assert.Equal(t, test.wantSticky, result.StickyHit)
 			assert.Equal(t, test.wantTier, result.PinTier)
+			assert.Equal(t, test.wantShadow, result.DowngradeShadow)
 			require.Len(t, store.upserts, 1)
 			assert.Equal(t, test.wantModel, store.upserts[0].Model)
 			assert.Equal(t, test.wantVotes, store.upserts[0].ConsecutiveDowngradeVotes)
 		})
 	}
+}
+
+// TestAuthoritativeDowngradeShadow pins down the counterfactual with both
+// levers off: the served decision never moves, the shadow only reports what
+// the guards would have done at the shadow threshold.
+func TestAuthoritativeDowngradeShadow(t *testing.T) {
+	cheapFresh := router.Decision{
+		Provider: providers.ProviderAnthropic,
+		Model:    "claude-haiku-4-5",
+		Reason:   "hmm_policy(classifier 'fast' (p=0.50))",
+		Metadata: &router.RoutingMetadata{ChosenScore: 0.5},
+	}
+	confidentCheapFresh := router.Decision{
+		Provider: providers.ProviderAnthropic,
+		Model:    "claude-haiku-4-5",
+		Reason:   "hmm_policy(classifier 'fast' (p=0.90))",
+		Metadata: &router.RoutingMetadata{ChosenScore: 0.9},
+	}
+	unscoredCheapFresh := router.Decision{
+		Provider: providers.ProviderAnthropic,
+		Model:    "claude-haiku-4-5",
+		Reason:   "hmm_policy(classifier 'fast')",
+	}
+	upgradeFresh := router.Decision{
+		Provider: providers.ProviderAnthropic,
+		Model:    "claude-opus-4-8",
+		Reason:   "hmm_policy(classifier 'maximum' (p=0.95))",
+		Metadata: &router.RoutingMetadata{ChosenScore: 0.95},
+	}
+
+	tests := []struct {
+		name        string
+		pinModel    string
+		shadowTurns int
+		fresh       router.Decision
+		wantShadow  downgradeGuardShadow
+	}{
+		{
+			name:        "unconfident first vote would be held by both guards",
+			pinModel:    "claude-opus-4-8",
+			shadowTurns: 2,
+			fresh:       cheapFresh,
+			wantShadow:  downgradeGuardShadow{Served: true, Votes: 1, HysteresisWouldHold: true, ConfidenceWouldHold: true},
+		},
+		{
+			name:        "confident first vote would be held by hysteresis only",
+			pinModel:    "claude-opus-4-8",
+			shadowTurns: 2,
+			fresh:       confidentCheapFresh,
+			wantShadow:  downgradeGuardShadow{Served: true, Votes: 1, HysteresisWouldHold: true},
+		},
+		{
+			name:        "unscored downgrade is not confidence-gated",
+			pinModel:    "claude-opus-4-8",
+			shadowTurns: 2,
+			fresh:       unscoredCheapFresh,
+			wantShadow:  downgradeGuardShadow{Served: true, Votes: 1, HysteresisWouldHold: true},
+		},
+		{
+			name:        "shadow threshold of one never holds",
+			pinModel:    "claude-opus-4-8",
+			shadowTurns: 1,
+			fresh:       confidentCheapFresh,
+			wantShadow:  downgradeGuardShadow{Served: true, Votes: 1},
+		},
+		{
+			name:       "shadow disabled still marks the served downgrade",
+			pinModel:   "claude-opus-4-8",
+			fresh:      cheapFresh,
+			wantShadow: downgradeGuardShadow{Served: true, Votes: 1, ConfidenceWouldHold: true},
+		},
+		{
+			name:        "upgrade is not a downgrade",
+			pinModel:    "claude-haiku-4-5",
+			shadowTurns: 2,
+			fresh:       upgradeFresh,
+		},
+		{
+			name:        "same model is not a downgrade",
+			pinModel:    "claude-haiku-4-5",
+			shadowTurns: 2,
+			fresh:       cheapFresh,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			store := newStubPinStore()
+			store.getFound = true
+			store.getPin = authoritativeDowngradePin(test.pinModel, 0)
+			svc := authoritativeDowngradeService(store, test.fresh).
+				WithHMMDowngradeHysteresisShadowTurns(test.shadowTurns)
+
+			result := runAuthoritativeDowngradeTurn(t, svc)
+
+			assert.Equal(t, test.fresh.Model, result.Decision.Model)
+			assert.False(t, result.StickyHit)
+			assert.Equal(t, "authoritative_per_turn", result.PinTier)
+			assert.Equal(t, test.wantShadow, result.DowngradeShadow)
+			require.Len(t, store.upserts, 1)
+			assert.Equal(t, 0, store.upserts[0].ConsecutiveDowngradeVotes)
+		})
+	}
+}
+
+func TestDowngradeShadowLogFields(t *testing.T) {
+	assert.Equal(t,
+		[]any{
+			"authoritative_downgrade_served", false,
+			"downgrade_votes", 0,
+			"downgrade_shadow_hysteresis_would_hold", false,
+			"downgrade_shadow_confidence_would_hold", false,
+		},
+		downgradeShadowLogFields(turnLoopResult{}))
+	assert.Equal(t,
+		[]any{
+			"authoritative_downgrade_served", true,
+			"downgrade_votes", 1,
+			"downgrade_shadow_hysteresis_would_hold", true,
+			"downgrade_shadow_confidence_would_hold", false,
+		},
+		downgradeShadowLogFields(turnLoopResult{DowngradeShadow: downgradeGuardShadow{Served: true, Votes: 1, HysteresisWouldHold: true}}))
 }
 
 // TestAuthoritativeDowngradeHysteresisAcrossTurns walks the persisted counter
