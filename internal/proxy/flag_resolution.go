@@ -120,6 +120,14 @@ func (s *Service) ResolveCommittedStreamArmDemotion(ctx context.Context) bool {
 	return flags.BoolOr(ctx, flags.KeyCommittedStreamArmDemotion, s.committedStreamArmDemotion)
 }
 
+// ResolveRescuedFailureArmDemotion reports the
+// ROUTER_RESCUED_FAILURE_ARM_DEMOTION flag: on, the primary model of a turn
+// whose attempt failed pre-commit and was handed to a same-cluster sibling
+// leaves the session's automatic selection.
+func (s *Service) ResolveRescuedFailureArmDemotion(ctx context.Context) bool {
+	return flags.BoolOr(ctx, flags.KeyRescuedFailureArmDemotion, s.rescuedFailureArmDemotion)
+}
+
 // ResolveNativeAnthropicResponseSignals reports the
 // ROUTER_NATIVE_ANTHROPIC_RESPONSE_SIGNALS flag: whether an Anthropic-native
 // passthrough turn records its observed stop_reason and tool_use block count

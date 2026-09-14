@@ -247,6 +247,10 @@ type Service struct {
 	// ROUTER_COMMITTED_STREAM_ARM_DEMOTION; see
 	// ResolveCommittedStreamArmDemotion.
 	committedStreamArmDemotion bool
+	// rescuedFailureArmDemotion is the deployment default for
+	// ROUTER_RESCUED_FAILURE_ARM_DEMOTION; see
+	// ResolveRescuedFailureArmDemotion.
+	rescuedFailureArmDemotion bool
 	// sseKeepalive is the client-silence budget before a ping is injected
 	// (ROUTER_SSE_KEEPALIVE_INTERVAL_SECONDS; 0 disables). See sse.KeepaliveWriter.
 	sseKeepalive time.Duration
@@ -524,8 +528,9 @@ type InstallationExcludedProvidersContextKey struct{}
 // resolveBindingsForDispatch's failover walk honors the exclusion too.
 type SessionDisabledProvidersContextKey struct{}
 
-// SessionDemotedModelsContextKey carries models struck out after a committed
-// upstream stream failure ([]string). Stashed after runTurnLoop so the in-turn
+// SessionDemotedModelsContextKey carries models the session struck out after
+// an upstream failure ([]string): a committed-stream cut or a pre-commit
+// failure handed to a sibling. Stashed after runTurnLoop so the in-turn
 // rescue walk does not resurrect an arm the session already demoted.
 type SessionDemotedModelsContextKey struct{}
 
@@ -1620,6 +1625,14 @@ func (s *Service) WithOpenAIResponsesBroad(enabled bool) *Service {
 // (ROUTER_COMMITTED_STREAM_ARM_DEMOTION).
 func (s *Service) WithCommittedStreamArmDemotion(enabled bool) *Service {
 	s.committedStreamArmDemotion = enabled
+	return s
+}
+
+// WithRescuedFailureArmDemotion sets the deployment default for session-level
+// demotion of the primary arm after a sibling rescue
+// (ROUTER_RESCUED_FAILURE_ARM_DEMOTION).
+func (s *Service) WithRescuedFailureArmDemotion(enabled bool) *Service {
+	s.rescuedFailureArmDemotion = enabled
 	return s
 }
 
@@ -4442,6 +4455,10 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	// the next policy candidate. Last in the rescue chain.
 	siblingFailoverUsed := false
 	siblingRescueRan := false
+	// The decision and error the rescue replaced; the post-turn demotion hook
+	// strikes the primary, never the rescuer.
+	var rescuedPrimary router.Decision
+	var rescuedPrimaryErr error
 	// Keyed off the flush, not off whether an earlier rescue ran: a failed
 	// subscription retry keeps the same dark model, so a cluster peer can still
 	// serve — but only before the deferred error reaches the wire.
@@ -4485,6 +4502,8 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 				"upstream_status", upstreamStatus(proxyErr),
 				"err", proxyErr)
 			siblingRescueRan = true
+			rescuedPrimary = decision
+			rescuedPrimaryErr = proxyErr
 			respSummary = translate.ResponseSummary{}
 			reqStats = providers.RequestMutationStats{}
 			winnerIdx, proxyErr = s.dispatchWithFallback(siblingCtx, failoverInputs{
@@ -4798,12 +4817,18 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	// 4xx wedges until manually /force-model'd out. Expires the pin after a
 	// persistent counter hits threshold; successful turns reset it.
 	armDemoted := ""
+	rescuedArmDemoted := ""
 	if !agentShadowMode && !routeRes.BlindExperimentPassthrough {
 		s.maybeEvictPinAfterUpstreamErr(ctx, stickyHit, proxyErr, decision.Reason, installationID, routeRes.SessionKey, stickyStateRole(routeRes))
 
 		// A committed stream that died upstream cost a whole turn and could not
 		// fail over; the next turn must not re-pick the same arm.
 		armDemoted = s.maybeDemoteArmAfterCommittedStreamFailure(ctx, preludeBuf.Committed(), routeRes.HardPinned, proxyErr, decision.Model, decision.Reason, installationID, routeRes.SessionKey, stickyStateRole(routeRes), routeRes.PinRole)
+
+		// A primary that failed pre-commit and was handed to a sibling must not
+		// be re-picked by the next turn either; the strike lands on the primary,
+		// not on whatever served.
+		rescuedArmDemoted = s.maybeDemoteArmAfterRescuedFailure(ctx, siblingRescueRan, routeRes.HardPinned, rescuedPrimaryErr, rescuedPrimary, installationID, routeRes.SessionKey, stickyStateRole(routeRes), routeRes.PinRole)
 
 		// A schema/capability/incompatible rejection marks the pinned arm provably
 		// dead for this request shape — the pin must not stay on it even when a
@@ -4843,7 +4868,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	if preludeBuf.Committed() {
 		streamCut.noteCut(proxyErr)
 	}
-	log.Info("ProxyMessages complete", append([]any{"requested_model", feats.Model, "baseline_model", s.baselineFor(feats.Model), "decision_model", decision.Model, "decision_provider", decision.Provider, "primary_provider", primaryProvider, "primary_model", primaryModel, "fallback_attempts", winnerIdx, "failover_used", finalProvider != primaryProvider || subscriptionFailoverUsed || siblingFailoverUsed, "subscription_failover", subscriptionFailoverUsed, "decision_reason", decision.Reason, "requested_tier", routeRes.RequestedTier.String(), "decision_tier", catalog.TierFor(decision.Model).String(), "embedded_tokens", len(promptText) / 4, "total_input_tokens", feats.Tokens, "has_tools", feats.HasTools, "message_count", feats.MessageCount, "last_kind", feats.LastKind, "last_preview", feats.LastPreview, "embed_input", embedInput, "cross_format", crossFormat, "sticky_hit", stickyHit, "route_ms", routeMs, "proxy_ms", proxyMs, "proxy_err", proxyErr, "upstream_err_body", providers.UpstreamErrorBodyMessage(proxyErr), "upstream_status", upstreamStatus(proxyErr), "upstream_finish_reason", respSummary.UpstreamFinishReason, "resp_stop_reason", respSummary.StopReason, "resp_refusal", refusalObs.refused, "resp_refusal_category", refusalObs.category, "stop_reason_promoted", respSummary.StopReasonPromoted, "tool_use_blocks", respSummary.ToolUseBlocks, "invalid_tool_args_blocks", respSummary.InvalidToolArgsBlocks, "text_only_turn_nudged", respSummary.TextOnlyTurnNudged, "stop_reason_demoted", respSummary.StopReasonDemoted, "suppressed_tool_calls", respSummary.SuppressedToolCalls, "tool_call_invalid_blocks", len(respSummary.ToolCallIssues), "cc_only_tools_stripped", reqStats.CCOnlyToolsStripped, "cc_task_reminders_stripped", reqStats.CCTaskRemindersStripped, "gemini_reminder_injected", reqStats.GeminiReminderInjected, "gemini_validated_tool_mode", reqStats.GeminiValidatedToolMode, "resp_output_tokens", respSummary.OutputTokens, "prelude_committed", preludeBuf.Committed(), "arm_demoted", armDemoted, "arm_demotion_reason", armDemotionReason(armDemoted), "routing_marker", marker, "prior_served_model", routeRes.PriorServedModel, "hard_pinned", routeRes.HardPinned}, append(plannerLogFields(routeRes), streamCut.completionLogFields()...)...)...)
+	log.Info("ProxyMessages complete", append([]any{"requested_model", feats.Model, "baseline_model", s.baselineFor(feats.Model), "decision_model", decision.Model, "decision_provider", decision.Provider, "primary_provider", primaryProvider, "primary_model", primaryModel, "fallback_attempts", winnerIdx, "failover_used", finalProvider != primaryProvider || subscriptionFailoverUsed || siblingFailoverUsed, "subscription_failover", subscriptionFailoverUsed, "decision_reason", decision.Reason, "requested_tier", routeRes.RequestedTier.String(), "decision_tier", catalog.TierFor(decision.Model).String(), "embedded_tokens", len(promptText) / 4, "total_input_tokens", feats.Tokens, "has_tools", feats.HasTools, "message_count", feats.MessageCount, "last_kind", feats.LastKind, "last_preview", feats.LastPreview, "embed_input", embedInput, "cross_format", crossFormat, "sticky_hit", stickyHit, "route_ms", routeMs, "proxy_ms", proxyMs, "proxy_err", proxyErr, "upstream_err_body", providers.UpstreamErrorBodyMessage(proxyErr), "upstream_status", upstreamStatus(proxyErr), "upstream_finish_reason", respSummary.UpstreamFinishReason, "resp_stop_reason", respSummary.StopReason, "resp_refusal", refusalObs.refused, "resp_refusal_category", refusalObs.category, "stop_reason_promoted", respSummary.StopReasonPromoted, "tool_use_blocks", respSummary.ToolUseBlocks, "invalid_tool_args_blocks", respSummary.InvalidToolArgsBlocks, "text_only_turn_nudged", respSummary.TextOnlyTurnNudged, "stop_reason_demoted", respSummary.StopReasonDemoted, "suppressed_tool_calls", respSummary.SuppressedToolCalls, "tool_call_invalid_blocks", len(respSummary.ToolCallIssues), "cc_only_tools_stripped", reqStats.CCOnlyToolsStripped, "cc_task_reminders_stripped", reqStats.CCTaskRemindersStripped, "gemini_reminder_injected", reqStats.GeminiReminderInjected, "gemini_validated_tool_mode", reqStats.GeminiValidatedToolMode, "resp_output_tokens", respSummary.OutputTokens, "prelude_committed", preludeBuf.Committed(), "routing_marker", marker, "prior_served_model", routeRes.PriorServedModel, "hard_pinned", routeRes.HardPinned}, append(append(armDemotionLogFields(armDemoted, rescuedArmDemoted), plannerLogFields(routeRes)...), streamCut.completionLogFields()...)...)...)
 	policyRespBody, policyRespTrunc := capturedResponse(policyOutcomeCap)
 	var policyResp *policyOutcomeResponse
 	if policyOutcomeCap != nil {
@@ -7258,6 +7283,8 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 
 	siblingFailoverUsed := false
 	siblingRescueRan := false
+	var rescuedPrimary router.Decision
+	var rescuedPrimaryErr error
 	siblingRescueOwed := siblingViable && !deferredErrFlushed
 	if siblingRescueOwed && proxyErr != nil && !preludeBuf.Committed() &&
 		(providers.IsRetryable(proxyErr) ||
@@ -7295,6 +7322,8 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 				"upstream_status", upstreamStatus(proxyErr),
 				"err", proxyErr)
 			siblingRescueRan = true
+			rescuedPrimary = decision
+			rescuedPrimaryErr = proxyErr
 			respSummary = translate.ResponseSummary{}
 			winnerIdx, proxyErr = s.dispatchWithFallback(siblingCtx, failoverInputs{
 				w:               contentSink,
@@ -7453,10 +7482,13 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 
 	// See ProxyMessages for the two-strike eviction rationale.
 	armDemotedOAI := ""
+	rescuedArmDemotedOAI := ""
 	if !routeRes.BlindExperimentPassthrough {
 		s.maybeEvictPinAfterUpstreamErr(ctx, stickyHit, proxyErr, decision.Reason, installationIDFromContext(ctx), routeRes.SessionKey, stickyStateRole(routeRes))
-		// See ProxyMessages for the committed-stream demotion rationale.
+		// See ProxyMessages for the committed-stream and rescued-failure
+		// demotion rationale.
 		armDemotedOAI = s.maybeDemoteArmAfterCommittedStreamFailure(ctx, committed(preludeBuf) || committed(responsesPreludeBuf), routeRes.HardPinned, proxyErr, decision.Model, decision.Reason, installationIDFromContext(ctx), routeRes.SessionKey, stickyStateRole(routeRes), routeRes.PinRole)
+		rescuedArmDemotedOAI = s.maybeDemoteArmAfterRescuedFailure(ctx, siblingRescueRan, routeRes.HardPinned, rescuedPrimaryErr, rescuedPrimary, installationIDFromContext(ctx), routeRes.SessionKey, stickyStateRole(routeRes), routeRes.PinRole)
 		s.maybeExpirePoolArmPin(ctx, poolArmDead, decision.Reason, installationIDFromContext(ctx), routeRes.SessionKey, stickyStateRole(routeRes))
 		// See ProxyMessages for the two-strike provider-disable rationale.
 		s.maybeDisableProviderAfterOverload(ctx, stickyHit, proxyErr, finalProvider, decision.Reason, installationIDFromContext(ctx), routeRes.SessionKey, stickyStateRole(routeRes), routeRes.PinRole)
@@ -7581,7 +7613,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		)
 	}
 
-	log.Info("ProxyOpenAIChatCompletion complete", append([]any{"requested_model", feats.Model, "baseline_model", s.baselineFor(feats.Model), "decision_model", decision.Model, "decision_provider", decision.Provider, "primary_provider", primaryProvider, "primary_model", primaryModel, "fallback_attempts", winnerIdx, "failover_used", finalProvider != primaryProvider || codexFailoverUsed || siblingFailoverUsed, "subscription_failover", codexFailoverUsed, "decision_reason", decision.Reason, "requested_tier", routeRes.RequestedTier.String(), "decision_tier", catalog.TierFor(decision.Model).String(), "embedded_tokens", len(promptText) / 4, "total_input_tokens", feats.Tokens, "has_tools", feats.HasTools, "embed_input", embedInput, "cross_format", crossFormat, "sticky_hit", stickyHit, "pin_tier", pinTier, "turn_type", string(tt), "route_ms", routeMs, "proxy_ms", proxyMs, "proxy_err", proxyErr, "upstream_err_body", providers.UpstreamErrorBodyMessage(proxyErr), "upstream_status", upstreamStatus(proxyErr), "arm_demoted", armDemotedOAI, "arm_demotion_reason", armDemotionReason(armDemotedOAI), "upstream_finish_reason", respSummary.UpstreamFinishReason, "resp_stop_reason", respSummary.StopReason, "stop_reason_promoted", respSummary.StopReasonPromoted, "tool_use_blocks", respSummary.ToolUseBlocks, "invalid_tool_args_blocks", respSummary.InvalidToolArgsBlocks, "tool_call_invalid_blocks", len(respSummary.ToolCallIssues), "routing_marker", marker, "prior_served_model", routeRes.PriorServedModel, "hard_pinned", routeRes.HardPinned}, plannerLogFields(routeRes)...)...)
+	log.Info("ProxyOpenAIChatCompletion complete", append([]any{"requested_model", feats.Model, "baseline_model", s.baselineFor(feats.Model), "decision_model", decision.Model, "decision_provider", decision.Provider, "primary_provider", primaryProvider, "primary_model", primaryModel, "fallback_attempts", winnerIdx, "failover_used", finalProvider != primaryProvider || codexFailoverUsed || siblingFailoverUsed, "subscription_failover", codexFailoverUsed, "decision_reason", decision.Reason, "requested_tier", routeRes.RequestedTier.String(), "decision_tier", catalog.TierFor(decision.Model).String(), "embedded_tokens", len(promptText) / 4, "total_input_tokens", feats.Tokens, "has_tools", feats.HasTools, "embed_input", embedInput, "cross_format", crossFormat, "sticky_hit", stickyHit, "pin_tier", pinTier, "turn_type", string(tt), "route_ms", routeMs, "proxy_ms", proxyMs, "proxy_err", proxyErr, "upstream_err_body", providers.UpstreamErrorBodyMessage(proxyErr), "upstream_status", upstreamStatus(proxyErr), "upstream_finish_reason", respSummary.UpstreamFinishReason, "resp_stop_reason", respSummary.StopReason, "stop_reason_promoted", respSummary.StopReasonPromoted, "tool_use_blocks", respSummary.ToolUseBlocks, "invalid_tool_args_blocks", respSummary.InvalidToolArgsBlocks, "tool_call_invalid_blocks", len(respSummary.ToolCallIssues), "routing_marker", marker, "prior_served_model", routeRes.PriorServedModel, "hard_pinned", routeRes.HardPinned}, append(armDemotionLogFields(armDemotedOAI, rescuedArmDemotedOAI), plannerLogFields(routeRes)...)...)...)
 	s.reportPolicyOutcome(ctx, routeRes, decision, effortServed, finalProvider, fastServed, feats.Tokens, in, out, cacheCreation, cacheRead, routeMs, proxyMs, proxyErr, nil)
 
 	// Subscription-only mode disables paid failover by pinning dispatch to the
