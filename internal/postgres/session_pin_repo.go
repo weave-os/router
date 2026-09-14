@@ -60,19 +60,20 @@ func (r *SessionPinRepo) Consume(ctx context.Context, sessionKey [sessionpin.Ses
 func (r *SessionPinRepo) Upsert(ctx context.Context, p sessionpin.Pin) error {
 	q := sqlc.New(r.tx)
 	return q.UpsertSessionPin(ctx, sqlc.UpsertSessionPinParams{
-		SessionKey:      p.SessionKey[:],
-		Role:            p.Role,
-		InstallationID:  p.InstallationID,
-		PinnedProvider:  p.Provider,
-		PinnedModel:     p.Model,
-		PinnedEffort:    p.Effort,
-		PairedProvider:  p.PairedProvider,
-		PairedModel:     p.PairedModel,
-		DecisionReason:  p.Reason,
-		RoutingStrategy: string(p.Strategy),
-		PolicyGroup:     p.PolicyGroup,
-		TurnCount:       int32(p.TurnCount),
-		PinnedUntil:     pgtype.Timestamp{Time: p.PinnedUntil.UTC(), Valid: true},
+		SessionKey:                p.SessionKey[:],
+		Role:                      p.Role,
+		InstallationID:            p.InstallationID,
+		PinnedProvider:            p.Provider,
+		PinnedModel:               p.Model,
+		PinnedEffort:              p.Effort,
+		PairedProvider:            p.PairedProvider,
+		PairedModel:               p.PairedModel,
+		DecisionReason:            p.Reason,
+		RoutingStrategy:           string(p.Strategy),
+		PolicyGroup:               p.PolicyGroup,
+		TurnCount:                 int32(p.TurnCount),
+		PinnedUntil:               pgtype.Timestamp{Time: p.PinnedUntil.UTC(), Valid: true},
+		ConsecutiveDowngradeVotes: int32(p.ConsecutiveDowngradeVotes),
 	})
 }
 
@@ -173,6 +174,22 @@ func (r *SessionPinRepo) DisableProvider(ctx context.Context, sessionKey [sessio
 	})
 }
 
+// ExpireAndDemoteModel seeds or expires the (session_key, role) row and
+// appends model to demoted_models in one statement. The ON CONFLICT update is
+// guarded by expired.Strategy, so a row another strategy owns is not touched.
+func (r *SessionPinRepo) ExpireAndDemoteModel(ctx context.Context, expired sessionpin.Pin, model string, _ sessionpin.DemotionReason) error {
+	q := sqlc.New(r.tx)
+	return q.ExpireAndDemoteSessionPinModel(ctx, sqlc.ExpireAndDemoteSessionPinModelParams{
+		SessionKey:              expired.SessionKey[:],
+		Role:                    expired.Role,
+		InstallationID:          expired.InstallationID,
+		DecisionReason:          expired.Reason,
+		ExpectedRoutingStrategy: string(expired.Strategy),
+		PinnedUntil:             pgtype.Timestamp{Time: expired.PinnedUntil.UTC(), Valid: true},
+		Model:                   model,
+	})
+}
+
 func (r *SessionPinRepo) SweepExpired(ctx context.Context) error {
 	q := sqlc.New(r.tx)
 	return q.SweepExpiredSessionPins(ctx)
@@ -203,7 +220,9 @@ func toSessionPin(row sqlc.RouterSessionPin) sessionpin.Pin {
 		HasEverSwitched:           row.HasEverSwitched,
 		ConsecutiveUpstreamErrors: int(row.ConsecutiveUpstreamErrors),
 		ConsecutiveOverloadErrors: int(row.ConsecutiveOverloadErrors),
+		ConsecutiveDowngradeVotes: int(row.ConsecutiveDowngradeVotes),
 		DisabledProviders:         row.DisabledProviders,
+		DemotedModels:             row.DemotedModels,
 	}
 	// Bounded copy guards against a corrupt row panicking the request handler.
 	copy(pin.SessionKey[:], row.SessionKey)

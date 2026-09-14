@@ -707,6 +707,8 @@ type RouterSessionPin struct {
 	PolicyGroup               string
 	RoutingStrategy           string
 	PinnedEffort              string
+	DemotedModels             []string
+	ConsecutiveDowngradeVotes int32
 }
 
 // Explicit per-session router strategy preferences

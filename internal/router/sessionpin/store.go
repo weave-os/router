@@ -81,11 +81,33 @@ type Pin struct {
 	// pinned provider. Distinct from ConsecutiveUpstreamErrors: a 529 is
 	// retryable in-turn, so it never trips that counter.
 	ConsecutiveOverloadErrors int
+	// ConsecutiveDowngradeVotes counts consecutive turns on which the HMM
+	// authoritative-per-turn classifier proposed a cheaper model than the pinned
+	// one while downgrade hysteresis held the pin. Unlike the error counters,
+	// Upsert takes the incoming value: the turn loop derives it from the pin it
+	// read at the start of the turn.
+	ConsecutiveDowngradeVotes int
 	// DisabledProviders are providers struck out for this pin's session
 	// after repeated 529 exhaustion (see DisableProvider). Only grows for
 	// the life of the row; Upsert never touches it.
 	DisabledProviders []string
+	// DemotedModels are models struck out for this pin's session after an
+	// upstream failure (see ExpireAndDemoteModel and DemotionReason). Only
+	// grows for the life of the row; Upsert never touches it.
+	DemotedModels []string
 }
+
+// DemotionReason names why a model was withdrawn from automatic selection for
+// one session.
+type DemotionReason string
+
+// DemotionReasonCommittedStreamFailure marks an arm whose stream died after
+// the prelude committed, so the turn could neither retry nor fail over.
+const DemotionReasonCommittedStreamFailure DemotionReason = "committed_stream_failure"
+
+// DemotionReasonRescuedFailure marks the primary arm of a turn whose attempt
+// failed pre-commit and was handed to a same-cluster sibling.
+const DemotionReasonRescuedFailure DemotionReason = "rescued_failure"
 
 // Usage captures the previous turn's upstream token accounting.
 type Usage struct {
@@ -138,5 +160,13 @@ type Store interface {
 	// DisableProvider appends provider to DisabledProviders (deduped) and
 	// resets ConsecutiveOverloadErrors in the same write.
 	DisableProvider(ctx context.Context, sessionKey [SessionKeyLen]byte, role, provider string, expectedStrategy router.Strategy) error
+	// ExpireAndDemoteModel writes expired (an already-expired marker for one
+	// (SessionKey, Role) row, see Upsert) and appends model to that row's
+	// DemotedModels (deduped) in a single write. The row is seeded when absent;
+	// an existing row is rewritten only while it still belongs to
+	// expired.Strategy (same match as Consume), so a late failure from a
+	// request whose pin another strategy has since replaced touches nothing.
+	// The reason is recorded on the pin's eviction trail, not on the row.
+	ExpireAndDemoteModel(ctx context.Context, expired Pin, model string, reason DemotionReason) error
 	SweepExpired(ctx context.Context) error
 }

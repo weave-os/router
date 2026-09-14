@@ -61,6 +61,9 @@ const (
 	KeyScoreToolResultTurns                 Key = "score_tool_result_turns"
 	KeyPrefixTrimFreeSwitch                 Key = "prefix_trim_free_switch"
 	KeyAuthoritativeUpgradeGate             Key = "authoritative_upgrade_gate"
+	KeyAuthoritativeDowngradeGate           Key = "authoritative_downgrade_gate"
+	KeyHMMDowngradeHysteresisTurns          Key = "hmm_downgrade_hysteresis_turns"
+	KeyHMMDowngradeHysteresisShadowTurns    Key = "hmm_downgrade_hysteresis_shadow_turns"
 	KeyAuthorityCacheShadow                 Key = "authority_cache_shadow"
 	KeySiblingFailover                      Key = "sibling_failover"
 	KeyEffortEscalation                     Key = "effort_escalation"
@@ -73,6 +76,10 @@ const (
 	KeyAllowedModelsHeader                  Key = "allowed_models_header"
 	KeyCCTaskToolsCrossVendor               Key = "cc_task_tools_crossvendor"
 	KeySubscriptionPlanAwareRouting         Key = "subscription_plan_aware_routing_enabled"
+	KeyCommittedStreamArmDemotion           Key = "committed_stream_arm_demotion"
+	KeyRescuedFailureArmDemotion            Key = "rescued_failure_arm_demotion"
+	KeyNativeAnthropicResponseSignals       Key = "native_anthropic_response_signals"
+	KeyNativeOpenAIResponseSignals          Key = "native_openai_response_signals"
 )
 
 // Definition describes one overridable flag. DeploymentDefault is not stored
@@ -93,7 +100,7 @@ type Definition struct {
 // RegistryVersion changes whenever Registry's membership changes. Publish uses
 // it to make pruning safe during rolling deploys: a revision with an older
 // registry version may not delete definitions published by a newer revision.
-const RegistryVersion = 11
+const RegistryVersion = 16
 
 // Registry is the curated allowlist of flags that may carry a per-organization
 // override. It is deliberately explicit rather than derived from the env var
@@ -203,6 +210,27 @@ var Registry = []Definition{
 		OrgOverridable: true,
 	},
 	{
+		Key:            KeyAuthoritativeDowngradeGate,
+		EnvVar:         "ROUTER_AUTHORITATIVE_DOWNGRADE_GATE",
+		Kind:           KindBool,
+		Description:    "Apply the upgrade gate's confidence floor to authoritative-per-turn downgrades too: a cheaper-than-pin pick below the threshold keeps the pin. Off by default.",
+		OrgOverridable: true,
+	},
+	{
+		Key:            KeyHMMDowngradeHysteresisTurns,
+		EnvVar:         "ROUTER_HMM_DOWNGRADE_HYSTERESIS_TURNS",
+		Kind:           KindInt,
+		Description:    "Consecutive authoritative-per-turn classifier votes for a cheaper-than-pin model required before the downgrade is applied. 0 (default) downgrades on the first vote; 3 is the value a rollout would start from.",
+		OrgOverridable: true,
+	},
+	{
+		Key:            KeyHMMDowngradeHysteresisShadowTurns,
+		EnvVar:         "ROUTER_HMM_DOWNGRADE_HYSTERESIS_SHADOW_TURNS",
+		Kind:           KindInt,
+		Description:    "Hysteresis threshold the served-downgrade shadow counts against: every applied authoritative-per-turn downgrade logs whether this many consecutive votes would have held it. Telemetry only, never changes routing. 0 disables the shadow; 2 by default.",
+		OrgOverridable: true,
+	},
+	{
 		Key:            KeyAuthorityCacheShadow,
 		EnvVar:         "ROUTER_AUTHORITY_CACHE_SHADOW",
 		Kind:           KindBool,
@@ -270,6 +298,34 @@ var Registry = []Definition{
 		EnvVar:         "ROUTER_CC_TASK_TOOLS_CROSSVENDOR",
 		Kind:           KindBool,
 		Description:    "Keep Claude Code's TaskCreate/TaskUpdate/TaskGet/TaskList tools (and their reminders) on cross-vendor emits. Off by default, they are stripped; requires the cross-vendor orchestration tools to be kept.",
+		OrgOverridable: true,
+	},
+	{
+		Key:            KeyCommittedStreamArmDemotion,
+		EnvVar:         "ROUTER_COMMITTED_STREAM_ARM_DEMOTION",
+		Kind:           KindBool,
+		Description:    "Withdraw a model from a session's automatic selection after its stream failed with the prelude already committed. Off by default.",
+		OrgOverridable: true,
+	},
+	{
+		Key:            KeyRescuedFailureArmDemotion,
+		EnvVar:         "ROUTER_RESCUED_FAILURE_ARM_DEMOTION",
+		Kind:           KindBool,
+		Description:    "Withdraw the primary model from a session's automatic selection after its attempt failed pre-commit and a same-cluster sibling rescue ran. Off by default.",
+		OrgOverridable: true,
+	},
+	{
+		Key:            KeyNativeAnthropicResponseSignals,
+		EnvVar:         "ROUTER_NATIVE_ANTHROPIC_RESPONSE_SIGNALS",
+		Kind:           KindBool,
+		Description:    "Record stop_reason and tool_use block count on telemetry for Anthropic-native passthrough turns. On by default; kill switch for the added extraction. Observability only, never read by routing.",
+		OrgOverridable: true,
+	},
+	{
+		Key:            KeyNativeOpenAIResponseSignals,
+		EnvVar:         "ROUTER_NATIVE_OPENAI_RESPONSE_SIGNALS",
+		Kind:           KindBool,
+		Description:    "Record finish_reason and tool-call count on telemetry for OpenAI-native turns, both chat/completions and /v1/responses passthrough. On by default; kill switch for the added extraction. Observability only, never read by routing.",
 		OrgOverridable: true,
 	},
 	{

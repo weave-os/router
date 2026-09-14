@@ -202,6 +202,45 @@ data: {"type":"response.completed","response":{"id":"resp_1","status":"completed
 	assert.NotEmpty(t, w.Summary().ToolCallIssues, "the finding must surface for router.tool_call_invalid")
 }
 
+// The proxy persists InvalidToolArgsBlocks as a measured count, so it must
+// track the calls whose args degraded to `{}` — not every reported finding,
+// and not a flat zero on a turn that carried one.
+func TestResponsesToOpenAIChatWriter_CountsUnrepairableToolArgs(t *testing.T) {
+	tests := []struct {
+		name      string
+		arguments string
+		want      int
+	}{
+		{name: "valid args", arguments: `{\"location\":\"NYC\"}`, want: 0},
+		{name: "repaired args", arguments: `{\"location\":\"NYC\"`, want: 0},
+		{name: "unrepairable args", arguments: `not json at all`, want: 1},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			v := toolcheck.Compile([]byte(`[{"name":"get_weather","input_schema":{"type":"object","properties":{"location":{"type":"string"}},"required":["location"]}}]`))
+			require.NotNil(t, v)
+			rec := httptest.NewRecorder()
+			w := translate.NewResponsesToOpenAIChatWriter(rec, "gpt-5.6-luna", nil).WithToolValidator(v)
+
+			require.NoError(t, w.Prelude(true))
+			_, err := w.Write([]byte(`data: {"type":"response.output_item.added","output_index":0,"item":{"type":"function_call","call_id":"call_1","name":"get_weather"}}
+
+data: {"type":"response.function_call_arguments.done","output_index":0,"arguments":"` + tc.arguments + `"}
+
+data: {"type":"response.output_item.done","output_index":0,"item":{"type":"function_call","call_id":"call_1","name":"get_weather","arguments":"` + tc.arguments + `"}}
+
+data: {"type":"response.completed","response":{"id":"resp_1","status":"completed","output":[{"type":"function_call","call_id":"call_1","name":"get_weather","arguments":"{}"}]}}
+
+`))
+			require.NoError(t, err)
+			require.NoError(t, w.Finalize())
+
+			assert.Equal(t, tc.want, w.Summary().InvalidToolArgsBlocks)
+			assert.Equal(t, 1, w.Summary().ToolUseBlocks)
+		})
+	}
+}
+
 // A nameless function_call must be dropped: a chat client would otherwise
 // invoke tool "" in a loop.
 func TestResponsesToOpenAIChatWriter_DropsNamelessToolCall(t *testing.T) {

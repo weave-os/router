@@ -72,6 +72,10 @@ func (s *overloadStubPinStore) ResetOverloadErrors(context.Context, [sessionpin.
 	return nil
 }
 
+func (*overloadStubPinStore) ExpireAndDemoteModel(context.Context, sessionpin.Pin, string, sessionpin.DemotionReason) error {
+	return nil
+}
+
 func (s *overloadStubPinStore) DisableProvider(_ context.Context, _ [sessionpin.SessionKeyLen]byte, _, provider string, _ router.Strategy) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()

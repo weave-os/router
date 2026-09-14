@@ -300,11 +300,16 @@ var ErrNotImplemented = errors.New("provider: not implemented")
 // write their own JSON envelope.
 type UpstreamStatusError struct {
 	Status int
+	// Cause is the dispatch error an in-stream error frame stands in for;
+	// nil when Status was read off a real upstream response.
+	Cause error
 }
 
 func (e *UpstreamStatusError) Error() string {
 	return fmt.Sprintf("upstream returned status %d", e.Status)
 }
+
+func (e *UpstreamStatusError) Unwrap() error { return e.Cause }
 
 // UpstreamErrorResponse is returned by adapters that buffer a non-2xx
 // response instead of streaming it, so the proxy can retry on a different

@@ -713,6 +713,19 @@ func main() {
 	siblingFailover := config.GetOr("ROUTER_SIBLING_FAILOVER", "true") == "true"
 	openAIResponsesBroad := config.GetOr("ROUTER_OPENAI_RESPONSES_BROAD", "true") == "true"
 	allowedModelsHeader := config.GetOr("ROUTER_ALLOWED_MODELS_HEADER", "false") == "true"
+	// Session-level demotion of an arm whose stream died after commit. Off
+	// until the upstream owner of those cuts is identified.
+	committedStreamArmDemotion := config.GetOr("ROUTER_COMMITTED_STREAM_ARM_DEMOTION", "false") == "true"
+	// Session-level demotion of the primary arm after a sibling rescue. Off
+	// until baked off against the committed-stream demotion.
+	rescuedFailureArmDemotion := config.GetOr("ROUTER_RESCUED_FAILURE_ARM_DEMOTION", "false") == "true"
+	// nativeAnthropicResponseSignals records the stop reason and tool_use block
+	// count an Anthropic-native turn already streams past the usage extractor;
+	// kill switch for that extraction and the telemetry columns it fills.
+	nativeAnthropicResponseSignals := config.GetOr("ROUTER_NATIVE_ANTHROPIC_RESPONSE_SIGNALS", "true") == "true"
+	// nativeOpenAIResponseSignals is the same kill switch for the OpenAI-native
+	// surfaces: chat/completions passthrough and /v1/responses passthrough.
+	nativeOpenAIResponseSignals := config.GetOr("ROUTER_NATIVE_OPENAI_RESPONSE_SIGNALS", "true") == "true"
 	sseKeepalive := sseKeepaliveInterval()
 	ccOrchToolsCrossVendor := config.GetOr("ROUTER_CC_ORCH_TOOLS_CROSSVENDOR", "true") == "true"
 	ccTaskToolsCrossVendor := config.GetOr("ROUTER_CC_TASK_TOOLS_CROSSVENDOR", "false") == "true"
@@ -775,6 +788,14 @@ func main() {
 	// authoritativeUpgradeGate keeps the 0.85 escalation floor active for authoritative-per-turn
 	// policies; kill switch for a return to verbatim policy selection.
 	authoritativeUpgradeGate := config.GetOr("ROUTER_AUTHORITATIVE_UPGRADE_GATE", "true") == "true"
+	// authoritativeDowngradeGate mirrors the floor for cheaper-than-pin picks; off by default.
+	authoritativeDowngradeGate := config.GetOr("ROUTER_AUTHORITATIVE_DOWNGRADE_GATE", "false") == "true"
+	// hmmDowngradeHysteresisTurns requires N consecutive cheaper-than-pin authoritative
+	// votes before the downgrade is served; 0 keeps today's switch-on-first-vote behavior.
+	hmmDowngradeHysteresisTurns := parseEnvNonNegativeInt("ROUTER_HMM_DOWNGRADE_HYSTERESIS_TURNS", 0)
+	// hmmDowngradeHysteresisShadowTurns is the threshold every served authoritative
+	// downgrade is shadow-scored against; telemetry only, 0 silences it.
+	hmmDowngradeHysteresisShadowTurns := parseEnvNonNegativeInt("ROUTER_HMM_DOWNGRADE_HYSTERESIS_SHADOW_TURNS", 2)
 	// authorityCacheShadow records the HMM cache gate's counterfactual verdict on
 	// authoritative-per-turn turns, which return before that gate can run. Pure
 	// observation; kill switch for the added per-turn computation and log line.
@@ -1082,11 +1103,18 @@ func main() {
 		flags.KeyScoreToolResultTurns:                 boolDefault(scoreToolResultTurns),
 		flags.KeyPrefixTrimFreeSwitch:                 boolDefault(prefixTrimFreeSwitch),
 		flags.KeyAuthoritativeUpgradeGate:             boolDefault(authoritativeUpgradeGate),
+		flags.KeyAuthoritativeDowngradeGate:           boolDefault(authoritativeDowngradeGate),
+		flags.KeyHMMDowngradeHysteresisTurns:          strconv.Itoa(hmmDowngradeHysteresisTurns),
+		flags.KeyHMMDowngradeHysteresisShadowTurns:    strconv.Itoa(hmmDowngradeHysteresisShadowTurns),
 		flags.KeyAuthorityCacheShadow:                 boolDefault(authorityCacheShadow),
 		flags.KeySiblingFailover:                      boolDefault(siblingFailover),
 		flags.KeyOpenAIResponsesBroad:                 boolDefault(openAIResponsesBroad),
 		flags.KeyAllowedModelsHeader:                  boolDefault(allowedModelsHeader),
 		flags.KeyCCTaskToolsCrossVendor:               boolDefault(ccTaskToolsCrossVendor),
+		flags.KeyCommittedStreamArmDemotion:           boolDefault(committedStreamArmDemotion),
+		flags.KeyRescuedFailureArmDemotion:            boolDefault(rescuedFailureArmDemotion),
+		flags.KeyNativeAnthropicResponseSignals:       boolDefault(nativeAnthropicResponseSignals),
+		flags.KeyNativeOpenAIResponseSignals:          boolDefault(nativeOpenAIResponseSignals),
 		flags.KeyEffortEscalation:                     boolDefault(effortEscalation),
 		flags.KeyCyberRefusalRepin:                    boolDefault(cyberRefusalRepin),
 		flags.KeyCyberRefusalRetry:                    boolDefault(cyberRefusalRetry),
@@ -1138,11 +1166,18 @@ func main() {
 		WithSiblingFailover(siblingFailover).
 		WithOpenAIResponsesBroad(openAIResponsesBroad).
 		WithAllowedModelsHeader(allowedModelsHeader).
+		WithCommittedStreamArmDemotion(committedStreamArmDemotion).
+		WithRescuedFailureArmDemotion(rescuedFailureArmDemotion).
+		WithNativeAnthropicResponseSignals(nativeAnthropicResponseSignals).
+		WithNativeOpenAIResponseSignals(nativeOpenAIResponseSignals).
 		WithSSEKeepalive(sseKeepalive).
 		WithPrefixTrimFreeSwitch(prefixTrimFreeSwitch).
 		WithHMMUpgradeConfidenceThreshold(hmmUpgradeConfidence).
 		WithHMMSameTierPin(hmmSameTierPin).
 		WithAuthoritativeUpgradeGate(authoritativeUpgradeGate).
+		WithAuthoritativeDowngradeGate(authoritativeDowngradeGate).
+		WithHMMDowngradeHysteresisTurns(hmmDowngradeHysteresisTurns).
+		WithHMMDowngradeHysteresisShadowTurns(hmmDowngradeHysteresisShadowTurns).
 		WithAuthorityCacheShadow(authorityCacheShadow).
 		WithPolicyDeadlineFallback(policyDeadlineFallback).
 		WithPolicyDeadlineDefaultModel(policyDeadlineDefaultModel).
@@ -1665,12 +1700,24 @@ func buildOtelEmitter(deploymentMode string) (*otel.Emitter, error) {
 // parseEnvInt reads an env var as a positive integer. Returns fallback when
 // the var is unset, empty, or unparseable. Logs a warning on bad values.
 func parseEnvInt(key string, fallback int) int {
+	return parseEnvIntAtLeast(key, fallback, 1)
+}
+
+// parseEnvNonNegativeInt reads an env var as an integer for which 0 is a
+// meaningful "off" value rather than a bad input.
+func parseEnvNonNegativeInt(key string, fallback int) int {
+	return parseEnvIntAtLeast(key, fallback, 0)
+}
+
+// parseEnvIntAtLeast reads an env var as an integer of at least minimum,
+// falling back with a warning on anything smaller or unparseable.
+func parseEnvIntAtLeast(key string, fallback, minimum int) int {
 	raw := config.GetOr(key, "")
 	if raw == "" {
 		return fallback
 	}
 	n, err := strconv.Atoi(raw)
-	if err != nil || n <= 0 {
+	if err != nil || n < minimum {
 		observability.Get().Warn("Invalid env var; using default", "key", key, "value", raw, "default", fallback)
 		return fallback
 	}

@@ -88,6 +88,26 @@ func (s *Service) ResolveAuthoritativeUpgradeGate(ctx context.Context) bool {
 	return flags.BoolOr(ctx, flags.KeyAuthoritativeUpgradeGate, s.authoritativeUpgradeGate)
 }
 
+// ResolveAuthoritativeDowngradeGate reports whether the confidence floor also
+// applies to authoritative-per-turn downgrades.
+func (s *Service) ResolveAuthoritativeDowngradeGate(ctx context.Context) bool {
+	return flags.BoolOr(ctx, flags.KeyAuthoritativeDowngradeGate, s.authoritativeDowngradeGate)
+}
+
+// ResolveHMMDowngradeHysteresisTurns returns how many consecutive
+// cheaper-than-pin authoritative votes are required before the downgrade is
+// applied. 0 disables hysteresis.
+func (s *Service) ResolveHMMDowngradeHysteresisTurns(ctx context.Context) int {
+	return flags.IntOr(ctx, flags.KeyHMMDowngradeHysteresisTurns, s.hmmDowngradeHysteresisTurns)
+}
+
+// ResolveHMMDowngradeHysteresisShadowTurns returns the hysteresis threshold a
+// served authoritative downgrade is shadow-scored against. 0 disables the
+// shadow; it never changes routing.
+func (s *Service) ResolveHMMDowngradeHysteresisShadowTurns(ctx context.Context) int {
+	return flags.IntOr(ctx, flags.KeyHMMDowngradeHysteresisShadowTurns, s.hmmDowngradeHysteresisShadowTurns)
+}
+
 // ResolveAuthorityCacheShadow reports whether authoritative-per-turn turns
 // record the cache gate's counterfactual verdict. Observation only.
 func (s *Service) ResolveAuthorityCacheShadow(ctx context.Context) bool {
@@ -118,6 +138,37 @@ func (s *Service) ResolveOpenAIResponsesBroad(ctx context.Context) bool {
 // cross-vendor emit. Ignored when the orchestration tools are stripped.
 func (s *Service) ResolveCCTaskToolsCrossVendor(ctx context.Context) bool {
 	return flags.BoolOr(ctx, flags.KeyCCTaskToolsCrossVendor, s.ccTaskToolsCrossVendor)
+}
+
+// ResolveCommittedStreamArmDemotion reports the
+// ROUTER_COMMITTED_STREAM_ARM_DEMOTION flag: on, a model whose stream failed
+// after the prelude committed leaves the session's automatic selection.
+func (s *Service) ResolveCommittedStreamArmDemotion(ctx context.Context) bool {
+	return flags.BoolOr(ctx, flags.KeyCommittedStreamArmDemotion, s.committedStreamArmDemotion)
+}
+
+// ResolveRescuedFailureArmDemotion reports the
+// ROUTER_RESCUED_FAILURE_ARM_DEMOTION flag: on, the primary model of a turn
+// whose attempt failed pre-commit and was handed to a same-cluster sibling
+// leaves the session's automatic selection.
+func (s *Service) ResolveRescuedFailureArmDemotion(ctx context.Context) bool {
+	return flags.BoolOr(ctx, flags.KeyRescuedFailureArmDemotion, s.rescuedFailureArmDemotion)
+}
+
+// ResolveNativeAnthropicResponseSignals reports the
+// ROUTER_NATIVE_ANTHROPIC_RESPONSE_SIGNALS flag: whether an Anthropic-native
+// passthrough turn records its observed stop_reason and tool_use block count
+// on the telemetry row. Observability only.
+func (s *Service) ResolveNativeAnthropicResponseSignals(ctx context.Context) bool {
+	return flags.BoolOr(ctx, flags.KeyNativeAnthropicResponseSignals, s.nativeAnthropicResponseSignals)
+}
+
+// ResolveNativeOpenAIResponseSignals reports the
+// ROUTER_NATIVE_OPENAI_RESPONSE_SIGNALS flag: whether an OpenAI-native turn
+// records its observed finish_reason and tool-call count on the telemetry row.
+// Observability only.
+func (s *Service) ResolveNativeOpenAIResponseSignals(ctx context.Context) bool {
+	return flags.BoolOr(ctx, flags.KeyNativeOpenAIResponseSignals, s.nativeOpenAIResponseSignals)
 }
 
 // ResolveEffortEscalation reports whether policy-requested reasoning-effort

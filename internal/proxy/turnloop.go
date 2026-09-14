@@ -39,9 +39,10 @@ func addToSet(set map[string]struct{}, model string) map[string]struct{} {
 	return out
 }
 
-// mergeDisabledProviders unions two pins' DisabledProviders (deduped): either
-// the active pin or its HMM history row can carry overload strikes independently.
-func mergeDisabledProviders(a, b []string) []string {
+// mergeSessionStrikes unions two pins' strike lists (DisabledProviders,
+// DemotedModels) deduped: either the active pin or its HMM history row can
+// carry strikes independently.
+func mergeSessionStrikes(a, b []string) []string {
 	if len(a) == 0 {
 		return b
 	}
@@ -274,9 +275,43 @@ type turnLoopResult struct {
 	// exhaustion. Stashed on ctx so resolveBindingsForDispatch's failover
 	// walk also honors the exclusion, not just this turn's scorer.
 	SessionDisabledProviders []string
+	// SessionDemotedModels are models struck out after a committed upstream
+	// stream failure. Stashed on ctx so the in-turn rescue walk honors the
+	// exclusion too, not just this turn's scorer.
+	SessionDemotedModels []string
 	// AuthorityShadow is the counterfactual HMM cache-gate verdict on an
 	// authoritative-per-turn turn. Observation only: it never touches Decision.
 	AuthorityShadow authorityCacheShadow
+	// DowngradeShadow records, on a served authoritative-per-turn downgrade,
+	// whether the off-by-default downgrade guards would have held the pin.
+	// Observation only: it never touches Decision.
+	DowngradeShadow downgradeGuardShadow
+}
+
+// downgradeGuardShadow is the counterfactual verdict of the downgrade guards on
+// a cheaper-than-pin authoritative decision that was actually served. Served is
+// false on every other turn, and the remaining fields are then meaningless.
+type downgradeGuardShadow struct {
+	Served bool
+	// Votes is the consecutive cheaper-vote count this downgrade arrived with,
+	// including itself.
+	Votes int
+	// HysteresisWouldHold is true when Votes is below the shadow hysteresis
+	// threshold, so hysteresis at that threshold would have kept the pin.
+	HysteresisWouldHold bool
+	// ConfidenceWouldHold is true when the fresh decision is scored below the
+	// upgrade confidence threshold, so the downgrade gate would have kept the pin.
+	ConfidenceWouldHold bool
+}
+
+// downgradeShadowLogFields flattens DowngradeShadow onto a completion line.
+func downgradeShadowLogFields(res turnLoopResult) []any {
+	return []any{
+		"authoritative_downgrade_served", res.DowngradeShadow.Served,
+		"downgrade_votes", res.DowngradeShadow.Votes,
+		"downgrade_shadow_hysteresis_would_hold", res.DowngradeShadow.HysteresisWouldHold,
+		"downgrade_shadow_confidence_would_hold", res.DowngradeShadow.ConfidenceWouldHold,
+	}
 }
 
 // authorityCacheShadow records what hmmCostGatedDecision would have returned on
@@ -341,6 +376,8 @@ const defaultHMMUpgradeConfidenceThreshold = 0.85
 const (
 	hmmReasonConfidentUpgrade        = "hmm_confident_upgrade"
 	hmmReasonUpgradeConfidenceLow    = "hmm_upgrade_confidence_low"
+	hmmReasonDowngradeConfidenceLow  = "hmm_downgrade_confidence_low"
+	hmmReasonDowngradeHysteresis     = "hmm_downgrade_hysteresis"
 	hmmReasonPhaseChange             = "hmm_phase_change"
 	nativeWebSearchPassthroughReason = "native_web_search_passthrough"
 )
@@ -450,17 +487,19 @@ func (r turnLoopResult) rescueOrigin() policy.OverrideSource {
 // also skipped by proactive compaction: they are either tiny (probe/title-gen/
 // classifier) or carry their own dedicated flow (Claude Code's compaction turn,
 // whose request the router must not rewrite). SubAgentDispatch hard-pins when
-// the legacy hardPinExplore is on OR a per-sub-agent override is configured;
-// the HMM strategy keeps its own sub-agent handling path so it overrides both.
+// an explicit per-sub-agent override is configured (any strategy) or when the
+// legacy hardPinExplore is on under the cluster scorer; the HMM classifier
+// selects sub-agent turns like any other turn, so that legacy default does not
+// force them.
 func (s *Service) isHardPinnedTurn(ctx context.Context, tt turntype.TurnType) bool {
 	switch tt {
 	case turntype.Compaction, turntype.Probe, turntype.TitleGen, turntype.Classifier:
 		return true
 	case turntype.SubAgentDispatch:
-		if router.IsHMMStrategy(router.StrategyFromContext(ctx)) {
-			return false
+		if s.hasSubAgentOverride() {
+			return true
 		}
-		return s.hardPinExplore || s.hasSubAgentOverride()
+		return s.hardPinExplore && !router.IsHMMStrategy(router.StrategyFromContext(ctx))
 	default:
 		return false
 	}
@@ -891,7 +930,9 @@ func (s *Service) runTurnLoop(
 	// new uncached arm; ordinary in-context search turns continue below and
 	// retain their pin.
 	if !forceModelFound && env.IsNativeWebSearchSubTurn() {
-		if decision, ok := s.usageBypassDecision(ctx, reqHeaders, req); ok {
+		// No session strikes yet: the pin rows are read further down, and the
+		// non-bypass branch below passes the baseline model through unrouted.
+		if decision, ok := s.usageBypassDecision(ctx, reqHeaders, req, nil); ok {
 			res.SessionKey = threadSessionKey
 			res.Decision = decision
 			res.UsageBypass = true
@@ -958,7 +999,7 @@ func (s *Service) runTurnLoop(
 			return res, nil
 		}
 		req.PolicyTurnContext = buildPolicyTurnContext(req, res, sessionpin.Pin{}, sessionpin.Pin{})
-		if dec, ok := s.usageBypassDecision(ctx, reqHeaders, req); ok {
+		if dec, ok := s.usageBypassDecision(ctx, reqHeaders, req, nil); ok {
 			res.Decision = dec
 			res.UsageBypass = true
 			return res, nil
@@ -1027,7 +1068,7 @@ func (s *Service) runTurnLoop(
 		// letting the eligibility check below drop the pin.
 		pin.Provider = binding
 	}
-	disabledProviders := mergeDisabledProviders(pin.DisabledProviders, hmmHistory.DisabledProviders)
+	disabledProviders := mergeSessionStrikes(pin.DisabledProviders, hmmHistory.DisabledProviders)
 	// Explicit force exempts its own provider from session-level breaker state.
 	forcedProvider := ""
 	if forceModelFound {
@@ -1057,6 +1098,16 @@ func (s *Service) runTurnLoop(
 				delete(filtered, p)
 			}
 			req.EnabledProviders = filtered
+		}
+	}
+	// Models whose stream died after commit. AutomaticExcludedModels is the
+	// layer that reaches the scorer, the HMM authoritative pick, sibling
+	// failover and every automatic pin reuse at once, and is the only one an
+	// explicit /force-model of the same model still routes through.
+	if demoted := mergeSessionStrikes(pin.DemotedModels, hmmHistory.DemotedModels); len(demoted) > 0 {
+		res.SessionDemotedModels = demoted
+		for _, model := range demoted {
+			req.AutomaticExcludedModels = addToSet(req.AutomaticExcludedModels, model)
 		}
 	}
 	res.PriorServedModel, res.SessionEverSwitched = switchHistoryFromPins(pin, hmmHistory, forceHistory)
@@ -1422,8 +1473,10 @@ func (s *Service) runTurnLoop(
 	//
 	// Bypass settles whether the turn is routed at all (caller's prepaid quota,
 	// not a routing-quality opinion) — AuthoritativePerTurn controls which model
-	// is chosen for a routed turn, so the gate must not apply here.
-	if dec, ok := s.usageBypassDecision(ctx, reqHeaders, req); ok {
+	// is chosen for a routed turn, so the gate must not apply here. It does
+	// yield to a session strike on the requested model: that arm failed this
+	// user mid-turn, and the strike is what keeps the next turn off it.
+	if dec, ok := s.usageBypassDecision(ctx, reqHeaders, req, res.SessionDemotedModels); ok {
 		res.Decision = dec
 		res.UsageBypass = true
 		return res, nil
@@ -1589,6 +1642,74 @@ func (s *Service) runTurnLoop(
 					s.refreshPin(ctx, installationID, res.SessionKey, pin, res.PinRole, decision)
 					return res, nil
 				}
+			}
+			// Downgrade guards: the mirror image of the floor above, both off by
+			// default. Order matters -- an unconfident cheaper vote is discarded
+			// before hysteresis sees it, so noise cannot accumulate into a switch.
+			if pinFound && pin.Model != "" && pin.Model != fresh.Model &&
+				!hmmFreshIsMoreExpensive(pin.Model, fresh.Model, plannerTokens, req.SubsidizedModelCostFactor) {
+				hysteresisTurns := s.ResolveHMMDowngradeHysteresisTurns(ctx)
+				confidence, scored := hmmDecisionConfidence(fresh)
+				if s.ResolveAuthoritativeDowngradeGate(ctx) && scored && confidence < s.hmmUpgradeConfidenceThreshold {
+					decision := pinDecision(pin)
+					res.Decision = decision
+					res.StickyHit = true
+					res.PinTier = "authoritative_" + hmmReasonDowngradeConfidenceLow
+					log.Info("turnloop suppressed low-confidence authoritative downgrade; keeping session pin",
+						"pin_model", pin.Model,
+						"pin_provider", pin.Provider,
+						"fresh_model", fresh.Model,
+						"fresh_provider", fresh.Provider,
+						"confidence", confidence,
+						"threshold", s.hmmUpgradeConfidenceThreshold,
+						"downgrade_votes", pin.ConsecutiveDowngradeVotes,
+						"hysteresis_turns", hysteresisTurns,
+					)
+					s.refreshPinDowngradeVotes(ctx, installationID, res.SessionKey, pin, res.PinRole, decision, pin.ConsecutiveDowngradeVotes)
+					return res, nil
+				}
+				votes := pin.ConsecutiveDowngradeVotes + 1
+				if hysteresisTurns > 0 && votes < hysteresisTurns {
+					decision := pinDecision(pin)
+					res.Decision = decision
+					res.StickyHit = true
+					res.PinTier = "authoritative_" + hmmReasonDowngradeHysteresis
+					log.Info("turnloop held authoritative downgrade below the hysteresis threshold; keeping session pin",
+						"pin_model", pin.Model,
+						"pin_provider", pin.Provider,
+						"fresh_model", fresh.Model,
+						"fresh_provider", fresh.Provider,
+						"confidence", confidence,
+						"threshold", s.hmmUpgradeConfidenceThreshold,
+						"downgrade_votes", votes,
+						"hysteresis_turns", hysteresisTurns,
+					)
+					s.refreshPinDowngradeVotes(ctx, installationID, res.SessionKey, pin, res.PinRole, decision, votes)
+					return res, nil
+				}
+				// The downgrade is served. Shadow what the guards would have done at
+				// the shadow threshold so a rollout can be sized before either lever
+				// is turned on.
+				shadowTurns := s.ResolveHMMDowngradeHysteresisShadowTurns(ctx)
+				res.DowngradeShadow = downgradeGuardShadow{
+					Served:              true,
+					Votes:               votes,
+					HysteresisWouldHold: shadowTurns > 0 && votes < shadowTurns,
+					ConfidenceWouldHold: scored && confidence < s.hmmUpgradeConfidenceThreshold,
+				}
+				log.Info("turnloop served authoritative downgrade",
+					"pin_model", pin.Model,
+					"pin_provider", pin.Provider,
+					"fresh_model", fresh.Model,
+					"fresh_provider", fresh.Provider,
+					"confidence", confidence,
+					"threshold", s.hmmUpgradeConfidenceThreshold,
+					"downgrade_votes", votes,
+					"hysteresis_turns", hysteresisTurns,
+					"shadow_hysteresis_turns", shadowTurns,
+					"shadow_hysteresis_would_hold", res.DowngradeShadow.HysteresisWouldHold,
+					"shadow_confidence_would_hold", res.DowngradeShadow.ConfidenceWouldHold,
+				)
 			}
 			res.Decision = fresh
 			res.PinTier = "authoritative_per_turn"
@@ -2320,6 +2441,14 @@ func buildPolicyTurnContext(
 // usage forward so the planner has evidence before the next UpdateUsage
 // writeback lands.
 func (s *Service) refreshPin(ctx context.Context, installationID uuid.UUID, sessionKey [sessionpin.SessionKeyLen]byte, existing sessionpin.Pin, role string, chosen router.Decision) {
+	s.refreshPinDowngradeVotes(ctx, installationID, sessionKey, existing, role, chosen, 0)
+}
+
+// refreshPinDowngradeVotes refreshes the pin and persists the run of
+// consecutive cheaper-than-pin authoritative votes behind it. Only the
+// authoritative downgrade guards carry a non-zero count; every other pin write
+// ends such a run and stores zero.
+func (s *Service) refreshPinDowngradeVotes(ctx context.Context, installationID uuid.UUID, sessionKey [sessionpin.SessionKeyLen]byte, existing sessionpin.Pin, role string, chosen router.Decision, downgradeVotes int) {
 	if installationID == uuid.Nil {
 		return
 	}
@@ -2351,6 +2480,8 @@ func (s *Service) refreshPin(ctx context.Context, installationID uuid.UUID, sess
 		LastOutputTokens:      existing.LastOutputTokens,
 		LastTurnEndedAt:       existing.LastTurnEndedAt,
 		LastServedModel:       existing.LastServedModel,
+
+		ConsecutiveDowngradeVotes: downgradeVotes,
 	}
 	s.upsertPin(ctx, p)
 }
