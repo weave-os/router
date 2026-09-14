@@ -79,6 +79,12 @@ type EmitOptions struct {
 	// cross-vendor emit. Nested under KeepCrossVendorOrchestrationTools. Set
 	// from ROUTER_CC_TASK_TOOLS_CROSSVENDOR; zero value false strips them.
 	KeepCrossVendorTaskTools bool
+	// AppendAutonomySystem adds AutonomySystemText as the last system element
+	// of the outgoing request, after any client cache_control block and
+	// itself uncached; the cross-format emitters carry it into the OpenAI
+	// system message / Responses instructions / Gemini systemInstruction.
+	// The proxy decides eligibility (client, turn type, idempotence).
+	AppendAutonomySystem bool
 	// StripOutputConfigFormat drops output_config.format. Anthropic-spec
 	// gateways are documented to serve the knob (Cortex does), so the proxy sets
 	// this only on a one-shot retry after one 400s on it.

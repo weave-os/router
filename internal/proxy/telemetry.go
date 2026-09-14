@@ -152,11 +152,14 @@ type InsertTelemetryParams struct {
 	LastToolUseInputBytes *int32
 	// ToolErrorCounts is pre-marshaled JSON {tool name: {calls, errors}} over
 	// the request's resolved tool calls. nil when the history has none.
-	ToolErrorCounts    []byte
-	FailoverUsed       *bool
-	DegenerateShadow   *bool
-	PolicyPinRequested *bool
-	PolicyPinHonoured  *bool
+	ToolErrorCounts []byte
+	// AutonomyAppendFired is set when the router appended AutonomySystemText
+	// to the outgoing system prompt; nil otherwise.
+	AutonomyAppendFired *bool
+	FailoverUsed        *bool
+	DegenerateShadow    *bool
+	PolicyPinRequested  *bool
+	PolicyPinHonoured   *bool
 
 	// SessionKey + Role are the offline join key to spiral_shadow_events and
 	// session_pins (16-byte digest + roleForTier of the requested model). Nil /

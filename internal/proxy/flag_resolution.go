@@ -140,6 +140,13 @@ func (s *Service) ResolveCCTaskToolsCrossVendor(ctx context.Context) bool {
 	return flags.BoolOr(ctx, flags.KeyCCTaskToolsCrossVendor, s.ccTaskToolsCrossVendor)
 }
 
+// ResolveCCAutonomySystemAppend reports the ROUTER_CC_AUTONOMY_SYSTEM_APPEND
+// flag: whether Claude Code main-loop and tool-result turns get
+// translate.AutonomySystemText appended to their system prompt.
+func (s *Service) ResolveCCAutonomySystemAppend(ctx context.Context) bool {
+	return flags.BoolOr(ctx, flags.KeyCCAutonomySystemAppend, s.ccAutonomySystemAppend)
+}
+
 // ResolveCommittedStreamArmDemotion reports the
 // ROUTER_COMMITTED_STREAM_ARM_DEMOTION flag: on, a model whose stream failed
 // after the prelude committed leaves the session's automatic selection.

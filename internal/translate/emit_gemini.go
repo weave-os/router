@@ -34,6 +34,10 @@ var (
 // PrepareGemini builds a Gemini native REST request body. Native is required for
 // multi-turn tool use on Gemini 3.x: OpenAI-compat doesn't return thought_signature.
 func (e *RequestEnvelope) PrepareGemini(_ http.Header, opts EmitOptions) (providers.PreparedRequest, error) {
+	e, err := e.withAutonomySystemAppended(opts)
+	if err != nil {
+		return providers.PreparedRequest{}, err
+	}
 	if isGemini3xModel(opts.TargetModel) && e.HasUnsignedToolCallHistory() {
 		return providers.PreparedRequest{}, fmt.Errorf("%w: Gemini 3.x requires a thoughtSignature on every historical function call", ErrGeminiUnsignedToolHistory)
 	}

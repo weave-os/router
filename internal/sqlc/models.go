@@ -436,6 +436,8 @@ type RouterModelRouterRequestTelemetry struct {
 	LastToolUseInputBytes *int32
 	// JSON object of tool name to {calls, errors}: resolved tool calls on this request and how many of their results errored. NULL when the history has no resolved tool call.
 	ToolErrorCounts []byte
+	// TRUE when the router appended the autonomy operating instruction to the outgoing system prompt on this request. NULL when it did not.
+	AutonomyAppendFired *bool
 }
 
 type RouterModelRouterSubscriptionAccount struct {

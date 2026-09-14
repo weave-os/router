@@ -42,6 +42,12 @@ func (e *RequestEnvelope) PrepareAnthropic(in http.Header, opts EmitOptions) (pr
 	if err != nil {
 		return providers.PreparedRequest{}, err
 	}
+	if opts.AppendAutonomySystem {
+		body, err = appendAutonomySystem(body)
+		if err != nil {
+			return providers.PreparedRequest{}, err
+		}
+	}
 	body, err = applyServerSideFallback(body, opts)
 	if err != nil {
 		return providers.PreparedRequest{}, err
