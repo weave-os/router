@@ -48,6 +48,9 @@ func (s *Service) blindExperimentPassthroughDecision(ctx context.Context, req ro
 		if !found {
 			return router.Decision{}, true, fmt.Errorf("requested model %q has no available gateway alias: %w", req.RequestedModel, policy.ErrGatewayServesNoDeployedModel)
 		}
+		if !targetPreservesTranslationRequirements(provider, req.RequestedModel, req.TranslationRequirements) {
+			return router.Decision{}, true, fmt.Errorf("requested model %q cannot preserve translation requirements: %w", req.RequestedModel, cluster.ErrNoEligibleProvider)
+		}
 		return router.Decision{
 			Provider: provider,
 			Model:    req.RequestedModel,
@@ -64,6 +67,9 @@ func (s *Service) blindExperimentPassthroughDecision(ctx context.Context, req ro
 		if !found || model.PrimaryProvider() == "" {
 			return router.Decision{}, true, fmt.Errorf("requested model %q has no available provider: %w", req.RequestedModel, cluster.ErrNoEligibleProvider)
 		}
+		if !targetPreservesTranslationRequirements(model.PrimaryProvider(), req.RequestedModel, req.TranslationRequirements) {
+			return router.Decision{}, true, fmt.Errorf("requested model %q cannot preserve translation requirements: %w", req.RequestedModel, cluster.ErrNoEligibleProvider)
+		}
 		return router.Decision{
 			Provider: model.PrimaryProvider(),
 			Model:    req.RequestedModel,
@@ -74,6 +80,9 @@ func (s *Service) blindExperimentPassthroughDecision(ctx context.Context, req ro
 	binding, found := catalog.ResolveBindingWithCustom(req.RequestedModel, availableProviders, req.CustomBindings)
 	if !found {
 		return router.Decision{}, true, fmt.Errorf("requested model %q has no available provider: %w", req.RequestedModel, cluster.ErrNoEligibleProvider)
+	}
+	if !targetPreservesTranslationRequirements(binding.Provider, req.RequestedModel, req.TranslationRequirements) {
+		return router.Decision{}, true, fmt.Errorf("requested model %q cannot preserve translation requirements: %w", req.RequestedModel, cluster.ErrNoEligibleProvider)
 	}
 	return router.Decision{
 		Provider: binding.Provider,

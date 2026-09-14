@@ -8,8 +8,11 @@ import (
 
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/catalog"
+	"weave-os/router/internal/router/sessionpin"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func compatibilityService(mode TranslationCompatibilityMode) *Service {
@@ -157,6 +160,105 @@ func TestTranslationPlan_NativeSearchAlwaysFiltersToSourceProvider(t *testing.T)
 	}
 }
 
+func TestTranslationPlan_MidConversationSystemRequirementsAreAlwaysEnforced(t *testing.T) {
+	for _, mode := range []TranslationCompatibilityMode{
+		TranslationCompatibilityOff,
+		TranslationCompatibilityShadow,
+		TranslationCompatibilityEnforce,
+	} {
+		t.Run(string(mode), func(t *testing.T) {
+			plan := compatibilityService(mode).planTranslation(router.Request{
+				EnabledProviders: map[string]struct{}{
+					providers.ProviderAnthropic: {},
+					providers.ProviderOpenAI:    {},
+				},
+				TranslationRequirements: router.TranslationRequirements{
+					SourceFormat:                  router.WireFormatAnthropic,
+					Endpoint:                      router.EndpointAnthropicMessages,
+					MidConversationSystemMessages: true,
+					MidConversationToolChanges:    true,
+				},
+			})
+
+			assert.True(t, plan.Enforced)
+			assert.Equal(t, map[string]struct{}{providers.ProviderAnthropic: {}}, plan.EnabledProviders)
+			assert.NotContains(t, plan.ExcludedModels, "claude-opus-5")
+			assert.Contains(t, plan.ExcludedModels, "claude-sonnet-5")
+			assert.Contains(t, plan.SafetyExcludedModels, "claude-sonnet-5")
+			requireExclusion(t, plan, "mid_conversation_tool_changes_native_required", providers.ProviderOpenAI, true)
+			requireModelExclusion(t, plan, midConversationToolRequirementCode, "claude-sonnet-5", true)
+		})
+	}
+}
+
+func TestTranslationPlan_OutputConfigUsesItsNarrowerModelRoster(t *testing.T) {
+	plan := compatibilityService(TranslationCompatibilityOff).planTranslation(router.Request{
+		EnabledProviders: map[string]struct{}{providers.ProviderAnthropic: {}},
+		TranslationRequirements: router.TranslationRequirements{
+			SourceFormat:                  router.WireFormatAnthropic,
+			Endpoint:                      router.EndpointAnthropicMessages,
+			MidConversationSystemMessages: true,
+			MidConversationOutputConfig:   true,
+		},
+	})
+
+	assert.NotContains(t, plan.ExcludedModels, "claude-opus-5")
+	assert.NotContains(t, plan.ExcludedModels, "claude-fable-5-1")
+	assert.Contains(t, plan.ExcludedModels, "claude-opus-4-8")
+	assert.Contains(t, plan.ExcludedModels, "claude-fable-5")
+}
+
+func TestTranslationPlan_MidConversationCompatibilityGuardsPinsRescuesAndBindings(t *testing.T) {
+	requirements := router.TranslationRequirements{
+		SourceFormat:                  router.WireFormatAnthropic,
+		Endpoint:                      router.EndpointAnthropicMessages,
+		MidConversationSystemMessages: true,
+		MidConversationToolChanges:    true,
+	}
+	req := router.Request{TranslationRequirements: requirements}
+
+	assert.True(t, pinEligible(sessionpin.Pin{Model: "claude-opus-5", Provider: providers.ProviderAnthropic}, req))
+	assert.False(t, pinEligible(sessionpin.Pin{Model: "claude-sonnet-5", Provider: providers.ProviderAnthropic}, req))
+	assert.False(t, pinEligible(sessionpin.Pin{Model: "claude-opus-5", Provider: providers.ProviderAnthropicGateway}, req))
+
+	bindings := filterTranslationCompatibleBindings([]catalog.ProviderBinding{
+		{Provider: providers.ProviderAnthropic},
+		{Provider: providers.ProviderAnthropicGateway},
+		{Provider: providers.ProviderOpenAIGateway},
+	}, "claude-opus-5", requirements)
+	assert.Equal(t, []catalog.ProviderBinding{{Provider: providers.ProviderAnthropic}}, bindings)
+
+	svc := siblingService(providers.ProviderAnthropic)
+	rescue, found := svc.siblingFailoverDecision(context.Background(), router.Decision{
+		Model:    "gpt-5.5",
+		Provider: providers.ProviderOpenAI,
+		Metadata: &router.RoutingMetadata{
+			CandidateModels: []string{"claude-sonnet-5", "claude-opus-5"},
+			CandidateProviders: map[string]string{
+				"claude-sonnet-5": providers.ProviderAnthropic,
+				"claude-opus-5":   providers.ProviderAnthropic,
+			},
+		},
+	}, requirements, 1_000, 0, 0)
+	require.True(t, found)
+	assert.Equal(t, "claude-opus-5", rescue.Model)
+}
+
+func TestApplyTranslationPlan_MidConversationModelUnavailable(t *testing.T) {
+	svc := compatibilityService(TranslationCompatibilityOff)
+	svc.availableModels = map[string]struct{}{"claude-sonnet-5": {}}
+	_, err := svc.applyTranslationPlan(context.Background(), router.Request{
+		EnabledProviders: map[string]struct{}{providers.ProviderAnthropic: {}},
+		TranslationRequirements: router.TranslationRequirements{
+			SourceFormat:                  router.WireFormatAnthropic,
+			Endpoint:                      router.EndpointAnthropicMessages,
+			MidConversationSystemMessages: true,
+		},
+	})
+
+	assert.ErrorIs(t, err, ErrTranslationCompatibleProviderUnavailable)
+}
+
 func TestApplyTranslationPlan_CompatibleButUnavailable(t *testing.T) {
 	svc := &Service{
 		clients:                      dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: nil}),
@@ -192,4 +294,15 @@ func requireExclusion(t *testing.T, plan TranslationPlan, code, provider string,
 		}
 	}
 	t.Fatalf("missing exclusion code=%q provider=%q in %#v", code, provider, plan.Exclusions)
+}
+
+func requireModelExclusion(t *testing.T, plan TranslationPlan, code, model string, enforced bool) {
+	t.Helper()
+	for _, exclusion := range plan.Exclusions {
+		if exclusion.Code == code && exclusion.Model == model {
+			assert.Equal(t, enforced, exclusion.Enforced)
+			return
+		}
+	}
+	t.Fatalf("missing exclusion code=%q model=%q in %#v", code, model, plan.Exclusions)
 }

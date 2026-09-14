@@ -52,3 +52,30 @@ func TestLookup_GPT6AstraReasoning(t *testing.T) {
 	assert.True(t, spec.Reasoning().SupportsBudget)
 	assert.True(t, spec.Reasoning().AlwaysOn)
 }
+
+func TestLookup_AnthropicMidConversationCapabilities(t *testing.T) {
+	tests := []struct {
+		model              string
+		wantSystemMessages bool
+		wantToolChanges    bool
+		wantOutputConfig   bool
+		wantTurnScoped     bool
+	}{
+		{"claude-opus-5", true, true, true, true},
+		{"claude-fable-5-1", true, true, true, true},
+		{"claude-opus-4-8", true, true, false, true},
+		{"claude-fable-5", true, true, false, true},
+		{"claude-sonnet-5", false, false, false, false},
+		{"claude-opus-4-7", false, false, false, false},
+	}
+
+	for _, test := range tests {
+		t.Run(test.model, func(t *testing.T) {
+			spec := router.Lookup(test.model)
+			assert.Equal(t, test.wantSystemMessages, spec.Supports(router.CapMidConversationSystemMessages))
+			assert.Equal(t, test.wantToolChanges, spec.Supports(router.CapMidConversationToolChanges))
+			assert.Equal(t, test.wantOutputConfig, spec.Supports(router.CapMidConversationOutputConfig))
+			assert.Equal(t, test.wantTurnScoped, spec.Supports(router.CapTurnScopedSystemMessages))
+		})
+	}
+}

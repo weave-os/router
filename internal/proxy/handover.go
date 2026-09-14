@@ -154,7 +154,7 @@ func (s *ProviderSummarizer) Summarize(ctx context.Context, env *translate.Reque
 	plan, err := s.resolve(ctx, policy.ResolutionRequest{
 		Purpose:       policy.PurposeHandoverSummary,
 		RouterRequest: summarizerRequest(scope, env),
-		Overrides:     []policy.TargetOverride{{Source: policy.OverrideSourceDeployment, CatalogID: s.model, Provider: s.provider}},
+		Overrides:     []policy.TargetOverride{{Source: policy.OverrideSourceDeployment, CatalogID: handoverSummaryModel(s.model, env), Provider: s.provider}},
 	})
 	if err != nil {
 		return "", handover.Usage{}, err
@@ -236,8 +236,31 @@ func summarizerRequest(scope router.Request, env *translate.RequestEnvelope) rou
 	}
 	if env != nil {
 		request.EstimatedInputTokens = env.ContextOverflowTokenEstimate()
+		request.TranslationRequirements = env.TranslationRequirements(router.EndpointAnthropicMessages)
 	}
 	return request
+}
+
+// handoverSummaryModel keeps the cheap default unless the conversation needs
+// mid-conversation system support the default cannot preserve.
+func handoverSummaryModel(defaultModel string, env *translate.RequestEnvelope) string {
+	model := defaultModel
+	if model == "" {
+		model = policy.HandoverSummaryDefaultModel
+	}
+	if env == nil {
+		return model
+	}
+	reqs := env.TranslationRequirements(router.EndpointAnthropicMessages)
+	if targetPreservesTranslationRequirements(providers.ProviderAnthropic, model, reqs) {
+		return model
+	}
+	for _, candidate := range []string{policy.PrecompactionLargeWindowModel, policy.PrecompactionDefaultModel} {
+		if targetPreservesTranslationRequirements(providers.ProviderAnthropic, candidate, reqs) {
+			return candidate
+		}
+	}
+	return model
 }
 
 func (s *ProviderSummarizer) resolve(ctx context.Context, request policy.ResolutionRequest) (policy.ResolvedPlan, error) {
@@ -294,11 +317,11 @@ func (s *ProviderSummarizer) run(ctx context.Context, env *translate.RequestEnve
 // prepareSummaryCall builds the non-streaming Anthropic Messages request for
 // target; dispatch checks the wire model against the plan before any I/O.
 func prepareSummaryCall(env *translate.RequestEnvelope, target inference.Target, instruction string, maxTokens int) (providers.PreparedRequest, *http.Request, error) {
-	body, err := buildSummaryRequestBody(env, target.CatalogID, instruction, maxTokens)
+	body, headers, err := buildSummaryRequestBody(env, target.CatalogID, target.Provider, instruction, maxTokens)
 	if err != nil {
 		return providers.PreparedRequest{}, nil, fmt.Errorf("build summary request: %w", err)
 	}
-	prep := providers.PreparedRequest{Body: body, Headers: make(http.Header)}
+	prep := providers.PreparedRequest{Body: body, Headers: headers}
 	prep.Headers.Set("anthropic-version", "2023-06-01")
 	req := httptest.NewRequest(http.MethodPost, "/v1/messages", bytes.NewReader(body))
 	req.Header.Set("content-type", "application/json")
@@ -348,36 +371,43 @@ func extractAnthropicUsage(body []byte) handover.Usage {
 // buildSummaryRequestBody builds a non-streaming Anthropic Messages request
 // from the envelope's prior conversation, injecting the given summary
 // instruction and overriding model/max_tokens/stream.
-func buildSummaryRequestBody(env *translate.RequestEnvelope, model, instruction string, maxTokens int) ([]byte, error) {
-	prep, err := env.PrepareAnthropic(nil, translate.EmitOptions{TargetModel: model})
+func buildSummaryRequestBody(env *translate.RequestEnvelope, model, provider, instruction string, maxTokens int) ([]byte, http.Header, error) {
+	if provider == "" {
+		provider = providers.ProviderAnthropic
+	}
+	prep, err := env.PrepareAnthropic(nil, translate.EmitOptions{
+		TargetModel:    model,
+		TargetProvider: provider,
+		Capabilities:   router.Lookup(model),
+	})
 	if err != nil {
-		return nil, fmt.Errorf("prepare anthropic body: %w", err)
+		return nil, nil, fmt.Errorf("prepare anthropic body: %w", err)
 	}
 	body := prep.Body
 
 	body, err = sjson.SetBytes(body, "model", model)
 	if err != nil {
-		return nil, fmt.Errorf("set model: %w", err)
+		return nil, nil, fmt.Errorf("set model: %w", err)
 	}
 	body, err = sjson.SetBytes(body, "stream", false)
 	if err != nil {
-		return nil, fmt.Errorf("set stream: %w", err)
+		return nil, nil, fmt.Errorf("set stream: %w", err)
 	}
 	body, err = sjson.SetBytes(body, "max_tokens", maxTokens)
 	if err != nil {
-		return nil, fmt.Errorf("set max_tokens: %w", err)
+		return nil, nil, fmt.Errorf("set max_tokens: %w", err)
 	}
 
 	body, err = appendUserInstruction(body, instruction)
 	if err != nil {
-		return nil, fmt.Errorf("append instruction: %w", err)
+		return nil, nil, fmt.Errorf("append instruction: %w", err)
 	}
 
 	for _, key := range []string{"tools", "tool_choice", "thinking", "context_management", "effort", "output_config", "metadata"} {
 		body, _ = sjson.DeleteBytes(body, key)
 	}
 
-	return body, nil
+	return body, prep.Headers, nil
 }
 
 // appendUserInstruction appends a role=user text message to the messages array.

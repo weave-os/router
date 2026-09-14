@@ -1,6 +1,6 @@
 {
   "schema_version": "inference_policy_registry_v2",
-  "registry_revision": "sha256:c39f4fd7a0506b0c9ea57d3a3e9291dd0caab4953fed34a53e2114791096e6c7",
+  "registry_revision": "sha256:1bcfde6a0405696918f74738a9000dbd44940bce7660191758b0c605008cf0ad",
   "policies": [
     {
       "purpose": "agent_shadow_evaluation",
@@ -264,13 +264,14 @@
       "purpose": "handover_summary",
       "dispatch_class": "auxiliary_inference",
       "policy_id": "aux-handover-summary",
-      "policy_revision": "2",
+      "policy_revision": "3",
       "owner": "@steventohme",
-      "rationale": "Use the current inexpensive summarizer before a model switch; failure preserves the full prior history.",
+      "rationale": "Use the current inexpensive summarizer before a model switch, or a requirements-compatible reviewed model when mid-conversation system semantics must survive; failure preserves the full prior history.",
       "selection_strategy": "fixed_catalog",
       "candidate_source": "fixed_catalog",
       "fixed_catalog_models": [
-        "claude-haiku-4-5"
+        "claude-haiku-4-5",
+        "claude-opus-5"
       ],
       "hard_constraints": [
         "catalog_binding",

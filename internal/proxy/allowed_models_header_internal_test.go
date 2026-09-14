@@ -16,9 +16,10 @@ import (
 )
 
 const (
-	testSol   = "gpt-5.6-sol"
-	testTerra = "gpt-5.6-terra"
-	testOpus  = "claude-opus-5"
+	testSol    = "gpt-5.6-sol"
+	testTerra  = "gpt-5.6-terra"
+	testOpus   = "claude-opus-5"
+	testSonnet = "claude-sonnet-5"
 )
 
 func ctxWithRequestSubset(ctx context.Context, models ...string) context.Context {
@@ -133,6 +134,28 @@ func TestReadmitForcedModel_KeepsPolicyExclusion(t *testing.T) {
 	pin := sessionpin.Pin{Model: testOpus, Provider: providers.ProviderAnthropic}
 	got := s.readmitForcedModel(ctx, req, env, translate.RoutingFeatures{MaxTokens: 16}, pin)
 	assert.Contains(t, got, testOpus)
+}
+
+func TestReadmitForcedModel_KeepsTranslationIncompatibleExclusion(t *testing.T) {
+	s := &Service{availableModels: map[string]struct{}{testSol: {}, testSonnet: {}}}
+	ctx := ctxWithRequestSubset(context.Background(), testSol)
+	env, err := translate.ParseAnthropic([]byte(`{"messages":[{"role":"user","content":"hi"}]}`))
+	require.NoError(t, err)
+	req := router.Request{
+		ExcludedModels: s.excludedModelsForRequest(ctx),
+		TranslationRequirements: router.TranslationRequirements{
+			SourceFormat:                  router.WireFormatAnthropic,
+			Endpoint:                      router.EndpointAnthropicMessages,
+			MidConversationSystemMessages: true,
+		},
+	}
+	require.Contains(t, req.ExcludedModels, testSonnet)
+
+	got := s.readmitForcedModel(ctx, req, env, translate.RoutingFeatures{MaxTokens: 16}, sessionpin.Pin{
+		Model:    testSonnet,
+		Provider: providers.ProviderAnthropic,
+	})
+	assert.Contains(t, got, testSonnet)
 }
 
 func TestReadmitForcedModel_NoSubsetIsNoOp(t *testing.T) {

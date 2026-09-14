@@ -216,6 +216,25 @@ func TestSelectCompactionSummarizer_WindowAware(t *testing.T) {
 	assert.Empty(t, s.selectCompactionSummarizer(300_000, "claude-sonnet-4-5", excluded))
 }
 
+func TestCompactionSummarySkipsTranslationIncompatibleSummarizer(t *testing.T) {
+	env, err := translate.ParseAnthropic([]byte(`{
+        "messages":[
+          {"role":"user","content":"hello"},
+          {"role":"system","content":"change the rules"}
+        ]
+    }`))
+	require.NoError(t, err)
+	summarizer := &fakeCompactionSummarizer{summary: "preserved session context"}
+	s := &Service{compactionSummarizer: summarizer}
+
+	summary, _, model, ok := s.runCompactionSummary(context.Background(), env, "", router.Request{}, nil)
+
+	assert.True(t, ok)
+	assert.Equal(t, "preserved session context", summary)
+	assert.Equal(t, policy.PrecompactionLargeWindowModel, model)
+	assert.Equal(t, 1, summarizer.calls)
+}
+
 func TestCompactionTargetFor_TypesTheCascadeChoice(t *testing.T) {
 	s := &Service{}
 	assert.Equal(t, CompactionTarget{CatalogID: "claude-opus-4-8", Source: policy.OverrideSourceSession}, s.compactionTargetFor("claude-opus-4-8", "claude-opus-4-8"))
@@ -365,8 +384,15 @@ func TestCompactionHardPin(t *testing.T) {
 	_, _, _, ok = s.compactionHardPin(ctx, key, "", router.Request{GatewayProviders: map[string]struct{}{providers.ProviderOpenRouter: {}}})
 	assert.False(t, ok, "gateway-exclusive tenant → fall back to generic hard-pin")
 
-	_, _, _, ok = s.compactionHardPin(ctx, key, "", router.Request{ExcludedModels: map[string]struct{}{policy.PrecompactionDefaultModel: {}}})
-	assert.False(t, ok, "excluded default with no pin → fall back to generic hard-pin")
+	p, m, source, ok = s.compactionHardPin(ctx, key, "", router.Request{ExcludedModels: map[string]struct{}{policy.PrecompactionDefaultModel: {}}})
+	require.True(t, ok, "excluded default with no pin → large-window summarizer")
+	assert.Equal(t, policy.PrecompactionLargeWindowModel, m)
+	assert.Equal(t, providers.ProviderAnthropic, p)
+	assert.Equal(t, policy.OverrideSourceDeployment, source)
+
+	_, m, _, ok = s.compactionHardPin(ctx, key, "", router.Request{TranslationRequirements: router.TranslationRequirements{MidConversationSystemMessages: true}})
+	require.True(t, ok)
+	assert.Equal(t, policy.PrecompactionLargeWindowModel, m, "mid-conversation requirements skip the default Sonnet pin")
 
 	unavailable := &Service{compactionHardPinEnabled: true, availableModels: map[string]struct{}{"claude-haiku-4-5": {}}}
 	_, _, _, ok = unavailable.compactionHardPin(ctx, key, "", router.Request{})
