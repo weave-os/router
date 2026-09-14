@@ -277,9 +277,17 @@ func isRescuedPrimaryFailure(err error) bool {
 // A 529 is excluded: an in-stream overloaded_error is provider capacity, owned
 // by maybeDisableProviderAfterOverload, and demoting the model would strike
 // out an arm the provider will serve again minutes later.
+//
+// Post-commit, the SSE error frame renderers hand back a synthetic
+// *UpstreamStatusError whose status was chosen for the wire, not read from the
+// upstream; the dispatch error it stands in for is what gets classified.
 func isCommittedStreamFailure(ctx context.Context, err error) bool {
 	if err == nil {
 		return false
+	}
+	var synthetic *providers.UpstreamStatusError
+	if errors.As(err, &synthetic) && synthetic.Cause != nil {
+		err = synthetic.Cause
 	}
 	if isUpstreamWatchdogError(err) || isUpstreamWatchdogError(context.Cause(ctx)) {
 		return true
