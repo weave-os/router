@@ -44,6 +44,22 @@ func TestParseCaptureMode(t *testing.T) {
 	assert.Equal(t, "full", CaptureFull.String())
 }
 
+func TestZdrLogField_BlanksOnlyWhenEffectiveOff(t *testing.T) {
+	deploymentModes := []ContentCaptureMode{CaptureOff, CaptureHashed, CaptureFull}
+	for _, deployment := range deploymentModes {
+		s := &Service{captureMode: deployment}
+		if deployment == CaptureOff {
+			assert.Empty(t, s.zdrLogField(context.Background(), "secret"))
+		} else {
+			assert.Equal(t, "secret", s.zdrLogField(context.Background(), "secret"))
+		}
+		// Installation off must blank the field even under a Full deployment.
+		ctx := context.WithValue(context.Background(), InstallationCaptureModeContextKey{}, CaptureOff)
+		assert.Empty(t, s.zdrLogField(ctx, "secret"),
+			"deployment %v with installation off must blank content-bearing log fields", deployment)
+	}
+}
+
 func TestMaybeCaptureResponse_OffReturnsNil(t *testing.T) {
 	s := &Service{captureMode: CaptureOff}
 	rec := httptest.NewRecorder()
