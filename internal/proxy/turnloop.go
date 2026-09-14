@@ -898,7 +898,9 @@ func (s *Service) runTurnLoop(
 	// new uncached arm; ordinary in-context search turns continue below and
 	// retain their pin.
 	if !forceModelFound && env.IsNativeWebSearchSubTurn() {
-		if decision, ok := s.usageBypassDecision(ctx, reqHeaders, req); ok {
+		// No session strikes yet: the pin rows are read further down, and the
+		// non-bypass branch below passes the baseline model through unrouted.
+		if decision, ok := s.usageBypassDecision(ctx, reqHeaders, req, nil); ok {
 			res.SessionKey = threadSessionKey
 			res.Decision = decision
 			res.UsageBypass = true
@@ -965,7 +967,7 @@ func (s *Service) runTurnLoop(
 			return res, nil
 		}
 		req.PolicyTurnContext = buildPolicyTurnContext(req, res, sessionpin.Pin{}, sessionpin.Pin{})
-		if dec, ok := s.usageBypassDecision(ctx, reqHeaders, req); ok {
+		if dec, ok := s.usageBypassDecision(ctx, reqHeaders, req, nil); ok {
 			res.Decision = dec
 			res.UsageBypass = true
 			return res, nil
@@ -1439,8 +1441,10 @@ func (s *Service) runTurnLoop(
 	//
 	// Bypass settles whether the turn is routed at all (caller's prepaid quota,
 	// not a routing-quality opinion) — AuthoritativePerTurn controls which model
-	// is chosen for a routed turn, so the gate must not apply here.
-	if dec, ok := s.usageBypassDecision(ctx, reqHeaders, req); ok {
+	// is chosen for a routed turn, so the gate must not apply here. It does
+	// yield to a session strike on the requested model: that arm failed this
+	// user mid-turn, and the strike is what keeps the next turn off it.
+	if dec, ok := s.usageBypassDecision(ctx, reqHeaders, req, res.SessionDemotedModels); ok {
 		res.Decision = dec
 		res.UsageBypass = true
 		return res, nil
