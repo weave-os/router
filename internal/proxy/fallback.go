@@ -448,7 +448,7 @@ func emitAnthropicSSEErrorEvent(sink http.ResponseWriter, err error) error {
 	if f, ok := sink.(http.Flusher); ok {
 		f.Flush()
 	}
-	return &providers.UpstreamStatusError{Status: status}
+	return &providers.UpstreamStatusError{Status: status, Cause: err}
 }
 
 // emitOpenAISSEErrorEvent is emitAnthropicSSEErrorEvent's OpenAI-shape
@@ -472,7 +472,7 @@ func emitOpenAISSEErrorEvent(sink http.ResponseWriter, err error) error {
 	if f, ok := sink.(http.Flusher); ok {
 		f.Flush()
 	}
-	return &providers.UpstreamStatusError{Status: status}
+	return &providers.UpstreamStatusError{Status: status, Cause: err}
 }
 
 // anthropicErrorFrameBody renders a classified dispatch error as an

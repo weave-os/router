@@ -11,6 +11,7 @@ import (
 
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/sse"
+	"weave-os/router/internal/translate"
 )
 
 // streamFailureClass names the owner of a stream that failed after the
@@ -48,6 +49,9 @@ type streamCutObserver struct {
 	inner http.ResponseWriter
 	now   func() time.Time
 
+	requestBytes int
+	thinking     bool
+
 	start        time.Time
 	lastFrame    time.Time
 	carry        []byte
@@ -65,6 +69,7 @@ type streamCutSnapshot struct {
 	frames        int
 	lastEvent     string
 	class         streamFailureClass
+	retryable     bool
 }
 
 func newStreamCutObserver(now func() time.Time) *streamCutObserver {
@@ -72,6 +77,16 @@ func newStreamCutObserver(now func() time.Time) *streamCutObserver {
 		now = time.Now
 	}
 	return &streamCutObserver{now: now}
+}
+
+// describeRequest records the inbound turn's size and reasoning setting so a
+// cut can be bucketed by what was sent, not only by how it died.
+func (o *streamCutObserver) describeRequest(requestBytes int, env *translate.RequestEnvelope) {
+	if o == nil {
+		return
+	}
+	o.requestBytes = requestBytes
+	o.thinking = reasoningRequested(env)
 }
 
 // attach arms the observer for one dispatch attempt on top of the attempt's
@@ -133,6 +148,7 @@ func (o *streamCutObserver) noteCut(err error) {
 		lastEvent:     o.lastEvent,
 		class:         classifyStreamFailure(err, o.lastEvent),
 	}
+	o.cutSnapshot.retryable = streamCutReplayRetryable(o.cutSnapshot.class, err)
 	o.cutClassSeen = true
 }
 
@@ -149,7 +165,34 @@ func (o *streamCutObserver) completionLogFields() []any {
 		"stream_last_upstream_event", s.lastEvent,
 		"stream_upstream_frames", s.frames,
 		"stream_failure_class", string(s.class),
+		"stream_cut_request_bytes", o.requestBytes,
+		"stream_cut_thinking", o.thinking,
+		"stream_cut_replay_retryable", s.retryable,
 	}
+}
+
+// reasoningRequested reports whether the turn asked for extended thinking in
+// any wire format's vocabulary.
+func reasoningRequested(env *translate.RequestEnvelope) bool {
+	if env == nil {
+		return false
+	}
+	kind := env.ReasoningIntent().Kind
+	return kind != "" && kind != translate.ReasoningDisabled
+}
+
+// streamCutReplayRetryable reports whether re-dispatching the same request
+// fresh would be worth trying: the failure was the upstream's and, when the
+// upstream named a status, that status is one providers.IsRetryableStatus
+// accepts. The committed turn itself is never retried; this describes the
+// replay a later turn or an offline harness could make.
+func streamCutReplayRetryable(class streamFailureClass, err error) bool {
+	switch class {
+	case streamFailureClientCanceled, streamFailureDeadline:
+		return false
+	}
+	status := upstreamStatus(err)
+	return status == 0 || providers.IsRetryableStatus(status)
 }
 
 func (o *streamCutObserver) scan(p []byte) {

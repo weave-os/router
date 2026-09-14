@@ -391,7 +391,7 @@ func (s *Service) bypassToAnthropic(
 			String("request_id", requestID).
 			String("external_id", externalID).
 			String("router_user_id", auth.UserIDFrom(ctx)).
-			String("client.app", clientID.ClientApp).
+			String("client.app", clientID.TelemetryClientApp()).
 			String("client.session_id", clientID.SessionID).
 			// Bypass never substitutes, so requested model IS the served model.
 			String("requested.model", decision.Model).
@@ -445,7 +445,7 @@ func (s *Service) bypassToAnthropic(
 			DeviceID:               clientID.DeviceID,
 			SessionID:              clientID.SessionID,
 			RouterUserID:           auth.UserIDFrom(ctx),
-			ClientApp:              clientID.ClientApp,
+			ClientApp:              clientID.TelemetryClientApp(),
 			CredentialKeyPrefix:    credentialKeyPrefix,
 			CredentialKeySuffix:    credentialKeySuffix,
 			CredentialSource:       credSource,

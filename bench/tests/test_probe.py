@@ -86,7 +86,7 @@ def test_probe_reports_version_roster_and_beta_ack(fake_router: str) -> None:
     assert "beta lane enabled for this key: yes" in rendered
     ((headers, body),) = _FakeRouter.responses_requests
     assert body == {"model": "gpt-5.6-sol", "input": "/beta", "stream": False}
-    assert headers["x-app"] == "codex"
+    assert headers["x-app"] == "weave-eval-codex"
     assert headers["session-id"].startswith("weave-bench-probe-")
     assert headers["authorization"] == "Bearer rk_test"
 

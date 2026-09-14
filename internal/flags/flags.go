@@ -61,6 +61,9 @@ const (
 	KeyScoreToolResultTurns                 Key = "score_tool_result_turns"
 	KeyPrefixTrimFreeSwitch                 Key = "prefix_trim_free_switch"
 	KeyAuthoritativeUpgradeGate             Key = "authoritative_upgrade_gate"
+	KeyAuthoritativeDowngradeGate           Key = "authoritative_downgrade_gate"
+	KeyHMMDowngradeHysteresisTurns          Key = "hmm_downgrade_hysteresis_turns"
+	KeyHMMDowngradeHysteresisShadowTurns    Key = "hmm_downgrade_hysteresis_shadow_turns"
 	KeyAuthorityCacheShadow                 Key = "authority_cache_shadow"
 	KeySiblingFailover                      Key = "sibling_failover"
 	KeyEffortEscalation                     Key = "effort_escalation"
@@ -96,7 +99,7 @@ type Definition struct {
 // RegistryVersion changes whenever Registry's membership changes. Publish uses
 // it to make pruning safe during rolling deploys: a revision with an older
 // registry version may not delete definitions published by a newer revision.
-const RegistryVersion = 14
+const RegistryVersion = 15
 
 // Registry is the curated allowlist of flags that may carry a per-organization
 // override. It is deliberately explicit rather than derived from the env var
@@ -203,6 +206,27 @@ var Registry = []Definition{
 		EnvVar:         "ROUTER_AUTHORITATIVE_UPGRADE_GATE",
 		Kind:           KindBool,
 		Description:    "Keep the confidence floor active for authoritative-per-turn policies.",
+		OrgOverridable: true,
+	},
+	{
+		Key:            KeyAuthoritativeDowngradeGate,
+		EnvVar:         "ROUTER_AUTHORITATIVE_DOWNGRADE_GATE",
+		Kind:           KindBool,
+		Description:    "Apply the upgrade gate's confidence floor to authoritative-per-turn downgrades too: a cheaper-than-pin pick below the threshold keeps the pin. Off by default.",
+		OrgOverridable: true,
+	},
+	{
+		Key:            KeyHMMDowngradeHysteresisTurns,
+		EnvVar:         "ROUTER_HMM_DOWNGRADE_HYSTERESIS_TURNS",
+		Kind:           KindInt,
+		Description:    "Consecutive authoritative-per-turn classifier votes for a cheaper-than-pin model required before the downgrade is applied. 0 (default) downgrades on the first vote; 3 is the value a rollout would start from.",
+		OrgOverridable: true,
+	},
+	{
+		Key:            KeyHMMDowngradeHysteresisShadowTurns,
+		EnvVar:         "ROUTER_HMM_DOWNGRADE_HYSTERESIS_SHADOW_TURNS",
+		Kind:           KindInt,
+		Description:    "Hysteresis threshold the served-downgrade shadow counts against: every applied authoritative-per-turn downgrade logs whether this many consecutive votes would have held it. Telemetry only, never changes routing. 0 disables the shadow; 2 by default.",
 		OrgOverridable: true,
 	},
 	{

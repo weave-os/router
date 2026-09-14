@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/http/httptest"
 	"slices"
 	"sync"
 	"testing"
@@ -777,6 +778,57 @@ func TestIsCommittedStreamFailure_ClientDisconnect(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			assert.Equal(t, tc.want, isCommittedStreamFailure(tc.ctx, tc.err))
 		})
+	}
+}
+
+// The in-stream error frame replaces a post-commit dispatch error with a
+// synthetic status before the demotion hook sees it. A client hang-up rendered
+// that way must still read as the client's own disconnect, whether the
+// dispatch error carries the cancellation or is a bare downstream write
+// error, while an upstream failure behind the same frame keeps demoting.
+func TestIsCommittedStreamFailure_SSEErrorFrameKeepsCause(t *testing.T) {
+	canceled, cancel := context.WithCancel(context.Background())
+	cancel()
+	live := context.Background()
+
+	brokenPipe := errors.New("write tcp 10.0.0.1:443->10.0.0.2:51234: write: broken pipe")
+	canceledStream := fmt.Errorf("stream: %w", context.Canceled)
+	upstream502 := &providers.UpstreamErrorResponse{Status: http.StatusBadGateway}
+	overloaded := &providers.UpstreamErrorResponse{Status: providerOverloadedStatus}
+	eof := errors.New("upstream call: unexpected EOF")
+
+	renderers := map[string]func(http.ResponseWriter, error) error{
+		"anthropic": emitAnthropicSSEErrorEvent,
+		"openai":    emitOpenAISSEErrorEvent,
+	}
+	cases := []struct {
+		name string
+		ctx  context.Context
+		err  error
+		want bool
+	}{
+		{name: "client cancel in chain", ctx: canceled, err: canceledStream, want: false},
+		{name: "broken pipe after client cancel", ctx: canceled, err: brokenPipe, want: false},
+		{name: "broken pipe, client connected", ctx: live, err: brokenPipe, want: true},
+		{name: "transport EOF, client connected", ctx: live, err: eof, want: true},
+		{name: "upstream 502 after client cancel", ctx: canceled, err: upstream502, want: true},
+		{name: "upstream 529, client connected", ctx: live, err: overloaded, want: false},
+		{name: "watchdog sentinel, ctx canceled", ctx: canceled, err: fmt.Errorf("stream: %w", providers.ErrUpstreamOutputStall), want: true},
+	}
+	for name, render := range renderers {
+		for _, tc := range cases {
+			t.Run(name+"/"+tc.name, func(t *testing.T) {
+				framed := render(httptest.NewRecorder(), tc.err)
+				var status *providers.UpstreamStatusError
+				require.ErrorAs(t, framed, &status)
+				assert.Same(t, tc.err, status.Cause)
+				assert.Equal(t, tc.want, isCommittedStreamFailure(tc.ctx, framed))
+				// ProxyMessages' deferred flush frames the committed attempt's
+				// already-framed error a second time.
+				reframed := render(httptest.NewRecorder(), framed)
+				assert.Equal(t, tc.want, isCommittedStreamFailure(tc.ctx, reframed))
+			})
+		}
 	}
 }
 

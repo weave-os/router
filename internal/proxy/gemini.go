@@ -217,14 +217,15 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 	actPricing := otel.Lookup(decision.Model)
 	reqDecisionPricing := reqPricing.ForInputTokens(feats.Tokens)
 	actDecisionPricing := actPricing.ForInputTokens(feats.Tokens)
-	geminiDecisionBuilder := otel.NewAttrBuilder(45).
+	geminiDecisionBuilder := otel.NewAttrBuilder(46).
 		String("request_id", requestID).
 		String("external_id", externalID).
 		String("client.device_id", clientID.DeviceID).
 		String("client.account_id", clientID.AccountID).
 		String("client.session_id", clientID.SessionID).
 		String("client.user_agent", clientID.UserAgent).
-		String("client.app", clientID.ClientApp).
+		String("client.app", clientID.TelemetryClientApp()).
+		String("rollout_id", policyRolloutIDFromContext(ctx)).
 		String("requested.model", feats.Model).
 		String("decision.model", decision.Model).
 		String("decision.provider", decision.Provider).
@@ -344,14 +345,15 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 	if responseBuffer != nil && proxyErr == nil {
 		setRouterCostHeaders(w.Header(), routerResponseCostFromPricing(actPricing, decision.Provider, in, out, cacheCreation, cacheRead))
 	}
-	geminiUpstreamBuilder := otel.NewAttrBuilder(40).
+	geminiUpstreamBuilder := otel.NewAttrBuilder(41).
 		String("request_id", requestID).
 		String("external_id", externalID).
 		String("client.device_id", clientID.DeviceID).
 		String("client.account_id", clientID.AccountID).
 		String("client.session_id", clientID.SessionID).
 		String("client.user_agent", clientID.UserAgent).
-		String("client.app", clientID.ClientApp).
+		String("client.app", clientID.TelemetryClientApp()).
+		String("rollout_id", policyRolloutIDFromContext(ctx)).
 		String("requested.model", feats.Model).
 		String("decision.model", decision.Model).
 		String("decision.provider", decision.Provider).
@@ -441,7 +443,7 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 			DeviceID:               clientID.DeviceID,
 			SessionID:              clientID.SessionID,
 			RouterUserID:           auth.UserIDFrom(ctx),
-			ClientApp:              clientID.ClientApp,
+			ClientApp:              clientID.TelemetryClientApp(),
 			TurnType:               string(routeRes.TurnType),
 			RolloutID:              geminiObs.RolloutID,
 			FailoverUsed:           boolPtrTrue(finalProvider != primaryProvider),

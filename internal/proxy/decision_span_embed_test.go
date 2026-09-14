@@ -235,3 +235,27 @@ func TestPinDecision_NeverRehydratesMetadata(t *testing.T) {
 	})
 	assert.Nil(t, dec.Metadata, "pins must never carry routing metadata — rehydrating it would replay stale sidecar timings")
 }
+
+func TestDecisionSpan_RolloutIDFromClientIdentity(t *testing.T) {
+	collector := newBypassSpanCollector(t)
+	svc := newEmbedTestService(t, collector, &embedTestRouter{}, nil)
+
+	rec := httptest.NewRecorder()
+	httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	ctx := context.WithValue(context.Background(), ClientIdentityContextKey{}, ClientIdentity{
+		ClientApp: ClientAppCodex,
+		Eval:      true,
+		RolloutID: "rollout-example-001",
+	})
+	require.NoError(t, svc.ProxyMessages(ctx, embedTurnBody(), rec, httpReq))
+
+	em := svc.emitter.(*otel.Emitter)
+	require.NoError(t, em.Shutdown(context.Background()))
+
+	collector.mu.Lock()
+	defer collector.mu.Unlock()
+	spans := collector.byName["router.decision"]
+	require.Len(t, spans, 1)
+	assert.Equal(t, "rollout-example-001", spanStr(t, spans[0], "rollout_id"))
+	assert.Equal(t, EvalClientAppPrefix+ClientAppCodex, spanStr(t, spans[0], "client.app"))
+}
