@@ -13,6 +13,7 @@ import (
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/observability/otel"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/sessionpin"
@@ -38,6 +39,7 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 	if managedSubscriptionEnrollmentUnavailable(ctx) {
 		return ErrSubscriptionPoolUnavailable
 	}
+	ctx = requestcontext.WithContentLogging(ctx, s.effectiveCaptureMode(ctx) != CaptureOff)
 	ctx, err := s.checkUserMonthlySpendLimit(ctx, r.Header, r.URL.Path)
 	if err != nil {
 		return err
@@ -102,7 +104,9 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 		"total_input_tokens", feats.Tokens,
 	)
 
-	logInboundRequestDiagnostics(log, env)
+	if s.effectiveCaptureMode(ctx) != CaptureOff {
+		logInboundRequestDiagnostics(log, env)
+	}
 
 	subAgentHint := r.Header.Get("x-weave-subagent-type")
 

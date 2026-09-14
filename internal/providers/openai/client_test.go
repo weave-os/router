@@ -305,8 +305,9 @@ func TestProxy_5xxIsBufferedToo(t *testing.T) {
 
 // TestProxy_DebugLogsFirstChunkPreview pins finding [50]'s consolidation: the
 // debug-mode per-chunk logging path shares StreamBody's read loop via the
-// onChunk hook rather than a hand-rolled duplicate, and still emits the
-// first-chunk preview + completion log slog.Debug used to log directly.
+// onChunk hook rather than a hand-rolled duplicate. The first-chunk log emits
+// only the byte count — upstream bytes are response content and must never
+// reach logs on zero-retention installs.
 func TestProxy_DebugLogsFirstChunkPreview(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
@@ -336,7 +337,8 @@ func TestProxy_DebugLogsFirstChunkPreview(t *testing.T) {
 
 	logged := buf.String()
 	assert.Contains(t, logged, "OpenAI upstream first chunk")
-	assert.Contains(t, logged, "chatcmpl-1", "first-chunk preview must carry the upstream bytes")
+	assert.NotContains(t, logged, "chatcmpl-1", "first-chunk log must not carry upstream bytes")
+	assert.Contains(t, logged, "bytes=27")
 	assert.Contains(t, logged, "OpenAI upstream stream complete")
 }
 

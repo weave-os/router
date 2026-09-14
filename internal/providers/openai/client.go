@@ -405,7 +405,6 @@ func (c *Client) Proxy(ctx context.Context, decision router.Decision, prep provi
 			if first {
 				log.Debug("OpenAI upstream first chunk",
 					"bytes", len(chunk),
-					"preview", observability.Preview(string(chunk), 320),
 				)
 			}
 		}))

@@ -3,6 +3,11 @@ name: test-claude-locally
 description: Run the Weave router locally in docker compose and drive it with `claude -p` to reproduce and verify routing/translation behavior for a specific upstream model (e.g. GLM-5.1, DeepSeek, Qwen). Use when verifying a router fix end-to-end, reproducing a prod routing bug, confirming a model's streaming behavior (nudges, tool-call suppression, loop/no-progress breaks), or testing a `/force-model` route — without touching the user's global Claude Code config.
 ---
 
+---
+name: test-claude-locally
+description: Run the local Docker Compose router with a seeded installation and Claude CLI against real or mock upstreams to verify routing and log behavior.
+---
+
 # Testing the router locally
 
 > For an **automated** pre-merge regression net (fixture-driven, asserts caching/streaming/decision-headers against real Anthropic), run `make smoke` — see [docs/SMOKE.md](../../../docs/SMOKE.md). This skill is the interactive counterpart: stand the stack up by hand and drive it with `claude -p` to reproduce or verify a one-off bug.
@@ -143,3 +148,16 @@ For fixes to `internal/billing` + `internal/server/middleware/balance_check.go` 
 - Local cluster version comes from `ROUTER_CLUSTER_VERSION` in `.env.local`; it may differ from prod, which is why `/force-model` (not the scorer) is the reliable way to hit one model.
 - GLM-5.1's primary binding is Together (then Fireworks, then OpenRouter) — see `internal/router/catalog/catalog.go`.
 - To confirm a deploy contains a given router commit: the prod Cloud Run revision name maps to a monorepo commit; `git ls-tree <monorepo-commit> router-internal/router` shows the pinned router submodule SHA.
+
+## Content-capture and stdout privacy checks
+
+- Self-hosted capture defaults to off. For a positive control, set `WV_CAPTURE_CONTENT=full` on the Compose server and leave the seeded installation's `content_capture_mode` NULL. Deployment off wins over installation full; installation off wins over deployment full.
+- Direct SQL changes to `router.model_router_installations.content_capture_mode` do not invalidate cached auth. Restart the server after a direct update, or use the admin endpoint that publishes invalidation.
+- For headless requests, `x-weave-force-model: <catalog model>` pins the target without a slash-command exchange. Supply it alongside `X-Weave-Router-Key` through the one-off Claude settings. `--settings` accepts inline JSON as well as a file, allowing locally seeded keys to remain in shell memory.
+- Newer Claude versions may prepend environment context to the main user message. Its `last_preview` can therefore show environment text rather than the task; title-generation requests may contain the task canary. Add a raw authenticated Messages request when exact preview equality matters.
+- To provoke a real Anthropic 400 through either Messages or Chat Completions, use a tool schema with an invalid nested JSON Schema type, e.g. `{"type":"object","properties":{"canary":{"type":"not_a_valid_json_schema_type"}}}`. Verify `upstream_status=400` and a nonempty error body with capture on before asserting it is blank off. Unknown model pins can fail locally, invalid tool names are sanitized, and invalid caller API keys are ignored on the router-keyed paid-credential path.
+- Search the entire container log for unique off-mode canaries, not only completion records. Include start records and conversation-tail diagnostics. Save logs before recreating the container, which replaces its log history.
+
+### Devin Secrets Needed
+
+- `ANTHROPIC_API_KEY` for real Anthropic checks. Pass it through the process environment to Compose; do not copy it into tracked files or plaintext test artifacts.

@@ -3139,6 +3139,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	if managedSubscriptionEnrollmentUnavailable(ctx) {
 		return ErrSubscriptionPoolUnavailable
 	}
+	ctx = requestcontext.WithContentLogging(ctx, s.effectiveCaptureMode(ctx) != CaptureOff)
 	ctx, err := s.checkUserMonthlySpendLimit(ctx, r.Header, r.URL.Path)
 	if err != nil {
 		return err
@@ -3241,7 +3242,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		"message_count", feats.MessageCount,
 		"has_tools", feats.HasTools,
 		"total_input_tokens", feats.Tokens,
-		"prompt_preview", observability.Preview(promptText, 200),
+		"prompt_preview", s.zdrLogField(ctx, observability.Preview(promptText, 200)),
 	)
 
 	// /beta toggle: handled server-side, never forwarded upstream, no post-command continuation.
@@ -3382,7 +3383,9 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	// Surface inbound tool_use / tool_result blocks the model is about to see.
 	// Lets us audit whether a misbehaving turn was provoked by a malformed prior
 	// tool_result or an out-of-shape tool spec, without dumping the whole body.
-	logInboundRequestDiagnostics(log, env)
+	if s.effectiveCaptureMode(ctx) != CaptureOff {
+		logInboundRequestDiagnostics(log, env)
+	}
 
 	// Anthropic packs sub-agent identity into metadata.user_id; the
 	// x-weave-subagent-type header is for non-Anthropic ingress only.
@@ -6111,6 +6114,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	if managedSubscriptionEnrollmentUnavailable(ctx) {
 		return ErrSubscriptionPoolUnavailable
 	}
+	ctx = requestcontext.WithContentLogging(ctx, s.effectiveCaptureMode(ctx) != CaptureOff)
 	ctx, err := s.checkUserMonthlySpendLimit(ctx, r.Header, r.URL.Path)
 	if err != nil {
 		return err
@@ -6198,7 +6202,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		"message_count", feats.MessageCount,
 		"has_tools", feats.HasTools,
 		"total_input_tokens", feats.Tokens,
-		"prompt_preview", observability.Preview(promptText, 200),
+		"prompt_preview", s.zdrLogField(ctx, observability.Preview(promptText, 200)),
 	)
 
 	// /beta toggle: handled server-side before other routing commands; no post-command continuation.
@@ -6314,7 +6318,9 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		}
 	}
 
-	logInboundRequestDiagnostics(log, env)
+	if s.effectiveCaptureMode(ctx) != CaptureOff {
+		logInboundRequestDiagnostics(log, env)
+	}
 
 	// OpenAI signals sub-agent identity via x-weave-subagent-type (no metadata.user_id).
 	subAgentHint := r.Header.Get("x-weave-subagent-type")
