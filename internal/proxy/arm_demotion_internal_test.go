@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -20,7 +21,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// demotionCall is one recorded DemoteModel invocation.
+// demotionCall is one recorded ExpireAndDemoteModel invocation.
 type demotionCall struct {
 	role   string
 	model  string
@@ -30,7 +31,10 @@ type demotionCall struct {
 type demotionStubPinStore struct {
 	mu        sync.Mutex
 	demotions []demotionCall
-	upserts   []sessionpin.Pin
+	// expired records the marker row each demotion wrote, in call order.
+	expired []sessionpin.Pin
+	// upserts records plain Upsert calls, which the demotion path must not make.
+	upserts []sessionpin.Pin
 }
 
 func (s *demotionStubPinStore) Get(context.Context, [sessionpin.SessionKeyLen]byte, string) (sessionpin.Pin, bool, error) {
@@ -68,10 +72,11 @@ func (s *demotionStubPinStore) DisableProvider(context.Context, [sessionpin.Sess
 	return nil
 }
 
-func (s *demotionStubPinStore) DemoteModel(_ context.Context, _ [sessionpin.SessionKeyLen]byte, role, model string, reason sessionpin.DemotionReason, _ router.Strategy) error {
+func (s *demotionStubPinStore) ExpireAndDemoteModel(_ context.Context, expired sessionpin.Pin, model string, reason sessionpin.DemotionReason) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.demotions = append(s.demotions, demotionCall{role: role, model: model, reason: reason})
+	s.demotions = append(s.demotions, demotionCall{role: expired.Role, model: model, reason: reason})
+	s.expired = append(s.expired, expired)
 	return nil
 }
 
@@ -126,9 +131,10 @@ func TestMaybeDemoteArmAfterCommittedStreamFailure_Classification(t *testing.T) 
 			store := &demotionStubPinStore{}
 			svc := newDemotionTestService(store, tc.flagOn)
 			installationID := uuid.New()
+			ctx := router.WithStrategy(context.Background(), router.StrategyHMM)
 
 			demoted := svc.maybeDemoteArmAfterCommittedStreamFailure(
-				context.Background(),
+				ctx,
 				tc.committed,
 				false,
 				tc.err,
@@ -151,11 +157,13 @@ func TestMaybeDemoteArmAfterCommittedStreamFailure_Classification(t *testing.T) 
 				{role: sessionpin.DefaultRole, model: demotedArm, reason: sessionpin.DemotionReasonCommittedStreamFailure},
 				{role: hmmHistoryRole(sessionpin.DefaultRole), model: demotedArm, reason: sessionpin.DemotionReasonCommittedStreamFailure},
 			}, store.demotions, "the strike must land on both rows the next turn merges")
-			require.Len(t, store.upserts, 2, "demotion must expire the pin and its HMM history row")
-			expired := store.upserts[0]
+			assert.Empty(t, store.upserts, "expiry must ride the guarded demotion write, not a plain upsert")
+			require.Len(t, store.expired, 2, "demotion must expire the pin and its HMM history row")
+			expired := store.expired[0]
 			assert.Equal(t, sessionpin.DefaultRole, expired.Role)
 			assert.Equal(t, installationID, expired.InstallationID)
-			assert.Equal(t, hmmHistoryRole(sessionpin.DefaultRole), store.upserts[1].Role)
+			assert.Equal(t, router.StrategyFromContext(ctx), expired.Strategy, "the write must be guarded by this request's strategy")
+			assert.Equal(t, hmmHistoryRole(sessionpin.DefaultRole), store.expired[1].Role)
 			assert.Empty(t, expired.Model, "expired pin must clear model so loadPin discards it")
 			assert.True(t, expired.PinnedUntil.Before(time.Now()))
 			assert.Equal(t, string(sessionpin.DemotionReasonCommittedStreamFailure), expired.Reason)
@@ -339,9 +347,11 @@ func TestMaybeDemoteArmAfterCommittedStreamFailure_UnaddressableSkipped(t *testi
 	}
 }
 
-// rowBackedPinStore mirrors the adapter's row semantics: Upsert creates the
-// (session_key, role) row, DemoteModel is an UPDATE that touches nothing when
-// that row is absent.
+// rowBackedPinStore mirrors the adapter's row semantics: Upsert creates or
+// replaces the (session_key, role) row (routing_strategy included, demoted
+// models preserved); ExpireAndDemoteModel seeds a missing row, expires and
+// strikes a row still owned by the caller's strategy, and leaves a row another
+// strategy has taken over untouched.
 type rowBackedPinStore struct {
 	demotionStubPinStore
 	rows map[string]sessionpin.Pin
@@ -361,29 +371,33 @@ func (s *rowBackedPinStore) Upsert(ctx context.Context, p sessionpin.Pin) error 
 	return nil
 }
 
-func (s *rowBackedPinStore) DemoteModel(ctx context.Context, key [sessionpin.SessionKeyLen]byte, role, model string, reason sessionpin.DemotionReason, strategy router.Strategy) error {
-	if err := s.demotionStubPinStore.DemoteModel(ctx, key, role, model, reason, strategy); err != nil {
+func (s *rowBackedPinStore) ExpireAndDemoteModel(ctx context.Context, expired sessionpin.Pin, model string, reason sessionpin.DemotionReason) error {
+	if err := s.demotionStubPinStore.ExpireAndDemoteModel(ctx, expired, model, reason); err != nil {
 		return err
 	}
-	row, ok := s.rows[role]
+	row, ok := s.rows[expired.Role]
 	if !ok {
+		expired.DemotedModels = []string{model}
+		s.rows[expired.Role] = expired
 		return nil
 	}
-	for _, m := range row.DemotedModels {
-		if m == model {
-			return nil
-		}
+	if !(row.Strategy == expired.Strategy || (row.Strategy == "" && expired.Strategy != router.StrategyHMMBeta)) {
+		return nil
 	}
-	row.DemotedModels = append(row.DemotedModels, model)
-	s.rows[role] = row
+	demoted := row.DemotedModels
+	if !slices.Contains(demoted, model) {
+		demoted = append(demoted, model)
+	}
+	expired.DemotedModels = demoted
+	s.rows[expired.Role] = expired
 	return nil
 }
 
 // The strike has to survive the session that has no pin row yet — a fresh
-// authoritative pick, a post-sweep turn, an escalation. Ordering the eviction
-// upsert before the demote UPDATE is what makes one strike hold there, and
-// writing it to the _hmm_history row too is what keeps it past the sweep of
-// the expired base row while HMM turns keep refreshing only the history row.
+// authoritative pick, a post-sweep turn, an escalation. Seeding the row in the
+// same write as the strike is what makes one strike hold there, and writing it
+// to the _hmm_history row too is what keeps it past the sweep of the expired
+// base row while HMM turns keep refreshing only the history row.
 func TestMaybeDemoteArmAfterCommittedStreamFailure_PersistsWithoutExistingRow(t *testing.T) {
 	cases := []struct {
 		name string
@@ -412,8 +426,9 @@ func TestMaybeDemoteArmAfterCommittedStreamFailure_PersistsWithoutExistingRow(t 
 			assert.Equal(t, demotedArm, demoted)
 			for _, role := range []string{sessionpin.DefaultRole, hmmHistoryRole(sessionpin.DefaultRole)} {
 				row, ok := store.rows[role]
-				require.True(t, ok, "eviction must seed row %q before the demotion writes to it", role)
+				require.True(t, ok, "demotion must seed row %q", role)
 				assert.Equal(t, []string{demotedArm}, row.DemotedModels, "row %q", role)
+				assert.Empty(t, row.Model, "row %q must be expired so the next turn re-routes", role)
 			}
 		})
 	}
@@ -493,9 +508,10 @@ func TestMaybeDemoteArmAfterRescuedFailure_Classification(t *testing.T) {
 				{role: sessionpin.DefaultRole, model: demotedArm, reason: sessionpin.DemotionReasonRescuedFailure},
 				{role: hmmHistoryRole(sessionpin.DefaultRole), model: demotedArm, reason: sessionpin.DemotionReasonRescuedFailure},
 			}, store.demotions, "the strike must land on both rows the next turn merges")
-			require.Len(t, store.upserts, 2, "demotion must expire the pin and its HMM history row")
-			assert.Equal(t, installationID, store.upserts[0].InstallationID)
-			assert.Equal(t, string(sessionpin.DemotionReasonRescuedFailure), store.upserts[0].Reason)
+			assert.Empty(t, store.upserts, "expiry must ride the guarded demotion write, not a plain upsert")
+			require.Len(t, store.expired, 2, "demotion must expire the pin and its HMM history row")
+			assert.Equal(t, installationID, store.expired[0].InstallationID)
+			assert.Equal(t, string(sessionpin.DemotionReasonRescuedFailure), store.expired[0].Reason)
 		})
 	}
 }
@@ -659,6 +675,108 @@ func TestMaybeDemoteArmAfterRescuedFailure_PersistsWithoutExistingRow(t *testing
 		row, ok := store.rows[role]
 		require.True(t, ok, "eviction must seed row %q before the demotion writes to it", role)
 		assert.Equal(t, []string{demotedArm}, row.DemotedModels, "row %q", role)
+	}
+}
+
+// A late failure from a request routed under one strategy must not touch the
+// pin a newer request stored under another strategy for the same session.
+// Request A (hmm) is still streaming when request B replaces the pin with a
+// live hmm_beta row; A then fails after commit. Its expiry-and-strike must
+// neither expire B's pin nor record A's demotion on B's row, and it must not
+// hand the row back to hmm on the way.
+func TestMaybeDemoteArmAfterCommittedStreamFailure_LateFailureLeavesReplacementStrategyRow(t *testing.T) {
+	store := newRowBackedPinStore()
+	svc := newDemotionTestService(store, true)
+	installationID := uuid.New()
+	key := nonZeroSessionKey()
+	ctxA := router.WithStrategy(context.Background(), router.StrategyHMM)
+
+	// Request A's pin, under hmm.
+	require.NoError(t, store.Upsert(ctxA, sessionpin.Pin{
+		SessionKey: key, Role: sessionpin.DefaultRole, InstallationID: installationID,
+		Provider: "anthropic", Model: demotedArm, Strategy: router.StrategyHMM,
+		TurnCount: 1, PinnedUntil: time.Now().Add(time.Hour),
+	}))
+	// Request B replaces it with a live hmm_beta pin on both rows.
+	betaPin := sessionpin.Pin{
+		SessionKey: key, Role: sessionpin.DefaultRole, InstallationID: installationID,
+		Provider: "anthropic", Model: "claude-sonnet-4-6", Strategy: router.StrategyHMMBeta,
+		TurnCount: 2, PinnedUntil: time.Now().Add(time.Hour),
+	}
+	require.NoError(t, store.Upsert(context.Background(), betaPin))
+	betaHistory := betaPin
+	betaHistory.Role = hmmHistoryRole(sessionpin.DefaultRole)
+	require.NoError(t, store.Upsert(context.Background(), betaHistory))
+	store.upserts = nil
+
+	// Request A's committed stream now fails.
+	demoted := svc.maybeDemoteArmAfterCommittedStreamFailure(
+		ctxA,
+		true,
+		false,
+		&providers.UpstreamStatusError{Status: http.StatusBadGateway},
+		demotedArm,
+		"hmm:authoritative model=claude-opus-4-7",
+		installationID,
+		key,
+		sessionpin.DefaultRole, sessionpin.DefaultRole,
+	)
+
+	assert.Equal(t, demotedArm, demoted, "the turn still reports its own demotion attempt")
+	assert.Empty(t, store.upserts, "no plain upsert may run ahead of the guarded write")
+	for _, expired := range store.expired {
+		assert.Equal(t, router.StrategyHMM, expired.Strategy, "row %q: the write must carry the failing request's strategy", expired.Role)
+	}
+	for role, want := range map[string]sessionpin.Pin{
+		sessionpin.DefaultRole:                 betaPin,
+		hmmHistoryRole(sessionpin.DefaultRole): betaHistory,
+	} {
+		row, ok := store.rows[role]
+		require.True(t, ok, "row %q", role)
+		assert.Equal(t, router.StrategyHMMBeta, row.Strategy, "row %q must stay owned by hmm_beta", role)
+		assert.Equal(t, want.Model, row.Model, "row %q must keep its live beta pin", role)
+		assert.True(t, row.PinnedUntil.After(time.Now()), "row %q must not be expired", role)
+		assert.Empty(t, row.DemotedModels, "row %q must not carry the stale hmm demotion", role)
+	}
+}
+
+// A committed stream that ends because the client went away is not an
+// upstream failure. httputil.StreamBody returns the response writer's error
+// as-is (broken pipe, connection reset) with no cancellation in its chain and
+// no status, so the request context is the only signal; the upstream
+// watchdogs cancel too, but with their sentinel as the cause, and must keep
+// demoting.
+func TestIsCommittedStreamFailure_ClientDisconnect(t *testing.T) {
+	canceled, cancel := context.WithCancel(context.Background())
+	cancel()
+	causedByClient, cancelCause := context.WithCancelCause(context.Background())
+	cancelCause(errors.New("client went away"))
+	deadline, cancelDeadline := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+	defer cancelDeadline()
+	stalled, cancelStalled := context.WithCancelCause(context.Background())
+	cancelStalled(providers.ErrUpstreamOutputStall)
+
+	brokenPipe := errors.New("write tcp 10.0.0.1:443->10.0.0.2:51234: write: broken pipe")
+
+	cases := []struct {
+		name string
+		ctx  context.Context
+		err  error
+		want bool
+	}{
+		{name: "broken pipe, client still connected", ctx: context.Background(), err: brokenPipe, want: true},
+		{name: "broken pipe after client cancel", ctx: canceled, err: brokenPipe, want: false},
+		{name: "connection reset with cancel cause", ctx: causedByClient, err: errors.New("write: connection reset by peer"), want: false},
+		{name: "unexpected EOF after client deadline", ctx: deadline, err: errors.New("upstream call: unexpected EOF"), want: false},
+		{name: "watchdog sentinel in error, ctx canceled", ctx: canceled, err: fmt.Errorf("stream: %w", providers.ErrUpstreamIdleTimeout), want: true},
+		{name: "watchdog sentinel as cancel cause, bare error", ctx: stalled, err: errors.New("context canceled"), want: true},
+		{name: "upstream 502 after client cancel", ctx: canceled, err: &providers.UpstreamStatusError{Status: http.StatusBadGateway}, want: true},
+		{name: "529 with client connected", ctx: context.Background(), err: &providers.UpstreamErrorResponse{Status: providerOverloadedStatus}, want: false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, isCommittedStreamFailure(tc.ctx, tc.err))
+		})
 	}
 }
 

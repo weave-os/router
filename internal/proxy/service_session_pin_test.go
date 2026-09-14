@@ -51,7 +51,7 @@ type fakePinStore struct {
 	demotions              []fakeDemotion
 }
 
-// fakeDemotion is one recorded DemoteModel call.
+// fakeDemotion is one recorded ExpireAndDemoteModel call.
 type fakeDemotion struct {
 	Role   string
 	Model  string
@@ -181,10 +181,10 @@ func (f *fakePinStore) ResetOverloadErrors(ctx context.Context, key [sessionpin.
 	return nil
 }
 
-func (f *fakePinStore) DemoteModel(_ context.Context, _ [sessionpin.SessionKeyLen]byte, role, model string, reason sessionpin.DemotionReason, _ router.Strategy) error {
+func (f *fakePinStore) ExpireAndDemoteModel(_ context.Context, expired sessionpin.Pin, model string, reason sessionpin.DemotionReason) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.demotions = append(f.demotions, fakeDemotion{Role: role, Model: model, Reason: reason})
+	f.demotions = append(f.demotions, fakeDemotion{Role: expired.Role, Model: model, Reason: reason})
 	return nil
 }
 

@@ -77,54 +77,6 @@ func (q *Queries) DeleteSessionPin(ctx context.Context, arg DeleteSessionPinPara
 	return i, err
 }
 
-const demoteSessionPinModel = `-- name: DemoteSessionPinModel :exec
-UPDATE router.session_pins
-SET demoted_models = CASE
-      WHEN $1::varchar = ANY(demoted_models) THEN demoted_models
-      ELSE array_append(demoted_models, $1::varchar)
-    END
-WHERE session_key = $2::bytea
-  AND role        = $3::varchar
-  AND (
-    routing_strategy = $4::varchar
-    OR (routing_strategy = '' AND $4::varchar <> 'hmm_beta')
-  )
-`
-
-type DemoteSessionPinModelParams struct {
-	Model                   string
-	SessionKey              []byte
-	Role                    string
-	ExpectedRoutingStrategy string
-}
-
-// Appends a model to demoted_models (deduped) after an upstream stream
-// failed with the prelude already committed, so the next turn's automatic
-// selection skips that arm. One failure is enough: the committed turn is
-// already lost. demoted_models only grows within one strategy's pin
-// lifecycle, like disabled_providers.
-//
-//	UPDATE router.session_pins
-//	SET demoted_models = CASE
-//	      WHEN $1::varchar = ANY(demoted_models) THEN demoted_models
-//	      ELSE array_append(demoted_models, $1::varchar)
-//	    END
-//	WHERE session_key = $2::bytea
-//	  AND role        = $3::varchar
-//	  AND (
-//	    routing_strategy = $4::varchar
-//	    OR (routing_strategy = '' AND $4::varchar <> 'hmm_beta')
-//	  )
-func (q *Queries) DemoteSessionPinModel(ctx context.Context, arg DemoteSessionPinModelParams) error {
-	_, err := q.db.Exec(ctx, demoteSessionPinModel,
-		arg.Model,
-		arg.SessionKey,
-		arg.Role,
-		arg.ExpectedRoutingStrategy,
-	)
-	return err
-}
-
 const disableSessionPinProvider = `-- name: DisableSessionPinProvider :exec
 UPDATE router.session_pins
 SET disabled_providers = CASE
@@ -171,6 +123,102 @@ func (q *Queries) DisableSessionPinProvider(ctx context.Context, arg DisableSess
 		arg.SessionKey,
 		arg.Role,
 		arg.ExpectedRoutingStrategy,
+	)
+	return err
+}
+
+const expireAndDemoteSessionPinModel = `-- name: ExpireAndDemoteSessionPinModel :exec
+INSERT INTO router.session_pins (
+  session_key, role, installation_id, pinned_provider,
+  pinned_model, pinned_effort, paired_provider, paired_model,
+  decision_reason, routing_strategy, policy_group, turn_count, pinned_until,
+  demoted_models
+) VALUES (
+  $1::bytea, $2::varchar, $3::uuid,
+  '', '', '', '', '',
+  $4::text, $5::varchar, '',
+  1, $6::timestamp,
+  ARRAY[$7::varchar]::text[]
+)
+ON CONFLICT (session_key, role) DO UPDATE SET
+  pinned_provider  = '',
+  pinned_model     = '',
+  pinned_effort    = '',
+  paired_provider  = '',
+  paired_model     = '',
+  decision_reason  = EXCLUDED.decision_reason,
+  routing_strategy = EXCLUDED.routing_strategy,
+  pinned_until     = EXCLUDED.pinned_until,
+  last_seen_at     = CURRENT_TIMESTAMP,
+  demoted_models   = CASE
+    WHEN $7::varchar = ANY(router.session_pins.demoted_models)
+      THEN router.session_pins.demoted_models
+    ELSE array_append(router.session_pins.demoted_models, $7::varchar)
+  END
+WHERE router.session_pins.routing_strategy = EXCLUDED.routing_strategy
+  OR (router.session_pins.routing_strategy = '' AND EXCLUDED.routing_strategy <> 'hmm_beta')
+`
+
+type ExpireAndDemoteSessionPinModelParams struct {
+	SessionKey              []byte
+	Role                    string
+	InstallationID          uuid.UUID
+	DecisionReason          string
+	ExpectedRoutingStrategy string
+	PinnedUntil             pgtype.Timestamp
+	Model                   string
+}
+
+// Expires the pin row and appends a model to demoted_models (deduped) in one
+// write, after an upstream stream failed with the prelude already committed,
+// so the next turn re-routes and its automatic selection skips that arm. One
+// failure is enough: the committed turn is already lost. A missing row is
+// seeded (a fresh authoritative pick or a swept session has none), an
+// existing row is rewritten only when it still belongs to the caller's
+// strategy, and a row another strategy has since taken over is left intact:
+// the failing request may be a late one whose pin was already replaced, and
+// a plain upsert here would hand that newer pin back to the stale strategy
+// before the strike lands. demoted_models only grows within one strategy's
+// pin lifecycle, like disabled_providers.
+//
+//	INSERT INTO router.session_pins (
+//	  session_key, role, installation_id, pinned_provider,
+//	  pinned_model, pinned_effort, paired_provider, paired_model,
+//	  decision_reason, routing_strategy, policy_group, turn_count, pinned_until,
+//	  demoted_models
+//	) VALUES (
+//	  $1::bytea, $2::varchar, $3::uuid,
+//	  '', '', '', '', '',
+//	  $4::text, $5::varchar, '',
+//	  1, $6::timestamp,
+//	  ARRAY[$7::varchar]::text[]
+//	)
+//	ON CONFLICT (session_key, role) DO UPDATE SET
+//	  pinned_provider  = '',
+//	  pinned_model     = '',
+//	  pinned_effort    = '',
+//	  paired_provider  = '',
+//	  paired_model     = '',
+//	  decision_reason  = EXCLUDED.decision_reason,
+//	  routing_strategy = EXCLUDED.routing_strategy,
+//	  pinned_until     = EXCLUDED.pinned_until,
+//	  last_seen_at     = CURRENT_TIMESTAMP,
+//	  demoted_models   = CASE
+//	    WHEN $7::varchar = ANY(router.session_pins.demoted_models)
+//	      THEN router.session_pins.demoted_models
+//	    ELSE array_append(router.session_pins.demoted_models, $7::varchar)
+//	  END
+//	WHERE router.session_pins.routing_strategy = EXCLUDED.routing_strategy
+//	  OR (router.session_pins.routing_strategy = '' AND EXCLUDED.routing_strategy <> 'hmm_beta')
+func (q *Queries) ExpireAndDemoteSessionPinModel(ctx context.Context, arg ExpireAndDemoteSessionPinModelParams) error {
+	_, err := q.db.Exec(ctx, expireAndDemoteSessionPinModel,
+		arg.SessionKey,
+		arg.Role,
+		arg.InstallationID,
+		arg.DecisionReason,
+		arg.ExpectedRoutingStrategy,
+		arg.PinnedUntil,
+		arg.Model,
 	)
 	return err
 }

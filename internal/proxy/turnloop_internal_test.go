@@ -83,7 +83,7 @@ func (s *stubPinStore) ResetOverloadErrors(context.Context, [sessionpin.SessionK
 	return nil
 }
 
-func (*stubPinStore) DemoteModel(context.Context, [sessionpin.SessionKeyLen]byte, string, string, sessionpin.DemotionReason, router.Strategy) error {
+func (*stubPinStore) ExpireAndDemoteModel(context.Context, sessionpin.Pin, string, sessionpin.DemotionReason) error {
 	return nil
 }
 

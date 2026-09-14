@@ -173,13 +173,19 @@ func (r *SessionPinRepo) DisableProvider(ctx context.Context, sessionKey [sessio
 	})
 }
 
-func (r *SessionPinRepo) DemoteModel(ctx context.Context, sessionKey [sessionpin.SessionKeyLen]byte, role, model string, _ sessionpin.DemotionReason, expectedStrategy router.Strategy) error {
+// ExpireAndDemoteModel seeds or expires the (session_key, role) row and
+// appends model to demoted_models in one statement. The ON CONFLICT update is
+// guarded by expired.Strategy, so a row another strategy owns is not touched.
+func (r *SessionPinRepo) ExpireAndDemoteModel(ctx context.Context, expired sessionpin.Pin, model string, _ sessionpin.DemotionReason) error {
 	q := sqlc.New(r.tx)
-	return q.DemoteSessionPinModel(ctx, sqlc.DemoteSessionPinModelParams{
-		SessionKey:              sessionKey[:],
-		Role:                    role,
+	return q.ExpireAndDemoteSessionPinModel(ctx, sqlc.ExpireAndDemoteSessionPinModelParams{
+		SessionKey:              expired.SessionKey[:],
+		Role:                    expired.Role,
+		InstallationID:          expired.InstallationID,
+		DecisionReason:          expired.Reason,
+		ExpectedRoutingStrategy: string(expired.Strategy),
+		PinnedUntil:             pgtype.Timestamp{Time: expired.PinnedUntil.UTC(), Valid: true},
 		Model:                   model,
-		ExpectedRoutingStrategy: string(expectedStrategy),
 	})
 }
 
