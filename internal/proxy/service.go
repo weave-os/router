@@ -3770,6 +3770,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	// that dies after commit can be described (frames, last event, gap)
 	// instead of reported as a bare synthesized 502.
 	streamCut := newStreamCutObserver(nil)
+	streamCut.describeRequest(len(body), env)
 
 	proxyStart := time.Now()
 	inferenceParentCtx := ctx

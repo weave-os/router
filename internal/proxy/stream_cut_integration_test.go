@@ -3,6 +3,7 @@ package proxy_test
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -68,6 +69,10 @@ func TestProxyMessages_CommittedStreamCutLogsDiagnostics(t *testing.T) {
 	assert.Contains(t, logged, "stream_failure_class=upstream_eof")
 	assert.Contains(t, logged, "stream_cut_elapsed_ms=")
 	assert.Contains(t, logged, "stream_ms_since_last_upstream_frame=")
+	assert.Contains(t, logged, fmt.Sprintf("stream_cut_request_bytes=%d", len(streamCutTurnBody)))
+	assert.Contains(t, logged, "stream_cut_thinking=false")
+	assert.Contains(t, logged, "stream_cut_replay_retryable=true",
+		"an upstream EOF is the upstream's failure; the same request replayed fresh is worth trying")
 }
 
 // A client that hangs up mid-stream looks identical on the wire to an upstream
@@ -99,6 +104,8 @@ func TestProxyMessages_ClientCancelClassifiedSeparately(t *testing.T) {
 
 	logged := logBuf.String()
 	assert.Contains(t, logged, "stream_failure_class=client_canceled")
+	assert.Contains(t, logged, "stream_cut_replay_retryable=false",
+		"a caller that hung up is not a failure a replay could recover")
 	assert.Contains(t, logged, "stream_upstream_frames=2")
 }
 
