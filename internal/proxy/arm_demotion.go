@@ -285,10 +285,7 @@ func isCommittedStreamFailure(ctx context.Context, err error) bool {
 	if err == nil {
 		return false
 	}
-	var synthetic *providers.UpstreamStatusError
-	if errors.As(err, &synthetic) && synthetic.Cause != nil {
-		err = synthetic.Cause
-	}
+	err = dispatchErrorBehindFrames(err)
 	if isUpstreamWatchdogError(err) || isUpstreamWatchdogError(context.Cause(ctx)) {
 		return true
 	}
@@ -307,6 +304,21 @@ func isCommittedStreamFailure(ctx context.Context, err error) bool {
 	// already-committed stream when the client is still there, otherwise the
 	// client's own disconnect surfacing as a downstream write error.
 	return ctx.Err() == nil
+}
+
+// dispatchErrorBehindFrames strips every synthetic SSE-frame status wrapping
+// err. The Anthropic path can frame twice — once in the committed attempt and
+// again in the deferred flush when a declined rescue owns it — so one peel
+// would still leave a synthetic 5xx in front of the client's disconnect. A
+// status read off a real upstream response carries no Cause and is kept.
+func dispatchErrorBehindFrames(err error) error {
+	for {
+		var synthetic *providers.UpstreamStatusError
+		if !errors.As(err, &synthetic) || synthetic.Cause == nil {
+			return err
+		}
+		err = synthetic.Cause
+	}
 }
 
 // isUpstreamWatchdogError reports whether err carries one of the upstream

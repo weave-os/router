@@ -823,6 +823,10 @@ func TestIsCommittedStreamFailure_SSEErrorFrameKeepsCause(t *testing.T) {
 				require.ErrorAs(t, framed, &status)
 				assert.Same(t, tc.err, status.Cause)
 				assert.Equal(t, tc.want, isCommittedStreamFailure(tc.ctx, framed))
+				// ProxyMessages' deferred flush frames the committed attempt's
+				// already-framed error a second time.
+				reframed := render(httptest.NewRecorder(), framed)
+				assert.Equal(t, tc.want, isCommittedStreamFailure(tc.ctx, reframed))
 			})
 		}
 	}
