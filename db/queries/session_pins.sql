@@ -172,6 +172,11 @@ ON CONFLICT (session_key, role) DO UPDATE SET
     WHEN router.session_pins.routing_strategy = EXCLUDED.routing_strategy
       THEN router.session_pins.disabled_providers
     ELSE '{}'
+  END,
+  demoted_models = CASE
+    WHEN router.session_pins.routing_strategy = EXCLUDED.routing_strategy
+      THEN router.session_pins.demoted_models
+    ELSE '{}'
   END;
 
 -- Records the previous turn's upstream token usage on an existing pin
@@ -294,6 +299,48 @@ WHERE session_key = @session_key::bytea
     routing_strategy = @expected_routing_strategy::varchar
     OR (routing_strategy = '' AND @expected_routing_strategy::varchar <> 'hmm_beta')
   );
+
+-- Expires the pin row and appends a model to demoted_models (deduped) in one
+-- write, after an upstream stream failed with the prelude already committed,
+-- so the next turn re-routes and its automatic selection skips that arm. One
+-- failure is enough: the committed turn is already lost. A missing row is
+-- seeded (a fresh authoritative pick or a swept session has none), an
+-- existing row is rewritten only when it still belongs to the caller's
+-- strategy, and a row another strategy has since taken over is left intact:
+-- the failing request may be a late one whose pin was already replaced, and
+-- a plain upsert here would hand that newer pin back to the stale strategy
+-- before the strike lands. demoted_models only grows within one strategy's
+-- pin lifecycle, like disabled_providers.
+-- name: ExpireAndDemoteSessionPinModel :exec
+INSERT INTO router.session_pins (
+  session_key, role, installation_id, pinned_provider,
+  pinned_model, pinned_effort, paired_provider, paired_model,
+  decision_reason, routing_strategy, policy_group, turn_count, pinned_until,
+  demoted_models
+) VALUES (
+  @session_key::bytea, @role::varchar, @installation_id::uuid,
+  '', '', '', '', '',
+  @decision_reason::text, @expected_routing_strategy::varchar, '',
+  1, @pinned_until::timestamp,
+  ARRAY[@model::varchar]::text[]
+)
+ON CONFLICT (session_key, role) DO UPDATE SET
+  pinned_provider  = '',
+  pinned_model     = '',
+  pinned_effort    = '',
+  paired_provider  = '',
+  paired_model     = '',
+  decision_reason  = EXCLUDED.decision_reason,
+  routing_strategy = EXCLUDED.routing_strategy,
+  pinned_until     = EXCLUDED.pinned_until,
+  last_seen_at     = CURRENT_TIMESTAMP,
+  demoted_models   = CASE
+    WHEN @model::varchar = ANY(router.session_pins.demoted_models)
+      THEN router.session_pins.demoted_models
+    ELSE array_append(router.session_pins.demoted_models, @model::varchar)
+  END
+WHERE router.session_pins.routing_strategy = EXCLUDED.routing_strategy
+  OR (router.session_pins.routing_strategy = '' AND EXCLUDED.routing_strategy <> 'hmm_beta');
 
 -- Garbage-collects pins that have been expired for >24h. The 24h grace
 -- means a transient Postgres outage doesn't immediately prune live pins;

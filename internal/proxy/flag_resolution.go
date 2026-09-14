@@ -113,6 +113,13 @@ func (s *Service) ResolveOpenAIResponsesBroad(ctx context.Context) bool {
 	return flags.BoolOr(ctx, flags.KeyOpenAIResponsesBroad, s.openAIResponsesBroad)
 }
 
+// ResolveCommittedStreamArmDemotion reports the
+// ROUTER_COMMITTED_STREAM_ARM_DEMOTION flag: on, a model whose stream failed
+// after the prelude committed leaves the session's automatic selection.
+func (s *Service) ResolveCommittedStreamArmDemotion(ctx context.Context) bool {
+	return flags.BoolOr(ctx, flags.KeyCommittedStreamArmDemotion, s.committedStreamArmDemotion)
+}
+
 // ResolveNativeAnthropicResponseSignals reports the
 // ROUTER_NATIVE_ANTHROPIC_RESPONSE_SIGNALS flag: whether an Anthropic-native
 // passthrough turn records its observed stop_reason and tool_use block count

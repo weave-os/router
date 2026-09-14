@@ -85,7 +85,19 @@ type Pin struct {
 	// after repeated 529 exhaustion (see DisableProvider). Only grows for
 	// the life of the row; Upsert never touches it.
 	DisabledProviders []string
+	// DemotedModels are models struck out for this pin's session after a
+	// committed upstream stream failure (see ExpireAndDemoteModel). Only grows
+	// for the life of the row; Upsert never touches it.
+	DemotedModels []string
 }
+
+// DemotionReason names why a model was withdrawn from automatic selection for
+// one session.
+type DemotionReason string
+
+// DemotionReasonCommittedStreamFailure marks an arm whose stream died after
+// the prelude committed, so the turn could neither retry nor fail over.
+const DemotionReasonCommittedStreamFailure DemotionReason = "committed_stream_failure"
 
 // Usage captures the previous turn's upstream token accounting.
 type Usage struct {
@@ -138,5 +150,13 @@ type Store interface {
 	// DisableProvider appends provider to DisabledProviders (deduped) and
 	// resets ConsecutiveOverloadErrors in the same write.
 	DisableProvider(ctx context.Context, sessionKey [SessionKeyLen]byte, role, provider string, expectedStrategy router.Strategy) error
+	// ExpireAndDemoteModel writes expired (an already-expired marker for one
+	// (SessionKey, Role) row, see Upsert) and appends model to that row's
+	// DemotedModels (deduped) in a single write. The row is seeded when absent;
+	// an existing row is rewritten only while it still belongs to
+	// expired.Strategy (same match as Consume), so a late failure from a
+	// request whose pin another strategy has since replaced touches nothing.
+	// The reason is recorded on the pin's eviction trail, not on the row.
+	ExpireAndDemoteModel(ctx context.Context, expired Pin, model string, reason DemotionReason) error
 	SweepExpired(ctx context.Context) error
 }

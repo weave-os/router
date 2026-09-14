@@ -100,6 +100,10 @@ func (*forceModelMapStore) IncrementOverloadErrors(context.Context, [sessionpin.
 func (*forceModelMapStore) ResetOverloadErrors(context.Context, [sessionpin.SessionKeyLen]byte, string, router.Strategy) error {
 	return nil
 }
+func (*forceModelMapStore) ExpireAndDemoteModel(context.Context, sessionpin.Pin, string, sessionpin.DemotionReason) error {
+	return nil
+}
+
 func (*forceModelMapStore) DisableProvider(context.Context, [sessionpin.SessionKeyLen]byte, string, string, router.Strategy) error {
 	return nil
 }
