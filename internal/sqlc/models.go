@@ -707,6 +707,7 @@ type RouterSessionPin struct {
 	PolicyGroup               string
 	RoutingStrategy           string
 	PinnedEffort              string
+	DemotedModels             []string
 	ConsecutiveDowngradeVotes int32
 }
 

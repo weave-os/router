@@ -112,6 +112,21 @@ func TestSiblingFailoverDecision(t *testing.T) {
 		assert.False(t, ok)
 	})
 
+	t.Run("skips a model this session demoted after a committed stream failure", func(t *testing.T) {
+		s := siblingService(providers.ProviderAnthropic, providers.ProviderFireworks)
+		md := &router.RoutingMetadata{
+			CandidateModels: []string{"claude-opus-5", "claude-sonnet-5", "deepseek/deepseek-v4-pro"},
+			CandidateProviders: map[string]string{
+				"claude-sonnet-5":          providers.ProviderAnthropic,
+				"deepseek/deepseek-v4-pro": providers.ProviderFireworks,
+			},
+		}
+		demoted := context.WithValue(ctx, SessionDemotedModelsContextKey{}, []string{"deepseek/deepseek-v4-pro"})
+		got, ok := s.siblingFailoverDecision(demoted, overloadedDecision(md), 1_000, 0, 0)
+		require.True(t, ok)
+		assert.Equal(t, "claude-sonnet-5", got.Model, "the demoted arm is skipped even though it ranks first")
+	})
+
 	t.Run("gateway BYOK rescues via a sibling behind a held gateway key", func(t *testing.T) {
 		s := &Service{}
 		gwCtx := context.WithValue(ctx, ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{

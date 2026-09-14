@@ -59,17 +59,7 @@ func (s *Service) expireSessionPinRow(
 	reason string,
 	invalidateContinuation bool,
 ) error {
-	expired := sessionpin.Pin{
-		SessionKey:     sessionKey,
-		Role:           role,
-		InstallationID: installationID,
-		Provider:       "",
-		Model:          "",
-		Reason:         reason,
-		Strategy:       router.StrategyFromContext(ctx),
-		TurnCount:      1,
-		PinnedUntil:    time.Now().Add(-time.Second),
-	}
+	expired := expiredSessionPin(installationID, sessionKey, role, reason, router.StrategyFromContext(ctx))
 	if err := s.pinStore.Upsert(context.Background(), expired); err != nil {
 		return err
 	}
@@ -77,6 +67,28 @@ func (s *Service) expireSessionPinRow(
 		return nil
 	}
 	return s.invalidatePostCommandContinuation(ctx, sessionKey, role)
+}
+
+// expiredSessionPin is the already-expired marker for one (session_key, role)
+// row: no model, so loadPin discards it and the next turn re-routes.
+func expiredSessionPin(
+	installationID uuid.UUID,
+	sessionKey [sessionpin.SessionKeyLen]byte,
+	role string,
+	reason string,
+	strategy router.Strategy,
+) sessionpin.Pin {
+	return sessionpin.Pin{
+		SessionKey:     sessionKey,
+		Role:           role,
+		InstallationID: installationID,
+		Provider:       "",
+		Model:          "",
+		Reason:         reason,
+		Strategy:       strategy,
+		TurnCount:      1,
+		PinnedUntil:    time.Now().Add(-time.Second),
+	}
 }
 
 func (s *Service) expireSessionPinAndHMMHistory(
