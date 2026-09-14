@@ -434,7 +434,7 @@ type RouterModelRouterRequestTelemetry struct {
 	LastToolUseName *string
 	// Byte length of the final tool_use block's input JSON as sent to the client, on a turn that ended with stop_reason = tool_use. NULL on every other turn.
 	LastToolUseInputBytes *int32
-	// JSON object of tool name to count of is_error tool_result blocks in the trailing user message. NULL when the trailing message carries no errored tool_result.
+	// JSON object of tool name to {calls, errors}: resolved tool calls on this request and how many of their results errored. NULL when the history has no resolved tool call.
 	ToolErrorCounts []byte
 }
 
