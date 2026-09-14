@@ -118,6 +118,7 @@ func TestProxyMessages_FireworksFailureFallbackToOpenRouter(t *testing.T) {
 	}))
 	defer openrouter.Close()
 
+	history := &historyCompletionStore{}
 	svc := proxy.NewService(
 		&fakeRouter{decision: router.Decision{Provider: "fireworks", Model: "deepseek/deepseek-v4-pro"}},
 		map[string]providers.Client{
@@ -130,12 +131,16 @@ func TestProxyMessages_FireworksFailureFallbackToOpenRouter(t *testing.T) {
 		"openrouter": {},
 	})
 
+	svc.WithRouterFeedbackStore(history)
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
 	body := []byte(`{"model":"deepseek/deepseek-v4-pro","stream":true,"messages":[{"role":"user","content":"hi"}]}`)
 
-	err := svc.ProxyMessages(context.Background(), body, rec, req)
+	err := svc.ProxyMessages(authedCtx(uuid.NewString()), body, rec, req)
 	require.NoError(t, err, "ProxyMessages should succeed after failover to OpenRouter")
+	require.Len(t, history.records, 1)
+	assert.Equal(t, providers.ProviderOpenRouter, history.records[0].ServedProvider)
+	assert.Equal(t, completionOSSModel, history.records[0].ServedModel)
 
 	mu.Lock()
 	defer mu.Unlock()

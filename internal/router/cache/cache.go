@@ -18,9 +18,11 @@ import (
 
 // CachedResponse captures the upstream response in the inbound wire format.
 type CachedResponse struct {
-	StatusCode int
-	Headers    http.Header
-	Body       []byte // Bounded by MaxBodyBytes; oversized entries are dropped.
+	ServedModel    string
+	ServedProvider string
+	StatusCode     int
+	Headers        http.Header
+	Body           []byte // Bounded by MaxBodyBytes; oversized entries are dropped.
 }
 
 // Config carries the runtime knobs.

@@ -77,11 +77,7 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 	if !env.Stream() {
 		responseBuffer = newResponseCostBuffer(w)
 		w = responseBuffer
-		defer func() {
-			if flushErr := responseBuffer.FlushToClient(); flushErr != nil {
-				log.Error("Failed to flush buffered response", "err", flushErr)
-			}
-		}()
+		defer func() { returnErr = responseBuffer.finish(returnErr) }()
 	}
 	embedFlag := s.ResolveEmbedOnlyUserMessage(ctx)
 	feats := env.RoutingFeatures(embedFlag)
@@ -279,6 +275,12 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 	// Append the one-click feedback thumbs as a trailing part on streaming
 	// answers (see ProxyMessages for the rationale). The Gemini path resolves no
 	// router user, matching the decision span and feedback header above.
+	var completion *feedbackCompletion
+	var ownsCompletion bool
+	w, completion, ownsCompletion = s.beginFeedbackCompletion(ctx, w, translate.EscalationResponseGemini, env.Stream(), installationID, sessionKey, feats.Model, requestID, routeRes)
+	if ownsCompletion {
+		defer func() { returnErr = completion.finish(ctx, returnErr) }()
+	}
 	clientSink := w
 	if env.Stream() {
 		if footer := s.feedbackFooter(ctx, ClientIdentityFrom(ctx).ClientApp, routeRes.TurnType, false); footer != "" {
@@ -332,6 +334,7 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 	finishInferenceSpan(inferenceSpan, decision, finalProvider, winnerIdx, proxyErr)
 	ctx = restoreParentSpan(ctx, inferenceParentCtx)
 	decision.Provider = finalProvider
+	completion.setDecision(ctx, decision, routeRes.Fresh)
 	if actBindingPricing, ok := servedPricing(finalProvider, decision.Model, false); ok {
 		actPricing = actBindingPricing
 	}

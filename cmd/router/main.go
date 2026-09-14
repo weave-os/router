@@ -1102,6 +1102,7 @@ func main() {
 	safeGo(logger, "escalation-state-sweep", func() { runEscalationSweep(context.Background(), escalationStore) })
 	servedModels := proxyRoutableModels(routingTargets, availableProviders, hmmRouter != nil)
 
+	feedbackStore := postgres.NewRouterFeedbackRepo(pool)
 	proxySvc := proxy.NewService(routeEntry, providerMap, telemetryEmitter, embedOnlyUser, semanticCache, pinStore, hardPinExplore, hardPinProvider, hardPinModel, repo.Telemetry).
 		WithObservationWorkers(observationWorkers).
 		WithSessionStrategyStore(sessionStrategyStore).
@@ -1163,7 +1164,7 @@ func main() {
 		WithStruggleEscalationStore(repo.Telemetry).
 		WithStruggleEscalationRoster(struggleRoster).
 		WithTextRepetitionBreak(textRepetitionBreakEnabled).
-		WithRouterFeedbackStore(repo.Telemetry).
+		WithRouterFeedbackStore(feedbackStore).
 		WithPlanner(plannerCfg).
 		WithSummarizer(summarizer).
 		WithCompactionHandoverSummarizer(compactionHandoverSz).
@@ -1182,6 +1183,23 @@ func main() {
 	for _, spec := range configuredPolicySpecs {
 		proxySvc = proxySvc.WithPolicyStrategy(spec)
 		logger.Info("Generic policy sidecar wired", "strategy", spec.Strategy, "candidate_models", len(routingTargets))
+	}
+	feedbackCtx, cancelFeedback := context.WithCancel(context.Background())
+	defer cancelFeedback()
+	feedbackDone := make(chan struct{})
+	safeGo(logger, "router-feedback-processor", func() {
+		defer close(feedbackDone)
+		if err := proxySvc.RunRouterFeedbackProcessor(feedbackCtx, feedbackStore); err != nil && !errors.Is(err, context.Canceled) {
+			logger.Error("Router feedback processor stopped", "err", err)
+		}
+	})
+	stopFeedback := func(ctx context.Context) {
+		cancelFeedback()
+		select {
+		case <-feedbackDone:
+		case <-ctx.Done():
+			logger.Error("Router feedback processor shutdown incomplete", "err", ctx.Err())
+		}
 	}
 	logger.Info("Effort escalation configured", "enabled", effortEscalation)
 	logger.Info("Cross-vendor Claude Code orchestration tools configured", "enabled", ccOrchToolsCrossVendor)
@@ -1335,7 +1353,7 @@ func main() {
 		logger.Info("Received shutdown signal; draining", "signal", sig.String())
 	}
 
-	shutdownRouter(srv, observationWorkers, emitter, apm.ShutdownWithContext, logger)
+	shutdownRouter(srv, observationWorkers, emitter, apm.ShutdownWithContext, stopFeedback, logger)
 }
 
 // buildExploringRouter optionally wraps rtr in the quality-tie-band explorer.

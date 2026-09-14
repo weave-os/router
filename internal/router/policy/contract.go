@@ -74,6 +74,9 @@ type StrategySpec struct {
 	Router       router.Router
 	Unavailable  error
 	Capabilities Capabilities
+	// FeedbackRetrySafe permits retries only after the receiver's durable
+	// feedback_id deduplication has been verified; HTTP 2xx alone is insufficient.
+	FeedbackRetrySafe bool
 }
 
 // Query contains the strategy-neutral request context supplied to a policy.

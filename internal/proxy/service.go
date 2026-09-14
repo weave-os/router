@@ -47,6 +47,7 @@ import (
 	"weave-os/router/internal/websearch"
 
 	"github.com/google/uuid"
+	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 )
 
@@ -391,11 +392,12 @@ type Service struct {
 }
 
 type registeredStrategy struct {
-	router       router.Router
-	unavailable  error
-	capabilities policy.Capabilities
-	outcomes     policy.OutcomeReporter
-	feedback     policy.FeedbackReporter
+	router            router.Router
+	unavailable       error
+	capabilities      policy.Capabilities
+	outcomes          policy.OutcomeReporter
+	feedback          policy.FeedbackReporter
+	feedbackRetrySafe bool
 }
 
 // pinSessionTTL mirrors Anthropic's prompt-cache TTL on Sonnet/Haiku/Opus 4.5+
@@ -2348,12 +2350,8 @@ var stripRoutingMarkerFromMessages = translate.StripRoutingMarkerFromMessages
 // larger bodies stream through but skip the Store call to bound peak memory.
 const semanticCacheMaxBodyBytes = 1 << 20
 
-// headersToSkipOnHit lists response headers the cache must NOT replay.
-// request-id ties to a specific upstream call; x-router-* are set fresh from
-// the live decision so the client sees current routing, not stale. The
-// feedback link encodes the original request's signed token; cache hits write
-// no telemetry row to back a feedback page, so the link is omitted on hits
-// entirely — the skip here guards against ever replaying the cached one.
+// headersToSkipOnHit excludes producer-specific identifiers and costs. Replay
+// uses a fresh request identity and feedback link with the producer's model.
 var headersToSkipOnHit = map[string]struct{}{
 	"Request-Id":              {},
 	"X-Request-Id":            {},
@@ -2385,28 +2383,28 @@ func cloneCacheHeaders(h http.Header) http.Header {
 	return out
 }
 
-// writeCachedResponse emits a stored CachedResponse. x-router-* headers come
-// from the live decision so the client sees an accurate routing trace. No
-// feedback link is set: a cache hit writes no telemetry row, so its feedback
-// page would have no routing context to show.
-func (s *Service) writeCachedResponse(w http.ResponseWriter, resp cache.CachedResponse, decision router.Decision) {
+// writeCachedResponse replays the producer's identity, not the unused live pick.
+func (s *Service) writeCachedResponse(w http.ResponseWriter, resp cache.CachedResponse, decision router.Decision) error {
 	for k, vs := range resp.Headers {
 		for _, v := range vs {
 			w.Header().Add(k, v)
 		}
 	}
 	w.Header().Set(HeaderRouterDecision, decision.Reason)
-	w.Header().Set(HeaderRouterProvider, decision.Provider)
-	w.Header().Set(HeaderRouterModel, decision.Model)
-	w.Header().Set(HeaderRouterContextWindow, strconv.Itoa(contextWindowForRequest(decision.Model, decision.Provider)))
+	w.Header().Set(HeaderRouterProvider, resp.ServedProvider)
+	w.Header().Set(HeaderRouterModel, resp.ServedModel)
+	w.Header().Set(HeaderRouterContextWindow, strconv.Itoa(contextWindowForRequest(resp.ServedModel, resp.ServedProvider)))
 	w.Header().Set(HeaderRouterCache, RouterCacheHit)
 	if resp.StatusCode != 0 && resp.StatusCode != http.StatusOK {
 		w.WriteHeader(resp.StatusCode)
 	}
-	_, _ = w.Write(resp.Body)
+	if _, err := w.Write(resp.Body); err != nil {
+		return err
+	}
 	if f, ok := w.(http.Flusher); ok {
 		f.Flush()
 	}
+	return nil
 }
 
 // EmbedOnlyUserMessageContextKey is the context key for the per-request embed flag override.
@@ -2451,9 +2449,10 @@ func (s *Service) WithPolicyStrategy(spec policy.StrategySpec) *Service {
 		s.strategies = make(map[router.Strategy]registeredStrategy)
 	}
 	registered := registeredStrategy{
-		router:       spec.Router,
-		unavailable:  spec.Unavailable,
-		capabilities: spec.Capabilities,
+		router:            spec.Router,
+		unavailable:       spec.Unavailable,
+		capabilities:      spec.Capabilities,
+		feedbackRetrySafe: spec.FeedbackRetrySafe,
 	}
 	registered.outcomes, _ = spec.Router.(policy.OutcomeReporter)
 	registered.feedback, _ = spec.Router.(policy.FeedbackReporter)
@@ -3016,6 +3015,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	requestID := requestIDFor(ctx)
 	buf := s.newTelemetryBuffer()
 	ctx = buf.WithContext(ctx)
+	defer buf.Flush()
 
 	// Strip the routing marker prior responses injected as assistant text —
 	// clients echo it back verbatim, so left in place it accumulates in
@@ -3063,11 +3063,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	if !env.Stream() {
 		responseBuffer = newResponseCostBuffer(w)
 		w = responseBuffer
-		defer func() {
-			if flushErr := responseBuffer.FlushToClient(); flushErr != nil {
-				log.Error("Failed to flush buffered response", "err", flushErr)
-			}
-		}()
+		defer func() { returnErr = responseBuffer.finish(returnErr) }()
 	}
 
 	apiKeyID, _ := ctx.Value(APIKeyIDContextKey{}).(string)
@@ -3398,6 +3394,12 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		s.recordPolicyPinRouteFailure(ctx, requestID, requestStart, feats.Model, routeRes.TurnType, routeErr)
 		return routeErr
 	}
+	var completion *feedbackCompletion
+	var ownsCompletion bool
+	w, completion, ownsCompletion = s.beginFeedbackCompletion(ctx, w, translate.EscalationResponseAnthropic, env.Stream(), installationID, sessionKey, feats.Model, requestID, routeRes)
+	if ownsCompletion {
+		defer func() { returnErr = completion.finish(ctx, returnErr) }()
+	}
 	if len(routeRes.SessionDisabledProviders) > 0 {
 		// resolveBindingsForDispatch reads excludedProvidersForRequest from ctx,
 		// not req.EnabledProviders, so stash here for the failover walk too.
@@ -3407,6 +3409,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	// On a retryable 429 the bypass falls through to re-routing; rate-limit
 	// headers prime the observer so the retry discounts Anthropic.
 	if routeRes.UsageBypass && routeRes.Decision.Provider == providers.ProviderAnthropic {
+		s.setFeedbackLinkHeader(ctx, w, installationID, externalID, requestID, auth.UserIDFrom(ctx))
 		err := s.bypassToAnthropic(ctx, env, feats, routeRes.modelSwitched(), requestStart, requestID, externalID, routeRes.TurnType, r, w)
 		if !errors.Is(err, errBypassRetryable) {
 			if !agentShadowMode {
@@ -3569,7 +3572,15 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	cacheEligible := routeRes.EscalationOrdinal == 0 && !clientRecoveryApplied && s.semanticCacheAllowed(ctx) && s.semanticCache != nil && !env.Stream() && decision.Metadata != nil && externalID != "" && !bypassEval && !compactionHandoverRan && !billing.SubscriptionOnlyFromContext(ctx) && len(s.subsidyFactors(ctx, r.Header)) == 0 && len(subscriptionStatePreferredModelsFromContext(ctx)) == 0 && len(subscriptionPlanAwareExcludedModelsFromContext(ctx)) == 0 && !requestAllowedModelsPresent(ctx)
 	if cacheEligible {
 		if resp, hit := s.semanticCache.Lookup(externalID, cache.FormatAnthropic, decision.Metadata.Embedding, decision.Metadata.ClusterIDs, decision.Metadata.ClusterRouterVersion, decision.Metadata.EffectiveKnobsHash); hit {
-			s.writeCachedResponse(w, resp, decision)
+			if completion != nil {
+				completion.request.ServedModel = resp.ServedModel
+				completion.request.ServedProvider = resp.ServedProvider
+				completion.request.Strategy, completion.request.RouteID = "", ""
+			}
+			s.setFeedbackLinkHeader(ctx, w, installationID, externalID, requestID, auth.UserIDFrom(ctx))
+			if err := s.writeCachedResponse(w, resp, decision); err != nil {
+				return err
+			}
 			otel.Record(ctx, otel.Span{
 				Name:  "router.cache_hit",
 				Start: requestStart,
@@ -4442,6 +4453,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		finalProvider = providers.ProviderAnthropic
 	}
 	decision.Provider = finalProvider
+	completion.setDecision(ctx, decision, routeRes.Fresh)
 
 	// Re-resolve credentials for the binding that actually served — each
 	// failover attempt gets its own context. Carry the suppression forward on
@@ -4466,9 +4478,11 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	if cacheEligible && proxyErr == nil && captureW != nil {
 		if body, status, ok := captureW.captured(); ok && status == http.StatusOK {
 			storeResp := cache.CachedResponse{
-				StatusCode: status,
-				Headers:    cloneCacheHeaders(w.Header()),
-				Body:       body,
+				StatusCode:     status,
+				Headers:        cloneCacheHeaders(w.Header()),
+				Body:           body,
+				ServedModel:    decision.ServedIdentity(),
+				ServedProvider: decision.Provider,
 			}
 			s.semanticCache.Store(externalID, cache.FormatAnthropic, decision.Metadata.Embedding, decision.Metadata.ClusterIDs[0], storeResp, decision.Metadata.ClusterRouterVersion, decision.Metadata.EffectiveKnobsHash)
 		}
@@ -5907,6 +5921,11 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	requestID := requestIDFor(ctx)
 	buf := s.newTelemetryBuffer()
 	ctx = buf.WithContext(ctx)
+	if deferred := deferredCallLogFrom(ctx); deferred != nil {
+		deferred.flush = buf.Flush
+	} else {
+		defer buf.Flush()
+	}
 
 	apiKeyID, _ := ctx.Value(APIKeyIDContextKey{}).(string)
 	externalID, _ := ctx.Value(ExternalIDContextKey{}).(string)
@@ -5945,11 +5964,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	if !env.Stream() && !isResponsesWriter {
 		responseBuffer = newResponseCostBuffer(w)
 		w = responseBuffer
-		defer func() {
-			if flushErr := responseBuffer.FlushToClient(); flushErr != nil {
-				log.Error("Failed to flush buffered response", "err", flushErr)
-			}
-		}()
+		defer func() { returnErr = responseBuffer.finish(returnErr) }()
 	}
 
 	// Bind session-scoped logger before stripping router-only history; see the
@@ -6251,6 +6266,12 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		s.recordPolicyPinRouteFailure(ctx, requestID, requestStart, feats.Model, routeRes.TurnType, err)
 		return err
 	}
+	var completion *feedbackCompletion
+	var ownsCompletion bool
+	w, completion, ownsCompletion = s.beginFeedbackCompletion(ctx, w, translate.EscalationResponseChat, env.Stream(), installationID, sessionKey, feats.Model, requestID, routeRes)
+	if ownsCompletion {
+		defer func() { returnErr = completion.finish(ctx, returnErr) }()
+	}
 	if len(routeRes.SessionDisabledProviders) > 0 {
 		ctx = context.WithValue(ctx, SessionDisabledProvidersContextKey{}, routeRes.SessionDisabledProviders)
 	}
@@ -6269,7 +6290,15 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	cacheEligible := routeRes.EscalationOrdinal == 0 && s.semanticCacheAllowed(ctx) && s.semanticCache != nil && !env.Stream() && decision.Metadata != nil && externalID != "" && !bypassEval && !responsesPassthrough && !billing.SubscriptionOnlyFromContext(ctx) && len(s.subsidyFactors(ctx, r.Header)) == 0 && len(subscriptionStatePreferredModelsFromContext(ctx)) == 0 && len(subscriptionPlanAwareExcludedModelsFromContext(ctx)) == 0 && !requestAllowedModelsPresent(ctx)
 	if cacheEligible {
 		if resp, hit := s.semanticCache.Lookup(externalID, cache.FormatOpenAI, decision.Metadata.Embedding, decision.Metadata.ClusterIDs, decision.Metadata.ClusterRouterVersion, decision.Metadata.EffectiveKnobsHash); hit {
-			s.writeCachedResponse(w, resp, decision)
+			if completion != nil {
+				completion.request.ServedModel = resp.ServedModel
+				completion.request.ServedProvider = resp.ServedProvider
+				completion.request.Strategy, completion.request.RouteID = "", ""
+			}
+			s.setFeedbackLinkHeader(ctx, w, installationID, externalID, requestID, auth.UserIDFrom(ctx))
+			if err := s.writeCachedResponse(w, resp, decision); err != nil {
+				return err
+			}
 			otel.Record(ctx, otel.Span{
 				Name:  "router.cache_hit",
 				Start: requestStart,
@@ -7121,6 +7150,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		finalProvider = bindings[winnerIdx].Provider
 	}
 	decision.Provider = finalProvider
+	completion.setDecision(ctx, decision, routeRes.Fresh)
 
 	// Re-resolve credentials for the binding that actually served — each
 	// failover attempt gets its own context with potentially different creds.
@@ -7139,9 +7169,11 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	if cacheEligible && proxyErr == nil && captureW != nil {
 		if body, status, ok := captureW.captured(); ok && status == http.StatusOK {
 			storeResp := cache.CachedResponse{
-				StatusCode: status,
-				Headers:    cloneCacheHeaders(w.Header()),
-				Body:       body,
+				StatusCode:     status,
+				Headers:        cloneCacheHeaders(w.Header()),
+				Body:           body,
+				ServedModel:    decision.ServedIdentity(),
+				ServedProvider: decision.Provider,
 			}
 			s.semanticCache.Store(externalID, cache.FormatOpenAI, decision.Metadata.Embedding, decision.Metadata.ClusterIDs[0], storeResp, decision.Metadata.ClusterRouterVersion, decision.Metadata.EffectiveKnobsHash)
 		}
@@ -7373,7 +7405,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 // the existing chat-completions path, then the chat-completions response is
 // re-emitted as Responses-shaped SSE / JSON. This keeps the turn loop, cache,
 // pricing, and translation matrix unchanged.
-func (s *Service) ProxyOpenAIResponses(ctx context.Context, body []byte, w http.ResponseWriter, r *http.Request) error {
+func (s *Service) ProxyOpenAIResponses(ctx context.Context, body []byte, w http.ResponseWriter, r *http.Request) (returnErr error) {
 	ctx = s.withUsageObserver(ctx, r.Header, routePathResponses)
 	clientAppCodex := ClientIdentityFrom(ctx).ClientApp == ClientAppCodex
 	if translate.FeedbackFooterSinceLastHumanTurnInResponses(body) {
@@ -7432,6 +7464,12 @@ func (s *Service) ProxyOpenAIResponses(ctx context.Context, body []byte, w http.
 	ctx = context.WithValue(ctx, responsesTransformsContextKey{}, conversion.Report)
 	// Routing, billing, and telemetry are reused via
 	// ProxyOpenAIChatCompletion; chatBody is used only for routing features.
+	var completion *feedbackCompletion
+	if s.feedbackStore != nil {
+		completion = newFeedbackCompletion(w, translate.EscalationResponseResponses, gjson.GetBytes(body, "stream").Bool())
+		w = completion
+		ctx = context.WithValue(ctx, feedbackCompletionContextKey{}, completion)
+	}
 	wrapper := translate.NewResponsesWriter(w, model)
 	if clientAppCodex {
 		wrapper.EnableCodexBadgeProvenance()
@@ -7445,6 +7483,13 @@ func (s *Service) ProxyOpenAIResponses(ctx context.Context, body []byte, w http.
 	// call log's io.request_body matches the Responses-format response body
 	// (ProxyOpenAIChatCompletion otherwise sees the translated chatBody).
 	deferredLog.requestBody = body
+	defer func() {
+		returnErr = completion.finish(ctx, returnErr)
+		if deferredLog.escalation != nil {
+			deferredLog.escalation(returnErr)
+		}
+		deferredLog.run()
+	}()
 	// Prelude emission is delegated to ProxyOpenAIChatCompletion, which knows
 	// the completed routing decision and can surface its badge before dispatch.
 	proxyErr := s.ProxyOpenAIChatCompletion(ctx, chatBody, wrapper, r)
@@ -7458,16 +7503,7 @@ func (s *Service) ProxyOpenAIResponses(ctx context.Context, body []byte, w http.
 		if finErr := wrapper.FinalizeError(proxyErr); finErr != nil {
 			observability.FromContext(ctx).Error("Failed to finalize Responses error stream", "err", finErr)
 		}
-		if deferredLog.escalation != nil {
-			deferredLog.escalation(proxyErr)
-		}
-		deferredLog.run()
 		return proxyErr
 	}
-	finErr := wrapper.Finalize()
-	if deferredLog.escalation != nil {
-		deferredLog.escalation(finErr)
-	}
-	deferredLog.run()
-	return finErr
+	return wrapper.Finalize()
 }

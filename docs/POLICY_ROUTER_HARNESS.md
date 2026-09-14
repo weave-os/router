@@ -52,6 +52,33 @@ If outcome or feedback handling is intentionally a no-op, return 2xx and set
 the corresponding capability to `false`. The router will then stop sending
 that optional callback after capability discovery.
 
+### Durable explicit feedback
+
+The router acknowledges `/rf` only after its command and local request rating
+commit together. Policy reporting is separate: the saved `router_feedback` row is
+leased for at-least-once delivery, with bounded calls, capped retry delays and
+fenced completion updates. A worker never changes a local rating or resolves a
+selector again, so delayed reports cannot overwrite later signed-link edits.
+
+Payloads carry `feedback_id` (the stable command UUID) and the rated request's
+saved `request_id`, `route_id`, strategy and served model/provider. They do not use
+the current session route or a guessed conversation delta. Delivery requires the
+saved training permission and the installation's current permission. A failed
+permission lookup retries; revoked permission suppresses delivery while retaining
+local feedback. Missing required reporters stay pending. Unattributed commands,
+strategies without a learning consumer, and explicitly disabled feedback are
+skipped with a reason.
+
+**Stateful receivers must durably deduplicate `feedback_id` with their effect.**
+HTTP 2xx alone does not prove durable acceptance. A crash after remote success but
+before the router finishes its lease resends the same event ID. The composition
+owner must verify this receiver contract before enabling `FeedbackRetrySafe` on a
+strategy registration; it defaults to false, retaining submissions pending. This
+is not capability-version negotiation, exactly-once delivery, or receiver-wide
+latest-rating synchronization. No external learner implementation is bundled or
+verified here. The bundled frozen HMM advertises feedback disabled and needs no
+receiver change.
+
 Example capabilities response:
 
 ```json
