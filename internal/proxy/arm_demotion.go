@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"slices"
 	"strings"
 
 	"weave-os/router/internal/observability"
@@ -23,12 +24,22 @@ import (
 // loses the next one too.
 //
 // Returns the demoted model, or "" when nothing was demoted. No-ops when the
-// flag is off, there is no addressable pin row, the pin was user-forced, or
-// the failure is not upstream-owned. Deliberately not gated on stickyHit: a
-// fresh authoritative pick that dies this way must be demoted too.
+// flag is off, there is no addressable pin row, the turn was hard-pinned
+// (utility turns and the native web-search passthrough never write session
+// routing state, see recordTurnUsage), the pin was user-forced, the failure is
+// not upstream-owned, or the caller's per-cluster allowlists name no other
+// model (see clusterAllowlistsPinModel). Deliberately not gated on stickyHit:
+// a fresh authoritative pick that dies this way must be demoted too.
+//
+// The strike itself is soft: it travels as AutomaticExcludedModels, and every
+// enforcement site keeps the unfiltered pool when the exclusion would empty
+// it. An installation whose allowlist admits only the failed model therefore
+// re-picks it on the next turn; the demotion never widens the set of models
+// the installation's configuration lets automatic routing choose from.
 func (s *Service) maybeDemoteArmAfterCommittedStreamFailure(
 	ctx context.Context,
 	committedStream bool,
+	hardPinned bool,
 	proxyErr error,
 	model string,
 	decisionReason string,
@@ -40,7 +51,7 @@ func (s *Service) maybeDemoteArmAfterCommittedStreamFailure(
 	if !s.ResolveCommittedStreamArmDemotion(ctx) || s.pinStore == nil || installationID == uuid.Nil {
 		return ""
 	}
-	if sessionKey == ([sessionpin.SessionKeyLen]byte{}) || model == "" {
+	if sessionKey == ([sessionpin.SessionKeyLen]byte{}) || model == "" || hardPinned {
 		return ""
 	}
 	// Prefix check covers both ReasonUserForceModel and its tier_clamp suffix.
@@ -52,6 +63,14 @@ func (s *Service) maybeDemoteArmAfterCommittedStreamFailure(
 	}
 
 	log := observability.FromContext(ctx)
+	if clusterAllowlistsPinModel(clusterArmOverridesForRequest(ctx), model) {
+		log.Info("model kept for session despite committed stream failure: cluster allowlists name no other model",
+			"role", role,
+			"model", model,
+			"upstream_status", upstreamStatus(proxyErr),
+		)
+		return ""
+	}
 	reason := sessionpin.DemotionReasonCommittedStreamFailure
 
 	// Expire both rows for the reason maybeDisableProviderAfterOverload does:
@@ -70,9 +89,17 @@ func (s *Service) maybeDemoteArmAfterCommittedStreamFailure(
 		log.Error("pin eviction after committed stream failure failed", "err", err, "role", role, "pin_role", pinRole, "model", model)
 		return ""
 	}
-	if err := s.pinStore.DemoteModel(context.Background(), sessionKey, role, model, reason, router.StrategyFromContext(ctx)); err != nil {
-		log.Error("session model demotion failed", "err", err, "role", role, "model", model)
-		return ""
+	// The strike is written to every row the next turn merges (see
+	// mergeSessionStrikes): a non-sticky HMM pick records its state only on the
+	// _hmm_history row, and later HMM turns refresh that row and never the
+	// expired base row, which SweepExpired would otherwise take the strike
+	// down with while the session is still live.
+	strategy := router.StrategyFromContext(ctx)
+	for _, strikeRole := range demotionRoles(role, pinRole) {
+		if err := s.pinStore.DemoteModel(context.Background(), sessionKey, strikeRole, model, reason, strategy); err != nil {
+			log.Error("session model demotion failed", "err", err, "role", strikeRole, "model", model)
+			return ""
+		}
 	}
 	log.Info("model demoted for session after committed stream failure",
 		"role", role,
@@ -81,6 +108,40 @@ func (s *Service) maybeDemoteArmAfterCommittedStreamFailure(
 		"upstream_status", upstreamStatus(proxyErr),
 	)
 	return model
+}
+
+// demotionRoles lists the pin rows a strike is written to: the sticky-state
+// role, the base pin role and its _hmm_history row, deduplicated in that order.
+func demotionRoles(role, pinRole string) []string {
+	roles := make([]string, 0, 3)
+	for _, candidate := range []string{role, pinRole, hmmHistoryRole(pinRole)} {
+		if !slices.Contains(roles, candidate) {
+			roles = append(roles, candidate)
+		}
+	}
+	return roles
+}
+
+// clusterAllowlistsPinModel reports whether the caller's per-cluster
+// allowlists (org default intersected with the user's own selection) are
+// configured and name no model other than model. Such a caller has pinned
+// every cluster they constrained to that one model, and
+// policy.ApplyClusterArmOverrides falls open to the sidecar's unconstrained
+// pick when the lists admit nothing eligible; withdrawing the model would
+// route them to whatever the roster has left, which may be another vendor.
+// Unconfigured lists (nil or empty) never pin.
+func clusterAllowlistsPinModel(overrides map[string][]string, model string) bool {
+	if len(overrides) == 0 {
+		return false
+	}
+	for _, models := range overrides {
+		for _, listed := range models {
+			if listed != model {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 // armDemotionReason is the completion line's companion to arm_demoted: empty

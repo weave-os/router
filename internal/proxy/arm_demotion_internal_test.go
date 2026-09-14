@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"weave-os/router/internal/auth"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/sessionpin"
@@ -129,6 +130,7 @@ func TestMaybeDemoteArmAfterCommittedStreamFailure_Classification(t *testing.T) 
 			demoted := svc.maybeDemoteArmAfterCommittedStreamFailure(
 				context.Background(),
 				tc.committed,
+				false,
 				tc.err,
 				demotedArm,
 				"cluster:v0.57 model=claude-opus-4-7 provider=anthropic",
@@ -145,12 +147,10 @@ func TestMaybeDemoteArmAfterCommittedStreamFailure_Classification(t *testing.T) 
 			}
 
 			assert.Equal(t, demotedArm, demoted)
-			require.Len(t, store.demotions, 1)
-			assert.Equal(t, demotionCall{
-				role:   sessionpin.DefaultRole,
-				model:  demotedArm,
-				reason: sessionpin.DemotionReasonCommittedStreamFailure,
-			}, store.demotions[0])
+			assert.Equal(t, []demotionCall{
+				{role: sessionpin.DefaultRole, model: demotedArm, reason: sessionpin.DemotionReasonCommittedStreamFailure},
+				{role: hmmHistoryRole(sessionpin.DefaultRole), model: demotedArm, reason: sessionpin.DemotionReasonCommittedStreamFailure},
+			}, store.demotions, "the strike must land on both rows the next turn merges")
 			require.Len(t, store.upserts, 2, "demotion must expire the pin and its HMM history row")
 			expired := store.upserts[0]
 			assert.Equal(t, sessionpin.DefaultRole, expired.Role)
@@ -172,6 +172,7 @@ func TestMaybeDemoteArmAfterCommittedStreamFailure_FiresWithoutStickyPin(t *test
 	demoted := svc.maybeDemoteArmAfterCommittedStreamFailure(
 		context.Background(),
 		true,
+		false,
 		&providers.UpstreamStatusError{Status: http.StatusBadGateway},
 		demotedArm,
 		"hmm:authoritative model=claude-opus-4-7",
@@ -181,7 +182,102 @@ func TestMaybeDemoteArmAfterCommittedStreamFailure_FiresWithoutStickyPin(t *test
 	)
 
 	assert.Equal(t, demotedArm, demoted)
-	assert.Len(t, store.demotions, 1)
+	assert.Len(t, store.demotions, 2)
+}
+
+// Hard-pinned turns (utility turns, native web-search passthrough) never write
+// session routing state: a passthrough sub-turn that dies after commit must
+// not expire the conversation's pin or strike out its arm.
+func TestMaybeDemoteArmAfterCommittedStreamFailure_HardPinnedSkipped(t *testing.T) {
+	store := &demotionStubPinStore{}
+	svc := newDemotionTestService(store, true)
+
+	demoted := svc.maybeDemoteArmAfterCommittedStreamFailure(
+		context.Background(),
+		true,
+		true,
+		&providers.UpstreamStatusError{Status: http.StatusBadGateway},
+		demotedArm,
+		nativeWebSearchPassthroughReason,
+		uuid.New(),
+		nonZeroSessionKey(),
+		sessionpin.DefaultRole, sessionpin.DefaultRole,
+	)
+
+	assert.Empty(t, demoted)
+	assert.Empty(t, store.demotions)
+	assert.Empty(t, store.upserts, "a hard-pinned turn must not evict the session pin")
+}
+
+// A caller whose per-cluster allowlists admit only the failed model has pinned
+// themselves to it; the override layer would fall open to whatever the roster
+// has left, so the strike is not written at all.
+func TestMaybeDemoteArmAfterCommittedStreamFailure_ClusterAllowlistPinSkipped(t *testing.T) {
+	cases := []struct {
+		name        string
+		keyLists    map[string][]string
+		userLists   map[string][]string
+		wantDemoted bool
+	}{
+		{name: "no lists configured", wantDemoted: true},
+		{name: "key lists pin every cluster to the failed model", keyLists: map[string][]string{"medium": {demotedArm}, "high": {demotedArm}, "maximum": {demotedArm}}, wantDemoted: false},
+		{name: "user lists pin every cluster to the failed model", userLists: map[string][]string{"high": {demotedArm}}, wantDemoted: false},
+		{name: "lists name an Anthropic sibling", keyLists: map[string][]string{"high": {demotedArm, "claude-sonnet-5"}}, wantDemoted: true},
+		{name: "lists name another vendor on a different cluster", keyLists: map[string][]string{"high": {demotedArm}, "low": {"gpt-5.6-luna"}}, wantDemoted: true},
+		{name: "intersection with the org list collapses to the failed model", keyLists: map[string][]string{"high": {demotedArm, "claude-sonnet-5"}}, userLists: map[string][]string{"high": {demotedArm}}, wantDemoted: false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			store := &demotionStubPinStore{}
+			svc := newDemotionTestService(store, true)
+			ctx := context.Background()
+			if tc.keyLists != nil {
+				ctx = context.WithValue(ctx, ClusterModelListsContextKey{}, tc.keyLists)
+			}
+			if tc.userLists != nil {
+				ctx = context.WithValue(ctx, auth.UserClusterModelListsContextKey{}, tc.userLists)
+			}
+
+			demoted := svc.maybeDemoteArmAfterCommittedStreamFailure(
+				ctx,
+				true,
+				false,
+				&providers.UpstreamStatusError{Status: http.StatusBadGateway},
+				demotedArm,
+				"hmm:authoritative model=claude-opus-4-7",
+				uuid.New(),
+				nonZeroSessionKey(),
+				sessionpin.DefaultRole, sessionpin.DefaultRole,
+			)
+
+			if !tc.wantDemoted {
+				assert.Empty(t, demoted)
+				assert.Empty(t, store.demotions)
+				assert.Empty(t, store.upserts, "a pinned caller keeps its pin rows")
+				return
+			}
+			assert.Equal(t, demotedArm, demoted)
+			assert.Len(t, store.demotions, 2)
+		})
+	}
+}
+
+func TestDemotionRoles(t *testing.T) {
+	cases := []struct {
+		name    string
+		role    string
+		pinRole string
+		want    []string
+	}{
+		{name: "base role sticky", role: "default", pinRole: "default", want: []string{"default", "default_hmm_history"}},
+		{name: "hmm history sticky", role: "default_hmm_history", pinRole: "default", want: []string{"default_hmm_history", "default"}},
+		{name: "sub-agent role", role: "subagent", pinRole: "subagent", want: []string{"subagent", "subagent_hmm_history"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, demotionRoles(tc.role, tc.pinRole))
+		})
+	}
 }
 
 // The explicit-force escape hatch: /force-model must not be undone by an
@@ -194,6 +290,7 @@ func TestMaybeDemoteArmAfterCommittedStreamFailure_UserForcedSkipped(t *testing.
 		demoted := svc.maybeDemoteArmAfterCommittedStreamFailure(
 			context.Background(),
 			true,
+			false,
 			&providers.UpstreamStatusError{Status: http.StatusBadGateway},
 			demotedArm,
 			reason,
@@ -226,6 +323,7 @@ func TestMaybeDemoteArmAfterCommittedStreamFailure_UnaddressableSkipped(t *testi
 			demoted := svc.maybeDemoteArmAfterCommittedStreamFailure(
 				context.Background(),
 				true,
+				false,
 				&providers.UpstreamStatusError{Status: http.StatusBadGateway},
 				demotedArm,
 				"cluster:v0.57 model=claude-opus-4-7 provider=anthropic",
@@ -283,7 +381,9 @@ func (s *rowBackedPinStore) DemoteModel(ctx context.Context, key [sessionpin.Ses
 
 // The strike has to survive the session that has no pin row yet — a fresh
 // authoritative pick, a post-sweep turn, an escalation. Ordering the eviction
-// upsert before the demote UPDATE is what makes one strike hold there.
+// upsert before the demote UPDATE is what makes one strike hold there, and
+// writing it to the _hmm_history row too is what keeps it past the sweep of
+// the expired base row while HMM turns keep refreshing only the history row.
 func TestMaybeDemoteArmAfterCommittedStreamFailure_PersistsWithoutExistingRow(t *testing.T) {
 	cases := []struct {
 		name string
@@ -300,6 +400,7 @@ func TestMaybeDemoteArmAfterCommittedStreamFailure_PersistsWithoutExistingRow(t 
 			demoted := svc.maybeDemoteArmAfterCommittedStreamFailure(
 				context.Background(),
 				true,
+				false,
 				&providers.UpstreamStatusError{Status: http.StatusBadGateway},
 				demotedArm,
 				"hmm:authoritative model=claude-opus-4-7",
@@ -309,9 +410,11 @@ func TestMaybeDemoteArmAfterCommittedStreamFailure_PersistsWithoutExistingRow(t 
 			)
 
 			assert.Equal(t, demotedArm, demoted)
-			row, ok := store.rows[tc.role]
-			require.True(t, ok, "eviction must seed the row the demotion writes to")
-			assert.Equal(t, []string{demotedArm}, row.DemotedModels)
+			for _, role := range []string{sessionpin.DefaultRole, hmmHistoryRole(sessionpin.DefaultRole)} {
+				row, ok := store.rows[role]
+				require.True(t, ok, "eviction must seed row %q before the demotion writes to it", role)
+				assert.Equal(t, []string{demotedArm}, row.DemotedModels, "row %q", role)
+			}
 		})
 	}
 }

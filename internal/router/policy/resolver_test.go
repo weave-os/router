@@ -359,6 +359,39 @@ func TestResolverKeepsPoolWhenAutomaticDisablesWouldEmptyIt(t *testing.T) {
 	assert.Equal(t, []string{"claude-opus-4-8"}, resolved.CandidateModels())
 }
 
+// A session demotion (AutomaticExcludedModels) is bounded by the
+// installation's allowlist in both directions: it can only move the pick to a
+// model the allowlist already admits, and when the allowlist admits nothing
+// else the demoted model is kept rather than the pool widened.
+func TestResolverSessionDemotionStaysInsideAllowlist(t *testing.T) {
+	resolver := policy.NewResolver(
+		set("claude-opus-4-8", "claude-sonnet-5", "gpt-5.6-luna"),
+		set(providers.ProviderAnthropic, providers.ProviderOpenAI),
+		catalogRosterID,
+		policy.ManagedProviderPolicy(),
+	)
+
+	t.Run("allowlist admits an Anthropic sibling", func(t *testing.T) {
+		resolved := resolver.Resolve(router.Request{
+			AllowedModels:           set("claude-opus-4-8", "claude-sonnet-5"),
+			AutomaticExcludedModels: set("claude-opus-4-8"),
+		})
+
+		assert.Equal(t, []string{"claude-sonnet-5"}, resolved.CandidateModels())
+	})
+
+	t.Run("allowlist admits only the demoted model", func(t *testing.T) {
+		resolved := resolver.Resolve(router.Request{
+			AllowedModels:           set("claude-opus-4-8"),
+			AutomaticExcludedModels: set("claude-opus-4-8"),
+		})
+
+		assert.Equal(t, []string{"claude-opus-4-8"}, resolved.CandidateModels(),
+			"the demotion must not admit a cross-vendor model the allowlist excludes")
+		assert.NotContains(t, resolved.CandidateModels(), "gpt-5.6-luna")
+	})
+}
+
 func TestResolverDirectlyEnforcesAllowlistForStrategySpecificCandidates(t *testing.T) {
 	resolver := policy.NewResolver(
 		set("gpt-5.6-luna-pro"),
