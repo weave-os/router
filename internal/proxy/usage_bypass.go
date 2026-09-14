@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 	"strconv"
 	"time"
 
@@ -24,7 +25,19 @@ import (
 
 // usageBypassDecision returns the strict pass-through decision when the
 // subscription usage-bypass gate should engage, false otherwise.
-func (s *Service) usageBypassDecision(ctx context.Context, headers http.Header, req router.Request) (router.Decision, bool) {
+//
+// sessionDemotedModels are the models this session struck out after a
+// committed or rescued stream failure (turnResult.SessionDemotedModels). They
+// travel to the scorer inside req.AutomaticExcludedModels, which the bypass
+// deliberately ignores because that field is otherwise the deployment-wide
+// soft exclusion an explicit subscription request may override. A session
+// strike is different: the arm just failed this very user mid-turn, so serving
+// it straight through on their plan would replay the failure the strike exists
+// to avoid. The set is passed separately so the two stay distinguishable.
+func (s *Service) usageBypassDecision(ctx context.Context, headers http.Header, req router.Request, sessionDemotedModels []string) (router.Decision, bool) {
+	if slices.Contains(sessionDemotedModels, req.RequestedModel) {
+		return router.Decision{}, false
+	}
 	provider, engaged := s.usageBypassEngaged(ctx, headers, req)
 	if !engaged {
 		return router.Decision{}, false

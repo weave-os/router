@@ -85,9 +85,9 @@ type Pin struct {
 	// after repeated 529 exhaustion (see DisableProvider). Only grows for
 	// the life of the row; Upsert never touches it.
 	DisabledProviders []string
-	// DemotedModels are models struck out for this pin's session after a
-	// committed upstream stream failure (see ExpireAndDemoteModel). Only grows
-	// for the life of the row; Upsert never touches it.
+	// DemotedModels are models struck out for this pin's session after an
+	// upstream failure (see ExpireAndDemoteModel and DemotionReason). Only
+	// grows for the life of the row; Upsert never touches it.
 	DemotedModels []string
 }
 
@@ -98,6 +98,10 @@ type DemotionReason string
 // DemotionReasonCommittedStreamFailure marks an arm whose stream died after
 // the prelude committed, so the turn could neither retry nor fail over.
 const DemotionReasonCommittedStreamFailure DemotionReason = "committed_stream_failure"
+
+// DemotionReasonRescuedFailure marks the primary arm of a turn whose attempt
+// failed pre-commit and was handed to a same-cluster sibling.
+const DemotionReasonRescuedFailure DemotionReason = "rescued_failure"
 
 // Usage captures the previous turn's upstream token accounting.
 type Usage struct {
