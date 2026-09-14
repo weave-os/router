@@ -268,17 +268,16 @@ func (s *Service) handleLoopEscalation(
 			PinnedUntil:     time.Now().Add(pinSessionTTL),
 			LastServedModel: lastServed,
 		}
-		// context.Background(): the request ctx may already be canceled by the
-		// time this runs; the pin write must still land or the next turn re-loops.
-		if err := s.pinStore.Upsert(context.Background(), pin); err != nil {
+
+		pinCtx, cancelPin := bookkeepingContext(ctx)
+		defer cancelPin()
+		if err := s.pinStore.Upsert(pinCtx, pin); err != nil {
 			log.Error("loop-escalation: pin upsert failed", "err", err)
 			return
 		}
 	}
 
 	// Durable row for fire-rate/opus-share metrics and the training corpus.
-	// context.Background(): request ctx may be canceled; losing the row would
-	// skew the corpus and break the once-per-session budget (pin check still dedupes re-fires meanwhile).
 	if s.loopEscalationStore != nil && installationID != uuid.Nil {
 		event := LoopEscalationEvent{
 			InstallationID:   installationID.String(),
@@ -293,7 +292,9 @@ func (s *Service) handleLoopEscalation(
 			DistinctRatio:    distinctRatio,
 			WindowSize:       int32(window),
 		}
-		if err := s.loopEscalationStore.InsertLoopEscalationEvent(context.Background(), event); err != nil {
+		eventCtx, cancelEvent := bookkeepingContext(ctx)
+		defer cancelEvent()
+		if err := s.loopEscalationStore.InsertLoopEscalationEvent(eventCtx, event); err != nil {
 			log.Error("loop-escalation: event insert failed", "err", err)
 		}
 	}

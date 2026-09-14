@@ -91,9 +91,11 @@ func (s *Service) handleBetaCommand(
 	// Both branches decide from what the store persisted rather than a prior
 	// read, so overlapping /beta commands for one session cannot act on the
 	// same stale state: an unavailable beta policy can only ever be left.
+	writeCtx, cancelWrite := bookkeepingContext(ctx)
+	defer cancelWrite()
 	nowEnabled := false
 	if s.PolicyStrategyAvailable(router.StrategyHMMBeta) {
-		enabled, err := s.sessionStrategyStore.Toggle(context.Background(), sessionstrategy.Preference{
+		enabled, err := s.sessionStrategyStore.Toggle(writeCtx, sessionstrategy.Preference{
 			InstallationID: installationID,
 			SessionKey:     preferenceKey,
 			Strategy:       router.StrategyHMMBeta,
@@ -103,7 +105,7 @@ func (s *Service) handleBetaCommand(
 		}
 		nowEnabled = enabled
 	} else {
-		wasEnabled, err := s.sessionStrategyStore.Disable(context.Background(), installationID, preferenceKey)
+		wasEnabled, err := s.sessionStrategyStore.Disable(writeCtx, installationID, preferenceKey)
 		if err != nil {
 			return fmt.Errorf("disable beta routing: %w", err)
 		}
@@ -153,6 +155,8 @@ func (s *Service) invalidateSessionRoutingState(
 	}
 	strategy := router.StrategyFromContext(ctx)
 	seen := make(map[string]struct{}, len(roles)*3)
+	writeCtx, cancelWrite := bookkeepingContext(ctx)
+	defer cancelWrite()
 	var firstErr error
 	for _, role := range roles {
 		for _, stateRole := range []string{
@@ -164,7 +168,7 @@ func (s *Service) invalidateSessionRoutingState(
 				continue
 			}
 			seen[stateRole] = struct{}{}
-			if _, _, err := s.pinStore.Consume(context.Background(), sessionKey, stateRole, strategy); err != nil && firstErr == nil {
+			if _, _, err := s.pinStore.Consume(writeCtx, sessionKey, stateRole, strategy); err != nil && firstErr == nil {
 				firstErr = err
 			}
 		}

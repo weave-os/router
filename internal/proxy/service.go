@@ -3016,9 +3016,10 @@ func (s *Service) repinOffRefusingModel(ctx context.Context, sessionKey [session
 		TurnCount:      1,
 		PinnedUntil:    pinExpiry(reasonCyberRefusalRepin),
 	}
-	// context.Background(): ctx may already be canceled here (response written,
-	// client disconnected); a canceled ctx would drop the re-pin write.
-	if err := s.pinStore.Upsert(context.Background(), pin); err != nil {
+
+	pinCtx, cancelPin := bookkeepingContext(ctx)
+	defer cancelPin()
+	if err := s.pinStore.Upsert(pinCtx, pin); err != nil {
 		log.Error("cyber-refusal re-pin: pin upsert failed", "err", err, "from_model", served.Model, "to_model", fbModel)
 		return
 	}
@@ -4548,6 +4549,9 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	cacheCreation, cacheRead := extractor.CacheTokens()
 	if responseBuffer != nil && proxyErr == nil {
 		setRouterCostHeaders(w.Header(), routerResponseCostFromPricing(actPricing, decision.Provider, in, out, cacheCreation, cacheRead))
+		if flushErr := responseBuffer.FlushToClient(); flushErr != nil {
+			log.Error("Failed to flush buffered response", "err", flushErr)
+		}
 	}
 	upstreamBuilder := otel.NewAttrBuilder(40).
 		String("request_id", requestID).
@@ -5003,7 +5007,7 @@ func (s *Service) recordTurnUsage(ctx context.Context, res turnLoopResult, serve
 		return
 	}
 	if isHMMTurn(res) {
-		s.recordHMMTurnHistory(res, servedProvider, servedModel, in, out, cacheCreation, cacheRead)
+		s.recordHMMTurnHistory(ctx, res, servedProvider, servedModel, in, out, cacheCreation, cacheRead)
 		return
 	}
 	var zeroKey [sessionpin.SessionKeyLen]byte
@@ -5032,8 +5036,10 @@ func (s *Service) recordTurnUsage(ctx context.Context, res turnLoopResult, serve
 	if role == "" {
 		role = sessionpin.DefaultRole
 	}
-	if err := s.pinStore.UpdateUsage(context.Background(), res.SessionKey, role, usage); err != nil {
-		observability.Get().Error("session pin usage writeback failed", "err", err)
+	usageCtx, cancelUsage := bookkeepingContext(ctx)
+	defer cancelUsage()
+	if err := s.pinStore.UpdateUsage(usageCtx, res.SessionKey, role, usage); err != nil {
+		observability.FromContext(ctx).Error("session pin usage writeback failed", "err", err)
 	}
 }
 
@@ -5041,7 +5047,7 @@ func isHMMTurn(res turnLoopResult) bool {
 	return isHMMDecision(res.Decision) || isHMMDecision(res.Fresh)
 }
 
-func (s *Service) recordHMMTurnHistory(res turnLoopResult, servedProvider, servedModel string, in, out, cacheCreation, cacheRead int) {
+func (s *Service) recordHMMTurnHistory(ctx context.Context, res turnLoopResult, servedProvider, servedModel string, in, out, cacheCreation, cacheRead int) {
 	if servedModel == "" || res.InstallationID == uuid.Nil {
 		return
 	}
@@ -5050,7 +5056,8 @@ func (s *Service) recordHMMTurnHistory(res turnLoopResult, servedProvider, serve
 		return
 	}
 	hasUsage := in != 0 || out != 0 || cacheCreation != 0 || cacheRead != 0
-	strategyCtx := strategyContext(strategyForTurnLoopResult(res))
+	strategyCtx, cancelHistory := bookkeepingContext(router.WithStrategy(ctx, strategyForTurnLoopResult(res)))
+	defer cancelHistory()
 	historyProvider := servedProvider
 	if !hasUsage {
 		// A failed turn has no usage writeback; preserve the prior provider to
@@ -5078,7 +5085,7 @@ func (s *Service) recordHMMTurnHistory(res turnLoopResult, servedProvider, serve
 		return
 	}
 	now := time.Now()
-	if err := s.pinStore.UpdateUsage(context.Background(), res.SessionKey, role, sessionpin.Usage{
+	if err := s.pinStore.UpdateUsage(strategyCtx, res.SessionKey, role, sessionpin.Usage{
 		Strategy:            router.StrategyFromContext(strategyCtx),
 		InputTokens:         in,
 		CachedReadTokens:    cacheRead,
@@ -5090,7 +5097,7 @@ func (s *Service) recordHMMTurnHistory(res turnLoopResult, servedProvider, serve
 		PriorServedModel:    res.PriorServedModel,
 		SessionEverSwitched: res.SessionEverSwitched,
 	}); err != nil {
-		observability.Get().Error("HMM switch-history writeback failed", "err", err)
+		observability.FromContext(ctx).Error("HMM switch-history writeback failed", "err", err)
 	}
 }
 
@@ -7316,6 +7323,18 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	cacheCreation, cacheRead := extractor.CacheTokens()
 	if !env.Stream() && proxyErr == nil {
 		setRouterCostHeaders(w.Header(), routerResponseCostFromPricing(actPricing, decision.Provider, in, out, cacheCreation, cacheRead))
+		if responseBuffer != nil {
+			if flushErr := responseBuffer.FlushToClient(); flushErr != nil {
+				log.Error("Failed to flush buffered response", "err", flushErr)
+			}
+		}
+	}
+	if proxyErr == nil {
+		if completion := deferredCallLogFrom(ctx); completion != nil && completion.finalize != nil {
+			if err := completion.finalize(); err != nil {
+				log.Error("Failed to finalize Responses response", "err", err)
+			}
+		}
 	}
 
 	// chat/completions passthrough: no translator runs, so the usage
@@ -7392,10 +7411,8 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		s.recordCallLog(ctx, callLogBase, routeMs, proxyErr != nil, reqBody, respBody, respTrunc)
 		otel.Flush(ctx)
 	}
-	// The /v1/responses surface (ProxyOpenAIResponses) finalizes its
-	// ResponsesWriter only after this function returns, so the captured body
-	// isn't complete yet — defer the read+emit to run post-Finalize. All other
-	// callers emit inline.
+	// Responses early-error paths finalize in the wrapping handler; their
+	// call-log capture must run after that handler has finished.
 	if h := deferredCallLogFrom(ctx); h != nil {
 		h.fn = emitCallLog
 	} else {
@@ -7615,15 +7632,32 @@ func (s *Service) ProxyOpenAIResponses(ctx context.Context, body []byte, w http.
 	ctx = context.WithValue(ctx, responsesTransformsContextKey{}, conversion.Report)
 	// Routing, billing, and telemetry are reused via
 	// ProxyOpenAIChatCompletion; chatBody is used only for routing features.
+	var responseBuffer *responseCostBuffer
+	if !conversion.Stream {
+		responseBuffer = newResponseCostBuffer(w)
+		w = responseBuffer
+		defer func() {
+			if err := responseBuffer.FlushToClient(); err != nil {
+				observability.FromContext(ctx).Error("Failed to flush Responses response", "err", err)
+			}
+		}()
+	}
 	wrapper := translate.NewResponsesWriter(w, model)
 	if clientAppCodex {
 		wrapper.EnableCodexBadgeProvenance()
 	}
 	wrapper.SetToolMappings(conversion.ToolMappings)
-	// Defer the high-fidelity call-log emission until after Finalize: the
-	// ResponsesWriter buffers (non-streaming) and emits tail events only in
-	// Finalize, so the captured io.response_body is incomplete until then.
+	// Capture only after finalization, including errors and early returns.
 	ctx, deferredLog := withDeferredCallLog(ctx)
+	deferredLog.finalize = sync.OnceValue(func() error {
+		if err := wrapper.Finalize(); err != nil {
+			return err
+		}
+		if responseBuffer != nil {
+			return responseBuffer.FlushToClient()
+		}
+		return nil
+	})
 	// Capture the client's original Responses JSON as the request body so the
 	// call log's io.request_body matches the Responses-format response body
 	// (ProxyOpenAIChatCompletion otherwise sees the translated chatBody).
@@ -7647,7 +7681,7 @@ func (s *Service) ProxyOpenAIResponses(ctx context.Context, body []byte, w http.
 		deferredLog.run()
 		return proxyErr
 	}
-	finErr := wrapper.Finalize()
+	finErr := deferredLog.finalize()
 	if deferredLog.escalation != nil {
 		deferredLog.escalation(finErr)
 	}

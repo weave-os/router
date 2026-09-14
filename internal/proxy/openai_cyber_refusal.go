@@ -210,9 +210,8 @@ func (s *Service) cyberRefusalRetryTarget(
 // fallback model. avoidProvider, when set, rules out a target on that vendor —
 // OpenAI's classifier declines the request whichever of its models serves it,
 // so the pin's runner-up is no escape if it is another OpenAI model. Anthropic
-// refusals name a single model and pass "". context.Background() reads the pin
-// because the request ctx may already be canceled once the response has been
-// written.
+// refusals name a single model and pass "". The bounded pin lookup survives
+// cancellation after a completed response.
 func (s *Service) cyberRefusalFallback(
 	ctx context.Context,
 	sessionKey [sessionpin.SessionKeyLen]byte,
@@ -222,7 +221,9 @@ func (s *Service) cyberRefusalFallback(
 ) (model, provider string, ok bool) {
 	model = s.ResolveCyberRefusalFallbackModel(ctx)
 	if s.pinStore != nil {
-		if existing, found, err := s.pinStore.Get(context.Background(), sessionKey, role); err == nil && found &&
+		pinCtx, cancelPin := bookkeepingContext(ctx)
+		defer cancelPin()
+		if existing, found, err := s.pinStore.Get(pinCtx, sessionKey, role); err == nil && found &&
 			pinMatchesEffectiveStrategy(ctx, existing) && existing.PairedModel != "" &&
 			!providerAvoided(providerForModel(existing.PairedProvider, existing.PairedModel), avoidProvider) {
 			model, provider = existing.PairedModel, existing.PairedProvider

@@ -3,13 +3,11 @@ package proxy
 import (
 	"context"
 	"errors"
-	"log/slog"
 	"time"
 
 	"github.com/google/uuid"
 
 	"weave-os/router/internal/auth"
-	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/router"
@@ -457,37 +455,6 @@ func applyTurnSignalTelemetry(
 
 func int32Ptr(v int32) *int32 {
 	return &v
-}
-
-// attemptSink persists executor attempt events for the installation in
-// context. Persistence failures are logged, never surfaced to dispatch.
-type attemptSink struct {
-	store  InferenceAttemptStore
-	logger *slog.Logger
-}
-
-func (s attemptSink) RecordAttempt(ctx context.Context, event inference.AttemptEvent) {
-	if s.store == nil {
-		return
-	}
-	installationID, _ := ctx.Value(InstallationIDContextKey{}).(string)
-	if installationID == "" {
-		return
-	}
-	if err := s.store.InsertInferenceAttempt(context.WithoutCancel(ctx), InsertInferenceAttemptParams{
-		InstallationID: installationID,
-		Event:          event,
-	}); err != nil && s.logger != nil {
-		s.logger.Warn("inference attempt persist failed",
-			"operation_id", event.OperationID,
-			"attempt_index", event.AttemptIndex,
-			"error", err)
-	}
-}
-
-// NewAttemptSink returns the dispatch attempt sink backed by store.
-func NewAttemptSink(store InferenceAttemptStore, logger *slog.Logger) dispatch.AttemptSink {
-	return attemptSink{store: store, logger: logger}
 }
 
 // DecisionReasonPolicyPinUnservable marks a telemetry row for a turn that was

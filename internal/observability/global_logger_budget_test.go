@@ -39,7 +39,7 @@ var globalLoggerBudget = map[string]int{
 
 	// Fire-and-forget writebacks (SafeGo) + a pure predicate. Documented in
 	// root CLAUDE.md as the off-request-path exception.
-	"internal/proxy": 4,
+	"internal/proxy": 2,
 	"internal/auth":  2,
 
 	// Allocation failures inside LRU construction and a row-parse fallback:
