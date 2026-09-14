@@ -107,7 +107,7 @@ func (s *Service) billAuxiliaryInference(ctx context.Context, requestID, request
 		DeviceID:               clientID.DeviceID,
 		SessionID:              clientID.SessionID,
 		RouterUserID:           auth.UserIDFrom(ctx),
-		ClientApp:              clientID.ClientApp,
+		ClientApp:              clientID.TelemetryClientApp(),
 		RolloutID:              clientID.RolloutID,
 	})
 }

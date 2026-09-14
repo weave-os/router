@@ -243,8 +243,9 @@ func TestDecisionSpan_RolloutIDFromClientIdentity(t *testing.T) {
 	rec := httptest.NewRecorder()
 	httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
 	ctx := context.WithValue(context.Background(), ClientIdentityContextKey{}, ClientIdentity{
-		ClientApp: "weave-eval-codex",
-		RolloutID: "tb4-router-astra-20260909",
+		ClientApp: ClientAppCodex,
+		Eval:      true,
+		RolloutID: "rollout-example-001",
 	})
 	require.NoError(t, svc.ProxyMessages(ctx, embedTurnBody(), rec, httpReq))
 
@@ -255,6 +256,6 @@ func TestDecisionSpan_RolloutIDFromClientIdentity(t *testing.T) {
 	defer collector.mu.Unlock()
 	spans := collector.byName["router.decision"]
 	require.Len(t, spans, 1)
-	assert.Equal(t, "tb4-router-astra-20260909", spanStr(t, spans[0], "rollout_id"))
-	assert.Equal(t, "weave-eval-codex", spanStr(t, spans[0], "client.app"))
+	assert.Equal(t, "rollout-example-001", spanStr(t, spans[0], "rollout_id"))
+	assert.Equal(t, EvalClientAppPrefix+ClientAppCodex, spanStr(t, spans[0], "client.app"))
 }

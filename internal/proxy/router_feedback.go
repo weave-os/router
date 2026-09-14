@@ -157,7 +157,7 @@ func (s *Service) handleRouterFeedbackCommand(
 			SessionKey:     sessionKey[:],
 			Role:           role,
 			RouterUserID:   routerUserID,
-			ClientApp:      clientID.ClientApp,
+			ClientApp:      clientID.TelemetryClientApp(),
 			SessionID:      clientID.SessionID,
 			RequestedModel: env.Model(),
 			ServedModel:    servedModel,
@@ -216,7 +216,7 @@ func (s *Service) handleRouterFeedbackCommand(
 		String("client.device_id", clientID.DeviceID).
 		String("client.session_id", clientID.SessionID).
 		String("client.user_agent", clientID.UserAgent).
-		String("client.app", clientID.ClientApp).
+		String("client.app", clientID.TelemetryClientApp()).
 		String("requested.model", env.Model()).
 		String("feedback.served_model", servedModel).
 		String("feedback.role", role).
@@ -284,7 +284,7 @@ func (s *Service) reportRouterFeedback(
 		"requested_model":   requestedModel,
 		"served_model":      servedModel,
 		"router_user_id":    routerUserID,
-		"client_app":        clientID.ClientApp,
+		"client_app":        clientID.TelemetryClientApp(),
 		"client_session_id": clientID.SessionID,
 		"source":            source,
 		"request_id":        requestID,

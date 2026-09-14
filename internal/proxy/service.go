@@ -3646,7 +3646,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		String("client.account_id", clientID.AccountID).
 		String("client.session_id", clientID.SessionID).
 		String("client.user_agent", clientID.UserAgent).
-		String("client.app", clientID.ClientApp).
+		String("client.app", clientID.TelemetryClientApp()).
 		String("rollout_id", policyRolloutIDFromContext(ctx)).
 		String("requested.model", feats.Model).
 		String("decision.model", decision.Model).
@@ -4558,7 +4558,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		String("client.account_id", clientID.AccountID).
 		String("client.session_id", clientID.SessionID).
 		String("client.user_agent", clientID.UserAgent).
-		String("client.app", clientID.ClientApp).
+		String("client.app", clientID.TelemetryClientApp()).
 		String("rollout_id", policyRolloutIDFromContext(ctx)).
 		String("requested.model", feats.Model).
 		String("decision.model", decision.Model).
@@ -4698,7 +4698,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			DeviceID:                 clientID.DeviceID,
 			SessionID:                clientID.SessionID,
 			RouterUserID:             auth.UserIDFrom(ctx),
-			ClientApp:                clientID.ClientApp,
+			ClientApp:                clientID.TelemetryClientApp(),
 			TurnType:                 string(routeRes.TurnType),
 			RolloutID:                obs.RolloutID,
 			UpstreamFinishReason:     stringPtrOrEmpty(respSummary.UpstreamFinishReason),
@@ -5174,7 +5174,7 @@ func (s *Service) reportPolicyOutcome(ctx context.Context, res turnLoopResult, d
 		"strategy":                         routeMetadata.Strategy,
 		"organization_id":                  organizationID,
 		"installation_id":                  installationID,
-		"client_app":                       clientIdentity.ClientApp,
+		"client_app":                       clientIdentity.TelemetryClientApp(),
 		"rollout_id":                       policyRolloutIDFromContext(ctx),
 		"training_allowed":                 trainingAllowed,
 		"capture_mode":                     s.effectiveCaptureMode(ctx).String(),
@@ -6392,7 +6392,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		String("client.account_id", clientID.AccountID).
 		String("client.session_id", clientID.SessionID).
 		String("client.user_agent", clientID.UserAgent).
-		String("client.app", clientID.ClientApp).
+		String("client.app", clientID.TelemetryClientApp()).
 		String("rollout_id", policyRolloutIDFromContext(ctx)).
 		String("requested.model", feats.Model).
 		String("decision.model", decision.Model).
@@ -7341,7 +7341,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		String("client.account_id", clientID.AccountID).
 		String("client.session_id", clientID.SessionID).
 		String("client.user_agent", clientID.UserAgent).
-		String("client.app", clientID.ClientApp).
+		String("client.app", clientID.TelemetryClientApp()).
 		String("rollout_id", policyRolloutIDFromContext(ctx)).
 		String("requested.model", feats.Model).
 		String("decision.model", decision.Model).
@@ -7484,7 +7484,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 			DeviceID:                 clientID.DeviceID,
 			SessionID:                clientID.SessionID,
 			RouterUserID:             auth.UserIDFrom(ctx),
-			ClientApp:                clientID.ClientApp,
+			ClientApp:                clientID.TelemetryClientApp(),
 			TurnType:                 string(routeRes.TurnType),
 			RolloutID:                openaiObs.RolloutID,
 			UpstreamFinishReason:     stringPtrOrEmpty(respSummary.UpstreamFinishReason),

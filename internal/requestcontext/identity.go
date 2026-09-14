@@ -19,10 +19,30 @@ type ClientIdentity struct {
 	Email       string
 	DisplayName string
 	UserAgent   string
-	ClientApp   string
+	// ClientApp is the canonical harness (codex, claude-code, ...). Every
+	// harness-keyed behaviour reads this, so an eval run is served exactly
+	// like the production client it imitates.
+	ClientApp string
+	// Eval marks traffic from a Weave eval harness (X-App carried the
+	// EvalClientAppPrefix). Telemetry reads TelemetryClientApp so dashboards
+	// and alerts can exclude the run; nothing on the request path reads it.
+	Eval bool
 	// RolloutID is the x-weave-rollout-id eval/training-harness correlation
 	// id; joins a sandbox rollout's graded reward to its routing decisions.
 	RolloutID string
+}
+
+// EvalClientAppPrefix is the X-App prefix an eval harness puts in front of
+// the client it imitates ("weave-eval-codex").
+const EvalClientAppPrefix = "weave-eval-"
+
+// TelemetryClientApp is the client_app value recorded on spans, telemetry
+// rows and completion logs: the canonical app, prefixed for eval traffic.
+func (id ClientIdentity) TelemetryClientApp() string {
+	if id.Eval && id.ClientApp != "" {
+		return EvalClientAppPrefix + id.ClientApp
+	}
+	return id.ClientApp
 }
 
 // ClientIdentityContextKey is the request-context key for client identity.

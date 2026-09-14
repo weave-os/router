@@ -112,7 +112,10 @@ weave-bench run atlas-qna --arms router,openrouter-beta --run-id …
 
 Router arms send `x-app: weave-eval-codex` and `x-weave-rollout-id: <run-id>` so
 production telemetry (`client_app NOT LIKE 'weave-eval%'`) and force-pin alerts can
-exclude the run, while the analytics export can still filter on rollout id. OpenRouter arms set
+exclude the run, while the analytics export can still filter on rollout id. The router
+strips the `weave-eval-` prefix before any harness-keyed behaviour runs, so an eval arm
+is served exactly as `x-app: codex` would be (HMM harness roster, Codex `/models`,
+compaction and footer policy); only the recorded `client_app` carries the prefix. OpenRouter arms set
 `web_search = "disabled"` in Codex's config so the metarouter's server-side
 search tool cannot change the task.
 
