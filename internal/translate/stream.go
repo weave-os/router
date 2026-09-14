@@ -680,6 +680,19 @@ type ResponseSummary struct {
 	CacheCreationTokens int
 }
 
+// countUnrepairableToolArgs counts the findings whose argument payload could
+// not be parsed or repaired, i.e. the calls that reached the client with empty
+// args. A repaired finding is reported but not counted.
+func countUnrepairableToolArgs(issues []toolcheck.Issue) int {
+	n := 0
+	for _, issue := range issues {
+		if issue.Bucket == toolcheck.BucketInvalidJSON && !issue.Repaired {
+			n++
+		}
+	}
+	return n
+}
+
 // Summary returns the response summary for observability. Call after Finalize;
 // before the stream completes the fields reflect partial state.
 func (t *AnthropicSSETranslator) Summary() ResponseSummary {

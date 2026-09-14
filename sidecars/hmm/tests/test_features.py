@@ -67,6 +67,32 @@ def test_tool_intent_requires_tools_and_is_inferred_from_latest_user_text() -> N
     assert with_tools[1] == 1.0
 
 
+def test_tool_context_uses_router_owned_tool_and_text_facts() -> None:
+    features = tool_context_features(
+        {
+            "has_tools": True,
+            "available_tools": ["Bash", "Read"],
+            "invoked_tools": ["Read"],
+            "latest_user_text": "Please inspect the repository",
+            "conversation_messages": [
+                {"role": "user", "text": "Edit the config file"},
+                {
+                    "role": "assistant",
+                    "tool_calls": [{"name": "Edit"}, {"name": "Edit"}],
+                },
+                {"role": "user", "tool_results": [{"is_error": True}]},
+            ],
+        }
+    )
+
+    assert features[2] == np.log1p(
+        2
+    )  # available_tools taken verbatim, no history union
+    assert features[6] == 0.0  # Edit only appears in history, so no edit family flag
+    assert features[-4] == 1.0 and features[-2] == 0.0  # families from invoked_tools
+    assert list(features[-9:-5]) == [np.log1p(2), np.log1p(1), np.log1p(1), np.log1p(1)]
+
+
 def test_classifier_row_does_not_claim_the_live_turn_is_conversation_final() -> None:
     row = classifier_features(
         embedding=np.zeros(2),

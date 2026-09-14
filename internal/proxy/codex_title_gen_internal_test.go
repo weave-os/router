@@ -99,6 +99,65 @@ func TestCodexResponsesTitlePromptHardPinsWithoutScoring(t *testing.T) {
 	assert.NotContains(t, rec.Body.String(), "Weave Router", "hard-pinned title responses must not carry a routing marker")
 }
 
+func TestCodexResponsesTitlePromptAfterHarnessContextHardPins(t *testing.T) {
+	routerSpy := &codexTitleRouter{}
+	provider := &codexTitleProvider{}
+	svc := NewService(
+		routerSpy,
+		map[string]providers.Client{providers.ProviderOpenAI: provider},
+		nil, false, nil, nil, false,
+		providers.ProviderOpenAI, "gpt-5.6-luna", nil,
+	)
+	body := []byte(`{
+		"model":"gpt-5.6-sol",
+		"stream":true,
+		"tools":[{"type":"function","name":"shell","parameters":{"type":"object"}}],
+		"text":{"verbosity":"low"},
+		"input":[
+			{"type":"message","role":"developer","content":[{"type":"input_text","text":"Base instructions."}]},
+			{"type":"message","role":"user","content":[{"type":"input_text","text":"<recommended_plugins>\nHere is a list of plugins that are available but not installed.\n</recommended_plugins>"}]},
+			{"type":"message","role":"user","content":[{"type":"input_text","text":"<environment_context>\n  <current_date>2026-09-12</current_date>\n</environment_context>"}]},
+			{"type":"message","role":"user","content":[{"type":"input_text","text":"Respond directly to the user's prompt. Do not run shell commands.\n\nYou are generating a short conversation title.\n\nReturn only the title."}]}
+		]
+	}`)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+	ctx := context.WithValue(context.Background(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppCodex})
+
+	require.NoError(t, svc.ProxyOpenAIResponses(ctx, body, rec, req))
+	require.Len(t, provider.endpoints, 1)
+	require.Zero(t, routerSpy.routeCalls, "Codex title generation must use the hard-pin path")
+	assert.NotContains(t, rec.Body.String(), "Weave Router", "hard-pinned title responses must not carry a routing marker")
+}
+
+func TestCodexResponsesTitlePromptWithAssistantHistoryUsesScorer(t *testing.T) {
+	routerSpy := &codexTitleRouter{}
+	provider := &codexTitleProvider{}
+	svc := NewService(
+		routerSpy,
+		map[string]providers.Client{providers.ProviderOpenAI: provider},
+		nil, false, nil, nil, false,
+		providers.ProviderOpenAI, "gpt-5.6-luna", nil,
+	)
+	body := []byte(`{
+		"model":"gpt-5.6-sol",
+		"stream":true,
+		"tools":[{"type":"function","name":"shell","parameters":{"type":"object"}}],
+		"input":[
+			{"type":"message","role":"user","content":[{"type":"input_text","text":"Fix the failing test."}]},
+			{"type":"message","role":"assistant","content":[{"type":"output_text","text":"On it."}]},
+			{"type":"message","role":"user","content":[{"type":"input_text","text":"Respond directly to the user's prompt.\n\nYou are generating a short conversation title."}]}
+		]
+	}`)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+	ctx := context.WithValue(context.Background(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppCodex})
+
+	require.NoError(t, svc.ProxyOpenAIResponses(ctx, body, rec, req))
+	require.Len(t, provider.endpoints, 1)
+	assert.Equal(t, 1, routerSpy.routeCalls, "an in-conversation title quote must stay on the scorer")
+}
+
 func TestResponsesTitlePromptWithoutCodexIdentityUsesScorer(t *testing.T) {
 	routerSpy := &codexTitleRouter{}
 	provider := &codexTitleProvider{}

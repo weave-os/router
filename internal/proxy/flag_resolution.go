@@ -120,6 +120,22 @@ func (s *Service) ResolveCommittedStreamArmDemotion(ctx context.Context) bool {
 	return flags.BoolOr(ctx, flags.KeyCommittedStreamArmDemotion, s.committedStreamArmDemotion)
 }
 
+// ResolveNativeAnthropicResponseSignals reports the
+// ROUTER_NATIVE_ANTHROPIC_RESPONSE_SIGNALS flag: whether an Anthropic-native
+// passthrough turn records its observed stop_reason and tool_use block count
+// on the telemetry row. Observability only.
+func (s *Service) ResolveNativeAnthropicResponseSignals(ctx context.Context) bool {
+	return flags.BoolOr(ctx, flags.KeyNativeAnthropicResponseSignals, s.nativeAnthropicResponseSignals)
+}
+
+// ResolveNativeOpenAIResponseSignals reports the
+// ROUTER_NATIVE_OPENAI_RESPONSE_SIGNALS flag: whether an OpenAI-native turn
+// records its observed finish_reason and tool-call count on the telemetry row.
+// Observability only.
+func (s *Service) ResolveNativeOpenAIResponseSignals(ctx context.Context) bool {
+	return flags.BoolOr(ctx, flags.KeyNativeOpenAIResponseSignals, s.nativeOpenAIResponseSignals)
+}
+
 // ResolveEffortEscalation reports whether policy-requested reasoning-effort
 // escalation is applied.
 func (s *Service) ResolveEffortEscalation(ctx context.Context) bool {

@@ -252,11 +252,11 @@ type routeRequest struct {
 	OrganizationID            string            `json:"organization_id,omitempty"`
 	InstallationID            string            `json:"installation_id,omitempty"`
 	ClientApp                 string            `json:"client_app,omitempty"`
-	Harness                   string            `json:"harness,omitempty"`
+	Harness                   string            `json:"harness"`
 	RolloutID                 string            `json:"rollout_id,omitempty"`
 	RequestedModel            string            `json:"requested_model,omitempty"`
 	PromptText                string            `json:"prompt_text"`
-	LatestUserText            string            `json:"latest_user_text,omitempty"`
+	LatestUserText            string            `json:"latest_user_text"`
 	TurnIndex                 int               `json:"turn_index"`
 	IsSubagent                bool              `json:"is_subagent"`
 	VisibleTurnIndex          *int              `json:"visible_turn_index,omitempty"`
@@ -271,6 +271,7 @@ type routeRequest struct {
 	ConversationMessages      []routeMessage    `json:"conversation_messages,omitempty"`
 	TrainingConversationDelta []routeMessage    `json:"training_conversation_delta,omitempty"`
 	AvailableTools            []string          `json:"available_tools,omitempty"`
+	InvokedTools              []string          `json:"invoked_tools,omitempty"`
 	Tools                     []routeTool       `json:"tools,omitempty"`
 	FeedbackKey               string            `json:"feedback_key,omitempty"`
 	FeedbackRole              string            `json:"feedback_role,omitempty"`
@@ -298,9 +299,10 @@ type classifierRequestV4 struct {
 	OrganizationID            string         `json:"organization_id,omitempty"`
 	InstallationID            string         `json:"installation_id,omitempty"`
 	ClientApp                 string         `json:"client_app,omitempty"`
+	Harness                   string         `json:"harness"`
 	RolloutID                 string         `json:"rollout_id,omitempty"`
 	PromptText                string         `json:"prompt_text"`
-	LatestUserText            string         `json:"latest_user_text,omitempty"`
+	LatestUserText            string         `json:"latest_user_text"`
 	TurnIndex                 int            `json:"turn_index"`
 	IsSubagent                bool           `json:"is_subagent"`
 	VisibleTurnIndex          *int           `json:"visible_turn_index,omitempty"`
@@ -313,6 +315,7 @@ type classifierRequestV4 struct {
 	ConversationMessages      []routeMessage `json:"conversation_messages,omitempty"`
 	TrainingConversationDelta []routeMessage `json:"training_conversation_delta,omitempty"`
 	AvailableTools            []string       `json:"available_tools,omitempty"`
+	InvokedTools              []string       `json:"invoked_tools,omitempty"`
 	Tools                     []routeTool    `json:"tools,omitempty"`
 	FeedbackKey               string         `json:"feedback_key,omitempty"`
 	FeedbackRole              string         `json:"feedback_role,omitempty"`
@@ -779,14 +782,17 @@ func marshalRouteRequest(query policy.Query) ([]byte, error) {
 	if router.IsHMMStrategy(query.Strategy) && query.TrainingAllowed {
 		trainingDelta = trainingRouteMessageDelta(query.ConversationMessages)
 	}
+	harness := policy.HarnessForClientApp(query.ClientApp)
+	invokedTools := clipRouteValues(invokedToolNames(query.ConversationMessages), maxRouteToolCallInputKeys, maxRouteToolCallInputChars)
+	availableTools := clipRouteValues(unionToolNames(query.AvailableTools, invokedTools), maxRouteToolCallInputKeys, maxRouteToolCallInputChars)
 	if schemaVersion == policy.SchemaVersionV4 {
 		body, err := json.Marshal(classifierRequestV4{
 			SchemaVersion: schemaVersion, Strategy: string(query.Strategy), ExecutionMode: query.ExecutionMode, RouteID: query.RouteID,
-			OrganizationID: query.OrganizationID, InstallationID: query.InstallationID, ClientApp: query.ClientApp, RolloutID: query.RolloutID,
+			OrganizationID: query.OrganizationID, InstallationID: query.InstallationID, ClientApp: query.ClientApp, Harness: harness, RolloutID: query.RolloutID,
 			PromptText: query.PromptText, LatestUserText: latestUserText(messages), TurnIndex: wireTurnIndex, IsSubagent: turnType == "sub_agent_dispatch",
 			VisibleTurnIndex: visibleTurnIndex, SessionTurnCount: sessionTurnCount, TurnType: turnType, CacheState: cacheState, PriorOutputTokens: priorOutputTokens,
 			SessionEverSwitched: sessionEverSwitched, HistoryTruncated: historyTruncated, ConversationMessages: messages, TrainingConversationDelta: trainingDelta,
-			AvailableTools: clipRouteValues(query.AvailableTools, maxRouteToolCallInputKeys, maxRouteToolCallInputChars), Tools: routeTools(query.Tools),
+			AvailableTools: availableTools, InvokedTools: invokedTools, Tools: routeTools(query.Tools),
 			FeedbackKey: query.FeedbackKey, FeedbackRole: query.FeedbackRole, ClientSessionID: query.ClientSessionID, EstimatedInputTokens: query.EstimatedInputTokens,
 			HasTools: query.HasTools, HasImages: query.HasImages, TrainingAllowed: query.TrainingAllowed, CaptureMode: query.CaptureMode, DebugEnabled: query.DebugEnabled,
 		})
@@ -804,7 +810,7 @@ func marshalRouteRequest(query policy.Query) ([]byte, error) {
 		OrganizationID:            query.OrganizationID,
 		InstallationID:            query.InstallationID,
 		ClientApp:                 query.ClientApp,
-		Harness:                   query.ClientApp,
+		Harness:                   harness,
 		RolloutID:                 query.RolloutID,
 		RequestedModel:            query.RequestedModel,
 		PromptText:                query.PromptText,
@@ -822,7 +828,8 @@ func marshalRouteRequest(query policy.Query) ([]byte, error) {
 		HistoryTruncated:          historyTruncated,
 		ConversationMessages:      messages,
 		TrainingConversationDelta: trainingDelta,
-		AvailableTools:            clipRouteValues(query.AvailableTools, maxRouteToolCallInputKeys, maxRouteToolCallInputChars),
+		AvailableTools:            availableTools,
+		InvokedTools:              invokedTools,
 		Tools:                     routeTools(query.Tools),
 		FeedbackKey:               query.FeedbackKey,
 		FeedbackRole:              query.FeedbackRole,
@@ -1304,6 +1311,48 @@ func latestUserText(messages []routeMessage) string {
 		}
 	}
 	return ""
+}
+
+// invokedToolNames lists tools the conversation has actually called, in first-
+// call order. Sidecars use the advertised/invoked split for capability guards
+// and must not rebuild it by scanning history.
+func invokedToolNames(messages []router.ConversationMessage) []string {
+	var names []string
+	for _, message := range messages {
+		for _, call := range message.ToolCalls {
+			if name := strings.TrimSpace(call.Name); name != "" {
+				names = append(names, name)
+			}
+		}
+	}
+	return dedupeStrings(names)
+}
+
+func unionToolNames(advertised, invoked []string) []string {
+	merged := make([]string, 0, len(advertised)+len(invoked))
+	for _, name := range advertised {
+		if trimmed := strings.TrimSpace(name); trimmed != "" {
+			merged = append(merged, trimmed)
+		}
+	}
+	merged = append(merged, invoked...)
+	return dedupeStrings(merged)
+}
+
+func dedupeStrings(values []string) []string {
+	if len(values) == 0 {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(values))
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		out = append(out, value)
+	}
+	return out
 }
 
 func turnIndex(messages []routeMessage) int {
