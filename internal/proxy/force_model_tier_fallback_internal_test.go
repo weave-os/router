@@ -71,7 +71,7 @@ func (s *forcedPinStore) IncrementOverloadErrors(context.Context, [sessionpin.Se
 func (s *forcedPinStore) ResetOverloadErrors(context.Context, [sessionpin.SessionKeyLen]byte, string, router.Strategy) error {
 	return nil
 }
-func (*forcedPinStore) DemoteModel(context.Context, [sessionpin.SessionKeyLen]byte, string, string, sessionpin.DemotionReason, router.Strategy) error {
+func (*forcedPinStore) ExpireAndDemoteModel(context.Context, sessionpin.Pin, string, sessionpin.DemotionReason) error {
 	return nil
 }
 
@@ -118,7 +118,7 @@ func (s *overwritingPinStore) IncrementOverloadErrors(context.Context, [sessionp
 func (s *overwritingPinStore) ResetOverloadErrors(context.Context, [sessionpin.SessionKeyLen]byte, string, router.Strategy) error {
 	return nil
 }
-func (*overwritingPinStore) DemoteModel(context.Context, [sessionpin.SessionKeyLen]byte, string, string, sessionpin.DemotionReason, router.Strategy) error {
+func (*overwritingPinStore) ExpireAndDemoteModel(context.Context, sessionpin.Pin, string, sessionpin.DemotionReason) error {
 	return nil
 }
 

@@ -173,7 +173,7 @@ func (f *fakePinStore) ResetOverloadErrors(ctx context.Context, key [sessionpin.
 	return nil
 }
 
-func (*fakePinStore) DemoteModel(context.Context, [sessionpin.SessionKeyLen]byte, string, string, sessionpin.DemotionReason, router.Strategy) error {
+func (*fakePinStore) ExpireAndDemoteModel(context.Context, sessionpin.Pin, string, sessionpin.DemotionReason) error {
 	return nil
 }
 

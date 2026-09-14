@@ -44,7 +44,7 @@ func (s *recordingPinStore) IncrementOverloadErrors(context.Context, [sessionpin
 func (s *recordingPinStore) ResetOverloadErrors(context.Context, [sessionpin.SessionKeyLen]byte, string, router.Strategy) error {
 	return nil
 }
-func (*recordingPinStore) DemoteModel(context.Context, [sessionpin.SessionKeyLen]byte, string, string, sessionpin.DemotionReason, router.Strategy) error {
+func (*recordingPinStore) ExpireAndDemoteModel(context.Context, sessionpin.Pin, string, sessionpin.DemotionReason) error {
 	return nil
 }
 
