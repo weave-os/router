@@ -307,15 +307,12 @@ describe("weave loader — dual subscription injection", () => {
     expect(claudeSet!.body.refresh).toBe("claude-refresh-2")
   })
 
-  test("loader is inert when the provider has no oauth (no subs attached)", async () => {
+  test("loader remains active when the provider has no oauth (no subs attached)", async () => {
     await writeFile(authFile, JSON.stringify({}))
-    const { WeaveCodex } = await import("../src/index.ts")
-    const hooks = await WeaveCodex(fakeInput())
-    const loaded = await hooks.auth!.loader!(
-      (async () => ({ type: "api", key: "x" })) as never,
-      {} as never,
-    )
-    expect(Object.keys(loaded)).toHaveLength(0) // {} — opencode falls back to static config
+    const req = await runLoaderFetch(async () => ({ type: "api", key: "x" }))
+
+    expect(req.headers["x-weave-openai-subscription"]).toBeUndefined()
+    expect(req.headers["x-weave-anthropic-subscription"]).toBeUndefined()
   })
 })
 

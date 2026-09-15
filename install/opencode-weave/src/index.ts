@@ -414,10 +414,6 @@ export const WeaveCodex: Plugin = async (input: PluginInput): Promise<Hooks> => 
     auth: {
       provider: PROVIDER_ID,
       async loader(getAuth) {
-        const auth = (await getAuth()) as StoredOAuth
-        const storedClaudeAuth = await readStoredOAuth(ANTHROPIC_PROVIDER_ID)
-        if (auth.type !== "oauth" && !storedClaudeAuth) return {}
-
         // Coalesce concurrent refreshes (opencode fires parallel turns), one
         // in-flight promise per subscription.
         let chatgptRefresh: Promise<{ access: string; accountId: string | undefined }> | undefined
