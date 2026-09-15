@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"context"
+	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/json"
 	"errors"
@@ -72,7 +73,7 @@ func (s *Service) beginEscalation(ctx context.Context, env *translate.RequestEnv
 		mode = escalationModeActive
 	}
 	scope := sha256.Sum256([]byte(fmt.Sprintf("%s/%x/%s/%s/%d", res.InstallationID, res.SessionKey, res.Strategy, mode, selection.Epoch)))
-	activation := sha256.Sum256([]byte(fmt.Sprintf("%s/%s/%s/%s/%d", res.InstallationID, apiKeyID, res.Strategy, mode, selection.Epoch)))
+	activation := escalationActivationID(res.InstallationID, fmt.Sprintf("%s/%s/%s/%d", apiKeyID, res.Strategy, mode, selection.Epoch))
 	log := observability.FromContext(ctx).With("escalation_scope", fmt.Sprintf("%x", scope))
 	observation, err := env.EscalationObservation()
 	if original, ok := ctx.Value(nativeResponsesBodyContextKey{}).([]byte); ok {
@@ -180,6 +181,16 @@ func (s *Service) beginEscalation(ctx context.Context, env *translate.RequestEnv
 	turn.session.PackageSHA256 = observed.PackageSHA256
 	turn.checkpoint = escalation.Checkpoint{Ordinal: nextOrdinal, Prediction: observed.Prediction}
 	return turn
+}
+
+// escalationActivationID derives a stable, installation-scoped pseudonym for
+// credential identity without persisting the credential identifier itself.
+func escalationActivationID(installationID uuid.UUID, material string) [32]byte {
+	mac := hmac.New(sha256.New, installationID[:])
+	_, _ = mac.Write([]byte(material))
+	var activation [32]byte
+	copy(activation[:], mac.Sum(nil))
+	return activation
 }
 
 func (s *Service) invalidateEscalation(ctx context.Context, scope, boundary [32]byte, failedToken string) {

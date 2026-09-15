@@ -76,7 +76,7 @@ func (s *Service) beginLLMEscalation(ctx context.Context, env *translate.Request
 	digest := sha256.Sum256([]byte(fmt.Sprintf("%s/%s/%s/%s/%d", llmescalation.Version, llmescalation.SwitchyardRevision, llmescalation.SystemPrompt, llmescalation.ResponseSchema, selection.Cadence)))
 	config := llmescalation.Config{Mode: mode, Epoch: selection.Epoch, Cadence: selection.Cadence, Digest: fmt.Sprintf("%x", digest)}
 	scope := sha256.Sum256([]byte(fmt.Sprintf("%s/%x/%s/%s/%d/%s", res.InstallationID, res.SessionKey, res.Strategy, mode, selection.Epoch, config.Digest)))
-	activation := sha256.Sum256([]byte(fmt.Sprintf("%s/%s/%s/%s/%d/%s", res.InstallationID, apiKeyID, res.Strategy, mode, selection.Epoch, config.Digest)))
+	activation := escalationActivationID(res.InstallationID, fmt.Sprintf("%s/%s/%s/%d/%s", apiKeyID, res.Strategy, mode, selection.Epoch, config.Digest))
 	observation, err := env.EscalationObservation()
 	if original, ok := ctx.Value(nativeResponsesBodyContextKey{}).([]byte); ok {
 		observation, err = translate.ParseResponsesEscalationObservation(original)

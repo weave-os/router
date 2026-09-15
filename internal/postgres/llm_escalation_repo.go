@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"time"
 
 	"github.com/google/uuid"
@@ -394,7 +395,7 @@ func (r *LLMEscalationRepo) ListSessions(ctx context.Context, installation strin
 			return nil, err
 		}
 	}
-	rows, err := sqlc.New(r.pool).GetLLMEscalationSessions(ctx, sqlc.GetLLMEscalationSessionsParams{AllInstallations: installation == "", InstallationID: id, PageLimit: int32(min(max(limit, 1), 201)), PageOffset: int32(max(offset, 0))})
+	rows, err := sqlc.New(r.pool).GetLLMEscalationSessions(ctx, sqlc.GetLLMEscalationSessionsParams{AllInstallations: installation == "", InstallationID: id, PageLimit: int32(min(max(limit, 1), 201)), PageOffset: int32(min(max(offset, 0), math.MaxInt32))})
 	if err != nil {
 		return nil, err
 	}
