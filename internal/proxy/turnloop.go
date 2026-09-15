@@ -99,6 +99,7 @@ func pinCacheCold(pin sessionpin.Pin, prefixBroken bool) bool {
 func applyPinEvidence(res *turnLoopResult, pin sessionpin.Pin) {
 	res.PinModel = pin.Model
 	res.PinProvider = pin.Provider
+	res.PinPolicyGroup = pin.PolicyGroup
 	res.PinAgeSec = pinAge(pin)
 	if !pin.LastTurnEndedAt.IsZero() {
 		gapMS := time.Since(pin.LastTurnEndedAt).Milliseconds()
@@ -109,6 +110,7 @@ func applyPinEvidence(res *turnLoopResult, pin sessionpin.Pin) {
 func clearPinEvidence(res *turnLoopResult) {
 	res.PinModel = ""
 	res.PinProvider = ""
+	res.PinPolicyGroup = ""
 	res.PinAgeSec = 0
 	res.PriorTurnGapMS = nil
 }
@@ -247,6 +249,8 @@ type turnLoopResult struct {
 	// PinModel is stamped independently of PlannerDecision so log lines can
 	// name the from-model even on stay outcomes.
 	PinModel string
+	// PinPolicyGroup survives pin reconstruction, which carries no decision metadata.
+	PinPolicyGroup string
 	// PriorServedModel is the pin's LastServedModel, independent of PinModel
 	// (a /force-model write changes PinModel but not this). Compared against
 	// the decision model to detect a mid-session switch, so the Anthropic

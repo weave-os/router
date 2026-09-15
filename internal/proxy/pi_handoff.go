@@ -143,12 +143,15 @@ func (s *Service) finishHandoffPreparation(ctx context.Context, w http.ResponseW
 		Token: token, Model: route.Decision.Model, Provider: route.Decision.Provider,
 		Complexity: decisionPolicyGroup(route.Decision),
 	}
+	if prepared.Complexity == "" && route.Decision.Model == route.PinModel {
+		prepared.Complexity = route.PinPolicyGroup
+	}
 	previousModel, previousEffort := hmm.SplitEffort(route.PriorServedModel)
 	previousProvider := ""
 	if route.PinModel == previousModel {
 		previousProvider = route.PinProvider
 	}
-	if isHMMTurn(route) {
+	if previousModel != "" && s.pinStore != nil && (router.IsHMMStrategy(route.Strategy) || isHMMTurn(route)) {
 		history := s.loadHMMHistory(ctx, route.SessionKey, route.PinRole)
 		if history.LastServedModel == route.PriorServedModel {
 			previousProvider = history.Provider

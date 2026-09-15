@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"log/slog"
+	"strings"
 
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/router/sessionpin"
@@ -109,6 +110,8 @@ func bindRequestLogger(
 // session id alone would collapse concurrent threads onto one pin. Each
 // thread's first user message is stable across turns but distinct per
 // sub-agent, so it separates them while keeping each pin stable.
+// Pi main sessions have independent IDs and omit this discriminator so their
+// pins survive compaction; Pi subagents retain their separate identity.
 //
 // System text substitutes for an empty first user message only when no client
 // session id is present, because it is per-turn volatile on the harnesses that
@@ -206,7 +209,9 @@ func deriveSessionKey(env *translate.RequestEnvelope, apiKeyID, clientSessionID 
 			h.Write([]byte{0x00})
 		}
 	}
-	if env != nil {
+	if env != nil && !(clientSessionID != "" && strings.HasPrefix(env.MetadataUserID(), "pi:")) {
+		// Pi gives every main session its own ID; compaction rewrites its first
+		// message and must not discard the reserved model's pin on the next turn.
 		// First user message still splits Claude Code sub-agents that share one
 		// parent session id. The system-text fallback covers OpenAI-format
 		// bodies whose leading system message leaves that empty, but only when

@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"weave-os/router/internal/translate"
@@ -9,6 +10,23 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestDeriveSessionKey_PiSurvivesCompactionAndIsolatesOtherSessions(t *testing.T) {
+	parse := func(userID, prompt string) *translate.RequestEnvelope {
+		env, err := translate.ParseAnthropic([]byte(fmt.Sprintf(`{"metadata":{"user_id":%q},"messages":[{"role":"user","content":%q}]}`, userID, prompt)))
+		require.NoError(t, err)
+		return env
+	}
+	const sessionID = "93ab02bf-7295-4202-8283-f34a8d071054"
+	original := parse("pi:"+sessionID, "Review the parser")
+	compacted := parse("pi:"+sessionID, "Summary of the parser review")
+	key := DeriveSessionKey(original, "test-key")
+	assert.Equal(t, key, DeriveSessionKey(compacted, "test-key"))
+	assert.NotEqual(t, key, DeriveSessionKey(compacted, "other-key"))
+	assert.NotEqual(t, key, DeriveSessionKey(parse("pi:fb4b936b-9e6e-4df7-830e-513202b4f803", "Review the parser"), "test-key"))
+	assert.NotEqual(t, key, DeriveSessionKey(parse("subagent:"+sessionID, "Review the parser"), "test-key"))
+	assert.NotEqual(t, DeriveSessionKey(parse(sessionID, "Parent task"), "test-key"), DeriveSessionKey(parse(sessionID, "Child task"), "test-key"), "shared Claude Code session IDs still distinguish threads")
+}
 
 func TestDeriveSessionKeyForRequest_UsesHeaderSessionIDWhenBodyHasNone(t *testing.T) {
 	env, err := translate.ParseOpenAI([]byte(`{

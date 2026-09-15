@@ -202,7 +202,7 @@ export function registerEscalationCompaction(
 		// Keep this event pending through the continuation so print mode cannot
 		// dispose the runtime between the aborted request and its replacement.
 		await new Promise<void>((resolve) => {
-			if (ctx.hasUI) ctx.ui.setStatus(STATUS_KEY, "compacting before model handoff...");
+			if (ctx.hasUI) ctx.ui.setStatus(STATUS_KEY, `compacting before handoff to ${handoff.route.model}...`);
 			ctx.compact({
 				onComplete: () => {
 					if (ctx.hasUI) ctx.ui.setStatus(STATUS_KEY, undefined);

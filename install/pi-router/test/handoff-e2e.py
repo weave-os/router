@@ -16,7 +16,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 SOURCE = Path(__file__).resolve().parents[1] / "src" / "index.ts"
 MODEL = "claude-sonnet-4-6"
-UPGRADED_MODEL = "claude-opus-4-7"
+PREVIOUS_MODEL = "qwen/qwen3.8-max"
+UPGRADED_MODEL = "claude-fable-5-1"
 SESSION_ID = "9e09b90c-04b9-44f3-ae13-8cfe2073bfb2"
 TIMESTAMP = "2026-09-15T00:00:00.000Z"
 FINAL_REQUEST = "Finish parser validation and report the remaining checks."
@@ -57,8 +58,8 @@ def main():
             if self.path == "/v1/route/handoff":
                 preparations.append(payload)
                 elevated = len(preparations) > 1
-                response = {"token": "high-ticket" if elevated else "low-ticket", "model": UPGRADED_MODEL if elevated else MODEL,
-                            "provider": "anthropic", "complexity": "high" if elevated else "low"}
+                response = {"token": "high-ticket" if elevated else "low-ticket", "model": UPGRADED_MODEL if elevated else PREVIOUS_MODEL,
+                            "provider": "anthropic" if elevated else "fireworks", "complexity": "maximum" if elevated else "high"}
                 if elevated:
                     response["summary_token"] = "summary-ticket"
                 self.send_response(200)
@@ -79,7 +80,7 @@ def main():
                 block = {"type": "text", "text": ""}
                 delta = {"type": "text_delta", "text": SUMMARY if ticket == "summary-ticket" else "HANDOFF_COMPLETE"}
                 stop = "end_turn"
-            model = UPGRADED_MODEL if ticket == "high-ticket" else MODEL
+            model = UPGRADED_MODEL if ticket == "high-ticket" else PREVIOUS_MODEL
             usage = {"input_tokens": 60000 if ticket == "low-ticket" else 2000, "output_tokens": 100}
             message = {"id": "msg_handoff", "type": "message", "role": "assistant", "model": model, "content": [], "stop_reason": None, "usage": usage}
             self.send_response(200)
