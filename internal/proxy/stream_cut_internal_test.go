@@ -260,3 +260,34 @@ func TestStreamCutObserver_FirstCutWins(t *testing.T) {
 	assert.Equal(t, string(streamFailureClientCanceled), fields[9])
 	assert.Equal(t, false, fields[15], "the first cut's retryability must survive the synthesized 502")
 }
+
+type reasoningArmerRecorder struct {
+	*httptest.ResponseRecorder
+	armed bool
+	mark  func()
+}
+
+func (a *reasoningArmerRecorder) ArmReasoningProgress(mark func()) bool {
+	if a.armed {
+		a.mark = mark
+	}
+	return a.armed
+}
+
+func TestStreamCutObserver_ForwardsReasoningProgressArming(t *testing.T) {
+	for _, armed := range []bool{true, false} {
+		inner := &reasoningArmerRecorder{ResponseRecorder: httptest.NewRecorder(), armed: armed}
+		writer := newStreamCutObserver(nil).attach(inner)
+		marks := 0
+		assert.Equal(t, armed, writer.(providers.ReasoningProgressArmer).ArmReasoningProgress(func() { marks++ }))
+		if armed {
+			require.NotNil(t, inner.mark)
+			inner.mark()
+			assert.Equal(t, 1, marks)
+		} else {
+			assert.Nil(t, inner.mark)
+		}
+	}
+	legacy := newStreamCutObserver(nil).attach(&armerRecorder{ResponseRecorder: httptest.NewRecorder()})
+	assert.False(t, legacy.(providers.ReasoningProgressArmer).ArmReasoningProgress(func() {}))
+}

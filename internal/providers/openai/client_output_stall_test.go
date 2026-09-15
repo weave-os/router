@@ -1,13 +1,7 @@
 package openai_test
 
-// Guards the OUTPUT-progress watchdog, the second half of gpt-5.x stall
-// protection (distinct from the byte-idle watchdog in client_stall_test.go).
-// Prod incident 2026-06-16: a stream stayed byte-alive (keepalives reset the
-// byte-idle watchdog) yet produced ZERO output tokens until the 600s cap —
-// only a time-since-last-OUTPUT watchdog catches that. A fake writer stands
-// in for the translator's ArmOutputProgress so the client half is pinned
-// independently: byte-alive/output-silent aborts retryable; output-flowing
-// never aborts.
+// Legacy writers exposing only output progress must retain stall protection.
+// Real Responses reasoning/translation paths are covered by proxy integration tests.
 
 import (
 	"context"

@@ -375,18 +375,16 @@ func (c *Client) Proxy(ctx context.Context, decision router.Decision, prep provi
 	w.WriteHeader(resp.StatusCode)
 	status := resp.StatusCode
 
-	// Output-progress watchdog (Responses only): the byte-idle watchdog below
-	// resets on ANY byte, so a stream alive on reasoning/keepalive frames but
-	// producing zero output rides to the 600s cap (2026-06-16 incident). This
-	// one measures time-since-last-OUTPUT, fed by the translator only on
-	// output-bearing events, and trips ErrUpstreamOutputStall (retryable).
-	// Wired via ArmOutputProgress since only the translator can tell output
-	// frames from reasoning/keepalive frames.
+	// Translators distinguish advancing reasoning/output from keepalives.
+	// Reasoning feeds only the stall clock, preserving first-output latency.
 	if prep.Endpoint == providers.EndpointResponses {
 		if arm, ok := w.(providers.OutputProgressArmer); ok {
 			outMark, outStop := httputil.StartIdleWatchdogCause(ctx, cancel, c.outputStallTimeout(), httputil.ErrUpstreamOutputStall)
 			if arm.ArmOutputProgress(timing.FirstOutputMark(ctx, outMark)) {
 				defer outStop()
+				if reasoningArmer, ok := w.(providers.ReasoningProgressArmer); ok {
+					reasoningArmer.ArmReasoningProgress(outMark)
+				}
 			} else {
 				outStop()
 			}
@@ -443,17 +441,14 @@ func (p *progressReader) Read(buf []byte) (n int, err error) {
 	return n, err
 }
 
-// logStreamStall reports a watchdog trip at ERROR, distinguishing two modes
-// via stall_kind: byte_idle (ErrUpstreamIdleTimeout, zero bytes — 2026-06-09
-// incident) vs output_idle (ErrUpstreamOutputStall, bytes flowing but zero
-// output — 2026-06-16 incident). Both are retryable; this is the per-model
-// paper trail for how often each happens.
+// logStreamStall reports the watchdog cause; dispatch decides whether the
+// response is still uncommitted and therefore eligible for retry.
 func logStreamStall(ctx context.Context, model, path string, budget time.Duration, bytesReceived int64, cause error) {
 	stallKind := "byte_idle"
 	if errors.Is(cause, httputil.ErrUpstreamOutputStall) {
 		stallKind = "output_idle"
 	}
-	observability.FromContext(ctx).Error("OpenAI upstream stream stalled mid-response; aborting for retry",
+	observability.FromContext(ctx).Error("OpenAI upstream stream stalled mid-response; aborting stream",
 		"model", model,
 		"provider", providers.ProviderOpenAI,
 		"upstream_path", path,

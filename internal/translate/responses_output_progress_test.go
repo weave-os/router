@@ -1,6 +1,7 @@
 package translate_test
 
 import (
+	"net/http"
 	"net/http/httptest"
 	"testing"
 
@@ -10,13 +11,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// These tests pin the OUTPUT-progress classification the output-stall watchdog
-// depends on (see httputil.DefaultResponsesOutputStallTimeout). The translator
-// is the only layer that can tell an output-bearing Responses frame from a
-// reasoning/keepalive frame, so it owns the mark: reasoning deltas and reasoning
-// items must NOT count as progress (else the 2026-06-16 reasoning-only stall
-// would keep resetting the watchdog forever), while text, tool-call args, and
-// the terminal envelope must.
+// Output and reasoning are separate signals: only output contributes to
+// first-output latency and throughput, while both can reset the stall clock.
 
 // SSE events lifted from responsesStreamFixture, one per const so a test can
 // feed them individually and assert the mark fires (or not) per event.
@@ -61,14 +57,78 @@ func newStreamingWriter(t *testing.T) (*translate.ResponsesToAnthropicWriter, *i
 	return w, &count
 }
 
-func TestResponsesOutputProgress_ReasoningDoesNotCount(t *testing.T) {
-	w, count := newStreamingWriter(t)
+type responsesProgressWriter interface {
+	http.ResponseWriter
+	Prelude(bool) error
+	ArmOutputProgress(func()) bool
+	ArmReasoningProgress(func()) bool
+}
 
-	// A reasoning item + its deltas + its done event: the entire thinking phase
-	// must leave the output-progress mark untouched.
-	_, err := w.Write([]byte(evReasoningItemAdded + evReasoningDelta + evReasoningDelta + evReasoningItemDone))
-	require.NoError(t, err)
-	assert.Zero(t, *count, "reasoning frames must not register as output progress")
+func TestResponsesReasoningProgress_Classification(t *testing.T) {
+	constructors := map[string]func() responsesProgressWriter{
+		"anthropic": func() responsesProgressWriter {
+			return translate.NewResponsesToAnthropicWriter(httptest.NewRecorder(), "gpt-5.5", nil)
+		},
+		"chat": func() responsesProgressWriter {
+			return translate.NewResponsesToOpenAIChatWriter(httptest.NewRecorder(), "gpt-5.5", nil)
+		},
+	}
+	cases := []struct {
+		name              string
+		frame             string
+		reasoning, output int
+	}{
+		{"summary delta", evReasoningDelta, 1, 0},
+		{"reasoning text delta", `data: {"type":"response.reasoning_text.delta","output_index":0,"delta":"working"}`, 1, 0},
+		{"completed summary", `data: {"type":"response.output_item.done","output_index":0,"item":{"type":"reasoning","summary":[{"text":"complete"}]}}`, 1, 0},
+		{"completed opaque payload", `data: {"type":"response.output_item.done","output_index":0,"item":{"type":"reasoning","id":"rs_1","encrypted_content":"opaque","summary":[]}}`, 1, 0},
+		{"summary and opaque count once", evReasoningItemDone, 1, 0},
+		{"item opening is not progress", evReasoningItemAdded, 0, 0},
+		{"empty delta", `data: {"type":"response.reasoning_summary_text.delta","delta":""}`, 0, 0},
+		{"null delta", `data: {"type":"response.reasoning_text.delta","delta":null}`, 0, 0},
+		{"non-string delta", `data: {"type":"response.reasoning_text.delta","delta":42}`, 0, 0},
+		{"missing delta", `data: {"type":"response.reasoning_text.delta"}`, 0, 0},
+		{"empty completion", `data: {"type":"response.output_item.done","item":{"type":"reasoning","summary":[]}}`, 0, 0},
+		{"empty summary text", `data: {"type":"response.output_item.done","item":{"type":"reasoning","summary":[{"text":""}]}}`, 0, 0},
+		{"missing opaque id", `data: {"type":"response.output_item.done","item":{"type":"reasoning","encrypted_content":"opaque"}}`, 0, 0},
+		{"empty opaque content", `data: {"type":"response.output_item.done","item":{"type":"reasoning","id":"rs_1","encrypted_content":""}}`, 0, 0},
+		{"non-string opaque content", `data: {"type":"response.output_item.done","item":{"type":"reasoning","id":"rs_1","encrypted_content":42}}`, 0, 0},
+		{"status", `data: {"type":"response.in_progress"}`, 0, 0},
+		{"unknown", `data: {"type":"response.unknown","delta":"hi"}`, 0, 0},
+		{"ping", ": ping", 0, 0},
+		{"output keeps original signal", evTextDelta, 0, 1},
+	}
+	for name, newWriter := range constructors {
+		t.Run(name, func(t *testing.T) {
+			for _, tc := range cases {
+				t.Run(tc.name, func(t *testing.T) {
+					w := newWriter()
+					require.NoError(t, w.Prelude(true))
+					reasoning, output := 0, 0
+					require.True(t, w.ArmReasoningProgress(func() { reasoning++ }))
+					require.True(t, w.ArmOutputProgress(func() { output++ }))
+					frame := tc.frame + "\n\n"
+					// A partial JSON frame must not register before it is complete.
+					_, err := w.Write([]byte(frame[:len(frame)/2]))
+					require.NoError(t, err)
+					assert.Zero(t, reasoning)
+					assert.Zero(t, output)
+					_, err = w.Write([]byte(frame[len(frame)/2:]))
+					require.NoError(t, err)
+					assert.Equal(t, tc.reasoning, reasoning)
+					assert.Equal(t, tc.output, output)
+				})
+			}
+			t.Run("buffered clients decline both callbacks", func(t *testing.T) {
+				w := newWriter()
+				require.NoError(t, w.Prelude(false))
+				assert.False(t, w.ArmOutputProgress(func() { t.Error("buffered output callback fired") }))
+				assert.False(t, w.ArmReasoningProgress(func() { t.Error("buffered reasoning callback fired") }))
+				_, err := w.Write([]byte(evReasoningDelta + evReasoningItemDone + evTextDelta))
+				require.NoError(t, err)
+			})
+		})
+	}
 }
 
 func TestResponsesOutputProgress_OutputEventsCount(t *testing.T) {

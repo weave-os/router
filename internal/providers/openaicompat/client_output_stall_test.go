@@ -1,17 +1,7 @@
 package openaicompat_test
 
-// Guards the OUTPUT-progress watchdog on the generic OpenAI-compatible adapter
-// (OpenRouter / Fireworks / DeepInfra / Bedrock). Prod incident 2026-06-19: a
-// DeepInfra deepseek-v4-flash stream stayed byte-alive (SSE keepalive / empty
-// frames kept the byte-idle watchdog reset) yet produced ZERO output content for
-// ~10min until the router's 600s request cap; the client then retried and hit a
-// model-not-found 404. The byte-idle watchdog cannot catch that — only a
-// watchdog that measures time-since-last-OUTPUT can. The OpenAI→Anthropic
-// translator reports output progress via ArmOutputProgress; these tests stand in
-// a fake writer for it so the client half is pinned independently: a
-// byte-alive/output-silent stream aborts at the output-stall budget with a
-// retryable ErrUpstreamOutputStall, while a stream whose writer keeps marking
-// output progress is never aborted.
+// Legacy writers exposing only output progress must retain stall protection.
+// Real Responses reasoning/translation paths are covered by proxy integration tests.
 
 import (
 	"context"

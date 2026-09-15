@@ -335,12 +335,9 @@ const MaxBufferedErrorBytes = 64 * 1024
 // re-exports it as httputil.ErrUpstreamIdleTimeout.
 var ErrUpstreamIdleTimeout = errors.New("upstream sse idle timeout")
 
-// ErrUpstreamOutputStall: output-progress watchdog fired — stream stayed alive
-// on non-output frames (reasoning deltas, keepalives) but produced zero
-// output-bearing content for the full budget. Root cause of the 2026-06-16
-// gpt-5.x incident (a /v1/responses stream sat at zero output tokens until the
-// 600s cap). Upstream-owned and retryable, like ErrUpstreamIdleTimeout;
-// defined here for the same import-cycle reason and re-exported by httputil.
+// ErrUpstreamOutputStall: the stream made no output or qualifying reasoning
+// progress for the full budget. Retryable only before client commitment.
+// Defined here to avoid an import cycle and re-exported by httputil.
 var ErrUpstreamOutputStall = errors.New("upstream sse output stall")
 
 // ErrUpstreamSlowThroughput: minimum-throughput watchdog fired — upstream IS
@@ -741,6 +738,14 @@ type RequestTransformation struct {
 // byte-idle-guarded only.
 type OutputProgressArmer interface {
 	ArmOutputProgress(mark func()) (armed bool)
+}
+
+// ReasoningProgressArmer reports advancing reasoning separately from output,
+// so it can reset the stall watchdog without stamping first-output latency or
+// counting toward output throughput. Arm after output progress is armed;
+// non-streaming writers return false.
+type ReasoningProgressArmer interface {
+	ArmReasoningProgress(mark func()) (armed bool)
 }
 
 type Client interface {

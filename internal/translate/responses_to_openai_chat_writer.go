@@ -44,9 +44,9 @@ type ResponsesToOpenAIChatWriter struct {
 	// closed guards against emitting after [DONE] or an error frame.
 	closed bool
 
-	// onOutputProgress fires on output-bearing events only (never reasoning or
-	// keepalives) to feed the watchdog aborting a byte-alive stream with no output.
-	onOutputProgress func()
+	// Reasoning resets the stall clock without changing output latency/throughput.
+	onOutputProgress    func()
+	onReasoningProgress func()
 
 	// toolSlots maps a Responses output_index to its chat tool_calls index.
 	toolSlots    map[int]int
@@ -131,15 +131,30 @@ func (t *ResponsesToOpenAIChatWriter) WithToolValidator(v *toolcheck.Validator) 
 	return t
 }
 
-// ArmOutputProgress installs mark, called on output-bearing events only, so the
-// watchdog tracks time-since-last-output. Returns false for non-streaming
-// clients; call after Prelude, which sets the streaming flag.
+// ArmOutputProgress installs the output-only callback. Call after Prelude;
+// buffered clients decline because they parse only at Finalize.
 func (t *ResponsesToOpenAIChatWriter) ArmOutputProgress(mark func()) (armed bool) {
 	if !t.streaming {
 		return false
 	}
 	t.onOutputProgress = mark
 	return true
+}
+
+// ArmReasoningProgress installs the stall-only callback for advancing reasoning.
+// Call after Prelude; buffered clients decline.
+func (t *ResponsesToOpenAIChatWriter) ArmReasoningProgress(mark func()) (armed bool) {
+	if !t.streaming {
+		return false
+	}
+	t.onReasoningProgress = mark
+	return true
+}
+
+func (t *ResponsesToOpenAIChatWriter) markReasoningProgress() {
+	if t.onReasoningProgress != nil {
+		t.onReasoningProgress()
+	}
 }
 
 func (t *ResponsesToOpenAIChatWriter) markOutputProgress() {
@@ -277,18 +292,20 @@ func (t *ResponsesToOpenAIChatWriter) translateEvent(raw []byte) error {
 			"frame_bytes", len(data))
 		return t.emitStreamError("api_error", malformedResponsesFrameMessage)
 	}
-	// Match on in-payload `type`, not `event:` — intermediaries drop the latter.
-	// Reasoning-only frames skip markOutputProgress to keep the watchdog honest.
-	switch gjson.GetBytes(data, "type").String() {
-	case "response.output_item.added":
-		if gjson.GetBytes(data, "item.type").String() != "reasoning" {
+	// Match on the payload type: intermediaries may drop the SSE event name.
+	switch responsesProgressEvent(gjson.GetBytes(data, "type").String()) {
+	case responsesOutputItemAdded:
+		if responsesProgressItem(gjson.GetBytes(data, "item.type").String()) != responsesReasoningItem {
 			t.markOutputProgress()
 		}
 		return t.handleOutputItemAdded(data)
 	case "response.output_text.delta":
 		t.markOutputProgress()
 		return t.emitContentDelta(int(gjson.GetBytes(data, "output_index").Int()), gjson.GetBytes(data, "delta").String())
-	case "response.reasoning_summary_text.delta", "response.reasoning_text.delta":
+	case responsesReasoningSummaryDelta, responsesReasoningTextDelta:
+		if delta := gjson.GetBytes(data, "delta"); delta.Type == gjson.String && delta.Str != "" {
+			t.markReasoningProgress()
+		}
 		return t.emitReasoningDelta(int(gjson.GetBytes(data, "output_index").Int()), gjson.GetBytes(data, "delta").String())
 	case "response.function_call_arguments.delta":
 		t.markOutputProgress()
@@ -300,9 +317,11 @@ func (t *ResponsesToOpenAIChatWriter) translateEvent(raw []byte) error {
 		t.markOutputProgress()
 		t.bufferToolArgs(data, "arguments", false)
 		return nil
-	case "response.output_item.done":
-		if gjson.GetBytes(data, "item.type").String() != "reasoning" {
+	case responsesOutputItemDone:
+		if responsesProgressItem(gjson.GetBytes(data, "item.type").String()) != responsesReasoningItem {
 			t.markOutputProgress()
+		} else if completedReasoningHasProgress(gjson.GetBytes(data, "item")) {
+			t.markReasoningProgress()
 		}
 		return t.handleOutputItemDone(data)
 	case "error":

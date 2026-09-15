@@ -136,6 +136,15 @@ func (o *streamCutObserver) ArmOutputProgress(mark func()) bool {
 	return arm.ArmOutputProgress(mark)
 }
 
+// ArmReasoningProgress keeps the translator's stall-only callback reachable.
+func (o *streamCutObserver) ArmReasoningProgress(mark func()) bool {
+	arm, ok := o.inner.(providers.ReasoningProgressArmer)
+	if !ok {
+		return false
+	}
+	return arm.ArmReasoningProgress(mark)
+}
+
 func (o *streamCutObserver) Write(p []byte) (int, error) {
 	if o.streaming && len(p) > 0 {
 		o.lastFrame = o.now()
