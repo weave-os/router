@@ -38,12 +38,14 @@ type feedbackCompletion struct {
 	partial           bytes.Buffer
 	holding           bool
 	terminal          bool
+	blocked           bool
 	failed            bool
 	invalid           error
 	responsesTerminal []byte
 	choices           map[int64]bool
 	request           FeedbackRequest
 	store             RouterFeedbackStore
+	observations      []func()
 }
 
 func newFeedbackCompletion(w http.ResponseWriter, format translate.EscalationResponseFormat, stream bool) *feedbackCompletion {
@@ -103,6 +105,12 @@ func (f *feedbackCompletion) WriteHeader(status int) {
 		return
 	}
 	f.status, f.written = status, true
+	if !f.stream || status >= http.StatusBadRequest {
+		f.inner.Header().Set("Content-Type", "application/json")
+	} else {
+		f.inner.Header().Set("Content-Type", "text/event-stream")
+	}
+	f.inner.Header().Set("X-Content-Type-Options", "nosniff")
 	f.inner.WriteHeader(status)
 }
 
@@ -110,6 +118,12 @@ func (f *feedbackCompletion) Write(p []byte) (int, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.written = true
+	if !f.stream || f.status >= http.StatusBadRequest {
+		f.inner.Header().Set("Content-Type", "application/json")
+	} else {
+		f.inner.Header().Set("Content-Type", "text/event-stream")
+	}
+	f.inner.Header().Set("X-Content-Type-Options", "nosniff")
 	if !f.active || !f.stream || f.status >= 400 {
 		return f.inner.Write(p)
 	}
@@ -133,6 +147,12 @@ func (f *feedbackCompletion) Write(p []byte) (int, error) {
 func (f *feedbackCompletion) Flush() {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if !f.stream || f.status >= http.StatusBadRequest {
+		f.inner.Header().Set("Content-Type", "application/json")
+	} else {
+		f.inner.Header().Set("Content-Type", "text/event-stream")
+	}
+	f.inner.Header().Set("X-Content-Type-Options", "nosniff")
 	if flusher, ok := f.inner.(http.Flusher); ok {
 		flusher.Flush()
 	}
@@ -212,6 +232,10 @@ func (f *feedbackCompletion) observe(event []byte) {
 			return true
 		})
 	case translate.EscalationResponseGemini:
+		if geminiPromptBlocked(root) {
+			f.blocked, f.holding, f.terminal = true, true, true
+			return
+		}
 		root.Get("candidates").ForEach(func(_, candidate gjson.Result) bool {
 			index := candidate.Get("index").Int()
 			if f.choices[index] {
@@ -237,7 +261,14 @@ func (f *feedbackCompletion) allChoicesFinished() bool {
 	return true
 }
 
-func (f *feedbackCompletion) successfulBody() bool {
+func geminiPromptBlocked(root gjson.Result) bool {
+	candidates := root.Get("candidates")
+	reason := root.Get("promptFeedback.blockReason")
+	return (!candidates.Exists() || (candidates.IsArray() && len(candidates.Array()) == 0)) &&
+		reason.Type == gjson.String && reason.String() != "" && reason.String() != "BLOCK_REASON_UNSPECIFIED"
+}
+
+func (f *feedbackCompletion) completeBody() bool {
 	root := gjson.ParseBytes(f.buffer.body.Bytes())
 	if !gjson.ValidBytes(f.buffer.body.Bytes()) || (root.Get("error").Exists() && root.Get("error").Type != gjson.Null) {
 		return false
@@ -252,6 +283,10 @@ func (f *feedbackCompletion) successfulBody() bool {
 		items, reason := root.Get("choices"), "finish_reason"
 		if f.format == translate.EscalationResponseGemini {
 			items, reason = root.Get("candidates"), "finishReason"
+			f.blocked = geminiPromptBlocked(root)
+			if f.blocked {
+				return true
+			}
 		}
 		complete := items.IsArray() && len(items.Array()) > 0
 		items.ForEach(func(_, item gjson.Result) bool {
@@ -267,6 +302,7 @@ func (f *feedbackCompletion) finish(ctx context.Context, proxyErr error) error {
 	if f == nil {
 		return proxyErr
 	}
+	defer f.submitObservations()
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if !f.active {
@@ -282,7 +318,7 @@ func (f *feedbackCompletion) finish(ctx context.Context, proxyErr error) error {
 				f.suffix.Write(f.partial.Bytes())
 				f.partial.Reset()
 			}
-			if f.format == translate.EscalationResponseGemini {
+			if f.format == translate.EscalationResponseGemini && !f.blocked {
 				f.terminal = f.allChoicesFinished()
 			}
 			if f.invalid != nil {
@@ -290,10 +326,10 @@ func (f *feedbackCompletion) finish(ctx context.Context, proxyErr error) error {
 			} else if f.failed || !f.terminal {
 				proxyErr = translate.ErrStreamIncomplete
 			}
-		} else if !f.successfulBody() {
+		} else if !f.completeBody() {
 			proxyErr = translate.ErrStreamIncomplete
 		}
-		if proxyErr == nil {
+		if proxyErr == nil && !f.blocked {
 			writeCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
 			f.request.CompletedAt = time.Now()
 			err := f.store.CompleteFeedbackRequest(writeCtx, f.request)
@@ -316,6 +352,7 @@ func (f *feedbackCompletion) finish(ctx context.Context, proxyErr error) error {
 		return f.buffer.FlushToClient()
 	}
 	if f.suffix.Len() > 0 {
+		f.inner.Header().Set("Content-Type", "text/event-stream")
 		if _, err := f.inner.Write(f.suffix.Bytes()); err != nil {
 			return err
 		}
@@ -324,6 +361,17 @@ func (f *feedbackCompletion) finish(ctx context.Context, proxyErr error) error {
 		}
 	}
 	return nil
+}
+
+// Admission can block, so only drain after protocol finalization and history commit.
+func (f *feedbackCompletion) submitObservations() {
+	f.mu.Lock()
+	pending := f.observations
+	f.observations = nil
+	f.mu.Unlock()
+	for _, submit := range pending {
+		submit()
+	}
 }
 
 func (f *feedbackCompletion) emitError(err error) {

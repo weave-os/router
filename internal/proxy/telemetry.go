@@ -474,7 +474,7 @@ func (s attemptSink) RecordAttempt(ctx context.Context, event inference.AttemptE
 		return
 	}
 	log := observability.FromContext(ctx).With("operation_id", event.OperationID, "attempt_index", event.AttemptIndex)
-	submitObservation(s.queue, observability.WorkAttempt, log, InsertInferenceAttemptParams{Timestamp: time.Now(), InstallationID: installationID, Event: event}, 5*time.Second, s.store.InsertInferenceAttempt)
+	submitObservation(ctx, s.queue, observability.WorkAttempt, log, InsertInferenceAttemptParams{Timestamp: time.Now(), InstallationID: installationID, Event: event}, 5*time.Second, s.store.InsertInferenceAttempt)
 }
 
 // NewAttemptSink submits attempts to process-owned database observation capacity.

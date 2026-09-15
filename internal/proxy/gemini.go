@@ -279,6 +279,7 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 	var ownsCompletion bool
 	w, completion, ownsCompletion = s.beginFeedbackCompletion(ctx, w, translate.EscalationResponseGemini, env.Stream(), installationID, sessionKey, feats.Model, requestID, routeRes)
 	if ownsCompletion {
+		ctx = context.WithValue(ctx, feedbackCompletionContextKey{}, completion)
 		defer func() { returnErr = completion.finish(ctx, returnErr) }()
 	}
 	clientSink := w

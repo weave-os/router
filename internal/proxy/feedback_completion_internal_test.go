@@ -3,6 +3,7 @@ package proxy
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -289,5 +290,103 @@ func TestFeedbackCompletionPreservesBufferedHTTPFailure(t *testing.T) {
 		require.Equal(t, http.StatusBadRequest, rec.Code)
 		require.Equal(t, body, rec.Body.String())
 		require.Empty(t, store.records)
+	}
+}
+
+func TestFeedbackCompletionPreservesProtocolContentTypes(t *testing.T) {
+	for _, tc := range completionStreams {
+		for _, stream := range []bool{false, true} {
+			for _, active := range []bool{false, true} {
+				for _, writeHeader := range []bool{false, true} {
+					t.Run(fmt.Sprintf("%s/stream=%v/active=%v/header=%v", tc.name, stream, active, writeHeader), func(t *testing.T) {
+						rec := httptest.NewRecorder()
+						gate := newFeedbackCompletion(rec, tc.format, stream)
+						gate.active, gate.store = active, &completionTestStore{}
+						gate.Header().Set("Content-Type", "text/html")
+						if writeHeader {
+							gate.WriteHeader(http.StatusOK)
+						}
+						body, contentType := tc.body, "application/json"
+						if stream {
+							body, contentType = tc.prefix+tc.suffix, "text/event-stream"
+						}
+						body = strings.ReplaceAll(body, "hello", "<script>alert(1)</script>")
+						_, err := gate.Write([]byte(body))
+						require.NoError(t, err)
+						require.NoError(t, gate.finish(context.Background(), nil))
+						require.Equal(t, contentType, rec.Result().Header.Get("Content-Type"))
+						require.Equal(t, "nosniff", rec.Result().Header.Get("X-Content-Type-Options"))
+						require.Equal(t, body, rec.Body.String(), "do not HTML-escape protocol payloads")
+					})
+				}
+			}
+		}
+	}
+}
+
+func TestFeedbackCompletionSetsContentTypeBeforeEmptyFlush(t *testing.T) {
+	rec := httptest.NewRecorder()
+	gate := newFeedbackCompletion(rec, translate.EscalationResponseResponses, true)
+	gate.Header().Set("Content-Type", "text/html")
+	gate.Flush()
+	require.Equal(t, "text/event-stream", rec.Result().Header.Get("Content-Type"))
+	require.Equal(t, "nosniff", rec.Result().Header.Get("X-Content-Type-Options"))
+}
+
+func TestFeedbackCompletionRejectsMalformedGeminiBlocks(t *testing.T) {
+	for _, body := range []string{
+		`{"promptFeedback":{}}`,
+		`{"promptFeedback":{"blockReason":""}}`,
+		`{"promptFeedback":{"blockReason":"BLOCK_REASON_UNSPECIFIED"}}`,
+		`{"promptFeedback":{"blockReason":5}}`,
+		`{"candidates":{},"promptFeedback":{"blockReason":"SAFETY"}}`,
+		`{"candidates":[{"index":0}],"promptFeedback":{"blockReason":"SAFETY"}}`,
+		`{"promptFeedback":{"blockReason":"SAFETY"}`, // truncated JSON
+	} {
+		for _, stream := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/stream=%v", body, stream), func(t *testing.T) {
+				rec := httptest.NewRecorder()
+				store := &completionTestStore{}
+				gate := newFeedbackCompletion(rec, translate.EscalationResponseGemini, stream)
+				gate.active, gate.store = true, store
+				wire := body
+				if stream {
+					wire = "data: " + wire + "\n\n"
+				}
+				_, err := gate.Write([]byte(wire))
+				require.NoError(t, err)
+				require.Error(t, gate.finish(context.Background(), nil))
+				require.Empty(t, store.records)
+				if !stream {
+					require.Empty(t, rec.Body.String())
+				}
+			})
+		}
+	}
+}
+
+func TestFeedbackCompletionGeminiBlockTerminatesWithoutSuccessHistory(t *testing.T) {
+	const block = "data: {\"promptFeedback\":{\"blockReason\":\"SAFETY\"}}\n\n"
+	const output = "data: {\"candidates\":[{\"index\":0,\"content\":{\"parts\":[{\"text\":\"hello\"}]}}]}\n\n"
+	for _, trailing := range []bool{false, true} {
+		wire := output + block
+		if trailing {
+			wire = block + output
+		}
+		rec := httptest.NewRecorder()
+		store := &completionTestStore{}
+		gate := newFeedbackCompletion(rec, translate.EscalationResponseGemini, true)
+		gate.active, gate.store = true, store
+		_, err := gate.Write([]byte(wire))
+		require.NoError(t, err)
+		err = gate.finish(context.Background(), nil)
+		require.Empty(t, store.records)
+		if trailing {
+			require.Error(t, err)
+			require.Contains(t, rec.Body.String(), "error")
+		} else {
+			require.NoError(t, err)
+			require.Equal(t, wire, rec.Body.String(), "a routing marker may precede the prompt block")
+		}
 	}
 }

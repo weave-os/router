@@ -3398,6 +3398,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	var ownsCompletion bool
 	w, completion, ownsCompletion = s.beginFeedbackCompletion(ctx, w, translate.EscalationResponseAnthropic, env.Stream(), installationID, sessionKey, feats.Model, requestID, routeRes)
 	if ownsCompletion {
+		ctx = context.WithValue(ctx, feedbackCompletionContextKey{}, completion)
 		defer func() { returnErr = completion.finish(ctx, returnErr) }()
 	}
 	if len(routeRes.SessionDisabledProviders) > 0 {
@@ -5182,7 +5183,7 @@ func (s *Service) reportPolicyOutcome(ctx context.Context, res turnLoopResult, d
 		return
 	}
 	if s.observations != nil {
-		submitObservation(s.observations.Remote, observability.WorkOutcome, log, payload, policyOutcomeReportTimeout, reporter.ReportOutcome)
+		submitObservation(ctx, s.observations.Remote, observability.WorkOutcome, log, payload, policyOutcomeReportTimeout, reporter.ReportOutcome)
 	}
 }
 
@@ -5764,7 +5765,7 @@ func (s *Service) fireTelemetry(ctx context.Context, p InsertTelemetryParams) {
 	if s.telemetry == nil || s.observations == nil {
 		return
 	}
-	submitObservation(s.observations.Database, observability.WorkTelemetry, observability.FromContext(ctx), p, 5*time.Second, s.telemetry.InsertRequestTelemetry)
+	submitObservation(ctx, s.observations.Database, observability.WorkTelemetry, observability.FromContext(ctx), p, 5*time.Second, s.telemetry.InsertRequestTelemetry)
 }
 
 // emitBilling debits the customer for one upstream call and, on switch turns
@@ -6270,6 +6271,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	var ownsCompletion bool
 	w, completion, ownsCompletion = s.beginFeedbackCompletion(ctx, w, translate.EscalationResponseChat, env.Stream(), installationID, sessionKey, feats.Model, requestID, routeRes)
 	if ownsCompletion {
+		ctx = context.WithValue(ctx, feedbackCompletionContextKey{}, completion)
 		defer func() { returnErr = completion.finish(ctx, returnErr) }()
 	}
 	if len(routeRes.SessionDisabledProviders) > 0 {
