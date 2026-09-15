@@ -88,7 +88,7 @@ func TestValidateOverridesRejectsWrongKindAndSemanticValues(t *testing.T) {
 			Ints: map[flags.Key]int{flags.KeyLoopEscalationHoldoutPct: 101},
 		},
 		"holdout below 0": {
-			Ints: map[flags.Key]int{flags.KeyStruggleEscalationHoldout: -1},
+			Ints: map[flags.Key]int{flags.KeyLoopEscalationHoldoutPct: -1},
 		},
 		"duplicate key across maps": {
 			Bools: map[flags.Key]bool{flags.KeyPlannerEnabled: true},
@@ -106,8 +106,8 @@ func TestValidateOverridesRejectsWrongKindAndSemanticValues(t *testing.T) {
 
 func TestValidateOverridesAcceptsTypedValues(t *testing.T) {
 	o := flags.Overrides{
-		Bools:   map[flags.Key]bool{flags.KeyStruggleEscalationEnabled: true},
-		Ints:    map[flags.Key]int{flags.KeyStruggleEscalationHoldout: 50},
+		Bools:   map[flags.Key]bool{flags.KeyLoopEscalationEnabled: true},
+		Ints:    map[flags.Key]int{flags.KeyLoopEscalationHoldoutPct: 50},
 		Strings: map[flags.Key]string{flags.KeyCyberRefusalFallback: "claude-opus-5"},
 	}
 	require.NoError(t, flags.ValidateOverrides(o))

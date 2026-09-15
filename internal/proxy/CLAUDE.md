@@ -84,7 +84,7 @@ because the existing one is keyed per installation.
 reach sessions already pinned, so `automaticPinEligible` and the pin-drop guard
 in `runTurnLoop` cover tool-result stickies, planner STAY, HMM EV stays, expiry
 re-anchors, post-command continuations, band swap, sibling failover, the policy
-deadline default, and loop/struggle escalation — every path where the router
+ deadline default, and loop escalation — every path where the router
 picked the model. `forcedPinEligible` deliberately does not.
 
 **A wholly non-routable allowlist is rejected at the admin API.** Membership

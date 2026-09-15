@@ -336,21 +336,6 @@ type Service struct {
 	// (router.struggle_shadow_events) and enforces the once-per-(session,
 	// reason) budget. Nil degrades to log-only fires.
 	struggleShadowStore StruggleShadowStore
-	// struggleEscalationEnabled is the kill switch; arms early sideways move
-	// (turns>=30, wall>=10m). Default off (ROUTER_STRUGGLE_ESCALATION_ENABLED).
-	struggleEscalationEnabled bool
-	// struggleEscalationHoldoutPct is the percentage of struggling sessions
-	// withheld for measurement. Only applies when a store is wired.
-	struggleEscalationHoldoutPct int
-	// struggleEvidenceArming lets behavioral spiral evidence arm an escalation
-	// before the turn/wall thresholds. Default off (ROUTER_STRUGGLE_EVIDENCE_ARMING).
-	struggleEvidenceArming bool
-	// struggleEscalationStore persists struggle escalation events durably
-	// (router.struggle_escalation_events). Set by WithStruggleEscalationStore.
-	struggleEscalationStore StruggleEscalationStore
-	// struggleEscalationRoster picks the next untried arm in the same cluster
-	// for a sideways move. Set by WithStruggleEscalationRoster.
-	struggleEscalationRoster StruggleEscalationRoster
 	// spiralShadowStore persists shadow spiral detections durably
 	// (router.spiral_shadow_events) and enforces the once-per-(session,
 	// reason) budget. Nil degrades to log-only fires.
@@ -766,18 +751,17 @@ func sanitizeSidecarDisplayMarker(raw string) string {
 // the marker wording; tests assert the mapping against these constants rather
 // than re-spelling the literals.
 const (
-	markerReasonShadowEscalation  = "escalation marked — shadow mode; no action taken"
-	markerReasonUserForced        = "pinned by force-model"
-	markerReasonLoopEscalated     = "escalated due to loop"
-	markerReasonStruggleEscalated = "picked a different model to break a grind"
-	markerReasonSwitched          = "switched for positive EV after cache eviction"
-	markerReasonStayed            = "stayed on your last pick"
-	markerReasonTierUpgrade       = "upgraded to a stronger tier"
-	markerReasonBestPick          = "best pick for this turn"
-	markerReasonBaseline          = "fell back to baseline after provider outage"
-	markerReasonSibling           = "switched after the picked model was overloaded"
-	markerReasonCyberRefusal      = "switched after the picked model declined the request"
-	markerReasonForcedPinDropped  = "your force-model pin could not be served this turn"
+	markerReasonShadowEscalation = "escalation marked — shadow mode; no action taken"
+	markerReasonUserForced       = "pinned by force-model"
+	markerReasonLoopEscalated    = "escalated due to loop"
+	markerReasonSwitched         = "switched for positive EV after cache eviction"
+	markerReasonStayed           = "stayed on your last pick"
+	markerReasonTierUpgrade      = "upgraded to a stronger tier"
+	markerReasonBestPick         = "best pick for this turn"
+	markerReasonBaseline         = "fell back to baseline after provider outage"
+	markerReasonSibling          = "switched after the picked model was overloaded"
+	markerReasonCyberRefusal     = "switched after the picked model declined the request"
+	markerReasonForcedPinDropped = "your force-model pin could not be served this turn"
 )
 
 // baselineRoutingMarkerFor renders the routing badge for an in-turn baseline
@@ -825,8 +809,6 @@ func routingReasonShort(res turnLoopResult) string {
 		return markerReasonUserForced
 	case translate.ReasonLoopEscalation:
 		return markerReasonLoopEscalated
-	case translate.ReasonStruggleEscalation:
-		return markerReasonStruggleEscalated
 	}
 	return markerReasonBestPick
 }
@@ -1944,41 +1926,6 @@ func (s *Service) WithStruggleShadowConfig(enabled bool) *Service {
 // replica-local de-duplication.
 func (s *Service) WithStruggleShadowStore(store StruggleShadowStore) *Service {
 	s.struggleShadowStore = store
-	return s
-}
-
-// WithStruggleEscalationConfig sets the kill switch and holdout percentage
-// (0–100); enabled=false makes the handler a no-op regardless of holdoutPct.
-func (s *Service) WithStruggleEscalationConfig(enabled bool, holdoutPct int) *Service {
-	s.struggleEscalationEnabled = enabled
-	if holdoutPct < 0 {
-		holdoutPct = 0
-	}
-	if holdoutPct > 100 {
-		holdoutPct = 100
-	}
-	s.struggleEscalationHoldoutPct = holdoutPct
-	return s
-}
-
-// WithStruggleEvidenceArming sets whether behavioral spiral evidence may arm a
-// struggle escalation before the turn/wall thresholds (default off).
-func (s *Service) WithStruggleEvidenceArming(enabled bool) *Service {
-	s.struggleEvidenceArming = enabled
-	return s
-}
-
-// WithStruggleEscalationStore wires the durable sink for struggle escalation events
-// (router.struggle_escalation_events); nil disables persistence, holdout, and budget.
-func (s *Service) WithStruggleEscalationStore(store StruggleEscalationStore) *Service {
-	s.struggleEscalationStore = store
-	return s
-}
-
-// WithStruggleEscalationRoster wires the sideways-target picker. Nil disables
-// sideways target selection (events are still recorded as no_sideways_target).
-func (s *Service) WithStruggleEscalationRoster(roster StruggleEscalationRoster) *Service {
-	s.struggleEscalationRoster = roster
 	return s
 }
 
@@ -3422,19 +3369,12 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	var inboundSpiralSignals spiralSignals
 	var inboundSpiralReasons []spiralReason
 	inboundSpiralComputed := s.ResolveSpiralShadowEnabled(ctx) ||
-		s.ResolveStruggleEvidenceArming(ctx) ||
 		s.ResolveTurnSignalCaptureEnabled(ctx)
 	if inboundSpiralComputed {
 		inboundSpiralSignals = computeSpiralSignals(env, feats.MessageCount)
 		inboundSpiralReasons = spiralReasons(inboundSpiralSignals)
 	}
 
-	// Struggle escalation: writes a sticky pin before routing so runTurnLoop
-	// dispatches the sideways target on the same turn.
-	if !agentShadowMode && !blindExperimentPassthroughActive(ctx) && handoffFromContext(ctx) == nil && s.ResolveStruggleEscalationEnabled(ctx) && (turntype.DetectFromEnvelope(env, feats, "") == turntype.MainLoop || turntype.DetectFromEnvelope(env, feats, "") == turntype.ToolResult) {
-		struggleRole := roleForTier(catalog.TierFor(feats.Model))
-		s.handleStruggleEscalation(ctx, installationID, sessionKey, struggleRole, inboundSpiralReasons, forceModelSessionKey)
-	}
 	// Surface inbound tool_use / tool_result blocks the model is about to see.
 	// Lets us audit whether a misbehaving turn was provoked by a malformed prior
 	// tool_result or an out-of-shape tool spec, without dumping the whole body.

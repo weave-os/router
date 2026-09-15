@@ -18,24 +18,6 @@ func (s *Service) ResolveStruggleShadowEnabled(ctx context.Context) bool {
 	return flags.BoolOr(ctx, flags.KeyStruggleShadowEnabled, s.struggleShadowEnabled)
 }
 
-// ResolveStruggleEscalationEnabled reports whether struggling sessions may make
-// an early sideways escalation for this request.
-func (s *Service) ResolveStruggleEscalationEnabled(ctx context.Context) bool {
-	return flags.BoolOr(ctx, flags.KeyStruggleEscalationEnabled, s.struggleEscalationEnabled)
-}
-
-// ResolveStruggleEscalationHoldoutPct returns the percentage of struggle
-// detections recorded without escalating, as a self-recovery baseline.
-func (s *Service) ResolveStruggleEscalationHoldoutPct(ctx context.Context) int {
-	return flags.IntOr(ctx, flags.KeyStruggleEscalationHoldout, s.struggleEscalationHoldoutPct)
-}
-
-// ResolveStruggleEvidenceArming reports whether behavioral spiral evidence may
-// arm an escalation for this request, ahead of the turn/wall thresholds.
-func (s *Service) ResolveStruggleEvidenceArming(ctx context.Context) bool {
-	return flags.BoolOr(ctx, flags.KeyStruggleEvidenceArming, s.struggleEvidenceArming)
-}
-
 func (s *Service) ResolveSpiralShadowEnabled(ctx context.Context) bool {
 	return flags.BoolOr(ctx, flags.KeySpiralShadowEnabled, s.spiralShadowEnabled)
 }

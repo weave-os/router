@@ -759,20 +759,6 @@ func main() {
 	// Switch sheds the per-turn check if it misbehaves; exists for symmetry with the spiral detector.
 	struggleShadowEnabled := config.GetOr("ROUTER_STRUGGLE_SHADOW_ENABLED", "true") == "true"
 
-	struggleEscalationEnabled := config.GetOr("ROUTER_STRUGGLE_ESCALATION_ENABLED", "false") == "true"
-	struggleEscalationHoldoutPct := 50
-	if raw := config.GetOr("ROUTER_STRUGGLE_ESCALATION_HOLDOUT_PCT", ""); raw != "" {
-		var n int
-		if _, scanErr := fmt.Sscanf(raw, "%d", &n); scanErr != nil || n < 0 || n > 100 {
-			logger.Warn("Invalid env var; using default", "key", "ROUTER_STRUGGLE_ESCALATION_HOLDOUT_PCT", "value", raw, "default", struggleEscalationHoldoutPct)
-		} else {
-			struggleEscalationHoldoutPct = n
-		}
-	}
-	// Behavioral evidence arming ships off: the spiral signals' operating points
-	// are still being read off the shadow corpus.
-	struggleEvidenceArming := config.GetOr("ROUTER_STRUGGLE_EVIDENCE_ARMING", "false") == "true"
-	var struggleRoster proxy.StruggleEscalationRoster
 	// Enforcing text-repetition break ships enabled; the switch is the kill
 	// switch if it ever false-positives on legit repeated narration.
 	textRepetitionBreakEnabled := config.GetOr("ROUTER_TEXT_REPETITION_BREAK_ENABLED", "true") == "true"
@@ -1006,7 +992,6 @@ func main() {
 			router.StrategyHMMEmbedding: stableManager,
 		}
 		hmmRosterModels = newHMMRosterSource(stableManager, hmmTimeout)
-		struggleRoster = proxy.NewStruggleRoster(stableManager)
 		escalationObserver = stableDynamicRouter
 
 		betaManager, betaManagerErr := policyregistry.NewManager(
@@ -1109,9 +1094,6 @@ func main() {
 		flags.KeyEscalationXGBoostEpoch:               "0",
 		flags.KeySubscriptionPlanAwareRouting:         boolDefault(false),
 		flags.KeyStruggleShadowEnabled:                boolDefault(struggleShadowEnabled),
-		flags.KeyStruggleEscalationEnabled:            boolDefault(struggleEscalationEnabled),
-		flags.KeyStruggleEscalationHoldout:            strconv.Itoa(struggleEscalationHoldoutPct),
-		flags.KeyStruggleEvidenceArming:               boolDefault(struggleEvidenceArming),
 		flags.KeySpiralShadowEnabled:                  boolDefault(spiralShadowEnabled),
 		flags.KeyTurnSignalCapture:                    boolDefault(turnSignalCaptureEnabled),
 		flags.KeyLoopEscalationEnabled:                boolDefault(loopEscalationEnabled),
@@ -1222,10 +1204,6 @@ func main() {
 		WithSpiralShadowStore(repo.Telemetry).
 		WithStruggleShadowConfig(struggleShadowEnabled).
 		WithStruggleShadowStore(repo.Telemetry).
-		WithStruggleEscalationConfig(struggleEscalationEnabled, struggleEscalationHoldoutPct).
-		WithStruggleEvidenceArming(struggleEvidenceArming).
-		WithStruggleEscalationStore(repo.Telemetry).
-		WithStruggleEscalationRoster(struggleRoster).
 		WithTextRepetitionBreak(textRepetitionBreakEnabled).
 		WithRouterFeedbackStore(repo.Telemetry).
 		WithPlanner(plannerCfg).

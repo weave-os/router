@@ -1234,12 +1234,12 @@ func (s *Service) runTurnLoop(
 			pin = sessionpin.Pin{}
 		}
 	}
-	if pinFound && (isUserForcedReason(pin.Reason) || pin.Reason == translate.ReasonLoopEscalation || pin.Reason == translate.ReasonStruggleEscalation) {
+	if pinFound && (isUserForcedReason(pin.Reason) || pin.Reason == translate.ReasonLoopEscalation) {
 		_, excluded := req.ExcludedModels[pin.Model]
 		_, providerEnabled := req.EnabledProviders[pin.Provider]
 		providerEligible := req.EnabledProviders == nil || providerEnabled
 		imageCapable := pinServesImages(pin, req)
-		// Loop and struggle escalation are router-chosen rescues, so a
+		// Loop escalation is a router-chosen rescue, so a
 		// deployment-wide disable applies to them; only the user's own
 		// /force-model outranks it.
 		autoDisabled := !isUserForcedReason(pin.Reason) && automaticallyDisabled(req, pin.Model)

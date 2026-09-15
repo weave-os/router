@@ -16,7 +16,6 @@ import (
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 
-	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
@@ -80,68 +79,6 @@ func TestPiHandoffPreparationDoesNotDispatchAndContinuationDoesNotReclassify(t *
 	require.Equal(t, prepared.Model, gjson.GetBytes(upstream.body, "model").String())
 	require.False(t, gjson.GetBytes(upstream.body, piHandoffField).Exists())
 	require.Contains(t, string(upstream.body), "Compacted parser context")
-}
-
-func TestPiHandoffStruggleEscalationPreservesClassAndPreviousProvider(t *testing.T) {
-	svc, classifier, _, ctx := handoffTestService()
-	upstream := &handoffResponseProvider{}
-	svc.clients = dispatch.NewClients(map[string]providers.Client{
-		providers.ProviderAnthropic: upstream,
-		providers.ProviderFireworks: upstream,
-	})
-	env, err := translate.ParseAnthropic([]byte(handoffTestBody))
-	require.NoError(t, err)
-	sessionKey := DeriveSessionKey(env, "handoff-test-key")
-	pins := newForceModelMapStore()
-	pins.pins = map[string]sessionpin.Pin{
-		forceModelMapKey(sessionKey, "default_mid"): {
-			Model: "claude-fable-5-1", Provider: providers.ProviderAnthropic,
-			Reason: translate.ReasonStruggleEscalation, PolicyGroup: "maximum",
-			Strategy:    router.StrategyHMM,
-			PinnedUntil: time.Now().Add(time.Hour), LastServedModel: "qwen/qwen3.8-max",
-		},
-		forceModelMapKey(sessionKey, hmmHistoryRole("default_mid")): {
-			Model: "qwen/qwen3.8-max", Provider: providers.ProviderFireworks,
-			Reason: hmmHistoryReason, PolicyGroup: "high", LastServedModel: "qwen/qwen3.8-max",
-		},
-	}
-	svc.pinStore = pins
-	prepared := prepareTestHandoff(t, svc, ctx)
-	require.Equal(t, "claude-fable-5-1", prepared.Model)
-	require.Equal(t, "maximum", prepared.Complexity)
-	require.NotEmpty(t, prepared.SummaryToken)
-	require.Zero(t, classifier.calls)
-	require.Empty(t, upstream.body)
-
-	summaryBody, err := sjson.Set(handoffTestBody, piHandoffField, prepared.SummaryToken)
-	require.NoError(t, err)
-	parsed, _, err := svc.parseHandoff(ctx, []byte(summaryBody))
-	require.NoError(t, err)
-	summary := handoffFromContext(parsed).Route.Decision
-	require.Equal(t, "qwen/qwen3.8-max", summary.Model)
-	require.Equal(t, providers.ProviderFireworks, summary.Provider)
-
-	continuation, err := sjson.Set(handoffTestBody, "messages.0.content", "Compacted context; finish the review.")
-	require.NoError(t, err)
-	continuation, err = sjson.Set(continuation, piHandoffField, prepared.Token)
-	require.NoError(t, err)
-	continuation, err = sjson.Set(continuation, piSessionField, prepared.SessionToken)
-	require.NoError(t, err)
-	require.NoError(t, svc.ProxyMessages(ctx, []byte(continuation), httptest.NewRecorder(), httptest.NewRequest("POST", "/v1/messages", nil)))
-	require.Equal(t, "claude-fable-5-1", gjson.GetBytes(upstream.body, "model").String())
-	require.False(t, gjson.GetBytes(upstream.body, piSessionField).Exists(), "session tickets must not reach a provider")
-	require.Zero(t, classifier.calls)
-
-	nextTurn, err := sjson.Delete(continuation, piHandoffField)
-	require.NoError(t, err)
-	recorder := httptest.NewRecorder()
-	require.NoError(t, svc.ProxyMessages(WithHandoffPreparation(ctx), []byte(nextTurn), recorder, httptest.NewRequest("POST", "/v1/route/handoff", nil)))
-	var next preparedHandoff
-	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &next))
-	require.Equal(t, "claude-fable-5-1", next.Model, "compacted follow-up must find the original session pin")
-	require.Equal(t, "maximum", next.Complexity)
-	require.Empty(t, next.SummaryToken, "a same-model follow-up must not compact again")
-	require.Zero(t, classifier.calls)
 }
 
 func TestPiHandoffRejectsTamperingIdentityAndExpiration(t *testing.T) {
