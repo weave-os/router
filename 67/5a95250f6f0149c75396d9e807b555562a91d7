@@ -44,6 +44,7 @@ install/pi-router/test/mock_router.py
   s_4a9e207784ff57::t_b3cea6e08d85db 48-49
   s_4a9e207784ff57::t_a9bfd4acd39751 51
   s_4a9e207784ff57::t_af6c02260ff9a1 281-387
+  s_4a9e207784ff57::t_60dc4e6fa51c48 140-142,155-157,275-277,390
 internal/proxy/service_test.go
   s_4a9e207784ff57::t_94b0d70d384c44 512
   s_4a9e207784ff57::t_b9e65ff405c792 541-562
