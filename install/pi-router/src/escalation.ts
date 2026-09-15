@@ -9,9 +9,11 @@ const COMPLEXITY_RANK: Record<Complexity, number> = { low: 0, medium: 1, high: 2
 const MIN_HANDOFF_TOKENS = 32_768;
 const STATUS_KEY = "weave-handoff";
 const ROUTE_ENTRY_TYPE = "weave-handoff-route";
+const SESSION_ENTRY_TYPE = "weave-handoff-session";
 
 interface RouteSelection {
 	token: string;
+	session_token: string;
 	summary_token?: string;
 	model: string;
 	provider: string;
@@ -55,12 +57,13 @@ export function parsePreparedRoute(value: unknown): PreparedRoute {
 	if (!isRecord(value)) throw new Error("Invalid router handoff response");
 	if (value.bypass === true) return { bypass: true };
 	if (typeof value.token !== "string" || !value.token || typeof value.model !== "string" || !value.model ||
+		typeof value.session_token !== "string" || !value.session_token ||
 		typeof value.provider !== "string" || !value.provider ||
 		(value.summary_token !== undefined && typeof value.summary_token !== "string")) {
 		throw new Error("Invalid router handoff selection");
 	}
 	return {
-		token: value.token, model: value.model, provider: value.provider,
+		token: value.token, session_token: value.session_token, model: value.model, provider: value.provider,
 		summary_token: value.summary_token as string | undefined,
 		complexity: isComplexity(value.complexity) ? value.complexity : undefined,
 	};
@@ -88,6 +91,7 @@ export function registerEscalationCompaction(
 		return () => false;
 	}
 	let pending: PendingHandoff | undefined;
+	let sessionToken: string | undefined;
 	let previous: Pick<RouteSelection, "model" | "complexity"> | undefined;
 	let dispatched: RouteSelection | undefined;
 	let generation = 0;
@@ -105,7 +109,12 @@ export function registerEscalationCompaction(
 	pi.on("model_select", clear);
 	const restore = (_event: unknown, ctx: ExtensionContext) => {
 		clear();
+		sessionToken = undefined;
 		for (const entry of ctx.sessionManager.getBranch()) {
+			if (entry.type === "custom" && entry.customType === SESSION_ENTRY_TYPE && isRecord(entry.data) &&
+				entry.data.sessionId === ctx.sessionManager.getSessionId() && typeof entry.data.token === "string") {
+				sessionToken = entry.data.token;
+			}
 			if (entry.type !== "custom" || entry.customType !== ROUTE_ENTRY_TYPE) continue;
 			previous = undefined;
 			if (isRecord(entry.data) &&
@@ -135,7 +144,7 @@ export function registerEscalationCompaction(
 	pi.on("before_provider_request", async (event, ctx) => {
 		if (process.env.WEAVE_PI_ESCALATION_COMPACTION === "0" || isSubagent() || ctx.model?.provider !== PROVIDER_NAME) return;
 		if (!isRecord(event.payload)) return;
-		const payload = event.payload;
+		let payload = sessionToken ? { ...event.payload, weave_session: sessionToken } : event.payload;
 		const requestGeneration = generation;
 		try {
 			if (pending?.stage === "ready") {
@@ -166,8 +175,13 @@ export function registerEscalationCompaction(
 				dispatched = undefined;
 				previous = undefined;
 				pi.appendEntry(ROUTE_ENTRY_TYPE, {});
-				return;
+				return payload;
 			}
+			if (sessionToken !== prepared.session_token) {
+				sessionToken = prepared.session_token;
+				pi.appendEntry(SESSION_ENTRY_TYPE, { sessionId: ctx.sessionManager.getSessionId(), token: sessionToken });
+			}
+			payload = { ...payload, weave_session: sessionToken };
 			if (!needsEscalationCompaction(previous, prepared, ctx.getContextUsage()?.tokens ?? 0)) {
 				dispatched = prepared;
 				return { ...payload, weave_handoff: prepared.token };

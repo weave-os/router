@@ -56,6 +56,7 @@ type handoffClaims struct {
 
 type preparedHandoff struct {
 	Bypass       bool   `json:"bypass,omitempty"`
+	SessionToken string `json:"session_token,omitempty"`
 	Token        string `json:"token,omitempty"`
 	SummaryToken string `json:"summary_token,omitempty"`
 	Model        string `json:"model,omitempty"`
@@ -94,6 +95,10 @@ func writePreparedHandoff(w http.ResponseWriter, prepared preparedHandoff) error
 }
 
 func (s *Service) parseHandoff(ctx context.Context, body []byte) (context.Context, []byte, error) {
+	ctx, body, err := s.parsePiSession(ctx, body)
+	if err != nil {
+		return ctx, body, err
+	}
 	encoded := gjson.GetBytes(body, piHandoffField)
 	if preparingHandoff(ctx) && len(s.piHandoffSecret) == 0 {
 		return ctx, body, ErrHandoffUnavailable
@@ -105,7 +110,7 @@ func (s *Service) parseHandoff(ctx context.Context, body []byte) (context.Contex
 		return ctx, body, ErrHandoffInvalid
 	}
 	claims := &handoffClaims{}
-	_, err := jwt.ParseWithClaims(encoded.String(), claims, func(_ *jwt.Token) (any, error) {
+	_, err = jwt.ParseWithClaims(encoded.String(), claims, func(_ *jwt.Token) (any, error) {
 		return s.piHandoffSecret, nil
 	}, jwt.WithValidMethods([]string{jwt.SigningMethodHS256.Alg()}), jwt.WithExpirationRequired(), jwt.WithIssuer("weave-pi-handoff-v1"))
 	apiKeyID, _ := ctx.Value(APIKeyIDContextKey{}).(string)
@@ -125,7 +130,7 @@ func (s *Service) mintHandoff(claims handoffClaims) (string, error) {
 	return jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString(s.piHandoffSecret)
 }
 
-func (s *Service) finishHandoffPreparation(ctx context.Context, w http.ResponseWriter, req router.Request, route turnLoopResult) error {
+func (s *Service) finishHandoffPreparation(ctx context.Context, w http.ResponseWriter, env *translate.RequestEnvelope, req router.Request, route turnLoopResult) error {
 	if route.UsageBypass || route.HardPinned || isUserForcedReason(route.Decision.Reason) {
 		return writePreparedHandoff(w, preparedHandoff{Bypass: true})
 	}
@@ -142,6 +147,10 @@ func (s *Service) finishHandoffPreparation(ctx context.Context, w http.ResponseW
 	prepared := preparedHandoff{
 		Token: token, Model: route.Decision.Model, Provider: route.Decision.Provider,
 		Complexity: decisionPolicyGroup(route.Decision),
+	}
+	prepared.SessionToken, err = s.mintPiSession(ctx, env, deriveSessionKeyForRequest(ctx, env, apiKeyID))
+	if err != nil {
+		return fmt.Errorf("sign Pi session: %w", err)
 	}
 	if prepared.Complexity == "" && route.Decision.Model == route.PinModel {
 		prepared.Complexity = route.PinPolicyGroup
@@ -209,6 +218,9 @@ func validateHandoffEnvelope(ctx context.Context, env *translate.RequestEnvelope
 	claims := handoffFromContext(ctx)
 	if claims == nil {
 		return nil
+	}
+	if session := piSessionFromContext(ctx); session != nil && claims.Route.SessionKey != ([sessionpin.SessionKeyLen]byte{}) && session.SessionKey != claims.Route.SessionKey {
+		return ErrHandoffInvalid
 	}
 	_, beta := env.ExtractBetaCommand()
 	_, force := env.ExtractForceModelCommand()

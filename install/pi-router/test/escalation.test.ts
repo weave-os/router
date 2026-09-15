@@ -3,14 +3,15 @@ import test, { type TestContext } from "node:test";
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { handoffSummaryPayload, needsEscalationCompaction, parsePreparedRoute, registerEscalationCompaction } from "../src/escalation.js";
 
-const lowRoute = { token: "low-ticket", model: "model-small", provider: "anthropic", complexity: "low" as const };
-const highRoute = { token: "high-ticket", summary_token: "summary-ticket", model: "model-large", provider: "anthropic", complexity: "high" as const };
+const lowRoute = { token: "low-ticket", session_token: "session-ticket", model: "model-small", provider: "anthropic", complexity: "low" as const };
+const highRoute = { token: "high-ticket", session_token: "session-ticket", summary_token: "summary-ticket", model: "model-large", provider: "anthropic", complexity: "high" as const };
 
 function harness(version?: string) {
 	const listeners = new Map<string, Array<(event: any, ctx: ExtensionContext) => any>>();
 	const messages: string[] = [];
 	const errors: string[] = [];
 	const branch: any[] = [];
+	const preparedPayloads: any[] = [];
 	let aborted = 0;
 	let preparations = 0;
 	let compactOptions: any;
@@ -32,12 +33,13 @@ function harness(version?: string) {
 		hasUI: true,
 		ui: { setStatus: () => {}, notify: (message: string) => errors.push(message) },
 	} as unknown as ExtensionContext;
-	const pending = registerEscalationCompaction(pi, (async () => {
+	const pending = registerEscalationCompaction(pi, (async (_url, options) => {
 		preparations++;
+		preparedPayloads.push(JSON.parse(options!.body as string));
 		return { ok: true, json: async () => selection } as Response;
 	}) as typeof fetch, version);
 	return {
-		ctx, messages, errors, pending,
+		ctx, messages, errors, pending, branch, preparedPayloads,
 		select: (route: unknown) => { selection = route; },
 		aborted: () => aborted,
 		preparations: () => preparations,
@@ -76,6 +78,7 @@ test("escalation requires an upward class, different model, substantial history,
 test("handoff response validation rejects incomplete tickets and tolerates unknown classes", () => {
 	assert.deepEqual(parsePreparedRoute({ bypass: true }), { bypass: true });
 	assert.throws(() => parsePreparedRoute({ model: "model-large" }));
+	assert.throws(() => parsePreparedRoute({ ...highRoute, session_token: undefined }));
 	assert.equal((parsePreparedRoute({ ...highRoute, complexity: "future-class" }) as typeof highRoute).complexity, undefined);
 });
 
@@ -105,6 +108,7 @@ test("Pi defaults to handoff compaction and resumes the reserved model without p
 	const h = harness();
 	const first = await h.emit("before_provider_request", { payload: { messages: [] } });
 	assert.equal(first.weave_handoff, lowRoute.token);
+	assert.equal(first.weave_session, lowRoute.session_token);
 	await h.emit("after_provider_response", { status: 200, headers: { "x-router-model": lowRoute.model } });
 	h.select(highRoute);
 	assert.equal(await h.emit("before_provider_request", { payload: { messages: [] } }), undefined);
@@ -117,6 +121,8 @@ test("Pi defaults to handoff compaction and resumes the reserved model without p
 	assert.equal(h.messages.length, 1);
 	const resumed = await h.emit("before_provider_request", { payload: { messages: ["compacted"] } });
 	assert.equal(resumed.weave_handoff, highRoute.token);
+	assert.equal(resumed.weave_session, lowRoute.session_token);
+	assert.equal(h.preparedPayloads[1].weave_session, lowRoute.session_token);
 	assert.deepEqual(resumed.messages, ["compacted"]);
 	assert.equal(h.preparations(), 2);
 	assert.equal(h.pending(), false);
@@ -195,4 +201,32 @@ test("restored route classes survive session resume but an unknown served model 
 	const dispatched = await h.emit("before_provider_request", { payload: {} });
 	assert.equal(dispatched.weave_handoff, highRoute.token);
 	assert.equal(h.pending(), false);
+});
+
+test("signed thread identity survives resume, model selection, and preparation bypass", async (t) => {
+	enable(t);
+	const h = harness();
+	await h.emit("before_provider_request", { payload: {} });
+	await h.emit("session_start");
+	await h.emit("model_select");
+	h.select({ bypass: true });
+	const bypass = await h.emit("before_provider_request", { payload: { messages: ["compacted"] } });
+	assert.equal(h.preparedPayloads[1].weave_session, lowRoute.session_token);
+	assert.equal(bypass.weave_session, lowRoute.session_token);
+	assert.equal(bypass.weave_handoff, undefined);
+	await h.emit("session_start");
+	h.select(lowRoute);
+	await h.emit("before_provider_request", { payload: {} });
+	assert.equal(h.preparedPayloads[2].weave_session, lowRoute.session_token);
+	assert.equal(h.branch.filter(entry => entry.customType === "weave-handoff-session").length, 1);
+});
+
+test("a forked session does not reuse its parent's signed thread identity", async (t) => {
+	enable(t);
+	const h = harness();
+	await h.emit("before_provider_request", { payload: {} });
+	h.ctx.sessionManager.getSessionId = () => "forked-session";
+	await h.emit("session_start");
+	await h.emit("before_provider_request", { payload: {} });
+	assert.equal(h.preparedPayloads[1].weave_session, undefined);
 });

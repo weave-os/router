@@ -3236,6 +3236,9 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		log.Error("Failed to parse Anthropic request", "err", parseErr)
 		return fmt.Errorf("parse request: %w", parseErr)
 	}
+	if claims := piSessionFromContext(ctx); claims != nil && !claims.matches(ctx, env) {
+		return ErrHandoffInvalid
+	}
 	var responseBuffer *responseCostBuffer
 	if !env.Stream() {
 		responseBuffer = newResponseCostBuffer(w)
@@ -3591,7 +3594,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		return routeErr
 	}
 	if preparingHandoff(ctx) {
-		return s.finishHandoffPreparation(ctx, w, req, routeRes)
+		return s.finishHandoffPreparation(ctx, w, env, req, routeRes)
 	}
 	if len(routeRes.SessionDisabledProviders) > 0 {
 		// resolveBindingsForDispatch reads excludedProvidersForRequest from ctx,

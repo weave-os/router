@@ -58,7 +58,7 @@ def main():
             if self.path == "/v1/route/handoff":
                 preparations.append(payload)
                 elevated = len(preparations) > 1
-                response = {"token": "high-ticket" if elevated else "low-ticket", "model": UPGRADED_MODEL if elevated else PREVIOUS_MODEL,
+                response = {"token": "high-ticket" if elevated else "low-ticket", "session_token": "session-ticket", "model": UPGRADED_MODEL if elevated else PREVIOUS_MODEL,
                             "provider": "anthropic" if elevated else "fireworks", "complexity": "maximum" if elevated else "high"}
                 if elevated:
                     response["summary_token"] = "summary-ticket"
@@ -123,6 +123,8 @@ def main():
             [request.get("weave_handoff") for request in requests], process.stderr[-3000:], process.stdout[-3000:])
         assert len(preparations) == 2, "Compacted context must not be reclassified"
         assert requests[1]["messages"][:-1] == preparations[1]["messages"], "Summary must preserve the old model's message prefix"
+        assert all(request.get("weave_session") == "session-ticket" for request in requests), "Summary and continuation must retain signed thread identity"
+        assert preparations[1].get("weave_session") == "session-ticket", "Next preparation must reuse the original thread"
         for field in ("system", "tools", "thinking"):
             assert requests[1].get(field) == preparations[1].get(field), f"Summary changed the cached {field} prefix"
         assert "HANDOFF_COMPLETE" in process.stdout, process.stdout[-3000:]
@@ -132,6 +134,7 @@ def main():
         assert len(continuation) < len(json.dumps(preparations[-1]["messages"])) / 2, "History was not compacted"
         persisted = [json.loads(line) for line in session.read_text().splitlines()]
         assert any(entry["type"] == "compaction" for entry in persisted), "Pi must persist a compaction boundary"
+        assert any(entry.get("customType") == "weave-handoff-session" for entry in persisted), "Thread proof must survive process restart"
         assert any(entry.get("id") == "seed0000" for entry in persisted), "Raw transcript must remain available"
         print("PASS: real Pi aborts before dispatch, summarizes once, persists compaction, and resumes the reserved model with reduced context")
 

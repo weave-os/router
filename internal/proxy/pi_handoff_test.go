@@ -59,6 +59,7 @@ func prepareTestHandoff(t *testing.T, svc *Service, ctx context.Context) prepare
 	var prepared preparedHandoff
 	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &prepared), recorder.Body.String())
 	require.NotEmpty(t, prepared.Token)
+	require.NotEmpty(t, prepared.SessionToken)
 	return prepared
 }
 
@@ -124,8 +125,11 @@ func TestPiHandoffStruggleEscalationPreservesClassAndPreviousProvider(t *testing
 	require.NoError(t, err)
 	continuation, err = sjson.Set(continuation, piHandoffField, prepared.Token)
 	require.NoError(t, err)
+	continuation, err = sjson.Set(continuation, piSessionField, prepared.SessionToken)
+	require.NoError(t, err)
 	require.NoError(t, svc.ProxyMessages(ctx, []byte(continuation), httptest.NewRecorder(), httptest.NewRequest("POST", "/v1/messages", nil)))
 	require.Equal(t, "claude-fable-5-1", gjson.GetBytes(upstream.body, "model").String())
+	require.False(t, gjson.GetBytes(upstream.body, piSessionField).Exists(), "session tickets must not reach a provider")
 	require.Zero(t, classifier.calls)
 
 	nextTurn, err := sjson.Delete(continuation, piHandoffField)

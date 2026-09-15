@@ -6,7 +6,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"log/slog"
-	"strings"
 
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/router/sessionpin"
@@ -66,7 +65,7 @@ func bindRequestLogger(
 ) (context.Context, *slog.Logger, [sessionpin.SessionKeyLen]byte) {
 	clientSessionID := clientSessionIDForRequest(ctx, env)
 	ctx = observability.WithClientSessionID(ctx, clientSessionID)
-	key := deriveSessionKey(env, apiKeyID, clientSessionID)
+	key := deriveSessionKeyForRequest(ctx, env, apiKeyID)
 	log := observability.FromContext(ctx).With(
 		"session_key", shortKey(key),
 		"api_key_id", apiKeyID,
@@ -110,8 +109,8 @@ func bindRequestLogger(
 // session id alone would collapse concurrent threads onto one pin. Each
 // thread's first user message is stable across turns but distinct per
 // sub-agent, so it separates them while keeping each pin stable.
-// Pi main sessions have independent IDs and omit this discriminator so their
-// pins survive compaction; Pi subagents retain their separate identity.
+// Compacted Pi threads retain their original digest through a verified session
+// ticket, never through a caller-declared client type.
 //
 // System text substitutes for an empty first user message only when no client
 // session id is present, because it is per-turn volatile on the harnesses that
@@ -125,6 +124,9 @@ func DeriveSessionKey(env *translate.RequestEnvelope, apiKeyID string) [sessionp
 }
 
 func deriveSessionKeyForRequest(ctx context.Context, env *translate.RequestEnvelope, apiKeyID string) [sessionpin.SessionKeyLen]byte {
+	if claims := piSessionFromContext(ctx); claims != nil && claims.APIKeyID == apiKeyID && claims.matches(ctx, env) {
+		return claims.SessionKey
+	}
 	return deriveSessionKey(env, apiKeyID, clientSessionIDForRequest(ctx, env))
 }
 
@@ -209,9 +211,7 @@ func deriveSessionKey(env *translate.RequestEnvelope, apiKeyID, clientSessionID 
 			h.Write([]byte{0x00})
 		}
 	}
-	if env != nil && !(clientSessionID != "" && strings.HasPrefix(env.MetadataUserID(), "pi:")) {
-		// Pi gives every main session its own ID; compaction rewrites its first
-		// message and must not discard the reserved model's pin on the next turn.
+	if env != nil {
 		// First user message still splits Claude Code sub-agents that share one
 		// parent session id. The system-text fallback covers OpenAI-format
 		// bodies whose leading system message leaves that empty, but only when

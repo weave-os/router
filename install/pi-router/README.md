@@ -127,8 +127,18 @@ minutes. Preparation can update routing pins; it is not a side-effect-free
 preview. The ticket is bound to the key, installation, session, strategy,
 requested model, tools and reasoning configuration. Dispatch rechecks current
 model eligibility and explicit force state. Expired or stale tickets return
-409; a new user turn prepares again. Tickets remain in memory and are never
-saved in the Pi transcript.
+409; a new user turn prepares again. Model-selection tickets remain in memory
+and are never saved in the Pi transcript.
+
+Preparation also returns a signed thread-continuity token (`session_token`).
+Pi saves it as a session entry and sends it as `weave_session` on preparation,
+summary and continuation requests. It preserves the original first-message
+digest across compaction and process restarts, and binds it to the API key,
+installation, client session and metadata identity. A `pi:` prefix alone never
+bypasses the first-message discriminator. This token has no model selection or
+credentials and lasts for the conversation; signing-secret rotation invalidates
+it. Every request still requires normal authentication. Deploy the router before
+using the updated extension, which requires this field in preparation responses.
 
 The main Pi session compacts when the observed class increases through
 `low → medium → high → maximum`, the served model changes, and estimated context

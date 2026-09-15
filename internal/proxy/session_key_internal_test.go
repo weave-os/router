@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestDeriveSessionKey_PiSurvivesCompactionAndIsolatesOtherSessions(t *testing.T) {
+func TestDeriveSessionKey_PiMetadataDoesNotBypassThreadIsolation(t *testing.T) {
 	parse := func(userID, prompt string) *translate.RequestEnvelope {
 		env, err := translate.ParseAnthropic([]byte(fmt.Sprintf(`{"metadata":{"user_id":%q},"messages":[{"role":"user","content":%q}]}`, userID, prompt)))
 		require.NoError(t, err)
@@ -21,11 +21,13 @@ func TestDeriveSessionKey_PiSurvivesCompactionAndIsolatesOtherSessions(t *testin
 	original := parse("pi:"+sessionID, "Review the parser")
 	compacted := parse("pi:"+sessionID, "Summary of the parser review")
 	key := DeriveSessionKey(original, "test-key")
-	assert.Equal(t, key, DeriveSessionKey(compacted, "test-key"))
+	assert.NotEqual(t, key, DeriveSessionKey(compacted, "test-key"), "metadata alone cannot establish compaction continuity")
 	assert.NotEqual(t, key, DeriveSessionKey(compacted, "other-key"))
 	assert.NotEqual(t, key, DeriveSessionKey(parse("pi:fb4b936b-9e6e-4df7-830e-513202b4f803", "Review the parser"), "test-key"))
-	assert.NotEqual(t, key, DeriveSessionKey(parse("subagent:"+sessionID, "Review the parser"), "test-key"))
+	assert.NotEqual(t, key, DeriveSessionKey(parse("subagent:"+sessionID, "Review parser tests"), "test-key"))
 	assert.NotEqual(t, DeriveSessionKey(parse(sessionID, "Parent task"), "test-key"), DeriveSessionKey(parse(sessionID, "Child task"), "test-key"), "shared Claude Code session IDs still distinguish threads")
+	ctx := context.WithValue(context.Background(), ClientIdentityContextKey{}, ClientIdentity{SessionID: "shared-session", ClientApp: "pi"})
+	assert.NotEqual(t, deriveSessionKeyForRequest(ctx, original, "test-key"), deriveSessionKeyForRequest(ctx, compacted, "test-key"), "neither Pi metadata nor client headers may collapse distinct threads")
 }
 
 func TestDeriveSessionKeyForRequest_UsesHeaderSessionIDWhenBodyHasNone(t *testing.T) {
