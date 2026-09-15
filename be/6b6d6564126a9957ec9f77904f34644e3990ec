@@ -1,0 +1,29 @@
+internal/proxy/escalation_internal_test.go
+  s_fc12c125adae65::t_d54be2f8414888 158
+  s_fc12c125adae65::t_a75fb319dcdce1 175-178,189
+  s_fc12c125adae65::t_a2779da9354a99 155-157,159-174,179-188,190-193,384-417
+internal/proxy/escalation.go
+  s_fc12c125adae65::t_a75fb319dcdce1 209,231
+internal/proxy/turnloop.go
+  s_fc12c125adae65::t_a75fb319dcdce1 163-167
+internal/proxy/service.go
+  s_fc12c125adae65::t_a75fb319dcdce1 625-626,653-656,716
+internal/proxy/marker_internal_test.go
+  s_fc12c125adae65::t_8679f4304a77a2 4,9,451-475
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "be6b6d6564126a9957ec9f77904f34644e3990ec",
+  "prompts": {},
+  "sessions": {
+    "s_fc12c125adae65": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0872c-1993-76d1-bd9a-9a9c26a4cffb",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}
