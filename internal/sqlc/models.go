@@ -438,6 +438,8 @@ type RouterModelRouterRequestTelemetry struct {
 	ToolErrorCounts []byte
 	// TRUE when the router appended the autonomy operating instruction to the outgoing system prompt on this request. NULL when it did not.
 	AutonomyAppendFired *bool
+	// TRUE when the served attempt carried the workspace-inspection instruction appended by the router (cross-vendor emitters only). NULL when it did not.
+	WorkspaceAppendFired *bool
 }
 
 type RouterModelRouterSubscriptionAccount struct {

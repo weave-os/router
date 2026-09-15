@@ -19,11 +19,15 @@ func (e *RequestEnvelope) HasAutonomySystemText() bool {
 	return strings.Contains(strings.ToLower(e.SystemText()), autonomySystemMarker)
 }
 
-// appendAutonomySystem adds AutonomySystemText as the final element of an
-// Anthropic-format body's system field, carrying no cache_control. Appending
-// (rather than prepending) keeps every byte the client marked cacheable in
-// place, so the only cost is one small uncached segment per request.
 func appendAutonomySystem(body []byte) ([]byte, error) {
+	return appendSystemText(body, AutonomySystemText)
+}
+
+// appendSystemText adds text as the final element of an Anthropic-format
+// body's system field, carrying no cache_control. Appending (rather than
+// prepending) keeps every byte the client marked cacheable in place, so the
+// only cost is one small uncached segment per request.
+func appendSystemText(body []byte, text string) ([]byte, error) {
 	system := gjson.GetBytes(body, "system")
 	var (
 		out []byte
@@ -31,15 +35,15 @@ func appendAutonomySystem(body []byte) ([]byte, error) {
 	)
 	switch {
 	case system.Type == gjson.String:
-		out, err = sjson.SetBytes(body, "system", system.String()+"\n\n"+AutonomySystemText)
+		out, err = sjson.SetBytes(body, "system", system.String()+"\n\n"+text)
 	case system.IsArray():
-		block, _ := sjson.SetBytes([]byte(`{"type":"text"}`), "text", AutonomySystemText)
+		block, _ := sjson.SetBytes([]byte(`{"type":"text"}`), "text", text)
 		out, err = sjson.SetRawBytes(body, "system.-1", block)
 	default:
-		out, err = sjson.SetBytes(body, "system", AutonomySystemText)
+		out, err = sjson.SetBytes(body, "system", text)
 	}
 	if err != nil {
-		return nil, fmt.Errorf("append autonomy system block: %w", err)
+		return nil, fmt.Errorf("append system block: %w", err)
 	}
 	return out, nil
 }

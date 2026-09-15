@@ -293,6 +293,9 @@ type Service struct {
 	// ccAutonomySystemAppend is the deployment default for
 	// ROUTER_CC_AUTONOMY_SYSTEM_APPEND; see ResolveCCAutonomySystemAppend.
 	ccAutonomySystemAppend bool
+	// ccWorkspaceSystemAppend is the deployment default for
+	// ROUTER_CC_WORKSPACE_SYSTEM_APPEND; see ResolveCCWorkspaceSystemAppend.
+	ccWorkspaceSystemAppend bool
 	// bandSwap is the per-turn large-vs-small action classifier. Non-nil only
 	// when ROUTER_BAND_SWAP is on and the head loaded; a sticky MainLoop STAY
 	// then serves the predicted band (one of the pin's {Model, PairedModel})
@@ -1854,6 +1857,14 @@ func (s *Service) WithCCTaskToolsCrossVendor(enabled bool) *Service {
 // system prompt of Claude Code main-loop and tool-result turns.
 func (s *Service) WithCCAutonomySystemAppend(enabled bool) *Service {
 	s.ccAutonomySystemAppend = enabled
+	return s
+}
+
+// WithCCWorkspaceSystemAppend appends translate.WorkspaceSystemText to the
+// system prompt of Claude Code main-loop and tool-result turns served by a
+// non-Anthropic model.
+func (s *Service) WithCCWorkspaceSystemAppend(enabled bool) *Service {
+	s.ccWorkspaceSystemAppend = enabled
 	return s
 }
 
@@ -3856,6 +3867,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		KeepCrossVendorOrchestrationTools: s.ccOrchToolsCrossVendor,
 		KeepCrossVendorTaskTools:          s.ResolveCCTaskToolsCrossVendor(ctx),
 		AppendAutonomySystem:              s.autonomySystemAppendApplies(ctx, body, env, routeRes.TurnType),
+		AppendWorkspaceSystem:             s.workspaceSystemAppendApplies(ctx, body, env, routeRes.TurnType),
 	}
 	effortServed := s.resolveEffort(ctx, decision, opts.Capabilities, routeRes.EscalateEffort)
 	effortServed.apply(&opts)
@@ -4909,6 +4921,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			LastToolUseInputBytes: int32PtrIfKnown(int32(terminalToolUse.InputBytes), endedOnToolUse),
 			ToolErrorCounts:       toolErrorCountsJSON(toolErrorTally),
 			AutonomyAppendFired:   boolPtrOrNil(autonomyAppendFired(opts, finalProvider)),
+			WorkspaceAppendFired:  boolPtrOrNil(workspaceAppendFired(opts, finalProvider)),
 			FailoverUsed:          boolPtrTrue(failoverUsed),
 			DegenerateShadow:      boolPtrOrNil(degShadow),
 			// (session_key, role) is the offline join key to spiral_shadow_events

@@ -163,6 +163,13 @@ func (s *Service) ResolveCCAutonomySystemAppend(ctx context.Context) bool {
 	return flags.BoolOr(ctx, flags.KeyCCAutonomySystemAppend, s.ccAutonomySystemAppend)
 }
 
+// ResolveCCWorkspaceSystemAppend reports whether Claude Code main-loop and
+// tool-result turns served cross-vendor get translate.WorkspaceSystemText
+// appended (cc_workspace_system_append; org-overridable).
+func (s *Service) ResolveCCWorkspaceSystemAppend(ctx context.Context) bool {
+	return flags.BoolOr(ctx, flags.KeyCCWorkspaceSystemAppend, s.ccWorkspaceSystemAppend)
+}
+
 // ResolveCommittedStreamArmDemotion reports the
 // ROUTER_COMMITTED_STREAM_ARM_DEMOTION flag: on, a model whose stream failed
 // after the prelude committed leaves the session's automatic selection.

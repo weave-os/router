@@ -156,10 +156,13 @@ type InsertTelemetryParams struct {
 	// AutonomyAppendFired is set when the router appended AutonomySystemText
 	// to the outgoing system prompt; nil otherwise.
 	AutonomyAppendFired *bool
-	FailoverUsed        *bool
-	DegenerateShadow    *bool
-	PolicyPinRequested  *bool
-	PolicyPinHonoured   *bool
+	// WorkspaceAppendFired is set when the served attempt carried
+	// WorkspaceSystemText (cross-vendor emitters only); nil otherwise.
+	WorkspaceAppendFired *bool
+	FailoverUsed         *bool
+	DegenerateShadow     *bool
+	PolicyPinRequested   *bool
+	PolicyPinHonoured    *bool
 
 	// SessionKey + Role are the offline join key to spiral_shadow_events and
 	// session_pins (16-byte digest + roleForTier of the requested model). Nil /

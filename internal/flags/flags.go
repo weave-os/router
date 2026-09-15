@@ -101,6 +101,7 @@ const (
 	KeyAllowedModelsHeader                  Key = "allowed_models_header"
 	KeyCCTaskToolsCrossVendor               Key = "cc_task_tools_crossvendor"
 	KeyCCAutonomySystemAppend               Key = "cc_autonomy_system_append"
+	KeyCCWorkspaceSystemAppend              Key = "cc_workspace_system_append"
 	KeySubscriptionPlanAwareRouting         Key = "subscription_plan_aware_routing_enabled"
 	KeyCommittedStreamArmDemotion           Key = "committed_stream_arm_demotion"
 	KeyRescuedFailureArmDemotion            Key = "rescued_failure_arm_demotion"
@@ -126,7 +127,7 @@ type Definition struct {
 // RegistryVersion changes whenever Registry's membership changes. Publish uses
 // it to make pruning safe during rolling deploys: a revision with an older
 // registry version may not delete definitions published by a newer revision.
-const RegistryVersion = 18
+const RegistryVersion = 19
 
 // Registry is the curated allowlist of flags that may carry a per-organization
 // override. It is deliberately explicit rather than derived from the env var
@@ -352,6 +353,13 @@ var Registry = []Definition{
 		EnvVar:         "ROUTER_CC_AUTONOMY_SYSTEM_APPEND",
 		Kind:           KindBool,
 		Description:    "Append a non-interactive operating instruction to the system prompt of Claude Code / Agent SDK main-loop and tool-result turns, whatever model serves them. Off by default.",
+		OrgOverridable: true,
+	},
+	{
+		Key:            KeyCCWorkspaceSystemAppend,
+		EnvVar:         "ROUTER_CC_WORKSPACE_SYSTEM_APPEND",
+		Kind:           KindBool,
+		Description:    "Append a workspace-inspection instruction to the system prompt of Claude Code / Agent SDK main-loop and tool-result turns served by a non-Anthropic model. Off by default.",
 		OrgOverridable: true,
 	},
 	{

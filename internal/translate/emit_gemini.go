@@ -37,10 +37,13 @@ func (e *RequestEnvelope) PrepareGemini(_ http.Header, opts EmitOptions) (provid
 	if isGemini3xModel(opts.TargetModel) && e.HasUnsignedToolCallHistory() {
 		return providers.PreparedRequest{}, fmt.Errorf("%w: Gemini 3.x requires a thoughtSignature on every historical function call", ErrGeminiUnsignedToolHistory)
 	}
+	e, err := e.withWorkspaceSystemAppended(opts)
+	if err != nil {
+		return providers.PreparedRequest{}, err
+	}
 	// Strip synthetic top-level "model" and "stream" — belonging to routing, not Gemini.
 	if e.format == FormatGemini {
 		body := e.body
-		var err error
 		body, err = sjson.DeleteBytes(body, "model")
 		if err != nil {
 			return providers.PreparedRequest{}, fmt.Errorf("strip model field: %w", err)

@@ -85,6 +85,10 @@ type EmitOptions struct {
 	// system message / Responses instructions / Gemini systemInstruction.
 	// The proxy decides eligibility (client, turn type, idempotence).
 	AppendAutonomySystem bool
+	// AppendWorkspaceSystem adds WorkspaceSystemText the same way, but only on
+	// the cross-format emitters (OpenAI chat / Responses instructions / Gemini
+	// systemInstruction); PrepareAnthropic ignores it.
+	AppendWorkspaceSystem bool
 	// StripOutputConfigFormat drops output_config.format. Anthropic-spec
 	// gateways are documented to serve the knob (Cortex does), so the proxy sets
 	// this only on a one-shot retry after one 400s on it.
