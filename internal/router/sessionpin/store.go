@@ -55,16 +55,21 @@ type Pin struct {
 	// PolicyGroup is the HMM complexity cluster the pinned decision came from
 	// (RoutingMetadata.PolicyGroup). Compared to the fresh decision's group to
 	// distinguish a within-cluster reroute from a genuine cluster change.
-	PolicyGroup               string
-	TurnCount                 int
-	PinnedUntil               time.Time
-	FirstPinnedAt             time.Time
-	LastSeenAt                time.Time
-	LastInputTokens           int
-	LastCachedReadTokens      int
-	LastCachedWriteTokens     int
-	LastOutputTokens          int
-	LastTurnEndedAt           time.Time
+	PolicyGroup           string
+	TurnCount             int
+	PinnedUntil           time.Time
+	FirstPinnedAt         time.Time
+	LastSeenAt            time.Time
+	LastInputTokens       int
+	LastCachedReadTokens  int
+	LastCachedWriteTokens int
+	LastOutputTokens      int
+	LastTurnEndedAt       time.Time
+	// LastOutputLimitAt marks a confirmed cap only while nonzero and equal to
+	// LastTurnEndedAt. An older writer can refresh usage without this field;
+	// the mismatch retires its stale marker. UpdateUsage clears it on healthy
+	// writes; Upsert preserves it within a strategy and clears it on replacement.
+	LastOutputLimitAt         time.Time
 	ConsecutiveUpstreamErrors int
 	// LastServedModel is the model that served the previous turn (written by
 	// UpdateUsage, untouched by Upsert). Comparing it to the new target model
@@ -119,6 +124,11 @@ type Usage struct {
 	CachedWriteTokens int
 	OutputTokens      int
 	EndedAt           time.Time
+	// OutputLimitReached is true only when the upstream terminal payload of
+	// the turn this usage came from reported an output-limit stop reason.
+	// UpdateUsage stamps Pin.LastOutputLimitAt with EndedAt when set and
+	// clears it otherwise. Token count alone never sets it.
+	OutputLimitReached bool
 	// ServedModel is the model that served the turn this usage came from.
 	ServedModel string
 	// ServedProvider is the provider binding that served the turn. UpdateUsage

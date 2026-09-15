@@ -1,6 +1,7 @@
 package otel_test
 
 import (
+	"fmt"
 	"net/http/httptest"
 	"testing"
 
@@ -8,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"weave-os/router/internal/observability/otel"
+	"weave-os/router/internal/providers"
 )
 
 func TestUsageExtractor_AnthropicNonStreaming(t *testing.T) {
@@ -586,4 +588,80 @@ func TestUsageExtractor_AnthropicResponse_NilReceiver(t *testing.T) {
 	assert.Equal(t, "", stopReason)
 	assert.Equal(t, 0, toolUseBlocks)
 	assert.False(t, observed)
+}
+
+func TestUsageExtractor_OutputLimitEvidence(t *testing.T) {
+	tests := []struct {
+		name     string
+		provider string
+		reason   string
+		output   int
+		wantCap  bool
+	}{
+		{"anthropic small cap", providers.ProviderAnthropic, "max_tokens", 128, true},
+		{"anthropic old cap", providers.ProviderAnthropic, "max_tokens", 8192, true},
+		{"anthropic large cap", providers.ProviderAnthropic, "max_tokens", 64000, true},
+		{"anthropic long tool handoff", providers.ProviderAnthropic, "tool_use", 32000, false},
+		{"anthropic long answer", providers.ProviderAnthropic, "end_turn", 32000, false},
+		{"anthropic missing terminal", providers.ProviderAnthropic, "", 16000, false},
+		{"anthropic gateway cap", providers.ProviderAnthropicGateway, "max_tokens", 512, true},
+		{"chat cap", providers.ProviderOpenAI, "length", 8192, true},
+		{"chat long tool handoff", providers.ProviderOpenAI, "tool_calls", 32000, false},
+		{"chat long answer", providers.ProviderOpenAI, "stop", 32000, false},
+		{"chat missing terminal", providers.ProviderOpenAI, "", 16000, false},
+		{"openrouter cap", providers.ProviderOpenRouter, "length", 512, true},
+		{"gemini cap", providers.ProviderGoogle, "MAX_TOKENS", 512, true},
+		{"gemini long answer", providers.ProviderGoogle, "STOP", 32000, false},
+		{"gemini missing terminal", providers.ProviderGoogle, "", 16000, false},
+	}
+	for _, tc := range tests {
+		for _, stream := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/stream=%t", tc.name, stream), func(t *testing.T) {
+				var body string
+				switch providers.FamilyFor(tc.provider) {
+				case providers.FamilyAnthropic:
+					if stream {
+						body = fmt.Sprintf("event: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":%q},\"usage\":{\"output_tokens\":%d}}\n\n", tc.reason, tc.output)
+					} else {
+						body = fmt.Sprintf(`{"type":"message","content":[{"type":"tool_use","id":"call_1","name":"Read","input":{}}],"stop_reason":%q,"usage":{"input_tokens":100,"output_tokens":%d}}`, tc.reason, tc.output)
+					}
+				case providers.FamilyOpenAICompat:
+					body = fmt.Sprintf(`{"choices":[{"index":0,"message":{"content":"answer"},"delta":{"content":"answer"},"finish_reason":%q}],"usage":{"prompt_tokens":100,"completion_tokens":%d}}`, tc.reason, tc.output)
+					if stream {
+						body = "data: " + body + "\n\ndata: [DONE]\n\n"
+					}
+				case providers.FamilyGemini:
+					body = fmt.Sprintf(`{"candidates":[{"content":{"parts":[{"text":"answer"}]},"finishReason":%q}],"usageMetadata":{"promptTokenCount":100,"candidatesTokenCount":%d}}`, tc.reason, tc.output)
+					if stream {
+						body = "data: " + body + "\n\n"
+					}
+				}
+				rec := httptest.NewRecorder()
+				ext := otel.NewUsageExtractor(rec, tc.provider)
+				for start := 0; start < len(body); start += 7 {
+					_, err := ext.Write([]byte(body[start:min(start+7, len(body))]))
+					require.NoError(t, err)
+				}
+				assert.Equal(t, tc.wantCap, ext.OutputLimitReached())
+				_, output := ext.Tokens()
+				assert.Equal(t, tc.output, output)
+				assert.Equal(t, body, rec.Body.String(), "observing must not change the response")
+			})
+		}
+	}
+}
+
+func TestUsageExtractor_OutputLimitIsAttemptScoped(t *testing.T) {
+	capped := otel.NewUsageExtractor(httptest.NewRecorder(), providers.ProviderOpenAI)
+	_, err := capped.Write([]byte("data: {\"choices\":[{\"finish_reason\":\"length\"}]}\n\n"))
+	require.NoError(t, err)
+	_, err = capped.Write([]byte("data: {\"choices\":[],\"usage\":{\"completion_tokens\":128}}\n\n"))
+	require.NoError(t, err)
+	assert.True(t, capped.OutputLimitReached(), "usage-only tails cannot erase the terminal cap")
+
+	winner := otel.NewUsageExtractor(httptest.NewRecorder(), providers.ProviderOpenAI)
+	_, err = winner.Write([]byte("data: {\"choices\":[{\"finish_reason\":\"tool_calls\"}],\"usage\":{\"completion_tokens\":32000}}\n\n"))
+	require.NoError(t, err)
+	assert.False(t, winner.OutputLimitReached(), "another attempt has independent terminal evidence")
+	assert.False(t, (*otel.UsageExtractor)(nil).OutputLimitReached())
 }

@@ -13,12 +13,14 @@ import (
 	"weave-os/router/internal/translate"
 )
 
-// fakeUsageSink records the last RecordUsage / RecordCacheUsage calls.
+// fakeUsageSink records the last RecordUsage / RecordCacheUsage calls and
+// latches RecordOutputLimitReached.
 type fakeUsageSink struct {
-	input         int
-	output        int
-	cacheCreation int
-	cacheRead     int
+	input              int
+	output             int
+	cacheCreation      int
+	cacheRead          int
+	outputLimitReached bool
 }
 
 func (f *fakeUsageSink) RecordUsage(input, output int) {
@@ -29,6 +31,10 @@ func (f *fakeUsageSink) RecordUsage(input, output int) {
 func (f *fakeUsageSink) RecordCacheUsage(creation, read int) {
 	f.cacheCreation = creation
 	f.cacheRead = read
+}
+
+func (f *fakeUsageSink) RecordOutputLimitReached() {
+	f.outputLimitReached = true
 }
 
 // Catches typos in the message_start cache_creation_input_tokens /

@@ -234,17 +234,19 @@ func TestUsageBypass_AllowlistedModel_StillBypasses(t *testing.T) {
 // the saturated model to SafetyExcludedModels so an auto-continue re-request
 // falls through to the scorer, preventing bypass from reopening the max-output loop.
 func TestUsageBypass_MaxedOutModel_EngagesRouting(t *testing.T) {
+	endedAt := time.Now().Add(-10 * time.Second)
 	store := newFakePinStore()
 	store.hasPin = true
 	store.pin = sessionpin.Pin{
-		Provider:         providers.ProviderAnthropic,
-		Model:            bypassRequestedMdl, // the model the client keeps requesting
-		LastServedModel:  bypassRequestedMdl, // saturated the output cap last turn
-		Reason:           "cluster:v0.2",
-		PinnedUntil:      time.Now().Add(30 * time.Minute),
-		FirstPinnedAt:    time.Now().Add(-5 * time.Minute),
-		LastOutputTokens: 8192, // >= prevTurnMaxedOutThreshold
-		LastTurnEndedAt:  time.Now().Add(-10 * time.Second),
+		Provider:          providers.ProviderAnthropic,
+		Model:             bypassRequestedMdl, // the model the client keeps requesting
+		LastServedModel:   bypassRequestedMdl, // saturated the output cap last turn
+		Reason:            "cluster:v0.2",
+		PinnedUntil:       time.Now().Add(30 * time.Minute),
+		FirstPinnedAt:     time.Now().Add(-5 * time.Minute),
+		LastOutputTokens:  8192, // confirmed output-limit termination
+		LastTurnEndedAt:   endedAt,
+		LastOutputLimitAt: endedAt,
 	}
 	fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: bypassScorerPickMdl, Reason: "fresh"}}
 	obs := usage.NewObserver([]byte("salt"), 10*time.Minute, time.Now)
@@ -703,4 +705,25 @@ func (s *swapErrProvider) Proxy(ctx context.Context, decision router.Decision, p
 
 func (s *swapErrProvider) Passthrough(ctx context.Context, prep providers.PreparedRequest, w http.ResponseWriter, r *http.Request) error {
 	return s.inner.Passthrough(ctx, prep, w, r)
+}
+
+func TestUsageBypass_HealthyHighOutputKeepsBypassEligible(t *testing.T) {
+	store := newFakePinStore()
+	store.hasPin = true
+	store.pin = sessionpin.Pin{
+		Provider: providers.ProviderAnthropic, Model: bypassRequestedMdl, LastServedModel: bypassRequestedMdl,
+		Reason: "cluster", PinnedUntil: time.Now().Add(time.Hour), LastTurnEndedAt: time.Now().Add(-time.Second), LastOutputTokens: 32000,
+	}
+	routes := &fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: bypassScorerPickMdl, Reason: "fresh"}}
+	obs := usage.NewObserver([]byte("salt"), 10*time.Minute, time.Now)
+	obs.Record(obs.Key([]byte(bypassSubToken)), usage.Snapshot{Primary: usage.Window{UsedPercent: 0.20, WindowMinutes: 300}})
+	svc := proxy.NewService(routes, map[string]providers.Client{providers.ProviderAnthropic: &fakeProvider{}}, nil, false, nil, store, false,
+		providers.ProviderAnthropic, bypassScorerPickMdl, nil).WithSubscriptionAwareRouting(obs, 0.05, 2.0)
+	ctx := context.WithValue(authedCtx(uuid.NewString()), proxy.AnthropicSubscriptionContextKey{}, bypassSubToken)
+	threshold := 0.80
+	ctx = context.WithValue(ctx, proxy.InstallationUsageBypassContextKey{}, proxy.UsageBypassConfig{Enabled: true, Threshold: &threshold})
+	rec, req, body := bypassRequest(t)
+	require.NoError(t, svc.ProxyMessages(ctx, body, rec, req))
+	assert.Equal(t, bypassRequestedMdl, rec.Header().Get(proxy.HeaderRouterModel))
+	assert.Zero(t, routes.routeCalls, "a healthy long answer cannot force a subscribed request off the bypass")
 }

@@ -62,6 +62,9 @@ func (s *forceModelMapStore) Upsert(_ context.Context, pin sessionpin.Pin) error
 		pin.LastTurnEndedAt = existing.LastTurnEndedAt
 		pin.LastInputTokens = existing.LastInputTokens
 		pin.LastOutputTokens = existing.LastOutputTokens
+		pin.LastCachedReadTokens = existing.LastCachedReadTokens
+		pin.LastCachedWriteTokens = existing.LastCachedWriteTokens
+		pin.LastOutputLimitAt = existing.LastOutputLimitAt
 		pin.HasEverSwitched = existing.HasEverSwitched
 	}
 	s.pins[key] = pin
@@ -82,7 +85,14 @@ func (s *forceModelMapStore) UpdateUsage(_ context.Context, sessionKey [sessionp
 	pin.LastTurnEndedAt = usage.EndedAt
 	pin.LastInputTokens = usage.InputTokens
 	pin.LastOutputTokens = usage.OutputTokens
-	pin.HasEverSwitched = usage.SessionEverSwitched ||
+	pin.LastCachedReadTokens = usage.CachedReadTokens
+	pin.LastCachedWriteTokens = usage.CachedWriteTokens
+	pin.Provider = usage.ServedProvider
+	pin.LastOutputLimitAt = time.Time{}
+	if usage.OutputLimitReached {
+		pin.LastOutputLimitAt = usage.EndedAt
+	}
+	pin.HasEverSwitched = pin.HasEverSwitched || usage.SessionEverSwitched ||
 		(usage.PriorServedModel != "" && usage.PriorServedModel != usage.ServedModel)
 	s.pins[key] = pin
 	return nil
@@ -135,15 +145,19 @@ func TestRunTurnLoop_ForceModelSessionPinAppliesAcrossChildThreads(t *testing.T)
 	require.Equal(t, forceSessionKey, deriveForceModelSessionKeyForRequest(ctx, child, apiKeyID, childThreadKey))
 
 	store := newForceModelMapStore()
+	endedAt := time.Now().Add(-time.Second)
 	store.pins[forceModelMapKey(forceSessionKey, forceModelSessionRole)] = sessionpin.Pin{
-		SessionKey:     forceSessionKey,
-		Role:           forceModelSessionRole,
-		InstallationID: installationID,
-		Provider:       providers.ProviderAnthropic,
-		Model:          forcedModel,
-		Reason:         translate.ReasonUserForceModel,
-		Strategy:       router.StrategyCluster,
-		PinnedUntil:    pinNeverExpires,
+		SessionKey:        forceSessionKey,
+		Role:              forceModelSessionRole,
+		InstallationID:    installationID,
+		Provider:          providers.ProviderAnthropic,
+		Model:             forcedModel,
+		Reason:            translate.ReasonUserForceModel,
+		Strategy:          router.StrategyCluster,
+		PinnedUntil:       pinNeverExpires,
+		LastOutputTokens:  32000,
+		LastTurnEndedAt:   endedAt,
+		LastOutputLimitAt: endedAt,
 	}
 	freshRouter := &tierProbeRouter{available: map[string]struct{}{"claude-haiku-4-5": {}}}
 	svc := NewService(freshRouter, nil, nil, false, nil, store, false,
@@ -390,7 +404,7 @@ func TestRecordTurnUsage_ForcedDecisionWritesThreadHistoryOnly(t *testing.T) {
 			Model:    "claude-opus-5",
 			Reason:   translate.ReasonUserForceModel,
 		},
-	}, providers.ProviderAnthropic, "claude-opus-5", 100, 10, 0, 0)
+	}, providers.ProviderAnthropic, "claude-opus-5", 100, 10, 0, 0, false)
 
 	store.mu.Lock()
 	defer store.mu.Unlock()

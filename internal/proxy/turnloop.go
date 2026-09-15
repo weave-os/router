@@ -1282,12 +1282,11 @@ func (s *Service) runTurnLoop(
 	// re-pin the same broken model in a loop. Exclude it and treat the pin as
 	// missing so sticky branches (ToolResult, !plannerEnabled) can't re-anchor
 	// it before the scorer runs.
-	if pinFound && pin.LastOutputTokens >= prevTurnMaxedOutThreshold {
+	if maxedModel := maxedOutServedModel(pin); pinFound && maxedModel != "" {
 		// Key off LastServedModel, not pin.Model: with band swap the served
 		// model can be the paired member, so pin.Model could name the wrong
 		// (healthy) model and leave the broken one eligible. Fall back to
 		// pin.Model for older rows written before LastServedModel existed.
-		maxedModel := maxedOutServedModel(pin)
 		log.Info("Session pin maxed out on previous turn; excluding for this turn",
 			"pin_model", pin.Model,
 			"pin_provider", pin.Provider,
@@ -1325,6 +1324,12 @@ func (s *Service) runTurnLoop(
 		// See the active-pin path above: the maxed-out model must also block usage
 		// bypass, or an auto-continue turn re-requesting it reopens the loop.
 		req.SafetyExcludedModels = addToSet(req.SafetyExcludedModels, maxedModel)
+		// HMM usage lives in history, not the active pin. Drop a matching anchor
+		// before its context-fit recovery can lift this non-context exclusion.
+		if pinFound && baseModelOf(pin.Model) == maxedModel {
+			pinFound = false
+			pin = sessionpin.Pin{}
+		}
 	}
 
 	// If the pre-filter excluded the pinned model for context overflow,
@@ -1781,7 +1786,7 @@ func (s *Service) runTurnLoop(
 					if _, available := s.availableModels[pin.Model]; available {
 						_, providerOK := req.EnabledProviders[pin.Provider]
 						if req.EnabledProviders == nil || providerOK {
-							if pin.LastOutputTokens >= prevTurnMaxedOutThreshold {
+							if maxedOutServedModel(pin) != "" {
 								log.Info("Expired session pin maxed out on previous turn; skipping re-anchor",
 									"pin_model", pin.Model,
 									"pin_provider", pin.Provider,
@@ -2209,7 +2214,7 @@ func (s *Service) normalizeHMMStayPin(req router.Request, p sessionpin.Pin) (ses
 	if !p.PinnedUntil.IsZero() && !p.PinnedUntil.After(time.Now()) {
 		return sessionpin.Pin{}, false
 	}
-	if p.LastOutputTokens >= prevTurnMaxedOutThreshold {
+	if maxedOutServedModel(p) != "" {
 		return sessionpin.Pin{}, false
 	}
 	if req.ExcludedModels != nil {
@@ -2284,7 +2289,7 @@ func hmmEffectiveInputUSDPer1M(model string, inputTokens int, factors map[string
 }
 
 func maxedOutServedModel(pin sessionpin.Pin) string {
-	if pin.LastOutputTokens < prevTurnMaxedOutThreshold {
+	if pin.LastOutputLimitAt.IsZero() || !pin.LastOutputLimitAt.Equal(pin.LastTurnEndedAt) {
 		return ""
 	}
 	model := pin.LastServedModel
@@ -2479,6 +2484,7 @@ func (s *Service) refreshPinDowngradeVotes(ctx context.Context, installationID u
 		LastCachedWriteTokens: existing.LastCachedWriteTokens,
 		LastOutputTokens:      existing.LastOutputTokens,
 		LastTurnEndedAt:       existing.LastTurnEndedAt,
+		LastOutputLimitAt:     existing.LastOutputLimitAt,
 		LastServedModel:       existing.LastServedModel,
 
 		ConsecutiveDowngradeVotes: downgradeVotes,

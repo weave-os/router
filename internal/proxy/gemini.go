@@ -393,8 +393,8 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 	otel.Flush(ctx)
 
 	// Persist last-turn usage to the pin row so the next turn's planner
-	// has cache-hit evidence. Off the request path; drops on saturation.
-	s.recordTurnUsage(ctx, routeRes, finalProvider, decision.ServedIdentity(), in, out, cacheCreation, cacheRead)
+	// has cache-hit and output-limit evidence.
+	s.recordTurnUsage(ctx, routeRes, finalProvider, decision.ServedIdentity(), in, out, cacheCreation, cacheRead, extractor.OutputLimitReached())
 
 	if installationID != uuid.Nil {
 		credentialKeyPrefix, credentialKeySuffix, credentialSource := s.credentialKeyParts(ctx)

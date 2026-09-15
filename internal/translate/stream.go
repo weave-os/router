@@ -134,6 +134,7 @@ func (t *SSETranslator) Finalize() error {
 			)
 		}
 	}
+	recordOutputLimit(t.usageSink, gjson.GetBytes(body, "stop_reason").Str == "max_tokens")
 
 	translated, err := AnthropicToOpenAIResponse(body, t.model)
 	if err != nil {
@@ -322,7 +323,9 @@ func (t *SSETranslator) handleMessageDelta(data []byte) error {
 		return nil
 	}
 
-	finishReason := mapStopReason(delta.Get("stop_reason").Str)
+	rawStopReason := delta.Get("stop_reason").Str
+	recordOutputLimit(t.usageSink, rawStopReason == "max_tokens")
+	finishReason := mapStopReason(rawStopReason)
 	if err := t.lifecycle.Output(0); err != nil {
 		return err
 	}
@@ -887,6 +890,9 @@ func (t *AnthropicSSETranslator) Finalize() error {
 			t.usageSink.RecordCacheUsage(cw, cr)
 		}
 	}
+	// Raw upstream cap, observed before openAIToAnthropicResponse promotes a
+	// surviving tool call to stop_reason=tool_use.
+	recordOutputLimit(t.usageSink, gjson.GetBytes(body, "choices.0.finish_reason").Str == "length")
 
 	translated, issues, err := openAIToAnthropicResponse(body, t.requestModel, t.toolValidator, t.thinkTagReasoning, t.escapeNormalize)
 	t.toolCallIssues = append(t.toolCallIssues, issues...)
@@ -992,6 +998,9 @@ func (t *AnthropicSSETranslator) translateOpenAIEvent(raw []byte) error {
 
 	if fr := firstChoice.Get("finish_reason").Str; fr != "" {
 		t.finishReason = strings.Clone(fr)
+		// Raw upstream cap, observed before emitMessageDelta promotes a
+		// surviving tool_use block over finish_reason=length.
+		recordOutputLimit(t.usageSink, fr == "length")
 		if err := t.lifecycle.Terminal(); err != nil {
 			return err
 		}

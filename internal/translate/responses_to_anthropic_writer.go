@@ -584,6 +584,7 @@ func (t *ResponsesToAnthropicWriter) captureFinalResponse(data []byte) {
 	if !resp.Exists() {
 		return
 	}
+	recordOutputLimit(t.usageSink, responsesOutputLimitReached(resp))
 	hasToolCall := false
 	outputIndex := 0
 	resp.Get("output").ForEach(func(_, item gjson.Result) bool {
@@ -700,6 +701,7 @@ func (t *ResponsesToAnthropicWriter) finalizeBuffered() error {
 	// Anthropic body is fresh-only for the client; sink keeps OpenAI's cache-inclusive
 	// count so EffectiveInputCost can apply the correct multipliers.
 	t.recordOpenAIUsage(resp.Get("usage"))
+	recordOutputLimit(t.usageSink, responsesOutputLimitReached(resp))
 	t.emittedStopReason = root.Get("stop_reason").String()
 	root.Get("content").ForEach(func(_, block gjson.Result) bool {
 		if block.Get("type").String() == "tool_use" {

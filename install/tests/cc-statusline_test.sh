@@ -71,7 +71,7 @@ count_stamps() { # count_stamps <cache_home> [<name_filter>]
   if [ -n "${2:-}" ]; then
     find "$dir" -type f -name "*$2*" | wc -l | tr -d ' '
   else
-    find "$dir" -type f | wc -l | tr -d ' '
+    find "$dir" -type f -name 'checked-at*' | wc -l | tr -d ' '
   fi
 }
 

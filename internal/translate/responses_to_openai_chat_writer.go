@@ -427,6 +427,7 @@ func (t *ResponsesToOpenAIChatWriter) captureFinalResponse(resp gjson.Result) {
 	if !resp.Exists() {
 		return
 	}
+	recordOutputLimit(t.usageSink, responsesOutputLimitReached(resp))
 	t.finalFinishReason = responsesFinishReason(resp)
 	t.upstreamFinishReason = t.finalFinishReason
 	t.recordUsage(resp.Get("usage"))
@@ -512,6 +513,7 @@ func (t *ResponsesToOpenAIChatWriter) finalizeBuffered() error {
 		return t.finalizeError()
 	}
 	t.recordUsage(resp.Get("usage"))
+	recordOutputLimit(t.usageSink, responsesOutputLimitReached(resp))
 	root := gjson.ParseBytes(chat)
 	t.emittedFinishReason = root.Get("choices.0.finish_reason").String()
 	t.upstreamFinishReason = responsesFinishReason(resp)

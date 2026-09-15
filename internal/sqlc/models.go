@@ -717,6 +717,7 @@ type RouterSessionPin struct {
 	PinnedEffort              string
 	DemotedModels             []string
 	ConsecutiveDowngradeVotes int32
+	LastOutputLimitAt         pgtype.Timestamptz
 }
 
 // Explicit per-session router strategy preferences

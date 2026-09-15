@@ -67,7 +67,7 @@ func TestProxyMessages_OSSOutageFailsOverToBaselineAnthropic(t *testing.T) {
 		mu.Unlock()
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(anthropicMessageSSE))
+		_, _ = w.Write([]byte(strings.ReplaceAll(anthropicMessageSSE, `"output_tokens":1}`, `"output_tokens":32000}`)))
 		if f, ok := w.(http.Flusher); ok {
 			f.Flush()
 		}
@@ -126,6 +126,8 @@ func TestProxyMessages_OSSOutageFailsOverToBaselineAnthropic(t *testing.T) {
 	// the cost-routed OSS id — otherwise next-turn switch detection is wrong.
 	require.NotEmpty(t, store.usages, "baseline failover must write pin usage")
 	assert.Equal(t, "claude-opus-4-8", store.usages[len(store.usages)-1].ServedModel, "pin usage records the served baseline model")
+	assert.Equal(t, 32000, store.usages[len(store.usages)-1].OutputTokens)
+	assert.False(t, store.usages[len(store.usages)-1].OutputLimitReached, "the healthy final attempt must not be excluded for its output size")
 }
 
 func TestProxyMessages_AuthoritativePolicyNeverChangesModelOnFailover(t *testing.T) {

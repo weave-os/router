@@ -457,13 +457,6 @@ func pinExpiry(reason string) time.Time {
 	return time.Now().Add(pinSessionTTL)
 }
 
-// prevTurnMaxedOutThreshold is the LastOutputTokens count above which the
-// previous turn is treated as having saturated the output cap (just under
-// the 8192 default). OSS-model parse-failure runaways land exactly at the
-// cap while legitimate completions rarely approach it; runTurnLoop uses this
-// to exclude the pinned model on the next turn and break the auto-continue loop.
-const prevTurnMaxedOutThreshold = 8000
-
 // APIKeyIDContextKey is the request-context key for the authenticated api_key_id.
 type APIKeyIDContextKey struct{}
 
@@ -2242,9 +2235,9 @@ func (s *Service) ExcludedProvidersOverride() []string {
 }
 
 // usageRequired reports whether per-request token usage must be captured.
-// OTel export, DB telemetry persistence, and credit billing all need it.
+// Session pins, OTel export, DB telemetry persistence, and billing need it.
 func (s *Service) usageRequired() bool {
-	return s.emitter != nil || s.telemetry != nil || s.billing != nil
+	return s.pinStore != nil || s.emitter != nil || s.telemetry != nil || s.billing != nil
 }
 
 // gatewayResponsesKey identifies the endpoint whose Responses support is being
@@ -4747,7 +4740,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	otel.Flush(ctx)
 
 	if !agentShadowMode {
-		s.recordTurnUsage(ctx, routeRes, finalProvider, decision.ServedIdentity(), in, out, cacheCreation, cacheRead)
+		s.recordTurnUsage(ctx, routeRes, finalProvider, decision.ServedIdentity(), in, out, cacheCreation, cacheRead, extractor.OutputLimitReached())
 	}
 
 	// Eval rows must not enter serving telemetry; they would corrupt offline policy analysis.
@@ -5149,12 +5142,12 @@ func (s *Service) logPlannerOutcome(ctx context.Context, res turnLoopResult) {
 	)
 }
 
-func (s *Service) recordTurnUsage(ctx context.Context, res turnLoopResult, servedProvider, servedModel string, in, out, cacheCreation, cacheRead int) {
+func (s *Service) recordTurnUsage(ctx context.Context, res turnLoopResult, servedProvider, servedModel string, in, out, cacheCreation, cacheRead int, outputLimitReached bool) {
 	if s.pinStore == nil || res.HardPinned || res.BlindExperimentPassthrough {
 		return
 	}
 	if isHMMTurn(res) {
-		s.recordHMMTurnHistory(res, servedProvider, servedModel, in, out, cacheCreation, cacheRead)
+		s.recordHMMTurnHistory(res, servedProvider, servedModel, in, out, cacheCreation, cacheRead, outputLimitReached)
 		return
 	}
 	var zeroKey [sessionpin.SessionKeyLen]byte
@@ -5170,6 +5163,7 @@ func (s *Service) recordTurnUsage(ctx context.Context, res turnLoopResult, serve
 		CachedReadTokens:    cacheRead,
 		CachedWriteTokens:   cacheCreation,
 		OutputTokens:        out,
+		OutputLimitReached:  outputLimitReached,
 		EndedAt:             time.Now(),
 		ServedModel:         servedModel,
 		ServedProvider:      servedProvider,
@@ -5192,7 +5186,7 @@ func isHMMTurn(res turnLoopResult) bool {
 	return isHMMDecision(res.Decision) || isHMMDecision(res.Fresh)
 }
 
-func (s *Service) recordHMMTurnHistory(res turnLoopResult, servedProvider, servedModel string, in, out, cacheCreation, cacheRead int) {
+func (s *Service) recordHMMTurnHistory(res turnLoopResult, servedProvider, servedModel string, in, out, cacheCreation, cacheRead int, outputLimitReached bool) {
 	if servedModel == "" || res.InstallationID == uuid.Nil {
 		return
 	}
@@ -5235,6 +5229,7 @@ func (s *Service) recordHMMTurnHistory(res turnLoopResult, servedProvider, serve
 		CachedReadTokens:    cacheRead,
 		CachedWriteTokens:   cacheCreation,
 		OutputTokens:        out,
+		OutputLimitReached:  outputLimitReached,
 		EndedAt:             now,
 		ServedModel:         servedModel,
 		ServedProvider:      servedProvider,
@@ -6934,6 +6929,9 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 					nativeRespSummary = false
 				} else if nativeTerminal != nil {
 					nativeTerminal.Finalize()
+					if nativeTerminal.observed && nativeTerminal.signals.OutputLimitReached {
+						extractor.RecordOutputLimitReached()
+					}
 					respSummary = translate.ResponseSummary{UpstreamFinishReason: nativeTerminal.signals.FinishReason}
 					nativeRespSummary = false
 					if nativeTerminal.observed && s.ResolveNativeOpenAIResponseSignals(actx) {
@@ -7565,7 +7563,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		emitCallLog()
 	}
 
-	s.recordTurnUsage(ctx, routeRes, finalProvider, decision.ServedIdentity(), in, out, cacheCreation, cacheRead)
+	s.recordTurnUsage(ctx, routeRes, finalProvider, decision.ServedIdentity(), in, out, cacheCreation, cacheRead, extractor.OutputLimitReached())
 
 	if proxyErr == nil {
 		s.emitBilling(ctx, requestID, externalID, decision, actPricing, routeRes, in, out, cacheCreation, cacheRead)

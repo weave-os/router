@@ -79,7 +79,8 @@ func (r *SessionPinRepo) Upsert(ctx context.Context, p sessionpin.Pin) error {
 
 // UpdateUsage records the previous turn's usage on the pin row. A missing
 // pin (evicted/swept/never created) is a no-op, not an error. A zero
-// EndedAt is stamped with time.Now when the caller omits it.
+// EndedAt is stamped with time.Now when the caller omits it; the output-limit
+// marker is written from that same instant in the same statement.
 func (r *SessionPinRepo) UpdateUsage(ctx context.Context, sessionKey [sessionpin.SessionKeyLen]byte, role string, usage sessionpin.Usage) error {
 	endedAt := usage.EndedAt
 	if endedAt.IsZero() {
@@ -94,6 +95,7 @@ func (r *SessionPinRepo) UpdateUsage(ctx context.Context, sessionKey [sessionpin
 		LastCachedWriteTokens:   int32(usage.CachedWriteTokens),
 		LastOutputTokens:        int32(usage.OutputTokens),
 		LastTurnEndedAt:         pgtype.Timestamptz{Time: endedAt.UTC(), Valid: !endedAt.IsZero()},
+		OutputLimitReached:      usage.OutputLimitReached,
 		LastServedModel:         usage.ServedModel,
 		LastServedProvider:      usage.ServedProvider,
 		PriorServedModel:        usage.PriorServedModel,
@@ -216,6 +218,7 @@ func toSessionPin(row sqlc.RouterSessionPin) sessionpin.Pin {
 		LastCachedWriteTokens:     int(row.LastCachedWriteTokens),
 		LastOutputTokens:          int(row.LastOutputTokens),
 		LastTurnEndedAt:           timestamptzOrZero(row.LastTurnEndedAt),
+		LastOutputLimitAt:         timestamptzOrZero(row.LastOutputLimitAt),
 		LastServedModel:           row.LastServedModel,
 		HasEverSwitched:           row.HasEverSwitched,
 		ConsecutiveUpstreamErrors: int(row.ConsecutiveUpstreamErrors),

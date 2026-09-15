@@ -10,11 +10,12 @@ import (
 	"weave-os/router/internal/sse"
 )
 
-// UsageSink receives extracted token usage. Translators call it directly when
-// they've already parsed usage from an event, skipping a separate parse pass.
+// UsageSink receives token usage and output-limit evidence already parsed by
+// translators, avoiding another parse pass.
 type UsageSink interface {
 	RecordUsage(inputTokens, outputTokens int)
 	RecordCacheUsage(cacheCreationTokens, cacheReadTokens int)
+	RecordOutputLimitReached()
 }
 
 var (
@@ -38,16 +39,23 @@ type anthropicBlockType string
 
 const anthropicBlockToolUse anthropicBlockType = "tool_use"
 
+const (
+	anthropicStopMaxTokens = "max_tokens"
+	openAIFinishLength     = "length"
+	geminiFinishMaxTokens  = "MAX_TOKENS"
+)
+
 // UsageExtractor wraps an http.ResponseWriter and sniffs token usage (SSE or
 // JSON) as bytes flow through. Only the unconsumed tail is retained between writes.
 type UsageExtractor struct {
 	inner    http.ResponseWriter
 	provider string
 
-	input         int
-	output        int
-	cacheCreation int
-	cacheRead     int
+	input              int
+	output             int
+	cacheCreation      int
+	cacheRead          int
+	outputLimitReached bool
 
 	stopReason    string
 	toolUseBlocks int
@@ -62,8 +70,8 @@ type UsageExtractor struct {
 }
 
 // NewUsageExtractor creates a usage-extracting writer for the given provider's
-// response format. If inner is nil, only RecordUsage/Tokens are valid — the
-// ResponseWriter methods must not be called.
+// response format. With a nil inner, use only recording/accessor methods,
+// not ResponseWriter methods.
 func NewUsageExtractor(inner http.ResponseWriter, provider string) *UsageExtractor {
 	return &UsageExtractor{
 		inner:    inner,
@@ -138,6 +146,19 @@ func (u *UsageExtractor) RecordCacheUsage(cacheCreationTokens, cacheReadTokens i
 	if cacheReadTokens > 0 {
 		u.cacheRead = cacheReadTokens
 	}
+}
+
+// RecordOutputLimitReached latches explicit upstream truncation for this attempt.
+// Translation repairs and trailing usage frames cannot clear the upstream fact.
+func (u *UsageExtractor) RecordOutputLimitReached() {
+	if u != nil {
+		u.outputLimitReached = true
+	}
+}
+
+// OutputLimitReached reports whether this attempt explicitly hit its output limit.
+func (u *UsageExtractor) OutputLimitReached() bool {
+	return u != nil && u.outputLimitReached
 }
 
 // Tokens returns the extracted input and output token counts.
@@ -233,6 +254,9 @@ func (u *UsageExtractor) extractAnthropicSSE(eventType []byte, data []byte) {
 	if bytes.Equal(eventType, []byte(anthropicEventMessageDelta)) {
 		if stop := gjson.GetBytes(data, "delta.stop_reason").String(); stop != "" {
 			u.stopReason = stop
+			if stop == anthropicStopMaxTokens {
+				u.RecordOutputLimitReached()
+			}
 		}
 	}
 
@@ -265,6 +289,9 @@ func (u *UsageExtractor) extractOpenAISSE(data []byte) {
 	}
 
 	u.extractOpenAIChatSSEResponse(trimmed)
+	if providers.FamilyFor(u.provider) == providers.FamilyGemini && gjson.GetBytes(trimmed, "candidates.0.finishReason").String() == geminiFinishMaxTokens {
+		u.RecordOutputLimitReached()
+	}
 
 	input, output, cacheCreation, cacheRead, found := extractUsageGJSON(trimmed, u.provider)
 	if !found {
@@ -303,6 +330,10 @@ func (u *UsageExtractor) tryExtractFromJSON() {
 		u.extractAnthropicJSONResponse(u.leftover)
 	case providers.FamilyOpenAICompat:
 		u.extractOpenAIChatJSONResponse(u.leftover)
+	case providers.FamilyGemini:
+		if gjson.GetBytes(u.leftover, "candidates.0.finishReason").String() == geminiFinishMaxTokens {
+			u.RecordOutputLimitReached()
+		}
 	}
 
 	if input > 0 {
@@ -327,6 +358,9 @@ func (u *UsageExtractor) extractAnthropicJSONResponse(data []byte) {
 		return
 	}
 	u.stopReason = stop
+	if stop == anthropicStopMaxTokens {
+		u.RecordOutputLimitReached()
+	}
 	u.toolUseBlocks = 0
 	for _, block := range gjson.GetBytes(data, "content").Array() {
 		if block.Get("type").String() == string(anthropicBlockToolUse) {
@@ -346,6 +380,9 @@ func (u *UsageExtractor) extractOpenAIChatSSEResponse(data []byte) {
 	gjson.GetBytes(data, "choices").ForEach(func(_, choice gjson.Result) bool {
 		if reason := choice.Get("finish_reason").String(); reason != "" {
 			u.finishReason = reason
+			if reason == openAIFinishLength {
+				u.RecordOutputLimitReached()
+			}
 		}
 		choice.Get("delta.tool_calls").ForEach(func(_, call gjson.Result) bool {
 			u.observeOpenAIToolCall(int(call.Get("index").Int()))
@@ -364,6 +401,9 @@ func (u *UsageExtractor) extractOpenAIChatJSONResponse(data []byte) {
 		return
 	}
 	u.finishReason = reason
+	if reason == openAIFinishLength {
+		u.RecordOutputLimitReached()
+	}
 	for i := range choice.Get("message.tool_calls").Array() {
 		u.observeOpenAIToolCall(i)
 	}

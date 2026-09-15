@@ -155,6 +155,7 @@ func (t *GeminiToOpenAISSETranslator) Finalize() error {
 			}
 		}
 	}
+	recordOutputLimit(t.usageSink, gjson.GetBytes(body, "candidates.0.finishReason").Str == "MAX_TOKENS")
 
 	translated, err := GeminiToOpenAIResponse(body, t.model)
 	if err != nil {
@@ -244,6 +245,7 @@ func (t *GeminiToOpenAISSETranslator) translateEvent(raw []byte) error {
 	usage := geminiUsageFromBytes(data)
 	finishReason := candidate.Get("finishReason").String()
 	if finishReason != "" {
+		recordOutputLimit(t.usageSink, finishReason == "MAX_TOKENS")
 		mapped := mapGeminiFinishReason(finishReason, t.toolIdx > 0)
 		if err := t.emitFinalChunk(mapped, usage); err != nil {
 			return err

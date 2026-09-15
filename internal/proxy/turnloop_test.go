@@ -350,14 +350,16 @@ func TestTurnLoop_HMMToolExecutionStaysWhenWarmCacheEVBeatsCheapFresh(t *testing
 }
 
 func TestTurnLoop_HMMHistoryMaxedOutExcludesServedModelBeforeRouting(t *testing.T) {
+	endedAt := time.Now().Add(-30 * time.Second)
 	store := newFakePinStore()
 	store.hasHMMHistory = true
 	store.hmmHistory = sessionpin.Pin{
-		Provider:         providers.ProviderAnthropic,
-		LastServedModel:  "claude-sonnet-5",
-		LastOutputTokens: 8192,
-		LastTurnEndedAt:  time.Now().Add(-30 * time.Second),
-		PinnedUntil:      time.Now().Add(time.Hour),
+		Provider:          providers.ProviderAnthropic,
+		LastServedModel:   "claude-sonnet-5",
+		LastOutputTokens:  8192,
+		LastTurnEndedAt:   endedAt,
+		LastOutputLimitAt: endedAt,
+		PinnedUntil:       time.Now().Add(time.Hour),
 	}
 	fr := &fakeRouter{decision: router.Decision{
 		Provider: providers.ProviderAnthropic,
@@ -385,16 +387,18 @@ func TestTurnLoop_HMMHistoryMaxedOutExcludesServedModelBeforeRouting(t *testing.
 }
 
 func TestTurnLoop_HMMExpiredHistoryMaxedOutStillExcludesServedModel(t *testing.T) {
+	endedAt := time.Now().Add(-time.Hour)
 	store := newFakePinStore()
 	store.hasHMMHistory = true
 	// Expired history row (PinnedUntil in the past) that maxed out its output
 	// cap: the maxed model must still be excluded, matching the active-pin path.
 	store.hmmHistory = sessionpin.Pin{
-		Provider:         providers.ProviderAnthropic,
-		LastServedModel:  "claude-sonnet-5",
-		LastOutputTokens: 8192,
-		LastTurnEndedAt:  time.Now().Add(-time.Hour),
-		PinnedUntil:      time.Now().Add(-time.Minute),
+		Provider:          providers.ProviderAnthropic,
+		LastServedModel:   "claude-sonnet-5",
+		LastOutputTokens:  8192,
+		LastTurnEndedAt:   endedAt,
+		LastOutputLimitAt: endedAt,
+		PinnedUntil:       time.Now().Add(-time.Minute),
 	}
 	fr := &fakeRouter{decision: router.Decision{
 		Provider: providers.ProviderAnthropic,
@@ -776,8 +780,7 @@ func TestTurnLoop_UsageWritebackPersistsCacheStats(t *testing.T) {
 	store := newFakePinStore()
 	fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-haiku-4-5", Reason: "fresh"}}
 	provider := &usageProvider{in: 1200, out: 80, cacheIn: 900, cacheOut: 200}
-	// Telemetry repo flips usageRequired() on; nil here would short-circuit
-	// usage extraction in the proxy.
+	// Pin storage and telemetry both require upstream usage capture.
 	svc := proxy.NewService(
 		fr,
 		map[string]providers.Client{providers.ProviderAnthropic: provider},
@@ -965,15 +968,17 @@ func TestTurnLoop_SubAgentDoesNotInheritMainLoopTrimBaseline(t *testing.T) {
 // runs. Without this, Claude Code's auto-continue locks the session into the
 // broken model for minutes.
 func TestTurnLoop_MaxedOutPinExcludedFromCandidates(t *testing.T) {
+	endedAt := time.Now().Add(-10 * time.Second)
 	store := newFakePinStore()
 	store.hasPin = true
 	store.pin = sessionpin.Pin{
-		Provider:         providers.ProviderOpenRouter,
-		Model:            "moonshotai/kimi-k2.6",
-		Reason:           "cluster:v0.52",
-		PinnedUntil:      time.Now().Add(time.Hour),
-		LastOutputTokens: 8192, // saturated previous turn
-		LastTurnEndedAt:  time.Now().Add(-10 * time.Second),
+		Provider:          providers.ProviderOpenRouter,
+		Model:             "moonshotai/kimi-k2.6",
+		Reason:            "cluster:v0.52",
+		PinnedUntil:       time.Now().Add(time.Hour),
+		LastOutputTokens:  8192, // saturated previous turn
+		LastTurnEndedAt:   endedAt,
+		LastOutputLimitAt: endedAt,
 	}
 	fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-haiku-4-5", Reason: "fresh"}}
 	svc := newPinSvc(fr, store)
@@ -994,16 +999,18 @@ func TestTurnLoop_MaxedOutPinExcludedFromCandidates(t *testing.T) {
 // maxed-out guard must exclude LastServedModel, not the anchor — otherwise
 // the broken paired model stays eligible.
 func TestTurnLoop_MaxedOutExcludesLastServedModelNotAnchor(t *testing.T) {
+	endedAt := time.Now().Add(-10 * time.Second)
 	store := newFakePinStore()
 	store.hasPin = true
 	store.pin = sessionpin.Pin{
-		Provider:         providers.ProviderAnthropic,
-		Model:            "claude-haiku-4-5",     // anchor, healthy
-		LastServedModel:  "moonshotai/kimi-k2.6", // swapped-to paired model that saturated the cap
-		Reason:           "cluster:v0.52",
-		PinnedUntil:      time.Now().Add(time.Hour),
-		LastOutputTokens: 8192, // saturated previous turn
-		LastTurnEndedAt:  time.Now().Add(-10 * time.Second),
+		Provider:          providers.ProviderAnthropic,
+		Model:             "claude-haiku-4-5",     // anchor, healthy
+		LastServedModel:   "moonshotai/kimi-k2.6", // swapped-to paired model that saturated the cap
+		Reason:            "cluster:v0.52",
+		PinnedUntil:       time.Now().Add(time.Hour),
+		LastOutputTokens:  8192, // saturated previous turn
+		LastTurnEndedAt:   endedAt,
+		LastOutputLimitAt: endedAt,
 	}
 	fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-sonnet-4-5", Reason: "fresh"}}
 	svc := newPinSvc(fr, store)
@@ -1020,8 +1027,8 @@ func TestTurnLoop_MaxedOutExcludesLastServedModelNotAnchor(t *testing.T) {
 		"the healthy anchor must not be excluded when the paired model maxed out")
 }
 
-// Output well below the cap is healthy: the pin must not be excluded.
-func TestTurnLoop_UnderMaxedOutThresholdKeepsPin(t *testing.T) {
+// Legacy usage without terminal evidence cannot establish an output-limit hit.
+func TestTurnLoop_UnconfirmedHighOutputKeepsPin(t *testing.T) {
 	store := newFakePinStore()
 	store.hasPin = true
 	store.pin = sessionpin.Pin{
@@ -1029,7 +1036,7 @@ func TestTurnLoop_UnderMaxedOutThresholdKeepsPin(t *testing.T) {
 		Model:            "claude-haiku-4-5",
 		Reason:           "cluster:v0.52",
 		PinnedUntil:      time.Now().Add(time.Hour),
-		LastOutputTokens: 1024, // healthy, well below threshold
+		LastOutputTokens: 32000, // no output-limit evidence
 		LastTurnEndedAt:  time.Now().Add(-10 * time.Second),
 	}
 	fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-haiku-4-5", Reason: "fresh"}}
