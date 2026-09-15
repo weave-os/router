@@ -196,6 +196,12 @@ check "claude user install writes exactly the registry's commands" \
 # Reinstalling repairs a router-owned statusline after its permissions or file
 # contents are damaged, while a same-named user script remains untouched.
 cc_statusline="$cc_home/.weave/cc-statusline.sh"
+cc_statusline_marker="$cc_statusline.weave-router"
+if [ -f "$cc_statusline_marker" ]; then
+  ok "fresh install records statusline ownership"
+else
+  no "fresh install records statusline ownership" "ownership marker" "missing"
+fi
 chmod 000 "$cc_statusline"
 run_install "$cc_home" --claude --scope user
 if [ -x "$cc_statusline" ] && grep -Fq 'Claude Code statusline for the Weave Router.' "$cc_statusline"; then
@@ -221,6 +227,13 @@ jq -n --arg command "$custom_statusline_home/.weave/cc-statusline.sh" \
 run_install "$custom_statusline_home" --claude --scope user
 check "install preserves a user-owned statusline at the conventional path" \
   "# user statusline" "$(cat "$custom_statusline_home/.weave/cc-statusline.sh")"
+mv "$custom_statusline_home/.weave/cc-statusline.sh" "$work/missing-user-statusline.sh"
+run_install "$custom_statusline_home" --claude --scope user
+if [ -e "$custom_statusline_home/.weave/cc-statusline.sh" ]; then
+  no "reinstall preserves a missing user-owned statusline" "file stays missing" "file recreated"
+else
+  ok "reinstall preserves a missing user-owned statusline"
+fi
 run_uninstall "$custom_statusline_home" --claude --scope user
 check "uninstall preserves a user-owned statusline setting" \
   "$custom_statusline_home/.weave/cc-statusline.sh" \
@@ -413,6 +426,11 @@ if [ -e "$cc_home/.weave/cc-statusline.sh" ]; then
   no "uninstall removes the router-owned statusline" "removed" "still present"
 else
   ok "uninstall removes the router-owned statusline"
+fi
+if [ -e "$cc_statusline_marker" ]; then
+  no "uninstall removes the statusline ownership marker" "removed" "still present"
+else
+  ok "uninstall removes the statusline ownership marker"
 fi
 check "uninstall removes the router-owned statusline setting" "false" \
   "$(jq 'has("statusLine")' "$cc_home/.claude/settings.json")"

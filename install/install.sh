@@ -377,10 +377,10 @@ claude_statusline_configured() {
 
 # claude_statusline_router_owned reports whether a settings entry points at the
 # router's statusline. Existing scripts prove ownership with the marker; when a
-# script is missing, the install attribution proves that the entry was written
-# by the router and should be recreated.
+# script is missing, the adjacent ownership marker proves that the router wrote
+# it and should recreate it.
 claude_statusline_router_owned() {
-  local settings_path="$1" expected_command="$2" script_path="$3" configured_command
+  local settings_path="$1" expected_command="$2" script_path="$3" ownership_marker_path="$4" configured_command
   [ -f "$settings_path" ] || return 1
   configured_command="$(jq -r '.statusLine.command // empty' "$settings_path" 2>/dev/null || true)"
   [ "$configured_command" = "$expected_command" ] || return 1
@@ -388,15 +388,10 @@ claude_statusline_router_owned() {
     if grep -Fq "$CLAUDE_STATUSLINE_MARKER" "$script_path" 2>/dev/null; then
       return 0
     fi
-    # An unreadable file may be a router script whose permissions were changed
-    # by a user or tool. Use the settings attribution below to recover it.
     [ -r "$script_path" ] && return 1
   fi
-  jq -e '
-    (.attribution.commit == "Co-Authored-By: Weave Router <router@workweave.ai>"
-      or .attribution.commit == "Co-Authored-By: Weave Router <noreply@workweave.ai>")
-    and .attribution.pr == "🤖 Generated with [Weave Router](https://router.workweave.ai)"
-  ' "$settings_path" >/dev/null 2>&1
+  [ -f "$ownership_marker_path" ] \
+    && grep -Fq "$CLAUDE_STATUSLINE_MARKER" "$ownership_marker_path"
 }
 
 # Markers that delimit the block this installer manages inside Codex's
@@ -1896,6 +1891,7 @@ if [ "$target" = "claude" ]; then
       fi
       ;;
   esac
+  statusline_ownership_file="$statusline_file.weave-router"
 
   # Check the effective settings layer. A user-owned statusline blocks the
   # install; a router-owned one is refreshed so reinstall repairs its script.
@@ -1916,7 +1912,8 @@ if [ "$target" = "claude" ]; then
   fi
   if [ -n "$statusline_source_file" ] \
      && ! claude_statusline_router_owned \
-          "$statusline_source_file" "$statusline_expected_command" "$statusline_candidate_file"; then
+          "$statusline_source_file" "$statusline_expected_command" \
+          "$statusline_candidate_file" "$statusline_candidate_file.weave-router"; then
     statusline_install="false"
     skip "Existing Claude Code statusline detected; leaving it unchanged."
   fi
@@ -1935,6 +1932,7 @@ if [ "$target" = "claude" ]; then
     refuse_if_symlink "$local_settings_file"
     if [ "$statusline_install" = "true" ]; then
       refuse_if_symlink "$statusline_file"
+      refuse_if_symlink "$statusline_ownership_file"
     fi
   fi
 
@@ -5679,6 +5677,8 @@ else
 fi
 STATUSLINE_EOF
 chmod +x "$statusline_file"
+printf '%s\n' "$CLAUDE_STATUSLINE_MARKER" >"$statusline_ownership_file"
+chmod 600 "$statusline_ownership_file"
 ok "Statusline installed at $statusline_file"
 fi
 
@@ -5813,9 +5813,10 @@ if [ "$scope" = "project" ] && [ -z "$install_dir" ] && [ -n "${git_root:-}" ]; 
   for entry in \
     ".claude/settings.local.json" \
     ".claude/.credentials.json" \
-    ".claude/cc-statusline.sh"
+    ".claude/cc-statusline.sh" \
+    ".claude/cc-statusline.sh.weave-router"
   do
-    [ "$entry" = ".claude/cc-statusline.sh" ] && [ "$statusline_install" != "true" ] && continue
+    [[ "$entry" == .claude/cc-statusline.sh* ]] && [ "$statusline_install" != "true" ] && continue
     if [ ! -f "$gitignore" ] || ! grep -qxF "$entry" "$gitignore"; then
       printf '%s\n' "$entry" >>"$gitignore"
     fi

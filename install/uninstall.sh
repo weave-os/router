@@ -162,10 +162,10 @@ refuse_if_symlink() {
 
 # claude_statusline_router_owned reports whether a settings entry points at the
 # router's statusline. Existing scripts prove ownership with the marker; when a
-# script is missing, the install attribution proves that the entry was written
-# by the router and should be removed with the rest of the router config.
+# script is missing, the adjacent ownership marker proves that the router wrote
+# it and should remove it with the rest of the router config.
 claude_statusline_router_owned() {
-  local settings_path="$1" expected_command="$2" script_path="$3" configured_command
+  local settings_path="$1" expected_command="$2" script_path="$3" ownership_marker_path="$4" configured_command
   [ -f "$settings_path" ] || return 1
   configured_command="$(jq -r '.statusLine.command // empty' "$settings_path" 2>/dev/null || true)"
   [ "$configured_command" = "$expected_command" ] || return 1
@@ -175,11 +175,8 @@ claude_statusline_router_owned() {
     fi
     [ -r "$script_path" ] && return 1
   fi
-  jq -e '
-    (.attribution.commit == "Co-Authored-By: Weave Router <router@workweave.ai>"
-      or .attribution.commit == "Co-Authored-By: Weave Router <noreply@workweave.ai>")
-    and .attribution.pr == "🤖 Generated with [Weave Router](https://router.workweave.ai)"
-  ' "$settings_path" >/dev/null 2>&1
+  [ -f "$ownership_marker_path" ] \
+    && grep -Fq "$CLAUDE_STATUSLINE_MARKER" "$ownership_marker_path"
 }
 
 while [ $# -gt 0 ]; do
@@ -855,17 +852,20 @@ if [ -n "$install_dir" ]; then
     statusline_file="$install_dir/.weave/cc-statusline.sh"
     statusline_command="$statusline_file"
   fi
+  statusline_ownership_file="$statusline_file.weave-router"
   # Symlink containment: --dir paths come from a user-supplied directory that may
   # be hostile. The later `>` redirect on settings_file and `rm -f` on the
   # statusline script would otherwise follow links out of the directory.
   refuse_if_symlink "$install_dir/.claude"
   refuse_if_symlink "$settings_file"
   refuse_if_symlink "$statusline_file"
+  refuse_if_symlink "$statusline_ownership_file"
 elif [ "$scope" = "user" ]; then
   settings_file="$HOME/.claude/settings.json"
   local_settings_file=""
   statusline_file="$HOME/.weave/cc-statusline.sh"
   statusline_command="$statusline_file"
+  statusline_ownership_file="$statusline_file.weave-router"
 else
   # Project scope without --dir: mirror install.sh — directory prompt only when
   # scope_explicit is false (interactive install path); explicit --scope project
@@ -902,6 +902,7 @@ else
   local_settings_file="$settings_base/.claude/settings.local.json"
   statusline_file="$settings_base/.claude/cc-statusline.sh"
   statusline_command="\${CLAUDE_PROJECT_DIR}/.claude/cc-statusline.sh"
+  statusline_ownership_file="$statusline_file.weave-router"
   # Symlink containment: paths come from a git repo or user-supplied directory
   # that may be hostile. The later `>` redirect on settings_file and `rm -f` on
   # the scripts would otherwise follow links out of the repo.
@@ -909,6 +910,7 @@ else
   refuse_if_symlink "$settings_file"
   refuse_if_symlink "$local_settings_file"
   refuse_if_symlink "$statusline_file"
+  refuse_if_symlink "$statusline_ownership_file"
 fi
 
 statusline_file_owned="false"
@@ -916,7 +918,8 @@ statusline_setting_owned="false"
 if [ -f "$statusline_file" ] && grep -Fq "$CLAUDE_STATUSLINE_MARKER" "$statusline_file"; then
   statusline_file_owned="true"
 fi
-if claude_statusline_router_owned "$settings_file" "$statusline_command" "$statusline_file"; then
+if claude_statusline_router_owned \
+     "$settings_file" "$statusline_command" "$statusline_file" "$statusline_ownership_file"; then
   statusline_setting_owned="true"
   statusline_file_owned="true"
 fi
@@ -975,6 +978,9 @@ if [ -f "$statusline_file" ]; then
   # only when its content identifies it as our managed statusline.
   if [ "$statusline_file_owned" = "true" ]; then
     rm -f "$statusline_file"
+    if [ -f "$statusline_ownership_file" ]; then
+      rm -f "$statusline_ownership_file"
+    fi
     ok "Removed $statusline_file"
   else
     warn "Leaving user-owned statusline at $statusline_file untouched."
