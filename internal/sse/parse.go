@@ -4,10 +4,18 @@ import "bytes"
 
 // SplitNext returns the next complete SSE event in buf (without delimiter) and the total bytes consumed; n=0 means no complete event yet. Accepts both LF (\n\n) and CRLF (\r\n\r\n) boundaries.
 func SplitNext(buf []byte) (event []byte, n int) {
-	for i, current := range buf {
-		if current != '\n' {
-			continue
+	return splitFrom(buf, 0)
+}
+
+// Search LF candidates in order; checking the preceding CR preserves the
+// earliest-delimiter rule without scanning the whole suffix twice.
+func splitFrom(buf []byte, start int) (event []byte, n int) {
+	for i := start; i < len(buf); i++ {
+		offset := bytes.IndexByte(buf[i:], '\n')
+		if offset < 0 {
+			return nil, 0
 		}
+		i += offset
 		if i+1 < len(buf) && buf[i+1] == '\n' {
 			return buf[:i], i + 2
 		}

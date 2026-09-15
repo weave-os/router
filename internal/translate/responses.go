@@ -383,9 +383,10 @@ func StripRoutingBadgeFromResponsesInput(body []byte) ([]byte, error) {
 					newPartRaws[partIndex] = newPart
 					itemChanged = true
 					changed = true
-					if stripped == "" && !responsesContentHasBody(parts, partIndex) {
-						dropItem = true
-					}
+				}
+				if stripped == "" && !responsesContentHasBody(parts, partIndex) {
+					dropItem = true
+					changed = true
 				}
 				// The egress marker is only ever prepended to the first text part.
 				// Do not strip a marker-like string from later assistant content.
@@ -652,6 +653,11 @@ type ResponsesWriter struct {
 	passthroughBadge bool
 	buf              bytes.Buffer
 
+	streamScanner           sse.Scanner
+	nativeStreamScanner     sse.Scanner
+	nativeSSEClassification bool
+	nativeSSEClassified     bool
+
 	seq int64
 
 	// Streaming state.
@@ -823,10 +829,22 @@ func (t *ResponsesWriter) SetFooterText(text string) {
 
 func (t *ResponsesWriter) Header() http.Header { return t.inner.Header() }
 
+// resetSSEScanState discards search state whenever the writer changes mode or
+// replaces its buffered stream. The scanners never own the buffer itself.
+func (t *ResponsesWriter) resetSSEScanState() {
+	t.streamScanner.Reset()
+	t.nativeStreamScanner.Reset()
+	t.nativeSSEClassification = false
+	t.nativeSSEClassified = false
+}
+
 // SetPassthrough switches to native Responses mode. Upstream bytes remain in
 // Responses format, while Prelude may synthesize lifecycle and badge events.
 // Must be called before the first write.
-func (t *ResponsesWriter) SetPassthrough() { t.passthrough = true }
+func (t *ResponsesWriter) SetPassthrough() {
+	t.resetSSEScanState()
+	t.passthrough = true
+}
 
 // ClearPassthrough returns the writer to translation mode, reporting false
 // after provider output prevents a clean continuation. A visible synthetic
@@ -836,6 +854,7 @@ func (t *ResponsesWriter) ClearPassthrough() bool {
 		if err := t.lifecycle.Start(); err != nil {
 			return false
 		}
+		t.resetSSEScanState()
 		t.passthrough = false
 		t.passthroughBadge = false
 		t.headersEmitted = true
@@ -846,6 +865,7 @@ func (t *ResponsesWriter) ClearPassthrough() bool {
 	if t.httpHeadersSent || t.headersEmitted || t.buf.Len() > 0 {
 		return false
 	}
+	t.resetSSEScanState()
 	t.passthrough = false
 	t.passthroughBadge = false
 	return true
@@ -855,6 +875,7 @@ func (t *ResponsesWriter) ClearPassthrough() bool {
 // badge. Text-free turns get a synthetic assistant item to carry it.
 func (t *ResponsesWriter) SetPassthroughBadge() {
 	t.EnableTerminalBadgeProvenance()
+	t.resetSSEScanState()
 	t.passthrough = true
 	t.passthroughBadge = true
 }
@@ -919,8 +940,12 @@ func (t *ResponsesWriter) Write(data []byte) (int, error) {
 		}
 		if t.passthroughBadge {
 			t.buf.Write(data)
-			// Some upstreams omit Content-Type; detect SSE from the first buffered event.
-			if nativeResponsesSSEBuffer(t.buf.Bytes()) {
+			// Some upstreams omit Content-Type; inspect the first event without
+			// consuming it, then let the normal drain present it exactly once.
+			if t.detectNativeResponsesSSE() {
+				t.nativeStreamScanner.Reset()
+				t.nativeSSEClassification = false
+				t.nativeSSEClassified = false
 				t.streaming = true
 				if err := t.processPassthroughSSEBuffer(); err != nil {
 					return n, err
@@ -961,13 +986,18 @@ func (t *ResponsesWriter) Write(data []byte) (int, error) {
 	return n, t.processSSEBuffer()
 }
 
-func nativeResponsesSSEBuffer(data []byte) bool {
-	event, n := sse.SplitNext(data)
+func (t *ResponsesWriter) detectNativeResponsesSSE() bool {
+	if t.nativeSSEClassified {
+		return t.nativeSSEClassification
+	}
+	event, n := t.nativeStreamScanner.Next(t.buf.Bytes())
 	if n == 0 {
 		return false
 	}
 	_, payload := sse.ParseEvent(event)
-	return gjson.ValidBytes(payload) && gjson.GetBytes(payload, "type").Str != ""
+	t.nativeSSEClassification = gjson.ValidBytes(payload) && gjson.GetBytes(payload, "type").Str != ""
+	t.nativeSSEClassified = true
+	return t.nativeSSEClassification
 }
 
 // Prelude commits headers and emits response.created immediately so Codex
@@ -1034,6 +1064,7 @@ func (t *ResponsesWriter) Finalize() error {
 		}
 		if t.passthroughBadge && !t.streaming {
 			body := t.buf.Bytes()
+			t.resetSSEScanState()
 			if rewritten, changed := t.rewriteNativeNonStreamingBody(body); changed {
 				body = rewritten
 			}
@@ -1719,7 +1750,7 @@ func (t *ResponsesWriter) flushNativeHeldEvents(commitFooter bool) error {
 func (t *ResponsesWriter) processPassthroughSSEBuffer() error {
 	for {
 		buffered := t.buf.Bytes()
-		event, n := sse.SplitNext(buffered)
+		event, n := t.nativeStreamScanner.Next(buffered)
 		if n == 0 {
 			return nil
 		}
@@ -1735,9 +1766,12 @@ func (t *ResponsesWriter) processFinalPassthroughSSETail() error {
 	if t.buf.Len() > 0 {
 		event := append([]byte(nil), t.buf.Bytes()...)
 		t.buf.Reset()
+		t.nativeStreamScanner.Reset()
 		if err := t.writeNativeResponsesEvent(event, nil); err != nil {
 			return err
 		}
+	} else {
+		t.nativeStreamScanner.Reset()
 	}
 	return t.flushNativeHeldEvents(t.footerText != "" && !t.sawToolCall)
 }
@@ -1790,7 +1824,7 @@ func (t *ResponsesWriter) FinalizeError(_ error) error {
 // processSSEBuffer drains complete chat.completion.chunk events.
 func (t *ResponsesWriter) processSSEBuffer() error {
 	for {
-		event, n := sse.SplitNext(t.buf.Bytes())
+		event, n := t.streamScanner.Next(t.buf.Bytes())
 		if n == 0 {
 			return nil
 		}
@@ -1804,10 +1838,12 @@ func (t *ResponsesWriter) processSSEBuffer() error {
 
 func (t *ResponsesWriter) processFinalSSETail() error {
 	if t.buf.Len() == 0 {
+		t.streamScanner.Reset()
 		return nil
 	}
 	event := append([]byte(nil), t.buf.Bytes()...)
 	t.buf.Reset()
+	t.streamScanner.Reset()
 	return t.translateChunk(event)
 }
 

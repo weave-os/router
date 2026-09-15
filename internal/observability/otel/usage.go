@@ -67,6 +67,10 @@ type UsageExtractor struct {
 	toolCallIdxs map[int]struct{}
 
 	leftover []byte
+	// framing resumes the delimiter search in leftover where the previous
+	// write left it. It carries only the cursor; the JSON fallback below still
+	// probes the whole leftover after every write.
+	framing sse.Scanner
 }
 
 // NewUsageExtractor creates a usage-extracting writer for the given provider's
@@ -206,7 +210,7 @@ func (u *UsageExtractor) scanBuffer() {
 	data := u.leftover
 
 	for {
-		event, n := sse.SplitNext(data)
+		event, n := u.framing.Next(data)
 		if n == 0 {
 			break
 		}

@@ -24,6 +24,7 @@ type GeminiToOpenAISSETranslator struct {
 	streaming  bool
 	statusCode int
 	buf        bytes.Buffer
+	scanner    sse.Scanner
 
 	model     string
 	chatID    string
@@ -172,7 +173,7 @@ func (t *GeminiToOpenAISSETranslator) Finalize() error {
 
 func (t *GeminiToOpenAISSETranslator) processSSEBuffer() error {
 	for {
-		event, n := sse.SplitNext(t.buf.Bytes())
+		event, n := t.scanner.Next(t.buf.Bytes())
 		if n == 0 {
 			return nil
 		}
@@ -190,6 +191,7 @@ func (t *GeminiToOpenAISSETranslator) processFinalSSETail() error {
 	}
 	event := append([]byte(nil), t.buf.Bytes()...)
 	t.buf.Reset()
+	t.scanner.Reset()
 	return t.translateEvent(event)
 }
 

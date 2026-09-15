@@ -39,6 +39,9 @@ func repairArgs(schema *jsonschema.Schema, args string, verr error) (out string,
 			return out, actions
 		}
 		passActions := applyLeafRepairs(document, validationErr)
+		if document.failed {
+			return args, nil
+		}
 		if len(passActions) == 0 {
 			return out, actions
 		}
@@ -60,10 +63,15 @@ func applyLeafRepairs(document *argumentDocument, verr *jsonschema.ValidationErr
 		case *kind.AdditionalProperties:
 			// The validator only emits this where the schema forbids extra
 			// keys, so the additionalProperties:false gate is implicit.
+			parentPath := leaf.InstanceLocation
+			// The original joinPath omitted an empty encoded parent path.
+			if len(parentPath) == 1 && parentPath[0] == "" {
+				parentPath = nil
+			}
 			for _, prop := range k.Properties {
-				target := make([]string, len(leaf.InstanceLocation)+1)
-				copy(target, leaf.InstanceLocation)
-				target[len(leaf.InstanceLocation)] = prop
+				target := make([]string, len(parentPath)+1)
+				copy(target, parentPath)
+				target[len(parentPath)] = prop
 				if _, ok := document.delete(target); ok {
 					actions = append(actions, "drop_unknown_key")
 				}
@@ -87,15 +95,21 @@ func coerceValue(document *argumentDocument, path []string, k *kind.Type) (actio
 	if value == nil {
 		return "", false
 	}
-	want := make(map[string]struct{}, len(k.Want))
-	for _, w := range k.Want {
-		want[w] = struct{}{}
+	var wantNumber, wantInteger, wantBool, wantString, wantArray bool
+	for _, wantedType := range k.Want {
+		switch wantedType {
+		case "number":
+			wantNumber = true
+		case "integer":
+			wantInteger = true
+		case "boolean":
+			wantBool = true
+		case "string":
+			wantString = true
+		case "array":
+			wantArray = true
+		}
 	}
-	_, wantNumber := want["number"]
-	_, wantInteger := want["integer"]
-	_, wantBool := want["boolean"]
-	_, wantString := want["string"]
-	_, wantArray := want["array"]
 
 	if value.kind == argumentString {
 		s := value.stringValue
@@ -126,7 +140,7 @@ func coerceValue(document *argumentDocument, path []string, k *kind.Type) (actio
 		}
 	}
 	if wantArray && value.kind != argumentArray {
-		if document.replace(path, "["+value.raw+"]") {
+		if document.wrap(path, value) {
 			return "wrap_scalar_in_array", true
 		}
 	}

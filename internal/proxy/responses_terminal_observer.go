@@ -17,6 +17,9 @@ type responsesTerminalObserver struct {
 	// buf holds the bytes of the event currently being assembled; SSE frames
 	// arrive split across writes.
 	buf bytes.Buffer
+	// framing resumes the delimiter search where the previous write left it,
+	// so a frame spread over many writes is scanned once, not once per write.
+	framing sse.Scanner
 	// signals are the chat-shaped reason and tool-call count from the terminal
 	// event; observed stays false until one arrives (and on a failed terminal,
 	// whose outcome is the error), so a cut stream is never read as a measured
@@ -60,7 +63,7 @@ func (o *responsesTerminalObserver) ArmOutputProgress(mark func()) (armed bool) 
 func (o *responsesTerminalObserver) scan(p []byte) {
 	o.buf.Write(p)
 	for {
-		event, n := sse.SplitNext(o.buf.Bytes())
+		event, n := o.framing.Next(o.buf.Bytes())
 		if n == 0 {
 			return
 		}
@@ -78,6 +81,7 @@ func (o *responsesTerminalObserver) Finalize() {
 	}
 	rest := o.buf.Bytes()
 	o.buf.Reset()
+	o.framing.Reset()
 	o.observeEvent(rest)
 }
 

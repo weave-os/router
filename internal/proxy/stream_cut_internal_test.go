@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http/httptest"
+	"strings"
 	"syscall"
 	"testing"
 	"time"
@@ -290,4 +291,133 @@ func TestStreamCutObserver_ForwardsReasoningProgressArming(t *testing.T) {
 	}
 	legacy := newStreamCutObserver(nil).attach(&armerRecorder{ResponseRecorder: httptest.NewRecorder()})
 	assert.False(t, legacy.(providers.ReasoningProgressArmer).ArmReasoningProgress(func() {}))
+}
+
+// An Anthropic turn that closes a thinking block, then opens and closes a text
+// block: nine upstream frames, two completed blocks, output started.
+const streamCutFixture = "event: message_start\ndata: {\"type\":\"message_start\"}\n\n" +
+	"event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"thinking\",\"thinking\":\"\"}}\n\n" +
+	"event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"thinking_delta\",\"thinking\":\"hm\"}}\n\n" +
+	"event: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":0}\n\n" +
+	"event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":1,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n" +
+	"event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"text_delta\",\"text\":\"hello\"}}\n\n" +
+	"event: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":1}\n\n" +
+	"event: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":3}}\n\n" +
+	"event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"
+
+// streamCutWire is what the observer has recorded about the upstream frames.
+type streamCutWire struct {
+	frames             int
+	lastEvent          string
+	blocksCompleted    int
+	outputBlockStarted bool
+}
+
+func wireOf(o *streamCutObserver) streamCutWire {
+	return streamCutWire{frames: o.frames, lastEvent: o.lastEvent, blocksCompleted: o.blocksCompleted, outputBlockStarted: o.outputBlockStarted}
+}
+
+// streamCutLargeFixture makes the text delta far larger than a provider read
+// so one frame spans many writes before the stream closes.
+func streamCutLargeFixture() string {
+	return strings.Replace(streamCutFixture, `"text":"hello"`, `"text":"`+strings.Repeat("h", 64*1024)+`"`, 1)
+}
+
+// However the upstream's bytes are split across writes, the observer must
+// describe the wire exactly as a single write of the same bytes would, after
+// each write boundary and at the end.
+func TestStreamCutObserver_FragmentationMatchesSingleWrite(t *testing.T) {
+	fixtures := []struct {
+		name string
+		body string
+	}{
+		{name: "lf framing", body: streamCutFixture},
+		{name: "crlf framing", body: strings.ReplaceAll(streamCutFixture, "\n", "\r\n")},
+		{name: "frame spanning many writes", body: streamCutLargeFixture()},
+	}
+	prefixWire := func(t *testing.T, prefix string) streamCutWire {
+		t.Helper()
+		obs := newStreamCutObserver(nil)
+		writeChunks(t, obs.attach(httptest.NewRecorder()), []string{prefix})
+		return wireOf(obs)
+	}
+	for _, fx := range fixtures {
+		t.Run(fx.name, func(t *testing.T) {
+			oracle := newStreamCutObserver(nil)
+			writeChunks(t, oracle.attach(httptest.NewRecorder()), []string{fx.body})
+			want := wireOf(oracle)
+			require.Equal(t, streamCutWire{frames: 9, lastEvent: "message_stop", blocksCompleted: 2, outputBlockStarted: true}, want)
+
+			for _, size := range chunkSizesFor(fx.body) {
+				rec := httptest.NewRecorder()
+				obs := newStreamCutObserver(nil)
+				writeChunks(t, obs.attach(rec), chunkEvery(fx.body, size))
+				assert.Equal(t, want, wireOf(obs), "chunk size %d", size)
+				assert.Equal(t, fx.body, rec.Body.String(), "chunk size %d", size)
+			}
+
+			if len(fx.body) > largeFixtureBytes {
+				return
+			}
+			for i := 1; i < len(fx.body); i++ {
+				rec := httptest.NewRecorder()
+				obs := newStreamCutObserver(nil)
+				attempt := obs.attach(rec)
+				writeChunks(t, attempt, []string{fx.body[:i]})
+				require.Equal(t, prefixWire(t, fx.body[:i]), wireOf(obs), "state after the first write, split at %d", i)
+				writeChunks(t, attempt, []string{fx.body[i:]})
+				require.Equal(t, want, wireOf(obs), "split at %d", i)
+				require.Equal(t, fx.body, rec.Body.String(), "split at %d", i)
+			}
+		})
+	}
+}
+
+// A failed attempt can end mid-frame. The next attempt's first frame must be
+// framed from its own first byte, not from wherever the abandoned tail's scan
+// had reached.
+func TestStreamCutObserver_ReattachAfterIncompleteTailStartsFresh(t *testing.T) {
+	obs := newStreamCutObserver(nil)
+	first := obs.attach(httptest.NewRecorder())
+	writeChunks(t, first, []string{"event: content_block_delta\ndata: {\"text\":\"" + strings.Repeat("y", 300)})
+	require.Equal(t, streamCutWire{}, wireOf(obs), "an unterminated frame is not a frame")
+
+	rec := httptest.NewRecorder()
+	second := obs.attach(rec)
+	writeChunks(t, second, []string{"event: ping\ndata: {}\n\n"})
+
+	assert.Equal(t, streamCutWire{frames: 1, lastEvent: "ping"}, wireOf(obs))
+	assert.Equal(t, "event: ping\ndata: {}\n\n", rec.Body.String())
+}
+
+// A partial frame that outgrows the carry cap is dropped rather than retained;
+// the frame that follows is still counted whole, whether the cap was crossed in
+// one write or after the tail had already been carried.
+func TestStreamCutObserver_TailCapDiscardResyncsOnNextFrame(t *testing.T) {
+	const ping = "event: ping\ndata: {}\n\n"
+	cases := []struct {
+		name   string
+		writes []string
+	}{
+		{name: "cap crossed in one write", writes: []string{strings.Repeat("z", streamCutCarryCap+1), ping}},
+		{name: "cap crossed by a carried tail", writes: []string{strings.Repeat("z", streamCutCarryCap/2), strings.Repeat("z", streamCutCarryCap/2+1), ping}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			obs := newStreamCutObserver(nil)
+			writeChunks(t, obs.attach(rec), tc.writes)
+
+			assert.Equal(t, streamCutWire{frames: 1, lastEvent: "ping"}, wireOf(obs))
+			assert.Empty(t, obs.carry)
+			assert.Equal(t, strings.Join(tc.writes, ""), rec.Body.String(), "the observer must pass every byte through unchanged")
+		})
+	}
+
+	t.Run("a tail under the cap is kept", func(t *testing.T) {
+		obs := newStreamCutObserver(nil)
+		frame := "event: content_block_delta\ndata: {\"text\":\"" + strings.Repeat("k", streamCutCarryCap-64) + "\"}\n\n"
+		writeChunks(t, obs.attach(httptest.NewRecorder()), []string{frame[:streamCutCarryCap/2], frame[streamCutCarryCap/2:]})
+		assert.Equal(t, streamCutWire{frames: 1, lastEvent: "content_block_delta"}, wireOf(obs))
+	})
 }

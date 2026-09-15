@@ -3,6 +3,7 @@ package otel_test
 import (
 	"fmt"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -664,4 +665,258 @@ func TestUsageExtractor_OutputLimitIsAttemptScoped(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, winner.OutputLimitReached(), "another attempt has independent terminal evidence")
 	assert.False(t, (*otel.UsageExtractor)(nil).OutputLimitReached())
+}
+
+// usageSignals are the turn-ending signals the extractor derives from complete
+// frames alone. They must be identical after a write boundary however the bytes
+// before it were split.
+type usageSignals struct {
+	outputLimitReached bool
+	stopReason         string
+	toolUseBlocks      int
+	anthropicObserved  bool
+	finishReason       string
+	toolCalls          int
+	chatObserved       bool
+}
+
+// usageTotals adds the token counts. The extractor probes the partial leftover
+// for JSON after every write, so mid-stream counts legitimately depend on where
+// the writes fell; they are compared only once the whole body has been written.
+type usageTotals struct {
+	signals       usageSignals
+	input         int
+	output        int
+	cacheCreation int
+	cacheRead     int
+}
+
+func signalsOf(ext *otel.UsageExtractor) usageSignals {
+	stopReason, toolUseBlocks, anthropicObserved := ext.AnthropicResponse()
+	finishReason, toolCalls, chatObserved := ext.OpenAIChatResponse()
+	return usageSignals{
+		outputLimitReached: ext.OutputLimitReached(),
+		stopReason:         stopReason,
+		toolUseBlocks:      toolUseBlocks,
+		anthropicObserved:  anthropicObserved,
+		finishReason:       finishReason,
+		toolCalls:          toolCalls,
+		chatObserved:       chatObserved,
+	}
+}
+
+func totalsOf(ext *otel.UsageExtractor) usageTotals {
+	input, output := ext.Tokens()
+	cacheCreation, cacheRead := ext.CacheTokens()
+	return usageTotals{signals: signalsOf(ext), input: input, output: output, cacheCreation: cacheCreation, cacheRead: cacheRead}
+}
+
+var fragmentationChunkSizes = []int{1, 3, 7, 13, 4096}
+
+// Past this size a body is fed only in the adapters' 4 KiB reads: the JSON
+// fallback re-probes the whole leftover on every write, so byte-at-a-time
+// writes of a large body would make the test quadratic without adding coverage.
+const largeFixtureBytes = 2048
+
+func chunkSizesFor(body string) []int {
+	if len(body) > largeFixtureBytes {
+		return []int{4096}
+	}
+	return fragmentationChunkSizes
+}
+
+func chunkEvery(body string, size int) []string {
+	var chunks []string
+	for start := 0; start < len(body); start += size {
+		chunks = append(chunks, body[start:min(start+size, len(body))])
+	}
+	return chunks
+}
+
+func writeChunks(t *testing.T, ext *otel.UsageExtractor, chunks []string) {
+	t.Helper()
+	for _, chunk := range chunks {
+		_, err := ext.Write([]byte(chunk))
+		require.NoError(t, err)
+	}
+}
+
+const anthropicToolStream = "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_1\",\"usage\":{\"input_tokens\":100,\"cache_creation_input_tokens\":300,\"cache_read_input_tokens\":900}}}\n\n" +
+	"event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n" +
+	"event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"looking\"}}\n\n" +
+	"event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":1,\"content_block\":{\"type\":\"tool_use\",\"id\":\"toolu_1\",\"name\":\"Read\",\"input\":{}}}\n\n" +
+	"event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":2,\"content_block\":{\"type\":\"tool_use\",\"id\":\"toolu_2\",\"name\":\"Grep\",\"input\":{}}}\n\n" +
+	"event: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"tool_use\"},\"usage\":{\"output_tokens\":40}}\n\n" +
+	"event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"
+
+const openAIChatToolStream = "data: {\"id\":\"chatcmpl-1\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\"}}]}\n\n" +
+	"data: {\"id\":\"chatcmpl-1\",\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call_1\",\"function\":{\"name\":\"read\",\"arguments\":\"\"}}]}}]}\n\n" +
+	"data: {\"id\":\"chatcmpl-1\",\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":0,\"function\":{\"arguments\":\"{\\\"path\\\"\"}}]}}]}\n\n" +
+	"data: {\"id\":\"chatcmpl-1\",\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":1,\"id\":\"call_2\",\"function\":{\"name\":\"grep\",\"arguments\":\"{}\"}}]}}]}\n\n" +
+	"data: {\"id\":\"chatcmpl-1\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"tool_calls\"}]}\n\n" +
+	"data: {\"id\":\"chatcmpl-1\",\"choices\":[],\"usage\":{\"prompt_tokens\":20,\"completion_tokens\":12,\"prompt_tokens_details\":{\"cached_tokens\":7}}}\n\n" +
+	"data: [DONE]\n\n"
+
+// However the upstream's bytes are split across writes, the extractor must end
+// with the counts and signals a single write produces, and its signals after any
+// write boundary must match a single write of that prefix.
+func TestUsageExtractor_FragmentationMatchesSingleWrite(t *testing.T) {
+	largeAnthropicStream := strings.Replace(anthropicToolStream, `"text":"looking"`, `"text":"`+strings.Repeat("l", 64*1024)+`"`, 1)
+	fixtures := []struct {
+		name     string
+		provider string
+		body     string
+		want     usageTotals
+	}{
+		{
+			name:     "anthropic tool stream",
+			provider: providers.ProviderAnthropic,
+			body:     anthropicToolStream,
+			want: usageTotals{
+				signals: usageSignals{stopReason: "tool_use", toolUseBlocks: 2, anthropicObserved: true},
+				input:   100, output: 40, cacheCreation: 300, cacheRead: 900,
+			},
+		},
+		{
+			name:     "anthropic tool stream with crlf framing",
+			provider: providers.ProviderAnthropic,
+			body:     strings.ReplaceAll(anthropicToolStream, "\n", "\r\n"),
+			want: usageTotals{
+				signals: usageSignals{stopReason: "tool_use", toolUseBlocks: 2, anthropicObserved: true},
+				input:   100, output: 40, cacheCreation: 300, cacheRead: 900,
+			},
+		},
+		{
+			name:     "anthropic stream capped at max_tokens",
+			provider: providers.ProviderAnthropic,
+			body:     strings.Replace(anthropicToolStream, `"stop_reason":"tool_use"`, `"stop_reason":"max_tokens"`, 1),
+			want: usageTotals{
+				signals: usageSignals{outputLimitReached: true, stopReason: "max_tokens", toolUseBlocks: 2, anthropicObserved: true},
+				input:   100, output: 40, cacheCreation: 300, cacheRead: 900,
+			},
+		},
+		{
+			name:     "anthropic frame spanning many writes",
+			provider: providers.ProviderAnthropic,
+			body:     largeAnthropicStream,
+			want: usageTotals{
+				signals: usageSignals{stopReason: "tool_use", toolUseBlocks: 2, anthropicObserved: true},
+				input:   100, output: 40, cacheCreation: 300, cacheRead: 900,
+			},
+		},
+		{
+			name:     "anthropic non-streaming body",
+			provider: providers.ProviderAnthropic,
+			body: `{"id":"msg_1","type":"message","role":"assistant","content":[{"type":"text","text":"ok"},{"type":"tool_use","id":"toolu_1","name":"Read","input":{"path":"a.go"}}],` +
+				`"stop_reason":"tool_use","usage":{"input_tokens":42,"output_tokens":17,"cache_creation_input_tokens":256,"cache_read_input_tokens":1024}}`,
+			want: usageTotals{
+				signals: usageSignals{stopReason: "tool_use", toolUseBlocks: 1, anthropicObserved: true},
+				input:   42, output: 17, cacheCreation: 256, cacheRead: 1024,
+			},
+		},
+		{
+			name:     "openai chat tool stream",
+			provider: providers.ProviderOpenAI,
+			body:     openAIChatToolStream,
+			want: usageTotals{
+				signals: usageSignals{finishReason: "tool_calls", toolCalls: 2, chatObserved: true},
+				input:   20, output: 12, cacheRead: 7,
+			},
+		},
+		{
+			name:     "openai chat stream capped at length",
+			provider: providers.ProviderOpenRouter,
+			body:     strings.Replace(openAIChatToolStream, `"finish_reason":"tool_calls"`, `"finish_reason":"length"`, 1),
+			want: usageTotals{
+				signals: usageSignals{outputLimitReached: true, finishReason: "length", toolCalls: 2, chatObserved: true},
+				input:   20, output: 12, cacheRead: 7,
+			},
+		},
+		{
+			name:     "openai chat non-streaming body",
+			provider: providers.ProviderOpenAI,
+			body: `{"id":"chatcmpl-1","object":"chat.completion","choices":[{"index":0,"finish_reason":"tool_calls",` +
+				`"message":{"role":"assistant","tool_calls":[{"id":"call_1","function":{"name":"read","arguments":"{}"}}]}}],` +
+				`"usage":{"prompt_tokens":15,"completion_tokens":8,"prompt_tokens_details":{"cached_tokens":4,"cache_write_tokens":2}}}`,
+			want: usageTotals{
+				signals: usageSignals{finishReason: "tool_calls", toolCalls: 1, chatObserved: true},
+				input:   15, output: 8, cacheCreation: 2, cacheRead: 4,
+			},
+		},
+		{
+			name:     "openai responses stream",
+			provider: providers.ProviderOpenAI,
+			body: "event: response.created\ndata: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_1\"}}\n\n" +
+				"event: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"delta\":\"hi\"}\n\n" +
+				"event: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_1\",\"usage\":{\"input_tokens\":120,\"output_tokens\":34,\"input_tokens_details\":{\"cached_tokens\":40}}}}\n\n",
+			want: usageTotals{input: 120, output: 34, cacheRead: 40},
+		},
+		{
+			name:     "gemini stream capped at MAX_TOKENS",
+			provider: providers.ProviderGoogle,
+			body: "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"partial\"}]}}]}\n\n" +
+				"data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\" answer\"}]},\"finishReason\":\"MAX_TOKENS\"}],\"usageMetadata\":{\"promptTokenCount\":1200,\"candidatesTokenCount\":4,\"thoughtsTokenCount\":6,\"cachedContentTokenCount\":1024}}\n\n",
+			want: usageTotals{
+				signals: usageSignals{outputLimitReached: true},
+				input:   1200, output: 10, cacheRead: 1024,
+			},
+		},
+	}
+	prefixSignals := func(t *testing.T, provider, prefix string) usageSignals {
+		t.Helper()
+		ext := otel.NewUsageExtractor(httptest.NewRecorder(), provider)
+		writeChunks(t, ext, []string{prefix})
+		return signalsOf(ext)
+	}
+	for _, fx := range fixtures {
+		t.Run(fx.name, func(t *testing.T) {
+			oracle := otel.NewUsageExtractor(httptest.NewRecorder(), fx.provider)
+			writeChunks(t, oracle, []string{fx.body})
+			require.Equal(t, fx.want, totalsOf(oracle), "single write must produce the expected totals")
+
+			for _, size := range chunkSizesFor(fx.body) {
+				rec := httptest.NewRecorder()
+				ext := otel.NewUsageExtractor(rec, fx.provider)
+				writeChunks(t, ext, chunkEvery(fx.body, size))
+				assert.Equal(t, fx.want, totalsOf(ext), "chunk size %d", size)
+				assert.Equal(t, fx.body, rec.Body.String(), "chunk size %d", size)
+			}
+
+			if len(fx.body) > largeFixtureBytes {
+				return
+			}
+			for i := 1; i < len(fx.body); i++ {
+				rec := httptest.NewRecorder()
+				ext := otel.NewUsageExtractor(rec, fx.provider)
+				writeChunks(t, ext, []string{fx.body[:i]})
+				require.Equal(t, prefixSignals(t, fx.provider, fx.body[:i]), signalsOf(ext), "signals after the first write, split at %d", i)
+				writeChunks(t, ext, []string{fx.body[i:]})
+				require.Equal(t, fx.want, totalsOf(ext), "split at %d", i)
+				require.Equal(t, fx.body, rec.Body.String(), "split at %d", i)
+			}
+		})
+	}
+}
+
+// The JSON fallback runs after every write, so a non-streaming body's usage is
+// visible as soon as the write that completes the usage object lands, not only
+// at the end of the body.
+func TestUsageExtractor_JSONFallbackObservesUsageOnTheWriteThatCompletesIt(t *testing.T) {
+	body := `{"id":"msg_1","type":"message","content":[{"type":"text","text":"ok"}],"stop_reason":"end_turn","usage":{"input_tokens":42,"output_tokens":17}}`
+	usageEnd := strings.Index(body, `"output_tokens":17}`) + len(`"output_tokens":17}`)
+
+	ext := otel.NewUsageExtractor(httptest.NewRecorder(), providers.ProviderAnthropic)
+	writeChunks(t, ext, []string{body[:usageEnd]})
+	input, output := ext.Tokens()
+	assert.Equal(t, 42, input)
+	assert.Equal(t, 17, output)
+	stopReason, _, observed := ext.AnthropicResponse()
+	assert.True(t, observed)
+	assert.Equal(t, "end_turn", stopReason)
+
+	writeChunks(t, ext, []string{body[usageEnd:]})
+	assert.Equal(t, usageTotals{
+		signals: usageSignals{stopReason: "end_turn", anthropicObserved: true},
+		input:   42, output: 17,
+	}, totalsOf(ext))
 }

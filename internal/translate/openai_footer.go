@@ -30,7 +30,8 @@ type OpenAIRoutingFooterWriter struct {
 
 	footer string
 
-	buf bytes.Buffer
+	buf     bytes.Buffer
+	scanner sse.Scanner
 
 	streaming      bool
 	headersEmitted bool
@@ -84,7 +85,7 @@ func (w *OpenAIRoutingFooterWriter) Flush() {
 func (w *OpenAIRoutingFooterWriter) processUpstream(data []byte) (int, error) {
 	w.buf.Write(data)
 	for {
-		event, n := sse.SplitNext(w.buf.Bytes())
+		event, n := w.scanner.Next(w.buf.Bytes())
 		if n == 0 {
 			break
 		}

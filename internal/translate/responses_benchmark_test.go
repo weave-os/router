@@ -14,6 +14,10 @@ var responsesCleanupBenchmarkSink []byte
 
 func BenchmarkResponsesCleanup(b *testing.B) {
 	for _, messageCount := range []int{128, 256, 512, 1024} {
+		b.Run("unchanged/"+strconv.Itoa(messageCount), func(b *testing.B) {
+			body := responsesFooterCleanBody(messageCount)
+			cleanResponsesBenchmark(b, body, messageCount, "answer", true, translate.StripRoutingBadgeFromResponsesInput)
+		})
 		b.Run("badge-retained/"+strconv.Itoa(messageCount), func(b *testing.B) {
 			body := responsesBenchmarkBody(messageCount, true, false)
 			cleanResponsesBenchmark(b, body, messageCount, "answer", false, translate.StripRoutingBadgeFromResponsesInput)
@@ -21,6 +25,10 @@ func BenchmarkResponsesCleanup(b *testing.B) {
 		b.Run("badge-only/"+strconv.Itoa(messageCount), func(b *testing.B) {
 			body := responsesBenchmarkBody(messageCount, false, false)
 			cleanResponsesBenchmark(b, body, 0, "", false, translate.StripRoutingBadgeFromResponsesInput)
+		})
+		b.Run("empty-shell/"+strconv.Itoa(messageCount), func(b *testing.B) {
+			body := responsesEmptyShellBody(messageCount)
+			cleanResponsesBenchmark(b, body, messageCount, "", false, translate.StripRoutingBadgeFromResponsesInput)
 		})
 		b.Run("footer-clean/"+strconv.Itoa(messageCount), func(b *testing.B) {
 			body := responsesFooterCleanBody(messageCount)
@@ -62,6 +70,22 @@ func cleanResponsesBenchmark(b *testing.B, body []byte, expectedMessages int, ex
 		}
 		responsesCleanupBenchmarkSink = cleaned
 	}
+}
+
+func responsesEmptyShellBody(count int) []byte {
+	var body strings.Builder
+	body.WriteString(`{"input":[`)
+	for i := 0; i < count; i++ {
+		if i > 0 {
+			body.WriteByte(',')
+		}
+		body.WriteString(`{"type":"message","role":"assistant","content":[{"type":"output_text","text":""}]},`)
+		body.WriteString(`{"type":"function_call","call_id":"call_`)
+		body.WriteString(strconv.Itoa(i))
+		body.WriteString(`","name":"run","arguments":"{}"}`)
+	}
+	body.WriteString(`]}`)
+	return []byte(body.String())
 }
 
 func responsesFooterCleanBody(count int) []byte {

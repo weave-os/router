@@ -1,8 +1,6 @@
 package toolcheck
 
 import (
-	"encoding/json"
-	"strconv"
 	"strings"
 
 	"github.com/tidwall/gjson"
@@ -24,11 +22,18 @@ const (
 // members, number lexemes, and untouched subtrees without reparsing the whole
 // argument string for every repair operation.
 type argumentDocument struct {
-	original string
-	prefix   string
-	suffix   string
-	root     *argumentNode
-	changed  bool
+	original           string
+	prefix             string
+	suffix             string
+	root               *argumentNode
+	failed             bool
+	libraryEdits       bool
+	rootMemberCapacity int
+	firstEditApplied   bool
+	// Small repairs share the root allocation instead of allocating its state separately.
+	initialRoot   argumentNode
+	initialSource argumentSource
+	rootContainer argumentContainer
 }
 
 type argumentNode struct {
@@ -36,14 +41,37 @@ type argumentNode struct {
 	raw         string
 	stringValue string
 
-	changed        bool
+	changed bool
+	parent  *argumentNode
+	source  *argumentSource
+	start   int
+	*argumentContainer
+}
+
+type argumentContainer struct {
+	expanded       bool
+	memberIndex    map[string]argumentPositions
+	firstLive      int
+	lastLive       int
+	trailingGap    *argumentGap
 	objectMembers  []argumentMember
 	objectTrailing string
 	arrayElements  []argumentElement
 	arrayTrailing  string
 }
 
+type argumentPositions struct {
+	first int
+	last  int
+}
+
 type argumentMember struct {
+	raw               string
+	start             int
+	previousLive      int
+	nextLive          int
+	leadingGap        *argumentGap
+	next              int
 	key               string
 	keyRaw            string
 	memberPrefix      string
@@ -53,63 +81,225 @@ type argumentMember struct {
 }
 
 type argumentElement struct {
+	leadingGap    *argumentGap
 	elementPrefix string
 	value         *argumentNode
 }
 
 func newArgumentDocument(raw string) *argumentDocument {
-	prefixLength := len(raw) - len(strings.TrimLeftFunc(raw, func(r rune) bool { return r <= ' ' }))
-	suffixLength := len(raw) - len(strings.TrimRightFunc(raw, func(r rune) bool { return r <= ' ' }))
-	return &argumentDocument{
-		original: raw,
-		prefix:   raw[:prefixLength],
-		suffix:   raw[len(raw)-suffixLength:],
-		root:     parseArgumentNode(raw[prefixLength : len(raw)-suffixLength]),
+	document := &argumentDocument{}
+	document.reset(raw)
+	return document
+}
+
+func (document *argumentDocument) reset(raw string) {
+	prefixLength := len(raw) - len(strings.TrimLeftFunc(raw, isArgumentWhitespace))
+	suffixLength := len(raw) - len(strings.TrimRightFunc(raw, isArgumentWhitespace))
+	trimmed := raw[prefixLength : len(raw)-suffixLength]
+	parsed := gjson.Parse(trimmed)
+	*document = argumentDocument{
+		original:      raw,
+		prefix:        raw[:prefixLength],
+		suffix:        raw[len(raw)-suffixLength:],
+		initialRoot:   argumentNode{raw: trimmed, kind: argumentKind(parsed), stringValue: parsed.Str},
+		initialSource: argumentSource{raw: trimmed},
 	}
+	document.root = &document.initialRoot
+	document.root.source = &document.initialSource
+}
+
+// A single small edit costs less through the original path operations. A
+// second edit, or a caller with a known member count, amortizes the index.
+func (document *argumentDocument) firstSmallEdit() bool {
+	return !document.firstEditApplied && !document.root.changed && document.root.argumentContainer == nil && document.rootMemberCapacity == 0 && len(document.original) <= 512
+}
+
+func isArgumentWhitespace(r rune) bool {
+	return r <= ' '
 }
 
 func parseArgumentNode(raw string) *argumentNode {
 	parsed := gjson.Parse(raw)
-	return &argumentNode{raw: raw, kind: argumentKind(parsed), stringValue: parsed.Str}
+	node := newArgumentNode(argumentKind(parsed))
+	node.raw, node.stringValue = raw, parsed.Str
+	if node.kind == argumentObject || node.kind == argumentArray {
+		node.source = &argumentSource{raw: raw}
+	}
+	return node
 }
 
-// expandChildren leaves untouched subtrees raw so deeply nested arguments do
-// not require recursive parsing just to normalize a top-level parameter.
-func (node *argumentNode) expandChildren() {
+func newArgumentNode(kind argumentNodeKind) *argumentNode {
+	if kind == argumentObject || kind == argumentArray {
+		storage := &struct {
+			node      argumentNode
+			container argumentContainer
+		}{}
+		storage.node.kind = kind
+		storage.node.argumentContainer = &storage.container
+		return &storage.node
+	}
+	return &argumentNode{kind: kind}
+}
+
+// expandChildren leaves untouched subtrees raw. Root-only edits use GJSON's
+// traversal; descending builds a shared span index so successive depths do not
+// rescan the same nested suffix.
+func (document *argumentDocument) expandChildren(node *argumentNode) bool {
+	if node.kind != argumentObject && node.kind != argumentArray {
+		return true
+	}
+	if node.argumentContainer != nil && node.expanded {
+		return true
+	}
+	if node.start != 0 && node.source.spans == nil {
+		node.source.expandedBytes += len(node.raw)
+	}
+	// Amortize the stdlib index against repeated scans, not a single sparse
+	// descent. Unindexed traversal remains bounded by a fixed multiple of the source length.
+	if node.start != 0 && node.source.expandedBytes > 128*len(node.source.raw) {
+		err := node.source.indexContainers()
+		if err != nil {
+			document.failed = true
+			return false
+		}
+	}
+	if node.argumentContainer == nil {
+		if node == document.root {
+			node.argumentContainer = &document.rootContainer
+		} else {
+			node.argumentContainer = &argumentContainer{}
+		}
+	}
+	*node.argumentContainer = argumentContainer{expanded: true, firstLive: -1, lastLive: -1}
 	raw := node.raw
-	if node.kind == argumentObject && node.objectMembers == nil {
-		node.objectMembers = make([]argumentMember, 0)
-		cursor := 1
-		gjson.Parse(raw).ForEach(func(key, value gjson.Result) bool {
-			keyStart := key.Index
-			valueStart := value.Index
-			keyEnd := keyStart + len(key.Raw)
+	cursor := 1
+	if node.kind == argumentObject {
+		capacity := 0
+		if node == document.root {
+			capacity, document.rootMemberCapacity = document.rootMemberCapacity, 0
+			if capacity == 0 {
+				capacity = 2
+			}
+		}
+		node.objectMembers = make([]argumentMember, 0, capacity)
+		node.firstLive, node.lastLive = -1, -1
+	} else {
+		node.arrayElements = make([]argumentElement, 0)
+	}
+	appendChild := func(key, value gjson.Result) bool {
+		if node.kind == argumentObject {
+			index := len(node.objectMembers)
+			if node.lastLive >= 0 {
+				node.objectMembers[node.lastLive].nextLive = index
+			} else {
+				node.firstLive = index
+			}
 			node.objectMembers = append(node.objectMembers, argumentMember{
-				key:               key.Str,
-				keyRaw:            key.Raw,
-				memberPrefix:      raw[cursor:keyStart],
-				keyValueSeparator: raw[keyEnd:valueStart],
-				value:             parseArgumentNode(value.Raw),
+				previousLive: node.lastLive, nextLive: -1,
+				key: key.Str, keyRaw: key.Raw, next: -1,
+				memberPrefix:      raw[cursor:key.Index],
+				keyValueSeparator: raw[key.Index+len(key.Raw) : value.Index],
+				raw:               value.Raw, start: node.start + value.Index,
 			})
-			cursor = valueStart + len(value.Raw)
-			return true
-		})
+			node.lastLive = index
+		} else {
+			child := newArgumentNode(argumentKind(value))
+			child.raw, child.stringValue = value.Raw, value.Str
+			child.parent, child.source, child.start = node, node.source, node.start+value.Index
+			node.arrayElements = append(node.arrayElements, argumentElement{
+				elementPrefix: raw[cursor:value.Index], value: child,
+			})
+		}
+		cursor = value.Index + len(value.Raw)
+		return true
+	}
+	if node.source.spans == nil {
+		gjson.Parse(raw).ForEach(appendChild)
+	} else {
+		for offset := skipArgumentSeparators(raw, 1); offset < len(raw)-1; offset = skipArgumentSeparators(raw, cursor) {
+			var key gjson.Result
+			if node.kind == argumentObject {
+				key = gjson.Parse(raw[offset:])
+				key.Index = offset
+				offset = skipArgumentSeparators(raw, offset+len(key.Raw))
+			}
+			var value gjson.Result
+			if end, ok := node.source.spans[node.start+offset]; ok {
+				value = gjson.Parse(raw[offset : end-node.start])
+			} else {
+				value = gjson.Parse(raw[offset:])
+			}
+			value.Index = offset
+			appendChild(key, value)
+		}
+	}
+	if node.kind == argumentObject {
 		node.objectTrailing = raw[cursor : len(raw)-1]
+	} else {
+		node.arrayTrailing = raw[cursor : len(raw)-1]
+	}
+	return true
+}
+
+func (node *argumentNode) memberNode(index int) *argumentNode {
+	member := &node.objectMembers[index]
+	if member.value == nil {
+		parsed := gjson.Parse(member.raw)
+		member.value = newArgumentNode(argumentKind(parsed))
+		member.value.raw, member.value.stringValue = member.raw, parsed.Str
+		member.value.parent, member.value.source, member.value.start = node, node.source, member.start
+	}
+	return member.value
+}
+
+func (node *argumentNode) indexMembers() {
+	if node.memberIndex != nil {
 		return
 	}
-	if node.kind == argumentArray && node.arrayElements == nil {
-		node.arrayElements = make([]argumentElement, 0)
-		cursor := 1
-		gjson.Parse(raw).ForEach(func(_, value gjson.Result) bool {
-			valueStart := value.Index
-			node.arrayElements = append(node.arrayElements, argumentElement{
-				elementPrefix: raw[cursor:valueStart],
-				value:         parseArgumentNode(value.Raw),
-			})
-			cursor = valueStart + len(value.Raw)
-			return true
-		})
-		node.arrayTrailing = raw[cursor : len(raw)-1]
+	node.memberIndex = make(map[string]argumentPositions, len(node.objectMembers))
+	for i := range node.objectMembers {
+		member := &node.objectMembers[i]
+		if member.deleted {
+			continue
+		}
+		positions, exists := node.memberIndex[member.key]
+		if exists {
+			node.objectMembers[positions.last].next = i
+			positions.last = i
+		} else {
+			positions = argumentPositions{first: i, last: i}
+		}
+		node.memberIndex[member.key] = positions
+	}
+}
+
+func (node *argumentNode) firstMember(key string) int {
+	if len(node.objectMembers) <= 16 {
+		return node.nextMember(-1, key)
+	}
+	node.indexMembers()
+	if positions, ok := node.memberIndex[key]; ok {
+		return positions.first
+	}
+	return -1
+}
+
+func (node *argumentNode) nextMember(index int, key string) int {
+	if node.memberIndex != nil {
+		return node.objectMembers[index].next
+	}
+	for i := index + 1; i < len(node.objectMembers); i++ {
+		if !node.objectMembers[i].deleted && node.objectMembers[i].key == key {
+			return i
+		}
+	}
+	return -1
+}
+
+func (node *argumentNode) markChanged() {
+	for node != nil && !node.changed {
+		node.changed = true
+		node = node.parent
 	}
 }
 
@@ -132,7 +322,7 @@ func argumentKind(parsed gjson.Result) argumentNodeKind {
 }
 
 func (document *argumentDocument) materialize() string {
-	if !document.changed {
+	if document.failed || !document.root.changed {
 		return document.original
 	}
 	var output strings.Builder
@@ -144,37 +334,28 @@ func (document *argumentDocument) materialize() string {
 }
 
 func (node *argumentNode) writeTo(output *strings.Builder) {
-	if !node.hasNestedChanges() {
+	if !node.changed || node.argumentContainer == nil || !node.expanded {
 		output.WriteString(node.raw)
 		return
 	}
-	node.expandChildren()
 	switch node.kind {
 	case argumentObject:
-		kept := 0
 		output.WriteByte('{')
 		for _, member := range node.objectMembers {
 			if member.deleted {
 				continue
 			}
-			prefix := member.memberPrefix
-			if kept == 0 {
-				prefix = removeLeadingComma(prefix)
-			}
-			output.WriteString(prefix)
+			member.leadingGap.writeTo(output)
+			output.WriteString(member.memberPrefix)
 			output.WriteString(member.keyRaw)
 			output.WriteString(member.keyValueSeparator)
-			member.value.writeTo(output)
-			kept++
-		}
-		if kept == 0 {
-			if len(node.objectMembers) > 0 {
-				output.WriteString(node.objectMembers[0].memberPrefix)
+			if member.value == nil {
+				output.WriteString(member.raw)
+			} else {
+				member.value.writeTo(output)
 			}
-			output.WriteString(node.objectTrailing)
-			output.WriteString("}")
-			return
 		}
+		node.trailingGap.writeTo(output)
 		output.WriteString(node.objectTrailing)
 		output.WriteByte('}')
 	case argumentArray:
@@ -185,36 +366,17 @@ func (node *argumentNode) writeTo(output *strings.Builder) {
 			if kept == 0 {
 				prefix = removeLeadingComma(prefix)
 			}
+			element.leadingGap.writeTo(output)
 			output.WriteString(prefix)
 			element.value.writeTo(output)
 			kept++
 		}
+		node.trailingGap.writeTo(output)
 		output.WriteString(node.arrayTrailing)
 		output.WriteByte(']')
 	default:
 		output.WriteString(node.raw)
 	}
-}
-
-func (node *argumentNode) hasNestedChanges() bool {
-	if node.changed {
-		return true
-	}
-	switch node.kind {
-	case argumentObject:
-		for _, member := range node.objectMembers {
-			if member.deleted || member.value.hasNestedChanges() {
-				return true
-			}
-		}
-	case argumentArray:
-		for _, element := range node.arrayElements {
-			if element.value.hasNestedChanges() {
-				return true
-			}
-		}
-	}
-	return false
 }
 
 func removeLeadingComma(prefix string) string {
@@ -228,178 +390,4 @@ func removeLeadingComma(prefix string) string {
 		break
 	}
 	return prefix
-}
-
-// lookup follows gjson's read behavior: when a duplicate object member has
-// the requested name but lacks a deeper path, later duplicates remain eligible.
-func (document *argumentDocument) lookup(path []string) *argumentNode {
-	if len(path) == 0 {
-		return document.root
-	}
-	return lookupArgumentNode(document.root, path)
-}
-
-func lookupArgumentNode(node *argumentNode, path []string) *argumentNode {
-	if len(path) == 0 {
-		return node
-	}
-	node.expandChildren()
-	switch node.kind {
-	case argumentObject:
-		for _, member := range node.objectMembers {
-			if member.deleted || member.key != path[0] {
-				continue
-			}
-			if found := lookupArgumentNode(member.value, path[1:]); found != nil {
-				return found
-			}
-		}
-	case argumentArray:
-		index, ok := argumentArrayIndex(path[0])
-		if ok && index < len(node.arrayElements) {
-			return lookupArgumentNode(node.arrayElements[index].value, path[1:])
-		}
-	}
-	return nil
-}
-
-func argumentArrayIndex(token string) (int, bool) {
-	if token == "" {
-		return 0, false
-	}
-	for i := 0; i < len(token); i++ {
-		if token[i] < '0' || token[i] > '9' {
-			return 0, false
-		}
-	}
-	index, err := strconv.Atoi(token)
-	return index, err == nil
-}
-
-func (document *argumentDocument) delete(path []string) (changed, ok bool) {
-	if invalidArgumentPath(path) {
-		return false, false
-	}
-	parent, target := document.mutationParent(path)
-	if parent == nil {
-		return false, true
-	}
-	if parent.kind == argumentObject {
-		key := mutationKey(target)
-		for i := range parent.objectMembers {
-			if !parent.objectMembers[i].deleted && parent.objectMembers[i].key == key {
-				parent.objectMembers[i].deleted = true
-				document.changed = true
-				return true, true
-			}
-		}
-		return false, true
-	}
-	return false, true
-}
-
-func (document *argumentDocument) replace(path []string, raw string) bool {
-	if invalidArgumentPath(path) {
-		return false
-	}
-	parent, target := document.mutationParent(path)
-	if parent == nil {
-		return false
-	}
-	if parent.kind == argumentObject {
-		key := mutationKey(target)
-		for i := range parent.objectMembers {
-			if !parent.objectMembers[i].deleted && parent.objectMembers[i].key == key {
-				parent.objectMembers[i].value.replace(raw)
-				document.changed = true
-				return true
-			}
-		}
-		parent.addMember(key, raw)
-		document.changed = true
-		return true
-	}
-	if parent.kind == argumentArray {
-		targetKey := mutationKey(target)
-		if index, ok := argumentArrayIndex(targetKey); ok && index < len(parent.arrayElements) {
-			parent.arrayElements[index].value.replace(raw)
-			document.changed = true
-			return true
-		}
-	}
-	return false
-}
-
-func (node *argumentNode) addMember(key, raw string) {
-	memberPrefix := ","
-	if len(node.objectMembers) == 0 {
-		memberPrefix = node.objectTrailing
-		node.objectTrailing = ""
-	}
-	node.objectMembers = append(node.objectMembers, argumentMember{
-		key:               key,
-		keyRaw:            quoteArgumentString(key),
-		memberPrefix:      memberPrefix,
-		keyValueSeparator: ":",
-		value:             parseArgumentNode(raw),
-	})
-	node.changed = true
-}
-
-func (document *argumentDocument) mutationParent(path []string) (*argumentNode, string) {
-	current := document.root
-	for _, token := range path[:len(path)-1] {
-		current.expandChildren()
-		switch current.kind {
-		case argumentObject:
-			key := mutationKey(token)
-			var next *argumentNode
-			for _, member := range current.objectMembers {
-				if !member.deleted && member.key == key {
-					next = member.value
-					break
-				}
-			}
-			if next == nil {
-				return nil, ""
-			}
-			current = next
-		case argumentArray:
-			index, ok := argumentArrayIndex(mutationKey(token))
-			if !ok || index >= len(current.arrayElements) {
-				return nil, ""
-			}
-			current = current.arrayElements[index].value
-		default:
-			return nil, ""
-		}
-	}
-	current.expandChildren()
-	return current, path[len(path)-1]
-}
-
-// mutationKey preserves sjson's leading-colon path semantics.
-func mutationKey(token string) string {
-	return strings.TrimPrefix(token, ":")
-}
-
-func invalidArgumentPath(path []string) bool {
-	return len(path) == 0 || (len(path) == 1 && path[0] == "")
-}
-
-func (node *argumentNode) replace(raw string) {
-	replacement := parseArgumentNode(raw)
-	node.kind = replacement.kind
-	node.raw = raw
-	node.stringValue = replacement.stringValue
-	node.objectMembers = replacement.objectMembers
-	node.objectTrailing = replacement.objectTrailing
-	node.arrayElements = replacement.arrayElements
-	node.arrayTrailing = replacement.arrayTrailing
-	node.changed = true
-}
-
-func quoteArgumentString(raw string) string {
-	encoded, _ := json.Marshal(raw) // Encoding a string cannot fail.
-	return string(encoded)
 }

@@ -20,6 +20,7 @@ import (
 
 	"github.com/santhosh-tekuri/jsonschema/v6"
 	"github.com/tidwall/gjson"
+	"github.com/tidwall/sjson"
 	"golang.org/x/text/language"
 	"golang.org/x/text/message"
 
@@ -311,24 +312,67 @@ func validate(schema *jsonschema.Schema, args string) (verr error) {
 // present. Required params are never touched, so a genuinely-missing one
 // still surfaces downstream.
 func normalizeArgs(args string, required map[string]struct{}) (out string, actions []string) {
-	document := newArgumentDocument(args)
-	if document.root.kind != argumentObject {
+	parsed := gjson.Parse(args)
+	if !parsed.IsObject() {
 		return args, nil
 	}
-	document.root.expandChildren()
-	for _, member := range document.root.objectMembers {
-		isEmptyString := member.value.kind == argumentString && member.value.stringValue == ""
-		isNull := member.value.kind == argumentNull
-		if !isEmptyString && !isNull {
-			continue
+	type optionalMember struct {
+		key       string
+		valueType gjson.Type
+	}
+	var first optionalMember
+	firstValueEnd := 0
+	firstIsRootMember := false
+	var optional []optionalMember
+	found := false
+	memberCount := 0
+	parsed.ForEach(func(key, value gjson.Result) bool {
+		memberCount++
+		if (value.Type != gjson.String || value.Str != "") && value.Type != gjson.Null {
+			return true
 		}
-		if _, req := required[member.key]; req {
-			continue
+		if _, req := required[key.Str]; req {
+			return true
 		}
+		if !found {
+			first, found = optionalMember{key.Str, value.Type}, true
+			firstValueEnd = value.Index + len(value.Raw)
+			firstIsRootMember = memberCount == 1
+			return true
+		}
+		if optional == nil {
+			optional = append(optional, first)
+		}
+		optional = append(optional, optionalMember{key.Str, value.Type})
+		return true
+	})
+	if !found {
+		return args, nil
+	}
+	if optional == nil {
+		// SJSON's string API copies the output twice. GJSON's first-member
+		// spans let a large literal deletion retain the single-copy path.
+		if len(args) >= 512 && firstIsRootMember && first.key != "" && mutationKey(first.key) == first.key && !argumentLibraryPath([]string{first.key}) {
+			out = removeFirstArgumentMember(args, parsed.Index, firstValueEnd)
+		} else {
+			var err error
+			out, err = sjson.Delete(args, argumentMutationPath([]string{first.key}))
+			if err != nil {
+				return args, nil
+			}
+		}
+		if first.valueType == gjson.String {
+			return out, []string{"drop_empty_optional"}
+		}
+		return out, []string{"drop_null_optional"}
+	}
+	document := newArgumentDocument(args)
+	document.rootMemberCapacity = memberCount
+	for _, member := range optional {
 		if _, ok := document.delete([]string{member.key}); !ok {
 			continue
 		}
-		if isEmptyString {
+		if member.valueType == gjson.String {
 			actions = append(actions, "drop_empty_optional")
 		} else {
 			actions = append(actions, "drop_null_optional")

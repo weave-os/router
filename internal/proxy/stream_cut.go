@@ -57,6 +57,9 @@ type streamCutObserver struct {
 	start     time.Time
 	lastFrame time.Time
 	carry     []byte
+	// framing resumes the delimiter search in carry where the previous write
+	// left it; attach and a tail-cap discard rewind it with the buffer.
+	framing   sse.Scanner
 	frames    int
 	lastEvent string
 	// blocksCompleted and outputBlockStarted describe what an Anthropic-shaped
@@ -111,6 +114,7 @@ func (o *streamCutObserver) attach(inner http.ResponseWriter) http.ResponseWrite
 	o.inner = inner
 	o.start, o.lastFrame = now, now
 	o.carry, o.frames, o.lastEvent, o.streaming = o.carry[:0], 0, "", true
+	o.framing.Reset()
 	o.blocksCompleted, o.outputBlockStarted = 0, false
 	return o
 }
@@ -227,7 +231,7 @@ func (o *streamCutObserver) scan(p []byte) {
 		buf = o.carry
 	}
 	for {
-		event, n := sse.SplitNext(buf)
+		event, n := o.framing.Next(buf)
 		if n == 0 {
 			break
 		}
@@ -250,6 +254,7 @@ func (o *streamCutObserver) scan(p []byte) {
 	}
 	if len(buf) > streamCutCarryCap {
 		buf = nil
+		o.framing.Reset()
 	}
 	o.carry = append(o.carry[:0], buf...)
 }

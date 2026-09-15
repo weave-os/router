@@ -1,12 +1,106 @@
 package sse_test
 
 import (
+	"bytes"
 	"testing"
 
 	"weave-os/router/internal/sse"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
+
+// legacySplitNext is the pre-optimization splitter frozen as the grammar
+// oracle: two whole-buffer substring searches, keeping whichever delimiter
+// starts first. Any divergence from it is a framing regression.
+func legacySplitNext(buf []byte) (event []byte, n int) {
+	lf := bytes.Index(buf, []byte("\n\n"))
+	crlf := bytes.Index(buf, []byte("\r\n\r\n"))
+
+	switch {
+	case crlf >= 0 && (lf < 0 || crlf < lf):
+		return buf[:crlf], crlf + 4
+	case lf >= 0:
+		return buf[:lf], lf + 2
+	default:
+		return nil, 0
+	}
+}
+
+// requireSameSplitAsLegacy asserts SplitNext frames buf exactly as the legacy
+// oracle does, including the nil-versus-empty distinction between "no event
+// yet" and an event with zero payload bytes.
+func requireSameSplitAsLegacy(t testing.TB, buf []byte) {
+	t.Helper()
+	wantEvent, wantN := legacySplitNext(buf)
+	gotEvent, gotN := sse.SplitNext(buf)
+	require.Equal(t, wantN, gotN, "consumed bytes for %q", buf)
+	require.Equal(t, string(wantEvent), string(gotEvent), "event bytes for %q", buf)
+	require.Equal(t, wantEvent == nil, gotEvent == nil, "nil-ness for %q", buf)
+}
+
+// forEachShortDelimiterMix calls visit with every byte string up to maxLen
+// drawn from CR, LF, and one payload byte — the complete space in which the
+// LF/CRLF grammar can disagree.
+func forEachShortDelimiterMix(maxLen int, visit func(buf []byte)) {
+	alphabet := []byte{'\r', '\n', 'x'}
+	for length := 0; length <= maxLen; length++ {
+		buf := make([]byte, length)
+		var fill func(pos int)
+		fill = func(pos int) {
+			if pos == length {
+				visit(buf)
+				return
+			}
+			for _, c := range alphabet {
+				buf[pos] = c
+				fill(pos + 1)
+			}
+		}
+		fill(0)
+	}
+}
+
+func TestSplitNext_MatchesLegacyOracleOnEveryShortDelimiterMix(t *testing.T) {
+	visited := 0
+	forEachShortDelimiterMix(8, func(buf []byte) {
+		visited++
+		requireSameSplitAsLegacy(t, buf)
+	})
+	require.Equal(t, 9841, visited, "the enumeration must cover every string up to length 8 over a 3-byte alphabet")
+}
+
+func TestSplitNext_DelimiterAtStartReturnsEmptyNonNilEvent(t *testing.T) {
+	event, n := sse.SplitNext([]byte("\n\nrest"))
+
+	require.NotNil(t, event, "an event with zero payload bytes is still an event")
+	assert.Empty(t, event)
+	assert.Equal(t, 2, n)
+}
+
+func TestSplitNext_DelimiterAfterLongPayloadWithoutNewlines(t *testing.T) {
+	payload := bytes.Repeat([]byte{'p'}, 1<<16)
+	for _, delimiter := range []string{"\n\n", "\r\n\r\n"} {
+		buf := append(append([]byte(nil), payload...), delimiter...)
+		buf = append(buf, "tail"...)
+
+		event, n := sse.SplitNext(buf)
+
+		assert.Equal(t, len(payload), len(event), "delimiter=%q", delimiter)
+		assert.Equal(t, len(payload)+len(delimiter), n, "delimiter=%q", delimiter)
+	}
+}
+
+func TestSplitNext_NewlineRichPayloadStopsAtFirstDelimiter(t *testing.T) {
+	// Multi-line data fields put an LF between every line; only the blank line
+	// terminates the event.
+	buf := []byte("data: a\ndata: b\r\ndata: c\n\ndata: next\n\n")
+
+	event, n := sse.SplitNext(buf)
+
+	assert.Equal(t, "data: a\ndata: b\r\ndata: c", string(event))
+	assert.Equal(t, len("data: a\ndata: b\r\ndata: c\n\n"), n)
+}
 
 func TestSplitNext_LFBoundary(t *testing.T) {
 	event, n := sse.SplitNext([]byte("event: message\ndata: {}\n\nrest"))

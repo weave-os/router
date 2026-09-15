@@ -30,6 +30,7 @@ type SSETranslator struct {
 	streaming  bool
 	statusCode int
 	buf        bytes.Buffer
+	scanner    sse.Scanner
 
 	msgID   string
 	model   string
@@ -151,7 +152,7 @@ func (t *SSETranslator) Finalize() error {
 
 func (t *SSETranslator) processSSEBuffer() error {
 	for {
-		event, n := sse.SplitNext(t.buf.Bytes())
+		event, n := t.scanner.Next(t.buf.Bytes())
 		if n == 0 {
 			return nil
 		}
@@ -169,6 +170,7 @@ func (t *SSETranslator) processFinalSSETail() error {
 	}
 	event := append([]byte(nil), t.buf.Bytes()...)
 	t.buf.Reset()
+	t.scanner.Reset()
 	return t.translateEvent(event)
 }
 
@@ -395,6 +397,7 @@ type AnthropicSSETranslator struct {
 	headersEmitted bool
 	statusCode     int
 	buf            bytes.Buffer
+	scanner        sse.Scanner
 
 	requestModel string
 
@@ -910,7 +913,7 @@ func (t *AnthropicSSETranslator) Finalize() error {
 
 func (t *AnthropicSSETranslator) processOpenAISSEBuffer() error {
 	for {
-		event, n := sse.SplitNext(t.buf.Bytes())
+		event, n := t.scanner.Next(t.buf.Bytes())
 		if n == 0 {
 			return nil
 		}
@@ -928,6 +931,7 @@ func (t *AnthropicSSETranslator) processFinalOpenAISSETail() error {
 	}
 	event := append([]byte(nil), t.buf.Bytes()...)
 	t.buf.Reset()
+	t.scanner.Reset()
 	return t.translateOpenAIEvent(event)
 }
 

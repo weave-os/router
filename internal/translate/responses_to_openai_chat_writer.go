@@ -37,6 +37,7 @@ type ResponsesToOpenAIChatWriter struct {
 	created int64
 
 	buf            bytes.Buffer
+	scanner        sse.Scanner
 	statusCode     int
 	streaming      bool
 	headersEmitted bool
@@ -255,7 +256,7 @@ func (t *ResponsesToOpenAIChatWriter) Summary() ResponseSummary {
 
 func (t *ResponsesToOpenAIChatWriter) processBuffer() error {
 	for {
-		event, n := sse.SplitNext(t.buf.Bytes())
+		event, n := t.scanner.Next(t.buf.Bytes())
 		if n == 0 {
 			return nil
 		}
@@ -275,6 +276,7 @@ func (t *ResponsesToOpenAIChatWriter) processFinalTail() error {
 	}
 	event := append([]byte(nil), t.buf.Bytes()...)
 	t.buf.Reset()
+	t.scanner.Reset()
 	return t.translateEvent(event)
 }
 

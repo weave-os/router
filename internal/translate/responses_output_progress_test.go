@@ -159,3 +159,16 @@ func TestResponsesOutputProgress_NotArmedWhenNotStreaming(t *testing.T) {
 	assert.False(t, w.ArmOutputProgress(func() {}),
 		"ArmOutputProgress must report not-armed for a non-streaming client")
 }
+
+func TestResponsesOutputProgress_FragmentedEventMarksAfterBoundary(t *testing.T) {
+	w, count := newStreamingWriter(t)
+	event := []byte(evTextDelta)
+
+	_, err := w.Write(event[:len(event)-1])
+	require.NoError(t, err)
+	assert.Zero(t, *count, "an incomplete output event must not mark progress")
+
+	_, err = w.Write(event[len(event)-1:])
+	require.NoError(t, err)
+	assert.Positive(t, *count, "the completed output event must mark progress")
+}

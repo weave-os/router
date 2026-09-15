@@ -87,6 +87,9 @@ type toolUseObserver struct {
 	inner http.ResponseWriter
 
 	pending bytes.Buffer
+	// framing resumes the delimiter search in pending where the previous
+	// write left it.
+	framing sse.Scanner
 	// jsonBody accumulates a non-streaming response for a single parse in
 	// terminal(); streaming frames are parsed as they pass.
 	jsonBody  []byte
@@ -144,7 +147,7 @@ func (o *toolUseObserver) observe(p []byte) {
 	}
 	o.pending.Write(p)
 	for {
-		event, consumed := sse.SplitNext(o.pending.Bytes())
+		event, consumed := o.framing.Next(o.pending.Bytes())
 		if consumed == 0 {
 			return
 		}

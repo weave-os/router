@@ -19,7 +19,8 @@ type AnthropicRoutingMarkerWriter struct {
 	marker string
 	model  string
 
-	buf bytes.Buffer
+	buf     bytes.Buffer
+	scanner sse.Scanner
 
 	markerEmitted bool
 	indexOffset   int64
@@ -153,7 +154,7 @@ func (w *AnthropicRoutingMarkerWriter) processUpstream(data []byte) (int, error)
 	// as truncated (and silently dropped) before its terminating blank line.
 	w.buf.Write(data)
 	for {
-		event, n := sse.SplitNext(w.buf.Bytes())
+		event, n := w.scanner.Next(w.buf.Bytes())
 		if n == 0 {
 			break
 		}

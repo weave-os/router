@@ -280,6 +280,20 @@ func TestStripRoutingBadgeFromResponsesInput_DropsBadgeOnlyAssistantItem(t *test
 	assert.Equal(t, "call_1", input[1].Get("call_id").Str)
 }
 
+func TestStripRoutingBadgeFromResponsesInput_DropsAlreadyEmptyAssistantShell(t *testing.T) {
+	body := []byte(`{"input":[
+		{"type":"message","role":"assistant","content":[{"type":"output_text","text":""}]},
+		{"type":"function_call","call_id":"call_1","name":"shell","arguments":"{}"}
+	]}`)
+
+	out, err := translate.StripRoutingBadgeFromResponsesInput(body)
+	require.NoError(t, err)
+
+	input := gjson.GetBytes(out, "input").Array()
+	require.Len(t, input, 1)
+	assert.Equal(t, "function_call", input[0].Get("type").Str)
+}
+
 // Only the badge part is empty here — the item still carries content, so it stays.
 func TestStripRoutingBadgeFromResponsesInput_KeepsItemWithRemainingContent(t *testing.T) {
 	body := []byte(`{
@@ -644,6 +658,70 @@ func TestResponsesWriter_NonStreamingMissingUsageEmitsValidUsage(t *testing.T) {
 	assert.Zero(t, usage.Get("input_tokens").Int())
 	assert.Zero(t, usage.Get("output_tokens").Int())
 	assert.Zero(t, usage.Get("total_tokens").Int())
+}
+
+func TestResponsesWriter_StreamingSSEFragmentationDrainsAfterBoundary(t *testing.T) {
+	rec := httptest.NewRecorder()
+	w := translate.NewResponsesWriter(rec, "gpt-5")
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.WriteHeader(http.StatusOK)
+
+	first := []byte(`data: {"choices":[{"delta":{"content":"Hello"},"finish_reason":null}]}
+
+`)
+	_, err := w.Write(first[:len(first)-1])
+	require.NoError(t, err)
+	w.Flush()
+	assert.Empty(t, responsesTextDeltas(t, rec.Body.Bytes()), "an incomplete delimiter must not emit the event")
+
+	_, err = w.Write(first[len(first)-1:])
+	require.NoError(t, err)
+	w.Flush()
+	assert.Equal(t, []string{"Hello"}, responsesTextDeltas(t, rec.Body.Bytes()))
+
+	_, err = w.Write([]byte("data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n"))
+	require.NoError(t, err)
+	require.NoError(t, w.Finalize())
+	assert.Equal(t, []string{"Hello"}, responsesTextDeltas(t, rec.Body.Bytes()))
+}
+
+func TestResponsesWriter_NativeSSESniffDoesNotConsumeFirstEvent(t *testing.T) {
+	rec := httptest.NewRecorder()
+	w := translate.NewResponsesWriter(rec, "gpt-5")
+	w.SetPassthroughBadge()
+	w.WriteHeader(http.StatusOK)
+
+	first := []byte("event: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"item_id\":\"msg_1\",\"output_index\":0,\"content_index\":0,\"delta\":\"answer\"}\n\n")
+	_, err := w.Write(first[:len(first)-1])
+	require.NoError(t, err)
+	w.Flush()
+	assert.Empty(t, parseSSEEvents(t, rec.Body.Bytes()), "an incomplete first event must stay buffered")
+
+	_, err = w.Write(first[len(first)-1:])
+	require.NoError(t, err)
+	w.Flush()
+	require.NoError(t, w.Finalize())
+	events := parseSSEEvents(t, rec.Body.Bytes())
+	require.Len(t, events, 1)
+	assert.Equal(t, "response.output_text.delta", events[0]["type"])
+	assert.Contains(t, events[0]["delta"], "answer")
+}
+
+func TestResponsesWriter_ClearPassthroughResetsFramingMode(t *testing.T) {
+	rec := httptest.NewRecorder()
+	w := translate.NewResponsesWriter(rec, "gpt-5")
+	w.SetPassthroughBadge()
+	require.NoError(t, w.Prelude(true))
+	require.True(t, w.ClearPassthrough())
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.WriteHeader(http.StatusOK)
+
+	_, err := w.Write([]byte("data: {\"choices\":[{\"delta\":{\"content\":\"fallback\"},\"finish_reason\":null}]}\n\ndata: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n"))
+	require.NoError(t, err)
+	require.NoError(t, w.Finalize())
+	assert.Contains(t, responsesTextDeltas(t, rec.Body.Bytes()), "fallback")
+	assert.NotContains(t, rec.Body.String(), `choices`)
+
 }
 
 // When upstream already speaks Responses natively, the writer must forward
@@ -1403,4 +1481,17 @@ func TestConvertResponsesToChatCompletions_AcceptsInputOnlyBody(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Equal(t, "hi", gjson.GetBytes(conv.Body, "messages.0.content").String())
+}
+
+func responsesTextDeltas(t *testing.T, body []byte) []string {
+	t.Helper()
+	var deltas []string
+	for _, event := range parseSSEEvents(t, body) {
+		if event["type"] == "response.output_text.delta" {
+			delta, ok := event["delta"].(string)
+			require.True(t, ok, "text delta must carry a string")
+			deltas = append(deltas, delta)
+		}
+	}
+	return deltas
 }

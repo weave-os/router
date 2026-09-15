@@ -33,7 +33,8 @@ type OpenAIRoutingMarkerWriter struct {
 	// outputLeftover holds the unconsumed tail of the most recent Write so output
 	// detection splits on SSE event boundaries that span Write calls. Complete
 	// events are scanned and discarded immediately.
-	outputLeftover []byte
+	outputLeftover  []byte
+	leftoverScanner sse.Scanner
 }
 
 // NewOpenAIRoutingMarkerWriter creates a writer that emits marker as the first
@@ -85,7 +86,7 @@ func (w *OpenAIRoutingMarkerWriter) scanOutputProgress(data []byte) {
 	w.outputLeftover = append(w.outputLeftover, data...)
 	buf := w.outputLeftover
 	for {
-		event, n := sse.SplitNext(buf)
+		event, n := w.leftoverScanner.Next(buf)
 		if n == 0 {
 			break
 		}

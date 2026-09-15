@@ -509,7 +509,7 @@ func TestService_ProxyOpenAIResponses_NativeBadgeForTerminalClientsHonorsSuppres
 			ctx := context.WithValue(context.Background(), proxy.OpenAISubscriptionContextKey{}, "eyJhbGciOiJSUzI1NiJ9.codex.sig")
 			ctx = context.WithValue(ctx, proxy.OpenAIAccountIDContextKey{}, "acct-123")
 			ctx = context.WithValue(ctx, proxy.ClientIdentityContextKey{}, proxy.ClientIdentity{ClientApp: tc.clientApp})
-			body := []byte(`{"model":"gpt-5.6-sol","stream":true,"input":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"\u2063\u2060\u2063\u2060**Weave Router** — gpt-5.6-sol\n\nold answer\n\n_Weave Router feedback:_ /rf + good experience"}]},{"type":"message","role":"user","content":"continue"}]}`)
+			body := []byte(`{"model":"gpt-5.6-sol","stream":true,"input":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"\u2063\u2060\u2063\u2060**Weave Router** — gpt-5.6-sol\n\nold answer\n\n_Weave Router feedback:_ /rf + good experience"}]},{"type":"message","role":"user","content":"continue"},{"type":"message","role":"assistant","content":[{"type":"output_text","text":""}]},{"type":"function_call","call_id":"call_shell","name":"shell","arguments":"{}"}]}`)
 			rec := httptest.NewRecorder()
 			req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(""))
 			if tc.marker != "" {
@@ -525,8 +525,15 @@ func TestService_ProxyOpenAIResponses_NativeBadgeForTerminalClientsHonorsSuppres
 			upstreamHistory := gjson.GetBytes(provider.proxyBodies[0], "input.0.content.0.text").Str
 			if tc.wantStrip {
 				assert.Equal(t, "old answer", upstreamHistory)
+				nativeInput := gjson.GetBytes(provider.proxyBodies[0], "input").Array()
+				require.Len(t, nativeInput, 3)
+				assert.Equal(t, "function_call", nativeInput[2].Get("type").Str)
+				assert.Equal(t, "call_shell", nativeInput[2].Get("call_id").Str)
 			} else {
 				assert.Equal(t, priorBadge, upstreamHistory)
+				nativeInput := gjson.GetBytes(provider.proxyBodies[0], "input").Array()
+				require.Len(t, nativeInput, 4)
+				assert.Equal(t, "message", nativeInput[2].Get("type").Str)
 			}
 			if tc.wantBadge {
 				assert.Contains(t, rec.Body.String(), "✦ **Weave Router** → gpt-5.6-terra · "+markerReasonBestPickForTest)
