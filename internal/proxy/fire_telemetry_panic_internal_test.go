@@ -1,17 +1,13 @@
 package proxy
 
 import (
-	"bytes"
 	"context"
-	"log/slog"
-	"strings"
 	"testing"
 	"time"
 
 	"weave-os/router/internal/observability"
 
 	"github.com/google/uuid"
-	"github.com/stretchr/testify/assert"
 )
 
 // panicTelemetryRepo is a TelemetryRepository whose InsertRequestTelemetry
@@ -62,32 +58,15 @@ func (panicTelemetryRepo) GetTelemetryBySessionSequence(ctx context.Context, ins
 	return TelemetryTurnResult{}, nil
 }
 
-// TestFireTelemetryRecoversFromPanic proves a panic inside the async
-// telemetry insert is caught and logged instead of crashing the process.
 func TestFireTelemetryRecoversFromPanic(t *testing.T) {
-	// Prime observability's sync.Once before overriding slog.Default; otherwise the goroutine's
-	// first Get() call races SetDefault and resets the handler.
-	observability.Get()
-
-	var buf bytes.Buffer
-	prev := slog.Default()
-	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, nil)))
-	defer slog.SetDefault(prev)
-
-	s := &Service{telemetry: panicTelemetryRepo{}}
-
-	assert.NotPanics(t, func() {
-		s.fireTelemetry(InsertTelemetryParams{RequestID: "req-1"})
-		// fireTelemetry launches a goroutine; give it a moment to run and recover.
-		deadline := time.Now().Add(2 * time.Second)
-		for time.Now().Before(deadline) {
-			if strings.Contains(buf.String(), "Background goroutine panicked") {
-				break
-			}
-			time.Sleep(10 * time.Millisecond)
-		}
-	})
-
-	assert.Contains(t, buf.String(), "Background goroutine panicked")
-	assert.Contains(t, buf.String(), "fireTelemetry")
+	workers := testObservationWorkers(t)
+	s := &Service{telemetry: panicTelemetryRepo{}, observations: workers}
+	s.fireTelemetry(context.Background(), InsertTelemetryParams{RequestID: "req-1"})
+	completed := make(chan struct{})
+	workers.Database.Submit(observability.WorkTelemetry, nil, time.Second, observability.FromContext(context.Background()), func(context.Context, []byte) error { close(completed); return nil })
+	select {
+	case <-completed:
+	case <-time.After(time.Second):
+		t.Fatal("telemetry panic removed the DB worker")
+	}
 }

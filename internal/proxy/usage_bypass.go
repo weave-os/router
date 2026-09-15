@@ -453,7 +453,7 @@ func (s *Service) bypassToAnthropic(
 		}
 		applyBlindExperimentTelemetry(ctx, &telemetryParams)
 		applyPolicyPinTelemetry(ctx, &telemetryParams, nil)
-		s.fireTelemetry(telemetryParams)
+		s.fireTelemetry(ctx, telemetryParams)
 	}
 
 	log.Info("ProxyMessages usage-bypass complete",

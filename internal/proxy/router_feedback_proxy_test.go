@@ -106,7 +106,7 @@ func TestService_RouterFeedbackCommand_PersistsAndAcks(t *testing.T) {
 	store.pin = sessionpin.Pin{Provider: providers.ProviderAnthropic, Model: "claude-haiku-4-5", LastServedModel: "claude-haiku-4-5"}
 	feedback := &fakeFeedbackStore{}
 	fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-sonnet-4-6", Reason: "cluster"}}
-	svc := newPinSvc(fr, store).WithRouterFeedbackStore(feedback)
+	svc := newPinSvc(fr, store).WithObservationWorkers(testObservationWorkers(t)).WithRouterFeedbackStore(feedback)
 
 	installationID := uuid.New().String()
 	ctx := authedCtx(installationID)
@@ -189,7 +189,7 @@ func TestService_RouterFeedbackCommand_PreservesAutomaticPinForOneFollowup(t *te
 		Metadata: &router.RoutingMetadata{Strategy: string(router.StrategyHMMEmbedding)},
 	}}
 	fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-sonnet-4-6", Reason: "cluster"}}
-	svc := newPinSvc(fr, store).WithPolicyStrategy(policy.StrategySpec{
+	svc := newPinSvc(fr, store).WithObservationWorkers(testObservationWorkers(t)).WithPolicyStrategy(policy.StrategySpec{
 		Strategy: router.StrategyHMMEmbedding,
 		Router:   policyRouter,
 		Capabilities: policy.Capabilities{
@@ -270,7 +270,7 @@ func TestService_RouterFeedbackCommand_DoesNotContinueMaxedPin(t *testing.T) {
 		Model:    "claude-sonnet-4-6",
 		Reason:   "cluster",
 	}}
-	svc := newPinSvc(fr, store).WithPolicyStrategy(policy.StrategySpec{
+	svc := newPinSvc(fr, store).WithObservationWorkers(testObservationWorkers(t)).WithPolicyStrategy(policy.StrategySpec{
 		Strategy: router.StrategyHMMEmbedding,
 		Router:   policyRouter,
 		Capabilities: policy.Capabilities{
@@ -338,7 +338,7 @@ func TestService_RouterFeedbackCommand_DoesNotResurrectClearedPin(t *testing.T) 
 		Model:    "claude-sonnet-4-6",
 		Reason:   "cluster",
 	}}
-	svc := newPinSvc(fr, store).WithPolicyStrategy(policy.StrategySpec{
+	svc := newPinSvc(fr, store).WithObservationWorkers(testObservationWorkers(t)).WithPolicyStrategy(policy.StrategySpec{
 		Strategy: router.StrategyHMMEmbedding,
 		Router:   policyRouter,
 		Capabilities: policy.Capabilities{
@@ -386,7 +386,7 @@ func TestService_RouterFeedbackCommand_ForwardsPolicyFeedback(t *testing.T) {
 	feedback := &fakeFeedbackStore{}
 	policyFeedback := &fakePolicyFeedbackRouter{}
 	fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-sonnet-4-6", Reason: "cluster"}}
-	svc := newPinSvc(fr, store).
+	svc := newPinSvc(fr, store).WithObservationWorkers(testObservationWorkers(t)).
 		WithRouterFeedbackStore(feedback).
 		WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyRL, Router: policyFeedback})
 
@@ -430,7 +430,7 @@ func TestService_RouterFeedbackCommand_AcksBeforePolicyFeedbackCompletes(t *test
 		release: make(chan struct{}),
 	}
 	defer close(policyFeedback.release)
-	svc := newPinSvc(fr, store).WithHMMRouter(policyFeedback)
+	svc := newPinSvc(fr, store).WithObservationWorkers(testObservationWorkers(t)).WithHMMRouter(policyFeedback)
 
 	ctx := router.WithStrategy(authedCtx(uuid.NewString()), router.StrategyHMM)
 	rec := httptest.NewRecorder()
@@ -475,7 +475,7 @@ func TestService_RouterFeedbackCommand_OmitsTrainingTranscriptWithoutPermission(
 	store := newFakePinStore()
 	fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-sonnet-4-6", Reason: "cluster"}}
 	policyFeedback := &fakePolicyFeedbackRouter{}
-	svc := newPinSvc(fr, store).WithHMMRouter(policyFeedback)
+	svc := newPinSvc(fr, store).WithObservationWorkers(testObservationWorkers(t)).WithHMMRouter(policyFeedback)
 
 	ctx := router.WithStrategy(authedCtx(uuid.NewString()), router.StrategyHMM)
 	require.NoError(t, svc.ProxyMessages(ctx, []byte(body), httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))))
@@ -510,7 +510,7 @@ func TestService_RouterFeedbackCommand_CorrelatesCompactedHMMEmbeddingRoute(t *t
 		Metadata: &router.RoutingMetadata{Strategy: string(router.StrategyHMMEmbedding)},
 	}}
 	fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-haiku-4-5", Reason: "cluster"}}
-	svc := newPinSvc(fr, store).
+	svc := newPinSvc(fr, store).WithObservationWorkers(testObservationWorkers(t)).
 		WithPolicyStrategy(policy.StrategySpec{
 			Strategy:    router.StrategyHMMEmbedding,
 			Router:      policyFeedback,
@@ -552,8 +552,10 @@ func TestService_RouterFeedbackCommand_CorrelatesCompactedHMMEmbeddingRoute(t *t
 	assert.Equal(t, requests[0].FeedbackRole, payloads[0]["feedback_role"])
 	assert.Equal(t, "org-test", payloads[0]["organization_id"])
 	assert.Equal(t, true, payloads[0]["training_allowed"])
-	delta, ok := payloads[0]["training_conversation_delta"].([]router.ConversationMessage)
-	require.True(t, ok)
+	encodedDelta, err := json.Marshal(payloads[0]["training_conversation_delta"])
+	require.NoError(t, err)
+	var delta []router.ConversationMessage
+	require.NoError(t, json.Unmarshal(encodedDelta, &delta))
 	require.Len(t, delta, 2)
 	assert.Equal(t, "user", delta[0].Role)
 	assert.Equal(t, "latest request", delta[0].Text)
@@ -572,12 +574,14 @@ func TestService_RouterFeedbackCommand_DoesNotForwardPolicyFeedbackOutsideHMM(t 
 	store := newFakePinStore()
 	policyFeedback := &fakePolicyFeedbackRouter{}
 	fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-sonnet-4-6", Reason: "cluster"}}
-	svc := newPinSvc(fr, store).WithHMMRouter(policyFeedback)
+	workers := testObservationWorkers(t)
+	svc := newPinSvc(fr, store).WithObservationWorkers(workers).WithHMMRouter(policyFeedback)
 
 	rec := httptest.NewRecorder()
 	httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
 	require.NoError(t, svc.ProxyMessages(authedCtx(uuid.NewString()), []byte(body), rec, httpReq))
 
+	drainObservationWorkers(t, workers)
 	assert.Empty(t, policyFeedback.Payloads())
 }
 
@@ -591,7 +595,7 @@ func TestService_RouterFeedbackCommand_OpenAIIngress(t *testing.T) {
 	store := newFakePinStore()
 	feedback := &fakeFeedbackStore{}
 	fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: "gpt-4o", Reason: "cluster"}}
-	svc := newOpenAIPinSvc(fr, store).WithRouterFeedbackStore(feedback)
+	svc := newOpenAIPinSvc(fr, store).WithObservationWorkers(testObservationWorkers(t)).WithRouterFeedbackStore(feedback)
 
 	ctx := authedCtx(uuid.New().String())
 	rec := httptest.NewRecorder()
@@ -626,7 +630,7 @@ func TestService_RouterFeedbackCommand_AgentToolResultContinuesRouting(t *testin
 	store := newFakePinStore()
 	feedback := &fakeFeedbackStore{}
 	fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-sonnet-4-6", Reason: "cluster"}}
-	svc := newPinSvc(fr, store).WithRouterFeedbackStore(feedback)
+	svc := newPinSvc(fr, store).WithObservationWorkers(testObservationWorkers(t)).WithRouterFeedbackStore(feedback)
 
 	ctx := authedCtx(uuid.NewString())
 	rec := httptest.NewRecorder()
@@ -650,7 +654,7 @@ func TestService_RouterFeedbackCommand_EmptyFeedbackAsksForText(t *testing.T) {
 	store := newFakePinStore()
 	feedback := &fakeFeedbackStore{}
 	fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-sonnet-4-6", Reason: "cluster"}}
-	svc := newPinSvc(fr, store).WithRouterFeedbackStore(feedback)
+	svc := newPinSvc(fr, store).WithObservationWorkers(testObservationWorkers(t)).WithRouterFeedbackStore(feedback)
 
 	ctx := authedCtx(uuid.New().String())
 	rec := httptest.NewRecorder()
@@ -682,7 +686,7 @@ func TestService_RouterFeedbackCommand_ThumbsUpShortcutPersists(t *testing.T) {
 	store.pin = sessionpin.Pin{Provider: providers.ProviderAnthropic, Model: "claude-haiku-4-5", LastServedModel: "claude-haiku-4-5"}
 	feedback := &fakeFeedbackStore{}
 	fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-sonnet-4-6", Reason: "cluster"}}
-	svc := newPinSvc(fr, store).WithRouterFeedbackStore(feedback)
+	svc := newPinSvc(fr, store).WithObservationWorkers(testObservationWorkers(t)).WithRouterFeedbackStore(feedback)
 
 	ctx := authedCtx(uuid.New().String())
 	rec := httptest.NewRecorder()
@@ -714,7 +718,7 @@ func TestService_RouterFeedbackCommand_ThumbsDownShortcutWithNote(t *testing.T) 
 	store := newFakePinStore()
 	feedback := &fakeFeedbackStore{}
 	fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: "gpt-4o", Reason: "cluster"}}
-	svc := newOpenAIPinSvc(fr, store).WithRouterFeedbackStore(feedback)
+	svc := newOpenAIPinSvc(fr, store).WithObservationWorkers(testObservationWorkers(t)).WithRouterFeedbackStore(feedback)
 
 	ctx := authedCtx(uuid.New().String())
 	rec := httptest.NewRecorder()
@@ -757,7 +761,7 @@ func TestService_RouterFeedbackCommand_SequenceResolvesTelemetryTurn(t *testing.
 	telem := newCaptureTelemetry()
 	telem.seqResult = proxy.TelemetryTurnResult{RequestID: "req-abc", DecisionModel: "claude-opus-4-7", RouteID: "hmm:xyz"}
 	fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-sonnet-4-6", Reason: "cluster"}}
-	svc := newPinSvcWithTelemetry(fr, store, telem).WithRouterFeedbackStore(feedback)
+	svc := newPinSvcWithTelemetry(fr, store, telem).WithObservationWorkers(testObservationWorkers(t)).WithRouterFeedbackStore(feedback)
 
 	ctx := authedCtx(uuid.New().String())
 	rec := httptest.NewRecorder()
@@ -787,7 +791,7 @@ func TestService_RouterFeedbackCommand_SequenceNotFoundAcksGuidance(t *testing.T
 	telem := newCaptureTelemetry()
 	telem.seqErr = sql.ErrNoRows
 	fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-sonnet-4-6", Reason: "cluster"}}
-	svc := newPinSvcWithTelemetry(fr, store, telem).WithRouterFeedbackStore(feedback)
+	svc := newPinSvcWithTelemetry(fr, store, telem).WithObservationWorkers(testObservationWorkers(t)).WithRouterFeedbackStore(feedback)
 
 	ctx := authedCtx(uuid.New().String())
 	rec := httptest.NewRecorder()
@@ -821,7 +825,7 @@ func TestService_RouterFeedbackCommand_DBErrorFallsBackToPin(t *testing.T) {
 	telem := newCaptureTelemetry()
 	telem.seqErr = errors.New("connection refused")
 	fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-sonnet-4-6", Reason: "cluster"}}
-	svc := newPinSvcWithTelemetry(fr, store, telem).WithRouterFeedbackStore(feedback)
+	svc := newPinSvcWithTelemetry(fr, store, telem).WithObservationWorkers(testObservationWorkers(t)).WithRouterFeedbackStore(feedback)
 
 	ctx := authedCtx(uuid.New().String())
 	rec := httptest.NewRecorder()
@@ -857,7 +861,7 @@ func TestService_RouterFeedbackCommand_NoSequenceKeepsPinServedModel(t *testing.
 	feedback := &fakeFeedbackStore{}
 	telem := newCaptureTelemetry()
 	fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-sonnet-4-6", Reason: "cluster"}}
-	svc := newPinSvcWithTelemetry(fr, store, telem).WithRouterFeedbackStore(feedback)
+	svc := newPinSvcWithTelemetry(fr, store, telem).WithObservationWorkers(testObservationWorkers(t)).WithRouterFeedbackStore(feedback)
 
 	ctx := authedCtx(uuid.New().String())
 	rec := httptest.NewRecorder()
@@ -886,7 +890,7 @@ func TestService_RouterFeedbackCommand_SequenceNoteOnlySkipsRequestFeedbackUpser
 	telem.seqResult = proxy.TelemetryTurnResult{RequestID: "req-note-only", DecisionModel: "claude-opus-4-7"}
 	repo := &recordingFeedbackRepo{}
 	fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-sonnet-4-6", Reason: "cluster"}}
-	svc := newPinSvcWithTelemetry(fr, store, telem).WithRouterFeedbackStore(feedback).WithFeedback(repo, nil, "")
+	svc := newPinSvcWithTelemetry(fr, store, telem).WithObservationWorkers(testObservationWorkers(t)).WithRouterFeedbackStore(feedback).WithFeedback(repo, nil, "")
 
 	ctx := authedCtx(uuid.New().String())
 	rec := httptest.NewRecorder()
@@ -912,7 +916,7 @@ func TestService_RouterFeedbackCommand_SequenceWithRatingUpsertsRequestFeedback(
 	telem.seqResult = proxy.TelemetryTurnResult{RequestID: "req-rated", DecisionModel: "claude-opus-4-7"}
 	repo := &recordingFeedbackRepo{}
 	fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-sonnet-4-6", Reason: "cluster"}}
-	svc := newPinSvcWithTelemetry(fr, store, telem).WithRouterFeedbackStore(feedback).WithFeedback(repo, nil, "")
+	svc := newPinSvcWithTelemetry(fr, store, telem).WithObservationWorkers(testObservationWorkers(t)).WithRouterFeedbackStore(feedback).WithFeedback(repo, nil, "")
 
 	ctx := authedCtx(uuid.New().String())
 	rec := httptest.NewRecorder()
@@ -947,13 +951,15 @@ func TestService_RouterFeedbackCommand_SequenceResolvesStrategyRoutesToItsReport
 	rlReporter := &fakePolicyFeedbackRouter{}
 	fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-sonnet-4-6", Reason: "cluster"}}
 	ctx := authedCtx(uuid.New().String())
-	svc := newPinSvcWithTelemetry(fr, store, telem).
+	workers := testObservationWorkers(t)
+	svc := newPinSvcWithTelemetry(fr, store, telem).WithObservationWorkers(workers).
 		WithRouterFeedbackStore(feedback).
 		WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyRL, Router: rlReporter}).
 		WithHMMRouter(hmmReporter)
 	require.NoError(t, svc.ProxyMessages(ctx, []byte(body), httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))))
 
 	require.Eventually(t, func() bool { return len(rlReporter.Payloads()) == 1 }, time.Second, 10*time.Millisecond)
+	drainObservationWorkers(t, workers)
 	require.Empty(t, hmmReporter.Payloads(), "current request is on cluster; HMM reporter must not be selected just because the current context might happen to be HMM somewhere else")
 	payload := rlReporter.Payloads()[0]
 	assert.Equal(t, "rl", payload["strategy"], "the resolved turn's strategy must drive both the payload and the reporter")
@@ -983,7 +989,7 @@ func TestService_RouterFeedbackCommand_SequenceRejectsHMMDeltaWithResolvedStrate
 	hmmReporter := &fakePolicyFeedbackRouter{}
 	fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-sonnet-4-6", Reason: "cluster"}}
 	ctx := router.WithStrategy(authedCtx(uuid.New().String()), router.StrategyHMMEmbedding)
-	svc := newPinSvcWithTelemetry(fr, store, telem).
+	svc := newPinSvcWithTelemetry(fr, store, telem).WithObservationWorkers(testObservationWorkers(t)).
 		WithRouterFeedbackStore(feedback).
 		WithPolicyStrategy(policy.StrategySpec{
 			Strategy:    router.StrategyHMMEmbedding,
@@ -1020,7 +1026,7 @@ func TestService_RouterFeedbackCommand_NegativeOnePreservesTrainingDelta(t *test
 	telem.seqResult = proxy.TelemetryTurnResult{RequestID: "req-prev", DecisionModel: "claude-haiku-4-5", Strategy: "hmm_embedding"}
 	hmmReporter := &fakePolicyFeedbackRouter{}
 	fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-haiku-4-5", Reason: "cluster"}}
-	svc := newPinSvcWithTelemetry(fr, store, telem).
+	svc := newPinSvcWithTelemetry(fr, store, telem).WithObservationWorkers(testObservationWorkers(t)).
 		WithRouterFeedbackStore(feedback).
 		WithPolicyStrategy(policy.StrategySpec{
 			Strategy:    router.StrategyHMMEmbedding,
@@ -1036,8 +1042,10 @@ func TestService_RouterFeedbackCommand_NegativeOnePreservesTrainingDelta(t *test
 	payload := hmmReporter.Payloads()[0]
 	assert.Equal(t, "hmm_embedding", payload["strategy"])
 	assert.Equal(t, "req-prev", payload["request_id"])
-	delta, ok := payload["training_conversation_delta"].([]router.ConversationMessage)
-	require.True(t, ok, "the rated turn is the latest assistant segment in env, so the delta must be present")
+	encodedDelta, err := json.Marshal(payload["training_conversation_delta"])
+	require.NoError(t, err)
+	var delta []router.ConversationMessage
+	require.NoError(t, json.Unmarshal(encodedDelta, &delta))
 	require.Len(t, delta, 2)
 	assert.Equal(t, "user", delta[0].Role)
 	assert.Equal(t, "first request", delta[0].Text)
@@ -1065,7 +1073,7 @@ func TestService_RouterFeedbackCommand_ClusterResolvedTurnSkipsPolicyFeedback(t 
 	hmmReporter := &fakePolicyFeedbackRouter{}
 	fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-sonnet-4-6", Reason: "cluster"}}
 	ctx := router.WithStrategy(authedCtx(uuid.New().String()), router.StrategyHMM)
-	svc := newPinSvcWithTelemetry(fr, store, telem).
+	svc := newPinSvcWithTelemetry(fr, store, telem).WithObservationWorkers(testObservationWorkers(t)).
 		WithRouterFeedbackStore(feedback).
 		WithHMMRouter(hmmReporter)
 	require.NoError(t, svc.ProxyMessages(ctx, []byte(body), httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))))

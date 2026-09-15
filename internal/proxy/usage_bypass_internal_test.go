@@ -385,6 +385,7 @@ func TestBypass_NonStreamResponseIncludesCostHeaders(t *testing.T) {
 	)
 	upstream := &bypassFakeProvider{respBody: `{"usage":{"input_tokens":1200,"output_tokens":340}}`}
 	svc := newBypassService(upstream)
+	svc.observations = testObservationWorkers(t)
 	svc.telemetry = newBypassCaptureTelemetry() // enables usage extraction
 
 	env := bypassAnthropicEnvelope(t)
@@ -676,6 +677,7 @@ func TestBypass_PersistsTelemetryRowWithUnifiedHeaders(t *testing.T) {
 	upstream := &bypassFakeProvider{respBody: "{}"}
 	svc := newBypassService(upstream)
 	sink := newBypassCaptureTelemetry()
+	svc.observations = testObservationWorkers(t)
 	svc.telemetry = sink
 
 	env := bypassAnthropicEnvelope(t)
@@ -731,6 +733,7 @@ func TestBypass_NoTelemetryRowWithoutInstallation(t *testing.T) {
 	upstream := &bypassFakeProvider{respBody: "{}"}
 	svc := newBypassService(upstream)
 	sink := newBypassCaptureTelemetry()
+	svc.observations = testObservationWorkers(t)
 	svc.telemetry = sink
 
 	env := bypassAnthropicEnvelope(t)

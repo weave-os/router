@@ -465,7 +465,7 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 		applyAuthorityShadowTelemetry(&telemetryParams, routeRes)
 		applyBlindExperimentTelemetry(ctx, &telemetryParams)
 		applyPolicyPinTelemetry(ctx, &telemetryParams, decision.Metadata)
-		s.fireTelemetry(telemetryParams)
+		s.fireTelemetry(ctx, telemetryParams)
 	}
 
 	if proxyErr == nil {

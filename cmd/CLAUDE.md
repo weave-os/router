@@ -36,3 +36,7 @@ Provider registration:
 - Managed-mode deploys register every provider with empty key + rely exclusively on BYOK / client-supplied auth.
 
 Single source of truth for provider→env-var mapping = `providers.APIKeyEnvVars` in [`../internal/providers/provider.go`](../internal/providers/provider.go). Admin `/config` view reads it so it can't drift from actual wiring.
+
+## Shutdown ordering
+
+Start `ObservationWorkers` before HTTP traffic and inject the same DB lane into the executor attempt sink and proxy service. Drain HTTP handlers for up to six seconds, then stop observation admissions, wake blocked producers, and drain both lanes, OTLP and APM concurrently within the remainder of one nine-second process budget. Close the database after the drains; do not append independent timeout windows or change pool/CPU/readiness settings. Listen failures use the same cleanup path.

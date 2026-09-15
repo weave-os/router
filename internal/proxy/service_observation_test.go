@@ -176,7 +176,7 @@ func TestPolicyShadowComparisonSkipsDryRunAndCollectsServingRoute(t *testing.T) 
 		map[string]providers.Client{providers.ProviderAnthropic: &fakeProvider{}},
 		nil, false, nil, nil, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", telem,
-	).WithPolicyStrategy(policy.StrategySpec{Strategy: shadowStrategy, Router: shadowRouter})
+	).WithObservationWorkers(testObservationWorkers(t)).WithPolicyStrategy(policy.StrategySpec{Strategy: shadowStrategy, Router: shadowRouter})
 
 	ctx := context.WithValue(context.Background(), proxy.InstallationIDContextKey{}, installID)
 	ctx = context.WithValue(ctx, proxy.ExternalIDContextKey{}, "org-1")
@@ -238,7 +238,7 @@ func TestPolicyShadowComparisonCollectsUsageBypassRoute(t *testing.T) {
 		map[string]providers.Client{providers.ProviderAnthropic: &fakeProvider{}},
 		nil, false, nil, nil, false,
 		providers.ProviderAnthropic, bypassScorerPickMdl, telem,
-	).WithSubscriptionAwareRouting(observer, 0.05, 2.0).
+	).WithObservationWorkers(testObservationWorkers(t)).WithSubscriptionAwareRouting(observer, 0.05, 2.0).
 		WithPolicyStrategy(policy.StrategySpec{Strategy: shadowStrategy, Router: shadowRouter})
 
 	ctx := bypassCtx(0.80)
@@ -285,7 +285,7 @@ func TestProxyMessages_RecordsClusterObservation(t *testing.T) {
 		false,
 		providers.ProviderAnthropic, "claude-haiku-4-5",
 		telem,
-	)
+	).WithObservationWorkers(testObservationWorkers(t))
 
 	ctx := context.WithValue(context.Background(), proxy.InstallationIDContextKey{}, installID)
 	rec := httptest.NewRecorder()
@@ -357,7 +357,7 @@ func TestProxyMessages_RecordsPolicyObservation(t *testing.T) {
 		nil, false, nil, nil, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5",
 		telem,
-	).WithContentCapture(proxy.CaptureHashed, 0, nil)
+	).WithObservationWorkers(testObservationWorkers(t)).WithContentCapture(proxy.CaptureHashed, 0, nil)
 
 	ctx := context.WithValue(context.Background(), proxy.InstallationIDContextKey{}, installID)
 	ctx = context.WithValue(ctx, proxy.PolicyTrainingAllowedContextKey{}, true)
@@ -412,7 +412,7 @@ func TestProxyMessages_PersistsCacheTokens(t *testing.T) {
 		nil, false, nil, nil, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5",
 		telem,
-	)
+	).WithObservationWorkers(testObservationWorkers(t))
 
 	ctx := context.WithValue(context.Background(), proxy.InstallationIDContextKey{}, installID)
 	rec := httptest.NewRecorder()
@@ -449,7 +449,7 @@ func TestProxyMessages_ChosenScoreZeroIsPersisted(t *testing.T) {
 		nil, false, nil, nil, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5",
 		telem,
-	)
+	).WithObservationWorkers(testObservationWorkers(t))
 
 	ctx := context.WithValue(context.Background(), proxy.InstallationIDContextKey{}, installID)
 	rec := httptest.NewRecorder()
@@ -485,7 +485,7 @@ func TestProxyMessages_NoMetadataOmitsClusterFields(t *testing.T) {
 		false,
 		providers.ProviderAnthropic, "claude-haiku-4-5",
 		telem,
-	)
+	).WithObservationWorkers(testObservationWorkers(t))
 
 	ctx := context.WithValue(context.Background(), proxy.InstallationIDContextKey{}, installID)
 	rec := httptest.NewRecorder()
@@ -539,7 +539,7 @@ func TestProxyMessages_PersistsTurnType(t *testing.T) {
 				nil, false, nil, nil, false,
 				providers.ProviderAnthropic, "claude-haiku-4-5",
 				telem,
-			)
+			).WithObservationWorkers(testObservationWorkers(t))
 
 			ctx := context.WithValue(context.Background(), proxy.InstallationIDContextKey{}, installID)
 			rec := httptest.NewRecorder()
@@ -569,7 +569,7 @@ func TestProxyMessages_PersistsRolloutID(t *testing.T) {
 		nil, false, nil, nil, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5",
 		telem,
-	)
+	).WithObservationWorkers(testObservationWorkers(t))
 
 	ctx := context.WithValue(context.Background(), proxy.InstallationIDContextKey{}, installID)
 	ctx = context.WithValue(ctx, proxy.ClientIdentityContextKey{}, proxy.ClientIdentity{RolloutID: "client-rollout"})
@@ -598,7 +598,7 @@ func TestProxyMessages_PersistedPolicyRolloutIDOverridesClientIdentity(t *testin
 		nil, false, nil, nil, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5",
 		telem,
-	)
+	).WithObservationWorkers(testObservationWorkers(t))
 
 	ctx := context.WithValue(context.Background(), proxy.InstallationIDContextKey{}, installID)
 	ctx = context.WithValue(ctx, proxy.ClientIdentityContextKey{}, proxy.ClientIdentity{RolloutID: "header-rollout"})
@@ -630,7 +630,7 @@ func TestProxyMessages_PersistsSessionKeyAndRole(t *testing.T) {
 		nil, false, nil, nil, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5",
 		telem,
-	)
+	).WithObservationWorkers(testObservationWorkers(t))
 
 	ctx := context.WithValue(context.Background(), proxy.InstallationIDContextKey{}, installID)
 	rec := httptest.NewRecorder()

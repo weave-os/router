@@ -95,6 +95,7 @@ func streamResponses(sse string) func(http.ResponseWriter) {
 }
 
 func cyberRefusalService(
+	t *testing.T,
 	openAIURL, anthropicURL, decisionReason string,
 	store *fakePinStore,
 	telemetry *captureTelemetry,
@@ -111,7 +112,7 @@ func cyberRefusalService(
 			providers.ProviderAnthropic: anthropic.NewClient("test-anthropic-key", anthropicURL),
 		},
 		nil, false, nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", telemetry,
-	).WithDeploymentKeyedProviders(map[string]struct{}{
+	).WithObservationWorkers(testObservationWorkers(t)).WithDeploymentKeyedProviders(map[string]struct{}{
 		providers.ProviderOpenAI:    {},
 		providers.ProviderAnthropic: {},
 	})
@@ -142,7 +143,7 @@ func TestProxyOpenAIResponses_CyberRefusalRescuesOffVendorAndRepins(t *testing.T
 	store := newFakePinStore()
 	telemetry := newCaptureTelemetry()
 
-	rec := proxyResponsesTurn(t, cyberRefusalService(openAIURL, anthropicURL, "test", store, telemetry))
+	rec := proxyResponsesTurn(t, cyberRefusalService(t, openAIURL, anthropicURL, "test", store, telemetry))
 
 	openAIHits, anthropicHits := upstreams.counts()
 	assert.Equal(t, 1, openAIHits, "the refusing vendor is not retried")
@@ -178,7 +179,7 @@ func TestProxyOpenAIResponses_CyberRefusalAfterCommittedOutputPassesThrough(t *t
 	openAIURL, anthropicURL := upstreams.start(t)
 	store := newFakePinStore()
 
-	rec := proxyResponsesTurn(t, cyberRefusalService(openAIURL, anthropicURL, "test", store, newCaptureTelemetry()))
+	rec := proxyResponsesTurn(t, cyberRefusalService(t, openAIURL, anthropicURL, "test", store, newCaptureTelemetry()))
 
 	_, anthropicHits := upstreams.counts()
 	assert.Zero(t, anthropicHits, "a committed turn cannot be re-served")
@@ -204,7 +205,7 @@ func TestProxyOpenAIResponses_CyberRefusalRetrySkipped(t *testing.T) {
 			upstreams := &cyberRefusalUpstreams{openAIResponse: streamResponses(cyberRefusalSSE)}
 			openAIURL, anthropicURL := upstreams.start(t)
 			store := newFakePinStore()
-			svc := cyberRefusalService(openAIURL, anthropicURL, tc.reason, store, newCaptureTelemetry()).
+			svc := cyberRefusalService(t, openAIURL, anthropicURL, tc.reason, store, newCaptureTelemetry()).
 				WithCyberRefusalRetry(tc.retryFlag)
 
 			rec := proxyResponsesTurn(t, svc)
@@ -231,7 +232,7 @@ func TestProxyOpenAIResponses_OrdinaryOpenAIErrorIsUnchanged(t *testing.T) {
 	openAIURL, anthropicURL := upstreams.start(t)
 	store := newFakePinStore()
 
-	rec := proxyResponsesTurn(t, cyberRefusalService(openAIURL, anthropicURL, "test", store, newCaptureTelemetry()))
+	rec := proxyResponsesTurn(t, cyberRefusalService(t, openAIURL, anthropicURL, "test", store, newCaptureTelemetry()))
 
 	_, anthropicHits := upstreams.counts()
 	assert.Zero(t, anthropicHits)
@@ -259,7 +260,7 @@ func TestProxyOpenAIResponses_RoutingBadgeFlushesBeforeDelayedProvider(t *testin
 			`data: {"type":"response.completed","sequence_number":0,"response":{"id":"resp_native","status":"completed","output":[]}}` + "\n\n")(w)
 	}}
 	openAIURL, anthropicURL := upstreams.start(t)
-	svc := cyberRefusalService(openAIURL, anthropicURL, "test", newFakePinStore(), newCaptureTelemetry())
+	svc := cyberRefusalService(t, openAIURL, anthropicURL, "test", newFakePinStore(), newCaptureTelemetry())
 	writer := newObservedResponseWriter()
 	req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(""))
 	ctx := context.WithValue(
@@ -310,7 +311,7 @@ func TestProxyOpenAIResponses_CyberRefusalRetriesOnlyOnce(t *testing.T) {
 	}))
 	defer anthropicServer.Close()
 
-	svc := cyberRefusalService(openAIServer.URL, anthropicServer.URL, "test", newFakePinStore(), newCaptureTelemetry())
+	svc := cyberRefusalService(t, openAIServer.URL, anthropicServer.URL, "test", newFakePinStore(), newCaptureTelemetry())
 	proxyResponsesTurn(t, svc)
 
 	openAIHits, anthropicHits := upstreams.counts()
