@@ -75,10 +75,10 @@ func TestProxyMessages_CommittedStreamCutLogsDiagnostics(t *testing.T) {
 		"an upstream EOF is the upstream's failure; the same request replayed fresh is worth trying")
 }
 
-// The shape behind the 2026-09-15 Cortex Opus losses: the upstream opens a
-// thinking block, goes silent, and the byte-idle watchdog cuts it. Nothing
-// had become final on the client side, so the completion line must say so —
-// that is what separates a cut Claude Code retries from one it abandons.
+// An upstream that opens a thinking block, goes silent, and is cut by the
+// byte-idle watchdog has made nothing final on the client side; the completion
+// line must say so, since that is what separates a cut the client retries
+// from one it abandons.
 func TestProxyMessages_ThinkingOnlyIdleCutReportsNoFinalBlocks(t *testing.T) {
 	logBuf := captureCompletionLog(t)
 
