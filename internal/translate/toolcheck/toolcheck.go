@@ -315,6 +315,7 @@ func normalizeArgs(args string, required map[string]struct{}) (out string, actio
 	if document.root.kind != argumentObject {
 		return args, nil
 	}
+	document.root.expandChildren()
 	for _, member := range document.root.objectMembers {
 		isEmptyString := member.value.kind == argumentString && member.value.stringValue == ""
 		isNull := member.value.kind == argumentNull

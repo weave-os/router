@@ -10,10 +10,18 @@ import (
 
 var splitNextBufferedBenchmarkSink []byte
 
+type splitNextNewlineStyle string
+
+const (
+	splitNextNewlineLF    splitNextNewlineStyle = "lf"
+	splitNextNewlineCRLF  splitNextNewlineStyle = "crlf"
+	splitNextNewlineMixed splitNextNewlineStyle = "mixed"
+)
+
 func BenchmarkSplitNextBuffered(b *testing.B) {
 	for _, frameCount := range []int{1024, 2048, 4096, 8192} {
-		for _, newlineStyle := range []string{"lf", "crlf", "mixed"} {
-			b.Run(newlineStyle+"/"+strconv.Itoa(frameCount), func(b *testing.B) {
+		for _, newlineStyle := range []splitNextNewlineStyle{splitNextNewlineLF, splitNextNewlineCRLF, splitNextNewlineMixed} {
+			b.Run(string(newlineStyle)+"/"+strconv.Itoa(frameCount), func(b *testing.B) {
 				body := splitNextBenchmarkBody(frameCount, newlineStyle)
 				if splitNextBenchmarkFrameCount(body) != frameCount {
 					b.Fatalf("fixture produced the wrong frame count")
@@ -37,12 +45,12 @@ func BenchmarkSplitNextBuffered(b *testing.B) {
 	}
 }
 
-func splitNextBenchmarkBody(frameCount int, newlineStyle string) []byte {
+func splitNextBenchmarkBody(frameCount int, newlineStyle splitNextNewlineStyle) []byte {
 	var body strings.Builder
 	for i := 0; i < frameCount; i++ {
 		body.WriteString("data: frame-")
 		body.WriteString(strconv.Itoa(i))
-		if newlineStyle == "crlf" || (newlineStyle == "mixed" && i%2 == 1) {
+		if newlineStyle == splitNextNewlineCRLF || (newlineStyle == splitNextNewlineMixed && i%2 == 1) {
 			body.WriteString("\r\n\r\n")
 		} else {
 			body.WriteString("\n\n")

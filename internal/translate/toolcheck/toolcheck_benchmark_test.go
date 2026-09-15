@@ -7,6 +7,26 @@ import (
 )
 
 var toolcheckEditsBenchmarkSink Verdict
+var toolcheckNormalizationBenchmarkSink string
+
+func BenchmarkToolcheckNestedNormalization(b *testing.B) {
+	for _, depth := range []int{128, 512, 2048, 8192} {
+		b.Run(strconv.Itoa(depth), func(b *testing.B) {
+			nested := strings.Repeat(`{"child":`, depth) + `1e+06` + strings.Repeat(`}`, depth)
+			args := `{"optional":"","nested":` + nested + `}`
+			want := `{"nested":` + nested + `}`
+			if normalized, _ := normalizeArgs(args, nil); normalized != want {
+				b.Fatal("fixture did not normalize the top-level optional field")
+			}
+			b.SetBytes(int64(len(args)))
+			b.ReportAllocs()
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				toolcheckNormalizationBenchmarkSink, _ = normalizeArgs(args, nil)
+			}
+		})
+	}
+}
 
 func BenchmarkToolcheckEdits(b *testing.B) {
 	for _, fieldCount := range []int{128, 256, 512, 1024} {

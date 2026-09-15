@@ -61,7 +61,9 @@ func applyLeafRepairs(document *argumentDocument, verr *jsonschema.ValidationErr
 			// The validator only emits this where the schema forbids extra
 			// keys, so the additionalProperties:false gate is implicit.
 			for _, prop := range k.Properties {
-				target := appendPathToken(leaf.InstanceLocation, prop)
+				target := make([]string, len(leaf.InstanceLocation)+1)
+				copy(target, leaf.InstanceLocation)
+				target[len(leaf.InstanceLocation)] = prop
 				if _, ok := document.delete(target); ok {
 					actions = append(actions, "drop_unknown_key")
 				}
@@ -140,11 +142,4 @@ func collectLeaves(verr *jsonschema.ValidationError, acc []*jsonschema.Validatio
 		acc = collectLeaves(c, acc)
 	}
 	return acc
-}
-
-func appendPathToken(path []string, token string) []string {
-	withToken := make([]string, len(path)+1)
-	copy(withToken, path)
-	withToken[len(path)] = token
-	return withToken
 }

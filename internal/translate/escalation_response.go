@@ -230,11 +230,9 @@ func escalationAnthropicOutput(frames []gjson.Result, streaming bool) (Escalatio
 			delta := frame.Get("delta")
 			switch escalationResponseEvent(delta.Get("type").String()) {
 			case escalationTextDelta:
-				textBuilder := escalationFragmentBuilder(textBuilders, index)
-				textBuilder.WriteString(delta.Get("text").String())
+				escalationFragmentBuilder(textBuilders, index).WriteString(delta.Get("text").String())
 			case escalationInputJSONDelta:
-				argumentBuilder := escalationFragmentBuilder(arguments, index)
-				argumentBuilder.WriteString(delta.Get("partial_json").String())
+				escalationFragmentBuilder(arguments, index).WriteString(delta.Get("partial_json").String())
 			}
 		}
 	}

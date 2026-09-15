@@ -36,12 +36,11 @@ type argumentNode struct {
 	raw         string
 	stringValue string
 
-	changed          bool
-	objectMembers    []argumentMember
-	objectTrailing   string
-	arrayElements    []argumentElement
-	arrayEmptyPrefix string
-	arrayTrailing    string
+	changed        bool
+	objectMembers  []argumentMember
+	objectTrailing string
+	arrayElements  []argumentElement
+	arrayTrailing  string
 }
 
 type argumentMember struct {
@@ -59,31 +58,29 @@ type argumentElement struct {
 }
 
 func newArgumentDocument(raw string) *argumentDocument {
-	trimmed := strings.TrimSpace(raw)
 	prefixLength := len(raw) - len(strings.TrimLeftFunc(raw, func(r rune) bool { return r <= ' ' }))
 	suffixLength := len(raw) - len(strings.TrimRightFunc(raw, func(r rune) bool { return r <= ' ' }))
-	rootRaw := trimmed
-	if prefixLength > 0 {
-		rootRaw = raw[prefixLength:]
-	}
-	if suffixLength > 0 {
-		rootRaw = rootRaw[:len(rootRaw)-suffixLength]
-	}
 	return &argumentDocument{
 		original: raw,
 		prefix:   raw[:prefixLength],
 		suffix:   raw[len(raw)-suffixLength:],
-		root:     parseArgumentNode(rootRaw),
+		root:     parseArgumentNode(raw[prefixLength : len(raw)-suffixLength]),
 	}
 }
 
 func parseArgumentNode(raw string) *argumentNode {
 	parsed := gjson.Parse(raw)
-	node := &argumentNode{raw: raw, kind: argumentKind(parsed), stringValue: parsed.Str}
-	if parsed.IsObject() {
+	return &argumentNode{raw: raw, kind: argumentKind(parsed), stringValue: parsed.Str}
+}
+
+// expandChildren leaves untouched subtrees raw so deeply nested arguments do
+// not require recursive parsing just to normalize a top-level parameter.
+func (node *argumentNode) expandChildren() {
+	raw := node.raw
+	if node.kind == argumentObject && node.objectMembers == nil {
 		node.objectMembers = make([]argumentMember, 0)
 		cursor := 1
-		parsed.ForEach(func(key, value gjson.Result) bool {
+		gjson.Parse(raw).ForEach(func(key, value gjson.Result) bool {
 			keyStart := key.Index
 			valueStart := value.Index
 			keyEnd := keyStart + len(key.Raw)
@@ -98,12 +95,12 @@ func parseArgumentNode(raw string) *argumentNode {
 			return true
 		})
 		node.objectTrailing = raw[cursor : len(raw)-1]
-		return node
+		return
 	}
-	if parsed.IsArray() {
+	if node.kind == argumentArray && node.arrayElements == nil {
 		node.arrayElements = make([]argumentElement, 0)
 		cursor := 1
-		parsed.ForEach(func(_, value gjson.Result) bool {
+		gjson.Parse(raw).ForEach(func(_, value gjson.Result) bool {
 			valueStart := value.Index
 			node.arrayElements = append(node.arrayElements, argumentElement{
 				elementPrefix: raw[cursor:valueStart],
@@ -114,7 +111,6 @@ func parseArgumentNode(raw string) *argumentNode {
 		})
 		node.arrayTrailing = raw[cursor : len(raw)-1]
 	}
-	return node
 }
 
 func argumentKind(parsed gjson.Result) argumentNodeKind {
@@ -152,6 +148,7 @@ func (node *argumentNode) writeTo(output *strings.Builder) {
 		output.WriteString(node.raw)
 		return
 	}
+	node.expandChildren()
 	switch node.kind {
 	case argumentObject:
 		kept := 0
@@ -191,9 +188,6 @@ func (node *argumentNode) writeTo(output *strings.Builder) {
 			output.WriteString(prefix)
 			element.value.writeTo(output)
 			kept++
-		}
-		if kept == 0 {
-			output.WriteString(node.arrayEmptyPrefix)
 		}
 		output.WriteString(node.arrayTrailing)
 		output.WriteByte(']')
@@ -249,6 +243,7 @@ func lookupArgumentNode(node *argumentNode, path []string) *argumentNode {
 	if len(path) == 0 {
 		return node
 	}
+	node.expandChildren()
 	switch node.kind {
 	case argumentObject:
 		for _, member := range node.objectMembers {
@@ -300,25 +295,6 @@ func (document *argumentDocument) delete(path []string) (changed, ok bool) {
 		}
 		return false, true
 	}
-	if parent.kind == argumentArray {
-		targetKey := mutationKey(target)
-		arrayIndex := -1
-		if targetKey == "-1" {
-			arrayIndex = len(parent.arrayElements) - 1
-		} else {
-			arrayIndex, _ = argumentArrayIndex(targetKey)
-		}
-		if arrayIndex >= 0 && arrayIndex < len(parent.arrayElements) {
-			removedPrefix := parent.arrayElements[arrayIndex].elementPrefix
-			parent.arrayElements = append(parent.arrayElements[:arrayIndex], parent.arrayElements[arrayIndex+1:]...)
-			if len(parent.arrayElements) == 0 {
-				parent.arrayEmptyPrefix = removeLeadingComma(removedPrefix)
-			}
-			parent.changed = true
-			document.changed = true
-			return true, true
-		}
-	}
 	return false, true
 }
 
@@ -345,20 +321,6 @@ func (document *argumentDocument) replace(path []string, raw string) bool {
 	}
 	if parent.kind == argumentArray {
 		targetKey := mutationKey(target)
-		if targetKey == "-1" {
-			memberPrefix := parent.arrayTrailing
-			if len(parent.arrayElements) > 0 {
-				memberPrefix += ","
-			}
-			parent.arrayElements = append(parent.arrayElements, argumentElement{
-				elementPrefix: memberPrefix,
-				value:         parseArgumentNode(raw),
-			})
-			parent.arrayTrailing = ""
-			parent.changed = true
-			document.changed = true
-			return true
-		}
 		if index, ok := argumentArrayIndex(targetKey); ok && index < len(parent.arrayElements) {
 			parent.arrayElements[index].value.replace(raw)
 			document.changed = true
@@ -387,6 +349,7 @@ func (node *argumentNode) addMember(key, raw string) {
 func (document *argumentDocument) mutationParent(path []string) (*argumentNode, string) {
 	current := document.root
 	for _, token := range path[:len(path)-1] {
+		current.expandChildren()
 		switch current.kind {
 		case argumentObject:
 			key := mutationKey(token)
@@ -411,9 +374,11 @@ func (document *argumentDocument) mutationParent(path []string) (*argumentNode, 
 			return nil, ""
 		}
 	}
+	current.expandChildren()
 	return current, path[len(path)-1]
 }
 
+// mutationKey preserves sjson's leading-colon path semantics.
 func mutationKey(token string) string {
 	return strings.TrimPrefix(token, ":")
 }
@@ -430,15 +395,11 @@ func (node *argumentNode) replace(raw string) {
 	node.objectMembers = replacement.objectMembers
 	node.objectTrailing = replacement.objectTrailing
 	node.arrayElements = replacement.arrayElements
-	node.arrayEmptyPrefix = replacement.arrayEmptyPrefix
 	node.arrayTrailing = replacement.arrayTrailing
 	node.changed = true
 }
 
 func quoteArgumentString(raw string) string {
-	encoded, err := json.Marshal(raw)
-	if err != nil {
-		return `"` + raw + `"`
-	}
+	encoded, _ := json.Marshal(raw) // Encoding a string cannot fail.
 	return string(encoded)
 }
