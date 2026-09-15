@@ -89,8 +89,10 @@ continues to receive the same releases.
 If you want the router (and dashboard) running on your own box:
 
 ```bash
-# 1. Drop a provider key in. OpenRouter is the recommended baseline.
+# 1. Drop a provider key in. OpenRouter or TrustedRouter unlock the OSS pool.
 echo "OPENROUTER_API_KEY=sk-or-v1-..." >> .env.local
+# Or:
+echo "TRUSTEDROUTER_API_KEY=sk-tr-v1-..." >> .env.local
 
 # 2. Set a dashboard password. Without one, inference still runs but
 # dashboard administration is disabled.
