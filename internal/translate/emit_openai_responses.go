@@ -257,12 +257,6 @@ func responsesReasoningEffort(eff, model string) string {
 	return eff
 }
 
-// minResponsesOutputTokens floors max_output_tokens for reasoning targets:
-// hidden reasoning exhausts a tiny budget (1 for a quota probe, 64 for title
-// generation) before a visible token is emitted. max_output_tokens is a
-// ceiling, not an allocation.
-const minResponsesOutputTokens = 16000
-
 func (e *RequestEnvelope) buildResponsesFromAnthropic(opts EmitOptions) ([]byte, providers.RequestMutationStats, error) {
 	var stats providers.RequestMutationStats
 	body, ccFilter, err := filterClaudeCodeOnlyToolsFromAnthropicBody(e.body, opts.ccToolFilter())
@@ -328,12 +322,9 @@ func (e *RequestEnvelope) buildResponsesFromAnthropic(opts EmitOptions) ([]byte,
 	writeOpenAIParallelToolCallsFromAnthropic(jw, body)
 
 	if mt := gjson.GetBytes(body, "max_tokens"); mt.Exists() && mt.Type == gjson.Number {
-		want := mt.Int()
 		// Gated on the target: OpenAI applies its own default effort when we send
 		// none, so a reasoning model burns the budget on hidden reasoning either way.
-		if opts.Capabilities.Supports(router.CapReasoning) {
-			want = max(want, minResponsesOutputTokens)
-		}
+		want := reasoningOutputFloor(mt.Int(), opts.Capabilities.Supports(router.CapReasoning))
 		jw.Key("max_output_tokens")
 		jw.Int(clampToModelOutputCap(want, opts.TargetModel))
 	}

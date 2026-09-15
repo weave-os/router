@@ -700,8 +700,9 @@ func routingMarkerFor(res turnLoopResult) string {
 	}
 	// Hard pins (compaction / sub-agent) return before the pin is loaded, so
 	// PriorServedModel is always empty there — suppress explicitly rather than
-	// letting it read as a first turn.
-	if res.HardPinned {
+	// letting it read as a first turn. A classifier verdict is parsed by the
+	// harness, not read by the user, and a prefix would corrupt it.
+	if res.HardPinned || isUnpinnedScoredTurn(res.TurnType) {
 		return ""
 	}
 	// A shadow checkpoint is news even when ordinary routing keeps the same model.

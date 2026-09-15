@@ -132,7 +132,8 @@ func TestCrossFormat_AnthropicToOpenAI_DefaultMaxTokensInjectedWhenAbsent(t *tes
 	assert.Equal(t, float64(8192), out["max_tokens"])
 }
 
-// Reasoning target: injection then rename to max_completion_tokens.
+// Reasoning target: injection, rename to max_completion_tokens, and the
+// reasoning floor on top of the 8192 default.
 func TestCrossFormat_AnthropicToOpenAI_DefaultMaxCompletionTokensForReasoning(t *testing.T) {
 	body := []byte(`{"model":"claude-sonnet-4-20250514","messages":[{"role":"user","content":"hi"}]}`)
 	env, err := translate.ParseAnthropic(body)
@@ -144,7 +145,7 @@ func TestCrossFormat_AnthropicToOpenAI_DefaultMaxCompletionTokensForReasoning(t 
 	require.NoError(t, err)
 	var out map[string]any
 	require.NoError(t, json.Unmarshal(prep.Body, &out))
-	assert.Equal(t, float64(8192), out["max_completion_tokens"])
+	assert.Equal(t, float64(16000), out["max_completion_tokens"])
 	assert.NotContains(t, out, "max_tokens")
 }
 

@@ -446,7 +446,6 @@ func (s *Service) hasSubAgentOverride() bool {
 // deployment pin must never be served under the ingress surface's policy.
 var utilityPurposes = map[turntype.TurnType]inference.Purpose{
 	turntype.TitleGen:         inference.PurposeTitleGeneration,
-	turntype.Classifier:       inference.PurposeClassifier,
 	turntype.Probe:            inference.PurposeProbe,
 	turntype.SubAgentDispatch: inference.PurposeSubAgentDispatch,
 	turntype.Compaction:       inference.PurposeClientCompaction,
@@ -484,16 +483,16 @@ func (r turnLoopResult) rescueOrigin() policy.OverrideSource {
 
 // isHardPinnedTurn reports whether a turn type bypasses pin lookup/write,
 // planner, and scorer entirely via the boot-time hard pin. These turns are
-// also skipped by proactive compaction: they are either tiny (probe/title-gen/
-// classifier) or carry their own dedicated flow (Claude Code's compaction turn,
-// whose request the router must not rewrite). SubAgentDispatch hard-pins when
-// an explicit per-sub-agent override is configured (any strategy) or when the
+// also skipped by proactive compaction: they are either tiny (probe/title-gen)
+// or carry their own dedicated flow (Claude Code's compaction turn, whose
+// request the router must not rewrite). SubAgentDispatch hard-pins when an
+// explicit per-sub-agent override is configured (any strategy) or when the
 // legacy hardPinExplore is on under the cluster scorer; the HMM classifier
 // selects sub-agent turns like any other turn, so that legacy default does not
-// force them.
+// force them. Classifier turns are scored (see isUnpinnedScoredTurn).
 func (s *Service) isHardPinnedTurn(ctx context.Context, tt turntype.TurnType) bool {
 	switch tt {
-	case turntype.Compaction, turntype.Probe, turntype.TitleGen, turntype.Classifier:
+	case turntype.Compaction, turntype.Probe, turntype.TitleGen:
 		return true
 	case turntype.SubAgentDispatch:
 		if s.hasSubAgentOverride() {
@@ -503,6 +502,49 @@ func (s *Service) isHardPinnedTurn(ctx context.Context, tt turntype.TurnType) bo
 	default:
 		return false
 	}
+}
+
+// isUnpinnedScoredTurn reports whether a turn type runs the scorer like any
+// other turn but never reads or anchors a session pin. A classifier call is a
+// fresh window (own system prompt, no shared prefix with the conversation) so
+// nothing pinned applies to it, and its cheap verdict decision must not leak
+// into the conversation that follows. Proactive compaction skips it too: the
+// transcript it grades is the payload, not history the router may rewrite.
+func isUnpinnedScoredTurn(tt turntype.TurnType) bool {
+	return tt == turntype.Classifier
+}
+
+// routeWithoutPin scores a turn that has no session pin to honor or anchor:
+// an explicit force still wins, the usage bypass intercepts the fresh
+// decision, and res.SessionKey stays zero so nothing is written back.
+func (s *Service) routeWithoutPin(
+	ctx context.Context,
+	req router.Request,
+	res turnLoopResult,
+	reqHeaders http.Header,
+	forceModelFound bool,
+	forceModelPin sessionpin.Pin,
+) (turnLoopResult, error) {
+	if forceModelFound && forcedPinEligible(forceModelPin, req) {
+		res.Decision = pinDecision(forceModelPin)
+		res.Decision.Reason = translate.ReasonUserForceModel
+		res.StickyHit = true
+		res.PinTier = translate.ReasonUserForceModel
+		return res, nil
+	}
+	req.PolicyTurnContext = buildPolicyTurnContext(req, res, sessionpin.Pin{}, sessionpin.Pin{})
+	if dec, ok := s.usageBypassDecision(ctx, reqHeaders, req, nil); ok {
+		res.Decision = dec
+		res.UsageBypass = true
+		return res, nil
+	}
+	decision, err := s.routeFor(ctx, req)
+	if err != nil {
+		return res, err
+	}
+	res.Decision = decision
+	res.Fresh = decision
+	return res, nil
 }
 
 func authoritativePolicyTurn(tt turntype.TurnType) bool {
@@ -605,8 +647,8 @@ func forcedPinIneligibilityReason(pin sessionpin.Pin, req router.Request) string
 // with a decision the pinned policy did not produce.
 // policyPinServed is the fail-closed guard behind every turn-loop branch:
 // with an honoured pin, only a decision the pinned policy produced may leave
-// the loop. Utility hard pins (probe, title-gen, classifier, compaction) are
-// never policy-scored and stay exempt; they report policy_pin_honoured=false.
+// the loop. Utility hard pins (probe, title-gen, compaction) are never
+// policy-scored and stay exempt; they report policy_pin_honoured=false.
 func policyPinServed(ctx context.Context, res turnLoopResult) error {
 	pin, pinned := router.HonouredPolicyPin(ctx)
 	if !pinned || len(res.Purpose) > 0 {
@@ -966,6 +1008,10 @@ func (s *Service) runTurnLoop(
 		}
 	}
 
+	if isUnpinnedScoredTurn(res.TurnType) {
+		return s.routeWithoutPin(ctx, req, res, reqHeaders, forceModelFound, forceModelPin)
+	}
+
 	// res.SessionKey must stay zero in no-pin-store mode, but trim detection
 	// needs the key either way.
 	sessionKey := threadSessionKey
@@ -991,26 +1037,7 @@ func (s *Service) runTurnLoop(
 	// Without a pin store, run the scorer and return its decision. The usage
 	// bypass intercepts the fresh scorer decision here too (no pins to honor).
 	if s.pinStore == nil {
-		if forceModelFound && forcedPinEligible(forceModelPin, req) {
-			res.Decision = pinDecision(forceModelPin)
-			res.Decision.Reason = translate.ReasonUserForceModel
-			res.StickyHit = true
-			res.PinTier = translate.ReasonUserForceModel
-			return res, nil
-		}
-		req.PolicyTurnContext = buildPolicyTurnContext(req, res, sessionpin.Pin{}, sessionpin.Pin{})
-		if dec, ok := s.usageBypassDecision(ctx, reqHeaders, req, nil); ok {
-			res.Decision = dec
-			res.UsageBypass = true
-			return res, nil
-		}
-		decision, err := s.routeFor(ctx, req)
-		if err != nil {
-			return res, err
-		}
-		res.Decision = decision
-		res.Fresh = decision
-		return res, nil
+		return s.routeWithoutPin(ctx, req, res, reqHeaders, forceModelFound, forceModelPin)
 	}
 
 	res.SessionKey = sessionKey

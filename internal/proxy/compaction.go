@@ -263,12 +263,13 @@ func clientWouldCompact(pol compactionPolicy, budget router.ClientBudget, maxWin
 // ErrContextWindowExceeded if the history overflows even after all tiers;
 // no-ops when pct is zero/unset, below threshold, the turn is hard-pinned
 // (Claude Code's own compaction turn must not be rewritten, and
-// probe/title-gen/classifier turns bypass the scorer), or the harness policy
-// defers to the client's own compaction.
+// probe/title-gen turns bypass the scorer), the turn is a classifier grading
+// a transcript it carries as payload, or the harness policy defers to the
+// client's own compaction.
 func (s *Service) maybeCompact(ctx context.Context, env *translate.RequestEnvelope, in compactionInput) (compactionResult, error) {
 	log := observability.FromContext(ctx)
 	var res compactionResult
-	if s.compactionTriggerPct <= 0 || in.MaxWindow <= 0 || env == nil || s.isHardPinnedTurn(ctx, in.TurnType) {
+	if s.compactionTriggerPct <= 0 || in.MaxWindow <= 0 || env == nil || s.isHardPinnedTurn(ctx, in.TurnType) || isUnpinnedScoredTurn(in.TurnType) {
 		return res, nil
 	}
 	pol := compactionPolicyFor(in.ClientApp)

@@ -124,10 +124,6 @@ func TestHardPinnedUtilityTurns_DispatchUnderOwnPurpose(t *testing.T) {
 			body:    `{"model":"claude-sonnet-4-6","max_tokens":1,"messages":[{"role":"user","content":"ping"}]}`,
 			purpose: inference.PurposeProbe, policyID: "aux-probe",
 		},
-		"classifier": {
-			body:    `{"model":"claude-sonnet-4-6","max_tokens":64,"messages":[{"role":"user","content":"is this safe? yes/no"}]}`,
-			purpose: inference.PurposeClassifier, policyID: "aux-classifier",
-		},
 		"title generation": {
 			body:    `{"model":"claude-sonnet-4-6","max_tokens":512,"output_config":{"format":{"type":"json_schema","schema":{"type":"object","properties":{"title":{"type":"string"}}}}},"messages":[{"role":"user","content":"Please write a title for this conversation."}]}`,
 			purpose: inference.PurposeTitleGeneration, policyID: "aux-title-generation",
@@ -158,4 +154,32 @@ func TestHardPinnedUtilityTurns_DispatchUnderOwnPurpose(t *testing.T) {
 			assert.Equal(t, providers.ProviderAnthropic, event.Target.Provider)
 		})
 	}
+}
+
+// A classifier is scored, so it is authorized under the ingress surface's
+// main-inference policy and served on the scorer's pick, not the hard pin.
+func TestClassifierTurn_DispatchUnderSurfacePurpose(t *testing.T) {
+	const anthropicOK = `{"id":"msg_1","type":"message","role":"assistant","content":[{"type":"text","text":"ok"}],"usage":{"input_tokens":1,"output_tokens":1}}`
+	body := `{"model":"claude-sonnet-4-6","max_tokens":64,"messages":[{"role":"user","content":"is this safe? yes/no"}]}`
+
+	provider := &fakeProvider{proxyResponse: jsonUpstream(anthropicOK)}
+	clients := map[string]providers.Client{providers.ProviderAnthropic: provider}
+	sink := &purposeSink{}
+	executor, err := dispatch.NewExecutor(dispatch.NewClients(clients), dispatch.WithAttemptSink(sink))
+	require.NoError(t, err)
+	fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-sonnet-4-6", Reason: "test"}}
+	svc := proxy.NewService(fr, clients, nil, false, nil, newFakePinStore(), false, providers.ProviderAnthropic, "claude-haiku-4-5", nil).
+		WithInferenceExecutor(executor)
+
+	rec := httptest.NewRecorder()
+	require.NoError(t, svc.ProxyMessages(authedCtx("00000000-0000-0000-0000-000000000001"), []byte(body), rec,
+		httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))))
+
+	assert.Equal(t, 1, fr.routeCalls)
+	require.Len(t, sink.events, 1)
+	event := sink.events[0]
+	assert.Equal(t, inference.PurposeAnthropicMessages, event.Purpose)
+	assert.Equal(t, inference.PolicyID("main-anthropic-messages"), event.PolicyID)
+	assert.Equal(t, inference.AttemptOutcomeServed, event.Outcome)
+	assert.Equal(t, "claude-sonnet-4-6", event.Target.CatalogID)
 }

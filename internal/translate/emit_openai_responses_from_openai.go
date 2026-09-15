@@ -72,10 +72,7 @@ func (e *RequestEnvelope) buildResponsesFromOpenAI(opts EmitOptions) ([]byte, er
 		mt = gjson.GetBytes(body, "max_tokens")
 	}
 	if mt.Type == gjson.Number {
-		want := mt.Int()
-		if opts.Capabilities.Supports(router.CapReasoning) {
-			want = max(want, minResponsesOutputTokens)
-		}
+		want := reasoningOutputFloor(mt.Int(), opts.Capabilities.Supports(router.CapReasoning))
 		jw.Key("max_output_tokens")
 		jw.Int(clampToModelOutputCap(want, opts.TargetModel))
 	}

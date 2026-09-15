@@ -551,6 +551,12 @@ func writeGeminiGenerationConfigFromOpenAI(jw *jsonWriter, body []byte, opts Emi
 	}
 	var fields []field
 
+	intent, err := applyGeminiReasoning(ParseReasoningIntent(FormatOpenAI, body), opts)
+	if err != nil {
+		return err
+	}
+	thinking := geminiThinkingActive(intent, opts)
+
 	if r := gjson.GetBytes(body, "temperature"); r.Exists() && r.Type == gjson.Number {
 		fw := newJSONWriter()
 		fw.Float(r.Num)
@@ -563,13 +569,9 @@ func writeGeminiGenerationConfigFromOpenAI(jw *jsonWriter, body []byte, opts Emi
 	}
 	// max_completion_tokens takes precedence over max_tokens if both present.
 	if r := gjson.GetBytes(body, "max_completion_tokens"); r.Exists() && r.Type == gjson.Number {
-		fw := newJSONWriter()
-		fw.Int(clampToModelOutputCap(int64(r.Num), model))
-		fields = append(fields, field{"maxOutputTokens", string(fw.Bytes())})
+		fields = append(fields, field{"maxOutputTokens", geminiMaxOutputTokensRaw(int64(r.Num), thinking, model)})
 	} else if r := gjson.GetBytes(body, "max_tokens"); r.Exists() && r.Type == gjson.Number {
-		fw := newJSONWriter()
-		fw.Int(clampToModelOutputCap(int64(r.Num), model))
-		fields = append(fields, field{"maxOutputTokens", string(fw.Bytes())})
+		fields = append(fields, field{"maxOutputTokens", geminiMaxOutputTokensRaw(int64(r.Num), thinking, model)})
 	}
 	if r := gjson.GetBytes(body, "stop"); r.Exists() {
 		if raw := stopToArrayRaw(r); raw != "" {
@@ -580,10 +582,6 @@ func writeGeminiGenerationConfigFromOpenAI(jw *jsonWriter, body []byte, opts Emi
 		if r.Get("type").String() == "json_object" {
 			fields = append(fields, field{"responseMimeType", `"application/json"`})
 		}
-	}
-	intent, err := applyGeminiReasoning(ParseReasoningIntent(FormatOpenAI, body), opts)
-	if err != nil {
-		return err
 	}
 	if raw, err := geminiThinkingConfigRaw(intent, model); err != nil {
 		return err
@@ -1088,6 +1086,12 @@ func writeGeminiGenerationConfigFromAnthropic(jw *jsonWriter, body []byte, opts 
 	}
 	var fields []field
 
+	intent, err := applyGeminiReasoning(ParseReasoningIntent(FormatAnthropic, body), opts)
+	if err != nil {
+		return err
+	}
+	thinking := geminiThinkingActive(intent, opts)
+
 	if r := gjson.GetBytes(body, "temperature"); r.Exists() && r.Type == gjson.Number {
 		fw := newJSONWriter()
 		fw.Float(r.Num)
@@ -1099,18 +1103,12 @@ func writeGeminiGenerationConfigFromAnthropic(jw *jsonWriter, body []byte, opts 
 		fields = append(fields, field{"topP", string(fw.Bytes())})
 	}
 	if r := gjson.GetBytes(body, "max_tokens"); r.Exists() && r.Type == gjson.Number {
-		fw := newJSONWriter()
-		fw.Int(clampToModelOutputCap(int64(r.Num), model))
-		fields = append(fields, field{"maxOutputTokens", string(fw.Bytes())})
+		fields = append(fields, field{"maxOutputTokens", geminiMaxOutputTokensRaw(int64(r.Num), thinking, model)})
 	}
 	if r := gjson.GetBytes(body, "stop_sequences"); r.Exists() {
 		if raw := stopToArrayRaw(r); raw != "" {
 			fields = append(fields, field{"stopSequences", raw})
 		}
-	}
-	intent, err := applyGeminiReasoning(ParseReasoningIntent(FormatAnthropic, body), opts)
-	if err != nil {
-		return err
 	}
 	if raw, err := geminiThinkingConfigRaw(intent, model); err != nil {
 		return err
@@ -1129,6 +1127,38 @@ func writeGeminiGenerationConfigFromAnthropic(jw *jsonWriter, body []byte, opts 
 	}
 	jw.EndObj()
 	return nil
+}
+
+// geminiMaxOutputTokensRaw serializes the caller's output budget with
+// reasoning headroom applied: Gemini's maxOutputTokens counts thought tokens,
+// so a thinking target with a tiny budget never reaches visible text.
+func geminiMaxOutputTokensRaw(want int64, thinking bool, model string) string {
+	fw := newJSONWriter()
+	fw.Int(clampToModelOutputCap(reasoningOutputFloor(want, thinking), model))
+	return string(fw.Bytes())
+}
+
+// geminiThinkingActive reports whether the target will spend output tokens on
+// thoughts under the validated intent. An unset intent means the model's
+// default, which is thinking-on for every reasoning-capable Gemini; 3.x keeps
+// thinking even when the caller disables it.
+func geminiThinkingActive(intent ReasoningIntent, opts EmitOptions) bool {
+	caps := opts.Capabilities
+	if len(caps.Reasoning().Levels) == 0 {
+		caps = router.Lookup(opts.TargetModel)
+	}
+	if len(caps.Reasoning().Levels) == 0 {
+		return false
+	}
+	switch intent.Kind {
+	case ReasoningDisabled:
+		return isGemini3xModel(opts.TargetModel)
+	case ReasoningBudget:
+		return intent.BudgetTokens > 0
+	case ReasoningLevel:
+		return intent.Level != "none"
+	}
+	return true
 }
 
 // clampToModelOutputCap caps v to the model's max output token limit.

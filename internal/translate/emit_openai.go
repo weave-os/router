@@ -873,15 +873,19 @@ func writeOpenAIToolChoiceFromAnthropic(jw *jsonWriter, body []byte) {
 
 // writeOpenAIMaxTokensFromAnthropic emits either "max_tokens" or
 // "max_completion_tokens" (for reasoning-capable models), clamped to the
-// model's output-token cap.
+// model's output-token cap. max_completion_tokens counts reasoning tokens, so
+// a reasoning target that isn't pinned to effort "none" gets headroom above a
+// tiny client budget.
 func writeOpenAIMaxTokensFromAnthropic(jw *jsonWriter, body []byte, opts EmitOptions) {
 	r := gjson.GetBytes(body, "max_tokens")
 	val := defaultOutputTokens(opts.TargetModel)
 	if r.Exists() {
 		val = r.Int()
 	}
+	reasoning := opts.Capabilities.Supports(router.CapReasoning)
+	val = reasoningOutputFloor(val, reasoning && resolveReasoningEffortFor(opts) != "none")
 	val = clampToModelOutputCap(val, opts.TargetModel)
-	if opts.Capabilities.Supports(router.CapReasoning) {
+	if reasoning {
 		jw.Key("max_completion_tokens")
 	} else {
 		jw.Key("max_tokens")

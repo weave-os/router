@@ -618,7 +618,8 @@ func TestCrossFormat_OpenAIToGemini_SimpleText(t *testing.T) {
 
 	genConf := getMap(t, doc, "generationConfig")
 	assert.Equal(t, float64(0.7), genConf["temperature"])
-	assert.Equal(t, float64(1024), genConf["maxOutputTokens"])
+	// 2.5 Pro thinks by default, so the 1024 budget is floored for reasoning headroom.
+	assert.Equal(t, float64(16000), genConf["maxOutputTokens"])
 
 	assert.Equal(t, "true", prep.Headers.Get(translate.GeminiStreamHintHeader))
 }
@@ -1141,7 +1142,8 @@ func TestCrossFormat_AnthropicToGemini_SimpleText(t *testing.T) {
 
 	genConf := getMap(t, doc, "generationConfig")
 	assert.Equal(t, float64(0.7), genConf["temperature"])
-	assert.Equal(t, float64(1024), genConf["maxOutputTokens"])
+	// 2.5 Pro thinks by default, so the 1024 budget is floored for reasoning headroom.
+	assert.Equal(t, float64(16000), genConf["maxOutputTokens"])
 
 	assert.Equal(t, "true", prep.Headers.Get(translate.GeminiStreamHintHeader))
 }
@@ -1371,7 +1373,8 @@ func TestCrossFormat_OpenAIToGemini_ScalarFieldsCarriedThrough(t *testing.T) {
 	genConf := getMap(t, doc, "generationConfig")
 	assert.Equal(t, float64(0.6), genConf["temperature"])
 	assert.Equal(t, float64(0.95), genConf["topP"])
-	assert.Equal(t, float64(1024), genConf["maxOutputTokens"])
+	// 2.5 Pro thinks by default, so the 1024 budget is floored for reasoning headroom.
+	assert.Equal(t, float64(16000), genConf["maxOutputTokens"])
 	assert.Equal(t, "true", prep.Headers.Get(translate.GeminiStreamHintHeader))
 }
 
@@ -1395,7 +1398,8 @@ func TestCrossFormat_AnthropicToGemini_ScalarFieldsCarriedThrough(t *testing.T) 
 	genConf := getMap(t, doc, "generationConfig")
 	assert.Equal(t, float64(0.4), genConf["temperature"])
 	assert.Equal(t, float64(0.85), genConf["topP"])
-	assert.Equal(t, float64(768), genConf["maxOutputTokens"])
+	// 2.5 Pro thinks by default, so the 768 budget is floored for reasoning headroom.
+	assert.Equal(t, float64(16000), genConf["maxOutputTokens"])
 	stops := genConf["stopSequences"].([]any)
 	assert.Equal(t, []any{"END"}, stops)
 	assert.Equal(t, "true", prep.Headers.Get(translate.GeminiStreamHintHeader))
