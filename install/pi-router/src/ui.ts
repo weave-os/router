@@ -1,4 +1,4 @@
-import type { ExtensionContext, Theme } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext, Theme } from "@mariozechner/pi-coding-agent";
 import type { TUI } from "@mariozechner/pi-tui";
 import type { SavingsAggregate } from "./savings.js";
 import { formatSavings } from "./savings.js";
@@ -63,7 +63,19 @@ export function installLoomUi(ctx: ExtensionContext): void {
 			return headerLines(theme, width);
 		},
 	}));
-	ctx.ui.setWidget(WOOLY_WIDGET_KEY, (tui: TUI) => new WoolyComponent(tui), { placement: "belowEditor" });
+}
+
+export function registerWooly(pi: ExtensionAPI): void {
+	let visible = false;
+	pi.registerCommand("wooly", {
+		description: "Show or hide Wooly for this session",
+		handler: async (_args, ctx) => {
+			if (!isTuiContext(ctx)) return;
+			visible = !visible;
+			ctx.ui.setWidget(WOOLY_WIDGET_KEY, visible ? (tui: TUI) => new WoolyComponent(tui) : undefined, { placement: "belowEditor" });
+		},
+	});
+	pi.on("session_shutdown", () => { visible = false; });
 }
 
 export function clearLoomUi(ctx: ExtensionContext): void {

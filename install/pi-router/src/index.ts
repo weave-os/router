@@ -32,6 +32,7 @@ import { registerMetadata } from "./metadata.js";
 import { registerRoutedModel } from "./routed-model.js";
 import { registerSafety } from "./safety.js";
 import { registerWeave } from "./provider.js";
+import { registerWooly } from "./ui.js";
 
 const SELF_PATH = fileURLToPath(import.meta.url);
 
@@ -46,6 +47,7 @@ export default function (pi: ExtensionAPI): void {
 	registerBetaCommand(pi);
 	registerForceModelCommands(pi);
 	registerRoutedModel(pi);
+	if (!isSubagent()) registerWooly(pi);
 	let handoffPending = () => false;
 	registerCompaction(pi, undefined, () => handoffPending());
 	handoffPending = registerEscalationCompaction(pi);

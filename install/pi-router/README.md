@@ -24,8 +24,9 @@ Plain `pi` then connects to the installed endpoint, normally
 ## What it does
 
 - **Loom experience on stock pi.** Replaces pi's startup header through the
-  public extension API, adds Wooly's responsive orange terminal animation, and
-  keeps pi's own runtime/footer intact. Wooly is visual only: there is no
+  public extension API and keeps pi's own runtime/footer intact. Wooly is hidden
+  by default; `/wooly` toggles the orange terminal animation for the current
+  session. Wooly is visual only: there is no
   dialogue box, narration, coaching request, or separate Loom runtime.
 - **Automatic model selection.** All pi traffic flows through the router, which
   selects the model per request. You don't pick a model — the router does.
