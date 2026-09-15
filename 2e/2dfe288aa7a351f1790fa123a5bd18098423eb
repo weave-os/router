@@ -1,0 +1,19 @@
+internal/proxy/context_overflow_internal_test.go
+  s_e52c0d655cb59a::t_decfc884eb4eb9 132-133
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.23",
+  "base_commit_sha": "2e2dfe288aa7a351f1790fa123a5bd18098423eb",
+  "prompts": {},
+  "sessions": {
+    "s_e52c0d655cb59a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "65eee4ba-c3d3-4f71-9c78-991a0ffe98d6",
+        "model": "deepseek/deepseek-v4-pro-0813"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}
