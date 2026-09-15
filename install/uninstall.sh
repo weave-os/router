@@ -972,19 +972,23 @@ if [ -f "$parked_file" ]; then
   ok "Removed $parked_file"
 fi
 
-if [ -f "$statusline_file" ]; then
+if [ "$statusline_file_owned" = "true" ]; then
   # The installer now leaves an existing statusline alone. A user may already
   # have a script at the router's conventional filename, so remove this file
-  # only when its content identifies it as our managed statusline.
-  if [ "$statusline_file_owned" = "true" ]; then
+  # only when its content or ownership marker identifies it as our managed
+  # statusline. The marker must also be removed when the script is already
+  # missing; otherwise a later install could mistake the stale marker for
+  # ownership and overwrite a user-owned statusline.
+  if [ -f "$statusline_file" ]; then
     rm -f "$statusline_file"
-    if [ -f "$statusline_ownership_file" ]; then
-      rm -f "$statusline_ownership_file"
-    fi
     ok "Removed $statusline_file"
-  else
-    warn "Leaving user-owned statusline at $statusline_file untouched."
   fi
+  if [ -f "$statusline_ownership_file" ]; then
+    rm -f "$statusline_ownership_file"
+    ok "Removed $statusline_ownership_file"
+  fi
+elif [ -f "$statusline_file" ]; then
+  warn "Leaving user-owned statusline at $statusline_file untouched."
 fi
 
 # Remove only the slash command files this installer owns; leave any other

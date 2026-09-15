@@ -256,6 +256,25 @@ else
   ok "uninstall removes an orphaned router statusline script"
 fi
 
+missing_statusline_home="$work/claude-statusline-missing"; mkdir -p "$missing_statusline_home"
+run_install "$missing_statusline_home" --claude --scope user
+missing_statusline="$missing_statusline_home/.weave/cc-statusline.sh"
+missing_statusline_marker="$missing_statusline.weave-router"
+rm -f "$missing_statusline"
+if [ -f "$missing_statusline_marker" ]; then
+  ok "uninstall test leaves the router statusline ownership marker"
+else
+  no "uninstall test leaves the router statusline ownership marker" "ownership marker" "missing"
+fi
+run_uninstall "$missing_statusline_home" --claude --scope user
+if [ -e "$missing_statusline_marker" ]; then
+  no "uninstall removes an orphaned statusline ownership marker" "removed" "still present"
+else
+  ok "uninstall removes an orphaned statusline ownership marker"
+fi
+check "uninstall removes the missing router-owned statusline setting" "false" \
+  "$(jq 'has("statusLine")' "$missing_statusline_home/.claude/settings.json")"
+
 # opencode, user scope: the smaller registry subset, in the XDG commands dir.
 # The installer honours XDG_CONFIG_HOME, so resolve the destination the same
 # way rather than assuming $HOME/.config — CI runners set it.
