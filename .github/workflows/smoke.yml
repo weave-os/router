@@ -224,7 +224,7 @@ jobs:
             --title "chore(smoke): nightly cassette refresh $(date -u +%Y-%m-%d)" \
             --body "A provider's response shape drifted from what the smoke suite's committed cassettes expect. Review the diff — a real behavior change on the provider's side, or just cosmetic (timestamps/ids)? See docs/SMOKE.md.
 
-This PR will auto-merge once required checks pass." \
+          This PR will auto-merge once required checks pass." \
             --base main --head "$BRANCH"
 
       - name: Enable auto-merge
