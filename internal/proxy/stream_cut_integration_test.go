@@ -75,6 +75,50 @@ func TestProxyMessages_CommittedStreamCutLogsDiagnostics(t *testing.T) {
 		"an upstream EOF is the upstream's failure; the same request replayed fresh is worth trying")
 }
 
+// The shape behind the 2026-09-15 Cortex Opus losses: the upstream opens a
+// thinking block, goes silent, and the byte-idle watchdog cuts it. Nothing
+// had become final on the client side, so the completion line must say so —
+// that is what separates a cut Claude Code retries from one it abandons.
+func TestProxyMessages_ThinkingOnlyIdleCutReportsNoFinalBlocks(t *testing.T) {
+	logBuf := captureCompletionLog(t)
+
+	provider := &fakeProvider{
+		proxyErr: fmt.Errorf("%w: %w", providers.ErrUpstreamIdleTimeout, context.Canceled),
+		proxyResponse: func(w http.ResponseWriter) {
+			w.Header().Set("Content-Type", "text/event-stream")
+			w.WriteHeader(http.StatusOK)
+			for _, frame := range []string{
+				"event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_1\",\"model\":\"claude-opus-4-8\",\"usage\":{\"input_tokens\":1,\"output_tokens\":0}}}\n\n",
+				"event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"thinking\",\"thinking\":\"\"}}\n\n",
+				"event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"thinking_delta\",\"thinking\":\"hm\"}}\n\n",
+			} {
+				_, _ = io.WriteString(w, frame)
+			}
+		},
+	}
+	svc := makeProxyService(
+		router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-opus-4-8", Reason: "test"},
+		map[string]providers.Client{providers.ProviderAnthropic: provider},
+	)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(streamCutTurnBody))
+	require.Error(t, svc.ProxyMessages(context.Background(), []byte(streamCutTurnBody), rec, req))
+
+	assert.Equal(t, http.StatusOK, rec.Code, "the status went out with the first provider byte")
+	assert.Contains(t, rec.Body.String(), "event: error\ndata: ")
+	assert.NotContains(t, rec.Body.String(), "message_stop", "the router does not fabricate a clean end to a cut turn")
+	assert.Len(t, provider.proxyBodies, 1, "a committed stream is never re-dispatched")
+
+	logged := logBuf.String()
+	assert.Contains(t, logged, "prelude_committed=true")
+	assert.Contains(t, logged, "stream_failure_class=idle_watchdog")
+	assert.Contains(t, logged, "stream_upstream_frames=3")
+	assert.Contains(t, logged, "stream_last_upstream_event=content_block_delta")
+	assert.Contains(t, logged, "stream_upstream_blocks_completed=0")
+	assert.Contains(t, logged, "stream_upstream_output_block_started=false")
+}
+
 // A client that hangs up mid-stream looks identical on the wire to an upstream
 // cut; the class is what tells the two apart.
 func TestProxyMessages_ClientCancelClassifiedSeparately(t *testing.T) {

@@ -12,6 +12,8 @@ import (
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/sse"
 	"weave-os/router/internal/translate"
+
+	"github.com/tidwall/gjson"
 )
 
 // streamFailureClass names the owner of a stream that failed after the
@@ -52,24 +54,33 @@ type streamCutObserver struct {
 	requestBytes int
 	thinking     bool
 
-	start        time.Time
-	lastFrame    time.Time
-	carry        []byte
-	frames       int
-	lastEvent    string
-	streaming    bool
-	cut          bool
-	cutSnapshot  streamCutSnapshot
-	cutClassSeen bool
+	start     time.Time
+	lastFrame time.Time
+	carry     []byte
+	frames    int
+	lastEvent string
+	// blocksCompleted and outputBlockStarted describe what an Anthropic-shaped
+	// stream had already made final on the client side. Claude Code retries a
+	// cut turn only while no content block has completed, and abandons it
+	// once a text/tool_use block opened — so they split rescuable cuts from
+	// lost ones. Both stay zero on non-Anthropic upstream frames.
+	blocksCompleted    int
+	outputBlockStarted bool
+	streaming          bool
+	cut                bool
+	cutSnapshot        streamCutSnapshot
+	cutClassSeen       bool
 }
 
 type streamCutSnapshot struct {
-	elapsed       time.Duration
-	sinceLastData time.Duration
-	frames        int
-	lastEvent     string
-	class         streamFailureClass
-	retryable     bool
+	elapsed            time.Duration
+	sinceLastData      time.Duration
+	frames             int
+	lastEvent          string
+	blocksCompleted    int
+	outputBlockStarted bool
+	class              streamFailureClass
+	retryable          bool
 }
 
 func newStreamCutObserver(now func() time.Time) *streamCutObserver {
@@ -100,6 +111,7 @@ func (o *streamCutObserver) attach(inner http.ResponseWriter) http.ResponseWrite
 	o.inner = inner
 	o.start, o.lastFrame = now, now
 	o.carry, o.frames, o.lastEvent, o.streaming = o.carry[:0], 0, "", true
+	o.blocksCompleted, o.outputBlockStarted = 0, false
 	return o
 }
 
@@ -142,11 +154,13 @@ func (o *streamCutObserver) noteCut(err error) {
 	o.cut = true
 	o.streaming = false
 	o.cutSnapshot = streamCutSnapshot{
-		elapsed:       o.now().Sub(o.start),
-		sinceLastData: o.now().Sub(o.lastFrame),
-		frames:        o.frames,
-		lastEvent:     o.lastEvent,
-		class:         classifyStreamFailure(err, o.lastEvent),
+		elapsed:            o.now().Sub(o.start),
+		sinceLastData:      o.now().Sub(o.lastFrame),
+		frames:             o.frames,
+		lastEvent:          o.lastEvent,
+		blocksCompleted:    o.blocksCompleted,
+		outputBlockStarted: o.outputBlockStarted,
+		class:              classifyStreamFailure(err, o.lastEvent),
 	}
 	o.cutSnapshot.retryable = streamCutReplayRetryable(o.cutSnapshot.class, err)
 	o.cutClassSeen = true
@@ -168,6 +182,8 @@ func (o *streamCutObserver) completionLogFields() []any {
 		"stream_cut_request_bytes", o.requestBytes,
 		"stream_cut_thinking", o.thinking,
 		"stream_cut_replay_retryable", s.retryable,
+		"stream_upstream_blocks_completed", s.blocksCompleted,
+		"stream_upstream_output_block_started", s.outputBlockStarted,
 	}
 }
 
@@ -207,8 +223,19 @@ func (o *streamCutObserver) scan(p []byte) {
 			break
 		}
 		o.frames++
-		if eventType, _ := sse.ParseEvent(event); len(eventType) > 0 {
+		eventType, data := sse.ParseEvent(event)
+		if len(eventType) > 0 {
 			o.lastEvent = string(eventType)
+		}
+		switch string(eventType) {
+		case "content_block_stop":
+			o.blocksCompleted++
+		case "content_block_start":
+			switch gjson.GetBytes(data, "content_block.type").String() {
+			case "thinking", "redacted_thinking":
+			default:
+				o.outputBlockStarted = true
+			}
 		}
 		buf = buf[n:]
 	}

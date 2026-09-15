@@ -134,6 +134,8 @@ func TestStreamCutObserver_SnapshotsWireStateAtTheCut(t *testing.T) {
 		"stream_cut_request_bytes", 48213,
 		"stream_cut_thinking", true,
 		"stream_cut_replay_retryable", true,
+		"stream_upstream_blocks_completed", 0,
+		"stream_upstream_output_block_started", false,
 	}, obs.completionLogFields())
 	assert.Equal(t,
 		"event: message_start\ndata: {\"type\":\"message_start\"}\n\n"+
@@ -141,6 +143,78 @@ func TestStreamCutObserver_SnapshotsWireStateAtTheCut(t *testing.T) {
 			"event: ping\ndata: {}\n\n"+
 			"event: error\ndata: {\"type\":\"error\"}\n\n",
 		rec.Body.String(), "the observer must pass every byte through unchanged")
+}
+
+// A cut is client-recoverable only while nothing has become final on the
+// wire: the snapshot must say how many blocks closed and whether a
+// non-thinking block had opened, and a fresh attempt must start from zero.
+func TestStreamCutObserver_TracksCompletedAndOutputBlocks(t *testing.T) {
+	const thinkingOnly = "event: message_start\ndata: {\"type\":\"message_start\"}\n\n" +
+		"event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"thinking\",\"thinking\":\"\"}}\n\n" +
+		"event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"thinking_delta\",\"thinking\":\"hm\"}}\n\n"
+	const closeThinkingOpenText = "event: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":0}\n\n" +
+		"event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":1,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n"
+
+	fields := func(obs *streamCutObserver) (completed int, outputStarted bool) {
+		logged := obs.completionLogFields()
+		for i := 0; i+1 < len(logged); i += 2 {
+			switch logged[i] {
+			case "stream_upstream_blocks_completed":
+				completed = logged[i+1].(int)
+			case "stream_upstream_output_block_started":
+				outputStarted = logged[i+1].(bool)
+			}
+		}
+		return completed, outputStarted
+	}
+
+	t.Run("thinking-only stream", func(t *testing.T) {
+		obs := newStreamCutObserver(nil)
+		attempt := obs.attach(httptest.NewRecorder())
+		_, err := attempt.Write([]byte(thinkingOnly))
+		require.NoError(t, err)
+		obs.noteCut(providers.ErrUpstreamIdleTimeout)
+		completed, outputStarted := fields(obs)
+		assert.Equal(t, 0, completed)
+		assert.False(t, outputStarted)
+	})
+
+	t.Run("thinking closed and text opened", func(t *testing.T) {
+		obs := newStreamCutObserver(nil)
+		attempt := obs.attach(httptest.NewRecorder())
+		_, err := attempt.Write([]byte(thinkingOnly))
+		require.NoError(t, err)
+		_, err = attempt.Write([]byte(closeThinkingOpenText))
+		require.NoError(t, err)
+		obs.noteCut(providers.ErrUpstreamIdleTimeout)
+		completed, outputStarted := fields(obs)
+		assert.Equal(t, 1, completed)
+		assert.True(t, outputStarted)
+	})
+
+	t.Run("redacted thinking is not output", func(t *testing.T) {
+		obs := newStreamCutObserver(nil)
+		attempt := obs.attach(httptest.NewRecorder())
+		_, err := attempt.Write([]byte("event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"redacted_thinking\",\"data\":\"x\"}}\n\n"))
+		require.NoError(t, err)
+		obs.noteCut(providers.ErrUpstreamIdleTimeout)
+		_, outputStarted := fields(obs)
+		assert.False(t, outputStarted)
+	})
+
+	t.Run("a new attempt starts from zero", func(t *testing.T) {
+		obs := newStreamCutObserver(nil)
+		first := obs.attach(httptest.NewRecorder())
+		_, err := first.Write([]byte(thinkingOnly + closeThinkingOpenText))
+		require.NoError(t, err)
+		second := obs.attach(httptest.NewRecorder())
+		_, err = second.Write([]byte(thinkingOnly))
+		require.NoError(t, err)
+		obs.noteCut(providers.ErrUpstreamIdleTimeout)
+		completed, outputStarted := fields(obs)
+		assert.Equal(t, 0, completed)
+		assert.False(t, outputStarted)
+	})
 }
 
 type armerRecorder struct {
@@ -182,7 +256,7 @@ func TestStreamCutObserver_FirstCutWins(t *testing.T) {
 	obs.noteCut(&providers.UpstreamStatusError{Status: 502})
 
 	fields := obs.completionLogFields()
-	require.Len(t, fields, 16)
+	require.Len(t, fields, 20)
 	assert.Equal(t, string(streamFailureClientCanceled), fields[9])
 	assert.Equal(t, false, fields[15], "the first cut's retryability must survive the synthesized 502")
 }
