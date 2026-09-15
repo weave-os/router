@@ -42,6 +42,28 @@ const (
 	KindString Kind = "string"
 )
 
+// AuthoritativeUpgradePolicy selects how expensive fresh HMM decisions are
+// compared with an active session pin.
+type AuthoritativeUpgradePolicy string
+
+const (
+	AuthoritativeUpgradePolicyScore    AuthoritativeUpgradePolicy = "score"
+	AuthoritativeUpgradePolicyEvidence AuthoritativeUpgradePolicy = "evidence"
+	AuthoritativeUpgradePolicyOff      AuthoritativeUpgradePolicy = "off"
+)
+
+// ParseAuthoritativeUpgradePolicy validates the deployment/override value at
+// the configuration boundary.
+func ParseAuthoritativeUpgradePolicy(raw string) (AuthoritativeUpgradePolicy, error) {
+	policy := AuthoritativeUpgradePolicy(raw)
+	switch policy {
+	case AuthoritativeUpgradePolicyScore, AuthoritativeUpgradePolicyEvidence, AuthoritativeUpgradePolicyOff:
+		return policy, nil
+	default:
+		return "", fmt.Errorf("authoritative upgrade policy must be score, evidence, or off, got %q", raw)
+	}
+}
+
 // Registered flag keys. Each corresponds to exactly one entry in Registry.
 const (
 	KeyEscalationXGBoostEnabled             Key = "escalation_xgb_enabled"
@@ -61,6 +83,9 @@ const (
 	KeyScoreToolResultTurns                 Key = "score_tool_result_turns"
 	KeyPrefixTrimFreeSwitch                 Key = "prefix_trim_free_switch"
 	KeyAuthoritativeUpgradeGate             Key = "authoritative_upgrade_gate"
+	KeyAuthoritativeUpgradePolicy           Key = "authoritative_upgrade_policy"
+	KeyAuthoritativeUpgradeHoldoutPct       Key = "authoritative_upgrade_holdout_pct"
+	KeyAuthoritativeUpgradeVotes            Key = "authoritative_upgrade_votes"
 	KeyAuthoritativeDowngradeGate           Key = "authoritative_downgrade_gate"
 	KeyHMMDowngradeHysteresisTurns          Key = "hmm_downgrade_hysteresis_turns"
 	KeyHMMDowngradeHysteresisShadowTurns    Key = "hmm_downgrade_hysteresis_shadow_turns"
@@ -101,7 +126,7 @@ type Definition struct {
 // RegistryVersion changes whenever Registry's membership changes. Publish uses
 // it to make pruning safe during rolling deploys: a revision with an older
 // registry version may not delete definitions published by a newer revision.
-const RegistryVersion = 17
+const RegistryVersion = 18
 
 // Registry is the curated allowlist of flags that may carry a per-organization
 // override. It is deliberately explicit rather than derived from the env var
@@ -208,6 +233,27 @@ var Registry = []Definition{
 		EnvVar:         "ROUTER_AUTHORITATIVE_UPGRADE_GATE",
 		Kind:           KindBool,
 		Description:    "Keep the confidence floor active for authoritative-per-turn policies.",
+		OrgOverridable: true,
+	},
+	{
+		Key:            KeyAuthoritativeUpgradePolicy,
+		EnvVar:         "ROUTER_AUTHORITATIVE_UPGRADE_POLICY",
+		Kind:           KindString,
+		Description:    "Authoritative upgrade policy: score (default 0.85 floor), evidence (composite interim policy), or off (verbatim fresh policy).",
+		OrgOverridable: true,
+	},
+	{
+		Key:            KeyAuthoritativeUpgradeHoldoutPct,
+		EnvVar:         "ROUTER_AUTHORITATIVE_UPGRADE_HOLDOUT_PCT",
+		Kind:           KindInt,
+		Description:    "Percent of sessions that stay on the score gate while evidence mode is on. Session-sticky. 0-100.",
+		OrgOverridable: true,
+	},
+	{
+		Key:            KeyAuthoritativeUpgradeVotes,
+		EnvVar:         "ROUTER_AUTHORITATIVE_UPGRADE_VOTES",
+		Kind:           KindInt,
+		Description:    "Consecutive same-group expensive upgrade votes required before evidence mode switches. 0 disables vote hysteresis.",
 		OrgOverridable: true,
 	},
 	{
@@ -440,10 +486,13 @@ func ValidateOverrides(o Overrides) error {
 		if err := check(key, KindInt); err != nil {
 			return err
 		}
-		if key == KeyLoopEscalationHoldoutPct || key == KeyStruggleEscalationHoldout {
+		if key == KeyLoopEscalationHoldoutPct || key == KeyStruggleEscalationHoldout || key == KeyAuthoritativeUpgradeHoldoutPct {
 			if value < 0 || value > 100 {
 				return fmt.Errorf("%w: %q must be between 0 and 100, got %d", ErrInvalidValue, key, value)
 			}
+		}
+		if key == KeyAuthoritativeUpgradeVotes && value < 0 {
+			return fmt.Errorf("%w: %q must be nonnegative, got %d", ErrInvalidValue, key, value)
 		}
 	}
 	for key := range o.Floats {
@@ -457,6 +506,13 @@ func ValidateOverrides(o Overrides) error {
 		}
 		if key == KeyCyberRefusalFallback && strings.TrimSpace(value) == "" {
 			return fmt.Errorf("%w: %q cannot be empty", ErrInvalidValue, key)
+		}
+		if key == KeyAuthoritativeUpgradePolicy {
+			switch AuthoritativeUpgradePolicy(value) {
+			case AuthoritativeUpgradePolicyScore, AuthoritativeUpgradePolicyEvidence, AuthoritativeUpgradePolicyOff:
+			default:
+				return fmt.Errorf("%w: %q must be score, evidence, or off, got %q", ErrInvalidValue, key, value)
+			}
 		}
 	}
 	return nil

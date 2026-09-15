@@ -428,6 +428,28 @@ If the cluster scorer can't run (missing model, embed timeout, etc.), the
 router returns HTTP 503 — it does *not* silently fall back to a default
 model. Failures are loud by design.
 
+### Authoritative upgrade evidence policy
+
+Authoritative HMM turns evaluate a typed evidence policy for expensive fresh
+models. The deployment default is `score` (today's 0.85 confidence floor).
+Set `ROUTER_AUTHORITATIVE_UPGRADE_POLICY=evidence` (or the installation override
+`authoritative_upgrade_policy`) to serve that policy. `off` serves the fresh
+HMM pick without the 0.85 floor.
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `ROUTER_AUTHORITATIVE_UPGRADE_POLICY` | `score` | `score`, `evidence`, or `off`. Installation override wins. |
+| `ROUTER_AUTHORITATIVE_UPGRADE_HOLDOUT_PCT` | `0` | Session-sticky share that stays on `score` while evidence is on. 0-100. |
+| `ROUTER_AUTHORITATIVE_UPGRADE_VOTES` | `3` | Consecutive same-group expensive votes required before evidence switches. `0` disables vote hysteresis. |
+| `ROUTER_AUTHORITATIVE_UPGRADE_SHADOW_MARGIN` | unset | Top-1 minus top-2 classifier margin threshold in `[0,1]`. Unset falls back to the score gate for margin-needed cases. |
+| `ROUTER_AUTHORITATIVE_UPGRADE_SHADOW_STALE_AFTER` | unset | Pin-age cutoff as a Go duration. Unset or `0s` disables the stale-pin rule. |
+| `ROUTER_AUTHORITATIVE_UPGRADE_GATE` | `true` | Existing 0.85 floor kill switch, used when policy is `score` or evidence falls back to existing policy. |
+
+Invalid policy, holdout, margin, or duration values fail startup. Force/hard
+pins, utility turns, deadline fallbacks, and active escalation floors still win.
+A content-free `authoritative upgrade evidence` log records mode, applied,
+holdout, outcome, reason, margin, votes, and served model.
+
 ## Plan-aware subscription routing
 
 `subscription_plan_aware_routing_enabled` is an organization-only boolean in

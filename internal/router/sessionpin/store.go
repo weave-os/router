@@ -92,6 +92,10 @@ type Pin struct {
 	// Upsert takes the incoming value: the turn loop derives it from the pin it
 	// read at the start of the turn.
 	ConsecutiveDowngradeVotes int
+	// ConsecutiveUpgradeVotes counts consecutive expensive same-group HMM
+	// upgrade proposals that the evidence policy held. Upsert takes the
+	// incoming value, matching ConsecutiveDowngradeVotes.
+	ConsecutiveUpgradeVotes int
 	// DisabledProviders are providers struck out for this pin's session
 	// after repeated 529 exhaustion (see DisableProvider). Only grows for
 	// the life of the row; Upsert never touches it.

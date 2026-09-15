@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"weave-os/router/internal/flags"
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/observability/apm"
@@ -163,6 +164,10 @@ func (s *Service) plannerTokensFor(env *translate.RequestEnvelope, feats transla
 // honoured x-weave-policy-pin, bypassing every session short-circuit.
 const policyPinTier = "policy_pin"
 
+type pinTier string
+
+const pinTierAuthoritativeUpgradeEvidence pinTier = "authoritative_upgrade_evidence"
+
 // turnLoopResult bundles the routing decision and pin/planner state.
 type turnLoopResult struct {
 	EscalationShadowMarked bool
@@ -282,6 +287,8 @@ type turnLoopResult struct {
 	// AuthorityShadow is the counterfactual HMM cache-gate verdict on an
 	// authoritative-per-turn turn. Observation only: it never touches Decision.
 	AuthorityShadow authorityCacheShadow
+	// UpgradeShadow is quality evidence, independent of the cache-EV counterfactual.
+	UpgradeShadow *authoritativeUpgradeDecision
 	// DowngradeShadow records, on a served authoritative-per-turn downgrade,
 	// whether the off-by-default downgrade guards would have held the pin.
 	// Observation only: it never touches Decision.
@@ -675,6 +682,9 @@ func (s *Service) runTurnLoop(
 	defer func() {
 		if routeErr == nil {
 			routeErr = policyPinServed(ctx, res)
+			if routeErr == nil {
+				logAuthoritativeUpgrade(ctx, res)
+			}
 		}
 	}()
 	log := observability.FromContext(ctx)
@@ -1649,16 +1659,40 @@ func (s *Service) runTurnLoop(
 				activePin = pin
 			}
 			plannerTokens := s.plannerTokensFor(env, feats)
+			res.UpgradeShadow = s.authoritativeUpgradeFor(ctx, req, activePin, fresh, res, plannerTokens)
 			res.AuthorityShadow = s.authorityCacheShadowFor(
 				ctx, req, activePin, hmmHistory, fresh, plannerTokens, prefixBroken,
 			)
 			s.logAuthorityCacheShadow(ctx, res)
+			if s.evidenceUpgradeApplies(ctx, res.SessionKey) && res.UpgradeShadow != nil {
+				res.UpgradeShadow.Applied = true
+				switch res.UpgradeShadow.Verdict.Outcome {
+				case upgradeAllow:
+					// Fall through to serve the fresh model; the 0.85 score floor does not run.
+				case upgradeHold:
+					decision := pinDecision(pin)
+					res.Decision = decision
+					res.StickyHit = true
+					res.PinTier = string(pinTierAuthoritativeUpgradeEvidence)
+					votes := *res.UpgradeShadow.Evidence.VoteCount
+					log.Info("turnloop held authoritative upgrade on evidence; keeping session pin",
+						"pin_model", pin.Model,
+						"fresh_model", fresh.Model,
+						"reason", res.UpgradeShadow.Verdict.Reason,
+						"upgrade_votes", votes,
+					)
+					s.refreshPinVotes(ctx, installationID, res.SessionKey, pin, res.PinRole, decision, 0, votes)
+					return res, nil
+				}
+			}
 			// Upgrade-confidence guard: authoritative selection bypasses the HMM
 			// cost gate, but the escalation floor still applies. A scored fresh
 			// decision that costs more than the pinned model only wins at
 			// confidence >= threshold; below it the session stays on its pin.
 			// Unscored decisions, downgrades, and unpinned turns pass through.
-			if s.ResolveAuthoritativeUpgradeGate(ctx) && pinFound && pin.Model != "" && pin.Model != fresh.Model &&
+			evidenceServedFresh := s.evidenceUpgradeApplies(ctx, res.SessionKey) && res.UpgradeShadow != nil && res.UpgradeShadow.Verdict.Outcome == upgradeAllow
+			upgradeGateActive := s.ResolveAuthoritativeUpgradeGate(ctx) && s.resolveUpgradePolicyMode(ctx) != flags.AuthoritativeUpgradePolicyOff && !evidenceServedFresh
+			if upgradeGateActive && pinFound && pin.Model != "" && pin.Model != fresh.Model &&
 				hmmFreshIsMoreExpensive(pin.Model, fresh.Model, plannerTokens, req.SubsidizedModelCostFactor) {
 				if confidence, ok := hmmDecisionConfidence(fresh); ok && confidence < s.hmmUpgradeConfidenceThreshold {
 					decision := pinDecision(pin)
@@ -2475,14 +2509,14 @@ func buildPolicyTurnContext(
 // usage forward so the planner has evidence before the next UpdateUsage
 // writeback lands.
 func (s *Service) refreshPin(ctx context.Context, installationID uuid.UUID, sessionKey [sessionpin.SessionKeyLen]byte, existing sessionpin.Pin, role string, chosen router.Decision) {
-	s.refreshPinDowngradeVotes(ctx, installationID, sessionKey, existing, role, chosen, 0)
+	s.refreshPinVotes(ctx, installationID, sessionKey, existing, role, chosen, 0, 0)
 }
 
-// refreshPinDowngradeVotes refreshes the pin and persists the run of
-// consecutive cheaper-than-pin authoritative votes behind it. Only the
-// authoritative downgrade guards carry a non-zero count; every other pin write
-// ends such a run and stores zero.
 func (s *Service) refreshPinDowngradeVotes(ctx context.Context, installationID uuid.UUID, sessionKey [sessionpin.SessionKeyLen]byte, existing sessionpin.Pin, role string, chosen router.Decision, downgradeVotes int) {
+	s.refreshPinVotes(ctx, installationID, sessionKey, existing, role, chosen, downgradeVotes, 0)
+}
+
+func (s *Service) refreshPinVotes(ctx context.Context, installationID uuid.UUID, sessionKey [sessionpin.SessionKeyLen]byte, existing sessionpin.Pin, role string, chosen router.Decision, downgradeVotes, upgradeVotes int) {
 	if installationID == uuid.Nil {
 		return
 	}
@@ -2517,6 +2551,7 @@ func (s *Service) refreshPinDowngradeVotes(ctx context.Context, installationID u
 		LastServedModel:       existing.LastServedModel,
 
 		ConsecutiveDowngradeVotes: downgradeVotes,
+		ConsecutiveUpgradeVotes:   upgradeVotes,
 	}
 	s.upsertPin(ctx, p)
 }

@@ -179,7 +179,11 @@ type Service struct {
 	planner planner.EVConfig
 	// hmmUpgradeConfidenceThreshold is the minimum classifier confidence needed
 	// for HMM to switch upward to a more expensive model despite cache inertia.
-	hmmUpgradeConfidenceThreshold float64
+	hmmUpgradeConfidenceThreshold  float64
+	authoritativeUpgradeConfig     AuthoritativeUpgradeConfig
+	authoritativeUpgradePolicy     flags.AuthoritativeUpgradePolicy
+	authoritativeUpgradeHoldoutPct int
+	authoritativeUpgradeVotes      int
 	// hmmSameTierPin suppresses EV-positive same-tier lateral switches once a
 	// session pin is live. Env ROUTER_HMM_SAME_TIER_PIN, off by default.
 	hmmSameTierPin bool
@@ -1537,6 +1541,8 @@ func NewService(r router.Router, providerMap map[string]providers.Client, emitte
 		},
 		hmmUpgradeConfidenceThreshold:  defaultHMMUpgradeConfidenceThreshold,
 		authoritativeUpgradeGate:       true,
+		authoritativeUpgradePolicy:     flags.AuthoritativeUpgradePolicyScore,
+		authoritativeUpgradeVotes:      3,
 		authorityCacheShadow:           true,
 		plannerEnabled:                 true,
 		scoreToolResultTurns:           true,
@@ -1724,6 +1730,34 @@ func (s *Service) WithHMMSameTierPin(enabled bool) *Service {
 // decisions. On by default; disabling restores verbatim policy selection.
 func (s *Service) WithAuthoritativeUpgradeGate(enabled bool) *Service {
 	s.authoritativeUpgradeGate = enabled
+	return s
+}
+
+// WithAuthoritativeUpgradePolicy sets ROUTER_AUTHORITATIVE_UPGRADE_POLICY.
+// score keeps the 0.85 floor, evidence applies the composite gate, off serves the fresh policy.
+func (s *Service) WithAuthoritativeUpgradePolicy(mode flags.AuthoritativeUpgradePolicy) *Service {
+	s.authoritativeUpgradePolicy = mode
+	return s
+}
+
+// WithAuthoritativeUpgradeHoldoutPct sets the session-sticky control share for evidence mode.
+func (s *Service) WithAuthoritativeUpgradeHoldoutPct(pct int) *Service {
+	if pct < 0 {
+		pct = 0
+	}
+	if pct > 100 {
+		pct = 100
+	}
+	s.authoritativeUpgradeHoldoutPct = pct
+	return s
+}
+
+// WithAuthoritativeUpgradeVotes sets consecutive same-group votes required before an evidence upgrade.
+func (s *Service) WithAuthoritativeUpgradeVotes(votes int) *Service {
+	if votes < 0 {
+		votes = 0
+	}
+	s.authoritativeUpgradeVotes = votes
 	return s
 }
 

@@ -64,7 +64,9 @@ type observationContext struct {
 	// FreshDecisionModel is the scorer's fresh pick this turn, captured even on
 	// STAY (decision_model then names the pinned model served instead). Empty if
 	// the scorer didn't run. Shadow instrumentation for the hysteresis downgrade lever.
-	FreshDecisionModel string
+	FreshDecisionModel    string
+	FreshClassifierMargin *float64
+	FreshPolicyGroup      string
 	// FreshCandidateScores is the fresh scorer's score vector, JSON-marshaled,
 	// captured even on STAY — unlike CandidateScores, which mirrors the final
 	// decision and is NULL on STAY. nil if the scorer didn't run or exposed none.
@@ -94,6 +96,10 @@ func buildObservationContext(ctx context.Context, decision, fresh router.Decisio
 	// pin, no metadata) still record what a re-score would have picked.
 	if fresh.Model != "" {
 		obs.FreshDecisionModel = fresh.Model
+	}
+	if fresh.Metadata != nil {
+		obs.FreshClassifierMargin = fresh.Metadata.ClassifierMargin
+		obs.FreshPolicyGroup = fresh.Metadata.PolicyGroup
 	}
 	if md := fresh.Metadata; md != nil && len(md.CandidateScores) > 0 {
 		if b, err := json.Marshal(md.CandidateScores); err == nil {
@@ -238,6 +244,12 @@ func buildObservationContext(ctx context.Context, decision, fresh router.Decisio
 
 // applySpanAttrs records routing fields on an OTel AttrBuilder.
 func (o observationContext) applySpanAttrs(b *otel.AttrBuilder) {
+	if o.FreshClassifierMargin != nil {
+		b.Float64("routing.fresh_classifier_margin", *o.FreshClassifierMargin)
+	}
+	if o.FreshPolicyGroup != "" {
+		b.String("routing.fresh_policy_group", o.FreshPolicyGroup)
+	}
 	if len(o.ClusterIDs) > 0 {
 		// Widen int32 → int for AttrBuilder.IntSlice.
 		ids := make([]int, len(o.ClusterIDs))

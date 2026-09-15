@@ -337,6 +337,9 @@ type RoutingMetadata struct {
 	ClassifierPredictedLabel string
 	ClassifierClassOrder     []string
 	ClassifierProbabilities  map[string]float64
+	// ClassifierMargin is the fresh top-1 minus top-2 class probability gap.
+	// Nil means unreported; never persist it into a replayed session pin.
+	ClassifierMargin         *float64
 	SelectionPolicyReleaseID string
 	SelectionPolicySHA256    string
 	SelectionHeadGeneration  int64

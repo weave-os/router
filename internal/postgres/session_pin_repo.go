@@ -74,6 +74,7 @@ func (r *SessionPinRepo) Upsert(ctx context.Context, p sessionpin.Pin) error {
 		TurnCount:                 int32(p.TurnCount),
 		PinnedUntil:               pgtype.Timestamp{Time: p.PinnedUntil.UTC(), Valid: true},
 		ConsecutiveDowngradeVotes: int32(p.ConsecutiveDowngradeVotes),
+		ConsecutiveUpgradeVotes:   int32(p.ConsecutiveUpgradeVotes),
 	})
 }
 
@@ -224,6 +225,7 @@ func toSessionPin(row sqlc.RouterSessionPin) sessionpin.Pin {
 		ConsecutiveUpstreamErrors: int(row.ConsecutiveUpstreamErrors),
 		ConsecutiveOverloadErrors: int(row.ConsecutiveOverloadErrors),
 		ConsecutiveDowngradeVotes: int(row.ConsecutiveDowngradeVotes),
+		ConsecutiveUpgradeVotes:   int(row.ConsecutiveUpgradeVotes),
 		DisabledProviders:         row.DisabledProviders,
 		DemotedModels:             row.DemotedModels,
 	}

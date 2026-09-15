@@ -57,7 +57,7 @@ RETURNING *;
 -- pinned_effort always takes the incoming value: it belongs to the pinned
 -- model, so a rewrite that carries no level intentionally clears it.
 --
--- consecutive_downgrade_votes also takes the incoming value: unlike the error
+-- consecutive_downgrade_votes and consecutive_upgrade_votes also take the incoming value: unlike the error
 -- counters above it is computed by the turn loop from the pin it just read,
 -- which knows whether this turn confirmed, upgraded, or held the pin.
 -- name: UpsertSessionPin :exec
@@ -65,14 +65,15 @@ INSERT INTO router.session_pins (
   session_key, role, installation_id, pinned_provider,
   pinned_model, pinned_effort, paired_provider, paired_model,
   decision_reason, routing_strategy, policy_group, turn_count, pinned_until,
-  consecutive_downgrade_votes
+  consecutive_downgrade_votes, consecutive_upgrade_votes
 ) VALUES (
   @session_key::bytea, @role::varchar, @installation_id::uuid,
   @pinned_provider::varchar, @pinned_model::varchar, @pinned_effort::varchar,
   @paired_provider::varchar, @paired_model::varchar,
   @decision_reason::text, @routing_strategy::varchar, @policy_group::varchar,
   @turn_count::int, @pinned_until::timestamp,
-  @consecutive_downgrade_votes::int
+  @consecutive_downgrade_votes::int,
+  @consecutive_upgrade_votes::int
 )
 ON CONFLICT (session_key, role) DO UPDATE SET
   pinned_provider = EXCLUDED.pinned_provider,
@@ -138,6 +139,7 @@ ON CONFLICT (session_key, role) DO UPDATE SET
     ELSE 0
   END,
   consecutive_downgrade_votes = EXCLUDED.consecutive_downgrade_votes,
+  consecutive_upgrade_votes = EXCLUDED.consecutive_upgrade_votes,
   -- A strategy switch selects a different policy. Do not carry cache,
   -- switch, output-limit, or error evidence from the previous policy into it.
   last_input_tokens = CASE

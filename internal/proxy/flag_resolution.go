@@ -88,6 +88,22 @@ func (s *Service) ResolveAuthoritativeUpgradeGate(ctx context.Context) bool {
 	return flags.BoolOr(ctx, flags.KeyAuthoritativeUpgradeGate, s.authoritativeUpgradeGate)
 }
 
+func (s *Service) ResolveAuthoritativeUpgradePolicy(ctx context.Context) flags.AuthoritativeUpgradePolicy {
+	defaultPolicy := s.authoritativeUpgradePolicy
+	if defaultPolicy == "" {
+		defaultPolicy = flags.AuthoritativeUpgradePolicyScore
+	}
+	return flags.AuthoritativeUpgradePolicy(flags.StringOr(ctx, flags.KeyAuthoritativeUpgradePolicy, string(defaultPolicy)))
+}
+
+func (s *Service) ResolveAuthoritativeUpgradeHoldoutPct(ctx context.Context) int {
+	return flags.IntOr(ctx, flags.KeyAuthoritativeUpgradeHoldoutPct, s.authoritativeUpgradeHoldoutPct)
+}
+
+func (s *Service) ResolveAuthoritativeUpgradeVotes(ctx context.Context) int {
+	return flags.IntOr(ctx, flags.KeyAuthoritativeUpgradeVotes, s.authoritativeUpgradeVotes)
+}
+
 // ResolveAuthoritativeDowngradeGate reports whether the confidence floor also
 // applies to authoritative-per-turn downgrades.
 func (s *Service) ResolveAuthoritativeDowngradeGate(ctx context.Context) bool {

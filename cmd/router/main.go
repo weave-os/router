@@ -785,10 +785,27 @@ func main() {
 	}
 	prefixTrimFreeSwitch := config.GetOr("ROUTER_PREFIX_TRIM_FREE_SWITCH", "true") == "true"
 	hmmUpgradeConfidence := parseEnvFloat("ROUTER_HMM_UPGRADE_CONFIDENCE_THRESHOLD", 0.85)
+	upgradeConfig, err := authoritativeUpgradeConfigFromEnv()
+	if err != nil {
+		logger.Error("Invalid authoritative upgrade shadow configuration; refusing to boot", "err", err)
+		panic(err)
+	}
 	hmmSameTierPin := config.GetOr("ROUTER_HMM_SAME_TIER_PIN", "false") == "true"
 	// authoritativeUpgradeGate keeps the 0.85 escalation floor active for authoritative-per-turn
 	// policies; kill switch for a return to verbatim policy selection.
 	authoritativeUpgradeGate := config.GetOr("ROUTER_AUTHORITATIVE_UPGRADE_GATE", "true") == "true"
+	authoritativeUpgradePolicy := config.GetOr("ROUTER_AUTHORITATIVE_UPGRADE_POLICY", string(flags.AuthoritativeUpgradePolicyScore))
+	parsedUpgradePolicy, err := flags.ParseAuthoritativeUpgradePolicy(authoritativeUpgradePolicy)
+	if err != nil {
+		logger.Error("Invalid ROUTER_AUTHORITATIVE_UPGRADE_POLICY; refusing to boot", "err", err)
+		panic(err)
+	}
+	authoritativeUpgradeHoldoutPct := parseEnvNonNegativeInt("ROUTER_AUTHORITATIVE_UPGRADE_HOLDOUT_PCT", 0)
+	if authoritativeUpgradeHoldoutPct > 100 {
+		logger.Error("ROUTER_AUTHORITATIVE_UPGRADE_HOLDOUT_PCT must be 0-100; refusing to boot", "value", authoritativeUpgradeHoldoutPct)
+		panic("invalid ROUTER_AUTHORITATIVE_UPGRADE_HOLDOUT_PCT")
+	}
+	authoritativeUpgradeVotes := parseEnvNonNegativeInt("ROUTER_AUTHORITATIVE_UPGRADE_VOTES", 3)
 	// authoritativeDowngradeGate mirrors the floor for cheaper-than-pin picks; off by default.
 	authoritativeDowngradeGate := config.GetOr("ROUTER_AUTHORITATIVE_DOWNGRADE_GATE", "false") == "true"
 	// hmmDowngradeHysteresisTurns requires N consecutive cheaper-than-pin authoritative
@@ -1104,6 +1121,9 @@ func main() {
 		flags.KeyScoreToolResultTurns:                 boolDefault(scoreToolResultTurns),
 		flags.KeyPrefixTrimFreeSwitch:                 boolDefault(prefixTrimFreeSwitch),
 		flags.KeyAuthoritativeUpgradeGate:             boolDefault(authoritativeUpgradeGate),
+		flags.KeyAuthoritativeUpgradePolicy:           string(parsedUpgradePolicy),
+		flags.KeyAuthoritativeUpgradeHoldoutPct:       strconv.Itoa(authoritativeUpgradeHoldoutPct),
+		flags.KeyAuthoritativeUpgradeVotes:            strconv.Itoa(authoritativeUpgradeVotes),
 		flags.KeyAuthoritativeDowngradeGate:           boolDefault(authoritativeDowngradeGate),
 		flags.KeyHMMDowngradeHysteresisTurns:          strconv.Itoa(hmmDowngradeHysteresisTurns),
 		flags.KeyHMMDowngradeHysteresisShadowTurns:    strconv.Itoa(hmmDowngradeHysteresisShadowTurns),
@@ -1176,8 +1196,12 @@ func main() {
 		WithSSEKeepalive(sseKeepalive).
 		WithPrefixTrimFreeSwitch(prefixTrimFreeSwitch).
 		WithHMMUpgradeConfidenceThreshold(hmmUpgradeConfidence).
+		WithAuthoritativeUpgradeConfig(upgradeConfig).
 		WithHMMSameTierPin(hmmSameTierPin).
 		WithAuthoritativeUpgradeGate(authoritativeUpgradeGate).
+		WithAuthoritativeUpgradePolicy(parsedUpgradePolicy).
+		WithAuthoritativeUpgradeHoldoutPct(authoritativeUpgradeHoldoutPct).
+		WithAuthoritativeUpgradeVotes(authoritativeUpgradeVotes).
 		WithAuthoritativeDowngradeGate(authoritativeDowngradeGate).
 		WithHMMDowngradeHysteresisTurns(hmmDowngradeHysteresisTurns).
 		WithHMMDowngradeHysteresisShadowTurns(hmmDowngradeHysteresisShadowTurns).
