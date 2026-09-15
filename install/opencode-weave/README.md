@@ -70,10 +70,66 @@ headless device code) and/or **Weave Router — Claude plan** → *Claude Pro/Ma
 
 ## Verification
 
-`bun test test/` (run under bun, opencode's own runtime) covers: dual-sub
-injection via the dedicated headers with the router key preserved and
-`Authorization` left clean; independent Claude-only and ChatGPT-only routing;
-refresh failure isolation; expiry-skew refresh + persistence; the loader
-staying inert without oauth; and the Claude login hook's canonical OAuth flow
-+ `code#state` exchange. Typechecks under `strict` against
-`@opencode-ai/plugin`.
+The required CI contract pins **OpenCode and `@opencode-ai/plugin` 1.18.27**.
+The CLI install reads that pin from `package.json`; the direct Responses tests
+use **`@ai-sdk/openai` 3.0.84**, matching the
+[pinned OpenCode dependencies](https://github.com/anomalyco/opencode/blob/v1.18.27/packages/opencode/package.json).
+Neither required dependency floats. The separate weekly/manual
+[latest compatibility workflow](../../.github/workflows/opencode_latest.yml)
+is not a merge gate.
+
+From the router repository root (Node, Bun, Python 3.11+, and jq required):
+
+```bash
+npm ci --prefix install/opencode-weave --ignore-scripts
+npm run --prefix install/opencode-weave typecheck
+bun test install/opencode-weave/test/
+make test-install
+npm install --global opencode-ai@1.18.27
+bash install/pi-router/test/opencode_smoke.sh
+go test ./internal/proxy ./internal/translate -count=1
+```
+
+`OPENCODE_BIN` selects an already-installed CLI. To explicitly test another
+version, set `OPENCODE_EXPECTED_VERSION` to its exact version; the smoke otherwise
+rejects anything other than the supported pin. The driver gives each command
+60 seconds, kills its process group on timeout, limits mock requests per session,
+and isolates HOME, XDG directories, provider selection, and credentials. Package
+bootstrap may use the network; inference and OAuth tests never use real credentials
+or real providers.
+
+| Layer | Contract |
+|---|---|
+| Bun plugin tests | All four subscription combinations; expiry, refresh failure isolation, late login; header/session continuity; no secrets logged |
+| Pinned Responses SDK fixtures | Streaming and non-streaming text/usage, two tool calls, upstream errors, malformed/unknown events, truncated streams, absent usage |
+| Installed real CLI | Exact `/v1/responses`, `auto`, `X-App`, router key, nonempty session IDs, parsed text, usage, completion, two executed tools and matching tool results |
+| Real lifecycle hooks | Main `build`, title `title`, task child `explore`, and automatic `compaction` followed by resumed `build`; parent/child session boundaries |
+| Real plugin loader | Both providers' OAuth methods visible through `opencode serve` → `/provider/auth`, even without an OAuth store |
+| Installer/package | Install/toggle/uninstall, packed npm `--opencode` entrypoint; existing Claude/Codex/Pi installer coverage |
+| Go proxy/translation | Native and translated Responses history hygiene, actionable tool-output commands, Codex feedback-skill preservation, wire lifecycle and usage |
+
+The lifecycle observer is a **test-only** `chat.headers` hook recording OpenCode's
+actual `input.agent`, not a prompt heuristic or a router-policy change. A synthetic
+high-usage response triggers automatic compaction without a huge prompt. Title
+generation uses the configured local `small_model`; task execution uses the actual
+`task` tool and a child session. No separate classifier/probe invocation was
+observed in these headless flows. Tool-less SDK fixtures cover that wire shape
+without claiming a classifier fingerprint. Non-streaming requests are direct SDK
+fixtures: the tested CLI flows use streaming.
+
+The pinned SDK silently ignores an ill-shaped known event, treats an unfinished
+stream as `other`, and tolerates unknown event types. It also requires usage on a
+streaming `response.completed`: missing usage produces `other` rather than `stop`
+(and can cause CLI continuation), while non-streaming missing usage remains
+unknown token counts. These are explicit compatibility observations, **not** claims
+of clean failure or successful completion. The normal CLI cases require both a
+successful terminal event and exact usage, so removing completion/usage fails them.
+
+The plugin intentionally uses the
+[legacy all-export loader](https://github.com/anomalyco/opencode/blob/v1.18.27/packages/opencode/src/plugin/index.ts):
+all exported values are plugin functions, `default === WeaveCodex` is deduplicated,
+and `WeaveClaude` registers separately. Converting the default to a V1 plugin
+object would bypass those named exports; the loader tests guard against that.
+See the current [CLI](https://opencode.ai/docs/cli/),
+[plugin](https://opencode.ai/docs/plugins/), and
+[server](https://opencode.ai/docs/server/) references when updating the pin.

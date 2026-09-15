@@ -39,6 +39,8 @@ import sys
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+from responses_fixture import Scenario, responses_fixture
+
 PORT = int(os.environ.get("MOCK_PORT", "8899"))
 LOG_PATH = os.environ.get("MOCK_LOG", os.path.join(os.getcwd(), "requests.jsonl"))
 MAIN_MODEL = os.environ.get("MOCK_MAIN_MODEL", "claude-opus-4-8")
@@ -65,6 +67,7 @@ DISPATCH_TASKS = [
 _log_lock = threading.Lock()
 _pin_lock = threading.Lock()
 _forced_models: dict[str, str] = {}
+_responses_requests: dict[str, int] = {}
 
 FORCE_MODEL_ALIASES = {
     "haiku": "claude-haiku-4-5",
@@ -282,104 +285,44 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 body = json.loads(raw or b"{}")
             except json.JSONDecodeError:
-                body = {}
-            app = self.headers.get("x-app") or "opencode"
-            stream = bool(body.get("stream"))
-            log_request(
-                {
-                    "method": "POST",
-                    "path": path,
-                    "rejected": False,
-                    "app": app,
-                    "model": body.get("model"),
-                    "stream": stream,
-                    "served": "responses_text",
-                }
-            )
-            item = {
-                "id": "msg_mock",
-                "type": "message",
-                "status": "completed",
-                "role": "assistant",
-                "content": [
-                    {
-                        "type": "output_text",
-                        "text": "OPENCODE_OK",
-                        "annotations": [],
-                    }
-                ],
-            }
-            response = {
-                "id": "resp_mock",
-                "object": "response",
-                "status": "completed",
-                "model": MAIN_MODEL,
-                "output": [item],
-                "usage": {"input_tokens": 12, "output_tokens": 8, "total_tokens": 20},
-            }
-            if stream:
-                events = [
-                    (
-                        "response.created",
-                        {
-                            "type": "response.created",
-                            "sequence_number": 0,
-                            "response": {
-                                **response,
-                                "status": "in_progress",
-                                "output": [],
-                            },
-                        },
-                    ),
-                    (
-                        "response.output_item.added",
-                        {
-                            "type": "response.output_item.added",
-                            "sequence_number": 1,
-                            "output_index": 0,
-                            "item": {**item, "status": "in_progress", "content": []},
-                        },
-                    ),
-                    (
-                        "response.output_text.delta",
-                        {
-                            "type": "response.output_text.delta",
-                            "sequence_number": 2,
-                            "item_id": "msg_mock",
-                            "output_index": 0,
-                            "content_index": 0,
-                            "delta": "OPENCODE_OK",
-                        },
-                    ),
-                    (
-                        "response.output_text.done",
-                        {
-                            "type": "response.output_text.done",
-                            "sequence_number": 3,
-                            "item_id": "msg_mock",
-                            "output_index": 0,
-                            "content_index": 0,
-                            "text": "OPENCODE_OK",
-                        },
-                    ),
-                    (
-                        "response.output_item.done",
-                        {
-                            "type": "response.output_item.done",
-                            "sequence_number": 4,
-                            "output_index": 0,
-                            "item": item,
-                        },
-                    ),
-                    (
-                        "response.completed",
-                        {
-                            "type": "response.completed",
-                            "sequence_number": 5,
-                            "response": response,
-                        },
-                    ),
-                ]
+                log_request({"method": "POST", "path": path, "rejected": True})
+                self._send_json(400, {"error": {"message": "invalid JSON"}})
+                return
+            scenario_name = self.headers.get("x-conformance-scenario") or Scenario.TEXT
+            try:
+                scenario = Scenario(scenario_name)
+            except ValueError:
+                log_request({"method": "POST", "path": path, "rejected": True})
+                self._send_json(400, {"error": {"message": "unknown conformance scenario"}})
+                return
+            agent = self.headers.get("x-conformance-agent", "")
+            inputs = body.get("input") or []
+            tool_outputs = [item for item in inputs if isinstance(item, dict)
+                            and item.get("type") == "function_call_output"]
+            key = self.headers.get("x-weave-router-key") or ""
+            log_request({
+                "method": "POST", "path": path, "rejected": False,
+                "app": self.headers.get("x-app"), "model": body.get("model"),
+                "stream": bool(body.get("stream")), "served": scenario.value,
+                "agent": agent, "session_id": self.headers.get("session-id"),
+                "key_present": bool(key), "key_suffix": key[-4:],
+                "input": inputs, "tool_outputs": tool_outputs,
+            })
+            session_id = self.headers.get("session-id", "")
+            with _log_lock:
+                request_count = _responses_requests.get(session_id, 0) + 1
+                _responses_requests[session_id] = request_count
+            if self.headers.get("x-conformance-scenario") and request_count > 12:
+                self._send_json(400, {"error": {"message": "Conformance request budget exceeded"}})
+                return
+            if scenario == Scenario.ERROR:
+                self._send_json(400, {"error": {"type": "invalid_request_error", "message": "MOCK_REJECTED"}})
+                return
+            fixture_scenario = scenario
+            if scenario == Scenario.COMPACTION and request_count > 1:
+                fixture_scenario = Scenario.TEXT
+            response, events = responses_fixture(fixture_scenario, agent, bool(tool_outputs))
+            if body.get("stream"):
                 self._send_sse(events, MAIN_MODEL)
             else:
                 self._send_json(200, response, {"x-router-model": MAIN_MODEL})
