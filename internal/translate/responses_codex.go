@@ -158,6 +158,7 @@ func convertPortableCodexResponses(body []byte) (ResponsesConversion, error) {
 	converter.result.Requirements.Audio, converter.result.Requirements.Files = openAIMediaRequirements(body)
 	converter.result.Requirements.CitationsOrSearch = len(nativeServerToolsFromBody(body, FormatOpenAI)) > 0
 	converter.result.Requirements.StructuredOutput = root.Get("text.format").Exists() || root.Get("response_format").Exists()
+	converter.result.Requirements.ForcedToolChoice = responsesForcedToolChoice(root)
 
 	out := make(map[string]any)
 	if model := root.Get("model").Str; model != "" {

@@ -106,6 +106,7 @@ func ConvertResponsesToChatCompletions(body []byte) (ResponsesConversion, error)
 	result.Requirements.Audio, result.Requirements.Files = openAIMediaRequirements(body)
 	result.Requirements.CitationsOrSearch = len(nativeServerToolsFromBody(body, FormatOpenAI)) > 0
 	result.Requirements.StructuredOutput = root.Get("text.format").Exists() || root.Get("response_format").Exists()
+	result.Requirements.ForcedToolChoice = responsesForcedToolChoice(root)
 	result.TitleGeneration = requestRootRequestsCodexTitle(root)
 	out := map[string]any{}
 
