@@ -546,7 +546,7 @@ func TestService_ProxyOpenAIResponses_OpenCodeStripsTerminalArtifactsBeforeTrans
 	}}
 	fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderTogether, Model: "z-ai/glm-5.1", Reason: "test"}}
 	svc := proxy.NewService(fr, map[string]providers.Client{
-		providers.ProviderTogether: provider,
+		providers.ProviderTogether:  provider,
 		providers.ProviderFireworks: provider,
 	}, nil, false, nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil)
 

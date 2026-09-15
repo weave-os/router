@@ -65,7 +65,10 @@ run_install
 jq -e --arg plugin "$managed_plugin" '.plugin | index($plugin)' "$config" >/dev/null || fail "subscription plugin was not registered"
 [ -f "$install_dir/.opencode/commands/fm.md" ] || fail "--dir commands were not installed beside the config"
 [ ! -e "$home/xdg/opencode/commands/fm.md" ] || fail "--dir install mutated global OpenCode commands"
-mode="$(stat -f '%Lp' "$config" 2>/dev/null || stat -c '%a' "$config")"
+case "$(uname -s)" in
+  Darwin) mode="$(stat -f '%Lp' "$config")" ;;
+  *) mode="$(stat -c '%a' "$config")" ;;
+esac
 [ "$mode" = "600" ] || fail "opencode.json mode is $mode, expected 600"
 
 run_toggle off
