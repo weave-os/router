@@ -85,7 +85,7 @@ function latestCompactionId(ctx: ExtensionContext): string | undefined {
 	return undefined;
 }
 
-export function registerCompaction(pi: ExtensionAPI, schedule: Schedule = (callback) => setTimeout(callback, 0)): void {
+export function registerCompaction(pi: ExtensionAPI, schedule: Schedule = (callback) => setTimeout(callback, 0), handoffPending = () => false): void {
 	let highWaterTokens = 0;
 	let lastTurnTokens = 0;
 	let repairedContinuation = false;
@@ -136,7 +136,7 @@ export function registerCompaction(pi: ExtensionAPI, schedule: Schedule = (callb
 	});
 
 	pi.on("agent_end", (_event: AgentEndEvent, ctx: ExtensionContext) => {
-		if (process.env.WEAVE_PI_AUTO_COMPACTION === "0" || compactionScheduled) return;
+		if (process.env.WEAVE_PI_AUTO_COMPACTION === "0" || compactionScheduled || handoffPending()) return;
 		const registeredWindow = ctx.model?.contextWindow ?? ctx.getContextUsage()?.contextWindow ?? 0;
 		const contextWindow = servedContextWindow ?? registeredWindow;
 		if (contextWindow <= COMPACTION_RESERVE_TOKENS) return;

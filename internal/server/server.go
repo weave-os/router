@@ -274,6 +274,7 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 	messagesMiddleware = append(messagesMiddleware, policyPinMiddleware...)
 	messagesGroup := engine.Group("", messagesMiddleware...)
 	messagesGroup.POST("/v1/messages", anthropicapi.MessagesHandler(proxySvc, authSvc))
+	messagesGroup.POST("/v1/route/handoff", anthropicapi.PrepareHandoffHandler(proxySvc, authSvc))
 
 	chatCompletionMiddleware := []gin.HandlerFunc{
 		middleware.WithTimingEntry(),

@@ -1154,6 +1154,7 @@ func main() {
 		WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyBandit, Router: banditRouter, Unavailable: bandit.ErrBanditUnavailable}).
 		WithContentCapture(captureMode, captureMaxBytes, nil).
 		WithFeedback(repo.Feedback, feedbackSigner, feedbackBaseURL).
+		WithPiHandoffSecret(config.GetOr("ROUTER_PI_HANDOFF_SECRET", "")).
 		WithByokOnly(byokOnly).
 		WithDeploymentKeyedProviders(deploymentEligible).
 		WithPassthroughEligibleProviders(passthroughEligible).

@@ -116,8 +116,9 @@ grep -q '"path":"/validate"' "$LOG" && ok "installer validated key (/validate)" 
 # id is dropped.
 tmp="$(jq '.packages += ["npm:@workweave/pi-router"]' "$PI_DIR/settings.json")"; printf '%s\n' "$tmp" >"$PI_DIR/settings.json"
 bash "$INSTALL_SH" --pi --base-url "$BASE_URL" --dir "$WORK" >>"$WORK/install.out" 2>&1 </dev/null || true
-PKGCOUNT="$(jq '[.packages[]? | select(. == "npm:@workweave/router")] | length' "$PI_DIR/settings.json")"
-[ "$PKGCOUNT" = "1" ] && ok "idempotent re-install: single @workweave/router package entry" || bad "package entry count = $PKGCOUNT (want 1)"
+PACKAGE_SOURCE="npm:${WEAVE_ROUTER_NPM_PACKAGE:-@weave-os/router}"
+PKGCOUNT="$(jq --arg source "$PACKAGE_SOURCE" '[.packages[]? | select(. == $source)] | length' "$PI_DIR/settings.json")"
+[ "$PKGCOUNT" = "1" ] && ok "idempotent re-install: single $PACKAGE_SOURCE package entry" || bad "package entry count = $PKGCOUNT (want 1)"
 [ "$(jq '[.packages[]? | select(. == "npm:@workweave/pi-router")] | length' "$PI_DIR/settings.json")" = "0" ] \
   && ok "legacy npm:@workweave/pi-router entry migrated away" || bad "legacy pi-router entry not removed"
 
@@ -133,9 +134,9 @@ phase "Phase 2 — generated pricing + savings contract"
 if with_timeout 30 env PI_CODING_AGENT_DIR="$PI_DIR" \
   pi -e "$UNIT_SUITE" --no-session --offline --model weave/claude-sonnet-4-6 \
   -p "Run the unit suite." >"$WORK/unit.out" 2>&1 </dev/null; then
-  [ "$(grep -Ec '^(✔ |ok [0-9]+ - )' "$WORK/unit.out" || true)" = "96" ] \
+  [ "$(grep -Ec '^(✔ |ok [0-9]+ - )' "$WORK/unit.out" || true)" = "104" ] \
     && ok "pricing, beta, force-model, UI, compaction, served-window, and LSP unit suite passed" \
-    || bad "unit suite did not report all 96 passes (see $WORK/unit.out)"
+    || bad "unit suite did not report all 104 passes (see $WORK/unit.out)"
 else
   bad "unit suite failed to load through pi (see $WORK/unit.out)"
 fi

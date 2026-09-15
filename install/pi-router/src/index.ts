@@ -1,15 +1,14 @@
 /**
  * @weave-os/router — route the pi coding agent through the Weave Router.
  *
- * Wiring (all on the existing router surface — no router source change beyond
- * the installer):
+ * Wiring:
  *   - provider:     register `weave` with per-process knob headers (quality on
  *                   the main loop, speed/cheap in subagents).
  *   - metadata:     stamp body.metadata.user_id for sticky sessions + subagent
  *                   detection.
  *   - Loom UI:      branded header, Wooly animation, actual route, and saved $.
  *   - safety:       block catastrophic bash (unless WEAVE_NO_SAFETY=1).
- *   - compaction:   protect long tool loops, then compact routed context.
+ *   - compaction:   protect long tool loops and compact before model escalation.
  *   - dispatch:     parallel, context-isolated subagents — top-level process
  *                   only (no grandchildren).
  *   - lsp:          code intelligence (definition/references/hover/symbols/
@@ -25,6 +24,7 @@ import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { registerBetaCommand } from "./beta.js";
 import { isSubagent } from "./config.js";
 import { registerCompaction } from "./compaction.js";
+import { registerEscalationCompaction } from "./escalation.js";
 import { registerDispatch } from "./dispatch.js";
 import { registerForceModelCommands } from "./force-model.js";
 import { registerLsp } from "./lsp.js";
@@ -46,7 +46,9 @@ export default function (pi: ExtensionAPI): void {
 	registerBetaCommand(pi);
 	registerForceModelCommands(pi);
 	registerRoutedModel(pi);
-	registerCompaction(pi);
+	let handoffPending = () => false;
+	registerCompaction(pi, undefined, () => handoffPending());
+	handoffPending = registerEscalationCompaction(pi);
 
 	if (process.env.WEAVE_NO_SAFETY !== "1") registerSafety(pi);
 

@@ -10,6 +10,7 @@ require (
 	github.com/cenkalti/backoff/v5 v5.0.3
 	github.com/dmitryikh/leaves v0.0.0-20230708180554-25d19a787328
 	github.com/gin-gonic/gin v1.10.1
+	github.com/golang-jwt/jwt/v5 v5.3.0
 	github.com/google/uuid v1.6.0
 	github.com/hashicorp/golang-lru/v2 v2.0.7
 	github.com/jackc/pgx/v5 v5.9.2
@@ -75,7 +76,6 @@ require (
 	github.com/go-playground/validator/v10 v10.26.0 // indirect
 	github.com/goccy/go-json v0.10.5 // indirect
 	github.com/gofrs/flock v0.13.0 // indirect
-	github.com/golang-jwt/jwt/v5 v5.3.0 // indirect
 	github.com/gomlx/exceptions v0.0.3 // indirect
 	github.com/gomlx/go-huggingface v0.3.5-0.20260327162928-af20e4f3e7b5 // indirect
 	github.com/gomlx/go-xla v0.2.2 // indirect

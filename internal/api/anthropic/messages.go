@@ -16,6 +16,15 @@ import (
 	"github.com/tidwall/gjson"
 )
 
+// PrepareHandoffHandler applies Messages authentication and validation before route preparation.
+func PrepareHandoffHandler(svc *proxy.Service, authSvc *auth.Service) gin.HandlerFunc {
+	messages := MessagesHandler(svc, authSvc)
+	return func(c *gin.Context) {
+		c.Request = c.Request.WithContext(proxy.WithHandoffPreparation(c.Request.Context()))
+		messages(c)
+	}
+}
+
 func MessagesHandler(svc *proxy.Service, authSvc *auth.Service) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		log := observability.FromGin(c)

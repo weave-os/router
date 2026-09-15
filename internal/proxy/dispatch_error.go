@@ -61,6 +61,7 @@ const (
 	DispatchErrorPlanOverrideRejected
 	DispatchErrorPlanUnresolvable
 	DispatchErrorPolicyPinUnavailable
+	DispatchErrorHandoff
 )
 
 // DispatchErrorClass is the format-agnostic classification of a dispatch
@@ -117,6 +118,10 @@ func ClassifyDispatchError(err error) (DispatchErrorClass, bool) {
 			LogLevel:   "error",
 			LogMessage: "Subscription account pool unavailable",
 		}, true
+	case errors.Is(err, ErrHandoffInvalid):
+		return DispatchErrorClass{Kind: DispatchErrorHandoff, Status: http.StatusConflict, Message: ErrHandoffInvalid.Error(), LogLevel: "warn", LogMessage: "Pi handoff rejected"}, true
+	case errors.Is(err, ErrHandoffUnavailable):
+		return DispatchErrorClass{Kind: DispatchErrorHandoff, Status: http.StatusServiceUnavailable, Message: ErrHandoffUnavailable.Error(), LogLevel: "warn", LogMessage: "Pi handoff unavailable"}, true
 	case errors.As(err, &forcedExcluded):
 		// Ahead of the sentinel cases so the reason reaches the caller: a bare
 		// "forced model is excluded" doesn't say which model or why.

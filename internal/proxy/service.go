@@ -405,7 +405,8 @@ type Service struct {
 	feedbackRepo FeedbackRepository
 	// feedbackSigner mints + verifies the signed feedback-link token. Nil when
 	// ROUTER_FEEDBACK_LINK_SECRET is unset; minting and verification then no-op.
-	feedbackSigner *feedback.Signer
+	feedbackSigner  *feedback.Signer
+	piHandoffSecret []byte
 	// feedbackBaseURL is the public origin of the feedback page (e.g.
 	// https://router.workweave.ai), trailing slash trimmed. Empty disables
 	// feedback-link header emission on proxied responses.
@@ -3143,7 +3144,11 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		return ErrSubscriptionPoolUnavailable
 	}
 	ctx = requestcontext.WithContentLogging(ctx, s.effectiveCaptureMode(ctx) != CaptureOff)
-	ctx, err := s.checkUserMonthlySpendLimit(ctx, r.Header, r.URL.Path)
+	ctx, body, err := s.parseHandoff(ctx, body)
+	if err != nil {
+		return err
+	}
+	ctx, err = s.checkUserMonthlySpendLimit(ctx, r.Header, r.URL.Path)
 	if err != nil {
 		return err
 	}
@@ -3232,6 +3237,12 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 
 	embedFlag := s.ResolveEmbedOnlyUserMessage(ctx)
 	feats := env.RoutingFeatures(embedFlag)
+	if err := validateHandoffEnvelope(ctx, env, r.Header, body); err != nil {
+		return err
+	}
+	if preparingHandoff(ctx) && !s.canPrepareHandoff(ctx, env, feats, r.Header, body) {
+		return writePreparedHandoff(w, preparedHandoff{Bypass: true})
+	}
 	promptText := feats.PromptText
 	embedInput := "concatenated_stream"
 	if embedFlag && feats.OnlyUserMessageText != "" {
@@ -3262,6 +3273,9 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		*r = *r.WithContext(ctx)
 	}
 	forceModelSessionKey := deriveForceModelSessionKeyForRequest(ctx, env, apiKeyID, sessionKey)
+	if preparingHandoff(ctx) && !s.authoritativePerTurnSelection(ctx) {
+		return writePreparedHandoff(w, preparedHandoff{Bypass: true})
+	}
 
 	// Handle /force-model and /unforce-model before routing (stripped from
 	// env.body so the upstream never sees it). Session key is derived before
@@ -3358,7 +3372,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 
 	// Wide cyclic re-read loop (same few files, no edits, dozens of turns) on a
 	// cheap/mid model escalates the session to opus.
-	if !agentShadowMode && !blindExperimentPassthroughActive(ctx) {
+	if !agentShadowMode && !blindExperimentPassthroughActive(ctx) && handoffFromContext(ctx) == nil {
 		if cyc, csig, ccount, cratio, cwin := detectCyclicToolCallLoop(env); cyc {
 			loopRole := roleForTier(catalog.TierFor(feats.Model))
 			s.handleLoopEscalation(ctx, csig, ccount, cratio, cwin, installationID, sessionKey, loopRole, feats.Model, forceModelSessionKey)
@@ -3379,7 +3393,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 
 	// Struggle escalation: writes a sticky pin before routing so runTurnLoop
 	// dispatches the sideways target on the same turn.
-	if !agentShadowMode && !blindExperimentPassthroughActive(ctx) && s.ResolveStruggleEscalationEnabled(ctx) && (turntype.DetectFromEnvelope(env, feats, "") == turntype.MainLoop || turntype.DetectFromEnvelope(env, feats, "") == turntype.ToolResult) {
+	if !agentShadowMode && !blindExperimentPassthroughActive(ctx) && handoffFromContext(ctx) == nil && s.ResolveStruggleEscalationEnabled(ctx) && (turntype.DetectFromEnvelope(env, feats, "") == turntype.MainLoop || turntype.DetectFromEnvelope(env, feats, "") == turntype.ToolResult) {
 		struggleRole := roleForTier(catalog.TierFor(feats.Model))
 		s.handleStruggleEscalation(ctx, installationID, sessionKey, struggleRole, inboundSpiralReasons, forceModelSessionKey)
 	}
@@ -3405,7 +3419,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	// Anthropic's native web-search server tool, when no enabled provider runs
 	// it. Served before routing: the scorer's only lever is picking a model,
 	// and for a gateway-exclusive tenant every candidate rejects the tool.
-	if s.serveNativeWebSearch(ctx, body, feats.Model, env.Stream(), feats.Tokens, enabledProviders, r.Header, w) {
+	if !preparingHandoff(ctx) && s.serveNativeWebSearch(ctx, body, feats.Model, env.Stream(), feats.Tokens, enabledProviders, r.Header, w) {
 		return nil
 	}
 
@@ -3431,7 +3445,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	// scorer with no eligible provider. Mutates env; feats is recomputed after.
 	maxEligibleWindow := s.maxEligibleContextWindow(baseExcluded, enabledProviders, env.SignatureTokenSavings())
 	var compRes compactionResult
-	if !agentShadowMode {
+	if !agentShadowMode && !preparingHandoff(ctx) && handoffFromContext(ctx) == nil {
 		var compErr error
 		compRes, compErr = s.maybeCompact(ctx, env, compactionInput{
 			TurnType:      turntype.DetectFromEnvelope(env, feats, ""),
@@ -3522,20 +3536,27 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	var routeRes turnLoopResult
 	var routeErr error
 	routeCtx, routeSpan := startRoutingSpan(ctx, req)
-	if agentShadowMode {
+	if handoffFromContext(ctx) != nil {
+		routeRes, routeErr = s.resumeHandoff(routeCtx, env, req)
+	} else if agentShadowMode {
 		routeRes, routeErr = s.runAgentShadowEvaluationRoute(routeCtx, env, feats, installationID, req, agentShadowEval)
 	} else {
 		routeRes, routeErr = s.runTurnLoop(routeCtx, env, feats, apiKeyID, installationID, "", r.Header, req)
 	}
 	var escalationCapture *captureWriter
 	defer func() {
-		s.completeEscalation(ctx, routeRes, returnErr, escalationCapture, translate.EscalationResponseAnthropic)
+		if !preparingHandoff(ctx) {
+			s.completeEscalation(ctx, routeRes, returnErr, escalationCapture, translate.EscalationResponseAnthropic)
+		}
 	}()
 	finishRoutingSpan(routeSpan, routeRes.Decision, routeErr)
 	if routeErr != nil {
 		log.Error("Routing failed", "err", routeErr, "route_ms", time.Since(routeStart).Milliseconds(), "requested_model", feats.Model, "total_input_tokens", feats.Tokens)
 		s.recordPolicyPinRouteFailure(ctx, requestID, requestStart, feats.Model, routeRes.TurnType, routeErr)
 		return routeErr
+	}
+	if preparingHandoff(ctx) {
+		return s.finishHandoffPreparation(ctx, w, req, routeRes)
 	}
 	if len(routeRes.SessionDisabledProviders) > 0 {
 		// resolveBindingsForDispatch reads excludedProvidersForRequest from ctx,
