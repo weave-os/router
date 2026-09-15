@@ -179,10 +179,10 @@ phase "Phase 2 — generated pricing + savings contract"
 if with_timeout 30 env PI_CODING_AGENT_DIR="$PI_DIR" \
   pi -e "$UNIT_SUITE" --no-session --offline --model weave/claude-sonnet-4-6 \
   -p "Run the unit suite." >"$WORK/unit.out" 2>&1 </dev/null; then
-  if [ "$(grep -Ec '^(✔ |ok [0-9]+ - )' "$WORK/unit.out" || true)" = "104" ]; then
+  if [ "$(grep -Ec '^(✔ |ok [0-9]+ - )' "$WORK/unit.out" || true)" = "105" ]; then
     ok "pricing, beta, force-model, UI, compaction, served-window, and LSP unit suite passed"
   else
-    bad "unit suite did not report all 104 passes (see $WORK/unit.out)"
+    bad "unit suite did not report all 105 passes (see $WORK/unit.out)"
   fi
 else
   bad "unit suite failed to load through pi (see $WORK/unit.out)"
@@ -306,9 +306,9 @@ phase "Result"
 # 404s on the real router. Any rejected POST means a wrong baseUrl shipped.
 WRONGPATH="$(jqcount '.method=="POST" and .rejected==true')"
 if [ "$WRONGPATH" -eq 0 ]; then
-  ok "all routed POSTs hit /v1/messages (no /v1 doubling)"
+  ok "all routed POSTs hit valid message or handoff paths (no /v1 doubling)"
 else
-  bad "$WRONGPATH POST(s) hit a non-/v1/messages path -> would 404 on the real router"
+  bad "$WRONGPATH POST(s) hit an unsupported path -> would 404 on the real router"
 fi
 
 printf 'requests logged: %s\n' "$(wc -l <"$LOG" | tr -d ' ')"

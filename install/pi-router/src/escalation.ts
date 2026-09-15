@@ -122,7 +122,7 @@ export function registerEscalationCompaction(
 	};
 
 	pi.on("before_provider_request", async (event, ctx) => {
-		if (process.env.WEAVE_PI_ESCALATION_COMPACTION !== "1" || isSubagent() || ctx.model?.provider !== PROVIDER_NAME) return;
+		if (process.env.WEAVE_PI_ESCALATION_COMPACTION === "0" || isSubagent() || ctx.model?.provider !== PROVIDER_NAME) return;
 		if (!isRecord(event.payload)) return;
 		const payload = event.payload;
 		const requestGeneration = generation;

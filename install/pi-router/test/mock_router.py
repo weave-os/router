@@ -5,7 +5,8 @@ Speaks just enough of the Anthropic Messages API to drive a real pi process
 headlessly, with no real model spend and no network beyond localhost:
 
   GET  /health, /validate    -> 200            (the install.sh --pi probes)
-  POST <any path>            -> Anthropic Messages response (SSE or JSON)
+  POST /v1/messages          -> Anthropic Messages response (SSE or JSON)
+  POST /v1/route/handoff     -> preparation bypass (no model escalation)
 
 It also *is* the model. To exercise the `dispatch` tool it returns a tool_use
 block for `dispatch` when the latest user turn contains DISPATCH_MARKER and no
@@ -48,6 +49,7 @@ DISPATCH_MARKER = os.environ.get("DISPATCH_MARKER", "__DISPATCH__")
 # Anthropic SDK appending /v1/messages to a baseUrl that already ends in /v1)
 # fails the test instead of being silently absorbed by a catch-all.
 MESSAGES_PATH = "/v1/messages"
+HANDOFF_PATH = "/v1/route/handoff"
 
 KNOB_HEADERS = (
     "x-weave-routing-alpha",
@@ -264,6 +266,11 @@ class Handler(BaseHTTPRequestHandler):
         length = int(self.headers.get("content-length") or 0)
         raw = self.rfile.read(length) if length else b""  # always drain the body
         path = self.path.split("?")[0]
+
+        if path == HANDOFF_PATH:
+            log_request({"method": "POST", "path": path, "app": self.headers.get("x-app")})
+            self._send_json(200, {"bypass": True})
+            return
 
         if path != MESSAGES_PATH:
             log_request(

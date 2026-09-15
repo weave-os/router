@@ -96,7 +96,7 @@ Plain `pi` then connects to the installed endpoint, normally
 | `WEAVE_ROUTING_ALPHA` / `…_SPEED_WEIGHT` / `…_OUTPUT_COST_RATIO` / `…_EXPECTED_OUTPUT_TOKENS` | role preset | Override individual routing knobs (main process only — children always use their role preset) |
 | `WEAVE_NO_SAFETY` | unset | `1` disables the catastrophic-bash gate |
 | `WEAVE_PI_AUTO_COMPACTION` | unset | `0` disables the routed tool-loop compaction safeguard |
-| `WEAVE_PI_ESCALATION_COMPACTION` | unset | `1` enables preparation and compaction before upward complexity model changes; requires Pi 0.83+ and the matching router deployment |
+| `WEAVE_PI_ESCALATION_COMPACTION` | enabled | `0` disables preparation and compaction before upward complexity model changes; requires Pi 0.83+ and the matching router deployment |
 | `WEAVE_PI_NO_LSP` | unset | `1` disables the `lsp` tool, the server pool, and the subagent broker |
 | `WEAVE_PI_LSP_IDLE_MS` | `300000` | Idle window before an unused language server is shut down |
 | `WEAVE_PI_LSP_REQUEST_TIMEOUT_MS` | `15000` | Per-request budget once a server is warm |
@@ -111,9 +111,9 @@ set them yourself.
 
 ## Escalation compaction
 
-Deploy the router with the same `ROUTER_PI_HANDOFF_SECRET` (at least 32 bytes)
-on every replica, then enable `WEAVE_PI_ESCALATION_COMPACTION=1` in Pi. This is
-opt-in while the router and npm extension roll out. An enabled client stops
+Escalation compaction is enabled by default. The router requires the same
+`ROUTER_PI_HANDOFF_SECRET` (at least 32 bytes) on every replica. Set
+`WEAVE_PI_ESCALATION_COMPACTION=0` to opt out. An enabled client stops
 with a visible error if preparation is unavailable; it never falls back to
 silently sending the full unreserved request.
 

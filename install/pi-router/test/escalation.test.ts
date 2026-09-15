@@ -54,7 +54,7 @@ function harness() {
 function enable(t: TestContext) {
 	const oldEnabled = process.env.WEAVE_PI_ESCALATION_COMPACTION;
 	const oldKey = process.env.WEAVE_ROUTER_KEY;
-	process.env.WEAVE_PI_ESCALATION_COMPACTION = "1";
+	delete process.env.WEAVE_PI_ESCALATION_COMPACTION;
 	process.env.WEAVE_ROUTER_KEY = "offline-test-key";
 	t.after(() => {
 		if (oldEnabled === undefined) delete process.env.WEAVE_PI_ESCALATION_COMPACTION;
@@ -79,7 +79,17 @@ test("handoff response validation rejects incomplete tickets and tolerates unkno
 	assert.equal((parsePreparedRoute({ ...highRoute, complexity: "future-class" }) as typeof highRoute).complexity, undefined);
 });
 
-test("Pi aborts before handoff, commits compaction, and resumes the reserved model without preparing twice", async (t) => {
+test("explicit opt-out preserves provider requests without preparing a handoff", async (t) => {
+	enable(t);
+	process.env.WEAVE_PI_ESCALATION_COMPACTION = "0";
+	const h = harness();
+	assert.equal(await h.emit("before_provider_request", { payload: { messages: [] } }), undefined);
+	assert.equal(h.preparations(), 0);
+	assert.equal(h.aborted(), 0);
+	assert.equal(h.pending(), false);
+});
+
+test("Pi defaults to handoff compaction and resumes the reserved model without preparing twice", async (t) => {
 	enable(t);
 	const h = harness();
 	const first = await h.emit("before_provider_request", { payload: { messages: [] } });

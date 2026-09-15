@@ -108,8 +108,9 @@ def main():
         server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
         threading.Thread(target=server.serve_forever, daemon=True).start()
         env = {**os.environ, "PI_CODING_AGENT_DIR": str(config), "WEAVE_ROUTER_KEY": "offline-handoff-key",
-               "WEAVE_ROUTER_URL": f"http://127.0.0.1:{server.server_port}", "WEAVE_PI_ESCALATION_COMPACTION": "1",
+               "WEAVE_ROUTER_URL": f"http://127.0.0.1:{server.server_port}",
                "WEAVE_PI_NO_LSP": "1", "WEAVE_NO_SAFETY": "1", "WEAVE_USER_EMAIL": "offline@example.invalid", "WEAVE_USER_NAME": "Offline test"}
+        env.pop("WEAVE_PI_ESCALATION_COMPACTION", None)
         try:
             process = subprocess.run(["pi", "-e", str(SOURCE), "--offline", "--session", str(session), "--model", f"weave/{MODEL}",
                                       "--mode", "json", "-p", FINAL_REQUEST], cwd=work, env=env, text=True, capture_output=True, timeout=90)
