@@ -1,0 +1,47 @@
+install/install.sh
+  s_e5bc34fea03f3c::t_861ca8a73146f2 2955
+  s_e5bc34fea03f3c::t_e8eaa81f04aa04 1659,2858-2872
+  s_e5bc34fea03f3c::t_365d408738cdea 1161
+  s_e5bc34fea03f3c::t_304a192fdea640 4025
+  s_e5bc34fea03f3c::t_a31e6d0ea3f22f 2957
+  s_e5bc34fea03f3c::t_de1af7d8ab2625 3019,3027
+  s_e5bc34fea03f3c::t_f9e3c6acd9834f 2899
+  s_e5bc34fea03f3c::t_cdac2eb1aac970 1551-1567,1570-1616,1618-1621,1623-1625
+  s_e5bc34fea03f3c::t_1e74e291cf823c 1634,1652-1658
+  s_e5bc34fea03f3c::t_c931833ed42650 2972
+  s_e5bc34fea03f3c::t_11f11ff375f9b9 52-54,56
+  s_e5bc34fea03f3c::t_6b514aed9dcedf 3013
+  s_e5bc34fea03f3c::t_cfa4e07970a9fe 1686-1733
+  s_e5bc34fea03f3c::t_c3d1af79360d04 1155-1159
+  s_e5bc34fea03f3c::t_156215600947bf 4029-4030
+  s_e5bc34fea03f3c::t_826a2e02ec7baf 2782-2857
+  s_e5bc34fea03f3c::t_7b4ecd582754be 1568-1569
+  s_e5bc34fea03f3c::t_7ab9efb0f1380c 2482-2483
+  s_e5bc34fea03f3c::t_00ac80005e1173 2901,2907
+  s_e5bc34fea03f3c::t_b0afdb26f67380 1660
+install/README.md
+  s_e5bc34fea03f3c::t_90ffd94aaaf509 242
+  s_e5bc34fea03f3c::t_14cee9c8f2674e 246-247
+install/npm/README.md
+  s_e5bc34fea03f3c::t_42f321867fddba 18-20,24,33
+install/tests/key_reuse_test.sh
+  s_e5bc34fea03f3c::t_9f501006c525d3 172-173,175
+  s_e5bc34fea03f3c::t_aa5017a8542a08 53-71
+  s_e5bc34fea03f3c::t_7ea7e7c2520d01 276-420
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "ed10850f4d0816b33f1fccb320084cc39bd57647",
+  "prompts": {},
+  "sessions": {
+    "s_e5bc34fea03f3c": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "47e26dac-14b4-4c5f-8b96-28687d110163",
+        "model": "claude-opus-5"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

@@ -1,0 +1,28 @@
+internal/api/admin/catalog_test.go
+  s_f8d0f0b5fa5a6d::t_1d2b05e28ba16d 154-189
+internal/api/admin/excluded_models.go
+  s_f8d0f0b5fa5a6d::t_4c9184700d0f3c 75,119-120,137
+  s_f8d0f0b5fa5a6d::t_1c0051dccafd05 68,99
+internal/api/admin/catalog.go
+  s_f8d0f0b5fa5a6d::t_f1a8d3ac25f2c8 10,60-76
+  s_f8d0f0b5fa5a6d::t_d1a949bacab753 38-41
+  s_f8d0f0b5fa5a6d::t_a40b4e6f10d232 77
+internal/api/admin/allowed_models.go
+  s_f8d0f0b5fa5a6d::t_5cf7b51c075936 26,37,46,60-61,78
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "e5503b5a737a696912a8a13e4441ed6d133d7c50",
+  "prompts": {},
+  "sessions": {
+    "s_f8d0f0b5fa5a6d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3d28528e-e204-43f8-87ed-6e608f798a1d",
+        "model": "grok-4.6"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}

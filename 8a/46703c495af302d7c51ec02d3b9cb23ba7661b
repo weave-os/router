@@ -1,0 +1,30 @@
+internal/providers/openaicompat/client.go
+  s_a7898be946cb6e::t_f000b4fa44672b 27-29
+internal/router/catalog/catalog_test.go
+  s_a7898be946cb6e::t_377df3d1201e34 383-386
+  s_a7898be946cb6e::t_959f6c7f097218 370-382,452-461
+  s_a7898be946cb6e::t_7f7820fbe5b8c4 368,387
+  s_a7898be946cb6e::t_fdb9f210f29cd6 462-463
+internal/router/catalog/catalog.go
+  s_a7898be946cb6e::t_959f6c7f097218 587-589,593-594,601-602
+  s_a7898be946cb6e::t_9eb12614a1ac60 590-591
+cmd/router/main.go
+  s_a7898be946cb6e::t_80c50759f48720 291-293
+  s_a7898be946cb6e::t_f000b4fa44672b 279
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "8a46703c495af302d7c51ec02d3b9cb23ba7661b",
+  "prompts": {},
+  "sessions": {
+    "s_a7898be946cb6e": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05e21-b0e8-7572-a344-521732565815",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": null
+    }
+  }
+}
