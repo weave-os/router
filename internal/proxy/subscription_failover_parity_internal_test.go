@@ -781,8 +781,7 @@ func countOccurrences(s, needle string) int { return strings.Count(s, needle) }
 
 // TestSubscriptionFailoverParity_HeldErrorDelivery pins how the held upstream
 // error reaches the client when both the subscription attempt and its rescue
-// fail: exactly once, and through the renderer that matches what is already on
-// the wire.
+// fail: exactly once, and through the ingress-appropriate renderer.
 func TestSubscriptionFailoverParity_HeldErrorDelivery(t *testing.T) {
 	const needle = "parity-upstream-failure"
 	fault := upstreamErr(http.StatusServiceUnavailable, `{"error":{"type":"overloaded_error","message":"`+needle+`"}}`)
@@ -799,7 +798,7 @@ func TestSubscriptionFailoverParity_HeldErrorDelivery(t *testing.T) {
 				"the held upstream error must reach the client exactly once, no matter how many rescues declined")
 		})
 
-		t.Run(in.name+"/prelude-sent stream keeps the SSE framing", func(t *testing.T) {
+		t.Run(in.name+"/stream failure keeps the protocol framing", func(t *testing.T) {
 			upstream := &parityUpstream{subErr: fault, paidErr: fault, okBody: in.upstreamOK(true)}
 			svc := in.parityService(upstream)
 			rec, req, body := in.request(t, true)
@@ -807,6 +806,13 @@ func TestSubscriptionFailoverParity_HeldErrorDelivery(t *testing.T) {
 			require.Error(t, in.call(svc, in.subCtx(), body, rec, req))
 			out := rec.Body.String()
 			require.Positive(t, upstream.paidDispatches, "the scenario under test is a failed rescue")
+			if in.name == "anthropic" {
+				assert.NotContains(t, out, "✦ **Weave Router**",
+					"Anthropic keeps the synthetic prelude buffered until provider output")
+				assert.Equal(t, http.StatusServiceUnavailable, rec.Code)
+				assert.Equal(t, 1, countOccurrences(out, needle))
+				return
+			}
 			require.Contains(t, out, "✦ **Weave Router**",
 				"the scenario under test needs the routing prelude already on the wire")
 			for _, line := range strings.Split(out, "\n") {

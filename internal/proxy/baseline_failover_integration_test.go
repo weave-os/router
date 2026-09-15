@@ -113,14 +113,13 @@ func TestProxyMessages_OSSOutageFailsOverToBaselineAnthropic(t *testing.T) {
 	assert.Contains(t, respBody, "event: message_start", "client sees the Anthropic stream start")
 	assert.Contains(t, respBody, "event: message_stop", "client sees the Anthropic stream end")
 	assert.Equal(t, "anthropic", rec.Header().Get(proxy.HeaderRouterProvider), "served provider header reflects the baseline failover")
-	// The client sees the initial decision immediately, followed by a correction
-	// when baseline failover changes the model before provider output.
+	// The buffered initial marker is replaced before it becomes visible, so the
+	// client sees only the model that produced provider output.
 	assert.Equal(t, "claude-opus-4-8", rec.Header().Get(proxy.HeaderRouterModel), "x-router-model reflects the baseline model that served")
 	initialMarker := strings.Index(respBody, "deepseek/deepseek-v4-pro")
 	fallbackMarker := strings.Index(respBody, "claude-opus-4-8")
-	require.NotEqual(t, -1, initialMarker, "initial decision marker is visible")
+	require.Equal(t, -1, initialMarker, "failed initial decision marker stays hidden")
 	require.NotEqual(t, -1, fallbackMarker, "fallback correction names the serving model")
-	assert.Less(t, initialMarker, fallbackMarker, "fallback correction follows the initial decision")
 
 	// The session pin must record the baseline model that actually served, not
 	// the cost-routed OSS id — otherwise next-turn switch detection is wrong.

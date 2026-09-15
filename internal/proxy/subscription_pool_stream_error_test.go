@@ -16,11 +16,10 @@ import (
 	"weave-os/router/internal/subscriptions"
 )
 
-// TestProxyMessages_ManagedPoolFailureFramesTheLiveStream: once the prelude is
-// client-visible the handler can no longer render an envelope, so the pool
-// failure has to terminate the stream with an error frame instead of leaving
-// the client on a truncated stream.
-func TestProxyMessages_ManagedPoolFailureFramesTheLiveStream(t *testing.T) {
+// TestProxyMessages_ManagedPoolStreamingFailureLeavesRenderingToHandler: the
+// Anthropic prelude stays buffered until provider output, so even a streaming
+// request retains the classified HTTP error path when the pool is exhausted.
+func TestProxyMessages_ManagedPoolStreamingFailureLeavesRenderingToHandler(t *testing.T) {
 	leaser := &scriptedSubscriptionLeaser{leases: []subscriptions.Lease{{AccountID: "opaque-a", AccessToken: "token-a"}}}
 	anthropic := &fakeClient{name: providers.ProviderAnthropic, outcomes: []fakeOutcome{
 		{err: &providers.UpstreamErrorResponse{
@@ -49,10 +48,8 @@ func TestProxyMessages_ManagedPoolFailureFramesTheLiveStream(t *testing.T) {
 
 	require.ErrorIs(t, err, ErrSubscriptionPoolExhausted,
 		"the pool sentinel must survive for the handler to classify and log")
-	out := rec.Body.String()
-	assert.Equal(t, 1, strings.Count(out, "event: error"),
-		"the stream must terminate with exactly one error frame")
-	assert.Contains(t, out, "All enrolled subscription accounts are currently unavailable.")
+	assert.Empty(t, rec.Body.String(),
+		"the handler still owns the classified HTTP error response")
 }
 
 // TestProxyMessages_ManagedPoolFailureBeforeAnyBytesLeavesRenderingToHandler:

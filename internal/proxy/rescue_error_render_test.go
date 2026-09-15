@@ -16,11 +16,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestProxyMessages_SubscriptionRescueFailureRendersSSEErrorFrame: the routing
-// marker is already on the wire when the subscription rescue fails, so the
-// error has to arrive as an in-stream frame — a JSON envelope appended to a
-// live SSE stream is unparseable to the client.
-func TestProxyMessages_SubscriptionRescueFailureRendersSSEErrorFrame(t *testing.T) {
+// TestProxyMessages_SubscriptionRescueFailurePreservesHTTPError verifies that
+// a synthetic marker never turns pre-output upstream exhaustion into HTTP 200.
+func TestProxyMessages_SubscriptionRescueFailurePreservesHTTPError(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusTooManyRequests)
@@ -54,12 +52,9 @@ func TestProxyMessages_SubscriptionRescueFailureRendersSSEErrorFrame(t *testing.
 	require.Error(t, err, "every attempt failed, so the turn surfaces the upstream error")
 
 	respBody := rec.Body.String()
-	require.Contains(t, respBody, "event: message_start",
-		"the prelude must already be client-visible for this to exercise the rescue renderer")
-	assert.Contains(t, respBody, "event: error\ndata: ",
-		"the rescue's failure must be framed as an SSE error event")
-	assert.NotContains(t, respBody, "\n\n{\"type\":\"error\"",
-		"a bare JSON envelope must never follow the stream's frames")
+	assert.Equal(t, http.StatusTooManyRequests, rec.Code)
+	assert.NotContains(t, respBody, "event: message_start")
+	assert.NotContains(t, respBody, "✦ **Weave Router**")
 	assert.Equal(t, 1, strings.Count(respBody, "rate_limit_error"),
 		"the upstream error reaches the client exactly once")
 }
