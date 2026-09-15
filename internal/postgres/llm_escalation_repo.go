@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"math"
 	"time"
 
 	"github.com/google/uuid"
@@ -386,7 +385,7 @@ func (r *LLMEscalationRepo) GetJob(ctx context.Context, installation, jobID stri
 }
 
 // ListSessions returns bounded pages of installation-owned sessions.
-func (r *LLMEscalationRepo) ListSessions(ctx context.Context, installation string, limit, offset int) ([]llmescalation.Session, error) {
+func (r *LLMEscalationRepo) ListSessions(ctx context.Context, installation string, limit, offset int32) ([]llmescalation.Session, error) {
 	id := uuid.Nil
 	if installation != "" {
 		var err error
@@ -399,9 +398,6 @@ func (r *LLMEscalationRepo) ListSessions(ctx context.Context, installation strin
 	if pageOffset < 0 {
 		pageOffset = 0
 	}
-	if pageOffset > math.MaxInt32 {
-		pageOffset = math.MaxInt32
-	}
 	pageLimit := limit
 	if pageLimit < 1 {
 		pageLimit = 1
@@ -409,7 +405,7 @@ func (r *LLMEscalationRepo) ListSessions(ctx context.Context, installation strin
 	if pageLimit > 201 {
 		pageLimit = 201
 	}
-	rows, err := sqlc.New(r.pool).GetLLMEscalationSessions(ctx, sqlc.GetLLMEscalationSessionsParams{AllInstallations: installation == "", InstallationID: id, PageLimit: int32(pageLimit), PageOffset: int32(pageOffset)})
+	rows, err := sqlc.New(r.pool).GetLLMEscalationSessions(ctx, sqlc.GetLLMEscalationSessionsParams{AllInstallations: installation == "", InstallationID: id, PageLimit: pageLimit, PageOffset: pageOffset})
 	if err != nil {
 		return nil, err
 	}

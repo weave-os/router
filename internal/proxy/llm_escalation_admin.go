@@ -35,7 +35,7 @@ func (s *Service) WithEscalationConfiguration(store llmescalation.ConfigurationS
 	return s
 }
 
-func (s *Service) ListLLMEscalationSessions(ctx context.Context, installationID string, limit, offset int) (LLMEscalationSnapshot, error) {
+func (s *Service) ListLLMEscalationSessions(ctx context.Context, installationID string, limit, offset int32) (LLMEscalationSnapshot, error) {
 	if s.llmEscalationStore == nil {
 		return LLMEscalationSnapshot{}, ErrEscalationJudgeUnavailable
 	}
@@ -46,9 +46,9 @@ func (s *Service) ListLLMEscalationSessions(ctx context.Context, installationID 
 	if err != nil {
 		return LLMEscalationSnapshot{}, err
 	}
-	hasMore := len(sessions) > limit
+	hasMore := len(sessions) > int(limit)
 	if hasMore {
-		sessions = sessions[:limit]
+		sessions = sessions[:int(limit)]
 	}
 	summary, err := s.llmEscalationStore.Summary(ctx, installationID)
 	if err != nil {

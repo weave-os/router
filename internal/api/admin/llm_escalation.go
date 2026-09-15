@@ -101,13 +101,13 @@ func InternalUpdateEscalationConfigurationHandler(service *proxy.Service) gin.Ha
 	}
 }
 
-func queryInteger(c *gin.Context, name string, defaultValue int) (int, bool) {
+func queryInteger(c *gin.Context, name string, defaultValue int32) (int32, bool) {
 	raw := c.Query(name)
 	if raw == "" {
 		return defaultValue, true
 	}
-	value, err := strconv.Atoi(raw)
-	return value, err == nil
+	value, err := strconv.ParseInt(raw, 10, 32)
+	return int32(value), err == nil
 }
 
 func internalEscalationError(c *gin.Context, err error) {

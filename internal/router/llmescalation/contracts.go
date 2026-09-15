@@ -220,7 +220,7 @@ type Store interface {
 	ListJobs(context.Context, string, int) ([]Job, error)
 	Summary(context.Context, string) (Summary, error)
 	GetJob(context.Context, string, string) (Job, bool, error)
-	ListSessions(context.Context, string, int, int) ([]Session, error)
+	ListSessions(context.Context, string, int32, int32) ([]Session, error)
 	GetSession(context.Context, string, [32]byte) (Session, []Job, bool, error)
 	SweepExpired(context.Context) error
 }

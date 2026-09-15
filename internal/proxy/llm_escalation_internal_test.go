@@ -60,7 +60,7 @@ func (s *llmEscalationStoreStub) ListJobs(context.Context, string, int) ([]llmes
 func (s *llmEscalationStoreStub) GetJob(context.Context, string, string) (llmescalation.Job, bool, error) {
 	return llmescalation.Job{}, false, nil
 }
-func (s *llmEscalationStoreStub) ListSessions(context.Context, string, int, int) ([]llmescalation.Session, error) {
+func (s *llmEscalationStoreStub) ListSessions(context.Context, string, int32, int32) ([]llmescalation.Session, error) {
 	return nil, nil
 }
 func (s *llmEscalationStoreStub) Summary(context.Context, string) (llmescalation.Summary, error) {
