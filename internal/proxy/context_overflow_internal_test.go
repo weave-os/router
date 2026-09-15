@@ -124,7 +124,7 @@ func TestShouldEnableExtendedContext(t *testing.T) {
 // first; a 610K request cannot rely on the 1M fallback to avoid a hard-400.
 func TestExcludeContextOverflowModels_MultiBindingMinWindow(t *testing.T) {
 	available := map[string]struct{}{
-		"deepseek/deepseek-v4-pro-0813": {},
+		"deepseek/deepseek-v4-pro": {},
 	}
 	enabledBoth := map[string]struct{}{
 		providers.ProviderTogether:  {},
@@ -140,22 +140,22 @@ func TestExcludeContextOverflowModels_MultiBindingMinWindow(t *testing.T) {
 	// 610016 = the exact overflow estimate from the failing session + 64K reserve.
 	// Together (512K) < needed => excluded; Fireworks (1M) > needed => safe.
 	outBoth, overflowedBoth := excludeContextOverflowModels(546_016, 0, 64_000, enabledBoth, nil, available)
-	assert.Contains(t, overflowedBoth, "deepseek/deepseek-v4-pro-0813",
+	assert.Contains(t, overflowedBoth, "deepseek/deepseek-v4-pro",
 		"Together 512K primary binding must exclude the model when both are keyed")
-	assert.Contains(t, outBoth, "deepseek/deepseek-v4-pro-0813", "model must be in the exclusion map")
+	assert.Contains(t, outBoth, "deepseek/deepseek-v4-pro", "model must be in the exclusion map")
 
 	// Together-only deploy: excluded.
 	_, overflowedTogether := excludeContextOverflowModels(546_016, 0, 64_000, enabledTogetherOnly, nil, available)
-	assert.Contains(t, overflowedTogether, "deepseek/deepseek-v4-pro-0813",
+	assert.Contains(t, overflowedTogether, "deepseek/deepseek-v4-pro",
 		"Together-only deploy must exclude at 610K (512K window)")
 
 	// Fireworks-only deploy: NOT excluded (genuinely serves 1M).
 	_, overflowedFireworks := excludeContextOverflowModels(546_016, 0, 64_000, enabledFireworksOnly, nil, available)
-	assert.NotContains(t, overflowedFireworks, "deepseek/deepseek-v4-pro-0813",
+	assert.NotContains(t, overflowedFireworks, "deepseek/deepseek-v4-pro",
 		"Fireworks-only deploy must not exclude at 610K (1M window)")
 
 	// nil enabledProviders: passes through to model-level (1M), NOT excluded.
 	_, overflowedNil := excludeContextOverflowModels(546_016, 0, 64_000, nil, nil, available)
-	assert.NotContains(t, overflowedNil, "deepseek/deepseek-v4-pro-0813",
+	assert.NotContains(t, overflowedNil, "deepseek/deepseek-v4-pro",
 		"nil enabledProviders retains legacy model-level behavior")
 }
