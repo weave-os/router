@@ -3,15 +3,17 @@
   "path": "/v1/messages",
   "status_code": 200,
   "headers": {
+    "Anthropic-Workspace-Id": "wrkspc_017WoV7PcYUfCTFn2dFE92A5",
     "Cf-Cache-Status": "DYNAMIC",
     "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'",
     "Content-Type": "application/json",
-    "Date": "Thu, 23 Jul 2026 23:55:07 GMT",
+    "Date": "Mon, 14 Sep 2026 07:43:39 GMT",
     "Server": "cloudflare",
+    "Server-Timing": "x-originResponse;dur=417",
     "Strict-Transport-Security": "max-age=31536000; includeSubDomains; preload",
-    "Traceresponse": "00-af0c15cf619dd4ce5793575b969dc100-f9af8fd262546f5f-01",
+    "Traceresponse": "00-c0e7e3cd9d13cdbfcbc6e2a7180e9487-5604dcb13814283c-01",
     "Vary": "Accept-Encoding",
     "X-Robots-Tag": "none"
   },
-  "body": "{\"model\":\"claude-haiku-4-5-20251001\",\"id\":\"msg_011CdKthNa5viakY6Y494wwb\",\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"ok\"}],\"stop_reason\":\"end_turn\",\"stop_sequence\":null,\"stop_details\":null,\"usage\":{\"input_tokens\":325,\"cache_creation_input_tokens\":0,\"cache_read_input_tokens\":8987,\"cache_creation\":{\"ephemeral_5m_input_tokens\":0,\"ephemeral_1h_input_tokens\":0},\"output_tokens\":4,\"service_tier\":\"standard\",\"inference_geo\":\"not_available\"}}"
+  "body": "{\"model\":\"claude-haiku-4-5-20251001\",\"id\":\"msg_011Cf2xVCGibZN5JsRbrA2oN\",\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"ok\"}],\"container\":null,\"stop_reason\":\"end_turn\",\"stop_sequence\":null,\"stop_details\":null,\"usage\":{\"input_tokens\":325,\"cache_creation_input_tokens\":8987,\"cache_read_input_tokens\":0,\"cache_creation\":{\"ephemeral_5m_input_tokens\":8987,\"ephemeral_1h_input_tokens\":0},\"output_tokens\":4,\"service_tier\":\"standard\",\"inference_geo\":\"not_available\"}}"
 }
