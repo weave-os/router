@@ -933,8 +933,15 @@ if [ -f "$parked_file" ]; then
 fi
 
 if [ -f "$statusline_file" ]; then
-  rm -f "$statusline_file"
-  ok "Removed $statusline_file"
+  # The installer now leaves an existing statusline alone. A user may already
+  # have a script at the router's conventional filename, so remove this file
+  # only when its content identifies it as our managed statusline.
+  if grep -Fq '# Claude Code statusline for the Weave Router.' "$statusline_file"; then
+    rm -f "$statusline_file"
+    ok "Removed $statusline_file"
+  else
+    warn "Leaving user-owned statusline at $statusline_file untouched."
+  fi
 fi
 
 # Remove only the slash command files this installer owns; leave any other

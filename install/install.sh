@@ -5,8 +5,9 @@
 # Configures Claude Code (default), the OpenAI Codex CLI (`--codex`),
 # opencode (`--opencode`), or pi (`--pi`) to permanently route through the
 # Weave Router. For Claude Code this writes the router base URL, router auth
-# header, and a status line into Claude Code's settings.json. For Codex it
-# writes a `model_providers.weave` entry plus `model_provider = "weave"` into
+# header, and a status line into Claude Code's settings.json unless Claude Code
+# already has an active statusline configured. For Codex it writes a
+# `model_providers.weave` entry plus `model_provider = "weave"` into
 # ~/.codex/config.toml (managed block delimited by markers). For opencode
 # it merges a `provider.weave` block (anthropic-compatible) into
 # opencode.json — since the file is JSON, install/uninstall are structural
@@ -360,6 +361,15 @@ refuse_if_symlink() {
     err "$target is a symlink (-> $(readlink "$target")). Refusing to write through it."
     exit 1
   fi
+}
+
+# claude_statusline_configured reports whether Claude Code has a non-null
+# statusline setting in a settings file. The router must not replace an
+# existing setting (or its backing script) when adding the routing config.
+claude_statusline_configured() {
+  local settings_path="$1"
+  [ -f "$settings_path" ] || return 1
+  jq -e 'has("statusLine") and (.statusLine != null)' "$settings_path" >/dev/null 2>&1
 }
 
 # Markers that delimit the block this installer manages inside Codex's
@@ -1831,6 +1841,7 @@ else
 fi
 
 if [ "$target" = "claude" ]; then
+  statusline_install="true"
   case "$scope" in
     user)
       settings_dir="$settings_base/.claude"
@@ -1856,6 +1867,18 @@ if [ "$target" = "claude" ]; then
       ;;
   esac
 
+  # Check every settings file that can supply the effective statusline. Claude
+  # Code applies project-local settings over project settings over user
+  # settings, and replacing any existing entry would silently discard the
+  # user's customization.
+  if claude_statusline_configured "$settings_file" \
+     || { [ -n "$local_settings_file" ] && claude_statusline_configured "$local_settings_file"; } \
+     || { [ "$scope" = "project" ] \
+          && claude_statusline_configured "$HOME/.claude/settings.json"; }; then
+    statusline_install="false"
+    skip "Existing Claude Code statusline detected; leaving it unchanged."
+  fi
+
   # Symlink containment: refuse if any target path is a symlink. User-scope
   # paths under $HOME are trusted; project-scope and --dir paths come from a
   # git repo or user-supplied directory that may be hostile, so we check those.
@@ -1863,10 +1886,15 @@ if [ "$target" = "claude" ]; then
     refuse_if_symlink "$settings_dir"
     refuse_if_symlink "$settings_file"
     refuse_if_symlink "$local_settings_file"
-    refuse_if_symlink "$statusline_file"
+    if [ "$statusline_install" = "true" ]; then
+      refuse_if_symlink "$statusline_file"
+    fi
   fi
 
-  mkdir -p "$settings_dir" "$statusline_dir"
+  mkdir -p "$settings_dir"
+  if [ "$statusline_install" = "true" ]; then
+    mkdir -p "$statusline_dir"
+  fi
 elif [ "$target" = "codex" ]; then
   # Codex CLI reads config from ~/.codex/config.toml by default. For project
   # scope we write to <repo>/.codex/config.toml; the user invokes Codex with
@@ -4642,6 +4670,7 @@ fi
 
 # ---------- write the statusline script ----------
 
+if [ "$statusline_install" = "true" ]; then
 cat > "$statusline_file" << 'STATUSLINE_EOF'
 #!/usr/bin/env bash
 #
@@ -5604,6 +5633,7 @@ fi
 STATUSLINE_EOF
 chmod +x "$statusline_file"
 ok "Statusline installed at $statusline_file"
+fi
 
 # ---------- patch settings.json ----------
 
@@ -5642,26 +5672,26 @@ write_claude_settings() {
   # Force tool-search deferral to match first-party Claude Code; "auto" can inline
   # every tool schema when the custom endpoint advertises a 200K context window.
   if [ "$scope" = "project" ] && [ -z "$install_dir" ]; then
-    jq -n --arg url "$base_url" --arg sl "$statusline_path_for_settings" '{
+    jq -n --arg url "$base_url" --arg sl "$statusline_path_for_settings" --arg statusline_install "$statusline_install" '{
       env: { ANTHROPIC_BASE_URL: $url, ENABLE_TOOL_SEARCH: "true" },
-      statusLine: { type: "command", command: $sl },
       attribution: {
         commit: "Co-Authored-By: Weave Router <router@workweave.ai>",
         pr: "🤖 Generated with [Weave Router](https://router.workweave.ai)"
       }
-    }' >"$tmp_patch"
+    } + (if $statusline_install == "true" then {statusLine: { type: "command", command: $sl }} else {} end)' >"$tmp_patch"
   else
-    jq -n --arg url "$base_url" --arg header "$custom_headers" --arg sl "$statusline_path_for_settings" '{
+    jq -n --arg url "$base_url" --arg header "$custom_headers" --arg sl "$statusline_path_for_settings" --arg statusline_install "$statusline_install" '{
       env: { ANTHROPIC_BASE_URL: $url, ANTHROPIC_CUSTOM_HEADERS: $header, ENABLE_TOOL_SEARCH: "true" },
-      statusLine: { type: "command", command: $sl },
       attribution: {
         commit: "Co-Authored-By: Weave Router <router@workweave.ai>",
         pr: "🤖 Generated with [Weave Router](https://router.workweave.ai)"
       }
-    }' >"$tmp_patch"
+    } + (if $statusline_install == "true" then {statusLine: { type: "command", command: $sl }} else {} end)' >"$tmp_patch"
   fi
 
-  # Merge with existing settings. Deep-merge env and replace statusLine.
+  # Merge with existing settings. Deep-merge env and replace statusLine only
+  # when this install owns the statusline slot; otherwise the patch omits it so
+  # the user's existing statusline survives unchanged.
   # We strip router-owned auth from the existing settings BEFORE merging —
   # otherwise switching auth mode (key→dev-mode) would leave stale credentials
   # behind. ANTHROPIC_AUTH_TOKEN/apiKeyHelper are also removed to migrate older
@@ -5730,13 +5760,15 @@ if [ "$scope" = "project" ] && [ -z "$install_dir" ] && [ -n "${git_root:-}" ]; 
   # Same symlink containment as the .claude/ paths above: a hostile repo could
   # commit .gitignore as a symlink so the >> below writes outside the repo.
   refuse_if_symlink "$gitignore"
-  # Keep the statusline script and per-teammate local settings out of git. The
-  # local settings carry the router key header; each teammate gets their own.
+  # Keep the router statusline script (when installed) and per-teammate local
+  # settings out of git. The local settings carry the router key header; each
+  # teammate gets their own.
   for entry in \
     ".claude/settings.local.json" \
     ".claude/.credentials.json" \
     ".claude/cc-statusline.sh"
   do
+    [ "$entry" = ".claude/cc-statusline.sh" ] && [ "$statusline_install" != "true" ] && continue
     if [ ! -f "$gitignore" ] || ! grep -qxF "$entry" "$gitignore"; then
       printf '%s\n' "$entry" >>"$gitignore"
     fi
