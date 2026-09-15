@@ -13,6 +13,7 @@ internal/translate/responses_test.go
   s_4da3e21f265052::t_1e3c5f076b1f59 725
   s_4da3e21f265052::t_5f4174f6b5a114 1493-1495
   s_4da3e21f265052::t_27858a168ae276 1484-1492
+  s_4da3e21f265052::t_0efb3b3b0eb268 661,723
 internal/observability/otel/usage_test.go
   s_4da3e21f265052::t_39a89d402b3080 6,669-922
 internal/translate/anthropic_marker.go
@@ -64,6 +65,7 @@ internal/translate/stream_fragmentation_test.go
   s_4da3e21f265052::t_481e2f9c372d86 1-419,421-450,452-480,482-511,513-516,518-882
 internal/proxy/service_test.go
   s_4da3e21f265052::t_761896e9a31b0f 528-531,534-536
+  s_4da3e21f265052::t_0efb3b3b0eb268 512
 internal/translate/toolcheck/argument_edits.go
   s_4da3e21f265052::t_f2a1f3e73dce2d 299,310
   s_4da3e21f265052::t_3158013985f3fb 248,270-294,302,312-315
