@@ -1,0 +1,100 @@
+internal/observability/logger_test.go
+  s_eb7d5586a843a9::t_886b43a5bb5e63 44-46,49-53,59,65-93,96-100
+  s_eb7d5586a843a9::t_cbff1038b92a73 6-7
+  s_eb7d5586a843a9::t_d0136047d4393c 4,126,147
+  s_eb7d5586a843a9::t_830b9aca711584 130-143
+  s_eb7d5586a843a9::t_d4f05443239ac7 1-3,5,8-43,47-48,54-58,60-64,94-95,101-125,127-129,144-146,148-161
+internal/router/cluster/multiversion.go
+  s_eb7d5586a843a9::t_4cf1b6b8c1b481 94,105
+internal/observability/global_logger_budget_test.go
+  s_eb7d5586a843a9::t_5dc44f9baad8c2 1-29,32-35,37-161
+  s_eb7d5586a843a9::t_ce75eccf8b5bce 30-31,36
+internal/proxy/gemini.go
+  s_eb7d5586a843a9::t_411c64a79fcf3f 39
+internal/api/anthropic/messages.go
+  s_eb7d5586a843a9::t_22b82a671fdf9b 98
+internal/proxy/client_identity.go
+  s_eb7d5586a843a9::t_af4351bb5eaff0 75
+AGENTS.md
+  s_eb7d5586a843a9::t_d74001ee158ff5 183
+  s_eb7d5586a843a9::t_096d4280007a50 214
+  s_eb7d5586a843a9::t_40488d9d4df4fd 205-213,215-217
+CLAUDE.md
+  s_eb7d5586a843a9::t_d74001ee158ff5 183
+  s_eb7d5586a843a9::t_096d4280007a50 214
+  s_eb7d5586a843a9::t_79b07fb00c87c3 205-213,215-217
+internal/proxy/loop_detection.go
+  s_eb7d5586a843a9::t_22b82a671fdf9b 84,103
+internal/providers/google/native_client.go
+  s_eb7d5586a843a9::t_28f8e099c38540 203
+internal/proxy/session_key.go
+  s_eb7d5586a843a9::t_4b9f94c1b6ff57 57-59,71-75
+  s_eb7d5586a843a9::t_e8d03b35ff4d74 42-52
+  s_eb7d5586a843a9::t_ef194c75998013 12-13
+internal/observability/logger.go
+  s_eb7d5586a843a9::t_2a5c85872be95e 12
+  s_eb7d5586a843a9::t_5c1398e720f8cb 179-181,189-190
+  s_eb7d5586a843a9::t_ea1fc5abc2417f 197,202-203,209,211,218,220-225
+  s_eb7d5586a843a9::t_245e78621b91e5 191,204-208,215-217,230-250
+  s_eb7d5586a843a9::t_9c773f914153fb 195-196,198-199
+  s_eb7d5586a843a9::t_16b2dd288d6d39 24-48,251
+  s_eb7d5586a843a9::t_230f931395ffe6 85-102,105-107
+  s_eb7d5586a843a9::t_c49dc8a195af52 108
+  s_eb7d5586a843a9::t_8d8aaeb849a0c4 252
+internal/billing/service.go
+  s_eb7d5586a843a9::t_4cf1b6b8c1b481 282
+internal/observability/service_name_internal_test.go
+  s_eb7d5586a843a9::t_3265ebaed748cb 1-48
+internal/proxy/loop_detection_internal_test.go
+  s_eb7d5586a843a9::t_22b82a671fdf9b 31,47,62,81,103
+internal/auth/service.go
+  s_eb7d5586a843a9::t_6a9a7203bec778 660,672,692,735,761
+internal/providers/openaicompat/client.go
+  s_eb7d5586a843a9::t_28f8e099c38540 290,400
+  s_eb7d5586a843a9::t_77620a8bef17dd 340,348,356
+internal/proxy/observation.go
+  s_eb7d5586a843a9::t_af4351bb5eaff0 94,135
+internal/proxy/service.go
+  s_eb7d5586a843a9::t_1edf27e1992792 3247,3301
+  s_eb7d5586a843a9::t_af4351bb5eaff0 2230
+  s_eb7d5586a843a9::t_411c64a79fcf3f 2534,5068
+  s_eb7d5586a843a9::t_22b82a671fdf9b 2696,5207
+  s_eb7d5586a843a9::t_220be84e9041ca 4984,4991,5008
+internal/providers/httputil/errors.go
+  s_eb7d5586a843a9::t_3e049271b2c89c 4
+  s_eb7d5586a843a9::t_9c773f914153fb 54-55
+  s_eb7d5586a843a9::t_85a338a3e6f1b4 82
+  s_eb7d5586a843a9::t_6d20c3cd1d8b65 53,56-57,60,63
+  s_eb7d5586a843a9::t_aae21825adb4f4 70
+internal/translate/stream.go
+  s_eb7d5586a843a9::t_a540ed8f127b9d 525-538
+  s_eb7d5586a843a9::t_d9f23207177410 571-577,730,796,1182,1272,1301,1417,1472,1484,1497,1519,1527,1537,1547,1557,1581,1609
+  s_eb7d5586a843a9::t_fbd4fb0b6fe670 8
+internal/providers/anthropic/client.go
+  s_eb7d5586a843a9::t_28f8e099c38540 343,369,441
+internal/auth/upstream_secrets.go
+  s_eb7d5586a843a9::t_4cf1b6b8c1b481 23
+internal/router/cluster/scorer.go
+  s_eb7d5586a843a9::t_4cf1b6b8c1b481 445
+internal/providers/httputil/errors_test.go
+  s_eb7d5586a843a9::t_085dfcaf2b6b2b 4,54,70
+internal/providers/openai/client.go
+  s_eb7d5586a843a9::t_77620a8bef17dd 291,313,381,417,422
+  s_eb7d5586a843a9::t_28f8e099c38540 322,465
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "f2c91a973a4cd1502b7cc3b39af8be36d7bfeda8",
+  "prompts": {},
+  "sessions": {
+    "s_eb7d5586a843a9": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "4eefe1e2-e358-4c67-97fc-e634928a5ad4",
+        "model": "claude-opus-5"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

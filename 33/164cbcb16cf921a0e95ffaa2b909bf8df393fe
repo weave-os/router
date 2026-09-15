@@ -1,0 +1,25 @@
+internal/router/cluster/candidate_k12_test.go
+  s_87a00116799020::t_fa82005cdcf20c 87-91
+  s_87a00116799020::t_e1624506ccf7a0 66-68,70,74-75
+  s_87a00116799020::t_b64b774238fcc9 43-45
+  s_87a00116799020::t_09a49d8a3f39df 102-103
+  s_87a00116799020::t_0ed5b3c8df3dbd 101,104-107
+internal/router/catalog/catalog.go
+  s_87a00116799020::t_86800706966915 250-251,254
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.23",
+  "base_commit_sha": "33164cbcb16cf921a0e95ffaa2b909bf8df393fe",
+  "prompts": {},
+  "sessions": {
+    "s_87a00116799020": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c8fc2ec2-50e0-41d0-9758-03a243492799",
+        "model": "deepseek/deepseek-v4-flash"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}
