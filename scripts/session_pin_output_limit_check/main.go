@@ -168,6 +168,18 @@ func checkOutputLimitLifecycle(ctx context.Context, dsn string) (checkErr error)
 		return fmt.Errorf("confirmed cap: marker=%v ended=%v", pin.LastOutputLimitAt, pin.LastTurnEndedAt)
 	}
 
+	// An older healthy completion must not erase newer cap evidence or regress
+	// the usage and serving identity that the next continuation reads.
+	if err := store.UpdateUsage(ctx, key, sessionpin.DefaultRole, usage(router.StrategyCluster, modelSecondary, turnEnd(1), false)); err != nil {
+		return err
+	}
+	if pin, err = get(sessionpin.DefaultRole); err != nil {
+		return err
+	}
+	if !pin.LastOutputLimitAt.Equal(turnEnd(2)) || !pin.LastTurnEndedAt.Equal(turnEnd(2)) || pin.LastOutputTokens != 32000 || pin.LastServedModel != modelPrimary {
+		return fmt.Errorf("older healthy write regressed newest cap: marker=%v ended=%v out=%d served=%q", pin.LastOutputLimitAt, pin.LastTurnEndedAt, pin.LastOutputTokens, pin.LastServedModel)
+	}
+
 	// Same-strategy refresh preserves the marker with the other usage fields.
 	if err := store.Upsert(ctx, newPin(sessionpin.DefaultRole, modelPrimary, router.StrategyCluster)); err != nil {
 		return err

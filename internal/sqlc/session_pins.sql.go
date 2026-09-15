@@ -459,21 +459,53 @@ func (q *Queries) SweepExpiredSessionPins(ctx context.Context) error {
 
 const updateSessionPinUsage = `-- name: UpdateSessionPinUsage :exec
 UPDATE router.session_pins
-SET last_input_tokens        = $1::int,
-    last_cached_read_tokens  = $2::int,
-    last_cached_write_tokens = $3::int,
-    last_output_tokens       = $4::int,
-    last_turn_ended_at       = $5::timestamptz,
-    last_output_limit_at     = CASE
-      WHEN $6::boolean THEN $5::timestamptz
-      ELSE NULL
+SET last_input_tokens        = CASE
+      WHEN last_turn_ended_at IS NULL OR $1::timestamptz >= last_turn_ended_at
+        THEN $2::int
+      ELSE last_input_tokens
     END,
-    pinned_provider          = $7::varchar,
+    last_cached_read_tokens  = CASE
+      WHEN last_turn_ended_at IS NULL OR $1::timestamptz >= last_turn_ended_at
+        THEN $3::int
+      ELSE last_cached_read_tokens
+    END,
+    last_cached_write_tokens = CASE
+      WHEN last_turn_ended_at IS NULL OR $1::timestamptz >= last_turn_ended_at
+        THEN $4::int
+      ELSE last_cached_write_tokens
+    END,
+    last_output_tokens       = CASE
+      WHEN last_turn_ended_at IS NULL OR $1::timestamptz >= last_turn_ended_at
+        THEN $5::int
+      ELSE last_output_tokens
+    END,
+    last_turn_ended_at       = CASE
+      WHEN last_turn_ended_at IS NULL OR $1::timestamptz >= last_turn_ended_at
+        THEN $1::timestamptz
+      ELSE last_turn_ended_at
+    END,
+    last_output_limit_at     = CASE
+      WHEN last_turn_ended_at IS NULL OR $1::timestamptz >= last_turn_ended_at
+        THEN CASE
+          WHEN $6::boolean THEN $1::timestamptz
+          ELSE NULL
+        END
+      ELSE last_output_limit_at
+    END,
+    pinned_provider          = CASE
+      WHEN last_turn_ended_at IS NULL OR $1::timestamptz >= last_turn_ended_at
+        THEN $7::varchar
+      ELSE pinned_provider
+    END,
     has_ever_switched        = has_ever_switched
       OR $8::boolean
       OR (last_served_model <> '' AND last_served_model <> $9::varchar)
       OR ($10::varchar <> '' AND $10::varchar <> $9::varchar),
-    last_served_model        = $9::varchar
+    last_served_model        = CASE
+      WHEN last_turn_ended_at IS NULL OR $1::timestamptz >= last_turn_ended_at
+        THEN $9::varchar
+      ELSE last_served_model
+    END
 WHERE session_key = $11::bytea
   AND role        = $12::varchar
   AND (
@@ -483,11 +515,11 @@ WHERE session_key = $11::bytea
 `
 
 type UpdateSessionPinUsageParams struct {
+	LastTurnEndedAt         pgtype.Timestamptz
 	LastInputTokens         int32
 	LastCachedReadTokens    int32
 	LastCachedWriteTokens   int32
 	LastOutputTokens        int32
-	LastTurnEndedAt         pgtype.Timestamptz
 	OutputLimitReached      bool
 	LastServedProvider      string
 	SessionEverSwitched     bool
@@ -521,21 +553,53 @@ type UpdateSessionPinUsageParams struct {
 // refreshing usage alone cannot attach a stale cap to another served model.
 //
 //	UPDATE router.session_pins
-//	SET last_input_tokens        = $1::int,
-//	    last_cached_read_tokens  = $2::int,
-//	    last_cached_write_tokens = $3::int,
-//	    last_output_tokens       = $4::int,
-//	    last_turn_ended_at       = $5::timestamptz,
-//	    last_output_limit_at     = CASE
-//	      WHEN $6::boolean THEN $5::timestamptz
-//	      ELSE NULL
+//	SET last_input_tokens        = CASE
+//	      WHEN last_turn_ended_at IS NULL OR $1::timestamptz >= last_turn_ended_at
+//	        THEN $2::int
+//	      ELSE last_input_tokens
 //	    END,
-//	    pinned_provider          = $7::varchar,
+//	    last_cached_read_tokens  = CASE
+//	      WHEN last_turn_ended_at IS NULL OR $1::timestamptz >= last_turn_ended_at
+//	        THEN $3::int
+//	      ELSE last_cached_read_tokens
+//	    END,
+//	    last_cached_write_tokens = CASE
+//	      WHEN last_turn_ended_at IS NULL OR $1::timestamptz >= last_turn_ended_at
+//	        THEN $4::int
+//	      ELSE last_cached_write_tokens
+//	    END,
+//	    last_output_tokens       = CASE
+//	      WHEN last_turn_ended_at IS NULL OR $1::timestamptz >= last_turn_ended_at
+//	        THEN $5::int
+//	      ELSE last_output_tokens
+//	    END,
+//	    last_turn_ended_at       = CASE
+//	      WHEN last_turn_ended_at IS NULL OR $1::timestamptz >= last_turn_ended_at
+//	        THEN $1::timestamptz
+//	      ELSE last_turn_ended_at
+//	    END,
+//	    last_output_limit_at     = CASE
+//	      WHEN last_turn_ended_at IS NULL OR $1::timestamptz >= last_turn_ended_at
+//	        THEN CASE
+//	          WHEN $6::boolean THEN $1::timestamptz
+//	          ELSE NULL
+//	        END
+//	      ELSE last_output_limit_at
+//	    END,
+//	    pinned_provider          = CASE
+//	      WHEN last_turn_ended_at IS NULL OR $1::timestamptz >= last_turn_ended_at
+//	        THEN $7::varchar
+//	      ELSE pinned_provider
+//	    END,
 //	    has_ever_switched        = has_ever_switched
 //	      OR $8::boolean
 //	      OR (last_served_model <> '' AND last_served_model <> $9::varchar)
 //	      OR ($10::varchar <> '' AND $10::varchar <> $9::varchar),
-//	    last_served_model        = $9::varchar
+//	    last_served_model        = CASE
+//	      WHEN last_turn_ended_at IS NULL OR $1::timestamptz >= last_turn_ended_at
+//	        THEN $9::varchar
+//	      ELSE last_served_model
+//	    END
 //	WHERE session_key = $11::bytea
 //	  AND role        = $12::varchar
 //	  AND (
@@ -544,11 +608,11 @@ type UpdateSessionPinUsageParams struct {
 //	  )
 func (q *Queries) UpdateSessionPinUsage(ctx context.Context, arg UpdateSessionPinUsageParams) error {
 	_, err := q.db.Exec(ctx, updateSessionPinUsage,
+		arg.LastTurnEndedAt,
 		arg.LastInputTokens,
 		arg.LastCachedReadTokens,
 		arg.LastCachedWriteTokens,
 		arg.LastOutputTokens,
-		arg.LastTurnEndedAt,
 		arg.OutputLimitReached,
 		arg.LastServedProvider,
 		arg.SessionEverSwitched,

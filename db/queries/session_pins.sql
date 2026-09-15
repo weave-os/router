@@ -214,21 +214,53 @@ ON CONFLICT (session_key, role) DO UPDATE SET
 -- refreshing usage alone cannot attach a stale cap to another served model.
 -- name: UpdateSessionPinUsage :exec
 UPDATE router.session_pins
-SET last_input_tokens        = @last_input_tokens::int,
-    last_cached_read_tokens  = @last_cached_read_tokens::int,
-    last_cached_write_tokens = @last_cached_write_tokens::int,
-    last_output_tokens       = @last_output_tokens::int,
-    last_turn_ended_at       = @last_turn_ended_at::timestamptz,
-    last_output_limit_at     = CASE
-      WHEN @output_limit_reached::boolean THEN @last_turn_ended_at::timestamptz
-      ELSE NULL
+SET last_input_tokens        = CASE
+      WHEN last_turn_ended_at IS NULL OR @last_turn_ended_at::timestamptz >= last_turn_ended_at
+        THEN @last_input_tokens::int
+      ELSE last_input_tokens
     END,
-    pinned_provider          = @last_served_provider::varchar,
+    last_cached_read_tokens  = CASE
+      WHEN last_turn_ended_at IS NULL OR @last_turn_ended_at::timestamptz >= last_turn_ended_at
+        THEN @last_cached_read_tokens::int
+      ELSE last_cached_read_tokens
+    END,
+    last_cached_write_tokens = CASE
+      WHEN last_turn_ended_at IS NULL OR @last_turn_ended_at::timestamptz >= last_turn_ended_at
+        THEN @last_cached_write_tokens::int
+      ELSE last_cached_write_tokens
+    END,
+    last_output_tokens       = CASE
+      WHEN last_turn_ended_at IS NULL OR @last_turn_ended_at::timestamptz >= last_turn_ended_at
+        THEN @last_output_tokens::int
+      ELSE last_output_tokens
+    END,
+    last_turn_ended_at       = CASE
+      WHEN last_turn_ended_at IS NULL OR @last_turn_ended_at::timestamptz >= last_turn_ended_at
+        THEN @last_turn_ended_at::timestamptz
+      ELSE last_turn_ended_at
+    END,
+    last_output_limit_at     = CASE
+      WHEN last_turn_ended_at IS NULL OR @last_turn_ended_at::timestamptz >= last_turn_ended_at
+        THEN CASE
+          WHEN @output_limit_reached::boolean THEN @last_turn_ended_at::timestamptz
+          ELSE NULL
+        END
+      ELSE last_output_limit_at
+    END,
+    pinned_provider          = CASE
+      WHEN last_turn_ended_at IS NULL OR @last_turn_ended_at::timestamptz >= last_turn_ended_at
+        THEN @last_served_provider::varchar
+      ELSE pinned_provider
+    END,
     has_ever_switched        = has_ever_switched
       OR @session_ever_switched::boolean
       OR (last_served_model <> '' AND last_served_model <> @last_served_model::varchar)
       OR (@prior_served_model::varchar <> '' AND @prior_served_model::varchar <> @last_served_model::varchar),
-    last_served_model        = @last_served_model::varchar
+    last_served_model        = CASE
+      WHEN last_turn_ended_at IS NULL OR @last_turn_ended_at::timestamptz >= last_turn_ended_at
+        THEN @last_served_model::varchar
+      ELSE last_served_model
+    END
 WHERE session_key = @session_key::bytea
   AND role        = @role::varchar
   AND (
