@@ -1,0 +1,94 @@
+install/pi-router/skills/install-lsps/SKILL.md
+  s_928d18cf622157::t_1d4feea317358b 1-75
+install/install.sh
+  s_928d18cf622157::t_43c51f0530fde0 1118-1127
+  s_928d18cf622157::t_04cbdf968a4c4d 893-950
+  s_928d18cf622157::t_78a20c77ac1a65 2855-2858
+  s_928d18cf622157::t_f437b24e7cf593 131-134
+  s_928d18cf622157::t_7ff2635d973185 1064-1067
+  s_928d18cf622157::t_5a8a6bfb63e5f7 40-41
+install/pi-router/src/lsp.ts
+  s_928d18cf622157::t_fccf33c14b8ef3 1-15,17-20,22-32,41-62,64-67,69-243,247-280,286-372,375-406,411-412
+  s_928d18cf622157::t_259f6d56966c57 16
+  s_928d18cf622157::t_b0027f81e82b43 413-508
+  s_928d18cf622157::t_985eeff0aa5945 281-285
+  s_928d18cf622157::t_eec04eef0e293f 407-410
+  s_928d18cf622157::t_0a049c761a87cd 21,33-40
+  s_928d18cf622157::t_dc0e628d3ea146 63,68
+  s_928d18cf622157::t_f72ae118fb396d 244-246
+  s_928d18cf622157::t_b05ae7a3b1139a 373-374
+install/pi-router/src/lsp-broker.ts
+  s_928d18cf622157::t_d19ea9d679c8a7 139
+  s_928d18cf622157::t_f49fa9dd7def96 32-33
+  s_928d18cf622157::t_61352c6eb9ecc8 1-31,34-138,140-255
+install/pi-router/test/unit-suite.ts
+  s_928d18cf622157::t_caec7678b3c076 9
+install/pi-router/src/config.ts
+  s_928d18cf622157::t_92f20310805088 74-78
+  s_928d18cf622157::t_87b19bad244704 270-286
+install/npm/package.json
+  s_928d18cf622157::t_89e987f08971f3 12-14
+install/pi-router/src/lsp-client.ts
+  s_928d18cf622157::t_95dce7469e2587 1-9,12-196,198,200-425
+  s_928d18cf622157::t_8f20fe1b8b7004 197,199
+  s_928d18cf622157::t_ec91eb89ee0d3f 10-11
+install/pi-router/src/lsp-servers.ts
+  s_928d18cf622157::t_447554155c8b54 10
+  s_928d18cf622157::t_9c0d7d609a9ebc 19-24,27-28,34-40,46,50-51,55,68-69,73,80-81,85,89-90,93-108
+  s_928d18cf622157::t_c550ed8992ed6d 1-9,11-18,25-26,29-33,41-45,47-49,52-54,56-67,70-72,74-79,82-84,86-88,91-92,109-165,171,179-186,189-322
+  s_928d18cf622157::t_c29089087fafe4 170,172-177
+  s_928d18cf622157::t_0ff1d66e4bbb0d 166-169,178,187-188
+install/pi-router/test/e2e.sh
+  s_928d18cf622157::t_b204d336c31bd4 137
+  s_928d18cf622157::t_cc3e0f4d6701bc 136,138
+install/pi-router/src/index.ts
+  s_928d18cf622157::t_9a34ff77a719b3 15-17
+  s_928d18cf622157::t_7187e6c2623a19 51-55,59
+  s_928d18cf622157::t_30f7f65b349434 29
+install/pi-router/src/lsp-format.ts
+  s_928d18cf622157::t_565efc45e59717 1-230
+install/pi-router/test/lsp.test.ts
+  s_928d18cf622157::t_7a76e28da0de36 653-813,815-818
+  s_928d18cf622157::t_240fd80113f84d 33-40
+  s_928d18cf622157::t_bcd69ae94fcb23 1-32,41-652,819-880
+  s_928d18cf622157::t_7e5cad6b0fc753 814
+install/pi-router/src/dispatch.ts
+  s_928d18cf622157::t_d96b8048940d15 39-46
+  s_928d18cf622157::t_a3527bb221f30a 137
+  s_928d18cf622157::t_ea10cb115e2911 162-165,172
+  s_928d18cf622157::t_d4755c988d25f6 47
+  s_928d18cf622157::t_cd2d0c0fbb4798 28-29
+  s_928d18cf622157::t_66acda11f925a5 185-190
+  s_928d18cf622157::t_8041965a5a82cf 308
+  s_928d18cf622157::t_633a65c1dace65 334-343,346
+install/pi-router/src/lsp-protocol.ts
+  s_928d18cf622157::t_988e35612f3c6c 97-115
+  s_928d18cf622157::t_bb7f0948e544a5 1-96,116-128
+install/npm/scripts/copy-installer.js
+  s_928d18cf622157::t_2fff17783429fc 65-67,72
+install/pi-router/README.md
+  s_928d18cf622157::t_934ce1aee79a7a 92-98,100-102
+  s_928d18cf622157::t_3f98c4634d2c63 49-61
+  s_928d18cf622157::t_d7919cc2e7fa3a 62-64
+  s_928d18cf622157::t_f42017ebe27c8a 47-48
+  s_928d18cf622157::t_a7ab9d952d695e 14
+install/pi-router/src/lsp-install.ts
+  s_928d18cf622157::t_106e0c678f080d 1-132,134-198
+  s_928d18cf622157::t_9482734c9a6482 133
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "89305eda9ff509a2c84b8e931e836f43116edf80",
+  "prompts": {},
+  "sessions": {
+    "s_928d18cf622157": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "1a744bfb-f40f-4395-b5ba-cd37866e6b0a",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Drew Bailey <drew@workweave.ai>"
+    }
+  }
+}
