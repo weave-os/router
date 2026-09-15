@@ -402,7 +402,14 @@ func (r *LLMEscalationRepo) ListSessions(ctx context.Context, installation strin
 	if pageOffset > math.MaxInt32 {
 		pageOffset = math.MaxInt32
 	}
-	rows, err := sqlc.New(r.pool).GetLLMEscalationSessions(ctx, sqlc.GetLLMEscalationSessionsParams{AllInstallations: installation == "", InstallationID: id, PageLimit: int32(min(max(limit, 1), 201)), PageOffset: int32(pageOffset)})
+	pageLimit := limit
+	if pageLimit < 1 {
+		pageLimit = 1
+	}
+	if pageLimit > 201 {
+		pageLimit = 201
+	}
+	rows, err := sqlc.New(r.pool).GetLLMEscalationSessions(ctx, sqlc.GetLLMEscalationSessionsParams{AllInstallations: installation == "", InstallationID: id, PageLimit: int32(pageLimit), PageOffset: int32(pageOffset)})
 	if err != nil {
 		return nil, err
 	}
