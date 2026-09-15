@@ -56,6 +56,7 @@ internal/translate/toolcheck/testdata/fuzz/FuzzArgumentDocumentEdits/d625bc97021
   s_4da3e21f265052::t_974196d5d55dfa 1-3
 internal/proxy/stream_cut_internal_test.go
   s_4da3e21f265052::t_39a89d402b3080 9,264,296-423
+  s_4da3e21f265052::t_b082275545459f 295
 internal/providers/anthropic/sse_prelude.go
   s_4da3e21f265052::t_39a89d402b3080 35,48
 internal/proxy/cost_response_test.go
