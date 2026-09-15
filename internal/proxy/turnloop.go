@@ -515,7 +515,9 @@ func isUnpinnedScoredTurn(tt turntype.TurnType) bool {
 }
 
 // routeWithoutPin scores a turn that has no session pin to honor or anchor:
-// an explicit force still wins, the usage bypass intercepts the fresh
+// an explicit force still wins, then a classifier presenting the caller's
+// Claude subscription passes straight through to the requested model
+// (classifierPassthroughEngaged) or the usage bypass intercepts the fresh
 // decision, and res.SessionKey stays zero so nothing is written back.
 func (s *Service) routeWithoutPin(
 	ctx context.Context,
@@ -533,7 +535,7 @@ func (s *Service) routeWithoutPin(
 		return res, nil
 	}
 	req.PolicyTurnContext = buildPolicyTurnContext(req, res, sessionpin.Pin{}, sessionpin.Pin{})
-	if dec, ok := s.usageBypassDecision(ctx, reqHeaders, req, nil); ok {
+	if dec, ok := s.usageBypassDecision(ctx, reqHeaders, req, nil, res.TurnType); ok {
 		res.Decision = dec
 		res.UsageBypass = true
 		return res, nil
@@ -974,7 +976,7 @@ func (s *Service) runTurnLoop(
 	if !forceModelFound && env.IsNativeWebSearchSubTurn() {
 		// No session strikes yet: the pin rows are read further down, and the
 		// non-bypass branch below passes the baseline model through unrouted.
-		if decision, ok := s.usageBypassDecision(ctx, reqHeaders, req, nil); ok {
+		if decision, ok := s.usageBypassDecision(ctx, reqHeaders, req, nil, res.TurnType); ok {
 			res.SessionKey = threadSessionKey
 			res.Decision = decision
 			res.UsageBypass = true
@@ -1503,7 +1505,7 @@ func (s *Service) runTurnLoop(
 	// is chosen for a routed turn, so the gate must not apply here. It does
 	// yield to a session strike on the requested model: that arm failed this
 	// user mid-turn, and the strike is what keeps the next turn off it.
-	if dec, ok := s.usageBypassDecision(ctx, reqHeaders, req, res.SessionDemotedModels); ok {
+	if dec, ok := s.usageBypassDecision(ctx, reqHeaders, req, res.SessionDemotedModels, res.TurnType); ok {
 		res.Decision = dec
 		res.UsageBypass = true
 		return res, nil

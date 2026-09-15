@@ -23,8 +23,22 @@ import (
 	"weave-os/router/internal/translate"
 )
 
-// usageBypassDecision returns the strict pass-through decision when the
-// subscription usage-bypass gate should engage, false otherwise.
+// Decision reasons for the two strict pass-through lanes. Both dispatch through
+// bypassToAnthropic and record a router.usage_bypass span; the reason tells
+// them apart in telemetry.
+const (
+	// reasonUsageBypass: the installation opted in (usage_bypass_enabled) and
+	// the caller's subscription has headroom for the requested model.
+	reasonUsageBypass = "usage_bypass"
+	// reasonClassifierPassthrough: a Claude Code classifier turn arrived with
+	// the caller's own Claude subscription credential. No opt-in needed — see
+	// classifierPassthroughEngaged.
+	reasonClassifierPassthrough = "classifier_subscription_passthrough"
+)
+
+// usageBypassDecision returns the strict pass-through decision when either
+// subscription lane should engage (classifier passthrough first, then the
+// opt-in usage bypass), false otherwise.
 //
 // sessionDemotedModels are the models this session struck out after a
 // committed or rescued stream failure (turnResult.SessionDemotedModels). They
@@ -34,19 +48,61 @@ import (
 // strike is different: the arm just failed this very user mid-turn, so serving
 // it straight through on their plan would replay the failure the strike exists
 // to avoid. The set is passed separately so the two stay distinguishable.
-func (s *Service) usageBypassDecision(ctx context.Context, headers http.Header, req router.Request, sessionDemotedModels []string) (router.Decision, bool) {
+func (s *Service) usageBypassDecision(ctx context.Context, headers http.Header, req router.Request, sessionDemotedModels []string, turnType turntype.TurnType) (router.Decision, bool) {
 	if slices.Contains(sessionDemotedModels, req.RequestedModel) {
 		return router.Decision{}, false
 	}
-	provider, engaged := s.usageBypassEngaged(ctx, headers, req)
+	provider, reason, engaged := s.subscriptionPassthroughEngaged(ctx, headers, req, turnType)
 	if !engaged {
 		return router.Decision{}, false
 	}
 	return router.Decision{
 		Provider: provider,
 		Model:    req.RequestedModel,
-		Reason:   "usage_bypass",
+		Reason:   reason,
 	}, true
+}
+
+func (s *Service) subscriptionPassthroughEngaged(ctx context.Context, headers http.Header, req router.Request, turnType turntype.TurnType) (provider, reason string, engaged bool) {
+	if provider, ok := s.classifierPassthroughEngaged(ctx, headers, req, turnType); ok {
+		return provider, reasonClassifierPassthrough, true
+	}
+	if provider, ok := s.usageBypassEngaged(ctx, headers, req); ok {
+		return provider, reasonUsageBypass, true
+	}
+	return "", "", false
+}
+
+// classifierPassthroughEngaged reports whether a Claude Code classifier turn
+// should be served straight through on the caller's own Claude subscription.
+// Anthropic bills the Auto-mode security classifier to the plan (free on
+// Pro/Max/Team), so for a subscription caller the requested Claude model costs
+// them nothing extra, while any model the scorer substitutes is API spend the
+// router adds. Engages when the turn is a Classifier, the requested model is
+// Anthropic-served and admissible for this request (subscriptionCoveredTarget),
+// the request presents a Claude subscription credential, and that credential
+// is not observed-exhausted. Unlike usageBypassEngaged it needs neither the
+// installation opt-in nor a utilization threshold: the classifier is a
+// by-product of the conversation's own turns, so conserving quota by
+// re-routing it buys nothing. An exhausted subscription falls through to the
+// scorer, which already handles the paid-key fallback and subscription-only
+// refusal for that state.
+func (s *Service) classifierPassthroughEngaged(ctx context.Context, headers http.Header, req router.Request, turnType turntype.TurnType) (string, bool) {
+	if turnType != turntype.Classifier {
+		return "", false
+	}
+	provider, token, covered := subscriptionCoveredTarget(ctx, headers, req)
+	if !covered || provider != providers.ProviderAnthropic {
+		return "", false
+	}
+	if s.usageObserver == nil {
+		return provider, true
+	}
+	snap, observed := s.usageObserver.Snapshot(s.usageObserver.Key([]byte(token)))
+	if observed && snap.Exhausted() {
+		return "", false
+	}
+	return provider, true
 }
 
 // usageBypassEngaged reports whether the requested model should be served
@@ -73,45 +129,8 @@ func (s *Service) usageBypassEngaged(ctx context.Context, headers http.Header, r
 	if !ok || s.usageObserver == nil {
 		return "", false
 	}
-	model := req.RequestedModel
-	m, found := catalog.ByID(model)
-	if !found {
-		return "", false
-	}
-	provider := m.PrimaryProvider()
-	codexTok, anthroTok := presentSubscriptionTokens(ctx, headers)
-	var token string
-	switch provider {
-	case providers.ProviderAnthropic:
-		token = anthroTok
-	case providers.ProviderOpenAI:
-		if !codexSubscriptionCoversModel(model) {
-			return "", false
-		}
-		token = codexTok
-	default:
-		return "", false
-	}
-	if req.EnabledProviders != nil {
-		if _, enabled := req.EnabledProviders[provider]; !enabled {
-			return "", false
-		}
-	}
-	// Use SafetyExcludedModels (hard constraints: context-overflow, gemini-unsigned),
-	// not ExcludedModels — the installation's excluded_models is a routing preference
-	// bypass may override; a model that can't accept the request on any credential cannot.
-	if _, excluded := req.SafetyExcludedModels[model]; excluded {
-		return "", false
-	}
-	// Allowlist is a compliance boundary, not a routing preference —
-	// unlike excluded_models the bypass must honor it. Checked explicitly
-	// because SafetyExcludedModels has different readers and semantics.
-	if req.AllowedModels != nil {
-		if _, allowed := req.AllowedModels[model]; !allowed {
-			return "", false
-		}
-	}
-	if token == "" {
+	provider, token, covered := subscriptionCoveredTarget(ctx, headers, req)
+	if !covered {
 		return "", false
 	}
 	threshold := defaultUsageBypassThreshold
@@ -136,6 +155,58 @@ func (s *Service) usageBypassEngaged(ctx context.Context, headers http.Header, r
 	}
 	util := max(snap.Primary.UsedPercent, snap.Secondary.UsedPercent)
 	return provider, util < threshold
+}
+
+// subscriptionCoveredTarget resolves the requested model to the provider lane a
+// caller subscription could serve it on and the credential that would pay for
+// it: Anthropic for a Claude subscription, OpenAI for a Codex subscription
+// covering the model. It reports false when the model is unknown, on another
+// provider, provider-disabled for this request, safety-excluded, outside the
+// allowlist, or when no matching subscription credential is present. Quota
+// state is the caller's concern; this is the admissibility check both
+// pass-through lanes share.
+func subscriptionCoveredTarget(ctx context.Context, headers http.Header, req router.Request) (provider, token string, covered bool) {
+	model := req.RequestedModel
+	m, found := catalog.ByID(model)
+	if !found {
+		return "", "", false
+	}
+	provider = m.PrimaryProvider()
+	codexTok, anthroTok := presentSubscriptionTokens(ctx, headers)
+	switch provider {
+	case providers.ProviderAnthropic:
+		token = anthroTok
+	case providers.ProviderOpenAI:
+		if !codexSubscriptionCoversModel(model) {
+			return "", "", false
+		}
+		token = codexTok
+	default:
+		return "", "", false
+	}
+	if req.EnabledProviders != nil {
+		if _, enabled := req.EnabledProviders[provider]; !enabled {
+			return "", "", false
+		}
+	}
+	// Use SafetyExcludedModels (hard constraints: context-overflow, gemini-unsigned),
+	// not ExcludedModels — the installation's excluded_models is a routing preference
+	// bypass may override; a model that can't accept the request on any credential cannot.
+	if _, excluded := req.SafetyExcludedModels[model]; excluded {
+		return "", "", false
+	}
+	// Allowlist is a compliance boundary, not a routing preference —
+	// unlike excluded_models the bypass must honor it. Checked explicitly
+	// because SafetyExcludedModels has different readers and semantics.
+	if req.AllowedModels != nil {
+		if _, allowed := req.AllowedModels[model]; !allowed {
+			return "", "", false
+		}
+	}
+	if token == "" {
+		return "", "", false
+	}
+	return provider, token, true
 }
 
 // claudeSubscriptionExhausted reports whether the caller's present Claude
@@ -266,6 +337,7 @@ func (s *Service) bypassToAnthropic(
 	requestStart time.Time,
 	requestID, externalID string,
 	turnType turntype.TurnType,
+	reason string,
 	r *http.Request,
 	w http.ResponseWriter,
 ) error {
@@ -273,7 +345,7 @@ func (s *Service) bypassToAnthropic(
 	decision := router.Decision{
 		Provider: providers.ProviderAnthropic,
 		Model:    feats.Model,
-		Reason:   "usage_bypass",
+		Reason:   reason,
 	}
 	w.Header().Set(HeaderRouterDecision, decision.Reason)
 	w.Header().Set(HeaderRouterProvider, decision.Provider)
@@ -412,8 +484,8 @@ func (s *Service) bypassToAnthropic(
 	otel.Flush(ctx)
 
 	// Persist a router.upstream telemetry row so bypass turns appear in the
-	// telemetry table. Routing-brain fields stay NULL; decision_reason="usage_bypass"
-	// marks the lane. Required for Phase 0 unified_limit_headers capture.
+	// telemetry table. Routing-brain fields stay NULL; decision_reason
+	// (usage_bypass / classifier_subscription_passthrough) marks the lane. Required for Phase 0 unified_limit_headers capture.
 	if installationID := installationIDFromContext(ctx); installationID != uuid.Nil {
 		credentialKeyPrefix, credentialKeySuffix, credSource := s.credentialKeyParts(ctx)
 		telemetryParams := InsertTelemetryParams{
