@@ -193,6 +193,56 @@ check "claude user install writes exactly the registry's commands" \
   "$(weave_registry_names claude | sort | tr '\n' ' ' | sed 's/ $//')" \
   "$(installed_names "$cc_home/.claude/commands")"
 
+# Reinstalling repairs a router-owned statusline after its permissions or file
+# contents are damaged, while a same-named user script remains untouched.
+cc_statusline="$cc_home/.weave/cc-statusline.sh"
+chmod 000 "$cc_statusline"
+run_install "$cc_home" --claude --scope user
+if [ -x "$cc_statusline" ] && grep -Fq 'Claude Code statusline for the Weave Router.' "$cc_statusline"; then
+  ok "reinstall repairs a router-owned statusline with broken permissions"
+else
+  no "reinstall repairs a router-owned statusline with broken permissions" \
+    "executable router statusline" "not repaired"
+fi
+mv "$cc_statusline" "$work/missing-cc-statusline.sh"
+run_install "$cc_home" --claude --scope user
+if [ -f "$cc_statusline" ]; then
+  ok "reinstall recreates a missing router-owned statusline"
+else
+  no "reinstall recreates a missing router-owned statusline" "file recreated" "missing"
+fi
+
+custom_statusline_home="$work/claude-statusline-custom"; mkdir -p "$custom_statusline_home/.claude" "$custom_statusline_home/.weave"
+printf '%s\n' '# user statusline' >"$custom_statusline_home/.weave/cc-statusline.sh"
+chmod +x "$custom_statusline_home/.weave/cc-statusline.sh"
+jq -n --arg command "$custom_statusline_home/.weave/cc-statusline.sh" \
+  '{statusLine: {type: "command", command: $command}}' \
+  >"$custom_statusline_home/.claude/settings.json"
+run_install "$custom_statusline_home" --claude --scope user
+check "install preserves a user-owned statusline at the conventional path" \
+  "# user statusline" "$(cat "$custom_statusline_home/.weave/cc-statusline.sh")"
+run_uninstall "$custom_statusline_home" --claude --scope user
+check "uninstall preserves a user-owned statusline setting" \
+  "$custom_statusline_home/.weave/cc-statusline.sh" \
+  "$(jq -r '.statusLine.command' "$custom_statusline_home/.claude/settings.json")"
+
+orphan_statusline_home="$work/claude-statusline-orphan"; mkdir -p "$orphan_statusline_home"
+run_install "$orphan_statusline_home" --claude --scope user
+jq --arg command "$orphan_statusline_home/.claude/custom-statusline.sh" \
+  '.statusLine.command = $command' \
+  "$orphan_statusline_home/.claude/settings.json" \
+  >"$work/orphan-settings.json"
+mv "$work/orphan-settings.json" "$orphan_statusline_home/.claude/settings.json"
+run_uninstall "$orphan_statusline_home" --claude --scope user
+check "uninstall preserves a replacement statusline setting" \
+  "$orphan_statusline_home/.claude/custom-statusline.sh" \
+  "$(jq -r '.statusLine.command' "$orphan_statusline_home/.claude/settings.json")"
+if [ -e "$orphan_statusline_home/.weave/cc-statusline.sh" ]; then
+  no "uninstall removes an orphaned router statusline script" "removed" "still present"
+else
+  ok "uninstall removes an orphaned router statusline script"
+fi
+
 # opencode, user scope: the smaller registry subset, in the XDG commands dir.
 # The installer honours XDG_CONFIG_HOME, so resolve the destination the same
 # way rather than assuming $HOME/.config — CI runners set it.
@@ -359,6 +409,13 @@ run_uninstall "$cc_home" --claude --scope user
 check "uninstall removes every command it owns" "rf" "$(installed_names "$cc_home/.claude/commands")"
 check "uninstall preserves the user-owned command's contents" "my own wrapper" \
   "$(cat "$cc_home/.claude/commands/rf.md")"
+if [ -e "$cc_home/.weave/cc-statusline.sh" ]; then
+  no "uninstall removes the router-owned statusline" "removed" "still present"
+else
+  ok "uninstall removes the router-owned statusline"
+fi
+check "uninstall removes the router-owned statusline setting" "false" \
+  "$(jq 'has("statusLine")' "$cc_home/.claude/settings.json")"
 
 XDG_CONFIG_HOME="$oc_xdg" run_uninstall "$oc_home" --opencode --scope user
 check "uninstall removes every opencode command it owns" "fm" \

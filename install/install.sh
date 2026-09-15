@@ -363,13 +363,40 @@ refuse_if_symlink() {
   fi
 }
 
+# The marker is part of the installed script, so a user-owned script at the
+# same conventional path can be distinguished from one managed by the router.
+CLAUDE_STATUSLINE_MARKER="# Claude Code statusline for the Weave Router."
+
 # claude_statusline_configured reports whether Claude Code has a non-null
-# statusline setting in a settings file. The router must not replace an
-# existing setting (or its backing script) when adding the routing config.
+# statusline setting in a settings file.
 claude_statusline_configured() {
   local settings_path="$1"
   [ -f "$settings_path" ] || return 1
   jq -e 'has("statusLine") and (.statusLine != null)' "$settings_path" >/dev/null 2>&1
+}
+
+# claude_statusline_router_owned reports whether a settings entry points at the
+# router's statusline. Existing scripts prove ownership with the marker; when a
+# script is missing, the install attribution proves that the entry was written
+# by the router and should be recreated.
+claude_statusline_router_owned() {
+  local settings_path="$1" expected_command="$2" script_path="$3" configured_command
+  [ -f "$settings_path" ] || return 1
+  configured_command="$(jq -r '.statusLine.command // empty' "$settings_path" 2>/dev/null || true)"
+  [ "$configured_command" = "$expected_command" ] || return 1
+  if [ -f "$script_path" ]; then
+    if grep -Fq "$CLAUDE_STATUSLINE_MARKER" "$script_path" 2>/dev/null; then
+      return 0
+    fi
+    # An unreadable file may be a router script whose permissions were changed
+    # by a user or tool. Use the settings attribution below to recover it.
+    [ -r "$script_path" ] && return 1
+  fi
+  jq -e '
+    (.attribution.commit == "Co-Authored-By: Weave Router <router@workweave.ai>"
+      or .attribution.commit == "Co-Authored-By: Weave Router <noreply@workweave.ai>")
+    and .attribution.pr == "🤖 Generated with [Weave Router](https://router.workweave.ai)"
+  ' "$settings_path" >/dev/null 2>&1
 }
 
 # Markers that delimit the block this installer manages inside Codex's
@@ -1842,6 +1869,9 @@ fi
 
 if [ "$target" = "claude" ]; then
   statusline_install="true"
+  statusline_source_file=""
+  statusline_expected_command=""
+  statusline_candidate_file=""
   case "$scope" in
     user)
       settings_dir="$settings_base/.claude"
@@ -1867,16 +1897,33 @@ if [ "$target" = "claude" ]; then
       ;;
   esac
 
-  # Check every settings file that can supply the effective statusline. Claude
-  # Code applies project-local settings over project settings over user
-  # settings, and replacing any existing entry would silently discard the
-  # user's customization.
-  if claude_statusline_configured "$settings_file" \
-     || { [ -n "$local_settings_file" ] && claude_statusline_configured "$local_settings_file"; } \
-     || { [ "$scope" = "project" ] \
-          && claude_statusline_configured "$HOME/.claude/settings.json"; }; then
+  # Check the effective settings layer. A user-owned statusline blocks the
+  # install; a router-owned one is refreshed so reinstall repairs its script.
+  if [ "$scope" = "project" ] \
+     && claude_statusline_configured "$local_settings_file"; then
+    statusline_source_file="$local_settings_file"
+    statusline_expected_command="$statusline_path_for_settings"
+    statusline_candidate_file="$statusline_file"
+  elif claude_statusline_configured "$settings_file"; then
+    statusline_source_file="$settings_file"
+    statusline_expected_command="$statusline_path_for_settings"
+    statusline_candidate_file="$statusline_file"
+  elif [ "$scope" = "project" ] \
+       && claude_statusline_configured "$HOME/.claude/settings.json"; then
+    statusline_source_file="$HOME/.claude/settings.json"
+    statusline_expected_command="$HOME/.weave/cc-statusline.sh"
+    statusline_candidate_file="$HOME/.weave/cc-statusline.sh"
+  fi
+  if [ -n "$statusline_source_file" ] \
+     && ! claude_statusline_router_owned \
+          "$statusline_source_file" "$statusline_expected_command" "$statusline_candidate_file"; then
     statusline_install="false"
     skip "Existing Claude Code statusline detected; leaving it unchanged."
+  fi
+  if [ "$statusline_install" = "true" ] \
+     && [ -f "$statusline_candidate_file" ] \
+     && [ ! -w "$statusline_candidate_file" ]; then
+    chmod u+rw "$statusline_candidate_file"
   fi
 
   # Symlink containment: refuse if any target path is a symlink. User-scope

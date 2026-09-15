@@ -141,6 +141,8 @@ EOF
 
 target="claude"
 
+CLAUDE_STATUSLINE_MARKER="# Claude Code statusline for the Weave Router."
+
 err()  { printf "\033[31merror:\033[0m %s\n" "$*" >&2; }
 warn() { printf "\033[33mwarning:\033[0m %s\n" "$*" >&2; }
 info() { printf "\033[36m==>\033[0m %s\n" "$*"; }
@@ -156,6 +158,28 @@ refuse_if_symlink() {
     err "$target is a symlink (-> $(readlink "$target")). Refusing to operate on it."
     exit 1
   fi
+}
+
+# claude_statusline_router_owned reports whether a settings entry points at the
+# router's statusline. Existing scripts prove ownership with the marker; when a
+# script is missing, the install attribution proves that the entry was written
+# by the router and should be removed with the rest of the router config.
+claude_statusline_router_owned() {
+  local settings_path="$1" expected_command="$2" script_path="$3" configured_command
+  [ -f "$settings_path" ] || return 1
+  configured_command="$(jq -r '.statusLine.command // empty' "$settings_path" 2>/dev/null || true)"
+  [ "$configured_command" = "$expected_command" ] || return 1
+  if [ -f "$script_path" ]; then
+    if grep -Fq "$CLAUDE_STATUSLINE_MARKER" "$script_path" 2>/dev/null; then
+      return 0
+    fi
+    [ -r "$script_path" ] && return 1
+  fi
+  jq -e '
+    (.attribution.commit == "Co-Authored-By: Weave Router <router@workweave.ai>"
+      or .attribution.commit == "Co-Authored-By: Weave Router <noreply@workweave.ai>")
+    and .attribution.pr == "🤖 Generated with [Weave Router](https://router.workweave.ai)"
+  ' "$settings_path" >/dev/null 2>&1
 }
 
 while [ $# -gt 0 ]; do
@@ -826,8 +850,10 @@ if [ -n "$install_dir" ]; then
   # uses .claude/. Match the installer's scope-dependent statusline placement.
   if [ "$scope" = "project" ]; then
     statusline_file="$install_dir/.claude/cc-statusline.sh"
+    statusline_command="$statusline_file"
   else
     statusline_file="$install_dir/.weave/cc-statusline.sh"
+    statusline_command="$statusline_file"
   fi
   # Symlink containment: --dir paths come from a user-supplied directory that may
   # be hostile. The later `>` redirect on settings_file and `rm -f` on the
@@ -839,6 +865,7 @@ elif [ "$scope" = "user" ]; then
   settings_file="$HOME/.claude/settings.json"
   local_settings_file=""
   statusline_file="$HOME/.weave/cc-statusline.sh"
+  statusline_command="$statusline_file"
 else
   # Project scope without --dir: mirror install.sh — directory prompt only when
   # scope_explicit is false (interactive install path); explicit --scope project
@@ -874,6 +901,7 @@ else
   settings_file="$settings_base/.claude/settings.json"
   local_settings_file="$settings_base/.claude/settings.local.json"
   statusline_file="$settings_base/.claude/cc-statusline.sh"
+  statusline_command="\${CLAUDE_PROJECT_DIR}/.claude/cc-statusline.sh"
   # Symlink containment: paths come from a git repo or user-supplied directory
   # that may be hostile. The later `>` redirect on settings_file and `rm -f` on
   # the scripts would otherwise follow links out of the repo.
@@ -883,18 +911,27 @@ else
   refuse_if_symlink "$statusline_file"
 fi
 
+statusline_file_owned="false"
+statusline_setting_owned="false"
+if [ -f "$statusline_file" ] && grep -Fq "$CLAUDE_STATUSLINE_MARKER" "$statusline_file"; then
+  statusline_file_owned="true"
+fi
+if claude_statusline_router_owned "$settings_file" "$statusline_command" "$statusline_file"; then
+  statusline_setting_owned="true"
+  statusline_file_owned="true"
+fi
+
 if [ -f "$settings_file" ]; then
   # Only remove keys we actually installed: scrub our env vars, and only
   # delete `statusLine` / `apiKeyHelper` when they point at scripts this
   # installer used in older versions. Otherwise an unrelated user-configured
   # statusLine or apiKeyHelper would be silently clobbered.
-  cleaned="$(jq '
+  cleaned="$(jq --arg statusline_setting_owned "$statusline_setting_owned" '
     if .env then
       .env |= (del(.ANTHROPIC_BASE_URL, .ANTHROPIC_AUTH_TOKEN, .ANTHROPIC_CUSTOM_HEADERS, .ENABLE_TOOL_SEARCH))
       | (if (.env | length) == 0 then del(.env) else . end)
     else . end
-    | (if (.statusLine.command // "" | tostring | endswith("cc-statusline.sh"))
-         then del(.statusLine) else . end)
+    | (if $statusline_setting_owned == "true" then del(.statusLine) else . end)
     | (if (.apiKeyHelper // "" | tostring | endswith("weave-key.sh"))
          then del(.apiKeyHelper) else . end)
     | (if ((.attribution.commit == "Co-Authored-By: Weave Router <router@workweave.ai>"
@@ -936,7 +973,7 @@ if [ -f "$statusline_file" ]; then
   # The installer now leaves an existing statusline alone. A user may already
   # have a script at the router's conventional filename, so remove this file
   # only when its content identifies it as our managed statusline.
-  if grep -Fq '# Claude Code statusline for the Weave Router.' "$statusline_file"; then
+  if [ "$statusline_file_owned" = "true" ]; then
     rm -f "$statusline_file"
     ok "Removed $statusline_file"
   else
