@@ -109,7 +109,7 @@ const RegistryVersion = 17
 // are already per-installation columns on model_router_installations, or are
 // consumed at construction time and have no per-request read site to override.
 var Registry = []Definition{
-	{Key: KeyEscalationXGBoostEnabled, Kind: KindBool, Description: "Promote one complexity class on an XGBoost escalation checkpoint. Off by default.", OrgOverridable: true},
+	{Key: KeyEscalationXGBoostEnabled, Kind: KindBool, Description: "Route to the maximum complexity class on an XGBoost escalation checkpoint. Off by default.", OrgOverridable: true},
 	{Key: KeyEscalationXGBoostShadowEnabled, Kind: KindBool, Description: "Observe XGBoost escalation without changing routing. Off by default.", OrgOverridable: true},
 	{Key: KeyEscalationXGBoostShadowMarkerEnabled, Kind: KindBool, Description: "Show positive shadow escalation notices in assistant responses. Off by default.", OrgOverridable: true},
 	{Key: KeyEscalationXGBoostEpoch, Kind: KindInt, Description: "Observation generation; increment before enabling or resetting escalation.", OrgOverridable: true},

@@ -128,9 +128,9 @@ func TestEscalationCadenceReplayFloorAndGates(t *testing.T) {
 		constraint := turn.constraint()
 		if n == 5 {
 			require.True(t, constraint.Escalate)
-			res.Decision.Metadata = &router.RoutingMetadata{Escalation: &escalation.Decision{Baseline: escalation.Low, Effective: escalation.Medium, Outcome: escalation.OutcomePromoted, Constrained: true}}
+			res.Decision.Metadata = &router.RoutingMetadata{Escalation: &escalation.Decision{Baseline: escalation.Low, Effective: escalation.Maximum, Outcome: escalation.OutcomePromoted, Constrained: true}}
 		} else if n == 6 {
-			require.Equal(t, escalation.Medium, constraint.Floor)
+			require.Equal(t, escalation.Maximum, constraint.Floor)
 			require.False(t, constraint.Escalate)
 		}
 		require.NoError(t, svc.finishEscalation(ctx, turn, &res, nil))
@@ -293,7 +293,7 @@ func (escalationDispatchRouter) Route(_ context.Context, req router.Request) (ro
 	if req.Escalation != nil {
 		group = escalation.Higher(group, req.Escalation.Floor)
 		if req.Escalation.Escalate {
-			group = escalation.Next(group)
+			group = escalation.Maximum
 		}
 		outcome := escalation.OutcomeFloor
 		if req.Escalation.Escalate {
@@ -332,10 +332,10 @@ func TestEscalationLiveModelThroughTurnLoop(t *testing.T) {
 		if n < 9 {
 			require.Equal(t, "claude-haiku-4-5", last.Decision.Model)
 		} else {
-			require.Equal(t, "claude-sonnet-4-6", last.Decision.Model)
+			require.Equal(t, "claude-opus-4-8", last.Decision.Model)
 		}
 	}
-	require.Equal(t, escalation.Medium, store.sessions[last.EscalationScope].Floor)
+	require.Equal(t, escalation.Maximum, store.sessions[last.EscalationScope].Floor)
 }
 
 func TestEscalationOrdinaryHigherClassificationDoesNotRaiseFloor(t *testing.T) {

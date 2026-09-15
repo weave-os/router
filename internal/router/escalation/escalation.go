@@ -43,20 +43,6 @@ func Higher(base, floor Group) Group {
 	return base
 }
 
-// Next returns exactly the adjacent class, capped at maximum.
-func Next(group Group) Group {
-	switch group {
-	case Low:
-		return Medium
-	case Medium:
-		return High
-	case High:
-		return Maximum
-	default:
-		return group
-	}
-}
-
 // Constraint carries classifier intent without overriding user/provider restrictions.
 type Constraint struct {
 	Floor    Group
