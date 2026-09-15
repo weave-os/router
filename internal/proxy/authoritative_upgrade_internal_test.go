@@ -382,3 +382,26 @@ func TestEvidenceUpgradeHoldsWarmLowMarginAndCountsVotes(t *testing.T) {
 	require.Len(t, store.upserts, 1)
 	assert.Equal(t, 1, store.upserts[0].ConsecutiveUpgradeVotes)
 }
+
+func TestEvidenceUpgradeVotesResetWhenProposalLeavesSameGroup(t *testing.T) {
+	margin := 0.05
+	threshold := 0.15
+	svc := (&Service{}).WithAuthoritativeUpgradeConfig(AuthoritativeUpgradeConfig{MarginThreshold: &threshold})
+	pin := upgradeTestPin()
+	pin.ConsecutiveUpgradeVotes = 2
+	fresh := upgradeTestFresh()
+	fresh.Metadata.ClassifierMargin = &margin
+
+	shadow := svc.authoritativeUpgradeFor(context.Background(), router.Request{}, pin, fresh, turnLoopResult{}, 1000)
+	assert.Equal(t, upgradeHold, shadow.Verdict.Outcome)
+	assert.Equal(t, escalation.High, shadow.Evidence.FreshGroup)
+	assert.Equal(t, escalation.Medium, shadow.Evidence.PinGroup)
+	require.NotNil(t, shadow.Evidence.VoteCount)
+	assert.Zero(t, *shadow.Evidence.VoteCount, "a different-group hold breaks vote consecutiveness")
+
+	pin.ConsecutiveUpgradeVotes = *shadow.Evidence.VoteCount
+	fresh.Metadata.PolicyGroup = string(escalation.Medium)
+	shadow = svc.authoritativeUpgradeFor(context.Background(), router.Request{}, pin, fresh, turnLoopResult{}, 1000)
+	require.NotNil(t, shadow.Evidence.VoteCount)
+	assert.Equal(t, 1, *shadow.Evidence.VoteCount)
+}

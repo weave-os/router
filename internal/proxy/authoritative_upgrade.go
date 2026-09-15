@@ -231,12 +231,15 @@ func (s *Service) authoritativeUpgradeFor(ctx context.Context, req router.Reques
 		seconds := int64(s.authoritativeUpgradeConfig.StalePinAfter.Seconds())
 		decision.StalePinAfterSec = &seconds
 	}
-	votes := pin.ConsecutiveUpgradeVotes
+	// Votes are consecutive only while every proposal remains an eligible,
+	// expensive, same-group upgrade. A held proposal outside that shape must
+	// clear the counter before a later same-group proposal can vote again.
+	votes := 0
 	if decision.Evidence.HasPin && decision.Evidence.MoreExpensive && !decision.Evidence.SameModel &&
 		decision.Evidence.FreshEligible && !decision.Evidence.Demoted &&
 		decision.Evidence.FreshGroup == decision.Evidence.PinGroup &&
 		!decision.Evidence.PrefixBroken && !decision.Evidence.CacheCold && !decision.Evidence.StalePin {
-		votes++
+		votes = pin.ConsecutiveUpgradeVotes + 1
 	}
 	decision.Evidence.VoteCount = &votes
 	decision.Verdict = evaluateAuthoritativeUpgrade(decision.Evidence)
