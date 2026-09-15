@@ -7801,12 +7801,8 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	return proxyErr
 }
 
-func stripResponsesTerminalArtifacts(body []byte) ([]byte, error) {
-	stripped, err := translate.StripRouterCommandsFromResponsesInput(body)
-	if err != nil {
-		return nil, fmt.Errorf("strip Responses router command: %w", err)
-	}
-	stripped, err = translate.StripRoutingBadgeFromResponsesInput(stripped)
+func stripResponsesVisualArtifacts(body []byte) ([]byte, error) {
+	stripped, err := translate.StripRoutingBadgeFromResponsesInput(body)
 	if err != nil {
 		return nil, fmt.Errorf("strip native Responses routing badge: %w", err)
 	}
@@ -7815,6 +7811,14 @@ func stripResponsesTerminalArtifacts(body []byte) ([]byte, error) {
 		return nil, fmt.Errorf("strip native Responses feedback footer: %w", err)
 	}
 	return stripped, nil
+}
+
+func stripResponsesTerminalArtifacts(body []byte) ([]byte, error) {
+	stripped, err := translate.StripRouterCommandsFromResponsesInput(body)
+	if err != nil {
+		return nil, fmt.Errorf("strip Responses router command: %w", err)
+	}
+	return stripResponsesVisualArtifacts(stripped)
 }
 
 // ProxyOpenAIResponses routes an OpenAI Responses API request. The Responses
@@ -7831,14 +7835,21 @@ func (s *Service) ProxyOpenAIResponses(ctx context.Context, body []byte, w http.
 		ctx = context.WithValue(ctx, responsesFooterEchoedContextKey{}, true)
 	}
 	nativeBody := body
+	conversionBody := body
 	var err error
-	if terminalResponses && !portableCodex {
+	if terminalResponses {
 		nativeBody, err = stripResponsesTerminalArtifacts(body)
 		if err != nil {
 			return err
 		}
+		if !portableCodex {
+			conversionBody, err = stripResponsesVisualArtifacts(body)
+			if err != nil {
+				return err
+			}
+		}
 	}
-	conversion, err := translate.ConvertResponsesToChatCompletionsWithOptions(nativeBody, translate.ResponsesConversionOptions{
+	conversion, err := translate.ConvertResponsesToChatCompletionsWithOptions(conversionBody, translate.ResponsesConversionOptions{
 		PortableCodex: portableCodex,
 	})
 	if err != nil {
@@ -7847,12 +7858,6 @@ func (s *Service) ProxyOpenAIResponses(ctx context.Context, body []byte, w http.
 	chatBody, model := conversion.Body, conversion.Model
 	if conversion.CodexFeedbackSkill {
 		ctx = context.WithValue(ctx, codexFeedbackSkillContextKey{}, true)
-	}
-	if portableCodex {
-		nativeBody, err = stripResponsesTerminalArtifacts(body)
-		if err != nil {
-			return err
-		}
 	}
 	codexNativeRequest := codexResponsesRequest(ctx, r.Header)
 	// Every Responses turn stashes its original bytes for post-routing native

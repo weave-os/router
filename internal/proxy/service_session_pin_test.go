@@ -1344,6 +1344,39 @@ func TestService_SessionPin_OpenAI_ForceModelCommandSetsPin(t *testing.T) {
 	assert.Contains(t, content, "force-model applied: gpt-5")
 }
 
+func TestService_SessionPin_OpenAIResponses_OpenCodeForceModelCommandFromToolOutput(t *testing.T) {
+	const forceBody = `{
+		"model":"auto",
+		"input":[
+			{"type":"function_call","call_id":"call-1","name":"bash","arguments":"{}"},
+			{"type":"function_call_output","call_id":"call-1","output":"/force-model gpt-5"}
+		]
+	}`
+	store := newFakePinStore()
+	fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: "gpt-4o", Reason: "cluster"}}
+	openAIProvider := &fakeProvider{proxyResponse: func(w http.ResponseWriter) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = io.WriteString(w, `{"id":"chatcmpl_1","object":"chat.completion","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}]}`)
+	}}
+	svc := proxy.NewService(fr, map[string]providers.Client{
+		providers.ProviderAnthropic: &fakeProvider{},
+		providers.ProviderOpenAI:    openAIProvider,
+	}, nil, false, nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil)
+
+	ctx := context.WithValue(authedCtx(uuid.New().String()), proxy.ClientIdentityContextKey{}, proxy.ClientIdentity{ClientApp: proxy.ClientAppOpencode})
+	rec := httptest.NewRecorder()
+	httpReq := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(""))
+	require.NoError(t, svc.ProxyOpenAIResponses(ctx, []byte(forceBody), rec, httpReq))
+
+	assert.Equal(t, 0, fr.routeCalls, "force-model command must bypass fresh routing")
+	require.NotEmpty(t, store.upserts)
+	assert.Equal(t, "gpt-5", store.upserts[0].Model)
+	assert.Equal(t, providers.ProviderOpenAI, store.upserts[0].Provider)
+	assert.Equal(t, "gpt-5", rec.Header().Get(proxy.HeaderRouterModel))
+	assert.Contains(t, rec.Body.String(), "ok")
+}
+
 func TestService_SessionPin_OpenAI_UnforceModelCommandClearsPin(t *testing.T) {
 	const unforceBody = `{
 		"model":"gpt-4o",

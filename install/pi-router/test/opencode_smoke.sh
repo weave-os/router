@@ -29,9 +29,15 @@ LOG="$WORK/requests.jsonl"
 MOCK_PID=""
 KEEP_WORK=0
 cleanup() {
-  [ -n "$MOCK_PID" ] && kill "$MOCK_PID" 2>/dev/null || true
-  [ -n "$MOCK_PID" ] && wait "$MOCK_PID" 2>/dev/null || true
-  [ "$KEEP_WORK" = "1" ] && echo "diagnostics preserved in $WORK" || rm -rf "$WORK"
+  if [ -n "$MOCK_PID" ]; then
+    kill "$MOCK_PID" 2>/dev/null || true
+    wait "$MOCK_PID" 2>/dev/null || true
+  fi
+  if [ "$KEEP_WORK" = "1" ]; then
+    echo "diagnostics preserved in $WORK"
+  else
+    rm -rf "$WORK"
+  fi
 }
 trap cleanup EXIT
 
@@ -51,11 +57,16 @@ curl -fsS "$BASE_URL/health" >/dev/null 2>&1 || { echo "FATAL: mock did not come
 
 printf '\033[1m== install (install.sh --opencode --dir) ==\033[0m\n'
 bash "$INSTALL_SH" --opencode --base-url "$BASE_URL" --dir "$WORK" >"$WORK/install.out" 2>&1 </dev/null || true
-jq -e --arg u "$BASE_URL/v1" '.provider.weave.options.baseURL == $u' "$WORK/opencode.json" >/dev/null 2>&1 \
-  && ok "opencode.json baseURL = $BASE_URL/v1 (Vercel SDK convention — keeps /v1)" \
-  || bad "opencode.json baseURL wrong (see $WORK/install.out)"
-jq -e '.provider.weave.npm == "@ai-sdk/openai"' "$WORK/opencode.json" >/dev/null 2>&1 \
-  && ok "opencode provider uses @ai-sdk/openai" || bad "opencode provider npm wrong"
+if jq -e --arg u "$BASE_URL/v1" '.provider.weave.options.baseURL == $u' "$WORK/opencode.json" >/dev/null 2>&1; then
+  ok "opencode.json baseURL = $BASE_URL/v1 (Vercel SDK convention — keeps /v1)"
+else
+  bad "opencode.json baseURL wrong (see $WORK/install.out)"
+fi
+if jq -e '.provider.weave.npm == "@ai-sdk/openai"' "$WORK/opencode.json" >/dev/null 2>&1; then
+  ok "opencode provider uses @ai-sdk/openai"
+else
+  bad "opencode provider npm wrong"
+fi
 
 printf '\033[1m== run (opencode run, headless, isolated XDG) ==\033[0m\n'
 mkdir -p "$WORK/xdg"
@@ -69,13 +80,17 @@ disown "$WD" 2>/dev/null || true
 wait "$RPID" 2>/dev/null || true
 kill "$WD" 2>/dev/null || true
 
-[ "$(jqcount '.method=="POST" and .app=="opencode" and .path=="/v1/responses" and .rejected==false')" -ge 1 ] \
-  && ok "opencode hit /v1/responses (served, app=opencode)" \
-  || bad "opencode did not reach /v1/responses (see $WORK/oc.out)"
+if [ "$(jqcount '.method=="POST" and .app=="opencode" and .path=="/v1/responses" and .rejected==false')" -ge 1 ]; then
+  ok "opencode hit /v1/responses (served, app=opencode)"
+else
+  bad "opencode did not reach /v1/responses (see $WORK/oc.out)"
+fi
 WRONG="$(jqcount '.method=="POST" and .rejected==true')"
-[ "$WRONG" -eq 0 ] \
-  && ok "every opencode POST hit /v1/responses" \
-  || bad "$WRONG opencode POST(s) hit a wrong path -> would 404 on the real router"
+if [ "$WRONG" -eq 0 ]; then
+  ok "every opencode POST hit /v1/responses"
+else
+  bad "$WRONG opencode POST(s) hit a wrong path -> would 404 on the real router"
+fi
 
 printf '\033[1m== Result ==\033[0m\n'
 printf '\033[1m%s passed, %s failed\033[0m\n' "$PASS" "$FAIL"
