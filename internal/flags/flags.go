@@ -105,6 +105,22 @@ const (
 	KeyNativeOpenAIResponseSignals          Key = "native_openai_response_signals"
 )
 
+// These keys were valid organization overrides before struggle escalation was
+// removed. Keep them parse-only so an installation row written by an older
+// revision cannot invalidate unrelated active overrides during a rolling
+// deploy. They are never registered, published, or read by routing code.
+const (
+	retiredKeyStruggleEscalationEnabled Key = "struggle_escalation_enabled"
+	retiredKeyStruggleEscalationHoldout Key = "struggle_escalation_holdout_pct"
+	retiredKeyStruggleEvidenceArming    Key = "struggle_evidence_arming"
+)
+
+var retiredOverrideKeys = map[Key]struct{}{
+	retiredKeyStruggleEscalationEnabled: {},
+	retiredKeyStruggleEscalationHoldout: {},
+	retiredKeyStruggleEvidenceArming:    {},
+}
+
 // Definition describes one overridable flag. DeploymentDefault is not stored
 // here: it is resolved at boot, then published to
 // router.flag_definitions for the admin UI to display.
@@ -514,9 +530,9 @@ func (o Overrides) Keys() (keys []Key) {
 }
 
 // ParseOverrides decodes a flag_overrides JSONB payload. Empty or JSON null
-// yields an empty Overrides and no error. Every key must be registered and
-// overridable, and every value must match its registered Kind; a violation
-// is returned as an error rather than silently dropped.
+// yields an empty Overrides and no error. Every non-retired key must be
+// registered and overridable, and every value must match its registered Kind;
+// a violation is returned as an error rather than silently dropped.
 func ParseOverrides(raw []byte) (o Overrides, err error) {
 	if len(raw) == 0 {
 		return Overrides{}, nil
@@ -530,6 +546,9 @@ func ParseOverrides(raw []byte) (o Overrides, err error) {
 		key := Key(name)
 		def, ok := definitions[key]
 		if !ok {
+			if _, retired := retiredOverrideKeys[key]; retired {
+				continue
+			}
 			return Overrides{}, fmt.Errorf("flags: unknown flag %q", name)
 		}
 		if !def.OrgOverridable {

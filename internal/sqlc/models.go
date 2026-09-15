@@ -755,6 +755,24 @@ type RouterSpiralShadowEvent struct {
 	StepsSinceProgress int32
 }
 
+type RouterStruggleEscalationEvent struct {
+	ID                  uuid.UUID
+	CreatedAt           pgtype.Timestamptz
+	InstallationID      uuid.UUID
+	SessionKey          []byte
+	Role                string
+	StrugglingModel     string
+	Action              string
+	EscalationTarget    string
+	TurnCount           int32
+	WallSeconds         int64
+	SessionEverSwitched bool
+	// What armed this escalation: turn_wall (turn/wall thresholds) or evidence (behavioral signals)
+	ArmingMode string
+	// Spiral signal classes present at arming time (err_streak, same_file_thrash, repetition, monologue, ping_pong, no_progress)
+	EvidenceReasons []string
+}
+
 type RouterStruggleShadowEvent struct {
 	ID                  uuid.UUID
 	CreatedAt           pgtype.Timestamptz

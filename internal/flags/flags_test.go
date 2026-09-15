@@ -40,10 +40,24 @@ func TestParseOverridesEmptyIsNotAnError(t *testing.T) {
 	}
 }
 
+func TestParseOverridesIgnoresRetiredFlags(t *testing.T) {
+	o, err := flags.ParseOverrides([]byte(`{
+		"struggle_escalation_enabled": true,
+		"struggle_escalation_holdout_pct": "retired",
+		"struggle_evidence_arming": false,
+		"planner_enabled": false,
+		"loop_escalation_holdout_pct": 25
+	}`))
+	require.NoError(t, err)
+	assert.False(t, o.Bools[flags.KeyPlannerEnabled])
+	assert.Equal(t, 25, o.Ints[flags.KeyLoopEscalationHoldoutPct])
+	assert.NotContains(t, o.Keys(), flags.Key("struggle_escalation_enabled"))
+}
+
 func TestParseOverridesRejectsBadPayloads(t *testing.T) {
 	for name, raw := range map[string]string{
-		// A typo'd or retired key must not be silently dropped: a dropped
-		// override reads at the call site as "the default applied".
+		// A typo'd key must not be silently dropped: a dropped override reads at
+		// the call site as "the default applied".
 		"unknown key":         `{"struggle_shadow_nabled": true}`,
 		"bool given a string": `{"struggle_shadow_enabled": "true"}`,
 		"bool given a number": `{"struggle_shadow_enabled": 1}`,
