@@ -11,7 +11,11 @@ import (
 
 type footerFakeStore struct{}
 
-func (footerFakeStore) InsertRouterFeedback(context.Context, RouterFeedbackEvent) error { return nil }
+func (footerFakeStore) CompleteFeedbackRequest(context.Context, FeedbackRequest) error { return nil }
+
+func (footerFakeStore) AcceptRouterFeedback(_ context.Context, event RouterFeedbackEvent) (RouterFeedbackEvent, error) {
+	return event, nil
+}
 
 func TestFeedbackFooter_ClientGating(t *testing.T) {
 	withStore := (&Service{}).WithRouterFeedbackStore(footerFakeStore{})

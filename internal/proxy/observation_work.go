@@ -21,7 +21,7 @@ func (s *Service) WithObservationWorkers(workers *observability.ObservationWorke
 // input is already bounded at its source (capped response capture, request body
 // limits, metadata-sized rows), so the snapshot is never size-gated: a job that
 // cannot be represented is the only rejection. Decoding runs in fixed workers.
-func submitObservation[T any](queue *observability.WorkQueue, kind observability.WorkKind, log *slog.Logger, payload T, timeout time.Duration, persist func(context.Context, T) error) {
+func submitObservation[T any](ctx context.Context, queue *observability.WorkQueue, kind observability.WorkKind, log *slog.Logger, payload T, timeout time.Duration, persist func(context.Context, T) error) {
 	if queue == nil {
 		return
 	}
@@ -30,7 +30,7 @@ func submitObservation[T any](queue *observability.WorkQueue, kind observability
 		queue.Reject(kind, log, err)
 		return
 	}
-	queue.Submit(kind, snapshot, timeout, log, func(ctx context.Context, body []byte) error {
+	run := func(ctx context.Context, body []byte) error {
 		var decoded T
 		decoder := json.NewDecoder(bytes.NewReader(body))
 		decoder.UseNumber()
@@ -39,5 +39,13 @@ func submitObservation[T any](queue *observability.WorkQueue, kind observability
 			return err
 		}
 		return persist(ctx, decoded)
-	})
+	}
+	submit := func() { queue.Submit(kind, snapshot, timeout, log, run) }
+	if completion, _ := ctx.Value(feedbackCompletionContextKey{}).(*feedbackCompletion); completion != nil && completion.active {
+		completion.mu.Lock()
+		completion.observations = append(completion.observations, submit)
+		completion.mu.Unlock()
+		return
+	}
+	submit()
 }

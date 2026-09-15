@@ -138,6 +138,7 @@ func capturedResponse(c *captureWriter) (body []byte, truncated bool) {
 type deferredCallLog struct {
 	escalation func(error)
 	fn         func()
+	flush      func()
 	// requestBody overrides the captured request body: ProxyOpenAIResponses
 	// sets it to the client's original Responses JSON so io.request_body
 	// matches, instead of the translated Chat Completions payload.
@@ -159,8 +160,14 @@ func deferredCallLogFrom(ctx context.Context) *deferredCallLog {
 // run invokes the deferred emit if one was registered. Safe on nil receiver
 // and when no emit was stored (e.g. the request errored before any call).
 func (d *deferredCallLog) run() {
-	if d != nil && d.fn != nil {
+	if d == nil {
+		return
+	}
+	if d.fn != nil {
 		d.fn()
+	}
+	if d.flush != nil {
+		d.flush()
 	}
 }
 

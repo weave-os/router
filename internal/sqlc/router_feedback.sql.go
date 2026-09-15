@@ -12,97 +12,174 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-const insertRouterFeedback = `-- name: InsertRouterFeedback :exec
+const getRouterFeedback = `-- name: GetRouterFeedback :one
+SELECT id, created_at, installation_id, session_key, role, router_user_id, client_app, session_id, requested_model, served_model, feedback, rating, suggested_label, source, request_id, route_id, external_id, requested_sequence, target_sequence, strategy, served_provider, rollout_id, training_allowed, delivery_status, attempts, next_attempt_at, lease_token, lease_until, last_error FROM router.router_feedback WHERE id = $1::uuid
+`
+
+// Recover immutable acceptance after a lost acknowledgment without reapplying its rating.
+//
+//	SELECT id, created_at, installation_id, session_key, role, router_user_id, client_app, session_id, requested_model, served_model, feedback, rating, suggested_label, source, request_id, route_id, external_id, requested_sequence, target_sequence, strategy, served_provider, rollout_id, training_allowed, delivery_status, attempts, next_attempt_at, lease_token, lease_until, last_error FROM router.router_feedback WHERE id = $1::uuid
+func (q *Queries) GetRouterFeedback(ctx context.Context, id uuid.UUID) (RouterRouterFeedback, error) {
+	row := q.db.QueryRow(ctx, getRouterFeedback, id)
+	var i RouterRouterFeedback
+	err := row.Scan(
+		&i.ID,
+		&i.CreatedAt,
+		&i.InstallationID,
+		&i.SessionKey,
+		&i.Role,
+		&i.RouterUserID,
+		&i.ClientApp,
+		&i.SessionID,
+		&i.RequestedModel,
+		&i.ServedModel,
+		&i.Feedback,
+		&i.Rating,
+		&i.SuggestedLabel,
+		&i.Source,
+		&i.RequestID,
+		&i.RouteID,
+		&i.ExternalID,
+		&i.RequestedSequence,
+		&i.TargetSequence,
+		&i.Strategy,
+		&i.ServedProvider,
+		&i.RolloutID,
+		&i.TrainingAllowed,
+		&i.DeliveryStatus,
+		&i.Attempts,
+		&i.NextAttemptAt,
+		&i.LeaseToken,
+		&i.LeaseUntil,
+		&i.LastError,
+	)
+	return i, err
+}
+
+const getRouterFeedbackTrainingAllowed = `-- name: GetRouterFeedbackTrainingAllowed :one
+SELECT EXISTS (
+    SELECT 1 FROM router.model_router_installations
+    WHERE id = $1::uuid AND external_id = $2::varchar
+        AND deleted_at IS NULL AND ai_training_allowed
+)::boolean AS allowed
+`
+
+type GetRouterFeedbackTrainingAllowedParams struct {
+	InstallationID uuid.UUID
+	ExternalID     string
+}
+
+// Local explicit feedback remains saved when the installation opts out or is deleted.
+//
+//	SELECT EXISTS (
+//	    SELECT 1 FROM router.model_router_installations
+//	    WHERE id = $1::uuid AND external_id = $2::varchar
+//	        AND deleted_at IS NULL AND ai_training_allowed
+//	)::boolean AS allowed
+func (q *Queries) GetRouterFeedbackTrainingAllowed(ctx context.Context, arg GetRouterFeedbackTrainingAllowedParams) (bool, error) {
+	row := q.db.QueryRow(ctx, getRouterFeedbackTrainingAllowed, arg.InstallationID, arg.ExternalID)
+	var allowed bool
+	err := row.Scan(&allowed)
+	return allowed, err
+}
+
+const insertRouterFeedback = `-- name: InsertRouterFeedback :one
 INSERT INTO router.router_feedback (
-    installation_id,
-    session_key,
-    role,
-    router_user_id,
-    client_app,
-    session_id,
-    requested_model,
-    served_model,
-    feedback,
-    rating,
-    suggested_label,
-    source,
-    request_id,
-    route_id
+    id, installation_id, session_key, role, router_user_id, client_app, session_id,
+    requested_model, served_model, feedback, rating, suggested_label, source, request_id, route_id,
+    external_id, requested_sequence, target_sequence, strategy, served_provider, rollout_id,
+    training_allowed, delivery_status
 ) VALUES (
     $1::uuid,
-    $2::bytea,
-    $3::varchar,
-    $4::uuid,
-    $5::text,
-    $6::varchar,
+    $2::uuid,
+    $3::bytea,
+    $4::varchar,
+    $5::uuid,
+    $6::text,
     $7::varchar,
     $8::varchar,
-    $9::text,
-    $10::varchar,
+    $9::varchar,
+    $10::text,
     $11::varchar,
     $12::varchar,
     $13::varchar,
-    $14::varchar
+    $14::varchar,
+    $15::varchar,
+    $16::varchar,
+    $17::integer,
+    $18::bigint,
+    $19::varchar,
+    $20::varchar,
+    $21::varchar,
+    $22::boolean,
+    'pending'
 )
+ON CONFLICT (id) DO NOTHING
+RETURNING id, created_at, installation_id, session_key, role, router_user_id, client_app, session_id, requested_model, served_model, feedback, rating, suggested_label, source, request_id, route_id, external_id, requested_sequence, target_sequence, strategy, served_provider, rollout_id, training_allowed, delivery_status, attempts, next_attempt_at, lease_token, lease_until, last_error
 `
 
 type InsertRouterFeedbackParams struct {
-	InstallationID uuid.UUID
-	SessionKey     []byte
-	Role           string
-	RouterUserID   pgtype.UUID
-	ClientApp      *string
-	SessionID      *string
-	RequestedModel string
-	ServedModel    string
-	Feedback       string
-	Rating         *string
-	SuggestedLabel *string
-	Source         string
-	RequestID      *string
-	RouteID        *string
+	ID                uuid.UUID
+	InstallationID    uuid.UUID
+	SessionKey        []byte
+	Role              string
+	RouterUserID      pgtype.UUID
+	ClientApp         *string
+	SessionID         *string
+	RequestedModel    string
+	ServedModel       string
+	Feedback          string
+	Rating            *string
+	SuggestedLabel    *string
+	Source            string
+	RequestID         *string
+	RouteID           *string
+	ExternalID        string
+	RequestedSequence int32
+	TargetSequence    int64
+	Strategy          string
+	ServedProvider    string
+	RolloutID         string
+	TrainingAllowed   bool
 }
 
-// Records one /router-feedback submission. Written with
-// context.Background() (the synthetic ack response may already have been
-// flushed and the request ctx canceled). served_model is the session pin's
-// LastServedModel at submission time; empty when the session had no pin.
-// request_id and route_id are populated when a turn sequence was specified
-// so the policy sidecar can join the rating to the specific routing decision.
+// Persist the resolved command before applying its local thumb in the same transaction.
 //
 //	INSERT INTO router.router_feedback (
-//	    installation_id,
-//	    session_key,
-//	    role,
-//	    router_user_id,
-//	    client_app,
-//	    session_id,
-//	    requested_model,
-//	    served_model,
-//	    feedback,
-//	    rating,
-//	    suggested_label,
-//	    source,
-//	    request_id,
-//	    route_id
+//	    id, installation_id, session_key, role, router_user_id, client_app, session_id,
+//	    requested_model, served_model, feedback, rating, suggested_label, source, request_id, route_id,
+//	    external_id, requested_sequence, target_sequence, strategy, served_provider, rollout_id,
+//	    training_allowed, delivery_status
 //	) VALUES (
 //	    $1::uuid,
-//	    $2::bytea,
-//	    $3::varchar,
-//	    $4::uuid,
-//	    $5::text,
-//	    $6::varchar,
+//	    $2::uuid,
+//	    $3::bytea,
+//	    $4::varchar,
+//	    $5::uuid,
+//	    $6::text,
 //	    $7::varchar,
 //	    $8::varchar,
-//	    $9::text,
-//	    $10::varchar,
+//	    $9::varchar,
+//	    $10::text,
 //	    $11::varchar,
 //	    $12::varchar,
 //	    $13::varchar,
-//	    $14::varchar
+//	    $14::varchar,
+//	    $15::varchar,
+//	    $16::varchar,
+//	    $17::integer,
+//	    $18::bigint,
+//	    $19::varchar,
+//	    $20::varchar,
+//	    $21::varchar,
+//	    $22::boolean,
+//	    'pending'
 //	)
-func (q *Queries) InsertRouterFeedback(ctx context.Context, arg InsertRouterFeedbackParams) error {
-	_, err := q.db.Exec(ctx, insertRouterFeedback,
+//	ON CONFLICT (id) DO NOTHING
+//	RETURNING id, created_at, installation_id, session_key, role, router_user_id, client_app, session_id, requested_model, served_model, feedback, rating, suggested_label, source, request_id, route_id, external_id, requested_sequence, target_sequence, strategy, served_provider, rollout_id, training_allowed, delivery_status, attempts, next_attempt_at, lease_token, lease_until, last_error
+func (q *Queries) InsertRouterFeedback(ctx context.Context, arg InsertRouterFeedbackParams) (RouterRouterFeedback, error) {
+	row := q.db.QueryRow(ctx, insertRouterFeedback,
+		arg.ID,
 		arg.InstallationID,
 		arg.SessionKey,
 		arg.Role,
@@ -117,6 +194,153 @@ func (q *Queries) InsertRouterFeedback(ctx context.Context, arg InsertRouterFeed
 		arg.Source,
 		arg.RequestID,
 		arg.RouteID,
+		arg.ExternalID,
+		arg.RequestedSequence,
+		arg.TargetSequence,
+		arg.Strategy,
+		arg.ServedProvider,
+		arg.RolloutID,
+		arg.TrainingAllowed,
 	)
-	return err
+	var i RouterRouterFeedback
+	err := row.Scan(
+		&i.ID,
+		&i.CreatedAt,
+		&i.InstallationID,
+		&i.SessionKey,
+		&i.Role,
+		&i.RouterUserID,
+		&i.ClientApp,
+		&i.SessionID,
+		&i.RequestedModel,
+		&i.ServedModel,
+		&i.Feedback,
+		&i.Rating,
+		&i.SuggestedLabel,
+		&i.Source,
+		&i.RequestID,
+		&i.RouteID,
+		&i.ExternalID,
+		&i.RequestedSequence,
+		&i.TargetSequence,
+		&i.Strategy,
+		&i.ServedProvider,
+		&i.RolloutID,
+		&i.TrainingAllowed,
+		&i.DeliveryStatus,
+		&i.Attempts,
+		&i.NextAttemptAt,
+		&i.LeaseToken,
+		&i.LeaseUntil,
+		&i.LastError,
+	)
+	return i, err
+}
+
+const updateRouterFeedbackClaim = `-- name: UpdateRouterFeedbackClaim :one
+WITH due AS (
+    SELECT id FROM router.router_feedback
+    WHERE delivery_status = 'pending' AND next_attempt_at <= clock_timestamp()
+        AND (lease_until IS NULL OR lease_until <= clock_timestamp())
+    ORDER BY next_attempt_at, created_at, id
+    LIMIT 1 FOR UPDATE SKIP LOCKED
+)
+UPDATE router.router_feedback f
+SET lease_token = $1::uuid,
+    lease_until = clock_timestamp() + $2::bigint * interval '1 millisecond',
+    attempts = attempts + 1
+FROM due WHERE f.id = due.id
+RETURNING f.id, f.created_at, f.installation_id, f.session_key, f.role, f.router_user_id, f.client_app, f.session_id, f.requested_model, f.served_model, f.feedback, f.rating, f.suggested_label, f.source, f.request_id, f.route_id, f.external_id, f.requested_sequence, f.target_sequence, f.strategy, f.served_provider, f.rollout_id, f.training_allowed, f.delivery_status, f.attempts, f.next_attempt_at, f.lease_token, f.lease_until, f.last_error
+`
+
+type UpdateRouterFeedbackClaimParams struct {
+	LeaseToken        uuid.UUID
+	LeaseMilliseconds int64
+}
+
+// Expired claims can be recovered by any replica; no lock spans the remote call.
+//
+//	WITH due AS (
+//	    SELECT id FROM router.router_feedback
+//	    WHERE delivery_status = 'pending' AND next_attempt_at <= clock_timestamp()
+//	        AND (lease_until IS NULL OR lease_until <= clock_timestamp())
+//	    ORDER BY next_attempt_at, created_at, id
+//	    LIMIT 1 FOR UPDATE SKIP LOCKED
+//	)
+//	UPDATE router.router_feedback f
+//	SET lease_token = $1::uuid,
+//	    lease_until = clock_timestamp() + $2::bigint * interval '1 millisecond',
+//	    attempts = attempts + 1
+//	FROM due WHERE f.id = due.id
+//	RETURNING f.id, f.created_at, f.installation_id, f.session_key, f.role, f.router_user_id, f.client_app, f.session_id, f.requested_model, f.served_model, f.feedback, f.rating, f.suggested_label, f.source, f.request_id, f.route_id, f.external_id, f.requested_sequence, f.target_sequence, f.strategy, f.served_provider, f.rollout_id, f.training_allowed, f.delivery_status, f.attempts, f.next_attempt_at, f.lease_token, f.lease_until, f.last_error
+func (q *Queries) UpdateRouterFeedbackClaim(ctx context.Context, arg UpdateRouterFeedbackClaimParams) (RouterRouterFeedback, error) {
+	row := q.db.QueryRow(ctx, updateRouterFeedbackClaim, arg.LeaseToken, arg.LeaseMilliseconds)
+	var i RouterRouterFeedback
+	err := row.Scan(
+		&i.ID,
+		&i.CreatedAt,
+		&i.InstallationID,
+		&i.SessionKey,
+		&i.Role,
+		&i.RouterUserID,
+		&i.ClientApp,
+		&i.SessionID,
+		&i.RequestedModel,
+		&i.ServedModel,
+		&i.Feedback,
+		&i.Rating,
+		&i.SuggestedLabel,
+		&i.Source,
+		&i.RequestID,
+		&i.RouteID,
+		&i.ExternalID,
+		&i.RequestedSequence,
+		&i.TargetSequence,
+		&i.Strategy,
+		&i.ServedProvider,
+		&i.RolloutID,
+		&i.TrainingAllowed,
+		&i.DeliveryStatus,
+		&i.Attempts,
+		&i.NextAttemptAt,
+		&i.LeaseToken,
+		&i.LeaseUntil,
+		&i.LastError,
+	)
+	return i, err
+}
+
+const updateRouterFeedbackFinished = `-- name: UpdateRouterFeedbackFinished :execrows
+UPDATE router.router_feedback
+SET delivery_status = $1::varchar, last_error = $2::text,
+    next_attempt_at = $3::timestamptz, lease_token = NULL, lease_until = NULL
+WHERE id = $4::uuid AND lease_token = $5::uuid AND delivery_status = 'pending'
+`
+
+type UpdateRouterFeedbackFinishedParams struct {
+	DeliveryStatus string
+	LastError      string
+	NextAttemptAt  pgtype.Timestamptz
+	ID             uuid.UUID
+	LeaseToken     uuid.UUID
+}
+
+// A stale worker cannot settle or reschedule a successor's claim.
+//
+//	UPDATE router.router_feedback
+//	SET delivery_status = $1::varchar, last_error = $2::text,
+//	    next_attempt_at = $3::timestamptz, lease_token = NULL, lease_until = NULL
+//	WHERE id = $4::uuid AND lease_token = $5::uuid AND delivery_status = 'pending'
+func (q *Queries) UpdateRouterFeedbackFinished(ctx context.Context, arg UpdateRouterFeedbackFinishedParams) (int64, error) {
+	result, err := q.db.Exec(ctx, updateRouterFeedbackFinished,
+		arg.DeliveryStatus,
+		arg.LastError,
+		arg.NextAttemptAt,
+		arg.ID,
+		arg.LeaseToken,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }

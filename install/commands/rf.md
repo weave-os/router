@@ -1,6 +1,6 @@
 ---
 description: Alias for /router-feedback — submit feedback about router decision or model performance.
-argument-hint: <feedback-text>
+argument-hint: "[±1–99] [+|-|note] [--label=label] (default: latest completed action)"
 ---
 
 /router-feedback $ARGUMENTS

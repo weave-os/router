@@ -74,6 +74,27 @@ type RouterEscalationSession struct {
 	ExpiresAt        pgtype.Timestamptz
 }
 
+type RouterFeedbackHistoryScope struct {
+	InstallationID uuid.UUID
+	SessionKey     []byte
+	Role           string
+	LastSequence   int64
+}
+
+type RouterFeedbackRequestHistory struct {
+	InstallationID  uuid.UUID
+	SessionKey      []byte
+	Role            string
+	Sequence        int64
+	RequestID       string
+	CompletedAt     pgtype.Timestamptz
+	ServedModel     string
+	ServedProvider  string
+	Strategy        string
+	RouteID         string
+	TrainingAllowed bool
+}
+
 // Published mirror of internal/flags.Registry, upserted by the router at boot. Read by the Weave control plane to render the per-org flag override admin UI. Never read on the request path.
 type RouterFlagDefinition struct {
 	Key string
@@ -675,7 +696,20 @@ type RouterRouterFeedback struct {
 	// Telemetry request_id for the specific turn this feedback targets. NULL when no sequence was specified.
 	RequestID *string
 	// Sidecar correlation id from the telemetry row (HMM/RL). NULL when no sequence was specified.
-	RouteID *string
+	RouteID           *string
+	ExternalID        string
+	RequestedSequence int32
+	TargetSequence    int64
+	Strategy          string
+	ServedProvider    string
+	RolloutID         string
+	TrainingAllowed   bool
+	DeliveryStatus    string
+	Attempts          int32
+	NextAttemptAt     pgtype.Timestamptz
+	LeaseToken        pgtype.UUID
+	LeaseUntil        pgtype.Timestamptz
+	LastError         string
 }
 
 // Session-sticky routing pins; sliding 1h TTL matching Anthropic prompt cache
