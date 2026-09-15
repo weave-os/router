@@ -29,9 +29,8 @@
  *   - provider `weave-claude`  : login-only; owns the Claude login. Its token is
  *                               read from opencode's on-disk auth store by the
  *                               `weave` loader (the SDK has no get-by-id).
- * Connecting ChatGPT activates sub-routing; the Claude sub then rides along when
- * present. With neither connected, `weave` is a plain router provider (your
- * Weave key pays) — the loader simply doesn't run.
+ * Connecting either account activates that subscription independently. With
+ * neither connected, `weave` is a plain router provider and the Weave key pays.
  */
 
 import type { Hooks, Plugin, PluginInput } from "@opencode-ai/plugin"
@@ -45,7 +44,9 @@ const CHATGPT_CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann"
 // bundled codex plugin's `options.issuer`).
 const CHATGPT_ISSUER = process.env.WEAVE_CODEX_OAUTH_ISSUER ?? "https://auth.openai.com"
 const OAUTH_PORT = 1455
+const OAUTH_TIMEOUT_MS = 5 * 60 * 1000
 const OAUTH_POLLING_SAFETY_MARGIN_MS = 3000
+const ACCESS_TOKEN_REFRESH_MARGIN_MS = 60 * 1000
 
 // ---- Claude (Anthropic) OAuth ----------------------------------------------
 // Canonical Claude Pro/Max OAuth (the same flow Claude Code uses): a manual
@@ -281,6 +282,10 @@ function opencodeAuthFile(): string {
   return join(dataHome, "opencode", "auth.json")
 }
 
+function hasFreshAccess(auth: StoredOAuth): auth is StoredOAuth & { access: string } {
+  return Boolean(auth.access) && (auth.expires ?? 0) > Date.now() + ACCESS_TOKEN_REFRESH_MARGIN_MS
+}
+
 async function readStoredOAuth(providerID: string): Promise<StoredOAuth | undefined> {
   try {
     const raw = await readFile(opencodeAuthFile(), "utf8")
@@ -351,10 +356,15 @@ async function startOAuthServer(): Promise<{ redirectUri: string }> {
     res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" })
     res.end(HTML_SUCCESS)
   })
-  await new Promise<void>((resolve, reject) => {
-    oauthServer!.listen(OAUTH_PORT, resolve)
-    oauthServer!.on("error", reject)
-  })
+  try {
+    await new Promise<void>((resolve, reject) => {
+      oauthServer!.listen(OAUTH_PORT, "localhost", resolve)
+      oauthServer!.on("error", reject)
+    })
+  } catch (error) {
+    oauthServer = undefined
+    throw error
+  }
   return { redirectUri }
 }
 
@@ -380,7 +390,7 @@ function waitForOAuthCallback(pkce: PkceCodes, state: string): Promise<TokenResp
         pendingOAuth = undefined
         reject(new Error("OAuth callback timeout - authorization took too long"))
       }
-    }, 5 * 60 * 1000)
+    }, OAUTH_TIMEOUT_MS)
     entry = {
       pkce,
       state,
@@ -404,8 +414,9 @@ export const WeaveCodex: Plugin = async (input: PluginInput): Promise<Hooks> => 
     auth: {
       provider: PROVIDER_ID,
       async loader(getAuth) {
-        const auth = await getAuth()
-        if (auth.type !== "oauth") return {}
+        const auth = (await getAuth()) as StoredOAuth
+        const storedClaudeAuth = await readStoredOAuth(ANTHROPIC_PROVIDER_ID)
+        if (auth.type !== "oauth" && !storedClaudeAuth) return {}
 
         // Coalesce concurrent refreshes (opencode fires parallel turns), one
         // in-flight promise per subscription.
@@ -420,7 +431,7 @@ export const WeaveCodex: Plugin = async (input: PluginInput): Promise<Hooks> => 
           // Use a still-valid access token regardless of whether a refresh token
           // is present (a partial store could lack it). Only an expired/absent
           // access needs a refresh — and that needs the refresh token.
-          if (current.access && (current.expires ?? 0) >= Date.now()) {
+          if (hasFreshAccess(current)) {
             return { access: current.access, accountId: current.accountId }
           }
           // Access is expired/absent: a refresh is the only way forward, so
@@ -455,7 +466,7 @@ export const WeaveCodex: Plugin = async (input: PluginInput): Promise<Hooks> => 
         async function resolveAnthropic(): Promise<string | undefined> {
           const current = await readStoredOAuth(ANTHROPIC_PROVIDER_ID)
           if (!current) return undefined
-          if (current.access && (current.expires ?? 0) >= Date.now()) return current.access
+          if (hasFreshAccess(current)) return current.access
           // Access is expired/absent: only a refresh can produce a live token,
           // so without a refresh token there's no usable credential to inject —
           // returning the stale token would have the router treat a dead Claude
@@ -471,10 +482,7 @@ export const WeaveCodex: Plugin = async (input: PluginInput): Promise<Hooks> => 
                 })
                 return tokens.access
               })
-              // A failed Claude refresh must not fail the turn — fall back to the
-              // (possibly stale) token; an expired Claude turn the router can't
-              // bill to the plan falls through to the Weave key on its end.
-              .catch(() => current.access)
+              .catch(() => undefined)
               .finally(() => {
                 anthropicRefresh = undefined
               })
@@ -524,14 +532,17 @@ export const WeaveCodex: Plugin = async (input: PluginInput): Promise<Hooks> => 
               instructions: "Complete authorization in your browser. This window will close automatically.",
               method: "auto" as const,
               callback: async () => {
-                const tokens = await callbackPromise
-                stopOAuthServer()
-                return {
-                  type: "success" as const,
-                  refresh: tokens.refresh_token,
-                  access: tokens.access_token,
-                  expires: Date.now() + (tokens.expires_in ?? 3600) * 1000,
-                  accountId: extractAccountId(tokens),
+                try {
+                  const tokens = await callbackPromise
+                  return {
+                    type: "success" as const,
+                    refresh: tokens.refresh_token,
+                    access: tokens.access_token,
+                    expires: Date.now() + (tokens.expires_in ?? 3600) * 1000,
+                    accountId: extractAccountId(tokens),
+                  }
+                } finally {
+                  stopOAuthServer()
                 }
               },
             }
@@ -558,8 +569,9 @@ export const WeaveCodex: Plugin = async (input: PluginInput): Promise<Hooks> => 
               instructions: `Enter code: ${deviceData.user_code}`,
               method: "auto" as const,
               async callback() {
-                const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
-                while (true) {
+                const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
+                const deadline = Date.now() + OAUTH_TIMEOUT_MS
+                while (Date.now() < deadline) {
                   const response = await fetch(`${CHATGPT_ISSUER}/api/accounts/deviceauth/token`, {
                     method: "POST",
                     headers: { "Content-Type": "application/json", "User-Agent": USER_AGENT },
@@ -594,6 +606,7 @@ export const WeaveCodex: Plugin = async (input: PluginInput): Promise<Hooks> => 
                   if (response.status !== 403 && response.status !== 404) return { type: "failed" as const }
                   await sleep(interval + OAUTH_POLLING_SAFETY_MARGIN_MS)
                 }
+                return { type: "failed" as const }
               },
             }
           },

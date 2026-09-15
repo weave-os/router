@@ -8,7 +8,7 @@ best model, and bills the plan that matches the model it served — ChatGPT pays
 for GPT/Codex turns, Claude pays for Claude turns, your Weave key pays for
 everything else.
 
-Bundled into `@weave-os/router`; the installer (`--codex` / `--opencode`) drops
+Bundled into `@weave-os/router`; the installer (`--opencode`) drops
 `src/index.ts` into the user's opencode plugins dir and writes a single
 Responses-format `weave` provider (plus a login-only `weave-claude` provider)
 into `opencode.json`.
@@ -49,9 +49,9 @@ scoped to its own provider, so the two logins live in two slots:
   **Claude** login. Its token is read from opencode's on-disk auth store by the
   `weave` loader (the SDK exposes no get-by-id).
 
-With neither connected, `weave` is a plain router provider (your Weave key pays)
-— the loader simply doesn't run. Connecting ChatGPT is what turns on
-subscription routing; the Claude sub then rides along when present.
+With neither connected, `weave` is a plain router provider and the Weave key
+pays. Either login activates its matching subscription independently, so a
+Claude-only setup pays Claude turns from that plan without requiring ChatGPT.
 
 ## Login
 
@@ -72,7 +72,8 @@ headless device code) and/or **Weave Router — Claude plan** → *Claude Pro/Ma
 
 `bun test test/` (run under bun, opencode's own runtime) covers: dual-sub
 injection via the dedicated headers with the router key preserved and
-`Authorization` left clean; ChatGPT-only graceful degradation; expired Claude
-token refresh + persist + rotated injection; the loader staying inert without
-oauth; and the Claude login hook's canonical OAuth flow + `code#state` exchange.
-Typechecks under `strict` against `@opencode-ai/plugin`.
+`Authorization` left clean; independent Claude-only and ChatGPT-only routing;
+refresh failure isolation; expiry-skew refresh + persistence; the loader
+staying inert without oauth; and the Claude login hook's canonical OAuth flow
++ `code#state` exchange. Typechecks under `strict` against
+`@opencode-ai/plugin`.

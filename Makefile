@@ -59,6 +59,7 @@ test-statusline: ## Run the cc-statusline.sh regression tests (offline)
 
 test-install: ## Run offline installer regression tests
 	@bash install/tests/codex_install_test.sh
+	@bash install/tests/opencode_install_test.sh
 	@bash install/tests/codex-status_test.sh
 	@bash install/tests/codex-toggle_test.sh
 	@bash install/tests/key_reuse_test.sh

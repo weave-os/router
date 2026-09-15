@@ -2,12 +2,9 @@
 #
 # Endpoint smoke test for the `install.sh --opencode` target.
 #
-# opencode routes through a DIFFERENT SDK than pi: @ai-sdk/anthropic (Vercel),
-# which appends only /messages to baseURL — so opencode's config correctly keeps
-# the /v1 suffix (baseURL = <url>/v1 -> /v1/messages). This is the OPPOSITE of
-# pi's @anthropic-ai/sdk, which appends /v1/messages to a root baseURL. This
-# guard proves opencode keeps landing on /v1/messages so nobody "aligns" the two
-# baseURLs and breaks one. Reuses mock_router.py (404s any path != /v1/messages).
+# OpenCode sends Responses requests through @ai-sdk/openai, which appends
+# /responses to the configured /v1 base URL. This guard catches either a stale
+# Anthropic provider or a doubled/missing /v1 before release.
 #
 # Requires: opencode, jq, python3, curl. Run from anywhere:
 #   install/pi-router/test/opencode_smoke.sh
@@ -57,8 +54,8 @@ bash "$INSTALL_SH" --opencode --base-url "$BASE_URL" --dir "$WORK" >"$WORK/insta
 jq -e --arg u "$BASE_URL/v1" '.provider.weave.options.baseURL == $u' "$WORK/opencode.json" >/dev/null 2>&1 \
   && ok "opencode.json baseURL = $BASE_URL/v1 (Vercel SDK convention — keeps /v1)" \
   || bad "opencode.json baseURL wrong (see $WORK/install.out)"
-jq -e '.provider.weave.npm == "@ai-sdk/anthropic"' "$WORK/opencode.json" >/dev/null 2>&1 \
-  && ok "opencode provider uses @ai-sdk/anthropic" || bad "opencode provider npm wrong"
+jq -e '.provider.weave.npm == "@ai-sdk/openai"' "$WORK/opencode.json" >/dev/null 2>&1 \
+  && ok "opencode provider uses @ai-sdk/openai" || bad "opencode provider npm wrong"
 
 printf '\033[1m== run (opencode run, headless, isolated XDG) ==\033[0m\n'
 mkdir -p "$WORK/xdg"
@@ -72,12 +69,12 @@ disown "$WD" 2>/dev/null || true
 wait "$RPID" 2>/dev/null || true
 kill "$WD" 2>/dev/null || true
 
-[ "$(jqcount '.method=="POST" and .app=="opencode" and .path=="/v1/messages" and .rejected==false')" -ge 1 ] \
-  && ok "opencode hit /v1/messages (served, app=opencode)" \
-  || bad "opencode did not reach /v1/messages (see $WORK/oc.out)"
+[ "$(jqcount '.method=="POST" and .app=="opencode" and .path=="/v1/responses" and .rejected==false')" -ge 1 ] \
+  && ok "opencode hit /v1/responses (served, app=opencode)" \
+  || bad "opencode did not reach /v1/responses (see $WORK/oc.out)"
 WRONG="$(jqcount '.method=="POST" and .rejected==true')"
 [ "$WRONG" -eq 0 ] \
-  && ok "no /v1 doubling — every opencode POST hit /v1/messages" \
+  && ok "every opencode POST hit /v1/responses" \
   || bad "$WRONG opencode POST(s) hit a wrong path -> would 404 on the real router"
 
 printf '\033[1m== Result ==\033[0m\n'

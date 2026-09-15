@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-"""Mock Weave Router for the @workweave/router end-to-end test.
+"""Mock Weave Router for the bundled pi and OpenCode endpoint tests.
 
-Speaks just enough of the Anthropic Messages API to drive a real pi process
-headlessly, with no real model spend and no network beyond localhost:
+Speaks enough Anthropic Messages for pi and OpenAI Responses for OpenCode,
+with no real model spend and no network beyond localhost:
 
   GET  /health, /validate    -> 200            (the install.sh --pi probes)
   POST /v1/messages          -> Anthropic Messages response (SSE or JSON)
+  POST /v1/responses         -> OpenAI Responses response
   POST /v1/route/handoff     -> preparation bypass (no model escalation)
 
 It also *is* the model. To exercise the `dispatch` tool it returns a tool_use
@@ -44,11 +45,10 @@ MAIN_MODEL = os.environ.get("MOCK_MAIN_MODEL", "claude-opus-4-8")
 SUBAGENT_MODEL = os.environ.get("MOCK_SUBAGENT_MODEL", "claude-haiku-4-5")
 DISPATCH_MARKER = os.environ.get("DISPATCH_MARKER", "__DISPATCH__")
 
-# The real router serves the Anthropic Messages API at exactly this path. We
-# reject anything else with 404 so a wrong baseUrl (e.g. a doubled /v1 from the
-# Anthropic SDK appending /v1/messages to a baseUrl that already ends in /v1)
-# fails the test instead of being silently absorbed by a catch-all.
+# The clients intentionally use different SDK base-URL conventions. Reject
+# anything except their two exact paths so a doubled or missing /v1 fails loudly.
 MESSAGES_PATH = "/v1/messages"
+RESPONSES_PATH = "/v1/responses"
 HANDOFF_PATH = "/v1/route/handoff"
 
 KNOB_HEADERS = (
@@ -137,7 +137,9 @@ class Handler(BaseHTTPRequestHandler):
 
     # ---- helpers -------------------------------------------------------
 
-    def _send_json(self, code: int, obj: dict, extra_headers: dict | None = None) -> None:
+    def _send_json(
+        self, code: int, obj: dict, extra_headers: dict | None = None
+    ) -> None:
         payload = json.dumps(obj).encode("utf-8")
         self.send_response(code)
         self.send_header("Content-Type", "application/json")
@@ -150,7 +152,9 @@ class Handler(BaseHTTPRequestHandler):
         except BrokenPipeError:
             pass
 
-    def _send_sse(self, events: list, routed_model: str, route_headers: bool = True) -> None:
+    def _send_sse(
+        self, events: list, routed_model: str, route_headers: bool = True
+    ) -> None:
         body = "".join(
             f"event: {ev}\ndata: {json.dumps(data)}\n\n" for ev, data in events
         ).encode("utf-8")
@@ -268,17 +272,137 @@ class Handler(BaseHTTPRequestHandler):
         path = self.path.split("?")[0]
 
         if path == HANDOFF_PATH:
-            log_request({"method": "POST", "path": path, "app": self.headers.get("x-app")})
+            log_request(
+                {"method": "POST", "path": path, "app": self.headers.get("x-app")}
+            )
             self._send_json(200, {"bypass": True})
+            return
+
+        if path == RESPONSES_PATH:
+            try:
+                body = json.loads(raw or b"{}")
+            except json.JSONDecodeError:
+                body = {}
+            app = self.headers.get("x-app") or "opencode"
+            stream = bool(body.get("stream"))
+            log_request(
+                {
+                    "method": "POST",
+                    "path": path,
+                    "rejected": False,
+                    "app": app,
+                    "model": body.get("model"),
+                    "stream": stream,
+                    "served": "responses_text",
+                }
+            )
+            item = {
+                "id": "msg_mock",
+                "type": "message",
+                "status": "completed",
+                "role": "assistant",
+                "content": [
+                    {
+                        "type": "output_text",
+                        "text": "OPENCODE_OK",
+                        "annotations": [],
+                    }
+                ],
+            }
+            response = {
+                "id": "resp_mock",
+                "object": "response",
+                "status": "completed",
+                "model": MAIN_MODEL,
+                "output": [item],
+                "usage": {"input_tokens": 12, "output_tokens": 8, "total_tokens": 20},
+            }
+            if stream:
+                events = [
+                    (
+                        "response.created",
+                        {
+                            "type": "response.created",
+                            "sequence_number": 0,
+                            "response": {
+                                **response,
+                                "status": "in_progress",
+                                "output": [],
+                            },
+                        },
+                    ),
+                    (
+                        "response.output_item.added",
+                        {
+                            "type": "response.output_item.added",
+                            "sequence_number": 1,
+                            "output_index": 0,
+                            "item": {**item, "status": "in_progress", "content": []},
+                        },
+                    ),
+                    (
+                        "response.output_text.delta",
+                        {
+                            "type": "response.output_text.delta",
+                            "sequence_number": 2,
+                            "item_id": "msg_mock",
+                            "output_index": 0,
+                            "content_index": 0,
+                            "delta": "OPENCODE_OK",
+                        },
+                    ),
+                    (
+                        "response.output_text.done",
+                        {
+                            "type": "response.output_text.done",
+                            "sequence_number": 3,
+                            "item_id": "msg_mock",
+                            "output_index": 0,
+                            "content_index": 0,
+                            "text": "OPENCODE_OK",
+                        },
+                    ),
+                    (
+                        "response.output_item.done",
+                        {
+                            "type": "response.output_item.done",
+                            "sequence_number": 4,
+                            "output_index": 0,
+                            "item": item,
+                        },
+                    ),
+                    (
+                        "response.completed",
+                        {
+                            "type": "response.completed",
+                            "sequence_number": 5,
+                            "response": response,
+                        },
+                    ),
+                ]
+                self._send_sse(events, MAIN_MODEL)
+            else:
+                self._send_json(200, response, {"x-router-model": MAIN_MODEL})
             return
 
         if path != MESSAGES_PATH:
             log_request(
-                {"method": "POST", "path": path, "app": self.headers.get("x-app"), "rejected": True}
+                {
+                    "method": "POST",
+                    "path": path,
+                    "app": self.headers.get("x-app"),
+                    "rejected": True,
+                }
             )
             self._send_json(
                 404,
-                {"type": "error", "error": {"type": "not_found_error", "message": f"no route for POST {path}"}},
+                {
+                    "type": "error",
+                    "error": {
+                        "type": "not_found_error",
+                        "message": f"no route for POST {path}",
+                    },
+                },
             )
             return
 

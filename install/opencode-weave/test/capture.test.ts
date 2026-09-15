@@ -163,6 +163,49 @@ describe("weave loader — dual subscription injection", () => {
     expect(req.headers["x-weave-router-key"]).toBe(ROUTER_KEY)
   })
 
+  test("Claude-only attaches the Anthropic sub without a ChatGPT login", async () => {
+    await writeFile(
+      authFile,
+      JSON.stringify({
+        "weave-claude": { type: "oauth", access: CLAUDE_ACCESS, refresh: CLAUDE_REFRESH, expires: Date.now() + 3_600_000 },
+      }),
+    )
+    const req = await runLoaderFetch(async () => ({ type: "api", key: "router-config-key" }))
+
+    expect(req.headers["x-weave-anthropic-subscription"]).toBe(CLAUDE_ACCESS)
+    expect(req.headers["x-weave-openai-subscription"]).toBeUndefined()
+    expect(req.headers["x-weave-router-key"]).toBe(ROUTER_KEY)
+  })
+
+  test("refreshes a ChatGPT token before its remaining lifetime is too short for a turn", async () => {
+    await writeFile(authFile, JSON.stringify({}))
+    const getAuth = async () => ({
+      type: "oauth",
+      access: "nearly-expired",
+      refresh: "cg-refresh",
+      expires: Date.now() + 30_000,
+      accountId: CHATGPT_ACCOUNT,
+    })
+    const rotated = "eyJhbGciOiJrotatedChatGPTaccessJWT"
+
+    const req = await runLoaderFetch(getAuth, (url) => {
+      if (url === `${CHATGPT_ISSUER}/oauth/token`) {
+        return {
+          id_token: "",
+          access_token: rotated,
+          refresh_token: "cg-refresh-2",
+          expires_in: 3600,
+        }
+      }
+      return {}
+    })
+
+    expect(req.headers["x-weave-openai-subscription"]).toBe(rotated)
+    const chatgptSet = setCalls.find((call) => call.id === "weave")
+    expect(chatgptSet?.body.access).toBe(rotated)
+    expect(chatgptSet?.body.refresh).toBe("cg-refresh-2")
+  })
+
   test("a failed ChatGPT refresh still attaches the Claude sub (and doesn't fail the turn)", async () => {
     await writeFile(
       authFile,
@@ -207,6 +250,27 @@ describe("weave loader — dual subscription injection", () => {
 
     // Dead Claude sub (expired, unrefreshable) is dropped so the router bills the
     // Weave key rather than treating it as present.
+    expect(req.headers["x-weave-anthropic-subscription"]).toBeUndefined()
+    expect(req.headers["x-weave-openai-subscription"]).toBe(CHATGPT_ACCESS)
+  })
+
+  test("drops an expired Claude token when refresh fails", async () => {
+    await writeFile(
+      authFile,
+      JSON.stringify({
+        "weave-claude": { type: "oauth", access: "sk-ant-oat01-stale", refresh: CLAUDE_REFRESH, expires: Date.now() - 1000 },
+      }),
+    )
+    const getAuth = async () => ({
+      type: "oauth",
+      access: CHATGPT_ACCESS,
+      refresh: "cg-refresh",
+      expires: Date.now() + 3_600_000,
+      accountId: CHATGPT_ACCOUNT,
+    })
+
+    const req = await runLoaderFetch(getAuth, (url) => (url === ANTHROPIC_TOKEN_URL ? undefined : {}))
+
     expect(req.headers["x-weave-anthropic-subscription"]).toBeUndefined()
     expect(req.headers["x-weave-openai-subscription"]).toBe(CHATGPT_ACCESS)
   })

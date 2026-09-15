@@ -307,17 +307,17 @@ func responsesInputItemToMessages(item gjson.Result) ([]map[string]any, error) {
 // upstream.
 var responsesBadgePattern = regexp.MustCompile(`(?is)\A(?:\*\*WEAVE ROUTER\*\* — .*?\n\n|✦ \*\*WEAVE ROUTER\*\* → .*?\n\n)`)
 
-// codexResponsesBadgeSentinel is an invisible router-owned prefix that
+// responsesTerminalBadgeSentinel is an invisible router-owned prefix that
 // distinguishes injected badge text from user-authored assistant prose.
-const codexResponsesBadgeSentinel = "\u2063\u2060\u2063\u2060"
+const responsesTerminalBadgeSentinel = "\u2063\u2060\u2063\u2060"
 
-var codexResponsesBadgePattern = regexp.MustCompile(
-	`(?is)\A` + regexp.QuoteMeta(codexResponsesBadgeSentinel) +
+var responsesTerminalBadgePattern = regexp.MustCompile(
+	`(?is)\A` + regexp.QuoteMeta(responsesTerminalBadgeSentinel) +
 		`(?:\*\*WEAVE ROUTER\*\* — .*?\n\n|✦ \*\*WEAVE ROUTER\*\* → .*?\n\n)`,
 )
 
 // StripRoutingBadgeFromResponsesInput removes a provenance-marked router badge
-// from assistant items. Call only for clients opted into the Codex badge.
+// from assistant items. Call only for clients opted into terminal surfaces.
 func StripRoutingBadgeFromResponsesInput(body []byte) ([]byte, error) {
 	input := gjson.GetBytes(body, "input")
 	if !input.IsArray() {
@@ -338,7 +338,7 @@ func StripRoutingBadgeFromResponsesInput(body []byte) ([]byte, error) {
 
 		content := item.Get("content")
 		if content.Type == gjson.String {
-			stripped := codexResponsesBadgePattern.ReplaceAllString(content.Str, "")
+			stripped := responsesTerminalBadgePattern.ReplaceAllString(content.Str, "")
 			if stripped == content.Str {
 				continue
 			}
@@ -363,7 +363,7 @@ func StripRoutingBadgeFromResponsesInput(body []byte) ([]byte, error) {
 			switch part.Get("type").Str {
 			case "input_text", "output_text", "text":
 				text := part.Get("text").Str
-				stripped := codexResponsesBadgePattern.ReplaceAllString(text, "")
+				stripped := responsesTerminalBadgePattern.ReplaceAllString(text, "")
 				if stripped != text {
 					var err error
 					path := "input." + strconv.Itoa(itemIndex) + ".content." + strconv.Itoa(partIndex) + ".text"
@@ -398,7 +398,7 @@ func StripRoutingBadgeFromResponsesInput(body []byte) ([]byte, error) {
 }
 
 // StripFeedbackFooterFromResponsesInput removes the rating hint from assistant
-// text items so a subsequent native Codex turn does not echo it upstream.
+// text items so a subsequent terminal Responses turn does not echo it upstream.
 func StripFeedbackFooterFromResponsesInput(body []byte) ([]byte, error) {
 	input := gjson.GetBytes(body, "input")
 	if !input.IsArray() {
@@ -610,7 +610,7 @@ type ResponsesWriter struct {
 	completedEmitted            bool
 	badgePrepended              bool
 	badgeText                   string
-	codexBadgeProvenance        bool
+	terminalBadgeProvenance     bool
 	nativeBadgeTargetSelected   bool
 	nativeBadgeDeltaPrepended   bool
 	nativeBadgeItemID           string
@@ -760,10 +760,10 @@ func (t *ResponsesWriter) EmitRoutingBadge(text string) error {
 	return t.emitTextDelta(t.textItem, t.computeBadgeText())
 }
 
-// EnableCodexBadgeProvenance prefixes in-band badges with the invisible
+// EnableTerminalBadgeProvenance prefixes in-band badges with the invisible
 // sentinel so ingress stripping only removes router-injected text.
-func (t *ResponsesWriter) EnableCodexBadgeProvenance() {
-	t.codexBadgeProvenance = true
+func (t *ResponsesWriter) EnableTerminalBadgeProvenance() {
+	t.terminalBadgeProvenance = true
 }
 
 // SetFooterText appends the rating hint to the last assistant text of a
@@ -802,11 +802,10 @@ func (t *ResponsesWriter) ClearPassthrough() bool {
 	return true
 }
 
-// SetPassthroughBadge switches to native Responses passthrough while opting
-// into a Codex-visible badge; text-free turns get a synthetic assistant item
-// so Codex has a visible surface for the badge.
+// SetPassthroughBadge switches to native Responses passthrough with a visible
+// badge. Text-free turns get a synthetic assistant item to carry it.
 func (t *ResponsesWriter) SetPassthroughBadge() {
-	t.EnableCodexBadgeProvenance()
+	t.EnableTerminalBadgeProvenance()
 	t.passthrough = true
 	t.passthroughBadge = true
 }
@@ -1157,7 +1156,7 @@ func (t *ResponsesWriter) observeNativeBadgeTarget(ref nativeResponsesBadgeRef) 
 
 func (t *ResponsesWriter) prefixNativeBadge(data []byte, path string) ([]byte, bool) {
 	text := gjson.GetBytes(data, path)
-	if text.Type != gjson.String || text.Str == "" || codexResponsesBadgePattern.MatchString(text.Str) {
+	if text.Type != gjson.String || text.Str == "" || responsesTerminalBadgePattern.MatchString(text.Str) {
 		return data, false
 	}
 	badge := t.computeBadgeText()
@@ -1429,7 +1428,7 @@ func (t *ResponsesWriter) rewriteNativeNonStreamingBody(data []byte) ([]byte, bo
 		return t.prefixNativeBadge(data, path)
 	}
 	for _, item := range output.Array() {
-		if item.Get("id").Str != "" && codexResponsesBadgePattern.MatchString(item.Get("content.0.text").Str) {
+		if item.Get("id").Str != "" && responsesTerminalBadgePattern.MatchString(item.Get("content.0.text").Str) {
 			return data, false
 		}
 	}
@@ -1976,15 +1975,15 @@ func (t *ResponsesWriter) nextOutputIndex() int {
 }
 
 // computeBadgeText returns the routing badge to surface for this turn, with the
-// Codex provenance sentinel applied when enabled. Empty when the proxy supplied
+// terminal-client provenance sentinel when enabled. Empty when the proxy supplied
 // no marker — suppression is decided there, not here.
 func (t *ResponsesWriter) computeBadgeText() string {
 	if t.badgeText == "" {
 		return ""
 	}
 	badge := t.badgeText
-	if t.codexBadgeProvenance && !strings.HasPrefix(badge, codexResponsesBadgeSentinel) {
-		badge = codexResponsesBadgeSentinel + badge
+	if t.terminalBadgeProvenance && !strings.HasPrefix(badge, responsesTerminalBadgeSentinel) {
+		badge = responsesTerminalBadgeSentinel + badge
 	}
 	return badge
 }

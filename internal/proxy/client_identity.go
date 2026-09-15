@@ -188,6 +188,10 @@ const (
 	ClientAppOpencode   = "opencode"
 )
 
+func supportsResponsesTerminalSurfaces(clientApp string) bool {
+	return clientApp == ClientAppCodex || clientApp == ClientAppOpencode
+}
+
 // directivePrefix returns the sigil a client's user has to type to reach the
 // router. Codex reserves a leading "/" for its own built-ins: it answers
 // "Unrecognized command" and never forwards the line, so a hint naming the

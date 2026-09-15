@@ -130,13 +130,14 @@ Four install targets:
   provider without logging out or deleting the router configuration. The
   managed lifecycle hooks also keep the latest routed model in the terminal
   title and emit a compact status message when the router reports a new route.
-- **opencode** (`--opencode`) — merges a `provider.weave` entry (backed by
-  opencode's built-in `@ai-sdk/anthropic` provider) into
+- **opencode** (`--opencode`) — merges a Responses-format `provider.weave`
+  entry backed by `@ai-sdk/openai` into
   `~/.config/opencode/opencode.json` (or `<repo>/opencode.json` with
-  `--scope project`). The router speaks the Anthropic Messages API
-  natively, so opencode talks to it unmodified. Re-install rewrites only
-  the managed `provider.weave` block; `--uninstall --opencode` strips it
-  and leaves your other providers and settings alone.
+  `--scope project`). Installation activates `weave/auto` and parks any prior
+  default model so `off` and uninstall can restore it exactly. The bundled
+  plugin can attach ChatGPT and Claude plan credentials to the matching routed
+  turns. Re-install rewrites only the managed provider; unrelated providers,
+  MCP servers, agents, and plugins stay untouched.
 - **pi** (`--pi`) — registers the `weave` provider and installs this package as
   a pi extension. Stock pi then gets the Loom startup header, Wooly's animated
   mascot, the persistent actual-route display, cumulative session savings,

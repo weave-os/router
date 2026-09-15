@@ -94,6 +94,13 @@ func TestDirectivePrefix(t *testing.T) {
 	}
 }
 
+func TestSupportsResponsesTerminalSurfaces(t *testing.T) {
+	assert.True(t, supportsResponsesTerminalSurfaces(ClientAppCodex))
+	assert.True(t, supportsResponsesTerminalSurfaces(ClientAppOpencode))
+	assert.False(t, supportsResponsesTerminalSurfaces(ClientAppCursor))
+	assert.False(t, supportsResponsesTerminalSurfaces(""))
+}
+
 func TestRouterSessionMessage_NamesTheIDAndTheClientsOwnSigil(t *testing.T) {
 	codex := routerSessionMessage("01a08ca1-6f83-7233", ClientAppCodex, translate.FormatOpenAI)
 	assert.Contains(t, codex, "01a08ca1-6f83-7233")

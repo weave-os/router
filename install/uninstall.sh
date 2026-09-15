@@ -445,7 +445,13 @@ if [ "$target" = "opencode" ]; then
     refuse_if_symlink "$opencode_dir"
   fi
   opencode_config_file="$opencode_dir/opencode.json"
+  opencode_parked="$opencode_dir/.weave-parked.json"
+  opencode_direct_model=""
   refuse_if_symlink "$opencode_config_file"
+  if [ -f "$opencode_parked" ]; then
+    refuse_if_symlink "$opencode_parked"
+    opencode_direct_model="$(jq -r '.direct_model // empty' "$opencode_parked" 2>/dev/null || true)"
+  fi
 
   # Canonicalize the plugin path exactly as install.sh did (`cd … && pwd`) so
   # the `plugin` array entry matches on removal — a raw "$opencode_dir/…" string
@@ -458,19 +464,19 @@ if [ "$target" = "opencode" ]; then
   if [ -f "$opencode_config_file" ]; then
     # Strip every managed provider (`weave`, the login-only `weave-claude`, and
     # the legacy `weave-codex` from pre-upgrade installs), the managed plugin
-    # entry from the `plugin` array, and any router-pointing top-level model
-    # (the `weave/`, `weave-claude/`, and `weave-codex/` prefixes — otherwise a
-    # default survives and points at a deleted provider). Other providers,
-    # user-set models that don't reference the router, other plugins, and any
-    # unrelated keys are preserved.
-    cleaned="$(jq --arg plugin "$opencode_plugin" '
+    # entry from the `plugin` array, and restore the direct model parked during
+    # install. Other providers, direct models selected while routing was off,
+    # other plugins, and unrelated keys are preserved.
+    cleaned="$(jq --arg plugin "$opencode_plugin" --arg direct_model "$opencode_direct_model" '
       (if .provider.weave then del(.provider.weave) else . end)
       | (if .provider["weave-claude"] then del(.provider["weave-claude"]) else . end)
       | (if .provider["weave-codex"] then del(.provider["weave-codex"]) else . end)
       | (if (.provider // {}) == {} then del(.provider) else . end)
       | (if (.plugin | type) == "array" then .plugin -= [$plugin] else . end)
       | (if (.plugin | type) == "array" and (.plugin | length) == 0 then del(.plugin) else . end)
-      | (if (.model // "" | tostring | (startswith("weave/") or startswith("weave-claude/") or startswith("weave-codex/"))) then del(.model) else . end)
+      | (if (.model // "" | tostring | (startswith("weave/") or startswith("weave-claude/") or startswith("weave-codex/")))
+           then (if $direct_model != "" then .model = $direct_model else del(.model) end)
+           else . end)
     ' "$opencode_config_file")"
     printf '%s\n' "$cleaned" >"$opencode_config_file"
 
@@ -497,18 +503,15 @@ if [ "$target" = "opencode" ]; then
     ok "Removed $opencode_plugin"
   fi
 
-  # Drop the toggle parked sidecar (holds the parked router model when off).
-  opencode_parked="$opencode_dir/.weave-parked.json"
+  # Drop the toggle parked sidecar after its prior model has been restored.
   if [ -f "$opencode_parked" ]; then
     refuse_if_symlink "$opencode_parked"
     rm -f "$opencode_parked"
     ok "Removed $opencode_parked"
   fi
 
-  # Remove slash command wrapper files this installer owns. Install mirrors
-  # this split: project scope uses <repo>/.opencode/commands/, while user
-  # scope—including a user-style --dir install—uses the global XDG commands
-  # directory so opencode discovers the wrappers from any working directory.
+  # Remove slash command wrapper files this installer owns. Project and --dir
+  # installs keep commands beside their config; user scope uses global XDG.
   remove_opencode_command_dir() {
     local opencode_cmds_dir="$1" cmd cmd_file
     if [ -d "$opencode_cmds_dir" ]; then
@@ -531,7 +534,7 @@ EOF
     fi
   }
 
-  if [ "$scope" = "project" ]; then
+  if [ "$scope" = "project" ] || [ -n "$install_dir" ]; then
     opencode_commands_dir="$opencode_dir/.opencode/commands"
   else
     opencode_commands_dir="${XDG_CONFIG_HOME:-$HOME/.config}/opencode/commands"

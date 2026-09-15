@@ -6746,7 +6746,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	responsesMarker := marker
 	responsesPreludeWillEmit := env.Stream() && !verbatimPassthrough && (len(bindings) <= 1 || marker != "")
 	if verbatimPassthrough {
-		responsesPreludeWillEmit = env.Stream() && clientID.ClientApp == ClientAppCodex && marker != ""
+		responsesPreludeWillEmit = env.Stream() && supportsResponsesTerminalSurfaces(clientID.ClientApp) && marker != ""
 	}
 
 	var responsesPreludeBuf *preludeBuffer
@@ -6776,8 +6776,8 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		if verbatimPassthrough {
 			// marker already carries the depleted-credits warning in
 			// subscription-only mode, which overrides the opt-out above.
-			// Parse native SSE when Codex needs a badge and/or footer.
-			if clientID.ClientApp == ClientAppCodex && (marker != "" || s.feedbackFooter(ctx, clientID.ClientApp, routeRes.TurnType, footerEchoedSinceHumanTurn) != "") {
+			// Parse native SSE when this client needs a badge and/or footer.
+			if supportsResponsesTerminalSurfaces(clientID.ClientApp) && (marker != "" || s.feedbackFooter(ctx, clientID.ClientApp, routeRes.TurnType, footerEchoedSinceHumanTurn) != "") {
 				if marker != "" {
 					rw.SetBadgeText(marker)
 				}
@@ -7801,6 +7801,22 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	return proxyErr
 }
 
+func stripResponsesTerminalArtifacts(body []byte) ([]byte, error) {
+	stripped, err := translate.StripRouterCommandsFromResponsesInput(body)
+	if err != nil {
+		return nil, fmt.Errorf("strip Responses router command: %w", err)
+	}
+	stripped, err = translate.StripRoutingBadgeFromResponsesInput(stripped)
+	if err != nil {
+		return nil, fmt.Errorf("strip native Responses routing badge: %w", err)
+	}
+	stripped, err = translate.StripFeedbackFooterFromResponsesInput(stripped)
+	if err != nil {
+		return nil, fmt.Errorf("strip native Responses feedback footer: %w", err)
+	}
+	return stripped, nil
+}
+
 // ProxyOpenAIResponses routes an OpenAI Responses API request. The Responses
 // wire format is translated to Chat Completions on entry, dispatched through
 // the existing chat-completions path, then the chat-completions response is
@@ -7808,12 +7824,22 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 // pricing, and translation matrix unchanged.
 func (s *Service) ProxyOpenAIResponses(ctx context.Context, body []byte, w http.ResponseWriter, r *http.Request) error {
 	ctx = s.withUsageObserver(ctx, r.Header, routePathResponses)
-	clientAppCodex := ClientIdentityFrom(ctx).ClientApp == ClientAppCodex
+	clientApp := ClientIdentityFrom(ctx).ClientApp
+	portableCodex := clientApp == ClientAppCodex
+	terminalResponses := supportsResponsesTerminalSurfaces(clientApp)
 	if translate.FeedbackFooterSinceLastHumanTurnInResponses(body) {
 		ctx = context.WithValue(ctx, responsesFooterEchoedContextKey{}, true)
 	}
-	conversion, err := translate.ConvertResponsesToChatCompletionsWithOptions(body, translate.ResponsesConversionOptions{
-		PortableCodex: clientAppCodex,
+	nativeBody := body
+	var err error
+	if terminalResponses && !portableCodex {
+		nativeBody, err = stripResponsesTerminalArtifacts(body)
+		if err != nil {
+			return err
+		}
+	}
+	conversion, err := translate.ConvertResponsesToChatCompletionsWithOptions(nativeBody, translate.ResponsesConversionOptions{
+		PortableCodex: portableCodex,
 	})
 	if err != nil {
 		return fmt.Errorf("translate responses request: %w", err)
@@ -7822,25 +7848,13 @@ func (s *Service) ProxyOpenAIResponses(ctx context.Context, body []byte, w http.
 	if conversion.CodexFeedbackSkill {
 		ctx = context.WithValue(ctx, codexFeedbackSkillContextKey{}, true)
 	}
-	codexNativeRequest := codexResponsesRequest(ctx, r.Header)
-	nativeBody := conversion.OriginalBody
-	if clientAppCodex {
-		nativeBody, err = translate.StripRouterCommandsFromResponsesInput(nativeBody)
+	if portableCodex {
+		nativeBody, err = stripResponsesTerminalArtifacts(body)
 		if err != nil {
-			return fmt.Errorf("strip Responses router command: %w", err)
-		}
-		// Codex records response.output_item.done as conversation history and
-		// sends it back in the next native request. Remove only the badge this
-		// client opted into so router text never reaches the selected model.
-		nativeBody, err = translate.StripRoutingBadgeFromResponsesInput(nativeBody)
-		if err != nil {
-			return fmt.Errorf("strip native Responses routing badge: %w", err)
-		}
-		nativeBody, err = translate.StripFeedbackFooterFromResponsesInput(nativeBody)
-		if err != nil {
-			return fmt.Errorf("strip native Responses feedback footer: %w", err)
+			return err
 		}
 	}
+	codexNativeRequest := codexResponsesRequest(ctx, r.Header)
 	// Every Responses turn stashes its original bytes for post-routing native
 	// dispatch; NativeOnly and Codex-subscription turns also dispatch verbatim now.
 	if conversion.Requirements.NativeOnly || codexNativeRequest {
@@ -7850,8 +7864,8 @@ func (s *Service) ProxyOpenAIResponses(ctx context.Context, body []byte, w http.
 	// Routing and sticky-state hashes must describe the exact native payload
 	// that an OpenAI/Codex decision will receive, even when the portable Codex
 	// projection lets HMM consider other deployed providers.
-	if conversion.Requirements.NativeOnly || (clientAppCodex && codexNativeRequest) {
-		originalEnvelope, parseErr := translate.ParseOpenAI(conversion.OriginalBody)
+	if conversion.Requirements.NativeOnly || (portableCodex && codexNativeRequest) {
+		originalEnvelope, parseErr := translate.ParseOpenAI(nativeBody)
 		if parseErr != nil {
 			return fmt.Errorf("parse native Responses request: %w", parseErr)
 		}
@@ -7859,15 +7873,15 @@ func (s *Service) ProxyOpenAIResponses(ctx context.Context, body []byte, w http.
 		ctx = context.WithValue(ctx, nativeResponsesToolHashContextKey{}, originalEnvelope.ToolConfigurationSHA256())
 	}
 	ctx = context.WithValue(ctx, responsesRequirementsContextKey{}, conversion.Requirements)
-	if clientAppCodex && conversion.TitleGeneration {
+	if portableCodex && conversion.TitleGeneration {
 		ctx = context.WithValue(ctx, codexTitleGenerationContextKey{}, true)
 	}
 	ctx = context.WithValue(ctx, responsesTransformsContextKey{}, conversion.Report)
 	// Routing, billing, and telemetry are reused via
 	// ProxyOpenAIChatCompletion; chatBody is used only for routing features.
 	wrapper := translate.NewResponsesWriter(w, model)
-	if clientAppCodex {
-		wrapper.EnableCodexBadgeProvenance()
+	if terminalResponses {
+		wrapper.EnableTerminalBadgeProvenance()
 	}
 	wrapper.SetToolMappings(conversion.ToolMappings)
 	// Defer the high-fidelity call-log emission until after Finalize: the
@@ -7884,8 +7898,8 @@ func (s *Service) ProxyOpenAIResponses(ctx context.Context, body []byte, w http.
 	if proxyErr != nil {
 		// If the Responses stream already committed (response.created is on the
 		// wire), the upstream error can no longer be rendered as a JSON error
-		// envelope — terminate the SSE stream with response.failed so the client
-		// (Codex) sees a clean failure instead of "stream closed before
+		// envelope — terminate the SSE stream with response.failed so a terminal
+		// Responses client sees a clean failure instead of "stream closed before
 		// response.completed". A no-op before anything is streamed, so the
 		// handler still writes the JSON error envelope in that case.
 		if finErr := wrapper.FinalizeError(proxyErr); finErr != nil {
