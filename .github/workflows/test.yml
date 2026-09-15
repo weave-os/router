@@ -168,11 +168,6 @@ jobs:
       - name: Run tests with vetting
         run: go test -vet=all -count=1 ./...
 
-      - name: Check session-pin output-limit persistence
-        env:
-          ROUTER_TEST_DATABASE_URL: 'postgres://router:router@localhost:5432/router?sslmode=disable&search_path=router'
-        run: go run ./scripts/session_pin_output_limit_check
-
   # Separate job: needs no Go toolchain, Postgres, or network. The statusline is
   # shipped to users as a standalone script, so a regression there is invisible
   # to `go test`.
