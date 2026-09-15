@@ -20,7 +20,6 @@ import (
 
 	"github.com/santhosh-tekuri/jsonschema/v6"
 	"github.com/tidwall/gjson"
-	"github.com/tidwall/sjson"
 	"golang.org/x/text/language"
 	"golang.org/x/text/message"
 
@@ -312,33 +311,29 @@ func validate(schema *jsonschema.Schema, args string) (verr error) {
 // present. Required params are never touched, so a genuinely-missing one
 // still surfaces downstream.
 func normalizeArgs(args string, required map[string]struct{}) (out string, actions []string) {
-	parsed := gjson.Parse(args)
-	if !parsed.IsObject() {
+	document := newArgumentDocument(args)
+	if document.root.kind != argumentObject {
 		return args, nil
 	}
-	out = args
-	parsed.ForEach(func(key, val gjson.Result) bool {
-		isEmptyString := val.Type == gjson.String && val.Str == ""
-		isNull := val.Type == gjson.Null
+	for _, member := range document.root.objectMembers {
+		isEmptyString := member.value.kind == argumentString && member.value.stringValue == ""
+		isNull := member.value.kind == argumentNull
 		if !isEmptyString && !isNull {
-			return true
+			continue
 		}
-		if _, req := required[key.String()]; req {
-			return true
+		if _, req := required[member.key]; req {
+			continue
 		}
-		next, err := sjson.Delete(out, escapeJSONPathToken(key.String()))
-		if err != nil {
-			return true
+		if _, ok := document.delete([]string{member.key}); !ok {
+			continue
 		}
-		out = next
 		if isEmptyString {
 			actions = append(actions, "drop_empty_optional")
 		} else {
 			actions = append(actions, "drop_null_optional")
 		}
-		return true
-	})
-	return out, actions
+	}
+	return document.materialize(), actions
 }
 
 // detailFromError renders the first leaf validation error as
@@ -363,17 +358,4 @@ func firstLeaf(verr *jsonschema.ValidationError) *jsonschema.ValidationError {
 		verr = verr.Causes[0]
 	}
 	return verr
-}
-
-// escapeJSONPathToken escapes a raw object key for use in a gjson/sjson path.
-func escapeJSONPathToken(token string) string {
-	var b strings.Builder
-	for _, r := range token {
-		switch r {
-		case '.', '*', '?', '\\', '|', '#', '@':
-			b.WriteByte('\\')
-		}
-		b.WriteRune(r)
-	}
-	return b.String()
 }

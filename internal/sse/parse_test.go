@@ -58,6 +58,40 @@ func TestSplitNext_EarlierCRLFBoundaryWinsOverLaterLF(t *testing.T) {
 	assert.Equal(t, 5, n)
 }
 
+func TestSplitNext_PreservesBackingStorageAndCapacity(t *testing.T) {
+	buf := make([]byte, len("event\n\nrest"), len("event\n\nrest")+16)
+	copy(buf, "event\n\nrest")
+
+	event, n := sse.SplitNext(buf)
+
+	assert.Equal(t, "event", string(event))
+	assert.Equal(t, len("event\n\n"), n)
+	assert.Equal(t, cap(buf), cap(event))
+	assert.True(t, &buf[0] == &event[0])
+	assert.Equal(t, "rest", string(buf[n:]))
+}
+
+func TestSplitNext_MixedNewlineCandidatesKeepExistingGrammar(t *testing.T) {
+	event, n := sse.SplitNext([]byte("a\n\r\n"))
+	assert.Nil(t, event)
+	assert.Equal(t, 0, n, "a\\n\\r\\n has no complete supported delimiter")
+
+	event, n = sse.SplitNext([]byte("a\r\n\n"))
+	assert.Equal(t, "a\r", string(event))
+	assert.Equal(t, len("a\r\n\n"), n)
+}
+
+func TestSplitNext_TruncatedDelimitersStayIncomplete(t *testing.T) {
+	for _, delimiter := range []string{"\n\n", "\r\n\r\n"} {
+		for length := 1; length < len(delimiter); length++ {
+			buf := []byte("payload" + delimiter[:length])
+			event, n := sse.SplitNext(buf)
+			assert.Nil(t, event, "delimiter=%q length=%d", delimiter, length)
+			assert.Equal(t, 0, n, "delimiter=%q length=%d", delimiter, length)
+		}
+	}
+}
+
 func TestParseEvent_ExtractsEventTypeAndData(t *testing.T) {
 	eventType, data := sse.ParseEvent([]byte("event: content_block_delta\ndata: {\"type\":\"text\"}"))
 

@@ -301,6 +301,27 @@ func TestStripRoutingBadgeFromResponsesInput_KeepsItemWithRemainingContent(t *te
 	assert.Equal(t, "the answer", input[0].Get("content.1.text").Str)
 }
 
+func TestStripRoutingBadgeFromResponsesInput_RebuildsEachChangedArrayOnce(t *testing.T) {
+	badge := codexResponsesBadgeSentinelForTest + "**Weave Router** — gpt-5.6-terra ← gpt-5.6-sol\n\n"
+	badgeJSON := codexResponsesBadgeSentinelForTest + "**Weave Router** — gpt-5.6-terra ← gpt-5.6-sol\\n\\n"
+	body := []byte(`{"input":[
+{"role":"assistant","content":[
+{"type":"input_text","text":"` + badgeJSON + `answer"},
+{"type":"output_text","text":"` + badgeJSON + `later text"},
+{"type":"image","source":{"url":"https://example.com/image"}}
+],"extension":{"keep":true}},
+{"type":"message","role":"user","content":[{"type":"input_text","text":"` + badge + `quoted"}]}
+]}`)
+
+	out, err := translate.StripRoutingBadgeFromResponsesInput(body)
+	require.NoError(t, err)
+	assert.Equal(t, "answer", gjson.GetBytes(out, "input.0.content.0.text").Str)
+	assert.Equal(t, badge+"later text", gjson.GetBytes(out, "input.0.content.1.text").Str)
+	assert.Equal(t, "https://example.com/image", gjson.GetBytes(out, "input.0.content.2.source.url").Str)
+	assert.True(t, gjson.GetBytes(out, "input.0.extension.keep").Bool())
+	assert.Equal(t, badge+"quoted", gjson.GetBytes(out, "input.1.content.0.text").Str)
+}
+
 // Defense in depth for clients that echo an already-emptied assistant message.
 func TestResponsesToChatCompletions_DropsEmptyAssistantShell(t *testing.T) {
 	body := []byte(`{
@@ -1308,6 +1329,26 @@ func TestStripFeedbackFooterFromResponsesInput(t *testing.T) {
 	out, err := translate.StripFeedbackFooterFromResponsesInput(body)
 	require.NoError(t, err)
 	assert.Equal(t, "answer", gjson.GetBytes(out, "input.0.content.0.text").Str)
+}
+
+func TestStripFeedbackFooterFromResponsesInput_StripsAllMatchingTextParts(t *testing.T) {
+	const footer = "\n\n_Weave Router feedback:_ `$rf +` good experience · `$rf -` poor experience"
+	const footerJSON = "\\n\\n_Weave Router feedback:_ `$rf +` good experience · `$rf -` poor experience"
+	body := []byte(`{"input":[
+{"type":"message","role":"assistant","content":[
+{"type":"output_text","text":"first` + footerJSON + `","annotations":[{"type":"url_citation","url":"https://example.com"}]},
+{"type":"input_text","text":"second` + footerJSON + `"},
+{"type":"image","detail":"high"}
+]},
+{"type":"message","role":"user","content":[{"type":"output_text","text":"user` + footerJSON + `"}]}
+]}`)
+
+	out, err := translate.StripFeedbackFooterFromResponsesInput(body)
+	require.NoError(t, err)
+	assert.Equal(t, "first", gjson.GetBytes(out, "input.0.content.0.text").Str)
+	assert.Equal(t, "second", gjson.GetBytes(out, "input.0.content.1.text").Str)
+	assert.Equal(t, "high", gjson.GetBytes(out, "input.0.content.2.detail").Str)
+	assert.Equal(t, "user"+footer, gjson.GetBytes(out, "input.1.content.0.text").Str)
 }
 
 // Strip operates on passthrough bytes; extraction runs on the chat projection (conv.OriginalBody vs conv.Body). Ordered as ProxyOpenAIResponses does, so aliasing surfaces here.

@@ -250,3 +250,50 @@ func TestEscalationChatRejectsIncompleteLegacyFunctionCalls(t *testing.T) {
 		}
 	}
 }
+
+func TestEscalationAnthropicRepeatedBlockStartRetainsArguments(t *testing.T) {
+	body := "data: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"tool_use\",\"id\":\"first\",\"name\":\"old\",\"input\":{}}}\n\n" +
+		"data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"{\\\"x\\\":\"}}\n\n" +
+		"data: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"tool_use\",\"id\":\"latest\",\"name\":\"new\",\"input\":{}}}\n\n" +
+		"data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"1}\"}}\n\n" +
+		"data: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"tool_use\"}}\n\n" +
+		"data: {\"type\":\"message_stop\"}\n\n"
+
+	response, err := translate.ParseEscalationResponse([]byte(body), translate.EscalationResponseAnthropic)
+	require.NoError(t, err)
+	call := response.Messages[0].Blocks[0]
+	assert.Equal(t, "latest", call.ID)
+	assert.Equal(t, "new", call.Name)
+	assert.JSONEq(t, `{"x":1}`, call.ArgumentsJSON)
+}
+
+func TestEscalationAnthropicEmptyArgumentDeltaRemainsInvalid(t *testing.T) {
+	body := "data: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"tool_use\",\"name\":\"run\",\"input\":{}}}\n\n" +
+		"data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"\"}}\n\n" +
+		"data: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"tool_use\"}}\n\n" +
+		"data: {\"type\":\"message_stop\"}\n\n"
+
+	_, err := translate.ParseEscalationResponse([]byte(body), translate.EscalationResponseAnthropic)
+	assert.Error(t, err)
+}
+
+func TestEscalationChatAbsentArgumentsRemainInvalid(t *testing.T) {
+	body := "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"function\":{\"name\":\"run\"}}]},\"finish_reason\":\"tool_calls\"}]}\n\n" +
+		"data: [DONE]\n\n"
+
+	_, err := translate.ParseEscalationResponse([]byte(body), translate.EscalationResponseChat)
+	assert.Error(t, err)
+}
+
+func TestEscalationGeminiFlushesTextAcrossToolBlocks(t *testing.T) {
+	body := "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"before\"}]}}]}\n\n" +
+		"data: {\"candidates\":[{\"content\":{\"parts\":[{\"functionCall\":{\"id\":\"call-1\",\"name\":\"run\",\"args\":{}}}]}}]}\n\n" +
+		"data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"after\"}]},\"finishReason\":\"STOP\"}]}\n\n"
+
+	response, err := translate.ParseEscalationResponse([]byte(body), translate.EscalationResponseGemini)
+	require.NoError(t, err)
+	require.Len(t, response.Messages[0].Blocks, 3)
+	assert.Equal(t, "before", response.Messages[0].Blocks[0].Text)
+	assert.Equal(t, translate.EscalationBlockToolCall, response.Messages[0].Blocks[1].Type)
+	assert.Equal(t, "after", response.Messages[0].Blocks[2].Text)
+}

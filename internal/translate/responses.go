@@ -324,15 +324,17 @@ func StripRoutingBadgeFromResponsesInput(body []byte) ([]byte, error) {
 		return body, nil
 	}
 
-	out := body
+	itemRaws := input.Array()
+	newItemRaws := make([]string, 0, len(itemRaws))
 	changed := false
-	var emptied []int
-	for itemIndex, item := range input.Array() {
+	for _, item := range itemRaws {
 		itemType := item.Get("type").Str
 		if itemType != "message" && !(itemType == "" && item.Get("role").Str != "") {
+			newItemRaws = append(newItemRaws, item.Raw)
 			continue
 		}
 		if item.Get("role").Str != "assistant" {
+			newItemRaws = append(newItemRaws, item.Raw)
 			continue
 		}
 
@@ -340,61 +342,74 @@ func StripRoutingBadgeFromResponsesInput(body []byte) ([]byte, error) {
 		if content.Type == gjson.String {
 			stripped := responsesTerminalBadgePattern.ReplaceAllString(content.Str, "")
 			if stripped == content.Str {
+				newItemRaws = append(newItemRaws, item.Raw)
 				continue
 			}
 			if stripped == "" {
-				emptied = append(emptied, itemIndex)
 				changed = true
 				continue
 			}
-			var err error
-			out, err = sjson.SetBytes(out, "input."+strconv.Itoa(itemIndex)+".content", stripped)
+			newItem, err := replaceResponsesField(item.Raw, "content", stripped)
 			if err != nil {
 				return nil, fmt.Errorf("strip Responses routing badge from string content: %w", err)
 			}
+			newItemRaws = append(newItemRaws, newItem)
 			changed = true
 			continue
 		}
 		if !content.IsArray() {
+			newItemRaws = append(newItemRaws, item.Raw)
 			continue
 		}
+
+		parts := content.Array()
+		newPartRaws := make([]string, len(parts))
+		for i, part := range parts {
+			newPartRaws[i] = part.Raw
+		}
+		itemChanged := false
+		dropItem := false
 	contentParts:
-		for partIndex, part := range content.Array() {
+		for partIndex, part := range parts {
 			switch part.Get("type").Str {
 			case "input_text", "output_text", "text":
 				text := part.Get("text").Str
 				stripped := responsesTerminalBadgePattern.ReplaceAllString(text, "")
 				if stripped != text {
-					var err error
-					path := "input." + strconv.Itoa(itemIndex) + ".content." + strconv.Itoa(partIndex) + ".text"
-					out, err = sjson.SetBytes(out, path, stripped)
+					newPart, err := replaceResponsesField(part.Raw, "text", stripped)
 					if err != nil {
 						return nil, fmt.Errorf("strip Responses routing badge from content part: %w", err)
 					}
+					newPartRaws[partIndex] = newPart
+					itemChanged = true
 					changed = true
-				}
-				if stripped == "" && !responsesContentHasBody(content, partIndex) {
-					emptied = append(emptied, itemIndex)
-					changed = true
+					if stripped == "" && !responsesContentHasBody(parts, partIndex) {
+						dropItem = true
+					}
 				}
 				// The egress marker is only ever prepended to the first text part.
 				// Do not strip a marker-like string from later assistant content.
 				break contentParts
 			}
 		}
+		if dropItem {
+			continue
+		}
+		if !itemChanged {
+			newItemRaws = append(newItemRaws, item.Raw)
+			continue
+		}
+		newContent := "[" + strings.Join(newPartRaws, ",") + "]"
+		newItem, err := replaceResponsesRawField([]byte(item.Raw), "content", []byte(newContent))
+		if err != nil {
+			return nil, fmt.Errorf("replace Responses content after routing badge strip: %w", err)
+		}
+		newItemRaws = append(newItemRaws, string(newItem))
 	}
 	if !changed {
 		return body, nil
 	}
-	// Descending: an earlier delete would shift the indices still pending.
-	for i := len(emptied) - 1; i >= 0; i-- {
-		var err error
-		out, err = sjson.DeleteBytes(out, "input."+strconv.Itoa(emptied[i]))
-		if err != nil {
-			return nil, fmt.Errorf("drop badge-only Responses input item: %w", err)
-		}
-	}
-	return out, nil
+	return replaceResponsesRawField(body, "input", []byte("["+strings.Join(newItemRaws, ",")+"]"))
 }
 
 // StripFeedbackFooterFromResponsesInput removes the rating hint from assistant
@@ -404,35 +419,46 @@ func StripFeedbackFooterFromResponsesInput(body []byte) ([]byte, error) {
 	if !input.IsArray() {
 		return body, nil
 	}
-	out := body
+	itemRaws := input.Array()
+	newItemRaws := make([]string, 0, len(itemRaws))
 	changed := false
-	for itemIndex, item := range input.Array() {
+	for _, item := range itemRaws {
 		itemType := item.Get("type").Str
 		if itemType != "message" && !(itemType == "" && item.Get("role").Str != "") {
+			newItemRaws = append(newItemRaws, item.Raw)
 			continue
 		}
 		if item.Get("role").Str != "assistant" {
+			newItemRaws = append(newItemRaws, item.Raw)
 			continue
 		}
 		content := item.Get("content")
 		if content.Type == gjson.String {
 			stripped := feedbackFooterPattern.ReplaceAllString(content.Str, "")
 			if stripped == content.Str {
+				newItemRaws = append(newItemRaws, item.Raw)
 				continue
 			}
-			var err error
-			out, err = sjson.SetBytes(out, "input."+strconv.Itoa(itemIndex)+".content", stripped)
+			newItem, err := replaceResponsesField(item.Raw, "content", stripped)
 			if err != nil {
 				return nil, fmt.Errorf("strip Responses feedback footer from string content: %w", err)
 			}
+			newItemRaws = append(newItemRaws, newItem)
 			changed = true
 			continue
 		}
 		if !content.IsArray() {
+			newItemRaws = append(newItemRaws, item.Raw)
 			continue
 		}
-		for partIndex := len(content.Array()) - 1; partIndex >= 0; partIndex-- {
-			part := content.Array()[partIndex]
+
+		parts := content.Array()
+		newPartRaws := make([]string, len(parts))
+		for i, part := range parts {
+			newPartRaws[i] = part.Raw
+		}
+		itemChanged := false
+		for partIndex, part := range parts {
 			switch part.Get("type").Str {
 			case "input_text", "output_text", "text":
 				text := part.Get("text").Str
@@ -440,20 +466,43 @@ func StripFeedbackFooterFromResponsesInput(body []byte) ([]byte, error) {
 				if stripped == text {
 					continue
 				}
-				path := "input." + strconv.Itoa(itemIndex) + ".content." + strconv.Itoa(partIndex) + ".text"
-				var err error
-				out, err = sjson.SetBytes(out, path, stripped)
+				newPart, err := replaceResponsesField(part.Raw, "text", stripped)
 				if err != nil {
 					return nil, fmt.Errorf("strip Responses feedback footer from content part: %w", err)
 				}
+				newPartRaws[partIndex] = newPart
+				itemChanged = true
 				changed = true
 			}
 		}
+		if !itemChanged {
+			newItemRaws = append(newItemRaws, item.Raw)
+			continue
+		}
+		newContent := "[" + strings.Join(newPartRaws, ",") + "]"
+		newItem, err := replaceResponsesRawField([]byte(item.Raw), "content", []byte(newContent))
+		if err != nil {
+			return nil, fmt.Errorf("replace Responses content after feedback footer strip: %w", err)
+		}
+		newItemRaws = append(newItemRaws, string(newItem))
 	}
 	if !changed {
 		return body, nil
 	}
-	return out, nil
+	return replaceResponsesRawField(body, "input", []byte("["+strings.Join(newItemRaws, ",")+"]"))
+}
+
+func replaceResponsesField(raw, path, value string) (string, error) {
+	encoded, err := encodeJSONStringNoHTMLEscape(value)
+	if err != nil {
+		return "", err
+	}
+	updated, err := replaceResponsesRawField([]byte(raw), path, encoded)
+	return string(updated), err
+}
+
+func replaceResponsesRawField(raw []byte, path string, value []byte) ([]byte, error) {
+	return sjson.SetRawBytes(raw, path, value)
 }
 
 // StripRouterCommandsFromResponsesInput removes router directives from
@@ -522,8 +571,8 @@ func stripRouterCommandText(text string) (string, bool) {
 
 // responsesContentHasBody reports whether a content array carries anything
 // beyond the (now stripped) part at skipIndex. Non-text parts always count.
-func responsesContentHasBody(content gjson.Result, skipIndex int) bool {
-	for i, part := range content.Array() {
+func responsesContentHasBody(content []gjson.Result, skipIndex int) bool {
+	for i, part := range content {
 		if i == skipIndex {
 			continue
 		}

@@ -5,6 +5,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/tidwall/gjson"
 )
 
 // readTools mirrors the Claude Code Read tool shape: one required param,
@@ -285,4 +286,24 @@ func TestCheck_NestedCoercion(t *testing.T) {
 	require.NotNil(t, got.Issue)
 	assert.True(t, got.Issue.Repaired)
 	assert.JSONEq(t, `{"opts":{"depth":3}}`, got.Args)
+}
+
+func TestCheck_PreservesNumberLexemeWhenCoercingToString(t *testing.T) {
+	v := Compile([]byte(`[{"name":"TextValue","input_schema":{"type":"object","properties":{"value":{"type":"string"}},"required":["value"]}}]`))
+	require.NotNil(t, v)
+
+	got := v.Check("TextValue", `{"value":1e+06}`)
+	require.NotNil(t, got.Issue)
+	assert.True(t, got.Issue.Repaired)
+	assert.Equal(t, `"1e+06"`, gjson.Get(got.Args, "value").Raw)
+}
+
+func TestCheck_UsesSJSONFloatSpellingWhenCoercingToNumber(t *testing.T) {
+	v := Compile([]byte(`[{"name":"NumberValue","input_schema":{"type":"object","properties":{"value":{"type":"number"}},"required":["value"]}}]`))
+	require.NotNil(t, v)
+
+	got := v.Check("NumberValue", `{"value":"1e3"}`)
+	require.NotNil(t, got.Issue)
+	assert.True(t, got.Issue.Repaired)
+	assert.Equal(t, `1000`, gjson.Get(got.Args, "value").Raw)
 }
