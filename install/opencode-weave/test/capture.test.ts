@@ -15,12 +15,15 @@
  * opencode package is needed to load the module.
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test"
-import { mkdtemp, writeFile, readFile } from "node:fs/promises"
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import type { PluginInput } from "@opencode-ai/plugin"
 
 const ANTHROPIC_TOKEN_URL = "https://token.example.test/anthropic/oauth/token"
 const CHATGPT_ISSUER = "https://issuer.example.test"
+const originalAnthropicTokenURL = process.env.WEAVE_ANTHROPIC_OAUTH_TOKEN
+const originalChatGPTIssuer = process.env.WEAVE_CODEX_OAUTH_ISSUER
 
 // Set the env overrides BEFORE importing the module (constants are read at load).
 process.env.WEAVE_ANTHROPIC_OAUTH_TOKEN = ANTHROPIC_TOKEN_URL
@@ -31,41 +34,130 @@ const CHATGPT_ACCESS = "eyJhbGciOiJChatGPTaccessJWT"
 const CHATGPT_ACCOUNT = "acct-1234-5678"
 const CLAUDE_ACCESS = "sk-ant-oat01-claude-access"
 const CLAUDE_REFRESH = "claude-refresh-token"
+const PLACEHOLDER_AUTHORIZATION = "Bearer weave-router-oauth"
+const SESSION_ID = "ses_capture_test"
+const ORIGINATOR = "codex_cli_ts"
+const SECRET_VALUES = [
+  ROUTER_KEY,
+  CHATGPT_ACCESS,
+  CHATGPT_ACCOUNT,
+  CLAUDE_ACCESS,
+  CLAUDE_REFRESH,
+  "cg-refresh",
+  "cg-refresh-2",
+  "expired-chatgpt",
+  "stale-chatgpt",
+  "expired-claude",
+  "sk-ant-oat01-stale",
+  "sk-ant-oat01-rotated",
+  "claude-refresh-2",
+  "nearly-expired",
+  "rotatedChatGPTaccessJWT",
+] as const
 
 const realFetch = globalThis.fetch
+const realConsole = {
+  log: console.log,
+  info: console.info,
+  warn: console.warn,
+  error: console.error,
+  debug: console.debug,
+}
+const originalAuthFile = process.env.WEAVE_OPENCODE_AUTH_FILE
+type LogMethod = (...args: unknown[]) => void
+let authDir: string
 let authFile: string
 let setCalls: Array<{ id: string; body: Record<string, unknown> }>
+let appLogCalls: string[]
+let consoleCalls: string[]
 
 interface CapturedRequest {
   url: string
   headers: Record<string, string>
 }
 
-// Build a PluginInput whose client.auth.set records the write (and, to mimic
-// persistence, rewrites the on-disk auth file the loader reads from).
-function fakeInput() {
+function stringifyLogArg(value: unknown): string {
+  if (typeof value === "string") return value
+  if (value instanceof Error) return value.stack ?? value.message
+  try {
+    return JSON.stringify(value)
+  } catch {
+    return String(value)
+  }
+}
+
+function recordConsole(...args: unknown[]): void {
+  consoleCalls.push(args.map(stringifyLogArg).join(" "))
+}
+
+function fakeInput(): PluginInput {
   return {
     client: {
       auth: {
         async set(opts: { path: { id: string }; body: Record<string, unknown> }) {
           setCalls.push({ id: opts.path.id, body: opts.body })
-          const raw = JSON.parse(await readFile(authFile, "utf8"))
+          const raw = JSON.parse(await readFile(authFile, "utf8")) as Record<string, unknown>
           raw[opts.path.id] = opts.body
           await writeFile(authFile, JSON.stringify(raw))
         },
       },
+      app: {
+        log(...args: unknown[]) {
+          appLogCalls.push(args.map(stringifyLogArg).join(" "))
+        },
+      },
     },
-  } as unknown as import("@opencode-ai/plugin").PluginInput
+  } as unknown as PluginInput
+}
+
+function installConsoleSpies(): void {
+  const consoleWithMethods = console as unknown as Record<string, LogMethod>
+  for (const method of Object.keys(realConsole)) consoleWithMethods[method] = recordConsole
+}
+
+function restoreConsoleSpies(): void {
+  const consoleWithMethods = console as unknown as Record<string, LogMethod>
+  for (const [method, original] of Object.entries(realConsole)) consoleWithMethods[method] = original
+}
+
+function assertNoSecretLeak(): void {
+  for (const line of [...consoleCalls, ...appLogCalls]) {
+    for (const secret of SECRET_VALUES) expect(line).not.toContain(secret)
+  }
+}
+
+function assertRetainedIdentityHeaders(headers: Record<string, string>): void {
+  expect(headers["x-weave-router-key"]).toBe(ROUTER_KEY)
+  expect(headers["x-app"]).toBe("opencode")
+  expect(headers["authorization"]).toBe(PLACEHOLDER_AUTHORIZATION)
+  expect(headers["session-id"]).toBe(SESSION_ID)
+  expect(headers.originator).toBe(ORIGINATOR)
 }
 
 beforeEach(async () => {
-  authFile = join(await mkdtemp(join(tmpdir(), "weave-auth-")), "auth.json")
+  authDir = await mkdtemp(join(tmpdir(), "weave-auth-"))
+  authFile = join(authDir, "auth.json")
   process.env.WEAVE_OPENCODE_AUTH_FILE = authFile
   setCalls = []
+  appLogCalls = []
+  consoleCalls = []
+  installConsoleSpies()
 })
 
-afterEach(() => {
-  globalThis.fetch = realFetch
+afterEach(async () => {
+  try {
+    assertNoSecretLeak()
+  } finally {
+    globalThis.fetch = realFetch
+    restoreConsoleSpies()
+    if (originalAuthFile === undefined) delete process.env.WEAVE_OPENCODE_AUTH_FILE
+    else process.env.WEAVE_OPENCODE_AUTH_FILE = originalAuthFile
+    if (originalAnthropicTokenURL === undefined) delete process.env.WEAVE_ANTHROPIC_OAUTH_TOKEN
+    else process.env.WEAVE_ANTHROPIC_OAUTH_TOKEN = originalAnthropicTokenURL
+    if (originalChatGPTIssuer === undefined) delete process.env.WEAVE_CODEX_OAUTH_ISSUER
+    else process.env.WEAVE_CODEX_OAUTH_ISSUER = originalChatGPTIssuer
+    await rm(authDir, { recursive: true, force: true })
+  }
 })
 
 // Drive the loader's fetch once and capture the upstream request. tokenResponder
@@ -76,6 +168,13 @@ async function runLoaderFetch(
 ): Promise<CapturedRequest> {
   const { WeaveCodex } = await import("../src/index.ts")
   const hooks = await WeaveCodex(fakeInput())
+  const sessionHeaders: { headers: Record<string, string> } = { headers: {} }
+  await hooks["chat.headers"]?.(
+    { sessionID: SESSION_ID, model: { providerID: "weave" } } as never,
+    sessionHeaders,
+  )
+  expect(sessionHeaders.headers.originator).toBe(ORIGINATOR)
+  expect(sessionHeaders.headers["session-id"]).toBe(SESSION_ID)
   const loaded = await hooks.auth!.loader!(getAuth as never, {} as never)
 
   let captured: CapturedRequest | undefined
@@ -104,12 +203,15 @@ async function runLoaderFetch(
   await (loaded.fetch as typeof fetch)("https://router.example.test/v1/responses", {
     method: "POST",
     headers: {
+      ...sessionHeaders.headers,
       "X-Weave-Router-Key": ROUTER_KEY,
       "X-App": "opencode",
-      Authorization: "Bearer weave-router-oauth",
+      Authorization: PLACEHOLDER_AUTHORIZATION,
     },
   })
   if (!captured) throw new Error("upstream request was not captured")
+  assertRetainedIdentityHeaders(captured.headers)
+  assertNoSecretLeak()
   return captured
 }
 
@@ -136,9 +238,6 @@ describe("weave loader — dual subscription injection", () => {
     expect(req.headers["x-weave-openai-subscription"]).toBe(CHATGPT_ACCESS)
     expect(req.headers["x-weave-openai-account-id"]).toBe(CHATGPT_ACCOUNT)
     expect(req.headers["x-weave-anthropic-subscription"]).toBe(CLAUDE_ACCESS)
-    // Configured headers survive.
-    expect(req.headers["x-weave-router-key"]).toBe(ROUTER_KEY)
-    expect(req.headers["x-app"]).toBe("opencode")
     // Neither subscription leaks into Authorization (router resolves per model).
     expect(req.headers["authorization"]).not.toContain(CHATGPT_ACCESS)
     expect(req.headers["authorization"]).not.toContain(CLAUDE_ACCESS)
@@ -159,8 +258,8 @@ describe("weave loader — dual subscription injection", () => {
     const req = await runLoaderFetch(getAuth)
 
     expect(req.headers["x-weave-openai-subscription"]).toBe(CHATGPT_ACCESS)
+    expect(req.headers["x-weave-openai-account-id"]).toBe(CHATGPT_ACCOUNT)
     expect(req.headers["x-weave-anthropic-subscription"]).toBeUndefined()
-    expect(req.headers["x-weave-router-key"]).toBe(ROUTER_KEY)
   })
 
   test("Claude-only attaches the Anthropic sub without a ChatGPT login", async () => {
@@ -174,7 +273,7 @@ describe("weave loader — dual subscription injection", () => {
 
     expect(req.headers["x-weave-anthropic-subscription"]).toBe(CLAUDE_ACCESS)
     expect(req.headers["x-weave-openai-subscription"]).toBeUndefined()
-    expect(req.headers["x-weave-router-key"]).toBe(ROUTER_KEY)
+    expect(req.headers["x-weave-openai-account-id"]).toBeUndefined()
   })
 
   test("refreshes a ChatGPT token before its remaining lifetime is too short for a turn", async () => {
@@ -201,9 +300,73 @@ describe("weave loader — dual subscription injection", () => {
     })
 
     expect(req.headers["x-weave-openai-subscription"]).toBe(rotated)
+    expect(req.headers["x-weave-openai-account-id"]).toBe(CHATGPT_ACCOUNT)
     const chatgptSet = setCalls.find((call) => call.id === "weave")
     expect(chatgptSet?.body.access).toBe(rotated)
     expect(chatgptSet?.body.refresh).toBe("cg-refresh-2")
+  })
+
+  test("refreshes an already-expired ChatGPT token, not only a near-expiry token", async () => {
+    await writeFile(authFile, JSON.stringify({}))
+    const getAuth = async () => ({
+      type: "oauth",
+      access: "expired-chatgpt",
+      refresh: "cg-refresh",
+      expires: Date.now() - 5_000,
+      accountId: CHATGPT_ACCOUNT,
+    })
+    const rotated = "eyJhbGciOiJexpiredRotatedChatGPT"
+
+    const req = await runLoaderFetch(getAuth, (url) => {
+      if (url === `${CHATGPT_ISSUER}/oauth/token`) {
+        return {
+          id_token: "",
+          access_token: rotated,
+          refresh_token: "cg-refresh-expired",
+          expires_in: 3600,
+        }
+      }
+      return {}
+    })
+
+    expect(req.headers["x-weave-openai-subscription"]).toBe(rotated)
+    expect(req.headers["x-weave-openai-account-id"]).toBe(CHATGPT_ACCOUNT)
+    const chatgptSet = setCalls.find((call) => call.id === "weave")
+    expect(chatgptSet?.body.access).toBe(rotated)
+    expect(chatgptSet?.body.refresh).toBe("cg-refresh-expired")
+  })
+
+  test("fresh credentials do not invoke either refresh endpoint", async () => {
+    await writeFile(
+      authFile,
+      JSON.stringify({
+        "weave-claude": {
+          type: "oauth",
+          access: CLAUDE_ACCESS,
+          refresh: CLAUDE_REFRESH,
+          expires: Date.now() + 3_600_000,
+        },
+      }),
+    )
+    const getAuth = async () => ({
+      type: "oauth",
+      access: CHATGPT_ACCESS,
+      refresh: "cg-refresh",
+      expires: Date.now() + 3_600_000,
+      accountId: CHATGPT_ACCOUNT,
+    })
+    let refreshCalls = 0
+
+    const req = await runLoaderFetch(getAuth, () => {
+      refreshCalls += 1
+      return {}
+    })
+
+    expect(refreshCalls).toBe(0)
+    expect(setCalls).toHaveLength(0)
+    expect(req.headers["x-weave-openai-subscription"]).toBe(CHATGPT_ACCESS)
+    expect(req.headers["x-weave-openai-account-id"]).toBe(CHATGPT_ACCOUNT)
+    expect(req.headers["x-weave-anthropic-subscription"]).toBe(CLAUDE_ACCESS)
   })
 
   test("a failed ChatGPT refresh still attaches the Claude sub (and doesn't fail the turn)", async () => {
@@ -226,9 +389,9 @@ describe("weave loader — dual subscription injection", () => {
 
     // ChatGPT refresh failed → no OpenAI headers, but the turn still went out…
     expect(req.headers["x-weave-openai-subscription"]).toBeUndefined()
+    expect(req.headers["x-weave-openai-account-id"]).toBeUndefined()
     // …with the (unaffected) Claude sub attached.
     expect(req.headers["x-weave-anthropic-subscription"]).toBe(CLAUDE_ACCESS)
-    expect(req.headers["x-weave-router-key"]).toBe(ROUTER_KEY)
   })
 
   test("does not inject an expired Claude token that has no refresh token", async () => {
@@ -252,6 +415,7 @@ describe("weave loader — dual subscription injection", () => {
     // Weave key rather than treating it as present.
     expect(req.headers["x-weave-anthropic-subscription"]).toBeUndefined()
     expect(req.headers["x-weave-openai-subscription"]).toBe(CHATGPT_ACCESS)
+    expect(req.headers["x-weave-openai-account-id"]).toBe(CHATGPT_ACCOUNT)
   })
 
   test("drops an expired Claude token when refresh fails", async () => {
@@ -273,6 +437,35 @@ describe("weave loader — dual subscription injection", () => {
 
     expect(req.headers["x-weave-anthropic-subscription"]).toBeUndefined()
     expect(req.headers["x-weave-openai-subscription"]).toBe(CHATGPT_ACCESS)
+    expect(req.headers["x-weave-openai-account-id"]).toBe(CHATGPT_ACCOUNT)
+  })
+
+  test("failed ChatGPT and Claude refreshes omit stale credentials and account id", async () => {
+    await writeFile(
+      authFile,
+      JSON.stringify({
+        "weave-claude": {
+          type: "oauth",
+          access: "sk-ant-oat01-stale",
+          refresh: CLAUDE_REFRESH,
+          expires: Date.now() - 1_000,
+        },
+      }),
+    )
+    const getAuth = async () => ({
+      type: "oauth",
+      access: "stale-chatgpt",
+      refresh: "cg-refresh",
+      expires: Date.now() - 1_000,
+      accountId: CHATGPT_ACCOUNT,
+    })
+
+    const req = await runLoaderFetch(getAuth, () => undefined)
+
+    expect(req.headers["x-weave-openai-subscription"]).toBeUndefined()
+    expect(req.headers["x-weave-openai-account-id"]).toBeUndefined()
+    expect(req.headers["x-weave-anthropic-subscription"]).toBeUndefined()
+    expect(setCalls).toHaveLength(0)
   })
 
   test("refreshes an expired Claude token, persists it to weave-claude, and injects the rotated token", async () => {
@@ -313,6 +506,77 @@ describe("weave loader — dual subscription injection", () => {
 
     expect(req.headers["x-weave-openai-subscription"]).toBeUndefined()
     expect(req.headers["x-weave-anthropic-subscription"]).toBeUndefined()
+  })
+
+  test("loader initialized without auth resolves credentials added after login", async () => {
+    await writeFile(authFile, JSON.stringify({}))
+    const { WeaveCodex, WeaveClaude } = await import("../src/index.ts")
+    const input = fakeInput()
+    const weaveHooks = await WeaveCodex(input)
+    const claudeHooks = await WeaveClaude(input)
+
+    expect(weaveHooks.auth?.provider).toBe("weave")
+    expect(weaveHooks.auth?.methods.length).toBeGreaterThan(0)
+    expect(claudeHooks.auth?.provider).toBe("weave-claude")
+    expect(claudeHooks.auth?.methods.length).toBeGreaterThan(0)
+    const sessionOutput: { headers: Record<string, string> } = { headers: {} }
+    await weaveHooks["chat.headers"]?.(
+      { sessionID: SESSION_ID, model: { providerID: "weave" } } as never,
+      sessionOutput,
+    )
+    expect(sessionOutput.headers.originator).toBe(ORIGINATOR)
+    expect(sessionOutput.headers["session-id"]).toBe(SESSION_ID)
+
+    let chatgptAuth: Record<string, unknown> = { type: "api", key: "x" }
+    const loaded = await weaveHooks.auth!.loader!(async () => chatgptAuth as never, {} as never)
+    const captures: CapturedRequest[] = []
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input.toString()
+      const headers: Record<string, string> = {}
+      new Headers(init?.headers as HeadersInit).forEach((v, k) => (headers[k] = v))
+      captures.push({ url, headers })
+      return new Response("{}", { status: 200, headers: { "Content-Type": "application/json" } })
+    }) as typeof fetch
+    const request = {
+      method: "POST",
+      headers: {
+        ...sessionOutput.headers,
+        "X-Weave-Router-Key": ROUTER_KEY,
+        "X-App": "opencode",
+        Authorization: PLACEHOLDER_AUTHORIZATION,
+      },
+    }
+
+    await (loaded.fetch as typeof fetch)("https://router.example.test/v1/responses", request)
+    expect(captures[0]?.headers["x-weave-openai-subscription"]).toBeUndefined()
+    expect(captures[0]?.headers["x-weave-anthropic-subscription"]).toBeUndefined()
+    assertRetainedIdentityHeaders(captures[0]!.headers)
+
+    chatgptAuth = {
+      type: "oauth",
+      access: CHATGPT_ACCESS,
+      refresh: "cg-refresh",
+      expires: Date.now() + 3_600_000,
+      accountId: CHATGPT_ACCOUNT,
+    }
+    await writeFile(
+      authFile,
+      JSON.stringify({
+        "weave-claude": {
+          type: "oauth",
+          access: CLAUDE_ACCESS,
+          refresh: CLAUDE_REFRESH,
+          expires: Date.now() + 3_600_000,
+        },
+      }),
+    )
+
+    await (loaded.fetch as typeof fetch)("https://router.example.test/v1/responses", request)
+    expect(captures[1]?.headers["x-weave-openai-subscription"]).toBe(CHATGPT_ACCESS)
+    expect(captures[1]?.headers["x-weave-openai-account-id"]).toBe(CHATGPT_ACCOUNT)
+    expect(captures[1]?.headers["x-weave-anthropic-subscription"]).toBe(CLAUDE_ACCESS)
+    assertRetainedIdentityHeaders(captures[1]!.headers)
+    assertNoSecretLeak()
   })
 })
 
@@ -390,6 +654,13 @@ describe("opencode plugin-loading contract", () => {
     expect(["id", "server", "tui"].some((k) => k in (mod.default as object))).toBe(false)
   })
 
+  test("exports exactly the legacy plugin functions", async () => {
+    const mod = (await import("../src/index.ts")) as unknown as Record<string, unknown>
+    expect(Object.keys(mod).sort()).toEqual(["WeaveClaude", "WeaveCodex", "default"].sort())
+    for (const value of Object.values(mod)) expect(typeof value).toBe("function")
+    expect(mod.default).toBe(mod.WeaveCodex)
+  })
+
   test("both Plugins are exported functions that opencode's Object.values loop will load", async () => {
     const mod = (await import("../src/index.ts")) as unknown as Record<string, unknown>
     const plugins = Object.values(mod).filter((v) => typeof v === "function")
@@ -397,10 +668,12 @@ describe("opencode plugin-loading contract", () => {
     const unique = new Set(plugins)
     const providers = new Set<string>()
     for (const p of unique) {
-      const hooks = await (p as (i: unknown) => Promise<{ auth?: { provider: string } }>)(fakeInput())
+      const hooks = await (p as (i: unknown) => Promise<{ auth?: { provider: string; methods: unknown[] } }>)(fakeInput())
+      expect(hooks.auth).toBeDefined()
+      expect(hooks.auth!.methods.length).toBeGreaterThan(0)
       if (hooks.auth) providers.add(hooks.auth.provider)
     }
-    expect(providers.has("weave")).toBe(true)
-    expect(providers.has("weave-claude")).toBe(true)
+    expect(providers).toEqual(new Set(["weave", "weave-claude"]))
+    assertNoSecretLeak()
   })
 })

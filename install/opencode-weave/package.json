@@ -11,6 +11,7 @@
     "@opencode-ai/plugin": "*"
   },
   "devDependencies": {
+    "@ai-sdk/openai": "3.0.84",
     "@opencode-ai/plugin": "1.18.27",
     "@types/bun": "1.3.14",
     "@types/node": "24.13.3",
